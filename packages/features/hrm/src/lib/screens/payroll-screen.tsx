@@ -484,6 +484,7 @@ export default function PayrollScreen() {
 
       <div className="grid gap-2 rounded-xl border border-slate-200 bg-white p-2.5 md:grid-cols-[220px_minmax(0,1fr)_220px]">
         <SearchableSelect
+          height={36}
           value={month}
           onChange={(v) => setMonth(v || '')}
           placeholder="Tất cả các tháng"
@@ -500,6 +501,7 @@ export default function PayrollScreen() {
           />
         </div>
         <SearchableSelect
+          height={36}
           value={statusFilter}
           onChange={(v) => setStatusFilter(v || '')}
           placeholder="Tất cả trạng thái"
@@ -632,6 +634,7 @@ export default function PayrollScreen() {
                   <div className="flex flex-wrap items-center gap-2">
                     <div className="min-w-[220px]">
                       <SearchableSelect
+                        height={36}
                         value={runId}
                         options={runs.map((r) => ({
                           value: r.id,

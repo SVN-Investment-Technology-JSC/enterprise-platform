@@ -310,6 +310,7 @@ export default function HrmPermissionsScreen() {
           </div>
           <div className="min-w-0 flex-1 basis-48 @2xl:w-64 @2xl:flex-none">
             <SearchableSelect
+              height={36}
               value={group}
               onChange={(v) => setGroup(v || '')}
               placeholder="Tất cả nhóm quyền"

@@ -522,11 +522,11 @@ export default function WorkScheduleScreen() {
               ) : (
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="w-36">
-                    <DatePickerInput aria-label="Từ ngày" value={listFrom} onChange={changeFilter(setListFrom)} />
+                    <DatePickerInput height={32} aria-label="Từ ngày" value={listFrom} onChange={changeFilter(setListFrom)} />
                   </div>
                   <span className="text-xs text-slate-500">đến</span>
                   <div className="w-36">
-                    <DatePickerInput aria-label="Đến ngày" value={listTo} onChange={changeFilter(setListTo)} />
+                    <DatePickerInput height={32} aria-label="Đến ngày" value={listTo} onChange={changeFilter(setListTo)} />
                   </div>
                   <Button
                     variant="outline"
@@ -558,6 +558,7 @@ export default function WorkScheduleScreen() {
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-slate-200 bg-white px-3 py-2">
             <div className="w-full min-w-0 @xl:w-72">
               <SearchableSelect
+                height={32}
                 options={unitOptions}
                 value={unitId}
                 placeholder="Tất cả đơn vị"

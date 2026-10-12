@@ -24,8 +24,8 @@
 
 .input {
   width: 100%;
-  padding: 8px 60px 8px 32px !important;
-  font-size: 13.5px !important;
+  padding: var(--ss-pad-y, 8px) 60px var(--ss-pad-y, 8px) 32px !important;
+  font-size: var(--ss-font-size, 13.5px) !important;
   border: 1px solid #cbd5e1 !important;
   border-radius: 6px !important;
   background: #ffffff !important;

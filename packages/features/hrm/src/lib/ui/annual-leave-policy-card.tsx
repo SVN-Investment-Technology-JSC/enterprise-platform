@@ -475,6 +475,7 @@ export function AnnualLeavePolicyCard({
                 ) : (
                   <LeaveField label="Lý do nghỉ làm phép năm" required>
                     <SearchableSelect
+                      height={36}
                       value={form.leaveTypeId}
                       placeholder="Chọn lý do nghỉ làm phép năm"
                       disabled={!editable}
@@ -507,6 +508,7 @@ export function AnnualLeavePolicyCard({
                   hint="Mốc thời gian để bắt đầu tính và tích lũy phép năm."
                 >
                   <SearchableSelect
+                    height={36}
                     value={form.accrualBasis}
                     placeholder="Chọn căn cứ tính phép"
                     disabled={!editable}
@@ -793,6 +795,7 @@ export function AnnualLeavePolicyCard({
                     hint="Chính sách luôn có hiệu lực từ ngày 01/01. Để trống thì hệ thống tự chọn: lần đầu từ 01/01 năm nay; đã cộng phép rồi thì từ 01/01 năm sau để không đổi số đã ghi sổ."
                   >
                     <SearchableSelect
+                      height={36}
                       value={form.effectiveYear}
                       placeholder="Tự động"
                       disabled={busy}

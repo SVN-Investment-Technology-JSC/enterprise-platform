@@ -157,7 +157,7 @@ export function PayrollOtDialog({ base, editing, onSubmit, onClose }: OtDialogPr
           <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-4 @xl:p-5">
             {!editing && (
               <SettingsField label="Ngày hiệu lực" required className="max-w-xs">
-                <DatePickerInput required value={effectiveFrom} onChange={(v: string) => setEffectiveFrom(v)} />
+                <DatePickerInput height={36} required value={effectiveFrom} onChange={(v: string) => setEffectiveFrom(v)} />
               </SettingsField>
             )}
 

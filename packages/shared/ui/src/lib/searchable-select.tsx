@@ -31,6 +31,8 @@ export interface SearchableSelectProps {
   readonly name?: string;
   readonly className?: string;
   readonly style?: React.CSSProperties;
+  /** Chiều cao ô nhập (px). Mặc định 38; dùng 36/32 để thẳng hàng với Input h-9/h-8 cùng khu vực. */
+  readonly height?: number;
   readonly clearable?: boolean;
   readonly onChange?: (value: string) => void;
   readonly renderOption?: (option: SearchableSelectOption, isSelected: boolean) => ReactNode;
@@ -140,6 +142,7 @@ export function SearchableSelect({
   name,
   className,
   style,
+  height,
   clearable = true,
   onChange,
   renderOption,
@@ -322,7 +325,16 @@ export function SearchableSelect({
     <div
       ref={containerRef}
       className={`${styles.container} ${className ?? ''}`}
-      style={style}
+      style={
+        height && height < 38
+          ? ({
+              ...style,
+              // Ô thấp hơn mặc định thì chữ và đệm dọc nhỏ lại theo (xem .input trong module css).
+              '--ss-font-size': height <= 32 ? '12px' : '12.5px',
+              '--ss-pad-y': '4px',
+            } as React.CSSProperties)
+          : style
+      }
     >
       {/* Hidden input để hỗ trợ form submission và HTML5 required validation */}
       {name ? (
@@ -347,6 +359,7 @@ export function SearchableSelect({
           ref={inputRef}
           type="text"
           className={`${styles.input} ${disabled ? styles.inputDisabled : ''}`}
+          style={height ? { height } : undefined}
           placeholder={isOpen ? (searchPlaceholder ?? placeholder) : placeholder}
           value={query}
           disabled={disabled}

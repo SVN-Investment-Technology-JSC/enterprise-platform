@@ -284,6 +284,7 @@ export function RequestTypeDialog({
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <LeaveField label="Thời gian của đơn" required hint={modeHint}>
                     <SearchableSelect
+                      height={36}
                       value={timeMode}
                       placeholder="Chọn cách nhập thời gian"
                       disabled={busy}
@@ -346,6 +347,7 @@ export function RequestTypeDialog({
                       </LeaveField>
                       <LeaveField label="Kiểu" className="sm:col-span-3">
                         <SearchableSelect
+                          height={36}
                           value={f.type}
                           placeholder="Chọn kiểu"
                           disabled={busy}

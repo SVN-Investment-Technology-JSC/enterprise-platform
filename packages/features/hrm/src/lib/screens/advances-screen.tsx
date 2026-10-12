@@ -206,6 +206,7 @@ export default function AdvancesScreen() {
         </div>
         <div className="w-52">
           <SearchableSelect
+            height={36}
             value={status}
             onChange={(v) => setStatus(v || '')}
             placeholder="Tất cả trạng thái"

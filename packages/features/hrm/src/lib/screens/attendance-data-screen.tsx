@@ -317,6 +317,7 @@ export default function AttendanceDataScreen() {
         <div className="flex w-48 flex-col gap-1 text-[11px] font-semibold text-slate-600">
           <span>Trạng thái</span>
           <SearchableSelect
+            height={32}
             placeholder="Tất cả trạng thái"
             options={ATTENDANCE_STATUS_OPTIONS}
             value={draft.status}

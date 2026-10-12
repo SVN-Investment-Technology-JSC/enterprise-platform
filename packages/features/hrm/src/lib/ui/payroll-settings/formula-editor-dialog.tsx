@@ -142,6 +142,7 @@ export function FormulaEditorDialog({
                 <div className="grid grid-cols-1 gap-3 @xl:grid-cols-2">
                   <SettingsField label="Ngày hiệu lực" required>
                     <DatePickerInput
+                      height={36}
                       required
                       disabled={!!editing}
                       value={effectiveFrom}
@@ -150,6 +151,7 @@ export function FormulaEditorDialog({
                   </SettingsField>
                   <SettingsField label="Loại lương mặc định">
                     <SearchableSelect
+                      height={36}
                       value={salaryType}
                       clearable={false}
                       options={salaryTypeOptions}
@@ -164,6 +166,7 @@ export function FormulaEditorDialog({
                 >
                   <SettingsField label="Công chuẩn của kỳ (mẫu số tính lương theo công)">
                     <SearchableSelect
+                      height={36}
                       value={standardMode}
                       clearable={false}
                       options={
@@ -297,6 +300,7 @@ export function FormulaEditorDialog({
                           />
                           <div className="col-span-2 @xl:col-span-1">
                             <SearchableSelect
+                              height={36}
                               value={c.type}
                               options={COMPONENT_TYPES}
                               clearable={false}

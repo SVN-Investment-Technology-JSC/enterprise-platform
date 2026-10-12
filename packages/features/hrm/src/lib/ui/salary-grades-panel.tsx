@@ -494,7 +494,7 @@ export function SalaryGradesPanel() {
                 <Input id={`${uid}-no`} type="number" min={1} value={stepNo} onChange={(e) => setStepNo(e.target.value)} className="h-9 font-mono text-xs" />
               </SettingsField>
               <SettingsField label="Ngày bắt đầu hiệu lực" required>
-                <DatePickerInput value={stepFrom} onChange={(v: string) => setStepFrom(v)} />
+                <DatePickerInput height={36} value={stepFrom} onChange={(v: string) => setStepFrom(v)} />
               </SettingsField>
               <SettingsField label="Mức sàn (VND)" required htmlFor={`${uid}-min`}>
                 <Input id={`${uid}-min`} type="number" min={0} value={minSalary} onChange={(e) => setMinSalary(e.target.value)} className="h-9 font-mono text-xs" />
@@ -544,6 +544,7 @@ export function SalaryGradesPanel() {
             </SettingsField>
             <SettingsField label="Trạng thái ngạch">
               <SearchableSelect
+                height={36}
                 value={gradeStatus}
                 clearable={false}
                 onChange={(value) => setGradeStatus(value === 'INACTIVE' ? 'INACTIVE' : 'ACTIVE')}

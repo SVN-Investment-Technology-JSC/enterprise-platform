@@ -953,6 +953,7 @@ export default function RequestReasonsScreen() {
           >
             <div className="mb-3 @3xl:hidden">
               <SearchableSelect
+                height={36}
                 value={current.code}
                 options={entryOptions}
                 clearable={false}
@@ -986,6 +987,7 @@ export default function RequestReasonsScreen() {
                   </div>
                   <div className="min-w-0 flex-1 basis-40 @2xl:w-52 @2xl:flex-none">
                     <SearchableSelect
+                      height={36}
                       value={statusFilter}
                       options={STATUS_FILTERS}
                       clearable={false}

@@ -91,6 +91,7 @@ export function GenericRequestForm({
               Từ ngày <span className="text-rose-500">*</span>
             </span>
             <DatePickerInput
+              height={32}
               value={fromAt}
               disabled={disabled}
               aria-label="Từ ngày"
@@ -102,6 +103,7 @@ export function GenericRequestForm({
               Đến ngày <span className="text-rose-500">*</span>
             </span>
             <DatePickerInput
+              height={32}
               value={toAt}
               disabled={disabled}
               aria-label="Đến ngày"
@@ -116,6 +118,7 @@ export function GenericRequestForm({
             Ngày <span className="text-rose-500">*</span>
           </span>
           <DatePickerInput
+            height={32}
             value={fromAt}
             disabled={disabled}
             aria-label="Ngày"
@@ -154,6 +157,7 @@ export function GenericRequestForm({
                 />
               ) : field.type === 'select' ? (
                 <SearchableSelect
+                  height={32}
                   options={(field.options ?? []).map((o) => ({ value: o, label: o }))}
                   value={String(values[field.key] ?? '')}
                   onChange={(value) => setValue(field.key, value)}
@@ -162,6 +166,7 @@ export function GenericRequestForm({
                 />
               ) : field.type === 'date' ? (
                 <DatePickerInput
+                  height={32}
                   value={String(values[field.key] ?? '')}
                   disabled={disabled}
                   onChange={(value) => setValue(field.key, value)}

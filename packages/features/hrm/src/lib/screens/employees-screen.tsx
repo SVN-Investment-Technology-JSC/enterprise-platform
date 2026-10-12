@@ -439,6 +439,7 @@ export default function EmployeesManagementPage() {
               </div>
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                 <SearchableSelect
+                  height={36}
                   options={[{ value: 'ALL', label: 'Phòng ban: Tất cả' }, ...departmentOptions]}
                   value={departmentFilter}
                   onChange={(val) => setDepartmentFilter(val || 'ALL')}
@@ -446,6 +447,7 @@ export default function EmployeesManagementPage() {
                   clearable={false}
                 />
                 <SearchableSelect
+                  height={36}
                   options={[{ value: 'ALL', label: 'Chức danh: Tất cả' }, ...positionFilterOptions]}
                   value={positionFilter}
                   onChange={(val) => setPositionFilter(val || 'ALL')}
@@ -453,6 +455,7 @@ export default function EmployeesManagementPage() {
                   clearable={false}
                 />
                 <SearchableSelect
+                  height={36}
                   options={[
                     { value: 'ALL', label: 'Trạng thái: Tất cả' },
                     { value: 'OFFICIAL', label: 'Chính thức' },

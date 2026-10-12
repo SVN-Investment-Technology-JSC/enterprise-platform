@@ -120,6 +120,7 @@ export function PolicyDialog({
               <div className="grid grid-cols-1 gap-3 @lg:grid-cols-2">
                 <SettingsField label="Hiệu lực từ" required htmlFor={`${uid}-from`}>
                   <DatePickerInput
+                    height={36}
                     id={`${uid}-from`}
                     required
                     className="[&_input]:h-9"
@@ -129,6 +130,7 @@ export function PolicyDialog({
                 </SettingsField>
                 <SettingsField label="Hiệu lực đến (tùy chọn)" htmlFor={`${uid}-to`}>
                   <DatePickerInput
+                    height={36}
                     id={`${uid}-to`}
                     min={policy.effectiveFrom}
                     className="[&_input]:h-9"
@@ -153,6 +155,7 @@ export function PolicyDialog({
               {policy.scope === 'EMPLOYEES' && (
                 <div className="space-y-2">
                   <SearchableSelect
+                    height={36}
                     value=""
                     placeholder="Tìm nhân viên để thêm"
                     onChange={(id) =>
