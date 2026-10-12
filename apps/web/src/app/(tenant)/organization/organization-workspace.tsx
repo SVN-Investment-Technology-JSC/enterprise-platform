@@ -2,7 +2,8 @@
 import { useOrganizationPermissions } from './organization-permissions';
 
 import { ArrowLeft, Pencil, Plus, Save } from 'lucide-react';
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
+import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from '@/components/ui/sonner';
@@ -29,6 +30,7 @@ import {
 import { OrganizationFlow } from './organization-flow';
 import { OrganizationTreeTable } from './organization-tree-table';
 import { OrganizationTreeOutline } from './organization-tree-outline';
+import { ColumnResizeHandle, useResizableColumn } from './organization-resizable-column';
 import { OrganizationNodeInspector } from './organization-node-inspector';
 import { OrganizationAssignmentTable } from './organization-assignment-table';
 import { OrganizationPositionTable } from './organization-position-table';
@@ -62,9 +64,6 @@ const csrf = () =>
       .slice(1)
       .join('=') ?? '',
   );
-const field =
-  'h-9 w-full rounded-md border border-input bg-background px-3 text-sm';
-
 export function OrganizationWorkspace({
   initialSnapshot,
   loadError,
@@ -111,6 +110,16 @@ export function OrganizationWorkspace({
   );
   const [selectedNodeId, setSelectedNodeId] = useState<string | undefined>(undefined);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  // Cột cây phân cấp kéo thả được theo chiều ngang (tên node nhiều tầng không bị khuất). Phải chừa chỗ tối thiểu
+  // cho canvas (360px), khoảng cách giữa cột và cột thuộc tính node (360px) khi đang mở.
+  const treeGridRef = useRef<HTMLDivElement>(null);
+  const treeColumn = useResizableColumn({
+    defaultWidth: 280,
+    minWidth: 220,
+    maxWidth: 720,
+    reservedWidth: 360 + 24 + (selectedNodeId && isDrawerOpen ? 372 : 0),
+    containerRef: treeGridRef,
+  });
   const [editor, setEditor] = useState<Editor>();
   const [, setError] = useState(loadError);
   const [layoutSaving, setLayoutSaving] = useState(false);
@@ -542,13 +551,16 @@ export function OrganizationWorkspace({
               {/* Bố cục 3 cột: cây phân cấp | canvas | thuộc tính node (mở khi chọn node).
                   Màn rộng thì vừa khít khung nhìn; màn hẹp thì xếp dọc và cuộn cả trang. */}
               <div
+                ref={treeGridRef}
+                style={{ '--org-tree-width': `${treeColumn.width}px` } as CSSProperties}
                 className={`grid grid-cols-1 gap-3 xl:min-h-0 xl:flex-1 ${selectedNode && isDrawerOpen
-                  ? 'xl:grid-cols-[280px_minmax(0,1fr)_360px]'
-                  : 'xl:grid-cols-[280px_minmax(0,1fr)]'
-                  }`}
+                  ? 'xl:grid-cols-[var(--org-tree-width)_minmax(0,1fr)_360px]'
+                  : 'xl:grid-cols-[var(--org-tree-width)_minmax(0,1fr)]'
+                  } ${treeColumn.dragging ? 'select-none' : ''}`}
               >
-                {/* Cột 1: Cây sơ đồ Nested Tree List / Outline */}
-                <div className="flex h-[360px] min-h-0 flex-col overflow-hidden xl:h-full">
+                {/* Cột 1: Cây sơ đồ Nested Tree List / Outline; mép phải có thanh kéo đổi độ rộng */}
+                <div className="relative flex h-[360px] min-h-0 flex-col xl:h-full">
+                  <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
                   <OrganizationTreeOutline
                     nodes={nodes}
                     nodeTypes={types}
@@ -557,6 +569,16 @@ export function OrganizationWorkspace({
                     onAddChild={(node) => open('nodes', undefined, node.id)}
                     onEditNode={(node) => open('nodes', node)}
                     onDeleteNode={(node) => remove('nodes', node)}
+                  />
+                  </div>
+                  <ColumnResizeHandle
+                    width={treeColumn.width}
+                    min={220}
+                    max={treeColumn.max}
+                    dragging={treeColumn.dragging}
+                    label="Đổi độ rộng cột sơ đồ cây"
+                    onReset={treeColumn.reset}
+                    handleProps={treeColumn.handleProps}
                   />
                 </div>
 
@@ -710,12 +732,36 @@ function Form({
     headPositionId: item?.headPositionId ?? '',
     nodeTypeId: item?.nodeTypeId ?? types.find((t) => t.category === defaultCategory)?.id ?? types[0]?.id ?? '',
     nodeId: item?.nodeId ?? editor.parentId ?? '',
-    userId: item?.userId ?? users[0]?.id ?? '',
+    // Bổ nhiệm mới: không tự chọn người đầu danh sách, người dùng phải chủ động tìm và chọn.
+    userId: item?.userId ?? '',
     startDate: item?.startDate ?? '',
     endDate: item?.endDate ?? '',
     note: item?.note ?? '',
   });
   const set = (k: string, v: unknown) => setData((x) => ({ ...x, [k]: v }));
+  // Chức danh chọn được khi bổ nhiệm: nhãn là tên, mô tả gồm mã và đơn vị cha để phân biệt các chức danh trùng tên.
+  const positionOptions = useMemo(() => {
+    const byId = new Map(nodes.map((n) => [n.id, n]));
+    return nodes
+      .filter(
+        (x) => types.find((t) => t.id === x.nodeTypeId)?.category === 'position',
+      )
+      .map((x) => ({
+        value: x.id,
+        label: x.name,
+        description: [x.code, x.parentId ? byId.get(x.parentId)?.name : '']
+          .filter(Boolean)
+          .join(' · '),
+      }));
+  }, [nodes, types]);
+  const userOptions = useMemo(
+    () =>
+      users.map((u) => ({
+        value: u.id,
+        label: u.email ? `${u.fullName} (${u.email})` : u.fullName,
+      })),
+    [users],
+  );
   const hasExistingRoot = useMemo(() => {
     if (editor.resource !== 'nodes') return false;
     return nodes.some(
@@ -730,6 +776,14 @@ function Form({
     if (editor.resource === 'nodes' && !data.parentId && hasExistingRoot) {
       toast.error(
         'Mỗi sơ đồ tổ chức chỉ được phép tạo 1 node gốc. Vui lòng chọn Node cha.',
+      );
+      return;
+    }
+    if (editor.resource === 'assignments' && (!data.nodeId || !data.userId)) {
+      toast.error(
+        !data.nodeId
+          ? 'Vui lòng chọn chức danh để bổ nhiệm.'
+          : 'Vui lòng chọn người dùng để bổ nhiệm.',
       );
       return;
     }
@@ -782,46 +836,41 @@ function Form({
       ) : null}
       {editor.resource === 'nodes' ? (
         <>
-          <Field label="Sơ đồ">
-            <select
-              className={field}
+          <SelectField label="Sơ đồ">
+            <SearchableSelect
+              clearable={false}
               value={String(data.treeId)}
-              onChange={(e) => set('treeId', e.currentTarget.value)}
-            >
-              {trees.map((x) => (
-                <option key={x.id} value={x.id}>
-                  {x.name}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Node cha">
-            <select
-              className={field}
+              placeholder="Gõ tên sơ đồ để tìm"
+              onChange={(v) => set('treeId', v)}
+              options={trees.map((x) => ({ value: x.id, label: x.name }))}
+            />
+          </SelectField>
+          <SelectField label="Node cha">
+            <SearchableSelect
+              clearable={!hasExistingRoot}
               value={String(data.parentId)}
-              onChange={(e) => set('parentId', e.currentTarget.value)}
-            >
-              <option value="" disabled={hasExistingRoot}>
-                {hasExistingRoot
-                  ? '— Đã có node gốc (Mỗi sơ đồ chỉ có 1 node gốc) —'
-                  : 'Node gốc'}
-              </option>
-              {nodes
+              placeholder={
+                hasExistingRoot
+                  ? 'Đã có node gốc, chọn node cha để tiếp tục'
+                  : 'Node gốc (không có node cha)'
+              }
+              onChange={(v) => set('parentId', v)}
+              options={nodes
                 .filter(
                   (x) => x.id !== editor.item?.id && x.treeId === data.treeId,
                 )
-                .map((x) => (
-                  <option key={x.id} value={x.id}>
-                    {x.name}
-                  </option>
-                ))}
-            </select>
+                .map((x) => ({
+                  value: x.id,
+                  label: x.name,
+                  description: x.code,
+                }))}
+            />
             {hasExistingRoot ? (
               <p className="mt-1 text-[11px] text-amber-600">
                 Sơ đồ này đã có node gốc. Mỗi sơ đồ chỉ được phép tạo 1 node gốc duy nhất.
               </p>
             ) : null}
-          </Field>
+          </SelectField>
           <Field label="Phân loại Đối tượng">
             <div className="grid grid-cols-2 gap-3">
               <button
@@ -894,64 +943,48 @@ function Form({
             />
           </Field>
           {data.category === 'unit' && editor.item ? (
-            <Field label="Chức danh quản lý (Node Position chính)">
-              <select
-                className={field}
+            <SelectField label="Chức danh quản lý (Node Position chính)">
+              <SearchableSelect
                 value={String(data.headPositionId ?? '')}
-                onChange={(e) => set('headPositionId', e.currentTarget.value || '')}
-              >
-                <option value="">-- Không có / Chưa chọn quản lý --</option>
-                {nodes
+                placeholder="Chưa chọn chức danh quản lý"
+                onChange={(v) => set('headPositionId', v || '')}
+                options={nodes
                   .filter(
                     (x) =>
                       x.parentId === editor.item?.id && x.category === 'position',
                   )
-                  .map((x) => (
-                    <option key={x.id} value={x.id}>
-                      {x.name} ({x.code})
-                    </option>
-                  ))}
-              </select>
-            </Field>
+                  .map((x) => ({
+                    value: x.id,
+                    label: x.name,
+                    description: x.code,
+                  }))}
+              />
+            </SelectField>
           ) : null}
         </>
       ) : null}
       {editor.resource === 'assignments' ? (
         <>
-          <Field label="Chức danh">
-            <select
+          <SelectField label="Chức danh" required>
+            <SearchableSelect
               required
-              className={field}
+              clearable={false}
               value={String(data.nodeId)}
-              onChange={(e) => set('nodeId', e.currentTarget.value)}
-            >
-              <option value="">Chọn chức danh</option>
-              {nodes
-                .filter(
-                  (x) =>
-                    types.find((t) => t.id === x.nodeTypeId)?.category ===
-                    'position',
-                )
-                .map((x) => (
-                  <option key={x.id} value={x.id}>
-                    {x.name}
-                  </option>
-                ))}
-            </select>
-          </Field>
-          <Field label="Người dùng">
-            <select
-              className={field}
+              placeholder="Gõ tên hoặc mã chức danh để tìm"
+              onChange={(v) => set('nodeId', v)}
+              options={positionOptions}
+            />
+          </SelectField>
+          <SelectField label="Người dùng" required>
+            <SearchableSelect
+              required
+              clearable={false}
               value={String(data.userId)}
-              onChange={(e) => set('userId', e.currentTarget.value)}
-            >
-              {users.map((x) => (
-                <option key={x.id} value={x.id}>
-                  {x.fullName}
-                </option>
-              ))}
-            </select>
-          </Field>
+              placeholder="Gõ tên hoặc email người dùng để tìm"
+              onChange={(v) => set('userId', v)}
+              options={userOptions}
+            />
+          </SelectField>
           <div className="grid grid-cols-2 gap-3">
             <Field label="Từ ngày">
               <Input
@@ -982,21 +1015,21 @@ function Form({
           />
         </>
       ) : null}
-      <Field label="Trạng thái">
-        <select
-          className={field}
+      <SelectField label="Trạng thái">
+        <SearchableSelect
+          clearable={false}
           value={String(data.status)}
-          onChange={(e) => set('status', e.currentTarget.value)}
-        >
-          <option value="active">Hoạt động</option>
-          <option value="inactive">Không hoạt động</option>
-          {editor.resource === 'assignments' ? (
-            <option value="ended">Đã kết thúc</option>
-          ) : (
-            <option value="archived">Lưu trữ</option>
-          )}
-        </select>
-      </Field>
+          placeholder="Chọn trạng thái"
+          onChange={(v) => set('status', v)}
+          options={[
+            { value: 'active', label: 'Hoạt động' },
+            { value: 'inactive', label: 'Không hoạt động' },
+            editor.resource === 'assignments'
+              ? { value: 'ended', label: 'Đã kết thúc' }
+              : { value: 'archived', label: 'Lưu trữ' },
+          ]}
+        />
+      </SelectField>
       <div className="flex justify-end gap-2">
         <Button type="button" variant="outline" onClick={onCancel}>
           Hủy
@@ -1047,6 +1080,29 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
       <span>{label}</span>
       {children}
     </label>
+  );
+}
+/**
+ * Nhãn cho ô chọn có ô tìm kiếm. Dùng `div` thay vì `label`: danh sách chọn nằm trong `label` sẽ bị trình duyệt
+ * chuyển lần nhấp về ô nhập và đóng danh sách.
+ */
+function SelectField({
+  label,
+  required,
+  children,
+}: {
+  label: string;
+  required?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <div className="grid gap-1.5 text-sm font-medium text-slate-700">
+      <span>
+        {label}
+        {required ? <span className="ml-0.5 text-red-500">*</span> : null}
+      </span>
+      {children}
+    </div>
   );
 }
 function Check({

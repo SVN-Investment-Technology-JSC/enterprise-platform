@@ -392,25 +392,26 @@ export function hoursDecimal(minutes: number | null | undefined): string {
 }
 
 /**
- * Nội dung ô trong lịch của tôi (kiểu mới): ngày chưa tới hiện mã ca (OFF, L, Chưa có ca); ngày đã qua hiện giờ làm
- * thực tế (không hiện mã ca); ngày nghỉ phép, công tác, vắng hiện dấu gạch dài. `hours` rỗng khi không có giờ làm.
+ * Nội dung ô trong lịch của tôi (kiểu mới): ngày chưa tới hiện mã ca (OFF, L, Chưa có ca); ngày đã qua hiện
+ * số công (hệ số công của ngày, ví dụ 1 hoặc 0.5; không hiện mã ca); ngày nghỉ phép, công tác, vắng hiện dấu gạch dài.
+ * `units` rỗng khi ngày không có giờ làm.
  */
 export function myCellContent(
   day: HrmBoardDay,
   today: string,
-): { text: string; hours: string } {
+): { text: string; units: string } {
   if (isFutureDay(day, today)) {
-    if (day.shiftCode) return { text: day.shiftCode, hours: '' };
-    if (day.kind === 'HOLIDAY') return { text: 'L', hours: '' };
-    if (day.kind === 'OFF') return { text: 'OFF', hours: '' };
-    return { text: '-', hours: '' };
+    if (day.shiftCode) return { text: day.shiftCode, units: '' };
+    if (day.kind === 'HOLIDAY') return { text: 'L', units: '' };
+    if (day.kind === 'OFF') return { text: 'OFF', units: '' };
+    return { text: '-', units: '' };
   }
-  if (day.status === 'HOLIDAY') return { text: 'L', hours: '' };
-  if (day.status === 'OFF') return { text: 'OFF', hours: '' };
-  if (day.status === 'NO_SCHEDULE') return { text: '-', hours: '' };
-  if (day.status === 'ABSENT') return { text: '—', hours: '' };
-  if (day.workedMinutes > 0) return { text: '', hours: hoursDecimal(day.workedMinutes) };
-  return { text: '—', hours: '' };
+  if (day.status === 'HOLIDAY') return { text: 'L', units: '' };
+  if (day.status === 'OFF') return { text: 'OFF', units: '' };
+  if (day.status === 'NO_SCHEDULE') return { text: '-', units: '' };
+  if (day.status === 'ABSENT') return { text: '—', units: '' };
+  if (day.workedMinutes > 0) return { text: '', units: formatUnits(day.workdayUnits) };
+  return { text: '—', units: '' };
 }
 
 export interface DayStatusPill {

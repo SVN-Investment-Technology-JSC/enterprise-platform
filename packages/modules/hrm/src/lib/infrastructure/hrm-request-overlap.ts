@@ -1,5 +1,6 @@
 import { ConflictException } from '@nestjs/common';
 import type { PoolClient } from 'pg';
+import { addDays, enumerateDates, localHm, zonedMs } from './hrm-timesheet-board.js';
 
 export type OverlapRequestKind = 'leave' | 'business_trip' | 'ot';
 
@@ -13,6 +14,56 @@ const STATUS_LABEL: Record<string, string> = {
   APPROVED: 'đã duyệt',
 };
 
+const DEFAULT_TIME_ZONE = 'Asia/Ho_Chi_Minh';
+
+/**
+ * Khoảng giờ bận của đơn công tác theo TỪNG NGÀY: mỗi ngày từ giờ bắt đầu đến giờ kết thúc ghi trên đơn
+ * (không tính cả đêm giữa hai ngày công tác). Trả về null khi đơn không có giờ cụ thể: khi đó cả ngày đều bận.
+ */
+export function tripBusyWindows(
+  trip: { from_date: string; to_date: string; from_at?: string | null; to_at?: string | null },
+  timeZone: string = DEFAULT_TIME_ZONE,
+): { date: string; from: number; to: number }[] | null {
+  const startHm = localHm(trip.from_at ?? null, timeZone);
+  const endHm = localHm(trip.to_at ?? null, timeZone);
+  if (!startHm || !endHm) return null;
+  return enumerateDates(trip.from_date, trip.to_date).map((date) => {
+    const from = zonedMs(date, startHm, timeZone);
+    const to = zonedMs(endHm > startHm ? date : addDays(date, 1), endHm, timeZone);
+    return { date, from, to };
+  });
+}
+
+export interface OverlapOptions {
+  timeZone?: string;
+}
+
+/**
+ * Công tác có chặn OT không. Công tác nhiều ngày chỉ bận trong khoảng giờ của đơn ở từng ngày; đơn thiếu giờ cụ thể
+ * (hoặc OT thiếu giờ) thì mọi ngày chung đều bận. Không có ngày miễn trừ: Chủ nhật hay ngày nghỉ cũng không được trùng giờ.
+ */
+export function tripBlocksOt(
+  trip: { from_date: string; to_date: string; from_at?: string | null; to_at?: string | null },
+  ot: { fromDate: string; toDate: string; from: number; to: number },
+  options: OverlapOptions = {},
+): boolean {
+  const busy = tripBusyWindows(trip, options.timeZone);
+  let dates: string[];
+  if (busy && Number.isFinite(ot.from) && Number.isFinite(ot.to)) {
+    const hit = busy.filter((w) => windowsOverlap(w, { from: ot.from, to: ot.to }));
+    if (!hit.length) return false;
+    dates = hit.map((w) => w.date);
+  } else {
+    const from = trip.from_date > ot.fromDate ? trip.from_date : ot.fromDate;
+    const to = trip.to_date < ot.toDate ? trip.to_date : ot.toDate;
+    dates = from <= to ? enumerateDates(from, to) : [];
+  }
+  return dates.length > 0;
+}
+
+export const windowsOverlap = (a: { from: number; to: number }, b: { from: number; to: number }) =>
+  a.from < b.to && b.from < a.to;
+
 const vnDate = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`;
 
 /**
@@ -20,8 +71,10 @@ const vnDate = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.sl
  * có hai đơn thuộc ba loại này chồng ngày khi đơn kia còn chờ duyệt hoặc đã duyệt.
  *
  * - Nghỉ phép <-> nghỉ phép, công tác, OT: luôn chặn.
- * - Công tác <-> công tác, nghỉ, OT: chặn. Trường `allow_ot` (đã ẩn khỏi giao diện) tạm không còn
- *   miễn trừ: OT và công tác chồng ngày luôn bị chặn.
+ * - Công tác <-> công tác, nghỉ: chặn.
+ * - Công tác <-> OT: được phép cùng ngày nếu khác giờ. Trùng giờ luôn bị chặn, kể cả Chủ nhật hay ngày nghỉ. Công tác nhiều ngày chỉ bận trong khoảng giờ của đơn ở từng ngày
+ *   (xem `tripBusyWindows`), nên OT ngoài khoảng giờ đó (ví dụ buổi tối) vẫn được nhận; trùng giờ thì chặn. Đơn thiếu
+ *   giờ cụ thể ở một trong hai bên thì cả ngày công tác đều bận. Trường `allow_ot` không còn miễn trừ.
  * - OT <-> OT cùng ngày do kiểm tra trùng giờ ở `validateOt` đảm nhiệm (nhiều đơn OT một ngày được phép).
  * - Khi đơn mới và đơn cũ ĐỀU có giờ cụ thể (`fromAt`/`toAt`) thì chỉ chặn khi hai khoảng giờ thực sự chồng nhau
  *   (nghỉ sáng và nghỉ chiều cùng ngày không chồng); thiếu giờ ở một trong hai bên thì giữ quy tắc theo ngày.
@@ -39,6 +92,7 @@ export async function assertNoRequestOverlap(
     fromAt?: string | null;
     toAt?: string | null;
   },
+  options: OverlapOptions = {},
 ): Promise<void> {
   const newFrom = input.fromAt ? Date.parse(input.fromAt) : NaN;
   const newTo = input.toAt ? Date.parse(input.toAt) : NaN;
@@ -78,17 +132,37 @@ export async function assertNoRequestOverlap(
   }[]) {
     // OT với OT: do kiểm tra trùng giờ lo.
     if (input.kind === 'ot' && row.kind === 'ot') continue;
-    // Cả hai đơn đều có giờ cụ thể: chỉ chặn khi hai khoảng giờ chồng nhau.
-    const oldFrom = row.from_at ? Date.parse(row.from_at) : NaN;
-    const oldTo = row.to_at ? Date.parse(row.to_at) : NaN;
+    // OT và công tác: so khoảng giờ OT với giờ bận của công tác ở từng ngày (không dùng khoảng liên tục nhiều ngày).
     if (
-      Number.isFinite(newFrom) &&
-      Number.isFinite(newTo) &&
-      Number.isFinite(oldFrom) &&
-      Number.isFinite(oldTo) &&
-      !(oldFrom < newTo && newFrom < oldTo)
-    )
-      continue;
+      (input.kind === 'ot' && row.kind === 'business_trip') ||
+      (input.kind === 'business_trip' && row.kind === 'ot')
+    ) {
+      const otRow = input.kind === 'ot'
+        ? { fromDate: input.fromDate, toDate: input.toDate, from: newFrom, to: newTo }
+        : {
+            fromDate: row.from_date,
+            toDate: row.to_date,
+            from: row.from_at ? Date.parse(row.from_at) : NaN,
+            to: row.to_at ? Date.parse(row.to_at) : NaN,
+          };
+      const trip =
+        input.kind === 'business_trip'
+          ? { from_date: input.fromDate, to_date: input.toDate, from_at: input.fromAt, to_at: input.toAt }
+          : row;
+      if (!tripBlocksOt(trip, otRow, options)) continue;
+    } else {
+      // Cả hai đơn đều có giờ cụ thể: chỉ chặn khi hai khoảng giờ chồng nhau.
+      const oldFrom = row.from_at ? Date.parse(row.from_at) : NaN;
+      const oldTo = row.to_at ? Date.parse(row.to_at) : NaN;
+      if (
+        Number.isFinite(newFrom) &&
+        Number.isFinite(newTo) &&
+        Number.isFinite(oldFrom) &&
+        Number.isFinite(oldTo) &&
+        !(oldFrom < newTo && newFrom < oldTo)
+      )
+        continue;
+    }
     const range =
       row.from_date === row.to_date
         ? vnDate(row.from_date)

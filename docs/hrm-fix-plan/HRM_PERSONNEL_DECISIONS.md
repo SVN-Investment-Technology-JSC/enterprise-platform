@@ -1,7 +1,15 @@
-# Quyết định nhân sự: bổ nhiệm kèm người quản lý trực tiếp và lương
+# Quyết định nhân sự: chức danh và lương
 
-Một quyết định nhân sự (QĐ) gộp chức danh mới, người quản lý trực tiếp mới và thay đổi lương
-dưới cùng một số quyết định và một ngày hiệu lực.
+> **Cập nhật:** quyết định nhân sự **không còn gán quản lý trực tiếp hay chuyển cấp dưới**, và loại
+> `CHANGE_MANAGER` không còn tạo mới được. Quản lý trực tiếp chỉ có hai nguồn: "Báo cáo cho" của chức danh
+> trên Core (Cấu trúc tổ chức; ô ghi đè trên phân công thắng), không có thì Tổng giám đốc (nhận diện theo tên
+> chức danh chứa "Tổng giám đốc", không tính "Phó"). HRM không ghi `employee_reporting_lines` nữa; bảng và các cột
+> `manager_mode`, `to_manager_employee_id`, `subordinate_*` được giữ để đọc dữ liệu cũ. Quyết định cũ còn bước gán
+> quản lý chưa áp dụng bị chặn duyệt/áp dụng (`HRM_DECISION_MANAGER_REMOVED`) và phải hủy. Endpoint
+> `employees/:id/subordinates` đã bỏ; `reporting-lines` chỉ trả `manager`. Các mô tả về quản lý/cấp dưới bên dưới
+> là thiết kế ban đầu, chỉ còn đúng với dữ liệu cũ.
+
+Một quyết định nhân sự (QĐ) gộp chức danh mới và thay đổi lương dưới cùng một số quyết định và một ngày hiệu lực.
 
 ## Phạm vi đã làm
 - Loại QĐ: `APPOINT`, `PROMOTE`, `TRANSFER`, `CONCURRENT`, `DISMISS`, `CHANGE_MANAGER`.

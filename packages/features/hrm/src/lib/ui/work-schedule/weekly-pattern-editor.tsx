@@ -63,7 +63,7 @@ export function WeeklyPatternEditor({
   const rowOptions: SearchableSelectOption[] = useMemo(
     () => [
       { value: OFF, label: 'Nghỉ (OFF)' },
-      { value: SKIP, label: 'Không thay đổi (bỏ qua ngày này)' },
+      { value: SKIP, label: 'Không thay đổi (bỏ qua)' },
       ...shiftOptions,
     ],
     [shiftOptions],
@@ -76,10 +76,10 @@ export function WeeklyPatternEditor({
           {WEEKDAYS.map((weekday) => {
             const row = pattern.find((r) => r.weekday === weekday) as PatternRow;
             return (
-              <li key={weekday} className="grid grid-cols-[4.5rem_minmax(0,1fr)] items-center gap-2">
+              <li key={weekday} className="grid grid-cols-[6.5rem_minmax(0,1fr)] items-center gap-2">
                 <span
                   className={cn(
-                    'text-xs font-semibold',
+                    'whitespace-nowrap text-xs font-semibold',
                     weekday === 7 ? 'text-rose-600' : weekday === 6 ? 'text-amber-700' : 'text-slate-700',
                   )}
                 >

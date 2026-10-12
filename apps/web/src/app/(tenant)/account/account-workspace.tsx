@@ -41,6 +41,7 @@ const STRENGTH: Record<Exclude<PasswordStrength, 'empty'>, { label: string; bars
 const EMPTY_DRAFT = { currentPassword: '', newPassword: '', confirmation: '' };
 
 export function AccountWorkspace({ principal }: { principal: AuthenticatedPrincipal }) {
+  const roleNames = principal.kind === 'tenant-user' ? principal.roleNames : undefined;
   const initials = principal.displayName
     .trim()
     .split(/\s+/)
@@ -96,7 +97,7 @@ export function AccountWorkspace({ principal }: { principal: AuthenticatedPrinci
                   key={role}
                   className="rounded-full border border-[#ffc90a]/50 bg-[#ffc90a]/[.12] px-2.5 py-0.5 text-[12px] font-semibold text-[#ffd84d]"
                 >
-                  {ROLE_LABELS[role] ?? role}
+                  {ROLE_LABELS[role] ?? roleNames?.[role] ?? role}
                 </span>
               ))}
             </div>

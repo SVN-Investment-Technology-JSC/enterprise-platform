@@ -1,6 +1,9 @@
 /**
- * Quy tắc thuần của quyết định nhân sự và quan hệ báo cáo. Không đọc DB: service
- * nạp dữ liệu rồi gọi các hàm này, nên kiểm thử được không cần Postgres.
+ * Quy tắc thuần của quyết định nhân sự. Không đọc DB: service nạp dữ liệu rồi gọi
+ * các hàm này, nên kiểm thử được không cần Postgres.
+ *
+ * Quyết định không gán quản lý trực tiếp: quản lý lấy từ "Báo cáo cho" của chức danh
+ * trên Core, không có thì Tổng giám đốc.
  */
 
 export const DECISION_TYPES = [
@@ -9,9 +12,15 @@ export const DECISION_TYPES = [
   'TRANSFER',
   'CONCURRENT',
   'DISMISS',
-  'CHANGE_MANAGER',
 ] as const;
-export type DecisionType = (typeof DECISION_TYPES)[number];
+/**
+ * Loại `CHANGE_MANAGER` không còn được tạo mới; chỉ còn trong dữ liệu cũ (bảng vẫn cho phép giá trị này)
+ * nên các hàm đọc/áp dụng vẫn nhận ra nó.
+ */
+export const LEGACY_DECISION_TYPES = ['CHANGE_MANAGER'] as const;
+export type DecisionType =
+  | (typeof DECISION_TYPES)[number]
+  | (typeof LEGACY_DECISION_TYPES)[number];
 
 /** Các loại giao một chức danh mới ở Core. */
 const ASSIGNING_TYPES: readonly DecisionType[] = [
@@ -39,10 +48,6 @@ export interface DecisionShape {
   readonly decisionType: DecisionType;
   readonly employeeId: string;
   readonly toPositionNodeId?: string | null;
-  readonly managerMode: 'KEEP' | 'SET' | 'CLEAR';
-  readonly toManagerEmployeeId?: string | null;
-  readonly subordinateMode: 'KEEP' | 'REASSIGN';
-  readonly subordinateTargetEmployeeId?: string | null;
   readonly salaryChanged: boolean;
   readonly toSalaryGradeId?: string | null;
   readonly toSalaryStepId?: string | null;
@@ -58,25 +63,6 @@ export function decisionShapeErrors(input: DecisionShape): string[] {
     errors.push('Cần chọn chức danh được bổ nhiệm.');
   if (!isAssigningType(type) && input.toPositionNodeId)
     errors.push('Loại quyết định này không đổi chức danh.');
-  if (type === 'CHANGE_MANAGER' && input.managerMode === 'KEEP')
-    errors.push('Quyết định đổi người quản lý phải chọn người quản lý mới hoặc bỏ người quản lý.');
-  if (type === 'CHANGE_MANAGER' && input.salaryChanged)
-    errors.push('Quyết định đổi người quản lý không thay đổi lương.');
-  if (input.managerMode === 'SET') {
-    if (!input.toManagerEmployeeId) errors.push('Cần chọn người quản lý trực tiếp mới.');
-    else if (input.toManagerEmployeeId === input.employeeId)
-      errors.push('Nhân viên không thể là người quản lý của chính mình.');
-  }
-  if (input.managerMode !== 'SET' && input.toManagerEmployeeId)
-    errors.push('Chỉ chọn người quản lý khi chế độ là gán người quản lý mới.');
-  if (input.subordinateMode === 'REASSIGN') {
-    if (!input.subordinateTargetEmployeeId)
-      errors.push('Cần chọn người nhận cấp dưới.');
-    else if (input.subordinateTargetEmployeeId === input.employeeId)
-      errors.push('Người nhận cấp dưới phải khác nhân viên trong quyết định.');
-  }
-  if (input.subordinateMode !== 'REASSIGN' && input.subordinateTargetEmployeeId)
-    errors.push('Chỉ chọn người nhận cấp dưới khi chuyển cấp dưới.');
   if (input.salaryChanged) {
     const salary = input.toBaseSalary;
     if (salary === null || salary === undefined || !Number.isFinite(salary) || salary < 0 || salary > 1e12)
@@ -95,30 +81,6 @@ export function decisionShapeErrors(input: DecisionShape): string[] {
   return errors;
 }
 
-/**
- * Gán `employeeId` báo cáo cho `newManagerId` có tạo vòng không?
- * `managerOf` là quan hệ quản lý đang hiệu lực (nhân viên → người quản lý).
- * Đi ngược chuỗi từ người quản lý mới; gặp lại `employeeId` là vòng lặp.
- */
-export function wouldCreateCycle(
-  managerOf: ReadonlyMap<string, string | null | undefined>,
-  employeeId: string,
-  newManagerId: string,
-  maxDepth = 100,
-): boolean {
-  if (employeeId === newManagerId) return true;
-  const seen = new Set<string>([newManagerId]);
-  let cursor = managerOf.get(newManagerId);
-  let depth = 0;
-  while (cursor && depth++ < maxDepth) {
-    if (cursor === employeeId) return true;
-    if (seen.has(cursor)) return false; // vòng sẵn có không liên quan tới nhân viên này
-    seen.add(cursor);
-    cursor = managerOf.get(cursor);
-  }
-  return false;
-}
-
 /** Số quyết định kế tiếp theo năm, ví dụ QDNS-2026-0007. */
 export function nextDecisionNumber(
   year: number,
@@ -132,11 +94,4 @@ export function nextDecisionNumber(
     if (Number.isInteger(n) && n > max) max = n;
   }
   return `${prefix}${String(max + 1).padStart(4, '0')}`;
-}
-
-/** Trừ một ngày khỏi chuỗi YYYY-MM-DD (UTC, không lệch múi giờ). */
-export function previousDay(isoDate: string): string {
-  const date = new Date(`${isoDate}T00:00:00Z`);
-  date.setUTCDate(date.getUTCDate() - 1);
-  return date.toISOString().slice(0, 10);
 }

@@ -133,6 +133,10 @@ integration('Tenant RBAC PostgreSQL integration', () => {
       [],
     );
     await service.assignRoles('a', adminId, userId, [r.id, t.id]);
+    // Vai trò tự tạo có khóa custom-<uuid>; giao diện cần tên để hiển thị.
+    const named = await service.resolve('a', userId);
+    expect(named.roleNames?.[`custom-${r.id}`]).toBe('Read role');
+    expect(named.roleNames?.[`custom-${t.id}`]).toBe('Edit role');
     const warm = await service.resolve('a', userId);
     expect(warm.permissions.sort()).toEqual([
       'core.organization.update',

@@ -28,6 +28,7 @@ import {
 import {
   deriveProcedureAuthorization,
   isProcedureParticipant,
+  canStartWithAssignment,
   matchesProcedureAssignment,
   runtimeStages,
   type ProcedureActor,
@@ -1567,11 +1568,7 @@ export class ProcedureEngineApplication {
         throw new ProcedureEngineError('conflict', 'Định nghĩa quy trình đã thay đổi từ lúc gửi đơn; cần đối soát cấu hình trước khi khởi tạo.');
       }
       const canSubmit = definition.steps.some((step) =>
-        step.assignments.some(
-          (assignment) =>
-            assignment.role === 'S' &&
-            matchesProcedureAssignment(assignment, actor),
-        ),
+        step.assignments.some((assignment) => canStartWithAssignment(assignment, actor)),
       );
       if (!actor.isOverride && !canSubmit) {
         throw new ProcedureEngineError(

@@ -139,12 +139,14 @@ export class TenantAuthorizationService {
         cached.value.authorizationRevision === state.revision
       )
         return structuredClone(cached.value);
-      const roles = (
-        await pool.query<{ key: string }>(
-          `SELECT r.key FROM core_schema.roles r JOIN core_schema.user_roles ur ON ur.role_id=r.id WHERE ur.user_id=$1`,
+      const roleRows = (
+        await pool.query<{ key: string; name: string }>(
+          `SELECT r.key, r.name FROM core_schema.roles r JOIN core_schema.user_roles ur ON ur.role_id=r.id WHERE ur.user_id=$1`,
           [userId],
         )
-      ).rows.map((r) => r.key);
+      ).rows;
+      const roles = roleRows.map((r) => r.key);
+      const roleNames = Object.fromEntries(roleRows.map((r) => [r.key, r.name]));
       const admin = roles.includes('tenant-admin');
       const permissions = admin
         ? ['tenant.manage', ...actionKeys]
@@ -167,6 +169,7 @@ export class TenantAuthorizationService {
       ).rows.map((r) => r.key);
       const value: TenantAuthorization = {
         roles: ['tenant-user', ...roles.filter((r) => r !== 'tenant-user')],
+        roleNames,
         permissions: expandTenantActions(permissions),
         moduleKeys: modules,
         authorizationRevision: state.revision,
