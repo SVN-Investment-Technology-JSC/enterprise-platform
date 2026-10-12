@@ -12,6 +12,9 @@ import { hrmFetch } from '../hrm-api';
 import { Button } from './button';
 import { HrmActionDialog, type HrmAction } from './hrm-action-dialog';
 import { toast } from './toast';
+import { LeaveSettlementPreview } from './leave-settlement-preview';
+import { RowMenu, type RowMenuItem } from './row-menu';
+import { useHrmPermissions } from '../hrm-permissions';
 
 export const employmentLabels: Record<string, string> = {
   PROBATION: 'Thử việc',
@@ -25,10 +28,17 @@ type Changed = () => Promise<void>;
 export function EmployeeLifecycleActions({
   employee,
   onChanged,
+  layout = 'inline',
+  extraItems = [],
 }: {
   employee: HrmEmployeeProfile;
   onChanged: Changed;
+  /** `menu`: một nút "..." chứa Sửa, Ngừng và các mục thêm; `inline`: hai nút Sửa, Ngừng như cũ. */
+  layout?: 'inline' | 'menu';
+  /** Các mục thêm cho layout `menu` (đã tự kiểm tra quyền bằng `hidden`). */
+  extraItems?: readonly RowMenuItem[];
 }) {
+  const { can } = useHrmPermissions();
   const [action, setAction] = useState<HrmAction | null>(null);
   const inactive = ['RESIGNED', 'TERMINATED'].includes(
     employee.employmentStatus,
@@ -37,22 +47,8 @@ export function EmployeeLifecycleActions({
     setAction({
       title: `Cập nhật hồ sơ · ${employee.employeeCode}`,
       columns: 2,
-      description: `Ngày vào làm: ${employee.joinDate}. Thay đổi hồ sơ không đổi thông tin đăng nhập ERP.`,
+      description: `Ngày vào làm: ${employee.joinDate}. Họ tên và email do Core quản lý, không sửa tại đây. Thay đổi hồ sơ không đổi thông tin đăng nhập ERP.`,
       fields: [
-        {
-          key: 'fullName',
-          label: 'Họ và tên',
-          section: 'Thông tin nhân sự',
-          value: employee.fullName || '',
-          optional: false,
-        },
-        {
-          key: 'workEmail',
-          label: 'Email công việc',
-          section: 'Thông tin nhân sự',
-          value: employee.email || '',
-          optional: true,
-        },
         {
           key: 'dateOfBirth',
           label: 'Ngày sinh',
@@ -277,6 +273,12 @@ export function EmployeeLifecycleActions({
         },
         { key: 'reason', label: 'Lý do ngừng' },
       ],
+      extra: (values) => (
+        <LeaveSettlementPreview
+          employeeId={employee.employeeId}
+          date={values.effectiveDate}
+        />
+      ),
       submit: async (values) => {
         await hrmFetch(`/employees/${employee.employeeId}/deactivate`, {
           method: 'POST',
@@ -286,9 +288,26 @@ export function EmployeeLifecycleActions({
           }),
         });
         await onChanged();
-        toast.success('Đã ngừng hồ sơ; lịch sử và tài khoản được giữ nguyên');
+        toast.success(
+          'Đã ngừng hồ sơ và quyết toán phép; lịch sử và tài khoản được giữ nguyên',
+        );
       },
     });
+  if (layout === 'menu') {
+    const canManage = can('hrm.employee.manage');
+    return (
+      <>
+        <RowMenu
+          items={[
+            { key: 'edit', label: 'Sửa hồ sơ', onSelect: edit, hidden: inactive || !canManage },
+            { key: 'deactivate', label: 'Ngừng nhân viên', onSelect: deactivate, hidden: inactive || !canManage, tone: 'danger' },
+            ...extraItems,
+          ]}
+        />
+        {action && <HrmActionDialog action={action} onClose={() => setAction(null)} />}
+      </>
+    );
+  }
   return (
     <span className="inline-flex gap-1">
       {!inactive && (

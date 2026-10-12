@@ -173,10 +173,9 @@ export class HrmContractController {
           );
       }
       validateContract(before);
-      if (!before.sign_date || !before.file_url)
-        throw new BadRequestException(
-          'Cần ngày ký và chứng từ trước khi ban hành',
-        );
+      if (!before.sign_date) {
+        before.sign_date = before.effective_from;
+      }
       const snapshot = {
         ...before,
         effective_from: isoDate(before.effective_from),
@@ -207,16 +206,17 @@ export class HrmContractController {
 
       // Tự động đồng bộ hồ sơ: Nếu ban hành HĐLĐ chính thức (DEFINITE / INDEFINITE), cập nhật trạng thái OFFICIAL & officialDate
       if (['DEFINITE', 'INDEFINITE'].includes(before.contract_type)) {
+        const signDate = isoDate(before.sign_date ?? before.effective_from);
         await db.query(
           `UPDATE hrm_schema.employee_profiles
            SET employment_status = 'OFFICIAL',
-               official_date = COALESCE(official_date, $3::date),
+               official_date = $3::date,
                updated_by = $4,
                updated_at = clock_timestamp()
            WHERE tenant_id = $1 AND employee_id = $2
              AND deleted_at IS NULL
              AND employment_status NOT IN ('RESIGNED', 'TERMINATED')`,
-          [tenantId, before.employee_id, isoDate(before.effective_from), principal.userId],
+          [tenantId, before.employee_id, signDate, principal.userId],
         );
       }
 

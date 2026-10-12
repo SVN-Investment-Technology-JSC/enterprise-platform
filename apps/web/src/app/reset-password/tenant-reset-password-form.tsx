@@ -18,7 +18,7 @@ export function TenantResetPasswordForm() {
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(undefined);
-    if (password.length < 12) return setError('Mật khẩu mới cần có ít nhất 12 ký tự.');
+    if (password.length < 6) return setError('Mật khẩu mới cần có ít nhất 6 ký tự.');
     if (password !== confirmation) return setError('Xác nhận mật khẩu chưa khớp.');
     setBusy(true);
     try {
@@ -54,8 +54,8 @@ export function TenantResetPasswordForm() {
             </div>
           ) : (
             <form className="space-y-4" onSubmit={submit}>
-              <label className="grid gap-1.5 text-sm font-medium text-slate-700">Mật khẩu mới<Input autoComplete="new-password" minLength={12} onChange={(event) => setPassword(event.currentTarget.value)} required type="password" value={password} /></label>
-              <label className="grid gap-1.5 text-sm font-medium text-slate-700">Xác nhận mật khẩu<Input autoComplete="new-password" minLength={12} onChange={(event) => setConfirmation(event.currentTarget.value)} required type="password" value={confirmation} /></label>
+              <label className="grid gap-1.5 text-sm font-medium text-slate-700">Mật khẩu mới<Input autoComplete="new-password" minLength={6} onChange={(event) => setPassword(event.currentTarget.value)} required type="password" value={password} /></label>
+              <label className="grid gap-1.5 text-sm font-medium text-slate-700">Xác nhận mật khẩu<Input autoComplete="new-password" minLength={6} onChange={(event) => setConfirmation(event.currentTarget.value)} required type="password" value={confirmation} /></label>
               {error ? <p className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800" role="alert">{error}</p> : null}
               <Button className="w-full bg-[#091426] hover:bg-[#1e293b]" disabled={busy} type="submit">{busy ? 'Đang cập nhật…' : 'Đặt lại mật khẩu'}</Button>
             </form>

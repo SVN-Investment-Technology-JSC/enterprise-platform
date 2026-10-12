@@ -8,11 +8,94 @@ import {
   calculateAttendance,
   type ShiftWindow,
 } from '../domain/attendance-calculation.js';
+import {
+  resolveDay,
+  workScheduleTableExists,
+  type ScheduleDayType,
+} from './hrm-shift-resolution.js';
+import { applyScheduleDayKind } from '../domain/work-schedule.js';
+import { resolveRuleDays } from './hrm-work-schedule-resolve.js';
 
 export function isoDate(value: unknown): string {
   if (value instanceof Date)
     return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`;
   return String(value).slice(0, 10);
+}
+/** Weekly day-off days (0=Sunday..6=Saturday) configured on the ATTENDANCE policy. */
+export function weeklyOffDaysOf(
+  config: Record<string, unknown> | null | undefined,
+): number[] {
+  const raw = config?.weeklyOffDays;
+  return Array.isArray(raw)
+    ? raw.filter((d): d is number => Number.isInteger(d) && d >= 0 && d <= 6)
+    : [];
+}
+/** Explicit work_calendar entries win; otherwise the weekly day-off applies. */
+export function effectiveDayKind(
+  date: string,
+  calendarKind: string | null | undefined,
+  config: Record<string, unknown> | null | undefined,
+): string | null {
+  if (calendarKind) return calendarKind;
+  const weekday = new Date(`${date}T00:00:00Z`).getUTCDay();
+  return weeklyOffDaysOf(config).includes(weekday) ? 'OFF' : null;
+}
+/**
+ * Chủ nhật chưa được phân ca (và không có lịch riêng) là ngày trống: không bị coi là ngày làm việc thiếu ca.
+ * Nghỉ phép bỏ qua ngày này; OT tính như ngày nghỉ hằng tuần; công tác không ràng buộc ca.
+ */
+export function isUnassignedSunday(
+  date: string,
+  dayKind: string | null | undefined,
+  hasShift: boolean,
+): boolean {
+  return (
+    !hasShift &&
+    (!dayKind || dayKind === 'WORK') &&
+    new Date(`${date}T00:00:00Z`).getUTCDay() === 0
+  );
+}
+/** Loại ngày hiệu lực (work_calendar > ngày nghỉ hằng tuần của chính sách); null = ngày làm việc thường. */
+export async function dayKindOf(
+  db: Pick<PoolClient, 'query'>,
+  tenantId: string,
+  date: string,
+  employeeId?: string,
+): Promise<string | null> {
+  const calendar = await db.query(
+    `SELECT day_kind FROM hrm_schema.work_calendar WHERE tenant_id=$1 AND work_date=$2::date`,
+    [tenantId, date],
+  );
+  let config: Record<string, unknown> | undefined;
+  try {
+    config = (
+      await resolvePolicy(db as PoolClient, tenantId, 'ATTENDANCE', date, employeeId)
+    )?.config_json;
+  } catch {
+    config = undefined; // chính sách xung đột: không suy luận ngày nghỉ hằng tuần
+  }
+  const base = effectiveDayKind(date, calendar.rows[0]?.day_kind, config);
+  if (!employeeId) return base;
+  return applyScheduleDayKind(base, await scheduleDayTypeOf(db, tenantId, employeeId, date));
+}
+/**
+ * Loại ngày theo lịch phân ca của nhân viên: lịch từng ngày (ngoại lệ, ngày lễ, gán theo khoảng) trước,
+ * rồi lịch định kỳ không kết thúc; null nếu chưa có lịch nào (hoặc tenant chưa migrate).
+ */
+export async function scheduleDayTypeOf(
+  db: Pick<PoolClient, 'query'>,
+  tenantId: string,
+  employeeId: string,
+  date: string,
+): Promise<ScheduleDayType | null> {
+  if (!(await workScheduleTableExists(db, tenantId))) return null;
+  const r = await db.query(
+    `SELECT day_type FROM hrm_schema.employee_work_days WHERE tenant_id=$1 AND employee_id=$2 AND work_date=$3::date AND status='ACTIVE'`,
+    [tenantId, employeeId, date],
+  );
+  if (r.rows[0]) return r.rows[0].day_type as ScheduleDayType;
+  const [rule] = await resolveRuleDays(db, tenantId, [employeeId], date, date);
+  return rule ? rule.dayType : null;
 }
 export function isoTime(value: unknown): string | null {
   return value ? new Date(String(value)).toISOString() : null;
@@ -45,14 +128,21 @@ export async function assertOpenRange(
   from: string,
   to: string | null = null,
 ) {
+  // requests_closed_at đọc qua to_jsonb để truy vấn vẫn chạy được trên tenant chưa có migration 0046.
   const periods = await db.query(
-    `SELECT id,status FROM hrm_schema.timesheet_periods WHERE tenant_id=$1 AND from_date<=COALESCE($3::date,'infinity'::date) AND to_date >= $2::date ORDER BY from_date FOR UPDATE`,
+    `SELECT id,status,from_date,to_date,to_jsonb(p)->>'requests_closed_at' AS requests_closed_at FROM hrm_schema.timesheet_periods p WHERE tenant_id=$1 AND from_date<=COALESCE($3::date,'infinity'::date) AND to_date >= $2::date ORDER BY from_date FOR UPDATE`,
     [tenantId, from, to],
   );
   if (periods.rows.some((p) => p.status === 'LOCKED'))
     throw new ConflictException(
       'Kỳ công đã khóa; cần mở lại kỳ trước khi thay đổi dữ liệu',
     );
+  const requestsClosed = periods.rows.find((p) => p.requests_closed_at);
+  if (requestsClosed) {
+    const periodFrom = isoDate(requestsClosed.from_date);
+    const [year, month] = (from > periodFrom ? from : periodFrom).split('-');
+    throw new ConflictException(`Tháng ${month}/${year} đã chốt đơn từ`);
+  }
   await db.query(
     `UPDATE hrm_schema.timesheet_periods SET calculated_at=NULL WHERE tenant_id=$1 AND from_date<=COALESCE($3::date,'infinity'::date) AND to_date >= $2::date`,
     [tenantId, from, to],
@@ -117,25 +207,27 @@ export async function shiftForDate(
   date: string,
   timezone: string,
 ) {
-  const result = await db.query(
-    `SELECT s.*, a.id AS assignment_id,
-    (($3::date + s.start_time) AT TIME ZONE $4) AS starts_at,
-    (($3::date + s.end_time + CASE WHEN s.cross_midnight THEN interval '1 day' ELSE interval '0 days' END) AT TIME ZONE $4) AS ends_at,
-    (($3::date + s.break_start_time + CASE WHEN s.cross_midnight AND s.break_start_time<s.start_time THEN interval '1 day' ELSE interval '0 days' END) AT TIME ZONE $4) AS break_starts_at,
-    (($3::date + s.break_end_time + CASE WHEN s.cross_midnight AND s.break_end_time<=s.start_time THEN interval '1 day' ELSE interval '0 days' END) AT TIME ZONE $4) AS break_ends_at
-    FROM hrm_schema.shift_assignments a JOIN hrm_schema.shift_definitions s ON s.id=a.shift_id AND s.tenant_id=a.tenant_id
-    WHERE a.tenant_id=$1 AND a.employee_id=$2 AND a.status='ACTIVE' AND $3::date>=a.effective_from AND (a.effective_to IS NULL OR $3::date<=a.effective_to)`,
-    [tenantId, employeeId, date, timezone],
-  );
-  if (result.rows.length > 1)
-    throw new ConflictException(
-      'Lịch phân ca bị trùng; cần điều chỉnh trước khi tính công',
-    );
-  const row = result.rows[0];
-  if (!row) return null;
+  return (await dayContextForDate(db, tenantId, employeeId, date, timezone)).shift;
+}
+/** Ca dự kiến cùng loại ngày theo lịch phân ca (OFF/HOLIDAY tường minh thì không có ca). */
+export async function dayContextForDate(
+  db: PoolClient,
+  tenantId: string,
+  employeeId: string,
+  date: string,
+  timezone: string,
+) {
+  // Lịch từng ngày > ngoại lệ cá nhân > ca đơn vị trực tiếp > ca đơn vị cha (xem hrm-shift-resolution.ts).
+  const { picked, scheduleDayType, holidayPaid } = await resolveDay(db, tenantId, employeeId, date, timezone);
+  return { shift: picked ? shiftOf(picked) : null, scheduleDayType, holidayPaid };
+}
+function shiftOf(picked: NonNullable<Awaited<ReturnType<typeof resolveDay>>['picked']>) {
+  const row = picked.row;
   return {
     id: row.id as string,
-    assignmentId: row.assignment_id as string,
+    assignmentId: row.assignment_id as string | null,
+    source: picked.source,
+    unitId: picked.unitId,
     before: row.check_in_before_minutes as number,
     after: row.check_out_after_minutes as number,
     window: {
@@ -200,7 +292,26 @@ export async function timeContext(
       timestamp >= Date.parse(c.shift!.window.start) &&
       timestamp < Date.parse(c.shift!.window.end),
   );
-  const matched = inside.length ? inside : candidates;
+  let matched = inside.length ? inside : candidates;
+  // Làm thêm giờ đã duyệt qua nửa đêm (ví dụ 22:00-02:00): lần chấm ra thuộc ngày làm việc của đơn, không rơi sang ngày sau.
+  if (!inside.length && !candidates.some((c) => c.date === yesterday)) {
+    const ot = await db.query(
+      `SELECT min(($1::date+start_time) AT TIME ZONE $2) AS starts_at,
+              max(($1::date+end_time+CASE WHEN end_time<=start_time THEN interval '1 day' ELSE interval '0 days' END) AT TIME ZONE $2) AS ends_at
+         FROM hrm_schema.ot_requests
+        WHERE tenant_id=$3 AND employee_id=$4 AND work_date=$1::date AND status='APPROVED'`,
+      [yesterday, timezone, tenantId, employeeId],
+    );
+    const row = ot.rows[0];
+    if (row?.ends_at) {
+      const margin = (previous?.after ?? 120) * 60000;
+      if (
+        timestamp >= Date.parse(isoTime(row.starts_at)!) - margin &&
+        timestamp <= Date.parse(isoTime(row.ends_at)!) + margin
+      )
+        matched = [{ date: yesterday as string, shift: previous }];
+    }
+  }
   if (matched.length > 1)
     throw new ConflictException(
       'Thời điểm chấm công thuộc hai cửa sổ ca; cần điều chỉnh quy định ca',

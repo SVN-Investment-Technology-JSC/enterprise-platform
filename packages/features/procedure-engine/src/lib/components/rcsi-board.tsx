@@ -30,6 +30,7 @@ import {
   type FlowChange,
 } from './rcsi/flow-edit';
 import { GatewayEditor } from './rcsi/gateway-editor';
+import { ArchivedDrawer } from './rcsi/archived-drawer';
 import { OrgPane } from './rcsi/org-pane';
 import { StepConfigDialog, type StepConfigChange } from './rcsi/step-config-dialog';
 import flowStyles from './rcsi/flow-editors.module.scss';
@@ -184,10 +185,14 @@ export function RcsiBoard({
   onPublishDefinition,
   onReviseDefinition,
   onDeleteDefinition,
+  onDeleteArchivedDefinition,
   onChangeGroupDefinition,
   onValidateDefinition,
   railCollapsed = false,
+  headSlot,
 }: {
+  /** Ô trên dòng đường dẫn của khung module: nút của trang đặt ở đó. */
+  headSlot?: HTMLElement | null;
   /**
    * Rail điều hướng đang thu. Thu rail là để lấy chỗ cho sơ đồ tổ chức, nên
    * panel sơ đồ mở theo; mở rail thì panel ẩn, bấm nút để bật lại.
@@ -214,6 +219,8 @@ export function RcsiBoard({
   /** Danh mục vật tư lấy từ Kho, để chọn thay vì gõ mã tự do. */
   materialCatalog?: readonly { code: string; name: string; unit: string }[];
   onDeleteDefinition?: (definitionId: string) => void;
+  /** Xoá (mềm) quy trình đã lưu trữ; chỉ quản trị. Vắng mặt thì không hiện nút Xoá. */
+  onDeleteArchivedDefinition?: (definitionId: string) => void;
   /** Đổi nhóm quy trình; dùng route riêng nên chạy được cả trên bản đã công bố. */
   onChangeGroupDefinition?: (definitionId: string, category: string | undefined) => void;
   onPublishDefinition?: (definitionId: string) => void;
@@ -276,6 +283,20 @@ export function RcsiBoard({
 
   const editable = Boolean(onUpdateDefinition);
 
+  /**
+   * Quy trình lưu trữ không nằm trên ma trận: chúng chỉ hiện trong ngăn
+   * "Sơ đồ lưu trữ", nơi có nút tái kích hoạt.
+   */
+  const activeDefinitions = useMemo(
+    () => definitions.filter((definition) => definition.status !== 'archived'),
+    [definitions],
+  );
+  const archivedDefinitions = useMemo(
+    () => definitions.filter((definition) => definition.status === 'archived'),
+    [definitions],
+  );
+  const [archiveOpen, setArchiveOpen] = useState(false);
+
   const subjectsOf = (list: readonly ProcedureDefinition[]) => {
     const set = new Set<string>();
     for (const definition of list) {
@@ -294,7 +315,7 @@ export function RcsiBoard({
    */
   const visibleDefinitions = useMemo(() => {
     const needle = search.trim().toLowerCase();
-    const filtered = definitions.filter((definition) => {
+    const filtered = activeDefinitions.filter((definition) => {
       // Lọc nhóm áp trước tìm kiếm: hai bộ lọc cộng dồn chứ không thay nhau.
       if (groupFilter && definition.category !== groupFilter) return false;
       if (!needle) return true;
@@ -320,7 +341,7 @@ export function RcsiBoard({
       if (leftIsNew === rightIsNew) return 0;
       return leftIsNew ? -1 : 1;
     });
-  }, [definitions, search, groupFilter, newlyCreatedCode]);
+  }, [activeDefinitions, search, groupFilter, newlyCreatedCode]);
 
   // Mỗi trang tối đa 10 quy trình. Đổi bộ lọc thì về trang 1, và quy trình
   // vừa tạo (được ghim lên đầu) luôn thấy ngay.
@@ -725,40 +746,73 @@ export function RcsiBoard({
     };
   }, [columns, openRows, pagedDefinitions]);
 
+  const headActions = (
+    <>
+      <span className={styles.count}>
+        {search.trim() || groupFilter
+          ? `${visibleDefinitions.length}/${activeDefinitions.length} quy trình`
+          : `${activeDefinitions.length} quy trình`}
+      </span>
+      <button
+        type="button"
+        className={styles.headBtn}
+        onClick={() => setArchiveOpen(true)}
+        title="Danh sách quy trình đã lưu trữ"
+      >
+        <Archive size={15} aria-hidden="true" />
+        Lưu trữ ({archivedDefinitions.length})
+      </button>
+      {onCreateDefinition ? (
+        <button
+          type="button"
+          className={styles.headPrimary}
+          onClick={() => setCreateModalOpen(true)}
+          disabled={busy}
+          title="Thêm quy trình mới"
+        >
+          <Plus size={15} aria-hidden="true" />
+          Thêm quy trình
+        </button>
+      ) : null}
+    </>
+  );
+
   return (
     <section className={orgPaneOpen ? `${styles.board} ${styles.boardSplit}` : styles.board}>
+      {headSlot ? createPortal(headActions, headSlot) : <div className={styles.headFallback}>{headActions}</div>}
       <article className={styles.card}>
-        <header className={styles.cardHead}>
-          <div className={styles.cardHeadLeft}>
-            <h2>
-              <i className={styles.dot} aria-hidden="true" />
-              Bảng thiết kế quy trình
-              <span className={styles.count}>
-                {search.trim() || groupFilter
-                  ? `${visibleDefinitions.length}/${definitions.length} quy trình`
-                  : `${definitions.length} quy trình`}
-              </span>
-            </h2>
-            <p>
-              Bấm vào tên một quy trình để xem các bước và phân vai RACI theo từng chức danh.
-              Chuyển sang <strong>Tất cả chức danh</strong> để hiển thị toàn bộ các chức danh trong công ty khi cần gán vai trò mới.
-            </p>
-          </div>
-          <ul className={styles.legend}>
-            {ROLE_ORDER.map((role) => (
-              <li key={role}>
-                <i className={`${styles.role} ${styles[`role${role}`]}`}>{role}</i>
-                {ROLE_LABEL[role]}
-              </li>
-            ))}
-          </ul>
-        </header>
 
         {/* WORKSPACE CONTROLS & ACTIONS BELOW HEADER */}
         <div className={styles.workspaceControls}>
           {/* Chuyển chế độ xem */}
           <div className={styles.workspaceToolbar}>
             <div className={styles.toolbarLeft}>
+              <label className={styles.positionSearch}>
+                <Search size={14} aria-hidden="true" />
+                <input
+                  type="search"
+                  placeholder="Tìm quy trình, đơn vị…"
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  aria-label="Tìm quy trình"
+                />
+              </label>
+              {groups && groups.length > 0 ? (
+                <select
+                  className={styles.toolbarSelect}
+                  value={groupFilter}
+                  onChange={(event) => setGroupFilter(event.target.value)}
+                  aria-label="Lọc theo nhóm quy trình"
+                >
+                  <option value="">Nhóm: Tất cả</option>
+                  {groups.map((group) => (
+                    <option key={group.code} value={group.code}>
+                      {group.label}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
+              <span className={styles.toolbarDivider} aria-hidden="true" />
               {availableTrees.length > 0 ? (
                 <div className={styles.treeFilterContainer} ref={treeFilterRef}>
                   <button
@@ -945,51 +999,15 @@ export function RcsiBoard({
             <thead className={styles.thead}>
               <tr key="level-0">
                 <th className={styles.corner} rowSpan={depth}>
-                  <div className={styles.cornerHeader}>
-                    <span className={styles.cornerTitle}>Danh mục Quy trình &amp; Các bước</span>
-                    <span className={styles.cornerHint}>
-                      {openDefinitions.length === 0
-                        ? `${definitions.length} quy trình · bấm để mở`
-                        : `${openDefinitions.length}/${definitions.length} quy trình đang mở`}
-                    </span>
-                  </div>
-
-                  <div className={styles.cornerControls}>
-                    {onCreateDefinition ? (
-                      <button
-                        type="button"
-                        className={styles.cornerAddBtn}
-                        onClick={() => setCreateModalOpen(true)}
-                        disabled={busy}
-                        title="Thêm quy trình mới"
-                      >
-                        <span aria-hidden="true">+</span> Thêm mới
-                      </button>
-                    ) : null}
-                    <input
-                      className={styles.cornerSearchInput}
-                      type="search"
-                      placeholder="Tìm quy trình, đơn vị…"
-                      value={search}
-                      onChange={(event) => setSearch(event.target.value)}
-                      aria-label="Tìm quy trình"
-                    />
-                    {groups && groups.length > 0 ? (
-                      <select
-                        className={styles.cornerGroupSelect}
-                        value={groupFilter}
-                        onChange={(event) => setGroupFilter(event.target.value)}
-                        aria-label="Lọc theo nhóm quy trình"
-                      >
-                        <option value="">Tất cả nhóm</option>
-                        {groups.map((group) => (
-                          <option key={group.code} value={group.code}>
-                            {group.label}
-                          </option>
-                        ))}
-                      </select>
-                    ) : null}
-                  </div>
+                  <span className={styles.cornerTitle}>Quy trình · Bước</span>
+                  <ul className={styles.legend} aria-label="Vai trò">
+                    {ROLE_ORDER.map((role) => (
+                      <li key={role} title={ROLE_LABEL[role]}>
+                        <i className={`${styles.role} ${styles[`role${role}`]}`}>{role}</i>
+                        {ROLE_LABEL[role].split('— ')[1] ?? ROLE_LABEL[role]}
+                      </li>
+                    ))}
+                  </ul>
                 </th>
                 {columns.length === 0 ? (
                   <th className={styles.emptyColumnsHead} rowSpan={depth}>
@@ -1027,8 +1045,8 @@ export function RcsiBoard({
               {visibleDefinitions.length === 0 ? (
                 <tr className={styles.emptyRow}>
                   <td colSpan={1 + Math.max(1, columns.length)} className={styles.empty}>
-                    {definitions.length === 0
-                      ? 'Chưa có quy trình nào. Dùng ô bên dưới để tạo quy trình đầu tiên.'
+                    {activeDefinitions.length === 0
+                      ? 'Chưa có quy trình nào. Bấm “Thêm quy trình” để tạo quy trình đầu tiên.'
                       : 'Không có quy trình nào thuộc nhóm đang lọc.'}
                   </td>
                 </tr>
@@ -1145,6 +1163,19 @@ export function RcsiBoard({
             setPositionQuery(name);
           }}
           onClose={() => setOrgPaneOpen(false)}
+        />
+      ) : null}
+
+      {archiveOpen ? (
+        <ArchivedDrawer
+          definitions={archivedDefinitions}
+          groups={groups}
+          busy={busy}
+          onReactivate={
+            editable && onReviseDefinition ? (id) => onReviseDefinition(id) : undefined
+          }
+          onDelete={onDeleteArchivedDefinition}
+          onClose={() => setArchiveOpen(false)}
         />
       ) : null}
 
@@ -1292,8 +1323,7 @@ export function RcsiBoard({
       {onCreateDefinition ? (
         <MinimalPopupForm
           isOpen={createModalOpen}
-          title="Thêm Quy Trình Mới"
-          subtitle="Khởi tạo một quy trình mới vào bảng thiết kế và ma trận RACI"
+          title="Thêm quy trình mới"
           onClose={() => setCreateModalOpen(false)}
         >
           <form
@@ -1322,13 +1352,12 @@ export function RcsiBoard({
               <input
                 className={styles.formInput}
                 style={{ fontFamily: 'ui-monospace, SFMono-Regular, monospace' }}
-                placeholder="VD: QT-MUA-VT, QT-BT-MBA..."
+                placeholder="QT-MUA-VT"
                 value={newCode}
                 onChange={(event) => setNewCode(event.target.value)}
                 autoFocus
                 required
               />
-              <span className={styles.formHint}>Mã viết hoa, ngắn gọn, phân tách bằng dấu gạch ngang</span>
             </div>
 
             <div className={styles.formGroup}>
@@ -1337,7 +1366,7 @@ export function RcsiBoard({
               </label>
               <input
                 className={styles.formInput}
-                placeholder="VD: Mua sắm vật tư kỹ thuật, Bảo trì định kỳ máy biến áp..."
+                placeholder="Tên quy trình"
                 value={newName}
                 onChange={(event) => setNewName(event.target.value)}
                 required
@@ -1914,7 +1943,6 @@ function DefinitionRows({
                 {definition.steps.length} bước
                 {definition.gateways?.length ? ` · ${definition.gateways.length} rẽ nhánh` : ''} · v
                 {definition.versionNumber}
-                {open ? '' : ' · bấm để xem phân vai'}
               </span>
 
               <div className={styles.rowTools}>

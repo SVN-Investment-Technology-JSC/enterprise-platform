@@ -60,10 +60,18 @@ export function DonutChart(props: {
   /** Nhãn dưới tổng số ở giữa, ví dụ "hồ sơ". */
   unit?: string;
   emptyHint?: string;
+  /**
+   * Giữ cả lát bằng 0 trong chú giải (hiện mờ) để bố cục không nhảy khi dữ
+   * liệu đổi. Mặc định bỏ, như trước.
+   */
+  showEmpty?: boolean;
 }) {
   const slices = clean(props.slices);
   const total = slices.reduce((sum, slice) => sum + slice.value, 0);
   if (total === 0) return <EmptyNote hint={props.emptyHint} />;
+  const legendSlices = props.showEmpty
+    ? props.slices.map((slice) => ({ ...slice, value: Number.isFinite(slice.value) ? Math.max(0, slice.value) : 0 }))
+    : slices;
 
   const radius = 60;
   const circumference = 2 * Math.PI * radius;
@@ -106,8 +114,8 @@ export function DonutChart(props: {
       </svg>
 
       <ul className={styles.legend}>
-        {slices.map((slice, index) => (
-          <li key={slice.label}>
+        {legendSlices.map((slice, index) => (
+          <li key={slice.label} className={slice.value === 0 ? styles.legendZero : undefined}>
             <span
               className={styles.legendDot}
               style={{ background: colorAt(index, slice.color) }}
@@ -139,6 +147,12 @@ export function BarChart(props: {
   emptyHint?: string;
   /** Số cột tối đa; phần còn lại gộp vào "Khác". */
   max?: number;
+  /**
+   * 'side' (mặc định): nhãn cột cố định bên trái, cắt "…" khi dài.
+   * 'top': nhãn trên một dòng riêng, cột dưới — cho nhãn dài như tên quy trình
+   * trong thẻ hẹp, đọc trọn tên thay vì "Mua sắm vật…".
+   */
+  labelPlacement?: 'side' | 'top';
 }) {
   const all = clean(props.slices).sort((left, right) => right.value - left.value);
   if (all.length === 0) return <EmptyNote hint={props.emptyHint} />;
@@ -156,7 +170,7 @@ export function BarChart(props: {
   const peak = Math.max(...bars.map((bar) => bar.value));
 
   return (
-    <ul className={styles.bars}>
+    <ul className={props.labelPlacement === 'top' ? `${styles.bars} ${styles.barsTop}` : styles.bars}>
       {bars.map((bar, index) => (
         <li key={bar.label}>
           <span className={styles.barLabel} title={bar.label}>

@@ -18,6 +18,7 @@ import {
   ConfigProvider,
   Popconfirm,
 } from 'antd';
+import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import { toast } from '@/components/ui/sonner';
 import { cn } from '@/lib/utils';
 import type { Assignment, Node } from './organization-workspace';
@@ -29,6 +30,9 @@ export function OrganizationNodeInspector({
   users,
   onSaveNode,
   onDeleteNode,
+  onQuickAssign,
+  onQuickUnassign,
+  onSetPrimaryAssignment,
   onSelectNode,
 }: {
   selectedNode?: Node;
@@ -43,7 +47,9 @@ export function OrganizationNodeInspector({
   onSetPrimaryAssignment?: (assignmentId: string, nodeId: string) => Promise<unknown>;
   onSelectNode?: (nodeId: string) => void;
 }) {
-  const { canUpdate, canDelete } = useOrganizationPermissions();
+  const { canCreate, canUpdate, canDelete } = useOrganizationPermissions();
+  const [assignUserId, setAssignUserId] = useState('');
+  const [assigning, setAssigning] = useState(false);
   const [name, setName] = useState('');
   const [code, setCode] = useState('');
   const [category, setCategory] = useState<'unit' | 'position'>('unit');
@@ -64,6 +70,7 @@ export function OrganizationNodeInspector({
       setHeadPositionId(selectedNode.headPositionId ?? undefined);
       setDescription(selectedNode.description ?? '');
       setSavedSuccess(false);
+      setAssignUserId('');
     }
   }, [selectedNode]);
 
@@ -149,6 +156,29 @@ export function OrganizationNodeInspector({
       !n.parentId &&
       n.id !== selectedNode.id,
   );
+
+  const assignableUsers = users.filter(
+    (u) => !nodeAssignees.some((a) => a.userId === u.id),
+  );
+
+  const handleAssign = async () => {
+    if (!onQuickAssign || !assignUserId) return;
+    setAssigning(true);
+    try {
+      // Người đầu tiên của chức danh mặc định là vị trí chính.
+      const result = await onQuickAssign(
+        selectedNode.id,
+        assignUserId,
+        nodeAssignees.length === 0,
+      );
+      if (result) {
+        toast.success('Đã bổ nhiệm nhân sự vào chức danh.');
+        setAssignUserId('');
+      }
+    } finally {
+      setAssigning(false);
+    }
+  };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -446,8 +476,35 @@ export function OrganizationNodeInspector({
                       <div className="flex items-center gap-1.5 shrink-0">
                         {item.isPrimary ? (
                           <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 border border-amber-200">
-                            ★ Vị trí chính
+                            Vị trí chính
                           </span>
+                        ) : canUpdate && onSetPrimaryAssignment ? (
+                          <button
+                            type="button"
+                            onClick={() => void onSetPrimaryAssignment(item.id, item.nodeId)}
+                            className="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-medium text-slate-600 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 cursor-pointer"
+                          >
+                            Đặt làm chính
+                          </button>
+                        ) : null}
+                        {canDelete && onQuickUnassign ? (
+                          <Popconfirm
+                            title="Gỡ bổ nhiệm?"
+                            description={`Gỡ "${item.user?.fullName ?? item.userId}" khỏi chức danh này?`}
+                            okText="Gỡ"
+                            cancelText="Huỷ"
+                            okButtonProps={{ danger: true }}
+                            placement="topRight"
+                            onConfirm={() => onQuickUnassign(item.id)}
+                          >
+                            <button
+                              type="button"
+                              className="p-1 rounded text-slate-400 hover:bg-red-50 hover:text-red-600 cursor-pointer"
+                              title="Gỡ bổ nhiệm"
+                            >
+                              <Trash2 className="size-3.5" />
+                            </button>
+                          </Popconfirm>
                         ) : null}
                       </div>
                     </div>
@@ -458,6 +515,31 @@ export function OrganizationNodeInspector({
                   Chưa có nhân sự được bổ nhiệm vào chức danh này.
                 </div>
               )}
+
+              {/* Bổ nhiệm nhanh */}
+              {canCreate && onQuickAssign ? (
+                <div className="flex items-center gap-2">
+                  <div className="min-w-0 flex-1">
+                    <SearchableSelect
+                      value={assignUserId}
+                      onChange={(v) => setAssignUserId(v)}
+                      placeholder="Chọn nhân sự để bổ nhiệm"
+                      options={assignableUsers.map((u) => ({
+                        value: u.id,
+                        label: u.email ? `${u.fullName} (${u.email})` : u.fullName,
+                      }))}
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    disabled={!assignUserId || assigning}
+                    onClick={() => void handleAssign()}
+                    className="h-9 shrink-0 bg-blue-600 text-xs font-semibold hover:bg-blue-700"
+                  >
+                    {assigning ? <Loader2 className="size-3.5 animate-spin" /> : 'Bổ nhiệm'}
+                  </Button>
+                </div>
+              ) : null}
             </div>
           ) : null}
 

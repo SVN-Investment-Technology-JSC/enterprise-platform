@@ -295,6 +295,9 @@ export function EventForm({
               : 'Mời được bất kỳ ai trong tổ chức. Trùng lịch người chỉ là cảnh báo.'
       }
       submitLabel={!canEdit ? 'Đóng' : occurrence ? 'Lưu thay đổi' : 'Tạo sự kiện'}
+      // "Huỷ" đứng cạnh nút đỏ "Huỷ buổi này" dễ bấm nhầm: với sự kiện đã có,
+      // nút đóng gọi là "Đóng"; chỉ xem thì nút chính đã là "Đóng" rồi.
+      cancelLabel={!canEdit ? null : occurrence ? 'Đóng' : 'Huỷ'}
       submitting={submitting || loading}
       error={error}
       onClose={onClose}

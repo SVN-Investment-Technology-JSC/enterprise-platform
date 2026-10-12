@@ -1,0 +1,591 @@
+import { randomUUID } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
+import { createPostgresPool } from '@enterprise-platform/adapter-database';
+import { enrichLeaveBalances, unpostedUsableEntitlement } from './hrm-annual-leave';
+import { loadDirectManagerRef, loadReportingOverview } from './hrm-personnel-decisions';
+import { accrueMonth } from './hrm-leave-accrual';
+import { carryoverYear } from './hrm-leave-carryover';
+import { createLeave } from './hrm-leave-operations';
+import {
+  computeLeaveSettlement,
+  scheduleSettlement,
+  settleLeaveOnTermination,
+  waiveSettlement,
+} from './hrm-leave-settlement';
+import { hrmTransaction } from './hrm-transaction';
+
+const integration = process.env.HRM_TEST_ADMIN_URL ? describe : describe.skip;
+// Các dòng sổ ghi trong cùng transaction có cùng created_at: so sánh không theo thứ tự.
+const sorted = (rows: unknown[][]) =>
+  rows.map((r) => JSON.stringify(r)).sort();
+integration('Annual leave by labor contract (PostgreSQL)', () => {
+  const databaseName = 'hrm_test_' + randomUUID().replace(/-/g, '');
+  const tenantId = randomUUID();
+  const actor = randomUUID();
+  let pool: ReturnType<typeof createPostgresPool>;
+  let admin: ReturnType<typeof createPostgresPool>;
+  let shiftId: string;
+
+  const employee = async (code: string, signDate: string | null) => {
+    const id = randomUUID();
+    await pool.query(
+      `INSERT INTO core_schema.employees (id, tenant_id, full_name, work_email) VALUES ($1,$2,$3,$4)`,
+      [id, tenantId, code, `${id}@test.local`],
+    );
+    await pool.query(
+      `INSERT INTO hrm_schema.employee_profiles (employee_id, tenant_id, employee_code, join_date) VALUES ($1,$2,$3,'2010-01-01')`,
+      [id, tenantId, code],
+    );
+    // Hợp đồng thử việc ký sớm hơn không được dùng làm mốc.
+    await pool.query(
+      `INSERT INTO hrm_schema.employment_contracts (tenant_id,employee_id,contract_code,contract_type,sign_date,effective_from,status)
+       VALUES ($1,$2,$3,'PROBATION','2009-01-01','2009-01-01','TERMINATED')`,
+      [tenantId, id, `${code}-TV`],
+    );
+    if (signDate)
+      await pool.query(
+        `INSERT INTO hrm_schema.employment_contracts (tenant_id,employee_id,contract_code,contract_type,sign_date,effective_from,status)
+         VALUES ($1,$2,$3,'INDEFINITE',$4,$4,'ACTIVE')`,
+        [tenantId, id, `${code}-HD`, signDate],
+      );
+    // Lịch ca từng ngày (employee_work_days) phủ toàn bộ khoảng ngày mà các test tra ca.
+    await pool.query(
+      `INSERT INTO hrm_schema.employee_work_days (tenant_id,employee_id,work_date,day_type,shift_id,source)
+       SELECT $1,$2,d::date,'SHIFT',$3,'MANUAL' FROM generate_series('2025-01-01'::date,'2027-12-31'::date,'1 day') d`,
+      [tenantId, id, shiftId],
+    );
+    return id;
+  };
+  const leaveType = async (
+    code: string,
+    opts: { carryover?: boolean; maxCarry?: number } = {},
+  ) =>
+    (
+      await pool.query(
+        `INSERT INTO hrm_schema.leave_types (tenant_id,code,name,unit,deduct_balance,carryover_allowed,max_carryover_days)
+         VALUES ($1,$2,$2,'DAYS',true,$3,$4) RETURNING id`,
+        [tenantId, code, Boolean(opts.carryover), opts.maxCarry ?? 0],
+      )
+    ).rows[0].id as string;
+  const schedule = async (
+    typeId: string,
+    opts: {
+      advance?: boolean;
+      offset?: number;
+      tiers?: [number, number][];
+      from?: string;
+    } = {},
+  ) => {
+    const id = (
+      await pool.query(
+        `INSERT INTO hrm_schema.leave_accrual_schedules (tenant_id,leave_type_id,accrual_frequency,accrual_amount,proration_rule,seniority_bonus_years,seniority_bonus_days,effective_from,accrual_basis,start_offset_months,advance_allowed,annual_days)
+         VALUES ($1,$2,'MONTHLY',1,'HALF_MONTH',0,0,$3,'CONTRACT_SIGN_DATE',$4,$5,12) RETURNING id`,
+        [tenantId, typeId, opts.from ?? '2026-01-01', opts.offset ?? 0, Boolean(opts.advance)],
+      )
+    ).rows[0].id as string;
+    for (const [years, days] of opts.tiers ?? [])
+      await pool.query(
+        `INSERT INTO hrm_schema.leave_seniority_tiers (tenant_id,schedule_id,min_years,bonus_days) VALUES ($1,$2,$3,$4)`,
+        [tenantId, id, years, days],
+      );
+    return id;
+  };
+  const ledger = async (employeeId: string, typeId: string) =>
+    (
+      await pool.query(
+        `SELECT transaction_type,days_changed::float AS days,balance_year,note FROM hrm_schema.leave_transactions
+         WHERE tenant_id=$1 AND employee_id=$2 AND leave_type_id=$3 ORDER BY created_at,id`,
+        [tenantId, employeeId, typeId],
+      )
+    ).rows;
+  const balance = async (employeeId: string, typeId: string, year: number) =>
+    (
+      await pool.query(
+        `SELECT opening_balance::float AS opening,accrued::float,used::float,adjusted::float,remaining::float FROM hrm_schema.leave_balances
+         WHERE tenant_id=$1 AND employee_id=$2 AND leave_type_id=$3 AND year=$4`,
+        [tenantId, employeeId, typeId, year],
+      )
+    ).rows[0];
+  const accrue = (month: string) =>
+    hrmTransaction(pool, (db) => accrueMonth(db, tenantId, actor, month));
+
+  beforeAll(async () => {
+    const url = new URL(process.env.HRM_TEST_ADMIN_URL!);
+    if (!['localhost', '127.0.0.1'].includes(url.hostname))
+      throw new Error('Only local disposable PostgreSQL is allowed');
+    admin = createPostgresPool(url.toString());
+    await admin.query(`CREATE DATABASE "${databaseName}"`);
+    url.pathname = '/' + databaseName;
+    pool = createPostgresPool(url.toString());
+    const migrate = async (path: string) =>
+      pool.query(
+        await readFile(
+          resolve(process.cwd(), '../../../migrations/tenant', path),
+          'utf8',
+        ),
+      );
+    for (const path of [
+      'core/0001-core-schema.sql',
+      'core/0002-organization-soft-delete.sql',
+      'core/0006-employees.sql',
+      'core/0006-position-reports-to.sql',
+      '0001-integration.sql',
+      'hrm/0001-hrm.sql',
+      'hrm/0002-employee-identity.sql',
+      'hrm/0003-time-operations.sql',
+      'hrm/0004-leave-operations.sql',
+      'hrm/0005-timesheet-calculation.sql',
+      'hrm/0006-payroll-formulas.sql',
+      'hrm/0007-work-references.sql',
+      'hrm/0008-profile-corrections.sql',
+      'hrm/0009-leave-carryover.sql',
+      'hrm/0010-attachments.sql',
+      'hrm/0011-advance-settlement.sql',
+      'hrm/0012-operations-and-workflow.sql',
+      'hrm/0002-hrm-procedure-integration.sql',
+      'hrm/0003-hrm-requests-enhancement.sql',
+      'hrm/0014-hrm-profile-compatibility.sql',
+      'hrm/0013-payroll-support.sql',
+      'hrm/0015-hrm-procedure-sync.sql',
+      'hrm/0015-procedure-definition-snapshot.sql',
+      'hrm/0015-shift-submission.sql',
+      'hrm/0016-hrm-lifecycle.sql',
+      'hrm/0016-family-contract-lifecycle.sql',
+      'hrm/0032-hrm-personnel-decisions.sql',
+      'hrm/0020-payroll-lifecycle.sql',
+      'hrm/0033-leave-annual-policy.sql',
+      'hrm/0035-hrm-work-schedules.sql',
+      'hrm/0036-hrm-work-schedule-rules.sql',
+      'hrm/0044-hrm-annual-leave-single-policy.sql',
+    ])
+      await migrate(path);
+    shiftId = (
+      await pool.query(
+        `INSERT INTO hrm_schema.shift_definitions (tenant_id,code,name,start_time,end_time,cross_midnight,break_minutes,grace_late_minutes,grace_early_minutes)
+         VALUES ($1,'DAY','Hành chính','08:00','17:00',false,60,0,0) RETURNING id`,
+        [tenantId],
+      )
+    ).rows[0].id;
+  }, 60_000);
+
+  afterAll(async () => {
+    await pool?.end();
+    if (admin) {
+      if (!/^hrm_test_[a-f0-9]{32}$/.test(databaseName))
+        throw new Error('Invalid test database');
+      await admin.query(`DROP DATABASE IF EXISTS "${databaseName}"`);
+      await admin.end();
+    }
+  }, 30_000);
+
+  it('cộng phép theo ngày ký HĐ chính thức, tách giao dịch thâm niên và cảnh báo thiếu HĐ', async () => {
+    const type = await leaveType('AL-ACCRUE');
+    await schedule(type, { tiers: [[5, 1], [10, 2], [15, 3]] });
+    const senior = await employee('NV-SENIOR', '2016-07-10');
+    const noContract = await employee('NV-NOHD', null);
+
+    await accrue('2026-06');
+    const july = await accrue('2026-07');
+    expect(july.missingContract).toContain(noContract);
+    const rows = await ledger(senior, type);
+    expect(sorted(rows.map((r) => [r.transaction_type, r.days, r.note]))).toEqual(
+      sorted([
+        ['ACCRUAL', 1, 'Cộng phép 2026-06'],
+        ['SENIORITY_ACCRUAL', 1, 'Cộng phép thâm niên mốc 5 năm 2026-06'], // mốc 5 năm: +1 nguyên ngày
+        ['ACCRUAL', 1, 'Cộng phép 2026-07'],
+        ['SENIORITY_ACCRUAL', 1, 'Cộng phép thâm niên mốc 10 năm 2026-07'], // lên mốc 10 năm: cộng thêm +1
+      ]),
+    );
+    // Chạy lại không ghi trùng.
+    const again = await accrue('2026-07');
+    expect(again.credited).toBe(0);
+    expect(await balance(noContract, type, 2026)).toBeUndefined();
+  });
+
+  it('bắt đầu tính sau N tháng kể từ ngày ký', async () => {
+    const type = await leaveType('AL-OFFSET');
+    await schedule(type, { offset: 2 });
+    const fresh = await employee('NV-OFFSET', '2026-03-10');
+    for (const month of ['2026-03', '2026-04', '2026-05'])
+      await accrue(month);
+    expect((await ledger(fresh, type)).map((r) => r.days)).toEqual([1]);
+  });
+
+  it('không cho ứng: chỉ dùng phần tích luỹ đến tháng hiện tại; cho ứng: tới hết năm', async () => {
+    const strict = await leaveType('AL-STRICT');
+    const flexible = await leaveType('AL-ADVANCE');
+    await schedule(strict);
+    await schedule(flexible, { advance: true });
+    const id = await employee('NV-USABLE', '2020-01-01');
+    const usable = (typeId: string, year: number) =>
+      hrmTransaction(pool, (db) =>
+        unpostedUsableEntitlement(db, tenantId, id, typeId, year, 0, '2026-10-08'),
+      );
+    expect(await usable(strict, 2026)).toMatchObject({ extra: 10, projected: 12 });
+    expect(await usable(flexible, 2026)).toMatchObject({ extra: 12, projected: 12 });
+    expect((await usable(strict, 2027)).extra).toBe(0);
+    expect((await usable(flexible, 2027)).extra).toBe(12);
+
+    const request = (typeId: string, date: string) =>
+      hrmTransaction(pool, (db) =>
+        createLeave(db, tenantId, actor, {
+          employeeId: id,
+          leaveTypeId: typeId,
+          fromDate: date,
+          toDate: date,
+          duration: 1,
+          reason: 'Việc riêng',
+        }),
+      );
+    await expect(request(strict, '2026-10-12')).resolves.toBeTruthy();
+    await expect(request(strict, '2027-01-12')).rejects.toThrow(
+      'không cho ứng phép',
+    );
+    await expect(request(flexible, '2027-01-12')).resolves.toBeTruthy();
+  });
+
+  it('chưa có quỹ phép năm hoặc quỹ bằng 0: không lập được đơn, kể cả khi loại nghỉ có hạn mức âm', async () => {
+    const type = await leaveType('AL-NOFUND');
+    // Hạn mức âm 5 ngày không được dùng để nghỉ khi quỹ rỗng.
+    await pool.query(`UPDATE hrm_schema.leave_types SET negative_limit=5 WHERE tenant_id=$1 AND id=$2`, [tenantId, type]);
+    const id = await employee('NV-NOFUND', null);
+    const request = (date: string, toDate = date) =>
+      hrmTransaction(pool, (db) =>
+        createLeave(db, tenantId, actor, {
+          employeeId: id,
+          leaveTypeId: type,
+          fromDate: date,
+          toDate,
+          duration: toDate === date ? 1 : 2,
+          reason: 'Việc riêng',
+        }),
+      );
+    // Chưa có dòng quỹ nào.
+    await expect(request('2026-10-12')).rejects.toThrow('Chưa có quỹ phép năm 2026 khả dụng');
+    // Có dòng quỹ nhưng bằng 0.
+    await pool.query(
+      `INSERT INTO hrm_schema.leave_balances (tenant_id,employee_id,leave_type_id,year,accrued,remaining) VALUES ($1,$2,$3,2026,0,0)
+       ON CONFLICT DO NOTHING`,
+      [tenantId, id, type],
+    );
+    await expect(request('2026-10-13')).rejects.toThrow('Chưa có quỹ phép năm 2026 khả dụng');
+    // Có quỹ 1 ngày: nghỉ được, và hạn mức âm vẫn cho vượt phần còn thiếu.
+    await pool.query(
+      `UPDATE hrm_schema.leave_balances SET accrued=1,remaining=1 WHERE tenant_id=$1 AND employee_id=$2 AND leave_type_id=$3 AND year=2026`,
+      [tenantId, id, type],
+    );
+    await expect(request('2026-10-14', '2026-10-15')).resolves.toBeTruthy();
+  });
+
+  it('đơn nghỉ đang chờ duyệt chiếm quỹ: đơn thứ hai vượt quỹ còn lại bị chặn ngay khi gửi', async () => {
+    const type = await leaveType('AL-PENDING');
+    const id = await employee('NV-PENDING', null);
+    await pool.query(
+      `INSERT INTO hrm_schema.leave_balances (tenant_id,employee_id,leave_type_id,year,accrued,remaining) VALUES ($1,$2,$3,2026,1,1)`,
+      [tenantId, id, type],
+    );
+    const request = (date: string) =>
+      hrmTransaction(pool, (db) =>
+        createLeave(db, tenantId, actor, {
+          employeeId: id,
+          leaveTypeId: type,
+          fromDate: date,
+          toDate: date,
+          duration: 1,
+          reason: 'Việc riêng',
+        }),
+      );
+    await expect(request('2026-10-19')).resolves.toBeTruthy();
+    // Quỹ còn 1 ngày nhưng đã có 1 ngày đang chờ duyệt: đơn thứ hai không còn quỹ.
+    await expect(request('2026-10-20')).rejects.toThrow('Chưa có quỹ phép năm 2026 khả dụng');
+    const { enrichLeaveBalances } = await import('./hrm-annual-leave');
+    const rows = await hrmTransaction(pool, async (db) =>
+      enrichLeaveBalances(
+        db,
+        tenantId,
+        (await db.query(`SELECT * FROM hrm_schema.leave_balances WHERE tenant_id=$1 AND employee_id=$2 AND leave_type_id=$3`, [tenantId, id, type])).rows,
+      ),
+    );
+    expect(rows[0].available).toBe(0);
+  });
+
+  it('phép năm không cho âm: bỏ qua hạn mức âm đã cấu hình; lý do nghỉ khác vẫn dùng hạn mức âm của nó', async () => {
+    const annual = await leaveType('AL-NONEG');
+    const other = await leaveType('AL-OTHERNEG');
+    await pool.query(
+      `UPDATE hrm_schema.leave_types SET negative_limit=5, is_annual=true WHERE tenant_id=$1 AND id=$2`,
+      [tenantId, annual],
+    );
+    await pool.query(`UPDATE hrm_schema.leave_types SET negative_limit=5 WHERE tenant_id=$1 AND id=$2`, [tenantId, other]);
+    const id = await employee('NV-NONEG', null);
+    for (const type of [annual, other])
+      await pool.query(
+        `INSERT INTO hrm_schema.leave_balances (tenant_id,employee_id,leave_type_id,year,accrued,remaining) VALUES ($1,$2,$3,2026,1,1)`,
+        [tenantId, id, type],
+      );
+    const request = (type: string, from: string, to: string) =>
+      hrmTransaction(pool, (db) =>
+        createLeave(db, tenantId, actor, {
+          employeeId: id,
+          leaveTypeId: type,
+          fromDate: from,
+          toDate: to,
+          duration: from === to ? 1 : 2,
+          reason: 'Việc riêng',
+        }),
+      );
+    // Quỹ 1 ngày, xin 2 ngày: phép năm bị chặn dù hạn mức âm 5; lý do khác được vượt theo hạn mức âm.
+    await expect(request(annual, '2026-10-21', '2026-10-22')).rejects.toThrow('Quỹ phép năm 2026 không đủ');
+    await expect(request(other, '2026-10-23', '2026-10-24')).resolves.toBeTruthy();
+  });
+
+  it('cuối năm: reset loại không cho chuyển, chuyển tối đa và reset phần vượt trần', async () => {
+    const reset = await leaveType('AL-RESET');
+    const carry = await leaveType('AL-CARRY', { carryover: true, maxCarry: 2 });
+    const id = await employee('NV-YEAREND', '2020-01-01');
+    for (const type of [reset, carry])
+      await pool.query(
+        `INSERT INTO hrm_schema.leave_balances (tenant_id,employee_id,leave_type_id,year,accrued,remaining) VALUES ($1,$2,$3,2025,5,5)`,
+        [tenantId, id, type],
+      );
+    const result = await hrmTransaction(pool, (db) =>
+      carryoverYear(db, tenantId, actor, 2026),
+    );
+    expect(result).toMatchObject({ count: 1 });
+    expect((await ledger(id, reset)).map((r) => [r.transaction_type, r.days])).toEqual([
+      ['YEAR_END_RESET', -5],
+    ]);
+    expect(
+      sorted((await ledger(id, carry)).map((r) => [r.transaction_type, r.days, r.balance_year])),
+    ).toEqual(
+      sorted([
+        ['CARRYOVER_OUT', -2, 2025],
+        ['CARRYOVER_IN', 2, 2026],
+        ['YEAR_END_RESET', -3, 2025],
+      ]),
+    );
+    expect(await balance(id, carry, 2026)).toMatchObject({ opening: 2, remaining: 2 });
+    expect((await balance(id, reset, 2025)).remaining).toBe(0);
+    // Chạy lại không ghi thêm.
+    await hrmTransaction(pool, (db) => carryoverYear(db, tenantId, actor, 2026));
+    expect(await ledger(id, reset)).toHaveLength(1);
+  });
+
+  it('nghỉ việc sau khi ứng phép: thu hồi phần dùng vượt và tạo khoản khấu trừ lương', async () => {
+    const type = await leaveType('AL-SETTLE');
+    await schedule(type, { advance: true });
+    const id = await employee('NV-QUIT', '2020-01-01');
+    await pool.query(
+      `INSERT INTO hrm_schema.employee_salary_profiles (tenant_id,employee_id,salary_type,base_salary,effective_from,status) VALUES ($1,$2,'GROSS',27000000,'2026-01-01','ACTIVE')`,
+      [tenantId, id],
+    );
+    for (const month of ['2026-01', '2026-02', '2026-03', '2026-04', '2026-05', '2026-06'])
+      await accrue(month);
+    // Đã nghỉ 10 ngày (ứng trước 4 ngày).
+    await pool.query(
+      `UPDATE hrm_schema.leave_balances SET used=used+10,remaining=remaining-10 WHERE tenant_id=$1 AND employee_id=$2 AND leave_type_id=$3 AND year=2026`,
+      [tenantId, id, type],
+    );
+    // Ngừng từ 10/07: làm 9 ngày của tháng 7 vẫn được tính tháng đó (có hiệu lực bất kỳ ngày nào trong tháng thì +1), nên hưởng 7 tháng.
+    const preview = await hrmTransaction(pool, (db) =>
+      computeLeaveSettlement(db, tenantId, id, '2026-07-10'),
+    );
+    expect(preview.find((l) => l.leaveTypeId === type)).toMatchObject({
+      entitled: 7,
+      excess: 3,
+    });
+    await pool.query(
+      `UPDATE hrm_schema.employee_profiles SET employment_status='RESIGNED',inactive_from='2026-07-10' WHERE tenant_id=$1 AND employee_id=$2`,
+      [tenantId, id],
+    );
+    const settled = await hrmTransaction(pool, (db) =>
+      settleLeaveOnTermination(db, tenantId, actor, id, '2026-07-10'),
+    );
+    const row = settled.find((s) => s.leave_type_id === type);
+    // Tháng 7/2026 có 27 ngày công chuẩn (bỏ 4 Chủ nhật): 27.000.000 / 27 = 1.000.000/ngày.
+    expect(row).toMatchObject({ status: 'PENDING' });
+    expect(Number(row.excess_days)).toBe(3);
+    expect(Number(row.recovery_amount)).toBe(3_000_000);
+    expect((await ledger(id, type)).find((r) => r.transaction_type === 'RECOVERY')).toMatchObject({
+      transaction_type: 'RECOVERY',
+      days: 3,
+    });
+    expect((await balance(id, type, 2026)).remaining).toBe(0);
+    // Chạy lại trả về quyết toán cũ.
+    const again = await hrmTransaction(pool, (db) =>
+      settleLeaveOnTermination(db, tenantId, actor, id, '2026-07-10'),
+    );
+    expect(again.find((s) => s.leave_type_id === type).id).toBe(row.id);
+
+    const period = (
+      await pool.query(
+        `INSERT INTO hrm_schema.payroll_periods (tenant_id,period_code,from_date,to_date,payment_date) VALUES ($1,'2026-07','2026-07-01','2026-07-31','2026-08-05') RETURNING id`,
+        [tenantId],
+      )
+    ).rows[0].id;
+    const scheduled = await hrmTransaction(pool, (db) =>
+      scheduleSettlement(db, tenantId, actor, row.id, {
+        payrollPeriodId: period,
+        recoveryAmount: 2_500_000,
+        reason: 'Giảm theo thoả thuận',
+      }),
+    );
+    expect(scheduled).toMatchObject({ status: 'SCHEDULED' });
+    expect(Number(scheduled.recovery_amount)).toBe(2_500_000);
+    const waived = await hrmTransaction(pool, (db) =>
+      waiveSettlement(db, tenantId, actor, row.id, 'Miễn trừ theo quyết định'),
+    );
+    expect(waived.status).toBe('WAIVED');
+  });
+
+  it('ngừng làm việc lùi ngày: thu hồi phép đã cộng cho tháng sau ngày nghỉ', async () => {
+    const type = await leaveType('AL-BACKDATE');
+    await schedule(type);
+    const id = await employee('NV-BACKDATE', '2020-01-01');
+    for (const month of ['2026-01', '2026-02', '2026-03', '2026-04', '2026-05'])
+      await accrue(month);
+    await pool.query(
+      `INSERT INTO hrm_schema.leave_requests (tenant_id,employee_id,leave_type_id,from_date,to_date,duration,reason,status) VALUES ($1,$2,$3,'2026-04-20','2026-04-20',1,'x','PENDING')`,
+      [tenantId, id, type],
+    );
+    await expect(
+      hrmTransaction(pool, (db) =>
+        settleLeaveOnTermination(db, tenantId, actor, id, '2026-04-01'),
+      ),
+    ).rejects.toThrow('chờ duyệt');
+    await pool.query(
+      `UPDATE hrm_schema.leave_requests SET status='CANCELLED' WHERE tenant_id=$1 AND employee_id=$2`,
+      [tenantId, id],
+    );
+    const settled = await hrmTransaction(pool, (db) =>
+      settleLeaveOnTermination(db, tenantId, actor, id, '2026-04-01'),
+    );
+    const row = settled.find((s) => s.leave_type_id === type);
+    expect(row).toMatchObject({ status: 'CLOSED' });
+    expect(Number(row.unused_days)).toBe(3);
+    expect((await ledger(id, type)).find((r) => r.transaction_type === 'RECOVERY')).toMatchObject({
+      transaction_type: 'RECOVERY',
+      days: -2,
+    });
+    expect(await balance(id, type, 2026)).toMatchObject({ accrued: 3, remaining: 3 });
+  });
+  it('quỹ phép theo lô: tính theo ngày ký HĐLĐ, hiện thâm niên, ngày ký, số truy vấn không tăng theo số dòng', async () => {
+    const type = await leaveType('AL-ENRICH');
+    await schedule(type, { tiers: [[5, 1], [10, 2]] });
+    const senior = await employee('NV-E-SENIOR', '2016-07-10');
+    const fresh = await employee('NV-E-FRESH', '2026-03-10');
+    const none = await employee('NV-E-NOHD', null);
+    const row = (employeeId: string) => ({
+      employee_id: employeeId,
+      leave_type_id: type,
+      year: 2026,
+      accrued: 0,
+      remaining: 0,
+    });
+    const run = (ids: string[]) =>
+      hrmTransaction(pool, async (db) => {
+        let queries = 0;
+        const counted = {
+          query: ((...args: Parameters<typeof db.query>) => {
+            queries++;
+            return db.query(...args);
+          }) as typeof db.query,
+        };
+        const rows = await enrichLeaveBalances(counted, tenantId, ids.map(row));
+        return { rows, queries };
+      });
+    const one = await run([senior]);
+    const many = await run([senior, fresh, none]);
+    expect(many.queries).toBe(one.queries);
+
+    const byId = new Map(many.rows.map((r) => [r.employee_id, r]));
+    // Ký 10/07/2016: đủ 12 tháng; thâm niên 5 năm +1 (T1-T6) rồi lên mốc 10 năm (T7) cộng thêm +1 => +2.
+    expect(byId.get(senior)).toMatchObject({
+      projected_entitlement: 14,
+      projected_seniority: 2,
+      sign_date: '2016-07-10',
+      eligible_from: '2016-07-10',
+      seniority_tier_years: 10,
+    });
+    // Ký 10/03/2026: tính từ tháng 3 (10 tháng), chưa có thâm niên.
+    expect(byId.get(fresh)).toMatchObject({
+      projected_entitlement: 10,
+      projected_seniority: 0,
+      sign_date: '2026-03-10',
+    });
+    // Chưa có HĐLĐ chính thức: không phát sinh phép (HĐ thử việc ký sớm không được dùng làm mốc).
+    expect(byId.get(none)).toMatchObject({
+      projected_entitlement: 0,
+      projected_seniority: 0,
+      sign_date: null,
+    });
+  });
+
+  it('quản lý trực tiếp lấy theo "Báo cáo cho" của chức danh Core; ghi đè theo phân công; bỏ qua chức danh trống/người đã nghỉ', async () => {
+    const tree = randomUUID();
+    await pool.query(
+      `INSERT INTO core_schema.organization_trees (id,code,name,is_primary) VALUES ($1,$2,'Sơ đồ',true)`,
+      [tree, `T-${tree.slice(0, 8)}`],
+    );
+    const position = async (code: string, reportsTo: string | null) => {
+      const id = randomUUID();
+      await pool.query(
+        `INSERT INTO core_schema.organization_nodes (id,tree_id,category,code,name,reports_to_position_id) VALUES ($1,$2,'position',$3,$3,$4)`,
+        [id, tree, `${code}-${id.slice(0, 6)}`, reportsTo],
+      );
+      return id;
+    };
+    const person = async (code: string, positionId: string | null, override: string | null = null) => {
+      const userId = randomUUID();
+      await pool.query(
+        `INSERT INTO core_schema.users (id,username,full_name,email,password_hash) VALUES ($1,$2,$2,$3,'x')`,
+        [userId, `${code}-${userId.slice(0, 6)}`, `${userId}@t.local`],
+      );
+      const id = randomUUID();
+      await pool.query(
+        `INSERT INTO core_schema.employees (id,tenant_id,user_id,full_name,work_email) VALUES ($1,$2,$3,$4,$5)`,
+        [id, tenantId, userId, code, `${userId}@t.local`],
+      );
+      await pool.query(
+        `INSERT INTO hrm_schema.employee_profiles (employee_id,tenant_id,employee_code,join_date) VALUES ($1,$2,$3,'2020-01-01')`,
+        [id, tenantId, code],
+      );
+      if (positionId)
+        await pool.query(
+          `INSERT INTO core_schema.organization_node_assignments (id,node_id,user_id,is_primary,reports_to_position_override_id) VALUES ($1,$2,$3,true,$4)`,
+          [randomUUID(), positionId, userId, override],
+        );
+      return id;
+    };
+    const ceoPos = await position('CEO', null);
+    const headPos = await position('HEAD', ceoPos);
+    const vacantPos = await position('VACANT', headPos);
+    const staffPos = await position('STAFF', vacantPos);
+    const altPos = await position('ALT', ceoPos);
+    const ceo = await person('M-CEO', ceoPos);
+    const head = await person('M-HEAD', headPos);
+    const staff = await person('M-STAFF', staffPos);
+    const overridden = await person('M-OVR', staffPos, altPos);
+    const alt = await person('M-ALT', altPos);
+    const manager = (id: string) => loadDirectManagerRef(pool, tenantId, id);
+
+    // STAFF báo cáo cho VACANT (không ai giữ) => leo lên HEAD.
+    expect(await manager(staff)).toMatchObject({ employeeId: head, title: expect.stringContaining('HEAD'), source: 'CORE_POSITION' });
+    // Trưởng báo cáo cho CEO.
+    expect(await manager(head)).toMatchObject({ employeeId: ceo });
+    // Gốc không báo cáo cho ai.
+    expect(await manager(ceo)).toBeNull();
+    // Ô ghi đè trên phân công thắng giá trị của chức danh.
+    expect(await manager(overridden)).toMatchObject({ employeeId: alt });
+    // Người giữ chức danh phía trên đã nghỉ việc => bỏ qua, leo tiếp lên CEO.
+    await pool.query(
+      `UPDATE hrm_schema.employee_profiles SET employment_status='RESIGNED' WHERE tenant_id=$1 AND employee_id=$2`,
+      [tenantId, head],
+    );
+    expect(await manager(staff)).toMatchObject({ employeeId: ceo });
+    // Hồ sơ hiển thị dùng cùng nguồn, kèm mã nhân viên.
+    const overview = await loadReportingOverview(pool, tenantId, staff);
+    expect(overview.manager).toMatchObject({ employeeId: ceo, code: 'M-CEO', source: 'CORE_POSITION' });
+  });
+});

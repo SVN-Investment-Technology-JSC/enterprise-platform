@@ -41,6 +41,7 @@ integration('HRM request draft lifecycle PostgreSQL integration', () => {
       'core/0001-core-schema.sql',
       'core/0002-organization-soft-delete.sql',
       'core/0006-employees.sql',
+      'core/0007-org-hrm-bridge.sql',
       '0001-integration.sql',
       'hrm/0001-hrm.sql',
     ])
@@ -79,6 +80,21 @@ integration('HRM request draft lifecycle PostgreSQL integration', () => {
     await migrate('hrm/0017-hrm-request-drafts.sql');
     await migrate('hrm/0018-hrm-request-reversals.sql');
     await migrate('hrm/0018-hrm-request-reversals.sql');
+    await migrate('hrm/0033-leave-annual-policy.sql');
+    await migrate('hrm/0044-hrm-annual-leave-single-policy.sql');
+    await migrate('hrm/0035-hrm-work-schedules.sql');
+    await migrate('hrm/0036-hrm-work-schedule-rules.sql');
+    // Danh mục lý do của đơn từ (lý do chọn từ danh mục, mô tả tự do): cột reason_id/reason_name/paid của các bảng đơn.
+    await migrate('hrm/0037-request-reason-catalog.sql');
+    await migrate('hrm/0038-request-reason-categories.sql');
+    await migrate('hrm/0039-request-catalog-codes.sql');
+    await migrate('hrm/0045-hrm-request-reasons.sql');
+    await migrate('hrm/0048-hrm-timesheet-payroll-linkage.sql');
+    await migrate('hrm/0049-hrm-ot-reason-rate.sql');
+    await migrate('hrm/0050-hrm-request-comments.sql');
+    await migrate('hrm/0034-hrm-request-project-links.sql');
+    await migrate('hrm/0035-hrm-request-trip-links.sql');
+    await migrate('hrm/0036-hrm-project-request-reversed.sql');
   }, 30_000);
   afterAll(async () => {
     await pool?.end();
@@ -147,6 +163,11 @@ integration('HRM request draft lifecycle PostgreSQL integration', () => {
         name: 'Versioned leave',
       } as any)
     ).data;
+    // Chỉ lý do phép năm mới có lịch cộng phép (mỗi tenant đúng một lý do).
+    await pool.query(
+      'UPDATE hrm_schema.leave_types SET is_annual=true,paid=true,deduct_balance=true WHERE tenant_id=$1 AND id=$2',
+      [tenantId, type.id],
+    );
     const initial = {
       accrualFrequency: 'MONTHLY',
       accrualAmount: 1,
@@ -777,13 +798,37 @@ integration('HRM request draft lifecycle PostgreSQL integration', () => {
       { start: '2026-08-26T01:00:00Z', end: '2026-08-26T05:00:00Z' },
       { start: '2026-08-26T06:00:00Z', end: '2026-08-26T10:00:00Z' },
     ];
+    const reason = (
+      await pool.query(
+        // Danh mục mặc định của tenant đã có sẵn lý do "Quên chấm công": dùng lại, chưa có thì tạo.
+        `WITH existing AS (SELECT id FROM hrm_schema.request_reasons WHERE tenant_id=$1 AND kind='ATTENDANCE_CORRECTION' AND lower(name)=lower('Quên chấm công') AND deleted_at IS NULL),
+         created AS (INSERT INTO hrm_schema.request_reasons(tenant_id,kind,code,name) SELECT $1,'ATTENDANCE_CORRECTION','COR_TEST','Quên chấm công' WHERE NOT EXISTS (SELECT 1 FROM existing) RETURNING id)
+         SELECT id FROM existing UNION ALL SELECT id FROM created`,
+        [tenantId],
+      )
+    ).rows[0];
     const created = await c.createCorrection(req, {
       employeeId: userId,
       requestDate: '2026-08-26',
       sessions,
-      reason: 'Two-session correction',
+      reasonId: reason.id,
+      description: 'Two-session correction',
     });
     expect((created.data as any).correctedSessions).toEqual(sessions);
+    // Lý do chọn từ danh mục tách khỏi mô tả: lưu reason_id, bản chụp tên và mô tả ở cột reason.
+    expect(created.data).toMatchObject({
+      reasonId: reason.id,
+      reasonName: 'Quên chấm công',
+      description: 'Two-session correction',
+    });
+    await expect(
+      c.createCorrection(req, {
+        employeeId: userId,
+        requestDate: '2026-08-26',
+        sessions,
+        reason: 'Lý do nhập tự do không còn hợp lệ',
+      } as any),
+    ).rejects.toMatchObject({ status: 400 });
   });
   it('re-submits amendments through the configured binding and rolls back cancellation if the binding is missing', async () => {
     const c = new HrmLeaveController(ctx(), bridge as any);
@@ -801,7 +846,7 @@ integration('HRM request draft lifecycle PostgreSQL integration', () => {
       )
     ).rows[0];
     await pool.query(
-      "INSERT INTO hrm_schema.shift_assignments(tenant_id,employee_id,shift_id,effective_from,effective_to) VALUES($1,$2,$3,'2026-08-27','2026-08-28')",
+      "INSERT INTO hrm_schema.employee_work_days(tenant_id,employee_id,work_date,day_type,shift_id,source) SELECT $1,$2,d::date,'SHIFT',$3,'MANUAL' FROM generate_series('2026-08-27'::date,'2026-08-28'::date,'1 day') d",
       [tenantId, userId, shift.id],
     );
     const original = (

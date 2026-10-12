@@ -23,4 +23,28 @@ describe('Popconfirm typed confirmation', () => {
     fireEvent.click(screen.getByText('Xác nhận xóa'));
     await waitFor(() => expect(confirm).toHaveBeenCalledWith('tenant-a'));
   });
+
+  it('collects a required reason and passes it to onConfirm', async () => {
+    const confirm = jest.fn().mockResolvedValue(undefined);
+    render(
+      <Popconfirm
+        title="Từ chối đơn?"
+        reasonRequired
+        reasonLabel="Lý do từ chối"
+        onConfirm={confirm}
+        okText="Từ chối"
+      >
+        <button>Mở</button>
+      </Popconfirm>,
+    );
+    fireEvent.click(screen.getByText('Mở'));
+    const ok = screen.getByRole('button', { name: 'Từ chối' });
+    expect((ok as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(screen.getByRole('textbox'), {
+      target: { value: '  Thiếu chứng từ  ' },
+    });
+    expect((ok as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(ok);
+    await waitFor(() => expect(confirm).toHaveBeenCalledWith('Thiếu chứng từ'));
+  });
 });

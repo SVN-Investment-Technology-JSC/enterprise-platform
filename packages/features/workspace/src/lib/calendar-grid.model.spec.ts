@@ -1,6 +1,7 @@
 import type { CalendarOccurrence, WorkItem } from '@enterprise-platform/contracts-workspace';
 import {
   buildCalendarGrid,
+  buildWeekTimeline,
   dateKey,
   gridLabel,
   gridLength,
@@ -169,5 +170,84 @@ describe('gridLabel', () => {
   it('nhãn tháng và nhãn tuần đọc được', () => {
     expect(gridLabel(new Date(2026, 8, 24), 'month')).toBe('Tháng 9/2026');
     expect(gridLabel(new Date(2026, 8, 24), 'week')).toBe('Tuần 21/09 – 27/09/2026');
+  });
+});
+
+describe('buildWeekTimeline', () => {
+  // Thứ Năm 24/09/2026; tuần chạy từ thứ Hai 21/09 tới Chủ nhật 27/09.
+  const anchor = new Date(2026, 8, 24);
+  const at = (day: number, hour: number, minute = 0) =>
+    new Date(2026, 8, day, hour, minute).toISOString();
+
+  it('đặt sự kiện có giờ vào đúng ngày, theo phút trong ngày', () => {
+    const timeline = buildWeekTimeline(
+      anchor,
+      [occurrence({ startAt: at(22, 9, 30), endAt: at(22, 11) })],
+      [],
+    );
+    expect(timeline.days).toHaveLength(7);
+    expect(timeline.days[0].date).toBe('2026-09-21');
+    const tuesday = timeline.days[1];
+    expect(tuesday.timed).toHaveLength(1);
+    expect(tuesday.timed[0]).toMatchObject({
+      startMinute: 9 * 60 + 30,
+      endMinute: 11 * 60,
+      time: '09:30–11:00',
+      column: 0,
+      columns: 1,
+    });
+    expect(timeline.days[5].isWeekend).toBe(true);
+    expect(timeline.days[6].isWeekend).toBe(true);
+    expect(timeline.days[4].isWeekend).toBe(false);
+  });
+
+  it('chia cột cho các buổi chồng giờ và tách cụm khi hết chồng', () => {
+    const timeline = buildWeekTimeline(
+      anchor,
+      [
+        occurrence({ eventId: 'a', startAt: at(23, 9), endAt: at(23, 11) }),
+        occurrence({ eventId: 'b', startAt: at(23, 10), endAt: at(23, 12) }),
+        occurrence({ eventId: 'c', startAt: at(23, 11), endAt: at(23, 12) }),
+        occurrence({ eventId: 'd', startAt: at(23, 14), endAt: at(23, 15) }),
+      ],
+      [],
+    );
+    const byId = new Map(
+      timeline.days[2].timed.map((entry) => [entry.occurrence.eventId, entry]),
+    );
+    expect(byId.get('a')).toMatchObject({ column: 0, columns: 2 });
+    expect(byId.get('b')).toMatchObject({ column: 1, columns: 2 });
+    // `c` bắt đầu đúng lúc `a` kết thúc nên dùng lại cột của `a`.
+    expect(byId.get('c')).toMatchObject({ column: 0, columns: 2 });
+    expect(byId.get('d')).toMatchObject({ column: 0, columns: 1 });
+  });
+
+  it('đưa sự kiện cả ngày, sự kiện nhiều ngày và hạn công việc lên hàng cả ngày', () => {
+    const timeline = buildWeekTimeline(
+      anchor,
+      [
+        occurrence({ eventId: 'all', allDay: true, startAt: at(21, 0), endAt: at(21, 23, 59) }),
+        occurrence({ eventId: 'trip', startAt: at(24, 8), endAt: at(25, 17) }),
+      ],
+      [workItem({ id: 'w1', plannedEnd: '2026-09-26' })],
+    );
+    expect(timeline.days[0].allDay.map((entry) => entry.occurrence?.eventId)).toEqual(['all']);
+    expect(timeline.days[3].allDay.map((entry) => entry.occurrence?.eventId)).toEqual(['trip']);
+    expect(timeline.days[4].allDay.map((entry) => entry.occurrence?.eventId)).toEqual(['trip']);
+    expect(timeline.days[5].allDay.map((entry) => entry.kind)).toEqual(['deadline']);
+    expect(timeline.days.every((day) => day.timed.length === 0)).toBe(true);
+  });
+
+  it('nới khung giờ khi có sự kiện ngoài 07–19', () => {
+    expect(buildWeekTimeline(anchor, [], [])).toMatchObject({ startHour: 7, endHour: 19 });
+    const timeline = buildWeekTimeline(
+      anchor,
+      [
+        occurrence({ eventId: 'early', startAt: at(22, 5, 30), endAt: at(22, 6, 30) }),
+        occurrence({ eventId: 'late', startAt: at(23, 20), endAt: at(23, 21, 15) }),
+      ],
+      [],
+    );
+    expect(timeline).toMatchObject({ startHour: 5, endHour: 22 });
   });
 });

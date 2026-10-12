@@ -1,4 +1,5 @@
 import type {
+  ReverseProcedureInstanceRequest,
   ApplyProcedureActionRequest,
   CreateProcedureDefinitionRequest,
   CreateProcedureAttachmentRequest,
@@ -20,6 +21,7 @@ import type {
   RequestProcedureMaterialsRequest,
   RequestProcedureMaterialsResponse,
   SetProcedureSubtasksRequest,
+  StartProcedureInstanceRequest,
   UpdateProcedureDefinitionRequest,
 } from '@enterprise-platform/contracts-procedure-engine';
 import { authFetch } from '@enterprise-platform/shared-ui';
@@ -185,6 +187,16 @@ export function startProcedureInstance(
         observerIds?: string[];
         observerNames?: string[];
         processAttributeValues?: Record<string, ProcedureAttributeValue>;
+        /**
+         * Khoá chống trùng cố định. Đơn gắn công việc Workspace dùng khoá suy
+         * từ id công việc để Thử lại ở bất kỳ phía nào cũng ra đúng một hồ sơ;
+         * vắng thì sinh khoá mới cho mỗi lần bấm.
+         */
+        idempotencyKey?: string;
+        /** Gắn dự án Workspace; công việc do Workspace tự tạo khi nhận sự kiện. */
+        workspaceLink?: StartProcedureInstanceRequest['workspaceLink'];
+        /** Hồ sơ điều chỉnh của một hồ sơ đã huỷ hiệu lực. */
+        adjustmentOfInstanceId?: string;
       },
 ): Promise<ProcedureInstance> {
   const payload =
@@ -197,7 +209,7 @@ export function startProcedureInstance(
     body: JSON.stringify({
       definitionId,
       ...payload,
-      idempotencyKey: newIdempotencyKey(),
+      idempotencyKey: (typeof titleOrPayload === 'string' ? undefined : titleOrPayload.idempotencyKey) ?? newIdempotencyKey(),
     }),
   });
 }
@@ -218,6 +230,20 @@ export function applyProcedureAction(
     idempotencyKey: newIdempotencyKey(),
   };
   return request<ProcedureInstance>(`/instances/${instanceId}/actions`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+/**
+ * Huỷ hiệu lực hồ sơ đã hoàn thành (chỉ Quản trị viên). Hồ sơ không mở lại:
+ * chuyển sang "Đã huỷ hiệu lực", module liên kết tự gỡ tác động qua sự kiện.
+ */
+export function reverseProcedureInstance(
+  instanceId: string,
+  input: ReverseProcedureInstanceRequest,
+): Promise<ProcedureInstance> {
+  return request<ProcedureInstance>(`/instances/${instanceId}/reverse`, {
     method: 'POST',
     body: JSON.stringify(input),
   });

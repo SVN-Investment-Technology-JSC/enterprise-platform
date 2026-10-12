@@ -11,6 +11,35 @@ export interface PayrollComponentDraft {
 }
 
 // ---------------------------------------------------------------------------
+// Biến hệ thống dùng trong công thức lương
+// ---------------------------------------------------------------------------
+
+/**
+ * Bản sao phía giao diện của `payrollSystemInputs` (module-hrm, hrm-payroll-calculation.ts).
+ * Giao diện không import được mã backend: khi backend thêm/bớt biến phải cập nhật danh sách này.
+ */
+export const PAYROLL_SYSTEM_INPUTS: readonly { code: string; label: string }[] = [
+  { code: 'BASE_SALARY', label: 'Lương tháng theo hồ sơ lương (bình quân theo ngày trong kỳ)' },
+  { code: 'PRORATED_BASE_PAY', label: 'Lương theo công (đã tính theo phút được trả)' },
+  { code: 'SCHEDULED_MINUTES', label: 'Tổng phút theo phân ca trong kỳ' },
+  { code: 'STANDARD_PERIOD_MINUTES', label: 'Định mức phút chuẩn của kỳ (công chuẩn động hoặc cố định theo cấu hình)' },
+  { code: 'STANDARD_WORKDAYS', label: 'Công chuẩn của kỳ tính theo ngày công' },
+  { code: 'PAID_MINUTES', label: 'Phút được trả lương' },
+  { code: 'WORKED_MINUTES', label: 'Phút làm việc thực tế' },
+  { code: 'OT_MINUTES', label: 'Phút tăng ca' },
+  { code: 'WEIGHTED_OT_MINUTES', label: 'Phút tăng ca đã nhân hệ số' },
+  { code: 'LATE_MINUTES', label: 'Phút đi muộn' },
+  { code: 'EARLY_MINUTES', label: 'Phút về sớm' },
+  { code: 'WORKDAY_UNITS', label: 'Số công trong kỳ' },
+  { code: 'ADVANCE_DUE', label: 'Số tiền tạm ứng cần thu hồi' },
+  { code: 'LEAVE_RECOVERY_DUE', label: 'Thu hồi phép dùng vượt khi nghỉ việc (đã gồm trong MANUAL_DEDUCTIONS)' },
+  { code: 'MANUAL_EARNINGS', label: 'Khoản cộng điều chỉnh tay trong kỳ' },
+  { code: 'MANUAL_DEDUCTIONS', label: 'Khoản trừ điều chỉnh tay trong kỳ (gồm thu hồi phép)' },
+  { code: 'REGISTERED_DEPENDENT_COUNT', label: 'Số người phụ thuộc đã đăng ký' },
+  { code: 'TRIP_ALLOWANCE_AMOUNT', label: 'Công tác phí của kỳ (mức theo hình thức công tác x ngày công tác, đã chốt theo bảng công)' },
+];
+
+// ---------------------------------------------------------------------------
 // Giờ HH:mm <-> phút từ 00:00
 // ---------------------------------------------------------------------------
 
@@ -140,6 +169,8 @@ export function payrollTemplate(): PayrollTemplate {
       formula: 'ROUND(BASE_SALARY / STANDARD_PERIOD_MINUTES * WEIGHTED_OT_MINUTES, 0)',
     },
     { code: 'ALLOWANCE_PAY', name: 'Phụ cấp', type: 'ALLOWANCE', formula: 'ALLOWANCE_FIXED' },
+    // Công tác phí lấy từ bảng công đã chốt; mẫu không đưa vào thu nhập tính thuế, HR/kế toán xác nhận cách tính thuế.
+    { code: 'TRIP_PAY', name: 'Công tác phí', type: 'ALLOWANCE', formula: 'TRIP_ALLOWANCE_AMOUNT' },
     {
       code: 'INSURANCE_BASE_USED',
       name: 'Mức đóng bảo hiểm tính toán',
@@ -167,7 +198,7 @@ export function payrollTemplate(): PayrollTemplate {
       code: 'NET',
       name: 'Thực lĩnh',
       type: 'NET_PAY',
-      formula: 'SALARY + OT_PAY + ALLOWANCE_PAY + MANUAL_EARNINGS - BHXH - BHYT - BHTN - PIT - ADVANCE - MANUAL_DEDUCTIONS',
+      formula: 'SALARY + OT_PAY + ALLOWANCE_PAY + TRIP_PAY + MANUAL_EARNINGS - BHXH - BHYT - BHTN - PIT - ADVANCE - MANUAL_DEDUCTIONS',
     },
   ];
   return { components, inputs, inputNotes };

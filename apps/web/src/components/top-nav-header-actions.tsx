@@ -9,6 +9,7 @@ import {
   Settings,
   User,
 } from 'lucide-react';
+import Link from 'next/link';
 import { NotificationBell, revokeSession } from '@enterprise-platform/shared-ui';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { cn } from '@/lib/utils';
@@ -175,14 +176,14 @@ export function TopNavHeaderActions({
 
             {/* Menu Items */}
             <div className="py-1">
-              <button
-                type="button"
+              <Link
+                href="/account"
                 className="flex w-full items-center gap-2.5 px-3.5 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors"
                 onClick={() => setUserMenuOpen(false)}
               >
                 <User className="size-4 text-slate-400" />
                 <span>Tài khoản của tôi</span>
-              </button>
+              </Link>
 
               <button
                 type="button"

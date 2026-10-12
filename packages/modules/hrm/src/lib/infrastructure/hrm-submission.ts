@@ -20,13 +20,33 @@ import { lockEmployee } from './hrm-time.js';
 import { ConflictException } from '@nestjs/common';
 import { assertLifecycleVersion, lifecycleAudit } from './hrm-lifecycle.js';
 import type { HrmDraftRef } from './hrm-request-drafts.js';
+import { requestReasonCode } from './hrm-request-reason-input.js';
 import {
   isAwaitingApproval,
   notifyApproversOfDirectRequest,
 } from './hrm-approval-notification.js';
+import {
+  attachOverlappingRequestsToTrip,
+  attachRequestToOverlappingTrips,
+  registerRequestProject,
+  type RequestProjectInput,
+} from './hrm-request-project-links.js';
+
+/** Loại đơn có danh mục lý do (đơn nghỉ dùng loại nghỉ làm lý do nên xử lý riêng). */
+const REASON_CATALOG_KINDS: ReadonlySet<HrmRequestKind> = new Set([
+  'ot',
+  'business_trip',
+  'correction',
+  'shift_change',
+]);
 
 type Submission = Omit<HrmSubmission, 'requestId' | 'revision'> & {
   draft?: HrmDraftRef;
+  /**
+   * "Dự án liên kết" của đơn, nếu có. Đơn được gửi sang Workspace để nhận mã
+   * DTxxx; hồ sơ quy trình (nếu có) chỉ mở sau khi có mã đó.
+   */
+  project?: RequestProjectInput & { fromDate?: string; toDate?: string };
 };
 type Starter = {
   startOrResume(
@@ -128,6 +148,8 @@ export async function submitHrmRequest(
         !row.swap_peer_confirmed)
     )
       return { row, link: null };
+    // Cách duyệt chọn theo MÃ LÝ DO của đơn (sub_type_code): đơn nghỉ dùng mã loại nghỉ; làm thêm giờ, công tác,
+    // giải trình công, đổi ca dùng mã lý do trong danh mục. Không có cấu hình riêng thì dùng cấu hình chung của loại đơn.
     let subTypeCode = input.subTypeCode;
     if (input.kind === 'leave')
       subTypeCode = (
@@ -136,9 +158,9 @@ export async function submitHrmRequest(
           [input.tenantId, row.leave_type_id],
         )
       ).rows[0]?.code;
-    if (input.kind === 'business_trip')
-      subTypeCode = String(row.business_trip_type);
-    if (input.kind === 'ot') subTypeCode = String(row.ot_type);
+    else if (input.kind === 'custom') subTypeCode = row.type_code as string;
+    else if (REASON_CATALOG_KINDS.has(input.kind))
+      subTypeCode = await requestReasonCode(db, input.tenantId, row.reason_id);
     const link = await prepareHrmProcedureLink(db, {
       ...input,
       subTypeCode,
@@ -146,6 +168,41 @@ export async function submitHrmRequest(
       revision: Number(row.revision ?? 1),
       attributes: input.attributes,
       fieldRow: row,
+    });
+    if (input.project) {
+      await registerRequestProject(db, {
+        tenantId: input.tenantId,
+        kind: input.kind as HrmRequestKind,
+        requestId: row.id as string,
+        employeeId: input.employeeId,
+        initiatedBy: input.initiatedBy,
+        requestTypeLabel: input.title,
+        project: input.project,
+        status: String(row.status),
+        fromDate: input.project.fromDate,
+        toDate: input.project.toDate,
+      });
+      // Đơn công tác gắn dự án kéo theo các đơn có ngày đã gửi trong thời gian đó.
+      if (input.kind === 'business_trip' && input.project.fromDate && input.project.toDate)
+        await attachOverlappingRequestsToTrip(db, {
+          tenantId: input.tenantId,
+          tripId: row.id as string,
+          employeeId: input.employeeId,
+          initiatedBy: input.initiatedBy,
+          project: input.project,
+          fromDate: input.project.fromDate,
+          toDate: input.project.toDate,
+        });
+    }
+    // Đơn có ngày rơi vào thời gian công tác tự hiện ở dự án của đơn công tác.
+    await attachRequestToOverlappingTrips(db, {
+      tenantId: input.tenantId,
+      kind: input.kind as HrmRequestKind,
+      requestId: row.id as string,
+      employeeId: input.employeeId,
+      initiatedBy: input.initiatedBy,
+      requestTypeLabel: input.title,
+      status: String(row.status),
     });
     // Đơn qua Procedure được báo bằng `procedure.assignment.created`; chỉ đơn DIRECT mới cần báo ở đây.
     if (!link && isAwaitingApproval(row.status))

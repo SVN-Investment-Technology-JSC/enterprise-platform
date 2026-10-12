@@ -37,6 +37,7 @@ integration('HRM payroll lifecycle PostgreSQL integration', () => {
       'core/0001-core-schema.sql',
       'core/0002-organization-soft-delete.sql',
       'core/0006-employees.sql',
+      'core/0007-org-hrm-bridge.sql',
       '0001-integration.sql',
       'hrm/0001-hrm.sql',
     ])
@@ -78,6 +79,7 @@ integration('HRM payroll lifecycle PostgreSQL integration', () => {
     await migrate('hrm/0019-timesheet-attachment-lifecycle.sql');
     await migrate('hrm/0020-payroll-lifecycle.sql');
     await migrate('hrm/0019-timesheet-attachment-lifecycle.sql');
+    await migrate('hrm/0033-leave-annual-policy.sql');
     const ctx = {
       getContext: async () => ({ pool, tenantId, principal: { userId } }),
       resolveEmployee: async () => ({ employeeId: userId }),
@@ -234,6 +236,7 @@ integration('HRM payroll lifecycle PostgreSQL integration', () => {
     const config = {
       effectiveFrom: '2031-01-01',
       salaryType: 'GROSS' as const,
+      reason: 'Policy setup',
       inputs: { BONUS: 100 },
       components: [
         {
@@ -311,6 +314,7 @@ integration('HRM payroll lifecycle PostgreSQL integration', () => {
       await settings.save(req, {
         effectiveFrom: '2035-01-01',
         salaryType: 'GROSS',
+        reason: 'Policy setup',
         inputs: {},
         components: [
           {

@@ -43,6 +43,7 @@ import {
   payrollSystemInputs,
 } from '../infrastructure/hrm-payroll-calculation.js';
 import { dryRunPayroll } from '../domain/payroll-dry-run.js';
+import { validateStandardWork } from '../domain/standard-workdays.js';
 
 function validateInputs(inputs: Record<string, number>) {
   if (
@@ -67,13 +68,8 @@ function validatePayroll(
 ) {
   requireDate(body.effectiveFrom, 'effectiveFrom');
   validateInputs(body.inputs);
-  if (
-    body.standardMinutes !== undefined &&
-    (!Number.isInteger(body.standardMinutes) ||
-      body.standardMinutes < 1 ||
-      body.standardMinutes > 90720)
-  )
-    throw new BadRequestException('Định mức phút của kỳ phải từ 1 đến 90720');
+  const standardError = validateStandardWork(body);
+  if (standardError) throw new BadRequestException(standardError);
   if (
     !['NET', 'GROSS'].includes(body.salaryType) ||
     !Array.isArray(body.components) ||
@@ -301,11 +297,18 @@ export class HrmPayrollSettingsController {
       salaryType: 'NET' | 'GROSS';
       components: PayrollComponent[];
       inputs: Record<string, number>;
+      /** Công chuẩn: DYNAMIC (theo ngày công thực tế của tháng), FIXED (cố định `standardWorkdays` ngày) hoặc MINUTES (phút cũ). */
+      standardWorkMode?: 'DYNAMIC' | 'FIXED' | 'MINUTES';
+      standardWorkdays?: number;
       standardMinutes?: number;
+      reason: string;
     },
   ) {
     validatePayroll(body);
-    return this.savePolicy(req, 'PAYROLL', body.effectiveFrom, body);
+    requireText(body.reason, 'Lý do', 2000);
+    // config_json chỉ giữ cấu hình; lý do vào nhật ký, ngày hiệu lực vào cột effective_from.
+    const { reason, effectiveFrom, ...config } = body;
+    return this.savePolicy(req, 'PAYROLL', effectiveFrom, config, reason);
   }
   @Post('ot-configuration')
   async overtime(
@@ -325,16 +328,20 @@ export class HrmPayrollSettingsController {
       nightHolidayRate?: number;
       nightStartMinute?: number;
       nightEndMinute?: number;
+      reason: string;
     },
   ) {
     validateOvertime(body);
-    return this.savePolicy(req, 'OT', body.effectiveFrom, body);
+    requireText(body.reason, 'Lý do', 2000);
+    const { reason, effectiveFrom, ...config } = body;
+    return this.savePolicy(req, 'OT', effectiveFrom, config, reason);
   }
   private async savePolicy(
     req: Request,
     type: 'PAYROLL' | 'OT',
     date: string,
-    config: unknown,
+    config: Record<string, unknown>,
+    reason: string,
   ) {
     const { pool, tenantId, principal } = await this.ctx.getContext(
       req,
@@ -359,10 +366,8 @@ export class HrmPayrollSettingsController {
       );
       const published = await publishPolicyVersion(db, tenantId, type, {
         effectiveFrom: date,
-        config: config as Record<string, unknown>,
-        reason:
-          (config as { reason?: string }).reason ||
-          'Tạo phiên bản cấu hình lương/OT',
+        config,
+        reason: reason.trim(),
         actorId: principal.userId,
         defaultCode: `${type}_DEFAULT`,
         defaultName: type === 'OT' ? 'Quy định tăng ca' : 'Công thức lương',
@@ -456,14 +461,16 @@ export class HrmPayrollSettingsController {
       'hrm.payroll.configure',
     );
     requireText(body.reason, 'Lý do', 2000);
+    // Lý do, mốc khóa lạc quan và ngày hiệu lực không thuộc config_json.
+    const { reason, expectedUpdatedAt, effectiveFrom, ...config } = body;
     const row = await hrmTransaction(pool, async (db) => {
       const before = await this.configVersion(
         db,
         tenantId,
         id,
-        body.expectedUpdatedAt,
+        expectedUpdatedAt,
       );
-      if (body.effectiveFrom !== isoDate(before.effective_from))
+      if (effectiveFrom !== isoDate(before.effective_from))
         throw new BadRequestException(
           'Giữ ngày bắt đầu hiệu lực; tạo phiên bản mới khi đổi khoảng áp dụng',
         );
@@ -475,7 +482,6 @@ export class HrmPayrollSettingsController {
           >[1],
         );
       await this.assertUnusedConfiguration(db, tenantId, before);
-      const { reason, expectedUpdatedAt, ...config } = body;
       const result = await db.query(
         "UPDATE hrm_schema.policy_versions SET config_json=$2,updated_at=GREATEST(clock_timestamp(),updated_at+interval '1 millisecond') WHERE id=$1 RETURNING *",
         [id, JSON.stringify(config)],

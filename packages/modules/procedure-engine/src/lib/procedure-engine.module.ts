@@ -1,3 +1,8 @@
+import {
+  INSTANCE_REVERSAL_GUARD,
+  type InstanceReversalGuard,
+} from './application/instance-reversal-guard.port.js';
+import { HttpInstanceReversalGuard } from './infrastructure/http-instance-reversal.guard.js';
 import { Module } from '@nestjs/common';
 import { PostgresPoolRegistry, TenantDatabaseRegistry } from '@enterprise-platform/adapter-database';
 import { ProcedureEngineApplication } from './application/procedure-engine.application.js';
@@ -65,6 +70,10 @@ import { ProcedureEngineController } from './presentation/procedure-engine.contr
       useFactory: () => new HttpInitiatorActorResolver(),
     },
     {
+      provide: INSTANCE_REVERSAL_GUARD,
+      useFactory: () => new HttpInstanceReversalGuard(),
+    },
+    {
       provide: ProcedureEngineApplication,
       useFactory: (
         store: ProcedureStore,
@@ -74,8 +83,18 @@ import { ProcedureEngineController } from './presentation/procedure-engine.contr
         attachments: ProcedureAttachmentService,
         directManagers: DirectManagerResolver,
         initiatorActors: InitiatorActorResolver,
+        reversalGuard: InstanceReversalGuard,
       ) =>
-        new ProcedureEngineApplication(store, clock, ids, inventoryTasks, attachments, directManagers, initiatorActors),
+        new ProcedureEngineApplication(
+          store,
+          clock,
+          ids,
+          inventoryTasks,
+          attachments,
+          directManagers,
+          initiatorActors,
+          reversalGuard,
+        ),
       inject: [
         PROCEDURE_STORE,
         PROCEDURE_CLOCK,
@@ -84,6 +103,7 @@ import { ProcedureEngineController } from './presentation/procedure-engine.contr
         ProcedureAttachmentService,
         DIRECT_MANAGER_RESOLVER,
         INITIATOR_ACTOR_RESOLVER,
+        INSTANCE_REVERSAL_GUARD,
       ],
     },
   ],

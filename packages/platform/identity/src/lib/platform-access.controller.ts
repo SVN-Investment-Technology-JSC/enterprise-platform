@@ -86,21 +86,20 @@ export class PlatformAccessController {
     return this.identity.managerChain(tenantId, userId, positionId?.trim() || undefined);
   }
 
-  /**
-   * Ghi "Báo cáo cho" của một chức danh thay cho module gọi.
-   *
-   * Màn Quản lý chức danh nằm trong module Quy trình; module đó đã tự kiểm quyền
-   * thiết kế của người dùng trước khi gọi. Dữ liệu vẫn chỉ Core được ghi.
-   */
-  @Put('internal/v1/organization-contexts/:tenantId/positions/:positionId/reports-to')
-  setPositionReportsToForService(
+  /** Tab Chức danh của Sơ đồ tổ chức (Tenant Portal) ghi "Báo cáo cho". */
+  @Put('v1/tenant-organization/positions/:positionId/reports-to')
+  async setPositionReportsTo(
     @Req() request: Request,
-    @Param('tenantId') tenantId: string,
     @Param('positionId') positionId: string,
     @Body() input: { reportsToPositionId?: string | null },
   ) {
-    this.requireService(request);
-    return this.identity.setPositionReportsTo(tenantId, positionId, input?.reportsToPositionId ?? null);
+    const principal = await this.tenantAction(request, 'core.organization.update');
+    this.requireCsrf(request);
+    return this.identity.setPositionReportsTo(
+      principal.tenantId,
+      positionId,
+      input?.reportsToPositionId ?? null,
+    );
   }
 
   /**
@@ -535,12 +534,15 @@ export class PlatformAccessController {
     return this.identity.authorization.remove(p.tenantId, p.userId, 'roles', id);
   }
 
-  /** Tạo bộ Permission + Role mẫu HRM (idempotent, chỉ tenant admin). */
+  /**
+   * Tạo bộ Permission + Role mẫu HRM (idempotent, chỉ tenant admin). `?sync=true` đồng bộ cả vai trò mẫu đã có
+   * theo bản mẫu hiện hành (thêm/gỡ quyền); kết quả trả về danh sách vai trò đã cập nhật kèm quyền thêm/gỡ.
+   */
   @Post('v1/tenant-role-templates/hrm')
-  async seedHrmRoleTemplates(@Req() request: Request) {
+  async seedHrmRoleTemplates(@Req() request: Request, @Query('sync') sync?: string) {
     const p = await this.tenantManager(request);
     this.requireCsrf(request);
-    return this.identity.authorization.seedHrmRoleTemplates(p.tenantId, p.userId);
+    return this.identity.authorization.seedHrmRoleTemplates(p.tenantId, p.userId, sync === 'true');
   }
 
   @Get('v1/tenant-users/:id/roles')

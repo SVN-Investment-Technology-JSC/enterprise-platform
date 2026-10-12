@@ -42,6 +42,7 @@ integration('HRM family and contract PostgreSQL integration', () => {
       'core/0001-core-schema.sql',
       'core/0002-organization-soft-delete.sql',
       'core/0006-employees.sql',
+      'core/0007-org-hrm-bridge.sql',
       '0001-integration.sql',
       'hrm/0001-hrm.sql',
     ])
@@ -76,6 +77,7 @@ integration('HRM family and contract PostgreSQL integration', () => {
     await migrate('hrm/0015-shift-submission.sql');
     await migrate('hrm/0016-hrm-lifecycle.sql');
     await migrate('hrm/0016-family-contract-lifecycle.sql');
+    await migrate('hrm/0033-leave-annual-policy.sql');
     const ctx = {
       getContext: async () => ({ pool, tenantId, principal: { userId } }),
       resolveEmployee: async () => ({ employeeId: userId }),
@@ -97,24 +99,39 @@ integration('HRM family and contract PostgreSQL integration', () => {
     }
   }, 30_000);
 
-  it('creates contracts as drafts and rejects caller-forced activation', async () => {
+  it('issues a contract directly unless saved as a draft, and promotes the employee to official on an official contract', async () => {
     const body = {
       contractCode: 'DEMO-CONTRACT',
       contractType: 'DEFINITE',
-      effectiveFrom: '2026-10-01',
-      effectiveTo: '2027-09-30',
+      effectiveFrom: '2025-01-01',
+      effectiveTo: '2025-12-31',
       baseSalary: 20000000,
     };
-    const draft = (await controller.createEmployeeContract(req, userId, body))
-      .data;
-    expect(draft.status).toBe('DRAFT');
-    await expect(
-      controller.createEmployeeContract(req, userId, {
+    // Lưu nháp: chưa ban hành, chưa đổi trạng thái nhân viên.
+    const draft = (
+      await controller.createEmployeeContract(req, userId, {
         ...body,
-        contractCode: 'FORCED',
-        status: 'ACTIVE',
-      }),
-    ).rejects.toMatchObject({ status: 400 });
+        contractCode: 'DEMO-DRAFT',
+        status: 'DRAFT',
+      })
+    ).data;
+    expect(draft.status).toBe('DRAFT');
+    // Không gửi trạng thái: hợp đồng được ban hành ngay, ngày ký mặc định là ngày hiệu lực.
+    const issued = (await controller.createEmployeeContract(req, userId, body)).data;
+    expect(issued.status).toBe('ACTIVE');
+    expect(String(issued.signDate).slice(0, 10)).toBe('2025-01-01');
+    expect(
+      (
+        await pool.query(
+          'SELECT employment_status, official_date::text AS official_date FROM hrm_schema.employee_profiles WHERE employee_id=$1',
+          [userId],
+        )
+      ).rows[0],
+    ).toEqual({ employment_status: 'OFFICIAL', official_date: '2025-01-01' });
+    // Trùng số hợp đồng bị từ chối.
+    await expect(
+      controller.createEmployeeContract(req, userId, body),
+    ).rejects.toMatchObject({ status: 409 });
   });
   it('keeps family declarations separate from tax and rejects stale or foreign edits', async () => {
     const family = (
@@ -207,7 +224,8 @@ integration('HRM family and contract PostgreSQL integration', () => {
       })
     ).data;
     expect(amendment.parentContractId).toBe(draft.id);
-    expect(amendment.status).toBe('DRAFT');
+    // Phụ lục được ban hành ngay (không còn bước nháp bắt buộc).
+    expect(amendment.status).toBe('ACTIVE');
     expect(
       (
         await pool.query(
@@ -215,6 +233,21 @@ integration('HRM family and contract PostgreSQL integration', () => {
         )
       ).rows[0].n,
     ).toBe(0);
+    // Phụ lục đang hiệu lực phải được kết thúc trước hợp đồng gốc.
+    await expect(
+      c.terminate(req, draft.id, {
+        expectedUpdatedAt: active.updatedAt,
+        effectiveDate: '2027-08-31',
+        reason: 'Mock termination',
+        evidenceReference: '/documents/mock-end.pdf',
+      }),
+    ).rejects.toMatchObject({ status: 409 });
+    await c.terminate(req, amendment.id, {
+      expectedUpdatedAt: amendment.updatedAt,
+      effectiveDate: '2027-08-31',
+      reason: 'Mock amendment end',
+      evidenceReference: '/documents/mock-end.pdf',
+    });
     const ended = (
       await c.terminate(req, draft.id, {
         expectedUpdatedAt: active.updatedAt,

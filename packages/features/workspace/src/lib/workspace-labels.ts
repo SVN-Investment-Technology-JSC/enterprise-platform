@@ -5,9 +5,11 @@ import type {
   ParticipantResponse,
   ProjectRole,
   ProjectStatus,
+  WorkItem,
   WorkItemPriority,
   WorkItemStatus,
   WorkItemType,
+  ProjectRequestStatus,
 } from '@enterprise-platform/contracts-workspace';
 
 /**
@@ -34,6 +36,11 @@ export const WORK_ITEM_STATUS_LABELS: Record<WorkItemStatus, string> = {
   cancelled: 'Đã huỷ',
 };
 
+/** Nhãn trạng thái của một công việc: việc huỷ hiệu lực vẫn là `cancelled` nhưng hiện riêng. */
+export function workItemStatusLabel(item: Pick<WorkItem, 'status' | 'reversal'>): string {
+  return item.reversal ? 'Đã huỷ hiệu lực' : WORK_ITEM_STATUS_LABELS[item.status];
+}
+
 export const PRIORITY_LABELS: Record<WorkItemPriority, string> = {
   low: 'Thấp',
   normal: 'Bình thường',
@@ -56,12 +63,35 @@ export const ROLE_LABELS: Record<ProjectRole, string> = {
 
 /** Màu nền và màu chữ của huy hiệu trạng thái công việc. */
 export const WORK_ITEM_STATUS_TONE: Record<WorkItemStatus, { bg: string; fg: string }> = {
-  todo: { bg: '#f1f5f9', fg: '#475569' },
-  in_progress: { bg: '#eff6ff', fg: '#1d4ed8' },
-  blocked: { bg: '#fef2f2', fg: '#b91c1c' },
-  review: { bg: '#fefce8', fg: '#a16207' },
-  done: { bg: '#f0fdf4', fg: '#15803d' },
-  cancelled: { bg: '#f8fafc', fg: '#94a3b8' },
+  todo: { bg: 'rgb(156 163 175 / 18%)', fg: '#4b5563' },
+  in_progress: { bg: 'rgb(59 130 246 / 15%)', fg: '#1d4ed8' },
+  blocked: { bg: 'rgb(239 68 68 / 15%)', fg: '#b91c1c' },
+  review: { bg: 'rgb(245 158 11 / 18%)', fg: '#92400e' },
+  done: { bg: 'rgb(16 185 129 / 15%)', fg: '#047857' },
+  cancelled: { bg: '#f3f4f6', fg: '#6b7280' },
+};
+
+/** Màu huy hiệu trạng thái dự án, cùng bảng với trạng thái công việc. */
+export function workItemStatusTone(
+  item: Pick<WorkItem, 'status' | 'reversal'>,
+): { bg: string; fg: string } {
+  return item.reversal ? { bg: '#fff7ed', fg: '#9a3412' } : WORK_ITEM_STATUS_TONE[item.status];
+}
+
+export const PROJECT_STATUS_TONE: Record<ProjectStatus, { bg: string; fg: string }> = {
+  planning: { bg: 'rgb(156 163 175 / 18%)', fg: '#4b5563' },
+  active: { bg: 'rgb(59 130 246 / 15%)', fg: '#1d4ed8' },
+  on_hold: { bg: 'rgb(245 158 11 / 18%)', fg: '#92400e' },
+  completed: { bg: 'rgb(16 185 129 / 15%)', fg: '#047857' },
+  cancelled: { bg: '#f3f4f6', fg: '#6b7280' },
+};
+
+/** Màu huy hiệu độ ưu tiên: khẩn cấp đỏ, cao cam, bình thường xanh, thấp xám. */
+export const PRIORITY_TONE: Record<WorkItemPriority, { bg: string; fg: string }> = {
+  urgent: { bg: '#fee2e2', fg: '#991b1b' },
+  high: { bg: '#ffedd5', fg: '#9a3412' },
+  normal: { bg: '#dbeafe', fg: '#1d4ed8' },
+  low: { bg: '#f1f5f9', fg: '#475569' },
 };
 
 /** `2026-09-21` → `21/09/2026`. Chuỗi rỗng khi không có ngày. */
@@ -69,6 +99,13 @@ export function formatDate(value?: string | null): string {
   if (!value) return '';
   const [year, month, day] = value.slice(0, 10).split('-');
   return year && month && day ? `${day}/${month}/${year}` : '';
+}
+
+/** "2026-07-01" → "01/07": cho bảng chật, nơi năm đã rõ từ ngữ cảnh. */
+export function formatShortDate(value?: string | null): string {
+  if (!value) return '—';
+  const [, month, day] = value.slice(0, 10).split('-');
+  return month && day ? `${day}/${month}` : '—';
 }
 
 /** Mốc thời gian đầy đủ cho nhật ký hoạt động. */
@@ -122,13 +159,13 @@ export const MY_WORK_BUCKET_LABELS: Record<MyWorkBucket, string> = {
   no_due: 'Chưa đặt hạn',
 };
 
-/** Màu viền trái của từng nhóm trên trang Công việc của tôi. */
+/** Màu chấm đầu nhóm trên trang Công việc của tôi. */
 export const MY_WORK_BUCKET_TONE: Record<MyWorkBucket, string> = {
-  overdue: '#b91c1c',
-  today: '#b45309',
+  overdue: '#dc2626',
+  today: '#d97706',
   this_week: '#2563eb',
-  later: '#64748b',
-  no_due: '#94a3b8',
+  later: '#6b7280',
+  no_due: '#9ca3af',
 };
 
 /** Chỉ `FS` chặn cứng việc hoàn thành; ba loại còn lại chỉ cảnh báo lịch. */
@@ -137,4 +174,21 @@ export const DEPENDENCY_TYPE_LABELS: Record<DependencyType, string> = {
   SS: 'Bắt đầu cùng lúc (SS)',
   FF: 'Xong cùng lúc (FF)',
   SF: 'Bắt đầu trước → mới xong (SF)',
+};
+
+/** Trạng thái đơn từ của dự án (tab "Đơn từ"). */
+export const PROJECT_REQUEST_STATUS_LABELS: Record<ProjectRequestStatus, string> = {
+  PENDING: 'Chờ duyệt',
+  APPROVED: 'Đã duyệt',
+  REJECTED: 'Từ chối',
+  CANCELLED: 'Đã huỷ',
+  REVERSED: 'Đã huỷ hiệu lực',
+};
+
+export const PROJECT_REQUEST_STATUS_TONE: Record<ProjectRequestStatus, { bg: string; fg: string }> = {
+  PENDING: { bg: 'rgb(245 158 11 / 18%)', fg: '#92400e' },
+  APPROVED: { bg: 'rgb(16 185 129 / 15%)', fg: '#047857' },
+  REJECTED: { bg: 'rgb(239 68 68 / 15%)', fg: '#b91c1c' },
+  CANCELLED: { bg: '#f3f4f6', fg: '#6b7280' },
+  REVERSED: { bg: '#fff7ed', fg: '#9a3412' },
 };

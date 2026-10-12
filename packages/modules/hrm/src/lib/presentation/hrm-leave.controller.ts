@@ -1,5 +1,7 @@
+import type { PoolClient } from 'pg';
+import { previewLeaveDays } from '../infrastructure/hrm-leave-day-preview.js';
 import { attachProcedureLinkInfo } from '../infrastructure/hrm-procedure-link-info.js';
-import { HrmApprovalPolicyService } from '../infrastructure/hrm-approval-policy.js';
+import { HrmApprovalPolicyService, approverPermissions } from '../infrastructure/hrm-approval-policy.js';
 import { workflowProgressFilter } from '../infrastructure/hrm-workflow-filter.js';
 import {
   assertLifecycleVersion,
@@ -10,6 +12,11 @@ import {
   type DraftSubmission,
 } from '../infrastructure/hrm-request-drafts.js';
 import { submitHrmRequest } from '../infrastructure/hrm-submission.js';
+import {
+  leaveReasonView,
+  pickDescription,
+} from '../infrastructure/hrm-request-reason-input.js';
+import { syncEmployeeProcedureResults } from '../infrastructure/hrm-procedure-sync.js';
 import type {
   AmendLeaveRequestPayload,
   CreateLeaveAccrualScheduleRequest,
@@ -35,7 +42,9 @@ import {
   Post,
   Query,
   Req,
+  UseInterceptors,
 } from '@nestjs/common';
+import { HrmMissingSchemaInterceptor } from '../infrastructure/hrm-missing-schema.interceptor.js';
 import type { Request } from 'express';
 import {
   carryoverYear,
@@ -68,13 +77,32 @@ import {
   rethrowDuplicateLeaveCode,
 } from '../infrastructure/hrm-leave-merge.js';
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
+import {
+  employeeEntitlement,
+  enrichLeaveBalances,
+} from '../infrastructure/hrm-annual-leave.js';
+import {
+  computeLeaveSettlement,
+  mapSettlement,
+  scheduleSettlement,
+  settlementBlockers,
+  waiveSettlement,
+} from '../infrastructure/hrm-leave-settlement.js';
+import { sumEntitlement } from '../domain/annual-leave-entitlement.js';
 import { HrmProcedureBridgeService } from '../infrastructure/hrm-procedure-bridge.service.js';
 import {
+  insertAccrualSchedule,
   lockAccrualConfiguration,
   mutateAccrualSchedule,
+  validateAccrualSchedule,
   type AccrualMutation,
 } from '../infrastructure/hrm-leave-schedule.js';
+import {
+  ANNUAL_ONLY_MESSAGE,
+  assertAnnualLeaveType,
+} from '../infrastructure/hrm-annual-leave-policy.js';
 
+@UseInterceptors(HrmMissingSchemaInterceptor)
 @Controller('v1')
 export class HrmLeaveController {
   constructor(
@@ -213,6 +241,8 @@ export class HrmLeaveController {
     );
     requireText(body.code, 'code', 50);
     requireText(body.name, 'name', 255);
+    if ((body as { isAnnual?: unknown }).isAnnual === true)
+      throw new BadRequestException(ANNUAL_ONLY_MESSAGE);
     if (
       body.negativeLimit !== undefined &&
       (!Number.isFinite(body.negativeLimit) ||
@@ -238,7 +268,9 @@ export class HrmLeaveController {
         body.maxCarryoverDays ?? 0,
         body.carryoverExpiryMonth ?? 3,
         body.active ?? true,
-        body.deductBalance ?? true,
+        // Chỉ lý do phép năm trừ quỹ phép, và chỉ được đặt tại PUT /annual-leave-policy:
+        // lý do tạo mới luôn không trừ quỹ (bất kể deductBalance gửi lên).
+        false,
         body.negativeLimit ?? 0,
       ],
       )
@@ -266,6 +298,8 @@ export class HrmLeaveController {
     body: UpdateLeaveTypeRequest & {
       expectedUpdatedAt?: string;
       reason?: string;
+      /** Không được đổi tại đây: chỉ `PUT /annual-leave-policy` đặt lý do phép năm. */
+      isAnnual?: boolean;
     },
   ) {
     const { pool, tenantId, principal } = await this.ctx.getContext(
@@ -304,11 +338,29 @@ export class HrmLeaveController {
       ).rows[0];
       if (!before) throw new NotFoundException('Không tìm thấy loại nghỉ');
       assertLifecycleVersion(before, body.expectedUpdatedAt);
-      if (
-        (body.paid !== undefined && body.paid !== before.paid) ||
-        (body.deductBalance !== undefined &&
-          body.deductBalance !== before.deduct_balance)
-      ) {
+      const isAnnual = Boolean(before.is_annual);
+      if (body.isAnnual !== undefined && body.isAnnual !== isAnnual)
+        throw new BadRequestException(ANNUAL_ONLY_MESSAGE);
+      if (isAnnual) {
+        // Lý do phép năm là duy nhất của tenant: luôn có lương, trừ quỹ, không được ngừng,
+        // và không chuyển phép sang năm sau.
+        if (body.active === false)
+          throw new ConflictException(
+            'Không thể ngừng lý do phép năm duy nhất của hệ thống',
+          );
+        if (body.paid === false || body.deductBalance === false)
+          throw new ConflictException(
+            'Lý do phép năm luôn có lương và trừ quỹ phép',
+          );
+        if (
+          body.carryoverAllowed === true ||
+          (body.maxCarryoverDays !== undefined && body.maxCarryoverDays !== 0)
+        )
+          throw new ConflictException(
+            'Phép năm không chuyển sang năm sau (số ngày chuyển luôn là 0)',
+          );
+      }
+      if (body.paid !== undefined && body.paid !== before.paid) {
         if (
           (
             await db.query(
@@ -321,20 +373,25 @@ export class HrmLeaveController {
             'Loại nghỉ đã có đơn; tạo loại mới để đổi chế độ hưởng lương hoặc trừ quỹ.',
           );
       }
+      // Chỉ lý do phép năm (có lương) trừ quỹ phép; các lý do khác luôn không trừ, ép phía server.
+      // Phép năm không chuyển sang năm sau: ép tắt chuyển phép ở DB, bất kể client gửi gì.
+      const deductBalance = isAnnual && (body.paid ?? before.paid) !== false;
+      const carryoverAllowed = isAnnual ? false : body.carryoverAllowed;
+      const maxCarryoverDays = isAnnual ? 0 : body.maxCarryoverDays;
       const row = (
         await db.query(
-          `UPDATE hrm_schema.leave_types SET name=COALESCE($3,name),paid=COALESCE($4,paid),requires_attachment=COALESCE($5,requires_attachment),carryover_allowed=COALESCE($6,carryover_allowed),max_carryover_days=COALESCE($7,max_carryover_days),carryover_expiry_month=COALESCE($8,carryover_expiry_month),active=COALESCE($9,active),deduct_balance=COALESCE($10,deduct_balance),negative_limit=COALESCE($11,negative_limit),updated_at=GREATEST(clock_timestamp(),updated_at+interval '1 millisecond') WHERE tenant_id=$1 AND id=$2 RETURNING *`,
+          `UPDATE hrm_schema.leave_types SET name=COALESCE($3,name),paid=COALESCE($4,paid),requires_attachment=COALESCE($5,requires_attachment),carryover_allowed=COALESCE($6,carryover_allowed),max_carryover_days=COALESCE($7,max_carryover_days),carryover_expiry_month=COALESCE($8,carryover_expiry_month),active=COALESCE($9,active),deduct_balance=$10,negative_limit=COALESCE($11,negative_limit),updated_at=GREATEST(clock_timestamp(),updated_at+interval '1 millisecond') WHERE tenant_id=$1 AND id=$2 RETURNING *`,
           [
             tenantId,
             id,
             body.name,
             body.paid,
             body.requiresAttachment,
-            body.carryoverAllowed,
-            body.maxCarryoverDays,
+            carryoverAllowed,
+            maxCarryoverDays,
             body.carryoverExpiryMonth,
             body.active,
-            body.deductBalance,
+            deductBalance,
             body.negativeLimit,
           ],
         )
@@ -370,11 +427,13 @@ export class HrmLeaveController {
   ) {
     const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.leave.read');
     const res = await pool.query(
-      `SELECT * FROM hrm_schema.leave_accrual_schedules WHERE tenant_id = $1 AND leave_type_id = $2 ORDER BY effective_from DESC`,
+      `SELECT s.*, COALESCE((SELECT jsonb_agg(jsonb_build_object('minYears',t.min_years,'bonusDays',t.bonus_days) ORDER BY t.min_years)
+                FROM hrm_schema.leave_seniority_tiers t WHERE t.tenant_id=s.tenant_id AND t.schedule_id=s.id),'[]'::jsonb) AS seniority_tiers
+       FROM hrm_schema.leave_accrual_schedules s WHERE s.tenant_id = $1 AND s.leave_type_id = $2 ORDER BY s.effective_from DESC`,
       [tenantId, leaveTypeId],
     );
     return {
-      data: res.rows.map(this.mapAccrualSchedule),
+      data: res.rows.map((row) => this.mapAccrualSchedule(row)),
       meta: {
         total: res.rows.length,
         requestId: req.headers['x-request-id'] as string,
@@ -393,78 +452,21 @@ export class HrmLeaveController {
       'hrm.leave.manage',
     );
     requireUuid(leaveTypeId, 'leaveTypeId');
-    requireDate(body.effectiveFrom, 'effectiveFrom');
-    if (
-      body.effectiveTo &&
-      requireDate(body.effectiveTo, 'effectiveTo') < body.effectiveFrom
-    )
-      throw new BadRequestException('Ngày hiệu lực không hợp lệ');
-    if (
-      !['MONTHLY', 'QUARTERLY', 'YEARLY'].includes(body.accrualFrequency) ||
-      !Number.isFinite(body.accrualAmount) ||
-      body.accrualAmount < 0 ||
-      body.accrualAmount > 366
-    )
-      throw new BadRequestException('Chu kỳ hoặc định mức phép không hợp lệ');
-    if (
-      body.prorationRule &&
-      !['BY_JOIN_DATE', 'NONE'].includes(body.prorationRule)
-    )
-      throw new BadRequestException('Quy tắc phân bổ không hợp lệ');
-    for (const value of [
-      body.seniorityBonusYears ?? 5,
-      body.seniorityBonusDays ?? 1,
-    ])
-      if (!Number.isFinite(value) || value < 0 || value > 100)
-        throw new BadRequestException('Định mức thâm niên không hợp lệ');
+    validateAccrualSchedule(body);
     const res = await hrmTransaction(pool, async (db) => {
       await lockAccrualConfiguration(db, tenantId);
       const type = await db.query(
-        `SELECT id FROM hrm_schema.leave_types WHERE tenant_id=$1 AND id=$2 FOR UPDATE`,
+        `SELECT id,is_annual FROM hrm_schema.leave_types WHERE tenant_id=$1 AND id=$2 FOR UPDATE`,
         [tenantId, leaveTypeId],
       );
       if (!type.rowCount)
         throw new NotFoundException('Không tìm thấy loại nghỉ');
-      if (body.policyVersionId) {
-        const policy = await db.query(
-          `SELECT v.id FROM hrm_schema.policy_versions v JOIN hrm_schema.policies p ON p.id=v.policy_id WHERE p.tenant_id=$1 AND v.id=$2`,
-          [tenantId, body.policyVersionId],
-        );
-        if (!policy.rowCount)
-          throw new BadRequestException(
-            'Phiên bản chính sách không thuộc tenant',
-          );
-      }
-      const overlap = await db.query(
-        `SELECT id FROM hrm_schema.leave_accrual_schedules WHERE tenant_id=$1 AND leave_type_id=$2 AND daterange(effective_from,COALESCE(effective_to,'infinity'::date),'[]') && daterange($3::date,COALESCE($4::date,'infinity'::date),'[]')`,
-        [tenantId, leaveTypeId, body.effectiveFrom, body.effectiveTo || null],
-      );
-      if (overlap.rowCount)
-        throw new BadRequestException(
-          'Lịch cộng phép trùng thời gian hiệu lực',
-        );
-      return db.query(
-        `INSERT INTO hrm_schema.leave_accrual_schedules (
-        tenant_id, leave_type_id, policy_version_id, accrual_frequency, accrual_amount,
-        proration_rule, seniority_bonus_years, seniority_bonus_days, effective_from, effective_to
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-      RETURNING *`,
-        [
-          tenantId,
-          leaveTypeId,
-          body.policyVersionId || null,
-          body.accrualFrequency,
-          body.accrualAmount,
-          body.prorationRule || null,
-          body.seniorityBonusYears ?? 5,
-          body.seniorityBonusDays ?? 1.0,
-          body.effectiveFrom,
-          body.effectiveTo || null,
-        ],
-      );
+      if (!type.rows[0].is_annual)
+        throw new ConflictException(ANNUAL_ONLY_MESSAGE);
+      return insertAccrualSchedule(db, tenantId, leaveTypeId, body);
     });
     return {
-      data: this.mapAccrualSchedule(res.rows[0]),
+      data: this.mapAccrualSchedule(res),
       meta: { requestId: req.headers['x-request-id'] as string },
     };
   }
@@ -518,8 +520,13 @@ export class HrmLeaveController {
       req,
       'hrm.leave.manage',
     );
-    const row = await hrmTransaction(pool, (db) =>
-      mutateAccrualSchedule(
+    const row = await hrmTransaction(pool, async (db) => {
+      // Sửa/tạo phiên bản lịch chỉ cho lý do phép năm; kết thúc hoặc xoá lịch cũ vẫn được phép để dọn dữ liệu.
+      if (action === 'edit' || action === 'version') {
+        await lockAccrualConfiguration(db, tenantId);
+        await assertAnnualLeaveType(db, tenantId, typeId);
+      }
+      return mutateAccrualSchedule(
         db,
         tenantId,
         principal.userId,
@@ -527,8 +534,8 @@ export class HrmLeaveController {
         id,
         body,
         action,
-      ),
-    );
+      );
+    });
     return { data: action === 'delete' ? row : this.mapAccrualSchedule(row) };
   }
 
@@ -536,34 +543,144 @@ export class HrmLeaveController {
   // Leave Balance & Ledger APIs (P2_S3_HRM_API.md § 14)
   // --------------------------------------------------------------------------
 
+  /**
+   * Quỹ phép = danh sách nhân viên của một năm (kiểu `HrmLeaveBalanceListItem`).
+   * `annual_only=1`: chỉ lý do phép năm, MỘT dòng cho mỗi nhân viên đang làm việc (chưa có quỹ năm đó thì
+   * dòng mặc định toàn 0 với `hasBalance=false`); tenant chưa có phép năm thì mảng rỗng.
+   * Mặc định giữ hành vi cũ (mọi dòng quỹ đã có, mọi lý do).
+   */
   @Get('leave-balances')
   async listAllLeaveBalances(
     @Req() req: Request,
     @Query('year') yearStr?: string,
     @Query('employee_id') employeeId?: string,
+    @Query('annual_only') annualOnlyStr?: string,
   ) {
     const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.leave.read');
     const year = parseInt(yearStr || '', 10) || new Date().getFullYear();
-    const res = await pool.query(
-      `SELECT lb.*, lt.name as leave_type_name, lt.code as leave_type_code,
-              e.full_name as employee_name, e.employee_code, e.department_name AS department
+    const annualOnly = annualOnlyStr === '1' || annualOnlyStr === 'true';
+    const res = await hrmTransaction(pool, async (db) => {
+      const raw = annualOnly
+        ? // Một dòng cho mỗi nhân viên đang làm việc của lý do phép năm; chưa có quỹ năm đó thì dòng mặc định toàn 0.
+          await db.query(
+            `SELECT COALESCE(lb.id::text, '') AS id, lt.tenant_id, e.employee_id, lt.id AS leave_type_id, $2::int AS year,
+              COALESCE(lb.opening_balance, 0) AS opening_balance, COALESCE(lb.accrued, 0) AS accrued,
+              COALESCE(lb.used, 0) AS used, COALESCE(lb.pending, 0) AS pending,
+              COALESCE(lb.adjusted, 0) AS adjusted, COALESCE(lb.remaining, 0) AS remaining,
+              COALESCE(lb.seniority_days, 0) AS seniority_days, COALESCE(lb.carryover_remaining, 0) AS carryover_remaining,
+              lb.carryover_expiry_date, COALESCE(lb.max_negative_allowed, 2.0) AS max_negative_allowed,
+              COALESCE(lb.created_at, now()) AS created_at, COALESCE(lb.updated_at, now()) AS updated_at,
+              (lb.id IS NOT NULL) AS has_balance,
+              lt.name AS leave_type_name, lt.code AS leave_type_code,
+              e.full_name AS employee_name, e.employee_code, e.department_name AS department,
+              COALESCE((SELECT sum(x.days_changed) FROM hrm_schema.leave_transactions x
+                 WHERE x.tenant_id = lt.tenant_id AND x.employee_id = e.employee_id
+                   AND x.leave_type_id = lt.id AND x.balance_year = $2::int
+                   AND x.transaction_type = 'SENIORITY_ACCRUAL'), 0) AS seniority_accrued,
+              (c.amount - c.used - c.reserved - c.expired) AS carryover_open,
+              c.expires_on AS carryover_expires_on
+       FROM hrm_schema.leave_types lt
+       JOIN hrm_schema.employee_directory e ON e.tenant_id = lt.tenant_id AND e.deleted_at IS NULL
+         AND e.employment_status NOT IN ('RESIGNED', 'TERMINATED')
+       LEFT JOIN hrm_schema.leave_balances lb ON lb.tenant_id = lt.tenant_id AND lb.employee_id = e.employee_id
+         AND lb.leave_type_id = lt.id AND lb.year = $2::int
+       LEFT JOIN hrm_schema.leave_carryovers c ON c.tenant_id = lt.tenant_id AND c.employee_id = e.employee_id
+         AND c.leave_type_id = lt.id AND c.target_year = $2::int
+       WHERE lt.tenant_id = $1 AND lt.is_annual AND lt.deleted_at IS NULL
+         AND ($3::uuid IS NULL OR e.employee_id = $3)
+       ORDER BY e.full_name ASC, e.employee_id ASC`,
+            [tenantId, year, employeeId || null],
+          )
+        : await db.query(
+            `SELECT lb.*, lt.name as leave_type_name, lt.code as leave_type_code,
+              e.full_name as employee_name, e.employee_code, e.department_name AS department,
+              COALESCE((SELECT sum(x.days_changed) FROM hrm_schema.leave_transactions x
+                 WHERE x.tenant_id = lb.tenant_id AND x.employee_id = lb.employee_id
+                   AND x.leave_type_id = lb.leave_type_id AND x.balance_year = lb.year
+                   AND x.transaction_type = 'SENIORITY_ACCRUAL'), 0) AS seniority_accrued,
+              (c.amount - c.used - c.reserved - c.expired) AS carryover_open,
+              c.expires_on AS carryover_expires_on
        FROM hrm_schema.leave_balances lb
        JOIN hrm_schema.leave_types lt ON lb.leave_type_id = lt.id
        JOIN hrm_schema.employee_directory e ON lb.employee_id = e.employee_id AND e.tenant_id = lb.tenant_id
+       LEFT JOIN hrm_schema.leave_carryovers c ON c.tenant_id = lb.tenant_id AND c.employee_id = lb.employee_id
+         AND c.leave_type_id = lb.leave_type_id AND c.target_year = lb.year
        WHERE lb.tenant_id = $1 AND lb.year = $2
          AND ($3::uuid IS NULL OR lb.employee_id = $3)
        ORDER BY e.full_name ASC`,
-      [tenantId, year, employeeId || null],
-    );
+            [tenantId, year, employeeId || null],
+          );
+      return { rows: await enrichLeaveBalances(db, tenantId, raw.rows) };
+    });
     return {
-      data: res.rows.map((row) => ({
-        ...this.mapBalance(row),
-        leaveTypeName: row.leave_type_name as string,
-        leaveTypeCode: row.leave_type_code as string,
-        employeeName: row.employee_name as string,
-        employeeCode: row.employee_code as string,
-        department: row.department as string | null,
-      })),
+      data: res.rows.map((row) => {
+        const hasPolicy = row.projected_entitlement != null;
+        const accruedNum = Number(row.accrued || 0);
+        const openingNum = Number(row.opening_balance || 0);
+        const adjustedNum = Number(row.adjusted || 0);
+        const usedNum = Number(row.used || 0);
+
+        // Định mức năm tính từ công thức theo ngày ký HĐLĐ hoặc từ số đã ghi sổ
+        const baseDays =
+          hasPolicy && accruedNum === 0
+            ? Number(row.projected_entitlement)
+            : Math.max(
+                accruedNum,
+                hasPolicy ? Number(row.projected_entitlement) : 0,
+              );
+
+        const entitlement =
+          Math.round((openingNum + baseDays + adjustedNum) * 100) / 100;
+
+        // Số ngày còn lại: nếu có chính sách HĐLĐ thì tính theo quỹ được hưởng trừ đã dùng hoặc available (đã tính ứng phép)
+        const remaining = hasPolicy
+          ? !row.has_balance
+            ? Math.round((entitlement - usedNum) * 100) / 100
+            : Math.round(
+                Number(row.available ?? (entitlement - usedNum)) * 100,
+              ) / 100
+          : Math.round(Number(row.remaining || 0) * 100) / 100;
+
+        const hasBalance = row.has_balance !== false || hasPolicy;
+
+        return {
+          ...this.mapBalance(row),
+          entitlement,
+          remaining,
+          // Chuyển từ năm trước (đã nằm trong entitlement); phần còn dùng được và hạn dùng lấy từ leave_carryovers.
+          carryover: Math.round(openingNum * 100) / 100,
+          carryoverRemaining:
+            row.carryover_open == null
+              ? Number(row.carryover_remaining || 0)
+              : Math.max(0, Math.round(Number(row.carryover_open) * 100) / 100),
+          carryoverExpiryDate: row.carryover_expires_on
+            ? isoDate(row.carryover_expires_on)
+            : row.carryover_expiry_date
+              ? String(row.carryover_expiry_date)
+              : null,
+          hasBalance,
+          seniorityAccrued:
+            Math.round(
+              Math.max(
+                Number(row.seniority_accrued || 0),
+                Number(row.projected_seniority || row.seniority_days || 0),
+              ) * 100,
+            ) / 100,
+          seniorityDays:
+            Math.round(
+              Math.max(
+                Number(row.seniority_days || 0),
+                Number(row.projected_seniority || 0),
+              ) * 100,
+            ) / 100,
+          adjusted: Math.round(Number(row.adjusted || 0) * 100) / 100,
+          leaveTypeName: row.leave_type_name as string,
+          leaveTypeCode: row.leave_type_code as string,
+          employeeName: row.employee_name as string,
+          employeeCode: row.employee_code as string,
+          department: row.department as string | null,
+        };
+      }),
       meta: {
         total: res.rows.length,
         requestId: req.headers['x-request-id'] as string,
@@ -576,8 +693,11 @@ export class HrmLeaveController {
     @Req() req: Request,
     @Query('employee_id') employeeId?: string,
     @Query('leave_type_id') leaveTypeId?: string,
+    @Query('year') yearStr?: string,
   ) {
     const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.leave.read');
+    // Lọc theo năm của quỹ phép (balance_year); bỏ trống thì lấy mọi năm.
+    const year = /^\d{4}$/.test(yearStr || '') ? Number(yearStr) : null;
     const res = await pool.query(
       `SELECT lt.*, ltypes.name as leave_type_name, ltypes.code as leave_type_code,
               e.full_name as employee_name, e.employee_code, e.department_name AS department
@@ -587,8 +707,9 @@ export class HrmLeaveController {
        WHERE lt.tenant_id = $1
          AND ($2::uuid IS NULL OR lt.employee_id = $2)
          AND ($3::uuid IS NULL OR lt.leave_type_id = $3)
+         AND ($4::int IS NULL OR lt.balance_year = $4)
        ORDER BY lt.created_at DESC`,
-      [tenantId, employeeId || null, leaveTypeId || null],
+      [tenantId, employeeId || null, leaveTypeId || null, year],
     );
     return {
       data: res.rows.map((row) => ({
@@ -665,7 +786,7 @@ export class HrmLeaveController {
       }
       await lockEmployee(db, tenantId, body.employeeId);
       const type = await db.query(
-        `SELECT negative_limit FROM hrm_schema.leave_types WHERE tenant_id=$1 AND id=$2`,
+        `SELECT CASE WHEN is_annual THEN 0 ELSE negative_limit END AS negative_limit FROM hrm_schema.leave_types WHERE tenant_id=$1 AND id=$2`,
         [tenantId, body.leaveTypeId],
       );
       if (!type.rows[0])
@@ -747,7 +868,7 @@ export class HrmLeaveController {
       if (prior) return prior;
       const type = (
         await db.query(
-          'SELECT negative_limit FROM hrm_schema.leave_types WHERE tenant_id=$1 AND id=$2',
+          'SELECT CASE WHEN is_annual THEN 0 ELSE negative_limit END AS negative_limit FROM hrm_schema.leave_types WHERE tenant_id=$1 AND id=$2',
           [tenantId, tx.leave_type_id],
         )
       ).rows[0];
@@ -799,6 +920,173 @@ export class HrmLeaveController {
     return { data: this.mapTransaction(row) };
   }
 
+  // --------------------------------------------------------------------------
+  // Annual leave entitlement & termination settlement
+  // --------------------------------------------------------------------------
+
+  @Get('leave-entitlements/preview')
+  async previewEntitlements(
+    @Req() req: Request,
+    @Query('leave_type_id') leaveTypeId: string,
+    @Query('year') yearStr?: string,
+    @Query('employee_id') employeeId?: string,
+  ) {
+    const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.leave.read');
+    requireUuid(leaveTypeId, 'leave_type_id');
+    if (employeeId) requireUuid(employeeId, 'employee_id');
+    const year = parseInt(yearStr || '', 10) || new Date().getFullYear();
+    const data = await hrmTransaction(pool, async (db) => {
+      const employees = await db.query(
+        `SELECT e.employee_id,e.employee_code,e.full_name FROM hrm_schema.employee_directory e
+         JOIN hrm_schema.employee_profiles p ON p.tenant_id=e.tenant_id AND p.employee_id=e.employee_id
+         WHERE e.tenant_id=$1 AND p.deleted_at IS NULL AND ($2::uuid IS NULL OR e.employee_id=$2)
+           AND (p.inactive_from IS NULL OR p.inactive_from>make_date($3,1,1)) ORDER BY e.employee_code LIMIT 500`,
+        [tenantId, employeeId || null, year],
+      );
+      const today = isoDate(
+        (await db.query('SELECT CURRENT_DATE AS today')).rows[0].today,
+      );
+      const currentYear = Number(today.slice(0, 4));
+      const throughMonth =
+        year < currentYear
+          ? 12
+          : year > currentYear
+            ? 0
+            : Number(today.slice(5, 7));
+      const rows = [];
+      for (const employee of employees.rows) {
+        const ent = await employeeEntitlement(
+          db,
+          tenantId,
+          employee.employee_id,
+          leaveTypeId,
+          year,
+        );
+        const balance = (
+          await db.query(
+            `SELECT * FROM hrm_schema.leave_balances WHERE tenant_id=$1 AND employee_id=$2 AND leave_type_id=$3 AND year=$4`,
+            [tenantId, employee.employee_id, leaveTypeId, year],
+          )
+        ).rows[0];
+        const projected = sumEntitlement(ent.months);
+        const toDate = sumEntitlement(ent.months, throughMonth);
+        const remaining = Number(balance?.remaining ?? 0),
+          accrued = Number(balance?.accrued ?? 0);
+        const ifTerminated = remaining - accrued + toDate.total;
+        rows.push({
+          employeeId: employee.employee_id,
+          employeeCode: employee.employee_code,
+          employeeName: employee.full_name,
+          leaveTypeId,
+          year,
+          signDate: ent.signDate,
+          startDate: ent.startDate,
+          lastWorkingDay: ent.lastWorkingDay,
+          projectedEntitlement: projected.total,
+          entitledToDate: toDate.total,
+          seniorityDays: projected.seniority,
+          seniorityTierYears: Math.max(...ent.months.map((m) => m.tierYears)),
+          accruedInLedger: accrued,
+          remaining,
+          used: Number(balance?.used ?? 0),
+          pending: Number(balance?.pending ?? 0),
+          excessIfTerminated: Math.max(
+            0,
+            Math.round(-ifTerminated * 100) / 100,
+          ),
+          unusedIfTerminated: Math.max(
+            0,
+            Math.round(ifTerminated * 100) / 100,
+          ),
+          blockers: !ent.hasPolicy
+            ? ['Loại nghỉ chưa có lịch cộng phép theo ngày ký HĐ']
+            : ent.signDate
+              ? []
+              : ['Chưa có HĐLĐ chính thức đã ký'],
+        });
+      }
+      return rows;
+    });
+    return { data, meta: { total: data.length } };
+  }
+
+  @Get('employees/:employeeId/leave-settlement-preview')
+  async previewSettlement(
+    @Req() req: Request,
+    @Param('employeeId') employeeId: string,
+    @Query('date') date: string,
+  ) {
+    const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.leave.read');
+    requireUuid(employeeId, 'employeeId');
+    requireDate(date, 'date');
+    const data = await hrmTransaction(pool, async (db) => ({
+      blockers: await settlementBlockers(db, tenantId, employeeId, date),
+      lines: await computeLeaveSettlement(db, tenantId, employeeId, date),
+    }));
+    return { data };
+  }
+
+  @Get('leave-settlements')
+  async listSettlements(
+    @Req() req: Request,
+    @Query('status') status?: string,
+    @Query('employee_id') employeeId?: string,
+  ) {
+    const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.leave.read');
+    if (employeeId) requireUuid(employeeId, 'employee_id');
+    const res = await pool.query(
+      `SELECT s.*, e.employee_code, e.full_name AS employee_name, t.name AS leave_type_name, p.period_code
+       FROM hrm_schema.leave_settlements s
+       JOIN hrm_schema.leave_types t ON t.id=s.leave_type_id AND t.tenant_id=s.tenant_id
+       LEFT JOIN hrm_schema.employee_directory e ON e.tenant_id=s.tenant_id AND e.employee_id=s.employee_id
+       LEFT JOIN hrm_schema.payroll_periods p ON p.tenant_id=s.tenant_id AND p.id=s.payroll_period_id
+       WHERE s.tenant_id=$1 AND ($2::text IS NULL OR s.status=$2) AND ($3::uuid IS NULL OR s.employee_id=$3)
+       ORDER BY s.created_at DESC LIMIT 500`,
+      [tenantId, status || null, employeeId || null],
+    );
+    return {
+      data: res.rows.map(mapSettlement),
+      meta: { total: res.rowCount },
+    };
+  }
+
+  @Post('leave-settlements/:id/schedule')
+  async scheduleLeaveSettlement(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body()
+    body: {
+      payrollPeriodId: string | null;
+      recoveryAmount?: number;
+      reason: string;
+    },
+  ) {
+    const { pool, tenantId, principal } = await this.ctx.getContext(
+      req,
+      'hrm.leave.manage',
+    );
+    const row = await hrmTransaction(pool, (db) =>
+      scheduleSettlement(db, tenantId, principal.userId, id, body),
+    );
+    return { data: mapSettlement(row) };
+  }
+
+  @Post('leave-settlements/:id/waive')
+  async waiveLeaveSettlement(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body('reason') reason: string,
+  ) {
+    const { pool, tenantId, principal } = await this.ctx.getContext(
+      req,
+      'hrm.leave.manage',
+    );
+    const row = await hrmTransaction(pool, (db) =>
+      waiveSettlement(db, tenantId, principal.userId, id, reason),
+    );
+    return { data: mapSettlement(row) };
+  }
+
   @Get('employees/:employeeId/leave-balances')
   async getEmployeeLeaveBalances(
     @Req() req: Request,
@@ -812,10 +1100,13 @@ export class HrmLeaveController {
       'hrm.self.read',
     );
     const year = parseInt(yearStr || '', 10) || new Date().getFullYear();
-    const res = await pool.query(
-      `SELECT * FROM hrm_schema.leave_balances WHERE tenant_id = $1 AND employee_id = $2 AND year = $3`,
-      [tenantId, employeeId, year],
-    );
+    const res = await hrmTransaction(pool, async (db) => {
+      const raw = await db.query(
+        `SELECT * FROM hrm_schema.leave_balances WHERE tenant_id = $1 AND employee_id = $2 AND year = $3`,
+        [tenantId, employeeId, year],
+      );
+      return { rows: await enrichLeaveBalances(db, tenantId, raw.rows) };
+    });
     return {
       data: res.rows.map(this.mapBalance),
       meta: {
@@ -865,6 +1156,8 @@ export class HrmLeaveController {
   ) {
     const { pool, tenantId, principal, employeeId } =
       await this.ctx.getRequestContext(req, body.employeeId);
+    // Đơn đã hủy/từ chối trên quy trình không còn chiếm ngày: đồng bộ trước khi kiểm tra trùng.
+    await syncEmployeeProcedureResults(pool, tenantId, employeeId);
     const submission = await resolveDraftSubmission(
       pool,
       tenantId,
@@ -890,7 +1183,9 @@ export class HrmLeaveController {
     );
     return {
       data: {
-        ...this.mapLeaveRequest(row),
+        ...this.mapLeaveRequest(
+          await this.withLeaveType(pool, tenantId, row),
+        ),
         procedureSyncStatus: link?.syncStatus ?? null,
 
         currentStepName: link?.currentStepName ?? null,
@@ -903,6 +1198,56 @@ export class HrmLeaveController {
         procedureLinkId: link?.id ?? null,
       },
     };
+  }
+
+  /** Bổ sung mã, tên và cờ có lương của loại nghỉ (lý do nghỉ) cho dòng đơn không nối bảng loại nghỉ. */
+  private async withLeaveType(
+    pool: {
+      query: (
+        sql: string,
+        params?: unknown[],
+      ) => Promise<{ rows: Record<string, unknown>[] }>;
+    },
+    tenantId: string,
+    row: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    if (row['leave_type_name'] !== undefined) return row;
+    const type = (
+      await pool.query(
+        'SELECT code,name,paid FROM hrm_schema.leave_types WHERE tenant_id=$1 AND id=$2',
+        [tenantId, row['leave_type_id']],
+      )
+    ).rows[0];
+    return type
+      ? {
+          ...row,
+          leave_type_code: type.code,
+          leave_type_name: type.name,
+          is_paid: type.paid,
+        }
+      : row;
+  }
+
+  /** Từng ngày trong khoảng nghỉ với ca thực tế của nhân viên (giao diện dùng để tính số ngày nghỉ). */
+  @Get('employees/:employeeId/leave-day-preview')
+  async leaveDayPreview(
+    @Req() req: Request,
+    @Param('employeeId') employeeId: string,
+    @Query('from') fromDate?: string,
+    @Query('to') toDate?: string,
+  ) {
+    const from = requireDate(fromDate, 'from'),
+      to = requireDate(toDate, 'to');
+    if (to < from || Date.parse(to) - Date.parse(from) > 366 * 86400000)
+      throw new BadRequestException('Khoảng xem trước tối đa 366 ngày');
+    // Người có quyền đọc đơn xem được mọi nhân viên; còn lại chỉ xem của chính mình.
+    const { pool, tenantId, employeeId: visible } = await this.ctx.scoped(
+      req,
+      'hrm.request.read',
+      requireUuid(employeeId, 'employeeId'),
+    );
+    const data = await previewLeaveDays(pool as unknown as PoolClient, tenantId, visible ?? employeeId, from, to);
+    return { data };
   }
 
   @Get('leave-requests')
@@ -919,8 +1264,14 @@ export class HrmLeaveController {
       tenantId,
       principal,
       employeeId: visibleEmployeeId,
-    } = await this.ctx.scoped(req, 'hrm.request.read', employeeId);
+    } = await this.ctx.scoped(
+      req,
+      'hrm.request.read',
+      employeeId,
+      forApproval === '1' ? approverPermissions('leave') : [],
+    );
     employeeId = visibleEmployeeId;
+    if (employeeId) await syncEmployeeProcedureResults(pool, tenantId, employeeId);
     const approvalScope =
       forApproval === '1'
         ? await this.approvals.listFilter(
@@ -1068,10 +1419,17 @@ export class HrmLeaveController {
       )
     ).rows[0];
     if (!owner) throw new NotFoundException('Không tìm thấy đơn nghỉ');
-    await this.ctx.getRequestContext(
+    const amendCtx = await this.ctx.getRequestContext(
       req,
       owner.employee_id,
       'hrm.leave.approve',
+    );
+    // Sửa đơn là huỷ đơn cũ và tạo đơn mới: cùng phạm vi kiểm tra với huỷ đơn, để người duyệt không sửa được đơn ngoài phạm vi cấp dưới.
+    await this.approvals.assertCanDecide(
+      { pool, tenantId, principal: amendCtx.principal },
+      id,
+      'leave',
+      'cancel',
     );
     const { row, link } = await submitHrmRequest(
       pool,
@@ -1112,14 +1470,21 @@ export class HrmLeaveController {
           'CANCELLED',
           'Thay thế bằng đơn điều chỉnh',
         );
+        // Lý do nghỉ giữ nguyên (cùng loại nghỉ). Mô tả: `description` (bí danh cũ `reason`); không gửi thì giữ mô tả cũ.
+        const description =
+          body.description !== undefined || body.reason !== undefined
+            ? pickDescription(body)
+            : String(leave.reason ?? '').trim() || null;
         const replacement = await createLeave(db, tenantId, principal.userId, {
           employeeId: leave.employee_id,
           leaveTypeId: leave.leave_type_id,
           attachmentFileId: leave.attachment_file_id,
+          fromAt: body.fromAt,
+          toAt: body.toAt,
           fromDate: body.fromDate,
           toDate: body.toDate,
           duration: body.duration,
-          reason: body.reason,
+          description: description ?? undefined,
         });
         await lifecycleAudit(
           db,
@@ -1127,14 +1492,16 @@ export class HrmLeaveController {
           principal.userId,
           'LEAVE_AMENDED',
           id,
-          { replacementId: replacement.id, before: leave, reason: body.reason },
+          { replacementId: replacement.id, before: leave, description },
         );
         return replacement;
       },
     );
     return {
       data: {
-        ...this.mapLeaveRequest(row),
+        ...this.mapLeaveRequest(
+          await this.withLeaveType(pool, tenantId, row),
+        ),
         procedureSyncStatus: link?.syncStatus ?? null,
 
         currentStepName: link?.currentStepName ?? null,
@@ -1157,8 +1524,9 @@ export class HrmLeaveController {
       name: row.name as string,
       unit: row.unit as any,
       paid: Boolean(row.paid),
+      isAnnual: Boolean(row.is_annual),
       deductBalance: Boolean(row.deduct_balance),
-      negativeLimit: Number(row.negative_limit || 0),
+      negativeLimit: row.is_annual ? 0 : Number(row.negative_limit || 0),
       requiresAttachment: Boolean(row.requires_attachment),
       carryoverAllowed: Boolean(row.carryover_allowed),
       maxCarryoverDays: Number(row.max_carryover_days || 0),
@@ -1183,6 +1551,18 @@ export class HrmLeaveController {
       prorationRule: row.proration_rule as string | null,
       seniorityBonusYears: Number(row.seniority_bonus_years ?? 5),
       seniorityBonusDays: Number(row.seniority_bonus_days ?? 1),
+      accrualBasis: (row.accrual_basis ??
+        'JOIN_DATE') as HrmLeaveAccrualSchedule['accrualBasis'],
+      startOffsetMonths: Number(row.start_offset_months ?? 0),
+      advanceAllowed: Boolean(row.advance_allowed),
+      annualDays: row.annual_days == null ? null : Number(row.annual_days),
+      seniorityTiers: (
+        (row.seniority_tiers as { minYears: unknown; bonusDays: unknown }[]) ??
+        []
+      ).map((t) => ({
+        minYears: Number(t.minYears),
+        bonusDays: Number(t.bonusDays),
+      })),
       effectiveFrom: isoDate(row.effective_from),
       effectiveTo: row.effective_to ? isoDate(row.effective_to) : null,
       createdAt: new Date(row.created_at as string).toISOString(),
@@ -1209,6 +1589,19 @@ export class HrmLeaveController {
         ? String(row.carryover_expiry_date)
         : null,
       maxNegativeAllowed: Number(row.max_negative_allowed || 2.0),
+      projectedEntitlement:
+        row.projected_entitlement == null
+          ? null
+          : Number(row.projected_entitlement),
+      available:
+        row.available == null
+          ? Number(row.remaining)
+          : Number(row.available),
+      advanceAllowed: Boolean(row.advance_allowed),
+      projectedSeniority: Number(row.projected_seniority || 0),
+      signDate: row.sign_date ? String(row.sign_date) : null,
+      eligibleFrom: row.eligible_from ? String(row.eligible_from) : null,
+      seniorityTierYears: Number(row.seniority_tier_years || 0),
       createdAt: String(row.created_at),
       updatedAt: new Date(row.updated_at as string).toISOString(),
     };
@@ -1226,6 +1619,7 @@ export class HrmLeaveController {
       referenceRequestId: row.reference_request_id as string | null,
       accrualScheduleId: row.accrual_schedule_id as string | null,
       note: row.note as string | null,
+      balanceYear: row.balance_year == null ? null : Number(row.balance_year),
       createdAt: String(row.created_at),
     };
   }
@@ -1238,8 +1632,11 @@ export class HrmLeaveController {
       leaveTypeId: row.leave_type_id as string,
       fromDate: isoDate(row.from_date),
       toDate: isoDate(row.to_date),
+      fromAt: row.from_at ? new Date(row.from_at as string).toISOString() : null,
+      toAt: row.to_at ? new Date(row.to_at as string).toISOString() : null,
+      timeKnown: Boolean(row.from_at),
       duration: Number(row.duration),
-      reason: row.reason as string,
+      ...leaveReasonView(row),
       status: row.status as any,
       isNegativeLeave: Boolean(row.is_negative_leave),
       leaveTypeCode: row.leave_type_code as string | undefined,

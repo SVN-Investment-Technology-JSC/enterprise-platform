@@ -134,6 +134,7 @@ integration('HRM personnel decisions PostgreSQL integration', () => {
       'hrm/0020-payroll-lifecycle.sql',
       'hrm/0028-hrm-approval-policy.sql',
       'hrm/0032-hrm-personnel-decisions.sql',
+      'hrm/0033-leave-annual-policy.sql',
     ])
       await migrate(path);
     await pool.query(

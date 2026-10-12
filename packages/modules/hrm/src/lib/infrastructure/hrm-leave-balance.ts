@@ -90,3 +90,27 @@ export async function applyLeaveDelta(
   }
   return { remaining: Number(result.rows[0].remaining) };
 }
+
+/**
+ * Số ngày phép của các đơn nghỉ ĐANG CHỜ DUYỆT (cùng nhân viên, loại nghỉ, năm) mà quỹ phép chưa trừ.
+ * `leave_balances.remaining` chỉ giảm khi đơn được duyệt nên nếu không tính phần này, nhiều đơn chờ duyệt có thể
+ * cùng vượt quỹ và chỉ lỗi lúc duyệt. Chỉ tính đơn có giữ quỹ (`balance_reserved`).
+ */
+export async function pendingReservedDays(
+  db: Pick<PoolClient, 'query'>,
+  tenant: string,
+  employee: string,
+  type: string,
+  year: number,
+): Promise<number> {
+  const result = await db.query(
+    `SELECT COALESCE(sum(d.quantity),0)::float AS days
+       FROM hrm_schema.leave_request_days d
+       JOIN hrm_schema.leave_requests r ON r.id=d.request_id AND r.tenant_id=d.tenant_id
+      WHERE r.tenant_id=$1 AND r.employee_id=$2 AND r.leave_type_id=$3
+        AND r.status='PENDING' AND r.balance_reserved
+        AND extract(year FROM d.work_date)::int=$4`,
+    [tenant, employee, type, year],
+  );
+  return Number(result.rows[0]?.days ?? 0);
+}

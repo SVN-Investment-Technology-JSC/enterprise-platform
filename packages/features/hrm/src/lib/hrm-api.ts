@@ -13,6 +13,7 @@ export class HrmApiError extends Error {
     message: string,
     readonly status: number,
     readonly code?: string,
+    readonly body?: unknown,
   ) {
     super(message);
     this.name = 'HrmApiError';
@@ -94,24 +95,47 @@ export async function hrmFetch<T>(
           : `Yêu cầu thất bại (${response.status})`),
       response.status,
       typeof body.code === 'string' ? body.code : undefined,
+      body,
     );
   }
 
   return response.json() as Promise<T>;
 }
 
-export async function hrmEmployeeOptions(includeInactive = false) {
-  const options: { value: string; label: string }[] = [];
+export type EmployeeOption = { value: string; label: string; department?: string | null };
+const EMPLOYEE_OPTIONS_TTL_MS = 30_000;
+const employeeOptionsCache = new Map<string, { at: number; promise: Promise<EmployeeOption[]> }>();
+
+/**
+ * Danh sách nhân viên cho ô chọn: dùng chung giữa các màn trong 30 giây (và gộp các lần gọi đồng thời),
+ * để mỗi lần tải lại danh sách không phải phân trang lại toàn bộ nhân viên. `fresh` bỏ qua bộ nhớ đệm.
+ */
+export function hrmEmployeeOptions(includeInactive = false, fresh = false): Promise<EmployeeOption[]> {
+  const key = includeInactive ? 'all' : 'active';
+  const cached = employeeOptionsCache.get(key);
+  if (!fresh && cached && Date.now() - cached.at < EMPLOYEE_OPTIONS_TTL_MS) return cached.promise;
+  const promise = loadEmployeeOptions(includeInactive);
+  employeeOptionsCache.set(key, { at: Date.now(), promise });
+  // Lỗi không được giữ lại trong bộ nhớ đệm.
+  promise.catch(() => {
+    if (employeeOptionsCache.get(key)?.promise === promise) employeeOptionsCache.delete(key);
+  });
+  return promise;
+}
+
+async function loadEmployeeOptions(includeInactive: boolean) {
+  const options: EmployeeOption[] = [];
   let page = 1;
   while (true) {
     const result = await hrmFetch<{
-      data: { employeeId: string; employeeCode: string; fullName: string }[];
+      data: { employeeId: string; employeeCode: string; fullName: string; department?: string | null }[];
       meta: { total: number };
     }>(`/employee-options?page=${page}&page_size=100${includeInactive ? '&include_inactive=1' : ''}`);
     options.push(
       ...result.data.map((e) => ({
         value: e.employeeId,
         label: `${e.employeeCode} · ${e.fullName}`,
+        department: e.department ?? null,
       })),
     );
     if (options.length >= result.meta.total || !result.data.length) break;

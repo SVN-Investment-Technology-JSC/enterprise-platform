@@ -87,37 +87,62 @@ export async function insertContract(
   parentId?: string,
 ) {
   requireUuid(employeeId, 'Nhân viên');
-  if (body.status !== undefined && body.status !== 'DRAFT')
-    throw new BadRequestException(
-      'Hợp đồng mới phải ở trạng thái nháp; dùng thao tác ban hành riêng',
-    );
-  const input = contractInput(body as unknown as Record<string, unknown>);
+  const targetStatus = body.status === 'DRAFT' ? 'DRAFT' : 'ACTIVE';
+  const effectiveSignDate = body.signDate || body.effectiveFrom;
+  const input = contractInput({
+    ...body as unknown as Record<string, unknown>,
+    signDate: effectiveSignDate,
+  });
   validateContract(input);
   await lockEmployee(db, tenantId, employeeId);
   const result = await db.query(
-    `INSERT INTO hrm_schema.employment_contracts(tenant_id,employee_id,contract_code,contract_type,sign_date,effective_from,effective_to,status,base_salary,note,file_url,created_by${parentId ? ',parent_contract_id' : ''})
-    VALUES($1,$2,$3,$4,$5,$6,$7,'DRAFT',$8,$9,$10,$11${parentId ? ',$12' : ''}) ON CONFLICT DO NOTHING RETURNING *`,
+    `INSERT INTO hrm_schema.employment_contracts(
+      tenant_id,employee_id,contract_code,contract_type,sign_date,effective_from,effective_to,
+      status,base_salary,note,file_url,created_by,issued_at,issued_by${parentId ? ',parent_contract_id' : ''}
+    )
+    VALUES(
+      $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14${parentId ? ',$15' : ''}
+    ) ON CONFLICT DO NOTHING RETURNING *`,
     [
       tenantId,
       employeeId,
       body.contractCode.trim(),
       body.contractType.trim(),
-      body.signDate || null,
+      effectiveSignDate,
       body.effectiveFrom,
       body.effectiveTo || null,
+      targetStatus,
       body.baseSalary ?? null,
       body.note || null,
       body.fileUrl || null,
       actorId,
+      targetStatus === 'ACTIVE' ? new Date() : null,
+      targetStatus === 'ACTIVE' ? actorId : null,
       ...(parentId ? [parentId] : []),
     ],
   );
   if (!result.rowCount) throw new ConflictException('Số hợp đồng đã tồn tại');
+
+  // Nếu là hợp đồng chính thức và có hiệu lực, tự động cập nhật trạng thái OFFICIAL & officialDate
+  if (targetStatus === 'ACTIVE' && ['DEFINITE', 'INDEFINITE'].includes(body.contractType)) {
+    await db.query(
+      `UPDATE hrm_schema.employee_profiles
+       SET employment_status = 'OFFICIAL',
+           official_date = $3::date,
+           updated_by = $4,
+           updated_at = clock_timestamp()
+       WHERE tenant_id = $1 AND employee_id = $2
+         AND deleted_at IS NULL
+         AND employment_status NOT IN ('RESIGNED', 'TERMINATED')`,
+      [tenantId, employeeId, effectiveSignDate, actorId],
+    );
+  }
+
   await lifecycleAudit(
     db,
     tenantId,
     actorId,
-    'CONTRACT_DRAFT_CREATED',
+    targetStatus === 'ACTIVE' ? 'CONTRACT_ISSUED' : 'CONTRACT_DRAFT_CREATED',
     result.rows[0].id,
     { employeeId, parentContractId: parentId || null },
   );
@@ -139,4 +164,22 @@ export async function contractEmployee(
   if (!row) throw new NotFoundException('Không tìm thấy hợp đồng');
   await lockEmployee(db, tenantId, row.employee_id);
   return row.employee_id as string;
+}
+
+/** Hợp đồng chính thức (không gồm thử việc/phụ lục) dùng làm mốc tính phép năm. */
+export const OFFICIAL_CONTRACT_TYPES = ['DEFINITE', 'INDEFINITE'];
+
+/** Ngày ký của HĐLĐ chính thức đầu tiên đã ban hành; null nếu chưa có. */
+export async function firstOfficialContractSignDate(
+  db: PoolClient,
+  tenantId: string,
+  employeeId: string,
+): Promise<string | null> {
+  const result = await db.query(
+    `SELECT min(sign_date) AS sign_date FROM hrm_schema.employment_contracts
+     WHERE tenant_id=$1 AND employee_id=$2 AND parent_contract_id IS NULL AND deleted_at IS NULL
+       AND sign_date IS NOT NULL AND contract_type = ANY($3::text[]) AND status IN ('ACTIVE','TERMINATED')`,
+    [tenantId, employeeId, OFFICIAL_CONTRACT_TYPES],
+  );
+  return result.rows[0]?.sign_date ? isoDate(result.rows[0].sign_date) : null;
 }

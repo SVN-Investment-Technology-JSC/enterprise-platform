@@ -16,8 +16,15 @@ import {
   SearchableSelect,
   type SearchableSelectOption,
 } from '@enterprise-platform/shared-ui';
+import { buildCsv, downloadCsv } from '../hrm-csv';
+import { formatMinutes } from '../hrm-timesheet-format';
 import { Button } from './button';
-import { toast } from './toast';
+import {
+  buildMatrixCsvRows,
+  timesheetMatrixCell,
+  TIMESHEET_MATRIX_LEGEND,
+  type MatrixCell,
+} from './matrix-timesheet-cell';
 import {
   Dialog,
   DialogContent,
@@ -42,6 +49,8 @@ export interface MatrixAttendanceRecord {
   checkOutAt?: string | null;
   status: string;
   workedMinutes?: number;
+  /** Chỉ dùng khi dataSource='timesheet': số công của ngày. */
+  workdayUnits?: number;
   note?: string | null;
 }
 
@@ -75,6 +84,11 @@ export interface MonthlyAttendanceMatrixTableProps {
   embedded?: boolean;
   hideHeader?: boolean;
   hideFooter?: boolean;
+  /**
+   * 'attendance' (mặc định): ô được dựng từ lượt quẹt thẻ (có giờ vào/ra).
+   * 'timesheet': ô được dựng từ bảng công, không có giờ vào/ra.
+   */
+  dataSource?: 'attendance' | 'timesheet';
 }
 
 // Helper: Chuyển đổi timestamp ISO (UTC) hoặc date string sang YYYY-MM-DD theo giờ địa phương Việt Nam
@@ -125,7 +139,9 @@ export function MonthlyAttendanceMatrixTable({
   embedded = false,
   hideHeader = false,
   hideFooter = false,
+  dataSource = 'attendance',
 }: MonthlyAttendanceMatrixTableProps) {
+  const isTimesheet = dataSource === 'timesheet';
   // Current active date
   const [now] = useState(() => new Date());
   const [internalYear, setInternalYear] = useState<number>(
@@ -147,7 +163,7 @@ export function MonthlyAttendanceMatrixTable({
   const [selectedCellDetail, setSelectedCellDetail] = useState<{
     employee: MatrixEmployee;
     day: { dayNumber: string; dayName: string; isoDate: string; isWeekend: boolean; isSaturday: boolean };
-    cell: ReturnType<typeof attendanceOverviewCell>;
+    cell: MatrixCell;
   } | null>(null);
 
   // Search & Department Filter (dành cho chế độ all employees)
@@ -311,12 +327,15 @@ export function MonthlyAttendanceMatrixTable({
     isoDate: string,
     isWeekend = false,
     isSaturday = false,
-  ) => {
+  ): MatrixCell => {
     const att =
       attendanceMap.get(empId + '_' + isoDate) ||
       (isSingleEmployeeMode
         ? attendanceMap.get('single_' + isoDate)
         : undefined);
+    if (isTimesheet) {
+      return timesheetMatrixCell(att, isoDate > toLocalDateString(new Date()));
+    }
     const leaves =
       leaveMap.get(empId) ||
       (isSingleEmployeeMode ? leaveMap.get('single') : []) ||
@@ -338,6 +357,29 @@ export function MonthlyAttendanceMatrixTable({
       isSaturday,
       isFuture,
       isToday,
+    );
+  };
+
+  const exportCsv = () => {
+    const rows = buildMatrixCsvRows({
+      employees: filteredEmployees,
+      days: daysInMonth,
+      cellFor: (ei, di) => {
+        const day = daysInMonth[di];
+        return calculateDayStatus(
+          filteredEmployees[ei].employeeId,
+          day.isoDate,
+          day.isWeekend,
+          day.isSaturday,
+        );
+      },
+      totalLabels: isTimesheet
+        ? ['Giờ công', 'Số công']
+        : ['Giờ ghi nhận', 'Ngày có log'],
+    });
+    downloadCsv(
+      `bang-cong-ma-tran_${currentMonthValue}`,
+      buildCsv(rows),
     );
   };
 
@@ -387,16 +429,12 @@ export function MonthlyAttendanceMatrixTable({
               variant="outline"
               size="sm"
               className="text-xs h-8 gap-1.5 border-slate-300 hover:bg-slate-50"
-              onClick={() => {
-                toast.add({
-                  title: 'Xuất file Excel',
-                  description: `Đã xuất bảng chấm công tháng ${selectedMonth}/${selectedYear} định dạng .xlsx`,
-                  type: 'success',
-                });
-              }}
+              disabled={filteredEmployees.length === 0}
+              title="Xuất CSV đúng dữ liệu ma trận đang hiển thị (theo bộ lọc hiện tại)"
+              onClick={exportCsv}
             >
               <Download className="size-3.5 text-emerald-700" />
-              <span>Export</span>
+              <span>Xuất CSV</span>
             </Button>
           </div>
         </div>
@@ -470,8 +508,9 @@ export function MonthlyAttendanceMatrixTable({
           </div>
 
           <p className="text-xs text-slate-500">
-            CC: Có chấm công · BT: Bất thường · P/KL: Nghỉ đã duyệt · Chờ: Đơn
-            chờ duyệt · —: Chưa có dữ liệu
+            {isTimesheet
+              ? TIMESHEET_MATRIX_LEGEND
+              : 'CC: Có chấm công · BT: Bất thường · P/KL: Nghỉ đã duyệt · Chờ: Đơn chờ duyệt · —: Chưa có dữ liệu'}
           </p>
         </div>
       )}
@@ -538,10 +577,10 @@ export function MonthlyAttendanceMatrixTable({
 
               {/* Cột Tổng hợp */}
               <th className="bg-slate-100 text-center px-1 py-1 w-[64px] border-r border-slate-200 font-bold text-[#021E73]">
-                Giờ ghi nhận
+                {isTimesheet ? 'Giờ công' : 'Giờ ghi nhận'}
               </th>
               <th className="bg-slate-100 text-center px-1 py-1 w-[64px] font-bold text-emerald-700">
-                Ngày có log
+                {isTimesheet ? 'Số công' : 'Ngày có log'}
               </th>
             </tr>
 
@@ -671,7 +710,7 @@ export function MonthlyAttendanceMatrixTable({
                               });
                             }
                           }}
-                          title={`Xem chi tiết ngày ${day.dayNumber}/${selectedMonth}: ${res.badgeText} (${res.inTime} - ${res.outTime})`}
+                          title={`Xem chi tiết ngày ${day.dayNumber}/${selectedMonth}: ${res.badgeText}${isTimesheet ? '' : ` (${res.inTime} - ${res.outTime})`}`}
                         >
                           {matrixViewTab === 'SUMMARY_CODES' ? (
                             <div className="flex items-center justify-center">
@@ -689,6 +728,12 @@ export function MonthlyAttendanceMatrixTable({
                               >
                                 {renderMatrixSymbol(res.symbol)}
                               </span>
+                            </div>
+                          ) : isTimesheet ? (
+                            <div className="flex items-center justify-center text-[10px] font-mono font-bold text-emerald-700">
+                              {res.symbol === '—'
+                                ? '—'
+                                : formatMinutes(res.workHours * 60)}
                             </div>
                           ) : (
                             <div className="flex flex-col items-center justify-center text-[9px] font-mono leading-tight py-0.5">
@@ -791,7 +836,8 @@ export function MonthlyAttendanceMatrixTable({
                 </div>
               </div>
 
-              {/* Chi tiết Giờ vào / Giờ ra */}
+              {/* Chi tiết Giờ vào / Giờ ra (bảng công không có giờ quẹt thẻ) */}
+              {!isTimesheet && (
               <div className="grid grid-cols-2 gap-3">
                 <div className="p-3 rounded-lg border border-slate-200 bg-white space-y-1">
                   <div className="flex items-center gap-1.5 text-emerald-700 font-semibold text-[11px]">
@@ -813,6 +859,7 @@ export function MonthlyAttendanceMatrixTable({
                   </div>
                 </div>
               </div>
+              )}
 
               {/* Tổng thời lượng làm việc */}
               <div className="p-3 rounded-lg bg-slate-50/70 border border-slate-200 space-y-1.5">

@@ -8,7 +8,7 @@ import {
   type WorkItemCost,
 } from '@enterprise-platform/contracts-workspace';
 import { Pencil } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import {
   formatPercent,
   formatVnd,
@@ -17,7 +17,7 @@ import {
   toVndInput,
 } from '../money';
 import * as api from '../workspace-api';
-import { formatDateTime, WORK_ITEM_STATUS_LABELS } from '../workspace-labels';
+import { formatDateTime, workItemStatusLabel } from '../workspace-labels';
 import styles from '../workspace.module.scss';
 import { Dialog, Field } from './dialog';
 import { useDirectory } from './use-directory';
@@ -28,6 +28,10 @@ export interface TabFinanceProps {
   readonly initial: ProjectFinance;
   /** Gọi sau khi ghi, để phần còn lại của màn Dự án tải lại. */
   readonly onChanged: () => void;
+  /** Công việc của nhánh đang xem; có thì bảng chi phí và sổ chi lọc theo nhánh. */
+  readonly scopeWorkItemIds?: ReadonlySet<string>;
+  /** Dòng nhắc đang xem một nhánh, do trang Dự án dựng. */
+  readonly scopeNote?: ReactNode;
 }
 
 /**
@@ -37,7 +41,13 @@ export interface TabFinanceProps {
  * `member` và `viewer`, tab bị gỡ khỏi thanh tab ngay từ đầu — không làm mờ,
  * không để trống — vì server đã không gửi số liệu xuống cho họ.
  */
-export function TabFinance({ projectId, initial, onChanged }: TabFinanceProps) {
+export function TabFinance({
+  projectId,
+  initial,
+  onChanged,
+  scopeWorkItemIds,
+  scopeNote,
+}: TabFinanceProps) {
   const [finance, setFinance] = useState<ProjectFinance>(initial);
   const [editingProject, setEditingProject] = useState(false);
   const [editingItem, setEditingItem] = useState<WorkItemCost>();
@@ -83,8 +93,18 @@ export function TabFinance({ projectId, initial, onChanged }: TabFinanceProps) {
     await loadEntries();
   };
 
+  const scopedCosts = scopeWorkItemIds
+    ? finance.items.filter((item) => scopeWorkItemIds.has(item.workItemId))
+    : finance.items;
+  const scopedEntries = scopeWorkItemIds
+    ? entries?.filter((entry) => scopeWorkItemIds.has(entry.workItemId))
+    : entries;
+  const branchEstimate = scopedCosts.reduce((sum, item) => sum + (item.estimatedCost ?? 0), 0);
+  const branchActual = scopedCosts.reduce((sum, item) => sum + item.actualCost, 0);
+
   return (
     <div className={styles.tabBody}>
+      {scopeNote}
       <div className={styles.statRow}>
         <MoneyStat label="Giá trị hợp đồng" value={finance.contractValue} />
         <MoneyStat label="Chi phí thực tế" value={finance.actualCost} />
@@ -144,17 +164,21 @@ export function TabFinance({ projectId, initial, onChanged }: TabFinanceProps) {
             {finance.budgetVariance != null && finance.budgetVariance < 0 ? ' — dự kiến vượt ngân sách' : ''}
           </dd>
         </dl>
-        <p className={styles.muted}>
-          Chi phí dự kiến = thực tế + đã cam kết + dự toán còn lại. Dự toán còn lại chỉ tính phần
-          chưa chi của các công việc chưa đóng (dự toán trừ thực tế, không âm). Đơn vị
-          VND; chưa hỗ trợ đa tiền tệ.
-        </p>
       </section>
 
       <section className={styles.panel}>
-        <h3>Chi phí theo công việc</h3>
-        {finance.items.length === 0 ? (
-          <p className={styles.muted}>Dự án chưa có công việc nào.</p>
+        <h3 className={styles.panelHeadRow}>
+          Chi phí theo công việc
+          {scopeWorkItemIds ? (
+            <span className={styles.muted}>
+              Nhánh này: dự toán {formatVnd(branchEstimate)} · thực tế {formatVnd(branchActual)}
+            </span>
+          ) : null}
+        </h3>
+        {scopedCosts.length === 0 ? (
+          <p className={styles.muted}>
+            {scopeWorkItemIds ? 'Nhánh này chưa có công việc nào.' : 'Dự án chưa có công việc nào.'}
+          </p>
         ) : (
           <table className={styles.table}>
             <thead>
@@ -168,11 +192,11 @@ export function TabFinance({ projectId, initial, onChanged }: TabFinanceProps) {
               </tr>
             </thead>
             <tbody>
-              {finance.items.map((item) => (
+              {scopedCosts.map((item) => (
                 <tr key={item.workItemId}>
                   <td className={styles.treeCode}>{item.code}</td>
                   <td>{item.title}</td>
-                  <td>{WORK_ITEM_STATUS_LABELS[item.status]}</td>
+                  <td>{workItemStatusLabel(item)}</td>
                   <td className={styles.numeric}>{formatVnd(item.estimatedCost)}</td>
                   <td className={styles.numeric}>{formatVnd(item.actualCost)}</td>
                   <td>
@@ -202,14 +226,10 @@ export function TabFinance({ projectId, initial, onChanged }: TabFinanceProps) {
 
       <section className={styles.panel}>
         <h3>Sổ chi phí thực tế</h3>
-        <p className={styles.muted}>
-          Mỗi khoản chi ghi một dòng kèm lý do; nhập sai thì ghi một dòng âm để điều chỉnh. Sổ
-          chỉ ghi thêm, không sửa hay xoá dòng cũ.
-        </p>
         {entriesError ? <p className={styles.alert}>{entriesError}</p> : null}
         {entries === undefined && !entriesError ? <p className={styles.muted}>Đang tải…</p> : null}
-        {entries?.length === 0 ? <p className={styles.muted}>Chưa ghi khoản chi nào.</p> : null}
-        {entries && entries.length > 0 ? (
+        {scopedEntries?.length === 0 ? <p className={styles.muted}>Chưa ghi khoản chi nào.</p> : null}
+        {scopedEntries && scopedEntries.length > 0 ? (
           <table className={styles.table}>
             <thead>
               <tr>
@@ -221,7 +241,7 @@ export function TabFinance({ projectId, initial, onChanged }: TabFinanceProps) {
               </tr>
             </thead>
             <tbody>
-              {entries.map((entry) => (
+              {scopedEntries.map((entry) => (
                 <tr key={entry.id}>
                   <td>{formatDateTime(entry.createdAt)}</td>
                   <td>
@@ -442,7 +462,7 @@ function ItemCostDialog({
       onClose={onClose}
       onSubmit={() => void submit()}
     >
-      <Field label="Chi phí dự toán" hint="Chỉ tính vào dự kiến khi công việc chưa đóng.">
+      <Field label="Chi phí dự toán">
         <input inputMode="decimal" value={estimated} onChange={(event) => setEstimated(event.target.value)} />
       </Field>
       <p className={styles.muted}>

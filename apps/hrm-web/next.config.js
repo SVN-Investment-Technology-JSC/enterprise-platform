@@ -15,6 +15,10 @@ const nextConfig = {
     '192.168.88.16:4200',
   ],
   basePath: '/modules/hrm',
+  experimental: {
+    // Trang chỉ nạp phần HRM mình dùng thay vì cả gói (antd, xlsx, mọi màn hình).
+    optimizePackageImports: ['@enterprise-platform/feature-hrm', 'antd', 'lucide-react'],
+  },
   outputFileTracingRoot: path.join(__dirname, '../..'),
   output: process.env.NEXT_BUILD_OUTPUT === 'standalone' ? 'standalone' : undefined,
   poweredByHeader: false,

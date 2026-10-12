@@ -105,6 +105,7 @@
   transform: rotate(180deg);
 }
 
+/* Vị trí thật (fixed, theo ô nhập) đặt bằng style trong component. */
 .dropdown {
   position: absolute;
   top: calc(100% + 4px);
@@ -192,10 +193,10 @@
   gap: 8px;
 }
 
+/* Nhãn dài xuống dòng thay vì bị cắt: mã và tên công việc, đường dẫn thư mục. */
 .optionText {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .optionBadge {

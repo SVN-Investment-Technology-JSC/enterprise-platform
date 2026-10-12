@@ -1,7 +1,7 @@
 'use client';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Table, type TableColumnsType } from 'antd';
-import { FileText, ImageIcon, Plus, TriangleAlert } from 'lucide-react';
+import { ChevronRight, FileText, ImageIcon, Plus, TriangleAlert, Upload } from 'lucide-react';
 import { Popconfirm, SearchableSelect } from '@enterprise-platform/shared-ui';
 import type {
   HrmProfileDocumentChange,
@@ -18,6 +18,7 @@ import { Button } from './button';
 import { DatePickerInput } from './date-picker-input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './dialog';
 import { Input } from './input';
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from './sheet';
 import { toast } from './toast';
 
 const documentLabels: Record<HrmProfileDocumentType, string> = {
@@ -158,26 +159,31 @@ type Editing =
 
 /**
  * Ảnh thẻ, CCCD (bắt buộc) và bằng cấp, chứng chỉ (không bắt buộc).
- * mode "hr": HR cập nhật trực tiếp. mode "self": nhân sự gửi đơn điều chỉnh hồ sơ để HR duyệt.
+ * Cho phép cả HR (mode "hr") và cá nhân tự cập nhật trực tiếp (mode "self").
  */
 export function HrmProfileDocumentsPanel({
   employeeId,
   mode,
   readOnly,
+  identityCardNumber,
+  variant = 'full',
 }: {
   employeeId: string;
   mode: 'hr' | 'self';
   readOnly?: boolean;
+  identityCardNumber?: string;
+  /** `compact`: thẻ gọn của Hồ sơ của tôi (CCCD mặt trước, mặt sau, bằng cấp); "Quản lý giấy tờ" mở đầy đủ trong ngăn kéo. */
+  variant?: 'full' | 'compact';
 }) {
+  const [manageOpen, setManageOpen] = useState(false);
   const [docs, setDocs] = useState<HrmProfileDocuments | null>(null);
   const [error, setError] = useState('');
   const [editing, setEditing] = useState<Editing | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [expiry, setExpiry] = useState('');
-  const [reason, setReason] = useState('');
   const [form, setForm] = useState<QualificationForm>(emptyQualification);
   const [busy, setBusy] = useState(false);
-  const permission = mode === 'hr' ? 'hrm.employee.manage' : 'hrm.self.request';
+  const permission = mode === 'hr' ? 'hrm.employee.manage' : undefined;
 
   const load = useCallback(async () => {
     try {
@@ -192,13 +198,21 @@ export function HrmProfileDocumentsPanel({
   }, [employeeId]);
   useEffect(() => {
     void load();
-  }, [load]);
+  }, [load, identityCardNumber]);
+  // Đóng ngăn kéo quản lý giấy tờ: nạp lại để thẻ gọn phản ánh thay đổi vừa làm.
+  const wasManaging = useRef(false);
+  useEffect(() => {
+    if (manageOpen) wasManaging.current = true;
+    else if (wasManaging.current) {
+      wasManaging.current = false;
+      void load();
+    }
+  }, [manageOpen, load]);
 
   const close = () => {
     setEditing(null);
     setFile(null);
     setExpiry('');
-    setReason('');
     setForm(emptyQualification);
   };
   const openDocument = (documentType: HrmProfileDocumentType) => {
@@ -225,35 +239,21 @@ export function HrmProfileDocumentsPanel({
       });
   };
 
-  /** HR áp dụng ngay; nhân sự gửi đơn kèm lý do và chờ duyệt. */
+  /** Cập nhật trực tiếp giấy tờ & bằng cấp vào hồ sơ. */
   async function submit(
     documentChanges: HrmProfileDocumentChange[],
     identityCardExpiryDate?: string,
   ) {
-    if (mode === 'self') {
-      if (reason.trim().length < 3)
-        throw new Error('Nhập lý do thay đổi (tối thiểu 3 ký tự)');
-      await hrmFetch('/profile-corrections', {
-        method: 'POST',
-        body: JSON.stringify({
-          documentChanges,
-          changes: identityCardExpiryDate ? { identityCardExpiryDate } : {},
-          reason: reason.trim(),
-        }),
-      });
-      toast.success('Đã gửi đơn, HR sẽ duyệt trước khi cập nhật hồ sơ');
-    } else {
-      await hrmFetch(`/employees/${employeeId}/profile-documents`, {
-        method: 'POST',
-        body: JSON.stringify({
-          documentChanges,
-          ...(identityCardExpiryDate !== undefined
-            ? { identityCardExpiryDate: identityCardExpiryDate || null }
-            : {}),
-        }),
-      });
-      toast.success('Đã cập nhật giấy tờ');
-    }
+    await hrmFetch(`/employees/${employeeId}/profile-documents`, {
+      method: 'POST',
+      body: JSON.stringify({
+        documentChanges,
+        ...(identityCardExpiryDate !== undefined
+          ? { identityCardExpiryDate: identityCardExpiryDate || null }
+          : {}),
+      }),
+    });
+    toast.success('Đã cập nhật giấy tờ');
     await load();
   }
 
@@ -321,25 +321,13 @@ export function HrmProfileDocumentsPanel({
 
   async function remove(row: HrmQualification) {
     try {
-      if (mode === 'self') {
-        await hrmFetch('/profile-corrections', {
-          method: 'POST',
-          body: JSON.stringify({
-            documentChanges: [{ op: 'REMOVE_QUALIFICATION', id: row.id }],
-            changes: {},
-            reason: `Đề nghị gỡ ${row.name}`,
-          }),
-        });
-        toast.success('Đã gửi đơn đề nghị gỡ, chờ HR duyệt');
-      } else {
-        await hrmFetch(`/employees/${employeeId}/profile-documents`, {
-          method: 'POST',
-          body: JSON.stringify({
-            documentChanges: [{ op: 'REMOVE_QUALIFICATION', id: row.id }],
-          }),
-        });
-        toast.success('Đã gỡ khỏi hồ sơ');
-      }
+      await hrmFetch(`/employees/${employeeId}/profile-documents`, {
+        method: 'POST',
+        body: JSON.stringify({
+          documentChanges: [{ op: 'REMOVE_QUALIFICATION', id: row.id }],
+        }),
+      });
+      toast.success('Đã gỡ khỏi hồ sơ');
       await load();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Không thể gỡ');
@@ -410,11 +398,7 @@ export function HrmProfileDocumentsPanel({
                 </Button>
                 <Popconfirm
                   title="Gỡ bằng cấp, chứng chỉ?"
-                  description={
-                    mode === 'self'
-                      ? 'Một đơn đề nghị gỡ sẽ được gửi tới HR.'
-                      : 'Mục này sẽ được gỡ khỏi hồ sơ; lịch sử vẫn được lưu.'
-                  }
+                  description="Mục này sẽ được gỡ khỏi hồ sơ; lịch sử vẫn được lưu."
                   okText="Gỡ"
                   onConfirm={() => remove(r)}
                 >
@@ -433,8 +417,8 @@ export function HrmProfileDocumentsPanel({
     key: keyof QualificationForm,
     props: { date?: boolean } = {},
   ) => (
-    <div className="space-y-1">
-      <label className="block text-xs font-semibold text-slate-800">
+    <div className="space-y-1.5">
+      <label className="block text-[13px] font-semibold text-slate-800">
         {label}
       </label>
       {props.date ? (
@@ -447,7 +431,7 @@ export function HrmProfileDocumentsPanel({
         <Input
           value={form[key]}
           onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
-          className="text-xs"
+          className="h-10 text-sm"
         />
       )}
     </div>
@@ -456,6 +440,178 @@ export function HrmProfileDocumentsPanel({
   const editingDocumentType =
     editing?.kind === 'document' ? editing.documentType : null;
   const isPhoto = editingDocumentType === 'PHOTO';
+  const editDialog = (
+    <Dialog
+      open={!!editing}
+      onOpenChange={(open) => {
+        if (!open && !busy) close();
+      }}
+    >
+      <DialogContent className="flex max-h-[90vh] w-[calc(100%-2rem)] flex-col gap-0 bg-white p-0 sm:max-w-[820px]">
+        <DialogHeader className="shrink-0 border-b border-slate-200 bg-slate-50/80 px-5 py-4 pr-12">
+          <DialogTitle>
+            {editingDocumentType
+              ? documentLabels[editingDocumentType]
+              : editing?.kind === 'qualification' && editing.row
+                ? 'Cập nhật bằng cấp, chứng chỉ'
+                : 'Thêm bằng cấp, chứng chỉ'}
+          </DialogTitle>
+        </DialogHeader>
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-5 text-sm">
+          {editing?.kind === 'qualification' && (
+            <div className="grid grid-cols-1 gap-x-4 gap-y-3.5 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <label className="block text-[13px] font-semibold text-slate-800">
+                  Loại
+                </label>
+                <SearchableSelect
+                  options={qualificationOptions}
+                  value={form.type}
+                  onChange={(v) =>
+                    setForm((f) => ({ ...f, type: v || 'OTHER' }))
+                  }
+                  clearable={false}
+                />
+              </div>
+              {field('Tên', 'name')}
+              {field('Trình độ', 'level')}
+              {field('Chuyên ngành', 'major')}
+              {field('Nơi cấp', 'institution')}
+              {field('Số hiệu', 'certificateNumber')}
+              {field('Ngày cấp', 'issuedDate', { date: true })}
+              {field('Hiệu lực từ', 'effectiveFrom', { date: true })}
+              {field('Ngày hết hạn', 'expiryDate', { date: true })}
+              {field('Xếp loại', 'grade')}
+            </div>
+          )}
+          {editingDocumentType && !isPhoto && (
+            <div className="space-y-1.5 sm:max-w-[50%]">
+              <label className="block text-[13px] font-semibold text-slate-800">
+                Ngày hết hạn CCCD
+              </label>
+              <DatePickerInput
+                value={expiry}
+                onChange={setExpiry}
+                placeholder="dd/mm/yyyy"
+              />
+            </div>
+          )}
+          <div className="space-y-1.5">
+            <label className="block text-[13px] font-semibold text-slate-800">
+              {editingDocumentType ? 'Tệp' : 'Tệp đính kèm (không bắt buộc)'}
+              <span className="ml-1 font-normal text-slate-400">
+                {isPhoto
+                  ? 'PNG, JPEG, WEBP, tối đa 10 MB'
+                  : 'PDF, PNG, JPEG, WEBP, tối đa 10 MB'}
+              </span>
+            </label>
+            <input
+              type="file"
+              accept={
+                isPhoto
+                  ? 'image/png,image/jpeg,image/webp,.jfif'
+                  : 'application/pdf,image/png,image/jpeg,image/webp,.jfif'
+              }
+              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+              className="block w-full rounded-md border border-dashed border-slate-300 bg-slate-50 px-3 py-3 text-sm file:mr-3 file:rounded-md file:border-0 file:bg-slate-200 file:px-3 file:py-1.5 file:text-xs file:font-semibold"
+            />
+          </div>
+        </div>
+        <div className="flex shrink-0 justify-end gap-2 border-t border-slate-200 bg-slate-50 px-5 py-3">
+          <Button variant="outline" onClick={close} disabled={busy}>
+            Hủy
+          </Button>
+          <Button onClick={save} disabled={busy}>
+            {busy ? 'Đang lưu' : 'Lưu'}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+
+  const qualificationCount = docs?.qualifications?.length ?? 0;
+  if (variant === 'compact') {
+    const missing = (docs?.missingRequired?.length ?? 0) > 0;
+    const tile = (
+      title: string,
+      required: boolean,
+      body: React.ReactNode,
+      onUpload: () => void,
+      uploadLabel: string,
+    ) => (
+      <div className="space-y-2 rounded-lg border border-dashed border-slate-300 p-2.5">
+        <div className="text-xs font-semibold text-slate-800">
+          {title}
+          {required && <span className="ml-1 text-[10px] font-normal text-red-600">Bắt buộc</span>}
+        </div>
+        {body}
+        {!readOnly && (
+          <Button permission={permission} variant="outline" size="sm" className="h-7 w-full gap-1 text-xs" onClick={onUpload}>
+            <Upload className="size-3.5" />
+            {uploadLabel}
+          </Button>
+        )}
+      </div>
+    );
+    return (
+      <section aria-label="Hồ sơ và giấy tờ" data-testid="profile-documents-card" className="rounded-xl border border-slate-200 bg-white p-4 shadow-xs">
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <h2 className="flex items-center gap-2 text-sm font-bold text-slate-900">
+            <FileText className="size-4.5 text-blue-600" aria-hidden="true" />
+            Hồ sơ & giấy tờ
+          </h2>
+          <button
+            type="button"
+            onClick={() => setManageOpen(true)}
+            className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 hover:underline"
+          >
+            Quản lý giấy tờ
+            <ChevronRight className="size-3.5" />
+          </button>
+        </div>
+        {error && <p className="mb-2 text-xs text-red-600">{error}</p>}
+        {missing && (
+          <div className="mb-3 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-900">
+            <TriangleAlert className="mt-0.5 size-4 shrink-0" />
+            <span>
+              Bổ sung các giấy tờ bắt buộc để hoàn thiện hồ sơ cá nhân
+              {docs?.missingRequired?.length
+                ? `: ${docs.missingRequired.map((k) => missingText[k]).join(', ')}`
+                : ''}
+              .
+            </span>
+          </div>
+        )}
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          {tile('CCCD mặt trước', true, <FileThumb file={docs?.identityCardFront ?? null} />, () => openDocument('ID_CARD_FRONT'), docs?.identityCardFront ? 'Thay tệp' : 'Tải lên')}
+          {tile('CCCD mặt sau', true, <FileThumb file={docs?.identityCardBack ?? null} />, () => openDocument('ID_CARD_BACK'), docs?.identityCardBack ? 'Thay tệp' : 'Tải lên')}
+          {tile(
+            'Bằng cấp / chứng chỉ',
+            false,
+            <div className="flex h-32 flex-col items-center justify-center gap-1 rounded-md border border-slate-200 bg-slate-50 text-slate-500">
+              <FileText className="size-6 text-slate-400" />
+              <span className="text-xs">{qualificationCount} tệp</span>
+            </div>,
+            () => openQualification(),
+            'Tải lên',
+          )}
+        </div>
+        {editDialog}
+        <Sheet open={manageOpen} onOpenChange={setManageOpen}>
+          <SheetContent className="flex h-full max-h-screen w-full flex-col overflow-hidden bg-white p-0 sm:max-w-[880px]">
+            <SheetHeader className="shrink-0 border-b border-slate-200 bg-slate-50/70">
+              <SheetTitle>Quản lý giấy tờ</SheetTitle>
+              <SheetDescription>Ảnh thẻ, CCCD, bằng cấp, chứng chỉ và các giấy tờ khác của hồ sơ.</SheetDescription>
+            </SheetHeader>
+            <div className="flex-1 overflow-y-auto p-4">
+              <HrmProfileDocumentsPanel employeeId={employeeId} mode={mode} readOnly={readOnly} identityCardNumber={identityCardNumber} />
+            </div>
+          </SheetContent>
+        </Sheet>
+      </section>
+    );
+  }
+
   return (
     <section className="space-y-4 rounded-lg border border-slate-200 bg-white p-4">
       <div>
@@ -463,17 +619,15 @@ export function HrmProfileDocumentsPanel({
         <p className="text-xs text-slate-500">
           CCCD là bắt buộc. Bằng cấp, chứng chỉ, hộ chiếu, giấy phép lao động là
           tùy chọn.
-          {mode === 'self' &&
-            ' Mọi thay đổi được gửi thành đơn và chỉ có hiệu lực sau khi HR duyệt.'}
         </p>
       </div>
       {error && <p className="text-xs text-red-600">{error}</p>}
-      {docs && docs.missingRequired.length > 0 && (
+      {docs && (docs.missingRequired?.length ?? 0) > 0 && (
         <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-900">
           <TriangleAlert className="mt-0.5 size-4 shrink-0" />
           <span>
             Hồ sơ chưa đủ giấy tờ bắt buộc, còn thiếu:{' '}
-            {docs.missingRequired.map((k) => missingText[k]).join(', ')}.
+            {docs.missingRequired?.map((k) => missingText[k]).join(', ')}.
           </span>
         </div>
       )}
@@ -508,14 +662,27 @@ export function HrmProfileDocumentsPanel({
           </div>
         ))}
       </div>
-      <div className="text-xs text-slate-600">
-        Ngày hết hạn CCCD:{' '}
-        <strong>
-          {docs?.identityCardExpiryDate
-            ? vnDate(docs.identityCardExpiryDate)
-            : 'Không ghi nhận'}
-        </strong>
-        <ExpiryBadge iso={docs?.identityCardExpiryDate} />
+      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600">
+        <div>
+          Ngày hết hạn CCCD:{' '}
+          <strong>
+            {docs?.identityCardExpiryDate
+              ? vnDate(docs.identityCardExpiryDate)
+              : 'Không ghi nhận'}
+          </strong>
+          <ExpiryBadge iso={docs?.identityCardExpiryDate} />
+        </div>
+        {!readOnly && (
+          <Button
+            permission={permission}
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-xs text-blue-600 hover:text-blue-700"
+            onClick={() => openDocument('ID_CARD_FRONT')}
+          >
+            Cập nhật ngày hết hạn
+          </Button>
+        )}
       </div>
 
       <div className="flex items-center justify-between gap-2 border-t border-slate-100 pt-3">
@@ -542,105 +709,7 @@ export function HrmProfileDocumentsPanel({
         locale={{ emptyText: 'Chưa có bằng cấp, chứng chỉ' }}
       />
 
-      <Dialog
-        open={!!editing}
-        onOpenChange={(open) => {
-          if (!open && !busy) close();
-        }}
-      >
-        <DialogContent className="max-w-xl">
-          <DialogHeader>
-            <DialogTitle>
-              {editingDocumentType
-                ? documentLabels[editingDocumentType]
-                : editing?.kind === 'qualification' && editing.row
-                  ? 'Cập nhật bằng cấp, chứng chỉ'
-                  : 'Thêm bằng cấp, chứng chỉ'}
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3 text-xs">
-            {editing?.kind === 'qualification' && (
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <div className="space-y-1">
-                  <label className="block text-xs font-semibold text-slate-800">
-                    Loại
-                  </label>
-                  <SearchableSelect
-                    options={qualificationOptions}
-                    value={form.type}
-                    onChange={(v) =>
-                      setForm((f) => ({ ...f, type: v || 'OTHER' }))
-                    }
-                    clearable={false}
-                  />
-                </div>
-                {field('Tên', 'name')}
-                {field('Trình độ', 'level')}
-                {field('Chuyên ngành', 'major')}
-                {field('Nơi cấp', 'institution')}
-                {field('Số hiệu', 'certificateNumber')}
-                {field('Ngày cấp', 'issuedDate', { date: true })}
-                {field('Hiệu lực từ', 'effectiveFrom', { date: true })}
-                {field('Ngày hết hạn', 'expiryDate', { date: true })}
-                {field('Xếp loại', 'grade')}
-              </div>
-            )}
-            {editingDocumentType && !isPhoto && (
-              <div className="space-y-1">
-                <label className="block text-xs font-semibold text-slate-800">
-                  Ngày hết hạn CCCD
-                </label>
-                <DatePickerInput
-                  value={expiry}
-                  onChange={setExpiry}
-                  placeholder="dd/mm/yyyy"
-                />
-              </div>
-            )}
-            <div className="space-y-1">
-              <label className="block text-xs font-semibold text-slate-800">
-                {editingDocumentType ? 'Tệp' : 'Tệp đính kèm (không bắt buộc)'}
-                <span className="ml-1 font-normal text-slate-400">
-                  {isPhoto
-                    ? 'PNG, JPEG, WEBP, tối đa 10 MB'
-                    : 'PDF, PNG, JPEG, WEBP, tối đa 10 MB'}
-                </span>
-              </label>
-              <input
-                type="file"
-                accept={
-                  isPhoto
-                    ? 'image/png,image/jpeg,image/webp'
-                    : 'application/pdf,image/png,image/jpeg,image/webp'
-                }
-                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-                className="block w-full text-xs"
-              />
-            </div>
-            {mode === 'self' && (
-              <div className="space-y-1">
-                <label className="block text-xs font-semibold text-slate-800">
-                  Lý do thay đổi
-                </label>
-                <Input
-                  value={reason}
-                  onChange={(e) => setReason(e.target.value)}
-                  placeholder="VD: Đổi sang CCCD gắn chip"
-                  className="text-xs"
-                />
-              </div>
-            )}
-          </div>
-          <div className="flex justify-end gap-2 pt-2">
-            <Button variant="outline" onClick={close} disabled={busy}>
-              Hủy
-            </Button>
-            <Button onClick={save} disabled={busy}>
-              {busy ? 'Đang lưu' : mode === 'self' ? 'Gửi đơn' : 'Lưu'}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      {variant === 'full' ? editDialog : null}
     </section>
   );
 }

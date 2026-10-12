@@ -469,7 +469,7 @@ export function TenantUsers({
                     type="password"
                     autoComplete="new-password"
                     required={!form.id}
-                    minLength={12}
+                    minLength={6}
                     maxLength={128}
                     value={form.password}
                     onChange={(e) =>
@@ -477,7 +477,7 @@ export function TenantUsers({
                     }
                   />
                   <span className="text-xs text-slate-500">
-                    Từ 12 đến 128 ký tự.
+                    Từ 6 đến 128 ký tự.
                   </span>
                 </label>
                 {form.id && (

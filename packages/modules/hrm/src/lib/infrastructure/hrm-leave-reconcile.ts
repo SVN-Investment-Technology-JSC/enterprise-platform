@@ -112,13 +112,15 @@ export async function yearEndChecklist(
   const daysToYearEnd = Math.round(
     (Date.parse(`${year}-12-31`) - Date.parse(today)) / 86400000,
   );
-  const [types, carry, expired, rec] = await Promise.all([
+  const [types, carry, expired, rec, pending, resets] = await Promise.all([
+    // Cùng tập loại nghỉ mà carryoverYear xử lý: đang dùng và có trừ quỹ.
     db.query(
-      `SELECT code,name,max_carryover_days,carryover_expiry_month FROM hrm_schema.leave_types WHERE tenant_id=$1 AND active=true AND carryover_allowed=true ORDER BY code`,
+      `SELECT code,name,carryover_allowed,max_carryover_days,carryover_expiry_month FROM hrm_schema.leave_types WHERE tenant_id=$1 AND active=true AND deduct_balance=true ORDER BY code`,
       [tenant],
     ),
+    // Chỉ đếm bản ghi có chuyển thật (amount>0); bản ghi 0 ngày chỉ đánh dấu đã chốt.
     db.query(
-      `SELECT target_year,count(*)::int AS n FROM hrm_schema.leave_carryovers WHERE tenant_id=$1 AND target_year IN ($2,$3) GROUP BY 1`,
+      `SELECT target_year,count(*)::int AS n FROM hrm_schema.leave_carryovers WHERE tenant_id=$1 AND target_year IN ($2,$3) AND amount>0 GROUP BY 1`,
       [tenant, year, year + 1],
     ),
     db.query(
@@ -126,6 +128,16 @@ export async function yearEndChecklist(
       [tenant, today],
     ),
     reconcileLeaveBalances(db, tenant, year),
+    // Đơn trừ quỹ còn chờ duyệt trong năm sẽ khiến quỹ đó bị bỏ qua khi chốt.
+    db.query(
+      `SELECT count(*)::int AS n FROM hrm_schema.leave_requests r JOIN hrm_schema.leave_types t ON t.id=r.leave_type_id AND t.tenant_id=r.tenant_id
+       WHERE r.tenant_id=$1 AND r.status='PENDING' AND r.deleted_at IS NULL AND t.deduct_balance=true AND r.from_date<=make_date($2,12,31)`,
+      [tenant, year],
+    ),
+    db.query(
+      `SELECT balance_year,count(*)::int AS n FROM hrm_schema.leave_transactions WHERE tenant_id=$1 AND transaction_type='YEAR_END_RESET' AND balance_year IN ($2,$3) GROUP BY 1`,
+      [tenant, year - 1, year],
+    ),
   ]);
   const created = (y: number) =>
     carry.rows.find((r) => r.target_year === y)?.n ?? 0;
@@ -133,12 +145,19 @@ export async function yearEndChecklist(
     year,
     daysToYearEnd,
     carryoverEnabled,
-    carryoverTypes: types.rows.map((t) => ({
+    carryoverTypes: types.rows.filter((t) => t.carryover_allowed).map((t) => ({
       code: t.code as string,
       name: t.name as string,
       maxCarryoverDays: Number(t.max_carryover_days),
       expiryMonth: Number(t.carryover_expiry_month),
     })),
+    /** Loại không cho chuyển phép: phần còn lại bị reset cuối năm. */
+    resetTypes: types.rows
+      .filter((t) => !t.carryover_allowed)
+      .map((t) => ({ code: t.code as string, name: t.name as string })),
+    resetsLastYear:
+      resets.rows.find((r) => r.balance_year === year - 1)?.n ?? 0,
+    pendingRequests: pending.rows[0].n as number,
     carryoversCurrentYear: created(year),
     carryoversNextYear: created(year + 1),
     expiredPendingCount: expired.rows[0].n as number,

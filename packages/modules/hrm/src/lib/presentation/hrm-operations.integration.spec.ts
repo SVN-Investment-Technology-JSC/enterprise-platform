@@ -51,6 +51,7 @@ integration('HRM operations and workflow recovery', () => {
       'core/0001-core-schema.sql',
       'core/0002-organization-soft-delete.sql',
       'core/0006-employees.sql',
+      'core/0007-org-hrm-bridge.sql',
       '0001-integration.sql',
       'hrm/0001-hrm.sql',
       'hrm/0002-employee-identity.sql',
@@ -72,6 +73,10 @@ integration('HRM operations and workflow recovery', () => {
       'hrm/0015-procedure-definition-snapshot.sql',
       'hrm/0015-shift-submission.sql',
       'hrm/0029-hrm-procedure-step-progress.sql',
+      'hrm/0033-leave-annual-policy.sql',
+      'hrm/0034-hrm-request-project-links.sql',
+      'hrm/0035-hrm-request-trip-links.sql',
+      'hrm/0036-hrm-project-request-reversed.sql',
     ])
       await migrate(path);
     await pool.query(

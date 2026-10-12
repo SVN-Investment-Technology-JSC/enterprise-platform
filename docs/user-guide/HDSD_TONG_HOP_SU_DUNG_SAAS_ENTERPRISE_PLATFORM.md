@@ -229,7 +229,7 @@ Tạo bổ nhiệm sau khi đã có tài khoản người dùng và node thuộc
 
 1. Nhấn `+ Thêm người dùng`.
 2. Nhập họ tên đầy đủ và email doanh nghiệp; email dùng để đăng nhập.
-3. Nhập mật khẩu khởi tạo tối thiểu **12 ký tự**.
+3. Nhập mật khẩu khởi tạo tối thiểu **6 ký tự**.
 4. Chọn vai trò theo đúng trách nhiệm công việc và trạng thái **Hoạt động** nếu cần truy cập ngay.
 5. Lưu, sau đó tìm lại bằng email để xác nhận đã tạo đúng.
 
@@ -237,7 +237,7 @@ Tạo bổ nhiệm sau khi đã có tài khoản người dùng và node thuộc
 |---|---|---:|---|
 | Họ và tên | Input | Có | Tên nhận diện trong trao đổi/báo cáo. |
 | Email | Email input | Có | Đúng định dạng và không trùng tài khoản hiện có. |
-| Mật khẩu khởi tạo | Password input | Có | Tối thiểu 12 ký tự, không gửi qua kênh không an toàn. |
+| Mật khẩu khởi tạo | Password input | Có | Tối thiểu 6 ký tự, không gửi qua kênh không an toàn. |
 | Vai trò | Hộp chọn có tìm kiếm | Có | Quyết định phạm vi quyền. |
 | Trạng thái | Hộp chọn | Có | Hoạt động cho phép đăng nhập; Vô hiệu hóa chặn truy cập. |
 

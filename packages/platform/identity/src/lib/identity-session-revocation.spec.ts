@@ -35,7 +35,17 @@ describe('revokeTenantUserSessions', () => {
     await revokeTenantUserSessions(db, { tenantId: TENANT, userId: USER, reason: 'password-reset' });
 
     expect(db.calls[0].text).toContain('revoked_at IS NULL');
-    expect(db.calls[0].values).toEqual([TENANT, USER]);
+    expect(db.calls[0].values).toEqual([TENANT, USER, null]);
+  });
+
+  it('keeps the excepted session alive', async () => {
+    const db = fakeDb(['s2']);
+    const current = '80000000-0000-4000-8000-000000000003';
+
+    await revokeTenantUserSessions(db, { tenantId: TENANT, userId: USER, reason: 'password-changed', exceptSessionId: current });
+
+    expect(db.calls[0].text).toContain('id <> $3::uuid');
+    expect(db.calls[0].values).toEqual([TENANT, USER, current]);
   });
 
   it('emits nothing when the user has no live session', async () => {

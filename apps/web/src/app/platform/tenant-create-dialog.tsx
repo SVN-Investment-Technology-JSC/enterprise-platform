@@ -52,7 +52,7 @@ function TenantCreateDialogFlow({ onCreated, onOpenChange }: Omit<TenantCreateDi
     if (stepper.is('administrator')) {
       if (!formData.adminDisplayName.trim()) return 'Vui lòng nhập tên hiển thị của quản trị viên.';
       if (!/^[^\s@]+$/.test(formData.adminEmailLocal)) return 'Tên email quản trị viên không hợp lệ và không được chứa ký tự @.';
-      if (formData.initialPassword.length < 12) return 'Mật khẩu phải có ít nhất 12 ký tự.';
+      if (formData.initialPassword.length < 6) return 'Mật khẩu phải có ít nhất 6 ký tự.';
       if (formData.initialPassword !== formData.confirmation) return 'Xác nhận mật khẩu chưa khớp.';
     }
     if (stepper.is('database')) {

@@ -10,10 +10,11 @@ import { useMemo, useState, type DragEvent } from 'react';
 import { boardScopeOf, branchOf } from '../project-tree.model';
 import {
   PRIORITY_LABELS,
+  PRIORITY_TONE,
   WORK_ITEM_STATUS_LABELS,
   WORK_ITEM_STATUS_TONE,
   formatDate,
-  isOverdue,
+  isOverdue, workItemStatusLabel,
 } from '../workspace-labels';
 import styles from '../workspace.module.scss';
 import { useDirectory } from './use-directory';
@@ -95,7 +96,7 @@ export function TabKanban({
     if (!card || card.status === next) return;
     if (!canTransitionWorkItem(card.status, next)) {
       setError(
-        `Không chuyển thẳng "${WORK_ITEM_STATUS_LABELS[card.status]}" sang "${WORK_ITEM_STATUS_LABELS[next]}".`,
+        `Không chuyển thẳng "${workItemStatusLabel(card)}" sang "${WORK_ITEM_STATUS_LABELS[next]}".`,
       );
       return;
     }
@@ -121,12 +122,6 @@ export function TabKanban({
 
   return (
     <div className={styles.tabBody}>
-      <p className={styles.muted}>
-        {scope
-          ? `Đang xem nhánh ${scope.code} · ${scope.title}. Chọn dự án ở cây bên trái để xem toàn bộ.`
-          : 'Đang xem toàn bộ công việc của dự án.'}{' '}
-        {canWrite ? 'Kéo thẻ sang cột khác để đổi trạng thái; cột mờ là bước không hợp lệ.' : null}
-      </p>
       {error ? (
         <p role="alert" className={styles.alert}>
           {error}
@@ -167,8 +162,11 @@ export function TabKanban({
               onDragLeave={() => setDropTarget((current) => (current === status ? undefined : current))}
               onDrop={(event) => void drop(event, status)}
             >
-              <header className={styles.kanbanHead} style={{ borderTopColor: tone.fg }}>
-                <span>{WORK_ITEM_STATUS_LABELS[status]}</span>
+              <header className={styles.kanbanHead}>
+                <span className={styles.kanbanHeadLabel}>
+                  <span className={styles.groupDot} style={{ background: tone.fg }} aria-hidden />
+                  {WORK_ITEM_STATUS_LABELS[status]}
+                </span>
                 <span className={styles.kanbanCount}>{column.length}</span>
               </header>
 
@@ -189,14 +187,22 @@ export function TabKanban({
                       setDragging(card.id);
                     }}
                     onDragEnd={() => setDragging(undefined)}
+                    style={{ borderLeftColor: tone.fg }}
                     onClick={() => onOpen(card)}
                   >
                     <p className={styles.kanbanCardTitle}>
-                      {card.code} · {card.title}
+                      <span className={styles.treeCode}>{card.code}</span> {card.title}
                     </p>
                     <p className={styles.kanbanCardMeta}>
-                      <span className={styles.treeCode}>{card.code}</span>
-                      <span>{PRIORITY_LABELS[card.priority]}</span>
+                      <span
+                        className={styles.pill}
+                        style={{
+                          background: PRIORITY_TONE[card.priority].bg,
+                          color: PRIORITY_TONE[card.priority].fg,
+                        }}
+                      >
+                        {PRIORITY_LABELS[card.priority]}
+                      </span>
                     </p>
                     <p className={styles.kanbanCardMeta}>
                       <span>{card.assigneeUserId ? directory.nameOf(card.assigneeUserId) : 'Chưa giao'}</span>

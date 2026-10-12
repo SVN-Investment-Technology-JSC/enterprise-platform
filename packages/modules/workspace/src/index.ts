@@ -21,3 +21,8 @@ export * from './lib/domain/finance.rules.js';
 export * from './lib/application/organization-directory.port.js';
 export * from './lib/application/directory.service.js';
 export * from './lib/application/internal-lookup.service.js';
+export * from './lib/application/procedure-link-events.js';
+export * from './lib/procedure-link-events.factory.js';
+export * from './lib/application/project-request.service.js';
+export * from './lib/application/workday-rule.service.js';
+export * from './lib/infrastructure/project-request-events.js';

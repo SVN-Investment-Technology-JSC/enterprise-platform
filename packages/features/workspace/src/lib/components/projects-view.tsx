@@ -19,75 +19,91 @@ import type {
   WorkItem,
   WorkItemDependency,
   WorkItemStatusHistoryEntry,
+  WorkItemProcedureRequest,
 } from '@enterprise-platform/contracts-workspace';
+import { WORK_ITEM_STATUS_TRANSITIONS } from '@enterprise-platform/contracts-workspace';
 import { CHAT_UNREAD_POLL_MS } from '@enterprise-platform/contracts-workspace';
-import {
-  Briefcase,
-  ChevronDown,
-  ChevronRight,
-  LayoutGrid,
-  MessageSquare,
-  Plus,
-  RefreshCw,
-  Search,
-} from 'lucide-react';
+import { MessageSquare, MoreHorizontal, Plus } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   loadInstance,
   loadStartableProcedures,
-  startProcedureForWorkItem,
   PROCEDURE_LAUNCH_URL,
   type ProcedureInstanceView,
   type ProcedureOption,
 } from '../procedure-api';
-import { buildWorkItemTree } from '../project-tree.model';
+import { branchOf } from '../project-tree.model';
 import * as api from '../workspace-api';
 import styles from '../workspace.module.scss';
 import { CancelProjectDialog } from './cancel-project-dialog';
+import { CancelWorkItemDialog } from './cancel-work-item-dialog';
+import { ReverseWorkItemDialog } from './reverse-work-item-dialog';
 import { ChatDrawer } from './chat-drawer';
 import { DocumentPanel } from './document-panel';
 import { EventForm } from './event-form';
-import { GanttChart } from './gantt-chart';
 import { MembersDialog } from './members-dialog';
 import { MoveDialog } from './move-dialog';
+import { NodeHeader } from './node-header';
 import { ProcedureRetryDialog } from './procedure-retry-dialog';
 import { ProjectForm } from './project-form';
-import {
-  ContextMenu,
-  ProjectTree,
-  type ContextAction,
-  type SelectedNode,
-} from './project-tree';
-import { ProjectDashboard } from './project-dashboard';
+import { ProjectHeader } from './project-header';
+import { ContextMenu, type ContextAction, type SelectedNode } from './project-tree';
 import { TabActivity } from './tab-activity';
 import { TabCalendar } from './tab-calendar';
 import { TabFinance } from './tab-finance';
-import { TabKanban } from './tab-kanban';
+import { TabRequests } from './tab-requests';
 import { TabOverview } from './tab-overview';
-import { TabWorkItems } from './tab-work-items';
+import { TabWork } from './tab-work';
 import { useDirectory } from './use-directory';
+import { ChildItems, WorkItemDialog } from './work-item-dialog';
 import { WorkItemForm, type WorkItemCostInput } from './work-item-form';
+import { pendingProcedureOf, type PendingProcedure } from '../procedure-pending';
 
-type TabId =
-  | 'overview'
-  | 'work-items'
-  | 'kanban'
-  | 'gantt'
-  | 'calendar'
-  | 'documents'
-  | 'finance'
-  | 'activity';
+/**
+ * Các tab của dự án. Chi tiết một công việc không còn là tab: bấm một dòng
+ * trong bảng WBS thì mở hộp chi tiết của công việc đó.
+ */
+type TabId = 'work-items' | 'calendar' | 'documents' | 'finance' | 'requests' | 'activity';
 
 const TABS: readonly { id: TabId; label: string }[] = [
-  { id: 'overview', label: 'Tổng quan' },
   { id: 'work-items', label: 'Công việc' },
-  { id: 'kanban', label: 'Kanban' },
-  { id: 'gantt', label: 'Gantt' },
-  { id: 'calendar', label: 'Lịch biểu' },
+  { id: 'calendar', label: 'Lịch' },
   { id: 'documents', label: 'Tài liệu' },
   { id: 'finance', label: 'Tài chính' },
+  { id: 'requests', label: 'Đơn từ' },
   { id: 'activity', label: 'Hoạt động' },
 ];
+
+const TAB_IDS = TABS.map((entry) => entry.id);
+
+/**
+ * Công việc đang mở (`?item=`) và tab (`?tab=`) nằm trên đường dẫn: tải lại
+ * trang vẫn về đúng chỗ, và nút Back của trình duyệt đóng hộp chi tiết hay
+ * về việc trước đó thay vì rời trang.
+ */
+function readUrlNode(): { item?: string; tab: TabId } {
+  const params = new URLSearchParams(window.location.search);
+  const tab = params.get('tab') as TabId | null;
+  return {
+    item: params.get('item') ?? undefined,
+    tab: tab && TAB_IDS.includes(tab) ? tab : 'work-items',
+  };
+}
+
+/** Dấu trên mỗi mục lịch sử do trang này đẩy vào khi mở một công việc. */
+interface ItemHistoryState {
+  readonly workspaceItem: string;
+  /** Công việc đang mở trước đó, nếu đi từ việc này sang việc khác. */
+  readonly from?: string;
+  /** Số lần mở liên tiếp tính từ lúc chưa mở việc nào. */
+  readonly depth: number;
+}
+
+function itemHistoryState(): ItemHistoryState | undefined {
+  const state = window.history.state as Partial<ItemHistoryState> | null;
+  return state?.workspaceItem ? (state as ItemHistoryState) : undefined;
+}
 
 /** Chi tiết của dự án đang mở; gom lại để một lần tải nạp đủ mọi tab. */
 interface ProjectDetail {
@@ -99,30 +115,70 @@ interface ProjectDetail {
   readonly externalRefs: readonly ExternalReference[];
   /** Không đọc được module gốc; nhãn đang hiện là bản cache có thể cũ. */
   readonly externalDegraded: boolean;
+  /** Yêu cầu mở hồ sơ của các công việc "Theo quy trình". */
+  readonly procedureRequests: readonly WorkItemProcedureRequest[];
 }
 
 export interface ProjectsViewProps {
   readonly notificationTarget?: string;
-  /**
-   * Rail của shell đang thu.
-   *
-   * Thu rail là để nhường chỗ cho khung trao đổi, nên khi đó chat mở sẵn; rail
-   * mở lại thì chat đóng để nội dung có đủ bề ngang.
-   */
-  readonly railCollapsed?: boolean;
   /** Được xoá tài liệu và thư mục; mặc định tắt, chỉ quản trị tenant có. */
   readonly canDelete?: boolean;
+  /**
+   * Báo dự án đang mở, để thanh bên tô sáng đúng dòng dự án đó. `project` có
+   * mặt khi chi tiết đã tải: thanh bên dùng nó để giữ dòng của dự án đang mở
+   * dù dự án đó không nằm trong vài dự án đầu.
+   */
+  readonly onOpenProjectChange?: (
+    projectId: string | undefined,
+    project?: ProjectSummary,
+  ) => void;
+  /**
+   * Mở một dự án. Trang cha đổi `?project=` trên đường dẫn; trang này đọc lại
+   * từ đó, nên nút Back của trình duyệt cũng đi đúng.
+   */
+  readonly onOpenProject?: (projectId: string) => void;
+  /**
+   * Chỗ nút thao tác ở đầu trang (cạnh breadcrumb), nơi trang này đặt nút
+   * Trao đổi và "⋯" của dự án đang mở.
+   */
+  readonly actionsSlot?: HTMLElement | null;
+  /** Đã tạo, sửa hay huỷ dự án: trang cha nạp lại danh sách trên thanh bên. */
+  readonly onProjectsChanged?: () => void;
+  /** Tăng lên mỗi lần bấm lại dự án đang mở trên thanh bên: về tab Công việc. */
+  readonly focusProjectRequest?: number;
+  /**
+   * Tăng lên một mỗi lần nút "+" ở mục Dự án trên thanh bên được bấm: mở hộp
+   * tạo dự án. Dùng bộ đếm chứ không dùng hash, để bấm lần hai vẫn mở lại.
+   */
+  readonly createProjectRequest?: number;
+  /** Đã mở hộp tạo dự án theo yêu cầu trên; trang cha đặt bộ đếm về 0. */
+  readonly onCreateProjectHandled?: () => void;
 }
 
-export function ProjectsView({ railCollapsed = false, canDelete = false, notificationTarget }: ProjectsViewProps = {}) {
+export function ProjectsView({
+  canDelete = false,
+  notificationTarget,
+  onOpenProjectChange,
+  createProjectRequest = 0,
+  onCreateProjectHandled,
+  onOpenProject,
+  actionsSlot,
+  onProjectsChanged,
+  focusProjectRequest = 0,
+}: ProjectsViewProps = {}) {
   const directory = useDirectory();
   const [projects, setProjects] = useState<readonly ProjectSummary[]>([]);
-  /** Từ khoá dùng chung: lọc danh mục dự án và cây công việc của dự án đang mở. */
-  const [search, setSearch] = useState('');
-  const [openId, setOpenId] = useState<string>();
+  /** Đã nạp xong danh sách dự án lần đầu (để biết "chưa có dự án nào" là thật). */
+  const [listLoaded, setListLoaded] = useState(false);
+  /** Dự án ghi trên đường dẫn (`?project=`). */
+  const [urlProject, setUrlProject] = useState<string>();
+  // Đường dẫn không chỉ dự án nào thì mở sẵn dự án đầu tiên: trang Dự án luôn
+  // là trang của một dự án, không có trang danh sách riêng.
+  const openId = urlProject ?? projects[0]?.id;
   const [detail, setDetail] = useState<ProjectDetail>();
+  /** Dự án, hoặc công việc đang mở trong hộp chi tiết. */
   const [selected, setSelected] = useState<SelectedNode>({ kind: 'project' });
-  const [tab, setTab] = useState<TabId>('overview');
+  const [tab, setTab] = useState<TabId>('work-items');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>();
 
@@ -133,6 +189,8 @@ export function ProjectsView({ railCollapsed = false, canDelete = false, notific
     open: boolean;
     edit?: WorkItem;
     parent?: WorkItem;
+    /** Công việc điều chỉnh cho công việc đã huỷ hiệu lực. */
+    adjustmentOf?: WorkItem;
   }>({ open: false });
   const [eventForm, setEventForm] = useState<{
     open: boolean;
@@ -143,47 +201,170 @@ export function ProjectsView({ railCollapsed = false, canDelete = false, notific
   // tải lại sau khi ghi; `refreshDetail` không chạm tới nó.
   const [calendarToken, setCalendarToken] = useState(0);
   const [chatOpen, setChatOpen] = useState(false);
-  /** Màn hình tổng quan toàn hệ thống, mở từ đầu danh mục dự án. */
-  const [dashboard, setDashboard] = useState(false);
   const [unread, setUnread] = useState<UnreadSummary>();
   const [me, setMe] = useState('');
   const [projectDocuments, setProjectDocuments] = useState<readonly DocumentSummary[]>([]);
   /** Thư mục tài liệu của dự án, để khung trao đổi tải tệp mới lên được. */
   const [projectFolders, setProjectFolders] = useState<readonly DocumentFolder[]>([]);
-  // Quy trình người dùng đã chọn cho từng công việc, giữ trong phiên để Thử
-  // lại chỉ cần một cú bấm. CSDL không lưu lựa chọn này: công việc chưa có
-  // con trỏ thì chưa có gì trỏ tới quy trình nào.
-  const [procedureChoice, setProcedureChoice] = useState<ReadonlyMap<string, string>>(
-    new Map(),
-  );
   const [startableProcedures, setStartableProcedures] = useState<readonly ProcedureOption[]>([]);
   /** Hồ sơ quy trình của công việc đang chọn, đã đọc tiến độ từ module Quy trình. */
   const [procedureView, setProcedureView] = useState<ProcedureInstanceView>();
   const [retryFor, setRetryFor] = useState<WorkItem>();
   const [cancelling, setCancelling] = useState<ProjectSummary>();
+  /** Công việc đang chờ xác nhận huỷ, từ menu chuột phải, bảng hay Kanban. */
+  const [cancellingItem, setCancellingItem] = useState<WorkItem>();
+  const [reversingItem, setReversingItem] = useState<WorkItem>();
   const [membersOpen, setMembersOpen] = useState(false);
   const [moving, setMoving] = useState<WorkItem>();
   /**
-   * Menu chuột phải trên dòng dự án của danh mục.
-   *
-   * Cây nhúng không vẽ dòng dự án (danh mục lo), nên menu của node dự án phải
-   * mở từ đây. Bấm chuột phải vào một dự án chưa mở thì mở nó trước; menu chỉ
-   * hiện khi chi tiết của đúng dự án đó đã tải xong, để các lệnh không chạy
-   * nhầm vào dự án cũ.
+   * Menu lệnh đang mở: của dự án (nút "⋯" đầu trang), hay của một công việc
+   * (chuột phải trên bảng WBS, nút "⋯" trong hộp chi tiết).
    */
-  const [projectMenu, setProjectMenu] = useState<{ x: number; y: number; projectId: string }>();
+  const [menu, setMenu] = useState<{ x: number; y: number; node: SelectedNode }>();
+
+  // Đường dẫn là nguồn duy nhất của dự án đang mở: thanh bên và link thông
+  // báo đều chỉ đổi `?project=`.
+  useEffect(() => {
+    const sync = () =>
+      setUrlProject(new URLSearchParams(window.location.search).get('project') ?? undefined);
+    sync();
+    window.addEventListener('hashchange', sync);
+    window.addEventListener('popstate', sync);
+    return () => {
+      window.removeEventListener('hashchange', sync);
+      window.removeEventListener('popstate', sync);
+    };
+  }, []);
+
+  /** Dự án đã áp `?item=`/`?tab=` từ đường dẫn; trước đó không ghi đè đường dẫn. */
+  const restoredFor = useRef<string | undefined>(undefined);
+  const selectedRef = useRef(selected);
+  selectedRef.current = selected;
+
+  /** Ghi việc đang mở và tab lên đường dẫn. `push` tạo một mục lịch sử mới. */
+  const writeUrl = useCallback(
+    (item: string | undefined, nextTab: TabId, push?: ItemHistoryState) => {
+      const url = new URL(window.location.href);
+      if (item) url.searchParams.set('item', item);
+      else url.searchParams.delete('item');
+      if (nextTab === 'work-items') url.searchParams.delete('tab');
+      else url.searchParams.set('tab', nextTab);
+      if (push) window.history.pushState(push, '', url);
+      else if (url.href !== window.location.href) {
+        window.history.replaceState(window.history.state, '', url);
+      }
+    },
+    [],
+  );
+
+  /** Mở một công việc như một bước điều hướng: Back sẽ quay lại chỗ trước. */
+  const goToItem = useCallback(
+    (workItemId: string) => {
+      const current = selectedRef.current;
+      if (current.kind === 'work-item' && current.id === workItemId) return;
+      const from = current.kind === 'work-item' ? current.id : undefined;
+      writeUrl(workItemId, tab, {
+        workspaceItem: workItemId,
+        from,
+        depth: (from ? (itemHistoryState()?.depth ?? 0) : 0) + 1,
+      });
+      setSelected({ kind: 'work-item', id: workItemId });
+    },
+    [tab, writeUrl],
+  );
+
+  /**
+   * Đóng hộp chi tiết. Hộp mở bằng `goToItem` thì lùi lịch sử về trước lần mở
+   * đầu, để Back sau đó không mở lại đúng hộp vừa đóng.
+   */
+  const closeItem = useCallback(() => {
+    const depth = itemHistoryState()?.depth ?? 0;
+    if (depth > 0) window.history.go(-depth);
+    else setSelected({ kind: 'project' });
+  }, []);
+
+  // Back/Forward trong cùng dự án: đọc lại việc và tab từ đường dẫn. Đổi dự
+  // án thì để khối khôi phục bên dưới làm, sau khi chi tiết dự án mới tải xong.
+  useEffect(() => {
+    const onPop = () => {
+      const project = new URLSearchParams(window.location.search).get('project') ?? undefined;
+      if (project && project !== restoredFor.current) return;
+      const { item, tab: nextTab } = readUrlNode();
+      setSelected(item ? { kind: 'work-item', id: item } : { kind: 'project' });
+      setTab(nextTab);
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
+
+  const openProject = useCallback(
+    (projectId: string) => {
+      if (onOpenProject) onOpenProject(projectId);
+      else setUrlProject(projectId);
+    },
+    [onOpenProject],
+  );
+
+  // Bản tóm tắt gửi kèm: chi tiết vừa tải nếu có, không thì dòng của dự án
+  // đó trong bảng — đủ để thanh bên dựng dòng cho dự án đang mở.
+  useEffect(() => {
+    const summary =
+      detail?.project.id === openId
+        ? detail?.project
+        : projects.find((project) => project.id === openId);
+    onOpenProjectChange?.(openId, summary);
+  }, [openId, detail, projects, onOpenProjectChange]);
+
+  // Bấm lại dự án đang mở trên thanh bên: đóng hộp chi tiết, về tab Công
+  // việc. Chỉ phản ứng với lần bấm mới, không phải giá trị có sẵn lúc dựng.
+  const seenFocus = useRef(focusProjectRequest);
+  useEffect(() => {
+    if (focusProjectRequest === seenFocus.current) return;
+    seenFocus.current = focusProjectRequest;
+    setSelected({ kind: 'project' });
+    setTab('work-items');
+  }, [focusProjectRequest]);
+
+  // Nút "+" ở mục Dự án trên thanh bên mở thẳng hộp tạo dự án.
+  // Báo lại ngay để quay lại trang này sau đó không tự mở hộp lần nữa.
+  useEffect(() => {
+    if (createProjectRequest <= 0) return;
+    setProjectForm({ open: true });
+    onCreateProjectHandled?.();
+  }, [createProjectRequest, onCreateProjectHandled]);
+
+  /**
+   * Đích của đường dẫn đã được áp dụng chưa.
+   *
+   * Hash giữ nguyên sau khi mở, còn chi tiết dự án tải lại sau mỗi thao tác;
+   * không đánh dấu thì mỗi lần tải lại lại kéo người dùng về đúng node đó.
+   */
+  const appliedTarget = useRef<string | undefined>(undefined);
 
   useEffect(() => {
-    const project = new URLSearchParams(window.location.search).get('project');
-    if (project) setOpenId(project);
-  }, [notificationTarget]);
-
-  useEffect(() => {
-    const [kind, targetId] = notificationTarget?.split('/') ?? [];
-    if (!targetId) return;
-    if (kind === 'work-item' && detail && detail.project.id === openId && detail.items.some((item) => item.id === targetId)) {
-      setSelected({ kind: 'work-item', id: targetId });
+    if (!notificationTarget || appliedTarget.current === notificationTarget) return;
+    if (!detail || detail.project.id !== openId) return;
+    const [kind, first, second] = notificationTarget.split('/');
+    // `#projects/project/{id}`: mở dự án ở tab Công việc.
+    if (kind === 'project') {
+      appliedTarget.current = notificationTarget;
+      setSelected({ kind: 'project' });
       setTab('work-items');
+    }
+    // `#projects/work-item/{id}`: mở thẳng hộp chi tiết của công việc đó.
+    if (kind === 'work-item' && first && detail.items.some((item) => item.id === first)) {
+      appliedTarget.current = notificationTarget;
+      setSelected({ kind: 'work-item', id: first });
+    }
+    // `#projects/chat/{work_item|project}/{id}`: mở node rồi mở luôn khung trao đổi.
+    if (kind === 'chat' && first && second) {
+      appliedTarget.current = notificationTarget;
+      if (first === 'work_item' && detail.items.some((item) => item.id === second)) {
+        setSelected({ kind: 'work-item', id: second });
+      } else {
+        setSelected({ kind: 'project' });
+      }
+      setChatOpen(true);
     }
   }, [notificationTarget, detail, openId]);
 
@@ -209,15 +390,19 @@ export function ProjectsView({ railCollapsed = false, canDelete = false, notific
   const message = (cause: unknown, fallback: string) =>
     (cause as { message?: string })?.message ?? fallback;
 
+  /**
+   * Trang đầu của danh sách dự án: chỉ để biết dự án nào mở sẵn khi đường dẫn
+   * không chỉ dự án nào. Danh sách để chọn nằm ở mục Dự án trên thanh bên.
+   */
   const refreshList = useCallback(async () => {
     try {
-      const page = await api.listProjects({ pageSize: 60 });
+      const page = await api.listProjects({ pageSize: api.PROJECT_PAGE_SIZE });
       setProjects(page.items);
       setError(undefined);
-      // Mở sẵn dự án đầu tiên: màn hình trống không nói được điều gì hữu ích.
-      setOpenId((current) => current ?? page.items[0]?.id);
     } catch (cause) {
       setError(message(cause, 'Không tải được danh sách dự án.'));
+    } finally {
+      setListLoaded(true);
     }
   }, []);
 
@@ -256,6 +441,7 @@ export function ProjectsView({ railCollapsed = false, canDelete = false, notific
         dependencies: dependencies.items,
         externalRefs: external.items,
         externalDegraded: external.degraded,
+        procedureRequests: tree.procedureRequests ?? [],
       });
       setError(undefined);
     } catch (cause) {
@@ -278,16 +464,21 @@ export function ProjectsView({ railCollapsed = false, canDelete = false, notific
 
   useEffect(() => {
     void refreshList();
-    void api.loadCurrentUserId().then(setMe);
   }, [refreshList]);
 
   useEffect(() => {
-    if (!openId) return;
+    void api.loadCurrentUserId().then(setMe);
+  }, []);
+
+  useEffect(() => {
     setSelected({ kind: 'project' });
-    // Khung trao đổi bám theo rail (effect riêng bên dưới) chứ không tự đóng
-    // khi đổi dự án. Không phụ thuộc `railCollapsed` ở đây: thu/mở rail mà
-    // tải lại dự án thì công việc đang chọn bị mất, các tab Kanban/Công việc
-    // nhảy về phạm vi khác.
+    if (!openId) {
+      // Về bảng Tất cả dự án: bỏ chi tiết cũ, để lần mở dự án khác không
+      // thoáng hiện khối đầu của dự án trước.
+      setDetail(undefined);
+      setChatOpen(false);
+      return;
+    }
     void refreshDetail(openId);
   }, [openId, refreshDetail]);
 
@@ -352,24 +543,6 @@ export function ProjectsView({ railCollapsed = false, canDelete = false, notific
   );
 
 
-  /**
-   * Danh mục sau khi lọc theo từ khoá.
-   *
-   * Dự án đang mở luôn được giữ lại dù tên nó không khớp: người dùng gõ mã một
-   * công việc thì phải thấy công việc đó trong cây, chứ không phải mất luôn cả
-   * dự án đang xem.
-   */
-  const catalogProjects = useMemo(() => {
-    const term = search.trim().toLowerCase();
-    if (!term) return projects;
-    return projects.filter(
-      (project) =>
-        project.id === openId ||
-        project.code.toLowerCase().includes(term) ||
-        project.name.toLowerCase().includes(term),
-    );
-  }, [projects, search, openId]);
-
 
   /**
    * Công việc chạy theo quy trình mà CHƯA có con trỏ sang Quy trình.
@@ -384,7 +557,10 @@ export function ProjectsView({ railCollapsed = false, canDelete = false, notific
         .filter((ref) => ref.moduleKey === 'procedure-engine')
         .map((ref) => ref.entityId),
     );
-    return new Set(
+    const requests = new Map(
+      (detail?.procedureRequests ?? []).map((request) => [request.workItemId, request]),
+    );
+    return new Map<string, PendingProcedure>(
       (detail?.items ?? [])
         .filter(
           (item) =>
@@ -392,34 +568,32 @@ export function ProjectsView({ railCollapsed = false, canDelete = false, notific
             item.status !== 'cancelled' &&
             !linked.has(item.id),
         )
-        .map((item) => item.id),
+        .map((item) => [item.id, pendingProcedureOf(requests.get(item.id))]),
     );
   }, [detail]);
 
+  // Quy trình mở hồ sơ qua sự kiện (vài giây): còn yêu cầu đang chờ thì nạp
+  // lại định kỳ để badge tự chuyển thành liên kết hồ sơ.
+  const waitingForProcedure = [...pendingProcedure.values()].some(
+    (entry) => entry.status === 'pending',
+  );
+  useEffect(() => {
+    if (!waitingForProcedure || !openId) return;
+    const timer = setTimeout(() => void refreshDetail(openId), 3000);
+    return () => clearTimeout(timer);
+  }, [waitingForProcedure, openId, detail, refreshDetail]);
+
   /**
-   * Bước 4 và 5, dùng chung cho lần tạo đầu và cho Thử lại.
+   * Gửi (lại) yêu cầu mở hồ sơ cho công việc "Theo quy trình".
    *
-   * Khoá chống trùng suy từ id công việc, nên chạy lại bao nhiêu lần cũng chỉ
-   * ra một hồ sơ bên Quy trình.
+   * Workspace chỉ ghi yêu cầu và phát sự kiện; Quy trình tự kiểm quyền, mở hồ
+   * sơ `EVN-CV013-…` rồi báo về. Không gọi sang API của Quy trình.
    */
   const startProcedure = async (item: WorkItem, definitionId: string) => {
-    setProcedureChoice((current) => new Map(current).set(item.id, definitionId));
     try {
-      await startProcedureForWorkItem({
-        workItemId: item.id,
-        definitionId,
-        title: `${item.code} · ${item.title}`,
-      });
-      setProcedureChoice((current) => {
-        const next = new Map(current);
-        next.delete(item.id);
-        return next;
-      });
+      await api.requestWorkItemProcedure(item.id, definitionId);
     } catch (cause) {
-      setError(
-        `Đã tạo ${item.code} nhưng chưa mở được quy trình: ${message(cause, 'lỗi không rõ')}. ` +
-          'Bấm chuột phải vào công việc và chọn "Thử mở lại quy trình".',
-      );
+      setError(`Không gửi được yêu cầu mở quy trình cho ${item.code}: ${message(cause, 'lỗi không rõ')}.`);
     } finally {
       if (openId) await refreshDetail(openId);
     }
@@ -441,19 +615,27 @@ export function ProjectsView({ railCollapsed = false, canDelete = false, notific
   // Đang đứng ở tab Tài chính mà chuyển sang dự án không được xem tài chính
   // thì lùi về Tổng quan, thay vì để một vùng nội dung trống.
   useEffect(() => {
-    if (tab === 'finance' && detail && !detail.project.finance) setTab('overview');
+    if (tab === 'finance' && detail && !detail.project.finance) setTab('work-items');
   }, [tab, detail]);
 
-  // Gantt cần đúng thứ tự và độ sâu của cây bên trái, không phải thứ tự trả
-  // về từ server. Dựng lại bằng chính hàm cây dùng cho cột trái.
-  const ganttRows = useMemo(
-    () =>
-      buildWorkItemTree(
-        detail?.items ?? [],
-        new Set((detail?.items ?? []).map((item) => item.id)),
-      ).map((row) => ({ item: row.item, depth: row.depth })),
-    [detail],
-  );
+  // Chi tiết dự án vừa tải: áp việc và tab ghi trên đường dẫn (tải lại trang,
+  // Back sang dự án khác, link được chia sẻ).
+  useEffect(() => {
+    if (!detail || detail.project.id !== openId || restoredFor.current === openId) return;
+    restoredFor.current = openId;
+    const { item, tab: urlTab } = readUrlNode();
+    if (item && detail.items.some((entry) => entry.id === item)) {
+      setSelected({ kind: 'work-item', id: item });
+    }
+    setTab(urlTab);
+  }, [detail, openId]);
+
+  // Mọi thay đổi khác (đổi tab, đóng hộp, thông báo mở việc) chỉ thay đường
+  // dẫn hiện tại, không thêm mục lịch sử.
+  useEffect(() => {
+    if (!openId || restoredFor.current !== openId) return;
+    writeUrl(selected.kind === 'work-item' ? selected.id : undefined, tab);
+  }, [selected, tab, openId, writeUrl]);
 
   // Node đang chọn có thể biến mất sau khi tải lại (bị xoá, hoặc bộ lọc đổi).
   // Không lùi về gốc thì các tab sẽ hiển thị dữ liệu của một node không còn.
@@ -511,11 +693,6 @@ export function ProjectsView({ railCollapsed = false, canDelete = false, notific
       ? (unread?.total ?? 0)
       : (unread?.rolledUp[selected.id] ?? 0);
 
-  // Thu rail là để lấy chỗ cho khung trao đổi, nên hai thứ đi cùng nhau.
-  useEffect(() => {
-    setChatOpen(railCollapsed);
-  }, [railCollapsed]);
-
   /* --------------------------------------------------- Menu chuột phải */
 
   const actionsFor = (node: SelectedNode): ContextAction[] => {
@@ -542,10 +719,15 @@ export function ProjectsView({ railCollapsed = false, canDelete = false, notific
         id: 'add-child',
         label: 'Thêm công việc con',
         // Cây tối đa 10 cấp; cấp 9 là sâu nhất nên không còn chỗ cho con.
-        disabled: !canWrite || atMaxDepth,
+        disabled: !canWrite || atMaxDepth || Boolean(item?.reversal),
       },
       { id: 'add-sibling', label: 'Thêm công việc ngang cấp', disabled: !canWrite },
-      { id: 'edit-item', label: 'Sửa công việc', disabled: !canWrite, separatorBefore: true },
+      {
+        id: 'edit-item',
+        label: 'Sửa công việc',
+        disabled: !canWrite || Boolean(item?.reversal),
+        separatorBefore: true,
+      },
       { id: 'start', label: 'Bắt đầu làm', disabled: !canWrite || item?.status !== 'todo' },
       {
         id: 'complete',
@@ -570,9 +752,23 @@ export function ProjectsView({ railCollapsed = false, canDelete = false, notific
         id: 'cancel-item',
         label: 'Huỷ công việc',
         danger: true,
-        disabled: !canWrite || item?.status === 'cancelled',
+        // Chỉ khi luật chuyển trạng thái cho phép: việc đã xong không huỷ được
+        // (server từ chối) — việc xong mà sai thì dùng "Huỷ hiệu lực".
+        disabled:
+          !canWrite || !item || !WORK_ITEM_STATUS_TRANSITIONS[item.status].includes('cancelled'),
         separatorBefore: true,
       },
+      // Việc đã hoàn thành không mở lại; chủ nhiệm hoặc quản trị huỷ hiệu lực.
+      ...(item?.status === 'done' && canOwn
+        ? [{ id: 'reverse-item', label: 'Huỷ hiệu lực…', danger: true }]
+        : []),
+      ...(item?.reversal &&
+      canWrite &&
+      !(detail?.items ?? []).some(
+        (candidate) => candidate.adjustmentOfId === item.id && candidate.status !== 'cancelled',
+      )
+        ? [{ id: 'adjust-item', label: 'Lập công việc điều chỉnh' }]
+        : []),
     ];
   };
 
@@ -581,6 +777,7 @@ export function ProjectsView({ railCollapsed = false, canDelete = false, notific
       await operation();
       if (openId) await refreshDetail(openId);
       await refreshList();
+      onProjectsChanged?.();
       setError(undefined);
     } catch (cause) {
       setError(message(cause, fallback));
@@ -602,9 +799,12 @@ export function ProjectsView({ railCollapsed = false, canDelete = false, notific
         return;
       case 'retry-procedure': {
         if (!item) return;
-        // Còn nhớ quy trình đã chọn trong phiên thì thử lại ngay; không thì
-        // hỏi lại người dùng — CSDL không lưu lựa chọn này.
-        const remembered = procedureChoice.get(item.id);
+        // Bị từ chối vì đổi vai S hay quy trình chưa công bố… thì hỏi lại để
+        // người dùng chọn quy trình khác; chưa từng gửi cũng hỏi.
+        const remembered =
+          pendingProcedure.get(item.id)?.status === 'pending'
+            ? detail?.procedureRequests.find((request) => request.workItemId === item.id)?.definitionId
+            : undefined;
         if (remembered) void startProcedure(item, remembered);
         else setRetryFor(item);
         return;
@@ -636,7 +836,14 @@ export function ProjectsView({ railCollapsed = false, canDelete = false, notific
         if (item) void run(() => api.changeWorkItemStatus(item.id, { status: 'done' }), 'Không đổi được trạng thái.');
         return;
       case 'cancel-item':
-        if (item) void run(() => api.changeWorkItemStatus(item.id, { status: 'cancelled' }), 'Không huỷ được công việc.');
+        // Hỏi lại kèm lý do — xem CancelWorkItemDialog.
+        if (item) setCancellingItem(item);
+        return;
+      case 'reverse-item':
+        if (item) setReversingItem(item);
+        return;
+      case 'adjust-item':
+        if (item) setItemForm({ open: true, adjustmentOf: item });
         return;
       case 'move-to':
         if (item) setMoving(item);
@@ -655,398 +862,292 @@ export function ProjectsView({ railCollapsed = false, canDelete = false, notific
 
   /* ------------------------------------------------------------ Render */
 
+  const openItem = (item: WorkItem) => goToItem(item.id);
+
+  /** Con số nhỏ cạnh tên tab, như bản thiết kế: số công việc, số tài liệu. */
+  const tabCount = (id: TabId) =>
+    id === 'work-items'
+      ? detail?.items.length
+      : id === 'documents'
+        ? projectDocuments.length
+        : undefined;
+
   return (
-    <div className={styles.workspacePage}>
-      {/*
-        Thanh công cụ của trang: một ô tìm dùng chung cho cả danh mục dự án lẫn
-        cây công việc, và lối tạo dự án mới thấy được ngay chứ không nấp trong
-        một nút biểu tượng.
-      */}
-      <div className={styles.pageToolbar}>
-        <label className={styles.toolbarSearch}>
-          <Search size={15} aria-hidden />
-          <input
-            type="search"
-            value={search}
-            placeholder="Tìm kiếm dự án, công việc"
-            aria-label="Tìm kiếm dự án, công việc"
-            onChange={(event) => setSearch(event.target.value)}
-          />
-        </label>
-        <button
-          type="button"
-          className={styles.buttonPrimary}
-          onClick={() => setProjectForm({ open: true })}
-        >
-          <Plus size={15} /> Tạo dự án mới
-        </button>
-      </div>
-
-      <div className={styles.workspaceLayout}>
-      <aside className={styles.sidebar}>
-        <div className={styles.sidebarHead}>
-          <span className={styles.sidebarHeadTitle}>Danh mục dự án</span>
-          {/*
-            Nút mở trao đổi chỉ đặt ở hàng tab bên phải (kèm số tin chưa đọc).
-            Trước đây đầu danh mục có thêm một nút nữa làm cùng việc đó.
-          */}
-          <button
-            type="button"
-            className={styles.iconButton}
-            aria-label="Tải lại"
-            title="Tải lại"
-            onClick={() => openId && void refreshDetail(openId)}
-          >
-            <RefreshCw size={15} />
-          </button>
-          <button
-            type="button"
-            className={styles.iconButton}
-            aria-label="Dự án mới"
-            title="Dự án mới"
-            onClick={() => setProjectForm({ open: true })}
-          >
-            <Plus size={16} />
-          </button>
-        </div>
-
-        {/* Tổng quan toàn phạm vi; khác trang Báo cáo ở chỗ chỉ xem nhanh. */}
-        <button
-          type="button"
-          className={dashboard ? styles.catalogDashboardOn : styles.catalogDashboard}
-          aria-current={dashboard ? 'page' : undefined}
-          onClick={() => setDashboard(true)}
-        >
-          <LayoutGrid size={15} /> Tổng quan Dashboard
-        </button>
-
-        {/*
-          Danh mục liệt kê **mọi** dự án trong phạm vi, dự án đang mở thì bung
-          ra thành cây công việc. Trước đây chỗ này là một ô chọn: muốn biết có
-          những dự án nào phải bấm mở ô ra xem, và không thấy được tiến độ hay
-          tin chưa đọc của dự án khác.
-        */}
-        <div className={styles.catalogList}>
-          {catalogProjects.length === 0 ? (
-            <p className={styles.treeEmpty}>
-              {loading
-                ? 'Đang tải danh mục dự án…'
-                : search.trim()
-                  ? 'Không có dự án nào khớp từ khoá.'
-                  : 'Chưa có dự án nào.'}
-            </p>
-          ) : null}
-
-          {catalogProjects.map((project) => {
-            const open = project.id === openId;
-            return (
-              <div key={project.id} className={styles.catalogItem}>
-                <div className={styles.treeRow}>
-                  <button
-                    type="button"
-                    className={styles.treeToggle}
-                    aria-label={open ? 'Thu gọn dự án' : 'Mở dự án'}
-                    aria-expanded={open}
-                    onClick={() => setOpenId(open ? undefined : project.id)}
-                  >
-                    {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                  </button>
-                  <button
-                    type="button"
-                    className={
-                      open && !dashboard && selected.kind === 'project'
-                        ? styles.treeNodeActive
-                        : styles.treeNode
-                    }
-                    title={`${project.code} · ${project.name}`}
-                    data-project={project.id}
-                    onClick={() => {
-                      setDashboard(false);
-                      setOpenId(project.id);
-                      setSelected({ kind: 'project' });
-                    }}
-                    onContextMenu={(event) => {
-                      event.preventDefault();
-                      setDashboard(false);
-                      setOpenId(project.id);
-                      setSelected({ kind: 'project' });
-                      setProjectMenu({ x: event.clientX, y: event.clientY, projectId: project.id });
-                    }}
-                  >
-                    <Briefcase size={14} aria-hidden />
-                    <span className={styles.treeCode}>{project.code}</span>
-                    <span className={styles.treeTitle}>{project.name}</span>
-                    {open && unread && unread.rolledUp[project.id] ? (
-                      <span
-                        className={styles.treeUnread}
-                        title={`${unread.rolledUp[project.id]} tin chưa đọc`}
-                      >
-                        {unread.rolledUp[project.id]}
-                      </span>
-                    ) : null}
-                    <span className={styles.treePercent}>{project.progressPercent}%</span>
-                  </button>
-                </div>
-
-                {open && detail ? (
-                  <ProjectTree
-                    project={detail.project}
-                    items={detail.items}
-                    selected={selected}
-                    onSelect={(node) => {
-                      setDashboard(false);
-                      setSelected(node);
-                    }}
-                    actionsFor={actionsFor}
-                    onAction={onAction}
-                    unread={unread?.rolledUp}
-                    pendingProcedure={pendingProcedure}
-                    embedded
-                    searchTerm={search}
-                  />
+    <div className={styles.projectPage}>
+      {/* Trao đổi và "⋯" của dự án nằm ở đầu trang, cạnh breadcrumb. */}
+      {actionsSlot && detail
+        ? createPortal(
+            <>
+              <button
+                type="button"
+                className={styles.buttonGhost}
+                aria-label={
+                  (unread?.total ?? 0) > 0
+                    ? `Trao đổi, ${unread?.total} tin chưa đọc`
+                    : 'Trao đổi'
+                }
+                onClick={() => {
+                  setSelected({ kind: 'project' });
+                  setChatOpen(true);
+                }}
+              >
+                <MessageSquare size={15} /> Trao đổi
+                {(unread?.total ?? 0) > 0 ? (
+                  <span className={styles.countBadge}>{unread?.total}</span>
                 ) : null}
-                {open && !detail ? (
-                  <p className={styles.treeEmpty}>
-                    {loading ? 'Đang tải cây công việc…' : 'Không đọc được cây công việc.'}
-                  </p>
-                ) : null}
-              </div>
-            );
-          })}
-        </div>
-      </aside>
+              </button>
+              <button
+                type="button"
+                className={styles.buttonGhost}
+                aria-label="Thao tác với dự án"
+                title="Thao tác với dự án"
+                onClick={(event) => {
+                  const box = event.currentTarget.getBoundingClientRect();
+                  setMenu({ x: box.right - 220, y: box.bottom + 4, node: { kind: 'project' } });
+                }}
+              >
+                <MoreHorizontal size={15} />
+              </button>
+            </>,
+            actionsSlot,
+          )
+        : null}
 
-      {projectMenu && detail?.project.id === projectMenu.projectId ? (
+      {menu && detail ? (
         <ContextMenu
-          x={projectMenu.x}
-          y={projectMenu.y}
-          actions={actionsFor({ kind: 'project' })}
-          onClose={() => setProjectMenu(undefined)}
+          x={menu.x}
+          y={menu.y}
+          actions={actionsFor(menu.node)}
+          onClose={() => setMenu(undefined)}
           onPick={(actionId) => {
-            setProjectMenu(undefined);
-            onAction(actionId, { kind: 'project' });
+            const { node } = menu;
+            setMenu(undefined);
+            onAction(actionId, node);
           }}
         />
       ) : null}
 
-      {/* Mở khung trao đổi thì cột này hẹp đi: tab bó lại cho đủ chỗ. */}
-      <section className={chatOpen ? `${styles.content} ${styles.contentNarrow}` : styles.content}>
-        {error ? (
-          <p role="alert" className={styles.alert}>
-            {error}
-          </p>
-        ) : null}
+      {error ? (
+        <p role="alert" className={styles.alert}>
+          {error}
+        </p>
+      ) : null}
 
-        {dashboard ? (
-          <ProjectDashboard
-            onOpenProject={(projectId) => {
-              setDashboard(false);
-              setOpenId(projectId);
-              setSelected({ kind: 'project' });
-            }}
+      {listLoaded && !openId ? (
+        <div className={styles.emptyState}>
+          <p>Chưa có dự án nào trong phạm vi của bạn.</p>
+          <button
+            type="button"
+            className={styles.buttonPrimary}
+            onClick={() => setProjectForm({ open: true })}
+          >
+            <Plus size={14} /> Tạo dự án mới
+          </button>
+        </div>
+      ) : null}
+
+      {openId && !detail && loading ? <p className={styles.muted}>Đang tải dự án…</p> : null}
+
+      {detail ? (
+        <>
+          <ProjectHeader
+            project={detail.project}
+            members={detail.members}
+            documentCount={projectDocuments.length}
+            onOpenMembers={() => setMembersOpen(true)}
           />
-        ) : detail ? (
-          <>
-            {/* Bấm một cấp phía trên để nhảy thẳng về dự án hoặc nhóm cha. */}
-            <nav className={styles.breadcrumb} aria-label="Đường dẫn node">
-              {breadcrumbOf(detail, selectedItem).map((crumb, index, all) => (
-                <span key={`${index}-${crumb.label}`}>
-                  {index < all.length - 1 ? (
-                    <>
-                      <button
-                        type="button"
-                        className={styles.crumbLink}
-                        onClick={() => setSelected(crumb.node)}
-                      >
-                        {crumb.label}
-                      </button>
-                      <span className={styles.crumbSep} aria-hidden>/</span>
-                    </>
-                  ) : (
-                    <span aria-current="page">{crumb.label}</span>
-                  )}
-                </span>
-              ))}
-            </nav>
 
-            <div className={styles.tabRow}>
-              <div className={styles.tabBar} role="tablist">
-                {visibleTabs.map((entry) => (
-                  <button
-                    key={entry.id}
-                    type="button"
-                    role="tab"
-                    aria-selected={tab === entry.id}
-                    className={tab === entry.id ? styles.tabActive : styles.tab}
-                    onClick={() => setTab(entry.id)}
-                  >
-                    {entry.label}
-                  </button>
-                ))}
-              </div>
-              <button
-                type="button"
-                className={chatOpen ? styles.chatToggleOn : styles.chatToggle}
-                aria-pressed={chatOpen}
-                aria-label={chatOpen ? 'Đóng khung trao đổi' : 'Mở khung trao đổi'}
-                title={chatOpen ? 'Đóng khung trao đổi' : 'Mở khung trao đổi'}
-                onClick={() => setChatOpen((current) => !current)}
-              >
-                <MessageSquare size={17} />
-                {!chatOpen && nodeUnread > 0 ? (
-                  <span className={styles.chatToggleBadge}>{nodeUnread}</span>
-                ) : null}
-              </button>
-            </div>
+          <div className={styles.tabBar} role="tablist" aria-label="Mục của dự án">
+            {visibleTabs.map((entry) => {
+              const count = tabCount(entry.id);
+              return (
+                <button
+                  key={entry.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={tab === entry.id}
+                  className={tab === entry.id ? styles.tabActive : styles.tab}
+                  onClick={() => setTab(entry.id)}
+                >
+                  {entry.label}
+                  {count ? <span className={styles.tabCount}>{count}</span> : null}
+                </button>
+              );
+            })}
+          </div>
 
-            {tab === 'overview' ? (
-              <TabOverview
-                project={detail.project}
-                items={detail.items}
-                members={detail.members}
-                selected={selectedItem}
-                externalRefs={detail.externalRefs}
-                externalDegraded={detail.externalDegraded}
-                procedurePending={selectedItem ? pendingProcedure.has(selectedItem.id) : false}
-                canWrite={canWrite}
-                canEdit={selectedItem ? canWrite : canManage}
-                onEdit={() => onAction(selectedItem ? 'edit-item' : 'edit-project', selected)}
-                onAddChild={() =>
-                  onAction(selectedItem ? 'add-child' : 'add-root-item', selected)
+          {tab === 'work-items' ? (
+            <TabWork
+              projectId={detail.project.id}
+              items={detail.items}
+              dependencies={detail.dependencies}
+              externalRefs={detail.externalRefs}
+              pendingProcedure={pendingProcedure}
+              unread={unread?.rolledUp}
+              canWrite={canWrite}
+              currentUserId={me}
+              onOpen={openItem}
+              onAddRoot={() => setItemForm({ open: true })}
+              onMenu={(item, at) => setMenu({ ...at, node: { kind: 'work-item', id: item.id } })}
+              onChangeStatus={async (item, next) => {
+                // Kéo sang cột Đã huỷ cũng phải qua bước xác nhận.
+                if (next === 'cancelled') {
+                  setCancellingItem(item);
+                  return;
                 }
-                startableProcedures={startableProcedures}
-                procedureLink={
-                  procedureRef
-                    ? {
-                        code: procedureRef.externalCode ?? procedureView?.code ?? '',
-                        launchUrl: procedureRef.launchUrl ?? PROCEDURE_LAUNCH_URL,
-                        status: procedureView?.status,
-                        progressPercent: procedureView?.progressPercent,
-                        doneSteps: procedureView?.doneSteps,
-                        totalSteps: procedureView?.totalSteps,
-                      }
-                    : undefined
-                }
-                onStartProcedure={
-                  selectedItem
-                    ? async (definitionId) => {
-                        await startProcedure(selectedItem, definitionId);
-                      }
-                    : undefined
-                }
-                canManageMembers={canManage}
-                onManageMembers={() => setMembersOpen(true)}
-                dependencies={detail.dependencies}
-                canEditDependencies={canManage}
-                // Ném lỗi ra để khung Phụ thuộc tự hiện ngay dưới hàng nhập.
-                onAddDependency={async (successorId, input) => {
-                  await api.addDependency(successorId, input);
-                  await refreshDetail(detail.project.id);
-                }}
-                onRemoveDependency={async (successorId, dependencyId) => {
-                  await api.removeDependency(successorId, dependencyId);
-                  await refreshDetail(detail.project.id);
-                }}
-                canUnlinkRefs={canWrite}
-                onUnlinkRef={(workItemId, referenceId) =>
-                  run(() => api.unlinkWorkItem(workItemId, referenceId), 'Không gỡ được liên kết.')
-                }
-              />
-            ) : null}
-            {tab === 'work-items' ? (
-              <TabWorkItems
-                items={detail.items}
-                selected={selectedItem}
-                canWrite={canWrite}
-                onOpen={(item) => {
-                  setSelected({ kind: 'work-item', id: item.id });
-                  setTab('overview');
-                }}
-                onChangeStatus={(item, next) =>
-                  void run(
-                    () => api.changeWorkItemStatus(item.id, { status: next }),
-                    'Không đổi được trạng thái.',
-                  )
-                }
-              />
-            ) : null}
-            {tab === 'kanban' ? (
-              <TabKanban
-                items={detail.items}
-                selected={selectedItem}
-                canWrite={canWrite}
-                onOpen={(item) => {
-                  setSelected({ kind: 'work-item', id: item.id });
-                  setTab('overview');
-                }}
-                onChangeStatus={async (item, next) => {
-                  await api.changeWorkItemStatus(item.id, { status: next });
-                  await refreshDetail(detail.project.id);
-                }}
-              />
-            ) : null}
-            {tab === 'gantt' ? (
-              <GanttChart
-                rows={ganttRows}
-                dependencies={detail.dependencies}
-                onOpen={(item) => {
-                  setSelected({ kind: 'work-item', id: item.id });
-                  setTab('overview');
-                }}
-              />
-            ) : null}
-            {tab === 'calendar' ? (
-              <TabCalendar
-                projectId={detail.project.id}
-                items={detail.items}
-                canWrite={canWrite}
-                reloadToken={calendarToken}
-                onCreate={(date) => setEventForm({ open: true, date })}
-                onOpenEvent={(occurrence) => setEventForm({ open: true, occurrence })}
-                onOpenWorkItem={(workItemId) => {
-                  setSelected({ kind: 'work-item', id: workItemId });
-                  setTab('overview');
-                }}
-              />
-            ) : null}
-            {tab === 'documents' ? (
-              <DocumentPanel
-                projectId={detail.project.id}
-                // Chọn một công việc thì chỉ hiện tài liệu đã gắn vào nó;
-                // chọn dự án thì hiện toàn bộ tài liệu của dự án.
-                linkedTo={
-                  selectedItem
-                    ? { entityType: 'work_item', entityId: selectedItem.id }
-                    : undefined
-                }
-                canWrite={canWrite}
-                canDelete={canDelete}
-                currentUserId={me}
-                compact
-                workItems={detail.items}
-              />
-            ) : null}
-            {tab === 'finance' && detail.project.finance ? (
-              <TabFinance
-                projectId={detail.project.id}
-                initial={detail.project.finance}
-                onChanged={() => void refreshDetail(detail.project.id)}
-              />
-            ) : null}
-            {tab === 'activity' ? (
+                await api.changeWorkItemStatus(item.id, { status: next });
+                await refreshDetail(detail.project.id);
+              }}
+            />
+          ) : null}
+          {tab === 'calendar' ? (
+            <TabCalendar
+              projectId={detail.project.id}
+              items={detail.items}
+              canWrite={canWrite}
+              reloadToken={calendarToken}
+              onCreate={(date) => setEventForm({ open: true, date })}
+              onOpenEvent={(occurrence) => setEventForm({ open: true, occurrence })}
+              onOpenWorkItem={goToItem}
+            />
+          ) : null}
+          {tab === 'documents' ? (
+            <DocumentPanel
+              projectId={detail.project.id}
+              canWrite={canWrite}
+              canDelete={canDelete}
+              currentUserId={me}
+              compact
+              workItems={detail.items}
+            />
+          ) : null}
+          {tab === 'finance' && detail.project.finance ? (
+            <TabFinance
+              projectId={detail.project.id}
+              initial={detail.project.finance}
+              onChanged={() => void refreshDetail(detail.project.id)}
+            />
+          ) : null}
+          {tab === 'requests' ? (
+            <TabRequests
+              projectId={detail.project.id}
+              projectCode={detail.project.code}
+              currentUserId={me}
+            />
+          ) : null}
+          {tab === 'activity' ? (
+            <TabActivity entries={detail.activity} items={detail.items} onOpen={openItem} />
+          ) : null}
+        </>
+      ) : null}
+
+      {detail && selectedItem ? (
+        <WorkItemDialog
+          item={selectedItem}
+          // Đường dẫn bấm được (dự án › nhóm › việc) đã nằm ngay dưới, trong
+          // khối đầu công việc; dải đầu chỉ cần nói đây là hộp nào.
+          heading={`Chi tiết công việc · ${selectedItem.code}`}
+          escapeBlocked={chatOpen || Boolean(menu)}
+          onClose={closeItem}
+          back={(() => {
+            const from = itemHistoryState()?.from;
+            const previous = from ? detail.items.find((item) => item.id === from) : undefined;
+            return previous
+              ? { label: previous.code, onBack: () => window.history.back() }
+              : undefined;
+          })()}
+          aside={
+            <section className={styles.panel}>
+              <h3>Lịch sử hoạt động</h3>
               <TabActivity
                 entries={detail.activity}
                 items={detail.items}
                 selected={selectedItem}
+                onOpen={openItem}
               />
-            ) : null}
-          </>
-        ) : null}
-      </section>
+            </section>
+          }
+        >
+          <NodeHeader
+            project={detail.project}
+            items={detail.items}
+            selected={selectedItem}
+            onSelect={(node) => (node.kind === 'work-item' ? goToItem(node.id) : closeItem())}
+            // Việc đã huỷ hiệu lực là hồ sơ đóng: không sửa, không thêm con.
+            canEdit={canWrite && !selectedItem.reversal}
+            // Cây tối đa 10 cấp; cấp 9 là sâu nhất nên không còn chỗ cho con.
+            canWrite={canWrite && selectedItem.depth < 9 && !selectedItem.reversal}
+            onEdit={() => onAction('edit-item', selected)}
+            onAddChild={() => onAction('add-child', selected)}
+            unread={nodeUnread}
+            onOpenChat={() => setChatOpen(true)}
+            onMore={(at) => setMenu({ ...at, node: selected })}
+            startableProcedures={startableProcedures}
+            procedureLink={
+              procedureRef
+                ? {
+                    code: procedureRef.externalCode ?? procedureView?.code ?? '',
+                    launchUrl: procedureRef.launchUrl ?? PROCEDURE_LAUNCH_URL,
+                    status: procedureView?.status,
+                    progressPercent: procedureView?.progressPercent,
+                    doneSteps: procedureView?.doneSteps,
+                    totalSteps: procedureView?.totalSteps,
+                  }
+                : undefined
+            }
+            onStartProcedure={async (definitionId) => {
+              await startProcedure(selectedItem, definitionId);
+            }}
+          />
+          <ChildItems
+            items={detail.items}
+            parent={selectedItem}
+            canAdd={canWrite && selectedItem.depth < 9 && !selectedItem.reversal}
+            onOpen={openItem}
+            onAdd={() => onAction('add-child', selected)}
+          />
+          <TabOverview
+            project={detail.project}
+            items={detail.items}
+            members={detail.members}
+            selected={selectedItem}
+            externalRefs={detail.externalRefs}
+            externalDegraded={detail.externalDegraded}
+            procedurePending={pendingProcedure.get(selectedItem.id)}
+            canManageMembers={canManage}
+            onManageMembers={() => setMembersOpen(true)}
+            dependencies={detail.dependencies}
+            // Việc đã huỷ hiệu lực là hồ sơ đóng: không nối thêm phụ thuộc.
+            canEditDependencies={canManage && !selectedItem.reversal}
+            // Ném lỗi ra để khung Phụ thuộc tự hiện ngay dưới hàng nhập.
+            onAddDependency={async (successorId, input) => {
+              await api.addDependency(successorId, input);
+              await refreshDetail(detail.project.id);
+            }}
+            onRemoveDependency={async (successorId, dependencyId) => {
+              await api.removeDependency(successorId, dependencyId);
+              await refreshDetail(detail.project.id);
+            }}
+            canUnlinkRefs={canWrite}
+            onUnlinkRef={(workItemId, referenceId) =>
+              run(() => api.unlinkWorkItem(workItemId, referenceId), 'Không gỡ được liên kết.')
+            }
+          />
+          {/* Tài liệu đã gắn vào công việc này. */}
+          <DocumentPanel
+            projectId={detail.project.id}
+            linkedTo={{ entityType: 'work_item', entityId: selectedItem.id }}
+            canWrite={canWrite}
+            canDelete={canDelete}
+            currentUserId={me}
+            compact
+            workItems={detail.items}
+          />
+        </WorkItemDialog>
+      ) : null}
 
-      {/* Khung trao đổi nằm trong bố cục, cạnh nội dung — không che mất nó. */}
+      {/* Trao đổi là ngăn kéo trượt từ cạnh phải, không chiếm một cột cố định. */}
       <ChatDrawer
-        variant="pane"
         open={chatOpen && Boolean(detail)}
         entityType={(selected.kind === 'project' ? 'project' : 'work_item') as ChatEntityType}
         entityId={selected.kind === 'project' ? (detail?.project.id ?? '') : selected.id}
@@ -1082,7 +1183,8 @@ export function ProjectsView({ railCollapsed = false, canDelete = false, notific
             await api.updateProjectFinance(created.id, { contractValue });
           }
           await refreshList();
-          setOpenId(created.id);
+          onProjectsChanged?.();
+          openProject(created.id);
         }}
         onUpdate={async (input: UpdateProjectRequest, contractValue) => {
           if (!detail) return;
@@ -1092,6 +1194,7 @@ export function ProjectsView({ railCollapsed = false, canDelete = false, notific
           }
           await refreshDetail(detail.project.id);
           await refreshList();
+          onProjectsChanged?.();
         }}
       />
 
@@ -1112,6 +1215,7 @@ export function ProjectsView({ railCollapsed = false, canDelete = false, notific
               )
             : undefined
         }
+        adjustmentOf={itemForm.adjustmentOf}
         onClose={() => setItemForm({ open: false })}
         onCreate={async (
           input: Omit<CreateWorkItemRequest, 'projectId'>,
@@ -1119,18 +1223,16 @@ export function ProjectsView({ railCollapsed = false, canDelete = false, notific
           costs?: WorkItemCostInput,
         ) => {
           if (!detail) return;
-          // Bước 3: tạo công việc. Hỏng ở đây thì form giữ nguyên và báo lỗi.
-          const created = await api.createWorkItem({ ...input, projectId: detail.project.id });
+          // Tạo công việc; chọn "Theo quy trình" thì gửi kèm quy trình — Workspace
+          // ghi yêu cầu và phát sự kiện, hồ sơ do Quy trình tự mở rồi báo về.
+          const created = await api.createWorkItem({
+            ...input,
+            projectId: detail.project.id,
+            procedureDefinitionId,
+          });
           // Chi phí đi qua endpoint riêng, không chung payload với công việc.
           if (costs) await api.updateWorkItemCost(created.id, costs);
-          if (procedureDefinitionId) {
-            // Bước 4 và 5 chạy SAU khi form đã đóng: công việc đã tồn tại, nên
-            // thất bại ở đây không được giữ người dùng lại trong form — nó
-            // thành badge trên cây kèm lệnh Thử lại.
-            void startProcedure(created, procedureDefinitionId);
-          } else {
-            await refreshDetail(detail.project.id);
-          }
+          await refreshDetail(detail.project.id);
         }}
         onUpdate={async (input: UpdateWorkItemRequest, costs?: WorkItemCostInput) => {
           if (!itemForm.edit || !detail) return;
@@ -1157,7 +1259,13 @@ export function ProjectsView({ railCollapsed = false, canDelete = false, notific
         }}
         onCreate={async (input: Omit<CreateEventRequest, 'projectId'>) => {
           if (!detail) return [];
-          const result = await api.createEvent({ ...input, projectId: detail.project.id });
+          // Đang đứng ở một công việc thì sự kiện mới gắn luôn vào việc đó,
+          // để nó hiện trong lịch của nhánh đang xem.
+          const result = await api.createEvent({
+            ...input,
+            projectId: detail.project.id,
+            workItemId: input.workItemId ?? selectedItem?.id,
+          });
           setCalendarToken((current) => current + 1);
           return [...result.warnings];
         }}
@@ -1198,6 +1306,71 @@ export function ProjectsView({ railCollapsed = false, canDelete = false, notific
         }}
       />
 
+      <CancelWorkItemDialog
+        item={cancellingItem}
+        openChildren={
+          cancellingItem
+            ? (detail?.items ?? []).filter(
+                (candidate) =>
+                  candidate.id !== cancellingItem.id &&
+                  branchOf(detail?.items ?? [], cancellingItem.id).has(candidate.id) &&
+                  candidate.status !== 'done' &&
+                  candidate.status !== 'cancelled',
+              ).length
+            : 0
+        }
+        onClose={() => setCancellingItem(undefined)}
+        onConfirm={async (item, note) => {
+          await api.changeWorkItemStatus(item.id, { status: 'cancelled', note: note || undefined });
+          setCancellingItem(undefined);
+          if (openId) await refreshDetail(openId);
+        }}
+      />
+
+      <ReverseWorkItemDialog
+        item={reversingItem}
+        dependents={
+          reversingItem
+            ? (detail?.dependencies ?? [])
+                .filter(
+                  (edge) => edge.predecessorId === reversingItem.id && edge.dependencyType === 'FS',
+                )
+                .flatMap(
+                  (edge) =>
+                    detail?.items.find(
+                      (candidate) =>
+                        candidate.id === edge.successorId && candidate.status !== 'cancelled',
+                    ) ?? [],
+                )
+            : []
+        }
+        linkedInstanceCode={
+          reversingItem
+            ? (detail?.externalRefs ?? []).find(
+                (ref) =>
+                  ref.entityType === 'work_item' &&
+                  ref.entityId === reversingItem.id &&
+                  ref.moduleKey === 'procedure-engine',
+              )?.externalCode
+            : undefined
+        }
+        onClose={() => setReversingItem(undefined)}
+        onConfirm={async (item, reason, createAdjustment) => {
+          const linked = (detail?.externalRefs ?? []).some(
+            (ref) =>
+              ref.entityType === 'work_item' &&
+              ref.entityId === item.id &&
+              ref.moduleKey === 'procedure-engine',
+          );
+          const reversed = await api.reverseWorkItem(item.id, { reason, createAdjustment });
+          setReversingItem(undefined);
+          if (openId) await refreshDetail(openId);
+          // Việc thủ công: mở ngay form điều chỉnh điền sẵn. Việc theo quy
+          // trình: người giữ vai S nhận thông báo lập hồ sơ mới bên Quy trình.
+          if (createAdjustment && !linked) setItemForm({ open: true, adjustmentOf: reversed });
+        }}
+      />
+
       <CancelProjectDialog
         project={cancelling}
         onClose={() => setCancelling(undefined)}
@@ -1217,33 +1390,6 @@ export function ProjectsView({ railCollapsed = false, canDelete = false, notific
           await startProcedure(target, definitionId);
         }}
       />
-      </div>
     </div>
   );
-}
-
-/** `Dự án / Nhà máy ABC / Hợp đồng / Soạn hợp đồng` */
-function breadcrumbOf(
-  detail: ProjectDetail,
-  selected?: WorkItem,
-): { label: string; node: SelectedNode }[] {
-  // Mã đứng trước tên ở mọi nơi, để đọc breadcrumb là biết đang ở node nào.
-  const crumbs: { label: string; node: SelectedNode }[] = [
-    { label: `${detail.project.code} · ${detail.project.name}`, node: { kind: 'project' } },
-  ];
-  if (!selected) return crumbs;
-
-  const byId = new Map(detail.items.map((item) => [item.id, item]));
-  const chain: { label: string; node: SelectedNode }[] = [];
-  let cursor: WorkItem | undefined = selected;
-  const seen = new Set<string>();
-  while (cursor && !seen.has(cursor.id)) {
-    seen.add(cursor.id);
-    chain.unshift({
-      label: `${cursor.code} · ${cursor.title}`,
-      node: { kind: 'work-item', id: cursor.id },
-    });
-    cursor = cursor.parentId ? byId.get(cursor.parentId) : undefined;
-  }
-  return [...crumbs, ...chain];
 }

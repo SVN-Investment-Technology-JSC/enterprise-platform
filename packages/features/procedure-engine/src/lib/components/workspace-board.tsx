@@ -11,6 +11,7 @@ import type {
   ProcedureAttachment,
   ProcedureDefinition,
   ProcedureInstance,
+  ReverseProcedureInstanceRequest,
   ProcedureInstanceStep,
   ProcedureRaciRole,
   ProcedureRuntimeAction,
@@ -25,8 +26,24 @@ import {
 } from '@enterprise-platform/contracts-procedure-engine';
 import { MinimalPopupForm, SearchableSelect } from '@enterprise-platform/shared-ui';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Search, Plus } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { Check, ChevronDown, ChevronLeft, ChevronRight, Download, Plus, Search, X } from 'lucide-react';
 import type { AssetCatalogItem, MaterialCatalogItem } from '../procedure-api';
+import {
+  loadProjectFinanceEnabled,
+  loadProjectPeople,
+  loadRelatedProjects,
+  procedureNameFor,
+  WORK_ITEM_PRIORITY_OPTIONS,
+  WORK_ITEM_TYPE_OPTIONS,
+  formatVndInput,
+  parseVndInput,
+  type ProjectPerson,
+  type ProjectWorkItemInput,
+  type RelatedProject,
+  type WorkItemPriority,
+  type WorkItemType,
+} from '../workspace-api';
 import { AttachmentPanel } from './attachment-panel';
 import { AttributeForm, attributeSlots, type AttributeDraft } from './attribute-form';
 import {
@@ -49,6 +66,8 @@ interface StartProcedureInput {
   startDueAt: string;
   endDueAt: string;
   isHourlyScheduling: boolean;
+  /** Gắn dự án: đơn này là một công việc mới của dự án bên Workspace. */
+  workItem?: ProjectWorkItemInput & { readonly projectCode: string };
 }
 
 function toIsoDateTime(date: string, time: string): string | undefined {
@@ -80,6 +99,7 @@ const STATUS_LABEL: Record<ProcedureInstance['status'], string> = {
   completed: 'Hoàn thành',
   rejected: 'Từ chối',
   cancelled: 'Đã huỷ',
+  reversed: 'Đã huỷ hiệu lực',
 };
 
 const STEP_STATUS_LABEL: Record<string, string> = {
@@ -100,6 +120,27 @@ const ACTION_LABEL: Record<ProcedureRuntimeAction, string> = {
   cancel: 'Huỷ hồ sơ',
   comment: 'Ghi nhận trao đổi',
 };
+
+/** Nội dung điền sẵn vào form tạo đơn khi module/hồ sơ khác chuyển sang. */
+export interface StartHandoff {
+  readonly definitionId?: string;
+  readonly startDueAt?: string;
+  readonly endDueAt?: string;
+  readonly projectId?: string;
+  /** Dòng giải thích hiện trên form, ví dụ "Hồ sơ điều chỉnh cho QT-001". */
+  readonly note?: string;
+}
+
+function splitLocalDateTime(iso?: string): { date: string; time: string } | undefined {
+  if (!iso) return undefined;
+  const value = new Date(iso);
+  if (Number.isNaN(value.getTime())) return undefined;
+  const pad = (part: number) => String(part).padStart(2, '0');
+  return {
+    date: `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}`,
+    time: `${pad(value.getHours())}:${pad(value.getMinutes())}`,
+  };
+}
 
 const ROLE_ORDER: readonly ProcedureRaciRole[] = ['S', 'R', 'E', 'C', 'A', 'I'];
 
@@ -161,16 +202,29 @@ function participantsOf(
  * đang giữ chỉ là thông tin phụ. Trước đây nhãn là tên người — vai S gán cho cả
  * công ty hiện thành tên trưởng công ty, dễ hiểu nhầm là người đó lập đơn.
  */
+type RoleSubject = {
+  title: string;
+  holders?: string;
+  /** Đơn vị chứa chức danh — để gom nhóm khi danh sách dài. */
+  unitName?: string;
+  /** Người đang giữ, từng tên — để đếm và tìm khi danh sách dài. */
+  holderNames?: readonly string[];
+};
+
 function subjectRoleLabels(snapshot?: TenantOrganizationSnapshot) {
-  const label = new Map<string, { title: string; holders?: string }>();
+  const label = new Map<string, RoleSubject>();
   if (!snapshot) return label;
-  for (const unit of snapshot.units ?? []) {
+  const units = snapshot.units ?? [];
+  const unitName = new Map(units.map((unit) => [unit.id, unit.name]));
+  for (const unit of units) {
     if (unit.typeCategory !== 'position') label.set(unit.id, { title: unit.name });
   }
   const members = snapshot.members ?? [];
   const positions = [
-    ...(snapshot.positions ?? []),
-    ...(snapshot.units ?? []).filter((unit) => unit.typeCategory === 'position'),
+    ...(snapshot.positions ?? []).map((position) => ({ id: position.id, name: position.name, unitId: position.unitId })),
+    ...units
+      .filter((unit) => unit.typeCategory === 'position')
+      .map((unit) => ({ id: unit.id, name: unit.name, unitId: unit.parentId })),
   ];
   for (const position of positions) {
     const holders = [
@@ -180,7 +234,12 @@ function subjectRoleLabels(snapshot?: TenantOrganizationSnapshot) {
           .map((member) => member.displayName),
       ),
     ];
-    label.set(position.id, { title: position.name, holders: holders.length ? holders.join(', ') : 'đang trống' });
+    label.set(position.id, {
+      title: position.name,
+      holders: holders.length ? holders.join(', ') : 'đang trống',
+      unitName: position.unitId ? unitName.get(position.unitId) : undefined,
+      holderNames: holders,
+    });
   }
   for (const member of members) {
     if (!label.has(member.userId)) label.set(member.userId, { title: member.displayName });
@@ -188,21 +247,118 @@ function subjectRoleLabels(snapshot?: TenantOrganizationSnapshot) {
   return label;
 }
 
-function roleLines(
-  step: ProcedureInstanceStep,
-  labels: ReadonlyMap<string, { title: string; holders?: string }>,
-) {
+function roleLines(step: ProcedureInstanceStep, labels: ReadonlyMap<string, RoleSubject>) {
   return ROLE_ORDER.flatMap((role) => {
     const items = step.assignments
       .filter((item) => item.role === role)
-      .map((item) => {
+      .map((item): RoleSubject => {
         const known = labels.get(item.subjectId);
         return known ?? { title: item.subjectLabel ?? item.subjectId };
       });
     return items.length > 0
-      ? [{ role, names: items.map((item) => item.title).join(', '), holders: items.map((item) => item.holders).filter(Boolean).join(', ') }]
+      ? [{ role, items, names: items.map((item) => item.title).join(', '), holders: items.map((item) => item.holders).filter(Boolean).join(', ') }]
       : [];
   });
+}
+
+/** Từ ngần này chức danh trở lên, dòng vai chỉ hiện số và nút mở danh sách. */
+const ROLE_COMPACT_FROM = 4;
+
+/** Bỏ dấu để tìm "thi nghiem" ra "Thí nghiệm". */
+function foldText(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'D')
+    .toLowerCase();
+}
+
+/**
+ * Một dòng vai trên timeline. Vai gán cho ít chức danh thì ghi thẳng tên;
+ * gán cho nhiều (cả công ty) thì chỉ ghi số và mở được danh sách gom theo đơn vị,
+ * để thẻ bước không thành hai cột chữ đẩy ô ý kiến ra khỏi màn hình.
+ */
+function RoleLine({ line }: { line: ReturnType<typeof roleLines>[number] }) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  if (line.items.length < ROLE_COMPACT_FROM) {
+    return (
+      <span className={styles.roleTag} title={line.holders ? `Đang giữ: ${line.holders}` : undefined}>
+        <i className={`${styles.role} ${styles[`role${line.role}`]}`}>{line.role}</i>
+        <span className={styles.roleName}>{line.names}</span>
+        {line.holders ? <span className={styles.roleHolders}>· {line.holders}</span> : null}
+      </span>
+    );
+  }
+
+  const people = new Set(line.items.flatMap((item) => item.holderNames ?? []));
+  const titleCount = new Map<string, number>();
+  for (const item of line.items) titleCount.set(item.title, (titleCount.get(item.title) ?? 0) + 1);
+  const q = foldText(query.trim());
+  const groups = new Map<string, RoleSubject[]>();
+  for (const item of line.items) {
+    const unit = item.unitName ?? 'Khác';
+    const hit =
+      !q ||
+      foldText(item.title).includes(q) ||
+      foldText(unit).includes(q) ||
+      (item.holderNames ?? []).some((name) => foldText(name).includes(q));
+    if (!hit) continue;
+    const list = groups.get(unit) ?? [];
+    list.push(item);
+    groups.set(unit, list);
+  }
+  const listId = `role-list-${line.role}`;
+
+  return (
+    <div className={styles.roleGroup}>
+      <div className={styles.roleSummary}>
+        <i className={`${styles.role} ${styles[`role${line.role}`]}`}>{line.role}</i>
+        <span className={styles.roleCount}>
+          {line.items.length} chức danh · {people.size} người
+        </span>
+        <button
+          type="button"
+          className={styles.roleToggle}
+          aria-expanded={open}
+          aria-controls={listId}
+          onClick={() => setOpen((value) => !value)}
+        >
+          {open ? 'Thu gọn' : 'Xem danh sách'}
+          <ChevronDown size={12} aria-hidden="true" />
+        </button>
+      </div>
+      {open ? (
+        <div className={styles.roleListBox} id={listId}>
+          <div className={styles.roleListSearch}>
+            <input
+              type="search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Tìm chức danh hoặc người…"
+              aria-label="Tìm chức danh hoặc người"
+            />
+          </div>
+          {groups.size === 0 ? (
+            <div className={styles.roleEmpty}>Không có chức danh hay người nào khớp.</div>
+          ) : (
+            [...groups].map(([unit, items]) => (
+              <div key={unit}>
+                <div className={styles.roleUnit}>{unit}</div>
+                {items.map((item, index) => (
+                  <div key={`${item.title}-${index}`} className={styles.rolePos}>
+                    <span>{(titleCount.get(item.title) ?? 0) > 1 ? `${item.title} (${unit})` : item.title}</span>
+                    <span>{item.holders}</span>
+                  </div>
+                ))}
+              </div>
+            ))
+          )}
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 export function WorkspaceBoard({
@@ -233,7 +389,16 @@ export function WorkspaceBoard({
   onUploadFile,
   onSendComment,
   handoffTitle,
+  handoff,
+  canReverse = false,
+  onReverse,
+  headSlot,
 }: {
+  /**
+   * Ô trên dòng đường dẫn của khung module. Có thì nút của trang nằm ở đó,
+   * nhường cả chiều cao cho danh sách và chi tiết.
+   */
+  headSlot?: HTMLElement | null;
   busy?: string;
   groups?: readonly { code: string; label: string }[];
   materialCatalog?: readonly MaterialCatalogItem[];
@@ -276,10 +441,14 @@ export function WorkspaceBoard({
   onUploadFile?: (instanceId: string, file: File) => void;
   onSendComment?: (instanceId: string, body: string, mentions: string[], replyToId?: string) => void;
   handoffTitle?: string;
+  handoff?: StartHandoff;
+  /** Quản trị viên Quy trình: được huỷ hiệu lực hồ sơ đã hoàn thành. */
+  canReverse?: boolean;
+  onReverse?: (instanceId: string, input: ReverseProcedureInstanceRequest) => Promise<void>;
   initialInstanceId?: string;
 }) {
   const [filter, setFilter] = useState<Filter>('all');
-  const [viewMode, setViewMode] = useState<'list' | 'table'>('table');
+  const [viewMode, setViewMode] = useState<'list' | 'table'>('list');
   const [query, setQuery] = useState('');
   const [slaFilter, setSlaFilter] = useState<'all' | ProcedureSlaView['state']>('all');
   const [source, setSource] = useState<'all' | 'manual' | 'maintenance_occurrence' | 'auto_from_parent'>('all');
@@ -287,7 +456,8 @@ export function WorkspaceBoard({
   const [to, setTo] = useState('');
   const [selectedId, setSelectedId] = useState<string>();
   useEffect(() => { if (initialInstanceId) setSelectedId(initialInstanceId); }, [initialInstanceId]);
-  const [activeTabModal, setActiveTabModal] = useState<'chat' | 'files' | 'history' | null>(null);
+  // Trao đổi, tệp và nhật ký mở thành tab ngay trong khung chi tiết.
+  const [detailTab, setDetailTab] = useState<'flow' | 'chat' | 'files' | 'history'>('flow');
   const [activeStepDrawer, setActiveStepDrawer] = useState<{ step: ProcedureInstanceStep; tab: 'execution' | 'chat' | 'files' } | null>(null);
   const [comment, setComment] = useState('');
   const [dateSort, setDateSort] = useState<'newest' | 'oldest'>('newest');
@@ -314,6 +484,76 @@ export function WorkspaceBoard({
   );
   const [attachQueue, setAttachQueue] = useState<File[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Dự án liên quan: chọn một dự án Workspace thì đơn này thành công việc mới
+  // của dự án đó, kèm các trường của form tạo công việc bên Workspace.
+  const [relatedProjects, setRelatedProjects] = useState<RelatedProject[]>();
+  const [projectId, setProjectId] = useState('');
+  const [projectPeople, setProjectPeople] = useState<ProjectPerson[]>([]);
+  const [itemDescription, setItemDescription] = useState('');
+  const [itemPriority, setItemPriority] = useState<WorkItemPriority>('normal');
+  const [itemAssignee, setItemAssignee] = useState('');
+  const [itemHours, setItemHours] = useState('');
+  const [itemType, setItemType] = useState<WorkItemType>('task');
+  const [itemCost, setItemCost] = useState('');
+  const [financeEnabled, setFinanceEnabled] = useState(false);
+  const project = relatedProjects?.find((item) => item.id === projectId);
+
+  useEffect(() => {
+    if (!creating || relatedProjects) return;
+    void loadRelatedProjects().then(setRelatedProjects);
+  }, [creating, relatedProjects]);
+
+  useEffect(() => {
+    setItemAssignee('');
+    setProjectPeople([]);
+    setFinanceEnabled(false);
+    setItemCost('');
+    if (!projectId) return;
+    let cancelled = false;
+    void loadProjectPeople(projectId)
+      .then((people) => {
+        if (!cancelled) setProjectPeople(people);
+      })
+      .catch(() => undefined);
+    void loadProjectFinanceEnabled(projectId).then((enabled) => {
+      if (!cancelled) setFinanceEnabled(enabled);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId]);
+
+  // Đóng form thì bỏ lựa chọn dự án, lần mở sau nạp lại danh sách cho tươi.
+  useEffect(() => {
+    if (creating) return;
+    setRelatedProjects(undefined);
+    setProjectId('');
+    setItemDescription('');
+    setItemPriority('normal');
+    setItemHours('');
+    setItemType('task');
+    setItemCost('');
+  }, [creating]);
+
+  const assigneeOptions = useMemo(
+    () =>
+      projectPeople
+        // `member` chỉ tự nhận việc cho mình; giao người khác cần `manager`.
+        .filter((person) => project?.canAssignOthers || person.userId === actorId)
+        .map((person) => ({
+          value: person.userId,
+          // Danh bạ thiếu tên (tenant chưa có cơ cấu) thì ít nhất chính mình
+          // vẫn hiện bằng tên, không phải id.
+          label:
+            person.userId === actorId && person.displayName === person.userId && actorName
+              ? actorName
+              : person.displayName,
+        })),
+    [projectPeople, project, actorId, actorName],
+  );
+  const hoursValue = itemHours.trim() ? Number(itemHours) : undefined;
+  const isHoursInvalid = hoursValue !== undefined && !(hoursValue > 0);
   const startDueAt = useMemo(
     () => toIsoDateTime(startDate, startTime),
     [startDate, startTime],
@@ -339,8 +579,20 @@ export function WorkspaceBoard({
     if (handoffTitle && canCreateInstances) {
       setCreating(true);
       setJobTitle(handoffTitle);
+      if (handoff?.definitionId) setSelectedCreateDefId(handoff.definitionId);
+      if (handoff?.projectId) setProjectId(handoff.projectId);
+      const start = splitLocalDateTime(handoff?.startDueAt);
+      const end = splitLocalDateTime(handoff?.endDueAt);
+      if (start && end) {
+        setStartDate(start.date);
+        setStartDateText(formatDateForDisplay(start.date));
+        setStartTime(start.time);
+        setEndDate(end.date);
+        setEndDateText(formatDateForDisplay(end.date));
+        setEndTime(end.time);
+      }
     }
-  }, [handoffTitle, canCreateInstances]);
+  }, [handoffTitle, handoff, canCreateInstances]);
 
   const published = definitions.filter((item) => item.status === 'published');
   const names = useMemo(() => subjectNames(organization), [organization]);
@@ -405,6 +657,11 @@ export function WorkspaceBoard({
     visible.find((instance) => instance.id === selectedId) ?? paged[0] ?? visible[0];
 
   const [headerCancelOpen, setHeaderCancelOpen] = useState(false);
+  const [reverseOpen, setReverseOpen] = useState(false);
+  const [reverseReason, setReverseReason] = useState('');
+  const [reverseAdjust, setReverseAdjust] = useState(true);
+  const [reverseError, setReverseError] = useState<string>();
+  const [reverseBusy, setReverseBusy] = useState(false);
 
   useEffect(() => {
     setComment('');
@@ -465,62 +722,112 @@ export function WorkspaceBoard({
     const completed = instances.filter((i) => i.status === 'completed').length;
     const rejected = instances.filter((i) => i.status === 'rejected').length;
     const cancelled = instances.filter((i) => i.status === 'cancelled').length;
+    const reversed = instances.filter((i) => i.status === 'reversed').length;
     const urgent = instances.filter((inst) => {
       const sla = evaluateInstanceSla(inst);
       return inst.status === 'running' && (sla.state === 'breached' || sla.state === 'warning');
     }).length;
-    return { total, processing, completed, rejected, cancelled, urgent };
+    return { total, processing, completed, rejected, cancelled, reversed, urgent };
   }, [instances]);
+
+  const headActions = (
+    <>
+      <div className={styles.viewToggle} role="group" aria-label="Kiểu xem">
+        <button
+          type="button"
+          className={viewMode === 'list' ? styles.viewToggleOn : undefined}
+          aria-pressed={viewMode === 'list'}
+          onClick={() => setViewMode('list')}
+        >
+          Thẻ
+        </button>
+        <button
+          type="button"
+          className={viewMode === 'table' ? styles.viewToggleOn : undefined}
+          aria-pressed={viewMode === 'table'}
+          onClick={() => setViewMode('table')}
+        >
+          Bảng
+        </button>
+      </div>
+      <button type="button" className={styles.ghost} onClick={exportExcel} title="Xuất file danh sách CSV">
+        <Download size={15} aria-hidden /> Xuất Excel
+      </button>
+      {published.length > 0 && canCreateInstances ? (
+        <button
+          type="button"
+          className={styles.primary}
+          onClick={() => setCreating(true)}
+          aria-haspopup="dialog"
+          aria-expanded={creating}
+        >
+          <Plus size={15} strokeWidth={2.2} aria-hidden /> Tạo đơn / yêu cầu
+        </button>
+      ) : null}
+    </>
+  );
+
+  const actionPanel = selected ? (
+    <ActionPanel
+      busy={busy}
+      comment={comment}
+      instance={selected}
+      isSubmitting={isSubmitting}
+      attachments={attachments ?? []}
+      attachQueue={attachQueue}
+      onAttachQueue={setAttachQueue}
+      onAction={(action, comment, returnToStepId, attributeValues) =>
+        void handleActionWithAttach(selected.id, action, comment, returnToStepId, attributeValues)
+      }
+      onSaveAttributes={
+        onSaveAttributes ? (values) => onSaveAttributes(selected.id, values) : undefined
+      }
+      onComment={setComment}
+      materialCatalog={materialCatalog}
+      assetCatalog={assetCatalog}
+      onPickAsset={onPickAsset ? (assetCode) => onPickAsset(selected.id, assetCode) : undefined}
+      definitions={definitions}
+      organization={organization}
+      actorId={actorId}
+      onSeedSubtasks={onSeedSubtasks ? () => onSeedSubtasks(selected.id) : undefined}
+      onSetSubtasks={
+        onSetSubtasks
+          ? (items, mode) => onSetSubtasks(selected.id, items, mode)
+          : undefined
+      }
+      onCompleteSubtask={
+        onCompleteSubtask
+          ? (subtaskId) => onCompleteSubtask(selected.id, subtaskId)
+          : undefined
+      }
+      onCancelSubtask={
+        onCancelSubtask
+          ? (subtaskId) => onCancelSubtask(selected.id, subtaskId)
+          : undefined
+      }
+      onUploadEvidence={
+        onUploadEvidence
+          ? (subtaskId, file) => onUploadEvidence(selected.id, subtaskId, file)
+          : undefined
+      }
+      onRequestMaterials={
+        onRequestMaterials
+          ? (input) => onRequestMaterials(selected.id, input)
+          : undefined
+      }
+    />
+  ) : null;
+
+  const entries = selected ? timelineEntries(selected) : [];
+  const currentInTimeline = entries.some(
+    (entry) => entry.kind === 'step' && entry.step.id === selected?.currentStepId,
+  );
+  const pageStart = (currentPage - 1) * pageSize + 1;
+  const pageEnd = Math.min(currentPage * pageSize, visible.length);
 
   return (
     <section className={styles.workspace}>
-      {/* ========================================================================= */}
-      {/* 1. TOP HEADER                                                             */}
-      {/* ========================================================================= */}
-      <header className={styles.topBar}>
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <h1>Workspace xử lý</h1>
-            <span
-              style={{
-                background: 'rgba(37, 99, 235, 0.1)',
-                color: '#2563eb',
-                fontWeight: 700,
-                fontSize: '12px',
-                padding: '2px 9px',
-                borderRadius: '999px',
-                border: '1px solid rgba(37, 99, 235, 0.2)',
-              }}
-            >
-              {instances.length} hồ sơ
-            </span>
-          </div>
-          <p>
-            Quản lý tập trung các quy trình bạn giữ vai trò (R, A, C, S, I) — tích hợp Node Workspace 3 trục cùng Vertical Timeline.
-          </p>
-        </div>
-        <div className={styles.topActions}>
-          <button
-            type="button"
-            className={styles.ghost}
-            onClick={exportExcel}
-            title="Xuất file danh sách CSV"
-          >
-            Xuất Excel
-          </button>
-          {published.length > 0 && canCreateInstances ? (
-            <button
-              type="button"
-              className={`${styles.primary} ${styles.createRequestButton}`}
-              onClick={() => setCreating(true)}
-              aria-haspopup="dialog"
-              aria-expanded={creating}
-            >
-              <Plus size={15} strokeWidth={2.2} /> Tạo Đơn / Yêu cầu Mới
-            </button>
-          ) : null}
-        </div>
-      </header>
+      {headSlot ? createPortal(headActions, headSlot) : <div className={styles.topBar}>{headActions}</div>}
 
       {creating && canCreateInstances ? (
         <MinimalPopupForm
@@ -541,14 +848,34 @@ export function WorkspaceBoard({
                 !endDueAt ||
                 isScheduleInvalid
               ) return;
+              if (project && isHoursInvalid) return;
               void onStart(selectedCreateDef, {
                 title: jobTitle,
                 startDueAt,
                 endDueAt,
                 isHourlyScheduling: true,
+                workItem: project
+                  ? {
+                      projectId: project.id,
+                      projectCode: project.code,
+                      itemType,
+                      description: itemDescription.trim() || undefined,
+                      priority: itemPriority,
+                      assigneeUserId: itemAssignee || undefined,
+                      // Lịch dự kiến của công việc theo đúng lịch của đơn.
+                      plannedStart: startDate,
+                      plannedEnd: endDate,
+                      estimateHours: hoursValue,
+                      estimatedCost: financeEnabled ? parseVndInput(itemCost) : undefined,
+                    }
+                  : undefined,
               }).then(() => setCreating(false));
             }}
           >
+            {handoff?.note ? (
+              <p className={styles.reversalNote}>{handoff.note}</p>
+            ) : null}
+
             {/* Tên công việc * */}
             <div className={styles.createFieldGroup}>
               <label className={styles.createFieldLabel} htmlFor="create-request-title">
@@ -558,7 +885,7 @@ export function WorkspaceBoard({
                 id="create-request-title"
                 type="text"
                 className={styles.createTextInput}
-                placeholder="VD: Kiểm tra van xả áp định kỳ, Thay lọc khí AHU…"
+                placeholder="Tiêu đề hồ sơ"
                 value={jobTitle}
                 onChange={(e) => setJobTitle(e.target.value)}
                 autoFocus
@@ -590,6 +917,125 @@ export function WorkspaceBoard({
                 }}
               />
             </div>
+
+            {/* Dự án liên quan */}
+            <div className={styles.createFieldGroup}>
+              <label className={styles.createFieldLabel}>Dự án liên quan</label>
+              <SearchableSelect
+                options={(relatedProjects ?? []).map((item) => ({
+                  value: item.id,
+                  label: `${item.code} - ${item.name}`,
+                }))}
+                value={projectId}
+                placeholder={
+                  relatedProjects === undefined ? 'Đang tải danh sách dự án…' : 'Không gắn dự án'
+                }
+                emptyText="Bạn chưa tham gia dự án nào bên Workspace"
+                clearable
+                onChange={setProjectId}
+              />
+              <p className={styles.createFormHint}>
+                {project
+                  ? `Tạo kèm công việc “${jobTitle.trim() || 'Tên công việc'}” trong dự án ${project.code}. Tên hồ sơ sẽ là “${procedureNameFor(project.code, 'CVxxx', jobTitle.trim() || 'Tên công việc')}”, với CVxxx là mã công việc tự sinh.`
+                  : 'Chọn dự án để đơn này trở thành một công việc mới trong dự án đó.'}
+              </p>
+            </div>
+
+            {project ? (
+              <>
+                <div className={styles.createFieldGroup}>
+                  <label className={styles.createFieldLabel} htmlFor="create-item-description">
+                    Mô tả công việc
+                  </label>
+                  <textarea
+                    id="create-item-description"
+                    className={styles.createTextInput}
+                    rows={3}
+                    value={itemDescription}
+                    onChange={(event) => setItemDescription(event.target.value)}
+                  />
+                </div>
+
+                <div className={styles.createTimeDateGrid}>
+                  <div className={styles.createFieldGroup}>
+                    <label className={styles.createFieldLabel}>Loại</label>
+                    <SearchableSelect
+                      options={WORK_ITEM_TYPE_OPTIONS}
+                      value={itemType}
+                      clearable={false}
+                      onChange={(value) => setItemType((value || 'task') as WorkItemType)}
+                    />
+                  </div>
+                  <div className={styles.createFieldGroup}>
+                    <label className={styles.createFieldLabel}>Độ ưu tiên</label>
+                    <SearchableSelect
+                      options={WORK_ITEM_PRIORITY_OPTIONS}
+                      value={itemPriority}
+                      clearable={false}
+                      onChange={(value) => setItemPriority((value || 'normal') as WorkItemPriority)}
+                    />
+                  </div>
+                </div>
+
+                <div className={styles.createTimeDateGrid}>
+                  <div className={styles.createFieldGroup}>
+                    <label className={styles.createFieldLabel}>Người phụ trách</label>
+                    <SearchableSelect
+                      options={assigneeOptions}
+                      value={itemAssignee}
+                      placeholder="Chưa giao"
+                      emptyText="Không có thành viên phù hợp"
+                      onChange={setItemAssignee}
+                    />
+                  </div>
+                  <div className={styles.createFieldGroup}>
+                    <label className={styles.createFieldLabel} htmlFor="create-item-hours">
+                      Giờ ước lượng
+                    </label>
+                    <input
+                      id="create-item-hours"
+                      type="number"
+                      min={0}
+                      step="0.5"
+                      className={styles.createTextInput}
+                      value={itemHours}
+                      onChange={(event) => setItemHours(event.target.value)}
+                    />
+                  </div>
+                </div>
+
+                {financeEnabled ? (
+                  <div className={styles.createTimeDateGrid}>
+                    <div className={styles.createFieldGroup}>
+                      <label className={styles.createFieldLabel} htmlFor="create-item-cost">
+                        Chi phí dự toán (VND)
+                      </label>
+                      <input
+                        id="create-item-cost"
+                        inputMode="decimal"
+                        className={styles.createTextInput}
+                        placeholder="Ví dụ 150.000.000"
+                        value={itemCost}
+                        onChange={(event) => setItemCost(formatVndInput(event.target.value))}
+                      />
+                    </div>
+                    <div className={styles.createFieldGroup}>
+                      <label className={styles.createFieldLabel} htmlFor="create-item-actual">
+                        Chi phí thực tế (VND)
+                      </label>
+                      {/* Chi phí thực tế ghi qua sổ chi phí ở tab Tài chính bên Workspace. */}
+                      <input id="create-item-actual" readOnly className={styles.createTextInput} value="0" />
+                    </div>
+                  </div>
+                ) : null}
+
+                <p className={styles.createFormHint}>
+                  {isHoursInvalid
+                    ? 'Giờ ước lượng phải lớn hơn 0.'
+                    : 'Cách thực hiện: Theo quy trình. Bắt đầu và kết thúc dự kiến của công việc lấy theo thời gian của đơn bên dưới.'}
+                </p>
+              </>
+            ) : null}
 
             {/* Bắt đầu & Kết thúc Grid */}
             <div className={styles.createTimeDateGrid}>
@@ -699,6 +1145,7 @@ export function WorkspaceBoard({
                   !selectedCreateDef ||
                   !jobTitle.trim() ||
                   isScheduleInvalid ||
+                  (Boolean(project) && isHoursInvalid) ||
                   (selectedCreateDef && busy === `start:${selectedCreateDef.id}`)
                 }
               >
@@ -711,139 +1158,229 @@ export function WorkspaceBoard({
         </MinimalPopupForm>
       ) : null}
 
-      {/* ========================================================================= */}
-      {/* 3. 16:9 SPLIT GRID: MASTER (LEFT) & DETAIL (RIGHT)                        */}
-      {/* ========================================================================= */}
-      <div className={styles.masterDetailGrid}>
+      {reverseOpen && selected && onReverse ? (
+        <MinimalPopupForm
+          isOpen={reverseOpen}
+          title="Huỷ hiệu lực hồ sơ"
+          subtitle={`${selected.code} · ${selected.title}`}
+          onClose={() => setReverseOpen(false)}
+          maxWidth={560}
+        >
+          <form
+            className={styles.createFormBody}
+            onSubmit={(event) => {
+              event.preventDefault();
+              const reason = reverseReason.trim();
+              if (reason.length < 3) return;
+              setReverseBusy(true);
+              setReverseError(undefined);
+              onReverse(selected.id, { reason, createAdjustment: reverseAdjust })
+                .then(() => setReverseOpen(false))
+                .catch((cause: unknown) =>
+                  setReverseError(
+                    cause instanceof Error ? cause.message : 'Không huỷ hiệu lực được hồ sơ.',
+                  ),
+                )
+                .finally(() => setReverseBusy(false));
+            }}
+          >
+            <p className={styles.reversalNote}>
+              Hồ sơ không mở lại: chuyển sang "Đã huỷ hiệu lực", giữ nguyên lịch sử phê duyệt.
+              {selected.sourceType === 'hrm_request'
+                ? ' Đơn HRM đứng sau hồ sơ cũng bị huỷ hiệu lực (công, phép, tạm ứng được hoàn lại).'
+                : ''}
+              {selected.workspaceLink?.status === 'linked'
+                ? ` Công việc ${selected.workspaceLink.workItemCode ?? ''} của dự án ${selected.workspaceLink.projectCode} được báo để xử lý theo.`
+                : ''}{' '}
+              Bị chặn nếu kỳ công/kỳ lương đã chốt hoặc vật tư đã xuất kho.
+            </p>
 
-        {/* ======================================================================= */}
-        {/* LEFT COLUMN: FILTERS + SEARCH + MASTER LIST (CARDS / TABLE)             */}
-        {/* ======================================================================= */}
-        <div className={styles.leftMasterCard}>
-          {/* Search & Filter Toolbar */}
-          <div className={styles.toolbarRow}>
-            <div className={styles.searchWrapper}>
-              <span className={styles.searchIcon}><Search size={14} strokeWidth={2} /></span>
-              <input
-                className={styles.search}
-                placeholder="Tìm mã PROC, tiêu đề..."
-                value={query}
-                onChange={(event) => { setQuery(event.target.value); setPage(1); }}
+            <div className={styles.createFieldGroup}>
+              <label className={styles.createFieldLabel} htmlFor="reverse-reason">
+                Lý do huỷ hiệu lực <span className={styles.createRequiredStar}>*</span>
+              </label>
+              <textarea
+                id="reverse-reason"
+                className={styles.createTextInput}
+                rows={3}
+                maxLength={1000}
+                placeholder="VD: Sai thông tin số ngày nghỉ, cần lập lại đơn"
+                value={reverseReason}
+                onChange={(event) => setReverseReason(event.target.value)}
+                autoFocus
               />
             </div>
 
-            <label className={styles.selectLabel}>
-              Trạng thái:
-              <select
-                className={styles.filterSelect}
-                value={filter}
-                onChange={(event) => {
-                  setFilter(event.target.value as Filter);
-                  setPage(1);
-                }}
-              >
-                <option value="all">Tất cả ({instances.length})</option>
-                <option value="running">Đang xử lý ({stats.processing})</option>
-                <option value="urgent"> Duyệt gấp / SLA ({stats.urgent})</option>
-                <option value="completed">Hoàn thành ({stats.completed})</option>
-                <option value="rejected">Từ chối ({stats.rejected})</option>
-                <option value="cancelled">Đã huỷ ({stats.cancelled})</option>
-              </select>
+            <label className={styles.reverseCheck}>
+              <input
+                type="checkbox"
+                checked={reverseAdjust}
+                onChange={(event) => setReverseAdjust(event.target.checked)}
+              />
+              <span>
+                <strong>Lập hồ sơ điều chỉnh</strong>
+                <br />
+                <span style={{ color: 'var(--muted)' }}>
+                  {selected.sourceType === 'hrm_request'
+                    ? 'Người gửi đơn HRM nhận thông báo kèm form đơn mới điền sẵn ở HRM.'
+                    : 'Người khởi tạo (vai S) nhận thông báo kèm form tạo đơn điền sẵn, liên kết với hồ sơ này.'}
+                </span>
+              </span>
             </label>
 
-            <label className={styles.selectLabel}>
-              Sắp xếp:
-              <select
-                className={styles.filterSelect}
-                value={dateSort}
-                onChange={(event) => {
-                  setDateSort(event.target.value as 'newest' | 'oldest');
-                  setPage(1);
-                }}
-              >
-                <option value="newest">Mới nhất</option>
-                <option value="oldest">Cũ nhất</option>
-              </select>
-            </label>
+            {reverseError ? (
+              <p className={styles.createScheduleError} role="alert">
+                {reverseError}
+              </p>
+            ) : null}
 
-            <label className={styles.selectLabel}>
-              SLA:
-              <select
-                className={styles.filterSelect}
-                value={slaFilter}
-                onChange={(event) => { setSlaFilter(event.target.value as typeof slaFilter); setPage(1); }}
-              >
-                <option value="all">Tất cả SLA</option>
-                <option value="breached"> Quá hạn</option>
-                <option value="warning"> Sắp đến hạn</option>
-                <option value="ok"> Còn hạn</option>
-                <option value="none">Không cài</option>
-              </select>
-            </label>
-
-            <label className={styles.selectLabel}>
-              Nguồn:
-              <select
-                className={styles.filterSelect}
-                value={source}
-                onChange={(event) => { setSource(event.target.value as typeof source); setPage(1); }}
-              >
-                <option value="all">Tất cả</option>
-                <option value="manual">Thủ công</option>
-                <option value="maintenance_occurrence">Bảo trì</option>
-                <option value="auto_from_parent">Tự động</option>
-              </select>
-            </label>
-
-            {/* View Mode Toggle */}
-            <div className={styles.viewModeToggle}>
+            <div className={styles.createFormActions}>
               <button
                 type="button"
-                className={`${styles.viewModeBtn} ${viewMode === 'list' ? styles.viewModeBtnActive : ''}`}
-                onClick={() => setViewMode('list')}
-                title="Xem dạng thẻ"
+                className={styles.createCancelBtn}
+                onClick={() => setReverseOpen(false)}
               >
-                Thẻ
+                Đóng
               </button>
               <button
-                type="button"
-                className={`${styles.viewModeBtn} ${viewMode === 'table' ? styles.viewModeBtnActive : ''}`}
-                onClick={() => setViewMode('table')}
-                title="Xem dạng bảng"
+                type="submit"
+                className={styles.createSubmitBtn}
+                disabled={reverseBusy || reverseReason.trim().length < 3}
               >
-                Bảng
+                {reverseBusy ? 'Đang xử lý…' : 'Huỷ hiệu lực'}
               </button>
             </div>
+          </form>
+        </MinimalPopupForm>
+      ) : null}
 
-            {filtersActive || query || filter !== 'all' ? (
-              <button
-                type="button"
-                className={styles.ghost}
-                style={{ padding: '5px 10px', fontSize: '11.5px' }}
-                onClick={() => {
-                  setFilter('all');
-                  setSlaFilter('all');
-                  setSource('all');
-                  setFrom('');
-                  setTo('');
-                  setQuery('');
-                  setPage(1);
-                }}
-                title="Đặt lại tất cả bộ lọc"
-              >
-                Đặt lại
-              </button>
-            ) : null}
+      {/* Thanh lọc: trạng thái thành tab có số đếm, bộ lọc khác gọn trên cùng một hàng. */}
+      <div className={styles.toolbar}>
+        <div className={styles.statusTabs} role="tablist" aria-label="Lọc theo trạng thái">
+          {(
+            [
+              ['all', 'Tất cả', stats.total],
+              ['running', 'Đang xử lý', stats.processing],
+              ['urgent', 'Duyệt gấp / SLA', stats.urgent],
+              ['completed', 'Hoàn thành', stats.completed],
+              ['rejected', 'Từ chối', stats.rejected],
+              ['cancelled', 'Đã huỷ', stats.cancelled],
+              ['reversed', 'Đã huỷ hiệu lực', stats.reversed],
+            ] as const
+          ).map(([value, label, count]) => (
+            <button
+              key={value}
+              type="button"
+              role="tab"
+              aria-selected={filter === value}
+              className={`${styles.statusTab} ${filter === value ? styles.statusTabOn : ''} ${
+                value === 'urgent' && count > 0 ? styles.statusTabUrgent : ''
+              }`}
+              onClick={() => {
+                setFilter(value);
+                setPage(1);
+              }}
+            >
+              {label}
+              <span className={styles.statusTabCount}>{count}</span>
+            </button>
+          ))}
+        </div>
+
+        <div className={styles.toolbarFilters}>
+          <label className={styles.searchWrapper}>
+            <span className={styles.searchIcon}>
+              <Search size={14} strokeWidth={2} aria-hidden />
+            </span>
+            <input
+              className={styles.search}
+              aria-label="Tìm hồ sơ"
+              placeholder="Tìm mã PROC, tiêu đề..."
+              value={query}
+              onChange={(event) => { setQuery(event.target.value); setPage(1); }}
+            />
+          </label>
+          <SearchableSelect
+            className={styles.filterCombo}
+            clearable={false}
+            value={slaFilter}
+            options={[
+              { value: 'all', label: 'SLA: Tất cả' },
+              { value: 'breached', label: 'Quá hạn' },
+              { value: 'warning', label: 'Sắp đến hạn' },
+              { value: 'ok', label: 'Còn hạn' },
+              { value: 'none', label: 'Không cài' },
+            ]}
+            onChange={(value) => {
+              setSlaFilter((value || 'all') as typeof slaFilter);
+              setPage(1);
+            }}
+          />
+          <SearchableSelect
+            className={styles.filterCombo}
+            clearable={false}
+            value={source}
+            options={[
+              { value: 'all', label: 'Nguồn: Tất cả' },
+              { value: 'manual', label: 'Thủ công' },
+              { value: 'maintenance_occurrence', label: 'Bảo trì' },
+              { value: 'auto_from_parent', label: 'Tự động' },
+            ]}
+            onChange={(value) => {
+              setSource((value || 'all') as typeof source);
+              setPage(1);
+            }}
+          />
+          {filtersActive || query || filter !== 'all' ? (
+            <button
+              type="button"
+              className={styles.resetBtn}
+              onClick={() => {
+                setFilter('all');
+                setSlaFilter('all');
+                setSource('all');
+                setFrom('');
+                setTo('');
+                setQuery('');
+                setPage(1);
+              }}
+              title="Đặt lại tất cả bộ lọc"
+            >
+              Đặt lại
+            </button>
+          ) : null}
+        </div>
+      </div>
+
+      {/* Danh sách bên trái, chi tiết bên phải; mỗi bên tự cuộn trong khung của mình. */}
+      <div className={`${styles.split} ${viewMode === 'table' ? styles.splitTable : ''}`}>
+        <section className={styles.listPane} aria-label="Danh sách hồ sơ">
+          <div className={styles.listHead}>
+            <span>
+              <strong>{visible.length}</strong> hồ sơ
+            </span>
+            <SearchableSelect
+              className={styles.sortCombo}
+              clearable={false}
+              value={dateSort}
+              options={[
+                { value: 'newest', label: 'Mới nhất' },
+                { value: 'oldest', label: 'Cũ nhất' },
+              ]}
+              onChange={(value) => {
+                setDateSort((value || 'newest') as 'newest' | 'oldest');
+                setPage(1);
+              }}
+            />
           </div>
 
-          {/* Records Render (Card list vs Data Table) */}
           {visible.length === 0 ? (
             <div className={styles.empty}>
               <h2>Không có hồ sơ nào khớp bộ lọc</h2>
               <p>Thử đổi điều kiện lọc hoặc tạo yêu cầu mới.</p>
             </div>
           ) : viewMode === 'table' ? (
-            <div className={styles.tableContainer}>
+            <div className={styles.listBody}>
               <table className={styles.masterTable}>
                 <thead>
                   <tr>
@@ -866,13 +1403,15 @@ export function WorkspaceBoard({
                         onClick={() => setSelectedId(instance.id)}
                         className={`${styles.masterTableRow} ${isSel ? styles.masterTableRowActive : ''}`}
                       >
-                        <td style={{ fontFamily: 'ui-monospace, monospace', fontWeight: 700, color: '#1e40af' }}>
-                          {instance.code}
+                        <td className={styles.code}>{instance.code}</td>
+                        <td className={styles.tdTitle} title={instance.title}>
+                          <span className={styles.clamp2}>{instance.title}</span>
                         </td>
-                        <td style={{ fontWeight: 600 }}>{instance.title}</td>
-                        <td style={{ color: 'var(--faint)' }}>{instance.definitionCode}</td>
+                        <td className={styles.tdMuted} title={instance.definitionName}>
+                          {instance.definitionCode}
+                        </td>
                         <td
-                          style={{ fontWeight: 600 }}
+                          className={styles.tdNum}
                           title={progress.isEstimate ? 'Còn điểm rẽ nhánh phía trước nên tổng số bước là ước lượng' : undefined}
                         >
                           {progressLabel(progress)}
@@ -892,349 +1431,436 @@ export function WorkspaceBoard({
               </table>
             </div>
           ) : (
-            <div className={styles.cardsScroll}>
+            <div className={styles.listBody}>
               {paged.map((instance) => {
                 const progress = instanceProgress(instance);
                 const percent = progressPercent(progress);
+                const current = instance.steps.find((step) => step.id === instance.currentStepId);
                 return (
                   <button
                     key={instance.id}
                     type="button"
-                    className={`${styles.orderCard} ${instance.id === selected?.id ? styles.orderCardOn : ''}`}
+                    className={`${styles.caseRow} ${instance.id === selected?.id ? styles.caseRowOn : ''}`}
+                    aria-current={instance.id === selected?.id ? 'true' : undefined}
                     onClick={() => setSelectedId(instance.id)}
                   >
-                    <div className={styles.cardTop}>
+                    <span className={styles.caseRowTop}>
                       <span className={styles.code}>{instance.code}</span>
-                      <span className={`${styles.badge} ${styles[instance.status]}`}>
-                        {STATUS_LABEL[instance.status]}
-                      </span>
-                    </div>
-                    <h3 className={styles.cardTitle}>{instance.title}</h3>
-                    <div className={styles.cardFoot}>
-                      <span>{instance.definitionName}</span>
-                      <div className={styles.cardFootRight}>
-                        <SlaBadge view={evaluateInstanceSla(instance)} />
-                        <span style={{ fontWeight: 600 }}>
-                          {progressLabel(progress)} bước
+                      <span className={styles.caseRowProc}>{instance.definitionCode}</span>
+                      <SlaBadge view={evaluateInstanceSla(instance)} />
+                    </span>
+                    <span className={styles.caseRowTitle}>{instance.title}</span>
+                    <span className={styles.caseRowFoot}>
+                      {instance.status === 'running' ? (
+                        <span
+                          className={styles.caseRowStep}
+                          title={progress.isEstimate ? 'Còn điểm rẽ nhánh phía trước nên tổng số bước là ước lượng' : undefined}
+                        >
+                          Bước {progressLabel(progress)}
+                          {current ? ` · ${current.name}` : ''}
                         </span>
-                        <div className={styles.miniProgressBar} title={`Tiến độ ${percent}%`}>
-                          <div className={styles.miniProgressFill} style={{ width: `${percent}%` }} />
-                        </div>
-                      </div>
-                    </div>
+                      ) : (
+                        <span className={styles.caseRowStep}>
+                          <span className={`${styles.badge} ${styles[instance.status]}`}>
+                            {STATUS_LABEL[instance.status]}
+                          </span>
+                        </span>
+                      )}
+                      <span className={styles.miniProgressBar} title={`Tiến độ ${percent}%`}>
+                        <span className={styles.miniProgressFill} style={{ width: `${percent}%` }} />
+                      </span>
+                      <span className={styles.caseRowPct}>{percent}%</span>
+                    </span>
                   </button>
                 );
               })}
             </div>
           )}
 
-          {/* Pager Bar (Placed at Bottom) */}
           {visible.length > 0 ? (
-            <div className={styles.pagerRow}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <span>
-                  Hiển thị <strong>{(currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, visible.length)}</strong> / <strong>{visible.length}</strong> hồ sơ
-                </span>
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '11.5px', color: 'var(--muted)' }}>
-                  Hiển thị:
-                  <select
-                    className={styles.pagerSelect}
-                    value={pageSize}
-                    onChange={(e) => {
-                      setPageSize(Number(e.target.value));
-                      setPage(1);
-                    }}
-                  >
-                    <option value={15}>15 / trang</option>
-                    <option value={30}>30 / trang</option>
-                    <option value={45}>45 / trang</option>
-                    <option value={60}>60 / trang</option>
-                  </select>
-                </label>
-              </div>
-
-              <div className={styles.pagerControls}>
-                <button
-                  type="button"
-                  className={styles.pagerBtn}
-                  disabled={currentPage <= 1}
-                  onClick={() => setPage(currentPage - 1)}
-                >
-                  ← Trước
-                </button>
-                <span style={{ fontWeight: 700, color: 'var(--ink)' }}>
-                  {currentPage} / {pageCount}
-                </span>
-                <button
-                  type="button"
-                  className={styles.pagerBtn}
-                  disabled={currentPage >= pageCount}
-                  onClick={() => setPage(currentPage + 1)}
-                >
-                  Sau →
-                </button>
-              </div>
+            <div className={styles.pager}>
+              <span className={styles.pagerInfo}>
+                {pageStart}–{pageEnd} / {visible.length}
+              </span>
+              <SearchableSelect
+                className={styles.pagerCombo}
+                clearable={false}
+                value={String(pageSize)}
+                options={[15, 30, 45, 60].map((size) => ({ value: String(size), label: `${size} / trang` }))}
+                onChange={(value) => {
+                  setPageSize(Number(value) || 15);
+                  setPage(1);
+                }}
+              />
+              <button
+                type="button"
+                className={styles.pagerBtn}
+                aria-label="Trang trước"
+                disabled={currentPage <= 1}
+                onClick={() => setPage(currentPage - 1)}
+              >
+                <ChevronLeft size={15} aria-hidden />
+              </button>
+              <span className={styles.pagerPage}>
+                {currentPage}/{pageCount}
+              </span>
+              <button
+                type="button"
+                className={styles.pagerBtn}
+                aria-label="Trang sau"
+                disabled={currentPage >= pageCount}
+                onClick={() => setPage(currentPage + 1)}
+              >
+                <ChevronRight size={15} aria-hidden />
+              </button>
             </div>
           ) : null}
-        </div>
+        </section>
 
-        {/* ======================================================================= */}
-        {/* RIGHT COLUMN: DETAIL + VERTICAL TIMELINE + ACTION CONSOLE + TABS        */}
-        {/* ======================================================================= */}
-        <div className={styles.rightDetailContainer}>
+        <section
+          className={styles.detailPane}
+          aria-label={selected ? `Chi tiết hồ sơ ${selected.code}` : 'Chi tiết hồ sơ'}
+        >
           {selected ? (
             <>
-              {/* 1. THÔNG TIN QUY TRÌNH (Selected Instance Summary) */}
-              <article className={styles.panel}>
-                <header className={styles.detailHead}>
-                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                    <span className={styles.code}>{selected.code}</span>
-                    <span className={`${styles.badge} ${styles[selected.status]}`}>
-                      {STATUS_LABEL[selected.status]}
-                    </span>
-                  </div>
+              <header className={styles.detailHead}>
+                <div className={styles.detailHeadRow}>
+                  <span className={styles.code}>{selected.code}</span>
+                  <span className={`${styles.badge} ${styles[selected.status]}`}>
+                    {STATUS_LABEL[selected.status]}
+                  </span>
+                  <SlaBadge view={evaluateInstanceSla(selected)} />
+                  <span className={styles.spacer} />
 
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <SlaBadge view={evaluateInstanceSla(selected)} />
+                  {/* Nút Huỷ hồ sơ dành cho Admin / Quản trị viên */}
+                  {selected.authorization?.availableActions.includes('cancel') && selected.status === 'running' ? (
+                    <div className={styles.popconfirmWrapper}>
+                      <button
+                        type="button"
+                        className={styles.headerCancelBtn}
+                        disabled={busy === `cancel:${selected.id}` || isSubmitting}
+                        onClick={() => setHeaderCancelOpen((prev) => !prev)}
+                      >
+                        Huỷ hồ sơ
+                      </button>
 
-                    {/* Nút Huỷ hồ sơ dành cho Admin / Quản trị viên */}
-                    {selected.authorization?.availableActions.includes('cancel') && selected.status === 'running' ? (
-                      <div className={styles.popconfirmWrapper}>
-                        <button
-                          type="button"
-                          className={styles.headerCancelBtn}
-                          disabled={busy === `cancel:${selected.id}` || isSubmitting}
-                          onClick={() => setHeaderCancelOpen((prev) => !prev)}
-                        >
-                          Huỷ hồ sơ
-                        </button>
-
-                        {headerCancelOpen ? (
-                          <div className={styles.popconfirmBox} style={{ right: 0, left: 'auto', width: '280px' }}>
-                            <div className={styles.popconfirmArrow} style={{ right: '20px', left: 'auto' }} />
-                            <div className={styles.popconfirmTitle}>
-                              Xác nhận huỷ hồ sơ này?
-                            </div>
-                            <div className={styles.popconfirmDesc}>
-                              Hành động huỷ chỉ dành cho Quản trị viên, sẽ kết thúc toàn bộ quy trình ngay lập tức và không thể hoàn tác.
-                            </div>
-                            <div className={styles.popconfirmActions}>
-                              <button
-                                type="button"
-                                className={styles.ghost}
-                                style={{ fontSize: '11px', padding: '3px 8px' }}
-                                onClick={() => setHeaderCancelOpen(false)}
-                              >
-                                Không
-                              </button>
-                              <button
-                                type="button"
-                                className={styles.danger}
-                                style={{ fontSize: '11px', padding: '3px 10px' }}
-                                onClick={() => {
-                                  setHeaderCancelOpen(false);
-                                  void handleActionWithAttach(selected.id, 'cancel');
-                                }}
-                              >
-                                Đồng ý huỷ
-                              </button>
-                            </div>
+                      {headerCancelOpen ? (
+                        <div className={`${styles.popconfirmBox} ${styles.popconfirmBelow}`}>
+                          <div className={styles.popconfirmArrow} />
+                          <div className={styles.popconfirmTitle}>
+                            Xác nhận huỷ hồ sơ này?
                           </div>
-                        ) : null}
-                      </div>
-                    ) : null}
-                  </div>
-                </header>
-                <h2 className={styles.detailTitle}>{selected.title}</h2>
+                          <div className={styles.popconfirmDesc}>
+                            Hành động huỷ chỉ dành cho Quản trị viên, sẽ kết thúc toàn bộ quy trình ngay lập tức và không thể hoàn tác.
+                          </div>
+                          <div className={styles.popconfirmActions}>
+                            <button
+                              type="button"
+                              className={styles.ghost}
+                              onClick={() => setHeaderCancelOpen(false)}
+                            >
+                              Không
+                            </button>
+                            <button
+                              type="button"
+                              className={styles.danger}
+                              onClick={() => {
+                                setHeaderCancelOpen(false);
+                                void handleActionWithAttach(selected.id, 'cancel');
+                              }}
+                            >
+                              Đồng ý huỷ
+                            </button>
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
 
-                <dl className={styles.metaGrid}>
+                  {/* Huỷ hiệu lực: hồ sơ đã hoàn thành, chỉ Quản trị viên Quy trình */}
+                  {canReverse && onReverse && selected.status === 'completed' ? (
+                    <button
+                      type="button"
+                      className={styles.headerCancelBtn}
+                      disabled={reverseBusy}
+                      onClick={() => {
+                        setReverseReason('');
+                        setReverseAdjust(true);
+                        setReverseError(undefined);
+                        setReverseOpen(true);
+                      }}
+                    >
+                      Huỷ hiệu lực
+                    </button>
+                  ) : null}
+                </div>
+
+                <h2 className={styles.detailTitle}>{selected.title}</h2>
+                {selected.reversal ? (
+                  <div className={styles.reversalNote} role="note">
+                    <strong className={styles.reversalTitle}>Đã huỷ hiệu lực</strong>
+                    <span className={styles.reversalMeta}>
+                      {selected.reversal.reversedByName ?? 'Quản trị viên'} ·{' '}
+                      {dateTime.format(new Date(selected.reversal.reversedAt))}
+                    </span>
+                    <span>
+                      <b>Lý do:</b> {selected.reversal.reason}
+                    </span>
+                    {(() => {
+                      const adjustments = instances.filter(
+                        (item) => item.adjustmentOf?.instanceId === selected.id,
+                      );
+                      if (adjustments.length)
+                        return (
+                          <span>
+                            <b>Hồ sơ điều chỉnh:</b>{' '}
+                            {adjustments.map((item, index) => (
+                              <span key={item.id}>
+                                {index ? ', ' : ''}
+                                <button
+                                  type="button"
+                                  className={styles.linkButton}
+                                  onClick={() => setSelectedId(item.id)}
+                                >
+                                  {item.code}
+                                </button>
+                              </span>
+                            ))}
+                          </span>
+                        );
+                      if (!selected.reversal.adjustmentRequested) return null;
+                      return (
+                        <span>
+                          <b>Điều chỉnh:</b>{' '}
+                          {selected.sourceType === 'hrm_request'
+                            ? 'người gửi đơn đã được mời gửi đơn điều chỉnh ở HRM.'
+                            : 'đang chờ người giữ vai S lập hồ sơ điều chỉnh.'}
+                        </span>
+                      );
+                    })()}
+                  </div>
+                ) : null}
+                {selected.adjustmentOf ? (
+                  <p className={styles.createFormHint} style={{ margin: '0 0 8px' }}>
+                    Hồ sơ điều chỉnh cho{' '}
+                    {instances.some((item) => item.id === selected.adjustmentOf?.instanceId) ? (
+                      <button
+                        type="button"
+                        className={styles.linkButton}
+                        onClick={() => setSelectedId(selected.adjustmentOf?.instanceId)}
+                      >
+                        {selected.adjustmentOf.instanceCode}
+                      </button>
+                    ) : (
+                      <strong>{selected.adjustmentOf.instanceCode}</strong>
+                    )}
+                    {' '}đã bị huỷ hiệu lực.
+                  </p>
+                ) : null}
+
+                <dl className={styles.metaLine}>
                   <div>
-                    <dt>Người khởi tạo</dt>
+                    <dt>Khởi tạo</dt>
                     <dd>{selected.activity.find((entry) => entry.action === 'start')?.actorName ?? '—'}</dd>
                   </div>
                   <div>
                     <dt>Quy trình</dt>
-                    <dd>{selected.definitionName} <small style={{ color: 'var(--faint)' }}>· v{selected.definitionVersion}</small></dd>
+                    <dd>
+                      {selected.definitionName} · v{selected.definitionVersion}
+                    </dd>
                   </div>
                   <div>
-                    <dt>Nguồn tiếp nhận</dt>
-                    <dd>{selected.sourceType === 'hrm_request' ? <a className="text-blue-600 underline" href={`/modules/hrm/approvals?workflow=${encodeURIComponent(selected.sourceId||'')}`}>Đơn HRM · Xem nội dung và chứng từ</a> : selected.sourceType === 'maintenance_occurrence' ? ' Lịch bảo trì' : ' Tạo thủ công'}</dd>
+                    <dt>Nguồn</dt>
+                    <dd>{selected.sourceType === 'hrm_request' ? <a className="text-blue-600 underline" href={`/modules/hrm/approvals?workflow=${encodeURIComponent(selected.sourceId||'')}`}>Đơn HRM · Xem nội dung và chứng từ</a> : selected.sourceType === 'maintenance_occurrence' ? 'Lịch bảo trì' : 'Tạo thủ công'}</dd>
                   </div>
                   <div>
-                    <dt>{selected.completedAt ? 'Hoàn tất lúc' : 'Mở đơn lúc'}</dt>
+                    <dt>{selected.completedAt ? 'Hoàn tất' : 'Mở đơn'}</dt>
                     <dd>{formatDateTime(selected.completedAt ?? selected.startedAt)}</dd>
                   </div>
                 </dl>
-              </article>
 
-              {/* 2. ACTION & APPROVAL CONSOLE (Thao tác xử lý, duyệt, đính kèm, WBS) */}
-              <ActionPanel
-                busy={busy}
-                comment={comment}
-                instance={selected}
-                isSubmitting={isSubmitting}
-                attachments={attachments ?? []}
-                attachQueue={attachQueue}
-                onAttachQueue={setAttachQueue}
-                onAction={(action, comment, returnToStepId, attributeValues) =>
-                  void handleActionWithAttach(selected.id, action, comment, returnToStepId, attributeValues)
-                }
-                onSaveAttributes={
-                  onSaveAttributes ? (values) => onSaveAttributes(selected.id, values) : undefined
-                }
-                onComment={setComment}
-                onOpenDrawer={setActiveTabModal}
-                materialCatalog={materialCatalog}
-                assetCatalog={assetCatalog}
-                onPickAsset={onPickAsset ? (assetCode) => onPickAsset(selected.id, assetCode) : undefined}
-                definitions={definitions}
-                organization={organization}
-                actorId={actorId}
-                onSeedSubtasks={onSeedSubtasks ? () => onSeedSubtasks(selected.id) : undefined}
-                onSetSubtasks={
-                  onSetSubtasks
-                    ? (items, mode) => onSetSubtasks(selected.id, items, mode)
-                    : undefined
-                }
-                onCompleteSubtask={
-                  onCompleteSubtask
-                    ? (subtaskId) => onCompleteSubtask(selected.id, subtaskId)
-                    : undefined
-                }
-                onCancelSubtask={
-                  onCancelSubtask
-                    ? (subtaskId) => onCancelSubtask(selected.id, subtaskId)
-                    : undefined
-                }
-                onUploadEvidence={
-                  onUploadEvidence
-                    ? (subtaskId, file) => onUploadEvidence(selected.id, subtaskId, file)
-                    : undefined
-                }
-                onRequestMaterials={
-                  onRequestMaterials
-                    ? (input) => onRequestMaterials(selected.id, input)
-                    : undefined
-                }
-              />
+                {selected.workspaceLink ? (
+                  <p
+                    className={`${styles.linkNote} ${
+                      selected.workspaceLink.status === 'rejected' ? styles.linkNoteError : ''
+                    }`}
+                  >
+                    {selected.workspaceLink.status === 'linked'
+                      ? `Công việc ${selected.workspaceLink.workItemCode ?? ''} trong dự án ${selected.workspaceLink.projectCode}.`
+                      : selected.workspaceLink.status === 'pending'
+                        ? `Đang tạo công việc trong dự án ${selected.workspaceLink.projectCode}…`
+                        : `Không tạo được công việc trong dự án ${selected.workspaceLink.projectCode}: ${selected.workspaceLink.error ?? 'lỗi không rõ'}`}
+                  </p>
+                ) : null}
 
-              {/* 3. TIẾN TRÌNH CÁC BƯỚC (Vertical Timeline) */}
-              <article className={styles.panel}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', borderBottom: '1px solid var(--line)', paddingBottom: '8px' }}>
-                  <h3 className={styles.panelTitle}>
-                    Tiến trình các bước
-                  </h3>
-                  <span style={{ fontSize: '11px', color: 'var(--muted)', background: '#f1f5f9', padding: '2px 8px', borderRadius: '4px', fontWeight: 700 }}>
-                    {progressLabel(instanceProgress(selected))} bước
-                  </span>
+                <div className={styles.detailTabs} role="tablist" aria-label="Nội dung hồ sơ">
+                  {[
+                    {
+                      key: 'flow' as const,
+                      label: 'Tiến trình',
+                      count: progressLabel(instanceProgress(selected)),
+                    },
+                    {
+                      key: 'chat' as const,
+                      label: 'Trao đổi',
+                      count: selected.activity.filter((a) => a.action === 'comment').length,
+                    },
+                    {
+                      key: 'files' as const,
+                      label: 'Tệp & tài liệu',
+                      count: (attachments ?? []).filter((a) => a.instanceId === selected.id).length,
+                    },
+                    {
+                      key: 'history' as const,
+                      label: 'Nhật ký',
+                      count: selected.activity.filter((a) => a.action !== 'comment').length,
+                    },
+                  ].map((tab) => (
+                    <button
+                      key={tab.key}
+                      type="button"
+                      role="tab"
+                      aria-selected={detailTab === tab.key}
+                      className={`${styles.detailTab} ${detailTab === tab.key ? styles.detailTabOn : ''}`}
+                      onClick={() => setDetailTab(tab.key)}
+                    >
+                      {tab.label}
+                      {tab.count ? <span className={styles.detailTabCount}>{tab.count}</span> : null}
+                    </button>
+                  ))}
                 </div>
+              </header>
 
-                <div className={styles.timelineContainer}>
-                  {/* Spine line */}
-                  <div className={styles.timelineSpine} />
+              <div className={styles.detailBody}>
+                {detailTab === 'flow' ? (
+                  <>
+                    {/* Hồ sơ không có bước đang chạy trên dòng thời gian: khung xử lý đứng đầu như cũ. */}
+                    {currentInTimeline ? null : actionPanel}
 
-                  {timelineEntries(selected).map((entry) => {
-                    if (entry.kind === 'decision') {
-                      return (
-                        <DecisionCard
-                          key={`decision:${entry.decision.id}`}
-                          decision={entry.decision}
-                          instance={selected}
-                        />
-                      );
-                    }
-                    if (entry.kind === 'skipped') {
-                      return (
-                        <div key="skipped" className={styles.timelineSkipped}>
-                          <strong>Nhánh không đi ({entry.steps.length} bước)</strong>
-                          <span>{entry.steps.map((item) => item.name).join(' · ')}</span>
-                        </div>
-                      );
-                    }
-                    const step = entry.step;
-                    const isCur = step.id === selected.currentStepId;
-                    const isDone = step.status === 'completed';
-                    const isRejected = step.status === 'rejected';
+                    <ol className={styles.timeline}>
+                      {entries.map((entry) => {
+                        if (entry.kind === 'decision') {
+                          return (
+                            <li key={`decision:${entry.decision.id}`} className={styles.timelineItem}>
+                              <span className={`${styles.timelineNode} ${styles.nodeGateway}`} aria-hidden />
+                              <div className={styles.timelineBody}>
+                                <DecisionCard decision={entry.decision} instance={selected} />
+                              </div>
+                            </li>
+                          );
+                        }
+                        if (entry.kind === 'skipped') {
+                          return (
+                            <li key="skipped" className={`${styles.timelineItem} ${styles.timelineItemPending}`}>
+                              <span className={`${styles.timelineNode} ${styles.nodeSkipped}`} aria-hidden />
+                              <div className={styles.timelineBody}>
+                                <div className={styles.timelineSkipped}>
+                                  <strong>Nhánh không đi ({entry.steps.length} bước)</strong>
+                                  <span>{entry.steps.map((item) => item.name).join(' · ')}</span>
+                                </div>
+                              </div>
+                            </li>
+                          );
+                        }
+                        const step = entry.step;
+                        const isCur = step.id === selected.currentStepId;
+                        const isDone = step.status === 'completed';
+                        const isRejected = step.status === 'rejected';
 
-                    const nodeClass = isDone
-                      ? styles.nodeCompleted
-                      : isRejected
-                        ? styles.nodeRejected
-                        : isCur
-                          ? styles.nodeActive
-                          : styles.nodePending;
+                        const nodeClass = isDone
+                          ? styles.nodeCompleted
+                          : isRejected
+                            ? styles.nodeRejected
+                            : isCur
+                              ? styles.nodeActive
+                              : styles.nodePending;
 
-                    return (
-                      <div
-                        key={step.id}
-                        className={`${styles.timelineStepCard} ${isCur ? styles.timelineStepActive : ''}`}
-                      >
-                        {/* Node Icon */}
-                        <div className={`${styles.timelineNodeIcon} ${nodeClass}`}>
-                          {isDone ? '' : isRejected ? '' : step.order}
-                        </div>
-
-                        {/* Step Card Content */}
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
-                          <div>
-                            <span style={{ fontSize: '10.5px', fontWeight: 800, color: isCur ? 'var(--blue)' : 'var(--faint)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                              Bước {step.order} {isCur ? '· Đang thực hiện' : ''}
+                        return (
+                          <li
+                            key={step.id}
+                            className={`${styles.timelineItem} ${isCur ? styles.timelineItemCurrent : ''} ${
+                              !isCur && !isDone && !isRejected ? styles.timelineItemPending : ''
+                            }`}
+                          >
+                            <span className={`${styles.timelineNode} ${nodeClass}`} aria-hidden>
+                              {isDone ? (
+                                <Check size={12} strokeWidth={3} />
+                              ) : isRejected ? (
+                                <X size={12} strokeWidth={3} />
+                              ) : (
+                                step.order
+                              )}
                             </span>
-                            <h4 style={{ margin: '2px 0 4px', fontSize: '13.5px', fontWeight: 700, color: 'var(--ink)' }}>
-                              {step.name}
-                            </h4>
-                          </div>
-                          <SlaBadge
-                            view={evaluateStepSla(step, selected)}
-                            slaHours={step.slaHours}
-                            startedAt={step.startedAt}
-                          />
-                        </div>
+                            <div className={styles.timelineBody}>
+                              <div className={styles.timelineHead}>
+                                <span className={styles.timelineOrder}>
+                                  Bước {step.order}
+                                  {isCur ? ' · Đang thực hiện' : ''}
+                                </span>
+                                <span className={styles.timelineName}>{step.name}</span>
+                                <SlaBadge
+                                  view={evaluateStepSla(step, selected)}
+                                  slaHours={step.slaHours}
+                                  startedAt={step.startedAt}
+                                />
+                              </div>
 
-                        {/* RACI Role assignments list */}
-                        <div className={styles.roleList}>
-                          {roleLines(step, roleLabels).map((line) => (
-                            <span
-                              key={line.role}
-                              className={styles.roleTag}
-                              title={line.holders ? `Đang giữ: ${line.holders}` : undefined}
-                            >
-                              <i className={`${styles.role} ${styles[`role${line.role}`]}`}>
-                                {line.role}
-                              </i>
-                              <span style={{ color: 'var(--ink)', fontWeight: 600 }}>{line.names}</span>
-                              {line.holders ? (
-                                <span style={{ color: 'var(--muted)', fontWeight: 400 }}>· {line.holders}</span>
-                              ) : null}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </article>
+                              <div className={styles.roleList}>
+                                {roleLines(step, roleLabels).map((line) => (
+                                  <RoleLine key={line.role} line={line} />
+                                ))}
+                              </div>
 
-              {/* 4. VẬT TƯ CẦN CHO BƯỚC */}
+                              {isCur ? actionPanel : null}
+                            </div>
+                          </li>
+                        );
+                      })}
+                    </ol>
+
               <MaterialStatus
                 instance={selected}
                 busy={busy}
                 onRecheck={onRecheckMaterials ? () => onRecheckMaterials(selected.id) : undefined}
               />
 
-              {/* 5. QUY TRÌNH LIÊN KẾT */}
               <LinkedPanel
                 instance={selected}
                 instances={instances}
                 onOpen={(instanceId) => setSelectedId(instanceId)}
               />
+                  </>
+                ) : (
+                  <div className={styles.tabPanel}>
+                    {detailTab === 'chat' ? (
+                      <ChatPanel
+                        instance={selected}
+                        busy={busy}
+                        participants={participantsOf(selected, names)}
+                        onSend={(body, mentions, replyToId) =>
+                          onSendComment?.(selected.id, body, mentions, replyToId)
+                        }
+                      />
+                    ) : detailTab === 'files' ? (
+                      <AttachmentPanel
+                        instance={selected}
+                        attachments={attachments ?? []}
+                        busy={busy}
+                        onUpload={(file) => onUploadFile?.(selected.id, file)}
+                      />
+                    ) : (
+                      <HistoryPanel instance={selected} />
+                    )}
+                  </div>
+                )}
+              </div>
             </>
           ) : (
             <div className={styles.empty}>
               <p>Chọn một hồ sơ bên trái để xem chi tiết</p>
             </div>
           )}
-        </div>
+        </section>
       </div>
 
       {/* ========================================================================= */}
@@ -1389,7 +2015,7 @@ export function WorkspaceBoard({
               {activeStepDrawer.tab === 'execution' ? (
                 <div>
                   <h4 style={{ fontSize: '12px', fontWeight: 700, margin: '0 0 10px', textTransform: 'uppercase', color: 'var(--muted)' }}>
-                    Phân công Ma trận RACI cho bước này
+                    Phân vai RCSI cho bước này
                   </h4>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '20px' }}>
                     {activeStepDrawer.step.assignments.map((asgn) => {
@@ -1497,159 +2123,6 @@ export function WorkspaceBoard({
         </div>
       ) : null}
 
-      {/* ========================================================================= */}
-      {/* 5. POPUP DRAWER LƯU TRỮ HỒ SƠ (3 TAB: HỘI THOẠI · TỆP · NHẬT KÝ LÀM VIỆC)   */}
-      {/* ========================================================================= */}
-      {activeTabModal && selected ? (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            zIndex: 100,
-            display: 'flex',
-            justifyContent: 'flex-end',
-            background: 'rgba(15, 23, 42, 0.5)',
-            backdropFilter: 'blur(4px)',
-          }}
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setActiveTabModal(null);
-          }}
-        >
-          <div
-            style={{
-              width: '100%',
-              maxWidth: '680px',
-              background: '#ffffff',
-              height: '100%',
-              display: 'flex',
-              flexDirection: 'column',
-              boxShadow: '-8px 0 32px rgba(15, 23, 42, 0.2)',
-              animation: 'fadeIn 0.2s ease-out',
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Drawer Header */}
-            <div
-              style={{
-                padding: '16px 20px',
-                borderBottom: '1px solid var(--line)',
-                background: '#f8fafc',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '8px',
-              }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <div>
-                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                    <span className={styles.code}>{selected.code}</span>
-                    <span className={`${styles.badge} ${styles[selected.status]}`}>
-                      {STATUS_LABEL[selected.status]}
-                    </span>
-                  </div>
-                  <h3 style={{ margin: '6px 0 2px', fontSize: '16px', fontWeight: 800, color: 'var(--ink)' }}>
-                    {selected.title}
-                  </h3>
-                  <p style={{ margin: 0, fontSize: '12px', color: 'var(--faint)' }}>
-                    Quy trình: {selected.definitionName} (v{selected.definitionVersion})
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setActiveTabModal(null)}
-                  style={{
-                    border: 'none',
-                    background: 'transparent',
-                    fontSize: '20px',
-                    cursor: 'pointer',
-                    color: 'var(--faint)',
-                  }}
-                >
-
-                </button>
-              </div>
-
-              {/* 3 Drawer Tabs: Hội thoại · Tệp & Tài liệu · Nhật ký làm việc */}
-              <div style={{ display: 'flex', gap: '6px', borderTop: '1px solid var(--line)', paddingTop: '10px', marginTop: '6px' }}>
-                {[
-                  {
-                    key: 'chat' as const,
-                    label: ' Hội thoại',
-                    count: selected.activity.filter((a) => a.action === 'comment').length,
-                  },
-                  {
-                    key: 'files' as const,
-                    label: ' Tệp & Tài liệu',
-                    count: (attachments ?? []).filter((a) => a.instanceId === selected.id).length,
-                  },
-                  {
-                    key: 'history' as const,
-                    label: ' Nhật ký làm việc',
-                    count: selected.activity.filter((a) => a.action !== 'comment').length,
-                  },
-                ].map((tab) => (
-                  <button
-                    key={tab.key}
-                    type="button"
-                    onClick={() => setActiveTabModal(tab.key)}
-                    style={{
-                      padding: '6px 12px',
-                      borderRadius: '6px',
-                      border: 'none',
-                      fontSize: '12px',
-                      fontWeight: 700,
-                      cursor: 'pointer',
-                      background: activeTabModal === tab.key ? 'var(--blue)' : '#e2e8f0',
-                      color: activeTabModal === tab.key ? '#ffffff' : 'var(--ink)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '4px',
-                    }}
-                  >
-                    <span>{tab.label}</span>
-                    {tab.count > 0 ? (
-                      <span
-                        style={{
-                          fontSize: '10.5px',
-                          padding: '1px 5px',
-                          borderRadius: '999px',
-                          background: activeTabModal === tab.key ? 'rgba(255,255,255,0.25)' : '#cbd5e1',
-                          color: activeTabModal === tab.key ? '#ffffff' : 'var(--ink)',
-                        }}
-                      >
-                        {tab.count}
-                      </span>
-                    ) : null}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Drawer Body */}
-            <div style={{ flex: 1, overflowY: 'auto', padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              {activeTabModal === 'chat' ? (
-                <ChatPanel
-                  instance={selected}
-                  busy={busy}
-                  participants={participantsOf(selected, names)}
-                  onSend={(body, mentions, replyToId) =>
-                    onSendComment?.(selected.id, body, mentions, replyToId)
-                  }
-                />
-              ) : activeTabModal === 'files' ? (
-                <AttachmentPanel
-                  instance={selected}
-                  attachments={attachments ?? []}
-                  busy={busy}
-                  onUpload={(file) => onUploadFile?.(selected.id, file)}
-                />
-              ) : (
-                <HistoryPanel instance={selected} />
-              )}
-            </div>
-          </div>
-        </div>
-      ) : null}
     </section>
   );
 }
@@ -1705,7 +2178,6 @@ function ActionPanel({
   onAttachQueue,
   onAction,
   onComment,
-  onOpenDrawer,
   materialCatalog = [],
   assetCatalog = [],
   onPickAsset,
@@ -1735,7 +2207,6 @@ function ActionPanel({
   ) => void;
   onSaveAttributes?: (values: Record<string, ProcedureAttributeValue | null>) => Promise<void>;
   onComment: (value: string) => void;
-  onOpenDrawer: (tab: 'chat' | 'files' | 'history') => void;
   materialCatalog?: readonly MaterialCatalogItem[];
   assetCatalog?: readonly AssetCatalogItem[];
   onPickAsset?: (assetCode: string) => void;
@@ -1819,10 +2290,10 @@ function ActionPanel({
 
   // Role-adaptive textarea label
   const textareaLabel = myRoles.includes('R')
-    ? 'Mô tả kết quả thực hiện (Ctrl+Enter để gửi)'
+    ? 'Mô tả kết quả thực hiện'
     : myRoles.includes('C')
-      ? 'Ý kiến chuyên môn / thẩm định kỹ thuật (Ctrl+Enter để gửi)'
-      : 'Ghi chú phản hồi / lý do từ chối (Ctrl+Enter để gửi)';
+      ? 'Ý kiến chuyên môn / thẩm định'
+      : 'Ghi chú phản hồi / lý do từ chối';
 
   // Pure "I" (Informed) role check — read-only notice
   const isRoleI = myRoles.length === 1 && myRoles[0] === 'I' && actions.length === 0;
@@ -1831,16 +2302,11 @@ function ActionPanel({
     busy === `${action}:${instance.id}` || isSubmitting;
 
   return (
-    <article className={styles.panel}>
-      {/* 1. Header: Action Title */}
-      <header className={styles.actionHead}>
-        <h3 className={styles.panelTitle}>Xử lý &amp; Phê duyệt</h3>
-      </header>
-
+    <div className={styles.actionPanel}>
       {/* Role badges */}
       {myRoles.length > 0 || authorization?.isDelegated || authorization?.isEscalated ? (
         <p className={styles.myRoles}>
-          Vai trò bạn giữ ở bước này:{' '}
+          Vai của bạn:{' '}
           {myRoles.map((role) => (
             <i key={role} className={`${styles.role} ${styles[`role${role}`]}`}>
               {role}
@@ -1852,108 +2318,24 @@ function ActionPanel({
       ) : null}
 
       {/* Pure I (Informed) notice */}
-      {isRoleI ? (
+      {instance.status !== 'running' ? (
         <p className={styles.panelHint}>
-          ℹ Bạn giữ vai trò <strong>Thông báo (I)</strong> ở bước này — bạn có thể theo dõi tiến trình, trao đổi và xem hồ sơ đính kèm mà không cần thực hiện phê duyệt.
+          {instance.status === 'reversed'
+            ? 'Hồ sơ đã huỷ hiệu lực, không còn bước cần xử lý.'
+            : instance.status === 'completed'
+              ? 'Hồ sơ đã hoàn thành, không còn bước cần xử lý.'
+              : 'Hồ sơ đã kết thúc, không còn bước cần xử lý.'}
+        </p>
+      ) : isRoleI ? (
+        <p className={styles.panelHint}>
+          Bạn giữ vai I ở bước này.
         </p>
       ) : !canAct ? (
         <p className={styles.panelHint}>
-          Bạn không giữ vai trò nào ở bước hiện tại — chỉ theo dõi được tiến trình.
+          Bạn không giữ vai ở bước này.
         </p>
       ) : (
         <>
-          {/* 2. Textarea (Adaptable by RACIE role) */}
-          <label className={styles.commentField}>
-            {textareaLabel}
-            <textarea
-              rows={3}
-              placeholder="Nhập nhận xét hoặc phương án điều chỉnh…"
-              value={comment}
-              onChange={(event) => onComment(event.target.value)}
-              onKeyDown={(e) => {
-                if (e.ctrlKey && e.key === 'Enter') {
-                  const primaryAction = actions.find((a) => a === 'approve' || a === 'complete');
-                  if (primaryAction && !isActionBusy(primaryAction)) {
-                    act(primaryAction, comment || undefined);
-                  }
-                }
-              }}
-            />
-          </label>
-
-          {/* 3. Attachment section — Toggle Dropzone */}
-          <div className={styles.attachSection}>
-            <button
-              type="button"
-              className={`${styles.attachToggleBtn} ${attachOpen ? styles.attachToggleBtnActive : ''}`}
-              onClick={() => setAttachOpen((prev) => !prev)}
-            >
-              <span className={styles.attachToggleIcon}></span>
-              <span>{attachOpen ? 'Thu gọn đính kèm' : 'Đính kèm tài liệu kèm lượt duyệt'}</span>
-              {attachQueue.length > 0 ? (
-                <span className={styles.attachCountBadge}>
-                  {attachQueue.length} tệp đã chọn
-                </span>
-              ) : (
-                <span className={styles.attachToggleHint}>+ Thêm tệp</span>
-              )}
-            </button>
-
-            {attachOpen ? (
-              <div className={styles.attachDropzone}>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  multiple
-                  hidden
-                  onChange={(e) => {
-                    const files = Array.from(e.target.files ?? []);
-                    if (files.length > 0) {
-                      onAttachQueue([...attachQueue, ...files]);
-                    }
-                    e.target.value = '';
-                  }}
-                />
-
-                {attachQueue.length > 0 ? (
-                  <div className={styles.attachChipList}>
-                    {attachQueue.map((file, idx) => (
-                      <span key={idx} className={styles.attachChip}>
-                        <span className={styles.attachChipName} title={file.name}>{file.name}</span>
-                        <span className={styles.attachChipSize}>
-                          ({(file.size / 1024).toFixed(0)} KB)
-                        </span>
-                        <button
-                          type="button"
-                          className={styles.attachChipRemove}
-                          aria-label="Xoá tệp"
-                          onClick={() =>
-                            onAttachQueue(attachQueue.filter((_, i) => i !== idx))
-                          }
-                        >
-                          ×
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-                ) : null}
-
-                <div className={styles.attachActionsRow}>
-                  <button
-                    type="button"
-                    className={styles.primaryGhostBtn}
-                    onClick={() => fileInputRef.current?.click()}
-                  >
-                    Chọn tệp từ máy tính
-                  </button>
-                  <span className={styles.attachSubtext}>
-                    Tệp sẽ được tải lên tự động khi bạn bấm gửi phê duyệt
-                  </span>
-                </div>
-              </div>
-            ) : null}
-          </div>
-
           {/* 4. WBS Inline Section (for E role, collapsible) */}
           {showWbs ? (
             <div className={styles.wbsInlinePanel}>
@@ -2037,124 +2419,206 @@ function ActionPanel({
             </p>
           ) : null}
 
-          {/* Action buttons */}
-          {actions.length === 0 ? (
-            <p className={styles.panelHint}>
-              Chưa tới lượt bạn: bước này đang ở pha {current?.currentRoleStage ?? '—'}.
-            </p>
-          ) : (
-            <>
-              <div className={styles.actionRow}>
-                {actions
-                  .filter((action) => action !== 'approve' && action !== 'complete' && action !== 'comment' && action !== 'cancel')
-                  .map((action) => {
-                    if (action === 'reject') {
-                      return (
-                        <div key={action} className={styles.popconfirmWrapper}>
-                          <button
-                            key={action}
-                            type="button"
-                            className={styles.danger}
-                            disabled={isActionBusy(action)}
-                            onClick={() => {
-                              setConfirmRejectOpen((prev) => !prev);
-                            }}
-                          >
-                            {isActionBusy(action) ? 'Đang xử lý…' : ACTION_LABEL[action]}
-                          </button>
-
-                          {confirmRejectOpen ? (
-                            <div className={styles.popconfirmBox}>
-                              <div className={styles.popconfirmArrow} />
-                              <div className={styles.popconfirmTitle}>
-                                Xác nhận từ chối hồ sơ này?
-                              </div>
-                              <div className={styles.popconfirmDesc}>
-                                Hành động từ chối sẽ chuyển hồ sơ sang trạng thái bị từ chối và ngừng xử lý bước tiếp theo.
-                              </div>
-                              <div className={styles.popconfirmActions}>
-                                <button
-                                  type="button"
-                                  className={styles.ghost}
-                                  style={{ fontSize: '11px', padding: '3px 8px' }}
-                                  onClick={() => setConfirmRejectOpen(false)}
-                                >
-                                  Huỷ
-                                </button>
-                                <button
-                                  type="button"
-                                  className={styles.danger}
-                                  style={{ fontSize: '11px', padding: '3px 10px' }}
-                                  onClick={() => {
-                                    setConfirmRejectOpen(false);
-                                    act('reject', comment || undefined);
-                                  }}
-                                >
-                                  Đồng ý từ chối
-                                </button>
-                              </div>
-                            </div>
-                          ) : null}
-                        </div>
-                      );
+          {/* Ý kiến và nút thao tác ghim ở đáy khung chi tiết: bước dài vẫn bấm được ngay. */}
+          <div className={styles.actionDock}>
+            {/* 2. Textarea (Adaptable by RACIE role) */}
+            <label className={styles.commentField}>
+              <span className={styles.commentLabel}>{textareaLabel}</span>
+              <textarea
+                rows={2}
+                placeholder="Nhập nhận xét hoặc phương án điều chỉnh…"
+                value={comment}
+                onChange={(event) => onComment(event.target.value)}
+                onKeyDown={(e) => {
+                  if (e.ctrlKey && e.key === 'Enter') {
+                    const primaryAction = actions.find((a) => a === 'approve' || a === 'complete');
+                    if (primaryAction && !isActionBusy(primaryAction)) {
+                      act(primaryAction, comment || undefined);
                     }
+                  }
+                }}
+              />
+            </label>
 
-                    return (
+            {/* 3. Attachment section — Toggle Dropzone */}
+            <div className={styles.attachSection}>
+              <button
+                type="button"
+                className={`${styles.attachToggleBtn} ${attachOpen ? styles.attachToggleBtnActive : ''}`}
+                onClick={() => setAttachOpen((prev) => !prev)}
+              >
+                <span className={styles.attachToggleIcon}></span>
+                <span>{attachOpen ? 'Thu gọn đính kèm' : 'Đính kèm tài liệu kèm lượt duyệt'}</span>
+                {attachQueue.length > 0 ? (
+                  <span className={styles.attachCountBadge}>
+                    {attachQueue.length} tệp đã chọn
+                  </span>
+                ) : (
+                  <span className={styles.attachToggleHint}>+ Thêm tệp</span>
+                )}
+              </button>
+
+              {attachOpen ? (
+                <div className={styles.attachDropzone}>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    hidden
+                    onChange={(e) => {
+                      const files = Array.from(e.target.files ?? []);
+                      if (files.length > 0) {
+                        onAttachQueue([...attachQueue, ...files]);
+                      }
+                      e.target.value = '';
+                    }}
+                  />
+
+                  {attachQueue.length > 0 ? (
+                    <div className={styles.attachChipList}>
+                      {attachQueue.map((file, idx) => (
+                        <span key={idx} className={styles.attachChip}>
+                          <span className={styles.attachChipName} title={file.name}>{file.name}</span>
+                          <span className={styles.attachChipSize}>
+                            ({(file.size / 1024).toFixed(0)} KB)
+                          </span>
+                          <button
+                            type="button"
+                            className={styles.attachChipRemove}
+                            aria-label="Xoá tệp"
+                            onClick={() =>
+                              onAttachQueue(attachQueue.filter((_, i) => i !== idx))
+                            }
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+
+                  <div className={styles.attachActionsRow}>
+                    <button
+                      type="button"
+                      className={styles.primaryGhostBtn}
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      Chọn tệp từ máy tính
+                    </button>
+                    <span className={styles.attachSubtext}>
+                      Tệp sẽ được tải lên tự động khi bạn bấm gửi phê duyệt
+                    </span>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+
+            {/* Action buttons */}
+            {actions.length === 0 ? (
+              <p className={styles.panelHint}>
+                Chưa tới lượt bạn: bước này đang ở pha {current?.currentRoleStage ?? '—'}.
+              </p>
+            ) : (
+              <>
+                <div className={styles.actionRow}>
+                  {actions
+                    .filter((action) => action !== 'approve' && action !== 'complete' && action !== 'comment' && action !== 'cancel')
+                    .map((action) => {
+                      if (action === 'reject') {
+                        return (
+                          <div key={action} className={styles.popconfirmWrapper}>
+                            <button
+                              key={action}
+                              type="button"
+                              className={styles.danger}
+                              disabled={isActionBusy(action)}
+                              onClick={() => {
+                                setConfirmRejectOpen((prev) => !prev);
+                              }}
+                            >
+                              {isActionBusy(action) ? 'Đang xử lý…' : ACTION_LABEL[action]}
+                            </button>
+
+                            {confirmRejectOpen ? (
+                              <div className={styles.popconfirmBox}>
+                                <div className={styles.popconfirmArrow} />
+                                <div className={styles.popconfirmTitle}>
+                                  Xác nhận từ chối hồ sơ này?
+                                </div>
+                                <div className={styles.popconfirmDesc}>
+                                  Hành động từ chối sẽ chuyển hồ sơ sang trạng thái bị từ chối và ngừng xử lý bước tiếp theo.
+                                </div>
+                                <div className={styles.popconfirmActions}>
+                                  <button
+                                    type="button"
+                                    className={styles.ghost}
+                                    style={{ fontSize: '11px', padding: '3px 8px' }}
+                                    onClick={() => setConfirmRejectOpen(false)}
+                                  >
+                                    Huỷ
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className={styles.danger}
+                                    style={{ fontSize: '11px', padding: '3px 10px' }}
+                                    onClick={() => {
+                                      setConfirmRejectOpen(false);
+                                      act('reject', comment || undefined);
+                                    }}
+                                  >
+                                    Đồng ý từ chối
+                                  </button>
+                                </div>
+                              </div>
+                            ) : null}
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <button
+                          key={action}
+                          type="button"
+                          className={styles.ghost}
+                          disabled={isActionBusy(action)}
+                          onClick={() =>
+                            act(
+                              action,
+                              comment || undefined,
+                              action === 'return' ? returnTo || undefined : undefined,
+                            )
+                          }
+                        >
+                          {isActionBusy(action) ? 'Đang xử lý…' : ACTION_LABEL[action]}
+                        </button>
+                      );
+                    })}
+                  {actions
+                    .filter((action) => action === 'approve' || action === 'complete')
+                    .map((action) => (
                       <button
                         key={action}
                         type="button"
-                        className={styles.ghost}
+                        className={styles.primary}
                         disabled={isActionBusy(action)}
-                        onClick={() =>
-                          act(
-                            action,
-                            comment || undefined,
-                            action === 'return' ? returnTo || undefined : undefined,
-                          )
-                        }
+                        onClick={() => act(action, comment || undefined)}
                       >
-                        {isActionBusy(action) ? 'Đang xử lý…' : ACTION_LABEL[action]}
+                        {isActionBusy(action)
+                          ? attachQueue.length > 0
+                            ? 'Đang tải tệp & xử lý…'
+                            : 'Đang xử lý…'
+                          : attachQueue.length > 0
+                            ? `${ACTION_LABEL[action]} & Gửi ${attachQueue.length} tệp`
+                            : ACTION_LABEL[action]}
                       </button>
-                    );
-                  })}
-                {actions
-                  .filter((action) => action === 'approve' || action === 'complete')
-                  .map((action) => (
-                    <button
-                      key={action}
-                      type="button"
-                      className={styles.primary}
-                      disabled={isActionBusy(action)}
-                      onClick={() => act(action, comment || undefined)}
-                    >
-                      {isActionBusy(action)
-                        ? attachQueue.length > 0
-                          ? 'Đang tải tệp & xử lý…'
-                          : 'Đang xử lý…'
-                        : attachQueue.length > 0
-                          ? `${ACTION_LABEL[action]} & Gửi ${attachQueue.length} tệp`
-                          : ACTION_LABEL[action]}
-                    </button>
-                  ))}
-              </div>
-            </>
-          )}
+                    ))}
+                </div>
+              </>
+            )}
+          </div>
         </>
       )}
-
-      {/* Utility row — gộp thành 1 nút mở Hồ sơ & Nhật ký làm việc */}
-      <div className={styles.utilityRow}>
-        <button
-          type="button"
-          className={styles.drawerTriggerBtn}
-          onClick={() => onOpenDrawer('chat')}
-        >
-          <span className={styles.drawerTriggerIcon}></span>
-          <span className={styles.drawerTriggerLabel}>Nhật ký &amp; Lịch sử làm việc</span>
-          <span className={styles.drawerTriggerArrow}>→</span>
-        </button>
-      </div>
-    </article>
+    </div>
   );
 }
 

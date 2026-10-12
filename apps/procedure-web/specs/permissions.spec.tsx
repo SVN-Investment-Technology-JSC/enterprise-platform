@@ -40,7 +40,7 @@ describe('Procedure permission-driven UI', () => {
   it('shows the matrix without design or publication controls for employees', async () => {
     setup('raci', noRights);
     await screen.findByText('Quy trình kiểm tra quyền');
-    expect(screen.queryByRole('button', { name: /Thêm mới/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Thêm quy trình/ })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Công bố' })).toBeNull();
     expect(screen.queryByLabelText(/Lưu trữ bản nháp/)).toBeNull();
   });
@@ -48,13 +48,14 @@ describe('Procedure permission-driven UI', () => {
   it('allows publication without granting design controls', async () => {
     setup('raci', { ...noRights, canPublishDefinitions: true });
     expect(await screen.findByRole('button', { name: 'Công bố' })).toBeTruthy();
-    expect(screen.queryByRole('button', { name: /Thêm mới/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Thêm quy trình/ })).toBeNull();
   });
 
   it.each([false, true])('shows instance creation only with the capability: %s', async (canCreateInstances) => {
     setup('workspace', { ...noRights, canCreateInstances }, true);
-    await screen.findByRole('heading', { name: 'Workspace xử lý' });
-    if (canCreateInstances) expect(await screen.findByRole('button', { name: /Tạo Đơn/ })).toBeTruthy();
-    else expect(screen.queryByRole('button', { name: /Tạo Đơn/ })).toBeNull();
+    // Trang Hồ sơ xử lý không còn tiêu đề riêng (tên trang nằm trên đường dẫn): chờ thanh lọc trạng thái.
+    await screen.findByRole('tablist', { name: 'Lọc theo trạng thái' });
+    if (canCreateInstances) expect(await screen.findByRole('button', { name: /Tạo đơn/ })).toBeTruthy();
+    else expect(screen.queryByRole('button', { name: /Tạo đơn/ })).toBeNull();
   });
 });

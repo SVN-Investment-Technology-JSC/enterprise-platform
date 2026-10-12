@@ -1,6 +1,17 @@
 import { attachProcedureLinkInfo } from '../infrastructure/hrm-procedure-link-info.js';
-import { HrmApprovalPolicyService } from '../infrastructure/hrm-approval-policy.js';
+import {
+  attachRequestProjectLinks,
+  findRequestProjectLink,
+  readRequestProject,
+} from '../infrastructure/hrm-request-project-links.js';
+import { HrmApprovalPolicyService, approverPermissions } from '../infrastructure/hrm-approval-policy.js';
 import { workflowProgressFilter } from '../infrastructure/hrm-workflow-filter.js';
+import { syncEmployeeProcedureResults } from '../infrastructure/hrm-procedure-sync.js';
+import {
+  calendarDatesOf,
+  resolveRequestRange,
+} from '../infrastructure/hrm-request-time.js';
+import { assertNoRequestOverlap } from '../infrastructure/hrm-request-overlap.js';
 import {
   resolveDraftSubmission,
   type DraftSubmission,
@@ -11,9 +22,15 @@ import {
   prepareHrmProcedureLink,
 } from '../infrastructure/hrm-procedure-links.js';
 import { notifyApproversOfDirectRequest } from '../infrastructure/hrm-approval-notification.js';
+import {
+  descriptionColumn,
+  requestReasonCode,
+  requestReasonView,
+  resolveReasonInput,
+} from '../infrastructure/hrm-request-reason-input.js';
 import type { ApplyHrmWorkflowActionPayload } from '@enterprise-platform/contracts-hrm';
 import {
-  submitHrmRequest,
+  submitHrmRequest,
 } from '../infrastructure/hrm-submission.js';
 import type {
   CreateBusinessTripRequestPayload,
@@ -34,7 +51,9 @@ import {
   Post,
   Query,
   Req,
+  UseInterceptors,
 } from '@nestjs/common';
+import { HrmMissingSchemaInterceptor } from '../infrastructure/hrm-missing-schema.interceptor.js';
 import type { Request } from 'express';
 import { hrmTransaction } from '../infrastructure/hrm-transaction.js';
 import { workReferences } from '../infrastructure/hrm-work-references.js';
@@ -44,7 +63,6 @@ import {
 } from '../infrastructure/hrm-overtime.js';
 import { approveShiftChange } from '../infrastructure/hrm-shift-change.js';
 import {
-  assertOpenDate,
   assertOpenRange,
   lockEmployee,
   isoDate,
@@ -57,6 +75,7 @@ import {
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
 import { HrmProcedureBridgeService } from '../infrastructure/hrm-procedure-bridge.service.js';
 
+@UseInterceptors(HrmMissingSchemaInterceptor)
 @Controller('v1')
 export class HrmRequestController {
   constructor(
@@ -97,6 +116,7 @@ export class HrmRequestController {
   ) {
     const { pool, tenantId, employeeId, principal } =
       await this.ctx.getRequestContext(req, body.employeeId);
+    await syncEmployeeProcedureResults(pool, tenantId, employeeId);
     const submission = await resolveDraftSubmission(
       pool,
       tenantId,
@@ -117,7 +137,22 @@ export class HrmRequestController {
         title: 'Đơn làm thêm giờ',
         attributes: body.attributes,
       },
-      (db) => createOvertime(db, tenantId, { ...body, employeeId }),
+      async (db) => {
+        // Lý do chọn từ danh mục (có lương / không lương); mô tả là văn bản tự do tách riêng.
+        const { reason, description } = await resolveReasonInput(
+          db,
+          tenantId,
+          'OVERTIME',
+          body,
+        );
+        return createOvertime(db, tenantId, { ...body, employeeId }, {
+          reasonId: reason.id,
+          reasonName: reason.name,
+          paid: reason.paid,
+          description,
+          rateMultiplier: reason.rateMultiplier,
+        });
+      },
     );
     return {
       data: {
@@ -142,6 +177,7 @@ export class HrmRequestController {
     @Query('employee_id') employeeId?: string,
     @Query('from') fromDate?: string,
     @Query('to') toDate?: string,
+    @Query('status') status?: string,
     @Query('forApproval') forApproval?: string,
     @Query('assignee') assignee?: string,
     @Query('currentStep') currentStep?: string,
@@ -151,20 +187,26 @@ export class HrmRequestController {
       tenantId,
       principal,
       employeeId: visibleEmployeeId,
-    } = await this.ctx.scoped(req, 'hrm.request.read', employeeId);
+    } = await this.ctx.scoped(
+      req,
+      'hrm.request.read',
+      employeeId,
+      forApproval === '1' ? approverPermissions('ot') : [],
+    );
     employeeId = visibleEmployeeId;
+    if (employeeId) await syncEmployeeProcedureResults(pool, tenantId, employeeId);
     const approvalScope =
       forApproval === '1'
         ? await this.approvals.listFilter(
             { pool, tenantId, principal },
             'ot',
             'ot_requests',
-            5,
+            6,
           )
         : { sql: 'TRUE', params: [] as unknown[] };
     const progress = workflowProgressFilter(
       'ot_requests',
-      5 + approvalScope.params.length,
+      6 + approvalScope.params.length,
       { assignee, currentStep },
     );
     const res = await pool.query(
@@ -173,6 +215,7 @@ export class HrmRequestController {
          AND ($2::uuid IS NULL OR employee_id = $2)
          AND ($3::date IS NULL OR work_date >= $3)
          AND ($4::date IS NULL OR work_date <= $4)
+         AND ($5::text IS NULL OR status = $5)
          AND ${approvalScope.sql}
          AND ${progress.sql}
        ORDER BY work_date DESC`,
@@ -181,6 +224,7 @@ export class HrmRequestController {
         employeeId || null,
         fromDate || null,
         toDate || null,
+        status || null,
         ...approvalScope.params,
         ...progress.params,
       ],
@@ -285,6 +329,7 @@ export class HrmRequestController {
   ) {
     const { pool, tenantId, employeeId, principal } =
       await this.ctx.getRequestContext(req, body.employeeId);
+    await syncEmployeeProcedureResults(pool, tenantId, employeeId);
     const submission = await resolveDraftSubmission(
       pool,
       tenantId,
@@ -293,52 +338,49 @@ export class HrmRequestController {
       body,
     );
     body = submission.body;
-    requireDate(body.fromDate, 'fromDate');
-    requireDate(body.toDate, 'toDate');
-    requireText(body.reason, 'reason', 2000);
+    // Thời gian công tác: "từ ngày giờ đến ngày giờ" (server suy ra khoảng ngày và số ngày lịch) hoặc cách cũ.
+    let tripAt: { fromAt: string; toAt: string } | null = null;
+    let tripFrom: string;
+    let tripTo: string;
+    let tripDays: number | undefined;
+    if (body.fromAt !== undefined || body.toAt !== undefined) {
+      const { timezone, fromMs, toMs } = await resolveRequestRange(
+        pool,
+        tenantId,
+        employeeId,
+        body.fromAt,
+        body.toAt,
+      );
+      const dates = calendarDatesOf(fromMs, toMs, timezone);
+      tripAt = {
+        fromAt: new Date(fromMs).toISOString(),
+        toAt: new Date(toMs).toISOString(),
+      };
+      tripFrom = dates[0];
+      tripTo = dates[dates.length - 1];
+      tripDays = dates.length;
+    } else {
+      tripFrom = requireDate(body.fromDate, 'fromDate');
+      tripTo = requireDate(body.toDate, 'toDate');
+      tripDays = body.daysCount;
+    }
     requireText(body.destination, 'destination', 255);
     const maxDays =
-      (Date.parse(body.toDate) - Date.parse(body.fromDate)) / 86400000 + 1;
+      (Date.parse(tripTo) - Date.parse(tripFrom)) / 86400000 + 1;
     if (
       maxDays < 1 ||
       maxDays > 366 ||
-      !Number.isFinite(body.daysCount) ||
-      body.daysCount <= 0 ||
-      body.daysCount > maxDays
+      typeof tripDays !== 'number' ||
+      !Number.isFinite(tripDays) ||
+      tripDays <= 0 ||
+      tripDays > maxDays
     )
       throw new BadRequestException('Thời gian công tác không hợp lệ');
     let reference: Record<string, unknown> = {};
-    let projectName: string | null = null;
-    if (body.projectId) {
-      requireUuid(body.projectId, 'Dự án');
-      const available = (
-        await pool.query(
-          "SELECT to_regclass('workspace_schema.projects') AS relation",
-        )
-      ).rows[0]?.relation;
-      if (!available)
-        throw new BadRequestException(
-          'Danh mục dự án chưa được cấp cho tenant; có thể liên kết hồ sơ công việc',
-        );
-      const project = (
-        await pool.query(
-          'SELECT id,name FROM workspace_schema.projects WHERE id=$1',
-          [body.projectId],
-        )
-      ).rows[0];
-      if (!project)
-        throw new BadRequestException('Dự án không tồn tại trong tenant');
-      projectName = String(project.name);
-    }
-    if (
-      (body.destinationLat != null) !== (body.destinationLng != null) ||
-      (body.destinationLat != null &&
-        (!Number.isFinite(body.destinationLat) ||
-          Math.abs(body.destinationLat) > 90 ||
-          !Number.isFinite(body.destinationLng) ||
-          Math.abs(body.destinationLng!) > 180))
-    )
-      throw new BadRequestException('Tọa độ địa điểm công tác không hợp lệ');
+    // HRM không đọc bảng của Workspace: dự án được Workspace tự kiểm khi nhận
+    // đơn (người gửi có tham gia, dự án còn mở) và báo lại qua sự kiện.
+    const project = readRequestProject(body);
+    const projectName = project?.name ?? null;
     if (body.workItemId) {
       const items = await workReferences(req, tenantId),
         item = items.find((i) => i.id === body.workItemId);
@@ -371,21 +413,27 @@ export class HrmRequestController {
         initiatedBy: principal.userId,
         title: 'Đơn công tác',
         attributes: body.attributes,
+        project: project
+          ? { ...project, fromDate: body.fromDate, toDate: body.toDate }
+          : undefined,
       },
       async (db) => {
         await lockEmployee(db, tenantId, employeeId);
-        const dates = await db.query(
-          `SELECT to_char(d,'YYYY-MM-DD') AS date FROM generate_series($1::date,$2::date,'1 day') d`,
-          [body.fromDate, body.toDate],
+        // Lý do chọn từ danh mục; mô tả là văn bản tự do tách riêng (lưu ở cột `reason`).
+        const { reason, description } = await resolveReasonInput(
+          db,
+          tenantId,
+          'BUSINESS_TRIP',
+          body,
         );
-        for (const day of dates.rows)
-          await assertOpenDate(db, tenantId, day.date);
-        const conflict = await db.query(
-          `SELECT id FROM hrm_schema.business_trip_requests WHERE tenant_id=$1 AND employee_id=$2 AND status IN ('PENDING','APPROVED') AND daterange(from_date,to_date,'[]') && daterange($3::date,$4::date,'[]') UNION ALL SELECT id FROM hrm_schema.leave_requests WHERE tenant_id=$1 AND employee_id=$2 AND status IN ('PENDING','APPROVED') AND daterange(from_date,to_date,'[]') && daterange($3::date,$4::date,'[]') LIMIT 1`,
-          [tenantId, employeeId, body.fromDate, body.toDate],
-        );
-        if (conflict.rowCount)
-          throw new BadRequestException('Trùng lịch công tác hoặc nghỉ phép');
+      await assertOpenRange(db, tenantId, tripFrom, tripTo);
+        await assertNoRequestOverlap(db, tenantId, employeeId, {
+          kind: 'business_trip',
+          fromDate: tripFrom,
+          toDate: tripTo,
+          fromAt: tripAt?.fromAt ?? null,
+          toAt: tripAt?.toAt ?? null,
+        });
         if (body.perDiemPolicyId) {
           const policy = await db.query(
             `SELECT id FROM hrm_schema.policies WHERE tenant_id=$1 AND id=$2`,
@@ -396,39 +444,59 @@ export class HrmRequestController {
               'Chính sách công tác không thuộc tenant',
             );
         }
-        const inserted = await db.query(
-          `INSERT INTO hrm_schema.business_trip_requests (
+        const params = [
+          tenantId,
+          employeeId,
+          body.businessTripType || 'DOMESTIC',
+          body.destination,
+          tripFrom,
+          tripTo,
+          tripDays,
+          body.allowOt ?? false,
+          body.perDiemPolicyId || null,
+          descriptionColumn(description),
+          body.workItemId || null,
+          body.subtaskId || null,
+          JSON.stringify(reference),
+          project?.id ?? null,
+          projectName,
+          reason.id,
+          reason.name,
+        ];
+        // Cột from_at/to_at (migration 0047) chỉ ghi khi đơn gửi theo từ ngày giờ đến ngày giờ.
+        const inserted = tripAt
+          ? await db.query(
+              `INSERT INTO hrm_schema.business_trip_requests (
         tenant_id, employee_id, business_trip_type, destination, from_date, to_date,
-        days_count, allow_ot, per_diem_policy_id, reason, status, work_item_id, subtask_id, work_reference,project_id,project_name,destination_lat,destination_lng
+        days_count, allow_ot, per_diem_policy_id, reason, status, work_item_id, subtask_id, work_reference,project_id,project_name,
+        reason_id, reason_name, from_at, to_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'PENDING', $11, $12, $13,$14,$15,$16,$17,$18,$19)
+      RETURNING *`,
+              [...params, tripAt.fromAt, tripAt.toAt],
+            )
+          : await db.query(
+              `INSERT INTO hrm_schema.business_trip_requests (
+        tenant_id, employee_id, business_trip_type, destination, from_date, to_date,
+        days_count, allow_ot, per_diem_policy_id, reason, status, work_item_id, subtask_id, work_reference,project_id,project_name,
+        reason_id, reason_name
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'PENDING', $11, $12, $13,$14,$15,$16,$17)
       RETURNING *`,
-          [
-            tenantId,
-            employeeId,
-            body.businessTripType || 'DOMESTIC',
-            body.destination,
-            body.fromDate,
-            body.toDate,
-            body.daysCount,
-            body.allowOt ?? false,
-            body.perDiemPolicyId || null,
-            body.reason,
-            body.workItemId || null,
-            body.subtaskId || null,
-            JSON.stringify(reference),
-            body.projectId || null,
-            projectName,
-            body.destinationLat ?? null,
-            body.destinationLng ?? null,
-          ],
-        );
+              params,
+            );
         return inserted.rows[0];
       },
     );
 
+    const projectLink = await findRequestProjectLink(
+      pool,
+      tenantId,
+      'business_trip',
+      String(row.id),
+    );
     return {
       data: {
         ...this.mapTrip(row),
+        projectLink,
         procedureSyncStatus: link?.syncStatus ?? null,
 
         currentStepName: link?.currentStepName ?? null,
@@ -457,8 +525,14 @@ export class HrmRequestController {
       tenantId,
       principal,
       employeeId: visibleEmployeeId,
-    } = await this.ctx.scoped(req, 'hrm.request.read', employeeId);
+    } = await this.ctx.scoped(
+      req,
+      'hrm.request.read',
+      employeeId,
+      forApproval === '1' ? approverPermissions('business_trip') : [],
+    );
     employeeId = visibleEmployeeId;
+    if (employeeId) await syncEmployeeProcedureResults(pool, tenantId, employeeId);
     const approvalScope =
       forApproval === '1'
         ? await this.approvals.listFilter(
@@ -490,11 +564,16 @@ export class HrmRequestController {
       ],
     );
     return {
-      data: await attachProcedureLinkInfo(
+      data: await attachRequestProjectLinks(
         pool,
         tenantId,
         'business_trip',
-        res.rows.map(this.mapTrip),
+        await attachProcedureLinkInfo(
+          pool,
+          tenantId,
+          'business_trip',
+          res.rows.map(this.mapTrip),
+        ),
       ),
       meta: {
         total: res.rows.length,
@@ -547,12 +626,7 @@ export class HrmRequestController {
       if (trip.status !== 'PENDING')
         throw new BadRequestException('Trạng thái đơn không cho phép thao tác');
       await lockEmployee(db, tenantId, trip.employee_id);
-      const dates = await db.query(
-        `SELECT to_char(d,'YYYY-MM-DD') AS date FROM generate_series($1::date,$2::date,'1 day') d`,
-        [trip.from_date, trip.to_date],
-      );
-      for (const day of dates.rows)
-        await assertOpenDate(db, tenantId, day.date);
+      await assertOpenRange(db, tenantId, isoDate(trip.from_date), isoDate(trip.to_date));
       return db.query(
         `UPDATE hrm_schema.business_trip_requests SET status='REJECTED',approved_by=$3,approved_at=now(),updated_at=now() WHERE tenant_id=$1 AND id=$2 RETURNING *`,
         [tenantId, id, principal.userId],
@@ -591,12 +665,7 @@ export class HrmRequestController {
       if (!['PENDING', 'APPROVED'].includes(trip.status))
         throw new BadRequestException('Trạng thái đơn không cho phép thao tác');
       await lockEmployee(db, tenantId, trip.employee_id);
-      const dates = await db.query(
-        `SELECT to_char(d,'YYYY-MM-DD') AS date FROM generate_series($1::date,$2::date,'1 day') d`,
-        [trip.from_date, trip.to_date],
-      );
-      for (const day of dates.rows)
-        await assertOpenDate(db, tenantId, day.date);
+      await assertOpenRange(db, tenantId, isoDate(trip.from_date), isoDate(trip.to_date));
       return db.query(
         `UPDATE hrm_schema.business_trip_requests SET status='CANCELLED',approved_by=$3,approved_at=now(),updated_at=now() WHERE tenant_id=$1 AND id=$2 RETURNING *`,
         [tenantId, id, principal.userId],
@@ -633,7 +702,6 @@ export class HrmRequestController {
     body = submission.body;
     requireDate(body.fromDate, 'fromDate');
     requireDate(body.toDate, 'toDate');
-    requireText(body.reason, 'reason', 2000);
     if (
       body.changeType !== undefined &&
       body.changeType !== null &&
@@ -661,6 +729,13 @@ export class HrmRequestController {
       },
       async (db) => {
         requireUuid(employeeId, 'employeeId');
+        // Lý do chọn từ danh mục; mô tả là văn bản tự do tách riêng (lưu ở cột `reason`).
+        const { reason, description } = await resolveReasonInput(
+          db,
+          tenantId,
+          'SHIFT_CHANGE',
+          body,
+        );
         requireUuid(body.currentShiftId, 'currentShiftId');
         requireUuid(body.requestedShiftId, 'requestedShiftId');
         const employees = [
@@ -688,8 +763,9 @@ export class HrmRequestController {
         const inserted = await db.query(
           `INSERT INTO hrm_schema.shift_change_requests (
         tenant_id, employee_id, change_type, current_shift_id, requested_shift_id,
-        from_date, to_date, swap_with_employee_id, reason, status,submitted_by,submitted_attributes
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'PENDING',$10,$11)
+        from_date, to_date, swap_with_employee_id, reason, status,submitted_by,submitted_attributes,
+        reason_id, reason_name
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'PENDING',$10,$11,$12,$13)
       RETURNING *`,
           [
             tenantId,
@@ -700,9 +776,11 @@ export class HrmRequestController {
             body.fromDate,
             body.toDate,
             body.swapWithEmployeeId || null,
-            body.reason,
+            descriptionColumn(description),
             principal.userId,
             JSON.stringify(body.attributes ?? {}),
+            reason.id,
+            reason.name,
           ],
         );
         return inserted.rows[0];
@@ -776,6 +854,8 @@ export class HrmRequestController {
         employeeId: row.employee_id,
         initiatedBy: row.submitted_by,
         title: 'Đơn đổi ca',
+        // Cách duyệt chọn theo MÃ LÝ DO của đơn (giống lúc gửi đơn trong submitHrmRequest).
+        subTypeCode: await requestReasonCode(db, tenantId, row.reason_id),
         attributes: row.submitted_attributes ?? {},
         fieldRow: row,
       });
@@ -823,7 +903,12 @@ export class HrmRequestController {
       tenantId,
       principal,
       employeeId: visibleEmployeeId,
-    } = await this.ctx.scoped(req, 'hrm.request.read', employeeId);
+    } = await this.ctx.scoped(
+      req,
+      'hrm.request.read',
+      employeeId,
+      forApproval === '1' ? approverPermissions('shift_change') : [],
+    );
     employeeId = visibleEmployeeId;
     const approvalScope =
       forApproval === '1'
@@ -1013,42 +1098,6 @@ export class HrmRequestController {
     };
   }
 
-  // --------------------------------------------------------------------------
-  // Workspace Projects Integration
-  // --------------------------------------------------------------------------
-
-  @Get('workspace-projects')
-  async listWorkspaceProjects(@Req() req: Request) {
-    const { pool } = await this.ctx.getContext(req, 'hrm.read');
-    try {
-      const res = await pool.query(
-        `SELECT id, code, name, status, start_date, end_date
-         FROM workspace_schema.projects
-         ORDER BY created_at DESC`,
-      );
-      return {
-        data: res.rows.map((r: any) => ({
-          id: r.id as string,
-          code: r.code as string,
-          name: r.name as string,
-          status: r.status as string,
-          startDate: r.start_date ? String(r.start_date) : null,
-          endDate: r.end_date ? String(r.end_date) : null,
-        })),
-        meta: {
-          total: res.rows.length,
-          requestId: req.headers['x-request-id'] as string,
-        },
-      };
-    } catch {
-      // Fallback nếu schema workspace_schema chưa khởi tạo trong DB
-      return {
-        data: [],
-        meta: { total: 0, requestId: req.headers['x-request-id'] as string },
-      };
-    }
-  }
-
   private mapOt(row: Record<string, unknown>): HrmOtRequest {
     return {
       id: row.id as string,
@@ -1057,12 +1106,17 @@ export class HrmRequestController {
       workDate: isoDate(row.work_date),
       startTime: String(row.start_time),
       endTime: String(row.end_time),
+      // Đơn OT luôn biết giờ (cột giờ); from_at/to_at là mốc tuyệt đối khi đơn gửi theo từ ngày giờ đến ngày giờ.
+      fromAt: row.from_at ? new Date(row.from_at as string).toISOString() : null,
+      toAt: row.to_at ? new Date(row.to_at as string).toISOString() : null,
+      timeKnown: true,
       plannedMinutes: Number(row.planned_minutes),
       approvedMinutes: Number(row.approved_minutes || 0),
       actualMinutes: Number(row.actual_minutes || 0),
       billableOtMinutes: Number(row.billable_ot_minutes || 0),
       otType: row.ot_type as any,
       otRateMultiplier: Number(row.ot_rate_multiplier || 1.5),
+      rateSource: row.rate_source === 'REASON' ? 'REASON' : 'POLICY',
       isNightOt: Boolean(row.is_night_ot),
       exceedsDailyLimit: Boolean(row.exceeds_daily_limit),
       exceedsMonthlyLimit: Boolean(row.exceeds_monthly_limit),
@@ -1070,7 +1124,8 @@ export class HrmRequestController {
       monthlyAccumulatedOtMinutes: Number(
         row.monthly_accumulated_ot_minutes || 0,
       ),
-      reason: row.reason as string,
+      ...requestReasonView(row),
+      paid: row.paid !== false,
       status: row.status as any,
       workflowInstanceId: row.workflow_instance_id as string | null,
       procedureInstanceId: row.procedure_instance_id as string | null,
@@ -1096,16 +1151,15 @@ export class HrmRequestController {
       destination: row.destination as string,
       projectId: row.project_id as string | null,
       projectName: row.project_name as string | null,
-      destinationLat:
-        row.destination_lat != null ? Number(row.destination_lat) : null,
-      destinationLng:
-        row.destination_lng != null ? Number(row.destination_lng) : null,
+      fromAt: row.from_at ? new Date(row.from_at as string).toISOString() : null,
+      toAt: row.to_at ? new Date(row.to_at as string).toISOString() : null,
+      timeKnown: Boolean(row.from_at),
       fromDate: isoDate(row.from_date),
       toDate: isoDate(row.to_date),
       daysCount: Number(row.days_count),
       allowOt: Boolean(row.allow_ot),
       perDiemPolicyId: row.per_diem_policy_id as string | null,
-      reason: row.reason as string,
+      ...requestReasonView(row),
       status: row.status as any,
       workflowInstanceId: row.workflow_instance_id as string | null,
       procedureInstanceId: row.procedure_instance_id as string | null,
@@ -1131,7 +1185,7 @@ export class HrmRequestController {
       toDate: isoDate(row.to_date),
       swapWithEmployeeId: row.swap_with_employee_id as string | null,
       swapPeerConfirmed: Boolean(row.swap_peer_confirmed),
-      reason: row.reason as string,
+      ...requestReasonView(row),
       status: row.status as any,
       workflowInstanceId: row.workflow_instance_id as string | null,
       procedureInstanceId: row.procedure_instance_id as string | null,
