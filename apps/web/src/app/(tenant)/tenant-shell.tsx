@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { moduleAbbr, moduleTint } from './module-tint';
 import { TenantQuickSearch, type QuickSearchEntry } from './tenant-quick-search';
 
 type TenantView =
@@ -54,15 +55,6 @@ interface CatalogModule {
   readonly icon: string | null;
   readonly entitlementStatus: string;
 }
-
-/** Màu ô viết tắt của từng phân hệ, cùng bảng màu với trang Ứng dụng phân hệ. */
-const MODULE_TINTS: Record<string, string> = {
-  'procedure-engine': 'bg-violet-100 text-violet-700',
-  hrm: 'bg-cyan-100 text-cyan-700',
-  inventory: 'bg-blue-100 text-blue-800',
-  maintenance: 'bg-amber-100 text-amber-700',
-  workspace: 'bg-slate-100 text-slate-700',
-};
 
 const COLLAPSED_KEY = 'ep_sidebar_collapsed';
 
@@ -211,15 +203,12 @@ export function TenantShell({
 }
 
 function ModuleBadge({ module }: { module: CatalogModule }) {
-  const text = (module.icon || module.key.slice(0, 2)).toUpperCase();
   return (
     <span
       aria-hidden
-      className={`grid size-[22px] place-items-center rounded-md text-[9.5px] font-extrabold ${
-        MODULE_TINTS[module.key] ?? 'bg-slate-100 text-slate-700'
-      }`}
+      className={`grid size-[22px] place-items-center rounded-md text-[9.5px] font-extrabold ${moduleTint(module.key)}`}
     >
-      {text}
+      {moduleAbbr(module)}
     </span>
   );
 }
