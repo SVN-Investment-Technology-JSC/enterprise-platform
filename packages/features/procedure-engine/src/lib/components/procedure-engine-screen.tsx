@@ -20,7 +20,7 @@ import {
   type ModuleNavItem,
 } from '@enterprise-platform/feature-module-shell';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ClipboardList, LayoutDashboard, Settings, Table2, Users } from 'lucide-react';
+import { ClipboardList, LayoutDashboard, Settings, Table2 } from 'lucide-react';
 import {
   applyProcedureAction,
   cancelProcedureSubtask,
@@ -51,9 +51,8 @@ import {
   reverseProcedureInstance,
   startProcedureInstance,
 } from '../procedure-api';
-import { loadOrganization, setPositionReportsTo } from '../organization-api';
+import { loadOrganization } from '../organization-api';
 import { loadWorkItemProjectId, type ProjectWorkItemInput } from '../workspace-api';
-import { PositionManagement } from './position-management';
 import {
   PROCEDURE_DASHBOARD_CARDS,
   type ProcedureDashboardData,
@@ -64,14 +63,13 @@ import { RcsiBoard } from './rcsi-board';
 import { WorkspaceBoard, type StartHandoff } from './workspace-board';
 import styles from './procedure-engine.module.scss';
 
-type View = 'dashboard' | 'workspace' | 'raci' | 'positions' | 'org-chart' | 'settings';
+type View = 'dashboard' | 'workspace' | 'raci' | 'org-chart' | 'settings';
 
 // Biểu tượng là bắt buộc khi rail thu gọn: không có thì rail chỉ còn chữ tắt.
 const NAV: readonly ModuleNavItem<View>[] = [
   { id: 'dashboard', label: 'Tổng quan', icon: <LayoutDashboard size={16} aria-hidden /> },
   { id: 'workspace', label: 'Hồ sơ xử lý', group: 'Người dùng', icon: <ClipboardList size={16} aria-hidden /> },
   { id: 'raci', label: 'Ma trận RCSI', group: 'Thiết kế', icon: <Table2 size={16} aria-hidden /> },
-  { id: 'positions', label: 'Quản lý chức danh', group: 'Thiết kế', icon: <Users size={16} aria-hidden /> },
   // { id: 'org-chart', label: 'Sơ đồ tổ chức', group: 'Thiết kế' },
   { id: 'settings', label: 'Cài đặt', group: 'Quản trị', icon: <Settings size={16} aria-hidden /> },
 ];
@@ -613,16 +611,6 @@ export function ProcedureEngineScreen() {
           onReviseDefinition={canDesign ? (id) =>
             perform(`revise:${id}`, () => reviseProcedureDefinition(id))
           : undefined}
-        />
-      ) : view === 'positions' && organization ? (
-        <PositionManagement
-          headSlot={headSlot}
-          organization={organization}
-          canEdit={workspace.permissions.canOverrideActions}
-          onSave={async (positionId, reportsToPositionId) => {
-            await setPositionReportsTo(positionId, reportsToPositionId);
-            setOrganization(await loadOrganization());
-          }}
         />
       ) : organization ? (
         <OrganizationBoard organization={organization} onReload={reload} />
