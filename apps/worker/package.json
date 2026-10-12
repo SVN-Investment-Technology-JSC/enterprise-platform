@@ -136,6 +136,8 @@
     "@enterprise-platform/contracts-procedure-engine": "workspace:*",
     "@enterprise-platform/contracts-tenancy": "workspace:*",
     "@enterprise-platform/module-hrm": "workspace:*",
+    "@enterprise-platform/module-procedure-engine": "workspace:*",
+    "@enterprise-platform/module-workspace": "workspace:*",
     "@enterprise-platform/platform-entitlement": "workspace:*",
     "@enterprise-platform/platform-tenancy": "workspace:*",
     "@nestjs/common": "^11.0.0",

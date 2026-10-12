@@ -24,12 +24,16 @@ function requiredWorkspacePermission(request: Request): string | undefined {
   if (request.method === 'GET') return undefined;
 
   const path = request.path;
-  // Xoá tài liệu hay thư mục là thao tác không có đường lùi, nên nó có quyền
-  // riêng chứ không đi chung với quyền ghi.
+  // Xoá tài liệu là thao tác không có đường lùi, nên nó có quyền riêng chứ
+  // không đi chung với quyền ghi. Ngoại lệ:
+  // - gỡ liên kết hay tham chiếu thư mục: tài liệu vẫn còn nguyên;
+  // - gỡ thư mục rỗng: thư mục chung của dự án do thành viên tự quản lý, tầng
+  //   application đòi quyền xoá riêng cho kho cấp đơn vị.
   if (
     request.method === 'DELETE' &&
-    (path.includes('/documents') || path.includes('/folders')) &&
-    !path.includes('/links/')
+    path.includes('/documents') &&
+    !path.includes('/links/') &&
+    !path.includes('/folder-refs/')
   ) {
     return 'workspace.document.delete';
   }

@@ -1,8 +1,12 @@
 import type {
   AddDependencyRequest,
+  AddFolderRefRequest,
   CalendarEvent,
   CalendarRangeResponse,
   ChangeWorkItemStatusRequest,
+  ReverseWorkItemRequest,
+  ReverseProjectRequestRequest,
+  ProjectRequest,
   ChatEntityType,
   ChatMessage,
   ChatThread,
@@ -17,10 +21,13 @@ import type {
   CreateFolderRequest,
   EnsureFolderPathRequest,
   CreateProjectRequest,
+  CreateSavedFilterRequest,
+  CreateTagRequest,
   CreateVersionRequest,
   CreateWorkItemRequest,
   DocumentDetail,
   DocumentFolder,
+  DocumentFolderRef,
   DocumentLink,
   DocumentSummary,
   DirectoryResponse,
@@ -38,15 +45,20 @@ import type {
   ProjectFinance,
   ProjectMember,
   ProjectSummary,
+  ProjectTypeOption,
   RecurrenceScope,
   ReportBundle,
   RespondToEventRequest,
+  SavedFilter,
+  SavedFilterView,
   SendChatMessageRequest,
   SendChatMessageResponse,
   SetProjectMembersRequest,
+  Tag,
   UnreadSummary,
   UpdateChatMessageRequest,
   UpdateEventRequest,
+  UpdateFolderRequest,
   UpdateProjectFinanceRequest,
   UpdateProjectRequest,
   UpdateWorkItemCostRequest,
@@ -56,7 +68,11 @@ import type {
   WorkItemDependency,
   WorkItemStatusHistoryEntry,
   WorkItemTree,
+  WorkItemProcedureRequest,
   WorkspaceDocument,
+  ProjectRequestList,
+  UpdateWorkdayRulesRequest,
+  WorkdayRuleSet,
 } from '@enterprise-platform/contracts-workspace';
 import { authFetch } from '@enterprise-platform/shared-ui';
 
@@ -131,6 +147,7 @@ export async function loadTenantHomePath(): Promise<string> {
 export const listProjects = (params: {
   search?: string;
   status?: string;
+  projectType?: string;
   page?: number;
   pageSize?: number;
 } = {}) => {
@@ -152,15 +169,42 @@ export const PROJECT_PAGE_SIZE = 60;
  * chỉ trả tối đa `PROJECT_PAGE_SIZE` dòng một lần. Có trần số trang để một
  * tenant cực lớn không làm treo trang.
  */
-export async function listAllProjects(maxPages = 20): Promise<ProjectSummary[]> {
+export async function listAllProjects(
+  maxPages = 20,
+  filter: { projectType?: string } = {},
+): Promise<ProjectSummary[]> {
   const items: ProjectSummary[] = [];
   for (let page = 1; page <= maxPages; page += 1) {
-    const result = await listProjects({ page, pageSize: PROJECT_PAGE_SIZE });
+    const result = await listProjects({ ...filter, page, pageSize: PROJECT_PAGE_SIZE });
     items.push(...result.items);
     if (result.items.length === 0 || items.length >= result.total) break;
   }
   return items;
 }
+
+/** Loại dự án đang dùng, kèm số dự án mỗi loại. */
+export const listProjectTypes = () =>
+  request<{ items: ProjectTypeOption[] }>('/project-types', { cache: 'no-store' });
+
+/** Nhãn của cả tenant, gồm cả nhãn đã ngừng dùng (`isActive: false`). */
+export const listTags = () => request<{ items: Tag[] }>('/tags', { cache: 'no-store' });
+
+export const createTag = (body: CreateTagRequest) =>
+  request<Tag>('/tags', { method: 'POST', body: JSON.stringify(body) });
+
+/** Mẫu lọc của tôi, cộng mẫu được chia sẻ trong dự án `projectId`. */
+export const listSavedFilters = (view: SavedFilterView, projectId?: string) => {
+  const query = new URLSearchParams({ view });
+  if (projectId) query.set('projectId', projectId);
+  return request<{ items: SavedFilter[] }>(`/saved-filters?${query}`, { cache: 'no-store' });
+};
+
+/** Lưu trùng tên với mẫu cũ của mình thì ghi đè mẫu đó. */
+export const saveFilter = (body: CreateSavedFilterRequest) =>
+  request<SavedFilter>('/saved-filters', { method: 'POST', body: JSON.stringify(body) });
+
+export const removeSavedFilter = (id: string) =>
+  request<void>(`/saved-filters/${id}`, { method: 'DELETE' });
 
 export const getProject = (id: string) =>
   request<ProjectSummary>(`/projects/${id}`, { cache: 'no-store' });
@@ -200,6 +244,17 @@ export const updateWorkItem = (id: string, body: UpdateWorkItemRequest) =>
 
 export const changeWorkItemStatus = (id: string, body: ChangeWorkItemStatusRequest) =>
   request<WorkItem>(`/work-items/${id}/status`, { method: 'PATCH', body: JSON.stringify(body) });
+
+/** Huỷ hiệu lực đơn từ đã duyệt: Workspace gửi yêu cầu sang module nguồn. */
+export const reverseProjectRequest = (id: string, body: ReverseProjectRequestRequest) =>
+  request<ProjectRequest>(`/project-requests/${id}/reverse`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+
+/** Huỷ hiệu lực công việc đã hoàn thành (chủ nhiệm dự án hoặc quản trị). */
+export const reverseWorkItem = (id: string, body: ReverseWorkItemRequest) =>
+  request<WorkItem>(`/work-items/${id}/reverse`, { method: 'POST', body: JSON.stringify(body) });
 
 export const moveWorkItem = (id: string, body: MoveWorkItemRequest) =>
   request<WorkItem>(`/work-items/${id}/move`, { method: 'POST', body: JSON.stringify(body) });
@@ -322,12 +377,19 @@ export const listFolders = (projectId?: string) => {
   return request<{ items: DocumentFolder[] }>(`/folders${query}`, { cache: 'no-store' });
 };
 
-/** Gỡ một thư mục rỗng khỏi cây. Cần quyền xoá — mặc định chỉ quản trị tenant. */
+/**
+ * Gỡ một thư mục rỗng khỏi cây. Thư mục dự án: thành viên dự án; kho cấp đơn
+ * vị: cần quyền xoá, mặc định chỉ quản trị tenant.
+ */
 export const removeFolder = (id: string) =>
   request<void>(`/folders/${id}`, { method: 'DELETE' });
 
 export const createFolder = (body: CreateFolderRequest) =>
   request<DocumentFolder>('/folders', { method: 'POST', body: JSON.stringify(body) });
+
+/** Đổi tên hoặc chuyển thư mục; `parentId: null` là đưa về gốc. */
+export const updateFolder = (id: string, body: UpdateFolderRequest) =>
+  request<DocumentFolder>(`/folders/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
 
 /**
  * Dọn sẵn `<thư mục gốc>/<dự án>/<công việc>` rồi trả về thư mục lá.
@@ -377,9 +439,17 @@ export const completeUpload = (id: string, versionId: string, body: CompleteUplo
     body: JSON.stringify(body),
   });
 
-export const getDownloadTicket = (id: string, versionId?: string) => {
-  const query = versionId ? `?versionId=${encodeURIComponent(versionId)}` : '';
-  return request<DownloadTicket>(`/documents/${id}/download${query}`, { cache: 'no-store' });
+/** `preview`: URL mở ngay trong trình duyệt, nhật ký ghi là "xem". */
+export const getDownloadTicket = (
+  id: string,
+  versionId?: string,
+  mode: 'download' | 'preview' = 'download',
+) => {
+  const query = new URLSearchParams();
+  if (versionId) query.set('versionId', versionId);
+  if (mode === 'preview') query.set('mode', 'preview');
+  const suffix = query.toString() ? `?${query}` : '';
+  return request<DownloadTicket>(`/documents/${id}/download${suffix}`, { cache: 'no-store' });
 };
 
 export const lockDocument = (id: string) =>
@@ -396,6 +466,16 @@ export const linkDocument = (id: string, body: LinkDocumentRequest) =>
 
 export const unlinkDocument = (id: string, linkId: string) =>
   request<void>(`/documents/${id}/links/${linkId}`, { method: 'DELETE' });
+
+/** Cho tài liệu hiện thêm ở một thư mục khác, không nhân bản tệp. */
+export const addFolderRef = (id: string, body: AddFolderRefRequest) =>
+  request<DocumentFolderRef>(`/documents/${id}/folder-refs`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+
+export const removeFolderRef = (id: string, refId: string) =>
+  request<void>(`/documents/${id}/folder-refs/${refId}`, { method: 'DELETE' });
 
 /**
  * Chặng 2: đẩy tệp thẳng lên kho lưu trữ.
@@ -495,6 +575,16 @@ export const linkWorkItem = (workItemId: string, body: CreateExternalReferenceRe
     body: JSON.stringify(body),
   });
 
+/**
+ * Gửi (lại) yêu cầu mở hồ sơ quy trình cho công việc. Workspace chỉ ghi yêu
+ * cầu và phát sự kiện; module Quy trình tự mở hồ sơ rồi báo về.
+ */
+export const requestWorkItemProcedure = (workItemId: string, definitionId: string) =>
+  request<WorkItemProcedureRequest>(`/work-items/${workItemId}/procedure-request`, {
+    method: 'POST',
+    body: JSON.stringify({ definitionId }),
+  });
+
 export const unlinkWorkItem = (workItemId: string, referenceId: string) =>
   request<void>(`/work-items/${workItemId}/links/${referenceId}`, { method: 'DELETE' });
 
@@ -531,6 +621,17 @@ export const addCostEntry = (workItemId: string, body: CreateCostEntryRequest) =
 
 export const listWorkItemCostEntries = (workItemId: string) =>
   request<CostEntryList>(`/work-items/${workItemId}/cost-entries`, { cache: 'no-store' });
+
+/** Thứ tự ưu tiên tính công, dùng chung toàn tenant. */
+export const getWorkdayRules = () =>
+  request<WorkdayRuleSet>('/workday-rules', { cache: 'no-store' });
+
+export const updateWorkdayRules = (body: UpdateWorkdayRulesRequest) =>
+  request<WorkdayRuleSet>('/workday-rules', { method: 'PUT', body: JSON.stringify(body) });
+
+/** Tab "Đơn từ": đơn module khác gửi kèm dự án (chỉ đọc). */
+export const listProjectRequests = (projectId: string) =>
+  request<ProjectRequestList>(`/projects/${projectId}/requests`, { cache: 'no-store' });
 
 export const listProjectCostEntries = (projectId: string) =>
   request<CostEntryList>(`/projects/${projectId}/cost-entries`, { cache: 'no-store' });

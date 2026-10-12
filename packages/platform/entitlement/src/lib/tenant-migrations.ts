@@ -237,12 +237,24 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       path: 'tenant/hrm/0021-notification-outbox-v1.sql',
     },
     {
-      version: '0034-hrm-offboarding-event-envelope',
-      path: 'tenant/hrm/0034-hrm-offboarding-event-envelope.sql',
+      version: '0034-hrm-request-project-links',
+      path: 'tenant/hrm/0034-hrm-request-project-links.sql',
     },
     {
-      version: '0035-leave-transaction-trigger-source',
-      path: 'tenant/hrm/0035-leave-transaction-trigger-source.sql',
+      version: '0035-hrm-request-trip-links',
+      path: 'tenant/hrm/0035-hrm-request-trip-links.sql',
+    },
+    {
+      version: '0036-hrm-project-request-reversed',
+      path: 'tenant/hrm/0036-hrm-project-request-reversed.sql',
+    },
+    {
+      version: '0037-hrm-offboarding-event-envelope',
+      path: 'tenant/hrm/0037-hrm-offboarding-event-envelope.sql',
+    },
+    {
+      version: '0038-leave-transaction-trigger-source',
+      path: 'tenant/hrm/0038-leave-transaction-trigger-source.sql',
     },
   ],
   inventory: [
@@ -325,6 +337,10 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       version: '0012-step-instance-orphan-step',
       path: 'tenant/procedure/0012-step-instance-orphan-step.sql',
     },
+    {
+      version: '0013-instance-reversal',
+      path: 'tenant/procedure/0013-instance-reversal.sql',
+    },
   ],
   maintenance: [
     {
@@ -367,6 +383,42 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     {
       version: '0009-workspace-folder-active-unique',
       path: 'tenant/workspace/0009-workspace-folder-active-unique.sql',
+    },
+    {
+      version: '0010-workspace-document-folder-refs',
+      path: 'tenant/workspace/0010-workspace-document-folder-refs.sql',
+    },
+    {
+      version: '0011-workspace-participants-project-type',
+      path: 'tenant/workspace/0011-workspace-participants-project-type.sql',
+    },
+    {
+      version: '0012-workspace-procedure-requests',
+      path: 'tenant/workspace/0012-workspace-procedure-requests.sql',
+    },
+    {
+      version: '0013-workspace-project-requests',
+      path: 'tenant/workspace/0013-workspace-project-requests.sql',
+    },
+    {
+      version: '0014-workspace-project-request-trip-links',
+      path: 'tenant/workspace/0014-workspace-project-request-trip-links.sql',
+    },
+    {
+      version: '0015-workspace-workday-rules',
+      path: 'tenant/workspace/0015-workspace-workday-rules.sql',
+    },
+    {
+      version: '0016-workspace-saved-filter-project-requests',
+      path: 'tenant/workspace/0016-workspace-saved-filter-project-requests.sql',
+    },
+    {
+      version: '0017-workspace-work-item-reversal',
+      path: 'tenant/workspace/0017-workspace-work-item-reversal.sql',
+    },
+    {
+      version: '0018-workspace-project-request-reversal',
+      path: 'tenant/workspace/0018-workspace-project-request-reversal.sql',
     },
   ],
 };

@@ -14,7 +14,7 @@ import {
   WORK_ITEM_STATUS_LABELS,
   WORK_ITEM_STATUS_TONE,
   formatDate,
-  isOverdue,
+  isOverdue, workItemStatusLabel,
 } from '../workspace-labels';
 import styles from '../workspace.module.scss';
 import { useDirectory } from './use-directory';
@@ -96,7 +96,7 @@ export function TabKanban({
     if (!card || card.status === next) return;
     if (!canTransitionWorkItem(card.status, next)) {
       setError(
-        `Không chuyển thẳng "${WORK_ITEM_STATUS_LABELS[card.status]}" sang "${WORK_ITEM_STATUS_LABELS[next]}".`,
+        `Không chuyển thẳng "${workItemStatusLabel(card)}" sang "${WORK_ITEM_STATUS_LABELS[next]}".`,
       );
       return;
     }
@@ -122,12 +122,6 @@ export function TabKanban({
 
   return (
     <div className={styles.tabBody}>
-      <p className={styles.muted}>
-        {scope
-          ? `Đang xem nhánh ${scope.code} · ${scope.title}. Chọn dự án ở cây bên trái để xem toàn bộ.`
-          : 'Đang xem toàn bộ công việc của dự án.'}{' '}
-        {canWrite ? 'Kéo thẻ sang cột khác để đổi trạng thái; cột mờ là bước không hợp lệ.' : null}
-      </p>
       {error ? (
         <p role="alert" className={styles.alert}>
           {error}

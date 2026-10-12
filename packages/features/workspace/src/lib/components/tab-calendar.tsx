@@ -233,11 +233,6 @@ export function TabCalendar({
           ))}
         </div>
       )}
-
-      <p className={styles.muted}>
-        Nhấp đúp vào một ngày để tạo sự kiện vào ngày đó. Mục màu cam là hạn của công việc, bấm
-        vào sẽ mở công việc tương ứng.
-      </p>
     </div>
   );
 }

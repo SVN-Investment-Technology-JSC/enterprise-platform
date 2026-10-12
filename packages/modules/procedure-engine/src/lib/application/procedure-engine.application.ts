@@ -1,3 +1,4 @@
+import type { InstanceReversalGuard } from './instance-reversal-guard.port.js';
 import type { InventoryTaskTemplateResolver } from './inventory-task-template.port.js';
 import {
   PROCEDURE_SYSTEM_ACTOR_ID,
@@ -20,6 +21,7 @@ import {
   type ProcedureWorkspace,
   type PostProcedureCommentRequest,
   type ProcedureInstanceSourceType,
+  type ReverseProcedureInstanceRequest,
   type StartProcedureInstanceRequest,
   type UpdateProcedureDefinitionRequest,
 } from '@enterprise-platform/contracts-procedure-engine';
@@ -86,6 +88,11 @@ import {
   normalizeProcedureSetting,
 } from './procedure-settings.js';
 import { computeSlaDueAt } from '@enterprise-platform/contracts-procedure-engine';
+import {
+  workItemIdempotencyKey,
+  workspaceInstanceTitle,
+  type WorkItemProcedureRequestedPayload,
+} from '../domain/procedure-workspace-link.js';
 import type {
   ProcedureClock,
   ProcedureIdGenerator,
@@ -163,6 +170,11 @@ export class ProcedureEngineApplication {
      * Vắng mặt thì chỉ khớp được phân công S theo đúng người dùng.
      */
     private readonly initiatorActors?: InitiatorActorResolver,
+    /**
+     * Hỏi module nguồn (HRM) trước khi huỷ hiệu lực. Vắng mặt thì hồ sơ đến từ
+     * module khác KHÔNG được huỷ — không ai xác nhận được bên kia hoàn tác nổi.
+     */
+    private readonly reversalGuard?: InstanceReversalGuard,
   ) {}
 
   /**
@@ -920,6 +932,205 @@ export class ProcedureEngineApplication {
     });
   }
 
+  /**
+   * Huỷ hiệu lực một hồ sơ đã hoàn thành (chỉ admin).
+   *
+   * Không mở lại, không sửa: hồ sơ chuyển `reversed`, lịch sử duyệt giữ nguyên
+   * và có thêm dòng ai huỷ, vì sao. Diff trạng thái phát
+   * `procedure.instance.reversed` để module liên kết (Workspace, HRM) tự hoàn
+   * tác. Chặn hẳn khi còn hồ sơ xin vật tư (vật tư có thể đã xuất kho) hoặc
+   * module nguồn không cho huỷ (kỳ công/lương đã khoá…).
+   */
+  async reverseInstance(
+    actor: ProcedureActor,
+    instanceId: string,
+    input: ReverseProcedureInstanceRequest,
+  ): Promise<ProcedureInstance> {
+    if (!actor.isOverride) {
+      throw new ProcedureEngineError('forbidden', 'Chỉ quản trị mới huỷ hiệu lực được hồ sơ.');
+    }
+    const reason = input?.reason?.trim() ?? '';
+    if (reason.length < 3) {
+      throw new ProcedureEngineError('validation', 'Cần ghi lý do huỷ hiệu lực (ít nhất 3 ký tự).');
+    }
+    if (reason.length > 1000) {
+      throw new ProcedureEngineError('validation', 'Lý do huỷ hiệu lực tối đa 1000 ký tự.');
+    }
+
+    return this.performReversal(
+      actor.tenantId,
+      instanceId,
+      { userId: actor.userId, displayName: actor.displayName },
+      reason,
+      input.createAdjustment === true,
+    );
+  }
+
+  /**
+   * Hỏi trước (chỉ đọc) xem hồ sơ có huỷ hiệu lực được không — cho module khác
+   * (Workspace) kiểm trước khi tự huỷ công việc gắn hồ sơ, để hai bên không lệch.
+   */
+  async checkReversalForService(
+    tenantId: string,
+    instanceId: string,
+  ): Promise<{
+    allowed: boolean;
+    reason?: string;
+    status?: ProcedureInstance['status'];
+    /** Người đã duyệt hồ sơ — module khác dùng cho quyền "người duyệt đơn". */
+    approverUserIds?: string[];
+  }> {
+    const snapshot = (await this.store.read(tenantId)).instances;
+    const target = snapshot.find((candidate) => candidate.id === instanceId);
+    if (!target) return { allowed: false, reason: 'Không tìm thấy hồ sơ quy trình.' };
+    const approverUserIds = [
+      ...new Set(
+        target.activity
+          .filter((entry) => entry.action === 'approve' && entry.actorId)
+          .map((entry) => entry.actorId as string),
+      ),
+    ];
+    if (target.status === 'reversed') return { allowed: true, status: target.status, approverUserIds };
+    if (target.status !== 'completed') {
+      return {
+        allowed: false,
+        approverUserIds,
+        status: target.status,
+        reason:
+          target.status === 'running'
+            ? `Hồ sơ ${target.code} đang xử lý; cần kết thúc hoặc huỷ hồ sơ bên Quy trình trước.`
+            : `Hồ sơ ${target.code} không ở trạng thái hoàn thành.`,
+      };
+    }
+    try {
+      this.assertReversible(snapshot, target);
+      await this.assertSourceReversible(tenantId, target);
+      return { allowed: true, status: target.status, approverUserIds };
+    } catch (error) {
+      if (error instanceof ProcedureEngineError) {
+        return { allowed: false, status: target.status, reason: error.message, approverUserIds };
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Workspace đã huỷ hiệu lực công việc gắn hồ sơ → huỷ hiệu lực hồ sơ theo.
+   * Idempotent; hồ sơ chưa hoàn thành (đã huỷ, bị từ chối) thì bỏ qua.
+   */
+  async reverseForService(
+    tenantId: string,
+    instanceId: string,
+    input: {
+      readonly reason: string;
+      readonly createAdjustment: boolean;
+      readonly reversedBy: string;
+      readonly reversedByName?: string;
+    },
+  ): Promise<ProcedureInstance | undefined> {
+    const target = (await this.store.read(tenantId)).instances.find(
+      (candidate) => candidate.id === instanceId,
+    );
+    if (!target || target.status !== 'completed') return target;
+    return this.performReversal(
+      tenantId,
+      instanceId,
+      { userId: input.reversedBy, displayName: input.reversedByName ?? input.reversedBy },
+      input.reason.trim().slice(0, 1000) || 'Huỷ hiệu lực từ Workspace',
+      input.createAdjustment,
+    );
+  }
+
+  private async performReversal(
+    tenantId: string,
+    instanceId: string,
+    by: { readonly userId: string; readonly displayName: string },
+    reason: string,
+    createAdjustment: boolean,
+  ): Promise<ProcedureInstance> {
+    const snapshot = (await this.store.read(tenantId)).instances;
+    const target = snapshot.find((candidate) => candidate.id === instanceId);
+    if (!target) throw new ProcedureEngineError('not_found', 'Không tìm thấy hồ sơ.');
+    if (target.status === 'reversed') return target;
+    if (target.status !== 'completed') {
+      throw new ProcedureEngineError('conflict', 'Chỉ huỷ hiệu lực được hồ sơ đã hoàn thành.');
+    }
+    this.assertReversible(snapshot, target);
+    // Hỏi module nguồn TRƯỚC khi đổi trạng thái: bên kia từ chối thì bên này
+    // không được huỷ, nếu không hai module lệch nhau.
+    await this.assertSourceReversible(tenantId, target);
+
+    return this.store.transaction(tenantId, (state) => {
+      const instance = state.instances.find((candidate) => candidate.id === instanceId);
+      if (!instance) throw new ProcedureEngineError('not_found', 'Không tìm thấy hồ sơ.');
+      if (instance.status === 'reversed') return instance;
+      if (instance.status !== 'completed') {
+        throw new ProcedureEngineError('conflict', 'Chỉ huỷ hiệu lực được hồ sơ đã hoàn thành.');
+      }
+      // Kiểm lại trong transaction: một hồ sơ xin vật tư có thể vừa được mở.
+      this.assertReversible(state.instances, instance);
+      const now = this.clock.now().toISOString();
+      instance.status = 'reversed';
+      instance.reversal = {
+        reversedAt: now,
+        reversedBy: by.userId,
+        reversedByName: by.displayName,
+        reason,
+        adjustmentRequested: createAdjustment,
+      };
+      instance.activity.unshift({
+        id: this.ids.next(),
+        action: 'reverse',
+        actorId: by.userId,
+        actorName: by.displayName,
+        summary: createAdjustment
+          ? 'Đã huỷ hiệu lực hồ sơ và yêu cầu lập hồ sơ điều chỉnh.'
+          : 'Đã huỷ hiệu lực hồ sơ.',
+        comment: reason,
+        createdAt: now,
+      });
+      return instance;
+    });
+  }
+
+  /** Đơn HRM đứng sau hồ sơ phải huỷ được (kỳ công/lương chưa khoá...). */
+  private async assertSourceReversible(tenantId: string, target: ProcedureInstance): Promise<void> {
+    if (target.sourceType !== 'hrm_request' || !target.sourceId) return;
+    const check = this.reversalGuard
+      ? await this.reversalGuard.check(tenantId, {
+          sourceType: target.sourceType,
+          sourceId: target.sourceId,
+        })
+      : { allowed: false, reason: 'Chưa cấu hình kiểm tra với HRM.' };
+    if (!check.allowed) {
+      throw new ProcedureEngineError(
+        'conflict',
+        `Không huỷ hiệu lực được: ${check.reason ?? 'HRM không cho phép huỷ đơn gốc.'}`,
+      );
+    }
+  }
+
+  /** Hồ sơ xin vật tư (con) còn chạy hay đã xong nghĩa là vật tư có thể đã xuất kho. */
+  private assertReversible(
+    instances: readonly ProcedureInstance[],
+    target: ProcedureInstance,
+  ): void {
+    const children = instances.filter(
+      (candidate) =>
+        candidate.sourceType === 'auto_from_parent' &&
+        candidate.sourceId === target.id &&
+        (candidate.status === 'running' || candidate.status === 'completed'),
+    );
+    if (children.length > 0) {
+      throw new ProcedureEngineError(
+        'conflict',
+        `Không huỷ hiệu lực được: còn hồ sơ xin vật tư ${children
+          .map((child) => child.code)
+          .join(', ')} đang chạy hoặc đã xuất kho.`,
+      );
+    }
+  }
+
   /** Xoá hẳn một định nghĩa. Chặn khi còn hồ sơ tham chiếu — xoá hồ sơ trước. */
   async deleteDefinition(actor: ProcedureActor, definitionId: string): Promise<void> {
     this.requireDesigner(actor);
@@ -1188,6 +1399,9 @@ export class ProcedureEngineApplication {
         'Tiêu đề hồ sơ là bắt buộc và không vượt quá 255 ký tự.',
       );
     }
+    const workspaceLink = input.workspaceLink
+      ? this.validateWorkspaceLinkRequest(input.workspaceLink, input.sourceType)
+      : undefined;
     const startDueAt = input.startDueAt ? Date.parse(input.startDueAt) : undefined;
     const endDueAt = input.endDueAt ? Date.parse(input.endDueAt) : undefined;
     if (
@@ -1358,6 +1572,66 @@ export class ProcedureEngineApplication {
       // Values and the instance commit together. The next action sees the
       // submitted values; no bridge may patch runtime snapshots after creation.
       this.applyAttributeValues(instance, {...actor,userId:initiatedBy}, input.attributeValues, now);
+      if (workspaceLink) {
+        // Chỉ ghi yêu cầu vào hồ sơ; sự kiện gửi sang Workspace được phát cùng
+        // transaction này (xem appendEvents của store).
+        instance.workspaceLink = {
+          status: 'pending',
+          projectId: workspaceLink.projectId,
+          projectCode: workspaceLink.projectCode,
+          baseTitle: instance.title,
+          workItem: workspaceLink.workItem ?? {},
+          requestedBy: initiatedBy,
+          requestedByIsTenantAdmin: actor.isOverride,
+          requestedAt: now,
+        };
+      }
+      if (input.adjustmentOfInstanceId) {
+        // Hồ sơ điều chỉnh: chỉ cho hồ sơ gốc đã bị huỷ hiệu lực, cùng quy trình,
+        // và mỗi hồ sơ gốc một hồ sơ điều chỉnh đang còn hiệu lực.
+        const original = state.instances.find(
+          (candidate) => candidate.id === input.adjustmentOfInstanceId,
+        );
+        if (!original || original.status !== 'reversed') {
+          throw new ProcedureEngineError(
+            'conflict',
+            'Chỉ lập hồ sơ điều chỉnh cho hồ sơ đã bị huỷ hiệu lực.',
+          );
+        }
+        if (original.definitionId !== definition.id) {
+          throw new ProcedureEngineError(
+            'validation',
+            'Hồ sơ điều chỉnh phải dùng cùng quy trình với hồ sơ gốc.',
+          );
+        }
+        const existing = state.instances.find(
+          (candidate) =>
+            candidate.adjustmentOf?.instanceId === original.id &&
+            !['rejected', 'cancelled', 'reversed'].includes(candidate.status),
+        );
+        if (existing) {
+          throw new ProcedureEngineError(
+            'conflict',
+            `Hồ sơ ${original.code} đã có hồ sơ điều chỉnh ${existing.code}.`,
+          );
+        }
+        instance.adjustmentOf = { instanceId: original.id, instanceCode: original.code };
+        // Hồ sơ gốc gắn công việc dự án: công việc mới nối về công việc cũ.
+        const originalWorkItemId =
+          original.workspaceLink?.workItemId ??
+          (original.sourceType === 'workspace_work_item' ? original.sourceId : undefined);
+        if (instance.workspaceLink && originalWorkItemId) {
+          instance.workspaceLink.adjustmentOfWorkItemId = originalWorkItemId;
+        }
+        original.activity.unshift({
+          id: this.ids.next(),
+          action: 'comment',
+          actorId: actor.userId,
+          actorName: actor.displayName,
+          summary: `Đã lập hồ sơ điều chỉnh ${instance.code}.`,
+          createdAt: now,
+        });
+      }
       const firstStep = instance.steps.find((step) => step.id === instance.currentStepId);
       if (firstStep && startCheck) firstStep.materialCheck = startCheck;
       this.applyAssetTaskTemplate(instance, assetTemplate);
@@ -2878,6 +3152,122 @@ export class ProcedureEngineApplication {
         `Cần nhập ${missing.map((item) => `“${item.name}”`).join(', ')} trước khi hoàn tất bước “${step.name}”.`,
       );
     }
+  }
+
+  /** Kiểm yêu cầu gắn dự án lúc mở hồ sơ; Workspace mới là nơi kiểm quyền với dự án. */
+  private validateWorkspaceLinkRequest(
+    link: NonNullable<StartProcedureInstanceRequest['workspaceLink']>,
+    sourceType: ProcedureInstanceSourceType | undefined,
+  ): NonNullable<StartProcedureInstanceRequest['workspaceLink']> {
+    if (sourceType && sourceType !== 'manual') {
+      throw new ProcedureEngineError('validation', 'Chỉ hồ sơ mở thủ công mới gắn được dự án.');
+    }
+    const projectId = link.projectId?.trim();
+    const projectCode = link.projectCode?.trim();
+    if (!projectId || !/^[0-9a-f-]{36}$/i.test(projectId) || !projectCode) {
+      throw new ProcedureEngineError('validation', 'Dự án liên quan không hợp lệ.');
+    }
+    const item = link.workItem ?? {};
+    if (item.estimateHours !== undefined && !(Number(item.estimateHours) > 0)) {
+      throw new ProcedureEngineError('validation', 'Giờ ước lượng phải lớn hơn 0.');
+    }
+    if (item.estimatedCost !== undefined && !(Number(item.estimatedCost) >= 0)) {
+      throw new ProcedureEngineError('validation', 'Chi phí dự toán không được là số âm.');
+    }
+    return { projectId, projectCode, workItem: { ...item } };
+  }
+
+  /**
+   * Mở hồ sơ cho một công việc "Theo quy trình" bên Workspace, khi nhận sự kiện.
+   *
+   * Chạy dưới danh nghĩa người tạo công việc: tra tổ chức của họ để kiểm vai S
+   * như khi họ tự bấm mở hồ sơ. Quản trị tenant (Workspace đã xác thực) được
+   * bỏ qua vai S như ở giao diện. Lỗi nghiệp vụ trả về lý do để báo lại
+   * Workspace; lỗi hạ tầng ném ra để sự kiện được xử lý lại.
+   */
+  async startForWorkspaceWorkItem(
+    tenantId: string,
+    request: WorkItemProcedureRequestedPayload,
+  ): Promise<{ ok: true; instance: ProcedureInstance } | { ok: false; reason: string }> {
+    const resolved = await this.initiatorActors?.resolve(
+      tenantId,
+      request.requestedBy,
+      request.requestedByName,
+    );
+    if (!resolved && !request.requestedByIsTenantAdmin) {
+      return {
+        ok: false,
+        reason: 'Người tạo công việc chưa có trong sơ đồ tổ chức nên không khớp được vai S của quy trình.',
+      };
+    }
+    const actor: ProcedureActor = {
+      ...(resolved ?? {
+        tenantId,
+        userId: request.requestedBy,
+        membershipId: request.requestedBy,
+        displayName: request.requestedByName || request.requestedBy,
+        canDesign: false,
+        canPublish: false,
+        organizationUnitIds: [],
+        positionIds: [],
+      }),
+      canCreateInstances: true,
+      isOverride: request.requestedByIsTenantAdmin,
+    } as ProcedureActor;
+    try {
+      const { instance } = await this.startInstanceDetailed(actor, {
+        definitionId: request.definitionId,
+        title: workspaceInstanceTitle(request.projectCode, request.workItemCode, request.title),
+        idempotencyKey: workItemIdempotencyKey(request.workItemId),
+        sourceType: 'workspace_work_item',
+        sourceId: request.workItemId,
+        initiatedByName: request.requestedByName,
+      });
+      return { ok: true, instance };
+    } catch (error) {
+      if (error instanceof ProcedureEngineError) return { ok: false, reason: error.message };
+      throw error;
+    }
+  }
+
+  /**
+   * Nhận kết quả Workspace tạo công việc cho hồ sơ gắn dự án.
+   *
+   * Thành công thì gắn mã công việc vào tên hồ sơ (`EVN-CV013-…`); bị từ chối
+   * thì ghi lý do, hồ sơ vẫn chạy bình thường. Gọi lại nhiều lần cho cùng kết
+   * quả không đổi gì thêm.
+   */
+  async applyWorkspaceLinkResult(
+    tenantId: string,
+    result:
+      | { instanceId: string; linked: { workItemId: string; workItemCode: string; projectCode: string } }
+      | { instanceId: string; rejected: string },
+  ): Promise<void> {
+    const now = this.clock.now().toISOString();
+    await this.store.transaction(tenantId, (state) => {
+      const instance = state.instances.find((item) => item.id === result.instanceId);
+      const link = instance?.workspaceLink;
+      if (!instance || !link) return;
+      if ('linked' in result) {
+        if (link.status === 'linked' && link.workItemId === result.linked.workItemId) return;
+        instance.workspaceLink = {
+          ...link,
+          status: 'linked',
+          workItemId: result.linked.workItemId,
+          workItemCode: result.linked.workItemCode,
+          error: undefined,
+          resolvedAt: now,
+        };
+        instance.title = workspaceInstanceTitle(
+          result.linked.projectCode || link.projectCode,
+          result.linked.workItemCode,
+          link.baseTitle,
+        );
+        return;
+      }
+      if (link.status === 'linked') return;
+      instance.workspaceLink = { ...link, status: 'rejected', error: result.rejected, resolvedAt: now };
+    });
   }
 
   private requireDefinition(

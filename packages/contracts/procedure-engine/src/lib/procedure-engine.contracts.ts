@@ -200,7 +200,22 @@ export type ProcedureInstanceStatus =
   | 'running'
   | 'completed'
   | 'rejected'
-  | 'cancelled';
+  | 'cancelled'
+  /**
+   * Hồ sơ đã hoàn thành nhưng bị admin huỷ hiệu lực. Lịch sử duyệt giữ nguyên;
+   * kết quả của nó không còn được tính, và các module liên kết tự hoàn tác.
+   */
+  | 'reversed';
+
+/** Ai, khi nào, vì sao huỷ hiệu lực một hồ sơ đã hoàn thành. */
+export interface ProcedureInstanceReversal {
+  reversedAt: string;
+  reversedBy: string;
+  reversedByName?: string;
+  reason: string;
+  /** Có yêu cầu người giữ vai S lập hồ sơ điều chỉnh hay không. */
+  adjustmentRequested: boolean;
+}
 
 export type ProcedureInstanceStepStatus =
   | 'pending'
@@ -274,7 +289,7 @@ export interface ProcedureMaterialOrder {
 
 export interface ProcedureActivity {
   id: string;
-  action: ProcedureRuntimeAction | 'start' | 'publish';
+  action: ProcedureRuntimeAction | 'start' | 'publish' | 'reverse';
   actorId: string;
   actorName: string;
   summary: string;
@@ -382,6 +397,8 @@ export interface ProcedureInstance {
   sourceType?: ProcedureInstanceSourceType;
   /** Id of the originating record, e.g. a maintenance occurrence. */
   sourceId?: string;
+  /** Liên kết với một công việc trong dự án Workspace, nếu hồ sơ được mở kèm dự án. */
+  workspaceLink?: ProcedureWorkspaceLink;
   /** Thiết bị hồ sơ gắn vào; đầu việc của vai E được nạp theo thiết bị này. */
   assetCode?: string;
   /** Thời gian bắt đầu và kết thúc theo kế hoạch (Thông tin chung) */
@@ -394,6 +411,10 @@ export interface ProcedureInstance {
   observerNames?: string[];
   startedAt: string;
   completedAt?: string;
+  /** Có khi hồ sơ bị huỷ hiệu lực (`status = 'reversed'`). */
+  reversal?: ProcedureInstanceReversal;
+  /** Hồ sơ này là hồ sơ điều chỉnh của một hồ sơ đã bị huỷ hiệu lực. */
+  adjustmentOf?: { instanceId: string; instanceCode: string };
   steps: ProcedureInstanceStep[];
   activity: ProcedureActivity[];
   delegations?: ProcedureDelegation[];
@@ -522,6 +543,45 @@ export interface StartProcedureInstanceRequest {
   initiatedByName?: string;
   /** Chỉ dịch vụ nội bộ (sourceType 'hrm_request'): xem CreateProcedureInstanceRequest. */
   autoCompleteInitiatorStep?: boolean;
+  /**
+   * Gắn hồ sơ vào một dự án Workspace: hồ sơ mở ngay, còn công việc tương ứng
+   * do Workspace tự tạo khi nhận sự kiện, rồi báo mã công việc về.
+   */
+  workspaceLink?: {
+    projectId: string;
+    projectCode: string;
+    workItem?: ProcedureWorkspaceWorkItemDraft;
+  };
+  /** Mở hồ sơ điều chỉnh cho một hồ sơ đã bị huỷ hiệu lực. */
+  adjustmentOfInstanceId?: string;
+}
+
+/** Huỷ hiệu lực một hồ sơ đã hoàn thành (chỉ admin). */
+export interface ReverseProcedureInstanceRequest {
+  reason: string;
+  /** Báo người giữ vai S lập hồ sơ điều chỉnh, form điền sẵn từ hồ sơ này. */
+  createAdjustment: boolean;
+}
+
+/** Phát khi một hồ sơ đã hoàn thành bị huỷ hiệu lực; module liên kết tự hoàn tác. */
+export const PROCEDURE_INSTANCE_REVERSED = 'procedure.instance.reversed';
+/** Phát khi admin yêu cầu lập hồ sơ điều chỉnh; gửi tới người giữ vai S. */
+export const PROCEDURE_INSTANCE_ADJUSTMENT_REQUESTED = 'procedure.instance.adjustment_requested';
+
+export interface ProcedureInstanceReversedPayload {
+  instanceId: string;
+  instanceCode: string;
+  title: string;
+  definitionId: string;
+  sourceType?: ProcedureInstanceSourceType;
+  sourceId?: string;
+  /** Công việc Workspace liên kết, nếu có. */
+  workItemId?: string;
+  projectId?: string;
+  reason: string;
+  reversedBy: string;
+  reversedByName?: string;
+  adjustmentRequested: boolean;
 }
 
 export interface ApplyProcedureActionRequest {
@@ -702,7 +762,52 @@ export type ProcedureInstanceSourceType =
   | 'hrm_request'
   | 'manual'
   | 'maintenance_occurrence'
-  | 'auto_from_parent';
+  | 'auto_from_parent'
+  /** Mở theo yêu cầu của một công việc "Theo quy trình" bên Workspace. */
+  | 'workspace_work_item';
+
+/**
+ * Các trường của công việc sẽ được Workspace tạo khi hồ sơ gắn một dự án.
+ *
+ * Quy trình chỉ chuyển nguyên các trường này sang Workspace qua sự kiện; nó
+ * không kiểm, không ghi gì vào dữ liệu của Workspace.
+ */
+export interface ProcedureWorkspaceWorkItemDraft {
+  itemType?: 'task' | 'milestone';
+  description?: string;
+  priority?: 'low' | 'normal' | 'high' | 'urgent';
+  assigneeUserId?: string;
+  plannedStart?: string;
+  plannedEnd?: string;
+  estimateHours?: number;
+  estimatedCost?: number;
+}
+
+/**
+ * Liên kết hồ sơ ↔ công việc trong một dự án Workspace.
+ *
+ * `pending`: đã gửi yêu cầu, chờ Workspace tạo công việc. `linked`: Workspace
+ * đã tạo và trả mã công việc; tên hồ sơ đã gắn mã. `rejected`: Workspace từ
+ * chối (thiếu quyền, dự án đóng…), hồ sơ vẫn chạy bình thường.
+ */
+export interface ProcedureWorkspaceLink {
+  status: 'pending' | 'linked' | 'rejected';
+  projectId: string;
+  projectCode: string;
+  /** Tên người dùng nhập — cũng là tên công việc bên Workspace. */
+  baseTitle: string;
+  workItem: ProcedureWorkspaceWorkItemDraft;
+  requestedBy: string;
+  /** Người yêu cầu là quản trị tenant lúc mở hồ sơ; Workspace bỏ qua kiểm thành viên dự án. */
+  requestedByIsTenantAdmin?: boolean;
+  requestedAt: string;
+  workItemId?: string;
+  workItemCode?: string;
+  error?: string;
+  resolvedAt?: string;
+  /** Hồ sơ điều chỉnh: công việc mới là công việc điều chỉnh của công việc đã huỷ hiệu lực này. */
+  adjustmentOfWorkItemId?: string;
+}
 
 /**
  * Actor recorded as initiator when a service, not a person, starts an instance.

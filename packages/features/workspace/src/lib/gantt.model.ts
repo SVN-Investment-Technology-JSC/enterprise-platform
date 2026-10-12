@@ -10,6 +10,23 @@ export const BAR_HEIGHT = 14;
 /** Chừa lề hai bên để thanh đầu và thanh cuối không dính mép khung. */
 const PADDING_DAYS = 2;
 const MS_PER_DAY = 86_400_000;
+/**
+ * Hôm nay chỉ được kéo khung ra khi nó cách các mốc kế hoạch không quá chừng
+ * này ngày: dự án đã đóng từ mấy năm trước không nên kéo trục dài ra vài năm.
+ */
+const TODAY_REACH_DAYS = 180;
+/** Lề quanh hôm nay khi hôm nay được đưa vào khung. */
+const TODAY_PADDING_DAYS = 7;
+
+export interface GanttLayoutOptions {
+  /**
+   * Bề rộng tối thiểu của trục, thường là bề rộng khung đang hiện. Khung ngắn
+   * hơn thì giãn thêm ngày hai bên để biểu đồ phủ kín chỗ, không để trống.
+   */
+  readonly minWidth?: number;
+  /** Luôn đưa hôm nay vào khung (trong giới hạn `TODAY_REACH_DAYS`). */
+  readonly includeToday?: boolean;
+}
 
 /** Một dòng trên biểu đồ; thứ tự đúng bằng thứ tự cây bên trái. */
 export interface GanttRow {
@@ -77,7 +94,7 @@ function daysBetween(from: Date, to: Date): number {
  * Việc chưa có mốc nào không kéo dài khung: chúng không vẽ thanh, nên đưa vào
  * chỉ làm biểu đồ rộng ra vô ích.
  */
-function boundsOf(items: readonly WorkItem[]): { start: Date; end: Date } {
+function boundsOf(items: readonly WorkItem[], now: Date): { start: Date; end: Date } {
   const dates: Date[] = [];
   for (const item of items) {
     if (item.plannedStart) dates.push(parseDay(item.plannedStart));
@@ -85,7 +102,7 @@ function boundsOf(items: readonly WorkItem[]): { start: Date; end: Date } {
   }
   // Không có mốc nào thì lấy tuần quanh hôm nay, để trục vẫn vẽ được.
   if (dates.length === 0) {
-    const today = startOfDay(new Date());
+    const today = startOfDay(now);
     return {
       start: new Date(today.getTime() - 3 * MS_PER_DAY),
       end: new Date(today.getTime() + 3 * MS_PER_DAY),
@@ -104,6 +121,37 @@ function boundsOf(items: readonly WorkItem[]): { start: Date; end: Date } {
   };
 }
 
+/** Kéo khung ra để chứa hôm nay và phủ kín `minWidth`. */
+function widen(
+  bounds: { start: Date; end: Date },
+  today: Date,
+  dayWidth: number,
+  options: GanttLayoutOptions,
+): { start: Date; end: Date } {
+  let start = startOfDay(bounds.start);
+  let end = startOfDay(bounds.end);
+  const day = startOfDay(today);
+  if (options.includeToday) {
+    const before = daysBetween(day, start);
+    const after = daysBetween(end, day);
+    if (before > 0 && before <= TODAY_REACH_DAYS) {
+      start = new Date(day.getFullYear(), day.getMonth(), day.getDate() - TODAY_PADDING_DAYS);
+    }
+    if (after > 0 && after <= TODAY_REACH_DAYS) {
+      end = new Date(day.getFullYear(), day.getMonth(), day.getDate() + TODAY_PADDING_DAYS);
+    }
+  }
+  const minDays = Math.ceil((options.minWidth ?? 0) / dayWidth);
+  const missing = minDays - (daysBetween(start, end) + 1);
+  if (missing > 0) {
+    // Chia đôi phần thiếu: nửa trước, nửa sau, để mốc kế hoạch không dồn về một mép.
+    const head = Math.floor(missing / 2);
+    start = new Date(start.getFullYear(), start.getMonth(), start.getDate() - head);
+    end = new Date(end.getFullYear(), end.getMonth(), end.getDate() + (missing - head));
+  }
+  return { start, end };
+}
+
 /**
  * Tính toàn bộ hình học của biểu đồ.
  *
@@ -118,10 +166,11 @@ export function buildGanttLayout(
   dependencies: readonly WorkItemDependency[],
   zoom: GanttZoom,
   today: Date = new Date(),
+  options: GanttLayoutOptions = {},
 ): GanttLayout {
   const items = rows.map((row) => row.item);
-  const { start, end } = boundsOf(items);
   const dayWidth = DAY_WIDTH[zoom];
+  const { start, end } = widen(boundsOf(items, today), today, dayWidth, options);
   const totalDays = Math.max(daysBetween(start, end) + 1, 1);
   const width = totalDays * dayWidth;
 

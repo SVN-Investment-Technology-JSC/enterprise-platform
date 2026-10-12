@@ -1,7 +1,7 @@
 'use client';
 
 import type { ProjectSummary, WorkItem } from '@enterprise-platform/contracts-workspace';
-import { MessageSquare, Pencil, Plus } from 'lucide-react';
+import { MessageSquare, MoreHorizontal, Pencil, Plus } from 'lucide-react';
 import type { ProcedureOption } from '../procedure-api';
 import { branchOf } from '../project-tree.model';
 import {
@@ -11,15 +11,16 @@ import {
   PROJECT_STATUS_LABELS,
   PROJECT_STATUS_TONE,
   ROLE_LABELS,
-  WORK_ITEM_STATUS_LABELS,
-  WORK_ITEM_STATUS_TONE,
   formatDate,
   isOverdue,
+  workItemStatusLabel,
+  workItemStatusTone,
 } from '../workspace-labels';
 import styles from '../workspace.module.scss';
 import { ProcedureActions, type ProcedureLink } from './procedure-actions';
 import type { SelectedNode } from './project-tree';
 import { useDirectory } from './use-directory';
+import { tagColor, useTags } from './use-tags';
 
 export interface NodeHeaderProps {
   readonly project: ProjectSummary;
@@ -34,6 +35,11 @@ export interface NodeHeaderProps {
   /** Số tin chưa đọc của node đang đứng, đã cộng dồn nhánh con. */
   readonly unread: number;
   readonly onOpenChat: () => void;
+  /**
+   * Nút "⋯" cạnh Trao đổi: mở menu đủ lệnh của node, cùng menu với chuột phải
+   * trên cây. Dòng dự án nằm ở thanh bên nên đây là chỗ mở menu của dự án.
+   */
+  readonly onMore?: (anchor: { x: number; y: number }) => void;
   readonly startableProcedures: readonly ProcedureOption[];
   readonly procedureLink?: ProcedureLink;
   /** Vắng khi đang đứng ở dự án: chỉ công việc mới gắn được hồ sơ quy trình. */
@@ -58,11 +64,15 @@ export function NodeHeader({
   onAddChild,
   unread,
   onOpenChat,
+  onMore,
   startableProcedures,
   procedureLink,
   onStartProcedure,
 }: NodeHeaderProps) {
   const directory = useDirectory();
+  const tags = useTags();
+  const participants = selected?.participantUserIds ?? [];
+  const selectedTags = (selected?.tagIds ?? []).flatMap((tagId) => tags.find(tagId) ?? []);
 
   // Số liệu tính trên NHÁNH, không phải trên con trực tiếp, và đếm việc LÁ —
   // cùng cơ sở với phần trăm tiến độ có trọng số theo giờ.
@@ -77,10 +87,10 @@ export function NodeHeader({
   const percent = selected?.progressPercent ?? project.progressPercent;
 
   const statusTone = selected
-    ? WORK_ITEM_STATUS_TONE[selected.status]
+    ? workItemStatusTone(selected)
     : PROJECT_STATUS_TONE[project.status];
   const statusLabel = selected
-    ? WORK_ITEM_STATUS_LABELS[selected.status]
+    ? workItemStatusLabel(selected)
     : PROJECT_STATUS_LABELS[project.status];
   const start = selected ? selected.plannedStart : project.startDate;
   const end = selected ? selected.plannedEnd : project.endDate;
@@ -141,6 +151,20 @@ export function NodeHeader({
             <MessageSquare size={14} /> Trao đổi
             {unread > 0 ? <span className={styles.countBadge}>{unread}</span> : null}
           </button>
+          {onMore ? (
+            <button
+              type="button"
+              className={styles.buttonGhost}
+              aria-label="Thêm thao tác"
+              title="Thêm thao tác"
+              onClick={(event) => {
+                const box = event.currentTarget.getBoundingClientRect();
+                onMore({ x: box.left, y: box.bottom + 4 });
+              }}
+            >
+              <MoreHorizontal size={14} />
+            </button>
+          ) : null}
           <button type="button" className={styles.buttonGhost} disabled={!canEdit} onClick={onEdit}>
             <Pencil size={14} /> Chỉnh sửa
           </button>
@@ -155,6 +179,73 @@ export function NodeHeader({
         </div>
       </div>
 
+      {selected?.reversal ? (
+        <div
+          role="note"
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 3,
+            margin: '6px 0',
+            padding: '8px 10px',
+            border: '1px solid #fed7aa',
+            borderRadius: 8,
+            background: '#fff7ed',
+            color: '#7c2d12',
+            fontSize: 12.5,
+            lineHeight: 1.5,
+          }}
+        >
+          <strong style={{ color: '#9a3412' }}>Đã huỷ hiệu lực</strong>
+          <span style={{ fontSize: 11.5, color: '#9a3412', opacity: 0.85 }}>
+            {selected.reversal.reversedByName ?? 'Quản trị viên'} ·{' '}
+            {new Date(selected.reversal.reversedAt).toLocaleString('vi-VN')}
+          </span>
+          <span>
+            <b>Lý do:</b> {selected.reversal.reason}
+          </span>
+          {(() => {
+            const adjustment = items.find(
+              (item) => item.adjustmentOfId === selected.id && item.status !== 'cancelled',
+            );
+            if (adjustment)
+              return (
+                <span>
+                  <b>Công việc điều chỉnh:</b>{' '}
+                  <button
+                    type="button"
+                    className={styles.crumbLink}
+                    onClick={() => onSelect({ kind: 'work-item', id: adjustment.id })}
+                  >
+                    {adjustment.code}
+                  </button>
+                </span>
+              );
+            return selected.reversal.adjustmentRequested ? (
+              <span>
+                <b>Điều chỉnh:</b> đang chờ lập công việc điều chỉnh.
+              </span>
+            ) : null;
+          })()}
+        </div>
+      ) : null}
+      {selected?.adjustmentOfId ? (
+        <p style={{ margin: '6px 0', fontSize: 12.5, color: 'var(--muted, #64748b)' }}>
+          Công việc điều chỉnh cho{' '}
+          {(() => {
+            const original = items.find((item) => item.id === selected.adjustmentOfId);
+            return original ? (
+              <button type="button" className={styles.crumbLink} onClick={() => onSelect({ kind: 'work-item', id: original.id })}>
+                {original.code}
+              </button>
+            ) : (
+              'một công việc'
+            );
+          })()}{' '}
+          đã huỷ hiệu lực.
+        </p>
+      ) : null}
+
       <div className={styles.nodeMeta}>
         <span>
           {selected ? 'Phụ trách' : 'Vai trò của tôi'}{' '}
@@ -168,9 +259,24 @@ export function NodeHeader({
                 : 'Quản trị viên tenant'}
           </b>
         </span>
+        {participants.length > 0 ? (
+          <span>
+            Cùng thực hiện{' '}
+            <b>{participants.map((userId) => directory.nameOf(userId)).join(', ')}</b>
+          </span>
+        ) : null}
         <span>
           Kế hoạch <b>{dateRange(start, end)}</b>
         </span>
+        {selectedTags.length > 0 ? (
+          <span className={styles.wbsTags}>
+            {selectedTags.map((tag) => (
+              <span key={tag.id} className={styles.wbsTag} style={{ color: tagColor(tag) }}>
+                {tag.name}
+              </span>
+            ))}
+          </span>
+        ) : null}
         <span>
           {leaves.length > 0 ? (
             <>
@@ -184,12 +290,17 @@ export function NodeHeader({
           )}
           {overdue > 0 ? <span className={styles.textDanger}> · {overdue} quá hạn</span> : null}
         </span>
-        <span className={styles.nodeProgress}>
-          <span className={styles.progressTrack} aria-label={`Tiến độ ${percent}%`}>
-            <span className={styles.progressFill} style={{ width: `${percent}%` }} />
+        {selected?.reversal ? (
+          // Việc huỷ hiệu lực không còn tính tiến độ; hiện 100% sẽ gây hiểu nhầm.
+          <span className={styles.muted}>Không tính vào tiến độ</span>
+        ) : (
+          <span className={styles.nodeProgress}>
+            <span className={styles.progressTrack} aria-label={`Tiến độ ${percent}%`}>
+              <span className={styles.progressFill} style={{ width: `${percent}%` }} />
+            </span>
+            <b>{percent}%</b>
           </span>
-          <b>{percent}%</b>
-        </span>
+        )}
       </div>
 
       {selected && onStartProcedure ? (

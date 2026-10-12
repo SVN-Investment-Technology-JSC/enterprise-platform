@@ -152,6 +152,8 @@ export interface Project {
   readonly ownerUserId: string;
   readonly orgUnitId?: string;
   readonly customerRef?: string;
+  /** Loại dự án, chữ tự do (Dịch vụ thí nghiệm, Bảo trì…); dùng để lọc và nhóm. */
+  readonly projectType?: string;
   readonly startDate?: string;
   readonly endDate?: string;
   /** Giá trị dẫn xuất từ các công việc lá; không nhận giá trị nhập tay. */
@@ -193,6 +195,7 @@ export interface CreateProjectRequest {
   readonly description?: string;
   readonly orgUnitId?: string;
   readonly customerRef?: string;
+  readonly projectType?: string;
   readonly startDate?: string;
   readonly endDate?: string;
 }
@@ -205,8 +208,16 @@ export interface UpdateProjectRequest {
   readonly ownerUserId?: string;
   readonly orgUnitId?: string;
   readonly customerRef?: string;
+  /** `null` gỡ loại khỏi dự án. */
+  readonly projectType?: string | null;
   readonly startDate?: string | null;
   readonly endDate?: string | null;
+}
+
+/** Một loại dự án đang dùng, kèm số dự án người gọi thấy được thuộc loại đó. */
+export interface ProjectTypeOption {
+  readonly name: string;
+  readonly count: number;
 }
 
 export interface SetProjectMembersRequest {
@@ -228,7 +239,15 @@ export interface WorkItem {
   readonly executionType: WorkItemExecutionType;
   readonly status: WorkItemStatus;
   readonly priority: WorkItemPriority;
+  /** Người phụ trách chính: chịu trách nhiệm và nhận thông báo giao việc. */
   readonly assigneeUserId?: string;
+  /**
+   * Người cùng thực hiện, ngoài người phụ trách. Có mặt khi đọc cây hay chi
+   * tiết công việc; các phản hồi ghi khác có thể vắng.
+   */
+  readonly participantUserIds?: readonly string[];
+  /** Nhãn gắn vào công việc (id của `Tag`), cùng quy ước có mặt như trên. */
+  readonly tagIds?: readonly string[];
   readonly plannedStart?: string;
   readonly plannedEnd?: string;
   readonly actualStart?: string;
@@ -240,6 +259,31 @@ export interface WorkItem {
   readonly createdBy: string;
   readonly createdAt: string;
   readonly updatedAt: string;
+  /**
+   * Có khi công việc bị huỷ hiệu lực. Khi đó `status = 'cancelled'` và công
+   * việc không mở lại được; cần điều chỉnh thì lập công việc mới.
+   */
+  readonly reversal?: WorkItemReversal;
+  /** Công việc này là công việc điều chỉnh của một công việc đã huỷ hiệu lực. */
+  readonly adjustmentOfId?: string;
+}
+
+export interface WorkItemReversal {
+  readonly reversedAt: string;
+  readonly reversedBy?: string;
+  readonly reversedByName?: string;
+  readonly reason: string;
+  readonly adjustmentRequested: boolean;
+}
+
+/** Huỷ hiệu lực công việc đã hoàn thành (chủ nhiệm dự án hoặc quản trị). */
+export interface ReverseWorkItemRequest {
+  readonly reason: string;
+  /**
+   * Lập công việc điều chỉnh. Công việc theo quy trình: người giữ vai S nhận
+   * thông báo lập hồ sơ mới; công việc thủ công: mở form tạo việc điền sẵn.
+   */
+  readonly createAdjustment: boolean;
 }
 
 /**
@@ -250,6 +294,28 @@ export interface WorkItem {
  */
 export interface WorkItemTree {
   readonly items: readonly WorkItem[];
+  /** Yêu cầu mở hồ sơ của các công việc "Theo quy trình", để cây hiện đang chờ / bị từ chối. */
+  readonly procedureRequests?: readonly WorkItemProcedureRequest[];
+}
+
+/**
+ * Yêu cầu Quy trình mở hồ sơ cho một công việc "Theo quy trình".
+ *
+ * Workspace không gọi sang Quy trình: nó ghi yêu cầu này và phát sự kiện, Quy
+ * trình tự kiểm quyền rồi mở hồ sơ và báo lại kết quả.
+ */
+export interface WorkItemProcedureRequest {
+  readonly workItemId: string;
+  readonly definitionId: string;
+  readonly status: 'pending' | 'started' | 'rejected';
+  readonly instanceId?: string;
+  readonly error?: string;
+  readonly updatedAt: string;
+}
+
+/** Gửi lại yêu cầu mở hồ sơ (Thử lại), có thể với quy trình khác. */
+export interface RequestWorkItemProcedureRequest {
+  readonly definitionId: string;
 }
 
 export interface CreateWorkItemRequest {
@@ -261,9 +327,18 @@ export interface CreateWorkItemRequest {
   readonly executionType?: WorkItemExecutionType;
   readonly priority?: WorkItemPriority;
   readonly assigneeUserId?: string;
+  readonly participantUserIds?: readonly string[];
+  readonly tagIds?: readonly string[];
   readonly plannedStart?: string;
   readonly plannedEnd?: string;
   readonly estimateHours?: number;
+  /**
+   * Quy trình sẽ mở cho công việc "Theo quy trình". Workspace chỉ ghi yêu cầu
+   * và phát sự kiện; hồ sơ do Quy trình tự mở rồi báo về.
+   */
+  readonly procedureDefinitionId?: string;
+  /** Công việc điều chỉnh cho một công việc đã huỷ hiệu lực (cùng dự án). */
+  readonly adjustmentOfId?: string;
 }
 
 export interface UpdateWorkItemRequest {
@@ -271,6 +346,10 @@ export interface UpdateWorkItemRequest {
   readonly description?: string;
   readonly priority?: WorkItemPriority;
   readonly assigneeUserId?: string | null;
+  /** Thay toàn bộ danh sách người cùng thực hiện; `[]` gỡ hết. */
+  readonly participantUserIds?: readonly string[];
+  /** Thay toàn bộ nhãn của công việc; `[]` gỡ hết. */
+  readonly tagIds?: readonly string[];
   readonly plannedStart?: string | null;
   readonly plannedEnd?: string | null;
   readonly estimateHours?: number | null;
@@ -286,6 +365,65 @@ export interface ChangeWorkItemStatusRequest {
 export interface MoveWorkItemRequest {
   readonly parentId?: string | null;
   readonly sortOrder?: number;
+}
+
+/* =========================================================================
+   NHÃN VÀ MẪU LỌC
+   ========================================================================= */
+
+/** Nhãn dùng chung trong tenant, gắn được vào công việc. */
+export interface Tag {
+  readonly id: string;
+  readonly name: string;
+  /** Màu nền dạng `#rrggbb`; vắng thì giao diện tự chọn theo tên. */
+  readonly color?: string;
+  readonly isActive: boolean;
+}
+
+export interface CreateTagRequest {
+  readonly name: string;
+  readonly color?: string;
+}
+
+export interface UpdateTagRequest {
+  readonly name?: string;
+  readonly color?: string | null;
+  readonly isActive?: boolean;
+}
+
+export const SAVED_FILTER_VIEWS = [
+  'projects',
+  'work_items',
+  'documents',
+  'calendar',
+  'reports',
+  /** Tab "Đơn từ" của dự án. */
+  'project_requests',
+] as const;
+export type SavedFilterView = (typeof SAVED_FILTER_VIEWS)[number];
+
+/**
+ * Bộ lọc đã lưu ("Mẫu lọc"). `filter` là dữ liệu của chính màn hình dùng nó;
+ * server chỉ lưu và trả lại, không diễn giải.
+ */
+export interface SavedFilter {
+  readonly id: string;
+  readonly viewKey: SavedFilterView;
+  readonly name: string;
+  readonly filter: Record<string, unknown>;
+  /** Chia sẻ cho mọi thành viên dự án (`projectId`), không chỉ người lưu. */
+  readonly isShared: boolean;
+  readonly projectId?: string;
+  readonly ownerUserId: string;
+  readonly createdAt: string;
+}
+
+export interface CreateSavedFilterRequest {
+  readonly viewKey: SavedFilterView;
+  readonly name: string;
+  readonly filter: Record<string, unknown>;
+  readonly isShared?: boolean;
+  readonly projectId?: string;
 }
 
 /* =========================================================================
@@ -631,6 +769,19 @@ export const ALLOWED_DOCUMENT_CONTENT_TYPES: readonly string[] = [
   'text/plain',
 ];
 
+/**
+ * Loại tệp xem trước được ngay trong trang: PDF bằng trình xem của trình
+ * duyệt, ảnh hiện thẳng, Word (.docx) dựng thành trang tại trình duyệt. Word
+ * đời cũ (.doc), Excel, PowerPoint thì vẫn phải tải xuống.
+ */
+export const PREVIEWABLE_DOCUMENT_CONTENT_TYPES: readonly string[] = [
+  'application/pdf',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+];
+
 export interface DocumentFolder {
   readonly id: string;
   /** Rỗng nghĩa là thư mục cấp đơn vị, không thuộc dự án nào. */
@@ -683,11 +834,46 @@ export interface WorkspaceDocument {
 export interface DocumentSummary extends WorkspaceDocument {
   readonly currentVersion?: DocumentVersion;
   readonly versionCount: number;
+  /**
+   * Các thư mục **tham chiếu** tới tài liệu, ngoài thư mục gốc `folderId`.
+   *
+   * Mở một thư mục thì hiện cả tài liệu gốc ở đó lẫn tài liệu có id thư mục
+   * đó trong danh sách này. Server cũ chưa có bảng tham chiếu thì vắng.
+   */
+  readonly refFolderIds?: readonly string[];
+  /**
+   * Công việc tài liệu đang gắn, để hiện cột "Gắn với" ngay trên danh sách mà
+   * không phải mở từng tài liệu. Chỉ gồm công việc thuộc dự án người xem tham
+   * gia. Server cũ chưa trả thì vắng.
+   */
+  readonly linkedWorkItems?: readonly DocumentLinkedWorkItem[];
+}
+
+export interface DocumentLinkedWorkItem {
+  readonly id: string;
+  readonly code: string;
+  readonly title: string;
+  readonly projectId: string;
 }
 
 export interface DocumentDetail extends WorkspaceDocument {
   readonly versions: readonly DocumentVersion[];
   readonly links: readonly DocumentLink[];
+  /** Thư mục tham chiếu, ngoài thư mục gốc. Server cũ thì vắng. */
+  readonly folderRefs?: readonly DocumentFolderRef[];
+}
+
+/** Tài liệu hiện thêm ở một thư mục khác thư mục gốc, không nhân bản tệp. */
+export interface DocumentFolderRef {
+  readonly id: string;
+  readonly documentId: string;
+  readonly folderId: string;
+  readonly createdBy: string;
+  readonly createdAt: string;
+}
+
+export interface AddFolderRefRequest {
+  readonly folderId: string;
 }
 
 export interface DocumentLink {
@@ -711,6 +897,17 @@ export interface CreateFolderRequest {
   readonly projectId?: string;
   readonly parentId?: string;
   readonly name: string;
+}
+
+/**
+ * Đổi tên hoặc chuyển chỗ một thư mục.
+ *
+ * `parentId: null` là đưa về gốc; vắng hẳn là giữ nguyên chỗ. Phạm vi dự án
+ * của thư mục không đổi khi chuyển.
+ */
+export interface UpdateFolderRequest {
+  readonly name?: string;
+  readonly parentId?: string | null;
 }
 
 /**
@@ -790,7 +987,11 @@ export interface DownloadTicket {
   readonly downloadUrl: string;
   readonly expiresInSeconds: number;
   readonly fileName: string;
+  readonly contentType: string;
 }
+
+/** `download` tải tệp về; `preview` mở ngay trong trình duyệt để xem trước. */
+export type DownloadMode = 'download' | 'preview';
 
 /* =========================================================================
    CÔNG VIỆC CỦA TÔI (P6)
@@ -1211,3 +1412,157 @@ export interface InternalProjectSummary {
 
 /** Trùng `launch_url` của module trong danh mục Platform (xem `apps/migrator`). */
 export const WORKSPACE_LAUNCH_URL = '/modules/workspace';
+
+/* =========================================================================
+   ĐƠN TỪ CỦA DỰ ÁN
+
+   Đơn do module khác gửi kèm dự án (hiện là đơn công tác của HRM). Workspace
+   nhận qua sự kiện, tự sinh mã DTxxx và chỉ đọc — không sửa đơn ở đây.
+   ========================================================================= */
+
+export const PROJECT_REQUEST_STATUSES = [
+  'PENDING',
+  'APPROVED',
+  'REJECTED',
+  'CANCELLED',
+  'REVERSED',
+] as const;
+export type ProjectRequestStatus = (typeof PROJECT_REQUEST_STATUSES)[number];
+
+export interface ProjectRequest {
+  readonly id: string;
+  readonly projectId: string;
+  /** DT001, DT002… theo từng dự án. */
+  readonly code: string;
+  readonly sourceModule: string;
+  readonly sourceKind: string;
+  readonly sourceId: string;
+  /** Loại đơn đã dịch sẵn bên nguồn, ví dụ "Đơn công tác". */
+  readonly requestTypeLabel: string;
+  readonly requesterUserId: string;
+  readonly requesterName?: string;
+  readonly fromDate?: string;
+  readonly toDate?: string;
+  readonly status: ProjectRequestStatus;
+  readonly procedureInstanceId?: string;
+  readonly procedureInstanceCode?: string;
+  /** Đường mở đơn ở module gốc. */
+  readonly launchUrl?: string;
+  readonly submittedAt: string;
+  readonly statusChangedAt?: string;
+  /**
+   * Đơn tự hiện ở dự án vì rơi vào thời gian một đơn công tác của dự án này
+   * (người gửi không chọn dự án). Mã DT của đơn công tác đó, nếu có.
+   */
+  readonly linkedViaKind?: string;
+  readonly linkedViaCode?: string;
+  /** Lý do module nguồn báo kèm trạng thái (hiện có khi huỷ hiệu lực). */
+  readonly statusNote?: string;
+  /** Yêu cầu huỷ hiệu lực đã gửi từ dự án, chờ module nguồn xử lý. */
+  readonly reversalRequest?: ProjectRequestReversalRequest;
+}
+
+export interface ProjectRequestReversalRequest {
+  readonly requestedAt: string;
+  readonly requestedBy?: string;
+  readonly requestedByName?: string;
+  readonly reason: string;
+  readonly adjustmentRequested: boolean;
+  /** Module nguồn từ chối huỷ sau khi đã kiểm trước (vd vừa chốt kỳ lương). */
+  readonly error?: string;
+}
+
+/** Huỷ hiệu lực đơn từ đã duyệt — chủ nhiệm dự án, người duyệt đơn hoặc quản trị. */
+export interface ReverseProjectRequestRequest {
+  readonly reason: string;
+  /** Người gửi đơn nhận thông báo kèm form đơn mới điền sẵn ở module nguồn. */
+  readonly createAdjustment: boolean;
+}
+
+/**
+ * Workspace → module nguồn: nhờ huỷ hiệu lực đơn. Có `instanceId` thì Quy
+ * trình huỷ hồ sơ (rồi tự lan sang HRM); không thì HRM huỷ trực tiếp.
+ */
+export const WORKSPACE_PROJECT_REQUEST_REVERSAL_REQUESTED =
+  'workspace.project_request.reversal_requested';
+
+export interface ProjectRequestReversalRequestedPayload {
+  readonly projectRequestId: string;
+  readonly code: string;
+  readonly projectId: string;
+  readonly sourceModule: string;
+  readonly requestKind: string;
+  readonly requestId: string;
+  readonly instanceId?: string;
+  readonly reason: string;
+  readonly createAdjustment: boolean;
+  readonly requestedBy: string;
+  readonly requestedByName?: string;
+}
+
+export interface ProjectRequestList {
+  readonly items: readonly ProjectRequest[];
+}
+
+/** Sự kiện Workspace phát lại cho module gửi đơn. */
+export const WORKSPACE_PROJECT_REQUEST_REGISTERED = 'workspace.project_request.registered';
+export const WORKSPACE_PROJECT_REQUEST_REJECTED = 'workspace.project_request.rejected';
+
+/** Payload `workspace.project_request.registered`. */
+export interface ProjectRequestRegisteredPayload {
+  readonly sourceKind: string;
+  readonly sourceId: string;
+  readonly projectRequestId: string;
+  readonly code: string;
+  readonly projectId: string;
+  readonly projectCode: string;
+  readonly projectName: string;
+}
+
+/** Payload `workspace.project_request.rejected`: dự án không nhận đơn này. */
+export interface ProjectRequestRejectedPayload {
+  readonly sourceKind: string;
+  readonly sourceId: string;
+  readonly projectId: string;
+  readonly reason: string;
+}
+
+/* =========================================================================
+   THỨ TỰ ƯU TIÊN TÍNH CÔNG
+
+   Ngày trùng nhiều đơn chỉ tính theo đơn có ưu tiên cao nhất. Ví dụ công tác
+   ngày 1–3, nghỉ phép ngày 2 → 1,5 / 0 / 1,5. Dùng chung toàn tenant.
+   ========================================================================= */
+
+/** Loại đơn có trong bảng ưu tiên, khớp `sourceKind` của đơn từ. */
+export const WORKDAY_RULE_KINDS = ['leave', 'business_trip'] as const;
+export type WorkdayRuleKind = (typeof WORKDAY_RULE_KINDS)[number];
+
+export interface WorkdayRule {
+  readonly kind: WorkdayRuleKind;
+  readonly label: string;
+  /** 1 là ưu tiên cao nhất. */
+  readonly rank: number;
+  /** Số công mỗi ngày đơn này thắng. */
+  readonly units: number;
+}
+
+export interface WorkdayRuleSet {
+  /** Theo thứ tự ưu tiên, cao nhất trước. */
+  readonly rules: readonly WorkdayRule[];
+  /** Công của ngày không có đơn nào. */
+  readonly normalUnits: number;
+  readonly updatedAt?: string;
+  /** Người đang xem được sửa (quản trị). */
+  readonly canEdit: boolean;
+}
+
+export interface UpdateWorkdayRulesRequest {
+  /** Thứ tự mới, cao nhất trước; phải đủ mọi loại trong `WORKDAY_RULE_KINDS`. */
+  readonly order: readonly WorkdayRuleKind[];
+  readonly units: Readonly<Record<WorkdayRuleKind, number>>;
+  readonly normalUnits: number;
+}
+
+/** Công mỗi ngày nằm trong [0, 10], tối đa hai chữ số thập phân. */
+export const MAX_WORKDAY_UNITS = 10;

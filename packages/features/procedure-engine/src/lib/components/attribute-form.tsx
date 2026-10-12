@@ -149,7 +149,7 @@ function FieldInput({
     case 'file': {
       const chosen = new Set(value?.type === 'file' ? value.value : []);
       if (!attachments.length) {
-        return <p className={styles.hint}>Chưa có tệp nào trong hồ sơ — đính kèm tệp trước rồi chọn ở đây.</p>;
+        return <p className={styles.hint}>Chưa có tệp nào trong hồ sơ.</p>;
       }
       return (
         <div className={styles.fileList}>
