@@ -1,4 +1,5 @@
 import { attachProcedureLinkInfo } from '../infrastructure/hrm-procedure-link-info.js';
+import { syncEmployeeProcedureResults } from '../infrastructure/hrm-procedure-sync.js';
 import { HrmApprovalPolicyService, approverPermissions } from '../infrastructure/hrm-approval-policy.js';
 import { workflowProgressFilter } from '../infrastructure/hrm-workflow-filter.js';
 import {
@@ -381,6 +382,8 @@ export class HrmAttendanceController {
   ) {
     const { pool, tenantId, principal, employeeId } =
       await this.ctx.getRequestContext(req, body.employeeId);
+    // Đơn đã hủy/từ chối trên quy trình không còn chiếm ngày: đồng bộ trước khi kiểm tra trùng.
+    await syncEmployeeProcedureResults(pool, tenantId, employeeId);
     const submission = await resolveDraftSubmission(
       pool,
       tenantId,
@@ -566,6 +569,7 @@ export class HrmAttendanceController {
       forApproval === '1' ? approverPermissions('correction') : [],
     );
     employeeId = visibleEmployeeId;
+    if (employeeId) await syncEmployeeProcedureResults(pool, tenantId, employeeId);
     const approvalScope =
       forApproval === '1'
         ? await this.approvals.listFilter(

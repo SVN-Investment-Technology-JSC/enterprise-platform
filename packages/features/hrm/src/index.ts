@@ -51,9 +51,8 @@ export * from './lib/hrm-personnel-decisions-api';
 export * from './lib/personnel-decision-rules';
 export { PersonnelDecisionDialog } from './lib/ui/personnel-decision-dialog';
 export {
-  EmployeeReportingDrawer,
   CurrentManagerLine,
-} from './lib/ui/employee-reporting-drawer';
+} from './lib/ui/current-manager-line';
 export { default as MyTimesheetScreen } from './lib/screens/my-timesheet-screen';
 export { default as AttendanceDataScreen } from './lib/screens/attendance-data-screen';
 export { default as LeaveBalancesScreen } from './lib/screens/leave-balances-screen';

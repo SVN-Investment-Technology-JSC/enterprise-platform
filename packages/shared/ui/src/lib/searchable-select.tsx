@@ -58,7 +58,7 @@ const VIEWPORT_GAP = 8;
 function dropdownPlacement(
   anchor: DOMRect,
   origin: { x: number; y: number },
-): { box: CSSProperties; listMaxHeight: number } {
+): { box: CSSProperties; listMaxHeight: number; origin: { x: number; y: number }; upward: boolean } {
   const width = Math.min(
     Math.max(anchor.width, DROPDOWN_MIN_WIDTH),
     window.innerWidth - VIEWPORT_GAP * 2,
@@ -82,7 +82,7 @@ function dropdownPlacement(
     transform: upward ? 'translateY(-100%)' : undefined,
     zIndex: 10000,
   };
-  return { box, listMaxHeight: Math.min(DROPDOWN_MAX_HEIGHT, room) };
+  return { box, listMaxHeight: Math.min(DROPDOWN_MAX_HEIGHT, room), origin, upward };
 }
 
 /** Giá trị CSS có hiệu lực: không rỗng (môi trường không hỗ trợ thuộc tính) và không phải `none`. */
@@ -106,8 +106,10 @@ function fixedOrigin(from: HTMLElement | null): { x: number; y: number } {
       isSet(cs.filter) ||
       isSet(cs.backdropFilter) ||
       /paint|layout|strict|content/.test(cs.contain) ||
-      /transform|translate|rotate|scale|perspective|filter/.test(cs.willChange) ||
-      isSet(cs.containerType, 'normal');
+      /transform|translate|rotate|scale|perspective|filter/.test(cs.willChange);
+    // `container-type` (Tailwind `@container`) không tạo khối chứa cho phần tử fixed trên trình duyệt hiện nay (chỉ
+    // chứa style và inline-size, không có layout containment). Coi nó là khối chứa làm danh sách bị đẩy lệch cả một
+    // đoạn bằng toạ độ của khung `@container`; trường hợp trình duyệt nào đó vẫn tính thì `useLayoutEffect` hiệu chỉnh.
     if (establishes) {
       const rect = el.getBoundingClientRect();
       return {
@@ -152,6 +154,7 @@ export function SearchableSelect({
   const listRef = useRef<HTMLUListElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [placement, setPlacement] = useState<ReturnType<typeof dropdownPlacement>>();
+  const correctionsRef = useRef(0);
   const id = useId();
 
   const selectedOption = options.find((opt) => opt.value === value);
@@ -213,28 +216,33 @@ export function SearchableSelect({
     return () => window.removeEventListener('keydown', handleEscapeCapture, true);
   }, [isOpen]);
 
-  // Tự động focus ô input khi mở dropdown
+  // Tự động focus ô input khi mở dropdown. Chỉ phụ thuộc isOpen: nếu phụ thuộc cả selectedOption thì mỗi lần
+  // danh sách tuỳ chọn được tạo lại khi đang mở (parent render lại), chữ đang gõ bị bôi đen và ký tự tiếp theo
+  // thay thế toàn bộ, nên ô tìm chỉ lọc theo đúng ký tự cuối.
   useEffect(() => {
     if (isOpen) {
       setActiveIndex(-1);
-      setTimeout(() => {
+      const timer = setTimeout(() => {
         inputRef.current?.focus();
         // Bôi đen nhãn đang chọn: gõ vào là thay thế để tìm, không nối thêm
         // vào sau nhãn cũ (trước đây "Tất cả (30)" + "hieu luc" không lọc ra gì).
         inputRef.current?.select();
       }, 50);
-    } else {
-      setQuery(selectedOption ? selectedOption.label : '');
+      return () => clearTimeout(timer);
     }
-  }, [isOpen, selectedOption]);
+    setQuery(selectedOptionLabelRef.current);
+    return undefined;
+  }, [isOpen]);
 
   // Đặt danh sách theo ô nhập, và đặt lại khi trang hay khung chứa cuộn,
   // hoặc cửa sổ đổi cỡ, để nó luôn bám đúng ô.
   useLayoutEffect(() => {
     if (!isOpen) return;
+    correctionsRef.current = 0;
     const place = () => {
       const container = containerRef.current;
       if (container) {
+        correctionsRef.current = 0;
         setPlacement(dropdownPlacement(container.getBoundingClientRect(), fixedOrigin(container)));
       }
     };
@@ -246,6 +254,31 @@ export function SearchableSelect({
       window.removeEventListener('resize', place);
     };
   }, [isOpen]);
+
+  // Hiệu chỉnh gốc toạ độ: đo vị trí thật của danh sách và so với chỗ cần đặt (mép dưới ô). Nếu khung bao nào đó
+  // làm `fixed` tính theo gốc khác với suy luận ở `fixedOrigin`, độ lệch được cộng vào gốc rồi đặt lại.
+  useLayoutEffect(() => {
+    if (!isOpen || !placement) return;
+    const box = dropdownRef.current;
+    const container = containerRef.current;
+    if (!box || !container) return;
+    const wanted = dropdownPlacement(container.getBoundingClientRect(), { x: 0, y: 0 }).box;
+    const actual = box.getBoundingClientRect();
+    // Chưa có kích thước thật (chưa bố cục, hoặc môi trường không đo được): không hiệu chỉnh.
+    if (actual.width === 0 && actual.height === 0) return;
+    const dx = actual.left - (wanted.left as number);
+    const dy = (placement.upward ? actual.bottom : actual.top) - (wanted.top as number);
+    // Tối đa vài lần mỗi lần mở để không lặp vô hạn nếu có khung bao làm vị trí không hội tụ.
+    if ((Math.abs(dx) > 1 || Math.abs(dy) > 1) && correctionsRef.current < 3) {
+      correctionsRef.current += 1;
+      setPlacement(
+        dropdownPlacement(container.getBoundingClientRect(), {
+          x: placement.origin.x + dx,
+          y: placement.origin.y + dy,
+        }),
+      );
+    }
+  }, [isOpen, placement]);
 
   // Cuộn đến phần tử đang active bằng phím mũi tên
   useEffect(() => {
@@ -348,6 +381,7 @@ export function SearchableSelect({
           type="text"
           className={`${styles.input} ${disabled ? styles.inputDisabled : ''}`}
           placeholder={isOpen ? (searchPlaceholder ?? placeholder) : placeholder}
+          title={!isOpen && query ? query : undefined}
           value={query}
           disabled={disabled}
           onClick={() => {

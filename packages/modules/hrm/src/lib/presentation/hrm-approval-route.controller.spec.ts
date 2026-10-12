@@ -10,11 +10,14 @@ import { HrmApprovalRouteController } from './hrm-approval-route.controller';
 import { saveHrmProcedureBinding } from '../infrastructure/hrm-procedure-links.js';
 import { fetchPublishedProcedureDefinition } from '../infrastructure/hrm-procedure-api.js';
 import { procedureDefinitions } from '../infrastructure/hrm-work-references.js';
+import { loadDirectManagerRef } from '../infrastructure/hrm-personnel-decisions.js';
 
 jest.mock('../infrastructure/hrm-context.service.js', () => ({ HrmContextService: class {} }));
 jest.mock('@enterprise-platform/platform-identity', () => ({ PlatformIdentityService: class {} }));
 jest.mock('jose', () => ({ createRemoteJWKSet: jest.fn(), jwtVerify: jest.fn() }));
 jest.mock('../infrastructure/hrm-work-references.js', () => ({ procedureDefinitions: jest.fn() }));
+// Quản lý trực tiếp (Core, không có thì Tổng giám đốc) có test riêng; ở đây chỉ cần kết quả đã phân giải.
+jest.mock('../infrastructure/hrm-personnel-decisions.js', () => ({ loadDirectManagerRef: jest.fn() }));
 jest.mock('../infrastructure/hrm-procedure-api.js', () => ({
   ...jest.requireActual('../infrastructure/hrm-procedure-api.js'),
   fetchPublishedProcedureDefinition: jest.fn(),
@@ -61,6 +64,18 @@ const binding = (
 
 function build(data: Data = {}, permissions: string[] = ['hrm.automation.manage']) {
   const calls: Call[] = [];
+  const m = data.manager;
+  (loadDirectManagerRef as jest.Mock).mockReset().mockImplementation(async () =>
+    m
+      ? {
+          employeeId: m['manager_employee_id'],
+          name: m['full_name'],
+          title: m['position_name'] ?? null,
+          email: m['work_email'] ?? null,
+          code: null,
+        }
+      : null,
+  );
   const bindings = data.bindings ?? [];
   const leaveTypes = data.leaveTypes ?? [];
   const reasons = data.reasons ?? [];
@@ -70,8 +85,6 @@ function build(data: Data = {}, permissions: string[] = ['hrm.automation.manage'
     if (sql.includes('to_regclass')) return { rows: [{ ready: true }], rowCount: 1 };
     if (sql.includes('allow_self_approval'))
       return { rows: [{ allow_self_approval: data.allowSelf === true }], rowCount: 1 };
-    if (sql.includes('FROM hrm_schema.employee_reporting_lines'))
-      return { rows: data.manager ? [data.manager] : [], rowCount: data.manager ? 1 : 0 };
     if (sql.includes('FROM hrm_schema.request_procedure_bindings')) {
       if (sql.includes('sub_type_code IS NULL AND is_active LIMIT 1'))
         return { rows: data.defaultBindingExists === false ? [] : [{ '?column?': 1 }], rowCount: 1 };
@@ -431,7 +444,7 @@ describe('GET /approval-route (xem trước người duyệt)', () => {
   const managerRow = { manager_employee_id: MANAGER, full_name: 'Trần Quản Lý', work_email: 'q@x.vn', position_name: 'Trưởng phòng' };
 
   it('DIRECT có quản lý trực tiếp: trả tên và chức danh, chặn tự duyệt mặc định', async () => {
-    const { controller, ctx, calls } = build({ manager: managerRow }, ['hrm.self.read']);
+    const { controller, ctx } = build({ manager: managerRow }, ['hrm.self.read']);
     const { data } = await controller.getRoute(req, 'leave');
     expect(ctx.getRequestContext).toHaveBeenCalledWith(req, undefined, 'hrm.request.read', 'hrm.self.read');
     expect(data).toEqual({
@@ -439,7 +452,7 @@ describe('GET /approval-route (xem trước người duyệt)', () => {
       directManager: { employeeId: MANAGER, fullName: 'Trần Quản Lý', positionName: 'Trưởng phòng' },
       selfApprovalBlocked: true,
     });
-    expect(calls.find((c) => c.sql.includes('employee_reporting_lines'))?.params).toEqual([TENANT, OWN]);
+    expect(loadDirectManagerRef).toHaveBeenCalledWith(expect.anything(), TENANT, OWN);
   });
 
   it('DIRECT chưa có quản lý trực tiếp: directManager null kèm ghi chú', async () => {
@@ -456,11 +469,11 @@ describe('GET /approval-route (xem trước người duyệt)', () => {
   });
 
   it('PROCEDURE: trả tên quy trình đã gắn và không tra quản lý', async () => {
-    const { controller, calls } = build({ bindings: [binding('b1', 'advance', null, 'PROCEDURE', PROC_B)] }, ['hrm.self.read']);
+    const { controller } = build({ bindings: [binding('b1', 'advance', null, 'PROCEDURE', PROC_B)] }, ['hrm.self.read']);
     const { data } = await controller.getRoute(req, 'advance');
     expect(data).toMatchObject({ mode: 'PROCEDURE', procedureName: 'Quy trình chung' });
     expect(data.directManager).toBeUndefined();
-    expect(calls.some((c) => c.sql.includes('employee_reporting_lines'))).toBe(false);
+    expect(loadDirectManagerRef).not.toHaveBeenCalled();
   });
 
   it('đơn nghỉ: chọn cấu hình theo lý do (leave_types.id -> mã) trước, rồi mới tới cấu hình chung', async () => {
@@ -513,7 +526,7 @@ describe('GET /approval-route (xem trước người duyệt)', () => {
     const viewed = await reader.controller.getRoute(req, 'leave', OTHER);
     expect(reader.ctx.getRequestContext).not.toHaveBeenCalled();
     expect(viewed.data.directManager?.employeeId).toBe(MANAGER);
-    expect(reader.calls.find((c) => c.sql.includes('employee_reporting_lines'))?.params).toEqual([TENANT, OTHER]);
+    expect(loadDirectManagerRef).toHaveBeenCalledWith(expect.anything(), TENANT, OTHER);
 
     // hrm.request.manage (tạo đơn hộ) cũng được xem
     const manager = build({ manager: managerRow }, ['hrm.request.manage']);

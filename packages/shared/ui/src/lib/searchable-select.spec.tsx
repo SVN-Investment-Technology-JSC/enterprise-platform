@@ -66,3 +66,62 @@ describe('SearchableSelect trong hộp thoại có thuộc tính translate', () 
     expect(dropdown.style.top).toBe('130px');
   });
 });
+
+describe('SearchableSelect trong khung @container (container-type)', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  const rect = (r: Partial<DOMRect>) =>
+    ({ x: 0, y: 0, width: 0, height: 0, top: 0, left: 0, right: 0, bottom: 0, toJSON: () => ({}), ...r }) as DOMRect;
+  // Trình duyệt thật: `fixed` tính theo cửa sổ, nên vị trí thật của danh sách chính là left/top đã đặt.
+  function mockBrowser(containerStyle: Record<string, string>) {
+    jest.replaceProperty(window, 'innerWidth', 1920);
+    jest.replaceProperty(window, 'innerHeight', 900);
+    const realComputed = window.getComputedStyle.bind(window);
+    jest.spyOn(window, 'getComputedStyle').mockImplementation((el: Element, pseudo?: string | null) => {
+      const style = realComputed(el, pseudo);
+      if (!(el as HTMLElement).dataset?.cq) return style;
+      return new Proxy(style, {
+        get(target, prop) {
+          if (typeof prop === 'string' && prop in containerStyle) return containerStyle[prop];
+          const value = Reflect.get(target, prop);
+          return typeof value === 'function' ? value.bind(target) : value;
+        },
+      });
+    });
+    jest.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      // Khung @container nằm lệch cửa sổ: trái 548, đã cuộn lên 580px.
+      if (this.dataset?.cq) return rect({ left: 548, top: -580, width: 1300, height: 2000 });
+      if (this.className.includes('container')) return rect({ left: 698, top: 320, width: 504, height: 36, bottom: 356, right: 1202 });
+      if (this.className.includes('dropdown'))
+        return rect({ left: parseFloat(this.style.left), top: parseFloat(this.style.top), width: 504, height: 120 });
+      return rect({});
+    });
+  }
+
+  it('không trừ gốc của khung @container: danh sách nằm ngay dưới ô', () => {
+    mockBrowser({ containerType: 'inline-size' });
+    render(
+      <div data-cq="true">
+        <SearchableSelect options={options} value="a" />
+      </div>,
+    );
+    fireEvent.click(screen.getByRole('textbox'));
+    const dropdown = screen.getByRole('listbox').parentElement as HTMLElement;
+    expect(dropdown.style.left).toBe('698px');
+    expect(dropdown.style.top).toBe('360px');
+  });
+
+  it('tự hiệu chỉnh khi khung bao bị suy luận sai khối chứa của phần tử fixed', () => {
+    // Khung báo transform (suy luận gốc 548,-580) nhưng trình duyệt vẫn tính fixed theo cửa sổ.
+    mockBrowser({ transform: 'matrix(1, 0, 0, 1, 0, 0)' });
+    render(
+      <div data-cq="true">
+        <SearchableSelect options={options} value="a" />
+      </div>,
+    );
+    fireEvent.click(screen.getByRole('textbox'));
+    const dropdown = screen.getByRole('listbox').parentElement as HTMLElement;
+    expect(dropdown.style.left).toBe('698px');
+    expect(dropdown.style.top).toBe('360px');
+  });
+});

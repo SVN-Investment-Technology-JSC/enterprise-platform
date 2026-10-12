@@ -1,12 +1,11 @@
 import type {
   CreateHrmPersonnelDecisionPayload,
-  HrmManagerMode,
   HrmPersonnelDecision,
   HrmPersonnelDecisionStatus,
   HrmPersonnelDecisionType,
-  HrmSubordinateMode,
 } from '@enterprise-platform/contracts-hrm';
 
+/** Nhãn đủ mọi loại, kể cả `CHANGE_MANAGER` của dữ liệu cũ (không còn chọn được khi tạo mới). */
 export const DECISION_TYPE_LABELS: Record<HrmPersonnelDecisionType, string> = {
   APPOINT: 'Bổ nhiệm',
   PROMOTE: 'Thăng chức',
@@ -40,16 +39,28 @@ export const DECISION_STATUS_TONES: Record<
   CANCELLED: 'bg-slate-100 text-slate-500 border-slate-200',
 };
 
-export const APPLY_STEP_LABELS: Record<string, string> = {
-  core: 'Chức danh (Core)',
-  manager: 'Quản lý trực tiếp',
-  subordinates: 'Cấp dưới',
-  salary: 'Lương',
-};
+/**
+ * Các bước áp dụng của một quyết định. Quyết định không còn gán quản lý hay chuyển cấp dưới; hai bước đó chỉ hiện
+ * với quyết định cũ còn mang chúng.
+ */
+export function applyStepLabels(
+  d: Pick<HrmPersonnelDecision, 'managerMode' | 'subordinateMode'>,
+): [string, string][] {
+  const steps: [string, string][] = [['core', 'Chức danh (Core)']];
+  if (d.managerMode !== 'KEEP') steps.push(['manager', 'Quản lý trực tiếp (cũ)']);
+  if (d.subordinateMode === 'REASSIGN') steps.push(['subordinates', 'Cấp dưới (cũ)']);
+  steps.push(['salary', 'Lương']);
+  return steps;
+}
 
-export const DECISION_TYPES = Object.keys(
-  DECISION_TYPE_LABELS,
-) as HrmPersonnelDecisionType[];
+/** Loại quyết định chọn được khi tạo mới. */
+export const DECISION_TYPES: HrmPersonnelDecisionType[] = [
+  'APPOINT',
+  'PROMOTE',
+  'TRANSFER',
+  'CONCURRENT',
+  'DISMISS',
+];
 export const DECISION_STATUSES = Object.keys(
   DECISION_STATUS_LABELS,
 ) as HrmPersonnelDecisionStatus[];
@@ -60,14 +71,6 @@ const POSITION_TYPES: readonly HrmPersonnelDecisionType[] = [
   'TRANSFER',
   'CONCURRENT',
 ];
-const IMPACT_TYPES: readonly HrmPersonnelDecisionType[] = [
-  'TRANSFER',
-  'PROMOTE',
-  'APPOINT',
-  'DISMISS',
-  'CHANGE_MANAGER',
-];
-
 /** Loại quyết định có đổi chức danh (cần chức danh mới và tài khoản liên kết). */
 export function isPositionChanging(type: HrmPersonnelDecisionType): boolean {
   return POSITION_TYPES.includes(type);
@@ -77,30 +80,12 @@ export function showsTargetPosition(type: HrmPersonnelDecisionType): boolean {
   return isPositionChanging(type);
 }
 
-/** Bảng tác động chỉ hiện khi nhân viên đang là quản lý của ai đó. */
-export function showsImpactTable(
-  type: HrmPersonnelDecisionType,
-  subordinateCount: number,
-): boolean {
-  return IMPACT_TYPES.includes(type) && subordinateCount > 0;
-}
-
-export function defaultManagerMode(
-  type: HrmPersonnelDecisionType,
-): HrmManagerMode {
-  return type === 'CHANGE_MANAGER' ? 'SET' : 'KEEP';
-}
-
 export interface DecisionFormState {
   decisionType: HrmPersonnelDecisionType;
   employeeId: string;
   effectiveDate: string;
   reason: string;
   toPositionNodeId: string;
-  managerMode: HrmManagerMode;
-  toManagerEmployeeId: string;
-  subordinateMode: HrmSubordinateMode;
-  subordinateTargetEmployeeId: string;
   salaryChanged: boolean;
   toSalaryGradeId: string;
   toSalaryStepId: string;
@@ -115,10 +100,6 @@ export function emptyDecisionForm(employeeId = ''): DecisionFormState {
     effectiveDate: '',
     reason: '',
     toPositionNodeId: '',
-    managerMode: 'KEEP',
-    toManagerEmployeeId: '',
-    subordinateMode: 'KEEP',
-    subordinateTargetEmployeeId: '',
     salaryChanged: false,
     toSalaryGradeId: '',
     toSalaryStepId: '',
@@ -134,10 +115,6 @@ export function decisionToForm(d: HrmPersonnelDecision): DecisionFormState {
     effectiveDate: d.effectiveDate.slice(0, 10),
     reason: d.reason,
     toPositionNodeId: d.toPositionNodeId ?? '',
-    managerMode: d.managerMode,
-    toManagerEmployeeId: d.toManagerEmployeeId ?? '',
-    subordinateMode: d.subordinateMode,
-    subordinateTargetEmployeeId: d.subordinateTargetEmployeeId ?? '',
     salaryChanged: d.salaryChanged,
     toSalaryGradeId: d.toSalaryGradeId ?? '',
     toSalaryStepId: d.toSalaryStepId ?? '',
@@ -148,7 +125,6 @@ export function decisionToForm(d: HrmPersonnelDecision): DecisionFormState {
 
 export interface DecisionValidationContext {
   hasAccount?: boolean;
-  subordinateCount?: number;
 }
 
 /** Trả về danh sách lỗi (rỗng nếu hợp lệ). */
@@ -168,23 +144,6 @@ export function validateDecisionForm(
       'Nhân viên chưa liên kết tài khoản, không thể bổ nhiệm vào chức danh ở Core.',
     );
   }
-  if (form.decisionType === 'CHANGE_MANAGER' && form.managerMode === 'KEEP') {
-    errors.push('Chọn gán hoặc bỏ quản lý trực tiếp.');
-  }
-  if (form.managerMode === 'SET') {
-    if (!form.toManagerEmployeeId) errors.push('Chọn quản lý trực tiếp mới.');
-    else if (form.toManagerEmployeeId === form.employeeId)
-      errors.push('Nhân viên không thể tự quản lý chính mình.');
-  }
-  if (
-    showsImpactTable(form.decisionType, ctx.subordinateCount ?? 0) &&
-    form.subordinateMode === 'REASSIGN'
-  ) {
-    if (!form.subordinateTargetEmployeeId)
-      errors.push('Chọn người nhận cấp dưới.');
-    else if (form.subordinateTargetEmployeeId === form.employeeId)
-      errors.push('Người nhận cấp dưới phải khác nhân viên đang xử lý.');
-  }
   if (form.salaryChanged) {
     if (!form.toSalaryGradeId) errors.push('Chọn ngạch lương.');
     if (!form.toSalaryStepId) errors.push('Chọn bậc lương.');
@@ -198,10 +157,7 @@ export function validateDecisionForm(
 
 export function buildDecisionPayload(
   form: DecisionFormState,
-  ctx: DecisionValidationContext = {},
 ): CreateHrmPersonnelDecisionPayload {
-  const impact = showsImpactTable(form.decisionType, ctx.subordinateCount ?? 0);
-  const reassign = impact && form.subordinateMode === 'REASSIGN';
   return {
     decisionType: form.decisionType,
     employeeId: form.employeeId,
@@ -209,13 +165,6 @@ export function buildDecisionPayload(
     reason: form.reason.trim(),
     toPositionNodeId: showsTargetPosition(form.decisionType)
       ? form.toPositionNodeId || null
-      : null,
-    managerMode: form.managerMode,
-    toManagerEmployeeId:
-      form.managerMode === 'SET' ? form.toManagerEmployeeId : null,
-    subordinateMode: reassign ? 'REASSIGN' : 'KEEP',
-    subordinateTargetEmployeeId: reassign
-      ? form.subordinateTargetEmployeeId
       : null,
     salaryChanged: form.salaryChanged,
     toSalaryGradeId: form.salaryChanged ? form.toSalaryGradeId : null,
