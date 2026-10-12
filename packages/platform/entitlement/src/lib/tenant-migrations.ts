@@ -405,6 +405,10 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       version: '0013-instance-reversal',
       path: 'tenant/procedure/0013-instance-reversal.sql',
     },
+    {
+      version: '0014-everyone-subject',
+      path: 'tenant/procedure/0014-everyone-subject.sql',
+    },
   ],
   maintenance: [
     {
