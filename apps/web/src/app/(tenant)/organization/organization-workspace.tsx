@@ -3,18 +3,15 @@ import { useOrganizationPermissions } from './organization-permissions';
 
 import {
   ArrowLeft,
-  Building2,
   GitBranch,
   Pencil,
   Plus,
   Save,
-  User,
   Users,
 } from 'lucide-react';
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import { toast } from '@/components/ui/sonner';
 import {
   markLayoutSaved,
@@ -79,6 +76,9 @@ const csrf = () =>
       .slice(1)
       .join('=') ?? '',
   );
+const field =
+  'h-9 w-full rounded-md border border-input bg-background px-3 text-sm';
+
 export function OrganizationWorkspace({
   initialSnapshot,
   loadError,
@@ -800,30 +800,39 @@ function Form({
       {editor.resource === 'nodes' ? (
         <>
           <Field label="Sơ đồ">
-            <SearchableSelect
-              clearable={false}
-              placeholder="Chọn sơ đồ"
-              value={String(data.treeId ?? '')}
-              onChange={(v) => set('treeId', v)}
-              options={trees.map((x) => ({ value: x.id, label: x.name }))}
-            />
+            <select
+              className={field}
+              value={String(data.treeId)}
+              onChange={(e) => set('treeId', e.currentTarget.value)}
+            >
+              {trees.map((x) => (
+                <option key={x.id} value={x.id}>
+                  {x.name}
+                </option>
+              ))}
+            </select>
           </Field>
           <Field label="Node cha">
-            <SearchableSelect
-              clearable={!hasExistingRoot}
-              placeholder={
-                hasExistingRoot
-                  ? 'Đã có node gốc — chọn node cha'
-                  : 'Node gốc'
-              }
-              value={String(data.parentId ?? '')}
-              onChange={(v) => set('parentId', v)}
-              options={nodes
+            <select
+              className={field}
+              value={String(data.parentId)}
+              onChange={(e) => set('parentId', e.currentTarget.value)}
+            >
+              <option value="" disabled={hasExistingRoot}>
+                {hasExistingRoot
+                  ? '— Đã có node gốc (Mỗi sơ đồ chỉ có 1 node gốc) —'
+                  : 'Node gốc'}
+              </option>
+              {nodes
                 .filter(
                   (x) => x.id !== editor.item?.id && x.treeId === data.treeId,
                 )
-                .map((x) => ({ value: x.id, label: x.name }))}
-            />
+                .map((x) => (
+                  <option key={x.id} value={x.id}>
+                    {x.name}
+                  </option>
+                ))}
+            </select>
             {hasExistingRoot ? (
               <p className="mt-1 text-[11px] text-amber-600">
                 Sơ đồ này đã có node gốc. Mỗi sơ đồ chỉ được phép tạo 1 node gốc duy nhất.
@@ -852,7 +861,7 @@ function Form({
                 >
                   {data.category === 'unit' && <span className="h-1.5 w-1.5 rounded-full bg-white" />}
                 </span>
-                <Building2 className="size-4 shrink-0" />
+                <span className="text-sm shrink-0">🏢</span>
                 <span className="truncate">Đơn vị (Unit)</span>
               </button>
               <button
@@ -875,7 +884,7 @@ function Form({
                 >
                   {data.category === 'position' && <span className="h-1.5 w-1.5 rounded-full bg-white" />}
                 </span>
-                <User className="size-4 shrink-0" />
+                <span className="text-sm shrink-0">👤</span>
                 <span className="truncate">Chức danh (Position)</span>
               </button>
             </div>
@@ -903,18 +912,23 @@ function Form({
           </Field>
           {data.category === 'unit' && editor.item ? (
             <Field label="Chức danh quản lý (Node Position chính)">
-              <SearchableSelect
-                clearable
-                placeholder="Không có / Chưa chọn quản lý"
+              <select
+                className={field}
                 value={String(data.headPositionId ?? '')}
-                onChange={(v) => set('headPositionId', v || '')}
-                options={nodes
+                onChange={(e) => set('headPositionId', e.currentTarget.value || '')}
+              >
+                <option value="">-- Không có / Chưa chọn quản lý --</option>
+                {nodes
                   .filter(
                     (x) =>
                       x.parentId === editor.item?.id && x.category === 'position',
                   )
-                  .map((x) => ({ value: x.id, label: `${x.name} (${x.code})` }))}
-              />
+                  .map((x) => (
+                    <option key={x.id} value={x.id}>
+                      {x.name} ({x.code})
+                    </option>
+                  ))}
+              </select>
             </Field>
           ) : null}
         </>
@@ -922,30 +936,38 @@ function Form({
       {editor.resource === 'assignments' ? (
         <>
           <Field label="Chức danh">
-            <SearchableSelect
+            <select
               required
-              name="nodeId"
-              clearable={false}
-              placeholder="Chọn chức danh"
-              value={String(data.nodeId ?? '')}
-              onChange={(v) => set('nodeId', v)}
-              options={nodes
+              className={field}
+              value={String(data.nodeId)}
+              onChange={(e) => set('nodeId', e.currentTarget.value)}
+            >
+              <option value="">Chọn chức danh</option>
+              {nodes
                 .filter(
                   (x) =>
                     types.find((t) => t.id === x.nodeTypeId)?.category ===
                     'position',
                 )
-                .map((x) => ({ value: x.id, label: x.name }))}
-            />
+                .map((x) => (
+                  <option key={x.id} value={x.id}>
+                    {x.name}
+                  </option>
+                ))}
+            </select>
           </Field>
           <Field label="Người dùng">
-            <SearchableSelect
-              clearable={false}
-              placeholder="Chọn người dùng"
-              value={String(data.userId ?? '')}
-              onChange={(v) => set('userId', v)}
-              options={users.map((x) => ({ value: x.id, label: x.fullName }))}
-            />
+            <select
+              className={field}
+              value={String(data.userId)}
+              onChange={(e) => set('userId', e.currentTarget.value)}
+            >
+              {users.map((x) => (
+                <option key={x.id} value={x.id}>
+                  {x.fullName}
+                </option>
+              ))}
+            </select>
           </Field>
           <div className="grid grid-cols-2 gap-3">
             <Field label="Từ ngày">
@@ -978,19 +1000,19 @@ function Form({
         </>
       ) : null}
       <Field label="Trạng thái">
-        <SearchableSelect
-          clearable={false}
-          placeholder="Chọn trạng thái"
-          value={String(data.status ?? '')}
-          onChange={(v) => set('status', v)}
-          options={[
-            { value: 'active', label: 'Hoạt động' },
-            { value: 'inactive', label: 'Không hoạt động' },
-            editor.resource === 'assignments'
-              ? { value: 'ended', label: 'Đã kết thúc' }
-              : { value: 'archived', label: 'Lưu trữ' },
-          ]}
-        />
+        <select
+          className={field}
+          value={String(data.status)}
+          onChange={(e) => set('status', e.currentTarget.value)}
+        >
+          <option value="active">Hoạt động</option>
+          <option value="inactive">Không hoạt động</option>
+          {editor.resource === 'assignments' ? (
+            <option value="ended">Đã kết thúc</option>
+          ) : (
+            <option value="archived">Lưu trữ</option>
+          )}
+        </select>
       </Field>
       <div className="flex justify-end gap-2">
         <Button type="button" variant="outline" onClick={onCancel}>

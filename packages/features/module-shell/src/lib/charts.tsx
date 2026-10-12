@@ -172,8 +172,8 @@ export function BarChart(props: {
   return (
     <ul className={props.labelPlacement === 'top' ? `${styles.bars} ${styles.barsTop}` : styles.bars}>
       {bars.map((bar, index) => (
-        <li key={bar.label} title={`${bar.label}: ${bar.value}`}>
-          <span className={styles.barLabel} title={`${bar.label}: ${bar.value}`}>
+        <li key={bar.label}>
+          <span className={styles.barLabel} title={bar.label}>
             {bar.label}
           </span>
           <span className={styles.barTrack}>

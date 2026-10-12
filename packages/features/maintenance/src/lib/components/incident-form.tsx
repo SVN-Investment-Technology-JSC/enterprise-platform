@@ -59,19 +59,11 @@ export function IncidentForm({
 
   // Danh mục thành viên phụ trách dạng SearchableSelectOption
   const memberOptions = useMemo(() => {
-    // Một người có thể xuất hiện nhiều lần (nhiều vai trò/đơn vị): chỉ giữ một dòng cho mỗi userId.
-    const seen = new Set<string>();
-    return members
-      .filter((member) => {
-        if (seen.has(member.userId)) return false;
-        seen.add(member.userId);
-        return true;
-      })
-      .map((member) => ({
-        value: member.userId,
-        label: member.displayName,
-        description: member.userId,
-      }));
+    return members.map((member) => ({
+      value: member.userId,
+      label: member.displayName,
+      description: member.userId,
+    }));
   }, [members]);
 
   // Danh mục quy trình dạng SearchableSelectOption
@@ -259,10 +251,9 @@ export function IncidentForm({
                   });
 
                   if (rejectedNames.length > 0) {
-                    setFormError(`Không thể đính kèm: ${rejectedNames.join('; ')}. Chỉ chấp nhận tệp hình ảnh, tài liệu và video ngắn (.jpg, .png, .pdf, .doc, .xlsx, .mp4) dung lượng tối đa 25MB.`);
+                    alert(`Không thể tải lên các tệp sau:\n- ${rejectedNames.join('\n- ')}\n\nChỉ chấp nhận các tệp hình ảnh, tài liệu và video ngắn (.jpg, .png, .pdf, .doc, .xlsx, .mp4) dung lượng tối đa 25MB.`);
                   }
 
-                  if (rejectedNames.length === 0) setFormError(undefined);
                   if (validFiles.length > 0) {
                     setAttachments((prev) => [...prev, ...validFiles]);
                   }

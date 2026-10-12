@@ -1,6 +1,6 @@
 'use client';
 
-import type { Asset, InstalledMaterial, Warehouse } from '@enterprise-platform/contracts-inventory';
+import type { Asset, AssetCriticality, AssetStatus, AssetType, InstalledMaterial, Warehouse } from '@enterprise-platform/contracts-inventory';
 import { useMemo, useState, useEffect } from 'react';
 import { Search, X, Check, Trash2 } from 'lucide-react';
 import {
@@ -9,8 +9,6 @@ import {
   ASSET_CRITICALITY_LABEL,
 } from '../inventory-labels';
 import { BulkReturnToStockDialog, type BulkReturnItemEntry } from './bulk-return-dialog';
-import { PageSizeSelect } from './page-size-select';
-import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import styles from '../inventory.module.scss';
 
 export interface AssetListModalProps {
@@ -302,43 +300,79 @@ export function AssetListModal({
           {/* Bộ lọc dropdowns */}
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
             {/* Loại thiết bị */}
-            <SearchableSelect
+            <select
               value={typeFilter}
-              options={[
-                { value: 'all', label: 'Tất cả phân loại' },
-                ...Object.entries(ASSET_TYPE_LABEL).map(([value, label]) => ({ value, label })),
-              ]}
-              onChange={(value) => {
-                setTypeFilter(value || 'all');
+              onChange={(e) => {
+                setTypeFilter(e.target.value);
                 setPage(1);
               }}
-            />
+              style={{
+                padding: '6px 10px',
+                borderRadius: '6px',
+                border: '1px solid #cbd5e1',
+                fontSize: '12px',
+                background: '#ffffff',
+                color: '#334155',
+                outline: 'none',
+              }}
+            >
+              <option value="all">Tất cả phân loại</option>
+              {(Object.keys(ASSET_TYPE_LABEL) as AssetType[]).map((k) => (
+                <option key={k} value={k}>
+                  {ASSET_TYPE_LABEL[k]}
+                </option>
+              ))}
+            </select>
 
             {/* Tình trạng vận hành */}
-            <SearchableSelect
+            <select
               value={statusFilter}
-              options={[
-                { value: 'all', label: 'Tất cả tình trạng' },
-                ...Object.entries(ASSET_STATUS_LABEL).map(([value, label]) => ({ value, label })),
-              ]}
-              onChange={(value) => {
-                setStatusFilter(value || 'all');
+              onChange={(e) => {
+                setStatusFilter(e.target.value);
                 setPage(1);
               }}
-            />
+              style={{
+                padding: '6px 10px',
+                borderRadius: '6px',
+                border: '1px solid #cbd5e1',
+                fontSize: '12px',
+                background: '#ffffff',
+                color: '#334155',
+                outline: 'none',
+              }}
+            >
+              <option value="all">Tất cả tình trạng</option>
+              {(Object.keys(ASSET_STATUS_LABEL) as AssetStatus[]).map((k) => (
+                <option key={k} value={k}>
+                  {ASSET_STATUS_LABEL[k]}
+                </option>
+              ))}
+            </select>
 
             {/* Mức độ quan trọng */}
-            <SearchableSelect
+            <select
               value={criticalityFilter}
-              options={[
-                { value: 'all', label: 'Tất cả mức độ' },
-                ...Object.entries(ASSET_CRITICALITY_LABEL).map(([value, label]) => ({ value, label })),
-              ]}
-              onChange={(value) => {
-                setCriticalityFilter(value || 'all');
+              onChange={(e) => {
+                setCriticalityFilter(e.target.value);
                 setPage(1);
               }}
-            />
+              style={{
+                padding: '6px 10px',
+                borderRadius: '6px',
+                border: '1px solid #cbd5e1',
+                fontSize: '12px',
+                background: '#ffffff',
+                color: '#334155',
+                outline: 'none',
+              }}
+            >
+              <option value="all">Tất cả mức độ</option>
+              {(Object.keys(ASSET_CRITICALITY_LABEL) as AssetCriticality[]).map((k) => (
+                <option key={k} value={k}>
+                  {ASSET_CRITICALITY_LABEL[k]}
+                </option>
+              ))}
+            </select>
 
             {isFiltered ? (
               <button
@@ -806,14 +840,28 @@ export function AssetListModal({
 
             <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '11.5px', color: '#64748b' }}>
               <span>Hiển thị:</span>
-              <PageSizeSelect
+              <select
                 value={pageSize}
-                sizes={[15, 30, 45, 60]}
-                onChange={(size) => {
-                  setPageSize(size);
+                onChange={(e) => {
+                  setPageSize(Number(e.target.value) || 15);
                   setPage(1);
                 }}
-              />
+                style={{
+                  padding: '2px 6px',
+                  borderRadius: '4px',
+                  border: '1px solid #cbd5e1',
+                  background: '#ffffff',
+                  color: '#0f172a',
+                  fontSize: '11.5px',
+                  outline: 'none',
+                  cursor: 'pointer',
+                }}
+              >
+                <option value={15}>15 / trang</option>
+                <option value={30}>30 / trang</option>
+                <option value={45}>45 / trang</option>
+                <option value={60}>60 / trang</option>
+              </select>
             </label>
           </div>
 

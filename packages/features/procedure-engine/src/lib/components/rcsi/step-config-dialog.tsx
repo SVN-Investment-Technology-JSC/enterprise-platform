@@ -8,7 +8,6 @@ import { MinimalPopupForm, SearchableSelect } from '@enterprise-platform/shared-
 import { ListChecks } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { branchOfStep, type BranchTarget } from './flow-edit';
-import { stopEscapeWhenListOpen } from './escape-guard';
 import styles from './flow-editors.module.scss';
 
 export interface StepConfigChange {
@@ -94,7 +93,7 @@ export function StepConfigDialog({
       maxWidth="620px"
       onClose={onClose}
     >
-      <div className={styles.editor} onKeyDown={stopEscapeWhenListOpen}>
+      <div className={styles.editor}>
         <label className={styles.fieldRow}>
           <span>SLA (giờ)</span>
           <input

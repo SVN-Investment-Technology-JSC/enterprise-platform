@@ -8,7 +8,6 @@ import type {
   Warehouse,
 } from '@enterprise-platform/contracts-inventory';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import {
   Building,
   Calendar,
@@ -29,7 +28,7 @@ import {
   updateSerial,
 } from '../inventory-api';
 import {
-  SERIAL_STATUS_LABEL,
+  ASSET_STATUS_LABEL,
   LOT_STATUS_BADGE,
   LOT_STATUS_LABEL,
 } from '../inventory-labels';
@@ -394,12 +393,28 @@ export function LotAndSerialPanel({
 
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                       <span style={{ fontSize: '12px', color: '#64748b' }}>Tình trạng lô:</span>
-                      <SearchableSelect
+                      <select
                         value={lot.status}
                         disabled={busy}
-                        options={Object.entries(LOT_STATUS_LABEL).map(([val, label]) => ({ value: val, label }))}
-                        onChange={(value) => value && handleUpdateLotStatus(lot.id, value as LotStatus)}
-                      />
+                        style={{
+                          padding: '3px 8px',
+                          borderRadius: '4px',
+                          fontSize: '12px',
+                          fontWeight: 600,
+                          background: badge.bg,
+                          color: badge.text,
+                          border: `1px solid ${badge.border}`,
+                          outline: 'none',
+                          cursor: 'pointer',
+                        }}
+                        onChange={(e) => handleUpdateLotStatus(lot.id, e.target.value as LotStatus)}
+                      >
+                        {Object.entries(LOT_STATUS_LABEL).map(([val, label]) => (
+                          <option key={val} value={val}>
+                            {label}
+                          </option>
+                        ))}
+                      </select>
                     </div>
                   </div>
 
@@ -488,32 +503,37 @@ export function LotAndSerialPanel({
                     <tr key={row.id}>
                       <td className={styles.code}>{row.serialNumber}</td>
                       <td>
-                        <SearchableSelect
+                        <select
                           value={row.currentStatus}
                           disabled={busy || savingSerial}
-                          options={withCurrent(statuses, row.currentStatus).map((st) => ({
-                            value: st,
-                            label: SERIAL_STATUS_LABEL[st] ?? st,
-                          }))}
-                          onChange={(value) =>
-                            value && void handleUpdateSerial(row.serialNumber, { currentStatus: value })
+                          aria-label={`Tình trạng của ${row.serialNumber}`}
+                          onChange={(e) =>
+                            void handleUpdateSerial(row.serialNumber, { currentStatus: e.target.value })
                           }
-                        />
+                        >
+                          {withCurrent(statuses, row.currentStatus).map((st) => (
+                            <option key={st} value={st}>
+                              {ASSET_STATUS_LABEL[st as keyof typeof ASSET_STATUS_LABEL] ?? st}
+                            </option>
+                          ))}
+                        </select>
                       </td>
                       <td>
-                        <SearchableSelect
+                        <select
                           value={row.locationType}
                           disabled={busy || savingSerial}
-                          clearable
-                          placeholder="Chưa xác định"
-                          options={withCurrent(usageStates, row.locationType).map((state) => ({
-                            value: state,
-                            label: state,
-                          }))}
-                          onChange={(value) =>
-                            void handleUpdateSerial(row.serialNumber, { locationType: value })
+                          aria-label={`Vị trí của ${row.serialNumber}`}
+                          onChange={(e) =>
+                            void handleUpdateSerial(row.serialNumber, { locationType: e.target.value })
                           }
-                        />
+                        >
+                          <option value="">— Chưa xác định —</option>
+                          {withCurrent(usageStates, row.locationType).map((state) => (
+                            <option key={state} value={state}>
+                              {state}
+                            </option>
+                          ))}
+                        </select>
                       </td>
                     </tr>
                   ))}
@@ -635,22 +655,46 @@ export function LotAndSerialPanel({
                   <label style={{ fontSize: '12.5px', fontWeight: 600, color: '#334155' }}>
                     Kho lưu trữ
                   </label>
-                  <SearchableSelect
+                  <select
                     value={lotWarehouse}
-                    options={warehouses.map((w) => ({ value: w.code, label: `${w.name} (${w.code})` }))}
-                    onChange={(value) => value && setLotWarehouse(value)}
-                  />
+                    style={{
+                      padding: '8px 10px',
+                      borderRadius: '4px',
+                      border: '1px solid #cbd5e1',
+                      fontSize: '13px',
+                      outline: 'none',
+                    }}
+                    onChange={(e) => setLotWarehouse(e.target.value)}
+                  >
+                    {warehouses.map((w) => (
+                      <option key={w.code} value={w.code}>
+                        {w.name} ({w.code})
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                   <label style={{ fontSize: '12.5px', fontWeight: 600, color: '#334155' }}>
                     Tình trạng kiểm định
                   </label>
-                  <SearchableSelect
+                  <select
                     value={lotStatus}
-                    options={Object.entries(LOT_STATUS_LABEL).map(([val, label]) => ({ value: val, label }))}
-                    onChange={(value) => value && setLotStatus(value as LotStatus)}
-                  />
+                    style={{
+                      padding: '8px 10px',
+                      borderRadius: '4px',
+                      border: '1px solid #cbd5e1',
+                      fontSize: '13px',
+                      outline: 'none',
+                    }}
+                    onChange={(e) => setLotStatus(e.target.value as LotStatus)}
+                  >
+                    {Object.entries(LOT_STATUS_LABEL).map(([val, label]) => (
+                      <option key={val} value={val}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
 

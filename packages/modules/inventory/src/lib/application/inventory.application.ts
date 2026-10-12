@@ -62,14 +62,7 @@ export interface InventoryActor {
    * mọi nơi gọi chưa cập nhật.
    */
   readonly canWriteTransactions?: boolean;
-  /** Tạo đợt kiểm kê, nhập số đếm, gửi duyệt, huỷ. Bỏ trống = suy theo `canManage`. */
-  readonly canCreateStocktake?: boolean;
-  /** Duyệt, ghi sổ và trả lại đợt kiểm kê. Bỏ trống = suy theo `canManage`. */
-  readonly canApproveStocktake?: boolean;
 }
-
-const MATERIAL_CATEGORIES: readonly string[] = ['SPARE_PART', 'CONSUMABLE', 'TOOL', 'ROTABLE'];
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 @Injectable()
 export class InventoryApplication {
@@ -591,7 +584,7 @@ export class InventoryApplication {
       actor.tenantId,
       materialCode,
       serials,
-      input.currentStatus?.trim() || 'IN_STOCK',
+      input.currentStatus?.trim() || 'OPERATING',
       input.locationType?.trim() || states[0] || '',
       input.warehouseCode?.trim(),
     );
@@ -721,7 +714,7 @@ export class InventoryApplication {
     return { out, in: inbound };
   }
 
-  async createStockReservation(
+  createStockReservation(
     actor: InventoryActor,
     request: CreateStockReservationRequest,
   ): Promise<Reservation> {
@@ -729,22 +722,7 @@ export class InventoryApplication {
     if (!request.items?.length) {
       throw new InvalidReservationError('Yêu cầu giữ vật tư phải có ít nhất một dòng.');
     }
-    if (!request.warehouseCode?.trim()) {
-      throw new InvalidReservationError('Thiếu mã kho giữ vật tư.');
-    }
-    if (!request.referenceType?.trim()) {
-      throw new InvalidReservationError('Thiếu loại chứng từ tham chiếu.');
-    }
-    if (!UUID_PATTERN.test(request.referenceId ?? '')) {
-      throw new InvalidReservationError('referenceId phải là UUID hợp lệ.');
-    }
-    if (request.expiresAt && Number.isNaN(Date.parse(request.expiresAt))) {
-      throw new InvalidReservationError('expiresAt không phải thời điểm hợp lệ.');
-    }
     for (const item of request.items) {
-      if (!item?.materialCode?.trim()) {
-        throw new InvalidReservationError('Mỗi dòng giữ vật tư phải có mã vật tư.');
-      }
       this.requirePositive(item.quantityReserved);
     }
 
@@ -836,12 +814,6 @@ export class InventoryApplication {
     if (!code) throw new InventoryError('VALIDATION', 'Mã vật tư không được để trống.');
     if (!input.name?.trim()) throw new InventoryError('VALIDATION', 'Tên vật tư không được để trống.');
     if (!input.unit?.trim()) throw new InventoryError('VALIDATION', 'Đơn vị tính không được để trống.');
-    if (!MATERIAL_CATEGORIES.includes(input.category)) {
-      throw new InventoryError(
-        'VALIDATION',
-        `Nhóm vật tư không hợp lệ (chấp nhận: ${MATERIAL_CATEGORIES.join(', ')}).`,
-      );
-    }
     this.requireStockBounds(input.minStock, input.maxStock);
 
     // Kiểm cả vật tư đã ngừng hoạt động: mã vẫn chiếm chỗ, và tạo trùng sẽ vỡ
