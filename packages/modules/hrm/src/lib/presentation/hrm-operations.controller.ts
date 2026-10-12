@@ -23,7 +23,7 @@ import {
   requireUuid,
   requireText,
 } from '../infrastructure/hrm-validation.js';
-import { reverseApprovedRequest } from '../infrastructure/hrm-request-reversal.js';
+import { reverseRequestByUser } from '../infrastructure/hrm-request-reversal.js';
 import type { HrmAction } from '@enterprise-platform/contracts-identity';
 import { runHrmAutomation } from '../infrastructure/hrm-automation.js';
 import { listAuditTrail } from '../infrastructure/hrm-audit-trail.js';
@@ -313,17 +313,44 @@ export class HrmOperationsController {
     );
     const reason = requireText(body.reason, 'Lý do hủy hiệu lực', 2000);
     return {
-      data: await hrmTransaction(pool, (db) =>
-        reverseApprovedRequest(
-          db,
-          tenantId,
-          principal.userId,
-          kind,
-          id,
-          body.expectedUpdatedAt,
-          reason,
-        ),
-      ),
+      data: await reverseRequestByUser(pool, tenantId, {
+        actor: principal.userId,
+        kind,
+        id,
+        expectedUpdatedAt: body.expectedUpdatedAt,
+        reason,
+      }),
+    };
+  }
+  /**
+   * Các đơn đã bị huỷ hiệu lực (khác đơn rút/huỷ khi đang chờ): màn duyệt hiện
+   * nhãn "Đã hủy hiệu lực" kèm lý do thay vì gộp chung "Đã rút / hủy".
+   */
+  @Get('request-reversals')
+  async requestReversals(@Req() req: Request) {
+    const context = await this.ctx.getContext(req, 'hrm.read');
+    if (
+      !this.ctx.has(context, 'hrm.request.read') &&
+      !this.ctx.has(context, 'hrm.advance.read')
+    )
+      return { data: [] };
+    const rows = await context.pool.query<{
+      request_kind: string;
+      request_id: string;
+      reason: string;
+      created_at: Date;
+    }>(
+      `SELECT request_kind, request_id, reason, created_at FROM hrm_schema.request_reversals
+        WHERE tenant_id=$1 ORDER BY created_at DESC LIMIT 2000`,
+      [context.tenantId],
+    );
+    return {
+      data: rows.rows.map((row) => ({
+        requestKind: row.request_kind,
+        requestId: row.request_id,
+        reason: row.reason,
+        reversedAt: row.created_at,
+      })),
     };
   }
   @Get('request-workflows')

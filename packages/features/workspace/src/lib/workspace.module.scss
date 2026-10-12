@@ -1656,6 +1656,11 @@
   font-weight: 600;
 }
 
+.fieldRequired {
+  color: #dc2626;
+}
+
+
 .fieldHint {
   color: var(--ep-text-muted);
   font-size: 12px;
@@ -4019,4 +4024,63 @@
 /* Mã và ngày trong bảng báo cáo không xuống dòng; cột tên tự co lại. */
 .cellNowrap {
   white-space: nowrap;
+}
+/* Ngăn chi tiết đơn từ (tab "Đơn từ"): nhãn trái, giá trị phải. */
+.detailGrid {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 10px 16px;
+  margin: 0 0 16px;
+  font-size: 13px;
+
+  dt {
+    color: var(--ep-text-muted, #6b7280);
+  }
+
+  dd {
+    margin: 0;
+    color: var(--ep-text, #111827);
+    font-weight: 500;
+  }
+}
+
+/* Thanh nút ở góc tab "Đơn từ" và trong ngăn báo cáo. */
+.requestToolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+/* Nhãn "Theo đơn công tác DT00x" dưới tên đơn tự gắn. */
+.requestVia {
+  margin-left: 8px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgb(59 130 246 / 12%);
+  color: #1d4ed8;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+/* Bảng thứ tự ưu tiên tính công: kéo thả và ô sửa số công. */
+.priorityHandle {
+  width: 28px;
+  color: var(--ep-text-muted, #9ca3af);
+  cursor: grab;
+}
+
+.priorityDragging {
+  opacity: 0.5;
+  background: rgb(59 130 246 / 8%);
+}
+
+.priorityUnits {
+  width: 72px;
+  padding: 4px 8px;
+  border: 1px solid var(--ep-border, #e5e7eb);
+  border-radius: 6px;
+  font: inherit;
 }

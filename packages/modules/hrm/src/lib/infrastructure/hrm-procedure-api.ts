@@ -149,3 +149,25 @@ export function procedureStartStepWarnings(definition: ProcedureDefinition): str
       '), đơn sẽ dừng chờ người nộp.',
   ];
 }
+
+/**
+ * Hỏi Procedure (chỉ đọc) xem hồ sơ của đơn có huỷ hiệu lực được không, trước
+ * khi HRM tự huỷ đơn — để hai module không lệch nhau. Không trả lời được thì
+ * coi như không cho huỷ.
+ */
+export async function fetchProcedureReversalCheck(
+  tenantId: string,
+  instanceId: string,
+): Promise<{ allowed: boolean; reason?: string }> {
+  const response = await internalGet(
+    tenantId,
+    `/v1/internal/instances/${encodeURIComponent(instanceId)}/reversal-check`,
+    8000,
+  );
+  if (!response.ok) return { allowed: false, reason: 'Procedure không trả lời kiểm tra huỷ hiệu lực.' };
+  const body = (await response.json()) as { allowed?: unknown; reason?: unknown; status?: unknown };
+  return {
+    allowed: body.allowed === true,
+    reason: typeof body.reason === 'string' ? body.reason : undefined,
+  };
+}

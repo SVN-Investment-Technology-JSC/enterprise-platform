@@ -26,6 +26,11 @@ import {
   processHrmProcedureSync,
   receiveHrmProcedureResult,
   receiveHrmProcedureStep,
+  receiveHrmProcedureReversal,
+  receiveWorkspaceReversalRequest,
+  HRM_WORKSPACE_REVERSAL_BINDING,
+  HRM_WORKSPACE_EVENT_BINDINGS,
+  receiveWorkspaceProjectRequestEvent,
 } from '@enterprise-platform/module-hrm';
 import {
   createProcedureWorkspaceEvents,
@@ -34,6 +39,11 @@ import {
 import {
   createWorkspaceProcedureEvents,
   WORKSPACE_PROCEDURE_EVENT_TYPES,
+  isProjectRequestEvent,
+  projectRequestsReady,
+  receiveWorkspaceIntegrationEvent,
+  WORKSPACE_INTEGRATION_BINDINGS,
+  WORKSPACE_INTEGRATION_QUEUE,
 } from '@enterprise-platform/module-workspace';
 import type { Pool } from 'pg';
 
@@ -82,15 +92,25 @@ const hrmConsumer = new RabbitMqConsumer(
     bindings: [
       'procedure.instance.completed',
       'procedure.instance.step_changed',
+      // Procedure huỷ hiệu lực hồ sơ → HRM huỷ hiệu lực đơn đứng sau.
+      'procedure.instance.reversed',
+      // Workspace nhờ huỷ hiệu lực đơn từ không chạy qua Quy trình.
+      HRM_WORKSPACE_REVERSAL_BINDING,
+      // Workspace trả lời đơn gắn dự án: mã DTxxx hoặc lý do từ chối.
+      ...HRM_WORKSPACE_EVENT_BINDINGS,
     ],
   },
 );
-
 // Liên kết Quy trình ↔ Workspace đi bằng sự kiện: mỗi module có một hàng đợi
 // riêng nhận sự kiện của module kia, và tự ghi dữ liệu của chính nó.
 const workspaceConsumer = new RabbitMqConsumer(
   process.env.RABBITMQ_URL ?? 'amqp://platform:platform@localhost:5672',
-  { queue: 'workspace.integrations.v1', bindings: [...WORKSPACE_PROCEDURE_EVENT_TYPES] },
+  {
+    queue: WORKSPACE_INTEGRATION_QUEUE,
+    // Một hàng đợi, một consumer: liên kết công việc ↔ quy trình và đơn từ do
+    // module khác gửi. Hai consumer trên cùng hàng đợi sẽ chia sự kiện cho nhau.
+    bindings: [...WORKSPACE_PROCEDURE_EVENT_TYPES, ...WORKSPACE_INTEGRATION_BINDINGS],
+  },
 );
 const procedureConsumer = new RabbitMqConsumer(
   process.env.RABBITMQ_URL ?? 'amqp://platform:platform@localhost:5672',
@@ -146,11 +166,13 @@ async function handleLinkEvent(
 
 void workspaceConsumer
   .start((event) =>
-    handleLinkEvent(
-      event,
-      { moduleKey: 'workspace', queue: 'workspace.integrations.v1' },
-      workspaceProcedureEvents,
-    ),
+    isProjectRequestEvent(event.type)
+      ? handleProjectRequestEvent(event)
+      : handleLinkEvent(
+          event,
+          { moduleKey: 'workspace', queue: WORKSPACE_INTEGRATION_QUEUE },
+          workspaceProcedureEvents,
+        ),
   )
   .catch((error) =>
     console.error(
@@ -215,7 +237,11 @@ async function processHrmJobs(database: TenantDatabaseReference) {
 }
 void hrmConsumer
   .start(async (event) => {
+    const fromWorkspace =
+      (HRM_WORKSPACE_EVENT_BINDINGS as readonly string[]).includes(event.type) ||
+      event.type === HRM_WORKSPACE_REVERSAL_BINDING;
     if (
+      !fromWorkspace &&
       (event.payload as { sourceType?: string })?.sourceType !== 'hrm_request'
     )
       return;
@@ -232,8 +258,14 @@ void hrmConsumer
           throw new TransientConsumerError(
             'HRM cần migration trước khi nhận callback',
           );
-        if (event.type === 'procedure.instance.step_changed')
+        if (event.type === HRM_WORKSPACE_REVERSAL_BINDING)
+          await receiveWorkspaceReversalRequest(pool, event.tenantId, event);
+        else if (fromWorkspace)
+          await receiveWorkspaceProjectRequestEvent(pool, event.tenantId, event);
+        else if (event.type === 'procedure.instance.step_changed')
           await receiveHrmProcedureStep(pool, event.tenantId, event);
+        else if (event.type === 'procedure.instance.reversed')
+          await receiveHrmProcedureReversal(pool, event.tenantId, event);
         else await receiveHrmProcedureResult(pool, event.tenantId, event);
       },
       { mode: 'shared' },
@@ -249,6 +281,27 @@ void hrmConsumer
       error instanceof Error ? error.message : 'Connection failed',
     ),
   );
+/** Đơn từ gắn dự án (HRM gửi): Workspace tự kiểm và cấp mã DT trong một transaction. */
+async function handleProjectRequestEvent(event: IntegrationEventEnvelope) {
+  const database = await activeTenantDatabase(event.tenantId);
+  if (!database) return;
+  if (!(await moduleEnabled(event.tenantId, 'workspace')))
+    throw new TransientConsumerError('Workspace entitlement chưa hoạt động');
+  const outcome = await withActiveTenant(
+    platformPool,
+    event.tenantId,
+    async () => {
+      const pool = (await tenantPools.forTenant(database)) as unknown as Pool;
+      if (!(await projectRequestsReady(pool)))
+        throw new TransientConsumerError('Workspace cần migration trước khi nhận đơn từ');
+      await receiveWorkspaceIntegrationEvent(pool, event.tenantId, event);
+    },
+    { mode: 'shared' },
+  );
+  if (!outcome.executed && outcome.reason === 'busy')
+    throw new TransientConsumerError(`Tenant ${event.tenantId} đang bận (khóa exclusive)`);
+}
+
 const provisioning = new TenantProvisioningProcessor(
   process.env.PLATFORM_DATABASE_URL ??
     'postgresql://platform:platform@localhost:55432/platform',

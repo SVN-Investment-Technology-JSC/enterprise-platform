@@ -137,6 +137,9 @@ integration('canonical HRM Procedure linkage', () => {
       'hrm/0028-hrm-approval-policy.sql',
       'hrm/0029-hrm-procedure-step-progress.sql',
       'hrm/0030-hrm-procedure-field-mappings.sql',
+      'hrm/0034-hrm-request-project-links.sql',
+      'hrm/0035-hrm-request-trip-links.sql',
+      'hrm/0036-hrm-project-request-reversed.sql',
     ])
       await migrate(path);
     process.env.INTERNAL_SERVICE_TOKEN = 'local-test-token';

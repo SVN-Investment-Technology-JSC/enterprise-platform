@@ -5,9 +5,9 @@ import { ArrowLeft, Plus, X } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  WORK_ITEM_STATUS_LABELS,
-  WORK_ITEM_STATUS_TONE,
   formatShortDate,
+  workItemStatusLabel,
+  workItemStatusTone,
 } from '../workspace-labels';
 import styles from '../workspace.module.scss';
 import { useDirectory } from './use-directory';
@@ -125,7 +125,7 @@ export function ChildItems({
       {children.length === 0 ? <p className={styles.muted}>Chưa có việc con.</p> : null}
       <ul className={styles.childList}>
         {children.map((child) => {
-          const tone = WORK_ITEM_STATUS_TONE[child.status];
+          const tone = workItemStatusTone(child);
           return (
             <li key={child.id}>
               <button type="button" className={styles.childRow} onClick={() => onOpen(child)}>
@@ -136,7 +136,7 @@ export function ChildItems({
                 </span>
                 <span className={styles.muted}>{formatShortDate(child.plannedEnd)}</span>
                 <span className={styles.pill} style={{ background: tone.bg, color: tone.fg }}>
-                  {WORK_ITEM_STATUS_LABELS[child.status]}
+                  {workItemStatusLabel(child)}
                 </span>
               </button>
             </li>

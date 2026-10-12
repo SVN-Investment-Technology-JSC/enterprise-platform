@@ -553,7 +553,6 @@ export default function HrmProfilePage() {
           position: profileMeta.position,
           workEmail: profileMeta.workEmail,
           phone: phone,
-          roleLabel: 'Tenant Administrator',
           joinDate: profileMeta.joinDate,
         }}
       />

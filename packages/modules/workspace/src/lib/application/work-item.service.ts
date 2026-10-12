@@ -10,6 +10,7 @@ import {
   type CreateWorkItemRequest,
   type DependencyType,
   type MoveWorkItemRequest,
+  type ReverseWorkItemRequest,
   type UpdateWorkItemRequest,
   type WorkItem,
   type WorkItemDependency,
@@ -35,12 +36,14 @@ import {
   ChildIncompleteError,
   DependencyBlockedError,
   DependencyCycleError,
+  ProjectRoleForbiddenError,
   WorkItemAssigneeOnlyError,
   WorkItemNotFoundError,
   WorkspaceValidationError,
 } from '../domain/workspace.error.js';
 import { hasProjectRole, requireProjectRole, type ProjectService } from './project.service.js';
 import { timezoneOf, todayKey } from '../domain/tenant-time.js';
+import type { ProcedureReversalChecker } from './procedure-reversal-check.port.js';
 import type { WorkspaceActor } from './workspace.application.js';
 import type { WorkspaceStore } from './workspace-store.port.js';
 
@@ -61,6 +64,7 @@ export class WorkItemService {
   constructor(
     private readonly store: WorkspaceStore,
     private readonly projects: ProjectService,
+    private readonly procedureReversal?: ProcedureReversalChecker,
   ) {}
 
   /** Toàn bộ cây WBS của một dự án, trả phẳng kèm `parentId` và `depth`. */
@@ -116,6 +120,11 @@ export class WorkItemService {
       ? siblings.find((node) => node.id === input.parentId)
       : undefined;
     if (input.parentId && !parent) throw new WorkItemNotFoundError(String(input.parentId));
+    if (parent?.reversal) {
+      throw new WorkspaceValidationError(
+        `Công việc ${parent.code} đã huỷ hiệu lực, không thêm được việc con.`,
+      );
+    }
 
     const depth = depthFor(parent);
     assertDepthWithinLimit(depth);
@@ -140,8 +149,15 @@ export class WorkItemService {
         ? requireUuid(input.procedureDefinitionId, 'Quy trình')
         : undefined;
 
+    const adjustmentOfId = await this.requireAdjustmentTarget(
+      actor,
+      access.project.id,
+      input.adjustmentOfId,
+    );
+
     const created = await this.store.workItem.create(actor.tenantId, actor.userId, {
       ...input,
+      adjustmentOfId,
       procedureDefinitionId,
       participantUserIds,
       tagIds,
@@ -211,6 +227,11 @@ export class WorkItemService {
       throw new WorkItemAssigneeOnlyError();
     }
     requireProjectRole(access, 'member');
+    if (item.reversal) {
+      throw new WorkspaceValidationError(
+        'Công việc đã huỷ hiệu lực, không sửa được; hãy lập công việc điều chỉnh.',
+      );
+    }
 
     const patch: UpdateWorkItemRequest = { ...input };
     if (input.title !== undefined) {
@@ -297,6 +318,11 @@ export class WorkItemService {
     requireProjectRole(access, 'member');
 
     if (next === item.status) return item;
+    if (item.reversal) {
+      throw new WorkspaceValidationError(
+        'Công việc đã huỷ hiệu lực, không mở lại được; hãy lập công việc điều chỉnh.',
+      );
+    }
     if (!WORK_ITEM_STATUS_TRANSITIONS[item.status].includes(next)) {
       const allowed = WORK_ITEM_STATUS_TRANSITIONS[item.status]
         .map((status) => `"${STATUS_LABELS[status]}"`)
@@ -305,6 +331,20 @@ export class WorkItemService {
         `Không thể chuyển từ "${STATUS_LABELS[item.status]}" sang "${STATUS_LABELS[next]}". ` +
           `Từ trạng thái hiện tại chỉ chuyển được sang: ${allowed}.`,
       );
+    }
+
+    // Mở lại một công việc điều chỉnh đã huỷ: công việc gốc chỉ có một công
+    // việc điều chỉnh còn hiệu lực (unique index), báo rõ thay vì lỗi 500.
+    if (item.status === 'cancelled' && item.adjustmentOfId) {
+      const other = (await this.store.workItem.listByProject(actor.tenantId, item.projectId)).find(
+        (node) =>
+          node.id !== item.id && node.adjustmentOfId === item.adjustmentOfId && node.status !== 'cancelled',
+      );
+      if (other) {
+        throw new WorkspaceValidationError(
+          `Công việc gốc đã có công việc điều chỉnh khác (${other.code}); không mở lại được việc này.`,
+        );
+      }
     }
 
     // 2 — việc con chưa đóng. Chỉ chặn khi đang đóng node; mở lại thì không.
@@ -339,6 +379,133 @@ export class WorkItemService {
     );
     await this.recalculate(actor, item.projectId);
     return updated;
+  }
+
+  /**
+   * Huỷ hiệu lực công việc đã hoàn thành — chủ nhiệm dự án hoặc quản trị.
+   *
+   * Công việc không mở lại: chuyển `cancelled` kèm dấu huỷ, giữ lịch sử, nên
+   * tiến độ và tài chính tự loại nó ra. Công việc gắn hồ sơ Quy trình thì hỏi
+   * Quy trình trước (vật tư đã xuất, kỳ lương đã chốt… chặn hẳn), rồi Quy
+   * trình nhận sự kiện và huỷ hiệu lực hồ sơ theo.
+   */
+  async reverse(
+    actor: WorkspaceActor,
+    workItemId: string,
+    input: ReverseWorkItemRequest,
+  ): Promise<WorkItem> {
+    const { item, access } = await this.load(actor, workItemId);
+    if (!hasProjectRole(access, 'owner')) {
+      throw new ProjectRoleForbiddenError('chủ nhiệm dự án hoặc quản trị');
+    }
+    const reason = requireText(input?.reason, 'Lý do huỷ hiệu lực', 1000);
+    if (reason.length < 3) {
+      throw new WorkspaceValidationError('Lý do huỷ hiệu lực cần ít nhất 3 ký tự.');
+    }
+    if (item.reversal) return item;
+    if (item.status !== 'done') {
+      throw new WorkspaceValidationError('Chỉ huỷ hiệu lực được công việc đã hoàn thành.');
+    }
+    const children = (await this.store.workItem.listByProject(actor.tenantId, item.projectId)).filter(
+      (node) => node.parentId === item.id && !(node.status === 'cancelled'),
+    );
+    if (children.length > 0) {
+      throw new WorkspaceValidationError(
+        `Còn ${children.length} việc con chưa huỷ (${children
+          .slice(0, 3)
+          .map((child) => child.code)
+          .join(', ')}); huỷ hiệu lực từng việc con trước.`,
+      );
+    }
+
+    const instanceId = await this.linkedInstanceId(actor.tenantId, item.id);
+    if (instanceId) {
+      const check = this.procedureReversal
+        ? await this.procedureReversal.check(actor.tenantId, instanceId)
+        : { allowed: false, reason: 'Chưa cấu hình kiểm tra với Quy trình.' };
+      if (!check.allowed) {
+        throw new WorkspaceValidationError(
+          `Không huỷ hiệu lực được: ${check.reason ?? 'Quy trình không cho phép huỷ hồ sơ gắn công việc.'}`,
+        );
+      }
+    }
+
+    const reversed = await this.store.workItem.reverse(actor.tenantId, item.id, {
+      reversedBy: actor.userId,
+      reversedByName: actor.displayName,
+      reason,
+      adjustmentRequested: input.createAdjustment === true,
+      today: todayKey(timezoneOf(actor.tenantId)),
+      instanceId,
+    });
+    await this.recalculate(actor, item.projectId);
+    return reversed;
+  }
+
+  /**
+   * Quy trình đã huỷ hiệu lực hồ sơ → huỷ hiệu lực công việc gắn với nó.
+   * Không kiểm vai trò dự án: quyết định đã do Quản trị Quy trình đưa ra.
+   */
+  async reverseForProcedure(
+    tenantId: string,
+    workItemId: string,
+    input: {
+      readonly instanceCode: string;
+      readonly reason: string;
+      readonly reversedBy: string;
+      readonly reversedByName?: string;
+      readonly adjustmentRequested: boolean;
+    },
+  ): Promise<void> {
+    const item = await this.store.workItem.findById(tenantId, workItemId);
+    if (!item || item.reversal) return;
+    await this.store.workItem.reverse(tenantId, item.id, {
+      reversedBy: input.reversedBy,
+      reversedByName: input.reversedByName,
+      reason: `Hồ sơ ${input.instanceCode} bị huỷ hiệu lực: ${input.reason}`.slice(0, 1000),
+      adjustmentRequested: input.adjustmentRequested,
+      today: todayKey(timezoneOf(tenantId)),
+    });
+    const system: WorkspaceActor = {
+      tenantId,
+      userId: input.reversedBy,
+      displayName: input.reversedByName ?? input.reversedBy,
+      isTenantAdmin: true,
+      canManage: false,
+      canWriteTasks: true,
+      canWriteDocuments: false,
+      canDeleteDocuments: false,
+    };
+    await this.recalculate(system, item.projectId);
+  }
+
+  private async linkedInstanceId(tenantId: string, workItemId: string): Promise<string | undefined> {
+    const refs = await this.store.externalRef.listByEntity(tenantId, 'work_item', workItemId);
+    return refs.find((ref) => ref.moduleKey === 'procedure-engine')?.externalId;
+  }
+
+  /** Công việc điều chỉnh: trỏ về công việc đã huỷ hiệu lực cùng dự án, chưa có điều chỉnh khác. */
+  private async requireAdjustmentTarget(
+    actor: WorkspaceActor,
+    projectId: string,
+    adjustmentOfId: string | undefined,
+  ): Promise<string | undefined> {
+    if (!adjustmentOfId) return undefined;
+    const original = await this.store.workItem.findById(actor.tenantId, adjustmentOfId);
+    if (!original || original.projectId !== projectId || !original.reversal) {
+      throw new WorkspaceValidationError(
+        'Chỉ lập công việc điều chỉnh cho công việc đã huỷ hiệu lực trong cùng dự án.',
+      );
+    }
+    const existing = (await this.store.workItem.listByProject(actor.tenantId, projectId)).find(
+      (node) => node.adjustmentOfId === original.id && node.status !== 'cancelled',
+    );
+    if (existing) {
+      throw new WorkspaceValidationError(
+        `Công việc ${original.code} đã có công việc điều chỉnh ${existing.code}.`,
+      );
+    }
+    return original.id;
   }
 
   /** Đổi cha và vị trí trong cây. Cả nhánh con đi theo. */
