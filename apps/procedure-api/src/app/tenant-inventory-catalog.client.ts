@@ -23,6 +23,12 @@ export interface ProcedureAssetCatalogItem {
   readonly taskCount?: number;
 }
 
+/**
+ * Kho chậm (vd. pool DB treo) không được kéo màn Quy trình treo theo: web nạp
+ * lại cả danh mục sau mỗi thao tác, nên cắt sớm và để web coi như danh mục rỗng.
+ */
+const INVENTORY_TIMEOUT_MS = 5000;
+
 /** Procedure reads Inventory through its internal contract, never its tables. */
 @Injectable()
 export class TenantInventoryCatalogClient {
@@ -38,6 +44,7 @@ export class TenantInventoryCatalogClient {
           'X-Tenant-ID': tenantId,
           'x-service-token': process.env.INTERNAL_SERVICE_TOKEN ?? '',
         },
+        signal: AbortSignal.timeout(INVENTORY_TIMEOUT_MS),
       });
       if (!response.ok) throw new Error(`Inventory asset catalog returned ${response.status}.`);
       const body = (await response.json()) as { assets?: ProcedureAssetCatalogItem[] };
@@ -58,6 +65,7 @@ export class TenantInventoryCatalogClient {
           'X-Tenant-ID': tenantId,
           'x-service-token': process.env.INTERNAL_SERVICE_TOKEN ?? '',
         },
+        signal: AbortSignal.timeout(INVENTORY_TIMEOUT_MS),
       });
       if (!response.ok) throw new Error(`Inventory material catalog returned ${response.status}.`);
       const body = await response.json() as { materials?: ProcedureMaterialCatalogItem[] };
