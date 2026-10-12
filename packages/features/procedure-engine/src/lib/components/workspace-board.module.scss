@@ -467,6 +467,53 @@
 .completed { background: rgba(16, 185, 129, 0.15); color: #047857; }
 .rejected { background: rgba(239, 68, 68, 0.14); color: #b91c1c; }
 .cancelled { background: rgba(156, 163, 175, 0.18); color: #4b5563; }
+.reversed { background: rgba(234, 88, 12, 0.13); color: #9a3412; }
+
+.reversalNote {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border: 1px solid #fed7aa;
+  border-radius: 8px;
+  background: #fff7ed;
+  color: #7c2d12;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.reversalTitle {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #9a3412;
+}
+
+.reversalMeta {
+  font-size: 11.5px;
+  color: #9a3412;
+  opacity: 0.85;
+}
+
+.linkButton {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #2563eb;
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.reverseCheck {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12.5px;
+  color: #0f172a;
+  cursor: pointer;
+}
 
 /* Chỉ báo SLA (sla-badge.tsx). */
 .sla {
@@ -939,6 +986,134 @@
 
 .roleHolders {
   color: var(--faint);
+}
+
+/* Vai gán cho nhiều chức danh: một dòng số + danh sách mở được, gom theo đơn vị. */
+.roleGroup {
+  flex: 1 1 100%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.roleSummary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+
+.roleCount {
+  color: var(--ink);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.roleToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--control);
+  border-radius: 7px;
+  background: #fff;
+  color: #1d4ed8;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+
+  svg {
+    transition: transform 0.15s ease;
+  }
+
+  &[aria-expanded='true'] svg {
+    transform: rotate(180deg);
+  }
+
+  &:hover {
+    background: var(--surface-soft, #f9fafb);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--accent-strong);
+    outline-offset: 2px;
+  }
+}
+
+.roleListBox {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  max-height: 300px;
+  overflow: auto;
+}
+
+.roleListSearch {
+  position: sticky;
+  top: 0;
+  padding: 8px;
+  background: #fff;
+  border-bottom: 1px solid var(--line);
+
+  input {
+    width: 100%;
+    height: 30px;
+    padding: 0 10px;
+    border: 1px solid var(--control);
+    border-radius: 7px;
+    background: #f9fafb;
+    color: var(--ink);
+    font: inherit;
+    font-size: 12px;
+
+    &:focus {
+      outline: 2px solid var(--accent-strong);
+      outline-offset: 0;
+    }
+  }
+}
+
+.roleUnit {
+  padding: 6px 10px 2px;
+  border-top: 1px solid var(--line);
+  background: #f9fafb;
+  color: var(--faint);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.roleListBox > div:first-of-type > .roleUnit {
+  border-top: 0;
+}
+
+.rolePos {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+  gap: 8px;
+  padding: 5px 10px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+
+  span:first-child {
+    color: var(--ink);
+    font-weight: 600;
+  }
+
+  span:last-child {
+    color: var(--muted);
+  }
+}
+
+.roleEmpty {
+  padding: 12px;
+  color: var(--faint);
+  font-size: 12px;
 }
 
 .role {
@@ -4131,6 +4306,7 @@
   color: #64748b;
   border: 1px solid #e2e8f0;
 }
+.linkedStatus_reversed { background: #fff7ed; color: #9a3412; }
 
 /* ========================================================================= */
 /* ATTACHMENT PANEL & HEADER CONTROLS (UI-DESIGN GUIDELINES)                */
@@ -4261,4 +4437,23 @@
   color: #334155;
   font-size: 12px;
   font-weight: 700;
+}
+
+/* SearchableSelect ở đầu danh sách và chân phân trang (quy chuẩn không dùng <select> gốc). */
+.filterCombo {
+  width: 190px;
+  min-width: 0;
+  font-size: 12px;
+}
+
+.sortCombo {
+  width: 120px;
+  min-width: 0;
+  font-size: 12px;
+}
+
+.pagerCombo {
+  width: 112px;
+  min-width: 0;
+  font-size: 12px;
 }

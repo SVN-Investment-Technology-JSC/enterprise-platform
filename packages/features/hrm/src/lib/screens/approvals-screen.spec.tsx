@@ -28,7 +28,7 @@ jest.mock('../hrm-api', () => {
 const fetchMock = hrmFetch as jest.MockedFunction<typeof hrmFetch>;
 const employeesMock = hrmEmployeeOptions as jest.MockedFunction<typeof hrmEmployeeOptions>;
 const paths = () => fetchMock.mock.calls.map((call) => call[0] as string);
-const NOISE = ['/approval-scope', '/request-workflows'];
+const NOISE = ['/approval-scope', '/request-workflows', '/request-reversals'];
 const listPaths = () => paths().filter((p) => !NOISE.includes(p) && !p.startsWith('/request-comments'));
 const posts = (prefix: string) =>
   fetchMock.mock.calls.filter((c) => (c[0] as string).startsWith(prefix) && (c[1] as RequestInit | undefined)?.method === 'POST');
@@ -65,11 +65,13 @@ interface Setup {
   workflows?: unknown[];
   comments?: unknown[];
   candidates?: unknown[];
+  reversals?: { requestId: string; reason: string }[];
 }
-function setup({ lists = {}, workflows = [], comments = [], candidates = [] }: Setup) {
+function setup({ lists = {}, workflows = [], comments = [], candidates = [], reversals = [] }: Setup) {
   fetchMock.mockImplementation((async (path: string, init?: RequestInit) => {
     if (path === '/approval-scope') return { data: { noReportingLine: false, message: null } };
     if (path === '/request-workflows') return { data: workflows };
+    if (path === '/request-reversals') return { data: reversals };
     if (path.startsWith('/request-comments/mention-candidates')) return { data: candidates };
     if (path.startsWith('/request-comments')) return init?.method === 'POST' ? { data: { id: 'cm-new' } } : { data: comments };
     if (init?.method === 'POST') return { data: {} };
@@ -108,6 +110,18 @@ describe('ApprovalsScreen: tải dữ liệu', () => {
     const second = listPaths().slice(3);
     expect(first.every((p) => p.includes('status=PENDING'))).toBe(true);
     expect(second.every((p) => !p.includes('status='))).toBe(true);
+  });
+
+  it('đơn đã duyệt rồi bị huỷ hiệu lực hiện nhãn "Đã hủy hiệu lực" kèm lý do, tách khỏi "Đã rút / hủy"', async () => {
+    mockActions = ['hrm.leave.approve'];
+    setup({
+      lists: { 'leave-requests': [{ ...leave, status: 'CANCELLED' }] },
+      reversals: [{ requestId: 'l1', reason: 'Nhập nhầm ngày' }],
+    });
+    render(<ApprovalsScreen />);
+    const badge = await screen.findByText('Đã hủy hiệu lực');
+    expect(badge.getAttribute('title')).toBe('Lý do: Nhập nhầm ngày');
+    expect(screen.queryByText('Đã rút / hủy')).toBeNull();
   });
 
   it('?type= chọn sẵn bộ lọc loại đơn; không có thì hiện mọi loại', async () => {

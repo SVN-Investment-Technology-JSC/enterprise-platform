@@ -1331,12 +1331,44 @@
   background: #f8f9fb;
 }
 
+/* Dòng là một link mở thẳng hồ sơ: cả dòng bấm được, link chiếm hết chỗ của dòng. */
+.dashList .dashLinkRow {
+  padding: 0;
+}
+
+.dashLinkRow > a {
+  flex: 1;
+  min-width: 0;
+  color: inherit;
+  text-decoration: none;
+  border-radius: 6px;
+}
+
+.dashLinkRow > a:hover .dashTodoTitle,
+.dashLinkRow > a:hover > span:first-child {
+  color: #1d4ed8;
+}
+
+.dashLinkRow > a:focus-visible {
+  outline: 2px solid #d9ab00;
+  outline-offset: 2px;
+}
+
 /* Việc cần làm: tiêu đề + SLA ở hàng trên, mã · bước + vai ở hàng dưới. */
 .dashList .dashTodo {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 2px 12px;
   padding: 8px 4px;
+}
+
+.dashList .dashRecent {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 40px;
+  padding: 6px 4px;
 }
 
 .dashList .dashTodoTitle {
@@ -1468,4 +1500,72 @@
 
 .headSlot:empty {
   display: none;
+}
+
+/* ---- Thẻ "Hồ sơ theo trạng thái": vòng tròn + SLA + vai đang chờ ---------- */
+
+.dashStatus {
+  display: flex;
+  flex-direction: column;
+}
+
+.dashStatusSection {
+  margin-top: 0.9rem;
+  padding-top: 0.8rem;
+  border-top: 1px solid #eef0f3;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+
+  h3 {
+    margin: 0;
+    color: #64748b;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+}
+
+.dashStatusBar {
+  display: flex;
+  height: 10px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #e2e8f0;
+
+  span {
+    display: block;
+    height: 100%;
+  }
+}
+
+.dashStatusKeys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.9rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: #334155;
+  font-size: 0.76rem;
+
+  li {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+  }
+
+  i {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    border-radius: 999px;
+    margin-right: 2px;
+  }
+
+  b {
+    color: #0f172a;
+    font-variant-numeric: tabular-nums;
+  }
 }

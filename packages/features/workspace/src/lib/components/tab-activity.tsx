@@ -151,7 +151,12 @@ export function TabActivity({ entries, items, selected, onOpen }: TabActivityPro
                       <ActivityRow
                         key={entry.id}
                         entry={entry}
-                        actor={directory.nameOf(entry.createdBy)}
+                        actor={
+                          // Người không có trong danh bạ tổ chức: không hiện UUID thô.
+                          directory.nameOf(entry.createdBy) === entry.createdBy
+                            ? 'Người dùng ngoài danh bạ'
+                            : directory.nameOf(entry.createdBy)
+                        }
                       />
                     ))}
                   </li>
@@ -167,6 +172,11 @@ export function TabActivity({ entries, items, selected, onOpen }: TabActivityPro
 
 function ActivityRow({ entry, actor }: { entry: WorkItemStatusHistoryEntry; actor: string }) {
   const tone = WORK_ITEM_STATUS_TONE[entry.toStatus];
+  // Huỷ hiệu lực ghi `cancelled` kèm ghi chú "Huỷ hiệu lực: …" (xem store
+  // `workItem.reverse`): hiện đúng tên để không lẫn với huỷ thường.
+  const reversed = entry.toStatus === 'cancelled' && entry.note?.startsWith('Huỷ hiệu lực:');
+  const toLabel = reversed ? 'Đã huỷ hiệu lực' : WORK_ITEM_STATUS_LABELS[entry.toStatus];
+  const toTone = reversed ? { bg: '#fff7ed', fg: '#9a3412' } : tone;
   // Ghi chú kiểu "Kế toán trưởng duyệt · A, B": phần đầu là bước, phần sau là
   // người. Bước không có người thì 1Office để lại dấu "·" thừa ở cuối.
   const note = entry.note?.replace(/\s*·\s*$/, '').trim();
@@ -187,8 +197,8 @@ function ActivityRow({ entry, actor }: { entry: WorkItemStatusHistoryEntry; acto
           ) : (
             <span className={styles.muted}>Khởi tạo</span>
           )}
-          <span className={styles.pill} style={{ background: tone.bg, color: tone.fg }}>
-            {WORK_ITEM_STATUS_LABELS[entry.toStatus]}
+          <span className={styles.pill} style={{ background: toTone.bg, color: toTone.fg }}>
+            {toLabel}
           </span>
           <span className={styles.activityActor}>{actor}</span>
         </span>

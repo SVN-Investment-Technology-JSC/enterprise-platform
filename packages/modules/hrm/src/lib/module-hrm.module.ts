@@ -37,6 +37,7 @@ import { HrmApprovalRouteController } from './presentation/hrm-approval-route.co
 import { HrmOperationsController } from './presentation/hrm-operations.controller.js';
 import { HrmDependentController } from './presentation/hrm-dependent.controller.js';
 import { HrmContractController } from './presentation/hrm-contract.controller.js';
+import { HrmInternalController } from './presentation/hrm-internal.controller.js';
 import { HrmPersonnelDecisionController } from './presentation/hrm-personnel-decision.controller.js';
 
 import { HrmProcedureBridgeService } from './infrastructure/hrm-procedure-bridge.service.js';
@@ -45,6 +46,7 @@ import { OrgHrmBridgeConsumer } from './infrastructure/org-hrm-bridge.consumer.j
 @Module({
   imports: [PlatformIdentityModule],
   controllers: [
+    HrmInternalController,
     HrmPersonnelDecisionController,
     HrmPayrollSodController,
     HrmContractController,

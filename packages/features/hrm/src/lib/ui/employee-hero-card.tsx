@@ -70,12 +70,14 @@ export function EmployeeHeroCard({ profile, syncLabel }: EmployeeHeroCardProps) 
               <Phone className="size-3.5 text-slate-400" />
               {profile.phone || 'Chưa cập nhật'}
             </span>
-            <span className="flex items-center gap-1.5">
-              <UserCheck className="size-3.5 text-slate-400" />
-              <span>
-                Vai trò: <strong className="text-slate-700">{profile.roleLabel || '----'}</strong>
+            {profile.roleLabel?.trim() ? (
+              <span className="flex items-center gap-1.5">
+                <UserCheck className="size-3.5 text-slate-400" />
+                <span>
+                  Vai trò: <strong className="text-slate-700">{profile.roleLabel.trim()}</strong>
+                </span>
               </span>
-            </span>
+            ) : null}
           </div>
         </div>
       </div>

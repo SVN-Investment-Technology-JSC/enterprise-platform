@@ -146,6 +146,12 @@ export function ApprovalDetailPanel(props: ApprovalDetailPanelProps) {
           <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11.5px] font-semibold ${statusTone(row.status)}`}>{states[row.status] ?? row.status}</span>
         </div>
 
+        {row.reversalReason ? (
+          <p className="rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-xs text-orange-900">
+            <b>Đã hủy hiệu lực.</b> Lý do: {row.reversalReason}
+          </p>
+        ) : null}
+
         <section aria-label="Thông tin nhân viên">
           <h3 className="mb-2 text-[13px] font-bold text-slate-900">Thông tin nhân viên</h3>
           <div className="flex items-center gap-3">

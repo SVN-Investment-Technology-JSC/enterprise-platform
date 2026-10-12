@@ -141,6 +141,11 @@ integration('canonical HRM Procedure linkage', () => {
       'hrm/0038-request-reason-categories.sql',
       'hrm/0039-request-catalog-codes.sql',
       'hrm/0045-hrm-request-reasons.sql',
+      'hrm/0046-hrm-timesheet-month-close.sql',
+      'hrm/0047-hrm-request-types.sql',
+      'hrm/0048-hrm-timesheet-payroll-linkage.sql',
+      'hrm/0049-hrm-ot-reason-rate.sql',
+      'hrm/0050-hrm-request-comments.sql',
     ])
       await migrate(path);
     process.env.INTERNAL_SERVICE_TOKEN = 'local-test-token';

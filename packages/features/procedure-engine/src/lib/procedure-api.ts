@@ -1,4 +1,5 @@
 import type {
+  ReverseProcedureInstanceRequest,
   ApplyProcedureActionRequest,
   CreateProcedureDefinitionRequest,
   CreateProcedureAttachmentRequest,
@@ -194,6 +195,8 @@ export function startProcedureInstance(
         idempotencyKey?: string;
         /** Gắn dự án Workspace; công việc do Workspace tự tạo khi nhận sự kiện. */
         workspaceLink?: StartProcedureInstanceRequest['workspaceLink'];
+        /** Hồ sơ điều chỉnh của một hồ sơ đã huỷ hiệu lực. */
+        adjustmentOfInstanceId?: string;
       },
 ): Promise<ProcedureInstance> {
   const payload =
@@ -227,6 +230,20 @@ export function applyProcedureAction(
     idempotencyKey: newIdempotencyKey(),
   };
   return request<ProcedureInstance>(`/instances/${instanceId}/actions`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+/**
+ * Huỷ hiệu lực hồ sơ đã hoàn thành (chỉ Quản trị viên). Hồ sơ không mở lại:
+ * chuyển sang "Đã huỷ hiệu lực", module liên kết tự gỡ tác động qua sự kiện.
+ */
+export function reverseProcedureInstance(
+  instanceId: string,
+  input: ReverseProcedureInstanceRequest,
+): Promise<ProcedureInstance> {
+  return request<ProcedureInstance>(`/instances/${instanceId}/reverse`, {
     method: 'POST',
     body: JSON.stringify(input),
   });

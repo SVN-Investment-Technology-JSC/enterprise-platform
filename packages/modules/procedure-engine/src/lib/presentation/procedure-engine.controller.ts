@@ -1,5 +1,6 @@
 import type {
   ApplyProcedureActionRequest,
+  ReverseProcedureInstanceRequest,
   CreateProcedureAttachmentRequest,
   CreateProcedureDefinitionRequest,
   CreateProcedureDelegationRequest,
@@ -222,6 +223,13 @@ export class ProcedureEngineController {
     );
   }
 
+  /** Workspace hỏi trước khi huỷ hiệu lực công việc gắn hồ sơ (chỉ đọc). */
+  @Get('internal/instances/:instanceId/reversal-check')
+  internalReversalCheck(@Req() request: any, @Param('instanceId') instanceId: string) {
+    const tenantId = this.internalTenant(request);
+    return this.execute(() => this.procedures.checkReversalForService(tenantId, instanceId));
+  }
+
   /** Đối soát hàng loạt (tối đa 100 mã): trạng thái và bước hiện tại. */
   @Post('internal/instances/status')
   @HttpCode(200)
@@ -268,6 +276,19 @@ export class ProcedureEngineController {
   ) {
     return this.execute(() =>
       this.procedures.delegate(this.actor(request), instanceId, input),
+    );
+  }
+
+  /** Huỷ hiệu lực hồ sơ đã hoàn thành (chỉ admin); module liên kết tự hoàn tác. */
+  @Post('instances/:instanceId/reverse')
+  @HttpCode(200)
+  reverseInstance(
+    @Req() request: ProcedureRequest,
+    @Param('instanceId') instanceId: string,
+    @Body() input: ReverseProcedureInstanceRequest,
+  ) {
+    return this.execute(() =>
+      this.procedures.reverseInstance(this.actor(request), instanceId, input),
     );
   }
 

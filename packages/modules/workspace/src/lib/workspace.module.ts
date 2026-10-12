@@ -12,6 +12,8 @@ import {
 } from './application/external-reference.port.js';
 import { ExternalReferenceService } from './application/external-reference.service.js';
 import { FinanceService } from './application/finance.service.js';
+import { ProjectRequestService } from './application/project-request.service.js';
+import { WorkdayRuleService } from './application/workday-rule.service.js';
 import { MyWorkService } from './application/my-work.service.js';
 import {
   ORGANIZATION_DIRECTORY,
@@ -20,6 +22,7 @@ import {
 import { ProjectService } from './application/project.service.js';
 import { ReportService } from './application/report.service.js';
 import { WorkItemService } from './application/work-item.service.js';
+import { HttpProcedureReversalChecker } from './infrastructure/http-procedure-reversal-check.js';
 import { WorkspaceApplication } from './application/workspace.application.js';
 import { WORKSPACE_STORE, type WorkspaceStore } from './application/workspace-store.port.js';
 import { HttpExternalReferenceClient } from './infrastructure/http-external-reference.js';
@@ -76,7 +79,7 @@ import { WorkspaceController } from './presentation/workspace.controller.js';
       // phụ thuộc này là một chiều: project không biết gì về work item.
       provide: WorkItemService,
       useFactory: (store: WorkspaceStore, projects: ProjectService) =>
-        new WorkItemService(store, projects),
+        new WorkItemService(store, projects, new HttpProcedureReversalChecker()),
       inject: [WORKSPACE_STORE, ProjectService],
     },
     {
@@ -141,6 +144,17 @@ import { WorkspaceController } from './presentation/workspace.controller.js';
       inject: [WORKSPACE_STORE, ProjectService],
     },
     {
+      provide: WorkdayRuleService,
+      useFactory: (store: WorkspaceStore) => new WorkdayRuleService(store),
+      inject: [WORKSPACE_STORE],
+    },
+    {
+      provide: ProjectRequestService,
+      useFactory: (store: WorkspaceStore, projects: ProjectService) =>
+        new ProjectRequestService(store, projects, new HttpProcedureReversalChecker()),
+      inject: [WORKSPACE_STORE, ProjectService],
+    },
+    {
       provide: CatalogService,
       useFactory: (store: WorkspaceStore, projects: ProjectService) =>
         new CatalogService(store, projects),
@@ -159,6 +173,8 @@ import { WorkspaceController } from './presentation/workspace.controller.js';
     ReportService,
     ExternalReferenceService,
     FinanceService,
+    ProjectRequestService,
+    WorkdayRuleService,
     CatalogService,
     TenantDatabaseRegistry,
     PostgresPoolRegistry,

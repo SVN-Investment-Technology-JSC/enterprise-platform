@@ -407,7 +407,7 @@ integration('Annual leave by labor contract (PostgreSQL)', () => {
     expect(row).toMatchObject({ status: 'PENDING' });
     expect(Number(row.excess_days)).toBe(3);
     expect(Number(row.recovery_amount)).toBe(3_000_000);
-    expect((await ledger(id, type)).at(-1)).toMatchObject({
+    expect((await ledger(id, type)).find((r) => r.transaction_type === 'RECOVERY')).toMatchObject({
       transaction_type: 'RECOVERY',
       days: 3,
     });
@@ -464,7 +464,7 @@ integration('Annual leave by labor contract (PostgreSQL)', () => {
     const row = settled.find((s) => s.leave_type_id === type);
     expect(row).toMatchObject({ status: 'CLOSED' });
     expect(Number(row.unused_days)).toBe(3);
-    expect((await ledger(id, type)).at(-1)).toMatchObject({
+    expect((await ledger(id, type)).find((r) => r.transaction_type === 'RECOVERY')).toMatchObject({
       transaction_type: 'RECOVERY',
       days: -2,
     });

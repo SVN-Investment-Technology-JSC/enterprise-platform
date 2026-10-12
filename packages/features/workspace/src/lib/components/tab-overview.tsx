@@ -15,8 +15,8 @@ import {
   DEPENDENCY_TYPE_LABELS,
   ITEM_TYPE_LABELS,
   ROLE_LABELS,
-  WORK_ITEM_STATUS_LABELS,
   formatDate,
+  workItemStatusLabel,
 } from '../workspace-labels';
 import styles from '../workspace.module.scss';
 import { Choice } from './choice';
@@ -309,7 +309,7 @@ function DependencyPanel({
               <li key={edge.id}>
                 <span className={styles.memberName}>
                   {predecessor ? `${predecessor.code} · ${predecessor.title}` : edge.predecessorId}
-                  {predecessor ? ` — ${WORK_ITEM_STATUS_LABELS[predecessor.status]}` : ''}
+                  {predecessor ? ` — ${workItemStatusLabel(predecessor)}` : ''}
                 </span>
                 <span className={styles.memberRole}>
                   {DEPENDENCY_TYPE_LABELS[edge.dependencyType]}

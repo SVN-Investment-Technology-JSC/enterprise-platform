@@ -111,6 +111,42 @@ export const DEFAULT_NOTIFICATION_POLICIES: readonly NotificationPolicy[] = [
       sourceId: id(payload, 'instanceId'),
     }),
   }),
+  directPolicy({
+    eventType: 'procedure.instance.reversed',
+    module: 'procedure',
+    category: 'result',
+    priority: 'actionable',
+    recipients: { kind: 'payload', fields: ['requesterUserId', 'recipientUserIds'] },
+    actorField: 'actorUserId',
+    template: ({ payload }) => ({
+      title: 'Hồ sơ đã bị huỷ hiệu lực',
+      body: `Hồ sơ ${text(payload, 'instanceCode', '')} bị huỷ hiệu lực: ${text(payload, 'reason', 'không ghi lý do')}.`,
+      deepLink: `/procedures/instances/${id(payload, 'instanceId')}`,
+      sourceType: 'procedure_instance',
+      sourceId: `${id(payload, 'instanceId')}:reversed`,
+    }),
+  }),
+  directPolicy({
+    eventType: 'procedure.instance.adjustment_requested',
+    module: 'procedure',
+    category: 'assignment',
+    priority: 'actionable',
+    // Người giữ vai S của quy trình: gán thẳng cho người hoặc cho đơn vị/chức danh
+    // (worker giải ra người thật bằng sơ đồ tổ chức).
+    recipients: {
+      kind: 'procedure-assignments',
+      userFields: ['assigneeUserIds'],
+      assignmentsField: 'assignments',
+    },
+    // Không loại người huỷ: Quản trị viên cũng giữ vai S vẫn cần đường dẫn lập hồ sơ.
+    template: ({ payload }) => ({
+      title: 'Cần lập hồ sơ điều chỉnh',
+      body: text(payload, 'title', 'Một hồ sơ đã bị huỷ hiệu lực và cần lập lại.'),
+      deepLink: text(payload, 'launchUrl', `/modules/procedure#workspace`),
+      sourceType: 'procedure_instance',
+      sourceId: `${id(payload, 'instanceId')}:adjustment`,
+    }),
+  }),
   ...(['warning', 'breached'] as const).map((kind) =>
     directPolicy({
       eventType: `procedure.sla.${kind}`,
@@ -179,6 +215,64 @@ export const DEFAULT_NOTIFICATION_POLICIES: readonly NotificationPolicy[] = [
       sourceType: 'workspace_work_item_completed',
       // Mở lại rồi đóng lần nữa là một lần hoàn thành mới (xem changeStatus), nên khoá theo từng sự kiện.
       sourceId: `${id(payload, 'workItemId')}:${event.id}`,
+    }),
+  }),
+  directPolicy({
+    eventType: 'procedure.instance.reversal_failed',
+    module: 'procedure',
+    category: 'result',
+    priority: 'actionable',
+    recipients: { kind: 'payload', fields: ['recipientUserIds'] },
+    template: ({ payload }) => ({
+      title: 'Không huỷ hiệu lực được hồ sơ',
+      body: `Huỷ hiệu lực theo ${text(payload, 'originLabel', 'yêu cầu')} bị chặn: ${text(payload, 'reason', '').replace(/[.\s]+$/, '')}. Cần đối soát hai bên.`,
+      deepLink: `/procedures/instances/${id(payload, 'instanceId')}`,
+      sourceType: 'procedure_instance',
+      sourceId: `${id(payload, 'instanceId')}:reversal-failed`,
+    }),
+  }),
+  directPolicy({
+    eventType: 'hrm.request.reversal_failed',
+    module: 'hrm',
+    category: 'result',
+    priority: 'actionable',
+    recipients: { kind: 'payload', fields: ['recipientUserIds'] },
+    template: ({ payload }) => ({
+      title: 'Không huỷ hiệu lực được đơn HRM',
+      body: `${text(payload, 'reason', 'Đơn không huỷ được').replace(/[.\s]+$/, '')}. Cần đối soát với module đã yêu cầu huỷ.`,
+      deepLink: `/hrm/requests/${id(payload, 'requestId')}`,
+      sourceType: 'hrm_request',
+      sourceId: `${id(payload, 'requestId')}:reversal-failed`,
+    }),
+  }),
+  directPolicy({
+    eventType: 'hrm.request.adjustment_requested',
+    module: 'hrm',
+    category: 'assignment',
+    priority: 'actionable',
+    // Không loại người huỷ: người gửi đơn luôn cần đường dẫn lập đơn điều chỉnh.
+    recipients: { kind: 'payload', fields: ['requesterUserId'] },
+    template: ({ payload }) => ({
+      title: 'Cần gửi đơn điều chỉnh',
+      body: `${text(payload, 'title', 'Đơn của bạn đã bị huỷ hiệu lực')}. Lý do: ${text(payload, 'reason', '')}`,
+      deepLink: text(payload, 'launchUrl', '/modules/hrm/requests'),
+      sourceType: 'hrm_request',
+      sourceId: `${id(payload, 'requestId')}:adjustment`,
+    }),
+  }),
+  directPolicy({
+    eventType: 'workspace.work_item.reversed',
+    module: 'workspace',
+    category: 'result',
+    priority: 'actionable',
+    recipients: { kind: 'payload', fields: ['recipientUserIds'] },
+    actorField: 'actorUserId',
+    template: ({ payload }) => ({
+      title: 'Công việc đã bị huỷ hiệu lực',
+      body: `${text(payload, 'workItemCode', '')} ${text(payload, 'title', '')}: ${text(payload, 'reason', 'không ghi lý do')}`.trim(),
+      deepLink: workspaceTargetLink(payload, 'work-item', 'workItemId'),
+      sourceType: 'workspace_work_item_reversed',
+      sourceId: id(payload, 'workItemId'),
     }),
   }),
   ...(['due-soon', 'overdue'] as const).map((kind) =>

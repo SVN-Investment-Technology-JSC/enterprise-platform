@@ -1475,6 +1475,22 @@ export type HrmBusinessTripStatus =
   | 'REJECTED'
   | 'CANCELLED';
 
+/**
+ * "Dự án liên kết (Workspace)" của một đơn — trường dùng chung cho mọi loại đơn.
+ *
+ * `REGISTERING`: đã gửi sang Workspace, chờ mã DT. `REGISTERED`: Workspace đã
+ * nhận, có mã `projectRequestCode`. `REJECTED`: Workspace từ chối (người gửi
+ * không tham gia dự án, dự án đã đóng…), lý do ở `rejectionReason`.
+ */
+export interface HrmRequestProjectLink {
+  readonly projectId: string;
+  readonly projectCode?: string;
+  readonly projectName?: string;
+  readonly status: 'REGISTERING' | 'REGISTERED' | 'REJECTED';
+  readonly projectRequestCode?: string;
+  readonly rejectionReason?: string;
+}
+
 export interface HrmBusinessTripRequest extends HrmRequestReasonView, Partial<HrmRequestTimeRange> {
   readonly workItemId?: string | null;
   readonly subtaskId?: string | null;
@@ -1486,6 +1502,7 @@ export interface HrmBusinessTripRequest extends HrmRequestReasonView, Partial<Hr
   readonly destination: string;
   readonly projectId?: string | null;
   readonly projectName?: string | null;
+  readonly projectLink?: HrmRequestProjectLink;
   readonly fromDate: string;
   readonly toDate: string;
   readonly daysCount: number;
@@ -1511,6 +1528,8 @@ export interface CreateBusinessTripRequestPayload extends RequestReasonInput {
   readonly businessTripType?: HrmBusinessTripType;
   readonly destination: string;
   readonly projectId?: string | null;
+  /** Mã và tên dự án chỉ để hiển thị; Workspace gửi lại bản chuẩn khi đăng ký. */
+  readonly projectCode?: string | null;
   readonly projectName?: string | null;
   /**
    * Thời gian công tác "từ ngày giờ đến ngày giờ"; server suy ra `fromDate`, `toDate`, `daysCount` (số ngày lịch

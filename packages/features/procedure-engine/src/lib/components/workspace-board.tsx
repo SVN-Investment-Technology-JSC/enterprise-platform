@@ -11,6 +11,7 @@ import type {
   ProcedureAttachment,
   ProcedureDefinition,
   ProcedureInstance,
+  ReverseProcedureInstanceRequest,
   ProcedureInstanceStep,
   ProcedureRaciRole,
   ProcedureRuntimeAction,
@@ -26,7 +27,7 @@ import {
 import { MinimalPopupForm, SearchableSelect } from '@enterprise-platform/shared-ui';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, ChevronLeft, ChevronRight, Download, Plus, Search, X } from 'lucide-react';
+import { Check, ChevronDown, ChevronLeft, ChevronRight, Download, Plus, Search, X } from 'lucide-react';
 import type { AssetCatalogItem, MaterialCatalogItem } from '../procedure-api';
 import {
   loadProjectFinanceEnabled,
@@ -98,6 +99,7 @@ const STATUS_LABEL: Record<ProcedureInstance['status'], string> = {
   completed: 'Hoàn thành',
   rejected: 'Từ chối',
   cancelled: 'Đã huỷ',
+  reversed: 'Đã huỷ hiệu lực',
 };
 
 const STEP_STATUS_LABEL: Record<string, string> = {
@@ -118,6 +120,27 @@ const ACTION_LABEL: Record<ProcedureRuntimeAction, string> = {
   cancel: 'Huỷ hồ sơ',
   comment: 'Ghi nhận trao đổi',
 };
+
+/** Nội dung điền sẵn vào form tạo đơn khi module/hồ sơ khác chuyển sang. */
+export interface StartHandoff {
+  readonly definitionId?: string;
+  readonly startDueAt?: string;
+  readonly endDueAt?: string;
+  readonly projectId?: string;
+  /** Dòng giải thích hiện trên form, ví dụ "Hồ sơ điều chỉnh cho QT-001". */
+  readonly note?: string;
+}
+
+function splitLocalDateTime(iso?: string): { date: string; time: string } | undefined {
+  if (!iso) return undefined;
+  const value = new Date(iso);
+  if (Number.isNaN(value.getTime())) return undefined;
+  const pad = (part: number) => String(part).padStart(2, '0');
+  return {
+    date: `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}`,
+    time: `${pad(value.getHours())}:${pad(value.getMinutes())}`,
+  };
+}
 
 const ROLE_ORDER: readonly ProcedureRaciRole[] = ['S', 'R', 'E', 'C', 'A', 'I'];
 
@@ -179,16 +202,29 @@ function participantsOf(
  * đang giữ chỉ là thông tin phụ. Trước đây nhãn là tên người — vai S gán cho cả
  * công ty hiện thành tên trưởng công ty, dễ hiểu nhầm là người đó lập đơn.
  */
+type RoleSubject = {
+  title: string;
+  holders?: string;
+  /** Đơn vị chứa chức danh — để gom nhóm khi danh sách dài. */
+  unitName?: string;
+  /** Người đang giữ, từng tên — để đếm và tìm khi danh sách dài. */
+  holderNames?: readonly string[];
+};
+
 function subjectRoleLabels(snapshot?: TenantOrganizationSnapshot) {
-  const label = new Map<string, { title: string; holders?: string }>();
+  const label = new Map<string, RoleSubject>();
   if (!snapshot) return label;
-  for (const unit of snapshot.units ?? []) {
+  const units = snapshot.units ?? [];
+  const unitName = new Map(units.map((unit) => [unit.id, unit.name]));
+  for (const unit of units) {
     if (unit.typeCategory !== 'position') label.set(unit.id, { title: unit.name });
   }
   const members = snapshot.members ?? [];
   const positions = [
-    ...(snapshot.positions ?? []),
-    ...(snapshot.units ?? []).filter((unit) => unit.typeCategory === 'position'),
+    ...(snapshot.positions ?? []).map((position) => ({ id: position.id, name: position.name, unitId: position.unitId })),
+    ...units
+      .filter((unit) => unit.typeCategory === 'position')
+      .map((unit) => ({ id: unit.id, name: unit.name, unitId: unit.parentId })),
   ];
   for (const position of positions) {
     const holders = [
@@ -198,7 +234,12 @@ function subjectRoleLabels(snapshot?: TenantOrganizationSnapshot) {
           .map((member) => member.displayName),
       ),
     ];
-    label.set(position.id, { title: position.name, holders: holders.length ? holders.join(', ') : 'đang trống' });
+    label.set(position.id, {
+      title: position.name,
+      holders: holders.length ? holders.join(', ') : 'đang trống',
+      unitName: position.unitId ? unitName.get(position.unitId) : undefined,
+      holderNames: holders,
+    });
   }
   for (const member of members) {
     if (!label.has(member.userId)) label.set(member.userId, { title: member.displayName });
@@ -206,21 +247,118 @@ function subjectRoleLabels(snapshot?: TenantOrganizationSnapshot) {
   return label;
 }
 
-function roleLines(
-  step: ProcedureInstanceStep,
-  labels: ReadonlyMap<string, { title: string; holders?: string }>,
-) {
+function roleLines(step: ProcedureInstanceStep, labels: ReadonlyMap<string, RoleSubject>) {
   return ROLE_ORDER.flatMap((role) => {
     const items = step.assignments
       .filter((item) => item.role === role)
-      .map((item) => {
+      .map((item): RoleSubject => {
         const known = labels.get(item.subjectId);
         return known ?? { title: item.subjectLabel ?? item.subjectId };
       });
     return items.length > 0
-      ? [{ role, names: items.map((item) => item.title).join(', '), holders: items.map((item) => item.holders).filter(Boolean).join(', ') }]
+      ? [{ role, items, names: items.map((item) => item.title).join(', '), holders: items.map((item) => item.holders).filter(Boolean).join(', ') }]
       : [];
   });
+}
+
+/** Từ ngần này chức danh trở lên, dòng vai chỉ hiện số và nút mở danh sách. */
+const ROLE_COMPACT_FROM = 4;
+
+/** Bỏ dấu để tìm "thi nghiem" ra "Thí nghiệm". */
+function foldText(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'D')
+    .toLowerCase();
+}
+
+/**
+ * Một dòng vai trên timeline. Vai gán cho ít chức danh thì ghi thẳng tên;
+ * gán cho nhiều (cả công ty) thì chỉ ghi số và mở được danh sách gom theo đơn vị,
+ * để thẻ bước không thành hai cột chữ đẩy ô ý kiến ra khỏi màn hình.
+ */
+function RoleLine({ line }: { line: ReturnType<typeof roleLines>[number] }) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  if (line.items.length < ROLE_COMPACT_FROM) {
+    return (
+      <span className={styles.roleTag} title={line.holders ? `Đang giữ: ${line.holders}` : undefined}>
+        <i className={`${styles.role} ${styles[`role${line.role}`]}`}>{line.role}</i>
+        <span className={styles.roleName}>{line.names}</span>
+        {line.holders ? <span className={styles.roleHolders}>· {line.holders}</span> : null}
+      </span>
+    );
+  }
+
+  const people = new Set(line.items.flatMap((item) => item.holderNames ?? []));
+  const titleCount = new Map<string, number>();
+  for (const item of line.items) titleCount.set(item.title, (titleCount.get(item.title) ?? 0) + 1);
+  const q = foldText(query.trim());
+  const groups = new Map<string, RoleSubject[]>();
+  for (const item of line.items) {
+    const unit = item.unitName ?? 'Khác';
+    const hit =
+      !q ||
+      foldText(item.title).includes(q) ||
+      foldText(unit).includes(q) ||
+      (item.holderNames ?? []).some((name) => foldText(name).includes(q));
+    if (!hit) continue;
+    const list = groups.get(unit) ?? [];
+    list.push(item);
+    groups.set(unit, list);
+  }
+  const listId = `role-list-${line.role}`;
+
+  return (
+    <div className={styles.roleGroup}>
+      <div className={styles.roleSummary}>
+        <i className={`${styles.role} ${styles[`role${line.role}`]}`}>{line.role}</i>
+        <span className={styles.roleCount}>
+          {line.items.length} chức danh · {people.size} người
+        </span>
+        <button
+          type="button"
+          className={styles.roleToggle}
+          aria-expanded={open}
+          aria-controls={listId}
+          onClick={() => setOpen((value) => !value)}
+        >
+          {open ? 'Thu gọn' : 'Xem danh sách'}
+          <ChevronDown size={12} aria-hidden="true" />
+        </button>
+      </div>
+      {open ? (
+        <div className={styles.roleListBox} id={listId}>
+          <div className={styles.roleListSearch}>
+            <input
+              type="search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Tìm chức danh hoặc người…"
+              aria-label="Tìm chức danh hoặc người"
+            />
+          </div>
+          {groups.size === 0 ? (
+            <div className={styles.roleEmpty}>Không có chức danh hay người nào khớp.</div>
+          ) : (
+            [...groups].map(([unit, items]) => (
+              <div key={unit}>
+                <div className={styles.roleUnit}>{unit}</div>
+                {items.map((item, index) => (
+                  <div key={`${item.title}-${index}`} className={styles.rolePos}>
+                    <span>{(titleCount.get(item.title) ?? 0) > 1 ? `${item.title} (${unit})` : item.title}</span>
+                    <span>{item.holders}</span>
+                  </div>
+                ))}
+              </div>
+            ))
+          )}
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 export function WorkspaceBoard({
@@ -251,6 +389,9 @@ export function WorkspaceBoard({
   onUploadFile,
   onSendComment,
   handoffTitle,
+  handoff,
+  canReverse = false,
+  onReverse,
   headSlot,
 }: {
   /**
@@ -300,6 +441,10 @@ export function WorkspaceBoard({
   onUploadFile?: (instanceId: string, file: File) => void;
   onSendComment?: (instanceId: string, body: string, mentions: string[], replyToId?: string) => void;
   handoffTitle?: string;
+  handoff?: StartHandoff;
+  /** Quản trị viên Quy trình: được huỷ hiệu lực hồ sơ đã hoàn thành. */
+  canReverse?: boolean;
+  onReverse?: (instanceId: string, input: ReverseProcedureInstanceRequest) => Promise<void>;
   initialInstanceId?: string;
 }) {
   const [filter, setFilter] = useState<Filter>('all');
@@ -434,8 +579,20 @@ export function WorkspaceBoard({
     if (handoffTitle && canCreateInstances) {
       setCreating(true);
       setJobTitle(handoffTitle);
+      if (handoff?.definitionId) setSelectedCreateDefId(handoff.definitionId);
+      if (handoff?.projectId) setProjectId(handoff.projectId);
+      const start = splitLocalDateTime(handoff?.startDueAt);
+      const end = splitLocalDateTime(handoff?.endDueAt);
+      if (start && end) {
+        setStartDate(start.date);
+        setStartDateText(formatDateForDisplay(start.date));
+        setStartTime(start.time);
+        setEndDate(end.date);
+        setEndDateText(formatDateForDisplay(end.date));
+        setEndTime(end.time);
+      }
     }
-  }, [handoffTitle, canCreateInstances]);
+  }, [handoffTitle, handoff, canCreateInstances]);
 
   const published = definitions.filter((item) => item.status === 'published');
   const names = useMemo(() => subjectNames(organization), [organization]);
@@ -500,6 +657,11 @@ export function WorkspaceBoard({
     visible.find((instance) => instance.id === selectedId) ?? paged[0] ?? visible[0];
 
   const [headerCancelOpen, setHeaderCancelOpen] = useState(false);
+  const [reverseOpen, setReverseOpen] = useState(false);
+  const [reverseReason, setReverseReason] = useState('');
+  const [reverseAdjust, setReverseAdjust] = useState(true);
+  const [reverseError, setReverseError] = useState<string>();
+  const [reverseBusy, setReverseBusy] = useState(false);
 
   useEffect(() => {
     setComment('');
@@ -560,11 +722,12 @@ export function WorkspaceBoard({
     const completed = instances.filter((i) => i.status === 'completed').length;
     const rejected = instances.filter((i) => i.status === 'rejected').length;
     const cancelled = instances.filter((i) => i.status === 'cancelled').length;
+    const reversed = instances.filter((i) => i.status === 'reversed').length;
     const urgent = instances.filter((inst) => {
       const sla = evaluateInstanceSla(inst);
       return inst.status === 'running' && (sla.state === 'breached' || sla.state === 'warning');
     }).length;
-    return { total, processing, completed, rejected, cancelled, urgent };
+    return { total, processing, completed, rejected, cancelled, reversed, urgent };
   }, [instances]);
 
   const headActions = (
@@ -709,6 +872,10 @@ export function WorkspaceBoard({
               }).then(() => setCreating(false));
             }}
           >
+            {handoff?.note ? (
+              <p className={styles.reversalNote}>{handoff.note}</p>
+            ) : null}
+
             {/* Tên công việc * */}
             <div className={styles.createFieldGroup}>
               <label className={styles.createFieldLabel} htmlFor="create-request-title">
@@ -718,7 +885,7 @@ export function WorkspaceBoard({
                 id="create-request-title"
                 type="text"
                 className={styles.createTextInput}
-                placeholder="VD: Kiểm tra van xả áp định kỳ, Thay lọc khí AHU…"
+                placeholder="Tiêu đề hồ sơ"
                 value={jobTitle}
                 onChange={(e) => setJobTitle(e.target.value)}
                 autoFocus
@@ -991,6 +1158,102 @@ export function WorkspaceBoard({
         </MinimalPopupForm>
       ) : null}
 
+      {reverseOpen && selected && onReverse ? (
+        <MinimalPopupForm
+          isOpen={reverseOpen}
+          title="Huỷ hiệu lực hồ sơ"
+          subtitle={`${selected.code} · ${selected.title}`}
+          onClose={() => setReverseOpen(false)}
+          maxWidth={560}
+        >
+          <form
+            className={styles.createFormBody}
+            onSubmit={(event) => {
+              event.preventDefault();
+              const reason = reverseReason.trim();
+              if (reason.length < 3) return;
+              setReverseBusy(true);
+              setReverseError(undefined);
+              onReverse(selected.id, { reason, createAdjustment: reverseAdjust })
+                .then(() => setReverseOpen(false))
+                .catch((cause: unknown) =>
+                  setReverseError(
+                    cause instanceof Error ? cause.message : 'Không huỷ hiệu lực được hồ sơ.',
+                  ),
+                )
+                .finally(() => setReverseBusy(false));
+            }}
+          >
+            <p className={styles.reversalNote}>
+              Hồ sơ không mở lại: chuyển sang "Đã huỷ hiệu lực", giữ nguyên lịch sử phê duyệt.
+              {selected.sourceType === 'hrm_request'
+                ? ' Đơn HRM đứng sau hồ sơ cũng bị huỷ hiệu lực (công, phép, tạm ứng được hoàn lại).'
+                : ''}
+              {selected.workspaceLink?.status === 'linked'
+                ? ` Công việc ${selected.workspaceLink.workItemCode ?? ''} của dự án ${selected.workspaceLink.projectCode} được báo để xử lý theo.`
+                : ''}{' '}
+              Bị chặn nếu kỳ công/kỳ lương đã chốt hoặc vật tư đã xuất kho.
+            </p>
+
+            <div className={styles.createFieldGroup}>
+              <label className={styles.createFieldLabel} htmlFor="reverse-reason">
+                Lý do huỷ hiệu lực <span className={styles.createRequiredStar}>*</span>
+              </label>
+              <textarea
+                id="reverse-reason"
+                className={styles.createTextInput}
+                rows={3}
+                maxLength={1000}
+                placeholder="VD: Sai thông tin số ngày nghỉ, cần lập lại đơn"
+                value={reverseReason}
+                onChange={(event) => setReverseReason(event.target.value)}
+                autoFocus
+              />
+            </div>
+
+            <label className={styles.reverseCheck}>
+              <input
+                type="checkbox"
+                checked={reverseAdjust}
+                onChange={(event) => setReverseAdjust(event.target.checked)}
+              />
+              <span>
+                <strong>Lập hồ sơ điều chỉnh</strong>
+                <br />
+                <span style={{ color: 'var(--muted)' }}>
+                  {selected.sourceType === 'hrm_request'
+                    ? 'Người gửi đơn HRM nhận thông báo kèm form đơn mới điền sẵn ở HRM.'
+                    : 'Người khởi tạo (vai S) nhận thông báo kèm form tạo đơn điền sẵn, liên kết với hồ sơ này.'}
+                </span>
+              </span>
+            </label>
+
+            {reverseError ? (
+              <p className={styles.createScheduleError} role="alert">
+                {reverseError}
+              </p>
+            ) : null}
+
+            <div className={styles.createFormActions}>
+              <button
+                type="button"
+                className={styles.createCancelBtn}
+                onClick={() => setReverseOpen(false)}
+              >
+                Đóng
+              </button>
+              <button
+                type="submit"
+                className={styles.createSubmitBtn}
+                disabled={reverseBusy || reverseReason.trim().length < 3}
+              >
+                {reverseBusy ? 'Đang xử lý…' : 'Huỷ hiệu lực'}
+              </button>
+            </div>
+          </form>
+        </MinimalPopupForm>
+      ) : null}
+
       {/* Thanh lọc: trạng thái thành tab có số đếm, bộ lọc khác gọn trên cùng một hàng. */}
       <div className={styles.toolbar}>
         <div className={styles.statusTabs} role="tablist" aria-label="Lọc theo trạng thái">
@@ -1002,6 +1265,7 @@ export function WorkspaceBoard({
               ['completed', 'Hoàn thành', stats.completed],
               ['rejected', 'Từ chối', stats.rejected],
               ['cancelled', 'Đã huỷ', stats.cancelled],
+              ['reversed', 'Đã huỷ hiệu lực', stats.reversed],
             ] as const
           ).map(([value, label, count]) => (
             <button
@@ -1036,29 +1300,37 @@ export function WorkspaceBoard({
               onChange={(event) => { setQuery(event.target.value); setPage(1); }}
             />
           </label>
-          <select
-            className={styles.filterSelect}
-            aria-label="Lọc theo SLA"
+          <SearchableSelect
+            className={styles.filterCombo}
+            clearable={false}
             value={slaFilter}
-            onChange={(event) => { setSlaFilter(event.target.value as typeof slaFilter); setPage(1); }}
-          >
-            <option value="all">SLA: Tất cả</option>
-            <option value="breached">Quá hạn</option>
-            <option value="warning">Sắp đến hạn</option>
-            <option value="ok">Còn hạn</option>
-            <option value="none">Không cài</option>
-          </select>
-          <select
-            className={styles.filterSelect}
-            aria-label="Lọc theo nguồn"
+            options={[
+              { value: 'all', label: 'SLA: Tất cả' },
+              { value: 'breached', label: 'Quá hạn' },
+              { value: 'warning', label: 'Sắp đến hạn' },
+              { value: 'ok', label: 'Còn hạn' },
+              { value: 'none', label: 'Không cài' },
+            ]}
+            onChange={(value) => {
+              setSlaFilter((value || 'all') as typeof slaFilter);
+              setPage(1);
+            }}
+          />
+          <SearchableSelect
+            className={styles.filterCombo}
+            clearable={false}
             value={source}
-            onChange={(event) => { setSource(event.target.value as typeof source); setPage(1); }}
-          >
-            <option value="all">Nguồn: Tất cả</option>
-            <option value="manual">Thủ công</option>
-            <option value="maintenance_occurrence">Bảo trì</option>
-            <option value="auto_from_parent">Tự động</option>
-          </select>
+            options={[
+              { value: 'all', label: 'Nguồn: Tất cả' },
+              { value: 'manual', label: 'Thủ công' },
+              { value: 'maintenance_occurrence', label: 'Bảo trì' },
+              { value: 'auto_from_parent', label: 'Tự động' },
+            ]}
+            onChange={(value) => {
+              setSource((value || 'all') as typeof source);
+              setPage(1);
+            }}
+          />
           {filtersActive || query || filter !== 'all' ? (
             <button
               type="button"
@@ -1087,18 +1359,19 @@ export function WorkspaceBoard({
             <span>
               <strong>{visible.length}</strong> hồ sơ
             </span>
-            <select
-              className={styles.compactSelect}
-              aria-label="Sắp xếp"
+            <SearchableSelect
+              className={styles.sortCombo}
+              clearable={false}
               value={dateSort}
-              onChange={(event) => {
-                setDateSort(event.target.value as 'newest' | 'oldest');
+              options={[
+                { value: 'newest', label: 'Mới nhất' },
+                { value: 'oldest', label: 'Cũ nhất' },
+              ]}
+              onChange={(value) => {
+                setDateSort((value || 'newest') as 'newest' | 'oldest');
                 setPage(1);
               }}
-            >
-              <option value="newest">Mới nhất</option>
-              <option value="oldest">Cũ nhất</option>
-            </select>
+            />
           </div>
 
           {visible.length === 0 ? (
@@ -1134,7 +1407,9 @@ export function WorkspaceBoard({
                         <td className={styles.tdTitle} title={instance.title}>
                           <span className={styles.clamp2}>{instance.title}</span>
                         </td>
-                        <td className={styles.tdMuted}>{instance.definitionCode}</td>
+                        <td className={styles.tdMuted} title={instance.definitionName}>
+                          {instance.definitionCode}
+                        </td>
                         <td
                           className={styles.tdNum}
                           title={progress.isEstimate ? 'Còn điểm rẽ nhánh phía trước nên tổng số bước là ước lượng' : undefined}
@@ -1207,20 +1482,16 @@ export function WorkspaceBoard({
               <span className={styles.pagerInfo}>
                 {pageStart}–{pageEnd} / {visible.length}
               </span>
-              <select
-                className={styles.compactSelect}
-                aria-label="Số hồ sơ mỗi trang"
-                value={pageSize}
-                onChange={(e) => {
-                  setPageSize(Number(e.target.value));
+              <SearchableSelect
+                className={styles.pagerCombo}
+                clearable={false}
+                value={String(pageSize)}
+                options={[15, 30, 45, 60].map((size) => ({ value: String(size), label: `${size} / trang` }))}
+                onChange={(value) => {
+                  setPageSize(Number(value) || 15);
                   setPage(1);
                 }}
-              >
-                <option value={15}>15 / trang</option>
-                <option value={30}>30 / trang</option>
-                <option value={45}>45 / trang</option>
-                <option value={60}>60 / trang</option>
-              </select>
+              />
               <button
                 type="button"
                 className={styles.pagerBtn}
@@ -1305,9 +1576,87 @@ export function WorkspaceBoard({
                       ) : null}
                     </div>
                   ) : null}
+
+                  {/* Huỷ hiệu lực: hồ sơ đã hoàn thành, chỉ Quản trị viên Quy trình */}
+                  {canReverse && onReverse && selected.status === 'completed' ? (
+                    <button
+                      type="button"
+                      className={styles.headerCancelBtn}
+                      disabled={reverseBusy}
+                      onClick={() => {
+                        setReverseReason('');
+                        setReverseAdjust(true);
+                        setReverseError(undefined);
+                        setReverseOpen(true);
+                      }}
+                    >
+                      Huỷ hiệu lực
+                    </button>
+                  ) : null}
                 </div>
 
                 <h2 className={styles.detailTitle}>{selected.title}</h2>
+                {selected.reversal ? (
+                  <div className={styles.reversalNote} role="note">
+                    <strong className={styles.reversalTitle}>Đã huỷ hiệu lực</strong>
+                    <span className={styles.reversalMeta}>
+                      {selected.reversal.reversedByName ?? 'Quản trị viên'} ·{' '}
+                      {dateTime.format(new Date(selected.reversal.reversedAt))}
+                    </span>
+                    <span>
+                      <b>Lý do:</b> {selected.reversal.reason}
+                    </span>
+                    {(() => {
+                      const adjustments = instances.filter(
+                        (item) => item.adjustmentOf?.instanceId === selected.id,
+                      );
+                      if (adjustments.length)
+                        return (
+                          <span>
+                            <b>Hồ sơ điều chỉnh:</b>{' '}
+                            {adjustments.map((item, index) => (
+                              <span key={item.id}>
+                                {index ? ', ' : ''}
+                                <button
+                                  type="button"
+                                  className={styles.linkButton}
+                                  onClick={() => setSelectedId(item.id)}
+                                >
+                                  {item.code}
+                                </button>
+                              </span>
+                            ))}
+                          </span>
+                        );
+                      if (!selected.reversal.adjustmentRequested) return null;
+                      return (
+                        <span>
+                          <b>Điều chỉnh:</b>{' '}
+                          {selected.sourceType === 'hrm_request'
+                            ? 'người gửi đơn đã được mời gửi đơn điều chỉnh ở HRM.'
+                            : 'đang chờ người giữ vai S lập hồ sơ điều chỉnh.'}
+                        </span>
+                      );
+                    })()}
+                  </div>
+                ) : null}
+                {selected.adjustmentOf ? (
+                  <p className={styles.createFormHint} style={{ margin: '0 0 8px' }}>
+                    Hồ sơ điều chỉnh cho{' '}
+                    {instances.some((item) => item.id === selected.adjustmentOf?.instanceId) ? (
+                      <button
+                        type="button"
+                        className={styles.linkButton}
+                        onClick={() => setSelectedId(selected.adjustmentOf?.instanceId)}
+                      >
+                        {selected.adjustmentOf.instanceCode}
+                      </button>
+                    ) : (
+                      <strong>{selected.adjustmentOf.instanceCode}</strong>
+                    )}
+                    {' '}đã bị huỷ hiệu lực.
+                  </p>
+                ) : null}
 
                 <dl className={styles.metaLine}>
                   <div>
@@ -1458,19 +1807,7 @@ export function WorkspaceBoard({
 
                               <div className={styles.roleList}>
                                 {roleLines(step, roleLabels).map((line) => (
-                                  <span
-                                    key={line.role}
-                                    className={styles.roleTag}
-                                    title={line.holders ? `Đang giữ: ${line.holders}` : undefined}
-                                  >
-                                    <i className={`${styles.role} ${styles[`role${line.role}`]}`}>
-                                      {line.role}
-                                    </i>
-                                    <span className={styles.roleName}>{line.names}</span>
-                                    {line.holders ? (
-                                      <span className={styles.roleHolders}>· {line.holders}</span>
-                                    ) : null}
-                                  </span>
+                                  <RoleLine key={line.role} line={line} />
                                 ))}
                               </div>
 
@@ -1953,10 +2290,10 @@ function ActionPanel({
 
   // Role-adaptive textarea label
   const textareaLabel = myRoles.includes('R')
-    ? 'Mô tả kết quả thực hiện (Ctrl+Enter để gửi)'
+    ? 'Mô tả kết quả thực hiện'
     : myRoles.includes('C')
-      ? 'Ý kiến chuyên môn / thẩm định kỹ thuật (Ctrl+Enter để gửi)'
-      : 'Ghi chú phản hồi / lý do từ chối (Ctrl+Enter để gửi)';
+      ? 'Ý kiến chuyên môn / thẩm định'
+      : 'Ghi chú phản hồi / lý do từ chối';
 
   // Pure "I" (Informed) role check — read-only notice
   const isRoleI = myRoles.length === 1 && myRoles[0] === 'I' && actions.length === 0;
@@ -1969,7 +2306,7 @@ function ActionPanel({
       {/* Role badges */}
       {myRoles.length > 0 || authorization?.isDelegated || authorization?.isEscalated ? (
         <p className={styles.myRoles}>
-          Vai trò bạn giữ ở bước này:{' '}
+          Vai của bạn:{' '}
           {myRoles.map((role) => (
             <i key={role} className={`${styles.role} ${styles[`role${role}`]}`}>
               {role}
@@ -1981,13 +2318,21 @@ function ActionPanel({
       ) : null}
 
       {/* Pure I (Informed) notice */}
-      {isRoleI ? (
+      {instance.status !== 'running' ? (
         <p className={styles.panelHint}>
-          ℹ Bạn giữ vai trò <strong>Thông báo (I)</strong> ở bước này — bạn có thể theo dõi tiến trình, trao đổi và xem hồ sơ đính kèm mà không cần thực hiện phê duyệt.
+          {instance.status === 'reversed'
+            ? 'Hồ sơ đã huỷ hiệu lực, không còn bước cần xử lý.'
+            : instance.status === 'completed'
+              ? 'Hồ sơ đã hoàn thành, không còn bước cần xử lý.'
+              : 'Hồ sơ đã kết thúc, không còn bước cần xử lý.'}
+        </p>
+      ) : isRoleI ? (
+        <p className={styles.panelHint}>
+          Bạn giữ vai I ở bước này.
         </p>
       ) : !canAct ? (
         <p className={styles.panelHint}>
-          Bạn không giữ vai trò nào ở bước hiện tại — chỉ theo dõi được tiến trình.
+          Bạn không giữ vai ở bước này.
         </p>
       ) : (
         <>

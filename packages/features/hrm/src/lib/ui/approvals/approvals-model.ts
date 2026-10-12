@@ -39,6 +39,8 @@ export type Link = {
 };
 export type Row = Raw & {
   key: string;
+  /** Lý do huỷ hiệu lực, khi đơn đã duyệt bị huỷ hiệu lực. */
+  reversalReason?: string;
   source: Source;
   employeeName: string;
   employeeCode: string;
@@ -98,6 +100,7 @@ export const states: Record<string, string> = {
   APPROVED: 'Đã duyệt',
   REJECTED: 'Từ chối',
   CANCELLED: 'Đã rút / hủy',
+  REVERSED: 'Đã hủy hiệu lực',
   DISBURSED: 'Đã giải ngân',
   REPAID: 'Đã thu hồi',
 };
@@ -110,6 +113,8 @@ export const statusTone = (s: string): string => {
       return 'bg-rose-50 text-rose-700';
     case 'CANCELLED':
       return 'bg-slate-100 text-slate-600';
+    case 'REVERSED':
+      return 'bg-orange-50 text-orange-800';
     case 'PENDING':
       return 'bg-orange-50 text-orange-600';
     case 'PEER_CONFIRMED':

@@ -175,10 +175,16 @@ function ApprovalsContent() {
   const load = useCallback(async () => {
     const available = availableSources;
     const progressQuery = workflowFilterQuery({ currentStep });
-    const [employees, links] = await Promise.all([
+    const [employees, links, reversals] = await Promise.all([
       hrmEmployeeOptions(true).catch(() => []),
       hrmFetch<{ data: Link[] }>('/request-workflows').catch(() => ({ data: [] as Link[] })),
+      // Không đọc được thì vẫn hiện danh sách, chỉ thiếu nhãn "Đã hủy hiệu lực".
+      Promise.resolve(hrmFetch<{ data: { requestId: string; reason: string }[] }>('/request-reversals')).then(
+        (res) => res?.data ?? [],
+        () => [] as { requestId: string; reason: string }[],
+      ),
     ]);
+    const reversedReasons = new Map(reversals.map((r) => [r.requestId, r.reason]));
     const people = new Map(employees.map((e) => [e.value, { ...splitEmployeeLabel(e.label), department: e.department ?? '' }]));
     const linkOf = new Map(links.data.map((l) => [`${l.request_kind}:${l.request_id}`, l]));
     const text = (value: unknown) => (typeof value === 'string' && value ? value : '');
@@ -206,6 +212,9 @@ function ApprovalsContent() {
             const person = people.get(employeeId);
             return {
               ...r,
+              // Đơn đã duyệt rồi bị huỷ hiệu lực: tách khỏi "Đã rút / hủy".
+              status: r.status === 'CANCELLED' && reversedReasons.has(r.id) ? 'REVERSED' : r.status,
+              reversalReason: reversedReasons.get(r.id),
               key: `${available[i].kind}:${r.id}`,
               source: available[i],
               employeeName: text(r.employee_name) || text(r.employeeName) || person?.name || employeeId || '—',
@@ -596,7 +605,12 @@ function ApprovalsContent() {
                           </p>
                         </td>
                         <td className="px-2 py-2.5">
-                          <span className={`inline-flex rounded-lg px-2.5 py-1 text-[12px] font-semibold ${statusTone(r.status)}`}>{states[r.status] || r.status}</span>
+                          <span
+                            className={`inline-flex rounded-lg px-2.5 py-1 text-[12px] font-semibold ${statusTone(r.status)}`}
+                            title={r.reversalReason ? `Lý do: ${r.reversalReason}` : undefined}
+                          >
+                            {states[r.status] || r.status}
+                          </span>
                           {isOverdue(r) ? <span className="ml-1.5 text-[10.5px] font-semibold text-rose-600">Quá hạn</span> : null}
                         </td>
                       </tr>

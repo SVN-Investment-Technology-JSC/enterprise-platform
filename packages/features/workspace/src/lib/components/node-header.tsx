@@ -11,10 +11,10 @@ import {
   PROJECT_STATUS_LABELS,
   PROJECT_STATUS_TONE,
   ROLE_LABELS,
-  WORK_ITEM_STATUS_LABELS,
-  WORK_ITEM_STATUS_TONE,
   formatDate,
   isOverdue,
+  workItemStatusLabel,
+  workItemStatusTone,
 } from '../workspace-labels';
 import styles from '../workspace.module.scss';
 import { ProcedureActions, type ProcedureLink } from './procedure-actions';
@@ -87,10 +87,10 @@ export function NodeHeader({
   const percent = selected?.progressPercent ?? project.progressPercent;
 
   const statusTone = selected
-    ? WORK_ITEM_STATUS_TONE[selected.status]
+    ? workItemStatusTone(selected)
     : PROJECT_STATUS_TONE[project.status];
   const statusLabel = selected
-    ? WORK_ITEM_STATUS_LABELS[selected.status]
+    ? workItemStatusLabel(selected)
     : PROJECT_STATUS_LABELS[project.status];
   const start = selected ? selected.plannedStart : project.startDate;
   const end = selected ? selected.plannedEnd : project.endDate;
@@ -179,6 +179,73 @@ export function NodeHeader({
         </div>
       </div>
 
+      {selected?.reversal ? (
+        <div
+          role="note"
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 3,
+            margin: '6px 0',
+            padding: '8px 10px',
+            border: '1px solid #fed7aa',
+            borderRadius: 8,
+            background: '#fff7ed',
+            color: '#7c2d12',
+            fontSize: 12.5,
+            lineHeight: 1.5,
+          }}
+        >
+          <strong style={{ color: '#9a3412' }}>Đã huỷ hiệu lực</strong>
+          <span style={{ fontSize: 11.5, color: '#9a3412', opacity: 0.85 }}>
+            {selected.reversal.reversedByName ?? 'Quản trị viên'} ·{' '}
+            {new Date(selected.reversal.reversedAt).toLocaleString('vi-VN')}
+          </span>
+          <span>
+            <b>Lý do:</b> {selected.reversal.reason}
+          </span>
+          {(() => {
+            const adjustment = items.find(
+              (item) => item.adjustmentOfId === selected.id && item.status !== 'cancelled',
+            );
+            if (adjustment)
+              return (
+                <span>
+                  <b>Công việc điều chỉnh:</b>{' '}
+                  <button
+                    type="button"
+                    className={styles.crumbLink}
+                    onClick={() => onSelect({ kind: 'work-item', id: adjustment.id })}
+                  >
+                    {adjustment.code}
+                  </button>
+                </span>
+              );
+            return selected.reversal.adjustmentRequested ? (
+              <span>
+                <b>Điều chỉnh:</b> đang chờ lập công việc điều chỉnh.
+              </span>
+            ) : null;
+          })()}
+        </div>
+      ) : null}
+      {selected?.adjustmentOfId ? (
+        <p style={{ margin: '6px 0', fontSize: 12.5, color: 'var(--muted, #64748b)' }}>
+          Công việc điều chỉnh cho{' '}
+          {(() => {
+            const original = items.find((item) => item.id === selected.adjustmentOfId);
+            return original ? (
+              <button type="button" className={styles.crumbLink} onClick={() => onSelect({ kind: 'work-item', id: original.id })}>
+                {original.code}
+              </button>
+            ) : (
+              'một công việc'
+            );
+          })()}{' '}
+          đã huỷ hiệu lực.
+        </p>
+      ) : null}
+
       <div className={styles.nodeMeta}>
         <span>
           {selected ? 'Phụ trách' : 'Vai trò của tôi'}{' '}
@@ -223,12 +290,17 @@ export function NodeHeader({
           )}
           {overdue > 0 ? <span className={styles.textDanger}> · {overdue} quá hạn</span> : null}
         </span>
-        <span className={styles.nodeProgress}>
-          <span className={styles.progressTrack} aria-label={`Tiến độ ${percent}%`}>
-            <span className={styles.progressFill} style={{ width: `${percent}%` }} />
+        {selected?.reversal ? (
+          // Việc huỷ hiệu lực không còn tính tiến độ; hiện 100% sẽ gây hiểu nhầm.
+          <span className={styles.muted}>Không tính vào tiến độ</span>
+        ) : (
+          <span className={styles.nodeProgress}>
+            <span className={styles.progressTrack} aria-label={`Tiến độ ${percent}%`}>
+              <span className={styles.progressFill} style={{ width: `${percent}%` }} />
+            </span>
+            <b>{percent}%</b>
           </span>
-          <b>{percent}%</b>
-        </span>
+        )}
       </div>
 
       {selected && onStartProcedure ? (
