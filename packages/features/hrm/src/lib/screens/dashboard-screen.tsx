@@ -33,7 +33,6 @@ import {
   PayslipCard,
   PunchCard,
   QuickActions,
-  WeekSchedule,
   type PunchProps,
 } from '../ui/dashboard/my-dashboard';
 import { useMyDashboard } from '../ui/dashboard/use-my-dashboard';
@@ -331,7 +330,6 @@ export default function HrmDashboardPage() {
             </div>
             <div className="space-y-4 xl:col-span-3">
               <QuickActions />
-              <WeekSchedule data={my} />
               <NotificationsCard />
             </div>
           </div>

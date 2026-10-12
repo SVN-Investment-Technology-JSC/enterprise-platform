@@ -192,10 +192,10 @@ export function HrmActionDialog({
       <DialogContent
         className={`${
           action.columns === 3
-            ? 'sm:max-w-[960px]'
+            ? 'sm:max-w-[1040px]'
             : action.columns === 2
-            ? 'sm:max-w-[840px]'
-            : 'sm:max-w-[640px]'
+            ? 'sm:max-w-[920px]'
+            : 'sm:max-w-[720px]'
         } max-h-[90vh] p-0 flex flex-col overflow-hidden bg-white`}
       >
         <DialogHeader className="shrink-0 border-b border-slate-200 bg-slate-50/80 px-5 py-4 pr-12">

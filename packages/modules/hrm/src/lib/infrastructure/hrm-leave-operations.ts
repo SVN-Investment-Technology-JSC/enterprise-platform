@@ -33,6 +33,8 @@ async function todayInDb(db: PoolClient): Promise<string> {
 import type { CreateLeaveRequestPayload } from '@enterprise-platform/contracts-hrm';
 import { calendarDatesOf, resolveRequestTime } from './hrm-request-time.js';
 
+import { pendingReservedDays } from './hrm-leave-balance.js';
+
 export { ensureLeaveBalance, applyLeaveDelta } from './hrm-leave-balance.js';
 /** Thời gian đã chốt của đơn nghỉ (sau khi server tính theo ca). */
 export interface LeaveTime {
@@ -248,16 +250,25 @@ export async function createLeave(
         Number(balance.accrued),
         await todayInDb(db),
       );
-      if (
-        Number(balance.remaining) +
-          usable.extra -
-          amount <
-        -Number(type.negative_limit) - 0.005
-      )
+      // Đơn nghỉ khác đang chờ duyệt cũng đã "chiếm" quỹ: không cho nhiều đơn cùng vượt quỹ rồi mới lỗi lúc duyệt.
+      const pending = await pendingReservedDays(db, tenant, body.employeeId, body.leaveTypeId, year);
+      const available = Number(balance.remaining) + usable.extra - pending;
+      const fmt = (n: number) => String(Math.round(n * 100) / 100);
+      const detail = `còn ${fmt(Number(balance.remaining) + usable.extra)} ngày, đang chờ duyệt ${fmt(pending)} ngày, đơn này ${fmt(amount)} ngày`;
+      // Chưa có quỹ phép năm hoặc quỹ bằng 0: không có gì để trừ, không được lập đơn, kể cả khi loại nghỉ có hạn mức âm.
+      if (available <= 0.005)
+        throw new BadRequestException(
+          usable.projected !== null && !usable.advanceAllowed
+            ? `Quỹ phép năm ${year} không đủ (${detail}): loại nghỉ không cho ứng phép, chỉ dùng phần đã tích luỹ đến tháng hiện tại`
+            : `Chưa có quỹ phép năm ${year} khả dụng (quỹ hiện bằng 0): không thể lập đơn nghỉ phép năm. Liên hệ nhân sự để cấp phép hoặc chọn lý do nghỉ khác.`,
+        );
+      // Phép năm không cho âm: bỏ qua hạn mức âm đã cấu hình; loại nghỉ khác dùng hạn mức âm của chính nó.
+      const negativeLimit = type.is_annual ? 0 : Number(type.negative_limit);
+      if (available - amount < -negativeLimit - 0.005)
         throw new BadRequestException(
           usable.projected === null || usable.advanceAllowed
-            ? `Quỹ phép năm ${year} không đủ`
-            : `Quỹ phép năm ${year} không đủ: loại nghỉ không cho ứng phép, chỉ dùng phần đã tích luỹ đến tháng hiện tại`,
+            ? `Quỹ phép năm ${year} không đủ (${detail})`
+            : `Quỹ phép năm ${year} không đủ (${detail}): loại nghỉ không cho ứng phép, chỉ dùng phần đã tích luỹ đến tháng hiện tại`,
         );
     }
   const base = [
@@ -343,7 +354,7 @@ export async function transitionLeave(
       if (target === 'APPROVED' && !leave.pending_held) {
         // Đơn không giữ chỗ khi gửi: kiểm tra quỹ tại thời điểm duyệt.
         const limit = await db.query(
-          `SELECT negative_limit FROM hrm_schema.leave_types WHERE tenant_id=$1 AND id=$2`,
+          `SELECT CASE WHEN is_annual THEN 0 ELSE negative_limit END AS negative_limit FROM hrm_schema.leave_types WHERE tenant_id=$1 AND id=$2`,
           [tenant, leave.leave_type_id],
         );
         const usable = await unpostedUsableEntitlement(

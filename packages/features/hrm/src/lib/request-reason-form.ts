@@ -117,6 +117,20 @@ export interface ReasonValidationInput {
 }
 
 /**
+ * Loại đơn bắt buộc Mô tả (nội dung công việc) ngoài điều kiện theo từng lý do: làm thêm giờ và công tác.
+ * Mô tả chi tiết giúp người duyệt biết việc làm thêm / chuyến công tác là gì.
+ */
+export function descriptionMandatoryFor(kind: string): boolean {
+  return kind === 'ot' || kind === 'business_trip';
+}
+
+export function mandatoryDescriptionMessage(kind: string): string {
+  return kind === 'ot'
+    ? 'Mô tả chi tiết lý do làm thêm là bắt buộc. Vui lòng nhập nội dung công việc làm thêm.'
+    : 'Nội dung công việc là bắt buộc. Vui lòng mô tả chi tiết công việc thực hiện trong chuyến công tác.';
+}
+
+/**
  * Lý do chặn gửi đơn (tiếng Việt) hoặc null nếu hợp lệ:
  * danh mục đang tải / lỗi / rỗng, chưa chọn lý do, hoặc lý do cần mô tả mà mô tả còn trống.
  */
@@ -130,6 +144,8 @@ export function reasonBlockMessage(
   if (!choice) return 'Vui lòng chọn lý do.';
   if (descriptionRequired(choice) && !input.description.trim())
     return `Lý do "${choice.name}" yêu cầu nhập mô tả.`;
+  if (descriptionMandatoryFor(input.kind) && !input.description.trim())
+    return mandatoryDescriptionMessage(input.kind);
   return null;
 }
 

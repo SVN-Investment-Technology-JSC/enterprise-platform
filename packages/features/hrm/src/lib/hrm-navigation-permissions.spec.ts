@@ -63,7 +63,7 @@ describe('HRM sidebar visibility per sample role', () => {
 
   it('HR profile staff see the HR tabs and the profile approval inbox but not payroll', () => {
     const actions = actionsOf('hr-profile');
-    expect(visibleTabs(actions, '/employees')).toEqual(expect.arrayContaining(['employees', 'dependents', 'decisions']));
+    expect(visibleTabs(actions, '/employees')).toEqual(expect.arrayContaining(['employees', 'decisions']));
     expect(visibleLabels(actions)).toContain('Đơn từ cần xử lý');
     expect(visibleLabels(actions)).not.toContain('Lương và chi trả');
     expect(visibleTabs(actions, '/settings')).not.toContain('schedules');
@@ -129,7 +129,7 @@ describe('request reasons and approval configuration tabs', () => {
 
   it('keeps the settings tabs in the agreed order with the new labels', () => {
     expect(HRM_HUBS['/settings'].map((t) => [t.id, t.label])).toEqual([
-      ['leave', 'Phép năm và lý do nghỉ'],
+      ['leave', 'Chính sách phép năm'],
       ['time', 'Công và thiết bị'],
       ['schedules', 'Phân ca'],
       ['shifts', 'Danh mục ca'],

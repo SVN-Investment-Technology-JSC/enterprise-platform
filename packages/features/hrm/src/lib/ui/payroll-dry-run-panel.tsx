@@ -1,9 +1,10 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { Calculator, Loader2, X } from 'lucide-react';
+import { Calculator, FlaskConical, Loader2, X } from 'lucide-react';
 import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import { hrmFetch } from '../hrm-api';
 import { Button } from './button';
+import { InfoNote, SettingsField } from './settings-kit';
 import type { PayrollComponentDraft } from '../hrm-payroll-config';
 
 interface RunOption {
@@ -90,14 +91,23 @@ export function PayrollDryRunPanel({
 
   const available = employees.filter((e) => !picked.includes(e.employeeId));
   return (
-    <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-3 space-y-3">
-      <div className="flex items-center gap-1.5 text-xs font-bold text-slate-700">
-        <Calculator className="size-3.5" />
-        Tính thử (không ghi dữ liệu)
+    <section
+      aria-label="Tính thử"
+      className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/60 p-3"
+    >
+      <div className="flex items-start gap-2.5">
+        <span aria-hidden="true" className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-violet-50 text-violet-600">
+          <FlaskConical className="size-4" />
+        </span>
+        <div className="min-w-0">
+          <h3 className="text-sm font-bold text-slate-900">Tính thử (không ghi dữ liệu)</h3>
+          <p className="text-[11px] leading-snug text-slate-500">
+            Áp công thức đang soạn lên kỳ lương đã tính để kiểm tra kết quả của tối đa 3 nhân viên.
+          </p>
+        </div>
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <label className="block space-y-1 text-xs font-medium text-slate-700">
-          <span>Kỳ lương đã tính</span>
+      <div className="grid grid-cols-1 gap-3">
+        <SettingsField label="Kỳ lương đã tính">
           <SearchableSelect
             value={runId}
             clearable
@@ -108,34 +118,40 @@ export function PayrollDryRunPanel({
             }))}
             onChange={(v) => setRunId(v || '')}
           />
-        </label>
-        <label className="block space-y-1 text-xs font-medium text-slate-700">
-          <span>Thêm nhân viên (tối đa 3)</span>
+        </SettingsField>
+        <SettingsField label="Thêm nhân viên (tối đa 3)">
           <SearchableSelect
             value={pending}
             clearable
             placeholder={picked.length >= 3 ? 'Đã đủ 3 nhân viên' : 'Chọn nhân viên'}
-            options={picked.length >= 3 ? [] : available.map((e) => ({ value: e.employeeId, label: `${e.employeeCode} - ${e.fullName}` }))}
+            options={
+              picked.length >= 3
+                ? []
+                : available.map((e) => ({ value: e.employeeId, label: `${e.employeeCode} - ${e.fullName}` }))
+            }
             onChange={(v) => {
               if (v) setPicked((p) => [...p, v].slice(0, 3));
               setPending('');
             }}
           />
-        </label>
+        </SettingsField>
       </div>
       {picked.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
           {picked.map((id) => {
             const e = employees.find((x) => x.employeeId === id);
             return (
-              <span key={id} className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white pl-2 pr-0.5 py-0.5 text-[11px]">
-                {e ? `${e.employeeCode} - ${e.fullName}` : 'Nhân viên đã chọn'}
+              <span
+                key={id}
+                className="inline-flex max-w-full items-center gap-1 rounded-full border border-slate-200 bg-white py-0.5 pr-0.5 pl-2 text-[11px]"
+              >
+                <span className="truncate">{e ? `${e.employeeCode} - ${e.fullName}` : 'Nhân viên đã chọn'}</span>
                 <Button
                   type="button"
                   variant="ghost"
                   size="icon-xs"
                   aria-label="Bỏ nhân viên"
-                  className="size-4 rounded-full text-rose-600 hover:bg-rose-50 hover:text-rose-700"
+                  className="size-5 rounded-full text-rose-600 hover:bg-rose-50 hover:text-rose-700"
                   onClick={() => setPicked((p) => p.filter((x) => x !== id))}
                 >
                   <X className="size-3" />
@@ -145,42 +161,59 @@ export function PayrollDryRunPanel({
           })}
         </div>
       )}
-      <Button type="button" variant="outline" disabled={busy || !runId || !picked.length} onClick={run} className="text-xs h-8">
-        {busy ? <Loader2 className="size-3.5 animate-spin mr-1.5" /> : <Calculator className="size-3.5 mr-1.5" />}
+      <Button
+        type="button"
+        variant="outline"
+        disabled={busy || !runId || !picked.length}
+        onClick={run}
+        className="h-9 w-full gap-1.5 text-xs font-semibold"
+      >
+        {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Calculator className="size-3.5" />}
         Tính thử
       </Button>
       {error && (
-        <p role="alert" className="text-xs text-red-700 bg-red-50 border border-red-200 rounded p-2">
+        <InfoNote tone="red" role="alert">
           {error}
-        </p>
+        </InfoNote>
       )}
       {results.map((r) => (
-        <div key={r.employeeId} className="rounded border border-slate-200 bg-white p-2.5 text-xs space-y-1.5">
+        <div key={r.employeeId} className="space-y-2 rounded-lg border border-slate-200 bg-white p-2.5 text-xs">
           <div className="font-semibold text-slate-900">
             {r.employeeCode} - {r.fullName}
           </div>
           <table className="w-full">
             <tbody>
               {r.items.map((i) => (
-                <tr key={i.code} className="border-b border-slate-100">
-                  <td className="py-0.5 pr-2">
+                <tr key={i.code} className="border-b border-slate-100 last:border-0">
+                  <td className="min-w-0 py-1 pr-2 break-words">
                     {i.name} <span className="font-mono text-slate-500">({i.code})</span>
                   </td>
-                  <td className="py-0.5 text-right font-mono">{money(i.amount)}</td>
+                  <td className="py-1 text-right font-mono whitespace-nowrap">{money(i.amount)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
-          <div className="flex flex-wrap gap-x-4 text-slate-700">
-            <span>Tổng thu nhập: <b>{money(r.gross)}</b></span>
-            <span>Tổng khấu trừ: <b>{money(r.deductions)}</b></span>
-            <span>Thực lĩnh: <b>{money(r.net)}</b></span>
-          </div>
+          <dl className="grid grid-cols-1 gap-1 rounded-md bg-slate-50 p-2 text-slate-700">
+            <div className="flex justify-between gap-2">
+              <dt>Tổng thu nhập</dt>
+              <dd className="font-mono font-semibold">{money(r.gross)}</dd>
+            </div>
+            <div className="flex justify-between gap-2">
+              <dt>Tổng khấu trừ</dt>
+              <dd className="font-mono font-semibold">{money(r.deductions)}</dd>
+            </div>
+            <div className="flex justify-between gap-2 border-t border-slate-200 pt-1">
+              <dt className="font-semibold">Thực lĩnh</dt>
+              <dd className="font-mono font-bold text-slate-900">{money(r.net)}</dd>
+            </div>
+          </dl>
           {r.warnings.map((w) => (
-            <p key={w} className="text-amber-700">{w}</p>
+            <InfoNote key={w} tone="amber" className="p-2 text-[11px]">
+              {w}
+            </InfoNote>
           ))}
         </div>
       ))}
-    </div>
+    </section>
   );
 }

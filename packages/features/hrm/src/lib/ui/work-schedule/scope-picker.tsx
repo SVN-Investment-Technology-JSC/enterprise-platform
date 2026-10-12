@@ -36,7 +36,7 @@ function Chips({
           key={item.value}
           className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 py-0.5 pr-1 pl-2 text-[11px] text-blue-800"
         >
-          <span className="max-w-56 truncate">{item.label}</span>
+          <span className="max-w-48 truncate @lg:max-w-72">{item.label}</span>
           <button
             type="button"
             aria-label={`Bỏ ${item.label}`}
@@ -69,8 +69,9 @@ function EmployeeMultiPicker({
   const allShownSelected = shown.length > 0 && shown.every((o) => selectedSet.has(o.value));
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <Input
+          className="min-w-0 flex-1 basis-56"
           aria-label="Tìm nhân viên theo mã hoặc tên"
           placeholder="Tìm theo mã hoặc tên nhân viên (gõ tiếng Việt không dấu)…"
           value={text}
@@ -137,6 +138,7 @@ export function ScopePicker({
   employeesError,
   units,
   openEnded = false,
+  hideTypeSwitch = false,
 }: {
   value: ScopeDraft;
   onChange: (next: ScopeDraft) => void;
@@ -147,6 +149,8 @@ export function ScopePicker({
   units: readonly HrmOrgUnitOption[];
   /** Lịch không có ngày kết thúc: ẩn "gồm đơn vị con" và "loại trừ nhân viên" (backend không hỗ trợ). */
   openEnded?: boolean;
+  /** Phạm vi đã được chọn bằng thẻ chọn bên ngoài: chỉ hiện phần chọn thêm (nhân viên, đơn vị, loại trừ). */
+  hideTypeSwitch?: boolean;
 }) {
   const unitOptions: SearchableSelectOption[] = useMemo(
     () => units.map((u) => ({ value: u.id, label: `${u.name} (${u.code})` })),
@@ -158,7 +162,7 @@ export function ScopePicker({
 
   return (
     <div className="flex flex-col gap-4">
-      {allowedTypes.length > 1 ? (
+      {hideTypeSwitch ? null : allowedTypes.length > 1 ? (
         <div role="radiogroup" aria-label="Phạm vi áp dụng" className="flex flex-wrap gap-1.5">
           {allowedTypes.map((type) => (
             <button
@@ -238,7 +242,7 @@ export function ScopePicker({
       ) : null}
 
       {value.type === 'COMPANY' ? (
-        <Notice tone="warn" title="Áp dụng cho toàn bộ nhân viên đang làm việc">
+        <Notice tone="warn" title={hideTypeSwitch ? undefined : 'Áp dụng cho toàn bộ nhân viên đang làm việc'}>
           Thao tác này tác động tới tất cả nhân viên của doanh nghiệp. Bạn sẽ cần xác nhận lại ở bước xem trước.
         </Notice>
       ) : null}

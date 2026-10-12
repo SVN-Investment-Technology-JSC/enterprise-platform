@@ -170,7 +170,7 @@ describe('TimesheetsScreen', () => {
       const past = screen.getByTestId(`board-cell-e1-${d(2)}`);
       expect(past.querySelector('[data-testid="cell-shift-code"]')).toBeNull();
       expect(past.textContent).not.toContain('HC');
-      expect(past.textContent).toContain('1');
+      expect(past.querySelector('[data-testid="cell-dot"]')).not.toBeNull();
       const future = screen.getByTestId(`board-cell-e1-${d(20)}`);
       expect(future.querySelector('[data-testid="cell-shift-code"]')?.textContent).toBe('HC');
     } finally {
@@ -186,8 +186,8 @@ describe('TimesheetsScreen', () => {
 
     // Ngày nghỉ hằng tuần để trống (tô xám), ngày đã qua hiện số công, đi trễ tô đỏ, bất thường hiện !, lễ hiện L.
     expect(screen.getByTestId(`board-cell-e1-${d(1)}`).getAttribute('data-status')).toBe('OFF');
-    expect(screen.getByTestId(`board-cell-e1-${d(1)}`).textContent).toBe('');
-    expect(screen.getByTestId(`board-cell-e1-${d(2)}`).textContent).toContain('1');
+    expect(screen.getByTestId(`board-cell-e1-${d(1)}`).textContent).toBe('OFF');
+    expect(screen.getByTestId(`board-cell-e1-${d(2)}`).querySelector('[data-testid="cell-dot"]')).not.toBeNull();
     expect(screen.getByTestId(`board-cell-e1-${d(2)}`).getAttribute('data-late')).toBe('true');
     expect(screen.getByTestId(`board-cell-e1-${d(2)}`).className).toContain('bg-red-100');
     expect(screen.getByTestId(`board-cell-e1-${d(3)}`).textContent).toContain('!');
@@ -202,7 +202,7 @@ describe('TimesheetsScreen', () => {
     const path = fetchMock.mock.calls[0][0] as string;
     const q = new URLSearchParams(path.split('?')[1]);
     expect(q.get('month')).toBe(month);
-    expect(q.get('page_size')).toBe('50');
+    expect(q.get('page_size')).toBe('10');
   });
 
   it('canViewAll=true có ô tìm; canViewAll=false thì ẩn ô tìm và các nút chốt', async () => {
@@ -335,8 +335,8 @@ describe('TimesheetsScreen', () => {
     await screen.findByText('Chi tiết ngày công');
     expect(screen.getByTestId('kpi-units').textContent).toContain('1');
     expect(screen.getByTestId('kpi-late').textContent).toContain('15');
-    expect(screen.getByTestId('kpi-late').className).toContain('bg-red-50');
-    expect(screen.getByTestId('kpi-early').className).not.toContain('bg-red-50');
+    expect(screen.getByTestId('kpi-late').className).toContain('bg-orange-50');
+    expect(screen.getByTestId('kpi-early').className).not.toContain('bg-orange-50');
     expect(screen.getByTestId('day-status').textContent).toBe('Đi trễ');
     expect(within(screen.getByLabelText('Ca làm việc và giờ chấm công')).getByText('Trễ 15p')).toBeTruthy();
   });
@@ -383,7 +383,7 @@ describe('TimesheetsScreen', () => {
       .map((h) => h.textContent);
     for (const label of ['Công', 'T/S', 'P', 'KP', '!', 'TC']) expect(headers).toContain(label);
     const row = screen.getByTestId('board-row');
-    expect(within(row).getAllByRole('cell').slice(-6).map((c) => c.textContent)).toEqual(['20', '1', '1', '', '1', '1:30']);
+    expect(within(row).getAllByRole('cell').slice(-6).map((c) => c.textContent)).toEqual(['20', '1', '1', '0', '1', '1:30']);
   });
 
   it('bấm tên nhân viên mở bảng công cả tháng của người đó; bấm một ngày trong đó mở chi tiết ngày', async () => {
@@ -416,16 +416,89 @@ describe('TimesheetsScreen', () => {
   });
 
   it('phân trang khi nhiều nhân viên', async () => {
-    mockApi({ ...makeBoard('OPEN', true), meta: { total: 120, page: 1, pageSize: 50 } });
+    mockApi({ ...makeBoard('OPEN', true), meta: { total: 120, page: 1, pageSize: 10 } });
     render(<TimesheetsScreen />);
     await screen.findAllByTestId('board-day-header');
-    expect(screen.getByText(/Trang 1\/3/)).toBeTruthy();
+    expect(document.body.textContent).toContain('Đang hiển thị 1 - 10 trong 120 nhân viên');
+    expect(screen.getByRole('button', { name: 'Trang 12' })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Trang sau' }));
     await waitFor(() =>
       expect(
         new URLSearchParams((fetchMock.mock.calls.at(-1)?.[0] as string).split('?')[1]).get('page'),
       ).toBe('2'),
     );
+  });
+});
+
+describe('TimesheetsScreen: tiêu đề, chọn dòng, số dòng mỗi trang', () => {
+  it('có tiêu đề Bảng công, nhãn trạng thái tháng và gợi ý Ctrl K ở ô tìm', async () => {
+    mockApi(makeBoard('OPEN', true));
+    render(<TimesheetsScreen />);
+    await screen.findAllByTestId('board-day-header');
+    expect(screen.getByRole('heading', { name: 'Bảng công' })).toBeTruthy();
+    expect(screen.getByTestId('month-state')).toBeTruthy();
+    expect(screen.getByText('Ctrl K')).toBeTruthy();
+  });
+
+  it('toàn màn hình: phủ kín khung, ẩn tiêu đề lớn, Esc hoặc nút Thu nhỏ để thoát', async () => {
+    mockApi(makeBoard('OPEN', true));
+    render(<TimesheetsScreen />);
+    await screen.findAllByTestId('board-day-header');
+    const root = screen.getByTestId('timesheets-root');
+    expect(root.className).not.toContain('fixed');
+    expect(screen.getByTestId('board-grid-frame').className).toContain('max-h-');
+    fireEvent.click(screen.getByRole('button', { name: 'Xem toàn màn hình' }));
+    expect(screen.getByTestId('timesheets-root').className).toContain('fixed inset-0');
+    expect(screen.getByTestId('board-grid-frame').className).toContain('flex-1');
+    expect(screen.getAllByRole('heading', { name: 'Bảng công' })).toHaveLength(1);
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.getByTestId('timesheets-root').className).not.toContain('fixed');
+    fireEvent.click(screen.getByRole('button', { name: 'Xem toàn màn hình' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Thoát toàn màn hình' }));
+    expect(screen.getByTestId('timesheets-root').className).not.toContain('fixed');
+  });
+
+  it('chú thích thu gọn ở màn nhỏ: nút Chú thích mở và ẩn', async () => {
+    mockApi(makeBoard('OPEN', true));
+    render(<TimesheetsScreen />);
+    await screen.findAllByTestId('board-day-header');
+    const toggle = screen.getByRole('button', { name: 'Chú thích' });
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    fireEvent.click(toggle);
+    expect(screen.getByRole('button', { name: 'Ẩn chú thích' }).getAttribute('aria-expanded')).toBe('true');
+  });
+
+  it('tick nhân viên thì nút Xuất CSV ghi số người đã chọn; tick tất cả chọn cả trang', async () => {
+    mockApi(makeBoard('OPEN', true));
+    render(<TimesheetsScreen />);
+    await screen.findAllByTestId('board-day-header');
+    expect(screen.getByRole('button', { name: /Xuất CSV$/ })).toBeTruthy();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Chọn Nguyễn Văn An' }));
+    expect(screen.getByRole('button', { name: /Xuất CSV \(1\)/ })).toBeTruthy();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Chọn Nguyễn Văn An' }));
+    expect(screen.getByRole('button', { name: /Xuất CSV$/ })).toBeTruthy();
+    const rows = screen.getAllByTestId('board-row').length;
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Chọn tất cả nhân viên trong trang' }));
+    expect(screen.getByRole('button', { name: `Xuất CSV (${rows})` })).toBeTruthy();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Chọn tất cả nhân viên trong trang' }));
+    expect(screen.getByRole('button', { name: /Xuất CSV$/ })).toBeTruthy();
+  });
+
+  it('đổi số nhân viên mỗi trang gọi lại với page_size mới và về trang 1', async () => {
+    mockApi({ ...makeBoard('OPEN', true), meta: { total: 120, page: 1, pageSize: 10 } });
+    render(<TimesheetsScreen />);
+    await screen.findAllByTestId('board-day-header');
+    fireEvent.click(screen.getByRole('button', { name: 'Trang 2' }));
+    await waitFor(() =>
+      expect(new URLSearchParams((fetchMock.mock.calls.at(-1)?.[0] as string).split('?')[1]).get('page')).toBe('2'),
+    );
+    fireEvent.click(within(screen.getByTitle('Số nhân viên mỗi trang')).getByRole('textbox'));
+    fireEvent.click(await screen.findByRole('option', { name: 'Hiển thị 20' }));
+    await waitFor(() => {
+      const q = new URLSearchParams((fetchMock.mock.calls.at(-1)?.[0] as string).split('?')[1]);
+      expect(q.get('page_size')).toBe('20');
+      expect(q.get('page')).toBe('1');
+    });
   });
 });
 

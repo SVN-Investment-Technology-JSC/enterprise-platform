@@ -14,8 +14,9 @@ import {
   Briefcase,
   Building2,
   Calendar,
-  Check,
   CheckCircle2,
+  Clock,
+  CreditCard,
   CheckSquare,
   ChevronRight,
   Copy,
@@ -23,7 +24,6 @@ import {
   EyeOff,
   ExternalLink,
   GraduationCap,
-  History,
   Info,
   Landmark,
   Layers,
@@ -39,6 +39,7 @@ import {
   ShieldCheck,
   Target,
   User,
+  Users,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { SearchableSelect } from '@enterprise-platform/shared-ui';
@@ -47,6 +48,18 @@ import { Button } from '../ui/button';
 import { Dialog, DialogContent } from '../ui/dialog';
 import { EmployeeHeroCard } from '../ui/employee-hero-card';
 import { Input } from '../ui/input';
+import { HubTabsSlot } from '../ui/hrm-tab-hub';
+import {
+  FieldLabel,
+  IconInput,
+  InfoCell,
+  initialsOf,
+  ProfileCard,
+  ReadonlyField,
+  relationshipOptions,
+  seniorityText,
+} from '../ui/profile-cards';
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '../ui/sheet';
 import { toast } from '../ui/toast';
 import { hrmFetch, platformAuthApiUrl } from '../hrm-api';
 import { ProfileCorrectionDialog } from '../ui/profile-correction-dialog';
@@ -59,8 +72,6 @@ import {
   protectedFieldsFromError,
   type ProfileCorrectionField,
 } from '../profile-correction-model';
-
-type SubTabKey = 'personal' | 'work_history' | 'bank_tax';
 
 function formatVnDate(val?: string | null): string {
   if (!val) return '----';
@@ -79,7 +90,7 @@ function formatVnDate(val?: string | null): string {
 
 
 export default function HrmProfilePage() {
-  const [activeTab, setActiveTab] = useState<SubTabKey>('personal');
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [isJdModalOpen, setIsJdModalOpen] = useState(false);
   const [isAccountMasked, setIsAccountMasked] = useState(true);
   const [dependents, setDependents] = useState<HrmEmployeeDependent[]>([]);
@@ -330,7 +341,8 @@ export default function HrmProfilePage() {
 
   // Tải lịch sử bổ nhiệm & quá trình công tác từ CORE Organization
   useEffect(() => {
-    if (activeTab === 'work_history') {
+    // Tải một lần khi đã có mã nhân viên (để thẻ Công tác hiện tại có chức danh, đơn vị thật) và khi mở ngăn kéo lịch sử.
+    if (employeeId || historyOpen) {
       setLoadingCareer(true);
       hrmFetch<{ data: HrmCareerHistoryItem[] }>('/my-profile/career-history')
         .then((payload) => {
@@ -355,7 +367,14 @@ export default function HrmProfilePage() {
           setLoadingCareer(false);
         });
     }
-  }, [activeTab, employeeId]);
+  }, [historyOpen, employeeId]);
+
+  const maskAccount = (value: string) =>
+    value.length > 4 ? `**** **** ${value.slice(-4)}` : '****';
+  const copyText = (value: string, title: string, description: string) => {
+    void navigator.clipboard?.writeText(value);
+    toast.add({ title, description, type: 'success' });
+  };
 
   // Dirty state detection
   // Chỉ các trường nhân thân được sửa trực tiếp; định danh (ngày sinh, CCCD) đi qua đơn đính chính.
@@ -426,40 +445,6 @@ export default function HrmProfilePage() {
     });
   };
 
-  const handleSaveIdentityBlock = async () => {
-    if (!isIdentityDirty) return;
-    setSavingIdentity(true);
-    try {
-      await hrmFetch('/my-profile', {
-        method: 'PATCH',
-        body: JSON.stringify(identityPatchBody(identityEdits)),
-      });
-
-      setSavedIdentity((prev) => ({
-        ...prev,
-        gender,
-        nationality,
-        ethnicity,
-        maritalStatus,
-      }));
-      setProfileMeta((prev) => ({ ...prev, gender: genderLabelOf(gender) }));
-
-      toast.add({
-        title: 'Đã lưu thông tin nhân thân',
-        description: 'Giới tính, quốc tịch, dân tộc và hôn nhân đã được cập nhật.',
-        type: 'success',
-      });
-    } catch (e) {
-      reportSaveError(
-        e,
-        'Không thể lưu thông tin nhân thân. Vui lòng thử lại.',
-        'Lỗi cập nhật',
-      );
-    } finally {
-      setSavingIdentity(false);
-    }
-  };
-
   const handleResetIdentityBlock = () => {
     setGender(savedIdentity.gender);
     setNationality(savedIdentity.nationality);
@@ -473,39 +458,6 @@ export default function HrmProfilePage() {
     });
   };
 
-  const handleSaveContactBlock = async () => {
-    if (!isContactDirty) return;
-    setSavingContact(true);
-    try {
-      await hrmFetch('/my-profile', {
-        method: 'PATCH',
-        body: JSON.stringify(contactEdits),
-      });
-
-      setSavedContact({
-        personalEmail,
-        phone,
-        permanentAddress,
-        currentAddress,
-      });
-
-      toast.add({
-        title: 'Đã lưu thông tin liên lạc',
-        description:
-          'Dữ liệu đã được lưu thành công vào cơ sở dữ liệu hệ thống.',
-        type: 'success',
-      });
-    } catch (e) {
-      reportSaveError(
-        e,
-        'Không thể lưu thông tin vào cơ sở dữ liệu. Vui lòng thử lại.',
-        'Lỗi cập nhật',
-      );
-    } finally {
-      setSavingContact(false);
-    }
-  };
-
   const handleResetContactBlock = () => {
     setPersonalEmail(savedContact.personalEmail);
     setPhone(savedContact.phone);
@@ -517,37 +469,6 @@ export default function HrmProfilePage() {
         'Thông tin liên lạc đã được khôi phục về trạng thái ban đầu.',
       type: 'info',
     });
-  };
-
-  const handleSaveEmergencyBlock = async () => {
-    if (!isEmergencyDirty) return;
-    setSavingEmergency(true);
-    try {
-      await hrmFetch('/my-profile', {
-        method: 'PATCH',
-        body: JSON.stringify(emergencyEdits),
-      });
-
-      setSavedEmergency({
-        name: emergencyContactName,
-        relationship: emergencyContactRelationship,
-        phone: emergencyContactPhone,
-      });
-
-      toast.add({
-        title: 'Đã lưu thông tin liên hệ khẩn cấp',
-        description: 'Thông tin liên hệ khẩn cấp đã được lưu vào database.',
-        type: 'success',
-      });
-    } catch (e) {
-      reportSaveError(
-        e,
-        'Không thể lưu thông tin khẩn cấp vào database.',
-        'Lỗi cập nhật',
-      );
-    } finally {
-      setSavingEmergency(false);
-    }
   };
 
   const handleResetEmergencyBlock = () => {
@@ -616,8 +537,10 @@ export default function HrmProfilePage() {
     }
   };
 
+  const allFields = PROFILE_CORRECTION_GROUPS.flatMap((g) => g.fields);
+
   return (
-    <div className="space-y-6 max-w-[1600px] mx-auto">
+    <div className="mx-auto max-w-[1600px] space-y-3">
       {profileLoadError && (
         <p
           role="alert"
@@ -626,36 +549,47 @@ export default function HrmProfilePage() {
           {profileLoadError}
         </p>
       )}
-      {/* Page Header */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 pb-2 border-b border-slate-200">
+
+      {/* Tiêu đề: tên trang, thanh tab Hồ sơ / Phiếu lương và nút lưu */}
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <span className="text-xs font-semibold text-blue-600 uppercase tracking-wider">
-            Không gian Nhân sự Cá nhân
-          </span>
-          <h2 className="text-xl font-bold tracking-tight text-slate-950 mt-0.5">
+          <h1 className="text-xl font-bold tracking-tight text-slate-900">
             Hồ sơ của tôi
-          </h2>
-          <p className="text-xs text-slate-500 mt-0.5">
+          </h1>
+          <p className="mt-0.5 text-xs text-slate-500">
             Tra cứu thông tin cá nhân, hồ sơ bảo hiểm, quá trình công tác và tài
             khoản ngân hàng chi trả lương.
           </p>
         </div>
-
-        <div className="flex items-center flex-wrap gap-2.5">
+        <div className="flex flex-wrap items-center gap-3">
+          <HubTabsSlot />
           {isAnyDirty && (
-            <span className="text-xs text-amber-700 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-md font-medium animate-pulse flex items-center gap-1.5">
-              <span className="size-1.5 rounded-full bg-amber-500" />
-              Có thay đổi chưa lưu
-            </span>
+            <>
+              <span className="hidden items-center gap-1.5 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700 md:flex">
+                <span className="size-1.5 rounded-full bg-amber-500" />
+                Có thay đổi chưa lưu
+              </span>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-9 gap-1.5 text-xs"
+                disabled={isSavingAny}
+                onClick={() => {
+                  handleResetIdentityBlock();
+                  handleResetContactBlock();
+                  handleResetEmergencyBlock();
+                }}
+              >
+                <RotateCcw className="size-3.5" />
+                Hoàn tác
+              </Button>
+            </>
           )}
           <Button
             size="sm"
             disabled={!isAnyDirty || isSavingAny}
-            className={`font-semibold text-xs shadow-sm gap-1.5 rounded-md h-9 transition-all ${
-              isAnyDirty
-                ? 'bg-[#2563eb] hover:bg-blue-700 text-white shadow-blue-200 shadow'
-                : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
-            }`}
+            className="h-9 gap-1.5 text-xs font-semibold"
             onClick={handleSaveAll}
           >
             {isSavingAny ? (
@@ -663,13 +597,13 @@ export default function HrmProfilePage() {
             ) : (
               <Save className="size-3.5" />
             )}
-            <span>{isSavingAny ? 'Đang lưu...' : 'Lưu toàn bộ thay đổi'}</span>
+            <span>{isSavingAny ? 'Đang lưu...' : 'Lưu thay đổi'}</span>
           </Button>
         </div>
       </div>
 
-      {/* Hero Employee Identity Card */}
       <EmployeeHeroCard
+        syncLabel="Đồng bộ từ Core"
         profile={{
           fullName: profileMeta.fullName,
           employeeCode: profileMeta.employeeCode,
@@ -677,648 +611,352 @@ export default function HrmProfilePage() {
           department: profileMeta.department,
           position: profileMeta.position,
           workEmail: profileMeta.workEmail,
-          phone: phone,
+          phone,
           roleLabel,
           companyName,
           joinDate: profileMeta.joinDate,
         }}
       />
 
-      {/* Sub-tabs Navigation */}
-      <div className="border-b border-slate-200">
-        <div className="flex space-x-8 text-xs font-medium">
-          <button
+      {approvalRequiredFields && (
+        <div
+          role="alert"
+          className="space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900"
+        >
+          <p>
+            Không lưu trực tiếp được:{' '}
+            <strong>
+              {profileFieldLabels(approvalRequiredFields).join(', ') ||
+                'thông tin định danh'}
+            </strong>
+            . Ngày sinh và CCCD phải gửi đơn đính chính để được duyệt.
+          </p>
+          <Button
             type="button"
-            onClick={() => setActiveTab('personal')}
-            className={`py-3 px-1 flex items-center gap-2 border-b-2 transition-colors cursor-pointer ${
-              activeTab === 'personal'
-                ? 'border-blue-600 text-blue-600 font-bold'
-                : 'border-transparent text-slate-500 hover:text-slate-900'
-            }`}
+            permission="hrm.self.request"
+            size="sm"
+            variant="outline"
+            className="h-7 text-xs"
+            onClick={() => {
+              setCorrectionFields(
+                approvalRequiredFields.length ? approvalRequiredFields : allFields,
+              );
+              setApprovalRequiredFields(null);
+            }}
           >
-            <User className="size-4" />
-            <span>Thông tin cá nhân</span>
-            {activeTab === 'personal' && (
-              <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-600 text-white">
-                Đang xem
-              </span>
-            )}
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveTab('work_history')}
-            className={`py-3 px-1 flex items-center gap-2 border-b-2 transition-colors cursor-pointer ${
-              activeTab === 'work_history'
-                ? 'border-blue-600 text-blue-600 font-bold'
-                : 'border-transparent text-slate-500 hover:text-slate-900'
-            }`}
-          >
-            <History className="size-4" />
-            <span>Quá trình công tác</span>
-            {activeTab === 'work_history' && (
-              <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-600 text-white">
-                Đang xem
-              </span>
-            )}
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveTab('bank_tax')}
-            className={`py-3 px-1 flex items-center gap-2 border-b-2 transition-colors cursor-pointer ${
-              activeTab === 'bank_tax'
-                ? 'border-blue-600 text-blue-600 font-bold'
-                : 'border-transparent text-slate-500 hover:text-slate-900'
-            }`}
-          >
-            <Landmark className="size-4" />
-            <span>Lương - Thuế - Ngân hàng</span>
-            {activeTab === 'bank_tax' && (
-              <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-600 text-white">
-                Đang xem
-              </span>
-            )}
-          </button>
+            Gửi đề nghị đính chính
+          </Button>
         </div>
-      </div>
+      )}
 
-      {/* Sub-tab 1: Personal Information */}
-      {activeTab === 'personal' && (
-        <div className="space-y-6">
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            {/* Left Block (5 cols): Identity & Citizen Card (Editable Self-Service) */}
-            <div className="lg:col-span-5 space-y-6">
-              <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm space-y-4">
-                <div className="flex items-center justify-between pb-3 border-b border-slate-200">
-                  <div className="flex items-center gap-2">
-                    <span className="w-1.5 h-4 bg-blue-600 rounded-full" />
-                    <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wide">
-                      Khối Nhận diện nhân sự
-                    </h3>
-                  </div>
-                  <Badge className="bg-slate-100 text-slate-700 border border-slate-200 text-[10px] gap-1 font-semibold">
-                    <Lock className="size-3" />
-                    Định danh chỉ đọc
-                  </Badge>
-                </div>
-
-                {approvalRequiredFields && (
-                  <div
-                    role="alert"
-                    className="p-3 bg-amber-50 border border-amber-300 rounded-lg text-xs text-amber-900 space-y-2"
-                  >
-                    <p>
-                      Không lưu trực tiếp được:{' '}
-                      <strong>
-                        {profileFieldLabels(approvalRequiredFields).join(', ') ||
-                          'thông tin định danh'}
-                      </strong>
-                      . Ngày sinh và CCCD phải gửi đơn đính chính để
-                      được duyệt.
-                    </p>
-                    <Button
-                      type="button"
-                      permission="hrm.self.request"
-                      size="sm"
-                      variant="outline"
-                      className="h-7 text-xs"
-                      onClick={() => {
-                        setCorrectionFields(
-                          approvalRequiredFields.length
-                            ? approvalRequiredFields
-                            : PROFILE_CORRECTION_GROUPS.flatMap((g) => g.fields),
-                        );
-                        setApprovalRequiredFields(null);
-                      }}
-                    >
-                      Gửi đề nghị đính chính
-                    </Button>
-                  </div>
-                )}
-
-                <div className="space-y-3 text-xs">
-                  <div className="flex items-center justify-between py-1.5 border-b border-slate-100">
-                    <span className="text-slate-500">
-                      Mã nhân viên (employee_code)
-                    </span>
-                    <span className="font-bold text-slate-900 font-mono">
-                      {profileMeta.employeeCode || '----'}
-                    </span>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                    <div className="sm:col-span-2 space-y-1.5">
-                      <label
-                        htmlFor="profile-full-name"
-                        className="font-semibold text-slate-800 block"
-                      >
-                        Họ và tên
-                      </label>
-                      <Input
-                        id="profile-full-name"
-                        type="text"
-                        readOnly
-                        value={savedIdentity.fullName}
-                        className="text-xs h-9 font-semibold bg-slate-100"
-                      />
-                      <p className="text-[11px] text-slate-400">
-                        Do Core quản lý. Muốn đổi họ tên hãy liên hệ quản trị
-                        viên để sửa tại Core.
-                      </p>
-                    </div>
-                    {PROFILE_CORRECTION_GROUPS.filter((g) => g.key === 'personal').map(
-                      (group) => (
-                        <div
-                          key={group.key}
-                          className="sm:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-3 rounded-lg border border-slate-200 bg-slate-50/60 p-3"
-                        >
-                          <div className="sm:col-span-2 flex items-center justify-between gap-2">
-                            <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
-                              Ngày sinh
-                            </span>
-                            <Button
-                              type="button"
-                              permission="hrm.self.request"
-                              size="sm"
-                              variant="outline"
-                              title={group.title}
-                              className="h-7 text-xs"
-                              onClick={() => setCorrectionFields(group.fields)}
-                            >
-                              Đề nghị đính chính
-                            </Button>
-                          </div>
-                          <div className="space-y-1.5">
-                            <label
-                              htmlFor="profile-date-of-birth"
-                              className="font-semibold text-slate-800 block"
-                            >
-                              Ngày sinh
-                            </label>
-                            <Input
-                              id="profile-date-of-birth"
-                              type="text"
-                              readOnly
-                              value={
-                                savedIdentity.dateOfBirth
-                                  ? formatProfileValue('dateOfBirth', savedIdentity.dateOfBirth)
-                                  : ''
-                              }
-                              className="text-xs h-9 bg-slate-100"
-                            />
-                          </div>
-                        </div>
-                      ),
-                    )}
-
-                    <div className="sm:col-span-2 space-y-1.5">
-                      <label className="font-semibold text-slate-800 block">
-                        Giới tính
-                      </label>
-                      <SearchableSelect
-                        value={gender}
-                        onChange={(val) => setGender(val)}
-                        options={[
-                          { value: 'MALE', label: 'Nam' },
-                          { value: 'FEMALE', label: 'Nữ' },
-                          { value: 'OTHER', label: 'Khác' },
-                        ]}
-                        placeholder="Chọn giới tính"
-                        searchPlaceholder="Tìm giới tính..."
-                        clearable
-                      />
-                    </div>
-
-                    {PROFILE_CORRECTION_GROUPS.filter((g) => g.key === 'identity').map(
-                      (group) => (
-                        <div
-                          key={group.key}
-                          className="sm:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-3 rounded-lg border border-slate-200 bg-slate-50/60 p-3"
-                        >
-                          <div className="sm:col-span-2 flex items-center justify-between gap-2">
-                            <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
-                              Giấy tờ định danh (CCCD)
-                            </span>
-                            <Button
-                              type="button"
-                              permission="hrm.self.request"
-                              size="sm"
-                              variant="outline"
-                              title={group.title}
-                              className="h-7 text-xs"
-                              onClick={() => setCorrectionFields(group.fields)}
-                            >
-                              Đề nghị đính chính
-                            </Button>
-                          </div>
-                          <div className="space-y-1.5">
-                            <label
-                              htmlFor="profile-id-number"
-                              className="font-semibold text-slate-800 block"
-                            >
-                              Số CCCD / CMND
-                            </label>
-                            <Input
-                              id="profile-id-number"
-                              type="text"
-                              readOnly
-                              value={savedIdentity.identityCardNumber}
-                              className="text-xs h-9 font-mono bg-slate-100"
-                            />
-                          </div>
-                          <div className="space-y-1.5">
-                            <label
-                              htmlFor="profile-id-issued-date"
-                              className="font-semibold text-slate-800 block"
-                            >
-                              Ngày cấp
-                            </label>
-                            <Input
-                              id="profile-id-issued-date"
-                              type="text"
-                              readOnly
-                              value={
-                                savedIdentity.identityCardIssuedDate
-                                  ? formatProfileValue(
-                                      'identityCardIssuedDate',
-                                      savedIdentity.identityCardIssuedDate,
-                                    )
-                                  : ''
-                              }
-                              className="text-xs h-9 bg-slate-100"
-                            />
-                          </div>
-                          <div className="sm:col-span-2 space-y-1.5">
-                            <label
-                              htmlFor="profile-id-issued-place"
-                              className="font-semibold text-slate-800 block"
-                            >
-                              Nơi cấp
-                            </label>
-                            <Input
-                              id="profile-id-issued-place"
-                              type="text"
-                              readOnly
-                              value={savedIdentity.identityCardIssuedPlace}
-                              className="text-xs h-9 bg-slate-100"
-                            />
-                          </div>
-                        </div>
-                      ),
-                    )}
-
-                    <div className="space-y-1.5">
-                      <label className="font-semibold text-slate-800 block">
-                        Quốc tịch
-                      </label>
-                      <Input
-                        type="text"
-                        value={nationality}
-                        placeholder="Việt Nam"
-                        onChange={(e) => setNationality(e.target.value)}
-                        className="text-xs h-9"
-                      />
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <label className="font-semibold text-slate-800 block">
-                        Dân tộc
-                      </label>
-                      <Input
-                        type="text"
-                        value={ethnicity}
-                        placeholder="Kinh"
-                        onChange={(e) => setEthnicity(e.target.value)}
-                        className="text-xs h-9"
-                      />
-                    </div>
-
-                    <div className="sm:col-span-2 space-y-1.5">
-                      <label className="font-semibold text-slate-800 block">
-                        Tình trạng hôn nhân
-                      </label>
-                      <SearchableSelect
-                        value={maritalStatus}
-                        onChange={(val) => setMaritalStatus(val)}
-                        options={[
-                          { value: 'Độc thân', label: 'Độc thân' },
-                          { value: 'Đã kết hôn', label: 'Đã kết hôn' },
-                          { value: 'Ly hôn', label: 'Ly hôn' },
-                          { value: 'Khác', label: 'Khác' },
-                        ]}
-                        placeholder="Chọn tình trạng hôn nhân"
-                        searchPlaceholder="Tìm tình trạng..."
-                        clearable
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Footer Controls for Identity Block */}
-                <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3">
-                  <div className="flex items-center gap-2">
-                    {isIdentityDirty ? (
-                      <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-amber-600 bg-amber-50 px-2.5 py-1 rounded-md border border-amber-200">
-                        <span className="size-1.5 rounded-full bg-amber-500 animate-pulse" />
-                        Có thay đổi chưa lưu
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1.5 text-[11px] text-slate-400">
-                        <Check className="size-3 text-emerald-500" />
-                        Đã đồng bộ
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={!isIdentityDirty || savingIdentity}
-                      onClick={handleResetIdentityBlock}
-                      className="h-8 text-xs font-medium border-slate-200 hover:bg-slate-50 text-slate-700 disabled:opacity-40"
-                    >
-                      <RotateCcw className="size-3.5 mr-1" />
-                      Hoàn tác
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      disabled={!isIdentityDirty || savingIdentity}
-                      onClick={() => void handleSaveIdentityBlock()}
-                      className="h-8 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white shadow-sm disabled:opacity-40"
-                    >
-                      {savingIdentity ? (
-                        <Loader2 className="size-3.5 mr-1 animate-spin" />
-                      ) : (
-                        <Save className="size-3.5 mr-1" />
-                      )}
-                      {savingIdentity ? 'Đang lưu...' : 'Lưu định danh'}
-                    </Button>
-                  </div>
-                </div>
+      <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+        {/* Cột trái */}
+        <div className="space-y-3">
+          <ProfileCard
+            icon={User}
+            title="Thông tin cá nhân"
+            testId="profile-personal-card"
+            badge={
+              <Badge className="gap-1 border border-blue-200 bg-blue-50 text-[10px] font-semibold text-blue-700">
+                <Lock className="size-3" />
+                Dữ liệu Core · Chỉ đọc
+              </Badge>
+            }
+          >
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <ReadonlyField id="profile-full-name" label="Họ và tên" value={savedIdentity.fullName} />
+              <ReadonlyField id="profile-employee-code" label="Mã nhân viên" value={profileMeta.employeeCode} mono />
+              <ReadonlyField
+                id="profile-date-of-birth"
+                label="Ngày sinh"
+                icon={Calendar}
+                value={
+                  savedIdentity.dateOfBirth
+                    ? formatProfileValue('dateOfBirth', savedIdentity.dateOfBirth)
+                    : ''
+                }
+              />
+              <div className="space-y-1">
+                <FieldLabel>Giới tính</FieldLabel>
+                <SearchableSelect
+                  value={gender}
+                  onChange={(val) => setGender(val)}
+                  options={[
+                    { value: 'MALE', label: 'Nam' },
+                    { value: 'FEMALE', label: 'Nữ' },
+                    { value: 'OTHER', label: 'Khác' },
+                  ]}
+                  placeholder="Chọn giới tính"
+                  searchPlaceholder="Tìm giới tính..."
+                  clearable
+                />
+              </div>
+              <ReadonlyField id="profile-id-number" label="Số CCCD / CMND" icon={CreditCard} mono value={savedIdentity.identityCardNumber} />
+              <ReadonlyField
+                id="profile-id-issued-date"
+                label="Ngày cấp"
+                icon={Calendar}
+                value={
+                  savedIdentity.identityCardIssuedDate
+                    ? formatProfileValue('identityCardIssuedDate', savedIdentity.identityCardIssuedDate)
+                    : ''
+                }
+              />
+              <div className="sm:col-span-2">
+                <ReadonlyField id="profile-id-issued-place" label="Nơi cấp" icon={MapPin} value={savedIdentity.identityCardIssuedPlace} />
+              </div>
+              <div className="space-y-1">
+                <label htmlFor="profile-nationality" className="block text-[11px] font-semibold text-slate-600">
+                  Quốc tịch
+                </label>
+                <Input
+                  id="profile-nationality"
+                  type="text"
+                  value={nationality}
+                  placeholder="Việt Nam"
+                  onChange={(e) => setNationality(e.target.value)}
+                  className="h-9 text-xs"
+                />
+              </div>
+              <div className="space-y-1">
+                <label htmlFor="profile-ethnicity" className="block text-[11px] font-semibold text-slate-600">
+                  Dân tộc
+                </label>
+                <Input
+                  id="profile-ethnicity"
+                  type="text"
+                  value={ethnicity}
+                  placeholder="Kinh"
+                  onChange={(e) => setEthnicity(e.target.value)}
+                  className="h-9 text-xs"
+                />
+              </div>
+              <div className="space-y-1 sm:col-span-2">
+                <FieldLabel>Tình trạng hôn nhân</FieldLabel>
+                <SearchableSelect
+                  value={maritalStatus}
+                  onChange={(val) => setMaritalStatus(val)}
+                  options={[
+                    { value: 'Độc thân', label: 'Độc thân' },
+                    { value: 'Đã kết hôn', label: 'Đã kết hôn' },
+                    { value: 'Ly hôn', label: 'Ly hôn' },
+                    { value: 'Khác', label: 'Khác' },
+                  ]}
+                  placeholder="Chọn tình trạng hôn nhân"
+                  searchPlaceholder="Tìm tình trạng..."
+                  clearable
+                />
               </div>
             </div>
-
-            {/* Right Blocks (7 cols): Contact Info & Emergency Contact */}
-            <div className="lg:col-span-7 space-y-6">
-              {/* Contact Block */}
-              <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm space-y-4">
-                <div className="flex items-center justify-between pb-3 border-b border-slate-200">
-                  <div className="flex items-center gap-2">
-                    <span className="w-1.5 h-4 bg-blue-600 rounded-full" />
-                    <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wide">
-                      Khối Thông tin liên lạc
-                    </h3>
-                  </div>
-                  <Badge className="bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] gap-1 font-semibold">
-                    <PencilLine className="size-3" />
-                    Được phép cập nhật
-                  </Badge>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-                  <div className="space-y-1.5">
-                    <label className="font-semibold text-slate-800 flex items-center justify-between">
-                      <span>Email cá nhân</span>
-                      <span className="text-slate-400 font-normal">
-                        (personal_email)
-                      </span>
-                    </label>
-                    <div className="relative">
-                      <Mail className="size-4 absolute left-3 top-2.5 text-slate-400" />
-                      <Input
-                        type="email"
-                        value={personalEmail}
-                        placeholder="Chưa cập nhật email cá nhân"
-                        onChange={(e) => setPersonalEmail(e.target.value)}
-                        className="pl-9 text-xs h-9"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label className="font-semibold text-slate-800 flex items-center justify-between">
-                      <span>Số điện thoại di động</span>
-                      <span className="text-slate-400 font-normal">
-                        (phone)
-                      </span>
-                    </label>
-                    <div className="relative">
-                      <Phone className="size-4 absolute left-3 top-2.5 text-slate-400" />
-                      <Input
-                        type="tel"
-                        value={phone}
-                        placeholder="Chưa cập nhật số điện thoại"
-                        onChange={(e) => setPhone(e.target.value)}
-                        className="pl-9 text-xs h-9"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="md:col-span-2 space-y-1.5">
-                    <label className="font-semibold text-slate-800">
-                      Địa chỉ thường trú
-                    </label>
-                    <Input
-                      type="text"
-                      value={permanentAddress}
-                      placeholder="Chưa cập nhật địa chỉ thường trú"
-                      onChange={(e) => setPermanentAddress(e.target.value)}
-                      className="text-xs h-9"
-                    />
-                  </div>
-
-                  <div className="md:col-span-2 space-y-1.5">
-                    <label className="font-semibold text-slate-800">
-                      Địa chỉ tạm trú / Nơi ở hiện tại
-                    </label>
-                    <Input
-                      type="text"
-                      value={currentAddress}
-                      placeholder="Chưa cập nhật địa chỉ nơi ở hiện tại"
-                      onChange={(e) => setCurrentAddress(e.target.value)}
-                      className="text-xs h-9"
-                    />
-                  </div>
-                </div>
-
-                {/* Footer Controls for Contact Info Block */}
-                <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3">
-                  <div className="flex items-center gap-2">
-                    {isContactDirty ? (
-                      <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-amber-600 bg-amber-50 px-2.5 py-1 rounded-md border border-amber-200">
-                        <span className="size-1.5 rounded-full bg-amber-500 animate-pulse" />
-                        Có thay đổi chưa lưu
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1.5 text-[11px] text-slate-400">
-                        <Check className="size-3 text-emerald-500" />
-                        Đã đồng bộ
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={!isContactDirty || savingContact}
-                      onClick={handleResetContactBlock}
-                      className="h-8 text-xs font-medium border-slate-200 hover:bg-slate-50 text-slate-700 disabled:opacity-40"
-                    >
-                      <RotateCcw className="size-3.5 mr-1" />
-                      Hoàn tác
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      disabled={!isContactDirty || savingContact}
-                      onClick={handleSaveContactBlock}
-                      className="h-8 text-xs font-semibold bg-[#2563eb] hover:bg-blue-700 text-white shadow-sm disabled:opacity-40"
-                    >
-                      {savingContact ? (
-                        <>
-                          <Loader2 className="size-3.5 mr-1 animate-spin" />
-                          Đang lưu...
-                        </>
-                      ) : (
-                        <>
-                          <Save className="size-3.5 mr-1" />
-                          Lưu thông tin liên lạc
-                        </>
-                      )}
-                    </Button>
-                  </div>
-                </div>
-              </div>
-
-              {/* Emergency Contact Block */}
-              <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm space-y-4">
-                <div className="flex items-center justify-between pb-3 border-b border-slate-200">
-                  <div className="flex items-center gap-2">
-                    <span className="w-1.5 h-4 bg-amber-500 rounded-full" />
-                    <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wide">
-                      Khối Liên hệ khẩn cấp
-                    </h3>
-                  </div>
-                  <Badge className="bg-rose-50 text-rose-700 border border-rose-200 text-[10px] font-bold">
-                    Bắt buộc điền
-                  </Badge>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-                  <div className="space-y-1.5">
-                    <label className="font-semibold text-slate-800">
-                      Tên người liên hệ khẩn cấp *
-                    </label>
-                    <Input
-                      type="text"
-                      value={emergencyContactName}
-                      placeholder="Chưa có thông tin người liên hệ"
-                      onChange={(e) => setEmergencyContactName(e.target.value)}
-                      className="text-xs h-9"
-                    />
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label className="font-semibold text-slate-800">
-                      Mối quan hệ *
-                    </label>
-                    <Input
-                      type="text"
-                      value={emergencyContactRelationship}
-                      placeholder="Ví dụ: Vợ / Chồng, Bố / Mẹ, Anh / Chị..."
-                      onChange={(e) =>
-                        setEmergencyContactRelationship(e.target.value)
-                      }
-                      className="text-xs h-9"
-                    />
-                  </div>
-
-                  <div className="md:col-span-2 space-y-1.5">
-                    <label className="font-semibold text-slate-800">
-                      Số điện thoại khẩn cấp *
-                    </label>
-                    <Input
-                      type="tel"
-                      value={emergencyContactPhone}
-                      placeholder="Chưa có SĐT khẩn cấp"
-                      onChange={(e) => setEmergencyContactPhone(e.target.value)}
-                      className="text-xs h-9 font-medium"
-                    />
-                  </div>
-                </div>
-
-                {/* Footer Controls for Emergency Contact Block */}
-                <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3">
-                  <div className="flex items-center gap-2">
-                    {isEmergencyDirty ? (
-                      <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-amber-600 bg-amber-50 px-2.5 py-1 rounded-md border border-amber-200">
-                        <span className="size-1.5 rounded-full bg-amber-500 animate-pulse" />
-                        Có thay đổi chưa lưu
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1.5 text-[11px] text-slate-400">
-                        <Check className="size-3 text-emerald-500" />
-                        Đã đồng bộ
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={!isEmergencyDirty || savingEmergency}
-                      onClick={handleResetEmergencyBlock}
-                      className="h-8 text-xs font-medium border-slate-200 hover:bg-slate-50 text-slate-700 disabled:opacity-40"
-                    >
-                      <RotateCcw className="size-3.5 mr-1" />
-                      Hoàn tác
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      disabled={!isEmergencyDirty || savingEmergency}
-                      onClick={handleSaveEmergencyBlock}
-                      className="h-8 text-xs font-semibold bg-[#2563eb] hover:bg-blue-700 text-white shadow-sm disabled:opacity-40"
-                    >
-                      {savingEmergency ? (
-                        <>
-                          <Loader2 className="size-3.5 mr-1 animate-spin" />
-                          Đang lưu...
-                        </>
-                      ) : (
-                        <>
-                          <Save className="size-3.5 mr-1" />
-                          Lưu liên hệ khẩn cấp
-                        </>
-                      )}
-                    </Button>
-                  </div>
-                </div>
-              </div>
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-blue-100 bg-blue-50/60 p-3 text-xs text-slate-600">
+              <span className="flex items-start gap-2">
+                <Info className="mt-0.5 size-4 shrink-0 text-blue-600" />
+                <span>
+                  Thông tin định danh được quản lý từ hệ thống Core HRM. Họ tên do
+                  Core quản lý; ngày sinh và CCCD đổi qua đơn đính chính.
+                </span>
+              </span>
+              <Button
+                type="button"
+                permission="hrm.self.request"
+                variant="ghost"
+                size="sm"
+                className="h-8 gap-1 text-xs font-semibold text-blue-700 hover:bg-blue-100/60"
+                onClick={() => setCorrectionFields(allFields)}
+              >
+                <PencilLine className="size-3.5" />
+                Đề nghị chỉnh sửa thông tin Core
+                <ChevronRight className="size-3.5" />
+              </Button>
             </div>
-          </div>
+          </ProfileCard>
 
           {employeeId && (
             <HrmProfileDocumentsPanel
               employeeId={employeeId}
               mode="self"
+              variant="compact"
               identityCardNumber={profileMeta.identityCardNumber}
             />
           )}
         </div>
-      )}
 
-      {/* Sub-tab 2: Work History (Quá trình công tác) */}
-      {activeTab === 'work_history' && (
-        <div className="space-y-6">
+        {/* Cột phải */}
+        <div className="space-y-3">
+          <ProfileCard
+            icon={Phone}
+            title="Liên hệ & người thân"
+            testId="profile-contact-card"
+            badge={
+              <Badge className="gap-1 border border-emerald-200 bg-emerald-50 text-[10px] font-semibold text-emerald-700">
+                <PencilLine className="size-3" />
+                Được phép cập nhật
+              </Badge>
+            }
+          >
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <IconInput id="profile-email" label="Email cá nhân" type="email" icon={Mail} value={personalEmail} placeholder="Chưa cập nhật email cá nhân" onChange={setPersonalEmail} />
+              <IconInput id="profile-phone" label="Số điện thoại di động" type="tel" icon={Phone} value={phone} placeholder="Chưa cập nhật số điện thoại" onChange={setPhone} />
+              <IconInput id="profile-permanent-address" label="Địa chỉ thường trú" icon={MapPin} value={permanentAddress} placeholder="Chưa cập nhật địa chỉ thường trú" onChange={setPermanentAddress} />
+              <IconInput id="profile-current-address" label="Địa chỉ tạm trú / Nơi ở hiện tại" icon={MapPin} value={currentAddress} placeholder="Chưa cập nhật địa chỉ nơi ở hiện tại" onChange={setCurrentAddress} />
+            </div>
+            <div className="mt-4 border-t border-slate-100 pt-3">
+              <h3 className="mb-2 flex items-center gap-2 text-sm font-bold text-slate-900">
+                <Users className="size-4 text-blue-600" aria-hidden="true" />
+                Người liên hệ khẩn cấp
+              </h3>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <IconInput id="profile-emergency-name" label="Họ và tên" required icon={User} value={emergencyContactName} placeholder="Chưa có thông tin người liên hệ" onChange={setEmergencyContactName} />
+                <div className="space-y-1">
+                  <FieldLabel>
+                    Mối quan hệ<span className="ml-0.5 text-red-500">*</span>
+                  </FieldLabel>
+                  <SearchableSelect
+                    value={emergencyContactRelationship}
+                    onChange={(val) => setEmergencyContactRelationship(val)}
+                    options={relationshipOptions(emergencyContactRelationship)}
+                    placeholder="Chọn mối quan hệ"
+                    searchPlaceholder="Tìm mối quan hệ..."
+                    clearable
+                  />
+                </div>
+                <IconInput id="profile-emergency-phone" label="Số điện thoại" required type="tel" icon={Phone} value={emergencyContactPhone} placeholder="Chưa có SĐT khẩn cấp" onChange={setEmergencyContactPhone} />
+              </div>
+            </div>
+          </ProfileCard>
+
+          <ProfileCard
+            icon={Landmark}
+            title="Thông tin ngân hàng nhận lương"
+            testId="profile-bank-card"
+            badge={
+              <Badge className="gap-1 border border-slate-200 bg-slate-50 text-[10px] font-semibold text-slate-600">
+                <Lock className="size-3" />
+                Chỉ đọc
+              </Badge>
+            }
+          >
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <ReadonlyField id="profile-bank-name" label="Ngân hàng" value={profileMeta.bankName} />
+              <div className="space-y-1">
+                <label htmlFor="profile-bank-account" className="block text-[11px] font-semibold text-slate-600">
+                  Số tài khoản
+                </label>
+                <div className="relative">
+                  <CreditCard className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+                  <Input
+                    id="profile-bank-account"
+                    type="text"
+                    readOnly
+                    value={
+                      profileMeta.bankAccountNumber
+                        ? isAccountMasked
+                          ? maskAccount(profileMeta.bankAccountNumber)
+                          : profileMeta.bankAccountNumber
+                        : ''
+                    }
+                    className="h-9 bg-slate-50 pl-9 pr-16 font-mono text-xs"
+                  />
+                  {profileMeta.bankAccountNumber && (
+                    <span className="absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center">
+                      <button
+                        type="button"
+                        aria-label={isAccountMasked ? 'Hiện số tài khoản đầy đủ' : 'Ẩn số tài khoản'}
+                        title={isAccountMasked ? 'Hiện số tài khoản đầy đủ' : 'Ẩn số tài khoản'}
+                        onClick={() => setIsAccountMasked(!isAccountMasked)}
+                        className="rounded p-1 text-slate-400 hover:text-slate-700"
+                      >
+                        {isAccountMasked ? <Eye className="size-4" /> : <EyeOff className="size-4" />}
+                      </button>
+                      <button
+                        type="button"
+                        aria-label="Sao chép số tài khoản"
+                        title="Sao chép số tài khoản"
+                        onClick={() => copyText(profileMeta.bankAccountNumber, 'Sao chép STK thành công', `Đã lưu số tài khoản ${profileMeta.bankAccountNumber} vào khay nhớ tạm.`)}
+                        className="rounded p-1 text-slate-400 hover:text-slate-700"
+                      >
+                        <Copy className="size-4" />
+                      </button>
+                    </span>
+                  )}
+                </div>
+              </div>
+              <ReadonlyField id="profile-bank-holder" label="Chủ tài khoản" icon={User} value={profileMeta.fullName} />
+              <ReadonlyField id="profile-bank-branch" label="Chi nhánh" icon={MapPin} value={profileMeta.bankBranch} />
+              <ReadonlyField id="profile-tax-code" label="Mã số thuế cá nhân" mono value={profileMeta.taxCode} />
+              <ReadonlyField id="profile-social-insurance" label="Số sổ BHXH" mono value={profileMeta.socialInsuranceNumber} />
+            </div>
+            <p className="mt-3 flex items-center gap-2 text-[11px] text-slate-500">
+              <ShieldCheck className="size-3.5 shrink-0 text-slate-400" />
+              Thông tin tài khoản ngân hàng được bảo mật và chỉ hiển thị cho các vai trò có thẩm quyền. Cần thay đổi vui lòng liên hệ phòng Nhân sự.
+            </p>
+          </ProfileCard>
+        </div>
+      </div>
+
+      {/* Công tác hiện tại */}
+      <ProfileCard
+        icon={Briefcase}
+        title="Công tác hiện tại"
+        testId="profile-current-work"
+        action={
+          <button
+            type="button"
+            onClick={() => setHistoryOpen(true)}
+            className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 hover:underline"
+          >
+            Xem lịch sử công tác & hợp đồng
+            <ChevronRight className="size-3.5" />
+          </button>
+        }
+      >
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-5">
+          <InfoCell label="Chức danh công việc">{profileMeta.position || '----'}</InfoCell>
+          <InfoCell label="Đơn vị công tác">{profileMeta.department || '----'}</InfoCell>
+          <div className="min-w-0">
+            <p className="text-[11px] text-slate-500">Quản lý trực tiếp</p>
+            {profileMeta.directManagerName ? (
+              <p className="mt-0.5 flex items-center gap-2">
+                <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-slate-200 text-[10px] font-bold text-slate-700">
+                  {initialsOf(profileMeta.directManagerName)}
+                </span>
+                <span className="min-w-0">
+                  <span className="block truncate text-sm font-semibold text-slate-900">
+                    {profileMeta.directManagerName}
+                  </span>
+                  {profileMeta.directManagerTitle && (
+                    <span className="block truncate text-[11px] text-slate-500">
+                      {profileMeta.directManagerTitle}
+                    </span>
+                  )}
+                </span>
+              </p>
+            ) : (
+              <p className="mt-0.5 text-sm font-semibold text-slate-900">----</p>
+            )}
+          </div>
+          <InfoCell label="Ngày hiệu lực" icon={Calendar}>
+            {profileMeta.joinDate ? formatVnDate(profileMeta.joinDate) : '----'}
+          </InfoCell>
+          <InfoCell label="Thâm niên công tác" icon={Clock}>
+            {seniorityText(profileMeta.joinDate)}
+          </InfoCell>
+        </div>
+      </ProfileCard>
+
+      {/* Người phụ thuộc */}
+      <HrmFamilyPanel rows={dependents} onChanged={setDependents} />
+
+      {/* Ngăn kéo: quá trình công tác và hợp đồng */}
+      <Sheet open={historyOpen} onOpenChange={setHistoryOpen}>
+        <SheetContent className="flex h-full max-h-screen w-full flex-col overflow-hidden bg-white p-0 sm:max-w-[1000px]">
+          <SheetHeader className="shrink-0 border-b border-slate-200 bg-slate-50/70">
+            <SheetTitle>Quá trình công tác và hợp đồng</SheetTitle>
+            <SheetDescription>
+              Dữ liệu đồng bộ từ Core HRM, quản lý bởi Ban Nhân sự.
+            </SheetDescription>
+          </SheetHeader>
+          <div className="flex-1 overflow-y-auto p-4">
           <div className="bg-blue-50/70 border border-blue-200 rounded-xl p-4 text-xs text-slate-700 flex items-start sm:items-center gap-3 shadow-sm">
             <Info className="size-5 text-blue-700 shrink-0" />
             <div className="flex-1">
@@ -1831,400 +1469,9 @@ export default function HrmProfilePage() {
           </div>
 
           {employeeId&&<HrmContractPanel employeeId={employeeId} rows={contracts} onChanged={setContracts} readOnly/>}
-        </div>
-      )}
-
-      {/* Sub-tab 3: Bank & Tax (Ngân hàng & Thuế) */}
-      {activeTab === 'bank_tax' && (
-        <div className="space-y-6">
-          {/* Security Notice Banner */}
-          <div className="bg-gradient-to-r from-blue-50/90 via-slate-50 to-blue-50/50 border border-blue-200/80 rounded-xl p-4 text-xs text-slate-700 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
-            <div className="flex items-start sm:items-center gap-3">
-              <div className="p-2 rounded-lg bg-blue-100/80 text-[#021E73] shrink-0">
-                <ShieldCheck className="size-4" />
-              </div>
-              <div className="space-y-0.5">
-                <span className="font-bold text-slate-900 block sm:inline">
-                  Quy chuẩn bảo mật tài khoản chi lương:
-                </span>{' '}
-                <span className="text-slate-600">
-                  Thông tin tài khoản thụ hưởng và MST/BHXH được mã hóa và đồng
-                  bộ trực tiếp với hệ thống hạch toán chi lương định kỳ.
-                </span>
-              </div>
-            </div>
-            <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
-              <Badge
-                variant="outline"
-                className="bg-white text-slate-700 border-slate-300 text-[11px] font-medium"
-              >
-                Cấp bảo mật L2
-              </Badge>
-              <Badge className="bg-emerald-50 text-emerald-700 border border-emerald-200 text-[11px] font-semibold gap-1">
-                <CheckCircle2 className="size-3" />
-                {profileMeta.bankAccountNumber
-                  ? 'Đã liên kết tài khoản'
-                  : 'Chưa có thông tin'}
-              </Badge>
-            </div>
           </div>
-
-          {/* Main Payment & Tax Spec Grid */}
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            {/* Left Column: Bank Account Spec Card (7 Cols) */}
-            <div className="lg:col-span-7 bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden flex flex-col">
-              {/* Header */}
-              <div className="px-5 py-3.5 border-b border-slate-200 bg-slate-50/70 flex items-center justify-between">
-                <div className="flex items-center gap-2.5">
-                  <span className="w-1.5 h-4 bg-[#021E73] rounded-full" />
-                  <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wide">
-                    Tài khoản thụ hưởng nhận lương (Payroll Account)
-                  </h3>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Badge
-                    variant="outline"
-                    className="text-[10px] text-slate-600 border-slate-300 gap-1 bg-white"
-                  >
-                    <Lock className="size-3 text-slate-400" />
-                    Chỉ đọc
-                  </Badge>
-                </div>
-              </div>
-
-              {/* Bank Card Visual Summary Block */}
-              <div className="p-5 border-b border-slate-200 bg-gradient-to-br from-slate-900 via-[#021E73] to-[#0A3299] text-white relative overflow-hidden">
-                <div className="absolute -right-8 -bottom-8 w-44 h-44 rounded-full bg-white/5 pointer-events-none blur-xl" />
-                <div className="relative z-10 flex flex-col justify-between h-40">
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="size-10 rounded-lg bg-white/10 backdrop-blur-sm border border-white/20 flex items-center justify-center font-bold text-sm tracking-wider text-emerald-400">
-                        {profileMeta.bankName
-                          ? profileMeta.bankName.slice(0, 3).toUpperCase()
-                          : '----'}
-                      </div>
-                      <div>
-                        <div className="font-bold text-sm text-white tracking-wide">
-                          {profileMeta.bankName || '----'}
-                        </div>
-                        <div className="text-[11px] text-blue-200/90 font-medium">
-                          {profileMeta.bankBranch
-                            ? `Chi nhánh: ${profileMeta.bankBranch}`
-                            : '----'}
-                        </div>
-                      </div>
-                    </div>
-                    <Badge className="bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 text-[10px] font-semibold">
-                      {profileMeta.bankAccountNumber
-                        ? 'Tài khoản chính'
-                        : 'Chưa thiết lập'}
-                    </Badge>
-                  </div>
-
-                  <div className="space-y-1">
-                    <div className="text-[11px] text-blue-200 uppercase tracking-wider font-semibold">
-                      Số tài khoản thụ hưởng
-                    </div>
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="font-mono text-xl font-bold tracking-widest text-white">
-                        {profileMeta.bankAccountNumber
-                          ? isAccountMasked
-                            ? profileMeta.bankAccountNumber.length > 4
-                              ? '**** **** ' +
-                                profileMeta.bankAccountNumber.slice(-4)
-                              : '****'
-                            : profileMeta.bankAccountNumber
-                          : '----'}
-                      </div>
-                      {profileMeta.bankAccountNumber && (
-                        <div className="flex items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => setIsAccountMasked(!isAccountMasked)}
-                            className="p-1.5 rounded hover:bg-white/15 text-blue-200 hover:text-white transition-colors"
-                            title={
-                              isAccountMasked
-                                ? 'Hiện số tài khoản đầy đủ'
-                                : 'Ẩn số tài khoản'
-                            }
-                          >
-                            {isAccountMasked ? (
-                              <Eye className="size-4" />
-                            ) : (
-                              <EyeOff className="size-4" />
-                            )}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              navigator.clipboard.writeText(
-                                profileMeta.bankAccountNumber,
-                              );
-                              toast.add({
-                                title: 'Sao chép STK thành công',
-                                description: `Đã lưu số tài khoản ${profileMeta.bankAccountNumber} vào khay nhớ tạm.`,
-                                type: 'success',
-                              });
-                            }}
-                            className="p-1.5 rounded hover:bg-white/15 text-blue-200 hover:text-white transition-colors"
-                            title="Sao chép số tài khoản"
-                          >
-                            <Copy className="size-4" />
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between pt-1 border-t border-white/10 text-xs">
-                    <div>
-                      <span className="text-[10px] text-blue-200/80 uppercase block">
-                        Chủ tài khoản
-                      </span>
-                      <span className="font-mono font-bold tracking-wide text-white text-xs">
-                        {profileMeta.fullName
-                          ? profileMeta.fullName.toUpperCase()
-                          : '----'}
-                      </span>
-                    </div>
-                    <div className="text-right">
-                      <span className="text-[10px] text-blue-200/80 uppercase block">
-                        Trạng thái
-                      </span>
-                      <span className="text-emerald-300 font-semibold text-xs flex items-center gap-1 justify-end">
-                        <span
-                          className={`size-1.5 rounded-full inline-block ${profileMeta.bankAccountNumber ? 'bg-emerald-400 animate-pulse' : 'bg-slate-400'}`}
-                        />
-                        {profileMeta.bankAccountNumber
-                          ? 'Đang nhận chi trả'
-                          : '----'}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Bank Metadata Table / Spec Rows */}
-              <div className="p-5 divide-y divide-slate-100 text-xs">
-                <div className="py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-1">
-                  <span className="text-slate-500 font-medium">
-                    Tên ngân hàng
-                  </span>
-                  <span className="font-semibold text-slate-900 text-right">
-                    {profileMeta.bankName || '----'}
-                  </span>
-                </div>
-                <div className="py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-1">
-                  <span className="text-slate-500 font-medium">
-                    Chi nhánh mở tài khoản
-                  </span>
-                  <span className="font-semibold text-slate-900 text-right">
-                    {profileMeta.bankBranch || '----'}
-                  </span>
-                </div>
-                <div className="py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-1">
-                  <span className="text-slate-500 font-medium">
-                    Phòng giao dịch liên kết
-                  </span>
-                  <span className="font-medium text-slate-800 text-right">
-                    ----
-                  </span>
-                </div>
-                <div className="py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-1">
-                  <span className="text-slate-500 font-medium">
-                    Hình thức chi trả tiền lương
-                  </span>
-                  <div className="text-right">
-                    <span className="font-semibold text-slate-900 block">
-                      {profileMeta.bankAccountNumber
-                        ? 'Chuyển khoản trực tiếp'
-                        : '----'}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Action Footer */}
-              <div className="mt-auto px-5 py-3.5 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                <span className="text-[11px] text-slate-500">
-                  Tài khoản nhận lương do phòng Nhân sự quản lý. Cần thay đổi vui
-                  lòng liên hệ phòng Nhân sự.
-                </span>
-              </div>
-            </div>
-
-            {/* Dependents Spec Block (Full width under left column) */}
-            <div className="lg:col-span-12"><HrmFamilyPanel rows={dependents} onChanged={setDependents}/></div>
-
-            {/* Right Column: Tax & Social Insurance Spec (5 Cols) */}
-            <div className="lg:col-span-5 space-y-6">
-              {/* Personal Income Tax Block */}
-              <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
-                <div className="px-5 py-3.5 border-b border-slate-200 bg-slate-50/70 flex items-center justify-between">
-                  <div className="flex items-center gap-2.5">
-                    <span className="w-1.5 h-4 bg-emerald-600 rounded-full" />
-                    <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wide">
-                      Mã số thuế & Giảm trừ gia cảnh
-                    </h3>
-                  </div>
-                  <Badge
-                    variant="outline"
-                    className={`text-[10px] ${profileMeta.taxCode ? 'text-emerald-700 border-emerald-300 bg-emerald-50' : 'text-slate-500 border-slate-200 bg-slate-50'}`}
-                  >
-                    {profileMeta.taxCode ? 'Hợp lệ' : 'Chưa có'}
-                  </Badge>
-                </div>
-
-                <div className="p-5 space-y-4 text-xs">
-                  <div className="p-3.5 rounded-lg border border-slate-200 bg-slate-50/60 flex items-center justify-between">
-                    <div>
-                      <span className="text-slate-500 block text-[11px]">
-                        Mã số thuế cá nhân (MST)
-                      </span>
-                      <div className="font-mono font-extrabold text-slate-900 text-base mt-0.5 tracking-wide">
-                        {profileMeta.taxCode || '----'}
-                      </div>
-                      <span className="text-[11px] text-slate-500">
-                        {profileMeta.taxCode ? 'Cơ quan thuế quản lý' : '----'}
-                      </span>
-                    </div>
-                    {profileMeta.taxCode && (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-8 w-8 p-0 text-slate-500 hover:text-slate-900"
-                        title="Sao chép MST"
-                        onClick={() => {
-                          navigator.clipboard.writeText(profileMeta.taxCode);
-                          toast.add({
-                            title: 'Sao chép MST thành công',
-                            description: `Đã sao chép mã số thuế ${profileMeta.taxCode} vào bộ nhớ tạm.`,
-                            type: 'success',
-                          });
-                        }}
-                      >
-                        <Copy className="size-4" />
-                      </Button>
-                    )}
-                  </div>
-
-                  <div className="space-y-2 divide-y divide-slate-100">
-                    <div className="pt-2 flex items-center justify-between">
-                      <span className="text-slate-500">
-                        Số người phụ thuộc đăng ký
-                      </span>
-                      <span className="font-semibold text-slate-900 text-xs">
-                        ----
-                      </span>
-                    </div>
-                    <div className="pt-2 flex items-center justify-between">
-                      <span className="text-slate-500">
-                        Mức giảm trừ gia cảnh NPT
-                      </span>
-                      <span className="font-semibold text-slate-900 text-xs">
-                        ----
-                      </span>
-                    </div>
-                    <div className="pt-2 flex items-center justify-between">
-                      <span className="text-slate-500">
-                        Mức giảm trừ bản thân
-                      </span>
-                      <span className="font-semibold text-slate-900 text-xs">
-                        ----
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Social Insurance (BHXH) Block */}
-              <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
-                <div className="px-5 py-3.5 border-b border-slate-200 bg-slate-50/70 flex items-center justify-between">
-                  <div className="flex items-center gap-2.5">
-                    <span className="w-1.5 h-4 bg-sky-600 rounded-full" />
-                    <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wide">
-                      Bảo hiểm xã hội & Y tế (BHXH - BHYT)
-                    </h3>
-                  </div>
-                  <Badge
-                    className={`text-[10px] font-semibold ${profileMeta.socialInsuranceNumber ? 'bg-sky-50 text-sky-700 border border-sky-200' : 'bg-slate-50 text-slate-500 border border-slate-200'}`}
-                  >
-                    {profileMeta.socialInsuranceNumber
-                      ? 'Đang đóng'
-                      : 'Chưa có'}
-                  </Badge>
-                </div>
-
-                <div className="p-5 space-y-4 text-xs">
-                  <div className="p-3.5 rounded-lg border border-slate-200 bg-slate-50/60 flex items-center justify-between">
-                    <div>
-                      <span className="text-slate-500 block text-[11px]">
-                        Mã số BHXH
-                      </span>
-                      <div className="font-mono font-extrabold text-slate-900 text-base mt-0.5 tracking-wide">
-                        {profileMeta.socialInsuranceNumber || '----'}
-                      </div>
-                      <span className="text-[11px] text-slate-500">
-                        {profileMeta.socialInsuranceNumber
-                          ? 'Cơ quan BHXH quản lý'
-                          : '----'}
-                      </span>
-                    </div>
-                    {profileMeta.socialInsuranceNumber && (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-8 w-8 p-0 text-slate-500 hover:text-slate-900"
-                        title="Sao chép số BHXH"
-                        onClick={() => {
-                          navigator.clipboard.writeText(
-                            profileMeta.socialInsuranceNumber,
-                          );
-                          toast.add({
-                            title: 'Sao chép mã BHXH thành công',
-                            description: `Đã sao chép mã số BHXH ${profileMeta.socialInsuranceNumber} vào bộ nhớ tạm.`,
-                            type: 'success',
-                          });
-                        }}
-                      >
-                        <Copy className="size-4" />
-                      </Button>
-                    )}
-                  </div>
-
-                  <div className="space-y-2 divide-y divide-slate-100">
-                    <div className="pt-2 flex items-center justify-between">
-                      <span className="text-slate-500">Mã nơi KCB ban đầu</span>
-                      <span className="font-semibold text-slate-800">----</span>
-                    </div>
-                    <div className="pt-2 flex items-center justify-between">
-                      <span className="text-slate-500">
-                        Tỷ lệ đóng BHXH người LĐ
-                      </span>
-                      <span className="font-semibold text-slate-900 text-xs">
-                        ----
-                      </span>
-                    </div>
-                    <div className="pt-2 flex items-center justify-between">
-                      <span className="text-slate-500">
-                        Tỷ lệ đóng của Doanh nghiệp
-                      </span>
-                      <span className="font-semibold text-slate-900 text-xs">
-                        ----
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-
-
-      {/* Dialog: Thêm người phụ thuộc */}
-
+        </SheetContent>
+      </Sheet>
 
       {/* Modal: Job Description & Competencies Dialog - Enterprise Spec Sheet */}
       <Dialog open={isJdModalOpen} onOpenChange={setIsJdModalOpen}>

@@ -145,8 +145,8 @@ export function validateAnnualLeavePolicyInput(
   }
   if (body.effectiveFrom !== undefined) {
     requireDate(body.effectiveFrom, 'Ngày hiệu lực');
-    if (!body.effectiveFrom.endsWith('-01'))
-      invalid('Ngày hiệu lực phải là ngày đầu tháng');
+    if (!body.effectiveFrom.endsWith('-01-01'))
+      invalid('Chính sách phép năm chỉ có hiệu lực từ ngày đầu năm (01/01)');
   }
   if (
     body.maxCarryoverDays !== undefined &&
@@ -376,11 +376,20 @@ async function closeOtherAccrualSchedules(
   return closed;
 }
 
-/** Ngày 1 của tháng liền sau tháng chứa `date` (YYYY-MM-DD). */
-const firstOfNextMonth = (date: string) =>
-  new Date(Date.UTC(Number(date.slice(0, 4)), Number(date.slice(5, 7)), 1))
-    .toISOString()
-    .slice(0, 10);
+/** Ngày 01/01 của năm liền sau năm chứa `date` (YYYY-MM-DD): mốc hiệu lực mới không bao giờ chồng lên thời gian đã có. */
+/** Ngày 01/01 của năm chứa `date`. */
+const startOfYear = (date: string) => `${date.slice(0, 4)}-01-01`;
+
+/**
+ * Lịch chưa cộng phép được sửa tại chỗ: dời về 01/01 của năm đó, trừ khi chồng lên lịch trước (dữ liệu cũ bắt đầu giữa năm).
+ */
+const editStart = (current: Record<string, any>, previous?: Record<string, any>) => {
+  const from = isoDate(current.effective_from);
+  const start = startOfYear(from);
+  return previous?.effective_to && isoDate(previous.effective_to) >= start ? from : start;
+};
+
+export const firstOfNextYear = (date: string) => `${Number(date.slice(0, 4)) + 1}-01-01`;
 
 /**
  * Lưu chính sách phép năm trong MỘT giao dịch (caller mở bằng hrmTransaction):
@@ -468,7 +477,7 @@ export async function saveAnnualLeavePolicy(
       effectiveFrom:
         input.effectiveFrom ??
         (current
-          ? firstOfNextMonth(isoDate(current.effective_to))
+          ? firstOfNextYear(isoDate(current.effective_to))
           : `${year}-01-01`),
       effectiveTo: null,
     };
@@ -477,15 +486,16 @@ export async function saveAnnualLeavePolicy(
   } else {
     const usage = await accrualScheduleUsage(db, tenant, current.id);
     // Chưa cộng phép lần nào: sửa tại chỗ, không có lịch sử để giữ.
-    // Đã cộng phép: lịch cũ kết thúc trước tháng của phiên bản mới (mặc định tháng sau tháng đã cộng).
+    // Đã cộng phép: lịch cũ kết thúc trước ngày 01/01 của phiên bản mới (mặc định 01/01 năm sau năm đã cộng),
+    // vì số đã ghi sổ không được tính lại.
     mode = usage.count ? 'version' : 'edit';
     const mutation: AccrualMutation = {
       ...fields,
       effectiveFrom:
         input.effectiveFrom ??
         (usage.count
-          ? firstOfNextMonth(usage.last_month as string)
-          : isoDate(current.effective_from)),
+          ? firstOfNextYear(usage.last_month as string)
+          : editStart(current, schedules[1])),
       expectedUpdatedAt: timestamp(current.updated_at),
       reason: input.reason,
     };

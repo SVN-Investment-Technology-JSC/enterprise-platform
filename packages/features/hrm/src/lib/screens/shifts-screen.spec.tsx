@@ -1,7 +1,7 @@
 /** @jest-environment jsdom */
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { HrmApiError, hrmFetch } from '../hrm-api';
-import ShiftsScreen from './shifts-screen';
+import ShiftsScreen, { shiftBarSegments } from './shifts-screen';
 
 jest.mock('../hrm-permissions', () => ({
   useHrmPermissions: () => ({
@@ -50,6 +50,7 @@ beforeEach(() => {
   fetchMock.mockImplementation((async (path: string, init?: RequestInit) => {
     calls.push({ path, init });
     if (path === '/shifts' && !init) return { data: [shift, inactive] };
+    if (path.startsWith('/operations/audit')) return { data: [], meta: { total: 0, actions: [] } };
     if (init?.method === 'PATCH' && patchError) throw patchError;
     return { data: shift };
   }) as never);
@@ -71,6 +72,66 @@ describe('ShiftsScreen (danh mục ca làm việc)', () => {
     expect(calls.map((c) => c.path)).toEqual(['/shifts']);
   });
 
+  it('hiện tiêu đề Danh mục ca, khung giờ, nghỉ giữa ca, công chuẩn và nhãn trạng thái', async () => {
+    render(<ShiftsScreen />);
+    await screen.findByText('Hành chính');
+    expect(screen.getByRole('heading', { name: 'Danh mục ca' })).toBeTruthy();
+    expect(screen.getByText('Quản lý danh mục ca, mẫu ca và quy tắc tính.')).toBeTruthy();
+    const row = screen.getByTestId('shift-row-HC');
+    expect(within(row).getByText(/08:00 - 17:30/)).toBeTruthy();
+    expect(within(row).getByText(/12:00 - 13:00/)).toBeTruthy();
+    expect(within(row).getByText('60 phút')).toBeTruthy();
+    expect(within(row).getByText('8,5 giờ')).toBeTruthy();
+    expect(within(row).getByText('10p / 5p')).toBeTruthy();
+    expect(within(row).getByText('Đang dùng')).toBeTruthy();
+    expect(within(screen.getByTestId('shift-row-DEM')).getByText('Tạm dừng')).toBeTruthy();
+  });
+
+  it('tìm theo mã hoặc tên và lọc theo trạng thái', async () => {
+    render(<ShiftsScreen />);
+    await screen.findByText('Hành chính');
+    fireEvent.click(screen.getByRole('button', { name: /Tạm dừng \(1\)/ }));
+    expect(screen.queryByTestId('shift-row-HC')).toBeNull();
+    expect(screen.getByTestId('shift-row-DEM')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /Tất cả \(2\)/ }));
+    fireEvent.change(screen.getByLabelText('Tìm mã ca hoặc tên ca'), { target: { value: 'hành' } });
+    expect(screen.getByTestId('shift-row-HC')).toBeTruthy();
+    expect(screen.queryByTestId('shift-row-DEM')).toBeNull();
+    fireEvent.change(screen.getByLabelText('Tìm mã ca hoặc tên ca'), { target: { value: 'khong-co' } });
+    expect(screen.getByText('Không tìm thấy ca làm việc nào phù hợp.')).toBeTruthy();
+  });
+
+  it('nút Lịch sử thay đổi mở ngăn kéo đọc nhật ký ca', async () => {
+    render(<ShiftsScreen />);
+    await screen.findByText('Hành chính');
+    fireEvent.click(screen.getByRole('button', { name: 'Lịch sử thay đổi' }));
+    await waitFor(() => expect(calls.some((c) => c.path.startsWith('/operations/audit'))).toBe(true));
+  });
+
+  it('form thêm ca chia nhóm Thông tin ca, Khung giờ, Nghỉ giữa ca, Dung sai và trạng thái', async () => {
+    render(<ShiftsScreen />);
+    await screen.findByText('Hành chính');
+    fireEvent.click(screen.getByRole('button', { name: 'Thêm ca' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Thêm ca làm việc mới' });
+    for (const title of ['Thông tin ca', 'Khung giờ', 'Nghỉ giữa ca', 'Dung sai và trạng thái'])
+      expect(within(dialog).getByRole('heading', { name: title })).toBeTruthy();
+    expect(within(dialog).getByText('8,5 giờ')).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Không nghỉ giữa ca' }));
+    expect(within(dialog).getByText('9,5 giờ')).toBeTruthy();
+  });
+
+  it('shiftBarSegments: ca thường, ca qua đêm bị cắt làm hai đoạn, thiếu giờ thì rỗng', () => {
+    const normal = shiftBarSegments({ startTime: '06:00:00', endTime: '18:00:00', breakMinutes: 60, breakStartTime: '12:00', breakEndTime: '13:00' });
+    expect(normal.work).toEqual([[25, 75]]);
+    expect(normal.rest).toHaveLength(1);
+    expect(normal.rest[0][0]).toBeCloseTo(50);
+    const night = shiftBarSegments({ startTime: '22:00', endTime: '06:00', crossMidnight: true, breakMinutes: 0 });
+    expect(night.work).toHaveLength(2);
+    expect(night.work[1][0]).toBe(0);
+    expect(night.rest).toEqual([]);
+    expect(shiftBarSegments({}).work).toEqual([]);
+  });
+
   it('sends expectedUpdatedAt from the loaded shift when editing and auto-computes the break end', async () => {
     render(<ShiftsScreen />);
     await screen.findByText('Hành chính');
@@ -90,7 +151,7 @@ describe('ShiftsScreen (danh mục ca làm việc)', () => {
   it('creates a shift with POST and without expectedUpdatedAt', async () => {
     render(<ShiftsScreen />);
     await screen.findByText('Hành chính');
-    fireEvent.click(screen.getByRole('button', { name: 'Thêm ca làm việc' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Thêm ca' }));
     const dialog = await screen.findByRole('dialog', { name: 'Thêm ca làm việc mới' });
     fireEvent.change(within(dialog).getByLabelText('Mã ca làm việc'), { target: { value: 'ca-sang' } });
     fireEvent.change(within(dialog).getByLabelText('Tên ca làm việc'), { target: { value: 'Ca sáng' } });
@@ -106,13 +167,13 @@ describe('ShiftsScreen (danh mục ca làm việc)', () => {
   it('ca nửa ngày: chọn "Không nghỉ giữa ca" thì ẩn giờ nghỉ và lưu được không cần giờ bắt đầu nghỉ', async () => {
     render(<ShiftsScreen />);
     await screen.findByText('Hành chính');
-    fireEvent.click(screen.getByRole('button', { name: 'Thêm ca làm việc' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Thêm ca' }));
     const dialog = await screen.findByRole('dialog', { name: 'Thêm ca làm việc mới' });
-    expect(within(dialog).getByText('Giờ bắt đầu nghỉ *')).toBeTruthy();
+    expect(within(dialog).getByText('Giờ bắt đầu nghỉ')).toBeTruthy();
     fireEvent.change(within(dialog).getByLabelText('Mã ca làm việc'), { target: { value: 'hc-t7' } });
     fireEvent.change(within(dialog).getByLabelText('Tên ca làm việc'), { target: { value: 'HC sáng T7' } });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Không nghỉ giữa ca' }));
-    expect(within(dialog).queryByText('Giờ bắt đầu nghỉ *')).toBeNull();
+    expect(within(dialog).queryByText('Giờ bắt đầu nghỉ')).toBeNull();
     expect(within(dialog).queryByLabelText('Thời gian nghỉ (phút)')).toBeNull();
     fireEvent.click(within(dialog).getByRole('button', { name: 'Lưu ca làm việc' }));
     await waitFor(() => expect(calls.some((c) => c.init?.method === 'POST')).toBe(true));
@@ -124,7 +185,7 @@ describe('ShiftsScreen (danh mục ca làm việc)', () => {
   it('có giờ nghỉ nhưng khoảng nghỉ nằm ngoài ca thì báo lỗi, không gửi lên máy chủ', async () => {
     render(<ShiftsScreen />);
     await screen.findByText('Hành chính');
-    fireEvent.click(screen.getByRole('button', { name: 'Thêm ca làm việc' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Thêm ca' }));
     const dialog = await screen.findByRole('dialog', { name: 'Thêm ca làm việc mới' });
     fireEvent.change(within(dialog).getByLabelText('Mã ca làm việc'), { target: { value: 'sang' } });
     fireEvent.change(within(dialog).getByLabelText('Tên ca làm việc'), { target: { value: 'Sáng' } });
@@ -149,7 +210,7 @@ describe('ShiftsScreen (danh mục ca làm việc)', () => {
   it('requires a code and a name before saving', async () => {
     render(<ShiftsScreen />);
     await screen.findByText('Hành chính');
-    fireEvent.click(screen.getByRole('button', { name: 'Thêm ca làm việc' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Thêm ca' }));
     const dialog = await screen.findByRole('dialog', { name: 'Thêm ca làm việc mới' });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Lưu ca làm việc' }));
     expect(await within(dialog).findByRole('alert')).toBeTruthy();

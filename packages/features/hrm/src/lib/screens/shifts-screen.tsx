@@ -1,11 +1,24 @@
 'use client';
 
 import Link from 'next/link';
-import { Clock, Loader2, Plus, Search } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  CalendarRange,
+  Clock,
+  Coffee,
+  History,
+  Info,
+  Loader2,
+  Pencil,
+  Plus,
+  Search,
+  SlidersHorizontal,
+  Tag,
+} from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { HrmShiftDefinition } from '@enterprise-platform/contracts-hrm';
 import { Popconfirm } from '@enterprise-platform/shared-ui';
 import { HrmApiError, hrmFetch } from '../hrm-api';
+import { useHrmPermissions } from '../hrm-permissions';
 import {
   addMinutesToTime,
   computeShiftStandardHours,
@@ -13,10 +26,12 @@ import {
   shiftStatusLabel,
 } from '../hrm-shift-metrics';
 import { cn } from '../utils';
-import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
+import { ConfigHistoryDrawer } from '../ui/config-history-drawer';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Input } from '../ui/input';
+import { PageTitle } from '../ui/page-title';
+import { EmptyPanel, InfoNote, SettingsField, SettingsSection, SettingsSwitch, StatusPill } from '../ui/settings-kit';
 import { TimeTextInput } from '../ui/time-text-input';
 import { toast } from '../ui/toast';
 
@@ -78,8 +93,109 @@ function errorText(error: unknown): string {
   return error instanceof Error ? error.message : 'Không thực hiện được thao tác.';
 }
 
+const toMinutes = (value?: string | null): number | null => {
+  const m = /^(\d{1,2}):(\d{2})/.exec(value ?? '');
+  return m ? Number(m[1]) * 60 + Number(m[2]) : null;
+};
+
+type BarSegments = { work: [number, number][]; rest: [number, number][] };
+
+/**
+ * Đoạn giờ làm và giờ nghỉ của một ca trên thanh 24 giờ, tính theo % (0 đến 100). Ca qua đêm được cắt làm hai đoạn
+ * (đến hết 24:00 và từ 00:00). Thiếu giờ thì không có đoạn nào.
+ */
+export function shiftBarSegments(shift: {
+  startTime?: string | null;
+  endTime?: string | null;
+  crossMidnight?: boolean | null;
+  breakMinutes?: number | null;
+  breakStartTime?: string | null;
+  breakEndTime?: string | null;
+}): BarSegments {
+  const start = toMinutes(shift.startTime);
+  const end = toMinutes(shift.endTime);
+  const out: BarSegments = { work: [], rest: [] };
+  if (start === null || end === null) return out;
+  const pct = (a: number, b: number): [number, number][] => {
+    const cut = (x: number, y: number): [number, number] => [(x / 1440) * 100, (y / 1440) * 100];
+    return b <= 1440 ? [cut(a, b)] : [cut(a, 1440), cut(0, b - 1440)];
+  };
+  const finish = shift.crossMidnight || end <= start ? end + 1440 : end;
+  out.work = pct(start, finish);
+  const bs = toMinutes(shift.breakStartTime);
+  const be = toMinutes(shift.breakEndTime);
+  if ((shift.breakMinutes ?? 0) > 0 && bs !== null && be !== null) {
+    const from = bs < start ? bs + 1440 : bs;
+    const to = from + (be > bs ? be - bs : be + 1440 - bs);
+    out.rest = pct(from, to);
+  }
+  return out;
+}
+
+/** Thanh 24 giờ thu nhỏ: đoạn giờ làm tô xanh, đoạn nghỉ giữa ca tô vàng cam. Chỉ để nhìn, không có chữ. */
+function ShiftTimeBar({ shift }: { shift: Parameters<typeof shiftBarSegments>[0] }) {
+  const { work, rest } = shiftBarSegments(shift);
+  const seg = (range: [number, number], cls: string, key: string) => (
+    <span
+      key={key}
+      className={`absolute inset-y-0 rounded-full ${cls}`}
+      style={{ left: `${range[0]}%`, width: `${Math.max(range[1] - range[0], 1)}%` }}
+    />
+  );
+  return (
+    <span aria-hidden="true" className="relative block h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+      {work.map((r, i) => seg(r, 'bg-blue-500', `w${i}`))}
+      {rest.map((r, i) => seg(r, 'bg-amber-400', `r${i}`))}
+    </span>
+  );
+}
+
+const formatHours = (hours: number | null) => (hours === null ? '-' : String(hours).replace('.', ','));
+
+/** Lưới của một dòng ca: thẻ dọc khi hẹp, từ @3xl là năm cột thẳng hàng với dòng tiêu đề. */
+const ROW_GRID =
+  'grid grid-cols-1 items-start gap-x-3 gap-y-3 @xl:grid-cols-2 @3xl:grid-cols-[minmax(0,1.3fr)_minmax(0,1.3fr)_minmax(0,1.2fr)_minmax(0,0.8fr)_9.5rem]';
+
+function Caption({ children }: { children: ReactNode }) {
+  return <span className="mb-1 block text-[11px] font-medium text-slate-500 @3xl:sr-only">{children}</span>;
+}
+
+/** Nút chọn một trong hai/ba trạng thái dạng phân đoạn gọn (dùng aria-pressed). */
+function Segmented<T extends string | boolean>({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: T;
+  options: readonly (readonly [T, string])[];
+  onChange: (next: T) => void;
+}) {
+  return (
+    <div role="group" aria-label={label} className="flex w-full gap-0.5 rounded-lg bg-slate-100 p-0.5">
+      {options.map(([key, text]) => (
+        <button
+          key={String(key)}
+          type="button"
+          aria-pressed={value === key}
+          onClick={() => onChange(key)}
+          className={cn(
+            'h-8 min-w-0 flex-1 cursor-pointer truncate rounded-md px-2 text-xs transition-colors',
+            value === key ? 'bg-white font-bold text-slate-900 shadow-xs' : 'font-medium text-slate-500 hover:text-slate-900',
+          )}
+        >
+          {text}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 /** Danh mục ca làm việc. Việc phân ca cho nhân viên thực hiện ở màn Phân ca làm việc. */
 export default function ShiftsPage() {
+  const { can } = useHrmPermissions();
+  const canAudit = can('hrm.audit.read');
   const [shifts, setShifts] = useState<HrmShiftDefinition[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
@@ -90,6 +206,7 @@ export default function ShiftsPage() {
   const [form, setForm] = useState<ShiftForm>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -140,11 +257,10 @@ export default function ShiftsPage() {
     }
     const { hasBreak, ...fields } = form;
     if (hasBreak) {
-      const toMinutes = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
-      const start = toMinutes(form.startTime);
-      const end = toMinutes(form.endTime) + (form.crossMidnight ? 1440 : 0);
-      let breakStart = toMinutes(form.breakStartTime);
-      let breakEnd = toMinutes(form.breakEndTime);
+      const start = toMinutes(form.startTime) ?? 0;
+      const end = (toMinutes(form.endTime) ?? 0) + (form.crossMidnight ? 1440 : 0);
+      let breakStart = toMinutes(form.breakStartTime) ?? 0;
+      let breakEnd = toMinutes(form.breakEndTime) ?? 0;
       if (form.crossMidnight && breakStart < start) breakStart += 1440;
       if (form.crossMidnight && breakEnd <= start) breakEnd += 1440;
       if (!(form.breakMinutes > 0)) {
@@ -205,32 +321,47 @@ export default function ShiftsPage() {
   const numberField = (key: 'graceLateMinutes' | 'graceEarlyMinutes') => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm({ ...form, [key]: Number(e.target.value) || 0 });
 
-  return (
-    <div className="flex h-[calc(100dvh-11rem)] min-h-[520px] flex-col gap-3">
-      <div
-        role="status"
-        className="shrink-0 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800"
-      >
-        Phân ca cho nhân viên thực hiện tại{' '}
-        <Link href="/settings?view=schedules" className="font-semibold underline underline-offset-2">
-          Phân ca làm việc
-        </Link>
-        .
-      </div>
+  const previewHours = computeShiftStandardHours({
+    startTime: form.startTime,
+    endTime: form.endTime,
+    crossMidnight: form.crossMidnight,
+    breakMinutes: form.hasBreak ? form.breakMinutes : 0,
+  });
 
-      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3">
-        <div className="flex flex-1 flex-wrap items-center gap-3">
-          <div className="relative w-full max-w-sm">
-            <Search className="absolute top-2.5 left-3 size-3.5 text-slate-400" aria-hidden />
+  return (
+    <div className="@container mx-auto max-w-[1400px] space-y-4">
+      <PageTitle
+        title="Danh mục ca"
+        description="Quản lý danh mục ca, mẫu ca và quy tắc tính."
+        actions={
+          <>
+            {canAudit ? (
+              <Button variant="outline" className="h-9 gap-1.5 px-3 text-xs font-semibold" onClick={() => setHistoryOpen(true)}>
+                <History className="size-4" aria-hidden />
+                Lịch sử thay đổi
+              </Button>
+            ) : null}
+            <Button permission="hrm.shift.manage" className="h-9 gap-1.5 px-4 text-xs font-semibold" onClick={openCreate}>
+              <Plus className="size-4" aria-hidden />
+              Thêm ca
+            </Button>
+          </>
+        }
+      />
+
+      <section className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white">
+        <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 p-3">
+          <div className="relative min-w-0 flex-1 basis-56">
+            <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-slate-400" aria-hidden />
             <Input
               aria-label="Tìm mã ca hoặc tên ca"
               placeholder="Tìm mã ca, tên ca làm việc..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="h-8 pl-8 text-xs"
+              className="h-9 pl-9 text-xs"
             />
           </div>
-          <div role="group" aria-label="Lọc trạng thái" className="flex items-center gap-1 rounded-lg bg-slate-100 p-0.5 text-xs">
+          <div role="group" aria-label="Lọc trạng thái" className="flex w-full gap-0.5 rounded-lg bg-slate-100 p-0.5 text-xs @xl:w-auto">
             {(
               [
                 ['ALL', `Tất cả (${shifts.length})`],
@@ -244,7 +375,7 @@ export default function ShiftsPage() {
                 aria-pressed={statusFilter === key}
                 onClick={() => setStatusFilter(key)}
                 className={cn(
-                  'cursor-pointer rounded-md px-3 py-1 font-medium transition-all',
+                  'h-8 min-w-0 flex-1 cursor-pointer truncate rounded-md px-3 font-medium whitespace-nowrap transition-all @xl:flex-none',
                   statusFilter === key ? 'bg-white font-bold text-slate-900 shadow-xs' : 'text-slate-500 hover:text-slate-900',
                 )}
               >
@@ -253,312 +384,300 @@ export default function ShiftsPage() {
             ))}
           </div>
         </div>
-        <Button size="sm" permission="hrm.shift.manage" onClick={openCreate}>
-          <Plus className="size-3.5" aria-hidden />
-          Thêm ca làm việc
-        </Button>
-      </div>
 
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white">
-        <div className="min-h-0 flex-1 overflow-auto">
-          {loadError ? (
-            <div className="p-4">
-              <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                {loadError}
-              </div>
+        {loadError ? (
+          <div className="p-3">
+            <InfoNote tone="red" role="alert">
+              {loadError}
+            </InfoNote>
+          </div>
+        ) : loading ? (
+          <p role="status" className="py-12 text-center text-xs text-slate-500">
+            <Loader2 className="mx-auto mb-2 size-6 animate-spin text-blue-700" aria-hidden />
+            Đang tải danh mục ca…
+          </p>
+        ) : filtered.length === 0 ? (
+          <div className="p-3">
+            <EmptyPanel icon={CalendarRange} title="Không tìm thấy ca làm việc nào phù hợp." />
+          </div>
+        ) : (
+          <div>
+            <div
+              aria-hidden="true"
+              className={`${ROW_GRID} hidden items-center border-b border-slate-100 bg-slate-50 px-4 py-2.5 text-xs font-bold text-slate-600 @3xl:grid`}
+            >
+              <span>Ca làm việc</span>
+              <span>Khung giờ</span>
+              <span>Nghỉ giữa ca</span>
+              <span>Dung sai (trễ / sớm)</span>
+              <span className="text-right">Thao tác</span>
             </div>
-          ) : (
-            <table className="w-full border-separate border-spacing-0 text-left text-xs">
-              <thead>
-                <tr className="text-[11px] font-bold tracking-wider text-slate-600 uppercase">
-                  {['Mã ca', 'Tên ca làm việc', 'Khung giờ', 'Nghỉ giữa ca', 'Công chuẩn (giờ)', 'Dung sai trễ / sớm', 'Qua đêm', 'Trạng thái', 'Thao tác'].map(
-                    (h) => (
-                      <th key={h} scope="col" className="sticky top-0 border-b border-slate-200 bg-slate-50 px-4 py-3">
-                        {h}
-                      </th>
-                    ),
-                  )}
-                </tr>
-              </thead>
-              <tbody>
-                {loading ? (
-                  <tr>
-                    <td colSpan={9} className="py-12 text-center text-slate-400">
-                      <Loader2 className="mx-auto mb-2 size-6 animate-spin text-blue-700" aria-hidden />
-                      Đang tải danh mục ca…
-                    </td>
-                  </tr>
-                ) : filtered.length === 0 ? (
-                  <tr>
-                    <td colSpan={9} className="py-12 text-center text-slate-400">
-                      Không tìm thấy ca làm việc nào phù hợp.
-                    </td>
-                  </tr>
-                ) : (
-                  filtered.map((shift) => (
-                    <tr key={shift.id} className="hover:bg-slate-50/80">
-                      <td className="border-b border-slate-100 px-4 py-3">
+            <ul className="divide-y divide-slate-100">
+              {filtered.map((shift) => {
+                const hasBreak = shift.breakMinutes > 0;
+                return (
+                  <li key={shift.id} data-testid={`shift-row-${shift.code}`} className={`${ROW_GRID} px-3 py-3 @xl:px-4 hover:bg-slate-50/60`}>
+                    <div className="min-w-0 @xl:col-span-2 @3xl:col-span-1">
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                         <span className="rounded border border-blue-200 bg-blue-50 px-2 py-0.5 font-mono text-[11px] font-bold text-blue-700">
                           {shift.code}
                         </span>
-                      </td>
-                      <td className="border-b border-slate-100 px-4 py-3 font-bold text-slate-900">{shift.name}</td>
-                      <td className="border-b border-slate-100 px-4 py-3 font-mono font-semibold text-slate-800">
-                        <span className="inline-flex items-center gap-1.5">
+                        <StatusPill tone={shift.status === 'ACTIVE' ? 'green' : 'slate'}>{shiftStatusLabel(shift.status)}</StatusPill>
+                      </div>
+                      <p className="mt-1 text-sm font-bold break-words text-slate-900">{shift.name}</p>
+                    </div>
+
+                    <div className="min-w-0">
+                      <Caption>Khung giờ</Caption>
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <span className="inline-flex items-center gap-1.5 rounded-md bg-slate-100 px-2 py-1 font-mono text-xs font-semibold text-slate-800">
                           <Clock className="size-3.5 text-blue-700" aria-hidden />
                           {normalizeShiftTime(shift.startTime)} - {normalizeShiftTime(shift.endTime)}
                           {shift.crossMidnight ? ' (+1)' : ''}
                         </span>
-                      </td>
-                      <td className="border-b border-slate-100 px-4 py-3 font-mono text-slate-700">
-                        {shift.breakMinutes > 0
-                          ? `${normalizeShiftTime(shift.breakStartTime)} - ${normalizeShiftTime(shift.breakEndTime)} (${shift.breakMinutes} phút)`
-                          : 'Không nghỉ'}
-                      </td>
-                      <td className="border-b border-slate-100 px-4 py-3 font-mono font-semibold text-slate-700">
-                        {computeShiftStandardHours(shift) ?? '-'}
-                      </td>
-                      <td className="border-b border-slate-100 px-4 py-3 font-mono text-slate-600">
+                        {shift.crossMidnight ? <StatusPill tone="violet">Qua đêm</StatusPill> : null}
+                      </div>
+                      <div className="mt-1.5">
+                        <ShiftTimeBar shift={shift} />
+                      </div>
+                      <p className="mt-1 text-[11px] text-slate-500">
+                        Công chuẩn: <strong className="font-semibold text-slate-700">{formatHours(computeShiftStandardHours(shift))} giờ</strong>
+                      </p>
+                    </div>
+
+                    <div className="min-w-0">
+                      <Caption>Nghỉ giữa ca</Caption>
+                      {hasBreak ? (
+                        <>
+                          <span className="inline-flex items-center gap-1.5 rounded-md bg-amber-50 px-2 py-1 font-mono text-xs font-semibold text-amber-800">
+                            <Coffee className="size-3.5" aria-hidden />
+                            {normalizeShiftTime(shift.breakStartTime)} - {normalizeShiftTime(shift.breakEndTime)}
+                          </span>
+                          <p className="mt-1 text-[11px] text-slate-500">{shift.breakMinutes} phút</p>
+                        </>
+                      ) : (
+                        <span className="text-xs text-slate-500">Không nghỉ</span>
+                      )}
+                    </div>
+
+                    <div className="min-w-0">
+                      <Caption>Dung sai (trễ / sớm)</Caption>
+                      <span className="font-mono text-xs text-slate-700">
                         {shift.graceLateMinutes}p / {shift.graceEarlyMinutes}p
-                      </td>
-                      <td className="border-b border-slate-100 px-4 py-3">
-                        {shift.crossMidnight ? (
-                          <Badge className="border-purple-200 bg-purple-100 text-[10px] text-purple-800">Qua đêm (+1)</Badge>
-                        ) : (
-                          <span className="text-[11px] text-slate-400">Không</span>
-                        )}
-                      </td>
-                      <td className="border-b border-slate-100 px-4 py-3">
-                        <Badge
-                          className={cn(
-                            'text-[10px]',
-                            shift.status === 'ACTIVE'
-                              ? 'border-emerald-200 bg-emerald-100 text-emerald-800'
-                              : 'border-slate-200 bg-slate-100 text-slate-600',
-                          )}
+                      </span>
+                    </div>
+
+                    <div className="flex min-w-0 flex-wrap items-center gap-1.5 @3xl:justify-end">
+                      <Button
+                        variant="outline"
+                        permission="hrm.shift.manage"
+                        aria-label="Sửa"
+                        title="Sửa ca"
+                        className="h-9 gap-1.5 px-3 text-xs @3xl:px-2.5"
+                        onClick={() => openEdit(shift)}
+                      >
+                        <Pencil className="size-3.5" aria-hidden />
+                        <span className="@3xl:sr-only">Sửa</span>
+                      </Button>
+                      {shift.status === 'ACTIVE' ? (
+                        <Popconfirm
+                          title={`Ngừng dùng ca ${shift.code}?`}
+                          description="Ca sẽ không còn xuất hiện khi phân ca. Lịch đã phân trước đó giữ nguyên."
+                          okText="Ngừng dùng"
+                          cancelText="Không"
+                          okType="danger"
+                          placement="top-end"
+                          onConfirm={() => setStatus(shift, 'INACTIVE')}
                         >
-                          {shiftStatusLabel(shift.status)}
-                        </Badge>
-                      </td>
-                      <td className="border-b border-slate-100 px-4 py-3">
-                        <div className="flex items-center gap-1.5">
-                          <Button size="sm" variant="outline" permission="hrm.shift.manage" onClick={() => openEdit(shift)}>
-                            Sửa
+                          <Button variant="destructive" permission="hrm.shift.manage" className="h-9 px-3 text-xs">
+                            Ngừng dùng
                           </Button>
-                          {shift.status === 'ACTIVE' ? (
-                            <Popconfirm
-                              title={`Ngừng dùng ca ${shift.code}?`}
-                              description="Ca sẽ không còn xuất hiện khi phân ca. Lịch đã phân trước đó giữ nguyên."
-                              okText="Ngừng dùng"
-                              cancelText="Không"
-                              okType="danger"
-                              placement="left"
-                              onConfirm={() => setStatus(shift, 'INACTIVE')}
-                            >
-                              <Button size="sm" variant="destructive" permission="hrm.shift.manage">
-                                Ngừng dùng
-                              </Button>
-                            </Popconfirm>
-                          ) : (
-                            <Button size="sm" variant="outline" permission="hrm.shift.manage" onClick={() => void setStatus(shift, 'ACTIVE')}>
-                              Kích hoạt lại
-                            </Button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          )}
+                        </Popconfirm>
+                      ) : (
+                        <Button variant="outline" permission="hrm.shift.manage" className="h-9 px-3 text-xs" onClick={() => void setStatus(shift, 'ACTIVE')}>
+                          Kích hoạt lại
+                        </Button>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
+
+        <div className="border-t border-slate-100 p-3">
+          <InfoNote tone="blue" role="status" icon={Info}>
+            Phân ca cho nhân viên thực hiện tại{' '}
+            <Link href="/settings?view=schedules" className="font-semibold text-blue-700 underline underline-offset-2">
+              Phân ca làm việc
+            </Link>
+            . Ca đã được phân công thì không đổi khung giờ được; hãy tạo mã ca mới.
+          </InfoNote>
         </div>
-      </div>
+      </section>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-lg space-y-4 bg-white p-6" aria-label={editing ? 'Cập nhật ca làm việc' : 'Thêm ca làm việc'}>
-          <DialogHeader className="border-b pb-3">
+        <DialogContent
+          className="max-h-[90dvh] max-w-4xl gap-0 bg-white p-0"
+          aria-label={editing ? 'Cập nhật ca làm việc' : 'Thêm ca làm việc'}
+        >
+          <DialogHeader className="shrink-0 border-b border-slate-200 px-5 py-4 pr-12">
             <DialogTitle>{editing ? `Cập nhật ca: ${editing.code}` : 'Thêm ca làm việc mới'}</DialogTitle>
-            <DialogDescription>
-              Cấu hình giờ bắt đầu, kết thúc, nghỉ giữa ca và dung sai chấm công.
-            </DialogDescription>
+            <DialogDescription>Cấu hình giờ bắt đầu, kết thúc, nghỉ giữa ca và dung sai chấm công.</DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-3 text-xs">
-            <div className="grid grid-cols-2 gap-3">
-              <label className="block">
-                <span className="mb-1 block font-semibold text-slate-600">Mã ca làm việc *</span>
-                <Input
-                  aria-label="Mã ca làm việc"
-                  placeholder="Ví dụ: HC, CA-SANG"
-                  value={form.code}
-                  disabled={!!editing}
-                  onChange={(e) => setForm({ ...form, code: e.target.value.toUpperCase() })}
-                  className="h-8 font-mono text-xs font-bold"
-                />
-              </label>
-              <label className="block">
-                <span className="mb-1 block font-semibold text-slate-600">Tên ca làm việc *</span>
-                <Input
-                  aria-label="Tên ca làm việc"
-                  placeholder="Ví dụ: Hành chính tiêu chuẩn"
-                  value={form.name}
-                  onChange={(e) => setForm({ ...form, name: e.target.value })}
-                  className="h-8 text-xs"
-                />
-              </label>
-            </div>
+          <div className="@container min-h-0 flex-1 space-y-3 overflow-y-auto bg-slate-50 p-3 @xl:p-4">
+            <div className="grid grid-cols-1 gap-3 @2xl:grid-cols-2">
+              <SettingsSection icon={Tag} tone="blue" title="Thông tin ca" description="Mã ca không đổi được sau khi tạo." bodyClassName="space-y-3">
+                <SettingsField label="Mã ca làm việc" required htmlFor="shift-code" hint="Ví dụ: HC, CA-SANG.">
+                  <Input
+                    id="shift-code"
+                    aria-label="Mã ca làm việc"
+                    placeholder="Ví dụ: HC, CA-SANG"
+                    value={form.code}
+                    disabled={!!editing}
+                    onChange={(e) => setForm({ ...form, code: e.target.value.toUpperCase() })}
+                    className="h-9 font-mono text-xs font-bold"
+                  />
+                </SettingsField>
+                <SettingsField label="Tên ca làm việc" required htmlFor="shift-name">
+                  <Input
+                    id="shift-name"
+                    aria-label="Tên ca làm việc"
+                    placeholder="Ví dụ: Hành chính tiêu chuẩn"
+                    value={form.name}
+                    onChange={(e) => setForm({ ...form, name: e.target.value })}
+                    className="h-9 text-xs"
+                  />
+                </SettingsField>
+              </SettingsSection>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <span className="mb-1 block font-semibold text-slate-600">Giờ bắt đầu *</span>
-                <TimeTextInput value={form.startTime} onChange={(v: string) => setForm({ ...form, startTime: v })} className="h-8 font-mono text-xs" />
-              </div>
-              <div>
-                <span className="mb-1 block font-semibold text-slate-600">Giờ kết thúc *</span>
-                <TimeTextInput value={form.endTime} onChange={(v: string) => setForm({ ...form, endTime: v })} className="h-8 font-mono text-xs" />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div role="group" aria-label="Nghỉ giữa ca" className="block">
-                <span className="mb-1 block font-semibold text-slate-600">Nghỉ giữa ca</span>
-                <div className="flex items-center gap-2">
-                  {(
-                    [
-                      [true, 'Có giờ nghỉ'],
-                      [false, 'Không nghỉ giữa ca'],
-                    ] as const
-                  ).map(([value, label]) => (
-                    <Button
-                      key={String(value)}
-                      type="button"
-                      size="sm"
-                      variant={form.hasBreak === value ? 'default' : 'outline'}
-                      aria-pressed={form.hasBreak === value}
-                      onClick={() =>
-                        setForm(
-                          value
-                            ? {
-                                ...form,
-                                hasBreak: true,
-                                breakMinutes: form.breakMinutes > 0 ? form.breakMinutes : 60,
-                                breakEndTime: addMinutesToTime(
-                                  form.breakStartTime,
-                                  form.breakMinutes > 0 ? form.breakMinutes : 60,
-                                ),
-                              }
-                            : { ...form, hasBreak: false },
-                        )
-                      }
-                    >
-                      {label}
-                    </Button>
-                  ))}
-                </div>
-              </div>
-              <label className="flex cursor-pointer items-center gap-2 pt-5 font-semibold text-slate-700 select-none">
-                <input
-                  type="checkbox"
-                  checked={form.crossMidnight}
-                  onChange={(e) => setForm({ ...form, crossMidnight: e.target.checked })}
-                  className="size-4 rounded border-slate-300 accent-blue-700"
-                />
-                Ca qua đêm (+1 ngày)
-              </label>
-            </div>
-
-            {form.hasBreak ? (
-              <>
+              <SettingsSection icon={Clock} tone="green" title="Khung giờ" description="Giờ vào và giờ ra của ca." bodyClassName="space-y-3">
                 <div className="grid grid-cols-2 gap-3">
-                  <label className="block">
-                    <span className="mb-1 block font-semibold text-slate-600">Thời gian nghỉ (phút) *</span>
-                    <Input
-                      aria-label="Thời gian nghỉ (phút)"
-                      type="number"
-                      min={1}
-                      value={form.breakMinutes}
-                      onChange={(e) => {
-                        const breakMinutes = Number(e.target.value) || 0;
-                        setForm({ ...form, breakMinutes, breakEndTime: addMinutesToTime(form.breakStartTime, breakMinutes) });
-                      }}
-                      className="h-8 font-mono text-xs"
-                    />
-                  </label>
+                  <SettingsField label="Giờ bắt đầu" required htmlFor="shift-start">
+                    <TimeTextInput id="shift-start" value={form.startTime} onChange={(v: string) => setForm({ ...form, startTime: v })} className="h-9 font-mono text-xs" />
+                  </SettingsField>
+                  <SettingsField label="Giờ kết thúc" required htmlFor="shift-end">
+                    <TimeTextInput id="shift-end" value={form.endTime} onChange={(v: string) => setForm({ ...form, endTime: v })} className="h-9 font-mono text-xs" />
+                  </SettingsField>
                 </div>
+                <div className="flex items-center gap-3">
+                  <SettingsSwitch label="Ca qua đêm (+1 ngày)" checked={form.crossMidnight} onChange={(next) => setForm({ ...form, crossMidnight: next })} />
+                  <span className="min-w-0 text-xs font-semibold text-slate-700">
+                    Ca qua đêm (+1 ngày)
+                    <span className="block text-[11px] font-normal text-slate-500">Giờ kết thúc thuộc ngày hôm sau.</span>
+                  </span>
+                </div>
+                <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                  Công chuẩn: <strong className="font-semibold text-slate-800">{formatHours(previewHours)} giờ</strong>
+                </p>
+              </SettingsSection>
+
+              <SettingsSection icon={Coffee} tone="orange" title="Nghỉ giữa ca" description="Giờ nghỉ được trừ khỏi công chuẩn." bodyClassName="space-y-3">
+                <Segmented
+                  label="Nghỉ giữa ca"
+                  value={form.hasBreak}
+                  options={[
+                    [true, 'Có giờ nghỉ'],
+                    [false, 'Không nghỉ giữa ca'],
+                  ]}
+                  onChange={(value) =>
+                    setForm(
+                      value
+                        ? {
+                            ...form,
+                            hasBreak: true,
+                            breakMinutes: form.breakMinutes > 0 ? form.breakMinutes : 60,
+                            breakEndTime: addMinutesToTime(form.breakStartTime, form.breakMinutes > 0 ? form.breakMinutes : 60),
+                          }
+                        : { ...form, hasBreak: false },
+                    )
+                  }
+                />
+                {form.hasBreak ? (
+                  <div className="grid grid-cols-2 gap-3">
+                    <SettingsField label="Thời gian nghỉ (phút)" required htmlFor="shift-break-minutes" className="col-span-2">
+                      <Input
+                        id="shift-break-minutes"
+                        aria-label="Thời gian nghỉ (phút)"
+                        type="number"
+                        min={1}
+                        value={form.breakMinutes}
+                        onChange={(e) => {
+                          const breakMinutes = Number(e.target.value) || 0;
+                          setForm({ ...form, breakMinutes, breakEndTime: addMinutesToTime(form.breakStartTime, breakMinutes) });
+                        }}
+                        className="h-9 font-mono text-xs"
+                      />
+                    </SettingsField>
+                    <SettingsField label="Giờ bắt đầu nghỉ" required htmlFor="shift-break-start">
+                      <TimeTextInput
+                        id="shift-break-start"
+                        value={form.breakStartTime}
+                        onChange={(v: string) => setForm({ ...form, breakStartTime: v, breakEndTime: addMinutesToTime(v, form.breakMinutes) })}
+                        className="h-9 font-mono text-xs"
+                      />
+                    </SettingsField>
+                    <SettingsField label="Giờ kết thúc nghỉ" required htmlFor="shift-break-end">
+                      <TimeTextInput id="shift-break-end" value={form.breakEndTime} onChange={(v: string) => setForm({ ...form, breakEndTime: v })} className="h-9 font-mono text-xs" />
+                    </SettingsField>
+                  </div>
+                ) : (
+                  <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">Ca làm liên tục, không trừ giờ nghỉ (ví dụ ca nửa ngày).</p>
+                )}
+              </SettingsSection>
+
+              <SettingsSection icon={SlidersHorizontal} tone="violet" title="Dung sai và trạng thái" description="Số phút được châm chước và trạng thái áp dụng." bodyClassName="space-y-3">
                 <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <span className="mb-1 block font-semibold text-slate-600">Giờ bắt đầu nghỉ *</span>
-                    <TimeTextInput
-                      value={form.breakStartTime}
-                      onChange={(v: string) =>
-                        setForm({ ...form, breakStartTime: v, breakEndTime: addMinutesToTime(v, form.breakMinutes) })
-                      }
-                      className="h-8 font-mono text-xs"
-                    />
-                  </div>
-                  <div>
-                    <span className="mb-1 block font-semibold text-slate-600">Giờ kết thúc nghỉ *</span>
-                    <TimeTextInput value={form.breakEndTime} onChange={(v: string) => setForm({ ...form, breakEndTime: v })} className="h-8 font-mono text-xs" />
-                  </div>
+                  <SettingsField label="Dung sai đi muộn (phút)" htmlFor="shift-grace-late">
+                    <Input id="shift-grace-late" aria-label="Dung sai đi muộn (phút)" type="number" min={0} value={form.graceLateMinutes} onChange={numberField('graceLateMinutes')} className="h-9 font-mono text-xs" />
+                  </SettingsField>
+                  <SettingsField label="Dung sai về sớm (phút)" htmlFor="shift-grace-early">
+                    <Input id="shift-grace-early" aria-label="Dung sai về sớm (phút)" type="number" min={0} value={form.graceEarlyMinutes} onChange={numberField('graceEarlyMinutes')} className="h-9 font-mono text-xs" />
+                  </SettingsField>
                 </div>
-              </>
-            ) : (
-              <p className="rounded-lg bg-slate-50 px-3 py-2 text-slate-500">
-                Ca làm liên tục, không trừ giờ nghỉ (ví dụ ca nửa ngày).
-              </p>
-            )}
-
-            <div className="grid grid-cols-2 gap-3">
-              <label className="block">
-                <span className="mb-1 block font-semibold text-slate-600">Dung sai đi muộn (phút)</span>
-                <Input aria-label="Dung sai đi muộn (phút)" type="number" min={0} value={form.graceLateMinutes} onChange={numberField('graceLateMinutes')} className="h-8 font-mono text-xs" />
-              </label>
-              <label className="block">
-                <span className="mb-1 block font-semibold text-slate-600">Dung sai về sớm (phút)</span>
-                <Input aria-label="Dung sai về sớm (phút)" type="number" min={0} value={form.graceEarlyMinutes} onChange={numberField('graceEarlyMinutes')} className="h-8 font-mono text-xs" />
-              </label>
-            </div>
-
-            <div role="group" aria-label="Trạng thái áp dụng" className="flex items-center gap-2">
-              <span className="font-semibold text-slate-600">Trạng thái:</span>
-              {(
-                [
-                  ['ACTIVE', 'Đang dùng'],
-                  ['INACTIVE', 'Tạm dừng'],
-                ] as const
-              ).map(([value, label]) => (
-                <Button
-                  key={value}
-                  type="button"
-                  size="sm"
-                  variant={form.status === value ? 'default' : 'outline'}
-                  aria-pressed={form.status === value}
-                  onClick={() => setForm({ ...form, status: value })}
-                >
-                  {label}
-                </Button>
-              ))}
+                <SettingsField label="Trạng thái áp dụng">
+                  <Segmented
+                    label="Trạng thái áp dụng"
+                    value={form.status}
+                    options={[
+                      ['ACTIVE', 'Đang dùng'],
+                      ['INACTIVE', 'Tạm dừng'],
+                    ]}
+                    onChange={(value) => setForm({ ...form, status: value })}
+                  />
+                </SettingsField>
+              </SettingsSection>
             </div>
 
             {formError ? (
-              <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+              <InfoNote tone="red" role="alert">
                 {formError}
-              </div>
+              </InfoNote>
             ) : null}
           </div>
 
-          <div className="flex justify-end gap-2 border-t pt-3">
-            <Button size="sm" variant="outline" onClick={() => setDialogOpen(false)}>
+          <div className="flex shrink-0 flex-wrap justify-end gap-2 border-t border-slate-200 bg-white px-4 py-3">
+            <Button variant="outline" className="h-9 px-4 text-xs" onClick={() => setDialogOpen(false)}>
               Hủy
             </Button>
-            <Button size="sm" disabled={saving} onClick={() => void save()}>
+            <Button className="h-9 gap-1.5 px-4 text-xs font-semibold" disabled={saving} onClick={() => void save()}>
               {saving ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : null}
               {editing ? 'Cập nhật thay đổi' : 'Lưu ca làm việc'}
             </Button>
           </div>
         </DialogContent>
       </Dialog>
+
+      {canAudit ? (
+        <ConfigHistoryDrawer
+          open={historyOpen}
+          onOpenChange={setHistoryOpen}
+          description="Các lần tạo và cập nhật ca làm việc, mới nhất ở trên."
+          actionPrefixes={['SHIFT_CREATED', 'SHIFT_UPDATED']}
+        />
+      ) : null}
     </div>
   );
 }

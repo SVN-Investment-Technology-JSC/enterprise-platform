@@ -725,6 +725,8 @@ export interface HrmRequestReasonView {
 
 export interface HrmAttendanceCorrection extends HrmRequestReasonView {
   readonly correctedSessions?: readonly { start: string; end: string }[];
+  /** Các mốc giờ vào / ra đề nghị bổ sung (đơn theo từng mốc giờ). */
+  readonly correctedPunches?: readonly { kind: 'IN' | 'OUT'; at: string }[];
   readonly id: string;
   readonly tenantId: string;
   readonly employeeId: string;
@@ -751,7 +753,13 @@ export interface HrmAttendanceCorrection extends HrmRequestReasonView {
 
 /** Đơn giải trình công: lý do chọn từ danh mục `ATTENDANCE_CORRECTION` (`reasonId`), mô tả tự do (`description`). */
 export interface CreateAttendanceCorrectionRequest extends RequestReasonInput {
+  /** Thay toàn bộ chấm công trong ngày bằng các cặp giờ vào–ra. */
   readonly sessions?: readonly { start: string; end: string }[];
+  /**
+   * Bổ sung từng mốc giờ vào hoặc giờ ra (tối đa một giờ vào và một giờ ra). Giờ cùng loại đã chấm trong ngày được thay
+   * bằng giờ này; loại còn lại giữ nguyên.
+   */
+  readonly punches?: readonly { kind: 'IN' | 'OUT'; at: string }[];
   readonly employeeId: string;
   readonly attendanceId?: string | null;
   readonly requestDate: string;
@@ -1186,6 +1194,14 @@ export interface HrmLeaveBalance {
   /** Số ngày được phép dùng ngay (đã trừ giữ chỗ, gồm phần ứng phép và hạn mức âm). */
   readonly available?: number;
   readonly advanceAllowed?: boolean;
+  /** Phép thâm niên cả năm theo chính sách (đã nằm trong `projectedEntitlement`). */
+  readonly projectedSeniority?: number;
+  /** Ngày ký HĐLĐ chính thức đầu tiên (căn cứ tính phép năm); null khi chưa có HĐLĐ. */
+  readonly signDate?: string | null;
+  /** Ngày bắt đầu hưởng phép = ngày ký HĐLĐ + số tháng bắt đầu của chính sách. */
+  readonly eligibleFrom?: string | null;
+  /** Mốc thâm niên cao nhất đã đạt trong năm (số năm); 0 nếu chưa đạt mốc nào. */
+  readonly seniorityTierYears?: number;
   /**
    * Được hưởng năm nay kể cả phần chuyển từ năm trước và điều chỉnh:
    * `openingBalance + accrued + adjusted` (= đã dùng + còn lại khi không có giữ chỗ).
@@ -2190,9 +2206,22 @@ export interface HrmReportingLine {
   readonly note?: string | null;
 }
 
+/** Người quản lý trực tiếp đã phân giải: theo "Báo cáo cho" của chức danh trong sơ đồ tổ chức Core, không có thì quan hệ báo cáo HRM. */
+export interface HrmResolvedManager {
+  readonly employeeId: string;
+  readonly name: string;
+  readonly code: string | null;
+  /** Chức danh của người quản lý. */
+  readonly title: string | null;
+  readonly email: string | null;
+  readonly source: 'CORE_POSITION' | 'HRM_LINE';
+}
+
 export interface HrmReportingOverview {
   readonly current: HrmReportingLine | null;
   readonly history: readonly HrmReportingLine[];
+  /** Quản lý trực tiếp đang áp dụng (nguồn chính là chức danh Core); null khi chưa xác định được. */
+  readonly manager?: HrmResolvedManager | null;
 }
 
 export interface HrmSubordinate {
@@ -2619,6 +2648,10 @@ export interface HrmBoardDay {
   /** Giờ bắt đầu và kết thúc ca, dạng HH:mm theo múi giờ của tenant. */
   readonly shiftStart: string | null;
   readonly shiftEnd: string | null;
+  /** Giờ nghỉ giữa ca (HH:mm) và số phút nghỉ của ca; null/0 khi ca không có giờ nghỉ. */
+  readonly shiftBreakStart?: string | null;
+  readonly shiftBreakEnd?: string | null;
+  readonly shiftBreakMinutes?: number;
   /** Giờ chấm vào/ra đầu và cuối ngày, dạng HH:mm; null nếu chưa chấm. */
   readonly checkIn: string | null;
   readonly checkOut: string | null;

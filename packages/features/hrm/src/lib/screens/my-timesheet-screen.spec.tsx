@@ -147,19 +147,24 @@ describe('MyTimesheetScreen (Công của tôi)', () => {
     render(<MyTimesheetScreen />);
 
     expect(await screen.findByLabelText('Bảng công theo tháng')).toBeTruthy();
-    expect(screen.getByText(/NV009 - Tôi/)).toBeTruthy();
+    expect(screen.getByText(/NV009 · Tôi/)).toBeTruthy();
     expect(screen.getByTestId('month-state').textContent).toContain('Đang mở');
     expect(screen.queryByLabelText('Tìm nhân viên trong bảng công')).toBeNull();
     expect(screen.queryByRole('button', { name: /Chốt/ })).toBeNull();
 
     const stats = screen.getByTestId('my-stats');
     expect(within(stats).getByTestId('my-stat-units').textContent).toContain('13');
-    expect(within(stats).getByTestId('my-stat-late').textContent).toContain('1 ngày');
+    expect(within(stats).getByTestId('my-stat-late').textContent).toContain('1');
+    expect(within(stats).getByTestId('my-stat-late').textContent).toContain('lần');
     expect(within(stats).getByTestId('my-stat-late').textContent).toContain('20 phút');
-    expect(within(stats).getByTestId('my-stat-ot').textContent).toContain('4');
+    expect(within(stats).getByTestId('my-stat-absent').textContent).toContain('KP');
+    expect(within(stats).getByTestId('my-stat-ot').textContent).toContain('4.0');
     expect(within(stats).getByTestId('my-stat-pending').textContent).toContain('1');
-    expect(within(stats).getByTestId('my-stat-standard').textContent).toContain('26');
-    expect(within(stats).getByTestId('my-stat-standard').textContent).toContain('Cố định');
+    // công thực tế đi kèm công chuẩn và thanh tiến độ
+    expect(within(stats).getByTestId('my-stat-units').textContent).toContain('13.0');
+    expect(within(stats).getByTestId('my-stat-units').textContent).toContain('/ 26.0');
+    expect(within(stats).getByTestId('my-stat-units').textContent).toContain('Cố định');
+    expect(within(stats).getByRole('progressbar').getAttribute('aria-valuenow')).toBe('50');
 
     const path = fetchMock.mock.calls[0][0] as string;
     const query = new URLSearchParams(path.split('?')[1]);
@@ -173,7 +178,7 @@ describe('MyTimesheetScreen (Công của tôi)', () => {
     await screen.findByLabelText('Bảng công theo tháng');
 
     const past = screen.getByTestId(`my-cell-${d(1)}`);
-    expect(past.textContent).toContain('1');
+    expect(past.textContent).toContain('8.0');
     expect(past.textContent).not.toContain('HC');
     expect(past.getAttribute('data-future')).toBeNull();
 
@@ -182,8 +187,8 @@ describe('MyTimesheetScreen (Công của tôi)', () => {
     expect(future.getAttribute('data-future')).toBe('true');
 
     expect(screen.getByTestId(`my-cell-${d(6)}`).textContent).toContain('OFF');
-    // ngày vắng đã qua: số công 0
-    expect(screen.getByTestId(`my-cell-${d(2)}`).textContent).toContain('0');
+    // ngày vắng đã qua: không có giờ làm, hiện dấu gạch dài và ký hiệu KP
+    expect(screen.getByTestId(`my-cell-${d(2)}`).textContent).toContain('—');
   });
 
   it('ngày chưa tới mà chưa phân ca ghi rõ Chưa có ca thay vì để trống', async () => {
@@ -243,13 +248,63 @@ describe('MyTimesheetScreen (Công của tôi)', () => {
   it('danh sách đơn từ trong tháng; bấm một đơn mở chi tiết ngày của đơn', async () => {
     fetchMock.mockResolvedValue({ data: board() } as never);
     render(<MyTimesheetScreen />);
+    await screen.findByLabelText('Bảng công theo tháng');
+    const tab = screen.getByRole('tab', { name: /Đơn từ trong tháng/ });
+    expect(tab.textContent).toContain('(2)');
+    fireEvent.click(tab);
     const panel = await screen.findByTestId('my-month-requests');
-    expect(panel.textContent).toContain('Đơn từ trong tháng (2)');
     expect(panel.textContent).toContain('Chờ duyệt');
     fireEvent.click(within(panel).getByText(/Đơn nghỉ: Nghỉ phép năm/));
     const list = await screen.findByTestId('day-sources');
     expect(list.textContent).toContain('20/09/2026 08:00 - 12:00');
     expect(list.textContent).toContain('Việc gia đình');
+  });
+
+  it('mặc định mở chi tiết hôm nay với dòng thời gian chấm công; bấm ngày khác đổi chi tiết', async () => {
+    fetchMock.mockResolvedValue({ data: board() } as never);
+    render(<MyTimesheetScreen />);
+    const panel = await screen.findByTestId('my-day-panel');
+    expect(panel.textContent).toContain('15/09/2026');
+    expect(panel.textContent).toContain('Hôm nay');
+    const timeline = within(panel).getByTestId('day-timeline');
+    expect(timeline.textContent).toContain('Chấm công vào');
+    expect(timeline.textContent).toContain('08:00');
+
+    fireEvent.click(screen.getByTestId(`my-cell-${d(3)}`));
+    const late = screen.getByTestId('my-day-panel');
+    expect(late.textContent).toContain('03/09/2026');
+    expect(within(late).getByTestId('day-status').textContent).toBe('Đi trễ');
+    expect(within(late).getByTestId('kpi-in').textContent).toContain('08:20');
+    expect(within(late).getByTestId('kpi-worked').textContent).toContain('8.0');
+    expect(within(late).getByTestId('day-timeline').textContent).toContain('Trễ 20 phút');
+  });
+
+  it('thông tin ca làm mở sẵn, có giờ nghỉ giữa ca khi ca có nghỉ; bấm để thu gọn', async () => {
+    const b = board();
+    (b.employees[0].days as Record<string, HrmBoardDay>)[d(15)] = baseDay(d(15), {
+      shiftBreakStart: '12:00',
+      shiftBreakEnd: '13:00',
+      shiftBreakMinutes: 60,
+    });
+    fetchMock.mockResolvedValue({ data: b } as never);
+    render(<MyTimesheetScreen />);
+    const info = await screen.findByTestId('day-shift-info');
+    expect(info.textContent).toContain('Hành chính (08:00 - 17:00)');
+    expect(info.textContent).toContain('8 giờ');
+    expect(info.textContent).toContain('12:00 - 13:00 (1 giờ)');
+    const timeline = screen.getByTestId('day-timeline');
+    expect(timeline.textContent).toContain('Bắt đầu nghỉ giữa ca');
+    expect(timeline.textContent).toContain('Kết thúc nghỉ giữa ca');
+    fireEvent.click(within(info).getByRole('button', { name: /Thông tin ca làm/ }));
+    expect(within(info).queryByText(/Hành chính/)).toBeNull();
+  });
+
+  it('Xem chi tiết chấm công mở ngăn kéo đầy đủ của ngày đang chọn', async () => {
+    fetchMock.mockResolvedValue({ data: board() } as never);
+    render(<MyTimesheetScreen />);
+    await screen.findByTestId('my-day-panel');
+    fireEvent.click(screen.getByRole('button', { name: /Xem chi tiết chấm công/ }));
+    expect(await screen.findByText('Chi tiết ngày công')).toBeTruthy();
   });
 
   it('tải tháng trước khi bấm nút tháng trước; tháng không có dữ liệu', async () => {

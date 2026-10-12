@@ -122,7 +122,7 @@ function HolidayForm({
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-6 py-4">
-        <div className="grid max-w-3xl grid-cols-2 gap-4">
+        <div className="grid max-w-3xl grid-cols-1 gap-4 @md:grid-cols-2">
           <Field label="Tên ngày lễ">
             <Input aria-label="Tên ngày lễ" value={name} maxLength={200} onChange={(e) => setName(e.target.value)} />
           </Field>
@@ -277,7 +277,7 @@ export function HolidaysManager({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="h-[min(88dvh,760px)] max-w-5xl" aria-label="Lịch lễ và Tết">
+      <DialogContent className="@container h-[min(88dvh,760px)] max-w-5xl" aria-label="Lịch lễ và Tết">
         <DialogHeader className="shrink-0 border-b border-slate-200 bg-slate-50 px-6 py-4">
           <DialogTitle className="text-lg">{creating ? 'Tạo ngày lễ, Tết' : 'Lịch lễ và Tết'}</DialogTitle>
           <DialogDescription>

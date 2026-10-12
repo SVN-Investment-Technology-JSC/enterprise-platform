@@ -58,6 +58,48 @@ describe('RequestTimeRange', () => {
     expect(onPreview).toHaveBeenLastCalledWith(expect.objectContaining({ totalMinutes: 150 }));
   });
 
+  it('đơn làm thêm giờ: gửi kind=ot, hiển thị Tổng thời gian (không có ngày công) và lỗi trùng ca', async () => {
+    fetchMock.mockResolvedValue({
+      data: preview({
+        totalMinutes: 180,
+        totalHours: 3,
+        totalDays: 0,
+        errors: ['Giờ làm thêm 16:00 - 17:00 ngày 12/10 trùng ca làm việc (08:00 - 17:00); OT chỉ được đăng ký ngoài ca.'],
+      }),
+    } as never);
+    render(
+      <RequestTimeRange
+        employeeId="e1"
+        kind="ot"
+        fromAt="2026-10-12T16:00"
+        toAt="2026-10-12T19:00"
+        onChange={jest.fn()}
+      />,
+    );
+    await settle();
+    await waitFor(() => expect(screen.getByTestId('time-total').textContent).toBe('Tổng thời gian: 3 giờ'));
+    expect(String(fetchMock.mock.calls[0][0])).toContain('kind=ot');
+    expect(screen.getByText(/16:00 - 17:00 ngày 12\/10 trùng ca làm việc/)).toBeTruthy();
+  });
+
+  it('đơn công tác: gửi kind=trip và hiển thị số ngày', async () => {
+    fetchMock.mockResolvedValue({
+      data: preview({ totalMinutes: 3120, totalHours: 52, totalDays: 3, errors: [], warnings: [] }),
+    } as never);
+    render(
+      <RequestTimeRange
+        employeeId="e1"
+        kind="trip"
+        fromAt="2026-10-16T08:00"
+        toAt="2026-10-18T12:00"
+        onChange={jest.fn()}
+      />,
+    );
+    await settle();
+    await waitFor(() => expect(screen.getByTestId('time-total').textContent).toBe('Tổng thời gian: 52 giờ (3 ngày)'));
+    expect(String(fetchMock.mock.calls[0][0])).toContain('kind=trip');
+  });
+
   it('thời điểm kết thúc không sau bắt đầu: báo lỗi và không gọi máy chủ', async () => {
     render(
       <RequestTimeRange

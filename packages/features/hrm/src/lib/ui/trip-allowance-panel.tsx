@@ -1,13 +1,14 @@
 'use client';
 import { useCallback, useEffect, useState } from 'react';
-import { Loader2, Plus, Trash2 } from 'lucide-react';
+import { Loader2, Plane, Plus, Trash2 } from 'lucide-react';
 import type { HrmTripAllowanceRate } from '@enterprise-platform/contracts-hrm';
 import { Popconfirm } from '@enterprise-platform/shared-ui';
 import { hrmFetch } from '../hrm-api';
 import { formatMoneyVnd } from '../hrm-salary-format';
-import { Badge } from './badge';
 import { Button } from './button';
 import { HrmActionDialog, type HrmAction } from './hrm-action-dialog';
+import { InfoNote, SettingsSection, StatusPill } from './settings-kit';
+import { DataList, type DataColumn } from './payroll-settings/data-rows';
 import { toast } from './toast';
 
 const TRIP_TYPE_LABEL: Record<HrmTripAllowanceRate['tripType'], string> = {
@@ -98,97 +99,140 @@ export function TripAllowancePanel() {
     );
 
   const active = (rates ?? []).filter((r) => r.status === 'ACTIVE');
+  const statusLabel = (r: HrmTripAllowanceRate) => (r.status === 'CANCELLED' ? 'Đã huỷ' : r.effectiveTo ? 'Đã thay thế' : 'Hiện hành');
+  const statusTone = (r: HrmTripAllowanceRate) => (r.status === 'CANCELLED' ? 'red' : r.effectiveTo ? 'slate' : 'green');
+
   return (
-    <div className="space-y-4">
-      <div className="flex flex-col justify-between gap-3 rounded-xl border border-slate-200 bg-white p-5 shadow-xs md:flex-row md:items-center">
-        <div>
-          <h2 className="text-base font-bold text-slate-900">Công tác phí</h2>
-          <p className="max-w-[90ch] text-xs text-slate-500">
-            Mức tiền mỗi ngày công tác theo hình thức. Tính theo ngày công tác thực tế của đơn đã duyệt (đơn có giờ thì theo
-            phần ca đã công tác), chốt cùng bảng công và cộng vào lương qua thành phần TRIP_ALLOWANCE_AMOUNT trong công thức.
-            Dự trù phụ phí trong đơn công tác không phải khoản trả.
-          </p>
-        </div>
-        <Button permission="hrm.payroll.configure" onClick={() => openCreate()} disabled={busy}>
-          <Plus className="size-3.5" />
+    <SettingsSection
+      icon={Plane}
+      tone="green"
+      title="Công tác phí"
+      description="Mức tiền mỗi ngày công tác theo hình thức, có phiên bản theo ngày hiệu lực."
+      actions={
+        <Button permission="hrm.payroll.configure" onClick={() => openCreate()} disabled={busy} className="h-9 gap-1.5 px-3 text-xs font-semibold">
+          <Plus className="size-4" />
           <span>Thêm mức</span>
         </Button>
-      </div>
+      }
+      bodyClassName="space-y-3"
+    >
+      <InfoNote tone="blue">
+        Tính theo ngày công tác thực tế của đơn đã duyệt, chốt cùng bảng công và cộng vào lương qua thành phần
+        TRIP_ALLOWANCE_AMOUNT trong công thức. Dự trù phụ phí trong đơn công tác không phải khoản trả.
+      </InfoNote>
       {error && (
-        <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-semibold text-red-700">
+        <InfoNote tone="red" role="alert">
           {error}
-        </p>
+        </InfoNote>
       )}
-      {(Object.keys(TRIP_TYPE_LABEL) as HrmTripAllowanceRate['tripType'][]).map((type) => {
-        const list = (rates ?? []).filter((r) => r.tripType === type);
-        return (
-          <section
-            key={type}
-            aria-label={TRIP_TYPE_LABEL[type]}
-            className="space-y-2 rounded-xl border border-slate-200 bg-white p-4 shadow-xs"
-          >
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-bold text-slate-900">{TRIP_TYPE_LABEL[type]}</h3>
-              {!active.some((r) => r.tripType === type && !r.effectiveTo) && (
-                <Badge className="border-amber-200 bg-amber-50 text-amber-800">Chưa có mức hiện hành</Badge>
-              )}
-            </div>
-            {list.length === 0 ? (
-              <p className="text-xs text-slate-500">
-                Chưa cấu hình. Đơn công tác hình thức này sẽ báo lỗi khi tính lương cho tới khi có mức.
-              </p>
-            ) : (
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="text-left text-[11px] font-bold text-slate-600">
-                    <th className="py-1">Mức mỗi ngày</th>
-                    <th className="py-1">Hiệu lực</th>
-                    <th className="py-1">Trạng thái</th>
-                    <th className="py-1">Ghi chú</th>
-                    <th className="py-1" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {list.map((r, index) => (
-                    <tr key={r.id} className={r.status === 'CANCELLED' ? 'text-slate-400 line-through' : ''}>
-                      <td className="py-1 font-mono font-semibold">{formatMoneyVnd(r.dailyAmount)}</td>
-                      <td className="py-1">
-                        {vnDate(r.effectiveFrom)} - {r.effectiveTo ? vnDate(r.effectiveTo) : 'nay'}
-                      </td>
-                      <td className="py-1">{r.status === 'CANCELLED' ? 'Đã huỷ' : r.effectiveTo ? 'Đã thay thế' : 'Hiện hành'}</td>
-                      <td className="py-1">{r.note ?? ''}</td>
-                      <td className="py-1 text-right">
-                        {r.status === 'ACTIVE' && index === list.findIndex((x) => x.status === 'ACTIVE') && (
-                          <Popconfirm
-                            title={`Huỷ mức ${formatMoneyVnd(r.dailyAmount)} từ ${vnDate(r.effectiveFrom)}?`}
-                            description="Phiên bản liền trước (nếu có) được mở lại như cũ. Tháng đã chốt công giữ nguyên số đã tính."
-                            okText="Huỷ mức"
-                            cancelText="Quay lại"
-                            okType="danger"
-                            onConfirm={() => cancel(r)}
-                          >
-                            <Button
-                              permission="hrm.payroll.configure"
-                              variant="outline"
-                              size="sm"
-                              disabled={busy}
-                              aria-label={`Huỷ mức ${TRIP_TYPE_LABEL[type]} từ ${vnDate(r.effectiveFrom)}`}
-                            >
-                              <Trash2 className="size-3" />
-                              Huỷ
-                            </Button>
-                          </Popconfirm>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </section>
-        );
-      })}
+      <div className="grid grid-cols-1 gap-3">
+        {(Object.keys(TRIP_TYPE_LABEL) as HrmTripAllowanceRate['tripType'][]).map((type) => {
+          const list = (rates ?? []).filter((r) => r.tripType === type);
+          const current = active.find((r) => r.tripType === type && !r.effectiveTo);
+          const firstActive = list.find((x) => x.status === 'ACTIVE');
+          const columns: DataColumn<HrmTripAllowanceRate>[] = [
+            {
+              key: 'amount',
+              header: 'Mức mỗi ngày',
+              width: '150px',
+              cardOrder: -1,
+              cell: (r) => (
+                <span className={`font-mono text-sm font-semibold ${r.status === 'CANCELLED' ? 'text-slate-400 line-through' : 'text-slate-900'}`}>
+                  {formatMoneyVnd(r.dailyAmount)}
+                </span>
+              ),
+            },
+            {
+              key: 'range',
+              header: 'Hiệu lực',
+              width: '170px',
+              cardLabel: true,
+              cardOrder: 1,
+              cell: (r) => (
+                <span className={r.status === 'CANCELLED' ? 'text-slate-400' : 'text-slate-700'}>
+                  {vnDate(r.effectiveFrom)} - {r.effectiveTo ? vnDate(r.effectiveTo) : 'nay'}
+                </span>
+              ),
+            },
+            {
+              key: 'status',
+              header: 'Trạng thái',
+              width: '110px',
+              cell: (r) => <StatusPill tone={statusTone(r)}>{statusLabel(r)}</StatusPill>,
+            },
+            {
+              key: 'note',
+              header: 'Ghi chú',
+              width: 'minmax(0,1fr)',
+              cardFull: true,
+              cardOrder: 2,
+              cell: (r) => <span className="break-words text-slate-600">{r.note ?? ''}</span>,
+            },
+            {
+              key: 'cancel',
+              header: '',
+              width: '84px',
+              cardEnd: true,
+              align: 'right',
+              cell: (r) =>
+                r.status === 'ACTIVE' && r.id === firstActive?.id ? (
+                  <Popconfirm
+                    title={`Huỷ mức ${formatMoneyVnd(r.dailyAmount)} từ ${vnDate(r.effectiveFrom)}?`}
+                    description="Phiên bản liền trước (nếu có) được mở lại như cũ. Tháng đã chốt công giữ nguyên số đã tính."
+                    okText="Huỷ mức"
+                    cancelText="Quay lại"
+                    okType="danger"
+                    onConfirm={() => cancel(r)}
+                  >
+                    <Button
+                      permission="hrm.payroll.configure"
+                      variant="outline"
+                      size="sm"
+                      disabled={busy}
+                      aria-label={`Huỷ mức ${TRIP_TYPE_LABEL[type]} từ ${vnDate(r.effectiveFrom)}`}
+                      className="gap-1 border-rose-200 text-rose-600 hover:bg-rose-50"
+                    >
+                      <Trash2 className="size-3" />
+                      Huỷ
+                    </Button>
+                  </Popconfirm>
+                ) : null,
+            },
+          ];
+          return (
+            <section
+              key={type}
+              aria-label={TRIP_TYPE_LABEL[type]}
+              className="min-w-0 space-y-3 rounded-xl border border-slate-200 bg-slate-50/40 p-3"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <h3 className="text-sm font-bold text-slate-900">{TRIP_TYPE_LABEL[type]}</h3>
+                  {current ? (
+                    <p className="text-xs text-slate-600">
+                      Hiện hành: <span className="font-mono font-semibold text-slate-900">{formatMoneyVnd(current.dailyAmount)}</span> / ngày
+                    </p>
+                  ) : null}
+                </div>
+                {!current && <StatusPill tone="amber">Chưa có mức hiện hành</StatusPill>}
+              </div>
+              <DataList
+                label={`Mức ${TRIP_TYPE_LABEL[type]}`}
+                rows={list}
+                rowKey={(r) => r.id}
+                columns={columns}
+                pageSize={6}
+                empty={
+                  <p className="text-xs text-slate-500">
+                    Chưa cấu hình. Đơn công tác hình thức này sẽ báo lỗi khi tính lương cho tới khi có mức.
+                  </p>
+                }
+              />
+            </section>
+          );
+        })}
+      </div>
       {action && <HrmActionDialog action={action} onClose={() => setAction(null)} />}
-    </div>
+    </SettingsSection>
   );
 }

@@ -1,7 +1,9 @@
 import { BadRequestException } from '@nestjs/common';
 import {
   calendarDatesOf,
+  computeOvertimeTime,
   computeRequestTime,
+  computeTripTime,
   deriveOvertimeTime,
   localDateOf,
   localTimeOf,
@@ -279,5 +281,92 @@ describe('shiftDayFromPreview', () => {
       const d = shiftDayFromPreview(preview({ kind, startMinutes: null, endMinutes: null }), TZ);
       expect(d).toMatchObject({ kind, startMs: null, endMs: null, shiftMinutes: 0 });
     }
+  });
+});
+
+describe('computeRequestTime: nghỉ nhiều ngày có giờ (hệ số 0.5)', () => {
+  it('ngày đầu và ngày cuối nghỉ một phần ca quy về bội số 0.5, tối thiểu 0.5, không báo lỗi', () => {
+    const days = [workDay('2026-10-12'), workDay('2026-10-13')];
+    // 12/10 14:00-17:00 (180 phút trên 480) và 13/10 08:00-09:00 (60 phút trên 480).
+    const r = compute(days, ['2026-10-12', '14:00'], ['2026-10-13', '09:00']);
+    expect(r.errors).toEqual([]);
+    expect(r.days.map((d) => d.quantity)).toEqual([0.5, 0.5]);
+    expect(r.totalDays).toBe(1);
+  });
+
+  it('ngày giữa nghỉ cả ngày; ngày đầu nghỉ buổi chiều 0.5; tổng số ngày khớp tổng số lượng từng ngày', () => {
+    const days = [workDay('2026-10-12'), workDay('2026-10-13'), workDay('2026-10-14')];
+    const r = compute(days, ['2026-10-12', '13:00'], ['2026-10-14', '17:00']);
+    expect(r.errors).toEqual([]);
+    expect(r.days.map((d) => d.quantity)).toEqual([0.5, 1, 1]);
+    expect(r.totalDays).toBe(2.5);
+  });
+
+  it('nghỉ một ngày không đúng nửa ca vẫn bị báo lỗi như cũ', () => {
+    const r = compute([workDay('2026-10-12')], ['2026-10-12', '14:00'], ['2026-10-12', '16:00']);
+    expect(r.errors[0]).toContain('chỉ nhận cả ngày hoặc đúng nửa ca');
+  });
+});
+
+describe('computeOvertimeTime (đơn làm thêm giờ)', () => {
+  const ot = (days: RequestShiftDay[], from: [string, string], to: [string, string]) =>
+    computeOvertimeTime(days, at(...from), at(...to), TZ);
+
+  it('ngày nghỉ hằng tuần: hợp lệ, tính đúng khoảng đã chọn, chỉ ghi chú hệ số ngày nghỉ', () => {
+    const r = ot([off('2026-10-17')], ['2026-10-17', '08:00'], ['2026-10-17', '11:00']);
+    expect(r.errors).toEqual([]);
+    expect(r.totalMinutes).toBe(180);
+    expect(r.days).toEqual([{ date: '2026-10-17', kind: 'OFF', minutes: 180, quantity: 3 }]);
+    expect(r.warnings.join(' ')).toContain('ngày nghỉ');
+  });
+
+  it('ngày lễ và ngày chưa phân ca đều hợp lệ', () => {
+    const holiday = { ...off('2026-09-02'), kind: 'HOLIDAY' as const };
+    expect(ot([holiday], ['2026-09-02', '09:00'], ['2026-09-02', '12:00']).errors).toEqual([]);
+    expect(ot([noShift('2026-10-18')], ['2026-10-18', '09:00'], ['2026-10-18', '12:00']).errors).toEqual([]);
+  });
+
+  it('ngày làm việc: OT sau ca (17:30-20:30) hợp lệ, 3 giờ', () => {
+    const r = ot([workDay('2026-10-12')], ['2026-10-12', '17:30'], ['2026-10-12', '20:30']);
+    expect(r.errors).toEqual([]);
+    expect(r.totalMinutes).toBe(180);
+  });
+
+  it('OT trùng giờ ca bị bắt lỗi và chỉ rõ đoạn trùng', () => {
+    const r = ot([workDay('2026-10-12')], ['2026-10-12', '16:00'], ['2026-10-12', '19:00']);
+    expect(r.errors).toHaveLength(1);
+    expect(r.errors[0]).toContain('16:00 - 17:00');
+    expect(r.errors[0]).toContain('12/10');
+    expect(r.errors[0]).toContain('(08:00 - 17:00)');
+    // OT hoàn toàn trong giờ nghỉ trưa cũng nằm trong ca nên vẫn trùng.
+    expect(ot([workDay('2026-10-12')], ['2026-10-12', '12:00'], ['2026-10-12', '13:00']).errors).toHaveLength(1);
+  });
+
+  it('OT qua nửa đêm tách theo ngày; trùng ca của ngày hôm sau cũng bị bắt', () => {
+    const days = [workDay('2026-10-12'), workDay('2026-10-13')];
+    const ok = ot(days, ['2026-10-12', '22:00'], ['2026-10-13', '02:00']);
+    expect(ok.errors).toEqual([]);
+    expect(ok.days.map((d) => [d.date, d.minutes])).toEqual([
+      ['2026-10-12', 120],
+      ['2026-10-13', 120],
+    ]);
+    expect(ok.totalMinutes).toBe(240);
+    const bad = ot(days, ['2026-10-12', '22:00'], ['2026-10-13', '09:00']);
+    expect(bad.errors[0]).toContain('08:00 - 09:00');
+  });
+});
+
+describe('computeTripTime (đơn công tác)', () => {
+  it('tính theo giờ của khoảng và số ngày lịch, ngày nghỉ hoặc chưa phân ca không bị chặn', () => {
+    const r = computeTripTime(
+      [workDay('2026-10-16'), off('2026-10-17'), noShift('2026-10-18')],
+      at('2026-10-16', '08:00'),
+      at('2026-10-18', '12:00'),
+      TZ,
+    );
+    expect(r.errors).toEqual([]);
+    expect(r.totalDays).toBe(3);
+    // 16/10 08:00 đến 18/10 12:00 là 52 giờ.
+    expect(r.totalMinutes).toBe(52 * 60);
   });
 });

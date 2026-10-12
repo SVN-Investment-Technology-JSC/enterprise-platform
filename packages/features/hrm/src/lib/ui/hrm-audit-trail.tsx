@@ -26,7 +26,7 @@ export interface AuditRow {
   detail: unknown;
 }
 
-const stamp = (value: string) => new Date(value).toLocaleString('vi-VN');
+export const auditStamp = (value: string) => new Date(value).toLocaleString('vi-VN');
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** Khóa kỹ thuật không đưa ra màn hình chi tiết. */
 const HIDDEN_KEYS = new Set([
@@ -83,7 +83,7 @@ function renderValue(value: unknown): string {
   if (typeof value === 'string') {
     if (UUID.test(value)) return '(mã nội bộ)';
     if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return formatDateVn(value);
-    if (/^\d{4}-\d{2}-\d{2}T/.test(value)) return stamp(value);
+    if (/^\d{4}-\d{2}-\d{2}T/.test(value)) return auditStamp(value);
     return value;
   }
   if (Array.isArray(value))
@@ -91,7 +91,7 @@ function renderValue(value: unknown): string {
   return '';
 }
 
-function DetailList({ data }: { data: Record<string, unknown> }) {
+export function AuditDetailList({ data }: { data: Record<string, unknown> }) {
   const entries = Object.entries(data).filter(
     ([k, v]) => !HIDDEN_KEYS.has(k) && !(typeof v === 'string' && UUID.test(v)),
   );
@@ -100,11 +100,11 @@ function DetailList({ data }: { data: Record<string, unknown> }) {
   return (
     <dl className="divide-y divide-slate-100 rounded-lg border border-slate-200">
       {entries.map(([key, value]) => (
-        <div key={key} className="grid grid-cols-[160px_1fr] gap-3 px-3 py-2 text-xs">
+        <div key={key} className="grid grid-cols-1 gap-0.5 px-3 py-2 text-xs sm:grid-cols-[160px_1fr] sm:gap-3">
           <dt className="font-medium text-slate-500">{KEY_LABELS[key] ?? key}</dt>
           <dd className="min-w-0 break-words text-slate-800">
             {value && typeof value === 'object' && !Array.isArray(value) ? (
-              <DetailList data={value as Record<string, unknown>} />
+              <AuditDetailList data={value as Record<string, unknown>} />
             ) : (
               renderValue(value)
             )}
@@ -180,8 +180,8 @@ export function HrmAuditTrail() {
   };
 
   return (
-    <div className="space-y-4 pt-2">
-      <div className="grid gap-3 rounded-lg border border-slate-200 bg-slate-50/70 p-3 md:grid-cols-[1.2fr_1.5fr_160px_160px_auto]">
+    <div className="@container space-y-4 pt-2">
+      <div className="grid grid-cols-1 gap-3 rounded-lg border border-slate-200 bg-slate-50/70 p-3 @xl:grid-cols-2 @5xl:grid-cols-[1.2fr_1.5fr_160px_160px_auto]">
         <label className="block text-[11px] font-semibold text-slate-600">
           Hành động
           <SearchableSelect
@@ -231,7 +231,7 @@ export function HrmAuditTrail() {
             className="mt-1 h-9 text-xs"
           />
         </label>
-        <div className="flex items-end">
+        <div className="flex items-end @xl:col-span-2 @5xl:col-span-1">
           <Button
             variant="outline"
             className="h-9 text-xs"
@@ -280,7 +280,7 @@ export function HrmAuditTrail() {
             dataIndex: 'createdAt',
             width: 160,
             render: (v: string) => (
-              <span className="text-xs text-slate-700">{stamp(v)}</span>
+              <span className="text-xs text-slate-700">{auditStamp(v)}</span>
             ),
           },
           {
@@ -344,10 +344,10 @@ export function HrmAuditTrail() {
             <>
               <SheetHeader className="shrink-0">
                 <SheetTitle>{detail.actionLabel}</SheetTitle>
-                <SheetDescription>{stamp(detail.createdAt)}</SheetDescription>
+                <SheetDescription>{auditStamp(detail.createdAt)}</SheetDescription>
               </SheetHeader>
               <div className="flex-1 space-y-4 overflow-y-auto p-5">
-                <dl className="grid grid-cols-[140px_1fr] gap-x-3 gap-y-2 text-xs">
+                <dl className="grid grid-cols-[110px_1fr] gap-x-3 gap-y-2 text-xs sm:grid-cols-[140px_1fr]">
                   <dt className="text-slate-500">Đối tượng</dt>
                   <dd className="font-semibold text-slate-800">
                     {detail.entityKind ? `${detail.entityKind}: ` : ''}
@@ -371,7 +371,7 @@ export function HrmAuditTrail() {
                     Nội dung ghi nhận
                   </h3>
                   {detail.detail && typeof detail.detail === 'object' ? (
-                    <DetailList data={detail.detail as Record<string, unknown>} />
+                    <AuditDetailList data={detail.detail as Record<string, unknown>} />
                   ) : (
                     <p className="text-xs text-slate-500">Không có thông tin thêm.</p>
                   )}

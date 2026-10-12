@@ -236,6 +236,9 @@ export function computeRequestTime(
       quantity = weight;
     } else if (Math.abs(minutes - shiftMinutes / 2) <= HALF_DAY_TOLERANCE_MINUTES) {
       quantity = 0.5;
+    } else if (rangeDates.size > 1) {
+      // Nghỉ nhiều ngày: ngày đầu và ngày cuối nghỉ một phần ca quy về bội số 0.5 (tối thiểu 0.5, tối đa trọng số ngày).
+      quantity = Math.min(weight, Math.max(0.5, Math.round(((weight * minutes) / shiftMinutes) * 2) / 2));
     } else {
       quantity = Math.round(((weight * minutes) / shiftMinutes) * 2) / 2;
       errors.push(
@@ -244,7 +247,8 @@ export function computeRequestTime(
     }
     out.push({ date: day.date, kind: 'WORK', minutes, quantity });
     totalMinutes += minutes;
-    totalDays += weight * Math.min(1, minutes / shiftMinutes);
+    // Đơn vị ngày: số ngày của đơn chính là tổng số lượng từng ngày đã quy đổi (cả ngày, nửa ca, bội số 0.5), khớp số lưu.
+    totalDays += unit === 'DAYS' ? quantity : weight * Math.min(1, minutes / shiftMinutes);
   }
 
   if (!out.some((d) => d.minutes > 0))
@@ -257,6 +261,81 @@ export function computeRequestTime(
     warnings,
     errors,
   };
+}
+
+const vnDate = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
+
+/**
+ * Thời gian đơn LÀM THÊM GIỜ (HÀM THUẦN): chỉ tính khoảng từ-đến đã chọn, tách theo ngày lịch.
+ * Khác đơn nghỉ: ngày nghỉ hằng tuần, ngày lễ và ngày chưa phân ca đều hợp lệ (OT tính theo hệ số ngày nghỉ / lễ).
+ * Duy nhất một lỗi chặn: phần OT trùng với giờ ca làm việc của chính nhân viên; lỗi chỉ rõ đoạn trùng để người làm đơn sửa.
+ */
+export function computeOvertimeTime(
+  days: readonly RequestShiftDay[],
+  fromMs: number,
+  toMs: number,
+  timeZone: string,
+): RequestTimeResult {
+  const out: HrmRequestTimeDay[] = [];
+  const warnings: string[] = [];
+  const errors: string[] = [];
+  const byDate = new Map(days.map((d) => [d.date, d]));
+  let totalMinutes = 0;
+  for (const date of calendarDatesOf(fromMs, toMs, timeZone)) {
+    const dayStart = zonedMs(date, '00:00', timeZone);
+    const dayEnd = zonedMs(addDays(date, 1), '00:00', timeZone);
+    const segFrom = Math.max(fromMs, dayStart);
+    const segTo = Math.min(toMs, dayEnd);
+    const minutes = Math.max(0, Math.round((segTo - segFrom) / 60000));
+    const day = byDate.get(date);
+    out.push({
+      date,
+      kind: day?.kind ?? 'WORK',
+      minutes,
+      quantity: round2(minutes / 60),
+    });
+    totalMinutes += minutes;
+    if (day?.kind === 'OFF' || day?.kind === 'HOLIDAY')
+      warnings.push(
+        `${vnDate(date)} là ngày ${day.kind === 'OFF' ? 'nghỉ' : 'lễ'}: giờ làm thêm tính theo hệ số ngày ${day.kind === 'OFF' ? 'nghỉ' : 'lễ'}.`,
+      );
+  }
+  // Trùng ca: xét ca của mọi ngày trong danh sách (gồm ngày liền trước, ca qua đêm còn phủ đầu khoảng).
+  for (const day of days) {
+    if (day.kind !== 'WORK' || day.startMs === null || day.endMs === null) continue;
+    const from = Math.max(fromMs, day.startMs);
+    const to = Math.min(toMs, day.endMs);
+    if (to <= from) continue;
+    errors.push(
+      `Giờ làm thêm ${localTimeOf(from, timeZone)} - ${localTimeOf(to, timeZone)} ngày ${vnDate(localDateOf(from, timeZone))} trùng ca làm việc (${localTimeOf(day.startMs, timeZone)} - ${localTimeOf(day.endMs, timeZone)}); OT chỉ được đăng ký ngoài ca.`,
+    );
+  }
+  out.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  return { days: out, totalMinutes, totalDays: 0, warnings, errors };
+}
+
+/**
+ * Thời gian đơn CÔNG TÁC (HÀM THUẦN): tổng số giờ của khoảng từ-đến và số ngày lịch; không bắt lỗi theo ca
+ * (công tác có thể rơi vào ngày nghỉ hoặc ngày chưa phân ca, bảng công quy đổi theo giờ khi tính công).
+ */
+export function computeTripTime(
+  days: readonly RequestShiftDay[],
+  fromMs: number,
+  toMs: number,
+  timeZone: string,
+): RequestTimeResult {
+  const byDate = new Map(days.map((d) => [d.date, d]));
+  const out: HrmRequestTimeDay[] = [];
+  let totalMinutes = 0;
+  const dates = calendarDatesOf(fromMs, toMs, timeZone);
+  for (const date of dates) {
+    const segFrom = Math.max(fromMs, zonedMs(date, '00:00', timeZone));
+    const segTo = Math.min(toMs, zonedMs(addDays(date, 1), '00:00', timeZone));
+    const minutes = Math.max(0, Math.round((segTo - segFrom) / 60000));
+    out.push({ date, kind: byDate.get(date)?.kind ?? 'WORK', minutes, quantity: round2(minutes / 60) });
+    totalMinutes += minutes;
+  }
+  return { days: out, totalMinutes, totalDays: dates.length, warnings: [], errors: [] };
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -355,6 +434,8 @@ export async function resolveRequestTime(
   fromAt: unknown,
   toAt: unknown,
   unit: 'DAYS' | 'HOURS' = 'DAYS',
+  /** Loại đơn quyết định cách tính: nghỉ (theo ca), làm thêm giờ (ngoài ca), công tác (theo giờ của khoảng). */
+  mode: 'LEAVE' | 'OT' | 'TRIP' = 'LEAVE',
 ): Promise<{
   timezone: string;
   fromMs: number;
@@ -363,7 +444,13 @@ export async function resolveRequestTime(
 }> {
   const { timezone, fromMs, toMs } = await resolveRequestRange(db, tenant, employeeId, fromAt, toAt);
   const shifts = await loadRequestShiftDays(db, tenant, employeeId, fromMs, toMs, timezone);
-  return { timezone, fromMs, toMs, result: computeRequestTime(shifts, fromMs, toMs, timezone, unit) };
+  const result =
+    mode === 'OT'
+      ? computeOvertimeTime(shifts, fromMs, toMs, timezone)
+      : mode === 'TRIP'
+        ? computeTripTime(shifts, fromMs, toMs, timezone)
+        : computeRequestTime(shifts, fromMs, toMs, timezone, unit);
+  return { timezone, fromMs, toMs, result };
 }
 
 /** Ngày (YYYY-MM-DD) ghi trong chuỗi từ-ngày-giờ, để chọn chính sách múi giờ trước khi biết múi giờ. */

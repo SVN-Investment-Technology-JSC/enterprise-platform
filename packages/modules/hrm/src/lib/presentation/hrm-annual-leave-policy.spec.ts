@@ -221,6 +221,8 @@ function build(init: Partial<World> = {}, granted = ['hrm.read', 'hrm.leave.read
       return copy(world.schedules.filter((s) => s.id === params[2]));
     if (q.startsWith('SELECT * FROM hrm_schema.leave_accrual_schedules WHERE tenant_id=$1 AND leave_type_id=$2 AND accrual_basis'))
       return [];
+    if (q.startsWith('SELECT * FROM hrm_schema.leave_accrual_schedules WHERE tenant_id=$1 AND leave_type_id = ANY'))
+      return [];
     if (q.includes('count(*)::int AS count'))
       return [world.usage[params[1] as string] ?? { count: 0, last_month: null }];
     if (q.startsWith('DELETE FROM hrm_schema.leave_seniority_tiers')) {
@@ -309,6 +311,8 @@ function build(init: Partial<World> = {}, granted = ['hrm.read', 'hrm.leave.read
     }
     if (q.includes('FROM hrm_schema.leave_balances lb')) return world.balances;
     if (q.includes('SELECT CURRENT_DATE')) return [{ today: new Date('2026-10-10T00:00:00') }];
+    // Số ngày phép của các đơn nghỉ đang chờ duyệt (chiếm quỹ): không có đơn nào.
+    if (q.includes('FROM hrm_schema.leave_request_days')) return [{ days: 0 }];
     if (q.includes('FROM hrm_schema.employee_profiles')) return [];
     throw new Error(`Truy vấn chưa được giả lập: ${q.slice(0, 120)}`);
   }
@@ -641,7 +645,7 @@ describe('PUT /annual-leave-policy: đã có chính sách', () => {
     expect(world.types[0]).toMatchObject({ max_carryover_days: 0, carryover_expiry_month: 3, carryover_allowed: false });
   });
 
-  it('đã cộng phép: đóng lịch cũ rồi tạo phiên bản mới từ đầu tháng sau tháng đã cộng', async () => {
+  it('đã cộng phép: đóng lịch cũ rồi tạo phiên bản mới từ 01/01 năm sau năm đã cộng', async () => {
     const { policy, calls, world } = build({
       types: [annualType()],
       schedules: [schedule()],
@@ -652,36 +656,51 @@ describe('PUT /annual-leave-policy: đã có chính sách', () => {
     const create = indexOfCall(calls, 'INSERT INTO hrm_schema.leave_accrual_schedules');
     expect(close).toBeGreaterThan(-1);
     expect(create).toBeGreaterThan(close);
-    expect(calls[close].params.slice(1)).toEqual([SCHEDULE, '2026-10-01']);
-    expect(calls[create].params[8]).toBe('2026-10-01');
+    expect(calls[close].params.slice(1)).toEqual([SCHEDULE, '2027-01-01']);
+    expect(calls[create].params[8]).toBe('2027-01-01');
     expect(world.schedules).toHaveLength(2);
     const openEnded = world.schedules.filter((s) => !s.effective_to);
     expect(openEnded).toHaveLength(1);
-    expect(world.schedules.find((s) => s.id === SCHEDULE)?.effective_to).toBe('2026-09-30');
-    expect(result.data.policy).toMatchObject({ effectiveFrom: '2026-10-01', annualDays: 14 });
+    expect(world.schedules.find((s) => s.id === SCHEDULE)?.effective_to).toBe('2026-12-31');
+    expect(result.data.policy).toMatchObject({ effectiveFrom: '2027-01-01', annualDays: 14 });
     expect(world.audits.map((a) => a.action)).toContain('LEAVE_SCHEDULE_VERSION');
     expect(world.audits.at(-1)?.detail.mode).toBe('version');
   });
 
-  it('effectiveFrom do người dùng chọn phải sau tháng đã cộng phép (luật hiện có, 409)', async () => {
+  it('effectiveFrom do người dùng chọn phải là 01/01 và sau tháng đã cộng phép', async () => {
     const { policy, world } = build({
       types: [annualType()],
       schedules: [schedule()],
       usage: { [SCHEDULE]: { count: 9, last_month: '2026-09-30' } },
     });
-    await expect(policy.put(req, body({ effectiveFrom: '2026-09-01' }))).rejects.toBeInstanceOf(ConflictException);
+    // Không phải đầu năm: từ chối ngay ở bước kiểm tra đầu vào.
+    await expect(policy.put(req, body({ effectiveFrom: '2026-10-01' }))).rejects.toBeInstanceOf(BadRequestException);
+    // Đầu năm nhưng không sau tháng đã cộng phép (luật hiện có, 409).
+    await expect(policy.put(req, body({ effectiveFrom: '2026-01-01' }))).rejects.toBeInstanceOf(ConflictException);
     expect(world.schedules).toHaveLength(1);
     expect(world.schedules[0].effective_to).toBeNull();
   });
 
-  it('lịch mới nhất đã kết thúc: tạo lịch mới từ tháng sau, không chồng lịch cũ', async () => {
+  it('chưa cộng phép lần nào: sửa tại chỗ và dời hiệu lực về 01/01 của năm đó', async () => {
+    const { policy, calls, world } = build({
+      types: [annualType()],
+      schedules: [schedule({ effective_from: '2026-03-01' })],
+    });
+    await policy.put(req, body());
+    const edit = calls[indexOfCall(calls, 'UPDATE hrm_schema.leave_accrual_schedules SET policy_version_id')];
+    expect(edit.params[8]).toBe('2026-01-01');
+    expect(world.schedules).toHaveLength(1);
+    expect(world.schedules[0].effective_from).toBe('2026-01-01');
+  });
+
+  it('lịch mới nhất đã kết thúc: tạo lịch mới từ 01/01 năm sau, không chồng lịch cũ', async () => {
     const { policy, world } = build({
       types: [annualType()],
       schedules: [schedule({ effective_to: '2026-06-15' })],
     });
     await policy.put(req, body());
     expect(world.schedules.map((s) => [s.effective_from, s.effective_to])).toEqual(
-      expect.arrayContaining([['2026-07-01', null]]),
+      expect.arrayContaining([['2027-01-01', null]]),
     );
   });
 

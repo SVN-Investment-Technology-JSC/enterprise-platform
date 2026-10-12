@@ -69,7 +69,7 @@ export function WeeklyPatternEditor({
     [shiftOptions],
   );
   return (
-    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+    <div className="grid gap-4 @3xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
       <div className="flex flex-col gap-1.5">
         <div className="text-xs font-semibold text-slate-700">Lịch trong tuần</div>
         <ul className="flex flex-col gap-1.5">

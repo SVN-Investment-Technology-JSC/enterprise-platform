@@ -2,6 +2,7 @@
 import dynamic from 'next/dynamic';
 import type { ComponentType } from 'react';
 import { HrmTabHub, type HrmHubTab } from '../ui/hrm-tab-hub';
+import { SettingsCenter } from '../ui/settings-center';
 import { HRM_HUBS, type HrmHubPath } from '../hrm-hub-tabs';
 
 /** Mỗi tab là một gói riêng, chỉ tải khi mở tab: vào trang nào chỉ biên dịch và tải đúng màn hình đó. */
@@ -20,7 +21,6 @@ const MyTimesheetScreen = lazyScreen(() => import('./my-timesheet-screen'));
 const ProfileScreen = lazyScreen(() => import('./profile-screen'));
 const PayslipsScreen = lazyScreen(() => import('./payslips-screen'));
 const EmployeesScreen = lazyScreen(() => import('./employees-screen'));
-const DependentsScreen = lazyScreen(() => import('./dependents-screen'));
 const PersonnelDecisionsScreen = lazyScreen(() => import('./personnel-decisions-screen'));
 const LeaveBalancesScreen = lazyScreen(() => import('./leave-balances-screen'));
 const WorkScheduleScreen = lazyScreen(() => import('./work-schedule-screen'));
@@ -43,7 +43,6 @@ const SCREENS: Record<HrmHubPath, Record<string, ComponentType>> = {
   '/profile': { profile: ProfileScreen, payslips: PayslipsScreen },
   '/employees': {
     employees: EmployeesScreen,
-    dependents: DependentsScreen,
     decisions: PersonnelDecisionsScreen,
   },
   '/leave': { balances: LeaveBalancesScreen },
@@ -72,14 +71,14 @@ function tabsOf(path: HrmHubPath): HrmHubTab[] {
 /** Công của tôi: bảng công tháng của chính mình (chấm công thực hiện trên ứng dụng di động). */
 export const MyWorkHub = () => <HrmTabHub tabs={tabsOf('/my-work')} />;
 /** Hồ sơ và phiếu lương của tôi. */
-export const MyProfileHub = () => <HrmTabHub tabs={tabsOf('/profile')} />;
+export const MyProfileHub = () => <HrmTabHub tabs={tabsOf('/profile')} tabsInHeader />;
 /** Nhân sự: hồ sơ nhân viên và mọi thứ gắn với nhân viên. */
 export const PeopleHub = () => <HrmTabHub tabs={tabsOf('/employees')} />;
 /** Phép năm: quỹ phép của nhân viên, chính sách phép năm và lý do nghỉ. */
 export const LeaveHub = () => <HrmTabHub tabs={tabsOf('/leave')} />;
 /** Bảng công: bảng công tháng của nhân viên và dữ liệu chấm công. Phân ca và danh mục ca nằm trong Cấu hình. */
-export const TimekeepingHub = () => <HrmTabHub tabs={tabsOf('/timekeeping')} />;
+export const TimekeepingHub = () => <HrmTabHub tabs={tabsOf('/timekeeping')} tabsInHeader />;
 /** Lương và chi trả: bảng lương, ứng và thu hồi. */
-export const PayrollHub = () => <HrmTabHub tabs={tabsOf('/payroll')} />;
-/** Cấu hình toàn module. */
-export const SettingsHub = () => <HrmTabHub tabs={tabsOf('/settings')} />;
+export const PayrollHub = () => <HrmTabHub tabs={tabsOf('/payroll')} tabsInHeader />;
+/** Trung tâm cấu hình: thanh bên theo nhóm chức năng và trang tổng quan. */
+export const SettingsHub = () => <SettingsCenter screens={SCREENS['/settings']} />;

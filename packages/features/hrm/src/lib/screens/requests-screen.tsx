@@ -1,25 +1,27 @@
 'use client';
 import {
   correctionPayload,
+  correctionPunchPayload,
+  suggestPunchRow,
+  type CorrectionPunchRow,
   type CorrectionSessionRow,
 } from '../hrm-correction-sessions';
 import { HrmCorrectionSessions } from '../ui/hrm-correction-sessions';
+import { HrmCorrectionPunches } from '../ui/hrm-correction-punches';
 
 import {
   AlertCircle,
   Check,
-  Clock,
   DollarSign,
   Download,
   FileCheck2,
   FilePlus,
   FileText,
-  History,
   Info,
   Loader2,
   Plus,
-  RotateCcw,
   Send,
+  Upload,
   Trash2,
   X,
   XCircle,
@@ -32,6 +34,28 @@ import {
   type EmployeeProfileHeroData,
 } from '../ui/employee-hero-card';
 import { Input } from '../ui/input';
+import { MonthStepper } from '../ui/month-stepper';
+import { ExtraTimeRanges } from '../ui/extra-time-ranges';
+import { extraRangesProblem, rangeLabel, type ExtraRange } from '../request-ranges';
+import {
+  DetailField,
+  QuickCreateRow,
+  RequestDetailCard,
+  RequestListPanel,
+  RequestStatCards,
+  type QuickCreateItem,
+} from '../ui/my-requests-view';
+import {
+  detailStatusMeta,
+  inMonth,
+  matchesStatusFilter,
+  pickSelectedId,
+  QUICK_CREATE_KINDS,
+  requestMonthOf,
+  requestStatCards,
+  type RequestStatusFilter,
+} from '../my-requests-model';
+import { currentMonthVn } from '../hrm-timesheet-format';
 import { DatePickerInput } from '../ui/date-picker-input';
 import type {
   HrmRequestTimePreview,
@@ -83,9 +107,10 @@ import {
   visibleDynamicAttributes,
   type BindingLoadState,
 } from '../request-form-attributes';
-import { uploadHrmAttachment } from '../hrm-attachment-upload';
+import { MAX_ATTRIBUTE_FILE_BYTES, uploadHrmAttachment } from '../hrm-attachment-upload';
 import {
   choiceFromLeaveType,
+  descriptionMandatoryFor,
   isReasonedRequestKind,
   reasonBlockMessage,
   reasonCell,
@@ -121,7 +146,6 @@ interface RequestDraft {
   revision: number;
 }
 
-type RequestSubTab = 'catalog' | 'pending' | 'history';
 type RequestKind =
   | 'leave'
   | 'ot'
@@ -159,14 +183,6 @@ interface CatalogCard {
 /** 'YYYY-MM-DD' + 'HH:mm' -> 'YYYY-MM-DDTHH:mm' (rỗng khi chưa có ngày). */
 const dateTimeOf = (date: string, time: string) =>
   date ? `${date}T${time || '00:00'}` : '';
-
-/** Ngày kế tiếp của 'YYYY-MM-DD', tính theo lịch (không phụ thuộc múi giờ máy). */
-function nextDateOf(date: string): string {
-  const [y, m, d] = date.split('-').map(Number);
-  return new Date(Date.UTC(y, (m || 1) - 1, (d || 1) + 1))
-    .toISOString()
-    .slice(0, 10);
-}
 
 /** Đơn của loại tuỳ chỉnh (GET /custom-requests) thành dòng của danh sách đơn. */
 function customRequestItem(item: Record<string, any>): RequestItem {
@@ -727,7 +743,8 @@ export default function RequestsPage() {
   const { can } = useHrmPermissions();
   const canCreateRequest = can('hrm.self.request');
   const [historyPage, setHistoryPage] = useState(1);
-  const [activeTab, setActiveTab] = useState<RequestSubTab>('catalog');
+  const [showAllTypes, setShowAllTypes] = useState(false);
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [selectedCatalogId, setSelectedCatalogId] =
     useState<RequestKind>('leave');
@@ -740,6 +757,8 @@ export default function RequestsPage() {
   const [customValues, setCustomValues] = useState<Record<string, unknown>>({});
   const [customFromAt, setCustomFromAt] = useState('');
   const [customToAt, setCustomToAt] = useState('');
+  // Các khoảng thời gian bổ sung của đơn nghỉ, làm thêm giờ, công tác (mỗi khoảng gửi thành một đơn).
+  const [extraRanges, setExtraRanges] = useState<ExtraRange[]>([]);
   // Kết quả tính giờ của máy chủ cho khoảng thời gian đang chọn (nghỉ, làm thêm giờ, công tác).
   const [timePreview, setTimePreview] = useState<HrmRequestTimePreview | null>(
     null,
@@ -794,7 +813,7 @@ export default function RequestsPage() {
     () => resolveLeavePolicy(selectedLeaveType),
     [selectedLeaveType],
   );
-  const leaveValidation = useMemo(
+  const leaveDurationValidation = useMemo(
     () =>
       validateLeaveDurationPolicy(
         parseFloat(leaveDuration) || 0,
@@ -805,7 +824,6 @@ export default function RequestsPage() {
 
   // OT state (loại ngày/đêm do hệ thống suy ra theo chính sách OT, người làm đơn không chọn)
   const [otShiftId, setOtShiftId] = useState('');
-  const [isNegativeLeave, setIsNegativeLeave] = useState(false);
   const [isNightOt, setIsNightOt] = useState(false);
   const [startTime, setStartTime] = useState('17:30');
   const [endTime, setEndTime] = useState('20:30');
@@ -879,6 +897,11 @@ export default function RequestsPage() {
   const [correctionSessions, setCorrectionSessions] = useState<
     CorrectionSessionRow[]
   >([{ start: '', end: '' }]);
+  // Hai cách khai báo: từng mốc giờ vào / ra (mặc định, bổ sung giờ còn thiếu) hoặc theo phiên (thay cả ngày chấm công).
+  const [correctionMode, setCorrectionMode] = useState<'punch' | 'session'>('punch');
+  const [correctionPunches, setCorrectionPunches] = useState<CorrectionPunchRow[]>([
+    { kind: 'IN', at: '' },
+  ]);
 
   // Salary advance state
   const [requestedAmount, setRequestedAmount] = useState('5000000');
@@ -946,7 +969,7 @@ export default function RequestsPage() {
     instanceId: selectedProcedure.instanceId,
     kind: selectedRequest?.kind ?? '',
     requestId: selectedRequest?.id ?? '',
-    open: isDetailDrawerOpen,
+    open: isDetailDrawerOpen || selectedRequest !== null,
     // Quy trình đổi trạng thái (hoặc đã kết thúc khi mở): nạp lại đơn để lấy trạng thái nghiệp vụ thật.
     onLoaded: (data, previousStatus) => {
       if (
@@ -974,18 +997,11 @@ export default function RequestsPage() {
   // Lọc theo người đang chờ duyệt / bước hiện tại của quy trình (dùng chung hai tab).
   const [waitAssignee, setWaitAssignee] = useState('');
   const [waitStep, setWaitStep] = useState('');
-  const [pendingSearch, setPendingSearch] = useState('');
-  const [pendingKind, setPendingKind] = useState<string>('ALL');
-  const [pendingStatus, setPendingStatus] = useState<string>('ALL');
-  const [pendingFromDate, setPendingFromDate] = useState<string>('');
-  const [pendingToDate, setPendingToDate] = useState<string>('');
-
-  // Filter cho bảng Lịch sử (Zone 1: Filters)
   const [searchQuery, setSearchQuery] = useState('');
   const [filterKind, setFilterKind] = useState<string>('ALL');
-  const [filterStatus, setFilterStatus] = useState<string>('ALL');
-  const [historyFromDate, setHistoryFromDate] = useState<string>('');
-  const [historyToDate, setHistoryToDate] = useState<string>('');
+  const [filterStatus, setFilterStatus] = useState<RequestStatusFilter>('ALL');
+  /** Tháng đang xem (theo ngày tạo đơn); null là mọi tháng. */
+  const [listMonth, setListMonth] = useState<string | null>(() => currentMonthVn());
 
   // Profile data from API
   const [profile, setProfile] = useState<
@@ -1029,12 +1045,9 @@ export default function RequestsPage() {
   const leaveFromAt = dateTimeOf(fromDate, leaveStartTime);
   const leaveToAt = dateTimeOf(toDate || fromDate, leaveEndTime);
   const otFromAt = dateTimeOf(fromDate, startTime);
-  // Làm thêm giờ qua đêm (giờ kết thúc không sau giờ bắt đầu, cùng ngày) kết thúc vào ngày kế tiếp.
-  const otToAt = !fromDate
-    ? ''
-    : (toDate || fromDate) === fromDate && endTime <= startTime
-      ? dateTimeOf(nextDateOf(fromDate), endTime)
-      : dateTimeOf(toDate || fromDate, endTime);
+  // Làm thêm giờ qua đêm: người dùng tự chọn ngày kết thúc (ngày kế tiếp); không tự cuộn sang ngày sau, vì ngày hiển thị
+  // sẽ bị ghi ngược vào ô ngày kết thúc và làm lệch lựa chọn. Kết thúc không sau bắt đầu chỉ hiện lỗi, không đổi lựa chọn.
+  const otToAt = !fromDate ? '' : dateTimeOf(toDate || fromDate, endTime);
   const tripFromAt = dateTimeOf(fromDate, tripStartTime);
   const tripToAt = dateTimeOf(toDate || fromDate, tripEndTime);
   const applyTimeRange =
@@ -1100,6 +1113,16 @@ export default function RequestsPage() {
         : null,
     [dayPreview, fromDate, leaveStartTime, leaveEndTime],
   );
+  // Tổng số ngày nghỉ của mọi khoảng: khoảng chính cộng các khoảng bổ sung (số ngày do máy chủ tính cho từng khoảng).
+  const totalLeaveDays = useMemo(
+    () =>
+      Math.round(
+        ((parseFloat(leaveDuration) || 0) +
+          extraRanges.reduce((n, r) => n + (r.preview?.totalDays ?? 0), 0)) *
+          100,
+      ) / 100,
+    [leaveDuration, extraRanges],
+  );
   const leaveDisplay = useMemo(() => {
     const available = parseFloat(leaveBalance.remaining);
     if (Number.isNaN(available)) return null;
@@ -1112,11 +1135,34 @@ export default function RequestsPage() {
       seniority: parseFloat(leaveBalance.seniorityDays ?? '0') || 0,
       ...projectLeaveBalance({
         available,
-        duration: parseFloat(leaveDuration) || 0,
+        duration: totalLeaveDays,
         headroom,
       }),
     };
-  }, [leaveBalance, leaveDuration, selectedLeaveType]);
+  }, [leaveBalance, totalLeaveDays, selectedLeaveType]);
+
+  // Quỹ phép chỉ có với lý do trừ quỹ phép năm; các lý do nghỉ khác không có quỹ.
+  const showLeaveFund =
+    Boolean(selectedLeaveType) && leaveDisplayGroup(currentLeavePolicy) === 'DEDUCT';
+
+  // Phép năm cần có quỹ: chưa có quỹ hoặc quỹ bằng 0 thì không lập được đơn; nghỉ vượt hạn mức cũng không.
+  const leaveFundError = useMemo(() => {
+    if (!showLeaveFund || loading) return '';
+    if (!leaveDisplay || leaveDisplay.available <= 0.005)
+      return 'Chưa có quỹ phép năm khả dụng (quỹ hiện bằng 0): không thể lập đơn nghỉ phép năm. Liên hệ nhân sự để cấp phép hoặc chọn lý do nghỉ khác.';
+    if (leaveDisplay.status === 'INSUFFICIENT')
+      return `Số ngày nghỉ vượt quỹ phép năm khả dụng (còn ${leaveDisplay.available.toFixed(2)} ngày, tối đa nghỉ được ${leaveDisplay.maxUsable.toFixed(2)} ngày). Giảm số ngày nghỉ hoặc chọn lý do nghỉ khác.`;
+    return '';
+  }, [showLeaveFund, loading, leaveDisplay]);
+  const leaveValidation = useMemo(
+    () =>
+      !leaveDurationValidation.isValid
+        ? leaveDurationValidation
+        : leaveFundError
+          ? { isValid: false, errorMessage: leaveFundError }
+          : leaveDurationValidation,
+    [leaveDurationValidation, leaveFundError],
+  );
 
   // Requests list fetched from API
   const [requestsList, setRequestsList] = useState<RequestItem[]>([]);
@@ -1367,6 +1413,7 @@ export default function RequestsPage() {
                   advanceAllowed?: boolean;
                   advanceHeadroom?: number;
                   seniorityDays?: number;
+                  projectedSeniority?: number;
                 }) => [
                   b.leaveTypeId,
                   {
@@ -1383,7 +1430,10 @@ export default function RequestsPage() {
                         : String(b.entitlement ?? '----'),
                     advanceAllowed: Boolean(b.advanceAllowed),
                     advanceHeadroom: String(b.advanceHeadroom ?? 0),
-                    seniorityDays: String(b.seniorityDays ?? 0),
+                    // Thâm niên cả năm theo chính sách (cột sổ `seniorityDays` chỉ có khi đã cộng).
+                    seniorityDays: String(
+                      Math.max(b.projectedSeniority ?? 0, b.seniorityDays ?? 0),
+                    ),
                   },
                 ],
               ),
@@ -1906,33 +1956,31 @@ export default function RequestsPage() {
     setCorrectionSessions([
       { start: todayStr + 'T08:00:00', end: todayStr + 'T17:00:00' },
     ]);
+    setCorrectionPunches([suggestPunchRow(todayStr, 'IN')]);
     setFromDate(todayStr);
     setToDate(todayStr);
   }, []);
 
+  // Đổi "Ngày phát sinh điều chỉnh": các mốc giờ đang nằm đúng ngày cũ chuyển theo ngày mới (giữ nguyên giờ); mốc đã chọn
+  // sang ngày khác (ví dụ giờ ra của ca qua đêm) thì giữ nguyên.
+  const previousCorrectionDate = useRef('');
+  useEffect(() => {
+    const previous = previousCorrectionDate.current;
+    previousCorrectionDate.current = fromDate;
+    if (!previous || !fromDate || previous === fromDate) return;
+    setCorrectionPunches((rows) =>
+      rows.map((row) =>
+        row.at.startsWith(`${previous}T`) ? { ...row, at: `${fromDate}${row.at.slice(10)}` } : row,
+      ),
+    );
+  }, [fromDate]);
+
   // Tổng số lượng đơn đang chờ duyệt thực tế (dùng cho badge hiển thị trên Tab)
-  const totalPendingCount = useMemo(() => {
-    return requestsList.filter(
-      (r) =>
-        r.workflowStatus === 'PENDING_APPROVAL' ||
-        r.workflowStatus === 'PENDING_PEER' ||
-        r.workflowStatus === 'SUBMITTED',
-    ).length;
-  }, [requestsList]);
-
-  // Bộ lọc cho tab Đang chờ duyệt (Sub-tab 2)
-  const pendingRequests = useMemo(() => {
+  // Bộ lọc danh sách: tháng (theo ngày tạo), từ khóa, loại đơn và bước quy trình; trạng thái lọc thêm ở bên dưới.
+  const baseFiltered = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
     return requestsList.filter((item) => {
-      // Chỉ lấy các yêu cầu đang ở giai đoạn chờ duyệt
-      const isPending =
-        item.workflowStatus === 'PENDING_APPROVAL' ||
-        item.workflowStatus === 'PENDING_PEER' ||
-        item.workflowStatus === 'SUBMITTED';
-
-      if (!isPending) return false;
-
-      // Lọc từ khóa tìm kiếm (mã đơn, loại đơn, lý do, người duyệt)
-      const q = pendingSearch.trim().toLowerCase();
+      if (!inMonth(item, listMonth)) return false;
       const matchSearch =
         !q ||
         item.code.toLowerCase().includes(q) ||
@@ -1940,123 +1988,47 @@ export default function RequestsPage() {
         item.reason.toLowerCase().includes(q) ||
         item.description.toLowerCase().includes(q) ||
         item.approver.toLowerCase().includes(q);
-
-      // Lọc loại đơn
-      const matchKind = pendingKind === 'ALL' || item.kind === pendingKind;
-
-      // Lọc tình trạng chờ duyệt chi tiết
-      const matchStatus =
-        pendingStatus === 'ALL' ||
-        (pendingStatus === 'PENDING_APPROVAL' &&
-          item.workflowStatus === 'PENDING_APPROVAL') ||
-        (pendingStatus === 'PENDING_PEER' &&
-          item.workflowStatus === 'PENDING_PEER');
-
-      // Lọc khoảng thời gian (theo ngày tạo đơn)
-      let matchDate = true;
-      if (pendingFromDate || pendingToDate) {
-        const itemDateStr = item.rawCreatedAt
-          ? item.rawCreatedAt.slice(0, 10)
-          : '';
-        if (pendingFromDate && itemDateStr && itemDateStr < pendingFromDate) {
-          matchDate = false;
-        }
-        if (pendingToDate && itemDateStr && itemDateStr > pendingToDate) {
-          matchDate = false;
-        }
-      }
-
-      const matchWorkflow = matchesWorkflowFilter(item.rawDetails, {
-        assignee: waitAssignee,
-        currentStep: waitStep,
-      });
-
-      return (
-        matchSearch && matchKind && matchStatus && matchDate && matchWorkflow
-      );
-    });
-  }, [
-    requestsList,
-    waitAssignee,
-    waitStep,
-    pendingSearch,
-    pendingKind,
-    pendingStatus,
-    pendingFromDate,
-    pendingToDate,
-  ]);
-
-  // Bộ lọc cho tab Lịch sử (Zone 1)
-  const filteredHistory = useMemo(() => {
-    return requestsList.filter((item) => {
-      const q = searchQuery.trim().toLowerCase();
-      const matchSearch =
-        !q ||
-        item.code.toLowerCase().includes(q) ||
-        item.typeName.toLowerCase().includes(q) ||
-        item.reason.toLowerCase().includes(q) ||
-        item.description.toLowerCase().includes(q) ||
-        item.approver.toLowerCase().includes(q);
-
       const matchKind = filterKind === 'ALL' || item.kind === filterKind;
-      const matchStatus =
-        filterStatus === 'ALL' ||
-        (filterStatus === 'PENDING' &&
-          (item.workflowStatus === 'PENDING_APPROVAL' ||
-            item.workflowStatus === 'PENDING_PEER')) ||
-        (filterStatus === 'APPROVED' &&
-          (item.workflowStatus === 'APPROVED' ||
-            item.requestStatus === 'APPLIED' ||
-            item.requestStatus === 'DISBURSED')) ||
-        (filterStatus === 'REJECTED' && item.workflowStatus === 'REJECTED') ||
-        (filterStatus === 'CANCELLED' && item.requestStatus === 'CANCELLED');
-
-      // Lọc khoảng thời gian (theo ngày tạo đơn)
-      let matchDate = true;
-      if (historyFromDate || historyToDate) {
-        const itemDateStr = item.rawCreatedAt
-          ? item.rawCreatedAt.slice(0, 10)
-          : '';
-        if (historyFromDate && itemDateStr && itemDateStr < historyFromDate) {
-          matchDate = false;
-        }
-        if (historyToDate && itemDateStr && itemDateStr > historyToDate) {
-          matchDate = false;
-        }
-      }
-
       const matchWorkflow = matchesWorkflowFilter(item.rawDetails, {
         assignee: waitAssignee,
         currentStep: waitStep,
       });
-
-      return (
-        matchSearch && matchKind && matchStatus && matchDate && matchWorkflow
-      );
+      return matchSearch && matchKind && matchWorkflow;
     });
-  }, [
-    requestsList,
-    waitAssignee,
-    waitStep,
-    searchQuery,
-    filterKind,
-    filterStatus,
-    historyFromDate,
-    historyToDate,
-  ]);
+  }, [requestsList, listMonth, searchQuery, filterKind, waitAssignee, waitStep]);
+
+  const filteredHistory = useMemo(
+    () => baseFiltered.filter((item) => matchesStatusFilter(item, filterStatus)),
+    [baseFiltered, filterStatus],
+  );
+
+  const statusTabs = useMemo(
+    () =>
+      (
+        [
+          ['ALL', 'Tất cả'],
+          ['PENDING', 'Chờ duyệt'],
+          ['APPROVED', 'Đã duyệt'],
+          ['REJECTED', 'Từ chối'],
+        ] as const
+      ).map(([id, label]) => ({
+        id,
+        label,
+        count: baseFiltered.filter((item) => matchesStatusFilter(item, id)).length,
+      })),
+    [baseFiltered],
+  );
+
+  const statCards = useMemo(
+    () => requestStatCards(requestsList, listMonth ?? currentMonthVn()),
+    [requestsList, listMonth],
+  );
 
   // Đổi bộ lọc thì quay về trang đầu để không đứng ở trang không còn dữ liệu.
   useEffect(() => {
     setHistoryPage(1);
-  }, [
-    waitAssignee,
-    waitStep,
-    searchQuery,
-    filterKind,
-    filterStatus,
-    historyFromDate,
-    historyToDate,
-  ]);
+  }, [waitAssignee, waitStep, searchQuery, filterKind, filterStatus, listMonth]);
+
   const historySlice = useMemo(
     () => paginate(filteredHistory, historyPage, REQUEST_HISTORY_PAGE_SIZE),
     [filteredHistory, historyPage],
@@ -2145,7 +2117,6 @@ export default function RequestsPage() {
     setReasonId('');
     setDescription('');
     setFormErrorMessage(null);
-    setIsNegativeLeave(false);
     setIsNightOt(false);
     setProjectId('');
     setProjectName('');
@@ -2158,6 +2129,7 @@ export default function RequestsPage() {
     setLeaveAttachmentId('');
     setLeaveStartTime('07:30');
     setLeaveEndTime('17:00');
+    setExtraRanges([]);
     leaveTimesTouched.current = false;
     setStartTime('17:30');
     setEndTime('20:30');
@@ -2466,7 +2438,7 @@ export default function RequestsPage() {
       'form.request_date': fromDate,
       'form.duration': leaveDuration,
       'form.leave_type_id': selectedLeaveTypeId,
-      'form.is_negative_leave': isNegativeLeave,
+      'form.is_negative_leave': false,
       'form.ot_hours': String(hoursBetween(startTime, endTime) ?? ''),
       'form.is_night_ot': isNightOt,
       'form.trip_type': tripType,
@@ -2494,7 +2466,6 @@ export default function RequestsPage() {
     toDate,
     leaveDuration,
     selectedLeaveTypeId,
-    isNegativeLeave,
     startTime,
     endTime,
     isNightOt,
@@ -2578,30 +2549,49 @@ export default function RequestsPage() {
     try {
       setIsSubmitting(true);
       let res: Response | null = null;
+      // Nhiều khoảng thời gian: mỗi khoảng là một đơn; ghi lại khoảng lỗi và số đơn đã gửi để báo rõ.
+      let rangeFailure: { index: number; sent: number; kind: 'leave' | 'ot' | 'trip' } | null = null;
+      let submittedCount = 1;
+      const rangeOf = (fromAt: string, toAt: string, duration: number) => {
+        const from = splitDateTime(fromAt);
+        const to = splitDateTime(toAt);
+        return {
+          fromAt,
+          toAt,
+          fromDate: from.date,
+          toDate: to.date || from.date,
+          startTime: from.time,
+          endTime: to.time,
+          duration,
+        };
+      };
+      // `fresh`: khoảng thứ hai trở đi của cùng lần tạo đơn luôn dùng bản nháp mới, không dùng lại bản nháp đang mở.
       const persistRequest = async (
         url: string,
         init: RequestInit,
+        fresh = false,
       ): Promise<Response> => {
         const payload = JSON.parse(String(init.body));
+        const draft = fresh ? null : editingDraft;
         const saved = await fetch(
           hrmApiUrl(
-            editingDraft
-              ? `/request-drafts/${selectedCatalogId}/${editingDraft.id}`
+            draft
+              ? `/request-drafts/${selectedCatalogId}/${draft.id}`
               : `/request-drafts/${selectedCatalogId}`,
           ),
           {
             ...init,
-            method: editingDraft ? 'PATCH' : 'POST',
+            method: draft ? 'PATCH' : 'POST',
             body: JSON.stringify({
               employeeId: profile.id,
               payload,
-              expectedUpdatedAt: editingDraft?.updatedAt,
+              expectedUpdatedAt: draft?.updatedAt,
             }),
           },
         );
         if (!saved.ok || saveAsDraft) return saved;
         const { data } = (await saved.json()) as { data: RequestDraft };
-        setEditingDraft(data);
+        if (!fresh) setEditingDraft(data);
         return fetch(url, {
           ...init,
           body: JSON.stringify({
@@ -2610,6 +2600,43 @@ export default function RequestsPage() {
             expectedUpdatedAt: data.updatedAt,
           }),
         });
+      };
+
+      type SubmitRange = ReturnType<typeof rangeOf>;
+      const sendRanges = async (
+        kind: 'leave' | 'ot' | 'trip',
+        url: string,
+        mainRange: SubmitRange,
+        build: (range: SubmitRange) => Record<string, unknown>,
+      ): Promise<Response> => {
+        const list: SubmitRange[] = saveAsDraft
+          ? [mainRange]
+          : [
+              mainRange,
+              ...extraRanges.map((r) => rangeOf(r.fromAt, r.toAt, r.preview?.totalDays ?? 0)),
+            ];
+        let last: Response | null = null;
+        for (let i = 0; i < list.length; i++) {
+          last = await persistRequest(
+            url,
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'x-csrf-token': csrfToken(),
+              },
+              credentials: 'same-origin',
+              body: JSON.stringify(build(list[i])),
+            },
+            i > 0,
+          );
+          if (!last.ok) {
+            rangeFailure = { index: i, sent: i, kind };
+            return last;
+          }
+        }
+        submittedCount = list.length;
+        return last as Response;
       };
 
       if (selectedCatalogId === 'leave') {
@@ -2629,55 +2656,52 @@ export default function RequestsPage() {
           );
           return;
         }
+        if (!saveAsDraft && extraRanges.length) {
+          const problem = extraRangesProblem(
+            'leave',
+            { fromAt: leaveFromAt, toAt: leaveToAt },
+            extraRanges,
+          );
+          if (problem) {
+            notifyFormError(problem.title, problem.message);
+            return;
+          }
+          for (const [i, r] of extraRanges.entries()) {
+            const rule = validateLeaveDurationPolicy(r.preview?.totalDays ?? 0, currentLeavePolicy);
+            if (!rule.isValid) {
+              notifyFormError(
+                `${rangeLabel(i + 1, 'leave')} chưa hợp lệ`,
+                `${rangeLabel(i + 1, 'leave')}: ${rule.errorMessage}`,
+              );
+              return;
+            }
+          }
+        }
         let attachmentFileId = leaveAttachmentId;
         if (leaveFile && !attachmentFileId) {
-          const uploaded = await hrmFetch<{
-            data: { id: string; uploadUrl: string; contentType: string };
-          }>('/attachments', {
-            method: 'POST',
-            body: JSON.stringify({
-              employeeId: profile.id,
-              fileName: leaveFile.name,
-              contentType: leaveFile.type,
-              sizeBytes: leaveFile.size,
-            }),
-          });
-          const put = await fetch(uploaded.data.uploadUrl, {
-            method: 'PUT',
-            headers: { 'content-type': uploaded.data.contentType },
-            body: leaveFile,
-          });
-          if (!put.ok)
-            throw new Error('Không tải được chứng từ lên kho lưu trữ');
-          await hrmFetch(`/attachments/${uploaded.data.id}/complete`, {
-            method: 'POST',
-          });
-          attachmentFileId = uploaded.data.id;
+          attachmentFileId = (await uploadHrmAttachment(profile.id, leaveFile)).id;
           setLeaveAttachmentId(attachmentFileId);
         }
-        res = await persistRequest(hrmApiUrl('/leave-requests'), {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-csrf-token': csrfToken(),
-          },
-          credentials: 'same-origin',
-          body: JSON.stringify({
+        res = await sendRanges(
+          'leave',
+          hrmApiUrl('/leave-requests'),
+          rangeOf(leaveFromAt, leaveToAt, parseFloat(leaveDuration) || 1.0),
+          (range) => ({
             employeeId: profile.id,
             ...reasonPayload('leave', typeId, description),
             attachmentFileId: attachmentFileId || undefined,
-            fromDate,
-            toDate,
-            fromAt: leaveFromAt,
-            toAt: leaveToAt,
-            startTime: leaveStartTime,
-            endTime: leaveEndTime,
+            fromDate: range.fromDate,
+            toDate: range.toDate,
+            fromAt: range.fromAt,
+            toAt: range.toAt,
+            startTime: range.startTime,
+            endTime: range.endTime,
             projectId: projectId || undefined,
-            duration: parseFloat(leaveDuration) || 1.0,
+            duration: range.duration,
             isNegativeLeave: false,
             attributes: dynamicValues,
           }),
-        });
+        );
       } else if (selectedCatalogId === 'ot') {
         if (!fromDate) {
           notifyFormError('Thiếu thông tin', 'Vui lòng chọn ngày làm thêm.');
@@ -2696,51 +2720,37 @@ export default function RequestsPage() {
           return;
         }
 
+        if (!saveAsDraft && extraRanges.length) {
+          const problem = extraRangesProblem('ot', { fromAt: otFromAt, toAt: otToAt }, extraRanges);
+          if (problem) {
+            notifyFormError(problem.title, problem.message);
+            return;
+          }
+        }
+
         let attachmentFileId = leaveAttachmentId;
         if (leaveFile && !attachmentFileId) {
-          const uploaded = await hrmFetch<{
-            data: { id: string; uploadUrl: string; contentType: string };
-          }>('/attachments', {
-            method: 'POST',
-            body: JSON.stringify({
-              employeeId: profile.id,
-              fileName: leaveFile.name,
-              contentType: leaveFile.type,
-              sizeBytes: leaveFile.size,
-            }),
-          });
-          const put = await fetch(uploaded.data.uploadUrl, {
-            method: 'PUT',
-            headers: { 'content-type': uploaded.data.contentType },
-            body: leaveFile,
-          });
-          if (!put.ok)
-            throw new Error('Không tải được chứng từ lên kho lưu trữ');
-          await hrmFetch(`/attachments/${uploaded.data.id}/complete`, {
-            method: 'POST',
-          });
-          attachmentFileId = uploaded.data.id;
+          attachmentFileId = (await uploadHrmAttachment(profile.id, leaveFile)).id;
           setLeaveAttachmentId(attachmentFileId);
         }
 
         const selectedShift = shiftsList.find((s) => s.id === otShiftId);
 
         // Loại OT (ngày thường, đêm, cuối tuần, lễ) do máy chủ suy ra theo chính sách OT nên không gửi otType.
-        res = await persistRequest(hrmApiUrl('/ot-requests'), {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-csrf-token': csrfToken(),
-          },
-          credentials: 'same-origin',
-          body: JSON.stringify({
+        res = await sendRanges(
+          'ot',
+          hrmApiUrl('/ot-requests'),
+          rangeOf(otFromAt, otToAt, plannedMin),
+          (range) => ({
             employeeId: profile.id,
-            workDate: fromDate,
-            startTime,
-            endTime,
-            fromAt: otFromAt,
-            toAt: otToAt,
-            plannedMinutes: plannedMin,
+            workDate: range.fromDate,
+            startTime: range.startTime,
+            endTime: range.endTime,
+            fromAt: range.fromAt,
+            toAt: range.toAt,
+            plannedMinutes: Math.round(
+              (new Date(range.toAt).getTime() - new Date(range.fromAt).getTime()) / 60000,
+            ),
             ...reasonPayload('ot', reasonId, description),
             attributes: {
               ...dynamicValues,
@@ -2753,7 +2763,7 @@ export default function RequestsPage() {
               attachmentFileId: attachmentFileId || undefined,
             },
           }),
-        });
+        );
       } else if (selectedCatalogId === 'business_trip') {
         if (!fromDate || !toDate) {
           notifyFormError(
@@ -2786,41 +2796,25 @@ export default function RequestsPage() {
           return;
         }
 
+        if (!saveAsDraft && extraRanges.length) {
+          const problem = extraRangesProblem('trip', { fromAt: tripFromAt, toAt: tripToAt }, extraRanges);
+          if (problem) {
+            notifyFormError(problem.title, problem.message);
+            return;
+          }
+        }
+
         let attachmentFileId = leaveAttachmentId;
         if (leaveFile && !attachmentFileId) {
-          const uploaded = await hrmFetch<{
-            data: { id: string; uploadUrl: string; contentType: string };
-          }>('/attachments', {
-            method: 'POST',
-            body: JSON.stringify({
-              employeeId: profile.id,
-              fileName: leaveFile.name,
-              contentType: leaveFile.type,
-              sizeBytes: leaveFile.size,
-            }),
-          });
-          const put = await fetch(uploaded.data.uploadUrl, {
-            method: 'PUT',
-            headers: { 'content-type': uploaded.data.contentType },
-            body: leaveFile,
-          });
-          if (!put.ok)
-            throw new Error('Không tải được chứng từ lên kho lưu trữ');
-          await hrmFetch(`/attachments/${uploaded.data.id}/complete`, {
-            method: 'POST',
-          });
-          attachmentFileId = uploaded.data.id;
+          attachmentFileId = (await uploadHrmAttachment(profile.id, leaveFile)).id;
           setLeaveAttachmentId(attachmentFileId);
         }
 
-        res = await persistRequest(hrmApiUrl('/business-trip-requests'), {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-csrf-token': csrfToken(),
-          },
-          credentials: 'same-origin',
-          body: JSON.stringify({
+        res = await sendRanges(
+          'trip',
+          hrmApiUrl('/business-trip-requests'),
+          rangeOf(tripFromAt, tripToAt, days),
+          (range) => ({
             employeeId: profile.id,
             businessTripType: tripType,
             workItemId: workItemId || undefined,
@@ -2828,17 +2822,23 @@ export default function RequestsPage() {
               destination.trim() || 'Công tác theo kế hoạch phòng ban',
             projectId: projectId || null,
             projectName: projectName || null,
-            fromDate,
-            toDate,
-            fromAt: tripFromAt,
-            toAt: tripToAt,
-            daysCount: days,
+            fromDate: range.fromDate,
+            toDate: range.toDate,
+            fromAt: range.fromAt,
+            toAt: range.toAt,
+            daysCount: Math.max(
+              1,
+              Math.round(
+                (new Date(range.toDate).getTime() - new Date(range.fromDate).getTime()) /
+                  (1000 * 3600 * 24),
+              ) + 1,
+            ),
             allowOt,
             ...reasonPayload('business_trip', reasonId, description),
             attributes: {
               ...dynamicValues,
-              tripStartTime,
-              tripEndTime,
+              tripStartTime: range.startTime,
+              tripEndTime: range.endTime,
               destinationAddress: tripAddress.trim() || undefined,
               workDepartment: tripDepartment.trim() || undefined,
               vehicle: tripVehicle,
@@ -2850,7 +2850,7 @@ export default function RequestsPage() {
               attachmentFileId: attachmentFileId || undefined,
             },
           }),
-        });
+        );
       } else if (selectedCatalogId === 'shift_change') {
         if (!currentShiftId || !requestedShiftId) {
           notifyFormError(
@@ -2895,6 +2895,20 @@ export default function RequestsPage() {
           }),
         });
       } else if (selectedCatalogId === 'correction') {
+        let sessions: ReturnType<typeof correctionPayload> | undefined;
+        let punches: ReturnType<typeof correctionPunchPayload> | undefined;
+        try {
+          if (!saveAsDraft && !fromDate)
+            throw new Error('Vui lòng chọn ngày phát sinh điều chỉnh.');
+          if (correctionMode === 'punch') punches = correctionPunchPayload(correctionPunches);
+          else sessions = correctionPayload(correctionSessions);
+        } catch (error) {
+          notifyFormError(
+            'Thời gian không hợp lệ',
+            error instanceof Error ? error.message : 'Phiên vào–ra không hợp lệ.',
+          );
+          return;
+        }
         res = await persistRequest(hrmApiUrl('/attendance-corrections'), {
           method: 'POST',
           headers: {
@@ -2905,7 +2919,7 @@ export default function RequestsPage() {
           body: JSON.stringify({
             employeeId: profile.id,
             requestDate: fromDate,
-            sessions: correctionPayload(correctionSessions),
+            ...(punches ? { punches } : { sessions }),
             ...reasonPayload('correction', reasonId, description),
             attributes: dynamicValues,
           }),
@@ -3083,13 +3097,21 @@ export default function RequestsPage() {
         setReasonId('');
         setDescription('');
         toast.success({
-          title: saveAsDraft ? 'Đã lưu bản nháp' : 'Đã gửi đơn',
+          title: saveAsDraft
+            ? 'Đã lưu bản nháp'
+            : submittedCount > 1
+              ? `Đã gửi ${submittedCount} đơn`
+              : 'Đã gửi đơn',
           description: saveAsDraft
             ? 'Nháp chưa phát sinh hiệu lực nghiệp vụ.'
-            : 'Đơn đã được ghi nhận; theo dõi trạng thái trong danh sách.',
+            : submittedCount > 1
+              ? `Mỗi khoảng thời gian là một đơn riêng; theo dõi trạng thái trong danh sách.`
+              : 'Đơn đã được ghi nhận; theo dõi trạng thái trong danh sách.',
         });
         await loadData({ listsOnly: true });
-        setActiveTab('pending');
+        // Đưa người dùng tới đơn vừa gửi: tháng hiện tại, nhóm chờ duyệt.
+        setListMonth(currentMonthVn());
+        setFilterStatus('PENDING');
       } else {
         let errMsg = 'Không thể gửi đơn yêu cầu. Vui lòng thử lại sau.';
         let unavailable = false;
@@ -3104,12 +3126,29 @@ export default function RequestsPage() {
         } catch {
           // ignore
         }
-        notifyFormError(
-          unavailable
-            ? 'Procedure Engine không khả dụng'
-            : 'Tạo đơn thất bại',
-          errMsg,
-        );
+        const failure = rangeFailure as {
+          index: number;
+          sent: number;
+          kind: 'leave' | 'ot' | 'trip';
+        } | null;
+        if (failure && failure.sent > 0) {
+          // Các khoảng trước đã được gửi thành đơn: đóng form để không gửi trùng, báo rõ khoảng lỗi.
+          notifyFormError(
+            `${rangeLabel(failure.index, failure.kind)} gửi không thành công`,
+            `${errMsg} Đã gửi thành công ${failure.sent} khoảng trước đó; kiểm tra danh sách đơn rồi tạo lại khoảng còn lại.`,
+          );
+          setIsCreateModalOpen(false);
+          await loadData({ listsOnly: true });
+        } else {
+          notifyFormError(
+            unavailable
+              ? 'Procedure Engine không khả dụng'
+              : failure
+                ? `${rangeLabel(failure.index, failure.kind)} gửi không thành công`
+                : 'Tạo đơn thất bại',
+            errMsg,
+          );
+        }
       }
     } catch (err) {
       console.error('Lỗi khi gửi đơn yêu cầu:', err);
@@ -3202,9 +3241,32 @@ export default function RequestsPage() {
     const request = requestsList.find((item) => item.id === notificationRequestId);
     if (!request) return;
     setNotificationRequestId('');
-    setActiveTab('history');
-    void handleOpenDetailDrawer(request);
-  }, [notificationRequestId, requestsList, handleOpenDetailDrawer]);
+    // Mở đúng đơn trong thông báo: bỏ các bộ lọc có thể che đơn đó, chuyển tới tháng của đơn.
+    setFilterStatus('ALL');
+    setFilterKind('ALL');
+    setSearchQuery('');
+    setWaitAssignee('');
+    setWaitStep('');
+    setListMonth(requestMonthOf(request) || null);
+    setSelectedRequest(request);
+  }, [notificationRequestId, requestsList]);
+
+  // Luôn có một đơn đang chọn trong danh sách đang lọc (đơn đầu tiên nếu đơn cũ không còn); bỏ qua khi ngăn kéo đang mở.
+  useEffect(() => {
+    if (isDetailDrawerOpen) return;
+    const next = pickSelectedId(filteredHistory, selectedRequest?.id ?? null);
+    if (next === (selectedRequest?.id ?? null)) return;
+    setSelectedRequest(filteredHistory.find((item) => item.id === next) ?? null);
+  }, [filteredHistory, selectedRequest?.id, isDetailDrawerOpen]);
+
+  // Sau mỗi lần tải lại danh sách, đơn đang chọn lấy dữ liệu mới nhất của chính nó.
+  useEffect(() => {
+    setSelectedRequest((current) => {
+      if (!current) return current;
+      const fresh = requestsList.find((item) => item.id === current.id && item.kind === current.kind);
+      return fresh && fresh !== current ? fresh : current;
+    });
+  }, [requestsList]);
 
   const shiftOptions: SearchableSelectOption[] = useMemo(() => {
     return shiftsList.map((s) => ({
@@ -3237,60 +3299,156 @@ export default function RequestsPage() {
     }));
   }, [workspaceProjects]);
 
-  return (
-    <div className="space-y-3 max-w-[1600px] mx-auto">
-      <h1 className="sr-only">Đơn từ của tôi</h1>
-      {/* Thanh công cụ một dòng: thẻ chuyển nhanh, thông tin người dùng và thao tác (tiêu đề nằm ở breadcrumb của khung) */}
-      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-slate-200">
-        <div aria-label="Đơn từ" className="flex gap-1 text-xs font-medium">
-          {(
-            [
-              ['catalog', 'Tạo đơn mới', FilePlus, requestCatalog.length, 'bg-blue-100 text-blue-800'],
-              ['pending', 'Đơn đang chờ duyệt', Clock, totalPendingCount, 'bg-amber-100 text-amber-800'],
-              ['history', 'Lịch sử đơn từ', History, requestsList.length, 'bg-slate-100 text-slate-600'],
-            ] as const
-          ).map(([id, label, Icon, count, badge]) => (
-            <button
-              key={id}
-              type="button"
-              aria-pressed={activeTab === id}
-              onClick={() => setActiveTab(id)}
-              className={`-mb-px flex cursor-pointer items-center gap-1.5 border-b-2 px-3 py-2 transition-colors ${
-                activeTab === id
-                  ? 'border-blue-600 font-bold text-blue-600'
-                  : 'border-transparent text-slate-500 hover:text-slate-900'
-              }`}
-            >
-              <Icon className="size-3.5" />
-              <span>{label}</span>
-              {count > 0 && (
-                <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${badge}`}>{count}</span>
-              )}
-            </button>
-          ))}
+  const workflowFallback = (
+      <div className="bg-slate-50 rounded-lg p-3.5 border border-slate-200 space-y-3">
+        <div className="flex items-center gap-3">
+          <div className="size-6 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold text-xs shrink-0">
+            <Check className="size-3.5" />
+          </div>
+          <div>
+            <div className="font-semibold text-slate-800">
+              Nhân viên khởi tạo yêu cầu
+            </div>
+            <div className="text-[11px] text-slate-400">
+              {selectedRequest?.createdAt}
+            </div>
+          </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2 pb-1.5">
-          {profile.fullName && (
-            <span className="hidden truncate text-[11px] text-slate-500 lg:inline" title="Người tạo đơn">
-              {profile.fullName} · {profile.employeeCode}
-              {profile.department ? ` · ${profile.department}` : ''}
-            </span>
-          )}
+
+        {selectedRequest?.kind === 'shift_change' && (
+          <div className="flex items-center gap-3">
+            <div
+              className={`size-6 rounded-full flex items-center justify-center font-bold text-xs shrink-0 ${selectedRequest.workflowStatus !== 'PENDING_PEER'
+                ? 'bg-emerald-100 text-emerald-700'
+                : 'bg-amber-100 text-amber-700'
+                }`}
+            >
+              {selectedRequest.workflowStatus !== 'PENDING_PEER'
+                ? <Check className="size-3.5" />
+                : '•'}
+            </div>
+            <div>
+              <div className="font-semibold text-slate-800">
+                Đồng nghiệp xác nhận đổi ca
+              </div>
+              <div className="text-[11px] text-slate-500">
+                {selectedRequest.workflowStatus !== 'PENDING_PEER'
+                  ? 'Đã xác nhận chéo'
+                  : 'Đang chờ phản hồi'}
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="flex items-center gap-3">
+          <div
+            className={`size-6 rounded-full flex items-center justify-center font-bold text-xs shrink-0 ${selectedRequest?.workflowStatus === 'APPROVED'
+              ? 'bg-emerald-100 text-emerald-700'
+              : selectedRequest?.workflowStatus === 'REJECTED'
+                ? 'bg-rose-100 text-rose-700'
+                : 'bg-amber-100 text-amber-700'
+              }`}
+          >
+            {selectedRequest?.workflowStatus === 'APPROVED'
+              ? <Check className="size-3.5" />
+              : selectedRequest?.workflowStatus === 'REJECTED'
+                ? <X className="size-3.5" />
+                : '•'}
+          </div>
+          <div>
+            <div className="font-semibold text-slate-800">
+              Cấp thẩm quyền phê duyệt:{' '}
+              <strong>{selectedRequest?.approver}</strong>
+            </div>
+            <div className="text-[11px] text-slate-500">
+              {selectedRequest?.requestStatus === 'CANCELLED'
+                ? 'Đã rút / hủy'
+                : selectedRequest?.workflowStatus === 'APPROVED'
+                  ? 'Đã chấp thuận'
+                  : selectedRequest?.workflowStatus === 'REJECTED'
+                    ? 'Đã từ chối'
+                    : 'Đang chờ xét duyệt (SLA 24h)'}
+            </div>
+          </div>
+        </div>
+      </div>
+  );
+
+  // Mở chứng từ đính kèm của đơn (liên kết tải có thời hạn do máy chủ cấp).
+  const handleOpenAttachment = async (fileId: string) => {
+    try {
+      const file = await hrmFetch<{ data: { url: string } }>(
+        `/attachments/${fileId}/download`,
+      );
+      window.open(file.data.url, '_blank', 'noopener,noreferrer');
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : 'Không tải được chứng từ',
+      );
+    }
+  };
+
+  const detailRow = selectedRequest;
+  const activeMonth = listMonth ?? currentMonthVn();
+  const monthTitle = listMonth
+    ? `Danh sách đơn trong tháng ${listMonth.slice(5, 7)}/${listMonth.slice(0, 4)}`
+    : 'Danh sách đơn của tất cả các tháng';
+
+  const quickItems: QuickCreateItem[] = QUICK_CREATE_KINDS.flatMap((kind) => {
+    const cat = requestCatalog.find((c) => c.id === kind && !c.customType);
+    return cat
+      ? [
+          {
+            key: cat.id,
+            kind: cat.id,
+            title: cat.title,
+            desc: cat.desc,
+            onClick: () => handleOpenCreateForType(cat.id, cat.title, cat.customType),
+          },
+        ]
+      : [];
+  });
+  const otherCatalog = requestCatalog.filter(
+    (c) => !quickItems.some((q) => q.key === c.id && !c.customType),
+  );
+
+  const canCancelSelected =
+    selectedRequest?.workflowStatus === 'PENDING_APPROVAL' ||
+    (selectedRequest?.workflowStatus === 'PENDING_PEER' &&
+      selectedRequest.rawDetails.employeeId === profile.id) ||
+    selectedRequest?.workflowStatus === 'SUBMITTED';
+  const canPeerConfirmSelected =
+    selectedRequest?.kind === 'shift_change' &&
+    selectedRequest.rawDetails.swapWithEmployeeId === profile.id &&
+    selectedRequest.workflowStatus === 'PENDING_PEER';
+  const detailAttachmentId =
+    typeof selectedRequest?.rawDetails.attachmentFileId === 'string'
+      ? selectedRequest.rawDetails.attachmentFileId
+      : '';
+
+  return (
+    <div className="mx-auto max-w-[1600px] space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-bold tracking-tight text-slate-900">Đơn từ của tôi</h1>
+          <p className="text-xs text-slate-500">Tạo mới và theo dõi trạng thái các yêu cầu cá nhân.</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <MonthStepper month={activeMonth} onChange={setListMonth} />
           <Button
             variant="outline"
             size="sm"
-            className="h-8 gap-1.5 border-slate-200 text-xs font-medium hover:bg-slate-50"
-            onClick={handleExportHistory}
-            disabled={loading || filteredHistory.length === 0}
-            title="Xuất các dòng đang hiển thị trong Lịch sử đơn từ ra file CSV"
+            aria-pressed={listMonth === null}
+            className="h-9 text-xs"
+            title="Xem đơn của mọi tháng thay vì một tháng"
+            onClick={() => setListMonth(listMonth === null ? currentMonthVn() : null)}
           >
-            <Download className="size-3.5" />
-            <span>Xuất lịch sử đơn</span>
+            Tất cả tháng
           </Button>
           <Button
             permission="hrm.self.request"
             size="sm"
-            className="h-8 gap-1.5 bg-blue-600 text-xs font-semibold text-white shadow-xs hover:bg-blue-700"
+            className="h-9 gap-1.5 text-xs font-semibold"
             onClick={() => handleOpenCreateForType('leave', 'Đơn xin nghỉ phép')}
           >
             <Plus className="size-3.5" />
@@ -3299,59 +3457,48 @@ export default function RequestsPage() {
         </div>
       </div>
 
-      {/* SUB-TAB 1: REQUEST CATALOG */}
-      {activeTab === 'catalog' && (
-        <div className="space-y-3">
-          {!canCreateRequest && (
+      <RequestStatCards cards={statCards} month={activeMonth} />
+
+      {!canCreateRequest && (
+        <div role="status" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+          Tài khoản của bạn chưa được cấp quyền tạo đơn. Bạn vẫn xem được lịch sử đơn của mình.
+        </div>
+      )}
+      {loading && (
+        <p role="status" className="py-2 text-center text-xs text-slate-500">
+          Đang tải danh mục loại đơn...
+        </p>
+      )}
+      {!loading && canCreateRequest && (
+        <>
+          <QuickCreateRow
+            items={quickItems}
+            extraCount={otherCatalog.length}
+            showAll={showAllTypes}
+            onToggleAll={() => setShowAllTypes((v) => !v)}
+          />
+          {showAllTypes && otherCatalog.length > 0 && (
             <div
-              role="status"
-              className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900"
+              aria-label="Các loại đơn khác"
+              className="grid grid-cols-1 gap-2.5 rounded-xl border border-slate-200 bg-white p-3 shadow-xs sm:grid-cols-2 xl:grid-cols-4"
             >
-              Tài khoản của bạn chưa được cấp quyền tạo đơn. Bạn vẫn xem được
-              lịch sử đơn của mình.
-            </div>
-          )}
-          {loading && (
-            <p role="status" className="py-8 text-center text-xs text-slate-500">
-              Đang tải danh mục loại đơn...
-            </p>
-          )}
-          {!loading && canCreateRequest && (
-            <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-              {requestCatalog.map((cat) => (
+              {otherCatalog.map((cat) => (
                 <button
                   key={cat.customType?.id ?? cat.id}
                   type="button"
                   aria-label={`Khởi tạo đơn này: ${cat.title}`}
                   onClick={() => handleOpenCreateForType(cat.id, cat.title, cat.customType)}
-                  className="group flex cursor-pointer items-start gap-3 rounded-lg border border-slate-200 bg-white p-3 text-left shadow-xs transition-colors hover:border-blue-500 hover:bg-blue-50/30 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="group flex cursor-pointer items-start gap-3 rounded-lg border border-slate-200 bg-white p-3 text-left transition-colors hover:border-[#ffc90a] hover:bg-amber-50/40"
                 >
-                  <span
-                    className={`flex size-9 shrink-0 items-center justify-center rounded-lg ${cat.iconBg} shadow-xs`}
-                  >
+                  <span className={`flex size-9 shrink-0 items-center justify-center rounded-lg ${cat.iconBg}`}>
                     <FileText className="size-4" />
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="flex items-center justify-between gap-2">
-                      <span
-                        role="heading"
-                        aria-level={3}
-                        className="truncate text-[13px] font-bold text-slate-900 group-hover:text-blue-700"
-                      >
+                      <span role="heading" aria-level={3} className="truncate text-[13px] font-bold text-slate-900">
                         {cat.title}
                       </span>
-                      <Badge
-                        variant="outline"
-                        className={`shrink-0 text-[10px] font-semibold ${
-                          cat.tagColor === 'emerald'
-                            ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                            : cat.tagColor === 'amber'
-                              ? 'border-amber-200 bg-amber-50 text-amber-800'
-                              : cat.tagColor === 'rose'
-                                ? 'border-rose-200 bg-rose-50 text-rose-700'
-                                : 'border-blue-200 bg-blue-50 text-blue-700'
-                        }`}
-                      >
+                      <Badge variant="outline" className="shrink-0 text-[10px] font-semibold">
                         {cat.tag}
                       </Badge>
                     </span>
@@ -3366,464 +3513,194 @@ export default function RequestsPage() {
               ))}
             </div>
           )}
-        </div>
+        </>
       )}
 
-      {/* SUB-TAB 2: PENDING APPROVAL */}
-      {activeTab === 'pending' && (
-        <div className="space-y-4">
-          <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
-            {/* Header Title */}
-            <div className="px-3 py-2 bg-slate-50 border-b border-slate-200">
-              <span className="font-bold text-slate-900 text-xs uppercase tracking-wide">
-                Danh sách yêu cầu đang chờ phê duyệt ({pendingRequests.length})
-              </span>
-            </div>
+      <div className="grid min-h-0 grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_380px]">
+        <RequestListPanel
+          title={monthTitle}
+          rows={historySlice.items}
+          startIndex={historySlice.from > 0 ? historySlice.from - 1 : 0}
+          selectedId={selectedRequest?.id ?? null}
+          onSelect={(id) => {
+            const next = requestsList.find((item) => item.id === id);
+            if (next) setSelectedRequest(next);
+          }}
+          loading={loading}
+          tabs={statusTabs}
+          status={filterStatus}
+          onStatusChange={setFilterStatus}
+          search={searchQuery}
+          onSearchChange={setSearchQuery}
+          kind={filterKind}
+          onKindChange={setFilterKind}
+          kindOptions={kindFilterOptions}
+          advancedFilters={showAdvancedFilters ? workflowFilterControls : undefined}
+          hasActiveFilters={Boolean(
+            searchQuery || waitAssignee || waitStep || filterKind !== 'ALL' || filterStatus !== 'ALL',
+          )}
+          onReset={() => {
+            setSearchQuery('');
+            setWaitAssignee('');
+            setWaitStep('');
+            setFilterKind('ALL');
+            setFilterStatus('ALL');
+          }}
+          toolbarExtra={
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 text-xs"
+                aria-expanded={showAdvancedFilters}
+                onClick={() => setShowAdvancedFilters((v) => !v)}
+                title="Lọc theo người đang chờ duyệt và bước quy trình hiện tại"
+              >
+                Bước duyệt
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 gap-1.5 text-xs"
+                onClick={handleExportHistory}
+                disabled={loading || filteredHistory.length === 0}
+                title="Xuất các dòng đang hiển thị trong danh sách ra file CSV"
+              >
+                <Download className="size-3.5" />
+                <span>Xuất lịch sử đơn</span>
+              </Button>
+            </>
+          }
+          page={historySlice}
+          onPage={setHistoryPage}
+          reasonExtra={(id) => {
+            const item = requestsList.find((r) => r.id === id);
+            return item && isUnpaidOt(item) ? <UnpaidOtBadge /> : null;
+          }}
+        />
 
-            {/* Filter Toolbar for Pending Requests */}
-            <div className="p-3 bg-slate-50/50 border-b border-slate-200 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
-              <div className="flex flex-wrap items-center gap-2.5 flex-1">
-                <div className="w-full sm:w-56">
-                  <Input
-                    placeholder="Tìm mã đơn, loại hoặc lý do..."
-                    value={pendingSearch}
-                    onChange={(e) => setPendingSearch(e.target.value)}
-                    className="h-8 text-xs bg-white"
-                  />
-                </div>
-                <div className="w-44">
-                  <SearchableSelect
-                    options={kindFilterOptions}
-                    value={pendingKind}
-                    onChange={(val) => setPendingKind(val || 'ALL')}
-                    placeholder="Lọc loại đơn..."
-                    clearable={false}
-                  />
-                </div>
-                <div className="w-44">
-                  <SearchableSelect
-                    options={[
-                      { value: 'ALL', label: 'Tất cả giai đoạn' },
-                      { value: 'PENDING_APPROVAL', label: 'Chờ quản lý duyệt' },
-                      { value: 'PENDING_PEER', label: 'Chờ đồng nghiệp' },
-                    ]}
-                    value={pendingStatus}
-                    onChange={(val) => setPendingStatus(val || 'ALL')}
-                    placeholder="Lọc giai đoạn..."
-                    clearable={false}
-                  />
-                </div>
-                {workflowFilterControls}
-                <div className="flex items-center gap-1.5 text-xs text-slate-500">
-                  <span className="text-[11px] whitespace-nowrap">
-                    Từ ngày:
-                  </span>
-                  <div className="w-32">
-                    <DatePickerInput
-                      value={pendingFromDate}
-                      onChange={(val) => setPendingFromDate(val || '')}
-                      placeholder="dd/mm/yyyy"
-                      className="h-8 text-xs bg-white"
-                    />
-                  </div>
-                  <span className="text-[11px] whitespace-nowrap">Đến:</span>
-                  <div className="w-32">
-                    <DatePickerInput
-                      value={pendingToDate}
-                      onChange={(val) => setPendingToDate(val || '')}
-                      placeholder="dd/mm/yyyy"
-                      className="h-8 text-xs bg-white"
-                    />
-                  </div>
-                </div>
-                {(pendingSearch ||
-                  waitAssignee ||
-                  waitStep ||
-                  pendingKind !== 'ALL' ||
-                  pendingStatus !== 'ALL' ||
-                  pendingFromDate ||
-                  pendingToDate) && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="text-xs h-8 text-slate-500 hover:text-slate-800"
-                      onClick={() => {
-                        setPendingSearch('');
-                        setWaitAssignee('');
-                        setWaitStep('');
-                        setPendingKind('ALL');
-                        setPendingStatus('ALL');
-                        setPendingFromDate('');
-                        setPendingToDate('');
-                      }}
+        <RequestDetailCard
+          row={detailRow}
+          status={detailRow ? detailStatusMeta(detailRow, procedureProgress?.status) : null}
+          fields={
+            detailRow ? (
+              <>
+                <DetailField label="Thời gian">{detailRow.effectiveDate}</DetailField>
+                <DetailField label="Thời lượng">{detailRow.duration}</DetailField>
+                <DetailField label="Lý do" testId="card-reason">
+                  {detailRow.reason}
+                  {isUnpaidOt(detailRow) && <UnpaidOtBadge />}
+                </DetailField>
+                <DetailField label="Mô tả" testId="card-description">
+                  {detailRow.description}
+                </DetailField>
+                <DetailField label="Người tạo">
+                  {profile.fullName || '----'}
+                  {profile.employeeCode ? ` (${profile.employeeCode})` : ''}
+                  {profile.department ? (
+                    <span className="block text-[11px] font-normal text-slate-500">{profile.department}</span>
+                  ) : null}
+                </DetailField>
+                <DetailField label="Ngày tạo">{detailRow.createdAt}</DetailField>
+                <DetailField label="Người duyệt">{approverText(detailRow)}</DetailField>
+                {detailAttachmentId && (
+                  <DetailField label="Tệp đính kèm">
+                    <button
+                      type="button"
+                      className="font-semibold text-blue-700 hover:underline"
+                      onClick={() => void handleOpenAttachment(detailAttachmentId)}
                     >
-                      <RotateCcw className="size-3 mr-1" />
-                      Đặt lại
+                      Xem chứng từ
+                    </button>
+                  </DetailField>
+                )}
+                <DetailField label="Kết quả xử lý">
+                  {['CANCELLED', 'REJECTED'].includes(detailRow.requestStatus)
+                    ? 'Không áp dụng'
+                    : detailRow.requestStatus === 'APPLIED'
+                      ? 'Đã cập nhật dữ liệu công'
+                      : detailRow.requestStatus === 'DISBURSED'
+                        ? 'Đã giải ngân'
+                        : 'Chờ áp dụng'}
+                </DetailField>
+              </>
+            ) : null
+          }
+          workflow={
+            <ProcedureProgressPanel
+              progress={procedureProgress}
+              loading={loadingProgress}
+              hasInstance={Boolean(selectedProcedure.instanceId)}
+              onRefresh={() => void refreshProgress(false)}
+              syncStatus={selectedProcedure.syncStatus}
+              lastError={selectedProcedure.lastError}
+              fallbackStepName={selectedProcedure.currentStepName}
+              fallbackAssigneeName={selectedProcedure.currentAssigneeName}
+              emptyFallback={workflowFallback}
+            />
+          }
+          actions={
+            detailRow ? (
+              <>
+                {canPeerConfirmSelected && (
+                  <>
+                    <Button
+                      permission="hrm.self.request"
+                      size="sm"
+                      className="h-8 bg-emerald-600 text-xs text-white hover:bg-emerald-700"
+                      onClick={() => handlePeerConfirm(detailRow.id, true)}
+                    >
+                      Xác nhận đổi ca
                     </Button>
-                  )}
-              </div>
-              <div className="text-xs text-slate-500 font-medium text-right shrink-0">
-                Hiển thị <strong>{pendingRequests.length}</strong> /{' '}
-                {totalPendingCount} yêu cầu
-              </div>
-            </div>
-
-            <div className="divide-y divide-slate-100">
-              {loading ? (
-                <div className="p-8 text-center text-slate-400 flex items-center justify-center gap-2">
-                  <Loader2 className="size-4 animate-spin text-[#021E73]" />
-                  <span>Đang tải danh sách đơn từ...</span>
-                </div>
-              ) : pendingRequests.length === 0 ? (
-                <div className="p-8 text-center text-slate-400 text-xs">
-                  Không tìm thấy yêu cầu nào đang chờ duyệt phù hợp với bộ lọc.
-                </div>
-              ) : (
-                pendingRequests.map((req) => (
-                  <div
-                    key={req.id}
-                    className="p-4 hover:bg-slate-50/70 transition-colors flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs"
+                    <Button
+                      permission="hrm.self.request"
+                      size="sm"
+                      variant="outline"
+                      className="h-8 border-rose-300 text-xs text-rose-700"
+                      onClick={() => handlePeerConfirm(detailRow.id, false)}
+                    >
+                      Từ chối
+                    </Button>
+                  </>
+                )}
+                {canCancelSelected && (
+                  <Popconfirm
+                    title="Huỷ đơn từ yêu cầu này?"
+                    description="Đơn sẽ được rút khỏi luồng phê duyệt và không thể khôi phục."
+                    okText="Huỷ đơn"
+                    cancelText="Quay lại"
+                    okType="danger"
+                    placement="top"
+                    onConfirm={() => handleCancelRequest(detailRow)}
                   >
-                    <div className="flex items-start gap-3">
-                      <div className="size-9 rounded-lg bg-blue-100 text-[#021E73] flex items-center justify-center font-bold shrink-0 mt-0.5">
-                        <FileText className="size-4" />
-                      </div>
-                      <div className="space-y-0.5">
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono font-bold text-slate-900 text-xs">
-                            {req.code}
-                          </span>
-                          <span className="font-bold text-slate-900 text-xs">
-                            {req.typeName}
-                          </span>
-                          <Badge
-                            className={
-                              req.workflowStatus === 'PENDING_PEER'
-                                ? 'bg-indigo-100 text-indigo-800 text-[10px] font-bold border border-indigo-200'
-                                : 'bg-amber-100 text-amber-800 text-[10px] font-bold border border-amber-200'
-                            }
-                          >
-                            {req.statusText}
-                          </Badge>
-                        </div>
-                        <p className="text-slate-500 text-[11px]">
-                          Tạo ngày:{' '}
-                          <strong className="text-slate-700">
-                            {req.createdAt}
-                          </strong>{' '}
-                          • Hiệu lực:{' '}
-                          <strong className="text-slate-700">
-                            {req.effectiveDate}
-                          </strong>{' '}
-                          ({req.duration})
-                        </p>
-                        <p className="text-slate-500 text-[11px]">
-                          Lý do:{' '}
-                          <strong className="text-slate-700">{req.reason}</strong>
-                          {isUnpaidOt(req) && <UnpaidOtBadge />} • Mô tả:{' '}
-                          <span className="text-slate-700">
-                            {req.description}
-                          </span>
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-3 shrink-0 ml-12 md:ml-0">
-                      <div className="text-right hidden sm:block">
-                        <span className="text-[10px] text-slate-400 uppercase font-bold block">
-                          Người phê duyệt
-                        </span>
-                        <span className="font-semibold text-slate-800 text-xs">
-                          {approverText(req)}
-                        </span>
-                      </div>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="text-xs h-8 border-slate-300"
-                        onClick={() => handleOpenDetailDrawer(req)}
-                      >
-                        Chi tiết
-                      </Button>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* SUB-TAB 3: HISTORY (Standard 3-Zone Enterprise Table) */}
-      {activeTab === 'history' && (
-        <div className="space-y-4">
-          <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
-            {/* Zone 1: Header - Controls & Multi-criteria Filters */}
-            <div className="p-4 bg-slate-50 border-b border-slate-200 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
-              <div className="flex flex-wrap items-center gap-2.5 flex-1">
-                <div className="w-full sm:w-56">
-                  <Input
-                    placeholder="Tìm theo mã đơn, loại hoặc lý do..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="h-8 text-xs bg-white"
-                  />
-                </div>
-                <div className="w-44">
-                  <SearchableSelect
-                    options={kindFilterOptions}
-                    value={filterKind}
-                    onChange={(val) => setFilterKind(val || 'ALL')}
-                    placeholder="Lọc loại đơn..."
-                    clearable={false}
-                  />
-                </div>
-                <div className="w-40">
-                  <SearchableSelect
-                    options={[
-                      { value: 'ALL', label: 'Tất cả trạng thái' },
-                      { value: 'PENDING', label: 'Đang chờ duyệt' },
-                      { value: 'APPROVED', label: 'Đã duyệt / Áp dụng' },
-                      { value: 'REJECTED', label: 'Đã từ chối' },
-                      { value: 'CANCELLED', label: 'Đã rút / hủy' },
-                    ]}
-                    value={filterStatus}
-                    onChange={(val) => setFilterStatus(val || 'ALL')}
-                    placeholder="Lọc trạng thái..."
-                    clearable={false}
-                  />
-                </div>
-                {workflowFilterControls}
-                <div className="flex items-center gap-1.5 text-xs text-slate-500">
-                  <span className="text-[11px] whitespace-nowrap">
-                    Từ ngày:
-                  </span>
-                  <div className="w-32">
-                    <DatePickerInput
-                      value={historyFromDate}
-                      onChange={(val) => setHistoryFromDate(val || '')}
-                      placeholder="dd/mm/yyyy"
-                      className="h-8 text-xs bg-white"
-                    />
-                  </div>
-                  <span className="text-[11px] whitespace-nowrap">Đến:</span>
-                  <div className="w-32">
-                    <DatePickerInput
-                      value={historyToDate}
-                      onChange={(val) => setHistoryToDate(val || '')}
-                      placeholder="dd/mm/yyyy"
-                      className="h-8 text-xs bg-white"
-                    />
-                  </div>
-                </div>
-                {(searchQuery ||
-                  waitAssignee ||
-                  waitStep ||
-                  filterKind !== 'ALL' ||
-                  filterStatus !== 'ALL' ||
-                  historyFromDate ||
-                  historyToDate) && (
                     <Button
-                      variant="ghost"
+                      permission="hrm.self.request"
+                      variant="outline"
                       size="sm"
-                      className="text-xs h-8 text-slate-500 hover:text-slate-800"
-                      onClick={() => {
-                        setSearchQuery('');
-                        setWaitAssignee('');
-                        setWaitStep('');
-                        setFilterKind('ALL');
-                        setFilterStatus('ALL');
-                        setHistoryFromDate('');
-                        setHistoryToDate('');
-                      }}
+                      className="h-8 flex-1 border-rose-200 text-xs text-rose-700 hover:bg-rose-50"
                     >
-                      <RotateCcw className="size-3 mr-1" />
-                      Đặt lại
+                      <XCircle className="mr-1 size-3.5" />
+                      Thu hồi đơn
                     </Button>
-                  )}
-              </div>
-              <div className="text-xs text-slate-500 font-medium text-right shrink-0">
-                Tìm thấy <strong>{filteredHistory.length}</strong> /{' '}
-                {requestsList.length} hồ sơ
-              </div>
-            </div>
-
-            {/* Zone 2: Body - Data Grid */}
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-xs">
-                <thead className="bg-slate-50/70 border-b border-slate-200 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                  <tr>
-                    <th className="p-3 pl-4">Mã đơn</th>
-                    <th className="p-3">Loại yêu cầu</th>
-                    <th className="p-3">Ngày tạo</th>
-                    <th className="p-3">Thời gian hiệu lực</th>
-                    <th className="p-3">Thời lượng / Giá trị</th>
-                    <th className="p-3">Lý do</th>
-                    <th className="p-3">Mô tả</th>
-                    <th className="p-3">Người duyệt</th>
-                    <th className="p-3">Trạng thái Quy trình</th>
-                    <th className="p-3">Kết quả Hậu xử lý</th>
-                    <th className="p-3 pr-4 text-center">Thao tác</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 font-medium text-slate-800">
-                  {loading ? (
-                    <tr>
-                      <td
-                        colSpan={11}
-                        className="p-8 text-center text-slate-400"
-                      >
-                        <div className="flex items-center justify-center gap-2">
-                          <Loader2 className="size-4 animate-spin text-[#021E73]" />
-                          <span>Đang tải lịch sử đơn từ...</span>
-                        </div>
-                      </td>
-                    </tr>
-                  ) : filteredHistory.length === 0 ? (
-                    <tr>
-                      <td
-                        colSpan={11}
-                        className="p-8 text-center text-slate-400"
-                      >
-                        Không tìm thấy hồ sơ đơn từ nào phù hợp với bộ lọc.
-                      </td>
-                    </tr>
-                  ) : (
-                    historySlice.items.map((req) => (
-                      <tr
-                        key={req.id}
-                        className="hover:bg-slate-50/70 transition-colors"
-                      >
-                        <td className="p-3 pl-4 font-mono font-bold text-[#021E73]">
-                          {req.code}
-                        </td>
-                        <td className="p-3 font-bold text-slate-900">
-                          {req.typeName}
-                        </td>
-                        <td className="p-3 text-slate-600 font-mono text-[11px]">
-                          {req.createdAt}
-                        </td>
-                        <td className="p-3 text-slate-600">
-                          {req.effectiveDate}
-                        </td>
-                        <td className="p-3 font-mono font-semibold">
-                          {req.duration}
-                        </td>
-                        <td
-                          className="p-3 text-slate-700 text-[11px] max-w-[180px]"
-                          title={req.reason}
-                        >
-                          <span className="block truncate">{req.reason}</span>
-                          {isUnpaidOt(req) && <UnpaidOtBadge />}
-                        </td>
-                        <td
-                          className="p-3 text-slate-500 text-[11px] max-w-[220px] truncate"
-                          title={req.description}
-                        >
-                          {req.description}
-                        </td>
-                        <td className="p-3 text-slate-700 text-[11px]">
-                          {approverText(req)}
-                        </td>
-                        <td className="p-3">
-                          <Badge
-                            className={
-                              req.workflowStatus === 'APPROVED'
-                                ? 'bg-emerald-100 text-emerald-800 border border-emerald-200 text-[10px]'
-                                : req.workflowStatus === 'PENDING_PEER'
-                                  ? 'bg-indigo-100 text-indigo-800 border border-indigo-200 text-[10px]'
-                                  : req.workflowStatus === 'PENDING_APPROVAL'
-                                    ? 'bg-amber-100 text-amber-800 border border-amber-200 text-[10px]'
-                                    : 'bg-rose-100 text-rose-700 border border-rose-200 text-[10px]'
-                            }
-                          >
-                            {req.requestStatus === 'CANCELLED'
-                              ? 'Đã rút / hủy'
-                              : req.workflowStatus === 'APPROVED'
-                                ? 'Đã duyệt'
-                                : req.workflowStatus === 'PENDING_PEER'
-                                  ? 'Chờ đồng nghiệp'
-                                  : req.workflowStatus === 'REJECTED'
-                                    ? 'Đã từ chối'
-                                    : 'Chờ duyệt'}
-                          </Badge>
-                        </td>
-                        <td className="p-3">
-                          {req.requestStatus === 'APPLIED' ? (
-                            <Badge className="bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px]">
-                              Đã cập nhật công
-                            </Badge>
-                          ) : req.requestStatus === 'DISBURSED' ? (
-                            <Badge className="bg-blue-50 text-blue-700 border border-blue-200 text-[10px]">
-                              Đã giải ngân
-                            </Badge>
-                          ) : (
-                            <span className="text-slate-400 text-[11px]">
-                              {['CANCELLED', 'REJECTED'].includes(
-                                req.requestStatus,
-                              )
-                                ? 'Không áp dụng'
-                                : 'Chưa áp dụng'}
-                            </span>
-                          )}
-                        </td>
-                        <td className="p-3 pr-4 text-center">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="text-xs h-7 text-blue-700 hover:bg-blue-50"
-                            onClick={() => handleOpenDetailDrawer(req)}
-                          >
-                            Chi tiết
-                          </Button>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Zone 3: Footer - Pagination Standard Info */}
-            <div className="p-3.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between text-xs text-slate-500">
-              <div>
-                Hiển thị{' '}
-                <strong>
-                  {historySlice.from}-{historySlice.to}
-                </strong>{' '}
-                / <strong>{historySlice.total}</strong> đơn từ
-              </div>
-              <div className="flex items-center gap-2">
+                  </Popconfirm>
+                )}
                 <Button
                   variant="outline"
                   size="sm"
-                  className="h-7 text-xs"
-                  disabled={historySlice.page <= 1}
-                  onClick={() => setHistoryPage(historySlice.page - 1)}
+                  className="h-8 flex-1 text-xs"
+                  onClick={() => handleOpenDetailDrawer(detailRow)}
                 >
-                  Trước
+                  Xem đầy đủ chi tiết
                 </Button>
-                <span className="font-semibold text-slate-700">
-                  {historySlice.page} / {historySlice.pageCount}
-                </span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-7 text-xs"
-                  disabled={historySlice.page >= historySlice.pageCount}
-                  onClick={() => setHistoryPage(historySlice.page + 1)}
-                >
-                  Sau
-                </Button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+              </>
+            ) : null
+          }
+        />
+      </div>
 
       {/* POPUP MODAL: KHỞI TẠO ĐƠN THEO TỪNG LOẠI NGHIỆP VỤ */}
       <Dialog open={isCreateModalOpen} onOpenChange={setIsCreateModalOpen}>
-        <DialogContent className="max-w-2xl p-0 overflow-hidden bg-white">
+        <DialogContent className="max-w-3xl p-0 overflow-hidden bg-white">
           <div className="p-5 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
             <div>
               <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
@@ -3874,43 +3751,22 @@ export default function RequestsPage() {
                 onDescriptionChange={setDescription}
                 employeeId={profile.id}
                 disabled={isSubmitting}
+                descriptionMandatory={descriptionMandatoryFor(selectedCatalogId)}
+                descriptionLabel={
+                  selectedCatalogId === 'ot'
+                    ? 'Mô tả nội dung công việc làm thêm'
+                    : selectedCatalogId === 'business_trip'
+                      ? 'Nội dung công việc công tác'
+                      : undefined
+                }
+                descriptionPlaceholder={
+                  selectedCatalogId === 'ot'
+                    ? 'Nhập mô tả chi tiết công việc và lý do làm thêm (bắt buộc)...'
+                    : selectedCatalogId === 'business_trip'
+                      ? 'Nhập chi tiết nhiệm vụ và nội dung công việc thực hiện trong chuyến công tác (bắt buộc)...'
+                      : undefined
+                }
               />
-            )}
-
-            {/* THÔNG TIN HỖ TRỢ / ĐIỀU KIỆN (Mục 3 Khối 3 trong PLAN) */}
-            {selectedCatalogId === 'leave' && (
-              <div className="p-3 bg-blue-50/60 rounded-lg border border-blue-200 flex items-center justify-between">
-                <div>
-                  <span className="text-slate-600 block text-[11px]">
-                    Quỹ khả dụng của loại nghỉ đã chọn:
-                  </span>
-                  <strong className="text-sm text-[#021E73] font-mono">
-                    {leaveBalance.remaining} ngày
-                  </strong>
-                  {leaveBalance.entitlement !== '----' && (
-                    <span className="text-slate-500 block text-[11px]">
-                      Quỹ dự kiến năm {leaveBalance.entitlement} ngày ·{' '}
-                      {leaveBalance.advanceAllowed
-                        ? 'được ứng trước đến hết năm'
-                        : 'chỉ dùng phần đã tích luỹ đến tháng này'}
-                    </span>
-                  )}
-                </div>
-                <div className="text-right">
-                  <span className="text-slate-500 block text-[11px]">
-                    Sau khi xin ({leaveDuration} ngày):
-                  </span>
-                  <strong className="text-sm text-emerald-700 font-mono">
-                    {leaveBalance.remaining !== '----'
-                      ? (
-                          parseFloat(leaveBalance.remaining) -
-                          parseFloat(leaveDuration)
-                        ).toFixed(1)
-                      : '----'}{' '}
-                    ngày
-                  </strong>
-                </div>
-              </div>
             )}
 
             {selectedCatalogId === 'advance' && (
@@ -3955,22 +3811,53 @@ export default function RequestsPage() {
                   )}
                   onPreview={handleTimePreview}
                 />
+                <ExtraTimeRanges
+                  kind="leave"
+                  employeeId={profile.id}
+                  leaveTypeId={selectedLeaveTypeId || undefined}
+                  main={{ fromAt: leaveFromAt, toAt: leaveToAt }}
+                  ranges={extraRanges}
+                  onChange={setExtraRanges}
+                  disabled={isSubmitting}
+                />
 
-                {/* Kết quả tính toán tự động số ngày nghỉ & số dư dự kiến */}
-                <div className="space-y-2">
-                  <div className="grid grid-cols-2 gap-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
-                    <div className="space-y-0.5">
-                      <span className="text-[11px] text-slate-500 font-medium block">
-                        Số ngày nghỉ tính toán:
-                      </span>
-                      <div className="flex items-baseline gap-1.5 flex-wrap">
-                        <span className="text-sm font-bold text-[#021E73] font-mono">
-                          {leaveDuration} ngày
+                {/* Thông tin ngày nghỉ: số ngày tính toán; quỹ phép chỉ có với lý do trừ phép năm */}
+                <div
+                  data-testid="leave-info"
+                  className="space-y-2 rounded-lg border border-blue-200 bg-blue-50/60 p-3"
+                >
+                  <div
+                    className={`grid gap-3 ${showLeaveFund ? 'grid-cols-2 md:grid-cols-4' : 'grid-cols-1'}`}
+                  >
+                    {showLeaveFund && (
+                      <div data-testid="leave-fund" className="space-y-0.5">
+                        <span className="block text-[11px] text-slate-600">
+                          Quỹ phép năm khả dụng
                         </span>
+                        <span className="font-mono text-sm font-bold text-[#021E73]">
+                          {leaveBalance.remaining} ngày
+                        </span>
+                      </div>
+                    )}
+                    <div className="space-y-0.5">
+                      <span className="block text-[11px] text-slate-600">
+                        Số ngày nghỉ tính toán
+                      </span>
+                      <span className="flex flex-wrap items-baseline gap-1.5">
+                        <span className="font-mono text-sm font-bold text-[#021E73]">
+                          {extraRanges.length > 0 ? totalLeaveDays : leaveDuration} ngày
+                        </span>
+                        {extraRanges.length > 0 && (
+                          <span className="text-[11px] text-slate-500">
+                            ({[leaveDuration, ...extraRanges.map((r) => r.preview?.totalDays ?? 0)]
+                              .map((d, i) => `Khoảng ${i + 1}: ${d}`)
+                              .join(' • ')})
+                          </span>
+                        )}
                         {currentLeavePolicy.stepRule === 'PERCENT_SHIFT' && (
-                          <span className="text-[11px] text-emerald-700 font-medium font-mono">
-                            ({(parseFloat(leaveDuration) * 100).toFixed(1)}% ca
-                            • {(parseFloat(leaveDuration) * 8).toFixed(1)}h)
+                          <span className="font-mono text-[11px] font-medium text-emerald-700">
+                            ({(parseFloat(leaveDuration) * 100).toFixed(1)}% ca •{' '}
+                            {(parseFloat(leaveDuration) * 8).toFixed(1)}h)
                           </span>
                         )}
                         {currentLeavePolicy.stepRule === 'HALF_DAY_STEP' && (
@@ -3984,180 +3871,206 @@ export default function RequestsPage() {
                                   : '(Không tròn 0.5 ngày)'}
                           </span>
                         )}
-                      </div>
+                      </span>
                     </div>
-
-                    <div className="space-y-0.5 text-right">
-                      {leaveDisplayGroup(currentLeavePolicy) === 'DEDUCT' ? (
-                        <>
-                          <span className="text-[11px] text-slate-500 font-medium block">
-                            Phép dư dự kiến:
+                    {showLeaveFund && (
+                      <>
+                        <div className="space-y-0.5">
+                          <span className="block text-[11px] text-slate-600">
+                            Sau khi xin
+                          </span>
+                          <span className="font-mono text-sm font-bold text-emerald-700">
+                            {leaveBalance.remaining !== '----'
+                              ? (
+                                  parseFloat(leaveBalance.remaining) -
+                                  totalLeaveDays
+                                ).toFixed(1)
+                              : '----'}{' '}
+                            ngày
+                          </span>
+                        </div>
+                        <div className="space-y-0.5">
+                          <span className="block text-[11px] text-slate-600">
+                            Phép dư dự kiến
                           </span>
                           {leaveDisplay ? (
-                            <>
-                              <span
-                                className={`text-sm font-bold font-mono ${leaveDisplay.status === 'OK' ? 'text-emerald-700' : leaveDisplay.status === 'ADVANCE' ? 'text-amber-700' : 'text-rose-600'}`}
-                              >
-                                {leaveDisplay.after.toFixed(2)} ngày
-                              </span>
-                              <span className="text-[10px] text-slate-500 block leading-tight">
-                                Hiện còn {leaveDisplay.available.toFixed(2)}
-                                {leaveDisplay.seniority > 0
-                                  ? ` (gồm ${leaveDisplay.seniority} ngày thâm niên)`
-                                  : ''}
-                                {leaveDisplay.headroom > 0
-                                  ? ` • Có thể ứng ${leaveDisplay.headroom.toFixed(2)} • Có thể nghỉ tối đa ${leaveDisplay.maxUsable.toFixed(2)}`
-                                  : ''}
-                              </span>
-                              {leaveDisplay.status === 'ADVANCE' && (
-                                <span className="text-[10px] text-amber-700 font-semibold block">
-                                  Ứng {Math.abs(leaveDisplay.after).toFixed(2)} ngày phép
-                                </span>
-                              )}
-                              {leaveDisplay.status === 'INSUFFICIENT' && (
-                                <span className="text-[10px] text-rose-600 font-semibold block">
-                                  Vượt hạn mức được nghỉ
-                                </span>
-                              )}
-                            </>
+                            <span
+                              className={`font-mono text-sm font-bold ${leaveDisplay.status === 'OK' ? 'text-emerald-700' : leaveDisplay.status === 'ADVANCE' ? 'text-amber-700' : 'text-rose-600'}`}
+                            >
+                              {leaveDisplay.after.toFixed(2)} ngày
+                            </span>
                           ) : (
-                            <span className="text-sm font-bold font-mono text-slate-500">
+                            <span className="font-mono text-sm font-bold text-slate-500">
                               ----
                             </span>
                           )}
-                        </>
-                      ) : (
-                        <>
-                          <span className="text-[11px] text-slate-500 font-medium block">
-                            {currentLeavePolicy.category === 'COMPENSATORY'
-                              ? 'Quỹ nghỉ bù còn lại:'
-                              : 'Quỹ phép năm:'}
-                          </span>
-                          <span className="text-xs font-semibold text-slate-600 block">
-                            Không trừ phép năm
-                            {currentLeavePolicy.isPaid
-                              ? ' • Có tính lương'
-                              : ' • Không tính lương'}
-                          </span>
-                          {leaveDisplay &&
-                            currentLeavePolicy.category === 'COMPENSATORY' && (
-                              <span className="text-[10px] text-slate-500 block leading-tight">
-                                Còn {leaveDisplay.available.toFixed(2)} • Sau khi nghỉ{' '}
-                                {leaveDisplay.after.toFixed(2)} ngày
-                              </span>
-                            )}
-                        </>
-                      )}
-                    </div>
-                  </div>
-
-                  {previewBreakdown && previewBreakdown.breakdown.length > 1 && (
-                    <div className="rounded-lg border border-slate-200 bg-white p-2.5 text-[11px] text-slate-600 space-y-1">
-                      <strong className="text-slate-700 font-semibold block">
-                        Chi tiết từng ngày
-                      </strong>
-                      {previewBreakdown.breakdown.map((item) => (
-                        <div
-                          key={item.date}
-                          className="flex items-center justify-between gap-2"
-                        >
-                          <span className="font-mono">
-                            {new Date(`${item.date}T00:00:00`).toLocaleDateString('vi-VN', { weekday: 'short', day: '2-digit', month: '2-digit' })}
-                          </span>
-                          <span className="text-slate-500 flex-1 text-right">
-                            {item.note}
-                          </span>
-                          <span className="font-mono font-semibold w-12 text-right">
-                            {item.value}
-                          </span>
                         </div>
-                      ))}
-                      {previewBreakdown.missingShift && (
-                        <p className="text-amber-700">
-                          Có ngày chưa phân ca; cần HR phân ca trước khi gửi đơn.
-                        </p>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Cảnh báo lỗi nếu không thoả mãn điều kiện chính sách */}
-                  {!leaveValidation.isValid && (
-                    <div className="p-3 rounded-lg border border-rose-300 bg-rose-50 text-rose-800 text-xs flex items-start gap-2">
-                      <AlertCircle className="size-4 text-rose-600 shrink-0 mt-0.5" />
-                      <div className="space-y-0.5">
-                        <strong className="font-semibold block text-rose-900">
-                          Thời gian nghỉ chưa thỏa mãn quy định
-                        </strong>
-                        <p className="text-[11px] leading-relaxed">
-                          {leaveValidation.errorMessage}
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Chế độ Ứng phép & Âm phép theo HRM_PLAN_1 */}
-                <div className="p-3 bg-amber-50/70 rounded-lg border border-amber-200 space-y-1.5">
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      id="negativeLeaveCheck"
-                      checked={isNegativeLeave}
-                      onChange={(e) => setIsNegativeLeave(e.target.checked)}
-                      className="rounded border-amber-300 text-amber-700 focus:ring-amber-500 size-4"
-                    />
-                    <label
-                      htmlFor="negativeLeaveCheck"
-                      className="text-xs font-bold text-amber-900 cursor-pointer"
-                    >
-                      Đơn có dùng phép ứng trước / âm phép
-                    </label>
-                  </div>
-                  <p className="text-[11px] text-amber-700 leading-relaxed pl-6">
-                    Số ngày được ứng theo chính sách của loại nghỉ và đã tính
-                    trong quỹ khả dụng ở trên. Khi nghỉ việc, phần đã dùng vượt
-                    quỹ thực hưởng sẽ bị thu hồi và trừ vào lương.
-                  </p>
-                </div>
-
-                {/* Gán liên quan dự án Workspace (không bắt buộc) */}
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between">
-                    <label className="font-semibold text-slate-800 block">
-                      Dự án liên quan (Workspace)
-                    </label>
-                    {projectId && (
-                      <span className="text-[10px] text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded font-mono font-medium">
-                        Mã:{' '}
-                        {workspaceProjects.find((p) => p.id === projectId)?.code ||
-                          projectId}
-                      </span>
+                      </>
                     )}
                   </div>
-                  <SearchableSelect
-                    options={projectOptions}
-                    value={projectId}
-                    onChange={(val) => {
-                      setProjectId(val);
-                      const prj = workspaceProjects.find((p) => p.id === val);
-                      setProjectName(prj ? prj.name : '');
-                    }}
-                    placeholder="-- Chọn dự án liên quan nếu có (không bắt buộc) --"
-                    clearable={true}
-                  />
+                  {showLeaveFund && leaveDisplay && (
+                    <p className="text-[11px] leading-relaxed text-slate-500">
+                      Hiện còn {leaveDisplay.available.toFixed(2)} ngày
+                      {leaveDisplay.seniority > 0
+                        ? ` (gồm ${leaveDisplay.seniority} ngày thâm niên)`
+                        : ''}
+                      {leaveBalance.entitlement !== '----'
+                        ? ` • Quỹ dự kiến năm ${leaveBalance.entitlement} ngày, ${
+                            leaveBalance.advanceAllowed
+                              ? 'được ứng trước đến hết năm'
+                              : 'chỉ dùng phần đã tích luỹ đến tháng này'
+                          }`
+                        : ''}
+                      {leaveDisplay.headroom > 0
+                        ? ` • Có thể nghỉ tối đa ${leaveDisplay.maxUsable.toFixed(2)} ngày`
+                        : ''}
+                    </p>
+                  )}
+                  {showLeaveFund && leaveDisplay?.status === 'ADVANCE' && (
+                    <p className="text-[11px] font-semibold text-amber-700">
+                      Ứng {Math.abs(leaveDisplay.after).toFixed(2)} ngày phép theo hạn mức của quỹ phép năm.
+                    </p>
+                  )}
+                  {showLeaveFund && leaveDisplay?.status === 'INSUFFICIENT' && (
+                    <p className="text-[11px] font-semibold text-rose-600">
+                      Vượt hạn mức được nghỉ.
+                    </p>
+                  )}
                 </div>
 
-                <label className="block space-y-1 font-semibold">
-                  Tệp đính kèm
-                  <Input
-                    type="file"
-                    accept=".pdf,.png,.jpg,.jpeg"
-                    onChange={(e) => {
-                      setLeaveFile(e.target.files?.[0] || null);
-                      setLeaveAttachmentId('');
-                    }}
-                  />
-                </label>
+                {previewBreakdown && previewBreakdown.breakdown.length > 1 && (
+                  <div className="space-y-1 rounded-lg border border-slate-200 bg-white p-2.5 text-[11px] text-slate-600">
+                    <strong className="block font-semibold text-slate-700">
+                      Chi tiết từng ngày
+                    </strong>
+                    {previewBreakdown.breakdown.map((item) => (
+                      <div
+                        key={item.date}
+                        className="flex items-center justify-between gap-2"
+                      >
+                        <span className="font-mono">
+                          {new Date(`${item.date}T00:00:00`).toLocaleDateString('vi-VN', { weekday: 'short', day: '2-digit', month: '2-digit' })}
+                        </span>
+                        <span className="flex-1 text-right text-slate-500">
+                          {item.note}
+                        </span>
+                        <span className="w-12 text-right font-mono font-semibold">
+                          {item.value}
+                        </span>
+                      </div>
+                    ))}
+                    {previewBreakdown.missingShift && (
+                      <p className="text-amber-700">
+                        Có ngày chưa phân ca; cần HR phân ca trước khi gửi đơn.
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {/* Cảnh báo lỗi nếu không thoả mãn điều kiện chính sách */}
+                {leaveFundError && (
+                  <div
+                    role="alert"
+                    data-testid="leave-fund-error"
+                    className="flex items-start gap-2 rounded-lg border border-rose-300 bg-rose-50 p-3 text-xs text-rose-800"
+                  >
+                    <AlertCircle className="mt-0.5 size-4 shrink-0 text-rose-600" />
+                    <div className="space-y-0.5">
+                      <strong className="block font-semibold">
+                        Không đủ quỹ phép năm
+                      </strong>
+                      <p className="text-[11px] leading-relaxed">{leaveFundError}</p>
+                    </div>
+                  </div>
+                )}
+                {!leaveDurationValidation.isValid && (
+                  <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
+                    <AlertCircle className="mt-0.5 size-4 shrink-0 text-amber-600" />
+                    <div className="space-y-0.5">
+                      <strong className="block font-semibold">
+                        Thời gian nghỉ chưa thỏa mãn quy định
+                      </strong>
+                      <p className="text-[11px] leading-relaxed">
+                        {leaveDurationValidation.errorMessage}
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Dự án liên quan (không bắt buộc) và tệp đính kèm (không bắt buộc) */}
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between">
+                      <label className="block font-semibold text-slate-800">
+                        Dự án liên quan (Workspace)
+                      </label>
+                      {projectId && (
+                        <span className="rounded bg-blue-50 px-1.5 py-0.5 font-mono text-[10px] font-medium text-blue-700">
+                          Mã:{' '}
+                          {workspaceProjects.find((p) => p.id === projectId)?.code ||
+                            projectId}
+                        </span>
+                      )}
+                    </div>
+                    <SearchableSelect
+                      options={projectOptions}
+                      value={projectId}
+                      onChange={(val) => {
+                        setProjectId(val);
+                        const prj = workspaceProjects.find((p) => p.id === val);
+                        setProjectName(prj ? prj.name : '');
+                      }}
+                      placeholder="Chọn dự án nếu có (không bắt buộc)"
+                      clearable={true}
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <span className="block font-semibold text-slate-800">
+                      Tệp đính kèm (không bắt buộc)
+                    </span>
+                    <label className="flex min-h-[38px] cursor-pointer flex-col items-center justify-center gap-0.5 rounded-lg border border-dashed border-slate-300 bg-slate-50/60 px-3 py-2 text-center text-[11px] text-slate-500 hover:border-[#ffc90a] hover:bg-amber-50/40">
+                      <span>
+                        <Upload className="mr-1 inline size-3.5 align-text-bottom" />
+                        Kéo tệp vào đây hoặc{' '}
+                        <span className="font-semibold text-blue-700">chọn tệp</span>
+                      </span>
+                      <span className="text-[10px] text-slate-400">
+                        Hỗ trợ: PDF, DOC, DOCX, JPG, PNG (tối đa 10MB)
+                      </span>
+                      <input
+                        type="file"
+                        aria-label="Tệp đính kèm"
+                        accept=".pdf,.doc,.docx,.png,.jpg,.jpeg"
+                        className="sr-only"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0] || null;
+                          if (file && file.size > MAX_ATTRIBUTE_FILE_BYTES) {
+                            toast.error('Tệp vượt quá dung lượng tối đa 10 MB');
+                            e.target.value = '';
+                            return;
+                          }
+                          setLeaveFile(file);
+                          setLeaveAttachmentId('');
+                        }}
+                      />
+                    </label>
+                    {leaveFile && !leaveAttachmentId && (
+                      <div className="flex items-center justify-between gap-2 text-[11px] text-slate-600">
+                        <span className="truncate" title={leaveFile.name}>
+                          {leaveFile.name}
+                        </span>
+                        <button
+                          type="button"
+                          className="shrink-0 font-semibold text-rose-600 hover:underline"
+                          onClick={() => setLeaveFile(null)}
+                        >
+                          Bỏ tệp
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
                 {leaveAttachmentId && (
                   <div className="flex items-center gap-2 text-xs">
                     <span>Đã lưu chứng từ vào kho.</span>
@@ -4308,10 +4221,19 @@ export default function RequestsPage() {
                   employeeId={profile.id}
                   fromAt={otFromAt}
                   toAt={otToAt}
+                  kind="ot"
                   fromLabel="Từ ngày giờ làm thêm"
                   toLabel="Đến ngày giờ làm thêm"
                   onChange={applyTimeRange(setStartTime, setEndTime)}
                   onPreview={handleTimePreview}
+                />
+                <ExtraTimeRanges
+                  kind="ot"
+                  employeeId={profile.id}
+                  main={{ fromAt: otFromAt, toAt: otToAt }}
+                  ranges={extraRanges}
+                  onChange={setExtraRanges}
+                  disabled={isSubmitting}
                 />
 
                 {/* Hàng 4: Lý do (Tăng ca, Thí nghiệm) + Dự án liên quan (Workspace) */}
@@ -4433,8 +4355,17 @@ export default function RequestsPage() {
                   employeeId={profile.id}
                   fromAt={tripFromAt}
                   toAt={tripToAt}
+                  kind="trip"
                   onChange={applyTimeRange(setTripStartTime, setTripEndTime)}
                   onPreview={handleTimePreview}
+                />
+                <ExtraTimeRanges
+                  kind="trip"
+                  employeeId={profile.id}
+                  main={{ fromAt: tripFromAt, toAt: tripToAt }}
+                  ranges={extraRanges}
+                  onChange={setExtraRanges}
+                  disabled={isSubmitting}
                 />
 
                 {/* Hàng 2: Hình thức công tác & Phòng ban */}
@@ -4795,10 +4726,45 @@ export default function RequestsPage() {
                     placeholder="dd/mm/yyyy"
                   />
                 </div>
-                <HrmCorrectionSessions
-                  rows={correctionSessions}
-                  onChange={setCorrectionSessions}
-                />
+                <div className="space-y-1">
+                  <span className="block font-semibold text-slate-800">Cách khai báo</span>
+                  <div role="tablist" aria-label="Cách khai báo giải trình công" className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5 text-xs font-semibold">
+                    {(
+                      [
+                        ['punch', 'Bổ sung giờ vào / giờ ra'],
+                        ['session', 'Khai báo theo phiên vào - ra (thay cả ngày)'],
+                      ] as const
+                    ).map(([id, label]) => (
+                      <button
+                        key={id}
+                        type="button"
+                        role="tab"
+                        aria-selected={correctionMode === id}
+                        onClick={() => setCorrectionMode(id)}
+                        className={`rounded-md px-3 py-1.5 transition ${
+                          correctionMode === id
+                            ? 'bg-white text-slate-900 shadow-xs'
+                            : 'text-slate-500 hover:text-slate-800'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {correctionMode === 'punch' ? (
+                  <HrmCorrectionPunches
+                    rows={correctionPunches}
+                    onChange={setCorrectionPunches}
+                    date={fromDate}
+                    disabled={isSubmitting}
+                  />
+                ) : (
+                  <HrmCorrectionSessions
+                    rows={correctionSessions}
+                    onChange={setCorrectionSessions}
+                  />
+                )}
               </>
             )}
 
@@ -5248,26 +5214,11 @@ export default function RequestsPage() {
                           variant="outline"
                           size="sm"
                           className="ml-2"
-                          onClick={async () => {
-                            try {
-                              const file = await hrmFetch<{
-                                data: { url: string };
-                              }>(
-                                `/attachments/${selectedRequest.rawDetails.attachmentFileId}/download`,
-                              );
-                              window.open(
-                                file.data.url,
-                                '_blank',
-                                'noopener,noreferrer',
-                              );
-                            } catch (error) {
-                              toast.error(
-                                error instanceof Error
-                                  ? error.message
-                                  : 'Không tải được chứng từ',
-                              );
-                            }
-                          }}
+                          onClick={() =>
+                            void handleOpenAttachment(
+                              String(selectedRequest.rawDetails.attachmentFileId),
+                            )
+                          }
                         >
                           Xem chứng từ
                         </Button>
@@ -5611,78 +5562,7 @@ export default function RequestsPage() {
               fallbackStepName={selectedProcedure.currentStepName}
               fallbackAssigneeName={selectedProcedure.currentAssigneeName}
               emptyFallback={
-                <div className="bg-slate-50 rounded-lg p-3.5 border border-slate-200 space-y-3">
-                  <div className="flex items-center gap-3">
-                    <div className="size-6 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold text-xs shrink-0">
-                      <Check className="size-3.5" />
-                    </div>
-                    <div>
-                      <div className="font-semibold text-slate-800">
-                        Nhân viên khởi tạo yêu cầu
-                      </div>
-                      <div className="text-[11px] text-slate-400">
-                        {selectedRequest?.createdAt}
-                      </div>
-                    </div>
-                  </div>
-
-                  {selectedRequest?.kind === 'shift_change' && (
-                    <div className="flex items-center gap-3">
-                      <div
-                        className={`size-6 rounded-full flex items-center justify-center font-bold text-xs shrink-0 ${selectedRequest.workflowStatus !== 'PENDING_PEER'
-                          ? 'bg-emerald-100 text-emerald-700'
-                          : 'bg-amber-100 text-amber-700'
-                          }`}
-                      >
-                        {selectedRequest.workflowStatus !== 'PENDING_PEER'
-                          ? <Check className="size-3.5" />
-                          : '•'}
-                      </div>
-                      <div>
-                        <div className="font-semibold text-slate-800">
-                          Đồng nghiệp xác nhận đổi ca
-                        </div>
-                        <div className="text-[11px] text-slate-500">
-                          {selectedRequest.workflowStatus !== 'PENDING_PEER'
-                            ? 'Đã xác nhận chéo'
-                            : 'Đang chờ phản hồi'}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="flex items-center gap-3">
-                    <div
-                      className={`size-6 rounded-full flex items-center justify-center font-bold text-xs shrink-0 ${selectedRequest?.workflowStatus === 'APPROVED'
-                        ? 'bg-emerald-100 text-emerald-700'
-                        : selectedRequest?.workflowStatus === 'REJECTED'
-                          ? 'bg-rose-100 text-rose-700'
-                          : 'bg-amber-100 text-amber-700'
-                        }`}
-                    >
-                      {selectedRequest?.workflowStatus === 'APPROVED'
-                        ? <Check className="size-3.5" />
-                        : selectedRequest?.workflowStatus === 'REJECTED'
-                          ? <X className="size-3.5" />
-                          : '•'}
-                    </div>
-                    <div>
-                      <div className="font-semibold text-slate-800">
-                        Cấp thẩm quyền phê duyệt:{' '}
-                        <strong>{selectedRequest?.approver}</strong>
-                      </div>
-                      <div className="text-[11px] text-slate-500">
-                        {selectedRequest?.requestStatus === 'CANCELLED'
-                          ? 'Đã rút / hủy'
-                          : selectedRequest?.workflowStatus === 'APPROVED'
-                            ? 'Đã chấp thuận'
-                            : selectedRequest?.workflowStatus === 'REJECTED'
-                              ? 'Đã từ chối'
-                              : 'Đang chờ xét duyệt (SLA 24h)'}
-                      </div>
-                    </div>
-                  </div>
-                </div>
+                workflowFallback
               }
             />
 

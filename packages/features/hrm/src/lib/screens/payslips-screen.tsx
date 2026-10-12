@@ -1,10 +1,11 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { Receipt, Printer, Calendar, AlertTriangle, UserCheck } from 'lucide-react';
+import { Printer, Calendar, AlertTriangle, UserCheck } from 'lucide-react';
 import type { HrmPayslip } from '@enterprise-platform/contracts-hrm';
 import { hrmFetch } from '../hrm-api';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
+import { HubTabsSlot } from '../ui/hrm-tab-hub';
 
 type Snapshot = {
   period?: {
@@ -58,25 +59,22 @@ export default function PayslipsScreen() {
 
   return (
     <div className="space-y-6 max-w-[1600px] mx-auto">
-      {/* 1. Page Header Card */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white rounded-xl border border-slate-200 p-5 shadow-xs print:hidden">
-        <div className="flex items-center gap-3">
-          <div className="size-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
-            <Receipt className="size-5" />
-          </div>
-          <div>
-            <h1 className="text-xl font-bold text-slate-900 tracking-tight">
-              Phiếu lương Cá nhân
-            </h1>
-            <p className="text-xs text-slate-500 max-w-[85ch]">
-              Xem chi tiết cấu thành thu nhập, các khoản khấu trừ bảo hiểm, thuế TNCN và thực lĩnh theo từng kỳ đã phát hành.
-            </p>
-          </div>
+      {/* 1. Tiêu đề: tên trang, thanh tab Hồ sơ / Phiếu lương và nút in */}
+      <div className="flex flex-wrap items-start justify-between gap-3 print:hidden">
+        <div>
+          <h1 className="text-xl font-bold tracking-tight text-slate-900">
+            Phiếu lương của tôi
+          </h1>
+          <p className="mt-0.5 max-w-[85ch] text-xs text-slate-500">
+            Xem chi tiết cấu thành thu nhập, các khoản khấu trừ bảo hiểm, thuế TNCN và thực lĩnh theo từng kỳ đã phát hành.
+          </p>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex flex-wrap items-center gap-3">
+          <HubTabsSlot />
           <Button
             onClick={() => window.print()}
-            className="bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-1.5 shadow-xs text-xs"
+            size="sm"
+            className="h-9 gap-1.5 text-xs font-semibold"
           >
             <Printer className="size-3.5" />
             <span>In / Lưu PDF</span>

@@ -1,6 +1,6 @@
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Calculator, Download, Loader2, Lock, LockKeyhole, Unlock } from 'lucide-react';
+import { Calculator, Download, Loader2, Lock, LockKeyhole, Maximize2, Minimize2, Search, Unlock } from 'lucide-react';
 import type {
   HrmMonthCloseState,
   HrmTimesheetBoard,
@@ -18,7 +18,10 @@ import {
   DialogTitle,
 } from '../ui/dialog';
 import { Input } from '../ui/input';
-import { BoardMonthPicker, TimesheetBoard } from '../ui/timesheet-board';
+import { TimesheetBoard } from '../ui/timesheet-board';
+import { MonthStepper } from '../ui/month-stepper';
+import { PageTitle } from '../ui/page-title';
+import { BoardPagination } from '../ui/board-pagination';
 import {
   anomalyLabel,
   buildBoardCsv,
@@ -222,6 +225,10 @@ export default function TimesheetsScreen() {
   const [search, setSearch] = useState('');
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const searchRef = useRef<HTMLInputElement>(null);
+  const [fullscreen, setFullscreen] = useState(false);
   const [board, setBoard] = useState<HrmTimesheetBoard | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -253,7 +260,7 @@ export default function TimesheetsScreen() {
     const params = new URLSearchParams({
       month,
       page: String(page),
-      page_size: String(PAGE_SIZE),
+      page_size: String(pageSize),
     });
     if (query) params.set('q', query);
     hrmFetch<{ data: HrmTimesheetBoard }>(`/timesheet-board?${params}`)
@@ -271,11 +278,57 @@ export default function TimesheetsScreen() {
     return () => {
       live = false;
     };
-  }, [month, page, query, reloadKey]);
+  }, [month, page, pageSize, query, reloadKey]);
 
   const changeMonth = useCallback((value: string) => {
     setMonth(value);
     setPage(1);
+    setSelectedIds(new Set());
+  }, []);
+  const changePageSize = useCallback((size: number) => {
+    setPageSize(size);
+    setPage(1);
+  }, []);
+
+  // Toàn màn hình: phủ kín khung làm việc và (nếu trình duyệt cho phép) cả màn hình; Esc để thoát.
+  const toggleFullscreen = useCallback(() => {
+    setFullscreen((on) => {
+      const next = !on;
+      try {
+        if (next) void document.documentElement.requestFullscreen?.().catch(() => undefined);
+        else if (document.fullscreenElement) void document.exitFullscreen?.().catch(() => undefined);
+      } catch {
+        // Trình duyệt không hỗ trợ: vẫn dùng chế độ phủ kín bằng giao diện.
+      }
+      return next;
+    });
+  }, []);
+  useEffect(() => {
+    if (!fullscreen) return;
+    const onFsChange = () => {
+      if (!document.fullscreenElement) setFullscreen(false);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !document.querySelector('[role="dialog"]')) setFullscreen(false);
+    };
+    document.addEventListener('fullscreenchange', onFsChange);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('fullscreenchange', onFsChange);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [fullscreen]);
+
+  // Ctrl K đưa con trỏ vào ô tìm nhân viên.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k' && searchRef.current) {
+        event.preventDefault();
+        searchRef.current.focus();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
   }, []);
 
   const exportCsv = useCallback(async () => {
@@ -301,13 +354,14 @@ export default function TimesheetsScreen() {
           nextPage += 1;
         }
       }
-      downloadCsv(`bang-cong-${month}`, buildBoardCsv(board, all));
+      const chosen = selectedIds.size > 0 ? all.filter((e) => selectedIds.has(e.employeeId)) : all;
+      downloadCsv(`bang-cong-${month}`, buildBoardCsv(board, chosen));
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Không xuất được bảng công.');
     } finally {
       setExporting(false);
     }
-  }, [board, month, query]);
+  }, [board, month, query, selectedIds]);
 
   const calculate = useCallback(async () => {
     setCalculating(true);
@@ -335,95 +389,128 @@ export default function TimesheetsScreen() {
   const state = board?.month.state ?? 'OPEN';
   const canViewAll = board?.canViewAll ?? false;
   const stamp = board ? monthStateTimestamp(board.month) : '';
-  const totalPages = board
-    ? Math.max(1, Math.ceil(board.meta.total / (board.meta.pageSize || PAGE_SIZE)))
-    : 1;
 
   return (
-    <div className="flex h-[calc(100dvh-11rem)] min-h-[520px] flex-col gap-3">
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-xs">
-        <div className="flex flex-wrap items-center gap-3">
-          <h1 className="text-lg font-bold tracking-tight text-slate-900">
-            Bảng công
-          </h1>
-          <BoardMonthPicker month={month} onChange={changeMonth} />
-          {canViewAll && (
+    <div
+      data-testid="timesheets-root"
+      className={
+        fullscreen
+          ? 'fixed inset-0 z-[45] flex flex-col gap-2 overflow-hidden bg-slate-50 p-3'
+          : 'flex min-h-[calc(100dvh-11rem)] flex-col gap-3'
+      }
+    >
+      {!fullscreen && (
+        <PageTitle
+          withTabs
+          title="Bảng công"
+          description="Theo dõi và tổng hợp công, phép, tăng ca của nhân viên trong tháng."
+          badge={
+            board ? (
+              <Badge
+                data-testid="month-state"
+                variant="outline"
+                className={
+                  state === 'LOCKED'
+                    ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                    : state === 'REQUESTS_CLOSED'
+                      ? 'border-sky-200 bg-sky-50 text-sky-700'
+                      : 'border-amber-200 bg-amber-50 text-amber-700'
+                }
+              >
+                <span
+                  aria-hidden="true"
+                  className={`mr-1.5 inline-block size-1.5 rounded-full ${
+                    state === 'LOCKED' ? 'bg-emerald-500' : state === 'REQUESTS_CLOSED' ? 'bg-sky-500' : 'bg-amber-500'
+                  }`}
+                />
+                {monthStateLabel(state)}
+                {stamp ? ` - ${stamp}` : ''}
+              </Badge>
+            ) : null
+          }
+        />
+      )}
+
+      <div className="flex shrink-0 flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white p-3">
+        {fullscreen && <h1 className="mr-1 text-base font-bold text-slate-900">Bảng công</h1>}
+        <MonthStepper month={month} onChange={changeMonth} />
+        {canViewAll && (
+          <div className="relative min-w-[220px] flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
             <Input
+              ref={searchRef}
               aria-label="Tìm nhân viên trong bảng công"
-              className="w-64"
-              placeholder="Tìm theo mã hoặc tên nhân viên"
+              className="h-9 w-full pl-9 pr-16"
+              placeholder="Tìm theo mã hoặc tên nhân viên..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
-          )}
-          {board && (
-            <Badge
-              data-testid="month-state"
+            <kbd className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] font-semibold text-slate-400">
+              Ctrl K
+            </kbd>
+          </div>
+        )}
+        {canViewAll && (
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              permission="hrm.timesheet.calculate"
               variant="outline"
-              className={
-                state === 'LOCKED'
-                  ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                  : state === 'REQUESTS_CLOSED'
-                    ? 'border-sky-200 bg-sky-50 text-sky-700'
-                    : 'border-amber-200 bg-amber-50 text-amber-700'
-              }
+              disabled={state !== 'OPEN'}
+              onClick={() => setClosing('requests')}
             >
-              {monthStateLabel(state)}
-              {stamp ? ` - ${stamp}` : ''}
-            </Badge>
-          )}
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {canViewAll && (
-            <>
-              <Button
-                permission="hrm.timesheet.calculate"
-                variant="outline"
-                disabled={state !== 'OPEN'}
-                onClick={() => setClosing('requests')}
-              >
-                <Lock className="size-3.5" />
-                <span>Chốt đơn từ</span>
-              </Button>
-              <Button
-                permission="hrm.timesheet.calculate"
-                variant="outline"
-                disabled={state === 'LOCKED' || calculating}
-                onClick={() => void calculate()}
-              >
-                {calculating ? <Loader2 className="size-3.5 animate-spin" /> : <Calculator className="size-3.5" />}
-                <span>Tính công</span>
-              </Button>
-              <Button
-                permission="hrm.timesheet.calculate"
-                disabled={state === 'LOCKED'}
-                onClick={() => setClosing('lock')}
-              >
-                <LockKeyhole className="size-3.5" />
-                <span>Chốt công</span>
-              </Button>
-              <Button
-                permission="hrm.timesheet.reopen"
-                variant="outline"
-                disabled={state === 'OPEN'}
-                onClick={() => setClosing('reopen')}
-                className="text-amber-700"
-              >
-                <Unlock className="size-3.5" />
-                <span>Mở lại</span>
-              </Button>
-              <Button
-                permission="hrm.timesheet.export"
-                variant="outline"
-                disabled={!board?.employees.length || exporting}
-                onClick={() => void exportCsv()}
-              >
-                <Download className="size-3.5" />
-                <span>Xuất CSV</span>
-              </Button>
-            </>
-          )}
-        </div>
+              <Lock className="size-3.5" />
+              <span>Chốt đơn từ</span>
+            </Button>
+            <Button
+              permission="hrm.timesheet.calculate"
+              variant="outline"
+              disabled={state === 'LOCKED' || calculating}
+              onClick={() => void calculate()}
+            >
+              {calculating ? <Loader2 className="size-3.5 animate-spin" /> : <Calculator className="size-3.5" />}
+              <span>Tính công</span>
+            </Button>
+            <Button
+              permission="hrm.timesheet.calculate"
+              disabled={state === 'LOCKED'}
+              onClick={() => setClosing('lock')}
+            >
+              <LockKeyhole className="size-3.5" />
+              <span>Chốt công</span>
+            </Button>
+            <Button
+              permission="hrm.timesheet.reopen"
+              variant="outline"
+              disabled={state === 'OPEN'}
+              onClick={() => setClosing('reopen')}
+              className="text-amber-700"
+            >
+              <Unlock className="size-3.5" />
+              <span>Mở lại</span>
+            </Button>
+            <Button
+              permission="hrm.timesheet.export"
+              variant="outline"
+              disabled={!board?.employees.length || exporting}
+              title={selectedIds.size > 0 ? `Xuất ${selectedIds.size} nhân viên đã chọn` : 'Xuất cả danh sách đang lọc'}
+              onClick={() => void exportCsv()}
+            >
+              <Download className="size-3.5" />
+              <span>Xuất CSV{selectedIds.size > 0 ? ` (${selectedIds.size})` : ''}</span>
+            </Button>
+          </div>
+        )}
+        <Button
+          variant="outline"
+          aria-pressed={fullscreen}
+          aria-label={fullscreen ? 'Thoát toàn màn hình' : 'Xem toàn màn hình'}
+          title={fullscreen ? 'Thoát toàn màn hình (Esc)' : 'Xem bảng công toàn màn hình'}
+          onClick={toggleFullscreen}
+          className="ml-auto"
+        >
+          {fullscreen ? <Minimize2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
+          <span className="hidden md:inline">{fullscreen ? 'Thu nhỏ' : 'Toàn màn hình'}</span>
+        </Button>
       </div>
 
       {notice && (
@@ -459,34 +546,23 @@ export default function TimesheetsScreen() {
           focus={focus}
           onFocusHandled={() => setFocus(null)}
           onChanged={() => setReloadKey((k) => k + 1)}
+          selectedIds={selectedIds}
+          onSelectedChange={setSelectedIds}
+          fullscreen={fullscreen}
+          footer={
+            canViewAll ? (
+              <BoardPagination
+                page={board.meta.page}
+                pageSize={board.meta.pageSize || pageSize}
+                total={board.meta.total}
+                loading={loading}
+                onPage={setPage}
+                onPageSize={changePageSize}
+              />
+            ) : undefined
+          }
         />
       ) : null}
-
-      {board && canViewAll && board.meta.total > PAGE_SIZE && (
-        <div className="flex shrink-0 items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs text-slate-600">
-          <span>
-            Trang {board.meta.page}/{totalPages} - {board.meta.total} nhân viên
-          </span>
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={page <= 1 || loading}
-              onClick={() => setPage((p) => p - 1)}
-            >
-              Trang trước
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={page >= totalPages || loading}
-              onClick={() => setPage((p) => p + 1)}
-            >
-              Trang sau
-            </Button>
-          </div>
-        </div>
-      )}
 
       {closing && (
         <MonthCloseDialog

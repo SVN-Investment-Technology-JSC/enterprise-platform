@@ -22,7 +22,6 @@ export const HRM_HUBS = {
   ],
   '/employees': [
     { id: 'employees', label: 'Nhân viên', permissions: ['hrm.employee.read'] },
-    { id: 'dependents', label: 'Người phụ thuộc', permissions: ['hrm.dependent.read'] },
     { id: 'decisions', label: 'Quyết định nhân sự', permissions: ['hrm.appointment.read'] },
   ],
   '/leave': [
@@ -37,7 +36,7 @@ export const HRM_HUBS = {
     { id: 'advances', label: 'Ứng và thu hồi', permissions: ['hrm.advance.read'] },
   ],
   '/settings': [
-    { id: 'leave', label: 'Phép năm và lý do nghỉ', permissions: ['hrm.leave.manage'] },
+    { id: 'leave', label: 'Chính sách phép năm', permissions: ['hrm.leave.manage'] },
     { id: 'time', label: 'Công và thiết bị', permissions: ['hrm.time.configure', 'hrm.device.manage'] },
     { id: 'schedules', label: 'Phân ca', permissions: ['hrm.schedule.read'] },
     { id: 'shifts', label: 'Danh mục ca', permissions: ['hrm.shift.read', 'hrm.shift.manage'] },

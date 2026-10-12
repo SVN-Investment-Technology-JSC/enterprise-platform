@@ -17,7 +17,12 @@ import {
 import { localMinutesOfDay } from './hrm-leave-day-preview.js';
 import { requireDate } from './hrm-validation.js';
 import { assertNoRequestOverlap } from './hrm-request-overlap.js';
-import { deriveOvertimeTime, resolveRequestRange } from './hrm-request-time.js';
+import {
+  computeOvertimeTime,
+  deriveOvertimeTime,
+  loadRequestShiftDays,
+  resolveRequestRange,
+} from './hrm-request-time.js';
 
 /**
  * Phần của đơn OT mà việc kiểm tra và tính hệ số cần: nhân viên, ngày và giờ làm thêm.
@@ -57,6 +62,10 @@ export async function resolveOtSchedule(
       body.fromAt,
       body.toAt,
     );
+    // OT chỉ được nằm ngoài ca của nhân viên ở mọi ngày mà khoảng chạm vào; lỗi chỉ rõ đoạn trùng.
+    const shifts = await loadRequestShiftDays(db, tenant, body.employeeId, fromMs, toMs, timezone);
+    const timing = computeOvertimeTime(shifts, fromMs, toMs, timezone);
+    if (timing.errors.length) throw new BadRequestException(timing.errors[0]);
     return {
       schedule: { employeeId: body.employeeId, ...deriveOvertimeTime(fromMs, toMs, timezone) },
       fromAt: new Date(fromMs).toISOString(),
@@ -221,9 +230,27 @@ export async function validateOt(
               .slice(0, 10)
           : body.workDate,
     });
+  // Đơn công tác không cho OT chỉ chặn khi giờ OT chồng giờ công tác (xét theo giờ khi cả hai có giờ cụ thể);
+  // đơn công tác cũ không có giờ chiếm cả ngày. from_at/to_at đọc qua to_jsonb để chạy được trên tenant chưa có migration 0047.
   const blockedTrip = await db.query(
-    `SELECT id FROM hrm_schema.business_trip_requests WHERE tenant_id=$1 AND employee_id=$2 AND status IN ('PENDING','APPROVED') AND allow_ot=false AND daterange(from_date,to_date,'[]') && daterange($3::date,$3::date+CASE WHEN $4::boolean THEN 1 ELSE 0 END,'[]') LIMIT 1`,
-    [tenant, body.employeeId, body.workDate, end < start && end > 0],
+    `SELECT id FROM hrm_schema.business_trip_requests bt
+      WHERE tenant_id=$1 AND employee_id=$2 AND status IN ('PENDING','APPROVED') AND allow_ot=false
+        AND CASE
+          WHEN $5::timestamptz IS NOT NULL AND $6::timestamptz IS NOT NULL
+               AND to_jsonb(bt)->>'from_at' IS NOT NULL AND to_jsonb(bt)->>'to_at' IS NOT NULL
+          THEN tstzrange((to_jsonb(bt)->>'from_at')::timestamptz,(to_jsonb(bt)->>'to_at')::timestamptz,'[)')
+               && tstzrange($5::timestamptz,$6::timestamptz,'[)')
+          ELSE daterange(from_date,to_date,'[]') && daterange($3::date,$3::date+CASE WHEN $4::boolean THEN 1 ELSE 0 END,'[]')
+        END
+      LIMIT 1`,
+    [
+      tenant,
+      body.employeeId,
+      body.workDate,
+      end < start && end > 0,
+      window?.fromAt ?? null,
+      window?.toAt ?? null,
+    ],
   );
   if (blockedTrip.rowCount)
     throw new BadRequestException(

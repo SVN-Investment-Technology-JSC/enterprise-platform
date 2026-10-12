@@ -786,7 +786,7 @@ export class HrmLeaveController {
       }
       await lockEmployee(db, tenantId, body.employeeId);
       const type = await db.query(
-        `SELECT negative_limit FROM hrm_schema.leave_types WHERE tenant_id=$1 AND id=$2`,
+        `SELECT CASE WHEN is_annual THEN 0 ELSE negative_limit END AS negative_limit FROM hrm_schema.leave_types WHERE tenant_id=$1 AND id=$2`,
         [tenantId, body.leaveTypeId],
       );
       if (!type.rows[0])
@@ -868,7 +868,7 @@ export class HrmLeaveController {
       if (prior) return prior;
       const type = (
         await db.query(
-          'SELECT negative_limit FROM hrm_schema.leave_types WHERE tenant_id=$1 AND id=$2',
+          'SELECT CASE WHEN is_annual THEN 0 ELSE negative_limit END AS negative_limit FROM hrm_schema.leave_types WHERE tenant_id=$1 AND id=$2',
           [tenantId, tx.leave_type_id],
         )
       ).rows[0];
@@ -1526,7 +1526,7 @@ export class HrmLeaveController {
       paid: Boolean(row.paid),
       isAnnual: Boolean(row.is_annual),
       deductBalance: Boolean(row.deduct_balance),
-      negativeLimit: Number(row.negative_limit || 0),
+      negativeLimit: row.is_annual ? 0 : Number(row.negative_limit || 0),
       requiresAttachment: Boolean(row.requires_attachment),
       carryoverAllowed: Boolean(row.carryover_allowed),
       maxCarryoverDays: Number(row.max_carryover_days || 0),
@@ -1598,6 +1598,10 @@ export class HrmLeaveController {
           ? Number(row.remaining)
           : Number(row.available),
       advanceAllowed: Boolean(row.advance_allowed),
+      projectedSeniority: Number(row.projected_seniority || 0),
+      signDate: row.sign_date ? String(row.sign_date) : null,
+      eligibleFrom: row.eligible_from ? String(row.eligible_from) : null,
+      seniorityTierYears: Number(row.seniority_tier_years || 0),
       createdAt: String(row.created_at),
       updatedAt: new Date(row.updated_at as string).toISOString(),
     };

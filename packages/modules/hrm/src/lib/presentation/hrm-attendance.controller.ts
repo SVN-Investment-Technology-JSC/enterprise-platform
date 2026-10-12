@@ -33,6 +33,7 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { HrmMissingSchemaInterceptor } from '../infrastructure/hrm-missing-schema.interceptor.js';
+import { parseCorrectionPunches } from '../domain/correction-punches.js';
 import type { Request } from 'express';
 import { randomUUID } from 'node:crypto';
 import { hrmTransaction } from '../infrastructure/hrm-transaction.js';
@@ -389,27 +390,32 @@ export class HrmAttendanceController {
     );
     body = submission.body;
     requireDate(body.requestDate, 'requestDate');
-    const sessions =
-      body.sessions ||
-      (body.newCheckInAt && body.newCheckOutAt
-        ? [{ start: body.newCheckInAt, end: body.newCheckOutAt }]
-        : []);
-    if (!sessions.length || sessions.length > 12)
-      throw new BadRequestException('Cần khai báo từ 1 đến 12 cặp giờ vào/ra');
-    let previousEnd = 0;
-    for (const session of sessions) {
-      const start = Date.parse(session.start),
-        end = Date.parse(session.end);
-      if (
-        !Number.isFinite(start) ||
-        !Number.isFinite(end) ||
-        start < previousEnd ||
-        end <= start ||
-        end - start > 86400000 ||
-        end > Date.now()
-      )
-        throw new BadRequestException('Giờ vào/ra không hợp lệ hoặc chồng lấn');
-      previousEnd = end;
+    // Hai cách khai báo: theo từng mốc giờ vào / ra (bổ sung) hoặc theo cặp phiên vào–ra (thay cả ngày).
+    const punches = parseCorrectionPunches(body.punches);
+    const sessions = punches.length
+      ? punches.map((p) => p as unknown as { start: string; end: string })
+      : body.sessions ||
+        (body.newCheckInAt && body.newCheckOutAt
+          ? [{ start: body.newCheckInAt, end: body.newCheckOutAt }]
+          : []);
+    if (!punches.length) {
+      if (!sessions.length || sessions.length > 12)
+        throw new BadRequestException('Cần khai báo từ 1 đến 12 cặp giờ vào/ra');
+      let previousEnd = 0;
+      for (const session of sessions) {
+        const start = Date.parse(session.start),
+          end = Date.parse(session.end);
+        if (
+          !Number.isFinite(start) ||
+          !Number.isFinite(end) ||
+          start < previousEnd ||
+          end <= start ||
+          end - start > 86400000 ||
+          end > Date.now()
+        )
+          throw new BadRequestException('Giờ vào/ra không hợp lệ hoặc chồng lấn');
+        previousEnd = end;
+      }
     }
     const { row, link } = await submitHrmRequest(
       pool,
@@ -460,11 +466,12 @@ export class HrmAttendanceController {
         const end = shift
           ? Date.parse(shift.window.end) + shift.after * 60000
           : new Date(bounds.rows[0].end).getTime();
-        if (
-          sessions.some(
-            (s) => Date.parse(s.start) < start || Date.parse(s.end) > end,
-          )
-        )
+        const outsideWindow = punches.length
+          ? punches.some((p) => Date.parse(p.at) < start || Date.parse(p.at) > end)
+          : sessions.some(
+              (s) => Date.parse(s.start) < start || Date.parse(s.end) > end,
+            );
+        if (outsideWindow)
           throw new BadRequestException(
             'Giờ giải trình phải thuộc ngày công và cửa sổ ca đã chọn',
           );
@@ -472,6 +479,25 @@ export class HrmAttendanceController {
           `SELECT id,check_in_at,check_out_at FROM hrm_schema.attendances WHERE tenant_id=$1 AND employee_id=$2 AND work_date=$3`,
           [tenantId, employeeId, body.requestDate],
         );
+        if (punches.length) {
+          // Mốc mới ghép với mốc còn lại trong ngày (loại kia) phải cho giờ vào trước giờ ra.
+          const keptIn = punches.some((p) => p.kind === 'IN')
+            ? null
+            : att.rows[0]?.check_in_at ?? null;
+          const keptOut = punches.some((p) => p.kind === 'OUT')
+            ? null
+            : att.rows[0]?.check_out_at ?? null;
+          const inAt = punches.find((p) => p.kind === 'IN')?.at ?? keptIn;
+          const outAt = punches.find((p) => p.kind === 'OUT')?.at ?? keptOut;
+          if (
+            inAt &&
+            outAt &&
+            Date.parse(String(outAt)) <= Date.parse(String(inAt))
+          )
+            throw new BadRequestException(
+              'Giờ ra phải sau giờ vào (kể cả giờ vào / ra đã chấm trong ngày)',
+            );
+        }
         if (body.attendanceId && body.attendanceId !== att.rows[0]?.id)
           throw new BadRequestException(
             'Bản ghi công không khớp nhân viên/ngày',
@@ -486,9 +512,13 @@ export class HrmAttendanceController {
             body.requestDate,
             att.rows[0]?.check_in_at || null,
             att.rows[0]?.check_out_at || null,
-            sessions[0].start,
-            sessions[sessions.length - 1].end,
-            JSON.stringify(sessions),
+            punches.length
+              ? (punches.find((p) => p.kind === 'IN')?.at ?? null)
+              : sessions[0].start,
+            punches.length
+              ? (punches.find((p) => p.kind === 'OUT')?.at ?? null)
+              : sessions[sessions.length - 1].end,
+            JSON.stringify(punches.length ? punches : sessions),
             descriptionColumn(description),
             principal.userId,
             reason.id,
@@ -734,9 +764,20 @@ export class HrmAttendanceController {
       employeeId: row.employee_id as string,
       attendanceId: row.attendance_id as string | null,
       requestDate: isoDate(row.request_date),
-      correctedSessions: (row.corrected_sessions || []) as {
+      // Đơn theo từng mốc giờ lưu các phần tử {kind, at}; đơn theo phiên lưu {start, end}.
+      correctedSessions: (Array.isArray(row.corrected_sessions)
+        ? row.corrected_sessions
+        : []
+      ).filter((x: Record<string, unknown>) => 'start' in x) as {
         start: string;
         end: string;
+      }[],
+      correctedPunches: (Array.isArray(row.corrected_sessions)
+        ? row.corrected_sessions
+        : []
+      ).filter((x: Record<string, unknown>) => 'kind' in x) as {
+        kind: 'IN' | 'OUT';
+        at: string;
       }[],
       oldCheckInAt: row.old_check_in_at ? String(row.old_check_in_at) : null,
       oldCheckOutAt: row.old_check_out_at ? String(row.old_check_out_at) : null,

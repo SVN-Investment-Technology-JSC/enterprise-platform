@@ -90,10 +90,19 @@ describe('loại đơn và danh mục lý do', () => {
 });
 
 describe('reasonBlockMessage', () => {
-  const base = { kind: 'ot' as const, choices: [choice()], reasonId: 'r1', description: '' };
+  const base = { kind: 'ot' as const, choices: [choice()], reasonId: 'r1', description: 'Nội dung công việc' };
 
   it('hợp lệ khi đã chọn lý do và lý do không cần mô tả', () => {
     expect(reasonBlockMessage(base)).toBeNull();
+  });
+
+  it('đơn làm thêm giờ và công tác luôn bắt buộc Mô tả; nghỉ phép và giải trình thì không', () => {
+    expect(reasonBlockMessage({ ...base, description: '  ' })).toContain('Mô tả chi tiết lý do làm thêm là bắt buộc');
+    expect(reasonBlockMessage({ ...base, kind: 'business_trip', description: '' })).toContain(
+      'Nội dung công việc là bắt buộc',
+    );
+    expect(reasonBlockMessage({ ...base, kind: 'leave', description: '' })).toBeNull();
+    expect(reasonBlockMessage({ ...base, kind: 'correction', description: '' })).toBeNull();
   });
 
   it('danh mục rỗng: thông báo trỏ đúng nơi cấu hình theo loại đơn', () => {
@@ -119,7 +128,7 @@ describe('reasonBlockMessage', () => {
   });
 
   it('lý do cần mô tả: chặn khi mô tả trống hoặc chỉ có khoảng trắng', () => {
-    const needs = { ...base, choices: [choice({ requiresDescription: true, name: 'Khác' })] };
+    const needs = { ...base, kind: 'leave' as const, description: '', choices: [choice({ requiresDescription: true, name: 'Khác' })] };
     expect(reasonBlockMessage(needs)).toBe('Lý do "Khác" yêu cầu nhập mô tả.');
     expect(reasonBlockMessage({ ...needs, description: '   ' })).toBe('Lý do "Khác" yêu cầu nhập mô tả.');
     expect(reasonBlockMessage({ ...needs, description: 'Việc đột xuất' })).toBeNull();

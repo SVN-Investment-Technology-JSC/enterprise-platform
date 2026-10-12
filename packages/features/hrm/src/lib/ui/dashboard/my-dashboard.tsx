@@ -45,9 +45,9 @@ import {
   sortedPayslips,
   todayState,
   weekdayName,
-  weekOf,
   type DotTone,
 } from './dashboard-model';
+import { calendarWeeks } from '../my-timesheet-format';
 import type { MyDashboardData } from './use-my-dashboard';
 
 /* Bảng màu của Bàn làm việc viết thẳng bằng mã màu để không bị ảnh hưởng bởi việc đổi màu chung của các màn khác. */
@@ -385,14 +385,18 @@ function dotTitle(date: string, day: HrmBoardDay | undefined, tone: DotTone): st
   return `${head}: ${parts.join(', ')}. Bấm để xem chi tiết.`;
 }
 
+const CAL_HEADERS = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
+
 /**
- * Bảng công cả tháng gọn trên một dải: mỗi ngày một cột có thứ, ngày và chấm màu.
- * Bấm vào một ngày mở chi tiết ngày đó (giờ chấm, trễ sớm, đơn từ, bất thường) ngay trên trang.
+ * Bảng công cả tháng dạng lịch (tuần bắt đầu thứ Hai): mỗi ô là một ngày có số ngày và chấm màu theo trạng thái,
+ * vừa khít trong thẻ nên không phải cuộn ngang. Bấm vào một ngày mở chi tiết ngày đó (giờ chấm, trễ sớm, đơn từ,
+ * bất thường) ngay trên trang.
  */
 export function MonthStrip({ data }: { data: MyDashboardData }) {
   const emp = data.employee;
   const [selected, setSelected] = useState<string | null>(null);
   const monthLabel = `${data.monthKey.slice(5, 7)}/${data.monthKey.slice(0, 4)}`;
+  const weeks = useMemo(() => calendarWeeks(data.calendar), [data.calendar]);
   const problems = emp
     ? Object.values(emp.days).filter((d) => {
         const tone = dayDotTone(d, data.today);
@@ -404,7 +408,7 @@ export function MonthStrip({ data }: { data: MyDashboardData }) {
       <CardTitle href="/my-work" icon={<FileText className="size-4 text-[#2563eb]" />}>
         Bảng công tháng {monthLabel}
       </CardTitle>
-      <ul className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-600" aria-label="Chú thích">
+      <ul className="mb-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-600" aria-label="Chú thích">
         {LEGEND.map((l) => (
           <li key={l.tone} className="flex items-center gap-1.5">
             <span className={`size-2 rounded-full ${DOT_CLASS[l.tone]}`} />
@@ -418,33 +422,55 @@ export function MonthStrip({ data }: { data: MyDashboardData }) {
           Đang tải bảng công…
         </div>
       ) : (
-        <div className="overflow-x-auto pb-1">
-          <ol className="flex min-w-[640px] items-end justify-between gap-0.5" data-testid="month-strip">
-            {data.calendar.map((c) => {
-              const day = emp?.days[c.date];
-              const tone = dayDotTone(day, data.today);
-              const isToday = c.date === data.today;
-              const sunday = c.weekday === 0;
-              return (
-                <li key={c.date} className="flex min-w-0 flex-1 flex-col items-center gap-0.5">
-                  <span className={`text-[9px] font-semibold uppercase ${sunday ? 'text-rose-500' : 'text-slate-400'}`}>{weekdayVn(c.date)}</span>
-                  <span className={`text-[10.5px] ${isToday ? 'font-bold text-slate-900' : 'text-slate-500'}`}>{Number(c.date.slice(8, 10))}</span>
-                  <button
-                    type="button"
-                    data-testid={`strip-dot-${c.date}`}
-                    data-tone={tone}
-                    disabled={!day}
-                    aria-label={`Chi tiết ngày ${formatDmy(c.date)}: ${day ? boardStatusLabel(day.status) : 'không có dữ liệu'}`}
-                    title={dotTitle(c.date, day, tone)}
-                    onClick={() => setSelected(c.date)}
-                    className={`mt-0.5 size-[18px] cursor-pointer rounded-full transition-transform hover:scale-125 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563eb] ${DOT_CLASS[tone]} ${
-                      isToday ? 'ring-2 ring-slate-800 ring-offset-1' : ''
-                    } ${selected === c.date ? 'scale-125 ring-2 ring-[#2563eb] ring-offset-1' : ''}`}
-                  />
-                </li>
-              );
-            })}
-          </ol>
+        <div data-testid="month-strip">
+          <div className="grid grid-cols-7 gap-1 pb-1">
+            {CAL_HEADERS.map((h, i) => (
+              <span key={h} className={`text-center text-[10px] font-semibold ${i === 6 ? 'text-rose-500' : 'text-slate-400'}`}>
+                {h}
+              </span>
+            ))}
+          </div>
+          <div className="space-y-1">
+            {weeks.map((week, wi) => (
+              <div key={wi} className="grid grid-cols-7 gap-1">
+                {week.map((date, di) => {
+                  if (!date) return <span key={`blank-${wi}-${di}`} aria-hidden="true" />;
+                  const day = emp?.days[date];
+                  const tone = dayDotTone(day, data.today);
+                  const isToday = date === data.today;
+                  const isSelected = selected === date;
+                  return (
+                    <button
+                      key={date}
+                      type="button"
+                      data-testid={`strip-dot-${date}`}
+                      data-tone={tone}
+                      disabled={!day}
+                      aria-label={`Chi tiết ngày ${formatDmy(date)}: ${day ? boardStatusLabel(day.status) : 'không có dữ liệu'}`}
+                      title={dotTitle(date, day, tone)}
+                      onClick={() => setSelected(date)}
+                      className={`flex h-11 cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border text-center transition hover:border-[#2563eb] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#2563eb] disabled:cursor-default disabled:hover:border-slate-100 ${
+                        tone === 'late'
+                          ? 'border-red-300 bg-red-50'
+                          : tone === 'absent'
+                            ? 'border-rose-200 bg-rose-50'
+                            : 'border-slate-100 bg-white'
+                      } ${isSelected ? 'border-[#2563eb] ring-1 ring-[#2563eb]' : ''}`}
+                    >
+                      <span
+                        className={`text-[11px] leading-none ${
+                          isToday ? 'rounded bg-[#ffc90a] px-1 py-0.5 font-bold text-slate-900' : 'font-semibold text-slate-600'
+                        }`}
+                      >
+                        {Number(date.slice(8, 10))}
+                      </span>
+                      <span className={`size-2 rounded-full ${DOT_CLASS[tone]}`} />
+                    </button>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
         </div>
       )}
       <BoardDayDrawer
@@ -479,44 +505,6 @@ export function MonthTotals({ data }: { data: MyDashboardData }) {
           </div>
         ))}
       </div>
-    </section>
-  );
-}
-
-/** Lịch làm việc tuần này: giờ ca từng ngày; hôm nay được tô nền. */
-export function WeekSchedule({ data }: { data: MyDashboardData }) {
-  const week = useMemo(() => weekOf(data.today), [data.today]);
-  return (
-    <section aria-label="Lịch làm việc tuần này" className={`${CARD} p-5`}>
-      <CardTitle href="/my-work">Lịch làm việc tuần này</CardTitle>
-      <ul className="space-y-0.5 text-[12.5px]">
-        {week.map((date) => {
-          const day = data.weekDays[date];
-          const isToday = date === data.today;
-          const weekend = new Date(`${date}T00:00:00Z`).getUTCDay() === 0;
-          const detail = !day
-            ? '—'
-            : day.kind === 'HOLIDAY'
-              ? `Lễ${day.holidayName ? `: ${day.holidayName}` : ''}`
-              : day.kind === 'OFF'
-                ? 'Nghỉ'
-                : day.shiftStart && day.shiftEnd
-                  ? `${day.shiftStart} - ${day.shiftEnd}`
-                  : 'Chưa có ca';
-          return (
-            <li
-              key={date}
-              data-testid={`week-${date}`}
-              className={`grid grid-cols-[56px_44px_1fr_auto] items-center gap-2 rounded-lg px-2.5 py-1.5 ${isToday ? 'bg-blue-50 font-semibold text-[#1d4ed8]' : ''}`}
-            >
-              <span className={weekend && !isToday ? 'text-rose-500' : ''}>{weekdayName(date).replace('Thứ ', 'Thứ ').replace('Chủ Nhật', 'Chủ nhật')}</span>
-              <span className="text-slate-500">{date.slice(8, 10)}/{date.slice(5, 7)}</span>
-              <span className="font-mono text-[12px]">{detail}</span>
-              <span className="truncate text-right text-slate-600">{day?.shiftName ?? ''}</span>
-            </li>
-          );
-        })}
-      </ul>
     </section>
   );
 }

@@ -60,7 +60,7 @@ export function EmployeeDetailPanel({
   return (
     <aside
       aria-label={`Chi tiết lịch của ${employee.name}`}
-      className="flex min-h-0 w-[380px] shrink-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white 2xl:w-[420px]"
+      className="flex max-h-[70dvh] min-h-0 w-full shrink-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white @4xl:max-h-none @4xl:w-[360px] @6xl:w-[420px]"
     >
       <div className="flex shrink-0 items-start justify-between gap-2 border-b border-slate-200 bg-slate-50 px-4 py-3">
         <div className="min-w-0">

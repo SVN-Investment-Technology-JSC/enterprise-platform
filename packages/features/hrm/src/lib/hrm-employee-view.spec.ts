@@ -95,3 +95,62 @@ describe('normalizeSearchText', () => {
     expect(normalizeSearchText('  Đỗ Thị Hương ')).toBe('do thi huong');
   });
 });
+
+import {
+  distinctValues,
+  employeeInitials,
+  employeeStats,
+  isActiveEmployee,
+  pageWindow,
+} from './hrm-employee-view';
+
+describe('số liệu tổng quan danh sách nhân sự', () => {
+  const emp = (over: Record<string, unknown>) =>
+    ({
+      employeeId: 'x',
+      employeeCode: 'NV',
+      fullName: 'A',
+      phone: '1',
+      dateOfBirth: '1990-01-01',
+      email: 'a@x.vn',
+      currentAddress: 'HN',
+      emergencyContactName: 'B',
+      employmentStatus: 'OFFICIAL',
+      joinDate: '2026-10-02',
+      ...over,
+    }) as never;
+
+  it('đếm đang làm, đã nghỉ, hồ sơ chưa hoàn thiện, người vào làm trong tháng và tỷ lệ', () => {
+    const rows = [
+      emp({ employeeCode: 'A' }),
+      emp({ employeeCode: 'B', employmentStatus: 'PROBATION', joinDate: '2026-09-01' }),
+      emp({ employeeCode: 'C', employmentStatus: 'RESIGNED', joinDate: '2020-01-01' }),
+      emp({ employeeCode: 'D', employmentStatus: 'TERMINATED', phone: null, joinDate: '2021-01-01' }),
+    ];
+    const stats = employeeStats(rows, false, new Date('2026-10-15T00:00:00Z'));
+    expect(stats).toMatchObject({ total: 4, active: 2, inactive: 2, incomplete: 1, joinedThisMonth: 1 });
+    expect(stats.activePercent).toBe(50);
+    expect(stats.incompletePercent).toBe(25);
+    expect(employeeStats([], false).activePercent).toBe(0);
+    expect(isActiveEmployee({ employmentStatus: 'ON_LEAVE' })).toBe(true);
+    expect(isActiveEmployee({ employmentStatus: 'RESIGNED' })).toBe(false);
+  });
+
+  it('giá trị khác nhau của đơn vị, bỏ trống và sắp theo tên tiếng Việt', () => {
+    const rows = [emp({ department: 'Phòng Kinh doanh' }), emp({ department: 'Ban Tổng Giám đốc' }), emp({ department: ' ' }), emp({ department: 'Phòng Kinh doanh' })];
+    expect(distinctValues(rows, (e) => e.department)).toEqual(['Ban Tổng Giám đốc', 'Phòng Kinh doanh']);
+  });
+
+  it('chữ cái đầu của họ tên, mã nhân viên khi thiếu tên', () => {
+    expect(employeeInitials({ fullName: 'Hà Nguyễn Hoàng', employeeCode: 'NV011' })).toBe('NH');
+    expect(employeeInitials({ fullName: null, employeeCode: 'NV011' })).toBe('N');
+    expect(employeeInitials({ fullName: ' ', employeeCode: '' })).toBe('NV');
+  });
+
+  it('dải số trang có dấu "…" khi nhiều trang', () => {
+    expect(pageWindow(1, 5)).toEqual([1, 2, 3, 4, 5]);
+    expect(pageWindow(1, 12)).toEqual([1, 2, 3, 4, null, 12]);
+    expect(pageWindow(6, 12)).toEqual([1, null, 5, 6, 7, null, 12]);
+    expect(pageWindow(12, 12)).toEqual([1, null, 9, 10, 11, 12]);
+  });
+});

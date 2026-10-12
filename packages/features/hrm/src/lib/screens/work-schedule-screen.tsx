@@ -14,7 +14,16 @@ import {
   SearchableSelect,
   type SearchableSelectOption,
 } from '@enterprise-platform/shared-ui';
-import { X } from 'lucide-react';
+import {
+  CalendarDays,
+  ChevronDown,
+  Download,
+  History,
+  Settings2,
+  UserMinus,
+  Users,
+  X,
+} from 'lucide-react';
 import { cn } from '../utils';
 import { useHrmPermissions } from '../hrm-permissions';
 import {
@@ -47,20 +56,29 @@ import {
 import { Button } from '../ui/button';
 import { DatePickerInput } from '../ui/date-picker-input';
 import { Input } from '../ui/input';
+import { PageTitle } from '../ui/page-title';
+import { RowMenu } from '../ui/row-menu';
+import { SegmentedTabs, kitPanelProps, type KitTab } from '../ui/settings-kit';
 import { toast } from '../ui/toast';
 import { AssignDialog } from '../ui/work-schedule/assign-dialog';
+import { AssignInlineForm } from '../ui/work-schedule/assign-inline-form';
 import { AuditDrawer } from '../ui/work-schedule/audit-drawer';
 import { CancelScheduleDialog } from '../ui/work-schedule/cancel-dialog';
 import { Checkbox, Notice } from '../ui/work-schedule/common';
 import { CopyScheduleDialog } from '../ui/work-schedule/copy-dialog';
 import { EmployeeDetailPanel } from '../ui/work-schedule/employee-detail-panel';
 import { HolidaysManager } from '../ui/work-schedule/holidays-manager';
+import { RecentScheduleHistory } from '../ui/work-schedule/recent-history';
+import { ReleaseInlineForm } from '../ui/work-schedule/release-flow';
 import { RulesManager } from '../ui/work-schedule/rules-manager';
 import { ScheduleGridView as ScheduleGridTable, ScheduleLegend } from '../ui/work-schedule/schedule-grid';
 import { ScheduleListView } from '../ui/work-schedule/schedule-list';
 import { TemplatesManager } from '../ui/work-schedule/templates-manager';
 
 type ViewKey = ScheduleGridView | 'list';
+type TabKey = 'assign' | 'release' | 'calendar';
+
+const TAB_PREFIX = 'work-schedule';
 
 const VIEW_TABS: { key: ViewKey; label: string }[] = [
   { key: 'month', label: 'Lịch tháng' },
@@ -69,7 +87,6 @@ const VIEW_TABS: { key: ViewKey; label: string }[] = [
 ];
 
 type DialogState =
-  | { kind: 'assign'; mode: 'single' | 'bulk'; initial?: { employeeId?: string } }
   | { kind: 'exception'; initial?: { employeeId?: string; date?: string } }
   | { kind: 'cancel'; initial?: { employeeId?: string } }
   | { kind: 'copy'; initial?: { employeeId?: string } }
@@ -87,12 +104,28 @@ function useDebounced<T>(value: T, delay: number): T {
   return debounced;
 }
 
+/** Tab được yêu cầu trên URL (`?tab=assign|release|calendar`); không hợp lệ hoặc không được phép thì lấy tab mặc định. */
+function resolveTab(requested: string | null, allowed: readonly TabKey[]): TabKey {
+  return allowed.find((t) => t === requested) ?? allowed[0];
+}
+
+/**
+ * Phân ca: biểu mẫu Phân ca và Nhả ca ngay trong trang (xem trước, xung đột, xác nhận như cũ), lịch sử phân ca gần đây và
+ * tab Lịch làm việc (lịch tháng, lịch tuần, danh sách, thiết lập ngoại lệ). Công cụ phụ (sao chép lịch, mẫu lịch tuần,
+ * lịch định kỳ, lịch lễ/Tết) nằm ở nút "Công cụ". `?tab=` đồng bộ với địa chỉ trang.
+ */
 export default function WorkScheduleScreen() {
   const { can } = useHrmPermissions();
   const canManage = can('hrm.schedule.manage');
   const canBulk = can('hrm.schedule.bulk');
   const canCalendar = can('hrm.schedule.calendar');
+  const canRead = can('hrm.schedule.read');
   const canException = canManage && canCalendar;
+
+  const allowedTabs: readonly TabKey[] = canManage ? ['assign', 'release', 'calendar'] : ['calendar'];
+  const [requestedTab, setRequestedTab] = useState<string | null>(null);
+  const [urlReady, setUrlReady] = useState(false);
+  const tab = resolveTab(requestedTab, allowedTabs);
 
   const [view, setView] = useState<ViewKey>('month');
   const [anchor, setAnchor] = useState(() => todayIso());
@@ -130,6 +163,7 @@ export default function WorkScheduleScreen() {
   const employeesRequested = useRef(false);
 
   const isGridView = view !== 'list';
+  const gridTab = tab === 'calendar';
   const range = useMemo(
     () => (view === 'list' ? { from: listFrom, to: listTo } : rangeFor(view, anchor)),
     [view, anchor, listFrom, listTo],
@@ -145,6 +179,28 @@ export default function WorkScheduleScreen() {
     }),
     [range, unitId, includeChildUnits, q, unassignedOnly],
   );
+
+  useEffect(() => {
+    const sync = () => {
+      setRequestedTab(new URLSearchParams(window.location.search).get('tab'));
+      setUrlReady(true);
+    };
+    sync();
+    window.addEventListener('popstate', sync);
+    return () => window.removeEventListener('popstate', sync);
+  }, []);
+
+  const selectTab = useCallback((next: TabKey) => {
+    setRequestedTab(next);
+    const url = new URL(window.location.href);
+    url.searchParams.set('tab', next);
+    window.history.replaceState(null, '', url);
+  }, []);
+
+  // `?tab=` không hợp lệ (hoặc không đủ quyền) thì sửa lại thành tab đang hiển thị.
+  useEffect(() => {
+    if (urlReady && requestedTab !== null && requestedTab !== tab) selectTab(tab);
+  }, [requestedTab, tab, selectTab, urlReady]);
 
   // Danh mục dùng chung: ca (GET shifts) và đơn vị (GET shift-units).
   useEffect(() => {
@@ -180,9 +236,10 @@ export default function WorkScheduleScreen() {
     void loadTemplates();
   }, [loadTemplates]);
 
-  // Nhân viên chỉ tải khi cần (mở hộp thoại chọn đối tượng).
+  // Nhân viên chỉ tải khi cần: mở biểu mẫu Phân ca/Nhả ca hoặc một hộp thoại chọn đối tượng.
+  const needsEmployees = tab === 'assign' || tab === 'release' || dialog !== null;
   useEffect(() => {
-    if (!dialog || employeesRequested.current) return;
+    if (!needsEmployees || employeesRequested.current) return;
     employeesRequested.current = true;
     setEmployeesLoading(true);
     hrmEmployeeOptions()
@@ -197,11 +254,12 @@ export default function WorkScheduleScreen() {
         );
       })
       .finally(() => setEmployeesLoading(false));
-  }, [dialog]);
+  }, [needsEmployees]);
 
-  // Tải lưới / danh sách theo bộ lọc.
+  // Tải lưới / danh sách theo bộ lọc (chỉ khi đang ở tab Lịch làm việc).
   const seq = useRef(0);
   useEffect(() => {
+    if (!gridTab) return;
     const invalid = view === 'list' ? validateDateRange(listFrom, listTo) : null;
     if (invalid) {
       setDataError(invalid);
@@ -232,7 +290,7 @@ export default function WorkScheduleScreen() {
       }
     };
     void run();
-  }, [view, filters, page, refreshKey]);
+  }, [gridTab, view, filters, page, refreshKey]);
 
   const reload = useCallback(() => setRefreshKey((n) => n + 1), []);
   const changeFilter = <T,>(setter: (value: T) => void) => (value: T) => {
@@ -299,242 +357,303 @@ export default function WorkScheduleScreen() {
     if (!open) setDialog(null);
   };
 
+  const tabMeta: Record<TabKey, KitTab> = {
+    assign: { id: 'assign', label: 'Phân ca', icon: Users },
+    release: { id: 'release', label: 'Nhả ca', icon: UserMinus },
+    calendar: { id: 'calendar', label: 'Lịch làm việc', icon: CalendarDays },
+  };
+  const tabs = allowedTabs.map((key) => tabMeta[key]);
+
+  const toolItems = [
+    { key: 'exception', label: 'Thiết lập ngoại lệ', hidden: !canException, onSelect: () => setDialog({ kind: 'exception' }) },
+    { key: 'copy', label: 'Sao chép lịch', hidden: !canBulk, onSelect: () => setDialog({ kind: 'copy' }) },
+    { key: 'templates', label: 'Mẫu lịch tuần', hidden: !canRead, onSelect: () => setDialog({ kind: 'templates' }) },
+    { key: 'rules', label: 'Lịch định kỳ', hidden: !canRead, onSelect: () => setDialog({ kind: 'rules' }) },
+    { key: 'holidays', label: 'Lịch lễ/Tết', hidden: !canCalendar, onSelect: () => setDialog({ kind: 'holidays' }) },
+  ];
+
+  const header = (
+    <PageTitle
+      title="Phân ca"
+      description="Phân công hoặc nhả ca làm việc cho nhân viên."
+      actions={
+        <>
+          <RowMenu
+            label="Công cụ phân ca"
+            items={toolItems.map(({ key, label, hidden, onSelect }) => ({ key, label, hidden, onSelect }))}
+            buttonClassName="inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+            trigger={
+              <>
+                <Settings2 className="size-4" aria-hidden />
+                Công cụ
+                <ChevronDown className="size-3.5 text-slate-400" aria-hidden />
+              </>
+            }
+          />
+          <Button
+            variant="outline"
+            permission="hrm.schedule.read"
+            className="h-9 gap-1.5 px-3 text-xs font-semibold"
+            onClick={() => setAuditOpen({})}
+          >
+            <History className="size-4" aria-hidden />
+            Lịch sử thao tác
+          </Button>
+        </>
+      }
+    />
+  );
+
   return (
-    <div className="flex h-[calc(100dvh-11rem)] min-h-[560px] flex-col gap-2.5">
-      {/* Hàng 1: chế độ xem, kỳ xem, xuất và lịch sử */}
-      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-3">
-          <div role="tablist" aria-label="Chế độ xem lịch" className="inline-flex rounded-lg border border-slate-200 bg-slate-100 p-0.5">
-            {VIEW_TABS.map((tab) => (
-              <button
-                key={tab.key}
-                type="button"
-                role="tab"
-                aria-selected={view === tab.key}
-                onClick={() => {
-                  setView(tab.key);
-                  setPage(1);
-                }}
-                className={cn(
-                  'cursor-pointer rounded-md px-3 py-1.5 text-xs font-semibold transition-colors outline-none focus-visible:ring-2 focus-visible:ring-blue-500',
-                  view === tab.key ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-600 hover:text-slate-900',
-                )}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
-          {isGridView ? (
-            <div className="flex items-center gap-1.5" aria-label="Điều hướng kỳ xem">
-              <Button
-                variant="outline"
-                size="sm"
-                aria-label={view === 'month' ? 'Tháng trước' : 'Tuần trước'}
-                onClick={() => {
-                  setAnchor((a) => shiftAnchor(view, a, -1));
-                  setPage(1);
-                }}
-              >
-                ←
-              </Button>
-              <span className="min-w-40 text-center text-sm font-bold text-slate-900" aria-live="polite">
-                {formatRangeLabel(view, anchor)}
-              </span>
-              <Button
-                variant="outline"
-                size="sm"
-                aria-label={view === 'month' ? 'Tháng sau' : 'Tuần sau'}
-                onClick={() => {
-                  setAnchor((a) => shiftAnchor(view, a, 1));
-                  setPage(1);
-                }}
-              >
-                →
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setAnchor(todayIso());
-                  setPage(1);
-                }}
-              >
-                {view === 'month' ? 'Tháng này' : 'Tuần này'}
-              </Button>
-            </div>
-          ) : (
-            <div className="flex items-center gap-2">
-              <div className="w-36">
-                <DatePickerInput aria-label="Từ ngày" value={listFrom} onChange={changeFilter(setListFrom)} />
-              </div>
-              <span className="text-xs text-slate-500">đến</span>
-              <div className="w-36">
-                <DatePickerInput aria-label="Đến ngày" value={listTo} onChange={changeFilter(setListTo)} />
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setListFrom(todayIso());
-                  setListTo(addDays(todayIso(), 29));
-                  setPage(1);
-                }}
-              >
-                30 ngày tới
-              </Button>
-            </div>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" permission="hrm.schedule.read" disabled={exporting} onClick={() => void exportCsv()}>
-            {exporting ? 'Đang xuất…' : 'Xuất Excel'}
-          </Button>
-          <Button variant="outline" size="sm" permission="hrm.schedule.read" onClick={() => setAuditOpen({})}>
-            Lịch sử thay đổi
-          </Button>
-        </div>
-      </div>
+    <div className="@container flex min-w-0 flex-col gap-4">
+      {header}
 
-      {/* Hàng 2: bộ lọc */}
-      <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-slate-200 bg-white px-3 py-2">
-        <div className="w-72 max-w-full">
-          <SearchableSelect
-            options={unitOptions}
-            value={unitId}
-            placeholder="Tất cả đơn vị"
-            emptyText="Không tìm thấy đơn vị phù hợp"
-            onChange={changeFilter(setUnitId)}
-            clearable
-          />
-        </div>
-        <Checkbox
-          checked={includeChildUnits}
-          onChange={changeFilter(setIncludeChildUnits)}
-          label="Gồm đơn vị con"
-          disabled={!unitId}
-        />
-        <div className="w-60 max-w-full">
-          <Input
-            aria-label="Tìm nhân viên theo mã hoặc tên"
-            placeholder="Tìm mã hoặc tên nhân viên…"
-            value={searchText}
-            onChange={(e) => {
-              setSearchText(e.target.value);
-              setPage(1);
-            }}
-          />
-        </div>
-        <Checkbox checked={unassignedOnly} onChange={changeFilter(setUnassignedOnly)} label="Chưa có lịch" />
-        {hasFilters ? (
-          <Button variant="ghost" size="sm" onClick={clearFilters}>
-            <X className="size-3.5" aria-hidden /> Xóa bộ lọc
-          </Button>
-        ) : null}
-        {metaError ? (
-          <span role="alert" className="text-xs text-red-600">
-            {metaError}
-          </span>
-        ) : null}
-      </div>
-
-      {/* Hàng 3: thao tác */}
-      <div className="flex shrink-0 flex-wrap items-center gap-2">
-        <Button size="sm" permission="hrm.schedule.manage" onClick={() => setDialog({ kind: 'assign', mode: 'single' })}>
-          Phân ca mới
-        </Button>
-        <Button size="sm" permission="hrm.schedule.bulk" onClick={() => setDialog({ kind: 'assign', mode: 'bulk' })}>
-          Phân ca hàng loạt
-        </Button>
-        {canException ? (
-          <Button size="sm" variant="outline" onClick={() => setDialog({ kind: 'exception' })}>
-            Thiết lập ngoại lệ
-          </Button>
-        ) : null}
-        <Button size="sm" variant="outline" permission="hrm.schedule.manage" onClick={() => setDialog({ kind: 'cancel' })}>
-          Hủy lịch
-        </Button>
-        <Button size="sm" variant="outline" permission="hrm.schedule.bulk" onClick={() => setDialog({ kind: 'copy' })}>
-          Sao chép lịch
-        </Button>
-        <Button size="sm" variant="outline" permission="hrm.schedule.read" onClick={() => setDialog({ kind: 'templates' })}>
-          Mẫu lịch tuần
-        </Button>
-        <Button size="sm" variant="outline" permission="hrm.schedule.read" onClick={() => setDialog({ kind: 'rules' })}>
-          Lịch định kỳ
-        </Button>
-        <Button size="sm" variant="outline" permission="hrm.schedule.calendar" onClick={() => setDialog({ kind: 'holidays' })}>
-          Lịch lễ/Tết
-        </Button>
-        {isGridView ? (
-          <div className="ml-auto">
-            <ScheduleLegend />
-          </div>
-        ) : null}
-      </div>
-
-      {/* Nội dung: lưới/danh sách (trái) và chi tiết nhân viên (phải) */}
-      <div className="flex min-h-0 flex-1 gap-3">
-        {isGridView ? (
-          <ScheduleGridTable
-            grid={grid}
-            loading={loading}
-            error={dataError}
-            from={range.from}
-            to={range.to}
-            wide={view === 'week'}
-            selectedEmployeeId={selected?.employeeId ?? null}
-            canEditCell={canException}
-            page={page}
-            onPageChange={setPage}
-            onSelectEmployee={(employee) =>
-              setSelected((current) => (current?.employeeId === employee.employeeId ? null : employee))
-            }
-            onCellClick={(employee, date) =>
-              setDialog({ kind: 'exception', initial: { employeeId: employee.employeeId, date } })
-            }
-          />
-        ) : (
-          <ScheduleListView
-            rows={list?.rows ?? null}
-            total={list?.total ?? 0}
-            page={page}
-            pageSize={list?.pageSize ?? SCHEDULE_PAGE_SIZE}
-            loading={loading}
-            error={dataError}
-            onPageChange={setPage}
-            onSelectEmployee={(employeeId) => setAuditOpen({ employeeId })}
-          />
-        )}
-        {isGridView && selected ? (
-          <EmployeeDetailPanel
-            employee={selected}
-            days={selectedDays}
-            rangeText={`${formatVnDate(range.from)} - ${formatVnDate(range.to)}`}
-            canException={canException}
-            canCancel={canManage}
-            canCopy={canBulk}
-            onClose={() => setSelected(null)}
-            onException={() => setDialog({ kind: 'exception', initial: { employeeId: selected.employeeId } })}
-            onCancel={() => setDialog({ kind: 'cancel', initial: { employeeId: selected.employeeId } })}
-            onCopy={() => setDialog({ kind: 'copy', initial: { employeeId: selected.employeeId } })}
-          />
-        ) : null}
-      </div>
-
-      {dialog?.kind === 'assign' ? (
-        <AssignDialog
-          open
-          onOpenChange={closeDialog}
-          mode={dialog.mode}
-          shifts={shifts}
-          templates={templates}
-          canBulk={canBulk}
-          canCalendar={canCalendar}
-          initial={dialog.initial}
-          onDone={reload}
-          {...sharedDialogProps}
+      {tabs.length > 1 ? (
+        <SegmentedTabs
+          tabs={tabs}
+          active={tab}
+          onChange={(id) => selectTab(id as TabKey)}
+          ariaLabel="Chế độ phân ca"
+          idPrefix={TAB_PREFIX}
         />
       ) : null}
+
+      {tab === 'assign' ? (
+        <div {...kitPanelProps(TAB_PREFIX, 'assign')} className="flex min-w-0 flex-col gap-4">
+          <AssignInlineForm
+            shifts={shifts}
+            templates={templates}
+            canBulk={canBulk}
+            canCalendar={canCalendar}
+            onDone={reload}
+            {...sharedDialogProps}
+          />
+          <RecentScheduleHistory
+            shifts={shifts}
+            refreshKey={refreshKey}
+            onViewAll={() => setAuditOpen({})}
+            onNotMigrated={() => setNotMigrated(true)}
+          />
+        </div>
+      ) : null}
+
+      {tab === 'release' ? (
+        <div {...kitPanelProps(TAB_PREFIX, 'release')} className="flex min-w-0 flex-col gap-4">
+          <ReleaseInlineForm
+            catalog={{ units, employeeOptions, employeesLoading, employeesError, canBulk, canCalendar }}
+            onDone={reload}
+          />
+          <RecentScheduleHistory
+            shifts={shifts}
+            refreshKey={refreshKey}
+            onViewAll={() => setAuditOpen({})}
+            onNotMigrated={() => setNotMigrated(true)}
+          />
+        </div>
+      ) : null}
+
+      {tab === 'calendar' ? (
+        <div {...kitPanelProps(TAB_PREFIX, 'calendar')} className="flex min-w-0 flex-col gap-3">
+          {/* Chế độ xem, kỳ xem và xuất */}
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-xl border border-slate-200 bg-white p-3">
+            <div className="flex min-w-0 flex-wrap items-center gap-3">
+              <div
+                role="tablist"
+                aria-label="Chế độ xem lịch"
+                className="inline-flex max-w-full overflow-x-auto rounded-lg border border-slate-200 bg-slate-100 p-0.5"
+              >
+                {VIEW_TABS.map((item) => (
+                  <button
+                    key={item.key}
+                    type="button"
+                    role="tab"
+                    aria-selected={view === item.key}
+                    onClick={() => {
+                      setView(item.key);
+                      setPage(1);
+                    }}
+                    className={cn(
+                      'cursor-pointer whitespace-nowrap rounded-md px-3 py-1.5 text-xs font-semibold transition-colors outline-none focus-visible:ring-2 focus-visible:ring-blue-500',
+                      view === item.key ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-600 hover:text-slate-900',
+                    )}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+              {isGridView ? (
+                <div className="flex flex-wrap items-center gap-1.5" aria-label="Điều hướng kỳ xem">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    aria-label={view === 'month' ? 'Tháng trước' : 'Tuần trước'}
+                    onClick={() => {
+                      setAnchor((a) => shiftAnchor(view, a, -1));
+                      setPage(1);
+                    }}
+                  >
+                    ←
+                  </Button>
+                  <span className="min-w-36 text-center text-sm font-bold text-slate-900" aria-live="polite">
+                    {formatRangeLabel(view, anchor)}
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    aria-label={view === 'month' ? 'Tháng sau' : 'Tuần sau'}
+                    onClick={() => {
+                      setAnchor((a) => shiftAnchor(view, a, 1));
+                      setPage(1);
+                    }}
+                  >
+                    →
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setAnchor(todayIso());
+                      setPage(1);
+                    }}
+                  >
+                    {view === 'month' ? 'Tháng này' : 'Tuần này'}
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="w-36">
+                    <DatePickerInput aria-label="Từ ngày" value={listFrom} onChange={changeFilter(setListFrom)} />
+                  </div>
+                  <span className="text-xs text-slate-500">đến</span>
+                  <div className="w-36">
+                    <DatePickerInput aria-label="Đến ngày" value={listTo} onChange={changeFilter(setListTo)} />
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setListFrom(todayIso());
+                      setListTo(addDays(todayIso(), 29));
+                      setPage(1);
+                    }}
+                  >
+                    30 ngày tới
+                  </Button>
+                </div>
+              )}
+            </div>
+            <Button
+              variant="outline"
+              permission="hrm.schedule.read"
+              className="h-9 gap-1.5 px-3 text-xs font-semibold"
+              disabled={exporting}
+              onClick={() => void exportCsv()}
+            >
+              <Download className="size-4" aria-hidden />
+              {exporting ? 'Đang xuất…' : 'Xuất Excel'}
+            </Button>
+          </div>
+
+          {/* Bộ lọc */}
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-slate-200 bg-white px-3 py-2">
+            <div className="w-full min-w-0 @xl:w-72">
+              <SearchableSelect
+                options={unitOptions}
+                value={unitId}
+                placeholder="Tất cả đơn vị"
+                emptyText="Không tìm thấy đơn vị phù hợp"
+                onChange={changeFilter(setUnitId)}
+                clearable
+              />
+            </div>
+            <Checkbox
+              checked={includeChildUnits}
+              onChange={changeFilter(setIncludeChildUnits)}
+              label="Gồm đơn vị con"
+              disabled={!unitId}
+            />
+            <div className="w-full min-w-0 @xl:w-60">
+              <Input
+                aria-label="Tìm nhân viên theo mã hoặc tên"
+                placeholder="Tìm mã hoặc tên nhân viên…"
+                value={searchText}
+                onChange={(e) => {
+                  setSearchText(e.target.value);
+                  setPage(1);
+                }}
+              />
+            </div>
+            <Checkbox checked={unassignedOnly} onChange={changeFilter(setUnassignedOnly)} label="Chưa có lịch" />
+            {hasFilters ? (
+              <Button variant="ghost" size="sm" onClick={clearFilters}>
+                <X className="size-3.5" aria-hidden /> Xóa bộ lọc
+              </Button>
+            ) : null}
+            {metaError ? (
+              <span role="alert" className="text-xs text-red-600">
+                {metaError}
+              </span>
+            ) : null}
+            {isGridView ? (
+              <div className="w-full @3xl:ml-auto @3xl:w-auto">
+                <ScheduleLegend />
+              </div>
+            ) : null}
+          </div>
+
+          {/* Lưới/danh sách và chi tiết nhân viên: cạnh nhau từ @4xl, xếp dọc khi hẹp */}
+          <div className="flex min-w-0 flex-col gap-3 @4xl:h-[max(480px,calc(100dvh-17rem))] @4xl:flex-row">
+            <div className="flex h-[70dvh] min-h-[420px] min-w-0 flex-1 flex-col @4xl:h-auto">
+              {isGridView ? (
+                <ScheduleGridTable
+                  grid={grid}
+                  loading={loading}
+                  error={dataError}
+                  from={range.from}
+                  to={range.to}
+                  wide={view === 'week'}
+                  selectedEmployeeId={selected?.employeeId ?? null}
+                  canEditCell={canException}
+                  page={page}
+                  onPageChange={setPage}
+                  onSelectEmployee={(employee) =>
+                    setSelected((current) => (current?.employeeId === employee.employeeId ? null : employee))
+                  }
+                  onCellClick={(employee, date) =>
+                    setDialog({ kind: 'exception', initial: { employeeId: employee.employeeId, date } })
+                  }
+                />
+              ) : (
+                <ScheduleListView
+                  rows={list?.rows ?? null}
+                  total={list?.total ?? 0}
+                  page={page}
+                  pageSize={list?.pageSize ?? SCHEDULE_PAGE_SIZE}
+                  loading={loading}
+                  error={dataError}
+                  onPageChange={setPage}
+                  onSelectEmployee={(employeeId) => setAuditOpen({ employeeId })}
+                />
+              )}
+            </div>
+            {isGridView && selected ? (
+              <EmployeeDetailPanel
+                employee={selected}
+                days={selectedDays}
+                rangeText={`${formatVnDate(range.from)} - ${formatVnDate(range.to)}`}
+                canException={canException}
+                canCancel={canManage}
+                canCopy={canBulk}
+                onClose={() => setSelected(null)}
+                onException={() => setDialog({ kind: 'exception', initial: { employeeId: selected.employeeId } })}
+                onCancel={() => setDialog({ kind: 'cancel', initial: { employeeId: selected.employeeId } })}
+                onCopy={() => setDialog({ kind: 'copy', initial: { employeeId: selected.employeeId } })}
+              />
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
       {dialog?.kind === 'exception' ? (
         <AssignDialog
           open

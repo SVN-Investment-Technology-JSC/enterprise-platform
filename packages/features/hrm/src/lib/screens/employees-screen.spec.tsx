@@ -1,5 +1,5 @@
 /** @jest-environment jsdom */
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { hrmFetch } from '../hrm-api';
 import { downloadCsv } from '../hrm-employee-view';
 import EmployeesScreen from './employees-screen';
@@ -116,23 +116,16 @@ beforeEach(() => {
 });
 
 describe('EmployeesScreen', () => {
-  it('shows exactly two tabs and no salary tabs', async () => {
+  it('không còn tab Chức danh: chức danh của mỗi người do Core quản lý, trang không gọi danh mục chức danh và ngạch lương', async () => {
     render(<EmployeesScreen />);
     expect(await screen.findByText('NV001')).toBeTruthy();
-    const tabs = screen.getAllByRole('tab').map((t) => t.textContent ?? '');
-    expect(tabs).toHaveLength(2);
-    expect(tabs[0]).toContain('Nhân viên');
-    expect(tabs[1]).toContain('Chức danh');
-    expect(screen.queryByRole('tab', { name: /Ngạch|Thang bảng lương|Cấu hình lương/ })).toBeNull();
-    expect(fetchMock.mock.calls.some(([p]) => String(p).startsWith('/salary-grades'))).toBe(false);
-  });
-
-  it('switches to the job titles tab', async () => {
-    render(<EmployeesScreen />);
-    await screen.findByText('NV001');
-    fireEvent.click(screen.getByRole('tab', { name: /Chức danh/ }));
-    expect(await screen.findByText('KS')).toBeTruthy();
-    expect(screen.getByRole('tab', { name: /Chức danh/ }).getAttribute('aria-selected')).toBe('true');
+    expect(screen.queryAllByRole('tab')).toHaveLength(0);
+    expect(screen.queryByRole('tab', { name: /Chức danh|Ngạch|Thang bảng lương|Cấu hình lương/ })).toBeNull();
+    expect(
+      fetchMock.mock.calls.some(([p]) => String(p).startsWith('/positions') || String(p).startsWith('/salary-grades')),
+    ).toBe(false);
+    // Chức danh của từng người vẫn hiện trong bảng
+    expect(screen.getByText('Kỹ sư')).toBeTruthy();
   });
 
   it('tolerates null sensitive fields and shows a hidden marker in the drawer', async () => {
@@ -293,5 +286,122 @@ describe('EmployeesScreen', () => {
     expect(fileName).toMatch(/^danh-sach-nhan-vien-\d{4}-\d{2}-\d{2}\.csv$/);
     expect(csv).toContain('NV001,Nguyễn Văn An,an@example.com,Kỹ sư,Sản xuất,2024-03-01,Chính thức');
     expect(csv).not.toMatch(/CCCD|Mã số thuế|BHXH|ngân hàng/i);
+  });
+
+  const person = (n: number, over: Record<string, unknown> = {}) => ({
+    ...employee,
+    employeeId: `p${n}`,
+    employeeCode: `NV${String(n).padStart(3, '0')}`,
+    fullName: `Nhân viên ${n}`,
+    email: `nv${n}@example.com`,
+    department: n % 2 ? 'Phòng Kinh doanh' : 'Phòng Kỹ thuật',
+    position: n % 2 ? 'Chuyên viên' : 'Kỹ sư',
+    joinDate: '2022-01-01',
+    ...over,
+  });
+  const withEmployees = (list: unknown[]) =>
+    fetchMock.mockImplementation((async (path: string) => {
+      if (path.startsWith('/employees?')) return { data: list, meta: { total: list.length } };
+      if (path === '/positions') return { data: [position] };
+      return { data: [], meta: { total: 0 } };
+    }) as never);
+  const bodyText = () => (document.body.textContent ?? '').replace(/\s+/g, ' ');
+
+  it('bốn thẻ tổng quan: tổng, đang làm việc, nghỉ việc, chờ hoàn thiện hồ sơ', async () => {
+    withEmployees([
+      person(1),
+      person(2),
+      person(3, { employmentStatus: 'RESIGNED' }),
+      person(4, { employmentStatus: 'TERMINATED' }),
+    ]);
+    render(<EmployeesScreen />);
+    await screen.findByText('NV001');
+    const stat = (key: string) => screen.getByTestId(`employee-stat-${key}`).textContent ?? '';
+    expect(stat('total')).toContain('4');
+    expect(stat('active')).toContain('2');
+    expect(stat('active')).toContain('50%');
+    expect(stat('inactive')).toContain('2');
+    expect(stat('incomplete')).toContain('Chờ hoàn thiện hồ sơ');
+  });
+
+  it('lọc theo phòng ban và trạng thái; thẻ tổng quan không đổi theo bộ lọc', async () => {
+    withEmployees([person(1), person(2), person(3), person(4, { employmentStatus: 'RESIGNED' })]);
+    render(<EmployeesScreen />);
+    await screen.findByText('NV001');
+    expect(screen.getAllByRole('button', { name: 'Xem hồ sơ' })).toHaveLength(4);
+    fireEvent.click(screen.getByDisplayValue('Phòng ban: Tất cả'));
+    fireEvent.click(await screen.findByRole('option', { name: 'Phòng Kỹ thuật', hidden: true }));
+    expect(screen.getAllByRole('button', { name: 'Xem hồ sơ' })).toHaveLength(2);
+    expect(screen.getByTestId('employee-stat-total').textContent).toContain('4');
+    fireEvent.click(screen.getByDisplayValue('Trạng thái: Tất cả'));
+    fireEvent.click(await screen.findByRole('option', { name: 'Đã nghỉ việc', hidden: true }));
+    expect(screen.getAllByRole('button', { name: 'Xem hồ sơ' })).toHaveLength(1);
+    expect(screen.getByText('NV004')).toBeTruthy();
+  });
+
+  it('phân trang 12 nhân viên mỗi trang và hiển thị khoảng đang xem', async () => {
+    withEmployees(Array.from({ length: 30 }, (_, i) => person(i + 1)));
+    render(<EmployeesScreen />);
+    await screen.findByText('NV001');
+    expect(screen.getAllByRole('button', { name: 'Xem hồ sơ' })).toHaveLength(12);
+    expect(bodyText()).toContain('Hiển thị 1 - 12 trong 30 nhân sự');
+    fireEvent.click(screen.getByRole('button', { name: 'Trang 3' }));
+    expect(screen.getAllByRole('button', { name: 'Xem hồ sơ' })).toHaveLength(6);
+    expect(bodyText()).toContain('Hiển thị 25 - 30 trong 30 nhân sự');
+    expect(screen.getByText('NV030')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Trang trước' }));
+    expect(screen.getByText('NV013')).toBeTruthy();
+  });
+
+  it('tick chọn nhân viên thì Xuất Excel chỉ xuất người đã chọn; chọn cả trang bằng ô đầu bảng', async () => {
+    withEmployees([person(1), person(2), person(3)]);
+    render(<EmployeesScreen />);
+    await screen.findByText('NV001');
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Chọn Nhân viên 2' }));
+    fireEvent.click(screen.getByRole('button', { name: /Xuất Excel \(1\)/ }));
+    await waitFor(() => expect(downloadMock).toHaveBeenCalledTimes(1));
+    const csv = String(downloadMock.mock.calls[0][1]);
+    expect(csv).toContain('NV002');
+    expect(csv).not.toContain('NV001');
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Chọn tất cả nhân viên trong trang' }));
+    expect(screen.getByRole('button', { name: /Xuất Excel \(3\)/ })).toBeTruthy();
+  });
+
+  it('menu "..." của dòng có Sửa hồ sơ, Ngừng nhân viên và Tạo quyết định theo quyền', async () => {
+    grant('hrm.employee.read', 'hrm.employee.manage', 'hrm.appointment.manage');
+    render(<EmployeesScreen />);
+    await screen.findByText('NV001');
+    fireEvent.click(screen.getByRole('button', { name: 'Thao tác khác' }));
+    const menu = screen.getByRole('menu');
+    expect(within(menu).getByRole('menuitem', { name: 'Sửa hồ sơ' })).toBeTruthy();
+    expect(within(menu).getByRole('menuitem', { name: 'Ngừng nhân viên' })).toBeTruthy();
+    expect(within(menu).getByRole('menuitem', { name: 'Tạo quyết định' })).toBeTruthy();
+    expect(within(menu).queryByRole('menuitem', { name: 'Liên kết tài khoản' })).toBeNull();
+    fireEvent.keyDown(document.body, { key: 'Escape' });
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
+
+  it('không có quyền quản lý thì dòng không có nút "..."', async () => {
+    render(<EmployeesScreen />);
+    await screen.findByText('NV001');
+    expect(screen.queryByRole('button', { name: 'Thao tác khác' })).toBeNull();
+  });
+
+  it('hồ sơ nhân sự là hộp thoại rộng: ba khối gọn, mức hoàn thiện và ba tab giấy tờ, người phụ thuộc, hợp đồng', async () => {
+    render(<EmployeesScreen />);
+    await screen.findByText('NV001');
+    fireEvent.click(screen.getByRole('button', { name: 'Xem hồ sơ' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText('Nguyễn Văn An')).toBeTruthy();
+    for (const title of ['Thông tin cá nhân', 'Quan hệ lao động', 'Liên hệ khẩn cấp', 'Tài chính nhân sự & thuế'])
+      expect(within(dialog).getByRole('region', { name: title })).toBeTruthy();
+    expect(within(dialog).getByRole('progressbar', { name: 'Mức hoàn thiện hồ sơ' })).toBeTruthy();
+    const tabs = within(dialog).getAllByRole('tab').map((t) => t.textContent);
+    expect(tabs).toEqual(['Ảnh và giấy tờ', 'Người phụ thuộc (0)', 'Hợp đồng (0)']);
+    expect(within(dialog).getByTestId('employee-tab-documents')).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole('tab', { name: /Hợp đồng/ }));
+    expect(within(dialog).getByTestId('employee-tab-contracts')).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Đóng hồ sơ' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   });
 });

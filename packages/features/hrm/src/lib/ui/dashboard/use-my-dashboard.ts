@@ -9,7 +9,6 @@ import type {
 } from '@enterprise-platform/contracts-hrm';
 import { hrmFetch } from '../../hrm-api';
 import { todayVn } from '../../hrm-timesheet-format';
-import { weekOf } from './dashboard-model';
 
 export interface AnnualBalance {
   readonly total: number;
@@ -25,8 +24,6 @@ export interface MyDashboardData {
   readonly employee: HrmBoardEmployee | undefined;
   readonly calendar: HrmTimesheetBoard['calendar'];
   readonly monthKey: string;
-  /** Ngày công của tuần này (gộp hai tháng nếu tuần nằm giữa hai tháng). */
-  readonly weekDays: Record<string, HrmBoardEmployee['days'][string]>;
   readonly annual: AnnualBalance | null;
   readonly payslips: readonly HrmPayslip[] | null;
   readonly error: string;
@@ -36,7 +33,6 @@ const EMPTY: Omit<MyDashboardData, 'today' | 'monthKey'> = {
   loading: true,
   employee: undefined,
   calendar: [],
-  weekDays: {},
   annual: null,
   payslips: null,
   error: '',
@@ -52,7 +48,7 @@ async function loadBoard(month: string): Promise<HrmTimesheetBoard | null> {
 
 /**
  * Dữ liệu cá nhân cho Bàn làm việc, tải song song và độc lập: một phần lỗi hoặc không có quyền thì chỉ phần đó trống.
- * Bảng công tháng cho cả thống kê, dải ngày, lịch tuần và đơn từ nên chỉ một lần gọi (hai lần nếu tuần này giữa hai tháng).
+ * Bảng công tháng cho cả thống kê, lịch tháng và đơn từ nên chỉ một lần gọi.
  */
 export function useMyDashboard(options: { enabled: boolean; canSeePayslip: boolean }): MyDashboardData {
   const today = todayVn();
@@ -65,10 +61,7 @@ export function useMyDashboard(options: { enabled: boolean; canSeePayslip: boole
       return;
     }
     let live = true;
-    const week = weekOf(today);
-    const otherMonth = [...new Set(week.map((d) => d.slice(0, 7)))].find((m) => m !== monthKey);
-
-    const boardJob = Promise.all([loadBoard(monthKey), otherMonth ? loadBoard(otherMonth) : Promise.resolve(null)]);
+    const boardJob = loadBoard(monthKey);
 
     const annualJob = (async (): Promise<AnnualBalance | null> => {
       try {
@@ -99,14 +92,12 @@ export function useMyDashboard(options: { enabled: boolean; canSeePayslip: boole
         )
       : Promise.resolve(null);
 
-    void Promise.all([boardJob, annualJob, slipJob]).then(([[current, other], annual, payslips]) => {
+    void Promise.all([boardJob, annualJob, slipJob]).then(([current, annual, payslips]) => {
       if (!live) return;
-      const days = { ...(other?.employees[0]?.days ?? {}), ...(current?.employees[0]?.days ?? {}) };
       setState({
         loading: false,
         employee: current?.employees[0],
         calendar: current?.calendar ?? [],
-        weekDays: Object.fromEntries(week.filter((d) => days[d]).map((d) => [d, days[d]])),
         annual,
         payslips,
         error: current ? '' : 'Không tải được bảng công của bạn.',

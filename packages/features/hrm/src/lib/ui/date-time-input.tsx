@@ -1,6 +1,8 @@
 'use client';
 
+import { useRef } from 'react';
 import { DatePickerInput } from './date-picker-input';
+import { TimeComboInput } from './time-combo-input';
 import { TimeTextInput } from './time-text-input';
 import { cn } from '../utils';
 
@@ -29,12 +31,15 @@ export function DateTimeInput({
   'aria-label'?: string;
 }) {
   const { date, time } = splitDateTime(value);
+  // Giờ đã chọn gần nhất: khi ngày bị xoá rồi chọn lại, giờ không bị đặt lại về 00:00.
+  const lastTime = useRef(time);
+  if (time) lastTime.current = time;
   const emit = (d: string, t: string) => {
     if (!d) return onChange('');
-    onChange(`${d}T${t || (withSeconds ? '00:00:00' : '00:00')}`);
+    onChange(`${d}T${t || lastTime.current || (withSeconds ? '00:00:00' : '00:00')}`);
   };
   return (
-    <div className={cn('grid grid-cols-[1fr_5.5rem] gap-1.5', className)}>
+    <div className={cn('grid grid-cols-[1fr_6.5rem] gap-1.5', className)}>
       <DatePickerInput
         value={date}
         disabled={disabled}
@@ -42,15 +47,26 @@ export function DateTimeInput({
         aria-label={ariaLabel ? `${ariaLabel} (ngày)` : undefined}
         onChange={(d) => emit(d, time)}
       />
-      <TimeTextInput
-        value={time}
-        disabled={disabled}
-        required={required}
-        withSeconds={withSeconds}
-        aria-label={ariaLabel ? `${ariaLabel} (giờ)` : undefined}
-        className="h-8 text-xs font-mono"
-        onChange={(t) => emit(date, t)}
-      />
+      {withSeconds ? (
+        <TimeTextInput
+          value={time}
+          disabled={disabled}
+          required={required}
+          withSeconds
+          aria-label={ariaLabel ? `${ariaLabel} (giờ)` : undefined}
+          className="h-8 text-xs font-mono"
+          onChange={(t) => emit(date, t)}
+        />
+      ) : (
+        // Giờ 24 giờ: gõ tay hoặc chọn từ danh sách mốc giờ.
+        <TimeComboInput
+          value={time}
+          disabled={disabled}
+          required={required}
+          aria-label={ariaLabel ? `${ariaLabel} (giờ)` : undefined}
+          onChange={(t) => emit(date, t)}
+        />
+      )}
     </div>
   );
 }

@@ -341,3 +341,182 @@ export function gridCellText(day: HrmBoardDay | undefined, today: string): strin
   if (day.workdayUnits > 0) return formatUnits(day.workdayUnits);
   return day.kind === 'HOLIDAY' ? 'L' : '0';
 }
+
+// ---------------------------------------------------------------------------
+// Lịch công của tôi: chấm màu theo trạng thái, giờ làm trong ô, nhãn trạng thái ngày
+// ---------------------------------------------------------------------------
+
+export type DayTone = 'full' | 'late' | 'early' | 'leave' | 'absent' | 'trip' | 'abnormal' | 'off' | 'none';
+
+/** Màu chấm của ngày theo chú thích: đủ công, đi trễ, về sớm, nghỉ phép, nghỉ không phép, ngày nghỉ. */
+export function dayTone(day: HrmBoardDay, today: string): DayTone {
+  if (isFutureDay(day, today)) return 'none';
+  switch (day.status) {
+    case 'ABSENT':
+      return 'absent';
+    case 'ANNUAL_LEAVE':
+    case 'PAID_LEAVE':
+    case 'UNPAID_LEAVE':
+      return 'leave';
+    case 'TRIP':
+      return 'trip';
+    case 'ABNORMAL':
+      return 'abnormal';
+    case 'OFF':
+    case 'HOLIDAY':
+    case 'NO_SCHEDULE':
+      return 'off';
+    default:
+      if (day.lateMinutes > 0) return 'late';
+      if (day.earlyLeaveMinutes > 0) return 'early';
+      return day.workedMinutes > 0 || day.workdayUnits > 0 ? 'full' : 'none';
+  }
+}
+
+export const DAY_TONE_DOT: Record<DayTone, string> = {
+  full: 'bg-emerald-500',
+  late: 'bg-orange-500',
+  early: 'bg-violet-500',
+  leave: 'bg-blue-500',
+  absent: 'bg-red-500',
+  trip: 'bg-indigo-500',
+  abnormal: 'bg-fuchsia-500',
+  off: 'bg-slate-300',
+  none: 'bg-slate-300',
+};
+
+/** Giờ làm dạng một số lẻ: 480 phút -> "8.0", 450 phút -> "7.5". */
+export function hoursDecimal(minutes: number | null | undefined): string {
+  const value = Number(minutes ?? 0);
+  return (Math.round((Number.isFinite(value) ? value : 0) / 6) / 10).toFixed(1);
+}
+
+/**
+ * Nội dung ô trong lịch của tôi (kiểu mới): ngày chưa tới hiện mã ca (OFF, L, Chưa có ca); ngày đã qua hiện giờ làm
+ * thực tế (không hiện mã ca); ngày nghỉ phép, công tác, vắng hiện dấu gạch dài. `hours` rỗng khi không có giờ làm.
+ */
+export function myCellContent(
+  day: HrmBoardDay,
+  today: string,
+): { text: string; hours: string } {
+  if (isFutureDay(day, today)) {
+    if (day.shiftCode) return { text: day.shiftCode, hours: '' };
+    if (day.kind === 'HOLIDAY') return { text: 'L', hours: '' };
+    if (day.kind === 'OFF') return { text: 'OFF', hours: '' };
+    return { text: '-', hours: '' };
+  }
+  if (day.status === 'HOLIDAY') return { text: 'L', hours: '' };
+  if (day.status === 'OFF') return { text: 'OFF', hours: '' };
+  if (day.status === 'NO_SCHEDULE') return { text: '-', hours: '' };
+  if (day.status === 'ABSENT') return { text: '—', hours: '' };
+  if (day.workedMinutes > 0) return { text: '', hours: hoursDecimal(day.workedMinutes) };
+  return { text: '—', hours: '' };
+}
+
+export interface DayStatusPill {
+  readonly label: string;
+  readonly className: string;
+}
+
+/** Nhãn trạng thái ở đầu chi tiết ngày: Đủ công, Đi trễ, Về sớm, Nghỉ phép, Nghỉ không phép... */
+export function dayStatusPill(day: HrmBoardDay, today: string): DayStatusPill {
+  const tone = dayTone(day, today);
+  const base = 'border-slate-200 bg-slate-100 text-slate-600';
+  if (isFutureDay(day, today)) return { label: 'Chưa tới ngày', className: base };
+  switch (tone) {
+    case 'full':
+      return {
+        label: day.workdayUnits >= 1 ? 'Đủ công' : 'Chưa đủ công',
+        className: day.workdayUnits >= 1 ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-700',
+      };
+    case 'late':
+      return {
+        label: day.earlyLeaveMinutes > 0 ? 'Đi trễ, về sớm' : 'Đi trễ',
+        className: 'border-orange-200 bg-orange-50 text-orange-700',
+      };
+    case 'early':
+      return { label: 'Về sớm', className: 'border-violet-200 bg-violet-50 text-violet-700' };
+    case 'leave':
+      return { label: 'Nghỉ phép', className: 'border-blue-200 bg-blue-50 text-blue-700' };
+    case 'absent':
+      return { label: 'Nghỉ không phép', className: 'border-red-200 bg-red-50 text-red-700' };
+    case 'trip':
+      return { label: 'Công tác', className: 'border-indigo-200 bg-indigo-50 text-indigo-700' };
+    case 'abnormal':
+      return { label: 'Bất thường', className: 'border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700' };
+    case 'off':
+      return {
+        label: day.status === 'HOLIDAY' ? 'Ngày lễ' : day.status === 'OFF' ? 'Ngày nghỉ' : 'Chưa có lịch',
+        className: base,
+      };
+    default:
+      return { label: 'Chưa có công', className: base };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Ô ngày của bảng công nhiều nhân viên: chấm màu (ngày đã có công), ô ký hiệu (P, KP, CT, !) hoặc chữ (OFF, L, mã ca)
+// ---------------------------------------------------------------------------
+
+export type GridCellView =
+  /** Ngày đã qua có công: chấm xanh (đủ công) hoặc cam (đi trễ, về sớm). */
+  | { readonly type: 'dot'; readonly tone: 'present' | 'late' }
+  /** Ký hiệu nghỉ, công tác, vắng, bất thường: P, CT, KP, !. */
+  | { readonly type: 'box'; readonly text: 'P' | 'CT' | 'KP' | '!'; readonly tone: 'leave' | 'trip' | 'absent' | 'abnormal' }
+  /** Chữ thường: OFF, L (lễ), "-" (chưa có lịch), mã ca của ngày chưa tới, "0". */
+  | { readonly type: 'text'; readonly text: string; readonly muted: boolean };
+
+/**
+ * Cách vẽ một ô ngày. Ngày chưa tới chỉ hiện mã ca (hoặc OFF, L, "-"); ngày đã qua hiện chấm công hoặc ký hiệu,
+ * không hiện mã ca. Đi trễ hoặc về sớm là chấm cam kèm nền đỏ nhạt của ô.
+ */
+export function gridCellView(day: HrmBoardDay | undefined, today: string): GridCellView {
+  if (!day) return { type: 'text', text: '', muted: true };
+  if (isFutureDay(day, today)) {
+    if (day.shiftCode) return { type: 'text', text: shortShiftCode(day.shiftCode), muted: true };
+    if (day.kind === 'HOLIDAY') return { type: 'text', text: 'L', muted: true };
+    if (day.kind === 'OFF') return { type: 'text', text: 'OFF', muted: true };
+    return { type: 'text', text: '-', muted: true };
+  }
+  switch (day.status) {
+    case 'ABSENT':
+      return { type: 'box', text: 'KP', tone: 'absent' };
+    case 'ABNORMAL':
+      return { type: 'box', text: '!', tone: 'abnormal' };
+    case 'ANNUAL_LEAVE':
+    case 'PAID_LEAVE':
+    case 'UNPAID_LEAVE':
+      return { type: 'box', text: 'P', tone: 'leave' };
+    case 'TRIP':
+      return { type: 'box', text: 'CT', tone: 'trip' };
+    case 'HOLIDAY':
+      return { type: 'text', text: 'L', muted: false };
+    case 'OFF':
+      return { type: 'text', text: 'OFF', muted: true };
+    case 'NO_SCHEDULE':
+      return { type: 'text', text: '-', muted: true };
+    default:
+      if (isLateOrEarly(day)) return { type: 'dot', tone: 'late' };
+      return day.workedMinutes > 0 || day.workdayUnits > 0
+        ? { type: 'dot', tone: 'present' }
+        : { type: 'text', text: '0', muted: false };
+  }
+}
+
+/** Màu ô ký hiệu theo loại, dùng chung cho lưới, chú thích và chi tiết đơn từ. */
+export const BOX_TONE_CLASS: Record<'leave' | 'trip' | 'absent' | 'abnormal', string> = {
+  leave: 'bg-blue-100 text-blue-700',
+  trip: 'bg-indigo-100 text-indigo-700',
+  absent: 'bg-red-100 text-red-600',
+  abnormal: 'bg-fuchsia-100 text-fuchsia-700',
+};
+
+/** Ô màu nhỏ ghi ký tự loại đơn (P, TC, CT, GT, ĐC, KH) ở chi tiết ngày và danh sách đơn. */
+export const REQUEST_BOX_CLASS: Record<RequestKind, string> = {
+  LEAVE: 'bg-blue-100 text-blue-700',
+  TRIP: 'bg-indigo-100 text-indigo-700',
+  OT: 'bg-violet-100 text-violet-700',
+  CORRECTION: 'bg-amber-100 text-amber-800',
+  SHIFT_CHANGE: 'bg-teal-100 text-teal-700',
+  CUSTOM: 'bg-slate-200 text-slate-700',
+};

@@ -143,7 +143,7 @@ export function CopyScheduleDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="h-[min(88dvh,780px)] max-w-3xl" aria-label="Sao chép lịch">
+      <DialogContent className="@container h-[min(88dvh,780px)] max-w-3xl" aria-label="Sao chép lịch">
         <DialogHeader className="shrink-0 border-b border-slate-200 bg-slate-50 px-6 py-4">
           <DialogTitle className="text-lg">Sao chép lịch</DialogTitle>
           <DialogDescription>
@@ -170,7 +170,7 @@ export function CopyScheduleDialog({
             employeesError={employeesError}
             units={units}
           />
-          <div className="grid max-w-xl grid-cols-2 gap-4">
+          <div className="grid max-w-xl grid-cols-1 gap-4 @md:grid-cols-2">
             <Field label="Từ ngày">
               <DatePickerInput aria-label="Từ ngày" value={fromDate} onChange={setFromDate} />
             </Field>

@@ -182,7 +182,7 @@ describe('Bàn làm việc cá nhân', () => {
     expect(hrefs).toEqual(['/requests?create=leave', '/requests?create=ot', '/requests?create=correction', '/requests?create=business_trip']);
   });
 
-  it('dải bảng công tháng: mỗi ngày một chấm theo trạng thái; tổng công tháng đủ bốn ô', async () => {
+  it('bảng công tháng dạng lịch: mỗi ngày một ô có chấm theo trạng thái; tổng công tháng đủ bốn ô', async () => {
     render(<HrmDashboardPage />);
     await waitFor(() => expect(screen.getAllByTestId(/^strip-dot-/)).toHaveLength(31));
     expect(screen.getByTestId(`strip-dot-${d(1)}`).getAttribute('data-tone')).toBe('present');
@@ -198,14 +198,21 @@ describe('Bàn làm việc cá nhân', () => {
     expect(within(totals.querySelector('[data-testid="total-Nghỉ phép"]') as HTMLElement).getByText('1')).toBeTruthy();
   });
 
-  it('dải bảng công hiện thứ và ngày; bấm một ngày bất thường mở chi tiết ngày đó', async () => {
+  it('bảng công tháng là lịch tuần bắt đầu thứ Hai, không cuộn ngang; bấm một ngày bất thường mở chi tiết ngày đó', async () => {
     render(<HrmDashboardPage />);
     const strip = await screen.findByTestId('month-strip');
     await waitFor(() => expect(within(strip).getAllByRole('button')).toHaveLength(31));
-    // thứ của từng cột: 1/10/2026 là thứ Năm, Chủ nhật tô đỏ
-    const first = within(strip).getAllByRole('listitem')[0];
-    expect(first.textContent).toContain('T5');
-    expect(within(strip).getAllByText('CN')[0].className).toContain('text-rose-500');
+    // Tiêu đề thứ T2 đến CN, Chủ nhật tô đỏ; 1/10/2026 là thứ Năm nên đứng ở cột thứ tư
+    expect(within(strip).getByText('T2')).toBeTruthy();
+    expect(within(strip).getByText('CN').className).toContain('text-rose-500');
+    const buttons = within(strip).getAllByRole('button');
+    const firstRow = buttons[0].parentElement as HTMLElement;
+    expect(firstRow.children).toHaveLength(7);
+    expect(firstRow.children[3]).toBe(buttons[0]);
+    expect(firstRow.children[0].getAttribute('aria-hidden')).toBe('true');
+    // Lịch vừa khít thẻ: không có vùng cuộn ngang và không đặt bề rộng tối thiểu
+    expect(strip.closest('section')?.querySelector('.overflow-x-auto')).toBeNull();
+    expect(strip.innerHTML).not.toContain('min-w-[640px]');
     expect(screen.getByText(/ngày cần xem/)).toBeTruthy();
 
     fireEvent.click(screen.getByTestId(`strip-dot-${d(2)}`));
@@ -222,13 +229,13 @@ describe('Bàn làm việc cá nhân', () => {
     expect(within(screen.getByLabelText('Ca làm việc và giờ chấm công')).getAllByText('Chưa có').length).toBe(2);
   });
 
-  it('lịch làm việc tuần này: giờ ca từng ngày, hôm nay được tô, cuối tuần ghi Nghỉ', async () => {
+  it('không còn thẻ lịch làm việc tuần này và không tải thêm bảng công tháng khác', async () => {
     render(<HrmDashboardPage />);
-    const week = await screen.findByLabelText('Lịch làm việc tuần này');
-    await waitFor(() => expect(within(week).getAllByText('08:00 - 17:00').length).toBeGreaterThan(0));
-    expect(week.querySelectorAll('li')).toHaveLength(7);
-    expect(week.querySelector(`[data-testid="week-${d(10)}"]`)?.className).toContain('bg-blue-50');
-    expect(within(week.querySelector(`[data-testid="week-${d(11)}"]`) as HTMLElement).getByText('Nghỉ')).toBeTruthy();
+    await screen.findByTestId('month-strip');
+    expect(screen.queryByLabelText('Lịch làm việc tuần này')).toBeNull();
+    expect(screen.queryByText('Lịch làm việc tuần này')).toBeNull();
+    const boardCalls = fetchMock.mock.calls.filter(([p]) => String(p).startsWith('/timesheet-board?'));
+    expect(boardCalls).toHaveLength(1);
   });
 
   it('đơn từ của tôi hiện đơn mới nhất kèm trạng thái; phiếu lương hiện kỳ mới nhất và kỳ khác', async () => {

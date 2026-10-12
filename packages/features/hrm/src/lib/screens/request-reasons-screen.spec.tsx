@@ -6,7 +6,9 @@ import {
   waitFor,
   within,
 } from '@testing-library/react';
+import { act } from 'react';
 import type {
+  HrmLeaveType,
   HrmRequestReason,
   HrmRequestType,
 } from '@enterprise-platform/contracts-hrm';
@@ -138,6 +140,84 @@ function requestType(
   };
 }
 
+const leaveRequestType = requestType({
+  id: 'y0',
+  code: 'LEAVE',
+  name: 'Đơn xin nghỉ',
+  description: 'Nghỉ phép, nghỉ ốm, việc riêng',
+  engine: 'LEAVE',
+  kind: 'leave',
+  isSystem: true,
+  timeMode: 'DATE_RANGE',
+});
+const advanceType = requestType({
+  id: 'y5',
+  code: 'ADVANCE',
+  name: 'Tạm ứng lương',
+  description: 'Đề nghị tạm ứng lương',
+  engine: 'ADVANCE',
+  kind: 'advance',
+  isSystem: true,
+});
+
+const baseLeave = {
+  tenantId: 't',
+  unit: 'DAYS',
+  negativeLimit: 0,
+  carryoverAllowed: false,
+  maxCarryoverDays: 0,
+  carryoverExpiryMonth: 3,
+  createdAt: '2026-01-01T00:00:00.000Z',
+} as const;
+const annualLeave: HrmLeaveType = {
+  ...baseLeave,
+  id: 'lt1',
+  code: 'AL',
+  name: 'Phép năm',
+  paid: true,
+  deductBalance: true,
+  isAnnual: true,
+  requiresAttachment: false,
+  active: true,
+  updatedAt: '2026-01-01T00:00:00.000Z',
+};
+const sickLeave: HrmLeaveType = {
+  ...baseLeave,
+  id: 'lt2',
+  code: 'NGHI_OM',
+  name: 'Nghỉ ốm',
+  paid: true,
+  deductBalance: false,
+  isAnnual: false,
+  requiresAttachment: true,
+  active: true,
+  updatedAt: '2026-02-01T00:00:00.000Z',
+};
+const unpaidLeave: HrmLeaveType = {
+  ...baseLeave,
+  id: 'lt3',
+  code: 'KHONG_LUONG',
+  name: 'Nghỉ không lương',
+  paid: false,
+  deductBalance: false,
+  isAnnual: false,
+  requiresAttachment: false,
+  active: true,
+  updatedAt: '2026-03-01T00:00:00.000Z',
+};
+const stoppedLeave: HrmLeaveType = {
+  ...baseLeave,
+  id: 'lt4',
+  code: 'CU',
+  name: 'Nghỉ cũ',
+  paid: true,
+  deductBalance: false,
+  isAnnual: false,
+  requiresAttachment: false,
+  active: false,
+  updatedAt: '2026-04-01T00:00:00.000Z',
+};
+
 const systemTypes: HrmRequestType[] = [
   requestType({ id: 'y1', code: 'OVERTIME', name: 'Làm thêm giờ', engine: 'OVERTIME', kind: 'ot', isSystem: true }),
   requestType({ id: 'y2', code: 'BUSINESS_TRIP', name: 'Công tác', engine: 'BUSINESS_TRIP', kind: 'business_trip', isSystem: true }),
@@ -160,6 +240,7 @@ interface Call {
 let calls: Call[];
 let reasons: HrmRequestReason[];
 let types: HrmRequestType[];
+let leaveTypes: HrmLeaveType[];
 let respond: (call: Call) => unknown;
 
 const writes = () => calls.filter((c) => c.method !== 'GET');
@@ -170,6 +251,8 @@ beforeEach(() => {
   calls = [];
   reasons = [workReason, unpaidReason, otherReason, tripReason];
   types = [...systemTypes];
+  leaveTypes = [annualLeave, sickLeave, unpaidLeave, stoppedLeave];
+  window.history.replaceState(null, '', '/');
   respond = () => ({ data: {} });
   fetchMock.mockReset();
   toastSuccess.mockReset();
@@ -184,6 +267,10 @@ beforeEach(() => {
       return { data: reasons };
     if (call.method === 'GET' && path === '/request-types/manage')
       return { data: types };
+    if (call.method === 'GET' && path === '/leave-types')
+      return { data: leaveTypes };
+    if (call.method === 'GET' && path.startsWith('/operations/audit'))
+      return { data: [], meta: { total: 0, actions: [] } };
     return respond(call);
   }) as never);
 });
@@ -202,40 +289,68 @@ function typeInto(dialog: HTMLElement, label: RegExp, value: string) {
   });
 }
 
-describe('RequestReasonsScreen', () => {
-  it('giải thích rõ lý do là danh mục cấu hình, khác với Mô tả', async () => {
+const urlTab = () => new URLSearchParams(window.location.search).get('tab');
+const selectType = (code: string) => fireEvent.click(screen.getByTestId(`type-${code}`));
+/** Dòng (role row) chứa một chữ nào đó trong bảng/danh sách lý do. */
+const rowOf = (text: string) => screen.getByText(text).closest('[role="row"]') as HTMLElement;
+/** Mở menu "..." của một dòng rồi chọn mục. */
+async function rowAction(label: string, item: string) {
+  fireEvent.click(screen.getByRole('button', { name: label }));
+  fireEvent.click(await screen.findByRole('menuitem', { name: item }));
+}
+const typeMenu = async (item: string) => {
+  fireEvent.click(screen.getByRole('button', { name: 'Thiết lập loại đơn' }));
+  fireEvent.click(await screen.findByRole('menuitem', { name: item }));
+};
+
+describe('RequestReasonsScreen: danh sách loại đơn và lý do của từng loại', () => {
+  it('đầu trang theo mẫu, giải thích lý do là danh mục cấu hình khác với Mô tả, chọn loại đầu tiên', async () => {
     render(<RequestReasonsScreen />);
+    expect(screen.getByRole('heading', { name: 'Loại đơn & lý do' })).toBeTruthy();
     expect(
-      screen.getByRole('heading', { name: 'Loại đơn và lý do' }),
+      screen.getByText('Quản lý loại đơn và danh mục lý do được nhân viên lựa chọn khi tạo đơn.'),
     ).toBeTruthy();
-    const note = screen.getByRole('note');
-    expect(note.textContent).toContain(
+    expect(await screen.findByText('Theo yêu cầu công việc')).toBeTruthy();
+    const note = screen.getAllByRole('note').map((n) => n.textContent ?? '').join(' ');
+    expect(note).toContain(
       'Lý do là danh mục do quản trị cấu hình; người làm đơn chọn một lý do rồi có thể nhập thêm Mô tả. Mô tả là văn bản tự do, không phải lý do.',
     );
-    expect(await screen.findByText('Theo yêu cầu công việc')).toBeTruthy();
+    expect(screen.getByTestId('type-OVERTIME').getAttribute('aria-current')).toBe('true');
+    expect(screen.getByRole('heading', { name: 'Lý do của làm thêm giờ' })).toBeTruthy();
   });
 
-  it('hiển thị đủ bốn tab theo loại đơn và không có đơn nghỉ', async () => {
+  it('danh sách loại đơn hiện số lý do thật của từng loại; loại không có danh mục lý do thì không có số', async () => {
+    types = [leaveRequestType, ...systemTypes, advanceType];
     render(<RequestReasonsScreen />);
-    await screen.findByText('Theo yêu cầu công việc');
-    const tabs = screen.getAllByRole('tab').map((t) => t.textContent);
-    expect(tabs).toEqual([
-      'Làm thêm giờ3',
-      'Công tác1',
-      'Giải trình công0',
-      'Đổi ca0',
-    ]);
-    expect(screen.queryByRole('tab', { name: /Nghỉ/ })).toBeNull();
-    expect(screen.getByRole('tab', { name: /Làm thêm giờ/ }).getAttribute('aria-selected')).toBe('true');
+    await waitFor(() => expect(screen.getByTestId('type-LEAVE').textContent).toContain('4'));
+    const counts = (code: string) => within(screen.getByTestId(`type-${code}`)).queryByLabelText(/lý do$/)?.textContent ?? null;
+    expect(counts('LEAVE')).toBe('4');
+    expect(counts('OVERTIME')).toBe('3');
+    expect(counts('BUSINESS_TRIP')).toBe('1');
+    expect(counts('ATTENDANCE_CORRECTION')).toBe('0');
+    expect(counts('SHIFT_CHANGE')).toBe('0');
+    expect(counts('ADVANCE')).toBeNull();
+    // Gọi đúng ba nguồn dữ liệu: lý do đơn, loại đơn, loại nghỉ.
     expect(
       calls
         .filter((c) => c.method === 'GET')
         .map((c) => c.path)
         .sort(),
-    ).toEqual(['/request-reasons', '/request-types/manage']);
+    ).toEqual(['/leave-types', '/request-reasons', '/request-types/manage']);
   });
 
-  it('tab Làm thêm giờ có cột Hưởng lương, tag Có lương, Không lương và ghi chú OT không lương', async () => {
+  it('tìm loại đơn trong danh sách bên trái', async () => {
+    types = [leaveRequestType, ...systemTypes, advanceType];
+    render(<RequestReasonsScreen />);
+    await screen.findByTestId('type-LEAVE');
+    fireEvent.change(screen.getByLabelText('Tìm loại đơn'), { target: { value: 'tam ung' } });
+    expect(screen.getByTestId('type-ADVANCE')).toBeTruthy();
+    expect(screen.queryByTestId('type-OVERTIME')).toBeNull();
+    fireEvent.change(screen.getByLabelText('Tìm loại đơn'), { target: { value: 'khong co gi' } });
+    expect(screen.getByText('Không có loại đơn nào khớp.')).toBeTruthy();
+  });
+
+  it('loại Làm thêm giờ có cột Hưởng lương, Hệ số, tag Có lương, Không lương và ghi chú OT không lương', async () => {
     render(<RequestReasonsScreen />);
     await screen.findByText('Theo yêu cầu công việc');
     expect(screen.getByRole('columnheader', { name: /Hưởng lương/ })).toBeTruthy();
@@ -248,28 +363,57 @@ describe('RequestReasonsScreen', () => {
     // Hai lý do có lương (Theo yêu cầu công việc, Khác) và một lý do không lương (Tự nguyện).
     expect(screen.getAllByText('Có lương')).toHaveLength(2);
     expect(screen.getByText('Không lương')).toBeTruthy();
-    expect(
-      screen.getByText('OT không lương được ghi nhận nhưng không tính tiền OT.'),
-    ).toBeTruthy();
+    expect(screen.getByText(/OT không lương được ghi nhận nhưng không tính tiền OT\./)).toBeTruthy();
     // Dòng có mã, diễn giải, số đơn đã dùng và trạng thái.
-    const row = screen.getByText('Theo yêu cầu công việc').closest('tr') as HTMLElement;
+    const row = rowOf('Theo yêu cầu công việc');
     expect(within(row).getByText('YEU_CAU_CONG_VIEC')).toBeTruthy();
     expect(within(row).getByText('OT do quản lý yêu cầu')).toBeTruthy();
     expect(within(row).getByText('3')).toBeTruthy();
     expect(within(row).getByText('Đang sử dụng')).toBeTruthy();
-    const stopped = screen.getByText('Khác').closest('tr') as HTMLElement;
+    const stopped = rowOf('Khác');
     expect(within(stopped).getByText('Ngừng sử dụng')).toBeTruthy();
     expect(within(stopped).getByText('Có')).toBeTruthy();
   });
 
-  it('các tab khác ẩn cột Hưởng lương và chỉ hiện lý do của loại đơn đó', async () => {
+  it('chọn loại khác ghi ?tab= lên URL, ẩn cột Hưởng lương và chỉ hiện lý do của loại đó', async () => {
     render(<RequestReasonsScreen />);
     await screen.findByText('Theo yêu cầu công việc');
-    fireEvent.click(screen.getByRole('tab', { name: /Công tác/ }));
+    selectType('BUSINESS_TRIP');
+    expect(urlTab()).toBe('BUSINESS_TRIP');
     expect(await screen.findByText('Gặp khách hàng')).toBeTruthy();
     expect(screen.queryByText('Theo yêu cầu công việc')).toBeNull();
     expect(screen.queryByRole('columnheader', { name: /Hưởng lương/ })).toBeNull();
     expect(screen.queryByText('Không lương')).toBeNull();
+  });
+
+  it('mở thẳng bằng ?tab=, mã lạ rơi về loại đầu tiên, nghe popstate', async () => {
+    window.history.replaceState(null, '', '/?tab=BUSINESS_TRIP');
+    render(<RequestReasonsScreen />);
+    expect(await screen.findByText('Gặp khách hàng')).toBeTruthy();
+    expect(screen.getByTestId('type-BUSINESS_TRIP').getAttribute('aria-current')).toBe('true');
+    act(() => {
+      window.history.replaceState(null, '', '/?tab=KHONG_CO');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
+    expect(await screen.findByText('Theo yêu cầu công việc')).toBeTruthy();
+    expect(screen.getByTestId('type-OVERTIME').getAttribute('aria-current')).toBe('true');
+  });
+
+  it('tìm lý do và lọc theo trạng thái (không dấu); lọc không ra thì báo không khớp', async () => {
+    render(<RequestReasonsScreen />);
+    await screen.findByText('Theo yêu cầu công việc');
+    fireEvent.change(screen.getByLabelText('Tìm lý do'), { target: { value: 'tu nguyen' } });
+    expect(screen.getByText('Tự nguyện')).toBeTruthy();
+    expect(screen.queryByText('Theo yêu cầu công việc')).toBeNull();
+    fireEvent.change(screen.getByLabelText('Tìm lý do'), { target: { value: '' } });
+    // Lọc "Ngừng sử dụng": chỉ còn lý do Khác.
+    const panel = screen.getByTestId('type-detail');
+    fireEvent.click(within(panel).getByDisplayValue('Tất cả trạng thái'));
+    fireEvent.click(await screen.findByRole('option', { name: 'Ngừng sử dụng' }));
+    expect(screen.getByText('Khác')).toBeTruthy();
+    expect(screen.queryByText('Tự nguyện')).toBeNull();
+    fireEvent.change(screen.getByLabelText('Tìm lý do'), { target: { value: 'zzz' } });
+    expect(screen.getByText('Không có lý do nào khớp')).toBeTruthy();
   });
 
   it('thêm lý do làm thêm giờ gọi POST /request-reasons với kind, tên, diễn giải, hưởng lương', async () => {
@@ -308,11 +452,11 @@ describe('RequestReasonsScreen', () => {
     ).toHaveLength(2);
   });
 
-  it('thêm lý do ở tab khác dùng đúng kind, có mã tự nhập và không có trường Hưởng lương', async () => {
+  it('thêm lý do ở loại khác dùng đúng kind, có mã tự nhập và không có trường Hưởng lương', async () => {
     respond = () => ({ data: tripReason });
     render(<RequestReasonsScreen />);
     await screen.findByText('Theo yêu cầu công việc');
-    fireEvent.click(screen.getByRole('tab', { name: /Công tác/ }));
+    selectType('BUSINESS_TRIP');
     await screen.findByText('Gặp khách hàng');
     fireEvent.click(screen.getByRole('button', { name: 'Thêm lý do' }));
     const dialog = await screen.findByRole('dialog');
@@ -337,13 +481,11 @@ describe('RequestReasonsScreen', () => {
     });
   });
 
-  it('sửa lý do gọi PATCH /request-reasons/:id, không gửi kind và mã', async () => {
+  it('sửa lý do qua menu "..." gọi PATCH /request-reasons/:id, không gửi kind và mã', async () => {
     respond = () => ({ data: workReason });
     render(<RequestReasonsScreen />);
     await screen.findByText('Theo yêu cầu công việc');
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Sửa lý do Theo yêu cầu công việc' }),
-    );
+    await rowAction('Thao tác với lý do Theo yêu cầu công việc', 'Sửa');
     const dialog = await screen.findByRole('dialog');
     expect(
       within(dialog).getByText('Sửa lý do "Theo yêu cầu công việc"'),
@@ -369,13 +511,11 @@ describe('RequestReasonsScreen', () => {
     });
   });
 
-  it('ngừng sử dụng qua Popconfirm và dùng lại bằng một lần bấm', async () => {
+  it('ngừng sử dụng qua Popconfirm tại nút "..." và dùng lại bằng một lần chọn', async () => {
     respond = () => ({ data: workReason });
     render(<RequestReasonsScreen />);
     await screen.findByText('Theo yêu cầu công việc');
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Ngừng lý do Theo yêu cầu công việc' }),
-    );
+    await rowAction('Thao tác với lý do Theo yêu cầu công việc', 'Ngừng sử dụng');
     expect(writes()).toHaveLength(0);
     fireEvent.click(await screen.findByRole('button', { name: 'Ngừng sử dụng' }));
     await waitFor(() => expect(writes()).toHaveLength(1));
@@ -384,18 +524,11 @@ describe('RequestReasonsScreen', () => {
       method: 'PATCH',
       body: { active: false },
     });
-
-    // Chờ thao tác đầu xong (nút bị khóa trong lúc đang xử lý) rồi mới dùng lại.
     await waitFor(() =>
       expect(toastSuccess).toHaveBeenCalledWith('Đã ngừng sử dụng lý do'),
     );
-    await waitFor(() =>
-      expect(
-        (screen.getByRole('button', { name: 'Dùng lại lý do Khác' }) as HTMLButtonElement)
-          .disabled,
-      ).toBe(false),
-    );
-    fireEvent.click(screen.getByRole('button', { name: 'Dùng lại lý do Khác' }));
+
+    await rowAction('Thao tác với lý do Khác', 'Dùng lại');
     await waitFor(() => expect(writes()).toHaveLength(2));
     expect(writes()[1]).toEqual({
       path: '/request-reasons/r3',
@@ -411,7 +544,7 @@ describe('RequestReasonsScreen', () => {
     });
     render(<RequestReasonsScreen />);
     await screen.findByText('Theo yêu cầu công việc');
-    fireEvent.click(screen.getByRole('button', { name: 'Xóa lý do Tự nguyện' }));
+    await rowAction('Thao tác với lý do Tự nguyện', 'Xóa');
     expect(writes()).toHaveLength(0);
     reasons = [workReason, otherReason, tripReason];
     fireEvent.click(await screen.findByRole('button', { name: 'Xóa lý do' }));
@@ -436,9 +569,7 @@ describe('RequestReasonsScreen', () => {
     });
     render(<RequestReasonsScreen />);
     await screen.findByText('Theo yêu cầu công việc');
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Xóa lý do Theo yêu cầu công việc' }),
-    );
+    await rowAction('Thao tác với lý do Theo yêu cầu công việc', 'Xóa');
     // Popconfirm báo trước lý do sẽ chỉ bị ngừng sử dụng.
     expect(
       await screen.findByText(/đã được dùng trong 3 đơn nên không xóa được/),
@@ -448,16 +579,15 @@ describe('RequestReasonsScreen', () => {
     const notice = await screen.findByRole('status');
     expect(notice.textContent).toBe(message);
     await waitFor(() => {
-      const row = screen.getByText('Theo yêu cầu công việc').closest('tr') as HTMLElement;
-      expect(within(row).getByText('Ngừng sử dụng')).toBeTruthy();
+      expect(within(rowOf('Theo yêu cầu công việc')).getByText('Ngừng sử dụng')).toBeTruthy();
     });
   });
 
-  it('tab rỗng hiện trạng thái trống với nút Tạo lý do mặc định', async () => {
+  it('loại rỗng hiện trạng thái trống với nút Tạo lý do mặc định', async () => {
     reasons = [workReason, tripReason];
     render(<RequestReasonsScreen />);
     await screen.findByText('Theo yêu cầu công việc');
-    fireEvent.click(screen.getByRole('tab', { name: /Đổi ca/ }));
+    selectType('SHIFT_CHANGE');
     expect(await screen.findByText('Đơn đổi ca chưa có lý do nào')).toBeTruthy();
     respond = () => ({ data: { created: 2 } });
     reasons = [
@@ -473,14 +603,13 @@ describe('RequestReasonsScreen', () => {
     expect(toastSuccess).toHaveBeenCalledWith('Đã tạo 2 lý do mặc định');
   });
 
-  it('toàn bộ danh mục rỗng: mọi tab đều có nút Tạo lý do mặc định', async () => {
+  it('toàn bộ danh mục rỗng: mọi loại hệ thống đều có nút Tạo lý do mặc định', async () => {
     reasons = [];
     render(<RequestReasonsScreen />);
-    for (const name of [/Làm thêm giờ/, /Công tác/, /Giải trình công/, /Đổi ca/]) {
-      fireEvent.click(screen.getByRole('tab', { name }));
-      expect(
-        await screen.findByRole('button', { name: 'Tạo lý do mặc định' }),
-      ).toBeTruthy();
+    for (const code of ['OVERTIME', 'BUSINESS_TRIP', 'ATTENDANCE_CORRECTION', 'SHIFT_CHANGE']) {
+      await screen.findByTestId(`type-${code}`);
+      selectType(code);
+      expect(await screen.findByRole('button', { name: 'Tạo lý do mặc định' })).toBeTruthy();
     }
   });
 
@@ -490,7 +619,7 @@ describe('RequestReasonsScreen', () => {
     };
     render(<RequestReasonsScreen />);
     await screen.findByText('Theo yêu cầu công việc');
-    fireEvent.click(screen.getByRole('button', { name: 'Dùng lại lý do Khác' }));
+    await rowAction('Thao tác với lý do Khác', 'Dùng lại');
     expect((await screen.findByRole('alert')).textContent).toContain(
       'đã có trong danh mục',
     );
@@ -506,40 +635,193 @@ describe('RequestReasonsScreen', () => {
     expect(fetchMock).not.toHaveBeenCalled();
     expect(screen.queryByRole('button', { name: 'Thêm lý do' })).toBeNull();
   });
+
+  it('nút Lịch sử thay đổi chỉ có khi có hrm.audit.read và mở ngăn kéo', async () => {
+    const first = render(<RequestReasonsScreen />);
+    await screen.findByText('Theo yêu cầu công việc');
+    expect(screen.queryByRole('button', { name: 'Lịch sử thay đổi' })).toBeNull();
+    first.unmount();
+    mockActions.add('hrm.audit.read');
+    render(<RequestReasonsScreen />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Lịch sử thay đổi' }));
+    expect(await screen.findByRole('dialog')).toBeTruthy();
+  });
 });
 
-describe('RequestReasonsScreen - loại đơn', () => {
-  it('liệt kê loại hệ thống và loại tuỳ chỉnh, loại tuỳ chỉnh có thêm tab lý do', async () => {
-    types = [...systemTypes, customType];
-    render(<RequestReasonsScreen />);
-    const customRow = (
-      await screen.findByText('Xin đi muộn', { selector: 'span.font-semibold' })
-    ).closest('tr') as HTMLElement;
-    expect(within(customRow).getByText('XIN_DI_MUON')).toBeTruthy();
-    expect(within(customRow).getByText('Tuỳ chỉnh')).toBeTruthy();
-    const systemRow = screen
-      .getByText('Công tác', { selector: 'span.font-semibold' })
-      .closest('tr') as HTMLElement;
-    expect(within(systemRow).getByText('Hệ thống')).toBeTruthy();
-    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual([
-      'Làm thêm giờ3',
-      'Công tác1',
-      'Giải trình công0',
-      'Đổi ca0',
-      'Xin đi muộn0',
-    ]);
+describe('RequestReasonsScreen: lý do của Đơn xin nghỉ (loại nghỉ)', () => {
+  beforeEach(() => {
+    types = [leaveRequestType, ...systemTypes];
+    window.history.replaceState(null, '', '/?tab=LEAVE');
   });
 
-  it('tab của loại tuỳ chỉnh rỗng không ép tạo lý do mặc định, thêm lý do dùng mã loại làm kind', async () => {
+  it('bảng lý do nghỉ: chỉ dòng phép năm trừ quỹ; lý do không lương có thẻ Không lương và không trừ quỹ', async () => {
+    render(<RequestReasonsScreen />);
+    await screen.findByText('Nghỉ không lương');
+    expect(screen.getByRole('heading', { name: 'Lý do của đơn xin nghỉ' })).toBeTruthy();
+    for (const title of ['Tên lý do', 'Mã', 'Hưởng lương', 'Trừ quỹ phép', 'Cần chứng từ', 'Trạng thái'])
+      expect(screen.getAllByRole('columnheader', { name: title }).length).toBeGreaterThan(0);
+
+    const annual = screen
+      .getByText('Phép năm', { selector: 'span.text-slate-900' })
+      .closest('[role="row"]') as HTMLElement;
+    expect(within(annual).getByText('Có lương')).toBeTruthy();
+    expect(within(annual).getByText('Phép năm', { selector: 'span.inline-flex' })).toBeTruthy();
+
+    const unpaid = rowOf('Nghỉ không lương');
+    expect(within(unpaid).getByText('Không lương')).toBeTruthy();
+    expect(within(unpaid).queryByText('Phép năm', { selector: 'span.inline-flex' })).toBeNull();
+
+    const sick = rowOf('Nghỉ ốm');
+    expect(within(sick).getByText('Có lương')).toBeTruthy();
+    expect(within(sick).getByText('Có', { selector: 'div[role="cell"]' })).toBeTruthy();
+
+    const stopped = rowOf('Nghỉ cũ');
+    expect(within(stopped).getByText('Đã ngừng')).toBeTruthy();
+    expect(
+      screen.getByText(/Chỉ lý do Phép năm trừ quỹ phép; các lý do khác không làm thay đổi số dư phép/),
+    ).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Chính sách phép năm' }).getAttribute('href')).toBe('/settings?view=leave');
+  });
+
+  it('thêm lý do nghỉ bằng hộp thoại: gửi đúng POST, không gửi isAnnual hay deductBalance', async () => {
+    render(<RequestReasonsScreen />);
+    await screen.findByText('Nghỉ không lương');
+    fireEvent.click(screen.getByRole('button', { name: 'Thêm lý do' }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.change(within(dialog).getByLabelText(/Mã lý do nghỉ/), { target: { value: 'NGHI_CUOI' } });
+    fireEvent.change(within(dialog).getByLabelText(/Tên lý do nghỉ/), { target: { value: 'Nghỉ cưới' } });
+    fireEvent.click(within(dialog).getByRole('switch', { name: 'Có lương' }));
+    const getsBefore = calls.filter((c) => c.method === 'GET' && c.path === '/leave-types').length;
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Lưu lý do nghỉ' }));
+    await waitFor(() => expect(writes()).toHaveLength(1));
+    expect(writes()[0]).toEqual({
+      path: '/leave-types',
+      method: 'POST',
+      body: {
+        code: 'NGHI_CUOI',
+        name: 'Nghỉ cưới',
+        unit: 'DAYS',
+        paid: false,
+        requiresAttachment: false,
+        active: true,
+      },
+    });
+    await waitFor(() =>
+      expect(calls.filter((c) => c.method === 'GET' && c.path === '/leave-types').length).toBeGreaterThan(getsBefore),
+    );
+    expect(await screen.findByText('Đã thêm lý do nghỉ "Nghỉ cưới".')).toBeTruthy();
+  });
+
+  it('sửa lý do phép năm: khóa hưởng lương, không gửi paid, bắt buộc Ghi chú thay đổi', async () => {
+    render(<RequestReasonsScreen />);
+    await screen.findByText('Nghỉ không lương');
+    await rowAction('Thao tác với lý do nghỉ Phép năm', 'Sửa');
+    const dialog = await screen.findByRole('dialog');
+    const paid = within(dialog).getByRole('switch', { name: 'Có lương' });
+    expect(paid.getAttribute('aria-checked')).toBe('true');
+    expect((paid as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Lưu lý do nghỉ' }));
+    expect(await within(dialog).findByText('Cần nhập Ghi chú thay đổi')).toBeTruthy();
+    expect(writes()).toHaveLength(0);
+    fireEvent.change(within(dialog).getByLabelText(/Ghi chú thay đổi/), { target: { value: 'Đổi tên hiển thị' } });
+    fireEvent.change(within(dialog).getByLabelText(/Tên lý do nghỉ/), { target: { value: 'Phép năm chuẩn' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Lưu lý do nghỉ' }));
+    await waitFor(() => expect(writes()).toHaveLength(1));
+    expect(writes()[0]).toEqual({
+      path: '/leave-types/lt1',
+      method: 'PATCH',
+      body: {
+        name: 'Phép năm chuẩn',
+        requiresAttachment: false,
+        expectedUpdatedAt: annualLeave.updatedAt,
+        reason: 'Đổi tên hiển thị',
+      },
+    });
+  });
+
+  it('sửa lý do thường: gửi paid, requiresAttachment, expectedUpdatedAt và ghi chú', async () => {
+    render(<RequestReasonsScreen />);
+    await screen.findByText('Nghỉ không lương');
+    await rowAction('Thao tác với lý do nghỉ Nghỉ ốm', 'Sửa');
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('switch', { name: 'Có lương' }));
+    fireEvent.click(within(dialog).getByRole('switch', { name: 'Cần chứng từ' }));
+    fireEvent.change(within(dialog).getByLabelText(/Ghi chú thay đổi/), { target: { value: 'Chuyển thành không lương' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Lưu lý do nghỉ' }));
+    await waitFor(() => expect(writes()).toHaveLength(1));
+    expect(writes()[0]).toEqual({
+      path: '/leave-types/lt2',
+      method: 'PATCH',
+      body: {
+        name: 'Nghỉ ốm',
+        paid: false,
+        requiresAttachment: false,
+        expectedUpdatedAt: sickLeave.updatedAt,
+        reason: 'Chuyển thành không lương',
+      },
+    });
+  });
+
+  it('ngừng và dùng lại lý do nghỉ qua Popconfirm có ghi chú thay đổi bắt buộc; phép năm không ngừng được', async () => {
+    render(<RequestReasonsScreen />);
+    await screen.findByText('Nghỉ không lương');
+    // Phép năm không có mục Ngừng.
+    fireEvent.click(screen.getByRole('button', { name: 'Thao tác với lý do nghỉ Phép năm' }));
+    expect(await screen.findByRole('menuitem', { name: 'Sửa' })).toBeTruthy();
+    expect(screen.queryByRole('menuitem', { name: 'Ngừng' })).toBeNull();
+    fireEvent.keyDown(window, { key: 'Escape' });
+
+    await rowAction('Thao tác với lý do nghỉ Nghỉ không lương', 'Ngừng');
+    const confirm = await screen.findByRole('button', { name: 'Xác nhận' });
+    expect((confirm as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(screen.getByPlaceholderText('Ví dụ: không còn áp dụng'), { target: { value: 'Không còn dùng' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Xác nhận' }));
+    await waitFor(() => expect(writes()).toHaveLength(1));
+    expect(writes()[0]).toEqual({
+      path: '/leave-types/lt3',
+      method: 'PATCH',
+      body: { active: false, expectedUpdatedAt: unpaidLeave.updatedAt, reason: 'Không còn dùng' },
+    });
+    expect(await screen.findByText('Đã ngừng lý do nghỉ "Nghỉ không lương" cho các đơn mới.')).toBeTruthy();
+
+    await rowAction('Thao tác với lý do nghỉ Nghỉ cũ', 'Dùng lại');
+    fireEvent.change(await screen.findByPlaceholderText('Ví dụ: áp dụng lại từ tháng này'), { target: { value: 'Dùng lại' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Xác nhận' }));
+    await waitFor(() => expect(writes()).toHaveLength(2));
+    expect(writes()[1].body).toMatchObject({ active: true });
+  });
+
+  it('chọn Đơn xin nghỉ rồi Thêm lý do không dùng form lý do đơn từ (kind) mà dùng hộp thoại lý do nghỉ', async () => {
+    render(<RequestReasonsScreen />);
+    await screen.findByText('Nghỉ không lương');
+    fireEvent.click(screen.getByRole('button', { name: 'Thêm lý do' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByLabelText(/Mã lý do nghỉ/)).toBeTruthy();
+    expect(within(dialog).queryByText(/Hệ số tăng ca/)).toBeNull();
+  });
+});
+
+describe('RequestReasonsScreen: loại đơn', () => {
+  it('liệt kê loại hệ thống và loại tuỳ chỉnh với số lý do; thông tin loại đang chọn có nguồn, thời gian, số đơn', async () => {
     types = [...systemTypes, customType];
     render(<RequestReasonsScreen />);
-    fireEvent.click(await screen.findByRole('tab', { name: /Xin đi muộn/ }));
-    expect(
-      await screen.findByText('Đơn xin đi muộn chưa có lý do nào'),
-    ).toBeTruthy();
-    expect(
-      screen.queryByRole('button', { name: 'Tạo lý do mặc định' }),
-    ).toBeNull();
+    await screen.findByTestId('type-XIN_DI_MUON');
+    expect(within(screen.getByTestId('type-XIN_DI_MUON')).getByText('Xin đi muộn')).toBeTruthy();
+    selectType('XIN_DI_MUON');
+    const detail = screen.getByTestId('type-detail');
+    expect(within(detail).getByText('Tuỳ chỉnh')).toBeTruthy();
+    expect(within(detail).getByText('2 đơn đã tạo')).toBeTruthy();
+    selectType('BUSINESS_TRIP');
+    expect(within(screen.getByTestId('type-detail')).getByText('Hệ thống')).toBeTruthy();
+  });
+
+  it('loại tuỳ chỉnh rỗng không ép tạo lý do mặc định, thêm lý do dùng mã loại làm kind', async () => {
+    types = [...systemTypes, customType];
+    render(<RequestReasonsScreen />);
+    await screen.findByTestId('type-XIN_DI_MUON');
+    selectType('XIN_DI_MUON');
+    expect(await screen.findByText('Đơn xin đi muộn chưa có lý do nào')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Tạo lý do mặc định' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Thêm lý do' }));
     const dialog = await screen.findByRole('dialog');
     typeInto(dialog, /^Tên lý do/, 'Kẹt xe');
@@ -548,12 +830,24 @@ describe('RequestReasonsScreen - loại đơn', () => {
     expect(writes()[0].body).toMatchObject({ kind: 'XIN_DI_MUON', name: 'Kẹt xe' });
   });
 
+  it('loại không có danh mục lý do (Tạm ứng lương): giải thích, không có nút Thêm lý do, vẫn có Thiết lập loại đơn', async () => {
+    types = [...systemTypes, advanceType];
+    render(<RequestReasonsScreen />);
+    await screen.findByTestId('type-ADVANCE');
+    selectType('ADVANCE');
+    expect(screen.getByText(/Loại đơn này không có danh mục lý do/)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Thêm lý do' })).toBeNull();
+    expect(screen.queryByLabelText('Tìm lý do')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Thiết lập loại đơn' }));
+    expect(await screen.findByRole('menuitem', { name: 'Sửa loại đơn' })).toBeTruthy();
+  });
+
   it('ngừng loại tuỳ chỉnh qua Popconfirm gửi PATCH kèm expectedUpdatedAt', async () => {
     types = [...systemTypes, customType];
     render(<RequestReasonsScreen />);
-    fireEvent.click(
-      await screen.findByRole('button', { name: 'Ngừng loại đơn Xin đi muộn' }),
-    );
+    await screen.findByTestId('type-XIN_DI_MUON');
+    selectType('XIN_DI_MUON');
+    await typeMenu('Ngừng sử dụng loại đơn');
     expect(writes()).toHaveLength(0);
     fireEvent.click(await screen.findByRole('button', { name: 'Ngừng sử dụng' }));
     await waitFor(() => expect(writes()).toHaveLength(1));
@@ -564,26 +858,49 @@ describe('RequestReasonsScreen - loại đơn', () => {
     });
   });
 
-  it('loại hệ thống không có nút xóa; loại tuỳ chỉnh đã có đơn báo chỉ ngừng sử dụng', async () => {
+  it('loại hệ thống không có mục xóa; loại tuỳ chỉnh đã có đơn báo chỉ ngừng sử dụng', async () => {
     types = [...systemTypes, customType];
     render(<RequestReasonsScreen />);
-    await screen.findByRole('button', { name: 'Sửa loại đơn Công tác' });
-    expect(
-      screen.queryByRole('button', { name: 'Xóa loại đơn Công tác' }),
-    ).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Xóa loại đơn Xin đi muộn' }));
+    await screen.findByTestId('type-BUSINESS_TRIP');
+    selectType('BUSINESS_TRIP');
+    fireEvent.click(screen.getByRole('button', { name: 'Thiết lập loại đơn' }));
+    expect(await screen.findByRole('menuitem', { name: 'Sửa loại đơn' })).toBeTruthy();
+    expect(screen.queryByRole('menuitem', { name: 'Xóa loại đơn' })).toBeNull();
+    fireEvent.keyDown(window, { key: 'Escape' });
+    selectType('XIN_DI_MUON');
+    await typeMenu('Xóa loại đơn');
     expect(await screen.findByText(/đã có 2 đơn nên không xóa được/)).toBeTruthy();
   });
 
-  it('không tải được danh mục loại đơn: vẫn dùng được bốn tab lý do hệ thống', async () => {
+  it('Đơn xin nghỉ luôn bật: không có mục ngừng sử dụng loại đơn', async () => {
+    types = [leaveRequestType, ...systemTypes];
+    window.history.replaceState(null, '', '/?tab=LEAVE');
+    render(<RequestReasonsScreen />);
+    await screen.findByText('Nghỉ không lương');
+    fireEvent.click(screen.getByRole('button', { name: 'Thiết lập loại đơn' }));
+    expect(await screen.findByRole('menuitem', { name: 'Sửa loại đơn' })).toBeTruthy();
+    expect(screen.queryByRole('menuitem', { name: 'Ngừng sử dụng loại đơn' })).toBeNull();
+  });
+
+  it('thêm loại đơn mở hộp thoại tạo loại tuỳ chỉnh', async () => {
+    types = [...systemTypes];
+    render(<RequestReasonsScreen />);
+    await screen.findByTestId('type-OVERTIME');
+    fireEvent.click(screen.getByRole('button', { name: 'Thêm loại' }));
+    expect(await screen.findByRole('dialog')).toBeTruthy();
+  });
+
+  it('không tải được danh mục loại đơn: vẫn dùng được đơn nghỉ và bốn loại hệ thống có lý do', async () => {
     fetchMock.mockImplementation((async (path: string) => {
       if (path === '/request-types/manage') throw new Error('HRM_NOT_MIGRATED');
+      if (path === '/leave-types') return { data: leaveTypes };
       return { data: reasons };
     }) as never);
     render(<RequestReasonsScreen />);
-    expect(await screen.findByText('Theo yêu cầu công việc')).toBeTruthy();
-    expect(screen.getAllByRole('tab')).toHaveLength(4);
-    expect(screen.queryByRole('button', { name: 'Thêm loại đơn' })).toBeNull();
+    await screen.findByTestId('type-LEAVE');
+    for (const code of ['LEAVE', 'OVERTIME', 'BUSINESS_TRIP', 'ATTENDANCE_CORRECTION', 'SHIFT_CHANGE'])
+      expect(screen.getByTestId(`type-${code}`)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Thêm loại' })).toBeNull();
   });
 });
 

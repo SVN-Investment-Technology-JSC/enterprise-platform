@@ -22,11 +22,14 @@ export class HrmRequestTimeController {
     @Query('toAt') toAt?: string,
     @Query('leaveTypeId') leaveTypeId?: string,
     @Query('unit') unit?: string,
+    @Query('kind') kind?: string,
   ) {
     const { pool, tenantId, employeeId: targetEmployeeId } = await this.ctx.getRequestContext(
       req,
       employeeId ? requireUuid(employeeId, 'employeeId') : undefined,
     );
+    if (kind !== undefined && kind !== 'leave' && kind !== 'ot' && kind !== 'trip')
+      throw new BadRequestException('Loại đơn chỉ nhận leave, ot hoặc trip.');
     if (unit !== undefined && unit !== 'DAYS' && unit !== 'HOURS')
       throw new BadRequestException('Đơn vị chỉ nhận DAYS hoặc HOURS.');
     let effectiveUnit: 'DAYS' | 'HOURS' = unit === 'HOURS' ? 'HOURS' : 'DAYS';
@@ -48,6 +51,8 @@ export class HrmRequestTimeController {
       fromAt,
       toAt,
       effectiveUnit,
+      // Đơn làm thêm giờ và công tác có cách tính riêng (không theo ca như đơn nghỉ).
+      kind === 'ot' ? 'OT' : kind === 'trip' ? 'TRIP' : 'LEAVE',
     );
     return { data: toTimePreview(fromMs, toMs, timezone, result) };
   }

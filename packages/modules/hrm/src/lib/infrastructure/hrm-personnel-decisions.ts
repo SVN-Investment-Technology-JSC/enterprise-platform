@@ -306,7 +306,21 @@ export async function loadReportingOverview(
     lines.find(
       (line) => line.effectiveFrom <= today && (!line.effectiveTo || line.effectiveTo >= today),
     ) ?? null;
-  return { current, history: lines };
+  const resolved = await loadDirectManagerRef(db, tenantId, employeeId);
+  return {
+    current,
+    history: lines,
+    manager: resolved
+      ? {
+          employeeId: resolved.employeeId,
+          name: resolved.name,
+          code: resolved.code ?? null,
+          title: resolved.title,
+          email: resolved.email,
+          source: resolved.source ?? 'HRM_LINE',
+        }
+      : null,
+  };
 }
 
 /** Người quản lý trực tiếp hiện tại kèm mã nhân viên (dùng cho màn hình cách duyệt đơn). */
@@ -315,6 +329,9 @@ export interface HrmDirectManagerRef {
   name: string;
   title: string | null;
   email: string | null;
+  /** Mã nhân viên của người quản lý (nếu có hồ sơ HRM). */
+  code?: string | null;
+  source?: 'CORE_POSITION' | 'HRM_LINE';
 }
 
 /** Người quản lý trực tiếp hiện tại để hiển thị trên hồ sơ (tên, chức danh, email). */
@@ -329,16 +346,88 @@ export async function loadDirectManager(
     : null;
 }
 
-/** Như `loadDirectManager` nhưng trả thêm mã nhân viên của người quản lý. */
+/**
+ * Quản lý trực tiếp theo sơ đồ tổ chức của Core: lấy chức danh đang giữ của nhân viên (chức danh chính, không có thì
+ * chức danh sớm nhất), đi theo "Báo cáo cho" (ô ghi đè trên phân công thắng giá trị của chức danh) rồi lấy người đang
+ * giữ chức danh đó. Chức danh trống hoặc người giữ đã nghỉ việc/là chính nhân viên thì leo tiếp lên cấp trên.
+ * Trả null khi chưa khai báo "Báo cáo cho" hoặc không có ai giữ các chức danh phía trên.
+ */
+async function managerFromCorePositions(
+  db: Queryable,
+  tenantId: string,
+  employeeId: string,
+): Promise<HrmDirectManagerRef | null> {
+  const column = await db.query(
+    `SELECT 1 FROM information_schema.columns
+      WHERE table_schema = 'core_schema' AND table_name = 'organization_nodes' AND column_name = 'reports_to_position_id'`,
+  );
+  if (!column.rows.length) return null;
+  const active = `a.deleted_at IS NULL AND a.status = 'active'
+      AND (a.start_date IS NULL OR a.start_date <= ${TODAY_SQL})
+      AND (a.end_date IS NULL OR a.end_date >= ${TODAY_SQL})`;
+  const own = await db.query(
+    `SELECT COALESCE(a.reports_to_position_override_id, n.reports_to_position_id) AS start_position_id
+       FROM core_schema.employees e
+       JOIN core_schema.organization_node_assignments a ON a.user_id = e.user_id AND ${active}
+       JOIN core_schema.organization_nodes n ON n.id = a.node_id AND n.deleted_at IS NULL AND n.category = 'position'
+      WHERE e.tenant_id = $1 AND e.id = $2 AND e.deleted_at IS NULL
+      ORDER BY a.is_primary DESC, a.created_at LIMIT 1`,
+    [tenantId, employeeId],
+  );
+  const start = own.rows[0]?.start_position_id as string | null | undefined;
+  if (!start) return null;
+  const result = await db.query(
+    `WITH RECURSIVE chain AS (
+       SELECT n.id, n.name, n.reports_to_position_id AS next_id, 1 AS lvl, ARRAY[n.id] AS seen
+         FROM core_schema.organization_nodes n
+        WHERE n.id = $3::uuid AND n.deleted_at IS NULL AND n.category = 'position'
+       UNION ALL
+       SELECT p.id, p.name, p.reports_to_position_id, c.lvl + 1, c.seen || p.id
+         FROM chain c
+         JOIN core_schema.organization_nodes p ON p.id = c.next_id AND p.deleted_at IS NULL AND p.category = 'position'
+        WHERE NOT p.id = ANY(c.seen) AND c.lvl < 50
+     )
+     SELECT e.id AS manager_employee_id, e.full_name, e.work_email, c.name AS position_name, ep.employee_code
+       FROM chain c
+       JOIN core_schema.organization_node_assignments a ON a.node_id = c.id AND ${active}
+       JOIN core_schema.users u ON u.id = a.user_id AND u.status = 'active' AND u.is_active = true
+       JOIN core_schema.employees e ON e.user_id = a.user_id AND e.tenant_id = $1 AND e.deleted_at IS NULL AND e.id <> $2
+       LEFT JOIN hrm_schema.employee_profiles ep ON ep.employee_id = e.id AND ep.tenant_id = $1 AND ep.deleted_at IS NULL
+      WHERE ep.employment_status IS NULL OR ep.employment_status <> ALL($4::text[])
+      ORDER BY c.lvl, a.is_primary DESC, a.created_at
+      LIMIT 1`,
+    [tenantId, employeeId, start, INACTIVE_EMPLOYMENT],
+  );
+  const row = result.rows[0];
+  return row
+    ? {
+        employeeId: row.manager_employee_id,
+        name: row.full_name,
+        title: row.position_name ?? null,
+        email: row.work_email ?? null,
+        code: row.employee_code ?? null,
+        source: 'CORE_POSITION',
+      }
+    : null;
+}
+
+/**
+ * Như `loadDirectManager` nhưng trả thêm mã nhân viên của người quản lý.
+ * Nguồn chính là "Báo cáo cho" của chức danh trong sơ đồ tổ chức Core; chưa khai báo thì dùng quan hệ báo cáo
+ * HRM đang hiệu lực (do quyết định nhân sự tạo).
+ */
 export async function loadDirectManagerRef(
   db: Queryable,
   tenantId: string,
   employeeId: string,
 ): Promise<HrmDirectManagerRef | null> {
+  const fromCore = await managerFromCorePositions(db, tenantId, employeeId);
+  if (fromCore) return fromCore;
   const result = await db.query(
-    `SELECT m.id AS manager_employee_id, m.full_name, m.work_email, pos.name AS position_name
+    `SELECT m.id AS manager_employee_id, m.full_name, m.work_email, pos.name AS position_name, mp.employee_code
        FROM hrm_schema.employee_reporting_lines l
        JOIN core_schema.employees m ON m.id = l.manager_employee_id AND m.deleted_at IS NULL
+       LEFT JOIN hrm_schema.employee_profiles mp ON mp.employee_id = m.id AND mp.tenant_id = l.tenant_id
        ${PRIMARY_POSITION_LATERAL.replace('%USER%', 'm.user_id')}
       WHERE l.tenant_id = $1 AND l.employee_id = $2 AND l.relation_type = 'DIRECT'
         AND l.effective_from <= ${TODAY_SQL} AND (l.effective_to IS NULL OR l.effective_to >= ${TODAY_SQL})
@@ -346,117 +435,16 @@ export async function loadDirectManagerRef(
     [tenantId, employeeId],
   );
   const row = result.rows[0];
-  if (row) {
-    return {
-      employeeId: row.manager_employee_id,
-      name: row.full_name,
-      title: row.position_name ?? null,
-      email: row.work_email ?? null,
-    };
-  }
-
-  // Tự động tìm theo chức danh lãnh đạo cao nhất trong sơ đồ tổ chức Core
-  try {
-    const empRes = await db.query(
-      `SELECT e.id, e.user_id FROM core_schema.employees e WHERE e.tenant_id = $1 AND e.id = $2 AND e.deleted_at IS NULL`,
-      [tenantId, employeeId],
-    );
-    const empUser = empRes.rows[0];
-    if (empUser?.user_id) {
-      const nodeRes = await db.query(
-        `SELECT pos.id as pos_id, pos.name as pos_name, pos.parent_id as unit_id, unit.parent_id as parent_unit_id, unit.head_position_id,
-                CASE
-                  WHEN pos.id = unit.head_position_id THEN 1
-                  WHEN pos.name ILIKE '%Tổng Giám đốc%' OR pos.name ILIKE '%Giám đốc%' THEN 2
-                  WHEN pos.name ILIKE 'Trưởng%' OR pos.name ILIKE 'Chánh%' THEN 3
-                  WHEN pos.name ILIKE 'Phó%' THEN 4
-                  ELSE 5
-                END as my_rank
-           FROM core_schema.organization_node_assignments a
-           JOIN core_schema.organization_nodes pos ON pos.id = a.node_id AND pos.deleted_at IS NULL
-           JOIN core_schema.organization_nodes unit ON unit.id = pos.parent_id AND unit.deleted_at IS NULL
-          WHERE a.user_id = $1 AND a.deleted_at IS NULL AND a.status = 'active'
-            AND (a.start_date IS NULL OR a.start_date <= ${TODAY_SQL})
-            AND (a.end_date IS NULL OR a.end_date >= ${TODAY_SQL})
-          ORDER BY a.is_primary DESC, a.created_at LIMIT 1`,
-        [empUser.user_id],
-      );
-      const empUnit = nodeRes.rows[0];
-      if (empUnit) {
-        // Tìm cấp trên trong cùng đơn vị
-        const inUnitRes = await db.query(
-          `SELECT e.id as manager_employee_id, e.full_name, e.work_email, pos.name as position_name,
-                  CASE
-                    WHEN pos.id = unit.head_position_id THEN 1
-                    WHEN pos.name ILIKE '%Tổng Giám đốc%' OR pos.name ILIKE '%Giám đốc%' THEN 2
-                    WHEN pos.name ILIKE 'Trưởng%' OR pos.name ILIKE 'Chánh%' THEN 3
-                    WHEN pos.name ILIKE 'Phó%' THEN 4
-                    ELSE 5
-                  END as rank
-             FROM core_schema.organization_node_assignments a
-             JOIN core_schema.organization_nodes pos ON pos.id = a.node_id AND pos.deleted_at IS NULL
-             JOIN core_schema.organization_nodes unit ON unit.id = pos.parent_id AND unit.deleted_at IS NULL
-             JOIN core_schema.employees e ON e.user_id = a.user_id AND e.deleted_at IS NULL
-            WHERE pos.parent_id = $1 AND e.id <> $2 AND a.deleted_at IS NULL AND a.status = 'active'
-              AND (a.start_date IS NULL OR a.start_date <= ${TODAY_SQL})
-              AND (a.end_date IS NULL OR a.end_date >= ${TODAY_SQL})
-            ORDER BY rank ASC, a.is_primary DESC, a.created_at ASC`,
-          [empUnit.unit_id, employeeId],
-        );
-        const superiorInUnit = inUnitRes.rows.find((r: any) => r.rank < empUnit.my_rank);
-        if (superiorInUnit) {
-          return {
-            employeeId: superiorInUnit.manager_employee_id,
-            name: superiorInUnit.full_name,
-            title: superiorInUnit.position_name ?? null,
-            email: superiorInUnit.work_email ?? null,
-          };
-        }
-
-        // Nếu đã là lãnh đạo đơn vị, tìm ở đơn vị cha (Ban TGĐ...)
-        let currParentId = empUnit.parent_unit_id;
-        while (currParentId) {
-          const parentRes = await db.query(
-            `SELECT e.id as manager_employee_id, e.full_name, e.work_email, pos.name as position_name,
-                    CASE
-                      WHEN pos.id = unit.head_position_id THEN 1
-                      WHEN pos.name ILIKE '%Tổng Giám đốc%' OR pos.name ILIKE '%Giám đốc%' THEN 2
-                      WHEN pos.name ILIKE 'Trưởng%' OR pos.name ILIKE 'Chánh%' THEN 3
-                      WHEN pos.name ILIKE 'Phó%' THEN 4
-                      ELSE 5
-                    END as rank
-               FROM core_schema.organization_node_assignments a
-               JOIN core_schema.organization_nodes pos ON pos.id = a.node_id AND pos.deleted_at IS NULL
-               JOIN core_schema.organization_nodes unit ON unit.id = pos.parent_id AND unit.deleted_at IS NULL
-               JOIN core_schema.employees e ON e.user_id = a.user_id AND e.deleted_at IS NULL
-              WHERE pos.parent_id = $1 AND e.id <> $2 AND a.deleted_at IS NULL AND a.status = 'active'
-                AND (a.start_date IS NULL OR a.start_date <= ${TODAY_SQL})
-                AND (a.end_date IS NULL OR a.end_date >= ${TODAY_SQL})
-              ORDER BY rank ASC, a.is_primary DESC, a.created_at ASC LIMIT 1`,
-            [currParentId, employeeId],
-          );
-          if (parentRes.rows.length) {
-            const pMgr = parentRes.rows[0];
-            return {
-              employeeId: pMgr.manager_employee_id,
-              name: pMgr.full_name,
-              title: pMgr.position_name ?? null,
-              email: pMgr.work_email ?? null,
-            };
-          }
-          const parentNode = (await db.query(
-            `SELECT parent_id FROM core_schema.organization_nodes WHERE id = $1 AND deleted_at IS NULL`,
-            [currParentId],
-          )).rows[0];
-          currParentId = parentNode?.parent_id;
-        }
+  return row
+    ? {
+        employeeId: row.manager_employee_id,
+        name: row.full_name,
+        title: row.position_name ?? null,
+        email: row.work_email ?? null,
+        code: row.employee_code ?? null,
+        source: 'HRM_LINE',
       }
-    }
-  } catch {
-    // Không làm gián đoạn nếu bảng core_schema chưa đồng bộ
-  }
-
-  return null;
+    : null;
 }
 
 /**

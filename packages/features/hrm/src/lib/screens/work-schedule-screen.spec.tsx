@@ -1,5 +1,5 @@
 /** @jest-environment jsdom */
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { HrmApiError, hrmEmployeeOptions, hrmFetch } from '../hrm-api';
 import { addDays, endOfMonth, startOfMonth, todayIso } from '../hrm-work-schedule-model';
 import WorkScheduleScreen from './work-schedule-screen';
@@ -75,6 +75,8 @@ const conflictRow = {
   incoming: { dayType: 'OFF', shiftCode: null },
 };
 
+const auditRows: unknown[] = [];
+
 type Handler = (path: string, init?: RequestInit) => unknown | Promise<unknown>;
 function route(overrides: Record<string, Handler> = {}) {
   fetchMock.mockImplementation((async (path: string, init?: RequestInit) => {
@@ -85,7 +87,7 @@ function route(overrides: Record<string, Handler> = {}) {
     if (path === '/work-schedule-templates') return { data: [template] };
     if (path.startsWith('/work-schedules/grid')) return grid;
     if (path.startsWith('/work-schedules/list')) return { data: [], meta: { total: 0, page: 1, pageSize: 50 } };
-    if (path.startsWith('/work-schedules/audit')) return { data: [] };
+    if (path.startsWith('/work-schedules/audit')) return { data: auditRows };
     if (path.startsWith('/work-schedules/rules')) return { data: [] };
     if (path === '/work-schedules/preview') return { data: preview };
     throw new Error(`Unexpected request ${path}`);
@@ -102,20 +104,38 @@ async function pickOption(placeholder: RegExp, option: RegExp | string) {
   fireEvent.click(await screen.findByRole('option', { name: option }));
 }
 
+const setTab = (tab?: string) => window.history.replaceState(null, '', tab ? `/?tab=${tab}` : '/');
+
+/** Mở màn ở tab Lịch làm việc (lưới/danh sách) - giữ các kiểm tra cũ của lưới. */
+function renderCalendar() {
+  setTab('calendar');
+  return render(<WorkScheduleScreen />);
+}
+
+/** Mở menu Công cụ ở đầu trang rồi chọn một mục. */
+async function openTool(name: string) {
+  fireEvent.click(await screen.findByRole('button', { name: 'Công cụ phân ca' }));
+  fireEvent.click(await screen.findByRole('menuitem', { name }));
+}
+
+/** Mở phần Tuỳ chọn nâng cao của biểu mẫu Phân ca. */
+function openAdvanced() {
+  const toggle = screen.getByRole('button', { name: /Tuỳ chọn nâng cao/ });
+  if (toggle.getAttribute('aria-expanded') !== 'true') fireEvent.click(toggle);
+}
+
 /**
- * Đi từ nút "Phân ca mới" tới bước xem trước bằng mẫu lịch đã lưu.
- * Mặc định giữ tùy chọn "Không có ngày kết thúc" (bật sẵn); fixedRange=true tắt tùy chọn để dùng khoảng ngày.
+ * Điền biểu mẫu Phân ca trong trang tới lúc bấm "Xác nhận phân ca" (xem trước): chọn nhân viên và mẫu lịch đã lưu.
+ * Mặc định giữ "Không có ngày kết thúc" (bật sẵn); fixedRange=true tắt tùy chọn để dùng khoảng ngày.
  */
 async function walkToPreview(fixedRange = false) {
-  fireEvent.click(await screen.findByRole('button', { name: 'Phân ca mới' }));
   await pickOption(/Tìm theo mã hoặc tên nhân viên/, /NV001/);
-  fireEvent.click(screen.getByRole('button', { name: 'Tiếp tục' }));
-  fireEvent.click(await screen.findByRole('radio', { name: 'Dùng mẫu lịch đã lưu' }));
-  await pickOption(/Tìm mẫu lịch/, /Hành chính T2-T6/);
-  fireEvent.click(screen.getByRole('button', { name: 'Tiếp tục' }));
-  const openEndedSwitch = await screen.findByRole('checkbox', { name: /Không có ngày kết thúc/ });
-  if (fixedRange) fireEvent.click(openEndedSwitch);
-  fireEvent.click(screen.getByRole('button', { name: 'Tiếp tục' }));
+  await pickOption(/Chọn ca làm việc/, /Mẫu lịch tuần: Hành chính T2-T6/);
+  if (fixedRange) {
+    openAdvanced();
+    fireEvent.click(await screen.findByRole('checkbox', { name: /Không có ngày kết thúc/ }));
+  }
+  fireEvent.click(screen.getByRole('button', { name: 'Xác nhận phân ca' }));
 }
 
 beforeEach(() => {
@@ -123,12 +143,13 @@ beforeEach(() => {
   employeesMock.mockReset();
   employeesMock.mockResolvedValue([{ value: 'e1', label: 'NV001 · Nguyễn Văn An' }]);
   grant('hrm.schedule.read', 'hrm.schedule.manage');
+  setTab();
   route();
 });
 
 describe('WorkScheduleScreen', () => {
   it('renders employees, shift codes, OFF and holiday cells on the month grid', async () => {
-    render(<WorkScheduleScreen />);
+    renderCalendar();
     expect(await screen.findByText('NV001')).toBeTruthy();
     expect(screen.getByText('Nguyễn Văn An')).toBeTruthy();
     const shiftCell = await screen.findByTitle(/Hành chính 08:00-17:00 \(Mẫu\)/);
@@ -155,7 +176,7 @@ describe('WorkScheduleScreen', () => {
         ],
       }),
     });
-    render(<WorkScheduleScreen />);
+    renderCalendar();
     const approved = await screen.findByTitle(/Hành chính 08:00-17:00 \(Mẫu\)\. Nghỉ phép đã duyệt/);
     expect(approved.getAttribute('data-request')).toBe('approved');
     expect(approved.textContent).toContain('P');
@@ -170,7 +191,7 @@ describe('WorkScheduleScreen', () => {
         throw new HrmApiError('x', 409, 'HRM_SCHEDULE_NOT_MIGRATED', { code: 'HRM_SCHEDULE_NOT_MIGRATED' });
       },
     });
-    render(<WorkScheduleScreen />);
+    renderCalendar();
     expect(await screen.findByText('Chưa khởi tạo dữ liệu phân ca')).toBeTruthy();
     expect(screen.queryByRole('tab', { name: 'Lịch tuần' })).toBeNull();
   });
@@ -188,9 +209,10 @@ describe('WorkScheduleScreen', () => {
     render(<WorkScheduleScreen />);
     await walkToPreview(true);
 
-    const save = await screen.findByRole('button', { name: 'Lưu phân ca' });
-    expect((save as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.click(save);
+    // Đang kiểm tra: nút chính bị khóa nên chưa thể lưu khi chưa có kết quả xem trước.
+    const checking = await screen.findByRole('button', { name: 'Đang kiểm tra…' });
+    expect((checking as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(checking);
     expect(applyCalls).toHaveLength(0);
 
     resolvePreview({ data: preview });
@@ -262,37 +284,42 @@ describe('WorkScheduleScreen', () => {
   it('hides bulk and whole-company options without hrm.schedule.bulk', async () => {
     grant('hrm.schedule.read', 'hrm.schedule.manage');
     const { unmount } = render(<WorkScheduleScreen />);
-    await screen.findByText('NV001');
-    expect(screen.queryByRole('button', { name: 'Phân ca hàng loạt' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Sao chép lịch' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Thiết lập ngoại lệ' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Lịch lễ/Tết' })).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Phân ca mới' }));
-    await screen.findByText('Một nhân viên');
-    expect(screen.queryByRole('radio', { name: 'Toàn công ty' })).toBeNull();
-    expect(screen.queryByText('Nhiều nhân viên')).toBeNull();
+    await screen.findByText('Thông tin phân ca');
+    // Chỉ một nhân viên: không có thẻ chọn phạm vi nào khác.
+    expect(screen.queryByRole('radio', { name: /Toàn bộ nhân viên/ })).toBeNull();
+    expect(screen.queryByRole('radio', { name: /Nhiều nhân viên/ })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Công cụ phân ca' }));
+    expect(await screen.findByRole('menuitem', { name: 'Mẫu lịch tuần' })).toBeTruthy();
+    for (const name of ['Sao chép lịch', 'Thiết lập ngoại lệ', 'Lịch lễ/Tết'])
+      expect(screen.queryByRole('menuitem', { name })).toBeNull();
     unmount();
 
     grant('hrm.schedule.read', 'hrm.schedule.manage', 'hrm.schedule.bulk');
     render(<WorkScheduleScreen />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Phân ca hàng loạt' }));
-    expect(await screen.findByRole('radio', { name: 'Toàn công ty' })).toBeTruthy();
-    expect(screen.getByRole('radio', { name: 'Theo đơn vị' })).toBeTruthy();
+    expect(await screen.findByRole('radio', { name: /Toàn bộ nhân viên/ })).toBeTruthy();
+    expect(screen.getByRole('radio', { name: /Theo đơn vị/ })).toBeTruthy();
+    expect(screen.getByRole('radio', { name: /Nhiều nhân viên/ })).toBeTruthy();
   });
 
   it('shows only read-only controls to a user with hrm.schedule.read', async () => {
     grant('hrm.schedule.read');
     render(<WorkScheduleScreen />);
     await screen.findByText('NV001');
-    for (const name of ['Phân ca mới', 'Phân ca hàng loạt', 'Hủy lịch', 'Sao chép lịch', 'Thiết lập ngoại lệ', 'Lịch lễ/Tết'])
-      expect(screen.queryByRole('button', { name })).toBeNull();
+    // Chỉ có tab Lịch làm việc: không có biểu mẫu Phân ca/Nhả ca và không có thanh tab chế độ.
+    expect(screen.queryByRole('tablist', { name: 'Chế độ phân ca' })).toBeNull();
+    expect(screen.queryByText('Thông tin phân ca')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Xác nhận phân ca' })).toBeNull();
     expect(screen.getByRole('button', { name: 'Xuất Excel' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Lịch sử thay đổi' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Mẫu lịch tuần' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Lịch sử thao tác' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Công cụ phân ca' }));
+    expect(await screen.findByRole('menuitem', { name: 'Mẫu lịch tuần' })).toBeTruthy();
+    expect(screen.getByRole('menuitem', { name: 'Lịch định kỳ' })).toBeTruthy();
+    for (const name of ['Sao chép lịch', 'Thiết lập ngoại lệ', 'Lịch lễ/Tết'])
+      expect(screen.queryByRole('menuitem', { name })).toBeNull();
   });
 
   it('switches to the list view and calls the list endpoint', async () => {
-    render(<WorkScheduleScreen />);
+    renderCalendar();
     await screen.findByText('NV001');
     fireEvent.click(screen.getByRole('tab', { name: 'Danh sách phân ca' }));
     expect(await screen.findByText('Chưa có phân ca nào trong khoảng ngày đã chọn.')).toBeTruthy();
@@ -326,8 +353,10 @@ const ruleResult = { batchId: 'batch-rule-1', ruleCount: 1, changedRules: 1, ski
 describe('WorkScheduleScreen open-ended recurring schedules', () => {
   it('turns the no-end-date switch on by default, hides Đến ngày and explains it', async () => {
     render(<WorkScheduleScreen />);
-    await walkToStep3();
-    const toggle = screen.getByRole('checkbox', { name: /Không có ngày kết thúc/ }) as HTMLInputElement;
+    await pickOption(/Tìm theo mã hoặc tên nhân viên/, /NV001/);
+    await pickOption(/Chọn ca làm việc/, /Mẫu lịch tuần: Hành chính T2-T6/);
+    openAdvanced();
+    const toggle = (await screen.findByRole('checkbox', { name: /Không có ngày kết thúc/ })) as HTMLInputElement;
     expect(toggle.checked).toBe(true);
     expect(screen.queryByLabelText('Đến ngày')).toBeNull();
     expect(screen.getByText(/tự chạy đến khi bạn kết thúc; không cần gán lại theo tháng/)).toBeTruthy();
@@ -337,8 +366,8 @@ describe('WorkScheduleScreen open-ended recurring schedules', () => {
 
   it('hides the switch for exceptions, which always need an end date', async () => {
     grant('hrm.schedule.read', 'hrm.schedule.manage', 'hrm.schedule.calendar');
-    render(<WorkScheduleScreen />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Thiết lập ngoại lệ' }));
+    renderCalendar();
+    await openTool('Thiết lập ngoại lệ');
     await pickOption(/Tìm theo mã hoặc tên nhân viên/, /NV001/);
     fireEvent.click(screen.getByRole('button', { name: 'Tiếp tục' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Tiếp tục' }));
@@ -363,9 +392,9 @@ describe('WorkScheduleScreen open-ended recurring schedules', () => {
     render(<WorkScheduleScreen />);
     await walkToPreview();
 
-    const save = await screen.findByRole('button', { name: 'Lưu phân ca' });
+    const save = await screen.findByRole('button', { name: /Đang kiểm tra…|Lưu phân ca/ });
     expect((save as HTMLButtonElement).disabled).toBe(true);
-    expect(previewBodies).toHaveLength(1);
+    await waitFor(() => expect(previewBodies).toHaveLength(1));
     expect(previewBodies[0]).not.toHaveProperty('toDate');
     expect(previewBodies[0]).toMatchObject({ kind: 'ASSIGN', templateId: 't1', scope: { type: 'EMPLOYEE', employeeIds: ['e1'] } });
 
@@ -387,7 +416,7 @@ describe('WorkScheduleScreen open-ended recurring schedules', () => {
     expect(applyBodies[0]).not.toHaveProperty('toDate');
   });
 
-  it('lịch tự cấu hình: chọn ca ở ô thao tác nhanh thì request xem trước và lưu mang đủ T2-T6 và thứ bảy', async () => {
+  it('lịch tự cấu hình: chọn ca ở ô chính (T2-T6) và chỉnh thứ bảy, chủ nhật ở Tuỳ chọn nâng cao thì request mang đủ lịch tuần', async () => {
     const previewBodies: Record<string, unknown>[] = [];
     const applyBodies: Record<string, unknown>[] = [];
     route({
@@ -401,19 +430,16 @@ describe('WorkScheduleScreen open-ended recurring schedules', () => {
       },
     });
     render(<WorkScheduleScreen />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Phân ca mới' }));
     await pickOption(/Tìm theo mã hoặc tên nhân viên/, /NV001/);
-    fireEvent.click(screen.getByRole('button', { name: 'Tiếp tục' }));
-    // Ô thao tác nhanh: chỉ chọn ca, không bấm nút nào khác.
-    await pickOption(/Chọn ca cho T2-T6/, /Hành chính/);
+    // Ô chính: một ca cho Thứ hai đến Thứ sáu.
+    await pickOption(/Chọn ca làm việc/, /^HC - Hành chính/);
+    openAdvanced();
     await pickOption(/Chọn ca làm việc thứ bảy/, /Nửa ngày/);
     fireEvent.click(screen.getByRole('button', { name: 'Chủ nhật nghỉ' }));
-    expect(screen.queryByTestId('pattern-skip-warning')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Tiếp tục' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Tiếp tục' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Xác nhận phân ca' }));
+    await waitFor(() => expect(previewBodies).toHaveLength(1));
     await screen.findByTestId('pattern-summary');
     expect(screen.getByTestId('pattern-summary').textContent).toContain('T2-T6: HC; T7: HC4; CN: Nghỉ');
-    await waitFor(() => expect(previewBodies).toHaveLength(1));
     const pattern = (previewBodies[0] as { pattern: { weekday: number; dayType: string; shiftId: string | null }[] }).pattern;
     expect(pattern.map((r) => r.dayType)).toEqual(['SHIFT', 'SHIFT', 'SHIFT', 'SHIFT', 'SHIFT', 'SHIFT', 'OFF']);
     expect(pattern.slice(0, 5).every((r) => r.shiftId === 's-hc')).toBe(true);
@@ -512,7 +538,7 @@ describe('WorkScheduleScreen open-ended recurring schedules', () => {
       note: null,
     };
     route({ '/work-schedules/grid': () => ({ ...grid, days: [...grid.days, ruleDay] }) });
-    render(<WorkScheduleScreen />);
+    renderCalendar();
     const cell = await screen.findByTitle(/Hành chính 08:00-17:00 \(Lịch định kỳ\)/);
     expect(cell.getAttribute('data-source')).toBe('RULE');
     expect(cell.className).toContain('sky');
@@ -521,14 +547,14 @@ describe('WorkScheduleScreen open-ended recurring schedules', () => {
   });
 
   it('hints on the list tab that recurring schedules are elsewhere', async () => {
-    render(<WorkScheduleScreen />);
+    renderCalendar();
     await screen.findByText('NV001');
     fireEvent.click(screen.getByRole('tab', { name: 'Danh sách phân ca' }));
     expect(await screen.findByText(/Lịch định kỳ \(không có ngày kết thúc\) xem trong/)).toBeTruthy();
   });
 
   it('keeps month navigation open to the future', async () => {
-    render(<WorkScheduleScreen />);
+    renderCalendar();
     await screen.findByText('NV001');
     const next = screen.getByRole('button', { name: 'Tháng sau' });
     for (let i = 0; i < 30; i++) fireEvent.click(next);
@@ -543,16 +569,6 @@ describe('WorkScheduleScreen open-ended recurring schedules', () => {
 function addMonthsIso(iso: string, n: number) {
   const d = new Date(Date.UTC(Number(iso.slice(0, 4)), Number(iso.slice(5, 7)) - 1 + n, 1));
   return d.toISOString().slice(0, 10);
-}
-
-async function walkToStep3() {
-  fireEvent.click(await screen.findByRole('button', { name: 'Phân ca mới' }));
-  await pickOption(/Tìm theo mã hoặc tên nhân viên/, /NV001/);
-  fireEvent.click(screen.getByRole('button', { name: 'Tiếp tục' }));
-  fireEvent.click(await screen.findByRole('radio', { name: 'Dùng mẫu lịch đã lưu' }));
-  await pickOption(/Tìm mẫu lịch/, /Hành chính T2-T6/);
-  fireEvent.click(screen.getByRole('button', { name: 'Tiếp tục' }));
-  await screen.findByRole('checkbox', { name: /Không có ngày kết thúc/ });
 }
 
 const employeeRule = {
@@ -575,7 +591,7 @@ const unitRule = { ...employeeRule, id: 'r2', scopeType: 'UNIT', scopeLabel: 'S�
 
 describe('Rules manager (Lịch định kỳ)', () => {
   async function openManager() {
-    fireEvent.click(await screen.findByRole('button', { name: 'Lịch định kỳ' }));
+    await openTool('Lịch định kỳ');
     return screen.findByRole('dialog', { name: 'Lịch định kỳ' });
   }
 
@@ -669,9 +685,9 @@ describe('HRM_SCHEDULE_RULES_NOT_MIGRATED stays a local error', () => {
   it('keeps the calendar working and shows the message inside the rules manager only', async () => {
     route({ '/work-schedules/rules': rulesMissing });
     grant('hrm.schedule.read', 'hrm.schedule.manage');
-    render(<WorkScheduleScreen />);
+    renderCalendar();
     expect(await screen.findByText('NV001')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Lịch định kỳ' }));
+    await openTool('Lịch định kỳ');
     const dialog = await screen.findByRole('dialog', { name: 'Lịch định kỳ' });
     expect(await within(dialog).findByText(/thiếu migration 0036/)).toBeTruthy();
     // Màn hình không bị thay bằng thông báo toàn trang; lưới và các tab vẫn còn.
@@ -689,8 +705,7 @@ describe('HRM_SCHEDULE_RULES_NOT_MIGRATED stays a local error', () => {
     expect(notice.textContent).toContain('thiếu migration 0036');
     expect(notice.textContent).toContain('Bỏ chọn Không có ngày kết thúc');
     expect(screen.queryByText('Chưa khởi tạo dữ liệu phân ca')).toBeNull();
-    expect(screen.getByRole('tab', { name: 'Lịch tuần', hidden: true })).toBeTruthy();
-    expect((screen.getByRole('button', { name: 'Lưu phân ca' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByRole('tablist', { name: 'Chế độ phân ca' })).toBeTruthy();
 
     fireEvent.click(within(notice).getByRole('button', { name: 'Phân ca theo khoảng ngày' }));
     const toggle = (await screen.findByRole('checkbox', { name: /Không có ngày kết thúc/ })) as HTMLInputElement;
@@ -700,7 +715,7 @@ describe('HRM_SCHEDULE_RULES_NOT_MIGRATED stays a local error', () => {
 
   it('does not replace the screen when the grid itself reports the rules table is missing', async () => {
     route({ '/work-schedules/grid': rulesMissing });
-    render(<WorkScheduleScreen />);
+    renderCalendar();
     expect(await screen.findByText(/thiếu migration 0036/)).toBeTruthy();
     expect(screen.queryByText('Chưa khởi tạo dữ liệu phân ca')).toBeNull();
     expect(screen.getByRole('tab', { name: 'Lịch tháng' })).toBeTruthy();
@@ -712,7 +727,116 @@ describe('HRM_SCHEDULE_RULES_NOT_MIGRATED stays a local error', () => {
         throw new HrmApiError('x', 409, 'HRM_SCHEDULE_NOT_MIGRATED', { code: 'HRM_SCHEDULE_NOT_MIGRATED' });
       },
     });
-    render(<WorkScheduleScreen />);
+    renderCalendar();
     expect(await screen.findByText('Chưa khởi tạo dữ liệu phân ca')).toBeTruthy();
+  });
+});
+
+describe('WorkScheduleScreen: tab Phân ca | Nhả ca | Lịch làm việc, lịch sử gần đây', () => {
+  const urlTab = () => new URLSearchParams(window.location.search).get('tab');
+
+  it('mặc định mở tab Phân ca (biểu mẫu trong trang); bấm tab ghi ?tab= lên URL; mở thẳng bằng URL và nghe popstate', async () => {
+    render(<WorkScheduleScreen />);
+    expect(await screen.findByText('Thông tin phân ca')).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Phân ca' })).toBeTruthy();
+    expect(screen.getByRole('tab', { name: /^Phân ca$/ }).getAttribute('aria-selected')).toBe('true');
+    // Chưa tải lưới khi chưa ở tab Lịch làm việc.
+    expect(fetchMock.mock.calls.some(([p]) => String(p).startsWith('/work-schedules/grid'))).toBe(false);
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Nhả ca' }));
+    expect(urlTab()).toBe('release');
+    expect(await screen.findByText('Thông tin nhả ca')).toBeTruthy();
+    expect(screen.queryByText('Thông tin phân ca')).toBeNull();
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Lịch làm việc' }));
+    expect(urlTab()).toBe('calendar');
+    expect(await screen.findByText('NV001')).toBeTruthy();
+
+    act(() => {
+      window.history.replaceState(null, '', '/?tab=assign');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
+    expect(await screen.findByText('Thông tin phân ca')).toBeTruthy();
+  });
+
+  it('tab không hợp lệ rơi về Phân ca và được sửa lại; không có quyền quản lý thì chỉ có Lịch làm việc', async () => {
+    setTab('khong-co');
+    const first = render(<WorkScheduleScreen />);
+    await screen.findByText('Thông tin phân ca');
+    await waitFor(() => expect(urlTab()).toBe('assign'));
+    first.unmount();
+
+    grant('hrm.schedule.read');
+    setTab('assign');
+    render(<WorkScheduleScreen />);
+    expect(await screen.findByText('NV001')).toBeTruthy();
+    await waitFor(() => expect(urlTab()).toBe('calendar'));
+    expect(screen.queryByText('Thông tin phân ca')).toBeNull();
+  });
+
+  it('Nhả ca: xem phạm vi ảnh hưởng (dry-run) rồi mới xác nhận nhả bằng Popconfirm, gửi đúng /work-schedules/cancel', async () => {
+    const bodies: Record<string, unknown>[] = [];
+    route({
+      '/work-schedules/cancel': (_p, init) => {
+        const body = JSON.parse(String(init?.body));
+        bodies.push(body);
+        return { data: { employeeCount: 1, dayCount: 7, keptProtected: 1, batchId: body.dryRun ? null : 'batch-x' } };
+      },
+    });
+    setTab('release');
+    render(<WorkScheduleScreen />);
+    await screen.findByText('Thông tin nhả ca');
+    // Chưa xem phạm vi thì chưa nhả được.
+    expect((screen.getByRole('button', { name: 'Xác nhận nhả ca' }) as HTMLButtonElement).disabled).toBe(true);
+    // Chưa chọn nhân viên: báo lỗi, chưa gọi API.
+    fireEvent.click(screen.getByRole('button', { name: 'Xem phạm vi ảnh hưởng' }));
+    expect(bodies).toHaveLength(0);
+    await pickOption(/Tìm theo mã hoặc tên nhân viên/, /NV001/);
+    fireEvent.click(screen.getByRole('button', { name: 'Xem phạm vi ảnh hưởng' }));
+    expect(await screen.findByText('Phạm vi ảnh hưởng')).toBeTruthy();
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0]).toMatchObject({ dryRun: true, scope: { type: 'EMPLOYEE', employeeIds: ['e1'] } });
+
+    await waitFor(() => expect((screen.getByRole('button', { name: 'Xác nhận nhả ca' }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByRole('button', { name: 'Xác nhận nhả ca' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Nhả ca' }));
+    await waitFor(() => expect(bodies).toHaveLength(2));
+    expect(bodies[1]).toMatchObject({ confirm: true, dryRun: false });
+    expect(await screen.findByText('Đã nhả 7 ngày lịch của 1 nhân viên.')).toBeTruthy();
+  });
+
+  it('Lịch sử phân ca gần đây: các đợt phân ca/nhả ca với người thực hiện và nhãn thao tác; Xem tất cả mở ngăn kéo lịch sử', async () => {
+    auditRows.splice(
+      0,
+      auditRows.length,
+      {
+        id: 'au1', batchId: 'b2', action: 'SCHEDULE_ASSIGN', actorId: 'a1', actorName: 'Hà Nguyên Hoàng',
+        employeeId: 'e1', employeeCode: 'NV001', employeeName: 'Nguyễn Văn An', fromDate: d5, toDate: d7,
+        before: null, after: [{ from: d5, to: d7, shiftId: 's-hc', shiftCode: 'HC', dayType: 'SHIFT' }], reason: null,
+        createdAt: '2026-10-10T08:00:00.000Z',
+      },
+      {
+        id: 'au2', batchId: 'b1', action: 'SCHEDULE_CANCEL', actorId: 'a1', actorName: 'Lê Thị Quản Lý',
+        employeeId: 'e1', employeeCode: 'NV001', employeeName: 'Nguyễn Văn An', fromDate: d5, toDate: d6,
+        before: null, after: null, reason: null, createdAt: '2026-10-08T08:00:00.000Z',
+      },
+    );
+    try {
+      render(<WorkScheduleScreen />);
+      const card = (await screen.findByText('Lịch sử phân ca gần đây')).closest('section') as HTMLElement;
+      expect(await within(card).findByText('Hà Nguyên Hoàng')).toBeTruthy();
+      expect(within(card).getByText('Lê Thị Quản Lý')).toBeTruthy();
+      expect(within(card).getAllByRole('row').length).toBeGreaterThanOrEqual(3);
+      fireEvent.click(within(card).getByRole('button', { name: /Xem tất cả/ }));
+      expect(await screen.findByRole('dialog', { name: 'Lịch sử thay đổi phân ca' })).toBeTruthy();
+    } finally {
+      auditRows.splice(0, auditRows.length);
+    }
+  });
+
+  it('nút Lịch sử thao tác ở đầu trang mở ngăn kéo lịch sử và có menu Công cụ', async () => {
+    render(<WorkScheduleScreen />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Lịch sử thao tác' }));
+    expect(await screen.findByRole('dialog', { name: 'Lịch sử thay đổi phân ca' })).toBeTruthy();
   });
 });

@@ -13,6 +13,8 @@ import { Button } from './button';
 import { HrmActionDialog, type HrmAction } from './hrm-action-dialog';
 import { toast } from './toast';
 import { LeaveSettlementPreview } from './leave-settlement-preview';
+import { RowMenu, type RowMenuItem } from './row-menu';
+import { useHrmPermissions } from '../hrm-permissions';
 
 export const employmentLabels: Record<string, string> = {
   PROBATION: 'Thử việc',
@@ -26,10 +28,17 @@ type Changed = () => Promise<void>;
 export function EmployeeLifecycleActions({
   employee,
   onChanged,
+  layout = 'inline',
+  extraItems = [],
 }: {
   employee: HrmEmployeeProfile;
   onChanged: Changed;
+  /** `menu`: một nút "..." chứa Sửa, Ngừng và các mục thêm; `inline`: hai nút Sửa, Ngừng như cũ. */
+  layout?: 'inline' | 'menu';
+  /** Các mục thêm cho layout `menu` (đã tự kiểm tra quyền bằng `hidden`). */
+  extraItems?: readonly RowMenuItem[];
 }) {
+  const { can } = useHrmPermissions();
   const [action, setAction] = useState<HrmAction | null>(null);
   const inactive = ['RESIGNED', 'TERMINATED'].includes(
     employee.employmentStatus,
@@ -284,6 +293,21 @@ export function EmployeeLifecycleActions({
         );
       },
     });
+  if (layout === 'menu') {
+    const canManage = can('hrm.employee.manage');
+    return (
+      <>
+        <RowMenu
+          items={[
+            { key: 'edit', label: 'Sửa hồ sơ', onSelect: edit, hidden: inactive || !canManage },
+            { key: 'deactivate', label: 'Ngừng nhân viên', onSelect: deactivate, hidden: inactive || !canManage, tone: 'danger' },
+            ...extraItems,
+          ]}
+        />
+        {action && <HrmActionDialog action={action} onClose={() => setAction(null)} />}
+      </>
+    );
+  }
   return (
     <span className="inline-flex gap-1">
       {!inactive && (

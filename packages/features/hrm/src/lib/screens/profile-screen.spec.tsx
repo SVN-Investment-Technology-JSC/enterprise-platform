@@ -90,7 +90,7 @@ async function renderLoaded() {
 }
 
 describe('Hồ sơ của tôi', () => {
-  it('họ tên (do Core quản lý), ngày sinh, CCCD, ngày cấp, nơi cấp chỉ đọc và có hai nút đính chính', async () => {
+  it('họ tên (do Core quản lý), ngày sinh, CCCD, ngày cấp, nơi cấp chỉ đọc và có nút đề nghị chỉnh sửa thông tin Core', async () => {
     await renderLoaded();
     expect(screen.getByRole('heading', { name: 'Hồ sơ của tôi' })).toBeTruthy();
     for (const [label, value] of [
@@ -104,14 +104,14 @@ describe('Hồ sơ của tôi', () => {
       expect(input.readOnly).toBe(true);
       expect(input.value).toBe(value);
     }
-    expect(screen.getAllByRole('button', { name: 'Đề nghị đính chính' })).toHaveLength(2);
-    expect(screen.getByText(/Do Core quản lý/)).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Đề nghị chỉnh sửa thông tin Core/ })).toBeTruthy();
+    expect(screen.getByText(/Họ tên do Core quản lý/)).toBeTruthy();
     expect(screen.queryByText(/Đổi tài khoản nhận lương/)).toBeNull();
   });
 
   it('dialog đính chính gửi đúng trường, giá trị cũ và mới tới /profile-corrections', async () => {
     await renderLoaded();
-    fireEvent.click(screen.getAllByRole('button', { name: 'Đề nghị đính chính' })[0]);
+    fireEvent.click(screen.getByRole('button', { name: /Đề nghị chỉnh sửa thông tin Core/ }));
     const dialog = await screen.findByRole('dialog', { name: 'Đề nghị đính chính hồ sơ' });
     expect(dialog).toBeTruthy();
     expect(screen.queryByLabelText('Họ và tên đề xuất')).toBeNull();
@@ -134,7 +134,7 @@ describe('Hồ sơ của tôi', () => {
 
   it('dialog đính chính không gửi khi chưa đổi giá trị nào', async () => {
     await renderLoaded();
-    fireEvent.click(screen.getAllByRole('button', { name: 'Đề nghị đính chính' })[1]);
+    fireEvent.click(screen.getByRole('button', { name: /Đề nghị chỉnh sửa thông tin Core/ }));
     await screen.findByRole('dialog', { name: 'Đề nghị đính chính hồ sơ' });
     fireEvent.change(screen.getByLabelText(/Lý do đính chính/), {
       target: { value: 'Kiểm tra' },
@@ -149,7 +149,7 @@ describe('Hồ sơ của tôi', () => {
     fireEvent.change(screen.getByPlaceholderText('Chưa cập nhật số điện thoại'), {
       target: { value: '0988888888' },
     });
-    fireEvent.click(screen.getByRole('button', { name: /Lưu thông tin liên lạc/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Lưu thay đổi' }));
     await waitFor(() => expect(patchBodies).toHaveLength(1));
     expect(patchBodies[0]).toEqual({ phone: '0988888888' });
     for (const key of [
@@ -174,7 +174,7 @@ describe('Hồ sơ của tôi', () => {
     fireEvent.change(screen.getByPlaceholderText('Chưa cập nhật số điện thoại'), {
       target: { value: '0977777777' },
     });
-    fireEvent.click(screen.getByRole('button', { name: /Lưu thông tin liên lạc/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Lưu thay đổi' }));
     const alert = await screen.findByRole('alert');
     expect(alert.textContent).toContain('Ngày sinh, Số CCCD / CMND');
     fireEvent.click(screen.getByRole('button', { name: 'Gửi đề nghị đính chính' }));
@@ -194,6 +194,45 @@ describe('Hồ sơ của tôi', () => {
     jest.spyOn(console, 'error').mockImplementation(() => undefined);
     render(<HrmProfilePage />);
     expect((await screen.findByRole('alert')).textContent).toContain(message);
+  });
+
+  it('bố cục theo mẫu: thẻ nhận diện, thông tin cá nhân, liên hệ và người thân, ngân hàng, công tác hiện tại', async () => {
+    await renderLoaded();
+    expect(screen.getByTestId('employee-hero').textContent).toContain('Đồng bộ từ Core');
+    expect(screen.getByTestId('employee-hero').textContent).toContain('NV001');
+    const personal = screen.getByTestId('profile-personal-card');
+    expect(personal.textContent).toContain('Dữ liệu Core · Chỉ đọc');
+    expect(screen.getByTestId('profile-contact-card').textContent).toContain('Người liên hệ khẩn cấp');
+    expect(screen.getByTestId('profile-bank-card').textContent).toContain('Chỉ đọc');
+    expect(screen.getByTestId('profile-current-work').textContent).toContain('Công tác hiện tại');
+    expect(screen.getByRole('button', { name: /Xem lịch sử công tác & hợp đồng/ })).toBeTruthy();
+    // Người liên hệ khẩn cấp hiện đúng giá trị đã lưu, mối quan hệ là ô chọn
+    expect((screen.getByLabelText(/^Họ và tên\*/) as HTMLInputElement).value).toBe('Lan');
+    await waitFor(() =>
+      expect((screen.getByPlaceholderText('Chọn mối quan hệ') as HTMLInputElement).value).toBe('Vợ'),
+    );
+  });
+
+  it('Lưu thay đổi chỉ bật khi có thay đổi; đổi mối quan hệ khẩn cấp được gửi cùng các thay đổi khác', async () => {
+    await renderLoaded();
+    const save = screen.getByRole('button', { name: 'Lưu thay đổi' }) as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText(/^Họ và tên\*/), { target: { value: 'Hoa' } });
+    fireEvent.change(screen.getByPlaceholderText('Chưa cập nhật số điện thoại'), { target: { value: '0966666666' } });
+    expect(save.disabled).toBe(false);
+    fireEvent.click(save);
+    await waitFor(() => expect(patchBodies).toHaveLength(1));
+    expect(patchBodies[0]).toEqual({ phone: '0966666666', emergencyContactName: 'Hoa' });
+    await waitFor(() => expect(save.disabled).toBe(true));
+  });
+
+  it('Hoàn tác đưa các ô đã sửa về giá trị đã lưu', async () => {
+    await renderLoaded();
+    const phoneBox = screen.getByPlaceholderText('Chưa cập nhật số điện thoại') as HTMLInputElement;
+    fireEvent.change(phoneBox, { target: { value: '0955555555' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Hoàn tác' }));
+    expect(phoneBox.value).toBe('0900000000');
+    expect(patchBodies).toHaveLength(0);
   });
 
   it('trường nhạy cảm null không làm hỏng màn hình', async () => {

@@ -74,13 +74,9 @@ export function DatePickerInput({
     setDisplayText(toVnDateStr(value));
   }, [value]);
 
-  // Click input -> clear value if exists để nhập mới
-  const handleClick = () => {
-    if (displayText || value) {
-      setDisplayText('');
-      onChange?.('');
-    }
-  };
+  // Vào ô: chọn hết chữ để gõ đè ngay, nhưng KHÔNG xoá giá trị. Trước đây bấm vào ô là xoá ngày (và báo lên form cha),
+  // nên đổi sang ô giờ bên cạnh mà chưa nhập lại thì ngày bị mất, giờ bị đặt lại về 00:00.
+  const handleFocus = (e: React.FocusEvent<HTMLInputElement>) => e.target.select();
 
   // Text typing with automatic slash formatting: gõ số tự động thêm dấu /
   const handleTextChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -115,7 +111,8 @@ export function DatePickerInput({
         setDisplayText(toVnDateStr(value));
       }
     } else if (!displayText) {
-      onChange?.('');
+      // Chủ động xoá trắng ô thì mới xoá ngày; không báo lại khi vốn đã trống.
+      if (value) onChange?.('');
     } else {
       // Partial invalid input -> revert
       setDisplayText(toVnDateStr(value));
@@ -151,7 +148,7 @@ export function DatePickerInput({
         required={required}
         type="text"
         value={displayText}
-        onClick={handleClick}
+        onFocus={handleFocus}
         onChange={handleTextChange}
         onBlur={handleBlur}
         placeholder={placeholder}

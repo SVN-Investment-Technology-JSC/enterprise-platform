@@ -7,14 +7,15 @@ import { hrmFetch } from '../hrm-api';
 import { currentMonthVn, isMonthKey, todayVn } from '../hrm-timesheet-format';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
-import { BoardDayDrawer, BoardMonthPicker } from '../ui/timesheet-board';
-import { EmployeeMonthView } from '../ui/employee-month-view';
+import { MonthStepper } from '../ui/month-stepper';
+import { PageTitle } from '../ui/page-title';
+import { MyTimesheetView } from '../ui/my-timesheet-view';
 import { monthStateLabel, monthStateTimestamp } from '../ui/timesheet-board-format';
 
 /**
- * Công của tôi: một bảng công tháng duy nhất của chính mình, gồm thống kê mọi thông số chấm công của tháng,
- * lịch từng ngày (ngày chưa tới hiện mã ca, ngày đã qua hiện số công, đi trễ về sớm tô đỏ, ký tự đơn từ)
- * và danh sách đơn từ trong tháng. Chấm công thực hiện trên ứng dụng di động, không chấm trên web.
+ * Công của tôi: một bảng công tháng duy nhất của chính mình, gồm sáu thẻ chỉ số của tháng, lịch từng ngày
+ * (ngày chưa tới hiện mã ca, ngày đã qua hiện số công, đi trễ về sớm tô đỏ, ký tự đơn từ) và panel bên phải
+ * có chi tiết ngày đang chọn (kèm đơn từ, sự kiện của ngày) và danh sách đơn từ trong tháng. Chấm công thực hiện trên ứng dụng di động, không chấm trên web.
  */
 export default function MyTimesheetScreen() {
   const [month, setMonth] = useState(() => currentMonthVn());
@@ -55,25 +56,20 @@ export default function MyTimesheetScreen() {
   const state = board?.month.state;
   const stamp = board ? monthStateTimestamp(board.month) : '';
   const today = todayVn();
-  const selectedDay = employee && selectedDate ? (employee.days[selectedDate] ?? null) : null;
 
   return (
     <div className="flex min-h-[520px] flex-col gap-2">
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-2 shadow-xs">
-        <div className="flex flex-wrap items-center gap-3">
-          <div>
-            <h1 className="text-lg font-bold tracking-tight text-slate-900">
-              Bảng công của tôi
-            </h1>
-            <p className="text-xs text-slate-500">
-              {employee
-                ? `${employee.employeeCode} - ${employee.employeeName}${
-                    employee.departmentName ? ` · ${employee.departmentName}` : ''
-                  }${employee.positionName ? ` · ${employee.positionName}` : ''}`
-                : 'Công từng ngày, đi trễ về sớm và đơn từ trong tháng.'}
-            </p>
-          </div>
-          {state && (
+      <PageTitle
+        title="Bảng công của tôi"
+        description={
+          employee
+            ? `${employee.employeeCode} · ${employee.employeeName}${
+                employee.departmentName ? ` · ${employee.departmentName}` : ''
+              }${employee.positionName ? ` · ${employee.positionName}` : ''}`
+            : 'Công từng ngày, đi trễ về sớm và đơn từ trong tháng.'
+        }
+        badge={
+          state ? (
             <Badge
               data-testid="month-state"
               variant="outline"
@@ -83,12 +79,19 @@ export default function MyTimesheetScreen() {
                   : 'border-amber-200 bg-amber-50 text-amber-700'
               }
             >
+              <span
+                aria-hidden="true"
+                className={`mr-1.5 inline-block size-1.5 rounded-full ${state === 'LOCKED' ? 'bg-emerald-500' : 'bg-amber-500'}`}
+              />
               {monthStateLabel(state)}
               {stamp ? ` - ${stamp}` : ''}
             </Badge>
-          )}
-        </div>
-        <BoardMonthPicker month={month} onChange={setMonth} />
+          ) : null
+        }
+      />
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white p-3">
+        <MonthStepper month={month} onChange={setMonth} />
+        <p className="text-xs text-slate-500">Chấm công thực hiện trên ứng dụng di động. Bấm một ngày để xem chi tiết.</p>
       </div>
 
       {error ? (
@@ -111,23 +114,14 @@ export default function MyTimesheetScreen() {
           Chưa có dữ liệu bảng công trong tháng này.
         </p>
       ) : (
-        <>
-          <EmployeeMonthView
-            calendar={board.calendar}
-            employee={employee}
-            today={today}
-            selectedDate={selectedDate}
-            onSelectDate={setSelectedDate}
-            wide
-          />
-
-          <BoardDayDrawer
-            employee={employee}
-            day={selectedDay}
-            onClose={() => setSelectedDate(null)}
-            canViewAll={false}
-          />
-        </>
+        <MyTimesheetView
+          month={month}
+          calendar={board.calendar}
+          employee={employee}
+          today={today}
+          selectedDate={selectedDate}
+          onSelectDate={setSelectedDate}
+        />
       )}
     </div>
   );

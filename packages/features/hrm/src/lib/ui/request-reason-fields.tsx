@@ -177,6 +177,10 @@ export interface RequestReasonSectionProps {
   /** Nhân viên làm đơn (chính mình hoặc người được làm hộ); chưa biết thì ẩn khối Người duyệt. */
   employeeId?: string;
   disabled?: boolean;
+  /** Ép Mô tả bắt buộc (ngoài trường hợp lý do đã chọn yêu cầu mô tả); nhãn và gợi ý tuỳ chỉnh theo loại đơn. */
+  descriptionMandatory?: boolean;
+  descriptionLabel?: string;
+  descriptionPlaceholder?: string;
 }
 
 function PaidTag({ paid }: { paid: boolean }) {
@@ -210,11 +214,15 @@ export function RequestReasonSection({
   onDescriptionChange,
   employeeId = '',
   disabled = false,
+  descriptionMandatory = false,
+  descriptionLabel = 'Mô tả (nhập thêm chi tiết nếu cần)',
+  descriptionPlaceholder,
 }: RequestReasonSectionProps) {
   const labelId = useId();
   const descriptionId = useId();
   const selected = choices.find((choice) => choice.id === reasonId);
-  const required = descriptionRequired(selected);
+  const reasonNeedsDescription = descriptionRequired(selected);
+  const required = descriptionMandatory || reasonNeedsDescription;
   const empty = !loading && !error && choices.length === 0;
   const showPaid = kind === 'leave' || kind === 'ot';
   const showRate = kind === 'ot' && selected?.rateMultiplier != null;
@@ -249,6 +257,27 @@ export function RequestReasonSection({
           <SearchableSelect
             options={options}
             value={selected ? selected.id : ''}
+            renderOption={(option) => {
+              const choice = choices.find((c) => c.id === option.value);
+              return (
+                <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                  <span className="flex flex-wrap items-center gap-1.5">
+                    <span className="font-medium">{option.label}</span>
+                    {showPaid && choice ? <PaidTag paid={choice.paid} /> : null}
+                    {kind === 'leave' && choice?.deductBalance ? (
+                      <span className="text-[10px] font-semibold text-blue-700">
+                        Trừ quỹ phép năm
+                      </span>
+                    ) : null}
+                  </span>
+                  {option.description ? (
+                    <span className="whitespace-normal text-[11px] font-normal leading-snug text-slate-500">
+                      {option.description}
+                    </span>
+                  ) : null}
+                </span>
+              );
+            }}
             onChange={(value) => onReasonChange(value)}
             placeholder={
               loading
@@ -330,7 +359,7 @@ export function RequestReasonSection({
           htmlFor={descriptionId}
           className="block text-xs font-semibold text-slate-800"
         >
-          Mô tả (nhập thêm chi tiết nếu cần)
+          {descriptionLabel}
           {required ? (
             <span className="ml-1 font-bold text-red-500">*</span>
           ) : null}
@@ -346,12 +375,12 @@ export function RequestReasonSection({
           onChange={(event) => onDescriptionChange(event.target.value)}
           placeholder={
             required
-              ? 'Lý do này yêu cầu nhập mô tả chi tiết...'
-              : 'Nhập thêm chi tiết nếu cần (không bắt buộc)...'
+              ? (descriptionPlaceholder ?? 'Lý do này yêu cầu nhập mô tả chi tiết...')
+              : (descriptionPlaceholder ?? 'Nhập thêm chi tiết nếu cần (không bắt buộc)...')
           }
           className="w-full rounded-md border border-slate-200 p-2.5 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-600"
         />
-        {required ? (
+        {reasonNeedsDescription ? (
           <p className="text-[11px] text-amber-700">
             Lý do đã chọn yêu cầu nhập mô tả.
           </p>

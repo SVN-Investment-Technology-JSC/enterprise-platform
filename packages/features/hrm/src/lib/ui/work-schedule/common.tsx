@@ -2,53 +2,66 @@
 
 import { type ReactNode } from 'react';
 import { cn } from '../../utils';
+import { InfoNote, type NoteTone } from '../settings-kit';
 
 export function Field({
   label,
   hint,
+  required,
   children,
   className,
 }: {
   label: ReactNode;
   hint?: ReactNode;
+  /** Hiện dấu * đỏ sau nhãn. */
+  required?: boolean;
   children: ReactNode;
   className?: string;
 }) {
   return (
     <div className={cn('flex min-w-0 flex-col gap-1.5', className)}>
-      <span className="text-xs font-semibold text-slate-700">{label}</span>
+      <span className="text-xs font-semibold text-slate-700">
+        {label}
+        {required ? (
+          <span className="ml-1 font-bold text-red-500" aria-hidden="true">
+            *
+          </span>
+        ) : null}
+      </span>
       {children}
       {hint ? <span className="text-[11px] text-slate-500">{hint}</span> : null}
     </div>
   );
 }
 
-const toneClass = {
-  info: 'border-blue-200 bg-blue-50 text-blue-800',
-  warn: 'border-amber-200 bg-amber-50 text-amber-800',
-  error: 'border-red-200 bg-red-50 text-red-700',
-  success: 'border-emerald-200 bg-emerald-50 text-emerald-800',
-} as const;
+const NOTICE_TONE: Record<'info' | 'warn' | 'error' | 'success', NoteTone> = {
+  info: 'blue',
+  warn: 'amber',
+  error: 'red',
+  success: 'green',
+};
 
+/** Ghi chú một khối (dùng `InfoNote` của bộ thành phần cấu hình): info, warn, error, success. */
 export function Notice({
   tone = 'info',
   title,
   children,
   className,
 }: {
-  tone?: keyof typeof toneClass;
+  tone?: keyof typeof NOTICE_TONE;
   title?: ReactNode;
   children?: ReactNode;
   className?: string;
 }) {
   return (
-    <div
+    <InfoNote
+      tone={NOTICE_TONE[tone]}
       role={tone === 'error' || tone === 'warn' ? 'alert' : 'status'}
-      className={cn('rounded-lg border px-3 py-2 text-xs leading-relaxed', toneClass[tone], className)}
+      className={className}
     >
       {title ? <div className="font-semibold">{title}</div> : null}
       {children}
-    </div>
+    </InfoNote>
   );
 }
 

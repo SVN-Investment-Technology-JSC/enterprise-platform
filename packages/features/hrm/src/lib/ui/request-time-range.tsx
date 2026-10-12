@@ -16,6 +16,7 @@ export function RequestTimeRange({
   onChange,
   onPreview,
   leaveTypeId,
+  kind = 'leave',
   /** false: chỉ ghi nhận khoảng thời gian, không xin tính theo ca (loại đơn tuỳ chỉnh). */
   showPreview = true,
   fromLabel = 'Từ ngày giờ',
@@ -29,6 +30,11 @@ export function RequestTimeRange({
   /** Báo kết quả tính cho form cha để chặn gửi khi có lỗi; null khi chưa đủ dữ liệu hoặc đang tính. */
   onPreview?: (preview: HrmRequestTimePreview | null) => void;
   leaveTypeId?: string;
+  /**
+   * Loại đơn quyết định cách máy chủ tính: `leave` theo ca (bỏ ngày nghỉ), `ot` chỉ tính khoảng đã chọn và bắt lỗi khi trùng
+   * giờ ca, `trip` tính theo giờ của khoảng và số ngày lịch (không bắt lỗi theo ca).
+   */
+  kind?: 'leave' | 'ot' | 'trip';
   showPreview?: boolean;
   fromLabel?: string;
   toLabel?: string;
@@ -47,6 +53,7 @@ export function RequestTimeRange({
     const timer = setTimeout(() => {
       const query = new URLSearchParams({ employeeId, fromAt, toAt });
       if (leaveTypeId) query.set('leaveTypeId', leaveTypeId);
+      if (kind !== 'leave') query.set('kind', kind);
       hrmFetch<{ data: HrmRequestTimePreview }>(`/requests/time-preview?${query}`)
         .then((result) => {
           if (cancelled) return;
@@ -65,11 +72,11 @@ export function RequestTimeRange({
       clearTimeout(timer);
     };
     // onPreview là callback của form cha, không đưa vào phụ thuộc để tránh tính lại mỗi lần render.
-  }, [employeeId, fromAt, toAt, leaveTypeId, showPreview, ordered]);
+  }, [employeeId, fromAt, toAt, leaveTypeId, kind, showPreview, ordered]);
 
   return (
     <div className="space-y-2" data-testid="request-time-range">
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+      <div className="grid grid-cols-1 items-end gap-3 md:grid-cols-[1fr_auto_1fr]">
         <label className="block space-y-1.5">
           <span className="text-xs font-semibold text-slate-700">
             {fromLabel} <span className="text-rose-500">*</span>
@@ -90,6 +97,9 @@ export function RequestTimeRange({
             }}
           />
         </label>
+        <span aria-hidden="true" className="hidden pb-2 text-slate-400 md:block">
+          →
+        </span>
         <label className="block space-y-1.5">
           <span className="text-xs font-semibold text-slate-700">
             {toLabel} <span className="text-rose-500">*</span>
@@ -117,10 +127,11 @@ export function RequestTimeRange({
           role="status"
           className="space-y-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700"
         >
-          <p className="font-semibold text-slate-900">
+          <p className="font-semibold text-slate-900" data-testid="time-total">
+            {kind !== 'leave' ? 'Tổng thời gian: ' : ''}
             {formatHours(preview.totalMinutes)} giờ
             {preview.totalDays > 0
-              ? ` (${String(Math.round(preview.totalDays * 100) / 100).replace('.', ',')} ngày công)`
+              ? ` (${String(Math.round(preview.totalDays * 100) / 100).replace('.', ',')} ${kind === 'trip' ? 'ngày' : 'ngày công'})`
               : ''}
           </p>
           {preview.errors.map((text) => (

@@ -85,6 +85,9 @@ function dropdownPlacement(
   return { box, listMaxHeight: Math.min(DROPDOWN_MAX_HEIGHT, room) };
 }
 
+/** Giá trị CSS có hiệu lực: không rỗng (môi trường không hỗ trợ thuộc tính) và không phải `none`. */
+const isSet = (value: string | undefined, unset = 'none'): boolean => Boolean(value) && value !== unset;
+
 /**
  * Gốc toạ độ mà `position: fixed` thực sự dùng: (0, 0) của cửa sổ, hoặc góc
  * trong (đã tính cuộn) của khung bao gần nhất tạo khối chứa cho phần tử fixed.
@@ -93,13 +96,18 @@ function fixedOrigin(from: HTMLElement | null): { x: number; y: number } {
   for (let el = from; el && el !== document.documentElement; el = el.parentElement) {
     const cs = getComputedStyle(el);
     const establishes =
-      cs.transform !== 'none' ||
-      cs.perspective !== 'none' ||
-      cs.filter !== 'none' ||
-      (cs.backdropFilter ?? 'none') !== 'none' ||
+      isSet(cs.transform) ||
+      // Thuộc tính riêng translate / rotate / scale (Tailwind v4: -translate-x-1/2, scale-95) cũng tạo khối chứa cho
+      // phần tử fixed như `transform`; thiếu chúng thì danh sách trong hộp thoại bị lệch cả bề rộng hộp thoại.
+      isSet(cs.translate) ||
+      isSet(cs.rotate) ||
+      isSet(cs.scale) ||
+      isSet(cs.perspective) ||
+      isSet(cs.filter) ||
+      isSet(cs.backdropFilter) ||
       /paint|layout|strict|content/.test(cs.contain) ||
-      /transform|perspective|filter/.test(cs.willChange) ||
-      (cs.containerType ?? 'normal') !== 'normal';
+      /transform|translate|rotate|scale|perspective|filter/.test(cs.willChange) ||
+      isSet(cs.containerType, 'normal');
     if (establishes) {
       const rect = el.getBoundingClientRect();
       return {

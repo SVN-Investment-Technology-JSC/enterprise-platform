@@ -8,9 +8,13 @@ import {
   matchesBoardFilter,
   shortShiftCode,
   dayLetters,
+  dayStatusPill,
+  dayTone,
+  hoursDecimal,
   isFutureDay,
   isLateOrEarly,
   monthRequests,
+  myCellContent,
   myCellText,
   myMonthStats,
   requestDetailRows,
@@ -258,5 +262,79 @@ describe('lưới bảng công gọn', () => {
     expect(list.map((e) => matchesBoardFilter(e, 'ABNORMAL'))).toEqual([false, false, false, true, false]);
     expect(list.map((e) => matchesBoardFilter(e, 'PENDING'))).toEqual([false, false, false, false, true]);
     expect(matchesBoardFilter(list[1], 'ALL')).toBe(true);
+  });
+});
+
+describe('Lịch công của tôi: chấm màu, giờ làm trong ô, nhãn trạng thái', () => {
+  const TODAY = '2026-09-15';
+
+  it('giờ làm dạng một số lẻ', () => {
+    expect(hoursDecimal(480)).toBe('8.0');
+    expect(hoursDecimal(450)).toBe('7.5');
+    expect(hoursDecimal(0)).toBe('0.0');
+    expect(hoursDecimal(null)).toBe('0.0');
+  });
+
+  it('màu chấm: đủ công, trễ, sớm, nghỉ phép, vắng, ngày nghỉ; ngày chưa tới không chấm', () => {
+    expect(dayTone(day(), TODAY)).toBe('full');
+    expect(dayTone(day({ status: 'LATE', lateMinutes: 10 }), TODAY)).toBe('late');
+    expect(dayTone(day({ status: 'EARLY_LEAVE', earlyLeaveMinutes: 10 }), TODAY)).toBe('early');
+    expect(dayTone(day({ status: 'ANNUAL_LEAVE' }), TODAY)).toBe('leave');
+    expect(dayTone(day({ status: 'ABSENT' }), TODAY)).toBe('absent');
+    expect(dayTone(day({ status: 'OFF', kind: 'OFF' }), TODAY)).toBe('off');
+    expect(dayTone(day({ date: '2026-09-20', status: 'FUTURE' }), TODAY)).toBe('none');
+  });
+
+  it('nội dung ô: ngày đã qua hiện giờ làm, không hiện mã ca; ngày chưa tới hiện mã ca; vắng và nghỉ hiện gạch dài', () => {
+    expect(myCellContent(day({ workedMinutes: 450 }), TODAY)).toEqual({ text: '', hours: '7.5' });
+    expect(myCellContent(day({ date: '2026-09-20', status: 'FUTURE', workedMinutes: 0 }), TODAY)).toEqual({
+      text: 'HC',
+      hours: '',
+    });
+    expect(myCellContent(day({ status: 'ABSENT', workedMinutes: 480 }), TODAY)).toEqual({ text: '—', hours: '' });
+    expect(myCellContent(day({ status: 'ANNUAL_LEAVE', workedMinutes: 0 }), TODAY)).toEqual({ text: '—', hours: '' });
+    expect(myCellContent(day({ status: 'OFF', kind: 'OFF', workedMinutes: 0 }), TODAY)).toEqual({ text: 'OFF', hours: '' });
+    expect(myCellContent(day({ status: 'HOLIDAY', kind: 'HOLIDAY', workedMinutes: 0 }), TODAY).text).toBe('L');
+  });
+
+  it('nhãn trạng thái của ngày', () => {
+    expect(dayStatusPill(day(), TODAY).label).toBe('Đủ công');
+    expect(dayStatusPill(day({ workdayUnits: 0.5 }), TODAY).label).toBe('Chưa đủ công');
+    expect(dayStatusPill(day({ status: 'LATE', lateMinutes: 5 }), TODAY).label).toBe('Đi trễ');
+    expect(dayStatusPill(day({ status: 'LATE', lateMinutes: 5, earlyLeaveMinutes: 5 }), TODAY).label).toBe('Đi trễ, về sớm');
+    expect(dayStatusPill(day({ status: 'ABSENT' }), TODAY).label).toBe('Nghỉ không phép');
+    expect(dayStatusPill(day({ date: '2026-09-20', status: 'FUTURE' }), TODAY).label).toBe('Chưa tới ngày');
+  });
+});
+
+import { gridCellView } from './my-timesheet-format';
+
+describe('gridCellView: ô ngày của bảng công nhiều nhân viên', () => {
+  const TODAY = '2026-09-15';
+  it('ngày đã qua có công: chấm xanh; đi trễ hoặc về sớm: chấm cam', () => {
+    expect(gridCellView(day(), TODAY)).toEqual({ type: 'dot', tone: 'present' });
+    expect(gridCellView(day({ status: 'LATE', lateMinutes: 10 }), TODAY)).toEqual({ type: 'dot', tone: 'late' });
+    expect(gridCellView(day({ status: 'EARLY_LEAVE', earlyLeaveMinutes: 5 }), TODAY)).toEqual({ type: 'dot', tone: 'late' });
+  });
+
+  it('nghỉ phép P, công tác CT, vắng KP, bất thường ! là ô ký hiệu', () => {
+    expect(gridCellView(day({ status: 'ANNUAL_LEAVE' }), TODAY)).toEqual({ type: 'box', text: 'P', tone: 'leave' });
+    expect(gridCellView(day({ status: 'UNPAID_LEAVE' }), TODAY)).toMatchObject({ text: 'P' });
+    expect(gridCellView(day({ status: 'TRIP' }), TODAY)).toEqual({ type: 'box', text: 'CT', tone: 'trip' });
+    expect(gridCellView(day({ status: 'ABSENT' }), TODAY)).toEqual({ type: 'box', text: 'KP', tone: 'absent' });
+    expect(gridCellView(day({ status: 'ABNORMAL' }), TODAY)).toEqual({ type: 'box', text: '!', tone: 'abnormal' });
+  });
+
+  it('ngày nghỉ OFF, lễ L, chưa có lịch "-"', () => {
+    expect(gridCellView(day({ status: 'OFF', kind: 'OFF', workedMinutes: 0 }), TODAY)).toEqual({ type: 'text', text: 'OFF', muted: true });
+    expect(gridCellView(day({ status: 'HOLIDAY', kind: 'HOLIDAY', workedMinutes: 0 }), TODAY)).toMatchObject({ text: 'L' });
+    expect(gridCellView(day({ status: 'NO_SCHEDULE', kind: 'NO_SCHEDULE' }), TODAY)).toMatchObject({ text: '-' });
+  });
+
+  it('ngày chưa tới chỉ hiện mã ca (rút gọn), không chấm công; ngày đã qua không hiện mã ca', () => {
+    const future = day({ date: '2026-09-20', status: 'FUTURE', shiftCode: 'HC-T7', workedMinutes: 0 });
+    expect(gridCellView(future, TODAY)).toEqual({ type: 'text', text: 'T7', muted: true });
+    expect(gridCellView(day(), TODAY).type).toBe('dot');
+    expect(gridCellView(day({ date: '2026-09-20', status: 'FUTURE', shiftCode: null, kind: 'OFF' }), TODAY)).toMatchObject({ text: 'OFF' });
   });
 });

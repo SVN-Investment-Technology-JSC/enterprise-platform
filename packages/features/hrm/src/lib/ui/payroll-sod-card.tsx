@@ -1,9 +1,10 @@
 'use client';
 import { useCallback, useEffect, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Loader2, ShieldCheck } from 'lucide-react';
+import { ArrowRight, Loader2, Save, ShieldCheck } from 'lucide-react';
 import { hrmFetch } from '../hrm-api';
 import { useHrmPermissions } from '../hrm-permissions';
 import { Button } from './button';
+import { InfoNote, SettingsSection, SettingsSwitch } from './settings-kit';
 import { toast } from './toast';
 
 export interface PayrollSodSettings {
@@ -30,35 +31,12 @@ const SWITCHES: { key: SodKey; label: string; description: string }[] = [
   },
 ];
 
-function Switch({
-  checked,
-  disabled,
-  label,
-  onChange,
-}: {
-  checked: boolean;
-  disabled?: boolean;
-  label: string;
-  onChange: (next: boolean) => void;
-}) {
+function FlowStep({ title, note }: { title: string; note: string }) {
   return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      aria-label={label}
-      disabled={disabled}
-      onClick={() => onChange(!checked)}
-      className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
-        checked ? 'border-blue-600 bg-blue-600' : 'border-slate-300 bg-slate-200'
-      }`}
-    >
-      <span
-        className={`inline-block size-4.5 rounded-full bg-white shadow-xs transition-transform ${
-          checked ? 'translate-x-5.5' : 'translate-x-0.5'
-        }`}
-      />
-    </button>
+    <div className="min-w-0 flex-1 basis-32 rounded-lg border border-slate-200 bg-white px-3 py-2">
+      <p className="text-xs font-semibold text-slate-900">{title}</p>
+      <p className="text-[11px] text-slate-500">{note}</p>
+    </div>
   );
 }
 
@@ -79,9 +57,7 @@ export function PayrollSodCard() {
     setLoading(true);
     setError('');
     try {
-      const result = await hrmFetch<{ data: PayrollSodSettings }>(
-        '/payroll-sod-settings',
-      );
+      const result = await hrmFetch<{ data: PayrollSodSettings }>('/payroll-sod-settings');
       setSaved(result.data);
       setDraft({
         separateCalcFinalize: !!result.data.separateCalcFinalize,
@@ -115,16 +91,13 @@ export function PayrollSodCard() {
     setError('');
     setSuccess('');
     try {
-      const result = await hrmFetch<{ data: PayrollSodSettings }>(
-        '/payroll-sod-settings',
-        {
-          method: 'PUT',
-          body: JSON.stringify({
-            separateCalcFinalize: draft.separateCalcFinalize,
-            separateFinalizePublish: draft.separateFinalizePublish,
-          }),
-        },
-      );
+      const result = await hrmFetch<{ data: PayrollSodSettings }>('/payroll-sod-settings', {
+        method: 'PUT',
+        body: JSON.stringify({
+          separateCalcFinalize: draft.separateCalcFinalize,
+          separateFinalizePublish: draft.separateFinalizePublish,
+        }),
+      });
       setSaved(result.data);
       setDraft({
         separateCalcFinalize: !!result.data.separateCalcFinalize,
@@ -140,59 +113,66 @@ export function PayrollSodCard() {
   }
 
   return (
-    <section className="space-y-4 rounded-xl border border-slate-200 bg-white p-5 shadow-xs">
-      <div className="flex items-start gap-2.5 border-b border-slate-100 pb-3">
-        <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
-          <ShieldCheck className="size-4" />
-        </div>
-        <div>
-          <h2 className="text-sm font-bold uppercase tracking-wider text-slate-700">
-            Tách nhiệm vụ trong quy trình lương
-          </h2>
-          <p className="mt-0.5 text-xs text-slate-500">
-            Giảm rủi ro một người tự tính, tự chốt và tự chi trả lương. Cấu hình áp dụng cho toàn bộ kỳ lương của đơn vị.
-          </p>
-        </div>
-      </div>
-
+    <SettingsSection
+      icon={ShieldCheck}
+      tone="green"
+      title="Tách nhiệm vụ trong quy trình lương"
+      description="Giảm rủi ro một người tự tính, tự chốt và tự chi trả lương. Áp dụng cho toàn bộ kỳ lương của đơn vị."
+      actions={
+        <>
+          <Button
+            permission="hrm.payroll.configure"
+            type="button"
+            variant="outline"
+            disabled={!dirty || saving}
+            onClick={() => {
+              if (!saved) return;
+              setDraft({
+                separateCalcFinalize: saved.separateCalcFinalize,
+                separateFinalizePublish: saved.separateFinalizePublish,
+              });
+            }}
+            className="h-9 px-3 text-xs font-semibold"
+          >
+            Hoàn tác
+          </Button>
+          <Button
+            permission="hrm.payroll.configure"
+            type="button"
+            disabled={!dirty || saving || notEnforced}
+            onClick={() => void save()}
+            className="h-9 gap-1.5 px-3 text-xs font-semibold"
+          >
+            {saving ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-4" />}
+            {saving ? 'Đang lưu...' : 'Lưu thay đổi'}
+          </Button>
+        </>
+      }
+      bodyClassName="space-y-3"
+    >
       {error && (
-        <div
-          role="alert"
-          className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-xs font-medium text-red-700"
-        >
-          <AlertTriangle className="size-4 shrink-0" />
-          <span className="flex-1">{error}</span>
-          {!saved && (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => void load()}
-              className="text-xs"
-            >
-              Tải lại
-            </Button>
-          )}
-        </div>
+        <InfoNote tone="red" role="alert">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span>{error}</span>
+            {!saved && (
+              <Button type="button" variant="outline" size="sm" onClick={() => void load()} className="text-xs">
+                Tải lại
+              </Button>
+            )}
+          </div>
+        </InfoNote>
       )}
 
       {success && (
-        <div
-          role="status"
-          className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs font-medium text-emerald-700"
-        >
-          <CheckCircle2 className="size-4 shrink-0" />
-          <span>{success}</span>
-        </div>
+        <InfoNote tone="green" role="status">
+          {success}
+        </InfoNote>
       )}
 
       {notEnforced && (
-        <div
-          role="status"
-          className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800"
-        >
+        <InfoNote tone="amber" role="status">
           Hệ thống chưa áp dụng bảng cấu hình tách nhiệm vụ (cần quản trị viên cập nhật cơ sở dữ liệu), nên chưa thể bật hoặc tắt các tùy chọn này.
-        </div>
+        </InfoNote>
       )}
 
       {loading ? (
@@ -201,68 +181,43 @@ export function PayrollSodCard() {
           <span>Đang tải cấu hình...</span>
         </div>
       ) : (
-        <div className="divide-y divide-slate-100 rounded-lg border border-slate-200">
-          {SWITCHES.map((item) => (
-            <div
-              key={item.key}
-              className="flex items-center justify-between gap-4 p-4"
-            >
-              <div className="min-w-0">
-                <div className="text-sm font-semibold text-slate-900">
-                  {item.label}
+        <>
+          <div className="divide-y divide-slate-100 rounded-lg border border-slate-200">
+            {SWITCHES.map((item) => (
+              <div key={item.key} className="flex items-start gap-3 p-3 @xl:items-center @xl:p-4">
+                <SettingsSwitch
+                  label={item.label}
+                  checked={draft[item.key]}
+                  disabled={locked}
+                  onChange={(next) => {
+                    setSuccess('');
+                    setDraft((d) => ({ ...d, [item.key]: next }));
+                  }}
+                />
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold text-slate-900">{item.label}</div>
+                  <p className="mt-0.5 text-xs leading-snug text-slate-500">{item.description}</p>
                 </div>
-                <p className="mt-0.5 text-xs text-slate-500">
-                  {item.description}
-                </p>
               </div>
-              <Switch
-                label={item.label}
-                checked={draft[item.key]}
-                disabled={locked}
-                onChange={(next) => {
-                  setSuccess('');
-                  setDraft((d) => ({ ...d, [item.key]: next }));
-                }}
-              />
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+
+          <div aria-label="Quy trình lương" className="flex flex-wrap items-center gap-2 rounded-lg bg-slate-50 p-3">
+            <FlowStep title="Tính lương" note="Người A" />
+            <ArrowRight aria-hidden="true" className="size-4 shrink-0 text-slate-400" />
+            <FlowStep title="Chốt lương" note={draft.separateCalcFinalize ? 'Khác người tính' : 'Có thể cùng người tính'} />
+            <ArrowRight aria-hidden="true" className="size-4 shrink-0 text-slate-400" />
+            <FlowStep
+              title="Phát hành, chi trả"
+              note={draft.separateFinalizePublish ? 'Khác người chốt' : 'Có thể cùng người chốt'}
+            />
+          </div>
+        </>
       )}
 
       {!canEdit && !loading && (
-        <p className="text-xs text-slate-500">
-          Bạn chỉ có quyền xem; thay đổi cấu hình cần quyền cấu hình lương.
-        </p>
+        <p className="text-xs text-slate-500">Bạn chỉ có quyền xem; thay đổi cấu hình cần quyền cấu hình lương.</p>
       )}
-
-      <div className="flex items-center justify-end gap-2">
-        <Button
-          permission="hrm.payroll.configure"
-          type="button"
-          variant="outline"
-          disabled={!dirty || saving}
-          onClick={() => {
-            if (!saved) return;
-            setDraft({
-              separateCalcFinalize: saved.separateCalcFinalize,
-              separateFinalizePublish: saved.separateFinalizePublish,
-            });
-          }}
-          className="text-xs"
-        >
-          Hoàn tác
-        </Button>
-        <Button
-          permission="hrm.payroll.configure"
-          type="button"
-          disabled={!dirty || saving || notEnforced}
-          onClick={() => void save()}
-          className="bg-blue-600 text-xs text-white hover:bg-blue-700"
-        >
-          {saving && <Loader2 className="mr-1.5 size-3.5 animate-spin" />}
-          {saving ? 'Đang lưu...' : 'Lưu thay đổi'}
-        </Button>
-      </div>
-    </section>
+    </SettingsSection>
   );
 }

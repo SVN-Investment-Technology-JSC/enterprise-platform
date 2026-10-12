@@ -22,6 +22,7 @@ import {
   applyDocumentChanges,
   parseDocumentChanges,
 } from './hrm-profile-documents.js';
+import { isPunchList } from '../domain/correction-punches.js';
 import { transitionLeave } from './hrm-leave-operations.js';
 import { approveOvertime } from './hrm-overtime.js';
 import { approveShiftChange } from './hrm-shift-change.js';
@@ -48,8 +49,13 @@ export async function approveAttendanceCorrection(
   const date = isoDate(correction.request_date);
   await lockEmployee(db, tenantId, correction.employee_id);
   await assertOpenDate(db, tenantId, date);
-  const sessions =
-    correction.corrected_sessions ||
+  // Đơn theo từng mốc giờ vào / ra: chỉ thay các giờ cùng loại trong ngày, giữ loại còn lại (không xoá cả ngày).
+  const punches = isPunchList(correction.corrected_sessions)
+    ? correction.corrected_sessions
+    : [];
+  const sessions = punches.length
+    ? []
+    : correction.corrected_sessions ||
     (correction.new_check_in_at && correction.new_check_out_at
       ? [
           {
@@ -58,7 +64,7 @@ export async function approveAttendanceCorrection(
           },
         ]
       : []);
-  if (!sessions.length)
+  if (!sessions.length && !punches.length)
     throw new BadRequestException(
       'Đơn cũ thiếu giờ vào/ra; cần gửi lại đầy đủ',
     );
@@ -70,10 +76,35 @@ export async function approveAttendanceCorrection(
     correction.employee_id,
   );
   const timezone = String(policy?.config_json.timezone || 'Asia/Ho_Chi_Minh');
-  await db.query(
-    `UPDATE hrm_schema.attendance_events SET voided_by_correction_id=$4 WHERE tenant_id=$1 AND employee_id=$2 AND work_date=$3 AND voided_by_correction_id IS NULL`,
-    [tenantId, correction.employee_id, date, id],
-  );
+  if (punches.length) {
+    for (let index = 0; index < punches.length; index++) {
+      const punch = punches[index];
+      // Giờ cùng loại đã chấm trong ngày được thay bằng giờ trong đơn.
+      await db.query(
+        `UPDATE hrm_schema.attendance_events SET voided_by_correction_id=$5 WHERE tenant_id=$1 AND employee_id=$2 AND work_date=$3 AND event_kind=$4 AND voided_by_correction_id IS NULL`,
+        [tenantId, correction.employee_id, date, punch.kind, id],
+      );
+      await db.query(
+        `INSERT INTO hrm_schema.attendance_events (tenant_id,employee_id,work_date,event_kind,occurred_at,source,external_event_id,evidence,created_by)
+            VALUES ($1,$2,$3,$4,$5,'MANUAL_CORRECTION',$6,$7,$8)`,
+        [
+          tenantId,
+          correction.employee_id,
+          date,
+          punch.kind,
+          punch.at,
+          `${id}:p${index}:${punch.kind}`,
+          JSON.stringify({ correctionId: id }),
+          actorId,
+        ],
+      );
+    }
+  } else {
+    await db.query(
+      `UPDATE hrm_schema.attendance_events SET voided_by_correction_id=$4 WHERE tenant_id=$1 AND employee_id=$2 AND work_date=$3 AND voided_by_correction_id IS NULL`,
+      [tenantId, correction.employee_id, date, id],
+    );
+  }
   for (let index = 0; index < sessions.length; index++) {
     const session = sessions[index];
     for (const [kind, at] of [

@@ -100,7 +100,7 @@ function TemplateForm({
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-6 py-4">
-        <div className="grid max-w-2xl grid-cols-2 gap-4">
+        <div className="grid max-w-2xl grid-cols-1 gap-4 @md:grid-cols-2">
           <Field label="Mã mẫu">
             <Input aria-label="Mã mẫu" value={code} maxLength={50} onChange={(e) => setCode(e.target.value)} />
           </Field>
@@ -172,7 +172,7 @@ function CopyForm({
         <p className="text-xs text-slate-600">
           Sao chép từ mẫu <strong>{template.name}</strong> ({template.code}).
         </p>
-        <div className="grid max-w-2xl grid-cols-2 gap-4">
+        <div className="grid max-w-2xl grid-cols-1 gap-4 @md:grid-cols-2">
           <Field label="Mã mẫu mới">
             <Input aria-label="Mã mẫu mới" value={code} maxLength={50} onChange={(e) => setCode(e.target.value)} />
           </Field>
@@ -271,7 +271,7 @@ function ReapplyForm({
           Chỉ áp cho nhân viên từng được gán từ mẫu <strong>{template.name}</strong> trong khoảng ngày bên dưới; các
           ngày ngoại lệ và ngày lễ được giữ nguyên. Lịch cũ trong khoảng này sẽ bị thay bằng nội dung hiện tại của mẫu.
         </Notice>
-        <div className="grid max-w-xl grid-cols-2 gap-4">
+        <div className="grid max-w-xl grid-cols-1 gap-4 @md:grid-cols-2">
           <Field label="Từ ngày">
             <DatePickerInput aria-label="Từ ngày" value={fromDate} onChange={setFromDate} />
           </Field>
@@ -378,7 +378,7 @@ export function TemplatesManager({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="h-[min(88dvh,760px)] max-w-5xl" aria-label="Mẫu lịch tuần">
+      <DialogContent className="@container h-[min(88dvh,760px)] max-w-5xl" aria-label="Mẫu lịch tuần">
         <DialogHeader className="shrink-0 border-b border-slate-200 bg-slate-50 px-6 py-4">
           <DialogTitle className="text-lg">{title}</DialogTitle>
           <DialogDescription>

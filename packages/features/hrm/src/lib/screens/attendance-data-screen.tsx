@@ -1,5 +1,6 @@
 'use client';
 
+import { PageTitle } from '../ui/page-title';
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Download, Loader2, Search } from 'lucide-react';
 import { SearchableSelect } from '@enterprise-platform/shared-ui';
@@ -275,18 +276,15 @@ export default function AttendanceDataScreen() {
 
   return (
     <div className="flex h-[calc(100dvh-11rem)] min-h-[520px] flex-col gap-3">
+      <PageTitle
+        withTabs
+        title="Dữ liệu chấm công"
+        description="Kết quả chấm công theo ngày, tối đa 93 ngày mỗi lần xem."
+      />
       <form
         onSubmit={submit}
         className="flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-xs"
       >
-        <div className="mr-2">
-          <h1 className="text-lg font-bold tracking-tight text-slate-900">
-            Dữ liệu chấm công
-          </h1>
-          <p className="text-xs text-slate-500">
-            Kết quả chấm công theo ngày, tối đa 93 ngày mỗi lần xem.
-          </p>
-        </div>
         <div className="flex w-40 flex-col gap-1 text-[11px] font-semibold text-slate-600">
           <span>Từ ngày</span>
           <DatePickerInput

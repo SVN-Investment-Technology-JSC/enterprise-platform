@@ -16,6 +16,7 @@ import {
   hrmPagePermissions,
   useHrmPermissions,
 } from './hrm-permissions';
+import { HrmCrumbsProvider } from './hrm-crumbs';
 
 const COLLAPSED_KEY = 'hrm_sidebar_collapsed';
 
@@ -50,6 +51,8 @@ function HrmShellContent({ children }: { children: ReactNode }) {
   const currentPath = normalizeHrmPath(pathname);
   const pagePermissions = hrmPagePermissions[currentPath];
   const [collapsed, setCollapsed] = useState(false);
+  // Các bậc breadcrumb do màn hình hiện tại đặt thêm (xem hrm-crumbs.tsx).
+  const [crumbs, setCrumbs] = useState<readonly string[]>([]);
 
   useEffect(() => {
     try {
@@ -96,6 +99,7 @@ function HrmShellContent({ children }: { children: ReactNode }) {
   );
 
   return (
+    <HrmCrumbsProvider value={setCrumbs}>
     <ModuleShell
       appearance="light"
       moduleKey="hrm"
@@ -105,6 +109,7 @@ function HrmShellContent({ children }: { children: ReactNode }) {
       onViewChange={onViewChange}
       homeHref="/applications"
       actor={permissions.displayName || undefined}
+      crumbs={crumbs}
       collapsible
       collapsed={collapsed}
       onCollapsedChange={changeCollapsed}
@@ -136,5 +141,6 @@ function HrmShellContent({ children }: { children: ReactNode }) {
         )}
       </div>
     </ModuleShell>
+    </HrmCrumbsProvider>
   );
 }

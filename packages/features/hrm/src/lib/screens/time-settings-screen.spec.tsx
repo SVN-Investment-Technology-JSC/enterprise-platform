@@ -1,5 +1,5 @@
 /** @jest-environment jsdom */
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { hrmFetch } from '../hrm-api';
 import TimeSettingsScreen from './time-settings-screen';
 
@@ -92,10 +92,14 @@ describe('TimeSettingsScreen tab Lịch', () => {
     ) as HTMLElement;
     expect(panel.hidden).toBe(false);
     expect(
-      within(panel).getByText(
-        'Lịch lễ/Tết và ngày nghỉ được quản lý tại Phân ca',
-      ),
-    ).toBeTruthy();
+      within(panel)
+        .getAllByRole('note')
+        .some((n) =>
+          (n.textContent ?? '').includes(
+            'Lịch lễ/Tết và ngày nghỉ được quản lý tại Phân ca',
+          ),
+        ),
+    ).toBe(true);
     const link = within(panel).getByRole('link', { name: 'Phân ca' });
     expect(link.getAttribute('href')).toBe('/settings?view=schedules');
     for (const name of [
@@ -108,8 +112,10 @@ describe('TimeSettingsScreen tab Lịch', () => {
       expect(within(panel).queryByRole('button', { name })).toBeNull();
     }
     // Tab quy định chấm công vẫn giữ nguyên nút cấu hình.
+    fireEvent.click(screen.getByRole('tab', { name: 'Quy định chấm công' }));
     expect(
-      screen.getByRole('button', { name: 'Thêm phiên bản', hidden: true }),
-    ).toBeTruthy();
+      (await screen.findAllByRole('button', { name: 'Tạo phiên bản mới' }))
+        .length,
+    ).toBeGreaterThan(0);
   });
 });

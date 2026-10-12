@@ -1,24 +1,40 @@
 'use client';
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  AlertTriangle,
+  ArrowLeftRight,
+  Banknote,
+  Briefcase,
+  CalendarDays,
   ChevronDown,
   ChevronRight,
+  Clock,
+  FileText,
   GitBranch,
-  Info,
+  History,
+  Pencil,
   RotateCcw,
   Save,
+  type LucideIcon,
 } from 'lucide-react';
 import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import type {
   ApprovalRouteConfigItem,
   ApprovalRouteConfigResult,
+  HrmRequestKind,
   SetApprovalRoutePayload,
 } from '@enterprise-platform/contracts-hrm';
 import { HrmApiError, hrmFetch } from '../hrm-api';
 import { useHrmPermissions } from '../hrm-permissions';
-import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
+import { ApprovalPolicyCard } from '../ui/approval-policy-card';
+import { ConfigHistoryDrawer } from '../ui/config-history-drawer';
+import { PageTitle } from '../ui/page-title';
+import {
+  IconTile,
+  InfoNote,
+  StatusPill,
+  type KitTone,
+} from '../ui/settings-kit';
 import { toast } from '../ui/toast';
 
 /** Lựa chọn cách duyệt của một dòng. INHERIT chỉ có ở dòng theo lý do: bỏ cấu hình riêng, theo cấu hình chung của loại đơn. */
@@ -48,6 +64,17 @@ const CHOICE_LABELS: Record<RouteChoice, string> = {
   INHERIT: 'Theo cấu hình chung',
   DIRECT: 'Quản lý trực tiếp',
   PROCEDURE: 'Theo quy trình',
+};
+
+/** Biểu tượng và màu của từng loại đơn (loại lạ dùng biểu tượng chung). */
+const KIND_META: Record<string, { icon: LucideIcon; tone: KitTone }> = {
+  leave: { icon: CalendarDays, tone: 'blue' },
+  ot: { icon: Clock, tone: 'violet' },
+  business_trip: { icon: Briefcase, tone: 'green' },
+  shift_change: { icon: ArrowLeftRight, tone: 'blue' },
+  correction: { icon: FileText, tone: 'amber' },
+  advance: { icon: Banknote, tone: 'red' },
+  profile_correction: { icon: Pencil, tone: 'blue' },
 };
 
 /** Khóa duy nhất của một dòng: loại đơn và mã lý do (rỗng với dòng chung). */
@@ -119,6 +146,13 @@ export function groupApprovalItems(
   return groups;
 }
 
+/**
+ * Mặc định chỉ mở các loại đơn có lý do đáng chú ý (có cấu hình riêng hoặc đang mâu thuẫn);
+ * lý do chỉ theo cấu hình chung thì thu gọn cho gọn.
+ */
+export const isGroupAutoOpen = (group: ApprovalGroup) =>
+  group.reasons.some((r) => !r.inherited || r.conflict);
+
 /** Mô tả cách duyệt đang áp dụng của một dòng (dùng cho dòng theo cấu hình chung). */
 function describeRoute(item: ApprovalRouteConfigItem): string {
   if (item.mode === 'DIRECT') return 'Quản lý trực tiếp';
@@ -150,6 +184,13 @@ function procedureOptionsOf(
 const errorText = (e: unknown) =>
   e instanceof Error ? e.message : 'Thao tác thất bại';
 
+/**
+ * Lưới của một dòng cấu hình: hẹp thì xếp dọc (thẻ), từ @xl tên chiếm cả hàng và hai ô chọn nằm cạnh nhau,
+ * từ @3xl thành bốn cột (tên, cách duyệt, quy trình, thao tác). Dòng tiêu đề dùng đúng lưới này để thẳng cột.
+ */
+const ROW_GRID =
+  'grid grid-cols-1 items-start gap-x-3 gap-y-2 @xl:grid-cols-2 @3xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)_minmax(0,1.3fr)_minmax(0,0.7fr)]';
+
 interface RowProps {
   item: ApprovalRouteConfigItem;
   draft?: RouteDraft;
@@ -161,7 +202,10 @@ interface RowProps {
   group?: {
     reasonCount: number;
     ownCount: number;
-    collapsed: boolean;
+    open: boolean;
+    /** Số lý do đang ẩn (thu gọn) có thay đổi chưa lưu hoặc mâu thuẫn. */
+    hiddenDirty: number;
+    hiddenConflict: number;
     onToggle: () => void;
   };
   onChoice: (choice: RouteChoice) => void;
@@ -199,66 +243,98 @@ function RouteRow({
   ];
   const savedProcedureBroken =
     !dirty && item.mode === 'PROCEDURE' && !procedureAvailable;
+  const meta = KIND_META[item.requestKind];
+
+  const nameBlock = group ? (
+    <>
+      <IconTile icon={meta?.icon ?? GitBranch} tone={meta?.tone ?? 'slate'} size="sm" />
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-sm font-bold text-slate-900">
+          {item.label}
+        </span>
+        <span className="block text-[11px] text-slate-500">
+          {group.reasonCount === 0
+            ? 'Không có lý do riêng'
+            : `${group.reasonCount} lý do${
+                group.ownCount > 0
+                  ? `, ${group.ownCount} có cấu hình riêng`
+                  : ''
+              }`}
+        </span>
+      </span>
+    </>
+  ) : (
+    <span className="min-w-0 flex-1">
+      <span className="block truncate text-xs font-semibold text-slate-800">
+        {item.reasonName ?? item.reasonCode}
+      </span>
+      <span className="block font-mono text-[11px] text-slate-500">
+        {item.reasonCode}
+      </span>
+    </span>
+  );
+
+  const pills = (
+    <>
+      {reason && !dirty && item.inherited && (
+        <StatusPill tone="slate">Theo cấu hình chung</StatusPill>
+      )}
+      {item.conflict && (
+        <span title="Có nhiều cấu hình mâu thuẫn; gửi đơn bị chặn cho tới khi chọn lại cách duyệt và lưu.">
+          <StatusPill tone="red">Cấu hình mâu thuẫn</StatusPill>
+        </span>
+      )}
+      {savedProcedureBroken && (
+        <span title="Procedure không khả dụng nên đơn theo quy trình không gửi được; chuyển về Quản lý trực tiếp.">
+          <StatusPill tone="amber">Procedure không khả dụng</StatusPill>
+        </span>
+      )}
+      {dirty && <StatusPill tone="blue">Chưa lưu</StatusPill>}
+      {group && group.hiddenDirty > 0 && (
+        <StatusPill tone="blue">{group.hiddenDirty} lý do chưa lưu</StatusPill>
+      )}
+      {group && group.hiddenConflict > 0 && (
+        <StatusPill tone="red">{group.hiddenConflict} lý do mâu thuẫn</StatusPill>
+      )}
+    </>
+  );
 
   return (
-    <tr
+    <div
       data-testid={`approval-row-${routeKey(item)}`}
-      className={`border-b border-slate-100 align-top ${
+      className={`${ROW_GRID} px-3 py-3 @xl:px-4 ${
         reason ? 'bg-white' : 'bg-slate-50/70'
       }`}
     >
-      <td className="px-3 py-2.5">
-        {group ? (
-          <div className="flex items-start gap-1.5">
-            {group.reasonCount > 0 ? (
-              <button
-                type="button"
-                aria-expanded={!group.collapsed}
-                aria-label={`${group.collapsed ? 'Mở' : 'Thu gọn'} lý do của ${item.label}`}
-                onClick={group.onToggle}
-                className="mt-0.5 rounded p-0.5 text-slate-500 hover:bg-slate-200"
-              >
-                {group.collapsed ? (
-                  <ChevronRight className="size-4" />
-                ) : (
-                  <ChevronDown className="size-4" />
-                )}
-              </button>
-            ) : (
-              <span className="size-5" aria-hidden="true" />
-            )}
-            <div>
-              <div className="text-sm font-bold text-slate-900">
-                {item.label}
-              </div>
-              <div className="text-[11px] text-slate-500">
-                {group.reasonCount === 0
-                  ? 'Không có lý do riêng'
-                  : `${group.reasonCount} lý do${
-                      group.ownCount > 0
-                        ? `, ${group.ownCount} có cấu hình riêng`
-                        : ''
-                    }`}
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div className="pl-9">
-            <div className="text-xs font-semibold text-slate-800">
-              {item.reasonName ?? item.reasonCode}
-            </div>
-            <div className="font-mono text-[11px] text-slate-500">
-              {item.reasonCode}
-            </div>
-          </div>
-        )}
-      </td>
-      <td className="px-3 py-2.5">
-        <div
-          role="group"
-          aria-label={`Cách duyệt của ${item.label}`}
-          className="min-w-[210px]"
-        >
+      <div className="min-w-0 @xl:col-span-2 @3xl:col-span-1">
+        <div className={reason ? 'pl-3 @3xl:pl-10' : ''}>
+          {group && group.reasonCount > 0 ? (
+            <button
+              type="button"
+              aria-expanded={group.open}
+              aria-label={`${group.open ? 'Thu gọn' : 'Mở'} lý do của ${item.label}`}
+              onClick={group.onToggle}
+              className="-m-1 flex w-[calc(100%+0.5rem)] cursor-pointer items-center gap-2.5 rounded-lg p-1 text-left hover:bg-slate-100"
+            >
+              {nameBlock}
+              {group.open ? (
+                <ChevronDown className="size-4 shrink-0 text-slate-500" aria-hidden="true" />
+              ) : (
+                <ChevronRight className="size-4 shrink-0 text-slate-500" aria-hidden="true" />
+              )}
+            </button>
+          ) : (
+            <div className="flex items-center gap-2.5">{nameBlock}</div>
+          )}
+          <div className="mt-1 flex flex-wrap gap-1">{pills}</div>
+        </div>
+      </div>
+
+      <div className="min-w-0">
+        <span className="mb-1 block text-[11px] font-medium text-slate-500 @3xl:sr-only">
+          Cách duyệt
+        </span>
+        <div role="group" aria-label={`Cách duyệt của ${item.label}`}>
           <SearchableSelect
             options={choiceOptions}
             value={shown.choice}
@@ -268,15 +344,15 @@ function RouteRow({
             onChange={(value) => value && onChoice(value as RouteChoice)}
           />
         </div>
-      </td>
-      <td className="px-3 py-2.5">
+      </div>
+
+      <div className="min-w-0">
+        <span className="mb-1 block text-[11px] font-medium text-slate-500 @3xl:sr-only">
+          Quy trình
+        </span>
         {shown.choice === 'PROCEDURE' ? (
           <div className="space-y-1">
-            <div
-              role="group"
-              aria-label={`Quy trình của ${item.label}`}
-              className="min-w-[260px]"
-            >
+            <div role="group" aria-label={`Quy trình của ${item.label}`}>
               <SearchableSelect
                 options={procedureOptionsOf(item, definitions)}
                 value={shown.procedureId}
@@ -293,77 +369,49 @@ function RouteRow({
             )}
           </div>
         ) : shown.choice === 'INHERIT' ? (
-          <span className="text-xs text-slate-600">
-            Đang theo cấu hình chung:{' '}
-            <strong className="font-semibold text-slate-800">
-              {describeRoute(item)}
-            </strong>
-          </span>
+          <p className="flex min-h-9 items-center text-xs text-slate-600">
+            <span>
+              Đang theo cấu hình chung:{' '}
+              <strong className="font-semibold text-slate-800">
+                {describeRoute(item)}
+              </strong>
+            </span>
+          </p>
         ) : (
-          <span className="text-xs text-slate-600">
+          <p className="flex min-h-9 items-center text-xs text-slate-600">
             Quản lý trực tiếp của người làm đơn duyệt
-          </span>
+          </p>
         )}
-      </td>
-      <td className="px-3 py-2.5">
-        <div className="flex flex-wrap gap-1">
-          {reason && !dirty && item.inherited && (
-            <Badge className="border-slate-200 bg-slate-100 text-slate-600">
-              Theo cấu hình chung
-            </Badge>
-          )}
-          {item.conflict && (
-            <Badge
-              title="Có nhiều cấu hình mâu thuẫn; gửi đơn bị chặn cho tới khi chọn lại cách duyệt và lưu."
-              className="border-red-200 bg-red-50 text-red-700"
-            >
-              Cấu hình mâu thuẫn
-            </Badge>
-          )}
-          {savedProcedureBroken && (
-            <Badge
-              title="Procedure không khả dụng nên đơn theo quy trình không gửi được; chuyển về Quản lý trực tiếp."
-              className="border-amber-200 bg-amber-50 text-amber-700"
-            >
-              Procedure không khả dụng
-            </Badge>
-          )}
-          {dirty && (
-            <Badge className="border-blue-200 bg-blue-50 text-blue-700">
-              Chưa lưu
-            </Badge>
-          )}
-        </div>
-      </td>
-      <td className="px-3 py-2.5">
+      </div>
+
+      <div className="flex min-w-0 flex-wrap items-center justify-end gap-1.5 @xl:col-span-2 @3xl:col-span-1">
         {dirty && (
-          <div className="flex gap-1.5">
+          <>
             <Button
-              size="xs"
               disabled={saving || anySaving || !saveable}
               onClick={onSave}
               aria-label={`Lưu cách duyệt của ${item.label}`}
               title={saveable ? undefined : 'Chọn quy trình trước khi lưu'}
-              className="h-7 gap-1 bg-blue-600 px-2 text-xs text-white hover:bg-blue-700"
+              className="h-9 gap-1 bg-blue-600 px-3 text-xs text-white hover:bg-blue-700"
             >
-              <Save className="size-3" />
+              <Save className="size-3.5" />
               {saving ? 'Đang lưu...' : 'Lưu'}
             </Button>
             <Button
-              size="xs"
               variant="outline"
               disabled={saving}
               onClick={onReset}
               aria-label={`Hoàn tác thay đổi của ${item.label}`}
-              className="h-7 gap-1 px-2 text-xs"
+              title="Hoàn tác thay đổi"
+              className="h-9 gap-1 px-3 text-xs"
             >
-              <RotateCcw className="size-3" />
-              Hoàn tác
+              <RotateCcw className="size-3.5" />
+              <span className="@3xl:sr-only">Hoàn tác</span>
             </Button>
-          </div>
+          </>
         )}
-      </td>
-    </tr>
+      </div>
+    </div>
   );
 }
 
@@ -374,6 +422,8 @@ function RouteRow({
 export default function ApprovalConfigScreen() {
   const { can, loading: permissionsLoading } = useHrmPermissions();
   const canManage = can('hrm.automation.manage');
+  const canAudit = can('hrm.audit.read');
+  const canPolicy = can('hrm.integration.manage');
   const [config, setConfig] = useState<ApprovalRouteConfigResult | null>(null);
   /** undefined: đang tải; null: không tải được; mảng: danh sách quy trình đã công bố. */
   const [definitions, setDefinitions] = useState<
@@ -381,10 +431,12 @@ export default function ApprovalConfigScreen() {
   >(undefined);
   const [definitionsError, setDefinitionsError] = useState('');
   const [drafts, setDrafts] = useState<Record<string, RouteDraft>>({});
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  /** null: chưa ai bấm mở/thu gọn, dùng mặc định theo `isGroupAutoOpen`; có giá trị: các loại đơn đang mở lý do. */
+  const [openKinds, setOpenKinds] = useState<ReadonlySet<HrmRequestKind> | null>(null);
   const [savingKey, setSavingKey] = useState('');
   const [error, setError] = useState('');
   const [warnings, setWarnings] = useState<readonly string[]>([]);
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   const load = useCallback(async () => {
     const result = await hrmFetch<{ data: ApprovalRouteConfigResult }>(
@@ -430,11 +482,14 @@ export default function ApprovalConfigScreen() {
     [config],
   );
   const conflictCount = (config?.items ?? []).filter((i) => i.conflict).length;
+  const dirtyCount = Object.keys(drafts).length;
   const canPickProcedure =
     procedureAvailable === true && Array.isArray(definitions);
 
   function setDraft(item: ApprovalRouteConfigItem, draft: RouteDraft) {
     const key = routeKey(item);
+    // Bắt đầu sửa thì giữ nguyên các loại đơn đang mở, để dòng vừa lưu không biến mất khi mặc định đổi theo dữ liệu.
+    if (openKinds === null) setOpenKinds(currentOpen());
     setDrafts((current) => {
       const next = { ...current };
       if (isRouteDirty(item, draft)) next[key] = draft;
@@ -486,13 +541,21 @@ export default function ApprovalConfigScreen() {
     }
   }
 
-  function toggleGroup(kind: string) {
-    setCollapsed((current) => {
-      const next = new Set(current);
-      if (next.has(kind)) next.delete(kind);
-      else next.add(kind);
-      return next;
-    });
+  const groupsWithReasons = groups.filter((g) => g.reasons.length > 0);
+  const isOpen = (group: ApprovalGroup) =>
+    openKinds
+      ? openKinds.has(group.general.requestKind)
+      : isGroupAutoOpen(group);
+  const currentOpen = () =>
+    new Set(
+      groupsWithReasons.filter(isOpen).map((g) => g.general.requestKind),
+    );
+
+  function toggleGroup(kind: HrmRequestKind) {
+    const next = new Set(currentOpen());
+    if (next.has(kind)) next.delete(kind);
+    else next.add(kind);
+    setOpenKinds(next);
   }
 
   if (!permissionsLoading && !canManage) {
@@ -506,205 +569,188 @@ export default function ApprovalConfigScreen() {
     );
   }
 
-  const groupsWithReasons = groups.filter((g) => g.reasons.length > 0);
-  const allCollapsed =
-    groupsWithReasons.length > 0 &&
-    groupsWithReasons.every((g) => collapsed.has(g.general.requestKind));
+  const allOpen =
+    groupsWithReasons.length > 0 && groupsWithReasons.every(isOpen);
 
   return (
-    <div className="mx-auto max-w-[1600px] space-y-4">
-      <div className="flex flex-col justify-between gap-4 rounded-xl border border-slate-200 bg-white p-5 shadow-xs xl:flex-row xl:items-center">
-        <div className="flex items-center gap-3">
-          <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
-            <GitBranch className="size-5" />
-          </div>
-          <div>
-            <h1 className="text-xl font-bold tracking-tight text-slate-900">
-              Duyệt đơn
-            </h1>
-            <p className="max-w-[85ch] text-xs text-slate-500">
-              Chọn cách duyệt cho từng loại đơn và, khi cần, riêng cho từng lý
-              do. Lý do không có cấu hình riêng thì theo cấu hình chung của loại
-              đơn.
-            </p>
-          </div>
-        </div>
-      </div>
+    <div className="@container mx-auto max-w-[1400px] space-y-4">
+      <PageTitle
+        title="Quy trình duyệt"
+        description="Thiết lập quy trình phê duyệt đơn từ."
+        badge={
+          dirtyCount > 0 ? (
+            <StatusPill tone="blue">{dirtyCount} thay đổi chưa lưu</StatusPill>
+          ) : undefined
+        }
+        actions={
+          canAudit ? (
+            <Button
+              variant="outline"
+              onClick={() => setHistoryOpen(true)}
+              className="h-9 gap-1.5 px-3 text-xs font-semibold"
+            >
+              <History className="size-4" aria-hidden="true" />
+              Lịch sử thay đổi
+            </Button>
+          ) : undefined
+        }
+      />
 
-      <div className="grid gap-3 lg:grid-cols-2">
-        <div className="rounded-xl border border-slate-200 bg-white p-4 text-xs text-slate-700">
-          <p className="mb-1 flex items-center gap-1.5 text-sm font-bold text-slate-900">
-            <Info className="size-4 text-blue-600" aria-hidden="true" />
-            Quản lý trực tiếp (mặc định)
-          </p>
-          <p>
-            Đơn đi thẳng lên quản lý trực tiếp của người làm đơn, suy ra từ sơ
-            đồ tổ chức. Người duyệt là quản lý trực tiếp và người có quyền duyệt
-            toàn bộ.
-          </p>
-        </div>
-        <div className="rounded-xl border border-slate-200 bg-white p-4 text-xs text-slate-700">
-          <p className="mb-1 flex items-center gap-1.5 text-sm font-bold text-slate-900">
-            <Info className="size-4 text-blue-600" aria-hidden="true" />
-            Theo quy trình
-          </p>
-          <p>
-            Đơn khởi tạo một quy trình duyệt của Procedure Engine. Người duyệt
-            do quy trình chỉ định theo từng bước. Cấu hình mới chỉ áp dụng cho
-            đơn gửi sau; đơn đã gửi giữ nguyên.
-          </p>
-        </div>
-      </div>
+      <InfoNote tone="blue">
+        <p>
+          <strong className="font-semibold text-slate-800">
+            Quản lý trực tiếp (mặc định):
+          </strong>{' '}
+          đơn đi lên quản lý trực tiếp của người làm đơn. Người duyệt là quản lý
+          trực tiếp và người có quyền duyệt toàn bộ.
+        </p>
+        <p className="mt-1">
+          <strong className="font-semibold text-slate-800">Theo quy trình:</strong>{' '}
+          đơn chạy một quy trình của Procedure Engine. Người duyệt do quy trình
+          chỉ định theo từng bước. Cấu hình mới chỉ áp dụng cho đơn gửi sau; đơn
+          đã gửi giữ nguyên.
+        </p>
+        <p className="mt-1">
+          Lý do không có cấu hình riêng thì theo cấu hình chung của loại đơn.
+        </p>
+      </InfoNote>
 
       {procedureAvailable === false && (
-        <div
-          role="alert"
-          className="flex gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900"
-        >
-          <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-          <span>
-            Procedure Engine không khả dụng: chỉ chọn được cách Quản lý trực
-            tiếp. Dòng nào đang cấu hình Theo quy trình sẽ không gửi được đơn
-            cho tới khi chuyển về Quản lý trực tiếp.
-          </span>
-        </div>
+        <InfoNote tone="amber" role="alert">
+          Procedure Engine không khả dụng: chỉ chọn được cách Quản lý trực tiếp.
+          Dòng nào đang cấu hình Theo quy trình sẽ không gửi được đơn cho tới khi
+          chuyển về Quản lý trực tiếp.
+        </InfoNote>
       )}
       {procedureAvailable === true && definitionsError && (
-        <div
-          role="alert"
-          className="flex gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900"
-        >
-          <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-          <span>
-            Không tải được danh sách quy trình nên chưa chọn được cách Theo quy
-            trình. {definitionsError}
-          </span>
-        </div>
+        <InfoNote tone="amber" role="alert">
+          Không tải được danh sách quy trình nên chưa chọn được cách Theo quy
+          trình. {definitionsError}
+        </InfoNote>
       )}
       {conflictCount > 0 && (
-        <div
-          role="alert"
-          className="flex gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-medium text-red-800"
-        >
-          <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-          <span>
+        <InfoNote tone="red" role="alert">
+          <span className="font-medium">
             Có {conflictCount} dòng cấu hình mâu thuẫn. Đơn thuộc dòng đó chưa
             gửi được cho tới khi chọn lại cách duyệt và lưu.
           </span>
-        </div>
+        </InfoNote>
       )}
       {warnings.length > 0 && (
-        <div
-          role="status"
-          className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900"
-        >
+        <InfoNote tone="amber" role="status">
           <p className="mb-1 font-semibold">Cảnh báo cấu hình</p>
           <ul className="list-disc space-y-0.5 pl-5">
             {warnings.map((warning) => (
               <li key={warning}>{warning}</li>
             ))}
           </ul>
-        </div>
+        </InfoNote>
       )}
       {error && (
-        <div
-          role="alert"
-          className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-semibold text-red-700"
-        >
+        <InfoNote tone="red" role="alert">
           {error}
-        </div>
+        </InfoNote>
       )}
 
-      <section className="space-y-3 rounded-xl border border-slate-200 bg-white p-5 shadow-xs">
-        <div className="flex items-center justify-between gap-3 border-b border-slate-100 pb-2">
-          <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
+      <section
+        aria-label="Cách duyệt theo loại đơn và lý do"
+        className="min-w-0 space-y-3"
+      >
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-sm font-bold text-slate-900">
             Cách duyệt theo loại đơn và lý do
-          </span>
+          </h2>
           {groupsWithReasons.length > 0 && (
             <Button
-              size="xs"
               variant="outline"
               onClick={() =>
-                setCollapsed(
-                  allCollapsed
+                setOpenKinds(
+                  allOpen
                     ? new Set()
                     : new Set(groupsWithReasons.map((g) => g.general.requestKind)),
                 )
               }
-              className="h-7 px-2 text-xs"
+              className="h-9 px-3 text-xs"
             >
-              {allCollapsed ? 'Mở tất cả lý do' : 'Thu gọn tất cả lý do'}
+              {allOpen ? 'Thu gọn tất cả lý do' : 'Mở tất cả lý do'}
             </Button>
           )}
         </div>
 
         {config === null ? (
-          <p className="py-8 text-center text-xs text-slate-500">
-            {error ? 'Không tải được cấu hình duyệt đơn.' : 'Đang tải cấu hình duyệt đơn...'}
+          <p className="rounded-xl border border-slate-200 bg-white py-8 text-center text-xs text-slate-500">
+            {error
+              ? 'Không tải được cấu hình duyệt đơn.'
+              : 'Đang tải cấu hình duyệt đơn...'}
           </p>
         ) : (
-          <div className="max-h-[calc(100vh-460px)] min-h-[320px] overflow-auto rounded-lg border border-slate-200">
-            <table className="w-full min-w-[1000px] border-collapse text-left">
-              <thead className="sticky top-0 z-10 bg-slate-100 text-[11px] font-bold uppercase tracking-wide text-slate-600">
-                <tr>
-                  <th scope="col" className="w-[24%] px-3 py-2">
-                    Loại đơn / lý do
-                  </th>
-                  <th scope="col" className="w-[240px] px-3 py-2">
-                    Cách duyệt
-                  </th>
-                  <th scope="col" className="px-3 py-2">
-                    Quy trình
-                  </th>
-                  <th scope="col" className="w-[190px] px-3 py-2">
-                    Trạng thái
-                  </th>
-                  <th scope="col" className="w-[170px] px-3 py-2">
-                    Thao tác
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {groups.map((group) => {
-                  const kind = group.general.requestKind;
-                  const isCollapsed = collapsed.has(kind);
-                  const rowProps = (item: ApprovalRouteConfigItem) => ({
-                    item,
-                    draft: drafts[routeKey(item)],
-                    saving: savingKey === routeKey(item),
-                    anySaving: savingKey !== '',
-                    canPickProcedure,
-                    definitions,
-                    procedureAvailable: procedureAvailable !== false,
-                    onChoice: (choice: RouteChoice) => changeChoice(item, choice),
-                    onProcedure: (id: string) => changeProcedure(item, id),
-                    onSave: () => void save(item),
-                    onReset: () => reset(item),
-                  });
-                  return (
-                    <Fragment key={kind}>
-                      <RouteRow
-                        {...rowProps(group.general)}
-                        group={{
-                          reasonCount: group.reasons.length,
-                          ownCount: group.reasons.filter((r) => !r.inherited)
-                            .length,
-                          collapsed: isCollapsed,
-                          onToggle: () => toggleGroup(kind),
-                        }}
-                      />
-                      {!isCollapsed &&
-                        group.reasons.map((item) => (
-                          <RouteRow key={routeKey(item)} {...rowProps(item)} />
-                        ))}
-                    </Fragment>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+          <>
+            <div
+              aria-hidden="true"
+              className={`${ROW_GRID} hidden rounded-lg bg-slate-100 px-4 py-2 text-xs font-bold text-slate-600 @3xl:grid`}
+            >
+              <span>Loại đơn / lý do</span>
+              <span>Cách duyệt</span>
+              <span>Quy trình</span>
+              <span className="text-right">Thao tác</span>
+            </div>
+            {groups.map((group) => {
+              const kind = group.general.requestKind;
+              const open = isOpen(group);
+              const rowProps = (item: ApprovalRouteConfigItem) => ({
+                item,
+                draft: drafts[routeKey(item)],
+                saving: savingKey === routeKey(item),
+                anySaving: savingKey !== '',
+                canPickProcedure,
+                definitions,
+                procedureAvailable: procedureAvailable !== false,
+                onChoice: (choice: RouteChoice) => changeChoice(item, choice),
+                onProcedure: (id: string) => changeProcedure(item, id),
+                onSave: () => void save(item),
+                onReset: () => reset(item),
+              });
+              return (
+                <div
+                  key={kind}
+                  className="min-w-0 divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200 bg-white"
+                >
+                  <RouteRow
+                    {...rowProps(group.general)}
+                    group={{
+                      reasonCount: group.reasons.length,
+                      ownCount: group.reasons.filter((r) => !r.inherited).length,
+                      open,
+                      hiddenDirty: open
+                        ? 0
+                        : group.reasons.filter((r) => drafts[routeKey(r)]).length,
+                      hiddenConflict: open
+                        ? 0
+                        : group.reasons.filter((r) => r.conflict).length,
+                      onToggle: () => toggleGroup(kind),
+                    }}
+                  />
+                  {open &&
+                    group.reasons.map((item) => (
+                      <RouteRow key={routeKey(item)} {...rowProps(item)} />
+                    ))}
+                </div>
+              );
+            })}
+          </>
         )}
       </section>
+
+      {canPolicy && <ApprovalPolicyCard />}
+
+      {canAudit && (
+        <ConfigHistoryDrawer
+          open={historyOpen}
+          onOpenChange={setHistoryOpen}
+          description="Các lần đổi cách duyệt đơn và chính sách tự duyệt, mới nhất ở trên."
+          actionPrefixes={['PROCEDURE_BINDING_CONFIGURED', 'APPROVAL_POLICY_CHANGED']}
+        />
+      )}
     </div>
   );
 }

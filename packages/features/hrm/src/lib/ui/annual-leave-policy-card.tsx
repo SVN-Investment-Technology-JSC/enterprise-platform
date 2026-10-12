@@ -2,11 +2,18 @@
 import { useId, useState, type ReactNode } from 'react';
 import {
   AlertTriangle,
+  ArrowLeftRight,
+  BookOpen,
+  Calculator,
   CalendarDays,
   CheckCircle2,
+  Clock,
+  FileText,
   Info,
+  Layers,
   Plus,
   Trash2,
+  Users,
 } from 'lucide-react';
 import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import type {
@@ -15,7 +22,6 @@ import type {
   SaveAnnualLeavePolicyRequest,
 } from '@enterprise-platform/contracts-hrm';
 import { HrmApiError, hrmFetch } from '../hrm-api';
-import { Badge } from './badge';
 import { Button } from './button';
 import { Input } from './input';
 import { LeaveField, LeaveSwitch } from './leave-form-controls';
@@ -25,11 +31,13 @@ const BASIS_OPTIONS: { value: HrmLeaveAccrualBasis; label: string }[] = [
   { value: 'CONTRACT_SIGN_DATE', label: 'Ngày ký HĐLĐ chính thức' },
 ];
 
+const REASON_MAX_LENGTH = 1000;
+
 interface TierRow {
   minYears: string;
   bonusDays: string;
 }
-interface PolicyForm {
+export interface PolicyForm {
   /** Chỉ dùng khi hệ thống chưa có phép năm. */
   leaveTypeId: string;
   accrualBasis: HrmLeaveAccrualBasis;
@@ -37,8 +45,8 @@ interface PolicyForm {
   startOffsetMonths: string;
   advanceAllowed: boolean;
   tiers: TierRow[];
-  /** YYYY-MM hoặc rỗng (để hệ thống tự chọn). */
-  effectiveMonth: string;
+  /** Năm áp dụng (luôn từ 01/01) hoặc rỗng để hệ thống tự chọn. */
+  effectiveYear: string;
   /** Ghi chú thay đổi (nhật ký kiểm toán), khác với lý do nghỉ và mô tả đơn. */
   reason: string;
 }
@@ -58,7 +66,7 @@ function toForm(data: AnnualLeavePolicyResponse | null): PolicyForm {
           bonusDays: String(t.bonusDays),
         }))
       : [{ minYears: '5', bonusDays: '1' }],
-    effectiveMonth: '',
+    effectiveYear: '',
     reason: '',
   };
 }
@@ -78,7 +86,7 @@ export function buildPolicyRequest(
     return { error: 'Cần chọn lý do nghỉ dùng làm phép năm' };
   const annualDays = toNumber(form.annualDays);
   if (!Number.isFinite(annualDays))
-    return { error: 'Cần nhập Số ngày phép một năm' };
+    return { error: 'Cần nhập Số ngày phép mỗi năm' };
   const startOffsetMonths = toNumber(form.startOffsetMonths);
   if (!Number.isFinite(startOffsetMonths))
     return { error: 'Cần nhập Bắt đầu cộng sau (tháng)' };
@@ -101,65 +109,104 @@ export function buildPolicyRequest(
     startOffsetMonths,
     advanceAllowed: form.advanceAllowed,
     seniorityTiers: tiers,
-    ...(form.effectiveMonth ? { effectiveFrom: `${form.effectiveMonth}-01` } : {}),
+    ...(form.effectiveYear ? { effectiveFrom: `${form.effectiveYear}-01-01` } : {}),
     reason,
     ...(data.policy ? { expectedUpdatedAt: data.policy.updatedAt } : {}),
   };
   return { request };
 }
 
-function monthVn(isoDate: string): string {
-  const match = /^(\d{4})-(\d{2})/.exec(isoDate);
-  return match ? `${match[2]}/${match[1]}` : isoDate;
+export interface PolicySummary {
+  base: string;
+  start: string;
+  seniority: string;
+  carryover: string;
+}
+
+/**
+ * Tóm tắt chính sách từ giá trị đang có trong biểu mẫu (nạp từ chính sách hiện hành, đổi theo khi sửa).
+ * Phép năm không chuyển sang năm sau: tác vụ chốt cuối năm reset phần còn lại về 0.
+ */
+export function buildPolicySummary(form: PolicyForm): PolicySummary {
+  const days = toNumber(form.annualDays);
+  const offset = toNumber(form.startOffsetMonths);
+  const basis =
+    form.accrualBasis === 'JOIN_DATE'
+      ? 'Theo ngày vào làm'
+      : 'Theo ngày ký HĐLĐ';
+  const tiers = form.tiers
+    .map((row) => ({
+      minYears: toNumber(row.minYears),
+      bonusDays: toNumber(row.bonusDays),
+    }))
+    .filter((t) => Number.isFinite(t.minYears) && Number.isFinite(t.bonusDays))
+    .sort((a, b) => a.minYears - b.minYears);
+  let seniority = 'Không có';
+  if (tiers.length === 1) {
+    seniority = `+${tiers[0].bonusDays} ngày mỗi năm từ đủ ${tiers[0].minYears} năm`;
+  } else if (tiers.length > 1) {
+    const shown = tiers
+      .slice(0, 3)
+      .map((t) => `+${t.bonusDays} ngày từ đủ ${t.minYears} năm`)
+      .join('; ');
+    seniority =
+      tiers.length > 3
+        ? `${shown}; và ${tiers.length - 3} mốc khác`
+        : shown;
+  }
+  return {
+    base: Number.isFinite(days) ? `${days} ngày mỗi năm` : 'Chưa nhập',
+    start:
+      Number.isFinite(offset) && offset > 0
+        ? `${basis}, sau ${offset} tháng`
+        : basis,
+    seniority,
+    carryover: 'Không chuyển sang năm sau',
+  };
+}
+
+function dateVn(isoDate: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(isoDate);
+  return match ? `${match[3]}/${match[2]}/${match[1]}` : isoDate;
+}
+
+/** Các năm có thể chọn làm mốc áp dụng chính sách (luôn từ 01/01). */
+function effectiveYearOptions() {
+  const year = new Date().getFullYear();
+  return [year, year + 1, year + 2].map((y) => ({
+    value: String(y),
+    label: `Từ 01/01/${y}`,
+  }));
 }
 function dateTimeVn(iso: string): string {
   const date = new Date(iso);
   return Number.isNaN(date.getTime()) ? iso : date.toLocaleString('vi-VN');
 }
-function Section({
-  title,
-  description,
-  children,
-}: {
-  title: string;
-  description?: ReactNode;
-  children: ReactNode;
-}) {
-  return (
-    <div className="space-y-3 border-t border-slate-100 pt-4">
-      <div>
-        <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">
-          {title}
-        </h3>
-        {description ? (
-          <p className="mt-1 text-xs text-slate-500">{description}</p>
-        ) : null}
-      </div>
-      {children}
-    </div>
-  );
+
+/** Trạng thái hiệu lực để hiện nhãn ở tiêu đề màn hình. */
+export function policyStatus(
+  data: AnnualLeavePolicyResponse | null,
+): 'active' | 'scheduled' | 'none' {
+  const policy = data?.policy ?? null;
+  if (!policy) return 'none';
+  const today = new Date().toLocaleDateString('en-CA');
+  return policy.effectiveFrom > today ? 'scheduled' : 'active';
 }
 
 /**
- * Chính sách phép năm: MỘT biểu mẫu duy nhất cho cả hệ thống (không danh sách lịch, không phiên bản).
- * Khi chưa có phép năm, bước đầu là chọn lý do nghỉ dùng làm phép năm.
+ * Trạng thái và thao tác lưu của chính sách phép năm (MỘT biểu mẫu cho cả hệ thống). Tách khỏi phần
+ * hiển thị để nút "Lưu thay đổi" ở tiêu đề màn hình dùng chung đúng luồng lưu với biểu mẫu.
  */
-export function AnnualLeavePolicyCard({
+export function useAnnualLeavePolicyForm({
   data,
-  loadError,
   canManage,
   onSaved,
-  onReload,
 }: {
   /** null khi đang tải hoặc tải lỗi. */
   data: AnnualLeavePolicyResponse | null;
-  loadError: string;
   canManage: boolean;
   onSaved: (data: AnnualLeavePolicyResponse) => void | Promise<void>;
-  onReload: () => void;
 }) {
-  const uid = useId();
-  const headingId = `${uid}-heading`;
   const [form, setForm] = useState<PolicyForm>(() => toForm(data));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -178,14 +225,11 @@ export function AnnualLeavePolicyCard({
     setForm((current) => ({ ...current, ...next }));
     setSaved('');
   };
-  const editable = canManage && !busy;
-  const policy = data?.policy ?? null;
-  const joinDate = form.accrualBasis === 'JOIN_DATE';
-  const monthlyDays = Number(form.annualDays);
-  const todayMonth = new Date().toLocaleDateString('en-CA').slice(0, 7);
+  const dirty = data
+    ? JSON.stringify(form) !== JSON.stringify(toForm(data))
+    : false;
 
-  async function submit(event: React.FormEvent) {
-    event.preventDefault();
+  async function save() {
     if (!data || busy || !canManage) return;
     setError('');
     setStale(false);
@@ -218,47 +262,128 @@ export function AnnualLeavePolicyCard({
     }
   }
 
+  return {
+    data,
+    canManage,
+    form,
+    patch,
+    busy,
+    error,
+    stale,
+    saved,
+    dirty,
+    /** Nút lưu ở tiêu đề chỉ bấm được khi đã tải chính sách, có thay đổi và không đang lưu. */
+    canSave: Boolean(data) && canManage && dirty && !busy,
+    save,
+    clearError: () => {
+      setError('');
+      setStale(false);
+    },
+  };
+}
+
+export type AnnualLeavePolicyController = ReturnType<
+  typeof useAnnualLeavePolicyForm
+>;
+
+const TONE = {
+  blue: 'bg-blue-50 text-blue-600',
+  amber: 'bg-amber-50 text-amber-600',
+  violet: 'bg-violet-50 text-violet-600',
+  green: 'bg-emerald-50 text-emerald-600',
+  orange: 'bg-orange-50 text-orange-600',
+} as const;
+type Tone = keyof typeof TONE;
+
+function CardHeader({
+  icon,
+  title,
+  description,
+  id,
+  tone = 'blue',
+}: {
+  icon: ReactNode;
+  title: string;
+  description?: string;
+  id?: string;
+  tone?: Tone;
+}) {
+  return (
+    <div className="flex items-start gap-3">
+      <div className={`flex size-10 shrink-0 items-center justify-center rounded-xl ${TONE[tone]}`}>
+        {icon}
+      </div>
+      <div className="min-w-0">
+        <h2
+          id={id}
+          className="text-base font-bold tracking-tight text-slate-900"
+        >
+          {title}
+        </h2>
+        {description ? (
+          <p className="mt-0.5 text-xs text-slate-500">{description}</p>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+const cardClass =
+  'space-y-4 rounded-xl border border-slate-200 bg-white p-5 shadow-xs';
+
+function SummaryItem({
+  icon,
+  label,
+  value,
+  tone = 'blue',
+}: {
+  icon: ReactNode;
+  label: string;
+  value: string;
+  tone?: Tone;
+}) {
+  return (
+    <div className="flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2.5">
+      <div className={`flex size-9 shrink-0 items-center justify-center rounded-lg ${TONE[tone]}`}>
+        {icon}
+      </div>
+      <div className="min-w-0">
+        <p className="text-xs text-slate-500">{label}</p>
+        <p className="text-sm font-semibold leading-snug text-slate-900">
+          {value}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Chính sách phép năm: hai cột. Trái là biểu mẫu (Cách tính phép, Phép thâm niên, Hiệu lực và ghi chú),
+ * phải là thẻ Tóm tắt chính sách và Lưu ý khi thay đổi. Trạng thái và thao tác lưu do `useAnnualLeavePolicyForm`
+ * điều khiển ở màn hình cha.
+ */
+export function AnnualLeavePolicyCard({
+  controller,
+  loadError,
+  onReload,
+}: {
+  controller: AnnualLeavePolicyController;
+  loadError: string;
+  onReload: () => void;
+}) {
+  const uid = useId();
+  const { data, canManage, form, patch, busy, error, stale, saved } =
+    controller;
+  const editable = canManage && !busy;
+  const policy = data?.policy ?? null;
+  const joinDate = form.accrualBasis === 'JOIN_DATE';
+  const monthlyDays = Number(form.annualDays);
   const candidates = data?.candidates ?? [];
+  const summary = buildPolicySummary(form);
+  const status = policyStatus(data);
 
   return (
-    <section
-      aria-labelledby={headingId}
-      className="space-y-5 rounded-xl border border-slate-200 bg-white p-5 shadow-xs"
-    >
-      <header className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex items-start gap-3">
-          <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
-            <CalendarDays className="size-5" />
-          </div>
-          <div>
-            <h2
-              id={headingId}
-              className="text-base font-bold tracking-tight text-slate-900"
-            >
-              Chính sách phép năm
-            </h2>
-            <p className="max-w-[90ch] text-xs text-slate-500">
-              Một cấu hình duy nhất cho toàn bộ nhân viên.
-              {data?.leaveType ? (
-                <>
-                  {' '}
-                  Áp dụng cho lý do nghỉ{' '}
-                  <strong className="font-semibold text-slate-700">
-                    {data.leaveType.name}
-                  </strong>{' '}
-                  ({data.leaveType.code}); chỉ lý do này trừ quỹ phép năm.
-                </>
-              ) : null}
-            </p>
-          </div>
-        </div>
-        {!canManage && data ? (
-          <Badge className="border-slate-200 bg-slate-100 text-xs text-slate-600">
-            Chỉ xem
-          </Badge>
-        ) : null}
-      </header>
-
+    <div className="space-y-4">
       {loadError ? (
         <div
           role="alert"
@@ -287,326 +412,463 @@ export function AnnualLeavePolicyCard({
       ) : null}
 
       {data ? (
-        <form onSubmit={submit} noValidate className="space-y-4">
-          {!data.leaveType ? (
-            <div className="space-y-3 rounded-lg border border-blue-200 bg-blue-50/60 p-4">
-              <div>
-                <h3 className="text-sm font-semibold text-slate-900">
-                  Chọn lý do nghỉ dùng làm phép năm
-                </h3>
-                <p className="mt-1 text-xs text-slate-600">
-                  Hệ thống chưa có phép năm. Chọn một lý do nghỉ đang dùng; khi
-                  lưu, lý do này trở thành phép năm duy nhất (luôn có lương và
-                  trừ quỹ phép). Lý do nghỉ khác không bao giờ trừ quỹ phép.
-                </p>
+        <div className="grid grid-cols-1 items-start gap-4 @4xl:grid-cols-[minmax(0,1fr)_minmax(280px,340px)]">
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              void controller.save();
+            }}
+            noValidate
+            className="space-y-4"
+          >
+            {!data.leaveType ? (
+              <div className="space-y-3 rounded-xl border border-blue-200 bg-blue-50/60 p-4">
+                <div>
+                  <h3 className="text-sm font-semibold text-slate-900">
+                    Chọn lý do nghỉ dùng làm phép năm
+                  </h3>
+                  <p className="mt-1 text-xs text-slate-600">
+                    Hệ thống chưa có phép năm. Chọn một lý do nghỉ đang dùng;
+                    khi lưu, lý do này trở thành phép năm duy nhất (luôn có
+                    lương và trừ quỹ phép). Lý do nghỉ khác không bao giờ trừ
+                    quỹ phép.
+                  </p>
+                </div>
+                {candidates.length === 0 ? (
+                  <p
+                    role="note"
+                    className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800"
+                  >
+                    Chưa có lý do nghỉ phù hợp, hãy thêm lý do nghỉ có lương ở
+                    màn Lý do nghỉ trước.
+                  </p>
+                ) : (
+                  <LeaveField label="Lý do nghỉ làm phép năm" required>
+                    <SearchableSelect
+                      value={form.leaveTypeId}
+                      placeholder="Chọn lý do nghỉ làm phép năm"
+                      disabled={!editable}
+                      clearable={false}
+                      options={candidates.map((c) => ({
+                        value: c.id,
+                        label: `${c.code} · ${c.name}`,
+                        description: c.paid
+                          ? 'Có lương'
+                          : 'Không lương, sẽ được đổi thành có lương khi dùng làm phép năm',
+                      }))}
+                      onChange={(value) => patch({ leaveTypeId: value || '' })}
+                    />
+                  </LeaveField>
+                )}
               </div>
-              {candidates.length === 0 ? (
-                <p
-                  role="note"
-                  className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800"
+            ) : null}
+
+            <section className={cardClass} aria-labelledby={`${uid}-calc`}>
+              <CardHeader
+                id={`${uid}-calc`}
+                icon={<Calculator className="size-5" />}
+                title="Cách tính phép"
+                description="Chọn mốc thời gian và số ngày phép năm cơ bản cho toàn bộ nhân viên."
+              />
+              <div className="grid grid-cols-1 gap-4 @2xl:grid-cols-3">
+                <LeaveField
+                  label="Căn cứ tính phép"
+                  required
+                  hint="Mốc thời gian để bắt đầu tính và tích lũy phép năm."
                 >
-                  Chưa có lý do nghỉ phù hợp, hãy thêm lý do nghỉ có lương ở bảng
-                  bên dưới trước.
-                </p>
-              ) : (
-                <LeaveField label="Lý do nghỉ làm phép năm" required>
                   <SearchableSelect
-                    value={form.leaveTypeId}
-                    placeholder="Chọn lý do nghỉ làm phép năm"
+                    value={form.accrualBasis}
+                    placeholder="Chọn căn cứ tính phép"
                     disabled={!editable}
                     clearable={false}
-                    options={candidates.map((c) => ({
-                      value: c.id,
-                      label: `${c.code} · ${c.name}`,
-                      description: c.paid
-                        ? 'Có lương'
-                        : 'Không lương, sẽ được đổi thành có lương khi dùng làm phép năm',
-                    }))}
-                    onChange={(value) => patch({ leaveTypeId: value || '' })}
+                    options={BASIS_OPTIONS}
+                    onChange={(value) =>
+                      patch({
+                        accrualBasis:
+                          (value as HrmLeaveAccrualBasis) ||
+                          'CONTRACT_SIGN_DATE',
+                      })
+                    }
                   />
                 </LeaveField>
-              )}
-            </div>
-          ) : null}
-
-          <Section title="Cách tính phép">
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-              <LeaveField label="Căn cứ tính phép" required>
-                <SearchableSelect
-                  value={form.accrualBasis}
-                  placeholder="Chọn căn cứ tính phép"
+                <LeaveField
+                  label="Số ngày phép mỗi năm"
+                  required
+                  htmlFor={`${uid}-annual-days`}
+                  hint={`Cộng mỗi tháng ${
+                    Number.isFinite(monthlyDays)
+                      ? Math.round((monthlyDays / 12) * 100) / 100
+                      : 0
+                  } ngày (số ngày một năm chia 12).`}
+                >
+                  <Input
+                    id={`${uid}-annual-days`}
+                    type="number"
+                    min={0}
+                    max={366}
+                    step="0.5"
+                    className="h-9 text-xs"
+                    disabled={!editable}
+                    value={form.annualDays}
+                    onChange={(e) => patch({ annualDays: e.target.value })}
+                  />
+                </LeaveField>
+                <LeaveField
+                  label="Bắt đầu cộng sau (tháng)"
+                  required
+                  htmlFor={`${uid}-offset`}
+                  hint="Số tháng kể từ mốc trên để bắt đầu cộng (0 là cộng ngay từ tháng căn cứ)."
+                >
+                  <Input
+                    id={`${uid}-offset`}
+                    type="number"
+                    min={0}
+                    max={120}
+                    step="1"
+                    className="h-9 text-xs"
+                    disabled={!editable}
+                    value={form.startOffsetMonths}
+                    onChange={(e) =>
+                      patch({ startOffsetMonths: e.target.value })
+                    }
+                  />
+                </LeaveField>
+              </div>
+              {joinDate ? (
+                <p
+                  role="note"
+                  className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800"
+                >
+                  <Info className="mt-0.5 size-3.5 shrink-0" />
+                  <span>
+                    Căn cứ Ngày vào làm chỉ hỗ trợ cộng ngay từ tháng đầu (Bắt
+                    đầu cộng sau = 0) và mốc thâm niên đều chu kỳ, ví dụ 5 năm
+                    thêm 1 ngày, 10 năm thêm 2 ngày, 15 năm thêm 3 ngày.
+                  </span>
+                </p>
+              ) : null}
+              <div className="flex items-start gap-3 border-t border-slate-100 pt-4">
+                <LeaveSwitch
+                  label="Cho ứng phép"
+                  checked={form.advanceAllowed}
                   disabled={!editable}
-                  clearable={false}
-                  options={BASIS_OPTIONS}
-                  onChange={(value) =>
+                  onChange={(next) => patch({ advanceAllowed: next })}
+                />
+                <div>
+                  <p className="text-xs font-semibold text-slate-800">
+                    Cho ứng phép
+                  </p>
+                  <p className="text-[11px] leading-snug text-slate-500">
+                    {form.advanceAllowed
+                      ? 'Được dùng trước phần phép chưa cộng, đến hết năm.'
+                      : 'Chỉ được dùng số phép đã cộng đến tháng hiện tại.'}
+                  </p>
+                </div>
+              </div>
+            </section>
+
+            <section className={cardClass} aria-labelledby={`${uid}-tiers`}>
+              <CardHeader
+                id={`${uid}-tiers`}
+                icon={<Layers className="size-5" />}
+                tone="amber"
+                title="Phép thâm niên"
+                description="Cộng thêm số ngày phép theo thâm niên làm việc."
+              />
+              <div className="overflow-hidden rounded-lg border border-slate-200">
+                <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_56px] gap-3 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600">
+                  <span>Thâm niên từ đủ (năm)</span>
+                  <span>Phép cộng thêm / năm</span>
+                  <span className="text-center">Thao tác</span>
+                </div>
+                {form.tiers.length === 0 ? (
+                  <p className="px-3 py-3 text-xs text-slate-500">
+                    Không áp dụng phép thâm niên.
+                  </p>
+                ) : null}
+                {form.tiers.map((tier, index) => (
+                  <div
+                    key={index}
+                    className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_56px] items-center gap-3 border-t border-slate-100 px-3 py-2"
+                  >
+                    <div className="relative">
+                      <Input
+                        type="number"
+                        min={1}
+                        max={60}
+                        step="1"
+                        aria-label={`Số năm mốc ${index + 1}`}
+                        className="h-9 pr-12 text-xs"
+                        disabled={!editable}
+                        value={tier.minYears}
+                        onChange={(e) =>
+                          patch({
+                            tiers: form.tiers.map((t, i) =>
+                              i === index
+                                ? { ...t, minYears: e.target.value }
+                                : t,
+                            ),
+                          })
+                        }
+                      />
+                      <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-500">
+                        năm
+                      </span>
+                    </div>
+                    <div className="relative">
+                      <Input
+                        type="number"
+                        min={0}
+                        max={100}
+                        step="0.5"
+                        aria-label={`Số ngày mốc ${index + 1}`}
+                        className="h-9 pr-14 text-xs"
+                        disabled={!editable}
+                        value={tier.bonusDays}
+                        onChange={(e) =>
+                          patch({
+                            tiers: form.tiers.map((t, i) =>
+                              i === index
+                                ? { ...t, bonusDays: e.target.value }
+                                : t,
+                            ),
+                          })
+                        }
+                      />
+                      <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-500">
+                        ngày
+                      </span>
+                    </div>
+                    <div className="flex justify-center">
+                      {canManage ? (
+                        <Button
+                          type="button"
+                          size="icon-sm"
+                          variant="destructive"
+                          aria-label={`Xóa mốc ${index + 1}`}
+                          disabled={busy}
+                          onClick={() =>
+                            patch({
+                              tiers: form.tiers.filter((_, i) => i !== index),
+                            })
+                          }
+                        >
+                          <Trash2 className="size-3.5" />
+                        </Button>
+                      ) : null}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {canManage ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={busy || form.tiers.length >= 20}
+                  onClick={() =>
                     patch({
-                      accrualBasis:
-                        (value as HrmLeaveAccrualBasis) || 'CONTRACT_SIGN_DATE',
+                      tiers: [...form.tiers, { minYears: '', bonusDays: '' }],
                     })
                   }
-                />
-              </LeaveField>
-              <LeaveField
-                label="Số ngày phép một năm"
-                required
-                htmlFor={`${uid}-annual-days`}
-                hint={`Cộng mỗi tháng ${
-                  Number.isFinite(monthlyDays)
-                    ? Math.round((monthlyDays / 12) * 100) / 100
-                    : 0
-                } ngày (số ngày một năm chia 12).`}
-              >
-                <Input
-                  id={`${uid}-annual-days`}
-                  type="number"
-                  min={0}
-                  max={366}
-                  step="0.5"
-                  className="h-9 text-xs"
-                  disabled={!editable}
-                  value={form.annualDays}
-                  onChange={(e) => patch({ annualDays: e.target.value })}
-                />
-              </LeaveField>
-              <LeaveField
-                label="Bắt đầu cộng sau (tháng)"
-                required
-                htmlFor={`${uid}-offset`}
-                hint="0 là cộng ngay từ tháng căn cứ; 2 là bắt đầu cộng sau 2 tháng kể từ ngày căn cứ."
-              >
-                <Input
-                  id={`${uid}-offset`}
-                  type="number"
-                  min={0}
-                  max={120}
-                  step="1"
-                  className="h-9 text-xs"
-                  disabled={!editable}
-                  value={form.startOffsetMonths}
-                  onChange={(e) => patch({ startOffsetMonths: e.target.value })}
-                />
-              </LeaveField>
-            </div>
-            {joinDate ? (
+                  className="h-8 text-xs"
+                >
+                  <Plus className="size-3.5" />
+                  Thêm mốc thâm niên
+                </Button>
+              ) : null}
               <p
                 role="note"
-                className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800"
+                className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600"
               >
-                <Info className="mt-0.5 size-3.5 shrink-0" />
+                <Info className="mt-0.5 size-3.5 shrink-0 text-slate-500" />
                 <span>
-                  Căn cứ Ngày vào làm chỉ hỗ trợ cộng ngay từ tháng đầu (Bắt đầu
-                  cộng sau = 0) và mốc thâm niên đều chu kỳ, ví dụ 5 năm thêm 1
-                  ngày, 10 năm thêm 2 ngày, 15 năm thêm 3 ngày.
+                  Đạt N năm kể từ ngày căn cứ thì được thêm M ngày phép mỗi
+                  năm. Áp dụng mốc thâm niên cao nhất đạt được; không cộng dồn
+                  các mốc.
                 </span>
               </p>
-            ) : null}
-            <div className="flex items-start gap-3">
-              <LeaveSwitch
-                label="Cho ứng phép"
-                checked={form.advanceAllowed}
-                disabled={!editable}
-                onChange={(next) => patch({ advanceAllowed: next })}
-              />
-              <div>
-                <p className="text-xs font-medium text-slate-700">Cho ứng phép</p>
-                <p className="text-[11px] leading-snug text-slate-500">
-                  {form.advanceAllowed
-                    ? 'Được dùng trước phần phép chưa cộng, đến hết năm.'
-                    : 'Chỉ được dùng số phép đã cộng đến tháng hiện tại.'}
-                </p>
-              </div>
-            </div>
-          </Section>
+            </section>
 
-          <Section
-            title="Thâm niên"
-            description="Đạt N năm kể từ ngày căn cứ thì được thêm M ngày phép mỗi năm. Hệ thống lấy mốc cao nhất đã đạt, không cộng dồn các mốc."
-          >
-            {form.tiers.length === 0 ? (
-              <p className="text-xs text-slate-500">
-                Không áp dụng phép thâm niên.
-              </p>
+            {canManage ? (
+              <section className={cardClass} aria-labelledby={`${uid}-effect`}>
+                <CardHeader
+                  id={`${uid}-effect`}
+                  icon={<FileText className="size-5" />}
+                  tone="violet"
+                  title="Hiệu lực & ghi chú"
+                  description="Thiết lập thời gian áp dụng và ghi chú thay đổi chính sách."
+                />
+                <div className="grid grid-cols-1 gap-4 @2xl:grid-cols-5">
+                  <LeaveField
+                    label="Áp dụng từ năm"
+                    className="@2xl:col-span-2"
+                    hint="Chính sách luôn có hiệu lực từ ngày 01/01. Để trống thì hệ thống tự chọn: lần đầu từ 01/01 năm nay; đã cộng phép rồi thì từ 01/01 năm sau để không đổi số đã ghi sổ."
+                  >
+                    <SearchableSelect
+                      value={form.effectiveYear}
+                      placeholder="Tự động"
+                      disabled={busy}
+                      options={effectiveYearOptions()}
+                      onChange={(value) =>
+                        patch({ effectiveYear: value ?? '' })
+                      }
+                    />
+                  </LeaveField>
+                  <LeaveField
+                    label="Ghi chú thay đổi"
+                    required
+                    htmlFor={`${uid}-reason`}
+                    className="@2xl:col-span-3"
+                    hint="Ghi rõ nội dung thay đổi để dễ theo dõi (lưu vào nhật ký kiểm toán)."
+                  >
+                    <Input
+                      id={`${uid}-reason`}
+                      maxLength={REASON_MAX_LENGTH}
+                      className="h-9 text-xs"
+                      placeholder="Ví dụ: Tăng phép năm lên 14 ngày theo quy chế mới"
+                      disabled={busy}
+                      value={form.reason}
+                      onChange={(e) => patch({ reason: e.target.value })}
+                    />
+                    <p
+                      data-testid="reason-counter"
+                      className="text-right text-[11px] text-slate-400"
+                    >
+                      {form.reason.length}/{REASON_MAX_LENGTH}
+                    </p>
+                  </LeaveField>
+                </div>
+              </section>
             ) : null}
-            {form.tiers.map((tier, index) => (
+
+            {error ? (
               <div
-                key={index}
-                className="flex flex-wrap items-center gap-2 text-xs text-slate-700"
+                role="alert"
+                className="flex items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 p-3 text-xs font-medium text-red-700"
               >
-                <span>Đạt</span>
-                <Input
-                  type="number"
-                  min={1}
-                  max={60}
-                  step="1"
-                  aria-label={`Số năm mốc ${index + 1}`}
-                  className="h-9 w-24 text-xs"
-                  disabled={!editable}
-                  value={tier.minYears}
-                  onChange={(e) =>
-                    patch({
-                      tiers: form.tiers.map((t, i) =>
-                        i === index ? { ...t, minYears: e.target.value } : t,
-                      ),
-                    })
-                  }
-                />
-                <span>năm thì thêm</span>
-                <Input
-                  type="number"
-                  min={0}
-                  max={100}
-                  step="0.5"
-                  aria-label={`Số ngày mốc ${index + 1}`}
-                  className="h-9 w-24 text-xs"
-                  disabled={!editable}
-                  value={tier.bonusDays}
-                  onChange={(e) =>
-                    patch({
-                      tiers: form.tiers.map((t, i) =>
-                        i === index ? { ...t, bonusDays: e.target.value } : t,
-                      ),
-                    })
-                  }
-                />
-                <span>ngày phép mỗi năm</span>
-                {canManage ? (
+                <span className="flex items-center gap-2">
+                  <AlertTriangle className="size-4 shrink-0 text-red-600" />
+                  {error}
+                </span>
+                {stale ? (
                   <Button
                     type="button"
-                    size="icon-sm"
+                    size="xs"
                     variant="outline"
-                    aria-label={`Xóa mốc ${index + 1}`}
-                    disabled={busy}
-                    onClick={() =>
-                      patch({ tiers: form.tiers.filter((_, i) => i !== index) })
-                    }
+                    onClick={() => {
+                      controller.clearError();
+                      onReload();
+                    }}
+                    className="text-xs"
                   >
-                    <Trash2 className="size-3.5" />
+                    Tải lại chính sách
                   </Button>
                 ) : null}
               </div>
-            ))}
-            {canManage ? (
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={busy || form.tiers.length >= 20}
-                onClick={() =>
-                  patch({
-                    tiers: [...form.tiers, { minYears: '', bonusDays: '' }],
-                  })
-                }
-                className="text-xs"
-              >
-                <Plus className="size-3.5" />
-                Thêm mốc thâm niên
-              </Button>
             ) : null}
-          </Section>
+            {saved ? (
+              <p
+                role="status"
+                className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs font-semibold text-emerald-700"
+              >
+                <CheckCircle2 className="size-4 shrink-0 text-emerald-600" />
+                {saved}
+              </p>
+            ) : null}
+          </form>
 
-          <p
-            role="note"
-            className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600"
-          >
-            Phép năm không chuyển sang năm sau: phần còn lại cuối năm được
-            reset về 0.
-          </p>
-
-          {canManage ? (
-            <Section title="Hiệu lực và ghi chú">
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-                <LeaveField
-                  label="Hiệu lực từ tháng (tùy chọn)"
-                  htmlFor={`${uid}-effective`}
-                  hint="Để trống để hệ thống tự chọn: lần đầu từ ngày 1/1 năm nay; đã cộng phép rồi thì từ tháng sau tháng đã cộng."
-                >
-                  <Input
-                    id={`${uid}-effective`}
-                    type="month"
-                    className="h-9 text-xs"
-                    disabled={busy}
-                    value={form.effectiveMonth}
-                    onChange={(e) => patch({ effectiveMonth: e.target.value })}
-                  />
-                </LeaveField>
-                <LeaveField
-                  label="Ghi chú thay đổi"
-                  required
-                  htmlFor={`${uid}-reason`}
-                  className="md:col-span-2"
-                  hint="Ghi vào nhật ký kiểm toán để biết vì sao đổi chính sách. Đây là ghi chú của quản trị, khác với Lý do nghỉ và Mô tả ở đơn nghỉ."
-                >
-                  <Input
-                    id={`${uid}-reason`}
-                    maxLength={1000}
-                    className="h-9 text-xs"
-                    placeholder="Ví dụ: Tăng phép năm lên 14 ngày theo quy chế mới"
-                    disabled={busy}
-                    value={form.reason}
-                    onChange={(e) => patch({ reason: e.target.value })}
-                  />
-                </LeaveField>
+          <aside className="space-y-4">
+            <section
+              aria-labelledby={`${uid}-summary`}
+              className={cardClass}
+              data-testid="policy-summary"
+            >
+              <CardHeader
+                id={`${uid}-summary`}
+                icon={<BookOpen className="size-5" />}
+                title="Tóm tắt chính sách"
+                tone="amber"
+                description="Thông tin tóm tắt quy tắc phép năm hiện tại."
+              />
+              <div className="space-y-2">
+                <SummaryItem
+                  icon={<CalendarDays className="size-4.5" />}
+                  label="Phép cơ bản"
+                  value={summary.base}
+                />
+                <SummaryItem
+                  icon={<Clock className="size-4.5" />}
+                  label="Bắt đầu tích lũy"
+                  tone="green"
+                  value={summary.start}
+                />
+                <SummaryItem
+                  icon={<Users className="size-4.5" />}
+                  label="Phép thâm niên"
+                  tone="violet"
+                  value={summary.seniority}
+                />
+                <SummaryItem
+                  icon={<ArrowLeftRight className="size-4.5" />}
+                  label="Chuyển phép cuối năm"
+                  tone="orange"
+                  value={summary.carryover}
+                />
               </div>
-            </Section>
-          ) : null}
+              <div className="space-y-1.5 rounded-lg border border-blue-100 bg-blue-50/60 p-3 text-xs text-slate-600">
+                <p className="flex items-start gap-2">
+                  <Info className="mt-0.5 size-3.5 shrink-0 text-blue-600" />
+                  <span>
+                    Chính sách này áp dụng cho toàn bộ nhân viên trong công ty.
+                    Phép năm không chuyển sang năm sau: phần còn lại cuối năm
+                    được reset về 0.
+                  </span>
+                </p>
+                {data.leaveType ? (
+                  <p className="pl-5.5 text-slate-500">
+                    Áp dụng cho lý do nghỉ {data.leaveType.name} (
+                    {data.leaveType.code}); chỉ lý do này trừ quỹ phép năm.
+                  </p>
+                ) : null}
+                <p className="pl-5.5 text-slate-500">
+                  {policy
+                    ? `${
+                        status === 'scheduled'
+                          ? 'Sẽ áp dụng từ'
+                          : 'Đang áp dụng từ'
+                      } ngày ${dateVn(policy.effectiveFrom)} (cập nhật lúc ${dateTimeVn(policy.updatedAt)}).`
+                    : 'Chưa có chính sách phép năm. Nhập biểu mẫu và lưu để áp dụng.'}
+                </p>
+              </div>
+            </section>
 
-          {error ? (
-            <div
-              role="alert"
-              className="flex items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 p-3 text-xs font-medium text-red-700"
+            <section
+              aria-labelledby={`${uid}-warning`}
+              className="rounded-xl border border-amber-200 bg-amber-50 p-4 shadow-xs"
             >
-              <span className="flex items-center gap-2">
-                <AlertTriangle className="size-4 shrink-0 text-red-600" />
-                {error}
-              </span>
-              {stale ? (
-                <Button
-                  type="button"
-                  size="xs"
-                  variant="outline"
-                  onClick={() => {
-                    setError('');
-                    setStale(false);
-                    onReload();
-                  }}
-                  className="text-xs"
-                >
-                  Tải lại chính sách
-                </Button>
-              ) : null}
-            </div>
-          ) : null}
-          {saved ? (
-            <p
-              role="status"
-              className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs font-semibold text-emerald-700"
-            >
-              <CheckCircle2 className="size-4 shrink-0 text-emerald-600" />
-              {saved}
-            </p>
-          ) : null}
-
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4">
-            <p className="text-xs text-slate-500">
-              {policy
-                ? `${
-                    policy.effectiveFrom.slice(0, 7) > todayMonth
-                      ? 'Sẽ áp dụng từ'
-                      : 'Đang áp dụng từ'
-                  } tháng ${monthVn(policy.effectiveFrom)} (cập nhật lúc ${dateTimeVn(policy.updatedAt)}).`
-                : 'Chưa có chính sách phép năm. Nhập biểu mẫu và lưu để áp dụng.'}
-            </p>
-            <Button
-              permission="hrm.leave.manage"
-              type="submit"
-              disabled={busy}
-              className="h-8 bg-blue-600 text-xs font-semibold text-white shadow-xs hover:bg-blue-700"
-            >
-              {busy ? 'Đang lưu...' : 'Lưu chính sách'}
-            </Button>
-          </div>
-        </form>
+              <div className="flex items-start gap-3">
+                <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-600">
+                  <AlertTriangle className="size-5" />
+                </div>
+                <div>
+                  <h2
+                    id={`${uid}-warning`}
+                    className="text-sm font-bold text-slate-900"
+                  >
+                    Lưu ý khi thay đổi
+                  </h2>
+                  <p className="mt-1 text-xs leading-relaxed text-slate-600">
+                    Việc thay đổi cấu hình có thể ảnh hưởng đến số phép tích lũy
+                    và cách tính phép của nhân viên trong tương lai. Vui lòng
+                    kiểm tra kỹ trước khi lưu thay đổi.
+                  </p>
+                </div>
+              </div>
+            </section>
+          </aside>
+        </div>
       ) : null}
-    </section>
+    </div>
   );
 }

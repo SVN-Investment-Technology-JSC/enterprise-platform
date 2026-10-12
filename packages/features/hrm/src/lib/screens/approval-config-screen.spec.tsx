@@ -181,6 +181,10 @@ beforeEach(() => {
     if (path === '/approval-config' && call.method === 'PUT')
       return putResult(call.body as Record<string, unknown>);
     if (path === '/operations/procedure-definitions') return definitionsResult();
+    if (path === '/approval-policy-settings')
+      return { data: { allowSelfApproval: false, updatedBy: null, updatedAt: null } };
+    if (path.startsWith('/operations/audit'))
+      return { data: [], meta: { total: 0, actions: [] } };
     throw new Error(`unexpected ${call.method} ${path}`);
   }) as never);
 });
@@ -217,11 +221,12 @@ async function renderLoaded() {
 }
 
 describe('ApprovalConfigScreen', () => {
-  it('giải thích hai cách duyệt và nhóm bảy loại đơn kèm dòng lý do thụt vào', async () => {
+  it('giải thích hai cách duyệt và nhóm bảy loại đơn, chỉ mở sẵn lý do có cấu hình riêng', async () => {
     await renderLoaded();
-    expect(screen.getByRole('heading', { name: 'Duyệt đơn' })).toBeTruthy();
-    expect(screen.getByText('Quản lý trực tiếp (mặc định)')).toBeTruthy();
-    expect(screen.getAllByText('Theo quy trình').length).toBeGreaterThan(0);
+    expect(screen.getByRole('heading', { name: 'Quy trình duyệt' })).toBeTruthy();
+    expect(screen.getByText('Thiết lập quy trình phê duyệt đơn từ.')).toBeTruthy();
+    expect(screen.getByText('Quản lý trực tiếp (mặc định):')).toBeTruthy();
+    expect(screen.getByText('Theo quy trình:')).toBeTruthy();
     expect(
       screen.getByText(/Người duyệt là quản lý trực tiếp và người có quyền duyệt toàn bộ/),
     ).toBeTruthy();
@@ -255,6 +260,9 @@ describe('ApprovalConfigScreen', () => {
     expect(within(rowOf('leave:AL')).getByText('Phép năm')).toBeTruthy();
     expect(within(rowOf('leave:AL')).getByText('AL')).toBeTruthy();
     expect(within(rowOf('leave:UL')).getByText('Nghỉ không lương')).toBeTruthy();
+    // Lý do chỉ theo cấu hình chung thì thu gọn sẵn; loại đơn có lý do riêng thì mở.
+    expect(screen.queryByTestId('approval-row-ot:YEU_CAU_CONG_VIEC')).toBeNull();
+    expect(screen.queryByTestId('approval-row-business_trip:GAP_KHACH_HANG')).toBeNull();
   });
 
   it('hiển thị cách duyệt đang lưu, quy trình đã chọn và thẻ Theo cấu hình chung', async () => {
@@ -278,6 +286,7 @@ describe('ApprovalConfigScreen', () => {
     expect(within(own).queryByText('Theo cấu hình chung')).toBeNull();
 
     // Dòng lý do kế thừa quy trình của loại đơn: mô tả quy trình đang áp dụng.
+    fireEvent.click(screen.getByRole('button', { name: 'Mở lý do của Làm thêm giờ' }));
     const otReason = rowOf('ot:YEU_CAU_CONG_VIEC');
     expect(within(otReason).getByText('Quy trình Duyệt OT')).toBeTruthy();
   });
@@ -303,18 +312,31 @@ describe('ApprovalConfigScreen', () => {
     await renderLoaded();
     fireEvent.click(screen.getByRole('button', { name: 'Thu gọn lý do của Nghỉ phép' }));
     expect(screen.queryByTestId('approval-row-leave:AL')).toBeNull();
-    expect(screen.getByTestId('approval-row-ot:YEU_CAU_CONG_VIEC')).toBeTruthy();
+    expect(screen.queryByTestId('approval-row-ot:YEU_CAU_CONG_VIEC')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Mở lý do của Nghỉ phép' }));
     expect(screen.getByTestId('approval-row-leave:AL')).toBeTruthy();
 
+    fireEvent.click(screen.getByRole('button', { name: 'Mở tất cả lý do' }));
+    expect(screen.getByTestId('approval-row-ot:YEU_CAU_CONG_VIEC')).toBeTruthy();
+    expect(screen.getByTestId('approval-row-business_trip:GAP_KHACH_HANG')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Thu gọn tất cả lý do' }));
     expect(screen.queryByTestId('approval-row-leave:UL')).toBeNull();
     expect(screen.queryByTestId('approval-row-ot:YEU_CAU_CONG_VIEC')).toBeNull();
-    expect(screen.queryByTestId('approval-row-business_trip:GAP_KHACH_HANG')).toBeNull();
     // Dòng chính của loại đơn vẫn còn.
     expect(screen.getByTestId('approval-row-leave:')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Mở tất cả lý do' }));
     expect(screen.getByTestId('approval-row-leave:UL')).toBeTruthy();
+  });
+
+  it('thu gọn lý do vẫn báo số lý do chưa lưu và tiêu đề đếm thay đổi chưa lưu', async () => {
+    await renderLoaded();
+    const label = 'Nghỉ phép · Phép năm';
+    await pick(choiceBox(rowOf('leave:AL'), label), 'Quản lý trực tiếp');
+    expect(screen.getByText('1 thay đổi chưa lưu')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Thu gọn lý do của Nghỉ phép' }));
+    expect(screen.queryByTestId('approval-row-leave:AL')).toBeNull();
+    expect(within(rowOf('leave:')).getByText('1 lý do chưa lưu')).toBeTruthy();
+    expect(screen.getByText('1 thay đổi chưa lưu')).toBeTruthy();
   });
 
   it('chặn Theo quy trình khi chưa chọn quy trình, chọn xong mới lưu và gọi PUT đúng', async () => {
@@ -406,6 +428,7 @@ describe('ApprovalConfigScreen', () => {
       ).toBeNull(),
     );
 
+    fireEvent.click(screen.getByRole('button', { name: 'Mở lý do của Công tác' }));
     const label = 'Công tác · Gặp khách hàng';
     const own = rowOf('business_trip:GAP_KHACH_HANG');
     await pick(choiceBox(own, label), 'Theo quy trình');
@@ -534,6 +557,24 @@ describe('ApprovalConfigScreen', () => {
     );
     expect(toastSuccess).not.toHaveBeenCalled();
     expect(within(rowOf('ot:')).getByText('Chưa lưu')).toBeTruthy();
+  });
+
+  it('nút Lịch sử thay đổi và thẻ chính sách tự duyệt chỉ hiện khi có quyền tương ứng', async () => {
+    await renderLoaded();
+    expect(screen.queryByRole('button', { name: 'Lịch sử thay đổi' })).toBeNull();
+    expect(screen.queryByText(/Chính sách tự duyệt đơn/)).toBeNull();
+    expect(calls.some((c) => c.path === '/approval-policy-settings')).toBe(false);
+  });
+
+  it('có hrm.audit.read thì mở được Lịch sử thay đổi, có hrm.integration.manage thì thấy chính sách tự duyệt', async () => {
+    mockActions.add('hrm.audit.read');
+    mockActions.add('hrm.integration.manage');
+    await renderLoaded();
+    expect(await screen.findByText('Đang chặn tự duyệt')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Lịch sử thay đổi' }));
+    await waitFor(() =>
+      expect(calls.some((c) => c.path.startsWith('/operations/audit'))).toBe(true),
+    );
   });
 
   it('người không có hrm.automation.manage không gọi API và thấy thông báo không có quyền', () => {

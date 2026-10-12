@@ -13,7 +13,7 @@ import { Button } from '../button';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '../sheet';
 import { EmptyState, Notice, Spinner } from './common';
 
-function formatDateTime(iso: string): string {
+export function formatDateTime(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
   const pad = (n: number) => String(n).padStart(2, '0');

@@ -1,18 +1,25 @@
 'use client';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Table, Tooltip, type TableColumnsType } from 'antd';
+import Link from 'next/link';
 import {
-  CheckCircle2,
+  ArrowLeftRight,
+  Banknote,
+  Briefcase,
+  CalendarDays,
+  ChevronDown,
+  Clock,
   ClipboardList,
-  Info,
-  Pencil,
+  FileText,
+  History,
   Plus,
-  Trash2,
+  Search,
+  Settings2,
   WandSparkles,
-  XCircle,
+  type LucideIcon,
 } from 'lucide-react';
-import { Popconfirm } from '@enterprise-platform/shared-ui';
+import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import type {
+  HrmLeaveType,
   HrmRequestReason,
   HrmRequestReasonKind,
   HrmRequestType,
@@ -20,19 +27,24 @@ import type {
 } from '@enterprise-platform/contracts-hrm';
 import { hrmFetch } from '../hrm-api';
 import { useHrmPermissions } from '../hrm-permissions';
-import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
+import { ConfigHistoryDrawer } from '../ui/config-history-drawer';
 import {
   HrmActionDialog,
   type ActionField,
   type HrmAction,
 } from '../ui/hrm-action-dialog';
+import { Input } from '../ui/input';
+import { LeaveReasonDialog } from '../ui/leave-reason-dialog';
+import { PageTitle } from '../ui/page-title';
+import { ActionMenu, DataList, type ActionItem, type DataColumn } from '../ui/payroll-settings/data-rows';
 import { RequestTypeDialog, timeModeLabel } from '../ui/request-type-dialog';
+import { EmptyPanel, IconTile, InfoNote, StatusPill, type KitTone } from '../ui/settings-kit';
 import { toast } from '../ui/toast';
 
 /**
- * Bốn loại đơn hệ thống có danh mục lý do cấu hình. Đơn nghỉ không ở đây: lý do nghỉ là loại nghỉ (tab Phép năm và lý do nghỉ).
- * Loại đơn do quản trị tạo cũng có danh mục lý do (mã loại là `kind`), được thêm vào các tab khi tải danh mục loại đơn.
+ * Bốn loại đơn hệ thống có danh mục lý do cấu hình riêng (đơn nghỉ có danh mục lý do nghỉ, xem `LEAVE_CODE`).
+ * Loại đơn do quản trị tạo cũng có danh mục lý do (mã loại là `kind`), được thêm vào danh sách khi tải danh mục loại đơn.
  */
 export const REQUEST_REASON_KINDS: readonly {
   kind: HrmRequestReasonKind;
@@ -43,6 +55,9 @@ export const REQUEST_REASON_KINDS: readonly {
   { kind: 'ATTENDANCE_CORRECTION', label: 'Giải trình công' },
   { kind: 'SHIFT_CHANGE', label: 'Đổi ca' },
 ];
+
+/** Mã loại đơn nghỉ: lý do của đơn này là loại nghỉ (có lương/không lương, trừ quỹ phép), quản lý qua `/leave-types`. */
+const LEAVE_CODE = 'LEAVE';
 
 const YES_NO = [
   { value: 'true', label: 'Có' },
@@ -59,8 +74,6 @@ const UNPAID_OT_HINT =
   'OT không lương được ghi nhận nhưng không tính tiền OT.';
 const REQUIRES_DESCRIPTION_HINT =
   'Có: người làm đơn bắt buộc nhập Mô tả khi chọn lý do này (ví dụ lý do Khác).';
-const EXPLANATION_HINT =
-  'Câu hướng dẫn hiện cạnh lý do trong danh sách chọn. Không phải Mô tả của đơn.';
 
 /** Các trường của form thêm/sửa lý do; `paid` chỉ có với làm thêm giờ, mã chỉ nhập khi thêm mới. */
 export function reasonFormFields(
@@ -163,33 +176,87 @@ export function reasonPayload(
 }
 
 type Notice = { tone: 'success' | 'warning'; text: string };
-type ReasonTab = { kind: HrmRequestReasonKind; label: string; custom: boolean };
+
+/** Một mục ở danh sách loại đơn bên trái. */
+interface Entry {
+  /** Mã loại đơn (LEAVE, OVERTIME, ... hoặc mã loại tuỳ chỉnh). */
+  code: string;
+  name: string;
+  description: string | null;
+  active: boolean;
+  type: HrmRequestType | null;
+  /** Loại có danh mục lý do: nghỉ (loại nghỉ), 4 loại hệ thống và loại tuỳ chỉnh. */
+  hasReasons: boolean;
+  custom: boolean;
+  icon: LucideIcon;
+  tone: KitTone;
+}
+
+const ENTRY_STYLE: Record<string, { icon: LucideIcon; tone: KitTone }> = {
+  [LEAVE_CODE]: { icon: CalendarDays, tone: 'blue' },
+  OVERTIME: { icon: Clock, tone: 'violet' },
+  BUSINESS_TRIP: { icon: Briefcase, tone: 'green' },
+  SHIFT_CHANGE: { icon: ArrowLeftRight, tone: 'blue' },
+  ATTENDANCE_CORRECTION: { icon: FileText, tone: 'amber' },
+  ADVANCE: { icon: Banknote, tone: 'orange' },
+  PROFILE_CORRECTION: { icon: ClipboardList, tone: 'blue' },
+};
+const DEFAULT_STYLE = { icon: FileText, tone: 'slate' as KitTone };
+const SYSTEM_REASON_KINDS = new Set<string>(REQUEST_REASON_KINDS.map((k) => k.kind));
+
+const STATUS_FILTERS = [
+  { value: 'ALL', label: 'Tất cả trạng thái' },
+  { value: 'ACTIVE', label: 'Đang sử dụng' },
+  { value: 'INACTIVE', label: 'Ngừng sử dụng' },
+];
 
 const errorText = (e: unknown, fallback = 'Thao tác thất bại') =>
   e instanceof Error ? e.message : fallback;
 
+const fold = (text: string) =>
+  text
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'D')
+    .toLowerCase();
+
+const matches = (keyword: string, ...parts: (string | null | undefined)[]) => {
+  const needle = fold(keyword.trim());
+  return !needle || fold(parts.filter(Boolean).join(' ')).includes(needle);
+};
+
+const pickStatus = (filter: string, active: boolean) =>
+  filter === 'ALL' || (filter === 'ACTIVE' ? active : !active);
+
 /**
- * Cấu hình LOẠI ĐƠN và danh mục LÝ DO của từng loại.
+ * Cấu hình LOẠI ĐƠN và danh mục LÝ DO của từng loại, dạng danh sách bên trái - chi tiết bên phải.
  *  - Loại đơn: 7 loại hệ thống (đổi tên, mô tả, bật/tắt) và các loại do quản trị tạo (đủ cấu hình: thời gian, chứng từ, trường bổ sung).
- *  - Lý do: danh mục do quản trị cấu hình, người làm đơn chỉ chọn; khác với Mô tả là văn bản tự do.
+ *  - Lý do: danh mục do quản trị cấu hình, người làm đơn chỉ chọn; khác với Mô tả là văn bản tự do. Lý do của đơn xin nghỉ là
+ *    loại nghỉ (có lương/không lương, trừ quỹ phép); chọn loại đơn bằng `?tab=<mã loại>`.
  */
 export default function RequestReasonsScreen() {
   const { can, loading: permissionsLoading } = useHrmPermissions();
   const canManage = can('hrm.leave.manage');
+  const canAudit = can('hrm.audit.read');
   const [reasons, setReasons] = useState<HrmRequestReason[] | null>(null);
-  /** null: chưa tải hoặc không tải được (khi đó chỉ có 4 loại hệ thống có lý do). */
+  /** null: chưa tải hoặc không tải được (khi đó chỉ có đơn nghỉ và 4 loại hệ thống có lý do). */
   const [types, setTypes] = useState<HrmRequestType[] | null>(null);
-  const [kind, setKind] = useState<HrmRequestReasonKind>('OVERTIME');
+  const [leaveTypes, setLeaveTypes] = useState<HrmLeaveType[] | null>(null);
+  const [selectedCode, setSelectedCode] = useState<string | null>(null);
+  const [typeSearch, setTypeSearch] = useState('');
+  const [reasonSearch, setReasonSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('ALL');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState<Notice | null>(null);
   const [action, setAction] = useState<HrmAction | null>(null);
   const [typeDialog, setTypeDialog] = useState<{ row?: HrmRequestType } | null>(null);
+  const [leaveDialog, setLeaveDialog] = useState<{ row?: HrmLeaveType } | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
-    const result = await hrmFetch<{ data: HrmRequestReason[] }>(
-      '/request-reasons',
-    );
+    const result = await hrmFetch<{ data: HrmRequestReason[] }>('/request-reasons');
     setReasons(result.data);
   }, []);
   const loadTypes = useCallback(async () => {
@@ -200,16 +267,29 @@ export default function RequestReasonsScreen() {
       setTypes(null);
     }
   }, []);
+  const loadLeave = useCallback(async () => {
+    const result = await hrmFetch<{ data: HrmLeaveType[] }>('/leave-types');
+    setLeaveTypes(result.data);
+  }, []);
 
   // Phụ thuộc giá trị boolean: hàm can() đổi danh tính mỗi lần render sẽ gây tải lặp vô hạn.
   useEffect(() => {
     if (!canManage) return;
     void load().catch((e) => setError(errorText(e, 'Không tải được danh mục lý do')));
+    void loadLeave().catch((e) => setError(errorText(e, 'Không tải được danh sách lý do nghỉ')));
     void loadTypes();
-  }, [canManage, load, loadTypes]);
+  }, [canManage, load, loadLeave, loadTypes]);
+
+  // Loại đơn đang chọn đồng bộ `?tab=<mã loại>` (đọc khi mở, ghi khi chọn, nghe popstate).
+  useEffect(() => {
+    const sync = () => setSelectedCode(new URLSearchParams(window.location.search).get('tab'));
+    sync();
+    window.addEventListener('popstate', sync);
+    return () => window.removeEventListener('popstate', sync);
+  }, []);
 
   const byKind = useMemo(() => {
-    const groups = new Map<HrmRequestReasonKind, HrmRequestReason[]>();
+    const groups = new Map<string, HrmRequestReason[]>();
     for (const item of reasons ?? []) {
       const list = groups.get(item.kind) ?? [];
       list.push(item);
@@ -218,22 +298,61 @@ export default function RequestReasonsScreen() {
     return groups;
   }, [reasons]);
 
-  /** Các tab lý do: 4 loại hệ thống (tên theo danh mục loại đơn nếu đã đổi) rồi các loại tự tạo đang tồn tại. */
-  const tabs = useMemo<ReasonTab[]>(() => {
-    const nameOf = new Map((types ?? []).map((t) => [t.code, t.name]));
-    const system = REQUEST_REASON_KINDS.map((k) => ({
-      kind: k.kind,
-      label: nameOf.get(k.kind as string) ?? k.label,
-      custom: false,
-    }));
-    const custom = (types ?? [])
-      .filter((t) => t.engine === 'GENERIC')
-      .map((t) => ({ kind: t.code as HrmRequestReasonKind, label: t.name, custom: true }));
-    return [...system, ...custom];
+  /** Danh sách loại đơn: theo danh mục loại đơn nếu đã tải được, nếu không thì đơn nghỉ và 4 loại hệ thống. */
+  const entries = useMemo<Entry[]>(() => {
+    const build = (
+      code: string,
+      name: string,
+      description: string | null,
+      active: boolean,
+      type: HrmRequestType | null,
+      hasReasons: boolean,
+      custom: boolean,
+    ): Entry => ({
+      code,
+      name,
+      description,
+      active,
+      type,
+      hasReasons,
+      custom,
+      ...(ENTRY_STYLE[code] ?? DEFAULT_STYLE),
+    });
+    if (!types)
+      return [
+        build(LEAVE_CODE, 'Đơn xin nghỉ', null, true, null, true, false),
+        ...REQUEST_REASON_KINDS.map((k) => build(k.kind, k.label, null, true, null, true, false)),
+      ];
+    return types.map((t) =>
+      build(
+        t.code,
+        t.name,
+        t.description,
+        t.active,
+        t,
+        t.code === LEAVE_CODE || SYSTEM_REASON_KINDS.has(t.code) || t.engine === 'GENERIC',
+        t.engine === 'GENERIC',
+      ),
+    );
   }, [types]);
 
-  const current = tabs.find((k) => k.kind === kind) ?? tabs[0];
-  const rows = byKind.get(current.kind) ?? [];
+  const current = entries.find((e) => e.code === selectedCode) ?? entries[0];
+  const isLeave = current?.code === LEAVE_CODE;
+
+  function selectEntry(code: string) {
+    setSelectedCode(code);
+    setReasonSearch('');
+    setStatusFilter('ALL');
+    const url = new URL(window.location.href);
+    url.searchParams.set('tab', code);
+    window.history.replaceState(null, '', url);
+  }
+
+  const countOf = (entry: Entry): number | null => {
+    if (!entry.hasReasons) return null;
+    if (entry.code === LEAVE_CODE) return leaveTypes ? leaveTypes.length : null;
+    return reasons ? (byKind.get(entry.code)?.length ?? 0) : null;
+  };
 
   /** Chạy một thao tác ghi: lỗi hiện ở hộp cảnh báo đầu trang, không ném tiếp (Popconfirm chờ promise này). */
   async function run(task: () => Promise<void>) {
@@ -250,17 +369,19 @@ export default function RequestReasonsScreen() {
   }
 
   function openCreate() {
-    const label = current.label;
+    if (!current) return;
+    const label = current.name;
+    const kind = current.code as HrmRequestReasonKind;
     setAction({
       title: `Thêm lý do cho đơn ${label}`,
       description:
         'Lý do là mục trong danh mục; người làm đơn chọn một lý do rồi có thể nhập thêm Mô tả (văn bản tự do).',
       columns: 2,
-      fields: reasonFormFields(current.kind),
+      fields: reasonFormFields(kind),
       submit: async (values) => {
         await hrmFetch('/request-reasons', {
           method: 'POST',
-          body: JSON.stringify(reasonPayload(current.kind, values, true)),
+          body: JSON.stringify(reasonPayload(kind, values, true)),
         });
         await load();
         toast.success('Đã thêm lý do');
@@ -330,6 +451,28 @@ export default function RequestReasonsScreen() {
     });
   }
 
+  function setLeaveActive(row: HrmLeaveType, active: boolean, note?: string) {
+    return run(async () => {
+      await hrmFetch(`/leave-types/${row.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          active,
+          expectedUpdatedAt: row.updatedAt,
+          reason:
+            note ||
+            (active ? 'Dùng lại lý do nghỉ' : 'Ngừng sử dụng lý do nghỉ'),
+        }),
+      });
+      setNotice({
+        tone: 'success',
+        text: active
+          ? `Đã cho dùng lại lý do nghỉ "${row.name}".`
+          : `Đã ngừng lý do nghỉ "${row.name}" cho các đơn mới.`,
+      });
+      await loadLeave();
+    });
+  }
+
   function setTypeActive(row: HrmRequestType, active: boolean) {
     return run(async () => {
       await hrmFetch(`/request-types/${row.id}`, {
@@ -355,10 +498,30 @@ export default function RequestReasonsScreen() {
             ? `Đã xóa loại đơn "${row.name}".`
             : `Loại đơn "${row.name}" đã có đơn nên chỉ được ngừng sử dụng.`),
       });
-      if (kind === row.code && result.data.deleted) setKind('OVERTIME');
+      if (selectedCode === row.code && result.data.deleted) selectEntry(LEAVE_CODE);
       await Promise.all([loadTypes(), load()]);
     });
   }
+
+  // ---------------------------------------------------------------- Dòng của bảng lý do
+  const kind = current?.code as HrmRequestReasonKind;
+  const reasonRows = useMemo(
+    () =>
+      (byKind.get(current?.code ?? '') ?? []).filter(
+        (r) => pickStatus(statusFilter, r.active) && matches(reasonSearch, r.name, r.code, r.description),
+      ),
+    [byKind, current?.code, statusFilter, reasonSearch],
+  );
+  const leaveRows = useMemo(
+    () =>
+      [...(leaveTypes ?? [])]
+        .sort(
+          (a, b) =>
+            Number(Boolean(b.isAnnual)) - Number(Boolean(a.isAnnual)) || Number(b.active) - Number(a.active),
+        )
+        .filter((r) => pickStatus(statusFilter, r.active) && matches(reasonSearch, r.name, r.code)),
+    [leaveTypes, statusFilter, reasonSearch],
+  );
 
   if (!permissionsLoading && !canManage) {
     return (
@@ -371,529 +534,583 @@ export default function RequestReasonsScreen() {
     );
   }
 
-  const typeColumns: TableColumnsType<HrmRequestType> = [
+  const reasonColumns: DataColumn<HrmRequestReason>[] = [
     {
-      title: 'Loại đơn',
-      dataIndex: 'name',
-      render: (v: string, r) => (
-        <div>
-          <span className={`font-semibold ${r.active ? 'text-slate-900' : 'text-slate-500'}`}>{v}</span>
-          {r.description ? <p className="text-[11px] text-slate-500">{r.description}</p> : null}
-        </div>
+      key: 'name',
+      header: 'Tên lý do',
+      width: 'minmax(0,1.4fr)',
+      cardGrow: true,
+      cardOrder: -1,
+      cell: (r) => (
+        <span className="block min-w-0">
+          <span className="block font-semibold text-slate-900">{r.name}</span>
+          {r.description ? <span className="block text-[11px] text-slate-500">{r.description}</span> : null}
+        </span>
       ),
     },
     {
-      title: 'Mã',
-      dataIndex: 'code',
-      width: 190,
-      render: (v: string) => <span className="font-mono text-xs text-slate-600">{v}</span>,
+      key: 'code',
+      header: 'Mã',
+      width: 'minmax(0,1fr)',
+      cardLabel: true,
+      cell: (r) => <span className="font-mono text-[11px] text-slate-600">{r.code}</span>,
     },
-    {
-      title: 'Nguồn',
-      width: 110,
-      render: (_: unknown, r) =>
-        r.isSystem ? (
-          <Badge className="border-slate-200 bg-slate-100 text-slate-600">Hệ thống</Badge>
-        ) : (
-          <Badge className="border-blue-200 bg-blue-50 text-blue-700">Tuỳ chỉnh</Badge>
-        ),
-    },
-    {
-      title: 'Thời gian',
-      width: 190,
-      render: (_: unknown, r) => <span className="text-xs text-slate-700">{timeModeLabel(r.timeMode)}</span>,
-    },
-    {
-      title: 'Trường',
-      width: 80,
-      align: 'right',
-      render: (_: unknown, r) => (
-        <span className="text-xs tabular-nums text-slate-700">{r.isSystem ? '--' : r.fields.length}</span>
-      ),
-    },
-    {
-      title: 'Số đơn',
-      width: 90,
-      align: 'right',
-      render: (_: unknown, r) => (
-        <span className="text-xs tabular-nums text-slate-700">{r.isSystem ? '--' : (r.usageCount ?? 0)}</span>
-      ),
-    },
-    {
-      title: 'Trạng thái',
-      width: 130,
-      render: (_: unknown, r) =>
-        r.active ? (
-          <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700">Đang sử dụng</Badge>
-        ) : (
-          <Badge className="border-slate-200 bg-slate-100 text-slate-600">Ngừng sử dụng</Badge>
-        ),
-    },
-    {
-      title: 'Thao tác',
-      width: 280,
-      render: (_: unknown, r) => (
-        <div className="flex flex-wrap gap-1.5">
-          <Button
-            size="xs"
-            variant="outline"
-            disabled={busy}
-            onClick={() => setTypeDialog({ row: r })}
-            aria-label={`Sửa loại đơn ${r.name}`}
-            className="h-7 px-2 text-xs"
-          >
-            <Pencil className="mr-1 size-3" />
-            Sửa
-          </Button>
-          {r.code === 'LEAVE' ? null : r.active ? (
-            <Popconfirm
-              title={`Ngừng sử dụng loại đơn "${r.name}"?`}
-              description="Loại đơn ẩn khỏi danh sách chọn của đơn mới; có thể dùng lại bất cứ lúc nào. Đơn đã gửi không bị ảnh hưởng."
-              okText="Ngừng sử dụng"
-              cancelText="Quay lại"
-              okType="warning"
-              onConfirm={() => setTypeActive(r, false)}
-            >
-              <Button
-                size="xs"
-                variant="outline"
-                disabled={busy}
-                aria-label={`Ngừng loại đơn ${r.name}`}
-                className="h-7 px-2 text-xs"
-              >
-                <XCircle className="mr-1 size-3" />
-                Ngừng
-              </Button>
-            </Popconfirm>
-          ) : (
-            <Button
-              size="xs"
-              variant="outline"
-              disabled={busy}
-              onClick={() => void setTypeActive(r, true)}
-              aria-label={`Dùng lại loại đơn ${r.name}`}
-              className="h-7 px-2 text-xs"
-            >
-              <CheckCircle2 className="mr-1 size-3" />
-              Dùng lại
-            </Button>
-          )}
-          {r.isSystem ? null : (
-            <Popconfirm
-              title={`Xóa loại đơn "${r.name}"?`}
-              description={
-                (r.usageCount ?? 0) > 0
-                  ? `Loại đơn đã có ${r.usageCount} đơn nên không xóa được; hệ thống chỉ ngừng sử dụng loại này.`
-                  : 'Loại đơn và danh mục lý do của loại này biến mất. Không thể hoàn tác.'
-              }
-              okText="Xóa loại đơn"
-              cancelText="Quay lại"
-              okType="danger"
-              onConfirm={() => removeType(r)}
-            >
-              <Button
-                size="xs"
-                variant="destructive"
-                disabled={busy}
-                aria-label={`Xóa loại đơn ${r.name}`}
-                className="h-7 px-2 text-xs"
-              >
-                <Trash2 className="mr-1 size-3" />
-                Xóa
-              </Button>
-            </Popconfirm>
-          )}
-        </div>
-      ),
-    },
-  ];
-
-  const columns: TableColumnsType<HrmRequestReason> = [
-    {
-      title: 'Tên lý do',
-      dataIndex: 'name',
-      render: (v: string) => (
-        <span className="font-semibold text-slate-900">{v}</span>
-      ),
-    },
-    {
-      title: 'Mã',
-      dataIndex: 'code',
-      width: 150,
-      render: (v: string) => (
-        <span className="font-mono text-xs text-slate-600">{v}</span>
-      ),
-    },
-    {
-      title: (
-        <Tooltip title={EXPLANATION_HINT}>
-          <span className="inline-flex items-center gap-1">
-            Diễn giải
-            <Info className="size-3 text-slate-400" aria-hidden="true" />
-          </span>
-        </Tooltip>
-      ),
-      dataIndex: 'description',
-      render: (v: string | null) => (
-        <span className="text-xs text-slate-600">{v || '--'}</span>
-      ),
-    },
-    ...(current.kind === 'OVERTIME'
+    ...(kind === 'OVERTIME'
       ? [
           {
-            title: (
-              <Tooltip title={UNPAID_OT_HINT}>
-                <span className="inline-flex items-center gap-1">
-                  Hưởng lương
-                  <Info className="size-3 text-slate-400" aria-hidden="true" />
-                </span>
-              </Tooltip>
-            ),
-            width: 140,
-            render: (_: unknown, r: HrmRequestReason) => (
-              <Tooltip title={r.paid ? undefined : UNPAID_OT_HINT}>
-                <span>
-                  {r.paid ? (
-                    <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700">
-                      Có lương
-                    </Badge>
-                  ) : (
-                    <Badge className="border-amber-200 bg-amber-50 text-amber-700">
-                      Không lương
-                    </Badge>
-                  )}
-                </span>
-              </Tooltip>
+            key: 'paid',
+            header: 'Hưởng lương',
+            width: '6.5rem',
+            cardLabel: true,
+            cell: (r: HrmRequestReason) => (
+              <span title={r.paid ? undefined : UNPAID_OT_HINT}>
+                <StatusPill tone={r.paid ? 'green' : 'amber'}>{r.paid ? 'Có lương' : 'Không lương'}</StatusPill>
+              </span>
             ),
           },
           {
-            title: (
-              <Tooltip title={RATE_HINT}>
-                <span className="inline-flex items-center gap-1">
-                  Hệ số
-                  <Info className="size-3 text-slate-400" aria-hidden="true" />
-                </span>
-              </Tooltip>
-            ),
-            width: 130,
-            render: (_: unknown, r: HrmRequestReason) =>
+            key: 'rate',
+            header: 'Hệ số',
+            width: '6.5rem',
+            cardLabel: true,
+            cell: (r: HrmRequestReason) =>
               r.rateMultiplier != null ? (
-                <span className="font-mono text-xs font-semibold text-slate-900">
+                <span className="font-mono font-semibold text-slate-900" title={RATE_HINT}>
                   x{String(r.rateMultiplier).replace('.', ',')}
                 </span>
               ) : (
-                <span className="text-xs text-slate-500">Theo chính sách OT</span>
+                <span className="text-slate-500" title={RATE_HINT}>
+                  Theo chính sách OT
+                </span>
               ),
-          },
+          } satisfies DataColumn<HrmRequestReason>,
         ]
       : []),
     {
-      title: (
-        <Tooltip title={REQUIRES_DESCRIPTION_HINT}>
-          <span className="inline-flex items-center gap-1">
-            Cần mô tả
-            <Info className="size-3 text-slate-400" aria-hidden="true" />
-          </span>
-        </Tooltip>
-      ),
-      width: 110,
-      render: (_: unknown, r: HrmRequestReason) => (
-        <span className="text-xs text-slate-700">
-          {r.requiresDescription ? 'Có' : 'Không'}
-        </span>
-      ),
+      key: 'requiresDescription',
+      header: 'Cần mô tả',
+      width: '5rem',
+      cardLabel: true,
+      cell: (r) => <span title={REQUIRES_DESCRIPTION_HINT}>{r.requiresDescription ? 'Có' : 'Không'}</span>,
     },
     {
-      title: 'Số đơn đã dùng',
-      width: 120,
+      key: 'usage',
+      header: 'Số đơn đã dùng',
+      width: '6rem',
       align: 'right',
-      render: (_: unknown, r: HrmRequestReason) => (
-        <span className="text-xs tabular-nums text-slate-700">
-          {r.usageCount ?? 0}
-        </span>
+      cardLabel: true,
+      cell: (r) => <span className="tabular-nums">{r.usageCount ?? 0}</span>,
+    },
+    {
+      key: 'status',
+      header: 'Trạng thái',
+      width: '7.5rem',
+      cell: (r) => (
+        <StatusPill tone={r.active ? 'green' : 'slate'}>{r.active ? 'Đang sử dụng' : 'Ngừng sử dụng'}</StatusPill>
       ),
     },
     {
-      title: 'Trạng thái',
-      width: 140,
-      render: (_: unknown, r: HrmRequestReason) =>
-        r.active ? (
-          <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700">
-            Đang sử dụng
-          </Badge>
-        ) : (
-          <Badge className="border-slate-200 bg-slate-100 text-slate-600">
-            Ngừng sử dụng
-          </Badge>
-        ),
-    },
-    {
-      title: 'Thao tác',
-      width: 300,
-      render: (_: unknown, r: HrmRequestReason) => (
-        <div className="flex flex-wrap gap-1.5">
-          <Button
-            size="xs"
-            variant="outline"
-            disabled={busy}
-            onClick={() => openEdit(r)}
-            aria-label={`Sửa lý do ${r.name}`}
-            className="h-7 px-2 text-xs"
-          >
-            <Pencil className="mr-1 size-3" />
-            Sửa
-          </Button>
-          {r.active ? (
-            <Popconfirm
-              title={`Ngừng sử dụng lý do "${r.name}"?`}
-              description="Lý do ẩn khỏi danh sách chọn của đơn mới; có thể dùng lại bất cứ lúc nào. Đơn đã gửi không bị ảnh hưởng."
-              okText="Ngừng sử dụng"
-              cancelText="Quay lại"
-              okType="warning"
-              onConfirm={() => setActive(r, false)}
-            >
-              <Button
-                size="xs"
-                variant="outline"
-                disabled={busy}
-                aria-label={`Ngừng lý do ${r.name}`}
-                className="h-7 px-2 text-xs"
-              >
-                <XCircle className="mr-1 size-3" />
-                Ngừng
-              </Button>
-            </Popconfirm>
-          ) : (
-            <Button
-              size="xs"
-              variant="outline"
-              disabled={busy}
-              onClick={() => void setActive(r, true)}
-              aria-label={`Dùng lại lý do ${r.name}`}
-              className="h-7 px-2 text-xs"
-            >
-              <CheckCircle2 className="mr-1 size-3" />
-              Dùng lại
-            </Button>
-          )}
-          <Popconfirm
-            title={`Xóa lý do "${r.name}"?`}
-            description={
-              (r.usageCount ?? 0) > 0
-                ? `Lý do đã được dùng trong ${r.usageCount} đơn nên không xóa được; hệ thống chỉ ngừng sử dụng lý do này.`
-                : 'Lý do biến mất khỏi danh mục. Đơn đã gửi không bị ảnh hưởng.'
-            }
-            okText="Xóa lý do"
-            cancelText="Quay lại"
-            okType="danger"
-            onConfirm={() => remove(r)}
-          >
-            <Button
-              size="xs"
-              variant="destructive"
-              disabled={busy}
-              aria-label={`Xóa lý do ${r.name}`}
-              className="h-7 px-2 text-xs"
-            >
-              <Trash2 className="mr-1 size-3" />
-              Xóa
-            </Button>
-          </Popconfirm>
-        </div>
-      ),
+      key: 'actions',
+      header: 'Thao tác',
+      width: '2.5rem',
+      align: 'right',
+      cardEnd: true,
+      cardOrder: -1,
+      cell: (r) => <ActionMenu label={`Thao tác với lý do ${r.name}`} items={reasonActions(r)} />,
     },
   ];
 
+  const leaveColumns: DataColumn<HrmLeaveType>[] = [
+    {
+      key: 'name',
+      header: 'Tên lý do',
+      width: 'minmax(0,1.4fr)',
+      cardGrow: true,
+      cardOrder: -1,
+      cell: (r) => (
+        <span className={`font-semibold ${r.active ? 'text-slate-900' : 'text-slate-500'}`}>{r.name}</span>
+      ),
+    },
+    {
+      key: 'code',
+      header: 'Mã',
+      width: 'minmax(0,1fr)',
+      cardLabel: true,
+      cell: (r) => <span className="font-mono text-[11px] text-slate-600">{r.code}</span>,
+    },
+    {
+      key: 'paid',
+      header: 'Hưởng lương',
+      width: '6.5rem',
+      cardLabel: true,
+      cell: (r) => <StatusPill tone={r.paid ? 'green' : 'slate'}>{r.paid ? 'Có lương' : 'Không lương'}</StatusPill>,
+    },
+    {
+      key: 'deduct',
+      header: 'Trừ quỹ phép',
+      width: '7rem',
+      cardLabel: true,
+      cell: (r) =>
+        r.isAnnual ? (
+          <span className="flex items-center gap-1.5">
+            Có <StatusPill tone="blue">Phép năm</StatusPill>
+          </span>
+        ) : (
+          <span className="text-slate-500">Không</span>
+        ),
+    },
+    {
+      key: 'attachment',
+      header: 'Cần chứng từ',
+      width: '6rem',
+      cardLabel: true,
+      cell: (r) => (r.requiresAttachment ? 'Có' : 'Không'),
+    },
+    {
+      key: 'status',
+      header: 'Trạng thái',
+      width: '7.5rem',
+      cell: (r) =>
+        r.mergedIntoId ? (
+          <StatusPill tone="slate">Đã gộp</StatusPill>
+        ) : r.active ? (
+          <StatusPill tone="green">Đang dùng</StatusPill>
+        ) : (
+          <StatusPill tone="slate">Đã ngừng</StatusPill>
+        ),
+    },
+    {
+      key: 'actions',
+      header: 'Thao tác',
+      width: '2.5rem',
+      align: 'right',
+      cardEnd: true,
+      cardOrder: -1,
+      cell: (r) => <ActionMenu label={`Thao tác với lý do nghỉ ${r.name}`} items={leaveActions(r)} />,
+    },
+  ];
+
+  function reasonActions(r: HrmRequestReason): ActionItem[] {
+    return [
+      { key: 'edit', label: 'Sửa', onSelect: () => openEdit(r) },
+      r.active
+        ? {
+            key: 'deactivate',
+            label: 'Ngừng sử dụng',
+            confirm: {
+              title: `Ngừng sử dụng lý do "${r.name}"?`,
+              description:
+                'Lý do ẩn khỏi danh sách chọn của đơn mới; có thể dùng lại bất cứ lúc nào. Đơn đã gửi không bị ảnh hưởng.',
+              okText: 'Ngừng sử dụng',
+              cancelText: 'Quay lại',
+              okType: 'warning',
+              onConfirm: () => setActive(r, false),
+            },
+          }
+        : { key: 'activate', label: 'Dùng lại', onSelect: () => void setActive(r, true) },
+      {
+        key: 'delete',
+        label: 'Xóa',
+        tone: 'danger',
+        confirm: {
+          title: `Xóa lý do "${r.name}"?`,
+          description:
+            (r.usageCount ?? 0) > 0
+              ? `Lý do đã được dùng trong ${r.usageCount} đơn nên không xóa được; hệ thống chỉ ngừng sử dụng lý do này.`
+              : 'Lý do biến mất khỏi danh mục. Đơn đã gửi không bị ảnh hưởng.',
+          okText: 'Xóa lý do',
+          cancelText: 'Quay lại',
+          okType: 'danger',
+          onConfirm: () => remove(r),
+        },
+      },
+    ];
+  }
+
+  function leaveActions(r: HrmLeaveType): ActionItem[] {
+    const lockedActive = r.isAnnual || r.mergedIntoId;
+    return [
+      { key: 'edit', label: 'Sửa', onSelect: () => setLeaveDialog({ row: r }) },
+      {
+        key: 'deactivate',
+        label: 'Ngừng',
+        hidden: Boolean(lockedActive) || !r.active,
+        confirm: {
+          title: 'Ngừng lý do nghỉ này cho các đơn mới?',
+          description: 'Đơn đã tạo và sổ phép hiện có được giữ nguyên.',
+          okText: 'Xác nhận',
+          cancelText: 'Quay lại',
+          okType: 'danger',
+          reason: { label: 'Ghi chú thay đổi', placeholder: 'Ví dụ: không còn áp dụng', required: true },
+          onConfirm: (note) => setLeaveActive(r, false, note),
+        },
+      },
+      {
+        key: 'activate',
+        label: 'Dùng lại',
+        hidden: Boolean(lockedActive) || r.active,
+        confirm: {
+          title: 'Cho dùng lại lý do nghỉ này?',
+          okText: 'Xác nhận',
+          cancelText: 'Quay lại',
+          okType: 'primary',
+          reason: { label: 'Ghi chú thay đổi', placeholder: 'Ví dụ: áp dụng lại từ tháng này', required: true },
+          onConfirm: (note) => setLeaveActive(r, true, note),
+        },
+      },
+    ];
+  }
+
+  function typeActions(t: HrmRequestType): ActionItem[] {
+    return [
+      { key: 'edit', label: 'Sửa loại đơn', onSelect: () => setTypeDialog({ row: t }) },
+      {
+        key: 'deactivate',
+        label: 'Ngừng sử dụng loại đơn',
+        hidden: t.code === LEAVE_CODE || !t.active,
+        confirm: {
+          title: `Ngừng sử dụng loại đơn "${t.name}"?`,
+          description:
+            'Loại đơn ẩn khỏi danh sách chọn của đơn mới; có thể dùng lại bất cứ lúc nào. Đơn đã gửi không bị ảnh hưởng.',
+          okText: 'Ngừng sử dụng',
+          cancelText: 'Quay lại',
+          okType: 'warning',
+          onConfirm: () => setTypeActive(t, false),
+        },
+      },
+      {
+        key: 'activate',
+        label: 'Dùng lại loại đơn',
+        hidden: t.code === LEAVE_CODE || t.active,
+        onSelect: () => void setTypeActive(t, true),
+      },
+      {
+        key: 'delete',
+        label: 'Xóa loại đơn',
+        tone: 'danger',
+        hidden: t.isSystem,
+        confirm: {
+          title: `Xóa loại đơn "${t.name}"?`,
+          description:
+            (t.usageCount ?? 0) > 0
+              ? `Loại đơn đã có ${t.usageCount} đơn nên không xóa được; hệ thống chỉ ngừng sử dụng loại này.`
+              : 'Loại đơn và danh mục lý do của loại này biến mất. Không thể hoàn tác.',
+          okText: 'Xóa loại đơn',
+          cancelText: 'Quay lại',
+          okType: 'danger',
+          onConfirm: () => removeType(t),
+        },
+      },
+    ];
+  }
+
+  const visibleEntries = entries.filter((e) => matches(typeSearch, e.name, e.description, e.code));
+  const entryOptions = entries.map((e) => {
+    const count = countOf(e);
+    return { value: e.code, label: count == null ? e.name : `${e.name} (${count})` };
+  });
+
+  const addReason = () => {
+    if (!current?.hasReasons) return;
+    if (isLeave) setLeaveDialog({});
+    else openCreate();
+  };
+
+  const loadingList = isLeave ? leaveTypes === null : reasons === null;
+  const totalInEntry = isLeave ? (leaveTypes?.length ?? 0) : (byKind.get(current?.code ?? '')?.length ?? 0);
+  const filteredCount = isLeave ? leaveRows.length : reasonRows.length;
+
   return (
-    <div className="mx-auto max-w-[1600px] space-y-4">
-      <div className="flex flex-col justify-between gap-4 rounded-xl border border-slate-200 bg-white p-5 shadow-xs xl:flex-row xl:items-center">
-        <div className="flex items-center gap-3">
-          <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
-            <ClipboardList className="size-5" />
-          </div>
-          <div>
-            <h1 className="text-xl font-bold tracking-tight text-slate-900">
-              Loại đơn và lý do
-            </h1>
-            <p className="max-w-[85ch] text-xs text-slate-500">
-              Danh mục loại đơn và lý do của từng loại. Quản trị có thể tạo thêm
-              loại đơn riêng; lý do nghỉ do tab Phép năm và lý do nghỉ quản lý.
-            </p>
-          </div>
-        </div>
-      </div>
+    <div className="@container mx-auto max-w-[1600px] space-y-4">
+      <PageTitle
+        title="Loại đơn & lý do"
+        description="Quản lý loại đơn và danh mục lý do được nhân viên lựa chọn khi tạo đơn."
+        actions={
+          <>
+            {canAudit ? (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setHistoryOpen(true)}
+                className="h-9 gap-1.5 px-3 text-xs font-semibold"
+              >
+                <History className="size-4" aria-hidden />
+                Lịch sử thay đổi
+              </Button>
+            ) : null}
+            {current?.hasReasons ? (
+              <Button
+                permission="hrm.leave.manage"
+                disabled={busy}
+                onClick={addReason}
+                className="h-9 gap-1.5 px-4 text-xs font-semibold"
+              >
+                <Plus className="size-4" aria-hidden />
+                <span>Thêm lý do</span>
+              </Button>
+            ) : null}
+          </>
+        }
+      />
 
-      <div
-        role="note"
-        className="flex gap-3 rounded-xl border border-blue-200 bg-blue-50/60 p-4 text-xs text-slate-700"
-      >
-        <Info className="mt-0.5 size-4 shrink-0 text-blue-600" aria-hidden="true" />
-        <div className="space-y-1">
-          <p className="font-semibold text-slate-900">
-            Lý do là danh mục do quản trị cấu hình; người làm đơn chọn một lý do
-            rồi có thể nhập thêm Mô tả. Mô tả là văn bản tự do, không phải lý
-            do.
-          </p>
-          <p>
-            Diễn giải là câu hướng dẫn hiện cạnh lý do trong danh sách chọn.
-            Lý do đặt Cần mô tả là Có thì người làm đơn bắt buộc nhập Mô tả khi
-            chọn lý do đó (ví dụ lý do Khác).
-          </p>
-        </div>
-      </div>
-
-      {error && (
-        <div
-          role="alert"
-          className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-semibold text-red-700"
-        >
+      {error ? (
+        <InfoNote tone="red" role="alert">
           {error}
-        </div>
-      )}
-      {notice && (
-        <div
-          role="status"
-          className={`rounded-xl border p-3 text-xs font-medium ${
-            notice.tone === 'success'
-              ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
-              : 'border-amber-200 bg-amber-50 text-amber-800'
-          }`}
-        >
+        </InfoNote>
+      ) : null}
+      {notice ? (
+        <InfoNote tone={notice.tone === 'success' ? 'green' : 'amber'} role="status">
           {notice.text}
-        </div>
-      )}
+        </InfoNote>
+      ) : null}
 
-      {types !== null && (
+      <div className="grid grid-cols-1 items-start gap-4 @3xl:grid-cols-[minmax(220px,300px)_minmax(0,1fr)]">
+        {/* Danh sách loại đơn (màn rộng); màn hẹp dùng ô chọn loại đơn ở đầu thẻ chi tiết */}
         <section
           aria-label="Danh mục loại đơn"
-          className="space-y-3 rounded-xl border border-slate-200 bg-white p-5 shadow-xs"
+          className="hidden min-w-0 rounded-xl border border-slate-200 bg-white p-4 @3xl:block"
         >
-          <div className="flex items-center justify-between gap-3 border-b border-slate-100 pb-2">
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
-              Loại đơn ({types.length})
-            </span>
-            <Button
-              permission="hrm.leave.manage"
-              size="xs"
-              disabled={busy}
-              onClick={() => setTypeDialog({})}
-              className="flex items-center gap-1.5 bg-blue-600 text-xs text-white hover:bg-blue-700"
-            >
-              <Plus className="size-3.5" />
-              <span>Thêm loại đơn</span>
-            </Button>
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <h2 className="text-base font-bold tracking-tight text-slate-900">Loại đơn</h2>
+              <p className="mt-0.5 text-xs text-slate-500">Chọn loại đơn để quản lý danh sách lý do.</p>
+            </div>
+            {types !== null ? (
+              <Button
+                permission="hrm.leave.manage"
+                variant="outline"
+                size="sm"
+                disabled={busy}
+                onClick={() => setTypeDialog({})}
+                className="shrink-0 gap-1 text-xs font-semibold"
+              >
+                <Plus className="size-3.5" aria-hidden />
+                Thêm loại
+              </Button>
+            ) : null}
           </div>
-          <Table<HrmRequestType>
-            size="small"
-            rowKey="id"
-            dataSource={types}
-            columns={typeColumns}
-            pagination={false}
-            scroll={{ x: 'max-content' }}
-          />
+          <div className="relative mt-3">
+            <Search aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
+            <Input
+              aria-label="Tìm loại đơn"
+              placeholder="Tìm loại đơn..."
+              value={typeSearch}
+              onChange={(e) => setTypeSearch(e.target.value)}
+              className="h-9 pl-9"
+            />
+          </div>
+          <ul className="mt-3 space-y-1.5" aria-label="Loại đơn">
+            {visibleEntries.map((entry) => {
+              const selected = entry.code === current?.code;
+              const count = countOf(entry);
+              return (
+                <li key={entry.code}>
+                  <button
+                    type="button"
+                    aria-current={selected ? 'true' : undefined}
+                    data-testid={`type-${entry.code}`}
+                    onClick={() => selectEntry(entry.code)}
+                    className={`flex w-full cursor-pointer items-center gap-3 rounded-xl border p-2.5 text-left transition-colors ${
+                      selected ? 'border-blue-300 bg-blue-50' : 'border-transparent hover:bg-slate-50'
+                    } ${entry.active ? '' : 'opacity-60'}`}
+                  >
+                    <IconTile icon={entry.icon} tone={entry.tone} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-semibold text-slate-900">
+                        {entry.name}
+                        {entry.active ? null : <span className="ml-1.5 text-[11px] font-medium text-slate-500">(ngừng)</span>}
+                      </span>
+                      {entry.description ? (
+                        <span className="block truncate text-[11px] text-slate-500">{entry.description}</span>
+                      ) : null}
+                    </span>
+                    {count != null ? (
+                      <span
+                        aria-label={`${count} lý do`}
+                        className={`inline-flex min-w-6 items-center justify-center rounded-full border px-1.5 py-0.5 text-[11px] font-semibold ${
+                          selected ? 'border-blue-300 bg-white text-blue-700' : 'border-slate-200 bg-white text-slate-600'
+                        }`}
+                      >
+                        {count}
+                      </span>
+                    ) : null}
+                  </button>
+                </li>
+              );
+            })}
+            {visibleEntries.length === 0 ? (
+              <li className="px-2 py-4 text-center text-xs text-slate-500">Không có loại đơn nào khớp.</li>
+            ) : null}
+          </ul>
         </section>
-      )}
 
-      <div
-        role="tablist"
-        aria-label="Loại đơn"
-        className="flex flex-wrap gap-5 border-b border-slate-200"
-      >
-        {tabs.map((item) => {
-          const selected = item.kind === current.kind;
-          return (
-            <button
-              key={item.kind}
-              type="button"
-              role="tab"
-              aria-selected={selected}
-              onClick={() => setKind(item.kind)}
-              className={`-mb-px border-b-2 px-3 py-3 text-sm font-medium ${
-                selected
-                  ? 'border-blue-600 text-blue-700'
-                  : 'border-transparent text-slate-500 hover:text-slate-700'
-              }`}
-            >
-              {item.label}
-              {reasons && (
-                <span className="ml-1.5 text-xs font-normal text-slate-400">
-                  {byKind.get(item.kind)?.length ?? 0}
+        {/* Chi tiết loại đơn đang chọn */}
+        {current ? (
+          <section
+            aria-label={`Lý do của ${current.name}`}
+            data-testid="type-detail"
+            className="min-w-0 rounded-xl border border-slate-200 bg-white p-4 @xl:p-5"
+          >
+            <div className="mb-3 @3xl:hidden">
+              <SearchableSelect
+                value={current.code}
+                options={entryOptions}
+                clearable={false}
+                placeholder="Chọn loại đơn"
+                onChange={(code) => code && selectEntry(code)}
+              />
+            </div>
+
+            <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
+              <div className="min-w-0 flex-1 basis-56">
+                <h2 className="text-base font-bold tracking-tight text-slate-900">
+                  {current.hasReasons ? `Lý do của ${current.name.toLowerCase()}` : current.name}
+                </h2>
+                <p className="mt-0.5 text-xs text-slate-500">
+                  {current.hasReasons
+                    ? `Các lý do nhân viên được chọn khi tạo ${current.name.toLowerCase()}.`
+                    : (current.description ?? 'Loại đơn này không dùng danh mục lý do.')}
+                </p>
+              </div>
+              {current.hasReasons ? (
+                <div className="flex w-full min-w-0 flex-wrap items-center gap-2 @2xl:w-auto">
+                  <div className="relative min-w-0 flex-1 basis-40 @2xl:w-48 @2xl:flex-none">
+                    <Search aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
+                    <Input
+                      aria-label="Tìm lý do"
+                      placeholder="Tìm lý do..."
+                      value={reasonSearch}
+                      onChange={(e) => setReasonSearch(e.target.value)}
+                      className="h-9 pl-9"
+                    />
+                  </div>
+                  <div className="min-w-0 flex-1 basis-40 @2xl:w-52 @2xl:flex-none">
+                    <SearchableSelect
+                      value={statusFilter}
+                      options={STATUS_FILTERS}
+                      clearable={false}
+                      onChange={(v) => setStatusFilter(v || 'ALL')}
+                    />
+                  </div>
+                </div>
+              ) : null}
+            </div>
+
+            {current.type ? (
+              <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                <StatusPill tone={current.type.isSystem ? 'slate' : 'blue'}>
+                  {current.type.isSystem ? 'Hệ thống' : 'Tuỳ chỉnh'}
+                </StatusPill>
+                <StatusPill tone={current.active ? 'green' : 'slate'}>
+                  {current.active ? 'Đang sử dụng' : 'Ngừng sử dụng'}
+                </StatusPill>
+                <span>Thời gian: {timeModeLabel(current.type.timeMode)}</span>
+                {current.type.isSystem ? null : <span>{current.type.fields.length} trường bổ sung</span>}
+                {current.type.isSystem ? null : <span>{current.type.usageCount ?? 0} đơn đã tạo</span>}
+                <span className="ml-auto">
+                  <ActionMenu
+                    label="Thiết lập loại đơn"
+                    items={typeActions(current.type)}
+                    buttonClassName="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                    trigger={
+                      <>
+                        <Settings2 className="size-3.5" aria-hidden />
+                        Thiết lập loại đơn
+                        <ChevronDown className="size-3 text-slate-400" aria-hidden />
+                      </>
+                    }
+                  />
                 </span>
+              </div>
+            ) : null}
+
+            <div className="mt-4 space-y-3">
+              {!current.hasReasons ? (
+                <InfoNote tone="slate">
+                  Loại đơn này không có danh mục lý do: người làm đơn không phải chọn lý do. Có thể đổi tên, mô tả hoặc ngừng sử dụng
+                  ở mục Thiết lập loại đơn.
+                </InfoNote>
+              ) : loadingList ? (
+                <p className="py-8 text-center text-xs text-slate-500">
+                  {error ? 'Không tải được danh mục lý do.' : 'Đang tải danh mục lý do...'}
+                </p>
+              ) : totalInEntry === 0 ? (
+                isLeave ? (
+                  <EmptyPanel
+                    icon={CalendarDays}
+                    title="Chưa có lý do nghỉ nào"
+                    description="Bấm Thêm lý do để tạo."
+                  />
+                ) : (
+                  <EmptyPanel
+                    icon={ClipboardList}
+                    title={`Đơn ${current.name.toLowerCase()} chưa có lý do nào`}
+                    description={
+                      current.custom
+                        ? 'Loại đơn tuỳ chỉnh không bắt buộc có lý do: khi chưa có lý do nào, người làm đơn không phải chọn lý do. Thêm lý do nếu muốn người làm đơn chọn từ danh sách.'
+                        : 'Người làm đơn phải chọn một lý do trong danh mục nên cần có ít nhất một lý do. Tạo bộ lý do mặc định cho các loại đơn đang trống, hoặc thêm lý do riêng.'
+                    }
+                    action={
+                      current.custom ? undefined : (
+                        <Button
+                          permission="hrm.leave.manage"
+                          disabled={busy}
+                          onClick={() => void createDefaults()}
+                          className="gap-1.5 text-xs font-semibold"
+                        >
+                          <WandSparkles className="size-3.5" aria-hidden />
+                          <span>Tạo lý do mặc định</span>
+                        </Button>
+                      )
+                    }
+                  />
+                )
+              ) : filteredCount === 0 ? (
+                <EmptyPanel icon={Search} title="Không có lý do nào khớp" description="Thử đổi từ khóa hoặc bộ lọc trạng thái." />
+              ) : isLeave ? (
+                <DataList
+                  label="Lý do nghỉ"
+                  rows={leaveRows}
+                  columns={leaveColumns}
+                  rowKey={(r) => r.id}
+                  pageSize={12}
+                />
+              ) : (
+                <DataList
+                  label={`Lý do của ${current.name}`}
+                  rows={reasonRows}
+                  columns={reasonColumns}
+                  rowKey={(r) => r.id}
+                  pageSize={12}
+                />
               )}
-            </button>
-          );
-        })}
+
+              {current.hasReasons ? (
+                isLeave ? (
+                  <InfoNote tone="blue">
+                    Chỉ lý do Phép năm trừ quỹ phép; các lý do khác không làm thay đổi số dư phép. Cách tính phép năm cấu hình ở{' '}
+                    <Link
+                      href="/settings?view=leave"
+                      className="font-semibold text-blue-700 underline underline-offset-2 hover:text-blue-900"
+                    >
+                      Chính sách phép năm
+                    </Link>
+                    .
+                  </InfoNote>
+                ) : (
+                  <InfoNote tone="blue">
+                    Lý do là danh mục do quản trị cấu hình; người làm đơn chọn một lý do rồi có thể nhập thêm Mô tả. Mô tả là văn bản tự do,
+                    không phải lý do. Lý do đặt Cần mô tả là Có thì người làm đơn bắt buộc nhập Mô tả khi chọn lý do đó.
+                    {kind === 'OVERTIME' ? ` ${UNPAID_OT_HINT}` : ''}
+                  </InfoNote>
+                )
+              ) : null}
+            </div>
+          </section>
+        ) : null}
       </div>
 
-      <section className="space-y-3 rounded-xl border border-slate-200 bg-white p-5 shadow-xs">
-        <div className="flex items-center justify-between gap-3 border-b border-slate-100 pb-2">
-          <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
-            Lý do của đơn {current.label.toLowerCase()} ({rows.length})
-          </span>
-          <Button
-            permission="hrm.leave.manage"
-            size="xs"
-            disabled={busy}
-            onClick={openCreate}
-            className="flex items-center gap-1.5 bg-blue-600 text-xs text-white hover:bg-blue-700"
-          >
-            <Plus className="size-3.5" />
-            <span>Thêm lý do</span>
-          </Button>
-        </div>
-
-        {current.kind === 'OVERTIME' && (
-          <p className="text-xs text-slate-500">{UNPAID_OT_HINT}</p>
-        )}
-
-        {reasons === null ? (
-          <p className="py-8 text-center text-xs text-slate-500">
-            {error ? 'Không tải được danh mục lý do.' : 'Đang tải danh mục lý do...'}
-          </p>
-        ) : rows.length === 0 ? (
-          <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-slate-300 bg-slate-50/60 px-6 py-10 text-center">
-            <p className="text-sm font-semibold text-slate-800">
-              Đơn {current.label.toLowerCase()} chưa có lý do nào
-            </p>
-            {current.custom ? (
-              <p className="max-w-[70ch] text-xs text-slate-500">
-                Loại đơn tuỳ chỉnh không bắt buộc có lý do: khi chưa có lý do nào, người làm đơn không phải chọn lý do.
-                Thêm lý do nếu muốn người làm đơn chọn từ danh sách.
-              </p>
-            ) : (
-              <>
-                <p className="max-w-[70ch] text-xs text-slate-500">
-                  Người làm đơn phải chọn một lý do trong danh mục nên cần có ít
-                  nhất một lý do. Tạo bộ lý do mặc định cho các loại đơn đang trống,
-                  hoặc thêm lý do riêng.
-                </p>
-                <Button
-                  permission="hrm.leave.manage"
-                  disabled={busy}
-                  onClick={() => void createDefaults()}
-                  className="flex items-center gap-1.5 bg-blue-600 text-xs text-white hover:bg-blue-700"
-                >
-                  <WandSparkles className="size-3.5" />
-                  <span>Tạo lý do mặc định</span>
-                </Button>
-              </>
-            )}
-          </div>
-        ) : (
-          <Table<HrmRequestReason>
-            size="small"
-            rowKey="id"
-            dataSource={rows}
-            columns={columns}
-            pagination={false}
-            scroll={{ y: 'max(280px, calc(100vh - 520px))' }}
-          />
-        )}
-      </section>
-
-      {action && (
-        <HrmActionDialog action={action} onClose={() => setAction(null)} />
-      )}
+      {action && <HrmActionDialog action={action} onClose={() => setAction(null)} />}
       {typeDialog && (
         <RequestTypeDialog
           row={typeDialog.row}
@@ -904,6 +1121,25 @@ export default function RequestReasonsScreen() {
           }}
         />
       )}
+      {leaveDialog && (
+        <LeaveReasonDialog
+          row={leaveDialog.row}
+          onClose={() => setLeaveDialog(null)}
+          onSaved={async (text) => {
+            setNotice({ tone: 'success', text });
+            await loadLeave();
+          }}
+        />
+      )}
+      {canAudit ? (
+        <ConfigHistoryDrawer
+          open={historyOpen}
+          onOpenChange={setHistoryOpen}
+          title="Lịch sử thay đổi loại đơn và lý do"
+          description="Loại đơn, lý do đơn từ và lý do nghỉ (tối đa 100 bản ghi, mới nhất ở trên)."
+          actionPrefixes={['REQUEST_REASON_', 'REQUEST_TYPE_', 'LEAVE_TYPE_']}
+        />
+      ) : null}
     </div>
   );
 }

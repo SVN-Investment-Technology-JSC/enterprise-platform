@@ -1,6 +1,6 @@
 'use client';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, Loader2, Plus, UserCheck } from 'lucide-react';
+import { Loader2, Plus, UserCheck } from 'lucide-react';
 import type {
   HrmEmployeeSalaryProfile,
   HrmSalaryGrade,
@@ -15,7 +15,6 @@ import {
   formatMoneyVnd,
 } from '../hrm-salary-format';
 import { useHrmPermissions } from '../hrm-permissions';
-import { Badge } from './badge';
 import { Button } from './button';
 import { DatePickerInput } from './date-picker-input';
 import {
@@ -27,6 +26,8 @@ import {
 } from './dialog';
 import { Input } from './input';
 import { toast } from './toast';
+import { DataList, type DataColumn } from './payroll-settings/data-rows';
+import { EmptyPanel, InfoNote, SettingsSection, StatusPill } from './settings-kit';
 
 type Profile = Omit<HrmEmployeeSalaryProfile, 'baseSalary'> & {
   /** Null khi API ẩn mức lương với người xem. */
@@ -197,55 +198,107 @@ export function SalaryProfilesPanel() {
 
   const employeeName = employees.find((e) => e.value === employee)?.label ?? '';
 
+  const columns: DataColumn<Profile>[] = [
+    {
+      key: 'from',
+      header: 'Hiệu lực từ',
+      width: '6.5rem',
+      cell: (r) => <span className="font-semibold text-slate-900">{dateVn(r.effectiveFrom)}</span>,
+    },
+    {
+      key: 'to',
+      header: 'Hiệu lực đến',
+      width: '6.5rem',
+      cardLabel: true,
+      cell: (r) => <span className="text-slate-600">{r.effectiveTo ? dateVn(r.effectiveTo) : 'Đến nay'}</span>,
+    },
+    {
+      key: 'grade',
+      header: 'Ngạch và bậc',
+      width: 'minmax(0,1.2fr)',
+      cardLabel: true,
+      cell: (r) =>
+        r.salaryGradeId
+          ? `${gradeLabel.get(r.salaryGradeId) ?? 'Ngạch đã chọn'}${stepNo(r) ? ` / Bậc ${stepNo(r)}` : ''}`
+          : '----',
+    },
+    {
+      key: 'type',
+      header: 'Loại lương',
+      width: '5.5rem',
+      cardLabel: true,
+      cell: (r) => SALARY_TYPE_LABELS[r.salaryType] ?? r.salaryType,
+    },
+    {
+      key: 'amount',
+      header: 'Mức lương',
+      width: '8rem',
+      align: 'right',
+      cardLabel: true,
+      cell: (r) =>
+        r.baseSalary === null ? (
+          <span title="Bạn không có quyền xem mức lương">Ẩn</span>
+        ) : (
+          <span className="font-mono font-bold text-blue-700">{formatMoneyVnd(r.baseSalary)}</span>
+        ),
+    },
+    {
+      key: 'status',
+      header: 'Trạng thái',
+      width: '6.5rem',
+      cell: (r) => (
+        <StatusPill tone={r.status === 'ACTIVE' ? 'green' : 'slate'}>
+          {SALARY_PROFILE_STATUS_LABELS[r.status] ?? r.status}
+        </StatusPill>
+      ),
+    },
+    {
+      key: 'reason',
+      header: 'Căn cứ thay đổi',
+      width: 'minmax(0,1fr)',
+      cardFull: true,
+      cardLabel: true,
+      cell: (r) => <span className="text-slate-600">{r.changeReason || '----'}</span>,
+    },
+  ];
+
   return (
-    <section className="space-y-4 rounded-xl border border-slate-200 bg-white p-5 shadow-xs">
-      <div className="flex flex-col justify-between gap-3 border-b border-slate-100 pb-3 sm:flex-row sm:items-center">
-        <div className="flex items-center gap-2.5">
-          <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
-            <UserCheck className="size-4" />
-          </div>
-          <div>
-            <h2 className="text-sm font-bold uppercase tracking-wider text-slate-700">
-              Hồ sơ lương nhân viên
-            </h2>
-            <p className="mt-0.5 text-xs text-slate-500">
-              Nơi nhập mức lương, ngạch và bậc của từng nhân viên. Mỗi lần lưu tạo phiên bản mới và kết thúc phiên bản đang hiệu lực.
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="w-72">
-            <SearchableSelect
-              value={employee}
-              onChange={(v) => setEmployee(v || '')}
-              options={employees}
-              placeholder="Chọn nhân viên..."
-            />
-          </div>
-          <Button
-            permission="hrm.salary.manage"
-            disabled={!employee}
-            onClick={openForm}
-            className="flex h-9 items-center gap-1.5 bg-blue-600 text-xs text-white shadow-xs hover:bg-blue-700"
-          >
-            <Plus className="size-3.5" />
-            <span>Thêm hồ sơ lương</span>
-          </Button>
-        </div>
+    <SettingsSection
+      icon={UserCheck}
+      tone="blue"
+      title="Hồ sơ lương nhân viên"
+      description="Nơi nhập mức lương, ngạch và bậc của từng nhân viên. Mỗi lần lưu tạo phiên bản mới và kết thúc phiên bản đang hiệu lực."
+      className="@container"
+      actions={
+        <Button
+          permission="hrm.salary.manage"
+          disabled={!employee}
+          onClick={openForm}
+          className="h-9 gap-1.5 px-4 text-xs font-semibold"
+        >
+          <Plus className="size-4" />
+          <span>Thêm hồ sơ lương</span>
+        </Button>
+      }
+      bodyClassName="space-y-4"
+    >
+      <div className="max-w-md">
+        <SearchableSelect
+          value={employee}
+          onChange={(v) => setEmployee(v || '')}
+          options={employees}
+          placeholder="Chọn nhân viên..."
+        />
       </div>
 
       {error && (
-        <div
-          role="alert"
-          className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-xs font-medium text-red-700"
-        >
-          <AlertTriangle className="size-4 shrink-0" />
-          <span>{error}</span>
-        </div>
+        <InfoNote tone="red" role="alert">
+          {error}
+        </InfoNote>
       )}
 
       {employee && activeProfile && (
-        <div className="grid grid-cols-2 gap-3 rounded-lg border border-blue-100 bg-blue-50/50 p-3 text-xs md:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 rounded-lg border border-blue-100 bg-blue-50/50 p-3 text-xs @3xl:grid-cols-4">
           <div>
             <span className="block text-[11px] text-slate-500">Mức lương hiện hành</span>
             <strong className="font-mono text-blue-700">
@@ -260,9 +313,9 @@ export function SalaryProfilesPanel() {
             <span className="block text-[11px] text-slate-500">Loại lương</span>
             <strong>{SALARY_TYPE_LABELS[activeProfile.salaryType] ?? activeProfile.salaryType}</strong>
           </div>
-          <div>
+          <div className="min-w-0">
             <span className="block text-[11px] text-slate-500">Ngạch và bậc</span>
-            <strong>
+            <strong className="break-words">
               {activeProfile.salaryGradeId
                 ? `${gradeLabel.get(activeProfile.salaryGradeId) ?? 'Ngạch đã chọn'}${stepNo(activeProfile) ? ` / Bậc ${stepNo(activeProfile)}` : ''}`
                 : 'Chưa gán ngạch'}
@@ -275,73 +328,28 @@ export function SalaryProfilesPanel() {
         </div>
       )}
 
-      <div className="max-h-[calc(100vh-24rem)] min-h-40 overflow-auto rounded-lg border border-slate-200">
-        <table className="w-full border-collapse text-left text-xs">
-          <thead className="sticky top-0 border-b border-slate-200 bg-slate-50 text-[11px] font-bold uppercase tracking-wider text-slate-600">
-            <tr>
-              <th className="px-4 py-3">Hiệu lực từ</th>
-              <th className="px-4 py-3">Hiệu lực đến</th>
-              <th className="px-4 py-3">Ngạch và bậc</th>
-              <th className="px-4 py-3">Loại lương</th>
-              <th className="px-4 py-3 text-right">Mức lương</th>
-              <th className="px-4 py-3">Trạng thái</th>
-              <th className="px-4 py-3">Căn cứ thay đổi</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {loadingRows ? (
-              <tr>
-                <td colSpan={7} className="p-8 text-center text-slate-400">
-                  <span className="inline-flex items-center gap-2">
-                    <Loader2 className="size-4 animate-spin" />
-                    Đang tải hồ sơ lương...
-                  </span>
-                </td>
-              </tr>
-            ) : rows.length === 0 ? (
-              <tr>
-                <td colSpan={7} className="p-8 text-center text-slate-400">
-                  {employee
-                    ? 'Nhân viên chưa có hồ sơ lương.'
-                    : 'Chọn nhân viên để xem hồ sơ lương.'}
-                </td>
-              </tr>
-            ) : (
-              rows.map((r) => (
-                <tr key={r.id} className="hover:bg-slate-50/80">
-                  <td className="px-4 py-3 font-semibold text-slate-900">{dateVn(r.effectiveFrom)}</td>
-                  <td className="px-4 py-3 text-slate-600">{r.effectiveTo ? dateVn(r.effectiveTo) : 'Đến nay'}</td>
-                  <td className="px-4 py-3">
-                    {r.salaryGradeId
-                      ? `${gradeLabel.get(r.salaryGradeId) ?? 'Ngạch đã chọn'}${stepNo(r) ? ` / Bậc ${stepNo(r)}` : ''}`
-                      : '----'}
-                  </td>
-                  <td className="px-4 py-3">{SALARY_TYPE_LABELS[r.salaryType] ?? r.salaryType}</td>
-                  <td className="px-4 py-3 text-right font-mono font-bold text-blue-700">
-                    {r.baseSalary === null ? (
-                      <span title="Bạn không có quyền xem mức lương">Ẩn</span>
-                    ) : (
-                      formatMoneyVnd(r.baseSalary)
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
-                    <Badge
-                      className={
-                        r.status === 'ACTIVE'
-                          ? 'border-emerald-200 bg-emerald-50 text-[10px] text-emerald-700'
-                          : 'border-slate-200 bg-slate-100 text-[10px] text-slate-600'
-                      }
-                    >
-                      {SALARY_PROFILE_STATUS_LABELS[r.status] ?? r.status}
-                    </Badge>
-                  </td>
-                  <td className="px-4 py-3 text-slate-600">{r.changeReason || '----'}</td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
+      {loadingRows ? (
+        <p role="status" className="flex items-center justify-center gap-2 rounded-lg border border-slate-200 p-8 text-xs text-slate-400">
+          <Loader2 className="size-4 animate-spin" />
+          Đang tải hồ sơ lương...
+        </p>
+      ) : (
+        <DataList
+          label="Hồ sơ lương của nhân viên"
+          rows={rows}
+          columns={columns}
+          rowKey={(r) => r.id}
+          pageSize={10}
+          empty={
+            <EmptyPanel
+              icon={UserCheck}
+              title={employee ? 'Nhân viên chưa có hồ sơ lương.' : 'Chọn nhân viên để xem hồ sơ lương.'}
+              description={employee ? 'Bấm Thêm hồ sơ lương để nhập mức lương đầu tiên.' : undefined}
+              className="py-8"
+            />
+          }
+        />
+      )}
 
       <Dialog
         open={open}
@@ -349,7 +357,7 @@ export function SalaryProfilesPanel() {
           if (!saving) setOpen(next);
         }}
       >
-        <DialogContent className="max-w-lg space-y-4 bg-white p-6">
+        <DialogContent className="max-h-[90dvh] max-w-lg space-y-4 overflow-y-auto bg-white p-5 @container sm:p-6">
           <DialogHeader>
             <DialogTitle>Thêm hồ sơ lương</DialogTitle>
             <DialogDescription>
@@ -392,7 +400,7 @@ export function SalaryProfilesPanel() {
                 }}
               />
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 @sm:grid-cols-2">
               <label className="block font-semibold text-slate-700">
                 Mức lương tháng (VND) *
                 <Input
@@ -400,7 +408,7 @@ export function SalaryProfilesPanel() {
                   min={0}
                   value={baseSalary}
                   onChange={(e) => setBaseSalary(e.target.value)}
-                  className="mt-1 h-8 font-mono text-xs font-bold text-blue-700"
+                  className="mt-1 h-9 font-mono text-xs font-bold text-blue-700"
                 />
               </label>
               <div>
@@ -423,28 +431,22 @@ export function SalaryProfilesPanel() {
                 value={changeReason}
                 onChange={(e) => setChangeReason(e.target.value)}
                 placeholder="Ví dụ: Điều chỉnh sau thử việc, tăng lương định kỳ"
-                className="mt-1 h-8 text-xs"
+                className="mt-1 h-9 text-xs"
               />
             </label>
           </div>
           {formError && (
-            <p role="alert" className="rounded border border-red-200 bg-red-50 p-2 text-xs text-red-700">
+            <InfoNote tone="red" role="alert">
               {formError}
-            </p>
+            </InfoNote>
           )}
-          <div className="flex justify-end gap-2 border-t pt-3">
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-8 text-xs"
-              onClick={() => setOpen(false)}
-              disabled={saving}
-            >
+          <div className="flex flex-wrap justify-end gap-2 border-t pt-3">
+            <Button size="sm" variant="outline" className="h-9 text-xs" onClick={() => setOpen(false)} disabled={saving}>
               Hủy
             </Button>
             <Button
               size="sm"
-              className="h-8 bg-[#021E73] text-xs font-semibold text-white hover:bg-blue-900"
+              className="h-9 bg-[#021E73] text-xs font-semibold text-white hover:bg-blue-900"
               disabled={saving || !canManage}
               onClick={() => void submit()}
             >
@@ -453,6 +455,6 @@ export function SalaryProfilesPanel() {
           </div>
         </DialogContent>
       </Dialog>
-    </section>
+    </SettingsSection>
   );
 }

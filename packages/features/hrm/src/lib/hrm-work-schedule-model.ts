@@ -7,6 +7,7 @@ import type {
   HrmApplyScheduleResult,
   HrmHoliday,
   HrmScheduleConflict,
+  HrmScheduleAuditEntry,
   HrmScheduleConflictMode,
   HrmScheduleDay,
   HrmScheduleRule,
@@ -809,12 +810,146 @@ export function filterOptionsByText<T extends { label: string }>(
 
 export const AUDIT_ACTION_LABELS: Record<string, string> = {
   WORK_SCHEDULE_APPLIED: 'Phân ca',
-  WORK_SCHEDULE_CANCELLED: 'Hủy lịch',
+  WORK_SCHEDULE_CANCELLED: 'Nhả ca',
   WORK_SCHEDULE_COPIED: 'Sao chép lịch',
+  // Mã hành động thật ghi ở bảng nhật ký phân ca (work_schedule_audit).
+  SCHEDULE_ASSIGN: 'Phân ca',
+  SCHEDULE_OVERWRITE: 'Phân ca (ghi đè)',
+  SCHEDULE_EXCEPTION: 'Ngoại lệ',
+  SCHEDULE_CANCEL: 'Nhả ca',
+  SCHEDULE_COPY: 'Sao chép lịch',
+  RULE_CREATE: 'Phân ca định kỳ',
+  RULE_REPLACE: 'Thay lịch định kỳ',
+  RULE_OVERRIDE_DAYS: 'Thay lịch từng ngày',
+  RULE_END: 'Kết thúc lịch định kỳ',
+  RULE_CANCEL: 'Hủy lịch định kỳ',
+  HOLIDAY_CANCEL: 'Hủy ngày lễ',
+  SHIFT_CHANGE: 'Đổi ca theo đơn',
 };
 
 export function auditActionLabel(action: string): string {
   return AUDIT_ACTION_LABELS[action] ?? action;
+}
+
+/** Sắc nhãn trạng thái suy ra từ mã hành động: áp dụng (xanh lá), gỡ/kết thúc/hủy (cam), còn lại (xám). */
+export function auditActionTone(action: string): 'green' | 'amber' | 'slate' {
+  if (/CANCEL|END$/.test(action)) return 'amber';
+  if (/^(SCHEDULE_(ASSIGN|OVERWRITE|EXCEPTION|COPY)|RULE_(CREATE|REPLACE)|SHIFT_CHANGE|WORK_SCHEDULE_(APPLIED|COPIED))$/.test(action))
+    return 'green';
+  return 'slate';
+}
+
+type AnyRecord = Record<string, unknown>;
+const isRecord = (value: unknown): value is AnyRecord =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+/** Tóm tắt ca trong một dãy đoạn (before/after) của nhật ký: "HC", "HC, Nghỉ". */
+function runsShiftText(runs: unknown): string {
+  if (!Array.isArray(runs)) return '';
+  const parts: string[] = [];
+  for (const run of runs) {
+    if (!isRecord(run)) continue;
+    const text =
+      run.dayType === 'SHIFT'
+        ? typeof run.shiftCode === 'string' && run.shiftCode
+          ? run.shiftCode
+          : 'Ca'
+        : run.dayType === 'OFF'
+          ? 'Nghỉ'
+          : run.dayType === 'HOLIDAY'
+            ? 'Nghỉ lễ'
+            : '';
+    if (text && !parts.includes(text)) parts.push(text);
+  }
+  return parts.join(', ');
+}
+
+/** Ca của một bản ghi nhật ký, chỉ từ dữ liệu có thật trong before/after; không có thì chuỗi rỗng. */
+export function auditShiftText(
+  entry: Pick<HrmScheduleAuditEntry, 'before' | 'after'>,
+  shifts: readonly Pick<HrmShiftDefinition, 'id' | 'code'>[] = [],
+): string {
+  const after = entry.after;
+  if (isRecord(after)) {
+    if (Array.isArray(after.days)) {
+      const days = after.days
+        .filter(isRecord)
+        .map((d) => ({
+          weekday: Number(d.weekday),
+          label:
+            d.dayType === 'OFF' ? 'OFF' : (shifts.find((s) => s.id === d.shiftId)?.code ?? 'Ca?'),
+        }))
+        .filter((d) => d.weekday >= 1 && d.weekday <= 7);
+      if (days.length) return summarizeWeekdayLabels(days);
+    }
+    if (typeof after.shiftId === 'string') return shifts.find((s) => s.id === after.shiftId)?.code ?? '';
+    return '';
+  }
+  return runsShiftText(after) || runsShiftText(entry.before);
+}
+
+/** Ngày hiệu lực của bản ghi: một ngày, một khoảng, hoặc "Từ ngày" khi không có ngày kết thúc. */
+export function auditDateText(fromDate: string | null, toDate: string | null): string {
+  if (!fromDate) return '';
+  if (!toDate) return `Từ ${formatVnDate(fromDate)}`;
+  return toDate === fromDate ? formatVnDate(fromDate) : `${formatVnDate(fromDate)} - ${formatVnDate(toDate)}`;
+}
+
+export interface ScheduleAuditBatch {
+  key: string;
+  action: string;
+  fromDate: string | null;
+  toDate: string | null;
+  actorName: string | null;
+  createdAt: string;
+  /** Số nhân viên có bản ghi trong đợt (trong phần dữ liệu đã tải). */
+  count: number;
+  /** Đợt cuối của phần dữ liệu đã tải có thể còn nhân viên chưa tải: số đếm là "từ n trở lên". */
+  truncated: boolean;
+  scopeText: string;
+  shiftText: string;
+}
+
+/**
+ * Gom các bản ghi nhật ký (mỗi nhân viên một dòng) theo đợt (batchId) để hiện "lịch sử gần đây" mỗi đợt một dòng.
+ * `windowFull` = số dòng tải về đã chạm giới hạn, nên đợt cuối có thể bị cắt.
+ */
+export function groupScheduleAudit(
+  rows: readonly HrmScheduleAuditEntry[],
+  shifts: readonly Pick<HrmShiftDefinition, 'id' | 'code'>[],
+  { limit = 5, windowFull = false }: { limit?: number; windowFull?: boolean } = {},
+): ScheduleAuditBatch[] {
+  const groups = new Map<string, HrmScheduleAuditEntry[]>();
+  for (const row of rows) {
+    const key = row.batchId ?? `entry:${row.id}`;
+    groups.set(key, [...(groups.get(key) ?? []), row]);
+  }
+  const lastKey = rows.length ? (rows[rows.length - 1].batchId ?? `entry:${rows[rows.length - 1].id}`) : '';
+  return [...groups.entries()].slice(0, limit).map(([key, entries]) => {
+    const main = entries.find((e) => e.action !== 'RULE_OVERRIDE_DAYS') ?? entries[0];
+    const employeeIds = new Set(entries.filter((e) => e.action === main.action).map((e) => e.employeeId ?? e.id));
+    const truncated = windowFull && key === lastKey;
+    const count = employeeIds.size;
+    const scopeLabel = isRecord(main.after) && typeof main.after.scope === 'string' ? main.after.scope : '';
+    const scopeText =
+      count > 1 || truncated
+        ? `${count}${truncated ? '+' : ''} nhân viên`
+        : main.employeeCode
+          ? `${main.employeeCode} - ${main.employeeName ?? ''}`.trim()
+          : scopeLabel;
+    return {
+      key,
+      action: main.action,
+      fromDate: main.fromDate,
+      toDate: main.toDate,
+      actorName: main.actorName,
+      createdAt: main.createdAt,
+      count,
+      truncated,
+      scopeText,
+      shiftText: auditShiftText(main, shifts),
+    };
+  });
 }
 
 interface AuditRun {

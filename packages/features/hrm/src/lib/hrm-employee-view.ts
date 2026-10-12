@@ -120,3 +120,91 @@ export function downloadCsv(fileName: string, csv: string): void {
   link.remove();
   URL.revokeObjectURL(url);
 }
+
+// ---------------------------------------------------------------------------
+// Danh sách nhân sự: số liệu tổng quan, lọc theo đơn vị / chức danh, phân trang
+// ---------------------------------------------------------------------------
+
+/** Nhân viên còn hoạt động: mọi trạng thái trừ đã nghỉ việc và chấm dứt hợp đồng. */
+export const isActiveEmployee = (emp: Pick<HrmEmployeeProfile, 'employmentStatus'>): boolean =>
+  !['RESIGNED', 'TERMINATED'].includes(emp.employmentStatus);
+
+export interface EmployeeStats {
+  readonly total: number;
+  readonly active: number;
+  readonly inactive: number;
+  /** Hồ sơ chưa hoàn thiện (mức hoàn thiện dưới 100%). */
+  readonly incomplete: number;
+  /** Số người vào làm trong tháng của `now`. */
+  readonly joinedThisMonth: number;
+  /** Tỷ lệ (làm tròn 1 số lẻ, đơn vị %) trên tổng số nhân viên. */
+  readonly activePercent: number;
+  readonly inactivePercent: number;
+  readonly incompletePercent: number;
+}
+
+const pct = (part: number, total: number) => (total > 0 ? Math.round((part / total) * 1000) / 10 : 0);
+
+/** Số liệu tổng quan của danh sách nhân sự (đếm trên mọi hồ sơ đã tải, không phụ thuộc bộ lọc đang chọn). */
+export function employeeStats(
+  rows: readonly HrmEmployeeProfile[],
+  includeSensitive: boolean,
+  now: Date = new Date(),
+): EmployeeStats {
+  const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const total = rows.length;
+  const active = rows.filter(isActiveEmployee).length;
+  const incomplete = rows.filter((e) => employeeCompleteness(e, includeSensitive) < 100).length;
+  return {
+    total,
+    active,
+    inactive: total - active,
+    incomplete,
+    joinedThisMonth: rows.filter((e) => String(e.joinDate ?? '').startsWith(month)).length,
+    activePercent: pct(active, total),
+    inactivePercent: pct(total - active, total),
+    incompletePercent: pct(incomplete, total),
+  };
+}
+
+/** Các giá trị khác nhau của một trường (đơn vị, chức danh), sắp theo tên, bỏ trống. */
+export function distinctValues(
+  rows: readonly HrmEmployeeProfile[],
+  pick: (emp: HrmEmployeeProfile) => string | null | undefined,
+): string[] {
+  const set = new Set<string>();
+  for (const row of rows) {
+    const value = (pick(row) ?? '').trim();
+    if (value) set.add(value);
+  }
+  return [...set].sort((a, b) => a.localeCompare(b, 'vi'));
+}
+
+/** Chữ cái đầu của hai từ cuối của họ tên (ảnh đại diện); thiếu tên thì lấy từ mã nhân viên. */
+export function employeeInitials(emp: Pick<HrmEmployeeProfile, 'fullName' | 'employeeCode'>): string {
+  const source = (emp.fullName ?? '').trim() || emp.employeeCode || '';
+  return (
+    source
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(-2)
+      .map((word) => word[0])
+      .join('')
+      .toUpperCase() || 'NV'
+  );
+}
+
+/** Dải số trang hiển thị: luôn có trang đầu, trang cuối và các trang quanh trang hiện tại; chỗ cách quãng là null (dấu "…"). */
+export function pageWindow(page: number, pageCount: number): (number | null)[] {
+  if (pageCount <= 7) return Array.from({ length: pageCount }, (_, i) => i + 1);
+  const wanted = new Set([1, pageCount, page - 1, page, page + 1]);
+  if (page <= 3) [2, 3, 4].forEach((p) => wanted.add(p));
+  if (page >= pageCount - 2) [pageCount - 1, pageCount - 2, pageCount - 3].forEach((p) => wanted.add(p));
+  const pages = [...wanted].filter((p) => p >= 1 && p <= pageCount).sort((a, b) => a - b);
+  const out: (number | null)[] = [];
+  pages.forEach((p, i) => {
+    if (i > 0 && p - pages[i - 1] > 1) out.push(null);
+    out.push(p);
+  });
+  return out;
+}

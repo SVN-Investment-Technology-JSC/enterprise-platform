@@ -55,19 +55,24 @@ export function MonthStatsBar({ employee }: { employee: HrmBoardEmployee }) {
 export function MonthRequestsPanel({
   employee,
   onSelectDate,
+  embedded = false,
 }: {
   employee: HrmBoardEmployee;
   onSelectDate: (date: string) => void;
+  /** Nằm trong một tab: bỏ khung và tiêu đề riêng (tiêu đề đã nằm ở tab). */
+  embedded?: boolean;
 }) {
   const requests = useMemo(() => monthRequests(employee), [employee]);
   return (
     <div
       data-testid="my-month-requests"
-      className="flex max-h-[480px] min-h-0 flex-col rounded-xl border border-slate-200 bg-white shadow-xs"
+      className={`flex min-h-0 flex-col ${embedded ? '' : 'max-h-[480px] rounded-xl border border-slate-200 bg-white shadow-xs'}`}
     >
-      <p className="border-b border-slate-200 px-3 py-2 text-xs font-semibold text-slate-800">
-        Đơn từ trong tháng ({requests.length})
-      </p>
+      {!embedded && (
+        <p className="border-b border-slate-200 px-3 py-2 text-xs font-semibold text-slate-800">
+          Đơn từ trong tháng ({requests.length})
+        </p>
+      )}
       {requests.length === 0 ? (
         <p className="p-3 text-xs text-slate-500">Không có đơn từ nào trong tháng này.</p>
       ) : (

@@ -142,7 +142,7 @@ export function SummaryStats({
   employeeCount: number;
 }) {
   return (
-    <div className="grid grid-cols-3 gap-2 sm:grid-cols-6" aria-label="Tóm tắt xem trước">
+    <div className="grid grid-cols-3 gap-2 @xl:grid-cols-6" aria-label="Tóm tắt xem trước">
       <Stat label="Nhân viên" value={employeeCount} />
       <Stat label="Ngày sẽ tạo mới" value={summary.insert} tone="text-emerald-700" />
       <Stat label="Ngày sẽ ghi đè" value={summary.replace} tone={summary.replace ? 'text-amber-700' : undefined} />
@@ -190,7 +190,7 @@ export function PreviewPanel({ preview }: { preview: HrmSchedulePreview }) {
           <summary className="cursor-pointer font-semibold text-slate-700">
             Nhân viên bị ảnh hưởng (mẫu {preview.employees.length})
           </summary>
-          <ul className="mt-2 grid max-h-32 grid-cols-1 gap-x-4 gap-y-0.5 overflow-auto sm:grid-cols-2">
+          <ul className="mt-2 grid max-h-32 grid-cols-1 gap-x-4 gap-y-0.5 overflow-auto @lg:grid-cols-2">
             {preview.employees.map((e) => (
               <li key={e.employeeId} className="truncate">
                 <span className="font-mono text-[11px] text-blue-700">{e.code}</span> {e.name}
@@ -253,7 +253,7 @@ export function RuleChangesList({ rules }: { rules: readonly HrmScheduleRulePrev
 export function RulePreviewPanel({ preview }: { preview: HrmScheduleRulePreview }) {
   return (
     <div className="flex flex-col gap-3" data-testid="rule-preview">
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6" aria-label="Tóm tắt xem trước lịch định kỳ">
+      <div className="grid grid-cols-2 gap-2 @md:grid-cols-3 @3xl:grid-cols-6" aria-label="Tóm tắt xem trước lịch định kỳ">
         <Stat label="Lịch định kỳ sẽ tạo" value={preview.ruleCount} tone="text-emerald-700" />
         <Stat label="Nhân viên đang được áp dụng" value={preview.employeeCount} />
         <Stat

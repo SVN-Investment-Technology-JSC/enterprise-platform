@@ -164,7 +164,7 @@ export function RulesManager({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="h-[min(88dvh,760px)] max-w-6xl" aria-label="Lịch định kỳ">
+      <DialogContent className="@container h-[min(88dvh,760px)] max-w-6xl" aria-label="Lịch định kỳ">
         <DialogHeader className="shrink-0 border-b border-slate-200 bg-slate-50 px-6 py-4">
           <DialogTitle className="text-lg">{ending ? 'Kết thúc lịch định kỳ' : 'Lịch định kỳ'}</DialogTitle>
           <DialogDescription>
