@@ -36,6 +36,7 @@ integration('HRM timesheet lifecycle PostgreSQL integration', () => {
       'core/0001-core-schema.sql',
       'core/0002-organization-soft-delete.sql',
       'core/0006-employees.sql',
+      'core/0007-org-hrm-bridge.sql',
       '0001-integration.sql',
       'hrm/0001-hrm.sql',
     ])
@@ -78,6 +79,15 @@ integration('HRM timesheet lifecycle PostgreSQL integration', () => {
     await migrate('hrm/0019-timesheet-attachment-lifecycle.sql');
     await migrate('hrm/0031-hrm-profile-documents.sql');
     await migrate('hrm/0033-leave-annual-policy.sql');
+    await migrate('hrm/0035-hrm-work-schedules.sql');
+    await migrate('hrm/0036-hrm-work-schedule-rules.sql');
+    await migrate('hrm/0037-request-reason-catalog.sql');
+    await migrate('hrm/0038-request-reason-categories.sql');
+    await migrate('hrm/0039-request-catalog-codes.sql');
+    await migrate('hrm/0045-hrm-request-reasons.sql');
+    await migrate('hrm/0048-hrm-timesheet-payroll-linkage.sql');
+    await migrate('hrm/0049-hrm-ot-reason-rate.sql');
+    await migrate('hrm/0050-hrm-request-comments.sql');
     const ctx = {
       getContext: async () => ({ pool, tenantId, principal: { userId } }),
       resolveEmployee: async () => ({ employeeId: userId }),
@@ -182,7 +192,7 @@ integration('HRM timesheet lifecycle PostgreSQL integration', () => {
       )
     ).rows[0];
     await pool.query(
-      "INSERT INTO hrm_schema.shift_assignments(tenant_id,employee_id,shift_id,effective_from,effective_to) VALUES($1,$2,$3,'2026-08-01','2026-08-03')",
+      "INSERT INTO hrm_schema.employee_work_days(tenant_id,employee_id,work_date,day_type,shift_id,source) SELECT $1,$2,d::date,'SHIFT',$3,'MANUAL' FROM generate_series('2026-08-01'::date,'2026-08-03'::date,'1 day') d",
       [tenantId, userId, shift.id],
     );
     for (const [kind, time] of [

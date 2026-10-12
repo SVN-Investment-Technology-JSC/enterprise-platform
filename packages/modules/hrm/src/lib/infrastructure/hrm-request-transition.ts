@@ -1,3 +1,4 @@
+import { transitionCustomRequest } from './hrm-custom-request.js';
 import {
   BadRequestException,
   ConflictException,
@@ -21,6 +22,7 @@ import {
   applyDocumentChanges,
   parseDocumentChanges,
 } from './hrm-profile-documents.js';
+import { isPunchList } from '../domain/correction-punches.js';
 import { transitionLeave } from './hrm-leave-operations.js';
 import { approveOvertime } from './hrm-overtime.js';
 import { approveShiftChange } from './hrm-shift-change.js';
@@ -47,8 +49,13 @@ export async function approveAttendanceCorrection(
   const date = isoDate(correction.request_date);
   await lockEmployee(db, tenantId, correction.employee_id);
   await assertOpenDate(db, tenantId, date);
-  const sessions =
-    correction.corrected_sessions ||
+  // Đơn theo từng mốc giờ vào / ra: chỉ thay các giờ cùng loại trong ngày, giữ loại còn lại (không xoá cả ngày).
+  const punches = isPunchList(correction.corrected_sessions)
+    ? correction.corrected_sessions
+    : [];
+  const sessions = punches.length
+    ? []
+    : correction.corrected_sessions ||
     (correction.new_check_in_at && correction.new_check_out_at
       ? [
           {
@@ -57,7 +64,7 @@ export async function approveAttendanceCorrection(
           },
         ]
       : []);
-  if (!sessions.length)
+  if (!sessions.length && !punches.length)
     throw new BadRequestException(
       'Đơn cũ thiếu giờ vào/ra; cần gửi lại đầy đủ',
     );
@@ -69,10 +76,35 @@ export async function approveAttendanceCorrection(
     correction.employee_id,
   );
   const timezone = String(policy?.config_json.timezone || 'Asia/Ho_Chi_Minh');
-  await db.query(
-    `UPDATE hrm_schema.attendance_events SET voided_by_correction_id=$4 WHERE tenant_id=$1 AND employee_id=$2 AND work_date=$3 AND voided_by_correction_id IS NULL`,
-    [tenantId, correction.employee_id, date, id],
-  );
+  if (punches.length) {
+    for (let index = 0; index < punches.length; index++) {
+      const punch = punches[index];
+      // Giờ cùng loại đã chấm trong ngày được thay bằng giờ trong đơn.
+      await db.query(
+        `UPDATE hrm_schema.attendance_events SET voided_by_correction_id=$5 WHERE tenant_id=$1 AND employee_id=$2 AND work_date=$3 AND event_kind=$4 AND voided_by_correction_id IS NULL`,
+        [tenantId, correction.employee_id, date, punch.kind, id],
+      );
+      await db.query(
+        `INSERT INTO hrm_schema.attendance_events (tenant_id,employee_id,work_date,event_kind,occurred_at,source,external_event_id,evidence,created_by)
+            VALUES ($1,$2,$3,$4,$5,'MANUAL_CORRECTION',$6,$7,$8)`,
+        [
+          tenantId,
+          correction.employee_id,
+          date,
+          punch.kind,
+          punch.at,
+          `${id}:p${index}:${punch.kind}`,
+          JSON.stringify({ correctionId: id }),
+          actorId,
+        ],
+      );
+    }
+  } else {
+    await db.query(
+      `UPDATE hrm_schema.attendance_events SET voided_by_correction_id=$4 WHERE tenant_id=$1 AND employee_id=$2 AND work_date=$3 AND voided_by_correction_id IS NULL`,
+      [tenantId, correction.employee_id, date, id],
+    );
+  }
   for (let index = 0; index < sessions.length; index++) {
     const session = sessions[index];
     for (const [kind, at] of [
@@ -126,18 +158,14 @@ export async function approveBusinessTrip(
   if (trip.status !== 'PENDING')
     throw new BadRequestException('Trạng thái đơn không cho phép thao tác');
   await lockEmployee(db, tenantId, trip.employee_id);
-  const dates = await db.query(
-    `SELECT to_char(d,'YYYY-MM-DD') AS date FROM generate_series($1::date,$2::date,'1 day') d`,
-    [trip.from_date, trip.to_date],
-  );
-  for (const day of dates.rows) await assertOpenDate(db, tenantId, day.date);
+  await assertOpenRange(db, tenantId, isoDate(trip.from_date), isoDate(trip.to_date));
   return db.query(
     `UPDATE hrm_schema.business_trip_requests SET status='APPROVED',approved_by=$3,approved_at=now(),updated_at=now() WHERE tenant_id=$1 AND id=$2 RETURNING *`,
     [tenantId, id, actorId],
   );
 }
+/** Họ tên do Core quản lý nên không có trong danh sách trường HRM được đính chính. */
 export const profileCorrectionFields: Record<string, string> = {
-  fullName: 'full_name',
   dateOfBirth: 'date_of_birth',
   gender: 'gender',
   identityCardNumber: 'identity_card_number',
@@ -171,6 +199,10 @@ export async function approveProfileCorrection(
     [tenantId, correction.employee_id],
   );
   for (const [key, v] of Object.entries(correction.changes)) {
+    if (key === 'fullName')
+      throw new BadRequestException(
+        'Họ tên do Core quản lý. Từ chối đơn này và đổi họ tên tại Core, HRM sẽ tự cập nhật.',
+      );
     if (!Object.hasOwn(profileCorrectionFields, key))
       throw new BadRequestException('Trường thay đổi không hợp lệ');
     if (
@@ -180,13 +212,7 @@ export async function approveProfileCorrection(
       throw new ConflictException(
         'Hồ sơ đã thay đổi sau khi gửi đơn; cần gửi lại để đối chiếu',
       );
-    if (key === 'fullName')
-      await db.query(
-        `UPDATE core_schema.employees SET full_name=$3,updated_at=now() WHERE tenant_id=$1 AND id=$2`,
-        [tenantId, correction.employee_id, v],
-      );
-    else
-      await db.query(
+    await db.query(
         `UPDATE hrm_schema.employee_profiles SET ${profileCorrectionFields[key]}=$3,updated_by=$4,updated_at=now() WHERE tenant_id=$1 AND employee_id=$2`,
         [tenantId, correction.employee_id, v, actorId],
       );
@@ -291,6 +317,10 @@ export async function applyHrmRequestResult(
       target,
       reason,
     );
+    return;
+  }
+  if (kind === 'custom') {
+    await transitionCustomRequest(db, ref.tenantId, actorId, ref.requestId, target, reason);
     return;
   }
   if (target === 'APPROVED') {

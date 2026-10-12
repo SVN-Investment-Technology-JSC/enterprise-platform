@@ -26,18 +26,20 @@ export class HrmProfileDocumentController {
     return { data };
   }
 
-  /** HR cập nhật trực tiếp, không qua đơn. Nhân sự tự thay đổi phải gửi đơn điều chỉnh hồ sơ. */
+  /** HR và nhân sự tự cập nhật giấy tờ trực tiếp trên hồ sơ cá nhân. */
   @Post('employees/:employeeId/profile-documents')
   async apply(
     @Req() req: Request,
     @Param('employeeId') employeeId: string,
     @Body() body: { documentChanges?: unknown; identityCardExpiryDate?: string | null },
   ) {
-    const { pool, tenantId, principal } = await this.ctx.getContext(
-      req,
-      'hrm.employee.manage',
-    );
     const id = requireUuid(employeeId, 'employeeId');
+    const { pool, tenantId, principal } = await this.ctx.getRequestContext(
+      req,
+      id,
+      'hrm.employee.manage',
+      'hrm.self.profile.write',
+    );
     const changes = parseDocumentChanges(body.documentChanges);
     if (body.identityCardExpiryDate)
       requireDate(body.identityCardExpiryDate, 'Ngày hết hạn CCCD');

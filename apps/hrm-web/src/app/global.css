@@ -41,12 +41,12 @@
 @theme {
   --color-border: #e2e8f0;
   --color-input: #e2e8f0;
-  --color-ring: #2563eb;
+  --color-ring: #d9ab00;
   --color-background: #f8f9ff;
   --color-foreground: #0f172a;
 
-  --color-primary: #2563eb;
-  --color-primary-foreground: #ffffff;
+  --color-primary: #ffc90a;
+  --color-primary-foreground: #1a1a1a;
 
   --color-secondary: #f1f5f9;
   --color-secondary-foreground: #0f172a;
@@ -110,4 +110,68 @@ body {
     color: inherit;
     text-decoration: inherit;
   }
+}
+
+/*
+ * Đồng bộ màu với Không gian làm việc và Quy trình (khung module-shell-light): vàng là màu nhấn duy nhất,
+ * nút chính nền vàng chữ tối, trạng thái chọn nền vàng nhạt, liên kết giữ màu xanh. HRM viết bằng lớp tiện ích
+ * blue-* nên đổi ở một nơi này thay vì sửa từng màn hình; đặt ngoài layer để thắng các lớp tiện ích của Tailwind.
+ * Giá trị viết thẳng vì hộp thoại và ngăn kéo được render ngoài khung nên không đọc được biến --ep-*.
+ */
+.bg-blue-600,
+.bg-blue-700,
+.bg-\[\#021E73\] {
+  background: linear-gradient(135deg, #ffc90a, #d9ab00);
+  color: #1a1a1a;
+  border-color: #d9ab00;
+}
+.hover\:bg-blue-700:hover,
+.hover\:bg-blue-900:hover,
+.hover\:bg-blue-800:hover {
+  background: linear-gradient(135deg, #ffc90a, #d9ab00);
+  filter: brightness(1.04);
+  box-shadow: 0 4px 12px rgb(255 201 10 / 30%);
+}
+.bg-blue-600 svg,
+.bg-blue-700 svg {
+  color: inherit;
+}
+.bg-blue-50,
+.bg-blue-100,
+.hover\:bg-blue-50:hover,
+.hover\:bg-blue-100:hover {
+  background-color: rgb(255 201 10 / 12%);
+}
+.border-blue-100,
+.border-blue-200,
+.border-blue-300,
+.border-blue-400,
+.hover\:border-blue-300:hover,
+.hover\:border-blue-400:hover {
+  border-color: rgb(217 171 0 / 38%);
+}
+.border-blue-500,
+.border-blue-600 {
+  border-color: #d9ab00;
+}
+.text-blue-600,
+.hover\:text-blue-600:hover {
+  color: #1d4ed8;
+}
+.text-blue-700,
+.text-blue-800,
+.text-blue-900,
+.hover\:text-blue-700:hover,
+.hover\:text-blue-800:hover,
+.hover\:text-blue-900:hover {
+  color: #8a6400;
+}
+.ring-blue-100,
+.ring-blue-400,
+.ring-blue-500,
+.focus\:ring-blue-600:focus {
+  --tw-ring-color: rgb(217 171 0 / 45%);
+}
+.focus\:border-blue-500:focus {
+  border-color: #d9ab00;
 }

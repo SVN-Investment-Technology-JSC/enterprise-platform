@@ -59,13 +59,32 @@ export interface HrmFieldMapping {
   mode: HrmMappingMode;
 }
 
+/** Loại đơn có lý do (danh mục hoặc loại nghỉ) tách khỏi mô tả. */
+const REASON_KINDS: readonly HrmRequestKind[] = [
+  'leave',
+  'ot',
+  'business_trip',
+  'shift_change',
+  'correction',
+  'custom',
+];
+
 export const HRM_FIELD_CATALOG: readonly HrmFieldDefinition[] = [
   // Trường form
   { key: 'form.from_date', label: 'Từ ngày', group: 'form', valueType: 'date', kinds: ['leave', 'business_trip', 'shift_change'] },
   { key: 'form.to_date', label: 'Đến ngày', group: 'form', valueType: 'date', kinds: ['leave', 'business_trip', 'shift_change'] },
   { key: 'form.work_date', label: 'Ngày làm việc', group: 'form', valueType: 'date', kinds: ['ot'] },
   { key: 'form.request_date', label: 'Ngày giải trình', group: 'form', valueType: 'date', kinds: ['correction'] },
-  { key: 'form.reason', label: 'Lý do', group: 'form', valueType: 'text' },
+  // Thời gian "từ ngày giờ đến ngày giờ" (ISO UTC) của đơn có giờ cụ thể.
+  { key: 'form.from_at', label: 'Từ ngày giờ', group: 'form', valueType: 'text', kinds: ['leave', 'ot', 'business_trip', 'custom'] },
+  { key: 'form.to_at', label: 'Đến ngày giờ', group: 'form', valueType: 'text', kinds: ['leave', 'ot', 'business_trip', 'custom'] },
+  { key: 'form.type_code', label: 'Loại đơn (mã)', group: 'form', valueType: 'text', kinds: ['custom'] },
+  { key: 'form.type_name', label: 'Loại đơn (tên)', group: 'form', valueType: 'text', kinds: ['custom'] },
+  // Lý do là danh mục cấu hình: `form.reason` là TÊN lý do (đơn nghỉ: tên loại nghỉ), `form.reason_code` là mã (đơn nghỉ: mã loại nghỉ),
+  // `form.description` là mô tả tự do. Đơn cũ chưa có lý do danh mục: `form.reason` là nội dung cũ.
+  { key: 'form.reason', label: 'Lý do (tên)', group: 'form', valueType: 'text' },
+  { key: 'form.reason_code', label: 'Lý do (mã)', group: 'form', valueType: 'text', kinds: REASON_KINDS },
+  { key: 'form.description', label: 'Mô tả', group: 'form', valueType: 'text', kinds: REASON_KINDS },
   { key: 'form.duration', label: 'Số ngày nghỉ', group: 'form', valueType: 'number', kinds: ['leave'] },
   { key: 'form.leave_type_id', label: 'Loại nghỉ phép (id)', group: 'form', valueType: 'text', kinds: ['leave'] },
   { key: 'form.leave_type_code', label: 'Loại nghỉ phép (mã)', group: 'form', valueType: 'text', kinds: ['leave'] },
@@ -128,6 +147,7 @@ export function defaultFieldMappings(kind: HrmRequestKind): HrmFieldMapping[] {
   const hasDates = ['leave', 'business_trip', 'shift_change'].includes(kind);
   const common = [
     d('form.reason', 'ly_do'),
+    ...(REASON_KINDS.includes(kind) ? [d('form.description', 'mo_ta')] : []),
     ...(hasDates
       ? [d('form.from_date', 'tu_ngay'), d('form.to_date', 'den_ngay')]
       : []),
@@ -169,6 +189,13 @@ export function defaultFieldMappings(kind: HrmRequestKind): HrmFieldMapping[] {
       return [...common, d('form.request_date', 'ngay')];
     case 'shift_change':
       return [...common, d('form.change_type', 'loai_doi_ca')];
+    case 'custom':
+      return [
+        ...common,
+        d('form.type_name', 'loai_don'),
+        d('form.from_at', 'tu_thoi_diem'),
+        d('form.to_at', 'den_thoi_diem'),
+      ];
     default:
       return common;
   }
@@ -179,9 +206,16 @@ export function formFieldValues(
   kind: HrmRequestKind,
   row: Record<string, unknown>,
 ): Record<string, unknown> {
-  const values: Record<string, unknown> = { 'form.reason': row.reason };
+  // Lý do: tên lý do chọn từ danh mục (đơn nghỉ: tên loại nghỉ khi dòng có nối bảng loại nghỉ; resolveFieldValues tải thêm).
+  // Đơn cũ chưa có lý do danh mục (và đơn ứng lương, đính chính hồ sơ) vẫn gửi nội dung cũ để không đổi hành vi.
+  const values: Record<string, unknown> = {
+    'form.reason': row.reason_name ?? row.leave_type_name ?? row.reason,
+  };
+  if (REASON_KINDS.includes(kind)) values['form.description'] = row.reason;
   if (row.from_date) values['form.from_date'] = isoDate(row.from_date);
   if (row.to_date) values['form.to_date'] = isoDate(row.to_date);
+  if (row.from_at) values['form.from_at'] = new Date(row.from_at as string).toISOString();
+  if (row.to_at) values['form.to_at'] = new Date(row.to_at as string).toISOString();
   switch (kind) {
     case 'leave':
       Object.assign(values, {
@@ -218,6 +252,12 @@ export function formFieldValues(
       break;
     case 'shift_change':
       values['form.change_type'] = row.change_type;
+      break;
+    case 'custom':
+      Object.assign(values, {
+        'form.type_code': row.type_code,
+        'form.type_name': row.type_name,
+      });
       break;
     default:
       break;
@@ -654,11 +694,34 @@ export async function resolveFieldValues(
   const wants = (prefix: string) =>
     [...needed].some((key) => key.startsWith(prefix));
 
-  if (needed.has('form.leave_type_code') && source.row.leave_type_id) {
-    values['form.leave_type_code'] = (
+  if (
+    source.kind === 'leave' &&
+    source.row.leave_type_id &&
+    (needed.has('form.leave_type_code') ||
+      needed.has('form.reason') ||
+      needed.has('form.reason_code'))
+  ) {
+    // Lý do của đơn nghỉ là loại nghỉ: `form.reason` = tên, `form.reason_code` = mã.
+    const type = (
       await db.query(
-        `SELECT code FROM hrm_schema.leave_types WHERE tenant_id=$1 AND id=$2`,
+        `SELECT code,name FROM hrm_schema.leave_types WHERE tenant_id=$1 AND id=$2`,
         [source.tenantId, source.row.leave_type_id],
+      )
+    ).rows[0];
+    if (type) {
+      values['form.leave_type_code'] = type.code;
+      values['form.reason_code'] = type.code;
+      values['form.reason'] = type.name;
+    }
+  } else if (
+    source.kind !== 'leave' &&
+    source.row.reason_id &&
+    needed.has('form.reason_code')
+  ) {
+    values['form.reason_code'] = (
+      await db.query(
+        `SELECT code FROM hrm_schema.request_reasons WHERE tenant_id=$1 AND id=$2`,
+        [source.tenantId, source.row.reason_id],
       )
     ).rows[0]?.code;
   }

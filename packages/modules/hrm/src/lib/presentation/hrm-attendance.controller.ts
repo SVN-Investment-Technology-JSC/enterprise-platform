@@ -1,5 +1,5 @@
 import { attachProcedureLinkInfo } from '../infrastructure/hrm-procedure-link-info.js';
-import { HrmApprovalPolicyService } from '../infrastructure/hrm-approval-policy.js';
+import { HrmApprovalPolicyService, approverPermissions } from '../infrastructure/hrm-approval-policy.js';
 import { workflowProgressFilter } from '../infrastructure/hrm-workflow-filter.js';
 import {
   resolveDraftSubmission,
@@ -7,6 +7,11 @@ import {
 } from '../infrastructure/hrm-request-drafts.js';
 import { approveAttendanceCorrection } from '../infrastructure/hrm-request-transition.js';
 import { submitHrmRequest } from '../infrastructure/hrm-submission.js';
+import {
+  descriptionColumn,
+  requestReasonView,
+  resolveReasonInput,
+} from '../infrastructure/hrm-request-reason-input.js';
 import type {
   CheckInRequest,
   CheckOutRequest,
@@ -25,11 +30,14 @@ import {
   Post,
   Query,
   Req,
+  UseInterceptors,
 } from '@nestjs/common';
+import { HrmMissingSchemaInterceptor } from '../infrastructure/hrm-missing-schema.interceptor.js';
+import { parseCorrectionPunches } from '../domain/correction-punches.js';
 import type { Request } from 'express';
 import { randomUUID } from 'node:crypto';
 import { hrmTransaction } from '../infrastructure/hrm-transaction.js';
-import { requireDate, requireText } from '../infrastructure/hrm-validation.js';
+import { requireDate, requireText, requireUuid } from '../infrastructure/hrm-validation.js';
 import { ingestEvent } from '../infrastructure/hrm-attendance-ingest.js';
 import {
   assertOpenDate,
@@ -43,6 +51,7 @@ import {
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
 import { HrmProcedureBridgeService } from '../infrastructure/hrm-procedure-bridge.service.js';
 
+@UseInterceptors(HrmMissingSchemaInterceptor)
 @Controller('v1')
 export class HrmAttendanceController {
   constructor(
@@ -178,6 +187,87 @@ export class HrmAttendanceController {
     };
   }
 
+  /**
+   * Dữ liệu chấm công theo ngày của nhiều nhân viên (màn Dữ liệu chấm công). Cần quyền xem chấm công toàn tenant.
+   * Khác `attendance` ở chỗ có mã/tên nhân viên, đi muộn/về sớm/phút ca, lọc và phân trang.
+   */
+  @Get('attendance-data')
+  async attendanceData(
+    @Req() req: Request,
+    @Query('from') fromDate?: string,
+    @Query('to') toDate?: string,
+    @Query('status') status?: string,
+    @Query('q') q?: string,
+    @Query('employee_id') employeeId?: string,
+    @Query('page') pageValue = '1',
+    @Query('page_size') sizeValue = '50',
+  ) {
+    const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.attendance.read');
+    const from = requireDate(fromDate, 'from'),
+      to = requireDate(toDate, 'to');
+    const page = Number(pageValue),
+      size = Number(sizeValue);
+    if (
+      to < from ||
+      Date.parse(to) - Date.parse(from) > 92 * 86400000 ||
+      !Number.isInteger(page) ||
+      page < 1 ||
+      page > 100000 ||
+      !Number.isInteger(size) ||
+      size < 1 ||
+      size > 200
+    )
+      throw new BadRequestException('Khoảng lọc tối đa 93 ngày; phân trang không hợp lệ.');
+    const allowedStatus = ['VALID', 'LATE', 'EARLY_LEAVE', 'ABNORMAL', 'MISSING_PUNCH', 'APPROVED_CORRECTION'];
+    const params: unknown[] = [tenantId, from, to];
+    let where = `a.tenant_id=$1 AND a.work_date BETWEEN $2::date AND $3::date`;
+    if (employeeId) {
+      params.push(requireUuid(employeeId, 'employee_id'));
+      where += ` AND a.employee_id=$${params.length}`;
+    }
+    if (status) {
+      if (!allowedStatus.includes(status)) throw new BadRequestException('Trạng thái chấm công không hợp lệ');
+      params.push(status);
+      where += ` AND a.status=$${params.length}`;
+    }
+    if (q?.trim()) {
+      params.push(`%${q.trim().replace(/[\\%_]/g, (c) => `\\${c}`)}%`);
+      where += ` AND (e.employee_code ILIKE $${params.length} OR e.full_name ILIKE $${params.length})`;
+    }
+    const base = `FROM hrm_schema.attendances a
+      LEFT JOIN hrm_schema.employee_directory e ON e.tenant_id=a.tenant_id AND e.employee_id=a.employee_id
+      WHERE ${where}`;
+    const [rows, count] = await Promise.all([
+      pool.query(
+        `SELECT a.id, a.employee_id, e.employee_code, e.full_name, e.department_name,
+                to_char(a.work_date,'YYYY-MM-DD') AS work_date, a.check_in_at, a.check_out_at,
+                a.worked_minutes, a.scheduled_minutes, a.late_minutes, a.early_minutes, a.status, a.attendance_source
+         ${base} ORDER BY a.work_date DESC, e.employee_code, a.id LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+        [...params, size, (page - 1) * size],
+      ),
+      pool.query(`SELECT count(*)::int AS total ${base}`, params),
+    ]);
+    return {
+      data: rows.rows.map((r) => ({
+        id: r.id as string,
+        employeeId: r.employee_id as string,
+        employeeCode: (r.employee_code as string | null) ?? '',
+        employeeName: (r.full_name as string | null) ?? '',
+        departmentName: (r.department_name as string | null) ?? null,
+        workDate: r.work_date as string,
+        checkInAt: r.check_in_at ? new Date(r.check_in_at as string).toISOString() : null,
+        checkOutAt: r.check_out_at ? new Date(r.check_out_at as string).toISOString() : null,
+        workedMinutes: Number(r.worked_minutes ?? 0),
+        scheduledMinutes: Number(r.scheduled_minutes ?? 0),
+        lateMinutes: Number(r.late_minutes ?? 0),
+        earlyMinutes: Number(r.early_minutes ?? 0),
+        status: r.status as string,
+        source: r.attendance_source as string,
+      })),
+      meta: { total: count.rows[0].total as number, page, pageSize: size },
+    };
+  }
+
   @Get('attendance-events')
   async listEvents(
     @Req() req: Request,
@@ -300,28 +390,32 @@ export class HrmAttendanceController {
     );
     body = submission.body;
     requireDate(body.requestDate, 'requestDate');
-    requireText(body.reason, 'reason', 2000);
-    const sessions =
-      body.sessions ||
-      (body.newCheckInAt && body.newCheckOutAt
-        ? [{ start: body.newCheckInAt, end: body.newCheckOutAt }]
-        : []);
-    if (!sessions.length || sessions.length > 12)
-      throw new BadRequestException('Cần khai báo từ 1 đến 12 cặp giờ vào/ra');
-    let previousEnd = 0;
-    for (const session of sessions) {
-      const start = Date.parse(session.start),
-        end = Date.parse(session.end);
-      if (
-        !Number.isFinite(start) ||
-        !Number.isFinite(end) ||
-        start < previousEnd ||
-        end <= start ||
-        end - start > 86400000 ||
-        end > Date.now()
-      )
-        throw new BadRequestException('Giờ vào/ra không hợp lệ hoặc chồng lấn');
-      previousEnd = end;
+    // Hai cách khai báo: theo từng mốc giờ vào / ra (bổ sung) hoặc theo cặp phiên vào–ra (thay cả ngày).
+    const punches = parseCorrectionPunches(body.punches);
+    const sessions = punches.length
+      ? punches.map((p) => p as unknown as { start: string; end: string })
+      : body.sessions ||
+        (body.newCheckInAt && body.newCheckOutAt
+          ? [{ start: body.newCheckInAt, end: body.newCheckOutAt }]
+          : []);
+    if (!punches.length) {
+      if (!sessions.length || sessions.length > 12)
+        throw new BadRequestException('Cần khai báo từ 1 đến 12 cặp giờ vào/ra');
+      let previousEnd = 0;
+      for (const session of sessions) {
+        const start = Date.parse(session.start),
+          end = Date.parse(session.end);
+        if (
+          !Number.isFinite(start) ||
+          !Number.isFinite(end) ||
+          start < previousEnd ||
+          end <= start ||
+          end - start > 86400000 ||
+          end > Date.now()
+        )
+          throw new BadRequestException('Giờ vào/ra không hợp lệ hoặc chồng lấn');
+        previousEnd = end;
+      }
     }
     const { row, link } = await submitHrmRequest(
       pool,
@@ -337,6 +431,13 @@ export class HrmAttendanceController {
       },
       async (db) => {
         await lockEmployee(db, tenantId, employeeId);
+        // Lý do chọn từ danh mục; mô tả là văn bản tự do tách riêng (lưu ở cột `reason`).
+        const { reason, description } = await resolveReasonInput(
+          db,
+          tenantId,
+          'ATTENDANCE_CORRECTION',
+          body,
+        );
         await assertOpenDate(db, tenantId, body.requestDate);
         const policy = await resolvePolicy(
           db,
@@ -365,11 +466,12 @@ export class HrmAttendanceController {
         const end = shift
           ? Date.parse(shift.window.end) + shift.after * 60000
           : new Date(bounds.rows[0].end).getTime();
-        if (
-          sessions.some(
-            (s) => Date.parse(s.start) < start || Date.parse(s.end) > end,
-          )
-        )
+        const outsideWindow = punches.length
+          ? punches.some((p) => Date.parse(p.at) < start || Date.parse(p.at) > end)
+          : sessions.some(
+              (s) => Date.parse(s.start) < start || Date.parse(s.end) > end,
+            );
+        if (outsideWindow)
           throw new BadRequestException(
             'Giờ giải trình phải thuộc ngày công và cửa sổ ca đã chọn',
           );
@@ -377,13 +479,32 @@ export class HrmAttendanceController {
           `SELECT id,check_in_at,check_out_at FROM hrm_schema.attendances WHERE tenant_id=$1 AND employee_id=$2 AND work_date=$3`,
           [tenantId, employeeId, body.requestDate],
         );
+        if (punches.length) {
+          // Mốc mới ghép với mốc còn lại trong ngày (loại kia) phải cho giờ vào trước giờ ra.
+          const keptIn = punches.some((p) => p.kind === 'IN')
+            ? null
+            : att.rows[0]?.check_in_at ?? null;
+          const keptOut = punches.some((p) => p.kind === 'OUT')
+            ? null
+            : att.rows[0]?.check_out_at ?? null;
+          const inAt = punches.find((p) => p.kind === 'IN')?.at ?? keptIn;
+          const outAt = punches.find((p) => p.kind === 'OUT')?.at ?? keptOut;
+          if (
+            inAt &&
+            outAt &&
+            Date.parse(String(outAt)) <= Date.parse(String(inAt))
+          )
+            throw new BadRequestException(
+              'Giờ ra phải sau giờ vào (kể cả giờ vào / ra đã chấm trong ngày)',
+            );
+        }
         if (body.attendanceId && body.attendanceId !== att.rows[0]?.id)
           throw new BadRequestException(
             'Bản ghi công không khớp nhân viên/ngày',
           );
         const result = await db.query(
-          `INSERT INTO hrm_schema.attendance_corrections (tenant_id,employee_id,attendance_id,request_date,old_check_in_at,old_check_out_at,new_check_in_at,new_check_out_at,corrected_sessions,reason,status,submitted_by)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'PENDING',$11) RETURNING *`,
+          `INSERT INTO hrm_schema.attendance_corrections (tenant_id,employee_id,attendance_id,request_date,old_check_in_at,old_check_out_at,new_check_in_at,new_check_out_at,corrected_sessions,reason,status,submitted_by,reason_id,reason_name)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'PENDING',$11,$12,$13) RETURNING *`,
           [
             tenantId,
             employeeId,
@@ -391,11 +512,17 @@ export class HrmAttendanceController {
             body.requestDate,
             att.rows[0]?.check_in_at || null,
             att.rows[0]?.check_out_at || null,
-            sessions[0].start,
-            sessions[sessions.length - 1].end,
-            JSON.stringify(sessions),
-            body.reason,
+            punches.length
+              ? (punches.find((p) => p.kind === 'IN')?.at ?? null)
+              : sessions[0].start,
+            punches.length
+              ? (punches.find((p) => p.kind === 'OUT')?.at ?? null)
+              : sessions[sessions.length - 1].end,
+            JSON.stringify(punches.length ? punches : sessions),
+            descriptionColumn(description),
             principal.userId,
+            reason.id,
+            reason.name,
           ],
         );
         return result.rows[0];
@@ -432,7 +559,12 @@ export class HrmAttendanceController {
       tenantId,
       principal,
       employeeId: visibleEmployeeId,
-    } = await this.ctx.scoped(req, 'hrm.request.read', employeeId);
+    } = await this.ctx.scoped(
+      req,
+      'hrm.request.read',
+      employeeId,
+      forApproval === '1' ? approverPermissions('correction') : [],
+    );
     employeeId = visibleEmployeeId;
     const approvalScope =
       forApproval === '1'
@@ -632,15 +764,26 @@ export class HrmAttendanceController {
       employeeId: row.employee_id as string,
       attendanceId: row.attendance_id as string | null,
       requestDate: isoDate(row.request_date),
-      correctedSessions: (row.corrected_sessions || []) as {
+      // Đơn theo từng mốc giờ lưu các phần tử {kind, at}; đơn theo phiên lưu {start, end}.
+      correctedSessions: (Array.isArray(row.corrected_sessions)
+        ? row.corrected_sessions
+        : []
+      ).filter((x: Record<string, unknown>) => 'start' in x) as {
         start: string;
         end: string;
+      }[],
+      correctedPunches: (Array.isArray(row.corrected_sessions)
+        ? row.corrected_sessions
+        : []
+      ).filter((x: Record<string, unknown>) => 'kind' in x) as {
+        kind: 'IN' | 'OUT';
+        at: string;
       }[],
       oldCheckInAt: row.old_check_in_at ? String(row.old_check_in_at) : null,
       oldCheckOutAt: row.old_check_out_at ? String(row.old_check_out_at) : null,
       newCheckInAt: row.new_check_in_at ? String(row.new_check_in_at) : null,
       newCheckOutAt: row.new_check_out_at ? String(row.new_check_out_at) : null,
-      reason: row.reason as string,
+      ...requestReasonView(row),
       status: row.status as any,
       workflowInstanceId: row.workflow_instance_id as string | null,
       procedureInstanceId: row.procedure_instance_id as string | null,

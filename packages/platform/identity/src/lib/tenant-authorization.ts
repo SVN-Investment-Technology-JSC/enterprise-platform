@@ -642,10 +642,16 @@ export class TenantAuthorizationService {
    * đã tồn tại (kể cả đã đổi tên) thì bỏ qua, không ghi đè. Chỉ tenant admin
    * (mutate không truyền requiredAction).
    */
-  async seedHrmRoleTemplates(tenantId: string, actor: string) {
+  /**
+   * Tạo bộ vai trò mẫu HRM. `sync = true` (do quản trị tenant chủ động) còn cập nhật vai trò mẫu ĐÃ TỒN TẠI cho khớp
+   * bản mẫu hiện hành: thêm quyền còn thiếu, gỡ quyền không còn trong mẫu (ví dụ quyền đọc toàn công ty của
+   * Trưởng bộ phận). Chỉ đụng tới vai trò mẫu (ID xác định theo khóa mẫu), không đụng vai trò tùy chỉnh.
+   */
+  async seedHrmRoleTemplates(tenantId: string, actor: string, sync = false) {
     return this.mutate(tenantId, actor, async (client) => {
       const created: string[] = [];
       const skipped: string[] = [];
+      const updated: { name: string; added: string[]; removed: string[] }[] = [];
       for (const template of HRM_ROLE_TEMPLATES) {
         const roleId = hrmTemplateId('role', template.key);
         const permissionId = hrmTemplateId('permission', template.key);
@@ -654,7 +660,42 @@ export class TenantAuthorizationService {
           [roleId, `custom-${roleId}`, template.name, template.description],
         );
         if (!role.rowCount) {
-          skipped.push(template.name);
+          if (!sync) {
+            skipped.push(template.name);
+            continue;
+          }
+          const current = await client.query<{ action_key: string }>(
+            'SELECT action_key FROM core_schema.permission_actions WHERE permission_id=$1',
+            [permissionId],
+          );
+          const have = new Set(current.rows.map((r) => r.action_key));
+          const want = new Set<string>(template.actions);
+          const added = [...want].filter((key) => !have.has(key));
+          const removed = [...have].filter((key) => !want.has(key));
+          if (!added.length && !removed.length) {
+            skipped.push(template.name);
+            continue;
+          }
+          for (const key of added)
+            await client.query(
+              'INSERT INTO core_schema.permission_actions VALUES ($1,$2) ON CONFLICT DO NOTHING',
+              [permissionId, key],
+            );
+          if (removed.length)
+            await client.query(
+              'DELETE FROM core_schema.permission_actions WHERE permission_id=$1 AND action_key = ANY($2::text[])',
+              [permissionId, removed],
+            );
+          await client.query(
+            'UPDATE core_schema.roles SET description=$2, updated_at=now() WHERE id=$1',
+            [roleId, template.description],
+          ).catch(() => undefined);
+          await this.audit(client, actor, 'role.template.hrm.sync', roleId, null, {
+            name: template.name,
+            added,
+            removed,
+          });
+          updated.push({ name: template.name, added, removed });
           continue;
         }
         await client.query(
@@ -688,7 +729,7 @@ export class TenantAuthorizationService {
         });
         created.push(template.name);
       }
-      return { created, skipped };
+      return { created, updated, skipped };
     });
   }
 }

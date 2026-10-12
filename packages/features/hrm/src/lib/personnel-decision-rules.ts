@@ -279,3 +279,73 @@ export function decisionSummary(d: HrmPersonnelDecision): string {
   }
   return parts.join(' | ') || '----';
 }
+
+// ---------------------------------------------------------------------------
+// Nhóm quyết định theo phòng ban
+// ---------------------------------------------------------------------------
+
+export const NO_UNIT_LABEL = 'Chưa xác định đơn vị';
+
+/** Đơn vị của một quyết định: đơn vị sau khi áp dụng, không có thì đơn vị trước đó. */
+export function decisionUnitOf(d: Pick<HrmPersonnelDecision, 'toUnitName' | 'fromUnitName'>): string {
+  return (d.toUnitName ?? '').trim() || (d.fromUnitName ?? '').trim() || NO_UNIT_LABEL;
+}
+
+/** Quyết định còn dở dang: nháp, đã duyệt chưa áp dụng, đang chờ áp dụng. */
+export const isOpenDecision = (status: HrmPersonnelDecisionStatus): boolean =>
+  status === 'DRAFT' || status === 'APPROVED' || status === 'APPLY_PENDING';
+
+export interface DecisionUnitGroup {
+  readonly unit: string;
+  readonly rows: readonly HrmPersonnelDecision[];
+  readonly open: number;
+  readonly applied: number;
+}
+
+/**
+ * Nhóm quyết định theo đơn vị (phòng ban): các nhóm sắp theo tên tiếng Việt, nhóm "Chưa xác định" ở cuối;
+ * trong nhóm, quyết định mới (ngày hiệu lực lớn hơn) lên trước.
+ */
+export function groupDecisionsByUnit(rows: readonly HrmPersonnelDecision[]): DecisionUnitGroup[] {
+  const map = new Map<string, HrmPersonnelDecision[]>();
+  for (const row of rows) {
+    const unit = decisionUnitOf(row);
+    const list = map.get(unit);
+    if (list) list.push(row);
+    else map.set(unit, [row]);
+  }
+  return [...map.entries()]
+    .sort(([a], [b]) =>
+      a === NO_UNIT_LABEL ? 1 : b === NO_UNIT_LABEL ? -1 : a.localeCompare(b, 'vi'),
+    )
+    .map(([unit, list]) => {
+      const sorted = [...list].sort(
+        (x, y) => y.effectiveDate.localeCompare(x.effectiveDate) || y.decisionNo.localeCompare(x.decisionNo),
+      );
+      return {
+        unit,
+        rows: sorted,
+        open: sorted.filter((d) => isOpenDecision(d.status)).length,
+        applied: sorted.filter((d) => d.status === 'APPLIED').length,
+      };
+    });
+}
+
+export interface DecisionStats {
+  readonly total: number;
+  readonly open: number;
+  readonly applied: number;
+  readonly closed: number;
+  readonly units: number;
+}
+
+/** Số liệu tổng quan: tổng, đang xử lý, đã áp dụng, đã từ chối hoặc hủy, số đơn vị có quyết định. */
+export function decisionStats(rows: readonly HrmPersonnelDecision[]): DecisionStats {
+  return {
+    total: rows.length,
+    open: rows.filter((d) => isOpenDecision(d.status)).length,
+    applied: rows.filter((d) => d.status === 'APPLIED').length,
+    closed: rows.filter((d) => d.status === 'REJECTED' || d.status === 'CANCELLED').length,
+    units: new Set(rows.map(decisionUnitOf)).size,
+  };
+}

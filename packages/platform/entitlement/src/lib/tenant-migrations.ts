@@ -75,6 +75,10 @@ export const TENANT_CORE_MIGRATIONS: readonly TenantModuleMigration[] = [
     path: 'tenant/core/0009-assignment-source-decision.sql',
   },
   {
+    version: '0010-outbox-envelope-and-node-types',
+    path: 'tenant/core/0010-outbox-envelope-and-node-types.sql',
+  },
+  {
     version: '0008-notifications',
     path: 'tenant/core/0008-notifications.sql',
   },
@@ -229,8 +233,76 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       path: 'tenant/hrm/0033-leave-annual-policy.sql',
     },
     {
+      version: '0034-hrm-unit-shift-assignments',
+      path: 'tenant/hrm/0034-hrm-unit-shift-assignments.sql',
+    },
+    {
+      version: '0035-hrm-work-schedules',
+      path: 'tenant/hrm/0035-hrm-work-schedules.sql',
+    },
+    {
+      version: '0036-hrm-work-schedule-rules',
+      path: 'tenant/hrm/0036-hrm-work-schedule-rules.sql',
+    },
+    {
+      version: '0035-leave-no-pending-hold',
+      path: 'tenant/hrm/0035-leave-no-pending-hold.sql',
+    },
+    {
+      version: '0036-leave-unpaid-no-balance',
+      path: 'tenant/hrm/0036-leave-unpaid-no-balance.sql',
+    },
+    {
+      version: '0037-request-reason-catalog',
+      path: 'tenant/hrm/0037-request-reason-catalog.sql',
+    },
+    {
+      version: '0038-request-reason-categories',
+      path: 'tenant/hrm/0038-request-reason-categories.sql',
+    },
+    {
+      version: '0039-request-catalog-codes',
+      path: 'tenant/hrm/0039-request-catalog-codes.sql',
+    },
+    {
+      version: '0043-ot-type-info-no-coordinates',
+      path: 'tenant/hrm/0043-ot-type-info-no-coordinates.sql',
+    },
+    {
+      version: '0044-hrm-annual-leave-single-policy',
+      path: 'tenant/hrm/0044-hrm-annual-leave-single-policy.sql',
+    },
+    {
+      version: '0045-hrm-request-reasons',
+      path: 'tenant/hrm/0045-hrm-request-reasons.sql',
+    },
+    {
+      version: '0046-hrm-timesheet-month-close',
+      path: 'tenant/hrm/0046-hrm-timesheet-month-close.sql',
+    },
+    {
+      version: '0047-hrm-request-types',
+      path: 'tenant/hrm/0047-hrm-request-types.sql',
+    },
+    {
+      version: '0048-hrm-timesheet-payroll-linkage',
+      path: 'tenant/hrm/0048-hrm-timesheet-payroll-linkage.sql',
+    },
+    {
+      version: '0049-hrm-ot-reason-rate',
+      path: 'tenant/hrm/0049-hrm-ot-reason-rate.sql',
+    },
+    {
+      version: '0050-hrm-request-comments',
+      path: 'tenant/hrm/0050-hrm-request-comments.sql',
+    },
+    {
       version: '0021-notification-outbox-v1',
       path: 'tenant/hrm/0021-notification-outbox-v1.sql',
+    },
+    {
+      version: '0034-hrm-offboarding-event-envelope',
+      path: 'tenant/hrm/0034-hrm-offboarding-event-envelope.sql',
     },
     {
       version: '0034-hrm-request-project-links',

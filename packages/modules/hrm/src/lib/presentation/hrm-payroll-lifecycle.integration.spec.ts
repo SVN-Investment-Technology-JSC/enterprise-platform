@@ -37,6 +37,7 @@ integration('HRM payroll lifecycle PostgreSQL integration', () => {
       'core/0001-core-schema.sql',
       'core/0002-organization-soft-delete.sql',
       'core/0006-employees.sql',
+      'core/0007-org-hrm-bridge.sql',
       '0001-integration.sql',
       'hrm/0001-hrm.sql',
     ])

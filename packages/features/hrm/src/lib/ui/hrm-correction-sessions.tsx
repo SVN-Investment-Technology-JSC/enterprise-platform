@@ -1,7 +1,7 @@
 'use client';
+import { DateTimeInput } from './date-time-input';
 import type { CorrectionSessionRow } from '../hrm-correction-sessions';
 import { Button } from './button';
-import { Input } from './input';
 
 export function HrmCorrectionSessions({
   rows,
@@ -37,23 +37,21 @@ export function HrmCorrectionSessions({
           >
             <label className="space-y-1 text-xs">
               Vào phiên {index + 1}
-              <Input
-                type="datetime-local"
-                step="1"
-                aria-label={`Vào phiên ${index + 1}`}
-                value={row.start}
-                onChange={(e) => update(index, 'start', e.target.value)}
-              />
+              <DateTimeInput
+  aria-label={`Vào phiên ${index + 1}`}
+  value={row.start}
+  onChange={(v: string) => update(index, 'start', v)}
+  withSeconds
+/>
             </label>
             <label className="space-y-1 text-xs">
               Ra phiên {index + 1}
-              <Input
-                type="datetime-local"
-                step="1"
-                aria-label={`Ra phiên ${index + 1}`}
-                value={row.end}
-                onChange={(e) => update(index, 'end', e.target.value)}
-              />
+              <DateTimeInput
+  aria-label={`Ra phiên ${index + 1}`}
+  value={row.end}
+  onChange={(v: string) => update(index, 'end', v)}
+  withSeconds
+/>
             </label>
             <Button
               type="button"
@@ -69,11 +67,11 @@ export function HrmCorrectionSessions({
       </div>
       <a
         className="text-xs text-blue-700"
-        href="/modules/hrm/attendance"
+        href="/modules/hrm/my-work"
         target="_blank"
         rel="noreferrer"
       >
-        Mở dữ liệu chấm công để đối chiếu
+        Mở bảng công của tôi để đối chiếu
       </a>
     </section>
   );

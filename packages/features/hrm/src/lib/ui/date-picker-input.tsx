@@ -13,6 +13,10 @@ export interface DatePickerInputProps {
   min?: string;
   max?: string;
   id?: string;
+  required?: boolean;
+  /** Có name thì đóng góp giá trị YYYY-MM-DD vào form không điều khiển (FormData). */
+  name?: string;
+  'aria-label'?: string;
 }
 
 // Convert YYYY-MM-DD -> DD/MM/YYYY
@@ -58,6 +62,9 @@ export function DatePickerInput({
   min,
   max,
   id,
+  required,
+  name,
+  'aria-label': ariaLabel,
 }: DatePickerInputProps) {
   const [displayText, setDisplayText] = React.useState<string>(toVnDateStr(value));
   const hiddenNativeRef = React.useRef<HTMLInputElement>(null);
@@ -67,13 +74,9 @@ export function DatePickerInput({
     setDisplayText(toVnDateStr(value));
   }, [value]);
 
-  // Click input -> clear value if exists để nhập mới
-  const handleClick = () => {
-    if (displayText || value) {
-      setDisplayText('');
-      onChange?.('');
-    }
-  };
+  // Vào ô: chọn hết chữ để gõ đè ngay, nhưng KHÔNG xoá giá trị. Trước đây bấm vào ô là xoá ngày (và báo lên form cha),
+  // nên đổi sang ô giờ bên cạnh mà chưa nhập lại thì ngày bị mất, giờ bị đặt lại về 00:00.
+  const handleFocus = (e: React.FocusEvent<HTMLInputElement>) => e.target.select();
 
   // Text typing with automatic slash formatting: gõ số tự động thêm dấu /
   const handleTextChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -108,7 +111,8 @@ export function DatePickerInput({
         setDisplayText(toVnDateStr(value));
       }
     } else if (!displayText) {
-      onChange?.('');
+      // Chủ động xoá trắng ô thì mới xoá ngày; không báo lại khi vốn đã trống.
+      if (value) onChange?.('');
     } else {
       // Partial invalid input -> revert
       setDisplayText(toVnDateStr(value));
@@ -140,9 +144,11 @@ export function DatePickerInput({
     <div className={cn('relative flex items-center w-full', className)}>
       <input
         id={id}
+        aria-label={ariaLabel}
+        required={required}
         type="text"
         value={displayText}
-        onClick={handleClick}
+        onFocus={handleFocus}
         onChange={handleTextChange}
         onBlur={handleBlur}
         placeholder={placeholder}
@@ -151,6 +157,8 @@ export function DatePickerInput({
         data-slot="input"
         className="h-8 w-full min-w-0 rounded-lg border border-slate-200 bg-white pl-2.5 pr-8 py-1 text-xs font-mono transition-colors outline-none placeholder:text-slate-400 focus-visible:border-blue-600 focus-visible:ring-2 focus-visible:ring-blue-100 disabled:pointer-events-none disabled:cursor-not-allowed disabled:bg-slate-100 disabled:opacity-50"
       />
+
+      {name && <input type="hidden" name={name} value={value || ''} />}
 
       {/* Hidden native date input to trigger browser's calendar modal */}
       <input

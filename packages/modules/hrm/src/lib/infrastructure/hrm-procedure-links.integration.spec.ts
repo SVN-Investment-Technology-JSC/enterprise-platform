@@ -137,6 +137,15 @@ integration('canonical HRM Procedure linkage', () => {
       'hrm/0028-hrm-approval-policy.sql',
       'hrm/0029-hrm-procedure-step-progress.sql',
       'hrm/0030-hrm-procedure-field-mappings.sql',
+      'hrm/0037-request-reason-catalog.sql',
+      'hrm/0038-request-reason-categories.sql',
+      'hrm/0039-request-catalog-codes.sql',
+      'hrm/0045-hrm-request-reasons.sql',
+      'hrm/0046-hrm-timesheet-month-close.sql',
+      'hrm/0047-hrm-request-types.sql',
+      'hrm/0048-hrm-timesheet-payroll-linkage.sql',
+      'hrm/0049-hrm-ot-reason-rate.sql',
+      'hrm/0050-hrm-request-comments.sql',
       'hrm/0034-hrm-request-project-links.sql',
       'hrm/0035-hrm-request-trip-links.sql',
       'hrm/0036-hrm-project-request-reversed.sql',
@@ -554,6 +563,13 @@ integration('canonical HRM Procedure linkage', () => {
       `DELETE FROM hrm_schema.request_procedure_bindings WHERE tenant_id=$1 AND request_kind='shift_change'`,
       [tenantId],
     );
+    // Lý do đổi ca chọn từ danh mục; mô tả là văn bản tự do tách riêng.
+    const shiftReasonId = (
+      await pool.query(
+        `INSERT INTO hrm_schema.request_reasons(tenant_id,kind,code,name) VALUES($1,'SHIFT_CHANGE','SC_TEST','Việc cá nhân') RETURNING id`,
+        [tenantId],
+      )
+    ).rows[0].id as string;
     const body = {
       employeeId,
       changeType: 'SWAP' as const,
@@ -562,7 +578,8 @@ integration('canonical HRM Procedure linkage', () => {
       fromDate: '2026-10-01',
       toDate: '2026-10-01',
       swapWithEmployeeId: peerId,
-      reason: 'Đổi lịch trực',
+      reasonId: shiftReasonId,
+      description: 'Đổi lịch trực',
       attributes: { loai_doi_ca: 'CHANGE_SHIFT', custom: 'Ghi chú' },
     };
     const created = await controller.createShiftChangeRequest(

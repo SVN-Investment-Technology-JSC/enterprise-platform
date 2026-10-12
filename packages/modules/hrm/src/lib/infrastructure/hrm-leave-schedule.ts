@@ -103,6 +103,78 @@ export async function replaceSeniorityTiers(
       [tenant, scheduleId, tier.minYears, tier.bonusDays],
     );
 }
+/**
+ * Tạo một lịch cộng phép mới (kiểm tra phiên bản chính sách thuộc tenant, không chồng hiệu lực,
+ * ghi cả các mốc thâm niên). Gọi trong giao dịch đã khoá cấu hình cộng phép và đã khoá loại nghỉ.
+ */
+export async function insertAccrualSchedule(
+  db: PoolClient,
+  tenant: string,
+  leaveTypeId: string,
+  body: CreateLeaveAccrualScheduleRequest,
+) {
+  if (body.policyVersionId) {
+    const policy = await db.query(
+      `SELECT v.id FROM hrm_schema.policy_versions v JOIN hrm_schema.policies p ON p.id=v.policy_id WHERE p.tenant_id=$1 AND v.id=$2`,
+      [tenant, body.policyVersionId],
+    );
+    if (!policy.rowCount)
+      throw new BadRequestException('Phiên bản chính sách không thuộc tenant');
+  }
+  const overlap = await db.query(
+    `SELECT id FROM hrm_schema.leave_accrual_schedules WHERE tenant_id=$1 AND leave_type_id=$2 AND daterange(effective_from,COALESCE(effective_to,'infinity'::date),'[]') && daterange($3::date,COALESCE($4::date,'infinity'::date),'[]')`,
+    [tenant, leaveTypeId, body.effectiveFrom, body.effectiveTo || null],
+  );
+  if (overlap.rowCount)
+    throw new BadRequestException('Lịch cộng phép trùng thời gian hiệu lực');
+  const cols = accrualScheduleColumns(body);
+  const created = await db.query(
+    `INSERT INTO hrm_schema.leave_accrual_schedules (
+        tenant_id, leave_type_id, policy_version_id, accrual_frequency, accrual_amount,
+        proration_rule, seniority_bonus_years, seniority_bonus_days, effective_from, effective_to,
+        accrual_basis, start_offset_months, advance_allowed, annual_days
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+      RETURNING *`,
+    [
+      tenant,
+      leaveTypeId,
+      body.policyVersionId || null,
+      body.accrualFrequency,
+      cols.accrualAmount,
+      cols.prorationRule,
+      cols.seniorityBonusYears,
+      cols.seniorityBonusDays,
+      body.effectiveFrom,
+      body.effectiveTo || null,
+      cols.accrualBasis,
+      cols.startOffsetMonths,
+      cols.advanceAllowed,
+      cols.annualDays,
+    ],
+  );
+  await replaceSeniorityTiers(
+    db,
+    tenant,
+    created.rows[0].id,
+    body.seniorityTiers ?? [],
+  );
+  return { ...created.rows[0], seniority_tiers: body.seniorityTiers ?? [] };
+}
+
+/** Số giao dịch đã cộng phép theo lịch và ngày cuối của tháng cộng gần nhất (YYYY-MM-DD), null nếu chưa cộng. */
+export async function accrualScheduleUsage(
+  db: PoolClient,
+  tenant: string,
+  scheduleId: string,
+): Promise<{ count: number; last_month: string | null }> {
+  return (
+    await db.query(
+      `SELECT count(*)::int AS count,to_char(max((date_trunc('month',CASE WHEN operation_key ~ ':[0-9]{4}-[0-9]{2}$' THEN to_date(right(operation_key,7),'YYYY-MM') ELSE created_at END)+interval '1 month - 1 day')::date),'YYYY-MM-DD') AS last_month FROM hrm_schema.leave_transactions WHERE tenant_id=$1 AND accrual_schedule_id=$2`,
+      [tenant, scheduleId],
+    )
+  ).rows[0];
+}
+
 export type AccrualMutation = Partial<CreateLeaveAccrualScheduleRequest> & {
   expectedUpdatedAt: string;
   reason: string;
@@ -133,12 +205,7 @@ export async function mutateAccrualSchedule(
   ).rows[0];
   if (!before) throw new NotFoundException('Không tìm thấy lịch cộng phép');
   assertLifecycleVersion(before, body.expectedUpdatedAt);
-  const usage = (
-    await db.query(
-      `SELECT count(*)::int AS count,to_char(max((date_trunc('month',CASE WHEN operation_key ~ ':[0-9]{4}-[0-9]{2}$' THEN to_date(right(operation_key,7),'YYYY-MM') ELSE created_at END)+interval '1 month - 1 day')::date),'YYYY-MM-DD') AS last_month FROM hrm_schema.leave_transactions WHERE tenant_id=$1 AND accrual_schedule_id=$2`,
-      [tenant, id],
-    )
-  ).rows[0];
+  const usage = await accrualScheduleUsage(db, tenant, id);
   if (usage.count && ['edit', 'delete'].includes(action))
     throw new ConflictException(
       'Lịch đã cộng phép; tạo phiên bản mới hoặc kết thúc hiệu lực, không sửa lịch sử.',

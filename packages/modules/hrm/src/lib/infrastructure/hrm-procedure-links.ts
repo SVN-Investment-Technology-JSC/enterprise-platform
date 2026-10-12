@@ -38,6 +38,7 @@ export const HRM_REQUEST_TABLES: Readonly<Record<HrmRequestKind, string>> = {
   correction: 'attendance_corrections',
   advance: 'salary_advance_requests',
   profile_correction: 'profile_corrections',
+  custom: 'custom_requests',
 };
 const aliases: Readonly<Record<string, HrmRequestKind>> = {
   LEAVE: 'leave',
@@ -47,6 +48,7 @@ const aliases: Readonly<Record<string, HrmRequestKind>> = {
   ATTENDANCE: 'correction',
   ADVANCE: 'advance',
   PROFILE: 'profile_correction',
+  CUSTOM: 'custom',
 };
 export function normalizeHrmRequestKind(kind: string): HrmRequestKind {
   const canonical = Object.hasOwn(aliases, kind) ? aliases[kind] : kind;

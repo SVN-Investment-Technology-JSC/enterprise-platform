@@ -1,668 +1,584 @@
 'use client';
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Table } from 'antd';
-import { SearchableSelect, Popconfirm } from '@enterprise-platform/shared-ui';
-import {
-  Lock,
-  Unlock,
-  RefreshCw,
-  Download,
-  Plus,
-  Pencil,
-  Trash2,
-  LayoutGrid,
-  List,
-} from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Calculator, Download, Loader2, Lock, LockKeyhole, Maximize2, Minimize2, Search, Unlock } from 'lucide-react';
 import type {
-  HrmTimesheet,
-  HrmTimesheetPeriod,
+  HrmMonthCloseState,
+  HrmTimesheetBoard,
 } from '@enterprise-platform/contracts-hrm';
 import { hrmFetch } from '../hrm-api';
-import {
-  MonthlyAttendanceMatrixTable,
-  type MatrixEmployee,
-  type MatrixAttendanceRecord,
-} from '../ui/monthly-attendance-matrix-table';
-import { Button } from '../ui/button';
-import { Input } from '../ui/input';
+import { downloadCsv } from '../hrm-csv';
+import { currentMonthVn, isMonthKey } from '../hrm-timesheet-format';
 import { Badge } from '../ui/badge';
-import { HrmActionDialog, type HrmAction } from '../ui/hrm-action-dialog';
+import { Button } from '../ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '../ui/dialog';
+import { Input } from '../ui/input';
+import { TimesheetBoard } from '../ui/timesheet-board';
+import { MonthStepper } from '../ui/month-stepper';
+import { PageTitle } from '../ui/page-title';
+import { BoardPagination } from '../ui/board-pagination';
+import {
+  anomalyLabel,
+  buildBoardCsv,
+  monthStateLabel,
+  monthStateTimestamp,
+} from '../ui/timesheet-board-format';
+import { formatDateVn } from '../hrm-timesheet-format';
 
-const statuses: Record<string, string> = {
-  NORMAL: 'Công',
-  OFF: 'OFF',
-  HOLIDAY: 'Lễ',
-  LEAVE: 'Phép',
-  BUSINESS_TRIP: 'Công tác',
-  ABNORMAL: 'Bất thường',
-  ABSENT: 'Vắng',
-  ADJUSTED: 'Điều chỉnh',
+const PAGE_SIZE = 50;
+
+type CloseKind = 'requests' | 'lock' | 'reopen';
+
+const CLOSE_TEXT: Record<
+  CloseKind,
+  { title: string; confirm: string; path: string; description: string }
+> = {
+  requests: {
+    title: 'Chốt đơn từ',
+    confirm: 'Xác nhận chốt đơn từ',
+    path: 'close-requests',
+    description:
+      'Từ lúc chốt, không tạo, sửa hay duyệt đơn nào có ngày thuộc tháng này.',
+  },
+  lock: {
+    title: 'Chốt công',
+    confirm: 'Xác nhận chốt công',
+    path: 'close',
+    description:
+      'Tính lại và khóa bảng công của tháng để phục vụ tính lương. Sau khi chốt không thể chỉnh sửa.',
+  },
+  reopen: {
+    title: 'Mở lại tháng công',
+    confirm: 'Xác nhận mở lại',
+    path: 'reopen',
+    description:
+      'Mở lại công và đơn từ của tháng. Không thực hiện được nếu kỳ lương đã chốt.',
+  },
 };
-function exportRows(rows: HrmTimesheet[], name: string) {
-  const cell = (value: unknown) => {
-    let text = String(value ?? '');
-    if (/^[=+@\-\t\r]/.test(text)) text = `'${text}`;
-    return `"${text.replaceAll('"', '""')}"`;
-  };
-  const data: unknown[][] = [
-    [
-      'Nhân viên',
-      'Ngày',
-      'Trạng thái',
-      'Phút chuẩn',
-      'Phút thực tế',
-      'Phút hưởng lương',
-      'Công',
-      'Phút OT',
-      'Phút trễ',
-      'Phút sớm',
-      'Phút phép',
-      'Bất thường',
-      'Căn cứ điều chỉnh',
-    ],
-    ...rows.map((r) => [
-      r.employeeName || r.employeeId,
-      r.workDate,
-      statuses[r.status] || r.status,
-      r.scheduledMinutes,
-      r.workedMinutes,
-      r.paidMinutes,
-      r.workdayUnits,
-      r.otMinutes,
-      r.lateMinutes,
-      r.earlyLeaveMinutes,
-      r.calculationSnapshot?.leaveMinutes || 0,
-      (r.calculationSnapshot?.anomalies as string[] | undefined)?.join('; '),
-      r.adjustedReason,
-    ]),
-  ];
-  const url = URL.createObjectURL(
-    new Blob(
-      ['\uFEFF', data.map((row) => row.map(cell).join(',')).join('\r\n')],
-      { type: 'text/csv;charset=utf-8' },
-    ),
-  );
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = `${name.replace(/[^a-zA-Z0-9_-]/g, '_')}.csv`;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
 
-export default function TimesheetsScreen() {
-  const [periods, setPeriods] = useState<HrmTimesheetPeriod[]>([]),
-    [selected, setSelected] = useState(''),
-    [rows, setRows] = useState<HrmTimesheet[]>([]);
-  const [error, setError] = useState(''),
-    [busy, setBusy] = useState(false),
-    [action, setAction] = useState<HrmAction | null>(null);
-  const current = periods.find((p) => p.id === selected);
-  const [matrix, setMatrix] = useState(true),
-    [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
+function MonthCloseDialog({
+  month,
+  kind,
+  onClose,
+  onDone,
+  onJump,
+}: {
+  month: string;
+  kind: CloseKind;
+  onClose: () => void;
+  onDone: () => void;
+  /** Mở thẳng ô công đang vướng trên bảng công. */
+  onJump?: (item: { employeeId: string; employeeCode: string; date: string }) => void;
+}) {
+  const text = CLOSE_TEXT[kind];
+  const [state, setState] = useState<HrmMonthCloseState | null>(null);
+  const [loading, setLoading] = useState(kind !== 'reopen');
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
 
-  // Lấy năm và tháng từ kỳ công hiện tại (fromDate YYYY-MM-DD)
-  const [currentYear, currentMonth] = useMemo(() => {
-    if (current?.fromDate) {
-      const parts = current.fromDate.split('-');
-      if (parts.length >= 2) {
-        return [parseInt(parts[0], 10), parseInt(parts[1], 10)];
-      }
-    }
-    const d = new Date();
-    return [d.getFullYear(), d.getMonth() + 1];
-  }, [current]);
-  const filteredRows = rows.filter(
-    (r) =>
-      `${r.employeeName || ''} ${r.employeeId}`
-        .toLocaleLowerCase('vi')
-        .includes(search.toLocaleLowerCase('vi')) &&
-      (!statusFilter || r.status === statusFilter),
-  );
-  // Adapter cho MonthlyAttendanceMatrixTable
-  const matrixEmployees: MatrixEmployee[] = useMemo(() => {
-    const map = new Map<string, MatrixEmployee>();
-    for (const r of rows) {
-      if (!map.has(r.employeeId)) {
-        map.set(r.employeeId, {
-          employeeId: r.employeeId,
-          employeeCode: r.employeeId,
-          fullName: r.employeeName || r.employeeId,
-          department: 'Nhân sự',
-          position: 'Nhân viên',
-        });
-      }
-    }
-    return [...map.values()];
-  }, [rows]);
-
-  const matrixAttendances: MatrixAttendanceRecord[] = useMemo(() => {
-    return rows.map((r) => {
-      // Xác định trạng thái mapping tương ứng cho ma trận
-      let status = r.status;
-      if (r.isManuallyAdjusted || r.status === 'ADJUSTED') {
-        status = 'ADJUSTED';
-      }
-      return {
-        id: r.id,
-        employeeId: r.employeeId,
-        workDate: r.workDate,
-        status,
-        workedMinutes: r.workedMinutes,
-        checkInAt: r.scheduledMinutes && r.workedMinutes > 0 ? `${r.workDate}T08:00:00Z` : undefined,
-        checkOutAt: r.scheduledMinutes && r.workedMinutes > 0 ? `${r.workDate}T17:30:00Z` : undefined,
-        note: r.adjustedReason || undefined,
-      };
-    });
-  }, [rows]);
-  const load = useCallback(async () => {
-    const result = await hrmFetch<{ data: HrmTimesheetPeriod[] }>(
-      '/timesheet-periods',
-    );
-    setPeriods(result.data);
-    setSelected((id) =>
-      result.data.some((p) => p.id === id) ? id : result.data[0]?.id || '',
-    );
-  }, []);
-  const loadRows = useCallback(async () => {
-    if (selected)
-      setRows(
-        (
-          await hrmFetch<{ data: HrmTimesheet[] }>(
-            `/timesheets?period_id=${selected}`,
-          )
-        ).data,
-      );
-  }, [selected]);
   useEffect(() => {
-    void load().catch((e) => setError(e.message));
-  }, [load]);
-  useEffect(() => {
-    setRows([]);
-    void loadRows().catch((e) => setError(e.message));
-  }, [loadRows]);
-  async function command(path: string, body: unknown = {}, method = 'POST') {
+    if (kind === 'reopen') return;
+    let live = true;
+    hrmFetch<{ data: HrmMonthCloseState }>(`/timesheet-months/${month}/close-state`)
+      .then((result) => {
+        if (live) setState(result.data);
+      })
+      .catch((e: unknown) => {
+        if (live)
+          setError(
+            e instanceof Error ? e.message : 'Không tải được điều kiện chốt.',
+          );
+      })
+      .finally(() => {
+        if (live) setLoading(false);
+      });
+    return () => {
+      live = false;
+    };
+  }, [kind, month]);
+
+  const blockers =
+    kind === 'requests'
+      ? (state?.blockersForRequests ?? [])
+      : kind === 'lock'
+        ? (state?.blockersForLock ?? [])
+        : [];
+  const stateUnknown = kind !== 'reopen' && !state;
+  const missingReason = kind === 'reopen' && !reason.trim();
+  const disabled =
+    busy || loading || stateUnknown || blockers.length > 0 || missingReason;
+
+  async function submit() {
     setBusy(true);
     setError('');
     try {
-      await hrmFetch(path, { method, body: JSON.stringify(body) });
-      await load();
-      await loadRows();
+      await hrmFetch(`/timesheet-months/${month}/${text.path}`, {
+        method: 'POST',
+        body: JSON.stringify(kind === 'reopen' ? { reason: reason.trim() } : {}),
+      });
+      onDone();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Không thực hiện được');
-      throw e;
+      setError(e instanceof Error ? e.message : 'Không thực hiện được.');
     } finally {
       setBusy(false);
     }
   }
+
   return (
-    <div className="space-y-6 max-w-[1600px] mx-auto">
-      {/* 1. Page Header Card */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white rounded-xl border border-slate-200 p-5 shadow-xs">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
-            <h1 className="text-xl font-bold text-slate-900 tracking-tight">
-              Bảng công Tổng hợp & Khóa kỳ
-            </h1>
-            {current && (
-              <Badge
-                className={
-                  current.status === 'LOCKED'
-                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200 font-semibold text-xs'
-                    : 'bg-amber-50 text-amber-700 border-amber-200 font-semibold text-xs'
-                }
-              >
-                {current.status === 'LOCKED' ? 'Đã khóa kỳ' : 'Đang mở'}
-              </Badge>
-            )}
-          </div>
-          <p className="text-xs text-slate-500 max-w-[85ch]">
-            Đối soát chi tiết ngày công, phép, chế độ nghỉ lễ, công tác và tăng ca (OT) trước khi khóa kỳ công phục vụ tính lương.
-          </p>
+    <Dialog open onOpenChange={(open) => !open && !busy && onClose()}>
+      <DialogContent className="max-w-lg gap-0">
+        <DialogHeader className="border-b border-slate-200 p-5">
+          <DialogTitle>
+            {text.title} tháng {month}
+          </DialogTitle>
+          <DialogDescription>{text.description}</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3 p-5 text-xs">
+          {loading && (
+            <div role="status" className="flex items-center gap-2 text-slate-500">
+              <Loader2 className="size-4 animate-spin" />
+              <span>Đang kiểm tra điều kiện...</span>
+            </div>
+          )}
+          {blockers.length > 0 && (
+            <div
+              data-testid="close-blockers"
+              className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-900"
+            >
+              <p className="mb-1 font-semibold">Còn vướng, chưa thể thực hiện:</p>
+              <ul className="list-disc space-y-1 pl-4">
+                {blockers.map((b) => (
+                  <li key={b.code}>
+                    {b.message}
+                    {b.count > 0 ? ` (${b.count})` : ''}
+                    {b.items && b.items.length > 0 && (
+                      <ul data-testid={`blocker-items-${b.code}`} className="mt-1 max-h-40 space-y-0.5 overflow-y-auto pl-2">
+                        {b.items.map((item) => (
+                          <li key={`${item.employeeId}-${item.date}`} className="flex items-center justify-between gap-2">
+                            <span>
+                              {item.employeeCode} - {item.employeeName} - {formatDateVn(item.date)}:{' '}
+                              {item.codes.map(anomalyLabel).join('; ') || 'Cần xử lý'}
+                            </span>
+                            {onJump && (
+                              <button
+                                type="button"
+                                className="shrink-0 font-semibold text-blue-700 hover:underline"
+                                aria-label={`Mở ô công ${item.employeeCode} ngày ${formatDateVn(item.date)}`}
+                                onClick={() => onJump(item)}
+                              >
+                                Mở ô công
+                              </button>
+                            )}
+                          </li>
+                        ))}
+                        {b.count > b.items.length && (
+                          <li className="text-amber-800">Và {b.count - b.items.length} ngày khác...</li>
+                        )}
+                      </ul>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {!loading && !stateUnknown && kind !== 'reopen' && blockers.length === 0 && (
+            <p className="text-emerald-700">Đủ điều kiện thực hiện.</p>
+          )}
+          {kind === 'reopen' && (
+            <label className="block space-y-1">
+              <span className="font-semibold text-slate-700">Lý do mở lại (bắt buộc)</span>
+              <Input
+                aria-label="Lý do mở lại"
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                placeholder="Nhập lý do mở lại tháng công"
+              />
+            </label>
+          )}
+          {error && (
+            <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 font-semibold text-red-700">
+              {error}
+            </p>
+          )}
         </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <Button
-            permission="hrm.timesheet.calculate"
-            onClick={() =>
-              setAction({
-                title: 'Tạo kỳ công mới',
-                fields: [
-                  { key: 'periodCode', label: 'Mã kỳ công (VD: BC-2026-09)' },
-                  { key: 'fromDate', label: 'Từ ngày', type: 'date' },
-                  { key: 'toDate', label: 'Đến ngày', type: 'date' },
-                ],
-                submit: (v) => command('/timesheet-periods', v),
-              })
-            }
-            className="bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-1.5 shadow-xs"
-          >
-            <Plus className="size-4" />
-            <span>Tạo kỳ công</span>
+        <div className="flex justify-end gap-2 border-t border-slate-200 p-4">
+          <Button variant="outline" onClick={onClose} disabled={busy}>
+            Bỏ qua
+          </Button>
+          <Button disabled={disabled} onClick={() => void submit()}>
+            {busy ? 'Đang xử lý...' : text.confirm}
           </Button>
         </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+export default function TimesheetsScreen() {
+  const [month, setMonth] = useState(() => currentMonthVn());
+  const [search, setSearch] = useState('');
+  const [query, setQuery] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const searchRef = useRef<HTMLInputElement>(null);
+  const [fullscreen, setFullscreen] = useState(false);
+  const [board, setBoard] = useState<HrmTimesheetBoard | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [reloadKey, setReloadKey] = useState(0);
+  const [closing, setClosing] = useState<CloseKind | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const [calculating, setCalculating] = useState(false);
+  const [notice, setNotice] = useState('');
+  const [focus, setFocus] = useState<{ employeeId: string; date: string } | null>(null);
+  const firstSearch = useRef(true);
+
+  useEffect(() => {
+    if (firstSearch.current) {
+      firstSearch.current = false;
+      return;
+    }
+    const timer = setTimeout(() => {
+      setQuery(search.trim());
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  useEffect(() => {
+    if (!isMonthKey(month)) return;
+    let live = true;
+    setLoading(true);
+    setError('');
+    const params = new URLSearchParams({
+      month,
+      page: String(page),
+      page_size: String(pageSize),
+    });
+    if (query) params.set('q', query);
+    hrmFetch<{ data: HrmTimesheetBoard }>(`/timesheet-board?${params}`)
+      .then((result) => {
+        if (live) setBoard(result.data);
+      })
+      .catch((e: unknown) => {
+        if (!live) return;
+        setBoard(null);
+        setError(e instanceof Error ? e.message : 'Không tải được bảng công.');
+      })
+      .finally(() => {
+        if (live) setLoading(false);
+      });
+    return () => {
+      live = false;
+    };
+  }, [month, page, pageSize, query, reloadKey]);
+
+  const changeMonth = useCallback((value: string) => {
+    setMonth(value);
+    setPage(1);
+    setSelectedIds(new Set());
+  }, []);
+  const changePageSize = useCallback((size: number) => {
+    setPageSize(size);
+    setPage(1);
+  }, []);
+
+  // Toàn màn hình: phủ kín khung làm việc và (nếu trình duyệt cho phép) cả màn hình; Esc để thoát.
+  const toggleFullscreen = useCallback(() => {
+    setFullscreen((on) => {
+      const next = !on;
+      try {
+        if (next) void document.documentElement.requestFullscreen?.().catch(() => undefined);
+        else if (document.fullscreenElement) void document.exitFullscreen?.().catch(() => undefined);
+      } catch {
+        // Trình duyệt không hỗ trợ: vẫn dùng chế độ phủ kín bằng giao diện.
+      }
+      return next;
+    });
+  }, []);
+  useEffect(() => {
+    if (!fullscreen) return;
+    const onFsChange = () => {
+      if (!document.fullscreenElement) setFullscreen(false);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !document.querySelector('[role="dialog"]')) setFullscreen(false);
+    };
+    document.addEventListener('fullscreenchange', onFsChange);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('fullscreenchange', onFsChange);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [fullscreen]);
+
+  // Ctrl K đưa con trỏ vào ô tìm nhân viên.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k' && searchRef.current) {
+        event.preventDefault();
+        searchRef.current.focus();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  const exportCsv = useCallback(async () => {
+    if (!board) return;
+    setExporting(true);
+    try {
+      const all = [...board.employees];
+      let nextPage = 1;
+      if (board.meta.total > board.employees.length) {
+        all.length = 0;
+        while (all.length < board.meta.total && nextPage <= 200) {
+          const params = new URLSearchParams({
+            month,
+            page: String(nextPage),
+            page_size: String(PAGE_SIZE),
+          });
+          if (query) params.set('q', query);
+          const result = await hrmFetch<{ data: HrmTimesheetBoard }>(
+            `/timesheet-board?${params}`,
+          );
+          if (result.data.employees.length === 0) break;
+          all.push(...result.data.employees);
+          nextPage += 1;
+        }
+      }
+      const chosen = selectedIds.size > 0 ? all.filter((e) => selectedIds.has(e.employeeId)) : all;
+      downloadCsv(`bang-cong-${month}`, buildBoardCsv(board, chosen));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Không xuất được bảng công.');
+    } finally {
+      setExporting(false);
+    }
+  }, [board, month, query, selectedIds]);
+
+  const calculate = useCallback(async () => {
+    setCalculating(true);
+    setError('');
+    setNotice('');
+    try {
+      const result = await hrmFetch<{ data: { result: { count: number; abnormal: number } } }>(
+        `/timesheet-months/${month}/calculate`,
+        { method: 'POST', body: JSON.stringify({}) },
+      );
+      const { count, abnormal } = result.data.result;
+      setNotice(
+        abnormal > 0
+          ? `Đã tính công ${count} dòng, còn ${abnormal} dòng bất thường cần xử lý trước khi chốt.`
+          : `Đã tính công ${count} dòng, không có dòng bất thường.`,
+      );
+      setReloadKey((k) => k + 1);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Không tính được công.');
+    } finally {
+      setCalculating(false);
+    }
+  }, [month]);
+
+  const state = board?.month.state ?? 'OPEN';
+  const canViewAll = board?.canViewAll ?? false;
+  const stamp = board ? monthStateTimestamp(board.month) : '';
+
+  return (
+    <div
+      data-testid="timesheets-root"
+      className={
+        fullscreen
+          ? 'fixed inset-0 z-[45] flex flex-col gap-2 overflow-hidden bg-slate-50 p-3'
+          : 'flex min-h-[calc(100dvh-11rem)] flex-col gap-3'
+      }
+    >
+      {!fullscreen && (
+        <PageTitle
+          withTabs
+          title="Bảng công"
+          description="Theo dõi và tổng hợp công, phép, tăng ca của nhân viên trong tháng."
+          badge={
+            board ? (
+              <Badge
+                data-testid="month-state"
+                variant="outline"
+                className={
+                  state === 'LOCKED'
+                    ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                    : state === 'REQUESTS_CLOSED'
+                      ? 'border-sky-200 bg-sky-50 text-sky-700'
+                      : 'border-amber-200 bg-amber-50 text-amber-700'
+                }
+              >
+                <span
+                  aria-hidden="true"
+                  className={`mr-1.5 inline-block size-1.5 rounded-full ${
+                    state === 'LOCKED' ? 'bg-emerald-500' : state === 'REQUESTS_CLOSED' ? 'bg-sky-500' : 'bg-amber-500'
+                  }`}
+                />
+                {monthStateLabel(state)}
+                {stamp ? ` - ${stamp}` : ''}
+              </Badge>
+            ) : null
+          }
+        />
+      )}
+
+      <div className="flex shrink-0 flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white p-3">
+        {fullscreen && <h1 className="mr-1 text-base font-bold text-slate-900">Bảng công</h1>}
+        <MonthStepper month={month} onChange={changeMonth} />
+        {canViewAll && (
+          <div className="relative min-w-[220px] flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
+            <Input
+              ref={searchRef}
+              aria-label="Tìm nhân viên trong bảng công"
+              className="h-9 w-full pl-9 pr-16"
+              placeholder="Tìm theo mã hoặc tên nhân viên..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+            <kbd className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] font-semibold text-slate-400">
+              Ctrl K
+            </kbd>
+          </div>
+        )}
+        {canViewAll && (
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              permission="hrm.timesheet.calculate"
+              variant="outline"
+              disabled={state !== 'OPEN'}
+              onClick={() => setClosing('requests')}
+            >
+              <Lock className="size-3.5" />
+              <span>Chốt đơn từ</span>
+            </Button>
+            <Button
+              permission="hrm.timesheet.calculate"
+              variant="outline"
+              disabled={state === 'LOCKED' || calculating}
+              onClick={() => void calculate()}
+            >
+              {calculating ? <Loader2 className="size-3.5 animate-spin" /> : <Calculator className="size-3.5" />}
+              <span>Tính công</span>
+            </Button>
+            <Button
+              permission="hrm.timesheet.calculate"
+              disabled={state === 'LOCKED'}
+              onClick={() => setClosing('lock')}
+            >
+              <LockKeyhole className="size-3.5" />
+              <span>Chốt công</span>
+            </Button>
+            <Button
+              permission="hrm.timesheet.reopen"
+              variant="outline"
+              disabled={state === 'OPEN'}
+              onClick={() => setClosing('reopen')}
+              className="text-amber-700"
+            >
+              <Unlock className="size-3.5" />
+              <span>Mở lại</span>
+            </Button>
+            <Button
+              permission="hrm.timesheet.export"
+              variant="outline"
+              disabled={!board?.employees.length || exporting}
+              title={selectedIds.size > 0 ? `Xuất ${selectedIds.size} nhân viên đã chọn` : 'Xuất cả danh sách đang lọc'}
+              onClick={() => void exportCsv()}
+            >
+              <Download className="size-3.5" />
+              <span>Xuất CSV{selectedIds.size > 0 ? ` (${selectedIds.size})` : ''}</span>
+            </Button>
+          </div>
+        )}
+        <Button
+          variant="outline"
+          aria-pressed={fullscreen}
+          aria-label={fullscreen ? 'Thoát toàn màn hình' : 'Xem toàn màn hình'}
+          title={fullscreen ? 'Thoát toàn màn hình (Esc)' : 'Xem bảng công toàn màn hình'}
+          onClick={toggleFullscreen}
+          className="ml-auto"
+        >
+          {fullscreen ? <Minimize2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
+          <span className="hidden md:inline">{fullscreen ? 'Thu nhỏ' : 'Toàn màn hình'}</span>
+        </Button>
       </div>
+
+      {notice && (
+        <div role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs font-semibold text-emerald-800">
+          {notice}
+        </div>
+      )}
 
       {error && (
         <div
           role="alert"
-          className="rounded-xl border border-red-200 bg-red-50 p-4 text-xs font-semibold text-red-700 shadow-xs flex flex-wrap items-center justify-between gap-2"
+          className="flex items-center justify-between gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-semibold text-red-700"
         >
-          <div className="flex items-center gap-2">
-            <span>{error}</span>
-          </div>
-          {error.includes('bất thường') && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => {
-                setStatusFilter('ABNORMAL');
-                setMatrix(false);
-              }}
-              className="text-xs bg-white text-red-700 border-red-300 hover:bg-red-100"
-            >
-              Lọc danh sách dòng bất thường để điều chỉnh
-            </Button>
-          )}
+          <span>{error}</span>
+          <Button variant="outline" size="sm" onClick={() => setReloadKey((k) => k + 1)}>
+            Tải lại
+          </Button>
         </div>
       )}
 
-      {/* 2. Master-Detail Layout */}
-      <div className="grid gap-5 lg:grid-cols-[260px_minmax(0,1fr)]">
-        {/* Left Sidebar: Periods */}
-        <aside className="rounded-xl border border-slate-200 bg-white shadow-xs p-3 flex flex-col max-h-[calc(100vh-220px)]">
-          <div className="px-2 py-1.5 mb-2 border-b border-slate-100 flex items-center justify-between">
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
-              Kỳ công ({periods.length})
-            </span>
-          </div>
-          <div className="space-y-1.5 overflow-y-auto flex-1 pr-1">
-            {periods.length === 0 && (
-              <p className="text-xs text-slate-400 p-2">Chưa có kỳ công nào.</p>
-            )}
-            {periods.map((p) => {
-              const isSelected = selected === p.id;
-              const isLocked = p.status === 'LOCKED';
-              return (
-                <button
-                  key={p.id}
-                  type="button"
-                  className={`w-full rounded-lg border p-3 text-left transition-all ${
-                    isSelected
-                      ? 'border-blue-500 bg-blue-50/70 shadow-xs'
-                      : 'border-slate-200 bg-white hover:bg-slate-50'
-                  }`}
-                  onClick={() => setSelected(p.id)}
-                >
-                  <div className="flex items-center justify-between gap-1 mb-1">
-                    <strong className="text-xs font-bold font-mono text-slate-900">{p.periodCode}</strong>
-                    <span
-                      className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold border ${
-                        isLocked
-                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                          : 'bg-amber-50 text-amber-700 border-amber-200'
-                      }`}
-                    >
-                      {isLocked ? 'Đã khóa' : 'Mở'}
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-slate-500 font-mono">
-                    {p.fromDate} → {p.toDate}
-                  </p>
-                </button>
-              );
-            })}
-          </div>
-        </aside>
-
-        {/* Right Content: Period Workspace */}
-        <section className="min-w-0 rounded-xl border border-slate-200 bg-white p-5 shadow-xs flex flex-col">
-          {/* Action Toolbar */}
-          <div className="mb-4 pb-4 border-b border-slate-200/80 flex flex-wrap items-center justify-between gap-2.5">
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                permission="hrm.timesheet.calculate"
-                disabled={!current || current.status === 'LOCKED' || busy}
-                onClick={() =>
-                  void command(`/timesheet-periods/${selected}/calculate`).catch(
-                    () => undefined,
-                  )
-                }
-                className="bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-1.5 shadow-xs"
-              >
-                <RefreshCw className="size-3.5" />
-                <span>Tính lại bảng công</span>
-              </Button>
-
-              <Popconfirm
-                title="Khóa kỳ công này?"
-                description="Dữ liệu công sẽ được cố định làm đầu vào tính toán lương. Không thể chỉnh sửa thêm sau khi khóa."
-                onConfirm={() => command(`/timesheet-periods/${selected}/lock`)}
-                okText="Khóa kỳ"
-                cancelText="Bỏ qua"
-              >
-                <Button
-                  permission="hrm.timesheet.lock"
-                  disabled={!current || current.status === 'LOCKED' || busy}
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1.5 shadow-xs"
-                >
-                  <Lock className="size-3.5" />
-                  <span>Khóa kỳ</span>
-                </Button>
-              </Popconfirm>
-
-              <Button
-                permission="hrm.timesheet.reopen"
-                variant="outline"
-                disabled={current?.status !== 'LOCKED' || busy}
-                onClick={() =>
-                  setAction({
-                    title: 'Mở lại kỳ công',
-                    fields: [{ key: 'reason', label: 'Lý do mở lại kỳ' }],
-                    submit: (v) =>
-                      command(`/timesheet-periods/${selected}/reopen`, v),
-                  })
-                }
-                className="flex items-center gap-1.5 text-amber-700 border-amber-200 hover:bg-amber-50"
-              >
-                <Unlock className="size-3.5" />
-                <span>Mở lại kỳ</span>
-              </Button>
-
-              <Button
-                permission="hrm.timesheet.calculate"
-                variant="outline"
-                disabled={
-                  !current ||
-                  current.status === 'LOCKED' ||
-                  rows.length > 0 ||
-                  busy
-                }
-                onClick={() =>
-                  current &&
-                  setAction({
-                    title: 'Sửa kỳ công',
-                    description:
-                      'Chỉ sửa kỳ trống, chưa được kỳ lương tham chiếu.',
-                    fields: [
-                      {
-                        key: 'periodCode',
-                        label: 'Mã kỳ',
-                        value: current.periodCode,
-                      },
-                      {
-                        key: 'fromDate',
-                        label: 'Từ ngày',
-                        type: 'date',
-                        value: current.fromDate,
-                      },
-                      {
-                        key: 'toDate',
-                        label: 'Đến ngày',
-                        type: 'date',
-                        value: current.toDate,
-                      },
-                      { key: 'reason', label: 'Lý do' },
-                    ],
-                    submit: (v) =>
-                      command(
-                        `/timesheet-periods/${current.id}`,
-                        { ...v, expectedUpdatedAt: current.updatedAt },
-                        'PATCH',
-                      ),
-                  })
-                }
-                className="flex items-center gap-1"
-              >
-                <Pencil className="size-3.5" />
-                <span>Sửa kỳ</span>
-              </Button>
-
-              <Button
-                permission="hrm.timesheet.calculate"
-                variant="outline"
-                disabled={
-                  !current ||
-                  current.status === 'LOCKED' ||
-                  rows.length > 0 ||
-                  busy
-                }
-                onClick={() =>
-                  current &&
-                  setAction({
-                    title: 'Xóa kỳ công trống',
-                    confirmTitle: 'Xóa kỳ công này?',
-                    fields: [{ key: 'reason', label: 'Lý do xóa' }],
-                    submit: (v) =>
-                      command(
-                        `/timesheet-periods/${current.id}`,
-                        { ...v, expectedUpdatedAt: current.updatedAt },
-                        'DELETE',
-                      ),
-                  })
-                }
-                className="flex items-center gap-1 text-red-600 border-red-200 hover:bg-red-50"
-              >
-                <Trash2 className="size-3.5" />
-                <span>Xóa kỳ trống</span>
-              </Button>
-            </div>
-          </div>
-
-          {/* Search, Mode Toggle & Filters */}
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-            <div className="flex flex-wrap items-center gap-2.5 flex-1 min-w-0">
-              <div className="relative min-w-[200px] max-w-xs flex-1">
-                <Input
-                  aria-label="Tìm nhân viên trong bảng công"
-                  placeholder="Tìm theo tên hoặc mã nhân viên…"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                />
-              </div>
-
-              <div className="w-48">
-                <SearchableSelect
-                  aria-label="Lọc trạng thái công"
-                  value={statusFilter}
-                  onChange={setStatusFilter}
-                  placeholder="Tất cả trạng thái"
-                  options={[
-                    { value: '', label: 'Tất cả trạng thái' },
-                    ...Object.entries(statuses).map(([value, label]) => ({
-                      value,
-                      label,
-                    })),
-                  ]}
-                />
-              </div>
-
-              <Button
-                variant="outline"
-                onClick={() => setMatrix(!matrix)}
-                className="flex items-center gap-1.5"
-              >
-                {matrix ? <List className="size-3.5" /> : <LayoutGrid className="size-3.5" />}
-                <span>{matrix ? 'Dạng chi tiết từng ngày' : 'Dạng ma trận tháng'}</span>
-              </Button>
-            </div>
-
-            <div className="flex items-center gap-2 shrink-0">
-              <Button
-                permission="hrm.timesheet.export"
-                variant="outline"
-                disabled={!filteredRows.length}
-                onClick={() =>
-                  void hrmFetch<{ data: HrmTimesheet[] }>(
-                    `/timesheet-periods/${selected}/export`,
-                  )
-                    .then((result) =>
-                      exportRows(
-                        result.data.filter(
-                          (r) =>
-                            `${r.employeeName || ''} ${r.employeeId}`
-                              .toLocaleLowerCase('vi')
-                              .includes(search.toLocaleLowerCase('vi')) &&
-                            (!statusFilter || r.status === statusFilter),
-                        ),
-                        current?.periodCode || 'bang-cong',
-                      ),
-                    )
-                    .catch((e) => setError(e.message))
-                }
-                className="flex items-center gap-1.5"
-              >
-                <Download className="size-3.5" />
-                <span>Xuất CSV</span>
-              </Button>
-            </div>
-          </div>
-
-          {matrix ? (
-            <div className="flex-1 min-h-0 border border-slate-200 rounded-lg overflow-hidden bg-white shadow-xs">
-              <MonthlyAttendanceMatrixTable
-                title={current ? `Bảng công ma trận kỳ ${current.periodCode} (${current.fromDate} → ${current.toDate})` : 'Bảng công ma trận tháng'}
-                employees={matrixEmployees}
-                attendances={matrixAttendances}
-                isLoading={busy}
-                year={currentYear}
-                month={currentMonth}
-                hideHeader={false}
-                embedded={true}
-                footerExtra={
-                  <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600">
-                    <div className="flex items-center gap-4">
-                      <span>Tổng nhân sự trong kỳ: <strong className="text-slate-900 font-bold">{matrixEmployees.length}</strong></span>
-                      <span>Tổng số bản ghi công: <strong className="text-slate-900 font-bold">{rows.length}</strong></span>
-                      <span>Trạng thái kỳ: <strong className={current?.status === 'LOCKED' ? 'text-emerald-700 font-bold' : 'text-amber-700 font-bold'}>{current?.status === 'LOCKED' ? 'Đã khóa' : 'Đang mở'}</strong></span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => setMatrix(false)}
-                        className="text-xs h-7.5"
-                      >
-                        Chuyển sang dạng chi tiết từng ngày
-                      </Button>
-                    </div>
-                  </div>
-                }
+      {loading && !board ? (
+        <div role="status" className="flex items-center gap-2 p-6 text-sm text-slate-500">
+          <Loader2 className="size-4 animate-spin" />
+          <span>Đang tải bảng công...</span>
+        </div>
+      ) : board && board.employees.length === 0 ? (
+        <p className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-500">
+          Không có nhân viên nào trong bảng công tháng này.
+        </p>
+      ) : board ? (
+        <TimesheetBoard
+          board={board}
+          focus={focus}
+          onFocusHandled={() => setFocus(null)}
+          onChanged={() => setReloadKey((k) => k + 1)}
+          selectedIds={selectedIds}
+          onSelectedChange={setSelectedIds}
+          fullscreen={fullscreen}
+          footer={
+            canViewAll ? (
+              <BoardPagination
+                page={board.meta.page}
+                pageSize={board.meta.pageSize || pageSize}
+                total={board.meta.total}
+                loading={loading}
+                onPage={setPage}
+                onPageSize={changePageSize}
               />
-            </div>
-          ) : (
-            <Table<HrmTimesheet>
-              size="small"
-              rowKey="id"
-              dataSource={filteredRows}
-              pagination={{ pageSize: 20 }}
-              scroll={{ x: 1400, y: 480 }}
-              columns={[
-                { title: 'Nhân viên', dataIndex: 'employeeName', width: 200 },
-                { title: 'Ngày', dataIndex: 'workDate' },
-                {
-                  title: 'Trạng thái',
-                  dataIndex: 'status',
-                  render: (value: string) => statuses[value] || value,
-                },
-                { title: 'Định mức phút', dataIndex: 'scheduledMinutes' },
-                { title: 'Phút thực tế', dataIndex: 'workedMinutes' },
-                { title: 'Phút hưởng lương', dataIndex: 'paidMinutes' },
-                { title: 'Công', dataIndex: 'workdayUnits' },
-                { title: 'OT', dataIndex: 'otMinutes' },
-                { title: 'Đi trễ', dataIndex: 'lateMinutes' },
-                { title: 'Về sớm', dataIndex: 'earlyLeaveMinutes' },
-                {
-                  title: 'Điều chỉnh',
-                  render: (_, r) => (
-                    <Button
-                      permission="hrm.timesheet.adjust"
-                      variant="outline"
-                      disabled={current?.status === 'LOCKED'}
-                      onClick={() =>
-                        setAction({
-                          title: `Điều chỉnh công ${r.workDate}`,
-                          fields: [
-                            {
-                              key: 'paidMinutes',
-                              label: 'Phút hưởng lương',
-                              type: 'number',
-                              min: 0,
-                              max: r.scheduledMinutes,
-                              value: r.paidMinutes,
-                            },
-                            { key: 'reason', label: 'Căn cứ điều chỉnh' },
-                          ],
-                          submit: (v) =>
-                            command(`/timesheets/${r.id}/adjust`, {
-                              paidMinutes: Number(v.paidMinutes),
-                              workdayUnits: r.scheduledMinutes
-                                ? Math.round(
-                                    (Number(v.paidMinutes) /
-                                      r.scheduledMinutes) *
-                                      100,
-                                  ) / 100
-                                : 0,
-                              status: 'ADJUSTED',
-                              expectedUpdatedAt: r.updatedAt,
-                              reason: v.reason,
-                            }),
-                        })
-                      }
-                    >
-                      Điều chỉnh
-                    </Button>
-                  ),
-                },
-              ]}
-              expandable={{
-                expandedRowRender: (r) => (
-                  <div className="space-y-1 text-sm">
-                    {r.adjustmentNeedsReview && (
-                      <p className="font-semibold text-red-700">
-                        Dữ liệu nguồn đã đổi sau điều chỉnh. Đối soát và xác
-                        nhận lại số công trước khi khóa kỳ.
-                      </p>
-                    )}
-                    <p>
-                      Cách tính: phút hưởng lương / định mức ca = số công. OFF
-                      không tính công; lễ theo lịch hưởng lương; phép/công tác
-                      lấy từ đơn đã duyệt; OT chỉ tính thời gian thực tế trong
-                      khung đã duyệt.
-                    </p>
-                    <p>
-                      Múi giờ: {String(r.calculationSnapshot?.timezone || '—')}{' '}
-                      · Loại ngày:{' '}
-                      {String(r.calculationSnapshot?.dayKind || '—')}
-                    </p>
-                    <p>
-                      Bất thường:{' '}
-                      {(
-                        r.calculationSnapshot?.anomalies as string[] | undefined
-                      )?.join(', ') || 'Không'}
-                    </p>
-                    <p>
-                      Phút phép hưởng lương:{' '}
-                      {String(r.calculationSnapshot?.leaveMinutes || 0)}
-                    </p>
-                    <p>
-                      OT quy đổi hệ số:{' '}
-                      {String(r.calculationSnapshot?.weightedOtMinutes || 0)}{' '}
-                      phút
-                    </p>
-                    {r.adjustedReason && (
-                      <p>Căn cứ điều chỉnh: {r.adjustedReason}</p>
-                    )}
-                  </div>
-                ),
-              }}
-            />
-          )}
-        </section>
-      </div>
-      {action && (
-        <HrmActionDialog action={action} onClose={() => setAction(null)} />
+            ) : undefined
+          }
+        />
+      ) : null}
+
+      {closing && (
+        <MonthCloseDialog
+          month={month}
+          kind={closing}
+          onClose={() => setClosing(null)}
+          onDone={() => {
+            setClosing(null);
+            setReloadKey((k) => k + 1);
+          }}
+          onJump={(item) => {
+            setClosing(null);
+            setSearch(item.employeeCode);
+            setFocus({ employeeId: item.employeeId, date: item.date });
+          }}
+        />
       )}
     </div>
   );

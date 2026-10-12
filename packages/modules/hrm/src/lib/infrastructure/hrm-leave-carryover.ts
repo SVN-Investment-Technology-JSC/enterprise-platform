@@ -120,9 +120,11 @@ export async function transitionCarryover(
 }
 /**
  * Chốt quỹ phép cuối năm sang `targetYear`.
- * - Loại cho chuyển phép: chuyển tối đa `max_carryover_days` (CARRYOVER_OUT/IN,
- *   kèm hạn dùng), phần vượt trần bị reset (YEAR_END_RESET).
- * - Loại không cho chuyển: toàn bộ phần dương còn lại bị reset.
+ * - Phép năm không chuyển sang năm sau (chính sách ép `carryover_allowed=false`,
+ *   `max_carryover_days=0`): toàn bộ phần dương còn lại bị reset (YEAR_END_RESET).
+ * - Engine vẫn giữ nhánh chuyển cho loại nghỉ trừ quỹ nói chung (nếu tenant còn dữ liệu
+ *   cũ cho chuyển): chuyển tối đa `max_carryover_days` (CARRYOVER_OUT/IN, kèm hạn dùng),
+ *   phần vượt trần bị reset.
  * - Số âm (ứng/âm phép) của nhân viên còn làm việc được chuyển trừ vào năm sau.
  * Mỗi bước có operation_key nên chạy lại không ghi trùng.
  * Quỹ còn đơn chờ duyệt của năm trước được bỏ qua và trả về trong `blocked`,
@@ -141,7 +143,7 @@ export async function carryoverYear(
     targetYear < 2000 ||
     targetYear > Number(today.slice(0, 4))
   )
-    throw new BadRequestException('Chỉ chuyển phép vào năm đã bắt đầu');
+    throw new BadRequestException('Chỉ chốt phép vào năm đã bắt đầu');
   const types = await db.query(
     `SELECT * FROM hrm_schema.leave_types WHERE tenant_id=$1 AND active=true AND deduct_balance=true`,
     [tenant],

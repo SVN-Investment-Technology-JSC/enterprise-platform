@@ -67,7 +67,9 @@ export async function runHrmAutomation(
       const currentMonth = date.slice(0, 7);
       for (
         let count = 0;
-        count < 24 && cursor.toISOString().slice(0, 7) < currentMonth;
+        // Quy tắc cũ: chỉ cộng các tháng đã kết thúc (`< currentMonth`).
+        // Quy tắc mới: tháng hiện tại cũng được +1 từ ngày 1.
+        count < 24 && cursor.toISOString().slice(0, 7) <= currentMonth;
         count++
       ) {
         const month = cursor.toISOString().slice(0, 7);

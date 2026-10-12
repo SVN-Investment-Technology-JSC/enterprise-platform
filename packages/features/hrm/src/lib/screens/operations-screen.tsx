@@ -1,27 +1,38 @@
 'use client';
 import { useCallback, useEffect, useState } from 'react';
-import { Table, Tabs } from 'antd';
 import {
-  Cpu,
-  RefreshCw,
-  GitBranch,
+  CalendarClock,
   Calendar,
+  GitBranch,
   History,
-  AlertTriangle,
-  Settings,
+  ListChecks,
   Play,
+  RefreshCw,
   RotateCw,
+  Settings,
+  Workflow as WorkflowIcon,
 } from 'lucide-react';
 import { Popconfirm } from '@enterprise-platform/shared-ui';
 import { hrmFetch } from '../hrm-api';
 import { formatDateVn } from '../personnel-decision-rules';
 import { useHrmPermissions } from '../hrm-permissions';
 import { Button } from '../ui/button';
-import { Badge } from '../ui/badge';
 import { HrmAuditTrail } from '../ui/hrm-audit-trail';
 import { HrmActionDialog, type HrmAction } from '../ui/hrm-action-dialog';
 import { ApprovalPolicyCard } from '../ui/approval-policy-card';
 import { ProcedureFieldMappingsDialog } from '../ui/procedure-field-mappings-dialog';
+import { PageTitle } from '../ui/page-title';
+import { DataList, ExpandToggle, type DataColumn } from '../ui/payroll-settings/data-rows';
+import {
+  EmptyPanel,
+  InfoNote,
+  SectionTabs,
+  SettingsSection,
+  StatusPill,
+  kitPanelProps,
+  type KitTab,
+  type PillTone,
+} from '../ui/settings-kit';
 import {
   Dialog,
   DialogContent,
@@ -115,7 +126,9 @@ const kinds = [
   { value: 'ATTENDANCE', label: 'Giải trình công' },
   { value: 'ADVANCE', label: 'Tạm ứng' },
   { value: 'PROFILE', label: 'Điều chỉnh hồ sơ' },
+  { value: 'CUSTOM', label: 'Đơn tuỳ chỉnh' },
 ];
+const kindLabel = (k: string) => kinds.find((v) => v.value === k)?.label || k;
 
 const yesNo = [
   { value: 'true', label: 'Bật' },
@@ -123,13 +136,13 @@ const yesNo = [
 ];
 
 /** Trạng thái đồng bộ đơn với Procedure. */
-const SYNC_STATUS: Record<string, { label: string; tone: string }> = {
-  START_PENDING: { label: 'Chờ tạo hồ sơ', tone: 'bg-slate-100 text-slate-700 border-slate-200' },
-  RUNNING: { label: 'Đang duyệt', tone: 'bg-blue-50 text-blue-700 border-blue-200' },
-  APPLY_PENDING: { label: 'Chờ áp dụng kết quả', tone: 'bg-amber-50 text-amber-700 border-amber-200' },
-  APPLIED: { label: 'Đã áp dụng', tone: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
-  FAILED: { label: 'Lỗi đồng bộ', tone: 'bg-rose-50 text-rose-700 border-rose-200' },
-  CONFLICT: { label: 'Xung đột', tone: 'bg-rose-50 text-rose-700 border-rose-200' },
+const SYNC_STATUS: Record<string, { label: string; tone: PillTone }> = {
+  START_PENDING: { label: 'Chờ tạo hồ sơ', tone: 'slate' },
+  RUNNING: { label: 'Đang duyệt', tone: 'blue' },
+  APPLY_PENDING: { label: 'Chờ áp dụng kết quả', tone: 'amber' },
+  APPLIED: { label: 'Đã áp dụng', tone: 'green' },
+  FAILED: { label: 'Lỗi đồng bộ', tone: 'red' },
+  CONFLICT: { label: 'Xung đột', tone: 'red' },
 };
 const SKIP_REASON: Record<string, string> = {
   LOCKED: 'Tác vụ đang được worker khác chạy; thử lại sau ít phút.',
@@ -149,13 +162,9 @@ type YearEnd = {
   year: number;
   daysToYearEnd: number;
   carryoverEnabled: boolean;
-  carryoverTypes: { code: string; name: string; maxCarryoverDays: number; expiryMonth: number }[];
   resetTypes?: { code: string; name: string }[];
   resetsLastYear?: number;
   pendingRequests?: number;
-  carryoversCurrentYear: number;
-  carryoversNextYear: number;
-  expiredPendingCount: number;
   reconcileMismatchCount: number;
   warnCarryoverOff: boolean;
 };
@@ -201,9 +210,9 @@ function runDetails(result: unknown): string[] {
   );
   for (const c of r.carryovers ?? [])
     lines.push(
-      `Chốt cuối năm sang ${c.targetYear ?? ''}: chuyển phép ${c.count ?? 0} quỹ, reset ${c.reset ?? 0} quỹ.`,
+      `Chốt cuối năm sang ${c.targetYear ?? ''}: reset ${c.reset ?? 0} quỹ${c.count ? `, chuyển ${c.count} quỹ (dữ liệu cũ)` : ''}.`,
     );
-  if (r.expiry) lines.push(`Hết hạn phép chuyển: ${r.expiry.count ?? 0} bản ghi.`);
+  if (r.expiry?.count) lines.push(`Hết hạn phép chuyển cũ: ${r.expiry.count} bản ghi.`);
   if (r.missingContract?.length)
     lines.push(`${r.missingContract.length} nhân viên chưa có HĐLĐ chính thức đã ký nên chưa được cộng phép theo HĐ.`);
   if (r.blocked?.length)
@@ -211,10 +220,28 @@ function runDetails(result: unknown): string[] {
   return lines.length ? lines : ['Không phát sinh giao dịch.'];
 }
 
+type OpsTab = 'automation' | 'workflow' | 'audit';
+const TAB_PREFIX = 'operations';
+
+/** Một dòng "nhãn: giá trị" của danh sách thông tin. */
+function InfoRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 border-b border-slate-100 py-1.5 text-xs last:border-0">
+      <dt className="text-slate-500">{label}</dt>
+      <dd className="min-w-0 break-words text-right font-semibold text-slate-800">{children}</dd>
+    </div>
+  );
+}
+
+/**
+ * Vận hành và tích hợp: tác vụ tự động tính phép (lịch chạy hằng ngày, checklist cuối năm, các lần chạy), quy trình liên module
+ * (Procedure: quy tắc gán quy trình, đồng bộ đơn) và nhật ký nghiệp vụ. Mỗi nhóm là một tab; `?tab=` đồng bộ với địa chỉ trang.
+ */
 export default function OperationsScreen() {
   const { can } = useHrmPermissions();
   const canAutomation = can('hrm.automation.manage');
   const canIntegration = can('hrm.integration.manage');
+  const canAudit = can('hrm.audit.read');
   const [data, setData] = useState<Operations>({
     settings: null,
     runs: [],
@@ -240,6 +267,37 @@ export default function OperationsScreen() {
     bindingId: string;
     definitionId: string;
   } | null>(null);
+
+  const allowedTabs: OpsTab[] = [
+    ...(canAutomation ? (['automation'] as const) : []),
+    ...(canIntegration ? (['workflow'] as const) : []),
+    ...(canAudit ? (['audit'] as const) : []),
+  ];
+  const [requestedTab, setRequestedTab] = useState<string | null>(null);
+  const [urlReady, setUrlReady] = useState(false);
+  const activeTab: OpsTab | '' = allowedTabs.find((t) => t === requestedTab) ?? allowedTabs[0] ?? '';
+
+  useEffect(() => {
+    const sync = () => {
+      setRequestedTab(new URLSearchParams(window.location.search).get('tab'));
+      setUrlReady(true);
+    };
+    sync();
+    window.addEventListener('popstate', sync);
+    return () => window.removeEventListener('popstate', sync);
+  }, []);
+
+  const selectTab = useCallback((tab: OpsTab) => {
+    setRequestedTab(tab);
+    const url = new URL(window.location.href);
+    url.searchParams.set('tab', tab);
+    window.history.replaceState(null, '', url);
+  }, []);
+
+  // `?tab=` không hợp lệ (hoặc không đủ quyền) thì sửa lại thành tab đang hiển thị.
+  useEffect(() => {
+    if (urlReady && activeTab && requestedTab !== null && requestedTab !== activeTab) selectTab(activeTab);
+  }, [activeTab, requestedTab, selectTab, urlReady]);
 
   // Phụ thuộc giá trị boolean: hàm can() đổi danh tính mỗi lần render sẽ gây tải lặp vô hạn.
   const load = useCallback(async () => {
@@ -374,310 +432,442 @@ export default function OperationsScreen() {
     }
   }
 
-  const tabs = [];
-  if (canAutomation)
-    tabs.push({
-      key: 'automation',
-      label: (
-        <span className="flex items-center gap-1.5 text-xs font-medium">
-          <Calendar className="size-3.5" />
-          <span>Tác vụ tự động tính phép</span>
+  const tabMeta: Record<OpsTab, KitTab> = {
+    automation: { id: 'automation', label: 'Tác vụ tự động tính phép', icon: Calendar },
+    workflow: { id: 'workflow', label: 'Quy trình liên module (Procedure)', icon: GitBranch },
+    audit: { id: 'audit', label: 'Nhật ký nghiệp vụ', icon: History },
+  };
+
+  // ------------------------------------------------------------------ Tab Tác vụ tự động
+  const runColumns: DataColumn<Run>[] = [
+    {
+      key: 'expand',
+      header: '',
+      width: '2.25rem',
+      cardOrder: -1,
+      cell: (r, ctx) => (
+        <ExpandToggle expanded={ctx.expanded} onClick={ctx.toggle} label={`Chi tiết lần chạy ${stamp(r.started_at)}`} />
+      ),
+    },
+    {
+      key: 'when',
+      header: 'Thời điểm',
+      width: 'minmax(0,1.2fr)',
+      cardGrow: true,
+      cardOrder: -1,
+      cell: (r) => <span className="font-semibold text-slate-900">{stamp(r.started_at)}</span>,
+    },
+    {
+      key: 'status',
+      header: 'Kết quả',
+      width: '6.5rem',
+      cell: (r) =>
+        r.status === 'SUCCEEDED' ? <StatusPill tone="green">Thành công</StatusPill> : <StatusPill tone="red">Thất bại</StatusPill>,
+    },
+    {
+      key: 'count',
+      header: 'Số giao dịch mới',
+      width: 'minmax(0,1.3fr)',
+      cardLabel: true,
+      cell: (r) => {
+        const sm = runSummary(r.result);
+        return sm ? (
+          <span className="text-slate-700">
+            {sm.createdTransactions} mới · {sm.skipped} đã có
+            {sm.missingContract ? ` · ${sm.missingContract} thiếu HĐ` : ''}
+            {sm.blocked ? ` · ${sm.blocked} chờ đơn` : ''}
+          </span>
+        ) : (
+          '—'
+        );
+      },
+    },
+    {
+      key: 'error',
+      header: 'Chi tiết lỗi / Báo cáo',
+      width: 'minmax(0,1.2fr)',
+      cardFull: true,
+      cell: (r) => <span className="text-slate-600">{r.error || 'Hoàn tất'}</span>,
+    },
+  ];
+
+  const automationPanel = (
+    <div className="grid grid-cols-1 items-start gap-4 @4xl:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
+      <SettingsSection
+        icon={CalendarClock}
+        tone="green"
+        title="Lịch tự động hàng ngày"
+        description="Cộng phép theo tháng và (khi bật) chốt phép cuối năm."
+        actions={
+          data.settings?.enabled ? <StatusPill tone="green">Đang bật</StatusPill> : <StatusPill tone="slate">Đang tắt</StatusPill>
+        }
+        bodyClassName="space-y-3"
+      >
+        <dl>
+          <InfoRow label="Múi giờ">{data.settings?.timezone || '—'}</InfoRow>
+          <InfoRow label="Giờ chạy">
+            {data.settings ? `${String(data.settings.run_hour).padStart(2, '0')}:00 hàng ngày (${data.settings.timezone})` : '—'}
+          </InfoRow>
+          <InfoRow label="Tích phép từ tháng">
+            {data.settings?.from_month ? data.settings.from_month.split('-').reverse().join('/') : '—'}
+          </InfoRow>
+          <InfoRow label="Tự động chốt phép cuối năm">{data.settings?.carryover_enabled ? 'Bật' : 'Tắt'}</InfoRow>
+          <InfoRow label="Lần thành công gần nhất">
+            {data.settings?.last_success_date ? formatDateVn(data.settings.last_success_date) : '—'}
+          </InfoRow>
+        </dl>
+        {data.settings?.last_error ? (
+          <InfoNote tone="red" role="alert">
+            {data.settings.last_error}
+          </InfoNote>
+        ) : null}
+        <p className="text-[11px] leading-relaxed text-slate-500">
+          Hằng ngày tác vụ cộng phép theo tháng và (khi bật) chốt phép cuối năm: phép năm không chuyển sang năm sau nên phần còn lại
+          được reset về 0. Chạy lại không ghi trùng.
+        </p>
+        <div className="flex flex-wrap gap-2 border-t border-slate-100 pt-3">
+          <Button
+            disabled={busy}
+            onClick={() =>
+              setAction({
+                title: 'Cấu hình tác vụ quỹ phép',
+                fields: [
+                  {
+                    key: 'enabled',
+                    label: 'Tự động chạy',
+                    options: yesNo,
+                    value: String(data.settings?.enabled ?? false),
+                  },
+                  {
+                    key: 'fromMonth',
+                    label: 'Tháng bắt đầu tích phép',
+                    type: 'month',
+                    value: data.settings?.from_month || new Date().toISOString().slice(0, 7),
+                  },
+                  {
+                    key: 'timezone',
+                    label: 'Múi giờ',
+                    value: data.settings?.timezone || 'Asia/Ho_Chi_Minh',
+                  },
+                  {
+                    key: 'runHour',
+                    label: 'Giờ chạy hàng ngày (0–23)',
+                    type: 'number',
+                    min: 0,
+                    max: 23,
+                    value: data.settings?.run_hour ?? 2,
+                  },
+                  {
+                    key: 'carryoverEnabled',
+                    label: 'Tự động chốt phép cuối năm (reset, không chuyển)',
+                    options: yesNo,
+                    value: String(data.settings?.carryover_enabled ?? false),
+                  },
+                ],
+                submit: (v) =>
+                  send('/operations/automation', {
+                    ...v,
+                    enabled: v.enabled === 'true',
+                    carryoverEnabled: v.carryoverEnabled === 'true',
+                    runHour: Number(v.runHour),
+                  }),
+              })
+            }
+            className="h-9 flex-1 gap-1.5 text-xs font-semibold"
+          >
+            <Settings className="size-3.5" aria-hidden />
+            <span>Cấu hình lịch</span>
+          </Button>
+          <Popconfirm
+            title="Chạy tác vụ quỹ phép ngay?"
+            description="Ghi sổ cộng phép các tháng còn thiếu và chốt cuối năm (reset, không chuyển phép) nếu đang bật. Chạy lại không ghi trùng."
+            okText="Chạy ngay"
+            cancelText="Quay lại"
+            okType="primary"
+            onConfirm={() =>
+              void sendRaw('/operations/automation/run')
+                .then((r) =>
+                  setRunResult({
+                    summary: runSummary(r?.data),
+                    details: runDetails(r?.data),
+                    skippedRun: (r?.data as { skipped?: boolean } | undefined)?.skipped === true,
+                  }),
+                )
+                .catch(() => undefined)
+            }
+          >
+            <Button
+              variant="outline"
+              disabled={busy || !data.settings}
+              className="h-9 flex-1 gap-1.5 text-xs font-semibold"
+            >
+              <Play className="size-3.5 text-emerald-600" aria-hidden />
+              <span>Chạy tác vụ ngay</span>
+            </Button>
+          </Popconfirm>
+        </div>
+      </SettingsSection>
+
+      <div className="min-w-0 space-y-4">
+        {yearEnd ? (
+          <SettingsSection
+            icon={ListChecks}
+            tone="amber"
+            title={`Checklist cuối năm ${yearEnd.year}`}
+            description={`Còn ${yearEnd.daysToYearEnd} ngày đến hết năm.`}
+            bodyClassName="space-y-3"
+          >
+            {yearEnd.warnCarryoverOff ? (
+              <InfoNote tone="amber" role="alert">
+                Còn không quá 60 ngày hết năm nhưng "Tự động chốt phép cuối năm" đang Tắt: phép còn lại sẽ không được reset tự động; cần
+                bật hoặc bấm "Chốt phép cuối năm" ở Cấu hình, Chính sách phép năm.
+              </InfoNote>
+            ) : null}
+            <ul className="space-y-1.5 text-xs text-slate-700">
+              <li>
+                Tự động chốt cuối năm: <strong>{yearEnd.carryoverEnabled ? 'Bật' : 'Tắt'}</strong>.
+              </li>
+              <li>
+                Reset về 0 cuối năm:{' '}
+                {yearEnd.resetTypes?.length ? yearEnd.resetTypes.map((t) => t.name).join('; ') : 'không có loại nghỉ nào'}
+                {yearEnd.resetsLastYear !== undefined && ` (năm ${yearEnd.year - 1} đã reset ${yearEnd.resetsLastYear} quỹ)`}.
+              </li>
+              {yearEnd.pendingRequests !== undefined && (
+                <li className={yearEnd.pendingRequests ? 'font-semibold text-amber-700' : ''}>
+                  Đơn nghỉ trừ quỹ đang chờ duyệt trong năm: {yearEnd.pendingRequests}
+                  {yearEnd.pendingRequests > 0 && ' (quỹ có đơn chờ sẽ bị bỏ qua khi chốt; cần duyệt hoặc hủy trước)'}.
+                </li>
+              )}
+              <li>
+                Đối soát số dư đầu năm:{' '}
+                {yearEnd.reconcileMismatchCount === 0
+                  ? 'khớp sổ giao dịch'
+                  : `${yearEnd.reconcileMismatchCount} quỹ chênh lệch so với sổ giao dịch`}
+                .
+              </li>
+            </ul>
+          </SettingsSection>
+        ) : null}
+
+        <SettingsSection
+          icon={History}
+          tone="blue"
+          title="Các lần chạy gần đây"
+          description={`${data.runs.length} lần chạy; bấm một dòng để xem chi tiết.`}
+        >
+          <DataList
+            label="Các lần chạy tác vụ"
+            rows={data.runs}
+            columns={runColumns}
+            rowKey={(r) => r.id}
+            pageSize={10}
+            renderExpanded={(r) => (
+              <ul className="list-disc space-y-1 pl-5 text-xs text-slate-700">
+                {(r.status === 'SUCCEEDED' ? runDetails(r.result) : [r.error || 'Tác vụ thất bại']).map((line, i) => (
+                  <li key={i}>{line}</li>
+                ))}
+              </ul>
+            )}
+            empty={<EmptyPanel icon={CalendarClock} title="Chưa có lần chạy nào" description="Các lần chạy tự động hoặc thủ công sẽ hiện ở đây." />}
+          />
+        </SettingsSection>
+      </div>
+    </div>
+  );
+
+  // ------------------------------------------------------------------ Tab Quy trình liên module
+  const needDirect = rulesNeedingDirect(data.rules, data.procedureAvailable);
+
+  const ruleColumns: DataColumn<Rule>[] = [
+    {
+      key: 'kind',
+      header: 'Loại đơn',
+      width: 'minmax(0,1fr)',
+      cardGrow: true,
+      cardOrder: -1,
+      cell: (r) => <span className="font-semibold text-slate-900">{kindLabel(r.request_kind)}</span>,
+    },
+    {
+      key: 'sub',
+      header: 'Loại con',
+      width: 'minmax(0,1fr)',
+      cardLabel: true,
+      cell: (r) => <span className="text-slate-600">{r.sub_type_code || 'Mặc định'}</span>,
+    },
+    {
+      key: 'mode',
+      header: 'Chế độ duyệt',
+      width: 'minmax(0,1fr)',
+      cell: (r) => <StatusPill tone="blue">{r.mode === 'PROCEDURE' ? 'Procedure BPMN' : 'Duyệt trực tiếp'}</StatusPill>,
+    },
+    {
+      key: 'definition',
+      header: 'Quy trình liên kết',
+      width: 'minmax(0,1.5fr)',
+      cardFull: true,
+      cardLabel: true,
+      cell: (r) => (
+        <span className="text-slate-700">
+          {!r.definition_id
+            ? '—'
+            : definitionNames === null
+              ? 'Đã liên kết (chưa tải được tên quy trình)'
+              : (definitionNames[r.definition_id] ?? 'Quy trình không còn trong danh mục')}
         </span>
       ),
-      children: (
-        <div className="grid gap-5 xl:grid-cols-[320px_minmax(0,1fr)] pt-2">
-          <aside className="space-y-4 rounded-xl border border-slate-200 bg-slate-50/60 p-4">
-            <div className="flex items-center justify-between pb-2 border-b border-slate-200">
-              <h2 className="text-sm font-bold text-slate-800">Lịch tự động hàng ngày</h2>
-              {data.settings?.enabled ? (
-                <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 text-xs">Đang bật</Badge>
-              ) : (
-                <Badge className="bg-slate-100 text-slate-600 border-slate-200 text-xs">Đang tắt</Badge>
-              )}
-            </div>
-            <div className="space-y-2 text-xs text-slate-600">
-              <p><strong className="text-slate-700">Múi giờ:</strong> {data.settings?.timezone || '—'}</p>
-              <p><strong className="text-slate-700">Giờ chạy:</strong> {data.settings ? `${String(data.settings.run_hour).padStart(2, '0')}:00 hàng ngày (${data.settings.timezone})` : '—'}</p>
-              <p><strong className="text-slate-700">Tích phép từ tháng:</strong> {data.settings?.from_month ? data.settings.from_month.split('-').reverse().join('/') : '—'}</p>
-              <p><strong className="text-slate-700">Tự động chốt phép cuối năm:</strong> {data.settings?.carryover_enabled ? 'Bật' : 'Tắt'}</p>
-              <p><strong className="text-slate-700">Lần thành công gần nhất:</strong> {data.settings?.last_success_date ? formatDateVn(data.settings.last_success_date) : '—'}</p>
-            </div>
-            {data.settings?.last_error && (
-              <div role="alert" className="p-2.5 rounded bg-red-50 border border-red-200 text-xs text-red-700 flex items-center gap-2">
-                <AlertTriangle className="size-4 shrink-0 text-red-600" />
-                <span>{data.settings.last_error}</span>
-              </div>
-            )}
-            <p className="text-[11px] text-slate-500 leading-relaxed">
-              Hằng ngày tác vụ cộng phép các tháng đã kết thúc, hết hạn phép chuyển quá hạn và (khi bật) chốt phép cuối năm: chuyển phép cho loại được chuyển, reset phần còn lại của loại không được chuyển. Chạy lại không ghi trùng.
-            </p>
-            <div className="flex flex-col gap-2 pt-2 border-t border-slate-200">
-              <Button
-                disabled={busy}
-                onClick={() =>
-                  setAction({
-                    title: 'Cấu hình tác vụ quỹ phép',
-                    fields: [
-                      {
-                        key: 'enabled',
-                        label: 'Tự động chạy',
-                        options: yesNo,
-                        value: String(data.settings?.enabled ?? false),
-                      },
-                      {
-                        key: 'fromMonth',
-                        label: 'Tháng bắt đầu tích phép',
-                        type: 'month',
-                        value:
-                          data.settings?.from_month ||
-                          new Date().toISOString().slice(0, 7),
-                      },
-                      {
-                        key: 'timezone',
-                        label: 'Múi giờ',
-                        value: data.settings?.timezone || 'Asia/Ho_Chi_Minh',
-                      },
-                      {
-                        key: 'runHour',
-                        label: 'Giờ chạy hàng ngày (0–23)',
-                        type: 'number',
-                        min: 0,
-                        max: 23,
-                        value: data.settings?.run_hour ?? 2,
-                      },
-                      {
-                        key: 'carryoverEnabled',
-                        label: 'Tự động chốt phép cuối năm (chuyển + reset)',
-                        options: yesNo,
-                        value: String(data.settings?.carryover_enabled ?? false),
-                      },
-                    ],
-                    submit: (v) =>
-                      send('/operations/automation', {
-                        ...v,
-                        enabled: v.enabled === 'true',
-                        carryoverEnabled: v.carryoverEnabled === 'true',
-                        runHour: Number(v.runHour),
-                      }),
-                  })
-                }
-                className="bg-blue-600 hover:bg-blue-700 text-white text-xs h-8 flex items-center justify-center gap-1.5 shadow-xs"
-              >
-                <Settings className="size-3.5" />
-                <span>Cấu hình lịch</span>
-              </Button>
-              <Popconfirm
-                title="Chạy tác vụ quỹ phép ngay?"
-                description="Ghi sổ cộng phép các tháng còn thiếu, hết hạn phép chuyển và chốt cuối năm nếu đang bật. Chạy lại không ghi trùng."
-                okText="Chạy ngay"
-                cancelText="Quay lại"
-                okType="primary"
-                onConfirm={() =>
-                  void sendRaw('/operations/automation/run')
-                    .then((r) =>
-                      setRunResult({
-                        summary: runSummary(r?.data),
-                        details: runDetails(r?.data),
-                        skippedRun:
-                          (r?.data as { skipped?: boolean } | undefined)
-                            ?.skipped === true,
-                      }),
-                    )
-                    .catch(() => undefined)
-                }
-              >
-                <Button
-                  variant="outline"
-                  disabled={busy || !data.settings}
-                  className="text-xs h-8 flex items-center justify-center gap-1.5"
-                >
-                  <Play className="size-3.5 text-emerald-600" />
-                  <span>Chạy tác vụ ngay</span>
-                </Button>
-              </Popconfirm>
-            </div>
-          </aside>
-          <div className="space-y-4">
-            {yearEnd && (
-              <section className="rounded-xl border border-slate-200 bg-white p-4 space-y-2">
-                <h2 className="text-sm font-bold text-slate-800">
-                  Checklist cuối năm {yearEnd.year} (còn {yearEnd.daysToYearEnd} ngày)
-                </h2>
-                {yearEnd.warnCarryoverOff && (
-                  <div role="alert" className="p-2.5 rounded bg-amber-50 border border-amber-200 text-xs text-amber-800 flex items-center gap-2">
-                    <AlertTriangle className="size-4 shrink-0 text-amber-600" />
-                    <span>Còn không quá 60 ngày hết năm nhưng "Tự động chốt phép cuối năm" đang Tắt: phép tồn sẽ không được chuyển hoặc reset tự động; cần bật hoặc bấm "Chốt phép cuối năm" ở trang Quỹ phép.</span>
-                  </div>
-                )}
-                <ul className="text-xs text-slate-700 space-y-1.5">
-                  <li>
-                    Tự động chốt cuối năm: <strong>{yearEnd.carryoverEnabled ? 'Bật' : 'Tắt'}</strong>.
-                  </li>
-                  <li>
-                    Được chuyển sang năm sau:{' '}
-                    {yearEnd.carryoverTypes.length
-                      ? yearEnd.carryoverTypes
-                          .map((t) => `${t.name} (tối đa ${t.maxCarryoverDays} ngày)`)
-                          .join('; ')
-                      : 'không có loại nghỉ nào'}
-                    .
-                  </li>
-                  <li>
-                    Reset về 0 cuối năm:{' '}
-                    {yearEnd.resetTypes?.length
-                      ? yearEnd.resetTypes.map((t) => t.name).join('; ')
-                      : 'không có loại nghỉ nào'}
-                    {yearEnd.resetsLastYear !== undefined &&
-                      ` (năm ${yearEnd.year - 1} đã reset ${yearEnd.resetsLastYear} quỹ)`}
-                    .
-                  </li>
-                  {yearEnd.pendingRequests !== undefined && (
-                    <li className={yearEnd.pendingRequests ? 'font-semibold text-amber-700' : ''}>
-                      Đơn nghỉ trừ quỹ đang chờ duyệt trong năm: {yearEnd.pendingRequests}
-                      {yearEnd.pendingRequests > 0 &&
-                        ' (quỹ có đơn chờ sẽ bị bỏ qua khi chốt; cần duyệt hoặc hủy trước)'}
-                      .
-                    </li>
-                  )}
-                  <li>
-                    Hạn dùng phép chuyển:{' '}
-                    {yearEnd.carryoverTypes.length
-                      ? yearEnd.carryoverTypes
-                          .map((t) => `${t.name}: hết hạn cuối tháng ${t.expiryMonth}`)
-                          .join('; ')
-                      : '—'}
-                  </li>
-                  <li>
-                    Phép đã chuyển: vào năm {yearEnd.year} có {yearEnd.carryoversCurrentYear} quỹ, vào năm {yearEnd.year + 1} có {yearEnd.carryoversNextYear} quỹ.
-                  </li>
-                  <li>
-                    Phép chuyển quá hạn chưa xử lý hết hạn: {yearEnd.expiredPendingCount}
-                    {yearEnd.expiredPendingCount > 0 && ' (bấm "Chạy tác vụ ngay" để xử lý)'}.
-                  </li>
-                  <li>
-                    Đối soát số dư đầu năm: {yearEnd.reconcileMismatchCount === 0 ? 'khớp sổ giao dịch' : `${yearEnd.reconcileMismatchCount} quỹ chênh lệch so với sổ giao dịch`}.
-                  </li>
-                </ul>
-              </section>
-            )}
-            <Table<Run>
-              size="small"
-              rowKey="id"
-              dataSource={data.runs}
-              pagination={{
-                pageSize: 15,
-                showSizeChanger: true,
-                showTotal: (total, range) => `Hiển thị ${range[0]}–${range[1]} / ${total} lần chạy`,
-              }}
-              scroll={{ x: 700, y: 520 }}
-              columns={[
-                {
-                  title: 'Thời điểm',
-                  dataIndex: 'started_at',
-                  width: 180,
-                  render: stamp,
-                },
-                {
-                  title: 'Kết quả',
-                  dataIndex: 'status',
-                  width: 140,
-                  render: (s) =>
-                    s === 'SUCCEEDED' ? (
-                      <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 text-xs">Thành công</Badge>
-                    ) : (
-                      <Badge className="bg-rose-50 text-rose-700 border-rose-200 text-xs">Thất bại</Badge>
-                    ),
-                },
-                {
-                  title: 'Số giao dịch mới',
-                  dataIndex: 'result',
-                  width: 150,
-                  render: (v) => {
-                    const sm = runSummary(v);
-                    return sm ? (
-                      <span className="text-xs text-slate-700">
-                        {sm.createdTransactions} mới · {sm.skipped} đã có
-                        {sm.missingContract ? ` · ${sm.missingContract} thiếu HĐ` : ''}
-                        {sm.blocked ? ` · ${sm.blocked} chờ đơn` : ''}
-                      </span>
-                    ) : (
-                      '—'
-                    );
-                  },
-                },
-                {
-                  title: 'Chi tiết lỗi / Báo cáo',
-                  dataIndex: 'error',
-                  render: (v) => <span className="text-xs text-slate-600">{v || 'Hoàn tất'}</span>,
-                },
-              ]}
-              expandable={{
-                expandedRowRender: (r) => (
-                  <ul className="list-disc space-y-1 rounded-lg border border-slate-200 bg-slate-50 py-3 pl-8 pr-3 text-xs text-slate-700">
-                    {(r.status === 'SUCCEEDED'
-                      ? runDetails(r.result)
-                      : [r.error || 'Tác vụ thất bại']
-                    ).map((line, i) => (
-                      <li key={i}>{line}</li>
-                    ))}
-                  </ul>
-                ),
-              }}
-            />
-          </div>
+    },
+    {
+      key: 'status',
+      header: 'Cấu hình',
+      width: '6.5rem',
+      cell: (r) =>
+        r.configuration_status === 'CONFLICT' ? (
+          <StatusPill tone="red">Cần đối soát</StatusPill>
+        ) : (
+          <StatusPill tone="green">Hoạt động</StatusPill>
+        ),
+    },
+    {
+      key: 'actions',
+      header: 'Thao tác',
+      width: '12rem',
+      cardFull: true,
+      cell: (r) => (
+        <div className="flex flex-wrap gap-1.5">
+          <Button variant="outline" disabled={busy} onClick={() => void rule(r)} className="h-8 px-2.5 text-xs">
+            Chỉnh cấu hình
+          </Button>
+          {r.mode === 'PROCEDURE' && r.definition_id ? (
+            <Button
+              variant="outline"
+              disabled={busy}
+              onClick={() => setMappingTarget({ bindingId: r.id, definitionId: r.definition_id as string })}
+              className="h-8 px-2.5 text-xs"
+            >
+              Ánh xạ trường
+            </Button>
+          ) : null}
         </div>
       ),
-    });
+    },
+  ];
 
-  if (canIntegration)
-    tabs.push({
-      key: 'workflow',
-      label: (
-        <span className="flex items-center gap-1.5 text-xs font-medium">
-          <GitBranch className="size-3.5" />
-          <span>Quy trình liên module (Procedure)</span>
-        </span>
+  const workflowColumns: DataColumn<Workflow>[] = [
+    {
+      key: 'expand',
+      header: '',
+      width: '2.25rem',
+      cardOrder: -1,
+      cell: (r, ctx) => (
+        <ExpandToggle expanded={ctx.expanded} onClick={ctx.toggle} label={`Chi tiết liên kết ${r.instance_code || r.id}`} />
       ),
-      children: (
-        <div className="space-y-5 pt-2">
-          <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50/70 p-3 rounded-lg border border-slate-200">
+    },
+    {
+      key: 'kind',
+      header: 'Loại đơn',
+      width: 'minmax(0,0.9fr)',
+      cardGrow: true,
+      cardOrder: -1,
+      cell: (r) => <span className="font-medium text-slate-800">{kindLabel(r.request_kind)}</span>,
+    },
+    {
+      key: 'employee',
+      header: 'Đơn / nhân viên',
+      width: 'minmax(0,1.4fr)',
+      cardFull: true,
+      cell: (r) => (
+        <div className="min-w-0">
+          <span className="block truncate font-semibold text-slate-800">{r.employee_label ?? 'Nhân viên không còn'}</span>
+          {r.title ? <span className="block truncate text-[11px] text-slate-500">{r.title}</span> : null}
+        </div>
+      ),
+    },
+    {
+      key: 'instance',
+      header: 'Hồ sơ Procedure',
+      width: 'minmax(0,1fr)',
+      cardLabel: true,
+      cell: (r) => <span className="font-mono text-blue-700">{r.instance_code || 'Đang tạo'}</span>,
+    },
+    {
+      key: 'status',
+      header: 'Trạng thái',
+      width: 'minmax(0,1.1fr)',
+      cell: (r) => (
+        <div className="space-y-1">
+          <StatusPill tone={SYNC_STATUS[r.status]?.tone ?? 'slate'}>{SYNC_STATUS[r.status]?.label ?? r.status}</StatusPill>
+          {r.status === 'CONFLICT' ? (
+            <p className="text-[11px] text-rose-700">Đối soát {r.related_instances.length} instance liên quan trước khi tiếp tục.</p>
+          ) : null}
+        </div>
+      ),
+    },
+    {
+      key: 'attempts',
+      header: 'Lần thử',
+      width: '4rem',
+      cardLabel: true,
+      cell: (r) => <span className="font-mono">{r.attempts}</span>,
+    },
+    {
+      key: 'error',
+      header: 'Lỗi gần nhất',
+      width: 'minmax(0,1.2fr)',
+      cardFull: true,
+      cell: (r) => <span className="block break-words text-slate-500">{r.last_error || '—'}</span>,
+    },
+    {
+      key: 'actions',
+      header: 'Thao tác',
+      width: '10.5rem',
+      cell: (r) =>
+        canRelink(r) ? (
+          <Popconfirm
+            title="Gắn lại quy trình cho đơn này? Thao tác được ghi nhật ký."
+            okText="Gắn lại"
+            cancelText="Quay lại"
+            onConfirm={() => void send(`/operations/workflows/${r.id}/retry`).catch(() => undefined)}
+          >
             <Button
-              onClick={() => void rule()}
-              className="bg-blue-600 hover:bg-blue-700 text-white text-xs h-8 flex items-center gap-1.5 shadow-xs"
+              variant="outline"
+              disabled={busy}
+              className="h-8 gap-1 border-blue-200 px-2.5 text-xs text-blue-600 hover:bg-blue-50"
             >
-              <Settings className="size-3.5" />
-              <span>Cấu hình quy trình mới</span>
+              <RotateCw className="size-3" aria-hidden />
+              <span>Gắn lại quy trình</span>
             </Button>
-            <span className="text-xs text-slate-500">
-              Chỉ áp dụng cho đơn mới; đơn đã liên kết giữ nguyên quy trình tại thời điểm gửi.
-            </span>
-          </div>
+          </Popconfirm>
+        ) : null,
+    },
+  ];
 
-          {bindingWarnings.length > 0 && (
-            <div
-              role="alert"
-              className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900"
-            >
-              <AlertTriangle className="size-4 shrink-0 text-amber-600" />
-              <span>
-                Đã lưu cấu hình nhưng cần lưu ý: {bindingWarnings.join(' ')}
-              </span>
-            </div>
-          )}
+  const workflowPanel = (
+    <div className="space-y-4">
+      <SettingsSection
+        icon={WorkflowIcon}
+        tone="violet"
+        title="Gán quy trình phê duyệt cho loại đơn"
+        description="Chỉ áp dụng cho đơn mới; đơn đã liên kết giữ nguyên quy trình tại thời điểm gửi."
+        actions={
+          <Button onClick={() => void rule()} className="h-9 gap-1.5 px-4 text-xs font-semibold">
+            <Settings className="size-4" aria-hidden />
+            <span>Cấu hình quy trình mới</span>
+          </Button>
+        }
+        bodyClassName="space-y-3"
+      >
+        {bindingWarnings.length > 0 ? (
+          <InfoNote tone="amber" role="alert">
+            Đã lưu cấu hình nhưng cần lưu ý: {bindingWarnings.join(' ')}
+          </InfoNote>
+        ) : null}
 
-          {rulesNeedingDirect(data.rules, data.procedureAvailable).length > 0 && (
-            <div
-              role="alert"
-              className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900"
-            >
-              <span className="flex items-center gap-2">
-                <AlertTriangle className="size-4 shrink-0 text-amber-600" />
-                <span>
-                  Procedure Engine đang không khả dụng nhưng còn{' '}
-                  {rulesNeedingDirect(data.rules, data.procedureAvailable).length}{' '}
-                  cấu hình duyệt qua Procedure. Gửi đơn thuộc các loại này sẽ bị chặn
-                  (mã PROCEDURE_UNAVAILABLE) cho đến khi Procedure hoạt động lại.
-                </span>
+        {needDirect.length > 0 ? (
+          <InfoNote tone="amber" role="alert">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <span className="min-w-0 flex-1 basis-64">
+                Procedure Engine đang không khả dụng nhưng còn {needDirect.length} cấu hình duyệt qua Procedure. Gửi đơn thuộc các loại
+                này sẽ bị chặn (mã PROCEDURE_UNAVAILABLE) cho đến khi Procedure hoạt động lại.
               </span>
               <Popconfirm
                 title="Chuyển tất cả cấu hình Procedure sang duyệt trực tiếp trong HRM?"
@@ -688,10 +878,7 @@ export default function OperationsScreen() {
                   setBusy(true);
                   setError('');
                   const failed: string[] = [];
-                  for (const r of rulesNeedingDirect(
-                    data.rules,
-                    data.procedureAvailable,
-                  ))
+                  for (const r of needDirect)
                     await hrmFetch('/operations/workflow-rules', {
                       method: 'POST',
                       body: JSON.stringify({
@@ -699,322 +886,155 @@ export default function OperationsScreen() {
                         subTypeCode: r.sub_type_code || undefined,
                         mode: 'DIRECT',
                       }),
-                    }).catch(() =>
-                      failed.push(kinds.find((k) => k.value === r.request_kind)?.label ?? r.request_kind),
-                    );
-                  if (failed.length)
-                    setError(`Không chuyển được: ${failed.join(', ')}`);
+                    }).catch(() => failed.push(kindLabel(r.request_kind)));
+                  if (failed.length) setError(`Không chuyển được: ${failed.join(', ')}`);
                   await load().catch(() => undefined);
                   setBusy(false);
                 }}
               >
-                <Button
-                  variant="outline"
-                  disabled={busy}
-                  className="h-7 border-amber-400 px-2 text-xs"
-                >
+                <Button variant="outline" disabled={busy} className="h-8 border-amber-400 px-2.5 text-xs">
                   Chuyển sang duyệt trực tiếp
                 </Button>
               </Popconfirm>
             </div>
+          </InfoNote>
+        ) : null}
+
+        <ApprovalPolicyCard />
+      </SettingsSection>
+
+      <SettingsSection
+        icon={GitBranch}
+        tone="blue"
+        title="Quy tắc chuyển tiếp Procedure"
+        description={`${data.rules.length} quy tắc gán loại đơn với quy trình duyệt.`}
+      >
+        <DataList
+          label="Quy tắc chuyển tiếp Procedure"
+          rows={data.rules}
+          columns={ruleColumns}
+          rowKey={(r) => r.id}
+          empty={
+            <EmptyPanel
+              icon={GitBranch}
+              title="Chưa có quy tắc nào"
+              description="Bấm Cấu hình quy trình mới để gán quy trình duyệt cho một loại đơn."
+            />
+          }
+        />
+      </SettingsSection>
+
+      <SettingsSection
+        icon={RefreshCw}
+        tone="orange"
+        title={`Trạng thái đồng bộ đơn (${data.workflows.length})`}
+        description="Tiến độ từng đơn đang duyệt qua Procedure; bấm mũi tên để xem chi tiết."
+      >
+        <DataList
+          label="Trạng thái đồng bộ đơn"
+          rows={data.workflows}
+          columns={workflowColumns}
+          rowKey={(r) => r.id}
+          pageSize={10}
+          renderExpanded={(row) => (
+            <div className="space-y-2 text-xs">
+              <p>
+                <strong className="text-slate-700">Quy trình:</strong>{' '}
+                {definitionNames?.[(row as Workflow & { definition_id?: string }).definition_id ?? ''] ?? 'Chưa tải được tên quy trình'}
+                {row.definition_version_id ? ' (đã chụp phiên bản khi gửi đơn)' : ''}
+              </p>
+              <p>
+                <strong className="text-slate-700">Tạo lúc:</strong> {stamp(row.created_at)}
+              </p>
+              {row.legacy_link_id ? (
+                <p>
+                  <strong className="text-slate-700">Nguồn:</strong> chuyển từ liên kết phiên bản cũ
+                </p>
+              ) : null}
+              {row.related_instances.length > 0 ? (
+                <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200 bg-white">
+                  <li className="px-3 py-1.5 text-[11px] font-bold text-slate-600">Hồ sơ Procedure liên quan</li>
+                  {row.related_instances.map((item, index) => (
+                    <li
+                      key={`${item.instanceId}:${item.sourceType}:${item.sourceId}`}
+                      className="flex items-center justify-between gap-3 px-3 py-1.5"
+                    >
+                      <span>{`Hồ sơ #${index + 1}`}</span>
+                      <span className="text-slate-500">{item.sourceType === 'hrm_request' ? 'Đơn HRM' : item.sourceType}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
           )}
+          empty={<EmptyPanel icon={RefreshCw} title="Chưa có đơn nào duyệt qua Procedure" />}
+        />
+      </SettingsSection>
+    </div>
+  );
 
-          <ApprovalPolicyCard />
+  // ------------------------------------------------------------------ Tab Nhật ký
+  const auditPanel = (
+    <SettingsSection
+      icon={History}
+      tone="slate"
+      title="Nhật ký nghiệp vụ (Audit Trail)"
+      description="Mọi thay đổi quan trọng trong HRM: ai làm, làm gì, lúc nào, trên đối tượng nào."
+    >
+      <HrmAuditTrail />
+    </SettingsSection>
+  );
 
-          <div className="space-y-2">
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-500 block">
-              Quy tắc chuyển tiếp Procedure
-            </span>
-            <Table<Rule>
-              size="small"
-              rowKey="id"
-              dataSource={data.rules}
-              pagination={false}
-              scroll={{ x: 900, y: 260 }}
-              columns={[
-                {
-                  title: 'Loại đơn',
-                  dataIndex: 'request_kind',
-                  render: (k) => (
-                    <span className="font-semibold text-slate-900">
-                      {kinds.find((v) => v.value === k)?.label || k}
-                    </span>
-                  ),
-                },
-                {
-                  title: 'Loại con',
-                  dataIndex: 'sub_type_code',
-                  render: (v) => <span className="text-xs text-slate-600">{v || 'Mặc định'}</span>,
-                },
-                {
-                  title: 'Chế độ duyệt',
-                  dataIndex: 'mode',
-                  render: (v) => (
-                    <Badge className="bg-blue-50 text-blue-700 border-blue-200 text-xs">
-                      {v === 'PROCEDURE' ? 'Procedure BPMN' : 'Duyệt trực tiếp'}
-                    </Badge>
-                  ),
-                },
-                {
-                  title: 'Quy trình liên kết',
-                  dataIndex: 'definition_id',
-                  render: (v) => (
-                    <span className="text-xs text-slate-700">
-                      {!v
-                        ? '—'
-                        : definitionNames === null
-                          ? 'Đã liên kết (chưa tải được tên quy trình)'
-                          : (definitionNames[v] ?? 'Quy trình không còn trong danh mục')}
-                    </span>
-                  ),
-                },
-                {
-                  title: 'Cấu hình',
-                  dataIndex: 'configuration_status',
-                  render: (v) =>
-                    v === 'CONFLICT' ? (
-                      <Badge className="bg-rose-50 text-rose-700 border-rose-200 text-xs">Cần đối soát</Badge>
-                    ) : (
-                      <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 text-xs">Hoạt động</Badge>
-                    ),
-                },
-                {
-                  title: 'Thao tác',
-                  render: (_, r) => (
-                    <div className="flex gap-1.5">
-                      <Button
-                        variant="outline"
-                        disabled={busy}
-                        onClick={() => void rule(r)}
-                        className="h-7 text-xs px-2"
-                      >
-                        Chỉnh cấu hình
-                      </Button>
-                      {r.mode === 'PROCEDURE' && r.definition_id && (
-                        <Button
-                          variant="outline"
-                          disabled={busy}
-                          onClick={() =>
-                            setMappingTarget({
-                              bindingId: r.id,
-                              definitionId: r.definition_id as string,
-                            })
-                          }
-                          className="h-7 text-xs px-2"
-                        >
-                          Ánh xạ trường
-                        </Button>
-                      )}
-                    </div>
-                  ),
-                },
-              ]}
-            />
-          </div>
-
-          <div className="space-y-2">
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-500 block">
-              Trạng thái đồng bộ đơn ({data.workflows.length})
-            </span>
-            <Table<Workflow>
-              size="small"
-              rowKey="id"
-              dataSource={data.workflows}
-              scroll={{ x: 1100, y: 440 }}
-              pagination={{
-                pageSize: 15,
-                showSizeChanger: true,
-                showTotal: (total, range) => `Hiển thị ${range[0]}–${range[1]} / ${total} tiến độ`,
-              }}
-              columns={[
-                {
-                  title: 'Loại đơn',
-                  dataIndex: 'request_kind',
-                  width: 140,
-                  render: (k) => (
-                    <span className="font-medium text-slate-800 text-xs">
-                      {kinds.find((v) => v.value === k)?.label || k}
-                    </span>
-                  ),
-                },
-                {
-                  title: 'Đơn / nhân viên',
-                  render: (_, r) => (
-                    <div className="min-w-0">
-                      <span className="block truncate text-xs font-semibold text-slate-800">
-                        {r.employee_label ?? 'Nhân viên không còn'}
-                      </span>
-                      {r.title && (
-                        <span className="block truncate text-[11px] text-slate-500">{r.title}</span>
-                      )}
-                    </div>
-                  ),
-                },
-                {
-                  title: 'Hồ sơ Procedure',
-                  dataIndex: 'instance_code',
-                  render: (v) => <span className="font-mono text-xs text-blue-700">{v || 'Đang tạo'}</span>,
-                },
-                {
-                  title: 'Trạng thái',
-                  dataIndex: 'status',
-                  render: (value, row) => (
-                    <div className="space-y-1">
-                      <Badge
-                        className={`text-xs ${SYNC_STATUS[value]?.tone ?? 'bg-slate-100 text-slate-700 border-slate-200'}`}
-                      >
-                        {SYNC_STATUS[value]?.label ?? value}
-                      </Badge>
-                      {value === 'CONFLICT' && (
-                        <p className="text-[11px] text-rose-700">
-                          Đối soát {row.related_instances.length} instance liên quan trước khi tiếp tục.
-                        </p>
-                      )}
-                    </div>
-                  ),
-                },
-                {
-                  title: 'Lần thử',
-                  dataIndex: 'attempts',
-                  width: 80,
-                  render: (v) => <span className="font-mono text-xs">{v}</span>,
-                },
-                {
-                  title: 'Lỗi gần nhất',
-                  dataIndex: 'last_error',
-                  render: (v) => <span className="text-xs text-slate-500 truncate block max-w-xs">{v || '—'}</span>,
-                },
-                {
-                  title: 'Thao tác',
-                  render: (_, r) =>
-                    canRelink(r) ? (
-                      <Popconfirm
-                        title="Gắn lại quy trình cho đơn này? Thao tác được ghi nhật ký."
-                        okText="Gắn lại"
-                        cancelText="Quay lại"
-                        onConfirm={() =>
-                          void send(`/operations/workflows/${r.id}/retry`).catch(
-                            () => undefined,
-                          )
-                        }
-                      >
-                        <Button
-                          variant="outline"
-                          disabled={busy}
-                          className="h-7 text-xs px-2 flex items-center gap-1 text-blue-600 border-blue-200 hover:bg-blue-50"
-                        >
-                          <RotateCw className="size-3" />
-                          <span>Gắn lại quy trình</span>
-                        </Button>
-                      </Popconfirm>
-                    ) : null,
-                },
-              ]}
-              expandable={{
-                expandedRowRender: (row) => (
-                  <div className="space-y-2 text-xs bg-slate-50 p-3 rounded-lg border border-slate-200">
-                    <p>
-                      <strong className="text-slate-700">Quy trình:</strong>{' '}
-                      {definitionNames?.[(row as Workflow & { definition_id?: string }).definition_id ?? ''] ?? 'Chưa tải được tên quy trình'}
-                      {row.definition_version_id ? ' (đã chụp phiên bản khi gửi đơn)' : ''}
-                    </p>
-                    <p>
-                      <strong className="text-slate-700">Tạo lúc:</strong> {stamp(row.created_at)}
-                    </p>
-                    {row.legacy_link_id && (
-                      <p><strong className="text-slate-700">Nguồn:</strong> chuyển từ liên kết phiên bản cũ</p>
-                    )}
-                    {row.related_instances.length > 0 && (
-                      <Table
-                        size="small"
-                        rowKey={(item) =>
-                          `${item.instanceId}:${item.sourceType}:${item.sourceId}`
-                        }
-                        pagination={false}
-                        dataSource={row.related_instances}
-                        columns={[
-                          {
-                            title: 'Hồ sơ Procedure liên quan',
-                            render: (_, _item, index) => `Hồ sơ #${index + 1}`,
-                          },
-                          {
-                            title: 'Nguồn',
-                            dataIndex: 'sourceType',
-                            render: (v: string) =>
-                              v === 'hrm_request' ? 'Đơn HRM' : v,
-                          },
-                        ]}
-                      />
-                    )}
-                  </div>
-                ),
-              }}
-            />
-          </div>
-        </div>
-      ),
-    });
-
-  if (can('hrm.audit.read'))
-    tabs.push({
-      key: 'audit',
-      label: (
-        <span className="flex items-center gap-1.5 text-xs font-medium">
-          <History className="size-3.5" />
-          <span>Nhật ký nghiệp vụ (Audit Trail)</span>
-        </span>
-      ),
-      children: <HrmAuditTrail />,
-    });
+  const panels: Record<OpsTab, React.ReactNode> = {
+    automation: automationPanel,
+    workflow: workflowPanel,
+    audit: auditPanel,
+  };
 
   return (
-    <div className="space-y-6 max-w-[1600px] mx-auto">
-      {/* 1. Page Header Card */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white rounded-xl border border-slate-200 p-5 shadow-xs">
-        <div className="flex items-center gap-3">
-          <div className="size-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
-            <Cpu className="size-5" />
-          </div>
-          <div>
-            <h1 className="text-xl font-bold text-slate-900 tracking-tight">
-              Vận hành Tự động & Tích hợp Quy trình
-            </h1>
-            <p className="text-xs text-slate-500 max-w-[85ch]">
-              Giám sát worker tự động tính quỹ phép, quy tắc chuyển tiếp Procedure BPMN và nhật ký kiểm toán hệ thống.
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
+    <div className="@container mx-auto max-w-[1600px] space-y-4">
+      <PageTitle
+        title="Vận hành & tích hợp"
+        description="Giám sát tác vụ tự động tính phép, liên kết quy trình Procedure và nhật ký kiểm toán hệ thống."
+        actions={
           <Button
             variant="outline"
             onClick={() => void load().catch((e) => setError(e.message))}
             disabled={busy}
-            className="text-xs h-9 flex items-center gap-1.5"
+            className="h-9 gap-1.5 px-3 text-xs font-semibold"
           >
-            <RefreshCw className={`size-3.5 ${busy ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`size-3.5 ${busy ? 'animate-spin' : ''}`} aria-hidden />
             <span>Làm mới</span>
           </Button>
-        </div>
-      </div>
+        }
+      />
 
-      {error && (
-        <div
-          role="alert"
-          className="rounded-xl border border-red-200 bg-red-50 p-4 text-xs font-semibold text-red-700 shadow-xs flex items-center gap-2"
-        >
-          <AlertTriangle className="size-4 shrink-0 text-red-600" />
-          <span>{error}</span>
+      {error ? (
+        <InfoNote tone="red" role="alert">
+          {error}
+        </InfoNote>
+      ) : null}
+
+      {allowedTabs.length === 0 ? (
+        <div role="alert" className="rounded-xl border border-slate-200 bg-white p-6 text-center text-sm text-slate-500">
+          Bạn không có quyền xem vận hành và tích hợp.
         </div>
+      ) : (
+        <>
+          {allowedTabs.length > 1 ? (
+            <SectionTabs
+              tabs={allowedTabs.map((t) => tabMeta[t])}
+              active={activeTab}
+              onChange={(id) => selectTab(id as OpsTab)}
+              ariaLabel="Vận hành và tích hợp"
+              idPrefix={TAB_PREFIX}
+            />
+          ) : null}
+          {activeTab ? <div {...kitPanelProps(TAB_PREFIX, activeTab)}>{panels[activeTab]}</div> : null}
+        </>
       )}
 
-      {/* 2. Tabs Container Card */}
-      <div className="rounded-xl border border-slate-200 bg-white shadow-xs p-5">
-        <Tabs items={tabs} />
-      </div>
-
-      {action && (
-        <HrmActionDialog action={action} onClose={() => setAction(null)} />
-      )}
+      {action && <HrmActionDialog action={action} onClose={() => setAction(null)} />}
       {mappingTarget && (
         <ProcedureFieldMappingsDialog
           key={mappingTarget.bindingId + mappingTarget.definitionId}
@@ -1025,7 +1045,7 @@ export default function OperationsScreen() {
       )}
       {runResult && (
         <Dialog open onOpenChange={(open) => !open && setRunResult(null)}>
-          <DialogContent className="sm:max-w-[460px] bg-white">
+          <DialogContent className="max-h-[90dvh] overflow-y-auto bg-white sm:max-w-[460px]">
             <DialogHeader>
               <DialogTitle>Kết quả chạy tác vụ quỹ phép</DialogTitle>
             </DialogHeader>
@@ -1033,27 +1053,27 @@ export default function OperationsScreen() {
               <p className="text-sm text-slate-600">{runResult.details[0]}</p>
             ) : (
               <>
-              <dl className="grid grid-cols-3 gap-3 text-center text-sm">
-                <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3">
-                  <dt className="text-xs text-slate-600">Giao dịch tạo mới</dt>
-                  <dd className="text-xl font-bold text-emerald-700">{runResult.summary.createdTransactions}</dd>
-                </div>
-                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-                  <dt className="text-xs text-slate-600">Bỏ qua (đã xử lý)</dt>
-                  <dd className="text-xl font-bold text-slate-700">{runResult.summary.skipped}</dd>
-                </div>
-                <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
-                  <dt className="text-xs text-slate-600">Cần xử lý</dt>
-                  <dd className="text-xl font-bold text-amber-700">
-                    {(runResult.summary.missingContract ?? 0) + (runResult.summary.blocked ?? 0)}
-                  </dd>
-                </div>
-              </dl>
-              <ul className="list-disc space-y-1 pl-5 text-xs text-slate-700">
-                {runResult.details.map((line, i) => (
-                  <li key={i}>{line}</li>
-                ))}
-              </ul>
+                <dl className="grid grid-cols-1 gap-3 text-center text-sm sm:grid-cols-3">
+                  <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3">
+                    <dt className="text-xs text-slate-600">Giao dịch tạo mới</dt>
+                    <dd className="text-xl font-bold text-emerald-700">{runResult.summary.createdTransactions}</dd>
+                  </div>
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                    <dt className="text-xs text-slate-600">Bỏ qua (đã xử lý)</dt>
+                    <dd className="text-xl font-bold text-slate-700">{runResult.summary.skipped}</dd>
+                  </div>
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+                    <dt className="text-xs text-slate-600">Cần xử lý</dt>
+                    <dd className="text-xl font-bold text-amber-700">
+                      {(runResult.summary.missingContract ?? 0) + (runResult.summary.blocked ?? 0)}
+                    </dd>
+                  </div>
+                </dl>
+                <ul className="list-disc space-y-1 pl-5 text-xs text-slate-700">
+                  {runResult.details.map((line, i) => (
+                    <li key={i}>{line}</li>
+                  ))}
+                </ul>
               </>
             )}
             <div className="flex justify-end">

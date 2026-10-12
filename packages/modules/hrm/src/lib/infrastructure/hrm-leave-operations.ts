@@ -11,37 +11,67 @@ import {
 import type { PoolClient } from 'pg';
 import {
   assertOpenDate,
+  assertOpenRange,
+  effectiveDayKind,
+  isUnassignedSunday,
   isoDate,
   lockEmployee,
   resolvePolicy,
+  scheduleDayTypeOf,
   shiftForDate,
 } from './hrm-time.js';
-import { requireDate, requireText, requireUuid } from './hrm-validation.js';
+import { applyScheduleDayKind } from '../domain/work-schedule.js';
+import { requireDate, requireUuid } from './hrm-validation.js';
+import { descriptionColumn, pickDescription } from './hrm-request-reason-input.js';
 import { unpostedUsableEntitlement } from './hrm-annual-leave.js';
+import { assertNoRequestOverlap } from './hrm-request-overlap.js';
+import { leaveDayWeight } from './hrm-leave-day-preview.js';
 
 async function todayInDb(db: PoolClient): Promise<string> {
   return isoDate((await db.query('SELECT CURRENT_DATE AS today')).rows[0].today);
 }
 import type { CreateLeaveRequestPayload } from '@enterprise-platform/contracts-hrm';
+import { calendarDatesOf, resolveRequestTime } from './hrm-request-time.js';
+
+import { pendingReservedDays } from './hrm-leave-balance.js';
 
 export { ensureLeaveBalance, applyLeaveDelta } from './hrm-leave-balance.js';
+/** Thời gian đã chốt của đơn nghỉ (sau khi server tính theo ca). */
+export interface LeaveTime {
+  readonly fromDate: string;
+  readonly toDate: string;
+  readonly duration: number;
+  /** Có khi đơn gửi theo "từ ngày giờ đến ngày giờ" (ISO UTC); null với cách cũ (ngày + số ngày). */
+  readonly fromAt: string | null;
+  readonly toAt: string | null;
+}
+
 export async function leaveDays(
   db: PoolClient,
   tenant: string,
   body: CreateLeaveRequestPayload,
 ) {
-  requireDate(body.fromDate, 'fromDate');
-  requireDate(body.toDate, 'toDate');
   requireUuid(body.employeeId, 'employeeId');
   requireUuid(body.leaveTypeId, 'leaveTypeId');
-  requireText(body.reason, 'reason', 2000);
-  if (
-    body.toDate < body.fromDate ||
-    Date.parse(body.toDate) - Date.parse(body.fromDate) > 366 * 86400000 ||
-    !Number.isFinite(body.duration) ||
-    body.duration <= 0
-  )
-    throw new BadRequestException('Khoảng nghỉ hoặc số lượng không hợp lệ');
+  // Lý do nghỉ là loại nghỉ (leaveTypeId); mô tả tự do là tùy chọn (`description`, bí danh cũ `reason`).
+  pickDescription(body);
+  // Thời gian: "từ ngày giờ đến ngày giờ" (server tính số ngày/giờ theo ca) hoặc cách cũ (khoảng ngày + số ngày).
+  const timed = body.fromAt !== undefined || body.toAt !== undefined;
+  let legacy: { fromDate: string; toDate: string; duration: number } | null = null;
+  if (!timed) {
+    const fromDate = requireDate(body.fromDate, 'fromDate');
+    const toDate = requireDate(body.toDate, 'toDate');
+    const duration = body.duration;
+    if (
+      toDate < fromDate ||
+      Date.parse(toDate) - Date.parse(fromDate) > 366 * 86400000 ||
+      typeof duration !== 'number' ||
+      !Number.isFinite(duration) ||
+      duration <= 0
+    )
+      throw new BadRequestException('Khoảng nghỉ hoặc số lượng không hợp lệ');
+    legacy = { fromDate, toDate, duration };
+  }
   const typeResult = await db.query(
     `SELECT * FROM hrm_schema.leave_types WHERE tenant_id=$1 AND id=$2 AND active=true AND deleted_at IS NULL`,
     [tenant, body.leaveTypeId],
@@ -65,14 +95,16 @@ export async function leaveDays(
         'Chứng từ chưa tải lên hoặc không thuộc nhân viên',
       );
   }
+  if (timed) return timedLeaveDays(db, tenant, body, type);
+  const { fromDate, toDate, duration } = legacy!;
   const dates = await db.query(
     `SELECT to_char(d,'YYYY-MM-DD') AS date,c.day_kind FROM generate_series($2::date,$3::date,'1 day') d LEFT JOIN hrm_schema.work_calendar c ON c.tenant_id=$1 AND c.work_date=d::date`,
-    [tenant, body.fromDate, body.toDate],
+    [tenant, fromDate, toDate],
   );
   const days: { date: string; quantity: number; paidMinutes: number }[] = [];
+  // Kiểm tra kỳ công một lần cho cả khoảng nghỉ (trước đây mỗi ngày một lần, mỗi lần khoá và cập nhật dòng kỳ công).
+  await assertOpenRange(db, tenant, fromDate, toDate);
   for (const day of dates.rows) {
-    await assertOpenDate(db, tenant, day.date);
-    if (day.day_kind === 'OFF' || day.day_kind === 'HOLIDAY') continue;
     const policy = await resolvePolicy(
       db,
       tenant,
@@ -80,6 +112,13 @@ export async function leaveDays(
       day.date,
       body.employeeId,
     );
+    // Ngày nghỉ hằng tuần (chính sách chấm công) không bị trừ phép; work_calendar nếu có thì ưu tiên.
+    // Lịch phân ca tường minh của nhân viên (nghỉ / lễ / làm bù) thắng cả hai.
+    const dayKind = applyScheduleDayKind(
+      effectiveDayKind(day.date, day.day_kind, policy?.config_json),
+      await scheduleDayTypeOf(db, tenant, body.employeeId, day.date),
+    );
+    if (dayKind === 'OFF' || dayKind === 'HOLIDAY') continue;
     const shift = await shiftForDate(
       db,
       tenant,
@@ -87,36 +126,88 @@ export async function leaveDays(
       day.date,
       String(policy?.config_json.timezone || 'Asia/Ho_Chi_Minh'),
     );
-    if (!shift)
+    if (!shift) {
+      // Chủ nhật chưa phân ca là ngày trống: không trừ phép, không báo thiếu ca.
+      if (isUnassignedSunday(day.date, dayKind, false)) continue;
       throw new BadRequestException(
         `Chưa phân ca ngày ${day.date}; không thể xác định định mức phép`,
       );
+    }
     const minutes =
       (Date.parse(shift.window.end) - Date.parse(shift.window.start)) / 60000 -
       shift.window.breakMinutes;
     days.push({
       date: day.date,
-      quantity: type.unit === 'HOURS' ? minutes / 60 : 1,
+      quantity: type.unit === 'HOURS' ? minutes / 60 : leaveDayWeight(minutes),
       paidMinutes: type.paid ? minutes : 0,
     });
   }
   if (!days.length)
     throw new BadRequestException('Khoảng nghỉ không có ngày làm việc');
   const total = days.reduce((sum, d) => sum + d.quantity, 0);
-  if (days.length === 1 && body.duration <= total) {
-    if (type.unit === 'DAYS' && ![0.5, 1].includes(body.duration))
+  if (days.length === 1 && duration <= total) {
+    if (type.unit === 'DAYS' && ![0.5, 1].includes(duration))
       throw new BadRequestException(
         'Nghỉ theo ngày hỗ trợ nửa ngày hoặc cả ngày',
       );
     days[0].paidMinutes = Math.round(
-      (days[0].paidMinutes * body.duration) / total,
+      (days[0].paidMinutes * duration) / total,
     );
-    days[0].quantity = body.duration;
-  } else if (Math.abs(total - body.duration) > 0.005)
+    days[0].quantity = duration;
+  } else if (Math.abs(total - duration) > 0.005)
     throw new BadRequestException(
       `Số lượng nghỉ theo lịch làm việc là ${total} ${type.unit === 'HOURS' ? 'giờ' : 'ngày'}`,
     );
-  return { type, days };
+  const time: LeaveTime = { fromDate, toDate, duration, fromAt: null, toAt: null };
+  return { type, days, time };
+}
+
+/**
+ * Đơn nghỉ theo "từ ngày giờ đến ngày giờ": số ngày/giờ do server tính theo ca của nhân viên
+ * (`resolveRequestTime`), không tin số client tự tính. Client gửi kèm `duration` thì phải khớp.
+ */
+async function timedLeaveDays(
+  db: PoolClient,
+  tenant: string,
+  body: CreateLeaveRequestPayload,
+  type: Record<string, any>,
+) {
+  const { timezone, fromMs, toMs, result } = await resolveRequestTime(
+    db,
+    tenant,
+    body.employeeId,
+    body.fromAt,
+    body.toAt,
+    type.unit === 'HOURS' ? 'HOURS' : 'DAYS',
+  );
+  if (result.errors.length) throw new BadRequestException(result.errors.join(' '));
+  const days: { date: string; quantity: number; paidMinutes: number }[] = [];
+  for (const day of result.days) {
+    if (day.minutes <= 0) continue;
+    await assertOpenDate(db, tenant, day.date);
+    days.push({
+      date: day.date,
+      quantity: day.quantity,
+      paidMinutes: type.paid ? day.minutes : 0,
+    });
+  }
+  const duration = Math.round(days.reduce((sum, d) => sum + d.quantity, 0) * 100) / 100;
+  if (
+    body.duration !== undefined &&
+    (typeof body.duration !== 'number' || Math.abs(body.duration - duration) > 0.005)
+  )
+    throw new BadRequestException(
+      `Số lượng nghỉ theo thời gian đã chọn là ${duration} ${type.unit === 'HOURS' ? 'giờ' : 'ngày'}`,
+    );
+  const calendar = calendarDatesOf(fromMs, toMs, timezone);
+  const time: LeaveTime = {
+    fromDate: [calendar[0], days[0].date].sort()[0],
+    toDate: [calendar[calendar.length - 1], days[days.length - 1].date].sort().pop() as string,
+    duration,
+    fromAt: new Date(fromMs).toISOString(),
+    toAt: new Date(toMs).toISOString(),
+  };
+  return { type, days, time };
 }
 export async function createLeave(
   db: PoolClient,
@@ -125,20 +216,23 @@ export async function createLeave(
   body: CreateLeaveRequestPayload,
 ) {
   await lockEmployee(db, tenant, body.employeeId);
-  const { type, days } = await leaveDays(db, tenant, body);
-  const overlap = await db.query(
-    `SELECT id FROM hrm_schema.leave_requests WHERE tenant_id=$1 AND employee_id=$2 AND status IN ('PENDING','APPROVED') AND daterange(from_date,to_date,'[]') && daterange($3::date,$4::date,'[]')`,
-    [tenant, body.employeeId, body.fromDate, body.toDate],
-  );
-  if (overlap.rowCount)
-    throw new ConflictException('Đã có đơn nghỉ trùng khoảng thời gian');
+  const { type, days, time } = await leaveDays(db, tenant, body);
+  // Nghỉ phép, công tác, làm thêm giờ đều ảnh hưởng bảng lương: không chồng ngày với đơn khác chờ duyệt / đã duyệt.
+  await assertNoRequestOverlap(db, tenant, body.employeeId, {
+    kind: 'leave',
+    fromDate: time.fromDate,
+    toDate: time.toDate,
+    fromAt: time.fromAt,
+    toAt: time.toAt,
+  });
   const years = new Map<number, number>();
   for (const day of days) {
     const year = Number(day.date.slice(0, 4));
     years.set(year, (years.get(year) || 0) + day.quantity);
   }
-  const usableExtra = new Map<number, number>();
-  if (type.deduct_balance)
+  // Quỹ phép chỉ áp dụng cho phép năm: nghỉ không lương không bao giờ kiểm tra/trừ quỹ.
+  const deductsBalance = Boolean(type.deduct_balance) && type.paid !== false;
+  if (deductsBalance)
     for (const [year, amount] of years) {
       const balance = await ensureLeaveBalance(
         db,
@@ -156,70 +250,48 @@ export async function createLeave(
         Number(balance.accrued),
         await todayInDb(db),
       );
-      usableExtra.set(year, usable.extra);
-      if (
-        Number(balance.remaining) +
-          usable.extra -
-          Number(balance.pending) -
-          amount <
-        -Number(type.negative_limit) - 0.005
-      )
+      // Đơn nghỉ khác đang chờ duyệt cũng đã "chiếm" quỹ: không cho nhiều đơn cùng vượt quỹ rồi mới lỗi lúc duyệt.
+      const pending = await pendingReservedDays(db, tenant, body.employeeId, body.leaveTypeId, year);
+      const available = Number(balance.remaining) + usable.extra - pending;
+      const fmt = (n: number) => String(Math.round(n * 100) / 100);
+      const detail = `còn ${fmt(Number(balance.remaining) + usable.extra)} ngày, đang chờ duyệt ${fmt(pending)} ngày, đơn này ${fmt(amount)} ngày`;
+      // Chưa có quỹ phép năm hoặc quỹ bằng 0: không có gì để trừ, không được lập đơn, kể cả khi loại nghỉ có hạn mức âm.
+      if (available <= 0.005)
+        throw new BadRequestException(
+          usable.projected !== null && !usable.advanceAllowed
+            ? `Quỹ phép năm ${year} không đủ (${detail}): loại nghỉ không cho ứng phép, chỉ dùng phần đã tích luỹ đến tháng hiện tại`
+            : `Chưa có quỹ phép năm ${year} khả dụng (quỹ hiện bằng 0): không thể lập đơn nghỉ phép năm. Liên hệ nhân sự để cấp phép hoặc chọn lý do nghỉ khác.`,
+        );
+      // Phép năm không cho âm: bỏ qua hạn mức âm đã cấu hình; loại nghỉ khác dùng hạn mức âm của chính nó.
+      const negativeLimit = type.is_annual ? 0 : Number(type.negative_limit);
+      if (available - amount < -negativeLimit - 0.005)
         throw new BadRequestException(
           usable.projected === null || usable.advanceAllowed
-            ? `Quỹ phép năm ${year} không đủ, đã tính cả đơn chờ duyệt`
-            : `Quỹ phép năm ${year} không đủ: loại nghỉ không cho ứng phép, chỉ dùng phần đã tích luỹ đến tháng hiện tại`,
+            ? `Quỹ phép năm ${year} không đủ (${detail})`
+            : `Quỹ phép năm ${year} không đủ (${detail}): loại nghỉ không cho ứng phép, chỉ dùng phần đã tích luỹ đến tháng hiện tại`,
         );
-      await applyLeaveDelta(db, tenant, balance.id, {
-        pending: amount,
-        remaining: 0,
-      });
     }
-  const result = await db.query(
-    `INSERT INTO hrm_schema.leave_requests (tenant_id,employee_id,leave_type_id,from_date,to_date,duration,reason,attachment_file_id,balance_reserved) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
-    [
-      tenant,
-      body.employeeId,
-      body.leaveTypeId,
-      body.fromDate,
-      body.toDate,
-      body.duration,
-      body.reason,
-      body.attachmentFileId || null,
-      type.deduct_balance,
-    ],
-  );
-  if (type.deduct_balance)
-    for (const [year, amount] of years) {
-      const balance = await ensureLeaveBalance(
-        db,
-        tenant,
-        body.employeeId,
-        body.leaveTypeId,
-        year,
-      );
-      const carry = await reserveCarryover(
-        db,
-        tenant,
-        body.employeeId,
-        body.leaveTypeId,
-        result.rows[0].id,
-        days,
-        year,
-      );
-      // pending already includes this request. Only its portion backed by valid carryover is usable.
-      const normalAvailable =
-        Number(balance.remaining) +
-        (usableExtra.get(year) ?? 0) -
-        (Number(balance.pending) - amount) -
-        carry.allAvailable;
-      if (
-        amount - carry.allocated >
-        normalAvailable + Number(type.negative_limit) + 0.005
+  const base = [
+    tenant,
+    body.employeeId,
+    body.leaveTypeId,
+    time.fromDate,
+    time.toDate,
+    time.duration,
+    descriptionColumn(pickDescription(body)),
+    body.attachmentFileId || null,
+    deductsBalance,
+  ];
+  // Cột from_at/to_at (migration 0047) chỉ ghi khi đơn gửi theo từ ngày giờ đến ngày giờ.
+  const result = time.fromAt
+    ? await db.query(
+        `INSERT INTO hrm_schema.leave_requests (tenant_id,employee_id,leave_type_id,from_date,to_date,duration,reason,attachment_file_id,balance_reserved,from_at,to_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
+        [...base, time.fromAt, time.toAt],
       )
-        throw new BadRequestException(
-          'Phép chuyển không còn hiệu lực cho ngày nghỉ; quỹ còn lại không đủ',
-        );
-    }
+    : await db.query(
+        `INSERT INTO hrm_schema.leave_requests (tenant_id,employee_id,leave_type_id,from_date,to_date,duration,reason,attachment_file_id,balance_reserved) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+        base,
+      );
   for (const day of days)
     await db.query(
       `INSERT INTO hrm_schema.leave_request_days (request_id,tenant_id,work_date,quantity,paid_minutes) VALUES ($1,$2,$3,$4,$5)`,
@@ -252,11 +324,7 @@ export async function transitionLeave(
   )
     throw new ConflictException('Trạng thái đơn không cho phép thao tác này');
   await lockEmployee(db, tenant, leave.employee_id);
-  const dates = await db.query(
-    `SELECT to_char(d,'YYYY-MM-DD') AS date FROM generate_series($1::date,$2::date,'1 day') d`,
-    [leave.from_date, leave.to_date],
-  );
-  for (const day of dates.rows) await assertOpenDate(db, tenant, day.date);
+  await assertOpenRange(db, tenant, isoDate(leave.from_date), isoDate(leave.to_date));
   const allocations = await db.query(
     `SELECT extract(year FROM work_date)::int AS year,sum(quantity)::numeric AS amount FROM hrm_schema.leave_request_days WHERE request_id=$1 AND tenant_id=$2 GROUP BY 1`,
     [id, tenant],
@@ -282,14 +350,38 @@ export async function transitionLeave(
         leave.leave_type_id,
         part.year,
       );
-      const amount = Number(part.amount),
-        usedDelta =
+      const amount = Number(part.amount);
+      if (target === 'APPROVED' && !leave.pending_held) {
+        // Đơn không giữ chỗ khi gửi: kiểm tra quỹ tại thời điểm duyệt.
+        const limit = await db.query(
+          `SELECT CASE WHEN is_annual THEN 0 ELSE negative_limit END AS negative_limit FROM hrm_schema.leave_types WHERE tenant_id=$1 AND id=$2`,
+          [tenant, leave.leave_type_id],
+        );
+        const usable = await unpostedUsableEntitlement(
+          db,
+          tenant,
+          leave.employee_id,
+          leave.leave_type_id,
+          part.year,
+          Number(balance.accrued),
+          await todayInDb(db),
+        );
+        if (
+          Number(balance.remaining) + usable.extra - amount <
+          -Number(limit.rows[0]?.negative_limit ?? 0) - 0.005
+        )
+          throw new BadRequestException(
+            `Quỹ phép năm ${part.year} không đủ để duyệt đơn`,
+          );
+      }
+      const usedDelta =
           target === 'APPROVED'
             ? amount
             : leave.status === 'APPROVED'
               ? -amount
               : 0;
-      const pendingDelta = leave.status === 'PENDING' ? -amount : 0;
+      const pendingDelta =
+        leave.status === 'PENDING' && leave.pending_held ? -amount : 0;
       const updated = await applyLeaveDelta(db, tenant, balance.id, {
         pending: pendingDelta,
         used: usedDelta,
@@ -313,6 +405,32 @@ export async function transitionLeave(
           ],
         );
     }
+  if (
+    target === 'APPROVED' &&
+    leave.status === 'PENDING' &&
+    leave.balance_reserved &&
+    !leave.pending_held
+  ) {
+    // Phép chuyển chỉ được phân bổ khi duyệt (không giữ chỗ lúc gửi đơn).
+    const dayRows = await db.query(
+      `SELECT to_char(work_date,'YYYY-MM-DD') AS date,quantity FROM hrm_schema.leave_request_days WHERE request_id=$1 AND tenant_id=$2`,
+      [id, tenant],
+    );
+    const days = dayRows.rows.map((r) => ({
+      date: r.date as string,
+      quantity: Number(r.quantity),
+    }));
+    for (const part of parts)
+      await reserveCarryover(
+        db,
+        tenant,
+        leave.employee_id,
+        leave.leave_type_id,
+        id,
+        days,
+        part.year,
+      );
+  }
   await transitionCarryover(
     db,
     tenant,

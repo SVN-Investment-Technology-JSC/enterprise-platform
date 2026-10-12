@@ -1,4 +1,3 @@
-import { settleLeaveOnTermination } from '../infrastructure/hrm-leave-settlement.js';
 import {
   insertContract,
   mapContract as mapContractRecord,
@@ -14,10 +13,10 @@ import {
   lifecycleAudit,
   timestamp,
 } from '../infrastructure/hrm-lifecycle.js';
-import { randomUUID } from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
 import { loadDirectManager } from '../infrastructure/hrm-personnel-decisions.js';
 import { hrmTransaction } from '../infrastructure/hrm-transaction.js';
+import { ensureCoreEmployeeLink, refreshCoreEmployeeIdentity } from '../infrastructure/hrm-core-link.js';
 import { isoDate, lockEmployee } from '../infrastructure/hrm-time.js';
 import {
   requireDate,
@@ -39,6 +38,8 @@ import type {
   HrmEmploymentContract,
   CreateEmploymentContractRequest,
   HrmCareerHistoryItem,
+  HrmCorePerson,
+  InitializeHrmEmployeesRequest,
 } from '@enterprise-platform/contracts-hrm';
 import {
   BadRequestException,
@@ -57,6 +58,12 @@ import {
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
+import {
+  canSeeSalaryFields,
+  redactContractSalary,
+  redactProfileSalary,
+} from '../infrastructure/hrm-salary-visibility.js';
+import { redactSensitiveProfile } from '../infrastructure/hrm-profile-visibility.js';
 
 @Controller('v1')
 export class HrmEmployeeController {
@@ -69,20 +76,15 @@ export class HrmEmployeeController {
     @Req() req: Request,
     @Query('page') pageStr?: string,
     @Query('page_size') sizeStr?: string,
-    @Query('include_inactive') includeInactive?: string,
   ) {
     const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.read');
-    const statusFilter =
-      includeInactive === '1'
-        ? ''
-        : "AND employment_status NOT IN ('RESIGNED','TERMINATED')";
     const page = Math.max(1, Number.parseInt(pageStr || '1', 10) || 1),
       size = Math.min(
         100,
         Math.max(1, Number.parseInt(sizeStr || '100', 10) || 100),
       );
     const result = await pool.query(
-      `SELECT employee_id AS "employeeId",employee_code AS "employeeCode",full_name AS "fullName",count(*) OVER()::int AS total FROM hrm_schema.employee_directory WHERE tenant_id=$1 AND deleted_at IS NULL ${statusFilter} ORDER BY full_name,employee_id LIMIT $2 OFFSET $3`,
+      `SELECT employee_id AS "employeeId",employee_code AS "employeeCode",full_name AS "fullName",department_name AS "department",count(*) OVER()::int AS total FROM hrm_schema.employee_directory WHERE tenant_id=$1 AND deleted_at IS NULL AND employment_status NOT IN ('RESIGNED','TERMINATED') ORDER BY full_name,employee_id LIMIT $2 OFFSET $3`,
       [tenantId, size, (page - 1) * size],
     );
     return {
@@ -103,10 +105,9 @@ export class HrmEmployeeController {
     @Query('page_size') sizeStr = '20',
     @Query('search') search = '',
   ) {
-    const { pool, tenantId } = await this.ctx.getContext(
-      req,
-      'hrm.employee.read',
-    );
+    const context = await this.ctx.getContext(req, 'hrm.employee.read');
+    const { pool, tenantId } = context;
+    const seesSalary = canSeeSalaryFields(context.principal.permissions, false);
     const page = Math.max(1, parseInt(pageStr, 10) || 1);
     const pageSize = Math.min(100, Math.max(1, parseInt(sizeStr, 10) || 20));
     const filter = `tenant_id = $1 AND deleted_at IS NULL
@@ -118,12 +119,27 @@ export class HrmEmployeeController {
       args,
     );
     const rows = await pool.query(
-      `SELECT * FROM hrm_schema.employee_directory WHERE ${filter}
-      ORDER BY employee_code, employee_id LIMIT $4 OFFSET $5`,
+      `SELECT ed.*,
+        (SELECT COALESCE(ec.sign_date, ec.effective_from) FROM hrm_schema.employment_contracts ec
+         WHERE ec.tenant_id = ed.tenant_id AND ec.employee_id = ed.employee_id AND ec.deleted_at IS NULL
+           AND ec.parent_contract_id IS NULL
+         ORDER BY (ec.status = 'ACTIVE') DESC, (ec.contract_type IN ('DEFINITE', 'INDEFINITE')) DESC, (ec.sign_date IS NOT NULL) DESC, ec.effective_from DESC, ec.created_at DESC LIMIT 1) AS contract_sign_date,
+        (SELECT ec.contract_type FROM hrm_schema.employment_contracts ec
+         WHERE ec.tenant_id = ed.tenant_id AND ec.employee_id = ed.employee_id AND ec.deleted_at IS NULL
+           AND ec.parent_contract_id IS NULL
+         ORDER BY (ec.status = 'ACTIVE') DESC, (ec.contract_type IN ('DEFINITE', 'INDEFINITE')) DESC, (ec.sign_date IS NOT NULL) DESC, ec.effective_from DESC, ec.created_at DESC LIMIT 1) AS contract_type
+      FROM hrm_schema.employee_directory ed WHERE ${filter}
+      ORDER BY ed.employee_code, ed.employee_id LIMIT $4 OFFSET $5`,
       [...args, pageSize, (page - 1) * pageSize],
     );
+    const seesSensitive = this.ctx.has(context, 'hrm.employee.sensitive');
     return {
-      data: rows.rows.map((row) => this.mapProfile(row)),
+      data: rows.rows.map((row) => {
+        const isSelf = row.user_id === context.principal.userId;
+        const profile = this.mapProfile(row);
+        const visible = seesSensitive || isSelf ? profile : redactSensitiveProfile(profile);
+        return seesSalary || isSelf ? visible : redactProfileSalary(visible);
+      }),
       meta: { page, pageSize, total: count.rows[0].total },
     };
   }
@@ -147,6 +163,40 @@ export class HrmEmployeeController {
         fullName: row.full_name,
         email: row.email,
       })),
+    };
+  }
+
+  /**
+   * Người đã khai báo ở Core (nhân sự hoặc tài khoản) nhưng chưa có hồ sơ HRM. Đây là nguồn duy nhất của thao tác
+   * "Khởi tạo hồ sơ HRM": HRM không tự tạo người mới.
+   */
+  @Get('employees/core-people')
+  async listCorePeople(@Req() req: Request) {
+    const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.employee.manage');
+    const result = await pool.query(
+      `SELECT e.id AS employee_id, e.user_id, e.full_name, e.work_email AS email, 'employee' AS source
+         FROM core_schema.employees e
+        WHERE e.tenant_id = $1 AND e.deleted_at IS NULL
+          AND NOT EXISTS (SELECT 1 FROM hrm_schema.employee_profiles p
+                           WHERE p.tenant_id = e.tenant_id AND p.employee_id = e.id AND p.deleted_at IS NULL)
+        UNION ALL
+       SELECT NULL, u.id, u.full_name, u.email, 'user'
+         FROM core_schema.users u
+        WHERE u.status = 'active' AND u.is_active = true
+          AND NOT EXISTS (SELECT 1 FROM core_schema.employees e WHERE e.user_id = u.id AND e.deleted_at IS NULL)
+        ORDER BY 3, 2`,
+      [tenantId],
+    );
+    return {
+      data: result.rows.map(
+        (row): HrmCorePerson => ({
+          employeeId: (row.employee_id as string | null) ?? null,
+          userId: (row.user_id as string | null) ?? null,
+          fullName: row.full_name as string,
+          email: (row.email as string | null) ?? null,
+          source: row.source as 'employee' | 'user',
+        }),
+      ),
     };
   }
 
@@ -184,7 +234,15 @@ export class HrmEmployeeController {
            WHERE e.tenant_id = $1 AND e.user_id = $2 AND e.deleted_at IS NULL LIMIT 1`,
           [tenantId, principal.userId],
         );
-        if (baseRes.rows[0]) profileRow = baseRes.rows[0];
+        if (baseRes.rows[0]) {
+          const baseRow = baseRes.rows[0];
+          if (!baseRow.employee_code)
+            throw new NotFoundException({
+              code: 'HRM_PROFILE_NOT_INITIALIZED',
+              message: 'Hồ sơ nhân sự HRM của bạn chưa được khởi tạo. Vui lòng liên hệ bộ phận Nhân sự.',
+            });
+          profileRow = baseRow;
+        }
       }
 
       if (!profileRow) {
@@ -355,6 +413,87 @@ export class HrmEmployeeController {
     }
   }
 
+  /**
+   * Khởi tạo hồ sơ HRM cho nhiều người đã có ở Core trong một giao dịch (nạp lại sau khi reset HRM). Mỗi dòng như
+   * `POST /employees`; sai một dòng thì không tạo dòng nào. Mã nhân viên không được trùng nhau trong cùng lô.
+   */
+  /** Đồng bộ họ tên, email công việc của nhân sự có tài khoản theo tài khoản Core hiện tại (Core đổi thì HRM theo). */
+  @Post('employees/refresh-from-core')
+  async refreshFromCore(@Req() req: Request) {
+    const { pool, tenantId, principal } = await this.ctx.getContext(req, 'hrm.employee.manage');
+    const updated = await hrmTransaction(pool, async (client) => {
+      const ids = await refreshCoreEmployeeIdentity(client, tenantId);
+      if (ids.length)
+        await lifecycleAudit(client, tenantId, principal.userId, 'EMPLOYEE_IDENTITY_REFRESHED_FROM_CORE', tenantId, {
+          count: ids.length,
+        });
+      return ids;
+    });
+    return { data: { updated: updated.length } };
+  }
+
+  @Post('employees/initialize-bulk')
+  async initializeEmployeesBulk(@Req() req: Request, @Body() body: InitializeHrmEmployeesRequest) {
+    const { pool, tenantId, principal } = await this.ctx.getContext(req, 'hrm.employee.manage');
+    const items = body?.items;
+    if (!Array.isArray(items) || !items.length || items.length > 200)
+      throw new BadRequestException('Chọn từ 1 đến 200 người để khởi tạo hồ sơ HRM.');
+    const codes = new Set<string>();
+    const seen = new Set<string>();
+    const resolved = items.map((item, index) => {
+      const row = `Dòng ${index + 1}`;
+      this.validateProfile(item);
+      const raw = item as unknown as Record<string, unknown>;
+      if (raw['fullName'] !== undefined || raw['workEmail'] !== undefined)
+        throw new BadRequestException({
+          code: 'HRM_CORE_OWNED_FIELD',
+          message: `${row}: họ tên và email công việc do Core quản lý.`,
+        });
+      const employeeId = item.employeeId ? requireUuid(item.employeeId, `${row}: nhân sự Core`) : null;
+      const userId = item.userId ? requireUuid(item.userId, `${row}: tài khoản`) : null;
+      if (Boolean(employeeId) === Boolean(userId))
+        throw new BadRequestException(`${row}: chọn một người đã khai báo ở Core.`);
+      const key = (employeeId ?? userId) as string;
+      if (seen.has(key)) throw new BadRequestException(`${row}: người này bị chọn hai lần.`);
+      seen.add(key);
+      const code = item.employeeCode.trim().toLowerCase();
+      if (codes.has(code)) throw new BadRequestException(`${row}: mã nhân viên "${item.employeeCode}" bị trùng trong lô.`);
+      codes.add(code);
+      return { item, employeeId, userId };
+    });
+    try {
+      const created = await hrmTransaction(pool, async (client) => {
+        const targets: { id: string; item: CreateHrmEmployeeRequest; source: string }[] = [];
+        // Tài khoản chưa có nhân sự: tạo dòng liên kết (sao chép họ tên, email từ tài khoản Core) trong cùng giao dịch.
+        for (const row of resolved)
+          targets.push({
+            id: row.employeeId ?? (await ensureCoreEmployeeLink(client, tenantId, row.userId as string)),
+            item: row.item,
+            source: row.employeeId ? 'core-employee' : 'core-user',
+          });
+        for (const target of targets) {
+          const core = await client.query(
+            `SELECT id FROM core_schema.employees WHERE tenant_id = $1 AND id = $2 AND deleted_at IS NULL FOR SHARE`,
+            [tenantId, target.id],
+          );
+          if (!core.rows[0]) throw new NotFoundException('Có nhân sự không tồn tại ở Core. Khai báo tại Core trước.');
+          await this.insertProfile(client, tenantId, target.id, principal.userId, target.item);
+          await lifecycleAudit(client, tenantId, principal.userId, 'EMPLOYEE_PROFILE_INITIALIZED', target.id, {
+            employeeCode: target.item.employeeCode,
+            source: target.source,
+            bulk: true,
+          });
+        }
+        return targets.map((t) => t.id);
+      });
+      return { data: { created: created.length, employeeIds: created } };
+    } catch (error) {
+      if ((error as { code?: string }).code === '23505')
+        throw new ConflictException('Có người đã có hồ sơ HRM hoặc mã nhân viên đã được sử dụng. Không tạo hồ sơ nào.');
+      throw error;
+    }
+  }
+
   @Post('employees')
   async createEmployee(
     @Req() req: Request,
@@ -365,49 +504,49 @@ export class HrmEmployeeController {
       'hrm.employee.manage',
     );
     this.validateProfile(body);
-    const fullName = requireText(body.fullName, 'Họ tên', 180);
-    const userId = body.userId ? requireUuid(body.userId, 'Tài khoản') : null;
-    const id = randomUUID();
-    try {
-      const row = await hrmTransaction(pool, async (client) => {
-        if (userId) {
-          const user = await client.query(
-            "SELECT id FROM core_schema.users WHERE id = $1 AND status='active' AND is_active = true",
-            [userId],
-          );
-          if (!user.rows[0])
-            throw new BadRequestException(
-              'Tài khoản không tồn tại hoặc đã ngừng hoạt động',
-            );
-        }
-        await client.query(
-          `INSERT INTO core_schema.employees (id, tenant_id, user_id, full_name, work_email)
-          VALUES ($1, $2, $3, $4, $5)`,
-          [id, tenantId, userId, fullName, body.workEmail?.trim() || null],
-        );
-        return this.insertProfile(client, tenantId, id, principal.userId, body);
+    const raw = body as unknown as Record<string, unknown>;
+    if (raw['fullName'] !== undefined || raw['workEmail'] !== undefined)
+      throw new BadRequestException({
+        code: 'HRM_CORE_OWNED_FIELD',
+        message: 'Họ tên và email công việc do Core quản lý. HRM chỉ khởi tạo hồ sơ cho nhân sự đã có ở Core.',
       });
-      return {
-        data: this.mapProfile({
-          ...row,
-          full_name: fullName,
-          user_id: userId,
-          work_email: body.workEmail,
-        }),
-      };
+    const coreEmployeeId = body.employeeId ? requireUuid(body.employeeId, 'Nhân sự Core') : null;
+    const userId = body.userId ? requireUuid(body.userId, 'Tài khoản') : null;
+    if (Boolean(coreEmployeeId) === Boolean(userId))
+      throw new BadRequestException('Chọn một người đã khai báo ở Core để khởi tạo hồ sơ HRM.');
+    try {
+      const id = await hrmTransaction(pool, async (client) => {
+        // Tài khoản chưa có nhân sự: tạo dòng liên kết (sao chép họ tên, email từ tài khoản Core) trong cùng giao dịch.
+        const id = coreEmployeeId ?? (await ensureCoreEmployeeLink(client, tenantId, userId as string));
+        const core = await client.query(
+          `SELECT id FROM core_schema.employees WHERE tenant_id = $1 AND id = $2 AND deleted_at IS NULL FOR SHARE`,
+          [tenantId, id],
+        );
+        if (!core.rows[0]) throw new NotFoundException('Nhân sự không tồn tại ở Core. Khai báo nhân sự tại Core trước.');
+        await this.insertProfile(client, tenantId, id, principal.userId, body);
+        await lifecycleAudit(client, tenantId, principal.userId, 'EMPLOYEE_PROFILE_INITIALIZED', id, {
+          employeeCode: body.employeeCode,
+          source: coreEmployeeId ? 'core-employee' : 'core-user',
+        });
+        return id;
+      });
+      const directory = await pool.query(
+        `SELECT * FROM hrm_schema.employee_directory WHERE tenant_id = $1 AND employee_id = $2`,
+        [tenantId, id],
+      );
+      return { data: this.mapProfile(directory.rows[0]) };
     } catch (error) {
       if ((error as { code?: string }).code === '23505')
-        throw new ConflictException(
-          'Mã nhân viên hoặc tài khoản đã được sử dụng',
-        );
+        throw new ConflictException('Nhân sự đã có hồ sơ HRM hoặc mã nhân viên đã được sử dụng');
       throw error;
     }
   }
 
+
   @Patch('my-profile')
   async updateMyProfile(
     @Req() req: Request,
-    @Body() body: UpdateEmployeeProfileRequest,
+    @Body() body: UpdateEmployeeProfileRequest & { fullName?: string },
   ) {
     const { pool, tenantId, principal } = await this.ctx.getContext(
       req,
@@ -419,53 +558,107 @@ export class HrmEmployeeController {
       principal.userId,
     );
     const targetEmployeeId = employee.employeeId;
+
+    const clean = (v: string | null | undefined) =>
+      v === undefined ? undefined : (v?.trim() || null);
+
+    // Họ tên, ngày sinh, CCCD (số, ngày cấp, nơi cấp) là thông tin định danh: thay đổi phải gửi đơn đính chính
+    // để được duyệt. Gửi lại đúng giá trị hiện tại thì bỏ qua (giao diện hay gửi nguyên cả biểu mẫu).
+    const current = (
+      await pool.query(
+        `SELECT date_of_birth, identity_card_number, identity_card_issued_date, identity_card_issued_place
+           FROM hrm_schema.employee_profiles WHERE tenant_id = $1 AND employee_id = $2`,
+        [tenantId, targetEmployeeId],
+      )
+    ).rows[0] as Record<string, unknown> | undefined;
+    const same = (incoming: string | null | undefined, existing: unknown) =>
+      incoming === undefined ||
+      (incoming ?? '') === (existing instanceof Date ? this.toDateString(existing) : String(existing ?? ''));
+    const protectedChanges: string[] = [];
+    if (body.fullName !== undefined && (body.fullName ?? '').trim() !== (employee.fullName ?? '').trim())
+      protectedChanges.push('fullName');
+    if (!same(clean(body.dateOfBirth), current?.date_of_birth)) protectedChanges.push('dateOfBirth');
+    if (!same(clean(body.identityCardNumber), current?.identity_card_number)) protectedChanges.push('identityCardNumber');
+    if (!same(clean(body.identityCardIssuedDate), current?.identity_card_issued_date))
+      protectedChanges.push('identityCardIssuedDate');
+    if (!same(clean(body.identityCardIssuedPlace), current?.identity_card_issued_place))
+      protectedChanges.push('identityCardIssuedPlace');
+    if (protectedChanges.length)
+      throw new BadRequestException({
+        code: 'HRM_PROFILE_CHANGE_REQUIRES_APPROVAL',
+        message:
+          'Họ tên, ngày sinh và giấy tờ định danh (CCCD) cần gửi đơn đính chính hồ sơ để được duyệt.',
+        fields: protectedChanges,
+      });
+    const updatedFullName = employee.fullName;
+
+    const personalEmail = clean(body.personalEmail);
+    if (personalEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(personalEmail)) {
+      throw new BadRequestException('Email cá nhân không hợp lệ');
+    }
+
+    const dateOfBirth = clean(body.dateOfBirth);
+    if (dateOfBirth) requireDate(dateOfBirth, 'Ngày sinh');
+
+    const identityCardIssuedDate = clean(body.identityCardIssuedDate);
+    if (identityCardIssuedDate)
+      requireDate(identityCardIssuedDate, 'Ngày cấp CCCD');
+
+    const gender = clean(body.gender);
+    if (gender && !['MALE', 'FEMALE', 'OTHER'].includes(gender)) {
+      throw new BadRequestException('Giới tính không hợp lệ');
+    }
+
+    const fieldMap: Array<[string, string | null | undefined]> = [
+      ['personal_email', personalEmail],
+      ['phone', clean(body.phone)],
+      ['gender', gender],
+      ['current_address', clean(body.currentAddress)],
+      ['permanent_address', clean(body.permanentAddress)],
+      ['emergency_contact_name', clean(body.emergencyContactName)],
+      ['emergency_contact_phone', clean(body.emergencyContactPhone)],
+      ['emergency_contact_relationship', clean(body.emergencyContactRelationship)],
+      ['marital_status', clean(body.maritalStatus)],
+      ['nationality', clean(body.nationality)],
+      ['ethnicity', clean(body.ethnicity)],
+      ['religion', clean(body.religion)],
+      ['place_of_birth', clean(body.placeOfBirth)],
+      ['hometown', clean(body.hometown)],
+    ];
+
+    const setClauses: string[] = [];
+    const values: unknown[] = [tenantId, targetEmployeeId];
+
+    for (const [col, val] of fieldMap) {
+      if (val !== undefined) {
+        values.push(val);
+        setClauses.push(`${col} = $${values.length}`);
+      }
+    }
+
+    const changedFields = fieldMap.filter(([, v]) => v !== undefined).map(([col]) => col);
+    values.push(principal.userId);
+    setClauses.push(`updated_by = $${values.length}`);
+    setClauses.push(`updated_at = now()`);
+
     const res = await pool.query(
-      `UPDATE hrm_schema.employee_profiles SET
-        personal_email = COALESCE($3, personal_email),
-        phone = COALESCE($4, phone),
-        date_of_birth = COALESCE($5, date_of_birth),
-        gender = COALESCE($6, gender),
-        current_address = COALESCE($7, current_address),
-        permanent_address = COALESCE($8, permanent_address),
-        emergency_contact_name = COALESCE($9, emergency_contact_name),
-        emergency_contact_phone = COALESCE($10, emergency_contact_phone),
-        emergency_contact_relationship = COALESCE($11, emergency_contact_relationship),
-        marital_status = COALESCE($12, marital_status),
-        nationality = COALESCE($13, nationality),
-        ethnicity = COALESCE($14, ethnicity),
-        religion = COALESCE($15, religion),
-        place_of_birth = COALESCE($16, place_of_birth),
-        hometown = COALESCE($17, hometown),
-        updated_by = $18,
-        updated_at = now()
-      WHERE tenant_id = $1 AND employee_id = $2
-      RETURNING *`,
-      [
-        tenantId,
-        targetEmployeeId,
-        body.personalEmail,
-        body.phone,
-        body.dateOfBirth,
-        body.gender,
-        body.currentAddress,
-        body.permanentAddress,
-        body.emergencyContactName,
-        body.emergencyContactPhone,
-        body.emergencyContactRelationship,
-        body.maritalStatus,
-        body.nationality,
-        body.ethnicity,
-        body.religion,
-        body.placeOfBirth,
-        body.hometown,
-        principal.userId,
-      ],
+      `UPDATE hrm_schema.employee_profiles
+       SET ${setClauses.join(', ')}
+       WHERE tenant_id = $1 AND employee_id = $2
+       RETURNING *`,
+      values,
     );
+    if (changedFields.length)
+      await lifecycleAudit(pool, tenantId, principal.userId, 'MY_PROFILE_UPDATED', targetEmployeeId, {
+        fields: changedFields,
+      });
 
     return {
       data: this.mapProfile({
-        ...res.rows[0],
-        full_name: employee.fullName,
+        ...(res.rows[0] ?? {}),
+        employee_id: targetEmployeeId,
+        tenant_id: tenantId,
+        full_name: updatedFullName,
         user_id: principal.userId,
       }),
     };
@@ -476,12 +669,13 @@ export class HrmEmployeeController {
     @Req() req: Request,
     @Param('employeeId') employeeId: string,
   ) {
-    const { pool, tenantId } = await this.ctx.getRequestContext(
+    const context = await this.ctx.getRequestContext(
       req,
       employeeId,
       'hrm.employee.read',
       'hrm.self.read',
     );
+    const { pool, tenantId } = context;
     requireUuid(employeeId, 'Nhân viên');
     const res = await pool.query(
       `SELECT * FROM hrm_schema.employee_directory
@@ -512,13 +706,19 @@ export class HrmEmployeeController {
     );
     const contracts = contractRes.rows.map((r) => this.mapContract(r));
 
+    const profile = this.mapProfile(
+      res.rows[0],
+      await this.managerOrg(pool, tenantId, employeeId),
+      dependents,
+      contracts,
+    );
+    const isSelf = res.rows[0].user_id === context.principal.userId;
+    const visible =
+      isSelf || this.ctx.has(context, 'hrm.employee.sensitive') ? profile : redactSensitiveProfile(profile);
     return {
-      data: this.mapProfile(
-        res.rows[0],
-        await this.managerOrg(pool, tenantId, employeeId),
-        dependents,
-        contracts,
-      ),
+      data: canSeeSalaryFields(context.principal.permissions, isSelf)
+        ? visible
+        : redactProfileSalary(visible),
       meta: { requestId: req.headers['x-request-id'] as string },
     };
   }
@@ -613,13 +813,7 @@ export class HrmEmployeeController {
     this.validateProfile(body);
     try {
       const row = await hrmTransaction(pool, async (client) => {
-        // Legacy callers provide a Core user ID. Preserve it when creating the master.
-        await client.query(
-          `INSERT INTO core_schema.employees (id, tenant_id, user_id, full_name, work_email)
-          SELECT id, $1, id, full_name, email FROM core_schema.users WHERE id = $2 AND status='active' AND is_active=true
-          ON CONFLICT (id) DO NOTHING`,
-          [tenantId, employeeId],
-        );
+        // Nhân sự phải đã có ở Core; HRM không tự tạo.
         const employee = await client.query(
           'SELECT id FROM core_schema.employees WHERE tenant_id = $1 AND id = $2 AND deleted_at IS NULL',
           [tenantId, employeeId],
@@ -783,59 +977,96 @@ export class HrmEmployeeController {
         if (input[key] !== undefined) {
           if (input[key] !== null && typeof input[key] !== 'string')
             throw new BadRequestException(`${key} phải là chuỗi hoặc null`);
-          changes[column] = input[key];
+          const val =
+            typeof input[key] === 'string' && (input[key] as string).trim() === ''
+              ? null
+              : input[key];
+          changes[column] = val;
         }
-      if (
-        body.joinDate !== undefined &&
-        body.joinDate !== isoDate(before.join_date)
-      )
-        throw new BadRequestException(
-          'Ngày vào làm ảnh hưởng công, phép và lương; cần điều chỉnh qua nghiệp vụ tuyển dụng thay vì sửa hồ sơ',
-        );
+
+      if (body.joinDate !== undefined) {
+        const jd =
+          typeof body.joinDate === 'string' ? body.joinDate.trim() : null;
+        if (!jd)
+          throw new BadRequestException('Ngày vào làm không được để trống');
+        requireDate(jd, 'Ngày vào làm');
+        changes['join_date'] = jd;
+      }
+
       for (const key of [
         'dateOfBirth',
         'identityCardIssuedDate',
         'identityCardExpiryDate',
         'officialDate',
-      ])
-        if (input[key] != null) requireDate(input[key], key);
-      if (body.officialDate && body.officialDate < isoDate(before.join_date))
+      ]) {
+        const val = changes[columns[key]];
+        if (val != null) requireDate(val, key);
+      }
+
+      // Nếu nhân viên đã có hợp đồng chính thức, ngày chính thức luôn đồng bộ theo ngày ký của hợp đồng
+      const activeContract = await db.query(
+        `SELECT COALESCE(sign_date, effective_from) AS sign_date
+         FROM hrm_schema.employment_contracts
+         WHERE tenant_id = $1 AND employee_id = $2 AND deleted_at IS NULL
+           AND parent_contract_id IS NULL AND status = 'ACTIVE'
+           AND contract_type = ANY($3::text[])
+         ORDER BY (sign_date IS NOT NULL) DESC, effective_from DESC, created_at DESC LIMIT 1`,
+        [tenantId, employeeId, ['DEFINITE', 'INDEFINITE']],
+      );
+      if (activeContract.rows[0]?.sign_date) {
+        changes['official_date'] = isoDate(activeContract.rows[0].sign_date);
+      }
+
+      const effectiveJoinDate =
+        (changes['join_date'] as string) ?? isoDate(before.join_date);
+      const effectiveOfficialDate =
+        changes['official_date'] !== undefined
+          ? (changes['official_date'] as string | null)
+          : before.official_date
+          ? isoDate(before.official_date)
+          : null;
+
+      if (
+        effectiveOfficialDate &&
+        effectiveJoinDate &&
+        effectiveOfficialDate < effectiveJoinDate
+      )
         throw new BadRequestException(
           'Ngày chính thức không được trước ngày vào làm',
         );
+
+      const effectiveGender = changes['gender'] as string | null | undefined;
       if (
-        body.gender != null &&
-        !['MALE', 'FEMALE', 'OTHER'].includes(body.gender)
+        effectiveGender != null &&
+        !['MALE', 'FEMALE', 'OTHER'].includes(effectiveGender)
       )
         throw new BadRequestException('Giới tính không hợp lệ');
+
       for (const key of ['personalEmail', 'workEmail'] as const) {
         const value = body[key];
         if (
           value != null &&
+          value !== '' &&
           (typeof value !== 'string' ||
             value.length > 255 ||
             !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value))
         )
           throw new BadRequestException(`${key} không hợp lệ`);
       }
-      if (body.fullName !== undefined)
-        requireText(body.fullName, 'Họ tên', 180);
+      // Họ tên và email công việc là dữ liệu gốc của Core: HRM không sửa. Gửi lại đúng giá trị hiện tại thì bỏ qua.
       if (body.fullName !== undefined || body.workEmail !== undefined) {
-        await db.query(
-          `UPDATE core_schema.employees SET
-           full_name=CASE WHEN $3 THEN $4 ELSE full_name END,
-           work_email=CASE WHEN $5 THEN $6 ELSE work_email END,
-           updated_at=clock_timestamp()
-           WHERE tenant_id=$1 AND id=$2 AND deleted_at IS NULL`,
-          [
-            tenantId,
-            employeeId,
-            body.fullName !== undefined,
-            body.fullName?.trim(),
-            body.workEmail !== undefined,
-            body.workEmail,
-          ],
+        const core = await db.query(
+          `SELECT full_name, work_email FROM core_schema.employees WHERE tenant_id=$1 AND id=$2 AND deleted_at IS NULL`,
+          [tenantId, employeeId],
         );
+        const changed =
+          (body.fullName !== undefined && (body.fullName ?? '').trim() !== (core.rows[0]?.full_name ?? '')) ||
+          (body.workEmail !== undefined && (body.workEmail ?? '') !== (core.rows[0]?.work_email ?? ''));
+        if (changed)
+          throw new BadRequestException({
+            code: 'HRM_CORE_OWNED_FIELD',
+            message: 'Họ tên và email công việc do Core quản lý. Đổi tại Core, HRM sẽ tự cập nhật.',
+          });
       }
       const updated = await updateLifecycleRow(
         db,
@@ -909,14 +1140,6 @@ export class HrmEmployeeController {
           inactive_reason: reason,
           updated_by: principal.userId,
         },
-      );
-      // Quyết toán phép năm tới ngày nghỉ; dùng vượt → thu hồi + khấu trừ lương.
-      await settleLeaveOnTermination(
-        db,
-        tenantId,
-        principal.userId,
-        employeeId,
-        date,
       );
       await lifecycleAudit(
         db,
@@ -1151,9 +1374,8 @@ export class HrmEmployeeController {
          COALESCE(pp.active, true) as active,
          COALESCE(assign.emp_count, 0)::int as active_employee_count
        FROM core_schema.organization_nodes pos
-       JOIN core_schema.organization_node_types pos_type
+       LEFT JOIN core_schema.organization_node_types pos_type
          ON pos.node_type_id = pos_type.id
-        AND pos_type.category = 'position'
        LEFT JOIN core_schema.organization_nodes unit
          ON pos.parent_id = unit.id
         AND unit.deleted_at IS NULL
@@ -1170,6 +1392,7 @@ export class HrmEmployeeController {
          GROUP BY node_id
        ) assign ON assign.node_id = pos.id
        WHERE pos.deleted_at IS NULL
+         AND COALESCE(pos.category, pos_type.category) = 'position'
        ORDER BY pos.code ASC`,
       [tenantId],
     );
@@ -1483,13 +1706,22 @@ export class HrmEmployeeController {
     @Req() req: Request,
     @Param('employeeId') employeeId: string,
   ) {
-    const { pool, tenantId } = await this.ctx.getRequestContext(
+    const context = await this.ctx.getRequestContext(
       req,
       employeeId,
       'hrm.employee.read',
       'hrm.self.read',
     );
+    const { pool, tenantId } = context;
     requireUuid(employeeId, 'Nhân viên');
+    const owner = await pool.query(
+      'SELECT user_id FROM core_schema.employees WHERE tenant_id = $1 AND id = $2',
+      [tenantId, employeeId],
+    );
+    const seesSalary = canSeeSalaryFields(
+      context.principal.permissions,
+      owner.rows[0]?.user_id === context.principal.userId,
+    );
     const res = await pool.query(
       `SELECT * FROM hrm_schema.employment_contracts
        WHERE tenant_id = $1 AND employee_id = $2 AND deleted_at IS NULL
@@ -1497,7 +1729,10 @@ export class HrmEmployeeController {
       [tenantId, employeeId],
     );
     return {
-      data: res.rows.map((r) => this.mapContract(r)),
+      data: res.rows.map((r) => {
+        const contract = this.mapContract(r);
+        return seesSalary ? contract : redactContractSalary(contract);
+      }),
       meta: { requestId: req.headers['x-request-id'] as string },
     };
   }
@@ -1555,7 +1790,7 @@ export class HrmEmployeeController {
     employeeId: string,
   ): Promise<Record<string, unknown> | undefined> {
     try {
-      const [manager, decision] = await Promise.all([
+      const [manager, decision, company] = await Promise.all([
         loadDirectManager(pool, tenantId, employeeId),
         pool.query(
           `SELECT decision_no FROM hrm_schema.personnel_decisions
@@ -1563,11 +1798,31 @@ export class HrmEmployeeController {
             ORDER BY effective_date DESC, applied_at DESC LIMIT 1`,
           [tenantId, employeeId],
         ),
+        // Tên công ty = nút gốc của cây tổ chức chứa vị trí chính của nhân viên.
+        pool
+          .query(
+            `WITH RECURSIVE up AS (
+               (SELECT n.id, n.parent_id, n.name, 0 AS lvl
+                  FROM core_schema.employees e
+                  JOIN core_schema.organization_node_assignments a ON a.user_id = e.user_id
+                   AND a.status = 'active' AND a.deleted_at IS NULL
+                  JOIN core_schema.organization_nodes n ON n.id = a.node_id AND n.deleted_at IS NULL
+                 WHERE e.tenant_id = $1 AND e.id = $2
+                 ORDER BY a.is_primary DESC, a.created_at DESC LIMIT 1)
+               UNION ALL
+               SELECT p.id, p.parent_id, p.name, u.lvl + 1
+                 FROM core_schema.organization_nodes p
+                 JOIN up u ON p.id = u.parent_id AND p.deleted_at IS NULL
+             ) SELECT name FROM up ORDER BY lvl DESC LIMIT 1`,
+            [tenantId, employeeId],
+          )
+          .catch(() => ({ rows: [] as { name: string }[] })),
       ]);
       return {
         direct_manager_name: manager?.name ?? null,
         direct_manager_title: manager?.title ?? null,
         direct_manager_email: manager?.email ?? null,
+        company_name: company.rows[0]?.name ?? null,
         appointment_decision_no: decision.rows[0]?.decision_no ?? null,
       };
     } catch (err) {
@@ -1637,6 +1892,25 @@ export class HrmEmployeeController {
     const directManagerEmail =
       (org?.direct_manager_email as string | null) || null;
 
+    const officialContract =
+      contracts && contracts.length > 0
+        ? contracts.find(
+            (c) =>
+              ['DEFINITE', 'INDEFINITE'].includes(c.contractType) &&
+              c.status === 'ACTIVE',
+          ) ||
+          contracts.find((c) => c.status === 'ACTIVE') ||
+          contracts[0]
+        : null;
+
+    const contractDate =
+      (officialContract?.signDate ? this.toDateString(officialContract.signDate) : null) ||
+      (officialContract?.effectiveFrom ? this.toDateString(officialContract.effectiveFrom) : null) ||
+      this.toDateString(row.contract_sign_date);
+
+    const resolvedOfficialDate =
+      contractDate || this.toDateString(row.official_date);
+
     return {
       id: row.employee_id as string,
       employeeId: row.employee_id as string,
@@ -1656,6 +1930,7 @@ export class HrmEmployeeController {
       directManagerName: directManagerName,
       directManagerTitle: directManagerTitle,
       directManagerEmail: directManagerEmail,
+      companyName: (org?.company_name as string | null) || null,
       appointmentDecisionNo:
         (org?.appointment_decision_no as string | null) || null,
       personalEmail: row.personal_email as string | null,
@@ -1684,11 +1959,16 @@ export class HrmEmployeeController {
         | string
         | null,
       joinDate: this.toDateString(row.join_date) || String(row.join_date),
-      officialDate: this.toDateString(row.official_date),
+      officialDate: resolvedOfficialDate,
       employmentStatus: row.employment_status as any,
       note: row.note as string | null,
       dependents: dependents || [],
       contracts: contracts || [],
+      contractSignDate: contractDate || resolvedOfficialDate,
+      contractType:
+        (row.contract_type as string | null) ||
+        officialContract?.contractType ||
+        null,
       createdAt: String(row.created_at),
       updatedAt: timestamp(row.updated_at),
     };

@@ -3,15 +3,19 @@
  *
  * - Một tháng được tính khi nhân viên thuộc diện hưởng phép ít nhất
  *   `MIN_DAYS_PER_MONTH` ngày lịch trong tháng đó (áp dụng cho tháng bắt đầu,
- *   tháng nghỉ việc và tháng đạt mốc thâm niên).
+ *   tháng nghỉ việc và tháng đạt mốc thâm niên). Hiện là 1 ngày: có hiệu lực
+ *   bất kỳ ngày nào trong tháng thì tháng đó được +1 phép (không còn ngưỡng 15 ngày).
  * - Định mức năm chia đều 12 tháng; phần lẻ làm tròn luỹ kế để tổng các tháng
  *   đúng bằng định mức.
- * - Thâm niên lấy mốc cao nhất đã đạt (không cộng dồn) và cộng theo tháng từ
- *   tháng đạt mốc.
+ * - Thâm niên lấy mốc cao nhất đã đạt và cộng nguyên ngày (không chia 1/12): tháng
+ *   đầu tiên được tính trong năm cộng tổng mốc đã đạt, mốc mới đạt giữa năm cộng
+ *   thêm phần chênh vào tháng đạt mốc.
  *
  * Mọi ngày là chuỗi `YYYY-MM-DD`, tính theo UTC để không lệch múi giờ.
  */
-export const MIN_DAYS_PER_MONTH = 15;
+// Quy tắc cũ: phải đủ 15 ngày lịch trong tháng mới được tính (bỏ comment để dùng lại).
+// export const MIN_DAYS_PER_MONTH = 15;
+export const MIN_DAYS_PER_MONTH = 1;
 
 export interface SeniorityTier {
   readonly minYears: number;
@@ -157,7 +161,7 @@ export function monthlyEntitlement(
   const months: MonthEntitlement[] = [];
   let baseExact = 0,
     baseCredited = 0,
-    seniorityExact = 0,
+    // seniorityExact = 0, // cách cũ: chia đều 1/12 theo tháng (xem khối comment bên dưới)
     seniorityCredited = 0;
   for (let month = 1; month <= 12; month++) {
     const counted = countsMonth(year, month, start, end);
@@ -170,9 +174,15 @@ export function monthlyEntitlement(
       baseExact += policy.annualDays / 12;
       base = round2(round2(baseExact) - baseCredited);
       baseCredited = round2(baseCredited + base);
-      if (tier && tier.bonusDays > 0) {
-        seniorityExact += tier.bonusDays / 12;
-        seniority = round2(round2(seniorityExact) - seniorityCredited);
+      // Cách cũ (chia 1/12 mỗi tháng), bỏ comment để dùng lại:
+      // if (tier && tier.bonusDays > 0) {
+      //   seniorityExact += tier.bonusDays / 12;
+      //   seniority = round2(round2(seniorityExact) - seniorityCredited);
+      //   seniorityCredited = round2(seniorityCredited + seniority);
+      // }
+      // Cách mới: cộng nguyên ngày theo mốc (5 năm +1, 10 năm +2...), phần chênh khi đạt mốc mới.
+      if (tier && tier.bonusDays > seniorityCredited) {
+        seniority = round2(tier.bonusDays - seniorityCredited);
         seniorityCredited = round2(seniorityCredited + seniority);
       }
     }

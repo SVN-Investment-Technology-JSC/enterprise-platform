@@ -34,6 +34,7 @@ describe('approvalRequestedEvent', () => {
       correction: 'hrm.attendance.approve',
       advance: 'hrm.advance.approve',
       profile_correction: 'hrm.profile.approve',
+      custom: 'hrm.custom.approve',
     });
   });
 });

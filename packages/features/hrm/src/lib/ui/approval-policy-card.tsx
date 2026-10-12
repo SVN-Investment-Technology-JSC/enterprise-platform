@@ -1,13 +1,14 @@
 'use client';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useId, useState } from 'react';
 import { ShieldAlert } from 'lucide-react';
 import { Popconfirm } from '@enterprise-platform/shared-ui';
 import { hrmFetch } from '../hrm-api';
-import { Badge } from './badge';
 import { Button } from './button';
 import { Input } from './input';
+import { InfoNote, SettingsField, SettingsSection, StatusPill } from './settings-kit';
 import {
   MAX_POLICY_REASON_LENGTH,
+  policyStatusView,
   policyToggleCopy,
   validatePolicyReason,
   type ApprovalPolicySettings,
@@ -19,6 +20,7 @@ export function ApprovalPolicyCard() {
   const [reason, setReason] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const reasonId = useId();
 
   const load = useCallback(async () => {
     const result = await hrmFetch<{ data: ApprovalPolicySettings }>(
@@ -34,6 +36,7 @@ export function ApprovalPolicyCard() {
   const copy = policyToggleCopy(settings?.allowSelfApproval === true);
   const reasonError = reason ? validatePolicyReason(reason) : '';
   const blocked = !settings || validatePolicyReason(reason) !== '';
+  const status = policyStatusView(settings);
 
   async function save() {
     setBusy(true);
@@ -59,58 +62,63 @@ export function ApprovalPolicyCard() {
   }
 
   return (
-    <div className="space-y-2 rounded-lg border border-slate-200 bg-white p-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <span className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-500">
-          <ShieldAlert className="size-4 text-amber-600" />
-          Chính sách tự duyệt đơn (duyệt trực tiếp)
-        </span>
-        <Badge variant={settings?.allowSelfApproval ? 'destructive' : 'secondary'}>
-          {settings
-            ? settings.allowSelfApproval
-              ? 'Đang cho phép tự duyệt'
-              : 'Đang chặn tự duyệt'
-            : 'Đang tải'}
-        </Badge>
-      </div>
-      <p className="text-xs text-slate-600">
-        Mặc định người duyệt không được tự duyệt đơn của chính mình. Chỉ bật ngoại
-        lệ khi tổ chức không có người duyệt thay thế. Mọi thay đổi được ghi nhật ký
-        kiểm toán kèm lý do.
-      </p>
-      <div className="flex flex-wrap items-start gap-2">
-        <div className="min-w-64 flex-1">
+    <SettingsSection
+      icon={ShieldAlert}
+      tone="amber"
+      title="Chính sách tự duyệt đơn (duyệt trực tiếp)"
+      description="Mặc định người duyệt không được tự duyệt đơn của chính mình."
+      actions={<StatusPill tone={status.tone}>{status.label}</StatusPill>}
+      bodyClassName="space-y-3"
+    >
+      <InfoNote tone="amber">
+        Chỉ bật ngoại lệ khi tổ chức không có người duyệt thay thế. Mọi thay đổi
+        được ghi nhật ký kiểm toán kèm lý do.
+      </InfoNote>
+      <div className="flex flex-wrap items-start gap-3">
+        <SettingsField
+          label="Lý do thay đổi"
+          htmlFor={reasonId}
+          hint={
+            reasonError ? (
+              <span className="text-red-600">{reasonError}</span>
+            ) : (
+              'Tối thiểu 10 ký tự.'
+            )
+          }
+          className="min-w-0 flex-1 basis-64"
+        >
           <Input
+            id={reasonId}
             aria-label="Lý do thay đổi chính sách"
             placeholder="Lý do thay đổi (tối thiểu 10 ký tự)"
             maxLength={MAX_POLICY_REASON_LENGTH}
             value={reason}
             onChange={(e) => setReason(e.target.value)}
+            className="h-9"
           />
-          {reasonError && (
-            <span className="text-xs text-red-600">{reasonError}</span>
-          )}
+        </SettingsField>
+        <div className="pt-5">
+          <Popconfirm
+            title={copy.confirmTitle}
+            description={copy.confirmDescription}
+            okText={copy.okText}
+            cancelText="Quay lại"
+            okType={copy.okType}
+            disabled={blocked || busy}
+            loading={busy}
+            onConfirm={save}
+          >
+            <Button
+              variant="outline"
+              disabled={blocked || busy}
+              className="h-9 px-3 text-xs"
+            >
+              {copy.buttonLabel}
+            </Button>
+          </Popconfirm>
         </div>
-        <Popconfirm
-          title={copy.confirmTitle}
-          description={copy.confirmDescription}
-          okText={copy.okText}
-          cancelText="Quay lại"
-          okType={copy.okType}
-          disabled={blocked || busy}
-          loading={busy}
-          onConfirm={save}
-        >
-          <Button variant="outline" disabled={blocked || busy} className="h-8 text-xs">
-            {copy.buttonLabel}
-          </Button>
-        </Popconfirm>
       </div>
-      {error && (
-        <div role="alert" className="text-xs text-red-600">
-          {error}
-        </div>
-      )}
-    </div>
+      {error && <InfoNote tone="red" role="alert">{error}</InfoNote>}
+    </SettingsSection>
   );
 }

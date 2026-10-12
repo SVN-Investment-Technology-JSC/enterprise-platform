@@ -6,6 +6,7 @@ import { lockAccrualConfiguration } from './hrm-leave-schedule.js';
 import {
   lastWorkingDayFromInactive,
   monthlyEntitlement,
+  sumEntitlement,
 } from '../domain/annual-leave-entitlement.js';
 import {
   loadSeniorityTiers,
@@ -32,12 +33,29 @@ export async function accrueContractMonth(
   if (!signDate) return null;
   const year = Number(month.slice(0, 4)),
     monthNo = Number(month.slice(5, 7));
-  const entry = monthlyEntitlement(
+  const entries = monthlyEntitlement(
     schedule.policy,
     signDate,
     year,
     lastWorkingDay,
-  )[monthNo - 1];
+  );
+  const entry = entries[monthNo - 1];
+  // Thâm niên cộng nguyên ngày theo mốc: bù phần còn thiếu so với luỹ kế đến tháng này,
+  // nên các giao dịch đã ghi theo cách chia 1/12 cũng được điều chỉnh về đúng.
+  const seniorityTarget = sumEntitlement(entries, monthNo).seniority;
+  const seniorityPosted = Number(
+    (
+      await db.query(
+        `SELECT COALESCE(sum(days_changed),0) AS total FROM hrm_schema.leave_transactions
+         WHERE tenant_id=$1 AND employee_id=$2 AND leave_type_id=$3 AND balance_year=$4 AND transaction_type='SENIORITY_ACCRUAL'`,
+        [tenant, employeeId, schedule.leaveTypeId, year],
+      )
+    ).rows[0].total,
+  );
+  const seniorityAmount = Math.max(
+    0,
+    Math.round((seniorityTarget - seniorityPosted) * 100) / 100,
+  );
   let credited = 0,
     skipped = 0;
   for (const [type, amount, key, note] of [
@@ -49,7 +67,7 @@ export async function accrueContractMonth(
     ],
     [
       'SENIORITY_ACCRUAL',
-      entry.seniority,
+      seniorityAmount,
       `seniority:${schedule.id}:${employeeId}:${month}`,
       `Cộng phép thâm niên mốc ${entry.tierYears} năm ${month}`,
     ],
@@ -115,8 +133,12 @@ export async function accrueMonth(
   const end = endDate.toISOString().slice(0, 10),
     monthNo = endDate.getUTCMonth() + 1,
     year = endDate.getUTCFullYear();
-  if (endDate.getTime() > Date.now())
-    throw new BadRequestException('Chỉ chốt cộng phép khi tháng đã kết thúc');
+  // Quy tắc cũ: chỉ cộng khi tháng đã kết thúc (bỏ comment để dùng lại).
+  // if (endDate.getTime() > Date.now())
+  //   throw new BadRequestException('Chỉ chốt cộng phép khi tháng đã kết thúc');
+  // Quy tắc mới: từ ngày 1 hàng tháng được +1 phép, nên chỉ cần tháng đã bắt đầu.
+  if (Date.parse(`${start}T00:00:00Z`) > Date.now())
+    throw new BadRequestException('Chỉ cộng phép cho tháng đã bắt đầu');
   await lockAccrualConfiguration(db, tenant);
   const schedules = await db.query(
     `SELECT s.* FROM hrm_schema.leave_accrual_schedules s JOIN hrm_schema.leave_types t ON t.id=s.leave_type_id AND t.tenant_id=s.tenant_id WHERE s.tenant_id=$1 AND t.active=true AND s.effective_from<=$3::date AND (s.effective_to IS NULL OR s.effective_to>=date_trunc('year',$2::date)::date)`,
