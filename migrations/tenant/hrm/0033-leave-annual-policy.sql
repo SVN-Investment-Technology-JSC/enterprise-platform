@@ -34,6 +34,20 @@ CREATE INDEX IF NOT EXISTS idx_hrm_leave_seniority_tiers ON hrm_schema.leave_sen
 -- Quyết toán phép khi nghỉ việc. excess_days > 0 là phép đã dùng vượt quỹ thực
 -- hưởng; recovery_amount được đưa vào kỳ lương (SCHEDULED -> DEDUCTED).
 -- CLOSED: không có phép dùng vượt, chỉ ghi nhận số ngày chưa dùng.
+-- Bảng cũ (disposition/overused_days/operation_key, không có cột year) khiến CREATE TABLE IF NOT EXISTS
+-- bên dưới bị bỏ qua và mọi truy vấn theo `year` lỗi. Đổi tên để giữ dữ liệu cũ rồi tạo bảng đúng cấu trúc.
+DO $$
+BEGIN
+  IF to_regclass('hrm_schema.leave_settlements') IS NOT NULL
+     AND NOT EXISTS (
+       SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'hrm_schema' AND table_name = 'leave_settlements' AND column_name = 'year'
+     ) THEN
+    ALTER TABLE hrm_schema.leave_settlements RENAME TO leave_settlements_legacy;
+    ALTER INDEX IF EXISTS hrm_schema.leave_settlements_pkey RENAME TO leave_settlements_legacy_pkey;
+  END IF;
+END $$;
+
 CREATE TABLE IF NOT EXISTS hrm_schema.leave_settlements (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id uuid NOT NULL,
@@ -65,4 +79,4 @@ CREATE INDEX IF NOT EXISTS idx_hrm_leave_settlements_period
 
 ALTER TABLE hrm_schema.leave_transactions DROP CONSTRAINT IF EXISTS leave_transactions_transaction_type_check;
 ALTER TABLE hrm_schema.leave_transactions ADD CONSTRAINT leave_transactions_transaction_type_check
-  CHECK (transaction_type IN ('ACCRUAL','SENIORITY_ACCRUAL','USAGE','ADJUSTMENT','CARRYOVER_EXPIRE','CARRYOVER_IN','CARRYOVER_OUT','YEAR_END_RESET','RECOVERY','REVERSAL'));
+  CHECK (transaction_type IN ('ACCRUAL','SENIORITY_ACCRUAL','USAGE','ADJUSTMENT','CARRYOVER_EXPIRE','CARRYOVER_IN','CARRYOVER_OUT','YEAR_END_RESET','RECOVERY','REVERSAL','SETTLEMENT'));

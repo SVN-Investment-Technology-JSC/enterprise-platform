@@ -382,6 +382,53 @@ export const DEFAULT_NOTIFICATION_POLICIES: readonly NotificationPolicy[] = [
       sourceId: `${id(payload, 'requestId')}:${event.id}`,
     }),
   }),
+  // Trao đổi và ý kiến phê duyệt trên đơn từ HRM. Ba sự kiện cho ba nhóm người nhận (nhắc tên, chủ đơn, người duyệt);
+  // mỗi bình luận là một nguồn riêng nên khoá theo commentId.
+  directPolicy({
+    eventType: 'hrm.request.comment.mentioned',
+    module: 'hrm',
+    category: 'request-comment',
+    priority: 'actionable',
+    recipients: { kind: 'payload', fields: ['mentionedUserIds'] },
+    actorField: 'actorUserId',
+    template: ({ payload }) => ({
+      title: 'Bạn được nhắc đến trong một đơn từ',
+      body: text(payload, 'summary', 'Bạn được nhắc đến trong trao đổi về một đơn nhân sự.'),
+      deepLink: text(payload, 'deepLink', '/modules/hrm/approvals'),
+      sourceType: 'hrm_request_comment_mention',
+      sourceId: id(payload, 'commentId'),
+    }),
+  }),
+  directPolicy({
+    eventType: 'hrm.request.comment.to-requester',
+    module: 'hrm',
+    category: 'request-comment',
+    priority: 'actionable',
+    recipients: { kind: 'payload', fields: ['recipientUserIds'] },
+    actorField: 'actorUserId',
+    template: ({ payload }) => ({
+      title: 'Có ý kiến mới về đơn của bạn',
+      body: text(payload, 'summary', 'Đơn của bạn có ý kiến hoặc trao đổi mới.'),
+      deepLink: text(payload, 'deepLink', '/modules/hrm/requests'),
+      sourceType: 'hrm_request_comment',
+      sourceId: id(payload, 'commentId'),
+    }),
+  }),
+  directPolicy({
+    eventType: 'hrm.request.comment.to-approvers',
+    module: 'hrm',
+    category: 'request-comment',
+    priority: 'actionable',
+    recipients: { kind: 'permissions-in-payload', field: 'approvalPermissions' },
+    actorField: 'actorUserId',
+    template: ({ payload }) => ({
+      title: 'Người gửi đã phản hồi trên đơn chờ duyệt',
+      body: text(payload, 'summary', 'Một đơn chờ bạn duyệt có phản hồi mới.'),
+      deepLink: text(payload, 'deepLink', '/modules/hrm/approvals'),
+      sourceType: 'hrm_request_comment_approver',
+      sourceId: id(payload, 'commentId'),
+    }),
+  }),
   directPolicy({
     eventType: 'hrm.payslip.published',
     module: 'hrm',

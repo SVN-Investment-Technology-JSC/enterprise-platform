@@ -22,7 +22,8 @@ import {
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { randomUUID } from 'node:crypto';
-import { calculatePayroll } from '../infrastructure/hrm-payroll-calculation.js';
+import { calculatePayroll, timesheetFingerprint } from '../infrastructure/hrm-payroll-calculation.js';
+import { payrollTrace } from '../infrastructure/hrm-payroll-trace.js';
 import { hrmTransaction } from '../infrastructure/hrm-transaction.js';
 import { isoDate } from '../infrastructure/hrm-time.js';
 import {
@@ -224,6 +225,16 @@ export class HrmPayrollController {
       }
     }
 
+    // Mỗi kỳ công chỉ có một kỳ lương: hai kỳ lương cùng kỳ công sẽ trả lương một tháng hai lần.
+    const sameTimesheet = await pool.query(
+      `SELECT period_code FROM hrm_schema.payroll_periods WHERE tenant_id=$1 AND timesheet_period_id=$2 LIMIT 1`,
+      [tenantId, body.timesheetPeriodId],
+    );
+    if (sameTimesheet.rowCount)
+      throw new ConflictException({
+        code: 'HRM_PAYROLL_PERIOD_EXISTS',
+        message: `Kỳ công này đã có kỳ lương ${sameTimesheet.rows[0].period_code}; mỗi kỳ công chỉ tạo một kỳ lương.`,
+      });
     const res = await pool.query(
       `INSERT INTO hrm_schema.payroll_periods (
         tenant_id, period_code, from_date, to_date, timesheet_period_id, payment_date, status
@@ -485,10 +496,23 @@ export class HrmPayrollController {
         throw new BadRequestException(
           'Bảng công đã mở lại; cần tính lại lương',
         );
+      // Bảng công khóa lại sau khi mở: số liệu có thể đã khác lúc tính lương.
+      if (
+        run.timesheet_fingerprint &&
+        run.timesheet_fingerprint !== (await timesheetFingerprint(db, tenantId, run.timesheet_period_id))
+      )
+        throw new BadRequestException({
+          code: 'HRM_PAYROLL_STALE',
+          message: 'Bảng công đã thay đổi sau khi tính lương; cần tính lại lương trước khi chốt.',
+        });
       const advances = await db.query(
-        `SELECT d.*,a.remaining_balance FROM hrm_schema.salary_advance_deductions d JOIN hrm_schema.salary_advance_requests a ON a.id=d.advance_request_id AND a.tenant_id=d.tenant_id WHERE d.tenant_id=$1 AND d.payroll_period_id=$2 AND d.status='SCHEDULED' ORDER BY a.id FOR UPDATE OF d,a`,
-        [tenantId, run.payroll_period_id],
+        `SELECT d.*,a.remaining_balance FROM hrm_schema.salary_advance_deductions d JOIN hrm_schema.salary_advance_requests a ON a.id=d.advance_request_id AND a.tenant_id=d.tenant_id WHERE d.tenant_id=$1 AND d.payroll_period_id=$2 AND d.status='SCHEDULED'
+           AND EXISTS(SELECT 1 FROM hrm_schema.payroll_employee_totals t WHERE t.tenant_id=d.tenant_id AND t.payroll_run_id=$3 AND t.employee_id=a.employee_id)
+         ORDER BY a.id FOR UPDATE OF d,a`,
+        [tenantId, run.payroll_period_id, runId],
       );
+      // Chỉ thu hồi ứng cho nhân viên có trong lần tính này: khoản của người không nằm trong lần tính chưa bị trừ
+      // vào lương nên giữ nguyên SCHEDULED để xử lý ở kỳ sau, không được ghi giảm nợ.
       for (const deduction of advances.rows) {
         const updated = await db.query(
           `UPDATE hrm_schema.salary_advance_requests SET status=CASE WHEN remaining_balance=$3 THEN 'REPAID' ELSE status END,remaining_balance=remaining_balance-$3,total_deducted_amount=total_deducted_amount+$3,updated_at=now() WHERE tenant_id=$1 AND id=$2 AND remaining_balance>=$3 RETURNING id`,
@@ -543,6 +567,19 @@ export class HrmPayrollController {
         total: res.rows.length,
         requestId: req.headers['x-request-id'] as string,
       },
+    };
+  }
+
+  /** Truy vết lương của một nhân viên về từng ngày công và đơn từ (nghỉ, làm thêm giờ, công tác...). */
+  @Get('payroll-runs/:runId/employees/:employeeId/trace')
+  async trace(
+    @Req() req: Request,
+    @Param('runId') runId: string,
+    @Param('employeeId') employeeId: string,
+  ) {
+    const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.payroll.read');
+    return {
+      data: await payrollTrace(pool, tenantId, requireUuid(runId, 'runId'), requireUuid(employeeId, 'employeeId')),
     };
   }
 

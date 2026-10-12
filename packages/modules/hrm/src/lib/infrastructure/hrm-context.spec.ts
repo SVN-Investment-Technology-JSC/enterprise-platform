@@ -99,4 +99,28 @@ describe('HRM authentication and tenant boundary', () => {
       service.scoped(req, 'hrm.request.read', 'employee-b'),
     ).rejects.toThrow('bản thân');
   });
+
+  it('nhân sự có ở Core nhưng chưa có hồ sơ HRM: không tự bịa hồ sơ, báo chưa khởi tạo', async () => {
+    const queries: string[] = [];
+    const pool = {
+      query: jest.fn(async (sql: string) => {
+        queries.push(sql);
+        // truy vấn nối hồ sơ không có dòng; nhân sự Core thì có
+        if (sql.includes('JOIN hrm_schema.employee_profiles')) return { rows: [] };
+        return { rows: [{ id: 'employee-a', full_name: 'Employee A' }] };
+      }),
+    };
+    await expect(service.resolveEmployee(pool as never, 'tenant-a', 'user-a')).rejects.toMatchObject({
+      response: { code: 'HRM_PROFILE_NOT_INITIALIZED' },
+    });
+    expect(queries.some((sql) => /INSERT INTO hrm_schema\.employee_profiles/i.test(sql))).toBe(false);
+  });
+
+  it('tài khoản chưa có nhân sự Core: báo chưa liên kết, không tạo gì', async () => {
+    const pool = { query: jest.fn(async () => ({ rows: [] })) };
+    await expect(service.resolveEmployee(pool as never, 'tenant-a', 'user-a')).rejects.toMatchObject({
+      response: { code: 'HRM_EMPLOYEE_NOT_FOUND' },
+    });
+    expect(pool.query).toHaveBeenCalledTimes(2);
+  });
 });

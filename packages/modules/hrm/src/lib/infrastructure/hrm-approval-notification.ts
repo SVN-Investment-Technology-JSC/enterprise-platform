@@ -14,6 +14,7 @@ export const HRM_APPROVAL_PERMISSIONS: Readonly<Record<HrmRequestKind, string>> 
   correction: 'hrm.attendance.approve',
   advance: 'hrm.advance.approve',
   profile_correction: 'hrm.profile.approve',
+  custom: 'hrm.custom.approve',
 };
 
 const REQUEST_LABELS: Readonly<Record<HrmRequestKind, string>> = {
@@ -24,6 +25,7 @@ const REQUEST_LABELS: Readonly<Record<HrmRequestKind, string>> = {
   correction: 'chỉnh sửa chấm công',
   advance: 'tạm ứng lương',
   profile_correction: 'chỉnh sửa hồ sơ',
+  custom: 'đề nghị',
 };
 
 /** Trạng thái đơn đang chờ người duyệt xử lý (cùng tập mà màn Phê duyệt lọc). */

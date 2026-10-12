@@ -1,333 +1,304 @@
 'use client';
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Table } from 'antd';
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
+import { SearchableSelect, Popconfirm } from '@enterprise-platform/shared-ui';
+import { DatePickerInput } from '../ui/date-picker-input';
 import {
-  SearchableSelect,
-  Popconfirm,
-  formatDate,
-  formatDateTime,
-} from '@enterprise-platform/shared-ui';
-import {
-  RefreshCw,
   CheckCircle2,
-  FileText,
-  ExternalLink,
+  ChevronLeft,
+  ChevronRight,
   Clock,
-  Calendar,
-  Paperclip,
-  Workflow,
-  Layers,
+  RefreshCw,
+  Search,
+  TriangleAlert,
 } from 'lucide-react';
-import type { HrmAction as Permission } from '@enterprise-platform/contracts-identity';
-import { hrmFetch, hrmEmployeeOptions } from '../hrm-api';
+import { HrmApiError, hrmFetch, hrmEmployeeOptions } from '../hrm-api';
+import {
+  approvalKindFromType,
+  approvalListPath,
+  approvalSourcesFor,
+  isPendingStatus,
+  splitEmployeeLabel,
+} from '../hrm-approval-kinds';
+import { formatRequestDuration, formatRequestPeriod } from '../request-time-format';
 import { useHrmPermissions } from '../hrm-permissions';
 import { Button } from '../ui/button';
-import { Input } from '../ui/input';
-import { Badge } from '../ui/badge';
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetDescription,
-} from '../ui/sheet';
 import { HrmActionDialog, type HrmAction } from '../ui/hrm-action-dialog';
+import { useProcedureProgress } from '../ui/procedure-progress-panel';
+import { ApprovalDetailPanel } from '../ui/approvals/approval-detail-panel';
 import {
-  ProcedureProgressPanel,
-  useProcedureProgress,
-} from '../ui/procedure-progress-panel';
-import { ProcedureActionBar } from '../ui/procedure-action-bar';
+  approvalCounts,
+  filterApprovals,
+  initialsOf,
+  isOverdue,
+  isUnpaidOt,
+  kindChip,
+  pageOf,
+  reasonColumns,
+  rowKindLabel,
+  states,
+  statusTone,
+  type ActionAbility,
+  type ApprovalFilter,
+  type ApprovalTab,
+  type Link,
+  type Raw,
+  type Row,
+} from '../ui/approvals/approvals-model';
 import {
   approvalErrorMessage,
   procedureActionBody,
   procedureFieldsOf,
   workflowFilterQuery,
-  waitingApproverLabel,
   isTerminalProcedureStatus,
   type ProcedureActionKind,
 } from '../procedure-progress-view';
 
-type Source = {
-  kind: string;
-  label: string;
-  path: string;
-  permission: Permission;
+const PAGE_SIZE = 20;
+const CARD = 'rounded-2xl border border-slate-200/70 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]';
+
+const DECISION_OF: Partial<Record<ProcedureActionKind, string>> = {
+  APPROVE: 'APPROVE',
+  REJECT: 'REJECT',
+  RETURN: 'RETURN',
 };
-const sources: Source[] = [
-  {
-    kind: 'LEAVE',
-    label: 'Nghỉ phép',
-    path: 'leave-requests',
-    permission: 'hrm.leave.approve',
-  },
-  {
-    kind: 'OT',
-    label: 'Tăng ca',
-    path: 'ot-requests',
-    permission: 'hrm.ot.approve',
-  },
-  {
-    kind: 'BUSINESS_TRIP',
-    label: 'Công tác',
-    path: 'business-trip-requests',
-    permission: 'hrm.trip.approve',
-  },
-  {
-    kind: 'SHIFT_CHANGE',
-    label: 'Đổi ca',
-    path: 'shift-change-requests',
-    permission: 'hrm.shift.approve',
-  },
-  {
-    kind: 'ATTENDANCE',
-    label: 'Giải trình công',
-    path: 'attendance-corrections',
-    permission: 'hrm.attendance.approve',
-  },
-  {
-    kind: 'PROFILE',
-    label: 'Sửa hồ sơ',
-    path: 'profile-corrections',
-    permission: 'hrm.profile.approve',
-  },
-  {
-    kind: 'ADVANCE',
-    label: 'Tạm ứng',
-    path: 'salary-advance-requests',
-    permission: 'hrm.advance.approve',
-  },
-];
-type Raw = {
-  id: string;
-  employeeId?: string;
-  employee_id?: string;
-  status: string;
-  reason?: string;
-  createdAt?: string;
-  created_at?: string;
-  fromDate?: string;
-  toDate?: string;
-  workDate?: string;
-  requestDate?: string;
-  duration?: number;
-  plannedMinutes?: number;
-  requestedAmount?: number;
-  attachmentFileId?: string;
-  changes?: Record<string, unknown>;
-  [key: string]: unknown;
-};
-type Link = {
-  id: string;
-  request_kind: string;
-  request_id: string;
-  instance_code: string;
-  status: string;
-  last_error: string;
-  instance_id?: string;
-  revision?: number;
-};
-type Row = Raw & {
-  key: string;
-  /** Lý do huỷ hiệu lực, khi đơn đã duyệt bị huỷ hiệu lực. */
-  reversalReason?: string;
-  source: Source;
-  employeeName: string;
-  employeeCode: string;
-  created: string;
-  period: string;
-  link?: Link;
-};
-const detailFields: Record<string, string> = {
-  duration: 'Số lượng nghỉ',
-  startTime: 'Bắt đầu',
-  endTime: 'Kết thúc',
-  plannedMinutes: 'Phút OT đăng ký',
-  approvedMinutes: 'Phút OT được duyệt',
-  destination: 'Địa điểm công tác',
-  allowOt: 'Cho phép OT',
-  daysCount: 'Số ngày công tác',
-  workReference: 'Đầu việc liên kết',
-  requestedAmount: 'Tạm ứng đề nghị',
-  approvedAmount: 'Tạm ứng được duyệt',
-  numberOfInstallments: 'Số kỳ thu hồi',
-  currentShiftId: 'Mã ca hiện tại',
-  requestedShiftId: 'Mã ca đề nghị',
-  swapWithEmployeeId: 'Mã người đổi cùng',
-  correctedSessions: 'Các phiên công đề nghị',
-  newCheckInAt: 'Giờ vào đề nghị',
-  newCheckOutAt: 'Giờ ra đề nghị',
-};
-const states: Record<string, string> = {
-  PENDING: 'Chờ duyệt',
-  PEER_CONFIRMED: 'Đã xác nhận đổi ca',
-  APPROVED: 'Đã duyệt',
-  REJECTED: 'Từ chối',
-  CANCELLED: 'Đã rút / hủy',
-  REVERSED: 'Đã hủy hiệu lực',
-  DISBURSED: 'Đã giải ngân',
-  REPAID: 'Đã thu hồi',
-};
+
 export default function ApprovalsScreen() {
+  // useSearchParams cần ranh giới Suspense để trang vẫn prerender được.
+  return (
+    <Suspense fallback={null}>
+      <ApprovalsContent />
+    </Suspense>
+  );
+}
+
+function Kpi({ tone, icon, label, value, testId }: { tone: 'orange' | 'blue' | 'red' | 'green'; icon: React.ReactNode; label: string; value: number; testId: string }) {
+  const tile = { orange: 'bg-orange-50 text-orange-500', blue: 'bg-blue-50 text-[#2563eb]', red: 'bg-rose-50 text-rose-500', green: 'bg-emerald-50 text-emerald-600' }[tone];
+  const text = { orange: 'text-orange-500', blue: 'text-[#2563eb]', red: 'text-rose-600', green: 'text-emerald-600' }[tone];
+  return (
+    <div className={`${CARD} flex items-center gap-3 px-4 py-3.5`} data-testid={testId}>
+      <span className={`flex size-12 shrink-0 items-center justify-center rounded-xl ${tile}`}>{icon}</span>
+      <div>
+        <p className="text-[12.5px] text-slate-500">{label}</p>
+        <p className={`text-[26px] font-extrabold leading-tight ${text}`}>{value}</p>
+      </div>
+    </div>
+  );
+}
+
+function FilterBox({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="min-w-[140px] flex-1 rounded-xl border border-slate-200/80 bg-white px-3 pb-1 pt-1.5">
+      <span className="block text-[10.5px] font-medium text-slate-500">{label}</span>
+      {children}
+    </div>
+  );
+}
+
+function ApprovalsContent() {
+  const searchParams = useSearchParams();
+  const kindFromQuery = approvalKindFromType(searchParams?.get('type'));
   const permissions = useHrmPermissions(),
     permissionKey = permissions.actions.join('|');
   const [rows, setRows] = useState<Row[]>([]),
     [error, setError] = useState(''),
-    [search, setSearch] = useState(''),
-    [kind, setKind] = useState(''),
-    [status, setStatus] = useState('PENDING'),
-    [assignee, setAssignee] = useState(''),
+    [panelError, setPanelError] = useState(''),
+    [filter, setFilter] = useState<ApprovalFilter>({ tab: 'ALL', kind: kindFromQuery, department: '', status: '', search: '', from: '', to: '' }),
     [currentStep, setCurrentStep] = useState(''),
-    [debouncedAssignee, setDebouncedAssignee] = useState(''),
-    [detail, setDetail] = useState<Row | null>(null),
+    [page, setPage] = useState(1),
+    [detailKey, setDetailKey] = useState(''),
     [busy, setBusy] = useState(false),
-    [selected, setSelected] = useState<React.Key[]>([]),
+    [loading, setLoading] = useState(true),
+    [selected, setSelected] = useState<string[]>([]),
+    [threadRefresh, setThreadRefresh] = useState(0),
     [action, setAction] = useState<HrmAction | null>(null);
+  const patch = (next: Partial<ApprovalFilter>) => {
+    setFilter((f) => ({ ...f, ...next }));
+    setPage(1);
+  };
   const [linkedId, setLinkedId] = useState('');
+  // Cảnh báo khi người duyệt không có cấp dưới do thiếu "Báo cáo cho"/trưởng đơn vị.
+  const [scopeWarning, setScopeWarning] = useState('');
+  useEffect(() => {
+    let active = true;
+    hrmFetch<{ data: { noReportingLine: boolean; message: string | null } }>('/approval-scope')
+      .then((res) => {
+        if (active) setScopeWarning(res.data.noReportingLine ? (res.data.message ?? '') : '');
+      })
+      .catch(() => {
+        if (active) setScopeWarning('');
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
   // Bước đã gặp: giữ lại để danh sách chọn không co lại sau khi lọc.
   const [stepOptions, setStepOptions] = useState<string[]>([]);
+  // ?type=<loại đơn> từ liên kết ở Bàn làm việc: chọn sẵn bộ lọc loại đơn.
   useEffect(() => {
-    const timer = setTimeout(() => setDebouncedAssignee(assignee), 300);
-    return () => clearTimeout(timer);
-  }, [assignee]);
+    if (kindFromQuery) patch({ kind: kindFromQuery });
+  }, [kindFromQuery]);
+  const availableSources = useMemo(
+    () => approvalSourcesFor(permissionKey ? permissionKey.split('|') : []),
+    [permissionKey],
+  );
   const [linkedRequestId, setLinkedRequestId] = useState('');
   useEffect(() => {
     const id = new URLSearchParams(window.location.search).get('request');
-    if (id) {
-      setLinkedRequestId(id);
-      setStatus('');
-    }
+    if (id) setLinkedRequestId(id);
   }, []);
   useEffect(() => {
     if (!linkedRequestId) return;
     const row = rows.find((item) => item.id === linkedRequestId);
-    if (row) { setDetail(row); setLinkedRequestId(''); }
+    if (row) {
+      setDetailKey(row.key);
+      setLinkedRequestId('');
+    }
   }, [rows, linkedRequestId]);
   useEffect(
-    () =>
-      setLinkedId(
-        new URLSearchParams(window.location.search).get('workflow') || '',
-      ),
+    () => setLinkedId(new URLSearchParams(window.location.search).get('workflow') || ''),
     [],
   );
   useEffect(() => {
     if (!linkedId) return;
     const row = rows.find((r) => r.link?.id === linkedId);
     if (row) {
-      setDetail(row);
+      setDetailKey(row.key);
       setLinkedId('');
     }
   }, [rows, linkedId]);
+
+  /**
+   * Tải trước các đơn đang chờ (nhanh, đủ để hiện việc cần xử lý), rồi tải nốt lịch sử ở nền cho tab Đã xử lý.
+   * Danh sách nhân viên và liên kết quy trình chỉ lấy một lần cho cả hai lượt.
+   */
   const load = useCallback(async () => {
-    const available = sources.filter((s) =>
-      s.kind === 'ADVANCE'
-        ? permissionKey.split('|').includes('hrm.advance.read')
-        : permissionKey.split('|').includes('hrm.request.read'),
-    );
-    const [employees, links, reversals, ...lists] = await Promise.all([
-      hrmEmployeeOptions(true),
-      hrmFetch<{ data: Link[] }>('/request-workflows'),
+    const available = availableSources;
+    const progressQuery = workflowFilterQuery({ currentStep });
+    const [employees, links, reversals] = await Promise.all([
+      hrmEmployeeOptions(true).catch(() => []),
+      hrmFetch<{ data: Link[] }>('/request-workflows').catch(() => ({ data: [] as Link[] })),
       // Không đọc được thì vẫn hiện danh sách, chỉ thiếu nhãn "Đã hủy hiệu lực".
-      hrmFetch<{ data: { requestId: string; reason: string }[] }>('/request-reversals').catch(
-        () => ({ data: [] }),
-      ),
-      ...available.map((s) =>
-        hrmFetch<{ data: Raw[] }>(
-          `/${s.path}?${[
-            'forApproval=1',
-            workflowFilterQuery({ assignee: debouncedAssignee, currentStep }),
-          ]
-            .filter(Boolean)
-            .join('&')}`,
-        ),
+      Promise.resolve(hrmFetch<{ data: { requestId: string; reason: string }[] }>('/request-reversals')).then(
+        (res) => res?.data ?? [],
+        () => [] as { requestId: string; reason: string }[],
       ),
     ]);
-    const seenSteps = lists.flatMap((list) =>
-      list.data
-        .map((r) => procedureFieldsOf(r).currentStepName)
-        .filter((name): name is string => Boolean(name)),
-    );
-    if (seenSteps.length)
-      setStepOptions((prev) =>
-        [...new Set([...prev, ...seenSteps])].sort((a, b) => a.localeCompare(b, 'vi')),
+    const reversedReasons = new Map(reversals.map((r) => [r.requestId, r.reason]));
+    const people = new Map(employees.map((e) => [e.value, { ...splitEmployeeLabel(e.label), department: e.department ?? '' }]));
+    const linkOf = new Map(links.data.map((l) => [`${l.request_kind}:${l.request_id}`, l]));
+    const text = (value: unknown) => (typeof value === 'string' && value ? value : '');
+    const fetchLists = (pendingOnly: boolean) =>
+      Promise.all(
+        available.map((s) =>
+          hrmFetch<{ data: Raw[] }>(
+            // Đổi ca có thêm trạng thái PEER_CONFIRMED nên không lọc phía máy chủ.
+            approvalListPath(s, [progressQuery, pendingOnly && s.kind !== 'SHIFT_CHANGE' ? 'status=PENDING' : '']),
+          ).then(
+            (res) => ({ ok: true as const, data: res.data }),
+            (reason: unknown) => ({ ok: false as const, reason }),
+          ),
+        ),
       );
-    const names = new Map(employees.map((e) => [e.value, e.label]));
-    const reversedReasons = new Map(reversals.data.map((r) => [r.requestId, r.reason]));
-    setRows(
-      lists
+    const build = (settled: Awaited<ReturnType<typeof fetchLists>>): Row[] => {
+      const lists = settled.map((item) => (item.ok ? item.data : []));
+      const seenSteps = lists.flatMap((list) => list.map((r) => procedureFieldsOf(r).currentStepName).filter((name): name is string => Boolean(name)));
+      if (seenSteps.length)
+        setStepOptions((prev) => [...new Set([...prev, ...seenSteps])].sort((a, b) => a.localeCompare(b, 'vi')));
+      return lists
         .flatMap((list, i) =>
-          list.data.map((r) => ({
-            ...r,
-            // Đơn đã duyệt rồi bị huỷ hiệu lực: tách khỏi "Đã rút / hủy".
-            status:
-              r.status === 'CANCELLED' && reversedReasons.has(r.id) ? 'REVERSED' : r.status,
-            reversalReason: reversedReasons.get(r.id),
-            key: `${available[i].kind}:${r.id}`,
-            source: available[i],
-            employeeName:
-              names.get(r.employeeId || r.employee_id || '') ||
-              r.employeeId ||
-              r.employee_id ||
-              '—',
-            employeeCode: '',
-            created: r.createdAt || r.created_at || '',
-            period: r.fromDate
-              ? `${formatDate(r.fromDate)} → ${formatDate(r.toDate)}`
-              : formatDate(r.workDate || r.requestDate || ''),
-            link: links.data.find(
-              (l) =>
-                l.request_id === r.id && l.request_kind === available[i].kind,
-            ),
-          })),
+          list.map((r): Row => {
+            const employeeId = r.employeeId || r.employee_id || '';
+            const person = people.get(employeeId);
+            return {
+              ...r,
+              // Đơn đã duyệt rồi bị huỷ hiệu lực: tách khỏi "Đã rút / hủy".
+              status: r.status === 'CANCELLED' && reversedReasons.has(r.id) ? 'REVERSED' : r.status,
+              reversalReason: reversedReasons.get(r.id),
+              key: `${available[i].kind}:${r.id}`,
+              source: available[i],
+              employeeName: text(r.employee_name) || text(r.employeeName) || person?.name || employeeId || '—',
+              employeeCode: text(r.employee_code) || text(r.employeeCode) || person?.code || '',
+              department: person?.department ?? '',
+              created: r.createdAt || r.created_at || '',
+              period: formatRequestPeriod(r),
+              ...reasonColumns(available[i].kind, r),
+              link: linkOf.get(`${available[i].kind}:${r.id}`),
+            };
+          }),
         )
-        .sort((a, b) => b.created.localeCompare(a.created)),
-    );
-  }, [permissionKey, debouncedAssignee, currentStep]);
+        .sort((a, b) => b.created.localeCompare(a.created));
+    };
+    const failureOf = (settled: Awaited<ReturnType<typeof fetchLists>>) =>
+      // Loại đơn không đọc được (403) bị bỏ qua; lỗi khác được báo sau khi hiển thị phần tải được.
+      settled.find((item) => !item.ok && !(item.reason instanceof HrmApiError && item.reason.status === 403));
+    const first = await fetchLists(true);
+    setRows(build(first));
+    setLoading(false);
+    const firstFailure = failureOf(first);
+    if (firstFailure && !firstFailure.ok) throw firstFailure.reason;
+    const full = await fetchLists(false);
+    setRows(build(full));
+    const fullFailure = failureOf(full);
+    if (fullFailure && !fullFailure.ok) throw fullFailure.reason;
+  }, [availableSources, currentStep]);
   useEffect(() => {
-    void load().catch((e) => setError(e.message));
+    void load().catch((e) => {
+      setLoading(false);
+      setError(e.message);
+    });
   }, [load]);
-  const eligible = (r: Row) =>
-    permissions.can(r.source.permission) &&
-    ['PENDING', 'PEER_CONFIRMED'].includes(r.status) &&
-    !r.link;
-  const instanceIdOf = (r: Row) =>
-    procedureFieldsOf(r).instanceId ?? r.link?.instance_id;
-  // Đơn đi theo quy trình PE: thao tác qua PE khi quy trình còn chạy; PE kiểm quyền.
+
+  const detail = useMemo(() => rows.find((r) => r.key === detailKey) ?? null, [rows, detailKey]);
+
+  const hasProcedure = (r: Row) => Boolean(r.link) || Boolean(procedureFieldsOf(r).syncStatus || procedureFieldsOf(r).instanceId);
+  const eligible = (r: Row) => permissions.can(r.source.permission) && isPendingStatus(r.status) && !hasProcedure(r);
   const procedureActionable = (r: Row) =>
     permissions.can(r.source.permission) &&
-    ['PENDING', 'PEER_CONFIRMED'].includes(r.status) &&
-    r.link?.status === 'RUNNING';
-  const detailInstanceId = detail ? instanceIdOf(detail) : undefined;
+    isPendingStatus(r.status) &&
+    (r.link?.status === 'RUNNING' || procedureFieldsOf(r).syncStatus === 'RUNNING');
+  const ability: ActionAbility = { eligible, procedureActionable };
+  const instanceIdOf = (r: Row) => procedureFieldsOf(r).instanceId ?? r.link?.instance_id;
   const {
     progress: detailProgress,
     loading: detailProgressLoading,
     refresh: refreshDetailProgress,
   } = useProcedureProgress({
-    instanceId: detailInstanceId,
+    instanceId: detail ? instanceIdOf(detail) : undefined,
     kind: detail?.source.kind ?? '',
     requestId: detail?.id ?? '',
     open: Boolean(detail),
   });
-  async function procedureAction(
-    r: Row,
-    action: ProcedureActionKind,
-    comment: string,
-  ) {
+
+  /** Ghi ý kiến kèm quyết định vào luồng trao đổi của đơn; không chặn quyết định nếu ghi lỗi. */
+  async function recordDecision(r: Row, decision: string, note: string) {
+    if (!note.trim()) return;
+    try {
+      await hrmFetch('/request-comments', {
+        method: 'POST',
+        body: JSON.stringify({ kind: r.source.kind, requestId: r.id, body: note.trim(), commentKind: 'DECISION', decision }),
+      });
+    } catch {
+      /* quyết định đã có hiệu lực; ý kiến vẫn nằm trong bước xử lý/lý do từ chối */
+    }
+    setThreadRefresh((n) => n + 1);
+  }
+
+  async function procedureAction(r: Row, act: ProcedureActionKind, comment: string) {
     setBusy(true);
-    setError('');
+    setPanelError('');
     try {
       await hrmFetch(`/requests/${r.source.kind}/${r.id}/actions`, {
         method: 'POST',
         body: JSON.stringify(
-          procedureActionBody(action, {
-            comment,
-            idempotencyKey: crypto.randomUUID(),
-            revision: procedureFieldsOf(r).revision ?? r.link?.revision,
-          }),
+          procedureActionBody(act, { comment, idempotencyKey: crypto.randomUUID(), revision: procedureFieldsOf(r).revision ?? r.link?.revision }),
         ),
       });
+      const decision = DECISION_OF[act];
+      if (decision) await recordDecision(r, decision, comment);
       await Promise.all([refreshDetailProgress(true), load()]);
     } catch (e) {
-      setError(approvalErrorMessage(e, 'procedure'));
+      setPanelError(approvalErrorMessage(e, 'procedure'));
       // 403/409: tiến độ có thể đã đổi (đã có người xử lý), làm mới để phản ánh.
       void refreshDetailProgress(true);
       throw e;
@@ -335,97 +306,56 @@ export default function ApprovalsScreen() {
       setBusy(false);
     }
   }
-  useEffect(() => {
-    setDetail((current) =>
-      current ? (rows.find((r) => r.key === current.key) ?? current) : current,
-    );
-  }, [rows]);
-  const normalized = (s: string) =>
-    s
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .replace(/đ/g, 'd')
-      .toLowerCase();
-  const visible = useMemo(
-    () =>
-      rows.filter(
-        (r) =>
-          (!kind || r.source.kind === kind) &&
-          (!status ||
-            (status === 'PENDING'
-              ? ['PENDING', 'PEER_CONFIRMED'].includes(r.status)
-              : r.status === status)) &&
-          normalized(`${r.employeeName} ${r.reason || ''} ${r.id}`).includes(
-            normalized(search),
-          ),
-      ),
-    [rows, kind, status, search],
-  );
-  async function transition(
-    r: Row,
-    target: 'approve' | 'reject',
-    body: unknown = {},
-  ) {
-    await hrmFetch(`/${r.source.path}/${r.id}/${target}`, {
-      method: 'POST',
-      body: JSON.stringify(body),
-    });
+
+  async function transition(r: Row, target: 'approve' | 'reject', body: unknown = {}) {
+    await hrmFetch(`/${r.source.path}/${r.id}/${target}`, { method: 'POST', body: JSON.stringify(body) });
   }
-  async function approve(r: Row) {
+  async function approve(r: Row, note: string) {
     setBusy(true);
-    setError('');
+    setPanelError('');
     try {
       await transition(r, 'approve');
-      setDetail(null);
+      await recordDecision(r, 'APPROVE', note);
       await load();
     } catch (e) {
-      setError(approvalErrorMessage(e));
+      setPanelError(approvalErrorMessage(e));
     } finally {
       setBusy(false);
     }
   }
-  function reject(r: Row) {
-    setAction({
-      title: `Từ chối ${r.source.label.toLowerCase()}`,
-      fields: [{ key: 'reason', label: 'Lý do từ chối' }],
-      submit: async (v) => {
-        try {
-          await transition(r, 'reject', v);
-        } catch (e) {
-          throw new Error(approvalErrorMessage(e));
-        }
-        setDetail(null);
-        await load();
-      },
-    });
+  async function reject(r: Row, note: string) {
+    setBusy(true);
+    setPanelError('');
+    try {
+      await transition(r, 'reject', { reason: note });
+      await recordDecision(r, 'REJECT', note);
+      await load();
+    } catch (e) {
+      setPanelError(approvalErrorMessage(e));
+    } finally {
+      setBusy(false);
+    }
   }
   async function batch() {
     setBusy(true);
     setError('');
     let done = 0;
     try {
-      for (const r of rows.filter(
-        (r) => selected.includes(r.key) && eligible(r),
-      )) {
+      for (const r of rows.filter((r) => selected.includes(r.key) && eligible(r))) {
         await transition(r, 'approve');
         done++;
       }
       setSelected([]);
       await load();
     } catch (e) {
-      setError(
-        `Đã duyệt ${done} đơn; dừng tại lỗi: ${approvalErrorMessage(e)}`,
-      );
+      setError(`Đã duyệt ${done} đơn; dừng tại lỗi: ${approvalErrorMessage(e)}`);
       await load();
     } finally {
       setBusy(false);
     }
   }
   function reverse(r: Row) {
-    const kind =
-      r.source.kind === 'ATTENDANCE'
-        ? 'correction'
-        : r.source.kind.toLowerCase();
+    const kind = r.source.kind === 'ATTENDANCE' ? 'correction' : r.source.kind.toLowerCase();
     setAction({
       title: `Hủy hiệu lực ${r.source.label.toLowerCase()}`,
       description:
@@ -435,692 +365,303 @@ export default function ApprovalsScreen() {
       submit: async (v) => {
         await hrmFetch(`/requests/${kind}/${r.id}/reverse`, {
           method: 'POST',
-          body: JSON.stringify({
-            reason: v.reason,
-            expectedUpdatedAt: r.updatedAt || r.updated_at,
-          }),
+          body: JSON.stringify({ reason: v.reason, expectedUpdatedAt: r.updatedAt || r.updated_at }),
         });
-        setDetail(null);
+        setDetailKey('');
         await load();
       },
     });
   }
 
-  const statusBadgeClass = (s: string) => {
-    switch (s) {
-      case 'APPROVED':
-        return 'bg-emerald-50 text-emerald-700 border-emerald-200';
-      case 'REJECTED':
-        return 'bg-red-50 text-red-700 border-red-200';
-      case 'CANCELLED':
-        return 'bg-slate-100 text-slate-600 border-slate-200';
-      case 'REVERSED':
-        return 'bg-orange-50 text-orange-800 border-orange-200';
-      case 'PENDING':
-        return 'bg-amber-50 text-amber-700 border-amber-200';
-      case 'PEER_CONFIRMED':
-        return 'bg-blue-50 text-blue-700 border-blue-200';
-      case 'DISBURSED':
-        return 'bg-indigo-50 text-indigo-700 border-indigo-200';
-      case 'REPAID':
-        return 'bg-teal-50 text-teal-700 border-teal-200';
-      default:
-        return 'bg-slate-50 text-slate-700 border-slate-200';
-    }
-  };
+  const counts = useMemo(() => approvalCounts(rows, ability), [rows, permissionKey]);
+  const visible = useMemo(() => filterApprovals(rows, filter, ability), [rows, filter, permissionKey]);
+  const paged = pageOf(visible, page, PAGE_SIZE);
+  const departments = useMemo(() => [...new Set(rows.map((r) => r.department).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'vi')), [rows]);
+  const selectable = paged.items.filter((r) => eligible(r));
+  const allSelected = selectable.length > 0 && selectable.every((r) => selected.includes(r.key));
 
-  const pendingCount = visible.filter((r) => r.status === 'PENDING').length;
+  const tabs: { id: ApprovalTab; label: string; count: number }[] = [
+    { id: 'ALL', label: 'Tất cả', count: counts.all },
+    { id: 'MINE', label: 'Chờ tôi duyệt', count: counts.mine },
+    { id: 'PROCESSING', label: 'Đang xử lý', count: counts.processing },
+    { id: 'DONE', label: 'Đã xử lý', count: counts.done },
+  ];
+  const amountText = (r: Row) =>
+    r.requestedAmount !== undefined
+      ? `${Number(r.requestedAmount).toLocaleString('vi-VN')} đ`
+      : r.plannedMinutes !== undefined
+        ? `${r.plannedMinutes} phút`
+        : typeof r.durationMinutes === 'number'
+          ? formatRequestDuration({ durationMinutes: r.durationMinutes })
+          : r.duration !== undefined
+            ? String(r.duration)
+            : '';
 
   return (
-    <div className="space-y-6 max-w-[1600px] mx-auto">
-      {/* 1. Page Header Card */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white rounded-xl border border-slate-200 p-5 shadow-xs">
+    <div className="mx-auto max-w-[1600px] space-y-3 pb-4">
+      <div className="flex flex-wrap items-end justify-between gap-2">
         <div>
-          <div className="flex items-center gap-2 mb-1">
-            <h1 className="text-xl font-bold text-slate-900 tracking-tight">
-              Hộp Xử lý Đơn từ & Phê duyệt
-            </h1>
-            <Badge className="bg-amber-50 text-amber-800 border-amber-200 text-xs font-semibold">
-              {pendingCount} đơn chờ duyệt
-            </Badge>
-          </div>
-          <p className="text-xs text-slate-500 max-w-[85ch]">
-            Kiểm tra nội dung, hạn mức chính sách và đối soát quy trình tự động trước khi phê duyệt áp dụng vào công, phép, lương.
-          </p>
+          <h1 className="text-[26px] font-extrabold leading-tight tracking-tight text-slate-900">Đơn từ cần xử lý</h1>
+          <p className="text-[13px] text-slate-500">Theo dõi và phê duyệt các yêu cầu đang chờ xử lý.</p>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <Button
-            variant="outline"
-            onClick={() => void load().catch((e) => setError(e.message))}
-            className="flex items-center gap-1.5"
-          >
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => void load().catch((e) => setError(e.message))} className="gap-1.5">
             <RefreshCw className="size-3.5" />
             <span>Làm mới</span>
           </Button>
-          <a
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-blue-600 transition-colors shadow-xs"
-            href="/modules/hrm/leave-settings"
-          >
-            <FileText className="size-3.5" />
-            <span>Quỹ phép & Sổ phép</span>
-          </a>
+          {permissions.can('hrm.leave.read') && (
+            <a
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-[#2563eb] hover:bg-slate-50"
+              href="/modules/hrm/leave?view=balances"
+            >
+              Quỹ phép
+            </a>
+          )}
         </div>
       </div>
 
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Chỉ số xử lý đơn">
+        <Kpi tone="orange" icon={<TriangleAlert className="size-6" />} label="Chờ tôi duyệt" value={counts.mine} testId="kpi-mine" />
+        <Kpi tone="blue" icon={<Clock className="size-6" />} label="Đang xử lý" value={counts.processing} testId="kpi-processing" />
+        <Kpi tone="red" icon={<TriangleAlert className="size-6" />} label="Quá hạn" value={counts.overdue} testId="kpi-overdue" />
+        <Kpi tone="green" icon={<CheckCircle2 className="size-6" />} label="Đã xử lý tháng này" value={counts.doneThisMonth} testId="kpi-done" />
+      </div>
+
       {error && (
-        <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-xs font-semibold text-red-700 shadow-xs">
+        <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-semibold text-red-700">
           {error}
         </div>
       )}
+      {scopeWarning && (
+        <div role="status" className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-800">
+          {scopeWarning}
+        </div>
+      )}
 
-      {/* 2. Main Data Card */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
-        {/* Table Controls & Filters */}
-        <div className="p-4 border-b border-slate-200 bg-slate-50/50 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-2.5 flex-1 min-w-0">
-            <div className="relative min-w-[240px] max-w-sm flex-1">
-              <Input
-                aria-label="Tìm đơn"
-                placeholder="Tìm nhân viên, mã đơn, lý do…"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pl-3"
-              />
-            </div>
-            <div className="w-48">
-              <SearchableSelect
-                value={kind}
-                onChange={(v) => setKind(v || '')}
-                clearable
-                placeholder="Tất cả loại đơn"
-                options={sources.map((s) => ({ value: s.kind, label: s.label }))}
-              />
-            </div>
-            <div className="min-w-[200px] w-52">
-              <Input
-                aria-label="Đang chờ ai duyệt"
-                placeholder="Đang chờ ai duyệt (tên, chức danh)"
-                value={assignee}
-                onChange={(e) => setAssignee(e.target.value)}
-                className="pl-3"
-              />
-            </div>
-            <div className="w-52">
-              <SearchableSelect
-                value={currentStep}
-                onChange={(v) => setCurrentStep(v || '')}
-                clearable
-                placeholder="Bước hiện tại"
-                options={stepOptions.map((name) => ({ value: name, label: name }))}
-              />
-            </div>
-            <div className="w-48">
-              <SearchableSelect
-                value={status}
-                onChange={(v) => setStatus(v || '')}
-                clearable
-                placeholder="Tất cả trạng thái"
-                options={Object.entries(states)
-                  .filter(([v]) => v !== 'PEER_CONFIRMED')
-                  .map(([value, label]) => ({ value, label }))}
-              />
-            </div>
-          </div>
+      <div className="flex flex-wrap items-stretch gap-2.5" aria-label="Bộ lọc">
+        <div className="flex min-w-[260px] flex-[1.6] items-center gap-2 rounded-xl border border-slate-200/80 bg-white px-3">
+          <Search className="size-4 shrink-0 text-slate-400" />
+          <input
+            aria-label="Tìm đơn"
+            placeholder="Tên nhân viên, mã đơn, lý do..."
+            value={filter.search}
+            onChange={(e) => patch({ search: e.target.value })}
+            className="h-11 w-full bg-transparent text-[13px] outline-none placeholder:text-slate-400"
+          />
+        </div>
+        <FilterBox label="Loại đơn">
+          <SearchableSelect
+            value={filter.kind}
+            onChange={(v) => patch({ kind: v || '' })}
+            clearable
+            placeholder="Tất cả"
+            options={availableSources.map((s) => ({ value: s.kind, label: s.label }))}
+          />
+        </FilterBox>
+        <FilterBox label="Phòng ban">
+          <SearchableSelect
+            value={filter.department}
+            onChange={(v) => patch({ department: v || '' })}
+            clearable
+            placeholder="Tất cả"
+            options={departments.map((d) => ({ value: d, label: d }))}
+          />
+        </FilterBox>
+        <FilterBox label="Bước duyệt">
+          <SearchableSelect
+            value={currentStep}
+            onChange={(v) => setCurrentStep(v || '')}
+            clearable
+            placeholder="Tất cả"
+            options={stepOptions.map((name) => ({ value: name, label: name }))}
+          />
+        </FilterBox>
+        <FilterBox label="Trạng thái">
+          <SearchableSelect
+            value={filter.status}
+            onChange={(v) => patch({ status: v || '' })}
+            clearable
+            placeholder="Tất cả"
+            options={Object.entries(states)
+              .filter(([v]) => v !== 'PEER_CONFIRMED')
+              .map(([value, label]) => ({ value, label }))}
+          />
+        </FilterBox>
+        <div className="flex min-w-[250px] flex-[1.3] items-center gap-2 text-[12.5px] text-slate-600">
+          <DatePickerInput aria-label="Từ ngày" placeholder="Từ ngày" height={44} value={filter.from} onChange={(v: string) => patch({ from: v })} />
+          <span className="text-slate-300">–</span>
+          <DatePickerInput aria-label="Đến ngày" placeholder="Đến ngày" height={44} value={filter.to} onChange={(v: string) => patch({ to: v })} />
+        </div>
+      </div>
 
-          <div className="flex items-center gap-2 shrink-0">
-            <Popconfirm
-              title={`Duyệt ${selected.length} đơn đã chọn?`}
-              description="Các đơn liên kết Procedure được xử lý tại quy trình tương ứng."
-              onConfirm={batch}
-            >
-              <Button disabled={busy || !selected.length} className="bg-emerald-600 hover:bg-emerald-700 text-white">
-                <CheckCircle2 className="size-3.5 mr-1.5" />
+      <div className="grid gap-3 xl:h-[calc(100dvh-420px)] xl:min-h-[520px] xl:grid-cols-[minmax(0,1fr)_430px]">
+        <section className={`${CARD} flex min-h-[420px] min-w-0 flex-col overflow-hidden`} aria-label="Danh sách đơn">
+          <div className="flex shrink-0 items-center justify-between gap-2 border-b border-slate-100 px-3">
+            <div className="flex gap-1 text-[13px]" aria-label="Nhóm đơn">
+              {tabs.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  aria-pressed={filter.tab === t.id}
+                  data-testid={`tab-${t.id}`}
+                  onClick={() => patch({ tab: t.id })}
+                  className={`-mb-px border-b-2 px-3 py-3 font-medium transition-colors ${filter.tab === t.id ? 'border-[#2563eb] text-[#2563eb]' : 'border-transparent text-slate-600 hover:text-slate-900'}`}
+                >
+                  {t.label} ({t.count})
+                </button>
+              ))}
+            </div>
+            <Popconfirm title={`Duyệt ${selected.length} đơn đã chọn?`} description="Các đơn liên kết Procedure được xử lý tại quy trình tương ứng." onConfirm={batch}>
+              <Button disabled={busy || !selected.length} className="h-8 gap-1.5 border-0 bg-emerald-600 text-xs text-white hover:bg-emerald-700">
+                <CheckCircle2 className="size-3.5" />
                 Duyệt đã chọn ({selected.length})
               </Button>
             </Popconfirm>
           </div>
-        </div>
 
-        {/* Data Table */}
-        <Table<Row>
-          rowKey="key"
-          dataSource={visible}
-          size="small"
-          rowSelection={{
-            selectedRowKeys: selected,
-            onChange: setSelected,
-            getCheckboxProps: (r) => ({ disabled: busy || !eligible(r) }),
-          }}
-          pagination={{
-            pageSize: 30,
-            showSizeChanger: true,
-            showTotal: (t, range) => `Hiển thị ${range[0]}–${range[1]} / ${t} đơn`,
-          }}
-          scroll={{ x: 1450, y: 'calc(100dvh - 350px)' }}
-          columns={[
-            {
-              title: 'Nhân viên',
-              dataIndex: 'employeeName',
-              fixed: 'left',
-              width: 220,
-              sorter: (a, b) => a.employeeName.localeCompare(b.employeeName),
-              render: (_, r) => (
-                <div>
-                  <strong className="text-slate-900 font-semibold">{r.employeeName}</strong>
-                  <p className="text-[11px] text-slate-500 font-mono">{r.employeeCode}</p>
-                </div>
-              ),
-            },
-            {
-              title: 'Loại đơn',
-              width: 140,
-              render: (_, r) => (
-                <span className="font-medium text-slate-800">{r.source.label}</span>
-              ),
-            },
-            {
-              title: 'Thời gian',
-              dataIndex: 'period',
-              width: 180,
-              render: (v) => <span className="text-xs text-slate-700 font-mono">{v || '—'}</span>,
-            },
-            {
-              title: 'Khối lượng',
-              width: 120,
-              render: (_, r) =>
-                r.requestedAmount !== undefined ? (
-                  <span className="font-semibold text-emerald-700 font-mono">
-                    {Number(r.requestedAmount).toLocaleString('vi-VN')} đ
-                  </span>
-                ) : r.plannedMinutes !== undefined ? (
-                  <span className="font-medium text-slate-700 font-mono">{r.plannedMinutes} phút</span>
-                ) : r.duration !== undefined ? (
-                  <span className="font-medium text-slate-700">{r.duration}</span>
-                ) : (
-                  '—'
-                ),
-            },
-            {
-              title: 'Lý do',
-              dataIndex: 'reason',
-              ellipsis: true,
-              render: (v) => <span className="text-xs text-slate-600">{v || '—'}</span>,
-            },
-            {
-              title: 'Trạng thái',
-              width: 140,
-              render: (_, r) => (
-                <span
-                  className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border ${statusBadgeClass(r.status)}`}
-                  title={r.reversalReason ? `Lý do: ${r.reversalReason}` : undefined}
-                >
-                  {states[r.status] || r.status}
-                </span>
-              ),
-            },
-            {
-              title: 'Quy trình',
-              width: 240,
-              render: (_, r) =>
-                r.link ? (
-                  <div className="space-y-0.5">
-                    <a
-                      className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline font-mono"
-                      href="/modules/procedure"
-                    >
-                      <span>{r.link.instance_code || 'Chờ khởi tạo'}</span>
-                      <ExternalLink className="size-3" />
-                    </a>
-                    {(() => {
-                      const f = procedureFieldsOf(r);
-                      const label = waitingApproverLabel({
-                        assigneeName: f.currentAssigneeName,
-                        stepName: f.currentStepName,
-                      });
-                      return label ? (
-                        <p className="text-[11px] text-slate-600">{label}</p>
-                      ) : null;
-                    })()}
-                  </div>
-                ) : (
-                  <span className="text-xs text-slate-400">Duyệt trực tiếp</span>
-                ),
-            },
-            {
-              title: 'Thao tác',
-              fixed: 'right',
-              width: 210,
-              render: (_, r) => (
-                <div className="flex items-center gap-1.5">
-                  <Button
-                    variant="outline"
-                    size="xs"
-                    onClick={() => setDetail(r)}
-                  >
-                    Chi tiết
-                  </Button>
-                  {r.status === 'APPROVED' &&
-                    [
-                      'LEAVE',
-                      'OT',
-                      'BUSINESS_TRIP',
-                      'ATTENDANCE',
-                      'ADVANCE',
-                    ].includes(r.source.kind) &&
-                    permissions.can(r.source.permission) && (
-                      <Button
-                        variant="outline"
-                        size="xs"
-                        disabled={busy}
-                        onClick={() => reverse(r)}
-                        className="text-amber-700 border-amber-200 hover:bg-amber-50"
-                      >
-                        Hủy hiệu lực
-                      </Button>
-                    )}
-                  {eligible(r) && (
-                    <>
-                      <Popconfirm
-                        title="Phê duyệt đơn này?"
-                        description="Hành động này sẽ áp dụng các thay đổi vào hồ sơ công/phép/lương."
-                        onConfirm={() => approve(r)}
-                        okText="Phê duyệt"
-                        cancelText="Bỏ qua"
-                      >
-                        <Button
-                          size="xs"
-                          disabled={busy}
-                          className="bg-emerald-600 hover:bg-emerald-700 text-white"
-                        >
-                          Duyệt
-                        </Button>
-                      </Popconfirm>
-                      <Button
-                        variant="outline"
-                        size="xs"
-                        disabled={busy}
-                        onClick={() => reject(r)}
-                        className="text-red-700 border-red-200 hover:bg-red-50"
-                      >
-                        Từ chối
-                      </Button>
-                    </>
-                  )}
-                </div>
-              ),
-            },
-          ]}
-        />
-      </div>
-
-      {/* DRAWER CHI TIẾT ĐƠN DUYỆT */}
-      <Sheet open={!!detail} onOpenChange={(open) => !open && setDetail(null)}>
-        <SheetContent className="w-full sm:max-w-[680px] p-0 h-full max-h-screen overflow-hidden bg-white flex flex-col shadow-2xl">
-          {detail && (
-            <>
-              {/* 1. Header */}
-              <SheetHeader className="shrink-0 p-5 border-b border-slate-200 bg-slate-50/80">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2">
-                    <Badge className="bg-blue-50 text-blue-700 border-blue-200 text-xs font-semibold px-2.5 py-0.5">
-                      {detail.source.label}
-                    </Badge>
-                    <span className="text-slate-300">•</span>
-                    <span className="font-mono text-xs text-slate-500 font-medium">
-                      #{detail.id.slice(-8).toUpperCase()}
-                    </span>
-                  </div>
-                  <span
-                    className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border ${statusBadgeClass(
-                      detail.status,
-                    )}`}
-                  >
-                    {states[detail.status] || detail.status}
-                  </span>
-                </div>
-
-                {detail.reversalReason ? (
-                  <p className="mt-3 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-xs text-orange-900">
-                    <b>Đã hủy hiệu lực.</b> Lý do: {detail.reversalReason}
-                  </p>
-                ) : null}
-
-                <div className="mt-3">
-                  <SheetTitle className="text-base font-bold text-slate-900 flex items-center gap-2.5">
-                    <div className="size-8 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-xs shrink-0 border border-blue-200/60">
-                      {detail.employeeName
-                        ? detail.employeeName.charAt(0).toUpperCase()
-                        : 'U'}
-                    </div>
-                    <div>
-                      <span>{detail.employeeName}</span>
-                      {detail.employeeCode && (
-                        <span className="font-mono text-xs font-normal text-slate-500 ml-2">
-                          ({detail.employeeCode})
-                        </span>
-                      )}
-                    </div>
-                  </SheetTitle>
-                  <SheetDescription className="text-xs text-slate-500 mt-1.5 flex items-center gap-1.5">
-                    <Clock className="size-3.5 text-slate-400" />
-                    <span>
-                      Ngày gửi:{' '}
-                      {detail.created
-                        ? formatDateTime(detail.created)
-                        : '—'}
-                    </span>
-                  </SheetDescription>
-                </div>
-              </SheetHeader>
-
-              {/* 2. Scrollable Body */}
-              <div className="flex-1 min-h-0 overflow-y-auto p-6 space-y-5 text-xs">
-                {/* Block 1: Thẻ thông tin thời gian áp dụng */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/50 space-y-1">
-                    <span className="text-[11px] text-slate-400 block font-medium flex items-center gap-1">
-                      <Calendar className="size-3.5 text-blue-600" />
-                      Thời gian áp dụng
-                    </span>
-                    <span className="font-semibold text-slate-900 block text-xs">
-                      {detail.period || '—'}
-                    </span>
-                  </div>
-
-                  <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/50 space-y-1">
-                    <span className="text-[11px] text-slate-400 block font-medium flex items-center gap-1">
-                      <Workflow className="size-3.5 text-indigo-600" />
-                      Phương thức duyệt
-                    </span>
-                    <span className="font-semibold text-slate-900 block text-xs">
-                      {detail.link ? 'Liên kết Procedure Engine' : 'Phê duyệt trực tiếp'}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Block 2: Lý do & Mục đích */}
-                <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4 space-y-2">
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
-                    <FileText className="size-3.5 text-blue-600" />
-                    Lý do & Nội dung đề xuất
-                  </span>
-                  <p className="text-xs text-slate-800 leading-relaxed font-medium whitespace-pre-wrap">
-                    {detail.reason || 'Không có lý do kèm theo.'}
-                  </p>
-                </div>
-
-                {/* Block 3: Chi tiết các thông số kỹ thuật */}
-                {Object.entries(detailFields).some(
-                  ([k]) => detail[k] !== undefined && detail[k] !== null,
-                ) && (
-                    <div className="rounded-xl border border-slate-200 bg-white overflow-hidden shadow-2xs">
-                      <div className="p-3.5 border-b border-slate-100 bg-slate-50/60 flex items-center justify-between">
-                        <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
-                          <Layers className="size-3.5 text-blue-600" />
-                          Thông số chi tiết
-                        </span>
-                      </div>
-                      <div className="divide-y divide-slate-100">
-                        {Object.entries(detailFields)
-                          .filter(
-                            ([key]) =>
-                              detail[key] !== undefined && detail[key] !== null,
-                          )
-                          .map(([key, label]) => {
-                            const val = detail[key];
-                            return (
-                              <div
-                                key={key}
-                                className="px-4 py-2.5 flex items-start justify-between gap-4 text-xs hover:bg-slate-50/50 transition-colors"
-                              >
-                                <span className="text-slate-500 font-medium shrink-0">
-                                  {label}
-                                </span>
-                                <span className="font-semibold text-slate-900 text-right break-all">
-                                  {typeof val === 'boolean' ? (
-                                    val ? (
-                                      <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px]">
-                                        Có
-                                      </Badge>
-                                    ) : (
-                                      <Badge className="bg-slate-100 text-slate-600 border-slate-200 text-[10px]">
-                                        Không
-                                      </Badge>
-                                    )
-                                  ) : typeof val === 'number' && key.toLowerCase().includes('amount') ? (
-                                    <span className="font-mono text-emerald-700">
-                                      {val.toLocaleString('vi-VN')} đ
-                                    </span>
-                                  ) : typeof val === 'number' && key.toLowerCase().includes('minutes') ? (
-                                    <span className="font-mono text-blue-700">
-                                      {val} phút
-                                    </span>
-                                  ) : typeof val === 'object' ? (
-                                    <pre className="font-mono text-[11px] bg-slate-50 p-2 rounded border border-slate-200 text-left max-w-full overflow-x-auto">
-                                      {JSON.stringify(val, null, 2)}
-                                    </pre>
-                                  ) : typeof val === 'string' && /At$/.test(key) ? (
-                                    formatDateTime(val, String(val))
-                                  ) : (
-                                    String(val)
-                                  )}
-                                </span>
-                              </div>
-                            );
-                          })}
-                      </div>
-                    </div>
-                  )}
-
-                {/* Block 4: Đề xuất sửa đổi thông tin (Nếu có) */}
-                {detail.changes && Object.keys(detail.changes).length > 0 && (
-                  <div className="rounded-xl border border-blue-200/80 bg-blue-50/30 p-4 space-y-3">
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-blue-900 flex items-center gap-1.5">
-                      <Layers className="size-3.5 text-blue-600" />
-                      Nội dung đề xuất cập nhật hồ sơ
-                    </span>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                      {Object.entries(detail.changes).map(([k, v]) => (
-                        <div
-                          key={k}
-                          className="p-2.5 rounded-lg bg-white border border-slate-200/80 space-y-1"
-                        >
-                          <span className="text-[11px] text-slate-500 block">
-                            {k}
-                          </span>
-                          <span className="font-semibold text-slate-900 block break-all">
-                            {String(v ?? '—')}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Block 5: Tệp chứng từ đính kèm (Nếu có) */}
-                {detail.attachmentFileId && (
-                  <div className="rounded-xl border border-slate-200 bg-white p-4 flex items-center justify-between shadow-2xs">
-                    <div className="flex items-center gap-3">
-                      <div className="size-9 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center border border-emerald-100 shrink-0">
-                        <Paperclip className="size-4" />
-                      </div>
-                      <div>
-                        <span className="font-semibold text-slate-900 block text-xs">
-                          Tệp chứng từ / Minh chứng đính kèm
-                        </span>
-                        <span className="text-[11px] text-slate-400 font-mono">
-                          ID: {detail.attachmentFileId}
-                        </span>
-                      </div>
-                    </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="text-xs h-8 text-blue-700 border-blue-200 hover:bg-blue-50 flex items-center gap-1.5"
-                      onClick={async () => {
-                        try {
-                          const file = await hrmFetch<{ data: { url: string } }>(
-                            `/attachments/${detail.attachmentFileId}/download`,
-                          );
-                          window.open(file.data.url, '_blank', 'noopener,noreferrer');
-                        } catch (e) {
-                          setError(
-                            e instanceof Error
-                              ? e.message
-                              : 'Không tải được chứng từ',
-                          );
-                        }
-                      }}
-                    >
-                      <ExternalLink className="size-3.5" />
-                      <span>Xem chứng từ</span>
-                    </Button>
-                  </div>
-                )}
-
-                {/* Block 6: Liên kết Procedure Engine */}
-                {detail.link && (
-                  <div className="rounded-xl border border-indigo-200/80 bg-indigo-50/40 p-4 space-y-2 text-xs">
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-indigo-950 flex items-center gap-1.5 text-[11px] uppercase tracking-wider">
-                        <Workflow className="size-3.5 text-indigo-600" />
-                        Quy trình Procedure Engine liên kết
-                      </span>
-                      <Badge className="bg-indigo-100 text-indigo-800 border-indigo-200 text-[10px] font-mono">
-                        {detail.link.status}
-                      </Badge>
-                    </div>
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1">
-                      <div>
-                        <span className="text-slate-500 text-[11px]">
-                          Mã phiên chạy:{' '}
-                        </span>
-                        <span className="font-mono font-bold text-slate-800">
-                          {detail.link.instance_code || 'Chờ khởi tạo'}
-                        </span>
-                      </div>
-                      <a
-                        href="/modules/procedure"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-xs font-semibold text-blue-600 hover:text-blue-700 flex items-center gap-1 shrink-0"
-                      >
-                        <span>Mở Procedure Engine</span>
-                        <ExternalLink className="size-3" />
-                      </a>
-                    </div>
-                  </div>
-                )}
-
-                {/* Tiến độ: danh sách bước, người xử lý, SLA (dùng chung với chi tiết đơn nhân viên) */}
-                {detail.link && (
-                  <ProcedureProgressPanel
-                    progress={detailProgress}
-                    loading={detailProgressLoading}
-                    hasInstance={Boolean(detailInstanceId)}
-                    onRefresh={() => void refreshDetailProgress(false)}
-                    syncStatus={detail.link.status}
-                    lastError={detail.link.last_error}
-                    fallbackStepName={procedureFieldsOf(detail).currentStepName}
-                    fallbackAssigneeName={
-                      procedureFieldsOf(detail).currentAssigneeName
-                    }
-                  />
-                )}
-
-                {/* Block 7: Thông tin định danh kỹ thuật */}
-                {/* <div className="rounded-xl border border-slate-100 bg-slate-50/40 p-3 space-y-1 text-[11px] text-slate-400">
-                  <div className="flex items-center justify-between">
-                    <span>Mã định danh hệ thống (ID):</span>
-                    <span className="font-mono text-slate-600">{detail.id}</span>
-                  </div>
-                  {detail.employeeId && (
-                    <div className="flex items-center justify-between">
-                      <span>Mã định danh nhân viên:</span>
-                      <span className="font-mono text-slate-600">{detail.employeeId}</span>
-                    </div>
-                  )}
-                </div> */}
-              </div>
-
-              {/* 3. Sticky Footer */}
-              <div className="shrink-0 p-4 border-t border-slate-200 bg-slate-50 flex items-center justify-between">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="text-xs h-8"
-                  onClick={() => setDetail(null)}
-                >
-                  Đóng
-                </Button>
-
-                {procedureActionable(detail) &&
-                detailProgress?.canAct !== false &&
-                !isTerminalProcedureStatus(detailProgress?.status) ? (
-                  <div className="flex-1 ml-4 space-y-1.5">
-                    {error && (
-                      <p role="alert" className="text-xs font-semibold text-red-700">
-                        {error}
-                      </p>
-                    )}
-                    <ProcedureActionBar
-                      busy={busy}
-                      onAction={(action, comment) =>
-                        procedureAction(detail, action, comment)
+          <div className="min-h-0 flex-1 overflow-auto">
+            <table className="w-full min-w-[640px] border-collapse text-[13px]" aria-label="Danh sách đơn từ">
+              <thead className="sticky top-0 z-10 bg-slate-50 text-left text-[12.5px] font-semibold text-slate-700">
+                <tr>
+                  <th className="w-10 px-3 py-2.5">
+                    <input
+                      type="checkbox"
+                      aria-label="Chọn tất cả đơn được duyệt trong trang"
+                      checked={allSelected}
+                      disabled={busy || selectable.length === 0}
+                      onChange={(e) =>
+                        setSelected((prev) => [
+                          ...prev.filter((k) => !selectable.some((r) => r.key === k)),
+                          ...(e.target.checked ? selectable.map((r) => r.key) : []),
+                        ])
                       }
                     />
-                  </div>
-                ) : eligible(detail) ? (
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={busy}
-                      onClick={() => reject(detail)}
-                      className="text-xs h-8 text-rose-700 border-rose-200 hover:bg-rose-50 font-medium"
-                    >
-                      Từ chối
-                    </Button>
-                    <Popconfirm
-                      title="Phê duyệt đơn này?"
-                      description="Hành động này sẽ áp dụng các thay đổi vào hồ sơ công/phép/lương tương ứng."
-                      okText="Phê duyệt"
-                      cancelText="Quay lại"
-                      onConfirm={() => approve(detail)}
-                    >
-                      <Button
-                        size="sm"
-                        disabled={busy}
-                        className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs h-8 font-semibold shadow-xs flex items-center gap-1.5"
+                  </th>
+                  <th className="px-2 py-2.5">Nhân viên</th>
+                  <th className="px-2 py-2.5">Loại đơn</th>
+                  <th className="px-2 py-2.5">Thời gian</th>
+                  <th className="px-2 py-2.5">Lý do</th>
+                  <th className="px-2 py-2.5">Trạng thái</th>
+                </tr>
+              </thead>
+              <tbody>
+                {loading ? (
+                  <tr>
+                    <td colSpan={6} className="px-3 py-10 text-center text-sm text-slate-500" role="status">
+                      Đang tải danh sách đơn...
+                    </td>
+                  </tr>
+                ) : paged.items.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="px-3 py-10 text-center text-sm text-slate-500">
+                      Không có đơn nào khớp bộ lọc.
+                    </td>
+                  </tr>
+                ) : (
+                  paged.items.map((r) => {
+                    const active = r.key === detailKey;
+                    const amount = amountText(r);
+                    return (
+                      <tr
+                        key={r.key}
+                        data-testid={`approval-row-${r.id}`}
+                        aria-selected={active}
+                        onClick={() => {
+                          setDetailKey(r.key);
+                          setPanelError('');
+                        }}
+                        className={`cursor-pointer border-b border-slate-100 align-middle transition-colors ${active ? 'bg-amber-50/70' : 'hover:bg-slate-50'}`}
                       >
-                        <CheckCircle2 className="size-3.5" />
-                        <span>Phê duyệt đơn</span>
-                      </Button>
-                    </Popconfirm>
-                  </div>
-                ) : detail.status === 'APPROVED' &&
-                  ['LEAVE', 'OT', 'BUSINESS_TRIP', 'ATTENDANCE', 'ADVANCE'].includes(
-                    detail.source.kind,
-                  ) &&
-                  permissions.can(detail.source.permission) ? (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={busy}
-                    onClick={() => reverse(detail)}
-                    className="text-xs h-8 text-amber-700 border-amber-200 hover:bg-amber-50 font-medium"
-                  >
-                    Hủy hiệu lực đơn
-                  </Button>
-                ) : null}
-              </div>
-            </>
-          )}
-        </SheetContent>
-      </Sheet>
-      {action && (
-        <HrmActionDialog action={action} onClose={() => setAction(null)} />
-      )}
+                        <td className="px-3 py-2.5" onClick={(e) => e.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            aria-label={`Chọn đơn của ${r.employeeName}`}
+                            checked={selected.includes(r.key)}
+                            disabled={busy || !eligible(r)}
+                            onChange={(e) => setSelected((prev) => (e.target.checked ? [...prev, r.key] : prev.filter((k) => k !== r.key)))}
+                          />
+                        </td>
+                        <td className="px-2 py-2.5">
+                          <div className="flex items-center gap-2.5">
+                            <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-slate-200 text-[11.5px] font-bold text-slate-600">{initialsOf(r.employeeName)}</span>
+                            <div className="min-w-0">
+                              <p className="truncate font-semibold text-slate-900">{r.employeeName}</p>
+                              <p className="truncate text-[11.5px] text-slate-500">{[r.employeeCode, r.department].filter(Boolean).join(' · ')}</p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-2 py-2.5">
+                          <span className={`inline-flex max-w-[170px] items-center truncate rounded-lg px-2.5 py-1 text-[12px] font-semibold ${kindChip(r.source.kind)}`}>{rowKindLabel(r)}</span>
+                        </td>
+                        <td className="px-2 py-2.5">
+                          <p className="font-medium text-slate-900">{r.period || '—'}</p>
+                          {amount ? <p className="text-[11.5px] text-slate-500">{amount}</p> : null}
+                        </td>
+                        <td className="max-w-[200px] px-2 py-2.5">
+                          <p className="truncate text-slate-800" title={r.reasonLabel}>
+                            {r.reasonLabel}
+                            {isUnpaidOt(r) ? <span className="ml-1.5 rounded bg-amber-50 px-1 text-[10px] font-semibold text-amber-800">Không lương</span> : null}
+                          </p>
+                        </td>
+                        <td className="px-2 py-2.5">
+                          <span
+                            className={`inline-flex rounded-lg px-2.5 py-1 text-[12px] font-semibold ${statusTone(r.status)}`}
+                            title={r.reversalReason ? `Lý do: ${r.reversalReason}` : undefined}
+                          >
+                            {states[r.status] || r.status}
+                          </span>
+                          {isOverdue(r) ? <span className="ml-1.5 text-[10.5px] font-semibold text-rose-600">Quá hạn</span> : null}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="flex shrink-0 items-center justify-between gap-2 border-t border-slate-100 px-3 py-2.5 text-[12.5px] text-slate-600">
+            <span>
+              Hiển thị {paged.from}–{paged.to} trên {visible.length} đơn
+            </span>
+            <div className="flex items-center gap-1.5">
+              <button type="button" aria-label="Trang trước" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))} className="flex size-8 items-center justify-center rounded-lg border border-slate-200 disabled:opacity-40">
+                <ChevronLeft className="size-4" />
+              </button>
+              <span className="flex size-8 items-center justify-center rounded-lg bg-amber-100 text-[12.5px] font-bold text-amber-900">{Math.min(page, paged.pages)}</span>
+              <button type="button" aria-label="Trang sau" disabled={page >= paged.pages} onClick={() => setPage((p) => Math.min(paged.pages, p + 1))} className="flex size-8 items-center justify-center rounded-lg border border-slate-200 disabled:opacity-40">
+                <ChevronRight className="size-4" />
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <div className="min-h-[420px] xl:min-h-0">
+          <ApprovalDetailPanel
+            row={detail}
+            progress={detailProgress}
+            progressLoading={detailProgressLoading}
+            onRefreshProgress={(silent) => void refreshDetailProgress(silent)}
+            busy={busy}
+            error={panelError}
+            canDecide={detail ? eligible(detail) : false}
+            canProcedure={detail ? procedureActionable(detail) && !isTerminalProcedureStatus(detailProgress?.status) : false}
+            canReverse={Boolean(
+              detail &&
+                detail.status === 'APPROVED' &&
+                ['LEAVE', 'OT', 'BUSINESS_TRIP', 'ATTENDANCE', 'ADVANCE'].includes(detail.source.kind) &&
+                permissions.can(detail.source.permission),
+            )}
+            onApprove={(note) => (detail ? approve(detail, note) : Promise.resolve())}
+            onReject={(note) => (detail ? reject(detail, note) : Promise.resolve())}
+            onProcedureAction={(act, comment) => (detail ? procedureAction(detail, act, comment) : Promise.resolve())}
+            onReverse={() => detail && reverse(detail)}
+            onError={setPanelError}
+            threadRefresh={threadRefresh}
+          />
+        </div>
+      </div>
+      {action && <HrmActionDialog action={action} onClose={() => setAction(null)} />}
     </div>
   );
 }

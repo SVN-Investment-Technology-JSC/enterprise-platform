@@ -36,6 +36,11 @@ export const HRM_PERMISSION_ACTIONS = [
     label: 'Tạo và sửa hồ sơ, chức danh',
   },
   {
+    key: 'hrm.employee.sensitive',
+    group: 'HRM · Nhân sự',
+    label: 'Xem CCCD, mã số thuế, BHXH, tài khoản ngân hàng của nhân viên',
+  },
+  {
     key: 'hrm.employee.link-account',
     group: 'HRM · Nhân sự',
     label: 'Liên kết nhân viên với tài khoản',
@@ -63,12 +68,32 @@ export const HRM_PERMISSION_ACTIONS = [
   {
     key: 'hrm.shift.read',
     group: 'HRM · Ca và công',
-    label: 'Xem lịch phân ca toàn tenant',
+    label: 'Xem danh mục ca làm việc',
   },
   {
     key: 'hrm.shift.manage',
     group: 'HRM · Ca và công',
-    label: 'Cấu hình ca và phân ca',
+    label: 'Cấu hình danh mục ca làm việc',
+  },
+  {
+    key: 'hrm.schedule.read',
+    group: 'HRM · Ca và công',
+    label: 'Xem lịch phân ca làm việc',
+  },
+  {
+    key: 'hrm.schedule.manage',
+    group: 'HRM · Ca và công',
+    label: 'Tạo, gán, sửa và huỷ lịch phân ca; quản lý mẫu lịch tuần',
+  },
+  {
+    key: 'hrm.schedule.bulk',
+    group: 'HRM · Ca và công',
+    label: 'Phân ca hàng loạt theo nhóm, phòng ban và toàn công ty',
+  },
+  {
+    key: 'hrm.schedule.calendar',
+    group: 'HRM · Ca và công',
+    label: 'Quản lý lịch lễ, Tết và lịch ngoại lệ',
   },
   {
     key: 'hrm.shift.approve',
@@ -159,6 +184,16 @@ export const HRM_PERMISSION_ACTIONS = [
     key: 'hrm.trip.approve.all',
     group: 'HRM · Phép và đơn',
     label: 'Duyệt công tác toàn tenant (không giới hạn phạm vi đơn vị)',
+  },
+  {
+    key: 'hrm.custom.approve',
+    group: 'HRM · Phép và đơn',
+    label: 'Duyệt đơn của loại đơn do quản trị tạo',
+  },
+  {
+    key: 'hrm.custom.approve.all',
+    group: 'HRM · Phép và đơn',
+    label: 'Duyệt đơn loại tuỳ chỉnh toàn tenant (không giới hạn phạm vi đơn vị)',
   },
   {
     key: 'hrm.profile.approve',
@@ -322,6 +357,16 @@ export const TENANT_PERMISSION_ACTIONS = [
     label: 'Nhập, xuất, chuyển kho và giữ chỗ',
   },
   {
+    key: 'inventory.stocktake.create',
+    group: 'Inventory',
+    label: 'Tạo đợt kiểm kê, nhập số đếm và gửi duyệt',
+  },
+  {
+    key: 'inventory.stocktake.approve',
+    group: 'Inventory',
+    label: 'Duyệt và ghi sổ kiểm kê kho',
+  },
+  {
     key: 'maintenance.read',
     group: 'Maintenance',
     label: 'Xem lịch và hồ sơ bảo trì',
@@ -380,6 +425,8 @@ export const TENANT_PERMISSION_ACTIONS = [
   { key: 'workspace.manage', group: 'Workspace', label: 'Quản trị dự án, công việc và tài liệu' },
   { key: 'workspace.task.write', group: 'Workspace', label: 'Ghi dự án và công việc' },
   { key: 'workspace.document.write', group: 'Workspace', label: 'Ghi tài liệu' },
+  { key: 'workspace.document.delete', group: 'Workspace', label: 'Xoá và lưu trữ tài liệu' },
+  { key: 'workspace.project.create', group: 'Workspace', label: 'Tạo dự án mới' },
 ] as const;
 export type TenantAction = (typeof TENANT_PERMISSION_ACTIONS)[number]['key'];
 export interface TenantPermission {
@@ -418,6 +465,8 @@ export function expandTenantActions(actions: readonly string[]): string[] {
   if (effective.has('inventory.manage')) {
     effective.add('inventory.read');
     effective.add('inventory.transaction.write');
+    effective.add('inventory.stocktake.create');
+    effective.add('inventory.stocktake.approve');
   }
   if (effective.has('maintenance.manage')) {
     effective.add('maintenance.read');
@@ -430,27 +479,27 @@ export function expandTenantActions(actions: readonly string[]): string[] {
     effective.add('hrm.read');
     if (action.startsWith('hrm.self.')) effective.add('hrm.self.read');
     const reads: Record<string, string[]> = {
-      'hrm.employee.manage': ['hrm.employee.read'],
+      'hrm.employee.manage': ['hrm.employee.read', 'hrm.employee.sensitive'],
+      'hrm.employee.sensitive': ['hrm.employee.read'],
       'hrm.employee.link-account': ['hrm.employee.read'],
       'hrm.appointment.manage': ['hrm.appointment.read', 'hrm.employee.read'],
       'hrm.appointment.approve': ['hrm.appointment.read', 'hrm.employee.read'],
       'hrm.shift.manage': ['hrm.shift.read'],
-      'hrm.shift.approve.all': ['hrm.shift.approve', 'hrm.shift.read', 'hrm.request.read'],
-      'hrm.shift.approve': ['hrm.shift.read', 'hrm.request.read'],
-      'hrm.attendance.approve.all': ['hrm.attendance.approve', 'hrm.attendance.read', 'hrm.request.read'],
-      'hrm.attendance.approve': ['hrm.attendance.read', 'hrm.request.read'],
+      'hrm.schedule.manage': ['hrm.schedule.read'],
+      'hrm.schedule.bulk': ['hrm.schedule.manage', 'hrm.schedule.read'],
+      'hrm.schedule.calendar': ['hrm.schedule.read'],
+      // Quyền duyệt chỉ cho xử lý đơn thuộc phạm vi của người duyệt; KHÔNG kéo theo quyền đọc toàn tenant
+      // (hrm.request.read, hrm.attendance.read, hrm.leave.read): những quyền đó phải được cấp riêng.
+      'hrm.shift.approve.all': ['hrm.shift.approve'],
+      'hrm.attendance.approve.all': ['hrm.attendance.approve'],
       'hrm.attendance.import': ['hrm.attendance.read'],
       'hrm.leave.manage': ['hrm.leave.read'],
-      'hrm.leave.approve.all': ['hrm.leave.approve', 'hrm.leave.read', 'hrm.request.read'],
-      'hrm.leave.approve': ['hrm.leave.read', 'hrm.request.read'],
-      'hrm.ot.approve.all': ['hrm.ot.approve', 'hrm.request.read'],
-      'hrm.ot.approve': ['hrm.request.read'],
-      'hrm.trip.approve.all': ['hrm.trip.approve', 'hrm.request.read'],
-      'hrm.trip.approve': ['hrm.request.read'],
-      'hrm.profile.approve.all': ['hrm.profile.approve', 'hrm.request.read'],
-      'hrm.profile.approve': ['hrm.request.read'],
-      'hrm.advance.approve.all': ['hrm.advance.approve', 'hrm.advance.read'],
-      'hrm.advance.approve': ['hrm.advance.read'],
+      'hrm.leave.approve.all': ['hrm.leave.approve'],
+      'hrm.ot.approve.all': ['hrm.ot.approve'],
+      'hrm.trip.approve.all': ['hrm.trip.approve'],
+      'hrm.custom.approve.all': ['hrm.custom.approve'],
+      'hrm.profile.approve.all': ['hrm.profile.approve'],
+      'hrm.advance.approve.all': ['hrm.advance.approve'],
       'hrm.advance.disburse': ['hrm.advance.read'],
       'hrm.salary.manage': ['hrm.salary.read'],
       'hrm.dependent.manage': ['hrm.dependent.read'],

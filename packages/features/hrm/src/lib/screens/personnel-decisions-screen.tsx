@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
 import { Table, type TableColumnsType } from 'antd';
-import { FileSignature, Plus, Search } from 'lucide-react';
+import { Building2, ChevronDown, FileSignature, Plus, Search } from 'lucide-react';
 import type {
   HrmPersonnelDecision,
   HrmPersonnelDecisionStatus,
@@ -27,7 +27,10 @@ import {
   DECISION_TYPES,
   DECISION_TYPE_LABELS,
   decisionRowActions,
+  decisionStats,
   decisionSummary,
+  decisionUnitOf,
+  groupDecisionsByUnit,
   formatDateVn,
   formatMoney,
 } from '../personnel-decision-rules';
@@ -82,6 +85,10 @@ export default function PersonnelDecisionsScreen() {
   const [statusFilter, setStatusFilter] = useState<HrmPersonnelDecisionStatus | ''>('');
   const [employeeFilter, setEmployeeFilter] = useState('');
   const [search, setSearch] = useState('');
+  const [unitFilter, setUnitFilter] = useState('');
+  // Cách xem: nhóm theo phòng ban (mặc định) hoặc danh sách phẳng; các phòng ban đang thu gọn.
+  const [view, setView] = useState<'unit' | 'flat'>('unit');
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
   const [employees, setEmployees] = useState<SearchableSelectOption[]>([]);
   const list = usePersonnelDecisions({
     type: typeFilter,
@@ -103,14 +110,30 @@ export default function PersonnelDecisionsScreen() {
 
   const rows = useMemo(() => {
     const q = search.trim().toLocaleLowerCase('vi');
-    const all = list.data ?? [];
-    if (!q) return all;
-    return all.filter((d) =>
-      `${d.decisionNo} ${d.employeeCode ?? ''} ${d.employeeName ?? ''} ${d.reason}`
-        .toLocaleLowerCase('vi')
-        .includes(q),
+    return (list.data ?? []).filter(
+      (d) =>
+        (!unitFilter || decisionUnitOf(d) === unitFilter) &&
+        (!q ||
+          `${d.decisionNo} ${d.employeeCode ?? ''} ${d.employeeName ?? ''} ${d.reason}`
+            .toLocaleLowerCase('vi')
+            .includes(q)),
     );
-  }, [list.data, search]);
+  }, [list.data, search, unitFilter]);
+  // Số liệu và danh sách phòng ban tính trên toàn bộ quyết định đã tải; nhóm tính trên danh sách đang lọc.
+  const stats = useMemo(() => decisionStats(list.data ?? []), [list.data]);
+  const unitOptions = useMemo<SearchableSelectOption[]>(
+    () =>
+      groupDecisionsByUnit(list.data ?? []).map((g) => ({ value: g.unit, label: `${g.unit} (${g.rows.length})` })),
+    [list.data],
+  );
+  const groups = useMemo(() => groupDecisionsByUnit(rows), [rows]);
+  const toggleGroup = (unit: string) =>
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(unit)) next.delete(unit);
+      else next.add(unit);
+      return next;
+    });
 
   async function run(
     d: HrmPersonnelDecision,
@@ -252,22 +275,18 @@ export default function PersonnelDecisionsScreen() {
   ];
 
   return (
-    <div className="mx-auto max-w-[1600px] space-y-4">
-      <div className="flex flex-col justify-between gap-4 rounded-xl border border-slate-200 bg-white p-5 shadow-xs md:flex-row md:items-center">
-        <div className="flex items-center gap-3">
-          <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
-            <FileSignature className="size-5" />
-          </div>
-          <div>
-            <h1 className="text-xl font-bold tracking-tight text-slate-900">Quyết định nhân sự</h1>
-            <p className="text-xs text-slate-500">
-              Bổ nhiệm, điều chuyển, miễn nhiệm, đổi quản lý trực tiếp kèm điều chỉnh lương.
-            </p>
-          </div>
+    <div className="mx-auto max-w-[1600px] space-y-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-bold tracking-tight text-slate-900">Quyết định nhân sự</h1>
+          <p className="mt-0.5 text-xs text-slate-500">
+            Các quyết định bổ nhiệm, điều chuyển, miễn nhiệm, đổi quản lý trực tiếp kèm điều chỉnh lương của nhân sự công ty, xếp theo phòng ban.
+          </p>
         </div>
         <Button
           permission="hrm.appointment.manage"
-          className="bg-blue-600 text-xs text-white hover:bg-blue-700"
+          size="sm"
+          className="h-9 gap-1.5 text-xs font-semibold"
           onClick={() => {
             setEditing(null);
             setDialogOpen(true);
@@ -278,38 +297,112 @@ export default function PersonnelDecisionsScreen() {
         </Button>
       </div>
 
-      <div className="grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-white p-3.5 shadow-xs md:grid-cols-4">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
-          <Input
-            className="h-9 pl-9 text-xs"
-            aria-label="Tìm quyết định"
-            placeholder="Tìm số quyết định, nhân viên, lý do"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
+      <div aria-label="Tổng quan quyết định" className="grid grid-cols-2 gap-2 md:grid-cols-4">
+        {(
+          [
+            ['total', 'Tổng quyết định', stats.total, 'bg-blue-50 text-blue-600', `${stats.units} phòng ban`],
+            ['open', 'Đang xử lý', stats.open, 'bg-amber-50 text-amber-600', 'Nháp, đã duyệt, chờ áp dụng'],
+            ['applied', 'Đã áp dụng', stats.applied, 'bg-emerald-50 text-emerald-600', 'Đã cập nhật hồ sơ'],
+            ['closed', 'Từ chối / Hủy', stats.closed, 'bg-rose-50 text-rose-500', 'Không có hiệu lực'],
+          ] as const
+        ).map(([key, label, value, tone, note]) => (
+          <div
+            key={key}
+            data-testid={`decision-stat-${key}`}
+            className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-3.5 py-2.5"
+          >
+            <span className={`flex size-10 shrink-0 items-center justify-center rounded-xl ${tone}`}>
+              <FileSignature className="size-[18px]" />
+            </span>
+            <div className="min-w-0">
+              <p className="truncate text-xs font-semibold text-slate-600">{label}</p>
+              <p className="font-mono text-xl font-bold leading-tight text-slate-900">{value}</p>
+              <p className="truncate text-[11px] text-slate-500">{note}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="space-y-2 rounded-xl border border-slate-200 bg-white p-3">
+        <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-5">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
+            <Input
+              className="h-9 pl-9 text-xs"
+              aria-label="Tìm quyết định"
+              placeholder="Tìm số quyết định, nhân viên, lý do"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+          <SearchableSelect
+            options={unitOptions}
+            value={unitFilter}
+            placeholder="Tất cả phòng ban"
+            clearable
+            onChange={setUnitFilter}
+          />
+          <SearchableSelect
+            options={typeOptions}
+            value={typeFilter}
+            placeholder="Tất cả loại"
+            clearable
+            onChange={(v) => setTypeFilter(v as HrmPersonnelDecisionType | '')}
+          />
+          <SearchableSelect
+            options={statusOptions}
+            value={statusFilter}
+            placeholder="Tất cả trạng thái"
+            clearable
+            onChange={(v) => setStatusFilter(v as HrmPersonnelDecisionStatus | '')}
+          />
+          <SearchableSelect
+            options={employees}
+            value={employeeFilter}
+            placeholder="Tất cả nhân viên"
+            clearable
+            onChange={setEmployeeFilter}
           />
         </div>
-        <SearchableSelect
-          options={typeOptions}
-          value={typeFilter}
-          placeholder="Tất cả loại"
-          clearable
-          onChange={(v) => setTypeFilter(v as HrmPersonnelDecisionType | '')}
-        />
-        <SearchableSelect
-          options={statusOptions}
-          value={statusFilter}
-          placeholder="Tất cả trạng thái"
-          clearable
-          onChange={(v) => setStatusFilter(v as HrmPersonnelDecisionStatus | '')}
-        />
-        <SearchableSelect
-          options={employees}
-          value={employeeFilter}
-          placeholder="Tất cả nhân viên"
-          clearable
-          onChange={setEmployeeFilter}
-        />
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div role="tablist" aria-label="Cách xem" className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5 text-xs font-semibold">
+            {(
+              [
+                ['unit', 'Theo phòng ban'],
+                ['flat', 'Danh sách'],
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                aria-selected={view === id}
+                onClick={() => setView(id)}
+                className={`rounded-md px-3 py-1.5 transition ${
+                  view === id ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {view === 'unit' && groups.length > 1 && (
+            <div className="flex items-center gap-1 text-xs">
+              <Button type="button" variant="ghost" size="sm" className="h-8 text-xs" onClick={() => setCollapsed(new Set())}>
+                Mở rộng tất cả
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-8 text-xs"
+                onClick={() => setCollapsed(new Set(groups.map((g) => g.unit)))}
+              >
+                Thu gọn tất cả
+              </Button>
+            </div>
+          )}
+        </div>
       </div>
 
       {list.error && (
@@ -318,17 +411,84 @@ export default function PersonnelDecisionsScreen() {
         </div>
       )}
 
-      <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-xs">
-        <Table<HrmPersonnelDecision>
-          size="small"
-          rowKey="id"
-          loading={list.loading}
-          dataSource={rows}
-          columns={columns}
-          scroll={{ x: 1300, y: 'calc(100vh - 420px)' }}
-          pagination={{ pageSize: 15, showSizeChanger: true }}
-        />
-      </section>
+      {view === 'unit' ? (
+        <div className="space-y-2">
+          {list.loading && rows.length === 0 ? (
+            <p role="status" className="rounded-xl border border-slate-200 bg-white p-6 text-center text-xs text-slate-500">
+              Đang tải quyết định nhân sự...
+            </p>
+          ) : groups.length === 0 ? (
+            <p className="rounded-xl border border-slate-200 bg-white p-6 text-center text-xs text-slate-500">
+              Chưa có quyết định nhân sự nào phù hợp với bộ lọc.
+            </p>
+          ) : (
+            groups.map((group) => {
+              const isCollapsed = collapsed.has(group.unit);
+              return (
+                <section
+                  key={group.unit}
+                  aria-label={`Phòng ban ${group.unit}`}
+                  data-testid={`decision-group-${group.unit}`}
+                  className="overflow-hidden rounded-xl border border-slate-200 bg-white"
+                >
+                  <button
+                    type="button"
+                    aria-expanded={!isCollapsed}
+                    onClick={() => toggleGroup(group.unit)}
+                    className="flex w-full items-center gap-2.5 bg-slate-50/80 px-4 py-2.5 text-left hover:bg-slate-100/70"
+                  >
+                    <ChevronDown className={`size-4 shrink-0 text-slate-500 transition ${isCollapsed ? '-rotate-90' : ''}`} />
+                    <Building2 className="size-4 shrink-0 text-blue-600" />
+                    <span className="text-sm font-bold text-slate-900">{group.unit}</span>
+                    <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-600">
+                      {group.rows.length} quyết định
+                    </span>
+                    {group.open > 0 && (
+                      <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700">
+                        {group.open} đang xử lý
+                      </span>
+                    )}
+                    {group.applied > 0 && (
+                      <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
+                        {group.applied} đã áp dụng
+                      </span>
+                    )}
+                  </button>
+                  {!isCollapsed && (
+                    <Table<HrmPersonnelDecision>
+                      size="small"
+                      rowKey="id"
+                      dataSource={[...group.rows]}
+                      columns={columns}
+                      scroll={{ x: 1300 }}
+                      pagination={group.rows.length > 10 ? { pageSize: 10, size: 'small' } : false}
+                    />
+                  )}
+                </section>
+              );
+            })
+          )}
+        </div>
+      ) : (
+        <section className="rounded-xl border border-slate-200 bg-white p-4">
+          <Table<HrmPersonnelDecision>
+            size="small"
+            rowKey="id"
+            loading={list.loading}
+            dataSource={rows}
+            columns={[
+              {
+                title: 'Phòng ban',
+                width: 170,
+                render: (_: unknown, d: HrmPersonnelDecision) => <span className="text-xs">{decisionUnitOf(d)}</span>,
+              },
+              ...columns,
+            ]}
+            scroll={{ x: 1470, y: 'calc(100vh - 460px)' }}
+            pagination={{ pageSize: 15, showSizeChanger: true }}
+          />
+        </section>
+      )}
 
       <PersonnelDecisionDialog
         open={dialogOpen}

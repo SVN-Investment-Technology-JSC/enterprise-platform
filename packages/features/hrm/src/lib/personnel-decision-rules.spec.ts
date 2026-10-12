@@ -101,3 +101,53 @@ describe('personnel decision rules', () => {
     expect(decisionRowActions('APPLIED', all).approve).toBe(false);
   });
 });
+
+import {
+  NO_UNIT_LABEL,
+  decisionStats,
+  decisionUnitOf,
+  groupDecisionsByUnit,
+} from './personnel-decision-rules';
+
+describe('nhóm quyết định theo phòng ban', () => {
+  const d = (over: Record<string, unknown>) =>
+    ({
+      id: String(over.decisionNo),
+      decisionNo: 'QD-1',
+      decisionType: 'TRANSFER',
+      status: 'APPLIED',
+      effectiveDate: '2026-10-01',
+      ...over,
+    }) as never;
+
+  it('đơn vị lấy đơn vị sau quyết định, không có thì đơn vị trước, không có nữa thì "Chưa xác định"', () => {
+    expect(decisionUnitOf({ toUnitName: 'Phòng A', fromUnitName: 'Phòng B' })).toBe('Phòng A');
+    expect(decisionUnitOf({ toUnitName: null, fromUnitName: 'Phòng B' })).toBe('Phòng B');
+    expect(decisionUnitOf({ toUnitName: ' ', fromUnitName: undefined })).toBe(NO_UNIT_LABEL);
+  });
+
+  it('nhóm sắp theo tên tiếng Việt, "Chưa xác định" cuối cùng; quyết định mới lên trước trong nhóm', () => {
+    const groups = groupDecisionsByUnit([
+      d({ decisionNo: 'QD-1', toUnitName: 'Phòng Kỹ thuật', effectiveDate: '2026-01-01' }),
+      d({ decisionNo: 'QD-2', toUnitName: 'Ban Tổng Giám đốc', effectiveDate: '2026-03-01', status: 'DRAFT' }),
+      d({ decisionNo: 'QD-3', toUnitName: 'Phòng Kỹ thuật', effectiveDate: '2026-09-01', status: 'APPLY_PENDING' }),
+      d({ decisionNo: 'QD-4', effectiveDate: '2026-02-01', status: 'REJECTED' }),
+    ]);
+    expect(groups.map((g) => g.unit)).toEqual(['Ban Tổng Giám đốc', 'Phòng Kỹ thuật', NO_UNIT_LABEL]);
+    const tech = groups[1];
+    expect(tech.rows.map((r) => r.decisionNo)).toEqual(['QD-3', 'QD-1']);
+    expect(tech.open).toBe(1);
+    expect(tech.applied).toBe(1);
+  });
+
+  it('số liệu tổng quan', () => {
+    const stats = decisionStats([
+      d({ decisionNo: 'a', status: 'DRAFT', toUnitName: 'X' }),
+      d({ decisionNo: 'b', status: 'APPROVED', toUnitName: 'X' }),
+      d({ decisionNo: 'c', status: 'APPLIED', toUnitName: 'Y' }),
+      d({ decisionNo: 'd', status: 'REJECTED', toUnitName: 'Y' }),
+      d({ decisionNo: 'e', status: 'CANCELLED', toUnitName: 'Z' }),
+    ]);
+    expect(stats).toEqual({ total: 5, open: 2, applied: 1, closed: 2, units: 3 });
+  });
+});

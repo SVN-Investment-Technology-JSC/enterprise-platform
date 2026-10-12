@@ -172,6 +172,12 @@ export async function reverseApprovedRequest(
       `UPDATE hrm_schema.${table} SET status='CANCELLED',updated_at=GREATEST(clock_timestamp(),updated_at+interval '1 millisecond') WHERE tenant_id=$1 AND id=$2`,
       [tenant, id],
     );
+  // Đơn OT đã đảo thì số giờ thực tế/tính lương cũ không còn giá trị: về 0 để danh sách và báo cáo không hiển thị số cũ.
+  if (kind === 'ot')
+    await db.query(
+      `UPDATE hrm_schema.ot_requests SET actual_minutes=0,billable_ot_minutes=0,timesheet_updated_at=NULL WHERE tenant_id=$1 AND id=$2`,
+      [tenant, id],
+    );
   await lifecycleAudit(db, tenant, actor, 'REQUEST_EFFECT_REVERSED', id, {
     kind,
     reason,

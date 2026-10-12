@@ -34,6 +34,9 @@
       "path": "../../shared/ui/tsconfig.lib.json"
     },
     {
+      "path": "../module-shell/tsconfig.lib.json"
+    },
+    {
       "path": "../../contracts/identity/tsconfig.lib.json"
     },
     {

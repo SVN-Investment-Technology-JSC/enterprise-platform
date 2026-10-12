@@ -12,6 +12,11 @@ export interface DatePickerInputProps {
   min?: string;
   max?: string;
   id?: string;
+  /** Bắt buộc nhập: form HTML chặn gửi khi chưa chọn ngày (qua ô ẩn bên dưới). */
+  required?: boolean;
+  /** Có name thì đóng góp giá trị YYYY-MM-DD vào form không điều khiển (FormData). */
+  name?: string;
+  'aria-label'?: string;
   /** Chiều cao ô nhập (px). Mặc định 32; dùng 38 để thẳng hàng với SearchableSelect. */
   height?: number;
 }
@@ -32,13 +37,17 @@ export function DatePickerInput({
   min,
   max,
   id,
+  required,
+  name,
+  'aria-label': ariaLabel,
   height = 32,
 }: DatePickerInputProps) {
   const parsed = value ? dayjs(value) : null;
   const current = parsed && parsed.isValid() ? parsed : null;
-  return (
+  const picker = (
     <DatePicker
       id={id}
+      aria-label={ariaLabel}
       className={`w-full ${className ?? ''}`.trim()}
       style={{ height, borderRadius: 8, fontSize: height >= 36 ? 13.5 : 12 }}
       value={current}
@@ -55,6 +64,23 @@ export function DatePickerInput({
       }
       onChange={(date) => onChange?.(date ? date.format(ISO_FORMAT) : '')}
     />
+  );
+  if (!name && !required) return picker;
+  // Ô ẩn để form HTML đọc được giá trị (name) và chặn gửi khi thiếu (required).
+  return (
+    <div className="relative w-full">
+      {picker}
+      <input
+        type="text"
+        name={name}
+        value={value ?? ''}
+        required={required}
+        tabIndex={-1}
+        aria-hidden="true"
+        onChange={() => undefined}
+        className="pointer-events-none absolute inset-x-0 bottom-0 h-px opacity-0"
+      />
+    </div>
   );
 }
 

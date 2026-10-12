@@ -4,10 +4,8 @@ import { Table } from 'antd';
 import Link from 'next/link';
 import { SearchableSelect, formatDate } from '@enterprise-platform/shared-ui';
 import {
-  ArrowRightLeft,
   Search,
   FileText,
-  DollarSign,
   AlertTriangle,
   CreditCard,
   Calendar,
@@ -22,6 +20,7 @@ import { useHrmPermissions } from '../hrm-permissions';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Badge } from '../ui/badge';
+import { PageTitle } from '../ui/page-title';
 import { HrmActionDialog, type HrmAction } from '../ui/hrm-action-dialog';
 
 type Deduction = HrmSalaryAdvanceDeduction & { periodCode: string };
@@ -167,39 +166,21 @@ export default function AdvancesScreen() {
   );
 
   return (
-    <div className="space-y-6 max-w-[1600px] mx-auto">
-      {/* 1. Page Header Card */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white rounded-xl border border-slate-200 p-5 shadow-xs">
-        <div className="flex items-center gap-3">
-          <div className="size-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
-            <ArrowRightLeft className="size-5" />
-          </div>
-          <div>
-            <h1 className="text-xl font-bold text-slate-900 tracking-tight">
-              Ứng & Thu hồi Lương
-            </h1>
-            <p className="text-xs text-slate-500 max-w-[85ch]">
-              Quy trình khép kín: Đề nghị → Phê duyệt → Ghi nhận giải ngân → Tự động khấu trừ khi chốt kỳ lương.
-            </p>
-          </div>
-        </div>
-        <div className="flex flex-wrap items-center gap-2 shrink-0">
+    <div className="mx-auto flex max-w-[1600px] flex-col gap-3">
+      <PageTitle
+        withTabs
+        title="Ứng và thu hồi"
+        description="Quy trình khép kín: Đề nghị → Phê duyệt → Ghi nhận giải ngân → Tự động khấu trừ khi chốt kỳ lương."
+        badge={
           <Link
             href="/requests"
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 hover:text-slate-900 transition-colors shadow-xs"
+            className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 hover:text-slate-900"
           >
-            <FileText className="size-3.5 text-slate-500" />
-            <span>Đơn từ & Phê duyệt</span>
+            <FileText className="size-4 text-slate-500" />
+            <span>Đơn từ và phê duyệt</span>
           </Link>
-          <Link
-            href="/payroll"
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 hover:text-slate-900 transition-colors shadow-xs"
-          >
-            <DollarSign className="size-3.5 text-slate-500" />
-            <span>Kỳ lương</span>
-          </Link>
-        </div>
-      </div>
+        }
+      />
 
       {error && (
         <div
@@ -212,7 +193,7 @@ export default function AdvancesScreen() {
       )}
 
       {/* 2. Filters Bar */}
-      <div className="flex flex-wrap items-center gap-3 bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs">
+      <div className="flex flex-wrap items-center gap-3 bg-white p-3 rounded-xl border border-slate-200">
         <div className="relative flex-1 min-w-[240px] max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-slate-400" />
           <Input
@@ -243,7 +224,7 @@ export default function AdvancesScreen() {
       {/* 3. Master-Detail Layout */}
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1.4fr)_minmax(420px,1fr)]">
         {/* Left: Requests Table */}
-        <section className="min-w-0 rounded-xl border border-slate-200 bg-white shadow-xs p-4 space-y-3">
+        <section className="min-w-0 rounded-xl border border-slate-200 bg-white p-4 space-y-3">
           <div className="flex items-center justify-between pb-2 border-b border-slate-100">
             <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
               Danh sách khoản ứng ({visible.length})
@@ -317,7 +298,7 @@ export default function AdvancesScreen() {
         </section>
 
         {/* Right: Selected Detail & Deduction Schedule */}
-        <section className="min-w-0 space-y-4 rounded-xl border border-slate-200 bg-white shadow-xs p-4 flex flex-col">
+        <section className="min-w-0 space-y-4 rounded-xl border border-slate-200 bg-white p-4 flex flex-col">
           <div className="flex items-center justify-between pb-3 border-b border-slate-100">
             <div>
               <h2 className="text-base font-semibold text-slate-900">

@@ -1,4 +1,9 @@
-import { computeShiftCoverage, computeShiftStandardHours, shiftStatusLabel } from './hrm-shift-metrics';
+import {
+  addMinutesToTime,
+  computeShiftStandardHours,
+  normalizeShiftTime,
+  shiftStatusLabel,
+} from './hrm-shift-metrics';
 
 describe('computeShiftStandardHours', () => {
   it('ca hành chính 08:00-17:30 nghỉ 90 phút = 8 giờ', () => {
@@ -15,41 +20,30 @@ describe('computeShiftStandardHours', () => {
   });
 });
 
-describe('computeShiftCoverage', () => {
-  const today = '2026-10-05';
-  it('đếm distinct nhân viên và không vượt 100%', () => {
-    const assignments = [
-      ...Array.from({ length: 5 }, (_, i) => ({ employeeId: 'e1', status: 'ACTIVE', effectiveFrom: `2026-0${i + 1}-01` })),
-      { employeeId: 'e2', status: 'ACTIVE', effectiveFrom: '2026-01-01', effectiveTo: null },
-    ];
-    expect(computeShiftCoverage(assignments, ['e1', 'e2', 'e3'], today)).toEqual({
-      assignedEmployees: 2,
-      totalEmployees: 3,
-      coveragePercent: 67,
-    });
-  });
-  it('bỏ qua phân ca hết hạn, chưa hiệu lực, không ACTIVE, nhân viên ngoài danh sách', () => {
-    const r = computeShiftCoverage(
-      [
-        { employeeId: 'e1', status: 'ACTIVE', effectiveFrom: '2026-01-01', effectiveTo: '2026-09-30' },
-        { employeeId: 'e2', status: 'ACTIVE', effectiveFrom: '2026-11-01' },
-        { employeeId: 'e3', status: 'SUPERSEDED', effectiveFrom: '2026-01-01' },
-        { employeeId: 'x', status: 'ACTIVE', effectiveFrom: '2026-01-01' },
-      ],
-      ['e1', 'e2', 'e3'],
-      today,
-    );
-    expect(r.assignedEmployees).toBe(0);
-    expect(r.coveragePercent).toBe(0);
-  });
-  it('không có nhân viên thì độ phủ 0', () => {
-    expect(computeShiftCoverage([], [], today).coveragePercent).toBe(0);
-  });
-});
-
 describe('shiftStatusLabel', () => {
   it('đổi nhãn tiếng Việt', () => {
     expect(shiftStatusLabel('ACTIVE')).toBe('Đang dùng');
     expect(shiftStatusLabel('INACTIVE')).toBe('Tạm dừng');
+  });
+});
+
+describe('addMinutesToTime', () => {
+  it('tính giờ kết thúc nghỉ từ giờ bắt đầu nghỉ', () => {
+    expect(addMinutesToTime('12:00', 60)).toBe('13:00');
+    expect(addMinutesToTime('12:30', 90)).toBe('14:00');
+    expect(addMinutesToTime('23:30', 60)).toBe('00:30');
+    expect(addMinutesToTime('12:00:00', 45)).toBe('12:45');
+  });
+  it('giờ không hợp lệ được giữ nguyên', () => {
+    expect(addMinutesToTime('', 30)).toBe('');
+    expect(addMinutesToTime('abc', 30)).toBe('abc');
+  });
+});
+
+describe('normalizeShiftTime', () => {
+  it('cắt giây và xử lý giá trị rỗng', () => {
+    expect(normalizeShiftTime('08:00:00')).toBe('08:00');
+    expect(normalizeShiftTime(null)).toBe('');
+    expect(normalizeShiftTime(undefined)).toBe('');
   });
 });

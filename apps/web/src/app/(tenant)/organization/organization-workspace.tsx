@@ -3,6 +3,7 @@ import { useOrganizationPermissions } from './organization-permissions';
 
 import {
   ArrowLeft,
+  Briefcase,
   GitBranch,
   Pencil,
   Plus,
@@ -39,6 +40,7 @@ import { OrganizationTreeTable } from './organization-tree-table';
 import { OrganizationTreeOutline } from './organization-tree-outline';
 import { OrganizationNodeInspector } from './organization-node-inspector';
 import { OrganizationAssignmentTable } from './organization-assignment-table';
+import { OrganizationPositionTable } from './organization-position-table';
 import {
   Dialog,
   DialogContent,
@@ -117,7 +119,7 @@ export function OrganizationWorkspace({
     }
   };
 
-  const [tab, setTab] = useState<'tree' | 'assignment'>('tree');
+  const [tab, setTab] = useState<'tree' | 'assignment' | 'position'>('tree');
   const [treeViewMode, setTreeViewMode] = useState<'table' | 'workspace'>('table');
   const [treeId, setTreeId] = useState(
     () =>
@@ -458,6 +460,12 @@ export function OrganizationWorkspace({
               label="Bổ nhiệm"
               onClick={() => setTab('assignment')}
             />
+            <Tab
+              active={tab === 'position'}
+              icon={Briefcase}
+              label="Chức danh"
+              onClick={() => setTab('position')}
+            />
           </div>
         ) : null}
         {tab === 'tree' ? (
@@ -645,6 +653,7 @@ export function OrganizationWorkspace({
             onDelete={(a) => remove('assignments', a)}
           />
         ) : null}
+        {tab === 'position' ? <OrganizationPositionTable /> : null}
       </main>
       <Dialog
         open={Boolean(editor)}

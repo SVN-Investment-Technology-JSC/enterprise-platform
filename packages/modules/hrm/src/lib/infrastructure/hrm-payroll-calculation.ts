@@ -5,6 +5,30 @@ import {
   type PayrollComponent,
 } from '../domain/payroll-formula.js';
 import { displayDate, isoDate, resolvePolicy } from './hrm-time.js';
+import { resolveStandardWork, standardWorkSetting } from '../domain/standard-workdays.js';
+
+const vnd = (n: number) =>
+  `${new Intl.NumberFormat('vi-VN').format(Math.round(n))} VND`;
+/** Names the employee and the offending components instead of a generic error. */
+export function negativePayrollMessage(
+  employee: { employee_code?: string; full_name?: string } | undefined,
+  employeeId: string,
+  negatives: ReadonlyArray<{ code: string; name: string; type: string; amount: number }>,
+  advanceDue: number,
+): string {
+  const who = employee?.full_name
+    ? `${employee.full_name}${employee.employee_code ? ` (${employee.employee_code})` : ''}`
+    : employeeId;
+  const detail = negatives
+    .map((c) => `${c.name || c.code} = ${vnd(c.amount)}`)
+    .join('; ');
+  const hint =
+    advanceDue > 0
+      ? ` Khoản thu hồi tạm ứng trong kỳ là ${vnd(advanceDue)} có thể vượt thu nhập khả dụng; hãy giảm/chuyển lịch thu hồi sang kỳ sau tại Tạm ứng rồi tính lại.`
+      : ' Kiểm tra khoản khấu trừ hoặc điều chỉnh thủ công của nhân viên này rồi tính lại.';
+  return `Không thể tính lương cho ${who}: thành phần không được âm (${detail}).${hint}`;
+}
+
 
 export const payrollItemTypes = [
   'EARNING',
@@ -21,6 +45,7 @@ export const payrollSystemInputs = [
   'PRORATED_BASE_PAY',
   'SCHEDULED_MINUTES',
   'STANDARD_PERIOD_MINUTES',
+  'STANDARD_WORKDAYS',
   'PAID_MINUTES',
   'WORKED_MINUTES',
   'OT_MINUTES',
@@ -33,7 +58,44 @@ export const payrollSystemInputs = [
   'MANUAL_EARNINGS',
   'MANUAL_DEDUCTIONS',
   'REGISTERED_DEPENDENT_COUNT',
+  'TRIP_ALLOWANCE_AMOUNT',
 ];
+
+/**
+ * Dấu vân tay bảng công của kỳ lúc tính lương (số dòng, lần cập nhật mới nhất, tổng phút công/OT/công tác phí).
+ * Chốt lương so sánh lại: bảng công đổi sau khi tính thì phải tính lương lại.
+ */
+export async function timesheetFingerprint(
+  db: Pick<PoolClient, 'query'>,
+  tenant: string,
+  periodId: string,
+): Promise<string> {
+  const r = await db.query(
+    `SELECT count(*)::int AS n,
+            COALESCE(max(updated_at)::text,'') AS last_update,
+            COALESCE(sum(paid_minutes),0)::text AS paid,
+            COALESCE(sum(worked_minutes),0)::text AS worked,
+            COALESCE(sum(ot_minutes),0)::text AS ot,
+            COALESCE(sum(COALESCE((calculation_snapshot->>'tripAllowanceAmount')::numeric,0)),0)::text AS trip
+       FROM hrm_schema.timesheets WHERE tenant_id=$1 AND period_id=$2`,
+    [tenant, periodId],
+  );
+  const x = r.rows[0] ?? {};
+  return [x.n, x.last_update, x.paid, x.worked, x.ot, x.trip].join('|');
+}
+
+/** Gom lỗi của nhiều nhân viên để người dùng sửa một lần thay vì dừng ở lỗi đầu tiên. */
+function aggregatedError(errors: { employee: string; message: string }[]): BadRequestException {
+  const shown = errors.slice(0, 20);
+  return new BadRequestException({
+    code: 'HRM_PAYROLL_EMPLOYEE_ERRORS',
+    message:
+      errors.length === 1
+        ? errors[0].message
+        : `Không tính được lương cho ${errors.length} nhân viên: ${shown.map((e) => e.message).join(' | ')}${errors.length > shown.length ? ` | và ${errors.length - shown.length} nhân viên khác` : ''}`,
+    errors: errors.map((e) => ({ employeeId: e.employee, message: e.message })),
+  });
+}
 
 export async function calculatePayroll(
   db: PoolClient,
@@ -55,7 +117,7 @@ export async function calculatePayroll(
   const from = isoDate(run.from_date),
     to = isoDate(run.to_date);
   const employees = await db.query(
-    `SELECT DISTINCT t.employee_id,e.join_date FROM hrm_schema.timesheets t JOIN hrm_schema.employee_profiles e ON e.tenant_id=t.tenant_id AND e.employee_id=t.employee_id WHERE t.tenant_id=$1 AND t.period_id=$2 ORDER BY t.employee_id`,
+    `SELECT DISTINCT t.employee_id,e.join_date,e.inactive_from FROM hrm_schema.timesheets t JOIN hrm_schema.employee_profiles e ON e.tenant_id=t.tenant_id AND e.employee_id=t.employee_id WHERE t.tenant_id=$1 AND t.period_id=$2 ORDER BY t.employee_id`,
     [tenant, run.timesheet_period_id],
   );
   if (!employees.rowCount)
@@ -68,8 +130,19 @@ export async function calculatePayroll(
     `DELETE FROM hrm_schema.payroll_employee_totals WHERE tenant_id=$1 AND payroll_run_id=$2`,
     [tenant, runId],
   );
+  // Công chuẩn của kỳ: lớn nhất trong các nhân viên có công cả kỳ; dùng làm mẫu số tính lương theo ngày cho người nghỉ việc giữa kỳ.
+  const periodStandard = Number(
+    (
+      await db.query(
+        `SELECT COALESCE(max(total),0) AS standard FROM (SELECT sum(scheduled_minutes) AS total FROM hrm_schema.timesheets WHERE tenant_id=$1 AND period_id=$2 GROUP BY employee_id) x`,
+        [tenant, run.timesheet_period_id],
+      )
+    ).rows[0]?.standard ?? 0,
+  );
+  const employeeErrors: { employee: string; message: string }[] = [];
   for (const employee of employees.rows) {
     const employeeId = employee.employee_id;
+    try {
     const policy = await resolvePolicy(db, tenant, 'PAYROLL', from, employeeId),
       endPolicy = await resolvePolicy(db, tenant, 'PAYROLL', to, employeeId);
     if (!policy && !endPolicy)
@@ -78,10 +151,6 @@ export async function calculatePayroll(
       );
     const activePolicy = (endPolicy || policy)!;
     const config = activePolicy.config_json;
-    if (isoDate(employee.join_date) > from && !config.standardMinutes)
-      throw new BadRequestException(
-        'Nhân viên vào giữa kỳ: cần định mức phút chuẩn của cả kỳ trong cấu hình lương',
-      );
     const components = config.components as PayrollComponent[];
     if (
       !Array.isArray(components) ||
@@ -121,7 +190,18 @@ export async function calculatePayroll(
       );
     let weightedSalary = 0,
       prorated = 0;
-    const standardMinutes = Number(config.standardMinutes || scheduled);
+    // Công chuẩn theo cấu hình lương: động (theo ngày công thực tế của tháng) hoặc cố định (số ngày công / số phút).
+    // Công chuẩn động của người vào hoặc nghỉ việc giữa kỳ lấy theo công chuẩn của kỳ để trả theo ngày làm thực tế.
+    const partialPeriod =
+      isoDate(employee.join_date) > from ||
+      (Boolean(employee.inactive_from) && isoDate(employee.inactive_from) <= to);
+    const standard = resolveStandardWork(standardWorkSetting(config), {
+      scheduledMinutes: scheduled,
+      scheduledDays: rows.rows.filter((r) => Number(r.scheduled_minutes) > 0).length,
+      partialPeriod,
+      periodStandardMinutes: periodStandard,
+    });
+    const standardMinutes = standard.minutes;
     if (!Number.isInteger(standardMinutes) || standardMinutes <= 0)
       throw new BadRequestException(
         'Định mức phút chuẩn kỳ lương không hợp lệ',
@@ -189,6 +269,29 @@ export async function calculatePayroll(
         [tenant, employeeId],
       )
     ).rows[0];
+    // Công tác phí đã tính khi chốt công (đóng băng theo ngày); thiếu mức hoặc công thức chưa có thành phần thì báo lỗi, không bỏ sót.
+    const tripAllowanceTotal = rows.rows.reduce(
+      (n, r) => n + Number(r.calculation_snapshot?.tripAllowanceAmount || 0),
+      0,
+    );
+    const missingRate = [
+      ...new Set(
+        rows.rows.flatMap((r) =>
+          Array.isArray(r.calculation_snapshot?.tripAllowanceMissingRate)
+            ? (r.calculation_snapshot.tripAllowanceMissingRate as string[])
+            : [],
+        ),
+      ),
+    ];
+    if (missingRate.length)
+      throw new BadRequestException(
+        `Chưa cấu hình mức công tác phí cho hình thức ${missingRate.join(', ')}; cấu hình mức rồi tính lại công và lương.`,
+      );
+    const hasTripAllowance = rows.rows.some((r) => Number(r.calculation_snapshot?.tripAllowanceAmount || 0) > 0);
+    if (hasTripAllowance && !components.some((c) => String(c.formula ?? '').includes('TRIP_ALLOWANCE_AMOUNT')))
+      throw new BadRequestException(
+        'Có công tác phí trong kỳ nhưng công thức lương chưa có thành phần dùng TRIP_ALLOWANCE_AMOUNT; thêm thành phần phụ cấp công tác vào công thức rồi tính lại.',
+      );
     const input: Record<string, number | string> = {
       ...defaults,
       ...custom,
@@ -197,6 +300,7 @@ export async function calculatePayroll(
       PRORATED_BASE_PAY: Math.round(prorated * 100) / 100,
       SCHEDULED_MINUTES: scheduled,
       STANDARD_PERIOD_MINUTES: standardMinutes,
+      STANDARD_WORKDAYS: standard.workdays,
       PAID_MINUTES: sum('paid_minutes'),
       WORKED_MINUTES: sum('worked_minutes'),
       OT_MINUTES: sum('ot_minutes'),
@@ -208,6 +312,7 @@ export async function calculatePayroll(
             0,
           ) * 100,
         ) / 100,
+      TRIP_ALLOWANCE_AMOUNT: tripAllowanceTotal,
       LATE_MINUTES: sum('late_minutes'),
       EARLY_MINUTES: sum('early_leave_minutes'),
       WORKDAY_UNITS: Math.round(sum('workday_units') * 100) / 100,
@@ -229,9 +334,15 @@ export async function calculatePayroll(
         `Công thức nhân viên ${employeeId}: ${error instanceof Error ? error.message : 'không hợp lệ'}`,
       );
     }
-    if (calculated.some((c) => c.amount < 0))
+    const negatives = calculated.filter((c) => c.amount < 0);
+    if (negatives.length)
       throw new BadRequestException(
-        'Thành phần lương/khấu trừ phải là số không âm',
+        negativePayrollMessage(
+          beneficiary,
+          employeeId,
+          negatives,
+          Number(input.ADVANCE_DUE),
+        ),
       );
     const total = (types: string[]) =>
       Math.round(
@@ -272,6 +383,20 @@ export async function calculatePayroll(
             components: calculated,
             dependentIds: dependents.rows.map((r) => r.id),
             dependentCutoff: to,
+            // Nguồn của công: các đơn đã duyệt tác động tới bảng công của kỳ (truy vết về đơn gốc).
+            sources: {
+              leaveIds: uniqueIds(rows.rows, 'leaveIds'),
+              otIds: uniqueIds(rows.rows, 'otIds'),
+              tripIds: uniqueIds(rows.rows, 'tripIds'),
+              tripAllowance: rows.rows.flatMap((r) =>
+                Array.isArray(r.calculation_snapshot?.tripAllowance)
+                  ? (r.calculation_snapshot.tripAllowance as unknown[]).map((t) => ({
+                      date: isoDate(r.work_date),
+                      ...(t as Record<string, unknown>),
+                    }))
+                  : [],
+              ),
+            },
           }),
         ],
       );
@@ -308,10 +433,28 @@ export async function calculatePayroll(
         JSON.stringify(beneficiary),
       ],
     );
+    } catch (error) {
+      if (!(error instanceof BadRequestException)) throw error;
+      const response = error.getResponse();
+      employeeErrors.push({
+        employee: employeeId,
+        message: typeof response === 'string' ? response : String((response as { message?: unknown }).message ?? error.message),
+      });
+    }
   }
+  if (employeeErrors.length) throw aggregatedError(employeeErrors);
+  const fingerprint = await timesheetFingerprint(db, tenant, run.timesheet_period_id);
   const updated = await db.query(
-    `UPDATE hrm_schema.payroll_runs SET status='CALCULATED',calculation_version='HRM_FORMULA_V1',calculated_at=now(),updated_at=now() WHERE tenant_id=$1 AND id=$2 RETURNING *`,
-    [tenant, runId],
+    `UPDATE hrm_schema.payroll_runs SET status='CALCULATED',calculation_version='HRM_FORMULA_V1',calculated_at=now(),timesheet_fingerprint=$3,updated_at=now() WHERE tenant_id=$1 AND id=$2 RETURNING *`,
+    [tenant, runId, fingerprint],
   );
   return updated.rows[0];
+}
+
+function uniqueIds(rows: Record<string, any>[], key: string): string[] {
+  return [
+    ...new Set(
+      rows.flatMap((r) => (Array.isArray(r.calculation_snapshot?.[key]) ? (r.calculation_snapshot[key] as string[]) : [])),
+    ),
+  ];
 }

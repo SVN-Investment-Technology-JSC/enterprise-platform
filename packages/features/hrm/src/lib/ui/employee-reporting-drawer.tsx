@@ -19,23 +19,35 @@ const sourceLabels: Record<HrmReportingLine['source'], string> = {
   CORE_SYNC: 'Đồng bộ Core',
 };
 
-/** Hiển thị "Quản lý trực tiếp" hiện tại của nhân viên. */
+/**
+ * Hiển thị "Quản lý trực tiếp" hiện tại của nhân viên: lấy theo "Báo cáo cho" của chức danh trong sơ đồ tổ chức Core
+ * (không có thì theo quan hệ báo cáo HRM), kèm chức danh của người quản lý.
+ */
 export function CurrentManagerLine({
   employeeId,
 }: {
   employeeId: string | null | undefined;
 }) {
   const { data, loading, error } = useReportingLines(employeeId);
+  const manager = data?.manager;
   const current = data?.current;
+  if (loading || error || (!manager && !current))
+    return (
+      <span className="font-semibold text-slate-900">
+        {loading ? 'Đang tải...' : error ? 'Không tải được' : 'Chưa có'}
+      </span>
+    );
+  const name = manager?.name ?? current?.managerName ?? current?.managerEmployeeId;
+  const code = manager?.code ?? current?.managerCode;
   return (
-    <span className="font-semibold text-slate-900">
-      {loading
-        ? 'Đang tải...'
-        : error
-          ? 'Không tải được'
-          : current
-            ? `${current.managerName ?? current.managerEmployeeId}${current.managerCode ? ` (${current.managerCode})` : ''}`
-            : 'Chưa có'}
+    <span className="min-w-0">
+      <span className="block font-semibold text-slate-900">
+        {name}
+        {code ? ` (${code})` : ''}
+      </span>
+      {manager?.title ? (
+        <span className="block text-[11px] font-normal text-slate-500">{manager.title}</span>
+      ) : null}
     </span>
   );
 }
@@ -103,6 +115,19 @@ export function EmployeeReportingDrawer({
               {error}
             </p>
           )}
+          {data?.manager ? (
+            <p className="mb-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-slate-700">
+              Đang áp dụng:{' '}
+              <span className="font-semibold text-slate-900">
+                {data.manager.name}
+                {data.manager.code ? ` (${data.manager.code})` : ''}
+              </span>
+              {data.manager.title ? `, ${data.manager.title}` : ''}.{' '}
+              {data.manager.source === 'CORE_POSITION'
+                ? 'Lấy theo "Báo cáo cho" của chức danh trong sơ đồ tổ chức; đổi tại Core.'
+                : 'Lấy theo quan hệ báo cáo đã ghi trong lịch sử bên dưới (chức danh chưa khai báo "Báo cáo cho").'}
+            </p>
+          ) : null}
           <Table<HrmReportingLine>
             size="small"
             rowKey="id"

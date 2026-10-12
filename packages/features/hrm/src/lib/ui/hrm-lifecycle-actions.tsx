@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, type ReactNode } from 'react';
+import { useState } from 'react';
 import type {
   HrmEmployeeProfile,
   HrmSalaryGrade,
@@ -13,6 +13,8 @@ import { Button } from './button';
 import { HrmActionDialog, type HrmAction } from './hrm-action-dialog';
 import { toast } from './toast';
 import { LeaveSettlementPreview } from './leave-settlement-preview';
+import { RowMenu, type RowMenuItem } from './row-menu';
+import { useHrmPermissions } from '../hrm-permissions';
 
 export const employmentLabels: Record<string, string> = {
   PROBATION: 'Thử việc',
@@ -26,17 +28,17 @@ type Changed = () => Promise<void>;
 export function EmployeeLifecycleActions({
   employee,
   onChanged,
-  children,
+  layout = 'inline',
+  extraItems = [],
 }: {
   employee: HrmEmployeeProfile;
   onChanged: Changed;
-  /** Tuỳ biến giao diện: nhận hành động Sửa / Ngừng (vd. đưa vào menu "...") thay cho 2 nút mặc định. */
-  children?: (api: {
-    edit: () => void;
-    deactivate: () => void;
-    inactive: boolean;
-  }) => ReactNode;
+  /** `menu`: một nút "..." chứa Sửa, Ngừng và các mục thêm; `inline`: hai nút Sửa, Ngừng như cũ. */
+  layout?: 'inline' | 'menu';
+  /** Các mục thêm cho layout `menu` (đã tự kiểm tra quyền bằng `hidden`). */
+  extraItems?: readonly RowMenuItem[];
 }) {
+  const { can } = useHrmPermissions();
   const [action, setAction] = useState<HrmAction | null>(null);
   const inactive = ['RESIGNED', 'TERMINATED'].includes(
     employee.employmentStatus,
@@ -45,22 +47,8 @@ export function EmployeeLifecycleActions({
     setAction({
       title: `Cập nhật hồ sơ · ${employee.employeeCode}`,
       columns: 2,
-      description: `Ngày vào làm: ${formatDate(employee.joinDate, '----')}. Thay đổi hồ sơ không đổi thông tin đăng nhập ERP.`,
+      description: `Ngày vào làm: ${formatDate(employee.joinDate, '----')}. Họ tên và email do Core quản lý, không sửa tại đây. Thay đổi hồ sơ không đổi thông tin đăng nhập ERP.`,
       fields: [
-        {
-          key: 'fullName',
-          label: 'Họ và tên',
-          section: 'Thông tin nhân sự',
-          value: employee.fullName || '',
-          optional: false,
-        },
-        {
-          key: 'workEmail',
-          label: 'Email công việc',
-          section: 'Thông tin nhân sự',
-          value: employee.email || '',
-          optional: true,
-        },
         {
           key: 'dateOfBirth',
           label: 'Ngày sinh',
@@ -305,15 +293,21 @@ export function EmployeeLifecycleActions({
         );
       },
     });
-  if (children)
+  if (layout === 'menu') {
+    const canManage = can('hrm.employee.manage');
     return (
       <>
-        {children({ edit, deactivate, inactive })}
-        {action && (
-          <HrmActionDialog action={action} onClose={() => setAction(null)} />
-        )}
+        <RowMenu
+          items={[
+            { key: 'edit', label: 'Sửa hồ sơ', onSelect: edit, hidden: inactive || !canManage },
+            { key: 'deactivate', label: 'Ngừng nhân viên', onSelect: deactivate, hidden: inactive || !canManage, tone: 'danger' },
+            ...extraItems,
+          ]}
+        />
+        {action && <HrmActionDialog action={action} onClose={() => setAction(null)} />}
       </>
     );
+  }
   return (
     <span className="inline-flex gap-1">
       {!inactive && (

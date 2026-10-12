@@ -33,3 +33,13 @@ export function policyToggleCopy(current: boolean) {
     okType: target ? ('danger' as const) : ('primary' as const),
   };
 }
+
+/** Nhãn và tông màu của nhãn trạng thái chính sách (chưa tải xong thì "Đang tải"). */
+export function policyStatusView(
+  settings: Pick<ApprovalPolicySettings, 'allowSelfApproval'> | null,
+): { label: string; tone: 'red' | 'green' | 'slate' } {
+  if (!settings) return { label: 'Đang tải', tone: 'slate' };
+  return settings.allowSelfApproval
+    ? { label: 'Đang cho phép tự duyệt', tone: 'red' }
+    : { label: 'Đang chặn tự duyệt', tone: 'green' };
+}

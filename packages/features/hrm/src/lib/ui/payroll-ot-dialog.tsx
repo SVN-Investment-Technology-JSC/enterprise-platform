@@ -1,10 +1,12 @@
 'use client';
-import { useState } from 'react';
-import { AlertTriangle, Loader2 } from 'lucide-react';
+import { DatePickerInput } from './date-picker-input';
+import { TimeTextInput } from './time-text-input';
+import { useId, useState } from 'react';
+import { Loader2, Moon, Percent, Timer } from 'lucide-react';
 import { Button } from './button';
 import { Input } from './input';
-import { DatePickerInput } from './date-picker-input';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './dialog';
+import { IconTile, InfoNote, SettingsField } from './settings-kit';
 import {
   OT_REFERENCES,
   minutesToTime,
@@ -25,6 +27,9 @@ export const otNumberFields = [
   ['nightHolidayRate', 'Hệ số ban đêm lễ / Tết'],
 ] as const;
 
+const LIMIT_FIELDS = otNumberFields.filter(([key]) => key.endsWith('Minutes'));
+const RATE_FIELDS = otNumberFields.filter(([key]) => !key.endsWith('Minutes'));
+
 const referenceByKey = Object.fromEntries(OT_REFERENCES.map((r) => [r.key, r]));
 
 export interface OtDialogProps {
@@ -36,7 +41,20 @@ export interface OtDialogProps {
   onClose: () => void;
 }
 
+function GroupTitle({ icon, title, hint }: { icon: typeof Timer; title: string; hint?: string }) {
+  return (
+    <div className="flex items-center gap-2.5">
+      <IconTile icon={icon} tone="amber" size="sm" />
+      <div className="min-w-0">
+        <h3 className="text-sm font-bold text-slate-900">{title}</h3>
+        {hint ? <p className="text-[11px] text-slate-500">{hint}</p> : null}
+      </div>
+    </div>
+  );
+}
+
 export function PayrollOtDialog({ base, editing, onSubmit, onClose }: OtDialogProps) {
+  const uid = useId();
   const config = base?.config_json ?? {};
   const [numbers, setNumbers] = useState<Record<string, string>>(() =>
     Object.fromEntries(
@@ -63,10 +81,34 @@ export function PayrollOtDialog({ base, editing, onSubmit, onClose }: OtDialogPr
   });
   const warningFor = (key: string) => warnings.find((w) => w.key === key);
 
+  const numberField = ([key, label]: readonly [string, string]) => {
+    const ref = referenceByKey[key];
+    const warn = warningFor(key);
+    return (
+      <SettingsField
+        key={key}
+        label={label}
+        htmlFor={`${uid}-${key}`}
+        hint={ref ? `Tham chiếu ${ref.value}${ref.kind === 'limit' ? ' phút' : ''}: ${ref.note}` : undefined}
+      >
+        <Input
+          id={`${uid}-${key}`}
+          type="number"
+          min={0}
+          step={key.endsWith('Minutes') ? '1' : '0.01'}
+          value={numbers[key]}
+          onChange={(e) => setNumbers({ ...numbers, [key]: e.target.value })}
+          placeholder={ref ? `Tham chiếu: ${ref.value}` : undefined}
+          className={`h-9 text-xs ${warn ? 'border-amber-400' : ''}`}
+        />
+      </SettingsField>
+    );
+  };
+
   return (
     <Dialog open onOpenChange={(open) => !open && !busy && onClose()}>
-      <DialogContent className="sm:max-w-[900px] max-h-[90vh] p-0 flex flex-col overflow-hidden bg-white">
-        <DialogHeader className="shrink-0 p-5 border-b border-slate-200 bg-slate-50/80">
+      <DialogContent className="@container flex max-h-[90dvh] w-[calc(100%-2rem)] flex-col overflow-hidden bg-white p-0 sm:max-w-[900px]">
+        <DialogHeader className="shrink-0 border-b border-slate-200 bg-slate-50/80 px-4 py-4 pr-12 @xl:px-5">
           <DialogTitle className="text-base font-bold text-slate-900">
             {editing ? 'Sửa quy định OT' : 'Phiên bản quy định OT'}
           </DialogTitle>
@@ -77,7 +119,7 @@ export function PayrollOtDialog({ base, editing, onSubmit, onClose }: OtDialogPr
           </DialogDescription>
         </DialogHeader>
         <form
-          className="flex flex-col flex-1 min-h-0 overflow-hidden"
+          className="flex min-h-0 flex-1 flex-col overflow-hidden"
           onSubmit={async (e) => {
             e.preventDefault();
             setError('');
@@ -112,79 +154,72 @@ export function PayrollOtDialog({ base, editing, onSubmit, onClose }: OtDialogPr
             }
           }}
         >
-          <div className="flex-1 min-h-0 overflow-y-auto p-5 space-y-4">
+          <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-4 @xl:p-5">
             {!editing && (
-              <label className="block space-y-1 text-xs font-medium text-slate-700">
-                <span>Ngày hiệu lực *</span>
-                <DatePickerInput value={effectiveFrom} onChange={setEffectiveFrom} height={36} className="max-w-[240px]" />
-              </label>
+              <SettingsField label="Ngày hiệu lực" required className="max-w-xs">
+                <DatePickerInput required value={effectiveFrom} onChange={(v: string) => setEffectiveFrom(v)} />
+              </SettingsField>
             )}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {otNumberFields.map(([key, label]) => {
-                const ref = referenceByKey[key];
-                const warn = warningFor(key);
-                return (
-                  <label key={key} className="block space-y-1 text-xs font-medium text-slate-700">
-                    <span>{label}</span>
-                    <Input
-                      type="number"
-                      min={0}
-                      step={key.endsWith('Minutes') ? '1' : '0.01'}
-                      value={numbers[key]}
-                      onChange={(e) => setNumbers({ ...numbers, [key]: e.target.value })}
-                      placeholder={ref ? `Tham chiếu: ${ref.value}` : undefined}
-                      className={`text-xs h-9 ${warn ? 'border-amber-400' : ''}`}
-                    />
-                    {ref && (
-                      <span className="block text-[11px] font-normal text-slate-500">
-                        Tham chiếu {ref.value}{ref.kind === 'limit' ? ' phút' : ''}: {ref.note}
-                      </span>
-                    )}
-                  </label>
-                );
-              })}
-              <label className="block space-y-1 text-xs font-medium text-slate-700">
-                <span>Bắt đầu giờ đêm *</span>
-                <Input type="time" required value={nightStart} onChange={(e) => setNightStart(e.target.value)} className="text-xs h-9" />
-                <span className="block text-[11px] font-normal text-slate-500">Mặc định 22:00</span>
-              </label>
-              <label className="block space-y-1 text-xs font-medium text-slate-700">
-                <span>Kết thúc giờ đêm *</span>
-                <Input type="time" required value={nightEnd} onChange={(e) => setNightEnd(e.target.value)} className="text-xs h-9" />
-                <span className="block text-[11px] font-normal text-slate-500">Mặc định 06:00 (ngày hôm sau)</span>
-              </label>
-            </div>
+
+            <section aria-label="Giới hạn OT" className="space-y-3">
+              <GroupTitle icon={Timer} title="Giới hạn OT" hint="Số phút làm thêm tối đa theo từng chu kỳ." />
+              <div className="grid grid-cols-1 gap-3 @xl:grid-cols-2">{LIMIT_FIELDS.map(numberField)}</div>
+            </section>
+
+            <section aria-label="Hệ số OT" className="space-y-3">
+              <GroupTitle icon={Percent} title="Hệ số OT" hint="Hệ số nhân với đơn giá giờ thường (từ 1 đến 10)." />
+              <div className="grid grid-cols-1 gap-3 @xl:grid-cols-2">{RATE_FIELDS.map(numberField)}</div>
+            </section>
+
+            <section aria-label="Khung giờ đêm" className="space-y-3">
+              <GroupTitle icon={Moon} title="Khung giờ đêm" hint="Khung đêm phải qua 00:00 (giờ bắt đầu sau giờ kết thúc)." />
+              <div className="grid grid-cols-1 gap-3 @xl:grid-cols-2">
+                <SettingsField label="Bắt đầu giờ đêm" required hint="Mặc định 22:00">
+                  <TimeTextInput required value={nightStart} onChange={(v: string) => setNightStart(v)} className="h-9 text-xs" />
+                </SettingsField>
+                <SettingsField label="Kết thúc giờ đêm" required hint="Mặc định 06:00 (ngày hôm sau)">
+                  <TimeTextInput required value={nightEnd} onChange={(v: string) => setNightEnd(v)} className="h-9 text-xs" />
+                </SettingsField>
+              </div>
+            </section>
+
             {warnings.length > 0 && (
-              <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800 space-y-1" role="status">
-                <div className="flex items-center gap-1.5 font-semibold">
-                  <AlertTriangle className="size-3.5" />
-                  Cảnh báo so với mức tham chiếu (không chặn lưu)
-                </div>
-                <ul className="list-disc pl-5 space-y-0.5">
+              <InfoNote tone="amber" role="status">
+                <div className="font-semibold">Cảnh báo so với mức tham chiếu (không chặn lưu)</div>
+                <ul className="mt-1 list-disc space-y-0.5 pl-4">
                   {warnings.map((w) => (
                     <li key={w.key}>{w.message}</li>
                   ))}
                 </ul>
-              </div>
+              </InfoNote>
             )}
-            <label className="block space-y-1 text-xs font-medium text-slate-700">
-              <span>Lý do thay đổi *</span>
-              <Input required value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Nhập lý do (ghi vào nhật ký kiểm toán)" className="text-xs h-9" />
-            </label>
-            {error && (
-              <p role="alert" className="text-xs text-red-700 font-medium bg-red-50 p-2.5 rounded border border-red-200">
-                {error}
-              </p>
-            )}
+
+            <SettingsField label="Lý do thay đổi" required htmlFor={`${uid}-reason`}>
+              <Input
+                id={`${uid}-reason`}
+                required
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                placeholder="Nhập lý do (ghi vào nhật ký kiểm toán)"
+                className="h-9 text-xs"
+              />
+            </SettingsField>
           </div>
-          <div className="shrink-0 p-4 border-t border-slate-200 bg-slate-50 flex items-center justify-end gap-2">
-            <Button type="button" variant="outline" disabled={busy} onClick={onClose} className="text-xs h-8">
-              Hủy
-            </Button>
-            <Button type="submit" disabled={busy} className="bg-blue-600 hover:bg-blue-700 text-white text-xs h-8 font-semibold shadow-xs">
-              {busy ? <Loader2 className="size-3.5 animate-spin mr-1.5" /> : null}
-              {busy ? 'Đang lưu…' : 'Lưu quy định OT'}
-            </Button>
+          <div className="shrink-0 space-y-2 border-t border-slate-200 bg-slate-50 p-3 @xl:px-5">
+            {error && (
+              <InfoNote tone="red" role="alert">
+                {error}
+              </InfoNote>
+            )}
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <Button type="button" variant="outline" disabled={busy} onClick={onClose} className="h-9 px-4 text-xs">
+                Hủy
+              </Button>
+              <Button type="submit" disabled={busy} className="h-9 gap-1.5 px-4 text-xs font-semibold">
+                {busy ? <Loader2 className="size-3.5 animate-spin" /> : null}
+                {busy ? 'Đang lưu…' : 'Lưu quy định OT'}
+              </Button>
+            </div>
           </div>
         </form>
       </DialogContent>
