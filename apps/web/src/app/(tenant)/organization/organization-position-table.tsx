@@ -7,10 +7,11 @@ import type {
   TenantOrganizationSnapshot,
 } from '@enterprise-platform/contracts-organization';
 import { SearchableSelect } from '@enterprise-platform/shared-ui';
-import { Briefcase, Search, Sparkles, Star } from 'lucide-react';
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import { Briefcase, Network, Search, Sparkles, Star } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/sonner';
+import { CollapsibleGroup } from '../collapsible-group';
 
 const csrf = () =>
   decodeURIComponent(
@@ -190,39 +191,47 @@ export function OrganizationPositionTable() {
     }
   };
 
-  const unitSizes = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const row of rows) map.set(row.position.unitId, (map.get(row.position.unitId) ?? 0) + 1);
-    return map;
+  // Danh sách đã xếp theo đơn vị: mỗi đơn vị thành một nhóm, thay cho cột "Đơn vị"
+  // lặp lại ở mọi dòng.
+  const unitGroups = useMemo(() => {
+    const groups: { unitId: string; unitName: string; rows: typeof rows }[] = [];
+    for (const row of rows) {
+      const last = groups[groups.length - 1];
+      if (last && last.unitId === row.position.unitId) last.rows.push(row);
+      else
+        groups.push({
+          unitId: row.position.unitId,
+          unitName: row.unit?.name ?? 'Chưa thuộc đơn vị',
+          rows: [row],
+        });
+    }
+    return groups;
   }, [rows]);
 
   return (
-    <div className="flex flex-1 min-h-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-      <div className="shrink-0 flex flex-col justify-between gap-3 border-b border-slate-200 bg-white p-3 sm:p-4 md:flex-row md:items-center">
-        <div className="flex flex-1 flex-wrap items-center gap-2.5">
-          <div className="relative w-full max-w-xs sm:w-80">
-            <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Tìm chức danh, đơn vị, người giữ…"
-              aria-label="Tìm chức danh"
-              className="h-9 w-full rounded-md border border-slate-200 bg-slate-50 pl-9 pr-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-            />
-          </div>
-          {!canUpdate ? (
-            <span className="rounded border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-500">
-              Chỉ xem
-            </span>
-          ) : null}
-        </div>
-
+    <div className="flex flex-col gap-3.5">
+      <div className="flex flex-wrap items-center gap-2.5">
+        <label className="flex h-[38px] min-w-[220px] flex-[0_1_340px] items-center gap-2 rounded-lg border border-[#eef0f3] bg-white px-3 text-slate-500 focus-within:border-[#ffc90a]">
+          <Search className="size-4 shrink-0" aria-hidden />
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Tìm chức danh, đơn vị, người giữ…"
+            aria-label="Tìm chức danh"
+            className="min-w-0 flex-1 bg-transparent text-[13px] text-[#18181b] outline-none placeholder:text-slate-400"
+          />
+        </label>
+        {!canUpdate ? (
+          <span className="rounded-md border border-[#eef0f3] bg-white px-2 py-0.5 text-xs text-slate-500">
+            Chỉ xem
+          </span>
+        ) : null}
+        <span className="flex-1" />
         <Button
           disabled={!canUpdate || !pendingSuggestions.length || Boolean(saving)}
           onClick={() => void applySuggestions()}
-          size="default"
-          className="bg-blue-600 hover:bg-blue-700 text-white shrink-0 gap-1.5"
+          className="h-[38px] shrink-0 gap-1.5 bg-[#ffc90a] text-[13px] font-bold text-[#18181b] hover:bg-[#ffd84d]"
           title="Điền gợi ý từ cây cho các chức danh chưa khai báo Báo cáo cho"
         >
           <Sparkles className="size-4" />
@@ -230,97 +239,82 @@ export function OrganizationPositionTable() {
         </Button>
       </div>
 
-      <div className="flex-1 min-h-0 overflow-auto">
-        <table className="w-full text-left text-sm border-collapse">
-          <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-100 text-xs font-semibold uppercase text-slate-700 shadow-sm">
-            <tr>
-              <th className="px-5 py-3">Chức danh</th>
-              <th className="px-5 py-3">Người giữ</th>
-              <th className="px-5 py-3 w-[34%]">Báo cáo cho</th>
-              <th className="px-5 py-3">Gợi ý từ cây</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100 text-slate-700">
-            {!organization && !loadError ? (
-              <tr>
-                <td colSpan={4} className="py-12 text-center text-sm text-slate-500">
-                  Đang tải danh sách chức danh…
-                </td>
-              </tr>
-            ) : null}
-            {loadError ? (
-              <tr>
-                <td colSpan={4} className="py-12 text-center text-sm text-red-600" role="alert">
-                  {loadError}
-                </td>
-              </tr>
-            ) : null}
-            {rows.map(({ position, unit, holders, suggestion }, index) => {
-              const options = (positions ?? [])
-                .filter(
-                  (candidate) =>
-                    candidate.id !== position.id &&
-                    (!position.treeId || !candidate.treeId || candidate.treeId === position.treeId),
-                )
-                .map((candidate) => ({
-                  value: candidate.id,
-                  label: candidate.name,
-                  description: unitById.get(candidate.unitId)?.name,
-                }));
-              const current = position.reportsToPositionId ?? '';
-              // Danh sách đã xếp theo đơn vị: đổi đơn vị thì chèn một dòng tiêu đề nhóm,
-              // thay cho cột "Đơn vị" lặp lại ở mọi dòng.
-              const firstOfUnit = index === 0 || rows[index - 1].position.unitId !== position.unitId;
-              return (
-                <Fragment key={position.id}>
-                  {firstOfUnit ? (
-                    <tr className="bg-slate-50">
-                      <th
-                        colSpan={4}
-                        scope="colgroup"
-                        className="px-5 py-2 text-left text-xs font-semibold text-slate-600"
-                      >
-                        {unit?.name ?? 'Chưa thuộc đơn vị'}
-                        <span className="ml-2 rounded-full border border-slate-200 bg-white px-1.5 py-px text-[11px] font-medium text-slate-500">
-                          {unitSizes.get(position.unitId) ?? 0}
-                        </span>
-                      </th>
-                    </tr>
-                  ) : null}
-                  <tr className="transition-colors hover:bg-slate-50/80">
-                    <td className="px-5 py-2.5 pl-8">
-                      <span className="font-semibold text-slate-900">{position.name}</span>
+      {!organization && !loadError ? (
+        <p className="m-0 rounded-[14px] border border-[#eef0f3] bg-white py-12 text-center text-sm text-slate-500">
+          Đang tải danh sách chức danh…
+        </p>
+      ) : null}
+      {loadError ? (
+        <p
+          className="m-0 rounded-[14px] border border-red-200 bg-red-50 py-12 text-center text-sm text-red-700"
+          role="alert"
+        >
+          {loadError}
+        </p>
+      ) : null}
+
+      {unitGroups.map((group) => (
+        <CollapsibleGroup
+          count={group.rows.length}
+          icon={<Network className="size-[15px]" />}
+          key={group.unitId}
+          title={group.unitName}
+          tone="bg-sky-50 text-sky-600"
+        >
+          <div className="overflow-x-auto">
+            <div className="min-w-[820px]">
+              <div className={`${ROW} py-2 text-[11px] font-semibold tracking-[0.4px] text-slate-500`}>
+                <span>CHỨC DANH</span>
+                <span>NGƯỜI GIỮ</span>
+                <span>BÁO CÁO CHO</span>
+                <span>GỢI Ý TỪ CÂY</span>
+              </div>
+              {group.rows.map(({ position, unit, holders, suggestion }) => {
+                const options = (positions ?? [])
+                  .filter(
+                    (candidate) =>
+                      candidate.id !== position.id &&
+                      (!position.treeId || !candidate.treeId || candidate.treeId === position.treeId),
+                  )
+                  .map((candidate) => ({
+                    value: candidate.id,
+                    label: candidate.name,
+                    description: unitById.get(candidate.unitId)?.name,
+                  }));
+                const current = position.reportsToPositionId ?? '';
+                return (
+                  <div className={`${ROW} py-[9px] text-[13px] hover:bg-[#f4f6f9]/60`} key={position.id}>
+                    <span className="flex min-w-0 items-center gap-2">
+                      <b className="truncate font-semibold">{position.name}</b>
                       {unit?.headPositionId === position.id ? (
-                        <span className="ml-2 inline-flex items-center gap-1 rounded border border-amber-200 bg-amber-50 px-1.5 py-px text-[11px] font-medium text-amber-700">
+                        <span className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-[5px] border border-amber-200 bg-amber-50 px-1.5 text-[11px] font-semibold text-amber-700">
                           <Star className="size-3" />
                           Quản lý
                         </span>
                       ) : null}
-                    </td>
-                    <td className="px-5 py-2.5">
+                    </span>
+                    <span className="min-w-0 truncate text-slate-700" title={holders.join(', ') || undefined}>
                       {holders.length ? (
                         holders.join(', ')
                       ) : (
                         <span className="text-xs italic text-slate-400">Đang trống</span>
                       )}
-                    </td>
-                    <td className="px-5 py-2">
-                      <SearchableSelect
-                        options={options}
-                        value={current}
-                        placeholder="Chưa khai báo"
-                        disabled={!canUpdate || Boolean(saving)}
-                        onChange={(value) => {
-                          if (value === current) return;
-                          void save(position.id, value || null);
-                        }}
-                      />
-                    </td>
-                    <td className="px-5 py-2.5">
+                    </span>
+                    <SearchableSelect
+                      options={options}
+                      value={current}
+                      placeholder="Chưa khai báo"
+                      disabled={!canUpdate || Boolean(saving)}
+                      onChange={(value) => {
+                        if (value === current) return;
+                        void save(position.id, value || null);
+                      }}
+                    />
+                    <span className="min-w-0">
                       {suggestion && suggestion !== current ? (
                         <button
                           type="button"
-                          className="rounded-md border border-dashed border-blue-300 px-2 py-1 text-left text-xs text-blue-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60"
+                          className="max-w-full cursor-pointer truncate rounded-[7px] border border-dashed border-amber-300 bg-[#fffbeb] px-2 py-1 text-left text-xs text-[#8a6400] hover:bg-amber-100/60 disabled:cursor-not-allowed disabled:opacity-60"
                           disabled={!canUpdate || Boolean(saving)}
                           title="Dùng gợi ý này"
                           onClick={() => void save(position.id, suggestion)}
@@ -328,32 +322,31 @@ export function OrganizationPositionTable() {
                           {label(suggestion)}
                         </button>
                       ) : suggestion ? (
-                        <span className="text-xs font-medium text-emerald-600">Khớp gợi ý</span>
+                        <span className="text-xs font-semibold text-emerald-700">Khớp gợi ý</span>
                       ) : (
                         <span className="text-slate-400">—</span>
                       )}
-                    </td>
-                  </tr>
-                </Fragment>
-              );
-            })}
-            {organization && rows.length === 0 ? (
-              <tr>
-                <td colSpan={4} className="py-12 text-center text-sm text-slate-500">
-                  <Briefcase className="mx-auto size-8 text-slate-300" />
-                  <p className="mt-2 font-medium">
-                    Không có chức danh nào{search ? ' khớp từ khoá' : ''}.
-                  </p>
-                </td>
-              </tr>
-            ) : null}
-          </tbody>
-        </table>
-      </div>
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </CollapsibleGroup>
+      ))}
 
-      <div className="shrink-0 flex items-center justify-between border-t border-slate-200 bg-slate-50/70 px-4 py-2.5 text-xs text-slate-500">
+      {organization && rows.length === 0 ? (
+        <div className="rounded-[14px] border border-dashed border-slate-200 bg-white py-12 text-center text-sm text-slate-500">
+          <Briefcase className="mx-auto size-8 text-slate-300" />
+          <p className="mt-2 font-medium">
+            Không có chức danh nào{search ? ' khớp từ khoá' : ''}.
+          </p>
+        </div>
+      ) : null}
+
+      <div className="flex flex-wrap justify-between gap-2 text-[12.5px] text-slate-500">
         <span>
-          Hiển thị <strong>{rows.length}</strong> / {allRows.length} chức danh
+          Hiển thị <b className="text-[#18181b]">{rows.length}</b> / {allRows.length} chức danh
         </span>
         <span>
           {allRows.filter((row) => row.position.reportsToPositionId).length} đã khai báo Báo cáo cho
@@ -362,3 +355,6 @@ export function OrganizationPositionTable() {
     </div>
   );
 }
+
+const ROW =
+  'grid grid-cols-[minmax(220px,1fr)_minmax(170px,0.8fr)_250px_250px] items-center gap-x-3 border-t border-[#f1f3f6] px-5';

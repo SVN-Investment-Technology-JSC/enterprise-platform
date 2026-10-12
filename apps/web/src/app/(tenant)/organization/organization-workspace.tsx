@@ -1,15 +1,7 @@
 'use client';
 import { useOrganizationPermissions } from './organization-permissions';
 
-import {
-  ArrowLeft,
-  Briefcase,
-  GitBranch,
-  Pencil,
-  Plus,
-  Save,
-  Users,
-} from 'lucide-react';
+import { ArrowLeft, Pencil, Plus, Save } from 'lucide-react';
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -47,13 +39,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from '@/components/ui/sheet';
 
 export type {
   Tree,
@@ -154,6 +139,7 @@ export function OrganizationWorkspace({
   const isWorkspaceDetail = tab === 'tree' && treeViewMode === 'workspace';
   const tree = snapshot.trees.find((x) => x.id === treeId);
   const nodes = snapshot.nodes.filter((x) => x.treeId === treeId);
+  const selectedNode = nodes.find((x) => x.id === selectedNodeId);
   const layoutCacheKey = `organization-layout:${tenantSlug}:${treeId ?? 'none'}`;
   const cachedLayout = useAppSelector(
     (state) => state.organizationLayouts.layouts[layoutCacheKey],
@@ -409,23 +395,23 @@ export function OrganizationWorkspace({
     if (item ? !canUpdate : !canCreate) return;
     setEditor({ resource, item, parentId });
   };
+  const positionCount = snapshot.nodes.filter(
+    (x) => (x.category ?? (x.nodeTypeId ? types.get(x.nodeTypeId)?.category : undefined)) === 'position',
+  ).length;
   return (
     <>
       <main
-        className="flex flex-col h-[calc(100dvh-6.5rem)] overflow-hidden"
+        className={`flex flex-col text-[14px] text-[#18181b] ${isWorkspaceDetail
+          ? 'gap-3 xl:h-[calc(100dvh-6.5rem)]'
+          : 'gap-4'
+          }`}
       >
         {!isWorkspaceDetail ? (
-          <div className="shrink-0 mb-3">
-            <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
-              <div>
-                <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">
-                  Sơ đồ tổ chức
-                </h1>
-                <p className="mt-0.5 text-xs sm:text-sm text-slate-500">
-                  Quản lý cấu trúc tổ chức trực tiếp trong dữ liệu lõi của tenant.
-                </p>
-              </div>
-            </div>
+          <div>
+            <h1 className="m-0 text-[22px] font-bold tracking-[-0.3px]">Sơ đồ tổ chức</h1>
+            <p className="mt-1 text-[13.5px] text-slate-600">
+              Quản lý cấu trúc tổ chức trực tiếp trong dữ liệu lõi của tenant.
+            </p>
           </div>
         ) : null}
         {/* {error ? (
@@ -434,22 +420,26 @@ export function OrganizationWorkspace({
           </p>
         ) : null} */}
         {!isWorkspaceDetail ? (
-          <div className="shrink-0 mb-3 flex gap-5 border-b border-slate-200">
+          <div
+            role="tablist"
+            aria-label="Sơ đồ tổ chức"
+            className="flex flex-wrap gap-x-[22px] gap-y-1 border-b border-[#eef0f3]"
+          >
             <Tab
               active={tab === 'tree'}
-              icon={GitBranch}
+              count={snapshot.trees.length}
               label="Cây tổ chức"
               onClick={() => setTab('tree')}
             />
             <Tab
               active={tab === 'assignment'}
-              icon={Users}
+              count={snapshot.assignments.length}
               label="Bổ nhiệm"
               onClick={() => setTab('assignment')}
             />
             <Tab
               active={tab === 'position'}
-              icon={Briefcase}
+              count={positionCount}
               label="Chức danh"
               onClick={() => setTab('position')}
             />
@@ -466,39 +456,38 @@ export function OrganizationWorkspace({
               onDeleteTree={(t) => remove('trees', t)}
             />
           ) : (
-            <div className="flex flex-1 flex-col gap-3 min-h-0 overflow-hidden">
+            <div className="flex flex-1 flex-col gap-3 xl:min-h-0">
               {/* Toolbar điều hướng & thông tin sơ đồ */}
-              <div className="shrink-0 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
-                <div className="flex items-center gap-3">
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    onClick={() => setTreeViewMode('table')}
-                    className="cursor-pointer gap-1.5 text-xs font-medium text-slate-700 hover:text-slate-900"
-                  >
-                    <ArrowLeft className="size-4" />
-                  </Button>
-                  <div className="h-5 w-px bg-slate-200" />
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h2 className="text-base font-bold text-slate-900">
-                        {tree?.name ?? 'Chưa chọn sơ đồ'}
-                      </h2>
-                      {tree?.isPrimary ? (
-                        <span className="rounded border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[10px] font-bold text-blue-700">
-                          CHÍNH
-                        </span>
-                      ) : null}
-                      <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] text-slate-600">
-                        {tree?.code}
+              <div className="shrink-0 flex flex-wrap items-center gap-3 rounded-[14px] border border-[#eef0f3] bg-white px-3.5 py-3">
+                <button
+                  type="button"
+                  aria-label="Quay lại danh sách sơ đồ"
+                  title="Quay lại danh sách sơ đồ"
+                  onClick={() => setTreeViewMode('table')}
+                  className="grid size-9 shrink-0 cursor-pointer place-items-center rounded-lg border border-[#eef0f3] text-slate-700 hover:bg-[#f4f6f9]"
+                >
+                  <ArrowLeft className="size-4" />
+                </button>
+                <span aria-hidden className="hidden h-7 w-px bg-[#eef0f3] sm:block" />
+                <div className="flex min-w-0 flex-[1_1_300px] flex-col">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h1 className="m-0 text-base font-bold">
+                      {tree?.name ?? 'Chưa chọn sơ đồ'}
+                    </h1>
+                    {tree?.isPrimary ? (
+                      <span className="rounded-[5px] bg-[#fff6d6] px-1.5 text-[10px] font-extrabold tracking-[0.4px] text-[#8a6400]">
+                        CHÍNH
                       </span>
-                    </div>
-                    {tree?.description ? (
-                      <p className="line-clamp-1 text-xs text-slate-500">
-                        {tree.description}
-                      </p>
                     ) : null}
+                    <span className="rounded-[5px] bg-[#f1f3f6] px-1.5 font-mono text-[11px] text-slate-700">
+                      {tree?.code}
+                    </span>
                   </div>
+                  {tree?.description ? (
+                    <p className="m-0 truncate text-[12.5px] text-slate-500">
+                      {tree.description}
+                    </p>
+                  ) : null}
                 </div>
 
                 {tree ? (
@@ -522,7 +511,7 @@ export function OrganizationWorkspace({
                           : 'Chưa có thay đổi vị trí'
                       }
                       variant="outline"
-                      className="text-xs"
+                      className="h-9 border-[#eef0f3] text-[13px] font-semibold"
                     >
                       <Save className="mr-1 size-3.5" />
                       {layoutSaving ? 'Đang lưu…' : 'Lưu vị trí'}
@@ -532,7 +521,7 @@ export function OrganizationWorkspace({
                       variant="outline"
                       disabled={!canUpdate}
                       onClick={() => open('trees', tree)}
-                      className="text-xs"
+                      className="h-9 border-[#eef0f3] text-[13px] font-semibold"
                     >
                       <Pencil className="mr-1 size-3.5" />
                       Sửa sơ đồ
@@ -541,7 +530,7 @@ export function OrganizationWorkspace({
                       size="sm"
                       disabled={!canCreate}
                       onClick={() => open('nodes')}
-                      className="bg-blue-600 text-xs text-white hover:bg-blue-700"
+                      className="h-9 bg-[#ffc90a] text-[13px] font-bold text-[#18181b] hover:bg-[#ffd84d]"
                     >
                       <Plus className="mr-1 size-3.5" />
                       Thêm node
@@ -550,10 +539,16 @@ export function OrganizationWorkspace({
                 ) : null}
               </div>
 
-              {/* Bố cục 2 cột: Fit 100% viewport, Cột 1 Tree Outline, Cột 2 Canvas tối đa không gian */}
-              <div className="grid flex-1 min-h-0 grid-cols-1 gap-3 overflow-hidden xl:grid-cols-[280px_1fr] 2xl:grid-cols-[300px_1fr]">
+              {/* Bố cục 3 cột: cây phân cấp | canvas | thuộc tính node (mở khi chọn node).
+                  Màn rộng thì vừa khít khung nhìn; màn hẹp thì xếp dọc và cuộn cả trang. */}
+              <div
+                className={`grid grid-cols-1 gap-3 xl:min-h-0 xl:flex-1 ${selectedNode && isDrawerOpen
+                  ? 'xl:grid-cols-[280px_minmax(0,1fr)_360px]'
+                  : 'xl:grid-cols-[280px_minmax(0,1fr)]'
+                  }`}
+              >
                 {/* Cột 1: Cây sơ đồ Nested Tree List / Outline */}
-                <div className="h-full min-h-0 flex flex-col overflow-hidden">
+                <div className="flex h-[360px] min-h-0 flex-col overflow-hidden xl:h-full">
                   <OrganizationTreeOutline
                     nodes={nodes}
                     nodeTypes={types}
@@ -566,7 +561,10 @@ export function OrganizationWorkspace({
                 </div>
 
                 {/* Cột 2: Canvas sơ đồ Flow toàn diện tích */}
-                <section className="h-full min-h-0 flex flex-1 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+                <section
+                  aria-label="Canvas sơ đồ"
+                  className="flex h-[560px] min-h-0 flex-col overflow-hidden rounded-[14px] border border-[#eef0f3] bg-white xl:h-full"
+                >
                   <div className="relative h-full w-full flex-1 min-h-0">
                     <OrganizationFlow
                       key={treeId}
@@ -583,32 +581,15 @@ export function OrganizationWorkspace({
                     />
                   </div>
                 </section>
-              </div>
 
-              {/* Drawer Chi tiết Node (Trượt từ mép phải, mở rộng 1.75x = 595px) */}
-              <Sheet
-                open={isDrawerOpen && Boolean(selectedNodeId)}
-                onOpenChange={(openState: boolean) => {
-                  setIsDrawerOpen(openState);
-                  if (!openState) {
-                    setSelectedNodeId(undefined);
-                  }
-                }}
-              >
-                <SheetContent
-                  side="right"
-                  className="!w-[595px] !max-w-[595px] p-0 overflow-hidden border-l border-slate-200 bg-white flex flex-col"
-                  style={{ width: '595px', maxWidth: '595px' }}
-                >
-                  <SheetHeader className="sr-only">
-                    <SheetTitle>Chi tiết Node Tổ chức</SheetTitle>
-                    <SheetDescription>
-                      Xem và cập nhật cấu hình node cùng danh sách nhân sự bổ nhiệm.
-                    </SheetDescription>
-                  </SheetHeader>
-                  <div className="flex-1 min-h-0 h-full overflow-hidden flex flex-col">
+                {/* Cột 3: Thuộc tính node, nằm cạnh canvas thay cho ngăn kéo */}
+                {selectedNode && isDrawerOpen ? (
+                  <aside
+                    aria-label="Chi tiết Node Tổ chức"
+                    className="flex min-h-0 flex-col overflow-hidden xl:h-full"
+                  >
                     <OrganizationNodeInspector
-                      selectedNode={nodes.find((x) => x.id === selectedNodeId)}
+                      selectedNode={selectedNode}
                       nodes={nodes}
                       assignments={snapshot.assignments}
                       users={snapshot.users}
@@ -623,10 +604,15 @@ export function OrganizationWorkspace({
                       onQuickUnassign={handleQuickUnassign}
                       onSetPrimaryAssignment={handleSetPrimaryAssignment}
                       onSelectNode={handleSelectNodeWithDrawer}
+                      onClose={() => {
+                        setIsDrawerOpen(false);
+                        setSelectedNodeId(undefined);
+                      }}
                     />
-                  </div>
-                </SheetContent>
-              </Sheet>
+                  </aside>
+                ) : null}
+              </div>
+
             </div>
           )
         ) : null}
@@ -1029,22 +1015,29 @@ function Form({
 
 function Tab({
   active,
-  icon: Icon,
+  count,
   label,
   onClick,
 }: {
   active: boolean;
-  icon: typeof Users;
+  count: number;
   label: string;
   onClick: () => void;
 }) {
   return (
     <button
+      type="button"
+      role="tab"
+      aria-selected={active}
       onClick={onClick}
-      className={`flex items-center gap-2 border-b-2 px-3 py-3 text-sm font-medium ${active ? 'border-blue-600 text-blue-700' : 'border-transparent text-slate-500'}`}
+      className={`-mb-px flex h-[42px] cursor-pointer items-center gap-2 border-b-2 px-0.5 text-sm font-semibold ${active ? 'border-[#ffc90a] text-[#18181b]' : 'border-transparent text-slate-500 hover:text-[#18181b]'}`}
     >
-      <Icon className="size-4" />
       {label}
+      <span
+        className={`rounded-full px-2 text-[11.5px] font-bold ${active ? 'bg-[#fff6d6] text-[#8a6400]' : 'bg-[#f1f3f6] text-slate-500'}`}
+      >
+        {count}
+      </span>
     </button>
   );
 }

@@ -335,11 +335,11 @@ export function OrganizationTreeOutline({
             </span>
           </div>
 
-          {/* Quick Action buttons on hover or selected */}
+          {/* Quick Action buttons on hover or selected — ẩn hẳn khi không dùng để tên node có đủ chỗ */}
           <div
-            className={`flex shrink-0 items-center gap-0.5 ${
-              isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
-            } transition-opacity`}
+            className={`shrink-0 items-center gap-0.5 ${
+              isSelected ? 'flex' : 'hidden group-hover:flex'
+            }`}
           >
             <button
               type="button"
@@ -403,19 +403,19 @@ export function OrganizationTreeOutline({
     <div
       tabIndex={0}
       onKeyDown={handleKeyDown}
-      className="flex h-full min-h-0 w-full flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm focus:outline-none focus:ring-1 focus:ring-blue-400/50"
+      className="flex h-full min-h-0 w-full flex-col overflow-hidden rounded-[14px] border border-[#eef0f3] bg-white focus:outline-none focus:ring-1 focus:ring-[#ffc90a]/60"
     >
       {/* Header */}
-      <div className="flex shrink-0 items-center justify-between border-b border-slate-200 bg-white px-3.5 py-3">
+      <div className="flex shrink-0 items-center justify-between border-b border-[#eef0f3] bg-[#fafbfc] px-3.5 py-3">
         <div className="flex items-center gap-2">
-          <FolderTree className="size-4 text-blue-600" />
-          <h3 className="text-sm font-bold text-slate-900">Sơ đồ phân cấp</h3>
+          <FolderTree className="size-4 text-amber-700" />
+          <h3 className="m-0 text-[13.5px] font-bold text-slate-900">Sơ đồ phân cấp</h3>
         </div>
         <div className="flex items-center gap-1 text-[11px] text-slate-500">
           <button
             type="button"
             onClick={allCollapsed ? expandAll : collapseAll}
-            className="rounded px-2 py-0.5 hover:bg-slate-100 text-slate-600 hover:text-slate-900 border border-slate-200 transition cursor-pointer font-medium"
+            className="rounded-md border border-[#eef0f3] bg-white px-2 py-1 text-xs text-slate-700 transition hover:bg-[#f4f6f9] cursor-pointer"
             title={allCollapsed ? 'Mở rộng toàn bộ cây' : 'Thu gọn toàn bộ cây'}
           >
             {allCollapsed ? '⊞ Mở hết' : '⊟ Thu gọn'}
@@ -424,7 +424,7 @@ export function OrganizationTreeOutline({
       </div>
 
       {/* Search Box chuẩn Modules/Inventory #assets */}
-      <div className="shrink-0 border-b border-slate-100 p-2 bg-slate-50/40">
+      <div className="shrink-0 px-3 pb-1.5 pt-2.5">
         <div className="relative flex items-center">
           <Search className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-slate-400 pointer-events-none" />
           <input
@@ -432,7 +432,7 @@ export function OrganizationTreeOutline({
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             placeholder="Tìm theo mã hoặc tên node… (Phím ↑↓ điều hướng)"
-            className="h-8 w-full rounded-md border border-slate-200 bg-white pl-8 pr-7 text-xs text-slate-800 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/15 transition-all shadow-2xs"
+            className="h-[34px] w-full rounded-lg border border-[#eef0f3] bg-[#fafbfc] pl-8 pr-7 text-xs text-slate-800 placeholder:text-slate-400 focus:border-[#ffc90a] focus:bg-white focus:outline-none transition-all"
           />
           {searchTerm ? (
             <button
@@ -469,8 +469,8 @@ export function OrganizationTreeOutline({
       </div>
 
       {/* Footer Status */}
-      <div className="flex shrink-0 items-center justify-between border-t border-slate-100 bg-slate-50/60 px-3 py-2 text-[11px] text-slate-500">
-        <span>Tổng cộng: <b>{nodes.length}</b> node</span>
+      <div className="flex shrink-0 items-center justify-between border-t border-[#eef0f3] px-3.5 py-2.5 text-[11.5px] text-slate-500">
+        <span>Tổng cộng: <b className="text-[#18181b]">{nodes.length}</b> node</span>
         <span className="text-slate-400">Bấm node để xem chi tiết</span>
       </div>
     </div>
