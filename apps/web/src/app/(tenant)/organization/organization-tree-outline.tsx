@@ -17,7 +17,16 @@ import {
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Popconfirm } from 'antd';
+// Tooltip chi tiết node (đang tắt, bỏ comment cùng khối JSX bên dưới để dùng lại):
+// import {
+//   Tooltip,
+//   TooltipContent,
+//   TooltipTrigger,
+// } from '@/components/ui/tooltip';
 import type { Node, NodeType } from './organization-workspace';
+
+/** Mỗi cấp thụt vào bao nhiêu px (trước đây 16px; 12px để tên có thêm chỗ ở cây sâu). */
+const INDENT_PX = 12;
 
 type TreeNode = Node & {
   children: TreeNode[];
@@ -280,7 +289,7 @@ export function OrganizationTreeOutline({
       <div key={item.id} className="select-none">
         <div
           onClick={() => onSelectNode(item.id)}
-          className={`group flex items-center justify-between gap-1.5 rounded-lg px-2 py-1.5 text-xs transition-colors cursor-pointer ${
+          className={`group relative flex items-center justify-between gap-1.5 rounded-lg px-2 py-1.5 text-xs transition-colors cursor-pointer ${
             isSelected
               ? 'border-l-2 border-blue-600 bg-blue-50/90 font-semibold text-blue-950 shadow-xs'
               : isDirectMatch
@@ -289,8 +298,17 @@ export function OrganizationTreeOutline({
                   ? 'bg-amber-50/40 text-slate-800 hover:bg-amber-100/50'
                   : 'text-slate-700 hover:bg-slate-100/80'
           }`}
-          style={{ paddingLeft: `${Math.max(8, item.level * 16 + 8)}px` }}
+          style={{ paddingLeft: `${Math.max(8, item.level * INDENT_PX + 8)}px` }}
         >
+          {/* Đường kẻ dẫn theo từng cấp tổ tiên (cùng trục với mũi tên mở/thu của cấp đó) */}
+          {Array.from({ length: item.level }, (_, l) => (
+            <span
+              key={l}
+              aria-hidden="true"
+              className="pointer-events-none absolute -bottom-px -top-px w-px bg-slate-200"
+              style={{ left: `${l * INDENT_PX + 16}px` }}
+            />
+          ))}
           <div className="flex min-w-0 flex-1 items-center gap-1.5">
             {/* Expand / Collapse arrow button */}
             {hasChildren ? (
@@ -323,7 +341,24 @@ export function OrganizationTreeOutline({
               className="font-medium break-words leading-tight flex items-center gap-1 min-w-0"
               title={`${item.code} · ${item.name}`}
             >
-              <span className="truncate">{item.name}</span>
+              {/* Tooltip chi tiết node (đang tắt):
+              <Tooltip>
+                <TooltipTrigger render={<span className="line-clamp-2 min-w-0 break-words" />}>
+                  {item.name}
+                </TooltipTrigger>
+                <TooltipContent side="right" className="max-w-sm flex-col items-start gap-0.5 py-2">
+                  <span className="text-[13px] font-semibold leading-snug">{item.name}</span>
+                  <span className="opacity-80">Mã: {item.code}</span>
+                  {item.nodeTypeId && nodeTypes.get(item.nodeTypeId) ? (
+                    <span className="opacity-80">Loại: {nodeTypes.get(item.nodeTypeId)?.name}</span>
+                  ) : null}
+                  {parentNode ? <span className="opacity-80">Thuộc: {parentNode.name}</span> : null}
+                  {hasChildren ? <span className="opacity-80">{item.children.length} node trực thuộc</span> : null}
+                  {isHeadPosition ? <span className="opacity-80">Chức danh quản lý chính của đơn vị</span> : null}
+                </TooltipContent>
+              </Tooltip>
+              */}
+              <span className="line-clamp-2 min-w-0 break-words">{item.name}</span>
               {isHeadPosition ? (
                 <span
                   className="inline-flex items-center gap-0.5 rounded-full bg-amber-100/90 px-1.5 py-0.2 text-[9px] font-bold text-amber-800 border border-amber-300 shrink-0"

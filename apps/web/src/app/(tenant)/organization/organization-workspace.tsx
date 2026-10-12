@@ -11,7 +11,7 @@ import {
   Users,
 } from 'lucide-react';
 import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from '@/components/ui/sonner';
@@ -38,6 +38,7 @@ import {
 import { OrganizationFlow } from './organization-flow';
 import { OrganizationTreeTable } from './organization-tree-table';
 import { OrganizationTreeOutline } from './organization-tree-outline';
+import { useResizableWidth } from './use-resizable-width';
 import { OrganizationNodeInspector } from './organization-node-inspector';
 import { OrganizationAssignmentTable } from './organization-assignment-table';
 import { OrganizationPositionTable } from './organization-position-table';
@@ -131,6 +132,15 @@ export function OrganizationWorkspace({
   const [editor, setEditor] = useState<Editor>();
   const [, setError] = useState(loadError);
   const [layoutSaving, setLayoutSaving] = useState(false);
+  // Cột "Sơ đồ phân cấp" kéo thả được (nhớ độ rộng; nhấp đúp thanh chia để về mặc định).
+  const outlineGridRef = useRef<HTMLDivElement>(null);
+  const outlineResize = useResizableWidth(outlineGridRef, {
+    storageKey: 'org-outline-width',
+    initial: 340,
+    min: 240,
+    max: 520,
+    cssVar: '--outline-w',
+  });
 
   const handleSelectNodeWithDrawer = (nodeId: string) => {
     setSelectedNodeId(nodeId);
@@ -563,8 +573,12 @@ export function OrganizationWorkspace({
                 ) : null}
               </div>
 
-              {/* Bố cục 2 cột: Fit 100% viewport, Cột 1 Tree Outline, Cột 2 Canvas tối đa không gian */}
-              <div className="grid flex-1 min-h-0 grid-cols-1 gap-3 overflow-hidden xl:grid-cols-[280px_1fr] 2xl:grid-cols-[300px_1fr]">
+              {/* Bố cục 2 cột: Fit 100% viewport, Cột 1 Tree Outline (kéo thả đổi độ rộng), Cột 2 Canvas tối đa không gian */}
+              <div
+                ref={outlineGridRef}
+                style={{ ['--outline-w' as string]: `${outlineResize.width}px` }}
+                className="relative grid flex-1 min-h-0 grid-cols-1 gap-3 overflow-hidden xl:grid-cols-[var(--outline-w)_1fr]"
+              >
                 {/* Cột 1: Cây sơ đồ Nested Tree List / Outline */}
                 <div className="h-full min-h-0 flex flex-col overflow-hidden">
                   <OrganizationTreeOutline
@@ -575,6 +589,22 @@ export function OrganizationWorkspace({
                     onAddChild={(node) => open('nodes', undefined, node.id)}
                     onEditNode={(node) => open('nodes', node)}
                     onDeleteNode={(node) => remove('nodes', node)}
+                  />
+                </div>
+
+                {/* Thanh chia kéo thả giữa hai cột (chỉ từ màn xl, khi hai cột nằm ngang) */}
+                <div
+                  {...outlineResize.handleProps}
+                  aria-label="Kéo để đổi độ rộng cột Sơ đồ phân cấp (nhấp đúp để về mặc định)"
+                  title="Kéo để đổi độ rộng; nhấp đúp để về mặc định"
+                  style={{ left: 'var(--outline-w)' }}
+                  className="group absolute inset-y-0 z-10 hidden w-3 cursor-col-resize touch-none items-center justify-center outline-none xl:flex"
+                >
+                  <span
+                    aria-hidden="true"
+                    className={`h-12 w-1 rounded-full transition-colors group-hover:bg-blue-400 group-focus-visible:bg-blue-500 ${
+                      outlineResize.dragging ? 'bg-blue-500' : 'bg-slate-300'
+                    }`}
                   />
                 </div>
 
