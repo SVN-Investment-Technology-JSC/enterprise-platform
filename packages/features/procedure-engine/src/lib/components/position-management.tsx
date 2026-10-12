@@ -6,7 +6,9 @@ import type {
   TenantOrganizationContext,
 } from '@enterprise-platform/contracts-organization';
 import { SearchableSelect } from '@enterprise-platform/shared-ui';
-import { useMemo, useState } from 'react';
+import { Search } from 'lucide-react';
+import { Fragment, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import styles from './position-management.module.scss';
 
 /**
@@ -40,7 +42,10 @@ export function PositionManagement({
   organization,
   canEdit,
   onSave,
+  headSlot,
 }: {
+  /** Ô trên dòng đường dẫn của khung module: nút của trang đặt ở đó. */
+  headSlot?: HTMLElement | null;
   organization: TenantOrganizationContext;
   /** Chỉ quản trị tenant mới sửa được — đây là dữ liệu tổ chức dùng chung. */
   canEdit: boolean;
@@ -127,17 +132,23 @@ export function PositionManagement({
     }
   };
 
+  const applyButton = canEdit ? (
+    <button
+      type="button"
+      className={styles.primary}
+      disabled={!pendingSuggestions.length || Boolean(saving)}
+      onClick={() => void applySuggestions()}
+    >
+      Áp dụng gợi ý cho {pendingSuggestions.length} ô trống
+    </button>
+  ) : null;
+
   return (
     <section className={styles.panel} aria-label="Quản lý chức danh">
-      <header className={styles.header}>
-        <div>
-          <h2>Quản lý chức danh</h2>
-          <p>
-            Khai báo mỗi chức danh <strong>báo cáo cho</strong> chức danh nào. Quy trình dùng quan hệ này
-            để tìm “Quản lý trực tiếp của người khởi tạo”; chức danh trống thì hệ thống tự leo lên cấp trên.
-          </p>
-        </div>
-        <div className={styles.tools}>
+      {headSlot ? (applyButton ? createPortal(applyButton, headSlot) : null) : null}
+      <div className={styles.toolbar}>
+        <label className={styles.searchBox}>
+          <Search size={14} aria-hidden="true" />
           <input
             className={styles.search}
             value={search}
@@ -145,21 +156,13 @@ export function PositionManagement({
             aria-label="Tìm chức danh"
             onChange={(event) => setSearch(event.target.value)}
           />
-          {canEdit ? (
-            <button
-              type="button"
-              className={styles.primary}
-              disabled={!pendingSuggestions.length || Boolean(saving)}
-              onClick={() => void applySuggestions()}
-            >
-              Áp dụng gợi ý cho {pendingSuggestions.length} ô trống
-            </button>
-          ) : null}
-        </div>
-      </header>
+        </label>
+        <span className={styles.count}>{rows.length} chức danh</span>
+        {headSlot ? null : <span className={styles.toolbarEnd}>{applyButton}</span>}
+      </div>
 
       {!canEdit ? (
-        <p className={styles.readonly}>Chỉ quản trị tenant mới sửa được quan hệ báo cáo.</p>
+        <p className={styles.readonly}>Chỉ xem</p>
       ) : null}
       {error ? (
         <p className={styles.error} role="alert">
@@ -172,14 +175,13 @@ export function PositionManagement({
           <thead>
             <tr>
               <th>Chức danh</th>
-              <th>Đơn vị</th>
               <th>Người giữ</th>
               <th>Báo cáo cho</th>
               <th>Gợi ý từ cây</th>
             </tr>
           </thead>
           <tbody>
-            {rows.map(({ position, unit, holders, suggestion }) => {
+            {rows.map(({ position, unit, holders, suggestion }, index) => {
               const options = organization.positions
                 .filter(
                   (candidate) =>
@@ -192,10 +194,29 @@ export function PositionManagement({
                   description: unitById.get(candidate.unitId)?.name,
                 }));
               const current = position.reportsToPositionId ?? '';
+              // Danh sách đã xếp theo đơn vị: đổi đơn vị thì chèn một dòng tiêu đề nhóm,
+              // thay cho cột "Đơn vị" lặp lại ở mọi dòng.
+              const firstOfUnit = index === 0 || rows[index - 1].position.unitId !== position.unitId;
+              const unitSize = firstOfUnit
+                ? rows.filter((row) => row.position.unitId === position.unitId).length
+                : 0;
               return (
-                <tr key={position.id}>
-                  <td className={styles.name}>{position.name}</td>
-                  <td>{unit?.name ?? '—'}</td>
+                <Fragment key={position.id}>
+                {firstOfUnit ? (
+                  <tr className={styles.groupRow}>
+                    <th colSpan={4} scope="colgroup">
+                      {unit?.name ?? 'Chưa thuộc đơn vị'}
+                      <span className={styles.groupCount}>{unitSize}</span>
+                    </th>
+                  </tr>
+                ) : null}
+                <tr>
+                  <td className={styles.name}>
+                    {position.name}
+                    {unit?.headPositionId === position.id ? (
+                      <span className={styles.headBadge}>★ Quản lý</span>
+                    ) : null}
+                  </td>
                   <td>
                     {holders.length ? (
                       holders.join(', ')
@@ -233,11 +254,12 @@ export function PositionManagement({
                     )}
                   </td>
                 </tr>
+                </Fragment>
               );
             })}
             {rows.length === 0 ? (
               <tr>
-                <td className={styles.empty} colSpan={5}>
+                <td className={styles.empty} colSpan={4}>
                   Không có chức danh nào{search ? ' khớp từ khoá' : ''}.
                 </td>
               </tr>

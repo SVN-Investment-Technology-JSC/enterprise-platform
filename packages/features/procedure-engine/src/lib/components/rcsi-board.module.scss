@@ -33,43 +33,6 @@
   box-sizing: border-box;
 }
 
-.cardHead {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1.5rem;
-  padding: 1rem 1.4rem;
-  border-bottom: 1px solid var(--line);
-  background: #ffffff;
-  flex-shrink: 0;
-}
-
-.cardHeadLeft {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  flex: 1;
-  min-width: 0;
-}
-
-.cardHead h2 {
-  display: flex;
-  gap: 0.55rem;
-  align-items: center;
-  margin: 0 0 0.25rem;
-  font-size: 1.22rem;
-  letter-spacing: -0.015em;
-  color: var(--ink);
-}
-
-.dot {
-  width: 0.5rem;
-  height: 0.5rem;
-  border-radius: 999px;
-  background: var(--blue);
-}
-
 .count {
   padding: 0.15rem 0.55rem;
   border-radius: 999px;
@@ -78,14 +41,6 @@
   border: 1px solid #dbeafe;
   font-size: 0.74rem;
   font-weight: 700;
-}
-
-.cardHead p {
-  margin: 0;
-  max-width: 90ch;
-  color: var(--muted);
-  font-size: 0.84rem;
-  line-height: 1.55;
 }
 
 /* ---- KHÔNG GIAN ĐIỀU KHIỂN & CÔNG CỤ DƯỚI HEADER ---- */
@@ -388,42 +343,23 @@
 
 .scroll {
   width: 100%;
-  overflow-x: auto;
-  /* Không giới hạn chiều cao nên không bao giờ hiện thanh cuộn dọc trong bảng. */
-  overflow-y: hidden;
+  /* Khung tự cuộn cả hai chiều, cao vừa màn hình: hàng tiêu đề chức danh và
+     cột quy trình đứng yên khi cuộn, thanh cuộn ngang nằm ngay đáy khung. */
+  max-height: calc(100dvh - 196px);
+  min-height: 320px;
+  overflow: auto;
   box-sizing: border-box;
-  -webkit-overflow-scrolling: touch;
-  overscroll-behavior-x: contain;
-  contain: paint;
-  will-change: scroll-position;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
 
-  /* Ẩn hoàn toàn thanh cuộn ngang toàn bảng (đã có bottomScrollbarTrack ở dưới đảm nhiệm chỉ cuộn phần chức danh) */
   &::-webkit-scrollbar {
     width: 8px;
-    height: 0px !important;
-  }
-
-  &::-webkit-scrollbar:horizontal {
-    height: 0px !important;
-    width: 0px !important;
-    display: none !important;
-  }
-
-  &::-webkit-scrollbar-thumb:horizontal {
-    display: none !important;
-  }
-
-  &::-webkit-scrollbar-track:horizontal {
-    display: none !important;
-  }
-
-  &::-webkit-scrollbar:vertical {
-    width: 8px;
+    height: 8px;
   }
 
   &::-webkit-scrollbar-track {
-    background: #f8fafd;
-    border-radius: 4px;
+    background: transparent;
   }
 
   &::-webkit-scrollbar-thumb {
@@ -433,10 +369,6 @@
 
   &::-webkit-scrollbar-thumb:hover {
     background: #94a3b8;
-  }
-
-  @supports (-moz-appearance: none) {
-    scrollbar-width: none;
   }
 }
 
@@ -459,24 +391,15 @@
 
 /* THANH CUỘN NGANG ĐỒNG BỘ DƯỚI ĐÁY BẢNG (CHỈ ÁP DỤNG CHO PHẦN CỘT CHỨC DANH) */
 .bottomScrollbarTrack {
-  /* Ghim ở đáy màn hình khi cuộn trang, để cuộn ngang được mà không phải kéo xuống cuối bảng. */
-  position: sticky;
-  bottom: 0;
-  z-index: 20;
-  display: flex;
-  flex-direction: row;
-  height: 12px;
-  background: #f8fafd;
-  border-top: 1px solid var(--line);
-  flex-shrink: 0;
-  box-sizing: border-box;
+  /* Bảng đã tự cuộn ngang trong khung của nó; thanh phụ cũ không hiện nữa. */
+  display: none;
 }
 
 .bottomScrollbarSpacer {
-  flex: 0 0 29rem;
-  width: 29rem;
-  min-width: 29rem;
-  max-width: 29rem;
+  flex: 0 0 24rem;
+  width: 24rem;
+  min-width: 24rem;
+  max-width: 24rem;
   background: #f8fafd;
   border-right: 1px solid var(--line);
   box-shadow: 2px 0 6px -2px rgba(0, 0, 0, 0.05);
@@ -535,9 +458,9 @@
   left: 0;
   top: 0;
   z-index: 30;
-  width: 29rem;
-  max-width: 29rem;
-  min-width: 29rem;
+  width: 24rem;
+  max-width: 24rem;
+  min-width: 24rem;
   padding: 0.55rem 0.75rem;
   background: #f8fafd;
   text-align: left;
@@ -729,98 +652,12 @@
   border-right: 1px solid #334155 !important;
 }
 
-.cornerHeader {
-  margin-bottom: 0.5rem;
-}
-
 .cornerTitle {
   display: block;
   font-size: 0.85rem;
   font-weight: 700;
 }
 
-.cornerHint {
-  display: block;
-  margin-top: 0.15rem;
-  color: var(--muted);
-  font-size: 0.72rem;
-  font-weight: 500;
-}
-
-.cornerControls {
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-  margin-top: 0.4rem;
-}
-
-.cornerAddBtn {
-  display: inline-flex;
-  gap: 0.25rem;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 auto;
-  padding: 0.3rem 0.6rem;
-  border: 0;
-  border-radius: 0.4rem;
-  color: #fff;
-  background: var(--blue);
-  font: inherit;
-  font-size: 0.74rem;
-  font-weight: 700;
-  cursor: pointer;
-  box-shadow: 0 1px 3px rgba(37, 99, 235, 0.2);
-  transition: all 0.15s ease;
-  white-space: nowrap;
-}
-
-.cornerAddBtn:hover:not(:disabled) {
-  background: #1d4ed8;
-}
-
-.cornerAddBtn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.cornerSearchInput {
-  flex: 1 1 auto;
-  min-width: 0;
-  box-sizing: border-box;
-  padding: 0.3rem 0.5rem;
-  border: 1px solid #dbe3ed;
-  border-radius: 0.4rem;
-  color: #17263d;
-  background: #fff;
-  font: inherit;
-  font-size: 0.74rem;
-}
-
-.cornerSearchInput:focus-visible {
-  outline: 2px solid #1556d4;
-  outline-offset: 1px;
-}
-
-.cornerGroupSelect {
-  flex: 0 1 7.5rem;
-  max-width: 8rem;
-  min-width: 0;
-  box-sizing: border-box;
-  padding: 0.3rem 0.35rem;
-  border: 1px solid #dbe3ed;
-  border-radius: 0.4rem;
-  color: #17263d;
-  background: #fff;
-  font: inherit;
-  font-size: 0.72rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.cornerGroupSelect:focus-visible {
-  outline: 2px solid #1556d4;
-  outline-offset: 1px;
-}
 
 .headLabel {
   display: inline-flex;
@@ -867,9 +704,9 @@
   position: sticky;
   left: 0;
   z-index: 10;
-  width: 29rem;
-  max-width: 29rem;
-  min-width: 29rem;
+  width: 24rem;
+  max-width: 24rem;
+  min-width: 24rem;
   box-sizing: border-box;
   overflow: hidden;
   border-right: 1px solid var(--line);
@@ -1907,7 +1744,8 @@
   border-radius: 0.6rem;
   background: #f8fafc;
   list-style: none;
-  flex-shrink: 0;
+  flex: 0 1 auto;
+  min-width: 0;
 }
 
 .legend li {
@@ -3139,12 +2977,12 @@
 
 .branchAddRow .addStepInput {
   min-width: 8rem;
-  padding: 0.22rem 0.5rem;
+  padding: 0.24rem 0.5rem;
   font-size: 0.78rem;
 }
 
 .branchAddRow .addStepButton {
-  padding: 0.22rem 0.6rem;
+  padding: 0.24rem 0.6rem;
   font-size: 0.74rem;
 }
 
@@ -3204,7 +3042,7 @@
 
 /*
  * Hàng bước ở chế độ nháp có nhiều công cụ (SLA, thuộc tính, QL trực tiếp, rẽ
- * nhánh, nối tiếp) hơn bề ngang cột 29rem: tên bước ở dòng trên, công cụ xuống
+ * nhánh, nối tiếp) hơn bề ngang cột 24rem: tên bước ở dòng trên, công cụ xuống
  * dòng dưới thay vì bị cắt mất.
  */
 .stepRow,
@@ -3394,16 +3232,236 @@
   justify-content: flex-end;
 }
 
-/* Khi panel sơ đồ mở, thẻ ma trận hẹp lại: tiêu đề và chú giải xếp chồng thay vì bóp nhau. */
-.boardSplit .cardHead {
+
+/* ---------- Bố cục gọn theo khung sáng của ERP ---------- */
+
+.board {
+  --ink: #18181b;
+  --muted: #6b7280;
+  --line: #eef0f3;
+  --blue: #2563eb;
+  --accent: #ffc90a;
+  --accent-strong: #d9ab00;
+  --accent-ink: #6b4e00;
+}
+
+.card {
+  border-radius: 12px;
+  box-shadow: none;
+}
+
+/* Nút của trang, nằm trên dòng đường dẫn của khung module. */
+.headFallback {
+  display: flex;
   flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-bottom: 12px;
 }
 
-.boardSplit .cardHeadLeft {
-  flex: 1 1 22rem;
+.count {
+  padding: 1px 8px;
+  border: 0;
+  border-radius: 999px;
+  background: #eef0f3;
+  color: #4b5563;
+  font-size: 11.5px;
+  font-weight: 600;
 }
 
-.boardSplit .cardHead h2 {
-  flex-wrap: nowrap;
+.headBtn,
+.headPrimary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
   white-space: nowrap;
+  cursor: pointer;
 }
+
+.headBtn {
+  border: 1px solid #e5e7eb;
+  background: #ffffff;
+  color: var(--ink);
+}
+
+.headBtn:hover {
+  background: #f4f6f9;
+}
+
+.headPrimary {
+  padding: 0 14px;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: #1a1a1a;
+  font-weight: 700;
+}
+
+.headPrimary:hover:not(:disabled) {
+  border-color: var(--accent-strong);
+  background: var(--accent-strong);
+}
+
+.headPrimary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Một thanh lọc: quy trình + nhóm bên trái, sơ đồ và chức danh tiếp theo. */
+.workspaceControls {
+  background: #ffffff;
+}
+
+.workspaceToolbar {
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+}
+
+.toolbarLeft {
+  gap: 8px;
+}
+
+.toolbarRight {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.toolbarSelect {
+  height: 34px;
+  max-width: 9.5rem;
+  padding: 0 8px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.toolbarDivider {
+  width: 1px;
+  height: 22px;
+  background: var(--line);
+}
+
+.positionSearch {
+  height: 34px;
+  border-color: #e5e7eb;
+  border-radius: 8px;
+  background: #fafbfc;
+}
+
+.positionSearch input {
+  width: 8.5rem;
+  font-size: 13px;
+}
+
+.positionSearch:focus-within,
+.toolbarSelect:focus-visible {
+  border-color: var(--accent-strong);
+  box-shadow: 0 0 0 3px rgba(255, 201, 10, 0.22);
+  outline: none;
+}
+
+.treeFilterTrigger {
+  min-height: 34px;
+  border-radius: 8px;
+}
+
+.filter,
+.filterOn,
+.orgToggle,
+.orgToggleOn {
+  min-height: 34px;
+  border-radius: 8px;
+}
+
+.filter,
+.filterOn {
+  padding: 0 10px;
+  font-size: 12.5px;
+}
+
+.filterOn {
+  border-color: var(--accent-strong);
+  background: #fffbea;
+  color: var(--accent-ink);
+}
+
+.orgToggle,
+.orgToggleOn {
+  width: 34px;
+  height: 34px;
+}
+
+.orgToggleOn {
+  border-color: var(--accent-strong);
+  background: #fffbea;
+  color: var(--accent-ink);
+}
+
+/* Ô góc: tên cột và chú giải vai trò (trước đây chú giải chiếm một hàng riêng). */
+.corner {
+  padding: 8px 12px;
+  background: #ffffff;
+}
+
+.cornerTitle {
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+}
+
+.corner .legend {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px 8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.corner .legend li {
+  gap: 5px;
+  font-size: 11.5px;
+  color: #374151;
+}
+
+.corner .legend .role {
+  width: 18px;
+  height: 18px;
+  font-size: 10.5px;
+}
+
+/* Dòng quy trình thấp lại: 72px -> 52px. */
+.definitionRow,
+.definitionRow > td {
+  height: 52px;
+}
+
+.definitionRow > td {
+  padding: 4px 10px;
+  background: #ffffff;
+}
+
+.definitionSubtitle {
+  padding-left: 0;
+}
+
+/* Màu vai trò thống nhất với Hồ sơ xử lý: A (phê duyệt) xanh lá, tách hẳn E (thực thi) cam. */
+.roleS { color: #854d0e; background: #fef9c3; border-color: #fde68a; }
+.roleR { color: #1e40af; background: #dbeafe; border-color: #bfdbfe; }
+.roleE { color: #9a3412; background: #ffedd5; border-color: #fed7aa; }
+.roleC { color: #5b21b6; background: #ede9fe; border-color: #ddd6fe; }
+.roleA { color: #166534; background: #dcfce7; border-color: #bbf7d0; }
+.roleI { color: #374151; background: #f3f4f6; border-color: #e5e7eb; }

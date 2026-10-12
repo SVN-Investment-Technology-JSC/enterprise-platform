@@ -16,7 +16,9 @@ import {
   PlayCircle,
   XCircle,
 } from 'lucide-react';
+import { evaluateInstanceSla } from '@enterprise-platform/contracts-procedure-engine';
 import { useState, type ReactNode } from 'react';
+import { SlaBadge } from './components/sla-badge';
 import styles from './components/procedure-engine.module.scss';
 
 /**
@@ -27,6 +29,106 @@ import styles from './components/procedure-engine.module.scss';
  */
 export interface ProcedureDashboardData {
   readonly workspace: ProcedureWorkspace;
+}
+
+/** Các trạng thái hồ sơ, thứ tự và màu cố định để chú giải không đổi chỗ khi số đổi. */
+const STATUS_SLICES = [
+  { status: 'running', label: 'Đang xử lý', color: '#2f6fed' },
+  { status: 'completed', label: 'Hoàn thành', color: '#16845e' },
+  { status: 'rejected', label: 'Từ chối', color: '#b23b3b' },
+  { status: 'cancelled', label: 'Đã huỷ', color: '#8494a8' },
+  { status: 'reversed', label: 'Đã huỷ hiệu lực', color: '#8a5a1f' },
+] as const;
+
+const SLA_SLICES = [
+  { state: 'ok', label: 'Còn hạn', color: '#16845e' },
+  { state: 'warning', label: 'Sắp hết hạn', color: '#e0a83a' },
+  { state: 'breached', label: 'Quá hạn', color: '#b23b3b' },
+  { state: 'none', label: 'Không cài SLA', color: '#8494a8' },
+] as const;
+
+const STAGE_LABEL: Record<string, string> = {
+  S: 'S · Khởi tạo',
+  R: 'R · Xem xét',
+  E: 'E · Thực thi',
+  C: 'C · Kiểm soát',
+  A: 'A · Phê duyệt',
+  I: 'I · Thông tin',
+};
+
+/**
+ * Thẻ "Hồ sơ theo trạng thái".
+ *
+ * Thẻ này đứng cạnh "Việc cần làm" nên bị kéo cao theo danh sách đó; thay vì để
+ * trống, phần dưới vòng tròn trả lời hai câu hỏi đi liền với "bao nhiêu đang
+ * chạy": bao nhiêu đang quá hạn, và đang kẹt ở vai nào. Mọi số đều tính từ
+ * danh sách hồ sơ đã nạp, không gọi thêm API.
+ */
+function StatusCard({ workspace }: { workspace: ProcedureWorkspace }) {
+  const byStatus = new Map<string, number>();
+  const bySla = new Map<string, number>();
+  const byStage = new Map<string, number>();
+  for (const instance of workspace.instances) {
+    byStatus.set(instance.status, (byStatus.get(instance.status) ?? 0) + 1);
+    if (instance.status !== 'running') continue;
+    const sla = evaluateInstanceSla(instance).state;
+    bySla.set(sla, (bySla.get(sla) ?? 0) + 1);
+    const stage = instance.authorization?.currentRoleStage ?? '—';
+    byStage.set(stage, (byStage.get(stage) ?? 0) + 1);
+  }
+  const running = byStatus.get('running') ?? 0;
+  const slaSlices = SLA_SLICES.map((slice) => ({ ...slice, value: bySla.get(slice.state) ?? 0 })).filter(
+    (slice) => slice.value > 0,
+  );
+
+  return (
+    <div className={styles.dashStatus}>
+      <DonutChart
+        unit="hồ sơ"
+        emptyHint="Chưa có hồ sơ nào."
+        showEmpty
+        slices={STATUS_SLICES.map((slice) => ({
+          label: slice.label,
+          color: slice.color,
+          value: byStatus.get(slice.status) ?? 0,
+        }))}
+      />
+      {running > 0 ? (
+        <>
+          <section className={styles.dashStatusSection}>
+            <h3>{running} hồ sơ đang xử lý · theo hạn SLA</h3>
+            <div className={styles.dashStatusBar} role="img" aria-label="Hồ sơ đang xử lý theo hạn SLA">
+              {slaSlices.map((slice) => (
+                <span
+                  key={slice.state}
+                  style={{ width: `${(slice.value / running) * 100}%`, background: slice.color }}
+                  title={`${slice.label}: ${slice.value}`}
+                />
+              ))}
+            </div>
+            <ul className={styles.dashStatusKeys}>
+              {slaSlices.map((slice) => (
+                <li key={slice.state}>
+                  <i style={{ background: slice.color }} aria-hidden="true" />
+                  {slice.label} <b>{slice.value}</b>
+                </li>
+              ))}
+            </ul>
+          </section>
+          <section className={styles.dashStatusSection}>
+            <h3>Đang chờ vai nào</h3>
+            <BarChart
+              emptyHint="Không có hồ sơ nào đang chạy."
+              slices={[...byStage.entries()].map(([stage, value]) => ({
+                label: STAGE_LABEL[stage] ?? stage,
+                value,
+              }))}
+            />
+          </section>
+        </>
+      ) : null}
+    </div>
+  );
 }
 
 function Metric(props: {
@@ -64,6 +166,11 @@ function Metric(props: {
   );
 }
 
+/** Đường mở thẳng một hồ sơ ở trang Hồ sơ xử lý của module. */
+function caseHref(instanceId: string): string {
+  return `#workspace/${encodeURIComponent(instanceId)}`;
+}
+
 /** Hồ sơ đang chờ chính người đang đăng nhập xử lý. */
 function actionableInstances(data: ProcedureDashboardData) {
   return data.workspace.instances.filter(
@@ -94,7 +201,6 @@ export const PROCEDURE_DASHBOARD_CARDS: DashboardCardCatalog<ProcedureDashboardD
           value={count}
           icon={<Clock size={20} strokeWidth={2.2} />}
           tone={count > 0 ? 'amber' : 'slate'}
-          hint={count > 0 ? 'Cần bạn vào xử lý' : 'Tất cả việc đã xong'}
         />
       );
     },
@@ -110,7 +216,6 @@ export const PROCEDURE_DASHBOARD_CARDS: DashboardCardCatalog<ProcedureDashboardD
         value={data.workspace.instances.filter((item) => item.status === 'running').length}
         icon={<PlayCircle size={20} strokeWidth={2.2} />}
         tone="blue"
-        hint="Đang thực hiện trong luồng"
       />
     ),
   },
@@ -125,7 +230,6 @@ export const PROCEDURE_DASHBOARD_CARDS: DashboardCardCatalog<ProcedureDashboardD
         value={data.workspace.instances.filter((item) => item.status === 'completed').length}
         icon={<CheckCircle2 size={20} strokeWidth={2.2} />}
         tone="green"
-        hint="Quy trình đóng thành công"
       />
     ),
   },
@@ -140,7 +244,6 @@ export const PROCEDURE_DASHBOARD_CARDS: DashboardCardCatalog<ProcedureDashboardD
         value={data.workspace.definitions.filter((item) => item.status === 'published').length}
         icon={<FileCheck size={20} strokeWidth={2.2} />}
         tone="indigo"
-        hint="Sẵn sàng để mở đơn mới"
       />
     ),
   },
@@ -156,7 +259,6 @@ export const PROCEDURE_DASHBOARD_CARDS: DashboardCardCatalog<ProcedureDashboardD
           value={drafts}
           icon={<FileEdit size={20} strokeWidth={2.2} />}
           tone={drafts > 0 ? 'amber' : 'slate'}
-          hint="Đang trong giai đoạn thiết kế"
         />
       );
     },
@@ -171,7 +273,6 @@ export const PROCEDURE_DASHBOARD_CARDS: DashboardCardCatalog<ProcedureDashboardD
         value={data.workspace.instances.filter((item) => item.status === 'rejected').length}
         icon={<XCircle size={20} strokeWidth={2.2} />}
         tone="red"
-        hint="Đã bị huỷ hoặc từ chối"
       />
     ),
   },
@@ -188,14 +289,24 @@ export const PROCEDURE_DASHBOARD_CARDS: DashboardCardCatalog<ProcedureDashboardD
       }
       return (
         <ul className={styles.dashList}>
-          {rows.map((instance) => (
-            <li key={instance.id}>
-              <span>{instance.title}</span>
-              <small className={styles.dashListRole}>
-                {instance.authorization?.currentRoleStage ? `Vai ${instance.authorization.currentRoleStage}` : '—'}
-              </small>
-            </li>
-          ))}
+          {rows.map((instance) => {
+            const current = instance.steps.find((step) => step.id === instance.currentStepId);
+            return (
+              <li key={instance.id} className={styles.dashLinkRow}>
+                <a className={styles.dashTodo} href={caseHref(instance.id)} title="Mở hồ sơ để xử lý">
+                  <span className={styles.dashTodoTitle}>{instance.title}</span>
+                  <SlaBadge view={evaluateInstanceSla(instance)} />
+                  <span className={styles.dashTodoMeta}>
+                    <span className={styles.dashMono}>{instance.code}</span>
+                    {current ? ` · Bước ${current.order}: ${current.name}` : ''}
+                  </span>
+                  <small className={styles.dashListRole}>
+                    {instance.authorization?.currentRoleStage ? `Vai ${instance.authorization.currentRoleStage}` : '—'}
+                  </small>
+                </a>
+              </li>
+            );
+          })}
         </ul>
       );
     },
@@ -211,9 +322,11 @@ export const PROCEDURE_DASHBOARD_CARDS: DashboardCardCatalog<ProcedureDashboardD
       return (
         <ul className={styles.dashList}>
           {rows.map((instance) => (
-            <li key={instance.id}>
-              <span>{instance.title}</span>
-              <small>{instance.startedAt.slice(0, 10)}</small>
+            <li key={instance.id} className={styles.dashLinkRow}>
+              <a className={styles.dashRecent} href={caseHref(instance.id)} title="Mở hồ sơ">
+                <span>{instance.title}</span>
+                <small>{instance.startedAt.slice(0, 10)}</small>
+              </a>
             </li>
           ))}
         </ul>
@@ -256,35 +369,13 @@ export const PROCEDURE_DASHBOARD_CARDS: DashboardCardCatalog<ProcedureDashboardD
     description: 'Biểu đồ tròn: tỉ lệ hồ sơ đang chạy, hoàn thành, từ chối, đã huỷ.',
     size: 'md',
     defaultEnabled: true,
-    render: (data) => {
-      const label: Record<string, string> = {
-        running: 'Đang xử lý',
-        completed: 'Hoàn thành',
-        rejected: 'Từ chối',
-        cancelled: 'Đã huỷ',
-  reversed: 'Đã huỷ hiệu lực',
-      };
-      const counts = new Map<string, number>();
-      for (const instance of data.workspace.instances) {
-        counts.set(instance.status, (counts.get(instance.status) ?? 0) + 1);
-      }
-      return (
-        <DonutChart
-          unit="hồ sơ"
-          emptyHint="Chưa có hồ sơ nào."
-          slices={[...counts.entries()].map(([status, value]) => ({
-            label: label[status] ?? status,
-            value,
-          }))}
-        />
-      );
-    },
+    render: (data) => <StatusCard workspace={data.workspace} />,
   },
   {
     id: 'chart.byDefinition',
     title: 'Hồ sơ theo quy trình',
     description: 'Biểu đồ cột: quy trình nào đang sinh nhiều hồ sơ nhất.',
-    size: 'md',
+    size: 'sm',
     defaultEnabled: true,
     render: (data) => {
       const counts = new Map<string, number>();
@@ -294,6 +385,7 @@ export const PROCEDURE_DASHBOARD_CARDS: DashboardCardCatalog<ProcedureDashboardD
       return (
         <BarChart
           emptyHint="Chưa có hồ sơ nào."
+          labelPlacement="top"
           slices={[...counts.entries()].map(([label, value]) => ({ label, value }))}
         />
       );

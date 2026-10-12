@@ -75,7 +75,6 @@ export function LinkedPanel({
       {parent ? (
         <Group
           title="Mở từ hồ sơ"
-          hint="Hồ sơ đã sinh ra hồ sơ này. Xong việc ở đây thì quay lại đó để tiếp tục."
           items={[parent]}
           onOpen={onOpen}
         />
@@ -84,7 +83,6 @@ export function LinkedPanel({
       {branches.length > 0 ? (
         <Group
           title="Nhánh rẽ — đơn vật tư"
-          hint="Chạy song song. Hồ sơ này vẫn đứng ở bước hiện tại và chờ hàng về."
           items={branches}
           onOpen={onOpen}
         />
@@ -93,7 +91,6 @@ export function LinkedPanel({
       {sequential.length > 0 ? (
         <Group
           title="Nối tiếp"
-          hint="Mở ra khi bước gắn kèm đã xong; là phần tiếp theo của cùng mạch công việc."
           items={sequential}
           onOpen={onOpen}
           ordered
@@ -113,7 +110,7 @@ const STATUS_CLASS: Record<ProcedureInstance['status'], string> = {
 
 function Group(props: {
   title: string;
-  hint: string;
+  hint?: string;
   items: readonly ProcedureInstance[];
   onOpen: (instanceId: string) => void;
   /** Nối tiếp thì đánh số để thấy rõ thứ tự; nhánh rẽ thì không có thứ tự nào. */
@@ -129,7 +126,7 @@ function Group(props: {
         <h4>{props.title}</h4>
         <span className={styles.stepBadge}>{items.length}</span>
       </header>
-      <p className={styles.panelHint}>{props.hint}</p>
+      {props.hint ? <p className={styles.panelHint}>{props.hint}</p> : null}
       <ol className={props.ordered ? styles.linkedOrdered : styles.linkedList}>
         {items.map((child, index) => (
           <li key={child.id}>
