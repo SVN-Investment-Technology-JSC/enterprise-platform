@@ -185,6 +185,7 @@ export function RcsiBoard({
   onPublishDefinition,
   onReviseDefinition,
   onDeleteDefinition,
+  onDeleteArchivedDefinition,
   onChangeGroupDefinition,
   onValidateDefinition,
   railCollapsed = false,
@@ -218,6 +219,8 @@ export function RcsiBoard({
   /** Danh mục vật tư lấy từ Kho, để chọn thay vì gõ mã tự do. */
   materialCatalog?: readonly { code: string; name: string; unit: string }[];
   onDeleteDefinition?: (definitionId: string) => void;
+  /** Xoá (mềm) quy trình đã lưu trữ; chỉ quản trị. Vắng mặt thì không hiện nút Xoá. */
+  onDeleteArchivedDefinition?: (definitionId: string) => void;
   /** Đổi nhóm quy trình; dùng route riêng nên chạy được cả trên bản đã công bố. */
   onChangeGroupDefinition?: (definitionId: string, category: string | undefined) => void;
   onPublishDefinition?: (definitionId: string) => void;
@@ -1171,6 +1174,7 @@ export function RcsiBoard({
           onReactivate={
             editable && onReviseDefinition ? (id) => onReviseDefinition(id) : undefined
           }
+          onDelete={onDeleteArchivedDefinition}
           onClose={() => setArchiveOpen(false)}
         />
       ) : null}

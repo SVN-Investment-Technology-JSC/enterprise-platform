@@ -201,6 +201,33 @@
   }
 }
 
+.remove {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-left: 0.4rem;
+  padding: 0.25rem 0.6rem;
+  border: 1px solid #fecaca;
+  border-radius: 0.35rem;
+  background: #fff;
+  color: #b91c1c;
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    background: #fef2f2;
+    border-color: #f87171;
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+
 .empty {
   padding: 2.5rem 1rem;
   color: #6e7d91;

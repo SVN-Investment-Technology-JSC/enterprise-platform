@@ -129,6 +129,42 @@ describe('ProcedureEngineApplication', () => {
     await expect(application.deleteInstance(employee, started.id)).rejects.toMatchObject({ code: 'forbidden' });
   });
 
+  it('chỉ lưu trữ khi mọi hồ sơ của quy trình đã kết thúc', async () => {
+    const application = setup();
+    const published = await application.publishDefinition(actor, (await application.createDefinition(actor, definitionInput())).id);
+    const started = await application.startInstance(actor, { definitionId: published.id, title: 'Đang chạy', idempotencyKey: 'archive-run' });
+    await expect(application.archiveDefinition(actor, published.id)).rejects.toMatchObject({
+      code: 'conflict',
+      message: expect.stringContaining(started.code),
+    });
+    await application.applyAction(actor, started.id, { action: 'complete', idempotencyKey: 'archive-a1' });
+    await application.applyAction(actor, started.id, { action: 'approve', idempotencyKey: 'archive-a2' });
+    expect((await application.archiveDefinition(actor, published.id)).status).toBe('archived');
+  });
+
+  it('xoá quy trình đã lưu trữ là xoá mềm: ẩn khỏi giao diện, hồ sơ cũ vẫn giữ', async () => {
+    const application = setup();
+    const published = await application.publishDefinition(actor, (await application.createDefinition(actor, definitionInput())).id);
+    const started = await application.startInstance(actor, { definitionId: published.id, title: 'Hồ sơ cũ', idempotencyKey: 'del-run' });
+    await application.applyAction(actor, started.id, { action: 'complete', idempotencyKey: 'del-a1' });
+    await application.applyAction(actor, started.id, { action: 'approve', idempotencyKey: 'del-a2' });
+    await application.archiveDefinition(actor, published.id);
+
+    const designerOnly = { ...actor, isOverride: false };
+    await expect(application.deleteDefinition(designerOnly, published.id)).rejects.toMatchObject({ code: 'forbidden' });
+    await application.deleteDefinition(actor, published.id);
+
+    const workspace = await application.getWorkspace(actor);
+    expect(workspace.definitions.some((item) => item.id === published.id)).toBe(false);
+    expect(workspace.instances.find((item) => item.id === started.id)).toMatchObject({ status: 'completed', definitionId: published.id });
+    await expect(application.reviseDefinition(actor, published.id)).rejects.toMatchObject({ code: 'not_found' });
+    await expect(application.deleteDefinition(actor, published.id)).rejects.toMatchObject({ code: 'not_found' });
+    await expect(application.createDefinition(actor, definitionInput())).rejects.toMatchObject({
+      code: 'conflict',
+      message: expect.stringContaining('đã xoá'),
+    });
+  });
+
   it('công bố quy trình không cần danh mục mẫu', async () => {
     const application = setup();
     const draft = await application.createDefinition(actor, definitionInput());
