@@ -76,6 +76,7 @@ integration('HRM catalog lifecycle PostgreSQL integration', () => {
     await migrate('hrm/0016-hrm-lifecycle.sql');
     await migrate('hrm/0016-family-contract-lifecycle.sql');
     await migrate('hrm/0033-leave-annual-policy.sql');
+    await migrate('hrm/0051-hrm-leave-settlements-legacy.sql');
     await migrate('hrm/0044-hrm-annual-leave-single-policy.sql');
     const ctx = {
       getContext: async () => ({ pool, tenantId, principal: { userId } }),
