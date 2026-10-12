@@ -86,21 +86,20 @@ export class PlatformAccessController {
     return this.identity.managerChain(tenantId, userId, positionId?.trim() || undefined);
   }
 
-  /**
-   * Ghi "Báo cáo cho" của một chức danh thay cho module gọi.
-   *
-   * Màn Quản lý chức danh nằm trong module Quy trình; module đó đã tự kiểm quyền
-   * thiết kế của người dùng trước khi gọi. Dữ liệu vẫn chỉ Core được ghi.
-   */
-  @Put('internal/v1/organization-contexts/:tenantId/positions/:positionId/reports-to')
-  setPositionReportsToForService(
+  /** Tab Chức danh của Sơ đồ tổ chức (Tenant Portal) ghi "Báo cáo cho". */
+  @Put('v1/tenant-organization/positions/:positionId/reports-to')
+  async setPositionReportsTo(
     @Req() request: Request,
-    @Param('tenantId') tenantId: string,
     @Param('positionId') positionId: string,
     @Body() input: { reportsToPositionId?: string | null },
   ) {
-    this.requireService(request);
-    return this.identity.setPositionReportsTo(tenantId, positionId, input?.reportsToPositionId ?? null);
+    const principal = await this.tenantAction(request, 'core.organization.update');
+    this.requireCsrf(request);
+    return this.identity.setPositionReportsTo(
+      principal.tenantId,
+      positionId,
+      input?.reportsToPositionId ?? null,
+    );
   }
 
   /**
