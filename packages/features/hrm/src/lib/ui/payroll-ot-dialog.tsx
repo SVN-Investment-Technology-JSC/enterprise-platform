@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { AlertTriangle, Loader2 } from 'lucide-react';
 import { Button } from './button';
 import { Input } from './input';
+import { DatePickerInput } from './date-picker-input';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './dialog';
 import {
   OT_REFERENCES,
@@ -115,7 +116,7 @@ export function PayrollOtDialog({ base, editing, onSubmit, onClose }: OtDialogPr
             {!editing && (
               <label className="block space-y-1 text-xs font-medium text-slate-700">
                 <span>Ngày hiệu lực *</span>
-                <Input type="date" required value={effectiveFrom} onChange={(e) => setEffectiveFrom(e.target.value)} className="text-xs h-9 max-w-[240px]" />
+                <DatePickerInput value={effectiveFrom} onChange={setEffectiveFrom} height={36} className="max-w-[240px]" />
               </label>
             )}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

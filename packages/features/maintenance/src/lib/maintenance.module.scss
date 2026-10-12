@@ -451,6 +451,17 @@
   transition: all 140ms ease;
 }
 
+/* Ô chọn ngày Ant Design trong form: bỏ style input chung để không bị viền đôi */
+.formGrid :global(.ant-picker) input,
+.formGrid :global(.ant-picker) input:focus {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  outline: none;
+}
+
 .formGrid input:focus,
 .formGrid select:focus {
   background: #ffffff;

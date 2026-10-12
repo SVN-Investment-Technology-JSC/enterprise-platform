@@ -1,7 +1,7 @@
 'use client';
 import { useCallback, useEffect, useState } from 'react';
 import { Table } from 'antd';
-import { SearchableSelect, Popconfirm } from '@enterprise-platform/shared-ui';
+import { SearchableSelect, Popconfirm, formatDate } from '@enterprise-platform/shared-ui';
 import {
   DollarSign,
   Plus,
@@ -278,7 +278,7 @@ export default function PayrollScreen() {
                     label: 'Bảng công đã khóa',
                     options: timesheets.map((t) => ({
                       value: t.id,
-                      label: `${t.periodCode} (${t.fromDate} → ${t.toDate})`,
+                      label: `${t.periodCode} (${formatDate(t.fromDate)} → ${formatDate(t.toDate)})`,
                     })),
                   },
                   {
@@ -348,11 +348,11 @@ export default function PayrollScreen() {
                       {getPeriodStatusBadge(p.status)}
                     </div>
                     <p className="text-[11px] text-slate-500">
-                      {p.fromDate} → {p.toDate}
+                      {formatDate(p.fromDate)} → {formatDate(p.toDate)}
                     </p>
                     {p.paymentDate && (
                       <p className="text-[11px] text-slate-400 mt-0.5">
-                        Dự kiến chi: {p.paymentDate}
+                        Dự kiến chi: {formatDate(p.paymentDate)}
                       </p>
                     )}
                   </button>

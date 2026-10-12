@@ -4,7 +4,7 @@ import {
   evaluatePayroll,
   type PayrollComponent,
 } from '../domain/payroll-formula.js';
-import { isoDate, resolvePolicy } from './hrm-time.js';
+import { displayDate, isoDate, resolvePolicy } from './hrm-time.js';
 
 export const payrollItemTypes = [
   'EARNING',
@@ -136,7 +136,7 @@ export async function calculatePayroll(
         );
       if (profiles.length !== 1)
         throw new BadRequestException(
-          `Hồ sơ lương bị thiếu/trùng cho nhân viên ${employeeId}, ngày ${date}`,
+          `Hồ sơ lương bị thiếu/trùng cho nhân viên ${employeeId}, ngày ${displayDate(date)}`,
         );
       if (profiles[0].currency !== 'VND')
         throw new BadRequestException(

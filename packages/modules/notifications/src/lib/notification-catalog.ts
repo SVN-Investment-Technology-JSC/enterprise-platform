@@ -24,7 +24,11 @@ const VIETNAM_TIME = new Intl.DateTimeFormat('vi-VN', {
 function formatDue(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined;
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? undefined : VIETNAM_TIME.format(date);
+  if (Number.isNaN(date.getTime())) return undefined;
+  // Hiển thị dd/mm/yyyy HH:mm theo giờ Việt Nam.
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    VIETNAM_TIME.formatToParts(date).find((p) => p.type === type)?.value ?? '';
+  return `${part('day')}/${part('month')}/${part('year')} ${part('hour')}:${part('minute')}`;
 }
 
 /**

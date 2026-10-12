@@ -13,6 +13,7 @@ import {
   type SchedulingWarning,
   type UpdateEventRequest,
 } from '@enterprise-platform/contracts-workspace';
+import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import { useEffect, useMemo, useState } from 'react';
 import { EVENT_TYPE_LABELS } from '../workspace-labels';
 import styles from '../workspace.module.scss';
@@ -225,6 +226,7 @@ export function EventForm({
     setError(undefined);
     setSubmitting(true);
     try {
+      if (!form.date) throw new Error('Vui lòng chọn ngày.');
       const startAt = toInstant(form.date, form.allDay ? '00:00' : form.startTime);
       const endAt = toInstant(form.date, form.allDay ? '23:59' : form.endTime);
       const common = {
@@ -357,12 +359,11 @@ export function EventForm({
 
       <div className={styles.fieldRow}>
         <Field label="Ngày">
-          <input
-            type="date"
+          <DatePickerInput
+            height={36}
             value={form.date}
-            required
             disabled={!canEdit}
-            onChange={(event) => set({ date: event.target.value })}
+            onChange={(value) => set({ date: value })}
           />
         </Field>
         {form.allDay ? null : (

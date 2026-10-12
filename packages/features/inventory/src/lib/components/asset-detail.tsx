@@ -24,7 +24,7 @@ import styles from '../inventory.module.scss';
 import { AssetDocumentPanel } from './asset-document-panel';
 import { SparePartPanel } from './spare-part-panel';
 import { IncidentRecordDialog, type IncidentLogRecord } from './incident-record-dialog';
-import { Popconfirm } from '@enterprise-platform/shared-ui';
+import { Popconfirm, formatDate } from '@enterprise-platform/shared-ui';
 import { Folder, Link2, Printer, X } from 'lucide-react';
 
 type AssetSubTab = 'overview' | 'documents' | 'history' | 'bom' | 'maintenance-plan';
@@ -271,9 +271,9 @@ export function AssetDetail({
       const isCompleted = occ.status === 'completed';
       const isFailed = occ.status === 'failed';
       const dateStr = occ.completedAt
-        ? new Date(occ.completedAt).toLocaleDateString('vi-VN')
+        ? formatDate(occ.completedAt)
         : occ.dueAt
-        ? new Date(occ.dueAt).toLocaleDateString('vi-VN')
+        ? formatDate(occ.dueAt)
         : '—';
 
       list.push({

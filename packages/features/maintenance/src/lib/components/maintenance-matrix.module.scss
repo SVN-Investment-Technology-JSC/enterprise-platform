@@ -429,6 +429,28 @@
 
 .dueInput:disabled { color: var(--muted); background: #f4f6f9; }
 
+/* Ô chọn ngày Ant Design (thay input date gốc) */
+.duePicker {
+  margin-top: 0.15rem;
+  min-width: 6.75rem;
+}
+
+.duePicker :global(.ant-picker) {
+  padding: 0 0.3rem;
+}
+
+.freqCell .duePicker :global(.ant-picker) input {
+  width: 100%;
+  height: auto;
+  font-size: 0.68rem;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.importPicker {
+  min-width: 8.5rem;
+}
+
 .flow { display: flex; align-items: center; gap: 0.4rem; }
 .flow .select { flex: 1; min-width: 0; }
 

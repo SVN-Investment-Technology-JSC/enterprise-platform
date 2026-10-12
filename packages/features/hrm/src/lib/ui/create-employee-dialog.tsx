@@ -5,6 +5,7 @@ import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import { hrmFetch } from '../hrm-api';
 import { Button } from './button';
 import { Input } from './input';
+import { DatePickerInput } from './date-picker-input';
 import { AlertCircle, Loader2, UserPlus } from 'lucide-react';
 import {
   Dialog,
@@ -27,6 +28,7 @@ export function CreateEmployeeDialog({
     { id: string; fullName: string; email: string }[]
   >([]);
   const [userId, setUserId] = useState('');
+  const [joinDate, setJoinDate] = useState('');
   const [status, setStatus] = useState('OFFICIAL');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -35,6 +37,7 @@ export function CreateEmployeeDialog({
     let active = true;
     setError('');
     setUserId('');
+    setJoinDate('');
     hrmFetch<{ data: typeof accounts }>('/employees/accounts')
       .then((result) => {
         if (active) setAccounts(result.data);
@@ -77,6 +80,10 @@ export function CreateEmployeeDialog({
             event.preventDefault();
             if (saving) return;
             const form = new FormData(event.currentTarget);
+            if (!joinDate) {
+              setError('Cần nhập ngày vào làm');
+              return;
+            }
             setSaving(true);
             setError('');
             try {
@@ -85,7 +92,7 @@ export function CreateEmployeeDialog({
                 body: JSON.stringify({
                   employeeCode: form.get('employeeCode'),
                   fullName: form.get('fullName'),
-                  joinDate: form.get('joinDate'),
+                  joinDate,
                   workEmail: form.get('workEmail'),
                   userId: userId || null,
                   employmentStatus: status,
@@ -132,7 +139,7 @@ export function CreateEmployeeDialog({
               <label className="font-semibold text-slate-700 block text-xs">
                 Ngày vào làm <span className="text-rose-500">*</span>
               </label>
-              <Input name="joinDate" type="date" required className="text-xs h-9" />
+              <DatePickerInput value={joinDate} onChange={setJoinDate} height={36} />
             </div>
             <div className="space-y-1.5">
               <label className="font-semibold text-slate-700 block text-xs">

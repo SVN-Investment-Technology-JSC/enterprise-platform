@@ -12,7 +12,7 @@ import {
   Play,
   RotateCw,
 } from 'lucide-react';
-import { Popconfirm } from '@enterprise-platform/shared-ui';
+import { Popconfirm, formatDateTime, formatMonth } from '@enterprise-platform/shared-ui';
 import { hrmFetch } from '../hrm-api';
 import { formatDateVn } from '../personnel-decision-rules';
 import { useHrmPermissions } from '../hrm-permissions';
@@ -181,8 +181,7 @@ function runSummary(result: unknown): RunSummary | null {
   };
 }
 
-const stamp = (value: string) =>
-  value ? new Date(value).toLocaleString('vi-VN') : '—';
+const stamp = (value: string) => formatDateTime(value, '—');
 
 /** Tóm tắt một lần chạy thành các dòng đọc được thay cho JSON. */
 function runDetails(result: unknown): string[] {
@@ -197,7 +196,7 @@ function runDetails(result: unknown): string[] {
   };
   if (r.skipped) return [SKIP_REASON[r.reason ?? ''] ?? 'Không có tác vụ nào được thực hiện.'];
   const lines = (r.months ?? []).map(
-    (m) => `Cộng phép tháng ${m.month ?? ''}: ${m.credited ?? 0} giao dịch mới, ${m.skipped ?? 0} đã có.`,
+    (m) => `Cộng phép tháng ${formatMonth(m.month, m.month ?? '')}: ${m.credited ?? 0} giao dịch mới, ${m.skipped ?? 0} đã có.`,
   );
   for (const c of r.carryovers ?? [])
     lines.push(

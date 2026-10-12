@@ -7,9 +7,10 @@ import {
   RefreshCw,
   AlertTriangle,
 } from 'lucide-react';
+import { formatDate, formatDateTime } from '@enterprise-platform/shared-ui';
 import { hrmFetch } from '../hrm-api';
 import { Button } from '../ui/button';
-import { Input } from '../ui/input';
+import { DatePickerInput } from '../ui/date-picker-input';
 import { Badge } from '../ui/badge';
 
 type Event = {
@@ -135,23 +136,13 @@ export default function HrmCalendarScreen() {
                       <label className="text-[11px] font-semibold text-slate-600 block mb-1">
                         Từ ngày
                       </label>
-                      <Input
-                        type="date"
-                        value={from}
-                        onChange={(e) => setFrom(e.target.value)}
-                        className="text-xs h-8"
-                      />
+                      <DatePickerInput value={from} onChange={setFrom} max={to || undefined} />
                     </div>
                     <div>
                       <label className="text-[11px] font-semibold text-slate-600 block mb-1">
                         Đến ngày
                       </label>
-                      <Input
-                        type="date"
-                        value={to}
-                        onChange={(e) => setTo(e.target.value)}
-                        className="text-xs h-8"
-                      />
+                      <DatePickerInput value={to} onChange={setTo} min={from || undefined} />
                     </div>
                   </div>
 
@@ -171,7 +162,7 @@ export default function HrmCalendarScreen() {
                         dataIndex: 'date',
                         width: 130,
                         sorter: (a, b) => a.date.localeCompare(b.date),
-                        render: (v) => <span className="font-semibold text-slate-900">{v}</span>,
+                        render: (v) => <span className="font-semibold text-slate-900">{formatDate(v, v)}</span>,
                       },
                       {
                         title: 'Loại sự kiện',
@@ -275,7 +266,7 @@ export default function HrmCalendarScreen() {
                         width: 160,
                         render: (value) => (
                           <span className="text-xs text-slate-500 font-mono">
-                            {value ? new Date(value).toLocaleString('vi-VN') : '—'}
+                            {formatDateTime(value, '—')}
                           </span>
                         ),
                       },

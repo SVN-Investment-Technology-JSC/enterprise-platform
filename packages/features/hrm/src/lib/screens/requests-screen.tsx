@@ -48,6 +48,8 @@ import {
   SearchableSelect,
   type SearchableSelectOption,
   Popconfirm,
+  formatDate,
+  formatTime,
 } from '@enterprise-platform/shared-ui';
 import {
   DynamicAttributeForm,
@@ -686,12 +688,10 @@ export default function RequestsPage() {
             kind: 'leave',
             typeName: 'Đơn xin nghỉ phép',
             category: 'Nghỉ phép',
-            createdAt: item.createdAt
-              ? new Date(item.createdAt).toLocaleDateString('vi-VN')
-              : '----',
+            createdAt: formatDate(item.createdAt, '----'),
             rawCreatedAt: item.createdAt,
             createdTimeMs,
-            effectiveDate: `${item.fromDate ? new Date(item.fromDate).toLocaleDateString('vi-VN') : '----'} - ${item.toDate ? new Date(item.toDate).toLocaleDateString('vi-VN') : '----'}`,
+            effectiveDate: `${formatDate(item.fromDate, '----')} - ${formatDate(item.toDate, '----')}`,
             duration: `${item.duration || 1} ngày`,
             reason: item.reason || '----',
             approver: item.approvedBy || 'Quản lý trực tiếp',
@@ -738,12 +738,10 @@ export default function RequestsPage() {
             kind: 'ot',
             typeName: `Làm thêm giờ (${item.otType || 'OT'})`,
             category: 'Làm thêm giờ',
-            createdAt: item.createdAt
-              ? new Date(item.createdAt).toLocaleDateString('vi-VN')
-              : '----',
+            createdAt: formatDate(item.createdAt, '----'),
             rawCreatedAt: item.createdAt,
             createdTimeMs,
-            effectiveDate: `${item.workDate ? new Date(item.workDate).toLocaleDateString('vi-VN') : '----'} (${item.startTime || '----'} - ${item.endTime || '----'})`,
+            effectiveDate: `${formatDate(item.workDate, '----')} (${item.startTime || '----'} - ${item.endTime || '----'})`,
             duration: `${plannedHrs} giờ (${item.otRateMultiplier || 1.5}x)`,
             reason: item.reason || '----',
             approver: item.approvedBy || 'Quản lý trực tiếp',
@@ -787,12 +785,10 @@ export default function RequestsPage() {
             kind: 'business_trip',
             typeName: `Công tác (${item.destination || '----'})`,
             category: 'Công tác',
-            createdAt: item.createdAt
-              ? new Date(item.createdAt).toLocaleDateString('vi-VN')
-              : '----',
+            createdAt: formatDate(item.createdAt, '----'),
             rawCreatedAt: item.createdAt,
             createdTimeMs,
-            effectiveDate: `${item.fromDate ? new Date(item.fromDate).toLocaleDateString('vi-VN') : '----'} - ${item.toDate ? new Date(item.toDate).toLocaleDateString('vi-VN') : '----'}`,
+            effectiveDate: `${formatDate(item.fromDate, '----')} - ${formatDate(item.toDate, '----')}`,
             duration: `${item.daysCount || 1} ngày`,
             reason: item.reason || '----',
             approver: item.approvedBy || 'Quản lý trực tiếp',
@@ -851,12 +847,10 @@ export default function RequestsPage() {
                 ? 'Đổi ca với đồng nghiệp'
                 : 'Đề nghị chuyển ca',
             category: 'Đổi ca',
-            createdAt: item.createdAt
-              ? new Date(item.createdAt).toLocaleDateString('vi-VN')
-              : '----',
+            createdAt: formatDate(item.createdAt, '----'),
             rawCreatedAt: item.createdAt,
             createdTimeMs,
-            effectiveDate: `${item.fromDate ? new Date(item.fromDate).toLocaleDateString('vi-VN') : '----'} - ${item.toDate ? new Date(item.toDate).toLocaleDateString('vi-VN') : '----'}`,
+            effectiveDate: `${formatDate(item.fromDate, '----')} - ${formatDate(item.toDate, '----')}`,
             duration:
               item.changeType === 'SWAP' ? 'Hoán đổi ca trực' : 'Thay đổi ca',
             reason: item.reason || '----',
@@ -889,18 +883,8 @@ export default function RequestsPage() {
                 : item.status === 'REJECTED'
                   ? 'REJECTED'
                   : 'PENDING';
-          const inTime = item.newCheckInAt
-            ? new Date(item.newCheckInAt).toLocaleTimeString('vi-VN', {
-                hour: '2-digit',
-                minute: '2-digit',
-              })
-            : '----';
-          const outTime = item.newCheckOutAt
-            ? new Date(item.newCheckOutAt).toLocaleTimeString('vi-VN', {
-                hour: '2-digit',
-                minute: '2-digit',
-              })
-            : '----';
+          const inTime = formatTime(item.newCheckInAt, '----');
+          const outTime = formatTime(item.newCheckOutAt, '----');
           const stText = isApplied
             ? 'Đã cập nhật Timesheet'
             : isApproved
@@ -918,14 +902,10 @@ export default function RequestsPage() {
             kind: 'correction',
             typeName: 'Giải trình / Bổ sung công',
             category: 'Chấm công',
-            createdAt: item.createdAt
-              ? new Date(item.createdAt).toLocaleDateString('vi-VN')
-              : '----',
+            createdAt: formatDate(item.createdAt, '----'),
             rawCreatedAt: item.createdAt,
             createdTimeMs,
-            effectiveDate: item.requestDate
-              ? new Date(item.requestDate).toLocaleDateString('vi-VN')
-              : '----',
+            effectiveDate: formatDate(item.requestDate, '----'),
             duration: `Vào: ${inTime} | Ra: ${outTime}`,
             reason: item.reason || '----',
             approver: item.approvedBy || 'Quản lý trực tiếp',
@@ -976,14 +956,10 @@ export default function RequestsPage() {
             kind: 'advance',
             typeName: 'Đơn xin tạm ứng lương',
             category: 'Tạm ứng',
-            createdAt: item.createdAt
-              ? new Date(item.createdAt).toLocaleDateString('vi-VN')
-              : '----',
+            createdAt: formatDate(item.createdAt, '----'),
             rawCreatedAt: item.createdAt,
             createdTimeMs,
-            effectiveDate: item.requestDate
-              ? new Date(item.requestDate).toLocaleDateString('vi-VN')
-              : '----',
+            effectiveDate: formatDate(item.requestDate, '----'),
             duration: `${Number(item.requestedAmount || 0).toLocaleString('vi-VN')} đ (${item.numberOfInstallments || 1} kỳ)`,
             reason: item.reason || '----',
             approver: item.approvedBy || 'Kế toán / Giám đốc',
@@ -1004,7 +980,7 @@ export default function RequestsPage() {
             kind: 'profile_correction',
             typeName: 'Điều chỉnh hồ sơ',
             category: 'Hồ sơ',
-            createdAt: new Date(item.createdAt).toLocaleDateString('vi-VN'),
+            createdAt: formatDate(item.createdAt, '----'),
             effectiveDate: 'Theo ngày duyệt',
             duration: `${Object.keys(item.changes || {}).length} trường`,
             reason: item.reason,
@@ -1708,7 +1684,7 @@ export default function RequestsPage() {
           : '';
         if (adjustDateOfBirth && adjustDateOfBirth !== oldDob) {
           changes.push(
-            `Ngày sinh: "${oldDob || '----'}" -> "${adjustDateOfBirth}"`,
+            `Ngày sinh: "${formatDate(oldDob, '----')}" -> "${formatDate(adjustDateOfBirth)}"`,
           );
         }
 
@@ -1732,7 +1708,7 @@ export default function RequestsPage() {
           : '';
         if (adjustIdentityDate && adjustIdentityDate !== oldCccdDate) {
           changes.push(
-            `Ngày cấp: "${oldCccdDate || '----'}" -> "${adjustIdentityDate}"`,
+            `Ngày cấp: "${formatDate(oldCccdDate, '----')}" -> "${formatDate(adjustIdentityDate)}"`,
           );
         }
 

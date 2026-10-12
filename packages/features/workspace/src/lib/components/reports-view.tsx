@@ -1,6 +1,7 @@
 'use client';
 
 import type { ProjectSummary, ReportBundle } from '@enterprise-platform/contracts-workspace';
+import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import { Download, RefreshCw } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { formatPercent, formatVnd, formatVndCompact } from '../money';
@@ -122,11 +123,15 @@ export function ReportsView() {
         ) : null}
         <label className={styles.checkbox}>
           Từ ngày
-          <input type="date" value={from} onChange={(event) => setFrom(event.target.value)} />
+          <span style={{ width: 140 }}>
+            <DatePickerInput height={32} value={from} onChange={setFrom} />
+          </span>
         </label>
         <label className={styles.checkbox}>
           Đến ngày
-          <input type="date" value={to} onChange={(event) => setTo(event.target.value)} />
+          <span style={{ width: 140 }}>
+            <DatePickerInput height={32} value={to} onChange={setTo} />
+          </span>
         </label>
         <button
           type="button"

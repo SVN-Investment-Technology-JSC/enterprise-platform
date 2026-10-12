@@ -1,10 +1,14 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { Table } from 'antd';
-import { SearchableSelect } from '@enterprise-platform/shared-ui';
+import {
+  SearchableSelect,
+  formatDate,
+  formatDateTime,
+} from '@enterprise-platform/shared-ui';
 import type { HrmEmployeeProfile } from '@enterprise-platform/contracts-hrm';
 import { hrmFetch } from '../hrm-api';
-import { Input } from './input';
+import { MonthPickerInput } from './date-picker-input';
 
 type RawEvent = {
   id: string;
@@ -73,12 +77,11 @@ export function HrmRawAttendancePanel({
   return (
     <section className="space-y-3 rounded-xl border bg-white p-4">
       <div className="grid grid-cols-1 gap-3 md:grid-cols-[180px_350px_1fr]">
-        <Input
-          type="month"
-          aria-label="Tháng chấm công"
+        <MonthPickerInput
+          height={38}
           value={month}
-          onChange={(e) => {
-            setMonth(e.target.value);
+          onChange={(v) => {
+            setMonth(v);
             setPage(1);
           }}
         />
@@ -127,12 +130,17 @@ export function HrmRawAttendancePanel({
             fixed: 'left',
           },
           { title: 'Nhân viên', dataIndex: 'full_name', width: 210 },
-          { title: 'Ngày công', dataIndex: 'work_date', width: 110 },
+          {
+            title: 'Ngày công',
+            dataIndex: 'work_date',
+            width: 110,
+            render: (v?: string | null) => formatDate(v),
+          },
           {
             title: 'Thời điểm',
             dataIndex: 'occurred_at',
             width: 175,
-            render: (v) => new Date(v).toLocaleString('vi-VN'),
+            render: (v) => formatDateTime(v),
           },
           {
             title: 'Lượt',

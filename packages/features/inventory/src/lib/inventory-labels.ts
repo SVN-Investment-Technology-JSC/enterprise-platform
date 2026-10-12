@@ -7,6 +7,7 @@ import type {
   TransactionType,
   WarehouseType,
 } from '@enterprise-platform/contracts-inventory';
+import { formatDateTime as formatSharedDateTime } from '@enterprise-platform/shared-ui';
 
 /**
  * Mọi nhãn tiếng Việt của module Kho gom về một chỗ. Trước đây chỉ AssetType được
@@ -105,16 +106,16 @@ export function formatNumber(value: number): string {
   return new Intl.NumberFormat('vi-VN').format(value);
 }
 
-const dateTime = new Intl.DateTimeFormat('vi-VN', {
-  hour: '2-digit',
-  minute: '2-digit',
-  day: '2-digit',
-  month: '2-digit',
-  year: 'numeric',
-});
-
 export function formatDateTime(value?: string): string {
-  return value ? dateTime.format(new Date(value)) : '—';
+  return value ? formatSharedDateTime(value, '—') : '—';
+}
+
+/**
+ * Ghi chú phiếu được lưu sẵn có thể chứa ngày dạng YYYY-MM-DD (ví dụ "Ngày nhận: 2026-10-09").
+ * Chỉ đổi cách hiển thị sang dd/mm/yyyy, không sửa dữ liệu đã lưu.
+ */
+export function formatNoteDates(note: string): string {
+  return note.replace(/(\d{4})-(\d{2})-(\d{2})/g, '$3/$2/$1');
 }
 
 /**

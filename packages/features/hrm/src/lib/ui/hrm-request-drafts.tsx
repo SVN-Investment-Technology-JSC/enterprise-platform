@@ -1,7 +1,12 @@
 'use client';
 import { useCallback, useEffect, useState } from 'react';
 import { Table } from 'antd';
-import { Popconfirm, SearchableSelect } from '@enterprise-platform/shared-ui';
+import {
+  Popconfirm,
+  SearchableSelect,
+  formatDate,
+  formatDateTime,
+} from '@enterprise-platform/shared-ui';
 import type { HrmRequestKind } from '@enterprise-platform/contracts-hrm';
 import { hrmFetch } from '../hrm-api';
 import { Button } from './button';
@@ -167,18 +172,21 @@ export function HrmRequestDrafts({
             title: 'Ngày đề nghị',
             width: 125,
             render: (_, r) =>
-              String(
-                r.payload.fromDate ||
-                  r.payload.workDate ||
-                  r.payload.requestDate ||
-                  '—',
+              formatDate(
+                String(
+                  r.payload.fromDate ||
+                    r.payload.workDate ||
+                    r.payload.requestDate ||
+                    '',
+                ),
+                '—',
               ),
           },
           {
             title: 'Cập nhật',
             dataIndex: 'updatedAt',
             width: 165,
-            render: (v: string) => new Date(v).toLocaleString('vi-VN'),
+            render: (v: string) => formatDateTime(v, '—'),
           },
           {
             title: 'Thao tác',

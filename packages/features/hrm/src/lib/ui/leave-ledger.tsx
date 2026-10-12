@@ -1,7 +1,7 @@
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Drawer, Table, Tabs } from 'antd';
-import { SearchableSelect } from '@enterprise-platform/shared-ui';
+import { SearchableSelect, formatDateTime } from '@enterprise-platform/shared-ui';
 import type {
   HrmLeaveBalance,
   HrmLeaveTransaction,
@@ -48,6 +48,9 @@ function isAdjustmentRow(t: Transaction) {
       return false;
   }
 }
+
+// Đồng bộ chiều cao 38px với SearchableSelect để thanh công cụ thẳng hàng.
+const toolbarControl = 'h-[38px] rounded-md px-3.5 text-[13.5px]';
 
 export function LeaveLedger({
   employees,
@@ -202,7 +205,7 @@ export function LeaveLedger({
           type="number"
           min={2000}
           max={2200}
-          className="w-24"
+          className="h-[38px] w-24 rounded-md text-[13.5px]"
           value={year}
           onChange={(e) => setYear(e.target.value)}
         />
@@ -217,6 +220,7 @@ export function LeaveLedger({
         </div>
         <Button
           permission="hrm.leave.manage"
+          className={toolbarControl}
           onClick={() =>
             setAction({
               title: 'Điều chỉnh quỹ phép',
@@ -271,7 +275,11 @@ export function LeaveLedger({
         >
           Điều chỉnh quỹ
         </Button>
-        <Button variant="outline" onClick={() => void load()}>
+        <Button
+          variant="outline"
+          className={toolbarControl}
+          onClick={() => void load()}
+        >
           Làm mới
         </Button>
       </div>
@@ -462,6 +470,8 @@ export function LeaveLedger({
         open={history !== null}
         onClose={closeHistory}
         width={680}
+        // Thấp hơn lớp popup (z-50) để popup "Đảo điều chỉnh" mở từ drawer hiện phía trên, không bị che.
+        zIndex={40}
         destroyOnClose
         title={
           history
@@ -481,13 +491,13 @@ export function LeaveLedger({
           dataSource={historyRows}
           locale={{ emptyText: 'Chưa có lần điều chỉnh nào' }}
           pagination={{ pageSize: 10 }}
-          scroll={{ x: 640 }}
+          scroll={{ x: 820 }}
           columns={[
             {
               title: 'Thời điểm',
               dataIndex: 'createdAt',
               width: 150,
-              render: (v: string) => new Date(v).toLocaleString('vi-VN'),
+              render: (v: string) => formatDateTime(v, '—'),
             },
             { title: 'Loại nghỉ', dataIndex: 'leaveTypeName', width: 130 },
             {
@@ -504,6 +514,26 @@ export function LeaveLedger({
               render: numberCell,
             },
             { title: 'Diễn giải', dataIndex: 'note' },
+            {
+              title: 'Người thực hiện',
+              dataIndex: 'actorLabel',
+              width: 170,
+              render: (v: string | null | undefined, r: Transaction) => (
+                <div>
+                  <span className="block">{v || 'Hệ thống'}</span>
+                  {r.triggerSource === 'AUTOMATION' && (
+                    <Badge className="mt-0.5 border-violet-200 bg-violet-50 text-violet-700">
+                      Job tự động
+                    </Badge>
+                  )}
+                  {r.triggerSource === 'MANUAL' && (
+                    <Badge className="mt-0.5 border-slate-200 bg-slate-50 text-slate-600">
+                      Bấm tay
+                    </Badge>
+                  )}
+                </div>
+              ),
+            },
             {
               title: 'Thao tác',
               width: 135,

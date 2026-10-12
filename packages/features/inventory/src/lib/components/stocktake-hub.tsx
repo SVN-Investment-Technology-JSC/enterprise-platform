@@ -1,4 +1,5 @@
 'use client';
+import { formatDateTime as formatSharedDateTime } from '@enterprise-platform/shared-ui';
 import { useInventoryPermissions } from '../inventory-permissions';
 
 import type {
@@ -61,13 +62,7 @@ function formatCurrency(value?: number): string {
 
 function formatDateTime(value?: string): string {
   if (!value) return '—';
-  return new Intl.DateTimeFormat('vi-VN', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(new Date(value));
+  return formatSharedDateTime(value, '—');
 }
 
 export interface StocktakeHubProps {

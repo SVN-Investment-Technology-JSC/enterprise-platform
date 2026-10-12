@@ -4,7 +4,7 @@ import { useOrganizationPermissions } from './organization-permissions';
 import { Pencil, Plus, Search, Trash2, UserPlus } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { Popconfirm } from '@enterprise-platform/shared-ui';
+import { Popconfirm, formatDate } from '@enterprise-platform/shared-ui';
 import type { Assignment, Node, OrganizationSnapshot } from './organization-workspace';
 
 function initials(name: string) {
@@ -211,8 +211,8 @@ export function OrganizationAssignmentTable({
                     <td className="whitespace-nowrap px-5 py-3.5 text-center text-xs text-slate-600">
                       {item.startDate ? (
                         <span>
-                          {item.startDate}
-                          {item.endDate ? ` → ${item.endDate}` : ' (Hiện tại)'}
+                          {formatDate(item.startDate)}
+                          {item.endDate ? ` → ${formatDate(item.endDate)}` : ' (Hiện tại)'}
                         </span>
                       ) : (
                         <span className="text-slate-400">Không thời hạn</span>

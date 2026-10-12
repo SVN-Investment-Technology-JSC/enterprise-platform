@@ -132,11 +132,11 @@
 .dateRange {
   display: flex;
   align-items: center;
-  gap: 0.25rem;
-  background: #ffffff;
-  padding: 0.22rem 0.45rem;
-  border: 1px solid #cbd5e1;
-  border-radius: 4px;
+  gap: 0.35rem;
+}
+
+.datePicker {
+  width: 8.75rem;
 }
 
 .dateRange input {

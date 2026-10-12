@@ -1,4 +1,5 @@
 import { MAX_EXPORT_ROWS, type ReportBundle } from '@enterprise-platform/contracts-workspace';
+import { formatDate, formatDateTime } from '@enterprise-platform/shared-ui';
 
 /** Một bảng trong tệp xuất ra. */
 export interface ExportSheet {
@@ -55,8 +56,8 @@ export function buildExportSheets(bundle: ReportBundle, nameOf: NameOf = keepId)
         row.totalItems,
         row.closedItems,
         row.overdueItems,
-        row.startDate ?? '',
-        row.endDate ?? '',
+        formatDate(row.startDate),
+        formatDate(row.endDate),
       ]),
     },
     {
@@ -78,7 +79,7 @@ export function buildExportSheets(bundle: ReportBundle, nameOf: NameOf = keepId)
         row.title,
         row.projectCode,
         row.assigneeUserId ? nameOf(row.assigneeUserId) : '',
-        row.plannedEnd,
+        formatDate(row.plannedEnd.slice(0, 10)),
         row.daysLate,
         row.status,
       ]),
@@ -131,9 +132,9 @@ export function buildExportHeader(bundle: ReportBundle): string[] {
         : 'Số liệu của riêng tôi';
 
   return [
-    `Báo cáo Workspace — xuất lúc ${new Date(bundle.generatedAt).toLocaleString('vi-VN')}`,
+    `Báo cáo Workspace — xuất lúc ${formatDateTime(bundle.generatedAt)}`,
     `Phạm vi: ${scopeLabel} · ${bundle.scope.projectCount} dự án`,
-    `Kỳ báo cáo: ${bundle.from} đến ${bundle.to} (múi giờ ${bundle.timezone})`,
+    `Kỳ báo cáo: ${formatDate(bundle.from.slice(0, 10))} đến ${formatDate(bundle.to.slice(0, 10))} (múi giờ ${bundle.timezone})`,
     ...(bundle.finance
       ? ['CẢNH BÁO: tệp có số liệu tài chính — không chuyển cho người không được xem tài chính dự án.']
       : []),

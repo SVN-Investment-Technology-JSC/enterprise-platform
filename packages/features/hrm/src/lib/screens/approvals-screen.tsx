@@ -1,7 +1,12 @@
 'use client';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Table } from 'antd';
-import { SearchableSelect, Popconfirm } from '@enterprise-platform/shared-ui';
+import {
+  SearchableSelect,
+  Popconfirm,
+  formatDate,
+  formatDateTime,
+} from '@enterprise-platform/shared-ui';
 import {
   RefreshCw,
   CheckCircle2,
@@ -254,8 +259,8 @@ export default function ApprovalsScreen() {
             employeeCode: '',
             created: r.createdAt || r.created_at || '',
             period: r.fromDate
-              ? `${r.fromDate} → ${r.toDate}`
-              : r.workDate || r.requestDate || '',
+              ? `${formatDate(r.fromDate)} → ${formatDate(r.toDate)}`
+              : formatDate(r.workDate || r.requestDate || ''),
             link: links.data.find(
               (l) =>
                 l.request_id === r.id && l.request_kind === available[i].kind,
@@ -778,7 +783,7 @@ export default function ApprovalsScreen() {
                     <span>
                       Ngày gửi:{' '}
                       {detail.created
-                        ? new Date(detail.created).toLocaleString('vi-VN')
+                        ? formatDateTime(detail.created)
                         : '—'}
                     </span>
                   </SheetDescription>
@@ -871,6 +876,8 @@ export default function ApprovalsScreen() {
                                     <pre className="font-mono text-[11px] bg-slate-50 p-2 rounded border border-slate-200 text-left max-w-full overflow-x-auto">
                                       {JSON.stringify(val, null, 2)}
                                     </pre>
+                                  ) : typeof val === 'string' && /At$/.test(key) ? (
+                                    formatDateTime(val, String(val))
                                   ) : (
                                     String(val)
                                   )}

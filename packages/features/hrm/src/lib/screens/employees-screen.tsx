@@ -11,6 +11,7 @@ import {
   HeartHandshake,
   Layers,
   Loader2,
+  MoreHorizontal,
   Pencil,
   Plus,
   RefreshCw,
@@ -27,6 +28,7 @@ import type {
   HrmRequirementItem,
 } from '@enterprise-platform/contracts-hrm';
 import { useCallback, useEffect, useState, useMemo } from 'react';
+import { Dropdown, type MenuProps } from 'antd';
 import { EmployeeLifecycleActions, GradeLifecycleActions, SalaryStepActions, PositionLifecycleActions, employmentLabels } from '../ui/hrm-lifecycle-actions';
 import { HrmFamilyPanel } from '../ui/hrm-family-panel';
 import { HrmProfileDocumentsPanel } from '../ui/hrm-profile-documents-panel';
@@ -41,6 +43,7 @@ import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import { Dialog, DialogContent } from '../ui/dialog';
 import { Input } from '../ui/input';
+import { DatePickerInput } from '../ui/date-picker-input';
 import {
   Sheet,
   SheetContent,
@@ -85,6 +88,39 @@ export default function EmployeesManagementPage() {
   const { can } = useHrmPermissions();
   const [createEmployeeOpen, setCreateEmployeeOpen] = useState(false);
   const [accountAction, setAccountAction] = useState<HrmAction | null>(null);
+
+  const linkAccount = async (emp: HrmEmployeeProfile) => {
+    try {
+      const accounts = await hrmFetch<{
+        data: { id: string; fullName: string; email: string }[];
+      }>('/employees/accounts');
+      setAccountAction({
+        title: `Liên kết tài khoản · ${emp.fullName || emp.employeeCode}`,
+        fields: [
+          {
+            key: 'userId',
+            label: 'Tài khoản',
+            options: accounts.data.map((a) => ({
+              value: a.id,
+              label: `${a.fullName} · ${a.email}`,
+            })),
+          },
+          { key: 'reason', label: 'Lý do liên kết' },
+        ],
+        submit: async (values) => {
+          await hrmFetch(`/employees/${emp.employeeId}/link-account`, {
+            method: 'POST',
+            body: JSON.stringify(values),
+          });
+          await fetchEmployeesFromDb();
+        },
+      });
+    } catch (error) {
+      setEmployeeError(
+        error instanceof Error ? error.message : 'Không tải được tài khoản',
+      );
+    }
+  };
   const [employeeError, setEmployeeError] = useState('');
   const [activeTab, setActiveTab] = useState<SubTabKey>('employees');
 
@@ -1062,9 +1098,7 @@ export default function EmployeesManagementPage() {
                           </td>
                           <td className="py-3.5 px-4 font-mono text-slate-600">
                             <span>
-                              {emp.joinDate
-                                ? String(emp.joinDate).slice(0, 10)
-                                : '----'}
+                              {formatVnDate(emp.joinDate ? String(emp.joinDate) : null)}
                             </span>
                           </td>
                           <td className="py-3.5 px-4 text-center">
@@ -1096,6 +1130,75 @@ export default function EmployeesManagementPage() {
                               </Badge>
                             )}
                           </td>
+                          <td className="py-3.5 px-4 text-center">
+                            {/* Gọn: giữ "Xem hồ sơ", các thao tác còn lại gom vào menu "...". */}
+                            <div className="inline-flex items-center justify-center gap-1.5 whitespace-nowrap">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 text-xs text-blue-700 hover:bg-blue-50 font-semibold border-slate-200"
+                                onClick={() => {
+                                  setSelectedEmployee(emp);
+                                  setIsEmployeeDrawerOpen(true);
+                                }}
+                              >
+                                Xem hồ sơ
+                              </Button>
+                              <EmployeeLifecycleActions
+                                employee={emp}
+                                onChanged={fetchEmployeesFromDb}
+                              >
+                                {({ edit, deactivate, inactive }) => {
+                                  const canLink =
+                                    !emp.userId && !inactive && can('hrm.employee.link-account');
+                                  const items = [
+                                    can('hrm.appointment.manage') && {
+                                      key: 'decision',
+                                      label: 'Tạo quyết định',
+                                      onClick: () => setDecisionEmployeeId(emp.employeeId),
+                                    },
+                                    !inactive && can('hrm.employee.manage') && {
+                                      key: 'edit',
+                                      label: 'Sửa hồ sơ',
+                                      onClick: edit,
+                                    },
+                                    canLink && {
+                                      key: 'link',
+                                      label: 'Liên kết tài khoản',
+                                      onClick: () => void linkAccount(emp),
+                                    },
+                                    !inactive && can('hrm.employee.manage') && {
+                                      type: 'divider' as const,
+                                      key: 'divider',
+                                    },
+                                    !inactive && can('hrm.employee.manage') && {
+                                      key: 'deactivate',
+                                      label: 'Ngừng nhân viên',
+                                      danger: true,
+                                      onClick: deactivate,
+                                    },
+                                  ].filter(Boolean) as MenuProps['items'];
+                                  return items && items.length > 0 ? (
+                                    <Dropdown
+                                      trigger={['click']}
+                                      placement="bottomRight"
+                                      menu={{ items }}
+                                    >
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        className="h-7 w-7 px-0 border-slate-200"
+                                        aria-label="Thao tác khác"
+                                        title="Thao tác khác"
+                                      >
+                                        <MoreHorizontal className="size-4" />
+                                      </Button>
+                                    </Dropdown>
+                                  ) : null;
+                                }}
+                              </EmployeeLifecycleActions>
+                            </div>
+                            {/* Giao diện cũ (nhiều nút xếp ngang), bỏ comment để dùng lại:
                           <td className="py-3.5 px-4 text-center">
                             <Button
                               size="sm"
@@ -1172,6 +1275,7 @@ export default function EmployeesManagementPage() {
                                 Liên kết tài khoản
                               </Button>
                             )}
+                            */}
                           </td>
                         </tr>
                       );
@@ -1526,7 +1630,7 @@ export default function EmployeesManagementPage() {
                         </td>
                         <td className="py-3.5 px-4 font-mono text-slate-500">
                           {step.effectiveFrom
-                            ? String(step.effectiveFrom).slice(0, 10)
+                            ? formatVnDate(String(step.effectiveFrom))
                             : 'Vô thời hạn'}
                         </td>
                         <td className="py-2 px-3"><SalaryStepActions step={step} onChanged={() => fetchGradeSteps(step.salaryGradeId)} /></td>
@@ -1766,16 +1870,18 @@ export default function EmployeesManagementPage() {
                 <div className="flex justify-between py-1 border-b border-slate-200/60">
                   <span className="text-slate-500">Ngày gia nhập:</span>
                   <span className="font-mono font-semibold text-slate-900">
-                    {selectedEmployee?.joinDate
-                      ? String(selectedEmployee.joinDate).slice(0, 10)
-                      : '----'}
+                    {formatVnDate(
+                      selectedEmployee?.joinDate
+                        ? String(selectedEmployee.joinDate)
+                        : null,
+                    )}
                   </span>
                 </div>
                 <div className="flex justify-between py-1 border-b border-slate-200/60">
                   <span className="text-slate-500">Ngày chính thức:</span>
                   <span className="font-mono font-semibold text-emerald-700">
                     {selectedEmployee?.officialDate
-                      ? String(selectedEmployee.officialDate).slice(0, 10)
+                      ? formatVnDate(String(selectedEmployee.officialDate))
                       : 'Đang thử việc'}
                   </span>
                 </div>
@@ -2398,11 +2504,10 @@ export default function EmployeesManagementPage() {
               <label className="text-slate-700 block mb-1 font-semibold">
                 Ngày bắt đầu hiệu lực *
               </label>
-              <Input
-                type="date"
+              <DatePickerInput
                 value={stepEffectiveFrom}
-                onChange={(e) => setStepEffectiveFrom(e.target.value)}
-                className="h-8 text-xs font-mono"
+                onChange={setStepEffectiveFrom}
+                className="font-mono"
               />
             </div>
           </div>
@@ -2523,11 +2628,10 @@ export default function EmployeesManagementPage() {
                 <label className="text-slate-700 block mb-1 font-semibold">
                   Ngày hiệu lực *
                 </label>
-                <Input
-                  type="date"
+                <DatePickerInput
                   value={cfgEffectiveFrom}
-                  onChange={(e) => setCfgEffectiveFrom(e.target.value)}
-                  className="h-8 text-xs font-mono"
+                  onChange={setCfgEffectiveFrom}
+                  className="font-mono"
                 />
               </div>
             </div>

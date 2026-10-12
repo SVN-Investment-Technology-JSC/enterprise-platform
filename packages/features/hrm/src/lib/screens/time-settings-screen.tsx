@@ -11,6 +11,7 @@ import { hrmFetch, hrmEmployeeOptions } from '../hrm-api';
 import { formatDateVn } from '../personnel-decision-rules';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
+import { DatePickerInput } from '../ui/date-picker-input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 
 type Settings = {
@@ -979,6 +980,14 @@ export default function TimeSettingsScreen() {
             className="flex flex-col flex-1 min-h-0 overflow-hidden"
             onSubmit={(e) => {
               e.preventDefault();
+              if (dialog === 'policy' && !policy.effectiveFrom) {
+                setError('Vui lòng chọn ngày hiệu lực.');
+                return;
+              }
+              if (dialog === 'calendar' && !calendar.date) {
+                setError('Vui lòng chọn ngày.');
+                return;
+              }
               if (dialog === 'policy')
                 void save('/time-settings/policy', {
                   effectiveFrom: policy.effectiveFrom,
@@ -1021,24 +1030,17 @@ export default function TimeSettingsScreen() {
                 <div className="grid grid-cols-2 gap-3">
                   <label className="block text-sm">
                     Hiệu lực từ
-                    <Input
-                      type="date"
-                      required
+                    <DatePickerInput
                       value={policy.effectiveFrom}
-                      onChange={(e) =>
-                        setPolicy({ ...policy, effectiveFrom: e.target.value })
-                      }
+                      onChange={(v) => setPolicy({ ...policy, effectiveFrom: v })}
                     />
                   </label>
                   <label className="block text-sm">
                     Hiệu lực đến (tùy chọn)
-                    <Input
-                      type="date"
+                    <DatePickerInput
                       min={policy.effectiveFrom}
                       value={policy.effectiveTo}
-                      onChange={(e) =>
-                        setPolicy({ ...policy, effectiveTo: e.target.value })
-                      }
+                      onChange={(v) => setPolicy({ ...policy, effectiveTo: v })}
                     />
                   </label>
                 </div>
@@ -1195,13 +1197,9 @@ export default function TimeSettingsScreen() {
               <>
                 <label className="block text-sm">
                   Ngày
-                  <Input
-                    type="date"
-                    required
+                  <DatePickerInput
                     value={calendar.date}
-                    onChange={(e) =>
-                      setCalendar({ ...calendar, date: e.target.value })
-                    }
+                    onChange={(v) => setCalendar({ ...calendar, date: v })}
                   />
                 </label>
                 <label className="block text-sm">
@@ -1342,15 +1340,13 @@ export default function TimeSettingsScreen() {
                 key={`${index}-${item.name}`}
                 className="grid grid-cols-[150px_1fr_110px] items-center gap-2 text-sm"
               >
-                <Input
-                  type="date"
-                  aria-label={`Ngày ${item.name}`}
+                <DatePickerInput
                   disabled={item.exists}
                   value={item.date ?? ''}
-                  onChange={(e) =>
+                  onChange={(v) =>
                     setHolidayItems(
                       holidayItems.map((x, i) =>
-                        i === index ? { ...x, date: e.target.value || null } : x,
+                        i === index ? { ...x, date: v || null } : x,
                       ),
                     )
                   }

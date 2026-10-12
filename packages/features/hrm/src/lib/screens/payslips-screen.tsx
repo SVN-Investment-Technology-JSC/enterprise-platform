@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { Receipt, Printer, Calendar, AlertTriangle, UserCheck } from 'lucide-react';
 import type { HrmPayslip } from '@enterprise-platform/contracts-hrm';
+import { formatDate } from '@enterprise-platform/shared-ui';
 import { hrmFetch } from '../hrm-api';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
@@ -127,7 +128,7 @@ export default function PayslipsScreen() {
                     </div>
                     <span className="text-[11px] text-slate-500 flex items-center gap-1">
                       <Calendar className="size-3 text-slate-400" />
-                      {new Date(r.issuedAt).toLocaleDateString('vi-VN')}
+                      {formatDate(r.issuedAt)}
                     </span>
                   </button>
                 );
@@ -165,11 +166,11 @@ export default function PayslipsScreen() {
                   <div className="text-right">
                     <span className="text-xs font-bold text-slate-900 block">{current.payslipNo}</span>
                     <span className="text-[11px] text-slate-500 block">
-                      Ngày phát hành: {new Date(current.issuedAt).toLocaleDateString('vi-VN')}
+                      Ngày phát hành: {formatDate(current.issuedAt)}
                     </span>
                     {snapshot.period && (
                       <span className="inline-block mt-1 font-mono text-[11px] px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200">
-                        Kỳ: {snapshot.period.periodCode} ({snapshot.period.fromDate} → {snapshot.period.toDate})
+                        Kỳ: {snapshot.period.periodCode} ({formatDate(snapshot.period.fromDate)} → {formatDate(snapshot.period.toDate)})
                       </span>
                     )}
                   </div>
@@ -198,7 +199,7 @@ export default function PayslipsScreen() {
                             {Number(sp.baseSalary).toLocaleString('vi-VN')} {sp.currency} ({sp.salaryType})
                           </div>
                           <div className="text-[11px] text-slate-500 mt-0.5">
-                            Hiệu lực: {sp.effectiveFrom} → {sp.effectiveTo || 'Hiện tại'}
+                            Hiệu lực: {formatDate(sp.effectiveFrom)} → {sp.effectiveTo ? formatDate(sp.effectiveTo) : 'Hiện tại'}
                           </div>
                         </div>
                         <Badge className="bg-blue-50 text-blue-700 border-blue-200 text-[10px]">

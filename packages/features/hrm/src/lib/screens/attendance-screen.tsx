@@ -19,7 +19,8 @@ import {
   Info,
   LayoutGrid,
 } from 'lucide-react';
-import { SearchableSelect, type SearchableSelectOption } from '@enterprise-platform/shared-ui';
+import { SearchableSelect, formatDate, type SearchableSelectOption } from '@enterprise-platform/shared-ui';
+import { DatePickerInput } from '../ui/date-picker-input';
 import { hrmFetch } from '../hrm-api';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -159,12 +160,33 @@ export default function AttendancePage() {
   }, [load]);
   const current = rows.find((row) => row.workDate === context?.workDate);
   const open = current?.calculationSnapshot?.openSession === true;
-  const format = (value: string | null | undefined) =>
-    value
-      ? new Date(value).toLocaleString('vi-VN', {
-          timeZone: context?.timezone || 'Asia/Ho_Chi_Minh',
-        })
-      : '—';
+  // Hiển thị dd/mm/yyyy HH:mm (24h) theo múi giờ của ngữ cảnh chấm công.
+  const tzParts = (value: string | null | undefined) => {
+    if (!value) return null;
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return null;
+    const out: Record<string, string> = {};
+    for (const p of new Intl.DateTimeFormat('en-GB', {
+      timeZone: context?.timezone || 'Asia/Ho_Chi_Minh',
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    }).formatToParts(d)) {
+      out[p.type] = p.value;
+    }
+    return out;
+  };
+  const format = (value: string | null | undefined) => {
+    const p = tzParts(value);
+    return p ? `${p.day}/${p.month}/${p.year} ${p.hour}:${p.minute}` : '—';
+  };
+  const formatClock = (value: string | null | undefined) => {
+    const p = tzParts(value);
+    return p ? `${p.hour}:${p.minute}` : '—';
+  };
   async function punch(kind: 'check-in' | 'check-out') {
     if (busy) return;
     setBusy(true);
@@ -234,7 +256,7 @@ export default function AttendancePage() {
               Chấm công Cá nhân & Lịch sử Điểm danh
             </h1>
             <Badge className="bg-blue-50 text-blue-700 border-blue-200 text-xs font-semibold">
-              {context?.workDate ? `Ngày công: ${context.workDate}` : 'Tự phục vụ'}
+              {context?.workDate ? `Ngày công: ${formatDate(context.workDate)}` : 'Tự phục vụ'}
             </Badge>
           </div>
           <p className="text-xs text-slate-500 max-w-[85ch]">
@@ -281,7 +303,7 @@ export default function AttendancePage() {
             </div>
             {current?.checkInAt ? (
               <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 text-xs font-semibold">
-                Đã vào: {format(current.checkInAt).slice(-8)}
+                Đã vào: {formatClock(current.checkInAt)}
               </Badge>
             ) : (
               <Badge className="bg-slate-100 text-slate-600 border-slate-200 text-xs font-medium">
@@ -342,7 +364,7 @@ export default function AttendancePage() {
             </div>
             {current?.checkOutAt ? (
               <Badge className="bg-blue-50 text-blue-700 border-blue-200 text-xs font-semibold">
-                Đã ra: {format(current.checkOutAt).slice(-8)}
+                Đã ra: {formatClock(current.checkOutAt)}
               </Badge>
             ) : (
               <Badge className="bg-slate-100 text-slate-600 border-slate-200 text-xs font-medium">
@@ -549,11 +571,10 @@ export default function AttendancePage() {
                   <label className="text-[11px] font-semibold text-slate-600 block mb-1">
                     Từ ngày
                   </label>
-                  <Input
-                    type="date"
+                  <DatePickerInput
                     value={filterDateFrom}
-                    onChange={(e) => setFilterDateFrom(e.target.value)}
-                    className="h-8 text-xs font-mono bg-white"
+                    onChange={setFilterDateFrom}
+                    className="font-mono bg-white"
                   />
                 </div>
 
@@ -577,11 +598,10 @@ export default function AttendancePage() {
                       </button>
                     )}
                   </div>
-                  <Input
-                    type="date"
+                  <DatePickerInput
                     value={filterDateTo}
-                    onChange={(e) => setFilterDateTo(e.target.value)}
-                    className="h-8 text-xs font-mono bg-white"
+                    onChange={setFilterDateTo}
+                    className="font-mono bg-white"
                   />
                 </div>
               </div>
@@ -602,7 +622,7 @@ export default function AttendancePage() {
                 {
                   title: 'Ngày công',
                   dataIndex: 'workDate',
-                  render: (v) => <strong className="font-mono text-slate-900">{v}</strong>,
+                  render: (v) => <strong className="font-mono text-slate-900">{formatDate(v, v)}</strong>,
                 },
                 {
                   title: 'Vào đầu',
@@ -843,6 +863,10 @@ export default function AttendancePage() {
             onSubmit={async (e) => {
               e.preventDefault();
               if (busy) return;
+              if (!date) {
+                setError('Vui lòng chọn ngày công cần giải trình.');
+                return;
+              }
               const form = new FormData(e.currentTarget);
               setBusy(true);
               setError('');
@@ -875,12 +899,10 @@ export default function AttendancePage() {
                   <label className="font-semibold text-slate-700 block text-xs">
                     Ngày công cần giải trình <span className="text-rose-500">*</span>
                   </label>
-                  <Input
-                    type="date"
-                    required
+                  <DatePickerInput
                     value={date}
-                    onChange={(e) => setDate(e.target.value)}
-                    className="text-xs h-9"
+                    onChange={setDate}
+                    height={36}
                   />
                 </div>
                 <div className="space-y-1.5">

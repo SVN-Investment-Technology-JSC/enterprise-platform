@@ -9,6 +9,7 @@ import {
   XCircle,
   AlertTriangle,
 } from 'lucide-react';
+import { formatDate } from '@enterprise-platform/shared-ui';
 import { hrmFetch, hrmEmployeeOptions } from '../hrm-api';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -195,7 +196,7 @@ export default function DependentsScreen() {
               title: 'Ngày sinh',
               dataIndex: 'birth_date',
               width: 110,
-              render: (v) => <span className="text-xs text-slate-700">{v}</span>,
+              render: (v) => <span className="text-xs text-slate-700">{formatDate(v, v)}</span>,
             },
             {
               title: 'MST người PT',
@@ -210,7 +211,7 @@ export default function DependentsScreen() {
                 return (
                   <div>
                     <span className="text-xs text-slate-800 block">
-                      {r.effective_from} → {r.effective_to || 'Đến nay'}
+                      {formatDate(r.effective_from, r.effective_from)} → {r.effective_to ? formatDate(r.effective_to, r.effective_to) : 'Đến nay'}
                     </span>
                     {isExpired ? (
                       <Badge className="bg-slate-100 text-slate-600 border-slate-200 text-[10px] mt-0.5">Hết hiệu lực</Badge>

@@ -9,6 +9,7 @@ import {
   Save,
   Users,
 } from 'lucide-react';
+import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -965,17 +966,17 @@ function Form({
           </Field>
           <div className="grid grid-cols-2 gap-3">
             <Field label="Từ ngày">
-              <Input
-                type="date"
+              <DatePickerInput
+                height={32}
                 value={String(data.startDate)}
-                onChange={(e) => set('startDate', e.currentTarget.value)}
+                onChange={(value) => set('startDate', value)}
               />
             </Field>
             <Field label="Đến ngày">
-              <Input
-                type="date"
+              <DatePickerInput
+                height={32}
                 value={String(data.endDate)}
-                onChange={(e) => set('endDate', e.currentTarget.value)}
+                onChange={(value) => set('endDate', value)}
               />
             </Field>
           </div>

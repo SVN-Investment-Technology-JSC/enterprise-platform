@@ -6,7 +6,7 @@ import type {
   TenantDeletionPreview,
   TenantSummary,
 } from '@enterprise-platform/contracts-tenancy';
-import { Popconfirm } from '@enterprise-platform/shared-ui';
+import { Popconfirm, formatDateTime } from '@enterprise-platform/shared-ui';
 import { AlertTriangle, LoaderCircle, RefreshCw, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -287,7 +287,7 @@ function DeletionContent({
               : stepLabels[current.step]}
           </p>
           <p className="text-xs text-muted-foreground">
-            Yêu cầu lúc {new Date(current.createdAt).toLocaleString('vi-VN')}
+            Yêu cầu lúc {formatDateTime(current.createdAt)}
           </p>
           {current.error ? (
             <p className="text-sm text-red-700" role="alert">

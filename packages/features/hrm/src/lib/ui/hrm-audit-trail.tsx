@@ -1,10 +1,11 @@
 'use client';
 import { useCallback, useEffect, useState } from 'react';
 import { Table } from 'antd';
-import { SearchableSelect } from '@enterprise-platform/shared-ui';
+import { SearchableSelect, formatDateTime } from '@enterprise-platform/shared-ui';
 import { hrmFetch } from '../hrm-api';
 import { formatDateVn } from '../personnel-decision-rules';
 import { Input } from './input';
+import { DatePickerInput } from './date-picker-input';
 import { Button } from './button';
 import {
   Sheet,
@@ -26,7 +27,7 @@ export interface AuditRow {
   detail: unknown;
 }
 
-const stamp = (value: string) => new Date(value).toLocaleString('vi-VN');
+const stamp = (value: string) => formatDateTime(value, value);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** Khóa kỹ thuật không đưa ra màn hình chi tiết. */
 const HIDDEN_KEYS = new Set([
@@ -207,28 +208,28 @@ export function HrmAuditTrail() {
         </label>
         <label className="block text-[11px] font-semibold text-slate-600">
           Từ ngày
-          <Input
-            type="date"
+          <DatePickerInput
             value={from}
             max={to || undefined}
-            onChange={(e) => {
-              setFrom(e.target.value);
+            onChange={(v) => {
+              setFrom(v);
               setPage(1);
             }}
-            className="mt-1 h-9 text-xs"
+            height={36}
+            className="mt-1"
           />
         </label>
         <label className="block text-[11px] font-semibold text-slate-600">
           Đến ngày
-          <Input
-            type="date"
+          <DatePickerInput
             value={to}
             min={from || undefined}
-            onChange={(e) => {
-              setTo(e.target.value);
+            onChange={(v) => {
+              setTo(v);
               setPage(1);
             }}
-            className="mt-1 h-9 text-xs"
+            height={36}
+            className="mt-1"
           />
         </label>
         <div className="flex items-end">

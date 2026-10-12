@@ -240,6 +240,10 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       version: '0034-hrm-offboarding-event-envelope',
       path: 'tenant/hrm/0034-hrm-offboarding-event-envelope.sql',
     },
+    {
+      version: '0035-leave-transaction-trigger-source',
+      path: 'tenant/hrm/0035-leave-transaction-trigger-source.sql',
+    },
   ],
   inventory: [
     { version: '0001-inventory', path: 'tenant/inventory/0001-inventory.sql' },

@@ -1,7 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { Table } from 'antd';
-import { Popconfirm } from '@enterprise-platform/shared-ui';
+import { Popconfirm, formatDate } from '@enterprise-platform/shared-ui';
 import type { HrmEmploymentContract } from '@enterprise-platform/contracts-hrm';
 import { hrmFetch } from '../hrm-api';
 import { Button } from './button';
@@ -189,14 +189,29 @@ export function HrmContractPanel({
             fixed: 'left',
           },
           { title: 'Loại', dataIndex: 'contractType', width: 120 },
-          { title: 'Từ ngày', dataIndex: 'effectiveFrom', width: 110 },
-          { title: 'Đến ngày', dataIndex: 'effectiveTo', width: 110 },
+          {
+            title: 'Từ ngày',
+            dataIndex: 'effectiveFrom',
+            width: 110,
+            render: (v?: string | null) => formatDate(v),
+          },
+          {
+            title: 'Đến ngày',
+            dataIndex: 'effectiveTo',
+            width: 110,
+            render: (v?: string | null) => formatDate(v),
+          },
           {
             title: 'Trạng thái',
             width: 150,
             render: (_, r) => statuses[r.status],
           },
-          { title: 'Ngày chấm dứt', dataIndex: 'terminatedOn', width: 120 },
+          {
+            title: 'Ngày chấm dứt',
+            dataIndex: 'terminatedOn',
+            width: 120,
+            render: (v?: string | null) => formatDate(v),
+          },
           {
             title: 'Chứng từ',
             width: 120,

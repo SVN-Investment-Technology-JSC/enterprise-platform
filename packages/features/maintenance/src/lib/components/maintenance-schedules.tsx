@@ -5,6 +5,7 @@ import type {
   MaintenancePriority,
   MaintenanceSchedule,
 } from '@enterprise-platform/contracts-maintenance';
+import { formatDateTime as formatSharedDateTime } from '@enterprise-platform/shared-ui';
 import { useMemo, useState } from 'react';
 import styles from './maintenance-schedules.module.scss';
 
@@ -16,13 +17,7 @@ const PRIORITY_LABEL: Record<MaintenancePriority, string> = {
 
 function formatDateTime(value?: string): string {
   if (!value) return '—';
-  return new Intl.DateTimeFormat('vi-VN', {
-    hour: '2-digit',
-    minute: '2-digit',
-    day: 'numeric',
-    month: 'numeric',
-    year: '2-digit',
-  }).format(new Date(value));
+  return formatSharedDateTime(value, '—');
 }
 
 export interface MaintenanceSchedulesTableProps {

@@ -11,6 +11,7 @@ import {
 import type { PoolClient } from 'pg';
 import {
   assertOpenDate,
+  displayDate,
   isoDate,
   lockEmployee,
   resolvePolicy,
@@ -89,7 +90,7 @@ export async function leaveDays(
     );
     if (!shift)
       throw new BadRequestException(
-        `Chưa phân ca ngày ${day.date}; không thể xác định định mức phép`,
+        `Chưa phân ca ngày ${displayDate(day.date)}; không thể xác định định mức phép`,
       );
     const minutes =
       (Date.parse(shift.window.end) - Date.parse(shift.window.start)) / 60000 -

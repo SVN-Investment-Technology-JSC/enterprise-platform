@@ -7,6 +7,7 @@ import {
   type ProjectSummary,
   type UpdateProjectRequest,
 } from '@enterprise-platform/contracts-workspace';
+import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import { useEffect, useState } from 'react';
 import { formatVndWhileTyping, parseVndInput, toVndInput } from '../money';
 import { PROJECT_STATUS_LABELS } from '../workspace-labels';
@@ -205,17 +206,17 @@ export function ProjectForm({
 
       <div className={styles.fieldRow}>
         <Field label="Ngày bắt đầu">
-          <input
-            type="date"
+          <DatePickerInput
+            height={36}
             value={form.startDate}
-            onChange={(event) => set({ startDate: event.target.value })}
+            onChange={(value) => set({ startDate: value })}
           />
         </Field>
         <Field label="Ngày kết thúc">
-          <input
-            type="date"
+          <DatePickerInput
+            height={36}
             value={form.endDate}
-            onChange={(event) => set({ endDate: event.target.value })}
+            onChange={(value) => set({ endDate: value })}
           />
         </Field>
       </div>

@@ -10,6 +10,7 @@ import type {
 import { hrmFetch } from '../hrm-api';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './dialog';
 import { Input } from './input';
+import { DatePickerInput } from './date-picker-input';
 import { Button } from './button';
 
 export const accrualBasisOptions: {
@@ -325,20 +326,18 @@ export function LeaveScheduleDialog({
             </label>
             <label className={label}>
               <span>Hiệu lực từ{required}</span>
-              <Input
-                type="date"
-                className="h-9 text-xs"
+              <DatePickerInput
+                height={36}
                 value={effectiveFrom}
-                onChange={(e) => setEffectiveFrom(e.target.value)}
+                onChange={setEffectiveFrom}
               />
             </label>
             <label className={label}>
               <span>Hiệu lực đến (để trống nếu không giới hạn)</span>
-              <Input
-                type="date"
-                className="h-9 text-xs"
+              <DatePickerInput
+                height={36}
                 value={effectiveTo}
-                onChange={(e) => setEffectiveTo(e.target.value)}
+                onChange={setEffectiveTo}
               />
             </label>
 

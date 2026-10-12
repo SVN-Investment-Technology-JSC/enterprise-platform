@@ -2,7 +2,7 @@
 import { useMemo, useState } from 'react';
 import { Table } from 'antd';
 import Link from 'next/link';
-import { SearchableSelect } from '@enterprise-platform/shared-ui';
+import { SearchableSelect, formatDate } from '@enterprise-platform/shared-ui';
 import type {
   HrmEmployeeProfile,
   HrmShiftAssignment,
@@ -236,13 +236,14 @@ export function HrmRosterPanel({
             title: 'Từ ngày',
             dataIndex: 'effectiveFrom',
             width: 110,
+            render: (v?: string | null) => formatDate(v),
             sorter: (a, b) => a.effectiveFrom.localeCompare(b.effectiveFrom),
           },
           {
             title: 'Đến ngày',
             dataIndex: 'effectiveTo',
             width: 110,
-            render: (v) => v || 'Không giới hạn',
+            render: (v) => formatDate(v, 'Không giới hạn'),
           },
           {
             title: 'Trạng thái',

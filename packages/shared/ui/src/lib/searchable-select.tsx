@@ -265,7 +265,11 @@ export function SearchableSelect({
 
       {/* Dropdown Menu kết quả */}
       {isOpen ? (
-        <div className={styles.dropdown}>
+        <div
+          className={styles.dropdown}
+          // Click vào vùng trống/thanh cuộn của dropdown cũng không được kích hoạt control của <label> cha.
+          onClick={(e) => e.preventDefault()}
+        >
 
           <ul
             id={`listbox-${id}`}
@@ -290,6 +294,9 @@ export function SearchableSelect({
                       isActive ? styles.optionActive : ''
                     } ${opt.disabled ? styles.optionDisabled : ''}`}
                     onClick={(e) => {
+                      // preventDefault: khi SearchableSelect nằm trong <label>, trình duyệt sẽ chuyển
+                      // click của option tới ô input của label và mở lại dropdown ngay sau khi đóng (gây giật).
+                      e.preventDefault();
                       e.stopPropagation();
                       if (!opt.disabled) handleSelect(opt.value);
                     }}

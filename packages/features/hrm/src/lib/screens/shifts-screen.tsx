@@ -36,7 +36,7 @@ import { Input } from '../ui/input';
 import { DatePickerInput } from '../ui/date-picker-input';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '../ui/sheet';
 import { toast } from '../ui/toast';
-import { SearchableSelect, type SearchableSelectOption, Popconfirm } from '@enterprise-platform/shared-ui';
+import { SearchableSelect, type SearchableSelectOption, Popconfirm, formatDate, formatTime } from '@enterprise-platform/shared-ui';
 import { computeShiftCoverage, computeShiftStandardHours } from '../hrm-shift-metrics';
 import { MonthlyAttendanceMatrixTable, type MatrixLeaveRequest } from '../ui/monthly-attendance-matrix-table';
 
@@ -1670,7 +1670,7 @@ export default function ShiftsPage() {
                 if (found) {
                   toast.add({
                     title: 'Bản ghi chấm công',
-                    description: `Ngày ${String(found.workDate).slice(0, 10)} - NV: ${found.employeeId}`,
+                    description: `Ngày ${formatDate(String(found.workDate).slice(0, 10))} - NV: ${found.employeeId}`,
                     type: 'info',
                   });
                 }
@@ -1802,7 +1802,7 @@ export default function ShiftsPage() {
                       return (
                         <tr key={att.id} className="hover:bg-slate-50/80 transition-colors">
                           <td className="py-3.5 px-4 font-mono font-bold text-slate-800">
-                            {String(att.workDate).slice(0, 10)}
+                            {formatDate(String(att.workDate).slice(0, 10))}
                           </td>
                           <td className="py-3.5 px-4">
                             <span className="font-bold text-slate-900 block text-xs">
@@ -1815,10 +1815,7 @@ export default function ShiftsPage() {
                           <td className="py-3.5 px-4 font-mono">
                             {att.checkInAt ? (
                               <span className="text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded font-bold">
-                                {new Date(att.checkInAt).toLocaleTimeString('vi-VN', {
-                                  hour: '2-digit',
-                                  minute: '2-digit',
-                                })}
+                                {formatTime(att.checkInAt)}
                               </span>
                             ) : (
                               <span className="text-slate-400 font-normal">--:--</span>
@@ -1827,10 +1824,7 @@ export default function ShiftsPage() {
                           <td className="py-3.5 px-4 font-mono">
                             {att.checkOutAt ? (
                               <span className="text-blue-700 bg-blue-50 px-2 py-0.5 rounded font-bold">
-                                {new Date(att.checkOutAt).toLocaleTimeString('vi-VN', {
-                                  hour: '2-digit',
-                                  minute: '2-digit',
-                                })}
+                                {formatTime(att.checkOutAt)}
                               </span>
                             ) : (
                               <span className="text-amber-600 bg-amber-50 px-2 py-0.5 rounded font-mono text-[11px]">
@@ -1940,10 +1934,7 @@ export default function ShiftsPage() {
                       const formatTimeOnly = (iso?: string | null) => {
                         if (!iso) return '--:--';
                         try {
-                          return new Date(iso).toLocaleTimeString('vi-VN', {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          });
+                          return formatTime(iso, '--:--');
                         } catch {
                           return iso.slice(11, 16);
                         }
@@ -1963,7 +1954,7 @@ export default function ShiftsPage() {
                             </span>
                           </td>
                           <td className="py-3 px-4 font-mono text-slate-700">
-                            {String(corr.requestDate).slice(0, 10)}
+                            {formatDate(String(corr.requestDate).slice(0, 10))}
                           </td>
                           <td className="py-3 px-4 font-mono text-red-600 bg-red-50/50 px-2 py-1 rounded">
                             {formatTimeOnly(corr.oldCheckInAt)} - {formatTimeOnly(corr.oldCheckOutAt)}
@@ -2254,20 +2245,19 @@ export default function ShiftsPage() {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-slate-600 block mb-1 font-semibold">Ngày bắt đầu hiệu lực *</label>
-                <Input
-                  type="date"
+                <DatePickerInput
                   value={assignEffectiveFrom}
-                  onChange={(e) => setAssignEffectiveFrom(e.target.value)}
-                  className="h-8 text-xs font-mono"
+                  onChange={setAssignEffectiveFrom}
+                  className="font-mono"
                 />
               </div>
               <div>
                 <label className="text-slate-600 block mb-1 font-semibold">Ngày kết thúc (Tùy chọn)</label>
-                <Input
-                  type="date"
+                <DatePickerInput
                   value={assignEffectiveTo}
-                  onChange={(e) => setAssignEffectiveTo(e.target.value)}
-                  className="h-8 text-xs font-mono"
+                  onChange={setAssignEffectiveTo}
+                  min={assignEffectiveFrom || undefined}
+                  className="font-mono"
                 />
               </div>
             </div>
@@ -2397,7 +2387,7 @@ export default function ShiftsPage() {
                                 {emp ? emp.fullName : a.employeeId}
                               </span>
                               <span className="text-[11px] text-slate-500 font-mono">
-                                {emp ? emp.employeeCode : ''} • Từ {a.effectiveFrom}
+                                {emp ? emp.employeeCode : ''} • Từ {formatDate(a.effectiveFrom)}
                               </span>
                             </div>
                             <Badge className="bg-emerald-50 text-emerald-700 text-[10px]">Đang áp dụng</Badge>
@@ -2492,7 +2482,7 @@ export default function ShiftsPage() {
                       </div>
                       <div>
                         <span className="text-slate-500 block">Ngày giải trình:</span>
-                        <span className="font-mono font-bold text-slate-800">{String(selectedCorrection.requestDate).slice(0, 10)}</span>
+                        <span className="font-mono font-bold text-slate-800">{formatDate(String(selectedCorrection.requestDate).slice(0, 10))}</span>
                       </div>
                     </div>
                   );
@@ -2510,16 +2500,16 @@ export default function ShiftsPage() {
                   <div className="bg-red-50 p-3 rounded-lg border border-red-200">
                     <span className="text-red-700 font-bold block mb-1">Dữ liệu gốc ban đầu</span>
                     <div className="space-y-1 text-slate-700 font-mono">
-                      <div>Vào: {selectedCorrection.oldCheckInAt ? new Date(selectedCorrection.oldCheckInAt).toLocaleTimeString('vi-VN') : '--:--'}</div>
-                      <div>Ra: {selectedCorrection.oldCheckOutAt ? new Date(selectedCorrection.oldCheckOutAt).toLocaleTimeString('vi-VN') : '--:--'}</div>
+                      <div>Vào: {formatTime(selectedCorrection.oldCheckInAt, '--:--')}</div>
+                      <div>Ra: {formatTime(selectedCorrection.oldCheckOutAt, '--:--')}</div>
                     </div>
                   </div>
 
                   <div className="bg-emerald-50 p-3 rounded-lg border border-emerald-200">
                     <span className="text-emerald-700 font-bold block mb-1">Đề xuất cập nhật</span>
                     <div className="space-y-1 text-emerald-900 font-mono font-bold">
-                      <div>Vào: {selectedCorrection.newCheckInAt ? new Date(selectedCorrection.newCheckInAt).toLocaleTimeString('vi-VN') : '--:--'}</div>
-                      <div>Ra: {selectedCorrection.newCheckOutAt ? new Date(selectedCorrection.newCheckOutAt).toLocaleTimeString('vi-VN') : '--:--'}</div>
+                      <div>Vào: {formatTime(selectedCorrection.newCheckInAt, '--:--')}</div>
+                      <div>Ra: {formatTime(selectedCorrection.newCheckOutAt, '--:--')}</div>
                     </div>
                   </div>
                 </div>

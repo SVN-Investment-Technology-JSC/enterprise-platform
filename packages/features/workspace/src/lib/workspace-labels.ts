@@ -9,6 +9,10 @@ import type {
   WorkItemStatus,
   WorkItemType,
 } from '@enterprise-platform/contracts-workspace';
+import {
+  formatDate as formatSharedDate,
+  formatDateTime as formatSharedDateTime,
+} from '@enterprise-platform/shared-ui';
 
 /**
  * Nhãn tiếng Việt cho các giá trị liệt kê.
@@ -84,22 +88,13 @@ export const PRIORITY_TONE: Record<WorkItemPriority, { bg: string; fg: string }>
 /** `2026-09-21` → `21/09/2026`. Chuỗi rỗng khi không có ngày. */
 export function formatDate(value?: string | null): string {
   if (!value) return '';
-  const [year, month, day] = value.slice(0, 10).split('-');
-  return year && month && day ? `${day}/${month}/${year}` : '';
+  return formatSharedDate(value.slice(0, 10));
 }
 
 /** Mốc thời gian đầy đủ cho nhật ký hoạt động. */
 export function formatDateTime(value?: string | null): string {
   if (!value) return '';
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return '';
-  return parsed.toLocaleString('vi-VN', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  return formatSharedDateTime(value);
 }
 
 /**

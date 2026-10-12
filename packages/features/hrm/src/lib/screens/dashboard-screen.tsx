@@ -26,6 +26,7 @@ import {
   RefreshCw,
   Coins,
 } from 'lucide-react';
+import { formatDate, formatTime } from '@enterprise-platform/shared-ui';
 import { hrmFetch } from '../hrm-api';
 import { useHrmPermissions } from '../hrm-permissions';
 import { Badge } from '../ui/badge';
@@ -152,7 +153,7 @@ export default function HrmDashboardPage() {
         }),
       });
       eventKey.current = null;
-      const nowStr = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+      const nowStr = formatTime(new Date());
       setLastPunchTime(nowStr);
       setPunchMessage(
         kind === 'check-in'
@@ -245,7 +246,7 @@ export default function HrmDashboardPage() {
                   Trạm Chấm Công Nhanh Hôm Nay
                 </span>
                 <Badge className="bg-emerald-100/80 text-emerald-800 border-emerald-300 font-mono text-[11px]">
-                  {punchContext?.workDate || new Date().toISOString().slice(0, 10)}
+                  {formatDate(punchContext?.workDate || new Date())}
                 </Badge>
               </div>
 

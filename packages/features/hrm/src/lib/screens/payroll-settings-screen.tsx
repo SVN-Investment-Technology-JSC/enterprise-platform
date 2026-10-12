@@ -31,6 +31,7 @@ import { PayrollDryRunPanel } from '../ui/payroll-dry-run-panel';
 import { PayrollVersionTimeline } from '../ui/payroll-version-timeline';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
+import { DatePickerInput } from '../ui/date-picker-input';
 import { Badge } from '../ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
 import { HrmActionDialog, type HrmAction } from '../ui/hrm-action-dialog';
@@ -705,6 +706,10 @@ export default function PayrollSettingsScreen() {
             className="flex flex-col flex-1 min-h-0 overflow-hidden"
             onSubmit={async (e) => {
               e.preventDefault();
+              if (!effectiveFrom) {
+                setError('Vui lòng chọn ngày hiệu lực.');
+                return;
+              }
               setBusy(true);
               setError('');
               try {
@@ -741,13 +746,11 @@ export default function PayrollSettingsScreen() {
                 <label className="text-xs font-semibold text-slate-700 block mb-1">
                   Ngày hiệu lực *
                 </label>
-                <Input
-                  required
-                  type="date"
+                <DatePickerInput
                   disabled={!!editing}
                   value={effectiveFrom}
-                  onChange={(e) => setEffectiveFrom(e.target.value)}
-                  className="text-xs h-9"
+                  onChange={setEffectiveFrom}
+                  height={38}
                 />
               </div>
               <div>

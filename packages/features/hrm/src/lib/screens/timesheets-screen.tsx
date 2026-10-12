@@ -1,7 +1,7 @@
 'use client';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Table } from 'antd';
-import { SearchableSelect, Popconfirm } from '@enterprise-platform/shared-ui';
+import { SearchableSelect, Popconfirm, formatDate } from '@enterprise-platform/shared-ui';
 import {
   Lock,
   Unlock,
@@ -308,7 +308,7 @@ export default function TimesheetsScreen() {
                     </span>
                   </div>
                   <p className="text-[11px] text-slate-500 font-mono">
-                    {p.fromDate} → {p.toDate}
+                    {formatDate(p.fromDate)} → {formatDate(p.toDate)}
                   </p>
                 </button>
               );
@@ -522,7 +522,7 @@ export default function TimesheetsScreen() {
           {matrix ? (
             <div className="flex-1 min-h-0 border border-slate-200 rounded-lg overflow-hidden bg-white shadow-xs">
               <MonthlyAttendanceMatrixTable
-                title={current ? `Bảng công ma trận kỳ ${current.periodCode} (${current.fromDate} → ${current.toDate})` : 'Bảng công ma trận tháng'}
+                title={current ? `Bảng công ma trận kỳ ${current.periodCode} (${formatDate(current.fromDate)} → ${formatDate(current.toDate)})` : 'Bảng công ma trận tháng'}
                 employees={matrixEmployees}
                 attendances={matrixAttendances}
                 isLoading={busy}
@@ -560,7 +560,11 @@ export default function TimesheetsScreen() {
               scroll={{ x: 1400, y: 480 }}
               columns={[
                 { title: 'Nhân viên', dataIndex: 'employeeName', width: 200 },
-                { title: 'Ngày', dataIndex: 'workDate' },
+                {
+                  title: 'Ngày',
+                  dataIndex: 'workDate',
+                  render: (value: string) => formatDate(value, value),
+                },
                 {
                   title: 'Trạng thái',
                   dataIndex: 'status',
@@ -582,7 +586,7 @@ export default function TimesheetsScreen() {
                       disabled={current?.status === 'LOCKED'}
                       onClick={() =>
                         setAction({
-                          title: `Điều chỉnh công ${r.workDate}`,
+                          title: `Điều chỉnh công ${formatDate(r.workDate, r.workDate)}`,
                           fields: [
                             {
                               key: 'paidMinutes',

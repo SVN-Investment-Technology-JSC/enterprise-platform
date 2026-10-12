@@ -1,4 +1,5 @@
 import type { CalendarOccurrence, WorkItem } from '@enterprise-platform/contracts-workspace';
+import { formatDate, formatMonth, formatTime } from '@enterprise-platform/shared-ui';
 
 export type CalendarMode = 'week' | 'month';
 
@@ -118,10 +119,7 @@ export function buildCalendarGrid(
         time:
           occurrence.allDay || !isFirstDay
             ? undefined
-            : new Date(occurrence.startAt).toLocaleTimeString('vi-VN', {
-                hour: '2-digit',
-                minute: '2-digit',
-              }),
+            : formatTime(occurrence.startAt),
         tone: EVENT_TONES[occurrence.eventType] ?? EVENT_TONES.other,
         occurrence,
       });
@@ -155,14 +153,12 @@ export function buildCalendarGrid(
   return cells;
 }
 
-/** Nhãn của thanh điều hướng: `Tuần 21/09 – 27/09/2026` hoặc `Tháng 9/2026`. */
+/** Nhãn của thanh điều hướng: `Tuần 21/09/2026 – 27/09/2026` hoặc `Tháng 09/2026`. */
 export function gridLabel(anchor: Date, mode: CalendarMode): string {
-  if (mode === 'month') return `Tháng ${anchor.getMonth() + 1}/${anchor.getFullYear()}`;
+  if (mode === 'month') return `Tháng ${formatMonth(`${anchor.getFullYear()}-${String(anchor.getMonth() + 1).padStart(2, '0')}`)}`;
   const start = gridStart(anchor, 'week');
   const end = new Date(start.getTime() + 6 * MS_PER_DAY);
-  const short = (value: Date) =>
-    `${String(value.getDate()).padStart(2, '0')}/${String(value.getMonth() + 1).padStart(2, '0')}`;
-  return `Tuần ${short(start)} – ${short(end)}/${end.getFullYear()}`;
+  return `Tuần ${formatDate(start)} – ${formatDate(end)}`;
 }
 
 /** Dời mốc neo đi một đơn vị hiển thị. */

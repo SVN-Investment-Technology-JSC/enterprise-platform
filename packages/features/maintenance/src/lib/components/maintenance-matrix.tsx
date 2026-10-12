@@ -8,7 +8,8 @@ import type {
   MaintenanceMatrixRow,
   MaintenancePriority,
 } from '@enterprise-platform/contracts-maintenance';
-import { MinimalPopupForm, Popconfirm, SearchableSelect } from '@enterprise-platform/shared-ui';
+import { MinimalPopupForm, Popconfirm, SearchableSelect, formatDate } from '@enterprise-platform/shared-ui';
+import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import {
   Download,
   FileText,
@@ -117,8 +118,7 @@ function toDraft(
 
 function formatDue(value?: string): string {
   if (!value) return '';
-  const date = new Date(value);
-  return `${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  return formatDate(value);
 }
 
 export function MaintenanceMatrixBoard({
@@ -442,14 +442,14 @@ export function MaintenanceMatrixBoard({
       {
         'Mã thiết bị': rows[0]?.asset.code ?? 'MBA-01',
         'Tần suất': frequencies.map((f) => f.label).slice(0, 2).join(', '),
-        'Ngày bắt đầu': defaultStartDate(),
+        'Ngày bắt đầu': formatDate(defaultStartDate()),
         'Mã quy trình': matrix.procedureCatalog?.[0]?.code ?? '',
         'Mức ưu tiên': 'Cao',
       },
       {
         'Mã thiết bị': rows[1]?.asset.code ?? 'MC-901',
         'Tần suất': frequencies[0]?.label ?? 'Tháng',
-        'Ngày bắt đầu': defaultStartDate(),
+        'Ngày bắt đầu': formatDate(defaultStartDate()),
         'Mã quy trình': '',
         'Mức ưu tiên': 'Thường',
       },
@@ -466,7 +466,7 @@ export function MaintenanceMatrixBoard({
         'Có',
         `Một hoặc nhiều tần suất, cách nhau bằng dấu phẩy. Danh sách: ${frequencies.map((f) => f.label).join(', ')}`,
       ],
-      ['Ngày bắt đầu', 'Không', 'Định dạng YYYY-MM-DD hoặc DD/MM/YYYY. Bỏ trống sẽ dùng mặc định +7 ngày'],
+      ['Ngày bắt đầu', 'Không', 'Định dạng DD/MM/YYYY (cũng nhận YYYY-MM-DD). Bỏ trống sẽ dùng mặc định +7 ngày'],
       ['Mã quy trình', 'Không', 'Mã quy trình đã công bố trong danh mục quy trình'],
       ['Mức ưu tiên', 'Không', 'Thấp, Thường, Cao (mặc định Thường)'],
     ]);
@@ -872,12 +872,13 @@ export function MaintenanceMatrixBoard({
                           />
                         </td>
                         <td>
-                          <input
-                            type="date"
-                            className={styles.importInput}
-                            value={r.startDate ?? ''}
-                            onChange={(e) => updateImportCell(idx, 'startDate', e.target.value)}
-                          />
+                          <div className={styles.importPicker}>
+                            <DatePickerInput
+                              value={r.startDate ?? ''}
+                              height={30}
+                              onChange={(val) => updateImportCell(idx, 'startDate', val)}
+                            />
+                          </div>
                         </td>
                         <td className={styles.importSelectCell}>
                           <SearchableSelect
@@ -1135,17 +1136,21 @@ export function MaintenanceMatrixBoard({
                         {checked && row.cells[entry.id]?.nextDueAt ? (
                           <span className={styles.due}>{formatDue(row.cells[entry.id]?.nextDueAt)}</span>
                         ) : checked ? (
-                          <input
-                            type="date"
-                            className={styles.dueInput}
-                            value={draft.startDates.get(entry.id) ?? defaultStartDate()}
-                            disabled={!canManage || busy}
+                          <div
+                            className={styles.duePicker}
+                            role="group"
                             aria-label={`Ngày bảo trì kế tiếp — ${row.asset.name} — ${entry.label}`}
                             title="Ngày bảo trì kế tiếp. Mặc định gợi ý một tuần nữa, không phải hôm nay."
-                            onChange={(event) =>
-                              setStartDate(row.asset.code, entry.id, event.target.value)
-                            }
-                          />
+                          >
+                            <DatePickerInput
+                              value={draft.startDates.get(entry.id) ?? defaultStartDate()}
+                              disabled={!canManage || busy}
+                              height={24}
+                              onChange={(val) =>
+                                setStartDate(row.asset.code, entry.id, val || defaultStartDate())
+                              }
+                            />
+                          </div>
                         ) : null}
                       </td>
                     );
@@ -1405,8 +1410,8 @@ export function MaintenanceMatrixBoard({
                             </span>
                             <span>
                               {occ.completedAt
-                                ? `Hoàn tất: ${new Date(occ.completedAt).toLocaleDateString('vi-VN')}`
-                                : `Hạn xử lý: ${new Date(occ.dueAt).toLocaleDateString('vi-VN')}`}
+                                ? `Hoàn tất: ${formatDate(occ.completedAt)}`
+                                : `Hạn xử lý: ${formatDate(occ.dueAt)}`}
                             </span>
                           </div>
                         </div>

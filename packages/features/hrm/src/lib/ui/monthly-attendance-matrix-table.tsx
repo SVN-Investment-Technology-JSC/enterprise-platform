@@ -14,6 +14,8 @@ import {
 import React, { useMemo, useRef, useState } from 'react';
 import {
   SearchableSelect,
+  formatDate,
+  formatMonth,
   type SearchableSelectOption,
 } from '@enterprise-platform/shared-ui';
 import { Button } from './button';
@@ -390,7 +392,7 @@ export function MonthlyAttendanceMatrixTable({
               onClick={() => {
                 toast.add({
                   title: 'Xuất file Excel',
-                  description: `Đã xuất bảng chấm công tháng ${selectedMonth}/${selectedYear} định dạng .xlsx`,
+                  description: `Đã xuất bảng chấm công tháng ${formatMonth(currentMonthValue)} định dạng .xlsx`,
                   type: 'success',
                 });
               }}
@@ -671,7 +673,7 @@ export function MonthlyAttendanceMatrixTable({
                               });
                             }
                           }}
-                          title={`Xem chi tiết ngày ${day.dayNumber}/${selectedMonth}: ${res.badgeText} (${res.inTime} - ${res.outTime})`}
+                          title={`Xem chi tiết ngày ${formatDate(day.isoDate)}: ${res.badgeText} (${res.inTime} - ${res.outTime})`}
                         >
                           {matrixViewTab === 'SUMMARY_CODES' ? (
                             <div className="flex items-center justify-center">
@@ -761,7 +763,7 @@ export function MonthlyAttendanceMatrixTable({
             <DialogTitle className="flex items-center gap-2 text-base text-slate-900">
               <Calendar className="size-4 text-blue-600" />
               <span>
-                Chi tiết ngày công: {selectedCellDetail?.day.isoDate} ({selectedCellDetail?.day.dayName})
+                Chi tiết ngày công: {formatDate(selectedCellDetail?.day.isoDate)} ({selectedCellDetail?.day.dayName})
               </span>
             </DialogTitle>
             <DialogDescription className="text-xs text-slate-500">

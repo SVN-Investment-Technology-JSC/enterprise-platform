@@ -2,6 +2,7 @@
 
 import type { DashboardCardCatalog } from '@enterprise-platform/feature-module-shell';
 import type { MaintenanceMatrix, MaintenanceWorkspace } from '@enterprise-platform/contracts-maintenance';
+import { formatDate } from '@enterprise-platform/shared-ui';
 import styles from './maintenance.module.scss';
 
 /**
@@ -111,7 +112,7 @@ export const MAINTENANCE_DASHBOARD_CARDS: DashboardCardCatalog<MaintenanceDashbo
           {rows.map((occurrence) => (
             <li key={occurrence.id}>
               <span>{occurrence.title}</span>
-              <small>{occurrence.dueAt.slice(0, 10)}</small>
+              <small>{formatDate(occurrence.dueAt.slice(0, 10))}</small>
             </li>
           ))}
         </ul>

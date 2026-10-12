@@ -15,6 +15,7 @@ import {
   Clock,
   ShieldCheck,
 } from 'lucide-react';
+import { formatDate } from '@enterprise-platform/shared-ui';
 import { formatDateTime, formatNumber } from '../inventory-labels';
 import styles from '../inventory.module.scss';
 
@@ -306,7 +307,7 @@ export function MaterialStocktakePanel(props: {
                       >
                         {lotDiff > 0 ? `+${formatNumber(lotDiff)}` : formatNumber(lotDiff)}
                       </td>
-                      <td>{lot.expiryDate ?? '—'}</td>
+                      <td>{formatDate(lot.expiryDate, '—')}</td>
                     </tr>
                   );
                 })}

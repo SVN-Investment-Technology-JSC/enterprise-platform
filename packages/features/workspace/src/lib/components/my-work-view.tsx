@@ -7,6 +7,7 @@ import {
   type ParticipantResponse,
   type WorkItemStatus,
 } from '@enterprise-platform/contracts-workspace';
+import { formatTime } from '@enterprise-platform/shared-ui';
 import { AtSign, CalendarClock, ExternalLink, RefreshCw } from 'lucide-react';
 import { Fragment, useCallback, useEffect, useState, type ReactNode } from 'react';
 import * as api from '../workspace-api';
@@ -399,11 +400,4 @@ function EventTitle({
       {children}
     </button>
   );
-}
-
-function formatTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString('vi-VN', {
-    hour: '2-digit',
-    minute: '2-digit',
-  });
 }

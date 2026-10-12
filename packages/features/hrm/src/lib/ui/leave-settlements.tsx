@@ -1,6 +1,7 @@
 'use client';
 import { useCallback, useEffect, useState } from 'react';
 import { Table } from 'antd';
+import { formatDate } from '@enterprise-platform/shared-ui';
 import type {
   HrmLeaveSettlement,
   HrmLeaveSettlementStatus,
@@ -69,7 +70,7 @@ export function LeaveSettlements({ employee }: { employee: string }) {
             .filter((p) => ['OPEN', 'PROCESSING'].includes(p.status))
             .map((p) => ({
               value: p.id,
-              label: `${p.periodCode} (${p.fromDate} → ${p.toDate})`,
+              label: `${p.periodCode} (${formatDate(p.fromDate, p.fromDate)} → ${formatDate(p.toDate, p.toDate)})`,
             })),
         },
         {
@@ -129,7 +130,12 @@ export function LeaveSettlements({ employee }: { employee: string }) {
           { title: 'Nhân viên', dataIndex: 'employeeName', width: 180 },
           { title: 'Loại nghỉ', dataIndex: 'leaveTypeName', width: 140 },
           { title: 'Năm', dataIndex: 'year', width: 70 },
-          { title: 'Ngày làm cuối', dataIndex: 'terminationDate', width: 115 },
+          {
+            title: 'Ngày làm cuối',
+            dataIndex: 'terminationDate',
+            width: 115,
+            render: (v?: string | null) => formatDate(v),
+          },
           {
             title: 'Quỹ thực hưởng',
             dataIndex: 'entitledDays',
