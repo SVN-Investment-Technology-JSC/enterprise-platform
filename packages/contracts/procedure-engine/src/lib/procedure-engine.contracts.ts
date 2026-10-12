@@ -194,6 +194,11 @@ export interface ProcedureDefinition {
   createdAt: string;
   updatedAt: string;
   publishedAt?: string;
+  /**
+   * Xoá mềm một quy trình đã lưu trữ: không còn hiện trên giao diện nhưng vẫn
+   * giữ trong DB, vì các hồ sơ cũ còn tham chiếu tới nó.
+   */
+  deletedAt?: string;
 }
 
 export type ProcedureInstanceStatus =

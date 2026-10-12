@@ -269,11 +269,11 @@ export class ProcedureEngineApplication {
       // The process matrix is a design artefact: participants execute work orders
       // but can still select published definitions to initiate or link work orders.
       definitions: actor.canDesign || actor.canPublish
-        ? [...state.definitions].sort((left, right) =>
-            left.name.localeCompare(right.name, 'vi'),
-          )
-        : [...state.definitions]
-            .filter((d) => d.status === 'published')
+        ? state.definitions
+            .filter((d) => !d.deletedAt)
+            .sort((left, right) => left.name.localeCompare(right.name, 'vi'))
+        : state.definitions
+            .filter((d) => d.status === 'published' && !d.deletedAt)
             .sort((left, right) => left.name.localeCompare(right.name, 'vi')),
       instances: visibleInstances,
     };
@@ -532,10 +532,13 @@ export class ProcedureEngineApplication {
     validateDefinitionDraft(input);
     return this.store.transaction(actor.tenantId, (state) => {
       const code = input.code.trim().toUpperCase();
-      if (state.definitions.some((definition) => definition.code === code)) {
+      const taken = state.definitions.find((definition) => definition.code === code);
+      if (taken) {
         throw new ProcedureEngineError(
           'conflict',
-          `Mã quy trình “${code}” đã tồn tại.`,
+          taken.deletedAt
+            ? `Mã quy trình “${code}” thuộc một quy trình đã xoá (vẫn giữ cho hồ sơ cũ); hãy dùng mã khác.`
+            : `Mã quy trình “${code}” đã tồn tại.`,
         );
       }
       const now = this.clock.now().toISOString();
@@ -809,6 +812,20 @@ export class ProcedureEngineApplication {
         throw new ProcedureEngineError(
           'conflict',
           'Quy trình này đã ở trạng thái lưu trữ rồi.',
+        );
+      }
+      // Lưu trữ là ngừng hẳn quy trình: hồ sơ đang chạy mà mất quy trình thì
+      // không ai sửa/tái kích hoạt được cấu hình của nó nữa.
+      const running = state.instances.filter(
+        (item) => item.definitionId === definitionId && item.status === 'running',
+      );
+      if (running.length) {
+        throw new ProcedureEngineError(
+          'conflict',
+          `Không lưu trữ được: còn ${running.length} hồ sơ chưa hoàn thành (${running
+            .slice(0, 5)
+            .map((item) => item.code)
+            .join(', ')}${running.length > 5 ? ', …' : ''}).`,
         );
       }
       definition.status = 'archived';
@@ -1131,15 +1148,35 @@ export class ProcedureEngineApplication {
     }
   }
 
-  /** Xoá hẳn một định nghĩa. Chặn khi còn hồ sơ tham chiếu — xoá hồ sơ trước. */
+  /**
+   * Xoá một định nghĩa.
+   *
+   * Quy trình đã lưu trữ được xoá mềm (`deletedAt`): biến mất khỏi giao diện
+   * nhưng vẫn nằm trong DB để các hồ sơ cũ còn tham chiếu được. Các trạng thái
+   * khác giữ cách cũ: chỉ xoá hẳn khi chưa có hồ sơ nào dùng.
+   */
   async deleteDefinition(actor: ProcedureActor, definitionId: string): Promise<void> {
     this.requireDesigner(actor);
     if (!actor.isOverride) {
       throw new ProcedureEngineError('forbidden', 'Chỉ quản trị mới xoá được quy trình.');
     }
     const state = await this.store.read(actor.tenantId);
-    if (!state.definitions.some((candidate) => candidate.id === definitionId)) {
+    const target = state.definitions.find((candidate) => candidate.id === definitionId);
+    if (!target || target.deletedAt) {
       throw new ProcedureEngineError('not_found', 'Không tìm thấy quy trình.');
+    }
+    if (target.status === 'archived') {
+      await this.store.transaction(actor.tenantId, (draft) => {
+        const definition = this.requireDefinition(draft.definitions, definitionId);
+        if (definition.status !== 'archived') {
+          throw new ProcedureEngineError('conflict', 'Chỉ xoá được quy trình đã lưu trữ.');
+        }
+        const now = this.clock.now().toISOString();
+        definition.deletedAt = now;
+        definition.updatedAt = now;
+        return definition;
+      });
+      return;
     }
     const used = state.instances.filter((item) => item.definitionId === definitionId).length;
     if (used > 0) {
@@ -3275,7 +3312,7 @@ export class ProcedureEngineApplication {
     definitionId: string,
   ): ProcedureDefinition {
     const definition = definitions.find(
-      (candidate) => candidate.id === definitionId,
+      (candidate) => candidate.id === definitionId && !candidate.deletedAt,
     );
     if (!definition) {
       throw new ProcedureEngineError('not_found', 'Không tìm thấy quy trình.');

@@ -28,6 +28,7 @@ import {
   createProcedureDefinition,
   loadProcedureAttachments,
   archiveProcedureDefinition,
+  deleteProcedureDefinition,
   loadAssetCatalog,
   loadMaterialCatalog,
   requestProcedureMaterials,
@@ -586,7 +587,25 @@ export function ProcedureEngineScreen() {
           materialCatalog={materialCatalog}
           groups={activeGroups}
           onDeleteDefinition={workspace.permissions.canPublishDefinitions ? (definitionId) =>
-            perform('archive-definition', () => archiveProcedureDefinition(definitionId))
+            perform('archive-definition', async () => {
+              await archiveProcedureDefinition(definitionId);
+              // Cập nhật ngay trên màn: nạp lại toàn bộ chạy nền, có thể chậm vì Kho.
+              setWorkspace((current) => current && {
+                ...current,
+                definitions: current.definitions.map((item) =>
+                  item.id === definitionId ? { ...item, status: 'archived' } : item,
+                ),
+              });
+            }, { reloadInBackground: true })
+          : undefined}
+          onDeleteArchivedDefinition={canDesign && workspace.permissions.canOverrideActions ? (definitionId) =>
+            perform('delete-definition', async () => {
+              await deleteProcedureDefinition(definitionId);
+              setWorkspace((current) => current && {
+                ...current,
+                definitions: current.definitions.filter((item) => item.id !== definitionId),
+              });
+            }, { reloadInBackground: true })
           : undefined}
           busy={Boolean(busy)}
           onCreateDefinition={canDesign ? (input) =>

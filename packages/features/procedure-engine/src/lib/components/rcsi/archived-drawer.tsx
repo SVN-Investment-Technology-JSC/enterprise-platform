@@ -1,7 +1,8 @@
 'use client';
 
 import type { ProcedureDefinition } from '@enterprise-platform/contracts-procedure-engine';
-import { Archive, Search, X } from 'lucide-react';
+import { Popconfirm } from '@enterprise-platform/shared-ui';
+import { Archive, Search, Trash2, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import styles from './archived-drawer.module.scss';
@@ -22,6 +23,7 @@ export function ArchivedDrawer({
   groups,
   busy = false,
   onReactivate,
+  onDelete,
   onClose,
 }: {
   definitions: readonly ProcedureDefinition[];
@@ -29,6 +31,11 @@ export function ArchivedDrawer({
   busy?: boolean;
   /** Vắng mặt khi người dùng không có quyền thiết kế: chỉ xem được danh sách. */
   onReactivate?: (definitionId: string) => void;
+  /**
+   * Xoá khỏi giao diện (xoá mềm). Quy trình vẫn nằm trong DB vì hồ sơ cũ còn
+   * tham chiếu; vắng mặt khi người dùng không phải quản trị.
+   */
+  onDelete?: (definitionId: string) => void;
   onClose: () => void;
 }) {
   const [query, setQuery] = useState('');
@@ -74,7 +81,7 @@ export function ArchivedDrawer({
         </header>
         <p className={styles.hint}>
           Quy trình đã lưu trữ không hiện trên ma trận. Bấm “Tái kích hoạt” để đưa quy trình về bản
-          nháp và tiếp tục thiết kế.
+          nháp và tiếp tục thiết kế, hoặc “Xoá” để ẩn hẳn quy trình (hồ sơ cũ vẫn giữ nguyên).
         </p>
 
         <label className={styles.search}>
@@ -134,6 +141,29 @@ export function ArchivedDrawer({
                         >
                           Tái kích hoạt
                         </button>
+                      ) : null}
+                      {onDelete ? (
+                        <Popconfirm
+                          title={`Xoá quy trình “${definition.name}”?`}
+                          description="Quy trình sẽ không còn hiện trên giao diện. Các hồ sơ đã tạo từ quy trình này vẫn được giữ nguyên."
+                          okText="Xoá"
+                          cancelText="Huỷ"
+                          okType="danger"
+                          placement="left"
+                          disabled={busy}
+                          onConfirm={() => onDelete(definition.id)}
+                        >
+                          <button
+                            type="button"
+                            className={styles.remove}
+                            disabled={busy}
+                            title="Xoá quy trình đã lưu trữ"
+                            aria-label={`Xoá quy trình ${definition.name}`}
+                          >
+                            <Trash2 size={13} aria-hidden="true" />
+                            Xoá
+                          </button>
+                        </Popconfirm>
                       ) : null}
                     </td>
                   </tr>
