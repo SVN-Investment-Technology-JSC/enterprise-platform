@@ -4,7 +4,6 @@ import { useId, useState, useMemo } from 'react';
 import { Search, X, Check, CheckSquare, Square } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { searchText } from './authorization-client';
 
 interface PermissionPickerProps {
@@ -57,13 +56,13 @@ export function PermissionPicker({
   };
 
   return (
-    <div className="space-y-2.5 rounded-xl border border-slate-200 bg-slate-50/50 p-3.5 shadow-xs">
+    <div className="space-y-2 rounded-[10px] border border-[#eef0f3] bg-[#fafbfc] p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold text-slate-800">{label}</span>
-          <Badge variant="secondary" className="px-2 py-0.5 text-xs font-semibold">
+          <span className="text-[13px] font-semibold text-slate-800">{label}</span>
+          <span className="rounded-full bg-[#f1f3f6] px-2 text-xs font-semibold text-slate-700">
             {values.length} / {options.length}
-          </Badge>
+          </span>
         </div>
         <div className="flex items-center gap-1.5 text-xs">
           <Button
@@ -72,7 +71,7 @@ export function PermissionPicker({
             size="sm"
             onClick={handleToggleAll}
             disabled={!enabledMatches.length}
-            className="h-7 px-2 text-xs font-medium text-slate-600 hover:text-blue-600"
+            className="h-7 px-2 text-xs font-semibold text-slate-700 hover:text-[#8a6400]"
           >
             {allSelected ? (
               <>
@@ -119,10 +118,10 @@ export function PermissionPicker({
             <label
               key={option.id}
               htmlFor={inputId}
-              className={`group flex cursor-pointer items-start gap-3 rounded-lg border p-2.5 text-sm transition-all ${
+              className={`group flex cursor-pointer items-start gap-2.5 rounded-lg border px-2.5 py-2 text-[12.5px] transition-all ${
                 isChecked
-                  ? 'border-blue-300 bg-blue-50/70 text-blue-950 shadow-2xs'
-                  : 'border-slate-200/80 bg-white hover:border-slate-300 hover:bg-slate-50 text-slate-700'
+                  ? 'border-amber-300 bg-[#fffbeb] text-[#18181b]'
+                  : 'border-[#eef0f3] bg-white hover:border-slate-300 hover:bg-[#f4f6f9] text-slate-700'
               } ${option.disabled ? 'cursor-not-allowed opacity-60' : ''}`}
             >
               <div className="pt-0.5">
@@ -141,9 +140,9 @@ export function PermissionPicker({
                   }
                 />
                 <div
-                  className={`flex size-4.5 items-center justify-center rounded-sm border transition-colors ${
+                  className={`flex size-4.5 items-center justify-center rounded-[5px] border-[1.5px] transition-colors ${
                     isChecked
-                      ? 'border-blue-600 bg-blue-600 text-white'
+                      ? 'border-[#ffc90a] bg-[#ffc90a] text-[#18181b]'
                       : 'border-slate-300 bg-white group-hover:border-slate-400'
                   }`}
                 >
