@@ -111,6 +111,7 @@ integration('HRM employee PostgreSQL integration', () => {
       'core/0001-core-schema.sql',
       'core/0002-organization-soft-delete.sql',
       'core/0006-employees.sql',
+      'core/0007-org-hrm-bridge.sql',
       '0001-integration.sql',
       'hrm/0001-hrm.sql',
     ])
@@ -144,10 +145,12 @@ integration('HRM employee PostgreSQL integration', () => {
     await migrate('hrm/0015-procedure-definition-snapshot.sql');
     await migrate('hrm/0015-shift-submission.sql');
     await migrate('hrm/0016-hrm-lifecycle.sql');
+    await migrate('hrm/0016-family-contract-lifecycle.sql');
     await migrate('hrm/0019-timesheet-attachment-lifecycle.sql');
     await migrate('hrm/0031-hrm-profile-documents.sql');
     await migrate('hrm/0020-payroll-lifecycle.sql');
     await migrate('hrm/0033-leave-annual-policy.sql');
+    await migrate('hrm/0044-hrm-annual-leave-single-policy.sql');
     await migrate('hrm/0035-hrm-work-schedules.sql');
     await migrate('hrm/0036-hrm-work-schedule-rules.sql');
     // Danh mục lý do của đơn từ (lý do chọn từ danh mục, mô tả tự do): cột reason_id/reason_name/paid của các bảng đơn.
@@ -168,6 +171,7 @@ integration('HRM employee PostgreSQL integration', () => {
         tenantId,
         principal: { userId },
       }),
+      has: () => true,
     };
     controller = new HrmEmployeeController(ctx as unknown as HrmContextService);
   }, 30_000);
@@ -186,12 +190,21 @@ integration('HRM employee PostgreSQL integration', () => {
     expect(profile.data.userId).toBe(userId);
     expect(profile.data.fullName).toBe('Legacy employee');
   });
-  it('creates an accountless employee atomically', async () => {
+  const coreEmployee = async (name: string) => {
+    const id = randomUUID();
+    await pool.query(
+      'INSERT INTO core_schema.employees (id, tenant_id, full_name, work_email) VALUES ($1, $2, $3, $4)',
+      [id, tenantId, name, `${id}@test.local`],
+    );
+    return id;
+  };
+  it('initializes an HRM profile for an accountless Core employee, copying the name from Core', async () => {
+    const coreId = await coreEmployee('Accountless employee');
     const result = await controller.createEmployee(req, {
+      employeeId: coreId,
       employeeCode: 'NO-ACCOUNT',
-      fullName: 'Accountless employee',
       joinDate: '2026-09-01',
-    });
+    } as any);
     expect(result.data.userId).toBeNull();
     const profile = await controller.getEmployeeProfile(
       req,
@@ -203,19 +216,35 @@ integration('HRM employee PostgreSQL integration', () => {
     );
     expect(users.rows[0].count).toBe(1);
   });
-  it('rolls back Core creation when profile uniqueness fails', async () => {
+  it('refuses Core-owned fields and requires an existing Core person', async () => {
+    await expect(
+      controller.createEmployee(req, {
+        employeeCode: 'NEW-1',
+        fullName: 'Typed in HRM',
+        joinDate: '2026-09-01',
+      } as any),
+    ).rejects.toMatchObject({ status: 400 });
+    await expect(
+      controller.createEmployee(req, {
+        employeeCode: 'NEW-2',
+        joinDate: '2026-09-01',
+      } as any),
+    ).rejects.toMatchObject({ status: 400 });
+  });
+  it('rolls back profile creation when the employee code is already used', async () => {
+    const coreId = await coreEmployee('Duplicate');
     const before = await pool.query(
-      'SELECT count(*)::int AS count FROM core_schema.employees',
+      'SELECT count(*)::int AS count FROM hrm_schema.employee_profiles',
     );
     await expect(
       controller.createEmployee(req, {
+        employeeId: coreId,
         employeeCode: 'LEGACY',
-        fullName: 'Duplicate',
         joinDate: '2026-01-01',
-      }),
-    ).rejects.toThrow('Mã nhân viên');
+      } as any),
+    ).rejects.toMatchObject({ status: 409 });
     const after = await pool.query(
-      'SELECT count(*)::int AS count FROM core_schema.employees',
+      'SELECT count(*)::int AS count FROM hrm_schema.employee_profiles',
     );
     expect(after.rows[0].count).toBe(before.rows[0].count);
   });
@@ -226,6 +255,7 @@ integration('HRM employee PostgreSQL integration', () => {
         tenantId: randomUUID(),
         principal: { userId },
       }),
+      has: () => false,
     } as unknown as HrmContextService);
     await expect(other.getEmployeeProfile(req, userId)).rejects.toThrow();
     expect((await other.listEmployees(req)).data).toEqual([]);
@@ -313,7 +343,10 @@ integration('HRM employee PostgreSQL integration', () => {
     );
     const correctionReason = (
       await pool.query(
-        `INSERT INTO hrm_schema.request_reasons(tenant_id,kind,code,name) VALUES($1,'ATTENDANCE_CORRECTION','COR_TEST','Quên chấm công') RETURNING id`,
+        // Danh mục mặc định của tenant đã có sẵn lý do "Quên chấm công": dùng lại, chưa có thì tạo.
+        `WITH existing AS (SELECT id FROM hrm_schema.request_reasons WHERE tenant_id=$1 AND kind='ATTENDANCE_CORRECTION' AND lower(name)=lower('Quên chấm công') AND deleted_at IS NULL),
+         created AS (INSERT INTO hrm_schema.request_reasons(tenant_id,kind,code,name) SELECT $1,'ATTENDANCE_CORRECTION','COR_TEST','Quên chấm công' WHERE NOT EXISTS (SELECT 1 FROM existing) RETURNING id)
+         SELECT id FROM existing UNION ALL SELECT id FROM created`,
         [tenantId],
       )
     ).rows[0].id as string;
@@ -478,7 +511,13 @@ integration('HRM employee PostgreSQL integration', () => {
         `INSERT INTO hrm_schema.shift_definitions (tenant_id,code,name,start_time,end_time,break_minutes) VALUES ($1,'DAY','Day','08:00','16:00',0) RETURNING id`,
         [t],
       );
-      await scheduleShift(t, e, shift.rows[0].id, '2026-09-21', '2026-09-23');
+      // Lịch từng ngày là nguồn chính: 21 làm ca, 22 nghỉ theo lịch, 23 là ngày lễ (lịch công ty đánh dấu lễ có lương).
+      await scheduleShift(t, e, shift.rows[0].id, '2026-09-21', '2026-09-21');
+      await scheduleShift(t, e, shift.rows[0].id, '2026-09-23', '2026-09-23');
+      await pool.query(
+        `INSERT INTO hrm_schema.employee_work_days (tenant_id,employee_id,work_date,day_type,source) VALUES ($1,$2,'2026-09-22','OFF','MANUAL')`,
+        [t, e],
+      );
       await pool.query(
         `INSERT INTO hrm_schema.work_calendar (tenant_id,work_date,day_kind,name,paid) VALUES ($1,'2026-09-22','OFF','Off',false),($1,'2026-09-23','HOLIDAY','Company holiday',true)`,
         [t],
@@ -714,9 +753,7 @@ integration('HRM employee PostgreSQL integration', () => {
         amount: 500000,
       });
       if (midPeriod) {
-        await expect(pay.calculateRun(req, run.data.id)).rejects.toThrow(
-          'vào giữa kỳ',
-        );
+        // Một mình trong kỳ nên công chuẩn của kỳ chính là công của họ; đặt định mức phút cố định để trả theo ngày làm thực tế.
         await pool.query(
           `UPDATE hrm_schema.policy_versions v SET config_json=jsonb_set(config_json,'{standardMinutes}','1200'::jsonb) FROM hrm_schema.policies p WHERE p.id=v.policy_id AND p.tenant_id=$1 AND p.policy_type='PAYROLL'`,
           [t],
@@ -1145,7 +1182,8 @@ integration('HRM employee PostgreSQL integration', () => {
           [t, e],
         )
       ).rows[0].accrued,
-    ).toBe('2.00');
+      // Từ ngày 1 hàng tháng được +1 phép: chạy ngày 10/3 đã cộng đủ tháng 1, 2 và 3.
+    ).toBe('3.00');
     expect(
       (
         await pool.query(
@@ -1167,7 +1205,7 @@ integration('HRM employee PostgreSQL integration', () => {
           [t, e],
         )
       ).rows[0].accrued,
-    ).toBe('3.00');
+    ).toBe('4.00');
     expect(
       (
         await pool.query(
@@ -1175,7 +1213,7 @@ integration('HRM employee PostgreSQL integration', () => {
           [t],
         )
       ).rows[0].last_accrual_month,
-    ).toBe('2025-03');
+    ).toBe('2025-04');
   });
   it('withdraws a pending leave once, releases its reservation and ignores late workflow completion', async () => {
     const { t, e, ctx } = await fixture();
@@ -1595,7 +1633,8 @@ integration('HRM employee PostgreSQL integration', () => {
           [t],
         )
       ).rows[0],
-    ).toEqual({ used: '0.00', pending: '1.00' });
+    // Đơn nghỉ không giữ chỗ ở cột pending: lỗi kỳ đã khóa không để lại số liệu quỹ nào.
+    ).toEqual({ used: '0.00', pending: '0.00' });
     await pool.query(
       `UPDATE hrm_schema.timesheet_periods SET status='REOPENED' WHERE id=$1`,
       [period],
@@ -1652,7 +1691,8 @@ integration('HRM employee PostgreSQL integration', () => {
       ).rows[0],
     ).toMatchObject({
       sync_status: 'FAILED',
-      last_error: expect.stringContaining('đã thay đổi'),
+      // Họ tên do Core quản lý: đơn đính chính không được đổi họ tên ở HRM.
+      last_error: expect.stringContaining('do Core quản lý'),
     });
     expect(
       (
@@ -2027,9 +2067,9 @@ integration('HRM employee PostgreSQL integration', () => {
     await expect(submit('2025-03-04', '01:00', '03:00', 120)).rejects.toThrow(
       'giới hạn OT day',
     );
-    await expect(submit('2025-03-05', '21:00', '23:00', 120)).rejects.toThrow(
-      'ranh giới',
-    );
+    // Một đơn có thể trộn giờ ngày và giờ đêm: hệ số bình quân theo phút (1 giờ ngày 1,5 và 1 giờ đêm 2).
+    const mixed = await submit('2025-03-05', '21:00', '23:00', 120);
+    expect(Number(mixed.ot_rate_multiplier)).toBe(1.75);
   });
   it('requires confirmed object metadata and isolates leave attachments by employee', async () => {
     const { t, e, ctx } = await fixture();

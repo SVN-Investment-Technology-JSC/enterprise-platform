@@ -36,6 +36,7 @@ integration('HRM timesheet lifecycle PostgreSQL integration', () => {
       'core/0001-core-schema.sql',
       'core/0002-organization-soft-delete.sql',
       'core/0006-employees.sql',
+      'core/0007-org-hrm-bridge.sql',
       '0001-integration.sql',
       'hrm/0001-hrm.sql',
     ])
@@ -80,6 +81,10 @@ integration('HRM timesheet lifecycle PostgreSQL integration', () => {
     await migrate('hrm/0033-leave-annual-policy.sql');
     await migrate('hrm/0035-hrm-work-schedules.sql');
     await migrate('hrm/0036-hrm-work-schedule-rules.sql');
+    await migrate('hrm/0037-request-reason-catalog.sql');
+    await migrate('hrm/0038-request-reason-categories.sql');
+    await migrate('hrm/0039-request-catalog-codes.sql');
+    await migrate('hrm/0045-hrm-request-reasons.sql');
     await migrate('hrm/0048-hrm-timesheet-payroll-linkage.sql');
     await migrate('hrm/0049-hrm-ot-reason-rate.sql');
     await migrate('hrm/0050-hrm-request-comments.sql');

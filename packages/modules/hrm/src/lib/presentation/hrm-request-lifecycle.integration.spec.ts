@@ -41,6 +41,7 @@ integration('HRM request draft lifecycle PostgreSQL integration', () => {
       'core/0001-core-schema.sql',
       'core/0002-organization-soft-delete.sql',
       'core/0006-employees.sql',
+      'core/0007-org-hrm-bridge.sql',
       '0001-integration.sql',
       'hrm/0001-hrm.sql',
     ])
@@ -80,6 +81,7 @@ integration('HRM request draft lifecycle PostgreSQL integration', () => {
     await migrate('hrm/0018-hrm-request-reversals.sql');
     await migrate('hrm/0018-hrm-request-reversals.sql');
     await migrate('hrm/0033-leave-annual-policy.sql');
+    await migrate('hrm/0044-hrm-annual-leave-single-policy.sql');
     await migrate('hrm/0035-hrm-work-schedules.sql');
     await migrate('hrm/0036-hrm-work-schedule-rules.sql');
     // Danh mục lý do của đơn từ (lý do chọn từ danh mục, mô tả tự do): cột reason_id/reason_name/paid của các bảng đơn.
@@ -161,6 +163,11 @@ integration('HRM request draft lifecycle PostgreSQL integration', () => {
         name: 'Versioned leave',
       } as any)
     ).data;
+    // Chỉ lý do phép năm mới có lịch cộng phép (mỗi tenant đúng một lý do).
+    await pool.query(
+      'UPDATE hrm_schema.leave_types SET is_annual=true,paid=true,deduct_balance=true WHERE tenant_id=$1 AND id=$2',
+      [tenantId, type.id],
+    );
     const initial = {
       accrualFrequency: 'MONTHLY',
       accrualAmount: 1,
@@ -793,7 +800,10 @@ integration('HRM request draft lifecycle PostgreSQL integration', () => {
     ];
     const reason = (
       await pool.query(
-        `INSERT INTO hrm_schema.request_reasons(tenant_id,kind,code,name) VALUES($1,'ATTENDANCE_CORRECTION','COR_TEST','Quên chấm công') RETURNING id`,
+        // Danh mục mặc định của tenant đã có sẵn lý do "Quên chấm công": dùng lại, chưa có thì tạo.
+        `WITH existing AS (SELECT id FROM hrm_schema.request_reasons WHERE tenant_id=$1 AND kind='ATTENDANCE_CORRECTION' AND lower(name)=lower('Quên chấm công') AND deleted_at IS NULL),
+         created AS (INSERT INTO hrm_schema.request_reasons(tenant_id,kind,code,name) SELECT $1,'ATTENDANCE_CORRECTION','COR_TEST','Quên chấm công' WHERE NOT EXISTS (SELECT 1 FROM existing) RETURNING id)
+         SELECT id FROM existing UNION ALL SELECT id FROM created`,
         [tenantId],
       )
     ).rows[0];

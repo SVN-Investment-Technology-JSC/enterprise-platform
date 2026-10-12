@@ -40,6 +40,7 @@ integration('HRM catalog lifecycle PostgreSQL integration', () => {
       'core/0001-core-schema.sql',
       'core/0002-organization-soft-delete.sql',
       'core/0006-employees.sql',
+      'core/0007-org-hrm-bridge.sql',
       '0001-integration.sql',
       'hrm/0001-hrm.sql',
     ])
@@ -73,7 +74,9 @@ integration('HRM catalog lifecycle PostgreSQL integration', () => {
     await migrate('hrm/0015-procedure-definition-snapshot.sql');
     await migrate('hrm/0015-shift-submission.sql');
     await migrate('hrm/0016-hrm-lifecycle.sql');
+    await migrate('hrm/0016-family-contract-lifecycle.sql');
     await migrate('hrm/0033-leave-annual-policy.sql');
+    await migrate('hrm/0044-hrm-annual-leave-single-policy.sql');
     const ctx = {
       getContext: async () => ({ pool, tenantId, principal: { userId } }),
       getRequestContext: async () => ({
@@ -162,15 +165,20 @@ integration('HRM catalog lifecycle PostgreSQL integration', () => {
   });
   it('updates employee identity without changing login identity and clears optional profile dates', async () => {
     const before = (await controller.getMyProfile(req)).data;
+    // Họ tên và email công việc do Core quản lý: HRM không cho sửa.
+    await expect(
+      controller.updateEmployeeProfile(req, userId, {
+        fullName: 'Nguyễn Minh An',
+        workEmail: 'minh.an@example.test',
+        expectedUpdatedAt: before.updatedAt,
+      } as any),
+    ).rejects.toMatchObject({ status: 400 });
     const updated = await controller.updateEmployeeProfile(req, userId, {
-      fullName: 'Nguyễn Minh An',
-      workEmail: 'minh.an@example.test',
       dateOfBirth: '1995-06-15',
       bankName: 'Ngân hàng mô phỏng',
       expectedUpdatedAt: before.updatedAt,
     } as any);
-    expect(updated.data.fullName).toBe('Nguyễn Minh An');
-    expect(updated.data.email).toBe('minh.an@example.test');
+    expect(updated.data.fullName).toBe('Legacy employee');
     expect(updated.data.dateOfBirth).toBe('1995-06-15');
     const cleared = await controller.updateEmployeeProfile(req, userId, {
       dateOfBirth: null,
