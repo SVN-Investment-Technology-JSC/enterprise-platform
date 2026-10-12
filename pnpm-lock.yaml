@@ -831,6 +831,9 @@ importers:
       '@enterprise-platform/contracts-tenancy':
         specifier: workspace:*
         version: link:../../packages/contracts/tenancy
+      '@enterprise-platform/feature-module-shell':
+        specifier: workspace:*
+        version: link:../../packages/features/module-shell
       '@enterprise-platform/shared-ui':
         specifier: workspace:*
         version: link:../../packages/shared/ui

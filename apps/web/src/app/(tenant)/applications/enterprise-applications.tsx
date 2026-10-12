@@ -40,7 +40,6 @@ import {
 } from '@/components/ui/sheet';
 import { toast } from '@/components/ui/sonner';
 import { cn } from '@/lib/utils';
-import { PageBreadcrumb } from '@/components/ui/page-breadcrumb';
 
 interface ModuleExtraInfo {
   category: string;
@@ -356,18 +355,9 @@ export function EnterpriseApplications({
 
   return (
     <>
-      <main className="flex h-[calc(100vh-4rem)] flex-col overflow-hidden p-4 sm:p-6">
-        {/* Header & Breadcrumb */}
+      <main className="flex h-[calc(100dvh-6.5rem)] flex-col overflow-hidden">
+        {/* Header */}
         <div className="shrink-0 mb-3">
-          <PageBreadcrumb
-            className="mb-1.5"
-            items={[
-              { label: 'Tenant Portal', href: '/dashboard' },
-              { label: 'Quản trị' },
-              { label: 'Ứng dụng doanh nghiệp' },
-            ]}
-          />
-
           <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
             <div>
               <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-[#0d1c2d]">

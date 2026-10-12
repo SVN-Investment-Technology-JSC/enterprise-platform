@@ -49,7 +49,6 @@ import {
 import { toast } from '@/components/ui/sonner';
 import { PermissionPicker } from './permission-picker';
 import { authorizationRequest, searchText } from './authorization-client';
-import { PageBreadcrumb } from '@/components/ui/page-breadcrumb';
 
 interface AuthorizationWorkspaceProps {
   readonly initialRoles: TenantRole[];
@@ -281,19 +280,11 @@ export function AuthorizationWorkspace({
   };
 
   return (
-    <main className="flex h-[calc(100vh-4rem)] flex-col gap-4 overflow-hidden bg-[#f8f9ff] p-4 sm:p-6 text-slate-900">
+    <main className="flex h-[calc(100dvh-6.5rem)] flex-col gap-4 overflow-hidden text-slate-900">
       {/* 1. TOP HEADER & METRIC CARDS */}
       <header className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <PageBreadcrumb
-              className="mb-1.5"
-              items={[
-                { label: 'Tenant Portal', href: '/dashboard' },
-                { label: 'Quản trị' },
-                { label: 'Phân quyền & Vai trò' },
-              ]}
-            />
             <div className="flex items-center gap-3">
               <div className="flex size-10 items-center justify-center rounded-xl bg-blue-600 text-white shadow-sm shadow-blue-500/20">
                 <ShieldCheck className="size-5" />
