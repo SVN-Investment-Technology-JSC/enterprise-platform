@@ -80,6 +80,7 @@ integration('HRM time lifecycle PostgreSQL integration', () => {
     await migrate('hrm/0016-family-contract-lifecycle.sql');
     await migrate('hrm/0016-time-lifecycle.sql');
     await migrate('hrm/0033-leave-annual-policy.sql');
+    await migrate('hrm/0051-hrm-leave-settlements-legacy.sql');
     await migrate('hrm/0035-hrm-work-schedules.sql');
     await migrate('hrm/0036-hrm-work-schedule-rules.sql');
     await migrate('hrm/0037-request-reason-catalog.sql');
