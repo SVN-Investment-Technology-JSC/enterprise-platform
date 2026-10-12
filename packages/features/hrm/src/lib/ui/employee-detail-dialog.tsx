@@ -63,6 +63,16 @@ function Block({ icon: Icon, title, children }: { icon: typeof User; title: stri
 
 const MARITAL: Record<string, string> = { MARRIED: 'Đã kết hôn', DIVORCED: 'Ly hôn', SINGLE: 'Độc thân' };
 
+/**
+ * Hồ sơ cá nhân lưu tình trạng hôn nhân bằng chữ ("Đã kết hôn", "Độc thân", "Ly hôn", "Khác"),
+ * dữ liệu cũ có thể là mã. Nhận cả hai; còn trống thì để trống chứ không đoán "Độc thân".
+ */
+function maritalLabel(value: string | null | undefined): string {
+  const text = value?.trim();
+  if (!text) return '----';
+  return MARITAL[text] ?? text;
+}
+
 type DetailTab = 'documents' | 'family' | 'contracts';
 
 /**
@@ -181,7 +191,7 @@ export function EmployeeDetailDialog({
                   <Row label="CCCD / Hộ chiếu" mono>
                     <Sensitive value={employee.identityCardNumber} canSee={canSensitive} />
                   </Row>
-                  <Row label="Hôn nhân">{MARITAL[employee.maritalStatus ?? ''] ?? 'Độc thân'}</Row>
+                  <Row label="Hôn nhân">{maritalLabel(employee.maritalStatus)}</Row>
                   <Row label="Quốc tịch · Dân tộc">
                     {employee.nationality || 'Việt Nam'} · {employee.ethnicity || 'Kinh'}
                   </Row>
