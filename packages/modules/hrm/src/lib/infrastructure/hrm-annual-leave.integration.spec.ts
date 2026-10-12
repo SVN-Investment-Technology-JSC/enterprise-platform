@@ -155,6 +155,7 @@ integration('Annual leave by labor contract (PostgreSQL)', () => {
       'hrm/0032-hrm-personnel-decisions.sql',
       'hrm/0020-payroll-lifecycle.sql',
       'hrm/0033-leave-annual-policy.sql',
+      'hrm/0051-hrm-leave-settlements-legacy.sql',
       'hrm/0035-hrm-work-schedules.sql',
       'hrm/0036-hrm-work-schedule-rules.sql',
       'hrm/0044-hrm-annual-leave-single-policy.sql',
