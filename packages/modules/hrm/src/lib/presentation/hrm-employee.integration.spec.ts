@@ -1452,20 +1452,21 @@ integration('HRM employee PostgreSQL integration', () => {
         )
       ).rows[0].id;
     } else {
+      // Họ tên do Core quản lý nên không đính chính ở HRM; dùng mã số thuế.
       const old = (
         await pool.query(
-          'SELECT full_name FROM core_schema.employees WHERE id=$1',
+          'SELECT tax_code FROM hrm_schema.employee_profiles WHERE employee_id=$1',
           [e],
         )
-      ).rows[0].full_name;
+      ).rows[0].tax_code;
       id = (
         await pool.query(
           `INSERT INTO hrm_schema.profile_corrections(tenant_id,employee_id,changes,previous_values,reason,submitted_by) VALUES($1,$2,$3,$4,'Điều chỉnh họ tên',$5) RETURNING id`,
           [
             t,
             e,
-            JSON.stringify({ fullName: 'Nguyễn Minh An' }),
-            JSON.stringify({ fullName: old }),
+            JSON.stringify({ taxCode: '0312345678' }),
+            JSON.stringify({ taxCode: old }),
             userId,
           ],
         )
@@ -1552,11 +1553,11 @@ integration('HRM employee PostgreSQL integration', () => {
       expect(
         (
           await pool.query(
-            'SELECT full_name FROM core_schema.employees WHERE id=$1',
+            'SELECT tax_code FROM hrm_schema.employee_profiles WHERE employee_id=$1',
             [e],
           )
-        ).rows[0].full_name,
-      ).toBe('Nguyễn Minh An');
+        ).rows[0].tax_code,
+      ).toBe('0312345678');
   });
   it.each(['rejected', 'cancelled'])(
     'preserves terminal result %s without granting leave or changing the profile',
@@ -1599,11 +1600,11 @@ integration('HRM employee PostgreSQL integration', () => {
           expect(
             (
               await pool.query(
-                'SELECT full_name FROM core_schema.employees WHERE id=$1',
+                'SELECT tax_code FROM hrm_schema.employee_profiles WHERE employee_id=$1',
                 [e],
               )
-            ).rows[0].full_name,
-          ).not.toBe('Nguyễn Minh An');
+            ).rows[0].tax_code,
+          ).not.toBe('0312345678');
       }
     },
   );
@@ -1665,7 +1666,7 @@ integration('HRM employee PostgreSQL integration', () => {
     const { t, e, id, instanceId, linkId } =
       await syncedRequest('profile_correction');
     await pool.query(
-      `UPDATE core_schema.employees SET full_name='Trần Hoàng' WHERE id=$1`,
+      `UPDATE hrm_schema.employee_profiles SET tax_code='0999999999' WHERE employee_id=$1`,
       [e],
     );
     await receiveHrmWorkflowResult(
@@ -1691,17 +1692,16 @@ integration('HRM employee PostgreSQL integration', () => {
       ).rows[0],
     ).toMatchObject({
       sync_status: 'FAILED',
-      // Họ tên do Core quản lý: đơn đính chính không được đổi họ tên ở HRM.
-      last_error: expect.stringContaining('do Core quản lý'),
+      last_error: expect.stringContaining('Hồ sơ đã thay đổi'),
     });
     expect(
       (
         await pool.query(
-          'SELECT full_name FROM core_schema.employees WHERE id=$1',
+          'SELECT tax_code FROM hrm_schema.employee_profiles WHERE employee_id=$1',
           [e],
         )
-      ).rows[0].full_name,
-    ).toBe('Trần Hoàng');
+      ).rows[0].tax_code,
+    ).toBe('0999999999');
   });
   it('rejects cross-tenant, wrong-revision and quarantined results without changing the request', async () => {
     const { t, id, instanceId, linkId } = await syncedRequest('advance');
