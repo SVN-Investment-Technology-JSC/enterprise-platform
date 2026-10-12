@@ -451,6 +451,12 @@ export function OrganizationWorkspace({
               label="Cây tổ chức"
               onClick={() => setTab('tree')}
             />
+            <Tab
+              active={tab === 'assignment'}
+              icon={Users}
+              label="Bổ nhiệm"
+              onClick={() => setTab('assignment')}
+            />
           </div>
         ) : null}
         {tab === 'tree' ? (
