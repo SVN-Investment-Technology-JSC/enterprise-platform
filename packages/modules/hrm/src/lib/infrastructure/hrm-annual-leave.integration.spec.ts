@@ -284,13 +284,13 @@ integration('Annual leave by labor contract (PostgreSQL)', () => {
       `UPDATE hrm_schema.leave_balances SET used=used+10,remaining=remaining-10 WHERE tenant_id=$1 AND employee_id=$2 AND leave_type_id=$3 AND year=2026`,
       [tenantId, id, type],
     );
-    // Ngừng từ 10/07: tháng 7 chỉ làm 9 ngày nên không được tính.
+    // Ngừng từ 10/07: tháng 7 có làm việc (bất kỳ ngày nào trong tháng) nên được tính đủ => T1-T7 = 7 ngày.
     const preview = await hrmTransaction(pool, (db) =>
       computeLeaveSettlement(db, tenantId, id, '2026-07-10'),
     );
     expect(preview.find((l) => l.leaveTypeId === type)).toMatchObject({
-      entitled: 6,
-      excess: 4,
+      entitled: 7,
+      excess: 3,
     });
     await pool.query(
       `UPDATE hrm_schema.employee_profiles SET employment_status='RESIGNED',inactive_from='2026-07-10' WHERE tenant_id=$1 AND employee_id=$2`,
@@ -302,11 +302,15 @@ integration('Annual leave by labor contract (PostgreSQL)', () => {
     const row = settled.find((s) => s.leave_type_id === type);
     // Tháng 7/2026 có 27 ngày công chuẩn (bỏ 4 Chủ nhật): 27.000.000 / 27 = 1.000.000/ngày.
     expect(row).toMatchObject({ status: 'PENDING' });
-    expect(Number(row.excess_days)).toBe(4);
-    expect(Number(row.recovery_amount)).toBe(4_000_000);
-    expect((await ledger(id, type)).at(-1)).toMatchObject({
+    expect(Number(row.excess_days)).toBe(3);
+    expect(Number(row.recovery_amount)).toBe(3_000_000);
+    // Quyết toán cũng cộng bù phép tháng 7 trong cùng giao dịch (cùng thời điểm với dòng thu hồi),
+    // nên tìm đích danh dòng RECOVERY thay vì dựa vào dòng cuối của sổ.
+    expect(
+      (await ledger(id, type)).find((r) => r.transaction_type === 'RECOVERY'),
+    ).toMatchObject({
       transaction_type: 'RECOVERY',
-      days: 4,
+      days: 3,
     });
     expect((await balance(id, type, 2026)).remaining).toBe(0);
     // Chạy lại trả về quyết toán cũ.
@@ -324,12 +328,12 @@ integration('Annual leave by labor contract (PostgreSQL)', () => {
     const scheduled = await hrmTransaction(pool, (db) =>
       scheduleSettlement(db, tenantId, actor, row.id, {
         payrollPeriodId: period,
-        recoveryAmount: 3_500_000,
+        recoveryAmount: 2_500_000,
         reason: 'Giảm theo thoả thuận',
       }),
     );
     expect(scheduled).toMatchObject({ status: 'SCHEDULED' });
-    expect(Number(scheduled.recovery_amount)).toBe(3_500_000);
+    expect(Number(scheduled.recovery_amount)).toBe(2_500_000);
     const waived = await hrmTransaction(pool, (db) =>
       waiveSettlement(db, tenantId, actor, row.id, 'Miễn trừ theo quyết định'),
     );

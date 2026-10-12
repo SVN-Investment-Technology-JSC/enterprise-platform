@@ -1096,7 +1096,8 @@ integration('HRM employee PostgreSQL integration', () => {
       else process.env.INTERNAL_SERVICE_TOKEN = oldToken;
     }
   });
-  it('automates closed-month accrual once and preserves a retryable job history', async () => {
+  // Quy tắc mới: tháng hiện tại cũng được +1 từ ngày 1, nên lần chạy 10/03 cộng T1-T3 và lần chạy 10/04 cộng thêm T4.
+  it('automates monthly accrual (including the current month) once and preserves a retryable job history', async () => {
     const { t, e } = await fixture();
     const type = (
       await pool.query(
@@ -1125,7 +1126,7 @@ integration('HRM employee PostgreSQL integration', () => {
           [t, e],
         )
       ).rows[0].accrued,
-    ).toBe('2.00');
+    ).toBe('3.00');
     expect(
       (
         await pool.query(
@@ -1147,7 +1148,7 @@ integration('HRM employee PostgreSQL integration', () => {
           [t, e],
         )
       ).rows[0].accrued,
-    ).toBe('3.00');
+    ).toBe('4.00');
     expect(
       (
         await pool.query(
@@ -1155,7 +1156,7 @@ integration('HRM employee PostgreSQL integration', () => {
           [t],
         )
       ).rows[0].last_accrual_month,
-    ).toBe('2025-03');
+    ).toBe('2025-04');
   });
   it('withdraws a pending leave once, releases its reservation and ignores late workflow completion', async () => {
     const { t, e, ctx } = await fixture();
