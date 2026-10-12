@@ -15,6 +15,8 @@ jest.mock('antd', () => ({
     </div>
   ),
   Table: () => <div data-testid="table" />,
+  // Màn lịch dùng DatePickerInput (antd DatePicker); chỉ cần một ô giả để render.
+  DatePicker: () => <input data-testid="date-picker" />,
 }));
 
 jest.mock('../hrm-api', () => ({
