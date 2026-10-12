@@ -4,10 +4,11 @@ import { ChevronDown } from 'lucide-react';
 import { useId, useState, type ReactNode } from 'react';
 
 /**
- * Một nhóm việc cần chú ý trên Bảng điều khiển: đầu nhóm bấm để thu gọn hoặc
- * mở ra. Nhóm không có dòng nào thì đóng sẵn, để các nhóm còn việc nằm gần nhau.
+ * Một nhóm dòng thu gọn được của Tenant Portal (việc cần chú ý trên Bảng điều
+ * khiển, nhóm ứng dụng theo trạng thái…): đầu nhóm bấm để thu gọn hoặc mở ra.
+ * Nhóm không có dòng nào thì đóng sẵn, để các nhóm còn dòng nằm gần nhau.
  */
-export function AttentionGroup({
+export function CollapsibleGroup({
   title,
   count,
   icon,

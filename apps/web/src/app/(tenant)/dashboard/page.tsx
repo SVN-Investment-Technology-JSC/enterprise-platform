@@ -13,7 +13,7 @@ import { cookies } from 'next/headers';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import type { ReactNode } from 'react';
-import { AttentionGroup } from './attention-group';
+import { CollapsibleGroup } from '../collapsible-group';
 import { RefreshOnFocus } from './refresh-on-focus';
 
 type Module = {
@@ -423,7 +423,7 @@ export default async function TenantPortalPage() {
       </section>
 
       {procedure ? (
-        <AttentionGroup
+        <CollapsibleGroup
           title="Hồ sơ cần bạn xử lý"
           count={actionable.length}
           tone="bg-violet-100 text-violet-700"
@@ -470,11 +470,11 @@ export default async function TenantPortalPage() {
           ) : (
             <Empty>Không có hồ sơ nào chờ bạn thao tác.</Empty>
           )}
-        </AttentionGroup>
+        </CollapsibleGroup>
       ) : null}
 
       {maintenance ? (
-        <AttentionGroup
+        <CollapsibleGroup
           title="Sự cố bảo trì đang mở"
           count={incidents.length}
           tone="bg-amber-100 text-amber-700"
@@ -517,11 +517,11 @@ export default async function TenantPortalPage() {
           ) : (
             <Empty>Không có sự cố nào đang mở.</Empty>
           )}
-        </AttentionGroup>
+        </CollapsibleGroup>
       ) : null}
 
       {materials ? (
-        <AttentionGroup
+        <CollapsibleGroup
           title="Vật tư dưới mức tối thiểu"
           count={lowStock.length}
           tone="bg-blue-100 text-blue-800"
@@ -569,7 +569,7 @@ export default async function TenantPortalPage() {
           ) : (
             <Empty>Không có vật tư nào dưới mức tối thiểu.</Empty>
           )}
-        </AttentionGroup>
+        </CollapsibleGroup>
       ) : null}
 
       {ops.length > 0 ? (
