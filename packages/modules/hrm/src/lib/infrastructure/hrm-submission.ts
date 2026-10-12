@@ -24,9 +24,20 @@ import {
   isAwaitingApproval,
   notifyApproversOfDirectRequest,
 } from './hrm-approval-notification.js';
+import {
+  attachOverlappingRequestsToTrip,
+  attachRequestToOverlappingTrips,
+  registerRequestProject,
+  type RequestProjectInput,
+} from './hrm-request-project-links.js';
 
 type Submission = Omit<HrmSubmission, 'requestId' | 'revision'> & {
   draft?: HrmDraftRef;
+  /**
+   * "Dự án liên kết" của đơn, nếu có. Đơn được gửi sang Workspace để nhận mã
+   * DTxxx; hồ sơ quy trình (nếu có) chỉ mở sau khi có mã đó.
+   */
+  project?: RequestProjectInput & { fromDate?: string; toDate?: string };
 };
 type Starter = {
   startOrResume(
@@ -146,6 +157,41 @@ export async function submitHrmRequest(
       revision: Number(row.revision ?? 1),
       attributes: input.attributes,
       fieldRow: row,
+    });
+    if (input.project) {
+      await registerRequestProject(db, {
+        tenantId: input.tenantId,
+        kind: input.kind as HrmRequestKind,
+        requestId: row.id as string,
+        employeeId: input.employeeId,
+        initiatedBy: input.initiatedBy,
+        requestTypeLabel: input.title,
+        project: input.project,
+        status: String(row.status),
+        fromDate: input.project.fromDate,
+        toDate: input.project.toDate,
+      });
+      // Đơn công tác gắn dự án kéo theo các đơn có ngày đã gửi trong thời gian đó.
+      if (input.kind === 'business_trip' && input.project.fromDate && input.project.toDate)
+        await attachOverlappingRequestsToTrip(db, {
+          tenantId: input.tenantId,
+          tripId: row.id as string,
+          employeeId: input.employeeId,
+          initiatedBy: input.initiatedBy,
+          project: input.project,
+          fromDate: input.project.fromDate,
+          toDate: input.project.toDate,
+        });
+    }
+    // Đơn có ngày rơi vào thời gian công tác tự hiện ở dự án của đơn công tác.
+    await attachRequestToOverlappingTrips(db, {
+      tenantId: input.tenantId,
+      kind: input.kind as HrmRequestKind,
+      requestId: row.id as string,
+      employeeId: input.employeeId,
+      initiatedBy: input.initiatedBy,
+      requestTypeLabel: input.title,
+      status: String(row.status),
     });
     // Đơn qua Procedure được báo bằng `procedure.assignment.created`; chỉ đơn DIRECT mới cần báo ở đây.
     if (!link && isAwaitingApproval(row.status))

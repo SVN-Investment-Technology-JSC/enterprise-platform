@@ -259,6 +259,31 @@ export interface WorkItem {
   readonly createdBy: string;
   readonly createdAt: string;
   readonly updatedAt: string;
+  /**
+   * Có khi công việc bị huỷ hiệu lực. Khi đó `status = 'cancelled'` và công
+   * việc không mở lại được; cần điều chỉnh thì lập công việc mới.
+   */
+  readonly reversal?: WorkItemReversal;
+  /** Công việc này là công việc điều chỉnh của một công việc đã huỷ hiệu lực. */
+  readonly adjustmentOfId?: string;
+}
+
+export interface WorkItemReversal {
+  readonly reversedAt: string;
+  readonly reversedBy?: string;
+  readonly reversedByName?: string;
+  readonly reason: string;
+  readonly adjustmentRequested: boolean;
+}
+
+/** Huỷ hiệu lực công việc đã hoàn thành (chủ nhiệm dự án hoặc quản trị). */
+export interface ReverseWorkItemRequest {
+  readonly reason: string;
+  /**
+   * Lập công việc điều chỉnh. Công việc theo quy trình: người giữ vai S nhận
+   * thông báo lập hồ sơ mới; công việc thủ công: mở form tạo việc điền sẵn.
+   */
+  readonly createAdjustment: boolean;
 }
 
 /**
@@ -312,6 +337,8 @@ export interface CreateWorkItemRequest {
    * và phát sự kiện; hồ sơ do Quy trình tự mở rồi báo về.
    */
   readonly procedureDefinitionId?: string;
+  /** Công việc điều chỉnh cho một công việc đã huỷ hiệu lực (cùng dự án). */
+  readonly adjustmentOfId?: string;
 }
 
 export interface UpdateWorkItemRequest {
@@ -370,6 +397,8 @@ export const SAVED_FILTER_VIEWS = [
   'documents',
   'calendar',
   'reports',
+  /** Tab "Đơn từ" của dự án. */
+  'project_requests',
 ] as const;
 export type SavedFilterView = (typeof SAVED_FILTER_VIEWS)[number];
 
@@ -1383,3 +1412,157 @@ export interface InternalProjectSummary {
 
 /** Trùng `launch_url` của module trong danh mục Platform (xem `apps/migrator`). */
 export const WORKSPACE_LAUNCH_URL = '/modules/workspace';
+
+/* =========================================================================
+   ĐƠN TỪ CỦA DỰ ÁN
+
+   Đơn do module khác gửi kèm dự án (hiện là đơn công tác của HRM). Workspace
+   nhận qua sự kiện, tự sinh mã DTxxx và chỉ đọc — không sửa đơn ở đây.
+   ========================================================================= */
+
+export const PROJECT_REQUEST_STATUSES = [
+  'PENDING',
+  'APPROVED',
+  'REJECTED',
+  'CANCELLED',
+  'REVERSED',
+] as const;
+export type ProjectRequestStatus = (typeof PROJECT_REQUEST_STATUSES)[number];
+
+export interface ProjectRequest {
+  readonly id: string;
+  readonly projectId: string;
+  /** DT001, DT002… theo từng dự án. */
+  readonly code: string;
+  readonly sourceModule: string;
+  readonly sourceKind: string;
+  readonly sourceId: string;
+  /** Loại đơn đã dịch sẵn bên nguồn, ví dụ "Đơn công tác". */
+  readonly requestTypeLabel: string;
+  readonly requesterUserId: string;
+  readonly requesterName?: string;
+  readonly fromDate?: string;
+  readonly toDate?: string;
+  readonly status: ProjectRequestStatus;
+  readonly procedureInstanceId?: string;
+  readonly procedureInstanceCode?: string;
+  /** Đường mở đơn ở module gốc. */
+  readonly launchUrl?: string;
+  readonly submittedAt: string;
+  readonly statusChangedAt?: string;
+  /**
+   * Đơn tự hiện ở dự án vì rơi vào thời gian một đơn công tác của dự án này
+   * (người gửi không chọn dự án). Mã DT của đơn công tác đó, nếu có.
+   */
+  readonly linkedViaKind?: string;
+  readonly linkedViaCode?: string;
+  /** Lý do module nguồn báo kèm trạng thái (hiện có khi huỷ hiệu lực). */
+  readonly statusNote?: string;
+  /** Yêu cầu huỷ hiệu lực đã gửi từ dự án, chờ module nguồn xử lý. */
+  readonly reversalRequest?: ProjectRequestReversalRequest;
+}
+
+export interface ProjectRequestReversalRequest {
+  readonly requestedAt: string;
+  readonly requestedBy?: string;
+  readonly requestedByName?: string;
+  readonly reason: string;
+  readonly adjustmentRequested: boolean;
+  /** Module nguồn từ chối huỷ sau khi đã kiểm trước (vd vừa chốt kỳ lương). */
+  readonly error?: string;
+}
+
+/** Huỷ hiệu lực đơn từ đã duyệt — chủ nhiệm dự án, người duyệt đơn hoặc quản trị. */
+export interface ReverseProjectRequestRequest {
+  readonly reason: string;
+  /** Người gửi đơn nhận thông báo kèm form đơn mới điền sẵn ở module nguồn. */
+  readonly createAdjustment: boolean;
+}
+
+/**
+ * Workspace → module nguồn: nhờ huỷ hiệu lực đơn. Có `instanceId` thì Quy
+ * trình huỷ hồ sơ (rồi tự lan sang HRM); không thì HRM huỷ trực tiếp.
+ */
+export const WORKSPACE_PROJECT_REQUEST_REVERSAL_REQUESTED =
+  'workspace.project_request.reversal_requested';
+
+export interface ProjectRequestReversalRequestedPayload {
+  readonly projectRequestId: string;
+  readonly code: string;
+  readonly projectId: string;
+  readonly sourceModule: string;
+  readonly requestKind: string;
+  readonly requestId: string;
+  readonly instanceId?: string;
+  readonly reason: string;
+  readonly createAdjustment: boolean;
+  readonly requestedBy: string;
+  readonly requestedByName?: string;
+}
+
+export interface ProjectRequestList {
+  readonly items: readonly ProjectRequest[];
+}
+
+/** Sự kiện Workspace phát lại cho module gửi đơn. */
+export const WORKSPACE_PROJECT_REQUEST_REGISTERED = 'workspace.project_request.registered';
+export const WORKSPACE_PROJECT_REQUEST_REJECTED = 'workspace.project_request.rejected';
+
+/** Payload `workspace.project_request.registered`. */
+export interface ProjectRequestRegisteredPayload {
+  readonly sourceKind: string;
+  readonly sourceId: string;
+  readonly projectRequestId: string;
+  readonly code: string;
+  readonly projectId: string;
+  readonly projectCode: string;
+  readonly projectName: string;
+}
+
+/** Payload `workspace.project_request.rejected`: dự án không nhận đơn này. */
+export interface ProjectRequestRejectedPayload {
+  readonly sourceKind: string;
+  readonly sourceId: string;
+  readonly projectId: string;
+  readonly reason: string;
+}
+
+/* =========================================================================
+   THỨ TỰ ƯU TIÊN TÍNH CÔNG
+
+   Ngày trùng nhiều đơn chỉ tính theo đơn có ưu tiên cao nhất. Ví dụ công tác
+   ngày 1–3, nghỉ phép ngày 2 → 1,5 / 0 / 1,5. Dùng chung toàn tenant.
+   ========================================================================= */
+
+/** Loại đơn có trong bảng ưu tiên, khớp `sourceKind` của đơn từ. */
+export const WORKDAY_RULE_KINDS = ['leave', 'business_trip'] as const;
+export type WorkdayRuleKind = (typeof WORKDAY_RULE_KINDS)[number];
+
+export interface WorkdayRule {
+  readonly kind: WorkdayRuleKind;
+  readonly label: string;
+  /** 1 là ưu tiên cao nhất. */
+  readonly rank: number;
+  /** Số công mỗi ngày đơn này thắng. */
+  readonly units: number;
+}
+
+export interface WorkdayRuleSet {
+  /** Theo thứ tự ưu tiên, cao nhất trước. */
+  readonly rules: readonly WorkdayRule[];
+  /** Công của ngày không có đơn nào. */
+  readonly normalUnits: number;
+  readonly updatedAt?: string;
+  /** Người đang xem được sửa (quản trị). */
+  readonly canEdit: boolean;
+}
+
+export interface UpdateWorkdayRulesRequest {
+  /** Thứ tự mới, cao nhất trước; phải đủ mọi loại trong `WORKDAY_RULE_KINDS`. */
+  readonly order: readonly WorkdayRuleKind[];
+  readonly units: Readonly<Record<WorkdayRuleKind, number>>;
+  readonly normalUnits: number;
+}
+
+/** Công mỗi ngày nằm trong [0, 10], tối đa hai chữ số thập phân. */
+export const MAX_WORKDAY_UNITS = 10;

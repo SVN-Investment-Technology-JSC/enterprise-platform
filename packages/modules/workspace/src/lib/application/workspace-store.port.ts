@@ -4,6 +4,8 @@ import type {
   ChatEntityType,
   ChatMessage,
   CostEntry,
+  ProjectRequest,
+  WorkdayRuleKind,
   CreateProjectRequest,
   CreateSavedFilterRequest,
   CreateTagRequest,
@@ -48,6 +50,7 @@ import type {
   WorkItemStatusHistoryEntry,
   WorkloadRow,
   WorkspaceDocument,
+  ProjectRequestReversalRequestedPayload,
 } from '@enterprise-platform/contracts-workspace';
 import type { FinanceInputs } from '../domain/finance.rules.js';
 import type {
@@ -268,6 +271,22 @@ export interface WorkspaceStore {
       note: string | undefined,
       /** Ngày ghi vào `actual_start`/`actual_end`, theo múi giờ tenant. */
       today: string,
+    ): Promise<WorkItem>;
+    /**
+     * Huỷ hiệu lực: chuyển `cancelled` kèm dấu huỷ, ghi nhật ký và phát
+     * `workspace.work_item.reversed` trong cùng transaction. Đã huỷ thì trả nguyên.
+     */
+    reverse(
+      tenantId: string,
+      workItemId: string,
+      input: {
+        readonly reversedBy: string;
+        readonly reversedByName?: string;
+        readonly reason: string;
+        readonly adjustmentRequested: boolean;
+        readonly today: string;
+        readonly instanceId?: string;
+      },
     ): Promise<WorkItem>;
     /** Đổi cha và thứ tự; cập nhật `depth` cho cả nhánh con bên dưới. */
     move(
@@ -729,6 +748,29 @@ export interface WorkspaceStore {
    * module khác. Gỡ con trỏ là xoá cứng — ngoại lệ hợp lý so với quy ước
    * không xoá cứng, vì dòng này không mang giá trị nghiệp vụ.
    */
+  /** Thứ tự ưu tiên tính công, dùng chung toàn tenant. */
+  readonly workdayRules: {
+    list(tenantId: string): Promise<
+      readonly { kind: string; label: string; rank: number | null; units: number; updatedAt: string }[]
+    >;
+    /** Ghi thứ tự và số công mới trong một transaction. */
+    replace(
+      tenantId: string,
+      actorUserId: string,
+      input: {
+        readonly order: readonly WorkdayRuleKind[];
+        readonly units: Readonly<Record<WorkdayRuleKind, number>>;
+        readonly normalUnits: number;
+      },
+    ): Promise<void>;
+  };
+  /** Đơn từ module khác gửi kèm dự án; ghi bằng sự kiện, ở đây chỉ đọc. */
+  readonly projectRequest: {
+    listByProject(tenantId: string, projectId: string): Promise<readonly ProjectRequest[]>;
+    findById(tenantId: string, id: string): Promise<ProjectRequest | undefined>;
+    /** Ghi yêu cầu huỷ hiệu lực và phát sự kiện cho module nguồn. */
+    requestReversal(tenantId: string, input: ProjectRequestReversalRequestedPayload): Promise<void>;
+  };
   readonly externalRef: {
     listByEntity(
       tenantId: string,

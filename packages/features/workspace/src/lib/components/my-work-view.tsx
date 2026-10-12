@@ -15,10 +15,10 @@ import {
   MY_WORK_BUCKET_TONE,
   PRIORITY_LABELS,
   PRIORITY_TONE,
-  WORK_ITEM_STATUS_LABELS,
-  WORK_ITEM_STATUS_TONE,
   formatDate,
   formatDateTime,
+  workItemStatusLabel,
+  workItemStatusTone,
 } from '../workspace-labels';
 import styles from '../workspace.module.scss';
 import { useDirectory } from './use-directory';
@@ -199,7 +199,7 @@ export function MyWorkView({ onOpen }: MyWorkViewProps = {}) {
                       </th>
                     </tr>
                     {rows.map((entry) => {
-                      const status = WORK_ITEM_STATUS_TONE[entry.item.status];
+                      const status = workItemStatusTone(entry.item);
                       const priority = PRIORITY_TONE[entry.item.priority];
                       return (
                         <tr key={entry.item.id}>
@@ -237,7 +237,7 @@ export function MyWorkView({ onOpen }: MyWorkViewProps = {}) {
                                 color: status.fg,
                               }}
                             >
-                              {WORK_ITEM_STATUS_LABELS[entry.item.status]}
+                              {workItemStatusLabel(entry.item)}
                             </span>
                           </td>
                           <td className={bucket === 'overdue' ? styles.cellDanger : undefined}>

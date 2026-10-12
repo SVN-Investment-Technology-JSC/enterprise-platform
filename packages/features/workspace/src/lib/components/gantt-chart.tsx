@@ -9,7 +9,7 @@ import {
   dayWidthOf,
   type GanttZoom,
 } from '../gantt.model';
-import { WORK_ITEM_STATUS_LABELS, formatDate } from '../workspace-labels';
+import { formatDate, workItemStatusLabel } from '../workspace-labels';
 import styles from '../workspace.module.scss';
 
 /** Bề rộng cột tên việc bên trái, cố định để hai vùng cuộn khớp hàng. */
@@ -268,7 +268,7 @@ export function GanttChart({ rows, dependencies, onOpen }: GanttChartProps) {
                   const centerY = row.y + ROW_HEIGHT / 2;
                   const tooltip = [
                     `${row.item.code} · ${row.item.title}`,
-                    WORK_ITEM_STATUS_LABELS[row.item.status],
+                    workItemStatusLabel(row.item),
                     `${formatDate(row.item.plannedStart) || '…'} → ${formatDate(row.item.plannedEnd) || '…'}`,
                     `${row.item.progressPercent}%`,
                   ].join('\n');

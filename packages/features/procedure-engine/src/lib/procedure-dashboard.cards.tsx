@@ -31,12 +31,13 @@ export interface ProcedureDashboardData {
   readonly workspace: ProcedureWorkspace;
 }
 
-/** Bốn trạng thái hồ sơ, thứ tự và màu cố định để chú giải không đổi chỗ khi số đổi. */
+/** Các trạng thái hồ sơ, thứ tự và màu cố định để chú giải không đổi chỗ khi số đổi. */
 const STATUS_SLICES = [
   { status: 'running', label: 'Đang xử lý', color: '#2f6fed' },
   { status: 'completed', label: 'Hoàn thành', color: '#16845e' },
   { status: 'rejected', label: 'Từ chối', color: '#b23b3b' },
   { status: 'cancelled', label: 'Đã huỷ', color: '#8494a8' },
+  { status: 'reversed', label: 'Đã huỷ hiệu lực', color: '#8a5a1f' },
 ] as const;
 
 const SLA_SLICES = [

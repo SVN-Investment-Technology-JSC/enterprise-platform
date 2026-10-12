@@ -11,6 +11,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import type { Request } from 'express';
+import { timingSafeEqual } from 'node:crypto';
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 import type { Pool } from 'pg';
 import { isProcedureReachable } from './hrm-procedure-api.js';
@@ -75,6 +76,41 @@ export class HrmContextService {
       own.rowCount ? selfPermission : otherPermission,
     );
     return { ...context, employeeId: requestedEmployeeId };
+  }
+
+  /**
+   * Lời gọi nội bộ từ module khác (chỉ đọc): xác thực `x-service-token`, lấy
+   * tenant từ `x-tenant-id` và DB HRM của tenant qua entitlement. Fail closed
+   * khi chưa cấu hình `INTERNAL_SERVICE_TOKEN`.
+   */
+  async serviceContext(request: Request): Promise<{ tenantId: string; pool: Pool }> {
+    const expected = process.env.INTERNAL_SERVICE_TOKEN;
+    const header = request.headers['x-service-token'];
+    const presented = Array.isArray(header) ? header[0] : header;
+    if (
+      !expected ||
+      !presented ||
+      presented.length !== expected.length ||
+      !timingSafeEqual(Buffer.from(presented), Buffer.from(expected))
+    )
+      throw new UnauthorizedException({
+        code: 'SERVICE_IDENTITY_INVALID',
+        message: 'Service identity không hợp lệ.',
+      });
+    const tenantHeader = request.headers['x-tenant-id'];
+    const tenantId = (Array.isArray(tenantHeader) ? tenantHeader[0] : tenantHeader)?.trim();
+    if (!tenantId)
+      throw new ForbiddenException({
+        code: 'MISSING_TENANT',
+        message: 'X-Tenant-ID là bắt buộc cho lời gọi nội bộ.',
+      });
+    const database = await this.identity.serviceDatabase(tenantId, 'hrm');
+    if (!database)
+      throw new ForbiddenException({
+        code: 'MODULE_NOT_ENTITLED',
+        message: 'Tenant chưa bật HRM.',
+      });
+    return { tenantId, pool: (await this.pools.forTenant(database)) as unknown as Pool };
   }
 
   private readonly procedureAvailability = new Map<

@@ -109,4 +109,61 @@ describe('procedureNotificationEvents', () => {
       }),
     });
   });
+  it('emits reversed and adjustment-requested events for the S holders when an instance is reversed', () => {
+    const base = instance();
+    const done = instance({
+      status: 'completed',
+      currentStepId: undefined,
+      sourceType: 'manual',
+      steps: [
+        {
+          ...base.steps[0],
+          status: 'completed',
+          assignments: [
+            ...base.steps[0].assignments,
+            { id: 's1', role: 'S', subjectType: 'user', subjectId: 'user-s' },
+            { id: 's2', role: 'S', subjectType: 'position', subjectId: 'position-s' },
+          ],
+        },
+      ],
+    });
+    const reversed: ProcedureInstance = {
+      ...done,
+      status: 'reversed',
+      reversal: {
+        reversedAt: '2026-10-09T08:00:00.000Z',
+        reversedBy: 'admin',
+        reversedByName: 'Quản trị',
+        reason: 'Sai số ngày',
+        adjustmentRequested: true,
+      },
+    };
+
+    const events = procedureNotificationEvents([done], [reversed]);
+    expect(events.map((event) => event.type)).toEqual([
+      'procedure.instance.reversed',
+      'procedure.instance.adjustment_requested',
+    ]);
+    expect(events[0].payload).toEqual(
+      expect.objectContaining({ sourceType: 'manual', reason: 'Sai số ngày' }),
+    );
+    expect(events[1].payload).toEqual(
+      expect.objectContaining({
+        assigneeUserIds: ['user-s'],
+        assignments: [{ subjectType: 'position', subjectId: 'position-s', role: 'S' }],
+        launchUrl: `/modules/procedure?adjustFrom=${done.id}#workspace`,
+      }),
+    );
+
+    // Không tạo lại sự kiện khi trạng thái không đổi.
+    expect(procedureNotificationEvents([reversed], [reversed])).toEqual([]);
+
+    // Đơn HRM: chỉ báo huỷ hiệu lực; HRM tự mời người gửi đơn lập đơn mới.
+    const hrmDone = { ...done, sourceType: 'hrm_request' as const, sourceId: 'link-1' };
+    expect(
+      procedureNotificationEvents([hrmDone], [{ ...reversed, sourceType: 'hrm_request', sourceId: 'link-1' }]).map(
+        (event) => event.type,
+      ),
+    ).toEqual(['procedure.instance.reversed']);
+  });
 });
