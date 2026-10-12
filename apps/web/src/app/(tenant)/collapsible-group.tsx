@@ -13,6 +13,7 @@ export function CollapsibleGroup({
   count,
   icon,
   tone,
+  defaultOpen,
   children,
 }: {
   title: string;
@@ -20,9 +21,11 @@ export function CollapsibleGroup({
   icon: ReactNode;
   /** Lớp màu nền và chữ của ô biểu tượng. */
   tone: string;
+  /** Mặc định mở khi nhóm có dòng; truyền `false` để đóng sẵn nhóm ít dùng. */
+  defaultOpen?: boolean;
   children: ReactNode;
 }) {
-  const [open, setOpen] = useState(count > 0);
+  const [open, setOpen] = useState(defaultOpen ?? count > 0);
   const headingId = useId();
   const panelId = useId();
   return (
