@@ -178,7 +178,9 @@ describe('MyTimesheetScreen (Công của tôi)', () => {
     await screen.findByLabelText('Bảng công theo tháng');
 
     const past = screen.getByTestId(`my-cell-${d(1)}`);
-    expect(past.textContent).toContain('8.0');
+    // hệ số công của ngày (1), không phải số giờ làm (8.0)
+    expect(within(past).getByTestId('my-cell-units').textContent).toBe('1');
+    expect(past.textContent).not.toContain('8.0');
     expect(past.textContent).not.toContain('HC');
     expect(past.getAttribute('data-future')).toBeNull();
 

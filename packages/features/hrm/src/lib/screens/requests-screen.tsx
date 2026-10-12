@@ -1167,6 +1167,9 @@ export default function RequestsPage() {
   // Requests list fetched from API
   const [requestsList, setRequestsList] = useState<RequestItem[]>([]);
   const [notificationRequestId, setNotificationRequestId] = useState('');
+  // Đơn vừa mở từ liên kết ?request=: bỏ một lượt tự chọn đơn đầu tiên và lật tới trang chứa đơn đó.
+  const skipAutoSelect = useRef(false);
+  const focusRequestId = useRef('');
   useEffect(() => {
     setNotificationRequestId(new URLSearchParams(window.location.search).get('request') ?? '');
   }, []);
@@ -3304,6 +3307,8 @@ export default function RequestsPage() {
     const request = requestsList.find((item) => item.id === notificationRequestId);
     if (!request) return;
     setNotificationRequestId('');
+    skipAutoSelect.current = true;
+    focusRequestId.current = request.id;
     // Mở đúng đơn trong thông báo: bỏ các bộ lọc có thể che đơn đó, chuyển tới tháng của đơn.
     setFilterStatus('ALL');
     setFilterKind('ALL');
@@ -3317,10 +3322,35 @@ export default function RequestsPage() {
   // Luôn có một đơn đang chọn trong danh sách đang lọc (đơn đầu tiên nếu đơn cũ không còn); bỏ qua khi ngăn kéo đang mở.
   useEffect(() => {
     if (isDetailDrawerOpen) return;
+    // Effect mở đơn từ liên kết chạy ngay trước effect này trong cùng một lượt với danh sách cũ; không để nó
+    // chọn đè lại đơn đầu tiên.
+    if (skipAutoSelect.current) {
+      skipAutoSelect.current = false;
+      return;
+    }
     const next = pickSelectedId(filteredHistory, selectedRequest?.id ?? null);
     if (next === (selectedRequest?.id ?? null)) return;
     setSelectedRequest(filteredHistory.find((item) => item.id === next) ?? null);
   }, [filteredHistory, selectedRequest?.id, isDetailDrawerOpen]);
+
+  // Lật danh sách tới trang chứa đơn vừa mở từ liên kết (sau khi bộ lọc đã được bỏ và danh sách đã lọc lại).
+  useEffect(() => {
+    const id = focusRequestId.current;
+    if (!id) return;
+    // Chờ các bộ lọc đã được bỏ, nếu không effect đặt lại trang về 1 sẽ chạy sau và đè lên.
+    if (
+      filterStatus !== 'ALL' ||
+      filterKind !== 'ALL' ||
+      searchQuery ||
+      waitAssignee ||
+      waitStep
+    )
+      return;
+    const index = filteredHistory.findIndex((item) => item.id === id);
+    if (index < 0) return;
+    focusRequestId.current = '';
+    setHistoryPage(Math.floor(index / REQUEST_HISTORY_PAGE_SIZE) + 1);
+  }, [filteredHistory, filterStatus, filterKind, searchQuery, waitAssignee, waitStep]);
 
   // Sau mỗi lần tải lại danh sách, đơn đang chọn lấy dữ liệu mới nhất của chính nó.
   useEffect(() => {

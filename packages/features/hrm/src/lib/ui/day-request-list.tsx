@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { ExternalLink } from 'lucide-react';
 import type { HrmBoardDay, HrmDayRequest } from '@enterprise-platform/contracts-hrm';
 import { REQUEST_LETTERS, requestDetailRows } from './my-timesheet-format';
@@ -78,14 +79,14 @@ export function DayRequestList({ day, canViewAll }: { day: HrmBoardDay; canViewA
                   </span>
                 </span>
               </span>
-              <a
+              <Link
                 href={item.href}
                 aria-label={`Mở ${item.text}`}
                 className="inline-flex shrink-0 items-center gap-1 font-semibold text-blue-700 hover:underline"
               >
                 Mở đơn
                 <ExternalLink className="size-3" />
-              </a>
+              </Link>
             </div>
             {item.rows.length > 0 && (
               <dl className="mt-1.5 grid grid-cols-[120px_1fr] gap-x-3 gap-y-0.5 pl-7 text-[11px]">
