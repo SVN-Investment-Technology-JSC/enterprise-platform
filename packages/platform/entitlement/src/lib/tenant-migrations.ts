@@ -297,6 +297,10 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       path: 'tenant/hrm/0050-hrm-request-comments.sql',
     },
     {
+      version: '0051-hrm-leave-settlements-legacy',
+      path: 'tenant/hrm/0051-hrm-leave-settlements-legacy.sql',
+    },
+    {
       version: '0021-notification-outbox-v1',
       path: 'tenant/hrm/0021-notification-outbox-v1.sql',
     },
@@ -317,8 +321,8 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       path: 'tenant/hrm/0036-hrm-project-request-reversed.sql',
     },
     {
-      version: '0051-leave-transaction-trigger-source',
-      path: 'tenant/hrm/0051-leave-transaction-trigger-source.sql',
+      version: '0052-leave-transaction-trigger-source',
+      path: 'tenant/hrm/0052-leave-transaction-trigger-source.sql',
     },
   ],
   inventory: [

@@ -81,6 +81,7 @@ integration('HRM request draft lifecycle PostgreSQL integration', () => {
     await migrate('hrm/0018-hrm-request-reversals.sql');
     await migrate('hrm/0018-hrm-request-reversals.sql');
     await migrate('hrm/0033-leave-annual-policy.sql');
+    await migrate('hrm/0051-hrm-leave-settlements-legacy.sql');
     await migrate('hrm/0044-hrm-annual-leave-single-policy.sql');
     await migrate('hrm/0035-hrm-work-schedules.sql');
     await migrate('hrm/0036-hrm-work-schedule-rules.sql');
