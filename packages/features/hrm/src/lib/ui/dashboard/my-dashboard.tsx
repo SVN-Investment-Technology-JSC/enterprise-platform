@@ -145,7 +145,7 @@ export function KpiStrip({ data, hasShift }: { data: MyDashboardData; hasShift: 
       <Kpi
         tone="blue"
         icon={<CalendarDays className="size-5" />}
-        label="Phép năm còn lại"
+        label="Phép năm: dùng được / cả năm"
         value={data.annual ? `${formatUnits(data.annual.remaining)} / ${formatUnits(data.annual.total)} ngày` : data.loading ? '…' : '—'}
         testId="kpi-leave"
       />
@@ -307,14 +307,14 @@ export function LeaveCard({ data }: { data: MyDashboardData }) {
           </svg>
           <div className="absolute inset-0 flex flex-col items-center justify-center">
             <span className="text-[17px] font-extrabold text-slate-900">{a ? `${formatUnits(a.remaining)} / ${formatUnits(a.total)}` : '—'}</span>
-            <span className="text-[11px] text-slate-500">ngày</span>
+            <span className="text-[11px] text-slate-500" title="Số ngày dùng được đến hiện tại / định mức cả năm">dùng được / cả năm</span>
           </div>
         </div>
         <ul className="flex-1 space-y-2 text-[12.5px]">
           {(
             [
               ['bg-[#2563eb]', 'Đã sử dụng', a?.used],
-              ['bg-[#10a37f]', 'Còn lại', a?.remaining],
+              ['bg-[#10a37f]', 'Dùng được', a?.remaining],
               ['bg-slate-300', 'Đã đăng ký', a?.pending],
             ] as const
           ).map(([dot, label, value]) => (

@@ -145,3 +145,19 @@ export async function listEmployeeLeaveBalanceRows(
   );
   return result.rows;
 }
+
+/**
+ * Số ngày phép "Còn lại" hiển thị trong danh sách quỹ phép của HR.
+ * Có chính sách HĐLĐ: số dùng được hiện tại (`available` = phần đã ghi sổ + phần đến hạn chưa ghi - đơn chờ duyệt), kể cả
+ * nhân viên chưa có dòng quỹ của năm, để khớp với Bàn làm việc và form xin nghỉ. Không lấy định mức cả năm trừ đã dùng.
+ * Không có chính sách: số `remaining` ghi sổ.
+ */
+export function displayedRemainingDays(
+  row: { projected_entitlement?: unknown; available?: unknown; remaining?: unknown },
+  entitlement: number,
+  used: number,
+): number {
+  const hasPolicy = row.projected_entitlement != null;
+  const value = hasPolicy ? Number(row.available ?? entitlement - used) : Number(row.remaining || 0);
+  return Math.round(value * 100) / 100;
+}
