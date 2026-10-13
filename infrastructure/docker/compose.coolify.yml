@@ -336,6 +336,12 @@ services:
     environment:
       <<: [*database-environment, *tenant-deletion-environment, *s3-environment]
       PROCEDURE_API_URL: http://procedure-api:3334/api/procedure
+      # Quy trình mở hồ sơ cho công việc Workspace ngay trong worker (sự kiện
+      # workspace.work_item.procedure_requested): cần đúng các URL nội bộ như
+      # procedure-api, thiếu thì gọi về localhost và sự kiện rơi vào hàng chết.
+      TENANT_CORE_ORGANIZATION_CONTEXT_URL: http://api:3333/api/platform/internal/v1/organization-contexts
+      HRM_API_URL: http://hrm-api:3339/api/hrm
+      INVENTORY_API_URL: http://inventory-api:3336/api/inventory
     depends_on:
       migrator:
         condition: service_completed_successfully
