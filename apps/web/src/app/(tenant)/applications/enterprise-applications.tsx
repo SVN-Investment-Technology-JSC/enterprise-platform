@@ -5,6 +5,7 @@ import type {
   TenantEntitlementStatus,
   TenantModuleCatalogItem,
 } from '@enterprise-platform/contracts-tenancy';
+import { isLauncherOnlyModule, openAssistant } from '@enterprise-platform/feature-module-shell';
 import {
   Boxes,
   Check,
@@ -667,6 +668,19 @@ function ModuleAction({
     'whitespace-nowrap',
     size === 'row' ? 'h-8 rounded-[7px] px-3 text-[12.5px]' : 'h-9 rounded-lg px-3.5 text-[13px]',
   );
+  if (module.entitlementStatus === 'active' && isLauncherOnlyModule(module.key)) {
+    // Trợ lý không có trang riêng: mở ngăn chat của khung chung thay vì chuyển trang.
+    return (
+      <button
+        className={cn('flex cursor-pointer items-center gap-1.5 bg-[#18181b] font-semibold text-white hover:bg-[#2a2a2f]', box)}
+        onClick={openAssistant}
+        type="button"
+      >
+        {size === 'row' ? 'Truy cập' : 'Mở Trợ lý'}
+        <Sparkles className="size-3.5" aria-hidden />
+      </button>
+    );
+  }
   if (module.entitlementStatus === 'active') {
     return (
       <a

@@ -2,6 +2,7 @@
 
 import { authFetch } from '@enterprise-platform/shared-ui';
 import { useEffect, useRef, useState } from 'react';
+import { isLauncherOnlyModule } from './launcher-only-modules';
 import styles from './module-shell-light.module.scss';
 
 /**
@@ -47,7 +48,11 @@ export function ModuleSwitcher({ moduleKey, homeHref }: ModuleSwitcherProps) {
       .then(async (response) => {
         if (!response.ok) throw new Error(String(response.status));
         const payload = (await response.json()) as { modules: CatalogModule[] };
-        if (active) setModules(payload.modules.filter((m) => m.entitlementStatus === 'active'));
+        if (active) {
+          setModules(
+            payload.modules.filter((m) => m.entitlementStatus === 'active' && !isLauncherOnlyModule(m.key)),
+          );
+        }
       })
       .catch(() => {
         if (active) setFailed(true);

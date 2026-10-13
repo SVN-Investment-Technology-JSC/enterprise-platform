@@ -1,4 +1,5 @@
 import type { AuthenticatedPrincipal } from '@enterprise-platform/contracts-identity';
+import { isLauncherOnlyModule } from '@enterprise-platform/feature-module-shell';
 import {
   Building2,
   ChevronRight,
@@ -158,7 +159,7 @@ export default async function TenantPortalPage() {
   const principal = (await me.json()) as AuthenticatedPrincipal;
   if (principal.kind === 'platform-admin') redirect('/platform');
   const modules = ((await modulesRes.json()) as Module[]).filter(
-    (item) => item.status === 'active',
+    (item) => item.status === 'active' && !isLauncherOnlyModule(item.key),
   ),
     manager = principal.permissions.includes('tenant.manage');
   const has = (key: string) => modules.some((item) => item.key === key);
