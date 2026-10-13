@@ -2964,9 +2964,6 @@
   border-bottom: 1px solid #eef2f7;
 }
 
-.branchAddRow > td.masterCell {
-  padding-left: 1.4rem;
-}
 
 .branchAddInner {
   display: flex;
@@ -3465,3 +3462,251 @@
 .roleC { color: #5b21b6; background: #ede9fe; border-color: #ddd6fe; }
 .roleA { color: #166534; background: #dcfce7; border-color: #bbf7d0; }
 .roleI { color: #374151; background: #f3f4f6; border-color: #e5e7eb; }
+
+/* ======================================================================
+   QT-U9/U10/U11/U13/U15 — Khung quy trình, khung bước, cây luồng, menu
+   ====================================================================== */
+
+/* QT-U9: mỗi quy trình nằm trong một khung rõ ràng (cả thu nhỏ lẫn mở).
+   Viền trên 2px tách các quy trình; mép trái màu đánh dấu cả khối quy trình. */
+.definitionRow > td {
+  border-top: 2px solid #cbd5e1;
+}
+
+.definitionRow > td.masterCell {
+  border-left: 3px solid #2563eb;
+}
+
+.stepRow > td.masterCell,
+.addStepRow > td.masterCell,
+.gatewayRow > td.masterCell,
+.branchAddRow > td.masterCell {
+  border-left: 3px solid #e2e8f0;
+}
+
+/* QT-U11 (sửa): ô master của các hàng có cây luồng là gốc toạ độ cho lớp phủ
+   cây luồng tuyệt đối. Bỏ padding dọc + padding trái + vạch ngang 1px để lớp
+   phủ cao đúng bằng hàng, nối liền tuyệt đối giữa các hàng và thẳng trục x. */
+.stepRow > td.masterCell,
+.gatewayRow > td.masterCell,
+.branchAddRow > td.masterCell {
+  padding-top: 0;
+  padding-bottom: 0;
+  padding-left: 0;
+  border-bottom: 0;
+}
+
+/* QT-U10: mỗi bước có khung riêng, phân biệt với khung bao quy trình. */
+.stepRow .stickyInner {
+  border: 1px solid #d8e0ea;
+  border-radius: 8px;
+  padding: 5px 8px;
+  background: #fff;
+}
+
+/* QT-U11: khung chứa phần nội dung bước, chừa chỗ bên trái cho lớp phủ cây
+   luồng (28px) và canh dọc nội dung. Cây luồng nằm ngoài luồng flex này. */
+.stepLane {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 0.3rem 0.5rem 0.3rem 34px;
+}
+
+.stepLane > .stickyInner,
+.stepLane > .gatewayInner,
+.stepLane > .branchAddInner {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* Lớp phủ cây luồng: tuyệt đối theo ô master (sticky), cao đúng bằng cả hàng
+   (top:0 → bottom:0) nên các đường dọc thẳng trục và nối liền giữa các hàng. */
+.flowGutter {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 28px;
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* Trục chính + lane nhánh: đường dọc full-height tại x cố định. */
+.flowTrunkLine {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 9px;
+  width: 2px;
+  margin-left: -1px;
+  background: #cbd5e1;
+}
+
+.flowBranchLine {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 19px;
+  width: 2px;
+  margin-left: -1px;
+}
+
+.flowBranchLineDashed {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 19px;
+  width: 0;
+  margin-left: -1px;
+  border-left: 2px dashed currentColor;
+}
+
+.flowSvg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.flowNodeMain,
+.flowNode,
+.flowDiamond {
+  position: absolute;
+  top: 50%;
+  width: 9px;
+  height: 9px;
+  box-sizing: border-box;
+  transform: translate(-50%, -50%);
+  z-index: 1;
+}
+
+.flowNodeMain {
+  border-radius: 999px;
+  background: #2563eb;
+  box-shadow: 0 0 0 2px #fff;
+}
+
+.flowNode {
+  border-radius: 999px;
+  border: 2px solid;
+  box-shadow: 0 0 0 2px #fff;
+}
+
+.flowDiamond {
+  border: 2px solid #4f46e5;
+  border-radius: 2px;
+  background: #fff;
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+
+/* QT-U12: nhãn nhánh tối giản (chỉ chữ cái). */
+.branchChip {
+  min-width: 1.35rem;
+  max-width: none;
+  text-align: center;
+}
+
+/* QT-U13: menu chuột phải cho thao tác của bước. */
+.contextMenu {
+  position: fixed;
+  z-index: 100000;
+  min-width: 190px;
+  padding: 4px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  box-shadow: 0 12px 32px -4px rgba(15, 23, 42, 0.22), 0 0 0 1px rgba(15, 23, 42, 0.06);
+}
+
+.contextItem {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #1f2937;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.contextItem:hover:not(:disabled) {
+  background: #f1f5f9;
+}
+
+.contextItem:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.contextItemDanger {
+  color: #dc2626;
+}
+
+.contextItemDanger:hover:not(:disabled) {
+  background: #fef2f2;
+}
+
+.contextItemSeparated {
+  margin-top: 4px;
+  border-top: 1px solid #eef0f3;
+  padding-top: 9px;
+}
+
+/* QT-U15: nút lộ ô nhập "thêm bước" + nút huỷ. */
+.addStepReveal {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px 4px 4px;
+  border: 1px dashed #bfdbfe;
+  border-radius: 8px;
+  background: #f8fbff;
+  color: #1d4ed8;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.addStepReveal:hover:not(:disabled) {
+  background: #eff6ff;
+  border-color: #93c5fd;
+}
+
+.addStepReveal:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.addStepCancel {
+  display: inline-grid;
+  place-items: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  flex-shrink: 0;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.4rem;
+  background: #fff;
+  color: #64748b;
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.addStepCancel:hover {
+  border-color: #cbd5e1;
+  color: #334155;
+}
