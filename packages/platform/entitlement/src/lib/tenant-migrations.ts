@@ -490,6 +490,10 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       version: '0018-workspace-project-request-reversal',
       path: 'tenant/workspace/0018-workspace-project-request-reversal.sql',
     },
+    {
+      version: '0019-workspace-status-history-deletion-log',
+      path: 'tenant/workspace/0019-workspace-status-history-deletion-log.sql',
+    },
   ],
 };
 
