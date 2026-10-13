@@ -30,6 +30,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Chức năng chọn tài khoản nhanh ở form đăng nhập kèm mật khẩu, chỉ dùng cục bộ; không được lên repo.
+      - name: Block dev login presets
+        run: node tools/check-no-dev-login-presets.mjs
+
       - name: Classify changed files
         id: filter
         uses: dorny/paths-filter@v3
