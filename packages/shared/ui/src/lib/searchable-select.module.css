@@ -32,6 +32,8 @@
   color: #0f172a !important;
   outline: none !important;
   box-sizing: border-box !important;
+  /* Giá trị dài (vd. nhãn ca) bị cắt bằng dấu … thay vì tràn sát nút xoá/mũi tên. */
+  text-overflow: ellipsis;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 
   &:focus {

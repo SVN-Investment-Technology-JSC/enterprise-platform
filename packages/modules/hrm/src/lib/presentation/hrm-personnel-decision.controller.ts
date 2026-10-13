@@ -26,7 +26,6 @@ import {
   cancelDecision,
   createDecision,
   listDecisions,
-  listSubordinates,
   loadAppointmentContext,
   loadDecision,
   loadReportingOverview,
@@ -39,9 +38,9 @@ import { requireUuid } from '../infrastructure/hrm-validation.js';
 const meta = (req: Request) => ({ requestId: req.headers['x-request-id'] as string });
 
 /**
- * Quyết định nhân sự: bổ nhiệm, thăng chức, điều chuyển, kiêm nhiệm, miễn nhiệm
- * và đổi người quản lý trực tiếp. Chức danh ghi sang Core qua endpoint nội bộ;
- * người quản lý và lương do HRM ghi.
+ * Quyết định nhân sự: bổ nhiệm, thăng chức, điều chuyển, kiêm nhiệm, miễn nhiệm.
+ * Chức danh ghi sang Core qua endpoint nội bộ, lương do HRM ghi. Quản lý trực tiếp
+ * không do quyết định gán: lấy từ "Báo cáo cho" của chức danh trên Core, không có thì Tổng giám đốc.
  */
 @Controller('v1')
 export class HrmPersonnelDecisionController {
@@ -145,7 +144,7 @@ export class HrmPersonnelDecisionController {
     };
   }
 
-  /** Người quản lý hiện tại và lịch sử báo cáo; nhân viên xem được của chính mình. */
+  /** Người quản lý hiện tại (Core, không có thì Tổng giám đốc); nhân viên xem được của chính mình. */
   @Get('employees/:employeeId/reporting-lines')
   @RequirePermission('hrm.self.read')
   async reportingLines(@Req() req: Request, @Param('employeeId') employeeId: string) {
@@ -154,15 +153,7 @@ export class HrmPersonnelDecisionController {
     return { data: await loadReportingOverview(pool, tenantId, employeeId), meta: meta(req) };
   }
 
-  @Get('employees/:employeeId/subordinates')
-  @RequirePermission('hrm.appointment.read')
-  async subordinates(@Req() req: Request, @Param('employeeId') employeeId: string) {
-    requireUuid(employeeId, 'Nhân viên');
-    const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.appointment.read');
-    return { data: await listSubordinates(pool, tenantId, employeeId), meta: meta(req) };
-  }
-
-  /** Hiện trạng chức danh, quản lý, lương, cấp dưới để form quyết định hiện cột "Trước". */
+  /** Hiện trạng chức danh, quản lý, lương để form quyết định hiện cột "Trước". */
   @Get('employees/:employeeId/appointment-context')
   @RequirePermission('hrm.appointment.read')
   async appointmentContext(@Req() req: Request, @Param('employeeId') employeeId: string) {

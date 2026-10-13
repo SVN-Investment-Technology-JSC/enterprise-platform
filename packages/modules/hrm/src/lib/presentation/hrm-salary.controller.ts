@@ -1,4 +1,5 @@
 import { attachProcedureLinkInfo } from '../infrastructure/hrm-procedure-link-info.js';
+import { syncEmployeeProcedureResults } from '../infrastructure/hrm-procedure-sync.js';
 import { HrmApprovalPolicyService, approverPermissions } from '../infrastructure/hrm-approval-policy.js';
 import { workflowProgressFilter } from '../infrastructure/hrm-workflow-filter.js';
 import {
@@ -683,6 +684,7 @@ export class HrmSalaryController {
       forApproval === '1' ? approverPermissions('advance') : [],
     );
     employeeId = visibleEmployeeId;
+    if (employeeId) await syncEmployeeProcedureResults(pool, tenantId, employeeId);
     const approvalScope =
       forApproval === '1'
         ? await this.approvals.listFilter(

@@ -12,6 +12,7 @@ import {
 import { useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Popconfirm } from '@enterprise-platform/shared-ui';
+import { CollapsibleGroup } from '../collapsible-group';
 
 export type Tree = {
   id: string;
@@ -72,175 +73,161 @@ export function OrganizationTreeTable({
     );
   }, [trees, searchTerm]);
 
+  const groups = [
+    {
+      id: 'primary',
+      title: 'Sơ đồ chính',
+      tone: 'bg-[#fff6d6] text-[#8a6400]',
+      rows: filteredTrees.filter((t) => t.isPrimary),
+    },
+    {
+      id: 'secondary',
+      title: 'Sơ đồ phụ',
+      tone: 'bg-slate-100 text-slate-700',
+      rows: filteredTrees.filter((t) => !t.isPrimary),
+    },
+  ].filter((group) => group.rows.length > 0);
+
   return (
-    <div className="flex flex-1 min-h-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-      {/* Table Toolbar / Header Controls */}
-      <div className="shrink-0 flex flex-col justify-between gap-3 border-b border-slate-200 bg-white p-3 sm:p-4 sm:flex-row sm:items-center">
-        <div className="flex flex-1 items-center gap-3">
-          <div className="relative max-w-sm flex-1">
-            <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
-            <input
-              type="text"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Tìm kiếm sơ đồ theo tên, mã…"
-              className="h-9 w-full rounded-md border border-slate-200 bg-slate-50 pl-9 pr-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-            />
-          </div>
-          {searchTerm ? (
-            <button
-              onClick={() => setSearchTerm('')}
-              className="text-xs text-slate-500 hover:text-slate-700 hover:underline"
-            >
-              Xoá tìm kiếm
-            </button>
-          ) : null}
-        </div>
+    <div className="flex flex-col gap-3.5">
+      {/* Toolbar */}
+      <div className="flex flex-wrap items-center gap-2.5">
+        <label className="flex h-[38px] min-w-[220px] flex-[0_1_380px] items-center gap-2 rounded-lg border border-[#eef0f3] bg-white px-3 text-slate-500 focus-within:border-[#ffc90a]">
+          <Search className="size-4 shrink-0" aria-hidden />
+          <input
+            type="search"
+            aria-label="Tìm sơ đồ"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            placeholder="Tìm kiếm sơ đồ theo tên, mã…"
+            className="min-w-0 flex-1 bg-transparent text-[13px] text-[#18181b] outline-none placeholder:text-slate-400"
+          />
+        </label>
+        {searchTerm ? (
+          <button
+            type="button"
+            onClick={() => setSearchTerm('')}
+            className="cursor-pointer text-xs text-slate-500 hover:text-slate-700 hover:underline"
+          >
+            Xoá tìm kiếm
+          </button>
+        ) : null}
+        <span className="flex-1" />
         <Button
           disabled={!canCreate}
           onClick={onCreateTree}
-          size="default"
-          className="bg-blue-600 hover:bg-blue-700 shrink-0 gap-1.5"
+          className="h-[38px] shrink-0 gap-1.5 bg-[#ffc90a] text-[13px] font-bold text-[#18181b] hover:bg-[#ffd84d]"
         >
           <Plus className="size-4" />
           Thêm sơ đồ mới
         </Button>
       </div>
 
-      {/* Data Table */}
-      <div className="flex-1 min-h-0 overflow-auto">
-        <table className="w-full text-left text-sm border-collapse">
-          <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-100 text-xs font-semibold uppercase text-slate-700 shadow-sm">
-            <tr>
-              <th className="px-5 py-3">Mã sơ đồ</th>
-              <th className="px-5 py-3">Tên sơ đồ</th>
-              <th className="px-5 py-3">Mô tả</th>
-              <th className="px-5 py-3 text-center">Loại sơ đồ</th>
-              <th className="px-5 py-3 text-center">Số node</th>
-              <th className="px-5 py-3 text-center">Trạng thái</th>
-              <th className="px-5 py-3 text-right">Thao tác</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100 text-slate-700">
-            {filteredTrees.length > 0 ? (
-              filteredTrees.map((item) => {
-                const nodeCount = nodeCountByTree.get(item.id) ?? 0;
-                return (
-                  <tr
-                    key={item.id}
-                    className="group transition-colors hover:bg-slate-50/80"
-                  >
-                    <td className="whitespace-nowrap px-5 py-4 font-mono text-xs font-semibold text-slate-700">
-                      {item.code}
-                    </td>
-                    <td className="px-5 py-4">
-                      <div className="flex items-center gap-2">
-                        <span className="font-semibold text-slate-900">
-                          {item.name}
+      {groups.map((group) => (
+        <CollapsibleGroup
+          count={group.rows.length}
+          icon={<GitBranch className="size-4" />}
+          key={group.id}
+          title={group.title}
+          tone={group.tone}
+        >
+          <div className="overflow-x-auto">
+            <div className="min-w-[720px]">
+              <div className={`${ROW} py-2 text-[11px] font-semibold tracking-[0.4px] text-slate-500`}>
+                <span>TÊN SƠ ĐỒ</span>
+                <span>MÃ SƠ ĐỒ</span>
+                <span>SỐ NODE</span>
+                <span>TRẠNG THÁI</span>
+                <span className="text-right">THAO TÁC</span>
+              </div>
+              {group.rows.map((item) => (
+                <div className={`${ROW} py-3 hover:bg-[#f4f6f9]/60`} key={item.id}>
+                  <div className="flex min-w-0 flex-col">
+                    <span className="flex min-w-0 items-center gap-2 font-semibold">
+                      <span className="truncate">{item.name}</span>
+                      {item.isPrimary ? (
+                        <span className="rounded-[5px] bg-[#fff6d6] px-1.5 text-[10px] font-extrabold tracking-[0.4px] text-[#8a6400]">
+                          CHÍNH
                         </span>
-                        {item.isPrimary ? (
-                          <span className="rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-bold text-blue-700 border border-blue-200">
-                            CHÍNH
-                          </span>
-                        ) : null}
-                      </div>
-                    </td>
-                    <td className="max-w-xs truncate px-5 py-4 text-xs text-slate-500">
+                      ) : null}
+                    </span>
+                    <span className="truncate text-[12.5px] text-slate-500">
                       {item.description || '—'}
-                    </td>
-                    <td className="whitespace-nowrap px-5 py-4 text-center">
-                      <span
-                        className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${item.isPrimary
-                          ? 'bg-blue-100 text-blue-800'
-                          : 'bg-slate-100 text-slate-600'
-                          }`}
+                    </span>
+                  </div>
+                  <span className="truncate font-mono text-xs font-semibold text-slate-700">
+                    {item.code}
+                  </span>
+                  <b className="tabular-nums">{nodeCountByTree.get(item.id) ?? 0}</b>
+                  <span className="flex items-center gap-1.5 justify-self-start rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-800">
+                    <span className="size-1.5 rounded-full bg-emerald-500" />
+                    Hoạt động
+                  </span>
+                  <div className="flex items-center justify-end gap-1.5">
+                    <button
+                      type="button"
+                      className="flex h-8 cursor-pointer items-center gap-1.5 rounded-[7px] bg-[#18181b] px-3 text-[12.5px] font-semibold text-white hover:bg-[#2a2a2f]"
+                      onClick={() => onOpenTree(item.id)}
+                      title="Vào xem và chỉnh sửa chi tiết cây sơ đồ"
+                    >
+                      <Eye className="size-3.5" />
+                      Xem chi tiết
+                    </button>
+                    <button
+                      type="button"
+                      className="grid size-8 cursor-pointer place-items-center rounded-[7px] border border-[#eef0f3] bg-white text-slate-600 hover:bg-[#f4f6f9] disabled:cursor-not-allowed disabled:opacity-50"
+                      disabled={!canUpdate}
+                      onClick={() => onEditTree(item)}
+                      aria-label="Chỉnh sửa thông tin sơ đồ"
+                      title="Chỉnh sửa thông tin sơ đồ"
+                    >
+                      <Pencil className="size-3.5" />
+                    </button>
+                    <Popconfirm
+                      title="Xoá sơ đồ tổ chức?"
+                      description={`Bạn có chắc chắn muốn xoá sơ đồ "${item.name}"?`}
+                      okText="Xoá"
+                      cancelText="Huỷ"
+                      okType="danger"
+                      placement="left"
+                      disabled={!canDelete}
+                      onConfirm={() => onDeleteTree(item)}
+                    >
+                      <button
+                        type="button"
+                        className="grid size-8 cursor-pointer place-items-center rounded-[7px] border border-red-200 bg-white text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                        disabled={!canDelete}
+                        aria-label="Xoá sơ đồ"
+                        title="Xoá sơ đồ"
                       >
-                        {item.isPrimary ? 'Sơ đồ chính' : 'Sơ đồ phụ'}
-                      </span>
-                    </td>
-                    <td className="whitespace-nowrap px-5 py-4 text-center font-semibold text-slate-900">
-                      {nodeCount}
-                    </td>
-                    <td className="whitespace-nowrap px-5 py-4 text-center">
-                      <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 border border-emerald-200">
-                        <span className="size-1.5 rounded-full bg-emerald-500" />
-                        Hoạt động
-                      </span>
-                    </td>
-                    <td className="whitespace-nowrap px-5 py-4 text-right">
-                      <div className="flex items-center justify-end gap-1.5">
-                        <Button
-                          size="sm"
-                          variant="default"
-                          className="h-8 gap-1 bg-blue-600 px-3 text-xs hover:bg-blue-700"
-                          onClick={() => onOpenTree(item.id)}
-                          title="Vào xem và chỉnh sửa chi tiết cây sơ đồ"
-                        >
-                          <Eye className="size-3.5" />
-                          <span>Xem chi tiết</span>
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-8 size-8 p-0"
-                          disabled={!canUpdate}
-                          onClick={() => onEditTree(item)}
-                          title="Chỉnh sửa thông tin sơ đồ"
-                        >
-                          <Pencil className="size-3.5 text-slate-600" />
-                        </Button>
-                        <Popconfirm
-                          title="Xoá sơ đồ tổ chức?"
-                          description={`Bạn có chắc chắn muốn xoá sơ đồ "${item.name}"?`}
-                          okText="Xoá"
-                          cancelText="Huỷ"
-                          okType="danger"
-                          placement="left"
-                          disabled={!canDelete}
-                          onConfirm={() => onDeleteTree(item)}
-                        >
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-8 size-8 p-0 text-red-600 hover:bg-red-50 hover:text-red-700"
-                            disabled={!canDelete}
-                            title="Xoá sơ đồ"
-                          >
-                            <Trash2 className="size-3.5" />
-                          </Button>
-                        </Popconfirm>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })
-            ) : (
-              <tr>
-                <td
-                  colSpan={7}
-                  className="py-12 text-center text-sm text-slate-500"
-                >
-                  <GitBranch className="mx-auto size-8 text-slate-300" />
-                  <p className="mt-2 font-medium">Không tìm thấy sơ đồ tổ chức nào.</p>
-                  <p className="mt-0.5 text-xs text-slate-400">
-                    Bấm &quot;Thêm sơ đồ mới&quot; để tạo sơ đồ đầu tiên.
-                  </p>
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+                        <Trash2 className="size-3.5" />
+                      </button>
+                    </Popconfirm>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </CollapsibleGroup>
+      ))}
 
-      {/* Footer info */}
-      <div className="shrink-0 flex items-center justify-between border-t border-slate-200 bg-slate-50/70 px-4 py-2.5 text-xs text-slate-500">
-        <span>
-          Hiển thị <b>{filteredTrees.length}</b> / <b>{trees.length}</b> sơ đồ tổ chức
-        </span>
-        <span className="text-slate-400">
-          Nhấp vào &quot;Xem chi tiết&quot; để mở không gian làm việc sơ đồ 3 cột
-        </span>
-      </div>
+      {groups.length === 0 ? (
+        <div className="rounded-[14px] border border-dashed border-slate-200 bg-white py-12 text-center text-sm text-slate-500">
+          <GitBranch className="mx-auto size-8 text-slate-300" />
+          <p className="mt-2 font-medium">Không tìm thấy sơ đồ tổ chức nào.</p>
+          <p className="mt-0.5 text-xs text-slate-400">
+            Bấm &quot;Thêm sơ đồ mới&quot; để tạo sơ đồ đầu tiên.
+          </p>
+        </div>
+      ) : null}
+
+      <p className="m-0 text-[12.5px] text-slate-500">
+        Hiển thị <b className="text-[#18181b]">{filteredTrees.length}</b> /{' '}
+        <b className="text-[#18181b]">{trees.length}</b> sơ đồ tổ chức
+      </p>
     </div>
   );
 }
+
+const ROW =
+  'grid grid-cols-[minmax(220px,1fr)_120px_80px_120px_200px] items-center gap-x-3 border-t border-[#f1f3f6] px-5';

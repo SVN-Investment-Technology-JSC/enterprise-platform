@@ -2127,6 +2127,7 @@ export type HrmPersonnelDecisionType =
   | 'TRANSFER'
   | 'CONCURRENT'
   | 'DISMISS'
+  /** Chỉ còn trong dữ liệu cũ; không tạo mới được nữa. */
   | 'CHANGE_MANAGER';
 
 export type HrmPersonnelDecisionStatus =
@@ -2137,10 +2138,10 @@ export type HrmPersonnelDecisionStatus =
   | 'REJECTED'
   | 'CANCELLED';
 
-/** KEEP: giữ nguyên · SET: gán `toManagerEmployeeId` · CLEAR: bỏ người quản lý. */
+/** Chỉ còn trong dữ liệu cũ: quyết định không còn gán quản lý. KEEP: giữ nguyên · SET: đã gán · CLEAR: đã bỏ. */
 export type HrmManagerMode = 'KEEP' | 'SET' | 'CLEAR';
 
-/** KEEP: cấp dưới giữ nguyên · REASSIGN: chuyển toàn bộ sang `subordinateTargetEmployeeId`. */
+/** Chỉ còn trong dữ liệu cũ: quyết định không còn chuyển cấp dưới. */
 export type HrmSubordinateMode = 'KEEP' | 'REASSIGN';
 
 export interface HrmPersonnelDecision {
@@ -2180,7 +2181,7 @@ export interface HrmPersonnelDecision {
   readonly approvedAt?: string | null;
   readonly rejectedReason?: string | null;
   readonly appliedAt?: string | null;
-  /** Các bước đã áp dụng: `core`, `manager`, `subordinates`, `salary`. */
+  /** Các bước đã áp dụng: `core`, `salary` (quyết định cũ còn `manager`, `subordinates`). */
   readonly appliedSteps: Record<string, boolean>;
   readonly applyAttempts: number;
   readonly applyError?: string | null;
@@ -2197,10 +2198,6 @@ export interface CreateHrmPersonnelDecisionPayload {
   /** Bỏ trống để hệ thống cấp số theo năm. */
   readonly decisionNo?: string;
   readonly toPositionNodeId?: string | null;
-  readonly managerMode?: HrmManagerMode;
-  readonly toManagerEmployeeId?: string | null;
-  readonly subordinateMode?: HrmSubordinateMode;
-  readonly subordinateTargetEmployeeId?: string | null;
   /** Bật khi quyết định thay đổi lương; các trường `toSalary*` khi đó là bắt buộc. */
   readonly salaryChanged?: boolean;
   readonly toSalaryGradeId?: string | null;
@@ -2214,22 +2211,10 @@ export type UpdateHrmPersonnelDecisionPayload = Partial<
   Omit<CreateHrmPersonnelDecisionPayload, 'employeeId' | 'decisionType'>
 > & { readonly version: number };
 
-export interface HrmReportingLine {
-  readonly id: string;
-  readonly employeeId: string;
-  readonly managerEmployeeId: string;
-  readonly managerName?: string | null;
-  readonly managerCode?: string | null;
-  readonly relationType: 'DIRECT' | 'DOTTED';
-  readonly effectiveFrom: string;
-  readonly effectiveTo?: string | null;
-  readonly decisionId?: string | null;
-  readonly decisionNo?: string | null;
-  readonly source: 'DECISION' | 'MANUAL' | 'IMPORT' | 'CORE_SYNC';
-  readonly note?: string | null;
-}
-
-/** Người quản lý trực tiếp đã phân giải: theo "Báo cáo cho" của chức danh trong sơ đồ tổ chức Core, không có thì quan hệ báo cáo HRM. */
+/**
+ * Người quản lý trực tiếp đã phân giải: theo "Báo cáo cho" của chức danh trong sơ đồ tổ chức Core, không có thì
+ * Tổng giám đốc (CHIEF_FALLBACK).
+ */
 export interface HrmResolvedManager {
   readonly employeeId: string;
   readonly name: string;
@@ -2237,25 +2222,15 @@ export interface HrmResolvedManager {
   /** Chức danh của người quản lý. */
   readonly title: string | null;
   readonly email: string | null;
-  readonly source: 'CORE_POSITION' | 'HRM_LINE';
+  readonly source: 'CORE_POSITION' | 'CHIEF_FALLBACK';
 }
 
 export interface HrmReportingOverview {
-  readonly current: HrmReportingLine | null;
-  readonly history: readonly HrmReportingLine[];
-  /** Quản lý trực tiếp đang áp dụng (nguồn chính là chức danh Core); null khi chưa xác định được. */
-  readonly manager?: HrmResolvedManager | null;
+  /** Quản lý trực tiếp đang áp dụng; null khi chưa xác định được. */
+  readonly manager: HrmResolvedManager | null;
 }
 
-export interface HrmSubordinate {
-  readonly employeeId: string;
-  readonly employeeCode?: string | null;
-  readonly fullName: string;
-  readonly positionName?: string | null;
-  readonly unitName?: string | null;
-}
-
-/** Ảnh chụp hiện trạng để form quyết định hiện cột "Trước" và bảng tác động. */
+/** Ảnh chụp hiện trạng để form quyết định hiện cột "Trước". */
 export interface HrmAppointmentContext {
   readonly employeeId: string;
   readonly positionNodeId?: string | null;
@@ -2272,7 +2247,6 @@ export interface HrmAppointmentContext {
     readonly salaryType: 'GROSS' | 'NET';
     readonly baseSalary: number;
   } | null;
-  readonly subordinates: readonly HrmSubordinate[];
   /** Nhân viên đã liên kết tài khoản — điều kiện để bổ nhiệm vào chức danh ở Core. */
   readonly hasAccount: boolean;
 }
@@ -2909,4 +2883,73 @@ export interface HrmMentionCandidate {
   readonly name: string;
   readonly employeeCode: string | null;
   readonly department: string | null;
+}
+
+/**
+ * Giám sát chấm công theo ngày (GET /v1/attendance-monitor?date=): tình hình vào ca, đi trễ, về sớm, nghỉ phép của
+ * nhân viên trong phạm vi người xem (toàn công ty với người có quyền xem chấm công/bảng công, cấp dưới theo sơ đồ tổ chức
+ * với người quản lý).
+ */
+export type HrmMonitorStatus =
+  | 'NOT_CHECKED_IN' // đã tới giờ ca nhưng chưa chấm vào
+  | 'ABSENT' // ngày đã qua: có ca, không chấm công, không có đơn nghỉ được duyệt
+  | 'LATE' // đi trễ
+  | 'EARLY_LEAVE' // về sớm
+  | 'LATE_EARLY' // vừa đi trễ vừa về sớm
+  | 'MISSING_PUNCH' // thiếu lượt chấm (chỉ có vào hoặc chỉ có ra)
+  | 'CHECKED_IN' // đã vào ca đúng giờ, đang làm
+  | 'COMPLETED' // đã chấm vào và ra đủ
+  | 'UPCOMING' // chưa tới giờ ca
+  | 'ON_LEAVE' // nghỉ có đơn được duyệt
+  | 'ON_TRIP' // công tác
+  | 'DAY_OFF' // ngày nghỉ hoặc ngày lễ
+  | 'NO_SCHEDULE'; // chưa có lịch làm việc
+
+export interface HrmMonitorRow {
+  readonly employeeId: string;
+  readonly employeeCode: string;
+  readonly employeeName: string;
+  readonly departmentName: string | null;
+  readonly positionName: string | null;
+  readonly status: HrmMonitorStatus;
+  readonly shiftCode: string | null;
+  readonly shiftName: string | null;
+  /** Giờ dự kiến của ca, HH:mm. */
+  readonly shiftStart: string | null;
+  readonly shiftEnd: string | null;
+  /** Giờ chấm vào/ra thực tế, HH:mm; null nếu chưa chấm. */
+  readonly checkIn: string | null;
+  readonly checkOut: string | null;
+  readonly lateMinutes: number;
+  readonly earlyLeaveMinutes: number;
+  /** Tên lý do nghỉ khi đang nghỉ phép. */
+  readonly leaveName: string | null;
+  /** Số ngày nghỉ rơi vào ngày này (0.5 = nửa ngày). */
+  readonly leaveDays: number;
+  /** Đơn từ liên quan tới ngày này (đã duyệt, chờ duyệt, từ chối). */
+  readonly requests: readonly HrmDayRequest[];
+}
+
+export interface HrmMonitorSummary {
+  /** Nhân viên trong phạm vi đang làm việc vào ngày này. */
+  readonly totalPeople: number;
+  /** Nhân viên có ca làm việc ngày này (kể cả đang nghỉ phép/công tác). */
+  readonly scheduled: number;
+  readonly checkedIn: number;
+  readonly notCheckedIn: number;
+  readonly late: number;
+  readonly earlyLeave: number;
+  readonly onLeave: number;
+  readonly onTrip: number;
+  readonly missingPunch: number;
+}
+
+export interface HrmAttendanceMonitor {
+  readonly date: string;
+  readonly today: string;
+  readonly generatedAt: string;
+  /** ALL: toàn công ty; TEAM: chỉ cấp dưới của người xem. */
+  readonly scope: 'ALL' | 'TEAM';
+  readonly summary: HrmMonitorSummary;
+  readonly rows: readonly HrmMonitorRow[];
 }

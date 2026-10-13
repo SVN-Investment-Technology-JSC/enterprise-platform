@@ -3,7 +3,8 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { createPostgresPool } from '@enterprise-platform/adapter-database';
 import { enrichLeaveBalances, unpostedUsableEntitlement } from './hrm-annual-leave';
-import { loadDirectManagerRef, loadReportingOverview } from './hrm-personnel-decisions';
+import { chiefFallbackUserIds } from './hrm-chief-fallback';
+import { loadDirectManager, loadDirectManagerRef, loadReportingOverview } from './hrm-personnel-decisions';
 import { accrueMonth } from './hrm-leave-accrual';
 import { carryoverYear } from './hrm-leave-carryover';
 import { createLeave } from './hrm-leave-operations';
@@ -155,7 +156,6 @@ integration('Annual leave by labor contract (PostgreSQL)', () => {
       'hrm/0032-hrm-personnel-decisions.sql',
       'hrm/0020-payroll-lifecycle.sql',
       'hrm/0033-leave-annual-policy.sql',
-      'hrm/0051-hrm-leave-settlements-legacy.sql',
       'hrm/0035-hrm-work-schedules.sql',
       'hrm/0036-hrm-work-schedule-rules.sql',
       'hrm/0044-hrm-annual-leave-single-policy.sql',
@@ -588,5 +588,93 @@ integration('Annual leave by labor contract (PostgreSQL)', () => {
     // Hồ sơ hiển thị dùng cùng nguồn, kèm mã nhân viên.
     const overview = await loadReportingOverview(pool, tenantId, staff);
     expect(overview.manager).toMatchObject({ employeeId: ceo, code: 'M-CEO', source: 'CORE_POSITION' });
+  });
+
+  it('đổi "Báo cáo cho" trên Core thì quản lý trực tiếp trong hồ sơ HRM tự đổi theo, không cần ghi gì vào HRM; không có thì Tổng giám đốc; dòng báo cáo HRM cũ không còn ảnh hưởng', async () => {
+    const tree = randomUUID();
+    await pool.query(
+      `INSERT INTO core_schema.organization_trees (id,code,name,is_primary) VALUES ($1,$2,'Sơ đồ',false)`,
+      [tree, `T-${tree.slice(0, 8)}`],
+    );
+    const position = async (name: string, reportsTo: string | null = null) => {
+      const id = randomUUID();
+      await pool.query(
+        `INSERT INTO core_schema.organization_nodes (id,tree_id,category,code,name,reports_to_position_id) VALUES ($1,$2,'position',$3,$4,$5)`,
+        [id, tree, `${name.slice(0, 6)}-${id.slice(0, 6)}`, name, reportsTo],
+      );
+      return id;
+    };
+    const person = async (code: string, positionId: string | null) => {
+      const userId = randomUUID();
+      await pool.query(
+        `INSERT INTO core_schema.users (id,username,full_name,email,password_hash) VALUES ($1,$2,$2,$3,'x')`,
+        [userId, `${code}-${userId.slice(0, 6)}`, `${userId}@t.local`],
+      );
+      const id = randomUUID();
+      await pool.query(
+        `INSERT INTO core_schema.employees (id,tenant_id,user_id,full_name,work_email) VALUES ($1,$2,$3,$4,$5)`,
+        [id, tenantId, userId, code, `${userId}@t.local`],
+      );
+      await pool.query(
+        `INSERT INTO hrm_schema.employee_profiles (employee_id,tenant_id,employee_code,join_date) VALUES ($1,$2,$3,'2020-01-01')`,
+        [id, tenantId, code],
+      );
+      if (positionId)
+        await pool.query(
+          `INSERT INTO core_schema.organization_node_assignments (id,node_id,user_id,is_primary) VALUES ($1,$2,$3,true)`,
+          [randomUUID(), positionId, userId],
+        );
+      return { id, userId };
+    };
+    const ceoPos = await position('Tổng Giám đốc');
+    const headAPos = await position('Trưởng phòng A', ceoPos);
+    const headBPos = await position('Trưởng phòng B', ceoPos);
+    const staffPos = await position('Nhân viên', headAPos);
+    const ceo = await person('S-CEO', ceoPos);
+    const headA = await person('S-HEADA', headAPos);
+    const headB = await person('S-HEADB', headBPos);
+    const staff = await person('S-STAFF', staffPos);
+    const setReportsTo = (id: string, reportsTo: string | null) =>
+      pool.query(`UPDATE core_schema.organization_nodes SET reports_to_position_id=$2, updated_at=now() WHERE id=$1`, [id, reportsTo]);
+    // Hồ sơ nhân sự đọc quản lý bằng đúng các hàm này (managerOrg và API reporting-lines).
+    const profileManager = async () => (await loadDirectManager(pool, tenantId, staff.id))?.name ?? null;
+    const overviewManager = async () => (await loadReportingOverview(pool, tenantId, staff.id)).manager;
+    const hrmLines = async () =>
+      (await pool.query(`SELECT count(*)::int AS n FROM hrm_schema.employee_reporting_lines WHERE tenant_id=$1 AND employee_id=$2`, [tenantId, staff.id])).rows[0].n;
+
+    // 1. Ban đầu: Nhân viên -> Trưởng phòng A.
+    expect(await profileManager()).toBe('S-HEADA');
+    // 2. Đổi "Báo cáo cho" trên Core sang Trưởng phòng B: hồ sơ đổi theo ngay, HRM không bị ghi gì.
+    await setReportsTo(staffPos, headBPos);
+    expect(await profileManager()).toBe('S-HEADB');
+    expect(await overviewManager()).toMatchObject({ employeeId: headB.id, source: 'CORE_POSITION' });
+    expect(await hrmLines()).toBe(0);
+    // 3. Ô ghi đè trên phân công thắng; bỏ ghi đè thì về lại theo chức danh.
+    await pool.query(`UPDATE core_schema.organization_node_assignments SET reports_to_position_override_id=$2 WHERE user_id=$1`, [staff.userId, headAPos]);
+    expect(await profileManager()).toBe('S-HEADA');
+    await pool.query(`UPDATE core_schema.organization_node_assignments SET reports_to_position_override_id=NULL WHERE user_id=$1`, [staff.userId]);
+    expect(await profileManager()).toBe('S-HEADB');
+
+    // 4. Gỡ "Báo cáo cho" và chưa ai bổ nhiệm: Tổng giám đốc duyệt mặc định, và chỉ Tổng giám đốc có phạm vi duyệt.
+    await setReportsTo(staffPos, null);
+    expect(await overviewManager()).toMatchObject({ employeeId: ceo.id, source: 'CHIEF_FALLBACK' });
+    expect((await chiefFallbackUserIds(pool, tenantId, ceo.userId)).has(staff.userId)).toBe(true);
+    expect((await chiefFallbackUserIds(pool, tenantId, headA.userId)).size).toBe(0);
+    // Tổng giám đốc không tự là quản lý của mình.
+    expect(await loadDirectManagerRef(pool, tenantId, ceo.id)).toBeNull();
+
+    // 5. Dòng quan hệ báo cáo HRM còn sót từ trước (dữ liệu cũ) không còn được dùng: vẫn là Tổng giám đốc.
+    await pool.query(
+      `INSERT INTO hrm_schema.employee_reporting_lines (tenant_id,employee_id,manager_employee_id,effective_from,source)
+       VALUES ($1,$2,$3,'2020-01-01','MANUAL')`,
+      [tenantId, staff.id, headA.id],
+    );
+    expect(await overviewManager()).toMatchObject({ employeeId: ceo.id, source: 'CHIEF_FALLBACK' });
+    expect((await chiefFallbackUserIds(pool, tenantId, ceo.userId)).has(staff.userId)).toBe(true);
+
+    // 6. Khai báo lại "Báo cáo cho" trên Core: Core thắng.
+    await setReportsTo(staffPos, headBPos);
+    expect(await overviewManager()).toMatchObject({ employeeId: headB.id, source: 'CORE_POSITION' });
+    expect(await profileManager()).toBe('S-HEADB');
   });
 });

@@ -1,5 +1,5 @@
 import type { PoolClient } from 'pg';
-import { applyLeaveDelta } from './hrm-leave-balance';
+import { applyLeaveDelta, listEmployeeLeaveBalanceRows } from './hrm-leave-balance';
 import {
   areSimilarLeaveNames,
   findSimilarLeaveTypes,
@@ -132,5 +132,24 @@ describe('leave type merge', () => {
     await expect(mergeLeaveTypes(db, 'tn', 'u', 's', 's', 'r')).rejects.toThrow(
       'phải khác nhau',
     );
+  });
+});
+
+describe('listEmployeeLeaveBalanceRows', () => {
+  it('thêm dòng mặc định cho lý do phép năm chưa có dòng quỹ, không ghi DB', async () => {
+    const { db, calls } = fakeDb(() => ({
+      rows: [{ leave_type_id: 'annual', has_balance: false, accrued: 0, remaining: 0 }],
+      rowCount: 1,
+    }));
+    const rows = await listEmployeeLeaveBalanceRows(db, 'tenant-1', 'emp-1', 2026);
+    expect(rows).toEqual([{ leave_type_id: 'annual', has_balance: false, accrued: 0, remaining: 0 }]);
+    expect(calls).toHaveLength(1);
+    const sql = calls[0].sql;
+    expect(sql.trimStart().startsWith('SELECT')).toBe(true);
+    // Dòng quỹ đã có (mọi lý do) vẫn được giữ; lý do phép năm đang áp dụng luôn có một dòng dù chưa có quỹ.
+    expect(sql).toContain('LEFT JOIN hrm_schema.leave_balances');
+    expect(sql).toContain('lb.id IS NOT NULL OR (lt.is_annual AND lt.active)');
+    expect(sql).toContain('lt.deleted_at IS NULL');
+    expect(calls[0].params).toEqual(['tenant-1', 'emp-1', 2026]);
   });
 });

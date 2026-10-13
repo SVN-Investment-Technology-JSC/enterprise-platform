@@ -269,7 +269,7 @@ export function Popconfirm({
         {
           ref: (node: HTMLElement | null) => {
             triggerRef.current = node;
-            const originalRef = (children as unknown as { ref?: unknown }).ref;
+            const originalRef = (children.props as { ref?: unknown }).ref;
             if (typeof originalRef === 'function') originalRef(node);
             else if (
               originalRef &&

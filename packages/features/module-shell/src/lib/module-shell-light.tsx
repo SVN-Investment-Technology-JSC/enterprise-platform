@@ -7,6 +7,7 @@ import type {
   ModuleShellProps,
   ModuleSidebarSection,
 } from './module-shell.types';
+import { AssistantLauncher } from './assistant-launcher';
 import { ModuleSwitcher } from './module-switcher';
 import { initialsOfName, useShellSession } from './use-shell-session';
 import styles from './module-shell-light.module.scss';
@@ -83,6 +84,7 @@ export function ModuleShellLight<TViewId extends string = string>(
               </span>
             )}
             {collapsed ? null : <NotificationBell className={styles.bell} />}
+            {collapsed ? null : <AssistantLauncher className={styles.bell} />}
           </div>
 
           {onQuickSearch ? (

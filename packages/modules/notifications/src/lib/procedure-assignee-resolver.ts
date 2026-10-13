@@ -57,6 +57,8 @@ function matches(
   member: MemberSubjects,
   units: ReadonlyMap<string, OrgUnit>,
 ): boolean {
+  // "Toàn bộ nhân viên" chỉ quyết định ai được khởi tạo; không dùng để gửi thông báo cho cả công ty.
+  if (assignment.subjectType === 'everyone') return false;
   if (assignment.subjectType === 'organization_unit') {
     const acting = actingSubjectIds(assignment.subjectId, units, assignment.role);
     if (acting.some((id) => member.organizationUnitIds.includes(id))) return true;

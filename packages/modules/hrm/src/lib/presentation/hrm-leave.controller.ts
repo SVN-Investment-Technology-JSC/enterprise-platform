@@ -56,7 +56,10 @@ import {
   transitionLeave,
   ensureLeaveBalance,
 } from '../infrastructure/hrm-leave-operations.js';
-import { applyLeaveDelta } from '../infrastructure/hrm-leave-balance.js';
+import {
+  applyLeaveDelta,
+  listEmployeeLeaveBalanceRows,
+} from '../infrastructure/hrm-leave-balance.js';
 import {
   leaveBalanceAtDate,
   reconcileLeaveBalances,
@@ -1108,11 +1111,8 @@ export class HrmLeaveController {
     );
     const year = parseInt(yearStr || '', 10) || new Date().getFullYear();
     const res = await hrmTransaction(pool, async (db) => {
-      const raw = await db.query(
-        `SELECT * FROM hrm_schema.leave_balances WHERE tenant_id = $1 AND employee_id = $2 AND year = $3`,
-        [tenantId, employeeId, year],
-      );
-      return { rows: await enrichLeaveBalances(db, tenantId, raw.rows) };
+      const rows = await listEmployeeLeaveBalanceRows(db, tenantId, employeeId, year);
+      return { rows: await enrichLeaveBalances(db, tenantId, rows) };
     });
     return {
       data: res.rows.map(this.mapBalance),

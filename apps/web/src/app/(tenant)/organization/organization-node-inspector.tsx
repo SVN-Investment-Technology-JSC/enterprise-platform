@@ -11,6 +11,7 @@ import {
   SlidersHorizontal,
   Trash2,
   Users,
+  X,
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
@@ -34,6 +35,7 @@ export function OrganizationNodeInspector({
   onQuickUnassign,
   onSetPrimaryAssignment,
   onSelectNode,
+  onClose,
 }: {
   selectedNode?: Node;
   nodes: Node[];
@@ -46,6 +48,8 @@ export function OrganizationNodeInspector({
   onQuickUnassign?: (assignmentId: string) => Promise<unknown>;
   onSetPrimaryAssignment?: (assignmentId: string, nodeId: string) => Promise<unknown>;
   onSelectNode?: (nodeId: string) => void;
+  /** Có thì hiện nút đóng ở đầu khung (khung nằm cạnh canvas, không phải ngăn kéo). */
+  onClose?: () => void;
 }) {
   const { canCreate, canUpdate, canDelete } = useOrganizationPermissions();
   const [assignUserId, setAssignUserId] = useState('');
@@ -236,26 +240,40 @@ export function OrganizationNodeInspector({
         },
       }}
     >
-      <div className="flex h-full min-h-0 w-full flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm font-sans">
+      <div className="flex h-full min-h-0 w-full flex-col overflow-hidden rounded-[14px] border border-[#eef0f3] bg-white font-sans">
         {/* Header */}
-        <div className="flex shrink-0 items-center justify-between border-b border-slate-200 bg-white px-4 py-3">
-          <div className="flex items-center gap-2">
-            <SlidersHorizontal className="size-4 text-blue-600" />
-            <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
-              Thuộc tính chi tiết
-            </h3>
-          </div>
-          <span className="rounded bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-700 border border-blue-200">
+        <div className="flex shrink-0 items-center gap-2 border-b border-[#eef0f3] bg-[#fafbfc] px-4 py-3">
+          <SlidersHorizontal className="size-4 text-amber-700" />
+          <h3 className="m-0 flex-1 text-[11.5px] font-bold uppercase tracking-[0.6px] text-slate-700">
+            Thuộc tính chi tiết
+          </h3>
+          <span
+            className={cn(
+              'rounded-full px-2 py-px text-[11.5px] font-bold',
+              isPositionNode ? 'bg-violet-50 text-violet-700' : 'bg-blue-50 text-blue-700',
+            )}
+          >
             {isPositionNode ? 'Chức danh' : 'Đơn vị'}
           </span>
+          {onClose ? (
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Đóng"
+              title="Đóng"
+              className="grid size-7 cursor-pointer place-items-center rounded-[7px] border border-[#eef0f3] bg-white text-slate-600 hover:bg-[#f4f6f9]"
+            >
+              <X className="size-3.5" />
+            </button>
+          ) : null}
         </div>
 
         {/* Main Body: Single continuous scrollable form */}
-        <div className="flex-1 min-h-0 overflow-y-auto p-5 space-y-5">
+        <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3.5 space-y-5">
           <form onSubmit={handleSave} className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 gap-3">
               {/* Tên đơn vị / chức danh */}
-              <div className="md:col-span-2">
+              <div className="col-span-2">
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
                   Đơn vị / Chức danh (Tên node)
                 </label>
@@ -270,7 +288,7 @@ export function OrganizationNodeInspector({
               </div>
 
               {/* Phân loại Đối tượng */}
-              <div>
+              <div className="col-span-2">
                 <label className="block text-xs font-semibold text-slate-700 mb-1.5">
                   Phân loại Đối tượng
                 </label>
@@ -399,7 +417,7 @@ export function OrganizationNodeInspector({
               ) : null}
 
               {/* Mô tả chức năng & nhiệm vụ */}
-              <div className="md:col-span-2">
+              <div className="col-span-2">
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
                   Mô tả chức năng & nhiệm vụ
                 </label>
@@ -418,7 +436,7 @@ export function OrganizationNodeInspector({
               <Button
                 type="submit"
                 disabled={!canUpdate || saving}
-                className="w-full gap-1.5 bg-blue-600 text-xs font-semibold hover:bg-blue-700 h-9"
+                className="w-full gap-1.5 bg-[#18181b] text-[13px] font-semibold text-white hover:bg-[#2a2a2f] h-9"
               >
                 {saving ? (
                   <Loader2 className="size-3.5 animate-spin" />
@@ -436,11 +454,12 @@ export function OrganizationNodeInspector({
           {isPositionNode ? (
             <div className="mt-4 pt-4 border-t border-slate-200 space-y-3">
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-slate-800">
-                  <Users className="size-4 text-blue-600" />
+                <div className="flex items-center gap-2 text-[11.5px] font-bold uppercase tracking-[0.6px] text-slate-500">
+                  <span aria-hidden className="h-3.5 w-[3px] rounded-sm bg-[#ffc90a]" />
+                  <Users className="size-3.5" />
                   <span>Nhân sự đương nhiệm</span>
                 </div>
-                <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-blue-700 border border-blue-200">
+                <span className="rounded-full bg-[#f1f3f6] px-2 text-[11px] font-semibold text-slate-700">
                   {nodeAssignees.length} nhân sự
                 </span>
               </div>
@@ -534,7 +553,7 @@ export function OrganizationNodeInspector({
                     type="button"
                     disabled={!assignUserId || assigning}
                     onClick={() => void handleAssign()}
-                    className="h-9 shrink-0 bg-blue-600 text-xs font-semibold hover:bg-blue-700"
+                    className="h-9 shrink-0 bg-[#ffc90a] text-[12.5px] font-bold text-[#18181b] hover:bg-[#ffd84d]"
                   >
                     {assigning ? <Loader2 className="size-3.5 animate-spin" /> : 'Bổ nhiệm'}
                   </Button>
@@ -547,11 +566,12 @@ export function OrganizationNodeInspector({
           {!isPositionNode ? (
             <div className="mt-4 pt-4 border-t border-slate-200 space-y-3">
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-slate-800">
-                  <Briefcase className="size-4 text-blue-600" />
+                <div className="flex items-center gap-2 text-[11.5px] font-bold uppercase tracking-[0.6px] text-slate-500">
+                  <span aria-hidden className="h-3.5 w-[3px] rounded-sm bg-[#ffc90a]" />
+                  <Briefcase className="size-3.5" />
                   <span>Chức danh trực thuộc</span>
                 </div>
-                <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-blue-700 border border-blue-200">
+                <span className="rounded-full bg-[#f1f3f6] px-2 text-[11px] font-semibold text-slate-700">
                   {childPositions.length} chức danh
                 </span>
               </div>
@@ -661,8 +681,8 @@ export function OrganizationNodeInspector({
         </div>
 
         {/* Footer Danger Action with Ant Design Popconfirm */}
-        <div className="flex shrink-0 items-center justify-between border-t border-slate-100 bg-slate-50/70 p-3 font-sans">
-          <span className="text-[11px] text-slate-500 font-medium">{selectedNode.code}</span>
+        <div className="flex shrink-0 items-center justify-between border-t border-[#eef0f3] bg-[#fafbfc] px-4 py-2.5 font-sans">
+          <span className="font-mono text-[11px] text-slate-500">{selectedNode.code}</span>
           <Popconfirm
             title="Xoá node tổ chức?"
             description={`Bạn có chắc chắn muốn xoá node "${selectedNode.name}"? Dữ liệu lịch sử vẫn được lưu trữ.`}

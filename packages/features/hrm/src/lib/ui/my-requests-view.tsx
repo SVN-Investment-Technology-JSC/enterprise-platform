@@ -449,7 +449,9 @@ export function RequestListPanel({
                     aria-selected={selected}
                     onClick={() => onSelect(row.id)}
                     className={`cursor-pointer transition-colors ${
-                      selected ? 'bg-amber-50/70' : 'hover:bg-slate-50/70'
+                      selected
+                        ? 'bg-amber-100 shadow-[inset_3px_0_0_#f59e0b]'
+                        : 'hover:bg-slate-50/70'
                     }`}
                   >
                     <td className="px-3 py-2.5 text-slate-500">

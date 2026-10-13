@@ -285,15 +285,16 @@ describe('Lịch công của tôi: chấm màu, giờ làm trong ô, nhãn trạ
     expect(dayTone(day({ date: '2026-09-20', status: 'FUTURE' }), TODAY)).toBe('none');
   });
 
-  it('nội dung ô: ngày đã qua hiện giờ làm, không hiện mã ca; ngày chưa tới hiện mã ca; vắng và nghỉ hiện gạch dài', () => {
-    expect(myCellContent(day({ workedMinutes: 450 }), TODAY)).toEqual({ text: '', hours: '7.5' });
+  it('nội dung ô: ngày đã qua hiện số công (hệ số), không hiện mã ca; ngày chưa tới hiện mã ca; vắng và nghỉ hiện gạch dài', () => {
+    expect(myCellContent(day({ workedMinutes: 450, workdayUnits: 1 }), TODAY)).toEqual({ text: '', units: '1' });
+    expect(myCellContent(day({ workedMinutes: 240, workdayUnits: 0.5 }), TODAY)).toEqual({ text: '', units: '0.5' });
     expect(myCellContent(day({ date: '2026-09-20', status: 'FUTURE', workedMinutes: 0 }), TODAY)).toEqual({
       text: 'HC',
-      hours: '',
+      units: '',
     });
-    expect(myCellContent(day({ status: 'ABSENT', workedMinutes: 480 }), TODAY)).toEqual({ text: '—', hours: '' });
-    expect(myCellContent(day({ status: 'ANNUAL_LEAVE', workedMinutes: 0 }), TODAY)).toEqual({ text: '—', hours: '' });
-    expect(myCellContent(day({ status: 'OFF', kind: 'OFF', workedMinutes: 0 }), TODAY)).toEqual({ text: 'OFF', hours: '' });
+    expect(myCellContent(day({ status: 'ABSENT', workedMinutes: 480 }), TODAY)).toEqual({ text: '—', units: '' });
+    expect(myCellContent(day({ status: 'ANNUAL_LEAVE', workedMinutes: 0 }), TODAY)).toEqual({ text: '—', units: '' });
+    expect(myCellContent(day({ status: 'OFF', kind: 'OFF', workedMinutes: 0 }), TODAY)).toEqual({ text: 'OFF', units: '' });
     expect(myCellContent(day({ status: 'HOLIDAY', kind: 'HOLIDAY', workedMinutes: 0 }), TODAY).text).toBe('L');
   });
 

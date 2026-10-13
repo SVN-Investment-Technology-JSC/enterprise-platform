@@ -6,7 +6,7 @@ import type { HrmEmployeeProfile } from '@enterprise-platform/contracts-hrm';
 import { employeeCompleteness, employeeInitials, sensitiveDisplay, SENSITIVE_HINT } from '../hrm-employee-view';
 import { Badge } from './badge';
 import { Button } from './button';
-import { CurrentManagerLine } from './employee-reporting-drawer';
+import { CurrentManagerLine } from './current-manager-line';
 import { employmentLabels } from './hrm-lifecycle-actions';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from './dialog';
 import { HrmContractPanel } from './hrm-contract-panel';
@@ -86,7 +86,6 @@ export function EmployeeDetailDialog({
   onOpenChange,
   canSensitive,
   actions,
-  onOpenReporting,
   onDependentsChanged,
   onContractsChanged,
 }: {
@@ -96,7 +95,6 @@ export function EmployeeDetailDialog({
   canSensitive: boolean;
   /** Các nút thao tác nghiệp vụ ở chân hộp thoại (Tạo quyết định, Sửa, Ngừng, Liên kết tài khoản...). */
   actions?: ReactNode;
-  onOpenReporting: () => void;
   onDependentsChanged: (rows: NonNullable<HrmEmployeeProfile['dependents']>) => void;
   onContractsChanged: (rows: NonNullable<HrmEmployeeProfile['contracts']>) => void;
 }) {
@@ -212,12 +210,7 @@ export function EmployeeDetailDialog({
                       {employee.officialDate ? formatVnDate(String(employee.officialDate)) : 'Đang thử việc'}
                     </Row>
                     <Row label="Quản lý trực tiếp">
-                      <span className="inline-flex items-center gap-2">
-                        <CurrentManagerLine employeeId={open ? employee.employeeId : null} />
-                        <Button size="xs" variant="outline" onClick={onOpenReporting}>
-                          Lịch sử báo cáo
-                        </Button>
-                      </span>
+                      <CurrentManagerLine employeeId={open ? employee.employeeId : null} />
                     </Row>
                   </Block>
                   <Block icon={HeartHandshake} title="Liên hệ khẩn cấp">

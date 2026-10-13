@@ -87,6 +87,8 @@ export const TENANT_CORE_MIGRATIONS: readonly TenantModuleMigration[] = [
 export const TENANT_MODULE_MIGRATIONS: Readonly<
   Record<string, readonly TenantModuleMigration[]>
 > = {
+  // Trợ lý (savina-agent) không có bảng trong DB tenant; migration rỗng để bật phân hệ được.
+  assistant: [{ version: '0001-assistant', path: 'tenant/assistant/0001-assistant.sql' }],
   hrm: [
     { version: '0001-hrm', path: 'tenant/hrm/0001-hrm.sql' },
     {
@@ -408,6 +410,10 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     {
       version: '0013-instance-reversal',
       path: 'tenant/procedure/0013-instance-reversal.sql',
+    },
+    {
+      version: '0014-everyone-subject',
+      path: 'tenant/procedure/0014-everyone-subject.sql',
     },
   ],
   maintenance: [

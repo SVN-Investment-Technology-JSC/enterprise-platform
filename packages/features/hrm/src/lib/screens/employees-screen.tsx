@@ -18,7 +18,6 @@ import { EmployeeAvatar, EmployeePagination, EmployeeStatCards } from '../ui/emp
 import type { RowMenuItem } from '../ui/row-menu';
 import { BulkInitializeEmployeesDialog } from '../ui/bulk-initialize-employees-dialog';
 import { PersonnelDecisionDialog } from '../ui/personnel-decision-dialog';
-import { EmployeeReportingDrawer } from '../ui/employee-reporting-drawer';
 import { HrmActionDialog, type HrmAction } from '../ui/hrm-action-dialog';
 import { hrmFetch } from '../hrm-api';
 import {
@@ -70,7 +69,6 @@ export default function EmployeesManagementPage() {
     useState<HrmEmployeeProfile | null>(null);
   const [isEmployeeDrawerOpen, setIsEmployeeDrawerOpen] = useState(false);
   const [decisionEmployeeId, setDecisionEmployeeId] = useState<string | null>(null);
-  const [reportingOpen, setReportingOpen] = useState(false);
 
   // Số người ở Core chưa có hồ sơ HRM (chỉ tải khi có quyền manage; lỗi thì bỏ qua)
   const [pendingCoreCount, setPendingCoreCount] = useState(0);
@@ -632,7 +630,6 @@ export default function EmployeesManagementPage() {
         open={isEmployeeDrawerOpen}
         onOpenChange={setIsEmployeeDrawerOpen}
         canSensitive={canSensitive}
-        onOpenReporting={() => setReportingOpen(true)}
         onDependentsChanged={(dependents) =>
           selectedEmployee && setSelectedEmployee({ ...selectedEmployee, dependents })
         }
@@ -668,12 +665,6 @@ export default function EmployeesManagementPage() {
         }
       />
 
-      <EmployeeReportingDrawer
-        employeeId={selectedEmployee?.employeeId}
-        employeeName={selectedEmployee?.fullName}
-        open={reportingOpen}
-        onOpenChange={setReportingOpen}
-      />
       <PersonnelDecisionDialog
         open={Boolean(decisionEmployeeId)}
         onOpenChange={(o) => { if (!o) setDecisionEmployeeId(null); }}

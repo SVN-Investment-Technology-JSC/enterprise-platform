@@ -241,6 +241,18 @@ describe('Lối tắt ?create= từ Bàn làm việc', () => {
     expect(await screen.findByRole('button', { name: /Gửi duyệt đơn/, hidden: true })).toBeTruthy();
   });
 
+  it('?request= mở đúng đơn dù không phải đơn đầu tiên và nằm ở trang sau', async () => {
+    leaveRows = Array.from({ length: 25 }, (_, i) => leaveRow(i));
+    const target = leaveRow(0).id;
+    window.history.replaceState(null, '', `/?request=${target}`);
+    render(<RequestsPage />);
+    const row = await screen.findByTestId(`request-row-${target}`);
+    await waitFor(() =>
+      expect(screen.getByTestId(`request-row-${target}`).getAttribute('aria-selected')).toBe('true'),
+    );
+    expect(row.getAttribute('data-testid')).toBe(`request-row-${target}`);
+  });
+
   it('loại không có trong danh mục thì không mở gì', async () => {
     window.history.replaceState(null, '', '/?create=khong-co');
     render(<RequestsPage />);

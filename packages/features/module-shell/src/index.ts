@@ -1,4 +1,5 @@
 export * from './lib/module-shell';
+export * from './lib/assistant-launcher';
 export * from './lib/module-shell.types';
 export * from './lib/use-hash-view';
 export * from './lib/dashboard-view';

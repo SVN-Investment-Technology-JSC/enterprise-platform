@@ -448,6 +448,8 @@ export interface TenantRole {
 }
 export interface TenantAuthorization {
   roles: string[];
+  /** Tên hiển thị theo khóa vai trò (vai trò tự tạo có khóa `custom-<uuid>` nên không tự đọc được). */
+  roleNames?: Record<string, string>;
   permissions: string[];
   moduleKeys: string[];
   authorizationRevision: string;

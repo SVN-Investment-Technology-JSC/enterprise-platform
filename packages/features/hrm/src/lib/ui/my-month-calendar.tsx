@@ -153,7 +153,7 @@ export function MyMonthCalendar({
                 const tone = dayTone(day, today);
                 const letters = dayLetters(day);
                 const late = isLateOrEarly(day);
-                const { text, hours } = myCellContent(day, today);
+                const { text, units } = myCellContent(day, today);
                 const sub = late
                   ? [
                       day.lateMinutes > 0 ? `Trễ ${day.lateMinutes}p` : '',
@@ -216,9 +216,12 @@ export function MyMonthCalendar({
                             className={`size-2 shrink-0 rounded-full ${DAY_TONE_DOT[tone]}`}
                           />
                         )}
-                        {hours ? (
-                          <span className="font-mono text-sm font-semibold text-slate-800">
-                            {hours}
+                        {units ? (
+                          <span
+                            data-testid="my-cell-units"
+                            className="font-mono text-sm font-semibold text-slate-800"
+                          >
+                            {units}
                           </span>
                         ) : (
                           <span

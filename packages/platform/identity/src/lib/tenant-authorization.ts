@@ -26,7 +26,14 @@ type Database = <T>(
   operation: (pool: Pool) => Promise<T>,
 ) => Promise<T>;
 const actionKeys = new Set<string>(TENANT_PERMISSION_ACTIONS.map((a) => a.key));
+/**
+ * Phân hệ mở cho mọi thành viên: tenant đã bật là ai cũng dùng, không cần vai trò có phân hệ đó.
+ * Trợ lý chỉ đọc dữ liệu qua API của từng phân hệ bằng chính token người hỏi, nên quyền thật vẫn
+ * do từng phân hệ quyết định.
+ */
+export const OPEN_MEMBER_MODULES: readonly string[] = ['assistant'];
 const modulePermissions: Record<string, readonly string[]> = {
+  assistant: ['module.access'],
   hrm: [
     'module.access',
     ...TENANT_PERMISSION_ACTIONS.map((a) => a.key).filter((key) =>
@@ -139,12 +146,14 @@ export class TenantAuthorizationService {
         cached.value.authorizationRevision === state.revision
       )
         return structuredClone(cached.value);
-      const roles = (
-        await pool.query<{ key: string }>(
-          `SELECT r.key FROM core_schema.roles r JOIN core_schema.user_roles ur ON ur.role_id=r.id WHERE ur.user_id=$1`,
+      const roleRows = (
+        await pool.query<{ key: string; name: string }>(
+          `SELECT r.key, r.name FROM core_schema.roles r JOIN core_schema.user_roles ur ON ur.role_id=r.id WHERE ur.user_id=$1`,
           [userId],
         )
-      ).rows.map((r) => r.key);
+      ).rows;
+      const roles = roleRows.map((r) => r.key);
+      const roleNames = Object.fromEntries(roleRows.map((r) => [r.key, r.name]));
       const admin = roles.includes('tenant-admin');
       const permissions = admin
         ? ['tenant.manage', ...actionKeys]
@@ -167,8 +176,9 @@ export class TenantAuthorizationService {
       ).rows.map((r) => r.key);
       const value: TenantAuthorization = {
         roles: ['tenant-user', ...roles.filter((r) => r !== 'tenant-user')],
+        roleNames,
         permissions: expandTenantActions(permissions),
-        moduleKeys: modules,
+        moduleKeys: [...new Set([...modules, ...OPEN_MEMBER_MODULES])],
         authorizationRevision: state.revision,
       };
       if (this.cache.size >= 2000)

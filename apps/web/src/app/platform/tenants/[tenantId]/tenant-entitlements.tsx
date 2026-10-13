@@ -18,6 +18,7 @@ import {
   PackageCheck,
   Search,
   Settings2,
+  Sparkles,
   Users,
   Workflow,
   Wrench,
@@ -72,6 +73,7 @@ const STATUS: Readonly<
 };
 
 const MODULE_ICONS: Record<string, LucideIcon> = {
+  assistant: Sparkles,
   maintenance: Wrench,
   'procedure-engine': Workflow,
   workspace: KanbanSquare,

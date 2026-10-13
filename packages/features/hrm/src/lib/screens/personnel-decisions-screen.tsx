@@ -20,7 +20,7 @@ import {
   type PersonnelDecisionCommand,
 } from '../hrm-personnel-decisions-api';
 import {
-  APPLY_STEP_LABELS,
+  applyStepLabels,
   DECISION_STATUSES,
   DECISION_STATUS_LABELS,
   DECISION_STATUS_TONES,
@@ -589,17 +589,13 @@ export default function PersonnelDecisionsScreen() {
                         before={detail.fromUnitName ?? '----'}
                         after={detail.toUnitName ?? detail.fromUnitName ?? '----'}
                       />
-                      <DetailRow
-                        label="Quản lý"
-                        before={detail.fromManagerName ?? '----'}
-                        after={
-                          detail.managerMode === 'KEEP'
-                            ? (detail.fromManagerName ?? '----')
-                            : detail.managerMode === 'CLEAR'
-                              ? 'Không có'
-                              : (detail.toManagerName ?? '----')
-                        }
-                      />
+                      {detail.managerMode !== 'KEEP' && (
+                        <DetailRow
+                          label="Quản lý (cũ)"
+                          before={detail.fromManagerName ?? '----'}
+                          after={detail.managerMode === 'CLEAR' ? 'Không có' : (detail.toManagerName ?? '----')}
+                        />
+                      )}
                       <DetailRow
                         label="Lương cơ bản"
                         before={formatMoney(detail.fromBaseSalary)}
@@ -609,15 +605,13 @@ export default function PersonnelDecisionsScreen() {
                             : formatMoney(detail.fromBaseSalary)
                         }
                       />
-                      <DetailRow
-                        label="Cấp dưới"
-                        before="----"
-                        after={
-                          detail.subordinateMode === 'REASSIGN'
-                            ? `Chuyển cho ${detail.subordinateTargetName ?? '----'}`
-                            : 'Giữ nguyên'
-                        }
-                      />
+                      {detail.subordinateMode === 'REASSIGN' && (
+                        <DetailRow
+                          label="Cấp dưới (cũ)"
+                          before="----"
+                          after={`Chuyển cho ${detail.subordinateTargetName ?? '----'}`}
+                        />
+                      )}
                     </tbody>
                   </table>
                 </section>
@@ -626,7 +620,7 @@ export default function PersonnelDecisionsScreen() {
                     Tiến độ áp dụng (số lần thử: {detail.applyAttempts})
                   </h4>
                   <ul className="space-y-1">
-                    {Object.entries(APPLY_STEP_LABELS).map(([key, label]) => {
+                    {applyStepLabels(detail).map(([key, label]) => {
                       const done = detail.appliedSteps?.[key];
                       return (
                         <li key={key} className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-1.5">

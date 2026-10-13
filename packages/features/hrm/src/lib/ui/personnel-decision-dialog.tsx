@@ -1,14 +1,12 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Loader2 } from 'lucide-react';
-import { Table, type TableColumnsType } from 'antd';
 import type {
   HrmJobDescriptionItem,
   HrmPersonnelDecision,
   HrmPersonnelDecisionType,
   HrmSalaryGrade,
   HrmSalaryGradeStep,
-  HrmSubordinate,
 } from '@enterprise-platform/contracts-hrm';
 import {
   SearchableSelect,
@@ -25,11 +23,9 @@ import {
   DECISION_TYPE_LABELS,
   buildDecisionPayload,
   decisionToForm,
-  defaultManagerMode,
   emptyDecisionForm,
   formatMoney,
   isPositionChanging,
-  showsImpactTable,
   showsTargetPosition,
   validateDecisionForm,
   type DecisionFormState,
@@ -43,17 +39,6 @@ const typeOptions: SearchableSelectOption[] = DECISION_TYPES.map((t) => ({
   value: t,
   label: DECISION_TYPE_LABELS[t],
 }));
-
-const managerModeOptions: SearchableSelectOption[] = [
-  { value: 'KEEP', label: 'Giữ nguyên' },
-  { value: 'SET', label: 'Gán quản lý mới' },
-  { value: 'CLEAR', label: 'Bỏ quản lý trực tiếp' },
-];
-
-const subordinateModeOptions: SearchableSelectOption[] = [
-  { value: 'KEEP', label: 'Giữ nguyên cấp dưới' },
-  { value: 'REASSIGN', label: 'Chuyển cấp dưới cho người khác' },
-];
 
 const salaryTypeOptions: SearchableSelectOption[] = [
   { value: 'GROSS', label: 'Gross' },
@@ -186,8 +171,6 @@ export function PersonnelDecisionDialog({
 
   const context = useAppointmentContext(open ? form.employeeId : null);
   const ctx = context.data;
-  const subordinates: readonly HrmSubordinate[] = ctx?.subordinates ?? [];
-  const impact = showsImpactTable(form.decisionType, subordinates.length);
   const noAccount =
     Boolean(ctx) && !ctx?.hasAccount && isPositionChanging(form.decisionType);
 
@@ -218,14 +201,8 @@ export function PersonnelDecisionDialog({
         })),
     [steps],
   );
-  const managerOptions = useMemo(
-    () => employees.filter((e) => e.value !== form.employeeId),
-    [employees, form.employeeId],
-  );
-
   const errors = validateDecisionForm(form, {
     hasAccount: ctx ? ctx.hasAccount : undefined,
-    subordinateCount: subordinates.length,
   });
   const blockedByAccount = noAccount;
 
@@ -236,7 +213,6 @@ export function PersonnelDecisionDialog({
   function changeType(t: HrmPersonnelDecisionType) {
     patch({
       decisionType: t,
-      managerMode: defaultManagerMode(t),
       toPositionNodeId: showsTargetPosition(t) ? form.toPositionNodeId : '',
     });
   }
@@ -255,13 +231,6 @@ export function PersonnelDecisionDialog({
   const targetPosition = positions.find(
     (p) => p.positionId === form.toPositionNodeId,
   );
-  const afterManager =
-    form.managerMode === 'KEEP'
-      ? (ctx?.manager?.fullName ?? '----')
-      : form.managerMode === 'CLEAR'
-        ? 'Không có'
-        : (employees.find((e) => e.value === form.toManagerEmployeeId)?.label ??
-          '----');
   const afterPosition = showsTargetPosition(form.decisionType)
     ? (targetPosition?.positionName ?? '----')
     : form.decisionType === 'DISMISS'
@@ -273,9 +242,7 @@ export function PersonnelDecisionDialog({
     if (errors.length) return;
     setSubmitting(true);
     try {
-      const payload = buildDecisionPayload(form, {
-        subordinateCount: subordinates.length,
-      });
+      const payload = buildDecisionPayload(form);
       const saved =
         editing && decision
           ? await updatePersonnelDecision(decision.id, {
@@ -296,13 +263,6 @@ export function PersonnelDecisionDialog({
       setSubmitting(false);
     }
   }
-
-  const subColumns: TableColumnsType<HrmSubordinate> = [
-    { title: 'Mã NV', dataIndex: 'employeeCode', width: 100 },
-    { title: 'Họ tên', dataIndex: 'fullName' },
-    { title: 'Chức danh', dataIndex: 'positionName' },
-    { title: 'Đơn vị', dataIndex: 'unitName' },
-  ];
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -391,35 +351,7 @@ export function PersonnelDecisionDialog({
             </div>
           )}
 
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            <section className="rounded-lg border border-slate-200 p-3">
-              <h4 className="mb-2 text-[11px] font-bold uppercase text-slate-700">
-                Quản lý trực tiếp
-              </h4>
-              <div className="grid grid-cols-2 gap-3">
-                <Field label="Chế độ">
-                  <SearchableSelect
-                    options={managerModeOptions}
-                    value={form.managerMode}
-                    onChange={(v) =>
-                      patch({ managerMode: v as DecisionFormState['managerMode'] })
-                    }
-                  />
-                </Field>
-                {form.managerMode === 'SET' && (
-                  <Field label="Quản lý mới">
-                    <SearchableSelect
-                      options={managerOptions}
-                      value={form.toManagerEmployeeId}
-                      placeholder="Chọn quản lý"
-                      clearable
-                      onChange={(v) => patch({ toManagerEmployeeId: v })}
-                    />
-                  </Field>
-                )}
-              </div>
-            </section>
-
+          <div className="grid grid-cols-1 gap-3">
             <section className="rounded-lg border border-slate-200 p-3">
               <h4 className="mb-2 text-[11px] font-bold uppercase text-slate-700">
                 Trước / Sau
@@ -450,12 +382,6 @@ export function PersonnelDecisionDialog({
                     changed={showsTargetPosition(form.decisionType)}
                   />
                   <CompareRow
-                    label="Quản lý"
-                    before={ctx?.manager?.fullName ?? '----'}
-                    after={afterManager}
-                    changed={form.managerMode !== 'KEEP'}
-                  />
-                  <CompareRow
                     label="Lương cơ bản"
                     before={formatMoney(ctx?.salary?.baseSalary)}
                     after={
@@ -469,48 +395,6 @@ export function PersonnelDecisionDialog({
               </table>
             </section>
           </div>
-
-          {impact && (
-            <section className="space-y-3 rounded-lg border border-slate-200 p-3">
-              <h4 className="text-[11px] font-bold uppercase text-slate-700">
-                Bảng tác động ({subordinates.length} cấp dưới trực tiếp)
-              </h4>
-              <Table<HrmSubordinate>
-                size="small"
-                rowKey="employeeId"
-                pagination={false}
-                scroll={{ y: 180 }}
-                columns={subColumns}
-                dataSource={[...subordinates]}
-              />
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                <Field label="Xử lý cấp dưới">
-                  <SearchableSelect
-                    options={subordinateModeOptions}
-                    value={form.subordinateMode}
-                    onChange={(v) =>
-                      patch({
-                        subordinateMode: v as DecisionFormState['subordinateMode'],
-                      })
-                    }
-                  />
-                </Field>
-                {form.subordinateMode === 'REASSIGN' && (
-                  <Field label="Người nhận cấp dưới">
-                    <SearchableSelect
-                      options={managerOptions}
-                      value={form.subordinateTargetEmployeeId}
-                      placeholder="Chọn người nhận"
-                      clearable
-                      onChange={(v) =>
-                        patch({ subordinateTargetEmployeeId: v })
-                      }
-                    />
-                  </Field>
-                )}
-              </div>
-            </section>
-          )}
 
           <section className="space-y-3 rounded-lg border border-slate-200 p-3">
             <label className="flex items-center gap-2 text-xs font-bold text-slate-800">

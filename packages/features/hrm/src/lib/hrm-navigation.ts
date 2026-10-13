@@ -1,4 +1,5 @@
 import {
+  Activity,
   CalendarClock,
   CalendarDays,
   ClipboardCheck,
@@ -35,6 +36,7 @@ export const hrmNavigationSections: NavSection[] = [
     title: 'TỔNG QUAN',
     items: [
       { id: 'dashboard', label: 'Bàn làm việc', icon: Home, href: '/' },
+      { id: 'attendance_monitor', label: 'Giám sát chấm công', icon: Activity, href: '/attendance-monitor' },
       { id: 'request_processing', label: 'Đơn từ cần xử lý', icon: ClipboardCheck, href: '/approvals' },
     ],
   },

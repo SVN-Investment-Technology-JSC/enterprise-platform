@@ -10,6 +10,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import type { PoolClient } from 'pg';
+import { chiefFallbackUserIds } from './hrm-chief-fallback.js';
 import { HRM_REQUEST_TABLES } from './hrm-procedure-links.js';
 
 /**
@@ -21,6 +22,7 @@ import { HRM_REQUEST_TABLES } from './hrm-procedure-links.js';
  *     Người nộp rút đơn của mình (cancel) là thao tác của chủ đơn, không phải duyệt: được phép.
  *  2. Chỉ duyệt đơn của nhân viên thuộc phạm vi: cấp dưới theo chuỗi "Báo cáo cho" của chức danh hoặc
  *     thuộc cây đơn vị mà mình là trưởng (dữ liệu lấy qua API nội bộ của Platform, không đọc DB module khác).
+ *     Tổng giám đốc còn duyệt đơn của nhân viên chưa có quản lý theo Core lẫn HRM (hrm-chief-fallback).
  *  3. Quyền hrm.<x>.approve.all, hrm.manage hoặc tenant.manage duyệt toàn tenant (vẫn bị quy tắc 1).
  *  4. Đơn đã có liên kết Procedure Engine: 409 PROCEDURE_IN_PROGRESS (trigger DB vẫn là lớp bảo vệ cuối).
  * Ở chế độ PE, người duyệt do PE quyết định; các callback của PE không đi qua chính sách này.
@@ -150,7 +152,11 @@ export async function assertCanDecide(
     const subordinates = row.user_id
       ? await deps.orgScope.subordinateUserIds(deps.tenantId, actor.userId)
       : new Set<string>();
-    if (!row.user_id || !subordinates.has(row.user_id))
+    const inScope =
+      !!row.user_id &&
+      (subordinates.has(row.user_id) ||
+        (await chiefFallbackUserIds(deps.db, deps.tenantId, actor.userId)).has(row.user_id));
+    if (!inScope)
       throw new ForbiddenException({
         code: APPROVAL_OUT_OF_SCOPE,
         message: 'Đơn này không thuộc phạm vi đơn vị bạn được duyệt.',
@@ -228,7 +234,12 @@ export async function resolveApprovalScope(
     deps.tenantId,
     actor.userId,
   );
-  return { all: false, userIds: [...subordinates], excludeUserId };
+  const unassigned = await chiefFallbackUserIds(deps.db, deps.tenantId, actor.userId);
+  return {
+    all: false,
+    userIds: [...new Set([...subordinates, ...unassigned])],
+    excludeUserId,
+  };
 }
 
 /**
@@ -479,6 +490,7 @@ export class HrmApprovalPolicyService {
 
   /** Trạng thái phạm vi duyệt của người dùng hiện tại (đếm cấp dưới theo Báo cáo cho/trưởng đơn vị). */
   async scopeStatus(ctx: {
+    pool?: Queryable;
     tenantId: string;
     principal: { userId: string; permissions?: readonly string[] };
   }): Promise<HrmApprovalScopeStatus> {
@@ -489,7 +501,13 @@ export class HrmApprovalPolicyService {
       ctx.tenantId,
       ctx.principal.userId,
     );
-    return describeApprovalScope(permissions, subordinates.size);
+    const unassigned = ctx.pool
+      ? await chiefFallbackUserIds(ctx.pool, ctx.tenantId, ctx.principal.userId)
+      : new Set<string>();
+    return describeApprovalScope(
+      permissions,
+      new Set([...subordinates, ...unassigned]).size,
+    );
   }
 
   /** Điều kiện SQL cho danh sách duyệt; chỉ áp khi người dùng có quyền duyệt loại đơn đó. */

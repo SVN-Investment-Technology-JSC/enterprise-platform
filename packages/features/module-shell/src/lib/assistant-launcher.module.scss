@@ -1,0 +1,67 @@
+/* Nút Trợ lý cạnh chuông Thông báo và ngăn chat bên phải (chuẩn Drawer 580px của dự án). */
+.button {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid #eef0f3;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #374151;
+  cursor: pointer;
+
+  &:hover {
+    border-color: #d9ab00;
+    background: rgb(255 201 10 / 12%);
+    color: #18181b;
+  }
+
+  &:focus-visible {
+    outline: 2px solid #d9ab00;
+    outline-offset: 2px;
+  }
+}
+
+.buttonActive {
+  border-color: #d9ab00;
+  background: rgb(255 201 10 / 18%);
+  color: #18181b;
+}
+
+.icon {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentcolor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.panel {
+  position: fixed;
+  z-index: 60;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  width: min(580px, 100vw);
+  border-left: 1px solid #e5e7eb;
+  background: #ffffff;
+  box-shadow: -14px 0 32px rgb(15 23 42 / 10%);
+
+  &[hidden] {
+    display: none;
+  }
+}
+
+.frame {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}

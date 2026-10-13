@@ -8,14 +8,10 @@ import {
   approveDecision,
   cancelDecision,
   createDecision,
-  listSubordinates,
   loadAppointmentContext,
   loadDecision,
-  loadDirectManager,
-  loadReportingOverview,
   mapDecision,
   rejectDecision,
-  resolveManagerChain,
   updateDraft,
 } from './hrm-personnel-decisions';
 import {
@@ -71,12 +67,6 @@ integration('HRM personnel decisions PostgreSQL integration', () => {
     );
     return { id, userId };
   };
-  const line = async (employeeId: string, managerId: string) =>
-    pool.query(
-      `INSERT INTO hrm_schema.employee_reporting_lines (tenant_id, employee_id, manager_employee_id, effective_from, source)
-       VALUES ($1, $2, $3, '2025-01-01', 'MANUAL')`,
-      [tenantId, employeeId, managerId],
-    );
   const draft = (
     employeeId: string,
     extra: Record<string, unknown> = {},
@@ -135,7 +125,6 @@ integration('HRM personnel decisions PostgreSQL integration', () => {
       'hrm/0028-hrm-approval-policy.sql',
       'hrm/0032-hrm-personnel-decisions.sql',
       'hrm/0033-leave-annual-policy.sql',
-      'hrm/0051-hrm-leave-settlements-legacy.sql',
     ])
       await migrate(path);
     await pool.query(
@@ -166,13 +155,8 @@ integration('HRM personnel decisions PostgreSQL integration', () => {
     }
   }, 30_000);
 
-  it('bổ nhiệm kèm người quản lý, chuyển cấp dưới và đổi lương trong một quyết định', async () => {
+  it('bổ nhiệm và đổi lương trong một quyết định', async () => {
     const employee = await person('An');
-    const newBoss = await person('Sếp mới');
-    const oldBoss = await person('Sếp cũ');
-    const sub = await person('Cấp dưới');
-    await line(employee.id, oldBoss.id);
-    await line(sub.id, employee.id);
     await pool.query(
       `INSERT INTO hrm_schema.employee_salary_profiles (tenant_id, employee_id, salary_type, base_salary, effective_from, status)
        VALUES ($1, $2, 'NET', 15000000, '2025-01-01', 'ACTIVE')`,
@@ -180,29 +164,21 @@ integration('HRM personnel decisions PostgreSQL integration', () => {
     );
 
     const created = await draft(employee.id, {
-      managerMode: 'SET',
-      toManagerEmployeeId: newBoss.id,
-      subordinateMode: 'REASSIGN',
-      subordinateTargetEmployeeId: newBoss.id,
       salaryChanged: true,
       toSalaryType: 'NET',
       toBaseSalary: 22000000,
     });
     expect(created.status).toBe('DRAFT');
     expect(created.decisionNo).toMatch(/^QDNS-2026-\d{4}$/);
-    expect(created.fromManagerEmployeeId).toBe(oldBoss.id);
+    expect(created.managerMode).toBe('KEEP');
+    expect(created.toManagerEmployeeId).toBeNull();
     expect(created.fromBaseSalary).toBe(15000000);
     expect(created.toPositionName).toBe('Trưởng phòng Kỹ thuật');
     expect(created.toUnitName).toBe('Phòng Kỹ thuật');
 
     const applied = await approveDecision(pool, tenantId, approverUser, created.id, { org: core });
     expect(applied.status).toBe('APPLIED');
-    expect(applied.appliedSteps).toEqual({
-      core: true,
-      manager: true,
-      subordinates: true,
-      salary: true,
-    });
+    expect(applied.appliedSteps).toEqual({ core: true, salary: true });
     const command = core.commands.at(-1)!;
     expect(command).toMatchObject({
       decisionId: created.id,
@@ -213,21 +189,6 @@ integration('HRM personnel decisions PostgreSQL integration', () => {
       isPrimary: true,
     });
 
-    const overview = await loadReportingOverview(pool, tenantId, employee.id);
-    expect(overview.current?.managerEmployeeId).toBe(newBoss.id);
-    expect(overview.current?.decisionNo).toBe(created.decisionNo);
-    expect(overview.history).toHaveLength(2);
-    expect(overview.history.find((l) => l.managerEmployeeId === oldBoss.id)?.effectiveTo).toBe(
-      '2026-01-01',
-    );
-    expect((await loadReportingOverview(pool, tenantId, sub.id)).current?.managerEmployeeId).toBe(
-      newBoss.id,
-    );
-    expect(await listSubordinates(pool, tenantId, employee.id)).toEqual([]);
-    expect((await listSubordinates(pool, tenantId, newBoss.id)).map((s) => s.employeeId)).toEqual(
-      expect.arrayContaining([employee.id, sub.id]),
-    );
-
     const salary = await pool.query(
       `SELECT base_salary, status, effective_from::text, change_reason FROM hrm_schema.employee_salary_profiles
         WHERE employee_id = $1 ORDER BY effective_from`,
@@ -237,8 +198,10 @@ integration('HRM personnel decisions PostgreSQL integration', () => {
     expect(Number(salary.rows[1].base_salary)).toBe(22000000);
     expect(salary.rows[1].change_reason).toContain(created.decisionNo);
 
-    const manager = await loadDirectManager(pool, tenantId, employee.id);
-    expect(manager?.name).toBe('Sếp mới');
+    // Quyết định không ghi quan hệ báo cáo nào.
+    expect(
+      (await pool.query(`SELECT 1 FROM hrm_schema.employee_reporting_lines WHERE employee_id = $1`, [employee.id])).rowCount,
+    ).toBe(0);
     const audit = await pool.query(
       `SELECT action FROM hrm_schema.audit_log WHERE entity_id = $1`,
       [created.id],
@@ -269,23 +232,18 @@ integration('HRM personnel decisions PostgreSQL integration', () => {
 
   it('Core lỗi thì dừng ở APPLY_PENDING và thử lại chỉ làm tiếp bước còn thiếu', async () => {
     const employee = await person('Dũng');
-    const boss = await person('Quản lý Dũng');
-    const created = await draft(employee.id, {
-      managerMode: 'SET',
-      toManagerEmployeeId: boss.id,
-    });
+    const created = await draft(employee.id);
     core.failNext = 'Core tạm thời không phản hồi';
     const before = core.commands.length;
     const pending = await approveDecision(pool, tenantId, approverUser, created.id, { org: core });
     expect(pending.status).toBe('APPLY_PENDING');
     expect(pending.applyError).toBe('Core tạm thời không phản hồi');
     expect(pending.appliedSteps).toEqual({});
-    expect((await loadReportingOverview(pool, tenantId, employee.id)).current).toBeNull();
     await expect(cancelDecision(pool, tenantId, approverUser, created.id)).resolves.toMatchObject({
       status: 'CANCELLED',
     });
     // Hủy được vì chưa áp dụng bước nào; tạo quyết định mới để thử lại.
-    const again = await draft(employee.id, { managerMode: 'SET', toManagerEmployeeId: boss.id });
+    const again = await draft(employee.id);
     core.failNext = 'Core lỗi lần một';
     await approveDecision(pool, tenantId, approverUser, again.id, { org: core });
     const retried = await applyDecision(pool, tenantId, again.id, { org: core });
@@ -294,30 +252,57 @@ integration('HRM personnel decisions PostgreSQL integration', () => {
     expect(retried.applyAttempts).toBe(2);
     // 1 lần lỗi ở quyết định bị hủy + 1 lỗi + 1 thành công = 3 lệnh gửi Core
     expect(core.commands.length - before).toBe(3);
-    expect((await loadReportingOverview(pool, tenantId, employee.id)).current?.managerEmployeeId).toBe(
-      boss.id,
-    );
   });
 
-  it('áp dụng lại quyết định đã xong không tạo thêm dòng báo cáo', async () => {
+  it('áp dụng lại quyết định đã xong không gửi thêm lệnh cho Core', async () => {
     const employee = await person('Giang');
-    const boss = await person('Quản lý Giang');
-    const created = await draft(employee.id, { managerMode: 'SET', toManagerEmployeeId: boss.id });
+    const created = await draft(employee.id);
     await approveDecision(pool, tenantId, approverUser, created.id, { org: core });
     const calls = core.commands.length;
     const again = await applyDecision(pool, tenantId, created.id, { org: core });
     expect(again.status).toBe('APPLIED');
     expect(core.commands.length).toBe(calls);
-    expect((await loadReportingOverview(pool, tenantId, employee.id)).history).toHaveLength(1);
   });
 
-  it('chặn vòng lặp báo cáo ngay khi lập quyết định', async () => {
+  it('không còn gán quản lý hay chuyển cấp dưới trong quyết định', async () => {
     const boss = await person('Sếp');
     const staff = await person('Nhân viên');
-    await line(boss.id, staff.id); // sếp đang báo cáo cho nhân viên
     await expect(
       draft(staff.id, { managerMode: 'SET', toManagerEmployeeId: boss.id }),
-    ).rejects.toMatchObject({ response: { code: 'HRM_REPORTING_CYCLE' } });
+    ).rejects.toMatchObject({ response: { code: 'HRM_DECISION_MANAGER_REMOVED' } });
+    await expect(
+      draft(staff.id, { subordinateMode: 'REASSIGN', subordinateTargetEmployeeId: boss.id }),
+    ).rejects.toMatchObject({ response: { code: 'HRM_DECISION_MANAGER_REMOVED' } });
+    // Loại "Đổi quản lý trực tiếp" không còn được tạo mới.
+    await expect(
+      draft(staff.id, { decisionType: 'CHANGE_MANAGER', toPositionNodeId: null }),
+    ).rejects.toMatchObject({ response: { code: 'HRM_INVALID_INPUT' } });
+  });
+
+  it('quyết định cũ còn bước gán quản lý chưa áp dụng bị chặn duyệt và chặn áp dụng', async () => {
+    const employee = await person('Cũ');
+    const boss = await person('Quản lý cũ');
+    const legacy = async (status: string) =>
+      (
+        await pool.query(
+          `INSERT INTO hrm_schema.personnel_decisions
+             (tenant_id, decision_no, decision_type, employee_id, effective_date, reason, status, manager_mode, to_manager_employee_id)
+           VALUES ($1, $2, 'CHANGE_MANAGER', $3, '2026-01-02', 'Quyết định cũ', $4, 'SET', $5) RETURNING id`,
+          [tenantId, `QDNS-LEGACY-${randomUUID().slice(0, 8)}`, employee.id, status, boss.id],
+        )
+      ).rows[0].id as string;
+    const draftId = await legacy('DRAFT');
+    await expect(approveDecision(pool, tenantId, approverUser, draftId, { org: core })).rejects.toMatchObject({
+      response: { code: 'HRM_DECISION_MANAGER_REMOVED' },
+    });
+    await pool.query(`UPDATE hrm_schema.personnel_decisions SET status='CANCELLED' WHERE id=$1`, [draftId]);
+    const approvedId = await legacy('APPROVED');
+    const pending = await applyDecision(pool, tenantId, approvedId, { org: core });
+    expect(pending.status).toBe('APPLY_PENDING');
+    expect(pending.applyError).toContain('đã được gỡ');
+    expect(
+      (await pool.query(`SELECT 1 FROM hrm_schema.employee_reporting_lines WHERE employee_id = $1`, [employee.id])).rowCount,
+    ).toBe(0);
   });
 
   it('mỗi nhân viên chỉ có một quyết định chưa hoàn tất', async () => {
@@ -335,25 +320,10 @@ integration('HRM personnel decisions PostgreSQL integration', () => {
     });
     const context = await loadAppointmentContext(pool, tenantId, employee.id);
     expect(context.hasAccount).toBe(false);
-    // Đổi người quản lý thì không cần tài khoản.
-    const boss = await person('Quản lý');
-    const change = await createDecision(pool, tenantId, hrUser, {
-      decisionType: 'CHANGE_MANAGER',
-      employeeId: employee.id,
-      effectiveDate: '2026-01-02',
-      reason: 'Điều chỉnh báo cáo',
-      managerMode: 'SET',
-      toManagerEmployeeId: boss.id,
-    });
-    const done = await approveDecision(pool, tenantId, approverUser, change.id, { org: core });
-    expect(done.status).toBe('APPLIED');
-    expect(done.appliedSteps).toEqual({ manager: true });
   });
 
-  it('miễn nhiệm gửi lệnh END cho Core và có thể bỏ người quản lý', async () => {
+  it('miễn nhiệm gửi lệnh END cho Core', async () => {
     const employee = await person('Khánh');
-    const boss = await person('Quản lý Khánh');
-    await line(employee.id, boss.id);
     // Gán chức danh hiện tại như Core đã làm trước đó.
     await pool.query(
       `INSERT INTO core_schema.organization_node_assignments (id, node_id, user_id, is_primary, status, start_date)
@@ -365,13 +335,11 @@ integration('HRM personnel decisions PostgreSQL integration', () => {
       employeeId: employee.id,
       effectiveDate: '2026-01-02',
       reason: 'Miễn nhiệm chức vụ',
-      managerMode: 'CLEAR',
     });
     expect(created.fromPositionName).toBe('Nhân viên kỹ thuật');
     const done = await approveDecision(pool, tenantId, approverUser, created.id, { org: core });
     expect(done.status).toBe('APPLIED');
     expect(core.commands.at(-1)).toMatchObject({ action: 'END', nodeId: posStaff });
-    expect((await loadReportingOverview(pool, tenantId, employee.id)).current).toBeNull();
   });
 
   it('miễn nhiệm người chưa giữ chức danh bị từ chối', async () => {
@@ -423,15 +391,5 @@ integration('HRM personnel decisions PostgreSQL integration', () => {
     // Sau khi bị từ chối, nhân viên lập được quyết định mới.
     const next = await draft(employee.id);
     expect((await cancelDecision(pool, tenantId, hrUser, next.id)).status).toBe('CANCELLED');
-  });
-
-  it('chuỗi quản lý đi lên nhiều cấp theo quan hệ báo cáo của HRM', async () => {
-    const a = await person('A');
-    const b = await person('B');
-    const c = await person('C');
-    await line(a.id, b.id);
-    await line(b.id, c.id);
-    expect(await resolveManagerChain(pool, tenantId, a.id)).toEqual([b.id, c.id]);
-    expect(await resolveManagerChain(pool, tenantId, c.id)).toEqual([]);
   });
 });

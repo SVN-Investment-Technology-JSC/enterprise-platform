@@ -727,32 +727,32 @@ export function OrganizationFlow({
   return (
     <div ref={wrapperRef} className="relative h-full min-h-0 w-full overflow-hidden bg-white">
       {/* Canvas Floating Toolbar: Chuyển đổi hướng trục Y/X, Nút MiniMap & Nút Sắp xếp */}
-      <div className="absolute top-3 right-3 z-10 flex items-center gap-2">
+      <div className="absolute top-3 right-3 z-10 flex max-w-[calc(100%-1.5rem)] flex-wrap items-center justify-end gap-2">
         <button
           type="button"
           onClick={() => setShowMiniMap((prev) => !prev)}
-          className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold shadow-sm backdrop-blur transition-all cursor-pointer ${
+          className={`flex h-8 items-center gap-1.5 whitespace-nowrap rounded-lg border px-2.5 text-xs font-semibold text-[#18181b] backdrop-blur transition-all cursor-pointer ${
             showMiniMap
-              ? 'border-blue-300 bg-blue-50/90 text-blue-700'
-              : 'border-slate-200 bg-white/95 text-slate-700 hover:bg-slate-50 hover:border-slate-300 hover:text-blue-700'
+              ? 'border-amber-300 bg-[#fffbeb]'
+              : 'border-[#eef0f3] bg-white/95 hover:bg-[#f4f6f9]'
           }`}
           title={showMiniMap ? 'Ẩn bản đồ thu nhỏ (MiniMap)' : 'Hiện bản đồ thu nhỏ (MiniMap)'}
         >
-          <MapIcon className="size-3.5 text-blue-600" />
+          <MapIcon className="size-3.5 text-amber-700" />
           <span>Bản đồ</span>
         </button>
 
         <button
           type="button"
           onClick={handleToggleDirection}
-          className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white/95 px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm backdrop-blur hover:bg-slate-50 hover:border-slate-300 hover:text-blue-700 transition-all cursor-pointer"
+          className="flex h-8 items-center gap-1.5 whitespace-nowrap rounded-lg border border-[#eef0f3] bg-white/95 px-2.5 text-xs font-semibold text-[#18181b] backdrop-blur hover:bg-[#f4f6f9] transition-all cursor-pointer"
           title={
             layoutDirection === 'horizontal'
               ? 'Đang ở dạng Phân tầng Ngang (Trục Y) - Nhấp để chuyển sang Phân tầng Dọc (Trục X)'
               : 'Đang ở dạng Phân tầng Dọc (Trục X) - Nhấp để chuyển sang Phân tầng Ngang (Trục Y)'
           }
         >
-          <ArrowRightLeft className="size-3.5 text-blue-600" />
+          <ArrowRightLeft className="size-3.5 text-amber-700" />
           <span>
             Bố cục: {layoutDirection === 'horizontal' ? 'Trục Y (Ngang)' : 'Trục X (Dọc)'}
           </span>
@@ -761,10 +761,10 @@ export function OrganizationFlow({
         <button
           type="button"
           onClick={handleAutoLayout}
-          className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white/95 px-3 py-1.5 text-xs font-semibold text-blue-700 shadow-sm backdrop-blur hover:bg-blue-50 hover:border-blue-300 transition-all cursor-pointer"
+          className="flex h-8 items-center gap-1.5 whitespace-nowrap rounded-lg border border-[#eef0f3] bg-white/95 px-2.5 text-xs font-semibold text-[#18181b] backdrop-blur hover:bg-[#f4f6f9] transition-all cursor-pointer"
           title="Tự động căn chỉnh và sắp xếp lại các node thẳng hàng, đẹp mắt"
         >
-          <Sparkles className="size-3.5 text-blue-600" />
+          <Sparkles className="size-3.5 text-amber-700" />
           <span>Sắp xếp</span>
         </button>
       </div>

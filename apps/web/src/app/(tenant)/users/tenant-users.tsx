@@ -2,30 +2,22 @@
 
 import { useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
-import { Plus, Users, Pencil, ShieldCheck, Trash2, Network } from 'lucide-react';
+import { Plus, Users, Pencil, ShieldCheck, Trash2, Network, Search, UserPen } from 'lucide-react';
 import { Popconfirm, SearchableSelect } from '@enterprise-platform/shared-ui';
 import {
   hasTenantAction,
   type TenantRole,
   type TenantPermission,
 } from '@enterprise-platform/contracts-identity';
-import { Button } from '@/components/ui/button';
-import { PageBreadcrumb } from '@/components/ui/page-breadcrumb';
-import { Input } from '@/components/ui/input';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from '@/components/ui/dialog';
 import {
   authorizationRequest,
   searchText,
 } from '../authorization/authorization-client';
 import { UserRoleEditor } from '../authorization/user-role-editor';
+import { CollapsibleGroup } from '../collapsible-group';
+import { panelButton, SidePanel } from '../side-panel';
 import type { TenantCoreUser } from './page';
-import { EmployeeProfileSheet } from './employee-profile-sheet';
+import { EmployeeProfilePanel } from './employee-profile-panel';
 import {
   buildTenantEmail,
   sanitizeTenantEmailLocal,
@@ -45,6 +37,21 @@ type FormState = {
   password: string;
   status: 'active' | 'disabled';
 };
+
+const PAGE_SIZE = 15;
+const ROW =
+  'grid grid-cols-[minmax(200px,1fr)_minmax(160px,0.8fr)_292px] items-center gap-x-3 border-t border-[#f1f3f6] px-5';
+const ACTION =
+  'flex h-[30px] cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-[7px] border border-[#eef0f3] bg-white px-2.5 text-xs font-semibold text-slate-700 hover:bg-[#f4f6f9] disabled:cursor-not-allowed disabled:opacity-60';
+const FIELD =
+  'h-9 w-full rounded-[7px] border border-[#e5e7eb] bg-white px-2.5 text-[13px] text-[#18181b] outline-none focus:border-[#ffc90a]';
+
+function initialsOf(name: string) {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return '?';
+  return `${words[0][0]}${words.length > 1 ? words[words.length - 1][0] : ''}`.toUpperCase();
+}
+
 export function TenantUsers({
   initialError,
   initialUsers,
@@ -83,8 +90,34 @@ export function TenantUsers({
       (status === 'all' || status === u.status) &&
       (roleId === 'all' || u.roleIds?.includes(roleId)),
   );
-  const pages = Math.max(1, Math.ceil(filtered.length / 15));
+  // Trang gồm người đang hoạt động trước, vô hiệu hóa sau, để mỗi trang chia
+  // thành nhiều nhất hai nhóm theo trạng thái.
+  const ordered = [
+    ...filtered.filter((u) => u.status === 'active'),
+    ...filtered.filter((u) => u.status !== 'active'),
+  ];
+  const pages = Math.max(1, Math.ceil(ordered.length / PAGE_SIZE));
   const current = Math.min(page, pages);
+  const pageRows = ordered.slice((current - 1) * PAGE_SIZE, current * PAGE_SIZE);
+  const groups = [
+    {
+      id: 'active',
+      title: 'Hoạt động',
+      tone: 'bg-emerald-100 text-emerald-800',
+      total: filtered.filter((u) => u.status === 'active').length,
+      rows: pageRows.filter((u) => u.status === 'active'),
+    },
+    {
+      id: 'disabled',
+      title: 'Vô hiệu hóa',
+      tone: 'bg-red-100 text-red-700',
+      total: filtered.filter((u) => u.status !== 'active').length,
+      rows: pageRows.filter((u) => u.status !== 'active'),
+    },
+  ].filter((group) => group.rows.length > 0);
+  // Người đang được thao tác trong khung bên phải, để tô dòng tương ứng.
+  const targetId = form?.id ?? assignment?.user.id ?? profileUser?.id;
+
   async function reload() {
     const data = await authorizationRequest<{ users: TenantCoreUser[] }>(
       'tenant-users',
@@ -92,8 +125,14 @@ export function TenantUsers({
     setUsers(data.users);
     router.refresh();
   }
+  function closePanels() {
+    setForm(undefined);
+    setAssignment(undefined);
+    setProfileUser(undefined);
+  }
   function open(user?: TenantCoreUser) {
     setError('');
+    closePanels();
     setForm(
       user
         ? {
@@ -105,6 +144,10 @@ export function TenantUsers({
           }
         : { fullName: '', email: '', password: '', status: 'active' },
     );
+  }
+  function openProfile(user: TenantCoreUser) {
+    closePanels();
+    setProfileUser(user);
   }
   async function save(e: FormEvent) {
     e.preventDefault();
@@ -138,6 +181,7 @@ export function TenantUsers({
     setError('');
     try {
       await authorizationRequest('tenant-users/' + user.id, 'DELETE');
+      if (targetId === user.id) closePanels();
       await reload();
     } catch (cause) {
       setError(
@@ -161,6 +205,7 @@ export function TenantUsers({
           'tenant-users/' + user.id + '/roles',
         ),
       ]);
+      closePanels();
       setAssignment({
         user: { ...user, roleIds: u.roleIds },
         roles: r.roles,
@@ -175,180 +220,194 @@ export function TenantUsers({
     }
   }
   return (
-    <>
-      <main className="flex h-[calc(100vh-4rem)] flex-col gap-4 overflow-hidden p-4 sm:p-6">
-        <header className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <PageBreadcrumb
-              className="mb-1.5"
-              items={[
-                { label: 'Tenant Portal', href: '/dashboard' },
-                { label: 'Quản trị' },
-                { label: 'Người dùng' },
-              ]}
-            />
-            <h1 className="flex items-center gap-2 text-2xl font-bold">
-              <Users className="size-6 text-blue-600" />
-              Người dùng
-            </h1>
-            <p className="mt-1 text-sm text-slate-500">
-              Quản lý tài khoản và vai trò trong doanh nghiệp.
-            </p>
-          </div>
-          {canCreate && (
-            <Button
-              disabled={busy}
-              className="bg-blue-600 text-white hover:bg-blue-700"
-              onClick={() => open()}
-            >
-              <Plus className="size-4" />
-              Thêm người dùng
-            </Button>
-          )}
-        </header>
-        <div className="grid grid-cols-3 gap-3">
-          {[
-            ['Tổng số', users.length],
-            ['Hoạt động', users.filter((u) => u.status === 'active').length],
-            [
-              'Vô hiệu hóa',
-              users.filter((u) => u.status === 'disabled').length,
-            ],
-          ].map(([label, count]) => (
-            <div
-              key={label}
-              className="rounded-xl border border-slate-200 bg-white p-3"
-            >
-              <p className="text-xs text-slate-500">{label}</p>
-              <p className="mt-1 text-2xl font-bold">{count}</p>
-            </div>
-          ))}
-        </div>
-        {error && !form && (
-          <p
-            role="alert"
-            className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700"
-          >
-            {error}
+    <div className="flex flex-col gap-4 text-[14px] text-[#18181b]">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div className="min-w-0 flex-[1_1_360px]">
+          <h1 className="m-0 text-[22px] font-bold tracking-[-0.3px]">Người dùng</h1>
+          <p className="mt-1 text-[13.5px] text-slate-600">
+            Quản lý tài khoản và vai trò trong doanh nghiệp.
           </p>
+        </div>
+        {canCreate && (
+          <button
+            type="button"
+            disabled={busy}
+            className="flex h-[38px] cursor-pointer items-center gap-1.5 rounded-lg bg-[#ffc90a] px-3.5 text-[13px] font-bold text-[#18181b] hover:bg-[#ffd84d] disabled:opacity-60"
+            onClick={() => open()}
+          >
+            <Plus className="size-4" />
+            Thêm người dùng
+          </button>
         )}
-        <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white">
-          <div className="grid gap-2 border-b p-3 md:grid-cols-[1fr_240px_240px]">
-            <Input
-              aria-label="Tìm người dùng"
-              placeholder="Tìm theo tên hoặc email…"
-              value={query}
-              onChange={(e) => {
-                setQuery(e.target.value);
-                setPage(1);
-              }}
-            />
-            <SearchableSelect
-              clearable={false}
-              value={status}
-              options={[
-                { value: 'all', label: 'Tất cả trạng thái' },
-                { value: 'active', label: 'Hoạt động' },
-                { value: 'disabled', label: 'Vô hiệu hóa' },
-              ]}
-              onChange={(v) => {
-                setStatus(v);
-                setPage(1);
-              }}
-            />
-            <SearchableSelect
-              clearable={false}
-              value={roleId}
-              options={[
-                { value: 'all', label: 'Tất cả vai trò' },
-                ...roleOptions,
-              ]}
-              onChange={(v) => {
-                setRoleId(v);
-                setPage(1);
-              }}
-            />
+      </div>
+
+      <section
+        aria-label="Tổng quan người dùng"
+        className="grid grid-cols-3 overflow-hidden rounded-[14px] border border-[#eef0f3] bg-white"
+      >
+        {(
+          [
+            ['Tổng số', users.length, ''],
+            ['Hoạt động', users.filter((u) => u.status === 'active').length, 'text-emerald-700'],
+            ['Vô hiệu hóa', users.filter((u) => u.status === 'disabled').length, 'text-red-700'],
+          ] as const
+        ).map(([label, count, tone], index) => (
+          <div
+            key={label}
+            className={`flex flex-col px-5 py-3.5 ${index < 2 ? 'border-r border-[#f1f3f6]' : ''}`}
+          >
+            <span className="text-xs text-slate-500">{label}</span>
+            <b className={`text-[22px] leading-tight tabular-nums ${tone}`}>{count}</b>
           </div>
-          <div className="min-h-0 flex-1 overflow-auto">
-            <table className="w-full min-w-[850px] text-left text-sm">
-              <thead className="sticky top-0 bg-slate-100 text-xs uppercase text-slate-600">
-                <tr>
-                  {[
-                    'Người dùng',
-                    'Email',
-                    'Vai trò',
-                    'Trạng thái',
-                    'Thao tác',
-                  ].map((label) => (
-                    <th key={label} className="p-3">
-                      {label}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {filtered
-                  .slice((current - 1) * 15, current * 15)
-                  .map((user) => (
-                    <tr key={user.id} className="hover:bg-slate-50">
-                      <td className="p-3 font-semibold">{user.fullName}</td>
-                      <td className="p-3 text-slate-500">{user.email}</td>
-                      <td className="max-w-64 p-3">
+        ))}
+      </section>
+
+      {error && !form && (
+        <p
+          role="alert"
+          className="m-0 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700"
+        >
+          {error}
+        </p>
+      )}
+
+      <div className="flex flex-wrap items-start gap-4">
+        <div className="flex min-w-0 flex-[999_1_520px] flex-col gap-3.5">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <label className="flex h-[38px] min-w-0 flex-[1_1_240px] items-center gap-2 rounded-lg border border-[#eef0f3] bg-white px-3 text-slate-500 focus-within:border-[#ffc90a]">
+              <Search className="size-4 shrink-0" aria-hidden />
+              <input
+                type="search"
+                aria-label="Tìm người dùng"
+                placeholder="Tìm theo tên hoặc email…"
+                value={query}
+                onChange={(e) => {
+                  setQuery(e.target.value);
+                  setPage(1);
+                }}
+                className="min-w-0 flex-1 bg-transparent text-[13px] text-[#18181b] outline-none placeholder:text-slate-400"
+              />
+            </label>
+            <div className="w-full sm:w-[200px]">
+              <SearchableSelect
+                clearable={false}
+                value={status}
+                options={[
+                  { value: 'all', label: 'Tất cả trạng thái' },
+                  { value: 'active', label: 'Hoạt động' },
+                  { value: 'disabled', label: 'Vô hiệu hóa' },
+                ]}
+                onChange={(v) => {
+                  setStatus(v);
+                  setPage(1);
+                }}
+              />
+            </div>
+            <div className="w-full sm:w-[240px]">
+              <SearchableSelect
+                clearable={false}
+                value={roleId}
+                options={[
+                  { value: 'all', label: 'Tất cả vai trò' },
+                  ...roleOptions,
+                ]}
+                onChange={(v) => {
+                  setRoleId(v);
+                  setPage(1);
+                }}
+              />
+            </div>
+          </div>
+
+          {groups.map((group) => (
+            <CollapsibleGroup
+              count={group.total}
+              defaultOpen={group.id === 'active' || status === 'disabled'}
+              icon={<Users className="size-4" />}
+              // Đổi bộ lọc trạng thái thì dựng lại nhóm để áp lại trạng thái mở/đóng mặc định.
+              key={`${group.id}-${status}`}
+              title={group.title}
+              tone={group.tone}
+            >
+              <div className="overflow-x-auto">
+                <div className="min-w-[700px]">
+                  <div className={`${ROW} py-2 text-[11px] font-semibold tracking-[0.4px] text-slate-500`}>
+                    <span>NGƯỜI DÙNG</span>
+                    <span>VAI TRÒ</span>
+                    <span className="text-right">THAO TÁC</span>
+                  </div>
+                  {group.rows.map((user) => {
+                    const isTarget = targetId === user.id;
+                    return (
+                      <div
+                        key={user.id}
+                        className={`${ROW} py-[11px] ${isTarget ? 'bg-[#fffbeb] shadow-[inset_3px_0_0_#ffc90a]' : 'bg-white hover:bg-[#f4f6f9]/60'}`}
+                      >
+                        <div className="flex min-w-0 items-center gap-2.5">
+                          <span className="relative shrink-0">
+                            <span
+                              aria-hidden
+                              className="grid size-[34px] place-items-center rounded-full bg-[#f1f3f6] text-xs font-bold text-slate-700"
+                            >
+                              {initialsOf(user.fullName)}
+                            </span>
+                            <span
+                              aria-hidden
+                              className={`absolute -bottom-px -right-px size-2.5 rounded-full border-2 border-white ${user.status === 'active' ? 'bg-emerald-500' : 'bg-slate-300'}`}
+                            />
+                          </span>
+                          <div className="flex min-w-0 flex-col">
+                            <span className="truncate font-semibold">{user.fullName}</span>
+                            <span className="truncate text-xs text-slate-500">{user.email}</span>
+                          </div>
+                        </div>
                         <div className="flex flex-wrap gap-1">
                           {user.roles?.map((r) => (
                             <span
                               key={r.id}
-                              className="rounded border bg-blue-50 px-2 py-0.5 text-xs text-blue-700"
+                              className="rounded-md border border-blue-100 bg-blue-50 px-2 py-px text-xs text-blue-700"
                             >
                               {r.name}
                             </span>
                           ))}
                           {!user.roles?.length && (
-                            <span className="text-xs text-slate-400">
-                              Chưa gán vai trò
-                            </span>
+                            <span className="text-xs text-slate-400">Chưa gán vai trò</span>
                           )}
                         </div>
-                      </td>
-                      <td className="p-3">
-                        <span
-                          className={
-                            'rounded-full px-2 py-1 text-xs ' +
-                            (user.status === 'active'
-                              ? 'bg-emerald-50 text-emerald-700'
-                              : 'bg-red-50 text-red-700')
-                          }
-                        >
-                          {user.status === 'active'
-                            ? 'Hoạt động'
-                            : 'Vô hiệu hóa'}
-                        </span>
-                      </td>
-                      <td className="p-3">
-                        <div className="flex gap-1.5">
-                          {hasTenantAction(permissions, 'core.organization.read') && <Button size="sm" variant="outline" onClick={() => setProfileUser(user)} title="Hồ sơ nhân sự: chức danh và quản lý trực tiếp"><Network className="size-3.5" />Hồ sơ tổ chức</Button>}
+                        <div className="flex justify-end gap-1.5">
+                          {hasTenantAction(permissions, 'core.organization.read') && (
+                            <button
+                              type="button"
+                              className={ACTION}
+                              onClick={() => openProfile(user)}
+                              title="Hồ sơ nhân sự: chức danh và quản lý trực tiếp"
+                            >
+                              <Network className="size-3.5" />
+                              Hồ sơ tổ chức
+                            </button>
+                          )}
                           {canUpdate &&
                             (isAdmin || user.systemRole !== 'tenant-admin') && (
-                              <Button
-                                size="sm"
-                                variant="outline"
+                              <button
+                                type="button"
+                                className={ACTION}
                                 disabled={busy}
                                 onClick={() => open(user)}
                               >
                                 <Pencil className="size-3.5" />
                                 Sửa
-                              </Button>
+                              </button>
                             )}
                           {isAdmin && (
-                            <Button
-                              size="sm"
-                              variant="outline"
+                            <button
+                              type="button"
+                              className={ACTION}
                               disabled={busy}
                               onClick={() => void assign(user)}
                             >
                               <ShieldCheck className="size-3.5" />
                               Vai trò
-                            </Button>
+                            </button>
                           )}
                           {canDelete &&
                             (isAdmin || user.systemRole !== 'tenant-admin') && (
@@ -364,94 +423,114 @@ export function TenantUsers({
                                 okType="danger"
                                 onConfirm={() => void remove(user)}
                               >
-                                <Button
-                                  size="sm"
-                                  variant="outline"
+                                <button
+                                  type="button"
                                   disabled={busy}
-                                  className="text-red-600"
+                                  className="grid size-[30px] cursor-pointer place-items-center rounded-[7px] border border-red-200 bg-white text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
                                   aria-label={'Xóa ' + user.fullName}
                                 >
                                   <Trash2 className="size-3.5" />
-                                </Button>
+                                </button>
                               </Popconfirm>
                             )}
                         </div>
-                      </td>
-                    </tr>
-                  ))}
-                {!filtered.length && (
-                  <tr>
-                    <td colSpan={5} className="p-10 text-center text-slate-500">
-                      Không tìm thấy người dùng.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-          <footer className="flex items-center justify-between border-t bg-slate-50 p-3 text-xs text-slate-500">
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </CollapsibleGroup>
+          ))}
+
+          {!filtered.length && (
+            <p className="m-0 rounded-[14px] border border-dashed border-slate-200 bg-white p-10 text-center text-slate-500">
+              Không tìm thấy người dùng.
+            </p>
+          )}
+
+          <div className="flex flex-wrap items-center justify-between gap-2 text-[12.5px] text-slate-500">
             <span>
-              {filtered.length} / {users.length} người dùng
+              <b className="text-[#18181b]">{filtered.length}</b> / {users.length} người dùng
             </span>
-            <div className="flex items-center gap-2">
-              <Button
-                size="sm"
-                variant="outline"
+            <span className="flex items-center gap-1.5">
+              <button
+                type="button"
+                className={ACTION}
                 disabled={current <= 1}
                 onClick={() => setPage(current - 1)}
               >
                 Trước
-              </Button>
-              {current}/{pages}
-              <Button
-                size="sm"
-                variant="outline"
+              </button>
+              <span className="tabular-nums">
+                {current}/{pages}
+              </span>
+              <button
+                type="button"
+                className={ACTION}
                 disabled={current >= pages}
                 onClick={() => setPage(current + 1)}
               >
                 Sau
-              </Button>
-            </div>
-          </footer>
-        </section>
-      </main>
-      <Dialog
-        open={!!form}
-        onOpenChange={(v) => {
-          if (!v && !busy) setForm(undefined);
-        }}
-      >
-        <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto p-6">
-          <DialogHeader>
-            <DialogTitle>
-              {form?.id ? 'Cập nhật' : 'Thêm'} người dùng
-            </DialogTitle>
-            <DialogDescription>
-              {form?.id
+              </button>
+            </span>
+          </div>
+        </div>
+
+        {form ? (
+          <SidePanel
+            icon={<UserPen className="size-4" />}
+            title={form.id ? 'Cập nhật người dùng' : 'Thêm người dùng'}
+            subtitle={
+              form.id
                 ? 'Để trống mật khẩu nếu không thay đổi. Gán vai trò bằng thao tác riêng.'
-                : 'Tài khoản mới chưa có quyền. Quản trị viên gán vai trò sau khi tạo.'}
-            </DialogDescription>
-          </DialogHeader>
-          {form && (
-            <form onSubmit={save} className="mt-4 space-y-4">
-              <fieldset disabled={busy} className="space-y-4">
-                <label className="grid gap-1 text-sm font-medium">
-                  Họ và tên
-                  <Input
+                : 'Tài khoản mới chưa có quyền. Quản trị viên gán vai trò sau khi tạo.'
+            }
+            revealKey={form.id ?? 'new'}
+            onClose={() => {
+              if (!busy) setForm(undefined);
+            }}
+            footer={
+              <>
+                <button
+                  type="button"
+                  className={panelButton.secondary}
+                  disabled={busy}
+                  onClick={() => setForm(undefined)}
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  form="tenant-user-form"
+                  className={panelButton.primary}
+                  disabled={busy}
+                >
+                  {busy ? 'Đang lưu…' : 'Lưu người dùng'}
+                </button>
+              </>
+            }
+          >
+            <form id="tenant-user-form" onSubmit={save}>
+              <fieldset disabled={busy} className="flex flex-col gap-3">
+                <label className="flex flex-col gap-1">
+                  <span className="font-semibold text-slate-700">Họ và tên</span>
+                  <input
                     required
                     maxLength={180}
+                    className={FIELD}
                     value={form.fullName}
                     onChange={(e) =>
                       setForm({ ...form, fullName: e.target.value })
                     }
                   />
                 </label>
-                <label className="grid gap-1 text-sm font-medium">
-                  Email
-                  <div className="flex items-center gap-2">
-                    <Input
+                <label className="flex flex-col gap-1">
+                  <span className="font-semibold text-slate-700">Email</span>
+                  <span className="flex items-center overflow-hidden rounded-[7px] border border-[#e5e7eb] focus-within:border-[#ffc90a]">
+                    <input
                       required
                       autoComplete="username"
+                      className="h-[34px] min-w-0 flex-1 px-2.5 text-[13px] outline-none"
                       value={form.email}
                       onChange={(e) =>
                         setForm({
@@ -460,29 +539,32 @@ export function TenantUsers({
                         })
                       }
                     />
-                    <span className="text-slate-500">@{tenantSlug}.com</span>
-                  </div>
+                    <span className="flex h-[34px] items-center border-l border-[#e5e7eb] bg-[#f6f7f9] px-2.5 text-slate-500">
+                      @{tenantSlug}.com
+                    </span>
+                  </span>
                 </label>
-                <label className="grid gap-1 text-sm font-medium">
-                  {form.id ? 'Mật khẩu mới' : 'Mật khẩu'}
-                  <Input
+                <label className="flex flex-col gap-1">
+                  <span className="font-semibold text-slate-700">
+                    {form.id ? 'Mật khẩu mới' : 'Mật khẩu'}
+                  </span>
+                  <input
                     type="password"
                     autoComplete="new-password"
                     required={!form.id}
                     minLength={6}
                     maxLength={128}
+                    className={FIELD}
                     value={form.password}
                     onChange={(e) =>
                       setForm({ ...form, password: e.target.value })
                     }
                   />
-                  <span className="text-xs text-slate-500">
-                    Từ 6 đến 128 ký tự.
-                  </span>
+                  <span className="text-[11.5px] text-slate-500">Từ 6 đến 128 ký tự.</span>
                 </label>
                 {form.id && (
-                  <div className="space-y-1">
-                    <p className="text-sm font-medium">Trạng thái</p>
+                  <div className="flex flex-col gap-1">
+                    <span className="font-semibold text-slate-700">Trạng thái</span>
                     <SearchableSelect
                       clearable={false}
                       disabled={busy}
@@ -498,39 +580,28 @@ export function TenantUsers({
                   </div>
                 )}
                 {error && (
-                  <p role="alert" className="text-sm text-red-700">
+                  <p role="alert" className="m-0 text-[13px] text-red-700">
                     {error}
                   </p>
                 )}
-                <div className="flex justify-end gap-2 border-t pt-4">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => setForm(undefined)}
-                  >
-                    Hủy
-                  </Button>
-                  <Button
-                    type="submit"
-                    className="bg-blue-600 text-white hover:bg-blue-700"
-                  >
-                    {busy ? 'Đang lưu…' : 'Lưu người dùng'}
-                  </Button>
-                </div>
               </fieldset>
             </form>
-          )}
-        </DialogContent>
-      </Dialog>
-      <EmployeeProfileSheet user={profileUser} onClose={() => setProfileUser(undefined)} />
-      {assignment && (
-        <UserRoleEditor
-          key={assignment.user.id}
-          {...assignment}
-          onClose={() => setAssignment(undefined)}
-          onSaved={reload}
-        />
-      )}
-    </>
+          </SidePanel>
+        ) : null}
+
+        {profileUser ? (
+          <EmployeeProfilePanel user={profileUser} onClose={() => setProfileUser(undefined)} />
+        ) : null}
+
+        {assignment ? (
+          <UserRoleEditor
+            key={assignment.user.id}
+            {...assignment}
+            onClose={() => setAssignment(undefined)}
+            onSaved={reload}
+          />
+        ) : null}
+      </div>
+    </div>
   );
 }
