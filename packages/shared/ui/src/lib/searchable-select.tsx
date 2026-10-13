@@ -33,6 +33,11 @@ export interface SearchableSelectProps {
   readonly style?: React.CSSProperties;
   /** Chiều cao ô nhập (px). Mặc định 38; dùng 36/32 để thẳng hàng với Input h-9/h-8 cùng khu vực. */
   readonly height?: number;
+  /**
+   * Kiểu chọn thuần tuý: ô bên ngoài chỉ hiện giá trị đã chọn (con trỏ bấm, không gõ trực tiếp); ô tìm kiếm nằm trong danh sách
+   * xổ ra. Mặc định (false) vẫn là gõ trực tiếp trên ô để lọc.
+   */
+  readonly searchInDropdown?: boolean;
   readonly clearable?: boolean;
   readonly onChange?: (value: string) => void;
   readonly renderOption?: (option: SearchableSelectOption, isSelected: boolean) => ReactNode;
@@ -145,6 +150,7 @@ export function SearchableSelect({
   className,
   style,
   height,
+  searchInDropdown = false,
   clearable = true,
   onChange,
   renderOption,
@@ -154,6 +160,9 @@ export function SearchableSelect({
   const [activeIndex, setActiveIndex] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const dropdownSearchRef = useRef<HTMLInputElement>(null);
+  // Từ khoá gõ trong ô tìm của danh sách (chỉ dùng khi searchInDropdown).
+  const [dropdownQuery, setDropdownQuery] = useState('');
   const listRef = useRef<HTMLUListElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [placement, setPlacement] = useState<ReturnType<typeof dropdownPlacement>>();
@@ -173,17 +182,18 @@ export function SearchableSelect({
 
   // Lọc theo từ khóa tìm kiếm (hỗ trợ tiếng Việt không dấu)
   const filteredOptions = useMemo(() => {
-    if (!query.trim() || (selectedOption && query === selectedOption.label)) {
+    const keyword = searchInDropdown ? dropdownQuery : query;
+    if (!keyword.trim() || (!searchInDropdown && selectedOption && query === selectedOption.label)) {
       return options;
     }
-    const q = removeVietnameseTones(query.trim());
+    const q = removeVietnameseTones(keyword.trim());
     return options.filter((opt) => {
       const labelMatch = removeVietnameseTones(opt.label).includes(q);
       const valueMatch = removeVietnameseTones(opt.value).includes(q);
       const descMatch = opt.description ? removeVietnameseTones(opt.description).includes(q) : false;
       return labelMatch || valueMatch || descMatch;
     });
-  }, [options, query, selectedOption]);
+  }, [options, query, dropdownQuery, searchInDropdown, selectedOption]);
 
   // Đóng dropdown khi click ngoài
   useEffect(() => {
@@ -225,7 +235,13 @@ export function SearchableSelect({
   useEffect(() => {
     if (isOpen) {
       setActiveIndex(-1);
+      setDropdownQuery('');
       const timer = setTimeout(() => {
+        if (searchInDropdown) {
+          // Kiểu chọn thuần tuý: đưa con trỏ vào ô tìm trong danh sách, ô ngoài giữ nguyên giá trị đã chọn.
+          dropdownSearchRef.current?.focus();
+          return;
+        }
         inputRef.current?.focus();
         // Bôi đen nhãn đang chọn: gõ vào là thay thế để tìm, không nối thêm
         // vào sau nhãn cũ (trước đây "Tất cả (30)" + "hieu luc" không lọc ra gì).
@@ -235,7 +251,7 @@ export function SearchableSelect({
     }
     setQuery(selectedOptionLabelRef.current);
     return undefined;
-  }, [isOpen]);
+  }, [isOpen, searchInDropdown]);
 
   // Đặt danh sách theo ô nhập, và đặt lại khi trang hay khung chứa cuộn,
   // hoặc cửa sổ đổi cỡ, để nó luôn bám đúng ô.
@@ -312,7 +328,8 @@ export function SearchableSelect({
     if (disabled) return;
 
     if (!isOpen) {
-      if (e.key === 'Enter' || e.key === 'ArrowDown') {
+      if (e.key === 'Enter' || e.key === 'ArrowDown' || (searchInDropdown && e.key === ' ')) {
+        e.preventDefault();
         setIsOpen(true);
         return;
       }
@@ -380,9 +397,9 @@ export function SearchableSelect({
         />
       ) : null}
 
-      {/* Ô Input Combobox tương tác trực tiếp */}
+      {/* Ô Input Combobox tương tác trực tiếp (kiểu chọn thuần tuý: chỉ hiện giá trị, tìm trong danh sách) */}
       <div className={styles.inputWrapper}>
-        <span className={styles.searchIcon}>
+        <span className={styles.searchIcon} hidden={searchInDropdown}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="11" cy="11" r="8" />
             <line x1="21" y1="21" x2="16.65" y2="16.65" />
@@ -391,9 +408,10 @@ export function SearchableSelect({
         <input
           ref={inputRef}
           type="text"
-          className={`${styles.input} ${disabled ? styles.inputDisabled : ''}`}
+          className={`${styles.input} ${searchInDropdown ? styles.inputSelectOnly : ''} ${disabled ? styles.inputDisabled : ''}`}
           style={height ? { height } : undefined}
-          placeholder={isOpen ? (searchPlaceholder ?? placeholder) : placeholder}
+          readOnly={searchInDropdown}
+          placeholder={isOpen && !searchInDropdown ? (searchPlaceholder ?? placeholder) : placeholder}
           title={!isOpen && query ? query : undefined}
           value={query}
           disabled={disabled}
@@ -401,6 +419,7 @@ export function SearchableSelect({
             if (!disabled) setIsOpen(true);
           }}
           onChange={(e) => {
+            if (searchInDropdown) return;
             setQuery(e.target.value);
             if (!isOpen) setIsOpen(true);
             setActiveIndex(0);
@@ -432,7 +451,7 @@ export function SearchableSelect({
             onClick={() => {
               if (!disabled) {
                 setIsOpen((prev) => !prev);
-                if (!isOpen) inputRef.current?.focus();
+                if (!isOpen && !searchInDropdown) inputRef.current?.focus();
               }
             }}
           >
@@ -447,7 +466,34 @@ export function SearchableSelect({
 
       {/* Dropdown Menu kết quả: fixed theo ô để không bị card hay hộp thoại cắt */}
       {isOpen && placement ? (
-        <div ref={dropdownRef} className={styles.dropdown} style={placement.box}>
+        <div
+          ref={dropdownRef}
+          className={`${styles.dropdown} ${placement.upward ? styles.dropdownUp : ''}`}
+          style={placement.box}
+        >
+          {searchInDropdown ? (
+            <div className={styles.dropdownSearch}>
+              <span className={styles.dropdownSearchIcon}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="11" cy="11" r="8" />
+                  <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                </svg>
+              </span>
+              <input
+                ref={dropdownSearchRef}
+                type="text"
+                className={styles.dropdownSearchInput}
+                aria-label="Tìm trong danh sách"
+                placeholder={searchPlaceholder ?? 'Tìm kiếm…'}
+                value={dropdownQuery}
+                onChange={(e) => {
+                  setDropdownQuery(e.target.value);
+                  setActiveIndex(0);
+                }}
+                onKeyDown={handleKeyDown}
+              />
+            </div>
+          ) : null}
           <ul
             id={`listbox-${id}`}
             role="listbox"

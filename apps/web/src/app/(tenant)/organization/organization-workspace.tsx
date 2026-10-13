@@ -585,8 +585,8 @@ export function OrganizationWorkspace({
                 >
                   <span
                     aria-hidden="true"
-                    className={`h-12 w-1 rounded-full transition-colors group-hover:bg-blue-400 group-focus-visible:bg-blue-500 ${
-                      outlineResize.dragging ? 'bg-blue-500' : 'bg-slate-300'
+                    className={`h-12 w-1 rounded-full transition-colors group-hover:bg-[#ffc90a] group-focus-visible:bg-[#ffc90a] ${
+                      outlineResize.dragging ? 'bg-[#ffc90a]' : 'bg-slate-300'
                     }`}
                   />
                 </div>
@@ -626,6 +626,8 @@ export function OrganizationWorkspace({
               >
                 <SheetContent
                   side="right"
+                  // Ẩn nút đóng (X) mặc định: nó đè lên nhãn "Đơn vị / Chức danh" ở góc phải; vẫn đóng bằng Esc hoặc bấm ra ngoài.
+                  showCloseButton={false}
                   className="!w-[595px] !max-w-[595px] p-0 overflow-hidden border-l border-slate-200 bg-white flex flex-col"
                   style={{ width: '595px', maxWidth: '595px' }}
                 >

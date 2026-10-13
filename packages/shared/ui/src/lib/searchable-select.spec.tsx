@@ -125,3 +125,32 @@ describe('SearchableSelect trong khung @container (container-type)', () => {
     expect(dropdown.style.top).toBe('360px');
   });
 });
+
+describe('SearchableSelect searchInDropdown', () => {
+  it('ô ngoài chỉ hiện giá trị (không gõ trực tiếp), ô tìm nằm trong danh sách và lọc được', () => {
+    // jsdom không có scrollIntoView (danh sách dùng khi di chuyển bằng phím mũi tên).
+    Element.prototype.scrollIntoView = jest.fn();
+    const onChange = jest.fn();
+    render(<SearchableSelect searchInDropdown clearable={false} options={options} value="a" onChange={onChange} />);
+    const trigger = screen.getByDisplayValue('Alpha') as HTMLInputElement;
+    expect(trigger.readOnly).toBe(true);
+    // Chưa mở: chưa có ô tìm trong danh sách.
+    expect(screen.queryByLabelText('Tìm trong danh sách')).toBeNull();
+
+    fireEvent.click(trigger);
+    const search = screen.getByLabelText('Tìm trong danh sách') as HTMLInputElement;
+    expect(screen.getAllByRole('option')).toHaveLength(2);
+
+    fireEvent.change(search, { target: { value: 'bet' } });
+    const filtered = screen.getAllByRole('option');
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0].textContent).toContain('Beta');
+    // Gõ ở ô tìm không đổi giá trị hiển thị của ô ngoài.
+    expect(trigger.value).toBe('Alpha');
+
+    fireEvent.keyDown(search, { key: 'ArrowDown' });
+    fireEvent.keyDown(search, { key: 'Enter' });
+    expect(onChange).toHaveBeenCalledWith('b');
+    expect(screen.queryByRole('listbox')).toBeNull();
+  });
+});
