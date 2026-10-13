@@ -26,7 +26,14 @@ type Database = <T>(
   operation: (pool: Pool) => Promise<T>,
 ) => Promise<T>;
 const actionKeys = new Set<string>(TENANT_PERMISSION_ACTIONS.map((a) => a.key));
+/**
+ * Phân hệ mở cho mọi thành viên: tenant đã bật là ai cũng dùng, không cần vai trò có phân hệ đó.
+ * Trợ lý chỉ đọc dữ liệu qua API của từng phân hệ bằng chính token người hỏi, nên quyền thật vẫn
+ * do từng phân hệ quyết định.
+ */
+export const OPEN_MEMBER_MODULES: readonly string[] = ['assistant'];
 const modulePermissions: Record<string, readonly string[]> = {
+  assistant: ['module.access'],
   hrm: [
     'module.access',
     ...TENANT_PERMISSION_ACTIONS.map((a) => a.key).filter((key) =>
@@ -171,7 +178,7 @@ export class TenantAuthorizationService {
         roles: ['tenant-user', ...roles.filter((r) => r !== 'tenant-user')],
         roleNames,
         permissions: expandTenantActions(permissions),
-        moduleKeys: modules,
+        moduleKeys: [...new Set([...modules, ...OPEN_MEMBER_MODULES])],
         authorizationRevision: state.revision,
       };
       if (this.cache.size >= 2000)

@@ -42,6 +42,25 @@ interface ModuleExtraInfo {
 }
 
 const moduleCatalogMetadata: Record<string, ModuleExtraInfo> = {
+  assistant: {
+    category: 'Ứng dụng mở rộng',
+    tagline: 'Hỏi cách dùng bất kỳ trang nào và tra số liệu trong phạm vi quyền của người hỏi.',
+    accentColor: {
+      bg: 'bg-yellow-50/70',
+      border: 'border-yellow-200/80',
+      text: 'text-yellow-800',
+      iconBg: 'bg-yellow-100 text-yellow-800',
+    },
+    features: [
+      'Hướng dẫn thao tác theo Hướng dẫn sử dụng, kèm link mở thẳng trang ERP',
+      'Biết trang đang mở để trả lời câu hỏi "trang này dùng thế nào"',
+      'Đọc tồn kho, phiếu bảo trì, đơn từ, phép năm, công việc và hồ sơ quy trình bằng quyền của người hỏi',
+      'Mở từ nút Trợ lý ở mọi phân hệ, dùng chung phiên đăng nhập ERP',
+    ],
+    targetRoles: ['Toàn thể nhân sự'],
+    businessValue:
+      'Người dùng tự tra cách làm và số liệu của mình ngay trên ERP, giảm câu hỏi lặp lại gửi tới quản trị viên.',
+  },
   'procedure-engine': {
     category: 'Vận hành & Quy trình',
     tagline: 'Thiết kế, ban hành và tự động hóa luồng phê duyệt văn bản, tờ trình đa cấp.',

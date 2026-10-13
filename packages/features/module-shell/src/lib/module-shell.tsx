@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { NotificationBell, NotificationProvider } from '@enterprise-platform/shared-ui';
+import { AssistantLauncher } from './assistant-launcher';
 import { ModuleShellLight } from './module-shell-light';
 import type { ModuleNavItem, ModuleShellProps } from './module-shell.types';
 import { initialsOfName, useShellSession } from './use-shell-session';
@@ -288,6 +289,8 @@ function ClassicShell<TViewId extends string = string>(props: ModuleShellProps<T
 
 
             <NotificationBell />
+
+            <AssistantLauncher />
 
             {/* 5. User Dropdown */}
             <div style={{ position: 'relative' }} ref={userMenuRef}>
