@@ -794,6 +794,10 @@ export interface ProcedureWorkspaceWorkItemDraft {
   plannedEnd?: string;
   estimateHours?: number;
   estimatedCost?: number;
+  /** Công việc cha trong dự án; bỏ trống nghĩa là đặt ở gốc dự án. */
+  parentId?: string;
+  /** Người submit đơn, chọn trong danh sách người tham gia dự án. */
+  submitterUserId?: string;
 }
 
 /**
