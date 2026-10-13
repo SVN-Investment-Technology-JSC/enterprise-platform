@@ -6,6 +6,7 @@ import { enrichLeaveBalances, unpostedUsableEntitlement } from './hrm-annual-lea
 import { chiefFallbackUserIds } from './hrm-chief-fallback';
 import { loadDirectManager, loadDirectManagerRef, loadReportingOverview } from './hrm-personnel-decisions';
 import { accrueMonth } from './hrm-leave-accrual';
+import { recomputeAnnualLeaveYear } from './hrm-annual-leave-recompute';
 import { carryoverYear } from './hrm-leave-carryover';
 import { createLeave } from './hrm-leave-operations';
 import {
@@ -677,4 +678,47 @@ integration('Annual leave by labor contract (PostgreSQL)', () => {
     expect(await overviewManager()).toMatchObject({ employeeId: headB.id, source: 'CORE_POSITION' });
     expect(await profileManager()).toBe('S-HEADB');
   });
-});
+  it('đổi chính sách thì quỹ phép đã ghi sổ của năm áp dụng được tính lại, không cộng trùng khi chạy cộng phép sau đó', async () => {
+    const year = new Date().getUTCFullYear();
+    const month = new Date().getUTCMonth() + 1;
+    const mm = (n: number) => String(n).padStart(2, '0');
+    const type = await leaveType('AL-RECALC');
+    const scheduleId = await schedule(type, { advance: true, from: `${year}-01-01` });
+    const worker = await employee('NV-RECALC', '2015-01-01');
+    for (let m = 1; m <= month; m++) await accrue(`${year}-${mm(m)}`);
+    expect((await balance(worker, type, year)).accrued).toBe(month);
+
+    const recompute = () =>
+      hrmTransaction(pool, (db) =>
+        recomputeAnnualLeaveYear(db, tenantId, actor, type, year, 'Tính lại theo chính sách mới'),
+      );
+    // Tăng lên 24 ngày/năm (2 ngày/tháng): quỹ ghi sổ tăng thêm phần chênh của các tháng đã qua.
+    await pool.query(
+      `UPDATE hrm_schema.leave_accrual_schedules SET annual_days=24,accrual_amount=2 WHERE id=$1`,
+      [scheduleId],
+    );
+    await recompute();
+    expect((await balance(worker, type, year)).accrued).toBe(2 * month);
+    expect((await balance(worker, type, year)).remaining).toBe(2 * month);
+    // Giao dịch điều chỉnh có ghi chú, các giao dịch cộng phép cũ không bị sửa.
+    const rows = await ledger(worker, type);
+    expect(rows.filter((r) => r.transaction_type === 'ACCRUAL')).toHaveLength(month);
+    expect(rows.filter((r) => r.transaction_type === 'ADJUSTMENT').map((r) => r.days)).toEqual([month]);
+
+    // Tính lại lần nữa khi chưa đổi gì: không phát sinh thêm.
+    await recompute();
+    expect(rows).toHaveLength((await ledger(worker, type)).length);
+
+    // Chạy lại cộng phép của tháng hiện tại: phần tháng này đã nằm trong số điều chỉnh, không cộng trùng.
+    await accrue(`${year}-${mm(month)}`);
+    expect((await balance(worker, type, year)).accrued).toBe(2 * month);
+
+    // Giảm về 6 ngày/năm (0,5 ngày/tháng): quỹ ghi sổ giảm tương ứng.
+    await pool.query(
+      `UPDATE hrm_schema.leave_accrual_schedules SET annual_days=6,accrual_amount=0.5 WHERE id=$1`,
+      [scheduleId],
+    );
+    await recompute();
+    expect((await balance(worker, type, year)).accrued).toBe(month / 2);
+  }, 60_000);
+});

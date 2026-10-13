@@ -23,6 +23,7 @@ import {
   validateAccrualSchedule,
   type AccrualMutation,
 } from './hrm-leave-schedule.js';
+import { recomputeAnnualLeaveYear } from './hrm-annual-leave-recompute.js';
 import { isoDate } from './hrm-time.js';
 import { requireDate, requireText, requireUuid } from './hrm-validation.js';
 
@@ -133,6 +134,7 @@ export function validateAnnualLeavePolicyInput(
   const tiers = rawTiers
     .map((t) => ({ minYears: t?.minYears, bonusDays: t?.bonusDays }))
     .sort((a, b) => Number(a.minYears) - Number(b.minYears));
+  if (tiers.length > 1) invalid('Chỉ được cấu hình một mốc phép thâm niên');
   try {
     validateSeniorityTiers(tiers);
   } catch (error) {
@@ -485,19 +487,21 @@ export async function saveAnnualLeavePolicy(
     saved = await insertAccrualSchedule(db, tenant, type.id, created);
   } else {
     const usage = await accrualScheduleUsage(db, tenant, current.id);
-    // Chưa cộng phép lần nào: sửa tại chỗ, không có lịch sử để giữ.
-    // Đã cộng phép: lịch cũ kết thúc trước ngày 01/01 của phiên bản mới (mặc định 01/01 năm sau năm đã cộng),
-    // vì số đã ghi sổ không được tính lại.
-    mode = usage.count ? 'version' : 'edit';
+    // Chính sách đổi thì có hiệu lực từ 01/01 của năm áp dụng (mặc định năm nay) và quỹ phép năm đó được tính lại:
+    // - lịch hiện hành bắt đầu từ năm áp dụng trở đi: sửa tại chỗ (đã cộng phép thì vẫn sửa, số ghi sổ được điều chỉnh sau);
+    // - lịch hiện hành bắt đầu từ năm trước: kết thúc lịch cũ trước 01/01 và tạo phiên bản mới từ năm áp dụng.
+    const wantFrom = input.effectiveFrom ?? `${year}-01-01`;
+    const currentFrom = isoDate(current.effective_from);
+    const inPlace = currentFrom >= wantFrom;
+    mode = inPlace ? 'edit' : 'version';
     const mutation: AccrualMutation = {
       ...fields,
-      effectiveFrom:
-        input.effectiveFrom ??
-        (usage.count
-          ? firstOfNextYear(usage.last_month as string)
-          : editStart(current, schedules[1])),
+      effectiveFrom: inPlace
+        ? (input.effectiveFrom ?? editStart(current, schedules[1]))
+        : wantFrom,
       expectedUpdatedAt: timestamp(current.updated_at),
       reason: input.reason,
+      allowAccruedYear: true,
     };
     saved = await mutateAccrualSchedule(
       db,
@@ -506,7 +510,7 @@ export async function saveAnnualLeavePolicy(
       type.id,
       current.id,
       mutation,
-      mode,
+      inPlace ? (usage.count ? 'revise' : 'edit') : 'version',
     );
   }
   if (input.accrualBasis === 'JOIN_DATE')
@@ -519,6 +523,23 @@ export async function saveAnnualLeavePolicy(
   const closed = existing
     ? []
     : await closeOtherAccrualSchedules(db, tenant, actor, type.id, input.reason);
+  // Tính lại quỹ phép đã ghi sổ của các năm từ năm áp dụng đến năm nay theo chính sách mới.
+  const recomputed = [];
+  for (
+    let y = Number(isoDate(saved.effective_from).slice(0, 4));
+    y <= year;
+    y++
+  )
+    recomputed.push(
+      await recomputeAnnualLeaveYear(
+        db,
+        tenant,
+        actor,
+        type.id,
+        y,
+        'Tính lại phép năm theo chính sách mới',
+      ),
+    );
   const after = await readAnnualLeavePolicy(db, tenant);
   await lifecycleAudit(db, tenant, actor, 'ANNUAL_LEAVE_POLICY_SAVED', type.id, {
     mode,
@@ -530,6 +551,7 @@ export async function saveAnnualLeavePolicy(
     after: after.policy,
     closedOtherSchedules: closed.length,
     closedSchedules: closed,
+    recomputed,
     reason: input.reason,
   });
   return { mode, closedOtherSchedules: closed.length };

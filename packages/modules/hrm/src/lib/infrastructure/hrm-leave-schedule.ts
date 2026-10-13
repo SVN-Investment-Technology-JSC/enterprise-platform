@@ -178,6 +178,11 @@ export async function accrualScheduleUsage(
 export type AccrualMutation = Partial<CreateLeaveAccrualScheduleRequest> & {
   expectedUpdatedAt: string;
   reason: string;
+  /**
+   * Chính sách phép năm đổi thì quỹ phép của năm áp dụng được tính lại: cho phép phiên bản mới bắt đầu
+   * trong tháng đã cộng phép (số đã ghi sổ được điều chỉnh bằng giao dịch riêng, không sửa lịch sử).
+   */
+  allowAccruedYear?: boolean;
 };
 export async function mutateAccrualSchedule(
   db: PoolClient,
@@ -186,7 +191,7 @@ export async function mutateAccrualSchedule(
   typeId: string,
   id: string,
   body: AccrualMutation,
-  action: 'edit' | 'delete' | 'version' | 'deactivate',
+  action: 'edit' | 'revise' | 'delete' | 'version' | 'deactivate',
 ) {
   requireText(body.reason, 'Lý do', 1000);
   await lockAccrualConfiguration(db, tenant);
@@ -289,7 +294,9 @@ export async function mutateAccrualSchedule(
       !body.effectiveFrom ||
       !body.effectiveFrom.endsWith('-01') ||
       body.effectiveFrom <= isoDate(before.effective_from) ||
-      (usage.last_month && body.effectiveFrom <= usage.last_month)
+      (usage.last_month &&
+        !body.allowAccruedYear &&
+        body.effectiveFrom <= usage.last_month)
     )
       throw new ConflictException(
         'Phiên bản mới phải bắt đầu đầu tháng, sau hiệu lực cũ và tháng đã cộng phép',
