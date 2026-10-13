@@ -106,8 +106,25 @@ export function useHrmPermissions() {
  * Dùng chung cho menu và chặn trang (hrm-shell). Không dùng hrm.read làm điều kiện hiện menu.
  * Mọi route mới của HRM phải có mục ở đây.
  */
+/**
+ * Giám sát chấm công theo ngày: người xem chấm công/bảng công thấy toàn công ty, người quản lý (có quyền duyệt) chỉ thấy
+ * cấp dưới theo sơ đồ tổ chức. Danh sách này phải khớp với `HrmAttendanceMonitorController`.
+ */
+export const ATTENDANCE_MONITOR_PERMISSIONS: HrmAction[] = [
+  'hrm.attendance.read',
+  'hrm.timesheet.read',
+  'hrm.leave.approve',
+  'hrm.ot.approve',
+  'hrm.trip.approve',
+  'hrm.shift.approve',
+  'hrm.attendance.approve',
+  'hrm.custom.approve',
+  'hrm.advance.approve',
+];
+
 export const hrmPagePermissions: Record<string, HrmAction[]> = {
   '/': ['hrm.self.read', 'hrm.dashboard.read'],
+  '/attendance-monitor': ATTENDANCE_MONITOR_PERMISSIONS,
   '/approvals': [
     'hrm.leave.approve',
     'hrm.leave.approve.all',
