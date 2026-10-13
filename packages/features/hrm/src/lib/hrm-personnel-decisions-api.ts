@@ -91,6 +91,22 @@ export async function getAppointmentContext(employeeId: string) {
   return res.data;
 }
 
+/**
+ * Gán chức danh nhanh từ Drawer hồ sơ nhân sự: tạo và áp dụng một quyết định APPOINT ngay lập tức (không qua
+ * người duyệt khác). Chức danh vẫn được ghi sang Core qua cổng nội bộ của quyết định nhân sự, không PATCH
+ * thẳng `/employees/:id/profile`. Cần cả hai quyền `hrm.appointment.manage` và `hrm.appointment.approve`.
+ */
+export async function quickAssignPosition(
+  employeeId: string,
+  body: { toPositionNodeId: string; reason: string; effectiveDate?: string },
+) {
+  const res = await hrmFetch<{ data: HrmPersonnelDecision }>(
+    `/employees/${employeeId}/quick-appoint`,
+    { method: 'POST', body: JSON.stringify(body) },
+  );
+  return res.data;
+}
+
 export interface AsyncState<T> {
   data: T | null;
   loading: boolean;

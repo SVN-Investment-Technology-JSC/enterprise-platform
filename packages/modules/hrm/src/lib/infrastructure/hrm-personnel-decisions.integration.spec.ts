@@ -11,6 +11,7 @@ import {
   loadAppointmentContext,
   loadDecision,
   mapDecision,
+  quickAssignPosition,
   rejectDecision,
   updateDraft,
 } from './hrm-personnel-decisions';
@@ -228,6 +229,57 @@ integration('HRM personnel decisions PostgreSQL integration', () => {
     await expect(
       approveDecision(pool, tenantId, employee.userId as string, created.id, { org: core }),
     ).rejects.toMatchObject({ response: { code: 'SELF_APPROVAL_FORBIDDEN' } });
+  });
+
+  it('gán chức danh nhanh: tạo và tự áp dụng ngay, không bị chặn tự duyệt', async () => {
+    const employee = await person('Oanh');
+    const applied = await quickAssignPosition(
+      pool,
+      tenantId,
+      hrUser,
+      {
+        employeeId: employee.id,
+        toPositionNodeId: posStaff,
+        reason: 'Gán chức danh nhanh từ hồ sơ nhân sự',
+      },
+      { org: core },
+    );
+    expect(applied.status).toBe('APPLIED');
+    expect(applied.decisionType).toBe('APPOINT');
+    expect(core.commands.at(-1)).toMatchObject({
+      decisionId: applied.id,
+      action: 'ASSIGN',
+      nodeId: posStaff,
+      userId: employee.userId,
+    });
+    const audit = await pool.query(
+      `SELECT action FROM hrm_schema.audit_log WHERE entity_id = $1 ORDER BY created_at`,
+      [applied.id],
+    );
+    // Không có PERSONNEL_DECISION_APPROVED: bỏ qua bước người thứ hai duyệt, nhưng vẫn ghi vết tự áp dụng.
+    expect(audit.rows.map((r) => r.action)).toEqual([
+      'PERSONNEL_DECISION_CREATED',
+      'PERSONNEL_DECISION_SELF_APPLIED',
+      'PERSONNEL_DECISION_APPLIED',
+    ]);
+  });
+
+  it('gán chức danh nhanh vẫn bị chặn nếu nhân viên đang giữ đúng chức danh đó', async () => {
+    const employee = await person('Phúc');
+    await pool.query(
+      `INSERT INTO core_schema.organization_node_assignments (id, node_id, user_id, is_primary, status, start_date)
+       VALUES ($1, $2, $3, true, 'active', '2025-01-01')`,
+      [randomUUID(), posStaff, employee.userId],
+    );
+    await expect(
+      quickAssignPosition(
+        pool,
+        tenantId,
+        hrUser,
+        { employeeId: employee.id, toPositionNodeId: posStaff, reason: 'Thử gán lại' },
+        { org: core },
+      ),
+    ).rejects.toThrow(/đang giữ chức danh này/);
   });
 
   it('Core lỗi thì dừng ở APPLY_PENDING và thử lại chỉ làm tiếp bước còn thiếu', async () => {

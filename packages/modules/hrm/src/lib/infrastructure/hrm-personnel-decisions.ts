@@ -739,6 +739,50 @@ export async function approveDecision(
   return applyDecision(pool, tenantId, id, deps);
 }
 
+/**
+ * Gán chức danh nhanh từ Drawer "Sửa" của hồ sơ nhân sự: tạo một quyết định APPOINT rồi tự áp dụng ngay bởi
+ * chính người thao tác, không qua `approveDecision` nên không bị chặn "không tự duyệt quyết định của mình"
+ * (chắn đó dành cho quyết định đầy đủ cần người khác duyệt: thăng chức, điều chuyển, miễn nhiệm qua màn
+ * Quyết định nhân sự). Vẫn đi qua mọi rào chắn của `createDecision` (đã giữ chức danh này, chưa liên kết tài
+ * khoản, đang có quyết định khác dở dang...) và vẫn gọi Core qua `HrmOrgAppointmentPort` như mọi quyết định
+ * khác — không ghi trực tiếp `core_schema`. Controller phải tự kiểm tra người gọi có cả hai quyền
+ * `hrm.appointment.manage` và `hrm.appointment.approve` trước khi gọi hàm này.
+ */
+export async function quickAssignPosition(
+  pool: Pool,
+  tenantId: string,
+  actorId: string,
+  input: {
+    employeeId: string;
+    toPositionNodeId: string;
+    reason: string;
+    effectiveDate?: string;
+  },
+  deps: { org: HrmOrgAppointmentPort },
+): Promise<HrmPersonnelDecision> {
+  const effectiveDate = input.effectiveDate ?? (await todayInVietnam(pool));
+  const created = await createDecision(pool, tenantId, actorId, {
+    decisionType: 'APPOINT',
+    employeeId: input.employeeId,
+    toPositionNodeId: input.toPositionNodeId,
+    effectiveDate,
+    reason: input.reason,
+  } as CreateHrmPersonnelDecisionPayload);
+  await hrmTransaction(pool, async (db) => {
+    await db.query(
+      `UPDATE hrm_schema.personnel_decisions
+          SET status='APPROVED', approved_by=$3, approved_at=now(), version=version+1, updated_at=now()
+        WHERE tenant_id=$1 AND id=$2`,
+      [tenantId, created.id, actorId],
+    );
+    await lifecycleAudit(db, tenantId, actorId, 'PERSONNEL_DECISION_SELF_APPLIED', created.id, {
+      decisionNo: created.decisionNo,
+      note: 'Gán chức danh nhanh từ hồ sơ nhân sự: tự áp dụng, không qua người duyệt khác',
+    });
+  });
+  return applyDecision(pool, tenantId, created.id, deps);
+}
+
 export async function rejectDecision(
   pool: Pool,
   tenantId: string,

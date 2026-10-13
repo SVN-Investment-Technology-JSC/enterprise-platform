@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, type ReactNode } from 'react';
+import { useState, useEffect, useMemo, type ReactNode } from 'react';
 import {
   Briefcase,
   CreditCard,
@@ -13,7 +13,10 @@ import {
   X,
   Sparkles,
 } from 'lucide-react';
-import type { HrmEmployeeProfile } from '@enterprise-platform/contracts-hrm';
+import type {
+  HrmEmployeeProfile,
+  HrmJobDescriptionItem,
+} from '@enterprise-platform/contracts-hrm';
 import {
   employeeCompleteness,
   employeeInitials,
@@ -40,6 +43,10 @@ import {
   type SearchableSelectOption,
 } from '@enterprise-platform/shared-ui';
 import { hrmFetch } from '../hrm-api';
+import {
+  quickAssignPosition,
+  useAppointmentContext,
+} from '../hrm-personnel-decisions-api';
 import { toast } from './toast';
 import { useHrmPermissions } from '../hrm-permissions';
 
@@ -88,7 +95,10 @@ function Row({
   isSensitiveHidden?: boolean;
 }) {
   if (isEditing) {
-    if (isCoreOwned) {
+    // Trường thuộc Core: không còn editControl thì chỉ đọc (vd. Ngày gia nhập, Quản lý trực tiếp);
+    // có editControl (vd. Chức danh) thì vẫn sửa được nhưng giữ huy hiệu "Core" vì thay đổi đi qua
+    // cổng nội bộ sang Core, không ghi thẳng vào hồ sơ HRM.
+    if (isCoreOwned && !editControl) {
       return (
         <div className="flex items-center justify-between gap-3 border-b border-slate-100 py-1.5 last:border-b-0">
           <dt className="shrink-0 text-[11px] text-slate-400 flex items-center gap-1">
@@ -121,8 +131,19 @@ function Row({
             <span className="size-1.5 rounded-full bg-blue-600 animate-pulse" />
             {label}
           </span>
-          <span className="text-[10px] text-blue-600 font-semibold bg-blue-50 px-1.5 py-0.2 rounded border border-blue-200/60">
-            Chỉnh sửa trực tiếp
+          <span className="flex items-center gap-1">
+            {isCoreOwned && (
+              <span
+                className="flex items-center gap-0.5 text-[10px] font-normal text-slate-500 bg-slate-100 px-1 py-0.2 rounded border border-slate-200"
+                title="Lưu sẽ gửi sang Core qua quyết định nhân sự, không ghi thẳng hồ sơ HRM"
+              >
+                <Lock className="size-2.5" aria-hidden="true" />
+                Core
+              </span>
+            )}
+            <span className="text-[10px] text-blue-600 font-semibold bg-blue-50 px-1.5 py-0.2 rounded border border-blue-200/60">
+              Chỉnh sửa trực tiếp
+            </span>
           </span>
         </label>
         <div>{editControl}</div>
@@ -302,19 +323,53 @@ export function EmployeeDetailDialog({
 }) {
   const { can } = useHrmPermissions();
   const canManage = can('hrm.employee.manage');
+  // Gán chức danh đi qua quyết định nhân sự áp dụng ngay (xem quickAssignPosition): cần cả quyền lập lẫn
+  // quyền duyệt bổ nhiệm, vì thao tác có hiệu lực tương đương một quyết định đã duyệt.
+  const canAssignPosition =
+    can('hrm.appointment.manage') && can('hrm.appointment.approve');
   const [tab, setTab] = useState<DetailTab>('documents');
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [editForm, setEditForm] = useState<EmployeeEditForm>(() =>
     toEditState(employee),
   );
+  const [positions, setPositions] = useState<HrmJobDescriptionItem[]>([]);
+  const [positionNodeId, setPositionNodeId] = useState('');
+  const [positionReason, setPositionReason] = useState('');
 
   // Khởi tạo lại form edit khi đổi nhân viên hoặc đóng/mở drawer
   const empId = employee?.employeeId;
+  const appointmentCtx = useAppointmentContext(
+    canAssignPosition && open ? empId : null,
+  );
+  const currentPositionNodeId = appointmentCtx.data?.positionNodeId ?? '';
+
+  // Danh mục chức danh (node trên sơ đồ tổ chức) để chọn khi gán nhanh; chỉ tải khi có quyền.
+  useEffect(() => {
+    if (!canAssignPosition || !open) return;
+    let active = true;
+    hrmFetch<{ data: HrmJobDescriptionItem[] }>('/positions')
+      .then((res) => {
+        if (active) setPositions(res.data ?? []);
+      })
+      .catch(() => {
+        if (active) setPositions([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [canAssignPosition, open]);
+
   useEffect(() => {
     setEditForm(toEditState(employee));
+    setPositionReason('');
     setIsEditing(false);
   }, [empId, open]);
+
+  // Đồng bộ chức danh đang chọn theo hiện trạng ở Core; bỏ qua lúc đang sửa để không ghi đè lựa chọn dở dang.
+  useEffect(() => {
+    if (!isEditing) setPositionNodeId(currentPositionNodeId);
+  }, [currentPositionNodeId, isEditing]);
 
   const completeness = employee
     ? employeeCompleteness(employee, canSensitive)
@@ -332,11 +387,15 @@ export function EmployeeDetailDialog({
 
   const handleStartEdit = () => {
     setEditForm(toEditState(employee));
+    setPositionNodeId(currentPositionNodeId);
+    setPositionReason('');
     setIsEditing(true);
   };
 
   const handleCancelEdit = () => {
     setEditForm(toEditState(employee));
+    setPositionNodeId(currentPositionNodeId);
+    setPositionReason('');
     setIsEditing(false);
   };
 
@@ -344,8 +403,32 @@ export function EmployeeDetailDialog({
     setEditForm((prev) => ({ ...prev, [key]: value }));
   };
 
+  const positionChanged = Boolean(
+    canAssignPosition && positionNodeId && positionNodeId !== currentPositionNodeId,
+  );
+
+  const positionOptions = useMemo<SearchableSelectOption[]>(
+    () =>
+      positions
+        .filter((p) => p.active)
+        .map((p) => ({
+          value: p.positionId,
+          label: p.positionName,
+          badge: p.positionCode,
+          description: p.unit?.name,
+        })),
+    [positions],
+  );
+
   const handleSaveEdit = async () => {
     if (!employee) return;
+    if (positionChanged && !positionReason.trim()) {
+      toast.error({
+        title: 'Thiếu lý do gán chức danh',
+        description: 'Nhập lý do trước khi lưu.',
+      });
+      return;
+    }
     setIsSaving(true);
     try {
       const payload: Record<string, unknown> = {
@@ -370,18 +453,44 @@ export function EmployeeDetailDialog({
         delete payload['bankBranch'];
       }
 
-      const res = await hrmFetch<{ data: HrmEmployeeProfile }>(
-        `/employees/${employee.employeeId}/profile`,
-        {
-          method: 'PATCH',
-          body: JSON.stringify(payload),
-        },
-      );
+      let latest = (
+        await hrmFetch<{ data: HrmEmployeeProfile }>(
+          `/employees/${employee.employeeId}/profile`,
+          { method: 'PATCH', body: JSON.stringify(payload) },
+        )
+      ).data;
 
-      toast.success('Đã cập nhật hồ sơ thành công');
+      // Chức danh ghi qua quyết định nhân sự (Core), không nằm trong PATCH /profile ở trên.
+      if (positionChanged) {
+        try {
+          await quickAssignPosition(employee.employeeId, {
+            toPositionNodeId: positionNodeId,
+            reason: positionReason.trim(),
+          });
+          appointmentCtx.reload();
+          latest = (
+            await hrmFetch<{ data: HrmEmployeeProfile }>(
+              `/employees/${employee.employeeId}/profile`,
+            )
+          ).data;
+        } catch (err) {
+          toast.error({
+            title: 'Đã lưu hồ sơ, nhưng gán chức danh thất bại',
+            description: err instanceof Error ? err.message : undefined,
+          });
+          if (onEmployeeUpdated) onEmployeeUpdated(latest);
+          return; // giữ chế độ sửa để thử lại riêng phần chức danh
+        }
+      }
+
+      toast.success(
+        positionChanged
+          ? 'Đã cập nhật hồ sơ và gán chức danh'
+          : 'Đã cập nhật hồ sơ thành công',
+      );
       setIsEditing(false);
       if (onEmployeeUpdated) {
-        onEmployeeUpdated(res.data);
+        onEmployeeUpdated(latest);
       }
     } catch (err) {
       toast.error({
@@ -763,6 +872,43 @@ export function EmployeeDetailDialog({
                 title="Quan hệ lao động"
                 isEditing={isEditing}
               >
+                <Row
+                  label="Chức danh"
+                  isEditing={isEditing}
+                  isCoreOwned={true}
+                  editControl={
+                    canAssignPosition ? (
+                      <div className="space-y-1.5">
+                        <SearchableSelect
+                          options={positionOptions}
+                          value={positionNodeId}
+                          onChange={(val) => setPositionNodeId(val)}
+                          placeholder={
+                            appointmentCtx.loading
+                              ? 'Đang tải...'
+                              : 'Chọn chức danh'
+                          }
+                          clearable={false}
+                        />
+                        {positionChanged && (
+                          <Input
+                            value={positionReason}
+                            onChange={(e) => setPositionReason(e.target.value)}
+                            placeholder="Lý do đổi chức danh (bắt buộc)"
+                            className={editableInputClass}
+                          />
+                        )}
+                        {positionChanged && (
+                          <p className="text-[10px] text-amber-700">
+                            Có hiệu lực ngay khi lưu, không qua người duyệt khác.
+                          </p>
+                        )}
+                      </div>
+                    ) : undefined
+                  }
+                >
+                  {employee.position || 'Chưa phân chức danh'}
+                </Row>
                 <Row
                   label="Ngày gia nhập"
                   mono
