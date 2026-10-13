@@ -189,11 +189,17 @@ integration('Tenant RBAC PostgreSQL integration', () => {
     await service.remove('a', adminId, 'permissions', p.id);
     await service.remove('a', adminId, 'permissions', q.id);
     expect((await service.resolve('a', userId)).permissions).toEqual([]);
+    // Không còn vai trò nào vẫn dùng được Trợ lý (phân hệ mở cho mọi thành viên).
+    const bare = await service.resolve('a', userId);
+    expect(bare.moduleKeys).toContain('assistant');
+    expect(service.allowsModule('a', userId, bare, 'assistant', 'module.access')).toBe(true);
+    expect(service.allowsModule('a', userId, bare, 'assistant', 'hrm.employee.read')).toBe(false);
   });
   it('does not restore revoked roles when migration is rerun', async () => {
     await required(pools.get('a')).query(migration);
     expect((await service.userRoles('a', userId)).roleIds).toEqual([]);
-    expect((await service.resolve('b', userId)).moduleKeys).toEqual(['*']);
+    // Trợ lý mở cho mọi thành viên, nên luôn có trong moduleKeys.
+    expect((await service.resolve('b', userId)).moduleKeys).toEqual(['*', 'assistant']);
   });
   it('rejects cross-tenant role/permission IDs and rolls back the write', async () => {
     const foreign = await service.savePermission('b', adminId, {
