@@ -50,6 +50,8 @@ describe('SearchableSelect trong hộp thoại có thuộc tính translate', () 
     const rect = (r: Partial<DOMRect>) => ({ x: 0, y: 0, width: 0, height: 0, top: 0, left: 0, right: 0, bottom: 0, toJSON: () => ({}), ...r }) as DOMRect;
     jest.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
       if (this.dataset?.dialog) return rect({ left: 100, top: 50, width: 600, height: 500 });
+      // Phần tử thăm dò position:fixed ở (0, 0) hiện ra tại góc khối chứa (ở đây là hộp thoại).
+      if (this.style.position === 'fixed' && this.style.left === '0px') return rect({ left: 100, top: 50 });
       if (this.className.includes('container')) return rect({ left: 130, top: 140, width: 500, height: 36, bottom: 176, right: 630 });
       return rect({});
     });
