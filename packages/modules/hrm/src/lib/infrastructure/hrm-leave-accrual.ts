@@ -14,6 +14,10 @@ import {
   type ContractSchedule,
 } from './hrm-annual-leave.js';
 import { firstOfficialContractSignDate } from './hrm-contracts.js';
+import {
+  RECALC_BASE_KEY,
+  RECALC_SENIORITY_KEY,
+} from './hrm-annual-leave-recompute.js';
 
 /**
  * Ghi phép của một tháng theo lịch HĐLĐ cho một nhân viên. Định mức và thâm
@@ -47,8 +51,9 @@ export async function accrueContractMonth(
     (
       await db.query(
         `SELECT COALESCE(sum(days_changed),0) AS total FROM hrm_schema.leave_transactions
-         WHERE tenant_id=$1 AND employee_id=$2 AND leave_type_id=$3 AND balance_year=$4 AND transaction_type='SENIORITY_ACCRUAL'`,
-        [tenant, employeeId, schedule.leaveTypeId, year],
+         WHERE tenant_id=$1 AND employee_id=$2 AND leave_type_id=$3 AND balance_year=$4
+           AND (transaction_type='SENIORITY_ACCRUAL' OR operation_key LIKE $5)`,
+        [tenant, employeeId, schedule.leaveTypeId, year, `${RECALC_SENIORITY_KEY}%`],
       )
     ).rows[0].total,
   );
@@ -56,12 +61,23 @@ export async function accrueContractMonth(
     0,
     Math.round((seniorityTarget - seniorityPosted) * 100) / 100,
   );
+  // Đã tính lại theo chính sách mới đến hết tháng này (hoặc sau tháng này): phần định mức tháng đã nằm trong số điều chỉnh.
+  const baseCoveredByRecalc = Boolean(
+    (
+      await db.query(
+        `SELECT 1 FROM hrm_schema.leave_transactions
+          WHERE tenant_id=$1 AND employee_id=$2 AND leave_type_id=$3 AND balance_year=$4
+            AND operation_key LIKE $5 AND right(operation_key,7)>=$6 LIMIT 1`,
+        [tenant, employeeId, schedule.leaveTypeId, year, `${RECALC_BASE_KEY}%`, month],
+      )
+    ).rowCount,
+  );
   let credited = 0,
     skipped = 0;
   for (const [type, amount, key, note] of [
     [
       'ACCRUAL',
-      entry.base,
+      baseCoveredByRecalc ? 0 : entry.base,
       `accrual:${schedule.id}:${employeeId}:${month}`,
       `Cộng phép ${month}`,
     ],
