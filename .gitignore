@@ -69,7 +69,7 @@ scripts/check-*.mjs
 *.tsbuildinfo
 
 # Local-only login account presets
-apps/web/src/app/_components/login-local-accounts.local.ts
+apps/web/src/app/_components/login-local-accounts.local.*
 
 # Tài liệu thiết kế cục bộ, không commit vào repo:
 # bản dựng giao diện tĩnh, đặc tả CSDL và kế hoạch triển khai module Workspace.

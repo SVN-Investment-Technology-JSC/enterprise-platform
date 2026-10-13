@@ -15,7 +15,6 @@ import { useCallback, useEffect, useState, useMemo } from 'react';
 import { EmployeeLifecycleActions, employmentLabels } from '../ui/hrm-lifecycle-actions';
 import { EmployeeDetailDialog } from '../ui/employee-detail-dialog';
 import { EmployeeAvatar, EmployeePagination, EmployeeStatCards } from '../ui/employee-list-parts';
-import type { RowMenuItem } from '../ui/row-menu';
 import { BulkInitializeEmployeesDialog } from '../ui/bulk-initialize-employees-dialog';
 import { PersonnelDecisionDialog } from '../ui/personnel-decision-dialog';
 import { HrmActionDialog, type HrmAction } from '../ui/hrm-action-dialog';
@@ -120,6 +119,27 @@ export default function EmployeesManagementPage() {
       setIsLoading(false);
     }
   }, []);
+
+  // Danh sách /employees không kèm người phụ thuộc và hợp đồng nên số trên tab luôn là 0 cho tới khi tab được mở.
+  // Mở hồ sơ thì lấy hồ sơ chi tiết, chỉ nhận hai danh sách này; lỗi thì giữ nguyên, tab tự tải khi được mở.
+  const detailEmployeeId = isEmployeeDrawerOpen ? (selectedEmployee?.employeeId ?? null) : null;
+  useEffect(() => {
+    if (!detailEmployeeId) return;
+    let cancelled = false;
+    hrmFetch<{ data: HrmEmployeeProfile }>(`/employees/${detailEmployeeId}/profile`)
+      .then(({ data }) => {
+        if (cancelled) return;
+        setSelectedEmployee((current) =>
+          current?.employeeId === detailEmployeeId
+            ? { ...current, dependents: data.dependents ?? [], contracts: data.contracts ?? [] }
+            : current,
+        );
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [detailEmployeeId]);
 
   // 4. Đếm người ở Core chưa có hồ sơ HRM (cần hrm.employee.manage)
   const canManageEmployees = can('hrm.employee.manage');
@@ -268,21 +288,6 @@ export default function EmployeesManagementPage() {
     }
   };
 
-  /** Các mục thao tác thêm trong menu "..." của một dòng. */
-  const rowExtraItems = (emp: HrmEmployeeProfile): RowMenuItem[] => [
-    {
-      key: 'decision',
-      label: 'Tạo quyết định',
-      onSelect: () => setDecisionEmployeeId(emp.employeeId),
-      hidden: !can('hrm.appointment.manage'),
-    },
-    {
-      key: 'link-account',
-      label: 'Liên kết tài khoản',
-      onSelect: () => void openLinkAccount(emp),
-      hidden: Boolean(emp.userId) || !isActiveEmployee(emp) || !can('hrm.employee.link-account'),
-    },
-  ];
 
   // Xuất CSV phía trình duyệt: danh sách đang lọc, chỉ các cột không nhạy cảm đang hiển thị
   const handleExportCsv = () => {
@@ -546,19 +551,39 @@ export default function EmployeesManagementPage() {
                               className="size-3.5 rounded border-slate-300"
                             />
                           </td>
-                          <td className="px-3 py-2.5 font-mono font-semibold text-slate-700">{emp.employeeCode}</td>
                           <td className="px-3 py-2.5">
-                            <span className="flex items-center gap-2.5">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedEmployee(emp);
+                                setIsEmployeeDrawerOpen(true);
+                              }}
+                              className="font-mono font-semibold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer text-left transition-colors"
+                              title="Bấm để xem chi tiết hồ sơ nhân sự"
+                            >
+                              {emp.employeeCode}
+                            </button>
+                          </td>
+                          <td className="px-3 py-2.5">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedEmployee(emp);
+                                setIsEmployeeDrawerOpen(true);
+                              }}
+                              className="group flex items-center gap-2.5 text-left cursor-pointer transition-colors"
+                              title="Bấm để xem chi tiết hồ sơ nhân sự"
+                            >
                               <EmployeeAvatar initials={employeeInitials(emp)} seed={emp.employeeCode} />
                               <span className="min-w-0">
-                                <span className="block truncate font-bold text-slate-900">
+                                <span className="block truncate font-bold text-slate-900 group-hover:text-blue-600 group-hover:underline transition-colors">
                                   {emp.fullName || 'Chưa cập nhật tên'}
                                 </span>
                                 <span className="block truncate font-mono text-[11px] font-normal text-slate-500">
                                   {emp.email || emp.personalEmail || '----'}
                                 </span>
                               </span>
-                            </span>
+                            </button>
                           </td>
                           <td className="px-3 py-2.5 text-slate-700">{emp.department || 'Chưa phân phòng ban'}</td>
                           <td className="px-3 py-2.5 text-slate-700">{emp.position || 'Chưa phân chức danh'}</td>
@@ -583,25 +608,17 @@ export default function EmployeesManagementPage() {
                             </Badge>
                           </td>
                           <td className="px-3 py-2.5">
-                            <span className="flex items-center gap-1">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="h-7 border-blue-200 px-2.5 text-xs font-semibold text-blue-700 hover:bg-blue-50"
-                                onClick={() => {
-                                  setSelectedEmployee(emp);
-                                  setIsEmployeeDrawerOpen(true);
-                                }}
-                              >
-                                Xem hồ sơ
-                              </Button>
-                              <EmployeeLifecycleActions
-                                employee={emp}
-                                onChanged={fetchEmployeesFromDb}
-                                layout="menu"
-                                extraItems={rowExtraItems(emp)}
-                              />
-                            </span>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 border-blue-200 px-2.5 text-xs font-semibold text-blue-700 hover:bg-blue-50"
+                              onClick={() => {
+                                setSelectedEmployee(emp);
+                                setIsEmployeeDrawerOpen(true);
+                              }}
+                            >
+                              Xem chi tiết
+                            </Button>
                           </td>
                         </tr>
                       );
@@ -621,12 +638,21 @@ export default function EmployeesManagementPage() {
           </div>
         </div>
 
-      {/* HỒ SƠ NHÂN SỰ: hộp thoại rộng, ba khối gọn và ba tab */}
+      {/* HỒ SƠ NHÂN SỰ: ngăn kéo (drawer) trượt phải, chỉnh sửa trực tiếp trên Drawer */}
       <EmployeeDetailDialog
         employee={selectedEmployee}
         open={isEmployeeDrawerOpen}
         onOpenChange={setIsEmployeeDrawerOpen}
         canSensitive={canSensitive}
+        onEmployeeUpdated={(updated) => {
+          setSelectedEmployee(updated);
+          setEmployeesList((list) =>
+            list.map((e) =>
+              e.employeeId === updated.employeeId ? { ...e, ...updated } : e,
+            ),
+          );
+          void fetchEmployeesFromDb();
+        }}
         onDependentsChanged={(dependents) =>
           selectedEmployee && setSelectedEmployee({ ...selectedEmployee, dependents })
         }
@@ -645,7 +671,11 @@ export default function EmployeesManagementPage() {
               >
                 Tạo quyết định
               </Button>
-              <EmployeeLifecycleActions employee={selectedEmployee} onChanged={fetchEmployeesFromDb} />
+              <EmployeeLifecycleActions
+                employee={selectedEmployee}
+                onChanged={fetchEmployeesFromDb}
+                showEdit={false}
+              />
               {!selectedEmployee.userId && isActiveEmployee(selectedEmployee) && (
                 <Button
                   permission="hrm.employee.link-account"

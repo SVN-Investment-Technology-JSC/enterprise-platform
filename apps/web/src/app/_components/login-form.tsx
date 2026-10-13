@@ -17,9 +17,11 @@ import {
   Quote,
   ShieldCheck,
 } from 'lucide-react';
+import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState, type FormEvent } from 'react';
+import type { PresetAccount } from './login-local-accounts';
 import { SessionRecovery } from './session-recovery';
 
 interface LoginFormProps {
@@ -27,6 +29,8 @@ interface LoginFormProps {
   eyebrow: string;
   title: string;
   description: string;
+  /** Tài khoản chọn nhanh (chỉ môi trường dev, nạp từ file cục bộ đã gitignore); rỗng thì ẩn ô chọn. */
+  presetAccounts?: readonly PresetAccount[];
 }
 
 const TESTIMONIALS = [
@@ -56,7 +60,7 @@ const TESTIMONIALS = [
   },
 ];
 
-export function LoginForm({ portal, eyebrow, title, description }: LoginFormProps) {
+export function LoginForm({ portal, eyebrow, title, description, presetAccounts = [] }: LoginFormProps) {
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -82,6 +86,14 @@ export function LoginForm({ portal, eyebrow, title, description }: LoginFormProp
     setSsoMessage(
       `Đăng nhập ${provider} đang được quản trị viên đồng bộ với Identity Provider của doanh nghiệp. Vui lòng đăng nhập bằng email công vụ bên dưới.`,
     );
+  }
+
+  function selectPreset(value: string) {
+    const account = presetAccounts.find((item) => item.value === value);
+    if (!account) return;
+    setEmail(account.value);
+    setPassword(account.password);
+    setError(undefined);
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -360,6 +372,20 @@ export function LoginForm({ portal, eyebrow, title, description }: LoginFormProp
 
           {/* Main Credentials Form */}
           <form className="space-y-4" onSubmit={submit}>
+            {presetAccounts.length > 0 && (
+              <div className="space-y-1.5">
+                <span className="block text-xs font-semibold text-slate-700">Tài khoản có sẵn</span>
+                <SearchableSelect
+                  options={presetAccounts}
+                  value={presetAccounts.some((item) => item.value === email) ? email : undefined}
+                  onChange={selectPreset}
+                  placeholder="Chọn tài khoản để điền nhanh"
+                  searchPlaceholder="Tìm theo tên hoặc email"
+                  emptyText="Không có tài khoản phù hợp"
+                />
+              </div>
+            )}
+
             {/* Email Field */}
             <div className="space-y-1.5">
               <label htmlFor="email" className="block text-xs font-semibold text-slate-700">

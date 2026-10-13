@@ -677,4 +677,4 @@ integration('Annual leave by labor contract (PostgreSQL)', () => {
     expect(await overviewManager()).toMatchObject({ employeeId: headB.id, source: 'CORE_POSITION' });
     expect(await profileManager()).toBe('S-HEADB');
   });
-});
+});

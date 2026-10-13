@@ -1,11 +1,11 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import type { HrmTimesheetBoard } from '@enterprise-platform/contracts-hrm';
 import { isMonthKey, shiftMonth, todayVn } from '../hrm-timesheet-format';
 import { Button } from './button';
-import { BoardDayDrawer } from './board-day-detail';
+import { BoardDayInline } from './board-day-detail';
 import { BoardGrid } from './board-grid';
 import { EmployeeMonthView } from './employee-month-view';
 import { Input } from './input';
@@ -145,13 +145,20 @@ export function TimesheetBoard({
   const [legendOpen, setLegendOpen] = useState(false);
   const today = todayVn();
 
+  /** Bấm một ô ngày: mở ngăn kéo bảng công tháng của người đó, chọn ngày và hiện chi tiết ngày ngay dưới lịch. */
+  const openMonth = useCallback((employeeId: string, date: string) => {
+    setMonthOf(employeeId);
+    setMonthDate(date);
+    setSelected({ employeeId, date });
+  }, []);
+
   useEffect(() => {
     if (!focus) return;
     if (board.employees.some((e) => e.employeeId === focus.employeeId)) {
-      setSelected(focus);
+      openMonth(focus.employeeId, focus.date);
       onFocusHandled?.();
     }
-  }, [focus, board.employees, onFocusHandled]);
+  }, [focus, board.employees, onFocusHandled, openMonth]);
 
   const counts = useMemo(
     () =>
@@ -165,12 +172,9 @@ export function TimesheetBoard({
     [board.employees, filter],
   );
 
-  const selectedEmployee = selected
-    ? (board.employees.find((e) => e.employeeId === selected.employeeId) ?? null)
-    : null;
-  const selectedDay =
-    selected && selectedEmployee ? (selectedEmployee.days[selected.date] ?? null) : null;
   const monthEmployee = monthOf ? (board.employees.find((e) => e.employeeId === monthOf) ?? null) : null;
+  const inlineDay =
+    monthOf && selected?.employeeId === monthOf ? (monthEmployee?.days[selected.date] ?? null) : null;
   // Công chuẩn hiển thị ở đầu lưới khi mọi nhân viên có cùng công chuẩn.
   const standardValues = new Set(
     board.employees.map((e) => e.standard?.workdays).filter((v): v is number => v != null),
@@ -260,22 +264,12 @@ export function TimesheetBoard({
                 }
               : undefined
           }
-          onSelectDay={(employeeId, date) => setSelected({ employeeId, date })}
-          onSelectEmployee={board.canViewAll ? setMonthOf : undefined}
+          onSelectDay={openMonth}
+          onSelectEmployee={board.canViewAll ? (id) => { setMonthOf(id); setMonthDate(null); setSelected(null); } : undefined}
           footer={footer}
           fullHeight={fullscreen}
         />
       )}
-
-      <BoardDayDrawer
-        employee={selectedEmployee}
-        day={selectedDay}
-        onClose={() => setSelected(null)}
-        canViewAll={board.canViewAll}
-        month={board.month.month}
-        adjustable={board.canViewAll && board.month.state !== 'LOCKED' && Boolean(board.month.calculatedAt)}
-        onAdjusted={onChanged}
-      />
 
       <Sheet
         open={Boolean(monthEmployee)}
@@ -283,6 +277,7 @@ export function TimesheetBoard({
           if (!open) {
             setMonthOf(null);
             setMonthDate(null);
+            setSelected(null);
           }
         }}
       >
@@ -298,7 +293,7 @@ export function TimesheetBoard({
                   {monthEmployee.departmentName ? ` · ${monthEmployee.departmentName}` : ''}
                 </SheetDescription>
               </SheetHeader>
-              <div className="flex-1 overflow-y-auto p-4">
+              <div className="flex-1 space-y-3 overflow-y-auto p-4">
                 <EmployeeMonthView
                   calendar={board.calendar}
                   employee={monthEmployee}
@@ -309,6 +304,20 @@ export function TimesheetBoard({
                     setSelected({ employeeId: monthEmployee.employeeId, date });
                   }}
                 />
+                {inlineDay && (
+                  <BoardDayInline
+                    employee={monthEmployee}
+                    day={inlineDay}
+                    canViewAll={board.canViewAll}
+                    month={board.month.month}
+                    adjustable={board.canViewAll && board.month.state !== 'LOCKED' && Boolean(board.month.calculatedAt)}
+                    onAdjusted={onChanged}
+                    onClose={() => {
+                      setSelected(null);
+                      setMonthDate(null);
+                    }}
+                  />
+                )}
               </div>
             </>
           )}

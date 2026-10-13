@@ -392,4 +392,4 @@ integration('HRM personnel decisions PostgreSQL integration', () => {
     const next = await draft(employee.id);
     expect((await cancelDecision(pool, tenantId, hrUser, next.id)).status).toBe('CANCELLED');
   });
-});
+});
