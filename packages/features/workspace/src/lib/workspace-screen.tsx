@@ -275,7 +275,9 @@ export function WorkspaceScreen() {
           const active = view === 'projects' && openProjectId === project.id;
           return {
             id: project.id,
-            label: project.name,
+            // Hiển thị theo "[Mã dự án]-[Tên dự án]" để nhận ra dự án nhanh
+            // ngay trên thanh bên, không chỉ bằng tên.
+            label: `${project.code}-${project.name}`,
             title: `${project.code} · ${project.name}`,
             leading: <ProjectAvatar id={project.id} name={project.name} />,
             trailing: `${project.progressPercent}%`,

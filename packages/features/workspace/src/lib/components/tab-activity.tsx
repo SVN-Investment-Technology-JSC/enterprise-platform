@@ -47,7 +47,8 @@ function dayLabel(key: string): string {
 }
 
 interface ItemBlock {
-  readonly workItemId: string;
+  /** Rỗng với dòng "đã xoá công việc" (công việc đã bị gỡ). */
+  readonly workItemId: string | undefined;
   readonly entries: WorkItemStatusHistoryEntry[];
 }
 
@@ -86,7 +87,9 @@ function groupEntries(entries: readonly WorkItemStatusHistoryEntry[]): DayBlock[
 export function TabActivity({ entries, items, selected, onOpen }: TabActivityProps) {
   const directory = useDirectory();
   const branch = selected ? branchOf(items, selected.id) : undefined;
-  const scope = branch ? entries.filter((entry) => branch.has(entry.workItemId)) : entries;
+  const scope = branch
+    ? entries.filter((entry) => entry.workItemId !== undefined && branch.has(entry.workItemId))
+    : entries;
   const itemOf = new Map(items.map((item) => [item.id, item]));
 
   if (scope.length === 0) {
@@ -105,7 +108,7 @@ export function TabActivity({ entries, items, selected, onOpen }: TabActivityPro
             <h4 className={styles.activityDayLabel}>{dayLabel(day.key)}</h4>
             <ol className={styles.activityList}>
               {day.blocks.map((block, index) => {
-                const item = itemOf.get(block.workItemId);
+                const item = block.workItemId ? itemOf.get(block.workItemId) : undefined;
                 const latest = block.entries[0] as WorkItemStatusHistoryEntry;
                 const open =
                   item && onOpen && item.id !== selected?.id ? () => onOpen(item) : undefined;
@@ -175,8 +178,18 @@ function ActivityRow({ entry, actor }: { entry: WorkItemStatusHistoryEntry; acto
   // Huỷ hiệu lực ghi `cancelled` kèm ghi chú "Huỷ hiệu lực: …" (xem store
   // `workItem.reverse`): hiện đúng tên để không lẫn với huỷ thường.
   const reversed = entry.toStatus === 'cancelled' && entry.note?.startsWith('Huỷ hiệu lực:');
-  const toLabel = reversed ? 'Đã huỷ hiệu lực' : WORK_ITEM_STATUS_LABELS[entry.toStatus];
-  const toTone = reversed ? { bg: '#fff7ed', fg: '#9a3412' } : tone;
+  // Xoá công việc ghi `cancelled` + work_item_id rỗng + ghi chú "Đã xoá công việc: …".
+  const deleted = entry.toStatus === 'cancelled' && entry.note?.startsWith('Đã xoá công việc');
+  const toLabel = deleted
+    ? 'Đã xoá công việc'
+    : reversed
+      ? 'Đã huỷ hiệu lực'
+      : WORK_ITEM_STATUS_LABELS[entry.toStatus];
+  const toTone = deleted
+    ? { bg: '#fef2f2', fg: '#b91c1c' }
+    : reversed
+      ? { bg: '#fff7ed', fg: '#9a3412' }
+      : tone;
   // Ghi chú kiểu "Kế toán trưởng duyệt · A, B": phần đầu là bước, phần sau là
   // người. Bước không có người thì 1Office để lại dấu "·" thừa ở cuối.
   const note = entry.note?.replace(/\s*·\s*$/, '').trim();

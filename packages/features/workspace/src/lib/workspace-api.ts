@@ -259,6 +259,13 @@ export const reverseWorkItem = (id: string, body: ReverseWorkItemRequest) =>
 export const moveWorkItem = (id: string, body: MoveWorkItemRequest) =>
   request<WorkItem>(`/work-items/${id}/move`, { method: 'POST', body: JSON.stringify(body) });
 
+/**
+ * Xoá hẳn công việc (và cả nhánh con) — chỉ chủ nhiệm dự án. Khác với "Huỷ"
+ * (đổi trạng thái sang Đã huỷ, mở lại được) ở `changeWorkItemStatus`.
+ */
+export const deleteWorkItem = (id: string) =>
+  request<void>(`/work-items/${id}`, { method: 'DELETE' });
+
 export const listDependencies = (id: string) =>
   request<{ items: WorkItemDependency[] }>(`/work-items/${id}/dependencies`, {
     cache: 'no-store',

@@ -127,6 +127,7 @@ export class WorkspaceProcedureEvents {
         actor,
         {
           projectId: request.projectId,
+          parentId: draft.parentId,
           title: request.title,
           description: draft.description,
           itemType: draft.itemType === 'milestone' ? 'milestone' : 'task',

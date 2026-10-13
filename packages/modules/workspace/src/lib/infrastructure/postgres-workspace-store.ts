@@ -92,6 +92,7 @@ import type {
   ProjectRollup,
   ReportScopeFilter,
   UnreadRow,
+  WorkItemDeletionLog,
   WorkItemProgressRow,
   WorkspaceSchemaStatus,
   WorkspaceStore,
@@ -261,7 +262,7 @@ function mapDependency(row: Row): WorkItemDependency {
 function mapHistory(row: Row): WorkItemStatusHistoryEntry {
   return {
     id: str(row.id),
-    workItemId: str(row.work_item_id),
+    workItemId: opt(row.work_item_id),
     fromStatus: opt(row.from_status) as WorkItemStatus | undefined,
     toStatus: str(row.to_status) as WorkItemStatus,
     note: opt(row.note),
@@ -1323,6 +1324,43 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
           WHERE w.id = v.id AND w.progress_percent <> v.percent`,
         [ids, values],
       );
+    },
+
+    remove: async (tenantId: string, workItemId: string, deletionLog?: WorkItemDeletionLog) => {
+      const pool = await this.poolFor(tenantId);
+      await inTransaction(pool, async (client) => {
+        // Ghi vết "đã xoá" TRƯỚC khi xoá, với work_item_id = NULL để không bị
+        // ON DELETE CASCADE cuốn theo — tab Hoạt động của dự án vẫn thấy.
+        if (deletionLog) {
+          await client.query(
+            `INSERT INTO workspace_schema.work_item_status_history
+               (work_item_id, project_id, from_status, to_status, note, created_by)
+             VALUES (NULL, $1, $2, 'cancelled', $3, $4)`,
+            [deletionLog.projectId, deletionLog.fromStatus, deletionLog.note, deletionLog.createdBy],
+          );
+        }
+        // `adjustment_of_id` không đổ dây theo khoá ngoại: gỡ liên kết của những
+        // công việc điều chỉnh trỏ vào nhánh sắp xoá, nếu không câu DELETE bị
+        // chặn. Công việc con đã có `ON DELETE CASCADE` theo `parent_id`.
+        await client.query(
+          `WITH RECURSIVE subtree AS (
+             SELECT id FROM workspace_schema.work_items WHERE id = $1
+             UNION ALL
+             SELECT child.id
+               FROM workspace_schema.work_items child
+               JOIN subtree ON child.parent_id = subtree.id
+           )
+           UPDATE workspace_schema.work_items
+              SET adjustment_of_id = NULL, updated_at = now()
+            WHERE adjustment_of_id IN (SELECT id FROM subtree)`,
+          [workItemId],
+        );
+        const result = await client.query(
+          `DELETE FROM workspace_schema.work_items WHERE id = $1`,
+          [workItemId],
+        );
+        if (result.rowCount === 0) throw new WorkItemNotFoundError(workItemId);
+      });
     },
   };
 

@@ -1,4 +1,30 @@
-import { MAX_WORK_ITEM_DEPTH, type WorkItem } from '@enterprise-platform/contracts-workspace';
+import {
+  MAX_WORK_ITEM_DEPTH,
+  type ProjectMember,
+  type ProjectRole,
+  type WorkItem,
+} from '@enterprise-platform/contracts-workspace';
+
+/**
+ * Gộp người thêm lúc tạo dự án vào danh sách thành viên để gọi PUT .../members.
+ *
+ * Endpoint thay cả danh sách và đòi ĐÚNG MỘT chủ nhiệm. Người tạo đã là chủ
+ * nhiệm (`existing`). Nếu trong nhóm thêm có người được đặt vai 'owner' thì hạ
+ * chủ nhiệm hiện tại xuống 'manager' để vẫn chỉ có một chủ nhiệm; người thêm
+ * ghi đè vai của người trùng id.
+ */
+export function mergeNewProjectMembers(
+  existing: readonly ProjectMember[],
+  added: readonly { readonly userId: string; readonly role: ProjectRole }[],
+): Array<{ userId: string; role: ProjectRole }> {
+  const transferOwner = added.some((member) => member.role === 'owner');
+  const byId = new Map<string, ProjectRole>();
+  for (const member of existing) {
+    byId.set(member.userId, transferOwner && member.role === 'owner' ? 'manager' : member.role);
+  }
+  for (const member of added) byId.set(member.userId, member.role);
+  return [...byId].map(([userId, role]) => ({ userId, role }));
+}
 
 /** Một dòng đã phẳng hoá, sẵn sàng để render. */
 export interface TreeRow {
@@ -80,6 +106,31 @@ export function buildWorkItemTree(
 
   for (const root of [...roots].sort(bySortOrder)) emit(root, 0);
   return rows;
+}
+
+/**
+ * Danh sách chọn "Công việc cha" khi tạo công việc mới.
+ *
+ * Giữ đúng thứ tự cây và thụt lề theo cấp (như hộp thoại Di chuyển), đã loại
+ * những node không nhận được việc con: cột mốc, việc đã huỷ/huỷ hiệu lực, và
+ * node đã ở sát đáy cây (thêm con nữa sẽ vượt `MAX_WORK_ITEM_DEPTH`). Server
+ * vẫn kiểm lại — đây chỉ để không mời người dùng chọn đích chắc chắn bị từ chối.
+ */
+export function parentCandidateOptions(
+  items: readonly WorkItem[],
+): { id: string; label: string }[] {
+  return buildWorkItemTree(items, new Set(items.map((node) => node.id)))
+    .filter(
+      (row) =>
+        row.item.itemType !== 'milestone' &&
+        !row.item.reversal &&
+        row.item.status !== 'cancelled' &&
+        row.item.depth + 1 <= MAX_WORK_ITEM_DEPTH - 1,
+    )
+    .map((row) => ({
+      id: row.item.id,
+      label: `${'  '.repeat(row.depth)}${row.item.code} · ${row.item.title}`,
+    }));
 }
 
 /** Id của những node khớp từ khoá. Từ khoá rỗng nghĩa là hiện tất cả. */

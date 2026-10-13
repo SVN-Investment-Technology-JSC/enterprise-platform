@@ -1,9 +1,11 @@
 'use client';
 
 import {
+  PROJECT_ROLES,
   PROJECT_STATUSES,
   type CreateProjectRequest,
   type Project,
+  type ProjectRole,
   type ProjectSummary,
   type ProjectTypeOption,
   type UpdateProjectRequest,
@@ -11,10 +13,12 @@ import {
 import { useEffect, useState } from 'react';
 import { formatVndWhileTyping, parseVndInput, toVndInput } from '../money';
 import { listProjectTypes } from '../workspace-api';
-import { PROJECT_STATUS_LABELS } from '../workspace-labels';
+import { PROJECT_STATUS_LABELS, ROLE_LABELS } from '../workspace-labels';
 import styles from '../workspace.module.scss';
 import { Choice } from './choice';
 import { Dialog, Field } from './dialog';
+import { PeoplePicker } from './people-picker';
+import { useDirectory } from './use-directory';
 
 export interface ProjectFormProps {
   readonly open: boolean;
@@ -26,9 +30,15 @@ export interface ProjectFormProps {
    * dự án: số tiền có hàng rào quyền riêng ở server. `undefined` nghĩa là
    * không đụng tới, `null` là xoá giá trị đang có.
    */
+  /**
+   * `members` là những người được thêm ngay lúc tạo (ngoài người tạo — người
+   * tạo tự thành chủ nhiệm). Nơi gọi gán họ qua endpoint thành viên riêng,
+   * cùng kiểu "đi đường riêng" như `contractValue`.
+   */
   readonly onCreate: (
     input: CreateProjectRequest,
     contractValue?: number | null,
+    members?: ReadonlyArray<{ readonly userId: string; readonly role: ProjectRole }>,
   ) => Promise<void>;
   readonly onUpdate: (
     input: UpdateProjectRequest,
@@ -87,11 +97,15 @@ export function ProjectForm({
   onUpdate,
   financeEnabled = false,
 }: ProjectFormProps) {
+  const directory = useDirectory();
   const [form, setForm] = useState<FormState>(emptyForm());
   const [error, setError] = useState<string>();
   const [submitting, setSubmitting] = useState(false);
   /** Loại đã dùng trong tenant, gợi ý khi gõ để không sinh "Bảo trì" lẫn "bảo trì ". */
   const [types, setTypes] = useState<readonly ProjectTypeOption[]>([]);
+  /** "Thêm người" lúc tạo: bật mục rồi chọn người, mỗi người đặt vai trò riêng. */
+  const [addPeople, setAddPeople] = useState(false);
+  const [newMembers, setNewMembers] = useState<Array<{ userId: string; role: ProjectRole }>>([]);
 
   useEffect(() => {
     if (!open) return;
@@ -120,6 +134,8 @@ export function ProjectForm({
     );
     setError(undefined);
     setSubmitting(false);
+    setAddPeople(false);
+    setNewMembers([]);
   }, [open, project]);
 
   const set = (patch: Partial<FormState>) => setForm((current) => ({ ...current, ...patch }));
@@ -161,6 +177,7 @@ export function ProjectForm({
           endDate: form.endDate || null,
         }, contractValue);
       } else {
+        const members = addPeople && newMembers.length > 0 ? newMembers : undefined;
         await onCreate({
           code: form.code,
           name: form.name,
@@ -169,7 +186,7 @@ export function ProjectForm({
           projectType: form.projectType.trim() || undefined,
           startDate: form.startDate || undefined,
           endDate: form.endDate || undefined,
-        }, contractValue);
+        }, contractValue, members);
       }
       onClose();
     } catch (cause) {
@@ -294,6 +311,88 @@ export function ProjectForm({
           </Field>
         ) : null}
       </div>
+
+      {/*
+        Thêm người ngay lúc lập dự án: người tạo luôn là chủ nhiệm. Mỗi người
+        thêm vào đặt vai trò riêng (có thể khác nhau). Nếu đặt một người làm chủ
+        nhiệm thì người tạo tự lùi về Quản lý để dự án vẫn có đúng một chủ nhiệm.
+      */}
+      {project ? null : (
+        <>
+          <label className={styles.checkbox}>
+            <input
+              type="checkbox"
+              checked={addPeople}
+              onChange={(event) => setAddPeople(event.target.checked)}
+            />
+            Thêm người vào dự án ngay khi tạo
+          </label>
+
+          {addPeople ? (
+            <>
+              <Field label="Người tham gia" hint="Chọn người rồi đặt vai trò cho từng người bên dưới.">
+                <PeoplePicker
+                  people={directory.people}
+                  selected={newMembers.map((member) => member.userId)}
+                  onChange={(ids) =>
+                    setNewMembers((prev) => {
+                      const byId = new Map(prev.map((member) => [member.userId, member]));
+                      return ids.map(
+                        (userId) =>
+                          byId.get(userId) ?? { userId, role: 'member' as ProjectRole },
+                      );
+                    })
+                  }
+                  nameOf={directory.nameOf}
+                  placeholder="Tìm theo tên, chức danh hoặc đơn vị"
+                  degraded={directory.degraded}
+                  loaded={directory.loaded}
+                />
+              </Field>
+              {newMembers.length > 0 ? (
+                <ul className={styles.memberList}>
+                  {newMembers.map((member) => (
+                    <li key={member.userId}>
+                      <span className={styles.memberName}>{directory.nameOf(member.userId)}</span>
+                      <span className={styles.memberRole}>
+                        <Choice
+                          label={`Vai trò của ${directory.nameOf(member.userId)}`}
+                          value={member.role}
+                          options={PROJECT_ROLES.map((role) => ({
+                            value: role,
+                            label: ROLE_LABELS[role],
+                          }))}
+                          onChange={(value) =>
+                            setNewMembers((prev) =>
+                              prev.map((entry) =>
+                                entry.userId === member.userId
+                                  ? { ...entry, role: value as ProjectRole }
+                                  : entry,
+                              ),
+                            )
+                          }
+                        />
+                        <button
+                          type="button"
+                          className={styles.iconButton}
+                          aria-label={`Bỏ ${directory.nameOf(member.userId)}`}
+                          onClick={() =>
+                            setNewMembers((prev) =>
+                              prev.filter((entry) => entry.userId !== member.userId),
+                            )
+                          }
+                        >
+                          ×
+                        </button>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </>
+          ) : null}
+        </>
+      )}
     </Dialog>
   );
 }
