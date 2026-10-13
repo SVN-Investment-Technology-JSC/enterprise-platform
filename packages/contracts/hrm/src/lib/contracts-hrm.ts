@@ -2880,3 +2880,72 @@ export interface HrmMentionCandidate {
   readonly employeeCode: string | null;
   readonly department: string | null;
 }
+
+/**
+ * Giám sát chấm công theo ngày (GET /v1/attendance-monitor?date=): tình hình vào ca, đi trễ, về sớm, nghỉ phép của
+ * nhân viên trong phạm vi người xem (toàn công ty với người có quyền xem chấm công/bảng công, cấp dưới theo sơ đồ tổ chức
+ * với người quản lý).
+ */
+export type HrmMonitorStatus =
+  | 'NOT_CHECKED_IN' // đã tới giờ ca nhưng chưa chấm vào
+  | 'ABSENT' // ngày đã qua: có ca, không chấm công, không có đơn nghỉ được duyệt
+  | 'LATE' // đi trễ
+  | 'EARLY_LEAVE' // về sớm
+  | 'LATE_EARLY' // vừa đi trễ vừa về sớm
+  | 'MISSING_PUNCH' // thiếu lượt chấm (chỉ có vào hoặc chỉ có ra)
+  | 'CHECKED_IN' // đã vào ca đúng giờ, đang làm
+  | 'COMPLETED' // đã chấm vào và ra đủ
+  | 'UPCOMING' // chưa tới giờ ca
+  | 'ON_LEAVE' // nghỉ có đơn được duyệt
+  | 'ON_TRIP' // công tác
+  | 'DAY_OFF' // ngày nghỉ hoặc ngày lễ
+  | 'NO_SCHEDULE'; // chưa có lịch làm việc
+
+export interface HrmMonitorRow {
+  readonly employeeId: string;
+  readonly employeeCode: string;
+  readonly employeeName: string;
+  readonly departmentName: string | null;
+  readonly positionName: string | null;
+  readonly status: HrmMonitorStatus;
+  readonly shiftCode: string | null;
+  readonly shiftName: string | null;
+  /** Giờ dự kiến của ca, HH:mm. */
+  readonly shiftStart: string | null;
+  readonly shiftEnd: string | null;
+  /** Giờ chấm vào/ra thực tế, HH:mm; null nếu chưa chấm. */
+  readonly checkIn: string | null;
+  readonly checkOut: string | null;
+  readonly lateMinutes: number;
+  readonly earlyLeaveMinutes: number;
+  /** Tên lý do nghỉ khi đang nghỉ phép. */
+  readonly leaveName: string | null;
+  /** Số ngày nghỉ rơi vào ngày này (0.5 = nửa ngày). */
+  readonly leaveDays: number;
+  /** Đơn từ liên quan tới ngày này (đã duyệt, chờ duyệt, từ chối). */
+  readonly requests: readonly HrmDayRequest[];
+}
+
+export interface HrmMonitorSummary {
+  /** Nhân viên trong phạm vi đang làm việc vào ngày này. */
+  readonly totalPeople: number;
+  /** Nhân viên có ca làm việc ngày này (kể cả đang nghỉ phép/công tác). */
+  readonly scheduled: number;
+  readonly checkedIn: number;
+  readonly notCheckedIn: number;
+  readonly late: number;
+  readonly earlyLeave: number;
+  readonly onLeave: number;
+  readonly onTrip: number;
+  readonly missingPunch: number;
+}
+
+export interface HrmAttendanceMonitor {
+  readonly date: string;
+  readonly today: string;
+  readonly generatedAt: string;
+  /** ALL: toàn công ty; TEAM: chỉ cấp dưới của người xem. */
+  readonly scope: 'ALL' | 'TEAM';
+  readonly summary: HrmMonitorSummary;
+  readonly rows: readonly HrmMonitorRow[];
+}
