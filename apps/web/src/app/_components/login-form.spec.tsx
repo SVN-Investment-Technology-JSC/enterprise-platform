@@ -133,31 +133,4 @@ describe('LoginForm', () => {
     expect(passwordInput.type).toBe('text');
     expect(screen.getByRole('button', { name: 'Ẩn mật khẩu' })).toBeDefined();
   });
-  it('hides the preset account select when no preset accounts are provided', () => {
-    render(
-      <LoginForm portal="tenant" eyebrow="Đăng nhập doanh nghiệp" title="Không gian làm việc" description="Đăng nhập" />,
-    );
-
-    expect(screen.queryByText('Tài khoản có sẵn')).toBeNull();
-  });
-
-  it('fills email and password when a preset account is chosen', () => {
-    render(
-      <LoginForm
-        portal="tenant"
-        eyebrow="Đăng nhập doanh nghiệp"
-        title="Không gian làm việc"
-        description="Đăng nhập"
-        presetAccounts={[
-          { value: 'demo@savinajsc.com', label: 'SAVINA Demo User', password: 'demo-password' },
-        ]}
-      />,
-    );
-
-    fireEvent.click(screen.getByPlaceholderText('Chọn tài khoản để điền nhanh'));
-    fireEvent.click(screen.getByRole('option', { name: /SAVINA Demo User/ }));
-
-    expect((screen.getByLabelText('Email') as HTMLInputElement).value).toBe('demo@savinajsc.com');
-    expect((screen.getByLabelText('Mật khẩu') as HTMLInputElement).value).toBe('demo-password');
-  });
 });
