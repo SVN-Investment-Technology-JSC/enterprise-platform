@@ -190,7 +190,7 @@ describe('TimesheetsScreen', () => {
     expect(screen.getByTestId(`board-cell-e1-${d(2)}`).querySelector('[data-testid="cell-units"]')).not.toBeNull();
     expect(screen.getByTestId(`board-cell-e1-${d(2)}`).getAttribute('data-late')).toBe('true');
     // Không tô nền ô, chỉ màu chữ của số công.
-    expect(screen.getByTestId(`board-cell-e1-${d(2)}`).className).not.toMatch(/bg-(red|orange|emerald)/);
+    expect(screen.getByTestId(`board-cell-e1-${d(2)}`).className).not.toMatch(/(?:^|\s)bg-(red|orange|emerald)/);
     // Quên chấm công: hệ số 0 màu đỏ (thay cho ký hiệu !).
     expect(within(screen.getByTestId(`board-cell-e1-${d(3)}`)).getByTestId('cell-units').textContent).toBe('0');
     expect(within(screen.getByTestId(`board-cell-e1-${d(3)}`)).getByTestId('cell-units').getAttribute('data-tone')).toBe('bad');

@@ -1,0 +1,19 @@
+{
+  "defaultPassword": "replace-with-demo-password",
+  "tenant": [
+    {
+      "email": "admin@savinajsc.com",
+      "label": "Quản trị SAVINA",
+      "description": "admin@savinajsc.com · Quản trị viên hệ thống",
+      "badge": "Admin"
+    }
+  ],
+  "platform": [
+    {
+      "email": "superadmin@platform.local",
+      "label": "Platform Super Admin",
+      "badge": "Superadmin",
+      "password": "replace-with-superadmin-password"
+    }
+  ]
+}
