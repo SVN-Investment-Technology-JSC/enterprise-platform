@@ -2272,6 +2272,8 @@ export interface HrmWeekdayRule {
   readonly weekday: number;
   readonly dayType: 'SHIFT' | 'OFF' | 'SKIP';
   readonly shiftId?: string | null;
+  /** Chỉ có nghĩa với ngày làm việc (SHIFT): tới ngày thì tự sinh chấm công vào/ra đúng giờ bắt đầu/kết thúc ca. */
+  readonly autoAttendance?: boolean;
 }
 
 export interface HrmScheduleScope {
@@ -2695,6 +2697,31 @@ export interface HrmBoardStandard {
   readonly mode: 'DYNAMIC' | 'FIXED' | 'MINUTES';
   /** Số ngày công chuẩn của tháng (động: số ngày có lịch làm việc; cố định: số ngày cấu hình). */
   readonly workdays: number;
+}
+
+/** Cách tính công chuẩn của bảng công một tháng: động theo lịch ca hoặc cố định số ngày công. */
+export type HrmTimesheetStandardMode = 'DYNAMIC' | 'FIXED';
+
+/**
+ * Chính sách công chuẩn của bảng công: có hiệu lực từ `effectiveMonth` đến khi có chính sách mới thay thế
+ * (tách khỏi công chuẩn trong chính sách lương, chỉ dùng để tính lương).
+ */
+export interface HrmTimesheetStandardPolicy {
+  readonly id: string;
+  /** Tháng bắt đầu áp dụng, YYYY-MM. */
+  readonly effectiveMonth: string;
+  readonly mode: HrmTimesheetStandardMode;
+  /** Số ngày công chuẩn khi cố định; null khi động. */
+  readonly workdays: number | null;
+  readonly note: string | null;
+  readonly updatedAt: string;
+}
+
+/** Danh sách chính sách công chuẩn (mới nhất trước) và chính sách đang áp dụng cho tháng hiện tại (null: mặc định động). */
+export interface HrmTimesheetStandardPolicies {
+  readonly policies: readonly HrmTimesheetStandardPolicy[];
+  readonly currentMonth: string;
+  readonly currentId: string | null;
 }
 
 export interface HrmBoardEmployee {

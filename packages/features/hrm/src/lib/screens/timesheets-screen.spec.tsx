@@ -170,7 +170,7 @@ describe('TimesheetsScreen', () => {
       const past = screen.getByTestId(`board-cell-e1-${d(2)}`);
       expect(past.querySelector('[data-testid="cell-shift-code"]')).toBeNull();
       expect(past.textContent).not.toContain('HC');
-      expect(past.querySelector('[data-testid="cell-dot"]')).not.toBeNull();
+      expect(past.querySelector('[data-testid="cell-units"]')).not.toBeNull();
       const future = screen.getByTestId(`board-cell-e1-${d(20)}`);
       expect(future.querySelector('[data-testid="cell-shift-code"]')?.textContent).toBe('HC');
     } finally {
@@ -187,10 +187,14 @@ describe('TimesheetsScreen', () => {
     // Ngày nghỉ hằng tuần để trống (tô xám), ngày đã qua hiện số công, đi trễ tô đỏ, bất thường hiện !, lễ hiện L.
     expect(screen.getByTestId(`board-cell-e1-${d(1)}`).getAttribute('data-status')).toBe('OFF');
     expect(screen.getByTestId(`board-cell-e1-${d(1)}`).textContent).toBe('OFF');
-    expect(screen.getByTestId(`board-cell-e1-${d(2)}`).querySelector('[data-testid="cell-dot"]')).not.toBeNull();
+    expect(screen.getByTestId(`board-cell-e1-${d(2)}`).querySelector('[data-testid="cell-units"]')).not.toBeNull();
     expect(screen.getByTestId(`board-cell-e1-${d(2)}`).getAttribute('data-late')).toBe('true');
-    expect(screen.getByTestId(`board-cell-e1-${d(2)}`).className).toContain('bg-red-100');
-    expect(screen.getByTestId(`board-cell-e1-${d(3)}`).textContent).toContain('!');
+    // Không tô nền ô, chỉ màu chữ của số công.
+    expect(screen.getByTestId(`board-cell-e1-${d(2)}`).className).not.toMatch(/bg-(red|orange|emerald)/);
+    // Quên chấm công: hệ số 0 màu đỏ (thay cho ký hiệu !).
+    expect(within(screen.getByTestId(`board-cell-e1-${d(3)}`)).getByTestId('cell-units').textContent).toBe('0');
+    expect(within(screen.getByTestId(`board-cell-e1-${d(3)}`)).getByTestId('cell-units').getAttribute('data-tone')).toBe('bad');
+    expect(within(screen.getByTestId(`board-cell-e1-${d(2)}`)).getByTestId('cell-units').getAttribute('data-tone')).toBe('bad');
     expect(screen.getByTestId(`board-cell-e1-${d(4)}`).getAttribute('data-status')).toBe('ANNUAL_LEAVE');
     expect(screen.getByTestId(`board-cell-e1-${d(5)}`).textContent).toContain('L');
     expect(screen.getByTestId(`board-cell-e1-${d(2)}`).getAttribute('title')).toContain('Đi trễ: 15 phút');

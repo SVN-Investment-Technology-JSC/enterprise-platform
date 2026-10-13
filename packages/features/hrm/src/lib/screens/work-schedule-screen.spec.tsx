@@ -411,7 +411,9 @@ describe('WorkScheduleScreen open-ended recurring schedules', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Lưu phân ca' }));
     const done = await screen.findByTestId('assign-result');
     expect(done.textContent).toContain('Đã lưu lịch định kỳ');
-    expect(done.textContent).toContain('batch-rule-1');
+    // Mã đợt chỉ để tra cứu nội bộ, không hiện cho người dùng.
+    expect(done.textContent).not.toContain('batch-rule-1');
+    expect(done.getAttribute('data-batch-id')).toBe('batch-rule-1');
     expect(applyBodies).toHaveLength(1);
     expect(applyBodies[0]).not.toHaveProperty('toDate');
   });

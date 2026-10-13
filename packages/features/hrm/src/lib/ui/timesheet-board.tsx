@@ -67,17 +67,27 @@ export function BoardLegend() {
       {text}
     </span>
   );
-  const dot = (cls: string) => <span aria-hidden="true" className={`inline-block size-2.5 rounded-full ${cls}`} />;
+  const num = (text: string, cls: string) => (
+    <span aria-hidden="true" className={`font-mono text-[11px] font-bold ${cls}`}>
+      {text}
+    </span>
+  );
   return (
     <ul
       aria-label="Chú thích bảng công"
       className="flex flex-wrap items-center gap-x-3.5 gap-y-1 text-[11px] text-slate-600"
     >
       <li className="flex items-center gap-1.5">
-        {dot('bg-emerald-500')}Đủ công
+        {num('1', 'text-emerald-600')}Đủ công
       </li>
       <li className="flex items-center gap-1.5">
-        {dot('bg-orange-500')}Đi trễ, về sớm
+        {num('0.5', 'text-emerald-600')}Nửa công có đơn
+      </li>
+      <li className="flex items-center gap-1.5">
+        {num('0.xx', 'text-red-600')}Đi trễ, về sớm
+      </li>
+      <li className="flex items-center gap-1.5">
+        {num('0', 'text-red-600')}Quên chấm công
       </li>
       <li className="flex items-center gap-1.5">
         {box('P', BOX_TONE_CLASS.leave)}Nghỉ phép

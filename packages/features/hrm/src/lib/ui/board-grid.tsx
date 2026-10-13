@@ -15,6 +15,7 @@ import {
   gridCellView,
   isFutureDay,
   isLateOrEarly,
+  textOnlyClass,
 } from './my-timesheet-format';
 import { LetterBadge } from './my-timesheet-calendar';
 import { RowMenu } from './row-menu';
@@ -268,20 +269,22 @@ export function BoardGrid({
                         title={boardDayTooltip(day)}
                         onClick={() => onSelectDay(emp.employeeId, c.date)}
                         className={`relative flex h-10 w-full cursor-pointer items-center justify-center text-[11px] leading-none hover:bg-blue-100/60 ${
-                          late && !future ? 'bg-red-100' : ''
-                        } ${letters.length > 0 ? 'pb-3' : ''}`}
+                          letters.length > 0 ? 'pb-3' : ''
+                        }`}
                       >
-                        {view.type === 'dot' && (
+                        {view.type === 'units' && (
                           <span
-                            data-testid="cell-dot"
+                            data-testid="cell-units"
                             data-tone={view.tone}
-                            className={`size-2.5 rounded-full ${view.tone === 'late' ? 'bg-orange-500' : 'bg-emerald-500'}`}
-                          />
+                            className={`font-mono text-[11px] font-bold ${view.tone === 'bad' ? 'text-red-600' : 'text-emerald-600'}`}
+                          >
+                            {view.text}
+                          </span>
                         )}
                         {view.type === 'box' && (
                           <span
                             data-testid="cell-box"
-                            className={`flex h-[22px] min-w-[22px] items-center justify-center rounded px-1 text-[10px] font-bold ${BOX_TONE_CLASS[view.tone]}`}
+                            className={`flex h-[22px] min-w-[22px] items-center justify-center rounded px-1 text-[10px] font-bold ${textOnlyClass(BOX_TONE_CLASS[view.tone])}`}
                           >
                             {view.text}
                           </span>

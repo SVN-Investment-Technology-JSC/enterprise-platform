@@ -128,6 +128,13 @@ export const SETTINGS_GROUPS: readonly SettingsGroup[] = [
         icon: 'shift',
         view: 'shifts',
       },
+      {
+        id: 'standard-work',
+        label: 'Công chuẩn',
+        description: 'Công chuẩn của bảng công theo từng tháng: động theo lịch ca hoặc cố định số ngày công',
+        icon: 'calendar',
+        view: 'standard-work',
+      },
     ],
   },
   {

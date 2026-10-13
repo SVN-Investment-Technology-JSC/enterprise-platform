@@ -24,8 +24,9 @@ import {
 } from 'lucide-react';
 import { useRealtimeNotificationsOptional } from '@enterprise-platform/shared-ui';
 import { formatMinutes, weekdayVn } from '../../hrm-timesheet-format';
-import type { HrmBoardDay } from '@enterprise-platform/contracts-hrm';
+import type { HrmBoardDay, HrmTimesheetBoard } from '@enterprise-platform/contracts-hrm';
 import { BoardDayDrawer } from '../board-day-detail';
+import { MonthStepper } from '../month-stepper';
 import { anomalyLabel, boardStatusLabel, formatUnits } from '../timesheet-board-format';
 import { Button } from '../button';
 import {
@@ -48,7 +49,7 @@ import {
   type DotTone,
 } from './dashboard-model';
 import { calendarWeeks } from '../my-timesheet-format';
-import type { MyDashboardData } from './use-my-dashboard';
+import { loadBoard, type MyDashboardData } from './use-my-dashboard';
 
 /* Bảng màu của Bàn làm việc viết thẳng bằng mã màu để không bị ảnh hưởng bởi việc đổi màu chung của các màn khác. */
 const CARD = 'rounded-2xl border border-slate-200/70 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]';
@@ -262,9 +263,8 @@ export function PunchCard({ punch, data }: { punch: PunchProps; data: MyDashboar
             onClick={() => punch.onPunch('check-out')}
             disabled={punch.busy || !punch.hasShift}
             variant="outline"
-            className={`h-11 gap-2 rounded-xl text-[13px] font-semibold ${
-              checkedIn ? 'border-emerald-500 text-emerald-700 hover:bg-emerald-50' : 'border-emerald-200 text-emerald-600/70'
-            }`}
+            className={`h-11 gap-2 rounded-xl text-[13px] font-semibold ${checkedIn ? 'border-emerald-500 text-emerald-700 hover:bg-emerald-50' : 'border-emerald-200 text-emerald-600/70'
+              }`}
           >
             {punch.busy ? <Loader2 className="size-4 animate-spin" /> : <LogOut className="size-4" />}
             <span>Ghi nhận ra ca</span>
@@ -307,7 +307,7 @@ export function LeaveCard({ data }: { data: MyDashboardData }) {
           </svg>
           <div className="absolute inset-0 flex flex-col items-center justify-center">
             <span className="text-[17px] font-extrabold text-slate-900">{a ? `${formatUnits(a.remaining)} / ${formatUnits(a.total)}` : '—'}</span>
-            <span className="text-[11px] text-slate-500" title="Số ngày dùng được đến hiện tại / định mức cả năm">dùng được / cả năm</span>
+            <span className="text-[11px] text-slate-500" title="Số ngày dùng được đến hiện tại / định mức cả năm"></span>
           </div>
         </div>
         <ul className="flex-1 space-y-2 text-[12.5px]">
@@ -393,21 +393,43 @@ const CAL_HEADERS = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
  * bất thường) ngay trên trang.
  */
 export function MonthStrip({ data }: { data: MyDashboardData }) {
-  const emp = data.employee;
   const [selected, setSelected] = useState<string | null>(null);
-  const monthLabel = `${data.monthKey.slice(5, 7)}/${data.monthKey.slice(0, 4)}`;
-  const weeks = useMemo(() => calendarWeeks(data.calendar), [data.calendar]);
+  const [month, setMonth] = useState(data.monthKey);
+  const [other, setOther] = useState<{ month: string; board: HrmTimesheetBoard | null } | null>(null);
+  const isCurrent = month === data.monthKey;
+  useEffect(() => {
+    if (isCurrent) return;
+    let live = true;
+    void loadBoard(month).then((board) => {
+      if (live) setOther({ month, board });
+    });
+    return () => {
+      live = false;
+    };
+  }, [month, isCurrent]);
+  const otherReady = !isCurrent && other?.month === month;
+  const emp = isCurrent ? data.employee : otherReady ? other.board?.employees[0] : undefined;
+  const calendar = isCurrent ? data.calendar : otherReady ? (other.board?.calendar ?? []) : [];
+  const loading = isCurrent ? data.loading : !otherReady;
+  const weeks = useMemo(() => calendarWeeks(calendar), [calendar]);
+  function changeMonth(next: string) {
+    setSelected(null);
+    setMonth(next);
+  }
   const problems = emp
     ? Object.values(emp.days).filter((d) => {
-        const tone = dayDotTone(d, data.today);
-        return tone === 'absent' || tone === 'late';
-      }).length
+      const tone = dayDotTone(d, data.today);
+      return tone === 'absent' || tone === 'late';
+    }).length
     : 0;
   return (
     <section aria-label="Bảng công tháng" className={`${CARD} p-5`}>
       <CardTitle href="/my-work" icon={<FileText className="size-4 text-[#2563eb]" />}>
-        Bảng công tháng {monthLabel}
+        Bảng công tháng
       </CardTitle>
+      <div className="mb-3">
+        <MonthStepper month={month} onChange={changeMonth} />
+      </div>
       <ul className="mb-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-600" aria-label="Chú thích">
         {LEGEND.map((l) => (
           <li key={l.tone} className="flex items-center gap-1.5">
@@ -417,7 +439,7 @@ export function MonthStrip({ data }: { data: MyDashboardData }) {
         ))}
         {problems > 0 ? <li className="ml-auto font-semibold text-rose-600">{problems} ngày cần xem</li> : null}
       </ul>
-      {data.loading ? (
+      {loading ? (
         <div role="status" className="py-4 text-xs text-slate-500">
           Đang tải bảng công…
         </div>
@@ -449,18 +471,16 @@ export function MonthStrip({ data }: { data: MyDashboardData }) {
                       aria-label={`Chi tiết ngày ${formatDmy(date)}: ${day ? boardStatusLabel(day.status) : 'không có dữ liệu'}`}
                       title={dotTitle(date, day, tone)}
                       onClick={() => setSelected(date)}
-                      className={`flex h-11 cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border text-center transition hover:border-[#2563eb] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#2563eb] disabled:cursor-default disabled:hover:border-slate-100 ${
-                        tone === 'late'
-                          ? 'border-red-300 bg-red-50'
-                          : tone === 'absent'
-                            ? 'border-rose-200 bg-rose-50'
-                            : 'border-slate-100 bg-white'
-                      } ${isSelected ? 'border-[#2563eb] ring-1 ring-[#2563eb]' : ''}`}
+                      className={`flex h-11 cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border text-center transition hover:border-[#2563eb] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#2563eb] disabled:cursor-default disabled:hover:border-slate-100 ${tone === 'late'
+                        ? 'border-red-300 bg-red-50'
+                        : tone === 'absent'
+                          ? 'border-rose-200 bg-rose-50'
+                          : 'border-slate-100 bg-white'
+                        } ${isSelected ? 'border-[#2563eb] ring-1 ring-[#2563eb]' : ''}`}
                     >
                       <span
-                        className={`text-[11px] leading-none ${
-                          isToday ? 'rounded bg-[#ffc90a] px-1 py-0.5 font-bold text-slate-900' : 'font-semibold text-slate-600'
-                        }`}
+                        className={`text-[11px] leading-none ${isToday ? 'rounded bg-[#ffc90a] px-1 py-0.5 font-bold text-slate-900' : 'font-semibold text-slate-600'
+                          }`}
                       >
                         {Number(date.slice(8, 10))}
                       </span>

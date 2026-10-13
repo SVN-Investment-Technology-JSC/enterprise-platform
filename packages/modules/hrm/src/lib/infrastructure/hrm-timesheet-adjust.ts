@@ -3,6 +3,7 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import type { PoolClient } from 'pg';
 import { assertLifecycleVersion, timestamp } from './hrm-lifecycle.js';
 import { requireText } from './hrm-validation.js';
+import { dayCapacityUnits, dayWorkUnits } from '../domain/standard-workdays.js';
 
 export type AdjustTimesheetInput = Omit<AdjustTimesheetRequest, 'expectedUpdatedAt'> & {
   /** Bỏ trống: dùng phiên bản hiện tại của dòng (điều chỉnh theo ngày từ bảng công tháng). */
@@ -29,15 +30,16 @@ export async function adjustTimesheetLine(
   if (current.rows[0].period_status === 'LOCKED') throw new BadRequestException('Kỳ công đã khóa');
   assertLifecycleVersion(current.rows[0], body.expectedUpdatedAt ?? timestamp(current.rows[0].updated_at));
   requireText(body.reason, 'Căn cứ điều chỉnh', 2000);
-  if ((body.paidMinutes ?? 0) > current.rows[0].scheduled_minutes || (body.workdayUnits ?? 0) > 1)
-    throw new BadRequestException('Điều chỉnh vượt định mức ca');
   const scheduled = Number(current.rows[0].scheduled_minutes);
+  const capacity = dayCapacityUnits(scheduled);
+  if ((body.paidMinutes ?? 0) > current.rows[0].scheduled_minutes || (body.workdayUnits ?? 0) > capacity + 0.005)
+    throw new BadRequestException('Điều chỉnh vượt định mức ca');
   const paid =
     body.paidMinutes ??
     (body.workdayUnits !== undefined
-      ? Math.round(body.workdayUnits * scheduled)
+      ? Math.round((body.workdayUnits / (capacity || 1)) * scheduled)
       : Number(current.rows[0].paid_minutes));
-  const units = scheduled ? Math.round((paid / scheduled) * 10000) / 10000 : 0;
+  const units = dayWorkUnits(paid, scheduled);
   if (body.workdayUnits !== undefined && Math.abs(body.workdayUnits - units) > 0.005)
     throw new BadRequestException('Số công và phút công hưởng lương không khớp');
   const changed = await db.query(

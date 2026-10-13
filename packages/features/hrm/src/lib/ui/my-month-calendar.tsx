@@ -10,6 +10,7 @@ import { LetterBadge } from './my-timesheet-calendar';
 import {
   calendarWeeks,
   DAY_TONE_DOT,
+  dayCoefficient,
   dayLetters,
   dayTone,
   isFutureDay,
@@ -219,7 +220,9 @@ export function MyMonthCalendar({
                         {units ? (
                           <span
                             data-testid="my-cell-units"
-                            className="font-mono text-sm font-semibold text-slate-800"
+                            className={`font-mono text-sm font-semibold ${
+                              !future && dayCoefficient(day).tone === 'bad' ? 'text-red-600' : 'text-emerald-700'
+                            }`}
                           >
                             {units}
                           </span>

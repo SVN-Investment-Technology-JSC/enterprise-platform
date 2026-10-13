@@ -317,19 +317,21 @@ export function AssignPreviewSection({
 /** Kết quả sau khi lưu (lịch cố định hoặc lịch định kỳ). */
 export function AssignResultSection({ result }: { result: AnyApplyResult }) {
   return (
-    <div className="flex flex-col gap-3" data-testid="assign-result">
+    <div className="flex flex-col gap-3" data-testid="assign-result" data-batch-id={result.batchId}>
       {isRuleApplyResult(result) ? (
         <Notice tone="success" title="Đã lưu lịch định kỳ">
-          Đợt phân ca <span className="font-mono">{result.batchId}</span>: {result.ruleCount} lịch định kỳ mới cho{' '}
-          {result.employeeCount} nhân viên đang được áp dụng; {result.changedRules} lịch cũ bị kết thúc hoặc hủy,{' '}
-          {result.replacedDays ?? 0} ngày phân từng ngày được thay bằng lịch mới, {result.skippedTargets} phạm vi bỏ
-          qua. Lịch tự chạy đến khi bạn kết thúc.
+          Đã tạo {result.ruleCount} lịch định kỳ mới, áp dụng cho {result.employeeCount} nhân viên.
+          {result.changedRules > 0 ? ` Có ${result.changedRules} lịch cũ được kết thúc hoặc hủy để nhường chỗ cho lịch mới.` : ''}
+          {(result.replacedDays ?? 0) > 0
+            ? ` ${result.replacedDays} ngày đã phân riêng được thay bằng lịch mới.`
+            : ''}
+          {result.skippedTargets > 0 ? ` ${result.skippedTargets} phạm vi bị bỏ qua.` : ''} Lịch sẽ tự chạy cho đến khi bạn
+          kết thúc.
         </Notice>
       ) : (
         <>
           <Notice tone="success" title="Đã lưu phân ca">
-            Đợt phân ca <span className="font-mono">{result.batchId}</span>: {result.employeeCount} nhân viên,{' '}
-            {result.appliedDays} ngày được ghi.
+            Đã ghi {result.appliedDays} ngày phân ca cho {result.employeeCount} nhân viên.
           </Notice>
           <SummaryStats summary={result.summary} employeeCount={result.employeeCount} />
         </>
