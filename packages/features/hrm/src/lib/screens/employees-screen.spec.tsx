@@ -395,14 +395,12 @@ describe('EmployeesScreen', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Xem chi tiết' }));
     const dialog = await screen.findByRole('dialog');
 
-    // Drawer có highlight chỉ báo chỉnh sửa trực tiếp
-    expect(within(dialog).getByText('Chỉnh sửa trực tiếp trên Drawer')).toBeTruthy();
-
     // Bấm Sửa hồ sơ ở footer bật chế độ chỉnh sửa
     const editBtn = within(dialog).getByRole('button', { name: 'Sửa hồ sơ' });
     fireEvent.click(editBtn);
 
-    // Xuất hiện banner highlight chế độ chỉnh sửa đang bật
+    // Xuất hiện chỉ báo và banner highlight chế độ chỉnh sửa đang bật
+    expect(within(dialog).getByText('Đang ở chế độ chỉnh sửa')).toBeTruthy();
     expect(within(dialog).getByText('Chế độ chỉnh sửa trực tiếp đang bật')).toBeTruthy();
     expect(within(dialog).getAllByRole('button', { name: 'Lưu thay đổi' }).length).toBeGreaterThanOrEqual(1);
     expect(within(dialog).getAllByRole('button', { name: 'Hủy' }).length).toBeGreaterThanOrEqual(1);
