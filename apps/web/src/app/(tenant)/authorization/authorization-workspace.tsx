@@ -75,6 +75,7 @@ export function AuthorizationWorkspace({
   const [page, setPage] = useState(1);
   const [editor, setEditor] = useState<Editor>();
   const [busy, setBusy] = useState(false);
+  const [detailPick, setDetailPick] = useState<{ id: string; tab: 'actions' | 'members' }>();
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Statistics calculation
@@ -147,6 +148,15 @@ export function AuthorizationWorkspace({
   }, [role, permission, permissions]);
 
   const used = role ? role.userIds.length : (permission?.roleIds.length ?? 0);
+  // Quản trị tenant có toàn quyền nên chỉ hiện người giữ vai trò; vai trò khác chia tab để danh sách quyền dài không đẩy phần người dùng xuống.
+  const showDetailTabs = !!role && role.key !== 'tenant-admin';
+  const detailTab: 'actions' | 'members' = !role
+    ? 'actions'
+    : role.key === 'tenant-admin'
+      ? 'members'
+      : detailPick?.id === role.id
+        ? detailPick.tab
+        : 'actions';
 
   async function reload() {
     setIsRefreshing(true);
@@ -807,44 +817,86 @@ export function AuthorizationWorkspace({
                     </p>
                   )}
 
-                  {/* Quản trị tenant có toàn quyền theo mặc định nên không liệt kê từng hành động. */}
-                  {role?.key !== 'tenant-admin' && (
-                  <div className="flex flex-col gap-2.5">
-                    <SectionHeading>HÀNH ĐỘNG &amp; QUYỀN THAO TÁC ({actions.length})</SectionHeading>
-                    {actionGroups.length > 0 ? (
-                      actionGroups.map((group) => (
-                        <div
-                          key={group.group}
-                          className="flex flex-col gap-1.5 rounded-[10px] border border-[#f1f3f6] bg-[#fafbfc] px-3 py-2.5"
-                        >
-                          <span className="text-[11px] font-bold tracking-[0.4px] text-slate-500">
-                            {group.group.toUpperCase()}
-                          </span>
-                          <div className="flex flex-wrap gap-1.5">
-                            {group.items.map((action) => (
-                              <span
-                                key={action.key}
-                                className="flex items-center gap-1.5 rounded-[7px] border border-[#eef0f3] bg-white px-2 py-[3px] text-xs"
-                              >
-                                <Check className="size-3 stroke-[3] text-emerald-600" />
-                                {action.label}
-                                <code className="font-mono text-[10.5px] text-slate-400">({action.key})</code>
-                              </span>
-                            ))}
+                  {showDetailTabs && role ? (
+                    <div
+                      role="tablist"
+                      aria-label="Chi tiết vai trò"
+                      className="flex w-fit gap-0.5 rounded-[9px] bg-[#f1f3f6] p-[3px]"
+                    >
+                      {(
+                        [
+                          ['actions', 'Quyền thao tác', actions.length],
+                          ['members', 'Người dùng', role.userIds.length],
+                        ] as const
+                      ).map(([value, label, count]) => {
+                        const active = detailTab === value;
+                        return (
+                          <button
+                            key={value}
+                            type="button"
+                            role="tab"
+                            aria-selected={active}
+                            onClick={() => setDetailPick({ id: role.id, tab: value })}
+                            className={cn(
+                              'flex h-8 cursor-pointer items-center gap-1.5 rounded-[7px] px-3 text-[12.5px] font-semibold',
+                              active
+                                ? 'bg-white text-[#18181b] shadow-[0_1px_2px_rgba(0,0,0,.08)]'
+                                : 'text-slate-500 hover:text-[#18181b]',
+                            )}
+                          >
+                            {label}
+                            <span
+                              className={cn(
+                                'rounded-full px-[7px] text-[11px]',
+                                active ? 'bg-[#ffc90a] text-[#18181b]' : 'bg-slate-200 text-slate-600',
+                              )}
+                            >
+                              {count}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+
+                  {detailTab === 'actions' && (
+                    <div className="flex flex-col gap-2.5">
+                      <SectionHeading>HÀNH ĐỘNG &amp; QUYỀN THAO TÁC ({actions.length})</SectionHeading>
+                      {actionGroups.length > 0 ? (
+                        actionGroups.map((group) => (
+                          <div
+                            key={group.group}
+                            className="flex flex-col gap-1.5 rounded-[10px] border border-[#f1f3f6] bg-[#fafbfc] px-3 py-2.5"
+                          >
+                            <span className="text-[11px] font-bold tracking-[0.4px] text-slate-500">
+                              {group.group.toUpperCase()}
+                            </span>
+                            <div className="flex flex-wrap gap-1.5">
+                              {group.items.map((action) => (
+                                <span
+                                  key={action.key}
+                                  className="flex items-center gap-1.5 rounded-[7px] border border-[#eef0f3] bg-white px-2 py-[3px] text-xs"
+                                >
+                                  <Check className="size-3 stroke-[3] text-emerald-600" />
+                                  {action.label}
+                                  <code className="font-mono text-[10.5px] text-slate-400">({action.key})</code>
+                                </span>
+                              ))}
+                            </div>
                           </div>
-                        </div>
-                      ))
-                    ) : (
-                      <p className="m-0 rounded-[10px] border border-dashed border-[#e5e7eb] p-3.5 text-center text-[13px] text-slate-500">
-                        Không cấp quyền thao tác Core hoặc module.
-                      </p>
-                    )}
-                  </div>
+                        ))
+                      ) : (
+                        <p className="m-0 rounded-[10px] border border-dashed border-[#e5e7eb] p-3.5 text-center text-[13px] text-slate-500">
+                          Không cấp quyền thao tác Core hoặc module.
+                        </p>
+                      )}
+                    </div>
                   )}
 
-                  {role ? (
+                  {role && detailTab === 'members' ? (
                     <RoleMembers role={role} users={users} onChanged={refreshRoles} />
-                  ) : (
+                  ) : null}
+                  {!role ? (
                     <div className="flex flex-col gap-2.5 rounded-[10px] border border-[#f1f3f6] bg-[#fafbfc] px-3.5 py-3">
                       <span className="flex flex-wrap items-center gap-2 text-[13px] font-bold">
                         <Users className="size-3.5" />
@@ -859,7 +911,7 @@ export function AuthorizationWorkspace({
                         </p>
                       ) : null}
                     </div>
-                  )}
+                  ) : null}
                 </div>
               </>
             ) : (
