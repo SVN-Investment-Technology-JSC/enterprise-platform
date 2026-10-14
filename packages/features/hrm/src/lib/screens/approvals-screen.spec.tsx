@@ -170,7 +170,7 @@ describe('ApprovalsScreen: danh sách', () => {
     expect(within(screen.getByTestId('approval-row-o1')).queryByText('Không lương')).toBeNull();
   });
 
-  it('bốn chỉ số: chờ tôi duyệt, đang xử lý, quá hạn, đã xử lý tháng này; các tab đếm và lọc đúng', async () => {
+  it('các tab đếm và lọc đúng theo nhóm đơn; không còn các thẻ chỉ số cũ', async () => {
     mockActions = ['hrm.leave.approve'];
     const thisMonth = new Date().toISOString();
     setup({
@@ -192,11 +192,10 @@ describe('ApprovalsScreen: danh sách', () => {
     }) as never);
     render(<ApprovalsScreen />);
     await screen.findByTestId('approval-row-l1');
-    await waitFor(() => expect(within(screen.getByTestId('kpi-done')).getByText('1')).toBeTruthy());
-    expect(within(screen.getByTestId('kpi-mine')).getByText('1')).toBeTruthy();
-    expect(within(screen.getByTestId('kpi-processing')).getByText('1')).toBeTruthy();
-    // chỉ đơn chờ cũ (l1, l4) quá hạn; đơn đã xử lý thì không
-    expect(within(screen.getByTestId('kpi-overdue')).getByText('2')).toBeTruthy();
+    expect(screen.queryByTestId('kpi-mine')).toBeNull();
+    expect(screen.queryByTestId('kpi-processing')).toBeNull();
+    expect(screen.queryByTestId('kpi-overdue')).toBeNull();
+    expect(screen.queryByTestId('kpi-done')).toBeNull();
     expect(screen.getByTestId('tab-ALL').textContent).toBe('Tất cả (4)');
     expect(screen.getByTestId('tab-MINE').textContent).toBe('Chờ tôi duyệt (1)');
     expect(screen.getByTestId('tab-PROCESSING').textContent).toBe('Đang xử lý (1)');

@@ -645,32 +645,33 @@ describe('Form tạo đơn: Lý do (danh mục) tách khỏi Mô tả (tự do)'
     await chooseReason(/Quên chấm công/);
   }
 
-  it('giải trình công mặc định theo từng mốc giờ: chọn giờ vào hay giờ ra rồi gửi đúng loại', async () => {
+  it('giải trình công chỉ một mốc: mặc định giờ vào 08:00, ngày không hiện lặp lại, không có nút thêm dòng hay tab theo phiên', async () => {
     await openCorrection();
     const punches = await screen.findByTestId('correction-punches');
-    // Dòng đầu là giờ vào, đã gợi ý 08:00 của ngày đang giải trình.
     expect((within(screen.getByTestId('correction-punch-1')).getByLabelText('Giờ vào (giờ)') as HTMLInputElement).value).toBe('08:00');
-    // Thêm dòng thứ hai: tự là giờ ra; hết chỗ thêm.
-    fireEvent.click(within(punches).getByRole('button', { name: /Thêm giờ ra/i }));
-    const second = await screen.findByTestId('correction-punch-2');
-    expect((within(second).getByLabelText('Giờ ra (giờ)') as HTMLInputElement).value).toBe('17:00');
-    expect((within(punches).getByRole('button', { name: /^Thêm giờ( ra| vào)?$/i }) as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.change(within(second).getByLabelText('Giờ ra (giờ)'), { target: { value: '1830' } });
-    fireEvent.blur(within(second).getByLabelText('Giờ ra (giờ)'));
+    // Ngày chỉ nhập một lần ở "Ngày phát sinh điều chỉnh"; không còn thêm dòng hay khai báo theo phiên.
+    expect(within(punches).queryByTestId('correction-punch-date')).toBeNull();
+    expect(within(punches).queryByRole('button', { name: /^Thêm giờ/i })).toBeNull();
+    expect(screen.queryByTestId('correction-punch-2')).toBeNull();
+    expect(screen.queryByRole('tab', { name: /phiên/i })).toBeNull();
+    fireEvent.change(within(punches).getByLabelText('Giờ vào (giờ)'), { target: { value: '0830' } });
+    fireEvent.blur(within(punches).getByLabelText('Giờ vào (giờ)'));
     fireEvent.click(submitButton());
     await waitFor(() => expect(draftBody('correction')).toBeTruthy());
     const payload = draftBody('correction')?.payload as { punches: { kind: string; at: string }[] } & Record<string, unknown>;
     expect(payload).not.toHaveProperty('sessions');
-    expect(payload.punches.map((p) => p.kind)).toEqual(['IN', 'OUT']);
-    expect(new Date(payload.punches[1].at).getTime()).toBeGreaterThan(new Date(payload.punches[0].at).getTime());
+    expect(payload.punches).toHaveLength(1);
+    expect(payload.punches[0].kind).toBe('IN');
+    expect(new Date(payload.punches[0].at).getMinutes()).toBe(30);
   });
 
-  it('giải trình công chỉ bổ sung giờ ra (quên chấm ra): xoá dòng giờ vào, chỉ gửi một mốc giờ ra', async () => {
+  it('giải trình công chỉ bổ sung giờ ra (quên chấm ra): đổi loại sang giờ ra, giờ gợi ý theo loại mới, chỉ gửi một mốc giờ ra', async () => {
     await openCorrection();
     const punches = await screen.findByTestId('correction-punches');
-    // Đổi loại dòng đầu sang giờ ra
     fireEvent.click(within(punches).getByPlaceholderText('Chọn giờ vào / ra'));
     fireEvent.click(await screen.findByRole('option', { name: 'Giờ ra', hidden: true }));
+    // Giờ còn là giờ gợi ý của loại cũ nên đổi theo gợi ý của giờ ra.
+    expect((within(punches).getByLabelText('Giờ ra (giờ)') as HTMLInputElement).value).toBe('17:00');
     fireEvent.click(submitButton());
     await waitFor(() => expect(draftBody('correction')).toBeTruthy());
     const payload = draftBody('correction')?.payload as { punches: { kind: string }[] };
@@ -678,28 +679,6 @@ describe('Form tạo đơn: Lý do (danh mục) tách khỏi Mô tả (tự do)'
     expect(payload.punches[0].kind).toBe('OUT');
   });
 
-  it('giải trình công: giờ ra không sau giờ vào thì báo lỗi và không gửi', async () => {
-    await openCorrection();
-    const punches = await screen.findByTestId('correction-punches');
-    fireEvent.click(within(punches).getByRole('button', { name: /^Thêm giờ( ra| vào)?$/i }));
-    const second = await screen.findByTestId('correction-punch-2');
-    fireEvent.change(within(second).getByLabelText('Giờ ra (giờ)'), { target: { value: '0700' } });
-    fireEvent.blur(within(second).getByLabelText('Giờ ra (giờ)'));
-    fireEvent.click(submitButton());
-    expect((await screen.findAllByText('Giờ ra phải sau giờ vào.')).length).toBeGreaterThan(0);
-    expect(draftBody('correction')).toBeUndefined();
-  });
-
-  it('giải trình công có thể chuyển sang khai báo theo phiên vào - ra (thay cả ngày) và gửi sessions', async () => {
-    await openCorrection();
-    fireEvent.click(await screen.findByRole('tab', { name: /Khai báo theo phiên vào - ra/ }));
-    expect(screen.queryByTestId('correction-punches')).toBeNull();
-    fireEvent.click(submitButton());
-    await waitFor(() => expect(draftBody('correction')).toBeTruthy());
-    const payload = draftBody('correction')?.payload as Record<string, unknown>;
-    expect(payload).toHaveProperty('sessions');
-    expect(payload).not.toHaveProperty('punches');
-  });
 
   it('danh mục rỗng: hiện thông báo cho quản trị viên và khóa nút gửi', async () => {
     reasonCatalog = { OVERTIME: [] };
@@ -1009,7 +988,7 @@ describe('Đơn từ của tôi: tháng, thẻ tổng quan và lọc theo trạn
     expect(await screen.findByText('Đơn rất cũ', cellText)).toBeTruthy();
   });
 
-  it('bốn thẻ tổng quan đếm theo trạng thái của tháng; tab trạng thái lọc danh sách', async () => {
+  it('không còn thẻ tổng quan; tab trạng thái đếm và lọc danh sách', async () => {
     const now = new Date().toISOString();
     leaveRows = [
       leave('aaaaaaaa-2222-0000-0000-000000000001', 'PENDING', now, 'Chờ A'),
@@ -1019,12 +998,8 @@ describe('Đơn từ của tôi: tháng, thẻ tổng quan và lọc theo trạn
     ];
     render(<RequestsPage />);
     await screen.findByText('Chờ A', cellText);
-    const stat = (key: string) => screen.getByTestId(`request-stat-${key}`).textContent ?? '';
-    expect(stat('total')).toContain('4');
-    expect(stat('pending')).toContain('2');
-    expect(stat('approved')).toContain('1');
-    expect(stat('rejected')).toContain('1');
-
+    // Không còn thẻ tổng quan (tổng đơn, chờ duyệt, đã duyệt, từ chối); số đơn nằm trên các tab trạng thái.
+    expect(screen.queryByTestId('request-stats')).toBeNull();
     fireEvent.click(screen.getByRole('tab', { name: /^Chờ duyệt \(2\)/ }));
     expect(screen.queryByText('Duyệt C', cellText)).toBeNull();
     expect(screen.getByText('Chờ B', cellText)).toBeTruthy();

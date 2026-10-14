@@ -1,4 +1,4 @@
-import type { SaveRequestTypeRequest } from '@enterprise-platform/contracts-hrm';
+import type { HrmRequestEngine, SaveRequestTypeRequest } from '@enterprise-platform/contracts-hrm';
 import {
   BadRequestException,
   Body,
@@ -19,6 +19,7 @@ import { HrmContextService } from '../infrastructure/hrm-context.service.js';
 import { assertLifecycleVersion } from '../infrastructure/hrm-lifecycle.js';
 import { HrmMissingSchemaInterceptor } from '../infrastructure/hrm-missing-schema.interceptor.js';
 import {
+  ENGINE_REQUEST_KIND,
   REQUEST_TIME_MODES,
   ensureSystemRequestTypes,
   mapRequestType,
@@ -320,8 +321,9 @@ export class HrmRequestTypeController {
   }
 
   /**
-   * Xoá loại tự tạo. Loại đã có đơn thì chỉ ngừng sử dụng (đơn cũ vẫn hiện đúng tên loại).
-   * Loại hệ thống không xoá được.
+   * Xoá mềm loại đơn (kể cả loại hệ thống) khi loại đã ngừng sử dụng. Chỉ đặt `deleted_at` cho loại và lý do của nó,
+   * gỡ liên kết quy trình duyệt của loại; đơn đã tạo và engine xử lý giữ nguyên nên đơn cũ vẫn xem được. Còn hồ sơ
+   * quy trình đang chạy của loại thì chưa xoá được. Loại hệ thống bị xoá không được tự tạo lại.
    */
   @Delete('request-types/:id')
   async remove(@Req() req: Request, @Param('id') id: string) {
@@ -330,25 +332,24 @@ export class HrmRequestTypeController {
     const result = await hrmTransaction(pool, async (db) => {
       const before = await loadType(db, tenantId, id, true);
       if (!before) throw new NotFoundException('Không tìm thấy loại đơn.');
-      if (before.is_system) throw new ConflictException('Loại đơn hệ thống không xoá được; chỉ ngừng sử dụng.');
+      if (before.active)
+        throw new ConflictException('Cần ngừng sử dụng loại đơn trước khi xoá.');
       const usageCount = Number(before.usage_count ?? 0);
-      if (usageCount > 0) {
-        if (before.active)
-          await db.query(
-            `UPDATE hrm_schema.request_reason_categories SET active = false, updated_at = now()
-              WHERE tenant_id = $1 AND id = $2`,
-            [tenantId, id],
+      const kind = ENGINE_REQUEST_KIND[before.engine as HrmRequestEngine];
+      if (before.engine !== 'GENERIC') {
+        const links = await db.query(`SELECT to_regclass('hrm_schema.procedure_links') IS NOT NULL AS ok`);
+        if (links.rows[0]?.ok === true) {
+          const running = await db.query(
+            `SELECT count(*)::int AS n FROM hrm_schema.procedure_links
+              WHERE tenant_id = $1 AND request_kind = $2 AND sync_status IN ('START_PENDING', 'RUNNING', 'APPLY_PENDING')`,
+            [tenantId, kind],
           );
-        await writeAudit(db, tenantId, principal.userId, 'REQUEST_TYPE_DEACTIVATED', id, {
-          before: snapshot(before),
-          usageCount,
-        });
-        return {
-          deleted: false,
-          active: false,
-          usageCount,
-          message: `Loại đơn "${before.name}" đã có ${usageCount} đơn nên không xoá được; hệ thống chỉ ngừng sử dụng loại này.`,
-        };
+          const count = Number(running.rows[0]?.n ?? 0);
+          if (count > 0)
+            throw new ConflictException(
+              `Loại đơn "${before.name}" còn ${count} đơn đang chạy quy trình duyệt nên chưa xoá được; chờ các đơn này xử lý xong.`,
+            );
+        }
       }
       await db.query(
         `UPDATE hrm_schema.request_reason_categories
@@ -362,8 +363,27 @@ export class HrmRequestTypeController {
           WHERE tenant_id = $1 AND kind = $2 AND deleted_at IS NULL`,
         [tenantId, before.code],
       );
-      await writeAudit(db, tenantId, principal.userId, 'REQUEST_TYPE_DELETED', id, { before: snapshot(before) });
-      return { deleted: true, active: false, usageCount: 0, message: `Đã xoá loại đơn "${before.name}".` };
+      // Gỡ liên kết quy trình duyệt của loại: loại hệ thống theo kind của engine, loại tự tạo theo mã loại.
+      await db.query(
+        `UPDATE hrm_schema.request_procedure_bindings SET is_active = false, updated_at = now()
+          WHERE tenant_id = $1 AND request_kind = $2 AND is_active
+            AND ($3::text IS NULL OR sub_type_code = $3::text)`,
+        [tenantId, kind, before.engine === 'GENERIC' ? before.code : null],
+      );
+      await writeAudit(db, tenantId, principal.userId, 'REQUEST_TYPE_DELETED', id, {
+        before: snapshot(before),
+        usageCount,
+        system: before.is_system === true,
+      });
+      return {
+        deleted: true,
+        active: false,
+        usageCount,
+        message:
+          usageCount > 0
+            ? `Đã xoá loại đơn "${before.name}". ${usageCount} đơn đã tạo vẫn được giữ nguyên.`
+            : `Đã xoá loại đơn "${before.name}".`,
+      };
     });
     const { message, ...data } = result;
     return { data: { id, ...data }, message, meta: { requestId: req.headers['x-request-id'] as string } };

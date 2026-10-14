@@ -22,6 +22,10 @@
       "dockerfile": "apps/hrm-api/Dockerfile"
     },
     {
+      "id": "finance-api",
+      "dockerfile": "apps/finance-api/Dockerfile"
+    },
+    {
       "id": "workspace-api",
       "dockerfile": "apps/workspace-api/Dockerfile"
     },
@@ -81,6 +85,13 @@
     {
       "id": "hrm-web",
       "dockerfile": "apps/hrm-web/Dockerfile",
+      "runtimeCheck": {
+        "nodeModules": ["@swc/helpers/esm/_interop_require_default.js"]
+      }
+    },
+    {
+      "id": "finance-web",
+      "dockerfile": "apps/finance-web/Dockerfile",
       "runtimeCheck": {
         "nodeModules": ["@swc/helpers/esm/_interop_require_default.js"]
       }

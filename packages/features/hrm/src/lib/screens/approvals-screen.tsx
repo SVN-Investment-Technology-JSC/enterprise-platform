@@ -7,10 +7,8 @@ import {
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
-  Clock,
   RefreshCw,
   Search,
-  TriangleAlert,
 } from 'lucide-react';
 import { HrmApiError, hrmFetch, hrmEmployeeOptions } from '../hrm-api';
 import {
@@ -69,20 +67,6 @@ export default function ApprovalsScreen() {
     <Suspense fallback={null}>
       <ApprovalsContent />
     </Suspense>
-  );
-}
-
-function Kpi({ tone, icon, label, value, testId }: { tone: 'orange' | 'blue' | 'red' | 'green'; icon: React.ReactNode; label: string; value: number; testId: string }) {
-  const tile = { orange: 'bg-orange-50 text-orange-500', blue: 'bg-blue-50 text-[#2563eb]', red: 'bg-rose-50 text-rose-500', green: 'bg-emerald-50 text-emerald-600' }[tone];
-  const text = { orange: 'text-orange-500', blue: 'text-[#2563eb]', red: 'text-rose-600', green: 'text-emerald-600' }[tone];
-  return (
-    <div className={`${CARD} flex items-center gap-3 px-4 py-3.5`} data-testid={testId}>
-      <span className={`flex size-12 shrink-0 items-center justify-center rounded-xl ${tile}`}>{icon}</span>
-      <div>
-        <p className="text-[12.5px] text-slate-500">{label}</p>
-        <p className={`text-[26px] font-extrabold leading-tight ${text}`}>{value}</p>
-      </div>
-    </div>
   );
 }
 
@@ -373,6 +357,8 @@ function ApprovalsContent() {
     });
   }
 
+
+
   const counts = useMemo(() => approvalCounts(rows, ability), [rows, permissionKey]);
   const visible = useMemo(() => filterApprovals(rows, filter, ability), [rows, filter, permissionKey]);
   const paged = pageOf(visible, page, PAGE_SIZE);
@@ -420,12 +406,7 @@ function ApprovalsContent() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Chỉ số xử lý đơn">
-        <Kpi tone="orange" icon={<TriangleAlert className="size-6" />} label="Chờ tôi duyệt" value={counts.mine} testId="kpi-mine" />
-        <Kpi tone="blue" icon={<Clock className="size-6" />} label="Đang xử lý" value={counts.processing} testId="kpi-processing" />
-        <Kpi tone="red" icon={<TriangleAlert className="size-6" />} label="Quá hạn" value={counts.overdue} testId="kpi-overdue" />
-        <Kpi tone="green" icon={<CheckCircle2 className="size-6" />} label="Đã xử lý tháng này" value={counts.doneThisMonth} testId="kpi-done" />
-      </div>
+
 
       {error && (
         <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-semibold text-red-700">
@@ -497,7 +478,7 @@ function ApprovalsContent() {
         </FilterBox>
       </div>
 
-      <div className="grid gap-3 xl:h-[calc(100dvh-420px)] xl:min-h-[520px] xl:grid-cols-[minmax(0,1fr)_430px]">
+      <div className="grid gap-3 xl:h-[calc(100dvh-320px)] xl:min-h-[520px] xl:grid-cols-[minmax(0,1fr)_430px]">
         <section className={`${CARD} flex min-h-[420px] min-w-0 flex-col overflow-hidden`} aria-label="Danh sách đơn">
           <div className="flex shrink-0 items-center justify-between gap-2 border-b border-slate-100 px-3">
             <div className="flex gap-1 text-[13px]" aria-label="Nhóm đơn">
@@ -513,6 +494,17 @@ function ApprovalsContent() {
                   {t.label} ({t.count})
                 </button>
               ))}
+              {(filter.tab === 'OVERDUE' || filter.tab === 'DONE_MONTH') && (
+                <button
+                  type="button"
+                  data-testid="tab-card-filter"
+                  onClick={() => patch({ tab: 'ALL' })}
+                  className="-mb-px border-b-2 border-[#2563eb] px-3 py-3 font-medium text-[#2563eb]"
+                  title="Bỏ lọc theo thẻ tổng quan"
+                >
+                  {filter.tab === 'OVERDUE' ? `Quá hạn (${counts.overdue})` : `Đã xử lý tháng này (${counts.doneThisMonth})`} ×
+                </button>
+              )}
             </div>
             <Popconfirm title={`Duyệt ${selected.length} đơn đã chọn?`} description="Các đơn liên kết Procedure được xử lý tại quy trình tương ứng." onConfirm={batch}>
               <Button disabled={busy || !selected.length} className="h-8 gap-1.5 border-0 bg-emerald-600 text-xs text-white hover:bg-emerald-700">

@@ -62,6 +62,7 @@ import { TabActivity } from './tab-activity';
 import { TabCalendar } from './tab-calendar';
 import { TabFinance } from './tab-finance';
 import { TabRequests } from './tab-requests';
+import { TabVouchers } from './tab-vouchers';
 import { TabOverview } from './tab-overview';
 import { TabWork } from './tab-work';
 import { useDirectory } from './use-directory';
@@ -73,13 +74,14 @@ import { pendingProcedureOf, type PendingProcedure } from '../procedure-pending'
  * Các tab của dự án. Chi tiết một công việc không còn là tab: bấm một dòng
  * trong bảng WBS thì mở hộp chi tiết của công việc đó.
  */
-type TabId = 'work-items' | 'calendar' | 'documents' | 'finance' | 'requests' | 'activity';
+type TabId = 'work-items' | 'calendar' | 'documents' | 'finance' | 'vouchers' | 'requests' | 'activity';
 
 const TABS: readonly { id: TabId; label: string }[] = [
   { id: 'work-items', label: 'Công việc' },
   { id: 'calendar', label: 'Lịch' },
   { id: 'documents', label: 'Tài liệu' },
   { id: 'finance', label: 'Tài chính' },
+  { id: 'vouchers', label: 'Thu chi' },
   { id: 'requests', label: 'Đơn từ' },
   { id: 'activity', label: 'Hoạt động' },
 ];
@@ -640,14 +642,18 @@ export function ProjectsView({
    * payload. Tab bị gỡ khỏi thanh — không làm mờ, không để một tab trống.
    */
   const visibleTabs = useMemo(
-    () => TABS.filter((entry) => entry.id !== 'finance' || Boolean(detail?.project.finance)),
+    // "Thu chi" (phiếu thu/chi của Tài chính) theo cùng quy tắc xem tài chính dự án: Tài chính hỏi lại Workspace khi trả dữ liệu.
+    () =>
+      TABS.filter(
+        (entry) => !['finance', 'vouchers'].includes(entry.id) || Boolean(detail?.project.finance),
+      ),
     [detail],
   );
 
   // Đang đứng ở tab Tài chính mà chuyển sang dự án không được xem tài chính
   // thì lùi về Tổng quan, thay vì để một vùng nội dung trống.
   useEffect(() => {
-    if (tab === 'finance' && detail && !detail.project.finance) setTab('work-items');
+    if ((tab === 'finance' || tab === 'vouchers') && detail && !detail.project.finance) setTab('work-items');
   }, [tab, detail]);
 
   // Chi tiết dự án vừa tải: áp việc và tab ghi trên đường dẫn (tải lại trang,
@@ -1118,6 +1124,9 @@ export function ProjectsView({
               initial={detail.project.finance}
               onChanged={() => void refreshDetail(detail.project.id)}
             />
+          ) : null}
+          {tab === 'vouchers' && detail.project.finance ? (
+            <TabVouchers projectId={detail.project.id} />
           ) : null}
           {tab === 'requests' ? (
             <TabRequests

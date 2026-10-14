@@ -2,7 +2,6 @@
 
 import type {
   HrmBoardCalendarDay,
-  HrmBoardDay,
   HrmBoardEmployee,
 } from '@enterprise-platform/contracts-hrm';
 import { formatDateVn } from '../hrm-timesheet-format';
@@ -40,13 +39,10 @@ function shiftIsoDate(date: string, delta: number): string {
   return new Date(Date.UTC(y, m - 1, d + delta)).toISOString().slice(0, 10);
 }
 
-/** Màu nền và viền ô: đi trễ hoặc về sớm tô đỏ; vắng đỏ nhạt; nghỉ phép xanh nhạt; ngày nghỉ xám nhạt. */
-function cellSurface(day: HrmBoardDay, tone: DayTone): string {
-  if (isLateOrEarly(day)) return 'border-red-300 bg-red-100';
-  if (tone === 'absent') return 'border-red-200 bg-red-50';
+/** Màu nền và viền ô: không tô nền khi đi trễ, về sớm, vắng hay thiếu dữ liệu (chỉ hiện số công và chấm màu); nghỉ phép, công tác, ngày nghỉ có nền nhạt. */
+function cellSurface(tone: DayTone): string {
   if (tone === 'leave') return 'border-blue-200 bg-blue-50';
   if (tone === 'trip') return 'border-indigo-200 bg-indigo-50';
-  if (tone === 'abnormal') return 'border-fuchsia-200 bg-fuchsia-50';
   if (tone === 'off') return 'border-slate-200 bg-slate-50';
   return 'border-slate-200 bg-white';
 }
@@ -81,7 +77,7 @@ export function MonthDotLegend() {
 
 /**
  * Lịch tháng của tôi: tuần bắt đầu từ thứ Hai, mỗi ô có số ngày, chấm màu theo trạng thái và giờ làm (ngày đã qua),
- * mã ca hoặc OFF (ngày chưa tới), ký hiệu đơn từ ở góc, đi trễ hoặc về sớm tô đỏ. Bấm ô để xem chi tiết ngày.
+ * mã ca hoặc OFF (ngày chưa tới), ký hiệu đơn từ ở góc, đi trễ hoặc về sớm không tô nền (chỉ hiện chữ Trễ/Sớm). Bấm ô để xem chi tiết ngày.
  */
 export function MyMonthCalendar({
   calendar,
@@ -187,10 +183,7 @@ export function MyMonthCalendar({
                       }`}
                       title={boardDayTooltip(day)}
                       onClick={() => onSelect(date)}
-                      className={`relative flex h-[84px] w-full cursor-pointer flex-col rounded-lg border px-2 py-1.5 text-left leading-none transition hover:border-blue-400 ${cellSurface(
-                        day,
-                        tone,
-                      )} ${selected ? 'border-blue-500 ring-1 ring-blue-500' : ''}`}
+                      className={`relative flex h-[84px] w-full cursor-pointer flex-col rounded-lg border px-2 py-1.5 text-left leading-none transition hover:border-blue-400 ${cellSurface(tone)} ${selected ? 'border-blue-500 ring-1 ring-blue-500' : ''}`}
                     >
                       <span className="flex items-start justify-between gap-1">
                         <span

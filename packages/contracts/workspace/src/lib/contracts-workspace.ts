@@ -1534,6 +1534,35 @@ export interface InternalProjectSummary {
   readonly launchUrl: string;
 }
 
+/** Dự án để module khác cho chọn (ví dụ hạch toán thu chi của Tài chính): chỉ nhãn và trạng thái. */
+export interface InternalProjectOption {
+  readonly id: string;
+  readonly code: string;
+  readonly name: string;
+  readonly status: ProjectStatus;
+}
+
+export interface InternalProjectOptionList {
+  readonly items: readonly InternalProjectOption[];
+  /** Có dự án khớp nhiều hơn số trả về (trần mỗi lần). */
+  readonly truncated: boolean;
+}
+
+/** Công việc của một dự án để module khác cho chọn; đã loại công việc bị huỷ hiệu lực. */
+export interface InternalWorkItemOption {
+  readonly id: string;
+  readonly code: string;
+  readonly title: string;
+  readonly status: WorkItemStatus;
+  readonly depth: number;
+}
+
+/**
+ * Trần số dự án trả về mỗi lần tra cứu danh sách nội bộ. Mỗi dòng chỉ là mã, tên, trạng thái nên 500 dòng vẫn nhẹ; module
+ * gọi lọc phía máy khách trong ô chọn (không có tìm kiếm từng phím), nên trần phải đủ rộng cho mọi tổ chức thực tế.
+ */
+export const INTERNAL_PROJECT_OPTION_LIMIT = 500;
+
 /** Trùng `launch_url` của module trong danh mục Platform (xem `apps/migrator`). */
 export const WORKSPACE_LAUNCH_URL = '/modules/workspace';
 

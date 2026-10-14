@@ -781,8 +781,7 @@ export type HrmRequestReasonKind =
   | 'ATTENDANCE_CORRECTION'
   | 'SHIFT_CHANGE'
   // Mã của loại đơn do quản trị tạo (engine GENERIC): lý do của loại đó dùng mã loại làm `kind`.
-  // eslint-disable-next-line @typescript-eslint/no-empty-object-type
-  | (string & {});
+  | (string & Record<never, never>);
 
 /**
  * Lý do của đơn từ: một mục trong DANH MỤC CẤU HÌNH, người làm đơn chỉ chọn, không nhập tự do.
@@ -2059,6 +2058,10 @@ export interface ApprovalRouteConfigItem {
   readonly procedureDefinitionId?: string | null;
   /** Tên quy trình; null khi không đọc được (Procedure Engine không khả dụng hoặc quy trình chưa công bố). */
   readonly procedureName?: string | null;
+  /** Id chức danh duyệt dự phòng khi mode là DIRECT (tuỳ chọn). */
+  readonly fallbackPositionId?: string | null;
+  /** Tên chức danh duyệt dự phòng. */
+  readonly fallbackPositionName?: string | null;
   /** Chỉ dòng theo lý do: true nếu lý do chưa có cấu hình riêng và đang dùng cấu hình chung của loại đơn. */
   readonly inherited: boolean;
   /** Id cấu hình đang áp dụng cho dòng này (null nếu mặc định chưa lưu hoặc đang kế thừa). */
@@ -2067,11 +2070,20 @@ export interface ApprovalRouteConfigItem {
   readonly conflict?: boolean;
 }
 
+/** Chức danh trong tổ chức dùng cho ô chọn dự phòng. */
+export interface ApprovalRoutePositionOption {
+  readonly id: string;
+  readonly code: string;
+  readonly name: string;
+}
+
 /** Phản hồi của GET và PUT /approval-config. */
 export interface ApprovalRouteConfigResult {
   readonly items: readonly ApprovalRouteConfigItem[];
   /** Procedure Engine dùng được cho tenant; false thì chỉ chọn được "Quản lý trực tiếp". */
   readonly procedureAvailable: boolean;
+  /** Danh sách chức danh để chọn duyệt dự phòng cho chế độ DIRECT. */
+  readonly positions?: readonly ApprovalRoutePositionOption[];
   /** Cảnh báo cấu hình khi gán quy trình (không chặn lưu); chỉ có ở phản hồi của PUT. */
   readonly warnings?: readonly string[];
 }
@@ -2082,12 +2094,14 @@ export interface ApprovalRouteConfigResult {
  * công tác, giải trình công, đổi ca); bỏ trống là cấu hình chung của loại đơn.
  * `INHERIT` chỉ hợp lệ khi có `reasonCode`: gỡ cấu hình riêng để lý do dùng lại cấu hình chung của loại đơn.
  * `procedureDefinitionId` bắt buộc khi `mode` là PROCEDURE.
+ * `fallbackPositionId` tuỳ chọn khi `mode` là DIRECT (chức danh duyệt dự phòng).
  */
 export interface SetApprovalRoutePayload {
   readonly requestKind: HrmRequestKind;
   readonly reasonCode?: string | null;
   readonly mode: ApprovalRouteMode | 'INHERIT';
   readonly procedureDefinitionId?: string;
+  readonly fallbackPositionId?: string | null;
 }
 
 /** Người duyệt dự kiến hiển thị cho người làm đơn trước khi gửi (GET /approval-route). */
@@ -2098,6 +2112,11 @@ export interface ApprovalRoutePreview {
     readonly employeeId: string;
     readonly fullName: string;
     readonly positionName: string | null;
+  } | null;
+  /** Chức danh duyệt dự phòng (chế độ DIRECT). */
+  readonly fallbackPosition?: {
+    readonly positionId: string;
+    readonly positionName: string;
   } | null;
   /** Chỉ có khi PROCEDURE: tên quy trình đã gắn (null nếu không đọc được). */
   readonly procedureName?: string | null;
@@ -2726,6 +2745,19 @@ export interface HrmTimesheetStandardPolicies {
   readonly policies: readonly HrmTimesheetStandardPolicy[];
   readonly currentMonth: string;
   readonly currentId: string | null;
+}
+
+/**
+ * Cấu hình chấm công tự động của tenant (tách khỏi phân ca): `weekdays` là các thứ áp dụng, 0 = Chủ nhật ... 6 = thứ Bảy.
+ * `enabledFrom` là ngày bật gần nhất; chỉ sinh chấm công cho các ngày từ ngày này trở đi.
+ * `ready` false khi tenant chưa chạy migration 0055 (chưa lưu được cấu hình).
+ */
+export interface HrmAutoAttendanceSettings {
+  readonly enabled: boolean;
+  readonly weekdays: readonly number[];
+  readonly enabledFrom: string | null;
+  readonly ready: boolean;
+  readonly updatedAt: string | null;
 }
 
 export interface HrmBoardEmployee {

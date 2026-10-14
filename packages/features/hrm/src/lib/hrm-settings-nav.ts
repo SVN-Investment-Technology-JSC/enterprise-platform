@@ -105,6 +105,14 @@ export const SETTINGS_GROUPS: readonly SettingsGroup[] = [
         tab: 'devices',
         permissions: ['hrm.device.manage'],
       },
+      {
+        id: 'auto-attendance',
+        label: 'Chấm công tự động',
+        description: 'Bật hoặc tắt tự sinh giờ vào/ra theo ca cho từng thứ trong tuần, không cần phân ca lại',
+        icon: 'rules',
+        view: 'auto-attendance',
+        permissions: ['hrm.time.configure'],
+      },
     ],
   },
   {

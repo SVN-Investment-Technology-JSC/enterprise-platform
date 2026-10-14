@@ -205,6 +205,9 @@ integration('Đơn từ theo từ ngày giờ đến ngày giờ và loại đơ
         controller().update(req, created.data.id, { expectedUpdatedAt: created.data.updatedAt, name: 'Cũ' }),
       ).rejects.toMatchObject({ status: 409 });
 
+      // Loại đang sử dụng chưa xoá được: phải ngừng sử dụng trước.
+      await expect(controller().remove(req, created.data.id)).rejects.toMatchObject({ status: 409 });
+      await controller().update(req, created.data.id, { expectedUpdatedAt: updated.data.updatedAt, active: false });
       const removed = await controller().remove(req, created.data.id);
       expect(removed.data).toMatchObject({ deleted: true });
       expect((await controller().listForManage(req)).data).toHaveLength(7);

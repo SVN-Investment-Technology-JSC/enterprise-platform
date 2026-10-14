@@ -858,7 +858,7 @@ describe('RequestReasonsScreen: loại đơn', () => {
     });
   });
 
-  it('loại hệ thống không có mục xóa; loại tuỳ chỉnh đã có đơn báo chỉ ngừng sử dụng', async () => {
+  it('mục xóa chỉ hiện với loại đã ngừng sử dụng (kể cả loại hệ thống)', async () => {
     types = [...systemTypes, customType];
     render(<RequestReasonsScreen />);
     await screen.findByTestId('type-BUSINESS_TRIP');
@@ -866,10 +866,19 @@ describe('RequestReasonsScreen: loại đơn', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Thiết lập loại đơn' }));
     expect(await screen.findByRole('menuitem', { name: 'Sửa loại đơn' })).toBeTruthy();
     expect(screen.queryByRole('menuitem', { name: 'Xóa loại đơn' })).toBeNull();
-    fireEvent.keyDown(window, { key: 'Escape' });
-    selectType('XIN_DI_MUON');
+  });
+
+  it('xóa loại hệ thống đã ngừng: xác nhận rồi gọi DELETE, báo kết quả của máy chủ', async () => {
+    types = systemTypes.map((t) => (t.code === 'BUSINESS_TRIP' ? { ...t, active: false, usageCount: 0 } : t));
+    render(<RequestReasonsScreen />);
+    await screen.findByTestId('type-BUSINESS_TRIP');
+    selectType('BUSINESS_TRIP');
     await typeMenu('Xóa loại đơn');
-    expect(await screen.findByText(/đã có 2 đơn nên không xóa được/)).toBeTruthy();
+    expect(writes()).toHaveLength(0);
+    fireEvent.click(await screen.findByRole('button', { name: 'Xóa loại đơn' }));
+    await waitFor(() => expect(writes()).toHaveLength(1));
+    expect(writes()[0]).toMatchObject({ method: 'DELETE' });
+    expect(writes()[0].path).toMatch(/^\/request-types\//);
   });
 
   it('Đơn xin nghỉ luôn bật: không có mục ngừng sử dụng loại đơn', async () => {

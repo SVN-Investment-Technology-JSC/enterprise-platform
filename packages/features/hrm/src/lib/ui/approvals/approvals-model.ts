@@ -167,7 +167,8 @@ export const fold = (s: string) =>
 /** Đơn chờ quá 2 ngày kể từ lúc gửi tính là quá hạn xử lý (không có SLA riêng cho duyệt trực tiếp). */
 export const OVERDUE_HOURS = 48;
 
-export type ApprovalTab = 'ALL' | 'MINE' | 'PROCESSING' | 'DONE';
+/** OVERDUE và DONE_MONTH không có tab riêng: chỉ đến từ việc bấm thẻ tổng quan "Quá hạn" và "Đã xử lý tháng này". */
+export type ApprovalTab = 'ALL' | 'MINE' | 'PROCESSING' | 'DONE' | 'OVERDUE' | 'DONE_MONTH';
 
 export interface ActionAbility {
   /** Đơn duyệt trực tiếp mà người dùng được duyệt. */
@@ -225,12 +226,14 @@ export interface ApprovalFilter {
   to: string;
 }
 
-export function filterApprovals(rows: readonly Row[], f: ApprovalFilter, a: ActionAbility): Row[] {
+export function filterApprovals(rows: readonly Row[], f: ApprovalFilter, a: ActionAbility, now: Date = new Date()): Row[] {
   const needle = fold(f.search);
   return rows.filter((r) => {
     if (f.tab === 'MINE' && !isMine(r, a)) return false;
     if (f.tab === 'PROCESSING' && !isProcessing(r, a)) return false;
     if (f.tab === 'DONE' && !isDone(r)) return false;
+    if (f.tab === 'OVERDUE' && !isOverdue(r, now)) return false;
+    if (f.tab === 'DONE_MONTH' && !(isDone(r) && decidedAt(r).slice(0, 7) === now.toISOString().slice(0, 7))) return false;
     if (f.kind && r.source.kind !== f.kind) return false;
     if (f.department && r.department !== f.department) return false;
     if (f.status && (f.status === 'PENDING' ? !isPendingStatus(r.status) : r.status !== f.status)) return false;
