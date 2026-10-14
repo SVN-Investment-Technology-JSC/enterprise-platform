@@ -29,8 +29,8 @@ export function ProjectHeader({
   const directory = useDirectory();
   const tone = PROJECT_STATUS_TONE[project.status];
   const facts = [
-    project.code,
-    ...(project.projectType ? [project.projectType] : []),
+    `ID: ${project.code}`,
+    ...(project.projectType ? [`Loại: ${project.projectType}`] : []),
     `${project.totalItems} công việc`,
     `${members.length} thành viên`,
     `${documentCount} tài liệu`,

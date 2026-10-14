@@ -58,6 +58,14 @@ import type {
   WorkItemProcedureRequestDraft,
 } from '../domain/workspace-procedure-link.js';
 
+/** Dữ liệu để ghi một dòng "đã xoá công việc" vào nhật ký dự án khi xoá. */
+export interface WorkItemDeletionLog {
+  readonly projectId: string;
+  readonly fromStatus: WorkItemStatus;
+  readonly note: string;
+  readonly createdBy: string;
+}
+
 /**
  * Cổng dữ liệu của Workspace.
  *
@@ -297,6 +305,20 @@ export interface WorkspaceStore {
       depthDelta: number,
     ): Promise<WorkItem>;
     applyProgress(tenantId: string, updates: ReadonlyMap<string, number>): Promise<void>;
+    /**
+     * Xoá hẳn công việc và toàn bộ nhánh con (ràng buộc khoá ngoại `parent_id`
+     * đổ dây — phụ thuộc, người cùng làm, lịch sử, chi phí đi theo). Khác với
+     * "Huỷ" (chuyển trạng thái `cancelled`, mở lại được): đã xoá là mất hẳn.
+     *
+     * `deletionLog` (nếu có): ghi MỘT dòng vào nhật ký dự án trước khi xoá, với
+     * `work_item_id = NULL` nên không bị `ON DELETE CASCADE` cuốn theo — tab Hoạt
+     * động vẫn thấy "đã xoá công việc …".
+     */
+    remove(
+      tenantId: string,
+      workItemId: string,
+      deletionLog?: WorkItemDeletionLog,
+    ): Promise<void>;
   };
 
   readonly tag: {

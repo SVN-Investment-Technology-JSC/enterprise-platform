@@ -70,6 +70,18 @@ export interface ProjectWorkItemInput {
   readonly plannedEnd?: string;
   readonly estimateHours?: number;
   readonly estimatedCost?: number;
+  /** Công việc cha trong dự án; bỏ trống nghĩa là đặt ở gốc dự án. */
+  readonly parentId?: string;
+  /** Người submit đơn, chọn trong danh sách người tham gia dự án. */
+  readonly submitterUserId?: string;
+}
+
+/** Một công việc trong dự án, cho ô chọn "Công việc cha". */
+export interface ProjectWorkItemOption {
+  readonly id: string;
+  readonly code: string;
+  readonly title: string;
+  readonly depth: number;
 }
 
 interface ProjectRow {
@@ -158,6 +170,30 @@ export async function loadWorkItemProjectId(workItemId: string): Promise<string 
     return item.projectId;
   } catch {
     return undefined;
+  }
+}
+
+/**
+ * Danh sách công việc của một dự án (cây phẳng), cho ô chọn "Công việc cha".
+ * Lỗi mạng / Workspace tắt thì trả mảng rỗng: vẫn tạo được đơn, chỉ là không
+ * gắn công việc cha.
+ */
+export async function loadProjectWorkItems(projectId: string): Promise<ProjectWorkItemOption[]> {
+  try {
+    const body = await request<{
+      items?: { id: string; code: string; title: string; depth?: number; status?: string }[];
+    }>(`/projects/${projectId}/work-items`, { cache: 'no-store' });
+    return (body.items ?? [])
+      // Công việc đã đóng không nhận việc con mới.
+      .filter((item) => !item.status || !CLOSED_STATUSES.has(item.status))
+      .map((item) => ({
+        id: item.id,
+        code: item.code,
+        title: item.title,
+        depth: item.depth ?? 0,
+      }));
+  } catch {
+    return [];
   }
 }
 

@@ -448,7 +448,8 @@ export interface AddDependencyRequest {
 
 export interface WorkItemStatusHistoryEntry {
   readonly id: string;
-  readonly workItemId: string;
+  /** Rỗng với dòng ghi "đã xoá công việc": công việc đã bị gỡ nhưng vẫn giữ vết trong nhật ký dự án. */
+  readonly workItemId?: string;
   readonly fromStatus?: WorkItemStatus;
   readonly toStatus: WorkItemStatus;
   readonly note?: string;

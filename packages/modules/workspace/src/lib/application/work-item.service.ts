@@ -20,6 +20,7 @@ import {
   type WorkItemProcedureRequest,
 } from '@enterprise-platform/contracts-workspace';
 import {
+  autoCompleteParents,
   isClosed,
   projectProgress,
   rollUpProgress,
@@ -712,10 +713,32 @@ export class WorkItemService {
     const changed = rollUpProgress(nodes);
     await this.store.workItem.applyProgress(actor.tenantId, changed);
 
+    // Công việc cha tự hoàn thành khi mọi việc con đã xong. Gọi thẳng store
+    // (không qua `changeStatus` của service) nên không lặp lại recalculate, và
+    // cũng không vướng hàng rào "việc con chưa đóng" — ở đây con đã xong hết.
+    const toComplete = autoCompleteParents(nodes);
+    if (toComplete.size > 0) {
+      const today = todayKey(timezoneOf(actor.tenantId));
+      for (const parentId of toComplete) {
+        await this.store.workItem.changeStatus(
+          actor.tenantId,
+          parentId,
+          actor.userId,
+          'done',
+          'Tự động hoàn thành khi mọi công việc con đã xong.',
+          today,
+        );
+      }
+    }
+
     // Dùng giá trị vừa tính, không đọc lại từ CSDL: bản ghi vừa ghi xong.
     const updated = nodes.map((node) => ({
       ...node,
-      progressPercent: changed.get(node.id) ?? node.progressPercent,
+      // Cha vừa tự hoàn thành thì tiến độ coi như 100% cho phép tính dự án.
+      status: toComplete.has(node.id) ? 'done' : node.status,
+      progressPercent: toComplete.has(node.id)
+        ? 100
+        : (changed.get(node.id) ?? node.progressPercent),
     }));
     await this.store.project.updateProgress(actor.tenantId, projectId, projectProgress(updated));
   }

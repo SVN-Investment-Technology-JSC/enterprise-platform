@@ -1070,8 +1070,11 @@ export class ProcedureEngineApplication {
     const target = snapshot.find((candidate) => candidate.id === instanceId);
     if (!target) throw new ProcedureEngineError('not_found', 'Không tìm thấy hồ sơ.');
     if (target.status === 'reversed') return target;
-    if (target.status !== 'completed') {
-      throw new ProcedureEngineError('conflict', 'Chỉ huỷ hiệu lực được hồ sơ đã hoàn thành.');
+    if (target.status !== 'completed' && target.status !== 'rejected') {
+      throw new ProcedureEngineError(
+        'conflict',
+        'Chỉ huỷ hiệu lực được hồ sơ đã hoàn thành hoặc đã từ chối.',
+      );
     }
     this.assertReversible(snapshot, target);
     // Hỏi module nguồn TRƯỚC khi đổi trạng thái: bên kia từ chối thì bên này
@@ -1082,8 +1085,11 @@ export class ProcedureEngineApplication {
       const instance = state.instances.find((candidate) => candidate.id === instanceId);
       if (!instance) throw new ProcedureEngineError('not_found', 'Không tìm thấy hồ sơ.');
       if (instance.status === 'reversed') return instance;
-      if (instance.status !== 'completed') {
-        throw new ProcedureEngineError('conflict', 'Chỉ huỷ hiệu lực được hồ sơ đã hoàn thành.');
+      if (instance.status !== 'completed' && instance.status !== 'rejected') {
+        throw new ProcedureEngineError(
+          'conflict',
+          'Chỉ huỷ hiệu lực được hồ sơ đã hoàn thành hoặc đã từ chối.',
+        );
       }
       // Kiểm lại trong transaction: một hồ sơ xin vật tư có thể vừa được mở.
       this.assertReversible(state.instances, instance);

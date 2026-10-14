@@ -56,6 +56,21 @@ export interface WorkItemFormProps {
   readonly initialCost?: WorkItemCost;
   /** Tạo công việc điều chỉnh cho công việc đã huỷ hiệu lực: điền sẵn từ công việc gốc. */
   readonly adjustmentOf?: WorkItem;
+  /**
+   * Danh sách chọn "Công việc cha" khi tạo mới — mỗi mục đã thụt lề theo cấp.
+   * Ô chọn luôn hiện thêm mục "Gốc dự án" (giá trị rỗng) ở đầu. Vắng thì chỉ
+   * có mỗi "Gốc dự án".
+   */
+  readonly parentOptions?: ReadonlyArray<{ readonly id: string; readonly label: string }>;
+  /** Công việc cha chọn sẵn; rỗng nghĩa là "Gốc dự án". */
+  readonly defaultParentId?: string;
+  /**
+   * Danh sách dự án. Có thì form dựng thêm ô "Dự án" (bắt buộc) ở trên cùng —
+   * dùng cho trang "Công việc của tôi", nơi chưa có dự án đang mở.
+   */
+  readonly projectOptions?: ReadonlyArray<{ readonly id: string; readonly label: string }>;
+  /** Người dùng đổi dự án: nơi gọi nạp lại danh sách công việc cha của dự án đó. */
+  readonly onProjectChange?: (projectId: string) => void;
 }
 
 /**
@@ -69,6 +84,8 @@ export interface WorkItemCostInput {
 }
 
 interface FormState {
+  projectId: string;
+  parentId: string;
   title: string;
   description: string;
   itemType: WorkItemType;
@@ -85,6 +102,8 @@ interface FormState {
 }
 
 const EMPTY: FormState = {
+  projectId: '',
+  parentId: '',
   title: '',
   description: '',
   itemType: 'task',
@@ -113,6 +132,10 @@ export function WorkItemForm({
   financeEnabled = false,
   initialCost,
   adjustmentOf,
+  parentOptions,
+  defaultParentId,
+  projectOptions,
+  onProjectChange,
 }: WorkItemFormProps) {
   const directory = useDirectory();
   const [form, setForm] = useState<FormState>(EMPTY);
@@ -133,6 +156,8 @@ export function WorkItemForm({
     setForm(
       item
         ? {
+            projectId: '',
+            parentId: item.parentId ?? '',
             title: item.title,
             description: item.description ?? '',
             itemType: item.itemType,
@@ -150,6 +175,7 @@ export function WorkItemForm({
         : adjustmentOf
           ? {
               ...EMPTY,
+              parentId: defaultParentId ?? '',
               // Điều chỉnh làm lại phần việc cũ: giữ nội dung, người làm và lịch,
               // còn cách thực hiện để thủ công — quy trình gắn công việc gốc đã huỷ.
               title: `Điều chỉnh ${adjustmentOf.code}: ${adjustmentOf.title}`.slice(0, 200),
@@ -164,11 +190,11 @@ export function WorkItemForm({
               estimateHours:
                 adjustmentOf.estimateHours == null ? '' : String(adjustmentOf.estimateHours),
             }
-          : EMPTY,
+          : { ...EMPTY, parentId: defaultParentId ?? parent?.id ?? '' },
     );
     setError(undefined);
     setSubmitting(false);
-  }, [open, item, initialCost, adjustmentOf]);
+  }, [open, item, initialCost, adjustmentOf, defaultParentId, parent?.id]);
 
   const set = (patch: Partial<FormState>) => setForm((current) => ({ ...current, ...patch }));
 
@@ -234,13 +260,18 @@ export function WorkItemForm({
           estimateHours: isPhase ? null : (hours ?? null),
         }, costs);
       } else {
+        if (projectOptions && !form.projectId) {
+          setError('Hãy chọn dự án cho công việc này.');
+          setSubmitting(false);
+          return;
+        }
         if (form.executionType === 'procedure' && !form.procedureDefinitionId) {
           setError('Hãy chọn quy trình sẽ mở cho công việc này.');
           setSubmitting(false);
           return;
         }
         await onCreate({
-          parentId: parent?.id,
+          parentId: form.parentId || undefined,
           title: form.title,
           description: form.description || undefined,
           itemType: form.itemType,
@@ -284,6 +315,24 @@ export function WorkItemForm({
       onClose={onClose}
       onSubmit={() => void submit()}
     >
+      {!item && projectOptions ? (
+        <Field label="Dự án">
+          <Choice
+            label="Dự án"
+            value={form.projectId}
+            required
+            placeholder="Chọn dự án…"
+            options={projectOptions.map((option) => ({ value: option.id, label: option.label }))}
+            onChange={(value) => {
+              // Đổi dự án thì cây công việc cha cũng khác: về "Gốc dự án" và báo
+              // nơi gọi nạp lại danh sách công việc cha của dự án mới.
+              set({ projectId: value, parentId: '' });
+              onProjectChange?.(value);
+            }}
+          />
+        </Field>
+      ) : null}
+
       <Field label="Tên công việc">
         <input
           value={form.title}
@@ -300,6 +349,24 @@ export function WorkItemForm({
           onChange={(event) => set({ description: event.target.value })}
         />
       </Field>
+
+      {item ? null : (
+        <Field label="Công việc cha" hint="Để trống thì công việc nằm ở cấp gốc của dự án.">
+          <Choice
+            label="Công việc cha"
+            value={form.parentId}
+            placeholder="Chọn công việc cha…"
+            options={[
+              { value: '', label: 'Gốc dự án' },
+              ...(parentOptions ?? []).map((option) => ({
+                value: option.id,
+                label: option.label,
+              })),
+            ]}
+            onChange={(value) => set({ parentId: value })}
+          />
+        </Field>
+      )}
 
       <div className={styles.fieldRow}>
         {item ? null : (

@@ -6,7 +6,7 @@ import {
   type ProjectRole,
 } from '@enterprise-platform/contracts-workspace';
 import { Trash2 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ROLE_LABELS } from '../workspace-labels';
 import styles from '../workspace.module.scss';
 import { Choice } from './choice';
@@ -45,14 +45,23 @@ export function MembersDialog({
 }: MembersDialogProps) {
   const directory = useDirectory();
   const [rows, setRows] = useState<Row[]>([]);
-  const [adding, setAdding] = useState<string[]>([]);
   const [error, setError] = useState<string>();
   const [submitting, setSubmitting] = useState(false);
 
+  // Chỉ nạp lại danh sách khi hộp thoại MỞ, không phải mỗi lần `members` đổi
+  // tham chiếu: trang cha có thể tự tải lại chi tiết dự án (poll tin chưa đọc,
+  // kéo tiến độ quy trình…) khi hộp thoại đang mở, và nếu nạp lại theo `members`
+  // thì mỗi lần như vậy sẽ xoá sạch những người vừa thêm — đúng lỗi "chọn người
+  // sau mất người trước".
+  const initialized = useRef(false);
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      initialized.current = false;
+      return;
+    }
+    if (initialized.current) return;
+    initialized.current = true;
     setRows(members.map((member) => ({ userId: member.userId, role: member.role })));
-    setAdding([]);
     setError(undefined);
     setSubmitting(false);
   }, [open, members]);
@@ -68,19 +77,24 @@ export function MembersDialog({
       }),
     );
 
+  /** Thêm người vừa chọn thành một dòng mới, vai trò mặc định Thành viên. */
+  const addPerson = (userId: string) => {
+    setRows((current) =>
+      current.some((row) => row.userId === userId)
+        ? current
+        : [...current, { userId, role: 'member' }],
+    );
+  };
+
   const submit = async () => {
-    const next: Row[] = [
-      ...rows,
-      ...adding.map((userId) => ({ userId, role: 'member' as ProjectRole })),
-    ];
-    if (next.filter((row) => row.role === 'owner').length !== 1) {
+    if (rows.filter((row) => row.role === 'owner').length !== 1) {
       setError('Dự án phải có đúng một chủ nhiệm.');
       return;
     }
     setError(undefined);
     setSubmitting(true);
     try {
-      await onSave(next);
+      await onSave(rows);
       onClose();
     } catch (cause) {
       setError((cause as { message?: string })?.message ?? 'Không lưu được danh sách thành viên.');
@@ -137,11 +151,16 @@ export function MembersDialog({
         })}
       </ul>
 
-      <Field label="Thêm người" hint="Người mới vào với vai trò Thành viên; đổi vai trò sau khi lưu.">
+      <Field
+        label="Thêm người"
+        hint="Người vừa chọn hiện thành một dòng bên trên; chọn vai trò ngay tại dòng đó."
+      >
         <PeoplePicker
           people={directory.people}
-          selected={adding}
-          onChange={setAdding}
+          // Người đã thêm hiện thành dòng có ô vai trò ở trên, nên ô tìm không
+          // giữ lại "chip": chọn xong là thêm ngay rồi xoá từ khoá.
+          selected={[]}
+          onChange={(userIds) => userIds.forEach(addPerson)}
           nameOf={directory.nameOf}
           exclude={rows.map((row) => row.userId)}
           degraded={directory.degraded}

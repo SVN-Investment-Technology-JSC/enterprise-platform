@@ -56,6 +56,8 @@ export interface ProcedureLinkRequestedPayload {
     readonly description?: string;
     readonly priority?: 'low' | 'normal' | 'high' | 'urgent';
     readonly assigneeUserId?: string;
+    readonly parentId?: string;
+    readonly submitterUserId?: string;
     readonly plannedStart?: string;
     readonly plannedEnd?: string;
     readonly estimateHours?: number;

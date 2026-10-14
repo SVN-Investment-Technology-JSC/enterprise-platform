@@ -22,6 +22,7 @@ import {
 import { ProjectService } from './application/project.service.js';
 import { ReportService } from './application/report.service.js';
 import { WorkItemService } from './application/work-item.service.js';
+import { WorkItemDeletionService } from './application/work-item-deletion.service.js';
 import { HttpProcedureReversalChecker } from './infrastructure/http-procedure-reversal-check.js';
 import { WorkspaceApplication } from './application/workspace.application.js';
 import { WORKSPACE_STORE, type WorkspaceStore } from './application/workspace-store.port.js';
@@ -80,6 +81,14 @@ import { WorkspaceController } from './presentation/workspace.controller.js';
       provide: WorkItemService,
       useFactory: (store: WorkspaceStore, projects: ProjectService) =>
         new WorkItemService(store, projects, new HttpProcedureReversalChecker()),
+      inject: [WORKSPACE_STORE, ProjectService],
+    },
+    {
+      // Xoá công việc tách khỏi `WorkItemService`: chỉ cần store và phân giải
+      // vai trò dự án, không kéo theo phụ thuộc kiểm quy trình.
+      provide: WorkItemDeletionService,
+      useFactory: (store: WorkspaceStore, projects: ProjectService) =>
+        new WorkItemDeletionService(store, projects),
       inject: [WORKSPACE_STORE, ProjectService],
     },
     {
