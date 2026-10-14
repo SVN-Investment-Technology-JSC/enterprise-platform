@@ -13,6 +13,7 @@ import {
   categoryLabel,
   useRealtimeNotifications,
 } from './notification-center';
+import { subscribeRealtime, subscribeRealtimeStatus } from './realtime-bus';
 
 const first: NotificationRecord = {
   id: 'notification-1',
@@ -209,6 +210,43 @@ describe('NotificationProvider', () => {
     await waitFor(() => expect(screen.getByText(/Yêu cầu cần duyệt/)).toBeTruthy());
     expect(screen.getByLabelText('unread').textContent).toBe('2');
     expect(screen.getByLabelText('sequence').textContent).toBe('11');
+  });
+
+  it('routes chat signals to the realtime bus without touching the notification sequence', async () => {
+    const fixture = fakeClient();
+    await renderProvider(fixture.client);
+    const handlers = fixture.getHandlers();
+    const heard = jest.fn();
+    const status = jest.fn();
+    const off = subscribeRealtime(heard);
+    const offStatus = subscribeRealtimeStatus(status);
+
+    const chat: RealtimeEventEnvelope = {
+      id: 'chat-1:user-a',
+      event: 'workspace.chat.changed',
+      version: 1,
+      tenantId: 'tenant-a',
+      userId: 'user-a',
+      sequence: 1,
+      occurredAt: '2026-10-01T07:00:00.000Z',
+      data: { channelId: 'c1' },
+    };
+    await act(async () => {
+      handlers?.onEvent(chat);
+    });
+
+    expect(heard).toHaveBeenCalledWith(chat);
+    // Sequence của tín hiệu chat (luôn 1) không được kéo lastSequence về 1.
+    expect(screen.getByLabelText('sequence').textContent).toBe('10');
+    expect(fixture.client.sync).not.toHaveBeenCalled();
+
+    await act(async () => handlers?.onConnected());
+    expect(status).toHaveBeenCalledWith(true);
+    await act(async () => handlers?.onDisconnected?.());
+    expect(status).toHaveBeenCalledWith(false);
+
+    off();
+    offStatus();
   });
 
   it('syncs from the last sequence when the socket connects or reconnects', async () => {

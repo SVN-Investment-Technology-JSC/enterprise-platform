@@ -42,6 +42,7 @@ import {
   type NotificationSummary,
   type RealtimeEventEnvelope,
 } from './notification-client';
+import { publishRealtimeEvent, publishRealtimeStatus } from './realtime-bus';
 import { SearchableSelect, type SearchableSelectOption } from './searchable-select';
 import { toast } from './sonner';
 import styles from './notification-center.module.css';
@@ -235,12 +236,22 @@ export function NotificationProvider({ children, client: suppliedClient }: Notif
             if (!active) return;
             commit((current) => ({ ...current, connected: true }));
             enqueue(reconcile);
+            publishRealtimeStatus(true);
           },
           onDisconnected: () => {
-            if (active) commit((current) => ({ ...current, connected: false }));
+            if (!active) return;
+            commit((current) => ({ ...current, connected: false }));
+            publishRealtimeStatus(false);
           },
           onEvent: (event) => {
-            if (active) enqueue(() => handleRealtimeEvent(event));
+            if (!active) return;
+            // Sự kiện không thuộc chuỗi thông báo (sequence riêng) phải đi đường
+            // khác, nếu không sẽ làm lệch `lastSequence` và gây đồng bộ lại vô ích.
+            if (event.event === 'workspace.chat.changed') {
+              publishRealtimeEvent(event);
+              return;
+            }
+            enqueue(() => handleRealtimeEvent(event));
           },
           onSessionRevoked: (reason) => {
             if (!active) return;
@@ -263,6 +274,9 @@ export function NotificationProvider({ children, client: suppliedClient }: Notif
     return () => {
       active = false;
       connection?.disconnect();
+      // Đóng kết nối chủ động không bắn `onDisconnected` (đã `active = false`):
+      // báo ở đây để chỉ báo trạng thái không kẹt ở "đang nối".
+      if (connection) publishRealtimeStatus(false);
     };
   }, [client, commit, handleRealtimeEvent, loadPage, reconcile]);
 
