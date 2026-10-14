@@ -337,9 +337,12 @@ export function OrganizationFlow({
           managerName = uName;
         } else {
           // Multiple assignees
-          const primaryAssignee = posAssignees.find((a) => a.isPrimary);
-          if (primaryAssignee) {
-            const uName = userNames.get(primaryAssignee.userId) ?? 'Nhân sự';
+          // Một chức danh có thể có nhiều người cùng giữ vị trí chính.
+          const primaryAssignees = posAssignees.filter((a) => a.isPrimary);
+          if (primaryAssignees.length > 0) {
+            const uName = primaryAssignees
+              .map((a) => userNames.get(a.userId) ?? 'Nhân sự')
+              .join(', ');
             managerDisplay = `${headPosition.name} - ${uName}`;
             managerName = uName;
           } else {

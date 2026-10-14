@@ -23,10 +23,15 @@ import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import { toast } from '@/components/ui/sonner';
 import { cn } from '@/lib/utils';
 import type { Assignment, Node } from './organization-workspace';
+import {
+  findPrimaryElsewhere,
+  isConcurrentHolder,
+} from './organization-primary-position';
 
 export function OrganizationNodeInspector({
   selectedNode,
   nodes,
+  allNodes,
   assignments,
   users,
   onSaveNode,
@@ -34,11 +39,14 @@ export function OrganizationNodeInspector({
   onQuickAssign,
   onQuickUnassign,
   onSetPrimaryAssignment,
+  onUnsetPrimaryAssignment,
   onSelectNode,
   onClose,
 }: {
   selectedNode?: Node;
   nodes: Node[];
+  /** Mọi node (mọi sơ đồ) để tra tên chức danh mà nhân sự đang giữ vị trí chính; mặc định dùng `nodes`. */
+  allNodes?: Node[];
   assignments: Assignment[];
   users: { id: string; fullName: string; email: string }[];
   onSaveNode: (nodeId: string, data: Partial<Node>) => Promise<void>;
@@ -47,6 +55,7 @@ export function OrganizationNodeInspector({
   onQuickAssign?: (nodeId: string, userId: string, isPrimary?: boolean) => Promise<unknown>;
   onQuickUnassign?: (assignmentId: string) => Promise<unknown>;
   onSetPrimaryAssignment?: (assignmentId: string, nodeId: string) => Promise<unknown>;
+  onUnsetPrimaryAssignment?: (assignmentId: string) => Promise<unknown>;
   onSelectNode?: (nodeId: string) => void;
   /** Có thì hiện nút đóng ở đầu khung (khung nằm cạnh canvas, không phải ngăn kéo). */
   onClose?: () => void;
@@ -94,6 +103,11 @@ export function OrganizationNodeInspector({
         user: userMap.get(a.userId),
       }));
   }, [selectedNode, assignments, userMap]);
+
+  const nodeNameById = useMemo(
+    () => new Map((allNodes ?? nodes).map((n) => [n.id, n.name])),
+    [allNodes, nodes],
+  );
 
   // Potential parent nodes (exclude self and avoid cycles)
   const availableParents = useMemo(() => {
@@ -164,16 +178,22 @@ export function OrganizationNodeInspector({
   const assignableUsers = users.filter(
     (u) => !nodeAssignees.some((a) => a.userId === u.id),
   );
+  const primaryNodeNameOf = (userId: string) => {
+    const primary = findPrimaryElsewhere(assignments, userId, selectedNode.id);
+    return primary ? (nodeNameById.get(primary.nodeId) ?? 'chức danh khác') : undefined;
+  };
+  const pickedUserPrimaryNode = assignUserId ? primaryNodeNameOf(assignUserId) : undefined;
 
   const handleAssign = async () => {
     if (!onQuickAssign || !assignUserId) return;
     setAssigning(true);
     try {
-      // Người đầu tiên của chức danh mặc định là vị trí chính.
+      // Người đầu tiên của chức danh mặc định là vị trí chính, trừ khi người đó đã giữ vị trí chính ở chức danh khác (khi đó là kiêm nhiệm).
       const result = await onQuickAssign(
         selectedNode.id,
         assignUserId,
-        nodeAssignees.length === 0,
+        nodeAssignees.length === 0 &&
+          !findPrimaryElsewhere(assignments, assignUserId, selectedNode.id),
       );
       if (result) {
         toast.success('Đã bổ nhiệm nhân sự vào chức danh.');
@@ -478,11 +498,18 @@ export function OrganizationNodeInspector({
                 </div>
               ) : null}
 
+              <p className="text-[11px] leading-snug text-slate-500">
+                Một chức danh có thể có nhiều người giữ vị trí chính, nhưng mỗi người chỉ giữ vị trí chính ở một chức danh.
+              </p>
+
               {/* Danh sách nhân sự hiện tại */}
               {nodeAssignees.length > 0 ? (
                 <div className="divide-y divide-slate-100 rounded-lg border border-slate-200 bg-white">
-                  {nodeAssignees.map((item) => (
-                    <div key={item.id} className="flex items-center justify-between p-2.5 text-xs">
+                  {nodeAssignees.map((item) => {
+                    const primaryAt = item.isPrimary ? undefined : primaryNodeNameOf(item.userId);
+                    const concurrent = isConcurrentHolder(assignments, item);
+                    return (
+                    <div key={item.id} className="flex items-center justify-between gap-2 p-2.5 text-xs">
                       <div className="flex items-center gap-2 min-w-0">
                         <div className="grid size-7 shrink-0 place-items-center rounded-full bg-blue-100 font-semibold text-blue-700 text-xs">
                           {item.user?.fullName ? item.user.fullName.charAt(0).toUpperCase() : 'U'}
@@ -494,22 +521,55 @@ export function OrganizationNodeInspector({
                           <p className="text-[11px] text-slate-500 truncate">
                             {item.user?.email ?? ''}
                           </p>
+                          {primaryAt ? (
+                            <p className="mt-0.5 flex items-start gap-1 text-[10.5px] leading-snug text-amber-700">
+                              <AlertTriangle className="mt-px size-3 shrink-0" />
+                              <span>Đang giữ vị trí chính tại &ldquo;{primaryAt}&rdquo;</span>
+                            </p>
+                          ) : null}
                         </div>
                       </div>
                       <div className="flex items-center gap-1.5 shrink-0">
                         {item.isPrimary ? (
-                          <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 border border-amber-200">
-                            Vị trí chính
-                          </span>
-                        ) : canUpdate && onSetPrimaryAssignment ? (
-                          <button
-                            type="button"
-                            onClick={() => void onSetPrimaryAssignment(item.id, item.nodeId)}
-                            className="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-medium text-slate-600 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 cursor-pointer"
-                          >
-                            Đặt làm chính
-                          </button>
-                        ) : null}
+                          <>
+                            <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 border border-amber-200">
+                              Vị trí chính
+                            </span>
+                            {canUpdate && onUnsetPrimaryAssignment ? (
+                              <button
+                                type="button"
+                                onClick={() => void onUnsetPrimaryAssignment(item.id)}
+                                className="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-medium text-slate-600 hover:border-red-300 hover:bg-red-50 hover:text-red-700 cursor-pointer"
+                                title="Bỏ vị trí chính ở chức danh này"
+                              >
+                                Bỏ chính
+                              </button>
+                            ) : null}
+                          </>
+                        ) : (
+                          <>
+                            {concurrent ? (
+                              <span className="rounded bg-violet-50 px-1.5 py-0.5 text-[10px] font-semibold text-violet-700 border border-violet-200">
+                                Kiêm nhiệm
+                              </span>
+                            ) : null}
+                            {canUpdate && onSetPrimaryAssignment ? (
+                              <button
+                                type="button"
+                                disabled={Boolean(primaryAt)}
+                                onClick={() => void onSetPrimaryAssignment(item.id, item.nodeId)}
+                                title={
+                                  primaryAt
+                                    ? `Nhân sự đang giữ vị trí chính tại "${primaryAt}". Hãy bỏ vị trí chính ở đó trước.`
+                                    : 'Đặt làm vị trí chính'
+                                }
+                                className="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-medium text-slate-600 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-slate-200 disabled:hover:bg-white disabled:hover:text-slate-600"
+                              >
+                                Đặt làm chính
+                              </button>
+                            ) : null}
+                          </>
+                        )}
                         {canDelete && onQuickUnassign ? (
                           <Popconfirm
                             title="Gỡ bổ nhiệm?"
@@ -531,7 +591,8 @@ export function OrganizationNodeInspector({
                         ) : null}
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               ) : (
                 <div className="rounded-lg border border-dashed border-slate-200 p-3 text-center text-xs text-slate-400">
@@ -547,10 +608,14 @@ export function OrganizationNodeInspector({
                       value={assignUserId}
                       onChange={(v) => setAssignUserId(v)}
                       placeholder="Chọn nhân sự để bổ nhiệm"
-                      options={assignableUsers.map((u) => ({
-                        value: u.id,
-                        label: u.email ? `${u.fullName} (${u.email})` : u.fullName,
-                      }))}
+                      options={assignableUsers.map((u) => {
+                        const at = primaryNodeNameOf(u.id);
+                        return {
+                          value: u.id,
+                          label: u.email ? `${u.fullName} (${u.email})` : u.fullName,
+                          description: at ? `Đang giữ vị trí chính tại: ${at}` : undefined,
+                        };
+                      })}
                     />
                   </div>
                   <Button
@@ -561,6 +626,14 @@ export function OrganizationNodeInspector({
                   >
                     {assigning ? <Loader2 className="size-3.5 animate-spin" /> : 'Bổ nhiệm'}
                   </Button>
+                </div>
+              ) : null}
+              {canCreate && onQuickAssign && pickedUserPrimaryNode ? (
+                <div className="flex items-start gap-1.5 rounded-md border border-amber-200 bg-amber-50/70 p-2 text-[11px] leading-snug text-amber-800">
+                  <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-amber-600" />
+                  <span>
+                    Nhân sự này đang giữ vị trí chính tại &ldquo;{pickedUserPrimaryNode}&rdquo;. Bổ nhiệm vào chức danh này sẽ là kiêm nhiệm; muốn đặt vị trí chính ở đây, hãy bỏ vị trí chính ở chức danh kia trước.
+                  </span>
                 </div>
               ) : null}
             </div>
