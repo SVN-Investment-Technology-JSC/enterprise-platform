@@ -1,6 +1,10 @@
+import { PROJECT_PERMISSION_LABELS } from '@enterprise-platform/contracts-workspace';
 import { projectProgress, rollUpProgress, type ProgressNode } from '../domain/progress.rules.js';
-import { ProjectRoleForbiddenError, WorkItemNotFoundError } from '../domain/workspace.error.js';
-import { type ProjectService } from './project.service.js';
+import {
+  ProjectPermissionForbiddenError,
+  WorkItemNotFoundError,
+} from '../domain/workspace.error.js';
+import { permissionsOf, type ProjectService } from './project.service.js';
 import type { WorkspaceActor } from './workspace.application.js';
 import type { WorkspaceStore } from './workspace-store.port.js';
 
@@ -25,11 +29,12 @@ export class WorkItemDeletionService {
     const item = await this.store.workItem.findById(actor.tenantId, workItemId);
     if (!item) throw new WorkItemNotFoundError(workItemId);
 
-    // Chỉ chủ nhiệm (vai 'owner' của dự án). KHÔNG dùng `hasProjectRole` vì nó
-    // cho quản trị tenant đi tắt — yêu cầu nghiệp vụ là chỉ chủ nhiệm xoá được.
+    // Chỉ thành viên mà vai trò có quyền "Có thể xoá công việc" (mặc định chỉ
+    // chủ nhiệm). KHÔNG dùng `hasProjectPermission` vì nó cho quản trị tenant
+    // đi tắt — yêu cầu nghiệp vụ là phải giữ vai trò có quyền xoá trong dự án.
     const access = await this.projects.access(actor, item.projectId);
-    if (access.role !== 'owner') {
-      throw new ProjectRoleForbiddenError('chủ nhiệm dự án');
+    if (!permissionsOf(access).has('work_item.delete')) {
+      throw new ProjectPermissionForbiddenError(PROJECT_PERMISSION_LABELS['work_item.delete']);
     }
 
     await this.store.workItem.remove(actor.tenantId, workItemId, {

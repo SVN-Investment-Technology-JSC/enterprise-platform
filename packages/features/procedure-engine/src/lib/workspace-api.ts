@@ -90,6 +90,16 @@ interface ProjectRow {
   readonly name: string;
   readonly status?: string;
   readonly myRole?: string;
+  /** Quyền theo vai trò do tenant cấu hình; server cũ chưa trả thì dựa vào `myRole`. */
+  readonly myPermissions?: readonly string[];
+}
+
+function canWrite(row: ProjectRow): boolean {
+  if (!row.myPermissions) return WRITER_ROLES.has(row.myRole ?? '');
+  return (
+    row.myPermissions.includes('project.update_all') ||
+    row.myPermissions.includes('project.update_related')
+  );
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -128,13 +138,15 @@ export async function loadRelatedProjects(): Promise<RelatedProject[]> {
     return [];
   }
   return rows
-    .filter((row) => row.myRole && WRITER_ROLES.has(row.myRole))
+    .filter((row) => row.myRole && canWrite(row))
     .filter((row) => !row.status || !CLOSED_STATUSES.has(row.status))
     .map((row) => ({
       id: row.id,
       code: row.code,
       name: row.name,
-      canAssignOthers: ASSIGNER_ROLES.has(row.myRole ?? ''),
+      canAssignOthers: row.myPermissions
+        ? row.myPermissions.includes('project.update_all')
+        : ASSIGNER_ROLES.has(row.myRole ?? ''),
     }))
     .sort((left, right) => left.code.localeCompare(right.code));
 }

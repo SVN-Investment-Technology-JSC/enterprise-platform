@@ -502,6 +502,10 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       version: '0019-workspace-status-history-deletion-log',
       path: 'tenant/workspace/0019-workspace-status-history-deletion-log.sql',
     },
+    {
+      version: '0020-workspace-project-role-definitions',
+      path: 'tenant/workspace/0020-workspace-project-role-definitions.sql',
+    },
   ],
 };
 

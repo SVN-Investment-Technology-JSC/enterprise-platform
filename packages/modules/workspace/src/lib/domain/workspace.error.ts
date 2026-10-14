@@ -85,6 +85,26 @@ export class ProjectRoleForbiddenError extends WorkspaceError {
   }
 }
 
+/** Vai trò của người gọi trong dự án không có quyền cần cho thao tác này. */
+export class ProjectPermissionForbiddenError extends WorkspaceError {
+  constructor(permissionLabel: string) {
+    super(
+      'PROJECT_PERMISSION_FORBIDDEN',
+      `Vai trò của bạn trong dự án chưa có quyền "${permissionLabel}".`,
+      403,
+    );
+    Object.setPrototypeOf(this, ProjectPermissionForbiddenError.prototype);
+  }
+}
+
+/** Vai trò dự án không tìm thấy. */
+export class ProjectRoleNotFoundError extends WorkspaceError {
+  constructor(key: string) {
+    super('PROJECT_ROLE_NOT_FOUND', `Không tìm thấy vai trò "${key}".`, 404);
+    Object.setPrototypeOf(this, ProjectRoleNotFoundError.prototype);
+  }
+}
+
 /** `member` chỉ được đổi trạng thái công việc của chính mình. */
 export class WorkItemAssigneeOnlyError extends WorkspaceError {
   constructor() {

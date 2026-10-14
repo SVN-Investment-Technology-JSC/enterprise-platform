@@ -78,8 +78,22 @@ interface UpdatedPayload {
   readonly reason?: string | null;
 }
 
-/** Vai trò được gửi đơn cho dự án — cùng luật tạo việc: tối thiểu `member`. */
+/**
+ * Vai trò được gửi đơn cho dự án — cùng luật tạo việc: vai có quyền cập nhật
+ * (toàn bộ hoặc phần liên quan). Vai chưa có dòng cấu hình thì theo bốn vai
+ * hệ thống như trước.
+ */
 const SUBMITTER_ROLES = new Set(['owner', 'manager', 'member']);
+const SUBMITTER_PERMISSIONS = ['project.update_all', 'project.update_related'];
+
+function canSubmit(member: { role: string; permissions?: unknown } | undefined): boolean {
+  if (!member) return false;
+  if (member.role === 'owner') return true;
+  if (!Array.isArray(member.permissions)) return SUBMITTER_ROLES.has(member.role);
+  return SUBMITTER_PERMISSIONS.some((permission) =>
+    (member.permissions as unknown[]).includes(permission),
+  );
+}
 const CLOSED_PROJECT_STATUSES = new Set(['completed', 'cancelled']);
 
 function asStatus(value: unknown): ProjectRequestStatus | undefined {
@@ -173,11 +187,14 @@ async function registerRequest(
   if (CLOSED_PROJECT_STATUSES.has(project.status)) return reject('Dự án đã đóng.');
   const member = (
     await client.query(
-      `SELECT role FROM workspace_schema.project_members WHERE project_id = $1 AND user_id = $2`,
+      `SELECT m.role, d.permissions
+         FROM workspace_schema.project_members m
+         LEFT JOIN workspace_schema.project_role_definitions d ON d.key = m.role
+        WHERE m.project_id = $1 AND m.user_id = $2`,
       [project.id, payload.requesterUserId],
     )
   ).rows[0];
-  if (!member || !SUBMITTER_ROLES.has(member.role)) {
+  if (!canSubmit(member)) {
     return reject('Người gửi đơn không tham gia dự án này.');
   }
 

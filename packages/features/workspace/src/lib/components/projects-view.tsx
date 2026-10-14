@@ -21,7 +21,13 @@ import type {
   WorkItemStatusHistoryEntry,
   WorkItemProcedureRequest,
 } from '@enterprise-platform/contracts-workspace';
-import { WORK_ITEM_STATUS_TRANSITIONS } from '@enterprise-platform/contracts-workspace';
+import {
+  DEFAULT_ROLE_PERMISSIONS,
+  PROJECT_PERMISSIONS,
+  WORK_ITEM_STATUS_TRANSITIONS,
+  type ProjectPermission,
+  type SystemProjectRole,
+} from '@enterprise-platform/contracts-workspace';
 import { CHAT_UNREAD_POLL_MS } from '@enterprise-platform/contracts-workspace';
 import { MessageSquare, MoreHorizontal, Plus } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -650,8 +656,26 @@ export function ProjectsView({
   // `myRole` rỗng chỉ xảy ra với quản trị viên tenant: người không phải thành
   // viên và không phải quản trị đã nhận 403 ngay ở lời gọi chi tiết.
   const role = detail?.project.myRole;
-  const canWrite = role === 'owner' || role === 'manager' || role === 'member' || !role;
-  const canManage = role === 'owner' || role === 'manager' || !role;
+  // Quyền theo vai trò do tenant cấu hình. Server bản cũ chưa trả
+  // `myPermissions` thì dùng quyền mặc định của vai hệ thống.
+  const permissions = useMemo<ReadonlySet<ProjectPermission>>(() => {
+    const given =
+      detail?.project.myPermissions ??
+      (role
+        ? ((DEFAULT_ROLE_PERMISSIONS[role as SystemProjectRole] as
+            | readonly ProjectPermission[]
+            | undefined) ?? [])
+        : PROJECT_PERMISSIONS);
+    return new Set(given);
+  }, [detail?.project.myPermissions, role]);
+  const canWrite =
+    permissions.has('project.update_all') || permissions.has('project.update_related');
+  const canManage = permissions.has('project.update_all');
+  const canCancelItem = permissions.has('work_item.cancel');
+  // Xoá hẳn cần giữ vai có quyền xoá trong dự án — quản trị tenant không đi tắt.
+  const canDeleteItem = Boolean(role) && permissions.has('work_item.delete');
+  const canChangeProjectStatus = permissions.has('project.update_status');
+  const canManageMembers = permissions.has('project.manage_members');
 
   /**
    * Kéo tiến độ của hồ sơ quy trình về công việc, mỗi lần mở công việc đó.
@@ -757,17 +781,20 @@ export function ProjectsView({
         // Chỉ khi luật chuyển trạng thái cho phép: việc đã xong không huỷ được
         // (server từ chối) — việc xong mà sai thì dùng "Huỷ hiệu lực".
         disabled:
-          !canWrite || !item || !WORK_ITEM_STATUS_TRANSITIONS[item.status].includes('cancelled'),
+          !canWrite ||
+          !canCancelItem ||
+          !item ||
+          !WORK_ITEM_STATUS_TRANSITIONS[item.status].includes('cancelled'),
         separatorBefore: true,
       },
       {
-        // Xoá hẳn (cả nhánh con) — không hoàn tác, nên CHỈ chủ nhiệm (vai
-        // 'owner'), kể cả quản trị tenant cũng phải là chủ nhiệm. Khác "Huỷ
-        // công việc" ở trên (đổi trạng thái, mở lại được).
+        // Xoá hẳn (cả nhánh con) — không hoàn tác, nên chỉ vai có quyền "Có
+        // thể xoá công việc" (mặc định chủ nhiệm); quản trị tenant cũng phải giữ
+        // vai đó. Khác "Huỷ công việc" ở trên (đổi trạng thái, mở lại được).
         id: 'delete-item',
         label: 'Xoá công việc',
         danger: true,
-        disabled: role !== 'owner' || !item,
+        disabled: !canDeleteItem || !item,
       },
       // Việc đã hoàn thành không mở lại; chủ nhiệm hoặc quản trị huỷ hiệu lực.
       ...(item?.status === 'done' && canOwn
@@ -970,6 +997,13 @@ export function ProjectsView({
             members={detail.members}
             documentCount={projectDocuments.length}
             onOpenMembers={() => setMembersOpen(true)}
+            canChangeStatus={canChangeProjectStatus}
+            onChangeStatus={(status) =>
+              run(
+                () => api.updateProject(detail.project.id, { status }),
+                'Không đổi được trạng thái dự án.',
+              )
+            }
           />
 
           <div className={styles.tabBar} role="tablist" aria-label="Mục của dự án">
@@ -1007,6 +1041,10 @@ export function ProjectsView({
               onChangeStatus={async (item, next) => {
                 // Kéo sang cột Đã huỷ cũng phải qua bước xác nhận.
                 if (next === 'cancelled') {
+                  if (!canCancelItem) {
+                    setError('Vai trò của bạn trong dự án chưa có quyền huỷ công việc.');
+                    return;
+                  }
                   setCancellingItem(item);
                   return;
                 }
@@ -1129,7 +1167,7 @@ export function ProjectsView({
             externalRefs={detail.externalRefs}
             externalDegraded={detail.externalDegraded}
             procedurePending={pendingProcedure.get(selectedItem.id)}
-            canManageMembers={canManage}
+            canManageMembers={canManageMembers}
             onManageMembers={() => setMembersOpen(true)}
             dependencies={detail.dependencies}
             // Việc đã huỷ hiệu lực là hồ sơ đóng: không nối thêm phụ thuộc.

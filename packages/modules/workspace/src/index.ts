@@ -25,4 +25,5 @@ export * from './lib/application/procedure-link-events.js';
 export * from './lib/procedure-link-events.factory.js';
 export * from './lib/application/project-request.service.js';
 export * from './lib/application/workday-rule.service.js';
+export * from './lib/application/project-role.service.js';
 export * from './lib/infrastructure/project-request-events.js';

@@ -33,6 +33,7 @@ import type {
   ProjectMember,
   ProjectProgressRow,
   ProjectRole,
+  ProjectPermission,
   ProjectStatus,
   ProjectTypeOption,
   SavedFilter,
@@ -770,6 +771,32 @@ export interface WorkspaceStore {
    * module khác. Gỡ con trỏ là xoá cứng — ngoại lệ hợp lý so với quy ước
    * không xoá cứng, vì dòng này không mang giá trị nghiệp vụ.
    */
+  /** Vai trò trong dự án do tenant định nghĩa, dùng chung mọi dự án. */
+  readonly roleDefinition: {
+    /** Mọi vai, đã sắp theo `sortOrder`, kèm số người đang giữ mỗi vai. */
+    list(tenantId: string): Promise<
+      readonly {
+        readonly key: string;
+        readonly name: string;
+        readonly permissions: readonly ProjectPermission[];
+        readonly isSystem: boolean;
+        readonly sortOrder: number;
+        readonly memberCount: number;
+      }[]
+    >;
+    create(
+      tenantId: string,
+      actorUserId: string,
+      input: { readonly key: string; readonly name: string; readonly permissions: readonly ProjectPermission[] },
+    ): Promise<void>;
+    update(
+      tenantId: string,
+      actorUserId: string,
+      key: string,
+      input: { readonly name: string; readonly permissions: readonly ProjectPermission[] },
+    ): Promise<void>;
+    remove(tenantId: string, key: string): Promise<void>;
+  };
   /** Thứ tự ưu tiên tính công, dùng chung toàn tenant. */
   readonly workdayRules: {
     list(tenantId: string): Promise<

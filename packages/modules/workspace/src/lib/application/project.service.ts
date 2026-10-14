@@ -1,34 +1,38 @@
 import {
+  DEFAULT_ROLE_PERMISSIONS,
+  PROJECT_PERMISSION_LABELS,
+  PROJECT_PERMISSIONS,
   PROJECT_ROLES,
   PROJECT_STATUSES,
   type CreateProjectRequest,
   type Paged,
   type Project,
   type ProjectMember,
+  type ProjectPermission,
   type ProjectRole,
   type ProjectStatus,
   type ProjectSummary,
   type ProjectTypeOption,
   type SetProjectMembersRequest,
+  type SystemProjectRole,
   type UpdateProjectRequest,
 } from '@enterprise-platform/contracts-workspace';
 import {
   ProjectCodeConflictError,
   ProjectForbiddenError,
   ProjectNotFoundError,
+  ProjectPermissionForbiddenError,
   ProjectRoleForbiddenError,
   WorkspaceValidationError,
 } from '../domain/workspace.error.js';
 import { timezoneOf, todayKey } from '../domain/tenant-time.js';
 import type { DirectoryService } from './directory.service.js';
+import type { ProjectRoleService } from './project-role.service.js';
 import type { WorkspaceActor } from './workspace.application.js';
 import type { WorkspaceStore } from './workspace-store.port.js';
 
 const DEFAULT_PAGE_SIZE = 30;
 const MAX_PAGE_SIZE = 60;
-
-/** Thứ tự thẩm quyền; số lớn hơn làm được mọi việc của số nhỏ hơn. */
-const ROLE_RANK: Record<ProjectRole, number> = { viewer: 0, member: 1, manager: 2, owner: 3 };
 
 const CODE_PATTERN = /^[A-Z0-9][A-Z0-9-]{1,31}$/;
 
@@ -41,22 +45,82 @@ export interface ProjectAccess {
   /** Rỗng khi người gọi là tenant-admin mà không phải thành viên dự án. */
   readonly role?: ProjectRole;
   readonly isTenantAdmin: boolean;
+  /**
+   * Quyền của vai trò, đọc từ cấu hình vai trò của tenant. Vắng thì dùng quyền
+   * mặc định của vai hệ thống.
+   */
+  readonly permissions?: readonly ProjectPermission[];
+}
+
+/** Phần của `ProjectAccess` quyết định quyền. */
+type AccessGrant = Pick<ProjectAccess, 'role' | 'isTenantAdmin' | 'permissions'>;
+
+/** Quyền thật của thành viên (không tính cờ quản trị tenant). */
+export function permissionsOf(access: AccessGrant): ReadonlySet<ProjectPermission> {
+  if (!access.role) return new Set();
+  if (access.role === 'owner') return new Set(PROJECT_PERMISSIONS);
+  if (access.permissions) return new Set(access.permissions);
+  const defaults = DEFAULT_ROLE_PERMISSIONS[access.role as SystemProjectRole] as
+    | readonly ProjectPermission[]
+    | undefined;
+  return new Set(defaults ?? []);
+}
+
+/** Người gọi có quyền này trong dự án không. Quản trị tenant luôn có. */
+export function hasProjectPermission(access: AccessGrant, permission: ProjectPermission): boolean {
+  if (access.isTenantAdmin) return true;
+  return permissionsOf(access).has(permission);
+}
+
+/** Như `hasProjectPermission` nhưng ném lỗi thay vì trả về boolean. */
+export function requireProjectPermission(
+  access: ProjectAccess,
+  permission: ProjectPermission,
+): void {
+  if (!hasProjectPermission(access, permission)) {
+    throw new ProjectPermissionForbiddenError(PROJECT_PERMISSION_LABELS[permission]);
+  }
+}
+
+/** Danh sách quyền gửi xuống giao diện. */
+export function effectivePermissions(access: AccessGrant): ProjectPermission[] {
+  if (access.isTenantAdmin) return [...PROJECT_PERMISSIONS];
+  const granted = permissionsOf(access);
+  return PROJECT_PERMISSIONS.filter((permission) => granted.has(permission));
 }
 
 /**
- * Người gọi có ít nhất vai trò `minimum` trong dự án hay không.
+ * Người gọi có ít nhất mức thẩm quyền `minimum` trong dự án hay không.
+ *
+ * Vai trò do tenant tự định nghĩa nên mức thẩm quyền suy ra từ quyền của vai:
+ * - `viewer`: là thành viên;
+ * - `member`: được cập nhật (toàn bộ hoặc phần liên quan);
+ * - `manager`: được cập nhật toàn bộ dự án;
+ * - `owner`: là chủ nhiệm.
  *
  * Để ngoài lớp để `WorkItemService` dùng lại mà không phải phụ thuộc vào
  * instance của `ProjectService`.
  */
-export function hasProjectRole(access: ProjectAccess, minimum: ProjectRole): boolean {
+export function hasProjectRole(access: ProjectAccess, minimum: SystemProjectRole): boolean {
   if (access.isTenantAdmin) return true;
   if (!access.role) return false;
-  return ROLE_RANK[access.role] >= ROLE_RANK[minimum];
+  const granted = permissionsOf(access);
+  switch (minimum) {
+    case 'viewer':
+      return true;
+    case 'member':
+      return granted.has('project.update_all') || granted.has('project.update_related');
+    case 'manager':
+      return granted.has('project.update_all');
+    case 'owner':
+      return access.role === 'owner';
+    default:
+      return false;
+  }
 }
 
 /** Như `hasProjectRole` nhưng ném lỗi thay vì trả về boolean. */
-export function requireProjectRole(access: ProjectAccess, minimum: ProjectRole): void {
+export function requireProjectRole(access: ProjectAccess, minimum: SystemProjectRole): void {
   if (!hasProjectRole(access, minimum)) throw new ProjectRoleForbiddenError(minimum);
 }
 
@@ -68,6 +132,8 @@ export class ProjectService {
   constructor(
     private readonly store: WorkspaceStore,
     private readonly directory?: DirectoryService,
+    /** Để trống thì dùng quyền mặc định của bốn vai hệ thống (test). */
+    private readonly roles?: ProjectRoleService,
   ) {}
 
   /**
@@ -85,7 +151,9 @@ export class ProjectService {
     const role = await this.store.member.roleOf(actor.tenantId, projectId, actor.userId);
     if (!role && !actor.isTenantAdmin) throw new ProjectForbiddenError();
 
-    return { project, role, isTenantAdmin: actor.isTenantAdmin };
+    const permissions =
+      role && this.roles ? await this.roles.permissionsOf(actor.tenantId, role) : undefined;
+    return { project, role, isTenantAdmin: actor.isTenantAdmin, permissions };
   }
 
   async list(
@@ -127,7 +195,8 @@ export class ProjectService {
         totalItems: byProject.get(project.id)?.totalItems ?? 0,
         closedItems: byProject.get(project.id)?.closedItems ?? 0,
         overdueItems: byProject.get(project.id)?.overdueItems ?? 0,
-        myRole: myRoles.get(project.id),
+        myRole: myRoles.get(project.id)?.role,
+        myPermissions: myRoles.get(project.id)?.permissions,
       })),
       total,
       page,
@@ -156,6 +225,7 @@ export class ProjectService {
       closedItems: rollup?.closedItems ?? 0,
       overdueItems: rollup?.overdueItems ?? 0,
       myRole: access.role,
+      myPermissions: effectivePermissions(access),
     };
   }
 
@@ -190,7 +260,12 @@ export class ProjectService {
     input: UpdateProjectRequest,
   ): Promise<Project> {
     const access = await this.access(actor, projectId);
-    requireProjectRole(access, 'manager');
+    // Đổi trạng thái là quyền riêng; sửa các trường khác cần cập nhật toàn bộ dự án.
+    const touchesOther = Object.entries(input ?? {}).some(
+      ([key, value]) => key !== 'status' && value !== undefined,
+    );
+    if (input.status !== undefined) requireProjectPermission(access, 'project.update_status');
+    if (touchesOther || input.status === undefined) requireProjectRole(access, 'manager');
 
     const patch: UpdateProjectRequest = { ...input };
     if (input.name !== undefined) {
@@ -232,7 +307,7 @@ export class ProjectService {
     input: SetProjectMembersRequest,
   ): Promise<readonly ProjectMember[]> {
     const access = await this.access(actor, projectId);
-    requireProjectRole(access, 'manager');
+    requireProjectPermission(access, 'project.manage_members');
 
     const members = input.members ?? [];
     // Không có chủ nhiệm thì không ai huỷ hay đổi chủ được dự án nữa; nhiều
@@ -246,7 +321,10 @@ export class ProjectService {
       throw new WorkspaceValidationError('Một người chỉ được xuất hiện một lần trong danh sách.');
     }
     for (const member of members) {
-      if (!(PROJECT_ROLES as readonly string[]).includes(member.role)) {
+      const known = this.roles
+        ? await this.roles.exists(actor.tenantId, member.role)
+        : (PROJECT_ROLES as readonly string[]).includes(member.role);
+      if (!known) {
         throw new WorkspaceValidationError(`Vai trò "${member.role}" không hợp lệ.`);
       }
     }
@@ -283,16 +361,26 @@ export class ProjectService {
     return this.store.member.replaceAll(actor.tenantId, projectId, actor.userId, members);
   }
 
-  /** Vai trò của người gọi trong nhiều dự án cùng lúc. */
+  /** Vai trò và quyền của người gọi trong nhiều dự án cùng lúc. */
   private async rolesOf(
     actor: WorkspaceActor,
     projectIds: readonly string[],
-  ): Promise<Map<string, ProjectRole>> {
-    const roles = new Map<string, ProjectRole>();
+  ): Promise<Map<string, { role?: ProjectRole; permissions: ProjectPermission[] }>> {
+    const roles = new Map<string, { role?: ProjectRole; permissions: ProjectPermission[] }>();
     await Promise.all(
       projectIds.map(async (projectId) => {
         const role = await this.store.member.roleOf(actor.tenantId, projectId, actor.userId);
-        if (role) roles.set(projectId, role);
+        if (!role && !actor.isTenantAdmin) return;
+        const permissions =
+          role && this.roles ? await this.roles.permissionsOf(actor.tenantId, role) : undefined;
+        roles.set(projectId, {
+          role,
+          permissions: effectivePermissions({
+            role,
+            isTenantAdmin: actor.isTenantAdmin,
+            permissions,
+          }),
+        });
       }),
     );
     return roles;

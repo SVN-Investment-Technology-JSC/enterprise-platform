@@ -18,7 +18,9 @@ import {
   PRIORITY_LABELS,
   PRIORITY_TONE,
   WORK_ITEM_STATUS_LABELS,
+  formatDateTime,
   formatShortDate,
+  formatShortTimestamp,
   isOverdue,
   workItemStatusLabel,
   workItemStatusTone,
@@ -551,6 +553,7 @@ export function TabWork({
                   <th>Trạng thái</th>
                   <th>Bắt đầu</th>
                   <th>Thời hạn</th>
+                  <th title="Ngày cập nhật trạng thái gần nhất">Trạng thái cuối</th>
                   <th>Tiến độ</th>
                   <th>Quy trình</th>
                 </tr>
@@ -558,7 +561,7 @@ export function TabWork({
               <tbody>
                 {rows.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className={styles.muted}>
+                    <td colSpan={9} className={styles.muted}>
                       {filtering
                         ? 'Không có công việc nào khớp bộ lọc.'
                         : 'Dự án chưa có công việc nào.'}
@@ -672,6 +675,16 @@ export function TabWork({
                       <td>{formatShortDate(item.plannedStart)}</td>
                       <td className={overdue ? styles.cellDanger : undefined}>
                         {formatShortDate(item.plannedEnd)}
+                      </td>
+                      <td
+                        className={styles.muted}
+                        title={
+                          item.statusChangedAt
+                            ? `Cập nhật trạng thái lúc ${formatDateTime(item.statusChangedAt)}`
+                            : undefined
+                        }
+                      >
+                        {formatShortTimestamp(item.statusChangedAt)}
                       </td>
                       <td>
                         {item.reversal ? (

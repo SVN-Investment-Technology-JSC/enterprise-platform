@@ -14,6 +14,7 @@ import { ExternalReferenceService } from './application/external-reference.servi
 import { FinanceService } from './application/finance.service.js';
 import { ProjectRequestService } from './application/project-request.service.js';
 import { WorkdayRuleService } from './application/workday-rule.service.js';
+import { ProjectRoleService } from './application/project-role.service.js';
 import { MyWorkService } from './application/my-work.service.js';
 import {
   ORGANIZATION_DIRECTORY,
@@ -70,10 +71,16 @@ import { WorkspaceController } from './presentation/workspace.controller.js';
       inject: [ORGANIZATION_DIRECTORY],
     },
     {
+      // Một thực thể cho cả module: cache quyền theo vai nằm trong nó.
+      provide: ProjectRoleService,
+      useFactory: (store: WorkspaceStore) => new ProjectRoleService(store),
+      inject: [WORKSPACE_STORE],
+    },
+    {
       provide: ProjectService,
-      useFactory: (store: WorkspaceStore, directory: DirectoryService) =>
-        new ProjectService(store, directory),
-      inject: [WORKSPACE_STORE, DirectoryService],
+      useFactory: (store: WorkspaceStore, directory: DirectoryService, roles: ProjectRoleService) =>
+        new ProjectService(store, directory, roles),
+      inject: [WORKSPACE_STORE, DirectoryService, ProjectRoleService],
     },
     {
       // Công việc cần `ProjectService` để phân giải vai trò trong dự án, nên
@@ -184,6 +191,7 @@ import { WorkspaceController } from './presentation/workspace.controller.js';
     FinanceService,
     ProjectRequestService,
     WorkdayRuleService,
+    ProjectRoleService,
     CatalogService,
     TenantDatabaseRegistry,
     PostgresPoolRegistry,

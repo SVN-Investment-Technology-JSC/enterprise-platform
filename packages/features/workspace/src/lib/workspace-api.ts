@@ -73,6 +73,8 @@ import type {
   ProjectRequestList,
   UpdateWorkdayRulesRequest,
   WorkdayRuleSet,
+  ProjectRoleList,
+  SaveProjectRoleRequest,
 } from '@enterprise-platform/contracts-workspace';
 import { authFetch } from '@enterprise-platform/shared-ui';
 
@@ -635,6 +637,22 @@ export const getWorkdayRules = () =>
 
 export const updateWorkdayRules = (body: UpdateWorkdayRulesRequest) =>
   request<WorkdayRuleSet>('/workday-rules', { method: 'PUT', body: JSON.stringify(body) });
+
+/** Vai trò trong dự án (dùng chung toàn tenant) và quyền của từng vai. */
+export const listProjectRoles = () =>
+  request<ProjectRoleList>('/project-roles', { cache: 'no-store' });
+
+export const createProjectRole = (body: SaveProjectRoleRequest) =>
+  request<ProjectRoleList>('/project-roles', { method: 'POST', body: JSON.stringify(body) });
+
+export const updateProjectRole = (key: string, body: SaveProjectRoleRequest) =>
+  request<ProjectRoleList>(`/project-roles/${encodeURIComponent(key)}`, {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  });
+
+export const deleteProjectRole = (key: string) =>
+  request<ProjectRoleList>(`/project-roles/${encodeURIComponent(key)}`, { method: 'DELETE' });
 
 /** Tab "Đơn từ": đơn module khác gửi kèm dự án (chỉ đọc). */
 export const listProjectRequests = (projectId: string) =>
