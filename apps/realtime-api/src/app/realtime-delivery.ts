@@ -3,7 +3,10 @@ import {
   RabbitMqConsumer,
 } from '@enterprise-platform/adapter-events';
 import type { IntegrationEventEnvelope } from '@enterprise-platform/contracts-integration';
-import { parseRealtimeEventEnvelope } from '@enterprise-platform/contracts-realtime';
+import {
+  parseRealtimeEventEnvelope,
+  type WorkspaceChatSignal,
+} from '@enterprise-platform/contracts-realtime';
 import { RealtimeGateway } from './realtime.gateway';
 
 export class RealtimeDeliveryHandler {
@@ -29,6 +32,28 @@ export class RealtimeDeliveryHandler {
         throw new PermanentMessageError('Realtime delivery tenant does not match envelope tenant.');
       }
       await this.withActiveTenant(event.tenantId, () => this.gateway.emitUserEvent(realtime));
+      return;
+    }
+    if (event.type === 'workspace.chat.changed') {
+      const { recipients, signal } = chatSignal(event.payload);
+      // Mỗi người nhận một bao thư riêng vào phòng cá nhân của họ: dùng lại đúng
+      // đường xác thực và thu hồi phiên của thông báo, không thêm phòng mới.
+      await this.withActiveTenant(event.tenantId, async () => {
+        for (const userId of recipients) {
+          await this.gateway.emitUserEvent({
+            id: `${event.id}:${userId}`,
+            event: 'workspace.chat.changed',
+            version: 1,
+            tenantId: event.tenantId,
+            userId,
+            // Tín hiệu chỉ để làm mới, không nằm trong chuỗi thông báo có thứ tự;
+            // khôi phục sau khi mất kết nối đã có tải lại qua API.
+            sequence: 1,
+            occurredAt: event.occurredAt,
+            data: signal,
+          });
+        }
+      });
       return;
     }
     if (event.type === 'identity.session.revoked') {
@@ -58,7 +83,7 @@ export class RealtimeDeliveryConsumer {
       consumer ??
       new RabbitMqConsumer(rabbitUrl, {
         queue: 'realtime-api.delivery.v1',
-        bindings: ['notification.delivery.v1', 'identity.session.revoked'],
+        bindings: ['notification.delivery.v1', 'identity.session.revoked', 'workspace.chat.changed'],
         prefetch: 64,
       });
   }
@@ -81,6 +106,37 @@ export class RealtimeDeliveryConsumer {
     if (this.enabled) await this.consumer.close();
     this.started = false;
   }
+}
+
+const MAX_CHAT_RECIPIENTS = 1_000;
+
+function chatSignal(value: unknown): {
+  readonly recipients: readonly string[];
+  readonly signal: WorkspaceChatSignal;
+} {
+  if (!isRecord(value)) throw new PermanentMessageError('Chat signal payload must be an object.');
+  const channelId = text(value.channelId);
+  const entityId = text(value.entityId);
+  const projectId = text(value.projectId);
+  const messageId = text(value.messageId);
+  const actorUserId = text(value.actorUserId);
+  const entityType = value.entityType;
+  const change = value.change;
+  if (
+    !channelId || !entityId || !projectId || !messageId || !actorUserId ||
+    (entityType !== 'project' && entityType !== 'work_item') ||
+    (change !== 'created' && change !== 'edited' && change !== 'deleted') ||
+    !Array.isArray(value.recipientUserIds)
+  ) {
+    throw new PermanentMessageError('Chat signal payload is incomplete.');
+  }
+  const recipients = [...new Set(value.recipientUserIds.map(text).filter((id): id is string => Boolean(id)))]
+    .filter((id) => id !== actorUserId)
+    .slice(0, MAX_CHAT_RECIPIENTS);
+  return {
+    recipients,
+    signal: { channelId, entityType, entityId, projectId, messageId, change, actorUserId },
+  };
 }
 
 function sessionRevocation(value: unknown): {

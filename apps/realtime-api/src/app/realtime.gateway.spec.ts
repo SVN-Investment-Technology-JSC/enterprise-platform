@@ -313,6 +313,80 @@ describe('RealtimeDeliveryHandler', () => {
     });
   });
 
+  describe('workspace.chat.changed', () => {
+    const chatEvent = (payload: Record<string, unknown>): IntegrationEventEnvelope => ({
+      id: '10000000-0000-4000-8000-000000000003',
+      type: 'workspace.chat.changed',
+      version: 1,
+      occurredAt: '2026-10-01T00:00:00.000Z',
+      tenantId: 'tenant-a',
+      source: 'workspace',
+      correlationId: 'message-1',
+      payload: {
+        channelId: 'channel-1',
+        entityType: 'work_item',
+        entityId: 'item-1',
+        projectId: 'project-1',
+        messageId: 'message-1',
+        change: 'created',
+        actorUserId: 'user-actor',
+        recipientUserIds: ['user-a', 'user-b'],
+        ...payload,
+      },
+    });
+
+    it('emits an id-only signal to each recipient personal room, never the actor', async () => {
+      const gateway = { emitUserEvent: jest.fn() };
+      const handler = new RealtimeDeliveryHandler(gateway as never, async (_id, operation) => operation());
+      await handler.handle(chatEvent({ recipientUserIds: ['user-a', 'user-b', 'user-actor', 'user-a'] }));
+
+      expect(gateway.emitUserEvent).toHaveBeenCalledTimes(2);
+      expect(gateway.emitUserEvent).toHaveBeenCalledWith({
+        id: '10000000-0000-4000-8000-000000000003:user-a',
+        event: 'workspace.chat.changed',
+        version: 1,
+        tenantId: 'tenant-a',
+        userId: 'user-a',
+        sequence: 1,
+        occurredAt: '2026-10-01T00:00:00.000Z',
+        data: {
+          channelId: 'channel-1',
+          entityType: 'work_item',
+          entityId: 'item-1',
+          projectId: 'project-1',
+          messageId: 'message-1',
+          change: 'created',
+          actorUserId: 'user-actor',
+        },
+      });
+      const users = gateway.emitUserEvent.mock.calls.map(([event]) => event.userId);
+      expect(users).toEqual(['user-a', 'user-b']);
+    });
+
+    it('does not carry the recipient list or message content to clients', async () => {
+      const gateway = { emitUserEvent: jest.fn() };
+      const handler = new RealtimeDeliveryHandler(gateway as never, async (_id, operation) => operation());
+      await handler.handle(chatEvent({ body: 'bí mật', excerpt: 'bí mật' }));
+      for (const [event] of gateway.emitUserEvent.mock.calls) {
+        expect(JSON.stringify(event)).not.toContain('bí mật');
+        expect(event.data).not.toHaveProperty('recipientUserIds');
+      }
+    });
+
+    it('does not emit when the tenant is no longer active', async () => {
+      const gateway = { emitUserEvent: jest.fn() };
+      const handler = new RealtimeDeliveryHandler(gateway as never, async () => undefined);
+      await handler.handle(chatEvent({}));
+      expect(gateway.emitUserEvent).not.toHaveBeenCalled();
+    });
+
+    it('treats an incomplete signal as a permanent failure', async () => {
+      const handler = new RealtimeDeliveryHandler({ emitUserEvent: jest.fn() } as never, async (_id, operation) => operation());
+      await expect(handler.handle(chatEvent({ change: 'moved' }))).rejects.toBeInstanceOf(PermanentMessageError);
+      await expect(handler.handle(chatEvent({ recipientUserIds: 'user-a' }))).rejects.toBeInstanceOf(PermanentMessageError);
+    });
+  });
+
   it('marks malformed delivery events as permanent failures so RabbitMQ sends them to DLQ', async () => {
     const handler = new RealtimeDeliveryHandler({ emitUserEvent: jest.fn() } as never, async (_id, operation) => operation());
     await expect(
