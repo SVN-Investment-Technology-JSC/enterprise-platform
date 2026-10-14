@@ -109,6 +109,12 @@ export class RealtimeDeliveryConsumer {
 }
 
 const MAX_CHAT_RECIPIENTS = 1_000;
+/** Phải khớp `WorkspaceChatSignal['change']`: thiếu một giá trị là sự kiện đó bị đẩy vào DLQ. */
+const CHAT_CHANGES: ReadonlySet<string> = new Set(['created', 'edited', 'deleted', 'read']);
+
+function isChatChange(value: unknown): value is WorkspaceChatSignal['change'] {
+  return typeof value === 'string' && CHAT_CHANGES.has(value);
+}
 
 function chatSignal(value: unknown): {
   readonly recipients: readonly string[];
@@ -125,7 +131,7 @@ function chatSignal(value: unknown): {
   if (
     !channelId || !entityId || !projectId || !messageId || !actorUserId ||
     (entityType !== 'project' && entityType !== 'work_item') ||
-    (change !== 'created' && change !== 'edited' && change !== 'deleted') ||
+    !isChatChange(change) ||
     !Array.isArray(value.recipientUserIds)
   ) {
     throw new PermanentMessageError('Chat signal payload is incomplete.');

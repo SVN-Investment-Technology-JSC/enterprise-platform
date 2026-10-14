@@ -1,13 +1,17 @@
 import type { TenantUserPrincipal } from '@enterprise-platform/contracts-identity';
 import type { RealtimeEventEnvelope } from '@enterprise-platform/contracts-realtime';
-import { Inject } from '@nestjs/common';
+import { Inject, Optional } from '@nestjs/common';
 import {
+  ConnectedSocket,
+  MessageBody,
+  SubscribeMessage,
   WebSocketGateway,
   WebSocketServer,
   type OnGatewayConnection,
   type OnGatewayDisconnect,
 } from '@nestjs/websockets';
 import type { Server, Socket } from 'socket.io';
+import { RealtimeChatTyping } from './realtime-chat-typing';
 import type { RealtimeAuthClient } from './realtime-runtime';
 import { REALTIME_AUTH_CLIENT } from './realtime-tokens';
 import { RealtimeMetrics } from './realtime-health';
@@ -129,6 +133,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     private readonly origins: RealtimeOriginPolicy,
     private readonly revalidator: RealtimeSessionRevalidator,
     private readonly metrics: RealtimeMetrics = new RealtimeMetrics(),
+    @Optional() private readonly typing?: RealtimeChatTyping,
   ) {}
 
   async handleConnection(client: Socket): Promise<void> {
@@ -162,7 +167,35 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     }
   }
 
+  /**
+   * Client báo "tôi đang gõ / ngừng gõ" ở một node chat.
+   *
+   * Chỉ socket đã xác thực mới được gửi; người gõ lấy từ phiên chứ không từ nội
+   * dung tin. Đây là tín hiệu tạm nên mọi lỗi đều bị nuốt: mất một lần "đang gõ"
+   * không được làm hỏng kết nối hay chặn các tin chat thật.
+   */
+  @SubscribeMessage('chat.typing')
+  async handleChatTyping(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() body: unknown,
+  ): Promise<void> {
+    const principal = client.data.principal as TenantUserPrincipal | undefined;
+    if (!principal || !this.typing || !this.authenticatedSockets.has(client.id)) return;
+    try {
+      await this.typing.handle(
+        principal,
+        client.id,
+        headerText(client.handshake.headers.cookie),
+        body,
+        (event) => this.emitUserEvent(event),
+      );
+    } catch {
+      // Best-effort.
+    }
+  }
+
   handleDisconnect(client: Socket): void {
+    this.typing?.forget(client.id);
     this.revalidator.unwatch(client);
     if (this.authenticatedSockets.delete(client.id)) {
       this.metrics.socketDisconnected();

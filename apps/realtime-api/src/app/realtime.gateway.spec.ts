@@ -89,6 +89,79 @@ describe('RealtimeGateway', () => {
     expect(revalidator.watch).toHaveBeenCalledWith(client, 'ep_access=signed', principal);
   });
 
+  describe('chat.typing', () => {
+    const typingMessage = {
+      entityType: 'project',
+      entityId: '11111111-1111-4111-8111-111111111111',
+      typing: true,
+    };
+
+    function gatewayWithTyping(handle: jest.Mock) {
+      const typing = { handle, forget: jest.fn() };
+      const gateway = new RealtimeGateway(
+        { authenticate: jest.fn().mockResolvedValue(principal) },
+        new RealtimeOriginPolicy(['https://erp.example.test']),
+        { watch: jest.fn(), unwatch: jest.fn() } as never,
+        undefined,
+        typing as never,
+      );
+      gateway.server = { local: { to: jest.fn().mockReturnValue({ emit: jest.fn() }) } } as never;
+      return { gateway, typing };
+    }
+
+    it('forwards the authenticated principal, the cookie and the payload to the typing service', async () => {
+      const handle = jest.fn().mockResolvedValue(undefined);
+      const { gateway } = gatewayWithTyping(handle);
+      const client = socket();
+      await gateway.handleConnection(client);
+
+      await gateway.handleChatTyping(client, typingMessage);
+
+      expect(handle).toHaveBeenCalledWith(
+        principal,
+        client.id,
+        'ep_access=signed',
+        typingMessage,
+        expect.any(Function),
+      );
+    });
+
+    it('ignores a socket that never authenticated', async () => {
+      const handle = jest.fn();
+      const { gateway } = gatewayWithTyping(handle);
+      await gateway.handleChatTyping(socket(), typingMessage);
+      expect(handle).not.toHaveBeenCalled();
+    });
+
+    it('swallows typing failures so they cannot break the connection', async () => {
+      const handle = jest.fn().mockRejectedValue(new Error('boom'));
+      const { gateway } = gatewayWithTyping(handle);
+      const client = socket();
+      await gateway.handleConnection(client);
+      await expect(gateway.handleChatTyping(client, typingMessage)).resolves.toBeUndefined();
+    });
+
+    it('forgets the socket throttle state on disconnect', async () => {
+      const { gateway, typing } = gatewayWithTyping(jest.fn());
+      const client = socket();
+      await gateway.handleConnection(client);
+      gateway.handleDisconnect(client);
+      expect(typing.forget).toHaveBeenCalledWith(client.id);
+    });
+
+    it('does nothing when the typing service is not configured', async () => {
+      const gateway = new RealtimeGateway(
+        { authenticate: jest.fn().mockResolvedValue(principal) },
+        new RealtimeOriginPolicy(['https://erp.example.test']),
+        { watch: jest.fn(), unwatch: jest.fn() } as never,
+      );
+      gateway.server = { local: { to: jest.fn().mockReturnValue({ emit: jest.fn() }) } } as never;
+      const client = socket();
+      await gateway.handleConnection(client);
+      await expect(gateway.handleChatTyping(client, typingMessage)).resolves.toBeUndefined();
+    });
+  });
+
   it('rejects disallowed origins before authentication', async () => {
     const auth = { authenticate: jest.fn().mockResolvedValue(principal) };
     const gateway = new RealtimeGateway(
@@ -379,6 +452,17 @@ describe('RealtimeDeliveryHandler', () => {
       await handler.handle(chatEvent({}));
       expect(gateway.emitUserEvent).not.toHaveBeenCalled();
     });
+
+    it.each(['created', 'edited', 'deleted', 'read'])(
+      'delivers a "%s" signal instead of sending it to the DLQ',
+      async (change) => {
+        const gateway = { emitUserEvent: jest.fn() };
+        const handler = new RealtimeDeliveryHandler(gateway as never, async (_id, operation) => operation());
+        await handler.handle(chatEvent({ change, recipientUserIds: ['user-a'] }));
+        expect(gateway.emitUserEvent).toHaveBeenCalledTimes(1);
+        expect(gateway.emitUserEvent.mock.calls[0][0].data.change).toBe(change);
+      },
+    );
 
     it('treats an incomplete signal as a permanent failure', async () => {
       const handler = new RealtimeDeliveryHandler({ emitUserEvent: jest.fn() } as never, async (_id, operation) => operation());

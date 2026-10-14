@@ -5,6 +5,7 @@ import {
 } from '@enterprise-platform/adapter-database';
 import { Module } from '@nestjs/common';
 import { createClient } from 'redis';
+import { HttpTypingRecipientsClient, RealtimeChatTyping } from './realtime-chat-typing';
 import { RealtimeDeliveryConsumer, RealtimeDeliveryHandler } from './realtime-delivery';
 import { RealtimeGateway, RealtimeOriginPolicy, RealtimeSessionRevalidator } from './realtime.gateway';
 import { RealtimeHealthController } from './realtime-health.controller';
@@ -95,6 +96,17 @@ function allowedOrigins(): readonly string[] {
       useFactory: (auth: RealtimeAuthClient) => new RealtimeSessionRevalidator(auth),
     },
     RealtimeMetrics,
+    {
+      // "Đang nhập": hỏi workspace-api ai là người nhận bằng cookie của người gõ.
+      provide: RealtimeChatTyping,
+      useFactory: () =>
+        new RealtimeChatTyping(
+          new HttpTypingRecipientsClient(
+            process.env.WORKSPACE_INTERNAL_URL ?? 'http://localhost:3337',
+          ),
+          featureFlag(process.env.REALTIME_TYPING_ENABLED, true),
+        ),
+    },
     {
       provide: RealtimeMutationPolicy,
       useFactory: () =>
