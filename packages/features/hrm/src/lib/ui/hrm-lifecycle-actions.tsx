@@ -30,6 +30,7 @@ export function EmployeeLifecycleActions({
   onChanged,
   layout = 'inline',
   extraItems = [],
+  showEdit = true,
 }: {
   employee: HrmEmployeeProfile;
   onChanged: Changed;
@@ -37,6 +38,8 @@ export function EmployeeLifecycleActions({
   layout?: 'inline' | 'menu';
   /** Các mục thêm cho layout `menu` (đã tự kiểm tra quyền bằng `hidden`). */
   extraItems?: readonly RowMenuItem[];
+  /** Ẩn nút Sửa ở layout inline (dành cho Drawer đã hỗ trợ sửa trực tiếp). */
+  showEdit?: boolean;
 }) {
   const { can } = useHrmPermissions();
   const [action, setAction] = useState<HrmAction | null>(null);
@@ -312,14 +315,16 @@ export function EmployeeLifecycleActions({
     <span className="inline-flex gap-1">
       {!inactive && (
         <>
-          <Button
-            permission="hrm.employee.manage"
-            size="sm"
-            variant="outline"
-            onClick={edit}
-          >
-            Sửa
-          </Button>
+          {showEdit && (
+            <Button
+              permission="hrm.employee.manage"
+              size="sm"
+              variant="outline"
+              onClick={edit}
+            >
+              Sửa
+            </Button>
+          )}
           <Button
             permission="hrm.employee.manage"
             size="sm"

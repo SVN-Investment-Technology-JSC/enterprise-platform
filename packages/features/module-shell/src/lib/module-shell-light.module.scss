@@ -81,6 +81,28 @@
     flex-basis 0.2s ease;
 }
 
+// Trong lúc kéo đổi độ rộng thì tắt hiệu ứng chuyển, để cạnh bám sát con trỏ.
+.sidebarResizing {
+  transition: none;
+}
+
+// Vạch kéo ở cạnh phải thanh bên: rộng 6px, phủ chồng nhẹ qua đường viền.
+.resizeHandle {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  bottom: 0;
+  z-index: 15;
+  width: 6px;
+  cursor: col-resize;
+  touch-action: none;
+
+  &:hover,
+  &:active {
+    background: var(--ep-accent-glow);
+  }
+}
+
 .brand {
   display: flex;
   align-items: center;
@@ -610,6 +632,11 @@
     border-bottom: 1px solid var(--ep-border);
   }
 
+  // Màn hẹp: thanh bên nằm ngang nên vạch kéo dọc không còn ý nghĩa.
+  .resizeHandle {
+    display: none;
+  }
+
   .scroll {
     overflow: visible;
   }
@@ -724,15 +751,11 @@
 }
 
 
+// Khung bọc ô lọc (SearchableSelect) trên thanh bên: chỉ lo lề và bề rộng; ô
+// nhập tự mang kiểu riêng của mình. To hơn ô <select> nhỏ trước đây.
 .sectionFilter {
-  margin: 0 12px 6px 46px;
-  padding: 3px 6px;
-  border: 1px solid var(--ep-line);
-  border-radius: 6px;
-  background: var(--ep-surface);
-  color: var(--ep-text-sub);
-  font-family: inherit;
-  font-size: 12.5px;
+  margin: 2px 14px 10px;
+  font-size: 13.5px;
 }
 
 .sectionGroup {
@@ -745,4 +768,11 @@
   text-overflow: ellipsis;
   text-transform: uppercase;
   white-space: nowrap;
+}
+
+/* Nút ở chân thanh bên đang mở trang của nó (ví dụ Cài đặt). */
+.squareButtonActive {
+  border-color: var(--ep-accent-strong);
+  background: var(--ep-accent-soft);
+  color: var(--ep-text);
 }

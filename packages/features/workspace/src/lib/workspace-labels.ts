@@ -3,7 +3,7 @@ import type {
   EventType,
   MyWorkBucket,
   ParticipantResponse,
-  ProjectRole,
+  SystemProjectRole,
   ProjectStatus,
   WorkItem,
   WorkItemPriority,
@@ -58,7 +58,7 @@ export const ITEM_TYPE_LABELS: Record<WorkItemType, string> = {
   milestone: 'Cột mốc',
 };
 
-export const ROLE_LABELS: Record<ProjectRole, string> = {
+export const ROLE_LABELS: Record<SystemProjectRole, string> = {
   owner: 'Chủ nhiệm',
   manager: 'Quản lý',
   member: 'Thành viên',
@@ -109,6 +109,20 @@ export function formatShortDate(value?: string | null): string {
   if (!value) return '—';
   const [, month, day] = value.slice(0, 10).split('-');
   return month && day ? `${day}/${month}` : '—';
+}
+
+/**
+ * Mốc thời gian (ISO, có giờ) → "21/09" theo giờ địa phương. Khác
+ * `formatShortDate`: cắt chuỗi ISO lấy ngày UTC sẽ lệch một ngày sau 17 giờ.
+ */
+export function formatShortTimestamp(value?: string | null): string {
+  if (!value) return '—';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return '—';
+  // Tự ghép "dd/MM": `toLocaleDateString('vi-VN')` chỉ ngày-tháng trả "14-10".
+  const day = String(parsed.getDate()).padStart(2, '0');
+  const month = String(parsed.getMonth() + 1).padStart(2, '0');
+  return `${day}/${month}`;
 }
 
 /** Mốc thời gian đầy đủ cho nhật ký hoạt động. */

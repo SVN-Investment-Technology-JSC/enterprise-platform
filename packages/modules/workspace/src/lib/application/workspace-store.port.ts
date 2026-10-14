@@ -33,6 +33,7 @@ import type {
   ProjectMember,
   ProjectProgressRow,
   ProjectRole,
+  ProjectPermission,
   ProjectStatus,
   ProjectTypeOption,
   SavedFilter,
@@ -57,6 +58,14 @@ import type {
   WorkItemLinkedInstanceDraft,
   WorkItemProcedureRequestDraft,
 } from '../domain/workspace-procedure-link.js';
+
+/** Dữ liệu để ghi một dòng "đã xoá công việc" vào nhật ký dự án khi xoá. */
+export interface WorkItemDeletionLog {
+  readonly projectId: string;
+  readonly fromStatus: WorkItemStatus;
+  readonly note: string;
+  readonly createdBy: string;
+}
 
 /**
  * Cổng dữ liệu của Workspace.
@@ -297,6 +306,20 @@ export interface WorkspaceStore {
       depthDelta: number,
     ): Promise<WorkItem>;
     applyProgress(tenantId: string, updates: ReadonlyMap<string, number>): Promise<void>;
+    /**
+     * Xoá hẳn công việc và toàn bộ nhánh con (ràng buộc khoá ngoại `parent_id`
+     * đổ dây — phụ thuộc, người cùng làm, lịch sử, chi phí đi theo). Khác với
+     * "Huỷ" (chuyển trạng thái `cancelled`, mở lại được): đã xoá là mất hẳn.
+     *
+     * `deletionLog` (nếu có): ghi MỘT dòng vào nhật ký dự án trước khi xoá, với
+     * `work_item_id = NULL` nên không bị `ON DELETE CASCADE` cuốn theo — tab Hoạt
+     * động vẫn thấy "đã xoá công việc …".
+     */
+    remove(
+      tenantId: string,
+      workItemId: string,
+      deletionLog?: WorkItemDeletionLog,
+    ): Promise<void>;
   };
 
   readonly tag: {
@@ -748,6 +771,32 @@ export interface WorkspaceStore {
    * module khác. Gỡ con trỏ là xoá cứng — ngoại lệ hợp lý so với quy ước
    * không xoá cứng, vì dòng này không mang giá trị nghiệp vụ.
    */
+  /** Vai trò trong dự án do tenant định nghĩa, dùng chung mọi dự án. */
+  readonly roleDefinition: {
+    /** Mọi vai, đã sắp theo `sortOrder`, kèm số người đang giữ mỗi vai. */
+    list(tenantId: string): Promise<
+      readonly {
+        readonly key: string;
+        readonly name: string;
+        readonly permissions: readonly ProjectPermission[];
+        readonly isSystem: boolean;
+        readonly sortOrder: number;
+        readonly memberCount: number;
+      }[]
+    >;
+    create(
+      tenantId: string,
+      actorUserId: string,
+      input: { readonly key: string; readonly name: string; readonly permissions: readonly ProjectPermission[] },
+    ): Promise<void>;
+    update(
+      tenantId: string,
+      actorUserId: string,
+      key: string,
+      input: { readonly name: string; readonly permissions: readonly ProjectPermission[] },
+    ): Promise<void>;
+    remove(tenantId: string, key: string): Promise<void>;
+  };
   /** Thứ tự ưu tiên tính công, dùng chung toàn tenant. */
   readonly workdayRules: {
     list(tenantId: string): Promise<
@@ -816,7 +865,10 @@ export interface WorkspaceStore {
   /** Yêu cầu Quy trình mở hồ sơ cho công việc "Theo quy trình". */
   readonly procedureRequest: {
     listByProject(tenantId: string, projectId: string): Promise<readonly WorkItemProcedureRequest[]>;
-    /** Ghi (lại) yêu cầu ở trạng thái chờ và phát sự kiện cho Quy trình, cùng transaction. */
+    /**
+     * Ghi (lại) yêu cầu ở trạng thái chờ và phát sự kiện cho Quy trình, cùng
+     * transaction. Việc đang "Thủ công" được chuyển sang "Theo quy trình".
+     */
     request(
       tenantId: string,
       actorUserId: string,

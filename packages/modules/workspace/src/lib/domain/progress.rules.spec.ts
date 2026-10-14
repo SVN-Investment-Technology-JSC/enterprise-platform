@@ -1,4 +1,5 @@
 import {
+  autoCompleteParents,
   isClosed,
   isOverdue,
   projectProgress,
@@ -116,6 +117,82 @@ describe('projectProgress', () => {
 
   it('dự án chưa có công việc thì bằng 0', () => {
     expect(projectProgress([])).toBe(0);
+  });
+});
+
+describe('autoCompleteParents (WS-U6)', () => {
+  it('cha tự hoàn thành khi mọi con đã done', () => {
+    const nodes: ProgressNode[] = [
+      { id: 'p', parentId: null, status: 'in_progress', progressPercent: 90 },
+      { id: 'a', parentId: 'p', status: 'done', progressPercent: 100 },
+      { id: 'b', parentId: 'p', status: 'done', progressPercent: 100 },
+    ];
+    const result = autoCompleteParents(nodes);
+    expect(result.has('p')).toBe(true);
+    expect(result.size).toBe(1);
+  });
+
+  it('cha KHÔNG hoàn thành khi còn con chưa done', () => {
+    const nodes: ProgressNode[] = [
+      { id: 'p', parentId: null, status: 'in_progress', progressPercent: 50 },
+      { id: 'a', parentId: 'p', status: 'done', progressPercent: 100 },
+      { id: 'b', parentId: 'p', status: 'in_progress', progressPercent: 40 },
+    ];
+    expect(autoCompleteParents(nodes).has('p')).toBe(false);
+  });
+
+  it('cha đã done rồi thì không nằm trong tập cần flip (không mở lại/không lặp)', () => {
+    const nodes: ProgressNode[] = [
+      { id: 'p', parentId: null, status: 'done', progressPercent: 100 },
+      { id: 'a', parentId: 'p', status: 'done', progressPercent: 100 },
+    ];
+    expect(autoCompleteParents(nodes).has('p')).toBe(false);
+  });
+
+  it('con đã huỷ được bỏ qua: cha xong khi các con còn lại đều done', () => {
+    const nodes: ProgressNode[] = [
+      { id: 'p', parentId: null, status: 'in_progress', progressPercent: 60 },
+      { id: 'a', parentId: 'p', status: 'done', progressPercent: 100 },
+      { id: 'b', parentId: 'p', status: 'cancelled', progressPercent: 0 },
+    ];
+    expect(autoCompleteParents(nodes).has('p')).toBe(true);
+  });
+
+  it('cha mà MỌI con đều huỷ thì không tự hoàn thành', () => {
+    const nodes: ProgressNode[] = [
+      { id: 'p', parentId: null, status: 'in_progress', progressPercent: 0 },
+      { id: 'a', parentId: 'p', status: 'cancelled', progressPercent: 0 },
+      { id: 'b', parentId: 'p', status: 'cancelled', progressPercent: 0 },
+    ];
+    // p trở thành "lá hiệu lực" nhưng bản thân chưa done nên không flip.
+    expect(autoCompleteParents(nodes).has('p')).toBe(false);
+  });
+
+  it('cha đã huỷ không bị ép sang done dù các con đều done', () => {
+    const nodes: ProgressNode[] = [
+      { id: 'p', parentId: null, status: 'cancelled', progressPercent: 0 },
+      { id: 'a', parentId: 'p', status: 'done', progressPercent: 100 },
+    ];
+    expect(autoCompleteParents(nodes).has('p')).toBe(false);
+  });
+
+  it('đệ quy nhiều cấp: ông bà cũng hoàn thành khi toàn cây con done', () => {
+    const nodes: ProgressNode[] = [
+      { id: 'root', parentId: null, status: 'in_progress', progressPercent: 80 },
+      { id: 'mid', parentId: 'root', status: 'in_progress', progressPercent: 90 },
+      { id: 'leaf1', parentId: 'mid', status: 'done', progressPercent: 100 },
+      { id: 'leaf2', parentId: 'mid', status: 'done', progressPercent: 100 },
+    ];
+    const result = autoCompleteParents(nodes);
+    expect(result.has('mid')).toBe(true);
+    expect(result.has('root')).toBe(true);
+  });
+
+  it('lá đơn lẻ không có con không bị coi là cha cần flip', () => {
+    const nodes: ProgressNode[] = [
+      { id: 'solo', parentId: null, status: 'done', progressPercent: 100 },
+    ];
+    expect(autoCompleteParents(nodes).size).toBe(0);
   });
 });
 

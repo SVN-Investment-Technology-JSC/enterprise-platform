@@ -23,6 +23,8 @@ export interface WeekdayRule {
   weekday: number;
   dayType: 'SHIFT' | 'OFF' | 'SKIP';
   shiftId?: string | null;
+  /** Chỉ có nghĩa với SHIFT: tự sinh chấm công theo ca khi tới ngày. */
+  autoAttendance?: boolean;
 }
 
 export interface IncomingDay {
@@ -31,6 +33,7 @@ export interface IncomingDay {
   dayType: WorkDayType;
   shiftId: string | null;
   source: WorkDaySource;
+  autoAttendance?: boolean;
 }
 
 export interface ExistingDay {
@@ -150,6 +153,7 @@ export function expandPattern(
       dayType: rule.dayType,
       shiftId: rule.dayType === 'SHIFT' ? (rule.shiftId ?? null) : null,
       source,
+      autoAttendance: rule.dayType === 'SHIFT' && rule.autoAttendance === true,
     });
   }
   return out;

@@ -348,10 +348,7 @@ const body = (extra: Row = {}) => ({
   annualDays: 14,
   startOffsetMonths: 2,
   advanceAllowed: true,
-  seniorityTiers: [
-    { minYears: 10, bonusDays: 2 },
-    { minYears: 5, bonusDays: 1 },
-  ],
+  seniorityTiers: [{ minYears: 5, bonusDays: 1 }],
   reason: 'Áp dụng chính sách 2026',
   ...extra,
 });
@@ -450,19 +447,16 @@ describe('PUT /annual-leave-policy: kiểm tra đầu vào', () => {
     await bad({ annualDays: 400 });
     await bad({ startOffsetMonths: 1.5 });
     await bad({ advanceAllowed: 'yes' });
-    await bad({ seniorityTiers: [{ minYears: 5, bonusDays: 1 }, { minYears: 5, bonusDays: 2 }] });
+    // Chỉ một mốc thâm niên.
+    await bad({ seniorityTiers: [{ minYears: 5, bonusDays: 1 }, { minYears: 10, bonusDays: 2 }] });
+    await bad({ seniorityTiers: [{ minYears: 0, bonusDays: 1 }] });
     await bad({ effectiveFrom: '2026-11-15' });
     await bad({ maxCarryoverDays: 5 });
     await bad({ leaveTypeId: 'khong-phai-uuid' });
     await bad({ expectedUpdatedAt: 'hôm qua' });
   });
-  it('căn cứ ngày vào làm không có mốc bắt đầu sau N tháng và chỉ nhận chu kỳ thâm niên đều', async () => {
+  it('căn cứ ngày vào làm không có mốc bắt đầu sau N tháng', async () => {
     await bad({ accrualBasis: 'JOIN_DATE' });
-    await bad({
-      accrualBasis: 'JOIN_DATE',
-      startOffsetMonths: 0,
-      seniorityTiers: [{ minYears: 5, bonusDays: 1 }, { minYears: 10, bonusDays: 5 }],
-    });
   });
 });
 
@@ -493,7 +487,7 @@ describe('PUT /annual-leave-policy: lần đầu chọn lý do phép năm', () =
       annualDays: 14,
       startOffsetMonths: 2,
       advanceAllowed: true,
-      seniorityTiers: [{ minYears: 5, bonusDays: 1 }, { minYears: 10, bonusDays: 2 }],
+      seniorityTiers: [{ minYears: 5, bonusDays: 1 }],
       carryover: { allowed: false, maxDays: 0, expiryMonth: 3 },
     });
     expect(result.data.closedOtherSchedules).toBe(0);
@@ -558,7 +552,7 @@ describe('PUT /annual-leave-policy: lần đầu chọn lý do phép năm', () =
         accrualBasis: 'JOIN_DATE',
         annualDays: 14,
         startOffsetMonths: 0,
-        seniorityTiers: [{ minYears: 5, bonusDays: 1 }, { minYears: 10, bonusDays: 2 }],
+        seniorityTiers: [{ minYears: 5, bonusDays: 1 }],
       }),
     );
     const insert = calls[indexOfCall(calls, 'INSERT INTO hrm_schema.leave_accrual_schedules')];
@@ -637,7 +631,7 @@ describe('PUT /annual-leave-policy: đã có chính sách', () => {
     const edit = calls[indexOfCall(calls, 'UPDATE hrm_schema.leave_accrual_schedules SET policy_version_id')];
     expect(edit.params.slice(8, 14)).toEqual(['2026-01-01', null, 'CONTRACT_SIGN_DATE', 2, true, 14]);
     expect(world.schedules).toHaveLength(1);
-    expect(world.tiers.map((t) => t.min_years)).toEqual([5, 10]);
+    expect(world.tiers.map((t) => t.min_years)).toEqual([5]);
     expect(result.data.policy?.annualDays).toBe(14);
     expect(world.audits.map((a) => a.action)).toEqual(['LEAVE_SCHEDULE_EDIT', 'ANNUAL_LEAVE_POLICY_SAVED']);
     expect(world.audits[1].detail.mode).toBe('edit');
@@ -645,10 +639,28 @@ describe('PUT /annual-leave-policy: đã có chính sách', () => {
     expect(world.types[0]).toMatchObject({ max_carryover_days: 0, carryover_expiry_month: 3, carryover_allowed: false });
   });
 
-  it('đã cộng phép: đóng lịch cũ rồi tạo phiên bản mới từ 01/01 năm sau năm đã cộng', async () => {
+  it('đã cộng phép trong năm nay: sửa tại chỗ (hiệu lực từ 01/01 năm nay) và tính lại quỹ phép', async () => {
     const { policy, calls, world } = build({
       types: [annualType()],
       schedules: [schedule()],
+      usage: { [SCHEDULE]: { count: 9, last_month: '2026-09-30' } },
+    });
+    const result = await policy.put(req, body());
+    expect(calls.some(startsWith('INSERT INTO hrm_schema.leave_accrual_schedules'))).toBe(false);
+    expect(calls.some(startsWith('UPDATE hrm_schema.leave_accrual_schedules SET effective_to'))).toBe(false);
+    const edit = calls[indexOfCall(calls, 'UPDATE hrm_schema.leave_accrual_schedules SET policy_version_id')];
+    expect(edit.params.slice(8, 14)).toEqual(['2026-01-01', null, 'CONTRACT_SIGN_DATE', 2, true, 14]);
+    expect(world.schedules).toHaveLength(1);
+    expect(result.data.policy).toMatchObject({ effectiveFrom: '2026-01-01', annualDays: 14 });
+    expect(world.audits.map((a) => a.action)).toContain('LEAVE_SCHEDULE_REVISE');
+    expect(world.audits.at(-1)?.detail.mode).toBe('edit');
+    expect(world.audits.at(-1)?.detail.recomputed).toEqual([expect.objectContaining({ year: 2026 })]);
+  });
+
+  it('lịch bắt đầu từ năm trước: đóng lịch cũ cuối năm trước, phiên bản mới từ 01/01 năm nay và tính lại', async () => {
+    const { policy, calls, world } = build({
+      types: [annualType()],
+      schedules: [schedule({ effective_from: '2025-01-01' })],
       usage: { [SCHEDULE]: { count: 9, last_month: '2026-09-30' } },
     });
     const result = await policy.put(req, body());
@@ -656,27 +668,23 @@ describe('PUT /annual-leave-policy: đã có chính sách', () => {
     const create = indexOfCall(calls, 'INSERT INTO hrm_schema.leave_accrual_schedules');
     expect(close).toBeGreaterThan(-1);
     expect(create).toBeGreaterThan(close);
-    expect(calls[close].params.slice(1)).toEqual([SCHEDULE, '2027-01-01']);
-    expect(calls[create].params[8]).toBe('2027-01-01');
+    expect(calls[close].params.slice(1)).toEqual([SCHEDULE, '2026-01-01']);
+    expect(calls[create].params[8]).toBe('2026-01-01');
     expect(world.schedules).toHaveLength(2);
-    const openEnded = world.schedules.filter((s) => !s.effective_to);
-    expect(openEnded).toHaveLength(1);
-    expect(world.schedules.find((s) => s.id === SCHEDULE)?.effective_to).toBe('2026-12-31');
-    expect(result.data.policy).toMatchObject({ effectiveFrom: '2027-01-01', annualDays: 14 });
+    expect(world.schedules.find((s) => s.id === SCHEDULE)?.effective_to).toBe('2025-12-31');
+    expect(world.schedules.filter((s) => !s.effective_to)).toHaveLength(1);
+    expect(result.data.policy).toMatchObject({ effectiveFrom: '2026-01-01', annualDays: 14 });
     expect(world.audits.map((a) => a.action)).toContain('LEAVE_SCHEDULE_VERSION');
     expect(world.audits.at(-1)?.detail.mode).toBe('version');
   });
 
-  it('effectiveFrom do người dùng chọn phải là 01/01 và sau tháng đã cộng phép', async () => {
+  it('effectiveFrom do người dùng chọn phải là 01/01', async () => {
     const { policy, world } = build({
       types: [annualType()],
       schedules: [schedule()],
       usage: { [SCHEDULE]: { count: 9, last_month: '2026-09-30' } },
     });
-    // Không phải đầu năm: từ chối ngay ở bước kiểm tra đầu vào.
     await expect(policy.put(req, body({ effectiveFrom: '2026-10-01' }))).rejects.toBeInstanceOf(BadRequestException);
-    // Đầu năm nhưng không sau tháng đã cộng phép (luật hiện có, 409).
-    await expect(policy.put(req, body({ effectiveFrom: '2026-01-01' }))).rejects.toBeInstanceOf(ConflictException);
     expect(world.schedules).toHaveLength(1);
     expect(world.schedules[0].effective_to).toBeNull();
   });

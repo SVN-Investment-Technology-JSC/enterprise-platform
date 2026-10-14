@@ -2,26 +2,45 @@
 
 import {
   MY_WORK_BUCKETS,
+  type CreateProjectRequest,
+  type CreateWorkItemRequest,
   type MyWorkEvent,
   type MyWorkSummary,
   type ParticipantResponse,
+  type ProjectMember,
+  type ProjectRole,
+  type ProjectSummary,
+  type WorkItemPriority,
   type WorkItemStatus,
 } from '@enterprise-platform/contracts-workspace';
 import { formatTime } from '@enterprise-platform/shared-ui';
-import { AtSign, CalendarClock, ExternalLink, RefreshCw } from 'lucide-react';
-import { Fragment, useCallback, useEffect, useState, type ReactNode } from 'react';
+import { AtSign, CalendarClock, ExternalLink, Plus, RefreshCw } from 'lucide-react';
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import * as api from '../workspace-api';
+import { mergeNewProjectMembers } from '../project-tree.model';
 import {
   MY_WORK_BUCKET_LABELS,
   MY_WORK_BUCKET_TONE,
   PRIORITY_LABELS,
   PRIORITY_TONE,
+  WORK_ITEM_STATUS_LABELS,
   formatDate,
   formatDateTime,
   workItemStatusLabel,
   workItemStatusTone,
 } from '../workspace-labels';
 import styles from '../workspace.module.scss';
+import { Choice } from './choice';
+import { ProjectForm } from './project-form';
+import { WorkItemForm, type WorkItemCostInput } from './work-item-form';
 import { useDirectory } from './use-directory';
 
 const INVITATION_RESPONSES: readonly {
@@ -57,6 +76,22 @@ export function MyWorkView({ onOpen }: MyWorkViewProps = {}) {
   const [error, setError] = useState<string>();
   const [responding, setResponding] = useState<string>();
 
+  // Bộ lọc trang: trạng thái, ưu tiên và dự án. Rỗng nghĩa là không lọc.
+  const [statusFilter, setStatusFilter] = useState('');
+  const [priorityFilter, setPriorityFilter] = useState('');
+  const [projectFilter, setProjectFilter] = useState('');
+
+  // Nút "Tạo mới" ở góc trên phải: hai hộp thoại tạo dự án / tạo công việc.
+  const [me, setMe] = useState('');
+  const [projectFormOpen, setProjectFormOpen] = useState(false);
+  const [itemFormOpen, setItemFormOpen] = useState(false);
+  /** Mọi dự án người dùng thấy, dùng cho ô chọn "Dự án" trong form Công việc mới. */
+  const [projectList, setProjectList] = useState<readonly ProjectSummary[]>([]);
+  /** Dự án đang chọn trong form Công việc mới (chưa có dự án nào mở ở trang này). */
+  const [selectedProjectId, setSelectedProjectId] = useState('');
+  const [members, setMembers] = useState<readonly ProjectMember[]>([]);
+  const [parentOptions, setParentOptions] = useState<{ id: string; label: string }[]>([]);
+
   const reload = useCallback(async () => {
     setLoading(true);
     try {
@@ -73,7 +108,45 @@ export function MyWorkView({ onOpen }: MyWorkViewProps = {}) {
   useEffect(() => {
     void reload();
     void api.loadIsTenantAdmin().then(setIsTenantAdmin);
+    void api.loadCurrentUserId().then(setMe);
   }, [reload]);
+
+  /** Nạp danh sách dự án cho ô chọn "Dự án" khi mở form Công việc mới. */
+  const openNewWorkItem = useCallback(() => {
+    setSelectedProjectId('');
+    setMembers([]);
+    setParentOptions([]);
+    setItemFormOpen(true);
+    api
+      .listAllProjects(20)
+      .then(setProjectList)
+      .catch(() => undefined);
+  }, []);
+
+  /**
+   * Đổi dự án trong form Công việc mới: nạp thành viên và cây công việc của dự
+   * án đó để ô "Người phụ trách" và "Công việc cha" có đúng nguồn dữ liệu.
+   */
+  const onProjectChange = useCallback((projectId: string) => {
+    setSelectedProjectId(projectId);
+    setMembers([]);
+    setParentOptions([]);
+    if (!projectId) return;
+    api
+      .listMembers(projectId)
+      .then((result) => setMembers(result.items))
+      .catch(() => undefined);
+    api
+      .listWorkItems(projectId)
+      .then((tree) =>
+        setParentOptions(
+          tree.items
+            .filter((item) => item.status !== 'cancelled')
+            .map((item) => ({ id: item.id, label: `${item.code} · ${item.title}` })),
+        ),
+      )
+      .catch(() => undefined);
+  }, []);
 
   const respond = async (eventId: string, response: ParticipantResponse) => {
     setResponding(eventId);
@@ -100,9 +173,39 @@ export function MyWorkView({ onOpen }: MyWorkViewProps = {}) {
     }
   };
 
-  const items = summary?.items ?? [];
+  const allItems = summary?.items ?? [];
   const events = summary?.todayEvents ?? [];
   const invitations = summary?.pendingInvitations ?? [];
+
+  // Các giá trị lọc rút ra từ chính danh sách việc, nên ô lọc chỉ hiện những
+  // lựa chọn thật sự có việc.
+  const statusOptions = useMemo(() => {
+    const seen = new Set<WorkItemStatus>();
+    for (const entry of allItems) seen.add(entry.item.status);
+    return [...seen].map((status) => ({ value: status, label: WORK_ITEM_STATUS_LABELS[status] }));
+  }, [allItems]);
+  const priorityOptions = useMemo(() => {
+    const seen = new Set<WorkItemPriority>();
+    for (const entry of allItems) seen.add(entry.item.priority);
+    return [...seen].map((priority) => ({ value: priority, label: PRIORITY_LABELS[priority] }));
+  }, [allItems]);
+  const projectOptions = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const entry of allItems) seen.set(entry.item.projectId, entry.projectCode);
+    return [...seen.entries()].map(([value, label]) => ({ value, label }));
+  }, [allItems]);
+
+  const items = useMemo(
+    () =>
+      allItems.filter(
+        (entry) =>
+          (!statusFilter || entry.item.status === statusFilter) &&
+          (!priorityFilter || entry.item.priority === priorityFilter) &&
+          (!projectFilter || entry.item.projectId === projectFilter),
+      ),
+    [allItems, statusFilter, priorityFilter, projectFilter],
+  );
+  const hasFilter = Boolean(statusFilter || priorityFilter || projectFilter);
 
   return (
     <div className={styles.tabBody}>
@@ -167,7 +270,59 @@ export function MyWorkView({ onOpen }: MyWorkViewProps = {}) {
         >
           <RefreshCw size={15} />
         </button>
+        <CreateMenu
+          onNewProject={() => setProjectFormOpen(true)}
+          onNewWorkItem={openNewWorkItem}
+        />
       </div>
+
+      {statusOptions.length > 0 || projectOptions.length > 0 ? (
+        <div className={styles.filterBar} role="group" aria-label="Bộ lọc công việc">
+          <div className={styles.filterField}>
+            <span className={styles.filterLabel}>Trạng thái</span>
+            <Choice
+              label="Trạng thái"
+              value={statusFilter}
+              emptyOption="Mọi trạng thái"
+              options={statusOptions}
+              onChange={setStatusFilter}
+            />
+          </div>
+          <div className={styles.filterField}>
+            <span className={styles.filterLabel}>Ưu tiên</span>
+            <Choice
+              label="Ưu tiên"
+              value={priorityFilter}
+              emptyOption="Mọi mức ưu tiên"
+              options={priorityOptions}
+              onChange={setPriorityFilter}
+            />
+          </div>
+          <div className={styles.filterField}>
+            <span className={styles.filterLabel}>Dự án</span>
+            <Choice
+              label="Dự án"
+              value={projectFilter}
+              emptyOption="Mọi dự án"
+              options={projectOptions}
+              onChange={setProjectFilter}
+            />
+          </div>
+          {hasFilter ? (
+            <button
+              type="button"
+              className={styles.buttonSmall}
+              onClick={() => {
+                setStatusFilter('');
+                setPriorityFilter('');
+                setProjectFilter('');
+              }}
+            >
+              Xoá lọc
+            </button>
+          ) : null}
+        </div>
+      ) : null}
 
       <section className={styles.tableCard}>
         <div className={styles.tableScroll}>
@@ -276,7 +431,9 @@ export function MyWorkView({ onOpen }: MyWorkViewProps = {}) {
           </table>
         </div>
         {summary && items.length === 0 ? (
-          <p className={styles.emptyRow}>Bạn không có việc nào đang mở.</p>
+          <p className={styles.emptyRow}>
+            {hasFilter ? 'Không có việc nào khớp bộ lọc.' : 'Bạn không có việc nào đang mở.'}
+          </p>
         ) : null}
       </section>
 
@@ -335,6 +492,142 @@ export function MyWorkView({ onOpen }: MyWorkViewProps = {}) {
           )}
         </section>
       </div>
+
+      {/* Dự án mới — người tạo tự thành chủ nhiệm nên luôn được nhập tài chính. */}
+      <ProjectForm
+        open={projectFormOpen}
+        financeEnabled
+        onClose={() => setProjectFormOpen(false)}
+        onCreate={async (
+          input: CreateProjectRequest,
+          contractValue,
+          members?: ReadonlyArray<{ userId: string; role: ProjectRole }>,
+        ) => {
+          const created = await api.createProject(input);
+          if (contractValue !== undefined) {
+            await api.updateProjectFinance(created.id, { contractValue });
+          }
+          // Lưu thành viên chọn lúc tạo (đi đường PUT .../members, cần đúng một chủ nhiệm).
+          if (members && members.length > 0) {
+            const existing = await api.listMembers(created.id);
+            await api.setMembers(created.id, {
+              members: mergeNewProjectMembers(existing.items, members),
+            });
+          }
+          await reload();
+          onOpen?.(created.id, `project/${created.id}`);
+        }}
+        // Tạo từ trang này không sửa dự án; onUpdate chỉ để thoả kiểu dữ liệu.
+        onUpdate={async () => undefined}
+      />
+
+      {/* Công việc mới — trang này chưa mở dự án nào nên form có thêm ô chọn Dự án. */}
+      <WorkItemForm
+        open={itemFormOpen}
+        members={members}
+        currentUserId={me}
+        canAssignOthers
+        projectOptions={projectList.map((project) => ({
+          id: project.id,
+          label: `${project.code}-${project.name}`,
+        }))}
+        onProjectChange={onProjectChange}
+        parentOptions={parentOptions}
+        onClose={() => setItemFormOpen(false)}
+        onCreate={async (
+          input: Omit<CreateWorkItemRequest, 'projectId'>,
+          procedureDefinitionId?: string,
+          costs?: WorkItemCostInput,
+        ) => {
+          if (!selectedProjectId) throw new Error('Hãy chọn dự án cho công việc.');
+          const created = await api.createWorkItem({
+            ...input,
+            projectId: selectedProjectId,
+            procedureDefinitionId,
+          });
+          if (costs) await api.updateWorkItemCost(created.id, costs);
+          await reload();
+        }}
+        // Tạo từ trang này không sửa việc; onUpdate chỉ để thoả kiểu dữ liệu.
+        onUpdate={async () => undefined}
+      />
+    </div>
+  );
+}
+
+/**
+ * Nút "Tạo mới" ở góc trên phải: rê chuột (hoặc bấm/điểm focus) để xổ hai mục
+ * "Dự án mới" và "Công việc mới". Đóng lại khi con trỏ rời khỏi cả nút lẫn menu.
+ */
+function CreateMenu({
+  onNewProject,
+  onNewWorkItem,
+}: {
+  onNewProject: () => void;
+  onNewWorkItem: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  const cancelClose = () => {
+    if (closeTimer.current) {
+      clearTimeout(closeTimer.current);
+      closeTimer.current = undefined;
+    }
+  };
+  // Đóng trễ một nhịp để con trỏ kịp đi từ nút xuống menu mà không bị cụp.
+  const scheduleClose = () => {
+    cancelClose();
+    closeTimer.current = setTimeout(() => setOpen(false), 160);
+  };
+
+  useEffect(() => cancelClose, []);
+
+  return (
+    <div
+      className={styles.createMenu}
+      onMouseEnter={() => {
+        cancelClose();
+        setOpen(true);
+      }}
+      onMouseLeave={scheduleClose}
+    >
+      <button
+        type="button"
+        className={styles.buttonPrimary}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+        onFocus={() => setOpen(true)}
+      >
+        <Plus size={15} /> Tạo mới
+      </button>
+      {open ? (
+        <div className={styles.createMenuList} role="menu">
+          <button
+            type="button"
+            role="menuitem"
+            className={styles.createMenuItem}
+            onClick={() => {
+              setOpen(false);
+              onNewProject();
+            }}
+          >
+            Dự án mới
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className={styles.createMenuItem}
+            onClick={() => {
+              setOpen(false);
+              onNewWorkItem();
+            }}
+          >
+            Công việc mới
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }

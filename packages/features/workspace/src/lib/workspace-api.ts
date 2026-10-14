@@ -73,6 +73,8 @@ import type {
   ProjectRequestList,
   UpdateWorkdayRulesRequest,
   WorkdayRuleSet,
+  ProjectRoleList,
+  SaveProjectRoleRequest,
 } from '@enterprise-platform/contracts-workspace';
 import { authFetch } from '@enterprise-platform/shared-ui';
 
@@ -258,6 +260,13 @@ export const reverseWorkItem = (id: string, body: ReverseWorkItemRequest) =>
 
 export const moveWorkItem = (id: string, body: MoveWorkItemRequest) =>
   request<WorkItem>(`/work-items/${id}/move`, { method: 'POST', body: JSON.stringify(body) });
+
+/**
+ * Xoá hẳn công việc (và cả nhánh con) — chỉ chủ nhiệm dự án. Khác với "Huỷ"
+ * (đổi trạng thái sang Đã huỷ, mở lại được) ở `changeWorkItemStatus`.
+ */
+export const deleteWorkItem = (id: string) =>
+  request<void>(`/work-items/${id}`, { method: 'DELETE' });
 
 export const listDependencies = (id: string) =>
   request<{ items: WorkItemDependency[] }>(`/work-items/${id}/dependencies`, {
@@ -628,6 +637,22 @@ export const getWorkdayRules = () =>
 
 export const updateWorkdayRules = (body: UpdateWorkdayRulesRequest) =>
   request<WorkdayRuleSet>('/workday-rules', { method: 'PUT', body: JSON.stringify(body) });
+
+/** Vai trò trong dự án (dùng chung toàn tenant) và quyền của từng vai. */
+export const listProjectRoles = () =>
+  request<ProjectRoleList>('/project-roles', { cache: 'no-store' });
+
+export const createProjectRole = (body: SaveProjectRoleRequest) =>
+  request<ProjectRoleList>('/project-roles', { method: 'POST', body: JSON.stringify(body) });
+
+export const updateProjectRole = (key: string, body: SaveProjectRoleRequest) =>
+  request<ProjectRoleList>(`/project-roles/${encodeURIComponent(key)}`, {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  });
+
+export const deleteProjectRole = (key: string) =>
+  request<ProjectRoleList>(`/project-roles/${encodeURIComponent(key)}`, { method: 'DELETE' });
 
 /** Tab "Đơn từ": đơn module khác gửi kèm dự án (chỉ đọc). */
 export const listProjectRequests = (projectId: string) =>

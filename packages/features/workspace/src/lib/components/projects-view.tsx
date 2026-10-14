@@ -21,7 +21,13 @@ import type {
   WorkItemStatusHistoryEntry,
   WorkItemProcedureRequest,
 } from '@enterprise-platform/contracts-workspace';
-import { WORK_ITEM_STATUS_TRANSITIONS } from '@enterprise-platform/contracts-workspace';
+import {
+  DEFAULT_ROLE_PERMISSIONS,
+  PROJECT_PERMISSIONS,
+  WORK_ITEM_STATUS_TRANSITIONS,
+  type ProjectPermission,
+  type SystemProjectRole,
+} from '@enterprise-platform/contracts-workspace';
 import { CHAT_UNREAD_POLL_MS } from '@enterprise-platform/contracts-workspace';
 import { MessageSquare, MoreHorizontal, Plus } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -33,11 +39,12 @@ import {
   type ProcedureInstanceView,
   type ProcedureOption,
 } from '../procedure-api';
-import { branchOf } from '../project-tree.model';
+import { branchOf, mergeNewProjectMembers, parentCandidateOptions } from '../project-tree.model';
 import * as api from '../workspace-api';
 import styles from '../workspace.module.scss';
 import { CancelProjectDialog } from './cancel-project-dialog';
 import { CancelWorkItemDialog } from './cancel-work-item-dialog';
+import { DeleteWorkItemDialog } from './delete-work-item-dialog';
 import { ReverseWorkItemDialog } from './reverse-work-item-dialog';
 import { ChatDrawer } from './chat-drawer';
 import { DocumentPanel } from './document-panel';
@@ -213,6 +220,7 @@ export function ProjectsView({
   const [cancelling, setCancelling] = useState<ProjectSummary>();
   /** Công việc đang chờ xác nhận huỷ, từ menu chuột phải, bảng hay Kanban. */
   const [cancellingItem, setCancellingItem] = useState<WorkItem>();
+  const [deletingItem, setDeletingItem] = useState<WorkItem>();
   const [reversingItem, setReversingItem] = useState<WorkItem>();
   const [membersOpen, setMembersOpen] = useState(false);
   const [moving, setMoving] = useState<WorkItem>();
@@ -648,8 +656,26 @@ export function ProjectsView({
   // `myRole` rỗng chỉ xảy ra với quản trị viên tenant: người không phải thành
   // viên và không phải quản trị đã nhận 403 ngay ở lời gọi chi tiết.
   const role = detail?.project.myRole;
-  const canWrite = role === 'owner' || role === 'manager' || role === 'member' || !role;
-  const canManage = role === 'owner' || role === 'manager' || !role;
+  // Quyền theo vai trò do tenant cấu hình. Server bản cũ chưa trả
+  // `myPermissions` thì dùng quyền mặc định của vai hệ thống.
+  const permissions = useMemo<ReadonlySet<ProjectPermission>>(() => {
+    const given =
+      detail?.project.myPermissions ??
+      (role
+        ? ((DEFAULT_ROLE_PERMISSIONS[role as SystemProjectRole] as
+            | readonly ProjectPermission[]
+            | undefined) ?? [])
+        : PROJECT_PERMISSIONS);
+    return new Set(given);
+  }, [detail?.project.myPermissions, role]);
+  const canWrite =
+    permissions.has('project.update_all') || permissions.has('project.update_related');
+  const canManage = permissions.has('project.update_all');
+  const canCancelItem = permissions.has('work_item.cancel');
+  // Xoá hẳn cần giữ vai có quyền xoá trong dự án — quản trị tenant không đi tắt.
+  const canDeleteItem = Boolean(role) && permissions.has('work_item.delete');
+  const canChangeProjectStatus = permissions.has('project.update_status');
+  const canManageMembers = permissions.has('project.manage_members');
 
   /**
    * Kéo tiến độ của hồ sơ quy trình về công việc, mỗi lần mở công việc đó.
@@ -734,7 +760,7 @@ export function ProjectsView({
         label: 'Đánh dấu hoàn thành',
         disabled: !canWrite || (item?.status !== 'in_progress' && item?.status !== 'review'),
       },
-      { id: 'move-to', label: 'Chuyển sang nhóm khác…', disabled: !canManage },
+      { id: 'move-to', label: 'Di chuyển…', disabled: !canManage },
       { id: 'move-to-root', label: 'Đưa lên cấp gốc', disabled: !canManage || !item?.parentId },
       ...(item && pendingProcedure.has(item.id)
         ? [
@@ -755,8 +781,20 @@ export function ProjectsView({
         // Chỉ khi luật chuyển trạng thái cho phép: việc đã xong không huỷ được
         // (server từ chối) — việc xong mà sai thì dùng "Huỷ hiệu lực".
         disabled:
-          !canWrite || !item || !WORK_ITEM_STATUS_TRANSITIONS[item.status].includes('cancelled'),
+          !canWrite ||
+          !canCancelItem ||
+          !item ||
+          !WORK_ITEM_STATUS_TRANSITIONS[item.status].includes('cancelled'),
         separatorBefore: true,
+      },
+      {
+        // Xoá hẳn (cả nhánh con) — không hoàn tác, nên chỉ vai có quyền "Có
+        // thể xoá công việc" (mặc định chủ nhiệm); quản trị tenant cũng phải giữ
+        // vai đó. Khác "Huỷ công việc" ở trên (đổi trạng thái, mở lại được).
+        id: 'delete-item',
+        label: 'Xoá công việc',
+        danger: true,
+        disabled: !canDeleteItem || !item,
       },
       // Việc đã hoàn thành không mở lại; chủ nhiệm hoặc quản trị huỷ hiệu lực.
       ...(item?.status === 'done' && canOwn
@@ -838,6 +876,10 @@ export function ProjectsView({
       case 'cancel-item':
         // Hỏi lại kèm lý do — xem CancelWorkItemDialog.
         if (item) setCancellingItem(item);
+        return;
+      case 'delete-item':
+        // Xoá hẳn: hỏi lại bằng mã công việc — xem DeleteWorkItemDialog.
+        if (item) setDeletingItem(item);
         return;
       case 'reverse-item':
         if (item) setReversingItem(item);
@@ -955,6 +997,13 @@ export function ProjectsView({
             members={detail.members}
             documentCount={projectDocuments.length}
             onOpenMembers={() => setMembersOpen(true)}
+            canChangeStatus={canChangeProjectStatus}
+            onChangeStatus={(status) =>
+              run(
+                () => api.updateProject(detail.project.id, { status }),
+                'Không đổi được trạng thái dự án.',
+              )
+            }
           />
 
           <div className={styles.tabBar} role="tablist" aria-label="Mục của dự án">
@@ -992,6 +1041,10 @@ export function ProjectsView({
               onChangeStatus={async (item, next) => {
                 // Kéo sang cột Đã huỷ cũng phải qua bước xác nhận.
                 if (next === 'cancelled') {
+                  if (!canCancelItem) {
+                    setError('Vai trò của bạn trong dự án chưa có quyền huỷ công việc.');
+                    return;
+                  }
                   setCancellingItem(item);
                   return;
                 }
@@ -1114,7 +1167,7 @@ export function ProjectsView({
             externalRefs={detail.externalRefs}
             externalDegraded={detail.externalDegraded}
             procedurePending={pendingProcedure.get(selectedItem.id)}
-            canManageMembers={canManage}
+            canManageMembers={canManageMembers}
             onManageMembers={() => setMembersOpen(true)}
             dependencies={detail.dependencies}
             // Việc đã huỷ hiệu lực là hồ sơ đóng: không nối thêm phụ thuộc.
@@ -1176,11 +1229,20 @@ export function ProjectsView({
         onClose={() => setProjectForm({ open: false })}
         // Người tạo tự thành chủ nhiệm, nên luôn được đặt giá trị hợp đồng.
         financeEnabled={projectForm.edit ? Boolean(detail?.project.finance) : true}
-        onCreate={async (input: CreateProjectRequest, contractValue) => {
+        onCreate={async (input: CreateProjectRequest, contractValue, members) => {
           const created = await api.createProject(input);
           // Số tiền đi đường riêng: endpoint tài chính có hàng rào quyền khác.
           if (contractValue !== undefined) {
             await api.updateProjectFinance(created.id, { contractValue });
+          }
+          // Thành viên cũng đi đường riêng (PUT .../members) — endpoint này thay
+          // cả danh sách và cần đúng một chủ nhiệm, nên phải gộp cùng người tạo
+          // (đã là chủ nhiệm) thay vì gửi mỗi người mới.
+          if (members && members.length > 0) {
+            const existing = await api.listMembers(created.id);
+            await api.setMembers(created.id, {
+              members: mergeNewProjectMembers(existing.items, members),
+            });
           }
           await refreshList();
           onProjectsChanged?.();
@@ -1202,6 +1264,8 @@ export function ProjectsView({
         open={itemForm.open}
         item={itemForm.edit}
         parent={itemForm.parent}
+        parentOptions={parentCandidateOptions(detail?.items ?? [])}
+        defaultParentId={itemForm.parent?.id}
         members={detail?.members ?? []}
         currentUserId={me}
         canAssignOthers={canManage}
@@ -1324,6 +1388,32 @@ export function ProjectsView({
           await api.changeWorkItemStatus(item.id, { status: 'cancelled', note: note || undefined });
           setCancellingItem(undefined);
           if (openId) await refreshDetail(openId);
+        }}
+      />
+
+      <DeleteWorkItemDialog
+        item={deletingItem}
+        descendants={
+          deletingItem
+            ? branchOf(detail?.items ?? [], deletingItem.id).size - 1
+            : 0
+        }
+        onClose={() => setDeletingItem(undefined)}
+        onConfirm={async (item) => {
+          // Lỗi ném ra để hộp thoại tự hiện.
+          await api.deleteWorkItem(item.id);
+          // Đang đứng trong nhánh vừa xoá thì về lại chính dự án, kẻo trỏ vào
+          // node không còn tồn tại.
+          if (
+            selected.kind === 'work-item' &&
+            branchOf(detail?.items ?? [], item.id).has(selected.id)
+          ) {
+            setSelected({ kind: 'project' });
+          }
+          setDeletingItem(undefined);
+          if (openId) await refreshDetail(openId);
+          await refreshList();
+          onProjectsChanged?.();
         }}
       />
 

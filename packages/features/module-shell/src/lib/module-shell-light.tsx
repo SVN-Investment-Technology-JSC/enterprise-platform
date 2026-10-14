@@ -1,7 +1,15 @@
 'use client';
 
-import { NotificationBell, NotificationProvider, SessionKeepAlive } from '@enterprise-platform/shared-ui';
-import { Fragment, useEffect } from 'react';
+import { NotificationBell, NotificationProvider, SearchableSelect, SessionKeepAlive } from '@enterprise-platform/shared-ui';
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
+} from 'react';
 import type {
   ModuleNavItem,
   ModuleShellProps,
@@ -11,6 +19,11 @@ import { AssistantLauncher } from './assistant-launcher';
 import { ModuleSwitcher } from './module-switcher';
 import { initialsOfName, useShellSession } from './use-shell-session';
 import styles from './module-shell-light.module.scss';
+
+/** Giới hạn độ rộng thanh bên khi kéo tay, và khoá lưu theo từng module. */
+const SIDEBAR_MIN_WIDTH = 200;
+const SIDEBAR_MAX_WIDTH = 480;
+const SIDEBAR_WIDTH_STORAGE = 'ep-sidebar-width:';
 
 /**
  * Khung sáng: thanh bên trắng có khối người dùng và các mục điều hướng; không
@@ -44,6 +57,74 @@ export function ModuleShellLight<TViewId extends string = string>(
   ];
   const { onQuickSearch } = props;
 
+  /**
+   * Độ rộng thanh bên do người dùng kéo. `undefined` nghĩa là chưa đụng tới,
+   * dùng mặc định trong scss; vì vậy module nào không kéo thì giữ nguyên như cũ.
+   */
+  const [sidebarWidth, setSidebarWidth] = useState<number | undefined>();
+  const [resizing, setResizing] = useState(false);
+  const draggingRef = useRef(false);
+
+  // Khôi phục độ rộng đã lưu theo từng module (mỗi module một thói quen riêng).
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(SIDEBAR_WIDTH_STORAGE + props.moduleKey);
+      const value = saved ? Number(saved) : NaN;
+      if (Number.isFinite(value)) {
+        setSidebarWidth(Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, value)));
+      }
+    } catch {
+      // localStorage có thể bị chặn (chế độ riêng tư); bỏ qua, dùng mặc định.
+    }
+  }, [props.moduleKey]);
+
+  const startResize = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      draggingRef.current = true;
+      setResizing(true);
+      // Thanh bên bám sát cạnh trái màn hình, nên con trỏ theo trục X chính là
+      // độ rộng mong muốn.
+      const onMove = (move: PointerEvent) => {
+        if (!draggingRef.current) return;
+        const next = Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, move.clientX));
+        setSidebarWidth(next);
+      };
+      const onUp = () => {
+        draggingRef.current = false;
+        setResizing(false);
+        document.removeEventListener('pointermove', onMove);
+        document.removeEventListener('pointerup', onUp);
+        document.body.style.removeProperty('cursor');
+        document.body.style.removeProperty('user-select');
+        setSidebarWidth((current) => {
+          if (current !== undefined) {
+            try {
+              window.localStorage.setItem(
+                SIDEBAR_WIDTH_STORAGE + props.moduleKey,
+                String(current),
+              );
+            } catch {
+              // bỏ qua nếu không ghi được.
+            }
+          }
+          return current;
+        });
+      };
+      document.addEventListener('pointermove', onMove);
+      document.addEventListener('pointerup', onUp);
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+    },
+    [props.moduleKey],
+  );
+
+  // Chỉ ghi đè độ rộng khi không thu gọn: lúc thu gọn phải nhường cho dải 64px.
+  const shellStyle =
+    !collapsed && sidebarWidth !== undefined
+      ? ({ '--ep-sidebar-w': `${sidebarWidth}px` } as CSSProperties)
+      : undefined;
+
   useEffect(() => {
     if (!onQuickSearch) return;
     const onKey = (event: KeyboardEvent) => {
@@ -59,8 +140,14 @@ export function ModuleShellLight<TViewId extends string = string>(
   return (
     <NotificationProvider>
       <SessionKeepAlive />
-      <div className={collapsed ? `${styles.shell} ${styles.shellCollapsed}` : styles.shell}>
-        <nav className={styles.sidebar} aria-label={`Điều hướng ${props.title}`}>
+      <div
+        className={collapsed ? `${styles.shell} ${styles.shellCollapsed}` : styles.shell}
+        style={shellStyle}
+      >
+        <nav
+          className={resizing ? `${styles.sidebar} ${styles.sidebarResizing}` : styles.sidebar}
+          aria-label={`Điều hướng ${props.title}`}
+        >
           <div className={styles.brand}>
             <img src="/brand-logo.jpg" alt="" className={styles.brandLogo} />
             {collapsed ? null : (
@@ -160,6 +247,25 @@ export function ModuleShellLight<TViewId extends string = string>(
                 </svg>
               </button>
             ) : null}
+            {props.settings ? (
+              <button
+                type="button"
+                className={
+                  props.settings.active
+                    ? `${styles.squareButton} ${styles.squareButtonActive}`
+                    : styles.squareButton
+                }
+                aria-label={props.settings.label ?? 'Cài đặt'}
+                aria-current={props.settings.active ? 'page' : undefined}
+                title={props.settings.label ?? 'Cài đặt'}
+                onClick={props.settings.onOpen}
+              >
+                <svg viewBox="0 0 24 24" className={styles.icon} aria-hidden>
+                  <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+                  <circle cx="12" cy="12" r="3" />
+                </svg>
+              </button>
+            ) : null}
             <span className={styles.footSpacer} />
             <button
               type="button"
@@ -181,6 +287,18 @@ export function ModuleShellLight<TViewId extends string = string>(
               {logoutError}
             </p>
           ) : null}
+
+          {/* Kéo cạnh phải để đổi độ rộng thanh bên. Ẩn khi thu gọn và trên
+              màn hẹp (thanh bên lúc đó nằm ngang trên nội dung). */}
+          {collapsed ? null : (
+            <div
+              className={styles.resizeHandle}
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Kéo để đổi độ rộng thanh bên"
+              onPointerDown={startResize}
+            />
+          )}
         </nav>
 
         <main className={styles.main}>
@@ -271,19 +389,22 @@ function SidebarSection(props: { section: ModuleSidebarSection; collapsed: boole
         </div>
       )}
       {!collapsed && section.filter ? (
-        <select
+        // Combobox gõ-để-lọc theo quy chuẩn chung (không dùng `<select>` tĩnh);
+        // ô to hơn, tìm nhanh theo tên loại.
+        <div
           className={styles.sectionFilter}
+          role="group"
           aria-label={section.filter.label}
           title={section.filter.label}
-          value={section.filter.value}
-          onChange={(event) => section.filter?.onChange(event.target.value)}
         >
-          {section.filter.options.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
+          <SearchableSelect
+            options={section.filter.options}
+            value={section.filter.value}
+            placeholder={section.filter.label}
+            clearable
+            onChange={(value) => section.filter?.onChange(value)}
+          />
+        </div>
       ) : null}
       {section.items.map((item, index) => (
         <Fragment key={item.id}>

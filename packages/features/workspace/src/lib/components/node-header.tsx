@@ -10,7 +10,6 @@ import {
   PRIORITY_TONE,
   PROJECT_STATUS_LABELS,
   PROJECT_STATUS_TONE,
-  ROLE_LABELS,
   formatDate,
   isOverdue,
   workItemStatusLabel,
@@ -20,6 +19,7 @@ import styles from '../workspace.module.scss';
 import { ProcedureActions, type ProcedureLink } from './procedure-actions';
 import type { SelectedNode } from './project-tree';
 import { useDirectory } from './use-directory';
+import { useProjectRoles } from './use-project-roles';
 import { tagColor, useTags } from './use-tags';
 
 export interface NodeHeaderProps {
@@ -70,6 +70,7 @@ export function NodeHeader({
   onStartProcedure,
 }: NodeHeaderProps) {
   const directory = useDirectory();
+  const projectRoles = useProjectRoles();
   const tags = useTags();
   const participants = selected?.participantUserIds ?? [];
   const selectedTags = (selected?.tagIds ?? []).flatMap((tagId) => tags.find(tagId) ?? []);
@@ -255,7 +256,7 @@ export function NodeHeader({
                 ? directory.nameOf(selected.assigneeUserId)
                 : 'Chưa giao'
               : project.myRole
-                ? ROLE_LABELS[project.myRole]
+                ? projectRoles.labelOf(project.myRole)
                 : 'Quản trị viên tenant'}
           </b>
         </span>

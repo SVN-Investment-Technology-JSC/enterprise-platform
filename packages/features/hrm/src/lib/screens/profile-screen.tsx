@@ -9,7 +9,6 @@ import type {
   HrmCareerHistoryItem,
 } from '@enterprise-platform/contracts-hrm';
 import {
-  Award,
   BadgeCheck,
   Briefcase,
   Building2,
@@ -976,295 +975,86 @@ export default function HrmProfilePage() {
             </Badge>
           </div>
 
-          {/* Org & Position block - Master-Detail Spec Sheet Layout */}
-          <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-200 gap-3">
+          {/* Cơ cấu tổ chức và vị trí công tác: chỉ hiển thị chữ, không hiện mã nội bộ */}
+          <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200">
               <div className="flex items-center gap-3">
                 <div className="size-9 rounded-lg bg-blue-50 border border-blue-200 flex items-center justify-center text-[#021E73]">
-                  <Building2 className="size-5 text-[#021E73]" />
+                  <Building2 className="size-5" />
                 </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wide">
-                      Cơ cấu tổ chức & Vị trí công tác
-                    </h3>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="text-sm font-bold text-slate-900">
+                    Cơ cấu tổ chức và vị trí công tác
+                  </h3>
+                  {profileMeta.employmentStatus && (
                     <Badge className="bg-blue-100 text-blue-800 text-[10px] font-bold border border-blue-200">
-                      {profileMeta.employmentStatus || 'Bổ nhiệm chính thức'}
+                      {profileMeta.employmentStatus}
                     </Badge>
-                  </div>
-                  <p className="text-[11px] text-slate-500 mt-0.5">
-                    Bảng đặc tả định danh cơ cấu tổ chức, sơ đồ quản lý và thẩm
-                    quyền chức danh
-                  </p>
+                  )}
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() =>
-                    window.open(
-                      employeeId
-                        ? `/organization?highlight=${employeeId}`
-                        : '/organization',
-                      '_blank',
-                    )
-                  }
-                  className="text-xs h-8 px-3 gap-1.5 border-slate-300 hover:bg-blue-50 hover:text-blue-900"
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  window.open(
+                    employeeId
+                      ? `/organization?highlight=${employeeId}`
+                      : '/organization',
+                    '_blank',
+                  )
+                }
+                className="text-xs h-8 px-3 gap-1.5 border-slate-300 hover:bg-blue-50 hover:text-blue-900"
+              >
+                <ExternalLink className="size-3.5" />
+                <span>Xem trên Sơ đồ tổ chức</span>
+              </Button>
+            </div>
+
+            <dl className="grid grid-cols-1 md:grid-cols-2 gap-x-8 text-sm">
+              {(
+                [
+                  ['Công ty', companyName],
+                  ['Khối đơn vị', profileMeta.division],
+                  ['Phòng ban', profileMeta.department],
+                  ['Bộ phận / Đội nhóm', profileMeta.team],
+                  ['Địa điểm làm việc', profileMeta.location],
+                  ['Chức danh', profileMeta.position],
+                  [
+                    'Hiệu lực bổ nhiệm',
+                    profileMeta.officialDate || profileMeta.joinDate
+                      ? formatVnDate(
+                          profileMeta.officialDate || profileMeta.joinDate,
+                        )
+                      : null,
+                  ],
+                  [
+                    'Quản lý trực tiếp',
+                    profileMeta.directManagerName
+                      ? profileMeta.directManagerTitle
+                        ? `${profileMeta.directManagerName} (${profileMeta.directManagerTitle})`
+                        : profileMeta.directManagerName
+                      : null,
+                  ],
+                ] as [string, string | null | undefined][]
+              ).map(([label, value]) => (
+                <div
+                  key={label}
+                  className="flex items-start justify-between gap-4 py-2.5 border-b border-slate-100"
                 >
-                  <ExternalLink className="size-3.5" />
-                  <span>Xem trên Sơ đồ tổ chức</span>
-                </Button>
-                <Badge variant="outline" className="text-[10px] text-slate-500 gap-1 h-8 px-2.5">
-                  <Lock className="size-3" />
-                  Chỉ đọc (Read-only)
-                </Badge>
-              </div>
-            </div>
-
-            {/* Sơ đồ cây phân cấp tổ chức (Hierarchy Path) */}
-            <div className="p-3 bg-slate-50/70 rounded-xl border border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs">
-              <div className="flex flex-wrap items-center gap-1.5">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mr-1 flex items-center gap-1">
-                  <Network className="size-3.5 text-slate-400" />
-                  Phân cấp quản lý:
-                </span>
-                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-white border border-slate-200 text-slate-800 font-medium text-[11px] shadow-2xs">
-                  <Building2 className="size-3.5 text-slate-400" />
-                  {companyName || '----'}
-                </span>
-                {profileMeta.division && (
-                  <>
-                    <ChevronRight className="size-3.5 text-slate-400" />
-                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-white border border-slate-200 text-slate-700 font-medium text-[11px] shadow-2xs">
-                      {profileMeta.division}
-                    </span>
-                  </>
-                )}
-                <ChevronRight className="size-3.5 text-slate-400" />
-                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-white border border-slate-200 text-[#021E73] font-semibold text-[11px] shadow-2xs">
-                  <Building2 className="size-3.5 text-[#021E73]" />
-                  {profileMeta.department || '----'}
-                </span>
-                <ChevronRight className="size-3.5 text-slate-400" />
-                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-blue-50 border border-blue-200 text-blue-800 font-bold text-[11px]">
-                  <Award className="size-3.5 text-blue-800" />
-                  {profileMeta.position || '----'}
-                </span>
-              </div>
-              <div className="flex items-center gap-1.5 text-[11px] text-slate-600 font-medium">
-                <ShieldCheck className="size-3.5 text-emerald-600" />
-                <span>
-                  Cấp bậc ngạch:{' '}
-                  <strong className="text-slate-900">
-                    {profileMeta.salaryGrade || '----'}
-                  </strong>
-                </span>
-              </div>
-            </div>
-
-            {/* Bảng đặc tả 2 cột Master-Detail */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 pt-1">
-              {/* Cột 1: Thông tin Đơn vị & Pháp nhân */}
-              <div className="border border-slate-200 rounded-xl overflow-hidden bg-white">
-                <div className="bg-slate-50 px-4 py-2.5 border-b border-slate-200 flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-800 uppercase tracking-wide flex items-center gap-1.5">
-                    <Building2 className="size-3.5 text-[#021E73]" />
-                    Cơ cấu Đơn vị & Pháp nhân
-                  </span>
-                  <span className="text-[10px] font-mono text-slate-400">
-                    ORGANIZATION_UNIT
-                  </span>
+                  <dt className="text-slate-500 shrink-0">{label}</dt>
+                  <dd className="font-semibold text-slate-900 text-right">
+                    {value || '----'}
+                  </dd>
                 </div>
-                <div className="divide-y divide-slate-100 text-xs">
-                  <div className="grid grid-cols-12 px-4 py-3 hover:bg-slate-50/50 transition-colors items-center">
-                    <span className="col-span-4 text-slate-500 font-medium">
-                      Công ty / Pháp nhân
-                    </span>
-                    <div className="col-span-8 space-y-0.5">
-                      <div className="font-bold text-slate-900 text-sm">
-                        {companyName || '----'}
-                      </div>
-                      <div className="text-[11px] text-slate-500">
-                        Doanh nghiệp{' '}
-                        <span className="font-mono text-[10px] text-slate-400">
-                          (core_tenants)
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-12 px-4 py-3 hover:bg-slate-50/50 transition-colors items-center">
-                    <span className="col-span-4 text-slate-500 font-medium">
-                      Khối đơn vị
-                    </span>
-                    <div className="col-span-8">
-                      <span className="font-semibold text-slate-900">
-                        {profileMeta.division || 'Khối Công nghệ & Vận hành'}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-12 px-4 py-3 hover:bg-slate-50/50 transition-colors items-center">
-                    <span className="col-span-4 text-slate-500 font-medium">
-                      Phòng ban công tác
-                    </span>
-                    <div className="col-span-8 flex items-center justify-between">
-                      <span className="font-bold text-slate-900">
-                        {profileMeta.department || '----'}
-                      </span>
-                      <span className="font-mono text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded border border-slate-200">
-                        {profileMeta.department ? 'DEP-ASSIGNED' : '----'}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-12 px-4 py-3 hover:bg-slate-50/50 transition-colors items-center">
-                    <span className="col-span-4 text-slate-500 font-medium">
-                      Bộ phận / Đội nhóm
-                    </span>
-                    <div className="col-span-8">
-                      <span className="font-medium text-slate-900">
-                        {profileMeta.team || 'Trực thuộc Phòng ban'}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-12 px-4 py-3 hover:bg-slate-50/50 transition-colors items-center">
-                    <span className="col-span-4 text-slate-500 font-medium">
-                      Địa điểm làm việc
-                    </span>
-                    <div className="col-span-8 flex items-center justify-between">
-                      <span className="text-slate-800 flex items-center gap-1">
-                        <MapPin className="size-3.5 text-slate-400" />
-                        {profileMeta.location || 'Văn phòng Trụ sở chính'}
-                      </span>
-                      <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                        On-site
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Cột 2: Thông tin Chức danh & Tuyến quản lý */}
-              <div className="border border-slate-200 rounded-xl overflow-hidden bg-white">
-                <div className="bg-slate-50 px-4 py-2.5 border-b border-slate-200 flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-800 uppercase tracking-wide flex items-center gap-1.5">
-                    <Award className="size-3.5 text-[#021E73]" />
-                    Chức danh & Thẩm quyền quản lý
-                  </span>
-                  <span className="text-[10px] font-mono text-slate-400">
-                    POSITION_HIERARCHY
-                  </span>
-                </div>
-                <div className="divide-y divide-slate-100 text-xs">
-                  <div className="grid grid-cols-12 px-4 py-3 hover:bg-slate-50/50 transition-colors items-center">
-                    <span className="col-span-4 text-slate-500 font-medium">
-                      Chức danh công việc
-                    </span>
-                    <div className="col-span-8 flex items-center justify-between">
-                      <div className="space-y-0.5">
-                        <div className="font-bold text-slate-900 text-sm">
-                          {profileMeta.position || '----'}
-                        </div>
-                        <div className="text-[11px] text-slate-400">
-                          {profileMeta.position ? 'Chức danh chính' : '----'}
-                        </div>
-                      </div>
-                      <Badge className="bg-[#021E73] text-white text-[10px] font-bold">
-                        {profileMeta.position ? 'ACTIVE' : '----'}
-                      </Badge>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-12 px-4 py-3 hover:bg-slate-50/50 transition-colors items-center">
-                    <span className="col-span-4 text-slate-500 font-medium">
-                      Mã vị trí & Cấp bậc
-                    </span>
-                    <div className="col-span-8 flex items-center gap-2">
-                      <span className="font-mono font-bold text-slate-800 bg-slate-100 px-2 py-0.5 rounded text-[11px] border border-slate-200">
-                        {profileMeta.positionCode || 'POS-DEFAULT'}
-                      </span>
-                      <span className="text-[11px] text-slate-600">
-                        {profileMeta.salaryGrade || 'Chuyên viên'}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-12 px-4 py-3 hover:bg-slate-50/50 transition-colors items-center">
-                    <span className="col-span-4 text-slate-500 font-medium">
-                      Quyết định bổ nhiệm
-                    </span>
-                    <div className="col-span-8 flex items-center gap-2">
-                      <span className="font-semibold text-slate-800">
-                        {profileMeta.employeeCode
-                          ? `QĐ-TNS-${profileMeta.employeeCode}`
-                          : '----'}
-                      </span>
-                      <span className="text-slate-300">•</span>
-                      <span className="text-[11px] text-slate-500">
-                        Hiệu lực:{' '}
-                        <strong className="text-slate-800">
-                          {formatVnDate(
-                            profileMeta.officialDate || profileMeta.joinDate,
-                          )}
-                        </strong>
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-12 px-4 py-3 hover:bg-slate-50/50 transition-colors items-center">
-                    <span className="col-span-4 text-slate-500 font-medium">
-                      Quản lý trực tiếp
-                    </span>
-                    <div className="col-span-8 flex items-center justify-between">
-                      <div className="flex items-center gap-2.5">
-                        <div className="size-7 rounded-full bg-slate-200 text-slate-600 text-[11px] font-bold flex items-center justify-center">
-                          {profileMeta.directManagerName
-                            ? profileMeta.directManagerName
-                                .trim()
-                                .split(/\s+/)
-                                .filter(Boolean)
-                                .slice(-2)
-                                .map((n) => n[0])
-                                .join('')
-                                .toUpperCase()
-                            : '--'}
-                        </div>
-                        <div>
-                          <div className="font-bold text-slate-900 flex items-center gap-1">
-                            <span>
-                              {profileMeta.directManagerName ||
-                                'Chưa phân công quản lý'}
-                            </span>
-                          </div>
-                          <div className="text-[10px] text-slate-500">
-                            {profileMeta.directManagerTitle || 'Trưởng bộ phận'}
-                          </div>
-                        </div>
-                      </div>
-                      <span className="text-[10px] font-semibold text-slate-600 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
-                        {profileMeta.directManagerName
-                          ? 'HEAD-ASSIGNED'
-                          : 'UNASSIGNED'}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-12 px-4 py-3 hover:bg-slate-50/50 transition-colors items-center">
-                    <span className="col-span-4 text-slate-500 font-medium">
-                      Phạm vi trách nhiệm
-                    </span>
-                    <div className="col-span-8">
-                      <p className="text-[11px] text-slate-600 leading-relaxed">
-                        {profileMeta.note || '----'}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
+              ))}
+            </dl>
+            {profileMeta.note && (
+              <p className="text-xs text-slate-600 leading-relaxed">
+                <span className="text-slate-500">Phạm vi trách nhiệm: </span>
+                {profileMeta.note}
+              </p>
+            )}
           </div>
 
           {/* Timeline of promotions / employment events */}
@@ -1273,7 +1063,7 @@ export default function HrmProfilePage() {
               <div className="flex items-center gap-2.5">
                 <span className="w-1.5 h-4 bg-[#021E73] rounded-full" />
                 <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wide">
-                  Lịch sử Bổ nhiệm & Công tác (Timeline)
+                  Lịch sử bổ nhiệm và công tác
                 </h3>
               </div>
               <div className="flex items-center gap-2">
@@ -1351,7 +1141,7 @@ export default function HrmProfilePage() {
                               </Badge>
                             )}
                           </div>
-                          <div className="flex items-center gap-1 text-xs font-semibold text-blue-700 font-mono">
+                          <div className="flex items-center gap-1 text-xs font-semibold text-blue-700">
                             <Calendar className="size-3 text-slate-400" />
                             <span>
                               {formatVnDate(item.startDate)} -{' '}
@@ -1365,17 +1155,6 @@ export default function HrmProfilePage() {
                             <Building2 className="size-3 text-slate-400" />
                             Đơn vị: <strong>{item.unitName}</strong>
                           </span>
-                          {item.positionCode && (
-                            <>
-                              <span>•</span>
-                              <span>
-                                Mã vị trí:{' '}
-                                <code className="font-mono text-slate-700 bg-white px-1.5 py-0.5 rounded border border-slate-200">
-                                  {item.positionCode}
-                                </code>
-                              </span>
-                            </>
-                          )}
                         </div>
 
                         {item.note && (
@@ -1405,16 +1184,14 @@ export default function HrmProfilePage() {
                             Hiện tại
                           </Badge>
                         </div>
-                        <span className="text-xs font-semibold text-blue-700 font-mono">
+                        <span className="text-xs font-semibold text-blue-700">
                           {formatVnDate(profileMeta.officialDate)} - Nay
                         </span>
                       </div>
                       <p className="text-xs text-slate-600 mb-2">
                         Được tiếp nhận và bổ nhiệm vị trí chính thức tại tổ chức.
                         Trạng thái lao động:{' '}
-                        <strong>
-                          {profileMeta.employmentStatus || 'OFFICIAL'}
-                        </strong>
+                        <strong>{profileMeta.employmentStatus || '----'}</strong>
                         .
                       </p>
                       <div className="flex flex-wrap items-center gap-4 text-[11px] text-slate-500 font-medium">
@@ -1442,7 +1219,7 @@ export default function HrmProfilePage() {
                             Khởi đầu
                           </Badge>
                         </div>
-                        <span className="text-xs font-semibold text-slate-500 font-mono">
+                        <span className="text-xs font-semibold text-slate-500">
                           {formatVnDate(profileMeta.joinDate)}
                         </span>
                       </div>
@@ -1451,11 +1228,7 @@ export default function HrmProfilePage() {
                         định tiếp nhận nhân sự.
                       </p>
                       <div className="flex flex-wrap items-center gap-4 text-[11px] text-slate-500 font-medium">
-                        <span>
-                          Mã nhân viên: {profileMeta.employeeCode || '----'}
-                        </span>
-                        <span>•</span>
-                        <span>Ngày gia nhập: {formatVnDate(profileMeta.joinDate)}</span>
+
                       </div>
                     </div>
                   </div>

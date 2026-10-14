@@ -14,6 +14,7 @@ import { ExternalReferenceService } from './application/external-reference.servi
 import { FinanceService } from './application/finance.service.js';
 import { ProjectRequestService } from './application/project-request.service.js';
 import { WorkdayRuleService } from './application/workday-rule.service.js';
+import { ProjectRoleService } from './application/project-role.service.js';
 import { MyWorkService } from './application/my-work.service.js';
 import {
   ORGANIZATION_DIRECTORY,
@@ -22,6 +23,7 @@ import {
 import { ProjectService } from './application/project.service.js';
 import { ReportService } from './application/report.service.js';
 import { WorkItemService } from './application/work-item.service.js';
+import { WorkItemDeletionService } from './application/work-item-deletion.service.js';
 import { HttpProcedureReversalChecker } from './infrastructure/http-procedure-reversal-check.js';
 import { WorkspaceApplication } from './application/workspace.application.js';
 import { WORKSPACE_STORE, type WorkspaceStore } from './application/workspace-store.port.js';
@@ -69,10 +71,16 @@ import { WorkspaceController } from './presentation/workspace.controller.js';
       inject: [ORGANIZATION_DIRECTORY],
     },
     {
+      // Một thực thể cho cả module: cache quyền theo vai nằm trong nó.
+      provide: ProjectRoleService,
+      useFactory: (store: WorkspaceStore) => new ProjectRoleService(store),
+      inject: [WORKSPACE_STORE],
+    },
+    {
       provide: ProjectService,
-      useFactory: (store: WorkspaceStore, directory: DirectoryService) =>
-        new ProjectService(store, directory),
-      inject: [WORKSPACE_STORE, DirectoryService],
+      useFactory: (store: WorkspaceStore, directory: DirectoryService, roles: ProjectRoleService) =>
+        new ProjectService(store, directory, roles),
+      inject: [WORKSPACE_STORE, DirectoryService, ProjectRoleService],
     },
     {
       // Công việc cần `ProjectService` để phân giải vai trò trong dự án, nên
@@ -80,6 +88,14 @@ import { WorkspaceController } from './presentation/workspace.controller.js';
       provide: WorkItemService,
       useFactory: (store: WorkspaceStore, projects: ProjectService) =>
         new WorkItemService(store, projects, new HttpProcedureReversalChecker()),
+      inject: [WORKSPACE_STORE, ProjectService],
+    },
+    {
+      // Xoá công việc tách khỏi `WorkItemService`: chỉ cần store và phân giải
+      // vai trò dự án, không kéo theo phụ thuộc kiểm quy trình.
+      provide: WorkItemDeletionService,
+      useFactory: (store: WorkspaceStore, projects: ProjectService) =>
+        new WorkItemDeletionService(store, projects),
       inject: [WORKSPACE_STORE, ProjectService],
     },
     {
@@ -175,6 +191,7 @@ import { WorkspaceController } from './presentation/workspace.controller.js';
     FinanceService,
     ProjectRequestService,
     WorkdayRuleService,
+    ProjectRoleService,
     CatalogService,
     TenantDatabaseRegistry,
     PostgresPoolRegistry,

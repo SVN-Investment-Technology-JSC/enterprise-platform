@@ -58,6 +58,7 @@ import {
 } from '../infrastructure/hrm-leave-operations.js';
 import {
   applyLeaveDelta,
+  displayedRemainingDays,
   listEmployeeLeaveBalanceRows,
 } from '../infrastructure/hrm-leave-balance.js';
 import {
@@ -635,14 +636,8 @@ export class HrmLeaveController {
         const entitlement =
           Math.round((openingNum + baseDays + adjustedNum) * 100) / 100;
 
-        // Số ngày còn lại: nếu có chính sách HĐLĐ thì tính theo quỹ được hưởng trừ đã dùng hoặc available (đã tính ứng phép)
-        const remaining = hasPolicy
-          ? !row.has_balance
-            ? Math.round((entitlement - usedNum) * 100) / 100
-            : Math.round(
-                Number(row.available ?? (entitlement - usedNum)) * 100,
-              ) / 100
-          : Math.round(Number(row.remaining || 0) * 100) / 100;
+        // `entitlement` là định mức cả năm; "Còn lại" là số dùng được hiện tại, cùng số với Bàn làm việc và form xin nghỉ.
+        const remaining = displayedRemainingDays(row, entitlement, usedNum);
 
         const hasBalance = row.has_balance !== false || hasPolicy;
 

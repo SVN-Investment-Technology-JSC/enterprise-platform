@@ -170,7 +170,7 @@ describe('TimesheetsScreen', () => {
       const past = screen.getByTestId(`board-cell-e1-${d(2)}`);
       expect(past.querySelector('[data-testid="cell-shift-code"]')).toBeNull();
       expect(past.textContent).not.toContain('HC');
-      expect(past.querySelector('[data-testid="cell-dot"]')).not.toBeNull();
+      expect(past.querySelector('[data-testid="cell-units"]')).not.toBeNull();
       const future = screen.getByTestId(`board-cell-e1-${d(20)}`);
       expect(future.querySelector('[data-testid="cell-shift-code"]')?.textContent).toBe('HC');
     } finally {
@@ -187,10 +187,14 @@ describe('TimesheetsScreen', () => {
     // Ngày nghỉ hằng tuần để trống (tô xám), ngày đã qua hiện số công, đi trễ tô đỏ, bất thường hiện !, lễ hiện L.
     expect(screen.getByTestId(`board-cell-e1-${d(1)}`).getAttribute('data-status')).toBe('OFF');
     expect(screen.getByTestId(`board-cell-e1-${d(1)}`).textContent).toBe('OFF');
-    expect(screen.getByTestId(`board-cell-e1-${d(2)}`).querySelector('[data-testid="cell-dot"]')).not.toBeNull();
+    expect(screen.getByTestId(`board-cell-e1-${d(2)}`).querySelector('[data-testid="cell-units"]')).not.toBeNull();
     expect(screen.getByTestId(`board-cell-e1-${d(2)}`).getAttribute('data-late')).toBe('true');
-    expect(screen.getByTestId(`board-cell-e1-${d(2)}`).className).toContain('bg-red-100');
-    expect(screen.getByTestId(`board-cell-e1-${d(3)}`).textContent).toContain('!');
+    // Không tô nền ô, chỉ màu chữ của số công.
+    expect(screen.getByTestId(`board-cell-e1-${d(2)}`).className).not.toMatch(/(?:^|\s)bg-(red|orange|emerald)/);
+    // Quên chấm công: hệ số 0 màu đỏ (thay cho ký hiệu !).
+    expect(within(screen.getByTestId(`board-cell-e1-${d(3)}`)).getByTestId('cell-units').textContent).toBe('0');
+    expect(within(screen.getByTestId(`board-cell-e1-${d(3)}`)).getByTestId('cell-units').getAttribute('data-tone')).toBe('bad');
+    expect(within(screen.getByTestId(`board-cell-e1-${d(2)}`)).getByTestId('cell-units').getAttribute('data-tone')).toBe('bad');
     expect(screen.getByTestId(`board-cell-e1-${d(4)}`).getAttribute('data-status')).toBe('ANNUAL_LEAVE');
     expect(screen.getByTestId(`board-cell-e1-${d(5)}`).textContent).toContain('L');
     expect(screen.getByTestId(`board-cell-e1-${d(2)}`).getAttribute('title')).toContain('Đi trễ: 15 phút');
@@ -386,7 +390,7 @@ describe('TimesheetsScreen', () => {
     expect(within(row).getAllByRole('cell').slice(-6).map((c) => c.textContent)).toEqual(['20', '1', '1', '0', '1', '1:30']);
   });
 
-  it('bấm tên nhân viên mở bảng công cả tháng của người đó; bấm một ngày trong đó mở chi tiết ngày', async () => {
+  it('bấm tên nhân viên mở bảng công cả tháng của người đó; bấm một ngày trong đó hiện chi tiết ngày ngay bên dưới, không mở thêm ngăn kéo', async () => {
     mockApi(makeBoard('OPEN', true));
     render(<TimesheetsScreen />);
     await screen.findAllByTestId('board-day-header');
@@ -395,8 +399,13 @@ describe('TimesheetsScreen', () => {
     expect(screen.getByTestId('my-stats')).toBeTruthy();
     expect(screen.getByTestId('my-stat-late').textContent).toContain('1 ngày');
     fireEvent.click(screen.getByTestId(`my-cell-${d(2)}`));
-    expect(await screen.findByText('Chi tiết ngày công')).toBeTruthy();
-    expect(screen.getByTestId('kpi-late').textContent).toContain('15');
+    const inline = await screen.findByTestId('board-day-inline');
+    expect(within(inline).getByTestId('kpi-late').textContent).toContain('15');
+    // Chỉ còn một ngăn kéo (bảng công tháng), chi tiết ngày nằm trong đó.
+    expect(screen.getAllByRole('dialog')).toHaveLength(1);
+    expect(within(screen.getByRole('dialog')).getByTestId('board-day-inline')).toBeTruthy();
+    fireEvent.click(within(inline).getByRole('button', { name: 'Đóng chi tiết' }));
+    await waitFor(() => expect(screen.queryByTestId('board-day-inline')).toBeNull());
   });
 
   it('Drawer ngày nghỉ phép hiển thị lý do nghỉ', async () => {
@@ -633,7 +642,10 @@ describe('TimesheetsScreen: mọi đơn từ dính tới ngày hiển thị ở 
     mockApi(board);
     render(<TimesheetsScreen />);
     const cell = await screen.findByTestId(`board-cell-e1-${d(2)}`);
-    expect(within(cell).getByTestId('cell-has-requests')).toBeTruthy();
+    const badges = within(within(cell).getByTestId('cell-has-requests'));
+    // Hai ký hiệu đầu theo thứ tự cố định: P (nghỉ phép) rồi TC (tăng ca); phần còn lại gom thành +n.
+    expect(badges.getByTestId('request-letter-LEAVE').textContent).toBe('P');
+    expect(badges.getByTestId('request-letter-OT').textContent).toBe('TC');
     expect(within(screen.getByTestId(`board-cell-e1-${d(3)}`)).queryByTestId('cell-has-requests')).toBeNull();
     fireEvent.click(cell);
     const list = await screen.findByTestId('day-sources');

@@ -38,7 +38,7 @@ const EMPTY: Omit<MyDashboardData, 'today' | 'monthKey'> = {
   error: '',
 };
 
-async function loadBoard(month: string): Promise<HrmTimesheetBoard | null> {
+export async function loadBoard(month: string): Promise<HrmTimesheetBoard | null> {
   try {
     return (await hrmFetch<{ data: HrmTimesheetBoard }>(`/timesheet-board?${new URLSearchParams({ month, self: '1' })}`)).data;
   } catch {

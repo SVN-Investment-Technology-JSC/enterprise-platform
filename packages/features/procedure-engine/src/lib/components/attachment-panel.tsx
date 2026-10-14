@@ -4,7 +4,7 @@ import type {
   ProcedureAttachment,
   ProcedureInstance,
 } from '@enterprise-platform/contracts-procedure-engine';
-import { formatDateTime } from '@enterprise-platform/shared-ui';
+import { SearchableSelect, formatDateTime } from '@enterprise-platform/shared-ui';
 import { Download, ExternalLink, FileText } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import styles from './workspace-board.module.scss';
@@ -58,20 +58,20 @@ export function AttachmentPanel({
           </p>
         </div>
 
-        <select
-          className={styles.select}
+        <SearchableSelect
+          className={styles.filterCombo}
+          clearable={false}
           value={stepFilter}
-          aria-label="Lọc theo bước"
-          onChange={(event) => setStepFilter(event.target.value)}
-        >
-          <option value="all">Tất cả giai đoạn ({mine.length})</option>
-          <option value="unassigned">Cả hồ sơ / chung</option>
-          {instance.steps.map((step) => (
-            <option key={step.id} value={step.id}>
-              {step.order}. {step.name}
-            </option>
-          ))}
-        </select>
+          options={[
+            { value: 'all', label: `Tất cả giai đoạn (${mine.length})` },
+            { value: 'unassigned', label: 'Cả hồ sơ / chung' },
+            ...instance.steps.map((step) => ({
+              value: step.id,
+              label: `${step.order}. ${step.name}`,
+            })),
+          ]}
+          onChange={(value) => setStepFilter(value || 'all')}
+        />
       </header>
 
       {visible.length === 0 ? (

@@ -2542,6 +2542,45 @@
   flex: 1;
 }
 
+/* Nút "Tạo mới" ở góc trên phải "Công việc của tôi" + menu xổ khi rê chuột. */
+.createMenu {
+  position: relative;
+  display: inline-flex;
+}
+
+.createMenuList {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 30;
+  display: flex;
+  min-width: 180px;
+  flex-direction: column;
+  padding: 6px;
+  border: 1px solid var(--ep-border-strong);
+  border-radius: var(--ep-radius-lg);
+  background: var(--ep-surface);
+  box-shadow: var(--ep-shadow-pop);
+}
+
+.createMenuItem {
+  padding: 9px 10px;
+  border: 0;
+  border-radius: var(--ep-radius);
+  background: transparent;
+  color: var(--ep-text);
+  font-family: inherit;
+  font-size: 13.5px;
+  text-align: left;
+  cursor: pointer;
+
+  &:hover,
+  &:focus-visible {
+    background: var(--ep-accent-soft);
+    outline: none;
+  }
+}
+
 /* ===========================================================================
    TÀI LIỆU
    =========================================================================== */
@@ -4094,4 +4133,314 @@
   border: 1px solid var(--ep-border, #e5e7eb);
   border-radius: 6px;
   font: inherit;
+}
+
+/* Huy hiệu trạng thái dự án bấm để đổi, ở đầu trang dự án. */
+.statusPicker {
+  position: relative;
+  display: inline-flex;
+}
+
+.statusPickerButton {
+  gap: 4px;
+  border: 0;
+  font-family: inherit;
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    filter: brightness(0.96);
+    box-shadow: 0 0 0 2px rgb(0 0 0 / 6%);
+  }
+
+  &:disabled {
+    cursor: progress;
+    opacity: 0.7;
+  }
+}
+
+.statusPickerMenu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 60;
+  min-width: 190px;
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  border: 1px solid var(--ep-border);
+  border-radius: var(--ep-radius-md);
+  background: var(--ep-surface);
+  box-shadow: var(--ep-shadow-pop);
+  font-size: 13px;
+  font-weight: 400;
+
+  .contextItem {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+}
+
+/* Hộp thoại rộng: danh sách thành viên kèm cây tổ chức. */
+.dialogWide {
+  width: min(52rem, 100%);
+}
+
+/* Danh sách thành viên dài thì cuộn riêng, khu "Thêm người" luôn thấy được. */
+.memberListScroll {
+  max-height: 38vh;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.memberRoleEdit {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: 260px;
+
+  > [role='group'] {
+    flex: 1;
+    min-width: 0;
+  }
+}
+
+.memberAdd {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--ep-line);
+
+  input:not([type='checkbox']) {
+    @include input-base;
+  }
+}
+
+.memberAddHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* Cây cơ cấu tổ chức có ô tích để thêm người theo đơn vị / chức danh. */
+.orgPicker {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.orgTree {
+  max-height: 32vh;
+  margin: 0;
+  padding: 6px;
+  overflow-y: auto;
+  list-style: none;
+  border: 1px solid var(--ep-border);
+  border-radius: var(--ep-radius);
+
+  li {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-height: 30px;
+    border-radius: var(--ep-radius-sm);
+    font-size: 13px;
+
+    &:hover {
+      background: var(--ep-hover);
+    }
+  }
+
+  input[type='checkbox'] {
+    flex: none;
+    width: 15px;
+    height: 15px;
+    margin: 0 4px 0 0;
+    accent-color: var(--ep-accent-strong);
+    cursor: pointer;
+  }
+}
+
+.orgToggle {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--ep-radius-sm);
+  background: transparent;
+  color: var(--ep-text-sub);
+  cursor: pointer;
+}
+
+.orgLabel {
+  display: inline-flex;
+  flex: 1;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  cursor: pointer;
+
+  > span:first-of-type {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  > span:last-child {
+    margin-left: auto;
+    padding-right: 6px;
+    font-size: 12px;
+  }
+}
+
+.orgIcon {
+  flex: none;
+  color: var(--ep-text-sub);
+}
+
+.orgPickerFoot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12.5px;
+}
+
+.orgPickerActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+
+  > [role='group'] {
+    width: 180px;
+  }
+}
+
+/* Cài đặt: vai trò trong dự án. */
+.roleSettings {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.roleSettingsHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+
+  p {
+    flex: 1;
+    min-width: 16rem;
+    margin: 0;
+    font-size: 13px;
+  }
+}
+
+.roleName {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.roleSystemTag {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--ep-line);
+  color: var(--ep-text-sub);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.rolePermissionCount {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 0 10px;
+  border: 1px solid rgb(217 171 0 / 45%);
+  border-radius: 999px;
+  background: var(--ep-accent-soft);
+  color: #5c4500;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+
+  &:hover {
+    border-color: var(--ep-accent-strong);
+  }
+
+  &:focus-visible {
+    @include focus-ring;
+  }
+}
+
+.roleActions {
+  display: inline-flex;
+  justify-content: flex-end;
+  gap: 6px;
+  width: 100%;
+}
+
+.permissionGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 16px;
+  margin: 14px 0 0;
+  padding: 0;
+  border: 0;
+
+  legend {
+    margin-bottom: 8px;
+  }
+
+  > p {
+    grid-column: 1 / -1;
+    margin: 0;
+  }
+}
+
+.permissionOption {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  cursor: pointer;
+
+  input {
+    width: 15px;
+    height: 15px;
+    margin: 0;
+    accent-color: var(--ep-accent-strong);
+  }
+}
+
+.permissionAdd {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--ep-line);
+}
+
+.permissionAddRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  > [role='group'] {
+    flex: 1;
+    min-width: 0;
+  }
 }

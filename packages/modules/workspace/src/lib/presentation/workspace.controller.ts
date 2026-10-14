@@ -35,6 +35,7 @@ import type {
   ReverseWorkItemRequest,
   ReverseProjectRequestRequest,
   RespondToEventRequest,
+  SaveProjectRoleRequest,
   SendChatMessageRequest,
   SetProjectMembersRequest,
   UpdateChatMessageRequest,
@@ -48,7 +49,9 @@ import type {
 } from '@enterprise-platform/contracts-workspace';
 import { WorkspaceApplication, type WorkspaceActor } from '../application/workspace.application.js';
 import { ProjectService } from '../application/project.service.js';
+import { ProjectRoleService } from '../application/project-role.service.js';
 import { WorkItemService } from '../application/work-item.service.js';
+import { WorkItemDeletionService } from '../application/work-item-deletion.service.js';
 import { CalendarService } from '../application/calendar.service.js';
 import { CatalogService } from '../application/catalog.service.js';
 import { ChatService } from '../application/chat.service.js';
@@ -113,6 +116,8 @@ export class WorkspaceController {
     private readonly catalog: CatalogService,
     private readonly projectRequests: ProjectRequestService,
     private readonly workdayRules: WorkdayRuleService,
+    private readonly projectRoles: ProjectRoleService,
+    private readonly workItemDeletion: WorkItemDeletionService,
   ) {}
 
   /** Trạng thái cài đặt module cho tenant đang đăng nhập. */
@@ -322,6 +327,16 @@ export class WorkspaceController {
     @Body() body: MoveWorkItemRequest,
   ) {
     return this.execute(() => this.workItems.move(this.actor(request), id, body ?? {}));
+  }
+
+  /**
+   * Xoá hẳn công việc (và cả nhánh con) — chỉ chủ nhiệm dự án. Khác với "Huỷ"
+   * (đổi trạng thái `cancelled`, mở lại được) ở `PATCH .../status`.
+   */
+  @Delete('work-items/:id')
+  @HttpCode(204)
+  deleteWorkItem(@Req() request: WorkspaceRequest, @Param('id') id: string) {
+    return this.execute(() => this.workItemDeletion.delete(this.actor(request), id));
   }
 
   @Get('work-items/:id/history')
@@ -896,6 +911,31 @@ export class WorkspaceController {
     @Body() body: UpdateWorkdayRulesRequest,
   ) {
     return this.execute(() => this.workdayRules.update(this.actor(request), body));
+  }
+
+  /** Vai trò trong dự án (dùng chung toàn tenant) và quyền của từng vai. */
+  @Get('project-roles')
+  listProjectRoles(@Req() request: WorkspaceRequest) {
+    return this.execute(() => this.projectRoles.list(this.actor(request)));
+  }
+
+  @Post('project-roles')
+  createProjectRole(@Req() request: WorkspaceRequest, @Body() body: SaveProjectRoleRequest) {
+    return this.execute(() => this.projectRoles.create(this.actor(request), body));
+  }
+
+  @Put('project-roles/:key')
+  updateProjectRole(
+    @Req() request: WorkspaceRequest,
+    @Param('key') key: string,
+    @Body() body: SaveProjectRoleRequest,
+  ) {
+    return this.execute(() => this.projectRoles.update(this.actor(request), key, body));
+  }
+
+  @Delete('project-roles/:key')
+  removeProjectRole(@Req() request: WorkspaceRequest, @Param('key') key: string) {
+    return this.execute(() => this.projectRoles.remove(this.actor(request), key));
   }
 
   /** Tab "Đơn từ": đơn module khác gửi kèm dự án này. */

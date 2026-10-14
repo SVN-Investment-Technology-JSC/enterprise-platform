@@ -18,6 +18,7 @@ import {
   type PatternRow,
 } from '../../hrm-work-schedule-model';
 import { Button } from '../button';
+import { Checkbox } from './common';
 import { cn } from '../../utils';
 
 const OFF = '__OFF__';
@@ -76,7 +77,7 @@ export function WeeklyPatternEditor({
           {WEEKDAYS.map((weekday) => {
             const row = pattern.find((r) => r.weekday === weekday) as PatternRow;
             return (
-              <li key={weekday} className="grid grid-cols-[6.5rem_minmax(0,1fr)] items-center gap-2">
+              <li key={weekday} className="grid grid-cols-[6.5rem_minmax(0,1fr)_auto] items-center gap-2">
                 <span
                   className={cn(
                     'whitespace-nowrap text-xs font-semibold',
@@ -105,6 +106,15 @@ export function WeeklyPatternEditor({
                       ),
                     )
                   }
+                />
+                <Checkbox
+                  checked={row.dayType === 'SHIFT' && row.autoAttendance === true}
+                  disabled={row.dayType !== 'SHIFT'}
+                  onChange={(autoAttendance) =>
+                    onChange(setPatternDay(pattern, weekday, { dayType: 'SHIFT', shiftId: row.shiftId, autoAttendance }))
+                  }
+                  label="Tự chấm công"
+                  className="whitespace-nowrap"
                 />
               </li>
             );

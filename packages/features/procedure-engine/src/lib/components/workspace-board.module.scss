@@ -340,9 +340,10 @@
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 4px;
   width: 100%;
-  padding: 10px 14px 10px 16px;
+  /* QT-U6: thẻ hồ sơ cao hơn một chút cho thoáng. */
+  padding: 14px 14px 14px 16px;
   border: 0;
   border-bottom: 1px solid #f1f3f6;
   background: #ffffff;
@@ -399,8 +400,11 @@
   font-size: 13.5px;
   font-weight: 600;
   line-height: 1.35;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  /* QT-U6: tên hồ sơ ở thẻ preview tối đa 2 dòng. */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  word-break: break-word;
 }
 
 .caseRowFoot {
@@ -736,6 +740,19 @@
   font-size: 18px;
   font-weight: 700;
   line-height: 1.3;
+  /* QT-U6: tên hồ sơ tối đa 2 dòng, dài hơn thì cắt bằng dấu ba chấm. */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.detailCode {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
 }
 
 .metaLine {
@@ -857,7 +874,8 @@
   position: relative;
   display: flex;
   gap: 12px;
-  padding-bottom: 12px;
+  /* QT-U2: giãn cách các bước cho dễ đọc. */
+  padding-bottom: 22px;
 }
 
 .timelineItem::before {
@@ -4456,4 +4474,168 @@
   width: 112px;
   min-width: 0;
   font-size: 12px;
+}
+
+/* ===== QT-L3 / QT-U1 / QT-U4 / QT-U5 bổ sung ===== */
+
+/* Nút ghost đang mở panel con (ví dụ "Trả lại" đã mở ô chọn bước). */
+.ghostActive {
+  border-color: var(--accent-strong);
+  background: #fffdf3;
+}
+
+/* QT-U5: nhãn + hàng nút trong ô "Trả lại về bước". */
+.returnPickerLabel {
+  color: #334155;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.returnPickerActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+/* QT-L3: nội dung hộp thoại xác nhận Phê duyệt / Hoàn tất. */
+.confirmModalBody {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px 20px 20px;
+}
+
+.confirmModalText {
+  margin: 0;
+  color: var(--ink);
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+
+.confirmModalNote {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.confirmModalActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+/* QT-U1: danh sách tài liệu của từng bước ngay trên dòng thời gian. */
+.stepDocs {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.stepDocsLabel {
+  color: var(--faint);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+
+.stepDocsList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.stepDocChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 240px;
+  padding: 3px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #f8fafc;
+  color: #1d4ed8;
+  font-size: 11.5px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+a.stepDocChip:hover {
+  border-color: var(--control);
+  background: #eef2ff;
+}
+
+.stepDocName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* QT-U4: vai nhiều người — 1 người + badge "+N", hover/focus xổ danh sách còn lại. */
+.rolePeople {
+  position: relative;
+  cursor: default;
+  outline: none;
+}
+
+.roleMoreBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: #e2e8f0;
+  color: #334155;
+  font-size: 10.5px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.rolePeople:hover .roleMoreBadge,
+.rolePeople:focus-visible .roleMoreBadge {
+  background: #cbd5e1;
+}
+
+.rolePopover {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 20;
+  display: none;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 180px;
+  max-width: 280px;
+  max-height: 240px;
+  overflow: auto;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.16);
+}
+
+.rolePeople:hover .rolePopover,
+.rolePeople:focus-within .rolePopover {
+  display: flex;
+}
+
+.rolePopoverHead {
+  color: var(--faint);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+
+.rolePopoverItem {
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.4;
 }

@@ -303,6 +303,14 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       path: 'tenant/hrm/0051-hrm-leave-settlements-legacy.sql',
     },
     {
+      version: '0052-hrm-timesheet-standard-policies',
+      path: 'tenant/hrm/0052-hrm-timesheet-standard-policies.sql',
+    },
+    {
+      version: '0053-hrm-schedule-auto-attendance',
+      path: 'tenant/hrm/0053-hrm-schedule-auto-attendance.sql',
+    },
+    {
       version: '0021-notification-outbox-v1',
       path: 'tenant/hrm/0021-notification-outbox-v1.sql',
     },
@@ -493,6 +501,14 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     {
       version: '0018-workspace-project-request-reversal',
       path: 'tenant/workspace/0018-workspace-project-request-reversal.sql',
+    },
+    {
+      version: '0019-workspace-status-history-deletion-log',
+      path: 'tenant/workspace/0019-workspace-status-history-deletion-log.sql',
+    },
+    {
+      version: '0020-workspace-project-role-definitions',
+      path: 'tenant/workspace/0020-workspace-project-role-definitions.sql',
     },
   ],
 };

@@ -31,8 +31,80 @@ export type WorkspacePermission = (typeof WORKSPACE_PERMISSIONS)[number];
    TRÊN DỮ LIỆU NÀO.
    ========================================================================= */
 
+/**
+ * Bốn vai hệ thống. Tenant thêm được vai riêng (xem `ProjectRoleDefinition`),
+ * nên `ProjectRole` là khoá vai bất kỳ chứ không bó trong bốn giá trị này.
+ * `owner` luôn đặc biệt: mỗi dự án đúng một người, giữ mọi quyền.
+ */
 export const PROJECT_ROLES = ['owner', 'manager', 'member', 'viewer'] as const;
-export type ProjectRole = (typeof PROJECT_ROLES)[number];
+export type SystemProjectRole = (typeof PROJECT_ROLES)[number];
+export type ProjectRole = string;
+
+/** Những gì một vai trò được làm trong dự án. */
+export const PROJECT_PERMISSIONS = [
+  'project.view_all',
+  'project.view_related',
+  'project.update_all',
+  'project.update_related',
+  'work_item.cancel',
+  'work_item.delete',
+  'project.update_status',
+  'project.manage_members',
+] as const;
+export type ProjectPermission = (typeof PROJECT_PERMISSIONS)[number];
+
+/** Nhãn tiếng Việt của từng quyền, dùng chung cho giao diện và thông báo lỗi. */
+export const PROJECT_PERMISSION_LABELS: Readonly<Record<ProjectPermission, string>> = {
+  'project.view_all': 'Xem toàn bộ dự án',
+  'project.view_related': 'Xem dự án liên quan',
+  'project.update_all': 'Cập nhật toàn bộ dự án',
+  'project.update_related': 'Cập nhật dự án liên quan',
+  'work_item.cancel': 'Có thể huỷ công việc',
+  'work_item.delete': 'Có thể xoá công việc',
+  'project.update_status': 'Có thể cập nhật trạng thái dự án',
+  'project.manage_members': 'Quản lý thành viên dự án',
+};
+
+/** Quyền mặc định của bốn vai hệ thống, giữ đúng hành vi trước khi có cấu hình. */
+export const DEFAULT_ROLE_PERMISSIONS: Readonly<Record<SystemProjectRole, readonly ProjectPermission[]>> = {
+  owner: PROJECT_PERMISSIONS,
+  manager: [
+    'project.view_all',
+    'project.view_related',
+    'project.update_all',
+    'project.update_related',
+    'work_item.cancel',
+    'project.update_status',
+    'project.manage_members',
+  ],
+  member: ['project.view_all', 'project.view_related', 'project.update_related', 'work_item.cancel'],
+  viewer: ['project.view_all', 'project.view_related'],
+};
+
+/** Vai trò trong dự án do tenant định nghĩa, dùng chung cho mọi dự án. */
+export interface ProjectRoleDefinition {
+  readonly key: ProjectRole;
+  readonly name: string;
+  readonly permissions: readonly ProjectPermission[];
+  /** Vai hệ thống: không xoá được. */
+  readonly isSystem: boolean;
+  /** Chủ nhiệm: luôn giữ đủ quyền, không sửa được danh sách quyền. */
+  readonly locked: boolean;
+  /** Số người đang giữ vai này trong mọi dự án. */
+  readonly memberCount: number;
+  readonly sortOrder: number;
+}
+
+export interface ProjectRoleList {
+  readonly items: readonly ProjectRoleDefinition[];
+  /** Người gọi được thêm, sửa, xoá vai trò (quản trị tenant). */
+  readonly canEdit: boolean;
+}
+
+export interface SaveProjectRoleRequest {
+  readonly name: string;
+  readonly permissions: readonly ProjectPermission[];
+}
 
 /* =========================================================================
    TRẠNG THÁI VÀ PHÂN LOẠI
@@ -172,6 +244,11 @@ export interface ProjectSummary extends Project {
   /** Vai trò của người đang đăng nhập trong dự án này. */
   readonly myRole?: ProjectRole;
   /**
+   * Quyền của người đang đăng nhập trong dự án này, theo vai trò của họ.
+   * Quản trị tenant không phải thành viên nhận đủ quyền.
+   */
+  readonly myPermissions?: readonly ProjectPermission[];
+  /**
    * Chỉ có mặt khi người gọi được xem tài chính.
    *
    * Với `member` và `viewer`, trường này **vắng hẳn** khỏi payload — không
@@ -259,6 +336,8 @@ export interface WorkItem {
   readonly createdBy: string;
   readonly createdAt: string;
   readonly updatedAt: string;
+  /** Lần cuối trạng thái công việc đổi (lúc tạo nếu chưa đổi lần nào). */
+  readonly statusChangedAt?: string;
   /**
    * Có khi công việc bị huỷ hiệu lực. Khi đó `status = 'cancelled'` và công
    * việc không mở lại được; cần điều chỉnh thì lập công việc mới.
@@ -448,7 +527,8 @@ export interface AddDependencyRequest {
 
 export interface WorkItemStatusHistoryEntry {
   readonly id: string;
-  readonly workItemId: string;
+  /** Rỗng với dòng ghi "đã xoá công việc": công việc đã bị gỡ nhưng vẫn giữ vết trong nhật ký dự án. */
+  readonly workItemId?: string;
   readonly fromStatus?: WorkItemStatus;
   readonly toStatus: WorkItemStatus;
   readonly note?: string;
@@ -1353,8 +1433,21 @@ export interface DirectoryPerson {
   readonly orgNodeIds?: readonly string[];
 }
 
+/** Một node của cây cơ cấu tổ chức: đơn vị hoặc chức danh. */
+export interface DirectoryOrgNode {
+  readonly id: string;
+  readonly name: string;
+  readonly parentId?: string;
+  readonly kind: 'unit' | 'position';
+}
+
 export interface DirectoryResponse {
   readonly people: readonly DirectoryPerson[];
+  /**
+   * Cây cơ cấu tổ chức, trả phẳng kèm `parentId`. Dùng để thêm người theo
+   * đơn vị hay chức danh. Có thể vắng ở bản cũ hoặc khi không đọc được.
+   */
+  readonly orgNodes?: readonly DirectoryOrgNode[];
   /** Không đọc được Tenant Core; danh sách có thể rỗng hoặc cũ. */
   readonly degraded: boolean;
 }
