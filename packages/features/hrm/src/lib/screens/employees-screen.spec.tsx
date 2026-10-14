@@ -131,7 +131,7 @@ describe('EmployeesScreen', () => {
   it('tolerates null sensitive fields and shows a hidden marker in the drawer', async () => {
     render(<EmployeesScreen />);
     await screen.findByText('NV001');
-    fireEvent.click(screen.getByRole('button', { name: 'Xem hồ sơ' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Xem chi tiết' }));
     const hidden = await screen.findAllByTitle('Bạn không có quyền xem thông tin nhạy cảm');
     // CCCD, MST, BHXH, tài khoản, ngân hàng
     expect(hidden.length).toBeGreaterThanOrEqual(5);
@@ -142,7 +142,7 @@ describe('EmployeesScreen', () => {
     grant('hrm.employee.read', 'hrm.employee.sensitive');
     render(<EmployeesScreen />);
     await screen.findByText('NV001');
-    fireEvent.click(screen.getByRole('button', { name: 'Xem hồ sơ' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Xem chi tiết' }));
     expect((await screen.findAllByText('Chưa liên kết')).length).toBeGreaterThan(0);
     expect(screen.queryByTitle('Bạn không có quyền xem thông tin nhạy cảm')).toBeNull();
   });
@@ -328,14 +328,14 @@ describe('EmployeesScreen', () => {
     withEmployees([person(1), person(2), person(3), person(4, { employmentStatus: 'RESIGNED' })]);
     render(<EmployeesScreen />);
     await screen.findByText('NV001');
-    expect(screen.getAllByRole('button', { name: 'Xem hồ sơ' })).toHaveLength(4);
+    expect(screen.getAllByRole('button', { name: 'Xem chi tiết' })).toHaveLength(4);
     fireEvent.click(screen.getByDisplayValue('Phòng ban: Tất cả'));
     fireEvent.click(await screen.findByRole('option', { name: 'Phòng Kỹ thuật', hidden: true }));
-    expect(screen.getAllByRole('button', { name: 'Xem hồ sơ' })).toHaveLength(2);
+    expect(screen.getAllByRole('button', { name: 'Xem chi tiết' })).toHaveLength(2);
     expect(screen.getByTestId('employee-stat-total').textContent).toContain('4');
     fireEvent.click(screen.getByDisplayValue('Trạng thái: Tất cả'));
     fireEvent.click(await screen.findByRole('option', { name: 'Đã nghỉ việc', hidden: true }));
-    expect(screen.getAllByRole('button', { name: 'Xem hồ sơ' })).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: 'Xem chi tiết' })).toHaveLength(1);
     expect(screen.getByText('NV004')).toBeTruthy();
   });
 
@@ -343,10 +343,10 @@ describe('EmployeesScreen', () => {
     withEmployees(Array.from({ length: 30 }, (_, i) => person(i + 1)));
     render(<EmployeesScreen />);
     await screen.findByText('NV001');
-    expect(screen.getAllByRole('button', { name: 'Xem hồ sơ' })).toHaveLength(12);
+    expect(screen.getAllByRole('button', { name: 'Xem chi tiết' })).toHaveLength(12);
     expect(bodyText()).toContain('Hiển thị 1 - 12 trong 30 nhân sự');
     fireEvent.click(screen.getByRole('button', { name: 'Trang 3' }));
-    expect(screen.getAllByRole('button', { name: 'Xem hồ sơ' })).toHaveLength(6);
+    expect(screen.getAllByRole('button', { name: 'Xem chi tiết' })).toHaveLength(6);
     expect(bodyText()).toContain('Hiển thị 25 - 30 trong 30 nhân sự');
     expect(screen.getByText('NV030')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Trang trước' }));
@@ -367,30 +367,53 @@ describe('EmployeesScreen', () => {
     expect(screen.getByRole('button', { name: /Xuất Excel \(3\)/ })).toBeTruthy();
   });
 
-  it('menu "..." của dòng có Sửa hồ sơ, Ngừng nhân viên và Tạo quyết định theo quyền', async () => {
+  it('bảng chỉ để nút Xem chi tiết, không còn menu thao tác ngoài dòng; click vào Mã NV hoặc Họ tên cũng mở Drawer', async () => {
     grant('hrm.employee.read', 'hrm.employee.manage', 'hrm.appointment.manage');
     render(<EmployeesScreen />);
     await screen.findByText('NV001');
-    fireEvent.click(screen.getByRole('button', { name: 'Thao tác khác' }));
-    const menu = screen.getByRole('menu');
-    expect(within(menu).getByRole('menuitem', { name: 'Sửa hồ sơ' })).toBeTruthy();
-    expect(within(menu).getByRole('menuitem', { name: 'Ngừng nhân viên' })).toBeTruthy();
-    expect(within(menu).getByRole('menuitem', { name: 'Tạo quyết định' })).toBeTruthy();
-    expect(within(menu).queryByRole('menuitem', { name: 'Liên kết tài khoản' })).toBeNull();
-    fireEvent.keyDown(document.body, { key: 'Escape' });
-    expect(screen.queryByRole('menu')).toBeNull();
-  });
-
-  it('không có quyền quản lý thì dòng không có nút "..."', async () => {
-    render(<EmployeesScreen />);
-    await screen.findByText('NV001');
+    // Không còn nút menu thao tác khác bên ngoài bảng
     expect(screen.queryByRole('button', { name: 'Thao tác khác' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Xem chi tiết' })).toBeTruthy();
+
+    // Click vào Mã NV mở Drawer
+    fireEvent.click(screen.getByRole('button', { name: 'NV001' }));
+    expect(await screen.findByRole('dialog')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Đóng' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+
+    // Click vào Họ và tên cũng mở Drawer
+    fireEvent.click(screen.getByRole('button', { name: /Nguyễn Văn An/ }));
+    expect(await screen.findByRole('dialog')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Đóng' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   });
 
-  it('hồ sơ nhân sự là hộp thoại rộng: ba khối gọn, mức hoàn thiện và ba tab giấy tờ, người phụ thuộc, hợp đồng', async () => {
+  it('nút Sửa trên Drawer kích hoạt chế độ chỉnh sửa trực tiếp với highlight nổi bật', async () => {
+    grant('hrm.employee.read', 'hrm.employee.manage');
     render(<EmployeesScreen />);
     await screen.findByText('NV001');
-    fireEvent.click(screen.getByRole('button', { name: 'Xem hồ sơ' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Xem chi tiết' }));
+    const dialog = await screen.findByRole('dialog');
+
+    // Bấm Sửa hồ sơ ở footer bật chế độ chỉnh sửa
+    const editBtn = within(dialog).getByRole('button', { name: 'Sửa hồ sơ' });
+    fireEvent.click(editBtn);
+
+    // Xuất hiện chỉ báo và banner highlight chế độ chỉnh sửa đang bật
+    expect(within(dialog).getByText('Đang ở chế độ chỉnh sửa')).toBeTruthy();
+    expect(within(dialog).getByText('Chế độ chỉnh sửa trực tiếp đang bật')).toBeTruthy();
+    expect(within(dialog).getAllByRole('button', { name: 'Lưu thay đổi' }).length).toBeGreaterThanOrEqual(1);
+    expect(within(dialog).getAllByRole('button', { name: 'Hủy' }).length).toBeGreaterThanOrEqual(1);
+
+    // Bấm Hủy quay lại chế độ xem bình thường
+    fireEvent.click(within(dialog).getAllByRole('button', { name: 'Hủy' })[0]);
+    expect(within(dialog).queryByText('Chế độ chỉnh sửa trực tiếp đang bật')).toBeNull();
+  });
+
+  it('hồ sơ nhân sự là drawer: ba khối gọn, mức hoàn thiện và ba tab giấy tờ, người phụ thuộc, hợp đồng', async () => {
+    render(<EmployeesScreen />);
+    await screen.findByText('NV001');
+    fireEvent.click(screen.getByRole('button', { name: 'Xem chi tiết' }));
     const dialog = await screen.findByRole('dialog');
     expect(within(dialog).getByText('Nguyễn Văn An')).toBeTruthy();
     for (const title of ['Thông tin cá nhân', 'Quan hệ lao động', 'Liên hệ khẩn cấp', 'Tài chính nhân sự & thuế'])
@@ -401,7 +424,72 @@ describe('EmployeesScreen', () => {
     expect(within(dialog).getByTestId('employee-tab-documents')).toBeTruthy();
     fireEvent.click(within(dialog).getByRole('tab', { name: /Hợp đồng/ }));
     expect(within(dialog).getByTestId('employee-tab-contracts')).toBeTruthy();
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Đóng hồ sơ' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Đóng' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  });
+
+  it('số người phụ thuộc và hợp đồng trên tab hiện ngay khi mở hồ sơ, không cần bấm vào tab', async () => {
+    // Danh sách /employees không kèm người phụ thuộc và hợp đồng; hồ sơ chi tiết mới có.
+    fetchMock.mockImplementation((async (path: string) => {
+      if (path.startsWith('/employees?')) return { data: [{ ...employee, dependents: undefined, contracts: undefined }], meta: { total: 1 } };
+      if (path === '/employees/e1/profile')
+        return {
+          data: {
+            ...employee,
+            dependents: [{ id: 'd1', fullName: 'Con A' }, { id: 'd2', fullName: 'Con B' }],
+            contracts: [{ id: 'c1' }],
+          },
+        };
+      return { data: [], meta: { total: 0 } };
+    }) as never);
+    render(<EmployeesScreen />);
+    await screen.findByText('NV001');
+    fireEvent.click(screen.getByRole('button', { name: 'Xem chi tiết' }));
+    const dialog = await screen.findByRole('dialog');
+    await waitFor(() =>
+      expect(within(dialog).getAllByRole('tab').map((t) => t.textContent)).toEqual([
+        'Ảnh và giấy tờ',
+        'Người phụ thuộc (2)',
+        'Hợp đồng (1)',
+      ]),
+    );
+    expect(within(dialog).getByTestId('employee-tab-documents')).toBeTruthy();
+  });
+
+  it('trong chế độ xem không hiện các nút thêm dữ liệu/tệp ở các tab; chỉ khi sang chế độ sửa mới hiển thị', async () => {
+    grant('hrm.employee.read', 'hrm.employee.manage');
+    fetchMock.mockImplementation((async (path: string) => {
+      if (path.startsWith('/employees?')) return { data: [employee], meta: { total: 1 } };
+      if (path === '/employees/e1/profile')
+        return { data: { ...employee, dependents: [], contracts: [] } };
+      if (path === '/employees/e1/profile-documents')
+        return { data: { missingRequired: [], qualifications: [] } };
+      return { data: [], meta: { total: 0 } };
+    }) as never);
+    render(<EmployeesScreen />);
+    await screen.findByText('NV001');
+    fireEvent.click(screen.getByRole('button', { name: 'Xem chi tiết' }));
+    const dialog = await screen.findByRole('dialog');
+
+    // Tab 1: Ảnh và giấy tờ - ở chế độ xem không có nút Thay tệp / Tải lên / Thêm bằng cấp
+    expect(within(dialog).queryByRole('button', { name: 'Thay tệp' })).toBeNull();
+    expect(within(dialog).queryByRole('button', { name: 'Tải lên' })).toBeNull();
+    expect(within(dialog).queryByRole('button', { name: /Thêm/ })).toBeNull();
+
+    // Tab 2: Người phụ thuộc - ở chế độ xem không có nút Thêm người thân
+    fireEvent.click(within(dialog).getByRole('tab', { name: /Người phụ thuộc/ }));
+    expect(within(dialog).queryByRole('button', { name: 'Thêm người thân' })).toBeNull();
+
+    // Tab 3: Hợp đồng - ở chế độ xem không có nút Thêm hợp đồng
+    fireEvent.click(within(dialog).getByRole('tab', { name: /Hợp đồng/ }));
+    expect(within(dialog).queryByRole('button', { name: 'Thêm hợp đồng' })).toBeNull();
+
+    // Bật chế độ sửa
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Sửa hồ sơ' }));
+
+    // Lúc này các nút thêm đã hiển thị
+    expect(within(dialog).getByRole('button', { name: 'Thêm hợp đồng' })).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole('tab', { name: /Người phụ thuộc/ }));
+    expect(within(dialog).getByRole('button', { name: 'Thêm người thân' })).toBeTruthy();
   });
 });

@@ -15,6 +15,8 @@ import {
 import {
   ABSENT_LETTER,
   calendarWeeks,
+  dayCoefficient,
+  textOnlyClass,
   dayLetters,
   isFutureDay,
   isLateOrEarly,
@@ -38,11 +40,11 @@ const LETTER_STATUS_TEXT: Record<DayLetter['status'], string> = {
   ABSENT: 'không có đơn nghỉ',
 };
 
-/** Màu nền ô: đi trễ hoặc về sớm tô đỏ; ngày chưa tới để trắng; còn lại theo trạng thái ngày. */
+/** Ô không tô nền: chỉ viền và màu chữ (đi trễ hoặc về sớm viền và chữ đỏ; còn lại theo trạng thái ngày). */
 function cellClass(day: HrmBoardDay, future: boolean): string {
-  if (isLateOrEarly(day)) return 'border-red-400 bg-red-100 text-red-700';
+  if (isLateOrEarly(day)) return 'border-red-400 bg-white text-red-700';
   if (future) return 'border-slate-200 bg-white text-slate-700';
-  return `border-slate-200 ${boardStatusCellClass(day.status)}`;
+  return `border-slate-200 bg-white ${textOnlyClass(boardStatusCellClass(day.status))}`;
 }
 
 export function LetterBadge({ letter }: { letter: DayLetter }) {
@@ -179,7 +181,17 @@ export function MyTimesheetCalendar({
                           ))}
                         </span>
                       )}
-                      <span className="mt-2 text-[15px] font-bold">{text}</span>
+                      <span
+                        className={`mt-2 text-[15px] font-bold ${
+                          !future && /^[0-9.]+$/.test(text) && day.status !== 'HOLIDAY'
+                            ? dayCoefficient(day).tone === 'bad'
+                              ? 'text-red-600'
+                              : 'text-emerald-700'
+                            : ''
+                        }`}
+                      >
+                        {text}
+                      </span>
                       {sub && <span className="mt-0.5 text-[8px] font-semibold">{sub}</span>}
                     </button>
                   </td>

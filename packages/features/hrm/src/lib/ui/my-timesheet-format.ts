@@ -62,6 +62,33 @@ export function isFutureDay(day: HrmBoardDay, today: string): boolean {
   return day.status === 'FUTURE' || day.date > today;
 }
 
+export interface DayCoefficient {
+  readonly text: string;
+  /** ok: xanh (đủ công hoặc nửa công có đơn); bad: đỏ (trễ, sớm, thiếu công, quên chấm công). */
+  readonly tone: 'ok' | 'bad';
+}
+
+const MISSING_PUNCH = ['MISSING_CHECK_IN', 'MISSING_CHECK_OUT'];
+
+/** Sức chứa công của ngày theo ca: ca đủ ngày (từ 7 giờ) là 1, ca ngắn tính theo ngày công 480 phút (ca sáng T7 là 0.5). Khớp với máy chủ. */
+export function dayCapacity(day: Pick<HrmBoardDay, 'scheduledMinutes'>): number {
+  const m = Number(day.scheduledMinutes ?? 0);
+  if (!(m > 0)) return 1;
+  return m >= 420 ? 1 : Math.round((m / 480) * 100) / 100;
+}
+
+/**
+ * Hệ số công hiển thị của một ngày đã qua: đủ công là 1 (xanh); đi trễ, về sớm hoặc thiếu công là 0.xx (đỏ, làm tròn
+ * 2 số lẻ); nửa ngày có đơn nghỉ là 0.5 (xanh); ca nửa ngày (sáng T7) làm đủ cũng là 0.5 (xanh); quên chấm công là 0 (đỏ).
+ */
+export function dayCoefficient(day: HrmBoardDay): DayCoefficient {
+  if (day.leave && day.leave.days > 0 && day.leave.days < 1) return { text: formatUnits(day.leave.days), tone: 'ok' };
+  if (day.anomalies.some((a) => MISSING_PUNCH.includes(a))) return { text: '0', tone: 'bad' };
+  const units = Math.round(Number(day.workdayUnits ?? 0) * 100) / 100;
+  if (isLateOrEarly(day) || units < dayCapacity(day) - 0.005) return { text: formatUnits(units), tone: 'bad' };
+  return { text: formatUnits(units), tone: 'ok' };
+}
+
 /** Đi trễ hoặc về sớm: ô được tô đỏ. */
 export function isLateOrEarly(day: HrmBoardDay | undefined): boolean {
   return Boolean(day && (day.lateMinutes > 0 || day.earlyLeaveMinutes > 0));
@@ -80,7 +107,7 @@ export function myCellText(day: HrmBoardDay | undefined, today: string): string 
     return '-';
   }
   if (day.status === 'NO_SCHEDULE') return '-';
-  if (day.workdayUnits > 0) return formatUnits(day.workdayUnits);
+  if (day.workdayUnits > 0) return dayCoefficient(day).text;
   if (day.kind === 'HOLIDAY') return 'L';
   if (day.kind === 'OFF') return 'OFF';
   return '0';
@@ -410,7 +437,8 @@ export function myCellContent(
   if (day.status === 'OFF') return { text: 'OFF', units: '' };
   if (day.status === 'NO_SCHEDULE') return { text: '-', units: '' };
   if (day.status === 'ABSENT') return { text: '—', units: '' };
-  if (day.workedMinutes > 0) return { text: '', units: formatUnits(day.workdayUnits) };
+  if (day.workedMinutes > 0 || day.leave) return { text: '', units: dayCoefficient(day).text };
+  if (day.anomalies.some((a) => MISSING_PUNCH.includes(a))) return { text: '', units: '0' };
   return { text: '—', units: '' };
 }
 
@@ -460,8 +488,8 @@ export function dayStatusPill(day: HrmBoardDay, today: string): DayStatusPill {
 // ---------------------------------------------------------------------------
 
 export type GridCellView =
-  /** Ngày đã qua có công: chấm xanh (đủ công) hoặc cam (đi trễ, về sớm). */
-  | { readonly type: 'dot'; readonly tone: 'present' | 'late' }
+  /** Ngày đã qua có công: hệ số công, xanh (1, 0.5 có đơn) hoặc đỏ (0.xx trễ, sớm; 0 quên chấm). */
+  | { readonly type: 'units'; readonly text: string; readonly tone: 'ok' | 'bad' }
   /** Ký hiệu nghỉ, công tác, vắng, bất thường: P, CT, KP, !. */
   | { readonly type: 'box'; readonly text: 'P' | 'CT' | 'KP' | '!'; readonly tone: 'leave' | 'trip' | 'absent' | 'abnormal' }
   /** Chữ thường: OFF, L (lễ), "-" (chưa có lịch), mã ca của ngày chưa tới, "0". */
@@ -469,7 +497,7 @@ export type GridCellView =
 
 /**
  * Cách vẽ một ô ngày. Ngày chưa tới chỉ hiện mã ca (hoặc OFF, L, "-"); ngày đã qua hiện chấm công hoặc ký hiệu,
- * không hiện mã ca. Đi trễ hoặc về sớm là chấm cam kèm nền đỏ nhạt của ô.
+ * không hiện mã ca. Đã có công thì hiện hệ số công (1 xanh, 0.xx đỏ khi trễ hoặc sớm, 0.5 xanh khi nửa ngày có đơn, 0 đỏ khi quên chấm công).
  */
 export function gridCellView(day: HrmBoardDay | undefined, today: string): GridCellView {
   if (!day) return { type: 'text', text: '', muted: true };
@@ -479,10 +507,12 @@ export function gridCellView(day: HrmBoardDay | undefined, today: string): GridC
     if (day.kind === 'OFF') return { type: 'text', text: 'OFF', muted: true };
     return { type: 'text', text: '-', muted: true };
   }
+  if (day.leave && day.leave.days > 0 && day.leave.days < 1) return { type: 'units', ...dayCoefficient(day) };
   switch (day.status) {
     case 'ABSENT':
       return { type: 'box', text: 'KP', tone: 'absent' };
     case 'ABNORMAL':
+      if (day.anomalies.some((a) => MISSING_PUNCH.includes(a))) return { type: 'units', text: '0', tone: 'bad' };
       return { type: 'box', text: '!', tone: 'abnormal' };
     case 'ANNUAL_LEAVE':
     case 'PAID_LEAVE':
@@ -497,11 +527,18 @@ export function gridCellView(day: HrmBoardDay | undefined, today: string): GridC
     case 'NO_SCHEDULE':
       return { type: 'text', text: '-', muted: true };
     default:
-      if (isLateOrEarly(day)) return { type: 'dot', tone: 'late' };
       return day.workedMinutes > 0 || day.workdayUnits > 0
-        ? { type: 'dot', tone: 'present' }
+        ? { type: 'units', ...dayCoefficient(day) }
         : { type: 'text', text: '0', muted: false };
   }
+}
+
+/** Bỏ các lớp màu nền (bg-*) khỏi chuỗi class, giữ màu chữ và kiểu chữ. */
+export function textOnlyClass(classes: string): string {
+  return classes
+    .split(/s+/)
+    .filter((c) => c && !/^bg-/.test(c))
+    .join(' ');
 }
 
 /** Màu ô ký hiệu theo loại, dùng chung cho lưới, chú thích và chi tiết đơn từ. */

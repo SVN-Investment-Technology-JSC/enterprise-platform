@@ -312,10 +312,15 @@ import { gridCellView } from './my-timesheet-format';
 
 describe('gridCellView: ô ngày của bảng công nhiều nhân viên', () => {
   const TODAY = '2026-09-15';
-  it('ngày đã qua có công: chấm xanh; đi trễ hoặc về sớm: chấm cam', () => {
-    expect(gridCellView(day(), TODAY)).toEqual({ type: 'dot', tone: 'present' });
-    expect(gridCellView(day({ status: 'LATE', lateMinutes: 10 }), TODAY)).toEqual({ type: 'dot', tone: 'late' });
-    expect(gridCellView(day({ status: 'EARLY_LEAVE', earlyLeaveMinutes: 5 }), TODAY)).toEqual({ type: 'dot', tone: 'late' });
+  it('ngày đã qua có công: hệ số công, 1 xanh; trễ hoặc sớm 0.xx đỏ; nửa ngày có đơn 0.5 xanh; quên chấm công 0 đỏ', () => {
+    expect(gridCellView(day(), TODAY)).toEqual({ type: 'units', text: '1', tone: 'ok' });
+    // Ca sáng T7 (240 phút) làm đủ là 0.5 công và vẫn xanh; trễ trong ca đó thì đỏ.
+    expect(gridCellView(day({ scheduledMinutes: 240, paidMinutes: 240, workdayUnits: 0.5 }), TODAY)).toEqual({ type: 'units', text: '0.5', tone: 'ok' });
+    expect(gridCellView(day({ status: 'LATE', lateMinutes: 20, scheduledMinutes: 240, paidMinutes: 220, workdayUnits: 0.46 }), TODAY)).toEqual({ type: 'units', text: '0.46', tone: 'bad' });
+    expect(gridCellView(day({ status: 'LATE', lateMinutes: 10, workdayUnits: 0.9333 }), TODAY)).toEqual({ type: 'units', text: '0.93', tone: 'bad' });
+    expect(gridCellView(day({ status: 'EARLY_LEAVE', earlyLeaveMinutes: 5, workdayUnits: 0.9 }), TODAY)).toEqual({ type: 'units', text: '0.9', tone: 'bad' });
+    expect(gridCellView(day({ status: 'ANNUAL_LEAVE', leave: { requestId: 'l1', reasonName: null, paid: true, annual: true, days: 0.5 }, workdayUnits: 1 }), TODAY)).toEqual({ type: 'units', text: '0.5', tone: 'ok' });
+    expect(gridCellView(day({ status: 'ABNORMAL', anomalies: ['MISSING_CHECK_OUT'], workedMinutes: 0, workdayUnits: 0 }), TODAY)).toEqual({ type: 'units', text: '0', tone: 'bad' });
   });
 
   it('nghỉ phép P, công tác CT, vắng KP, bất thường ! là ô ký hiệu', () => {
@@ -335,7 +340,7 @@ describe('gridCellView: ô ngày của bảng công nhiều nhân viên', () => 
   it('ngày chưa tới chỉ hiện mã ca (rút gọn), không chấm công; ngày đã qua không hiện mã ca', () => {
     const future = day({ date: '2026-09-20', status: 'FUTURE', shiftCode: 'HC-T7', workedMinutes: 0 });
     expect(gridCellView(future, TODAY)).toEqual({ type: 'text', text: 'T7', muted: true });
-    expect(gridCellView(day(), TODAY).type).toBe('dot');
+    expect(gridCellView(day(), TODAY).type).toBe('units');
     expect(gridCellView(day({ date: '2026-09-20', status: 'FUTURE', shiftCode: null, kind: 'OFF' }), TODAY)).toMatchObject({ text: 'OFF' });
   });
 });

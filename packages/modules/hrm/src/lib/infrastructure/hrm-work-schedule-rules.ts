@@ -27,7 +27,7 @@ import {
   type ApplyScheduleInput,
   type ScheduleScope,
 } from './hrm-work-schedule.js';
-import { ruleTableExists } from './hrm-work-schedule-resolve.js';
+import { autoAttendanceReady, ruleTableExists } from './hrm-work-schedule-resolve.js';
 
 type Db = Pick<PoolClient, 'query'>;
 
@@ -341,6 +341,9 @@ export async function applyRule(db: Db, tenantId: string, actorId: string, input
   );
   const batchId = batch.rows[0].id as string;
   const days = plan.pattern.filter((p) => p.dayType !== 'SKIP');
+  const withAuto = days.some((d) => d.dayType === 'SHIFT' && d.autoAttendance === true);
+  if (withAuto && !(await autoAttendanceReady(db, tenantId)))
+    throw new ConflictException({ code: 'HRM_AUTO_ATTENDANCE_NOT_MIGRATED', message: "Tính năng tự động chấm công cần cập nhật cơ sở dữ liệu HRM (migration 0053-hrm-schedule-auto-attendance); quản trị cần chạy migration trước khi bật." });
   let changed = 0;
   for (const { target, replacement, existing } of active) {
     for (const t of replacement.truncate) {
@@ -358,9 +361,19 @@ export async function applyRule(db: Db, tenantId: string, actorId: string, input
     );
     const ruleId = created.rows[0].id as string;
     await db.query(
-      `INSERT INTO hrm_schema.work_schedule_rule_days (rule_id, tenant_id, weekday, day_type, shift_id)
+      withAuto
+        ? `INSERT INTO hrm_schema.work_schedule_rule_days (rule_id, tenant_id, weekday, day_type, shift_id, auto_attendance)
+       SELECT $1, $2, u.weekday, u.day_type, u.shift_id, u.auto FROM unnest($3::smallint[], $4::text[], $5::uuid[], $6::boolean[]) AS u(weekday, day_type, shift_id, auto)`
+        : `INSERT INTO hrm_schema.work_schedule_rule_days (rule_id, tenant_id, weekday, day_type, shift_id)
        SELECT $1, $2, u.weekday, u.day_type, u.shift_id FROM unnest($3::smallint[], $4::text[], $5::uuid[]) AS u(weekday, day_type, shift_id)`,
-      [ruleId, tenantId, days.map((d) => d.weekday), days.map((d) => d.dayType), days.map((d) => d.shiftId ?? null)],
+      [
+        ruleId,
+        tenantId,
+        days.map((d) => d.weekday),
+        days.map((d) => d.dayType),
+        days.map((d) => d.shiftId ?? null),
+        ...(withAuto ? [days.map((d) => d.dayType === 'SHIFT' && d.autoAttendance === true)] : []),
+      ],
     );
     await db.query(
       `INSERT INTO hrm_schema.work_schedule_audit (tenant_id, batch_id, action, actor_id, employee_id, unit_id, from_date, to_date, before, after, reason)

@@ -11,8 +11,6 @@ import {
   FileText,
   Info,
   Layers,
-  Plus,
-  Trash2,
   Users,
 } from 'lucide-react';
 import { SearchableSelect } from '@enterprise-platform/shared-ui';
@@ -60,8 +58,9 @@ function toForm(data: AnnualLeavePolicyResponse | null): PolicyForm {
     annualDays: String(policy?.annualDays ?? 12),
     startOffsetMonths: String(policy?.startOffsetMonths ?? 0),
     advanceAllowed: policy?.advanceAllowed ?? false,
+    // Phép thâm niên chỉ có MỘT mốc (dòng trống = không áp dụng).
     tiers: policy
-      ? policy.seniorityTiers.map((t) => ({
+      ? policy.seniorityTiers.slice(0, 1).map((t) => ({
           minYears: String(t.minYears),
           bonusDays: String(t.bonusDays),
         }))
@@ -576,116 +575,69 @@ export function AnnualLeavePolicyCard({
                 description="Cộng thêm số ngày phép theo thâm niên làm việc."
               />
               <div className="overflow-hidden rounded-lg border border-slate-200">
-                <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_56px] gap-3 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600">
+                <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-3 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600">
                   <span>Thâm niên từ đủ (năm)</span>
                   <span>Phép cộng thêm / năm</span>
-                  <span className="text-center">Thao tác</span>
                 </div>
-                {form.tiers.length === 0 ? (
-                  <p className="px-3 py-3 text-xs text-slate-500">
-                    Không áp dụng phép thâm niên.
-                  </p>
-                ) : null}
-                {form.tiers.map((tier, index) => (
-                  <div
-                    key={index}
-                    className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_56px] items-center gap-3 border-t border-slate-100 px-3 py-2"
-                  >
-                    <div className="relative">
-                      <Input
-                        type="number"
-                        min={1}
-                        max={60}
-                        step="1"
-                        aria-label={`Số năm mốc ${index + 1}`}
-                        className="h-9 pr-12 text-xs"
-                        disabled={!editable}
-                        value={tier.minYears}
-                        onChange={(e) =>
-                          patch({
-                            tiers: form.tiers.map((t, i) =>
-                              i === index
-                                ? { ...t, minYears: e.target.value }
-                                : t,
-                            ),
-                          })
-                        }
-                      />
-                      <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-500">
-                        năm
-                      </span>
-                    </div>
-                    <div className="relative">
-                      <Input
-                        type="number"
-                        min={0}
-                        max={100}
-                        step="0.5"
-                        aria-label={`Số ngày mốc ${index + 1}`}
-                        className="h-9 pr-14 text-xs"
-                        disabled={!editable}
-                        value={tier.bonusDays}
-                        onChange={(e) =>
-                          patch({
-                            tiers: form.tiers.map((t, i) =>
-                              i === index
-                                ? { ...t, bonusDays: e.target.value }
-                                : t,
-                            ),
-                          })
-                        }
-                      />
-                      <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-500">
-                        ngày
-                      </span>
-                    </div>
-                    <div className="flex justify-center">
-                      {canManage ? (
-                        <Button
-                          type="button"
-                          size="icon-sm"
-                          variant="destructive"
-                          aria-label={`Xóa mốc ${index + 1}`}
-                          disabled={busy}
-                          onClick={() =>
+                {(form.tiers.length ? form.tiers.slice(0, 1) : [{ minYears: '', bonusDays: '' }]).map(
+                  (tier) => (
+                    <div
+                      key="tier"
+                      className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] items-center gap-3 border-t border-slate-100 px-3 py-2"
+                    >
+                      <div className="relative">
+                        <Input
+                          type="number"
+                          min={1}
+                          max={60}
+                          step="1"
+                          aria-label="Số năm mốc 1"
+                          className="h-9 pr-12 text-xs"
+                          disabled={!editable}
+                          value={tier.minYears}
+                          onChange={(e) =>
                             patch({
-                              tiers: form.tiers.filter((_, i) => i !== index),
+                              tiers: [{ ...tier, minYears: e.target.value }],
                             })
                           }
-                        >
-                          <Trash2 className="size-3.5" />
-                        </Button>
-                      ) : null}
+                        />
+                        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-500">
+                          năm
+                        </span>
+                      </div>
+                      <div className="relative">
+                        <Input
+                          type="number"
+                          min={0}
+                          max={100}
+                          step="0.5"
+                          aria-label="Số ngày mốc 1"
+                          className="h-9 pr-14 text-xs"
+                          disabled={!editable}
+                          value={tier.bonusDays}
+                          onChange={(e) =>
+                            patch({
+                              tiers: [{ ...tier, bonusDays: e.target.value }],
+                            })
+                          }
+                        />
+                        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-500">
+                          ngày
+                        </span>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  ),
+                )}
               </div>
-              {canManage ? (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  disabled={busy || form.tiers.length >= 20}
-                  onClick={() =>
-                    patch({
-                      tiers: [...form.tiers, { minYears: '', bonusDays: '' }],
-                    })
-                  }
-                  className="h-8 text-xs"
-                >
-                  <Plus className="size-3.5" />
-                  Thêm mốc thâm niên
-                </Button>
-              ) : null}
               <p
                 role="note"
                 className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600"
               >
                 <Info className="mt-0.5 size-3.5 shrink-0 text-slate-500" />
                 <span>
-                  Đạt N năm kể từ ngày căn cứ thì được thêm M ngày phép mỗi
-                  năm. Áp dụng mốc thâm niên cao nhất đạt được; không cộng dồn
-                  các mốc.
+                  Chỉ có một mốc: đạt N năm kể từ ngày căn cứ thì được thêm M
+                  ngày phép mỗi năm. Để trống cả hai ô nếu không áp dụng phép
+                  thâm niên.
                 </span>
               </p>
             </section>
@@ -703,7 +655,7 @@ export function AnnualLeavePolicyCard({
                   <LeaveField
                     label="Áp dụng từ năm"
                     className="@2xl:col-span-2"
-                    hint="Chính sách luôn có hiệu lực từ ngày 01/01. Để trống thì hệ thống tự chọn: lần đầu từ 01/01 năm nay; đã cộng phép rồi thì từ 01/01 năm sau để không đổi số đã ghi sổ."
+                    hint="Chính sách luôn có hiệu lực từ ngày 01/01. Để trống thì áp dụng từ 01/01 năm nay. Khi lưu, quỹ phép đã ghi sổ của năm áp dụng được tính lại theo chính sách mới."
                   >
                     <SearchableSelect
                       value={form.effectiveYear}

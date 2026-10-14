@@ -5,7 +5,7 @@ import {
   type PayrollComponent,
 } from '../domain/payroll-formula.js';
 import { isoDate, resolvePolicy } from './hrm-time.js';
-import { resolveStandardWork, standardWorkSetting } from '../domain/standard-workdays.js';
+import { dayCapacityUnits, resolveStandardWork, standardWorkSetting } from '../domain/standard-workdays.js';
 
 const vnd = (n: number) =>
   `${new Intl.NumberFormat('vi-VN').format(Math.round(n))} VND`;
@@ -198,6 +198,7 @@ export async function calculatePayroll(
     const standard = resolveStandardWork(standardWorkSetting(config), {
       scheduledMinutes: scheduled,
       scheduledDays: rows.rows.filter((r) => Number(r.scheduled_minutes) > 0).length,
+      scheduledUnits: rows.rows.reduce((n, r) => n + dayCapacityUnits(Number(r.scheduled_minutes)), 0),
       partialPeriod,
       periodStandardMinutes: periodStandard,
     });

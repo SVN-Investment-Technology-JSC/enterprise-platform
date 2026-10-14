@@ -30,6 +30,7 @@ import {
   loadDecision,
   loadReportingOverview,
   mapDecision,
+  quickAssignPosition,
   rejectDecision,
   updateDraft,
 } from '../infrastructure/hrm-personnel-decisions.js';
@@ -160,5 +161,38 @@ export class HrmPersonnelDecisionController {
     requireUuid(employeeId, 'Nhân viên');
     const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.appointment.read');
     return { data: await loadAppointmentContext(pool, tenantId, employeeId), meta: meta(req) };
+  }
+
+  /**
+   * Gán chức danh nhanh từ Drawer "Sửa" của hồ sơ nhân sự: tạo quyết định APPOINT rồi áp dụng ngay, không
+   * cần người khác duyệt. Cần cả hai quyền quản lý và duyệt bổ nhiệm, vì thao tác này có hiệu lực tương
+   * đương một quyết định đã duyệt.
+   */
+  @Post('employees/:employeeId/quick-appoint')
+  @RequirePermission('hrm.appointment.manage')
+  async quickAppoint(
+    @Req() req: Request,
+    @Param('employeeId') employeeId: string,
+    @Body() body: { toPositionNodeId?: string; reason?: string; effectiveDate?: string },
+  ) {
+    requireUuid(employeeId, 'Nhân viên');
+    const context = await this.ctx.getContext(req, 'hrm.appointment.manage');
+    if (!this.ctx.has(context, 'hrm.appointment.approve'))
+      throw new ForbiddenException('Cần quyền duyệt bổ nhiệm để gán chức danh trực tiếp');
+    return {
+      data: await quickAssignPosition(
+        context.pool,
+        context.tenantId,
+        context.principal.userId,
+        {
+          employeeId,
+          toPositionNodeId: String(body?.toPositionNodeId ?? ''),
+          reason: String(body?.reason ?? ''),
+          effectiveDate: body?.effectiveDate,
+        },
+        { org: this.org },
+      ),
+      meta: meta(req),
+    };
   }
 }

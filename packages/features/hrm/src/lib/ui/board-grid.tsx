@@ -15,8 +15,9 @@ import {
   gridCellView,
   isFutureDay,
   isLateOrEarly,
-  REQUEST_DOT_CLASS,
+  textOnlyClass,
 } from './my-timesheet-format';
+import { LetterBadge } from './my-timesheet-calendar';
 import { RowMenu } from './row-menu';
 import {
   boardDayTooltip,
@@ -268,20 +269,22 @@ export function BoardGrid({
                         title={boardDayTooltip(day)}
                         onClick={() => onSelectDay(emp.employeeId, c.date)}
                         className={`relative flex h-10 w-full cursor-pointer items-center justify-center text-[11px] leading-none hover:bg-blue-100/60 ${
-                          late && !future ? 'bg-red-100' : ''
+                          letters.length > 0 ? 'pb-3' : ''
                         }`}
                       >
-                        {view.type === 'dot' && (
+                        {view.type === 'units' && (
                           <span
-                            data-testid="cell-dot"
+                            data-testid="cell-units"
                             data-tone={view.tone}
-                            className={`size-2.5 rounded-full ${view.tone === 'late' ? 'bg-orange-500' : 'bg-emerald-500'}`}
-                          />
+                            className={`font-mono text-[11px] font-bold ${view.tone === 'bad' ? 'text-red-600' : 'text-emerald-600'}`}
+                          >
+                            {view.text}
+                          </span>
                         )}
                         {view.type === 'box' && (
                           <span
                             data-testid="cell-box"
-                            className={`flex h-[22px] min-w-[22px] items-center justify-center rounded px-1 text-[10px] font-bold ${BOX_TONE_CLASS[view.tone]}`}
+                            className={`flex h-[22px] min-w-[22px] items-center justify-center rounded px-1 text-[10px] font-bold ${textOnlyClass(BOX_TONE_CLASS[view.tone])}`}
                           >
                             {view.text}
                           </span>
@@ -293,9 +296,7 @@ export function BoardGrid({
                             </span>
                           ) : (
                             <span
-                              className={`text-[10px] font-semibold ${
-                                view.muted ? 'text-slate-400' : 'text-rose-500'
-                              }`}
+                              className={`text-[10px] font-semibold ${view.muted ? 'text-slate-400' : 'text-rose-500'}`}
                             >
                               {view.text}
                             </span>
@@ -303,21 +304,14 @@ export function BoardGrid({
                         {letters.length > 0 && (
                           <span
                             data-testid="cell-has-requests"
-                            aria-hidden="true"
-                            className="absolute bottom-[3px] left-1/2 flex -translate-x-1/2 gap-px"
+                            className="absolute inset-x-0 bottom-[2px] flex justify-center gap-px"
                           >
-                            {letters.slice(0, 3).map((l) => (
-                              <span
-                                key={l.kind}
-                                className={`size-[4px] rounded-full ${
-                                  l.status === 'PENDING'
-                                    ? 'border border-amber-500 bg-white'
-                                    : l.status === 'REJECTED'
-                                      ? 'bg-slate-300'
-                                      : REQUEST_DOT_CLASS[l.kind as keyof typeof REQUEST_DOT_CLASS]
-                                }`}
-                              />
+                            {letters.slice(0, 2).map((l) => (
+                              <LetterBadge key={l.kind} letter={l} />
                             ))}
+                            {letters.length > 2 && (
+                              <span className="text-[8px] font-bold leading-[14px] text-slate-500">+{letters.length - 2}</span>
+                            )}
                           </span>
                         )}
                       </button>

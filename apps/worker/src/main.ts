@@ -24,6 +24,7 @@ import {
 import {
   applyDueDecisions,
   defaultOrgAppointmentPort,
+  runAutoAttendance,
   runHrmAutomation,
   processHrmProcedureSync,
   receiveHrmProcedureResult,
@@ -224,6 +225,8 @@ async function processHrmJobs(database: TenantDatabaseReference) {
   // A failed accrual must not prevent workflow result delivery.
   const outcomes = await Promise.allSettled([
     runHrmAutomation(pool, database.tenantId),
+    // Lịch bật "tự động chấm công": ca đã kết thúc thì sinh vào/ra đúng giờ ca cho người chưa chấm.
+    runAutoAttendance(pool, database.tenantId),
     processHrmProcedureSync(pool, database.tenantId),
     // Quyết định nhân sự đã duyệt đến ngày hiệu lực, hoặc đang chờ thử lại.
     applyDueDecisions(pool, database.tenantId, {

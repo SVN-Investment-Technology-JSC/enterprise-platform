@@ -1,5 +1,5 @@
 // Mở SSH tunnel tới prod, tự lấy IP container hiện tại (IP đổi sau mỗi lần redeploy).
-// Dùng: pnpm prod:tunnel [--host=<user>@<máy chủ>] [--dry-run]
+// Dùng: pnpm prod:tunnel [--host=<user>@<máy chủ>] [--dry-run] [--tenant-db-port=<cổng>] [--platform-db-port=<cổng>]
 // Địa chỉ máy chủ KHÔNG ghi trong mã nguồn: đặt PROD_TUNNEL_HOST=<user>@<máy chủ> trong .env (git bỏ qua) hoặc truyền --host=.
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -45,9 +45,28 @@ export function pickTargets(containers) {
   return { targets, warnings };
 }
 
-export function buildTunnelArgs(host, targets) {
+/**
+ * Cổng local có thể đổi khi Windows đã giữ chỗ dải cổng đó (lỗi "bind ... Permission denied", xem
+ * `netsh interface ipv4 show excludedportrange protocol=tcp`): truyền --platform-db-port=, --tenant-db-port=,
+ * --rabbitmq-port=, --valkey-port= hoặc đặt PROD_TUNNEL_<ROLE>_PORT (vd PROD_TUNNEL_TENANT_DB_PORT) trong .env.
+ * Cổng đổi thì URL trong .env phải trỏ đúng cổng mới.
+ */
+export function resolveForwards(argv = [], env = {}) {
+  return FORWARDS.map((forward) => {
+    const flag = argv.find((a) => a.startsWith(`--${forward.role}-port=`))?.split('=')[1];
+    const value = flag ?? env[`PROD_TUNNEL_${forward.role.toUpperCase().replace(/-/g, '_')}_PORT`];
+    if (value === undefined || value === '') return forward;
+    const port = Number(value);
+    if (!Number.isInteger(port) || port < 1024 || port > 65535) {
+      throw new Error(`Cổng local của ${forward.role} không hợp lệ: ${value}`);
+    }
+    return { ...forward, local: port };
+  });
+}
+
+export function buildTunnelArgs(host, targets, forwards = FORWARDS) {
   const args = ['-N', '-o', 'ServerAliveInterval=30', '-o', 'ExitOnForwardFailure=yes'];
-  for (const { role, local, remotePort } of FORWARDS) {
+  for (const { role, local, remotePort } of forwards) {
     args.push('-L', `${local}:${targets[role].ip}:${remotePort}`);
   }
   args.push(host);
@@ -67,6 +86,13 @@ function main() {
     process.exit(1);
   }
   const dryRun = argv.includes('--dry-run');
+  let forwards;
+  try {
+    forwards = resolveForwards(argv, process.env);
+  } catch (error) {
+    console.error(error.message);
+    process.exit(1);
+  }
 
   console.log(`[1/2] Lấy IP container trên ${host} (nhập mật khẩu SSH nếu được hỏi)...`);
   const lookup = spawnSync('ssh', ['-o', 'ConnectTimeout=15', host, REMOTE_COMMAND], {
@@ -86,12 +112,12 @@ function main() {
     process.exit(1);
   }
   picked.warnings.forEach((w) => console.warn(`Cảnh báo: ${w}`));
-  for (const { role, local, remotePort } of FORWARDS) {
+  for (const { role, local, remotePort } of forwards) {
     const t = picked.targets[role];
     console.log(`  localhost:${local} -> ${t.ip}:${remotePort}  (${t.name})`);
   }
 
-  const args = buildTunnelArgs(host, picked.targets);
+  const args = buildTunnelArgs(host, picked.targets, forwards);
   if (dryRun) {
     console.log(`ssh ${args.join(' ')}`);
     return;
