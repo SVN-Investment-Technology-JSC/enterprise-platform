@@ -2,9 +2,7 @@
 
 import type { ReactNode } from 'react';
 import {
-  ArrowDownRight,
   ArrowLeftRight,
-  ArrowUpRight,
   Briefcase,
   CalendarDays,
   ChevronLeft,
@@ -23,11 +21,9 @@ import {
   type SearchableSelectOption,
 } from '@enterprise-platform/shared-ui';
 import {
-  previousMonthLabel,
   rowStatusMeta,
   STATUS_TONE_CLASS,
   type MyRequestRow,
-  type RequestStatCard,
   type RequestStatusFilter,
   type StatusMeta,
 } from '../my-requests-model';
@@ -85,101 +81,6 @@ export function StatusPill({
     >
       {meta.label}
     </span>
-  );
-}
-
-const STAT_TONE: Record<
-  RequestStatCard['key'],
-  { box: string; icon: LucideIcon; value: string }
-> = {
-  total: {
-    box: 'bg-blue-50 text-blue-600',
-    icon: FileText,
-    value: 'text-slate-900',
-  },
-  pending: {
-    box: 'bg-amber-50 text-amber-600',
-    icon: Clock,
-    value: 'text-amber-600',
-  },
-  approved: {
-    box: 'bg-emerald-50 text-emerald-600',
-    icon: CalendarDays,
-    value: 'text-emerald-600',
-  },
-  rejected: {
-    box: 'bg-rose-50 text-rose-600',
-    icon: FileText,
-    value: 'text-rose-600',
-  },
-};
-
-/** Bốn thẻ tổng quan của tháng: tổng đơn, chờ duyệt, đã duyệt, từ chối, kèm chênh lệch so với tháng trước. */
-export function RequestStatCards({
-  cards,
-  month,
-}: {
-  cards: readonly RequestStatCard[];
-  month: string;
-}) {
-  const previous = previousMonthLabel(month);
-  return (
-    <div
-      aria-label="Tổng quan đơn từ trong tháng"
-      data-testid="request-stats"
-      className="grid grid-cols-2 gap-2 xl:grid-cols-4"
-    >
-      {cards.map((card) => {
-        const tone = STAT_TONE[card.key];
-        const Icon = tone.icon;
-        return (
-          <div
-            key={card.key}
-            data-testid={`request-stat-${card.key}`}
-            className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-xs"
-          >
-            <span
-              className={`flex size-12 shrink-0 items-center justify-center rounded-xl ${tone.box}`}
-            >
-              <Icon className="size-5" />
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className="text-xs font-semibold text-slate-600">
-                {card.label}
-              </p>
-              <div className="flex items-end justify-between gap-2">
-                <span
-                  className={`font-mono text-3xl font-bold leading-none ${tone.value}`}
-                >
-                  {card.value}
-                </span>
-                <span className="pb-0.5 text-right text-[11px] leading-tight text-slate-500">
-                  {card.delta === 0 ? (
-                    <span className="block font-semibold text-slate-400">
-                      -
-                    </span>
-                  ) : (
-                    <span
-                      className={`flex items-center justify-end gap-0.5 font-bold ${
-                        card.delta > 0 ? 'text-emerald-600' : 'text-rose-500'
-                      }`}
-                    >
-                      {card.delta > 0 ? (
-                        <ArrowUpRight className="size-3" />
-                      ) : (
-                        <ArrowDownRight className="size-3" />
-                      )}
-                      {Math.abs(card.delta)}
-                    </span>
-                  )}
-                  So với {previous}
-                </span>
-              </div>
-            </div>
-          </div>
-        );
-      })}
-    </div>
   );
 }
 

@@ -263,3 +263,32 @@ export function updatedTimeVn(iso: string): string {
     ? d.toLocaleTimeString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', hour: '2-digit', minute: '2-digit', hour12: false })
     : '';
 }
+
+export type MonitorKpi = 'SCHEDULED' | 'CHECKED_IN' | 'NOT_CHECKED_IN' | 'LATE' | 'EARLY_LEAVE' | 'ON_LEAVE';
+
+export const KPI_TITLE: Record<MonitorKpi, string> = {
+  SCHEDULED: 'Nhân sự đi ca',
+  CHECKED_IN: 'Đã vào ca',
+  NOT_CHECKED_IN: 'Chưa chấm công',
+  LATE: 'Đi trễ',
+  EARLY_LEAVE: 'Về sớm',
+  ON_LEAVE: 'Đang nghỉ phép',
+};
+
+/** Các dòng mà một thẻ tổng quan đang đếm (khớp cách tính ở máy chủ). */
+export function kpiRows(rows: readonly HrmMonitorRow[], kpi: MonitorKpi): HrmMonitorRow[] {
+  switch (kpi) {
+    case 'SCHEDULED':
+      return rows.filter((r) => r.status !== 'DAY_OFF' && r.status !== 'NO_SCHEDULE');
+    case 'CHECKED_IN':
+      return rows.filter((r) => Boolean(r.checkIn));
+    case 'NOT_CHECKED_IN':
+      return rows.filter((r) => r.status === 'NOT_CHECKED_IN' || r.status === 'ABSENT');
+    case 'LATE':
+      return rows.filter((r) => r.status === 'LATE' || r.status === 'LATE_EARLY');
+    case 'EARLY_LEAVE':
+      return rows.filter((r) => r.status === 'EARLY_LEAVE' || r.status === 'LATE_EARLY');
+    case 'ON_LEAVE':
+      return rows.filter((r) => r.status === 'ON_LEAVE');
+  }
+}

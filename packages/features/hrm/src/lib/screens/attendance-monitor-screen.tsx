@@ -24,6 +24,7 @@ import {
 import { hrmFetch } from '../hrm-api';
 import {
   EMPTY_FILTER,
+  KPI_TITLE,
   MONITOR_STATUS,
   MONITOR_TABS,
   REQUEST_KIND_LABEL,
@@ -33,9 +34,9 @@ import {
   departmentStats,
   filterAttention,
   initialsOf,
+  kpiRows,
   longDateVn,
   monitorCsvRows,
-  percentText,
   relatedRequests,
   shiftOptions,
   shiftTimeText,
@@ -44,12 +45,14 @@ import {
   todayVn,
   updatedTimeVn,
   type MonitorFilter,
+  type MonitorKpi,
   type MonitorTone,
 } from '../attendance-monitor-model';
 import { buildCsv, downloadCsv } from '../hrm-csv';
 import { Button } from '../ui/button';
 import { DatePickerInput } from '../ui/date-picker-input';
 import { PageTitle } from '../ui/page-title';
+import { KpiButton, KpiListSheet } from '../ui/kpi-list-sheet';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '../ui/sheet';
 
 const CARD = 'rounded-2xl border border-slate-200/70 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]';
@@ -81,13 +84,15 @@ function Kpi({
   value,
   sub,
   testId,
+  onClick,
 }: {
   tone: 'blue' | 'green' | 'red' | 'amber' | 'orange' | 'violet';
   icon: React.ReactNode;
   label: React.ReactNode;
   value: number;
-  sub: React.ReactNode;
+  sub?: React.ReactNode;
   testId: string;
+  onClick: () => void;
 }) {
   const tile = {
     blue: 'bg-blue-50 text-blue-600',
@@ -98,14 +103,16 @@ function Kpi({
     violet: 'bg-violet-50 text-violet-600',
   }[tone];
   return (
-    <div className={`${CARD} flex items-center gap-3 px-4 py-3.5`} data-testid={testId}>
-      <span className={`flex size-12 shrink-0 items-center justify-center rounded-xl ${tile}`}>{icon}</span>
-      <div className="min-w-0">
-        <p className="text-[12.5px] leading-tight text-slate-500">{label}</p>
-        <p className="text-[26px] font-extrabold leading-tight text-slate-900">{value}</p>
-        <p className="text-[11.5px] text-slate-400">{sub}</p>
+    <KpiButton onClick={onClick} label={`Xem danh sách: ${typeof label === 'string' ? label : testId}`}>
+      <div className={`${CARD} flex items-center gap-3 px-4 py-3.5`} data-testid={testId}>
+        <span className={`flex size-12 shrink-0 items-center justify-center rounded-xl ${tile}`}>{icon}</span>
+        <div className="min-w-0">
+          <p className="text-[12.5px] leading-tight text-slate-500">{label}</p>
+          <p className="text-[26px] font-extrabold leading-tight text-slate-900">{value}</p>
+          <p className="text-[11.5px] text-slate-400">{sub}</p>
+        </div>
       </div>
-    </div>
+    </KpiButton>
   );
 }
 
@@ -123,11 +130,19 @@ export default function AttendanceMonitorScreen() {
   const [data, setData] = useState<HrmAttendanceMonitor | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<MonitorFilter>(EMPTY_FILTER);
+  // Từ Bàn làm việc sang: ?kpi=LATE mở ngăn kéo của thẻ, ?tab=MISSING_PUNCH lọc sẵn danh sách cần theo dõi.
+  const [filter, setFilter] = useState<MonitorFilter>(() => {
+    const tab = typeof window === 'undefined' ? null : new URLSearchParams(window.location.search).get('tab');
+    return MONITOR_TABS.some((t) => t.id === tab) ? { ...EMPTY_FILTER, tab: tab as MonitorFilter['tab'] } : EMPTY_FILTER;
+  });
   const [shift, setShift] = useState('');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(5);
   const [detail, setDetail] = useState<HrmMonitorRow | null>(null);
+  const [kpi, setKpi] = useState<MonitorKpi | null>(() => {
+    const value = typeof window === 'undefined' ? null : new URLSearchParams(window.location.search).get('kpi');
+    return value && value in KPI_TITLE ? (value as MonitorKpi) : null;
+  });
   const sequence = useRef(0);
 
   const load = useCallback(
@@ -179,6 +194,22 @@ export default function AttendanceMonitorScreen() {
     setPage(1);
   };
 
+  const kpiItems = useMemo(
+    () =>
+      kpi
+        ? kpiRows(rows, kpi).map((row) => ({
+          id: row.employeeId,
+          title: row.employeeName,
+          subtitle: [row.departmentName, row.shiftName].filter(Boolean).join(' · ') || row.employeeCode,
+          trailing: statusText(row),
+          onSelect: () => {
+            setKpi(null);
+            setDetail(row);
+          },
+        }))
+        : [],
+    [kpi, rows],
+  );
   const exportCsv = () =>
     downloadCsv(`giam-sat-cham-cong-${date}.csv`, buildCsv(monitorCsvRows(attention)));
 
@@ -254,46 +285,52 @@ export default function AttendanceMonitorScreen() {
           value={summary?.scheduled ?? 0}
           sub={`/ ${summary?.totalPeople ?? 0} nhân sự`}
           testId="kpi-scheduled"
+          onClick={() => setKpi('SCHEDULED')}
         />
         <Kpi
           tone="green"
           icon={<CheckCircle2 className="size-6" />}
           label="Đã vào ca"
           value={summary?.checkedIn ?? 0}
-          sub={percentText(summary?.checkedIn ?? 0, summary?.scheduled ?? 0)}
+          //sub={percentText(summary?.checkedIn ?? 0, summary?.scheduled ?? 0)}
           testId="kpi-checked-in"
+          onClick={() => setKpi('CHECKED_IN')}
         />
         <Kpi
           tone="red"
           icon={<Clock className="size-6" />}
           label="Chưa chấm công"
           value={summary?.notCheckedIn ?? 0}
-          sub={percentText(summary?.notCheckedIn ?? 0, summary?.scheduled ?? 0)}
+          //sub={percentText(summary?.notCheckedIn ?? 0, summary?.scheduled ?? 0)}
           testId="kpi-not-checked-in"
+          onClick={() => setKpi('NOT_CHECKED_IN')}
         />
         <Kpi
           tone="amber"
           icon={<TriangleAlert className="size-6" />}
           label="Đi trễ"
           value={summary?.late ?? 0}
-          sub={percentText(summary?.late ?? 0, summary?.scheduled ?? 0)}
+          //sub={percentText(summary?.late ?? 0, summary?.scheduled ?? 0)}
           testId="kpi-late"
+          onClick={() => setKpi('LATE')}
         />
         <Kpi
           tone="orange"
           icon={<LogOut className="size-6" />}
           label="Về sớm"
           value={summary?.earlyLeave ?? 0}
-          sub={percentText(summary?.earlyLeave ?? 0, summary?.scheduled ?? 0)}
+          //sub={percentText(summary?.earlyLeave ?? 0, summary?.scheduled ?? 0)}
           testId="kpi-early"
+          onClick={() => setKpi('EARLY_LEAVE')}
         />
         <Kpi
           tone="violet"
           icon={<CalendarDays className="size-6" />}
           label="Đang nghỉ phép"
           value={summary?.onLeave ?? 0}
-          sub={percentText(summary?.onLeave ?? 0, summary?.scheduled ?? 0)}
+          //sub={percentText(summary?.onLeave ?? 0, summary?.scheduled ?? 0)}
           testId="kpi-leave"
+          onClick={() => setKpi('ON_LEAVE')}
         />
       </section>
 
@@ -353,9 +390,8 @@ export default function AttendanceMonitorScreen() {
                   type="button"
                   aria-selected={active}
                   onClick={() => patch({ tab: tab.id })}
-                  className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors ${
-                    active ? `${TONE[tab.tone]} ring-1 ring-current/20` : 'border-slate-200 bg-white text-slate-500 hover:bg-slate-50'
-                  }`}
+                  className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors ${active ? `${TONE[tab.tone]} ring-1 ring-current/20` : 'border-slate-200 bg-white text-slate-500 hover:bg-slate-50'
+                    }`}
                 >
                   {tab.label} ({counts[tab.id]})
                 </button>
@@ -370,7 +406,6 @@ export default function AttendanceMonitorScreen() {
                   <th className="px-3 py-2.5">Nhân viên</th>
                   <th className="px-3 py-2.5">Phòng ban</th>
                   <th className="px-3 py-2.5">Ca làm</th>
-                  <th className="px-3 py-2.5">Giờ dự kiến</th>
                   <th className="px-3 py-2.5">Ghi nhận thực tế</th>
                   <th className="px-3 py-2.5">Trạng thái</th>
                   <th className="px-3 py-2.5 text-right">Thao tác</th>
@@ -379,11 +414,11 @@ export default function AttendanceMonitorScreen() {
               <tbody className="divide-y divide-slate-100">
                 {loading && !data ? (
                   <tr>
-                    <td colSpan={7} className="px-3 py-10 text-center text-slate-500">Đang tải dữ liệu...</td>
+                    <td colSpan={6} className="px-3 py-10 text-center text-slate-500">Đang tải dữ liệu...</td>
                   </tr>
                 ) : visible.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-3 py-10 text-center text-slate-500">
+                    <td colSpan={6} className="px-3 py-10 text-center text-slate-500">
                       {rows.length
                         ? 'Không có nhân viên nào cần theo dõi theo bộ lọc hiện tại.'
                         : 'Không có nhân viên trong phạm vi giám sát của bạn.'}
@@ -405,7 +440,6 @@ export default function AttendanceMonitorScreen() {
                       </td>
                       <td className="px-3 py-2.5 text-slate-700">{row.departmentName || '----'}</td>
                       <td className="px-3 py-2.5 text-slate-700">{row.shiftName || '----'}</td>
-                      <td className="px-3 py-2.5 text-slate-700">{shiftTimeText(row)}</td>
                       <td className="px-3 py-2.5 text-slate-700">{actualText(row)}</td>
                       <td className="px-3 py-2.5">
                         <StatusChip tone={MONITOR_STATUS[row.status].tone}>{statusText(row)}</StatusChip>
@@ -529,6 +563,14 @@ export default function AttendanceMonitorScreen() {
           </section>
         </aside>
       </div>
+
+      <KpiListSheet
+        open={kpi !== null}
+        onOpenChange={(open) => !open && setKpi(null)}
+        title={kpi ? KPI_TITLE[kpi] : ''}
+        description={kpi ? `Nhân viên được tính trong thẻ này, ngày ${longDateVn(date)}.` : undefined}
+        items={kpiItems}
+      />
 
       <Sheet open={detail !== null} onOpenChange={(open) => !open && setDetail(null)}>
         <SheetContent className="flex h-full w-full flex-col overflow-hidden bg-white p-0 sm:max-w-[640px]">

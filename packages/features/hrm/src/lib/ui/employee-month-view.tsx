@@ -3,7 +3,7 @@
 import { useMemo } from 'react';
 import type { HrmBoardCalendarDay, HrmBoardEmployee } from '@enterprise-platform/contracts-hrm';
 import { formatDateVn } from '../hrm-timesheet-format';
-import { MyTimesheetCalendar, MyTimesheetLegend } from './my-timesheet-calendar';
+import { MonthNumberLegend, MyTimesheetCalendar } from './my-timesheet-calendar';
 import {
   monthRequests,
   myMonthStats,
@@ -114,8 +114,7 @@ export function MonthRequestsPanel({
 }
 
 /**
- * Bảng công cả tháng của một nhân viên: thanh thống kê, lịch tháng gọn, chú thích và danh sách đơn từ.
- * `wide` xếp lịch và danh sách đơn cạnh nhau (trang Công của tôi); không `wide` xếp dọc (ngăn kéo xem nhân viên).
+ * Bảng công cả tháng của một nhân viên (ngăn kéo xem nhân viên): thanh thống kê, lịch tháng thuần số và chú thích số công.
  */
 export function EmployeeMonthView({
   calendar,
@@ -123,19 +122,17 @@ export function EmployeeMonthView({
   today,
   selectedDate,
   onSelectDate,
-  wide = false,
 }: {
   calendar: readonly HrmBoardCalendarDay[];
   employee: HrmBoardEmployee;
   today: string;
   selectedDate: string | null;
   onSelectDate: (date: string) => void;
-  wide?: boolean;
 }) {
   return (
     <div className="flex min-h-0 flex-col gap-2">
       <MonthStatsBar employee={employee} />
-      <div className={wide ? 'grid min-h-0 grid-cols-1 gap-2 xl:grid-cols-[minmax(0,1fr)_340px]' : 'flex flex-col gap-2'}>
+      <div className="flex flex-col gap-2">
         <div className="flex min-w-0 flex-col gap-2">
           <MyTimesheetCalendar
             calendar={calendar}
@@ -145,10 +142,9 @@ export function EmployeeMonthView({
             onSelect={onSelectDate}
           />
           <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-xs">
-            <MyTimesheetLegend />
+            <MonthNumberLegend />
           </div>
         </div>
-        <MonthRequestsPanel employee={employee} onSelectDate={onSelectDate} />
       </div>
     </div>
   );

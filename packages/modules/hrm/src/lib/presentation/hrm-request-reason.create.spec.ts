@@ -229,9 +229,8 @@ const shiftBody = {
 const correctionBody = {
   employeeId: E,
   requestDate: '2025-01-06',
-  sessions: [
-    { start: '2025-01-06T02:00:00Z', end: '2025-01-06T10:00:00Z' },
-  ],
+  // Mỗi đơn giải trình chỉ một mốc giờ vào hoặc giờ ra.
+  punches: [{ kind: 'IN', at: '2025-01-06T02:00:00Z' }],
 };
 const otBody = {
   employeeId: E,

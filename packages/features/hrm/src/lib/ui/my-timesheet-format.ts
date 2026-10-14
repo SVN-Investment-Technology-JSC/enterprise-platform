@@ -113,6 +113,57 @@ export function myCellText(day: HrmBoardDay | undefined, today: string): string 
   return '0';
 }
 
+/**
+ * Số công do công tác đóng góp trong ngày: nửa ngày công tác là 0.5, cả ngày là 1 (theo số phút ca mà đơn bao phủ).
+ * Chưa có số phút (máy chủ cũ) thì lấy số công của ngày; không có gì thì tính cả ngày.
+ */
+function tripUnits(day: HrmBoardDay): number {
+  const covered = (day.sources ?? []).filter((s) => s.kind === 'TRIP' && s.minutes != null).map((s) => Number(s.minutes));
+  if (covered.length > 0 && day.scheduledMinutes > 0) {
+    const share = Math.min(1, Math.max(...covered) / day.scheduledMinutes);
+    return share >= 0.99 ? 1 : Math.round(share * 100) / 100;
+  }
+  const units = Math.round(Number(day.workdayUnits ?? 0) * 100) / 100;
+  return units > 0 ? units : 1;
+}
+
+export interface MonthCellNumber {
+  readonly text: string;
+  /** ok: xanh; bad: đỏ; none: ngày chưa tới hoặc không có công (màu mặc định). */
+  readonly tone: 'ok' | 'bad' | 'none';
+}
+
+/**
+ * Ô lịch tháng thuần số (ngăn kéo bảng công): 1 xanh là công chuẩn; 1p là ngày có đơn phép tính lương; 0 xanh là phép
+ * không lương; 0 đỏ là thiếu dữ liệu chấm công (kể cả vắng không phép); đi trễ, về sớm hoặc thiếu công là 0.xx đỏ.
+ * Ngày chưa tới hiện mã ca, ngày nghỉ hằng tuần và ngày lễ hiện OFF / L.
+ */
+export function monthCellNumber(day: HrmBoardDay, today: string): MonthCellNumber {
+  if (isFutureDay(day, today) || day.status === 'NO_SCHEDULE') return { text: myCellText(day, today), tone: 'none' };
+  if (day.status === 'ABSENT') return { text: '0', tone: 'bad' };
+  if (day.status === 'OFF') return { text: 'OFF', tone: 'none' };
+  if (day.status === 'HOLIDAY') {
+    const units = Math.round(Number(day.workdayUnits ?? 0) * 100) / 100;
+    return { text: `${formatUnits(units > 0 ? units : 1)}L`, tone: 'ok' };
+  }
+  if (day.status === 'TRIP') return { text: `${formatUnits(tripUnits(day))}CT`, tone: 'ok' };
+  const leave = day.leave;
+  if (leave && leave.days > 0) {
+    if (leave.paid) {
+      const units = Math.round(Number(day.workdayUnits ?? 0) * 100) / 100;
+      return { text: `${formatUnits(units > 0 ? units : leave.days)}P`, tone: 'ok' };
+    }
+    return { text: day.workdayUnits > 0 ? dayCoefficient(day).text : '0', tone: 'ok' };
+  }
+  if (day.workdayUnits > 0 || day.anomalies.some((a) => MISSING_PUNCH.includes(a))) {
+    const coefficient = dayCoefficient(day);
+    return { text: coefficient.text, tone: coefficient.tone };
+  }
+  if (day.kind === 'HOLIDAY') return { text: 'L', tone: 'none' };
+  if (day.kind === 'OFF') return { text: 'OFF', tone: 'none' };
+  return { text: '0', tone: 'bad' };
+}
+
 /** Các tuần (thứ Hai đến Chủ nhật) của tháng; ô ngoài tháng là null. */
 export function calendarWeeks(calendar: readonly Pick<HrmBoardCalendarDay, 'date' | 'weekday'>[]): (string | null)[][] {
   const weeks: (string | null)[][] = [];
@@ -198,6 +249,53 @@ export function myMonthStats(employee: HrmBoardEmployee): MyStat[] {
     { key: 'unscheduled', label: 'Chưa có ca', value: `${t.unscheduledDays ?? 0} ngày`, alert: (t.unscheduledDays ?? 0) > 0, optional: true, zero: (t.unscheduledDays ?? 0) === 0 },
     { key: 'pending', label: 'Đơn chờ duyệt', value: String(pending), alert: pending > 0, optional: true, zero: pending === 0 },
   ];
+}
+
+export type MyKpiKey = 'units' | 'late' | 'early' | 'leave' | 'absent' | 'ot';
+
+export const MY_KPI_TITLE: Record<MyKpiKey, string> = {
+  units: 'Ngày có công thực tế',
+  late: 'Ngày đi trễ',
+  early: 'Ngày về sớm',
+  leave: 'Ngày nghỉ phép',
+  absent: 'Ngày nghỉ không phép',
+  ot: 'Ngày có tăng ca',
+};
+
+export interface MyKpiDay {
+  readonly date: string;
+  /** Giá trị mà ngày này đóng góp vào thẻ, ví dụ "1", "Trễ 15 phút", "0.5 ngày". */
+  readonly value: string;
+}
+
+/** Các ngày trong tháng mà một thẻ chỉ số đang tổng hợp, theo thứ tự ngày. */
+export function myKpiDays(employee: HrmBoardEmployee, key: MyKpiKey): MyKpiDay[] {
+  const out: MyKpiDay[] = [];
+  for (const date of Object.keys(employee.days).sort()) {
+    const d = employee.days[date];
+    switch (key) {
+      case 'units':
+        if (d.workdayUnits > 0) out.push({ date, value: formatUnits(d.workdayUnits) });
+        break;
+      case 'late':
+        if (d.lateMinutes > 0) out.push({ date, value: `Trễ ${d.lateMinutes} phút` });
+        break;
+      case 'early':
+        if (d.earlyLeaveMinutes > 0) out.push({ date, value: `Sớm ${d.earlyLeaveMinutes} phút` });
+        break;
+      case 'leave':
+        if (d.leave && d.leave.days > 0)
+          out.push({ date, value: `${d.leave.reasonName ?? 'Nghỉ'}: ${formatUnits(d.leave.days)} ngày` });
+        break;
+      case 'absent':
+        if (d.status === 'ABSENT') out.push({ date, value: '1 ngày' });
+        break;
+      case 'ot':
+        if (d.otMinutes > 0) out.push({ date, value: formatMinutes(d.otMinutes) });
+        break;
+    }
+  }
+  return out;
 }
 
 const TRIP_TYPE_LABEL: Record<string, string> = {
@@ -420,7 +518,7 @@ export function hoursDecimal(minutes: number | null | undefined): string {
 
 /**
  * Nội dung ô trong lịch của tôi (kiểu mới): ngày chưa tới hiện mã ca (OFF, L, Chưa có ca); ngày đã qua hiện
- * số công (hệ số công của ngày, ví dụ 1 hoặc 0.5; không hiện mã ca); ngày nghỉ phép, công tác, vắng hiện dấu gạch dài.
+ * số công (hệ số công của ngày, ví dụ 1 hoặc 0.5; không hiện mã ca); ngày nghỉ phép, công tác, vắng và thiếu dữ liệu chấm công hiện 0 (đỏ).
  * `units` rỗng khi ngày không có giờ làm.
  */
 export function myCellContent(
@@ -436,9 +534,10 @@ export function myCellContent(
   if (day.status === 'HOLIDAY') return { text: 'L', units: '' };
   if (day.status === 'OFF') return { text: 'OFF', units: '' };
   if (day.status === 'NO_SCHEDULE') return { text: '-', units: '' };
-  if (day.status === 'ABSENT') return { text: '—', units: '' };
+  // Vắng không phép hoặc thiếu dữ liệu chấm công: số công 0 (hiện đỏ).
+  if (day.status === 'ABSENT') return { text: '', units: '0' };
   if (day.workedMinutes > 0 || day.leave) return { text: '', units: dayCoefficient(day).text };
-  if (day.anomalies.some((a) => MISSING_PUNCH.includes(a))) return { text: '', units: '0' };
+  if (day.status === 'ABNORMAL' || day.anomalies.some((a) => MISSING_PUNCH.includes(a))) return { text: '', units: '0' };
   return { text: '—', units: '' };
 }
 
@@ -490,8 +589,6 @@ export function dayStatusPill(day: HrmBoardDay, today: string): DayStatusPill {
 export type GridCellView =
   /** Ngày đã qua có công: hệ số công, xanh (1, 0.5 có đơn) hoặc đỏ (0.xx trễ, sớm; 0 quên chấm). */
   | { readonly type: 'units'; readonly text: string; readonly tone: 'ok' | 'bad' }
-  /** Ký hiệu nghỉ, công tác, vắng, bất thường: P, CT, KP, !. */
-  | { readonly type: 'box'; readonly text: 'P' | 'CT' | 'KP' | '!'; readonly tone: 'leave' | 'trip' | 'absent' | 'abnormal' }
   /** Chữ thường: OFF, L (lễ), "-" (chưa có lịch), mã ca của ngày chưa tới, "0". */
   | { readonly type: 'text'; readonly text: string; readonly muted: boolean };
 
@@ -507,30 +604,9 @@ export function gridCellView(day: HrmBoardDay | undefined, today: string): GridC
     if (day.kind === 'OFF') return { type: 'text', text: 'OFF', muted: true };
     return { type: 'text', text: '-', muted: true };
   }
-  if (day.leave && day.leave.days > 0 && day.leave.days < 1) return { type: 'units', ...dayCoefficient(day) };
-  switch (day.status) {
-    case 'ABSENT':
-      return { type: 'box', text: 'KP', tone: 'absent' };
-    case 'ABNORMAL':
-      if (day.anomalies.some((a) => MISSING_PUNCH.includes(a))) return { type: 'units', text: '0', tone: 'bad' };
-      return { type: 'box', text: '!', tone: 'abnormal' };
-    case 'ANNUAL_LEAVE':
-    case 'PAID_LEAVE':
-    case 'UNPAID_LEAVE':
-      return { type: 'box', text: 'P', tone: 'leave' };
-    case 'TRIP':
-      return { type: 'box', text: 'CT', tone: 'trip' };
-    case 'HOLIDAY':
-      return { type: 'text', text: 'L', muted: false };
-    case 'OFF':
-      return { type: 'text', text: 'OFF', muted: true };
-    case 'NO_SCHEDULE':
-      return { type: 'text', text: '-', muted: true };
-    default:
-      return day.workedMinutes > 0 || day.workdayUnits > 0
-        ? { type: 'units', ...dayCoefficient(day) }
-        : { type: 'text', text: '0', muted: false };
-  }
+  const cell = monthCellNumber(day, today);
+  if (cell.tone === 'none') return { type: 'text', text: cell.text, muted: cell.text !== 'L' };
+  return { type: 'units', text: cell.text, tone: cell.tone };
 }
 
 /** Bỏ các lớp màu nền (bg-*) khỏi chuỗi class, giữ màu chữ và kiểu chữ. */

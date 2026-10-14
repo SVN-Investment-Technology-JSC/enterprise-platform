@@ -120,6 +120,11 @@ export interface ProcedureRaciAssignment {
   eTaskConfig?: ProcedureETaskConfig;
   /** Chỉ với `initiator_manager`; bắt buộc lúc công bố. */
   managerFallback?: ProcedureManagerFallback;
+  /**
+   * Chỉ có ở assignment do hệ thống sinh khi phân giải `initiator_manager`: đây là bản của NGƯỜI DỰ PHÒNG, đi kèm
+   * assignment của quản lý trực tiếp (có id là giá trị trường này). Bị loại bỏ khi bước được phân giải lại.
+   */
+  fallbackOfAssignmentId?: string;
 }
 
 /**

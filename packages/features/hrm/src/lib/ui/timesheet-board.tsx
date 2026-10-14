@@ -8,13 +8,11 @@ import { Button } from './button';
 import { BoardDayInline } from './board-day-detail';
 import { BoardGrid } from './board-grid';
 import { EmployeeMonthView } from './employee-month-view';
+import { MonthNumberLegend } from './my-timesheet-calendar';
 import { Input } from './input';
 import {
   BOARD_FILTERS,
-  BOX_TONE_CLASS,
   matchesBoardFilter,
-  REQUEST_DOT_CLASS,
-  REQUEST_LETTERS,
   type BoardFilter,
 } from './my-timesheet-format';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from './sheet';
@@ -60,63 +58,15 @@ export function BoardMonthPicker({
   );
 }
 
-/** Chú thích một dòng cho lưới bảng công: chấm màu, ô ký hiệu và chấm màu đơn từ. */
+/** Chú thích số công của lưới bảng công (cùng quy ước với lịch tháng của một nhân viên) và ký hiệu ngày nghỉ. */
 export function BoardLegend() {
-  const box = (text: string, cls: string) => (
-    <span aria-hidden="true" className={`inline-flex h-[18px] min-w-[18px] items-center justify-center rounded px-1 text-[9px] font-bold ${cls}`}>
-      {text}
-    </span>
-  );
-  const num = (text: string, cls: string) => (
-    <span aria-hidden="true" className={`font-mono text-[11px] font-bold ${cls}`}>
-      {text}
-    </span>
-  );
   return (
-    <ul
-      aria-label="Chú thích bảng công"
-      className="flex flex-wrap items-center gap-x-3.5 gap-y-1 text-[11px] text-slate-600"
-    >
-      <li className="flex items-center gap-1.5">
-        {num('1', 'text-emerald-600')}Đủ công
-      </li>
-      <li className="flex items-center gap-1.5">
-        {num('0.5', 'text-emerald-600')}Nửa công có đơn
-      </li>
-      <li className="flex items-center gap-1.5">
-        {num('0.xx', 'text-red-600')}Đi trễ, về sớm
-      </li>
-      <li className="flex items-center gap-1.5">
-        {num('0', 'text-red-600')}Quên chấm công
-      </li>
-      <li className="flex items-center gap-1.5">
-        {box('P', BOX_TONE_CLASS.leave)}Nghỉ phép
-      </li>
-      <li className="flex items-center gap-1.5">
-        {box('KP', BOX_TONE_CLASS.absent)}Nghỉ không phép
-      </li>
-      <li className="flex items-center gap-1.5">
-        {box('CT', BOX_TONE_CLASS.trip)}Công tác
-      </li>
-      <li className="flex items-center gap-1.5">
-        {box('!', BOX_TONE_CLASS.abnormal)}Bất thường
-      </li>
-      <li className="flex items-center gap-1.5">
-        {box('OFF', 'bg-slate-100 text-slate-500')}Ngày nghỉ
-      </li>
-      <li className="flex items-center gap-1.5">
-        {box('L', 'bg-rose-50 text-rose-500')}Ngày lễ
-      </li>
-      <li className="flex items-center gap-1.5 border-l border-slate-200 pl-3">
-        Chấm nhỏ đơn từ:
-        {(['LEAVE', 'TRIP', 'OT', 'CORRECTION'] as const).map((kind) => (
-          <span key={kind} className="flex items-center gap-0.5">
-            <span aria-hidden="true" className={`inline-block size-1.5 rounded-full ${REQUEST_DOT_CLASS[kind]}`} />
-            {REQUEST_LETTERS[kind].letter}
-          </span>
-        ))}
-      </li>
-    </ul>
+    <div aria-label="Chú thích bảng công" className="flex flex-wrap items-center gap-x-4 gap-y-1">
+      <MonthNumberLegend />
+      <span className="flex items-center gap-1.5 text-[11px] text-slate-600">
+        <span className="min-w-6 text-[10px] font-semibold text-slate-400">OFF</span>Ngày nghỉ
+      </span>
+    </div>
   );
 }
 

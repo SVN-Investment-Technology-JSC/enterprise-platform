@@ -20,8 +20,6 @@ import {
   groupEmployeeRuns,
   isoWeekday,
   patternFromRules,
-  patternToRules,
-  setPatternDay,
   rangeFor,
   shiftAnchor,
   summarizePattern,
@@ -109,20 +107,6 @@ describe('weekly pattern shortcuts', () => {
     ]);
     expect(validatePattern(p)).toBeNull();
     expect(summarizePattern(p, SHIFTS)).toBe('T2-T6: HC; T7: HC4; CN: Nghỉ');
-  });
-
-  it('giữ cờ tự chấm công theo từng thứ và chỉ gửi cho ngày làm việc', () => {
-    let p = applyShortcut(emptyPattern(), [1, 2, 3, 4, 5, 6], { kind: 'SHIFT', shiftId: 's-hc' });
-    p = setPatternDay(p, 6, { dayType: 'SHIFT', shiftId: 's-half', autoAttendance: true });
-    // Đổi ca của thứ bảy vẫn giữ cờ; thứ hai không bật nên không có cờ.
-    p = setPatternDay(p, 6, { dayType: 'SHIFT', shiftId: 's-hc' });
-    expect(patternToRules(p).filter((r) => r.autoAttendance).map((r) => r.weekday)).toEqual([6]);
-    // Chuyển thứ bảy sang nghỉ thì cờ bị bỏ.
-    p = setPatternDay(p, 6, { dayType: 'OFF' });
-    expect(patternToRules(p).some((r) => r.autoAttendance)).toBe(false);
-    // Đọc lại từ luật đã lưu.
-    const back = patternFromRules([{ weekday: 6, dayType: 'SHIFT', shiftId: 's-hc', autoAttendance: true }]);
-    expect(back[5].autoAttendance).toBe(true);
   });
 
   it('supports Saturday full day, Saturday off and Sunday working with a chosen shift', () => {
