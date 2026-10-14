@@ -186,6 +186,7 @@ async function migrateTenantCoreSchemas(platform: PostgresPool, rbacOnly = false
               '0005-tenant-rbac-legacy-compat',
               '0005-tenant-rbac',
               '0007-default-tenant-user-role',
+              '0011-module-access-from-actions',
             ].includes(migration.version),
           )
         : TENANT_CORE_MIGRATIONS;

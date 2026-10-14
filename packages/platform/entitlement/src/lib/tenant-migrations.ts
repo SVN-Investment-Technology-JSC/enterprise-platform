@@ -82,6 +82,11 @@ export const TENANT_CORE_MIGRATIONS: readonly TenantModuleMigration[] = [
     version: '0008-notifications',
     path: 'tenant/core/0008-notifications.sql',
   },
+  {
+    // Phải chạy sau các migration RBAC (0005-tenant-rbac, 0007-default-tenant-user-role).
+    version: '0011-module-access-from-actions',
+    path: 'tenant/core/0011-module-access-from-actions.sql',
+  },
 ];
 
 export const TENANT_MODULE_MIGRATIONS: Readonly<
