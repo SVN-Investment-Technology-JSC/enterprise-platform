@@ -133,9 +133,11 @@ integration('Tài chính: phiếu thu, chi, chuyển tiền và sổ cái (Postg
   }, 120_000);
 
   afterAll(async () => {
+    // Đóng pool của DB test trước, nếu không DROP DATABASE báo "is being accessed by other users" trên PostgreSQL thật.
+    await pool?.end();
     if (admin) {
       if (!/^finance_test_[a-f0-9]{32}$/.test(databaseName)) throw new Error('Invalid test database');
-      await admin.query(`DROP DATABASE IF EXISTS "${databaseName}"`);
+      await admin.query(`DROP DATABASE IF EXISTS "${databaseName}" WITH (FORCE)`);
       await admin.end();
     }
   }, 60_000);

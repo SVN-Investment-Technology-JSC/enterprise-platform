@@ -356,9 +356,8 @@ integration('HRM employee PostgreSQL integration', () => {
       requestDate: '2026-09-20',
       reasonId: correctionReason,
       description: 'Missing lunch return',
-      sessions: [
-        { start: '2026-09-20T15:00:00Z', end: '2026-09-20T23:00:00Z' },
-      ],
+      // Mỗi đơn chỉ khai báo một mốc giờ: thay toàn bộ giờ ra trong ngày bằng một giờ ra mới.
+      punches: [{ kind: 'OUT', at: '2026-09-20T23:00:00Z' }],
     });
     await expect(
       attendance.approveCorrection(req, correction.data.id),
@@ -382,7 +381,7 @@ integration('HRM employee PostgreSQL integration', () => {
       `SELECT count(*)::int AS total,count(*) FILTER (WHERE voided_by_correction_id IS NOT NULL)::int AS replaced FROM hrm_schema.attendance_events WHERE tenant_id=$1`,
       [tenantId],
     );
-    expect(events.rows[0]).toEqual({ total: 6, replaced: 4 });
+    expect(events.rows[0]).toEqual({ total: 5, replaced: 2 });
   });
   it('rejects self attendance for another employee and client-supplied timestamps', async () => {
     const ctx = {
