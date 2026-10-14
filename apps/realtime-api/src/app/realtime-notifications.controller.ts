@@ -33,6 +33,7 @@ const MODULES = new Set<NotificationModule>([
   'procedure',
   'workspace',
   'hrm',
+  'finance',
   'inventory',
   'maintenance',
 ]);

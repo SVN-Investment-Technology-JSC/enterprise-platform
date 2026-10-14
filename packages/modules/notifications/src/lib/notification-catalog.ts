@@ -443,6 +443,70 @@ export const DEFAULT_NOTIFICATION_POLICIES: readonly NotificationPolicy[] = [
       sourceId: id(payload, 'payslipId'),
     }),
   }),
+  // Tài chính. Phiếu duyệt trực tiếp: báo người có quyền duyệt đúng loại phiếu (quyền đi cùng sự kiện, quản trị tenant luôn
+  // được tính). Phiếu duyệt qua quy trình đã được báo bằng `procedure.assignment.created`, không phát sự kiện này.
+  directPolicy({
+    eventType: 'finance.approval.requested',
+    module: 'finance',
+    category: 'approval',
+    priority: 'actionable',
+    recipients: { kind: 'permissions-in-payload', field: 'approvalPermissions' },
+    actorField: 'actorUserId',
+    template: ({ payload, event }) => ({
+      title: 'Có phiếu cần phê duyệt',
+      body: text(payload, 'summary', 'Một phiếu tài chính đang chờ bạn xử lý.'),
+      deepLink: text(payload, 'deepLink', '/modules/finance'),
+      sourceType: 'finance_approval',
+      // Phiếu bị từ chối rồi gửi lại phải báo lại; khoá chỉ theo voucherId sẽ bị ràng buộc duy nhất nuốt mất.
+      sourceId: `${id(payload, 'voucherId')}:${event.id}`,
+    }),
+  }),
+  // Kết quả xử lý phiếu (duyệt, từ chối, huỷ, đảo sổ) báo cho người lập; không báo chính người vừa thao tác.
+  directPolicy({
+    eventType: 'finance.voucher.status-changed',
+    module: 'finance',
+    category: 'voucher-status',
+    priority: 'actionable',
+    recipients: { kind: 'payload', fields: ['requesterUserId'] },
+    actorField: 'actorUserId',
+    template: ({ payload, event }) => ({
+      title: text(payload, 'title', 'Trạng thái phiếu đã thay đổi'),
+      body: text(payload, 'summary', 'Phiếu của bạn đã được xử lý.'),
+      deepLink: text(payload, 'deepLink', '/modules/finance'),
+      sourceType: 'finance_voucher',
+      // Mỗi lần đổi trạng thái là một thông báo riêng (duyệt rồi đảo sổ chẳng hạn).
+      sourceId: `${id(payload, 'voucherId')}:${event.id}`,
+    }),
+  }),
+  // Quy trình đã duyệt nhưng chưa ghi sổ được (thiếu số dư, kỳ đã khoá...): báo người lập và người duyệt để xử lý rồi "Áp lại".
+  directPolicy({
+    eventType: 'finance.voucher.needs-attention',
+    module: 'finance',
+    category: 'voucher-status',
+    priority: 'required',
+    recipients: { kind: 'payload', fields: ['recipientUserIds'] },
+    template: ({ payload, event }) => ({
+      title: 'Phiếu đã duyệt nhưng chưa ghi sổ được',
+      body: text(payload, 'summary', 'Phiếu cần xử lý trước khi ghi sổ.'),
+      deepLink: text(payload, 'deepLink', '/modules/finance'),
+      sourceType: 'finance_voucher_attention',
+      sourceId: `${id(payload, 'voucherId')}:${event.id}`,
+    }),
+  }),
+  directPolicy({
+    eventType: 'finance.voucher.needs-attention-approvers',
+    module: 'finance',
+    category: 'voucher-status',
+    priority: 'required',
+    recipients: { kind: 'permissions-in-payload', field: 'approvalPermissions' },
+    template: ({ payload, event }) => ({
+      title: 'Phiếu đã duyệt nhưng chưa ghi sổ được',
+      body: text(payload, 'summary', 'Phiếu cần xử lý trước khi ghi sổ.'),
+      deepLink: text(payload, 'deepLink', '/modules/finance'),
+      sourceType: 'finance_voucher_attention',
+      sourceId: `${id(payload, 'voucherId')}:${event.id}`,
+    }),
+  }),
   ...[
     ['inventory.stock.low', 'low-stock', 'Tồn kho dưới ngưỡng', 'inventory.manage'],
     ['inventory.stocktake.pending', 'stocktake', 'Đợt kiểm kê đang chờ xử lý', 'inventory.manage'],

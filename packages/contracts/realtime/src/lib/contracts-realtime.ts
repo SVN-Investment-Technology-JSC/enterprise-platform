@@ -31,6 +31,7 @@ export type NotificationModule =
   | 'procedure'
   | 'workspace'
   | 'hrm'
+  | 'finance'
   | 'inventory'
   | 'maintenance';
 

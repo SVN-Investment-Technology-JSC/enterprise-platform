@@ -189,8 +189,11 @@ describe('MyTimesheetScreen (Công của tôi)', () => {
     expect(future.getAttribute('data-future')).toBe('true');
 
     expect(screen.getByTestId(`my-cell-${d(6)}`).textContent).toContain('OFF');
-    // ngày vắng đã qua: không có giờ làm, hiện dấu gạch dài và ký hiệu KP
-    expect(screen.getByTestId(`my-cell-${d(2)}`).textContent).toContain('—');
+    // ngày vắng đã qua: số công 0 màu đỏ, không tô nền
+    const absentUnits = within(screen.getByTestId(`my-cell-${d(2)}`)).getByTestId('my-cell-units');
+    expect(absentUnits.textContent).toBe('0');
+    expect(absentUnits.className).toContain('text-red-600');
+    expect(screen.getByTestId(`my-cell-${d(2)}`).className).not.toContain('bg-red');
   });
 
   it('ngày chưa tới mà chưa phân ca ghi rõ Chưa có ca thay vì để trống', async () => {
@@ -202,14 +205,14 @@ describe('MyTimesheetScreen (Công của tôi)', () => {
     expect(screen.getByTestId(`my-cell-${d(28)}`).textContent).toContain('Chưa có ca');
   });
 
-  it('đi trễ về sớm tô đỏ, ngày bình thường không đỏ', async () => {
+  it('đi trễ về sớm không tô nền, chỉ hiện chữ Trễ; ngày bình thường không đánh dấu', async () => {
     fetchMock.mockResolvedValue({ data: board() } as never);
     render(<MyTimesheetScreen />);
     await screen.findByLabelText('Bảng công theo tháng');
 
     const late = screen.getByTestId(`my-cell-${d(3)}`);
     expect(late.getAttribute('data-late')).toBe('true');
-    expect(late.className).toContain('bg-red-100');
+    expect(late.className).not.toContain('bg-red');
     expect(late.textContent).toContain('Trễ 20p');
     expect(screen.getByTestId(`my-cell-${d(1)}`).getAttribute('data-late')).toBeNull();
   });

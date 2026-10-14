@@ -34,9 +34,15 @@ import {
   dayLetters,
   dayStatusPill,
   hoursDecimal,
+  MY_KPI_TITLE,
+  myKpiDays,
   myMonthStats,
+  type MyKpiKey,
 } from './my-timesheet-format';
 import { formatUnits } from './timesheet-board-format';
+import { KpiButton, KpiListSheet } from './kpi-list-sheet';
+
+const MY_KPI_KEYS: readonly string[] = ['units', 'late', 'early', 'leave', 'absent', 'ot'];
 
 interface KpiCardSpec {
   key: string;
@@ -51,9 +57,9 @@ interface KpiCardSpec {
   progress?: number | null;
 }
 
-function KpiCard({ spec }: { spec: KpiCardSpec }) {
+function KpiCard({ spec, onOpen }: { spec: KpiCardSpec; onOpen?: () => void }) {
   const Icon = spec.icon;
-  return (
+  const card = (
     <div
       data-testid={`my-stat-${spec.key}`}
       className="flex min-w-0 items-center gap-3 rounded-xl border border-slate-200 bg-white px-3.5 py-3 shadow-xs"
@@ -98,10 +104,42 @@ function KpiCard({ spec }: { spec: KpiCardSpec }) {
       </div>
     </div>
   );
+  return onOpen ? (
+    <KpiButton onClick={onOpen} label={`Xem các ngày: ${spec.label}`}>
+      {card}
+    </KpiButton>
+  ) : (
+    card
+  );
 }
 
 /** Sáu thẻ chỉ số chính của tháng; chỉ số phụ (công tác, bất thường, đơn chờ duyệt...) hiện thành chip khi khác 0. */
-export function MyKpiStrip({ employee }: { employee: HrmBoardEmployee }) {
+export function MyKpiStrip({
+  employee,
+  onSelectDate,
+}: {
+  employee: HrmBoardEmployee;
+  /** Bấm một ngày trong ngăn kéo: nhảy tới chi tiết ngày đó trên trang. */
+  onSelectDate?: (date: string) => void;
+}) {
+  const [openKpi, setOpenKpi] = useState<MyKpiKey | null>(null);
+  const kpiItems = useMemo(
+    () =>
+      openKpi
+        ? myKpiDays(employee, openKpi).map(({ date, value }) => ({
+            id: date,
+            title: `${weekdayVn(date)}, ${formatDateVn(date)}`,
+            trailing: value,
+            onSelect: onSelectDate
+              ? () => {
+                  setOpenKpi(null);
+                  onSelectDate(date);
+                }
+              : undefined,
+          }))
+        : [],
+    [openKpi, employee, onSelectDate],
+  );
   const totals = employee.totals;
   const stats = useMemo(() => myMonthStats(employee), [employee]);
   const standard = stats.find((s) => s.key === 'standard');
@@ -187,9 +225,21 @@ export function MyKpiStrip({ employee }: { employee: HrmBoardEmployee }) {
     >
       <div className="grid grid-cols-2 gap-2 md:grid-cols-3 2xl:grid-cols-6">
         {cards.map((spec) => (
-          <KpiCard key={spec.key} spec={spec} />
+          <KpiCard
+            key={spec.key}
+            spec={spec}
+            onOpen={MY_KPI_KEYS.includes(spec.key as MyKpiKey) ? () => setOpenKpi(spec.key as MyKpiKey) : undefined}
+          />
         ))}
       </div>
+      <KpiListSheet
+        open={openKpi !== null}
+        onOpenChange={(open) => !open && setOpenKpi(null)}
+        title={openKpi ? MY_KPI_TITLE[openKpi] : ''}
+        description="Bấm một ngày để xem chi tiết ngày đó."
+        items={kpiItems}
+        emptyText="Không có ngày nào trong tháng này."
+      />
       {extras.length > 0 && (
         <ul className="flex flex-wrap gap-1.5 text-[11px]">
           {extras.map((stat) => (
@@ -500,7 +550,7 @@ export function MyTimesheetView({
 
   return (
     <div className="flex min-h-0 flex-col gap-3">
-      <MyKpiStrip employee={employee} />
+      <MyKpiStrip employee={employee} onSelectDate={pick} />
       <div className="grid min-h-0 grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_420px]">
         <section className="min-w-0 rounded-xl border border-slate-200 bg-white p-4 shadow-xs">
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2">

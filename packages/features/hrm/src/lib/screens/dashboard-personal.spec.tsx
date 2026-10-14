@@ -175,6 +175,24 @@ describe('Bàn làm việc cá nhân', () => {
     expect(within(card).getByRole('link', { name: 'Đăng ký nghỉ phép' }).getAttribute('href')).toBe('/requests?create=leave');
   });
 
+  it('thẻ Đơn của tôi có danh sách đơn đang xử lý sổ xuống khi bấm; các thẻ trạng thái hôm nay, phép năm, bảng công không bấm được', async () => {
+    render(<HrmDashboardPage />);
+    const requests = await screen.findByTestId('kpi-requests');
+    await waitFor(() => expect(within(requests).getByText('1 đang xử lý')).toBeTruthy());
+    // Mặc định chỉ hiển thị thông tin; bấm thẻ mới sổ xuống danh sách đơn đang xử lý, mỗi đơn là một liên kết.
+    expect(screen.queryByTestId('kpi-requests-list')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Xem danh sách: Đơn của tôi/ }));
+    const list = await screen.findByTestId('kpi-requests-list');
+    const links = within(list).getAllByRole('link');
+    expect(links).toHaveLength(1);
+    expect(links[0].getAttribute('href')).toMatch(/^\/requests\?request=/);
+    for (const id of ['kpi-today', 'kpi-leave', 'kpi-timesheet']) {
+      const card = screen.getByTestId(id);
+      expect(card.closest('a')).toBeNull();
+      expect(card.closest('button')).toBeNull();
+    }
+  });
+
   it('thao tác nhanh có bốn lối tắt tạo đơn đúng loại', async () => {
     render(<HrmDashboardPage />);
     const quick = await screen.findByLabelText('Thao tác nhanh');

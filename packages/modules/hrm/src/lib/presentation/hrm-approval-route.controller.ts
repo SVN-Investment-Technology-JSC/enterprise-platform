@@ -142,8 +142,12 @@ export class HrmApprovalRouteController {
       procedureAvailable && ids.length
         ? await resolveProcedureNames(tenantId, ids)
         : new Map<string, string>();
+    const positionMap = new Map<string, string>(
+      (rows.positions ?? []).map((p) => [p.id, p.name]),
+    );
     return {
-      items: buildApprovalRouteItems(rows, names),
+      items: buildApprovalRouteItems(rows, names, positionMap),
+      positions: rows.positions ?? [],
       procedureAvailable,
       ...(warnings ? { warnings } : {}),
     };

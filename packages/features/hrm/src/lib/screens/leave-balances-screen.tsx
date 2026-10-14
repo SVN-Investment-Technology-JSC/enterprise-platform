@@ -5,7 +5,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type ReactNode,
 } from 'react';
 import Link from 'next/link';
 import { SearchableSelect } from '@enterprise-platform/shared-ui';
@@ -13,14 +12,10 @@ import {
   AlertTriangle,
   ChevronDown,
   ChevronRight,
-  Clock,
-  Database,
   Download,
-  FileClock,
   RefreshCw,
   Search,
   Settings2,
-  Users,
 } from 'lucide-react';
 import type { HrmLeaveBalanceListItem } from '@enterprise-platform/contracts-hrm';
 import { hrmFetch } from '../hrm-api';
@@ -203,46 +198,6 @@ function ProgressCell({ row }: { row: Row }) {
   );
 }
 
-function StatCard({
-  testId,
-  icon,
-  tone,
-  label,
-  value,
-  note,
-}: {
-  testId: string;
-  icon: ReactNode;
-  tone: string;
-  label: string;
-  value: string;
-  note: string;
-}) {
-  return (
-    <div
-      data-testid={testId}
-      role="group"
-      aria-label={label}
-      className="flex min-w-0 items-center gap-3 rounded-xl border border-slate-200 bg-white px-3.5 py-3"
-    >
-      <span
-        className={`flex size-11 shrink-0 items-center justify-center rounded-xl ${tone}`}
-      >
-        {icon}
-      </span>
-      <div className="min-w-0">
-        <p className="truncate text-xs font-semibold text-slate-600">{label}</p>
-        <p className="font-mono text-2xl font-bold leading-tight text-slate-900">
-          {value}
-        </p>
-        <p className="truncate text-[11px] font-semibold text-slate-500">
-          {note}
-        </p>
-      </div>
-    </div>
-  );
-}
-
 interface DepartmentGroup {
   readonly name: string;
   readonly rows: readonly Row[];
@@ -349,19 +304,6 @@ export default function LeaveBalancesScreen() {
   }, [rows, search, status]);
 
   const groups = useMemo(() => groupByDepartment(filtered), [filtered]);
-
-  const summary = useMemo(() => {
-    const entitlement = sumOf(rows, (r) => r.entitlement);
-    const used = sumOf(rows, (r) => r.used);
-    return {
-      employees: rows.length,
-      entitlement,
-      used,
-      usedPercent:
-        entitlement > 0 ? Math.round((used / entitlement) * 1000) / 10 : 0,
-      pending: sumOf(rows, (r) => r.pending),
-    };
-  }, [rows]);
 
   // Mỗi nhân viên một dòng; `id` rỗng với nhân viên chưa có quỹ nên khóa theo employeeId.
   const historyRow = historyEmployeeId
@@ -556,44 +498,6 @@ export default function LeaveBalancesScreen() {
       ) : (
         canRead && (
           <>
-            <div
-              aria-label="Tổng quan phép năm"
-              className="grid grid-cols-2 gap-2 xl:grid-cols-4"
-            >
-              <StatCard
-                testId="leave-stat-employees"
-                icon={<Users className="size-5" />}
-                tone="bg-blue-50 text-blue-600"
-                label="Tổng nhân viên"
-                value={formatLeaveNumber(summary.employees)}
-                note="Đang theo dõi phép năm"
-              />
-              <StatCard
-                testId="leave-stat-entitlement"
-                icon={<Database className="size-5" />}
-                tone="bg-emerald-50 text-emerald-600"
-                label="Tổng quỹ phép"
-                value={formatLeaveNumber(summary.entitlement)}
-                note="Tổng số ngày được hưởng"
-              />
-              <StatCard
-                testId="leave-stat-used"
-                icon={<Clock className="size-5" />}
-                tone="bg-amber-50 text-amber-600"
-                label="Đã sử dụng"
-                value={formatLeaveNumber(summary.used)}
-                note={`${formatLeaveNumber(summary.usedPercent)}% tổng quỹ phép`}
-              />
-              <StatCard
-                testId="leave-stat-pending"
-                icon={<FileClock className="size-5" />}
-                tone="bg-rose-50 text-rose-500"
-                label="Chờ duyệt"
-                value={formatLeaveNumber(summary.pending)}
-                note="Trong các đơn đã nộp"
-              />
-            </div>
-
             <section className="space-y-3 rounded-xl border border-slate-200 bg-white p-3">
               <div className="flex flex-wrap items-center gap-2">
                 <div className="w-40">

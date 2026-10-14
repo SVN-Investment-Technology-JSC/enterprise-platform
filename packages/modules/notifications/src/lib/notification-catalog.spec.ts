@@ -214,3 +214,78 @@ describe('hrm request status changes', () => {
     expect(approved?.template.sourceId).not.toBe(cancelled?.template.sourceId);
   });
 });
+
+describe('finance notifications', () => {
+  const approvalPermissions = ['finance.payment.approve', 'finance.manage'];
+
+  it('báo đúng người có quyền duyệt loại phiếu (kể cả quản trị Tài chính), không báo chính người lập', async () => {
+    const usersWithPermission = jest.fn(async (permission: string) =>
+      permission === 'finance.payment.approve' ? ['chief-accountant', 'creator'] : ['finance-admin', 'chief-accountant'],
+    );
+    const resolved = await registry.resolve(
+      event('finance.approval.requested', {
+        voucherId: 'voucher-1',
+        approvalPermissions,
+        summary: 'Phiếu chi PC_1_10_2026 (750.000 đ) do An lập đang chờ bạn phê duyệt: Mua bàn ghế',
+        deepLink: '/modules/finance/payments/voucher-1',
+        actorUserId: 'creator',
+      }),
+      directory({ usersWithPermission }),
+    );
+    expect(usersWithPermission).toHaveBeenCalledWith('finance.payment.approve');
+    expect(usersWithPermission).toHaveBeenCalledWith('finance.manage');
+    expect([...(resolved?.recipients ?? [])].sort()).toEqual(['chief-accountant', 'finance-admin']);
+    expect(resolved?.policy.module).toBe('finance');
+    expect(resolved?.policy.priority).toBe('actionable');
+    expect(resolved?.template.title).toBe('Có phiếu cần phê duyệt');
+    expect(resolved?.template.deepLink).toBe('/modules/finance/payments/voucher-1');
+  });
+
+  it('phiếu bị từ chối rồi gửi lại thì báo lại (mỗi lần gửi một nguồn riêng)', async () => {
+    const make = (eventId: string) =>
+      registry.resolve(
+        { ...event('finance.approval.requested', { voucherId: 'voucher-1', approvalPermissions }), id: eventId },
+        directory({ usersWithPermission: jest.fn(async () => ['chief-accountant']) }),
+      );
+    const first = await make('10000000-0000-4000-8000-0000000000b1');
+    const second = await make('10000000-0000-4000-8000-0000000000b2');
+    expect(first?.template.sourceId).not.toBe(second?.template.sourceId);
+  });
+
+  it('kết quả xử lý báo người lập, không báo người vừa thao tác, và nêu lý do', async () => {
+    const payload = {
+      voucherId: 'voucher-1',
+      requesterUserId: 'creator',
+      title: 'Phiếu bị từ chối',
+      summary: 'Phiếu chi PC_1_10_2026 (750.000 đ) bị từ chối bởi Kế toán trưởng. Ghi chú: Thiếu hoá đơn',
+      deepLink: '/modules/finance/payments/voucher-1',
+    };
+    const toCreator = await registry.resolve(event('finance.voucher.status-changed', { ...payload, actorUserId: 'chief-accountant' }), directory());
+    expect(toCreator?.recipients).toEqual(['creator']);
+    expect(toCreator?.template.title).toBe('Phiếu bị từ chối');
+    expect(toCreator?.template.body).toContain('Thiếu hoá đơn');
+
+    const selfCancel = await registry.resolve(event('finance.voucher.status-changed', { ...payload, actorUserId: 'creator' }), directory());
+    expect(selfCancel?.recipients).toEqual([]);
+  });
+
+  it('phiếu đã duyệt nhưng chưa ghi sổ được: báo người lập và người duyệt, mức bắt buộc', async () => {
+    const summary = 'Phiếu chi PC_1_10_2026 (9.000.000 đ) đã được quy trình duyệt nhưng chưa ghi sổ được: Số dư không đủ';
+    const toCreator = await registry.resolve(event('finance.voucher.needs-attention', { voucherId: 'v', recipientUserIds: ['creator'], summary }), directory());
+    expect(toCreator?.recipients).toEqual(['creator']);
+    expect(toCreator?.policy.priority).toBe('required');
+    const usersWithPermission = jest.fn(async () => ['chief-accountant']);
+    const toApprovers = await registry.resolve(
+      event('finance.voucher.needs-attention-approvers', { voucherId: 'v', approvalPermissions, summary }),
+      directory({ usersWithPermission }),
+    );
+    expect(toApprovers?.recipients).toEqual(['chief-accountant']);
+    expect(toApprovers?.template.body).toContain('Số dư không đủ');
+  });
+
+  it('thông báo tài chính được đăng ký để worker nhận sự kiện từ hàng đợi', () => {
+    const types = new Set(DEFAULT_NOTIFICATION_POLICIES.map((policy) => policy.eventType));
+    for (const type of ['finance.approval.requested', 'finance.voucher.status-changed', 'finance.voucher.needs-attention', 'finance.voucher.needs-attention-approvers'])
+      expect(types.has(type)).toBe(true);
+  });
+});

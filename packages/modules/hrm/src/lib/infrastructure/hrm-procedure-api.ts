@@ -116,6 +116,35 @@ export async function fetchProcedureStatuses(
   return Array.isArray(body) ? body : [];
 }
 
+/**
+ * Trong các hồ sơ `instanceIds` (tối đa 100 mỗi lần), những hồ sơ mà người dùng này đang được Procedure giao xử lý
+ * (duyệt / hoàn thành / từ chối / trả lại). Procedure là nơi duy nhất quyết định người duyệt, kể cả quản lý trực tiếp
+ * lẫn người dự phòng, nên HRM hỏi lại thay vì tự suy ra từ sơ đồ tổ chức.
+ */
+export async function fetchActionableProcedureInstanceIds(
+  tenantId: string,
+  actorUserId: string,
+  instanceIds: readonly string[],
+): Promise<string[]> {
+  if (!instanceIds.length || !actorUserId) return [];
+  const headers = serviceHeaders(tenantId);
+  let response: Response;
+  try {
+    response = await procedureFetch(`${baseUrl()}/v1/internal/instances/actionable`, {
+      method: 'POST',
+      headers: { ...headers, 'content-type': 'application/json' },
+      redirect: 'error',
+      signal: AbortSignal.timeout(8000),
+      body: JSON.stringify({ actorUserId, ids: instanceIds.slice(0, 100) }),
+    });
+  } catch {
+    throw procedureUnavailable();
+  }
+  if (!response.ok) throw procedureUnavailable();
+  const body = (await response.json()) as { instanceIds?: unknown };
+  return Array.isArray(body?.instanceIds) ? body.instanceIds.filter((id): id is string => typeof id === 'string') : [];
+}
+
 /** true khi Procedure trả lời và entitlement của tenant còn hiệu lực (guard của Procedure kiểm tra). */
 export async function isProcedureReachable(tenantId: string): Promise<boolean> {
   try {

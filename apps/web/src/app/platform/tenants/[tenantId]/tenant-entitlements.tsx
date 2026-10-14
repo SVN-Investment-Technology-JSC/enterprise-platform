@@ -14,6 +14,7 @@ import {
   CircleAlert,
   Database,
   KanbanSquare,
+  Landmark,
   LoaderCircle,
   MoreVertical,
   PackageCheck,
@@ -75,6 +76,7 @@ const STATUS: Readonly<
 
 const MODULE_ICONS: Record<string, LucideIcon> = {
   assistant: Sparkles,
+  finance: Landmark,
   maintenance: Wrench,
   'procedure-engine': Workflow,
   workspace: KanbanSquare,

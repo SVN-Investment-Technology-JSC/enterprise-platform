@@ -56,6 +56,8 @@ function item(
     mode: 'DIRECT',
     procedureDefinitionId: null,
     procedureName: null,
+    fallbackPositionId: null,
+    fallbackPositionName: null,
     inherited: false,
     bindingId: null,
     conflict: false,
@@ -152,18 +154,27 @@ function applyPut(body: Record<string, unknown>): ApprovalRouteConfigResult {
       mode: body.mode as 'DIRECT' | 'PROCEDURE',
       procedureDefinitionId: def?.id ?? null,
       procedureName: def?.name ?? null,
+      fallbackPositionId: (body.fallbackPositionId as string) ?? null,
+      fallbackPositionName: body.fallbackPositionId ? 'Chức danh test' : null,
       inherited: false,
       bindingId: 'saved',
     };
   });
-  return { items, procedureAvailable: config.procedureAvailable };
+  return { items, positions: config.positions, procedureAvailable: config.procedureAvailable };
 }
 
 beforeEach(() => {
   mockActions.clear();
   mockActions.add('hrm.automation.manage');
   calls = [];
-  config = { items: baseItems(), procedureAvailable: true };
+  config = {
+    items: baseItems(),
+    positions: [
+      { id: 'pos-1', code: 'TR_PHONG_HC', name: 'Trưởng phòng HC-VP' },
+      { id: 'pos-2', code: 'PHO_PHONG_HC', name: 'Phó phòng HC-VP' },
+    ],
+    procedureAvailable: true,
+  };
   definitionsResult = () => ({ data: definitions });
   putResult = (body) => ({ data: applyPut(body) });
   fetchMock.mockReset();
@@ -388,6 +399,24 @@ describe('ApprovalConfigScreen', () => {
     expect(puts()[0].body).toEqual({ requestKind: 'ot', mode: 'DIRECT' });
   });
 
+  it('Quản lý trực tiếp: cho phép chọn chức danh duyệt dự phòng và lưu lên server', async () => {
+    await renderLoaded();
+    const row = rowOf('leave:');
+    const box = within(
+      within(row).getByRole('group', { name: 'Chức danh dự phòng của Nghỉ phép' }),
+    ).getByRole('textbox') as HTMLInputElement;
+    await pick(box, 'TR_PHONG_HC · Trưởng phòng HC-VP');
+    fireEvent.click(
+      within(row).getByRole('button', { name: 'Lưu cách duyệt của Nghỉ phép' }),
+    );
+    await waitFor(() => expect(puts()).toHaveLength(1));
+    expect(puts()[0].body).toEqual({
+      requestKind: 'leave',
+      mode: 'DIRECT',
+      fallbackPositionId: 'pos-1',
+    });
+  });
+
   it('dòng lý do: Theo cấu hình chung gửi INHERIT kèm mã lý do', async () => {
     await renderLoaded();
     const row = rowOf('leave:UL');
@@ -597,33 +626,49 @@ function keyOfLabel(label: string) {
 describe('hàm xử lý cấu hình duyệt đơn', () => {
   const [leave, annual, unpaid] = baseItems();
 
-  it('savedRoute: dòng kế thừa là INHERIT, dòng riêng theo mode, chỉ PROCEDURE có quy trình', () => {
-    expect(savedRoute(leave)).toEqual({ choice: 'DIRECT', procedureId: '' });
-    expect(savedRoute(annual)).toEqual({ choice: 'INHERIT', procedureId: '' });
-    expect(savedRoute(unpaid)).toEqual({ choice: 'PROCEDURE', procedureId: 'p1' });
+  it('savedRoute: dòng kế thừa là INHERIT, dòng riêng theo mode, chỉ PROCEDURE có quy trình, DIRECT có fallbackPositionId', () => {
+    expect(savedRoute(leave)).toEqual({ choice: 'DIRECT', procedureId: '', fallbackPositionId: '' });
+    expect(savedRoute(annual)).toEqual({ choice: 'INHERIT', procedureId: '', fallbackPositionId: '' });
+    expect(savedRoute(unpaid)).toEqual({ choice: 'PROCEDURE', procedureId: 'p1', fallbackPositionId: '' });
   });
 
   it('isRouteDirty so với cấu hình đang lưu', () => {
-    expect(isRouteDirty(unpaid, { choice: 'PROCEDURE', procedureId: 'p1' })).toBe(false);
-    expect(isRouteDirty(unpaid, { choice: 'PROCEDURE', procedureId: 'p3' })).toBe(true);
-    expect(isRouteDirty(unpaid, { choice: 'DIRECT', procedureId: '' })).toBe(true);
-    expect(isRouteDirty(annual, { choice: 'INHERIT', procedureId: '' })).toBe(false);
+    expect(isRouteDirty(unpaid, { choice: 'PROCEDURE', procedureId: 'p1', fallbackPositionId: '' })).toBe(false);
+    expect(isRouteDirty(unpaid, { choice: 'PROCEDURE', procedureId: 'p3', fallbackPositionId: '' })).toBe(true);
+    expect(isRouteDirty(unpaid, { choice: 'DIRECT', procedureId: '', fallbackPositionId: '' })).toBe(true);
+    expect(isRouteDirty(leave, { choice: 'DIRECT', procedureId: '', fallbackPositionId: 'pos-1' })).toBe(true);
+    expect(isRouteDirty(annual, { choice: 'INHERIT', procedureId: '', fallbackPositionId: '' })).toBe(false);
   });
 
-  it('routePayload: chặn PROCEDURE chưa có quy trình, dòng chung không có reasonCode', () => {
-    expect(() => routePayload(leave, { choice: 'PROCEDURE', procedureId: '' })).toThrow(
+  it('routePayload: chặn PROCEDURE chưa có quy trình, dòng chung không có reasonCode, DIRECT gửi fallbackPositionId', () => {
+    expect(() => routePayload(leave, { choice: 'PROCEDURE', procedureId: '', fallbackPositionId: '' })).toThrow(
       'Chọn quy trình trước khi lưu',
     );
-    expect(routePayload(leave, { choice: 'DIRECT', procedureId: '' })).toEqual({
+    expect(routePayload(leave, { choice: 'DIRECT', procedureId: '', fallbackPositionId: '' })).toEqual({
       requestKind: 'leave',
       mode: 'DIRECT',
     });
-    expect(routePayload(annual, { choice: 'INHERIT', procedureId: '' })).toEqual({
+    expect(routePayload(leave, { choice: 'DIRECT', procedureId: '', fallbackPositionId: 'pos-1' })).toEqual({
+      requestKind: 'leave',
+      mode: 'DIRECT',
+      fallbackPositionId: 'pos-1',
+    });
+    expect(
+      routePayload(
+        { ...leave, fallbackPositionId: 'pos-old' },
+        { choice: 'DIRECT', procedureId: '', fallbackPositionId: '' },
+      ),
+    ).toEqual({
+      requestKind: 'leave',
+      mode: 'DIRECT',
+      fallbackPositionId: null,
+    });
+    expect(routePayload(annual, { choice: 'INHERIT', procedureId: '', fallbackPositionId: '' })).toEqual({
       requestKind: 'leave',
       reasonCode: 'AL',
       mode: 'INHERIT',
     });
-    expect(routePayload(annual, { choice: 'PROCEDURE', procedureId: 'p2' })).toEqual({
+    expect(routePayload(annual, { choice: 'PROCEDURE', procedureId: 'p2', fallbackPositionId: '' })).toEqual({
       requestKind: 'leave',
       reasonCode: 'AL',
       mode: 'PROCEDURE',

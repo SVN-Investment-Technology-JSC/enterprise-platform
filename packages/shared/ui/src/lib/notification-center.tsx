@@ -7,6 +7,7 @@ import {
   Briefcase,
   CheckCheck,
   ChevronRight,
+  Landmark,
   LoaderCircle,
   Package,
   Search,
@@ -1015,6 +1016,7 @@ const MODULE_ICONS: Readonly<Record<NotificationRecord['module'], LucideIcon>> =
   procedure: Workflow,
   workspace: Briefcase,
   hrm: Users,
+  finance: Landmark,
   inventory: Package,
   maintenance: Wrench,
 };
@@ -1025,6 +1027,7 @@ function moduleLabel(module: NotificationRecord['module']): string {
     procedure: 'Quy trình',
     workspace: 'Công việc',
     hrm: 'Nhân sự',
+    finance: 'Tài chính',
     inventory: 'Kho',
     maintenance: 'Bảo trì',
   } as const)[module];
@@ -1061,6 +1064,7 @@ const CATEGORY_LABELS: Readonly<Record<string, string>> = {
   payslip: 'Phiếu lương',
   project: 'Dự án',
   'request-status': 'Trạng thái yêu cầu',
+  'voucher-status': 'Trạng thái phiếu',
   reservation: 'Giữ chỗ vật tư',
   result: 'Kết quả',
   security: 'Bảo mật',

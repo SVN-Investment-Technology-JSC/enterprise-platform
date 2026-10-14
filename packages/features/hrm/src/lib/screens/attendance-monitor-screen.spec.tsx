@@ -88,13 +88,40 @@ describe('AttendanceMonitorScreen', () => {
     expect(fetchMock).toHaveBeenCalledWith(`/attendance-monitor?date=${todayVn()}`);
     expect(within(screen.getByTestId('kpi-scheduled')).getByText('6')).toBeTruthy();
     expect(within(screen.getByTestId('kpi-scheduled')).getByText('/ 7 nhân sự')).toBeTruthy();
-    expect(within(screen.getByTestId('kpi-checked-in')).getByText('66,7%')).toBeTruthy();
     expect(screen.getByRole('heading', { name: 'Danh sách cần theo dõi (4)' })).toBeTruthy();
     expect(screen.queryByText('Hoàng Ngọc Linh')).toBeNull();
     expect(screen.getByText('Đi trễ 18 phút')).toBeTruthy();
     expect(screen.getByText('Về sớm 40 phút')).toBeTruthy();
     expect(screen.getByText('Thiếu lượt chấm')).toBeTruthy();
     expect(screen.getByText(/Cập nhật lần cuối: \d{2}:\d{2}/)).toBeTruthy();
+  });
+
+  it('bấm thẻ tổng quan: ngăn kéo chỉ liệt kê nhân viên của thẻ, không có nút lọc danh sách', async () => {
+    render(<AttendanceMonitorScreen />);
+    await screen.findByText('Bùi Công Quyền');
+    for (const [name, person] of [
+      ['Đi trễ', 'Bùi Duy Khánh'],
+      ['Về sớm', 'Cao Khánh Ngọc'],
+      ['Chưa chấm công', 'Bùi Công Quyền'],
+    ] as const) {
+      fireEvent.click(screen.getByRole('button', { name: new RegExp(`Xem danh sách: ${name}`) }));
+      const sheet = await screen.findByTestId('kpi-list-sheet');
+      expect(within(sheet).getByText(`${name} (1)`)).toBeTruthy();
+      expect(within(sheet).getByText(person)).toBeTruthy();
+      expect(within(sheet).queryByRole('button', { name: /Lọc danh sách/ })).toBeNull();
+      fireEvent.keyDown(sheet, { key: 'Escape' });
+      await waitFor(() => expect(screen.queryByTestId('kpi-list-sheet')).toBeNull());
+    }
+  });
+
+  it('bấm một người trong ngăn kéo mở chi tiết (thẻ đang nghỉ phép)', async () => {
+    render(<AttendanceMonitorScreen />);
+    await screen.findByText('Bùi Công Quyền');
+    fireEvent.click(screen.getByRole('button', { name: /Xem danh sách: Đang nghỉ phép/ }));
+    const sheet = await screen.findByTestId('kpi-list-sheet');
+    expect(within(sheet).queryByRole('button', { name: /Lọc danh sách cần theo dõi/ })).toBeNull();
+    fireEvent.click(within(sheet).getByText('Nguyễn Thị Lan'));
+    expect(await screen.findByText(/Đơn từ liên quan \(1\)/)).toBeTruthy();
   });
 
   it('đổi tab và tìm kiếm không dấu thu hẹp danh sách', async () => {

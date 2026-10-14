@@ -138,6 +138,7 @@ describe('request reasons and approval configuration tabs', () => {
       ['schedules', 'Phân ca'],
       ['shifts', 'Danh mục ca'],
       ['standard-work', 'Công chuẩn'],
+      ['auto-attendance', 'Chấm công tự động'],
       ['payroll', 'Lương'],
       ['request-reasons', 'Loại đơn và lý do'],
       ['approval', 'Duyệt đơn'],

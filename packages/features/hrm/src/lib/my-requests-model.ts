@@ -101,34 +101,6 @@ export function monthStats(
   };
 }
 
-export interface RequestStatCard {
-  readonly key: keyof RequestMonthStats;
-  readonly label: string;
-  readonly value: number;
-  /** Chênh lệch so với tháng trước (dương: nhiều hơn). */
-  readonly delta: number;
-}
-
-export function requestStatCards(
-  rows: readonly MyRequestRow[],
-  month: string,
-): RequestStatCard[] {
-  const current = monthStats(rows, month);
-  const previous = monthStats(rows, shiftMonth(month, -1));
-  const labels: [keyof RequestMonthStats, string][] = [
-    ['total', 'Tổng đơn'],
-    ['pending', 'Chờ duyệt'],
-    ['approved', 'Đã duyệt'],
-    ['rejected', 'Từ chối'],
-  ];
-  return labels.map(([key, label]) => ({
-    key,
-    label,
-    value: current[key],
-    delta: current[key] - previous[key],
-  }));
-}
-
 /** "Tháng 9" của tháng liền trước một tháng YYYY-MM. */
 export function previousMonthLabel(month: string): string {
   return `tháng ${Number(shiftMonth(month, -1).slice(5, 7))}`;
