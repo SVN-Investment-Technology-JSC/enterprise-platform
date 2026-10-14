@@ -1,0 +1,88 @@
+import type { FinanceVoucherSummary } from '@enterprise-platform/contracts-finance';
+import { FINANCE_KIND_CONFIG, kindOfPath } from './finance-kinds';
+import { dateTimeVn, dateVn, initialsOf, money, parseMoneyInput, periodLabel, periodPresets, voucherCsvRows } from './finance-format';
+import { getActiveFinanceNavId, normalizeFinancePath } from './finance-navigation';
+
+describe('định dạng', () => {
+  it('ngày giờ theo kiểu Việt Nam, giờ UTC+7', () => {
+    expect(dateVn('2026-10-14')).toBe('14/10/2026');
+    expect(dateVn(null)).toBe('');
+    expect(dateTimeVn('2026-10-14T02:30:00.000Z')).toBe('14/10/2026 09:30');
+    expect(dateTimeVn('2026-10-14T20:00:00.000Z')).toBe('15/10/2026 03:00');
+  });
+
+  it('số tiền và nhập tiền', () => {
+    expect(money(1500000)).toBe('1.500.000');
+    expect(money(null)).toBe('-');
+    expect(parseMoneyInput('1.500.000 đ')).toBe(1500000);
+    expect(parseMoneyInput('')).toBe(0);
+    expect(parseMoneyInput('abc')).toBe(0);
+  });
+
+  it('chữ cái đầu của tên lấy theo tên gọi (từ cuối)', () => {
+    expect(initialsOf('Nguyễn Văn An')).toBe('A');
+    expect(initialsOf('Bình')).toBe('B');
+    expect(initialsOf('  ')).toBe('?');
+  });
+
+  it('khoảng thời gian chọn nhanh cho báo cáo', () => {
+    const presets = Object.fromEntries(periodPresets('2026-10-14').map((p) => [p.id, p]));
+    expect(presets.month).toMatchObject({ from: '2026-10-01', to: '2026-10-31' });
+    expect(presets['prev-month']).toMatchObject({ from: '2026-09-01', to: '2026-09-30' });
+    expect(presets.quarter).toMatchObject({ from: '2026-10-01', to: '2026-12-31' });
+    expect(presets.year).toMatchObject({ from: '2026-01-01', to: '2026-12-31' });
+    expect(presets['30d']).toMatchObject({ from: '2026-09-15', to: '2026-10-14' });
+    const january = Object.fromEntries(periodPresets('2026-01-10').map((p) => [p.id, p]));
+    expect(january['prev-month']).toMatchObject({ from: '2025-12-01', to: '2025-12-31' });
+    const leap = Object.fromEntries(periodPresets('2024-02-10').map((p) => [p.id, p]));
+    expect(leap.month.to).toBe('2024-02-29');
+  });
+
+  it('nhãn kỳ biểu đồ', () => {
+    expect(periodLabel('2026-10')).toBe('T10/2026');
+    expect(periodLabel('2026-10-14')).toBe('14/10');
+  });
+
+  it('CSV có tiêu đề và đúng các dòng, tiền là số', () => {
+    const item = {
+      code: 'PT_1_10_2026',
+      kind: 'RECEIPT',
+      voucherDate: '2026-10-14',
+      postingDate: '2026-10-14',
+      content: 'Thu tiền hàng',
+      reasonName: 'Thu tiền hàng',
+      accountName: 'VCB',
+      destAccountName: null,
+      counterpartyGroupName: 'Khách hàng',
+      counterpartyName: 'Công ty ABC',
+      totalAmount: 300000,
+      status: 'APPROVED',
+      createdByName: 'An',
+    } as FinanceVoucherSummary;
+    const rows = voucherCsvRows([item]);
+    expect(rows[0]).toContain('Trạng thái');
+    expect(rows[1]).toEqual(['PT_1_10_2026', 'Phiếu thu', '14/10/2026', '14/10/2026', 'Thu tiền hàng', 'Thu tiền hàng', 'VCB', '', 'Khách hàng', 'Công ty ABC', 300000, 'Đã duyệt', 'An']);
+  });
+});
+
+describe('điều hướng và loại phiếu', () => {
+  it('bỏ tiền tố basePath và dấu / cuối', () => {
+    expect(normalizeFinancePath('/modules/finance/receipts/')).toBe('/receipts');
+    expect(normalizeFinancePath('/modules/finance')).toBe('/');
+    expect(normalizeFinancePath('/receipts?x=1')).toBe('/receipts');
+  });
+
+  it('trang chi tiết và trang tạo vẫn sáng đúng mục menu', () => {
+    expect(getActiveFinanceNavId('/modules/finance/receipts/new')).toBe('receipts');
+    expect(getActiveFinanceNavId('/modules/finance/payments/abc-123')).toBe('payments');
+    expect(getActiveFinanceNavId('/modules/finance')).toBe('dashboard');
+    expect(getActiveFinanceNavId('/modules/finance/unknown')).toBeNull();
+  });
+
+  it('mỗi loại phiếu có cấu hình đường dẫn khớp menu', () => {
+    expect(kindOfPath('/payments')).toBe('PAYMENT');
+    expect(kindOfPath('/xyz')).toBeNull();
+    expect(FINANCE_KIND_CONFIG.TRANSFER.hasLines).toBe(false);
+    expect(FINANCE_KIND_CONFIG.RECEIPT.listTitle).toBe('Danh sách phiếu thu');
+  });
+});

@@ -167,6 +167,15 @@
     },
     {
       "path": "./packages/modules/finance"
+    },
+    {
+      "path": "./apps/finance-api"
+    },
+    {
+      "path": "./packages/features/finance"
+    },
+    {
+      "path": "./apps/finance-web"
     }
   ]
 }

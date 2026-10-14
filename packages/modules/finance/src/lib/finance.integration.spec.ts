@@ -388,6 +388,33 @@ integration('Tài chính: phiếu thu, chi, chuyển tiền và sổ cái (Postg
     await expect(app.report(approver, { from: today, to: '2000-01-01' })).rejects.toMatchObject({ code: 'FINANCE_INVALID' });
   });
 
+  it('danh sách tài khoản khớp với phiếu: số phiếu theo loại, tiền thu, tiền chi và tổng tiền', async () => {
+    const accounts = await app.accounts(approver, false);
+    for (const account of accounts) {
+      // Tổng tiền = số dư đầu kỳ + tiền thu - tiền chi, và là đúng số dư ghi sổ.
+      expect(account.openingBalance + (account.totalReceipts ?? 0) - (account.totalPayments ?? 0)).toBe(account.balance);
+      // Số phiếu theo loại bằng số phiếu đã duyệt của đúng tài khoản đó trong danh sách phiếu.
+      for (const [kind, count] of [
+        ['RECEIPT', account.receiptCount],
+        ['PAYMENT', account.paymentCount],
+        ['TRANSFER', account.transferCount],
+      ] as const) {
+        const listed = await app.listVouchers(approver, { kind, status: 'APPROVED', accountId: account.id });
+        expect(count).toBe(listed.total);
+      }
+    }
+    const a = accounts.find((account) => account.id === accountA)!;
+    // 3 phiếu thu 300.000; phiếu chi 1.300.000 + 500.000 (đã đảo nên trừ khỏi Tiền chi); chuyển 1.000.000 ra quỹ.
+    expect(a).toMatchObject({ receiptCount: 3, paymentCount: 1, transferCount: 1, totalReceipts: 900_000, totalPayments: 2_300_000, balance: 8_600_000 });
+    // Chuyển tiền đến tính vào Tiền thu của tài khoản đích.
+    const c = accounts.find((account) => account.id === cash)!;
+    expect(c.transferCount).toBe(1);
+    expect(c.totalReceipts).toBeGreaterThanOrEqual(1_000_000);
+    // Người chỉ có quyền lập phiếu không thấy số liệu tài khoản.
+    const limited = (await app.accounts(outsider, false))[0];
+    expect(limited).toMatchObject({ receiptCount: null, totalReceipts: null, totalPayments: null });
+  });
+
   it('trang tổng quan: phiếu chờ duyệt chỉ tính loại mình duyệt và không tính phiếu của chính mình', async () => {
     // Người chỉ có quyền duyệt không lập được phiếu.
     await rejects(app.createVoucher(approver, receipt({ content: 'Phiếu do người duyệt lập' })), 'FINANCE_FORBIDDEN');

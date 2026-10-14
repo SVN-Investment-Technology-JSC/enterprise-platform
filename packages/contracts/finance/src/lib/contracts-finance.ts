@@ -106,6 +106,19 @@ export interface FinanceAccount {
   balance: number | null;
   /** Tổng phiếu chi/chuyển đang chờ duyệt: tiền có thể sắp ra khỏi tài khoản. */
   pendingOut: number | null;
+  /**
+   * Số phiếu ĐÃ DUYỆT liên quan tới tài khoản, theo loại (chuyển tiền tính cho cả tài khoản nguồn và đích).
+   * null khi người xem không được xem số liệu tài khoản.
+   */
+  receiptCount: number | null;
+  paymentCount: number | null;
+  transferCount: number | null;
+  /**
+   * Tiền thu = mọi khoản đã ghi sổ vào tài khoản (phiếu thu và chuyển tiền đến), Tiền chi = mọi khoản đã ghi sổ ra
+   * (phiếu chi và chuyển tiền đi); phần đảo phiếu trừ vào đúng bên đã ghi. Số dư (Tổng tiền) = đầu kỳ + thu - chi.
+   */
+  totalReceipts: number | null;
+  totalPayments: number | null;
   createdAt: string;
   updatedAt: string;
 }

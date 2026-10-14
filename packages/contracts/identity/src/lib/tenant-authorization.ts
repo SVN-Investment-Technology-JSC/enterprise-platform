@@ -587,6 +587,7 @@ const MODULE_ACTION_PREFIX: Readonly<Record<string, string>> = {
 /** Module nhận probe `module.access`: chỉ cần được vào module, không đòi action cụ thể. */
 const MODULES_WITH_ADMISSION_PROBE = new Set([
   'assistant',
+  'finance',
   'hrm',
   'procedure-engine',
   'workspace',

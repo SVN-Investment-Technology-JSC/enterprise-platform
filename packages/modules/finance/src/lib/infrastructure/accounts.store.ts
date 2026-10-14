@@ -17,11 +17,28 @@ const CODE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,49}$/;
 
 const ACCOUNT_SELECT = `
   SELECT a.*,
-         a.opening_balance + COALESCE(l.total, 0) AS balance,
+         a.opening_balance + COALESCE(l.total_in, 0) - COALESCE(l.total_out, 0) AS balance,
+         COALESCE(l.total_in, 0) AS total_in, COALESCE(l.total_out, 0) AS total_out,
+         COALESCE(l.receipt_count, 0) AS receipt_count, COALESCE(l.payment_count, 0) AS payment_count,
+         COALESCE(l.transfer_count, 0) AS transfer_count,
          COALESCE(p.pending_out, 0) AS pending_out
     FROM finance_schema.accounts a
     LEFT JOIN (
-      SELECT account_id, SUM(amount) AS total FROM finance_schema.ledger_entries WHERE tenant_id = $1 GROUP BY account_id
+      -- Bút toán đảo thuộc bên của bút toán gốc (đảo phiếu chi trừ vào Tiền chi, không cộng vào Tiền thu).
+      SELECT x.account_id,
+             COALESCE(SUM(x.amount) FILTER (WHERE x.original_sign > 0), 0) AS total_in,
+             COALESCE(-SUM(x.amount) FILTER (WHERE x.original_sign < 0), 0) AS total_out,
+             count(DISTINCT x.voucher_id) FILTER (WHERE x.kind = 'RECEIPT' AND x.status = 'APPROVED') AS receipt_count,
+             count(DISTINCT x.voucher_id) FILTER (WHERE x.kind = 'PAYMENT' AND x.status = 'APPROVED') AS payment_count,
+             count(DISTINCT x.voucher_id) FILTER (WHERE x.kind = 'TRANSFER' AND x.status = 'APPROVED') AS transfer_count
+        FROM (
+          SELECT le.account_id, le.voucher_id, le.amount, v.kind, v.status,
+                 CASE WHEN le.is_reversal THEN -SIGN(le.amount) ELSE SIGN(le.amount) END AS original_sign
+            FROM finance_schema.ledger_entries le
+            JOIN finance_schema.vouchers v ON v.id = le.voucher_id
+           WHERE le.tenant_id = $1
+        ) x
+       GROUP BY x.account_id
     ) l ON l.account_id = a.id
     LEFT JOIN (
       SELECT account_id, SUM(total_amount) AS pending_out
@@ -49,6 +66,11 @@ function mapAccount(row: Row, withBalances: boolean): FinanceAccount {
     note: optStr(row.note),
     balance: withBalances ? num(row.balance) : null,
     pendingOut: withBalances ? num(row.pending_out) : null,
+    receiptCount: withBalances ? num(row.receipt_count) : null,
+    paymentCount: withBalances ? num(row.payment_count) : null,
+    transferCount: withBalances ? num(row.transfer_count) : null,
+    totalReceipts: withBalances ? num(row.total_in) : null,
+    totalPayments: withBalances ? num(row.total_out) : null,
     createdAt: iso(row.created_at),
     updatedAt: iso(row.updated_at),
   };
