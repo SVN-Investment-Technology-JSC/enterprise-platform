@@ -3,6 +3,7 @@ import type {
   ChatChannel,
   ChatEntityType,
   ChatMessage,
+  ChatReader,
   CostEntry,
   ProjectRequest,
   WorkdayRuleKind,
@@ -682,7 +683,24 @@ export interface WorkspaceStore {
       projectId: string,
       userId: string,
     ): Promise<readonly UnreadRow[]>;
-    markRead(tenantId: string, channelId: string, userId: string): Promise<void>;
+    /**
+     * Đánh dấu đã đọc TỚI đúng tin `upToMessageId`, không phải tới "bây giờ".
+     *
+     * Đánh dấu theo giờ máy chủ sẽ nuốt mất tin đến giữa lúc tải luồng và lúc
+     * đánh dấu: nó không nằm trong danh sách vừa hiển thị nhưng vẫn bị tính là
+     * đã đọc. Mốc chỉ tiến lên, không bao giờ lùi. `announce` ghi thêm tín hiệu
+     * `read` cho các thành viên khác (chỉ khi mốc thật sự tiến) để "đã xem" cập
+     * nhật ngay; người gửi tự đánh dấu tin của mình thì không cần báo.
+     */
+    markRead(
+      tenantId: string,
+      channelId: string,
+      userId: string,
+      upToMessageId: string,
+      options?: { readonly announce?: boolean },
+    ): Promise<void>;
+    /** Mỗi người đã đọc tới tin nào của kênh. */
+    listReaders(tenantId: string, channelId: string): Promise<readonly ChatReader[]>;
   };
 
   /**

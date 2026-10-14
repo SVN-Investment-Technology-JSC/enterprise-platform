@@ -7,6 +7,7 @@ export const REALTIME_SERVER_EVENTS = [
   'notification.read',
   'notification.summary-updated',
   'workspace.chat.changed',
+  'workspace.chat.typing',
 ] as const;
 
 export type RealtimeServerEvent = (typeof REALTIME_SERVER_EVENTS)[number];
@@ -23,9 +24,33 @@ export interface WorkspaceChatSignal {
   readonly entityType: 'project' | 'work_item';
   readonly entityId: string;
   readonly projectId: string;
+  /**
+   * Tin bị đổi. Với `read` là tin MỚI NHẤT mà `actorUserId` vừa đọc tới, để người
+   * khác cập nhật "đã xem" ngay mà không phải tải lại cả luồng.
+   */
   readonly messageId: string;
-  readonly change: 'created' | 'edited' | 'deleted';
+  readonly change: 'created' | 'edited' | 'deleted' | 'read';
   readonly actorUserId: string;
+}
+
+/**
+ * "Đang nhập": tín hiệu tạm, không lưu ở đâu cả. Người nhận tự hết hiệu lực sau
+ * vài giây nếu không có tín hiệu mới.
+ */
+export interface WorkspaceChatTyping {
+  readonly entityType: 'project' | 'work_item';
+  readonly entityId: string;
+  /** Người đang gõ, do máy chủ gắn từ phiên đăng nhập, không lấy từ client. */
+  readonly userId: string;
+  /** `false` khi người đó xoá hết nội dung hoặc đã gửi. */
+  readonly typing: boolean;
+}
+
+/** Nội dung client gửi lên qua socket để báo mình đang gõ (tên sự kiện `chat.typing`). */
+export interface ChatTypingMessage {
+  readonly entityType: 'project' | 'work_item';
+  readonly entityId: string;
+  readonly typing: boolean;
 }
 
 export interface RealtimeEventEnvelope<TData = unknown> {

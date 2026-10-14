@@ -681,6 +681,24 @@ export class WorkspaceController {
     );
   }
 
+  /**
+   * Ai cần nhận tín hiệu "đang nhập" của một node.
+   *
+   * Dịch vụ realtime gọi bằng cookie của người đang gõ để kiểm quyền và lấy danh
+   * sách; kết quả được nó lưu tạm. Dùng tiền tố riêng `chat-typing` để không bao
+   * giờ bị route `chat/:entityType/:entityId` bắt nhầm.
+   */
+  @Get('chat-typing/recipients')
+  chatTypingRecipients(
+    @Req() request: WorkspaceRequest,
+    @Query('entityType') entityType: string,
+    @Query('entityId') entityId: string,
+  ) {
+    return this.execute(() =>
+      this.chat.typingRecipients(this.actor(request), entityType ?? '', entityId ?? ''),
+    );
+  }
+
   @Post('chat/messages')
   @HttpCode(201)
   sendChatMessage(@Req() request: WorkspaceRequest, @Body() body: SendChatMessageRequest) {
