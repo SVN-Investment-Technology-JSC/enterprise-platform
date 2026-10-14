@@ -460,3 +460,66 @@ describe('WorkItemService — người thực hiện cùng và nhãn', () => {
     ).rejects.toMatchObject({ code: 'VALIDATION' });
   });
 });
+
+describe('WorkItemService.requestProcedure', () => {
+  const DEFINITION = '6f1d2c3b-4a5e-4f60-8a7b-9c0d1e2f3a4b';
+
+  function storeFor(items: WorkItem[], refs: { moduleKey: string }[] = []) {
+    const requested: { workItemId: string; definitionId: string }[] = [];
+    const { store } = makeStore({ items, roles: { u1: 'member' } });
+    Object.assign(store, {
+      externalRef: { listByEntity: async () => refs },
+      procedureRequest: {
+        listByProject: async () => [],
+        request: async (
+          _tenant: string,
+          _actor: string,
+          input: { workItemId: string; definitionId: string },
+        ) => {
+          requested.push({ workItemId: input.workItemId, definitionId: input.definitionId });
+          return { workItemId: input.workItemId, status: 'pending' } as never;
+        },
+      },
+    });
+    return { store, requested };
+  }
+
+  it('việc tạo ở dạng thủ công vẫn mở được quy trình từ nút "Quy trình"', async () => {
+    const { store, requested } = storeFor([item({ id: 'w1', executionType: 'manual' })]);
+    await serviceFor(store).requestProcedure(actorOf('u1'), 'w1', DEFINITION);
+    expect(requested).toEqual([{ workItemId: 'w1', definitionId: DEFINITION }]);
+  });
+
+  it('việc đã hoàn thành vẫn mở được quy trình (ví dụ đề nghị thanh toán)', async () => {
+    const { store, requested } = storeFor([item({ id: 'w1', status: 'done' })]);
+    await serviceFor(store).requestProcedure(actorOf('u1'), 'w1', DEFINITION);
+    expect(requested).toHaveLength(1);
+  });
+
+  it('nhóm công việc không chạy theo quy trình', async () => {
+    const { store, requested } = storeFor([item({ id: 'w1', itemType: 'phase' })]);
+    await expect(
+      serviceFor(store).requestProcedure(actorOf('u1'), 'w1', DEFINITION),
+    ).rejects.toMatchObject({ statusCode: 400 });
+    expect(requested).toEqual([]);
+  });
+
+  it('việc đã huỷ không mở quy trình', async () => {
+    const { store, requested } = storeFor([item({ id: 'w1', status: 'cancelled' })]);
+    await expect(
+      serviceFor(store).requestProcedure(actorOf('u1'), 'w1', DEFINITION),
+    ).rejects.toMatchObject({ statusCode: 400 });
+    expect(requested).toEqual([]);
+  });
+
+  it('việc đã có hồ sơ thì không mở thêm', async () => {
+    const { store, requested } = storeFor(
+      [item({ id: 'w1', executionType: 'procedure' })],
+      [{ moduleKey: 'procedure-engine' }],
+    );
+    await expect(
+      serviceFor(store).requestProcedure(actorOf('u1'), 'w1', DEFINITION),
+    ).rejects.toMatchObject({ statusCode: 400 });
+    expect(requested).toEqual([]);
+  });
+});

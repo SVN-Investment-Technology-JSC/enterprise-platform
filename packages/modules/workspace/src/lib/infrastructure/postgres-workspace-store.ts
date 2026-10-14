@@ -2960,7 +2960,17 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
       },
     ) => {
       const pool = await this.poolFor(tenantId);
-      return inTransaction(pool, (client) => writeProcedureRequest(client, tenantId, actorUserId, input));
+      return inTransaction(pool, async (client) => {
+        // Việc tạo ở dạng "Thủ công" mà người dùng mở quy trình cho nó (nút
+        // "Quy trình" trên đầu công việc): từ giờ nó chạy theo hồ sơ.
+        await client.query(
+          `UPDATE workspace_schema.work_items
+              SET execution_type = 'procedure', updated_at = now()
+            WHERE id = $1 AND execution_type <> 'procedure'`,
+          [input.workItemId],
+        );
+        return writeProcedureRequest(client, tenantId, actorUserId, input);
+      });
     },
 
     markStarted: async (
