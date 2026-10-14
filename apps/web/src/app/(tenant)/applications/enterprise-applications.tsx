@@ -138,6 +138,25 @@ const moduleCatalogMetadata: Record<string, ModuleExtraInfo> = {
     businessValue:
       'Đảm bảo dữ liệu tồn kho chuẩn xác 99.8%, hạn chế thất thoát và tối ưu hóa vòng quay vốn lưu động cho doanh nghiệp.',
   },
+  finance: {
+    category: 'Tài chính & Quản trị',
+    tagline: 'Lập và duyệt phiếu thu, phiếu chi, lệnh chuyển tiền; theo dõi tài khoản và dòng tiền.',
+    accentColor: {
+      bg: 'bg-emerald-50/70',
+      border: 'border-emerald-200/80',
+      text: 'text-emerald-700',
+      iconBg: 'bg-emerald-100 text-emerald-700',
+    },
+    features: [
+      'Phiếu thu, phiếu chi và lệnh chuyển tiền duyệt qua quy trình, ghi sổ tài khoản khi duyệt',
+      'Danh sách tài khoản ngân hàng và quỹ tiền mặt với số dư theo sổ cái',
+      'Khoá sổ kỳ kế toán và tách người lập, người duyệt để kiểm soát chi',
+      'Báo cáo thu chi, dòng tiền theo kỳ, theo lý do và theo đơn vị',
+    ],
+    targetRoles: ['Kế toán trưởng', 'Kế toán viên', 'Giám đốc Tài chính (CFO)'],
+    businessValue:
+      'Kiểm soát dòng tiền công ty trên một nơi: mọi khoản thu chi có người lập, người duyệt và dấu vết kiểm toán.',
+  },
   accounting: {
     category: 'Tài chính & Quản trị',
     tagline: 'Hạch toán kế toán tổng hợp, theo dõi dòng tiền, công nợ và báo cáo tài chính.',

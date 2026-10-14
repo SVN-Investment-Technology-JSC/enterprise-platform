@@ -9,6 +9,7 @@ const MODULE_TINTS: Record<string, string> = {
   maintenance: 'bg-amber-100 text-amber-700',
   workspace: 'bg-slate-100 text-slate-700',
   assistant: 'bg-yellow-100 text-yellow-800',
+  finance: 'bg-emerald-100 text-emerald-700',
 };
 
 export function moduleTint(key: string): string {

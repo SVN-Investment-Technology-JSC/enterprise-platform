@@ -1,0 +1,405 @@
+import { randomUUID } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
+import { createPostgresPool } from '@enterprise-platform/adapter-database';
+import type { SaveFinanceVoucherRequest } from '@enterprise-platform/contracts-finance';
+import type { Pool, PoolClient } from 'pg';
+import { FinanceApplication } from './application/finance.application.js';
+import type { FinanceActor } from './domain/finance.access.js';
+import { FinanceDatabase, todayVn } from './infrastructure/finance.database.js';
+
+const integration = process.env.FINANCE_TEST_ADMIN_URL ? describe : describe.skip;
+
+/** FinanceDatabase dùng pool của test; giao dịch tự quản để chạy được cả trên PostgreSQL thật lẫn PGlite cục bộ. */
+class TestDatabase extends FinanceDatabase {
+  constructor(private readonly testPool: Pool) {
+    super(undefined as never, undefined as never);
+  }
+  override async pool(): Promise<Pool> {
+    return this.testPool;
+  }
+  override async transaction<T>(_tenantId: string, work: (client: PoolClient) => Promise<T>): Promise<T> {
+    const client = await this.testPool.connect();
+    try {
+      await client.query('BEGIN');
+      const result = await work(client);
+      await client.query('COMMIT');
+      return result;
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+}
+
+const CREATE_ALL = ['finance.receipt.create', 'finance.payment.create', 'finance.transfer.create'];
+const APPROVE_ALL = ['finance.receipt.approve', 'finance.payment.approve', 'finance.transfer.approve', 'finance.read', 'finance.report.read'];
+
+integration('Tài chính: phiếu thu, chi, chuyển tiền và sổ cái (PostgreSQL)', () => {
+  const databaseName = 'finance_test_' + randomUUID().replace(/-/g, '');
+  const tenantId = randomUUID();
+  const today = todayVn();
+  let admin: ReturnType<typeof createPostgresPool>;
+  let pool: Pool;
+  let app: FinanceApplication;
+
+  const actor = (name: string, permissions: string[]): FinanceActor => ({ tenantId, userId: randomUUID(), displayName: name, permissions });
+  const accountant = actor('Kế toán viên', CREATE_ALL);
+  const approver = actor('Kế toán trưởng', APPROVE_ALL);
+  const admin2 = actor('Quản trị tài chính', ['finance.manage']);
+  // Kế toán kiêm nhiệm vừa lập vừa có quyền duyệt: dùng để kiểm quy tắc không tự duyệt.
+  const maker = actor('Kế toán kiêm nhiệm', [...CREATE_ALL, ...APPROVE_ALL]);
+  const outsider = actor('Nhân viên khác', ['finance.receipt.create']);
+
+  let accountA: string;
+  let accountB: string;
+  let cash: string;
+  let receiptReason: string;
+  let paymentReason: string;
+  let group: string;
+
+  const line = (description: string, quantity: number, unitAmount: number) => ({ description, quantity, unitAmount, total: 0 });
+  const receipt = (over: Partial<SaveFinanceVoucherRequest> = {}): SaveFinanceVoucherRequest => ({
+    kind: 'RECEIPT',
+    voucherDate: today,
+    postingDate: today,
+    content: 'Thu tiền hàng',
+    reasonId: receiptReason,
+    accountId: accountA,
+    counterpartyGroupId: group,
+    counterpartyName: 'Công ty ABC',
+    lines: [line('Hàng A', 2, 150_000)],
+    ...over,
+  });
+  const payment = (amount: number, over: Partial<SaveFinanceVoucherRequest> = {}): SaveFinanceVoucherRequest => ({
+    kind: 'PAYMENT',
+    voucherDate: today,
+    postingDate: today,
+    content: 'Chi văn phòng phẩm',
+    reasonId: paymentReason,
+    accountId: accountA,
+    counterpartyGroupId: group,
+    lines: [line('Giấy in', 1, amount)],
+    ...over,
+  });
+  const transfer = (amount: number, from: string, to: string): SaveFinanceVoucherRequest => ({
+    kind: 'TRANSFER',
+    voucherDate: today,
+    postingDate: today,
+    content: 'Chuyển quỹ',
+    accountId: from,
+    destAccountId: to,
+    amount,
+  });
+  /** Lập, gửi duyệt rồi duyệt một phiếu. */
+  const post = async (input: SaveFinanceVoucherRequest) => {
+    const created = await app.createVoucher(accountant, input);
+    await app.submit(accountant, created.id);
+    return app.approve(approver, created.id);
+  };
+  const balance = async (id: string) => (await app.account(approver, id)).balance;
+  const rejects = async (promise: Promise<unknown>, code: string, message?: RegExp) => {
+    const error = await promise.then(
+      () => null,
+      (e: { code?: string; message?: string }) => e,
+    );
+    expect(error).not.toBeNull();
+    expect(error?.code).toBe(code);
+    if (message) expect(error?.message).toMatch(message);
+  };
+
+  beforeAll(async () => {
+    const url = new URL(process.env.FINANCE_TEST_ADMIN_URL!);
+    if (!['localhost', '127.0.0.1'].includes(url.hostname)) throw new Error('Only local disposable PostgreSQL is allowed');
+    admin = createPostgresPool(url.toString());
+    await admin.query(`CREATE DATABASE "${databaseName}"`);
+    url.pathname = '/' + databaseName;
+    pool = createPostgresPool(url.toString()) as unknown as Pool;
+    await pool.query(await readFile(resolve(process.cwd(), '../../../migrations/tenant/finance/0001-finance.sql'), 'utf8'));
+    app = new FinanceApplication(new TestDatabase(pool));
+
+    accountA = (
+      await app.saveAccount(admin2, null, {
+        code: 'VCB-01',
+        name: 'Vietcombank chính',
+        accountType: 'BANK',
+        bankName: 'Vietcombank (VCB)',
+        accountNumber: '0011000123456',
+        openingBalance: 10_000_000,
+        openingDate: '2026-01-01',
+      })
+    ).id;
+    accountB = (
+      await app.saveAccount(admin2, null, {
+        code: 'TCB-01',
+        name: 'Techcombank',
+        accountType: 'BANK',
+        bankName: 'Techcombank (TCB)',
+        accountNumber: '19031234567890',
+        openingDate: '2026-01-01',
+      })
+    ).id;
+    cash = (await app.saveAccount(admin2, null, { code: 'QUY-TM', name: 'Quỹ tiền mặt', accountType: 'CASH', openingDate: '2026-01-01' })).id;
+    receiptReason = (await app.saveReason(admin2, null, { kind: 'RECEIPT', code: 'THU_HANG', name: 'Thu tiền hàng' })).id;
+    paymentReason = (await app.saveReason(admin2, null, { kind: 'PAYMENT', code: 'VPP', name: 'Văn phòng phẩm' })).id;
+    const catalogs = await app.catalogs(admin2, false);
+    group = catalogs.counterpartyGroups.find((g) => g.code === 'KHACH_HANG')!.id;
+  }, 120_000);
+
+  afterAll(async () => {
+    if (admin) {
+      if (!/^finance_test_[a-f0-9]{32}$/.test(databaseName)) throw new Error('Invalid test database');
+      await admin.query(`DROP DATABASE IF EXISTS "${databaseName}"`);
+      await admin.end();
+    }
+  }, 60_000);
+
+  it('danh mục: nhóm đối tượng mặc định được nạp một lần; tài khoản ngân hàng bắt buộc có số tài khoản; trùng mã bị từ chối', async () => {
+    const catalogs = await app.catalogs(admin2, false);
+    expect(catalogs.counterpartyGroups.map((g) => g.code)).toEqual(expect.arrayContaining(['KHACH_HANG', 'NHA_CUNG_CAP', 'NHAN_VIEN']));
+    const again = await app.catalogs(admin2, false);
+    expect(again.counterpartyGroups).toHaveLength(catalogs.counterpartyGroups.length);
+    await rejects(app.saveAccount(admin2, null, { code: 'X1', name: 'Thiếu số TK', accountType: 'BANK', bankName: 'ACB' }), 'FINANCE_INVALID', /số tài khoản/);
+    await rejects(app.saveAccount(admin2, null, { code: 'VCB-01', name: 'Trùng mã', accountType: 'CASH' }), 'FINANCE_CODE_EXISTS');
+    await rejects(app.saveAccount(accountant, null, { code: 'Z', name: 'Không quyền', accountType: 'CASH' }), 'FINANCE_FORBIDDEN');
+  });
+
+  it('phiếu thu: mã theo PT_<số>_<tháng>_<năm>; chỉ ghi sổ khi được duyệt; người lập không tự duyệt', async () => {
+    const [year, month] = today.split('-');
+    const created = await app.createVoucher(accountant, receipt());
+    expect(created.code).toBe(`PT_1_${month}_${year}`);
+    expect(created).toMatchObject({ status: 'DRAFT', totalAmount: 300_000, kind: 'RECEIPT' });
+    expect(created.lines[0].total).toBe(300_000);
+    expect(await balance(accountA)).toBe(10_000_000);
+
+    await app.submit(accountant, created.id);
+    expect((await app.voucher(accountant, created.id)).status).toBe('PENDING');
+    expect(await balance(accountA)).toBe(10_000_000);
+
+    await rejects(app.approve(accountant, created.id), 'FINANCE_FORBIDDEN');
+    await rejects(app.approve(outsider, created.id), 'FINANCE_NOT_FOUND');
+    const own = await app.createVoucher(maker, receipt({ content: 'Phiếu do người kiêm nhiệm lập' }));
+    await app.submit(maker, own.id);
+    await rejects(app.approve(maker, own.id), 'FINANCE_FORBIDDEN', /tự duyệt/);
+    expect((await app.voucher(maker, own.id)).permissions.canApprove).toBe(false);
+    // Tenant bật ngoại lệ thì người lập được tự duyệt.
+    await app.saveSettings(admin2, { allowSelfApproval: true });
+    expect((await app.voucher(maker, own.id)).permissions.canApprove).toBe(true);
+    await app.saveSettings(admin2, { allowSelfApproval: false });
+    await app.cancel(maker, own.id, 'Chỉ dùng kiểm thử');
+    const approved = await app.approve(approver, created.id, 'Đã đối chiếu sao kê');
+    expect(approved).toMatchObject({ status: 'APPROVED', posted: true, decidedByName: 'Kế toán trưởng' });
+    expect(approved.events.map((e) => e.action)).toEqual(['CREATED', 'SUBMITTED', 'APPROVED']);
+    expect(await balance(accountA)).toBe(10_300_000);
+
+    // Duyệt lần hai không ghi sổ trùng.
+    await rejects(app.approve(approver, created.id), 'FINANCE_VOUCHER_STATE');
+    expect(await balance(accountA)).toBe(10_300_000);
+  });
+
+  it('gửi duyệt thiếu thông tin trả đủ danh sách lỗi và phiếu vẫn là nháp', async () => {
+    const draft = await app.createVoucher(accountant, receipt({ reasonId: null, accountId: null, counterpartyGroupId: null, lines: [] }));
+    const error = await app.submit(accountant, draft.id).then(
+      () => null,
+      (e: { code: string; details: string[] }) => e,
+    );
+    expect(error?.code).toBe('FINANCE_SUBMIT_INVALID');
+    expect(error?.details).toEqual(expect.arrayContaining(['Chọn lý do thu.', 'Chọn đối tượng thu.', 'Chọn tài khoản thu.']));
+    expect((await app.voucher(accountant, draft.id)).status).toBe('DRAFT');
+    await app.deleteVoucher(accountant, draft.id);
+    await rejects(app.voucher(accountant, draft.id), 'FINANCE_NOT_FOUND');
+  });
+
+  it('phiếu chi không được làm âm số dư tài khoản; vẫn chờ duyệt để xử lý sau', async () => {
+    const big = await app.createVoucher(accountant, payment(50_000_000));
+    await app.submit(accountant, big.id);
+    await rejects(app.approve(approver, big.id), 'FINANCE_INSUFFICIENT_BALANCE', /không đủ/);
+    expect((await app.voucher(approver, big.id)).status).toBe('PENDING');
+    expect(await balance(accountA)).toBe(10_300_000);
+    // Số tiền chờ duyệt hiện ở tài khoản để kế toán biết tiền sắp ra.
+    expect((await app.account(approver, accountA)).pendingOut).toBe(50_000_000);
+    await app.cancel(accountant, big.id, 'Nhập sai số tiền');
+    expect((await app.account(approver, accountA)).pendingOut).toBe(0);
+
+    const ok = await post(payment(1_300_000));
+    expect(ok.status).toBe('APPROVED');
+    expect(await balance(accountA)).toBe(9_000_000);
+  });
+
+  it('tài khoản cho phép âm (thấu chi) duyệt được phiếu chi vượt số dư', async () => {
+    await app.saveAccount(admin2, accountB, {
+      code: 'TCB-01',
+      name: 'Techcombank',
+      accountType: 'BANK',
+      bankName: 'Techcombank (TCB)',
+      accountNumber: '19031234567890',
+      allowNegative: true,
+    });
+    await post(payment(2_000_000, { accountId: accountB }));
+    expect(await balance(accountB)).toBe(-2_000_000);
+    await app.saveAccount(admin2, accountB, {
+      code: 'TCB-01',
+      name: 'Techcombank',
+      accountType: 'BANK',
+      bankName: 'Techcombank (TCB)',
+      accountNumber: '19031234567890',
+      allowNegative: false,
+    });
+  });
+
+  it('lệnh chuyển tiền: ghi hai bút toán đối ứng; nguồn phải khác đích; nguồn phải đủ số dư', async () => {
+    const before = { a: await balance(accountA), c: await balance(cash) };
+    const done = await post(transfer(1_000_000, accountA, cash));
+    expect(done.status).toBe('APPROVED');
+    expect(await balance(accountA)).toBe(before.a! - 1_000_000);
+    expect(await balance(cash)).toBe(before.c! + 1_000_000);
+
+    await rejects(app.createVoucher(accountant, transfer(100, accountA, accountA)), 'FINANCE_INVALID', /khác nhau/);
+    const noDest = await app.createVoucher(accountant, { ...transfer(100, accountA, cash), destAccountId: null });
+    await expect(app.submit(accountant, noDest.id)).rejects.toMatchObject({ code: 'FINANCE_SUBMIT_INVALID' });
+    await app.deleteVoucher(accountant, noDest.id);
+
+    const tooBig = await app.createVoucher(accountant, transfer(99_000_000, accountA, cash));
+    await app.submit(accountant, tooBig.id);
+    await rejects(app.approve(approver, tooBig.id), 'FINANCE_INSUFFICIENT_BALANCE');
+    await app.cancel(approver, tooBig.id, 'Không đủ số dư');
+    expect((await app.voucher(approver, tooBig.id)).status).toBe('CANCELLED');
+  });
+
+  it('từ chối cần lý do; người lập sửa phiếu bị từ chối rồi gửi lại', async () => {
+    const created = await app.createVoucher(accountant, receipt({ content: 'Thu lần 2' }));
+    await app.submit(accountant, created.id);
+    await rejects(app.reject(approver, created.id, ' '), 'FINANCE_INVALID', /lý do/);
+    const rejected = await app.reject(approver, created.id, 'Thiếu chứng từ');
+    expect(rejected).toMatchObject({ status: 'REJECTED', decisionNote: 'Thiếu chứng từ' });
+    expect(rejected.permissions).toMatchObject({ canEdit: false, canApprove: false });
+    expect((await app.voucher(accountant, created.id)).permissions).toMatchObject({ canEdit: true, canSubmit: true });
+
+    const edited = await app.updateVoucher(accountant, created.id, receipt({ content: 'Thu lần 2 (đã bổ sung chứng từ)', revision: rejected.revision }));
+    expect(edited).toMatchObject({ status: 'DRAFT', revision: rejected.revision + 1, decisionNote: null });
+    // Sửa với phiên bản cũ bị chặn.
+    await rejects(app.updateVoucher(accountant, created.id, receipt({ revision: rejected.revision })), 'FINANCE_REVISION_CONFLICT');
+    await app.submit(accountant, created.id);
+    expect((await app.approve(approver, created.id)).status).toBe('APPROVED');
+  });
+
+  it('quyền xem: người chỉ có quyền lập thấy phiếu của mình, không thấy phiếu người khác và không thấy số dư', async () => {
+    const mine = await app.createVoucher(outsider, receipt({ content: 'Phiếu của người ngoài' }));
+    const outsiderList = await app.listVouchers(outsider, { kind: 'RECEIPT' });
+    expect(outsiderList.items.map((v) => v.id)).toEqual([mine.id]);
+    const others = (await app.listVouchers(approver, { kind: 'RECEIPT', status: 'APPROVED' })).items[0];
+    await rejects(app.voucher(outsider, others.id), 'FINANCE_NOT_FOUND');
+    const accounts = await app.accounts(outsider, false);
+    expect(accounts.every((a) => a.balance === null)).toBe(true);
+    await rejects(app.accountLedger(outsider, accountA, {}), 'FINANCE_FORBIDDEN');
+    await rejects(app.report(outsider, { from: today, to: today }), 'FINANCE_FORBIDDEN');
+    // Không phải chủ phiếu thì không sửa/xoá được.
+    await rejects(app.deleteVoucher(accountant, mine.id), 'FINANCE_NOT_FOUND');
+    const approverList = await app.listVouchers(approver, { kind: 'RECEIPT' });
+    expect(approverList.total).toBeGreaterThanOrEqual(3);
+    expect(approverList.statusCounts.APPROVED).toBeGreaterThanOrEqual(2);
+  });
+
+  it('đảo phiếu đã ghi sổ: bút toán đảo giữ nguyên số liệu; đảo phiếu thu đã tiêu hết tiền bị chặn', async () => {
+    const paid = await post(payment(500_000));
+    const after = await balance(accountA);
+    await rejects(app.cancel(accountant, paid.id, 'x'), 'FINANCE_VOUCHER_STATE');
+    await rejects(app.reverse(approver, paid.id, undefined), 'FINANCE_INVALID', /lý do/);
+    await rejects(app.reverse(accountant, paid.id, 'Nhầm'), 'FINANCE_FORBIDDEN');
+    const reversed = await app.reverse(approver, paid.id, 'Chi nhầm đối tượng');
+    expect(reversed.status).toBe('CANCELLED');
+    expect(reversed.events.at(-1)?.action).toBe('REVERSED');
+    expect(await balance(accountA)).toBe(after! + 500_000);
+    await rejects(app.reverse(approver, paid.id, 'lần hai'), 'FINANCE_VOUCHER_STATE');
+
+    // Thu vào quỹ rồi chi hết: đảo phiếu thu sẽ làm âm quỹ nên bị chặn.
+    const incoming = await post(receipt({ accountId: cash, lines: [line('Thu mới', 1, 300_000)] }));
+    const cashNow = (await balance(cash))!;
+    await post(payment(cashNow, { accountId: cash }));
+    expect(await balance(cash)).toBe(0);
+    await rejects(app.reverse(approver, incoming.id, 'Đảo thử'), 'FINANCE_INSUFFICIENT_BALANCE');
+  });
+
+  it('sổ cái chỉ thêm: không sửa hay xoá được bút toán; sổ tài khoản có số dư sau từng dòng', async () => {
+    await expect(pool.query(`UPDATE finance_schema.ledger_entries SET amount = amount + 1`)).rejects.toThrow(/chỉ được thêm/);
+    await expect(pool.query(`DELETE FROM finance_schema.ledger_entries`)).rejects.toThrow(/chỉ được thêm/);
+    const ledger = await app.accountLedger(approver, accountA, {});
+    expect(ledger.openingBalance).toBe(10_000_000);
+    const latest = ledger.items[0];
+    expect(latest.balanceAfter).toBe(await balance(accountA));
+    // Cộng dồn từ đầu kỳ qua mọi dòng ra đúng số dư hiện tại.
+    const sum = ledger.items.reduce((total, item) => total + item.amount, ledger.openingBalance);
+    expect(sum).toBe(await balance(accountA));
+    expect(ledger.items.some((item) => item.isReversal)).toBe(true);
+  });
+
+  it('khoá sổ: không duyệt phiếu có ngày hạch toán trong kỳ đã khoá và không duyệt phiếu ngày tương lai', async () => {
+    const old = await app.createVoucher(accountant, receipt({ voucherDate: '2026-03-10', postingDate: '2026-03-10', content: 'Thu bổ sung kỳ cũ' }));
+    await app.submit(accountant, old.id);
+    await app.saveSettings(admin2, { booksLockedUntil: '2026-03-31' });
+    await rejects(app.approve(approver, old.id), 'FINANCE_INVALID', /khoá đến ngày 2026-03-31/);
+    await rejects(app.saveSettings(accountant, { booksLockedUntil: null }), 'FINANCE_FORBIDDEN');
+    await app.saveSettings(admin2, { booksLockedUntil: null });
+    expect((await app.approve(approver, old.id)).status).toBe('APPROVED');
+
+    const future = await app.createVoucher(accountant, receipt({ postingDate: '2099-01-01', voucherDate: '2099-01-01' }));
+    await app.submit(accountant, future.id);
+    await rejects(app.approve(approver, future.id), 'FINANCE_INVALID', /tương lai/);
+    await app.cancel(accountant, future.id);
+
+    // Khoá đến hôm nay: không đảo được phiếu vì bút toán đảo ghi vào hôm nay.
+    await app.saveSettings(admin2, { booksLockedUntil: today });
+    await rejects(app.reverse(approver, old.id, 'Đảo kỳ khoá'), 'FINANCE_INVALID', /khoá/);
+    await app.saveSettings(admin2, { booksLockedUntil: null });
+  });
+
+  it('tài khoản đã có bút toán không đổi được số dư đầu kỳ; không ngừng dùng khi còn phiếu chờ duyệt', async () => {
+    await rejects(
+      app.saveAccount(admin2, accountA, { code: 'VCB-01', name: 'Vietcombank chính', accountType: 'BANK', bankName: 'Vietcombank (VCB)', accountNumber: '0011000123456', openingBalance: 1 }),
+      'FINANCE_ACCOUNT_HAS_LEDGER',
+    );
+    const pending = await app.createVoucher(accountant, receipt({ accountId: accountB }));
+    await app.submit(accountant, pending.id);
+    await rejects(
+      app.saveAccount(admin2, accountB, { code: 'TCB-01', name: 'Techcombank', accountType: 'BANK', bankName: 'Techcombank (TCB)', accountNumber: '19031234567890', isActive: false }),
+      'FINANCE_ACCOUNT_IN_USE',
+    );
+    await app.cancel(approver, pending.id, 'Dọn dẹp');
+  });
+
+  it('báo cáo tính từ sổ cái: thu chi trừ phần đã đảo, chuyển tiền nội bộ không tính, biến động tài khoản khớp số dư', async () => {
+    const report = await app.report(approver, { from: '2026-01-01', to: today });
+    const receipts = report.cashflow.reduce((s, p) => s + p.receipts, 0);
+    const payments = report.cashflow.reduce((s, p) => s + p.payments, 0);
+    expect(report.totals.receipts).toBe(receipts);
+    expect(report.totals.payments).toBe(payments);
+    expect(report.totals.net).toBe(report.totals.receipts - report.totals.payments);
+    expect(report.paymentsByReason.reduce((s, r) => s + r.amount, 0)).toBe(report.totals.payments);
+    expect(report.receiptsByReason.reduce((s, r) => s + r.amount, 0)).toBe(report.totals.receipts);
+    expect(report.totals.transferCount).toBeGreaterThanOrEqual(1);
+    // Mỗi tài khoản: số dư cuối trong báo cáo bằng số dư hiện tại (báo cáo đến hôm nay).
+    for (const movement of report.accounts) expect(movement.closingBalance).toBe(await balance(movement.accountId));
+    // Khoảng ngày trước mọi phát sinh: số dư đầu = số dư đầu kỳ, không có thu chi.
+    const empty = await app.report(approver, { from: '2026-01-02', to: '2026-01-05' });
+    expect(empty.totals).toMatchObject({ receipts: 0, payments: 0 });
+    expect(empty.accounts.find((a) => a.accountId === accountA)).toMatchObject({ openingBalance: 10_000_000, closingBalance: 10_000_000 });
+    await expect(app.report(approver, { from: today, to: '2000-01-01' })).rejects.toMatchObject({ code: 'FINANCE_INVALID' });
+  });
+
+  it('trang tổng quan: phiếu chờ duyệt chỉ tính loại mình duyệt và không tính phiếu của chính mình', async () => {
+    // Người chỉ có quyền duyệt không lập được phiếu.
+    await rejects(app.createVoucher(approver, receipt({ content: 'Phiếu do người duyệt lập' })), 'FINANCE_FORBIDDEN');
+    const waiting = await app.createVoucher(accountant, payment(10_000, { content: 'Chờ duyệt' }));
+    await app.submit(accountant, waiting.id);
+    const dash = await app.dashboard(approver);
+    expect(dash.pendingApprovalCount).toBeGreaterThanOrEqual(1);
+    expect(dash.accounts.length).toBe(3);
+    expect(dash.totalBalance).toBe(dash.accounts.reduce((s, a) => s + (a.balance ?? 0), 0));
+    const accountantDash = await app.dashboard(accountant);
+    expect(accountantDash.accounts).toEqual([]);
+    expect(accountantDash.pendingApprovalCount).toBe(0);
+    expect(accountantDash.myDraftCount).toBeGreaterThanOrEqual(0);
+  });
+});

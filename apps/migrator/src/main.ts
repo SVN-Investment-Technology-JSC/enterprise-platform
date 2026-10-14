@@ -50,7 +50,7 @@ async function main() {
 interface ProvisioningJob {
   id: string;
   tenant_id: string;
-  module_key: 'inventory' | 'procedure-engine' | 'maintenance' | 'workspace' | 'hrm' | 'assistant';
+  module_key: 'inventory' | 'procedure-engine' | 'maintenance' | 'workspace' | 'hrm' | 'assistant' | 'finance';
   target_version: string;
   module_id: string;
   secret_ref: string;
@@ -346,7 +346,8 @@ async function seedPlatform(pool: PostgresPool) {
         END IF;
       END $$;
     `);
-    await client.query(`INSERT INTO module_registry_schema.modules (id, key, name, description, launch_url, icon, version) VALUES ('f0000000-0000-4000-8000-000000000001', 'procedure-engine', 'Procedure Engine', 'Thiết kế và vận hành quy trình RCSI', '/modules/procedure', 'PE', '1.0.0'), ('f0000000-0000-4000-8000-000000000003', 'maintenance', 'Maintenance', 'Thiết bị, kế hoạch và bảo trì phòng ngừa', '/modules/maintenance', 'MT', '1.0.0'), ('f0000000-0000-4000-8000-000000000004', 'inventory', 'Inventory', 'Tài sản, vật tư, kho và giao dịch tồn kho', '/modules/inventory', 'IV', '1.0.0'), ('f0000000-0000-4000-8000-000000000005', 'workspace', 'Workspace', 'Dự án, công việc, tài liệu và lịch biểu', '/modules/workspace', 'WS', '1.0.0'), ('f0000000-0000-4000-8000-000000000006', 'hrm', 'HRM & Chấm công', 'Quản lý nhân sự, hồ sơ, chấm công và chi trả lương', '/modules/hrm', 'HRM', '1.0.0'), ('f0000000-0000-4000-8000-000000000007', 'assistant', 'Trợ lý Savina', 'Hỏi cách dùng ERP và số liệu trong phạm vi quyền của người hỏi', '/modules/assistant', 'TL', '1.0.0') ON CONFLICT (id) DO UPDATE SET key = EXCLUDED.key, name = EXCLUDED.name, description = EXCLUDED.description, launch_url = EXCLUDED.launch_url, icon = EXCLUDED.icon, version = EXCLUDED.version, status = 'active'`);
+    await client.query(`INSERT INTO module_registry_schema.modules (id, key, name, description, launch_url, icon, version) VALUES ('f0000000-0000-4000-8000-000000000001', 'procedure-engine', 'Procedure Engine', 'Thiết kế và vận hành quy trình RCSI', '/modules/procedure', 'PE', '1.0.0'), ('f0000000-0000-4000-8000-000000000003', 'maintenance', 'Maintenance', 'Thiết bị, kế hoạch và bảo trì phòng ngừa', '/modules/maintenance', 'MT', '1.0.0'), ('f0000000-0000-4000-8000-000000000004', 'inventory', 'Inventory', 'Tài sản, vật tư, kho và giao dịch tồn kho', '/modules/inventory', 'IV', '1.0.0'), ('f0000000-0000-4000-8000-000000000005', 'workspace', 'Workspace', 'Dự án, công việc, tài liệu và lịch biểu', '/modules/workspace', 'WS', '1.0.0'), ('f0000000-0000-4000-8000-000000000006', 'hrm', 'HRM & Chấm công', 'Quản lý nhân sự, hồ sơ, chấm công và chi trả lương', '/modules/hrm', 'HRM', '1.0.0'), ('f0000000-0000-4000-8000-000000000007', 'assistant', 'Trợ lý Savina', 'Hỏi cách dùng ERP và số liệu trong phạm vi quyền của người hỏi', '/modules/assistant', 'TL', '1.0.0'),
+('f0000000-0000-4000-8000-000000000008', 'finance', 'Tài chính', 'Phiếu thu, phiếu chi, chuyển tiền, tài khoản và báo cáo cho kế toán', '/modules/finance', 'FIN', '1.0.0') ON CONFLICT (id) DO UPDATE SET key = EXCLUDED.key, name = EXCLUDED.name, description = EXCLUDED.description, launch_url = EXCLUDED.launch_url, icon = EXCLUDED.icon, version = EXCLUDED.version, status = 'active'`);
   });
 }
 
