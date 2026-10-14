@@ -21,13 +21,12 @@ import { Input } from '../ui/input';
 import { EmptyState, ErrorBanner, Field } from '../ui/form-parts';
 import { cn } from '../utils';
 
-type TabId = 'receipt-reasons' | 'payment-reasons' | 'groups' | 'cost-centers' | 'approval' | 'books';
+type TabId = 'receipt-reasons' | 'payment-reasons' | 'groups' | 'approval' | 'books';
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'receipt-reasons', label: 'Lý do thu' },
   { id: 'payment-reasons', label: 'Lý do chi' },
   { id: 'groups', label: 'Đối tượng thu chi' },
-  { id: 'cost-centers', label: 'Hạch toán nội bộ' },
   { id: 'approval', label: 'Quy trình duyệt' },
   { id: 'books', label: 'Khoá sổ và duyệt' },
 ];
@@ -381,7 +380,6 @@ export default function SettingsScreen() {
               <CatalogPanel title="Lý do chi" rows={catalogs.reasons.filter((r) => r.kind === 'PAYMENT')} basePath="/catalogs/reasons" extra={{ kind: 'PAYMENT' }} onChanged={() => void load()} />
             ) : null}
             {tab === 'groups' ? <CatalogPanel title="Đối tượng thu chi" rows={catalogs.counterpartyGroups} basePath="/catalogs/counterparty-groups" onChanged={() => void load()} /> : null}
-            {tab === 'cost-centers' ? <CatalogPanel title="Hạch toán nội bộ" rows={catalogs.costCenters} basePath="/catalogs/cost-centers" onChanged={() => void load()} /> : null}
             {tab === 'approval' ? <ApprovalPanel /> : null}
             {tab === 'books' ? <BooksPanel settings={settings} onSaved={setSettings} /> : null}
           </>

@@ -26,7 +26,10 @@ export interface VoucherProcedureFacts {
   destAccountName: string | null;
   counterpartyGroupName: string | null;
   counterpartyName: string | null;
-  costCenterName: string | null;
+  /** "DA001 - Tên dự án" hoặc "CV-12 - Tên công việc (DA001)"; null khi chưa hạch toán. */
+  allocationLabel: string | null;
+  /** "DA001 - Tên dự án" của dự án hạch toán (cả khi hạch toán cho công việc). */
+  projectLabel: string | null;
 }
 
 type Resolver = (facts: VoucherProcedureFacts) => string | number | null;
@@ -50,7 +53,8 @@ export const FINANCE_PROCEDURE_ATTRIBUTES: readonly {
   { codes: ['tai_khoan_dich', 'dest_account'], label: 'Tài khoản đích (chuyển tiền)', types: ['text'], resolve: (f) => f.destAccountName },
   { codes: ['doi_tuong', 'counterparty_group'], label: 'Nhóm đối tượng', types: ['text'], resolve: (f) => f.counterpartyGroupName },
   { codes: ['nguoi_nop_nhan', 'counterparty'], label: 'Người nộp/nhận tiền', types: ['text'], resolve: (f) => f.counterpartyName },
-  { codes: ['hach_toan_noi_bo', 'cost_center'], label: 'Đơn vị hạch toán', types: ['text'], resolve: (f) => f.costCenterName },
+  { codes: ['hach_toan_noi_bo', 'hach_toan', 'allocation'], label: 'Hạch toán nội bộ (dự án hoặc công việc)', types: ['text'], resolve: (f) => f.allocationLabel },
+  { codes: ['du_an', 'project'], label: 'Dự án hạch toán', types: ['text'], resolve: (f) => f.projectLabel },
   { codes: ['ngay_hach_toan', 'posting_date'], label: 'Ngày hạch toán', types: ['date'], resolve: (f) => f.postingDate },
   { codes: ['ngay_lap', 'voucher_date'], label: 'Ngày lập phiếu', types: ['date'], resolve: (f) => f.voucherDate },
 ];

@@ -6,7 +6,7 @@ import type {
   FinanceVoucherKind,
   SaveFinanceApprovalBindingRequest,
 } from '@enterprise-platform/contracts-finance';
-import { FINANCE_VOUCHER_KINDS } from '@enterprise-platform/contracts-finance';
+import { FINANCE_VOUCHER_KINDS, financeAllocationLabel } from '@enterprise-platform/contracts-finance';
 import type { ProcedureDefinition, ProcedureInstanceProgress } from '@enterprise-platform/contracts-procedure-engine';
 import type { Pool, PoolClient, QueryResultRow } from 'pg';
 import { FinanceError, conflict, invalid, invalidMany, notFound } from '../domain/finance.error.js';
@@ -108,6 +108,16 @@ export async function saveBinding(
 
 /* ------------------------------ Liên kết lần gửi ------------------------------ */
 
+function allocationLabelParts(row: Row) {
+  return {
+    type: row.alloc_type as 'PROJECT' | 'WORK_ITEM',
+    projectCode: optStr(row.alloc_project_code) ?? '',
+    projectName: optStr(row.alloc_project_name) ?? '',
+    workItemCode: optStr(row.alloc_work_item_code),
+    workItemTitle: optStr(row.alloc_work_item_title),
+  };
+}
+
 export function factsOf(row: Row): VoucherProcedureFacts {
   return {
     kind: row.kind as FinanceVoucherKind,
@@ -121,7 +131,8 @@ export function factsOf(row: Row): VoucherProcedureFacts {
     destAccountName: optStr(row.dest_account_name),
     counterpartyGroupName: optStr(row.group_name),
     counterpartyName: optStr(row.counterparty_name),
-    costCenterName: optStr(row.cost_center_name),
+    allocationLabel: row.alloc_type ? financeAllocationLabel(allocationLabelParts(row)) : null,
+    projectLabel: row.alloc_project_id ? `${optStr(row.alloc_project_code) ?? ''} - ${optStr(row.alloc_project_name) ?? ''}` : null,
   };
 }
 

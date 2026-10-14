@@ -110,3 +110,62 @@ export function parseMoneyInput(text: string): number {
   const value = Number(digits);
   return Number.isSafeInteger(value) ? value : 0;
 }
+
+/** Số chữ số tối đa của ô nhập tiền (khớp `FINANCE_MAX_AMOUNT` = 999.999.999.999.999). */
+export const MONEY_INPUT_MAX_DIGITS = 15;
+
+/** "1500000" → "1.500.000" (chỉ chuỗi chữ số, không qua Intl nên dấu phân cách luôn là dấu chấm). */
+export function groupDigits(digits: string): string {
+  let out = '';
+  for (let index = 0; index < digits.length; index += 1) {
+    if (index > 0 && (digits.length - index) % 3 === 0) out += '.';
+    out += digits[index];
+  }
+  return out;
+}
+
+export interface MoneyInputUpdate {
+  /** Giá trị số sau khi gõ (0 khi ô trống). */
+  value: number;
+  /** Chuỗi hiển thị, đã có dấu phân cách hàng nghìn. */
+  display: string;
+  /** Vị trí con trỏ trong `display`: giữ nguyên số chữ số đứng trước con trỏ lúc gõ, để sửa giữa chuỗi không nhảy con trỏ về cuối. */
+  caret: number;
+  /** Mới gõ dấu trừ: giá trị vẫn 0 nhưng ô phải hiện "-". */
+  pendingMinus: boolean;
+}
+
+/**
+ * Định dạng ô nhập tiền NGAY khi gõ hoặc dán. Chỉ giữ chữ số (và dấu trừ ở đầu khi `allowNegative`); dán "1.500.000,50 đ"
+ * thì bỏ phần thập phân sau dấu phẩy vì ô chỉ nhập số nguyên đồng. Trả null khi vượt số chữ số cho phép: nơi gọi giữ nguyên
+ * giá trị cũ thay vì cắt hay đổi về 0 (đổi về 0 làm mất cả số đã nhập khi lỡ dán một chuỗi quá dài).
+ */
+export function reformatMoneyInput(raw: string, caret: number, allowNegative = false): MoneyInputUpdate | null {
+  const negative = allowNegative && raw.trimStart().startsWith('-');
+  const fraction = /,\d{1,2}(?:\s*(?:đ|₫|vnd))?\s*$/i.exec(raw);
+  const body = fraction ? raw.slice(0, fraction.index) : raw;
+  const digitsOnly = body.replace(/[^\d]/g, '');
+  const digits = digitsOnly.replace(/^0+/, '');
+  if (digits.length > MONEY_INPUT_MAX_DIGITS) return null;
+
+  const removedZeros = digitsOnly.length - digits.length;
+  const before = Math.max(0, Math.min(raw.slice(0, Math.max(0, caret)).replace(/[^\d]/g, '').length - removedZeros, digits.length));
+  const sign = negative && digits ? '-' : '';
+  const display = digits ? sign + groupDigits(digits) : negative ? '-' : '';
+
+  let position = sign.length;
+  if (digits && before > 0) {
+    let seen = 0;
+    for (let index = sign.length; index < display.length; index += 1) {
+      if (display[index] !== '.') seen += 1;
+      if (seen === before) {
+        position = index + 1;
+        break;
+      }
+    }
+  }
+  if (!digits) position = display.length;
+
+  const magnitude = digits ? Number(digits) : 0;
+  return { value: negative && magnitude ? -magnitude : magnitude, display, caret: position, pendingMinus: negative && !digits };
+}

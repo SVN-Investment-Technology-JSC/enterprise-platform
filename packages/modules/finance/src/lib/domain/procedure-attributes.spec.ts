@@ -21,7 +21,8 @@ const facts: VoucherProcedureFacts = {
   destAccountName: null,
   counterpartyGroupName: 'Nhà cung cấp',
   counterpartyName: null,
-  costCenterName: 'Phòng hành chính',
+  allocationLabel: 'CV-12 - Lắp đặt tủ điện (DA001)',
+  projectLabel: 'DA001 - Trạm biến áp Đà Nẵng',
 };
 
 const attr = (code: string, type: string, required = false, options?: { code: string; label: string }[]) => ({ id: code, code, name: code, type, required, options });
@@ -43,6 +44,13 @@ describe('thuộc tính quy trình lấy từ phiếu', () => {
     expect(procedureValueFor(attr('noi_dung', 'text') as never, facts)).toEqual({ type: 'text', value: 'Chi văn phòng phẩm' });
     expect(procedureValueFor(attr('ngay_hach_toan', 'date') as never, facts)).toEqual({ type: 'date', value: '2026-10-14' });
     expect(procedureValueFor(attr('loai_phieu', 'text') as never, facts)).toEqual({ type: 'text', value: 'Phiếu chi' });
+  });
+
+  it('hạch toán nội bộ và dự án điền theo nhãn dự án/công việc', () => {
+    expect(procedureValueFor(attr('hach_toan_noi_bo', 'text') as never, facts)).toEqual({ type: 'text', value: 'CV-12 - Lắp đặt tủ điện (DA001)' });
+    expect(procedureValueFor(attr('DU_AN', 'text') as never, facts)).toEqual({ type: 'text', value: 'DA001 - Trạm biến áp Đà Nẵng' });
+    // Phiếu chưa hạch toán: không có giá trị để điền.
+    expect(procedureValueFor(attr('du_an', 'text') as never, { ...facts, allocationLabel: null, projectLabel: null })).toBeNull();
   });
 
   it('sai kiểu hoặc mã lạ hoặc phiếu không có giá trị thì không điền', () => {

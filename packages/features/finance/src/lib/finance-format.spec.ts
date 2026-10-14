@@ -1,6 +1,6 @@
 import type { FinanceVoucherSummary } from '@enterprise-platform/contracts-finance';
 import { FINANCE_KIND_CONFIG, kindOfPath } from './finance-kinds';
-import { dateTimeVn, dateVn, initialsOf, isMonth, money, monthLabel, monthRange, parseMoneyInput, periodLabel, periodPresets, shiftMonth, voucherCsvRows } from './finance-format';
+import { dateTimeVn, dateVn, groupDigits, initialsOf, isMonth, money, monthLabel, monthRange, parseMoneyInput, periodLabel, periodPresets, reformatMoneyInput, shiftMonth, voucherCsvRows } from './finance-format';
 import { getActiveFinanceNavId, normalizeFinancePath } from './finance-navigation';
 
 describe('định dạng', () => {
@@ -17,6 +17,31 @@ describe('định dạng', () => {
     expect(parseMoneyInput('1.500.000 đ')).toBe(1500000);
     expect(parseMoneyInput('')).toBe(0);
     expect(parseMoneyInput('abc')).toBe(0);
+  });
+
+  it('nhóm chữ số bằng dấu chấm', () => {
+    expect(groupDigits('')).toBe('');
+    expect(groupDigits('7')).toBe('7');
+    expect(groupDigits('1234')).toBe('1.234');
+    expect(groupDigits('123456')).toBe('123.456');
+    expect(groupDigits('1234567890123')).toBe('1.234.567.890.123');
+  });
+
+  it('định dạng ô nhập tiền: giá trị, chuỗi hiển thị và con trỏ', () => {
+    expect(reformatMoneyInput('1500000', 7)).toEqual({ value: 1_500_000, display: '1.500.000', caret: 9, pendingMinus: false });
+    expect(reformatMoneyInput('', 0)).toEqual({ value: 0, display: '', caret: 0, pendingMinus: false });
+    expect(reformatMoneyInput('-', 1)).toEqual({ value: 0, display: '', caret: 0, pendingMinus: false });
+    expect(reformatMoneyInput('-', 1, true)).toEqual({ value: 0, display: '-', caret: 1, pendingMinus: true });
+    expect(reformatMoneyInput('-1500', 5, true)).toEqual({ value: -1500, display: '-1.500', caret: 6, pendingMinus: false });
+    // Con trỏ ngay sau chữ số thứ hai của "12.500".
+    expect(reformatMoneyInput('12.500', 2)?.caret).toBe(2);
+    // Số 0 đứng đầu bị bỏ và không làm lệch con trỏ.
+    expect(reformatMoneyInput('0012', 4)).toMatchObject({ value: 12, display: '12', caret: 2 });
+    // Dán kèm phần thập phân và đơn vị.
+    expect(reformatMoneyInput('1.500.000,25 đ', 14)).toMatchObject({ value: 1_500_000, display: '1.500.000' });
+    // Vượt 15 chữ số thì từ chối, đúng 15 chữ số thì nhận.
+    expect(reformatMoneyInput('1000000000000000', 16)).toBeNull();
+    expect(reformatMoneyInput('999999999999999', 15)?.value).toBe(999_999_999_999_999);
   });
 
   it('chữ cái đầu của tên lấy theo tên gọi (từ cuối)', () => {

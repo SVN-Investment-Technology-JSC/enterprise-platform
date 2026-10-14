@@ -81,9 +81,30 @@ describe('Finance architecture boundary', () => {
   });
 
   it('các module khác không phụ thuộc vào Tài chính', () => {
-    for (const path of ['apps/hrm-api/package.json', 'apps/inventory-api/package.json', 'apps/maintenance-api/package.json', 'apps/workspace-api/package.json', 'apps/procedure-api/package.json']) {
+    for (const path of [
+      'apps/hrm-api/package.json',
+      'apps/inventory-api/package.json',
+      'apps/maintenance-api/package.json',
+      'apps/workspace-api/package.json',
+      'apps/procedure-api/package.json',
+      // Tắt Tài chính không được làm hỏng Workspace: gói của Workspace không biết gì về Tài chính.
+      'packages/modules/workspace/package.json',
+      'packages/features/workspace/package.json',
+      'packages/contracts/workspace/package.json',
+    ]) {
       const deps = Object.keys(readDependencies(path)).filter((name) => name.includes('finance'));
       expect({ path, deps }).toEqual({ path, deps: [] });
     }
+  });
+
+  it('Tài chính chỉ chạm Workspace qua API và hợp đồng, không nạp code hay màn hình của Workspace', () => {
+    const deps = Object.keys(readDependencies('packages/modules/finance/package.json')).filter((name) => name.includes('workspace'));
+    // Chỉ gói hợp đồng (kiểu dữ liệu), không phải module-/feature-workspace.
+    expect(deps).toEqual(['@enterprise-platform/contracts-workspace']);
+    expect(Object.keys(readDependencies('packages/features/finance/package.json')).filter((name) => name.includes('workspace'))).toEqual([]);
+    // Mọi import hợp đồng Workspace trong module là import kiểu: không kéo mã chạy của Workspace vào Tài chính.
+    const sources = filesUnder(resolve(root, 'packages/modules/finance/src'), /\.ts$/).filter((f) => !/\.spec\.ts$/.test(f));
+    const offenders = sources.filter((file) => /^import\s+(?!type\b)[^;]*contracts-workspace/m.test(readFileSync(file, 'utf8')));
+    expect(offenders.map((f) => f.replace(root, ''))).toEqual([]);
   });
 });

@@ -1,5 +1,6 @@
 const REQUIRED_PRODUCTION_ENV = [
   'PROCEDURE_API_URL',
+  'WORKSPACE_API_URL',
   'S3_INTERNAL_ENDPOINT',
   'S3_PUBLIC_ENDPOINT',
   'S3_REGION',
@@ -16,6 +17,6 @@ export function assertProductionEnvironment(env: NodeJS.ProcessEnv = process.env
   if (missing.length)
     throw new Error(
       `finance-api không khởi động được trong production: thiếu biến môi trường ${missing.join(', ')}. ` +
-        'Kiểm tra x-s3-environment, PROCEDURE_API_URL và INTERNAL_SERVICE_TOKEN trong compose.',
+        'Kiểm tra x-s3-environment, PROCEDURE_API_URL, WORKSPACE_API_URL và INTERNAL_SERVICE_TOKEN trong compose.',
     );
 }

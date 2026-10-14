@@ -13,7 +13,12 @@ import {
   type VoucherNotificationFacts,
 } from './finance-notification-events.js';
 import { dateOnly, num, optStr, todayVn, type Db } from './finance.database.js';
-import { addEvent, canViewVoucher, loadVoucherRecord, type Row, type VoucherRecord } from './vouchers.store.js';
+import { addEvent, canViewVoucher, loadVoucherRecord, mapAllocation, type Row, type VoucherRecord } from './vouchers.store.js';
+
+function normalizedAllocationOf(row: Row): NormalizedVoucher['allocation'] {
+  const allocation = mapAllocation(row);
+  return allocation ? { type: allocation.type, projectId: allocation.projectId, workItemId: allocation.workItemId } : null;
+}
 
 /** Dữ kiện của phiếu cần cho nội dung thông báo, lấy từ một dòng phiếu đã đọc. */
 export function notificationFacts(tenantId: string, row: Row): VoucherNotificationFacts {
@@ -58,7 +63,7 @@ function recordToNormalized(record: VoucherRecord): NormalizedVoucher {
     counterpartyName: optStr(row.counterparty_name),
     counterpartyAccountNo: optStr(row.counterparty_account_no),
     counterpartyBank: optStr(row.counterparty_bank),
-    costCenterId: optStr(row.cost_center_id),
+    allocation: normalizedAllocationOf(row),
     taxIncluded: Boolean(row.tax_included),
     taxRate: num(row.tax_rate),
     note: optStr(row.note),
@@ -71,7 +76,7 @@ function recordToNormalized(record: VoucherRecord): NormalizedVoucher {
       total: num(line.total),
     })),
     invoices: [],
-    related: [],
+    relatedProjectIds: [],
   };
 }
 

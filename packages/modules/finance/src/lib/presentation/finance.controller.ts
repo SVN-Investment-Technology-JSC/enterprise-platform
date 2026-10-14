@@ -19,7 +19,6 @@ import type {
   FinanceVoucherStatus,
   SaveFinanceAccountRequest,
   SaveFinanceApprovalBindingRequest,
-  SaveFinanceCostCenterRequest,
   SaveFinanceCounterpartyGroupRequest,
   SaveFinanceReasonRequest,
   SaveFinanceSettingsRequest,
@@ -119,13 +118,21 @@ export class FinanceController {
   updateGroup(@Req() request: FinanceRequest, @Param('id') id: string, @Body() body: SaveFinanceCounterpartyGroupRequest) {
     return this.run(() => this.app.saveCounterpartyGroup(this.actor(request), id, body));
   }
-  @Post('catalogs/cost-centers')
-  createCostCenter(@Req() request: FinanceRequest, @Body() body: SaveFinanceCostCenterRequest) {
-    return this.run(() => this.app.saveCostCenter(this.actor(request), null, body));
+
+  /* Dự án và công việc của Workspace, để hạch toán và gắn đối tượng liên quan */
+  @Get('workspace/projects')
+  workspaceProjects(@Req() request: FinanceRequest, @Query('search') search?: string) {
+    return this.run(() => this.app.workspaceProjects(this.actor(request), search));
   }
-  @Put('catalogs/cost-centers/:id')
-  updateCostCenter(@Req() request: FinanceRequest, @Param('id') id: string, @Body() body: SaveFinanceCostCenterRequest) {
-    return this.run(() => this.app.saveCostCenter(this.actor(request), id, body));
+  @Get('workspace/projects/:projectId/work-items')
+  workspaceWorkItems(@Req() request: FinanceRequest, @Param('projectId') projectId: string) {
+    return this.run(() => this.app.workspaceWorkItems(this.actor(request), projectId));
+  }
+
+  /** Tab "Thu chi" của dự án bên Workspace. */
+  @Get('projects/:projectId/vouchers')
+  projectVouchers(@Req() request: FinanceRequest, @Param('projectId') projectId: string) {
+    return this.run(() => this.app.projectVouchers(this.actor(request), sessionOf(request), projectId));
   }
 
   @Get('settings')
@@ -146,7 +153,7 @@ export class FinanceController {
     @Query('search') search?: string,
     @Query('accountId') accountId?: string,
     @Query('reasonId') reasonId?: string,
-    @Query('costCenterId') costCenterId?: string,
+    @Query('projectId') projectId?: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
     @Query('scope') scope?: FinanceVoucherListQuery['scope'],
@@ -160,7 +167,7 @@ export class FinanceController {
         search,
         accountId: accountId || undefined,
         reasonId: reasonId || undefined,
-        costCenterId: costCenterId || undefined,
+        projectId: projectId || undefined,
         from: from || undefined,
         to: to || undefined,
         scope: scope || undefined,
@@ -285,10 +292,10 @@ export class FinanceController {
     @Query('from') from: string,
     @Query('to') to: string,
     @Query('accountId') accountId?: string,
-    @Query('costCenterId') costCenterId?: string,
+    @Query('projectId') projectId?: string,
   ) {
     return this.run(() =>
-      this.app.report(this.actor(request), { from, to, accountId: accountId || undefined, costCenterId: costCenterId || undefined }),
+      this.app.report(this.actor(request), { from, to, accountId: accountId || undefined, projectId: projectId || undefined }),
     );
   }
 

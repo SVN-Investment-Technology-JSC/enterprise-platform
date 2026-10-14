@@ -25,6 +25,9 @@
       "path": "../../contracts/finance/tsconfig.lib.json"
     },
     {
+      "path": "../../contracts/workspace/tsconfig.lib.json"
+    },
+    {
       "path": "../../adapters/storage/tsconfig.lib.json"
     },
     {

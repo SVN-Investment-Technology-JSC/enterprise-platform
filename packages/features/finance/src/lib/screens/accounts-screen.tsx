@@ -299,7 +299,7 @@ function AccountDialog({ account, onClose, onSaved }: { account: FinanceAccount 
               </>
             ) : null}
             <Field label="Số dư đầu kỳ" hint={locked ? 'Tài khoản đã có bút toán nên không đổi được.' : undefined}>
-              {(id) => <MoneyInput id={id} value={form.openingBalance} disabled={locked} onChange={(v) => set('openingBalance', v)} />}
+              {(id) => <MoneyInput id={id} value={form.openingBalance} disabled={locked} allowNegative onChange={(v) => set('openingBalance', v)} />}
             </Field>
             <Field label="Ngày bắt đầu sử dụng" hint={locked ? 'Tài khoản đã có bút toán nên không đổi được.' : 'Phiếu có ngày hạch toán trước ngày này không được ghi sổ.'}>
               {(id) => <DatePickerInput id={id} value={form.openingDate} onChange={(v) => set('openingDate', v)} disabled={locked} />}

@@ -4,10 +4,11 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import { Download, RefreshCw } from 'lucide-react';
 import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
-import type { FinanceAccount, FinanceBreakdownRow, FinanceCatalogs, FinanceReport } from '@enterprise-platform/contracts-finance';
+import type { FinanceAccount, FinanceBreakdownRow, FinanceReport } from '@enterprise-platform/contracts-finance';
 import { financeErrorMessage, financeFetch, toQuery } from '../finance-api';
 import { buildCsv, downloadCsv } from '../finance-csv';
 import { dateVn, money, periodPresets, todayVn } from '../finance-format';
+import { loadWorkspaceProjects, projectLabel, type WorkspaceProjectOption } from '../workspace-links';
 import { Button } from '../ui/button';
 import { CashflowChart } from '../ui/cashflow-chart';
 import { EmptyState, ErrorBanner } from '../ui/form-parts';
@@ -63,34 +64,31 @@ export default function ReportsScreen() {
   const [from, setFrom] = useState(presets[0].from);
   const [to, setTo] = useState(presets[0].to);
   const [accountId, setAccountId] = useState('');
-  const [costCenterId, setCostCenterId] = useState('');
+  const [projectId, setProjectId] = useState('');
   const [accounts, setAccounts] = useState<FinanceAccount[]>([]);
-  const [catalogs, setCatalogs] = useState<FinanceCatalogs | null>(null);
+  // Dự án lấy từ Workspace; Workspace tắt hoặc chưa kết nối thì không có ô lọc dự án, báo cáo vẫn chạy bình thường.
+  const [projects, setProjects] = useState<WorkspaceProjectOption[]>([]);
   const [report, setReport] = useState<FinanceReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    void Promise.all([financeFetch<FinanceAccount[]>('/accounts'), financeFetch<FinanceCatalogs>('/catalogs')])
-      .then(([a, c]) => {
-        setAccounts(a);
-        setCatalogs(c);
-      })
-      .catch(() => undefined);
+    void financeFetch<FinanceAccount[]>('/accounts').then(setAccounts).catch(() => undefined);
+    void loadWorkspaceProjects().then((result) => setProjects(result.items)).catch(() => undefined);
   }, []);
 
   const load = useCallback(async () => {
     if (!from || !to) return;
     setLoading(true);
     try {
-      setReport(await financeFetch<FinanceReport>(`/reports/summary${toQuery({ from, to, accountId, costCenterId })}`));
+      setReport(await financeFetch<FinanceReport>(`/reports/summary${toQuery({ from, to, accountId, projectId })}`));
       setError(null);
     } catch (e) {
       setError(financeErrorMessage(e, 'Không tải được báo cáo.'));
     } finally {
       setLoading(false);
     }
-  }, [from, to, accountId, costCenterId]);
+  }, [from, to, accountId, projectId]);
 
   useEffect(() => {
     void load();
@@ -115,7 +113,8 @@ export default function ReportsScreen() {
         [],
         ...section('Thu theo lý do', report.receiptsByReason),
         ...section('Chi theo lý do', report.paymentsByReason),
-        ...section('Chi theo đơn vị hạch toán', report.paymentsByCostCenter),
+        ...section('Thu theo dự án', report.receiptsByProject),
+        ...section('Chi theo dự án', report.paymentsByProject),
         ['Biến động tài khoản'],
         ['Tài khoản', 'Số dư đầu', 'Phiếu thu', 'Phiếu chi', 'Chuyển đến', 'Chuyển đi', 'Số dư cuối'],
         ...report.accounts.map((a) => [a.accountName, a.openingBalance, a.receipts, a.payments, a.transfersIn, a.transfersOut, a.closingBalance]),
@@ -156,9 +155,11 @@ export default function ReportsScreen() {
           <div className="w-52">
             <SearchableSelect options={accounts.map((a) => ({ value: a.id, label: a.name }))} value={accountId} onChange={setAccountId} placeholder="Mọi tài khoản" clearable height={32} />
           </div>
-          <div className="w-52">
-            <SearchableSelect options={(catalogs?.costCenters ?? []).map((c) => ({ value: c.id, label: c.name }))} value={costCenterId} onChange={setCostCenterId} placeholder="Mọi đơn vị hạch toán" clearable height={32} />
-          </div>
+          {projects.length ? (
+            <div className="w-60">
+              <SearchableSelect options={projects.map((p) => ({ value: p.id, label: projectLabel(p) }))} value={projectId} onChange={setProjectId} placeholder="Mọi dự án" clearable height={32} />
+            </div>
+          ) : null}
         </div>
 
         <ErrorBanner message={error} />
@@ -179,7 +180,10 @@ export default function ReportsScreen() {
               <Card title="Thu theo lý do"><Breakdown rows={report.receiptsByReason} total={report.totals.receipts} /></Card>
               <Card title="Chi theo lý do"><Breakdown rows={report.paymentsByReason} total={report.totals.payments} /></Card>
             </div>
-            <Card title="Chi theo đơn vị hạch toán"><Breakdown rows={report.paymentsByCostCenter} total={report.totals.payments} /></Card>
+            <div className="grid gap-4 lg:grid-cols-2">
+              <Card title="Thu theo dự án"><Breakdown rows={report.receiptsByProject} total={report.totals.receipts} /></Card>
+              <Card title="Chi theo dự án"><Breakdown rows={report.paymentsByProject} total={report.totals.payments} /></Card>
+            </div>
             <Card title="Biến động tài khoản">
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[720px] text-sm">

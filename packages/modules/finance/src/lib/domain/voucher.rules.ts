@@ -5,8 +5,8 @@ import {
   roundMoney,
   type FinanceVoucherInvoice,
   type FinanceVoucherKind,
+  type FinanceAllocationInput,
   type FinanceVoucherPermissions,
-  type FinanceVoucherRelated,
   type FinanceVoucherStatus,
   type SaveFinanceVoucherRequest,
 } from '@enterprise-platform/contracts-finance';
@@ -32,7 +32,8 @@ export interface NormalizedVoucher {
   counterpartyName: string | null;
   counterpartyAccountNo: string | null;
   counterpartyBank: string | null;
-  costCenterId: string | null;
+  /** Hạch toán nội bộ cho dự án/công việc; mã và tên lấy từ Workspace khi lưu (xem `resolveWorkspaceLinks`). */
+  allocation: { type: FinanceAllocationInput['type']; projectId: string; workItemId: string | null } | null;
   taxIncluded: boolean;
   taxRate: number;
   note: string | null;
@@ -42,13 +43,15 @@ export interface NormalizedVoucher {
     invoiceDate: string | null;
     taxCode: string | null;
   })[];
-  related: { kind: FinanceVoucherRelated['kind']; voucherId: string | null; label: string }[];
+  /** Dự án liên quan (chỉ tham chiếu), đã bỏ trùng và bỏ dự án đang là dự án hạch toán. */
+  relatedProjectIds: string[];
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_LINES = 200;
 const MAX_INVOICES = 50;
 const MAX_RELATED = 50;
+const ALLOCATION_TYPES: readonly string[] = ['PROJECT', 'WORK_ITEM'];
 
 /** Ngày dạng YYYY-MM-DD và hợp lệ theo lịch (không nhận 2026-02-30). */
 export function isValidDate(value: unknown): value is string {
@@ -136,15 +139,18 @@ export function normalizeVoucherInput(input: SaveFinanceVoucherRequest): Normali
     };
   });
 
-  const rawRelated = input.related ?? [];
+  const allocation = normalizeAllocation(input.allocation, isTransfer);
+
+  const rawRelated = input.relatedProjectIds ?? [];
+  if (!Array.isArray(rawRelated)) throw invalid('Đối tượng liên quan không hợp lệ.');
   if (rawRelated.length > MAX_RELATED) throw invalid(`Tối đa ${MAX_RELATED} đối tượng liên quan.`);
-  const related = rawRelated.map((raw, index) => {
-    if (raw.kind !== 'VOUCHER' && raw.kind !== 'REFERENCE') throw invalid(`Đối tượng liên quan ${index + 1} không hợp lệ.`);
-    const voucherId = raw.kind === 'VOUCHER' ? uuidOrNull(raw.voucherId, `Phiếu liên quan ${index + 1}`) : null;
-    if (raw.kind === 'VOUCHER' && !voucherId) throw invalid(`Đối tượng liên quan ${index + 1} thiếu phiếu.`);
-    const label = text(raw.label, 255, `Đối tượng liên quan ${index + 1}`);
-    if (!label) throw invalid(`Đối tượng liên quan ${index + 1} thiếu nội dung.`);
-    return { kind: raw.kind, voucherId, label };
+  const relatedProjectIds: string[] = [];
+  rawRelated.forEach((raw, index) => {
+    const id = uuidOrNull(raw, `Đối tượng liên quan ${index + 1}`);
+    if (!id) throw invalid(`Đối tượng liên quan ${index + 1} không hợp lệ.`);
+    const lower = id.toLowerCase();
+    // Dự án đang hạch toán đã được ghi riêng; lặp lại trong "liên quan" chỉ làm một dự án xuất hiện hai lần ở trang dự án.
+    if (lower !== allocation?.projectId && !relatedProjectIds.includes(lower)) relatedProjectIds.push(lower);
   });
 
   const accountId = uuidOrNull(input.accountId, 'Tài khoản');
@@ -164,15 +170,28 @@ export function normalizeVoucherInput(input: SaveFinanceVoucherRequest): Normali
     counterpartyName: isTransfer ? null : text(input.counterpartyName, 255, 'Người nộp/nhận tiền'),
     counterpartyAccountNo: isTransfer ? null : text(input.counterpartyAccountNo, 60, 'Số tài khoản'),
     counterpartyBank: isTransfer ? null : text(input.counterpartyBank, 120, 'Ngân hàng'),
-    costCenterId: isTransfer ? null : uuidOrNull(input.costCenterId, 'Hạch toán nội bộ'),
+    allocation,
     taxIncluded: isTransfer ? false : input.taxIncluded === true,
     taxRate: isTransfer || input.taxIncluded !== true ? 0 : taxRate,
     note: text(input.note, 4000, 'Ghi chú'),
     totalAmount,
     lines,
     invoices,
-    related,
+    relatedProjectIds,
   };
+}
+
+/** Hạch toán: dự án, hoặc công việc (kèm dự án chứa nó). Lệnh chuyển tiền chuyển giữa hai tài khoản công ty nên không hạch toán. */
+function normalizeAllocation(raw: FinanceAllocationInput | null | undefined, isTransfer: boolean): NormalizedVoucher['allocation'] {
+  if (raw === undefined || raw === null) return null;
+  if (isTransfer) throw invalid('Lệnh chuyển tiền không hạch toán cho dự án hoặc công việc.');
+  if (typeof raw !== 'object' || !ALLOCATION_TYPES.includes(raw.type)) throw invalid('Hình thức hạch toán không hợp lệ.');
+  const projectId = uuidOrNull(raw.projectId, 'Dự án hạch toán');
+  if (!projectId) throw invalid('Chọn dự án để hạch toán.');
+  const workItemId = uuidOrNull(raw.workItemId, 'Công việc hạch toán');
+  if (raw.type === 'WORK_ITEM' && !workItemId) throw invalid('Chọn công việc để hạch toán.');
+  if (raw.type === 'PROJECT' && workItemId) throw invalid('Hạch toán cho dự án không kèm công việc.');
+  return { type: raw.type, projectId: projectId.toLowerCase(), workItemId: workItemId ? workItemId.toLowerCase() : null };
 }
 
 export interface SubmitReferences {

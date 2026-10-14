@@ -10,6 +10,7 @@ import { DatePickerInput, MonthPickerInput } from '@enterprise-platform/shared-u
 import {
   FINANCE_VOUCHER_STATUSES,
   FINANCE_VOUCHER_STATUS_LABELS,
+  financeAllocationLabel,
   type FinanceAccount,
   type FinanceCatalogs,
   type FinanceVoucherKind,
@@ -22,6 +23,7 @@ import { buildCsv, downloadCsv } from '../finance-csv';
 import { dateVn, isMonth, money, monthLabel, monthRange, shiftMonth, todayVn, voucherCsvRows } from '../finance-format';
 import { FINANCE_KIND_CONFIG } from '../finance-kinds';
 import { useFinancePermissions } from '../finance-permissions';
+import { loadWorkspaceProjects, projectLabel, type WorkspaceProjectOption } from '../workspace-links';
 import { Button } from '../ui/button';
 import { Avatar, ErrorBanner, StatusBadge } from '../ui/form-parts';
 import { cn } from '../utils';
@@ -50,6 +52,9 @@ export default function VoucherListScreen({ kind }: { kind: FinanceVoucherKind }
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [accountId, setAccountId] = useState(params.get('accountId') ?? '');
   const [reasonId, setReasonId] = useState('');
+  const [projectId, setProjectId] = useState('');
+  // Dự án lấy từ Workspace; không có (Workspace tắt hoặc chưa kết nối) thì ẩn ô lọc dự án, danh sách vẫn chạy bình thường.
+  const [projects, setProjects] = useState<WorkspaceProjectOption[]>([]);
   // '' = tất cả thời gian. Chọn tháng thì khoảng ngày lấy theo tháng; ở chế độ "Tất cả" mới có ô Từ ngày / Đến ngày.
   const [month, setMonth] = useState(() => initialMonth(params.get('month')));
   const [from, setFrom] = useState('');
@@ -78,6 +83,7 @@ export default function VoucherListScreen({ kind }: { kind: FinanceVoucherKind }
         setCatalogs(loadedCatalogs);
       })
       .catch(() => undefined);
+    if (kind !== 'TRANSFER') void loadWorkspaceProjects().then((result) => active && setProjects(result.items)).catch(() => undefined);
     return () => {
       active = false;
     };
@@ -88,7 +94,7 @@ export default function VoucherListScreen({ kind }: { kind: FinanceVoucherKind }
     setLoading(true);
     try {
       const result = await financeFetch<FinanceVoucherList>(
-        `/vouchers${toQuery({ kind, status, scope: scope === 'all' ? undefined : scope, search: debouncedSearch, accountId, reasonId, from: range.from, to: range.to, page, pageSize })}`,
+        `/vouchers${toQuery({ kind, status, scope: scope === 'all' ? undefined : scope, search: debouncedSearch, accountId, reasonId, projectId, from: range.from, to: range.to, page, pageSize })}`,
       );
       if (mine !== sequence.current) return;
       setData(result);
@@ -98,7 +104,7 @@ export default function VoucherListScreen({ kind }: { kind: FinanceVoucherKind }
     } finally {
       if (mine === sequence.current) setLoading(false);
     }
-  }, [kind, status, scope, debouncedSearch, accountId, reasonId, range.from, range.to, page, pageSize]);
+  }, [kind, status, scope, debouncedSearch, accountId, reasonId, projectId, range.from, range.to, page, pageSize]);
 
   useEffect(() => {
     void load();
@@ -171,6 +177,13 @@ export default function VoucherListScreen({ kind }: { kind: FinanceVoucherKind }
       : [
           { title: 'Tài khoản', dataIndex: 'accountName', width: 180, ellipsis: true },
           { title: config.counterpartyLabel, dataIndex: 'counterpartyGroupName', width: 140, ellipsis: true },
+          {
+            title: 'Hạch toán',
+            key: 'allocation',
+            width: 220,
+            ellipsis: true,
+            render: (_: unknown, row: FinanceVoucherSummary) => (row.allocation ? financeAllocationLabel(row.allocation) : ''),
+          },
         ]),
     {
       title: 'Số tiền',
@@ -306,6 +319,11 @@ export default function VoucherListScreen({ kind }: { kind: FinanceVoucherKind }
             <div className="w-52">
               <SearchableSelect options={accountOptions} value={accountId} onChange={filter(setAccountId)} placeholder="Mọi tài khoản" clearable height={32} />
             </div>
+            {kind !== 'TRANSFER' && projects.length ? (
+              <div className="w-56">
+                <SearchableSelect options={projects.map((p) => ({ value: p.id, label: projectLabel(p) }))} value={projectId} onChange={filter(setProjectId)} placeholder="Mọi dự án" clearable height={32} />
+              </div>
+            ) : null}
             {kind !== 'TRANSFER' ? (
               <div className="w-52">
                 <SearchableSelect options={reasonOptions} value={reasonId} onChange={filter(setReasonId)} placeholder={`Mọi ${config.reasonLabel.toLowerCase()}`} clearable height={32} />

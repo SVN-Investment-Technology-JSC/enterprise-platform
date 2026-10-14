@@ -245,6 +245,8 @@ services:
       <<: [*database-environment, *platform-access-environment, *s3-environment]
       PORT: '3341'
       PROCEDURE_API_URL: http://procedure-api:3334/api/procedure
+      # Hạch toán thu chi cho dự án/công việc: tra cứu dự án, công việc của Workspace (chỉ đọc).
+      WORKSPACE_API_URL: http://workspace-api:3337/api/workspace
     depends_on:
       api:
         condition: service_healthy

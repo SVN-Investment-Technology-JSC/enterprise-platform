@@ -41,12 +41,12 @@ export async function financeReport(db: Db, tenantId: string, query: FinanceRepo
   if (query.to < query.from) throw invalid('Đến ngày phải sau hoặc bằng từ ngày.');
   if (spanDays(query.from, query.to) > 3660) throw invalid('Khoảng thời gian tối đa 10 năm.');
   const granularity = reportGranularity(query.from, query.to);
-  const params = [tenantId, query.from, query.to, query.accountId ?? null, query.costCenterId ?? null];
-  // Lọc theo tài khoản và đơn vị hạch toán (đơn vị chỉ có ở phiếu thu/chi).
+  const params = [tenantId, query.from, query.to, query.accountId ?? null, query.projectId ?? null];
+  // Lọc theo tài khoản và dự án hạch toán (hạch toán chỉ có ở phiếu thu/chi).
   const scope = `
     l.tenant_id = $1 AND l.posted_date BETWEEN $2::date AND $3::date
     AND ($4::uuid IS NULL OR l.account_id = $4::uuid)
-    AND ($5::uuid IS NULL OR v.cost_center_id = $5::uuid)`;
+    AND ($5::uuid IS NULL OR v.alloc_project_id = $5::uuid)`;
   const from = `FROM finance_schema.ledger_entries l JOIN finance_schema.vouchers v ON v.id = l.voucher_id`;
 
   const totalsRow = (
@@ -94,17 +94,21 @@ export async function financeReport(db: Db, tenantId: string, query: FinanceRepo
         )
       ).rows as Row[],
     );
-  const byCostCenter = emptyBreakdown(
-    (
-      await db.query(
-        `SELECT c.id, COALESCE(c.name, 'Chưa gắn đơn vị') AS name, -SUM(l.amount) AS amount, count(DISTINCT v.id) AS n
-           ${from} LEFT JOIN finance_schema.cost_centers c ON c.id = v.cost_center_id
-          WHERE ${scope} AND v.kind = 'PAYMENT'
-          GROUP BY c.id, c.name HAVING SUM(l.amount) <> 0 ORDER BY ABS(SUM(l.amount)) DESC`,
-        params,
-      )
-    ).rows as Row[],
-  );
+  // Theo dự án hạch toán (hạch toán cho công việc tính về dự án chứa nó); phiếu chưa hạch toán gom một dòng riêng.
+  const byProject = async (kind: 'RECEIPT' | 'PAYMENT') =>
+    emptyBreakdown(
+      (
+        await db.query(
+          `SELECT v.alloc_project_id AS id,
+                  COALESCE(MAX(v.alloc_project_code) || ' - ' || MAX(v.alloc_project_name), 'Chưa hạch toán') AS name,
+                  ${kind === 'RECEIPT' ? 'SUM(l.amount)' : '-SUM(l.amount)'} AS amount, count(DISTINCT v.id) AS n
+             ${from}
+            WHERE ${scope} AND v.kind = '${kind}'
+            GROUP BY v.alloc_project_id HAVING SUM(l.amount) <> 0 ORDER BY ABS(SUM(l.amount)) DESC`,
+          params,
+        )
+      ).rows as Row[],
+    );
 
   // Biến động theo tài khoản: số dư đầu = số dư đầu kỳ tài khoản + bút toán trước ngày bắt đầu báo cáo.
   const movement = (
@@ -121,7 +125,7 @@ export async function financeReport(db: Db, tenantId: string, query: FinanceRepo
         WHERE a.tenant_id = $1 AND ($4::uuid IS NULL OR a.id = $4::uuid)
         GROUP BY a.id, a.name, a.opening_balance, a.account_type
         ORDER BY a.account_type, a.name`,
-      // Truy vấn này không dùng đơn vị hạch toán ($5): truyền thừa tham số sẽ bị PostgreSQL từ chối.
+      // Truy vấn này không dùng dự án ($5): truyền thừa tham số sẽ bị PostgreSQL từ chối.
       params.slice(0, 4),
     )
   ).rows as Row[];
@@ -158,7 +162,8 @@ export async function financeReport(db: Db, tenantId: string, query: FinanceRepo
     cashflow,
     receiptsByReason: await byReason('RECEIPT'),
     paymentsByReason: await byReason('PAYMENT'),
-    paymentsByCostCenter: byCostCenter,
+    receiptsByProject: await byProject('RECEIPT'),
+    paymentsByProject: await byProject('PAYMENT'),
     accounts,
   };
 }

@@ -1,11 +1,11 @@
 'use client';
 
-import { useId, type ReactNode } from 'react';
+import { useId, useLayoutEffect, useRef, type ReactNode } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { useState } from 'react';
 import { FINANCE_VOUCHER_STATUS_LABELS, type FinanceVoucherStatus } from '@enterprise-platform/contracts-finance';
 import { FINANCE_STATUS_STYLE } from '../finance-kinds';
-import { money, parseMoneyInput } from '../finance-format';
+import { money, reformatMoneyInput } from '../finance-format';
 import { cn } from '../utils';
 
 /** Nhãn + ô nhập + thông báo lỗi; `htmlFor` gắn tự động qua render prop để đọc màn hình đúng. */
@@ -66,13 +66,18 @@ export function FormSection({ title, defaultOpen = true, children }: { title: st
   );
 }
 
-/** Ô nhập tiền: hiện phân cách hàng nghìn, giá trị là số nguyên VND, căn phải. */
+/**
+ * Ô nhập tiền: định dạng phân cách hàng nghìn NGAY khi gõ hoặc dán ("1500000" hiện "1.500.000"), giá trị là số nguyên VND, căn phải.
+ * Con trỏ giữ đúng chỗ khi sửa giữa chuỗi. Mọi ô số tiền của Tài chính dùng đúng component này.
+ * `allowNegative`: cho gõ dấu trừ ở đầu (số dư đầu kỳ của tài khoản được phép âm).
+ */
 export function MoneyInput({
   value,
   onChange,
   id,
   placeholder = 'Số tiền',
   disabled,
+  allowNegative = false,
   className,
   'aria-label': ariaLabel,
 }: {
@@ -81,19 +86,50 @@ export function MoneyInput({
   id?: string;
   placeholder?: string;
   disabled?: boolean;
+  allowNegative?: boolean;
   className?: string;
   'aria-label'?: string;
 }) {
+  const ref = useRef<HTMLInputElement>(null);
+  const caret = useRef<number | null>(null);
+  // Dấu trừ mới gõ (giá trị vẫn 0): phải là state để ô vẽ lại và giữ "-" thay vì bị React xoá về rỗng.
+  const [minus, setMinus] = useState(false);
+  const shown = value ? money(value) : minus ? '-' : '';
+
+  // Sau khi React ghi lại giá trị, đặt con trỏ về vị trí đã tính (React tự đưa con trỏ về cuối nếu chuỗi hiển thị đổi).
+  useLayoutEffect(() => {
+    const input = ref.current;
+    if (input && caret.current !== null && document.activeElement === input) input.setSelectionRange(caret.current, caret.current);
+    caret.current = null;
+  });
+
   return (
     <input
+      ref={ref}
       id={id}
       aria-label={ariaLabel}
-      inputMode="numeric"
+      inputMode={allowNegative ? 'text' : 'numeric'}
       autoComplete="off"
       disabled={disabled}
       placeholder={placeholder}
-      value={value ? money(value) : ''}
-      onChange={(event) => onChange(parseMoneyInput(event.target.value))}
+      value={shown}
+      onChange={(event) => {
+        const input = event.target;
+        const update = reformatMoneyInput(input.value, input.selectionStart ?? input.value.length, allowNegative);
+        if (!update) {
+          // Quá dài: giữ số cũ, con trỏ lùi lại đúng một ký tự vừa gõ.
+          const position = Math.max(0, (input.selectionStart ?? shown.length) - 1);
+          input.value = shown;
+          input.setSelectionRange(position, position);
+          return;
+        }
+        setMinus(update.pendingMinus);
+        caret.current = update.caret;
+        // Ghi ngay vào ô: nếu giá trị số không đổi (gõ chữ, gõ thêm dấu chấm) React không vẽ lại và sẽ để con trỏ nhảy về cuối.
+        input.value = update.display;
+        input.setSelectionRange(update.caret, update.caret);
+        onChange(update.value);
+      }}
       className={cn(
         'h-8 w-full min-w-0 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-right text-sm tabular-nums outline-none placeholder:text-slate-400 focus-visible:border-accent-strong focus-visible:ring-2 focus-visible:ring-accent-soft disabled:cursor-not-allowed disabled:bg-slate-100 disabled:opacity-60',
         className,

@@ -188,23 +188,9 @@ export interface SaveFinanceCounterpartyGroupRequest {
   isActive?: boolean;
 }
 
-/** Trung tâm chi phí / đơn vị hạch toán nội bộ. */
-export interface FinanceCostCenter {
-  id: string;
-  code: string;
-  name: string;
-  isActive: boolean;
-}
-export interface SaveFinanceCostCenterRequest {
-  code: string;
-  name: string;
-  isActive?: boolean;
-}
-
 export interface FinanceCatalogs {
   reasons: FinanceReason[];
   counterpartyGroups: FinanceCounterpartyGroup[];
-  costCenters: FinanceCostCenter[];
 }
 
 /* ------------------------------- Phiếu ------------------------------- */
@@ -227,12 +213,46 @@ export interface FinanceVoucherInvoice {
   amount: number;
 }
 
-export interface FinanceVoucherRelated {
-  id?: string;
-  /** VOUCHER: trỏ tới một phiếu khác; REFERENCE: tham chiếu tự do (số hợp đồng, mã dự án...). */
-  kind: 'VOUCHER' | 'REFERENCE';
-  voucherId?: string | null;
-  label: string;
+/**
+ * Hạch toán nội bộ của phiếu thu/chi: tiền thuộc về một dự án hoặc một công việc của dự án (Workspace).
+ * Chỉ phần này được cộng vào tổng thu chi của dự án. Mã và tên là bản chụp lúc gắn, do Workspace xác nhận khi lưu phiếu.
+ */
+export type FinanceAllocationType = 'PROJECT' | 'WORK_ITEM';
+export const FINANCE_ALLOCATION_LABELS: Readonly<Record<FinanceAllocationType, string>> = {
+  PROJECT: 'Hạch toán cho dự án',
+  WORK_ITEM: 'Hạch toán cho công việc',
+};
+
+export interface FinanceAllocation {
+  type: FinanceAllocationType;
+  projectId: string;
+  projectCode: string;
+  projectName: string;
+  workItemId: string | null;
+  workItemCode: string | null;
+  workItemTitle: string | null;
+}
+
+/** Nhãn gọn của hạch toán: "DA001 - Tên dự án" hoặc "CV-12 - Tên công việc (DA001)". */
+export function financeAllocationLabel(allocation: Pick<FinanceAllocation, 'type' | 'projectCode' | 'projectName' | 'workItemCode' | 'workItemTitle'>): string {
+  const project = `${allocation.projectCode} - ${allocation.projectName}`;
+  if (allocation.type === 'WORK_ITEM') return `${allocation.workItemCode ?? ''} - ${allocation.workItemTitle ?? ''} (${allocation.projectCode})`;
+  return project;
+}
+
+/** Dự án liên quan: chỉ để tham chiếu, không cộng vào tổng thu chi của dự án. */
+export interface FinanceRelatedProject {
+  projectId: string;
+  projectCode: string;
+  projectName: string;
+}
+
+/** Yêu cầu gắn hạch toán; mã/tên không nhận từ client mà lấy từ Workspace. */
+export interface FinanceAllocationInput {
+  type: FinanceAllocationType;
+  projectId: string;
+  /** Bắt buộc khi `type = 'WORK_ITEM'`; phải thuộc đúng `projectId`. */
+  workItemId?: string | null;
 }
 
 export interface FinanceVoucherAttachment {
@@ -300,14 +320,16 @@ export interface FinanceVoucherSummary {
   decidedAt: string | null;
   /** Đang chạy qua quy trình duyệt (Procedure) hay duyệt trực tiếp. */
   approvalMode: FinanceApprovalMode;
+  /** Hạch toán nội bộ, hiển thị ở danh sách. */
+  allocation: FinanceAllocation | null;
 }
 
 export interface FinanceVoucher extends FinanceVoucherSummary {
   counterpartyGroupId: string | null;
   counterpartyAccountNo: string | null;
   counterpartyBank: string | null;
-  costCenterId: string | null;
-  costCenterName: string | null;
+  /** Hạch toán nội bộ (null: chưa hạch toán). Lệnh chuyển tiền không có. */
+  allocation: FinanceAllocation | null;
   taxIncluded: boolean;
   taxRate: number;
   /** Phần thuế trong tổng tiền khi "Bao gồm thuế". */
@@ -319,7 +341,7 @@ export interface FinanceVoucher extends FinanceVoucherSummary {
   revision: number;
   lines: FinanceVoucherLine[];
   invoices: FinanceVoucherInvoice[];
-  related: FinanceVoucherRelated[];
+  relatedProjects: FinanceRelatedProject[];
   attachments: FinanceVoucherAttachment[];
   events: FinanceVoucherEvent[];
   /** Phiếu đã ghi sổ: tiền đã vào/ra tài khoản. */
@@ -356,7 +378,8 @@ export interface SaveFinanceVoucherRequest {
   counterpartyName?: string | null;
   counterpartyAccountNo?: string | null;
   counterpartyBank?: string | null;
-  costCenterId?: string | null;
+  /** Hạch toán nội bộ cho dự án/công việc (phiếu thu/chi). */
+  allocation?: FinanceAllocationInput | null;
   taxIncluded?: boolean;
   taxRate?: number;
   note?: string | null;
@@ -364,7 +387,8 @@ export interface SaveFinanceVoucherRequest {
   amount?: number;
   lines?: FinanceVoucherLine[];
   invoices?: FinanceVoucherInvoice[];
-  related?: FinanceVoucherRelated[];
+  /** Id dự án liên quan (tham chiếu, không cộng vào tổng của dự án). */
+  relatedProjectIds?: string[];
   /** Phiên bản đang sửa, để phát hiện sửa chồng. */
   revision?: number;
 }
@@ -375,7 +399,8 @@ export interface FinanceVoucherListQuery {
   search?: string;
   accountId?: string;
   reasonId?: string;
-  costCenterId?: string;
+  /** Phiếu hạch toán cho dự án này (kể cả công việc thuộc dự án). */
+  projectId?: string;
   from?: string;
   to?: string;
   /** Chỉ phiếu của tôi / chỉ phiếu chờ tôi duyệt. */
@@ -462,7 +487,8 @@ export interface FinanceReportQuery {
   from: string;
   to: string;
   accountId?: string;
-  costCenterId?: string;
+  /** Chỉ phiếu hạch toán cho dự án này. */
+  projectId?: string;
 }
 
 export interface FinanceCashflowPoint {
@@ -499,7 +525,9 @@ export interface FinanceReport {
   cashflow: FinanceCashflowPoint[];
   receiptsByReason: FinanceBreakdownRow[];
   paymentsByReason: FinanceBreakdownRow[];
-  paymentsByCostCenter: FinanceBreakdownRow[];
+  /** Theo dự án hạch toán (công việc gộp về dự án chứa nó); phiếu chưa hạch toán gộp vào "Chưa hạch toán". */
+  receiptsByProject: FinanceBreakdownRow[];
+  paymentsByProject: FinanceBreakdownRow[];
   accounts: FinanceAccountMovement[];
 }
 
@@ -588,4 +616,30 @@ export function formatFinanceVoucherCode(kind: FinanceVoucherKind, sequence: num
 
 export function formatFinanceMoney(value: number): string {
   return new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 2 }).format(value);
+}
+
+/* ----------------- Phiếu của dự án (Workspace đọc qua API nội bộ) ----------------- */
+
+/** Phiếu hiển thị trên trang dự án. Chỉ dữ kiện cần thiết: không tài khoản ngân hàng, không người nộp/nhận tiền. */
+export interface FinanceProjectVoucher {
+  id: string;
+  kind: FinanceVoucherKind;
+  code: string;
+  voucherDate: string;
+  content: string;
+  reasonName: string | null;
+  status: FinanceVoucherStatus;
+  totalAmount: number;
+  /** ALLOCATION: hạch toán cho dự án/công việc của dự án (được cộng vào tổng); RELATED: chỉ liên quan (không cộng). */
+  link: 'ALLOCATION' | 'RELATED';
+  workItem: { id: string; code: string; title: string } | null;
+  createdByName: string | null;
+}
+
+export interface FinanceProjectVoucherList {
+  items: FinanceProjectVoucher[];
+  /** Chỉ tính phiếu HẠCH TOÁN cho dự án, theo trạng thái: đã duyệt là đã ghi sổ, chờ duyệt chưa ghi sổ. */
+  totals: { received: number; paid: number; pendingReceived: number; pendingPaid: number; receiptCount: number; paymentCount: number };
+  /** Có phiếu nhiều hơn số trả về (trần danh sách). */
+  truncated: boolean;
 }

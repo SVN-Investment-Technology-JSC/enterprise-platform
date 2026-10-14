@@ -1,10 +1,8 @@
 import type {
   FinanceCatalogs,
-  FinanceCostCenter,
   FinanceCounterpartyGroup,
   FinanceReason,
   FinanceSettings,
-  SaveFinanceCostCenterRequest,
   SaveFinanceCounterpartyGroupRequest,
   SaveFinanceReasonRequest,
   SaveFinanceSettingsRequest,
@@ -58,25 +56,17 @@ const mapGroup = (row: Row): FinanceCounterpartyGroup => ({
   name: String(row.name),
   isActive: Boolean(row.is_active),
 });
-const mapCenter = (row: Row): FinanceCostCenter => ({
-  id: String(row.id),
-  code: String(row.code),
-  name: String(row.name),
-  isActive: Boolean(row.is_active),
-});
 
 export async function listCatalogs(db: Db, tenantId: string, includeInactive: boolean): Promise<FinanceCatalogs> {
   await ensureDefaults(db, tenantId);
   const active = includeInactive ? '' : 'AND is_active';
-  const [reasons, groups, centers] = await Promise.all([
+  const [reasons, groups] = await Promise.all([
     db.query(`SELECT * FROM finance_schema.reasons WHERE tenant_id=$1 ${active} ORDER BY kind, name`, [tenantId]),
     db.query(`SELECT * FROM finance_schema.counterparty_groups WHERE tenant_id=$1 ${active} ORDER BY name`, [tenantId]),
-    db.query(`SELECT * FROM finance_schema.cost_centers WHERE tenant_id=$1 ${active} ORDER BY name`, [tenantId]),
   ]);
   return {
     reasons: (reasons.rows as Row[]).map(mapReason),
     counterpartyGroups: (groups.rows as Row[]).map(mapGroup),
-    costCenters: (centers.rows as Row[]).map(mapCenter),
   };
 }
 
@@ -153,26 +143,6 @@ export async function saveCounterpartyGroup(
     ).rows[0] as Row | undefined;
     if (!row) throw notFound('đối tượng');
     return mapGroup(row);
-  });
-}
-
-export async function saveCostCenter(db: Db, tenantId: string, id: string | null, input: SaveFinanceCostCenterRequest): Promise<FinanceCostCenter> {
-  const { code, name } = codeAndName(input, 'đơn vị hạch toán');
-  return guardedWrite(code, 'đơn vị hạch toán', async () => {
-    const row = (
-      id
-        ? await db.query(
-            `UPDATE finance_schema.cost_centers SET code=$3, name=$4, is_active=COALESCE($5, is_active), updated_at=now()
-              WHERE tenant_id=$1 AND id=$2 RETURNING *`,
-            [tenantId, id, code, name, input.isActive ?? null],
-          )
-        : await db.query(
-            `INSERT INTO finance_schema.cost_centers (tenant_id, code, name, is_active) VALUES ($1,$2,$3,$4) RETURNING *`,
-            [tenantId, code, name, input.isActive !== false],
-          )
-    ).rows[0] as Row | undefined;
-    if (!row) throw notFound('đơn vị hạch toán');
-    return mapCenter(row);
   });
 }
 

@@ -8,11 +8,11 @@ import {
   type SaveFinanceApprovalBindingResponse,
   type FinanceCapabilities,
   type FinanceCatalogs,
-  type FinanceCostCenter,
   type FinanceCounterpartyGroup,
   type FinanceDashboard,
   type FinanceLedgerEntry,
   type FinancePage,
+  type FinanceProjectVoucherList,
   type FinanceReason,
   type FinanceReport,
   type FinanceReportQuery,
@@ -22,7 +22,6 @@ import {
   type FinanceVoucherList,
   type FinanceVoucherListQuery,
   type SaveFinanceAccountRequest,
-  type SaveFinanceCostCenterRequest,
   type SaveFinanceCounterpartyGroupRequest,
   type SaveFinanceReasonRequest,
   type SaveFinanceSettingsRequest,
@@ -44,11 +43,11 @@ import { accountLedger, getAccount, listAccounts, saveAccount, type LedgerQuery 
 import {
   listCatalogs,
   loadSettings,
-  saveCostCenter,
   saveCounterpartyGroup,
   saveReason,
   saveSettings,
 } from '../infrastructure/catalogs.store.js';
+import type { InternalProjectOptionList, InternalWorkItemOption } from '@enterprise-platform/contracts-workspace';
 import {
   FINANCE_STORAGE,
   attachmentDownload,
@@ -80,6 +79,8 @@ import {
   voucherOfLink,
 } from '../infrastructure/procedure-links.store.js';
 import { financeDashboard, financeReport } from '../infrastructure/reports.store.js';
+import { listWorkspaceProjects, listWorkspaceWorkItems, projectFinanceAccess } from '../infrastructure/workspace-api.js';
+import { resolveWorkspaceLinks } from '../infrastructure/workspace-links.js';
 import {
   approveVoucher,
   cancelVoucher,
@@ -91,13 +92,15 @@ import {
   canViewVoucher,
   createVoucher,
   deleteDraft,
+  listProjectVouchers,
   listVouchers,
+  loadStoredLinks,
   loadVoucherRecord,
   mapAttachment,
   mapEvent,
   mapInvoice,
   mapLine,
-  mapRelated,
+  mapRelatedProject,
   mapSummary,
   peekNextCode,
   taxAmountOf,
@@ -207,9 +210,34 @@ export class FinanceApplication {
     requirePermission(actor, 'finance.settings.manage', 'Bạn không có quyền cấu hình danh mục.');
     return this.database.transaction(actor.tenantId, (db) => saveCounterpartyGroup(db, actor.tenantId, id, input));
   }
-  async saveCostCenter(actor: FinanceActor, id: string | null, input: SaveFinanceCostCenterRequest): Promise<FinanceCostCenter> {
-    requirePermission(actor, 'finance.settings.manage', 'Bạn không có quyền cấu hình danh mục.');
-    return this.database.transaction(actor.tenantId, (db) => saveCostCenter(db, actor.tenantId, id, input));
+
+  /* ------------------- Dự án và công việc của Workspace ------------------- */
+
+  /** Dự án để chọn khi hạch toán / gắn liên quan. Cả tenant: kế toán không nhất thiết là thành viên dự án. */
+  async workspaceProjects(actor: FinanceActor, search: string | undefined): Promise<InternalProjectOptionList> {
+    this.capabilities(actor);
+    return listWorkspaceProjects(actor.tenantId, search);
+  }
+
+  async workspaceWorkItems(actor: FinanceActor, projectId: string): Promise<{ items: InternalWorkItemOption[] }> {
+    this.capabilities(actor);
+    if (!/^[0-9a-f-]{36}$/i.test(projectId)) throw invalid('Dự án không hợp lệ.');
+    const items = await listWorkspaceWorkItems(actor.tenantId, projectId);
+    if (!items) throw notFound('dự án');
+    return { items };
+  }
+
+  /**
+   * Phiếu thu/chi của một dự án cho tab "Thu chi" bên Workspace. Workspace quyết người này có được xem tài chính dự án
+   * (chủ nhiệm, quản lý, quản trị tenant); Tài chính thêm phạm vi xem phiếu của chính nó.
+   */
+  async projectVouchers(actor: FinanceActor, session: ForwardedSession, projectId: string): Promise<FinanceProjectVoucherList> {
+    this.capabilities(actor);
+    if (!/^[0-9a-f-]{36}$/i.test(projectId)) throw invalid('Dự án không hợp lệ.');
+    const access = await projectFinanceAccess(session, projectId);
+    if (access === 'NOT_FOUND') throw notFound('dự án');
+    if (access === 'FORBIDDEN') throw forbidden('Bạn không có quyền xem thu chi của dự án này.');
+    return listProjectVouchers(await this.database.pool(actor.tenantId), actor.tenantId, actor, projectId.toLowerCase());
   }
 
   async settings(actor: FinanceActor): Promise<FinanceSettings> {
@@ -271,8 +299,6 @@ export class FinanceApplication {
       counterpartyGroupId: optStr(row.counterparty_group_id),
       counterpartyAccountNo: optStr(row.counterparty_account_no),
       counterpartyBank: optStr(row.counterparty_bank),
-      costCenterId: optStr(row.cost_center_id),
-      costCenterName: optStr(row.cost_center_name),
       taxIncluded: Boolean(row.tax_included),
       taxRate: num(row.tax_rate),
       taxAmount: taxAmountOf(row),
@@ -283,7 +309,7 @@ export class FinanceApplication {
       revision: num(row.revision),
       lines: record.lines.map(mapLine),
       invoices: record.invoices.map(mapInvoice),
-      related: record.related.map(mapRelated),
+      relatedProjects: record.related.map(mapRelatedProject),
       attachments: record.attachments.map(mapAttachment),
       events: record.events.map(mapEvent),
       posted: Boolean(row.posted_at),
@@ -295,14 +321,18 @@ export class FinanceApplication {
   async createVoucher(actor: FinanceActor, input: SaveFinanceVoucherRequest): Promise<FinanceVoucher> {
     const voucher = normalizeVoucherInput(input);
     if (!canCreate(actor, voucher.kind)) throw forbidden('Bạn không có quyền lập loại phiếu này.');
-    const id = await this.database.transaction(actor.tenantId, (db) => createVoucher(db, actor.tenantId, actor, voucher));
+    // Hỏi Workspace trước và NGOÀI giao dịch: không giữ kết nối cơ sở dữ liệu trong lúc chờ mạng.
+    const links = await resolveWorkspaceLinks(actor.tenantId, voucher, null);
+    const id = await this.database.transaction(actor.tenantId, (db) => createVoucher(db, actor.tenantId, actor, voucher, links));
     return this.voucher(actor, id);
   }
 
   async updateVoucher(actor: FinanceActor, id: string, input: SaveFinanceVoucherRequest): Promise<FinanceVoucher> {
     const voucher = normalizeVoucherInput(input);
     if (!canCreate(actor, voucher.kind)) throw forbidden('Bạn không có quyền lập loại phiếu này.');
-    await this.database.transaction(actor.tenantId, (db) => updateVoucher(db, actor.tenantId, actor, id, voucher, input.revision));
+    const stored = await loadStoredLinks(await this.database.pool(actor.tenantId), actor.tenantId, id);
+    const links = await resolveWorkspaceLinks(actor.tenantId, voucher, stored);
+    await this.database.transaction(actor.tenantId, (db) => updateVoucher(db, actor.tenantId, actor, id, voucher, input.revision, links));
     return this.voucher(actor, id);
   }
 

@@ -73,20 +73,87 @@ describe('normalizeVoucherInput', () => {
     expect(v.lines).toEqual([]);
   });
 
-  it('thuế suất chỉ giữ khi bật "Bao gồm thuế"; hoá đơn và đối tượng liên quan được kiểm', () => {
+  it('thuế suất chỉ giữ khi bật "Bao gồm thuế"; hoá đơn được kiểm', () => {
     expect(normalizeVoucherInput(receipt({ taxIncluded: false, taxRate: 8 })).taxRate).toBe(0);
     expect(normalizeVoucherInput(receipt({ taxIncluded: true, taxRate: 8 })).taxRate).toBe(8);
     expect(() => normalizeVoucherInput(receipt({ taxIncluded: true, taxRate: 120 }))).toThrow(/100%/);
     expect(() => normalizeVoucherInput(receipt({ invoices: [{ invoiceNo: '', invoiceDate: null, taxCode: null, amount: 1 }] }))).toThrow(/số hoá đơn/);
-    expect(() => normalizeVoucherInput(receipt({ related: [{ kind: 'VOUCHER', label: 'x' }] }))).toThrow(/thiếu phiếu/);
-    const ok = normalizeVoucherInput(
-      receipt({
-        invoices: [{ invoiceNo: ' HD01 ', invoiceDate: '2026-10-01', taxCode: null, amount: 10 }],
-        related: [{ kind: 'REFERENCE', label: ' HĐ 12/2026 ' }],
-      }),
-    );
+    const ok = normalizeVoucherInput(receipt({ invoices: [{ invoiceNo: ' HD01 ', invoiceDate: '2026-10-01', taxCode: null, amount: 10 }] }));
     expect(ok.invoices[0].invoiceNo).toBe('HD01');
-    expect(ok.related[0].label).toBe('HĐ 12/2026');
+  });
+});
+
+describe('hạch toán cho dự án/công việc và dự án liên quan', () => {
+  const P1 = ID(11).toUpperCase();
+  const P2 = ID(12);
+  const W1 = ID(21);
+
+  it('mặc định không hạch toán, không dự án liên quan', () => {
+    expect(normalizeVoucherInput(receipt())).toMatchObject({ allocation: null, relatedProjectIds: [] });
+  });
+
+  it('hạch toán cho dự án: chỉ cần dự án, id chuẩn hoá chữ thường', () => {
+    const v = normalizeVoucherInput(receipt({ allocation: { type: 'PROJECT', projectId: P1 } }));
+    expect(v.allocation).toEqual({ type: 'PROJECT', projectId: ID(11), workItemId: null });
+  });
+
+  it('hạch toán cho công việc: bắt buộc công việc; hạch toán cho dự án không được kèm công việc', () => {
+    expect(normalizeVoucherInput(receipt({ allocation: { type: 'WORK_ITEM', projectId: P2, workItemId: W1 } })).allocation).toEqual({
+      type: 'WORK_ITEM',
+      projectId: P2,
+      workItemId: W1,
+    });
+    expect(() => normalizeVoucherInput(receipt({ allocation: { type: 'WORK_ITEM', projectId: P2 } }))).toThrow(/công việc/);
+    expect(() => normalizeVoucherInput(receipt({ allocation: { type: 'PROJECT', projectId: P2, workItemId: W1 } }))).toThrow(/không kèm công việc/);
+  });
+
+  it('từ chối hình thức lạ, thiếu dự án và id không hợp lệ', () => {
+    expect(() => normalizeVoucherInput(receipt({ allocation: { type: 'TEAM' as never, projectId: P2 } }))).toThrow(/Hình thức hạch toán/);
+    expect(() => normalizeVoucherInput(receipt({ allocation: { type: 'PROJECT', projectId: '' } }))).toThrow(/Chọn dự án/);
+    expect(() => normalizeVoucherInput(receipt({ allocation: { type: 'PROJECT', projectId: 'abc' } }))).toThrow(/không hợp lệ/);
+    expect(() => normalizeVoucherInput(receipt({ allocation: { type: 'WORK_ITEM', projectId: P2, workItemId: 'abc' } }))).toThrow(/không hợp lệ/);
+  });
+
+  it('lệnh chuyển tiền không hạch toán cho dự án', () => {
+    expect(() =>
+      normalizeVoucherInput({
+        kind: 'TRANSFER',
+        voucherDate: '2026-10-14',
+        postingDate: '2026-10-14',
+        content: 'Chuyển quỹ',
+        accountId: ID(2),
+        destAccountId: ID(4),
+        amount: 1_000,
+        allocation: { type: 'PROJECT', projectId: P2 },
+      }),
+    ).toThrow(/Lệnh chuyển tiền không hạch toán/);
+  });
+
+  it('dự án liên quan: bỏ trùng, bỏ dự án đang hạch toán, kiểm id và giới hạn số lượng', () => {
+    const v = normalizeVoucherInput(
+      receipt({ allocation: { type: 'PROJECT', projectId: P2 }, relatedProjectIds: [P1, P1.toLowerCase(), P2, ID(13)] }),
+    );
+    expect(v.relatedProjectIds).toEqual([ID(11), ID(13)]);
+    expect(() => normalizeVoucherInput(receipt({ relatedProjectIds: ['abc'] }))).toThrow(/không hợp lệ/);
+    expect(() => normalizeVoucherInput(receipt({ relatedProjectIds: [''] }))).toThrow(/không hợp lệ/);
+    expect(() => normalizeVoucherInput(receipt({ relatedProjectIds: 'x' as never }))).toThrow(/không hợp lệ/);
+    const many = Array.from({ length: 51 }, (_, index) => ID(100 + index));
+    expect(() => normalizeVoucherInput(receipt({ relatedProjectIds: many }))).toThrow(/Tối đa 50/);
+  });
+
+  it('lệnh chuyển tiền vẫn gắn được dự án liên quan (chỉ tham chiếu)', () => {
+    const v = normalizeVoucherInput({
+      kind: 'TRANSFER',
+      voucherDate: '2026-10-14',
+      postingDate: '2026-10-14',
+      content: 'Chuyển quỹ',
+      accountId: ID(2),
+      destAccountId: ID(4),
+      amount: 1_000,
+      relatedProjectIds: [P1],
+    });
+    expect(v.allocation).toBeNull();
+    expect(v.relatedProjectIds).toEqual([ID(11)]);
   });
 });
 

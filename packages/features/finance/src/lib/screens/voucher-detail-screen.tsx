@@ -5,7 +5,9 @@ import { useRouter } from 'next/navigation';
 import { Ban, Check, Paperclip, Pencil, RefreshCw, Send, Trash2, Undo2, X } from 'lucide-react';
 import { Popconfirm, toast } from '@enterprise-platform/shared-ui';
 import {
+  FINANCE_ALLOCATION_LABELS,
   FINANCE_VOUCHER_EVENT_LABELS,
+  financeAllocationLabel,
   type FinanceProcedureProgress,
   type FinanceVoucher,
   type FinanceVoucherKind,
@@ -218,7 +220,12 @@ export default function VoucherDetailScreen({ kind, id }: { kind: FinanceVoucher
                     <Info label={config.personLabel}>{voucher.counterpartyName}</Info>
                     <Info label={config.personAccountLabel}>{voucher.counterpartyAccountNo}</Info>
                     <Info label={config.personBankLabel}>{voucher.counterpartyBank}</Info>
-                    <Info label="Hạch toán nội bộ">{voucher.costCenterName}</Info>
+                    <Info label="Hạch toán nội bộ">
+                      {voucher.allocation ? `${FINANCE_ALLOCATION_LABELS[voucher.allocation.type]}: ${financeAllocationLabel(voucher.allocation)}` : null}
+                    </Info>
+                    {voucher.allocation?.workItemId ? (
+                      <Info label="Dự án của công việc">{`${voucher.allocation.projectCode} - ${voucher.allocation.projectName}`}</Info>
+                    ) : null}
                   </>
                 )}
                 <Info label="Người tạo">{voucher.createdByName}</Info>
@@ -313,7 +320,7 @@ export default function VoucherDetailScreen({ kind, id }: { kind: FinanceVoucher
               </section>
             ) : null}
 
-            {voucher.note || voucher.related.length ? (
+            {voucher.note || voucher.relatedProjects.length ? (
               <section aria-label="Ghi chú và đối tượng liên quan" className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
                 {voucher.note ? (
                   <>
@@ -321,12 +328,12 @@ export default function VoucherDetailScreen({ kind, id }: { kind: FinanceVoucher
                     <p className="whitespace-pre-line text-sm text-slate-700">{voucher.note}</p>
                   </>
                 ) : null}
-                {voucher.related.length ? (
+                {voucher.relatedProjects.length ? (
                   <>
                     <h2 className="mt-3 mb-1 text-sm font-semibold text-slate-900">Đối tượng liên quan</h2>
                     <ul className="list-inside list-disc text-sm text-slate-700">
-                      {voucher.related.map((related) => (
-                        <li key={related.id}>{related.label}</li>
+                      {voucher.relatedProjects.map((project) => (
+                        <li key={project.projectId}>{`${project.projectCode} - ${project.projectName}`}</li>
                       ))}
                     </ul>
                   </>

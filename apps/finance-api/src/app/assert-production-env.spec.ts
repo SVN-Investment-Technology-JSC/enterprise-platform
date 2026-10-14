@@ -3,6 +3,7 @@ import { assertProductionEnvironment } from './assert-production-env';
 const complete = {
   NODE_ENV: 'production',
   PROCEDURE_API_URL: 'http://procedure-api:3334/api/procedure',
+  WORKSPACE_API_URL: 'http://workspace-api:3337/api/workspace',
   S3_INTERNAL_ENDPOINT: 'http://minio:9000',
   S3_PUBLIC_ENDPOINT: 'https://minio.example.com',
   S3_REGION: 'us-east-1',
@@ -23,5 +24,9 @@ describe('assertProductionEnvironment', () => {
 
   it('thiếu cấu hình thì nêu đúng tên biến còn thiếu', () => {
     expect(() => assertProductionEnvironment({ ...complete, S3_BUCKET: '', INTERNAL_SERVICE_TOKEN: ' ' })).toThrow(/S3_BUCKET, INTERNAL_SERVICE_TOKEN/);
+  });
+
+  it('thiếu địa chỉ Workspace thì không khởi động (hạch toán dự án/công việc cần tra cứu Workspace)', () => {
+    expect(() => assertProductionEnvironment({ ...complete, WORKSPACE_API_URL: '' })).toThrow(/WORKSPACE_API_URL/);
   });
 });

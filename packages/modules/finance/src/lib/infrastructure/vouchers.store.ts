@@ -2,6 +2,10 @@ import {
   FINANCE_VOUCHER_STATUSES,
   financeIncludedTax,
   formatFinanceVoucherCode,
+  type FinanceAllocation,
+  type FinanceProjectVoucher,
+  type FinanceProjectVoucherList,
+  type FinanceRelatedProject,
   type FinanceVoucherAttachment,
   type FinanceVoucherEvent,
   type FinanceVoucherEventAction,
@@ -9,7 +13,6 @@ import {
   type FinanceVoucherKind,
   type FinanceVoucherList,
   type FinanceVoucherListQuery,
-  type FinanceVoucherRelated,
   type FinanceVoucherStatus,
   type FinanceVoucherSummary,
 } from '@enterprise-platform/contracts-finance';
@@ -23,13 +26,26 @@ export type Row = QueryResultRow & Record<string, unknown>;
 
 export const VOUCHER_SELECT = `
   SELECT v.*, r.name AS reason_name, a.name AS account_name, d.name AS dest_account_name,
-         g.name AS group_name, c.name AS cost_center_name
+         g.name AS group_name
     FROM finance_schema.vouchers v
     LEFT JOIN finance_schema.reasons r ON r.id = v.reason_id
     LEFT JOIN finance_schema.accounts a ON a.id = v.account_id
     LEFT JOIN finance_schema.accounts d ON d.id = v.dest_account_id
-    LEFT JOIN finance_schema.counterparty_groups g ON g.id = v.counterparty_group_id
-    LEFT JOIN finance_schema.cost_centers c ON c.id = v.cost_center_id`;
+    LEFT JOIN finance_schema.counterparty_groups g ON g.id = v.counterparty_group_id`;
+
+/** Hạch toán lưu trên dòng phiếu; null khi chưa hạch toán. */
+export function mapAllocation(row: Row): FinanceAllocation | null {
+  if (!row.alloc_type) return null;
+  return {
+    type: row.alloc_type as FinanceAllocation['type'],
+    projectId: String(row.alloc_project_id),
+    projectCode: String(row.alloc_project_code ?? ''),
+    projectName: String(row.alloc_project_name ?? ''),
+    workItemId: optStr(row.alloc_work_item_id),
+    workItemCode: optStr(row.alloc_work_item_code),
+    workItemTitle: optStr(row.alloc_work_item_title),
+  };
+}
 
 export function mapSummary(row: Row): FinanceVoucherSummary {
   return {
@@ -56,7 +72,14 @@ export function mapSummary(row: Row): FinanceVoucherSummary {
     submittedAt: row.submitted_at ? iso(row.submitted_at) : null,
     decidedAt: row.decided_at ? iso(row.decided_at) : null,
     approvalMode: row.approval_mode as FinanceVoucherSummary['approvalMode'],
+    allocation: mapAllocation(row),
   };
+}
+
+/** Dự án/công việc đã được Workspace xác nhận (mã, tên) cùng một phiếu; được ghi nguyên văn vào phiếu. */
+export interface ResolvedWorkspaceLinks {
+  allocation: FinanceAllocation | null;
+  relatedProjects: FinanceRelatedProject[];
 }
 
 /** Cấp mã phiếu kế tiếp, tăng nguyên tử trong cùng giao dịch tạo phiếu. */
@@ -85,21 +108,25 @@ async function assertReferences(db: Db, tenantId: string, v: NormalizedVoucher):
     ['accounts', v.destAccountId, 'Tài khoản đích'],
     ['reasons', v.reasonId, 'Lý do'],
     ['counterparty_groups', v.counterpartyGroupId, 'Đối tượng'],
-    ['cost_centers', v.costCenterId, 'Đơn vị hạch toán'],
   ];
   for (const [table, id, label] of checks) {
     if (!id) continue;
     const found = await db.query(`SELECT 1 FROM finance_schema.${table} WHERE tenant_id=$1 AND id=$2`, [tenantId, id]);
     if (!found.rows.length) throw invalid(`${label} không tồn tại.`);
   }
-  for (const related of v.related) {
-    if (related.kind !== 'VOUCHER' || !related.voucherId) continue;
-    const found = await db.query(`SELECT 1 FROM finance_schema.vouchers WHERE tenant_id=$1 AND id=$2`, [tenantId, related.voucherId]);
-    if (!found.rows.length) throw invalid('Phiếu liên quan không tồn tại.');
-  }
 }
 
-async function replaceChildren(db: Db, tenantId: string, voucherId: string, v: NormalizedVoucher): Promise<void> {
+/** Hạch toán và dự án liên quan đang lưu của một phiếu, để lưu lại mà không phải hỏi Workspace khi chúng không đổi. */
+export async function loadStoredLinks(db: Db, tenantId: string, voucherId: string): Promise<ResolvedWorkspaceLinks | null> {
+  const row = (await db.query(`SELECT * FROM finance_schema.vouchers WHERE tenant_id=$1 AND id=$2`, [tenantId, voucherId])).rows[0] as Row | undefined;
+  if (!row) return null;
+  const related = (
+    await db.query(`SELECT * FROM finance_schema.voucher_related WHERE voucher_id=$1 AND kind='PROJECT' ORDER BY project_code`, [voucherId])
+  ).rows as Row[];
+  return { allocation: mapAllocation(row), relatedProjects: related.map(mapRelatedProject) };
+}
+
+async function replaceChildren(db: Db, tenantId: string, voucherId: string, v: NormalizedVoucher, links: ResolvedWorkspaceLinks): Promise<void> {
   await db.query(`DELETE FROM finance_schema.voucher_lines WHERE voucher_id=$1`, [voucherId]);
   await db.query(`DELETE FROM finance_schema.voucher_invoices WHERE voucher_id=$1`, [voucherId]);
   await db.query(`DELETE FROM finance_schema.voucher_related WHERE voucher_id=$1`, [voucherId]);
@@ -113,13 +140,17 @@ async function replaceChildren(db: Db, tenantId: string, voucherId: string, v: N
       `INSERT INTO finance_schema.voucher_invoices (tenant_id, voucher_id, invoice_no, invoice_date, tax_code, amount) VALUES ($1,$2,$3,$4,$5,$6)`,
       [tenantId, voucherId, invoice.invoiceNo, invoice.invoiceDate, invoice.taxCode, invoice.amount],
     );
-  for (const related of v.related) {
-    if (related.voucherId === voucherId) throw invalid('Phiếu không thể liên quan tới chính nó.');
+  for (const project of links.relatedProjects)
     await db.query(
-      `INSERT INTO finance_schema.voucher_related (tenant_id, voucher_id, kind, related_voucher_id, label) VALUES ($1,$2,$3,$4,$5)`,
-      [tenantId, voucherId, related.kind, related.voucherId, related.label],
+      `INSERT INTO finance_schema.voucher_related (tenant_id, voucher_id, kind, project_id, project_code, project_name, label) VALUES ($1,$2,'PROJECT',$3,$4,$5,$6)`,
+      [tenantId, voucherId, project.projectId, project.projectCode, project.projectName, `${project.projectCode} - ${project.projectName}`],
     );
-  }
+}
+
+/** Cột hạch toán theo thứ tự cố định: type, project id/code/name, work item id/code/title. */
+function allocationColumns(links: ResolvedWorkspaceLinks): (string | null)[] {
+  const a = links.allocation;
+  return a ? [a.type, a.projectId, a.projectCode, a.projectName, a.workItemId, a.workItemCode, a.workItemTitle] : [null, null, null, null, null, null, null];
 }
 
 export async function addEvent(
@@ -136,25 +167,27 @@ export async function addEvent(
   );
 }
 
-export async function createVoucher(db: Db, tenantId: string, actor: FinanceActor, v: NormalizedVoucher): Promise<string> {
+export async function createVoucher(db: Db, tenantId: string, actor: FinanceActor, v: NormalizedVoucher, links: ResolvedWorkspaceLinks): Promise<string> {
   await assertReferences(db, tenantId, v);
   const code = await allocateCode(db, tenantId, v.kind, v.voucherDate);
   const row = (
     await db.query(
       `INSERT INTO finance_schema.vouchers
          (tenant_id, kind, code, voucher_date, posting_date, content, reason_id, account_id, dest_account_id, counterparty_group_id,
-          counterparty_name, counterparty_account_no, counterparty_bank, cost_center_id, tax_included, tax_rate, total_amount, note,
-          created_by, created_by_name)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) RETURNING id`,
+          counterparty_name, counterparty_account_no, counterparty_bank, tax_included, tax_rate, total_amount, note,
+          created_by, created_by_name,
+          alloc_type, alloc_project_id, alloc_project_code, alloc_project_name, alloc_work_item_id, alloc_work_item_code, alloc_work_item_title)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26) RETURNING id`,
       [
         tenantId, v.kind, code, v.voucherDate, v.postingDate, v.content, v.reasonId, v.accountId, v.destAccountId, v.counterpartyGroupId,
-        v.counterpartyName, v.counterpartyAccountNo, v.counterpartyBank, v.costCenterId, v.taxIncluded, v.taxRate, v.totalAmount, v.note,
+        v.counterpartyName, v.counterpartyAccountNo, v.counterpartyBank, v.taxIncluded, v.taxRate, v.totalAmount, v.note,
         actor.userId, actor.displayName,
+        ...allocationColumns(links),
       ],
     )
   ).rows[0] as Row;
   const id = String(row.id);
-  await replaceChildren(db, tenantId, id, v);
+  await replaceChildren(db, tenantId, id, v, links);
   await addEvent(db, tenantId, id, 'CREATED', actor);
   return id;
 }
@@ -167,6 +200,7 @@ export async function updateVoucher(
   id: string,
   v: NormalizedVoucher,
   revision: number | undefined,
+  links: ResolvedWorkspaceLinks,
 ): Promise<void> {
   const current = (await db.query(`SELECT * FROM finance_schema.vouchers WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, [tenantId, id])).rows[0] as
     | Row
@@ -180,16 +214,20 @@ export async function updateVoucher(
   await assertReferences(db, tenantId, v);
   await db.query(
     `UPDATE finance_schema.vouchers SET voucher_date=$3, posting_date=$4, content=$5, reason_id=$6, account_id=$7, dest_account_id=$8,
-            counterparty_group_id=$9, counterparty_name=$10, counterparty_account_no=$11, counterparty_bank=$12, cost_center_id=$13,
-            tax_included=$14, tax_rate=$15, total_amount=$16, note=$17, status='DRAFT', revision=revision+1,
+            counterparty_group_id=$9, counterparty_name=$10, counterparty_account_no=$11, counterparty_bank=$12,
+            tax_included=$13, tax_rate=$14, total_amount=$15, note=$16,
+            alloc_type=$17, alloc_project_id=$18, alloc_project_code=$19, alloc_project_name=$20,
+            alloc_work_item_id=$21, alloc_work_item_code=$22, alloc_work_item_title=$23,
+            status='DRAFT', revision=revision+1,
             submitted_at=NULL, submitted_by=NULL, decided_at=NULL, decided_by=NULL, decided_by_name=NULL, decision_note=NULL, updated_at=now()
       WHERE tenant_id=$1 AND id=$2`,
     [
       tenantId, id, v.voucherDate, v.postingDate, v.content, v.reasonId, v.accountId, v.destAccountId, v.counterpartyGroupId,
-      v.counterpartyName, v.counterpartyAccountNo, v.counterpartyBank, v.costCenterId, v.taxIncluded, v.taxRate, v.totalAmount, v.note,
+      v.counterpartyName, v.counterpartyAccountNo, v.counterpartyBank, v.taxIncluded, v.taxRate, v.totalAmount, v.note,
+      ...allocationColumns(links),
     ],
   );
-  await replaceChildren(db, tenantId, id, v);
+  await replaceChildren(db, tenantId, id, v, links);
   await addEvent(db, tenantId, id, 'UPDATED', actor, current.status === 'REJECTED' ? 'Sửa phiếu bị từ chối' : null);
 }
 
@@ -217,11 +255,7 @@ export async function loadVoucherRecord(db: Db, tenantId: string, id: string): P
   const [lines, invoices, related, attachments, events] = await Promise.all([
     db.query(`SELECT * FROM finance_schema.voucher_lines WHERE voucher_id=$1 ORDER BY line_no`, [id]),
     db.query(`SELECT * FROM finance_schema.voucher_invoices WHERE voucher_id=$1 ORDER BY invoice_no`, [id]),
-    db.query(
-      `SELECT rel.*, t.code AS target_code FROM finance_schema.voucher_related rel
-         LEFT JOIN finance_schema.vouchers t ON t.id = rel.related_voucher_id WHERE rel.voucher_id=$1 ORDER BY rel.label`,
-      [id],
-    ),
+    db.query(`SELECT * FROM finance_schema.voucher_related WHERE voucher_id=$1 AND kind='PROJECT' ORDER BY project_code`, [id]),
     db.query(`SELECT * FROM finance_schema.voucher_attachments WHERE voucher_id=$1 AND deleted_at IS NULL AND status='READY' ORDER BY uploaded_at`, [id]),
     db.query(`SELECT * FROM finance_schema.voucher_events WHERE voucher_id=$1 ORDER BY created_at, id`, [id]),
   ]);
@@ -250,11 +284,10 @@ export const mapInvoice = (row: Row): FinanceVoucherInvoice => ({
   taxCode: optStr(row.tax_code),
   amount: num(row.amount),
 });
-export const mapRelated = (row: Row): FinanceVoucherRelated => ({
-  id: String(row.id),
-  kind: row.kind as FinanceVoucherRelated['kind'],
-  voucherId: optStr(row.related_voucher_id),
-  label: String(row.label),
+export const mapRelatedProject = (row: Row): FinanceRelatedProject => ({
+  projectId: String(row.project_id),
+  projectCode: String(row.project_code ?? ''),
+  projectName: String(row.project_name ?? ''),
 });
 export const mapAttachment = (row: Row): FinanceVoucherAttachment => ({
   id: String(row.id),
@@ -316,7 +349,7 @@ export async function listVouchers(
     where.push(`(v.account_id = $${params.length} OR v.dest_account_id = $${params.length})`);
   }
   if (query.reasonId) add('v.reason_id = ?', query.reasonId);
-  if (query.costCenterId) add('v.cost_center_id = ?', query.costCenterId);
+  if (query.projectId) add('v.alloc_project_id = ?', query.projectId);
   if (query.from) {
     if (!isValidDate(query.from)) throw invalid('Từ ngày không hợp lệ.');
     add('v.voucher_date >= ?::date', query.from);
@@ -364,4 +397,78 @@ export async function listVouchers(
     )
   ).rows as Row[];
   return { items: rows.map(mapSummary), total, page, pageSize, statusCounts, approvedTotal, statusAmounts };
+}
+
+const PROJECT_LIST_LIMIT = 200;
+/** Chỉ phiếu đang có hiệu lực tiền: chờ duyệt và đã ghi sổ. Nháp, bị từ chối, đã huỷ (kể cả đã đảo) không phải tiền của dự án. */
+const PROJECT_STATUSES = ['PENDING', 'APPROVED'];
+
+/**
+ * Phiếu thu/chi gắn với một dự án, cho trang dự án bên Workspace.
+ *
+ * Người gọi đã được Workspace xác nhận xem được tài chính dự án; Tài chính vẫn áp phạm vi xem phiếu của chính nó
+ * (người chỉ có quyền lập phiếu chỉ thấy phiếu của mình) để không lộ phiếu của người khác. Tổng tiền chỉ tính phiếu
+ * HẠCH TOÁN cho dự án (kể cả công việc thuộc dự án); phiếu "liên quan" chỉ để tra cứu.
+ */
+export async function listProjectVouchers(db: Db, tenantId: string, actor: FinanceActor, projectId: string): Promise<FinanceProjectVoucherList> {
+  const params: unknown[] = [tenantId, projectId, PROJECT_STATUSES];
+  let visible = 'TRUE';
+  if (!canReadAll(actor)) {
+    params.push(actor.userId, approvableKinds(actor));
+    visible = `(v.created_by = $4 OR v.kind = ANY($5::text[]))`;
+  }
+  const scope = `v.tenant_id = $1 AND v.kind IN ('RECEIPT','PAYMENT') AND v.status = ANY($3::text[]) AND ${visible}`;
+
+  const totalsRows = (
+    await db.query(
+      `SELECT v.kind, v.status, count(*)::int AS n, COALESCE(SUM(v.total_amount),0) AS amount
+         FROM finance_schema.vouchers v WHERE ${scope} AND v.alloc_project_id = $2::uuid GROUP BY v.kind, v.status`,
+      params,
+    )
+  ).rows as Row[];
+  const totals = { received: 0, paid: 0, pendingReceived: 0, pendingPaid: 0, receiptCount: 0, paymentCount: 0 };
+  for (const row of totalsRows) {
+    const amount = num(row.amount);
+    const approved = row.status === 'APPROVED';
+    if (row.kind === 'RECEIPT') {
+      totals.receiptCount += num(row.n);
+      if (approved) totals.received += amount;
+      else totals.pendingReceived += amount;
+    } else {
+      totals.paymentCount += num(row.n);
+      if (approved) totals.paid += amount;
+      else totals.pendingPaid += amount;
+    }
+  }
+
+  const rows = (
+    await db.query(
+      `SELECT v.id, v.kind, v.code, v.voucher_date, v.content, v.status, v.total_amount, v.created_by_name,
+              v.alloc_work_item_id, v.alloc_work_item_code, v.alloc_work_item_title, r.name AS reason_name,
+              (v.alloc_project_id = $2::uuid) AS is_allocation
+         FROM finance_schema.vouchers v LEFT JOIN finance_schema.reasons r ON r.id = v.reason_id
+        WHERE ${scope}
+          AND (v.alloc_project_id = $2::uuid
+               OR EXISTS (SELECT 1 FROM finance_schema.voucher_related rel WHERE rel.voucher_id = v.id AND rel.kind = 'PROJECT' AND rel.project_id = $2::uuid))
+        ORDER BY v.voucher_date DESC, v.created_at DESC, v.id DESC LIMIT ${PROJECT_LIST_LIMIT + 1}`,
+      params,
+    )
+  ).rows as Row[];
+  const items: FinanceProjectVoucher[] = rows.slice(0, PROJECT_LIST_LIMIT).map((row) => ({
+    id: String(row.id),
+    kind: row.kind as FinanceVoucherKind,
+    code: String(row.code),
+    voucherDate: dateOnly(row.voucher_date),
+    content: String(row.content),
+    reasonName: optStr(row.reason_name),
+    status: row.status as FinanceVoucherStatus,
+    totalAmount: num(row.total_amount),
+    link: row.is_allocation ? 'ALLOCATION' : 'RELATED',
+    workItem:
+      row.is_allocation && row.alloc_work_item_id
+        ? { id: String(row.alloc_work_item_id), code: String(row.alloc_work_item_code ?? ''), title: String(row.alloc_work_item_title ?? '') }
+        : null,
+    createdByName: optStr(row.created_by_name),
+  }));
+  return { items, totals, truncated: rows.length > PROJECT_LIST_LIMIT };
 }
