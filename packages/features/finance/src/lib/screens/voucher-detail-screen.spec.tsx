@@ -44,8 +44,15 @@ function voucher(over: Partial<FinanceVoucher> = {}): FinanceVoucher {
     counterpartyGroupId: 'g1',
     counterpartyAccountNo: null,
     counterpartyBank: null,
-    costCenterId: null,
-    costCenterName: null,
+    allocation: {
+      type: 'WORK_ITEM',
+      projectId: 'p1',
+      projectCode: 'DA001',
+      projectName: 'Trạm biến áp Đà Nẵng',
+      workItemId: 'w1',
+      workItemCode: 'CV-12',
+      workItemTitle: 'Lắp đặt tủ điện',
+    },
     taxIncluded: true,
     taxRate: 10,
     taxAmount: 136_363.64,
@@ -56,7 +63,7 @@ function voucher(over: Partial<FinanceVoucher> = {}): FinanceVoucher {
     revision: 2,
     lines: [{ id: 'l1', lineNo: 1, description: 'Giấy in A4', quantity: 3, unitAmount: 500_000, total: 1_500_000 }],
     invoices: [{ id: 'i1', invoiceNo: 'HD001', invoiceDate: '2026-10-10', taxCode: '0312345678', amount: 1_500_000 }],
-    related: [{ id: 'x1', kind: 'REFERENCE', voucherId: null, label: 'Hợp đồng 12/2026' }],
+    relatedProjects: [{ projectId: 'p2', projectCode: 'DA002', projectName: 'Đường dây 110kV' }],
     attachments: [],
     events: [
       { id: 'e1', action: 'CREATED', actorId: 'u1', actorName: 'Nguyễn Văn An', note: null, createdAt: '2026-10-14T02:00:00.000Z' },
@@ -95,7 +102,10 @@ describe('Chi tiết phiếu', () => {
     expect(within(lines).getByText('Giấy in A4')).toBeTruthy();
     expect(within(lines).getByText(/Đã gồm thuế 10%/)).toBeTruthy();
     expect(within(lines).getByText('HD001', { exact: false })).toBeTruthy();
-    expect(screen.getByText('Hợp đồng 12/2026')).toBeTruthy();
+    expect(screen.getByText('DA002 - Đường dây 110kV')).toBeTruthy();
+    // Hạch toán cho công việc: hiện công việc kèm dự án chứa nó.
+    expect(screen.getByText('Hạch toán cho công việc: CV-12 - Lắp đặt tủ điện (DA001)')).toBeTruthy();
+    expect(screen.getByText('DA001 - Trạm biến áp Đà Nẵng')).toBeTruthy();
     const history = screen.getByRole('complementary', { name: 'Lịch sử xử lý' });
     expect(within(history).getByText('Tạo phiếu')).toBeTruthy();
     expect(within(history).getByText('Gửi duyệt')).toBeTruthy();

@@ -57,6 +57,7 @@ const full: FinanceDashboard = {
       submittedAt: null,
       decidedAt: null,
       approvalMode: 'DIRECT',
+      allocation: null,
     },
   ],
 };

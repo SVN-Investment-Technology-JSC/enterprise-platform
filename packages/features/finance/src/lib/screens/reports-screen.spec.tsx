@@ -31,7 +31,11 @@ const report: FinanceReport = {
     { id: 'p1', name: 'Văn phòng phẩm', amount: 900_000, count: 1 },
     { id: 'p2', name: 'Điện nước', amount: 300_000, count: 1 },
   ],
-  paymentsByCostCenter: [{ id: null, name: 'Chưa gắn đơn vị', amount: 1_200_000, count: 2 }],
+  receiptsByProject: [{ id: 'p1', name: 'DA001 - Trạm biến áp Đà Nẵng', amount: 3_000_000, count: 3 }],
+  paymentsByProject: [
+    { id: 'p1', name: 'DA001 - Trạm biến áp Đà Nẵng', amount: 700_000, count: 1 },
+    { id: null, name: 'Chưa hạch toán', amount: 500_000, count: 1 },
+  ],
   accounts: [{ accountId: 'a1', accountName: 'Vietcombank', openingBalance: 10_000_000, receipts: 3_000_000, payments: 1_200_000, transfersIn: 0, transfersOut: 500_000, closingBalance: 11_300_000 }],
 };
 
@@ -39,7 +43,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   fetchMock.mockImplementation(async (path: string) => {
     if (path.startsWith('/accounts')) return [{ id: 'a1', name: 'Vietcombank' }] as never;
-    if (path.startsWith('/catalogs')) return { reasons: [], counterpartyGroups: [], costCenters: [{ id: 'c1', name: 'Phòng hành chính' }] } as never;
+    if (path.startsWith('/workspace/projects')) return { items: [{ id: 'p1', code: 'DA001', name: 'Trạm biến áp Đà Nẵng', status: 'active' }], truncated: false } as never;
     if (path.startsWith('/reports/summary')) return report as never;
     throw new Error(`route lạ ${path}`);
   });
@@ -79,7 +83,32 @@ describe('Báo cáo thu chi', () => {
     expect(mockDownload).toHaveBeenCalledTimes(1);
     expect(String(mockDownload.mock.calls[0][0])).toBe('bao-cao-thu-chi-2026-10-01-2026-10-31');
     const csv = String(mockDownload.mock.calls[0][1]);
-    for (const text of ['Báo cáo thu chi', 'Tổng thu', 'Dòng tiền theo kỳ', 'Thu theo lý do', 'Chi theo lý do', 'Chi theo đơn vị hạch toán', 'Biến động tài khoản', 'Vietcombank']) expect(csv).toContain(text);
+    for (const text of ['Báo cáo thu chi', 'Tổng thu', 'Dòng tiền theo kỳ', 'Thu theo lý do', 'Chi theo lý do', 'Thu theo dự án', 'Chi theo dự án', 'Chưa hạch toán', 'Biến động tài khoản', 'Vietcombank']) expect(csv).toContain(text);
+  });
+
+  it('bảng theo dự án và lọc báo cáo theo một dự án', async () => {
+    render(<ReportsScreen />);
+    await screen.findByText('Chênh lệch thu - chi');
+    const spend = screen.getByRole('region', { name: 'Chi theo dự án' });
+    expect(within(spend).getByText('DA001 - Trạm biến áp Đà Nẵng')).toBeTruthy();
+    expect(within(spend).getByText('Chưa hạch toán')).toBeTruthy();
+    expect(within(screen.getByRole('region', { name: 'Thu theo dự án' })).getByText('100%')).toBeTruthy();
+
+    fireEvent.click(screen.getByPlaceholderText('Mọi dự án'));
+    fireEvent.click(await screen.findByRole('option', { name: /DA001/ }));
+    await waitFor(() => expect(summaryPaths().some((p) => p.includes('projectId=p1'))).toBe(true));
+  });
+
+  it('Workspace không trả về dự án nào thì ẩn ô lọc dự án, báo cáo vẫn hiện', async () => {
+    fetchMock.mockImplementation(async (path: string) => {
+      if (path.startsWith('/accounts')) return [{ id: 'a1', name: 'Vietcombank' }] as never;
+      if (path.startsWith('/workspace/projects')) throw new Error('Workspace đang không khả dụng.');
+      if (path.startsWith('/reports/summary')) return report as never;
+      throw new Error(`route lạ ${path}`);
+    });
+    render(<ReportsScreen />);
+    expect(await screen.findByText('Chênh lệch thu - chi')).toBeTruthy();
+    expect(screen.queryByPlaceholderText('Mọi dự án')).toBeNull();
   });
 
   it('báo lỗi khi người dùng không có quyền xem báo cáo', async () => {

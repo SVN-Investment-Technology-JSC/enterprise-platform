@@ -43,9 +43,12 @@ export const WORK_ITEM_STATUS_LABELS: Readonly<Record<string, string>> = {
 };
 
 export async function loadWorkspaceProjects(search?: string): Promise<{ items: WorkspaceProjectOption[]; truncated: boolean }> {
-  return financeFetch(`/workspace/projects${toQuery({ search })}`);
+  const result = await financeFetch<{ items?: WorkspaceProjectOption[]; truncated?: boolean } | undefined>(`/workspace/projects${toQuery({ search })}`);
+  // Phản hồi thiếu hoặc sai hình dạng (gateway trả trang lỗi, module cũ) coi như không có dự án, không làm hỏng màn hình gọi.
+  return { items: Array.isArray(result?.items) ? result.items : [], truncated: Boolean(result?.truncated) };
 }
 
 export async function loadWorkspaceWorkItems(projectId: string): Promise<WorkspaceWorkItemOption[]> {
-  return (await financeFetch<{ items: WorkspaceWorkItemOption[] }>(`/workspace/projects/${encodeURIComponent(projectId)}/work-items`)).items;
+  const result = await financeFetch<{ items?: WorkspaceWorkItemOption[] } | undefined>(`/workspace/projects/${encodeURIComponent(projectId)}/work-items`);
+  return Array.isArray(result?.items) ? result.items : [];
 }

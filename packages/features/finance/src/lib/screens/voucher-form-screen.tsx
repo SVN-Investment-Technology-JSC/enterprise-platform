@@ -321,7 +321,7 @@ export default function VoucherFormScreen({ kind, id }: { kind: FinanceVoucherKi
     const items = storedWorkItem && form.allocWorkItemId === storedWorkItem.id && !workItems.some((item) => item.id === storedWorkItem.id) ? [...workItems, storedWorkItem] : workItems;
     return items.map((item) => ({
       value: item.id,
-      label: `${'  '.repeat(Math.min(item.depth, 4))}${workItemLabel(item)}`,
+      label: workItemLabel(item),
       description: WORK_ITEM_STATUS_LABELS[item.status] ?? undefined,
     }));
   }, [workItems, storedWorkItem, form.allocWorkItemId]);

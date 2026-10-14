@@ -1,8 +1,8 @@
 /** @jest-environment jsdom */
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { FinanceVoucher } from '@enterprise-platform/contracts-finance';
 import { financeFetch, financePost } from '../finance-api';
-import VoucherFormScreen, { buildRequest } from './voucher-form-screen';
+import VoucherFormScreen, { allocationProblem, buildRequest } from './voucher-form-screen';
 
 const mockPush = jest.fn();
 jest.mock('next/navigation', () => ({ useRouter: () => ({ push: mockPush, replace: jest.fn() }) }));
@@ -22,8 +22,16 @@ const postMock = financePost as jest.MockedFunction<typeof financePost>;
 const CATALOGS = {
   reasons: [{ id: 'r1', kind: 'RECEIPT', code: 'THU', name: 'Thu tiền hàng', isActive: true, note: null }],
   counterpartyGroups: [{ id: 'g1', code: 'KH', name: 'Khách hàng', isActive: true }],
-  costCenters: [],
 };
+
+const PROJECTS = [
+  { id: 'p1', code: 'DA001', name: 'Trạm biến áp Đà Nẵng', status: 'active' },
+  { id: 'p2', code: 'DA002', name: 'Đường dây 110kV', status: 'planning' },
+];
+const WORK_ITEMS = [
+  { id: 'w1', code: 'CV-1', title: 'Lắp đặt tủ điện', status: 'in_progress', depth: 0 },
+  { id: 'w2', code: 'CV-2', title: 'Đấu nối', status: 'todo', depth: 1 },
+];
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -31,6 +39,8 @@ beforeEach(() => {
     if (path.startsWith('/catalogs')) return CATALOGS as never;
     if (path.startsWith('/accounts')) return [{ id: 'a1', code: 'VCB', name: 'Vietcombank', accountType: 'BANK', accountNumber: '001', isActive: true, balance: 5_000_000 }] as never;
     if (path.startsWith('/vouchers/next-code')) return { code: 'PT_5_10_2026' } as never;
+    if (path === '/workspace/projects') return { items: PROJECTS, truncated: false } as never;
+    if (path === '/workspace/projects/p1/work-items') return { items: WORK_ITEMS } as never;
     throw new Error(`route lạ ${path}`);
   });
   postMock.mockResolvedValue({ id: 'v1', code: 'PT_5_10_2026', revision: 1 } as FinanceVoucher as never);
@@ -104,6 +114,133 @@ describe('Form tạo phiếu thu', () => {
     expect(alert.textContent).toContain('Chọn lý do thu.');
     expect(alert.textContent).toContain('Chọn tài khoản thu.');
     expect(mockPush).not.toHaveBeenCalled();
+  });
+});
+
+/** Mở danh sách của ô SearchableSelect rồi chọn một mục theo tên. */
+async function pick(input: HTMLElement, name: RegExp) {
+  fireEvent.click(input);
+  fireEvent.click(await screen.findByRole('option', { name }));
+}
+
+describe('Hạch toán nội bộ và dự án liên quan', () => {
+  const open = async () => {
+    render(<VoucherFormScreen kind="RECEIPT" />);
+    await screen.findByDisplayValue('PT_5_10_2026');
+    fireEvent.change(screen.getByPlaceholderText('Nội dung thu'), { target: { value: 'Thu tiền dự án' } });
+  };
+
+  it('mặc định không hạch toán: chưa có ô dự án và công việc, không gửi hạch toán', async () => {
+    await open();
+    expect(screen.queryByPlaceholderText('Chọn dự án')).toBeNull();
+    expect(screen.queryByPlaceholderText('Chọn công việc')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Lưu nháp' }));
+    await waitFor(() => expect(postMock).toHaveBeenCalledTimes(1));
+    expect((postMock.mock.calls[0][1] as Record<string, unknown>).allocation).toBeNull();
+  });
+
+  it('hạch toán cho dự án: chọn hình thức rồi dự án, gửi đúng dự án và không kèm công việc', async () => {
+    await open();
+    await pick(screen.getByPlaceholderText('Không hạch toán'), /Hạch toán cho dự án/);
+    expect(screen.queryByPlaceholderText('Chọn công việc')).toBeNull();
+    await pick(screen.getByPlaceholderText('Chọn dự án'), /DA001/);
+    fireEvent.click(screen.getByRole('button', { name: 'Lưu nháp' }));
+    await waitFor(() => expect(postMock).toHaveBeenCalledTimes(1));
+    expect((postMock.mock.calls[0][1] as Record<string, unknown>).allocation).toEqual({ type: 'PROJECT', projectId: 'p1', workItemId: null });
+  });
+
+  it('hạch toán cho công việc: công việc nạp theo dự án đã chọn, đổi dự án thì bỏ công việc cũ', async () => {
+    await open();
+    await pick(screen.getByPlaceholderText('Không hạch toán'), /Hạch toán cho công việc/);
+    expect((screen.getByPlaceholderText('Chọn dự án trước') as HTMLInputElement).disabled).toBe(true);
+    await pick(screen.getByPlaceholderText('Chọn dự án'), /DA001/);
+    await pick(await screen.findByPlaceholderText('Chọn công việc'), /CV-2/);
+    expect((screen.getByDisplayValue(/CV-2 - Đấu nối/) as HTMLInputElement).value).toContain('CV-2');
+    fireEvent.click(screen.getByRole('button', { name: 'Lưu nháp' }));
+    await waitFor(() => expect(postMock).toHaveBeenCalledTimes(1));
+    expect((postMock.mock.calls[0][1] as Record<string, unknown>).allocation).toEqual({ type: 'WORK_ITEM', projectId: 'p1', workItemId: 'w2' });
+  });
+
+  it('chọn hình thức mà thiếu dự án hoặc công việc thì chặn lưu và báo rõ, không gọi máy chủ', async () => {
+    await open();
+    await pick(screen.getByPlaceholderText('Không hạch toán'), /Hạch toán cho dự án/);
+    fireEvent.click(screen.getByRole('button', { name: 'Lưu nháp' }));
+    expect((await screen.findByRole('alert')).textContent).toContain('Chọn dự án để hạch toán.');
+    expect(postMock).not.toHaveBeenCalled();
+
+    await pick(screen.getByPlaceholderText('Chọn dự án'), /DA001/);
+    await pick(screen.getByPlaceholderText('Không hạch toán'), /Hạch toán cho công việc/);
+    fireEvent.click(screen.getByRole('button', { name: 'Lưu nháp' }));
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('Chọn công việc để hạch toán.'));
+    expect(postMock).not.toHaveBeenCalled();
+  });
+
+  it('bỏ hạch toán thì bỏ luôn dự án đã chọn', async () => {
+    await open();
+    await pick(screen.getByPlaceholderText('Không hạch toán'), /Hạch toán cho dự án/);
+    await pick(screen.getByPlaceholderText('Chọn dự án'), /DA001/);
+    const typeInput = screen.getByPlaceholderText('Không hạch toán');
+    fireEvent.click(within(typeInput.parentElement as HTMLElement).getByRole('button', { name: 'Xoá tìm kiếm' }));
+    expect(screen.queryByPlaceholderText('Chọn dự án')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Lưu nháp' }));
+    await waitFor(() => expect(postMock).toHaveBeenCalledTimes(1));
+    expect((postMock.mock.calls[0][1] as Record<string, unknown>).allocation).toBeNull();
+  });
+
+  it('đối tượng liên quan là dự án: thêm nhiều dự án, không thêm trùng, bỏ từng dự án, gửi danh sách id', async () => {
+    await open();
+    fireEvent.click(screen.getByText('Đối tượng liên quan'));
+    await pick(screen.getByPlaceholderText('Chọn dự án liên quan'), /DA002/);
+    await pick(screen.getByPlaceholderText('Chọn dự án liên quan'), /DA001/);
+    const chips = screen.getByRole('list', { name: 'Dự án liên quan' });
+    expect(chips.textContent).toContain('DA001 - Trạm biến áp Đà Nẵng');
+    expect(chips.textContent).toContain('DA002 - Đường dây 110kV');
+    // Dự án đã chọn không còn trong danh sách để thêm lần nữa.
+    fireEvent.click(screen.getByPlaceholderText('Chọn dự án liên quan'));
+    expect(screen.queryByRole('option', { name: /DA001/ })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Bỏ dự án liên quan DA001/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Lưu nháp' }));
+    await waitFor(() => expect(postMock).toHaveBeenCalledTimes(1));
+    expect((postMock.mock.calls[0][1] as Record<string, unknown>).relatedProjectIds).toEqual(['p2']);
+  });
+
+  it('dự án đang hạch toán không xuất hiện trong danh sách dự án liên quan', async () => {
+    await open();
+    await pick(screen.getByPlaceholderText('Không hạch toán'), /Hạch toán cho dự án/);
+    await pick(screen.getByPlaceholderText('Chọn dự án'), /DA001/);
+    fireEvent.click(screen.getByText('Đối tượng liên quan'));
+    fireEvent.click(screen.getByPlaceholderText('Chọn dự án liên quan'));
+    expect(screen.queryByRole('option', { name: /DA001/ })).toBeNull();
+    expect(screen.getByRole('option', { name: /DA002/ })).toBeTruthy();
+  });
+
+  it('Workspace không khả dụng: báo ở ô dự án, chặn lưu khi đã chọn hạch toán, bỏ hạch toán thì phiếu vẫn lưu được', async () => {
+    fetchMock.mockImplementation(async (path: string) => {
+      if (path.startsWith('/catalogs')) return CATALOGS as never;
+      if (path.startsWith('/accounts')) return [] as never;
+      if (path.startsWith('/vouchers/next-code')) return { code: 'PT_5_10_2026' } as never;
+      throw new Error('Workspace đang không khả dụng.');
+    });
+    await open();
+    const typeInput = screen.getByPlaceholderText('Không hạch toán');
+    await pick(typeInput, /Hạch toán cho dự án/);
+    // Cùng một gợi ý ở ô Dự án và ở mục Đối tượng liên quan (mục này đang thu gọn).
+    expect((await screen.findAllByText(/Workspace đang không khả dụng\. Phiếu vẫn lưu được/)).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole('button', { name: 'Lưu nháp' }));
+    expect((await screen.findByRole('alert')).textContent).toContain('Chọn dự án để hạch toán.');
+    expect(postMock).not.toHaveBeenCalled();
+
+    fireEvent.click(within(typeInput.parentElement as HTMLElement).getByRole('button', { name: 'Xoá tìm kiếm' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Lưu nháp' }));
+    await waitFor(() => expect(postMock).toHaveBeenCalledTimes(1));
+  });
+
+  it('kiểm tra hạch toán chưa đủ thông tin', () => {
+    expect(allocationProblem({ allocType: '', allocProjectId: '', allocWorkItemId: '' })).toBeNull();
+    expect(allocationProblem({ allocType: 'PROJECT', allocProjectId: '', allocWorkItemId: '' })).toBe('Chọn dự án để hạch toán.');
+    expect(allocationProblem({ allocType: 'PROJECT', allocProjectId: 'p1', allocWorkItemId: '' })).toBeNull();
+    expect(allocationProblem({ allocType: 'WORK_ITEM', allocProjectId: 'p1', allocWorkItemId: '' })).toBe('Chọn công việc để hạch toán.');
+    expect(allocationProblem({ allocType: 'WORK_ITEM', allocProjectId: 'p1', allocWorkItemId: 'w1' })).toBeNull();
   });
 });
 
@@ -189,7 +326,9 @@ describe('buildRequest', () => {
     counterpartyName: 'ABC',
     counterpartyAccountNo: '',
     counterpartyBank: '',
-    costCenterId: '',
+    allocType: '' as '' | 'PROJECT' | 'WORK_ITEM',
+    allocProjectId: '',
+    allocWorkItemId: '',
     taxIncluded: true,
     taxRate: 8,
     note: '',
@@ -199,7 +338,7 @@ describe('buildRequest', () => {
       { key: 1, invoiceNo: 'HD1', invoiceDate: '', taxCode: '', amount: 5 },
       { key: 2, invoiceNo: '  ', invoiceDate: '', taxCode: '', amount: 0 },
     ],
-    related: [{ key: 1, label: ' Hợp đồng 12 ' }, { key: 2, label: '' }],
+    relatedProjectIds: ['p2', 'p3'],
   };
 
   it('phiếu thu/chi: gửi dòng chi tiết, bỏ hoá đơn trống, chuỗi rỗng thành null, không gửi tài khoản đích và số tiền', () => {
@@ -210,11 +349,11 @@ describe('buildRequest', () => {
       reasonId: 'r1',
       taxIncluded: true,
       taxRate: 8,
-      costCenterId: null,
+      allocation: null,
       counterpartyAccountNo: null,
       lines: [{ description: 'A', quantity: 2, unitAmount: 100, total: 200 }],
       invoices: [{ invoiceNo: 'HD1', invoiceDate: null, taxCode: null, amount: 5 }],
-      related: [{ kind: 'REFERENCE', label: 'Hợp đồng 12' }],
+      relatedProjectIds: ['p2', 'p3'],
     });
     expect(request).not.toHaveProperty('amount');
     expect(request).not.toHaveProperty('destAccountId');
@@ -225,6 +364,22 @@ describe('buildRequest', () => {
     expect(request).toMatchObject({ kind: 'TRANSFER', accountId: 'a1', destAccountId: 'a2', amount: 777 });
     expect(request).not.toHaveProperty('lines');
     expect(request).not.toHaveProperty('reasonId');
+  });
+
+  it('hạch toán: dự án không kèm công việc; công việc kèm dự án; bỏ hình thức thì không gửi', () => {
+    expect(buildRequest('PAYMENT', { ...base, allocType: 'PROJECT', allocProjectId: 'p1', allocWorkItemId: 'w-cu' })).toMatchObject({
+      allocation: { type: 'PROJECT', projectId: 'p1', workItemId: null },
+    });
+    expect(buildRequest('PAYMENT', { ...base, allocType: 'WORK_ITEM', allocProjectId: 'p1', allocWorkItemId: 'w1' })).toMatchObject({
+      allocation: { type: 'WORK_ITEM', projectId: 'p1', workItemId: 'w1' },
+    });
+    expect(buildRequest('PAYMENT', { ...base, allocType: '', allocProjectId: 'p1' })).toMatchObject({ allocation: null });
+  });
+
+  it('lệnh chuyển tiền không gửi hạch toán nhưng vẫn gửi dự án liên quan', () => {
+    const request = buildRequest('TRANSFER', { ...base, allocType: 'PROJECT', allocProjectId: 'p1' });
+    expect(request).not.toHaveProperty('allocation');
+    expect(request).toMatchObject({ relatedProjectIds: ['p2', 'p3'] });
   });
 
   it('không gửi thuế suất khi không bật "Bao gồm thuế"', () => {

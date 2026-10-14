@@ -54,6 +54,7 @@ const summary = (over: Partial<FinanceVoucherSummary>): FinanceVoucherSummary =>
   submittedAt: null,
   decidedAt: null,
   approvalMode: 'DIRECT',
+  allocation: null,
   ...over,
 });
 
@@ -71,7 +72,8 @@ beforeEach(() => {
   mockCapabilities = { receipt: { create: true, approve: false }, payment: { create: false, approve: true }, transfer: { create: false, approve: false } };
   fetchMock.mockImplementation(async (path: string) => {
     if (path.startsWith('/accounts')) return [{ id: 'a1', name: 'Vietcombank' }] as never;
-    if (path.startsWith('/catalogs')) return { reasons: [{ id: 'r1', kind: 'RECEIPT', name: 'Thu tiền hàng' }], counterpartyGroups: [], costCenters: [] } as never;
+    if (path.startsWith('/catalogs')) return { reasons: [{ id: 'r1', kind: 'RECEIPT', name: 'Thu tiền hàng' }], counterpartyGroups: [] } as never;
+    if (path.startsWith('/workspace/projects')) return { items: [{ id: 'p1', code: 'DA001', name: 'Trạm biến áp Đà Nẵng', status: 'active' }], truncated: false } as never;
     if (path.startsWith('/vouchers')) return list([summary({}), summary({ id: 'v2', code: 'PT_2_10_2026', status: 'PENDING', totalAmount: 50_000 })], { APPROVED: 1, PENDING: 1 }) as never;
     throw new Error(`route lạ ${path}`);
   });
@@ -142,6 +144,44 @@ describe('Danh sách phiếu thu', () => {
     expect(await screen.findByText('Vietcombank → Quỹ tiền mặt')).toBeTruthy();
     expect(screen.getByRole('heading', { name: 'Danh sách lệnh chuyển tiền' })).toBeTruthy();
     expect(screen.queryByText('Lý do chi')).toBeNull();
+  });
+
+  it('cột Hạch toán hiện dự án hoặc công việc; lọc theo dự án gửi projectId lên máy chủ', async () => {
+    fetchMock.mockImplementation(async (path: string) => {
+      if (path.startsWith('/accounts')) return [] as never;
+      if (path.startsWith('/catalogs')) return { reasons: [], counterpartyGroups: [] } as never;
+      if (path.startsWith('/workspace/projects')) return { items: [{ id: 'p1', code: 'DA001', name: 'Trạm biến áp Đà Nẵng', status: 'active' }], truncated: false } as never;
+      return list(
+        [
+          summary({ allocation: { type: 'PROJECT', projectId: 'p1', projectCode: 'DA001', projectName: 'Trạm biến áp Đà Nẵng', workItemId: null, workItemCode: null, workItemTitle: null } }),
+          summary({
+            id: 'v2',
+            code: 'PT_2_10_2026',
+            allocation: { type: 'WORK_ITEM', projectId: 'p1', projectCode: 'DA001', projectName: 'Trạm biến áp Đà Nẵng', workItemId: 'w1', workItemCode: 'CV-12', workItemTitle: 'Lắp đặt tủ điện' },
+          }),
+          summary({ id: 'v3', code: 'PT_3_10_2026', allocation: null }),
+        ],
+        { APPROVED: 3 },
+      ) as never;
+    });
+    render(<VoucherListScreen kind="RECEIPT" />);
+    expect(await screen.findByText('DA001 - Trạm biến áp Đà Nẵng')).toBeTruthy();
+    expect(screen.getByText('CV-12 - Lắp đặt tủ điện (DA001)')).toBeTruthy();
+    fireEvent.click(await screen.findByPlaceholderText('Mọi dự án'));
+    fireEvent.click(await screen.findByRole('option', { name: /DA001/ }));
+    await waitFor(() => expect(paths().some((p) => p.includes('projectId=p1'))).toBe(true));
+  });
+
+  it('lệnh chuyển tiền không có cột hạch toán và không có ô lọc dự án', async () => {
+    fetchMock.mockImplementation(async (path: string) => {
+      if (path.startsWith('/vouchers')) return list([summary({ id: 't1', kind: 'TRANSFER', code: 'PCT_1_10_2026', accountName: 'VCB', destAccountName: 'Quỹ' })], { APPROVED: 1 }) as never;
+      return [] as never;
+    });
+    render(<VoucherListScreen kind="TRANSFER" />);
+    await screen.findByText('VCB → Quỹ');
+    expect(screen.queryByText('Hạch toán')).toBeNull();
+    expect(screen.queryByPlaceholderText('Mọi dự án')).toBeNull();
+    expect(fetchMock.mock.calls.some(([p]) => String(p).startsWith('/workspace'))).toBe(false);
   });
 
   it('báo lỗi khi tải thất bại và cho làm mới', async () => {

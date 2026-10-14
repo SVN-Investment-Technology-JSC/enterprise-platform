@@ -68,11 +68,11 @@ export function TabVouchers({ projectId }: { readonly projectId: string }) {
   const filtering = filter.kind !== 'all' || filter.link !== 'all' || filter.status !== 'all';
 
   if (!result) return <p className={styles.muted}>Đang tải thu chi của dự án…</p>;
-  if (!data)
+  if (result.state !== 'ok' || !data)
     return (
       <div className={styles.tabBody}>
         <p className={styles.muted} role="status">
-          {result.message}
+          {result.state === 'ok' ? '' : result.message}
         </p>
       </div>
     );

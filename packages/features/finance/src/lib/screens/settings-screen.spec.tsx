@@ -27,7 +27,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   bindings = [binding('RECEIPT'), binding('PAYMENT', { mode: 'PROCEDURE', procedureDefinitionId: 'd1', procedureDefinitionName: 'Duyệt phiếu chi' }), binding('TRANSFER')];
   fetchMock.mockImplementation(async (path: string) => {
-    if (path.startsWith('/catalogs')) return { reasons: [{ id: 'r1', kind: 'RECEIPT', code: 'THU', name: 'Thu tiền hàng', isActive: true, note: null }, { id: 'r2', kind: 'PAYMENT', code: 'VPP', name: 'Văn phòng phẩm', isActive: false, note: null }], counterpartyGroups: [], costCenters: [] } as never;
+    if (path.startsWith('/catalogs')) return { reasons: [{ id: 'r1', kind: 'RECEIPT', code: 'THU', name: 'Thu tiền hàng', isActive: true, note: null }, { id: 'r2', kind: 'PAYMENT', code: 'VPP', name: 'Văn phòng phẩm', isActive: false, note: null }], counterpartyGroups: [] } as never;
     if (path === '/settings') return { booksLockedUntil: '2026-09-30', allowSelfApproval: false } as never;
     if (path === '/approval-bindings') return bindings as never;
     if (path === '/approval-bindings/procedure-definitions') return [{ id: 'd1', code: 'DUYET-CHI', name: 'Duyệt phiếu chi' }, { id: 'd2', code: 'DUYET-LON', name: 'Duyệt chi lớn' }] as never;
@@ -38,7 +38,9 @@ beforeEach(() => {
 describe('Tùy chỉnh', () => {
   it('có các nhóm cấu hình theo thiết kế và mở nhóm lý do thu trước', async () => {
     render(<SettingsScreen />);
-    for (const label of ['Lý do thu', 'Lý do chi', 'Đối tượng thu chi', 'Hạch toán nội bộ', 'Quy trình duyệt', 'Khoá sổ và duyệt']) expect(screen.getByRole('tab', { name: label })).toBeTruthy();
+    for (const label of ['Lý do thu', 'Lý do chi', 'Đối tượng thu chi', 'Quy trình duyệt', 'Khoá sổ và duyệt']) expect(screen.getByRole('tab', { name: label })).toBeTruthy();
+    // Hạch toán nội bộ giờ chọn dự án/công việc của Workspace ngay trên phiếu, không còn danh mục riêng để cấu hình.
+    expect(screen.queryByRole('tab', { name: 'Hạch toán nội bộ' })).toBeNull();
     expect(await screen.findByText('Thu tiền hàng')).toBeTruthy();
     expect(screen.queryByText('Văn phòng phẩm')).toBeNull();
     fireEvent.click(screen.getByRole('tab', { name: 'Lý do chi' }));
