@@ -6,4 +6,5 @@ export { default as VoucherDetailScreen } from './lib/screens/voucher-detail-scr
 export { default as AccountsScreen } from './lib/screens/accounts-screen';
 export { default as ReportsScreen } from './lib/screens/reports-screen';
 export { default as SettingsScreen } from './lib/screens/settings-screen';
+export { default as OpenLinkScreen } from './lib/screens/open-link-screen';
 export * from './lib/finance-navigation';

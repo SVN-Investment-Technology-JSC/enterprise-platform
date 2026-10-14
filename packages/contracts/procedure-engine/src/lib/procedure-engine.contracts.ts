@@ -554,7 +554,7 @@ export interface StartProcedureInstanceRequest {
   sourceId?: string;
   initiatedBy?: string;
   initiatedByName?: string;
-  /** Chỉ dịch vụ nội bộ (sourceType 'hrm_request'): xem CreateProcedureInstanceRequest. */
+  /** Chỉ dịch vụ nội bộ (sourceType 'hrm_request' hoặc 'finance_voucher'): xem CreateProcedureInstanceRequest. */
   autoCompleteInitiatorStep?: boolean;
   /**
    * Gắn hồ sơ vào một dự án Workspace: hồ sơ mở ngay, còn công việc tương ứng
@@ -773,6 +773,8 @@ export interface SetProcedureSubtasksRequest {
 
 export type ProcedureInstanceSourceType =
   | 'hrm_request'
+  /** Phiếu thu/chi/chuyển tiền của module Tài chính; sourceId là id lần gửi duyệt. */
+  | 'finance_voucher'
   | 'manual'
   | 'maintenance_occurrence'
   | 'auto_from_parent'
@@ -853,7 +855,7 @@ export interface CreateProcedureInstanceRequest {
   readonly initiatedByName?: string;
   /**
    * Tự hoàn thành bước S của người khởi tạo ngay trong giao dịch tạo hồ sơ.
-   * Chỉ nhận khi `sourceType = 'hrm_request'` và gọi bằng service token. Không đủ
+   * Chỉ nhận khi `sourceType` là 'hrm_request' hoặc 'finance_voucher' và gọi bằng service token. Không đủ
    * điều kiện (bước đầu không chỉ có vai S, người khởi tạo không khớp phân công S)
    * thì bỏ qua, hồ sơ nằm ở bước đầu và kết quả có cảnh báo.
    */

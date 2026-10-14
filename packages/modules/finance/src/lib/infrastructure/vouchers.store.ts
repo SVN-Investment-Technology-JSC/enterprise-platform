@@ -222,7 +222,7 @@ export async function loadVoucherRecord(db: Db, tenantId: string, id: string): P
          LEFT JOIN finance_schema.vouchers t ON t.id = rel.related_voucher_id WHERE rel.voucher_id=$1 ORDER BY rel.label`,
       [id],
     ),
-    db.query(`SELECT * FROM finance_schema.voucher_attachments WHERE voucher_id=$1 ORDER BY uploaded_at`, [id]),
+    db.query(`SELECT * FROM finance_schema.voucher_attachments WHERE voucher_id=$1 AND deleted_at IS NULL AND status='READY' ORDER BY uploaded_at`, [id]),
     db.query(`SELECT * FROM finance_schema.voucher_events WHERE voucher_id=$1 ORDER BY created_at, id`, [id]),
   ]);
   return {

@@ -13,15 +13,18 @@ import {
   type FinanceAccount,
   type FinanceCatalogs,
   type FinanceVoucher,
+  type FinanceVoucherAttachment,
   type FinanceVoucherKind,
   type SaveFinanceVoucherRequest,
 } from '@enterprise-platform/contracts-finance';
+import { removeFinanceAttachment, uploadFinanceAttachment } from '../attachment-upload';
 import { financeErrorMessage, financeFetch, financePost, financePut, toQuery } from '../finance-api';
 import { useFinanceCrumbs } from '../finance-crumbs';
 import { money, todayVn } from '../finance-format';
 import { FINANCE_KIND_CONFIG } from '../finance-kinds';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
+import { AttachmentsField } from '../ui/attachments-field';
 import { ErrorBanner, Field, FormSection, MoneyInput } from '../ui/form-parts';
 
 interface LineState {
@@ -170,6 +173,8 @@ export default function VoucherFormScreen({ kind, id }: { kind: FinanceVoucherKi
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [locked, setLocked] = useState(false);
+  const [savedFiles, setSavedFiles] = useState<FinanceVoucherAttachment[]>([]);
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
 
   useFinanceCrumbs([config.singular.replace(/^./, (c) => c.toUpperCase()), id ? 'Sửa phiếu' : 'Tạo mới']);
 
@@ -191,6 +196,7 @@ export default function VoucherFormScreen({ kind, id }: { kind: FinanceVoucherKi
           setCode(voucher.code);
           setRevision(voucher.revision);
           setLocked(!voucher.permissions.canEdit);
+          setSavedFiles(voucher.attachments);
         } else {
           const next = await financeFetch<{ code: string }>(`/vouchers/next-code${toQuery({ kind, date: todayVn() })}`);
           if (active) setCode(next.code);
@@ -232,18 +238,37 @@ export default function VoucherFormScreen({ kind, id }: { kind: FinanceVoucherKi
   const total = config.hasLines ? financeLinesTotal(form.lines) : form.amount;
   const includedTax = form.taxIncluded ? financeIncludedTax(total, form.taxRate) : 0;
 
+  /**
+   * Lưu phiếu, tải các tệp đang chờ, rồi (nếu yêu cầu) gửi duyệt. Tệp phải lên TRƯỚC khi gửi duyệt vì phiếu đã gửi duyệt
+   * không còn nhận tệp. Tải tệp lỗi thì dừng tại form (phiếu đã lưu, tệp lỗi còn trong danh sách để thử lại) và không gửi duyệt.
+   */
   async function save(andSubmit: boolean) {
     setSaving(true);
     setError(null);
     const body = buildRequest(kind, form, revision);
-    let voucherId = savedId;
     try {
-      const saved = voucherId
-        ? await financePut<FinanceVoucher>(`/vouchers/${voucherId}`, body)
+      const saved = savedId
+        ? await financePut<FinanceVoucher>(`/vouchers/${savedId}`, body)
         : await financePost<FinanceVoucher>('/vouchers', body);
-      voucherId = saved.id;
       setSavedId(saved.id);
       setRevision(saved.revision);
+
+      const failed: { file: File; message: string }[] = [];
+      const uploaded: FinanceVoucherAttachment[] = [];
+      for (const file of pendingFiles) {
+        try {
+          uploaded.push(await uploadFinanceAttachment(saved.id, file));
+        } catch (e) {
+          failed.push({ file, message: financeErrorMessage(e, `${file.name}: không tải lên được.`) });
+        }
+      }
+      if (uploaded.length) setSavedFiles((current) => [...current, ...uploaded]);
+      setPendingFiles(failed.map((item) => item.file));
+      if (failed.length) {
+        setError(`Phiếu ${saved.code} đã được lưu nhưng ${failed.length} tệp chưa tải lên được:\n${failed.map((item) => item.message).join('\n')}`);
+        return;
+      }
+
       if (andSubmit) {
         await financePost<FinanceVoucher>(`/vouchers/${saved.id}/submit`);
         toast.success(`Đã gửi duyệt ${saved.code}`);
@@ -255,6 +280,16 @@ export default function VoucherFormScreen({ kind, id }: { kind: FinanceVoucherKi
       setError(financeErrorMessage(e));
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function removeSaved(file: FinanceVoucherAttachment) {
+    if (!savedId) return;
+    try {
+      await removeFinanceAttachment(savedId, file.id);
+      setSavedFiles((current) => current.filter((item) => item.id !== file.id));
+    } catch (e) {
+      setError(financeErrorMessage(e));
     }
   }
 
@@ -421,6 +456,19 @@ export default function VoucherFormScreen({ kind, id }: { kind: FinanceVoucherKi
               </FormSection>
             </>
           ) : null}
+
+          <FormSection title="Đính kèm">
+            <AttachmentsField
+              voucherId={savedId}
+              saved={savedFiles}
+              pending={pendingFiles}
+              disabled={saving}
+              onAdd={(files) => setPendingFiles((current) => [...current, ...files])}
+              onRemovePending={(index) => setPendingFiles((current) => current.filter((_, i) => i !== index))}
+              onRemoveSaved={(file) => void removeSaved(file)}
+              onProblem={setError}
+            />
+          </FormSection>
 
           <FormSection title="Ghi chú">
             <textarea

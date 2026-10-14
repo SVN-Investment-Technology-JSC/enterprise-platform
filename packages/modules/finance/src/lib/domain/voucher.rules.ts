@@ -256,6 +256,8 @@ export function computeVoucherPermissions(input: PermissionInput): FinanceVouche
     canCancel: (editable || pending) && (owner || (input.canApprove && input.status !== 'DRAFT')),
     canReverse: input.status === 'APPROVED' && input.canApprove,
     canDelete: input.status === 'DRAFT' && owner,
+    // Nơi gọi (có thông tin liên kết quy trình) bật cờ này sau khi tính.
+    canRetryProcedure: false,
   };
 }
 

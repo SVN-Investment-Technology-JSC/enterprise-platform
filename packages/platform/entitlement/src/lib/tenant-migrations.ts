@@ -94,7 +94,11 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
 > = {
   // Trợ lý (savina-agent) không có bảng trong DB tenant; migration rỗng để bật phân hệ được.
   assistant: [{ version: '0001-assistant', path: 'tenant/assistant/0001-assistant.sql' }],
-  finance: [{ version: '0001-finance', path: 'tenant/finance/0001-finance.sql' }],
+  finance: [
+    { version: '0001-finance', path: 'tenant/finance/0001-finance.sql' },
+    { version: '0002-finance-approval', path: 'tenant/finance/0002-finance-approval.sql' },
+    { version: '0003-finance-attachments', path: 'tenant/finance/0003-finance-attachments.sql' },
+  ],
   hrm: [
     { version: '0001-hrm', path: 'tenant/hrm/0001-hrm.sql' },
     {

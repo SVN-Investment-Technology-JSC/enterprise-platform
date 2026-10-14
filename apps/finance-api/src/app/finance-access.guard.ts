@@ -23,6 +23,8 @@ export class FinanceAccessGuard implements CanActivate {
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<FinanceRequest>();
     if (this.access.isHealthCheck(request)) return true;
+    // Route nội bộ (Procedure hỏi trước khi huỷ hiệu lực hồ sơ): xác thực bằng service token, không có người dùng.
+    if (this.access.isInternal(request)) return this.authorizeService(request);
 
     this.access.requireCsrfForMutation(request);
     const principal = await this.access.tenantUser(request);
@@ -43,4 +45,18 @@ export class FinanceAccessGuard implements CanActivate {
     };
     return true;
   }
+
+  /**
+   * Bên gọi nội bộ chỉ đọc: actor hệ thống KHÔNG mang quyền Tài chính nào, nên mọi route người dùng đều từ chối nó;
+   * chỉ các route `/v1/internal/*` (không kiểm quyền người dùng) dùng được tenantId của nó.
+   */
+  private async authorizeService(request: FinanceRequest): Promise<boolean> {
+    const caller = await this.access.authorizeService(request);
+    this.databases.register(caller.database);
+    request.financeActor = { tenantId: caller.tenantId, userId: FINANCE_SYSTEM_ACTOR_ID, displayName: 'Hệ thống', permissions: [] };
+    return true;
+  }
 }
+
+/** Id bên gọi dịch vụ; các cột `created_by` là uuid nên không nhận chuỗi tự do. */
+const FINANCE_SYSTEM_ACTOR_ID = '00000000-0000-4000-8000-000000000008';

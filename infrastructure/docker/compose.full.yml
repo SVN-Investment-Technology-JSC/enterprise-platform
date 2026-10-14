@@ -186,6 +186,7 @@ services:
       INVENTORY_API_URL: http://inventory-api:3336/api/inventory
       # Procedure hỏi HRM trước khi huỷ hiệu lực hồ sơ của đơn HRM (chỉ đọc).
       HRM_API_URL: http://hrm-api:3339/api/hrm
+      FINANCE_API_URL: http://finance-api:3341/api/finance
       S3_INTERNAL_ENDPOINT: http://minio:9000
       S3_PUBLIC_ENDPOINT: http://localhost:9010
       S3_REGION: us-east-1
@@ -366,6 +367,8 @@ services:
     environment:
       <<: [*database-environment, *tenant-deletion-environment, *s3-environment]
       PROCEDURE_API_URL: http://procedure-api:3334/api/procedure
+      # Worker mở hồ sơ quy trình và đối soát cho HRM và Tài chính qua API nội bộ của Procedure: cần service token.
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-local-internal-service-token-change-before-sharing}
       # Quy trình mở hồ sơ cho công việc Workspace ngay trong worker (sự kiện
       # workspace.work_item.procedure_requested): cần đúng các URL nội bộ như
       # procedure-api, thiếu thì gọi về localhost và sự kiện rơi vào hàng chết.
@@ -415,6 +418,38 @@ services:
       dockerfile: apps/maintenance-web/Dockerfile
     depends_on:
       maintenance-api:
+        condition: service_healthy
+    init: true
+    restart: unless-stopped
+
+  finance-api:
+    build:
+      context: ../..
+      dockerfile: apps/finance-api/Dockerfile
+    environment:
+      <<: [*database-environment, *platform-access-environment, *s3-environment]
+      PORT: '3341'
+      PROCEDURE_API_URL: http://procedure-api:3334/api/procedure
+    depends_on:
+      api:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+      minio-init:
+        condition: service_completed_successfully
+      procedure-api:
+        condition: service_healthy
+    init: true
+    restart: unless-stopped
+
+  finance-web:
+    build:
+      context: ../..
+      dockerfile: apps/finance-web/Dockerfile
+    environment:
+      FINANCE_API_BASE_URL: http://finance-api:3341
+    depends_on:
+      finance-api:
         condition: service_healthy
     init: true
     restart: unless-stopped
@@ -473,6 +508,8 @@ services:
         condition: service_healthy
       hrm-web:
         condition: service_started
+      finance-web:
+        condition: service_healthy
       workspace-web:
         condition: service_healthy
       api:
@@ -482,6 +519,8 @@ services:
       maintenance-api:
         condition: service_healthy
       inventory-api:
+        condition: service_healthy
+      finance-api:
         condition: service_healthy
       workspace-api:
         condition: service_healthy

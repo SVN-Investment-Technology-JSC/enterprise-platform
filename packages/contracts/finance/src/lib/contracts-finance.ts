@@ -339,6 +339,8 @@ export interface FinanceVoucherPermissions {
   /** Huỷ phiếu đã ghi sổ (đảo bút toán). */
   canReverse: boolean;
   canDelete: boolean;
+  /** Phiếu duyệt qua quy trình đang kẹt (chưa tạo được hồ sơ hoặc chưa ghi sổ được): được bấm thử lại/áp lại. */
+  canRetryProcedure: boolean;
 }
 
 export interface SaveFinanceVoucherRequest {
@@ -416,6 +418,21 @@ export interface SaveFinanceApprovalBindingRequest {
   procedureDefinitionId?: string | null;
 }
 
+export interface SaveFinanceApprovalBindingResponse {
+  binding: FinanceApprovalBinding;
+  /** Cảnh báo cấu hình (không chặn lưu), ví dụ bước đầu của quy trình không chỉ có vai S. */
+  warnings: string[];
+}
+
+/** Thao tác trên hồ sơ quy trình của phiếu, thực hiện bằng phiên của chính người dùng. */
+export type FinanceProcedureActionKind = 'approve' | 'reject' | 'return';
+export interface FinanceProcedureActionRequest {
+  action: FinanceProcedureActionKind;
+  comment?: string;
+  /** Mã chống gửi trùng do giao diện sinh cho mỗi lần bấm. */
+  idempotencyKey: string;
+}
+
 export interface FinanceProcedureProgress {
   instanceId: string | null;
   instanceCode: string | null;
@@ -423,6 +440,10 @@ export interface FinanceProcedureProgress {
   currentStepName: string | null;
   currentAssigneeName: string | null;
   canAct: boolean | null;
+  /**
+   * START_PENDING/FAILED: chưa tạo được hồ sơ; RUNNING: đang chạy; APPLIED: kết quả đã áp vào phiếu;
+   * CONFLICT: quy trình đã duyệt nhưng chưa ghi sổ được (xem lastError); CLOSED: lần gửi cũ.
+   */
   syncStatus: string;
   lastError: string | null;
 }

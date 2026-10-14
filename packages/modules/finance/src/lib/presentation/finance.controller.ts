@@ -13,10 +13,12 @@ import {
 } from '@nestjs/common';
 import type {
   FinanceDecisionRequest,
+  FinanceProcedureActionRequest,
   FinanceVoucherKind,
   FinanceVoucherListQuery,
   FinanceVoucherStatus,
   SaveFinanceAccountRequest,
+  SaveFinanceApprovalBindingRequest,
   SaveFinanceCostCenterRequest,
   SaveFinanceCounterpartyGroupRequest,
   SaveFinanceReasonRequest,
@@ -26,10 +28,24 @@ import type {
 import { FinanceApplication } from '../application/finance.application.js';
 import type { FinanceActor } from '../domain/finance.access.js';
 import { FinanceError } from '../domain/finance.error.js';
+import type { ForwardedSession } from '../infrastructure/procedure-api.js';
 
 interface FinanceRequest {
   financeActor?: FinanceActor;
+  headers?: Record<string, string | string[] | undefined>;
 }
+
+const header = (request: FinanceRequest, name: string): string | undefined => {
+  const value = request.headers?.[name];
+  return Array.isArray(value) ? value[0] : value;
+};
+
+/** Phiên của người dùng, chuyển nguyên sang Procedure để Procedure tự quyết định quyền trên hồ sơ. */
+const sessionOf = (request: FinanceRequest): ForwardedSession => ({
+  cookie: header(request, 'cookie'),
+  authorization: header(request, 'authorization'),
+  csrf: header(request, 'x-csrf-token'),
+});
 
 const bool = (value: string | undefined) => value === 'true' || value === '1';
 const int = (value: string | undefined) => (value === undefined || value === '' ? undefined : Number(value));
@@ -40,7 +56,7 @@ export class FinanceController {
 
   @Get('capabilities')
   capabilities(@Req() request: FinanceRequest) {
-    return this.run(() => this.app.capabilities(this.actor(request)));
+    return this.run(() => this.app.describeCapabilities(this.actor(request)));
   }
 
   @Get('dashboard')
@@ -159,6 +175,12 @@ export class FinanceController {
     return this.run(() => this.app.nextCode(this.actor(request), kind, date));
   }
 
+  /** Từ id lần gửi (sourceId của hồ sơ trong Procedure) về phiếu, để hồ sơ quy trình liên kết ngược sang Tài chính. */
+  @Get('vouchers/by-link/:linkId')
+  voucherByLink(@Req() request: FinanceRequest, @Param('linkId') linkId: string) {
+    return this.run(() => this.app.voucherOfProcedureLink(this.actor(request), linkId));
+  }
+
   @Get('vouchers/:id')
   voucher(@Req() request: FinanceRequest, @Param('id') id: string) {
     return this.run(() => this.app.voucher(this.actor(request), id));
@@ -198,12 +220,62 @@ export class FinanceController {
   @Post('vouchers/:id/cancel')
   @HttpCode(200)
   cancel(@Req() request: FinanceRequest, @Param('id') id: string, @Body() body: FinanceDecisionRequest) {
-    return this.run(() => this.app.cancel(this.actor(request), id, body?.note));
+    return this.run(() => this.app.cancel(this.actor(request), sessionOf(request), id, body?.note));
+  }
+  @Post('vouchers/:id/procedure-action')
+  @HttpCode(200)
+  procedureAction(@Req() request: FinanceRequest, @Param('id') id: string, @Body() body: FinanceProcedureActionRequest) {
+    return this.run(() => this.app.procedureAction(this.actor(request), sessionOf(request), id, body));
+  }
+  @Post('vouchers/:id/procedure-retry')
+  @HttpCode(200)
+  procedureRetry(@Req() request: FinanceRequest, @Param('id') id: string) {
+    return this.run(() => this.app.retryProcedure(this.actor(request), id));
   }
   @Post('vouchers/:id/reverse')
   @HttpCode(200)
   reverse(@Req() request: FinanceRequest, @Param('id') id: string, @Body() body: FinanceDecisionRequest) {
     return this.run(() => this.app.reverse(this.actor(request), id, body?.note));
+  }
+
+  /* Đính kèm chứng từ */
+  @Post('vouchers/:id/attachments')
+  createAttachment(@Req() request: FinanceRequest, @Param('id') id: string, @Body() body: { fileName?: string; contentType?: string; sizeBytes?: number }) {
+    return this.run(() => this.app.createAttachment(this.actor(request), id, body ?? {}));
+  }
+  @Post('vouchers/:id/attachments/:attachmentId/complete')
+  @HttpCode(200)
+  completeAttachment(@Req() request: FinanceRequest, @Param('id') id: string, @Param('attachmentId') attachmentId: string) {
+    return this.run(() => this.app.completeAttachment(this.actor(request), id, attachmentId));
+  }
+  @Get('vouchers/:id/attachments/:attachmentId/download')
+  downloadAttachment(@Req() request: FinanceRequest, @Param('id') id: string, @Param('attachmentId') attachmentId: string) {
+    return this.run(() => this.app.downloadAttachment(this.actor(request), id, attachmentId));
+  }
+  @Delete('vouchers/:id/attachments/:attachmentId')
+  @HttpCode(204)
+  async removeAttachment(@Req() request: FinanceRequest, @Param('id') id: string, @Param('attachmentId') attachmentId: string) {
+    await this.run(() => this.app.removeAttachment(this.actor(request), id, attachmentId));
+  }
+
+  /* Quy trình duyệt */
+  @Get('approval-bindings')
+  approvalBindings(@Req() request: FinanceRequest) {
+    return this.run(() => this.app.approvalBindings(this.actor(request)));
+  }
+  @Put('approval-bindings/:kind')
+  saveApprovalBinding(@Req() request: FinanceRequest, @Param('kind') kind: FinanceVoucherKind, @Body() body: SaveFinanceApprovalBindingRequest) {
+    return this.run(() => this.app.saveApprovalBinding(this.actor(request), kind, body));
+  }
+  @Get('approval-bindings/procedure-definitions')
+  procedureDefinitions(@Req() request: FinanceRequest) {
+    return this.run(() => this.app.procedureDefinitions(this.actor(request), sessionOf(request)));
+  }
+
+  /** Route nội bộ cho Procedure (service token, không có người dùng): huỷ hiệu lực hồ sơ có được không. */
+  @Get('internal/procedure-links/:linkId/reversal-check')
+  reversalCheck(@Req() request: FinanceRequest, @Param('linkId') linkId: string) {
+    return this.run(() => this.app.procedureReversalCheck(this.actor(request).tenantId, linkId));
   }
 
   /* Báo cáo */

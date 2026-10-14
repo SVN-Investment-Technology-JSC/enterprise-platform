@@ -113,7 +113,7 @@ export function StatusBadge({ status }: { status: FinanceVoucherStatus }) {
 /** Ô viết tắt tên người (thay ảnh đại diện). */
 export function Avatar({ name, className }: { name: string | null | undefined; className?: string }) {
   const text = (name ?? '').trim();
-  const letter = text ? text.split(/\s+/).pop()!.slice(0, 1).toUpperCase() : '?';
+  const letter = (text.split(/\s+/).pop() ?? '').slice(0, 1).toUpperCase() || '?';
   return (
     <span
       title={text || undefined}

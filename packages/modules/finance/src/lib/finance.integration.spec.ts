@@ -1,38 +1,15 @@
 import { randomUUID } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { createPostgresPool } from '@enterprise-platform/adapter-database';
 import type { SaveFinanceVoucherRequest } from '@enterprise-platform/contracts-finance';
-import type { Pool, PoolClient } from 'pg';
+import type { Pool } from 'pg';
 import { FinanceApplication } from './application/finance.application.js';
 import type { FinanceActor } from './domain/finance.access.js';
-import { FinanceDatabase, todayVn } from './infrastructure/finance.database.js';
+import { todayVn } from './infrastructure/finance.database.js';
+import { FakeFinanceStorage, TestFinanceDatabase } from './finance-test-support.js';
 
 const integration = process.env.FINANCE_TEST_ADMIN_URL ? describe : describe.skip;
-
-/** FinanceDatabase dùng pool của test; giao dịch tự quản để chạy được cả trên PostgreSQL thật lẫn PGlite cục bộ. */
-class TestDatabase extends FinanceDatabase {
-  constructor(private readonly testPool: Pool) {
-    super(undefined as never, undefined as never);
-  }
-  override async pool(): Promise<Pool> {
-    return this.testPool;
-  }
-  override async transaction<T>(_tenantId: string, work: (client: PoolClient) => Promise<T>): Promise<T> {
-    const client = await this.testPool.connect();
-    try {
-      await client.query('BEGIN');
-      const result = await work(client);
-      await client.query('COMMIT');
-      return result;
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally {
-      client.release();
-    }
-  }
-}
 
 const CREATE_ALL = ['finance.receipt.create', 'finance.payment.create', 'finance.transfer.create'];
 const APPROVE_ALL = ['finance.receipt.approve', 'finance.payment.approve', 'finance.transfer.approve', 'finance.read', 'finance.report.read'];
@@ -44,8 +21,11 @@ integration('Tài chính: phiếu thu, chi, chuyển tiền và sổ cái (Postg
   let admin: ReturnType<typeof createPostgresPool>;
   let pool: Pool;
   let app: FinanceApplication;
+  const storage = new FakeFinanceStorage();
 
   const actor = (name: string, permissions: string[]): FinanceActor => ({ tenantId, userId: randomUUID(), displayName: name, permissions });
+  /** Không có phiên Procedure: các test dùng duyệt trực tiếp nên không gọi sang Procedure. */
+  const session = {};
   const accountant = actor('Kế toán viên', CREATE_ALL);
   const approver = actor('Kế toán trưởng', APPROVE_ALL);
   const admin2 = actor('Quản trị tài chính', ['finance.manage']);
@@ -117,8 +97,10 @@ integration('Tài chính: phiếu thu, chi, chuyển tiền và sổ cái (Postg
     await admin.query(`CREATE DATABASE "${databaseName}"`);
     url.pathname = '/' + databaseName;
     pool = createPostgresPool(url.toString()) as unknown as Pool;
-    await pool.query(await readFile(resolve(process.cwd(), '../../../migrations/tenant/finance/0001-finance.sql'), 'utf8'));
-    app = new FinanceApplication(new TestDatabase(pool));
+    const directory = resolve(process.cwd(), '../../../migrations/tenant/finance');
+    for (const file of (await readdir(directory)).filter((name) => name.endsWith('.sql')).sort())
+      await pool.query(await readFile(resolve(directory, file), 'utf8'));
+    app = new FinanceApplication(new TestFinanceDatabase(pool), storage);
 
     accountA = (
       await app.saveAccount(admin2, null, {
@@ -188,7 +170,7 @@ integration('Tài chính: phiếu thu, chi, chuyển tiền và sổ cái (Postg
     await app.saveSettings(admin2, { allowSelfApproval: true });
     expect((await app.voucher(maker, own.id)).permissions.canApprove).toBe(true);
     await app.saveSettings(admin2, { allowSelfApproval: false });
-    await app.cancel(maker, own.id, 'Chỉ dùng kiểm thử');
+    await app.cancel(maker, session, own.id, 'Chỉ dùng kiểm thử');
     const approved = await app.approve(approver, created.id, 'Đã đối chiếu sao kê');
     expect(approved).toMatchObject({ status: 'APPROVED', posted: true, decidedByName: 'Kế toán trưởng' });
     expect(approved.events.map((e) => e.action)).toEqual(['CREATED', 'SUBMITTED', 'APPROVED']);
@@ -220,7 +202,7 @@ integration('Tài chính: phiếu thu, chi, chuyển tiền và sổ cái (Postg
     expect(await balance(accountA)).toBe(10_300_000);
     // Số tiền chờ duyệt hiện ở tài khoản để kế toán biết tiền sắp ra.
     expect((await app.account(approver, accountA)).pendingOut).toBe(50_000_000);
-    await app.cancel(accountant, big.id, 'Nhập sai số tiền');
+    await app.cancel(accountant, session, big.id, 'Nhập sai số tiền');
     expect((await app.account(approver, accountA)).pendingOut).toBe(0);
 
     const ok = await post(payment(1_300_000));
@@ -264,7 +246,7 @@ integration('Tài chính: phiếu thu, chi, chuyển tiền và sổ cái (Postg
     const tooBig = await app.createVoucher(accountant, transfer(99_000_000, accountA, cash));
     await app.submit(accountant, tooBig.id);
     await rejects(app.approve(approver, tooBig.id), 'FINANCE_INSUFFICIENT_BALANCE');
-    await app.cancel(approver, tooBig.id, 'Không đủ số dư');
+    await app.cancel(approver, session, tooBig.id, 'Không đủ số dư');
     expect((await app.voucher(approver, tooBig.id)).status).toBe('CANCELLED');
   });
 
@@ -305,7 +287,7 @@ integration('Tài chính: phiếu thu, chi, chuyển tiền và sổ cái (Postg
   it('đảo phiếu đã ghi sổ: bút toán đảo giữ nguyên số liệu; đảo phiếu thu đã tiêu hết tiền bị chặn', async () => {
     const paid = await post(payment(500_000));
     const after = await balance(accountA);
-    await rejects(app.cancel(accountant, paid.id, 'x'), 'FINANCE_VOUCHER_STATE');
+    await rejects(app.cancel(accountant, session, paid.id, 'x'), 'FINANCE_VOUCHER_STATE');
     await rejects(app.reverse(approver, paid.id, undefined), 'FINANCE_INVALID', /lý do/);
     await rejects(app.reverse(accountant, paid.id, 'Nhầm'), 'FINANCE_FORBIDDEN');
     const reversed = await app.reverse(approver, paid.id, 'Chi nhầm đối tượng');
@@ -347,7 +329,7 @@ integration('Tài chính: phiếu thu, chi, chuyển tiền và sổ cái (Postg
     const future = await app.createVoucher(accountant, receipt({ postingDate: '2099-01-01', voucherDate: '2099-01-01' }));
     await app.submit(accountant, future.id);
     await rejects(app.approve(approver, future.id), 'FINANCE_INVALID', /tương lai/);
-    await app.cancel(accountant, future.id);
+    await app.cancel(accountant, session, future.id);
 
     // Khoá đến hôm nay: không đảo được phiếu vì bút toán đảo ghi vào hôm nay.
     await app.saveSettings(admin2, { booksLockedUntil: today });
@@ -366,7 +348,7 @@ integration('Tài chính: phiếu thu, chi, chuyển tiền và sổ cái (Postg
       app.saveAccount(admin2, accountB, { code: 'TCB-01', name: 'Techcombank', accountType: 'BANK', bankName: 'Techcombank (TCB)', accountNumber: '19031234567890', isActive: false }),
       'FINANCE_ACCOUNT_IN_USE',
     );
-    await app.cancel(approver, pending.id, 'Dọn dẹp');
+    await app.cancel(approver, session, pending.id, 'Dọn dẹp');
   });
 
   it('báo cáo tính từ sổ cái: thu chi trừ phần đã đảo, chuyển tiền nội bộ không tính, biến động tài khoản khớp số dư', async () => {
@@ -413,6 +395,68 @@ integration('Tài chính: phiếu thu, chi, chuyển tiền và sổ cái (Postg
     // Người chỉ có quyền lập phiếu không thấy số liệu tài khoản.
     const limited = (await app.accounts(outsider, false))[0];
     expect(limited).toMatchObject({ receiptCount: null, totalReceipts: null, totalPayments: null });
+  });
+
+  it('đính kèm chứng từ: tải lên bằng URL ký sẵn, phải xác nhận mới hiện trên phiếu; sai định dạng/kích thước bị chặn', async () => {
+    const voucher = await app.createVoucher(accountant, receipt({ content: 'Phiếu có chứng từ' }));
+    const ok = { fileName: 'hoa-don-001.pdf', contentType: 'application/pdf', sizeBytes: 120_000 };
+
+    await rejects(app.createAttachment(accountant, voucher.id, { fileName: 'virus.exe', contentType: 'application/pdf', sizeBytes: 10 }), 'FINANCE_INVALID');
+    await rejects(app.createAttachment(accountant, voucher.id, { ...ok, contentType: 'image/png' }), 'FINANCE_INVALID'); // nội dung khai báo không khớp đuôi tệp
+    await rejects(app.createAttachment(accountant, voucher.id, { ...ok, sizeBytes: 11 * 1024 * 1024 }), 'FINANCE_INVALID');
+    await rejects(app.createAttachment(accountant, voucher.id, { ...ok, sizeBytes: 0 }), 'FINANCE_INVALID');
+    await rejects(app.createAttachment(accountant, voucher.id, { ...ok, fileName: '   ' }), 'FINANCE_INVALID');
+
+    const created = await app.createAttachment(accountant, voucher.id, ok);
+    expect(created.uploadUrl).toContain(`tenants/${tenantId}/finance/${voucher.id}/${created.id}.pdf`);
+    // Chưa xác nhận: chưa hiện trên phiếu và chưa tải xuống được.
+    expect((await app.voucher(accountant, voucher.id)).attachments).toEqual([]);
+    await rejects(app.downloadAttachment(accountant, voucher.id, created.id), 'FINANCE_NOT_FOUND');
+    // Chưa tải lên kho thì không xác nhận được.
+    await rejects(app.completeAttachment(accountant, voucher.id, created.id), 'FINANCE_ATTACHMENT_NOT_UPLOADED');
+    // Tải lên sai kích thước.
+    storage.upload(created.uploadUrl, 999, 'application/pdf');
+    await rejects(app.completeAttachment(accountant, voucher.id, created.id), 'FINANCE_ATTACHMENT_MISMATCH');
+    storage.upload(created.uploadUrl, 120_000, 'application/pdf');
+    const done = await app.completeAttachment(accountant, voucher.id, created.id);
+    expect(done).toMatchObject({ id: created.id, fileName: 'hoa-don-001.pdf', sizeBytes: 120_000, uploadedByName: 'Kế toán viên' });
+    expect((await app.completeAttachment(accountant, voucher.id, created.id)).id).toBe(created.id); // xác nhận lặp không lỗi
+
+    const withFile = await app.voucher(accountant, voucher.id);
+    expect(withFile.attachments.map((a) => a.fileName)).toEqual(['hoa-don-001.pdf']);
+    const download = await app.downloadAttachment(approver, voucher.id, created.id);
+    expect(download.fileName).toBe('hoa-don-001.pdf');
+    expect(download.url).toContain(created.id);
+    // Người không xem được phiếu không tải được và không biết tệp có tồn tại.
+    await rejects(app.downloadAttachment(outsider, voucher.id, created.id), 'FINANCE_NOT_FOUND');
+  });
+
+  it('chỉ người lập thêm/gỡ tệp và chỉ khi phiếu còn sửa được; gỡ là xoá mềm', async () => {
+    const voucher = await app.createVoucher(accountant, receipt({ content: 'Phiếu gỡ tệp' }));
+    const created = await app.createAttachment(accountant, voucher.id, { fileName: 'a.png', contentType: 'image/png', sizeBytes: 50 });
+    storage.upload(created.uploadUrl, 50, 'image/png');
+    await app.completeAttachment(accountant, voucher.id, created.id);
+
+    await rejects(app.createAttachment(approver, voucher.id, { fileName: 'b.png', contentType: 'image/png', sizeBytes: 5 }), 'FINANCE_NOT_FOUND'); // không phải người lập
+    await rejects(app.removeAttachment(approver, voucher.id, created.id), 'FINANCE_NOT_FOUND');
+
+    await app.removeAttachment(accountant, voucher.id, created.id);
+    expect((await app.voucher(accountant, voucher.id)).attachments).toEqual([]);
+    await rejects(app.removeAttachment(accountant, voucher.id, created.id), 'FINANCE_NOT_FOUND');
+    const kept = (await pool.query(`SELECT deleted_at, deleted_by FROM finance_schema.voucher_attachments WHERE id=$1`, [created.id])).rows[0];
+    expect(kept.deleted_at).not.toBeNull();
+    expect(kept.deleted_by).toBe(accountant.userId);
+
+    // Đã gửi duyệt thì không thêm/gỡ tệp nữa.
+    await app.submit(accountant, voucher.id);
+    await rejects(app.createAttachment(accountant, voucher.id, { fileName: 'c.png', contentType: 'image/png', sizeBytes: 5 }), 'FINANCE_VOUCHER_LOCKED');
+    await app.cancel(accountant, session, voucher.id, 'dọn');
+  });
+
+  it('mỗi phiếu đính kèm tối đa 20 tệp', async () => {
+    const voucher = await app.createVoucher(accountant, receipt({ content: 'Phiếu nhiều tệp' }));
+    for (let i = 0; i < 20; i += 1) await app.createAttachment(accountant, voucher.id, { fileName: `f${i}.pdf`, contentType: 'application/pdf', sizeBytes: 10 });
+    await rejects(app.createAttachment(accountant, voucher.id, { fileName: 'f21.pdf', contentType: 'application/pdf', sizeBytes: 10 }), 'FINANCE_INVALID');
   });
 
   it('trang tổng quan: phiếu chờ duyệt chỉ tính loại mình duyệt và không tính phiếu của chính mình', async () => {

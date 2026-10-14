@@ -10,6 +10,11 @@ import { loadSettings } from './catalogs.store.js';
 import { dateOnly, num, optStr, todayVn, type Db } from './finance.database.js';
 import { addEvent, canViewVoucher, loadVoucherRecord, type Row, type VoucherRecord } from './vouchers.store.js';
 
+/** Khoá dòng phiếu không kiểm quyền xem: dành cho tiến trình hệ thống (áp kết quả quy trình). */
+export async function lockVoucherRow(db: Db, tenantId: string, id: string): Promise<Row | undefined> {
+  return (await db.query(`SELECT * FROM finance_schema.vouchers WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, [tenantId, id])).rows[0] as Row | undefined;
+}
+
 /** Khoá dòng phiếu cho cả giao dịch; người không được xem phiếu nhận 404 như phiếu không tồn tại. */
 async function lockVoucher(db: Db, tenantId: string, actor: FinanceActor, id: string): Promise<Row> {
   const row = (await db.query(`SELECT * FROM finance_schema.vouchers WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, [tenantId, id])).rows[0] as
@@ -59,8 +64,17 @@ async function accountRef(db: Db, tenantId: string, id: string | null) {
   return row ? { name: String(row.name), isActive: Boolean(row.is_active), openingDate: dateOnly(row.opening_date) } : null;
 }
 
-/** Gửi duyệt: kiểm đủ điều kiện rồi chuyển PENDING. Quy trình (Procedure) nối vào đây ở bước sau. */
-export async function submitVoucher(db: Db, tenantId: string, actor: FinanceActor, id: string): Promise<void> {
+/**
+ * Gửi duyệt: kiểm đủ điều kiện rồi chuyển PENDING. `mode` là cách duyệt đang áp cho loại phiếu: với PROCEDURE, nơi gọi
+ * tạo liên kết quy trình trong cùng giao dịch (từ phiếu trả về) để phiếu và liên kết cùng thành công hoặc cùng huỷ.
+ */
+export async function submitVoucher(
+  db: Db,
+  tenantId: string,
+  actor: FinanceActor,
+  id: string,
+  mode: 'DIRECT' | 'PROCEDURE' = 'DIRECT',
+): Promise<Row> {
   const row = await lockVoucher(db, tenantId, actor, id);
   const kind = row.kind as FinanceVoucherKind;
   if (row.created_by !== actor.userId || !canCreate(actor, kind)) throw forbidden('Chỉ người lập phiếu mới được gửi duyệt.');
@@ -83,12 +97,13 @@ export async function submitVoucher(db: Db, tenantId: string, actor: FinanceActo
   if (errors.length) throw invalidMany('FINANCE_SUBMIT_INVALID', errors);
 
   await db.query(
-    `UPDATE finance_schema.vouchers SET status='PENDING', approval_mode='DIRECT', submitted_by=$3, submitted_at=now(),
+    `UPDATE finance_schema.vouchers SET status='PENDING', approval_mode=$4, submitted_by=$3, submitted_at=now(),
             decided_by=NULL, decided_by_name=NULL, decided_at=NULL, decision_note=NULL, updated_at=now()
       WHERE tenant_id=$1 AND id=$2`,
-    [tenantId, id, actor.userId],
+    [tenantId, id, actor.userId, mode],
   );
-  await addEvent(db, tenantId, id, 'SUBMITTED', actor);
+  await addEvent(db, tenantId, id, 'SUBMITTED', actor, mode === 'PROCEDURE' ? 'Gửi duyệt qua quy trình' : null);
+  return record.row;
 }
 
 interface AccountState {
@@ -148,10 +163,16 @@ export function ledgerPlan(
   ];
 }
 
+/** Người thực hiện thao tác ghi sổ/duyệt: người dùng thật hoặc tài khoản hệ thống khi quy trình áp kết quả. */
+export interface Decider {
+  userId: string;
+  displayName: string;
+}
+
 async function postEntries(
   db: Db,
   tenantId: string,
-  actor: FinanceActor,
+  actor: Pick<Decider, 'userId'>,
   voucher: { id: string; code: string; kind: FinanceVoucherKind; accountId: string; destAccountId: string | null; totalAmount: number },
   options: { reversal: boolean; postedDate: string; checkOpeningDate: boolean },
 ): Promise<void> {
@@ -200,16 +221,41 @@ export async function approveVoucher(db: Db, tenantId: string, actor: FinanceAct
   if (row.created_by === actor.userId && !settings.allowSelfApproval)
     throw forbidden('Không được tự duyệt phiếu do mình lập.');
 
+  await postApproval(db, tenantId, row, actor, note);
+}
+
+/**
+ * Ghi sổ và chuyển phiếu sang ĐÃ DUYỆT: dùng chung cho duyệt trực tiếp và cho kết quả "đã duyệt" của quy trình.
+ * Chặn theo khoá sổ, ngày hạch toán, trạng thái tài khoản và số dư; lỗi nào cũng xảy ra TRƯỚC khi ghi dòng sổ cái nào.
+ */
+export async function postApproval(db: Db, tenantId: string, row: Row, decider: Decider, note?: string): Promise<void> {
+  const settings = await loadSettings(db, tenantId);
   const postingDate = dateOnly(row.posting_date);
   assertPostingDateAllowed(postingDate, settings.booksLockedUntil, todayVn());
-
-  await postEntries(db, tenantId, actor, toPostable(row), { reversal: false, postedDate: postingDate, checkOpeningDate: true });
+  await postEntries(db, tenantId, decider, toPostable(row), { reversal: false, postedDate: postingDate, checkOpeningDate: true });
   await db.query(
     `UPDATE finance_schema.vouchers SET status='APPROVED', decided_by=$3, decided_by_name=$4, decided_at=now(), decision_note=$5, posted_at=now(), updated_at=now()
       WHERE tenant_id=$1 AND id=$2`,
-    [tenantId, id, actor.userId, actor.displayName, note?.trim() || null],
+    [tenantId, String(row.id), decider.userId, decider.displayName, note?.trim() || null],
   );
-  await addEvent(db, tenantId, id, 'APPROVED', actor, note);
+  await addEvent(db, tenantId, String(row.id), 'APPROVED', decider, note);
+}
+
+/** Đưa phiếu về trạng thái đã xử lý không ghi sổ (từ chối hoặc huỷ), dùng chung cho thao tác thủ công và kết quả quy trình. */
+export async function closeWithoutPosting(
+  db: Db,
+  tenantId: string,
+  voucherId: string,
+  status: 'REJECTED' | 'CANCELLED',
+  decider: Decider,
+  note: string | null,
+): Promise<void> {
+  await db.query(
+    `UPDATE finance_schema.vouchers SET status=$3, decided_by=$4, decided_by_name=$5, decided_at=now(), decision_note=$6, updated_at=now()
+      WHERE tenant_id=$1 AND id=$2`,
+    [tenantId, voucherId, status, decider.userId, decider.displayName, note?.trim() || null],
+  );
+  await addEvent(db, tenantId, voucherId, status === 'REJECTED' ? 'REJECTED' : 'CANCELLED', decider, note);
 }
 
 /** Từ chối: người lập có thể sửa và gửi lại. Bắt buộc có lý do. */

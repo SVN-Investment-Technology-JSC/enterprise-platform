@@ -2,9 +2,17 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { Pencil, Plus } from 'lucide-react';
-import { toast } from '@enterprise-platform/shared-ui';
+import { SearchableSelect, toast } from '@enterprise-platform/shared-ui';
 import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
-import type { FinanceCatalogs, FinanceSettings } from '@enterprise-platform/contracts-finance';
+import {
+  FINANCE_VOUCHER_KIND_LABELS,
+  type FinanceApprovalBinding,
+  type FinanceApprovalMode,
+  type FinanceCatalogs,
+  type FinanceSettings,
+  type FinanceVoucherKind,
+  type SaveFinanceApprovalBindingResponse,
+} from '@enterprise-platform/contracts-finance';
 import { financeErrorMessage, financeFetch, financePost, financePut } from '../finance-api';
 import { dateVn } from '../finance-format';
 import { Button } from '../ui/button';
@@ -13,13 +21,14 @@ import { Input } from '../ui/input';
 import { EmptyState, ErrorBanner, Field } from '../ui/form-parts';
 import { cn } from '../utils';
 
-type TabId = 'receipt-reasons' | 'payment-reasons' | 'groups' | 'cost-centers' | 'books';
+type TabId = 'receipt-reasons' | 'payment-reasons' | 'groups' | 'cost-centers' | 'approval' | 'books';
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'receipt-reasons', label: 'Lý do thu' },
   { id: 'payment-reasons', label: 'Lý do chi' },
   { id: 'groups', label: 'Đối tượng thu chi' },
   { id: 'cost-centers', label: 'Hạch toán nội bộ' },
+  { id: 'approval', label: 'Quy trình duyệt' },
   { id: 'books', label: 'Khoá sổ và duyệt' },
 ];
 
@@ -144,6 +153,134 @@ function CatalogPanel({
   );
 }
 
+const MODE_OPTIONS: { value: FinanceApprovalMode; label: string }[] = [
+  { value: 'DIRECT', label: 'Duyệt trực tiếp (người có quyền duyệt)' },
+  { value: 'PROCEDURE', label: 'Duyệt qua quy trình (Procedure)' },
+];
+
+/** Mỗi loại phiếu chọn cách duyệt: trực tiếp bởi người có quyền, hoặc chạy theo một quy trình đã công bố trong Procedure. */
+function ApprovalPanel() {
+  const [bindings, setBindings] = useState<FinanceApprovalBinding[] | null>(null);
+  const [definitions, setDefinitions] = useState<{ id: string; code: string; name: string }[] | null>(null);
+  const [definitionsError, setDefinitionsError] = useState<string | null>(null);
+  const [draft, setDraft] = useState<Partial<Record<FinanceVoucherKind, { mode: FinanceApprovalMode; definitionId: string }>>>({});
+  const [warnings, setWarnings] = useState<Partial<Record<FinanceVoucherKind, string[]>>>({});
+  const [savingKind, setSavingKind] = useState<FinanceVoucherKind | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    financeFetch<FinanceApprovalBinding[]>('/approval-bindings')
+      .then((result) => active && setBindings(result))
+      .catch((e) => active && setError(financeErrorMessage(e, 'Không tải được cấu hình duyệt.')));
+    financeFetch<{ id: string; code: string; name: string }[]>('/approval-bindings/procedure-definitions')
+      .then((result) => active && setDefinitions(result))
+      .catch((e) => active && setDefinitionsError(financeErrorMessage(e, 'Không tải được danh sách quy trình.')));
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  if (!bindings) return error ? <ErrorBanner message={error} /> : <div role="status" className="p-6 text-sm text-slate-500">Đang tải cấu hình duyệt…</div>;
+
+  const valueOf = (binding: FinanceApprovalBinding) => draft[binding.kind] ?? { mode: binding.mode, definitionId: binding.procedureDefinitionId ?? '' };
+  const options = (binding: FinanceApprovalBinding) => {
+    const list = (definitions ?? []).map((d) => ({ value: d.id, label: d.name, description: d.code }));
+    // Quy trình đang gán nhưng đã không còn trong danh sách công bố: vẫn hiện để người dùng thấy đang dùng gì.
+    if (binding.procedureDefinitionId && !list.some((o) => o.value === binding.procedureDefinitionId))
+      list.unshift({ value: binding.procedureDefinitionId, label: binding.procedureDefinitionName ?? 'Quy trình đã gán', description: 'Không còn công bố' });
+    return list;
+  };
+
+  async function save(binding: FinanceApprovalBinding) {
+    const value = valueOf(binding);
+    setSavingKind(binding.kind);
+    setError(null);
+    try {
+      const result = await financePut<SaveFinanceApprovalBindingResponse>(`/approval-bindings/${binding.kind}`, {
+        mode: value.mode,
+        procedureDefinitionId: value.mode === 'PROCEDURE' ? value.definitionId || null : null,
+      });
+      setBindings((current) => (current ?? []).map((b) => (b.kind === binding.kind ? result.binding : b)));
+      setDraft((current) => {
+        const next = { ...current };
+        delete next[binding.kind];
+        return next;
+      });
+      setWarnings((current) => ({ ...current, [binding.kind]: result.warnings }));
+      toast.success(`Đã lưu cách duyệt ${FINANCE_VOUCHER_KIND_LABELS[binding.kind].toLowerCase()}`);
+    } catch (e) {
+      setError(financeErrorMessage(e));
+    } finally {
+      setSavingKind(null);
+    }
+  }
+
+  return (
+    <section aria-label="Quy trình duyệt" className="space-y-3">
+      <p className="text-sm text-slate-600">
+        Chọn cách duyệt cho từng loại phiếu. Duyệt qua quy trình thì người duyệt do quy trình quyết định và tiền chỉ được ghi sổ khi quy trình hoàn tất.
+        Phiếu đã gửi duyệt giữ nguyên cách duyệt lúc gửi.
+      </p>
+      <ErrorBanner message={error} />
+      {definitionsError ? <p role="status" className="rounded-lg bg-amber-50 p-2 text-sm text-amber-800">{definitionsError}</p> : null}
+      {bindings.map((binding) => {
+        const value = valueOf(binding);
+        const dirty = value.mode !== binding.mode || (value.mode === 'PROCEDURE' && value.definitionId !== (binding.procedureDefinitionId ?? ''));
+        const invalid = value.mode === 'PROCEDURE' && !value.definitionId;
+        return (
+          <div key={binding.kind} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="flex flex-wrap items-end gap-3">
+              <div className="w-44 text-sm font-semibold text-slate-900">{FINANCE_VOUCHER_KIND_LABELS[binding.kind]}</div>
+              <Field label="Cách duyệt" className="w-72">
+                {(id) => (
+                  <SearchableSelect
+                    name={id}
+                    options={MODE_OPTIONS}
+                    value={value.mode}
+                    onChange={(mode) => mode && setDraft({ ...draft, [binding.kind]: { ...value, mode: mode as FinanceApprovalMode } })}
+                    height={32}
+                  />
+                )}
+              </Field>
+              {value.mode === 'PROCEDURE' ? (
+                <Field label="Quy trình" className="w-80">
+                  {(id) => (
+                    <SearchableSelect
+                      name={id}
+                      options={options(binding)}
+                      value={value.definitionId}
+                      onChange={(definitionId) => setDraft({ ...draft, [binding.kind]: { ...value, definitionId } })}
+                      placeholder="Chọn quy trình đã công bố"
+                      clearable
+                      height={32}
+                    />
+                  )}
+                </Field>
+              ) : null}
+              <Button type="button" disabled={!dirty || invalid || savingKind === binding.kind} onClick={() => void save(binding)}>
+                Lưu
+              </Button>
+            </div>
+            {warnings[binding.kind]?.length ? (
+              <ul className="mt-2 list-inside list-disc text-sm text-amber-800">
+                {warnings[binding.kind]?.map((warning) => (
+                  <li key={warning}>{warning}</li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        );
+      })}
+      <p className="text-xs text-slate-500">
+        Quy trình có thể dùng các thuộc tính do phiếu tự điền: so_tien, noi_dung, ma_phieu, loai_phieu, ly_do, tai_khoan, tai_khoan_dich, doi_tuong,
+        nguoi_nop_nhan, hach_toan_noi_bo, ngay_hach_toan, ngay_lap (đúng kiểu dữ liệu). Thuộc tính bắt buộc khác sẽ không được chấp nhận. Có thể dùng số tiền để
+        rẽ nhánh thêm cấp duyệt cho phiếu lớn.
+      </p>
+    </section>
+  );
+}
+
 function BooksPanel({ settings, onSaved }: { settings: FinanceSettings; onSaved: (next: FinanceSettings) => void }) {
   const [lock, setLock] = useState(settings.booksLockedUntil ?? '');
   const [selfApproval, setSelfApproval] = useState(settings.allowSelfApproval);
@@ -245,6 +382,7 @@ export default function SettingsScreen() {
             ) : null}
             {tab === 'groups' ? <CatalogPanel title="Đối tượng thu chi" rows={catalogs.counterpartyGroups} basePath="/catalogs/counterparty-groups" onChanged={() => void load()} /> : null}
             {tab === 'cost-centers' ? <CatalogPanel title="Hạch toán nội bộ" rows={catalogs.costCenters} basePath="/catalogs/cost-centers" onChanged={() => void load()} /> : null}
+            {tab === 'approval' ? <ApprovalPanel /> : null}
             {tab === 'books' ? <BooksPanel settings={settings} onSaved={setSettings} /> : null}
           </>
         ) : !error ? (

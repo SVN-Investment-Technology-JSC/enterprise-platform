@@ -2,19 +2,68 @@
 
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
-import { Ban, Check, Pencil, Send, Trash2, Undo2, X } from 'lucide-react';
+import { Ban, Check, Paperclip, Pencil, RefreshCw, Send, Trash2, Undo2, X } from 'lucide-react';
 import { Popconfirm, toast } from '@enterprise-platform/shared-ui';
 import {
   FINANCE_VOUCHER_EVENT_LABELS,
+  type FinanceProcedureProgress,
   type FinanceVoucher,
   type FinanceVoucherKind,
 } from '@enterprise-platform/contracts-finance';
+import { formatBytes, openFinanceAttachment } from '../attachment-upload';
 import { financeDelete, financeErrorMessage, financeFetch, financePost } from '../finance-api';
 import { useFinanceCrumbs } from '../finance-crumbs';
 import { dateTimeVn, dateVn, money } from '../finance-format';
 import { FINANCE_KIND_CONFIG } from '../finance-kinds';
 import { Button } from '../ui/button';
 import { EmptyState, ErrorBanner, StatusBadge } from '../ui/form-parts';
+
+/** Mã chống gửi trùng cho mỗi lần bấm (nếu mạng lỗi và người dùng bấm lại, Procedure chỉ nhận một lần). */
+const newKey = () => (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`);
+
+const STEP_STATUS_TEXT: Record<string, string> = {
+  running: 'Đang chạy',
+  completed: 'Đã hoàn thành',
+  rejected: 'Bị từ chối',
+  cancelled: 'Đã huỷ',
+  reversed: 'Đã huỷ hiệu lực',
+};
+
+/** Khối theo dõi hồ sơ quy trình của phiếu: ai đang xử lý, tiến độ và lỗi cần người dùng xử lý. */
+function ProcedurePanel({ procedure }: { procedure: FinanceProcedureProgress }) {
+  const stuck = procedure.syncStatus === 'CONFLICT';
+  return (
+    <section aria-label="Quy trình duyệt" className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      <h2 className="mb-3 text-sm font-semibold text-slate-900">Quy trình duyệt</h2>
+      <dl className="grid gap-x-4 gap-y-3 sm:grid-cols-3">
+        <Info label="Hồ sơ quy trình">
+          {procedure.instanceId ? (
+            <a className="font-medium text-link hover:underline" href={`/modules/procedure#workspace/${encodeURIComponent(procedure.instanceId)}`}>
+              {procedure.instanceCode ?? 'Mở hồ sơ'}
+            </a>
+          ) : (
+            'Đang khởi tạo'
+          )}
+        </Info>
+        <Info label="Trạng thái">{STEP_STATUS_TEXT[procedure.status] ?? procedure.status}</Info>
+        <Info label="Bước hiện tại">
+          {procedure.currentStepName}
+          {procedure.currentAssigneeName ? <span className="block text-xs text-slate-500">Người xử lý: {procedure.currentAssigneeName}</span> : null}
+        </Info>
+      </dl>
+      {procedure.syncStatus === 'START_PENDING' || procedure.syncStatus === 'FAILED' ? (
+        <p role="status" className="mt-3 rounded-lg bg-amber-50 p-2 text-sm text-amber-800">
+          Hồ sơ quy trình chưa được tạo{procedure.lastError ? `: ${procedure.lastError}` : ''}. Hệ thống sẽ tự thử lại; có thể bấm Thử lại.
+        </p>
+      ) : null}
+      {stuck ? (
+        <p role="alert" className="mt-3 rounded-lg bg-red-50 p-2 text-sm text-red-700">
+          Quy trình đã duyệt nhưng chưa ghi sổ được: {procedure.lastError}. Xử lý nguyên nhân (ví dụ nạp tiền vào tài khoản) rồi bấm Áp lại.
+        </p>
+      ) : null}
+    </section>
+  );
+}
 
 function Info({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -63,6 +112,12 @@ export default function VoucherDetailScreen({ kind, id }: { kind: FinanceVoucher
     }
   }
 
+  const viaProcedure = voucher?.approvalMode === 'PROCEDURE';
+  const decide = (action: 'approve' | 'reject', comment: string | undefined, success: string) =>
+    viaProcedure
+      ? act('procedure-action', { action, comment, idempotencyKey: newKey() }, success)
+      : act(action, { note: comment }, success);
+
   async function remove() {
     setBusy(true);
     try {
@@ -107,14 +162,19 @@ export default function VoucherDetailScreen({ kind, id }: { kind: FinanceVoucher
             </Popconfirm>
           ) : null}
           {can.canApprove ? (
-            <Popconfirm title="Duyệt và ghi sổ phiếu này?" description="Tiền sẽ được ghi vào sổ tài khoản ngay khi duyệt." okType="primary" okText="Duyệt" onConfirm={() => act('approve', {}, 'Đã duyệt và ghi sổ')}>
+            <Popconfirm title="Duyệt và ghi sổ phiếu này?" description={viaProcedure ? 'Phiếu qua quy trình: tiền được ghi sổ khi bước duyệt cuối hoàn tất.' : 'Tiền sẽ được ghi vào sổ tài khoản ngay khi duyệt.'} okType="primary" okText="Duyệt" onConfirm={() => decide('approve', undefined, viaProcedure ? 'Đã duyệt bước của bạn' : 'Đã duyệt và ghi sổ')}>
               <Button type="button" disabled={busy}><Check aria-hidden /> Duyệt</Button>
             </Popconfirm>
           ) : null}
           {can.canReject ? (
-            <Popconfirm title="Từ chối phiếu" reasonRequired reasonLabel="Lý do từ chối" reasonPlaceholder="Nhập lý do để người lập chỉnh sửa" okText="Từ chối" onConfirm={(reason) => act('reject', { note: reason }, 'Đã từ chối phiếu')}>
+            <Popconfirm title="Từ chối phiếu" reasonRequired reasonLabel="Lý do từ chối" reasonPlaceholder="Nhập lý do để người lập chỉnh sửa" okText="Từ chối" onConfirm={(reason) => decide('reject', reason, 'Đã từ chối phiếu')}>
               <Button type="button" variant="destructive" disabled={busy}><X aria-hidden /> Từ chối</Button>
             </Popconfirm>
+          ) : null}
+          {can.canRetryProcedure ? (
+            <Button type="button" variant="outline" disabled={busy} onClick={() => act('procedure-retry', {}, 'Đã thử lại')}>
+              <RefreshCw aria-hidden /> {voucher.procedure?.syncStatus === 'CONFLICT' ? 'Áp lại' : 'Thử lại'}
+            </Button>
           ) : null}
           {can.canCancel ? (
             <Popconfirm title="Huỷ phiếu" reasonRequired reasonLabel="Lý do huỷ" reasonPlaceholder="Nhập lý do huỷ phiếu" okText="Huỷ phiếu" onConfirm={(reason) => act('cancel', { note: reason }, 'Đã huỷ phiếu')}>
@@ -172,6 +232,8 @@ export default function VoucherDetailScreen({ kind, id }: { kind: FinanceVoucher
               ) : null}
             </section>
 
+            {voucher.procedure ? <ProcedurePanel procedure={voucher.procedure} /> : null}
+
             {!isTransfer ? (
               <section aria-label={config.detailTitle} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
                 <h2 className="mb-3 text-sm font-semibold text-slate-900">{config.detailTitle}</h2>
@@ -226,6 +288,28 @@ export default function VoucherDetailScreen({ kind, id }: { kind: FinanceVoucher
                     </ul>
                   </div>
                 ) : null}
+              </section>
+            ) : null}
+
+            {voucher.attachments.length ? (
+              <section aria-label="Đính kèm" className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                <h2 className="mb-2 text-sm font-semibold text-slate-900">Đính kèm</h2>
+                <ul className="divide-y divide-slate-100 text-sm">
+                  {voucher.attachments.map((file) => (
+                    <li key={file.id} className="flex items-center gap-2 py-1.5">
+                      <Paperclip className="size-4 shrink-0 text-slate-400" aria-hidden />
+                      <button
+                        type="button"
+                        className="min-w-0 flex-1 truncate text-left font-medium text-link hover:underline"
+                        onClick={() => void openFinanceAttachment(voucher.id, file.id).catch((e) => setError(financeErrorMessage(e)))}
+                      >
+                        {file.fileName}
+                      </button>
+                      <span className="text-xs text-slate-500">{formatBytes(file.sizeBytes)}</span>
+                      <span className="hidden text-xs text-slate-400 sm:inline">{file.uploadedByName}</span>
+                    </li>
+                  ))}
+                </ul>
               </section>
             ) : null}
 

@@ -1037,6 +1037,9 @@ importers:
       '@enterprise-platform/contracts-tenancy':
         specifier: workspace:*
         version: link:../../packages/contracts/tenancy
+      '@enterprise-platform/module-finance':
+        specifier: workspace:*
+        version: link:../../packages/modules/finance
       '@enterprise-platform/module-hrm':
         specifier: workspace:*
         version: link:../../packages/modules/hrm
@@ -1456,12 +1459,21 @@ importers:
       '@enterprise-platform/adapter-database':
         specifier: workspace:*
         version: link:../../adapters/database
+      '@enterprise-platform/adapter-storage':
+        specifier: workspace:*
+        version: link:../../adapters/storage
       '@enterprise-platform/contracts-finance':
         specifier: workspace:*
         version: link:../../contracts/finance
       '@enterprise-platform/contracts-identity':
         specifier: workspace:*
         version: link:../../contracts/identity
+      '@enterprise-platform/contracts-integration':
+        specifier: workspace:*
+        version: link:../../contracts/integration
+      '@enterprise-platform/contracts-procedure-engine':
+        specifier: workspace:*
+        version: link:../../contracts/procedure-engine
       '@nestjs/common':
         specifier: ^11.2.1
         version: 11.2.1(reflect-metadata@0.2.2)(rxjs@7.8.1)
