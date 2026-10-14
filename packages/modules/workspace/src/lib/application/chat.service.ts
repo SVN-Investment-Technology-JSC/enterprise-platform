@@ -1,6 +1,7 @@
 import {
   CHAT_EDIT_WINDOW_MINUTES,
   CHAT_ENTITY_TYPES,
+  CHAT_PAGE_SIZE,
   MAX_CHAT_BODY_LENGTH,
   type ChatEntityType,
   type ChatMessage,
@@ -21,8 +22,7 @@ import { hasProjectRole, requireProjectRole, type ProjectService } from './proje
 import type { WorkspaceActor } from './workspace.application.js';
 import type { WorkspaceStore } from './workspace-store.port.js';
 
-/** Số tin tải về mỗi lần mở Drawer. Cuộn lên xa hơn chưa hỗ trợ ở đợt này. */
-const MESSAGE_PAGE_SIZE = 200;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export class ChatService {
   constructor(
@@ -40,23 +40,29 @@ export class ChatService {
     actor: WorkspaceActor,
     entityType: string,
     entityId: string,
+    before?: string,
   ): Promise<ChatThread> {
+    if (before !== undefined && !UUID.test(before)) {
+      throw new WorkspaceValidationError('Mốc phân trang "before" phải là id tin nhắn.');
+    }
     const target = await this.resolve(actor, entityType, entityId);
     const channel = await this.store.chat.findChannel(
       actor.tenantId,
       target.entityType,
       target.entityId,
     );
-    if (!channel) return { messages: [] };
+    if (!channel) return { messages: [], hasMore: false };
 
-    const messages = await this.store.chat.listMessages(
+    const page = await this.store.chat.listMessages(
       actor.tenantId,
       channel.id,
-      MESSAGE_PAGE_SIZE,
+      CHAT_PAGE_SIZE,
+      before,
     );
     // Mở luồng ra là đã đọc; đánh dấu ngay để chấm đỏ tắt ở lần hỏi kế tiếp.
-    await this.store.chat.markRead(actor.tenantId, channel.id, actor.userId);
-    return { channel, messages };
+    // Xin trang cũ hơn chỉ là cuộn lại quá khứ, không phải xem thêm tin mới.
+    if (!before) await this.store.chat.markRead(actor.tenantId, channel.id, actor.userId);
+    return { channel, messages: page.messages, hasMore: page.hasMore };
   }
 
   async send(
@@ -128,7 +134,15 @@ export class ChatService {
 
     const body = requireBody(input.body);
     const { mentions } = await this.filterMentions(actor, projectId, input.mentions);
-    return this.store.chat.editMessage(actor.tenantId, messageId, body, mentions);
+    const alreadyMentioned = new Set(message.mentions);
+    return this.store.chat.editMessage(
+      actor.tenantId,
+      actor.userId,
+      messageId,
+      body,
+      mentions,
+      mentions.filter((userId) => !alreadyMentioned.has(userId)),
+    );
   }
 
   /**
@@ -143,7 +157,7 @@ export class ChatService {
     if (message.createdBy !== actor.userId && !hasProjectRole(access, 'manager')) {
       throw new ChatEditForbiddenError('Chỉ quản lý dự án mới thu hồi được tin của người khác.');
     }
-    return this.store.chat.softDeleteMessage(actor.tenantId, messageId);
+    return this.store.chat.softDeleteMessage(actor.tenantId, actor.userId, messageId);
   }
 
   /**

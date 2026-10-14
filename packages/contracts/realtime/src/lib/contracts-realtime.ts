@@ -6,9 +6,27 @@ export const REALTIME_SERVER_EVENTS = [
   'notification.updated',
   'notification.read',
   'notification.summary-updated',
+  'workspace.chat.changed',
 ] as const;
 
 export type RealtimeServerEvent = (typeof REALTIME_SERVER_EVENTS)[number];
+
+/**
+ * Tín hiệu "luồng chat có thay đổi" gửi tới từng thành viên dự án.
+ *
+ * Chỉ mang định danh, không mang nội dung tin: người nhận gọi lại API chat (có
+ * kiểm quyền) để lấy dữ liệu, nên nội dung không đi qua broker và Redis, và
+ * tin bị sửa/thu hồi không bao giờ lệch với bản trong CSDL.
+ */
+export interface WorkspaceChatSignal {
+  readonly channelId: string;
+  readonly entityType: 'project' | 'work_item';
+  readonly entityId: string;
+  readonly projectId: string;
+  readonly messageId: string;
+  readonly change: 'created' | 'edited' | 'deleted';
+  readonly actorUserId: string;
+}
 
 export interface RealtimeEventEnvelope<TData = unknown> {
   readonly id: string;

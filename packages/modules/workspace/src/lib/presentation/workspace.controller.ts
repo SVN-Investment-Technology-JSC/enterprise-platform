@@ -674,8 +674,11 @@ export class WorkspaceController {
     @Req() request: WorkspaceRequest,
     @Param('entityType') entityType: string,
     @Param('entityId') entityId: string,
+    @Query('before') before?: string,
   ) {
-    return this.execute(() => this.chat.thread(this.actor(request), entityType, entityId));
+    return this.execute(() =>
+      this.chat.thread(this.actor(request), entityType, entityId, before || undefined),
+    );
   }
 
   @Post('chat/messages')

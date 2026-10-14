@@ -19,6 +19,9 @@ function makeStore(options: {
   messages?: Partial<ChatMessage>[];
 }) {
   const sent: { attachmentDocumentId: string | null; mentions: string[] }[] = [];
+  const edits: { mentions: readonly string[]; newlyMentioned: readonly string[] }[] = [];
+  const listed: { limit: number; before?: string }[] = [];
+  const marked: string[] = [];
   const store = {
     project: {
       findById: async (_tenant: string, id: string) =>
@@ -49,10 +52,29 @@ function makeStore(options: {
         sent.push({ attachmentDocumentId: input.attachmentDocumentId, mentions: input.mentions });
         return { id: 'm-new' } as ChatMessage;
       },
-      markRead: async () => undefined,
+      markRead: async (_tenant: string, channelId: string) => {
+        marked.push(channelId);
+      },
+      findChannel: async () => ({ id: 'c1', projectId: 'p1' }),
+      findChannelById: async () => ({ id: 'c1', projectId: 'p1' }),
+      listMessages: async (_tenant: string, _channel: string, limit: number, before?: string) => {
+        listed.push({ limit, before });
+        return { messages: [{ id: 'm1' }] as ChatMessage[], hasMore: true };
+      },
+      editMessage: async (
+        _tenant: string,
+        _actor: string,
+        id: string,
+        _body: string,
+        mentions: readonly string[],
+        newlyMentioned: readonly string[],
+      ) => {
+        edits.push({ mentions, newlyMentioned });
+        return { id } as ChatMessage;
+      },
     },
   };
-  return { store: store as unknown as WorkspaceStore, sent };
+  return { store: store as unknown as WorkspaceStore, sent, edits, listed, marked };
 }
 
 const actorOf = (userId: string): WorkspaceActor => ({
@@ -109,6 +131,60 @@ describe('ChatService — gửi tin', () => {
     });
     expect(result.droppedMentions).toEqual(['outsider']);
     expect(sent[0]?.mentions).toEqual(['mate']);
+  });
+});
+
+describe('ChatService — phân trang luồng tin', () => {
+  const BEFORE = '11111111-1111-4111-8111-111111111111';
+
+  it('mở luồng lấy trang mới nhất, báo còn tin cũ và đánh dấu đã đọc', async () => {
+    const { store, listed, marked } = makeStore({ roles: { me: 'member' } });
+    const thread = await serviceFor(store).thread(actorOf('me'), 'project', 'p1');
+    expect(thread.hasMore).toBe(true);
+    expect(listed).toEqual([{ limit: 50, before: undefined }]);
+    expect(marked).toEqual(['c1']);
+  });
+
+  it('cuộn lên xem tin cũ: chuyển mốc cho store và KHÔNG đánh dấu đã đọc', async () => {
+    const { store, listed, marked } = makeStore({ roles: { me: 'member' } });
+    await serviceFor(store).thread(actorOf('me'), 'project', 'p1', BEFORE);
+    expect(listed).toEqual([{ limit: 50, before: BEFORE }]);
+    expect(marked).toEqual([]);
+  });
+
+  it('từ chối mốc không phải id tin nhắn trước khi chạm CSDL', async () => {
+    const { store, listed } = makeStore({ roles: { me: 'member' } });
+    await expect(
+      serviceFor(store).thread(actorOf('me'), 'project', 'p1', "x'; DROP TABLE"),
+    ).rejects.toMatchObject({ code: expect.any(String) });
+    expect(listed).toEqual([]);
+  });
+
+  it('người ngoài dự án không xin được trang cũ', async () => {
+    const { store } = makeStore({ roles: {} });
+    await expect(
+      serviceFor(store).thread(actorOf('stranger'), 'project', 'p1', BEFORE),
+    ).rejects.toMatchObject({ code: 'PROJECT_FORBIDDEN' });
+  });
+});
+
+describe('ChatService — sửa tin và nhắc tên', () => {
+  const stored = (mentions: string[]) =>
+    [{ id: 'm1', channelId: 'c1', createdBy: 'me', isDeleted: false, createdAt: new Date().toISOString(), mentions }];
+
+  it('chỉ người mới được nhắc mới được báo; người đã nhắc từ đầu không bị báo lại', async () => {
+    const { store, edits } = makeStore({
+      roles: { me: 'member', mate: 'member', boss: 'member' },
+      messages: stored(['mate']),
+    });
+    await serviceFor(store).edit(actorOf('me'), 'm1', { body: 'Nhờ @mate @boss', mentions: ['mate', 'boss'] });
+    expect(edits).toEqual([{ mentions: ['mate', 'boss'], newlyMentioned: ['boss'] }]);
+  });
+
+  it('người ngoài dự án vẫn bị loại khi sửa', async () => {
+    const { store, edits } = makeStore({ roles: { me: 'member' }, messages: stored([]) });
+    await serviceFor(store).edit(actorOf('me'), 'm1', { body: 'Nhờ @x', mentions: ['outsider'] });
+    expect(edits).toEqual([{ mentions: [], newlyMentioned: [] }]);
   });
 });
 

@@ -1,4 +1,34 @@
-import { mentionEvent, qualified } from './postgres-workspace-store.js';
+import { chatSignalEvent, mentionEvent, qualified } from './postgres-workspace-store.js';
+
+describe('chatSignalEvent', () => {
+  const message = { id: 'm1', channelId: 'c1', createdBy: 'actor' };
+  const channel = { entityType: 'work_item' as const, entityId: 'w1', projectId: 'p1' };
+
+  it('mang định danh và người nhận, không mang nội dung tin', () => {
+    const event = chatSignalEvent(message, channel, 'edited', 'actor', ['a', 'b']);
+    expect(event).toEqual({
+      type: 'workspace.chat.changed',
+      aggregateType: 'workspace-chat-message',
+      aggregateId: 'm1',
+      payload: {
+        channelId: 'c1',
+        entityType: 'work_item',
+        entityId: 'w1',
+        projectId: 'p1',
+        messageId: 'm1',
+        change: 'edited',
+        actorUserId: 'actor',
+        recipientUserIds: ['a', 'b'],
+      },
+    });
+    expect(JSON.stringify(event)).not.toContain('body');
+  });
+
+  it('loại người gửi và trùng lặp khỏi danh sách người nhận', () => {
+    const event = chatSignalEvent(message, channel, 'created', 'actor', ['a', 'actor', 'a']);
+    expect(event.payload.recipientUserIds).toEqual(['a']);
+  });
+});
 
 describe('qualified', () => {
   it('gắn tiền tố cho MỌI cột của hằng viết nhiều dòng', () => {

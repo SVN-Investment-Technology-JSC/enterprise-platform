@@ -726,8 +726,16 @@ export const MAX_CHAT_REPLY_DEPTH = 2;
  */
 export const CHAT_EDIT_WINDOW_MINUTES = 15;
 
-/** Nhịp hỏi lại số tin chưa đọc. Không có WebSocket trong repo. */
+/**
+ * Nhịp hỏi lại số tin chưa đọc.
+ *
+ * Tin mới đã được đẩy realtime (`workspace.chat.changed`); nhịp này chỉ còn là
+ * lưới an toàn khi mất kết nối hoặc broker chậm.
+ */
 export const CHAT_UNREAD_POLL_MS = 30_000;
+
+/** Số tin mỗi trang khi mở luồng và khi cuộn lên xem tin cũ. */
+export const CHAT_PAGE_SIZE = 50;
 
 export interface ChatMessage {
   readonly id: string;
@@ -761,6 +769,8 @@ export interface ChatChannel {
 export interface ChatThread {
   readonly channel?: ChatChannel;
   readonly messages: readonly ChatMessage[];
+  /** Còn tin cũ hơn tin đầu danh sách; xin trang kế bằng `before` = id tin đầu. */
+  readonly hasMore?: boolean;
 }
 
 export interface SendChatMessageRequest {
