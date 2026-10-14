@@ -58,6 +58,14 @@ describe('Finance architecture boundary', () => {
     }
   });
 
+  it('không khai báo định danh trùng tên toàn cục của CommonJS (require, module, exports)', () => {
+    // Webpack gói module thành một file CJS: hàm tên `require` đè lên lệnh nạp thư viện và làm dịch vụ sập lúc khởi động
+    // (jest không bắt được vì có môi trường module riêng).
+    const sources = filesUnder(resolve(root, 'packages/modules/finance/src'), /\.ts$/).filter((f) => !/\.spec\.ts$/.test(f));
+    const offenders = sources.filter((file) => /(?:function|const|let|var|class)\s+(?:require|module|exports)/.test(stripComments(readFileSync(file, 'utf8'))));
+    expect(offenders.map((f) => f.replace(root, ''))).toEqual([]);
+  });
+
   it('Platform API và Portal không phụ thuộc package của module', () => {
     expect(readDependencies('apps/api/package.json')).not.toHaveProperty('@enterprise-platform/module-finance');
     expect(readDependencies('apps/web/package.json')).not.toHaveProperty('@enterprise-platform/feature-finance');

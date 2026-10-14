@@ -104,7 +104,7 @@ import {
   updateVoucher,
 } from '../infrastructure/vouchers.store.js';
 
-function require(actor: FinanceActor, action: string, message: string): void {
+function requirePermission(actor: FinanceActor, action: string, message: string): void {
   if (!can(actor, action)) throw forbidden(message);
 }
 
@@ -177,7 +177,7 @@ export class FinanceApplication {
   }
 
   async saveAccount(actor: FinanceActor, id: string | null, input: SaveFinanceAccountRequest): Promise<FinanceAccount> {
-    require(actor, 'finance.account.manage', 'Bạn không có quyền quản lý tài khoản.');
+    requirePermission(actor, 'finance.account.manage', 'Bạn không có quyền quản lý tài khoản.');
     return this.database.transaction(actor.tenantId, async (db) => {
       const savedId = await saveAccount(db, actor.tenantId, actor.userId, id, input);
       return getAccount(db, actor.tenantId, savedId, true);
@@ -200,15 +200,15 @@ export class FinanceApplication {
   }
 
   async saveReason(actor: FinanceActor, id: string | null, input: SaveFinanceReasonRequest): Promise<FinanceReason> {
-    require(actor, 'finance.settings.manage', 'Bạn không có quyền cấu hình danh mục.');
+    requirePermission(actor, 'finance.settings.manage', 'Bạn không có quyền cấu hình danh mục.');
     return this.database.transaction(actor.tenantId, (db) => saveReason(db, actor.tenantId, id, input));
   }
   async saveCounterpartyGroup(actor: FinanceActor, id: string | null, input: SaveFinanceCounterpartyGroupRequest): Promise<FinanceCounterpartyGroup> {
-    require(actor, 'finance.settings.manage', 'Bạn không có quyền cấu hình danh mục.');
+    requirePermission(actor, 'finance.settings.manage', 'Bạn không có quyền cấu hình danh mục.');
     return this.database.transaction(actor.tenantId, (db) => saveCounterpartyGroup(db, actor.tenantId, id, input));
   }
   async saveCostCenter(actor: FinanceActor, id: string | null, input: SaveFinanceCostCenterRequest): Promise<FinanceCostCenter> {
-    require(actor, 'finance.settings.manage', 'Bạn không có quyền cấu hình danh mục.');
+    requirePermission(actor, 'finance.settings.manage', 'Bạn không có quyền cấu hình danh mục.');
     return this.database.transaction(actor.tenantId, (db) => saveCostCenter(db, actor.tenantId, id, input));
   }
 
@@ -217,7 +217,7 @@ export class FinanceApplication {
     return loadSettings(await this.database.pool(actor.tenantId), actor.tenantId);
   }
   async saveSettings(actor: FinanceActor, input: SaveFinanceSettingsRequest): Promise<FinanceSettings> {
-    require(actor, 'finance.settings.manage', 'Bạn không có quyền cấu hình Tài chính.');
+    requirePermission(actor, 'finance.settings.manage', 'Bạn không có quyền cấu hình Tài chính.');
     return this.database.transaction(actor.tenantId, (db) => saveSettings(db, actor.tenantId, actor.userId, input));
   }
 
@@ -452,19 +452,19 @@ export class FinanceApplication {
 
   /** Cấu hình duyệt theo loại phiếu. */
   async approvalBindings(actor: FinanceActor): Promise<FinanceApprovalBinding[]> {
-    require(actor, 'finance.settings.manage', 'Bạn không có quyền cấu hình quy trình duyệt.');
+    requirePermission(actor, 'finance.settings.manage', 'Bạn không có quyền cấu hình quy trình duyệt.');
     return listBindings(await this.database.pool(actor.tenantId), actor.tenantId);
   }
 
   async saveApprovalBinding(actor: FinanceActor, kind: FinanceVoucherKind, input: SaveFinanceApprovalBindingRequest): Promise<SaveFinanceApprovalBindingResponse> {
-    require(actor, 'finance.settings.manage', 'Bạn không có quyền cấu hình quy trình duyệt.');
+    requirePermission(actor, 'finance.settings.manage', 'Bạn không có quyền cấu hình quy trình duyệt.');
     const pool = await this.database.pool(actor.tenantId);
     return saveBinding(pool, actor.tenantId, actor.userId, kind, input);
   }
 
   /** Các quy trình đã công bố để chọn, theo quyền Procedure của chính người cấu hình. */
   async procedureDefinitions(actor: FinanceActor, session: ForwardedSession) {
-    require(actor, 'finance.settings.manage', 'Bạn không có quyền cấu hình quy trình duyệt.');
+    requirePermission(actor, 'finance.settings.manage', 'Bạn không có quyền cấu hình quy trình duyệt.');
     return listPublishedProcedures(session, actor.tenantId);
   }
 
