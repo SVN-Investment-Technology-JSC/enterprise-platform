@@ -4,10 +4,11 @@ import { useEffect, useRef, useSyncExternalStore } from 'react';
 import type {
   RealtimeEventEnvelope,
   WorkspaceChatSignal,
+  WorkspaceChatTyping,
 } from '@enterprise-platform/contracts-realtime';
 
 // Tái xuất để các màn hình dùng bus không phải thêm phụ thuộc vào contracts-realtime.
-export type { RealtimeEventEnvelope, WorkspaceChatSignal };
+export type { RealtimeEventEnvelope, WorkspaceChatSignal, WorkspaceChatTyping };
 
 /**
  * Cầu nối sự kiện realtime cho mọi màn hình.
@@ -30,6 +31,29 @@ export function publishRealtimeEvent(event: RealtimeEventEnvelope): void {
     } catch {
       // Một người nghe lỗi không được chặn những người còn lại.
     }
+  }
+}
+
+type Sender = (event: string, payload: unknown) => void;
+let sender: Sender | undefined;
+
+/** Trung tâm thông báo đăng ký hàm gửi của socket đang mở (và gỡ khi đóng). */
+export function registerRealtimeSender(next: Sender | undefined): void {
+  sender = next;
+}
+
+/**
+ * Gửi một sự kiện lên máy chủ qua socket dùng chung. Trả `false` khi không có
+ * socket nào (trang không có trung tâm thông báo); người gọi không phải xử lý
+ * thêm vì đây chỉ là tín hiệu tạm.
+ */
+export function sendRealtime(event: string, payload: unknown): boolean {
+  if (!sender) return false;
+  try {
+    sender(event, payload);
+    return true;
+  } catch {
+    return false;
   }
 }
 

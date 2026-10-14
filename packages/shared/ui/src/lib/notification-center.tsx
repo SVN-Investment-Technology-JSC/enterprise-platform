@@ -42,7 +42,11 @@ import {
   type NotificationSummary,
   type RealtimeEventEnvelope,
 } from './notification-client';
-import { publishRealtimeEvent, publishRealtimeStatus } from './realtime-bus';
+import {
+  publishRealtimeEvent,
+  publishRealtimeStatus,
+  registerRealtimeSender,
+} from './realtime-bus';
 import { SearchableSelect, type SearchableSelectOption } from './searchable-select';
 import { toast } from './sonner';
 import styles from './notification-center.module.css';
@@ -247,7 +251,7 @@ export function NotificationProvider({ children, client: suppliedClient }: Notif
             if (!active) return;
             // Sự kiện không thuộc chuỗi thông báo (sequence riêng) phải đi đường
             // khác, nếu không sẽ làm lệch `lastSequence` và gây đồng bộ lại vô ích.
-            if (event.event === 'workspace.chat.changed') {
+            if (event.event === 'workspace.chat.changed' || event.event === 'workspace.chat.typing') {
               publishRealtimeEvent(event);
               return;
             }
@@ -255,11 +259,14 @@ export function NotificationProvider({ children, client: suppliedClient }: Notif
           },
           onSessionRevoked: (reason) => {
             if (!active) return;
+            registerRealtimeSender(undefined);
             commit((current) => ({ ...current, connected: false }));
             // Người dùng tự đăng xuất thì không cần giải thích; chỉ báo khi phiên bị thu hồi từ phía quản trị.
             if (reason !== 'logout') toast.error('Phiên đăng nhập đã kết thúc. Vui lòng đăng nhập lại.');
           },
         });
+        // Cho các màn hình khác gửi tín hiệu tạm (ví dụ "đang nhập") qua socket này.
+        registerRealtimeSender(connection.emit?.bind(connection));
       } catch (error) {
         if (!active) return;
         commit((current) => ({
@@ -276,7 +283,10 @@ export function NotificationProvider({ children, client: suppliedClient }: Notif
       connection?.disconnect();
       // Đóng kết nối chủ động không bắn `onDisconnected` (đã `active = false`):
       // báo ở đây để chỉ báo trạng thái không kẹt ở "đang nối".
-      if (connection) publishRealtimeStatus(false);
+      if (connection) {
+        registerRealtimeSender(undefined);
+        publishRealtimeStatus(false);
+      }
     };
   }, [client, commit, handleRealtimeEvent, loadPage, reconcile]);
 

@@ -4,6 +4,8 @@ import {
   getRealtimeStatus,
   publishRealtimeEvent,
   publishRealtimeStatus,
+  registerRealtimeSender,
+  sendRealtime,
   subscribeRealtime,
   useRealtimeEvent,
   useRealtimeStatus,
@@ -87,6 +89,22 @@ describe('realtime-bus', () => {
     act(() => publishRealtimeStatus(false));
     expect(view.getByTestId('badge').textContent).toBe('false');
     expect(getRealtimeStatus()).toBe(false);
+  });
+
+  it('sendRealtime reports false without a socket, delivers with one, and survives a throwing sender', () => {
+    registerRealtimeSender(undefined);
+    expect(sendRealtime('chat.typing', { typing: true })).toBe(false);
+
+    const sender = jest.fn();
+    registerRealtimeSender(sender);
+    expect(sendRealtime('chat.typing', { typing: true })).toBe(true);
+    expect(sender).toHaveBeenCalledWith('chat.typing', { typing: true });
+
+    registerRealtimeSender(() => {
+      throw new Error('socket closed');
+    });
+    expect(sendRealtime('chat.typing', {})).toBe(false);
+    registerRealtimeSender(undefined);
   });
 
   it('always calls the latest handler without resubscribing', () => {

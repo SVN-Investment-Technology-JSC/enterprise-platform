@@ -51,6 +51,11 @@ export interface NotificationSocketHandlers {
 
 export interface NotificationSocketConnection {
   disconnect(): void;
+  /**
+   * Gửi một sự kiện lên máy chủ qua socket đang mở (ví dụ báo "đang nhập").
+   * Im lặng bỏ qua nếu socket chưa nối: đây là tín hiệu tạm, không có hàng đợi.
+   */
+  emit?(event: string, payload: unknown): void;
 }
 
 export interface NotificationClient {
@@ -75,6 +80,7 @@ const NOTIFICATION_EVENTS = [
   // Không phải thông báo, nhưng đi chung một kết nối; `NotificationCenter`
   // chuyển nó sang `realtime-bus` thay vì đưa vào chuỗi thông báo có thứ tự.
   'workspace.chat.changed',
+  'workspace.chat.typing',
 ] as const;
 
 export class BrowserNotificationClient implements NotificationClient {
@@ -161,7 +167,12 @@ export class BrowserNotificationClient implements NotificationClient {
       });
     }
 
-    return { disconnect: () => socket.disconnect() };
+    return {
+      disconnect: () => socket.disconnect(),
+      emit: (event, payload) => {
+        if (socket.connected) socket.emit(event, payload);
+      },
+    };
   }
 
   private get<T>(path: string): Promise<T> {
