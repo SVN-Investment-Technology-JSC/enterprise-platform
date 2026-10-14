@@ -22,7 +22,10 @@ import {
   MapPin,
   Timer,
 } from 'lucide-react';
-import { useRealtimeNotificationsOptional } from '@enterprise-platform/shared-ui';
+import {
+  formatDate,
+  useRealtimeNotificationsOptional,
+} from '@enterprise-platform/shared-ui';
 import { formatMinutes, weekdayVn } from '../../hrm-timesheet-format';
 import type { HrmBoardDay, HrmTimesheetBoard } from '@enterprise-platform/contracts-hrm';
 import { BoardDayDrawer } from '../board-day-detail';
@@ -201,7 +204,7 @@ export function PunchCard({ punch, data }: { punch: PunchProps; data: MyDashboar
     <section aria-label="Chấm công hôm nay" className={`${CARD} p-5`}>
       <div className="mb-3 flex items-center justify-between">
         <h2 className="text-[15px] font-bold text-emerald-700">Chấm công hôm nay</h2>
-        <span className="rounded-full bg-emerald-50 px-2.5 py-0.5 font-mono text-[11px] font-semibold text-emerald-700">{punch.workDate}</span>
+        <span className="rounded-full bg-emerald-50 px-2.5 py-0.5 font-mono text-[11px] font-semibold text-emerald-700">{formatDate(punch.workDate)}</span>
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="rounded-xl border border-slate-200/80 p-3.5">

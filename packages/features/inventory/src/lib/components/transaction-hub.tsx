@@ -1,5 +1,7 @@
 'use client';
+import { formatDateTime as formatSharedDateTime } from '@enterprise-platform/shared-ui';
 import { useInventoryPermissions } from '../inventory-permissions';
+import { formatNoteDates } from '../inventory-labels';
 
 import type {
   InventoryLedgerRow,
@@ -37,13 +39,7 @@ function formatNumber(value: number): string {
 
 function formatDateTime(value?: string): string {
   if (!value) return '—';
-  return new Intl.DateTimeFormat('vi-VN', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(new Date(value));
+  return formatSharedDateTime(value, '—');
 }
 
 export function TransactionHub({
@@ -432,7 +428,7 @@ export function TransactionHub({
                         {formatNumber(row.quantity)} {material?.unit ?? ''}
                       </td>
                       <td style={{ fontSize: '11.5px', color: '#64748b', padding: '8px' }}>
-                        {row.note ?? '—'}
+                        {row.note ? formatNoteDates(row.note) : '—'}
                       </td>
                       <td
                         style={{

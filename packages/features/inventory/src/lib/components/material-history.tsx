@@ -15,7 +15,7 @@ import {
   Layers,
 } from 'lucide-react';
 import { SearchableSelect } from '@enterprise-platform/shared-ui';
-import { formatDateTime, formatNumber } from '../inventory-labels';
+import { formatDateTime, formatNoteDates, formatNumber } from '../inventory-labels';
 import type { InventoryLedgerRow } from '../inventory-api';
 import styles from '../inventory.module.scss';
 
@@ -306,7 +306,7 @@ export function MaterialHistory(props: {
                 {/* Diễn giải chi tiết hoặc lý do giao dịch */}
                 {entry.note ? (
                   <div className={styles.historyNoteCard}>
-                    <p className={styles.historyNoteText}>{entry.note}</p>
+                    <p className={styles.historyNoteText}>{formatNoteDates(entry.note)}</p>
                   </div>
                 ) : (
                   <div className={styles.historyNoteCardEmpty}>

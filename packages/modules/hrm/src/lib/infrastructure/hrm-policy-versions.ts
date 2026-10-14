@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException } from '@nestjs/common';
 import type { PoolClient } from 'pg';
 import { lifecycleAudit } from './hrm-lifecycle.js';
-import { assertOpenRange, isoDate } from './hrm-time.js';
+import { assertOpenRange, displayDate, isoDate } from './hrm-time.js';
 
 export interface PolicyVersionLike {
   id: string;
@@ -94,7 +94,7 @@ export function planPolicyPublish(
   }
   if (range.to && toClose.length)
     warnings.push(
-      `Sau ngày ${range.to} sẽ không còn phiên bản nào áp dụng cho phạm vi này`,
+      `Sau ngày ${displayDate(range.to)} sẽ không còn phiên bản nào áp dụng cho phạm vi này`,
     );
   return { toClose, conflicts, warnings };
 }
@@ -105,7 +105,7 @@ export function conflictMessage(conflicts: PublishConflict[]) {
     conflicts
       .map(
         (c) =>
-          `v${c.versionNo ?? '?'} (${c.effectiveFrom} - ${c.effectiveTo ?? 'chưa kết thúc'}; ${c.reason})`,
+          `v${c.versionNo ?? '?'} (${displayDate(c.effectiveFrom)} - ${c.effectiveTo ? displayDate(c.effectiveTo) : 'chưa kết thúc'}; ${c.reason})`,
       )
       .join('; ') +
     '. Điều chỉnh ngày hiệu lực hoặc phạm vi áp dụng.'
@@ -371,7 +371,7 @@ export function planVersionRemoval(
   if (later.length)
     throw new ConflictException(
       `Không xóa phiên bản ở giữa chuỗi: còn phiên bản mới hơn (${later
-        .map((v) => `v${v.version_no ?? '?'} từ ${v.effective_from}`)
+        .map((v) => `v${v.version_no ?? '?'} từ ${displayDate(v.effective_from)}`)
         .join(', ')}). Xóa phiên bản mới nhất trước.`,
     );
   const closedDay = dayBefore(target.effective_from);

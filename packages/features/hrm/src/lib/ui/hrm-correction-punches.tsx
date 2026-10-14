@@ -76,6 +76,7 @@ export function HrmCorrectionPunches({
             <div className="space-y-1">
               <span className="block text-xs font-semibold text-slate-700">Loại giờ</span>
               <SearchableSelect
+                height={32}
                 options={optionsFor(index)}
                 value={row.kind}
                 onChange={(value) => update(index, { kind: value === 'IN' || value === 'OUT' ? value : '' })}

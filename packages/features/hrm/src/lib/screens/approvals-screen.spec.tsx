@@ -228,10 +228,10 @@ describe('ApprovalsScreen: danh sách', () => {
     setup({ lists: { 'leave-requests': [leave], 'ot-requests': [ot] } });
     render(<ApprovalsScreen />);
     await screen.findByTestId('approval-row-o1');
-    fireEvent.change(screen.getByLabelText('Từ ngày'), { target: { value: '2026-03-02' } });
+    fireEvent.change(screen.getByLabelText('Từ ngày'), { target: { value: '02/03/2026' } });
     await waitFor(() => expect(screen.queryByTestId('approval-row-l1')).toBeNull());
     expect(screen.getByTestId('approval-row-o1')).toBeTruthy();
-    fireEvent.change(screen.getByLabelText('Đến ngày'), { target: { value: '2026-03-01' } });
+    fireEvent.change(screen.getByLabelText('Đến ngày'), { target: { value: '01/03/2026' } });
     await waitFor(() => expect(screen.queryByTestId('approval-row-o1')).toBeNull());
   });
 

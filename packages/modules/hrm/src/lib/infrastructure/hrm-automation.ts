@@ -13,6 +13,8 @@ export async function runHrmAutomation(
 ) {
   try {
     return await hrmTransaction(pool, async (db) => {
+      // Đánh dấu mọi giao dịch phép sinh ra trong lần chạy này là do job tự động (cột trigger_source).
+      await db.query(`SELECT set_config('hrm.trigger_source','AUTOMATION',true)`);
       const settings = (
         await db.query(
           `SELECT * FROM hrm_schema.automation_settings WHERE tenant_id=$1 FOR UPDATE SKIP LOCKED`,

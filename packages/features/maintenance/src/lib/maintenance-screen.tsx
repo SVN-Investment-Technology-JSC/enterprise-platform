@@ -20,7 +20,12 @@ import {
   useHashView,
   type ModuleNavItem,
 } from '@enterprise-platform/feature-module-shell';
-import { MinimalPopupForm, SearchableSelect } from '@enterprise-platform/shared-ui';
+import {
+  MinimalPopupForm,
+  SearchableSelect,
+  formatDateTime as formatSharedDateTime,
+} from '@enterprise-platform/shared-ui';
+import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import { RotateCcw, Search } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { AssetTaskPanel } from './components/asset-task-panel';
@@ -135,13 +140,7 @@ const OCC_PAGE_SIZE_OPTIONS = [
 
 function formatDateTime(value?: string): string {
   if (!value) return '—';
-  return new Intl.DateTimeFormat('vi-VN', {
-    hour: '2-digit',
-    minute: '2-digit',
-    day: 'numeric',
-    month: 'numeric',
-    year: '2-digit',
-  }).format(new Date(value));
+  return formatSharedDateTime(value, '—');
 }
 
 export function MaintenanceScreen() {
@@ -152,6 +151,7 @@ export function MaintenanceScreen() {
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [scheduleStartDate, setScheduleStartDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [assetQuery, setAssetQuery] = useState('');
   const [procedureDefinitionId, setProcedureDefinitionId] = useState('');
   const [taskAsset, setTaskAsset] = useState<string>();
@@ -246,6 +246,10 @@ export function MaintenanceScreen() {
       setError(`Không có thiết bị nào mã “${assetQuery.trim()}” trong Kho.`);
       return;
     }
+    if (!scheduleStartDate) {
+      setError('Vui lòng chọn ngày bắt đầu áp dụng.');
+      return;
+    }
     setBusy(true);
     try {
       await createMaintenanceSchedule({
@@ -253,12 +257,13 @@ export function MaintenanceScreen() {
         procedureDefinitionId: procedureDefinitionId || String(form.get('procedureDefinitionId') ?? '') || undefined,
         frequency: form.get('frequency') as MaintenanceFrequency,
         priority: form.get('priority') as MaintenancePriority,
-        startDate: String(form.get('startDate') ?? ''),
+        startDate: scheduleStartDate,
         activate: form.get('activate') === 'on',
       });
       setCreating(false);
       setAssetQuery('');
       setProcedureDefinitionId('');
+      setScheduleStartDate(new Date().toISOString().slice(0, 10));
       await reload();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Không tạo được lịch bảo trì.');
@@ -770,7 +775,7 @@ export function MaintenanceScreen() {
 
               <label>
                 Ngày bắt đầu áp dụng
-                <input name="startDate" type="date" required defaultValue={new Date().toISOString().slice(0, 10)} />
+                <DatePickerInput value={scheduleStartDate} onChange={setScheduleStartDate} height={40} />
               </label>
 
               <div className={styles.checkboxField}>

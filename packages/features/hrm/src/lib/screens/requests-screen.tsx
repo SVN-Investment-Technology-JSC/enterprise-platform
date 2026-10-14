@@ -97,6 +97,7 @@ import {
   SearchableSelect,
   type SearchableSelectOption,
   Popconfirm,
+  formatDate,
 } from '@enterprise-platform/shared-ui';
 import {
   DynamicAttributeForm,
@@ -208,7 +209,7 @@ function customRequestItem(item: Record<string, any>): RequestItem {
     typeName: String(item.typeName || 'Đơn tuỳ chỉnh'),
     category: String(item.typeName || 'Đơn tuỳ chỉnh'),
     createdAt: item.createdAt
-      ? new Date(item.createdAt).toLocaleDateString('vi-VN')
+      ? formatDate(item.createdAt)
       : '----',
     rawCreatedAt: item.createdAt,
     createdTimeMs: item.createdAt ? new Date(item.createdAt).getTime() : 0,
@@ -1535,13 +1536,13 @@ export default function RequestsPage() {
             typeName: 'Đơn xin nghỉ phép',
             category: 'Nghỉ phép',
             createdAt: item.createdAt
-              ? new Date(item.createdAt).toLocaleDateString('vi-VN')
+              ? formatDate(item.createdAt)
               : '----',
             rawCreatedAt: item.createdAt,
             createdTimeMs,
             effectiveDate: item.fromAt
               ? formatRequestPeriod(item)
-              : `${item.fromDate ? new Date(item.fromDate).toLocaleDateString('vi-VN') : '----'} - ${item.toDate ? new Date(item.toDate).toLocaleDateString('vi-VN') : '----'}`,
+              : `${item.fromDate ? formatDate(item.fromDate) : '----'} - ${item.toDate ? formatDate(item.toDate) : '----'}`,
             duration: `${item.duration || 1} ngày`,
             ...requestReasonView(item),
             approver: approverFallbackLabel(
@@ -1592,13 +1593,13 @@ export default function RequestsPage() {
             typeName: `Làm thêm giờ (${item.otType || 'OT'})`,
             category: 'Làm thêm giờ',
             createdAt: item.createdAt
-              ? new Date(item.createdAt).toLocaleDateString('vi-VN')
+              ? formatDate(item.createdAt)
               : '----',
             rawCreatedAt: item.createdAt,
             createdTimeMs,
             effectiveDate: item.fromAt
               ? formatRequestPeriod(item)
-              : `${item.workDate ? new Date(item.workDate).toLocaleDateString('vi-VN') : '----'} (${item.startTime || '----'} - ${item.endTime || '----'})`,
+              : `${item.workDate ? formatDate(item.workDate) : '----'} (${item.startTime || '----'} - ${item.endTime || '----'})`,
             duration: `${plannedHrs} giờ (${item.otRateMultiplier || 1.5}x)`,
             ...requestReasonView(item),
             approver: approverFallbackLabel(
@@ -1646,13 +1647,13 @@ export default function RequestsPage() {
             typeName: `Công tác (${item.destination || '----'})`,
             category: 'Công tác',
             createdAt: item.createdAt
-              ? new Date(item.createdAt).toLocaleDateString('vi-VN')
+              ? formatDate(item.createdAt)
               : '----',
             rawCreatedAt: item.createdAt,
             createdTimeMs,
             effectiveDate: item.fromAt
               ? formatRequestPeriod(item)
-              : `${item.fromDate ? new Date(item.fromDate).toLocaleDateString('vi-VN') : '----'} - ${item.toDate ? new Date(item.toDate).toLocaleDateString('vi-VN') : '----'}`,
+              : `${item.fromDate ? formatDate(item.fromDate) : '----'} - ${item.toDate ? formatDate(item.toDate) : '----'}`,
             duration: `${item.daysCount || 1} ngày`,
             ...requestReasonView(item),
             approver: approverFallbackLabel(
@@ -1715,11 +1716,11 @@ export default function RequestsPage() {
                 : 'Đề nghị chuyển ca',
             category: 'Đổi ca',
             createdAt: item.createdAt
-              ? new Date(item.createdAt).toLocaleDateString('vi-VN')
+              ? formatDate(item.createdAt)
               : '----',
             rawCreatedAt: item.createdAt,
             createdTimeMs,
-            effectiveDate: `${item.fromDate ? new Date(item.fromDate).toLocaleDateString('vi-VN') : '----'} - ${item.toDate ? new Date(item.toDate).toLocaleDateString('vi-VN') : '----'}`,
+            effectiveDate: `${item.fromDate ? formatDate(item.fromDate) : '----'} - ${item.toDate ? formatDate(item.toDate) : '----'}`,
             duration:
               item.changeType === 'SWAP' ? 'Hoán đổi ca trực' : 'Thay đổi ca',
             ...requestReasonView(item),
@@ -1785,12 +1786,12 @@ export default function RequestsPage() {
             typeName: 'Giải trình / Bổ sung công',
             category: 'Chấm công',
             createdAt: item.createdAt
-              ? new Date(item.createdAt).toLocaleDateString('vi-VN')
+              ? formatDate(item.createdAt)
               : '----',
             rawCreatedAt: item.createdAt,
             createdTimeMs,
             effectiveDate: item.requestDate
-              ? new Date(item.requestDate).toLocaleDateString('vi-VN')
+              ? formatDate(item.requestDate)
               : '----',
             duration: `Vào: ${inTime} | Ra: ${outTime}`,
             ...requestReasonView(item),
@@ -1846,12 +1847,12 @@ export default function RequestsPage() {
             typeName: 'Đơn xin tạm ứng lương',
             category: 'Tạm ứng',
             createdAt: item.createdAt
-              ? new Date(item.createdAt).toLocaleDateString('vi-VN')
+              ? formatDate(item.createdAt)
               : '----',
             rawCreatedAt: item.createdAt,
             createdTimeMs,
             effectiveDate: item.requestDate
-              ? new Date(item.requestDate).toLocaleDateString('vi-VN')
+              ? formatDate(item.requestDate)
               : '----',
             duration: `${Number(item.requestedAmount || 0).toLocaleString('vi-VN')} đ (${item.numberOfInstallments || 1} kỳ)`,
             // Ứng lương không có danh mục lý do: nội dung nhập tự do chính là lý do.
@@ -1889,7 +1890,7 @@ export default function RequestsPage() {
             kind: 'profile_correction',
             typeName: 'Điều chỉnh hồ sơ',
             category: 'Hồ sơ',
-            createdAt: new Date(item.createdAt).toLocaleDateString('vi-VN'),
+            createdAt: formatDate(item.createdAt),
             effectiveDate: 'Theo ngày duyệt',
             duration: `${Object.keys(item.changes || {}).length} trường`,
             reason: reasonCell(item.reason),
@@ -2068,6 +2069,7 @@ export default function RequestsPage() {
       </div>
       <div className="w-48">
         <SearchableSelect
+          height={32}
           options={workflowStepOptions}
           value={waitStep}
           onChange={(val) => setWaitStep(val || '')}
@@ -4106,6 +4108,7 @@ export default function RequestsPage() {
                       )}
                     </div>
                     <SearchableSelect
+                      height={32}
                       options={projectOptions}
                       value={projectId}
                       onChange={(val) => {
@@ -4250,6 +4253,7 @@ export default function RequestsPage() {
                       Lý do <span className="text-red-500">*</span>
                     </label>
                     <SearchableSelect
+                      height={32}
                       options={catalogReasons.choices.map((choice) => ({
                         value: choice.id,
                         label: choice.name,
@@ -4347,6 +4351,7 @@ export default function RequestsPage() {
                     )}
                   </div>
                   <SearchableSelect
+                    height={32}
                     options={projectOptions}
                     value={projectId}
                     onChange={(val) => {
@@ -4470,6 +4475,7 @@ export default function RequestsPage() {
                       Hình thức công tác *
                     </label>
                     <SearchableSelect
+                      height={32}
                       options={TRIP_TYPE_OPTIONS}
                       value={tripType}
                       onChange={(val) => setTripType(val as any)}
@@ -4512,6 +4518,7 @@ export default function RequestsPage() {
                       Phương tiện di chuyển
                     </label>
                     <SearchableSelect
+                      height={32}
                       options={TRIP_VEHICLE_OPTIONS}
                       value={tripVehicle}
                       onChange={(val) => setTripVehicle(val)}
@@ -4558,6 +4565,7 @@ export default function RequestsPage() {
                         >
                           <div className="flex-1">
                             <SearchableSelect
+                              height={32}
                               options={SURCHARGE_PRESET_OPTIONS}
                               value={sur.name}
                               onChange={(val) =>
@@ -4710,6 +4718,7 @@ export default function RequestsPage() {
                     Hình thức đổi ca *
                   </label>
                   <SearchableSelect
+                    height={32}
                     options={[
                       {
                         value: 'SWAP',
@@ -4732,6 +4741,7 @@ export default function RequestsPage() {
                       Ca làm việc hiện tại *
                     </label>
                     <SearchableSelect
+                      height={32}
                       options={shiftOptions}
                       value={currentShiftId}
                       onChange={(val) => setCurrentShiftId(val)}
@@ -4744,6 +4754,7 @@ export default function RequestsPage() {
                       Ca làm việc đề xuất chuyển *
                     </label>
                     <SearchableSelect
+                      height={32}
                       options={shiftOptions}
                       value={requestedShiftId}
                       onChange={(val) => setRequestedShiftId(val)}
@@ -4758,6 +4769,7 @@ export default function RequestsPage() {
                       Đồng nghiệp hoán đổi ca *
                     </label>
                     <SearchableSelect
+                      height={32}
                       options={colleagueOptions}
                       value={swapWithEmployeeId}
                       onChange={(val) => setSwapWithEmployeeId(val)}
@@ -4772,6 +4784,7 @@ export default function RequestsPage() {
                       Từ ngày áp dụng *
                     </label>
                     <DatePickerInput
+                      height={32}
                       value={fromDate}
                       onChange={(val) => setFromDate(val)}
                       placeholder="dd/mm/yyyy"
@@ -4782,6 +4795,7 @@ export default function RequestsPage() {
                       Đến ngày áp dụng *
                     </label>
                     <DatePickerInput
+                      height={32}
                       value={toDate}
                       onChange={(val) => setToDate(val)}
                       placeholder="dd/mm/yyyy"
@@ -4799,6 +4813,7 @@ export default function RequestsPage() {
                     Ngày phát sinh điều chỉnh *
                   </label>
                   <DatePickerInput
+                    height={32}
                     value={fromDate}
                     onChange={(val) => setFromDate(val)}
                     placeholder="dd/mm/yyyy"
@@ -4855,6 +4870,7 @@ export default function RequestsPage() {
                       Ngày yêu cầu tạm ứng *
                     </label>
                     <DatePickerInput
+                      height={32}
                       value={fromDate}
                       onChange={(val) => setFromDate(val)}
                       placeholder="dd/mm/yyyy"
@@ -4878,6 +4894,7 @@ export default function RequestsPage() {
                     Số kỳ khấu trừ hoàn trả *
                   </label>
                   <SearchableSelect
+                    height={32}
                     options={[
                       {
                         value: '1',
@@ -4933,6 +4950,7 @@ export default function RequestsPage() {
                         </span>
                       </label>
                       <DatePickerInput
+                        height={32}
                         value={adjustDateOfBirth}
                         onChange={(val) => setAdjustDateOfBirth(val)}
                         placeholder="dd/mm/yyyy"
@@ -4956,6 +4974,7 @@ export default function RequestsPage() {
                         </span>
                       </label>
                       <SearchableSelect
+                        height={32}
                         options={[
                           { value: 'MALE', label: 'Nam' },
                           { value: 'FEMALE', label: 'Nữ' },
@@ -4993,6 +5012,7 @@ export default function RequestsPage() {
                         </span>
                       </label>
                       <DatePickerInput
+                        height={32}
                         value={adjustIdentityDate}
                         onChange={(val) => setAdjustIdentityDate(val)}
                         placeholder="dd/mm/yyyy"

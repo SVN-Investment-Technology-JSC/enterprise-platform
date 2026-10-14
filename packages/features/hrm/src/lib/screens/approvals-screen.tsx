@@ -2,8 +2,8 @@
 import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { SearchableSelect, Popconfirm } from '@enterprise-platform/shared-ui';
+import { DatePickerInput } from '../ui/date-picker-input';
 import {
-  CalendarDays,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
@@ -88,8 +88,8 @@ function Kpi({ tone, icon, label, value, testId }: { tone: 'orange' | 'blue' | '
 
 function FilterBox({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="min-w-[140px] flex-1 rounded-xl border border-slate-200/80 bg-white px-3 pb-1 pt-1.5">
-      <span className="block text-[10.5px] font-medium text-slate-500">{label}</span>
+    <div className="min-w-[140px] flex-1">
+      <span className="mb-1 block text-[11px] font-semibold text-slate-500">{label}</span>
       {children}
     </div>
   );
@@ -438,17 +438,19 @@ function ApprovalsContent() {
         </div>
       )}
 
-      <div className="flex flex-wrap items-stretch gap-2.5" aria-label="Bộ lọc">
-        <div className="flex min-w-[260px] flex-[1.6] items-center gap-2 rounded-xl border border-slate-200/80 bg-white px-3">
-          <Search className="size-4 shrink-0 text-slate-400" />
-          <input
-            aria-label="Tìm đơn"
-            placeholder="Tên nhân viên, mã đơn, lý do..."
-            value={filter.search}
-            onChange={(e) => patch({ search: e.target.value })}
-            className="h-11 w-full bg-transparent text-[13px] outline-none placeholder:text-slate-400"
-          />
-        </div>
+      <div className="flex flex-wrap items-end gap-2.5" aria-label="Bộ lọc">
+        <FilterBox label="Tìm kiếm">
+          <div className="flex h-[38px] items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 focus-within:border-blue-600 focus-within:ring-2 focus-within:ring-blue-100">
+            <Search className="size-4 shrink-0 text-slate-400" />
+            <input
+              aria-label="Tìm đơn"
+              placeholder="Tên nhân viên, mã đơn, lý do..."
+              value={filter.search}
+              onChange={(e) => patch({ search: e.target.value })}
+              className="h-full w-full bg-transparent text-[13.5px] outline-none placeholder:text-slate-400"
+            />
+          </div>
+        </FilterBox>
         <FilterBox label="Loại đơn">
           <SearchableSelect
             value={filter.kind}
@@ -487,12 +489,12 @@ function ApprovalsContent() {
               .map(([value, label]) => ({ value, label }))}
           />
         </FilterBox>
-        <div className="flex min-w-[250px] flex-[1.3] items-center gap-2 rounded-xl border border-slate-200/80 bg-white px-3 text-[12.5px] text-slate-600">
-          <CalendarDays className="size-4 shrink-0 text-slate-400" />
-          <input type="date" aria-label="Từ ngày" value={filter.from} onChange={(e) => patch({ from: e.target.value })} className="h-11 min-w-0 flex-1 bg-transparent outline-none" />
-          <span className="text-slate-300">–</span>
-          <input type="date" aria-label="Đến ngày" value={filter.to} onChange={(e) => patch({ to: e.target.value })} className="h-11 min-w-0 flex-1 bg-transparent outline-none" />
-        </div>
+        <FilterBox label="Từ ngày">
+          <DatePickerInput aria-label="Từ ngày" height={38} value={filter.from} max={filter.to || undefined} onChange={(v: string) => patch({ from: v })} />
+        </FilterBox>
+        <FilterBox label="Đến ngày">
+          <DatePickerInput aria-label="Đến ngày" height={38} value={filter.to} min={filter.from || undefined} onChange={(v: string) => patch({ to: v })} />
+        </FilterBox>
       </div>
 
       <div className="grid gap-3 xl:h-[calc(100dvh-420px)] xl:min-h-[520px] xl:grid-cols-[minmax(0,1fr)_430px]">

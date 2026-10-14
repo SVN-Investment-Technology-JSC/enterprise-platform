@@ -36,7 +36,7 @@ import {
   Ban,
   Layers,
 } from 'lucide-react';
-import { Popconfirm } from '@enterprise-platform/shared-ui';
+import { Popconfirm, formatDate } from '@enterprise-platform/shared-ui';
 import styles from '../inventory.module.scss';
 
 /**
@@ -1167,7 +1167,7 @@ export function ItemCatalog({
                             <strong>{schedule.title}</strong>
                             <span> · {schedule.frequency}</span>
                             {schedule.nextDueAt ? (
-                              <span> · Kỳ tiếp theo: {new Date(schedule.nextDueAt).toLocaleDateString('vi-VN')}</span>
+                              <span> · Kỳ tiếp theo: {formatDate(schedule.nextDueAt)}</span>
                             ) : null}
                           </div>
                         )) : (

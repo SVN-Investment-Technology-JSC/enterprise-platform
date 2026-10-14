@@ -10,6 +10,7 @@ import Link from 'next/link';
 import { ShieldAlert, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { AuthorizationWorkspace } from './authorization-workspace';
+import type { RoleMemberUser } from './role-members';
 
 export default async function AuthorizationPage() {
   const cookie = (await cookies()).toString();
@@ -79,8 +80,17 @@ export default async function AuthorizationPage() {
       { modules: TenantModuleCatalogItem[] },
     ];
 
+    // Danh sách người dùng chỉ để hiển thị tên trong vai trò; lỗi tải không chặn trang.
+    const usersResponse = await get('platform/v1/tenant-users').catch(() => undefined);
+    const users: RoleMemberUser[] = usersResponse?.ok
+      ? (((await usersResponse.json()) as { users: RoleMemberUser[] }).users ?? []).map(
+          (u) => ({ id: u.id, fullName: u.fullName, email: u.email, status: u.status }),
+        )
+      : [];
+
     return (
       <AuthorizationWorkspace
+        users={users}
         initialRoles={roles.roles}
         initialPermissions={permissions.permissions}
         modules={modules.modules}

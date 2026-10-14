@@ -2,6 +2,7 @@
  * FIX-C-11: logic thuần cho cấu hình lương / OT (mẫu công thức, giờ HH:mm, cảnh báo tham chiếu, dòng thời gian).
  * Mọi mức, trần, tỷ lệ, biểu thuế trong mẫu là THAM SỐ do HR/kế toán nhập và xác nhận; không hard-code theo năm.
  */
+import { formatDateVn } from './personnel-decision-rules';
 
 export interface PayrollComponentDraft {
   code: string;
@@ -279,7 +280,7 @@ export function analyzeTimeline(versions: TimelineVersion[]): TimelineIssue[] {
         kind: 'OVERLAP',
         from: b.effective_from,
         to: b.effective_from,
-        message: `v${a.version_no} vẫn mở nhưng v${b.version_no} đã bắt đầu từ ${b.effective_from}`,
+        message: `v${a.version_no} vẫn mở nhưng v${b.version_no} đã bắt đầu từ ${formatDateVn(b.effective_from)}`,
       });
       continue;
     }
@@ -289,14 +290,14 @@ export function analyzeTimeline(versions: TimelineVersion[]): TimelineIssue[] {
         kind: 'GAP',
         from: expectedNext,
         to: addDays(b.effective_from, -1),
-        message: `Khoảng trống ${expectedNext} đến ${addDays(b.effective_from, -1)} giữa v${a.version_no} và v${b.version_no}`,
+        message: `Khoảng trống ${formatDateVn(expectedNext)} đến ${formatDateVn(addDays(b.effective_from, -1))} giữa v${a.version_no} và v${b.version_no}`,
       });
     else if (b.effective_from < expectedNext)
       issues.push({
         kind: 'OVERLAP',
         from: b.effective_from,
         to: a.effective_to,
-        message: `v${a.version_no} và v${b.version_no} chồng lấn từ ${b.effective_from} đến ${a.effective_to}`,
+        message: `v${a.version_no} và v${b.version_no} chồng lấn từ ${formatDateVn(b.effective_from)} đến ${formatDateVn(a.effective_to)}`,
       });
   }
   return issues;

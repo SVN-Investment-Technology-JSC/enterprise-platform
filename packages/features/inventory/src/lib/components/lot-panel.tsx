@@ -12,6 +12,8 @@ import {
   FileCheck,
   X,
 } from 'lucide-react';
+import { formatDate } from '@enterprise-platform/shared-ui';
+import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import { loadLots, saveLots } from '../inventory-api';
 import { LOT_STATUS_BADGE, LOT_STATUS_LABEL } from '../inventory-labels';
 import styles from '../inventory.module.scss';
@@ -254,14 +256,14 @@ export function LotPanel({
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                     <Calendar size={13} color="#64748b" />
-                    <span>NSX: {lot.manufactureDate || '—'}</span>
+                    <span>NSX: {formatDate(lot.manufactureDate, '—')}</span>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                     <Clock size={13} color="#b45309" />
                     <span>
                       Hạn dùng:{' '}
                       <strong style={{ color: lot.status === 'NEAR_EXPIRY' ? '#b45309' : lot.status === 'EXPIRED' ? '#dc2626' : '#0f172a' }}>
-                        {lot.expiryDate || '— (Không thời hạn)'}
+                        {lot.expiryDate ? formatDate(lot.expiryDate) : '— (Không thời hạn)'}
                       </strong>
                     </span>
                   </div>
@@ -411,36 +413,14 @@ export function LotPanel({
                   <label style={{ fontSize: '12.5px', fontWeight: 600, color: '#334155' }}>
                     Ngày sản xuất (MFG)
                   </label>
-                  <input
-                    type="date"
-                    value={manufactureDate}
-                    style={{
-                      padding: '7px 10px',
-                      borderRadius: '4px',
-                      border: '1px solid #cbd5e1',
-                      fontSize: '13px',
-                      outline: 'none',
-                    }}
-                    onChange={(e) => setManufactureDate(e.target.value)}
-                  />
+                  <DatePickerInput value={manufactureDate} onChange={setManufactureDate} height={36} />
                 </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                   <label style={{ fontSize: '12.5px', fontWeight: 600, color: '#334155' }}>
                     Hạn sử dụng (EXP)
                   </label>
-                  <input
-                    type="date"
-                    value={expiryDate}
-                    style={{
-                      padding: '7px 10px',
-                      borderRadius: '4px',
-                      border: '1px solid #cbd5e1',
-                      fontSize: '13px',
-                      outline: 'none',
-                    }}
-                    onChange={(e) => setExpiryDate(e.target.value)}
-                  />
+                  <DatePickerInput value={expiryDate} onChange={setExpiryDate} height={36} />
                 </div>
               </div>
 

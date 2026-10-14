@@ -112,7 +112,7 @@ integration('Legacy tenant RBAC upgrade', () => {
     ).not.toContain('tenant.manage');
     expect(
       (await service.resolve('tenant', await userId(46))).moduleKeys,
-    ).toEqual([]);
+    ).toEqual(['assistant']);
     const roles = await service.listRoles('tenant');
     expect(roles.find((r) => r.key === 'tenant-admin')?.id).toBe(
       'b0000000-0000-4000-8000-000000000001',
@@ -125,8 +125,7 @@ integration('Legacy tenant RBAC upgrade', () => {
     const r = await service.saveRole(
       'tenant',
       admin,
-      { name: 'Reader', permissionIds: [p.id], moduleKeys: [] },
-      [],
+      { name: 'Reader', permissionIds: [p.id] },
     );
     await service.assignRoles('tenant', admin, ordinary, [r.id]);
     expect((await service.resolve('tenant', ordinary)).permissions).toEqual([
@@ -172,7 +171,8 @@ integration('Legacy tenant RBAC upgrade', () => {
     await upgrade();
     const access = await service.resolve('tenant', ordinary);
     expect(access.permissions).toEqual(['core.users.read']);
-    expect(access.moduleKeys).toEqual([]);
+    // Chỉ còn Trợ lý (mở cho mọi thành viên): không module nào khác được cấp ngầm.
+    expect(access.moduleKeys).toEqual(['assistant']);
     expect((await service.userRoles('tenant', ordinary)).roleIds).toEqual([id]);
     expect((await service.listPermissions('tenant'))[0].actionKeys).toEqual([
       'core.users.read',

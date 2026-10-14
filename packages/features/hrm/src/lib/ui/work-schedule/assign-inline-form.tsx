@@ -200,6 +200,7 @@ export function AssignInlineForm({
           <div className="grid grid-cols-1 gap-4 @2xl:grid-cols-2">
             <Field label="Ca làm việc" required hint={scheduleHint}>
               <SearchableSelect
+                height={36}
                 options={selectOptions}
                 value={scheduleValue}
                 placeholder="Chọn ca làm việc…"
@@ -211,7 +212,7 @@ export function AssignInlineForm({
             <Field label="Ngày hiệu lực" required>
               <DatePickerInput
                 aria-label="Ngày hiệu lực"
-                className="[&_input[type=text]]:h-9"
+                height={36}
                 value={draft.fromDate}
                 onChange={(fromDate) => patch({ fromDate })}
               />
@@ -302,7 +303,7 @@ export function AssignInlineForm({
                         aria-label="Đến ngày"
                         value={draft.toDate}
                         onChange={(toDate) => patch({ toDate })}
-                        className="[&_input[type=text]]:h-9"
+                        height={36}
                       />
                     </Field>
                   )}

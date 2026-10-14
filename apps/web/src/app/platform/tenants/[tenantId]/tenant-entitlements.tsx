@@ -1,5 +1,6 @@
 'use client';
 
+import { authFetch } from '@enterprise-platform/shared-ui';
 import type {
   SetTenantEntitlementResponse,
   TenantEntitlementOverview,
@@ -178,7 +179,7 @@ export function TenantEntitlements({
     let timer: number | undefined;
     const refresh = async () => {
       try {
-        const response = await fetch(
+        const response = await authFetch(
           `/api/platform/v1/tenants/${overview.tenant.id}/modules`,
           {
             credentials: 'same-origin',
@@ -228,7 +229,7 @@ export function TenantEntitlements({
     module: TenantModuleEntitlement,
     enabled: boolean,
   ): Promise<TenantEntitlementStatus> {
-    const response = await fetch(
+    const response = await authFetch(
       `/api/platform/v1/tenants/${overview.tenant.id}/entitlements/${encodeURIComponent(module.key)}`,
       {
         method: 'PUT',

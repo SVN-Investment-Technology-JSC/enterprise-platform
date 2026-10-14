@@ -13,6 +13,7 @@ import {
   type WorkItemPriority,
   type WorkItemStatus,
 } from '@enterprise-platform/contracts-workspace';
+import { formatTime } from '@enterprise-platform/shared-ui';
 import { AtSign, CalendarClock, ExternalLink, Plus, RefreshCw } from 'lucide-react';
 import {
   Fragment,
@@ -689,11 +690,4 @@ function EventTitle({
       {children}
     </button>
   );
-}
-
-function formatTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString('vi-VN', {
-    hour: '2-digit',
-    minute: '2-digit',
-  });
 }

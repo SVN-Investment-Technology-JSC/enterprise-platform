@@ -1,7 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { Table, type TableColumnsType } from 'antd';
-import { Popconfirm } from '@enterprise-platform/shared-ui';
+import { Popconfirm, formatDate } from '@enterprise-platform/shared-ui';
 import type { HrmEmployeeDependent } from '@enterprise-platform/contracts-hrm';
 import { hrmFetch } from '../hrm-api';
 import { Button } from './button';
@@ -93,7 +93,12 @@ export function HrmFamilyPanel({
   const columns: TableColumnsType<HrmEmployeeDependent> = [
     { title: 'Họ tên', dataIndex: 'fullName', width: 170 },
     { title: 'Quan hệ', dataIndex: 'relationship', width: 120 },
-    { title: 'Ngày sinh', dataIndex: 'dateOfBirth', width: 110 },
+    {
+      title: 'Ngày sinh',
+      dataIndex: 'dateOfBirth',
+      width: 110,
+      render: (v?: string | null) => formatDate(v),
+    },
     { title: 'Điện thoại', dataIndex: 'phone', width: 120 },
     { title: 'Giấy tờ', dataIndex: 'identityCardNumber', width: 140 },
     { title: 'Mã số thuế', dataIndex: 'taxCode', width: 130 },

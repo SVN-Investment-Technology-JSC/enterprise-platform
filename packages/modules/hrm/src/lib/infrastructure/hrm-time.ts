@@ -21,6 +21,15 @@ export function isoDate(value: unknown): string {
     return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`;
   return String(value).slice(0, 10);
 }
+/**
+ * Ngày dạng dd/mm/yyyy để đưa vào câu chữ người dùng đọc (thông báo lỗi, cảnh báo).
+ * Không dùng làm khoá hay dữ liệu: dữ liệu vẫn là YYYY-MM-DD.
+ */
+export function displayDate(value: unknown): string {
+  const iso = isoDate(value);
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  return match ? `${match[3]}/${match[2]}/${match[1]}` : iso;
+}
 /** Weekly day-off days (0=Sunday..6=Saturday) configured on the ATTENDANCE policy. */
 export function weeklyOffDaysOf(
   config: Record<string, unknown> | null | undefined,
@@ -171,11 +180,11 @@ export function pickPolicyVersion(
   const tier = scoped.length ? scoped : rows.filter((r) => !ids(r).length);
   if (tier.length > 1)
     throw new ConflictException(
-      `Có nhiều chính sách ${type} cùng hiệu lực ngày ${date}: ` +
+      `Có nhiều chính sách ${type} cùng hiệu lực ngày ${displayDate(date)}: ` +
         tier
           .map(
             (r) =>
-              `${r.policy_code ?? 'chính sách'} v${r.version_no ?? '?'} (${isoDate(r.effective_from)} - ${r.effective_to ? isoDate(r.effective_to) : 'chưa kết thúc'})`,
+              `${r.policy_code ?? 'chính sách'} v${r.version_no ?? '?'} (${displayDate(r.effective_from)} - ${r.effective_to ? displayDate(r.effective_to) : 'chưa kết thúc'})`,
           )
           .join('; ') +
         '. Cần điều chỉnh phạm vi/ngày áp dụng tại Cấu hình công và thiết bị.',

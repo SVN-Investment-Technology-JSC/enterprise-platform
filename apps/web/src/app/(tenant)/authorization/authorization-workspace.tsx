@@ -8,7 +8,6 @@ import {
 import type { TenantModuleCatalogItem } from '@enterprise-platform/contracts-tenancy';
 import { Popconfirm, SearchableSelect } from '@enterprise-platform/shared-ui';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import {
   ShieldCheck,
@@ -22,7 +21,6 @@ import {
   X,
   Users,
   Layers,
-  ExternalLink,
   Check,
   ChevronLeft,
   ChevronRight,
@@ -30,15 +28,16 @@ import {
 } from 'lucide-react';
 import { toast } from '@/components/ui/sonner';
 import { cn } from '@/lib/utils';
-import { moduleAbbr, moduleTint } from '../module-tint';
 import { panelButton } from '../side-panel';
 import { PermissionPicker } from './permission-picker';
+import { RoleMembers, type RoleMemberUser } from './role-members';
 import { authorizationRequest, searchText } from './authorization-client';
 
 interface AuthorizationWorkspaceProps {
   readonly initialRoles: TenantRole[];
   readonly initialPermissions: TenantPermission[];
   readonly modules: TenantModuleCatalogItem[];
+  readonly users: readonly RoleMemberUser[];
 }
 
 type Editor = {
@@ -48,7 +47,6 @@ type Editor = {
   description: string;
   actionKeys: string[];
   permissionIds: string[];
-  moduleKeys: string[];
 };
 
 const emptyEditor: Editor = {
@@ -57,13 +55,13 @@ const emptyEditor: Editor = {
   description: '',
   actionKeys: [],
   permissionIds: [],
-  moduleKeys: [],
 };
 
 export function AuthorizationWorkspace({
   initialRoles,
   initialPermissions,
   modules,
+  users,
 }: AuthorizationWorkspaceProps) {
   const router = useRouter();
   const [roles, setRoles] = useState(initialRoles);
@@ -77,6 +75,7 @@ export function AuthorizationWorkspace({
   const [page, setPage] = useState(1);
   const [editor, setEditor] = useState<Editor>();
   const [busy, setBusy] = useState(false);
+  const [detailPick, setDetailPick] = useState<{ id: string; tab: 'actions' | 'members' }>();
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Statistics calculation
@@ -149,6 +148,15 @@ export function AuthorizationWorkspace({
   }, [role, permission, permissions]);
 
   const used = role ? role.userIds.length : (permission?.roleIds.length ?? 0);
+  // Quản trị tenant có toàn quyền nên chỉ hiện người giữ vai trò; vai trò khác chia tab để danh sách quyền dài không đẩy phần người dùng xuống.
+  const showDetailTabs = !!role && role.key !== 'tenant-admin';
+  const detailTab: 'actions' | 'members' = !role
+    ? 'actions'
+    : role.key === 'tenant-admin'
+      ? 'members'
+      : detailPick?.id === role.id
+        ? detailPick.tab
+        : 'actions';
 
   async function reload() {
     setIsRefreshing(true);
@@ -168,6 +176,13 @@ export function AuthorizationWorkspace({
     } finally {
       setIsRefreshing(false);
     }
+  }
+
+  /** Tải lại vai trò sau khi gán/gỡ người dùng, không hiện thông báo làm mới. */
+  async function refreshRoles() {
+    const r = await authorizationRequest<{ roles: TenantRole[] }>('tenant-roles');
+    setRoles(r.roles);
+    router.refresh();
   }
 
   function edit() {
@@ -196,7 +211,6 @@ export function AuthorizationWorkspace({
             name: editor.name.trim(),
             description: editor.description.trim(),
             permissionIds: editor.permissionIds,
-            moduleKeys: editor.moduleKeys,
           }
           : {
             name: editor.name.trim(),
@@ -323,7 +337,7 @@ export function AuthorizationWorkspace({
         <div className="min-w-0 flex-[1_1_420px]">
           <h1 className="m-0 text-[22px] font-bold tracking-[-0.3px]">Vai trò &amp; Phân quyền</h1>
           <p className="mt-1 text-[13.5px] text-slate-600">
-            Cấu hình quyền thao tác Core, quyền thao tác module và quyền truy cập module cho người dùng tenant.
+            Cấu hình quyền thao tác Core và module cho người dùng tenant; quyền vào module được suy ra từ các thao tác được cấp.
           </p>
         </div>
         <div className="flex gap-2">
@@ -462,6 +476,7 @@ export function AuthorizationWorkspace({
               <div className="min-w-[160px] flex-[1_1_160px]">
                 <SearchableSelect
                   value={filter}
+                  height={36}
                   clearable={false}
                   options={[
                     { value: 'all', label: 'Tất cả vai trò' },
@@ -597,8 +612,8 @@ export function AuthorizationWorkspace({
                 </h2>
                 <p className="m-0 mt-0.5 text-[12.5px] text-slate-500">
                   {tab === 'roles'
-                    ? 'Khai báo thông tin định danh và phân định quyền truy cập module tính năng.'
-                    : 'Chọn các hành động Core hoặc module. Quyền truy cập module được cấp riêng trong role.'}
+                    ? 'Khai báo thông tin định danh và chọn các quyền thao tác cho vai trò.'
+                    : 'Chọn các hành động Core hoặc module. Có bất kỳ hành động nào của module là vào được module đó.'}
                 </p>
               </div>
             </div>
@@ -648,91 +663,12 @@ export function AuthorizationWorkspace({
                 </div>
               </div>
 
-              {tab === 'roles' && (
-                <div className="flex flex-col gap-2.5">
-                  <FormHeading
-                    aside={
-                      <span className="flex items-center gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const allActive = modules
-                              .filter((m) => m.entitlementStatus === 'active')
-                              .map((m) => m.key);
-                            setEditor({ ...editor, moduleKeys: allActive });
-                          }}
-                          className="cursor-pointer text-xs font-semibold text-blue-700 hover:text-blue-800"
-                        >
-                          Chọn tất cả trong gói
-                        </button>
-                        <span aria-hidden>|</span>
-                        Đã chọn: {editor.moduleKeys.length} module
-                      </span>
-                    }
-                  >
-                    2. PHÂN HỆ MODULE TRUY CẬP
-                  </FormHeading>
-                  <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-2">
-                    {modules.map((m) => {
-                      const isChecked = editor.moduleKeys.includes(m.key);
-                      const isActive = m.entitlementStatus === 'active';
-                      return (
-                        <label
-                          key={m.key}
-                          className={cn(
-                            'flex cursor-pointer items-center gap-2.5 rounded-[9px] border px-2.5 py-[9px]',
-                            isChecked ? 'border-amber-300 bg-[#fffbeb]' : 'border-[#eef0f3] bg-white hover:border-slate-300',
-                          )}
-                        >
-                          <input
-                            type="checkbox"
-                            className="sr-only"
-                            checked={isChecked}
-                            onChange={(e) => {
-                              const newModules = e.target.checked
-                                ? [...editor.moduleKeys, m.key]
-                                : editor.moduleKeys.filter((k) => k !== m.key);
-                              setEditor({ ...editor, moduleKeys: newModules });
-                            }}
-                          />
-                          <span
-                            aria-hidden
-                            className={cn(
-                              'grid size-[18px] shrink-0 place-items-center rounded-[5px] border-[1.5px]',
-                              isChecked ? 'border-[#ffc90a] bg-[#ffc90a] text-[#18181b]' : 'border-slate-300 bg-white',
-                            )}
-                          >
-                            {isChecked ? <Check className="size-3 stroke-[3]" /> : null}
-                          </span>
-                          <span className="flex min-w-0 flex-1 flex-col">
-                            <span className="flex items-center gap-1.5">
-                              <b className="truncate text-[12.5px]">{m.name}</b>
-                              <span
-                                className={cn(
-                                  'whitespace-nowrap rounded-full px-1.5 text-[10.5px] font-semibold',
-                                  isActive ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600',
-                                )}
-                              >
-                                {isActive ? 'Trong gói' : 'Chưa mở'}
-                              </span>
-                            </span>
-                            <span className="truncate text-[11px] text-slate-500">
-                              {m.description || 'Không có mô tả phân hệ.'}
-                            </span>
-                          </span>
-                        </label>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
               <div className="flex flex-col gap-2.5">
-                <FormHeading>{tab === 'roles' ? '3. QUYỀN THAO TÁC' : '2. DANH MỤC HÀNH ĐỘNG'}</FormHeading>
+                <FormHeading>{tab === 'roles' ? '2. QUYỀN THAO TÁC' : '2. DANH MỤC HÀNH ĐỘNG'}</FormHeading>
                 {tab === 'permissions' ? (
                   <>
                     <p className="m-0 text-xs text-slate-500">
-                      Inventory/Maintenance: cấp thêm quyền Xem khi chọn quyền giao dịch hoặc xử lý đợt. Quyền Quản lý bao gồm Xem và xử lý. Quyền vào module được chọn riêng trong vai trò.
+                      Inventory/Maintenance: cấp thêm quyền Xem khi chọn quyền giao dịch hoặc xử lý đợt. Quyền Quản lý bao gồm Xem và xử lý. Có bất kỳ hành động nào của module là vào được module đó; không cần chọn module riêng.
                     </p>
                     <PermissionPicker
                       label="Hành động Core và module"
@@ -881,135 +817,101 @@ export function AuthorizationWorkspace({
                     </p>
                   )}
 
-                  {role && (
-                    <div className="flex flex-col gap-2.5">
-                      <SectionHeading
-                        aside={
-                          <span className="rounded-full border border-[#e5e7eb] px-2 font-semibold tracking-normal text-slate-700">
-                            {role.moduleKeys.includes('*')
-                              ? 'Toàn quyền Module'
-                              : `${role.moduleKeys.length} module được chọn`}
-                          </span>
-                        }
-                      >
-                        PHẠM VI MODULE TÍNH NĂNG ĐƯỢC CẤP PHÉP
-                      </SectionHeading>
-                      {role.moduleKeys.includes('*') ? (
-                        <p className="m-0 rounded-[10px] bg-emerald-50 px-3 py-2.5 text-[13px] text-emerald-800">
-                          Vai trò này được cấu hình quyền <b>tất cả module (*)</b>. Người dùng sẽ truy cập được bất kỳ module nào mà doanh nghiệp đang kích hoạt.
-                        </p>
-                      ) : null}
-                      <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-2">
-                        {modules.map((m) => {
-                          const isGranted =
-                            role.moduleKeys.includes('*') || role.moduleKeys.includes(m.key);
-                          const isModuleActive = m.entitlementStatus === 'active';
-                          return (
-                            <div
-                              key={m.key}
+                  {showDetailTabs && role ? (
+                    <div
+                      role="tablist"
+                      aria-label="Chi tiết vai trò"
+                      className="flex w-fit gap-0.5 rounded-[9px] bg-[#f1f3f6] p-[3px]"
+                    >
+                      {(
+                        [
+                          ['actions', 'Quyền thao tác', actions.length],
+                          ['members', 'Người dùng', role.userIds.length],
+                        ] as const
+                      ).map(([value, label, count]) => {
+                        const active = detailTab === value;
+                        return (
+                          <button
+                            key={value}
+                            type="button"
+                            role="tab"
+                            aria-selected={active}
+                            onClick={() => setDetailPick({ id: role.id, tab: value })}
+                            className={cn(
+                              'flex h-8 cursor-pointer items-center gap-1.5 rounded-[7px] px-3 text-[12.5px] font-semibold',
+                              active
+                                ? 'bg-white text-[#18181b] shadow-[0_1px_2px_rgba(0,0,0,.08)]'
+                                : 'text-slate-500 hover:text-[#18181b]',
+                            )}
+                          >
+                            {label}
+                            <span
                               className={cn(
-                                'flex items-center gap-2.5 rounded-[9px] border px-2.5 py-[9px]',
-                                isGranted ? 'border-amber-200 bg-[#fffdf5]' : 'border-[#eef0f3] bg-white opacity-70',
+                                'rounded-full px-[7px] text-[11px]',
+                                active ? 'bg-[#ffc90a] text-[#18181b]' : 'bg-slate-200 text-slate-600',
                               )}
                             >
-                              <span
-                                aria-hidden
-                                className={`grid size-[30px] shrink-0 place-items-center rounded-lg text-[10.5px] font-extrabold ${moduleTint(m.key)}`}
-                              >
-                                {moduleAbbr(m)}
-                              </span>
-                              <div className="flex min-w-0 flex-1 flex-col">
-                                <span className="flex items-center gap-1.5">
-                                  <b className="truncate text-[12.5px]">{m.name}</b>
-                                  <span
-                                    className={cn(
-                                      'whitespace-nowrap rounded-full px-1.5 text-[10.5px] font-semibold',
-                                      isModuleActive ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800',
-                                    )}
-                                  >
-                                    {isModuleActive ? 'Trong gói' : 'Chưa kích hoạt'}
-                                  </span>
+                              {count}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+
+                  {detailTab === 'actions' && (
+                    <div className="flex flex-col gap-2.5">
+                      <SectionHeading>HÀNH ĐỘNG &amp; QUYỀN THAO TÁC ({actions.length})</SectionHeading>
+                      {actionGroups.length > 0 ? (
+                        actionGroups.map((group) => (
+                          <div
+                            key={group.group}
+                            className="flex flex-col gap-1.5 rounded-[10px] border border-[#f1f3f6] bg-[#fafbfc] px-3 py-2.5"
+                          >
+                            <span className="text-[11px] font-bold tracking-[0.4px] text-slate-500">
+                              {group.group.toUpperCase()}
+                            </span>
+                            <div className="flex flex-wrap gap-1.5">
+                              {group.items.map((action) => (
+                                <span
+                                  key={action.key}
+                                  className="flex items-center gap-1.5 rounded-[7px] border border-[#eef0f3] bg-white px-2 py-[3px] text-xs"
+                                >
+                                  <Check className="size-3 stroke-[3] text-emerald-600" />
+                                  {action.label}
+                                  <code className="font-mono text-[10.5px] text-slate-400">({action.key})</code>
                                 </span>
-                                <span className="flex justify-between gap-1.5 text-[11px]">
-                                  <code className="truncate font-mono text-slate-500">{m.key}</code>
-                                  <span className={cn('font-semibold', isGranted ? 'text-[#8a6400]' : 'text-slate-400')}>
-                                    {isGranted ? 'Được cấp quyền' : 'Không phân bổ'}
-                                  </span>
-                                </span>
-                              </div>
+                              ))}
                             </div>
-                          );
-                        })}
-                      </div>
+                          </div>
+                        ))
+                      ) : (
+                        <p className="m-0 rounded-[10px] border border-dashed border-[#e5e7eb] p-3.5 text-center text-[13px] text-slate-500">
+                          Không cấp quyền thao tác Core hoặc module.
+                        </p>
+                      )}
                     </div>
                   )}
 
-                  <div className="flex flex-col gap-2.5">
-                    <SectionHeading>HÀNH ĐỘNG &amp; QUYỀN THAO TÁC ({actions.length})</SectionHeading>
-                    {actionGroups.length > 0 ? (
-                      actionGroups.map((group) => (
-                        <div
-                          key={group.group}
-                          className="flex flex-col gap-1.5 rounded-[10px] border border-[#f1f3f6] bg-[#fafbfc] px-3 py-2.5"
-                        >
-                          <span className="text-[11px] font-bold tracking-[0.4px] text-slate-500">
-                            {group.group.toUpperCase()}
-                          </span>
-                          <div className="flex flex-wrap gap-1.5">
-                            {group.items.map((action) => (
-                              <span
-                                key={action.key}
-                                className="flex items-center gap-1.5 rounded-[7px] border border-[#eef0f3] bg-white px-2 py-[3px] text-xs"
-                              >
-                                <Check className="size-3 stroke-[3] text-emerald-600" />
-                                {action.label}
-                                <code className="font-mono text-[10.5px] text-slate-400">({action.key})</code>
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      ))
-                    ) : (
-                      <p className="m-0 rounded-[10px] border border-dashed border-[#e5e7eb] p-3.5 text-center text-[13px] text-slate-500">
-                        Không cấp quyền thao tác Core hoặc module.
-                      </p>
-                    )}
-                  </div>
-
-                  <div className="flex flex-col gap-2.5 rounded-[10px] border border-[#f1f3f6] bg-[#fafbfc] px-3.5 py-3">
-                    <span className="flex flex-wrap items-center gap-2 text-[13px] font-bold">
-                      <Users className="size-3.5" />
-                      <span className="flex-1">Phân bổ người dùng &amp; Kiểm toán</span>
-                      <span className="text-[12.5px] font-medium text-slate-600">
-                        {used} {role ? 'người dùng đang gán vai trò này' : 'vai trò sử dụng permission'}
+                  {role && detailTab === 'members' ? (
+                    <RoleMembers role={role} users={users} onChanged={refreshRoles} />
+                  ) : null}
+                  {!role ? (
+                    <div className="flex flex-col gap-2.5 rounded-[10px] border border-[#f1f3f6] bg-[#fafbfc] px-3.5 py-3">
+                      <span className="flex flex-wrap items-center gap-2 text-[13px] font-bold">
+                        <Users className="size-3.5" />
+                        <span className="flex-1">Vai trò đang dùng permission</span>
+                        <span className="text-[12.5px] font-medium text-slate-600">
+                          {used} vai trò sử dụng permission
+                        </span>
                       </span>
-                    </span>
-                    {used > 0 && !role?.isSystem ? (
-                      <p className="m-0 rounded-lg border border-amber-200 bg-[#fffbeb] px-2.5 py-2 text-[12.5px] text-amber-800">
-                        {role ? (
-                          <>
-                            Vai trò này hiện đang được gán cho <b>{used} người dùng</b>. Vui lòng gỡ hoặc chuyển đổi vai trò cho người dùng trước khi thực hiện xóa.
-                          </>
-                        ) : (
-                          <>
-                            Permission này hiện đang được dùng trong <b>{used} vai trò</b>. Vui lòng gỡ permission khỏi các vai trò trước khi thực hiện xóa.
-                          </>
-                        )}
-                      </p>
-                    ) : null}
-                    {role ? (
-                      <span className="flex flex-wrap items-center gap-2 text-[12.5px] text-slate-600">
-                        Cần gán vai trò này cho nhân sự trong tổ chức?
-                        <Link
-                          href="/users"
-                          className="flex items-center gap-1.5 rounded-full bg-[#18181b] px-2.5 py-[3px] font-semibold text-white hover:bg-[#2a2a2f]"
-                        >
-                          Quản lý người dùng &amp; Gán vai trò
-                          <ExternalLink className="size-3" />
-                        </Link>
-                      </span>
-                    ) : null}
-                  </div>
+                      {used > 0 && !role ? (
+                        <p className="m-0 rounded-lg border border-amber-200 bg-[#fffbeb] px-2.5 py-2 text-[12.5px] text-amber-800">
+                          Permission này hiện đang được dùng trong <b>{used} vai trò</b>. Vui lòng gỡ permission khỏi các vai trò trước khi thực hiện xóa.
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : null}
                 </div>
               </>
             ) : (

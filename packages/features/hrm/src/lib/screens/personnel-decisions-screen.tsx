@@ -336,6 +336,7 @@ export default function PersonnelDecisionsScreen() {
             />
           </div>
           <SearchableSelect
+            height={36}
             options={unitOptions}
             value={unitFilter}
             placeholder="Tất cả phòng ban"
@@ -343,6 +344,7 @@ export default function PersonnelDecisionsScreen() {
             onChange={setUnitFilter}
           />
           <SearchableSelect
+            height={36}
             options={typeOptions}
             value={typeFilter}
             placeholder="Tất cả loại"
@@ -350,6 +352,7 @@ export default function PersonnelDecisionsScreen() {
             onChange={(v) => setTypeFilter(v as HrmPersonnelDecisionType | '')}
           />
           <SearchableSelect
+            height={36}
             options={statusOptions}
             value={statusFilter}
             placeholder="Tất cả trạng thái"
@@ -357,6 +360,7 @@ export default function PersonnelDecisionsScreen() {
             onChange={(v) => setStatusFilter(v as HrmPersonnelDecisionStatus | '')}
           />
           <SearchableSelect
+            height={36}
             options={employees}
             value={employeeFilter}
             placeholder="Tất cả nhân viên"

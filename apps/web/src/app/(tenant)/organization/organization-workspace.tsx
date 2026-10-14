@@ -2,8 +2,9 @@
 import { useOrganizationPermissions } from './organization-permissions';
 
 import { ArrowLeft, Pencil, Plus, Save } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
-import { SearchableSelect } from '@enterprise-platform/shared-ui';
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { SearchableSelect, authFetch } from '@enterprise-platform/shared-ui';
+import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from '@/components/ui/sonner';
@@ -30,8 +31,9 @@ import {
 import { OrganizationFlow } from './organization-flow';
 import { OrganizationTreeTable } from './organization-tree-table';
 import { OrganizationTreeOutline } from './organization-tree-outline';
-import { ColumnResizeHandle, useResizableColumn } from './organization-resizable-column';
+import { useResizableWidth } from './use-resizable-width';
 import { OrganizationNodeInspector } from './organization-node-inspector';
+import { findPrimaryElsewhere } from './organization-primary-position';
 import { OrganizationAssignmentTable } from './organization-assignment-table';
 import { OrganizationPositionTable } from './organization-position-table';
 import {
@@ -41,6 +43,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet';
 
 export type {
   Tree,
@@ -88,7 +97,7 @@ export function OrganizationWorkspace({
 
   const syncSnapshotWithServer = async () => {
     try {
-      const res = await fetch(
+      const res = await authFetch(
         '/api/platform/v1/tenant-organization/core-snapshot',
         { credentials: 'same-origin' },
       );
@@ -110,15 +119,14 @@ export function OrganizationWorkspace({
   );
   const [selectedNodeId, setSelectedNodeId] = useState<string | undefined>(undefined);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
-  // Cột cây phân cấp kéo thả được theo chiều ngang (tên node nhiều tầng không bị khuất). Phải chừa chỗ tối thiểu
-  // cho canvas (360px), khoảng cách giữa cột và cột thuộc tính node (360px) khi đang mở.
-  const treeGridRef = useRef<HTMLDivElement>(null);
-  const treeColumn = useResizableColumn({
-    defaultWidth: 280,
-    minWidth: 220,
-    maxWidth: 720,
-    reservedWidth: 360 + 24 + (selectedNodeId && isDrawerOpen ? 372 : 0),
-    containerRef: treeGridRef,
+  // Cột "Sơ đồ phân cấp" kéo thả được (nhớ độ rộng; nhấp đúp thanh chia để về mặc định).
+  const outlineGridRef = useRef<HTMLDivElement>(null);
+  const outlineResize = useResizableWidth(outlineGridRef, {
+    storageKey: 'org-outline-width',
+    initial: 340,
+    min: 240,
+    max: 520,
+    cssVar: '--outline-w',
   });
   const [editor, setEditor] = useState<Editor>();
   const [, setError] = useState(loadError);
@@ -180,10 +188,13 @@ export function OrganizationWorkspace({
     userId: string,
     isPrimary = false,
   ) => {
+    // Một người chỉ giữ vị trí chính ở một chức danh: nếu đã chính ở nơi khác thì bổ nhiệm kiêm nhiệm.
+    const primary =
+      isPrimary && !findPrimaryElsewhere(snapshot.assignments, userId, nodeId);
     return save('assignments', undefined, {
       nodeId,
       userId,
-      isPrimary,
+      isPrimary: primary,
       status: 'active',
     }, { silent: true });
   };
@@ -196,27 +207,33 @@ export function OrganizationWorkspace({
     assignmentId: string,
     nodeId: string,
   ) => {
-    const nodeAssignments = snapshot.assignments.filter(
-      (a) => a.nodeId === nodeId && a.status === 'active',
+    const target = snapshot.assignments.find(
+      (a) => a.id === assignmentId && a.nodeId === nodeId && a.status === 'active',
     );
-    for (const a of nodeAssignments) {
-      dispatch(
-        updateAssignment({
-          id: a.id,
-          changes: { isPrimary: a.id === assignmentId },
-        }),
+    if (!target) return;
+    // Một chức danh có thể có nhiều người giữ vị trí chính, nhưng mỗi người chỉ giữ ở một chức danh.
+    const conflict = findPrimaryElsewhere(
+      snapshot.assignments,
+      target.userId,
+      nodeId,
+      assignmentId,
+    );
+    if (conflict) {
+      const nodeName =
+        snapshot.nodes.find((n) => n.id === conflict.nodeId)?.name ?? 'chức danh khác';
+      toast.error(
+        `Nhân sự này đang giữ vị trí chính tại "${nodeName}". Hãy bỏ vị trí chính ở đó trước khi đặt ở chức danh này.`,
       );
+      return;
     }
-    const target = nodeAssignments.find((a) => a.id === assignmentId);
-    if (target) {
-      await save('assignments', target, { isPrimary: true }, { silent: true });
-    }
-    const others = nodeAssignments.filter(
-      (a) => a.id !== assignmentId && a.isPrimary,
-    );
-    for (const other of others) {
-      await save('assignments', other, { isPrimary: false }, { silent: true });
-    }
+    dispatch(updateAssignment({ id: assignmentId, changes: { isPrimary: true } }));
+    await save('assignments', target, { isPrimary: true }, { silent: true });
+  };
+  const handleUnsetPrimaryAssignment = async (assignmentId: string) => {
+    const target = snapshot.assignments.find((a) => a.id === assignmentId);
+    if (!target) return;
+    dispatch(updateAssignment({ id: assignmentId, changes: { isPrimary: false } }));
+    await save('assignments', target, { isPrimary: false }, { silent: true });
   };
   async function save(
     resource: Resource,
@@ -228,7 +245,7 @@ export function OrganizationWorkspace({
     setError(undefined);
     let res: Response;
     try {
-      res = await fetch(
+      res = await authFetch(
         `/api/platform/v1/tenant-organization/${resource}${item ? `/${item.id}` : ''}`,
         {
           method: item ? 'PATCH' : 'POST',
@@ -312,7 +329,7 @@ export function OrganizationWorkspace({
   ) {
     if (!item || !canDelete) return;
     try {
-      const res = await fetch(
+      const res = await authFetch(
         `/api/platform/v1/tenant-organization/${resource}/${item.id}`,
         {
           method: 'DELETE',
@@ -364,7 +381,7 @@ export function OrganizationWorkspace({
     setLayoutSaving(true);
     setError(undefined);
     try {
-      const response = await fetch(
+      const response = await authFetch(
         `/api/platform/v1/tenant-organization/trees/${tree.id}/layout`,
         {
           method: 'PATCH',
@@ -548,19 +565,15 @@ export function OrganizationWorkspace({
                 ) : null}
               </div>
 
-              {/* Bố cục 3 cột: cây phân cấp | canvas | thuộc tính node (mở khi chọn node).
+              {/* Bố cục 2 cột: cây phân cấp (kéo thả đổi độ rộng) | canvas. Chi tiết node mở bằng ngăn kéo từ mép phải.
                   Màn rộng thì vừa khít khung nhìn; màn hẹp thì xếp dọc và cuộn cả trang. */}
               <div
-                ref={treeGridRef}
-                style={{ '--org-tree-width': `${treeColumn.width}px` } as CSSProperties}
-                className={`grid grid-cols-1 gap-3 xl:min-h-0 xl:flex-1 ${selectedNode && isDrawerOpen
-                  ? 'xl:grid-cols-[var(--org-tree-width)_minmax(0,1fr)_360px]'
-                  : 'xl:grid-cols-[var(--org-tree-width)_minmax(0,1fr)]'
-                  } ${treeColumn.dragging ? 'select-none' : ''}`}
+                ref={outlineGridRef}
+                style={{ ['--outline-w' as string]: `${outlineResize.width}px` }}
+                className={`relative grid grid-cols-1 gap-3 xl:min-h-0 xl:flex-1 xl:grid-cols-[var(--outline-w)_minmax(0,1fr)] ${outlineResize.dragging ? 'select-none' : ''}`}
               >
-                {/* Cột 1: Cây sơ đồ Nested Tree List / Outline; mép phải có thanh kéo đổi độ rộng */}
-                <div className="relative flex h-[360px] min-h-0 flex-col xl:h-full">
-                  <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                {/* Cột 1: Cây sơ đồ Nested Tree List / Outline */}
+                <div className="flex h-[360px] min-h-0 flex-col overflow-hidden xl:h-full">
                   <OrganizationTreeOutline
                     nodes={nodes}
                     nodeTypes={types}
@@ -570,15 +583,21 @@ export function OrganizationWorkspace({
                     onEditNode={(node) => open('nodes', node)}
                     onDeleteNode={(node) => remove('nodes', node)}
                   />
-                  </div>
-                  <ColumnResizeHandle
-                    width={treeColumn.width}
-                    min={220}
-                    max={treeColumn.max}
-                    dragging={treeColumn.dragging}
-                    label="Đổi độ rộng cột sơ đồ cây"
-                    onReset={treeColumn.reset}
-                    handleProps={treeColumn.handleProps}
+                </div>
+
+                {/* Thanh chia kéo thả giữa hai cột (chỉ từ màn xl, khi hai cột nằm ngang) */}
+                <div
+                  {...outlineResize.handleProps}
+                  aria-label="Kéo để đổi độ rộng cột Sơ đồ phân cấp (nhấp đúp để về mặc định)"
+                  title="Kéo để đổi độ rộng; nhấp đúp để về mặc định"
+                  style={{ left: 'var(--outline-w)' }}
+                  className="group absolute inset-y-0 z-10 hidden w-3 cursor-col-resize touch-none items-center justify-center outline-none xl:flex"
+                >
+                  <span
+                    aria-hidden="true"
+                    className={`h-12 w-1 rounded-full transition-colors group-hover:bg-[#ffc90a] group-focus-visible:bg-[#ffc90a] ${
+                      outlineResize.dragging ? 'bg-[#ffc90a]' : 'bg-slate-300'
+                    }`}
                   />
                 </div>
 
@@ -603,16 +622,36 @@ export function OrganizationWorkspace({
                     />
                   </div>
                 </section>
+              </div>
 
-                {/* Cột 3: Thuộc tính node, nằm cạnh canvas thay cho ngăn kéo */}
-                {selectedNode && isDrawerOpen ? (
-                  <aside
-                    aria-label="Chi tiết Node Tổ chức"
-                    className="flex min-h-0 flex-col overflow-hidden xl:h-full"
-                  >
+              {/* Drawer Chi tiết Node (trượt từ mép phải) */}
+              <Sheet
+                open={isDrawerOpen && Boolean(selectedNodeId)}
+                onOpenChange={(openState: boolean) => {
+                  setIsDrawerOpen(openState);
+                  if (!openState) {
+                    setSelectedNodeId(undefined);
+                  }
+                }}
+              >
+                <SheetContent
+                  side="right"
+                  // Ẩn nút đóng (X) mặc định: nó đè lên nhãn "Đơn vị / Chức danh" ở góc phải; vẫn đóng bằng Esc hoặc bấm ra ngoài.
+                  showCloseButton={false}
+                  className="!w-[595px] !max-w-[595px] p-0 overflow-hidden border-l border-slate-200 bg-white flex flex-col"
+                  style={{ width: '595px', maxWidth: '595px' }}
+                >
+                  <SheetHeader className="sr-only">
+                    <SheetTitle>Chi tiết Node Tổ chức</SheetTitle>
+                    <SheetDescription>
+                      Xem và cập nhật cấu hình node cùng danh sách nhân sự bổ nhiệm.
+                    </SheetDescription>
+                  </SheetHeader>
+                  <div className="flex-1 min-h-0 h-full overflow-hidden flex flex-col">
                     <OrganizationNodeInspector
                       selectedNode={selectedNode}
                       nodes={nodes}
+                      allNodes={snapshot.nodes}
                       assignments={snapshot.assignments}
                       users={snapshot.users}
                       onSaveNode={handleSaveNodeDirect}
@@ -625,16 +664,12 @@ export function OrganizationWorkspace({
                       onQuickAssign={handleQuickAssign}
                       onQuickUnassign={handleQuickUnassign}
                       onSetPrimaryAssignment={handleSetPrimaryAssignment}
+                      onUnsetPrimaryAssignment={handleUnsetPrimaryAssignment}
                       onSelectNode={handleSelectNodeWithDrawer}
-                      onClose={() => {
-                        setIsDrawerOpen(false);
-                        setSelectedNodeId(undefined);
-                      }}
                     />
-                  </aside>
-                ) : null}
-              </div>
-
+                  </div>
+                </SheetContent>
+              </Sheet>
             </div>
           )
         ) : null}
@@ -674,6 +709,7 @@ export function OrganizationWorkspace({
               trees={snapshot.trees}
               types={snapshot.nodeTypes}
               nodes={snapshot.nodes}
+              assignments={snapshot.assignments}
               users={snapshot.users}
               selectedTreeId={treeId}
               onSave={save}
@@ -691,6 +727,7 @@ function Form({
   trees,
   types,
   nodes,
+  assignments,
   users,
   selectedTreeId,
   onSave,
@@ -700,6 +737,7 @@ function Form({
   trees: Tree[];
   types: NodeType[];
   nodes: Node[];
+  assignments: Assignment[];
   users: OrganizationSnapshot['users'];
   selectedTreeId?: string;
   onSave: (
@@ -754,14 +792,38 @@ function Form({
           .join(' · '),
       }));
   }, [nodes, types]);
-  const userOptions = useMemo(
-    () =>
-      users.map((u) => ({
+  const userOptions = useMemo(() => {
+    const nodeNames = new Map(nodes.map((n) => [n.id, n.name]));
+    return users.map((u) => {
+      const primary = assignments.find(
+        (a) =>
+          a.userId === u.id &&
+          a.status === 'active' &&
+          a.isPrimary &&
+          a.id !== (editor.item?.id as string | undefined),
+      );
+      return {
         value: u.id,
         label: u.email ? `${u.fullName} (${u.email})` : u.fullName,
-      })),
-    [users],
-  );
+        description: primary
+          ? `Đang giữ vị trí chính tại: ${nodeNames.get(primary.nodeId) ?? 'chức danh khác'}`
+          : undefined,
+      };
+    });
+  }, [users, assignments, nodes, editor.item?.id]);
+  // Một người chỉ giữ vị trí chính ở một chức danh: báo trước khi đặt "Vị trí chính" cho người đã chính ở nơi khác.
+  const primaryConflict =
+    editor.resource === 'assignments' && data.isPrimary && data.userId && data.nodeId
+      ? findPrimaryElsewhere(
+          assignments,
+          String(data.userId),
+          String(data.nodeId),
+          editor.item?.id as string | undefined,
+        )
+      : undefined;
+  const primaryConflictNodeName = primaryConflict
+    ? (nodes.find((n) => n.id === primaryConflict.nodeId)?.name ?? 'chức danh khác')
+    : undefined;
   const hasExistingRoot = useMemo(() => {
     if (editor.resource !== 'nodes') return false;
     return nodes.some(
@@ -784,6 +846,12 @@ function Form({
         !data.nodeId
           ? 'Vui lòng chọn chức danh để bổ nhiệm.'
           : 'Vui lòng chọn người dùng để bổ nhiệm.',
+      );
+      return;
+    }
+    if (primaryConflict) {
+      toast.error(
+        `Nhân sự này đang giữ vị trí chính tại "${primaryConflictNodeName}". Hãy bỏ vị trí chính ở đó trước, hoặc bỏ chọn "Vị trí chính".`,
       );
       return;
     }
@@ -987,17 +1055,17 @@ function Form({
           </SelectField>
           <div className="grid grid-cols-2 gap-3">
             <Field label="Từ ngày">
-              <Input
-                type="date"
+              <DatePickerInput
+                height={32}
                 value={String(data.startDate)}
-                onChange={(e) => set('startDate', e.currentTarget.value)}
+                onChange={(value) => set('startDate', value)}
               />
             </Field>
             <Field label="Đến ngày">
-              <Input
-                type="date"
+              <DatePickerInput
+                height={32}
                 value={String(data.endDate)}
-                onChange={(e) => set('endDate', e.currentTarget.value)}
+                onChange={(value) => set('endDate', value)}
               />
             </Field>
           </div>
@@ -1013,6 +1081,12 @@ function Form({
             checked={Boolean(data.isPrimary)}
             onChange={(v) => set('isPrimary', v)}
           />
+          {primaryConflict ? (
+            <p className="rounded-md border border-amber-200 bg-amber-50/70 p-2 text-xs leading-snug text-amber-800">
+              Nhân sự này đang giữ vị trí chính tại &ldquo;{primaryConflictNodeName}&rdquo;. Mỗi người chỉ có một
+              vị trí chính; hãy bỏ vị trí chính ở chức danh đó trước, hoặc bỏ chọn ô này để bổ nhiệm kiêm nhiệm.
+            </p>
+          ) : null}
         </>
       ) : null}
       <SelectField label="Trạng thái">

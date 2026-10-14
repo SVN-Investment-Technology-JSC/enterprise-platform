@@ -1,6 +1,7 @@
 'use client';
 
 import type { StocktakeLotAllocation, StocktakeSerialAllocation } from '@enterprise-platform/contracts-inventory';
+import { formatDate } from '@enterprise-platform/shared-ui';
 import { useState } from 'react';
 import { X, Plus, Trash2, Layers, QrCode } from 'lucide-react';
 
@@ -356,7 +357,7 @@ export function StocktakeLotSerialDrawer({
                             {lot.lotNumber}
                           </div>
                           {lot.expiryDate ? (
-                            <span style={{ fontSize: '10.5px', color: '#64748b' }}>HSD: {lot.expiryDate}</span>
+                            <span style={{ fontSize: '10.5px', color: '#64748b' }}>HSD: {formatDate(lot.expiryDate)}</span>
                           ) : null}
                         </td>
                         <td style={{ textAlign: 'center', padding: '8px', color: '#475569' }}>

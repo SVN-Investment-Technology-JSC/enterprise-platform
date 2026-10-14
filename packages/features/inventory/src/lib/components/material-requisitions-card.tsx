@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import type { InventoryWorkspace, ProcedureRequisition } from '../inventory-api';
 import { generateRequisitionCsvContent } from '../inventory-api';
+import { formatDate } from '@enterprise-platform/shared-ui';
 import { formatNumber } from '../inventory-labels';
 import styles from '../inventory.module.scss';
 
@@ -197,7 +198,7 @@ export function MaterialRequisitionsCard({
                           <FileSpreadsheet size={13} /> {req.csvFileName}
                         </span>
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                          <Clock size={13} /> {new Date(req.startedAt).toLocaleDateString('vi-VN')}
+                          <Clock size={13} /> {formatDate(req.startedAt)}
                         </span>
                         {/* Huy hiệu tóm tắt 3 màu cấp độ tồn kho của toàn phiếu */}
                         {(() => {

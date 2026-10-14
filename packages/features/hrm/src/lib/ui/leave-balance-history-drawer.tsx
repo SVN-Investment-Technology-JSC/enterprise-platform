@@ -1,7 +1,7 @@
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Table, type TableColumnsType } from 'antd';
-import { Popconfirm } from '@enterprise-platform/shared-ui';
+import { Popconfirm, formatDate } from '@enterprise-platform/shared-ui';
 import { Undo2 } from 'lucide-react';
 import type {
   HrmLeaveBalanceListItem,
@@ -9,6 +9,7 @@ import type {
 } from '@enterprise-platform/contracts-hrm';
 import { hrmFetch } from '../hrm-api';
 import { useHrmPermissions } from '../hrm-permissions';
+import { Badge } from './badge';
 import { Button } from './button';
 import {
   formatLeaveNumber,
@@ -21,17 +22,6 @@ import {
   SheetHeader,
   SheetTitle,
 } from './sheet';
-
-/** Ngày dd/mm/yyyy (giờ địa phương); giữ nguyên chuỗi gốc nếu không đọc được. */
-function formatTransactionDate(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleDateString('vi-VN', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-  });
-}
 
 /** Số ngày có dấu rõ ràng: +1, -0,5. */
 function signedDays(value: number): string {
@@ -122,7 +112,7 @@ export function LeaveBalanceHistoryDrawer({
       title: 'Ngày',
       dataIndex: 'createdAt',
       width: 100,
-      render: (v: string) => formatTransactionDate(v),
+      render: (v: string) => formatDate(v, v),
     },
     {
       title: 'Loại giao dịch',
@@ -150,6 +140,26 @@ export function LeaveBalanceHistoryDrawer({
       title: 'Ghi chú',
       dataIndex: 'note',
       render: (v: string | null | undefined) => v || '',
+    },
+    {
+      title: 'Người thực hiện',
+      dataIndex: 'actorLabel',
+      width: 170,
+      render: (v: string | null | undefined, tx: HrmLeaveTransaction) => (
+        <div>
+          <span className="block">{v || 'Hệ thống'}</span>
+          {tx.triggerSource === 'AUTOMATION' && (
+            <Badge className="mt-0.5 border-violet-200 bg-violet-50 text-violet-700">
+              Job tự động
+            </Badge>
+          )}
+          {tx.triggerSource === 'MANUAL' && (
+            <Badge className="mt-0.5 border-slate-200 bg-slate-50 text-slate-600">
+              Bấm tay
+            </Badge>
+          )}
+        </div>
+      ),
     },
     ...(canManage
       ? [

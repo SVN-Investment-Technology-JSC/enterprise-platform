@@ -4641,3 +4641,18 @@
   }
 }
 
+
+/* Ô chọn ngày Ant Design nằm trong bộ lọc / form: bỏ style input chung để không bị viền đôi */
+.filterRow :global(.ant-picker) input,
+.filterBar :global(.ant-picker) input,
+.formFieldBlock :global(.ant-picker) input,
+.filterRow :global(.ant-picker) input:focus,
+.filterBar :global(.ant-picker) input:focus,
+.formFieldBlock :global(.ant-picker) input:focus {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}

@@ -1341,6 +1341,10 @@ export interface HrmLeaveTransaction {
   readonly note?: string | null;
   /** Năm của quỹ phép mà giao dịch ghi vào (null với dữ liệu cũ). */
   readonly balanceYear?: number | null;
+  /** Người thực hiện (mã · tên); null khi giao dịch không gắn người dùng. */
+  readonly actorLabel?: string | null;
+  /** Nguồn kích hoạt: người dùng bấm hoặc job tự động; null với dữ liệu cũ chưa ghi nhận. */
+  readonly triggerSource?: 'MANUAL' | 'AUTOMATION' | null;
   readonly createdAt: string;
 }
 

@@ -24,7 +24,12 @@ import {
   evaluateStepSla,
   type ProcedureSlaView,
 } from '@enterprise-platform/contracts-procedure-engine';
-import { MinimalPopupForm, SearchableSelect } from '@enterprise-platform/shared-ui';
+import {
+  MinimalPopupForm,
+  SearchableSelect,
+  formatDateTime as formatSharedDateTime,
+} from '@enterprise-platform/shared-ui';
+import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, ChevronLeft, ChevronRight, Download, FileText, Plus, Search, X } from 'lucide-react';
@@ -78,24 +83,6 @@ function toIsoDateTime(date: string, time: string): string | undefined {
   return Number.isNaN(value.getTime()) ? undefined : value.toISOString();
 }
 
-function formatDateForDisplay(value: string): string {
-  const [year, month, day] = value.split('-');
-  return year && month && day ? `${day}/${month}/${year}` : value;
-}
-
-function parseDisplayedDate(value: string): string | undefined {
-  const match = value.trim().match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
-  if (!match) return undefined;
-  const [, day, month, year] = match;
-  const date = new Date(Number(year), Number(month) - 1, Number(day));
-  if (
-    date.getFullYear() !== Number(year) ||
-    date.getMonth() !== Number(month) - 1 ||
-    date.getDate() !== Number(day)
-  ) return undefined;
-  return `${year}-${month}-${day}`;
-}
-
 const STATUS_LABEL: Record<ProcedureInstance['status'], string> = {
   running: 'Đang xử lý',
   completed: 'Hoàn thành',
@@ -146,16 +133,8 @@ function splitLocalDateTime(iso?: string): { date: string; time: string } | unde
 
 const ROLE_ORDER: readonly ProcedureRaciRole[] = ['S', 'R', 'E', 'C', 'A', 'I'];
 
-const dateTime = new Intl.DateTimeFormat('vi-VN', {
-  hour: '2-digit',
-  minute: '2-digit',
-  day: '2-digit',
-  month: '2-digit',
-  year: 'numeric',
-});
-
 function formatDateTime(value?: string): string {
-  return value ? dateTime.format(new Date(value)) : '—';
+  return formatSharedDateTime(value, '—');
 }
 
 function subjectNames(snapshot?: TenantOrganizationSnapshot) {
@@ -429,17 +408,11 @@ export function WorkspaceBoard({
     const d = new Date();
     return d.toISOString().split('T')[0];
   });
-  const [startDateText, setStartDateText] = useState(() =>
-    formatDateForDisplay(new Date().toISOString().split('T')[0]),
-  );
   const [endTime, setEndTime] = useState('17:00');
   const [endDate, setEndDate] = useState(() => {
     const d = new Date();
     return d.toISOString().split('T')[0];
   });
-  const [endDateText, setEndDateText] = useState(() =>
-    formatDateForDisplay(new Date().toISOString().split('T')[0]),
-  );
   const [attachQueue, setAttachQueue] = useState<File[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -554,8 +527,8 @@ export function WorkspaceBoard({
     () => toIsoDateTime(endDate, endTime),
     [endDate, endTime],
   );
-  const hasValidStartDate = parseDisplayedDate(startDateText) === startDate;
-  const hasValidEndDate = parseDisplayedDate(endDateText) === endDate;
+  const hasValidStartDate = Boolean(startDate);
+  const hasValidEndDate = Boolean(endDate);
   const isScheduleInvalid =
     !hasValidStartDate ||
     !hasValidEndDate ||
@@ -564,7 +537,7 @@ export function WorkspaceBoard({
     Date.parse(endDueAt) <= Date.parse(startDueAt);
   const scheduleErrorMessage =
     !hasValidStartDate || !hasValidEndDate
-      ? 'Nhập ngày theo định dạng dd/mm/yyyy.'
+      ? 'Chọn ngày bắt đầu và ngày kết thúc.'
       : 'Thời gian kết thúc phải sau thời gian bắt đầu.';
 
   useEffect(() => {
@@ -577,10 +550,8 @@ export function WorkspaceBoard({
       const end = splitLocalDateTime(handoff?.endDueAt);
       if (start && end) {
         setStartDate(start.date);
-        setStartDateText(formatDateForDisplay(start.date));
         setStartTime(start.time);
         setEndDate(end.date);
-        setEndDateText(formatDateForDisplay(end.date));
         setEndTime(end.time);
       }
     }
@@ -1075,23 +1046,13 @@ export function WorkspaceBoard({
                     />
                   </div>
                   <div style={{ position: 'relative', flex: 1 }}>
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      pattern="\d{2}/\d{2}/\d{4}"
-                      className={styles.createDateInput}
-                      style={{ width: '100%' }}
-                      placeholder="dd/mm/yyyy"
-                      value={startDateText}
-                      onChange={(e) => {
-                        const nextText = e.target.value;
-                        setStartDateText(nextText);
-                        const nextStartDate = parseDisplayedDate(nextText);
-                        if (!nextStartDate) return;
+                    <DatePickerInput
+                      height={36}
+                      value={startDate}
+                      onChange={(nextStartDate) => {
                         setStartDate(nextStartDate);
-                        if (endDate < nextStartDate) {
+                        if (nextStartDate && endDate < nextStartDate) {
                           setEndDate(nextStartDate);
-                          setEndDateText(formatDateForDisplay(nextStartDate));
                         }
                       }}
                     />
@@ -1114,20 +1075,11 @@ export function WorkspaceBoard({
                     />
                   </div>
                   <div style={{ position: 'relative', flex: 1 }}>
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      pattern="\d{2}/\d{2}/\d{4}"
-                      className={styles.createDateInput}
-                      style={{ width: '100%' }}
-                      placeholder="dd/mm/yyyy"
-                      value={endDateText}
-                      onChange={(e) => {
-                        const nextText = e.target.value;
-                        setEndDateText(nextText);
-                        const nextEndDate = parseDisplayedDate(nextText);
-                        if (nextEndDate) setEndDate(nextEndDate);
-                      }}
+                    <DatePickerInput
+                      height={36}
+                      value={endDate}
+                      min={startDate || undefined}
+                      onChange={setEndDate}
                     />
                   </div>
                 </div>
@@ -1631,7 +1583,7 @@ export function WorkspaceBoard({
                     <strong className={styles.reversalTitle}>Đã huỷ hiệu lực</strong>
                     <span className={styles.reversalMeta}>
                       {selected.reversal.reversedByName ?? 'Quản trị viên'} ·{' '}
-                      {dateTime.format(new Date(selected.reversal.reversedAt))}
+                      {formatDateTime(selected.reversal.reversedAt)}
                     </span>
                     <span>
                       <b>Lý do:</b> {selected.reversal.reason}
@@ -2885,12 +2837,7 @@ function MaterialStatus({
 
       {check ? (
         <small className={styles.panelHint}>
-          Kiểm lúc {new Intl.DateTimeFormat('vi-VN', {
-            hour: '2-digit',
-            minute: '2-digit',
-            day: '2-digit',
-            month: '2-digit',
-          }).format(new Date(check.checkedAt))}
+          Kiểm lúc {formatSharedDateTime(check.checkedAt)}
         </small>
       ) : null}
     </article>

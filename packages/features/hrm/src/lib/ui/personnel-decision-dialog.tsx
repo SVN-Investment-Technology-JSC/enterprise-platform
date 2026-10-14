@@ -296,6 +296,7 @@ export function PersonnelDecisionDialog({
             </Field>
             <Field label="Ngày hiệu lực">
               <DatePickerInput
+                height={38}
                 value={form.effectiveDate}
                 onChange={(v) => patch({ effectiveDate: v })}
               />

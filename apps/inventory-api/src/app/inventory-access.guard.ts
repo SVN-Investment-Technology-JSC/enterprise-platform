@@ -1,5 +1,6 @@
 import { TenantDatabaseRegistry } from '@enterprise-platform/adapter-database';
 import type { InventoryActor } from '@enterprise-platform/module-inventory';
+import { tenantActionHeld } from '@enterprise-platform/contracts-identity';
 import { ModuleAccess } from '@enterprise-platform/platform-module-access';
 import { CanActivate, ExecutionContext, ForbiddenException, Injectable } from '@nestjs/common';
 import type { Request } from 'express';
@@ -70,7 +71,7 @@ export class InventoryAccessGuard implements CanActivate {
 
     const held = decision.principal.permissions;
     const required = requiredInventoryPermission(request);
-    if (required && !held.includes(required) && !held.includes('inventory.manage')) {
+    if (required && !tenantActionHeld(held, required)) {
       throw new ForbiddenException({
         code: 'ACCESS_DENIED',
         message:
@@ -85,9 +86,8 @@ export class InventoryAccessGuard implements CanActivate {
       tenantId: decision.principal.tenantId,
       userId: decision.principal.userId,
       displayName: decision.principal.displayName,
-      canManage: held.includes('inventory.manage'),
-      canWriteTransactions:
-        held.includes('inventory.manage') || held.includes('inventory.transaction.write'),
+      canManage: tenantActionHeld(held, 'inventory.manage'),
+      canWriteTransactions: tenantActionHeld(held, 'inventory.transaction.write'),
     };
     return true;
   }

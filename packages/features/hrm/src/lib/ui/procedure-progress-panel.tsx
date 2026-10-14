@@ -1,6 +1,7 @@
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Check, Download, Loader2, RefreshCw, X } from 'lucide-react';
+import { formatDateTime } from '@enterprise-platform/shared-ui';
 import { hrmFetch } from '../hrm-api';
 import { Badge } from './badge';
 import { Button } from './button';
@@ -85,15 +86,7 @@ export function useProcedureProgress(input: {
 
 function formatDate(value?: string) {
   if (!value) return '';
-  const d = new Date(value);
-  return Number.isNaN(d.getTime())
-    ? ''
-    : d.toLocaleString('vi-VN', {
-        hour: '2-digit',
-        minute: '2-digit',
-        day: '2-digit',
-        month: '2-digit',
-      });
+  return formatDateTime(value);
 }
 
 export interface ProcedureProgressPanelProps {

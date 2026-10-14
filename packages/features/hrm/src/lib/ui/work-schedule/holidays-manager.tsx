@@ -128,6 +128,7 @@ function HolidayForm({
           </Field>
           <Field label="Loại">
             <SearchableSelect
+              height={32}
               options={KIND_OPTIONS}
               value={kind}
               clearable={false}
@@ -135,10 +136,10 @@ function HolidayForm({
             />
           </Field>
           <Field label="Từ ngày">
-            <DatePickerInput aria-label="Từ ngày" value={fromDate} onChange={setFromDate} />
+            <DatePickerInput height={32} aria-label="Từ ngày" value={fromDate} onChange={setFromDate} />
           </Field>
           <Field label="Đến ngày">
-            <DatePickerInput aria-label="Đến ngày" value={toDate} onChange={setToDate} />
+            <DatePickerInput height={32} aria-label="Đến ngày" value={toDate} onChange={setToDate} />
           </Field>
         </div>
         <div className="flex flex-col gap-2">
@@ -182,6 +183,7 @@ function HolidayForm({
           {treatment === 'SHIFT' ? (
             <Field label="Ca bố trí trong ngày lễ">
               <SearchableSelect
+                height={32}
                 options={shiftOptions}
                 value={shiftId}
                 placeholder="Chọn ca từ danh mục ca…"
@@ -311,6 +313,7 @@ export function HolidaysManager({
               </div>
               <div className="w-52">
                 <SearchableSelect
+                  height={32}
                   options={STATUS_OPTIONS}
                   value={status}
                   clearable={false}

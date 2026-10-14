@@ -6,6 +6,7 @@ import {
   DonutChart,
   type DashboardCardCatalog,
 } from '@enterprise-platform/feature-module-shell';
+import { formatDate } from '@enterprise-platform/shared-ui';
 import {
   CheckCircle2,
   ChevronRight,
@@ -325,7 +326,7 @@ export const PROCEDURE_DASHBOARD_CARDS: DashboardCardCatalog<ProcedureDashboardD
             <li key={instance.id} className={styles.dashLinkRow}>
               <a className={styles.dashRecent} href={caseHref(instance.id)} title="Mở hồ sơ">
                 <span>{instance.title}</span>
-                <small>{instance.startedAt.slice(0, 10)}</small>
+                <small>{formatDate(instance.startedAt)}</small>
               </a>
             </li>
           ))}

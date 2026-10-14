@@ -598,6 +598,7 @@ export default function LeaveBalancesScreen() {
               <div className="flex flex-wrap items-center gap-2">
                 <div className="w-40">
                   <SearchableSelect
+                    height={36}
                     value={year}
                     onChange={(v) => v && setYear(v)}
                     options={yearOptions}
@@ -617,6 +618,7 @@ export default function LeaveBalancesScreen() {
                 </div>
                 <div className="w-52">
                   <SearchableSelect
+                    height={36}
                     value={status}
                     onChange={(v) => setStatus((v || 'ALL') as StatusFilter)}
                     options={STATUS_OPTIONS}

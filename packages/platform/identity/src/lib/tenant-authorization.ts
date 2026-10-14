@@ -6,8 +6,11 @@ import {
 } from '@enterprise-platform/adapter-database';
 import {
   HRM_ROLE_TEMPLATES,
+  TENANT_ADMIN_ROLE,
   TENANT_PERMISSION_ACTIONS,
   expandTenantActions,
+  tenantModulePermissions,
+  tenantModulesForActions,
   type TenantAuthorization,
   type TenantPermission,
   type TenantRole,
@@ -20,6 +23,13 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 
+/** Hồ sơ người dùng đang hoạt động, đọc cùng lượt kiểm tra revision. */
+export interface TenantAccessUser {
+  id: string;
+  email: string;
+  fullName: string;
+  systemRole: string;
+}
 type Pool = ReturnType<typeof createPostgresPool>;
 type Database = <T>(
   tenantId: string,
@@ -32,38 +42,6 @@ const actionKeys = new Set<string>(TENANT_PERMISSION_ACTIONS.map((a) => a.key));
  * do từng phân hệ quyết định.
  */
 export const OPEN_MEMBER_MODULES: readonly string[] = ['assistant'];
-const modulePermissions: Record<string, readonly string[]> = {
-  assistant: ['module.access'],
-  hrm: [
-    'module.access',
-    ...TENANT_PERMISSION_ACTIONS.map((a) => a.key).filter((key) =>
-      key.startsWith('hrm.'),
-    ),
-  ],
-  'procedure-engine': [
-    'module.access',
-    ...TENANT_PERMISSION_ACTIONS.map((a) => a.key).filter((key) =>
-      key.startsWith('procedure.'),
-    ),
-  ],
-  maintenance: [
-    'maintenance.read',
-    'maintenance.manage',
-    'maintenance.occurrence.manage',
-  ],
-  inventory: [
-    'inventory.read',
-    'inventory.manage',
-    'inventory.transaction.write',
-  ],
-  workspace: [
-    'module.access',
-    ...TENANT_PERMISSION_ACTIONS.map((a) => a.key).filter((key) =>
-      key.startsWith('workspace.'),
-    ),
-  ],
-};
-
 /** UUID xác định (dạng v5) từ khóa mẫu: cùng khóa cho cùng ID. */
 export function hrmTemplateId(kind: 'role' | 'permission', key: string) {
   const h = createHash('sha1')
@@ -116,7 +94,6 @@ export class TenantAuthorizationService {
     {
       expires: number;
       value: TenantAuthorization;
-      decisions: Map<string, boolean>;
     }
   >();
   constructor(
@@ -128,16 +105,40 @@ export class TenantAuthorizationService {
     tenantId: string,
     userId: string,
   ): Promise<TenantAuthorization> {
+    return (await this.resolveWithUser(tenantId, userId)).access;
+  }
+
+  /**
+   * Như `resolve`, kèm hồ sơ người dùng đọc cùng truy vấn kiểm tra revision và trạng thái hoạt động,
+   * để nơi ra quyết định truy cập không phải truy vấn bảng users thêm một lần nữa.
+   */
+  async resolveWithUser(
+    tenantId: string,
+    userId: string,
+  ): Promise<{ access: TenantAuthorization; user: TenantAccessUser }> {
     return this.database(tenantId, async (pool) => {
       const state = (
-        await pool.query<{ revision: string }>(
-          `SELECT s.revision::text FROM core_schema.authorization_state s
+        await pool.query<{
+          revision: string;
+          id: string;
+          email: string;
+          fullName: string;
+          systemRole: string;
+        }>(
+          `SELECT s.revision::text, u.id, u.email, u.full_name AS "fullName", u.system_role AS "systemRole"
+         FROM core_schema.authorization_state s
          JOIN core_schema.users u ON u.id=$1 AND u.status='active' AND u.is_active=true WHERE s.id=true`,
           [userId],
         )
       ).rows[0];
       if (!state)
         throw new UnauthorizedException('Người dùng không còn hoạt động.');
+      const user: TenantAccessUser = {
+        id: state.id,
+        email: state.email,
+        fullName: state.fullName,
+        systemRole: state.systemRole,
+      };
       const key = `${tenantId}:${userId}`;
       const cached = this.cache.get(key);
       if (
@@ -145,7 +146,7 @@ export class TenantAuthorizationService {
         cached.expires > this.now() &&
         cached.value.authorizationRevision === state.revision
       )
-        return structuredClone(cached.value);
+        return { access: structuredClone(cached.value), user };
       const roleRows = (
         await pool.query<{ key: string; name: string }>(
           `SELECT r.key, r.name FROM core_schema.roles r JOIN core_schema.user_roles ur ON ur.role_id=r.id WHERE ur.user_id=$1`,
@@ -154,7 +155,7 @@ export class TenantAuthorizationService {
       ).rows;
       const roles = roleRows.map((r) => r.key);
       const roleNames = Object.fromEntries(roleRows.map((r) => [r.key, r.name]));
-      const admin = roles.includes('tenant-admin');
+      const admin = roles.includes(TENANT_ADMIN_ROLE);
       const permissions = admin
         ? ['tenant.manage', ...actionKeys]
         : (
@@ -167,18 +168,15 @@ export class TenantAuthorizationService {
           ).rows
             .map((r) => r.key)
             .filter((k) => actionKeys.has(k));
-      const modules = (
-        await pool.query<{ key: string }>(
-          `SELECT DISTINCT rm.module_key AS key FROM core_schema.user_roles ur
-         JOIN core_schema.role_modules rm ON rm.role_id=ur.role_id WHERE ur.user_id=$1`,
-          [userId],
-        )
-      ).rows.map((r) => r.key);
+      const effective = expandTenantActions(permissions);
       const value: TenantAuthorization = {
         roles: ['tenant-user', ...roles.filter((r) => r !== 'tenant-user')],
         roleNames,
-        permissions: expandTenantActions(permissions),
-        moduleKeys: [...new Set([...modules, ...OPEN_MEMBER_MODULES])],
+        permissions: effective,
+        // Quyền vào module suy từ action; quản trị tenant vào mọi module trong gói.
+        moduleKeys: admin
+          ? ['*', ...OPEN_MEMBER_MODULES]
+          : [...new Set([...tenantModulesForActions(effective), ...OPEN_MEMBER_MODULES])],
         authorizationRevision: state.revision,
       };
       if (this.cache.size >= 2000)
@@ -186,48 +184,46 @@ export class TenantAuthorizationService {
       this.cache.set(key, {
         expires: this.now() + 30_000,
         value,
-        decisions: new Map(),
       });
-      return structuredClone(value);
+      return { access: structuredClone(value), user };
     });
   }
 
+  /**
+   * Hàm thuần trên quyền đã resolve: không truy vấn nên không cần cache kết quả.
+   * `_tenantId`/`_userId` còn lại chỉ để giữ chữ ký cũ cho nơi gọi hiện có.
+   */
   allowsModule(
-    tenantId: string,
-    userId: string,
+    _tenantId: string,
+    _userId: string,
     access: TenantAuthorization,
     module: string,
     permission: string,
   ): boolean {
-    const cached = this.cache.get(`${tenantId}:${userId}`);
-    const decisionKey = JSON.stringify([module, permission]);
-    const valid =
-      cached &&
-      cached.expires > this.now() &&
-      cached.value.authorizationRevision === access.authorizationRevision;
-    const previous = valid ? cached.decisions.get(decisionKey) : undefined;
-    if (previous !== undefined) return previous;
-    const allowed =
+    return (
       (access.moduleKeys.includes('*') || access.moduleKeys.includes(module)) &&
-      (modulePermissions[module] ?? []).includes(permission) &&
+      tenantModulePermissions(module).includes(permission) &&
       (permission === 'module.access' ||
-        access.permissions.includes(permission));
-    if (valid && cached.decisions.size < 64)
-      cached.decisions.set(decisionKey, allowed);
-    return allowed;
+        access.permissions.includes(permission))
+    );
   }
 
   async listRoles(tenantId: string): Promise<TenantRole[]> {
-    return this.database(
-      tenantId,
-      async (pool) =>
-        (
-          await pool.query<TenantRole>(`SELECT r.id,r.key,r.name,r.description,r.is_system AS "isSystem",
+    return this.database(tenantId, async (pool) =>
+      (
+        await pool.query<TenantRole & { actionKeys: string[] }>(`SELECT r.id,r.key,r.name,r.description,r.is_system AS "isSystem",
       ARRAY(SELECT permission_id::text FROM core_schema.role_permissions WHERE role_id=r.id ORDER BY permission_id) AS "permissionIds",
-      ARRAY(SELECT module_key FROM core_schema.role_modules WHERE role_id=r.id ORDER BY module_key) AS "moduleKeys",
+      ARRAY(SELECT DISTINCT pa.action_key FROM core_schema.role_permissions rp JOIN core_schema.permission_actions pa ON pa.permission_id=rp.permission_id WHERE rp.role_id=r.id) AS "actionKeys",
       ARRAY(SELECT user_id::text FROM core_schema.user_roles WHERE role_id=r.id ORDER BY user_id) AS "userIds"
       FROM core_schema.roles r ORDER BY r.is_system DESC,r.name`)
-        ).rows,
+      ).rows.map(({ actionKeys, ...role }) => ({
+        ...role,
+        // Chỉ để hiển thị: module được vào là hệ quả của action, không lưu riêng.
+        moduleKeys:
+          role.key === TENANT_ADMIN_ROLE
+            ? ['*']
+            : tenantModulesForActions(expandTenantActions(actionKeys)),
+      })),
     );
   }
 
@@ -432,7 +428,6 @@ export class TenantAuthorizationService {
     tenantId: string,
     actor: string,
     input: Record<string, unknown>,
-    availableModules: readonly string[],
     id?: string,
   ) {
     if (!input || typeof input !== 'object' || Array.isArray(input))
@@ -457,18 +452,8 @@ export class TenantAuthorizationService {
             )
           ).rows.map((r) => r.permission_id)
         : [];
-      const oldModules = id
-        ? (
-            await client.query<{ module_key: string }>(
-              'SELECT module_key FROM core_schema.role_modules WHERE role_id=$1',
-              [id],
-            )
-          ).rows.map((r) => r.module_key)
-        : [];
       const permissions = strings(input.permissionIds ?? oldPermissions, true);
-      const modules = strings(input.moduleKeys ?? oldModules);
-      if (modules.some((m) => m === '*' || !availableModules.includes(m)))
-        throw new BadRequestException('Module không hợp lệ.');
+      // `moduleKeys` từ client cũ được bỏ qua: quyền vào module suy từ action của role.
       if (
         (
           await client.query(
@@ -489,19 +474,10 @@ export class TenantAuthorizationService {
         'DELETE FROM core_schema.role_permissions WHERE role_id=$1',
         [target],
       );
-      await client.query(
-        'DELETE FROM core_schema.role_modules WHERE role_id=$1',
-        [target],
-      );
       for (const pid of permissions)
         await client.query(
           'INSERT INTO core_schema.role_permissions VALUES ($1,$2)',
           [target, pid],
-        );
-      for (const key of modules)
-        await client.query(
-          'INSERT INTO core_schema.role_modules VALUES ($1,$2)',
-          [target, key],
         );
       await this.audit(
         client,
@@ -509,9 +485,9 @@ export class TenantAuthorizationService {
         id ? 'role.update' : 'role.create',
         target,
         before
-          ? { ...before, permissionIds: oldPermissions, moduleKeys: oldModules }
+          ? { ...before, permissionIds: oldPermissions }
           : null,
-        { name, description, permissionIds: permissions, moduleKeys: modules },
+        { name, description, permissionIds: permissions },
       );
       return { id: target };
     });
@@ -558,12 +534,6 @@ export class TenantAuthorizationService {
                   [id],
                 )
               ).rows.map((r) => r.id),
-              moduleKeys: (
-                await client.query(
-                  'SELECT module_key AS key FROM core_schema.role_modules WHERE role_id=$1',
-                  [id],
-                )
-              ).rows.map((r) => r.key),
             }
           : {
               actionKeys: (
@@ -728,10 +698,6 @@ export class TenantAuthorizationService {
         await client.query(
           'INSERT INTO core_schema.role_permissions VALUES ($1,$2) ON CONFLICT DO NOTHING',
           [roleId, permissionId],
-        );
-        await client.query(
-          'INSERT INTO core_schema.role_modules VALUES ($1,$2) ON CONFLICT DO NOTHING',
-          [roleId, 'hrm'],
         );
         await this.audit(client, actor, 'role.template.hrm.create', roleId, null, {
           name: template.name,

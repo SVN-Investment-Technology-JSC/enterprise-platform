@@ -1642,6 +1642,17 @@
     padding-bottom: 8px;
     resize: vertical;
   }
+
+  /* Ô chọn ngày Ant Design: khung do .ant-picker vẽ, input bên trong không thêm viền. */
+  :global(.ant-picker) input,
+  :global(.ant-picker) input:focus {
+    min-height: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+    outline: none;
+  }
 }
 
 .fieldRow {

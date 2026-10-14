@@ -19,6 +19,7 @@ import {
   useHashView,
   type ModuleNavItem,
 } from '@enterprise-platform/feature-module-shell';
+import { formatDate } from '@enterprise-platform/shared-ui';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ClipboardList, LayoutDashboard, Settings, Table2 } from 'lucide-react';
 import {
@@ -76,8 +77,6 @@ const NAV: readonly ModuleNavItem<View>[] = [
 ];
 
 const VIEW_IDS = NAV.map((item) => item.id);
-
-const vietnameseDateFormatter = new Intl.DateTimeFormat('vi-VN');
 
 export function ProcedureEngineScreen() {
   const { view, sub, navigate } = useHashView<View>({ views: VIEW_IDS, fallback: 'dashboard' });
@@ -299,7 +298,7 @@ export function ProcedureEngineScreen() {
       const title =
         customPayload?.title?.trim() ||
         handoffTitle ||
-        `${definition.name} · ${vietnameseDateFormatter.format(new Date())}`;
+        `${definition.name} · ${formatDate(new Date())}`;
       const schedule = {
         startDueAt: customPayload?.startDueAt,
         endDueAt: customPayload?.endDueAt,

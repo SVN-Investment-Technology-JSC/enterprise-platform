@@ -4,6 +4,7 @@ import { Popconfirm, SearchableSelect } from '@enterprise-platform/shared-ui';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './dialog';
 import { Input } from './input';
 import { Button } from './button';
+import { DatePickerInput, MonthPickerInput } from './date-picker-input';
 
 export interface ActionField {
   key: string;
@@ -300,6 +301,22 @@ export function HrmActionDialog({
                               [f.key]: value || '',
                             }),
                           )
+                        }
+                      />
+                    ) : f.type === 'date' ? (
+                      <DatePickerInput
+                        height={36}
+                        value={values[f.key]}
+                        onChange={(value) =>
+                          setValues({ ...values, [f.key]: value })
+                        }
+                      />
+                    ) : f.type === 'month' ? (
+                      <MonthPickerInput
+                        height={36}
+                        value={values[f.key]}
+                        onChange={(value) =>
+                          setValues({ ...values, [f.key]: value })
                         }
                       />
                     ) : (

@@ -191,6 +191,7 @@ export function ScopePicker({
       {value.type === 'EMPLOYEE' ? (
         <Field label="Nhân viên">
           <SearchableSelect
+            height={32}
             options={employeeOptions}
             value={value.employeeIds[0] ?? ''}
             placeholder={employeesLoading ? 'Đang tải danh sách nhân viên…' : 'Tìm theo mã hoặc tên nhân viên…'}
@@ -214,6 +215,7 @@ export function ScopePicker({
         <div className="flex flex-col gap-3">
           <Field label="Thêm đơn vị">
             <SearchableSelect
+              height={32}
               options={unitOptions.filter((o) => !value.unitIds.includes(o.value))}
               value=""
               placeholder="Tìm đơn vị theo tên hoặc mã…"
@@ -258,6 +260,7 @@ export function ScopePicker({
         <div className="flex flex-col gap-2 border-t border-slate-100 pt-3">
           <Field label="Loại trừ nhân viên (tuỳ chọn)">
             <SearchableSelect
+              height={32}
               options={employeeOptions.filter((o) => !value.excludeEmployeeIds.includes(o.value))}
               value=""
               placeholder="Tìm nhân viên cần loại trừ…"

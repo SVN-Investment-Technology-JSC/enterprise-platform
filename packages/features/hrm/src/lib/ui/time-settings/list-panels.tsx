@@ -108,6 +108,7 @@ function FilterSelect({
   return (
     <div className="min-w-0 flex-1 basis-44 @2xl:w-52 @2xl:flex-none" aria-label={label} role="group">
       <SearchableSelect
+        height={36}
         value={value}
         options={options}
         clearable={false}

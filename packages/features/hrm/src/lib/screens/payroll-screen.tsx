@@ -1,7 +1,11 @@
 'use client';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Table } from 'antd';
-import { SearchableSelect, Popconfirm } from '@enterprise-platform/shared-ui';
+import {
+  SearchableSelect,
+  Popconfirm,
+  formatDate,
+} from '@enterprise-platform/shared-ui';
 import {
   Search,
   Plus,
@@ -416,7 +420,7 @@ export default function PayrollScreen() {
           label: 'Bảng công đã khóa',
           options: timesheets.map((t) => ({
             value: t.id,
-            label: `${t.periodCode} (${t.fromDate} → ${t.toDate})`,
+            label: `${t.periodCode} (${formatDate(t.fromDate)} → ${formatDate(t.toDate)})`,
           })),
         },
         {
@@ -480,6 +484,7 @@ export default function PayrollScreen() {
 
       <div className="grid gap-2 rounded-xl border border-slate-200 bg-white p-2.5 md:grid-cols-[220px_minmax(0,1fr)_220px]">
         <SearchableSelect
+          height={36}
           value={month}
           onChange={(v) => setMonth(v || '')}
           placeholder="Tất cả các tháng"
@@ -496,6 +501,7 @@ export default function PayrollScreen() {
           />
         </div>
         <SearchableSelect
+          height={36}
           value={statusFilter}
           onChange={(v) => setStatusFilter(v || '')}
           placeholder="Tất cả trạng thái"
@@ -541,7 +547,7 @@ export default function PayrollScreen() {
                         {getPeriodStatusBadge(p.status)}
                       </div>
                       <p className="text-[11px] text-slate-500">
-                        {p.fromDate} → {p.toDate}
+                        {formatDate(p.fromDate)} → {formatDate(p.toDate)}
                       </p>
                       {p.paymentDate && (
                         <p className="mt-0.5 text-[11px] text-slate-400">
@@ -628,6 +634,7 @@ export default function PayrollScreen() {
                   <div className="flex flex-wrap items-center gap-2">
                     <div className="min-w-[220px]">
                       <SearchableSelect
+                        height={36}
                         value={runId}
                         options={runs.map((r) => ({
                           value: r.id,

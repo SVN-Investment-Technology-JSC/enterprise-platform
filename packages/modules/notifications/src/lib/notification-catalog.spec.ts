@@ -52,6 +52,7 @@ describe('maintenance notification content', () => {
     expect(overdue.template.body).toContain('đã quá hạn');
     expect(overdue.template.body).toContain('09:30');
     expect(overdue.template.body).toContain('05/10/2026');
+    expect(overdue.template.body).toContain('(hạn 05/10/2026 09:30)');
   });
 
   it('falls back to the title alone and carries the reason of a failed dispatch', async () => {

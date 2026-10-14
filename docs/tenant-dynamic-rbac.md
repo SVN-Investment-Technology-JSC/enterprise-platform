@@ -4,19 +4,19 @@
 
 - Tenant admin quản lý role, permission và gán nhiều role cho một người dùng.
 - Permission là nhóm hành động Core/module được backend hỗ trợ; không phải mã quyền tùy ý do client khai báo.
-- Core hỗ trợ `read/create/update/delete` cho `core.users` và `core.organization`.
-- Role cấp riêng quyền vào module và quyền thao tác trong module. Quyền xử lý từng hồ sơ theo RACI bên trong Procedure giữ nguyên.
+- Danh mục action nằm ở `TENANT_PERMISSION_ACTIONS` (contracts-identity): Core (`core.users`, `core.organization`) và các module HRM, Inventory, Maintenance, Procedure, Workspace.
+- Quyền vào module **suy ra từ action**: role có bất kỳ action nào của module thì vào được module đó. Tenant có được dùng module hay không do gói (entitlement) quyết định, không cấp lại cho từng role. Role không còn bước chọn module.
+- Riêng Quy trình có người chỉ xử lý hồ sơ theo RACI nên có action `procedure.access` (chỉ vào module). Quyền xử lý từng hồ sơ theo RACI giữ nguyên.
 - Chưa triển khai package, quota quy trình, quota user, deny rule, role lồng nhau hoặc phân quyền theo từng bản ghi.
 
 ## Mô hình và quy tắc
 
 ```text
 User ── user_roles ── Role ── role_permissions ── Permission ── actionKeys
-                       └── role_modules ── moduleKey
 
 Request → kiểm tra session/tenant → lấy revision hiện tại
         → cache quyền theo tenant + user + revision
-        → kiểm tra action Core hoặc quyền module + entitlement
+        → kiểm tra action Core hoặc action module (module được vào = có action của module) + entitlement
         → thực thi nghiệp vụ
 ```
 
@@ -45,7 +45,7 @@ Tiền tố: `/api/platform/v1`. Các API phân quyền dưới đây chỉ dàn
 | `/tenant-permission-actions` | GET | Danh mục action Core |
 | `/tenant-permissions` | GET, POST | Danh sách hoặc tạo `{ name, description, actionKeys }` |
 | `/tenant-permissions/:id` | GET, PATCH, DELETE | Chi tiết, cập nhật, xóa permission |
-| `/tenant-roles` | GET, POST | Danh sách hoặc tạo `{ name, description, permissionIds, moduleKeys }` |
+| `/tenant-roles` | GET, POST | Danh sách hoặc tạo `{ name, description, permissionIds }`. `moduleKeys` trả về chỉ để hiển thị (suy từ action); client gửi `moduleKeys` sẽ bị bỏ qua |
 | `/tenant-roles/:id` | GET, PATCH, DELETE | Chi tiết, cập nhật, xóa role |
 | `/tenant-users/:id/roles` | GET, PUT | Xem/thay toàn bộ `{ roleIds }`; mảng rỗng thu hồi toàn bộ role |
 
@@ -62,7 +62,7 @@ Lỗi chính: `400` dữ liệu không hợp lệ; `401` phiên/user không ho�
 
 ## Cập nhật DB và chạy thử
 
-Luồng migration: `0005-tenant-rbac-legacy-compat.sql` → `0005-tenant-rbac.sql` trong `migrations/tenant/core`. Không thay đổi checksum của migration RBAC gốc.
+Luồng migration: `0005-tenant-rbac-legacy-compat.sql` → `0005-tenant-rbac.sql` → ... → `0011-module-access-from-actions.sql` trong `migrations/tenant/core`. `0011` cấp action `procedure.access` (qua permission hệ thống "Truy cập Quy trình (hệ thống)") cho role đang có module Quy trình hoặc `*` để giữ nguyên quyền hiện có; chỉ chạy một lần. Bảng `role_modules` được giữ để đối chiếu nhưng mã nguồn không còn đọc/ghi. Không thay đổi checksum của migration RBAC gốc.
 
 1. Sao lưu DB và xác nhận `.env`/biến môi trường trỏ đúng môi trường cần triển khai.
 2. Chạy từ thư mục gốc: `pnpm nx run migrator:rbac-migrate`.

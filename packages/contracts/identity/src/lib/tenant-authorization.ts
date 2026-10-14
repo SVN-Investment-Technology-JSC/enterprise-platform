@@ -382,6 +382,11 @@ export const TENANT_PERMISSION_ACTIONS = [
     label: 'Xử lý đợt bảo trì',
   },
   {
+    key: 'procedure.access',
+    group: 'Procedure Engine',
+    label: 'Vào Quy trình, xem quy trình đã công bố và xử lý hồ sơ theo vai RACI',
+  },
+  {
     key: 'procedure.definition.manage',
     group: 'Procedure Engine',
     label: 'Thiết kế quy trình, phân vai RACI và cấu hình',
@@ -461,19 +466,91 @@ export function hasTenantAction(
   return permissions.includes('tenant.manage') || permissions.includes(action);
 }
 
+/** Khóa vai trò hệ thống của quản trị tenant. */
+export const TENANT_ADMIN_ROLE = 'tenant-admin';
+
+export function isTenantAdmin(roles: readonly string[] | undefined): boolean {
+  return !!roles?.includes(TENANT_ADMIN_ROLE);
+}
+
+/**
+ * Action quản lý kéo theo các action con. Đây là nguồn duy nhất cho luật "manage bao hàm quyền hẹp":
+ * `expandTenantActions` (quyền hiệu lực) và `tenantActionHeld` (guard) cùng đọc bảng này.
+ * Cố ý KHÔNG gồm `workspace.document.delete`: xóa tài liệu phải được cấp đích danh.
+ */
+export const TENANT_ACTION_IMPLIES: Readonly<Record<string, readonly string[]>> = {
+  'inventory.manage': [
+    'inventory.read',
+    'inventory.transaction.write',
+    'inventory.stocktake.create',
+    'inventory.stocktake.approve',
+  ],
+  'maintenance.manage': ['maintenance.read', 'maintenance.occurrence.manage'],
+  'workspace.manage': [
+    'workspace.read',
+    'workspace.task.write',
+    'workspace.document.write',
+  ],
+};
+
+/** Người giữ `held` có `action` không, kể cả khi được bao hàm bởi một action quản lý. */
+export function tenantActionHeld(
+  held: readonly string[],
+  action: string,
+): boolean {
+  if (held.includes(action)) return true;
+  return Object.entries(TENANT_ACTION_IMPLIES).some(
+    ([manager, implied]) => held.includes(manager) && implied.includes(action),
+  );
+}
+
+/**
+ * Tiền tố action của từng module. Quyền của module = action có tiền tố đó, nên thêm action mới
+ * vào TENANT_PERMISSION_ACTIONS là đủ, không phải sửa danh sách thứ hai.
+ */
+const MODULE_ACTION_PREFIX: Readonly<Record<string, string>> = {
+  hrm: 'hrm',
+  'procedure-engine': 'procedure',
+  maintenance: 'maintenance',
+  inventory: 'inventory',
+  workspace: 'workspace',
+};
+/** Module nhận probe `module.access`: chỉ cần được vào module, không đòi action cụ thể. */
+const MODULES_WITH_ADMISSION_PROBE = new Set([
+  'assistant',
+  'hrm',
+  'procedure-engine',
+  'workspace',
+]);
+
+/** Các permission mà một module chấp nhận trong quyết định truy cập. */
+export function tenantModulePermissions(moduleKey: string): string[] {
+  const prefix = MODULE_ACTION_PREFIX[moduleKey];
+  return [
+    ...(MODULES_WITH_ADMISSION_PROBE.has(moduleKey) ? ['module.access'] : []),
+    ...(prefix
+      ? TENANT_PERMISSION_ACTIONS.map((a) => a.key as string).filter((key) =>
+          key.startsWith(`${prefix}.`),
+        )
+      : []),
+  ];
+}
+
+/**
+ * Quyền vào module suy ra từ action: có bất kỳ action nào của module là vào được module đó.
+ * Tenant có được dùng module hay không do gói (entitlement) quyết định, kiểm ở nơi khác.
+ */
+export function tenantModulesForActions(actions: readonly string[]): string[] {
+  return Object.entries(MODULE_ACTION_PREFIX)
+    .filter(([, prefix]) => actions.some((a) => a.startsWith(`${prefix}.`)))
+    .map(([moduleKey]) => moduleKey);
+}
+
 /** Management includes operational rights, never module admission. */
 export function expandTenantActions(actions: readonly string[]): string[] {
   const effective = new Set(actions);
-  if (effective.has('inventory.manage')) {
-    effective.add('inventory.read');
-    effective.add('inventory.transaction.write');
-    effective.add('inventory.stocktake.create');
-    effective.add('inventory.stocktake.approve');
-  }
-  if (effective.has('maintenance.manage')) {
-    effective.add('maintenance.read');
-    effective.add('maintenance.occurrence.manage');
-  }
+  for (const [manager, implied] of Object.entries(TENANT_ACTION_IMPLIES))
+    if (effective.has(manager)) for (const key of implied) effective.add(key);
   if (effective.has('hrm.manage'))
     for (const item of HRM_PERMISSION_ACTIONS) effective.add(item.key);
   for (const action of [...effective]) {

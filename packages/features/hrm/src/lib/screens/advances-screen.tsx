@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Table } from 'antd';
 import Link from 'next/link';
-import { SearchableSelect } from '@enterprise-platform/shared-ui';
+import { SearchableSelect, formatDate } from '@enterprise-platform/shared-ui';
 import {
   Search,
   FileText,
@@ -206,6 +206,7 @@ export default function AdvancesScreen() {
         </div>
         <div className="w-52">
           <SearchableSelect
+            height={36}
             value={status}
             onChange={(v) => setStatus(v || '')}
             placeholder="Tất cả trạng thái"
@@ -256,7 +257,7 @@ export default function AdvancesScreen() {
                 render: (_, r) => (
                   <div>
                     <span className="font-semibold text-slate-900 block">{r.employeeName || r.employeeId}</span>
-                    <span className="text-[11px] text-slate-500">{r.employeeCode} · {r.requestDate}</span>
+                    <span className="text-[11px] text-slate-500">{r.employeeCode} · {formatDate(r.requestDate)}</span>
                   </div>
                 ),
               },
@@ -305,7 +306,7 @@ export default function AdvancesScreen() {
                 {selectedRow?.employeeName || 'Chi tiết khoản ứng'}
               </h2>
               <p className="text-xs text-slate-500">
-                {selectedRow ? `Mã NV: ${selectedRow.employeeCode} · Ngày đề nghị: ${selectedRow.requestDate}` : 'Chọn một yêu cầu để xem chi tiết'}
+                {selectedRow ? `Mã NV: ${selectedRow.employeeCode} · Ngày đề nghị: ${formatDate(selectedRow.requestDate)}` : 'Chọn một yêu cầu để xem chi tiết'}
               </p>
             </div>
             {selectedRow && getAdvanceBadge(selectedRow.status)}

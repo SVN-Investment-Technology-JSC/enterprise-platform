@@ -4,18 +4,10 @@ import type {
   ProcedureAttachment,
   ProcedureInstance,
 } from '@enterprise-platform/contracts-procedure-engine';
-import { SearchableSelect } from '@enterprise-platform/shared-ui';
+import { SearchableSelect, formatDateTime } from '@enterprise-platform/shared-ui';
 import { Download, ExternalLink, FileText } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import styles from './workspace-board.module.scss';
-
-const dateTime = new Intl.DateTimeFormat('vi-VN', {
-  hour: '2-digit',
-  minute: '2-digit',
-  day: '2-digit',
-  month: '2-digit',
-  year: 'numeric',
-});
 
 function formatSize(bytes?: number): string {
   if (!bytes) return '—';
@@ -107,7 +99,7 @@ export function AttachmentPanel({
                         : 'Cả hồ sơ'}
                     </span>
                     <span>·</span>
-                    <span>{dateTime.format(new Date(file.createdAt))}</span>
+                    <span>{formatDateTime(file.createdAt)}</span>
                   </span>
                 </div>
               </div>

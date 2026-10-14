@@ -267,13 +267,13 @@ function buildTicks(
     } else if (zoom === 'week' && isMonday) {
       ticks.push({
         x: offset * dayWidth,
-        label: `${date.getDate()}/${date.getMonth() + 1}`,
+        label: `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}`,
         major: isFirstOfMonth,
       });
     } else if (zoom === 'month' && isFirstOfMonth) {
       ticks.push({
         x: offset * dayWidth,
-        label: `${date.getMonth() + 1}/${date.getFullYear()}`,
+        label: `${String(date.getMonth() + 1).padStart(2, '0')}/${date.getFullYear()}`,
         major: true,
       });
     }

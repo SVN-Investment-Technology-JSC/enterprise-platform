@@ -8,6 +8,22 @@
 
 let inFlightRefresh: Promise<boolean> | undefined;
 
+/** Cookie (không httpOnly) do máy chủ ghi cùng access token: thời điểm hết hạn, tính bằng epoch ms. */
+const ACCESS_EXPIRY_COOKIE = 'ep_access_exp';
+/** Còn nhiều hơn mức này tức là vừa có nơi khác (tab khác) làm mới xong, không cần làm mới nữa. */
+const FRESH_REMAINING_MS = 30 * 60_000;
+
+/** Thời điểm access token hết hạn (epoch ms); `undefined` nếu chưa biết (phiên đăng nhập trước khi có cookie này). */
+export function readAccessExpiry(): number | undefined {
+  if (typeof document === 'undefined') return undefined;
+  const raw = document.cookie
+    .split('; ')
+    .find((entry) => entry.startsWith(`${ACCESS_EXPIRY_COOKIE}=`))
+    ?.slice(ACCESS_EXPIRY_COOKIE.length + 1);
+  const value = raw ? Number(raw) : NaN;
+  return Number.isFinite(value) ? value : undefined;
+}
+
 /**
  * Extracts a cookie value by name from document.cookie safely.
  */
@@ -33,8 +49,12 @@ export function getCsrfToken(): string | undefined {
 export function refreshSession(): Promise<boolean> {
   if (inFlightRefresh) return inFlightRefresh;
 
-  inFlightRefresh = (async () => {
+  inFlightRefresh = withRefreshLock(async () => {
     try {
+      // Refresh token bị xoay vòng sau mỗi lần dùng: nếu tab khác vừa làm mới xong thì dùng lại kết quả đó.
+      const expiry = readAccessExpiry();
+      if (expiry && expiry - Date.now() > FRESH_REMAINING_MS) return true;
+
       const csrfToken = getCsrfToken();
       if (!csrfToken) return false;
 
@@ -52,9 +72,16 @@ export function refreshSession(): Promise<boolean> {
     } finally {
       inFlightRefresh = undefined;
     }
-  })();
+  });
 
   return inFlightRefresh;
+}
+
+/** Tuần tự hóa việc làm mới giữa các tab cùng trình duyệt (Web Locks); không hỗ trợ thì chạy thẳng. */
+function withRefreshLock(task: () => Promise<boolean>): Promise<boolean> {
+  const locks = typeof navigator === 'undefined' ? undefined : navigator.locks;
+  if (!locks) return task();
+  return locks.request('ep-auth-refresh', task);
 }
 
 /**

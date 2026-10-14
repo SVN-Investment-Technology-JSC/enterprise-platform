@@ -11,6 +11,7 @@ import {
   type WorkItemPriority,
   type WorkItemType,
 } from '@enterprise-platform/contracts-workspace';
+import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import { useEffect, useState } from 'react';
 import { formatVndWhileTyping, parseVndInput, toVndInput } from '../money';
 import { loadProcedureOptions, type ProcedureOption } from '../procedure-api';
@@ -489,17 +490,17 @@ export function WorkItemForm({
 
       <div className={styles.fieldRow}>
         <Field label="Bắt đầu dự kiến">
-          <input
-            type="date"
+          <DatePickerInput
+            height={36}
             value={form.plannedStart}
-            onChange={(event) => set({ plannedStart: event.target.value })}
+            onChange={(value) => set({ plannedStart: value })}
           />
         </Field>
         <Field label="Kết thúc dự kiến">
-          <input
-            type="date"
+          <DatePickerInput
+            height={36}
             value={form.plannedEnd}
-            onChange={(event) => set({ plannedEnd: event.target.value })}
+            onChange={(value) => set({ plannedEnd: value })}
           />
         </Field>
       </div>

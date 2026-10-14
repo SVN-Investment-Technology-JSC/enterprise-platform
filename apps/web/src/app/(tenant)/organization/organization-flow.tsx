@@ -337,9 +337,12 @@ export function OrganizationFlow({
           managerName = uName;
         } else {
           // Multiple assignees
-          const primaryAssignee = posAssignees.find((a) => a.isPrimary);
-          if (primaryAssignee) {
-            const uName = userNames.get(primaryAssignee.userId) ?? 'Nhân sự';
+          // Một chức danh có thể có nhiều người cùng giữ vị trí chính.
+          const primaryAssignees = posAssignees.filter((a) => a.isPrimary);
+          if (primaryAssignees.length > 0) {
+            const uName = primaryAssignees
+              .map((a) => userNames.get(a.userId) ?? 'Nhân sự')
+              .join(', ');
             managerDisplay = `${headPosition.name} - ${uName}`;
             managerName = uName;
           } else {
@@ -412,6 +415,26 @@ export function OrganizationFlow({
     null,
   );
   const wrapperRef = useRef<HTMLDivElement>(null);
+  // Khung đổi độ rộng (kéo cột Sơ đồ phân cấp, đổi kích thước cửa sổ): giữ nguyên zoom và vị trí tương đối,
+  // chỉ dịch nội dung nửa phần chênh để luôn cân giữa khung (không để trống một bên, không bị tràn một bên).
+  const fitSettled = useRef(false);
+  useEffect(() => {
+    const el = wrapperRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    let lastWidth = el.clientWidth;
+    const observer = new ResizeObserver(() => {
+      const width = el.clientWidth;
+      const delta = width - lastWidth;
+      lastWidth = width;
+      const instance = flowInstance.current;
+      // Chờ canh vừa khung lần đầu xong (có hiệu ứng) rồi mới dịch theo độ rộng, kẻo ngắt mất hiệu ứng đó.
+      if (!instance || !delta || !fitSettled.current) return;
+      const viewport = instance.getViewport();
+      void instance.setViewport({ ...viewport, x: viewport.x + delta / 2 }, { duration: 0 });
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [nodes.length > 0]);
   const dispatch = useAppDispatch();
   const cachedLayout = useAppSelector(
     (state) => state.organizationLayouts.layouts[layoutCacheKey],
@@ -791,6 +814,9 @@ export function OrganizationFlow({
               duration: 350,
             });
           });
+          window.setTimeout(() => {
+            fitSettled.current = true;
+          }, 500);
         }}
         onNodeDragStart={handleNodeDragStart}
         onNodeDrag={handleNodeDrag}

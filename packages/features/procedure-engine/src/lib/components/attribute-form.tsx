@@ -8,6 +8,7 @@ import {
   type ProcedureInstance,
 } from '@enterprise-platform/contracts-procedure-engine';
 import { SearchableSelect } from '@enterprise-platform/shared-ui';
+import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import styles from './attribute-form.module.scss';
 
 export type AttributeDraft = Record<string, ProcedureAttributeValue | null>;
@@ -92,12 +93,11 @@ function FieldInput({
     }
     case 'date':
       return (
-        <input
-          className={styles.input}
-          type="date"
+        <DatePickerInput
+          height={36}
           value={value?.type === 'date' ? value.value : ''}
           disabled={disabled}
-          onChange={(event) => onChange(event.target.value ? { type: 'date', value: event.target.value } : null)}
+          onChange={(next) => onChange(next ? { type: 'date', value: next } : null)}
         />
       );
     case 'select':

@@ -1,5 +1,6 @@
 'use client';
 
+import { authFetch } from '@enterprise-platform/shared-ui';
 import React, { useState, useMemo } from 'react';
 import type { TenantRoleSummary } from '@enterprise-platform/contracts-tenancy';
 import {
@@ -78,7 +79,7 @@ export function TenantRoles({ initialRoles }: TenantRolesProps) {
     if (!code.trim() || !name.trim()) return;
     setIsSubmitting(true);
     try {
-      const res = await fetch('/api/platform/v1/tenant-roles', {
+      const res = await authFetch('/api/platform/v1/tenant-roles', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

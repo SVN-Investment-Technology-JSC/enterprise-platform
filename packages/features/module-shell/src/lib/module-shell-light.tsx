@@ -1,6 +1,6 @@
 'use client';
 
-import { NotificationBell, NotificationProvider, SearchableSelect } from '@enterprise-platform/shared-ui';
+import { NotificationBell, NotificationProvider, SearchableSelect, SessionKeepAlive } from '@enterprise-platform/shared-ui';
 import {
   Fragment,
   useCallback,
@@ -139,6 +139,7 @@ export function ModuleShellLight<TViewId extends string = string>(
 
   return (
     <NotificationProvider>
+      <SessionKeepAlive />
       <div
         className={collapsed ? `${styles.shell} ${styles.shellCollapsed}` : styles.shell}
         style={shellStyle}

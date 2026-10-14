@@ -1,6 +1,6 @@
 import type { AuthenticatedPrincipal } from '@enterprise-platform/contracts-identity';
 import type { TenantSummary } from '@enterprise-platform/contracts-tenancy';
-import { SessionLogoutButton } from '@enterprise-platform/shared-ui';
+import { SessionLogoutButton, formatDate } from '@enterprise-platform/shared-ui';
 import {
   AlertTriangle,
   Building2,
@@ -29,7 +29,6 @@ import {
 } from '@/components/ui/sheet';
 import { PlatformNavigation } from '@/components/platform-navigation';
 import { cn } from '@/lib/utils';
-const vietnameseDate = new Intl.DateTimeFormat('vi-VN');
 
 function initials(name: string) {
   return name
@@ -292,7 +291,7 @@ export default async function PlatformPage() {
                           key={tenant.id}
                         >
                           <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">
-                            {vietnameseDate.format(new Date(tenant.createdAt))}
+                            {formatDate(tenant.createdAt)}
                           </td>
                           <td className="px-4 py-3">Tenant được tạo</td>
                           <td className="px-4 py-3 font-medium">

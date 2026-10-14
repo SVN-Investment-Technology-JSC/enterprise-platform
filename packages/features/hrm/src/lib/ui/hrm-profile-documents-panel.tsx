@@ -423,6 +423,7 @@ export function HrmProfileDocumentsPanel({
       </label>
       {props.date ? (
         <DatePickerInput
+          height={40}
           value={form[key]}
           onChange={(v) => setForm((f) => ({ ...f, [key]: v }))}
           placeholder="dd/mm/yyyy"
@@ -465,6 +466,7 @@ export function HrmProfileDocumentsPanel({
                   Loại
                 </label>
                 <SearchableSelect
+                  height={40}
                   options={qualificationOptions}
                   value={form.type}
                   onChange={(v) =>
@@ -490,6 +492,7 @@ export function HrmProfileDocumentsPanel({
                 Ngày hết hạn CCCD
               </label>
               <DatePickerInput
+                height={40}
                 value={expiry}
                 onChange={setExpiry}
                 placeholder="dd/mm/yyyy"

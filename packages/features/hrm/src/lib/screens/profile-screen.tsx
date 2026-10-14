@@ -678,6 +678,7 @@ export default function HrmProfilePage() {
               <div className="space-y-1">
                 <FieldLabel>Giới tính</FieldLabel>
                 <SearchableSelect
+                  height={36}
                   value={gender}
                   onChange={(val) => setGender(val)}
                   options={[
@@ -733,6 +734,7 @@ export default function HrmProfilePage() {
               <div className="space-y-1 sm:col-span-2">
                 <FieldLabel>Tình trạng hôn nhân</FieldLabel>
                 <SearchableSelect
+                  height={36}
                   value={maritalStatus}
                   onChange={(val) => setMaritalStatus(val)}
                   options={[
@@ -811,6 +813,7 @@ export default function HrmProfilePage() {
                     Mối quan hệ<span className="ml-0.5 text-red-500">*</span>
                   </FieldLabel>
                   <SearchableSelect
+                    height={36}
                     value={emergencyContactRelationship}
                     onChange={(val) => setEmergencyContactRelationship(val)}
                     options={relationshipOptions(emergencyContactRelationship)}

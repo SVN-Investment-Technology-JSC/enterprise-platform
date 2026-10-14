@@ -7,6 +7,8 @@ import { AuthRateLimiter, defaultAuthRateLimiter } from './auth-rate-limiter.js'
 const ACCESS_COOKIE = 'ep_access';
 const REFRESH_COOKIE = 'ep_refresh';
 const CSRF_COOKIE = 'ep_csrf';
+/** Thời điểm access token hết hạn (epoch ms) cho trình duyệt hẹn giờ làm mới; không phải bí mật nên không httpOnly. */
+const ACCESS_EXPIRY_COOKIE = 'ep_access_exp';
 const ACCESS_COOKIE_AGE = 60 * 60 * 1_000;
 const REFRESH_COOKIE_AGE = 30 * 24 * 60 * 60 * 1_000;
 
@@ -115,6 +117,7 @@ export class PlatformIdentityController {
     response.clearCookie(ACCESS_COOKIE, { path: '/' });
     response.clearCookie(REFRESH_COOKIE, { path: '/api/auth' });
     response.clearCookie(CSRF_COOKIE, { path: '/' });
+    response.clearCookie(ACCESS_EXPIRY_COOKIE, { path: '/' });
   }
 
   @Get('me')
@@ -147,5 +150,6 @@ export class PlatformIdentityController {
     response.cookie(ACCESS_COOKIE, session.accessToken, { httpOnly: true, sameSite: 'lax', secure, path: '/', maxAge: ACCESS_COOKIE_AGE });
     response.cookie(REFRESH_COOKIE, session.refreshToken, { httpOnly: true, sameSite: 'lax', secure, path: '/api/auth', maxAge: REFRESH_COOKIE_AGE });
     response.cookie(CSRF_COOKIE, session.csrfToken, { httpOnly: false, sameSite: 'lax', secure, path: '/', maxAge: REFRESH_COOKIE_AGE });
+    response.cookie(ACCESS_EXPIRY_COOKIE, String(Date.now() + ACCESS_COOKIE_AGE), { httpOnly: false, sameSite: 'lax', secure, path: '/', maxAge: REFRESH_COOKIE_AGE });
   }
 }

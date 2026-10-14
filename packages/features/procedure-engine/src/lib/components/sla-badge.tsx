@@ -1,14 +1,8 @@
 'use client';
 
 import type { ProcedureSlaView } from '@enterprise-platform/contracts-procedure-engine';
+import { formatDateTime } from '@enterprise-platform/shared-ui';
 import styles from './workspace-board.module.scss';
-
-const dateTime = new Intl.DateTimeFormat('vi-VN', {
-  hour: '2-digit',
-  minute: '2-digit',
-  day: '2-digit',
-  month: '2-digit',
-});
 
 /** “2h 15p” — bỏ phần giây, giám sát không quan tâm tới độ chính xác đó. */
 function formatDuration(ms: number): string {
@@ -50,8 +44,8 @@ export function SlaBadge({
 
   const tooltip = [
     slaHours ? `SLA: ${slaHours} giờ` : undefined,
-    startedAt ? `Bắt đầu: ${dateTime.format(new Date(startedAt))}` : undefined,
-    view.dueAt ? `Hạn: ${dateTime.format(new Date(view.dueAt))}` : undefined,
+    startedAt ? `Bắt đầu: ${formatDateTime(startedAt)}` : undefined,
+    view.dueAt ? `Hạn: ${formatDateTime(view.dueAt)}` : undefined,
     view.frozen ? 'Đã dừng đếm' : undefined,
   ]
     .filter(Boolean)

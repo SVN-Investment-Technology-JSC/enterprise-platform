@@ -340,8 +340,9 @@ export function RequestListPanel({
               className="h-8 bg-white pl-8 text-xs"
             />
           </div>
-          <div className="w-44">
+          <div className="w-48">
             <SearchableSelect
+              height={32}
               options={kindOptions}
               value={kind}
               onChange={(val) => onKindChange(val || 'ALL')}
@@ -349,8 +350,9 @@ export function RequestListPanel({
               clearable={false}
             />
           </div>
-          <div className="w-44">
+          <div className="w-48">
             <SearchableSelect
+              height={32}
               options={STATUS_OPTIONS}
               value={status}
               onChange={(val) =>

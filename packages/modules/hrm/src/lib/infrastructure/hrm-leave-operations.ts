@@ -11,6 +11,7 @@ import {
 import type { PoolClient } from 'pg';
 import {
   assertOpenDate,
+  displayDate,
   assertOpenRange,
   effectiveDayKind,
   isUnassignedSunday,
@@ -130,7 +131,7 @@ export async function leaveDays(
       // Chủ nhật chưa phân ca là ngày trống: không trừ phép, không báo thiếu ca.
       if (isUnassignedSunday(day.date, dayKind, false)) continue;
       throw new BadRequestException(
-        `Chưa phân ca ngày ${day.date}; không thể xác định định mức phép`,
+        `Chưa phân ca ngày ${displayDate(day.date)}; không thể xác định định mức phép`,
       );
     }
     const minutes =

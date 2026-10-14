@@ -38,7 +38,8 @@ function HubInner({
         aria-label="Chức năng"
         className={
           tabsInHeader
-            ? 'flex gap-1 overflow-x-auto'
+            ? // shrink-0: tab trên tiêu đề ít và ngắn, không để bị bóp hẹp (bóp hẹp làm hiện thanh cuộn nhỏ có mũi tên lên/xuống cạnh tab).
+              'flex shrink-0 gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden'
             : 'flex gap-1 overflow-x-auto border-b border-slate-200'
         }
       >

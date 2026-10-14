@@ -706,7 +706,7 @@ function locateOccurrence(
   );
   const index = occurrences.findIndex((occurrence) => occurrence.occurrenceDate === date);
   if (index < 0) {
-    throw new WorkspaceValidationError(`Chuỗi này không có buổi nào vào ngày ${date}.`);
+    throw new WorkspaceValidationError(`Chuỗi này không có buổi nào vào ngày ${date.split('-').reverse().join('/')}.`);
   }
   return { index, occurrence: occurrences[index] as Occurrence };
 }

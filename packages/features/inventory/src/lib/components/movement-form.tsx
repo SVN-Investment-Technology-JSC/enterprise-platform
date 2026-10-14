@@ -20,7 +20,8 @@ import {
   Info,
   FileSpreadsheet,
 } from 'lucide-react';
-import { SearchableSelect } from '@enterprise-platform/shared-ui';
+import { SearchableSelect, formatDate } from '@enterprise-platform/shared-ui';
+import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import { useMemo, useRef, useState, useEffect, type FormEvent } from 'react';
 import type {
   InventoryWorkspace,
@@ -1507,22 +1508,22 @@ export function MovementForm({
                 </div>
                 <div className={styles.formFieldBlock}>
                   <label>Ngày sản xuất</label>
-                  <input
-                    type="date"
+                  <DatePickerInput
                     value={newLotDraft.manufactureDate}
-                    onChange={(event) =>
-                      setNewLotDraft((draft) => ({ ...draft, manufactureDate: event.target.value }))
+                    onChange={(value) =>
+                      setNewLotDraft((draft) => ({ ...draft, manufactureDate: value }))
                     }
+                    height={36}
                   />
                 </div>
                 <div className={styles.formFieldBlock}>
                   <label>Hạn sử dụng</label>
-                  <input
-                    type="date"
+                  <DatePickerInput
                     value={newLotDraft.expiryDate}
-                    onChange={(event) =>
-                      setNewLotDraft((draft) => ({ ...draft, expiryDate: event.target.value }))
+                    onChange={(value) =>
+                      setNewLotDraft((draft) => ({ ...draft, expiryDate: value }))
                     }
+                    height={36}
                   />
                 </div>
                 <div className={`${styles.formFieldBlock} ${styles.lotMovementFullWidth}`}>
@@ -1540,7 +1541,7 @@ export function MovementForm({
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '330px', overflowY: 'auto' }}>
                 {(lotsByMaterial[items[lotModalIndex].materialCode] ?? []).filter((lot) => lot.warehouseCode === items[lotModalIndex].warehouseCode && !['BLOCKED', 'EXPIRED', 'QUARANTINE'].includes(lot.status)).sort((a, b) => (a.expiryDate ?? '9999-12-31').localeCompare(b.expiryDate ?? '9999-12-31')).map((lot) => (
                   <div key={lot.id} style={{ display: 'grid', gridTemplateColumns: '1fr 110px', gap: '12px', alignItems: 'center', padding: '10px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#f8fafc' }}>
-                    <div><strong style={{ color: '#5b21b6' }}>{lot.lotNumber}</strong><div style={{ color: '#64748b', fontSize: '11.5px', marginTop: '2px' }}>Khả dụng: {formatNumber(lot.quantity)} {lot.unit ?? items[lotModalIndex].unit}{lot.expiryDate ? ` · HSD ${lot.expiryDate}` : ''}</div></div>
+                    <div><strong style={{ color: '#5b21b6' }}>{lot.lotNumber}</strong><div style={{ color: '#64748b', fontSize: '11.5px', marginTop: '2px' }}>Khả dụng: {formatNumber(lot.quantity)} {lot.unit ?? items[lotModalIndex].unit}{lot.expiryDate ? ` · HSD ${formatDate(lot.expiryDate)}` : ''}</div></div>
                     <input type="number" min={0} max={lot.quantity} className={styles.gridCellInput} style={{ textAlign: 'right' }} value={lotDraft[lot.id] ?? ''} placeholder="0" onChange={(event) => setLotDraft((draft) => ({ ...draft, [lot.id]: Math.min(lot.quantity, Math.max(0, Number(event.target.value) || 0)) }))} />
                   </div>
                 ))}

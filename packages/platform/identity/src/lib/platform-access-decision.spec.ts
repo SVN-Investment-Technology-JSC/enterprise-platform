@@ -60,6 +60,15 @@ describe('PlatformIdentityService - Access Decision', () => {
     };
   }
 
+  function mockAccess(
+    access: Awaited<ReturnType<typeof service.authorization.resolve>>,
+    user = { id: 'user-1', email: 'u@savina.com', fullName: 'User', systemRole: 'tenant-user' },
+  ) {
+    jest
+      .spyOn(service.authorization, 'resolveWithUser')
+      .mockResolvedValue({ access, user });
+  }
+
   beforeEach(() => {
     mockPlatformPool = { query: jest.fn() };
     mockTenantPool = { query: jest.fn(), end: jest.fn() };
@@ -106,7 +115,7 @@ describe('PlatformIdentityService - Access Decision', () => {
 
   it('returns MODULE_ROLE_FORBIDDEN when authorization lacks the module', async () => {
     mockPlatformPool.query.mockResolvedValueOnce({ rows: [platformRow()] });
-    jest.spyOn(service.authorization, 'resolve').mockResolvedValue({
+    mockAccess({
       roles: ['tenant-user'],
       permissions: ['maintenance.read'],
       moduleKeys: ['inventory'],
@@ -126,7 +135,7 @@ describe('PlatformIdentityService - Access Decision', () => {
       moduleKeys: ['maintenance'],
       authorizationRevision: '1',
     };
-    jest.spyOn(service.authorization, 'resolve').mockResolvedValue(access);
+    mockAccess(access);
     jest.spyOn(service.authorization, 'allowsModule').mockReturnValue(false);
 
     await expect(testable.decideTenantCoreSession(input)).resolves.toEqual(
@@ -142,22 +151,19 @@ describe('PlatformIdentityService - Access Decision', () => {
       moduleKeys: ['maintenance'],
       authorizationRevision: '1',
     };
-    jest.spyOn(service.authorization, 'resolve').mockResolvedValue(access);
-    jest.spyOn(service.authorization, 'allowsModule').mockReturnValue(true);
-    mockTenantPool.query.mockResolvedValueOnce({
-      rows: [
-        {
-          id: 'user-1',
-          email: 'manager@savina.com',
-          full_name: 'Manager',
-          system_role: 'tenant-user',
-        },
-      ],
+    mockAccess(access, {
+      id: 'user-1',
+      email: 'manager@savina.com',
+      fullName: 'Manager',
+      systemRole: 'tenant-user',
     });
+    jest.spyOn(service.authorization, 'allowsModule').mockReturnValue(true);
 
     const result = await testable.decideTenantCoreSession(input);
 
     expect(result?.allowed).toBe(true);
+    // Hồ sơ người dùng đến từ truy vấn revision, không truy vấn tenant DB thêm.
+    expect(mockTenantPool.query).not.toHaveBeenCalled();
     expect(result?.principal).toMatchObject({
       userId: 'user-1',
       displayName: 'Manager',
@@ -176,18 +182,13 @@ describe('PlatformIdentityService - Access Decision', () => {
       moduleKeys: ['*'],
       authorizationRevision: '1',
     };
-    jest.spyOn(service.authorization, 'resolve').mockResolvedValue(access);
-    jest.spyOn(service.authorization, 'allowsModule').mockReturnValue(true);
-    mockTenantPool.query.mockResolvedValueOnce({
-      rows: [
-        {
-          id: 'admin-1',
-          email: 'admin@savina.com',
-          full_name: 'Admin',
-          system_role: 'tenant-admin',
-        },
-      ],
+    mockAccess(access, {
+      id: 'admin-1',
+      email: 'admin@savina.com',
+      fullName: 'Admin',
+      systemRole: 'tenant-admin',
     });
+    jest.spyOn(service.authorization, 'allowsModule').mockReturnValue(true);
 
     const result = await testable.decideTenantCoreSession({
       ...input,

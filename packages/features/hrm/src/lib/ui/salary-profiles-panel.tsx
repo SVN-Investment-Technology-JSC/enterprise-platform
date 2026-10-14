@@ -284,6 +284,7 @@ export function SalaryProfilesPanel() {
     >
       <div className="max-w-md">
         <SearchableSelect
+          height={36}
           value={employee}
           onChange={(v) => setEmployee(v || '')}
           options={employees}
@@ -368,6 +369,7 @@ export function SalaryProfilesPanel() {
             <div>
               <span className="mb-1 block font-semibold text-slate-700">Ngạch lương</span>
               <SearchableSelect
+                height={36}
                 value={gradeId}
                 clearable
                 placeholder="Chọn ngạch lương..."
@@ -384,6 +386,7 @@ export function SalaryProfilesPanel() {
             <div>
               <span className="mb-1 block font-semibold text-slate-700">Bậc lương</span>
               <SearchableSelect
+                height={36}
                 value={stepId}
                 clearable
                 placeholder={gradeId ? 'Chọn bậc lương...' : 'Chọn ngạch trước'}
@@ -414,6 +417,7 @@ export function SalaryProfilesPanel() {
               <div>
                 <span className="mb-1 block font-semibold text-slate-700">Loại lương</span>
                 <SearchableSelect
+                  height={36}
                   value={salaryType}
                   clearable={false}
                   options={SALARY_TYPE_OPTIONS}
@@ -423,7 +427,7 @@ export function SalaryProfilesPanel() {
             </div>
             <div>
               <span className="mb-1 block font-semibold text-slate-700">Hiệu lực từ *</span>
-              <DatePickerInput value={effectiveFrom} onChange={(v: string) => setEffectiveFrom(v)} />
+              <DatePickerInput height={36} value={effectiveFrom} onChange={(v: string) => setEffectiveFrom(v)} />
             </div>
             <label className="block font-semibold text-slate-700">
               Căn cứ thay đổi *

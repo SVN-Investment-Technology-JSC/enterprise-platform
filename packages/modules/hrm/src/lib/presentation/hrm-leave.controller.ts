@@ -698,7 +698,12 @@ export class HrmLeaveController {
     const year = /^\d{4}$/.test(yearStr || '') ? Number(yearStr) : null;
     const res = await pool.query(
       `SELECT lt.*, ltypes.name as leave_type_name, ltypes.code as leave_type_code,
-              e.full_name as employee_name, e.employee_code, e.department_name AS department
+              e.full_name as employee_name, e.employee_code, e.department_name AS department,
+              CASE WHEN lt.actor_id IS NULL THEN NULL ELSE COALESCE(
+                (SELECT ad.employee_code||' · '||ad.full_name FROM hrm_schema.employee_directory ad
+                   WHERE ad.tenant_id = lt.tenant_id AND (ad.user_id = lt.actor_id OR ad.employee_id = lt.actor_id) LIMIT 1),
+                (SELECT COALESCE(NULLIF(u.full_name,''), u.email) FROM core_schema.users u WHERE u.id = lt.actor_id),
+                'Người dùng không còn tồn tại') END AS actor_label
        FROM hrm_schema.leave_transactions lt
        JOIN hrm_schema.leave_types ltypes ON lt.leave_type_id = ltypes.id
        JOIN hrm_schema.employee_directory e ON lt.employee_id = e.employee_id AND e.tenant_id = lt.tenant_id
@@ -712,6 +717,8 @@ export class HrmLeaveController {
     return {
       data: res.rows.map((row) => ({
         ...this.mapTransaction(row),
+        actorLabel: (row.actor_label as string | null) ?? null,
+        triggerSource: (row.trigger_source as 'MANUAL' | 'AUTOMATION' | null) ?? null,
         leaveTypeName: row.leave_type_name as string,
         leaveTypeCode: row.leave_type_code as string,
         employeeName: row.employee_name as string,
