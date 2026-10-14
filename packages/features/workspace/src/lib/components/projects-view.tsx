@@ -29,6 +29,7 @@ import {
   type SystemProjectRole,
 } from '@enterprise-platform/contracts-workspace';
 import { CHAT_UNREAD_POLL_MS } from '@enterprise-platform/contracts-workspace';
+import { useRealtimeEvent, type WorkspaceChatSignal } from '@enterprise-platform/shared-ui';
 import { MessageSquare, MoreHorizontal, Plus } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -507,14 +508,36 @@ export function ProjectsView({
       .catch(() => setProjectFolders([]));
   }, [openId, calendarToken]);
 
-  // Không có WebSocket trong repo, nên chấm đỏ cập nhật theo nhịp hỏi lại.
-  // 30 giây là đủ nhanh để không ai bỏ lỡ, và đủ thưa để không dồn tải.
+  // Chấm đỏ cập nhật ngay khi có tín hiệu realtime của dự án đang mở; nhịp hỏi
+  // lại 30 giây chỉ còn là lưới an toàn khi mất kết nối hoặc broker chậm.
   useEffect(() => {
     if (!openId) return;
     void refreshUnread(openId);
     const timer = setInterval(() => void refreshUnread(openId), CHAT_UNREAD_POLL_MS);
     return () => clearInterval(timer);
   }, [openId, refreshUnread]);
+
+  // Nhiều tín hiệu dồn trong chốc lát chỉ cần một lần hỏi lại.
+  const unreadDebounce = useRef<ReturnType<typeof setTimeout>>();
+  const scheduleUnreadRefresh = useCallback(
+    (projectId: string) => {
+      clearTimeout(unreadDebounce.current);
+      unreadDebounce.current = setTimeout(() => void refreshUnread(projectId), 300);
+    },
+    [refreshUnread],
+  );
+  useEffect(() => () => clearTimeout(unreadDebounce.current), []);
+  useRealtimeEvent(
+    'workspace.chat.changed',
+    (event) => {
+      const signal = event.data as Partial<WorkspaceChatSignal> | undefined;
+      if (openId && signal?.projectId === openId) scheduleUnreadRefresh(openId);
+    },
+    (connected) => {
+      // Nối lại: có thể đã lỡ tín hiệu trong lúc mất kết nối.
+      if (connected && openId) scheduleUnreadRefresh(openId);
+    },
+  );
 
   /**
    * Quy trình người dùng khởi tạo được, lọc theo vai S.
