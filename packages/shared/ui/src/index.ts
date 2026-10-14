@@ -5,6 +5,7 @@ export * from './lib/popconfirm';
 export * from './lib/searchable-select';
 export * from './lib/sonner';
 export * from './lib/auth-fetch';
+export * from './lib/session-keep-alive';
 export * from './lib/notification-client';
 export * from './lib/notification-center';
 export * from './lib/date-format';

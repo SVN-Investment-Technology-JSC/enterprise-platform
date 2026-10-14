@@ -1,5 +1,6 @@
 'use client';
 
+import { authFetch } from '@enterprise-platform/shared-ui';
 import type {
   ModuleActivationRequestResponse,
   TenantEntitlementStatus,
@@ -322,7 +323,7 @@ export function EnterpriseApplications({
   async function requestActivation(module: TenantModuleCatalogItem) {
     setRequestingKey(module.key);
     try {
-      const response = await fetch(
+      const response = await authFetch(
         `/api/platform/v1/modules/${encodeURIComponent(module.key)}/activation-requests`,
         {
           method: 'POST',

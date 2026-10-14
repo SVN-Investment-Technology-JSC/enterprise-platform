@@ -7,7 +7,7 @@ import {
   Plus,
   Search,
 } from 'lucide-react';
-import { formatDateTime } from '@enterprise-platform/shared-ui';
+import { formatDateTime, authFetch } from '@enterprise-platform/shared-ui';
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { TenantDeletionConsole, deletionApi } from './tenant-deletion-console';
@@ -140,7 +140,7 @@ export function TenantManagement({ initialTenants, canDelete = false }: TenantMa
     setError(undefined);
     setSuccess(undefined);
     try {
-      const response = await fetch(`/api/platform/v1/tenants/${tenant.id}`, {
+      const response = await authFetch(`/api/platform/v1/tenants/${tenant.id}`, {
         method: 'PATCH',
         credentials: 'same-origin',
         headers: {
@@ -177,7 +177,7 @@ export function TenantManagement({ initialTenants, canDelete = false }: TenantMa
     setResettingId(tenant.id);
     setError(undefined);
     try {
-      const response = await fetch(
+      const response = await authFetch(
         `/api/platform/v1/tenants/${tenant.id}/admin/password-reset-link`,
         {
           method: 'POST', credentials: 'same-origin',

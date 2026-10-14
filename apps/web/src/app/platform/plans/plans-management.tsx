@@ -1,5 +1,6 @@
 'use client';
 
+import { authFetch } from '@enterprise-platform/shared-ui';
 import React, { useState, useMemo } from 'react';
 import type { PlanSummary, PlanLimit } from '@enterprise-platform/contracts-tenancy';
 import {
@@ -83,7 +84,7 @@ export function PlansManagement({ initialPlans }: PlansManagementProps) {
         },
       ];
 
-      const res = await fetch('/api/platform/v1/plans', {
+      const res = await authFetch('/api/platform/v1/plans', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

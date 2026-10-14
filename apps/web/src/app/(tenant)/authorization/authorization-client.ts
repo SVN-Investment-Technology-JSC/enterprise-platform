@@ -1,5 +1,7 @@
 'use client';
 
+import { authFetch } from '@enterprise-platform/shared-ui';
+
 export async function authorizationRequest<T>(
   path: string,
   method = 'GET',
@@ -13,7 +15,7 @@ export async function authorizationRequest<T>(
       .slice(1)
       .join('=') ?? '',
   );
-  const response = await fetch(`/api/platform/v1/${path}`, {
+  const response = await authFetch(`/api/platform/v1/${path}`, {
     method,
     credentials: 'same-origin',
     cache: 'no-store',

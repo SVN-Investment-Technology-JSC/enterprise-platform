@@ -1,6 +1,6 @@
 'use client';
 
-import { NotificationBell, NotificationProvider } from '@enterprise-platform/shared-ui';
+import { NotificationBell, NotificationProvider, SessionKeepAlive } from '@enterprise-platform/shared-ui';
 import { Fragment, useEffect } from 'react';
 import type {
   ModuleNavItem,
@@ -58,6 +58,7 @@ export function ModuleShellLight<TViewId extends string = string>(
 
   return (
     <NotificationProvider>
+      <SessionKeepAlive />
       <div className={collapsed ? `${styles.shell} ${styles.shellCollapsed}` : styles.shell}>
         <nav className={styles.sidebar} aria-label={`Điều hướng ${props.title}`}>
           <div className={styles.brand}>

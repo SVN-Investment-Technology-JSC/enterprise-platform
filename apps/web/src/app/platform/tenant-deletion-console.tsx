@@ -6,7 +6,7 @@ import type {
   TenantDeletionPreview,
   TenantSummary,
 } from '@enterprise-platform/contracts-tenancy';
-import { Popconfirm, formatDateTime } from '@enterprise-platform/shared-ui';
+import { Popconfirm, formatDateTime, authFetch } from '@enterprise-platform/shared-ui';
 import { AlertTriangle, LoaderCircle, RefreshCw, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -37,7 +37,7 @@ export async function deletionApi<T>(
   url: string,
   init: RequestInit = {},
 ): Promise<T> {
-  const response = await fetch(url, { credentials: 'same-origin', ...init });
+  const response = await authFetch(url, { credentials: 'same-origin', ...init });
   const body = await response.json().catch(() => ({}));
   if (!response.ok)
     throw new Error(

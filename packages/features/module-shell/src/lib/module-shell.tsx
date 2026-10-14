@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { NotificationBell, NotificationProvider } from '@enterprise-platform/shared-ui';
+import { NotificationBell, NotificationProvider, SessionKeepAlive } from '@enterprise-platform/shared-ui';
 import { AssistantLauncher } from './assistant-launcher';
 import { ModuleShellLight } from './module-shell-light';
 import type { ModuleNavItem, ModuleShellProps } from './module-shell.types';
@@ -92,6 +92,7 @@ function ClassicShell<TViewId extends string = string>(props: ModuleShellProps<T
 
   return (
     <NotificationProvider>
+      <SessionKeepAlive />
       <div className={`${styles.shell} ${collapsed ? styles.shellMin : ''}`}>
       <nav
         className={`${styles.rail} ${collapsed ? styles.railMin : ''}`}

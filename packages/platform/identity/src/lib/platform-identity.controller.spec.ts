@@ -45,7 +45,12 @@ describe('PlatformIdentityController login routing', () => {
       principal,
       redirectTo,
     });
-    expect(response.cookie).toHaveBeenCalledTimes(3);
+    // access, refresh, csrf và thời điểm hết hạn của access token (cho trình duyệt hẹn giờ làm mới).
+    expect(response.cookie).toHaveBeenCalledTimes(4);
+    const expiryCall = (response.cookie as jest.Mock).mock.calls.find(([name]) => name === 'ep_access_exp');
+    expect(expiryCall).toBeDefined();
+    expect(Number(expiryCall?.[1])).toBeGreaterThan(Date.now() + 59 * 60_000);
+    expect(expiryCall?.[2]).toMatchObject({ httpOnly: false });
   });
 });
 

@@ -6,7 +6,7 @@ import type {
   OrganizationUnit,
   TenantOrganizationSnapshot,
 } from '@enterprise-platform/contracts-organization';
-import { SearchableSelect } from '@enterprise-platform/shared-ui';
+import { SearchableSelect, authFetch } from '@enterprise-platform/shared-ui';
 import { Briefcase, Network, Search, Sparkles, Star } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
@@ -72,7 +72,7 @@ export function OrganizationPositionTable() {
 
   const load = useCallback(async () => {
     try {
-      const response = await fetch('/api/platform/v1/tenant-organization/snapshot', {
+      const response = await authFetch('/api/platform/v1/tenant-organization/snapshot', {
         credentials: 'same-origin',
         cache: 'no-store',
       });
@@ -138,7 +138,7 @@ export function OrganizationPositionTable() {
   }, [allRows, search]);
 
   const write = async (positionId: string, next: string | null) => {
-    const response = await fetch(
+    const response = await authFetch(
       `/api/platform/v1/tenant-organization/positions/${encodeURIComponent(positionId)}/reports-to`,
       {
         method: 'PUT',

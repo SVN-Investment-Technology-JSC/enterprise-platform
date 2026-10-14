@@ -4,7 +4,7 @@ import type {
   OrganizationManagerChain,
   TenantOrganizationSnapshot,
 } from '@enterprise-platform/contracts-organization';
-import { SearchableSelect } from '@enterprise-platform/shared-ui';
+import { SearchableSelect, authFetch } from '@enterprise-platform/shared-ui';
 import { Network } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { SidePanel } from '../side-panel';
@@ -50,14 +50,14 @@ export function EmployeeProfilePanel({
   const load = useCallback(async (userId: string) => {
     setError(undefined);
     try {
-      const response = await fetch('/api/platform/v1/tenant-organization/snapshot', { cache: 'no-store' });
+      const response = await authFetch('/api/platform/v1/tenant-organization/snapshot', { cache: 'no-store' });
       if (!response.ok) throw new Error(`Không tải được sơ đồ tổ chức (HTTP ${response.status}).`);
       const data = (await response.json()) as Snapshot;
       setSnapshot(data);
       const held = data.members.filter((member) => member.userId === userId && member.positionId);
       const entries = await Promise.all(
         held.map(async (member) => {
-          const result = await fetch(
+          const result = await authFetch(
             `/api/platform/v1/tenant-organization/users/${encodeURIComponent(userId)}/manager-chain?positionId=${encodeURIComponent(member.positionId ?? '')}`,
             { cache: 'no-store' },
           );
@@ -96,7 +96,7 @@ export function EmployeeProfilePanel({
     setSaving(assignmentId);
     setError(undefined);
     try {
-      const response = await fetch(
+      const response = await authFetch(
         `/api/platform/v1/tenant-organization/assignments/${encodeURIComponent(assignmentId)}/reports-to-override`,
         {
           method: 'PUT',

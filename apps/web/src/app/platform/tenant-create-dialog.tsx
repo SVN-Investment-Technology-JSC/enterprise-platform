@@ -1,5 +1,6 @@
 'use client';
 
+import { authFetch } from '@enterprise-platform/shared-ui';
 import { defineStepper } from '@stepperize/react';
 import type { CreateTenantRequest, CreateTenantResponse, TenantSummary } from '@enterprise-platform/contracts-tenancy';
 import { ArrowLeft, ArrowRight, Building2, Database, ShieldCheck } from 'lucide-react';
@@ -79,7 +80,7 @@ function TenantCreateDialogFlow({ onCreated, onOpenChange }: Omit<TenantCreateDi
     setError(undefined);
     const input: CreateTenantRequest = { name: formData.name, slug: formData.slug, admin: { displayName: formData.adminDisplayName, email: tenantAdminEmail(formData.adminEmailLocal, formData.slug), initialPassword: formData.initialPassword }, database: { databaseName: formData.databaseName, host: formData.host, port: Number(formData.port), secretRef: formData.secretRef, ssl: formData.ssl } };
     try {
-      const response = await fetch('/api/platform/v1/tenants', { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json', 'x-csrf-token': csrfToken() }, body: JSON.stringify(input) });
+      const response = await authFetch('/api/platform/v1/tenants', { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json', 'x-csrf-token': csrfToken() }, body: JSON.stringify(input) });
       if (!response.ok) throw new Error(apiMessage(await response.json().catch(() => ({}))));
       const payload = (await response.json()) as CreateTenantResponse;
       onCreated(payload.tenant);
