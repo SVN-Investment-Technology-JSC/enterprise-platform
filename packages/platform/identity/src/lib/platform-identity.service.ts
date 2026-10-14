@@ -508,25 +508,20 @@ export class PlatformIdentityService implements OnModuleDestroy {
     if (!row.membership_active) return { allowed: false, code: 'MEMBERSHIP_INACTIVE' };
     if (!row.entitled) return { allowed: false, code: 'MODULE_NOT_ENTITLED' };
     let access;
-    try { access = await this.authorization.resolve(row.tenant_id, row.core_user_id); }
+    let coreUser;
+    // Một lượt truy vấn tenant DB cho cả revision, trạng thái hoạt động và hồ sơ người dùng.
+    try { ({ access, user: coreUser } = await this.authorization.resolveWithUser(row.tenant_id, row.core_user_id)); }
     catch (error) {
       if (error instanceof UnauthorizedException) return { allowed: false, code: 'SESSION_INACTIVE' };
       throw error;
     }
     if (!access.moduleKeys.includes('*') && !access.moduleKeys.includes(input.moduleKey)) return { allowed: false, code: 'MODULE_ROLE_FORBIDDEN' };
     if (!this.authorization.allowsModule(row.tenant_id, row.core_user_id, access, input.moduleKey, input.permission)) return { allowed: false, code: 'PERMISSION_DENIED' };
-    const coreUser = await this.withTenantCoreDatabase(row.tenant_id, async (pool) => (
-      await pool.query<{ id: string; email: string; full_name: string; system_role: string }>(
-        `SELECT id, email, full_name, system_role FROM core_schema.users WHERE id = $1 AND status = 'active' AND is_active = true`,
-        [row.core_user_id],
-      )
-    ).rows[0]);
-    if (!coreUser) return { allowed: false, code: 'SESSION_INACTIVE' };
     return {
       allowed: true,
       principal: {
         kind: 'tenant-user', userId: coreUser.id, sessionId: input.sessionId,
-        email: coreUser.email, displayName: coreUser.full_name,
+        email: coreUser.email, displayName: coreUser.fullName,
         tenantId: row.tenant_id, tenantSlug: row.tenant_slug,
         // Dedicated database assignments are keyed by the core user id.
         membershipId: coreUser.id,

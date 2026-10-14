@@ -78,10 +78,6 @@ async function run() {
         'INSERT INTO core_schema.role_permissions VALUES ($1,$2) ON CONFLICT DO NOTHING',
         [roleId, permissionId]
       );
-      await client.query(
-        'INSERT INTO core_schema.role_modules VALUES ($1,$2) ON CONFLICT DO NOTHING',
-        [roleId, 'hrm']
-      );
     }
     const r = await client.query(`
       SELECT r.name, count(pa.action_key) as actions 

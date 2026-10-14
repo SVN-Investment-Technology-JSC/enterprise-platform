@@ -4,7 +4,10 @@ import type {
   PlatformAdminPrincipal,
   TenantUserPrincipal,
 } from '@enterprise-platform/contracts-identity';
-import { TENANT_PERMISSION_ACTIONS } from '@enterprise-platform/contracts-identity';
+import {
+  TENANT_PERMISSION_ACTIONS,
+  isTenantAdmin,
+} from '@enterprise-platform/contracts-identity';
 import type {
   CreateTenantRequest,
   SetTenantEntitlementRequest,
@@ -188,7 +191,7 @@ export class PlatformAccessController {
     const principal = await this.tenantUser(request);
     const modules = await this.identity.tenantModuleCatalog(principal.tenantId);
     return {
-      modules: principal.roles.includes('tenant-admin') ? modules : modules.filter(m => principal.moduleKeys?.includes('*') || principal.moduleKeys?.includes(m.key)),
+      modules: isTenantAdmin(principal.roles) ? modules : modules.filter(m => principal.moduleKeys?.includes('*') || principal.moduleKeys?.includes(m.key)),
     };
   }
 
@@ -517,15 +520,13 @@ export class PlatformAccessController {
   @Post('v1/tenant-roles')
   async createRole(@Req() request: Request, @Body() input: Record<string, unknown>) {
     const p = await this.tenantManager(request); this.requireCsrf(request);
-    const modules = await this.identity.tenantModuleCatalog(p.tenantId);
-    return this.identity.authorization.saveRole(p.tenantId, p.userId, input, modules.map(m => m.key));
+    return this.identity.authorization.saveRole(p.tenantId, p.userId, input);
   }
 
   @Patch('v1/tenant-roles/:id')
   async updateRole(@Req() request: Request, @Param('id') id: string, @Body() input: Record<string, unknown>) {
     const p = await this.tenantManager(request); this.requireCsrf(request);
-    const modules = await this.identity.tenantModuleCatalog(p.tenantId);
-    return this.identity.authorization.saveRole(p.tenantId, p.userId, input, modules.map(m => m.key), id);
+    return this.identity.authorization.saveRole(p.tenantId, p.userId, input, id);
   }
 
   @Delete('v1/tenant-roles/:id')
@@ -586,13 +587,13 @@ export class PlatformAccessController {
 
   private async tenantAction(request: Request, action: string): Promise<TenantUserPrincipal> {
     const principal = await this.tenantUser(request);
-    if (!principal.roles.includes('tenant-admin') && !principal.permissions.includes(action)) throw new ForbiddenException({ code: 'PERMISSION_DENIED', message: 'Bạn không có quyền thực hiện thao tác này.' });
+    if (!isTenantAdmin(principal.roles) && !principal.permissions.includes(action)) throw new ForbiddenException({ code: 'PERMISSION_DENIED', message: 'Bạn không có quyền thực hiện thao tác này.' });
     return principal;
   }
 
   private async tenantManager(request: Request): Promise<TenantUserPrincipal> {
     const principal = await this.tenantUser(request);
-    if (!principal.roles.includes('tenant-admin')) {
+    if (!isTenantAdmin(principal.roles)) {
       throw new ForbiddenException();
     }
     return principal;

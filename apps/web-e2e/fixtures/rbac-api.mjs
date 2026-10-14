@@ -107,6 +107,7 @@ createServer(async (req, res) => {
             id: randomUUID(),
             key: randomUUID(),
             isSystem: false,
+            moduleKeys: [],
             userIds: [],
           }
         : { ...body, id: randomUUID(), roleIds: [] };
