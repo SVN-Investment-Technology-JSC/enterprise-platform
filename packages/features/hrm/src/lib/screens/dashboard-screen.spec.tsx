@@ -132,30 +132,15 @@ describe('HrmDashboardPage', () => {
     expect(within(leave).queryByText('0')).toBeNull();
   });
 
-  it('chi goi tong quan, ky cong, ky luong khi co quyen tuong ung', async () => {
+  it('khong con khoi cham cong toan don vi, ky cong, ky luong tren Ban lam viec', async () => {
     mockActions = ['hrm.dashboard.read', 'hrm.timesheet.read', 'hrm.payroll.read'];
-    respond({
-      '/dashboard/overview': {
-        data: {
-          periodCode: '2026-03',
-          totalEmployees: 3,
-          officialEmployees: 3,
-          probationEmployees: 0,
-          todayDayKind: 'WORKDAY',
-          todayAttendance: { checkedInCount: 7, missingPunchCount: 0, lateCount: 0, onLeaveCount: 0 },
-          pendingApprovals: { leaveRequests: 0, otRequests: 0, corrections: 0, advances: 0 },
-        },
-      },
-      '/timesheet-periods': { data: [{ status: 'OPEN' }, { status: 'LOCKED' }] },
-      '/payroll-periods': { data: [{ status: 'OPEN' }] },
-    });
+    respond({});
     render(<HrmDashboardPage />);
-    await screen.findByText('7');
-    expect(accessPaths().sort()).toEqual(
-      ['/dashboard/overview', '/payroll-periods', '/timesheet-periods'].sort(),
-    );
-    expect(screen.queryByText('Chấm công hôm nay')).toBeNull();
-    expect(fetchMock.mock.calls.some((c) => String(c[0]).includes('my-attendance'))).toBe(false);
+    await screen.findByText('Bàn làm việc');
+    expect(screen.queryByLabelText('Chấm công hôm nay của toàn đơn vị')).toBeNull();
+    expect(screen.queryByLabelText('Kỳ công')).toBeNull();
+    expect(screen.queryByLabelText('Kỳ lương')).toBeNull();
+    expect(accessPaths()).toEqual([]);
   });
 
   it('khong co quyen nao thi khong goi API', async () => {

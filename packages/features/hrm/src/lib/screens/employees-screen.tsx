@@ -11,10 +11,10 @@ import type {
   HrmCorePerson,
   HrmEmployeeProfile,
 } from '@enterprise-platform/contracts-hrm';
-import { useCallback, useEffect, useState, useMemo } from 'react';
+import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
 import { EmployeeLifecycleActions, employmentLabels } from '../ui/hrm-lifecycle-actions';
 import { EmployeeDetailDialog } from '../ui/employee-detail-dialog';
-import { EmployeeAvatar, EmployeePagination, EmployeeStatCards } from '../ui/employee-list-parts';
+import { EmployeeAvatar, EmployeePagination, EmployeeStatCards, type EmployeeCardFilter } from '../ui/employee-list-parts';
 import { BulkInitializeEmployeesDialog } from '../ui/bulk-initialize-employees-dialog';
 import { PersonnelDecisionDialog } from '../ui/personnel-decision-dialog';
 import { HrmActionDialog, type HrmAction } from '../ui/hrm-action-dialog';
@@ -23,6 +23,7 @@ import {
   buildEmployeesCsv,
   distinctValues,
   downloadCsv,
+  employeeCompleteness,
   employeeInitials,
   employeeStats,
   isActiveEmployee,
@@ -75,6 +76,9 @@ export default function EmployeesManagementPage() {
   // Search & Filter (Tab 1: Employees)
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
+  // Lọc theo thẻ tổng quan (đang làm việc, nghỉ việc, chờ hoàn thiện hồ sơ); 'ALL' là không lọc.
+  const [cardFilter, setCardFilter] = useState<EmployeeCardFilter>('ALL');
+  const tableRef = useRef<HTMLDivElement | null>(null);
   const [departmentFilter, setDepartmentFilter] = useState('ALL');
   const [positionFilter, setPositionFilter] = useState('ALL');
   const [page, setPage] = useState(1);
@@ -210,9 +214,14 @@ export default function EmployeesManagementPage() {
         departmentFilter === 'ALL' || (emp.department ?? '').trim() === departmentFilter;
       const matchesPosition =
         positionFilter === 'ALL' || (emp.position ?? '').trim() === positionFilter;
-      return matchesSearch && matchesStatus && matchesDepartment && matchesPosition;
+      const matchesCard =
+        cardFilter === 'ALL' ||
+        (cardFilter === 'ACTIVE' && isActiveEmployee(emp)) ||
+        (cardFilter === 'INACTIVE' && !isActiveEmployee(emp)) ||
+        (cardFilter === 'INCOMPLETE' && employeeCompleteness(emp, canSensitive) < 100);
+      return matchesSearch && matchesStatus && matchesDepartment && matchesPosition && matchesCard;
     });
-  }, [employeesList, searchTerm, statusFilter, departmentFilter, positionFilter]);
+  }, [employeesList, searchTerm, statusFilter, departmentFilter, positionFilter, cardFilter, canSensitive]);
 
   // Số liệu tổng quan đếm trên mọi hồ sơ đã tải; phân trang trên danh sách đã lọc.
   const stats = useMemo(
@@ -236,7 +245,7 @@ export default function EmployeesManagementPage() {
   // Đổi bộ lọc thì về trang đầu.
   useEffect(() => {
     setPage(1);
-  }, [searchTerm, statusFilter, departmentFilter, positionFilter]);
+  }, [searchTerm, statusFilter, departmentFilter, positionFilter, cardFilter]);
   const toggleOne = (id: string) =>
     setSelectedIds((prev) => {
       const next = new Set(prev);
@@ -428,7 +437,16 @@ export default function EmployeesManagementPage() {
       {/* SUB-TAB 1: QUẢN LÝ NHÂN SỰ */}
       <div className="space-y-3">
           <div className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]">
-            <EmployeeStatCards stats={stats} />
+            <EmployeeStatCards
+              stats={stats}
+              active={cardFilter}
+              onSelect={(next) => {
+                // Bấm lại thẻ đang chọn thì bỏ lọc; bấm thẻ khác thì lọc danh sách rồi cuộn tới bảng nhân sự.
+                setCardFilter((current) => (current === next ? 'ALL' : next));
+                setStatusFilter('ALL');
+                tableRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+              }}
+            />
             <div className="space-y-2 rounded-xl border border-slate-200 bg-white p-3">
               <div className="relative">
                 <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
@@ -473,7 +491,7 @@ export default function EmployeesManagementPage() {
           </div>
 
           {/* Bảng nhân sự */}
-          <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+          <div ref={tableRef} className="overflow-hidden rounded-xl border border-slate-200 bg-white">
             <div className="overflow-x-auto">
               <table className="w-full border-collapse text-left text-xs">
                 <thead className="border-b border-slate-200 bg-slate-50 text-[11px] font-bold text-slate-600">

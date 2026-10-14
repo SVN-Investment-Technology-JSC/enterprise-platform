@@ -319,9 +319,22 @@ describe('EmployeesScreen', () => {
     const stat = (key: string) => screen.getByTestId(`employee-stat-${key}`).textContent ?? '';
     expect(stat('total')).toContain('4');
     expect(stat('active')).toContain('2');
-    expect(stat('active')).toContain('50%');
+    expect(stat('active')).not.toContain('%');
     expect(stat('inactive')).toContain('2');
     expect(stat('incomplete')).toContain('Chờ hoàn thiện hồ sơ');
+  });
+
+  it('bấm thẻ tổng quan lọc danh sách nhân sự theo nhóm của thẻ; bấm lại để bỏ lọc', async () => {
+    withEmployees([person(1), person(2), person(3, { employmentStatus: 'RESIGNED' }), person(4, { employmentStatus: 'TERMINATED' })]);
+    render(<EmployeesScreen />);
+    await screen.findByText('NV001');
+    fireEvent.click(screen.getByRole('button', { name: 'Lọc danh sách: Nghỉ việc' }));
+    expect(screen.getAllByRole('button', { name: 'Xem chi tiết' })).toHaveLength(2);
+    expect(screen.getByText('NV003')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Lọc danh sách: Nghỉ việc' }));
+    expect(screen.getAllByRole('button', { name: 'Xem chi tiết' })).toHaveLength(4);
+    fireEvent.click(screen.getByRole('button', { name: 'Lọc danh sách: Đang làm việc' }));
+    expect(screen.getAllByRole('button', { name: 'Xem chi tiết' })).toHaveLength(2);
   });
 
   it('lọc theo phòng ban và trạng thái; thẻ tổng quan không đổi theo bộ lọc', async () => {

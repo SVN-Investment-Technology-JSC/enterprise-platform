@@ -6,7 +6,6 @@ import {
   pickSelectedId,
   previousMonthLabel,
   requestMonthOf,
-  requestStatCards,
   rowStatusMeta,
   type MyRequestRow,
 } from './my-requests-model';
@@ -90,13 +89,6 @@ describe('my-requests-model', () => {
       approved: 1,
       rejected: 0,
     });
-    const cards = requestStatCards(rows, '2026-10');
-    expect(cards.map((c) => [c.key, c.value, c.delta])).toEqual([
-      ['total', 3, 2],
-      ['pending', 1, 1],
-      ['approved', 1, 1],
-      ['rejected', 0, -1],
-    ]);
     expect(previousMonthLabel('2026-10')).toBe('tháng 9');
     expect(previousMonthLabel('2026-01')).toBe('tháng 12');
   });

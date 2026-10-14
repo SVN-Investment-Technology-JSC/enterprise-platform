@@ -311,6 +311,14 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       path: 'tenant/hrm/0053-hrm-schedule-auto-attendance.sql',
     },
     {
+      version: '0054-hrm-direct-fallback-position',
+      path: 'tenant/hrm/0054-hrm-direct-fallback-position.sql',
+    },
+    {
+      version: '0055-hrm-auto-attendance-settings',
+      path: 'tenant/hrm/0055-hrm-auto-attendance-settings.sql',
+    },
+    {
       version: '0021-notification-outbox-v1',
       path: 'tenant/hrm/0021-notification-outbox-v1.sql',
     },

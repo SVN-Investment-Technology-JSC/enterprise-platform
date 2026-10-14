@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   AlertTriangle,
   Banknote,
@@ -29,6 +29,8 @@ import { BoardDayDrawer } from '../board-day-detail';
 import { MonthStepper } from '../month-stepper';
 import { anomalyLabel, boardStatusLabel, formatUnits } from '../timesheet-board-format';
 import { Button } from '../button';
+import { KpiButton, KpiListSheet } from '../kpi-list-sheet';
+import { MY_KPI_TITLE, monthRequests, myKpiDays, type MyKpiKey } from '../my-timesheet-format';
 import {
   clockVn,
   DOT_CLASS,
@@ -122,8 +124,8 @@ const KPI_TONE: Record<KpiTone, { tile: string; text: string }> = {
   violet: { tile: 'bg-violet-50 text-violet-600', text: 'text-violet-600' },
 };
 
-function Kpi({ tone, icon, label, value, testId }: { tone: KpiTone; icon: ReactNode; label: string; value: ReactNode; testId: string }) {
-  return (
+function Kpi({ tone, icon, label, value, testId, href, onClick, dropdown, expanded }: { tone: KpiTone; icon: ReactNode; label: string; value: ReactNode; testId: string; href?: string; onClick?: () => void; dropdown?: ReactNode; expanded?: boolean }) {
+  const card = (
     <div className={`${CARD} flex items-center gap-3 px-4 py-3.5`} data-testid={testId}>
       <span className={`flex size-11 shrink-0 items-center justify-center rounded-xl ${KPI_TONE[tone].tile}`}>{icon}</span>
       <div className="min-w-0">
@@ -132,6 +134,23 @@ function Kpi({ tone, icon, label, value, testId }: { tone: KpiTone; icon: ReactN
       </div>
     </div>
   );
+  // Thẻ bấm được: có href thì mở trang chứa dữ liệu tương ứng, có onClick thì mở ngăn kéo liệt kê dữ liệu của thẻ.
+  if (href)
+    return (
+      <Link href={href} aria-label={`Mở: ${label}`} className="block min-w-0 rounded-xl transition hover:ring-2 hover:ring-blue-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500">
+        {card}
+      </Link>
+    );
+  if (onClick)
+    return (
+      <>
+        <KpiButton onClick={onClick} label={`Xem danh sách: ${label}`} expanded={expanded}>
+          {card}
+        </KpiButton>
+        {dropdown}
+      </>
+    );
+  return card;
 }
 
 /** Bốn chỉ số đầu trang, kéo lên đè mép biểu ngữ. */
@@ -140,6 +159,26 @@ export function KpiStrip({ data, hasShift }: { data: MyDashboardData; hasShift: 
   const summary = monthSummary(data.employee);
   const pending = pendingRequestCount(data.employee);
   const monthNo = data.monthKey.slice(5, 7).replace(/^0/, '');
+  // Bấm thẻ "Đơn của tôi": sổ xuống danh sách các đơn đang xử lý; bấm một đơn để mở đơn đó trong trang Đơn từ.
+  const [requestsOpen, setRequestsOpen] = useState(false);
+  const requestsRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!requestsOpen) return;
+    const onPointer = (event: MouseEvent) => {
+      if (!requestsRef.current?.contains(event.target as Node)) setRequestsOpen(false);
+    };
+    const onKey = (event: KeyboardEvent) => event.key === 'Escape' && setRequestsOpen(false);
+    document.addEventListener('mousedown', onPointer);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onPointer);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [requestsOpen]);
+  const pendingRequests = useMemo(
+    () => (data.employee ? monthRequests(data.employee).filter((m) => m.request.status === 'PENDING') : []),
+    [data.employee],
+  );
   return (
     <div className="relative z-10 -mt-10 grid grid-cols-1 gap-3 px-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Chỉ số chính">
       <Kpi tone="green" icon={<CalendarCheck className="size-5" />} label="Trạng thái hôm nay" value={data.loading ? '…' : state.label} testId="kpi-today" />
@@ -150,13 +189,45 @@ export function KpiStrip({ data, hasShift }: { data: MyDashboardData; hasShift: 
         value={data.annual ? `${formatUnits(data.annual.remaining)} / ${formatUnits(data.annual.total)} ngày` : data.loading ? '…' : '—'}
         testId="kpi-leave"
       />
+      <div ref={requestsRef} className="relative">
       <Kpi
         tone="orange"
         icon={<ClipboardList className="size-5" />}
         label="Đơn của tôi"
         value={data.loading ? '…' : pending > 0 ? `${pending} đang xử lý` : 'Không có đơn chờ'}
         testId="kpi-requests"
+        onClick={() => setRequestsOpen((open) => !open)}
+        expanded={requestsOpen}
+        dropdown={
+          requestsOpen ? (
+            <ul
+              data-testid="kpi-requests-list"
+              aria-label="Đơn đang xử lý"
+              className="absolute inset-x-0 top-full z-30 mt-1 max-h-72 overflow-y-auto rounded-xl border border-slate-200 bg-white py-1 shadow-lg"
+            >
+              {pendingRequests.length === 0 ? (
+                <li className="px-4 py-3 text-xs text-slate-500">Không có đơn nào đang xử lý.</li>
+              ) : (
+                pendingRequests.map(({ request, firstDate }) => (
+                  <li key={`${request.kind}-${request.id}`}>
+                    <Link
+                      href={`/requests?request=${encodeURIComponent(request.id)}`}
+                      className="flex items-center gap-2 px-4 py-2 text-left hover:bg-slate-50"
+                    >
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[13px] font-semibold text-slate-900">{requestHeadline(request)}</span>
+                        <span className="block truncate text-[11.5px] text-slate-500">Ngày {formatDmy(firstDate)}</span>
+                      </span>
+                      <ChevronRight className="size-4 shrink-0 text-slate-400" />
+                    </Link>
+                  </li>
+                ))
+              )}
+            </ul>
+          ) : null
+        }
       />
+      </div>
       <Kpi
         tone="violet"
         icon={<FileSpreadsheet className="size-5" />}
@@ -507,24 +578,52 @@ export function MonthStrip({ data }: { data: MyDashboardData }) {
 export function MonthTotals({ data }: { data: MyDashboardData }) {
   const s = monthSummary(data.employee);
   const monthNo = data.monthKey.slice(5, 7).replace(/^0/, '');
-  const tiles: { label: string; value: string; tone: string; icon: ReactNode }[] = [
-    { label: 'Ngày công', value: formatUnits(s.units), tone: 'bg-emerald-50 text-emerald-700', icon: <CalendarCheck className="size-4" /> },
-    { label: 'Đi trễ', value: String(s.lateDays), tone: 'bg-orange-50 text-orange-500', icon: <Clock className="size-4" /> },
-    { label: 'Thiếu công', value: formatUnits(s.absentDays), tone: 'bg-rose-50 text-rose-500', icon: <AlertTriangle className="size-4" /> },
-    { label: 'Nghỉ phép', value: formatUnits(s.leaveDays), tone: 'bg-violet-50 text-violet-600', icon: <CalendarDays className="size-4" /> },
+  const tiles: { label: string; key: MyKpiKey; value: string; tone: string; icon: ReactNode }[] = [
+    { label: 'Ngày công', key: 'units', value: formatUnits(s.units), tone: 'bg-emerald-50 text-emerald-700', icon: <CalendarCheck className="size-4" /> },
+    { label: 'Đi trễ', key: 'late', value: String(s.lateDays), tone: 'bg-orange-50 text-orange-500', icon: <Clock className="size-4" /> },
+    { label: 'Thiếu công', key: 'absent', value: formatUnits(s.absentDays), tone: 'bg-rose-50 text-rose-500', icon: <AlertTriangle className="size-4" /> },
+    { label: 'Nghỉ phép', key: 'leave', value: formatUnits(s.leaveDays), tone: 'bg-violet-50 text-violet-600', icon: <CalendarDays className="size-4" /> },
   ];
+  const [openKey, setOpenKey] = useState<MyKpiKey | null>(null);
+  const items = useMemo(
+    () =>
+      openKey && data.employee
+        ? myKpiDays(data.employee, openKey).map(({ date, value }) => ({
+            id: date,
+            title: `${weekdayVn(date)}, ${formatDmy(date)}`,
+            trailing: value,
+          }))
+        : [],
+    [openKey, data.employee],
+  );
   return (
     <section aria-label="Tổng công tháng" className={`${CARD} p-5`}>
       <CardTitle href="/my-work">Tổng công tháng {monthNo}</CardTitle>
       <div className="grid grid-cols-2 gap-2.5">
         {tiles.map((t) => (
-          <div key={t.label} className={`rounded-xl px-3 py-2.5 text-center ${t.tone}`} data-testid={`total-${t.label}`}>
+          <button
+            key={t.label}
+            type="button"
+            onClick={() => setOpenKey(t.key)}
+            aria-label={`Xem các ngày: ${t.label}`}
+            className={`cursor-pointer rounded-xl px-3 py-2.5 text-center transition hover:ring-2 hover:ring-blue-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${t.tone}`}
+            data-testid={`total-${t.label}`}
+          >
             <div className="flex justify-center">{t.icon}</div>
             <p className="mt-0.5 text-[20px] font-extrabold leading-tight">{data.loading ? '…' : t.value}</p>
             <p className="text-[11px] font-medium opacity-80">{t.label}</p>
-          </div>
+          </button>
         ))}
       </div>
+      <KpiListSheet
+        open={openKey !== null}
+        onOpenChange={(open) => !open && setOpenKey(null)}
+        title={openKey ? MY_KPI_TITLE[openKey] : ''}
+        description={`Các ngày được tính trong tổng công tháng ${monthNo}.`}
+        items={items}
+        action={{ label: 'Mở bảng công của tôi', href: '/my-work' }}
+        emptyText="Không có ngày nào trong tháng này."
+      />
     </section>
   );
 }

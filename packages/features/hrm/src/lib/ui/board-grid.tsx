@@ -9,15 +9,11 @@ import { formatDateVn, formatMinutes, weekdayVn } from '../hrm-timesheet-format'
 import { employeeInitials } from '../hrm-employee-view';
 import { EmployeeAvatar } from './employee-list-parts';
 import {
-  BOX_TONE_CLASS,
   compactTotals,
-  dayLetters,
   gridCellView,
   isFutureDay,
   isLateOrEarly,
-  textOnlyClass,
 } from './my-timesheet-format';
-import { LetterBadge } from './my-timesheet-calendar';
 import { RowMenu } from './row-menu';
 import {
   boardDayTooltip,
@@ -257,7 +253,6 @@ export function BoardGrid({
                   const future = isFutureDay(day, today);
                   const view = gridCellView(day, today);
                   const late = isLateOrEarly(day);
-                  const letters = dayLetters(day).filter((l) => l.kind !== 'ABSENT');
                   return (
                     <td key={c.date} className={`border-b border-slate-100 p-0 ${columnTint}`}>
                       <button
@@ -268,23 +263,13 @@ export function BoardGrid({
                         aria-label={`Chi tiết ngày ${formatDateVn(c.date)} của ${emp.employeeName}: ${boardStatusLabel(day.status)}`}
                         title={boardDayTooltip(day)}
                         onClick={() => onSelectDay(emp.employeeId, c.date)}
-                        className={`relative flex h-10 w-full cursor-pointer items-center justify-center text-[11px] leading-none hover:bg-blue-100/60 ${
-                          letters.length > 0 ? 'pb-3' : ''
-                        }`}
+                        className="relative flex h-10 w-full cursor-pointer items-center justify-center text-[11px] leading-none hover:bg-blue-100/60"
                       >
                         {view.type === 'units' && (
                           <span
                             data-testid="cell-units"
                             data-tone={view.tone}
                             className={`font-mono text-[11px] font-bold ${view.tone === 'bad' ? 'text-red-600' : 'text-emerald-600'}`}
-                          >
-                            {view.text}
-                          </span>
-                        )}
-                        {view.type === 'box' && (
-                          <span
-                            data-testid="cell-box"
-                            className={`flex h-[22px] min-w-[22px] items-center justify-center rounded px-1 text-[10px] font-bold ${textOnlyClass(BOX_TONE_CLASS[view.tone])}`}
                           >
                             {view.text}
                           </span>
@@ -301,19 +286,6 @@ export function BoardGrid({
                               {view.text}
                             </span>
                           ))}
-                        {letters.length > 0 && (
-                          <span
-                            data-testid="cell-has-requests"
-                            className="absolute inset-x-0 bottom-[2px] flex justify-center gap-px"
-                          >
-                            {letters.slice(0, 2).map((l) => (
-                              <LetterBadge key={l.kind} letter={l} />
-                            ))}
-                            {letters.length > 2 && (
-                              <span className="text-[8px] font-bold leading-[14px] text-slate-500">+{letters.length - 2}</span>
-                            )}
-                          </span>
-                        )}
                       </button>
                     </td>
                   );

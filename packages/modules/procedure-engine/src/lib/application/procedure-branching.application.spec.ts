@@ -9,6 +9,10 @@ import type {
 import type { ProcedureActor } from '../domain/procedure-authorization.js';
 import { InMemoryProcedureStore } from '../infrastructure/in-memory-procedure-store.js';
 import type { DirectManagerChain, DirectManagerResolver } from './direct-manager.port.js';
+import {
+  procedureStepOrganizationAssignments,
+  procedureStepRecipientUserIds,
+} from '../infrastructure/procedure-notification-events.js';
 import { ProcedureEngineApplication } from './procedure-engine.application.js';
 import type { ProcedureClock, ProcedureIdGenerator } from './procedure-store.port.js';
 
@@ -796,6 +800,109 @@ describe('Người duyệt: quản lý trực tiếp của người khởi tạo
     const manager = person('tp-kd', { positionIds: ['pos-tp'] });
     const view = (await application.getWorkspace(manager)).instances.find((item) => item.id === atApproval.id);
     expect(view?.authorization?.availableActions).toContain('approve');
+  });
+
+  it('có cả quản lý và người dự phòng: cả hai cùng được giao, cùng được báo và cùng duyệt được', async () => {
+    const managers = new FakeManagers();
+    managers.result = {
+      chain: [{ positionId: 'pos-tp', positionName: 'Trưởng phòng', holderUserIds: ['tp-kd'] }],
+    };
+    const { application, atApproval } = await reachApproval(managers);
+    const step = approvalStep(atApproval);
+    expect(step?.assignments.map((item) => [item.subjectType, item.subjectId])).toEqual([
+      ['position', 'pos-tp'],
+      ['user', 'du-phong'],
+    ]);
+    // Bản người dự phòng đi kèm bản quản lý; nhật ký ghi rõ bản nào là dự phòng.
+    expect(step?.assignments[1].fallbackOfAssignmentId).toBe(step?.assignments[0].id);
+    expect(step?.resolutions?.map((item) => item.usedFallback)).toEqual([false, true]);
+    // Người dự phòng là người cụ thể nên được báo trực tiếp; chức danh quản lý được báo qua sơ đồ tổ chức.
+    expect(procedureStepRecipientUserIds(atApproval)).toContain('du-phong');
+    expect(procedureStepOrganizationAssignments(atApproval)).toEqual([
+      { subjectType: 'position', subjectId: 'pos-tp', role: 'A' },
+    ]);
+
+    const manager = person('tp-kd', { positionIds: ['pos-tp'] });
+    const backup = person('du-phong');
+    const viewOf = async (actor: ProcedureActor) =>
+      (await application.getWorkspace(actor)).instances.find((item) => item.id === atApproval.id);
+    expect((await viewOf(manager))?.authorization?.availableActions).toContain('approve');
+    expect((await viewOf(backup))?.authorization?.availableActions).toContain('approve');
+    // Người ngoài hai nhóm này không duyệt được.
+    expect((await viewOf(person('nguoi-la')))?.authorization?.availableActions ?? []).not.toContain('approve');
+  });
+
+  it('người dự phòng trùng đúng chức danh quản lý thì chỉ có một assignment', async () => {
+    const managers = new FakeManagers();
+    managers.result = {
+      chain: [{ positionId: 'pos-tp', positionName: 'Trưởng phòng', holderUserIds: ['tp-kd'] }],
+    };
+    const { application } = setup(managers);
+    const input = managerInput();
+    const definition = await publish(application, {
+      ...input,
+      code: 'DE-NGHI-TRUNG',
+      steps: input.steps.map((step) =>
+        step.key === 'DUYET'
+          ? {
+              ...step,
+              assignments: step.assignments.map((item) => ({
+                ...item,
+                managerFallback: { subjectType: 'position' as const, subjectId: 'pos-tp' },
+              })),
+            }
+          : step,
+      ),
+    });
+    const started = await application.startInstance(sales, {
+      definitionId: definition.id,
+      title: 'Trùng',
+      idempotencyKey: 'start-dup',
+    });
+    const atApproval = await application.applyAction(sales, started.id, { action: 'complete', idempotencyKey: 'lap-dup' });
+    expect(approvalStep(atApproval)?.assignments).toHaveLength(1);
+  });
+
+  it('trả lại rồi duyệt lại: phân giải lại không nhân đôi bản người dự phòng', async () => {
+    const managers = new FakeManagers();
+    managers.result = {
+      chain: [{ positionId: 'pos-tp', positionName: 'Trưởng phòng', holderUserIds: ['tp-kd'] }],
+    };
+    const { application, atApproval } = await reachApproval(managers);
+    const manager = person('tp-kd', { positionIds: ['pos-tp'] });
+    const returned = await application.applyAction(manager, atApproval.id, {
+      action: 'return',
+      returnToStepId: atApproval.steps.find((step) => step.key === 'LAP')?.id,
+      idempotencyKey: 'tra-lai',
+    });
+    expect(returned.steps.find((step) => step.key === 'LAP')?.status).not.toBe('completed');
+    const again = await application.applyAction(sales, atApproval.id, { action: 'complete', idempotencyKey: 'lap-lai' });
+    expect(approvalStep(again)?.assignments.map((item) => item.subjectId)).toEqual(['pos-tp', 'du-phong']);
+  });
+
+  it('vai R: người dự phòng chỉ thay khi không có quản lý (R là "tất cả phải làm")', async () => {
+    const managers = new FakeManagers();
+    managers.result = {
+      chain: [{ positionId: 'pos-tp', positionName: 'Trưởng phòng', holderUserIds: ['tp-kd'] }],
+    };
+    const { application } = setup(managers);
+    const input = managerInput();
+    const definition = await publish(application, {
+      ...input,
+      code: 'DE-NGHI-R',
+      steps: input.steps.map((step) =>
+        step.key === 'DUYET'
+          ? { ...step, assignments: step.assignments.map((item) => ({ ...item, role: 'R' as const })) }
+          : step,
+      ),
+    });
+    const started = await application.startInstance(sales, {
+      definitionId: definition.id,
+      title: 'Vai R',
+      idempotencyKey: 'start-r',
+    });
+    const atReview = await application.applyAction(sales, started.id, { action: 'complete', idempotencyKey: 'lap-r' });
+    expect(approvalStep(atReview)?.assignments.map((item) => item.subjectId)).toEqual(['pos-tp']);
   });
 
   it('chức danh trống thì leo tiếp lên cấp trên', async () => {

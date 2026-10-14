@@ -15,12 +15,10 @@ import {
 import {
   ABSENT_LETTER,
   calendarWeeks,
-  dayCoefficient,
   textOnlyClass,
-  dayLetters,
   isFutureDay,
   isLateOrEarly,
-  myCellText,
+  monthCellNumber,
   REQUEST_LETTERS,
   type DayLetter,
 } from './my-timesheet-format';
@@ -137,21 +135,8 @@ export function MyTimesheetCalendar({
                   );
                 }
                 const future = isFutureDay(day, today);
-                const letters = dayLetters(day);
                 const late = isLateOrEarly(day);
-                const text = myCellText(day, today);
-                const sub = late
-                  ? [
-                      day.lateMinutes > 0 ? `Trễ ${day.lateMinutes}p` : '',
-                      day.earlyLeaveMinutes > 0 ? `Sớm ${day.earlyLeaveMinutes}p` : '',
-                    ]
-                      .filter(Boolean)
-                      .join(' ')
-                  : day.status === 'ABNORMAL'
-                    ? 'Bất thường'
-                    : future && day.kind === 'NO_SCHEDULE'
-                      ? 'Chưa có ca'
-                      : '';
+                const cell = monthCellNumber(day, today);
                 return (
                   <td key={date}>
                     <button
@@ -159,9 +144,7 @@ export function MyTimesheetCalendar({
                       data-testid={`my-cell-${date}`}
                       data-late={late ? 'true' : undefined}
                       data-future={future ? 'true' : undefined}
-                      aria-label={`Chi tiết ngày ${formatDateVn(date)}: ${boardStatusLabel(day.status)}${
-                        letters.length ? `, có ${letters.length} ký hiệu đơn từ` : ''
-                      }`}
+                      aria-label={`Chi tiết ngày ${formatDateVn(date)}: ${boardStatusLabel(day.status)}, công ${cell.text}`}
                       title={boardDayTooltip(day)}
                       onClick={() => onSelect(date)}
                       className={`relative flex h-[52px] w-full cursor-pointer flex-col items-center justify-center rounded-md border px-0.5 text-center leading-none transition hover:ring-2 hover:ring-blue-400 ${cellClass(
@@ -174,25 +157,13 @@ export function MyTimesheetCalendar({
                       <span className="absolute left-1 top-0.5 text-[9px] font-semibold text-slate-500">
                         {formatDayNumber(date)}
                       </span>
-                      {letters.length > 0 && (
-                        <span className="absolute right-0.5 top-0.5 flex max-w-[70%] flex-wrap justify-end gap-px">
-                          {letters.map((l) => (
-                            <LetterBadge key={l.kind} letter={l} />
-                          ))}
-                        </span>
-                      )}
                       <span
                         className={`mt-2 text-[15px] font-bold ${
-                          !future && /^[0-9.]+$/.test(text) && day.status !== 'HOLIDAY'
-                            ? dayCoefficient(day).tone === 'bad'
-                              ? 'text-red-600'
-                              : 'text-emerald-700'
-                            : ''
+                          cell.tone === 'bad' ? 'text-red-600' : cell.tone === 'ok' ? 'text-emerald-700' : 'text-slate-500'
                         }`}
                       >
-                        {text}
+                        {cell.text}
                       </span>
-                      {sub && <span className="mt-0.5 text-[8px] font-semibold">{sub}</span>}
                     </button>
                   </td>
                 );
@@ -202,5 +173,28 @@ export function MyTimesheetCalendar({
         </tbody>
       </table>
     </div>
+  );
+}
+
+/** Chú thích số công của ô lịch tháng (ngăn kéo bảng công): chỉ giải thích các con số và màu. */
+export function MonthNumberLegend() {
+  const items = [
+    { text: '1', tone: 'text-emerald-700', label: 'Công chuẩn' },
+    { text: '1P', tone: 'text-emerald-700', label: 'Có đơn phép tính lương' },
+    { text: '1L', tone: 'text-emerald-700', label: 'Ngày lễ' },
+    { text: '1CT', tone: 'text-emerald-700', label: 'Công tác' },
+    { text: '0', tone: 'text-emerald-700', label: 'Phép không lương' },
+    { text: '0', tone: 'text-red-600', label: 'Thiếu dữ liệu chấm công' },
+    { text: '0.xx', tone: 'text-red-600', label: 'Đi trễ, về sớm hoặc thiếu công' },
+  ];
+  return (
+    <ul aria-label="Chú thích số công" className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-600">
+      {items.map((item) => (
+        <li key={item.label} className="flex items-center gap-1.5">
+          <span className={`min-w-6 font-mono text-[13px] font-bold ${item.tone}`}>{item.text}</span>
+          <span>{item.label}</span>
+        </li>
+      ))}
+    </ul>
   );
 }

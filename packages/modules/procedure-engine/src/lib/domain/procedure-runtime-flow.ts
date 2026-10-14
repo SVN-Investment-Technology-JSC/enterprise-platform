@@ -164,12 +164,18 @@ export interface ProcedureManagerContext {
   readonly chain: readonly ProcedureManagerChainLink[];
 }
 
+/** Vai duyệt kiểu "một người trong nhóm là đủ": quản lý trực tiếp và người dự phòng cùng được giao, ai duyệt cũng được. */
+const ANY_ONE_ROLES: readonly ProcedureRaciRole[] = ['A', 'C', 'I'];
+
 /**
  * Thay các assignment `initiator_manager` của bước bằng chủ thể cụ thể.
  *
  * Chạy lúc bước được KÍCH HOẠT, không phải lúc mở hồ sơ: tổ chức có thể đổi
  * trong lúc hồ sơ chạy, và người duyệt phải là người đang giữ chức danh khi tới
  * lượt. Bản gốc được cất ở `dynamicAssignments` để trả về thì phân giải lại.
+ *
+ * Quản lý trực tiếp VÀ người dự phòng cùng được giao ở các vai duyệt (A, C) và nhận thông tin (I): cả hai đều được
+ * báo và đều duyệt được. Vai R/E là "tất cả phải làm" nên người dự phòng chỉ thay thế khi không có quản lý, như trước.
  */
 export function resolveDynamicAssignments(
   instance: ProcedureInstance,
@@ -181,7 +187,12 @@ export function resolveDynamicAssignments(
   if (!originals.length) return;
   step.dynamicAssignments = originals.map((item) => structuredClone(item));
 
-  const resolved = new Map<string, { assignment: ProcedureRaciAssignment; log: ProcedureAssignmentResolution }>();
+  const chain = (managers?.chain ?? []).map((item) => ({
+    positionId: item.positionId,
+    positionName: item.positionName,
+    holderCount: item.holderUserIds.length,
+  }));
+  const resolved = new Map<string, { assignments: ProcedureRaciAssignment[]; logs: ProcedureAssignmentResolution[] }>();
   for (const original of originals) {
     // Chức danh trống thì leo tiếp; chức danh mà người giữ duy nhất chính là
     // người khởi tạo cũng leo tiếp — không ai tự duyệt đơn của mình (chờ chốt Q6b).
@@ -190,54 +201,70 @@ export function resolveDynamicAssignments(
         candidate.holderUserIds.length > 0 &&
         candidate.holderUserIds.some((userId) => userId !== instance.initiatedBy),
     );
-    const target = link
+    const manager = link
       ? { subjectType: 'position' as const, subjectId: link.positionId, label: link.positionName }
-      : original.managerFallback
-        ? {
-            subjectType: original.managerFallback.subjectType,
-            subjectId: original.managerFallback.subjectId,
-            label: original.managerFallback.subjectLabel,
-          }
-        : undefined;
-    if (!target) {
+      : undefined;
+    const fallback = original.managerFallback
+      ? {
+          subjectType: original.managerFallback.subjectType,
+          subjectId: original.managerFallback.subjectId,
+          label: original.managerFallback.subjectLabel,
+        }
+      : undefined;
+    if (!manager && !fallback) {
       throw new ProcedureEngineError(
         'conflict',
         `Bước “${step.name}” không tìm được quản lý trực tiếp của người khởi tạo và chưa cấu hình người dự phòng.`,
       );
     }
-    resolved.set(original.id, {
-      assignment: {
+    // Có quản lý thì quản lý đi trước; người dự phòng đi kèm ở vai "một người là đủ" (nếu khác quản lý),
+    // còn lại chỉ dùng người dự phòng khi không có quản lý.
+    const targets: { target: NonNullable<typeof manager | typeof fallback>; isFallback: boolean }[] = [];
+    if (manager) targets.push({ target: manager, isFallback: false });
+    if (fallback && (!manager || ANY_ONE_ROLES.includes(original.role))) {
+      const duplicate = targets.some(
+        ({ target }) => target.subjectType === fallback.subjectType && target.subjectId === fallback.subjectId,
+      );
+      if (!duplicate) targets.push({ target: fallback, isFallback: true });
+    }
+    const assignments: ProcedureRaciAssignment[] = [];
+    const logs: ProcedureAssignmentResolution[] = [];
+    targets.forEach(({ target, isFallback }, index) => {
+      const id = index === 0 ? original.id : `${original.id}:fallback`;
+      assignments.push({
         ...original,
+        id,
         subjectType: target.subjectType,
         subjectId: target.subjectId,
         subjectLabel: target.label,
         managerFallback: undefined,
-      },
-      log: {
-        assignmentId: original.id,
+        ...(index === 0 ? {} : { fallbackOfAssignmentId: original.id }),
+      });
+      logs.push({
+        assignmentId: id,
         rule: 'initiator_manager',
         initiatorPositionId: instance.initiatorPositionId,
-        chain: (managers?.chain ?? []).map((item) => ({
-          positionId: item.positionId,
-          positionName: item.positionName,
-          holderCount: item.holderUserIds.length,
-        })),
+        chain,
         resolvedTo: { subjectType: target.subjectType, subjectId: target.subjectId, label: target.label },
-        usedFallback: !link,
+        usedFallback: isFallback,
         resolvedAt: now,
-      },
+      });
     });
+    resolved.set(original.id, { assignments, logs });
   }
 
-  step.assignments = step.assignments.map((assignment) => resolved.get(assignment.id)?.assignment ?? assignment);
-  step.resolutions = [...(step.resolutions ?? []), ...[...resolved.values()].map((item) => item.log)];
+  step.assignments = step.assignments.flatMap((assignment) => resolved.get(assignment.id)?.assignments ?? [assignment]);
+  step.resolutions = [...(step.resolutions ?? []), ...[...resolved.values()].flatMap((item) => item.logs)];
 }
 
 /** Đưa bước về assignment động chưa phân giải, để lần kích hoạt sau phân giải lại. */
 export function restoreDynamicAssignments(step: ProcedureInstanceStep): void {
   if (!step.dynamicAssignments?.length) return;
   const originals = new Map(step.dynamicAssignments.map((item) => [item.id, item]));
-  step.assignments = step.assignments.map((assignment) => structuredClone(originals.get(assignment.id) ?? assignment));
+  step.assignments = step.assignments
+    // Bản người dự phòng do hệ thống sinh thêm: bỏ đi, lần phân giải sau sẽ tạo lại theo tổ chức lúc đó.
+    .filter((assignment) => !assignment.fallbackOfAssignmentId)
+    .map((assignment) => structuredClone(originals.get(assignment.id) ?? assignment));
 }
 
 export function needsManagerChain(instance: ProcedureInstance): boolean {

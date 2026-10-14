@@ -13,6 +13,7 @@ import {
   Search,
   SlidersHorizontal,
   Tag,
+  Trash2,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { HrmShiftDefinition } from '@enterprise-platform/contracts-hrm';
@@ -154,7 +155,7 @@ const formatHours = (hours: number | null) => (hours === null ? '-' : String(hou
 
 /** Lưới của một dòng ca: thẻ dọc khi hẹp, từ @3xl là năm cột thẳng hàng với dòng tiêu đề. */
 const ROW_GRID =
-  'grid grid-cols-1 items-start gap-x-3 gap-y-3 @xl:grid-cols-2 @3xl:grid-cols-[minmax(0,1.3fr)_minmax(0,1.3fr)_minmax(0,1.2fr)_minmax(0,0.8fr)_9.5rem]';
+  'grid grid-cols-1 items-start gap-x-3 gap-y-3 @xl:grid-cols-2 @3xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1.2fr)_minmax(0,1.1fr)_minmax(0,0.8fr)_17.5rem]';
 
 function Caption({ children }: { children: ReactNode }) {
   return <span className="mb-1 block text-[11px] font-medium text-slate-500 @3xl:sr-only">{children}</span>;
@@ -318,6 +319,30 @@ export default function ShiftsPage() {
     await load();
   }
 
+  async function removeShift(shift: HrmShiftDefinition) {
+    try {
+      const res = await hrmFetch<{ data: { id: string; deleted: boolean }; message?: string }>(
+        `/shifts/${shift.id}`,
+        {
+          method: 'DELETE',
+          body: JSON.stringify({ expectedUpdatedAt: shift.updatedAt }),
+        },
+      );
+      if (res.message) {
+        if (res.data?.deleted) {
+          toast.success(res.message);
+        } else {
+          toast.warning(res.message);
+        }
+      } else {
+        toast.success(`Đã xóa ca ${shift.code}.`);
+      }
+    } catch (error) {
+      toast.error(errorText(error));
+    }
+    await load();
+  }
+
   const numberField = (key: 'graceLateMinutes' | 'graceEarlyMinutes') => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm({ ...form, [key]: Number(e.target.value) || 0 });
 
@@ -473,11 +498,11 @@ export default function ShiftsPage() {
                         permission="hrm.shift.manage"
                         aria-label="Sửa"
                         title="Sửa ca"
-                        className="h-9 gap-1.5 px-3 text-xs @3xl:px-2.5"
+                        className="h-9 gap-1.5 px-3 text-xs"
                         onClick={() => openEdit(shift)}
                       >
                         <Pencil className="size-3.5" aria-hidden />
-                        <span className="@3xl:sr-only">Sửa</span>
+                        <span>Sửa</span>
                       </Button>
                       {shift.status === 'ACTIVE' ? (
                         <Popconfirm
@@ -489,15 +514,35 @@ export default function ShiftsPage() {
                           placement="top-end"
                           onConfirm={() => setStatus(shift, 'INACTIVE')}
                         >
-                          <Button variant="destructive" permission="hrm.shift.manage" className="h-9 px-3 text-xs">
+                          <Button variant="outline" permission="hrm.shift.manage" className="h-9 px-3 text-xs text-amber-700 border-amber-300 hover:bg-amber-50">
                             Ngừng dùng
                           </Button>
                         </Popconfirm>
                       ) : (
-                        <Button variant="outline" permission="hrm.shift.manage" className="h-9 px-3 text-xs" onClick={() => void setStatus(shift, 'ACTIVE')}>
+                        <Button variant="outline" permission="hrm.shift.manage" className="h-9 px-3 text-xs text-blue-700 border-blue-200 hover:bg-blue-50" onClick={() => void setStatus(shift, 'ACTIVE')}>
                           Kích hoạt lại
                         </Button>
                       )}
+                      <Popconfirm
+                        title={`Xóa ca ${shift.code}?`}
+                        description="Nếu ca chưa được phân công hoặc phát sinh dữ liệu, ca sẽ được xóa hoàn toàn khỏi danh mục. Nếu ca đã có dữ liệu, hệ thống sẽ chuyển sang Ngừng dùng."
+                        okText="Xóa ca"
+                        cancelText="Quay lại"
+                        okType="danger"
+                        placement="top-end"
+                        onConfirm={() => removeShift(shift)}
+                      >
+                        <Button
+                          variant="destructive"
+                          permission="hrm.shift.manage"
+                          aria-label="Xóa ca"
+                          title="Xóa ca"
+                          className="h-9 gap-1.5 px-3 text-xs"
+                        >
+                          <Trash2 className="size-3.5" aria-hidden />
+                          <span>Xóa</span>
+                        </Button>
+                      </Popconfirm>
                     </div>
                   </li>
                 );

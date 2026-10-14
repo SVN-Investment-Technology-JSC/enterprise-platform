@@ -1806,6 +1806,35 @@ export class ProcedureEngineApplication {
     };
   }
 
+  /**
+   * Trong các hồ sơ `instanceIds` (tối đa 100), những hồ sơ đang chạy mà người dùng này đang được giao bước hiện tại
+   * (có thể duyệt / hoàn thành / từ chối / trả lại). Dùng cùng phép phân quyền với `canAct` nên HRM đưa đúng các đơn
+   * người này xử lý được vào danh sách duyệt, kể cả khi họ là người dự phòng chứ không phải quản lý trực tiếp.
+   * Không xác định được người dùng trong sơ đồ tổ chức thì trả rỗng (không đoán).
+   */
+  async getActionableInstanceIdsForService(
+    tenantId: string,
+    actorUserId: string,
+    instanceIds: readonly string[],
+  ): Promise<string[]> {
+    const ids = [...new Set((instanceIds ?? []).filter((id) => typeof id === 'string' && id.trim()))];
+    if (!actorUserId?.trim()) return [];
+    if (ids.length > 100) throw new ProcedureEngineError('validation', 'Tối đa 100 mã hồ sơ mỗi lần.');
+    if (!ids.length || !this.initiatorActors) return [];
+    const actor = await this.initiatorActors.resolve(tenantId, actorUserId.trim());
+    if (!actor) return [];
+    const wanted = new Set(ids);
+    const state = await this.store.read(tenantId);
+    return state.instances
+      .filter((item) => wanted.has(item.id) && item.status === 'running')
+      .filter((item) =>
+        deriveProcedureAuthorization(item, actor).availableActions.some((action) =>
+          ['complete', 'approve', 'reject', 'return'].includes(action),
+        ),
+      )
+      .map((item) => item.id);
+  }
+
   /** Đối soát: trạng thái và bước hiện tại của tối đa 100 hồ sơ; id không tồn tại bị bỏ qua. */
   async getInstanceStatusesForService(
     tenantId: string,

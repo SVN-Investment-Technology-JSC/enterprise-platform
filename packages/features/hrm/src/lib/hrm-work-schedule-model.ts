@@ -175,8 +175,6 @@ export interface PatternRow {
   weekday: number;
   dayType: PatternDayType;
   shiftId: string | null;
-  /** Chỉ có nghĩa khi dayType = SHIFT: tới ngày tự sinh chấm công theo ca. */
-  autoAttendance?: boolean;
 }
 
 /** 7 dòng, mặc định SKIP (không đụng tới ngày đó). */
@@ -194,7 +192,6 @@ export function patternFromRules(
     if (row) {
       row.dayType = rule.dayType;
       row.shiftId = rule.dayType === 'SHIFT' ? (rule.shiftId ?? null) : null;
-      row.autoAttendance = rule.dayType === 'SHIFT' && rule.autoAttendance === true;
     }
   }
   return base;
@@ -203,7 +200,7 @@ export function patternFromRules(
 export function setPatternDay(
   pattern: readonly PatternRow[],
   weekday: number,
-  value: { dayType: PatternDayType; shiftId?: string | null; autoAttendance?: boolean },
+  value: { dayType: PatternDayType; shiftId?: string | null },
 ): PatternRow[] {
   return pattern.map((row) =>
     row.weekday === weekday
@@ -211,7 +208,6 @@ export function setPatternDay(
           weekday,
           dayType: value.dayType,
           shiftId: value.dayType === 'SHIFT' ? (value.shiftId ?? null) : null,
-          autoAttendance: value.dayType === 'SHIFT' && (value.autoAttendance ?? row.autoAttendance) === true,
         }
       : row,
   );
@@ -226,12 +222,7 @@ export function applyShortcut(
   return pattern.map((row) => {
     if (!weekdays.includes(row.weekday)) return row;
     if (choice.kind === 'SHIFT')
-      return {
-        weekday: row.weekday,
-        dayType: 'SHIFT',
-        shiftId: choice.shiftId,
-        ...(row.autoAttendance ? { autoAttendance: true } : {}),
-      };
+      return { weekday: row.weekday, dayType: 'SHIFT', shiftId: choice.shiftId };
     return { weekday: row.weekday, dayType: choice.kind, shiftId: null };
   });
 }
@@ -272,7 +263,6 @@ export function patternToRules(pattern: readonly PatternRow[]): HrmWeekdayRule[]
     weekday: row.weekday,
     dayType: row.dayType,
     shiftId: row.dayType === 'SHIFT' ? row.shiftId : null,
-    ...(row.dayType === 'SHIFT' && row.autoAttendance ? { autoAttendance: true } : {}),
   }));
 }
 

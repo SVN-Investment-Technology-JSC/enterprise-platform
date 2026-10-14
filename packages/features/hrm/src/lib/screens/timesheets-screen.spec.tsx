@@ -629,7 +629,7 @@ describe('TimesheetsScreen: liên kết đơn từ, chốt công có chi tiết,
 });
 
 describe('TimesheetsScreen: mọi đơn từ dính tới ngày hiển thị ở ô công', () => {
-  it('ô có đơn có chấm xanh; drawer liệt kê cả đơn chờ duyệt và bị từ chối kèm trạng thái, link mở đơn', async () => {
+  it('ô công thuần số; drawer liệt kê cả đơn chờ duyệt và bị từ chối kèm trạng thái, link mở đơn', async () => {
     const board = makeBoard('OPEN', true);
     (board.employees[0].days as Record<string, HrmBoardDay>)[d(2)] = baseDay(d(2), {
       requests: [
@@ -642,11 +642,8 @@ describe('TimesheetsScreen: mọi đơn từ dính tới ngày hiển thị ở 
     mockApi(board);
     render(<TimesheetsScreen />);
     const cell = await screen.findByTestId(`board-cell-e1-${d(2)}`);
-    const badges = within(within(cell).getByTestId('cell-has-requests'));
-    // Hai ký hiệu đầu theo thứ tự cố định: P (nghỉ phép) rồi TC (tăng ca); phần còn lại gom thành +n.
-    expect(badges.getByTestId('request-letter-LEAVE').textContent).toBe('P');
-    expect(badges.getByTestId('request-letter-OT').textContent).toBe('TC');
-    expect(within(screen.getByTestId(`board-cell-e1-${d(3)}`)).queryByTestId('cell-has-requests')).toBeNull();
+    // Ô công thuần số: không còn ký hiệu chữ của đơn từ; đơn từ xem trong drawer ngày.
+    expect(within(cell).queryByTestId('cell-has-requests')).toBeNull();
     fireEvent.click(cell);
     const list = await screen.findByTestId('day-sources');
     expect(list.textContent).toContain('Đơn làm thêm giờ: Theo công việc - 2 giờ đã duyệt');

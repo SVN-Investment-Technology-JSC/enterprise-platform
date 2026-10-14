@@ -243,6 +243,23 @@ export class ProcedureEngineController {
     );
   }
 
+  /** HRM hỏi: trong các hồ sơ này, người dùng này đang xử lý được hồ sơ nào (tối đa 100 mã). */
+  @Post('internal/instances/actionable')
+  @HttpCode(200)
+  internalActionableInstances(
+    @Req() request: any,
+    @Body() input: { actorUserId?: string; ids?: string[] },
+  ) {
+    const tenantId = this.internalTenant(request);
+    return this.execute(async () => ({
+      instanceIds: await this.procedures.getActionableInstanceIdsForService(
+        tenantId,
+        input?.actorUserId ?? '',
+        input?.ids ?? [],
+      ),
+    }));
+  }
+
   @Post('instances/:instanceId/actions')
   @HttpCode(200)
   applyAction(

@@ -195,6 +195,11 @@ function build(init: Partial<World> = {}, granted = ['hrm.read', 'hrm.leave.read
       });
       return [type];
     }
+    if (q.startsWith('UPDATE hrm_schema.leave_types SET deleted_at')) {
+      const type = typeById(params[1]);
+      if (type) Object.assign(type, { deleted_at: new Date(), active: false });
+      return [];
+    }
     if (q.startsWith('INSERT INTO hrm_schema.leave_types'))
       return [
         leaveType(`00000000-0000-4000-8000-00000000ff${++seq}`.slice(0, 36), {
@@ -205,6 +210,7 @@ function build(init: Partial<World> = {}, granted = ['hrm.read', 'hrm.leave.read
     if (q.includes('SELECT id,code,name FROM hrm_schema.leave_types')) return [];
     if (q.startsWith('SELECT id FROM hrm_schema.leave_requests'))
       return world.typesWithRequests.includes(params[1] as string) ? [{ id: 'r1' }] : [];
+    if (q.startsWith('SELECT 1 FROM hrm_schema.leave_balances WHERE tenant_id=$1 AND leave_type_id=$2')) return [];
     if (q.startsWith('SELECT * FROM hrm_schema.leave_accrual_schedules WHERE tenant_id=$1 AND leave_type_id=$2 ORDER BY effective_from DESC'))
       return copy(
         world.schedules
