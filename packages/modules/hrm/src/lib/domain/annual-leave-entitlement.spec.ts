@@ -2,6 +2,7 @@ import {
   addMonths,
   countsMonth,
   lastWorkingDayFromInactive,
+  expandSeniorityCycle,
   monthlyEntitlement,
   seniorityTierForMonth,
   sumEntitlement,
@@ -117,5 +118,60 @@ describe('annual leave entitlement', () => {
       ]),
     ).toThrow('trùng');
     expect(() => validateSeniorityTiers([{ minYears: 0, bonusDays: 1 }])).toThrow();
+  });
+
+  describe('một mốc là chu kỳ lặp lại', () => {
+    const cycle = [{ minYears: 5, bonusDays: 1 }];
+
+    it('mở rộng (N, M) thành N+M, 2N+2M, 3N+3M... đến 60 năm', () => {
+      const expanded = expandSeniorityCycle(cycle);
+      expect(expanded.slice(0, 3)).toEqual([
+        { minYears: 5, bonusDays: 1 },
+        { minYears: 10, bonusDays: 2 },
+        { minYears: 15, bonusDays: 3 },
+      ]);
+      expect(expanded).toHaveLength(12);
+      expect(expanded.at(-1)).toEqual({ minYears: 60, bonusDays: 12 });
+    });
+
+    it('nhiều mốc (dữ liệu cũ) giữ nguyên như đã khai báo', () => {
+      const tiers = [
+        { minYears: 5, bonusDays: 1 },
+        { minYears: 8, bonusDays: 3 },
+      ];
+      expect(expandSeniorityCycle(tiers)).toBe(tiers);
+      expect(expandSeniorityCycle([])).toEqual([]);
+    });
+
+    it('ví dụ 5 năm +1: đủ 5 năm +1, đủ 10 năm +1 nữa, đầu năm thứ 11 có 12 + 2 = 14 ngày', () => {
+      const p = policy({ tiers: cycle });
+      // Ký 2015-03-15: đủ 5 năm ngày 2020-03-15, đủ 10 năm ngày 2025-03-15.
+      const sign = '2015-03-15';
+      const total = (year: number) => {
+        const t = sumEntitlement(monthlyEntitlement(p, sign, year));
+        return { base: t.base, seniority: t.seniority, total: t.total };
+      };
+      // Năm đạt mốc 5 năm: tháng 3 thêm +1.
+      expect(total(2020).seniority).toBe(1);
+      // Năm sau đó đã đủ +1 ngay từ tháng 1.
+      expect(total(2021).seniority).toBe(1);
+      expect(total(2024).seniority).toBe(1);
+      // Năm đạt mốc 10 năm: +1 từ đầu năm rồi +1 nữa vào tháng đủ 10 năm = +2 trong năm.
+      const reached = monthlyEntitlement(p, sign, 2025);
+      expect(reached[1].seniority).toBe(0); // tháng 2: chưa đủ 10 năm, vẫn mốc 5 năm (đã +1 ở tháng 1)
+      expect(reached[2].seniority).toBe(1); // tháng 3: đủ đúng ngày 15/03 -> +1 nữa
+      expect(sumEntitlement(reached).seniority).toBe(2);
+      // Đầu năm thứ 11: đủ +2 ngay tháng 1, tổng 12 + 2 = 14 ngày.
+      const next = monthlyEntitlement(p, sign, 2026);
+      expect(next[0].seniority).toBe(2);
+      expect(sumEntitlement(next).total).toBe(14);
+      expect(sumEntitlement(monthlyEntitlement(p, sign, 2030)).seniority).toBe(3);
+    });
+
+    it('chưa đủ chu kỳ đầu thì không có phép thâm niên', () => {
+      const months = monthlyEntitlement(policy({ tiers: cycle }), '2024-01-01', 2026);
+      expect(sumEntitlement(months).seniority).toBe(0);
+      expect(seniorityTierForMonth('2024-01-01', 2026, 6, cycle)).toBeNull();
+    });
   });
 });

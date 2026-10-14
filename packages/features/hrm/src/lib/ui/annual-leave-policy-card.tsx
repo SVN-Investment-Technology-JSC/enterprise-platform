@@ -68,7 +68,7 @@ function toForm(data: AnnualLeavePolicyResponse | null): PolicyForm {
     annualDays: String(policy?.annualDays ?? 12),
     startOffsetMonths: String(policy?.startOffsetMonths ?? 0),
     advanceAllowed: policy?.advanceAllowed ?? false,
-    // Phép thâm niên chỉ có MỘT mốc (dòng trống = không áp dụng).
+    // Phép thâm niên chỉ có MỘT chu kỳ lặp lại (dòng trống = không áp dụng).
     tiers: policy
       ? policy.seniorityTiers.slice(0, 1).map((t) => ({
           minYears: String(t.minYears),
@@ -152,7 +152,7 @@ export function buildPolicySummary(form: PolicyForm): PolicySummary {
     .sort((a, b) => a.minYears - b.minYears);
   let seniority = 'Không có';
   if (tiers.length === 1) {
-    seniority = `+${tiers[0].bonusDays} ngày mỗi năm từ đủ ${tiers[0].minYears} năm`;
+    seniority = `Mỗi ${tiers[0].minYears} năm +${tiers[0].bonusDays} ngày`;
   } else if (tiers.length > 1) {
     const shown = tiers
       .slice(0, 3)
@@ -584,8 +584,8 @@ export function AnnualLeavePolicyCard({
               />
               <div className="overflow-hidden rounded-lg border border-slate-200">
                 <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-3 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600">
-                  <span>Thâm niên từ đủ (năm)</span>
-                  <span>Phép cộng thêm / năm</span>
+                  <span>Chu kỳ thâm niên (năm)</span>
+                  <span>Phép cộng thêm mỗi chu kỳ (ngày)</span>
                 </div>
                 {(form.tiers.length ? form.tiers.slice(0, 1) : [{ minYears: '', bonusDays: '' }]).map(
                   (tier) => (
@@ -599,7 +599,7 @@ export function AnnualLeavePolicyCard({
                           min={1}
                           max={60}
                           step="1"
-                          aria-label="Số năm mốc 1"
+                          aria-label="Chu kỳ thâm niên"
                           className="h-9 pr-12 text-xs"
                           disabled={!editable}
                           value={tier.minYears}
@@ -619,7 +619,7 @@ export function AnnualLeavePolicyCard({
                           min={0}
                           max={100}
                           step="0.5"
-                          aria-label="Số ngày mốc 1"
+                          aria-label="Phép cộng thêm mỗi chu kỳ"
                           className="h-9 pr-14 text-xs"
                           disabled={!editable}
                           value={tier.bonusDays}
@@ -643,9 +643,10 @@ export function AnnualLeavePolicyCard({
               >
                 <Info className="mt-0.5 size-3.5 shrink-0 text-slate-500" />
                 <span>
-                  Chỉ có một mốc: đạt N năm kể từ ngày căn cứ thì được thêm M
-                  ngày phép mỗi năm. Để trống cả hai ô nếu không áp dụng phép
-                  thâm niên.
+                  Cứ đủ mỗi chu kỳ N năm kể từ ngày căn cứ thì được cộng thêm M
+                  ngày phép mỗi năm, lặp lại theo chu kỳ (ví dụ 5 năm +1: đủ 5
+                  năm +1, đủ 10 năm +2, đủ 15 năm +3). Để trống cả hai ô nếu
+                  không áp dụng phép thâm niên.
                 </span>
               </p>
             </section>
