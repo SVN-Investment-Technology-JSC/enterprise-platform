@@ -43,7 +43,7 @@ export default async function TenantEntitlementsPage({
     headers: { cookie: cookieHeader },
     cache: 'no-store',
   });
-  if (!meResponse.ok) redirect('/admin');
+  if (!meResponse.ok) redirect('/login/admin');
 
   const principal = (await meResponse.json()) as AuthenticatedPrincipal;
   if (principal.kind !== 'platform-admin')
