@@ -337,12 +337,13 @@ export async function listVouchers(
   const joined = `FROM finance_schema.vouchers v LEFT JOIN finance_schema.reasons r ON r.id = v.reason_id`;
 
   const statusCounts = Object.fromEntries(FINANCE_VOUCHER_STATUSES.map((s) => [s, 0])) as Record<FinanceVoucherStatus, number>;
-  const counts = (await db.query(`SELECT v.status, count(*)::int AS n, COALESCE(SUM(v.total_amount) FILTER (WHERE v.status='APPROVED'),0) AS approved_total ${joined} WHERE ${base} GROUP BY v.status`, params)).rows as Row[];
-  let approvedTotal = 0;
+  const statusAmounts = Object.fromEntries(FINANCE_VOUCHER_STATUSES.map((s) => [s, 0])) as Record<FinanceVoucherStatus, number>;
+  const counts = (await db.query(`SELECT v.status, count(*)::int AS n, COALESCE(SUM(v.total_amount),0) AS amount ${joined} WHERE ${base} GROUP BY v.status`, params)).rows as Row[];
   for (const row of counts) {
     statusCounts[row.status as FinanceVoucherStatus] = num(row.n);
-    approvedTotal += num(row.approved_total);
+    statusAmounts[row.status as FinanceVoucherStatus] = num(row.amount);
   }
+  const approvedTotal = statusAmounts.APPROVED;
 
   if (query.status) {
     if (!FINANCE_VOUCHER_STATUSES.includes(query.status)) throw invalid('Trạng thái không hợp lệ.');
@@ -362,5 +363,5 @@ export async function listVouchers(
       params,
     )
   ).rows as Row[];
-  return { items: rows.map(mapSummary), total, page, pageSize, statusCounts, approvedTotal };
+  return { items: rows.map(mapSummary), total, page, pageSize, statusCounts, approvedTotal, statusAmounts };
 }

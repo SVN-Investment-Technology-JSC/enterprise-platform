@@ -105,7 +105,7 @@ export default function AccountsScreen() {
   }, [load]);
 
   const openVouchers = (kind: 'RECEIPT' | 'PAYMENT' | 'TRANSFER', account: FinanceAccount) =>
-    router.push(`${FINANCE_KIND_CONFIG[kind].path}${toQuery({ accountId: account.id })}`);
+    router.push(`${FINANCE_KIND_CONFIG[kind].path}${toQuery({ accountId: account.id, month: 'all' })}`);
 
   const count = (value: number | null, kind: 'RECEIPT' | 'PAYMENT' | 'TRANSFER', account: FinanceAccount) =>
     value ? (

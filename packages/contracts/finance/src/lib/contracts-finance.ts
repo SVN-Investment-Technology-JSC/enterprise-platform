@@ -396,6 +396,8 @@ export interface FinanceVoucherList extends FinancePage<FinanceVoucherSummary> {
   statusCounts: Record<FinanceVoucherStatus, number>;
   /** Tổng tiền các phiếu đã duyệt trong bộ lọc. */
   approvedTotal: number;
+  /** Tổng tiền theo trạng thái (cùng bộ lọc như `statusCounts`), cho thẻ tổng kết kỳ: đã duyệt, chờ duyệt, nháp... */
+  statusAmounts: Record<FinanceVoucherStatus, number>;
 }
 
 export interface FinanceDecisionRequest {

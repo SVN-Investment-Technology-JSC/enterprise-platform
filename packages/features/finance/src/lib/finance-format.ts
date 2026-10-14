@@ -85,6 +85,24 @@ export function voucherCsvRows(items: readonly FinanceVoucherSummary[]): (string
   ];
 }
 
+/** Khoảng ngày của một tháng `YYYY-MM`: từ ngày 1 đến ngày cuối tháng (kể cả tháng 2 năm nhuận). */
+export function monthRange(month: string): { from: string; to: string } {
+  const [y, m] = month.split('-').map(Number);
+  return { from: `${y}-${pad(m)}-01`, to: `${y}-${pad(m)}-${pad(lastDay(y, m))}` };
+}
+
+/** Tháng liền trước/sau (delta âm hoặc dương), qua ranh giới năm. */
+export function shiftMonth(month: string, delta: number): string {
+  const [y, m] = month.split('-').map(Number);
+  const index = y * 12 + (m - 1) + delta;
+  return `${Math.floor(index / 12)}-${pad((index % 12) + 1)}`;
+}
+
+/** "Tháng 10/2026". */
+export const monthLabel = (month: string): string => `Tháng ${Number(month.slice(5))}/${month.slice(0, 4)}`;
+
+export const isMonth = (value: unknown): value is string => typeof value === 'string' && /^\d{4}-(0[1-9]|1[0-2])$/.test(value);
+
 /** Số nguyên từ chuỗi người dùng gõ ("1.500.000" → 1500000); rỗng → 0. */
 export function parseMoneyInput(text: string): number {
   const digits = text.replace(/[^\d]/g, '');

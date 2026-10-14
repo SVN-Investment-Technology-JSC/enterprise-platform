@@ -72,11 +72,11 @@ describe('Danh sách tài khoản', () => {
   it('bấm số phiếu mở danh sách phiếu của đúng loại, đã lọc theo tài khoản đó', async () => {
     render(<AccountsScreen />);
     fireEvent.click(await screen.findByRole('button', { name: '56 phiếu thu của SAVINA - VCB' }));
-    expect(mockPush).toHaveBeenCalledWith('/receipts?accountId=a1');
+    expect(mockPush).toHaveBeenCalledWith('/receipts?accountId=a1&month=all');
     fireEvent.click(screen.getByRole('button', { name: '81 phiếu chi của SAVINA - VCB' }));
-    expect(mockPush).toHaveBeenCalledWith('/payments?accountId=a1');
+    expect(mockPush).toHaveBeenCalledWith('/payments?accountId=a1&month=all');
     fireEvent.click(screen.getByRole('button', { name: '27 lệnh chuyển tiền của SAVINA - VCB' }));
-    expect(mockPush).toHaveBeenCalledWith('/transfers?accountId=a1');
+    expect(mockPush).toHaveBeenCalledWith('/transfers?accountId=a1&month=all');
   });
 
   it('số 0 không phải liên kết', async () => {

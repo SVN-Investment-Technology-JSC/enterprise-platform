@@ -1,6 +1,6 @@
 import type { FinanceVoucherSummary } from '@enterprise-platform/contracts-finance';
 import { FINANCE_KIND_CONFIG, kindOfPath } from './finance-kinds';
-import { dateTimeVn, dateVn, initialsOf, money, parseMoneyInput, periodLabel, periodPresets, voucherCsvRows } from './finance-format';
+import { dateTimeVn, dateVn, initialsOf, isMonth, money, monthLabel, monthRange, parseMoneyInput, periodLabel, periodPresets, shiftMonth, voucherCsvRows } from './finance-format';
 import { getActiveFinanceNavId, normalizeFinancePath } from './finance-navigation';
 
 describe('định dạng', () => {
@@ -62,6 +62,29 @@ describe('định dạng', () => {
     const rows = voucherCsvRows([item]);
     expect(rows[0]).toContain('Trạng thái');
     expect(rows[1]).toEqual(['PT_1_10_2026', 'Phiếu thu', '14/10/2026', '14/10/2026', 'Thu tiền hàng', 'Thu tiền hàng', 'VCB', '', 'Khách hàng', 'Công ty ABC', 300000, 'Đã duyệt', 'An']);
+  });
+});
+
+describe('theo dõi theo tháng', () => {
+  it('khoảng ngày của tháng, kể cả tháng 2 năm nhuận và tháng 12', () => {
+    expect(monthRange('2026-10')).toEqual({ from: '2026-10-01', to: '2026-10-31' });
+    expect(monthRange('2026-02')).toEqual({ from: '2026-02-01', to: '2026-02-28' });
+    expect(monthRange('2024-02')).toEqual({ from: '2024-02-01', to: '2024-02-29' });
+    expect(monthRange('2026-12')).toEqual({ from: '2026-12-01', to: '2026-12-31' });
+  });
+
+  it('chuyển tháng qua ranh giới năm', () => {
+    expect(shiftMonth('2026-01', -1)).toBe('2025-12');
+    expect(shiftMonth('2026-12', 1)).toBe('2027-01');
+    expect(shiftMonth('2026-10', -10)).toBe('2025-12');
+    expect(shiftMonth('2026-10', 0)).toBe('2026-10');
+    expect(shiftMonth('2026-10', 14)).toBe('2027-12');
+  });
+
+  it('nhãn tháng và kiểm định dạng', () => {
+    expect(monthLabel('2026-02')).toBe('Tháng 2/2026');
+    expect(isMonth('2026-10')).toBe(true);
+    for (const bad of ['2026-13', '2026-00', '2026-1', 'all', '', null, 202610]) expect(isMonth(bad)).toBe(false);
   });
 });
 

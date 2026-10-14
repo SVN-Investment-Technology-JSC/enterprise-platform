@@ -399,9 +399,12 @@ integration('Tài chính: duyệt phiếu qua quy trình (PostgreSQL, Procedure 
 
     const link = await linkOf(voucher.id);
     expect(await receiveFinanceProcedureEvent(pool, tenantId, completed(link, 'completed', chief.userId))).toBe('conflict');
-    const attention = (await events(voucher.id)).map((e) => e.event_type);
+    const names = async () => (await events(voucher.id)).map((e) => e.event_type).sort();
+    const attention = await names();
     expect(attention).toEqual(['finance.voucher.needs-attention', 'finance.voucher.needs-attention-approvers']);
-    const [toRequester, toApprovers] = await events(voucher.id);
+    const all = await events(voucher.id);
+    const toRequester = all.find((e) => e.event_type === 'finance.voucher.needs-attention') as (typeof all)[number];
+    const toApprovers = all.find((e) => e.event_type === 'finance.voucher.needs-attention-approvers') as (typeof all)[number];
     expect(toRequester.p).toMatchObject({ recipientUserIds: [accountant.userId], deepLink: `/modules/finance/payments/${voucher.id}` });
     expect(String(toRequester.p['summary'])).toContain('chưa ghi sổ được');
     expect(toApprovers.p['approvalPermissions']).toEqual(['finance.payment.approve', 'finance.manage']);
@@ -409,7 +412,7 @@ integration('Tài chính: duyệt phiếu qua quy trình (PostgreSQL, Procedure 
     // Áp lại vẫn kẹt: không báo lặp.
     await app.retryProcedure(chief, voucher.id);
     await app.retryProcedure(chief, voucher.id);
-    expect((await events(voucher.id)).map((e) => e.event_type)).toEqual(attention);
+    expect(await names()).toEqual(attention);
     await app.cancel(accountant, session, voucher.id, 'dọn');
   });
 

@@ -2,11 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Download, Plus, RefreshCw, Search } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Download, Plus, RefreshCw, Search } from 'lucide-react';
 import { Table } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { SearchableSelect } from '@enterprise-platform/shared-ui';
-import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
+import { DatePickerInput, MonthPickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import {
   FINANCE_VOUCHER_STATUSES,
   FINANCE_VOUCHER_STATUS_LABELS,
@@ -19,7 +19,7 @@ import {
 } from '@enterprise-platform/contracts-finance';
 import { financeErrorMessage, financeFetch, toQuery } from '../finance-api';
 import { buildCsv, downloadCsv } from '../finance-csv';
-import { dateVn, money, voucherCsvRows } from '../finance-format';
+import { dateVn, isMonth, money, monthLabel, monthRange, shiftMonth, todayVn, voucherCsvRows } from '../finance-format';
 import { FINANCE_KIND_CONFIG } from '../finance-kinds';
 import { useFinancePermissions } from '../finance-permissions';
 import { Button } from '../ui/button';
@@ -27,6 +27,15 @@ import { Avatar, ErrorBanner, StatusBadge } from '../ui/form-parts';
 import { cn } from '../utils';
 
 type Scope = 'all' | 'mine' | 'to-approve';
+
+/**
+ * Kỳ xem mặc định: tháng hiện tại, để danh sách gọn và theo dõi từng tháng. `?month=all` xem toàn bộ thời gian
+ * (các liên kết từ danh sách tài khoản dùng cách này để số phiếu khớp số đếm của tài khoản); `?month=YYYY-MM` mở đúng tháng đó.
+ */
+export function initialMonth(param: string | null, today: string = todayVn()): string {
+  if (param === 'all') return '';
+  return isMonth(param) ? param : today.slice(0, 7);
+}
 
 export default function VoucherListScreen({ kind }: { kind: FinanceVoucherKind }) {
   const config = FINANCE_KIND_CONFIG[kind];
@@ -41,8 +50,11 @@ export default function VoucherListScreen({ kind }: { kind: FinanceVoucherKind }
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [accountId, setAccountId] = useState(params.get('accountId') ?? '');
   const [reasonId, setReasonId] = useState('');
+  // '' = tất cả thời gian. Chọn tháng thì khoảng ngày lấy theo tháng; ở chế độ "Tất cả" mới có ô Từ ngày / Đến ngày.
+  const [month, setMonth] = useState(() => initialMonth(params.get('month')));
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
+  const range = month ? monthRange(month) : { from, to };
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [data, setData] = useState<FinanceVoucherList | null>(null);
@@ -76,7 +88,7 @@ export default function VoucherListScreen({ kind }: { kind: FinanceVoucherKind }
     setLoading(true);
     try {
       const result = await financeFetch<FinanceVoucherList>(
-        `/vouchers${toQuery({ kind, status, scope: scope === 'all' ? undefined : scope, search: debouncedSearch, accountId, reasonId, from, to, page, pageSize })}`,
+        `/vouchers${toQuery({ kind, status, scope: scope === 'all' ? undefined : scope, search: debouncedSearch, accountId, reasonId, from: range.from, to: range.to, page, pageSize })}`,
       );
       if (mine !== sequence.current) return;
       setData(result);
@@ -86,7 +98,7 @@ export default function VoucherListScreen({ kind }: { kind: FinanceVoucherKind }
     } finally {
       if (mine === sequence.current) setLoading(false);
     }
-  }, [kind, status, scope, debouncedSearch, accountId, reasonId, from, to, page, pageSize]);
+  }, [kind, status, scope, debouncedSearch, accountId, reasonId, range.from, range.to, page, pageSize]);
 
   useEffect(() => {
     void load();
@@ -105,6 +117,18 @@ export default function VoucherListScreen({ kind }: { kind: FinanceVoucherKind }
   );
 
   const total = data ? Object.values(data.statusCounts).reduce((sum, n) => sum + n, 0) : 0;
+  const changeMonth = (next: string) => {
+    setMonth(next);
+    setPage(1);
+  };
+  const summary = data
+    ? [
+        { id: 'total', label: 'Tổng số phiếu', count: total, amount: null as number | null },
+        { id: 'approved', label: 'Đã duyệt', count: data.statusCounts.APPROVED, amount: data.statusAmounts.APPROVED },
+        { id: 'pending', label: 'Chờ duyệt', count: data.statusCounts.PENDING, amount: data.statusAmounts.PENDING },
+        { id: 'open', label: 'Nháp / Bị từ chối', count: data.statusCounts.DRAFT + data.statusCounts.REJECTED, amount: data.statusAmounts.DRAFT + data.statusAmounts.REJECTED },
+      ]
+    : [];
 
   const columns: ColumnsType<FinanceVoucherSummary> = [
     {
@@ -190,6 +214,60 @@ export default function VoucherListScreen({ kind }: { kind: FinanceVoucherKind }
 
       <div className="min-h-0 flex-1 overflow-y-auto bg-slate-50 p-4">
         <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
+          <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-3 py-2">
+            <div role="group" aria-label="Kỳ xem" className="inline-flex overflow-hidden rounded-lg border border-slate-200">
+              <button
+                type="button"
+                aria-pressed={Boolean(month)}
+                onClick={() => changeMonth(month || todayVn().slice(0, 7))}
+                className={cn('px-3 py-1 text-sm', month ? 'bg-accent-soft font-semibold text-accent-text' : 'text-slate-600 hover:bg-slate-50')}
+              >
+                Theo tháng
+              </button>
+              <button
+                type="button"
+                aria-pressed={!month}
+                onClick={() => changeMonth('')}
+                className={cn('border-l border-slate-200 px-3 py-1 text-sm', !month ? 'bg-accent-soft font-semibold text-accent-text' : 'text-slate-600 hover:bg-slate-50')}
+              >
+                Tất cả
+              </button>
+            </div>
+            {month ? (
+              <div className="flex items-center gap-1">
+                <button type="button" aria-label="Tháng trước" onClick={() => changeMonth(shiftMonth(month, -1))} className="flex size-8 items-center justify-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50">
+                  <ChevronLeft className="size-4" aria-hidden />
+                </button>
+                <div className="w-32">
+                  <MonthPickerInput aria-label="Chọn tháng" value={month} onChange={(value) => value && changeMonth(value)} />
+                </div>
+                <button type="button" aria-label="Tháng sau" onClick={() => changeMonth(shiftMonth(month, 1))} className="flex size-8 items-center justify-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50">
+                  <ChevronRight className="size-4" aria-hidden />
+                </button>
+                {month !== todayVn().slice(0, 7) ? (
+                  <button type="button" onClick={() => changeMonth(todayVn().slice(0, 7))} className="ml-1 text-xs font-medium text-link hover:underline">
+                    Về tháng này
+                  </button>
+                ) : null}
+                <span className="ml-2 text-sm font-semibold text-slate-700">{monthLabel(month)}</span>
+              </div>
+            ) : (
+              <span className="text-sm text-slate-500">Toàn bộ thời gian; lọc theo ngày ở bên dưới.</span>
+            )}
+          </div>
+
+          {data ? (
+            <div className="grid gap-2 border-b border-slate-100 p-3 sm:grid-cols-2 lg:grid-cols-4" aria-label="Tổng kết kỳ">
+              {summary.map((item) => (
+                <div key={item.id} data-testid={`summary-${item.id}`} className="rounded-lg bg-slate-50 px-3 py-2">
+                  <div className="text-xs text-slate-500">{item.label}</div>
+                  <div className="text-base font-semibold tabular-nums text-slate-900">{item.count} phiếu</div>
+                  {item.amount !== null ? <div className="text-xs tabular-nums text-slate-600">{money(item.amount)}</div> : null}
+                </div>
+              ))}
+            </div>
+          ) : null}
+
           <div role="tablist" aria-label="Trạng thái phiếu" className="flex flex-wrap gap-1 border-b border-slate-100 px-3 pt-2">
             {[{ id: '' as const, label: 'Tất cả', count: total }, ...FINANCE_VOUCHER_STATUSES.map((s) => ({ id: s, label: FINANCE_VOUCHER_STATUS_LABELS[s], count: data?.statusCounts[s] ?? 0 }))].map((tab) => (
               <button
@@ -233,12 +311,16 @@ export default function VoucherListScreen({ kind }: { kind: FinanceVoucherKind }
                 <SearchableSelect options={reasonOptions} value={reasonId} onChange={filter(setReasonId)} placeholder={`Mọi ${config.reasonLabel.toLowerCase()}`} clearable height={32} />
               </div>
             ) : null}
-            <div className="w-36">
-              <DatePickerInput aria-label="Từ ngày" value={from} onChange={filter(setFrom)} placeholder="Từ ngày" />
-            </div>
-            <div className="w-36">
-              <DatePickerInput aria-label="Đến ngày" value={to} onChange={filter(setTo)} placeholder="Đến ngày" />
-            </div>
+            {!month ? (
+              <>
+                <div className="w-36">
+                  <DatePickerInput aria-label="Từ ngày" value={from} onChange={filter(setFrom)} placeholder="Từ ngày" />
+                </div>
+                <div className="w-36">
+                  <DatePickerInput aria-label="Đến ngày" value={to} onChange={filter(setTo)} placeholder="Đến ngày" />
+                </div>
+              </>
+            ) : null}
             <div className="ml-auto flex gap-1">
               {scopes
                 .filter((s) => s.visible)

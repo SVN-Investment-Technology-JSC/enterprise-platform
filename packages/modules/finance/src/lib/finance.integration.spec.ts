@@ -524,6 +524,46 @@ integration('Tài chính: phiếu thu, chi, chuyển tiền và sổ cái (Postg
     await app.cancel(accountant, session, transferVoucher.id, 'dọn');
   });
 
+  it('theo dõi theo tháng: lọc đúng biên đầu/cuối tháng, tổng số phiếu và tổng tiền theo trạng thái trong kỳ', async () => {
+    // Phiếu thu ở các ngày biên của tháng 5/2026 và các tháng lân cận (đã ghi sổ hoặc còn chờ duyệt).
+    const make = async (date: string, amount: number, approve: boolean) => {
+      const created = await app.createVoucher(accountant, receipt({ voucherDate: date, postingDate: date, content: `Thu ${date}`, lines: [line('Hàng', 1, amount)] }));
+      await app.submit(accountant, created.id);
+      if (approve) await app.approve(approver, created.id);
+      return created;
+    };
+    await make('2026-04-30', 1_000, true); // tháng trước, sát biên
+    await make('2026-05-01', 2_000, true); // ngày đầu tháng
+    await make('2026-05-15', 3_000, false); // giữa tháng, chờ duyệt
+    await make('2026-05-31', 4_000, true); // ngày cuối tháng
+    await make('2026-06-01', 5_000, true); // tháng sau, sát biên
+
+    const may = await app.listVouchers(approver, { kind: 'RECEIPT', from: '2026-05-01', to: '2026-05-31', pageSize: 100 });
+    expect(may.items.map((v) => v.voucherDate).sort()).toEqual(['2026-05-01', '2026-05-15', '2026-05-31']);
+    expect(may.statusCounts).toMatchObject({ APPROVED: 2, PENDING: 1, DRAFT: 0 });
+    expect(may.statusAmounts).toMatchObject({ APPROVED: 6_000, PENDING: 3_000 });
+    expect(may.approvedTotal).toBe(6_000);
+    expect(may.total).toBe(3);
+
+    // Tab trạng thái trong tháng: chỉ phiếu chờ duyệt, số tiền không lẫn tháng khác.
+    const pendingMay = await app.listVouchers(approver, { kind: 'RECEIPT', from: '2026-05-01', to: '2026-05-31', status: 'PENDING' });
+    expect(pendingMay.items.map((v) => v.voucherDate)).toEqual(['2026-05-15']);
+    expect(pendingMay.total).toBe(1);
+    // Số đếm các tab vẫn theo cả tháng dù đang chọn một trạng thái.
+    expect(pendingMay.statusCounts.APPROVED).toBe(2);
+
+    // Tháng không có phiếu: rỗng, tổng bằng 0.
+    const empty = await app.listVouchers(approver, { kind: 'RECEIPT', from: '2025-01-01', to: '2025-01-31' });
+    expect(empty).toMatchObject({ total: 0, approvedTotal: 0, items: [] });
+    expect(Object.values(empty.statusAmounts).every((amount) => amount === 0)).toBe(true);
+
+    // Tất cả thời gian: gồm cả các tháng khác.
+    const all = await app.listVouchers(approver, { kind: 'RECEIPT', pageSize: 100 });
+    expect(all.items.filter((v) => v.content.startsWith('Thu 2026-')).length).toBeGreaterThanOrEqual(5);
+    // Người chỉ lập phiếu chỉ thấy phiếu của mình trong kỳ.
+    await expect(app.listVouchers(outsider, { kind: 'RECEIPT', from: '2026-05-01', to: '2026-05-31' })).resolves.toMatchObject({ total: 0 });
+  });
+
   it('trang tổng quan: phiếu chờ duyệt chỉ tính loại mình duyệt và không tính phiếu của chính mình', async () => {
     // Người chỉ có quyền duyệt không lập được phiếu.
     await rejects(app.createVoucher(approver, receipt({ content: 'Phiếu do người duyệt lập' })), 'FINANCE_FORBIDDEN');
