@@ -1,4 +1,5 @@
 import type { ProjectRole, WorkItem } from '@enterprise-platform/contracts-workspace';
+import { ProjectRoleService } from './project-role.service.js';
 import { ProjectService } from './project.service.js';
 import { WorkItemDeletionService } from './work-item-deletion.service.js';
 import type { WorkspaceActor } from './workspace.application.js';
@@ -73,7 +74,7 @@ describe('WorkItemDeletionService.delete (WS-U5)', () => {
   it('quản lý KHÔNG xoá được (chỉ chủ nhiệm)', async () => {
     const { store, removed } = makeStore([item({ id: 'w1' })], { 'u-mgr': 'manager' });
     await expect(service(store).delete(actorOf('u-mgr'), 'w1')).rejects.toMatchObject({
-      code: 'PROJECT_ROLE_FORBIDDEN',
+      code: 'PROJECT_PERMISSION_FORBIDDEN',
     });
     expect(removed).toHaveLength(0);
   });
@@ -81,7 +82,7 @@ describe('WorkItemDeletionService.delete (WS-U5)', () => {
   it('thành viên thường KHÔNG xoá được', async () => {
     const { store, removed } = makeStore([item({ id: 'w1' })], { 'u-mem': 'member' });
     await expect(service(store).delete(actorOf('u-mem'), 'w1')).rejects.toMatchObject({
-      code: 'PROJECT_ROLE_FORBIDDEN',
+      code: 'PROJECT_PERMISSION_FORBIDDEN',
     });
     expect(removed).toHaveLength(0);
   });
@@ -89,7 +90,7 @@ describe('WorkItemDeletionService.delete (WS-U5)', () => {
   it('quản trị tenant KHÔNG xoá được nếu không phải chủ nhiệm dự án', async () => {
     const { store, removed } = makeStore([item({ id: 'w1' })], {});
     await expect(service(store).delete(actorOf('admin', true), 'w1')).rejects.toMatchObject({
-      code: 'PROJECT_ROLE_FORBIDDEN',
+      code: 'PROJECT_PERMISSION_FORBIDDEN',
     });
     expect(removed).toHaveLength(0);
   });
@@ -121,6 +122,28 @@ describe('WorkItemDeletionService.delete (WS-U5)', () => {
       code: 'WORK_ITEM_NOT_FOUND',
     });
     expect(removed).toHaveLength(0);
+  });
+
+  it('vai trò tự định nghĩa có quyền "Có thể xoá công việc" thì xoá được', async () => {
+    const { store, removed } = makeStore([item({ id: 'w1' })], { 'u-qa': 'custom_qa' });
+    (store as unknown as { roleDefinition: unknown }).roleDefinition = {
+      list: async () => [
+        {
+          key: 'custom_qa',
+          name: 'Kiểm soát',
+          permissions: ['project.view_all', 'work_item.delete'],
+          isSystem: false,
+          sortOrder: 9,
+          memberCount: 1,
+        },
+      ],
+    };
+    const deletion = new WorkItemDeletionService(
+      store,
+      new ProjectService(store, undefined, new ProjectRoleService(store)),
+    );
+    await deletion.delete(actorOf('u-qa'), 'w1');
+    expect(removed).toEqual(['w1']);
   });
 
   it('người ngoài dự án (không vai trò, không phải quản trị) bị chặn truy cập', async () => {

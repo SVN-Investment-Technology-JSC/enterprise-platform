@@ -1,7 +1,6 @@
 'use client';
 
 import {
-  PROJECT_ROLES,
   PROJECT_STATUSES,
   type CreateProjectRequest,
   type Project,
@@ -13,12 +12,13 @@ import {
 import { useEffect, useState } from 'react';
 import { formatVndWhileTyping, parseVndInput, toVndInput } from '../money';
 import { listProjectTypes } from '../workspace-api';
-import { PROJECT_STATUS_LABELS, ROLE_LABELS } from '../workspace-labels';
+import { PROJECT_STATUS_LABELS } from '../workspace-labels';
 import styles from '../workspace.module.scss';
 import { Choice } from './choice';
 import { Dialog, Field } from './dialog';
 import { PeoplePicker } from './people-picker';
 import { useDirectory } from './use-directory';
+import { roleOptions, useProjectRoles } from './use-project-roles';
 
 export interface ProjectFormProps {
   readonly open: boolean;
@@ -98,6 +98,7 @@ export function ProjectForm({
   financeEnabled = false,
 }: ProjectFormProps) {
   const directory = useDirectory();
+  const projectRoles = useProjectRoles();
   const [form, setForm] = useState<FormState>(emptyForm());
   const [error, setError] = useState<string>();
   const [submitting, setSubmitting] = useState(false);
@@ -358,10 +359,7 @@ export function ProjectForm({
                         <Choice
                           label={`Vai trò của ${directory.nameOf(member.userId)}`}
                           value={member.role}
-                          options={PROJECT_ROLES.map((role) => ({
-                            value: role,
-                            label: ROLE_LABELS[role],
-                          }))}
+                          options={roleOptions(projectRoles, true)}
                           onChange={(value) =>
                             setNewMembers((prev) =>
                               prev.map((entry) =>

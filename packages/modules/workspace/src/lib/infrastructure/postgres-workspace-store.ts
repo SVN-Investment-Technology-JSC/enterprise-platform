@@ -40,6 +40,7 @@ import type {
   ProjectMember,
   ProjectProgressRow,
   ProjectRole,
+  ProjectPermission,
   ProjectStatus,
   SavedFilter,
   SavedFilterView,
@@ -192,7 +193,7 @@ const WORK_ITEM_COLUMNS = `id, project_id, parent_id, code, title, description, 
        execution_type, status, priority, assignee_user_id, planned_start, planned_end,
        actual_start, actual_end, estimate_hours, progress_percent, sort_order, depth,
        created_by, created_at, updated_at, reversed_at, reversed_by, reversed_by_name,
-       reversal_reason, adjustment_requested, adjustment_of_id`;
+       reversal_reason, adjustment_requested, adjustment_of_id, status_changed_at`;
 
 /**
  * Gắn tiền tố bảng cho từng cột của một hằng `*_COLUMNS`.
@@ -234,6 +235,7 @@ function mapWorkItem(row: Row): WorkItem {
     createdBy: str(row.created_by),
     createdAt: iso(row.created_at),
     updatedAt: iso(row.updated_at),
+    statusChangedAt: row.status_changed_at ? iso(row.status_changed_at) : undefined,
     reversal: row.reversed_at
       ? {
           reversedAt: iso(row.reversed_at),
@@ -3022,6 +3024,63 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
     emit: async (tenantId: string, input: OutboxInput) => {
       const pool = await this.poolFor(tenantId);
       await inTransaction(pool, (client) => writeOutbox(client, tenantId, input));
+    },
+  };
+
+  readonly roleDefinition = {
+    list: async (tenantId: string) => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `SELECT d.key, d.name, d.permissions, d.is_system, d.sort_order,
+                (SELECT COUNT(*) FROM workspace_schema.project_members m WHERE m.role = d.key)::int
+                  AS member_count
+           FROM workspace_schema.project_role_definitions d
+          ORDER BY d.sort_order, d.created_at, d.key`,
+      );
+      return result.rows.map((row) => ({
+        key: str(row.key),
+        name: str(row.name),
+        permissions: (Array.isArray(row.permissions) ? row.permissions : []).map(String) as ProjectPermission[],
+        isSystem: row.is_system === true,
+        sortOrder: num(row.sort_order),
+        memberCount: num(row.member_count),
+      }));
+    },
+    create: async (
+      tenantId: string,
+      actorUserId: string,
+      input: { readonly key: string; readonly name: string; readonly permissions: readonly ProjectPermission[] },
+    ): Promise<void> => {
+      const pool = await this.poolFor(tenantId);
+      await pool.query(
+        `INSERT INTO workspace_schema.project_role_definitions
+                (key, name, permissions, is_system, sort_order, created_by, updated_by)
+         VALUES ($1, $2, $3::text[], false,
+                 COALESCE((SELECT max(sort_order) + 1 FROM workspace_schema.project_role_definitions), 100),
+                 $4, $4)`,
+        [input.key, input.name, [...input.permissions], actorUserId],
+      );
+    },
+    update: async (
+      tenantId: string,
+      actorUserId: string,
+      key: string,
+      input: { readonly name: string; readonly permissions: readonly ProjectPermission[] },
+    ): Promise<void> => {
+      const pool = await this.poolFor(tenantId);
+      await pool.query(
+        `UPDATE workspace_schema.project_role_definitions
+            SET name = $2, permissions = $3::text[], updated_by = $4, updated_at = now()
+          WHERE key = $1`,
+        [key, input.name, [...input.permissions], actorUserId],
+      );
+    },
+    remove: async (tenantId: string, key: string): Promise<void> => {
+      const pool = await this.poolFor(tenantId);
+      await pool.query(
+        `DELETE FROM workspace_schema.project_role_definitions WHERE key = $1 AND is_system = false`,
+        [key],
+      );
     },
   };
 

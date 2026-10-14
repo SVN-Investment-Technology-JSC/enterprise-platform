@@ -32,7 +32,7 @@ const DIRECTORY_SCOPE_NOTE =
 const MAX_SUGGESTIONS = 8;
 
 /** Bỏ dấu để gõ "nguyen" vẫn ra "Nguyễn". */
-function fold(text: string): string {
+export function fold(text: string): string {
   return text
     .normalize('NFD')
     .replace(/[̀-ͯ]/g, '')

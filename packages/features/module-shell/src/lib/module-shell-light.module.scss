@@ -769,3 +769,10 @@
   text-transform: uppercase;
   white-space: nowrap;
 }
+
+/* Nút ở chân thanh bên đang mở trang của nó (ví dụ Cài đặt). */
+.squareButtonActive {
+  border-color: var(--ep-accent-strong);
+  background: var(--ep-accent-soft);
+  color: var(--ep-text);
+}

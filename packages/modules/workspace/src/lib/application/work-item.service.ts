@@ -42,7 +42,13 @@ import {
   WorkItemNotFoundError,
   WorkspaceValidationError,
 } from '../domain/workspace.error.js';
-import { hasProjectRole, requireProjectRole, type ProjectService } from './project.service.js';
+import {
+  hasProjectPermission,
+  hasProjectRole,
+  requireProjectPermission,
+  requireProjectRole,
+  type ProjectService,
+} from './project.service.js';
 import { timezoneOf, todayKey } from '../domain/tenant-time.js';
 import type { ProcedureReversalChecker } from './procedure-reversal-check.port.js';
 import type { WorkspaceActor } from './workspace.application.js';
@@ -70,16 +76,30 @@ export class WorkItemService {
 
   /** Toàn bộ cây WBS của một dự án, trả phẳng kèm `parentId` và `depth`. */
   async tree(actor: WorkspaceActor, projectId: string): Promise<WorkItemTree> {
-    await this.projects.access(actor, projectId);
-    const [items, procedureRequests] = await Promise.all([
+    const access = await this.projects.access(actor, projectId);
+    const [all, procedureRequests] = await Promise.all([
       this.store.workItem.listByProject(actor.tenantId, projectId),
       this.store.procedureRequest.listByProject(actor.tenantId, projectId),
     ]);
-    return { items, procedureRequests };
+    if (hasProjectPermission(access, 'project.view_all')) return { items: all, procedureRequests };
+    // Chỉ "Xem dự án liên quan": việc của mình, kèm nhánh cha (để thấy nằm ở
+    // đâu) và nhánh con (việc mình phụ trách bao trùm).
+    const items = relatedItems(all, actor.userId);
+    const visible = new Set(items.map((item) => item.id));
+    return {
+      items,
+      procedureRequests: procedureRequests.filter((request) => visible.has(request.workItemId)),
+    };
   }
 
   async detail(actor: WorkspaceActor, workItemId: string): Promise<WorkItem> {
-    const { item } = await this.load(actor, workItemId);
+    const { item, access } = await this.load(actor, workItemId);
+    if (!hasProjectPermission(access, 'project.view_all')) {
+      const all = await this.store.workItem.listByProject(actor.tenantId, item.projectId);
+      if (!relatedItems(all, actor.userId).some((node) => node.id === item.id)) {
+        throw new WorkItemNotFoundError(workItemId);
+      }
+    }
     return item;
   }
 
@@ -325,6 +345,9 @@ export class WorkItemService {
     }
     // `viewer` chỉ đọc, kể cả với việc gán cho chính họ.
     requireProjectRole(access, 'member');
+    if (next === 'cancelled' && next !== item.status) {
+      requireProjectPermission(access, 'work_item.cancel');
+    }
 
     if (next === item.status) return item;
     if (item.reversal) {
@@ -755,6 +778,40 @@ export class WorkItemService {
 /** Việc của một người: họ phụ trách hoặc cùng thực hiện. */
 function isOwnItem(item: WorkItem, userId: string): boolean {
   return item.assigneeUserId === userId || (item.participantUserIds ?? []).includes(userId);
+}
+
+/**
+ * Phần cây một người "liên quan": việc họ phụ trách, cùng làm hoặc tự tạo,
+ * cộng mọi node cha và node con của những việc đó. Giữ thứ tự gốc.
+ */
+export function relatedItems(items: readonly WorkItem[], userId: string): WorkItem[] {
+  const byId = new Map(items.map((item) => [item.id, item]));
+  const children = new Map<string, WorkItem[]>();
+  for (const item of items) {
+    if (!item.parentId) continue;
+    const list = children.get(item.parentId) ?? [];
+    list.push(item);
+    children.set(item.parentId, list);
+  }
+  const keep = new Set<string>();
+  const addDescendants = (id: string) => {
+    for (const child of children.get(id) ?? []) {
+      if (keep.has(child.id)) continue;
+      keep.add(child.id);
+      addDescendants(child.id);
+    }
+  };
+  for (const item of items) {
+    if (!isOwnItem(item, userId) && item.createdBy !== userId) continue;
+    keep.add(item.id);
+    addDescendants(item.id);
+    let parent = item.parentId ? byId.get(item.parentId) : undefined;
+    while (parent && !keep.has(parent.id)) {
+      keep.add(parent.id);
+      parent = parent.parentId ? byId.get(parent.parentId) : undefined;
+    }
+  }
+  return items.filter((item) => keep.has(item.id));
 }
 
 /** Bỏ trùng, bỏ rỗng; người phụ trách đã có chỗ riêng nên không lặp lại ở đây. */

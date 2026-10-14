@@ -14,13 +14,13 @@ import { useState } from 'react';
 import {
   DEPENDENCY_TYPE_LABELS,
   ITEM_TYPE_LABELS,
-  ROLE_LABELS,
   formatDate,
   workItemStatusLabel,
 } from '../workspace-labels';
 import styles from '../workspace.module.scss';
 import { Choice } from './choice';
 import { useDirectory } from './use-directory';
+import { useProjectRoles } from './use-project-roles';
 import type { PendingProcedure } from '../procedure-pending';
 
 export interface TabOverviewProps {
@@ -78,6 +78,7 @@ export function TabOverview({
   onUnlinkRef,
 }: TabOverviewProps) {
   const directory = useDirectory();
+  const projectRoles = useProjectRoles();
   const links = selected
     ? externalRefs.filter((ref) => ref.entityType === 'work_item' && ref.entityId === selected.id)
     : [];
@@ -204,7 +205,7 @@ export function TabOverview({
                       <span className={styles.muted}> · {units.join(', ')}</span>
                     ) : null}
                   </span>
-                  <span className={styles.memberRole}>{ROLE_LABELS[member.role]}</span>
+                  <span className={styles.memberRole}>{projectRoles.labelOf(member.role)}</span>
                 </li>
               );
             })}

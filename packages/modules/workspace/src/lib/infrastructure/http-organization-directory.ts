@@ -1,6 +1,7 @@
 import {
   DIRECTORY_CACHE_TTL_SECONDS,
   DIRECTORY_TIMEOUT_SECONDS,
+  type DirectoryOrgNode,
   type DirectoryPerson,
   type DirectoryResponse,
 } from '@enterprise-platform/contracts-workspace';
@@ -44,7 +45,12 @@ export class HttpOrganizationDirectory implements OrganizationDirectory {
         signal: controller.signal,
       });
       if (!response.ok) return this.fallback(tenantId);
-      const value: DirectoryResponse = { people: parseDirectory(await response.json()), degraded: false };
+      const payload: unknown = await response.json();
+      const value: DirectoryResponse = {
+        people: parseDirectory(payload),
+        orgNodes: parseOrgNodes(payload),
+        degraded: false,
+      };
       this.cache.set(tenantId, { value, expiresAt: Date.now() + DIRECTORY_CACHE_TTL_SECONDS * 1000 });
       return value;
     } catch {
@@ -57,7 +63,7 @@ export class HttpOrganizationDirectory implements OrganizationDirectory {
   /** Lỗi thì dùng bản cache đã hết hạn nếu còn, kèm cờ `degraded`. */
   private fallback(tenantId: string): DirectoryResponse {
     const stale = this.cache.get(tenantId);
-    return { people: stale?.value.people ?? [], degraded: true };
+    return { people: stale?.value.people ?? [], orgNodes: stale?.value.orgNodes, degraded: true };
   }
 }
 
@@ -152,6 +158,28 @@ export function parseDirectory(payload: unknown): DirectoryPerson[] {
       orgNodeIds: [...nodeIds],
     }))
     .sort((left, right) => left.displayName.localeCompare(right.displayName, 'vi'));
+}
+
+/**
+ * Cây cơ cấu (đơn vị và chức danh) trả phẳng, để thêm người theo đơn vị hay
+ * chức danh. Node không có tên hoặc không rõ loại vẫn giữ — coi là đơn vị.
+ */
+export function parseOrgNodes(payload: unknown): DirectoryOrgNode[] {
+  const root = asRecord(payload);
+  const units = Array.isArray(root?.['units']) ? (root['units'] as unknown[]) : [];
+  const nodes: DirectoryOrgNode[] = [];
+  for (const entry of units) {
+    const unit = asRecord(entry);
+    const id = text(unit?.['id']);
+    if (!id) continue;
+    nodes.push({
+      id,
+      name: text(unit?.['name']) ?? id,
+      parentId: text(unit?.['parentId']),
+      kind: text(unit?.['typeCategory']) === 'position' ? 'position' : 'unit',
+    });
+  }
+  return nodes;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
