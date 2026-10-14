@@ -18,6 +18,7 @@ import type {
   UpdateWorkItemRequest,
   WorkItem,
   WorkItemDependency,
+  WorkItemStatus,
   WorkItemStatusHistoryEntry,
   WorkItemProcedureRequest,
 } from '@enterprise-platform/contracts-workspace';
@@ -927,7 +928,33 @@ export function ProjectsView({
 
   /* ------------------------------------------------------------ Render */
 
-  const openItem = (item: WorkItem) => goToItem(item.id);
+  // Các hàm truyền cho bảng công việc phải ổn định giữa các lần vẽ: `TabWork` được bọc
+  // `memo`, nên chỉ khi chúng ổn định thì bật/tắt ngăn Trao đổi mới không vẽ lại cả
+  // bảng 600+ dòng (từng gây giật ~150–400ms mỗi lần bấm nút Trao đổi).
+  const openItem = useCallback((item: WorkItem) => goToItem(item.id), [goToItem]);
+  const openItemForm = useCallback(() => setItemForm({ open: true }), []);
+  const openItemMenu = useCallback(
+    (item: WorkItem, at: { x: number; y: number }) =>
+      setMenu({ ...at, node: { kind: 'work-item', id: item.id } }),
+    [],
+  );
+  const openProjectId = detail?.project.id;
+  const changeItemStatus = useCallback(
+    async (item: WorkItem, next: WorkItemStatus) => {
+      // Kéo sang cột Đã huỷ cũng phải qua bước xác nhận.
+      if (next === 'cancelled') {
+        if (!canCancelItem) {
+          setError('Vai trò của bạn trong dự án chưa có quyền huỷ công việc.');
+          return;
+        }
+        setCancellingItem(item);
+        return;
+      }
+      await api.changeWorkItemStatus(item.id, { status: next });
+      if (openProjectId) await refreshDetail(openProjectId);
+    },
+    [canCancelItem, openProjectId, refreshDetail],
+  );
 
   /** Con số nhỏ cạnh tên tab, như bản thiết kế: số công việc, số tài liệu. */
   const tabCount = (id: TabId) =>
@@ -1059,21 +1086,9 @@ export function ProjectsView({
               canWrite={canWrite}
               currentUserId={me}
               onOpen={openItem}
-              onAddRoot={() => setItemForm({ open: true })}
-              onMenu={(item, at) => setMenu({ ...at, node: { kind: 'work-item', id: item.id } })}
-              onChangeStatus={async (item, next) => {
-                // Kéo sang cột Đã huỷ cũng phải qua bước xác nhận.
-                if (next === 'cancelled') {
-                  if (!canCancelItem) {
-                    setError('Vai trò của bạn trong dự án chưa có quyền huỷ công việc.');
-                    return;
-                  }
-                  setCancellingItem(item);
-                  return;
-                }
-                await api.changeWorkItemStatus(item.id, { status: next });
-                await refreshDetail(detail.project.id);
-              }}
+              onAddRoot={openItemForm}
+              onMenu={openItemMenu}
+              onChangeStatus={changeItemStatus}
             />
           ) : null}
           {tab === 'calendar' ? (
@@ -1236,7 +1251,6 @@ export function ProjectsView({
         }
         members={detail?.members ?? []}
         canWrite={canWrite}
-        canModerate={canManage}
         documents={projectDocuments}
         folders={projectFolders}
         projectId={openId}
