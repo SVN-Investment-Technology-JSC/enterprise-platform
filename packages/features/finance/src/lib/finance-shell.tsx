@@ -60,7 +60,7 @@ function FinanceShellContent({ children }: { children: ReactNode }) {
         .filter((item) => permissions.canOpenPage(item.href))
         .map((item) => {
           const Icon = item.icon;
-          return { id: item.id, label: item.label, icon: <Icon className="size-4" aria-hidden /> };
+          return { id: item.id, label: item.label, icon: <Icon className={`size-[18px] ${item.tone}`} aria-hidden /> };
         }),
     [permissions],
   );

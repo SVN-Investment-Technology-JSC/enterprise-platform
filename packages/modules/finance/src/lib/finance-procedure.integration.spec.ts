@@ -154,6 +154,8 @@ integration('Tài chính: duyệt phiếu qua quy trình (PostgreSQL, Procedure 
     await admin.query(`CREATE DATABASE "${databaseName}"`);
     url.pathname = '/' + databaseName;
     pool = createPostgresPool(url.toString()) as unknown as Pool;
+    // Hạ tầng sự kiện (outbox) có sẵn ở mọi DB tenant trước các migration của module; thông báo của Tài chính ghi vào đó.
+    await pool.query(await readFile(resolve(process.cwd(), '../../../migrations/tenant/0001-integration.sql'), 'utf8'));
     const directory = resolve(process.cwd(), '../../../migrations/tenant/finance');
     for (const file of (await readdir(directory)).filter((name) => name.endsWith('.sql')).sort()) await pool.query(await readFile(resolve(directory, file), 'utf8'));
     app = new FinanceApplication(new TestFinanceDatabase(pool), new FakeFinanceStorage());
@@ -383,6 +385,44 @@ integration('Tài chính: duyệt phiếu qua quy trình (PostgreSQL, Procedure 
     await receiveFinanceProcedureEvent(pool, tenantId, event('procedure.instance.reversed', { instanceId: stuckLink['instance_id'], sourceType: 'finance_voucher', sourceId: stuckLink['id'], reason: 'Sai quy trình' }));
     const cancelled = await app.voucher(chief, stuck.id);
     expect(cancelled).toMatchObject({ status: 'CANCELLED', decisionNote: expect.stringContaining('huỷ hiệu lực') });
+  });
+
+  it('thông báo khi qua quy trình: gửi duyệt KHÔNG tự phát thông báo duyệt (Procedure báo người được giao); kẹt ghi sổ báo người lập và người duyệt đúng một lần', async () => {
+    const events = async (voucherId: string) =>
+      (
+        await pool.query(`SELECT event_type, payload->'payload' AS p FROM integration_schema.outbox_events WHERE payload->'payload'->>'voucherId'=$1 ORDER BY occurred_at, id`, [voucherId])
+      ).rows as { event_type: string; p: Record<string, unknown> }[];
+
+    const need = ((await balance()) as number) + 9_000_000;
+    const voucher = await submitViaProcedure(need);
+    expect((await events(voucher.id)).map((e) => e.event_type)).toEqual([]); // không có finance.approval.requested
+
+    const link = await linkOf(voucher.id);
+    expect(await receiveFinanceProcedureEvent(pool, tenantId, completed(link, 'completed', chief.userId))).toBe('conflict');
+    const attention = (await events(voucher.id)).map((e) => e.event_type);
+    expect(attention).toEqual(['finance.voucher.needs-attention', 'finance.voucher.needs-attention-approvers']);
+    const [toRequester, toApprovers] = await events(voucher.id);
+    expect(toRequester.p).toMatchObject({ recipientUserIds: [accountant.userId], deepLink: `/modules/finance/payments/${voucher.id}` });
+    expect(String(toRequester.p['summary'])).toContain('chưa ghi sổ được');
+    expect(toApprovers.p['approvalPermissions']).toEqual(['finance.payment.approve', 'finance.manage']);
+
+    // Áp lại vẫn kẹt: không báo lặp.
+    await app.retryProcedure(chief, voucher.id);
+    await app.retryProcedure(chief, voucher.id);
+    expect((await events(voucher.id)).map((e) => e.event_type)).toEqual(attention);
+    await app.cancel(accountant, session, voucher.id, 'dọn');
+  });
+
+  it('quy trình duyệt xong và ghi sổ: báo người lập kết quả (người duyệt được ghi nhận là người thao tác)', async () => {
+    const voucher = await submitViaProcedure(11_000);
+    const link = await linkOf(voucher.id);
+    await receiveFinanceProcedureEvent(pool, tenantId, completed(link, 'completed', chief.userId));
+    const rows = (
+      await pool.query(`SELECT payload->'payload' AS p FROM integration_schema.outbox_events WHERE event_type='finance.voucher.status-changed' AND payload->'payload'->>'voucherId'=$1`, [voucher.id])
+    ).rows;
+    expect(rows).toHaveLength(1);
+    expect(rows[0].p).toMatchObject({ status: 'APPROVED', requesterUserId: accountant.userId, actorUserId: chief.userId });
+    expect(String(rows[0].p.summary)).toContain('Theo quy trình');
   });
 
   it('từ hồ sơ quy trình tìm về phiếu; người không xem được phiếu nhận không tìm thấy', async () => {

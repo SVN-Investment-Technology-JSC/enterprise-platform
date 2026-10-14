@@ -26,7 +26,8 @@ import {
   isProcedureReachable,
   startProcedureInstance,
 } from './procedure-api.js';
-import { closeWithoutPosting, lockVoucherRow, postApproval, type Decider } from './voucher-workflow.js';
+import { closeWithoutPosting, lockVoucherRow, notificationFacts, postApproval, type Decider } from './voucher-workflow.js';
+import { notifyNeedsAttention } from './finance-notification-events.js';
 import { addEvent, type Row } from './vouchers.store.js';
 
 type R = QueryResultRow & Record<string, unknown>;
@@ -360,6 +361,8 @@ export async function applyStoredResult(db: PoolClient, tenantId: string, linkId
         `UPDATE finance_schema.procedure_links SET sync_status='CONFLICT', last_error=$3, updated_at=now() WHERE tenant_id=$1 AND id=$2`,
         [tenantId, linkId, error.message.slice(0, 2000)],
       );
+      // Báo một lần khi mới chuyển sang kẹt; các lần thử áp lại sau (nền hoặc bấm tay) mà vẫn kẹt thì không báo lặp.
+      if (link.sync_status !== 'CONFLICT') await notifyNeedsAttention(db, notificationFacts(tenantId, voucher as Row), error.message);
       return 'conflict';
     }
   } else if (link.result === 'rejected') {

@@ -7,8 +7,27 @@ import {
   type NormalizedVoucher,
 } from '../domain/voucher.rules.js';
 import { loadSettings } from './catalogs.store.js';
+import {
+  notifyApprovalRequested,
+  notifyOutcome,
+  type VoucherNotificationFacts,
+} from './finance-notification-events.js';
 import { dateOnly, num, optStr, todayVn, type Db } from './finance.database.js';
 import { addEvent, canViewVoucher, loadVoucherRecord, type Row, type VoucherRecord } from './vouchers.store.js';
+
+/** Dữ kiện của phiếu cần cho nội dung thông báo, lấy từ một dòng phiếu đã đọc. */
+export function notificationFacts(tenantId: string, row: Row): VoucherNotificationFacts {
+  return {
+    tenantId,
+    voucherId: String(row.id),
+    kind: row.kind as FinanceVoucherKind,
+    code: String(row.code),
+    content: String(row.content),
+    totalAmount: num(row.total_amount),
+    requesterUserId: String(row.created_by),
+    requesterName: optStr(row.created_by_name),
+  };
+}
 
 /** Khoá dòng phiếu không kiểm quyền xem: dành cho tiến trình hệ thống (áp kết quả quy trình). */
 export async function lockVoucherRow(db: Db, tenantId: string, id: string): Promise<Row | undefined> {
@@ -103,6 +122,8 @@ export async function submitVoucher(
     [tenantId, id, actor.userId, mode],
   );
   await addEvent(db, tenantId, id, 'SUBMITTED', actor, mode === 'PROCEDURE' ? 'Gửi duyệt qua quy trình' : null);
+  // Duyệt trực tiếp: báo người có quyền duyệt. Qua quy trình thì Procedure tự báo người được giao bước (procedure.assignment.created).
+  if (mode === 'DIRECT') await notifyApprovalRequested(db, notificationFacts(tenantId, record.row));
   return record.row;
 }
 
@@ -239,6 +260,7 @@ export async function postApproval(db: Db, tenantId: string, row: Row, decider: 
     [tenantId, String(row.id), decider.userId, decider.displayName, note?.trim() || null],
   );
   await addEvent(db, tenantId, String(row.id), 'APPROVED', decider, note);
+  await notifyOutcome(db, notificationFacts(tenantId, row), 'APPROVED', decider.userId, decider.displayName, note ?? null);
 }
 
 /** Đưa phiếu về trạng thái đã xử lý không ghi sổ (từ chối hoặc huỷ), dùng chung cho thao tác thủ công và kết quả quy trình. */
@@ -250,12 +272,15 @@ export async function closeWithoutPosting(
   decider: Decider,
   note: string | null,
 ): Promise<void> {
-  await db.query(
-    `UPDATE finance_schema.vouchers SET status=$3, decided_by=$4, decided_by_name=$5, decided_at=now(), decision_note=$6, updated_at=now()
-      WHERE tenant_id=$1 AND id=$2`,
-    [tenantId, voucherId, status, decider.userId, decider.displayName, note?.trim() || null],
-  );
+  const row = (
+    await db.query(
+      `UPDATE finance_schema.vouchers SET status=$3, decided_by=$4, decided_by_name=$5, decided_at=now(), decision_note=$6, updated_at=now()
+        WHERE tenant_id=$1 AND id=$2 RETURNING *`,
+      [tenantId, voucherId, status, decider.userId, decider.displayName, note?.trim() || null],
+    )
+  ).rows[0] as Row | undefined;
   await addEvent(db, tenantId, voucherId, status === 'REJECTED' ? 'REJECTED' : 'CANCELLED', decider, note);
+  if (row) await notifyOutcome(db, notificationFacts(tenantId, row), status, decider.userId, decider.displayName, note);
 }
 
 /** Từ chối: người lập có thể sửa và gửi lại. Bắt buộc có lý do. */
@@ -274,6 +299,7 @@ export async function rejectVoucher(db: Db, tenantId: string, actor: FinanceActo
     [tenantId, id, actor.userId, actor.displayName, reason],
   );
   await addEvent(db, tenantId, id, 'REJECTED', actor, reason);
+  await notifyOutcome(db, notificationFacts(tenantId, row), 'REJECTED', actor.userId, actor.displayName, reason);
 }
 
 /** Huỷ phiếu chưa ghi sổ: người lập huỷ phiếu của mình; người duyệt huỷ phiếu đang chờ hoặc bị từ chối. */
@@ -291,6 +317,7 @@ export async function cancelVoucher(db: Db, tenantId: string, actor: FinanceActo
     [tenantId, id, actor.userId, actor.displayName, note?.trim() || null],
   );
   await addEvent(db, tenantId, id, 'CANCELLED', actor, note);
+  await notifyOutcome(db, notificationFacts(tenantId, row), 'CANCELLED', actor.userId, actor.displayName, note ?? null);
 }
 
 /**
@@ -314,4 +341,5 @@ export async function reverseVoucher(db: Db, tenantId: string, actor: FinanceAct
     [tenantId, id, actor.userId, actor.displayName, reason],
   );
   await addEvent(db, tenantId, id, 'REVERSED', actor, reason);
+  await notifyOutcome(db, notificationFacts(tenantId, row), 'REVERSED', actor.userId, actor.displayName, reason);
 }

@@ -62,7 +62,7 @@ describe('Finance architecture boundary', () => {
     // Webpack gói module thành một file CJS: hàm tên `require` đè lên lệnh nạp thư viện và làm dịch vụ sập lúc khởi động
     // (jest không bắt được vì có môi trường module riêng).
     const sources = filesUnder(resolve(root, 'packages/modules/finance/src'), /\.ts$/).filter((f) => !/\.spec\.ts$/.test(f));
-    const offenders = sources.filter((file) => /(?:function|const|let|var|class)\s+(?:require|module|exports)/.test(stripComments(readFileSync(file, 'utf8'))));
+    const offenders = sources.filter((file) => /\b(?:function|const|let|var|class)\s+(?:require|module|exports)\b/.test(stripComments(readFileSync(file, 'utf8'))));
     expect(offenders.map((f) => f.replace(root, ''))).toEqual([]);
   });
 

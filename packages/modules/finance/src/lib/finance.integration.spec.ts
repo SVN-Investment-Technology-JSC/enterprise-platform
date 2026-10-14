@@ -97,6 +97,8 @@ integration('Tài chính: phiếu thu, chi, chuyển tiền và sổ cái (Postg
     await admin.query(`CREATE DATABASE "${databaseName}"`);
     url.pathname = '/' + databaseName;
     pool = createPostgresPool(url.toString()) as unknown as Pool;
+    // Hạ tầng sự kiện (outbox) có sẵn ở mọi DB tenant trước các migration của module; thông báo của Tài chính ghi vào đó.
+    await pool.query(await readFile(resolve(process.cwd(), '../../../migrations/tenant/0001-integration.sql'), 'utf8'));
     const directory = resolve(process.cwd(), '../../../migrations/tenant/finance');
     for (const file of (await readdir(directory)).filter((name) => name.endsWith('.sql')).sort())
       await pool.query(await readFile(resolve(directory, file), 'utf8'));
@@ -457,6 +459,69 @@ integration('Tài chính: phiếu thu, chi, chuyển tiền và sổ cái (Postg
     const voucher = await app.createVoucher(accountant, receipt({ content: 'Phiếu nhiều tệp' }));
     for (let i = 0; i < 20; i += 1) await app.createAttachment(accountant, voucher.id, { fileName: `f${i}.pdf`, contentType: 'application/pdf', sizeBytes: 10 });
     await rejects(app.createAttachment(accountant, voucher.id, { fileName: 'f21.pdf', contentType: 'application/pdf', sizeBytes: 10 }), 'FINANCE_INVALID');
+  });
+
+  it('thông báo: gửi duyệt trực tiếp báo người có quyền duyệt; kết quả báo người lập; huỷ phiếu của chính mình không tự báo mình', async () => {
+    const outbox = async (code: string, type?: string) =>
+      (
+        await pool.query(
+          `SELECT event_type, payload->'payload' AS p FROM integration_schema.outbox_events
+            WHERE payload->'payload'->>'voucherCode' = $1 ${type ? 'AND event_type = $2' : ''} ORDER BY occurred_at, id`,
+          type ? [code, type] : [code],
+        )
+      ).rows as { event_type: string; p: Record<string, unknown> }[];
+
+    const draft = await app.createVoucher(accountant, payment(750_000, { content: 'Mua bàn ghế' }));
+    expect(await outbox(draft.code)).toEqual([]); // lưu nháp chưa báo ai
+    await app.submit(accountant, draft.id);
+
+    const [requested] = await outbox(draft.code, 'finance.approval.requested');
+    expect(requested.p).toMatchObject({
+      voucherId: draft.id,
+      voucherKind: 'PAYMENT',
+      // Quyền duyệt đúng loại phiếu chi, kèm quyền quản trị Tài chính; không liệt kê người nhận cụ thể.
+      approvalPermissions: ['finance.payment.approve', 'finance.manage'],
+      actorUserId: accountant.userId,
+      deepLink: `/modules/finance/payments/${draft.id}`,
+    });
+    expect(String(requested.p['summary'])).toContain(`Phiếu chi ${draft.code} (750.000 đ) do Kế toán viên lập`);
+    expect(String(requested.p['summary'])).toContain('Mua bàn ghế');
+
+    await app.approve(approver, draft.id, 'Đã đối chiếu');
+    const [approved] = await outbox(draft.code, 'finance.voucher.status-changed');
+    expect(approved.p).toMatchObject({ status: 'APPROVED', requesterUserId: accountant.userId, actorUserId: approver.userId, title: 'Phiếu đã được duyệt' });
+    expect(String(approved.p['summary'])).toContain('đã được duyệt và ghi sổ bởi Kế toán trưởng');
+    expect(String(approved.p['summary'])).toContain('Ghi chú: Đã đối chiếu');
+
+    await app.reverse(approver, draft.id, 'Chi nhầm');
+    const reversed = (await outbox(draft.code, 'finance.voucher.status-changed')).at(-1);
+    expect(reversed?.p).toMatchObject({ status: 'REVERSED', requesterUserId: accountant.userId });
+
+    // Từ chối: người lập nhận kèm lý do.
+    const second = await app.createVoucher(accountant, payment(1_000, { content: 'Chi lặt vặt' }));
+    await app.submit(accountant, second.id);
+    await app.reject(approver, second.id, 'Thiếu hoá đơn');
+    const rejected = (await outbox(second.code, 'finance.voucher.status-changed')).at(-1);
+    expect(rejected?.p).toMatchObject({ status: 'REJECTED', title: 'Phiếu bị từ chối', requesterUserId: accountant.userId });
+    expect(String(rejected?.p['summary'])).toContain('Ghi chú: Thiếu hoá đơn');
+
+    // Người lập tự huỷ phiếu của mình: sự kiện vẫn ghi nhưng actor trùng người nhận nên chính sách loại ra (xem catalog spec).
+    const third = await app.createVoucher(accountant, payment(2_000));
+    await app.submit(accountant, third.id);
+    await app.cancel(accountant, session, third.id, 'Nhập nhầm');
+    const cancelled = (await outbox(third.code, 'finance.voucher.status-changed')).at(-1);
+    expect(cancelled?.p).toMatchObject({ status: 'CANCELLED', requesterUserId: accountant.userId, actorUserId: accountant.userId });
+  });
+
+  it('lệnh chuyển tiền gửi duyệt báo người có quyền duyệt chuyển tiền', async () => {
+    const transferVoucher = await app.createVoucher(accountant, transfer(5_000, accountA, cash));
+    await app.submit(accountant, transferVoucher.id);
+    const rows = (
+      await pool.query(`SELECT payload->'payload' AS p FROM integration_schema.outbox_events WHERE event_type='finance.approval.requested' AND payload->'payload'->>'voucherId'=$1`, [transferVoucher.id])
+    ).rows;
+    expect(rows).toHaveLength(1);
+    expect(rows[0].p.approvalPermissions).toEqual(['finance.transfer.approve', 'finance.manage']);
+    await app.cancel(accountant, session, transferVoucher.id, 'dọn');
   });
 
   it('trang tổng quan: phiếu chờ duyệt chỉ tính loại mình duyệt và không tính phiếu của chính mình', async () => {
