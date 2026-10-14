@@ -187,8 +187,12 @@ export class WorkItemService {
   }
 
   /**
-   * Gửi lại yêu cầu mở hồ sơ (Thử lại) cho công việc "Theo quy trình" chưa có
-   * hồ sơ — lần trước bị từ chối, hoặc công việc tạo trước khi có luồng sự kiện.
+   * Yêu cầu mở hồ sơ quy trình cho một công việc chưa có hồ sơ: nút "Quy
+   * trình" trên đầu công việc, hoặc Thử lại khi lần trước bị từ chối.
+   *
+   * Việc tạo ở dạng "Thủ công" cũng mở được, như trước khi chuyển sang luồng
+   * sự kiện; khi đó store chuyển nó sang "Theo quy trình" cùng transaction để
+   * cây và badge chờ theo dõi được hồ sơ.
    */
   async requestProcedure(
     actor: WorkspaceActor,
@@ -197,8 +201,12 @@ export class WorkItemService {
   ): Promise<WorkItemProcedureRequest> {
     const { item, access } = await this.load(actor, workItemId);
     requireProjectRole(access, 'member');
-    if (item.executionType !== 'procedure') {
-      throw new WorkspaceValidationError('Công việc này không chạy theo quy trình.');
+    // Cùng luật với lúc tạo: nhóm công việc chỉ là vỏ chứa, không chạy quy trình.
+    if (item.itemType === 'phase') {
+      throw new WorkspaceValidationError('Nhóm công việc không chạy theo quy trình.');
+    }
+    if (item.status === 'cancelled' || item.reversal) {
+      throw new WorkspaceValidationError('Công việc đã huỷ, không mở quy trình được.');
     }
     const refs = await this.store.externalRef.listByEntity(actor.tenantId, 'work_item', item.id);
     if (refs.some((ref) => ref.moduleKey === 'procedure-engine')) {

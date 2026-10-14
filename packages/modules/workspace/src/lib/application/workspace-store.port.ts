@@ -838,7 +838,10 @@ export interface WorkspaceStore {
   /** Yêu cầu Quy trình mở hồ sơ cho công việc "Theo quy trình". */
   readonly procedureRequest: {
     listByProject(tenantId: string, projectId: string): Promise<readonly WorkItemProcedureRequest[]>;
-    /** Ghi (lại) yêu cầu ở trạng thái chờ và phát sự kiện cho Quy trình, cùng transaction. */
+    /**
+     * Ghi (lại) yêu cầu ở trạng thái chờ và phát sự kiện cho Quy trình, cùng
+     * transaction. Việc đang "Thủ công" được chuyển sang "Theo quy trình".
+     */
     request(
       tenantId: string,
       actorUserId: string,
