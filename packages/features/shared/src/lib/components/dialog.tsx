@@ -129,6 +129,31 @@ export function Dialog({
   );
 }
 
+/**
+ * Nhãn cho ô chọn tự dựng (`SearchableSelect`). Không bọc bằng `<label>` như
+ * `Field`: bấm một mục trong danh sách sẽ bị trình duyệt chuyển thành cú bấm
+ * vào ô nhập bên trong label, làm danh sách vừa đóng đã mở lại.
+ */
+export function SelectField({
+  label,
+  required = false,
+  children,
+}: {
+  readonly label: string;
+  readonly required?: boolean;
+  readonly children: ReactNode;
+}) {
+  return (
+    <div className={styles.field} role="group" aria-label={label}>
+      <span className={styles.fieldLabel}>
+        {label}
+        {required ? <span className={styles.fieldRequired}> *</span> : null}
+      </span>
+      {children}
+    </div>
+  );
+}
+
 export function Field({
   label,
   required = false,

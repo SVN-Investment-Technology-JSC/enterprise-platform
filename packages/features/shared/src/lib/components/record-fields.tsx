@@ -10,7 +10,7 @@ import {
 import { SearchableSelect, type SearchableSelectOption } from '@enterprise-platform/shared-ui';
 import { folderLabel } from '../library.model';
 import styles from '../shared.module.scss';
-import { Field } from './dialog';
+import { Field, SelectField } from './dialog';
 
 /** Thông tin hồ sơ đang nhập: chuỗi rỗng là bỏ trống. */
 export interface RecordDraft {
@@ -72,7 +72,7 @@ export function RecordFields({
   return (
     <>
       <div className={styles.fieldRow}>
-        <Field label="Loại hồ sơ">
+        <SelectField label="Loại hồ sơ">
           <SearchableSelect
             options={KIND_OPTIONS}
             value={draft.docKind}
@@ -80,7 +80,7 @@ export function RecordFields({
             clearable
             onChange={(value) => set('docKind', value as SharedDocumentKind | '')}
           />
-        </Field>
+        </SelectField>
         <Field label="Số hiệu">
           <input
             value={draft.docNumber}
