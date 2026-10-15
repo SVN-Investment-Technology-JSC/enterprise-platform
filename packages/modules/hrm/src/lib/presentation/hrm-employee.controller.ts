@@ -14,7 +14,7 @@ import {
   timestamp,
 } from '../infrastructure/hrm-lifecycle.js';
 import type { Pool, PoolClient } from 'pg';
-import { loadDirectManager } from '../infrastructure/hrm-personnel-decisions.js';
+import { listCareerEvents, loadDirectManager } from '../infrastructure/hrm-personnel-decisions.js';
 import { hrmTransaction } from '../infrastructure/hrm-transaction.js';
 import { ensureCoreEmployeeLink, refreshCoreEmployeeIdentity } from '../infrastructure/hrm-core-link.js';
 import { isoDate, lockEmployee } from '../infrastructure/hrm-time.js';
@@ -288,6 +288,36 @@ export class HrmEmployeeController {
       this.logger.error(`getMyProfile error: ${err instanceof Error ? err.message : String(err)}`);
       throw err;
     }
+  }
+
+  /** Lịch sử bổ nhiệm và công tác của chính mình: quyết định đã ghi nhận và mốc hợp đồng. */
+  @Get('my-profile/career-events')
+  async getMyCareerEvents(@Req() req: Request) {
+    const { pool, tenantId, principal } = await this.ctx.getContext(req, 'hrm.self.read');
+    const emp = await pool.query(
+      `SELECT id FROM core_schema.employees WHERE tenant_id = $1 AND user_id = $2 AND deleted_at IS NULL`,
+      [tenantId, principal.userId],
+    );
+    const employeeId = emp.rows[0]?.id;
+    return {
+      data: employeeId ? await listCareerEvents(pool, tenantId, employeeId) : [],
+      meta: { requestId: req.headers['x-request-id'] as string },
+    };
+  }
+
+  @Get('employees/:employeeId/career-events')
+  async getCareerEvents(@Req() req: Request, @Param('employeeId') employeeId: string) {
+    requireUuid(employeeId, 'employeeId');
+    const { pool, tenantId } = await this.ctx.getRequestContext(
+      req,
+      employeeId,
+      'hrm.employee.read',
+      'hrm.self.read',
+    );
+    return {
+      data: await listCareerEvents(pool, tenantId, employeeId),
+      meta: { requestId: req.headers['x-request-id'] as string },
+    };
   }
 
   @Get('my-profile/career-history')

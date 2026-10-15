@@ -336,6 +336,7 @@ export function EmployeeDetailDialog({
   const [positions, setPositions] = useState<HrmJobDescriptionItem[]>([]);
   const [positionNodeId, setPositionNodeId] = useState('');
   const [positionReason, setPositionReason] = useState('');
+  const [positionMode, setPositionMode] = useState<'REPLACE' | 'CONCURRENT'>('REPLACE');
 
   // Khởi tạo lại form edit khi đổi nhân viên hoặc đóng/mở drawer
   const empId = employee?.employeeId;
@@ -466,6 +467,7 @@ export function EmployeeDetailDialog({
           await quickAssignPosition(employee.employeeId, {
             toPositionNodeId: positionNodeId,
             reason: positionReason.trim(),
+            mode: positionMode,
           });
           appointmentCtx.reload();
           latest = (
@@ -890,6 +892,32 @@ export function EmployeeDetailDialog({
                           }
                           clearable={false}
                         />
+                        {positionChanged && (
+                          <div role="radiogroup" aria-label="Hình thức gán chức danh" className="grid grid-cols-2 gap-1.5">
+                            {(
+                              [
+                                ['REPLACE', 'Thay thế', 'Kết thúc chức danh chính hiện tại'],
+                                ['CONCURRENT', 'Kiêm nhiệm', 'Giữ chức danh cũ, thêm chức danh mới'],
+                              ] as const
+                            ).map(([value, title, hint]) => (
+                              <button
+                                key={value}
+                                type="button"
+                                role="radio"
+                                aria-checked={positionMode === value}
+                                onClick={() => setPositionMode(value)}
+                                className={`rounded-md border px-2 py-1.5 text-left transition-colors ${
+                                  positionMode === value
+                                    ? 'border-blue-600 bg-blue-50 text-blue-800'
+                                    : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                                }`}
+                              >
+                                <span className="block text-[14px] font-bold">{title}</span>
+                                <span className="block text-[12px] leading-tight">{hint}</span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
                         {positionChanged && (
                           <Input
                             value={positionReason}

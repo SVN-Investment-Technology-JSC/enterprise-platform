@@ -242,6 +242,36 @@ describe('người duyệt dự kiến', () => {
     });
   });
 
+  it('DIRECT có cả quản lý và người dự phòng: method "Quản lý trực tiếp hoặc người dự phòng", detail cả hai', () => {
+    expect(
+      approverLine({
+        mode: 'DIRECT',
+        directManager: { employeeId: 'm1', fullName: 'Trần Văn B', positionName: 'Trưởng phòng' },
+        fallbackPosition: { positionId: 'p1', positionName: 'Phó Giám đốc' },
+        note: 'Đơn có thể được duyệt bởi Quản lý trực tiếp hoặc người giữ chức danh Phó Giám đốc.',
+      }),
+    ).toEqual({
+      method: 'Quản lý trực tiếp hoặc người dự phòng',
+      detail: 'Trần Văn B, Trưởng phòng hoặc chức danh Phó Giám đốc',
+      note: 'Đơn có thể được duyệt bởi Quản lý trực tiếp hoặc người giữ chức danh Phó Giám đốc.',
+    });
+  });
+
+  it('DIRECT chỉ có người dự phòng: method "Người duyệt dự phòng", detail chức danh dự phòng', () => {
+    expect(
+      approverLine({
+        mode: 'DIRECT',
+        directManager: null,
+        fallbackPosition: { positionId: 'p1', positionName: 'Phó Giám đốc' },
+        note: 'Đơn chưa có quản lý trực tiếp; người giữ chức danh Phó Giám đốc hoặc người có quyền duyệt toàn bộ sẽ xử lý.',
+      }),
+    ).toEqual({
+      method: 'Người duyệt dự phòng',
+      detail: 'Chức danh: Phó Giám đốc',
+      note: 'Đơn chưa có quản lý trực tiếp; người giữ chức danh Phó Giám đốc hoặc người có quyền duyệt toàn bộ sẽ xử lý.',
+    });
+  });
+
   it('PROCEDURE: tên quy trình', () => {
     expect(approverLine({ mode: 'PROCEDURE', procedureName: 'Quy trình duyệt OT' })).toEqual({
       method: 'Duyệt theo quy trình',

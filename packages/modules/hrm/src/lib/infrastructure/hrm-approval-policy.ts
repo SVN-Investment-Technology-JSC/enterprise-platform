@@ -10,7 +10,6 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import type { PoolClient } from 'pg';
-import { chiefFallbackUserIds } from './hrm-chief-fallback.js';
 import { fetchActionableProcedureInstanceIds } from './hrm-procedure-api.js';
 import { HRM_REQUEST_TABLES } from './hrm-procedure-links.js';
 
@@ -23,7 +22,10 @@ import { HRM_REQUEST_TABLES } from './hrm-procedure-links.js';
  *     Người nộp rút đơn của mình (cancel) là thao tác của chủ đơn, không phải duyệt: được phép.
  *  2. Chỉ duyệt đơn của nhân viên thuộc phạm vi: cấp dưới theo chuỗi "Báo cáo cho" của chức danh hoặc
  *     thuộc cây đơn vị mà mình là trưởng (dữ liệu lấy qua API nội bộ của Platform, không đọc DB module khác).
- *     Tổng giám đốc còn duyệt đơn của nhân viên chưa có quản lý theo Core lẫn HRM (hrm-chief-fallback).
+ *     Đơn ở chế độ DIRECT có thể được duyệt bởi Quản lý trực tiếp HOẶC người giữ chức danh dự phòng (hoặc 1 trong 2,
+ *     ai duyệt trước cũng được). Cả hai đều thấy đơn trong danh sách chờ duyệt và đều có thẩm quyền phê duyệt.
+ *     Nếu nhân viên chưa có quản lý trực tiếp, người giữ chức danh dự phòng (nếu có cấu hình)
+ *     hoặc người có quyền duyệt toàn bộ (hrm.<x>.approve.all, hrm.manage, tenant.manage) xử lý.
  *  3. Quyền hrm.<x>.approve.all, hrm.manage hoặc tenant.manage duyệt toàn tenant (vẫn bị quy tắc 1).
  *  4. Đơn đã có liên kết Procedure Engine: 409 PROCEDURE_IN_PROGRESS (trigger DB vẫn là lớp bảo vệ cuối).
  * Ở chế độ PE, người duyệt do PE quyết định; các callback của PE không đi qua chính sách này.
@@ -66,7 +68,7 @@ export interface HrmApprovalActor {
   permissions?: readonly string[];
 }
 
-type Queryable = Pick<PoolClient, 'query'>;
+export type Queryable = Pick<PoolClient, 'query'>;
 
 /** Cổng lấy cấp dưới của một người từ Platform (Tenant Core). */
 export interface HrmOrgScopePort {
@@ -92,6 +94,26 @@ export function hasApproveAll(
     permissions.includes(HRM_APPROVE_PERMISSIONS[kind].all) ||
     permissions.includes('tenant.manage') ||
     permissions.includes('hrm.manage')
+  );
+}
+
+/** Có quyền duyệt loại đơn này (trong phạm vi hoặc toàn tenant). */
+export function hasApprovePermission(
+  actor: HrmApprovalActor,
+  kind: HrmRequestKind,
+): boolean {
+  return (
+    hasApproveAll(actor, kind) ||
+    (actor.permissions ?? []).includes(HRM_APPROVE_PERMISSIONS[kind].approve)
+  );
+}
+
+/** Loại đơn ứng với bộ quyền duyệt mà `approverPermissions(kind)` trả về. */
+export function approvalKindOfPermissions(
+  permissions: readonly string[],
+): HrmRequestKind | undefined {
+  return (Object.keys(HRM_APPROVE_PERMISSIONS) as HrmRequestKind[]).find(
+    (kind) => permissions[0] === HRM_APPROVE_PERMISSIONS[kind].approve,
   );
 }
 
@@ -153,10 +175,7 @@ export async function assertCanDecide(
     const subordinates = row.user_id
       ? await deps.orgScope.subordinateUserIds(deps.tenantId, actor.userId)
       : new Set<string>();
-    let inScope =
-      !!row.user_id &&
-      (subordinates.has(row.user_id) ||
-        (await chiefFallbackUserIds(deps.db, deps.tenantId, actor.userId)).has(row.user_id));
+    let inScope = !!row.user_id && subordinates.has(row.user_id);
     if (!inScope && row.user_id) {
       const fallbackPositionId = await resolveDirectFallbackPosition(
         deps.db,
@@ -339,7 +358,7 @@ export async function resolveDirectFallbackPosition(
     ).rows[0];
     subTypeCode = row?.type_code ?? null;
   } else if (
-    ['overtime', 'business_trip', 'attendance_explanation', 'shift_change'].includes(
+    ['ot', 'business_trip', 'correction', 'shift_change'].includes(
       kind,
     )
   ) {
@@ -455,7 +474,7 @@ export async function directFallbackActionableRequestIds(
                     )
                   LIMIT 500`;
   } else if (
-    ['overtime', 'business_trip', 'attendance_explanation', 'shift_change'].includes(
+    ['ot', 'business_trip', 'correction', 'shift_change'].includes(
       kind,
     )
   ) {
@@ -499,6 +518,44 @@ export async function directFallbackActionableRequestIds(
   return matchedRequestIds;
 }
 
+/**
+ * Mã đơn loại `kind` được giao riêng cho người này: Procedure giao bước hiện tại (quản lý trực tiếp, người dự phòng...)
+ * hoặc người này giữ chức danh duyệt dự phòng của đơn duyệt trực tiếp. Không đòi quyền duyệt của HRM.
+ */
+export async function assignedRequestIds(
+  db: Queryable,
+  tenantId: string,
+  kind: HrmRequestKind,
+  userId: string,
+): Promise<string[]> {
+  const [procedure, direct] = await Promise.all([
+    procedureActionableRequestIds(db, tenantId, kind, userId),
+    directFallbackActionableRequestIds(db, tenantId, kind, userId),
+  ]);
+  return [...new Set([...procedure, ...direct])];
+}
+
+const ALL_REQUEST_KINDS = Object.keys(HRM_APPROVE_PERMISSIONS) as HrmRequestKind[];
+
+/** Các loại đơn mà người này CHƯA có quyền duyệt HRM nhưng đang được giao xử lý (người dự phòng, người được PE chọn). */
+export async function assignedKindsWithoutPermission(
+  db: Queryable,
+  tenantId: string,
+  actor: HrmApprovalActor,
+): Promise<HrmRequestKind[]> {
+  const kinds = ALL_REQUEST_KINDS.filter((kind) => !hasApprovePermission(actor, kind));
+  const found = await Promise.all(
+    kinds.map(async (kind) => {
+      try {
+        return (await assignedRequestIds(db, tenantId, kind, actor.userId)).length > 0 ? kind : null;
+      } catch {
+        return null;
+      }
+    }),
+  );
+  return found.filter((kind): kind is HrmRequestKind => kind !== null);
+}
+
 export async function resolveApprovalScope(
   actor: HrmApprovalActor,
   kind: HrmRequestKind,
@@ -508,11 +565,18 @@ export async function resolveApprovalScope(
   const excludeUserId = allowSelf ? null : actor.userId;
   if (hasApproveAll(actor, kind))
     return { all: true, userIds: [], excludeUserId };
+  // Không có quyền duyệt HRM: chỉ thấy đơn được giao riêng (PE hoặc chức danh dự phòng), không thấy đơn của cấp dưới.
+  if (actor.permissions && !hasApprovePermission(actor, kind))
+    return {
+      all: false,
+      userIds: [],
+      excludeUserId,
+      requestIds: await assignedRequestIds(deps.db, deps.tenantId, kind, actor.userId),
+    };
   const subordinates = await deps.orgScope.subordinateUserIds(
     deps.tenantId,
     actor.userId,
   );
-  const unassigned = await chiefFallbackUserIds(deps.db, deps.tenantId, actor.userId);
   // Đơn qua Procedure mà PE giao cho người này (quản lý trực tiếp hoặc người dự phòng) dù không thuộc cấp dưới.
   const procedureRequestIds = await procedureActionableRequestIds(deps.db, deps.tenantId, kind, actor.userId);
   // Đơn duyệt trực tiếp mà người này giữ chức danh duyệt dự phòng được cấu hình.
@@ -520,7 +584,7 @@ export async function resolveApprovalScope(
   const requestIds = [...new Set([...procedureRequestIds, ...directFallbackRequestIds])];
   return {
     all: false,
-    userIds: [...new Set([...subordinates, ...unassigned])],
+    userIds: [...subordinates],
     excludeUserId,
     requestIds,
   };
@@ -790,12 +854,9 @@ export class HrmApprovalPolicyService {
       ctx.tenantId,
       ctx.principal.userId,
     );
-    const unassigned = ctx.pool
-      ? await chiefFallbackUserIds(ctx.pool, ctx.tenantId, ctx.principal.userId)
-      : new Set<string>();
     return describeApprovalScope(
       permissions,
-      new Set([...subordinates, ...unassigned]).size,
+      subordinates.size,
     );
   }
 
@@ -814,7 +875,18 @@ export class HrmApprovalPolicyService {
     const canApprove =
       permissions.includes(HRM_APPROVE_PERMISSIONS[kind].approve) ||
       hasApproveAll(ctx.principal, kind);
-    if (!canApprove) return { sql: 'TRUE', params: [] as unknown[] };
+    if (!canApprove) {
+      // Không có quyền duyệt HRM: chỉ những đơn được giao riêng (Procedure hoặc chức danh dự phòng). Nếu không có đơn nào
+      // thì người này đã bị `scoped` giới hạn vào đơn của chính mình, nên không cần lọc thêm.
+      const requestIds = await assignedRequestIds(ctx.pool, ctx.tenantId, kind, ctx.principal.userId);
+      if (!requestIds.length) return { sql: 'TRUE', params: [] as unknown[] };
+      const allowSelf = await loadAllowSelfApproval(ctx.pool, ctx.tenantId);
+      return approvalScopeSql(
+        { all: false, userIds: [], requestIds, excludeUserId: allowSelf ? null : ctx.principal.userId },
+        alias,
+        firstParam,
+      );
+    }
     const scope = await resolveApprovalScope(ctx.principal, kind, {
       db: ctx.pool,
       tenantId: ctx.tenantId,

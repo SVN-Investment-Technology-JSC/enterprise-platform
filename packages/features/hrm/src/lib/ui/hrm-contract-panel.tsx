@@ -98,18 +98,6 @@ function fields(row?: HrmEmploymentContract): ActionField[] {
       optional: true,
       value: row?.baseSalary ?? '',
     },
-    {
-      key: 'fileUrl',
-      label: 'Đường dẫn tệp chứng từ (nếu có)',
-      optional: true,
-      value: row?.fileUrl || '',
-    },
-    {
-      key: 'note',
-      label: 'Ghi chú điều khoản',
-      optional: true,
-      value: row?.note || '',
-    },
   ];
 }
 

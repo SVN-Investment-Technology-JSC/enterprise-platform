@@ -32,7 +32,7 @@ export class HrmRequestCommentController {
 
   /** Tính quyền của người gọi trên một đơn; ném 404 nếu đơn không tồn tại, 403 nếu không có quyền. */
   private async access(req: Request, kindInput: unknown, requestIdInput: unknown) {
-    const { pool, tenantId, principal } = await this.ctx.getContext(req, 'hrm.read');
+    const { pool, tenantId, principal } = await this.ctx.getContext(req, 'hrm.self.read');
     const kind = normalizeRequestKind(kindInput);
     const requestId = requireUuid(requestIdInput, 'Đơn');
     const owner = await loadRequestOwner(pool, tenantId, kind, requestId);
@@ -50,21 +50,21 @@ export class HrmRequestCommentController {
     return { pool, tenantId, principal, kind, requestId, owner, access };
   }
 
-  @RequirePermission('hrm.read')
+  @RequirePermission('hrm.self.read')
   @Get('request-comments')
   async list(@Req() req: Request, @Query('kind') kind?: string, @Query('requestId') requestId?: string) {
     const c = await this.access(req, kind, requestId);
     return { data: await listComments(c.pool, c.tenantId, c.kind, c.requestId, c.principal.userId) };
   }
 
-  @RequirePermission('hrm.read')
+  @RequirePermission('hrm.self.read')
   @Get('request-comments/mention-candidates')
   async candidates(@Req() req: Request, @Query('q') q = '') {
-    const { pool, tenantId, principal } = await this.ctx.getContext(req, 'hrm.read');
+    const { pool, tenantId, principal } = await this.ctx.getContext(req, 'hrm.self.read');
     return { data: await searchMentionCandidates(pool, tenantId, String(q).slice(0, 80), principal.userId) };
   }
 
-  @RequirePermission('hrm.read')
+  @RequirePermission('hrm.self.read')
   @Post('request-comments')
   async create(
     @Req() req: Request,
@@ -76,6 +76,7 @@ export class HrmRequestCommentController {
       mentionUserIds?: string[];
       commentKind?: 'COMMENT' | 'DECISION';
       decision?: string;
+      attachments?: Array<{ id: string; name: string; contentType?: string; sizeBytes?: number }>;
     },
   ) {
     const c = await this.access(req, body?.kind, body?.requestId);
@@ -103,6 +104,7 @@ export class HrmRequestCommentController {
         mentionUserIds: mentions,
         commentKind,
         decision,
+        attachments: body?.attachments,
       });
     });
     return { data: created };

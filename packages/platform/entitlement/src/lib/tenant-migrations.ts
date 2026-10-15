@@ -342,6 +342,10 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       path: 'tenant/hrm/0058-hrm-system-request-type-legacy-code.sql',
     },
     {
+      version: '0060-hrm-personnel-decision-recorded',
+      path: 'tenant/hrm/0060-hrm-personnel-decision-recorded.sql',
+    },
+    {
       version: '0021-notification-outbox-v1',
       path: 'tenant/hrm/0021-notification-outbox-v1.sql',
     },

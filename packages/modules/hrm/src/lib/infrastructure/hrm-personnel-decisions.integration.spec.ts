@@ -8,6 +8,7 @@ import {
   approveDecision,
   cancelDecision,
   createDecision,
+  listCareerEvents,
   loadAppointmentContext,
   loadDecision,
   mapDecision,
@@ -119,6 +120,7 @@ integration('HRM personnel decisions PostgreSQL integration', () => {
       'hrm/0015-hrm-procedure-sync.sql',
       'hrm/0015-procedure-definition-snapshot.sql',
       'hrm/0015-shift-submission.sql',
+      'hrm/0016-family-contract-lifecycle.sql',
       'hrm/0016-hrm-lifecycle.sql',
       'hrm/0019-timesheet-attachment-lifecycle.sql',
       'hrm/0031-hrm-profile-documents.sql',
@@ -126,6 +128,7 @@ integration('HRM personnel decisions PostgreSQL integration', () => {
       'hrm/0028-hrm-approval-policy.sql',
       'hrm/0032-hrm-personnel-decisions.sql',
       'hrm/0033-leave-annual-policy.sql',
+      'hrm/0060-hrm-personnel-decision-recorded.sql',
     ])
       await migrate(path);
     await pool.query(
@@ -280,6 +283,20 @@ integration('HRM personnel decisions PostgreSQL integration', () => {
         { org: core },
       ),
     ).rejects.toThrow(/đang giữ chức danh này/);
+  });
+
+  it('gán chức danh nhanh kiểu kiêm nhiệm: giữ chức danh chính, không kết thúc phân công cũ', async () => {
+    const employee = await person('Kiêm');
+    const applied = await quickAssignPosition(
+      pool,
+      tenantId,
+      hrUser,
+      { employeeId: employee.id, toPositionNodeId: posLead, reason: 'Kiêm nhiệm trưởng nhóm', mode: 'CONCURRENT' },
+      { org: core },
+    );
+    expect(applied.decisionType).toBe('CONCURRENT');
+    expect(applied.status).toBe('APPLIED');
+    expect(core.commands.at(-1)).toMatchObject({ action: 'ASSIGN', nodeId: posLead, isPrimary: false, endCurrent: false });
   });
 
   it('Core lỗi thì dừng ở APPLY_PENDING và thử lại chỉ làm tiếp bước còn thiếu', async () => {
@@ -444,4 +461,77 @@ integration('HRM personnel decisions PostgreSQL integration', () => {
     const next = await draft(employee.id);
     expect((await cancelDecision(pool, tenantId, hrUser, next.id)).status).toBe('CANCELLED');
   });
-});
+
+  it('tạo quyết định chỉ ghi nhận lịch sử: không áp dụng, không chặn việc gán chức danh nhanh', async () => {
+    const employee = await person('Ghi nhận', false);
+    const before = core.commands.length;
+    const recorded = await createDecision(
+      pool,
+      tenantId,
+      hrUser,
+      {
+        decisionType: 'PROMOTE',
+        employeeId: employee.id,
+        toPositionNodeId: posLead,
+        effectiveDate: '2026-02-01',
+        reason: 'Ghi nhận thăng chức',
+      },
+      true,
+    );
+    expect(recorded.status).toBe('RECORDED');
+    // Không duyệt/áp dụng được và không gọi Core.
+    await expect(
+      approveDecision(pool, tenantId, approverUser, recorded.id, { org: core }),
+    ).rejects.toThrow(/trạng thái nháp/);
+    expect(core.commands.length).toBe(before);
+    // Quyết định ghi nhận không chiếm chỗ của luồng có áp dụng.
+    const second = await createDecision(
+      pool,
+      tenantId,
+      hrUser,
+      {
+        decisionType: 'PROMOTE',
+        employeeId: employee.id,
+        toPositionNodeId: posStaff,
+        effectiveDate: '2026-03-01',
+        reason: 'Ghi nhận thêm',
+      },
+      true,
+    );
+    const events = await listCareerEvents(pool, tenantId, employee.id);
+    expect(events.filter((e) => e.source === 'DECISION').map((e) => e.id)).toEqual([second.id, recorded.id]);
+    // Hủy bản ghi thì khỏi lịch sử.
+    await cancelDecision(pool, tenantId, hrUser, second.id);
+    expect((await listCareerEvents(pool, tenantId, employee.id)).map((e) => e.id)).toEqual([recorded.id]);
+  });
+
+  it('một nhân viên có 10 lần bổ nhiệm khác nhau: lịch sử công tác hiện đủ, mới nhất lên trước', async () => {
+    const employee = await person('Mười quyết định', false);
+    const types = ['APPOINT', 'PROMOTE', 'TRANSFER', 'CONCURRENT', 'APPOINT', 'PROMOTE', 'TRANSFER', 'CONCURRENT', 'APPOINT', 'PROMOTE'] as const;
+    const created: { id: string; date: string }[] = [];
+    for (let i = 0; i < 10; i++) {
+      const date = `2025-${String(i + 1).padStart(2, '0')}-15`;
+      const d = await createDecision(
+        pool,
+        tenantId,
+        hrUser,
+        {
+          decisionType: types[i],
+          employeeId: employee.id,
+          toPositionNodeId: i % 2 === 0 ? posLead : posStaff,
+          effectiveDate: date,
+          reason: `Lần bổ nhiệm ${i + 1}`,
+        },
+        true,
+      );
+      expect(d.status).toBe('RECORDED');
+      created.push({ id: d.id, date });
+    }
+    const events = (await listCareerEvents(pool, tenantId, employee.id)).filter((e) => e.source === 'DECISION');
+    expect(events).toHaveLength(10);
+    expect(events.map((e) => e.id)).toEqual(created.map((c) => c.id).reverse());
+    expect(events.map((e) => e.effectiveDate)).toEqual(created.map((c) => c.date).reverse());
+    expect(new Set(events.map((e) => e.reference)).size).toBe(10);
+    expect(events[0].note).toBe('Lần bổ nhiệm 10');
+  });
+});

@@ -139,6 +139,7 @@ import {
   matchesWorkflowFilter,
   waitingApproverLabel,
 } from '../procedure-progress-view';
+import { RequestThread } from '../ui/approvals/request-thread';
 
 /** Bản nháp đơn do máy chủ trả về khi lưu qua /request-drafts. */
 interface RequestDraft {
@@ -5704,6 +5705,16 @@ export default function RequestsPage() {
                 </div>
               </div>
             </div>
+
+            {/* KHỐI 6: TRAO ĐỔI & Ý KIẾN */}
+            {selectedRequest && (
+              <div className="pt-2 border-t border-slate-200">
+                <RequestThread
+                  kind={selectedRequest.kind}
+                  requestId={selectedRequest.id}
+                />
+              </div>
+            )}
           </div>
 
           {/* FOOTER ACTIONS */}

@@ -77,7 +77,8 @@ export class HrmPersonnelDecisionController {
   async create(@Req() req: Request, @Body() body: CreateHrmPersonnelDecisionPayload) {
     const { pool, tenantId, principal } = await this.ctx.getContext(req, 'hrm.appointment.manage');
     return {
-      data: await createDecision(pool, tenantId, principal.userId, body),
+      // Chỉ ghi lịch sử công tác; không duyệt, không áp dụng sang chức danh, quản lý hay lương.
+      data: await createDecision(pool, tenantId, principal.userId, body, true),
       meta: meta(req),
     };
   }
@@ -173,7 +174,8 @@ export class HrmPersonnelDecisionController {
   async quickAppoint(
     @Req() req: Request,
     @Param('employeeId') employeeId: string,
-    @Body() body: { toPositionNodeId?: string; reason?: string; effectiveDate?: string },
+    @Body()
+    body: { toPositionNodeId?: string; reason?: string; effectiveDate?: string; mode?: string },
   ) {
     requireUuid(employeeId, 'Nhân viên');
     const context = await this.ctx.getContext(req, 'hrm.appointment.manage');
@@ -189,6 +191,7 @@ export class HrmPersonnelDecisionController {
           toPositionNodeId: String(body?.toPositionNodeId ?? ''),
           reason: String(body?.reason ?? ''),
           effectiveDate: body?.effectiveDate,
+          mode: body?.mode === 'CONCURRENT' ? 'CONCURRENT' : 'REPLACE',
         },
         { org: this.org },
       ),

@@ -25,6 +25,7 @@ export const DECISION_STATUS_LABELS: Record<
   APPLIED: 'Đã áp dụng',
   REJECTED: 'Từ chối',
   CANCELLED: 'Đã hủy',
+  RECORDED: 'Đã ghi nhận',
 };
 
 export const DECISION_STATUS_TONES: Record<
@@ -37,6 +38,7 @@ export const DECISION_STATUS_TONES: Record<
   APPLIED: 'bg-emerald-50 text-emerald-700 border-emerald-200',
   REJECTED: 'bg-red-50 text-red-700 border-red-200',
   CANCELLED: 'bg-slate-100 text-slate-500 border-slate-200',
+  RECORDED: 'bg-teal-50 text-teal-700 border-teal-200',
 };
 
 /**
@@ -187,9 +189,10 @@ export function decisionRowActions(
   perms: { manage: boolean; approve: boolean },
 ): DecisionRowActions {
   const draft = status === 'DRAFT';
+  const editable = draft || status === 'RECORDED';
   return {
-    edit: draft && perms.manage,
-    cancel: draft && perms.manage,
+    edit: editable && perms.manage,
+    cancel: editable && perms.manage,
     approve: draft && perms.approve,
     reject: draft && perms.approve,
     retry: status === 'APPLY_PENDING' && perms.approve,

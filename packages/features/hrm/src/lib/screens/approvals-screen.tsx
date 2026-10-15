@@ -133,12 +133,16 @@ function ApprovalsContent() {
   }, []);
   useEffect(() => {
     if (!linkedRequestId) return;
+    if (availableSources.length === 0) {
+      window.location.replace(`/modules/hrm/requests?request=${encodeURIComponent(linkedRequestId)}`);
+      return;
+    }
     const row = rows.find((item) => item.id === linkedRequestId);
     if (row) {
       setDetailKey(row.key);
       setLinkedRequestId('');
     }
-  }, [rows, linkedRequestId]);
+  }, [rows, linkedRequestId, availableSources]);
   useEffect(
     () => setLinkedId(new URLSearchParams(window.location.search).get('workflow') || ''),
     [],

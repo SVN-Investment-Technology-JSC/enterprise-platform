@@ -385,6 +385,21 @@ export interface HrmCareerHistoryItem {
   readonly note?: string | null;
 }
 
+/** Một sự kiện trong "Lịch sử bổ nhiệm và công tác": quyết định đã ghi nhận hoặc mốc hợp đồng. */
+export interface HrmCareerEvent {
+  readonly id: string;
+  readonly source: 'DECISION' | 'CONTRACT';
+  /** Loại quyết định hoặc loại hợp đồng (mã). */
+  readonly kind: string;
+  readonly title: string;
+  readonly effectiveDate: string;
+  readonly endDate: string | null;
+  readonly positionName: string | null;
+  readonly unitName: string | null;
+  readonly reference: string | null;
+  readonly note: string | null;
+}
+
 export interface CreateEmployeeProfileRequest {
   readonly employeeCode: string;
   readonly personalEmail?: string;
@@ -2156,7 +2171,9 @@ export type HrmPersonnelDecisionStatus =
   | 'APPLY_PENDING'
   | 'APPLIED'
   | 'REJECTED'
-  | 'CANCELLED';
+  | 'CANCELLED'
+  /** Chỉ ghi nhận lịch sử công tác, không áp dụng sang chức danh, quan hệ báo cáo hay lương. */
+  | 'RECORDED';
 
 /** Chỉ còn trong dữ liệu cũ: quyết định không còn gán quản lý. KEEP: giữ nguyên · SET: đã gán · CLEAR: đã bỏ. */
 export type HrmManagerMode = 'KEEP' | 'SET' | 'CLEAR';
@@ -2910,6 +2927,13 @@ export interface HrmTripAllowanceRate {
 
 export type HrmRequestCommentKind = 'COMMENT' | 'DECISION';
 
+export interface HrmCommentAttachment {
+  readonly id: string;
+  readonly name: string;
+  readonly contentType?: string;
+  readonly sizeBytes?: number;
+}
+
 /** Một dòng trong luồng trao đổi của đơn: bình luận thường hoặc ý kiến đi kèm quyết định phê duyệt. */
 export interface HrmRequestComment {
   readonly id: string;
@@ -2923,6 +2947,8 @@ export interface HrmRequestComment {
   readonly body: string;
   /** Người được nhắc tên (@) trong nội dung. */
   readonly mentions: readonly HrmCommentMention[];
+  /** Tệp đính kèm trong tin nhắn trao đổi. */
+  readonly attachments?: readonly HrmCommentAttachment[];
   readonly createdAt: string;
   /** Bình luận của chính người đang xem. */
   readonly mine: boolean;
@@ -2946,6 +2972,7 @@ export interface CreateRequestCommentRequest {
   readonly mentionUserIds?: readonly string[];
   readonly commentKind?: HrmRequestCommentKind;
   readonly decision?: string;
+  readonly attachments?: readonly HrmCommentAttachment[];
 }
 
 /** Người có thể được nhắc tên: nhân viên có tài khoản đăng nhập. */

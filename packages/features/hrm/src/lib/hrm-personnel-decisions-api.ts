@@ -98,7 +98,13 @@ export async function getAppointmentContext(employeeId: string) {
  */
 export async function quickAssignPosition(
   employeeId: string,
-  body: { toPositionNodeId: string; reason: string; effectiveDate?: string },
+  body: {
+    toPositionNodeId: string;
+    reason: string;
+    effectiveDate?: string;
+    /** REPLACE: thay chức danh chính · CONCURRENT: giữ chức danh cũ, thêm kiêm nhiệm. */
+    mode?: 'REPLACE' | 'CONCURRENT';
+  },
 ) {
   const res = await hrmFetch<{ data: HrmPersonnelDecision }>(
     `/employees/${employeeId}/quick-appoint`,

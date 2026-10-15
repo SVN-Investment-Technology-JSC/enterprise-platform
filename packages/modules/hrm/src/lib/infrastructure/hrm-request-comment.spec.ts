@@ -164,6 +164,7 @@ describe('createComment: ghi bình luận và sự kiện thông báo cùng giao
     const list = events(calls);
     expect(list.map((e) => e.type)).toEqual(['hrm.request.comment.mentioned']);
     expect(list[0].payload.summary).toContain('đã phê duyệt đơn nghỉ phép của Nguyễn Văn A: Duyệt, nhớ bàn giao việc');
+    expect(list[0].payload.deepLink).toBe(`/modules/hrm/requests?request=${REQ}`);
     const insert = calls.find((c) => c.sql.includes('INSERT INTO hrm_schema.request_comments'));
     expect(insert?.params.slice(5, 8)).toEqual(['DECISION', 'APPROVE', 'Duyệt, nhớ bàn giao việc']);
   });

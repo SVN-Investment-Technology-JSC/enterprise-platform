@@ -6,6 +6,7 @@ import { HrmProfileDocumentsPanel } from '../ui/hrm-profile-documents-panel';
 import type {
   HrmEmployeeDependent,
   HrmEmploymentContract,
+  HrmCareerEvent,
   HrmCareerHistoryItem,
 } from '@enterprise-platform/contracts-hrm';
 import {
@@ -95,8 +96,9 @@ export default function HrmProfilePage() {
   const [dependents, setDependents] = useState<HrmEmployeeDependent[]>([]);
   const [contracts, setContracts] = useState<HrmEmploymentContract[]>([]);
   const [employeeId, setEmployeeId] = useState('');
-  const [careerHistory, setCareerHistory] = useState<HrmCareerHistoryItem[]>([]);
+  const [, setCareerHistory] = useState<HrmCareerHistoryItem[]>([]);
   const [loadingCareer, setLoadingCareer] = useState(false);
+  const [careerEvents, setCareerEvents] = useState<HrmCareerEvent[]>([]);
 
   const [companyName, setCompanyName] = useState('');
   const [roleLabel, setRoleLabel] = useState('');
@@ -343,6 +345,12 @@ export default function HrmProfilePage() {
     // Tải một lần khi đã có mã nhân viên (để thẻ Công tác hiện tại có chức danh, đơn vị thật) và khi mở ngăn kéo lịch sử.
     if (employeeId || historyOpen) {
       setLoadingCareer(true);
+      hrmFetch<{ data: HrmCareerEvent[] }>('/my-profile/career-events')
+        .then((payload) => setCareerEvents(payload?.data || []))
+        .catch((err) => {
+          console.error('Không thể tải lịch sử bổ nhiệm & công tác:', err);
+          setCareerEvents([]);
+        });
       hrmFetch<{ data: HrmCareerHistoryItem[] }>('/my-profile/career-history')
         .then((payload) => {
           const list: HrmCareerHistoryItem[] = payload?.data || [];
@@ -1081,8 +1089,8 @@ export default function HrmProfilePage() {
                   <Badge variant="outline" className="text-slate-500 text-[11px]">
                     {loadingCareer
                       ? 'Đang tải...'
-                      : careerHistory.length > 0
-                        ? `${careerHistory.length} vị trí / quyết định`
+                      : careerEvents.length > 0
+                        ? `${careerEvents.length} sự kiện`
                         : profileMeta.joinDate || profileMeta.officialDate
                           ? 'Dữ liệu sơ bộ hồ sơ'
                           : 'Chưa có sự kiện'}
@@ -1093,71 +1101,84 @@ export default function HrmProfilePage() {
               {loadingCareer ? (
                 <div className="py-10 flex flex-col items-center justify-center gap-2 text-slate-500 text-xs">
                   <Loader2 className="size-5 animate-spin text-[#021E73]" />
-                  <span>Đang đồng bộ quá trình công tác từ sơ đồ tổ chức...</span>
+                  <span>Đang tải lịch sử bổ nhiệm và công tác...</span>
                 </div>
-              ) : careerHistory.length > 0 ? (
+              ) : careerEvents.length > 0 ? (
                 <div className="relative pl-6 sm:pl-8 border-l-2 border-blue-200 space-y-6 ml-2 sm:ml-4">
-                  {careerHistory.map((item) => {
-                    const isActive = item.status === 'active' && !item.endDate;
+                  {careerEvents.map((ev, index) => {
+                    const isDecision = ev.source === 'DECISION';
+                    const isConcurrent = isDecision && ev.kind === 'CONCURRENT';
+                    const isEnd = isDecision && ev.kind === 'DISMISS';
                     return (
-                      <div key={item.assignmentId} className="relative group">
-                        {/* Timeline Dot Indicator */}
+                      <div key={`${ev.source}-${ev.id}`} className="relative group">
                         <span
-                          className={`absolute -left-[31px] sm:-left-[39px] top-1 size-4 rounded-full border-2 border-white ring-2 ${isActive
-                              ? 'bg-[#021E73] ring-blue-300'
-                              : 'bg-slate-400 ring-slate-200'
-                            }`}
+                          className={`absolute -left-[31px] sm:-left-[39px] top-1 size-4 rounded-full border-2 border-white ring-2 ${
+                            isConcurrent
+                              ? 'bg-amber-500 ring-amber-200'
+                              : index === 0
+                                ? 'bg-[#021E73] ring-blue-300'
+                                : 'bg-slate-400 ring-slate-200'
+                          }`}
                         />
-                        <div className="bg-slate-50 hover:bg-slate-50/80 transition-colors p-4 rounded-xl border border-slate-200">
+                        <div
+                          className={`hover:bg-slate-50/80 transition-colors p-4 rounded-xl border ${
+                            isConcurrent ? 'bg-amber-50/50 border-amber-200' : 'bg-slate-50 border-slate-200'
+                          }`}
+                        >
                           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 mb-2">
                             <div className="flex items-center gap-2 flex-wrap">
                               <h4 className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
-                                <Briefcase className="size-3.5 text-[#021E73]" />
-                                {item.positionName}
+                                <Briefcase className={`size-3.5 ${isConcurrent ? 'text-amber-600' : 'text-[#021E73]'}`} />
+                                {ev.title}
+                                {ev.positionName ? `: ${ev.positionName}` : ''}
                               </h4>
                               <Badge
-                                className={`text-[10px] font-bold ${isActive
-                                    ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-                                    : 'bg-slate-200 text-slate-700'
-                                  }`}
+                                variant="outline"
+                                className={`text-[10px] font-semibold ${
+                                  isDecision
+                                    ? 'text-blue-800 border-blue-300 bg-blue-50'
+                                    : 'text-slate-600 border-slate-300'
+                                }`}
                               >
-                                {isActive ? 'Đang đương nhiệm' : 'Đã kết thúc'}
+                                {isDecision ? 'Quyết định' : 'Hợp đồng'}
                               </Badge>
-                              {item.isPrimary ? (
+                              {isDecision && !isEnd && (
                                 <Badge
                                   variant="outline"
-                                  className="text-[10px] font-semibold text-blue-800 border-blue-300 bg-blue-50"
+                                  className={`text-[10px] font-semibold ${
+                                    isConcurrent
+                                      ? 'text-amber-800 border-amber-300 bg-amber-100'
+                                      : 'text-emerald-800 border-emerald-300 bg-emerald-50'
+                                  }`}
                                 >
-                                  Chính thức
+                                  {isConcurrent ? 'Kiêm nhiệm, giữ chức danh cũ' : 'Thay thế chức danh chính'}
                                 </Badge>
-                              ) : (
-                                <Badge
-                                  variant="outline"
-                                  className="text-[10px] font-normal text-slate-600 border-slate-300"
-                                >
-                                  Kiêm nhiệm
-                                </Badge>
+                              )}
+                              {ev.reference && (
+                                <span className="text-[11px] font-mono text-slate-500">{ev.reference}</span>
                               )}
                             </div>
                             <div className="flex items-center gap-1 text-xs font-semibold text-blue-700">
                               <Calendar className="size-3 text-slate-400" />
                               <span>
-                                {formatVnDate(item.startDate)} -{' '}
-                                {item.endDate ? formatVnDate(item.endDate) : 'Hiện tại'}
+                                {formatVnDate(ev.effectiveDate)}
+                                {!isDecision ? ` - ${ev.endDate ? formatVnDate(ev.endDate) : 'Hiện tại'}` : ''}
                               </span>
                             </div>
                           </div>
 
-                          <div className="flex flex-wrap items-center gap-4 text-[11px] text-slate-600 font-medium">
-                            <span className="flex items-center gap-1">
-                              <Building2 className="size-3 text-slate-400" />
-                              Đơn vị: <strong>{item.unitName}</strong>
-                            </span>
-                          </div>
+                          {ev.unitName && (
+                            <div className="flex flex-wrap items-center gap-4 text-[11px] text-slate-600 font-medium">
+                              <span className="flex items-center gap-1">
+                                <Building2 className="size-3 text-slate-400" />
+                                Đơn vị: <strong>{ev.unitName}</strong>
+                              </span>
+                            </div>
+                          )}
 
-                          {item.note && (
+                          {ev.note && (
                             <div className="mt-2.5 p-2 bg-white rounded-lg border border-slate-200/80 text-[11px] text-slate-600 leading-relaxed">
-                              {item.note}
+                              {ev.note}
                             </div>
                           )}
                         </div>

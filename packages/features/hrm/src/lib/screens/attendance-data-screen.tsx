@@ -141,12 +141,12 @@ function EventsDrawer({
                           <span className="font-mono text-base font-bold text-slate-900">
                             {formatTimeVn(event.occurred_at)}
                           </span>
-                          <span className="rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-[12px] font-semibold text-slate-700">
+                          <span className="rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700">
                             {eventKindLabel(event.event_kind)}
                           </span>
                         </div>
                         {voided && (
-                          <span className="text-[12px] font-semibold text-slate-600">
+                          <span className="text-[11px] font-semibold text-slate-600">
                             đã hủy bởi giải trình
                           </span>
                         )}
@@ -285,7 +285,7 @@ export default function AttendanceDataScreen() {
         onSubmit={submit}
         className="flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-xs"
       >
-        <div className="flex w-40 flex-col gap-1 text-[12px] font-semibold text-slate-600">
+        <div className="flex w-40 flex-col gap-1 text-[11px] font-semibold text-slate-600">
           <span>Từ ngày</span>
           <DatePickerInput
             aria-label="Từ ngày"
@@ -293,7 +293,7 @@ export default function AttendanceDataScreen() {
             onChange={(v) => setDraft((d) => ({ ...d, from: v }))}
           />
         </div>
-        <div className="flex w-40 flex-col gap-1 text-[12px] font-semibold text-slate-600">
+        <div className="flex w-40 flex-col gap-1 text-[11px] font-semibold text-slate-600">
           <span>Đến ngày</span>
           <DatePickerInput
             aria-label="Đến ngày"
@@ -301,7 +301,7 @@ export default function AttendanceDataScreen() {
             onChange={(v) => setDraft((d) => ({ ...d, to: v }))}
           />
         </div>
-        <div className="flex w-64 flex-col gap-1 text-[12px] font-semibold text-slate-600">
+        <div className="flex w-64 flex-col gap-1 text-[11px] font-semibold text-slate-600">
           <span>Tìm nhân viên</span>
           <div className="relative">
             <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-slate-400" />
@@ -314,7 +314,7 @@ export default function AttendanceDataScreen() {
             />
           </div>
         </div>
-        <div className="flex w-48 flex-col gap-1 text-[12px] font-semibold text-slate-600">
+        <div className="flex w-48 flex-col gap-1 text-[11px] font-semibold text-slate-600">
           <span>Trạng thái</span>
           <SearchableSelect
             height={32}
@@ -365,7 +365,7 @@ export default function AttendanceDataScreen() {
         ) : (
           <div className="min-h-0 flex-1 overflow-auto">
             <table className="w-full min-w-[1100px] border-collapse text-left text-xs">
-              <thead className="sticky top-0 z-10 bg-slate-100 text-[12px] font-bold text-slate-600">
+              <thead className="sticky top-0 z-10 bg-slate-100 text-[11px] font-bold text-slate-600">
                 <tr>
                   <th className="px-3 py-2">Nhân viên</th>
                   <th className="px-3 py-2">Ngày công</th>
@@ -399,7 +399,7 @@ export default function AttendanceDataScreen() {
                         <span className="font-mono">{r.employeeCode ?? ''}</span>{' '}
                         {r.employeeName ?? ''}
                       </div>
-                      <div className="text-[12px] text-slate-500">{r.departmentName || '—'}</div>
+                      <div className="text-[11px] text-slate-500">{r.departmentName || '—'}</div>
                     </td>
                     <td className="px-3 py-2 font-mono">
                       {formatDateVn(r.workDate)} <span className="text-slate-500">{weekdayVn(r.workDate)}</span>
@@ -412,7 +412,7 @@ export default function AttendanceDataScreen() {
                     <td className="px-3 py-2 text-right font-mono">{formatMinutes(r.earlyMinutes)}</td>
                     <td className="px-3 py-2">
                       <span
-                        className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[12px] font-semibold ${STATUS_CLASS[r.status] ?? 'border-slate-200 bg-slate-100 text-slate-600'}`}
+                        className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${STATUS_CLASS[r.status] ?? 'border-slate-200 bg-slate-100 text-slate-600'}`}
                       >
                         {attendanceStatusLabel(r.status)}
                       </span>
