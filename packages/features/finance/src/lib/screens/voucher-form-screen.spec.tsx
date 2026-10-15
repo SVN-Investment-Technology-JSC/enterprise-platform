@@ -2,7 +2,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { FinanceVoucher } from '@enterprise-platform/contracts-finance';
 import { financeFetch, financePost } from '../finance-api';
-import VoucherFormScreen, { allocationProblem, buildRequest } from './voucher-form-screen';
+import VoucherFormScreen, { allocationFromQuery, allocationProblem, buildRequest } from './voucher-form-screen';
 
 const mockPush = jest.fn();
 jest.mock('next/navigation', () => ({ useRouter: () => ({ push: mockPush, replace: jest.fn() }) }));
@@ -241,6 +241,17 @@ describe('Hạch toán nội bộ và dự án liên quan', () => {
     expect(allocationProblem({ allocType: 'PROJECT', allocProjectId: 'p1', allocWorkItemId: '' })).toBeNull();
     expect(allocationProblem({ allocType: 'WORK_ITEM', allocProjectId: 'p1', allocWorkItemId: '' })).toBe('Chọn công việc để hạch toán.');
     expect(allocationProblem({ allocType: 'WORK_ITEM', allocProjectId: 'p1', allocWorkItemId: 'w1' })).toBeNull();
+  });
+
+  it('điền sẵn hạch toán từ đường dẫn mở từ trang dự án; mã không hợp lệ thì bỏ qua', () => {
+    const project = '8f14e45f-ceea-4e67-a3c9-5e1c1c3b0a11';
+    const workItem = '0b8a6f1e-3c1d-4d6a-9d2e-7a1b2c3d4e5f';
+    expect(allocationFromQuery(`?projectId=${project}`)).toEqual({ allocType: 'PROJECT', allocProjectId: project, allocWorkItemId: '' });
+    expect(allocationFromQuery(`?projectId=${project}&workItemId=${workItem}`)).toEqual({ allocType: 'WORK_ITEM', allocProjectId: project, allocWorkItemId: workItem });
+    expect(allocationFromQuery(`?projectId=${project}&workItemId=abc`)).toEqual({ allocType: 'PROJECT', allocProjectId: project, allocWorkItemId: '' });
+    expect(allocationFromQuery('')).toBeNull();
+    expect(allocationFromQuery('?projectId=<script>')).toBeNull();
+    expect(allocationFromQuery(`?workItemId=${workItem}`)).toBeNull();
   });
 });
 

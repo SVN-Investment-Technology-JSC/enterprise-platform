@@ -92,26 +92,8 @@ export function buildExportSheets(bundle: ReportBundle, nameOf: NameOf = keepId)
   if (finance) {
     sheets.push({
       title: 'Tài chính tổng hợp (VND)',
-      headers: [
-        'Số dự án',
-        'Giá trị hợp đồng',
-        'Ngân sách',
-        'Chi phí thực tế',
-        'Chi phí dự kiến',
-        'Lợi nhuận dự kiến',
-        'Biên lợi nhuận (%)',
-      ],
-      rows: [
-        [
-          finance.projectCount,
-          finance.contractValue,
-          finance.budget,
-          finance.actualCost,
-          finance.forecastCost,
-          finance.profit,
-          finance.profitMargin ?? '',
-        ],
-      ],
+      headers: ['Số dự án', 'Giá trị hợp đồng'],
+      rows: [[finance.projectCount, finance.contractValue]],
     });
   }
   return sheets;

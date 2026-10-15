@@ -40,7 +40,7 @@ import {
 import styles from '../workspace.module.scss';
 import { Choice } from './choice';
 import { ProjectForm } from './project-form';
-import { WorkItemForm, type WorkItemCostInput } from './work-item-form';
+import { WorkItemForm } from './work-item-form';
 import { useDirectory } from './use-directory';
 
 const INVITATION_RESPONSES: readonly {
@@ -537,15 +537,13 @@ export function MyWorkView({ onOpen }: MyWorkViewProps = {}) {
         onCreate={async (
           input: Omit<CreateWorkItemRequest, 'projectId'>,
           procedureDefinitionId?: string,
-          costs?: WorkItemCostInput,
         ) => {
           if (!selectedProjectId) throw new Error('Hãy chọn dự án cho công việc.');
-          const created = await api.createWorkItem({
+          await api.createWorkItem({
             ...input,
             projectId: selectedProjectId,
             procedureDefinitionId,
           });
-          if (costs) await api.updateWorkItemCost(created.id, costs);
           await reload();
         }}
         // Tạo từ trang này không sửa việc; onUpdate chỉ để thoả kiểu dữ liệu.

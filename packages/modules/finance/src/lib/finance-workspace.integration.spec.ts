@@ -246,7 +246,10 @@ integration('Tài chính: hạch toán cho dự án/công việc và dự án li
 
     ws.financeAllowed = new Set([projectId]);
     const empty = await app.projectVouchers(manager, session, projectId);
-    expect(empty.totals).toEqual({ received: 0, paid: 0, pendingReceived: 0, pendingPaid: 0, receiptCount: 0, paymentCount: 0 });
+    const zero = { received: 0, paid: 0, pendingReceived: 0, pendingPaid: 0, receiptCount: 0, paymentCount: 0 };
+    expect(empty.totals).toEqual(zero);
+    expect(empty.projectLevel).toEqual(zero);
+    expect(empty.workItems).toEqual([]);
 
     await post(receipt(10_000_000, { allocation: { type: 'PROJECT', projectId } })); // thu đã ghi sổ
     await post(payment(2_500_000, { allocation: { type: 'PROJECT', projectId } })); // chi đã ghi sổ
@@ -264,6 +267,11 @@ integration('Tài chính: hạch toán cho dự án/công việc và dự án li
     const result = await app.projectVouchers(manager, session, projectId);
     expect(result.totals).toEqual({ received: 10_000_000, paid: 3_500_000, pendingReceived: 0, pendingPaid: 400_000, receiptCount: 1, paymentCount: 3 });
     expect(result.truncated).toBe(false);
+    // Tách phần chung của dự án và phần của từng công việc; tổng = phần chung + các công việc.
+    expect(result.projectLevel).toEqual({ received: 10_000_000, paid: 2_500_000, pendingReceived: 0, pendingPaid: 400_000, receiptCount: 1, paymentCount: 2 });
+    expect(result.workItems).toEqual([
+      { workItemId: W2.id, code: 'CV-2', title: 'Việc của dự án 2', received: 0, paid: 1_000_000, pendingReceived: 0, pendingPaid: 0, receiptCount: 0, paymentCount: 1 },
+    ]);
     const byLink = (link: string) => result.items.filter((i) => i.link === link);
     expect(byLink('ALLOCATION')).toHaveLength(4);
     expect(byLink('RELATED').map((i) => i.totalAmount)).toEqual([7_000_000]);
@@ -279,20 +287,19 @@ integration('Tài chính: hạch toán cho dự án/công việc và dự án li
     expect(other.items.some((i) => result.items.some((x) => x.id === i.id))).toBe(false);
   });
 
-  it('trang dự án: kiểm quyền do Workspace quyết; người chỉ lập phiếu chỉ thấy phiếu của mình', async () => {
+  it('trang dự án: hai lớp quyền — Workspace cho xem dự án và Tài chính cho xem phiếu (finance.read); không trả số liệu một phần', async () => {
     const projectId = P1.id;
     ws.financeAllowed = new Set([projectId]);
     await post(receipt(777, { allocation: { type: 'PROJECT', projectId } })); // phiếu của kế toán viên, đã ghi sổ
     const mine = await app.createVoucher(stranger, payment(123_000, { allocation: { type: 'PROJECT', projectId }, content: 'Phiếu của stranger' }));
     await app.submit(stranger, mine.id);
-    const seenByStranger = await app.projectVouchers(stranger, session, projectId);
-    expect(seenByStranger.items.map((i) => i.id)).toEqual([mine.id]);
-    expect(seenByStranger.totals.pendingPaid).toBe(123_000);
-    // Kế toán trưởng (đọc toàn bộ) thấy cả phiếu của người khác.
+    // Người chỉ lập phiếu (không có finance.read) dù được Workspace cho xem dự án vẫn không nhận số liệu.
+    await rejects(app.projectVouchers(stranger, session, projectId), 'FINANCE_FORBIDDEN', /finance|Tài chính/i);
+    // Kế toán trưởng (đọc toàn bộ) thấy cả phiếu của người khác, đủ số.
     const seenByChief = await app.projectVouchers(chief, session, projectId);
     expect(seenByChief.items.map((i) => i.id)).toContain(mine.id);
     expect(seenByChief.items.length).toBeGreaterThan(1);
-    expect(seenByStranger.items.some((i) => i.totalAmount === 777)).toBe(false);
+    expect(seenByChief.totals.pendingPaid).toBeGreaterThanOrEqual(123_000);
 
     ws.financeAllowed = new Set();
     await rejects(app.projectVouchers(chief, session, projectId), 'FINANCE_FORBIDDEN');

@@ -1,9 +1,11 @@
 /**
- * Tab "Thu chi" của dự án: phiếu thu/chi do module Tài chính quản lý, hiển thị ở đây để người quản lý dự án thấy tiền của dự án.
+ * Thu chi của dự án trong tab "Tài chính": phiếu thu/chi do module Tài chính quản lý, hiển thị ở đây để người quản lý dự án thấy
+ * tiền của dự án. Chi phí thực tế của dự án và của từng công việc là tổng phiếu CHI ĐÃ DUYỆT hạch toán cho chúng.
  *
  * Kiểu dữ liệu khai tại chỗ (cùng cách `workspace-projects.ts` bên HRM): gói `feature-workspace` không phụ thuộc hợp đồng của
  * module khác. Hình dạng khớp `FinanceProjectVoucherList` trong `contracts-finance`; Tài chính là bên sở hữu và quyết quyền xem.
  */
+import type { WorkItemCost } from '@enterprise-platform/contracts-workspace';
 
 export type ProjectVoucherKind = 'RECEIPT' | 'PAYMENT';
 export type ProjectVoucherStatus = 'PENDING' | 'APPROVED';
@@ -33,9 +35,19 @@ export interface ProjectVoucherTotals {
   readonly paymentCount: number;
 }
 
+export interface ProjectWorkItemTotals extends ProjectVoucherTotals {
+  readonly workItemId: string;
+  readonly code: string;
+  readonly title: string;
+}
+
 export interface ProjectVoucherList {
   readonly items: readonly ProjectVoucher[];
+  /** Mọi phiếu hạch toán cho dự án = phần chung (`projectLevel`) + các công việc (`workItems`). */
   readonly totals: ProjectVoucherTotals;
+  /** Hạch toán cho cả dự án, không gắn công việc nào. */
+  readonly projectLevel: ProjectVoucherTotals;
+  readonly workItems: readonly ProjectWorkItemTotals[];
   readonly truncated: boolean;
 }
 
@@ -86,6 +98,100 @@ export function projectVoucherNet(totals: Pick<ProjectVoucherTotals, 'received' 
   return Math.round((totals.received - totals.paid) * 100) / 100;
 }
 
+const round2 = (value: number) => Math.round(value * 100) / 100;
+
+/** Một dòng bảng "Thu chi theo công việc"; `workItemId` rỗng là dòng chi chung của cả dự án. */
+export interface WorkItemMoneyRow {
+  readonly workItemId: string | null;
+  readonly code: string;
+  readonly title: string;
+  /** Rỗng với dòng chung và với công việc chỉ có trong Tài chính (không còn ở Workspace). */
+  readonly status: WorkItemCost['status'] | null;
+  readonly received: number;
+  /** Chi đã duyệt = chi phí thực tế của công việc. */
+  readonly paid: number;
+  readonly pendingReceived: number;
+  readonly pendingPaid: number;
+  /** Thu - chi đã ghi sổ. */
+  readonly balance: number;
+}
+
+const rowOf = (
+  base: Pick<WorkItemMoneyRow, 'workItemId' | 'code' | 'title' | 'status'>,
+  totals: Pick<ProjectVoucherTotals, 'received' | 'paid' | 'pendingReceived' | 'pendingPaid'> | undefined,
+): WorkItemMoneyRow => ({
+  ...base,
+  received: totals?.received ?? 0,
+  paid: totals?.paid ?? 0,
+  pendingReceived: totals?.pendingReceived ?? 0,
+  pendingPaid: totals?.pendingPaid ?? 0,
+  balance: round2((totals?.received ?? 0) - (totals?.paid ?? 0)),
+});
+
+/**
+ * Ghép công việc của Workspace với thu/chi của Tài chính theo mã công việc.
+ *
+ * Công việc của Workspace luôn có dòng (kể cả khi chưa phát sinh tiền) để người dùng thấy việc nào chưa có phiếu. Công việc có tiền
+ * ở Tài chính mà Workspace không còn trả về (đã huỷ, bị gỡ) vẫn hiện, lấy nhãn Tài chính đã chụp, để tổng các dòng khớp tổng dự án.
+ */
+export function buildWorkItemMoneyRows(
+  workItems: readonly Pick<WorkItemCost, 'workItemId' | 'code' | 'title' | 'status'>[],
+  list: Pick<ProjectVoucherList, 'workItems'>,
+): WorkItemMoneyRow[] {
+  const money = new Map(list.workItems.map((entry) => [entry.workItemId, entry]));
+  const known = new Set<string>();
+  const rows = workItems.map((item) => {
+    known.add(item.workItemId);
+    return rowOf({ workItemId: item.workItemId, code: item.code, title: item.title, status: item.status }, money.get(item.workItemId));
+  });
+  for (const entry of list.workItems)
+    if (!known.has(entry.workItemId)) rows.push(rowOf({ workItemId: entry.workItemId, code: entry.code, title: entry.title, status: null }, entry));
+  return rows;
+}
+
+/** Dòng "Chung cả dự án": thu chi hạch toán cho dự án mà không gắn công việc nào. */
+export function projectLevelMoneyRow(list: Pick<ProjectVoucherList, 'projectLevel'>): WorkItemMoneyRow {
+  return rowOf({ workItemId: null, code: '', title: 'Chung cả dự án (không gắn công việc)', status: null }, list.projectLevel);
+}
+
+/**
+ * Lợi nhuận tạm tính = giá trị hợp đồng - chi phí thực tế (chi đã duyệt). Rỗng khi chưa nhập hợp đồng. Biên lợi nhuận tính theo
+ * hợp đồng, làm tròn một chữ số thập phân, rỗng khi hợp đồng bằng 0.
+ */
+export function provisionalProfit(
+  contractValue: number | null,
+  actualCost: number,
+): { readonly profit: number | null; readonly margin: number | null } {
+  if (contractValue == null) return { profit: null, margin: null };
+  const profit = round2(contractValue - actualCost);
+  return { profit, margin: contractValue ? Math.round((profit / contractValue) * 1000) / 10 : null };
+}
+
+/** Còn phải thu theo hợp đồng; không âm (thu vượt hợp đồng thì không còn phải thu). Rỗng khi chưa nhập hợp đồng. */
+export function receivableLeft(contractValue: number | null, received: number): number | null {
+  return contractValue == null ? null : Math.max(round2(contractValue - received), 0);
+}
+
+/** Đường mở phiếu mới ở module Tài chính, điền sẵn hạch toán cho dự án hoặc công việc (Tài chính đọc `?projectId=&workItemId=`). */
+export function newVoucherHref(kind: ProjectVoucherKind, projectId: string, workItemId?: string | null): string {
+  const query = new URLSearchParams({ projectId });
+  if (workItemId) query.set('workItemId', workItemId);
+  return `/modules/finance/${kind === 'RECEIPT' ? 'receipts' : 'payments'}/new?${query.toString()}`;
+}
+
+const ZERO_TOTALS: ProjectVoucherTotals = { received: 0, paid: 0, pendingReceived: 0, pendingPaid: 0, receiptCount: 0, paymentCount: 0 };
+
+/** Bản Tài chính cũ chưa trả phần chung và phần theo công việc: coi như chưa có, để màn hình không vỡ. */
+export function normalizeProjectVoucherList(raw: Partial<ProjectVoucherList>): ProjectVoucherList {
+  return {
+    items: Array.isArray(raw.items) ? raw.items : [],
+    totals: raw.totals ?? ZERO_TOTALS,
+    projectLevel: raw.projectLevel ?? ZERO_TOTALS,
+    workItems: Array.isArray(raw.workItems) ? raw.workItems : [],
+    truncated: Boolean(raw.truncated),
+  };
+}
+
 /** Kết quả đọc từ Tài chính: dữ liệu, hoặc lý do không có (để tab nói rõ thay vì để trống). */
 export type ProjectVoucherResult =
   | { readonly state: 'ok'; readonly data: ProjectVoucherList }
@@ -96,7 +202,7 @@ export type ProjectVoucherResult =
 export async function classifyProjectVoucherResponse(response: Response): Promise<ProjectVoucherResult> {
   if (response.ok) {
     try {
-      return { state: 'ok', data: (await response.json()) as ProjectVoucherList };
+      return { state: 'ok', data: normalizeProjectVoucherList((await response.json()) as Partial<ProjectVoucherList>) };
     } catch {
       return { state: 'unavailable', message: 'Tài chính trả về dữ liệu không đọc được.' };
     }

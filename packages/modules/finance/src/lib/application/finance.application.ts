@@ -228,8 +228,9 @@ export class FinanceApplication {
   }
 
   /**
-   * Phiếu thu/chi của một dự án cho tab "Thu chi" bên Workspace. Workspace quyết người này có được xem tài chính dự án
-   * (chủ nhiệm, quản lý, quản trị tenant); Tài chính thêm phạm vi xem phiếu của chính nó.
+   * Thu chi của một dự án cho tab "Tài chính" bên Workspace. Hai lớp quyền, cần cả hai: Workspace quyết người này có được xem
+   * tài chính dự án (chủ nhiệm, quản lý, quản trị tenant); Tài chính quyết người này có được xem phiếu (`finance.read`).
+   * Số tiền tổng hợp chỉ đúng khi tính trên mọi phiếu của dự án, nên người chỉ thấy phiếu của mình không nhận số liệu một phần.
    */
   async projectVouchers(actor: FinanceActor, session: ForwardedSession, projectId: string): Promise<FinanceProjectVoucherList> {
     this.capabilities(actor);
@@ -237,7 +238,8 @@ export class FinanceApplication {
     const access = await projectFinanceAccess(session, projectId);
     if (access === 'NOT_FOUND') throw notFound('dự án');
     if (access === 'FORBIDDEN') throw forbidden('Bạn không có quyền xem thu chi của dự án này.');
-    return listProjectVouchers(await this.database.pool(actor.tenantId), actor.tenantId, actor, projectId.toLowerCase());
+    requirePermission(actor, 'finance.read', 'Bạn chưa có quyền xem phiếu thu chi ở module Tài chính (cần quyền xem toàn bộ phiếu).');
+    return listProjectVouchers(await this.database.pool(actor.tenantId), actor.tenantId, projectId.toLowerCase());
   }
 
   async settings(actor: FinanceActor): Promise<FinanceSettings> {
