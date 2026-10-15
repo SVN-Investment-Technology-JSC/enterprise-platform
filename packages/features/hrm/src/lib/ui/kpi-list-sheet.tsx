@@ -41,12 +41,58 @@ export function KpiButton({
       aria-pressed={expanded === undefined ? active || undefined : undefined}
       aria-expanded={expanded}
       data-testid={testId}
-      className={`block w-full min-w-0 cursor-pointer rounded-xl text-left transition hover:ring-2 hover:ring-blue-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
+      className={`block h-full w-full min-w-0 cursor-pointer rounded-xl text-left transition hover:ring-2 hover:ring-blue-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
         active ? 'ring-2 ring-blue-500' : ''
       }`}
     >
       {children}
     </button>
+  );
+}
+
+/**
+ * Danh sách sổ xuống ngay dưới thẻ tổng quan (cùng kiểu thẻ "Đơn của tôi" ở trang chủ): đặt trong phần tử `relative`
+ * bao thẻ. Bấm một dòng thì gọi `onSelect` của dòng đó; việc đóng khi bấm ra ngoài do nơi dùng đảm nhiệm.
+ */
+export function KpiDropdownList({
+  items,
+  title,
+  emptyText = 'Không có dữ liệu.',
+  testId = 'kpi-dropdown-list',
+}: {
+  items: readonly KpiListItem[];
+  title: string;
+  emptyText?: string;
+  testId?: string;
+}) {
+  return (
+    <ul
+      data-testid={testId}
+      aria-label={title}
+      className="absolute inset-x-0 top-full z-30 mt-1 max-h-72 overflow-y-auto rounded-xl border border-slate-200 bg-white py-1 shadow-lg"
+    >
+      {items.length === 0 ? (
+        <li className="px-4 py-3 text-xs text-slate-500">{emptyText}</li>
+      ) : (
+        items.map((item) => (
+          <li key={item.id}>
+            {item.onSelect ? (
+              <button
+                type="button"
+                onClick={item.onSelect}
+                className="flex w-full items-center gap-2 px-4 py-2 text-left hover:bg-slate-50"
+              >
+                <KpiItemBody item={item} />
+              </button>
+            ) : (
+              <div className="flex items-center gap-2 px-4 py-2">
+                <KpiItemBody item={item} />
+              </div>
+            )}
+          </li>
+        ))
+      )}
+    </ul>
   );
 }
 

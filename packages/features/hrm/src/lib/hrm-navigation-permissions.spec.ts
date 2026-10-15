@@ -119,9 +119,9 @@ describe('HRM sidebar visibility per sample role', () => {
 
   it('the annual leave menu: balances need leave.read, settings leave needs leave.manage', () => {
     expect(visibleHrefs(expandTenantActions(['hrm.leave.approve']))).not.toContain('/leave');
-    expect(visibleTabs(expandTenantActions(['hrm.leave.read']), '/leave')).toEqual(['balances']);
+    expect(visibleTabs(expandTenantActions(['hrm.leave.read']), '/leave')).toEqual(['balances', 'adjustments']);
     const manage = expandTenantActions(['hrm.leave.manage']);
-    expect(visibleTabs(manage, '/leave')).toEqual(['balances']);
+    expect(visibleTabs(manage, '/leave')).toEqual(['balances', 'adjustments']);
     expect(visibleHrefs(manage)).toContain('/leave');
     for (const path of ['/employees'] as HrmHubPath[])
       for (const tab of HRM_HUBS[path]) expect(tab.id).not.toBe('leave');

@@ -308,15 +308,12 @@ export function RequestListPanel({
       </div>
 
       <div className="min-h-0 flex-1 overflow-auto">
-        <table className="w-full min-w-[760px] border-collapse text-left text-xs">
+        <table className="w-full min-w-[560px] border-collapse text-left text-xs">
           <thead className="bg-slate-50 text-[12px] font-bold text-slate-500">
             <tr>
               <th className="w-10 px-3 py-2.5">#</th>
               <th className="px-3 py-2.5">Mã đơn</th>
               <th className="px-3 py-2.5">Loại đơn</th>
-              <th className="px-3 py-2.5">Thời gian</th>
-              <th className="px-3 py-2.5">Số ngày/giờ</th>
-              <th className="px-3 py-2.5">Lý do</th>
               <th className="px-3 py-2.5">Trạng thái</th>
               <th className="px-3 py-2.5">Ngày tạo</th>
               <th className="w-8 px-2 py-2.5">
@@ -327,7 +324,7 @@ export function RequestListPanel({
           <tbody className="divide-y divide-slate-100 text-slate-800">
             {loading ? (
               <tr>
-                <td colSpan={9} className="p-8 text-center text-slate-400">
+                <td colSpan={6} className="p-8 text-center text-slate-400">
                   <span className="inline-flex items-center gap-2">
                     <Loader2 className="size-4 animate-spin" />
                     Đang tải danh sách đơn từ...
@@ -336,7 +333,7 @@ export function RequestListPanel({
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td colSpan={9} className="p-8 text-center text-slate-400">
+                <td colSpan={6} className="p-8 text-center text-slate-400">
                   Không tìm thấy đơn từ nào phù hợp với bộ lọc.
                 </td>
               </tr>
@@ -366,18 +363,8 @@ export function RequestListPanel({
                         </span>
                       </span>
                     </td>
-                    <td className="px-3 py-2.5 font-medium">{row.typeName}</td>
-                    <td className="px-3 py-2.5 text-slate-600">
-                      {row.effectiveDate}
-                    </td>
-                    <td className="px-3 py-2.5 font-mono font-semibold">
-                      {row.duration}
-                    </td>
-                    <td
-                      className="max-w-[200px] px-3 py-2.5 text-slate-700"
-                      title={row.reason}
-                    >
-                      <span className="block truncate">{row.reason}</span>
+                    <td className="px-3 py-2.5 font-medium">
+                      {row.typeName}
                       {reasonExtra?.(row.id)}
                     </td>
                     <td className="px-3 py-2.5">

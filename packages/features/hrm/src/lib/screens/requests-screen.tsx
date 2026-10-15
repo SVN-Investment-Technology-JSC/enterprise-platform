@@ -3702,7 +3702,6 @@ export default function RequestsPage() {
                   ) : null}
                 </DetailField>
                 <DetailField label="Ngày tạo">{detailRow.createdAt}</DetailField>
-                <DetailField label="Người duyệt">{approverText(detailRow)}</DetailField>
                 {detailAttachmentId && (
                   <DetailField label="Tệp đính kèm">
                     <button
@@ -3714,15 +3713,6 @@ export default function RequestsPage() {
                     </button>
                   </DetailField>
                 )}
-                <DetailField label="Kết quả xử lý">
-                  {['CANCELLED', 'REJECTED'].includes(detailRow.requestStatus)
-                    ? 'Không áp dụng'
-                    : detailRow.requestStatus === 'APPLIED'
-                      ? 'Đã cập nhật dữ liệu công'
-                      : detailRow.requestStatus === 'DISBURSED'
-                        ? 'Đã giải ngân'
-                        : 'Chờ áp dụng'}
-                </DetailField>
               </>
             ) : null
           }

@@ -149,6 +149,7 @@ integration('HRM employee PostgreSQL integration', () => {
     await migrate('hrm/0019-timesheet-attachment-lifecycle.sql');
     await migrate('hrm/0031-hrm-profile-documents.sql');
     await migrate('hrm/0020-payroll-lifecycle.sql');
+    await migrate('hrm/0032-hrm-personnel-decisions.sql');
     await migrate('hrm/0033-leave-annual-policy.sql');
     await migrate('hrm/0051-hrm-leave-settlements-legacy.sql');
     await migrate('hrm/0044-hrm-annual-leave-single-policy.sql');

@@ -60,10 +60,8 @@ const mapGroup = (row: Row): FinanceCounterpartyGroup => ({
 export async function listCatalogs(db: Db, tenantId: string, includeInactive: boolean): Promise<FinanceCatalogs> {
   await ensureDefaults(db, tenantId);
   const active = includeInactive ? '' : 'AND is_active';
-  const [reasons, groups] = await Promise.all([
-    db.query(`SELECT * FROM finance_schema.reasons WHERE tenant_id=$1 ${active} ORDER BY kind, name`, [tenantId]),
-    db.query(`SELECT * FROM finance_schema.counterparty_groups WHERE tenant_id=$1 ${active} ORDER BY name`, [tenantId]),
-  ]);
+  const reasons = await db.query(`SELECT * FROM finance_schema.reasons WHERE tenant_id=$1 ${active} ORDER BY kind, name`, [tenantId]);
+  const groups = await db.query(`SELECT * FROM finance_schema.counterparty_groups WHERE tenant_id=$1 ${active} ORDER BY name`, [tenantId]);
   return {
     reasons: (reasons.rows as Row[]).map(mapReason),
     counterpartyGroups: (groups.rows as Row[]).map(mapGroup),

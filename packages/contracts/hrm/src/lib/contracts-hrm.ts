@@ -1374,6 +1374,13 @@ export interface HrmLeaveTransaction {
   readonly actorLabel?: string | null;
   /** Nguồn kích hoạt: người dùng bấm hoặc job tự động; null với dữ liệu cũ chưa ghi nhận. */
   readonly triggerSource?: 'MANUAL' | 'AUTOMATION' | null;
+  /** Email tài khoản thực hiện (điều chỉnh và đảo điều chỉnh luôn có). */
+  readonly actorEmail?: string | null;
+  readonly leaveTypeName?: string;
+  readonly leaveTypeCode?: string;
+  readonly employeeName?: string;
+  readonly employeeCode?: string;
+  readonly department?: string | null;
   readonly createdAt: string;
 }
 

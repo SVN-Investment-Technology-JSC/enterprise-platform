@@ -23,24 +23,24 @@ const REQUEST_STATUS_TONE = {
 export function MonthStatsBar({ employee }: { employee: HrmBoardEmployee }) {
   const stats = useMemo(() => myMonthStats(employee).filter((s) => !(s.optional && s.zero)), [employee]);
   return (
-    <div aria-label="Thống kê công trong tháng" data-testid="my-stats" className="flex flex-wrap gap-1.5">
+    <div aria-label="Thống kê công trong tháng" data-testid="my-stats" className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
       {stats.map((stat, index) => (
         <div
           key={stat.key}
           data-testid={`my-stat-${stat.key}`}
-          className={`min-w-[104px] flex-1 rounded-md border bg-white px-2.5 py-1 shadow-xs ${
+          className={`min-w-0 rounded-md border bg-white px-2.5 py-1.5 shadow-xs ${
             stat.alert ? 'border-red-200 bg-red-50/60' : index === 0 ? 'border-blue-200 bg-blue-50/60' : 'border-slate-200'
           }`}
         >
-          <p className="truncate text-[12px] font-semibold uppercase tracking-wide text-slate-500">{stat.label}</p>
-          <p className="flex items-baseline gap-1">
+          <p className="text-[12px] font-semibold uppercase leading-tight tracking-wide text-slate-500">{stat.label}</p>
+          <p className="flex flex-wrap items-baseline gap-x-1">
             <span
               className={`font-mono text-[16px] font-bold leading-tight ${stat.alert ? 'text-red-600' : 'text-slate-900'}`}
             >
               {stat.value}
             </span>
             {stat.hint && (
-              <span className="truncate text-[12px] text-slate-500" title={stat.hint}>
+              <span className="text-[12px] leading-tight text-slate-500" title={stat.hint}>
                 {stat.hint}
               </span>
             )}

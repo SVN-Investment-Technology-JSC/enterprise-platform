@@ -87,7 +87,7 @@ describe('AttendanceMonitorScreen', () => {
     expect(await screen.findByText('Bùi Công Quyền')).toBeTruthy();
     expect(fetchMock).toHaveBeenCalledWith(`/attendance-monitor?date=${todayVn()}`);
     expect(within(screen.getByTestId('kpi-scheduled')).getByText('6')).toBeTruthy();
-    expect(within(screen.getByTestId('kpi-scheduled')).getByText('/ 7 nhân sự')).toBeTruthy();
+    expect(within(screen.getByTestId('kpi-scheduled')).queryByText('/ 7 nhân sự')).toBeNull();
     expect(screen.getByRole('heading', { name: 'Danh sách cần theo dõi (4)' })).toBeTruthy();
     expect(screen.queryByText('Hoàng Ngọc Linh')).toBeNull();
     expect(screen.getByText('Đi trễ 18 phút')).toBeTruthy();

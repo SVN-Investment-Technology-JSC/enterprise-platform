@@ -518,14 +518,12 @@ describe('TimesheetsScreen: tiêu đề, chọn dòng, số dòng mỗi trang', 
     expect(screen.getByTestId('timesheets-root').className).not.toContain('fixed');
   });
 
-  it('chú thích thu gọn ở màn nhỏ: nút Chú thích mở và ẩn', async () => {
+  it('chú thích nằm ở chân bảng, luôn hiện, không còn nút Chú thích ở thanh lọc', async () => {
     mockApi(makeBoard('OPEN', true));
     render(<TimesheetsScreen />);
     await screen.findAllByTestId('board-day-header');
-    const toggle = screen.getByRole('button', { name: 'Chú thích' });
-    expect(toggle.getAttribute('aria-expanded')).toBe('false');
-    fireEvent.click(toggle);
-    expect(screen.getByRole('button', { name: 'Ẩn chú thích' }).getAttribute('aria-expanded')).toBe('true');
+    expect(screen.queryByRole('button', { name: 'Chú thích' })).toBeNull();
+    expect(screen.getByLabelText('Chú thích bảng công')).toBeTruthy();
   });
 
   it('tick nhân viên thì nút Xuất CSV ghi số người đã chọn; tick tất cả chọn cả trang', async () => {

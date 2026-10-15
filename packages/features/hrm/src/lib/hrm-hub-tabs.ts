@@ -26,6 +26,7 @@ export const HRM_HUBS = {
   ],
   '/leave': [
     { id: 'balances', label: 'Quỹ phép', permissions: ['hrm.leave.read'] },
+    { id: 'adjustments', label: 'Lịch sử điều chỉnh', permissions: ['hrm.leave.read'] },
   ],
   '/timekeeping': [
     { id: 'timesheets', label: 'Bảng công', permissions: ['hrm.timesheet.read'] },

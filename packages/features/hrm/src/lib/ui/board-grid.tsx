@@ -1,13 +1,12 @@
 'use client';
 
 import type { ReactNode } from 'react';
+import { UnitText } from './unit-text';
 import type {
   HrmBoardCalendarDay,
   HrmBoardEmployee,
 } from '@enterprise-platform/contracts-hrm';
 import { formatDateVn, formatMinutes, weekdayVn } from '../hrm-timesheet-format';
-import { employeeInitials } from '../hrm-employee-view';
-import { EmployeeAvatar } from './employee-list-parts';
 import {
   compactTotals,
   gridCellView,
@@ -111,7 +110,7 @@ export function BoardGrid({
       <div className="min-h-0 flex-1 overflow-auto">
         <table
           aria-label="Bảng công theo tháng"
-          className="border-separate border-spacing-0 text-[10px]"
+          className="border-separate border-spacing-0 text-[11px]"
           style={{ tableLayout: 'fixed', width: '100%', minWidth }}
         >
           <colgroup>
@@ -140,10 +139,10 @@ export function BoardGrid({
               )}
               <th
                 style={{ left: nameLeft }}
-                className={`${stickyHead} z-40 border-r border-r-slate-300 shadow-[4px_0_6px_-4px_rgba(15,23,42,0.25)] px-3 py-2 text-left text-[11px] font-bold text-slate-700`}
+                className={`${stickyHead} z-40 border-r border-r-slate-300 shadow-[4px_0_6px_-4px_rgba(15,23,42,0.25)] px-3 py-2 text-left text-[12px] font-bold text-slate-700`}
               >
                 Nhân viên
-                <span className="block text-[9px] font-normal text-slate-400">
+                <span className="block text-[10px] font-normal text-slate-400">
                   ({employees.length} nhân viên
                   {standardWorkdays ? `, công chuẩn ${formatUnits(standardWorkdays)}` : ''})
                 </span>
@@ -170,8 +169,8 @@ export function BoardGrid({
                     }
                     className={`${stickyHead} z-20 px-0 py-1.5 text-center font-bold ${tone}`}
                   >
-                    <div className="text-[8px] font-bold leading-none">{weekdayVn(c.date)}</div>
-                    <div className="mt-0.5 text-[11px] leading-tight">{formatDayNumber(c.date)}</div>
+                    <div className="text-[9px] font-bold leading-none">{weekdayVn(c.date)}</div>
+                    <div className="mt-0.5 text-[12px] leading-tight">{formatDayNumber(c.date)}</div>
                   </th>
                 );
               })}
@@ -185,7 +184,7 @@ export function BoardGrid({
                   key={c.key}
                   title={c.title}
                   style={{ right: (TOTAL_COLUMNS.length - 1 - i) * COL_TOTAL }}
-                  className={`${stickyHead} z-30 px-0 py-2 text-center text-[10px] font-bold text-slate-700 ${i === 0 ? 'border-l border-l-slate-300 shadow-[-4px_0_6px_-4px_rgba(15,23,42,0.25)]' : ''}`}
+                  className={`${stickyHead} z-30 px-0 py-2 text-center text-[11px] font-bold text-slate-700 ${i === 0 ? 'border-l border-l-slate-300 shadow-[-4px_0_6px_-4px_rgba(15,23,42,0.25)]' : ''}`}
                 >
                   {c.label}
                 </th>
@@ -194,9 +193,9 @@ export function BoardGrid({
           </thead>
           <tbody>
             {employees.map((emp) => (
-              <tr key={emp.employeeId} data-testid="board-row" className="group">
+              <tr key={emp.employeeId} data-testid="board-row" className="group odd:bg-white even:bg-slate-100/70">
                 {selectable && (
-                  <td style={{ left: 0 }} className="sticky z-10 border-b border-slate-100 bg-white px-2 group-hover:bg-blue-50/60">
+                  <td style={{ left: 0 }} className="sticky z-10 border-b border-slate-100 bg-inherit px-2 group-hover:bg-blue-50/60">
                     <input
                       type="checkbox"
                       aria-label={`Chọn ${emp.employeeName}`}
@@ -208,13 +207,9 @@ export function BoardGrid({
                 )}
                 <td
                   style={{ left: nameLeft }}
-                  className="sticky z-10 border-b border-r border-r-slate-300 shadow-[4px_0_6px_-4px_rgba(15,23,42,0.25)] border-slate-100 bg-white px-3 py-1.5 group-hover:bg-blue-50/60"
+                  className="sticky z-10 border-b border-r border-r-slate-300 shadow-[4px_0_6px_-4px_rgba(15,23,42,0.25)] border-slate-100 bg-inherit px-3 py-1.5 group-hover:bg-blue-50/60"
                 >
-                  <span className="flex items-center gap-2.5">
-                    <EmployeeAvatar
-                      initials={employeeInitials({ fullName: emp.employeeName, employeeCode: emp.employeeCode })}
-                      seed={emp.employeeCode}
-                    />
+                  <span className="flex items-center">
                     {onSelectEmployee ? (
                       <button
                         type="button"
@@ -222,24 +217,28 @@ export function BoardGrid({
                         aria-label={`Xem bảng công cả tháng của ${emp.employeeName}`}
                         className="min-w-0 text-left"
                       >
-                        <span className="block truncate text-[11px] font-bold leading-tight text-slate-900 hover:text-blue-700">
+                        <span className="block truncate text-[12px] font-bold leading-tight text-slate-900 hover:text-blue-700">
                           {emp.employeeName}
                         </span>
+                        {emp.positionName && (
+                          <span className="block truncate text-[11px] leading-tight text-slate-500">{emp.positionName}</span>
+                        )}
                       </button>
                     ) : (
                       <span className="min-w-0">
-                        <span className="block truncate text-[11px] font-bold leading-tight">{emp.employeeName}</span>
+                        <span className="block truncate text-[12px] font-bold leading-tight">{emp.employeeName}</span>
+                        {emp.positionName && (
+                          <span className="block truncate text-[11px] leading-tight text-slate-500">{emp.positionName}</span>
+                        )}
                       </span>
                     )}
                   </span>
                 </td>
                 {calendar.map((c) => {
                   const day = emp.days[c.date];
-                  const sunday = c.weekday === 0;
-                  const columnTint = c.date === today ? 'bg-blue-50/60' : sunday ? 'bg-red-50/30' : '';
                   if (!day)
                     return (
-                      <td key={c.date} className={`border-b border-slate-100 p-0 ${columnTint}`}>
+                      <td key={c.date} className={`border-b border-slate-100 p-0`}>
                         <div className="h-10" />
                       </td>
                     );
@@ -247,7 +246,7 @@ export function BoardGrid({
                   const view = gridCellView(day, today);
                   const late = isLateOrEarly(day);
                   return (
-                    <td key={c.date} className={`border-b border-slate-100 p-0 ${columnTint}`}>
+                    <td key={c.date} className={`border-b border-slate-100 p-0`}>
                       <button
                         type="button"
                         data-testid={`board-cell-${emp.employeeId}-${c.date}`}
@@ -256,25 +255,25 @@ export function BoardGrid({
                         aria-label={`Chi tiết ngày ${formatDateVn(c.date)} của ${emp.employeeName}: ${boardStatusLabel(day.status)}`}
                         title={boardDayTooltip(day)}
                         onClick={() => onSelectDay(emp.employeeId, c.date)}
-                        className="relative flex h-10 w-full cursor-pointer items-center justify-center text-[10px] leading-none hover:bg-blue-100/60"
+                        className="relative flex h-10 w-full cursor-pointer items-center justify-center text-[11px] leading-none hover:bg-blue-100/60"
                       >
                         {view.type === 'units' && (
                           <span
                             data-testid="cell-units"
                             data-tone={view.tone}
-                            className={`font-mono text-[10px] font-bold ${view.tone === 'bad' ? 'text-red-600' : 'text-emerald-600'}`}
+                            className={`font-mono text-[11px] font-bold ${view.tone === 'bad' ? 'text-red-600' : 'text-emerald-600'}`}
                           >
-                            {view.text}
+                            <UnitText text={view.text} />
                           </span>
                         )}
                         {view.type === 'text' &&
                           (future && day.shiftCode ? (
-                            <span data-testid="cell-shift-code" className="truncate px-px text-[11px] font-medium leading-4 text-slate-400">
+                            <span data-testid="cell-shift-code" className="truncate px-px text-[12px] font-medium leading-4 text-slate-400">
                               {view.text}
                             </span>
                           ) : (
                             <span
-                              className={`text-[9px] font-semibold ${view.muted ? 'text-slate-400' : 'text-rose-500'}`}
+                              className={`text-[10px] font-semibold ${view.muted ? 'text-slate-400' : 'text-rose-500'}`}
                             >
                               {view.text}
                             </span>
@@ -303,7 +302,7 @@ export function BoardGrid({
                     <td
                       key={c.key}
                       style={{ right: (TOTAL_COLUMNS.length - 1 - i) * COL_TOTAL }}
-                      className={`sticky z-10 border-b border-slate-100 bg-slate-50 px-0 text-center font-mono text-[11px] font-semibold group-hover:bg-blue-50/60 ${i === 0 ? 'border-l border-l-slate-300 shadow-[-4px_0_6px_-4px_rgba(15,23,42,0.25)]' : ''} ${
+                      className={`sticky z-10 border-b border-slate-100 bg-inherit px-0 text-center font-mono text-[12px] font-semibold group-hover:bg-blue-50/60 ${i === 0 ? 'border-l border-l-slate-300 shadow-[-4px_0_6px_-4px_rgba(15,23,42,0.25)]' : ''} ${
                         cell.bad ? 'text-red-600' : c.key === 'abnormal' ? 'text-fuchsia-700' : 'text-slate-800'
                       }`}
                     >

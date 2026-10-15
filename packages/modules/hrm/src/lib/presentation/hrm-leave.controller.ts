@@ -822,10 +822,18 @@ export class HrmLeaveController {
     @Query('employee_id') employeeId?: string,
     @Query('leave_type_id') leaveTypeId?: string,
     @Query('year') yearStr?: string,
+    @Query('types') typesStr?: string,
+    @Query('annual') annualStr?: string,
   ) {
     const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.leave.read');
     // Lọc theo năm của quỹ phép (balance_year); bỏ trống thì lấy mọi năm.
     const year = /^\d{4}$/.test(yearStr || '') ? Number(yearStr) : null;
+    // Lọc theo loại giao dịch (ví dụ ADJUSTMENT,REVERSAL) và chỉ phép năm (annual=1).
+    const types = (typesStr ?? '')
+      .split(',')
+      .map((t) => t.trim())
+      .filter((t) => /^[A-Z_]+$/.test(t));
+    const annualOnly = annualStr === '1';
     const res = await pool.query(
       `SELECT lt.*, ltypes.name as leave_type_name, ltypes.code as leave_type_code,
               e.full_name as employee_name, e.employee_code, e.department_name AS department,
@@ -833,7 +841,12 @@ export class HrmLeaveController {
                 (SELECT ad.employee_code||' · '||ad.full_name FROM hrm_schema.employee_directory ad
                    WHERE ad.tenant_id = lt.tenant_id AND (ad.user_id = lt.actor_id OR ad.employee_id = lt.actor_id) LIMIT 1),
                 (SELECT COALESCE(NULLIF(u.full_name,''), u.email) FROM core_schema.users u WHERE u.id = lt.actor_id),
-                'Người dùng không còn tồn tại') END AS actor_label
+                'Người dùng không còn tồn tại') END AS actor_label,
+              (SELECT u.email FROM core_schema.users u
+                WHERE u.id = lt.actor_id
+                   OR u.id = (SELECT ad.user_id FROM hrm_schema.employee_directory ad
+                               WHERE ad.tenant_id = lt.tenant_id AND ad.employee_id = lt.actor_id LIMIT 1)
+                LIMIT 1) AS actor_email
        FROM hrm_schema.leave_transactions lt
        JOIN hrm_schema.leave_types ltypes ON lt.leave_type_id = ltypes.id
        JOIN hrm_schema.employee_directory e ON lt.employee_id = e.employee_id AND e.tenant_id = lt.tenant_id
@@ -841,13 +854,16 @@ export class HrmLeaveController {
          AND ($2::uuid IS NULL OR lt.employee_id = $2)
          AND ($3::uuid IS NULL OR lt.leave_type_id = $3)
          AND ($4::int IS NULL OR lt.balance_year = $4)
+         AND (cardinality($5::text[]) = 0 OR lt.transaction_type = ANY($5::text[]))
+         AND (NOT $6::boolean OR ltypes.is_annual)
        ORDER BY lt.created_at DESC`,
-      [tenantId, employeeId || null, leaveTypeId || null, year],
+      [tenantId, employeeId || null, leaveTypeId || null, year, types, annualOnly],
     );
     return {
       data: res.rows.map((row) => ({
         ...this.mapTransaction(row),
         actorLabel: (row.actor_label as string | null) ?? null,
+        actorEmail: (row.actor_email as string | null) ?? null,
         triggerSource: (row.trigger_source as 'MANUAL' | 'AUTOMATION' | null) ?? null,
         leaveTypeName: row.leave_type_name as string,
         leaveTypeCode: row.leave_type_code as string,
@@ -884,6 +900,9 @@ export class HrmLeaveController {
       ? `adjust:${requireUuid(body.operationId, 'operationId')}`
       : null;
     requireText(body.reason, 'reason', 2000);
+    // Điều chỉnh phép bắt buộc gắn với tài khoản thực hiện để truy vết.
+    if (!principal.userId)
+      throw new BadRequestException('Không xác định được tài khoản thực hiện điều chỉnh');
     if (
       !Number.isInteger(year) ||
       year < 2000 ||

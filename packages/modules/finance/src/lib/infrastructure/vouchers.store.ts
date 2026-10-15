@@ -254,13 +254,11 @@ export interface VoucherRecord {
 export async function loadVoucherRecord(db: Db, tenantId: string, id: string): Promise<VoucherRecord> {
   const row = (await db.query(`${VOUCHER_SELECT} WHERE v.tenant_id = $1 AND v.id = $2`, [tenantId, id])).rows[0] as Row | undefined;
   if (!row) throw notFound('phiếu');
-  const [lines, invoices, related, attachments, events] = await Promise.all([
-    db.query(`SELECT * FROM finance_schema.voucher_lines WHERE voucher_id=$1 ORDER BY line_no`, [id]),
-    db.query(`SELECT * FROM finance_schema.voucher_invoices WHERE voucher_id=$1 ORDER BY invoice_no`, [id]),
-    db.query(`SELECT * FROM finance_schema.voucher_related WHERE voucher_id=$1 AND kind='PROJECT' ORDER BY project_code`, [id]),
-    db.query(`SELECT * FROM finance_schema.voucher_attachments WHERE voucher_id=$1 AND deleted_at IS NULL AND status='READY' ORDER BY uploaded_at`, [id]),
-    db.query(`SELECT * FROM finance_schema.voucher_events WHERE voucher_id=$1 ORDER BY created_at, id`, [id]),
-  ]);
+  const lines = await db.query(`SELECT * FROM finance_schema.voucher_lines WHERE voucher_id=$1 ORDER BY line_no`, [id]);
+  const invoices = await db.query(`SELECT * FROM finance_schema.voucher_invoices WHERE voucher_id=$1 ORDER BY invoice_no`, [id]);
+  const related = await db.query(`SELECT * FROM finance_schema.voucher_related WHERE voucher_id=$1 AND kind='PROJECT' ORDER BY project_code`, [id]);
+  const attachments = await db.query(`SELECT * FROM finance_schema.voucher_attachments WHERE voucher_id=$1 AND deleted_at IS NULL AND status='READY' ORDER BY uploaded_at`, [id]);
+  const events = await db.query(`SELECT * FROM finance_schema.voucher_events WHERE voucher_id=$1 ORDER BY created_at, id`, [id]);
   return {
     row,
     lines: lines.rows as Row[],

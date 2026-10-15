@@ -358,6 +358,10 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       path: 'tenant/hrm/0062-hrm-personnel-decision-chain.sql',
     },
     {
+      version: '0063-hrm-leave-adjustment-actor-required',
+      path: 'tenant/hrm/0063-hrm-leave-adjustment-actor-required.sql',
+    },
+    {
       version: '0021-notification-outbox-v1',
       path: 'tenant/hrm/0021-notification-outbox-v1.sql',
     },

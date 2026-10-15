@@ -105,7 +105,6 @@ export function TimesheetBoard({
   const [selected, setSelected] = useState<{ employeeId: string; date: string } | null>(null);
   const [monthOf, setMonthOf] = useState<string | null>(null);
   const [monthDate, setMonthDate] = useState<string | null>(null);
-  const [legendOpen, setLegendOpen] = useState(false);
   const today = todayVn();
 
   /** Bấm một ô ngày: mở ngăn kéo bảng công tháng của người đó, chọn ngày và hiện chi tiết ngày ngay dưới lịch. */
@@ -135,6 +134,15 @@ export function TimesheetBoard({
     board.employees.map((e) => e.standard?.workdays).filter((v): v is number => v != null),
   );
   const standardWorkdays = standardValues.size === 1 ? [...standardValues][0] : undefined;
+  // Chú thích nằm ở chân bảng, ngay trên thanh phân trang.
+  const gridFooter = (
+    <>
+      <div className="border-t border-slate-200 bg-white px-3 py-2">
+        <BoardLegend />
+      </div>
+      {footer}
+    </>
+  );
 
   return (
     <div className={`flex flex-col gap-2 ${fullscreen ? 'min-h-0 flex-1' : ''}`}>
@@ -172,23 +180,12 @@ export function TimesheetBoard({
             );
           })}
         </div>
-        <button
-          type="button"
-          aria-expanded={legendOpen}
-          onClick={() => setLegendOpen((v) => !v)}
-          className="inline-flex items-center gap-1 text-xs font-semibold text-slate-500 hover:text-blue-700 2xl:hidden"
-        >
-          {legendOpen ? 'Ẩn chú thích' : 'Chú thích'}
-        </button>
-        <div className={`${legendOpen ? 'block' : 'hidden'} w-full 2xl:block 2xl:w-auto`}>
-          <BoardLegend />
-        </div>
       </div>
 
       {visible.length === 0 ? (
         <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
           <p className="p-6 text-center text-xs text-slate-500">Không có nhân viên nào khớp bộ lọc này.</p>
-          {footer}
+          {gridFooter}
         </div>
       ) : (
         <BoardGrid
@@ -221,7 +218,7 @@ export function TimesheetBoard({
           }
           onSelectDay={openMonth}
           onSelectEmployee={board.canViewAll ? (id) => { setMonthOf(id); setMonthDate(null); setSelected(null); } : undefined}
-          footer={footer}
+          footer={gridFooter}
           fullHeight={fullscreen}
         />
       )}

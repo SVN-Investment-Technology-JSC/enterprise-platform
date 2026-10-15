@@ -6,6 +6,7 @@ import type {
   HrmBoardEmployee,
 } from '@enterprise-platform/contracts-hrm';
 import { formatDateVn } from '../hrm-timesheet-format';
+import { UnitText } from './unit-text';
 import {
   boardDayTooltip,
   boardStatusCellClass,
@@ -91,10 +92,17 @@ export function MyTimesheetCalendar({
                       className={`relative flex h-[52px] w-full cursor-pointer flex-col items-center justify-center rounded-md border px-0.5 text-center leading-none transition hover:ring-2 hover:ring-blue-400 ${cellClass(
                         day,
                         future,
-                      )} ${date === today ? 'outline outline-2 outline-offset-0 outline-blue-500' : ''} ${
-                        selectedDate === date ? 'ring-2 ring-blue-500' : ''
+                      )} ${
+                        selectedDate === date
+                          ? 'z-10 border-blue-600 bg-blue-50 shadow-md ring-2 ring-blue-600'
+                          : ''
                       }`}
                     >
+                      {date === today && (
+                        <span className="absolute right-0.5 top-0.5 rounded bg-blue-600 px-1 py-px text-[9px] font-bold leading-none text-white">
+                          Hôm nay
+                        </span>
+                      )}
                       <span className="absolute left-1 top-0.5 text-[9px] font-semibold text-slate-500">
                         {formatDayNumber(date)}
                       </span>
@@ -103,7 +111,7 @@ export function MyTimesheetCalendar({
                           cell.tone === 'bad' ? 'text-red-600' : cell.tone === 'ok' ? 'text-emerald-700' : 'text-slate-500'
                         }`}
                       >
-                        {cell.text}
+                        <UnitText text={cell.text} />
                       </span>
                     </button>
                   </td>
@@ -133,7 +141,7 @@ export function MonthNumberLegend() {
       {items.map((item) => (
         // Mỗi mục là một ô có viền: số và nhãn đi liền nhau, không đọc nhầm số của mục kế tiếp.
         <li key={item.label} className="flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 py-0.5">
-          <span className={`min-w-6 text-center font-mono text-[13px] font-bold ${item.tone}`}>{item.text}</span>
+          <span className={`min-w-6 text-center font-mono text-[13px] font-bold ${item.tone}`}><UnitText text={item.text} /></span>
           <span>{item.label}</span>
         </li>
       ))}

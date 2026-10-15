@@ -28,7 +28,6 @@ import {
   Landmark,
   Layers,
   Loader2,
-  Lock,
   Mail,
   MapPin,
   Network,
@@ -664,12 +663,6 @@ export default function HrmProfilePage() {
             icon={User}
             title="Thông tin cá nhân"
             testId="profile-personal-card"
-            badge={
-              <Badge className="gap-1 border border-blue-200 bg-blue-50 text-[10px] font-semibold text-blue-700">
-                <Lock className="size-3" />
-                Dữ liệu Core · Chỉ đọc
-              </Badge>
-            }
           >
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <ReadonlyField id="profile-full-name" label="Họ và tên" value={savedIdentity.fullName} />
@@ -797,12 +790,6 @@ export default function HrmProfilePage() {
             icon={Phone}
             title="Liên hệ & người thân"
             testId="profile-contact-card"
-            badge={
-              <Badge className="gap-1 border border-emerald-200 bg-emerald-50 text-[10px] font-semibold text-emerald-700">
-                <PencilLine className="size-3" />
-                Được phép cập nhật
-              </Badge>
-            }
           >
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <IconInput id="profile-email" label="Email cá nhân" type="email" icon={Mail} value={personalEmail} placeholder="Chưa cập nhật email cá nhân" onChange={setPersonalEmail} />
@@ -840,12 +827,6 @@ export default function HrmProfilePage() {
             icon={Landmark}
             title="Thông tin ngân hàng nhận lương"
             testId="profile-bank-card"
-            badge={
-              <Badge className="gap-1 border border-slate-200 bg-slate-50 text-[10px] font-semibold text-slate-600">
-                <Lock className="size-3" />
-                Chỉ đọc
-              </Badge>
-            }
           >
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <ReadonlyField id="profile-bank-name" label="Ngân hàng" value={profileMeta.bankName} />

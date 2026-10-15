@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   AlarmClockOff,
   CalendarCheck,
@@ -39,7 +39,7 @@ import {
   type MyKpiKey,
 } from './my-timesheet-format';
 import { formatUnits } from './timesheet-board-format';
-import { KpiButton, KpiListSheet } from './kpi-list-sheet';
+import { KpiButton, KpiDropdownList } from './kpi-list-sheet';
 
 const MY_KPI_KEYS: readonly string[] = ['units', 'late', 'early', 'leave', 'absent', 'ot'];
 
@@ -56,12 +56,20 @@ interface KpiCardSpec {
   progress?: number | null;
 }
 
-function KpiCard({ spec, onOpen }: { spec: KpiCardSpec; onOpen?: () => void }) {
+function KpiCard({
+  spec,
+  onOpen,
+  expanded,
+}: {
+  spec: KpiCardSpec;
+  onOpen?: () => void;
+  expanded?: boolean;
+}) {
   const Icon = spec.icon;
   const card = (
     <div
       data-testid={`my-stat-${spec.key}`}
-      className="flex min-w-0 items-center gap-3 rounded-xl border border-slate-200 bg-white px-3.5 py-3 shadow-xs"
+      className="flex h-full min-h-[104px] min-w-0 items-center gap-3 rounded-xl border border-slate-200 bg-white px-3.5 py-3 shadow-xs"
     >
       <span
         className={`flex size-11 shrink-0 items-center justify-center rounded-xl ${spec.box}`}
@@ -104,7 +112,7 @@ function KpiCard({ spec, onOpen }: { spec: KpiCardSpec; onOpen?: () => void }) {
     </div>
   );
   return onOpen ? (
-    <KpiButton onClick={onOpen} label={`Xem các ngày: ${spec.label}`}>
+    <KpiButton onClick={onOpen} label={`Xem các ngày: ${spec.label}`} expanded={expanded}>
       {card}
     </KpiButton>
   ) : (
@@ -122,6 +130,21 @@ export function MyKpiStrip({
   onSelectDate?: (date: string) => void;
 }) {
   const [openKpi, setOpenKpi] = useState<MyKpiKey | null>(null);
+  // Bấm một thẻ: sổ danh sách các ngày ngay dưới thẻ (như thẻ "Đơn của tôi"); bấm ra ngoài hoặc Esc để đóng.
+  const stripRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!openKpi) return;
+    const onPointer = (event: MouseEvent) => {
+      if (!stripRef.current?.contains(event.target as Node)) setOpenKpi(null);
+    };
+    const onKey = (event: KeyboardEvent) => event.key === 'Escape' && setOpenKpi(null);
+    document.addEventListener('mousedown', onPointer);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onPointer);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [openKpi]);
   const kpiItems = useMemo(
     () =>
       openKpi
@@ -222,23 +245,30 @@ export function MyKpiStrip({
       data-testid="my-stats"
       className="space-y-1.5"
     >
-      <div className="grid grid-cols-2 gap-2 md:grid-cols-3 2xl:grid-cols-6">
-        {cards.map((spec) => (
-          <KpiCard
-            key={spec.key}
-            spec={spec}
-            onOpen={MY_KPI_KEYS.includes(spec.key as MyKpiKey) ? () => setOpenKpi(spec.key as MyKpiKey) : undefined}
-          />
-        ))}
+      <div ref={stripRef} className="grid grid-cols-2 gap-2 md:grid-cols-3 2xl:grid-cols-6">
+        {cards.map((spec) => {
+          const clickable = MY_KPI_KEYS.includes(spec.key as MyKpiKey);
+          const open = clickable && openKpi === spec.key;
+          return (
+            <div key={spec.key} className="relative h-full min-w-0">
+              <KpiCard
+                spec={spec}
+                expanded={clickable ? open : undefined}
+                onOpen={
+                  clickable ? () => setOpenKpi((cur) => (cur === spec.key ? null : (spec.key as MyKpiKey))) : undefined
+                }
+              />
+              {open && (
+                <KpiDropdownList
+                  title={`${MY_KPI_TITLE[spec.key as MyKpiKey]} (${kpiItems.length})`}
+                  items={kpiItems}
+                  emptyText="Không có ngày nào trong tháng này."
+                />
+              )}
+            </div>
+          );
+        })}
       </div>
-      <KpiListSheet
-        open={openKpi !== null}
-        onOpenChange={(open) => !open && setOpenKpi(null)}
-        title={openKpi ? MY_KPI_TITLE[openKpi] : ''}
-        description="Bấm một ngày để xem chi tiết ngày đó."
-        items={kpiItems}
-        emptyText="Không có ngày nào trong tháng này."
-      />
       {extras.length > 0 && (
         <ul className="flex flex-wrap gap-1.5 text-[11px]">
           {extras.map((stat) => (

@@ -104,12 +104,12 @@ function Kpi({
   }[tone];
   return (
     <KpiButton onClick={onClick} label={`Xem danh sách: ${typeof label === 'string' ? label : testId}`}>
-      <div className={`${CARD} flex items-center gap-3 px-4 py-3.5`} data-testid={testId}>
+      <div className={`${CARD} flex h-full min-h-[84px] items-center gap-3 px-4 py-3.5`} data-testid={testId}>
         <span className={`flex size-12 shrink-0 items-center justify-center rounded-xl ${tile}`}>{icon}</span>
         <div className="min-w-0">
           <p className="text-[13px] leading-tight text-slate-500">{label}</p>
           <p className="text-[26px] font-extrabold leading-tight text-slate-900">{value}</p>
-          <p className="text-[12px] text-slate-400">{sub}</p>
+          {sub ? <p className="text-[12px] text-slate-400">{sub}</p> : null}
         </div>
       </div>
     </KpiButton>
@@ -281,9 +281,8 @@ export default function AttendanceMonitorScreen() {
         <Kpi
           tone="blue"
           icon={<Users className="size-6" />}
-          label={<>Tổng nhân sự<br />đi ca {isToday ? 'hôm nay' : 'ngày này'}</>}
+          label="Tổng nhân sự đi ca"
           value={summary?.scheduled ?? 0}
-          sub={`/ ${summary?.totalPeople ?? 0} nhân sự`}
           testId="kpi-scheduled"
           onClick={() => setKpi('SCHEDULED')}
         />

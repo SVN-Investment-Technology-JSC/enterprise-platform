@@ -185,6 +185,7 @@ interface ChainRow {
   type: string;
   nodeId: string | null;
   date: string;
+  createdAt: number;
   replacesId: string | null;
 }
 
@@ -199,7 +200,9 @@ function buildLanes(rows: readonly ChainRow[]) {
   const concurrent = rows.filter((r) => r.type === 'CONCURRENT');
   for (const rv of rows.filter((r) => r.type === 'REVOKE' && !r.replacesId)) {
     const match = concurrent
-      .filter((c) => !hasChild.has(c.id) && c.nodeId === rv.nodeId && c.date <= rv.date)
+      .filter(
+        (c) => !hasChild.has(c.id) && c.nodeId === rv.nodeId && c.date <= rv.date && c.createdAt <= rv.createdAt,
+      )
       .sort((a, b) => b.date.localeCompare(a.date))[0];
     if (match) {
       parent.set(rv.id, match.id);
@@ -220,6 +223,7 @@ const chainRowOf = (r: Row): ChainRow => ({
   type: r.decision_type,
   nodeId: r.to_position_node_id ?? null,
   date: isoDate(r.effective_date),
+  createdAt: r.created_at ? new Date(r.created_at).getTime() : 0,
   replacesId: r.replaces_decision_id ?? null,
 });
 
@@ -236,7 +240,7 @@ export async function listCareerEvents(
   requireUuid(employeeId, 'Nhân viên');
   const decisions = await db.query(
     `SELECT id, decision_no, decision_type, effective_date, reason, to_position_node_id, to_position_name,
-            to_unit_name, from_position_name, from_unit_name, replaces_decision_id
+            to_unit_name, from_position_name, from_unit_name, replaces_decision_id, created_at
        FROM hrm_schema.personnel_decisions
       WHERE tenant_id = $1 AND employee_id = $2 AND status = 'RECORDED'`,
     [tenantId, employeeId],
@@ -297,7 +301,7 @@ export async function listOpenConcurrent(
   requireUuid(employeeId, 'Nhân viên');
   const result = await db.query(
     `SELECT id, decision_no, decision_type, effective_date, to_position_node_id, to_position_name, to_unit_name,
-            replaces_decision_id
+            replaces_decision_id, created_at
        FROM hrm_schema.personnel_decisions
       WHERE tenant_id = $1 AND employee_id = $2 AND status = 'RECORDED'
         AND decision_type IN ('CONCURRENT','REVOKE') AND ($3::uuid IS NULL OR id <> $3)`,
@@ -352,16 +356,11 @@ async function resolveChain(
     throw new BadRequestException('Kiêm nhiệm nối tiếp không hợp lệ.');
   if (input.effectiveDate < isoDate(target.effective_date))
     throw new BadRequestException('Ngày hiệu lực không được trước ngày của kiêm nhiệm được nối tiếp.');
-  const successor = await db.query(
-    `SELECT decision_no FROM hrm_schema.personnel_decisions
-      WHERE tenant_id = $1 AND replaces_decision_id = $2 AND status = 'RECORDED' AND ($3::uuid IS NULL OR id <> $3)
-      LIMIT 1`,
-    [tenantId, target.id, selfId ?? null],
-  );
-  if (successor.rows[0])
+  const open = await listOpenConcurrent(db, tenantId, input.employeeId, selfId);
+  if (!open.some((o) => o.decisionId === target.id))
     throw new ConflictException({
       code: 'HRM_CONCURRENT_ALREADY_CHAINED',
-      message: `Kiêm nhiệm này đã có quyết định nối tiếp (${successor.rows[0].decision_no}).`,
+      message: 'Kiêm nhiệm này đã có quyết định nối tiếp hoặc đã bị bãi nhiệm.',
     });
   return input.decisionType === 'REVOKE'
     ? { ...input, toPositionNodeId: target.to_position_node_id ?? input.toPositionNodeId }

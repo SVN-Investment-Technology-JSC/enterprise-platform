@@ -201,9 +201,10 @@ describe('Hồ sơ của tôi', () => {
     expect(screen.getByTestId('employee-hero').textContent).toContain('Đồng bộ từ Core');
     expect(screen.getByTestId('employee-hero').textContent).toContain('NV001');
     const personal = screen.getByTestId('profile-personal-card');
-    expect(personal.textContent).toContain('Dữ liệu Core · Chỉ đọc');
+    expect(personal.textContent).not.toContain('Chỉ đọc');
     expect(screen.getByTestId('profile-contact-card').textContent).toContain('Người liên hệ khẩn cấp');
-    expect(screen.getByTestId('profile-bank-card').textContent).toContain('Chỉ đọc');
+    expect(screen.getByTestId('profile-bank-card').textContent).not.toContain('Chỉ đọc');
+    expect(screen.getByTestId('profile-contact-card').textContent).not.toContain('Được phép cập nhật');
     expect(screen.getByTestId('profile-current-work').textContent).toContain('Công tác hiện tại');
     expect(screen.getByRole('button', { name: /Xem lịch sử công tác & hợp đồng/ })).toBeTruthy();
     // Người liên hệ khẩn cấp hiện đúng giá trị đã lưu, mối quan hệ là ô chọn
