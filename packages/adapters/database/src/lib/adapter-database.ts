@@ -176,7 +176,13 @@ export function createPostgresPool(
   connectionString: string,
   options: Omit<PoolConfig, 'connectionString'> = {},
 ): Pool {
-  return new Pool({ connectionString, ...options });
+  const pool = new Pool({ connectionString, ...options });
+  pool.on('error', () => {
+    // pg removes broken idle clients. The next query either reconnects or fails; without this listener
+    // the unhandled 'error' event would crash the process (e.g. another connection to the same server
+    // being force-terminated, such as DROP DATABASE ... WITH (FORCE) in integration tests).
+  });
+  return pool;
 }
 
 export async function inTransaction<TValue>(
