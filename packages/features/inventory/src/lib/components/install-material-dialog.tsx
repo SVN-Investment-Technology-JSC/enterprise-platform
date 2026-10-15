@@ -183,7 +183,7 @@ export function InstallMaterialDialog({
             <p
               style={{
                 margin: '4px 0 0',
-                fontSize: '13.5px',
+                fontSize: '14px',
                 color: '#666666',
                 lineHeight: 1.4,
               }}
@@ -234,7 +234,7 @@ export function InstallMaterialDialog({
         >
           {/* Thiết bị đích nhận lắp đặt */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-            <label style={{ fontSize: '13.5px', fontWeight: 600, color: '#333333' }}>
+            <label style={{ fontSize: '14px', fontWeight: 600, color: '#333333' }}>
               Vị trí tiếp nhận trên cây
             </label>
             <div
@@ -243,7 +243,7 @@ export function InstallMaterialDialog({
                 borderRadius: '4px',
                 background: '#ffffff',
                 border: '1px solid #e0e0e0',
-                fontSize: '13.5px',
+                fontSize: '14px',
                 color: '#1e293b',
                 display: 'flex',
                 alignItems: 'center',
@@ -265,10 +265,10 @@ export function InstallMaterialDialog({
           {/* Chọn Vật tư từ kho — Searchable Combobox (Input & Dropdown kết hợp chung 1 element) */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }} ref={dropdownRef}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <label style={{ fontSize: '13.5px', fontWeight: 600, color: '#333333' }}>
+              <label style={{ fontSize: '14px', fontWeight: 600, color: '#333333' }}>
                 Vật tư cần lắp <span style={{ color: '#dc2626' }}>*</span>
               </label>
-              <span style={{ fontSize: '12px', color: '#64748b' }}>
+              <span style={{ fontSize: '13px', color: '#64748b' }}>
                 {filteredMaterials.length} / {materials.length} vật tư
               </span>
             </div>
@@ -295,7 +295,7 @@ export function InstallMaterialDialog({
                     border: 'none',
                     outline: 'none',
                     background: 'transparent',
-                    fontSize: '13.5px',
+                    fontSize: '14px',
                     color: '#1e293b',
                     padding: '6px 0',
                   }}
@@ -368,7 +368,7 @@ export function InstallMaterialDialog({
                   }}
                 >
                   {filteredMaterials.length === 0 ? (
-                    <div style={{ padding: '12px 14px', fontSize: '13px', color: '#94a3b8', textAlign: 'center' }}>
+                    <div style={{ padding: '12px 14px', fontSize: '14px', color: '#94a3b8', textAlign: 'center' }}>
                       Không tìm thấy vật tư khớp với từ khóa
                     </div>
                   ) : (
@@ -379,7 +379,7 @@ export function InstallMaterialDialog({
                           key={item.code}
                           style={{
                             padding: '8px 12px',
-                            fontSize: '13px',
+                            fontSize: '14px',
                             cursor: 'pointer',
                             background: isSelected ? '#eff6ff' : '#ffffff',
                             color: isSelected ? '#1d4ed8' : '#1e293b',
@@ -403,11 +403,11 @@ export function InstallMaterialDialog({
                         >
                           <div>
                             <span style={{ fontWeight: 600 }}>{item.name}</span>
-                            <span style={{ marginLeft: '6px', color: '#2563eb', fontSize: '12px' }}>
+                            <span style={{ marginLeft: '6px', color: '#2563eb', fontSize: '13px' }}>
                               ({item.code})
                             </span>
                           </div>
-                          <span style={{ fontSize: '11.5px', color: '#64748b' }}>ĐVT: {item.unit}</span>
+                          <span style={{ fontSize: '12px', color: '#64748b' }}>ĐVT: {item.unit}</span>
                         </div>
                       );
                     })
@@ -429,7 +429,7 @@ export function InstallMaterialDialog({
           {/* Hàng 2 cột: Kho xuất & Số lượng */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-              <label style={{ fontSize: '13.5px', fontWeight: 600, color: '#333333', whiteSpace: 'nowrap' }}>
+              <label style={{ fontSize: '14px', fontWeight: 600, color: '#333333', whiteSpace: 'nowrap' }}>
                 Xuất từ kho <span style={{ color: '#dc2626' }}>*</span>
               </label>
               <SearchableSelect
@@ -450,13 +450,13 @@ export function InstallMaterialDialog({
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px', minHeight: '20px' }}>
-                <label style={{ fontSize: '13.5px', fontWeight: 600, color: '#333333', whiteSpace: 'nowrap' }}>
+                <label style={{ fontSize: '14px', fontWeight: 600, color: '#333333', whiteSpace: 'nowrap' }}>
                   Số lượng {picked?.unit ? `(${picked.unit})` : ''} <span style={{ color: '#dc2626' }}>*</span>
                 </label>
                 {available !== undefined ? (
                   <span
                     style={{
-                      fontSize: '12px',
+                      fontSize: '13px',
                       fontWeight: 600,
                       color: short ? '#dc2626' : '#166534',
                       whiteSpace: 'nowrap',
@@ -492,7 +492,7 @@ export function InstallMaterialDialog({
               style={{
                 padding: '8px 12px',
                 borderRadius: '4px',
-                fontSize: '12.5px',
+                fontSize: '13px',
                 lineHeight: 1.4,
                 background: '#fef2f2',
                 border: '1px solid #fecaca',
@@ -511,7 +511,7 @@ export function InstallMaterialDialog({
 
           {/* Ghi chú */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-            <label style={{ fontSize: '13.5px', fontWeight: 600, color: '#333333' }}>
+            <label style={{ fontSize: '14px', fontWeight: 600, color: '#333333' }}>
               Ghi chú lắp đặt
             </label>
             <input

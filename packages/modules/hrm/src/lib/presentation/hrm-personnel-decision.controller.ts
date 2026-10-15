@@ -26,6 +26,7 @@ import {
   cancelDecision,
   createDecision,
   listDecisions,
+  listOpenConcurrent,
   loadAppointmentContext,
   loadDecision,
   loadReportingOverview,
@@ -77,7 +78,8 @@ export class HrmPersonnelDecisionController {
   async create(@Req() req: Request, @Body() body: CreateHrmPersonnelDecisionPayload) {
     const { pool, tenantId, principal } = await this.ctx.getContext(req, 'hrm.appointment.manage');
     return {
-      data: await createDecision(pool, tenantId, principal.userId, body),
+      // Chỉ ghi lịch sử công tác; không duyệt, không áp dụng sang chức danh, quản lý hay lương.
+      data: await createDecision(pool, tenantId, principal.userId, body, true),
       meta: meta(req),
     };
   }
@@ -145,6 +147,27 @@ export class HrmPersonnelDecisionController {
     };
   }
 
+  /** Kiêm nhiệm đang giữ (đã ghi nhận, chưa bãi nhiệm) để chọn thay thế hoặc bãi nhiệm. */
+  @Get('employees/:employeeId/open-concurrent')
+  @RequirePermission('hrm.appointment.read')
+  async openConcurrent(
+    @Req() req: Request,
+    @Param('employeeId') employeeId: string,
+    @Query('excludeDecisionId') excludeDecisionId?: string,
+  ) {
+    requireUuid(employeeId, 'Nhân viên');
+    const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.appointment.read');
+    return {
+      data: await listOpenConcurrent(
+        pool,
+        tenantId,
+        employeeId,
+        excludeDecisionId ? requireUuid(excludeDecisionId, 'Quyết định') : undefined,
+      ),
+      meta: meta(req),
+    };
+  }
+
   /** Người quản lý hiện tại (Core, không có thì Tổng giám đốc); nhân viên xem được của chính mình. */
   @Get('employees/:employeeId/reporting-lines')
   @RequirePermission('hrm.self.read')
@@ -173,7 +196,8 @@ export class HrmPersonnelDecisionController {
   async quickAppoint(
     @Req() req: Request,
     @Param('employeeId') employeeId: string,
-    @Body() body: { toPositionNodeId?: string; reason?: string; effectiveDate?: string },
+    @Body()
+    body: { toPositionNodeId?: string; reason?: string; effectiveDate?: string; mode?: string },
   ) {
     requireUuid(employeeId, 'Nhân viên');
     const context = await this.ctx.getContext(req, 'hrm.appointment.manage');
@@ -189,6 +213,7 @@ export class HrmPersonnelDecisionController {
           toPositionNodeId: String(body?.toPositionNodeId ?? ''),
           reason: String(body?.reason ?? ''),
           effectiveDate: body?.effectiveDate,
+          mode: body?.mode === 'CONCURRENT' ? 'CONCURRENT' : 'REPLACE',
         },
         { org: this.org },
       ),

@@ -169,7 +169,7 @@ export function LeaveReasonDialog({
               />
               <div>
                 <p className="text-xs font-medium text-slate-700">Có lương</p>
-                <p className="text-[11px] leading-snug text-slate-500">
+                <p className="text-[12px] leading-snug text-slate-500">
                   {annual || paid
                     ? 'Ngày nghỉ được tính là ngày công có lương trong bảng công.'
                     : 'Không lương: ngày nghỉ không được tính công.'}{' '}
@@ -190,12 +190,12 @@ export function LeaveReasonDialog({
                 <p className="text-xs font-medium text-slate-700">
                   Cần chứng từ
                 </p>
-                <p className="text-[11px] leading-snug text-slate-500">
+                <p className="text-[12px] leading-snug text-slate-500">
                   Người làm đơn phải đính kèm chứng từ (ví dụ giấy khám bệnh).
                 </p>
               </div>
             </div>
-            <p className="text-[11px] leading-snug text-slate-500">
+            <p className="text-[12px] leading-snug text-slate-500">
               {annual
                 ? 'Trừ quỹ phép năm: Có.'
                 : 'Trừ quỹ phép năm: Không. Chỉ lý do Phép năm mới trừ quỹ phép, dù có lương hay không lương.'}

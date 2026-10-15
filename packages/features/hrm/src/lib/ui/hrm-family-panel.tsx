@@ -105,44 +105,44 @@ export function HrmFamilyPanel({
     ...(readOnly
       ? []
       : [
-          {
-            title: 'Thao tác',
-            width: 145,
-            fixed: 'right' as const,
-            render: (_: unknown, row: HrmEmployeeDependent) => (
-              <span className="inline-flex gap-1">
-                <Button
-                  permission={permission}
-                  variant="outline"
-                  size="sm"
-                  onClick={() => edit(row)}
-                >
-                  Sửa
+        {
+          title: 'Thao tác',
+          width: 145,
+          fixed: 'right' as const,
+          render: (_: unknown, row: HrmEmployeeDependent) => (
+            <span className="inline-flex gap-1">
+              <Button
+                permission={permission}
+                variant="outline"
+                size="sm"
+                onClick={() => edit(row)}
+              >
+                Sửa
+              </Button>
+              <Popconfirm
+                title="Xóa thông tin người thân?"
+                description="Lưu lịch sử hồ sơ; đăng ký giảm trừ đã xác minh được quản lý riêng."
+                okText="Xóa"
+                onConfirm={async () => {
+                  try {
+                    await hrmFetch(`${path}/${row.id}`, {
+                      method: 'DELETE',
+                      body: JSON.stringify({ expectedUpdatedAt: row.updatedAt }),
+                    });
+                    await reload();
+                  } catch (e) {
+                    toast.error(e instanceof Error ? e.message : 'Không thể xóa');
+                  }
+                }}
+              >
+                <Button permission={permission} variant="outline" size="sm">
+                  Xóa
                 </Button>
-                <Popconfirm
-                  title="Xóa thông tin người thân?"
-                  description="Lưu lịch sử hồ sơ; đăng ký giảm trừ đã xác minh được quản lý riêng."
-                  okText="Xóa"
-                  onConfirm={async () => {
-                    try {
-                      await hrmFetch(`${path}/${row.id}`, {
-                        method: 'DELETE',
-                        body: JSON.stringify({ expectedUpdatedAt: row.updatedAt }),
-                      });
-                      await reload();
-                    } catch (e) {
-                      toast.error(e instanceof Error ? e.message : 'Không thể xóa');
-                    }
-                  }}
-                >
-                  <Button permission={permission} variant="outline" size="sm">
-                    Xóa
-                  </Button>
-                </Popconfirm>
-              </span>
-            ),
-          },
-        ]),
+              </Popconfirm>
+            </span>
+          ),
+        },
+      ]),
   ];
   return (
     <section className="space-y-3 rounded-lg border border-slate-200 bg-white p-4">

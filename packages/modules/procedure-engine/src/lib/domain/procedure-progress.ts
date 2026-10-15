@@ -1,6 +1,7 @@
 import type {
   ProcedureInstance,
   ProcedureInstanceProgress,
+  ProcedureInstanceStep,
   ProcedureInstanceStatusEntry,
   ProcedureInstanceStepChangedPayload,
 } from '@enterprise-platform/contracts-procedure-engine';
@@ -89,6 +90,58 @@ export function buildInstanceStatusEntry(instance: ProcedureInstance): Procedure
   };
 }
 
+/** Vai chỉ để nhận thông tin / làm đầu việc, không phải người xử lý bước. */
+const NON_HANDLER_ROLES: readonly string[] = ['I', 'E'];
+
+/**
+ * Nhãn "người xử lý" của một bước:
+ *  - Bước chỉ có vai S: danh sách S chỉ là tập người được phép khởi tạo, nên hiện người khởi tạo thật.
+ *  - Bước đã xong: người đã duyệt/hoàn thành thật (từ nhật ký), nếu có.
+ *  - Còn lại: phân công của pha đang xử lý (hoặc mọi vai xử lý khi chưa có pha), bỏ I/E/S, khử trùng lặp.
+ */
+export function stepRoleTitle(instance: ProcedureInstance, step: ProcedureInstanceStep): string {
+  const handlers = step.assignments.filter(
+    (assignment) => assignment.role !== 'S' && !NON_HANDLER_ROLES.includes(assignment.role),
+  );
+  if (!handlers.length) {
+    return step.assignments.some((assignment) => assignment.role === 'S') ? initiatorName(instance) : '';
+  }
+  if (step.status === 'completed') {
+    const actors = actualActorNames(instance, step);
+    if (actors.length) return actors.join(', ');
+  }
+  const stage = step.currentRoleStage;
+  const scoped = stage && handlers.some((assignment) => assignment.role === stage)
+    ? handlers.filter((assignment) => assignment.role === stage)
+    : handlers;
+  return unique(scoped.map((assignment) => assignment.subjectLabel?.trim() || assignment.role)).join(', ');
+}
+
+function unique(values: readonly string[]): string[] {
+  return [...new Set(values.filter(Boolean))];
+}
+
+function initiatorName(instance: ProcedureInstance): string {
+  const entry =
+    instance.activity.find((item) => item.action === 'start' && item.actorName?.trim()) ??
+    instance.activity.find((item) => item.actorId === instance.initiatedBy && item.actorName?.trim());
+  return entry?.actorName.trim() || 'Người khởi tạo';
+}
+
+function actualActorNames(instance: ProcedureInstance, step: ProcedureInstanceStep): string[] {
+  return unique(
+    instance.activity
+      .filter(
+        (entry) =>
+          entry.stepInstanceId === step.id &&
+          ['approve', 'complete'].includes(entry.action) &&
+          entry.actorId !== SYSTEM_ACTOR_ID,
+      )
+      .map((entry) => entry.actorName?.trim() ?? '')
+      .reverse(),
+  );
+}
+
 export function buildInstanceProgress(instance: ProcedureInstance): ProcedureInstanceProgress {
   const entry = buildInstanceStatusEntry(instance);
   return {
@@ -108,7 +161,7 @@ export function buildInstanceProgress(instance: ProcedureInstance): ProcedureIns
       slaHours: step.slaHours,
       slaDueAt: step.slaDueAt,
       completedAt: step.completedAt,
-      roleTitle: step.assignments.map((a) => a.subjectLabel || a.role).join(', '),
+      roleTitle: stepRoleTitle(instance, step),
     })),
     activity: instance.activity,
   };

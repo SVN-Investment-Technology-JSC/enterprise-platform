@@ -23,6 +23,7 @@ const PayslipsScreen = lazyScreen(() => import('./payslips-screen'));
 const EmployeesScreen = lazyScreen(() => import('./employees-screen'));
 const PersonnelDecisionsScreen = lazyScreen(() => import('./personnel-decisions-screen'));
 const LeaveBalancesScreen = lazyScreen(() => import('./leave-balances-screen'));
+const LeaveAdjustmentHistoryScreen = lazyScreen(() => import('./leave-adjustment-history-screen'));
 const WorkScheduleScreen = lazyScreen(() => import('./work-schedule-screen'));
 const TimesheetsScreen = lazyScreen(() => import('./timesheets-screen'));
 const AttendanceDataScreen = lazyScreen(() => import('./attendance-data-screen'));
@@ -50,7 +51,7 @@ const SCREENS: Record<HrmHubPath, Record<string, ComponentType>> = {
     employees: EmployeesScreen,
     decisions: PersonnelDecisionsScreen,
   },
-  '/leave': { balances: LeaveBalancesScreen },
+  '/leave': { balances: LeaveBalancesScreen, adjustments: LeaveAdjustmentHistoryScreen },
   '/timekeeping': {
     timesheets: TimesheetsScreen,
     data: AttendanceDataScreen,

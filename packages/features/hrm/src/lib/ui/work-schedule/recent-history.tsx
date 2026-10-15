@@ -107,7 +107,7 @@ export function RecentScheduleHistory({
               <RCell label="Người thực hiện">
                 <span className="min-w-0 text-right @2xl:text-left">
                   <span className="block truncate">{batch.actorName ?? 'Không xác định'}</span>
-                  <span className="block text-[11px] text-slate-500">{formatDateTime(batch.createdAt)}</span>
+                  <span className="block text-[12px] text-slate-500">{formatDateTime(batch.createdAt)}</span>
                 </span>
               </RCell>
               <RCell label="Thao tác">

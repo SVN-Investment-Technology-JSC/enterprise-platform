@@ -183,7 +183,7 @@ export function HrmAuditTrail() {
   return (
     <div className="@container space-y-4 pt-2">
       <div className="grid grid-cols-1 gap-3 rounded-lg border border-slate-200 bg-slate-50/70 p-3 @xl:grid-cols-2 @5xl:grid-cols-[1.2fr_1.5fr_160px_160px_auto]">
-        <label className="block text-[11px] font-semibold text-slate-600">
+        <label className="block text-[12px] font-semibold text-slate-600">
           Hành động
           <SearchableSelect
             value={action}
@@ -196,7 +196,7 @@ export function HrmAuditTrail() {
             }}
           />
         </label>
-        <label className="block text-[11px] font-semibold text-slate-600">
+        <label className="block text-[12px] font-semibold text-slate-600">
           Tìm theo đối tượng / người thực hiện / lý do
           <Input
             aria-label="Tìm trong nhật ký"
@@ -206,7 +206,7 @@ export function HrmAuditTrail() {
             className="mt-1 h-9 text-xs"
           />
         </label>
-        <label className="block text-[11px] font-semibold text-slate-600">
+        <label className="block text-[12px] font-semibold text-slate-600">
           Từ ngày
           <div className="mt-1">
             <DatePickerInput
@@ -221,7 +221,7 @@ export function HrmAuditTrail() {
             />
           </div>
         </label>
-        <label className="block text-[11px] font-semibold text-slate-600">
+        <label className="block text-[12px] font-semibold text-slate-600">
           Đến ngày
           <div className="mt-1">
             <DatePickerInput
@@ -293,7 +293,7 @@ export function HrmAuditTrail() {
             dataIndex: 'actionLabel',
             width: 220,
             render: (v: string) => (
-              <span className="inline-flex rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-blue-700">
+              <span className="inline-flex rounded-full bg-blue-50 px-2 py-0.5 text-[12px] font-semibold text-blue-700">
                 {v}
               </span>
             ),
@@ -305,7 +305,7 @@ export function HrmAuditTrail() {
               r.entityLabel ? (
                 <div className="min-w-0">
                   {r.entityKind && (
-                    <span className="block text-[11px] font-medium uppercase tracking-wide text-slate-400">
+                    <span className="block text-[12px] font-medium uppercase tracking-wide text-slate-400">
                       {r.entityKind}
                     </span>
                   )}
@@ -326,7 +326,7 @@ export function HrmAuditTrail() {
                   {r.actorLabel}
                 </span>
                 {r.approverLabel && (
-                  <span className="block truncate text-[11px] text-slate-500">
+                  <span className="block truncate text-[12px] text-slate-500">
                     Người duyệt: {r.approverLabel}
                   </span>
                 )}

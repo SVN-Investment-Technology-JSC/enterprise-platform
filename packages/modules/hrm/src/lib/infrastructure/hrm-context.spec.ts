@@ -3,9 +3,14 @@ import type { PlatformIdentityService } from '@enterprise-platform/platform-iden
 import type { PostgresPoolRegistry } from '@enterprise-platform/adapter-database';
 import { jwtVerify } from 'jose';
 import { HrmContextService } from './hrm-context.service';
+import { fetchActionableProcedureInstanceIds } from './hrm-procedure-api.js';
 jest.mock('@enterprise-platform/platform-identity', () => ({
   PlatformIdentityService: class {},
 }));
+jest.mock('./hrm-procedure-api.js', () => ({
+  fetchActionableProcedureInstanceIds: jest.fn(),
+}));
+const fetchActionable = fetchActionableProcedureInstanceIds as jest.MockedFunction<typeof fetchActionableProcedureInstanceIds>;
 jest.mock('jose', () => ({
   createRemoteJWKSet: jest.fn(),
   jwtVerify: jest.fn(),
@@ -98,6 +103,34 @@ describe('HRM authentication and tenant boundary', () => {
     await expect(
       service.scoped(req, 'hrm.request.read', 'employee-b'),
     ).rejects.toThrow('bản thân');
+  });
+
+  it('danh sách chờ duyệt: người không có quyền duyệt nhưng được PE giao đơn thì được đọc, người không được giao chỉ thấy bản thân', async () => {
+    const assignedLinks = [{ request_id: 'req-1', instance_id: 'inst-1' }];
+    let hasAssignment = true;
+    const pool = {
+      query: jest.fn(async (sql: string) => {
+        if (sql.includes('procedure_links')) return { rows: hasAssignment ? assignedLinks : [] };
+        if (sql.includes('organization_node_assignments') || sql.includes('request_procedure_bindings')) return { rows: [] };
+        return { rows: [{ id: 'employee-a', full_name: 'Employee A' }] };
+      }),
+    };
+    identity.decide.mockResolvedValue({
+      allowed: true,
+      database: { tenantId: 'tenant-a' },
+      principal: { ...principal, permissions: ['hrm.read', 'hrm.self.read'] },
+    });
+    pools.forTenant.mockResolvedValue(pool);
+    fetchActionable.mockResolvedValue(['inst-1']);
+    const req = { method: 'GET', headers: { authorization: 'Bearer test' } } as Request;
+    const leaveApprover = ['hrm.leave.approve', 'hrm.leave.approve.all'] as const;
+
+    const assigned = await service.scoped(req, 'hrm.request.read', undefined, leaveApprover);
+    expect(assigned.employeeId).toBeUndefined();
+
+    hasAssignment = false;
+    const notAssigned = await service.scoped(req, 'hrm.request.read', undefined, leaveApprover);
+    expect(notAssigned.employeeId).toBe('employee-a');
   });
 
   it('nhân sự có ở Core nhưng chưa có hồ sơ HRM: không tự bịa hồ sơ, báo chưa khởi tạo', async () => {

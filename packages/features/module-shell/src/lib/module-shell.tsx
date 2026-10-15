@@ -335,8 +335,8 @@ function ClassicShell<TViewId extends string = string>(props: ModuleShellProps<T
               {userMenuOpen ? (
                 <div className={`${styles.popoverDropdown} ${styles.userMenu}`}>
                   <div className={styles.userMenuHeader}>
-                    <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>Xin chào !</div>
-                    <div style={{ fontSize: '0.82rem', fontWeight: 700, color: '#0f172a' }}>{displayName}</div>
+                    <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Xin chào !</div>
+                    <div style={{ fontSize: '0.875rem', fontWeight: 700, color: '#0f172a' }}>{displayName}</div>
                   </div>
 
                   {/* Trang tài khoản nằm ở app web gốc, không đi qua basePath của module. */}

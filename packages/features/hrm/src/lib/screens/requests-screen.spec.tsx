@@ -894,35 +894,25 @@ describe('Danh sách và chi tiết đơn: Lý do tách khỏi Mô tả', () => 
   const rowById = (id: string) => screen.getByTestId(`request-row-${id}`) as HTMLTableRowElement;
   const cells = (row: HTMLTableRowElement) =>
     Array.from(row.querySelectorAll('td')).map((td) => (td.textContent ?? '').trim());
-  const reasonIndex = () =>
-    screen.getAllByRole('columnheader').map((th) => th.textContent).indexOf('Lý do');
-
-  it('danh sách có cột Lý do tách khỏi Mô tả; đơn cũ thiếu lý do hiện "—"', async () => {
+  it('bảng không còn cột Thời gian, Số ngày/giờ, Lý do; đơn cũ thiếu lý do vẫn hiện ở chi tiết là "—"', async () => {
     rows();
     render(<RequestsPage />);
     await showAllMonths();
     await screen.findByTestId(`request-row-${ID.sick}`);
-    const index = reasonIndex();
-    expect(index).toBeGreaterThan(-1);
-    expect(screen.getAllByRole('columnheader').map((th) => th.textContent)).not.toContain('Mô tả');
-
-    const sick = cells(rowById(ID.sick));
-    expect(sick[index]).toBe('Nghỉ ốm');
-    // Mô tả không lẫn vào cột lý do.
-    expect(sick[index]).not.toContain('Đi khám');
-    expect(cells(rowById(ID.legacy))[index]).toBe('—');
+    const headers = screen.getAllByRole('columnheader').map((th) => th.textContent);
+    for (const gone of ['Thời gian', 'Số ngày/giờ', 'Lý do', 'Mô tả']) expect(headers).not.toContain(gone);
+    expect(headers).toContain('Loại đơn');
+    // Bảng chỉ còn 5 cột dữ liệu + cột mở chi tiết: không lẫn lý do vào dòng.
+    expect(cells(rowById(ID.sick)).join(' ')).not.toContain('Nghỉ ốm');
   });
 
-  it('đơn làm thêm giờ không lương có thẻ Không lương; đơn có lương không bị gắn thẻ', async () => {
+  it('đơn làm thêm giờ không lương có thẻ Không lương ở cột Loại đơn; đơn có lương không bị gắn thẻ', async () => {
     rows();
     render(<RequestsPage />);
     await showAllMonths();
     await screen.findByTestId(`request-row-${ID.ot}`);
-    const index = reasonIndex();
-    const ot = cells(rowById(ID.ot));
-    expect(ot[index]).toContain('Làm bù không tính tiền');
-    expect(ot[index]).toContain('Không lương');
-    expect(cells(rowById(ID.sick))[index]).not.toContain('Không lương');
+    expect(cells(rowById(ID.ot)).join(' ')).toContain('Không lương');
+    expect(cells(rowById(ID.sick)).join(' ')).not.toContain('Không lương');
   });
 
   it('chi tiết bên phải ghi Lý do và Mô tả thành hai mục riêng, mô tả rỗng hiện "—"', async () => {
@@ -974,38 +964,41 @@ describe('Đơn từ của tôi: tháng, thẻ tổng quan và lọc theo trạn
     reasonName: reason,
     description: null,
   });
-  const cellText = { selector: 'td span' };
+  const rowOf = (id: string) => screen.queryByTestId(`request-row-${id}`);
 
   it('mặc định xem tháng hiện tại; đơn tháng khác chỉ hiện khi chọn Tất cả tháng', async () => {
+    const thisMonth = 'aaaaaaaa-1111-0000-0000-000000000001';
+    const old = 'aaaaaaaa-1111-0000-0000-000000000002';
     leaveRows = [
-      leave('aaaaaaaa-1111-0000-0000-000000000001', 'PENDING', new Date().toISOString(), 'Đơn tháng này'),
-      leave('aaaaaaaa-1111-0000-0000-000000000002', 'PENDING', daysAgo(75), 'Đơn rất cũ'),
+      leave(thisMonth, 'PENDING', new Date().toISOString(), 'Đơn tháng này'),
+      leave(old, 'PENDING', daysAgo(75), 'Đơn rất cũ'),
     ];
     render(<RequestsPage />);
-    await screen.findByText('Đơn tháng này', cellText);
-    expect(screen.queryByText('Đơn rất cũ', cellText)).toBeNull();
+    await screen.findByTestId(`request-row-${thisMonth}`);
+    expect(rowOf(old)).toBeNull();
     await showAllMonths();
-    expect(await screen.findByText('Đơn rất cũ', cellText)).toBeTruthy();
+    expect(await screen.findByTestId(`request-row-${old}`)).toBeTruthy();
   });
 
   it('không còn thẻ tổng quan; tab trạng thái đếm và lọc danh sách', async () => {
     const now = new Date().toISOString();
+    const [a, b, c, d] = [1, 2, 3, 4].map((n) => `aaaaaaaa-2222-0000-0000-00000000000${n}`);
     leaveRows = [
-      leave('aaaaaaaa-2222-0000-0000-000000000001', 'PENDING', now, 'Chờ A'),
-      leave('aaaaaaaa-2222-0000-0000-000000000002', 'PENDING', now, 'Chờ B'),
-      leave('aaaaaaaa-2222-0000-0000-000000000003', 'APPROVED', now, 'Duyệt C'),
-      leave('aaaaaaaa-2222-0000-0000-000000000004', 'REJECTED', now, 'Từ chối D'),
+      leave(a, 'PENDING', now, 'Chờ A'),
+      leave(b, 'PENDING', now, 'Chờ B'),
+      leave(c, 'APPROVED', now, 'Duyệt C'),
+      leave(d, 'REJECTED', now, 'Từ chối D'),
     ];
     render(<RequestsPage />);
-    await screen.findByText('Chờ A', cellText);
+    await screen.findByTestId(`request-row-${a}`);
     // Không còn thẻ tổng quan (tổng đơn, chờ duyệt, đã duyệt, từ chối); số đơn nằm trên các tab trạng thái.
     expect(screen.queryByTestId('request-stats')).toBeNull();
     fireEvent.click(screen.getByRole('tab', { name: /^Chờ duyệt \(2\)/ }));
-    expect(screen.queryByText('Duyệt C', cellText)).toBeNull();
-    expect(screen.getByText('Chờ B', cellText)).toBeTruthy();
+    expect(rowOf(c)).toBeNull();
+    expect(rowOf(b)).toBeTruthy();
     fireEvent.click(screen.getByRole('tab', { name: /^Từ chối \(1\)/ }));
-    expect(screen.getByText('Từ chối D', cellText)).toBeTruthy();
-    expect(screen.queryByText('Chờ A', cellText)).toBeNull();
+    expect(rowOf(d)).toBeTruthy();
+    expect(rowOf(a)).toBeNull();
   });
 
   it('đơn chờ duyệt có nút Thu hồi đơn: xác nhận rồi gọi withdraw', async () => {

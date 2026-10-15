@@ -44,7 +44,7 @@ export function ProjectLinkField({
         emptyText="Bạn chưa tham gia dự án nào bên Workspace"
         clearable
       />
-      <p className="text-[11px] text-slate-500">
+      <p className="text-[12px] text-slate-500">
         {selected
           ? `Đơn sẽ được ghi vào tab "Đơn từ" của dự án ${selected.code} với mã DTxxx tự sinh.`
           : 'Chỉ hiện dự án bạn đang tham gia. Chọn dự án để đơn này được ghi nhận trong dự án đó.'}

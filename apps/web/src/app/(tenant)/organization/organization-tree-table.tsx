@@ -100,7 +100,7 @@ export function OrganizationTreeTable({
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             placeholder="Tìm kiếm sơ đồ theo tên, mã…"
-            className="min-w-0 flex-1 bg-transparent text-[13px] text-[#18181b] outline-none placeholder:text-slate-400"
+            className="min-w-0 flex-1 bg-transparent text-[14px] text-[#18181b] outline-none placeholder:text-slate-400"
           />
         </label>
         {searchTerm ? (
@@ -116,7 +116,7 @@ export function OrganizationTreeTable({
         <Button
           disabled={!canCreate}
           onClick={onCreateTree}
-          className="h-[38px] shrink-0 gap-1.5 bg-[#ffc90a] text-[13px] font-bold text-[#18181b] hover:bg-[#ffd84d]"
+          className="h-[38px] shrink-0 gap-1.5 bg-[#ffc90a] text-[14px] font-bold text-[#18181b] hover:bg-[#ffd84d]"
         >
           <Plus className="size-4" />
           Thêm sơ đồ mới
@@ -133,7 +133,7 @@ export function OrganizationTreeTable({
         >
           <div className="overflow-x-auto">
             <div className="min-w-[720px]">
-              <div className={`${ROW} py-2 text-[11px] font-semibold tracking-[0.4px] text-slate-500`}>
+              <div className={`${ROW} py-2 text-[12px] font-semibold tracking-[0.4px] text-slate-500`}>
                 <span>TÊN SƠ ĐỒ</span>
                 <span>MÃ SƠ ĐỒ</span>
                 <span>SỐ NODE</span>
@@ -146,12 +146,12 @@ export function OrganizationTreeTable({
                     <span className="flex min-w-0 items-center gap-2 font-semibold">
                       <span className="truncate">{item.name}</span>
                       {item.isPrimary ? (
-                        <span className="rounded-[5px] bg-[#fff6d6] px-1.5 text-[10px] font-extrabold tracking-[0.4px] text-[#8a6400]">
+                        <span className="rounded-[5px] bg-[#fff6d6] px-1.5 text-[12px] font-extrabold tracking-[0.4px] text-[#8a6400]">
                           CHÍNH
                         </span>
                       ) : null}
                     </span>
-                    <span className="truncate text-[12.5px] text-slate-500">
+                    <span className="truncate text-[13px] text-slate-500">
                       {item.description || '—'}
                     </span>
                   </div>
@@ -166,7 +166,7 @@ export function OrganizationTreeTable({
                   <div className="flex items-center justify-end gap-1.5">
                     <button
                       type="button"
-                      className="flex h-8 cursor-pointer items-center gap-1.5 rounded-[7px] bg-[#18181b] px-3 text-[12.5px] font-semibold text-white hover:bg-[#2a2a2f]"
+                      className="flex h-8 cursor-pointer items-center gap-1.5 rounded-[7px] bg-[#18181b] px-3 text-[13px] font-semibold text-white hover:bg-[#2a2a2f]"
                       onClick={() => onOpenTree(item.id)}
                       title="Vào xem và chỉnh sửa chi tiết cây sơ đồ"
                     >
@@ -221,7 +221,7 @@ export function OrganizationTreeTable({
         </div>
       ) : null}
 
-      <p className="m-0 text-[12.5px] text-slate-500">
+      <p className="m-0 text-[13px] text-slate-500">
         Hiển thị <b className="text-[#18181b]">{filteredTrees.length}</b> /{' '}
         <b className="text-[#18181b]">{trees.length}</b> sơ đồ tổ chức
       </p>

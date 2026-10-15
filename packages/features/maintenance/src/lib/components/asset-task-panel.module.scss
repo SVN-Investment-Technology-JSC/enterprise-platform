@@ -22,14 +22,14 @@
 
 .eyebrow {
   color: var(--muted);
-  font-size: 0.7rem;
+  font-size: 0.75rem;
   font-weight: 800;
   letter-spacing: 0.1em;
   text-transform: uppercase;
 }
 
-.panel h3 { margin: 0.3rem 0 0.15rem; font-size: 1.15rem; letter-spacing: -0.02em; }
-.panel header p { margin: 0; color: var(--muted); font-family: ui-monospace, SFMono-Regular, monospace; font-size: 0.78rem; }
+.panel h3 { margin: 0.3rem 0 0.15rem; font-size: 1.25rem; letter-spacing: -0.02em; }
+.panel header p { margin: 0; color: var(--muted); font-family: ui-monospace, SFMono-Regular, monospace; font-size: 0.8125rem; }
 
 .close {
   flex: none;
@@ -44,7 +44,7 @@
 
 .close:hover { border-color: var(--blue); color: var(--blue); }
 
-.hint { margin: 0; color: var(--muted); font-size: 0.82rem; line-height: 1.55; }
+.hint { margin: 0; color: var(--muted); font-size: 0.875rem; line-height: 1.55; }
 
 .error {
   margin: 0;
@@ -53,7 +53,7 @@
   border-radius: 0.6rem;
   color: #a12b2b;
   background: #fdf2f2;
-  font-size: 0.84rem;
+  font-size: 0.875rem;
 }
 
 .list { display: flex; flex-direction: column; gap: 0.35rem; margin: 0; padding: 0; list-style: none; }
@@ -66,7 +66,7 @@
   padding: 0.5rem 0.6rem;
   border: 1px solid #eef2f7;
   border-radius: 0.5rem;
-  font-size: 0.85rem;
+  font-size: 0.875rem;
 }
 
 .key {
@@ -77,11 +77,11 @@
   border-radius: 0.35rem;
   color: var(--blue);
   background: #eaf0ff;
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   font-weight: 800;
 }
 
-.list em { color: var(--muted); font-size: 0.76rem; font-style: normal; white-space: nowrap; }
+.list em { color: var(--muted); font-size: 0.8125rem; font-style: normal; white-space: nowrap; }
 
-.link { color: var(--blue); font-size: 0.82rem; font-weight: 700; text-decoration: none; }
+.link { color: var(--blue); font-size: 0.875rem; font-weight: 700; text-decoration: none; }
 .link:hover { text-decoration: underline; }

@@ -359,7 +359,7 @@ export function TenantEntitlements({
       <Card className="overflow-hidden border-slate-200 py-0 shadow-sm">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[900px] text-left text-sm">
-            <thead className="border-b border-slate-200 bg-slate-50 text-[11px] uppercase tracking-wider text-slate-500">
+            <thead className="border-b border-slate-200 bg-slate-50 text-[12px] uppercase tracking-wider text-slate-500">
               <tr>
                 <th className="px-5 py-3 font-semibold">Module</th>
                 <th className="px-5 py-3 font-semibold">Phiên bản</th>
@@ -484,7 +484,7 @@ function MetricCard({
           <Icon className="size-5" />
         </span>
         <div className="min-w-0">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+          <p className="text-[12px] font-semibold uppercase tracking-wider text-slate-500">
             {label}
           </p>
           <p
@@ -643,7 +643,7 @@ function ModuleManagerDialog({
                           {module.name}
                         </span>
                         {isEnabled(module) ? (
-                          <Badge className="border-blue-200 bg-blue-100 text-[10px] text-blue-700 hover:bg-blue-100">
+                          <Badge className="border-blue-200 bg-blue-100 text-[12px] text-blue-700 hover:bg-blue-100">
                             ACTIVE
                           </Badge>
                         ) : null}
@@ -716,7 +716,7 @@ function ModuleDetails({ module }: { module: TenantModuleEntitlement }) {
   return (
     <div className="flex h-full flex-col">
       <div className="border-b border-slate-200 pb-4">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+        <p className="text-[12px] font-semibold uppercase tracking-wider text-slate-500">
           Cấu hình chi tiết
         </p>
         <h3 className="mt-2 flex items-center gap-2 font-semibold text-slate-950">

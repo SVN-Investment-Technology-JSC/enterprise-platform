@@ -282,7 +282,7 @@ function SearchableMaterialCombobox({
                     <span style={{ margin: '0 6px', color: '#cbd5e1' }}>—</span>
                     <span style={{ fontWeight: 600, color: '#1e293b' }}>{item.name}</span>
                   </div>
-                  <div style={{ fontSize: '11.5px', color: '#64748b' }}>
+                  <div style={{ fontSize: '12px', color: '#64748b' }}>
                     ĐVT: <strong style={{ color: '#334155' }}>{item.unit || 'Cái'}</strong>
                     {item.isSerialized ? (
                       <span style={{ marginLeft: '8px', color: '#2563eb', fontWeight: 600 }}>
@@ -300,7 +300,7 @@ function SearchableMaterialCombobox({
                       background: availTotal > 0 ? '#ecfdf5' : '#fef2f2',
                       color: availTotal > 0 ? '#059669' : '#dc2626',
                       fontWeight: 600,
-                      fontSize: '11px',
+                      fontSize: '12px',
                     }}
                   >
                     Tồn: {formatNumber(availTotal)} {item.unit}
@@ -316,7 +316,7 @@ function SearchableMaterialCombobox({
                 padding: '12px',
                 textAlign: 'center',
                 color: '#64748b',
-                fontSize: '12.5px',
+                fontSize: '13px',
               }}
             >
               {query
@@ -337,7 +337,7 @@ function SearchableMaterialCombobox({
                 gap: '6px',
                 color: '#2563eb',
                 fontWeight: 600,
-                fontSize: '12.5px',
+                fontSize: '13px',
               }}
               onMouseDown={() => {
                 setOpen(false);
@@ -833,10 +833,10 @@ export function MovementForm({
       {/* Header Form / Dialog */}
       <div className={isDialog ? styles.modalHead : styles.cardHead}>
         <div>
-          <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: '#0f172a' }}>
+          <h2 style={{ margin: 0, fontSize: '20px', fontWeight: 700, color: '#0f172a' }}>
             {resolvedTitle}
           </h2>
-          <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#64748b' }}>
+          <p style={{ margin: '4px 0 0', fontSize: '14px', color: '#64748b' }}>
             {resolvedDescription}
           </p>
         </div>
@@ -883,7 +883,7 @@ export function MovementForm({
                 padding: '6px 14px',
                 borderRadius: '6px',
                 border: 'none',
-                fontSize: '12.5px',
+                fontSize: '13px',
                 fontWeight: 600,
                 cursor: 'pointer',
                 background: kind === 'receipt' ? '#ffffff' : 'transparent',
@@ -901,7 +901,7 @@ export function MovementForm({
                 padding: '6px 14px',
                 borderRadius: '6px',
                 border: 'none',
-                fontSize: '12.5px',
+                fontSize: '13px',
                 fontWeight: 600,
                 cursor: 'pointer',
                 background: kind === 'issue' ? '#ffffff' : 'transparent',
@@ -919,7 +919,7 @@ export function MovementForm({
                 padding: '6px 14px',
                 borderRadius: '6px',
                 border: 'none',
-                fontSize: '12.5px',
+                fontSize: '13px',
                 fontWeight: 600,
                 cursor: 'pointer',
                 background: kind === 'transfer' ? '#ffffff' : 'transparent',
@@ -933,7 +933,7 @@ export function MovementForm({
             </button>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: '#64748b' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: '#64748b' }}>
             <FileText size={14} />
             <span>Mẫu phiếu đa đối tượng chuẩn ISO / ERP</span>
           </div>
@@ -1070,7 +1070,7 @@ export function MovementForm({
                 >
                   <Paperclip size={15} color="#2563eb" />
                   <span style={{ fontWeight: 600, color: '#1e293b' }}>{selectedFile.name}</span>
-                  <span style={{ color: '#64748b', fontSize: '11px' }}>
+                  <span style={{ color: '#64748b', fontSize: '12px' }}>
                     ({Math.round(selectedFile.size / 1024)} KB)
                   </span>
                   <button
@@ -1086,7 +1086,7 @@ export function MovementForm({
                   </button>
                 </div>
               ) : (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#64748b', fontSize: '12.5px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#64748b', fontSize: '13px' }}>
                   <Upload size={16} color="#64748b" />
                   <span>Kéo thả tệp chứng từ vào đây hoặc </span>
                   <button
@@ -1103,7 +1103,7 @@ export function MovementForm({
                   >
                     chọn từ máy tính
                   </button>
-                  <span style={{ color: '#94a3b8', fontSize: '11px' }}>(Hỗ trợ PDF, Excel, JPG, PNG tối đa 25MB)</span>
+                  <span style={{ color: '#94a3b8', fontSize: '12px' }}>(Hỗ trợ PDF, Excel, JPG, PNG tối đa 25MB)</span>
                 </div>
               )}
             </div>
@@ -1114,10 +1114,10 @@ export function MovementForm({
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <h3 style={{ margin: 0, fontSize: '14.5px', fontWeight: 700, color: '#1e293b' }}>
+              <h3 style={{ margin: 0, fontSize: '14px', fontWeight: 700, color: '#1e293b' }}>
                 Danh sách vật tư / hàng hoá trên phiếu
               </h3>
-              <span style={{ fontSize: '12px', background: '#e0f2fe', color: '#0369a1', padding: '2px 8px', borderRadius: '12px', fontWeight: 600 }}>
+              <span style={{ fontSize: '13px', background: '#e0f2fe', color: '#0369a1', padding: '2px 8px', borderRadius: '12px', fontWeight: 600 }}>
                 {items.length} vật tư
               </span>
             </div>
@@ -1136,7 +1136,7 @@ export function MovementForm({
                     border: '1px solid #bbf7d0',
                     background: '#f0fdf4',
                     color: '#15803d',
-                    fontSize: '12px',
+                    fontSize: '13px',
                     fontWeight: 600,
                     cursor: 'pointer',
                   }}
@@ -1156,7 +1156,7 @@ export function MovementForm({
                     border: '1px solid #bfdbfe',
                     background: '#eff6ff',
                     color: '#1d4ed8',
-                    fontSize: '12px',
+                    fontSize: '13px',
                     fontWeight: 600,
                     cursor: 'pointer',
                   }}
@@ -1178,7 +1178,7 @@ export function MovementForm({
                   border: '1px solid #bbf7d0',
                   background: '#f0fdf4',
                   color: '#15803d',
-                  fontSize: '12px',
+                  fontSize: '13px',
                   fontWeight: 600,
                   cursor: 'pointer',
                 }}
@@ -1210,7 +1210,7 @@ export function MovementForm({
                 background: '#fffbeb',
                 border: '1px solid #fde68a',
                 color: '#b45309',
-                fontSize: '12.5px',
+                fontSize: '13px',
               }}
             >
               <AlertTriangle size={16} color="#d97706" style={{ flexShrink: 0 }} />
@@ -1259,27 +1259,27 @@ export function MovementForm({
                         background: analysis?.isOverdraw ? '#fef2f2' : undefined,
                       }}
                     >
-                      <td style={{ textAlign: 'center', color: '#64748b', fontWeight: 600, fontSize: '12px' }}>
+                      <td style={{ textAlign: 'center', color: '#64748b', fontWeight: 600, fontSize: '13px' }}>
                         {index + 1}
                       </td>
                       <td>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            <span style={{ fontWeight: 700, color: '#0f172a', fontSize: '13px' }}>
+                            <span style={{ fontWeight: 700, color: '#0f172a', fontSize: '14px' }}>
                               {item.materialCode}
                             </span>
                             {item.newMaterial ? (
-                              <span style={{ fontSize: '10px', background: '#dcfce7', color: '#15803d', padding: '1px 5px', borderRadius: '4px', fontWeight: 600 }}>
+                              <span style={{ fontSize: '12px', background: '#dcfce7', color: '#15803d', padding: '1px 5px', borderRadius: '4px', fontWeight: 600 }}>
                                 MỚI
                               </span>
                             ) : null}
                           </div>
-                          <span style={{ fontSize: '12px', color: '#475569' }}>
+                          <span style={{ fontSize: '13px', color: '#475569' }}>
                             {item.materialName}
                           </span>
                         </div>
                       </td>
-                      <td style={{ textAlign: 'center', color: '#475569', fontSize: '12.5px' }}>
+                      <td style={{ textAlign: 'center', color: '#475569', fontSize: '13px' }}>
                         {item.unit}
                       </td>
                       <td style={{ minWidth: '150px' }}>
@@ -1340,7 +1340,7 @@ export function MovementForm({
                               }
                             />
                           </td>
-                          <td style={{ textAlign: 'right', fontWeight: 600, color: '#1e293b', fontSize: '12.5px' }}>
+                          <td style={{ textAlign: 'right', fontWeight: 600, color: '#1e293b', fontSize: '13px' }}>
                             {formatNumber(lineTotal)} đ
                           </td>
                         </>
@@ -1351,13 +1351,13 @@ export function MovementForm({
                             <button
                               type="button"
                               onClick={() => handleOpenLotModal(index)}
-                              style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '3px 8px', borderRadius: '4px', border: lotCount > 0 ? '1px solid #c4b5fd' : '1px solid #e2e8f0', background: lotCount > 0 ? '#f5f3ff' : '#f8fafc', color: lotCount > 0 ? '#6d28d9' : '#64748b', fontSize: '11.5px', fontWeight: 600, cursor: 'pointer' }}
+                              style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '3px 8px', borderRadius: '4px', border: lotCount > 0 ? '1px solid #c4b5fd' : '1px solid #e2e8f0', background: lotCount > 0 ? '#f5f3ff' : '#f8fafc', color: lotCount > 0 ? '#6d28d9' : '#64748b', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}
                               title={kind === 'receipt' ? 'Khai báo lô hàng nhận vào' : 'Chọn lô hàng để xuất / điều chuyển'}
                             >
                               <Layers size={13} />
                               <span>{lotCount > 0 ? `${lotCount} lô` : 'Lô hàng'}</span>
                             </button>
-                            {outbound && lotCount > 0 && allocatedLotQuantity !== item.quantity ? <div style={{ marginTop: '3px', fontSize: '10px', color: '#b45309' }}>Phân bổ {formatNumber(allocatedLotQuantity)}/{formatNumber(item.quantity)}</div> : null}
+                            {outbound && lotCount > 0 && allocatedLotQuantity !== item.quantity ? <div style={{ marginTop: '3px', fontSize: '12px', color: '#b45309' }}>Phân bổ {formatNumber(allocatedLotQuantity)}/{formatNumber(item.quantity)}</div> : null}
                           </>
                         ) : trackingMode === 'SERIAL' ? (
                           <button
@@ -1372,7 +1372,7 @@ export function MovementForm({
                               border: serialCount > 0 ? '1px solid #bfdbfe' : '1px solid #e2e8f0',
                               background: serialCount > 0 ? '#eff6ff' : '#f8fafc',
                               color: serialCount > 0 ? '#1d4ed8' : '#64748b',
-                              fontSize: '11.5px',
+                              fontSize: '12px',
                               fontWeight: 600,
                               cursor: 'pointer',
                             }}
@@ -1382,7 +1382,7 @@ export function MovementForm({
                             <span>{serialCount > 0 ? `${serialCount} Sê-ri` : 'Sê-ri'}</span>
                           </button>
                         ) : (
-                          <span style={{ fontSize: '11px', color: '#94a3b8' }}>Không theo dõi</span>
+                          <span style={{ fontSize: '12px', color: '#94a3b8' }}>Không theo dõi</span>
                         )}
                       </td>
                       <td>
@@ -1416,12 +1416,12 @@ export function MovementForm({
                         padding: '32px 16px',
                         textAlign: 'center',
                         color: '#64748b',
-                        fontSize: '13px',
+                        fontSize: '14px',
                       }}
                     >
                       <Layers size={28} color="#94a3b8" style={{ marginBottom: '6px', display: 'inline-block' }} />
                       <div>Chưa có vật tư nào trên phiếu.</div>
-                      <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '2px' }}>
+                      <div style={{ fontSize: '13px', color: '#94a3b8', marginTop: '2px' }}>
                         Sử dụng thanh tìm kiếm phía trên để thêm các mặt hàng cần tác nghiệp vào phiếu.
                       </div>
                     </td>
@@ -1444,22 +1444,22 @@ export function MovementForm({
                 </div>
 
                 {hasAnyOverdraw ? (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#dc2626', fontSize: '12px', fontWeight: 600 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#dc2626', fontSize: '13px', fontWeight: 600 }}>
                     <AlertTriangle size={15} />
                     <span>Có vật tư vượt quá tồn kho thực tế! Vui lòng điều chỉnh lại số lượng hoặc chọn kho khác.</span>
                   </div>
                 ) : hasInvalidLotAllocation ? (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#b45309', fontSize: '12px', fontWeight: 600 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#b45309', fontSize: '13px', fontWeight: 600 }}>
                     <AlertTriangle size={15} />
                     <span>Vật tư quản lý theo lô phải được phân bổ đủ số lượng trước khi ghi phiếu.</span>
                   </div>
                 ) : hasInvalidSerialSelection ? (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#b45309', fontSize: '12px', fontWeight: 600 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#b45309', fontSize: '13px', fontWeight: 600 }}>
                     <AlertTriangle size={15} />
                     <span>Vật tư quản lý theo sê-ri phải khai đủ một số sê-ri cho mỗi đơn vị trên phiếu.</span>
                   </div>
                 ) : (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#166534', fontSize: '12px', fontWeight: 600 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#166534', fontSize: '13px', fontWeight: 600 }}>
                     <CheckCircle2 size={15} />
                     <span>Dữ liệu hợp lệ, sẵn sàng ghi sổ kho</span>
                   </div>
@@ -1541,11 +1541,11 @@ export function MovementForm({
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '330px', overflowY: 'auto' }}>
                 {(lotsByMaterial[items[lotModalIndex].materialCode] ?? []).filter((lot) => lot.warehouseCode === items[lotModalIndex].warehouseCode && !['BLOCKED', 'EXPIRED', 'QUARANTINE'].includes(lot.status)).sort((a, b) => (a.expiryDate ?? '9999-12-31').localeCompare(b.expiryDate ?? '9999-12-31')).map((lot) => (
                   <div key={lot.id} style={{ display: 'grid', gridTemplateColumns: '1fr 110px', gap: '12px', alignItems: 'center', padding: '10px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#f8fafc' }}>
-                    <div><strong style={{ color: '#5b21b6' }}>{lot.lotNumber}</strong><div style={{ color: '#64748b', fontSize: '11.5px', marginTop: '2px' }}>Khả dụng: {formatNumber(lot.quantity)} {lot.unit ?? items[lotModalIndex].unit}{lot.expiryDate ? ` · HSD ${formatDate(lot.expiryDate)}` : ''}</div></div>
+                    <div><strong style={{ color: '#5b21b6' }}>{lot.lotNumber}</strong><div style={{ color: '#64748b', fontSize: '12px', marginTop: '2px' }}>Khả dụng: {formatNumber(lot.quantity)} {lot.unit ?? items[lotModalIndex].unit}{lot.expiryDate ? ` · HSD ${formatDate(lot.expiryDate)}` : ''}</div></div>
                     <input type="number" min={0} max={lot.quantity} className={styles.gridCellInput} style={{ textAlign: 'right' }} value={lotDraft[lot.id] ?? ''} placeholder="0" onChange={(event) => setLotDraft((draft) => ({ ...draft, [lot.id]: Math.min(lot.quantity, Math.max(0, Number(event.target.value) || 0)) }))} />
                   </div>
                 ))}
-                {(lotsByMaterial[items[lotModalIndex].materialCode] ?? []).length === 0 ? <p style={{ margin: '8px 0', color: '#64748b', fontSize: '13px' }}>Chưa có lô nào cho vật tư này. Hãy lập phiếu nhập và khai báo lô trước khi xuất.</p> : null}
+                {(lotsByMaterial[items[lotModalIndex].materialCode] ?? []).length === 0 ? <p style={{ margin: '8px 0', color: '#64748b', fontSize: '14px' }}>Chưa có lô nào cho vật tư này. Hãy lập phiếu nhập và khai báo lô trước khi xuất.</p> : null}
               </div>
             )}
             <div className={styles.lotMovementDialogFoot}>
@@ -1578,7 +1578,7 @@ export function MovementForm({
                 <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#0f172a' }}>
                   Khai báo Sê-ri / Barcode
                 </h3>
-                <p style={{ margin: '2px 0 0', fontSize: '12.5px', color: '#64748b' }}>
+                <p style={{ margin: '2px 0 0', fontSize: '13px', color: '#64748b' }}>
                   {items[serialModalIndex].materialCode} — {items[serialModalIndex].materialName}
                 </p>
               </div>
@@ -1592,7 +1592,7 @@ export function MovementForm({
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              <label style={{ fontSize: '12.5px', fontWeight: 600, color: '#334155' }}>
+              <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
                 Danh sách số Sê-ri (mỗi dòng một số, hoặc ngăn cách bằng dấu phẩy):
               </label>
               <textarea
@@ -1603,7 +1603,7 @@ export function MovementForm({
                   padding: '8px 12px',
                   borderRadius: '6px',
                   border: '1px solid #cbd5e1',
-                  fontSize: '13px',
+                  fontSize: '14px',
                   outline: 'none',
                   fontFamily: 'monospace',
                 }}
@@ -1611,12 +1611,12 @@ export function MovementForm({
                 value={serialDraft}
                 onChange={(e) => setSerialDraft(e.target.value)}
               />
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px', color: '#64748b' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px', color: '#64748b' }}>
                 <span>
                   Đã nhận diện: <strong>{parseSerials(serialDraft).length}</strong> sê-ri / Cần: <strong>{items[serialModalIndex].quantity}</strong> cái
                 </span>
                 {parseSerials(serialDraft).length !== items[serialModalIndex].quantity ? (
-                  <span style={{ color: '#d97706', fontSize: '11.5px' }}>
+                  <span style={{ color: '#d97706', fontSize: '12px' }}>
                     ℹ Lưu sẽ tự động đồng bộ số lượng dòng
                   </span>
                 ) : null}
@@ -1665,7 +1665,7 @@ export function MovementForm({
                 <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#0f172a' }}>
                   Khai báo vật tư mới vào danh mục
                 </h3>
-                <p style={{ margin: '2px 0 0', fontSize: '12.5px', color: '#64748b' }}>
+                <p style={{ margin: '2px 0 0', fontSize: '13px', color: '#64748b' }}>
                   Vật tư này sẽ được tạo trong danh mục và tự động thêm vào phiếu hiện tại.
                 </p>
               </div>
@@ -1781,7 +1781,7 @@ export function MovementForm({
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <Info size={15} color="#64748b" />
-          <span style={{ fontSize: '12px', color: '#64748b' }}>
+          <span style={{ fontSize: '13px', color: '#64748b' }}>
             Phiếu có <strong>{items.length}</strong> vật tư · Tổng <strong>{formatNumber(totalQuantity)}</strong> đơn vị.
           </span>
         </div>

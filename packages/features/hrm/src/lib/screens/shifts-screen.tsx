@@ -525,7 +525,7 @@ export default function ShiftsPage() {
                       )}
                       <Popconfirm
                         title={`Xóa ca ${shift.code}?`}
-                        description="Nếu ca chưa được phân công hoặc phát sinh dữ liệu, ca sẽ được xóa hoàn toàn khỏi danh mục. Nếu ca đã có dữ liệu, hệ thống sẽ chuyển sang Ngừng dùng."
+                        description="Nếu ca chưa phát sinh dữ liệu, ca sẽ được xóa vĩnh viễn. Nếu ca đã có dữ liệu (lịch phân ca / chấm công), ca sẽ được lưu trữ và ẩn khỏi danh mục ca để bảo toàn lịch sử."
                         okText="Xóa ca"
                         cancelText="Quay lại"
                         okType="danger"

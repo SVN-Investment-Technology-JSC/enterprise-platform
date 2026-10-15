@@ -202,7 +202,7 @@ export function RulesManager({
               ) : rows ? (
                 <table className={cn('w-full border-separate border-spacing-0 text-xs', loading && 'opacity-60')}>
                   <thead>
-                    <tr className="text-left text-[11px] font-bold tracking-wide text-slate-600 uppercase">
+                    <tr className="text-left text-[12px] font-bold tracking-wide text-slate-600 uppercase">
                       {['Phạm vi', 'Từ ngày', 'Đến ngày', 'Mẫu lịch', 'Lịch trong tuần', 'Trạng thái', 'Thao tác'].map((h) => (
                         <th key={h} scope="col" className="sticky top-0 border-b border-slate-200 bg-slate-50 px-3 py-2">
                           {h}
@@ -217,7 +217,7 @@ export function RulesManager({
                         <tr key={rule.id} className="hover:bg-slate-50">
                           <td className="border-b border-slate-100 px-3 py-2">
                             <div className="font-semibold text-slate-900">{rule.scopeLabel}</div>
-                            <div className="text-[11px] text-slate-500">{RULE_SCOPE_LABELS[rule.scopeType]}</div>
+                            <div className="text-[12px] text-slate-500">{RULE_SCOPE_LABELS[rule.scopeType]}</div>
                           </td>
                           <td className="border-b border-slate-100 px-3 py-2 whitespace-nowrap">{formatVnDate(rule.effectiveFrom)}</td>
                           <td className="border-b border-slate-100 px-3 py-2 whitespace-nowrap">
@@ -228,7 +228,7 @@ export function RulesManager({
                           <td className="border-b border-slate-100 px-3 py-2">
                             <span
                               className={cn(
-                                'inline-flex rounded-full border px-2 py-0.5 text-[11px] font-medium',
+                                'inline-flex rounded-full border px-2 py-0.5 text-[12px] font-medium',
                                 rule.status === 'ACTIVE'
                                   ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
                                   : 'border-slate-200 bg-slate-100 text-slate-500',
@@ -269,7 +269,7 @@ export function RulesManager({
               ) : null}
             </div>
             <div className="flex shrink-0 items-center justify-between gap-3 border-t border-slate-200 bg-white px-6 py-3">
-              <span className="text-[11px] text-slate-500">
+              <span className="text-[12px] text-slate-500">
                 Gợi ý: để bắt đầu một lịch định kỳ mới, dùng Phân ca mới hoặc Phân ca hàng loạt và giữ tùy chọn Không có
                 ngày kết thúc.
               </span>

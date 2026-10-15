@@ -7,12 +7,9 @@ import type {
   TenantModuleCatalogItem,
 } from '@enterprise-platform/contracts-tenancy';
 import {
-  Boxes,
   Check,
   CheckCircle2,
-  Clock,
   ExternalLink,
-  Layers,
   Loader2,
   Package,
   PackageOpen,
@@ -21,7 +18,6 @@ import {
   Sparkles,
   X,
   Zap,
-  type LucideIcon,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { toast } from '@/components/ui/sonner';
@@ -313,8 +309,6 @@ export function EnterpriseApplications({
   // Metrics
   const totalCount = sanitizedModules.length;
   const activeCount = sanitizedModules.filter((m) => m.entitlementStatus === 'active').length;
-  const provisioningCount = sanitizedModules.filter((m) => m.entitlementStatus === 'provisioning').length;
-  const availableCount = sanitizedModules.filter((m) => m.entitlementStatus !== 'active' && m.entitlementStatus !== 'provisioning').length;
 
   // Lọc danh sách danh mục có sẵn (không bao gồm CRM)
   const availableCategories = useMemo(() => {
@@ -429,52 +423,16 @@ export function EnterpriseApplications({
     <div className="flex flex-col gap-4 text-[14px] text-[#18181b]">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0 flex-[1_1_420px]">
-          <h1 className="m-0 text-[22px] font-bold tracking-[-0.3px]">Ứng dụng Doanh nghiệp</h1>
-          <p className="mt-1 text-[13.5px] text-slate-600">
+          <h1 className="m-0 text-[20px] font-bold tracking-[-0.3px]">Ứng dụng Doanh nghiệp</h1>
+          <p className="mt-1 text-[14px] text-slate-600">
             Khám phá, quản trị và khởi tạo các module phân hệ nghiệp vụ vận hành cho tổ chức của bạn.
           </p>
         </div>
-        <span className="flex items-center gap-1.5 rounded-full border border-[#ffc90a]/45 bg-[#fffbeb] px-3 py-1.5 text-[12.5px] font-semibold text-[#8a6400]">
+        <span className="flex items-center gap-1.5 rounded-full border border-[#ffc90a]/45 bg-[#fffbeb] px-3 py-1.5 text-[13px] font-semibold text-[#8a6400]">
           <Sparkles className="size-3.5" aria-hidden />
           Gói Doanh nghiệp Enterprise
         </span>
       </div>
-
-      <section
-        aria-label="Tổng quan ứng dụng"
-        className="grid grid-cols-2 overflow-hidden rounded-[14px] border border-[#eef0f3] bg-white sm:grid-cols-4"
-      >
-        <StatCell
-          className="border-b border-r sm:border-b-0"
-          icon={Layers}
-          label="Tổng ứng dụng"
-          tone="bg-slate-100 text-slate-700"
-          value={totalCount}
-        />
-        <StatCell
-          className="border-b sm:border-b-0 sm:border-r"
-          icon={CheckCircle2}
-          label="Đang hoạt động"
-          tone="bg-emerald-100 text-emerald-800"
-          valueClass="text-emerald-700"
-          value={activeCount}
-        />
-        <StatCell
-          className="border-r"
-          icon={Clock}
-          label="Đang khởi tạo"
-          tone="bg-blue-100 text-blue-800"
-          valueClass="text-blue-700"
-          value={provisioningCount}
-        />
-        <StatCell
-          icon={Boxes}
-          label="Sẵn sàng mở rộng"
-          tone="bg-amber-100 text-amber-700"
-          valueClass="text-[#8a6400]"
-          value={availableCount}
-        />
-      </section>
 
       {initialError ? (
         <p
@@ -492,7 +450,7 @@ export function EnterpriseApplications({
               <Search className="size-4 shrink-0" aria-hidden />
               <input
                 aria-label="Tìm ứng dụng"
-                className="min-w-0 flex-1 bg-transparent text-[13px] text-[#18181b] outline-none placeholder:text-slate-400"
+                className="min-w-0 flex-1 bg-transparent text-[14px] text-[#18181b] outline-none placeholder:text-slate-400"
                 onChange={(event) => setQuery(event.currentTarget.value)}
                 placeholder="Tìm kiếm theo tên, chức năng, danh mục..."
                 type="search"
@@ -517,7 +475,7 @@ export function EnterpriseApplications({
                   <button
                     aria-pressed={pressed}
                     className={cn(
-                      'h-8 cursor-pointer whitespace-nowrap rounded-[7px] px-3 text-[12.5px] font-semibold',
+                      'h-8 cursor-pointer whitespace-nowrap rounded-[7px] px-3 text-[13px] font-semibold',
                       pressed
                         ? cn('bg-white shadow-[0_1px_2px_rgba(0,0,0,.08)]', value === 'active' ? 'text-emerald-700' : 'text-[#18181b]')
                         : 'text-slate-500 hover:text-[#18181b]',
@@ -534,7 +492,7 @@ export function EnterpriseApplications({
 
             <select
               aria-label="Danh mục"
-              className="h-[38px] rounded-lg border border-[#eef0f3] bg-white px-2.5 text-[13px] text-slate-700"
+              className="h-[38px] rounded-lg border border-[#eef0f3] bg-white px-2.5 text-[14px] text-slate-700"
               onChange={(event) => setSelectedCategory(event.currentTarget.value)}
               value={selectedCategory}
             >
@@ -548,7 +506,7 @@ export function EnterpriseApplications({
 
             {query || selectedCategory !== 'all' || selectedStatus !== 'all' ? (
               <button
-                className="flex h-[38px] cursor-pointer items-center gap-1 rounded-lg px-2.5 text-[13px] font-semibold text-slate-500 hover:bg-[#f4f6f9] hover:text-[#18181b]"
+                className="flex h-[38px] cursor-pointer items-center gap-1 rounded-lg px-2.5 text-[14px] font-semibold text-slate-500 hover:bg-[#f4f6f9] hover:text-[#18181b]"
                 onClick={resetFilters}
                 type="button"
               >
@@ -632,34 +590,6 @@ const STATUS_STYLES: Record<
   'not-entitled': { label: 'Khả dụng', badge: 'bg-[#f1f3f6] text-slate-700', dot: 'bg-slate-400' },
 };
 
-function StatCell({
-  className,
-  icon: Icon,
-  label,
-  tone,
-  value,
-  valueClass,
-}: {
-  className?: string;
-  icon: LucideIcon;
-  label: string;
-  tone: string;
-  value: number;
-  valueClass?: string;
-}) {
-  return (
-    <div className={cn('flex items-center gap-3 border-[#f1f3f6] px-[18px] py-3.5', className)}>
-      <span aria-hidden className={cn('grid size-8 shrink-0 place-items-center rounded-lg', tone)}>
-        <Icon className="size-4" />
-      </span>
-      <div className="flex flex-col">
-        <b className={cn('text-xl leading-tight tabular-nums', valueClass)}>{value}</b>
-        <span className="text-xs text-slate-500">{label}</span>
-      </div>
-    </div>
-  );
-}
-
 function ModuleTile({ module, className }: { module: TenantModuleCatalogItem; className: string }) {
   const info = getModuleInfo(module.key, module.name, module.description);
   return (
@@ -705,7 +635,7 @@ function ModuleAction({
 }) {
   const box = cn(
     'whitespace-nowrap',
-    size === 'row' ? 'h-8 rounded-[7px] px-3 text-[12.5px]' : 'h-9 rounded-lg px-3.5 text-[13px]',
+    size === 'row' ? 'h-8 rounded-[7px] px-3 text-[13px]' : 'h-9 rounded-lg px-3.5 text-[14px]',
   );
   if (module.entitlementStatus === 'active') {
     return (
@@ -789,15 +719,15 @@ function ApplicationRow({
       <div className="flex min-w-0 flex-col">
         <span className="flex min-w-0 items-center gap-2">
           <b className="max-w-full shrink-0 truncate font-semibold">{module.name}</b>
-          <span className="min-w-0 truncate whitespace-nowrap rounded-[5px] bg-[#f1f3f6] px-[7px] text-[11px] font-semibold text-slate-600">
+          <span className="min-w-0 truncate whitespace-nowrap rounded-[5px] bg-[#f1f3f6] px-[7px] text-[12px] font-semibold text-slate-600">
             {info.category}
           </span>
         </span>
-        <span className="truncate text-[12.5px] text-slate-500">
+        <span className="truncate text-[13px] text-slate-500">
           {module.description || info.tagline}
         </span>
       </div>
-      <span className="hidden justify-self-start rounded-md bg-[#f1f3f6] px-[7px] py-px font-mono text-[11.5px] text-slate-700 sm:block">
+      <span className="hidden justify-self-start rounded-md bg-[#f1f3f6] px-[7px] py-px font-mono text-[12px] text-slate-700 sm:block">
         v{module.version}
       </span>
       <span className="hidden justify-self-start sm:block">
@@ -806,7 +736,7 @@ function ApplicationRow({
       <div className="col-start-2 flex gap-1.5 sm:col-start-auto sm:justify-end">
         <button
           aria-pressed={isSelected}
-          className="h-8 cursor-pointer whitespace-nowrap rounded-[7px] border border-[#eef0f3] bg-white px-2.5 text-[12.5px] font-semibold text-slate-700 hover:bg-[#f4f6f9]"
+          className="h-8 cursor-pointer whitespace-nowrap rounded-[7px] border border-[#eef0f3] bg-white px-2.5 text-[13px] font-semibold text-slate-700 hover:bg-[#f4f6f9]"
           onClick={onViewDetails}
           type="button"
         >
@@ -827,7 +757,7 @@ function ApplicationRow({
 
 function PanelHeading({ children }: { children: ReactNode }) {
   return (
-    <span className="flex items-center gap-2 text-[11.5px] font-semibold tracking-[0.6px] text-slate-500">
+    <span className="flex items-center gap-2 text-[12px] font-semibold tracking-[0.6px] text-slate-500">
       <span aria-hidden className="h-3.5 w-[3px] rounded-sm bg-[#ffc90a]" />
       {children}
     </span>
@@ -860,9 +790,9 @@ function ModuleDetailPanel({
     >
       <div className="flex flex-col gap-2.5 border-b border-[#eef0f3] bg-[#fafbfc] px-5 py-[18px]">
         <div className="flex items-start gap-3">
-          <ModuleTile className="size-[52px] rounded-xl text-[15px]" module={module} />
+          <ModuleTile className="size-[52px] rounded-xl text-[16px]" module={module} />
           <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-            <span className="flex items-center gap-1.5 text-[11px] font-bold tracking-[0.6px] text-slate-500">
+            <span className="flex items-center gap-1.5 text-[12px] font-bold tracking-[0.6px] text-slate-500">
               {info.category.toUpperCase()}
               <span className="rounded-[5px] border border-[#eef0f3] bg-white px-1.5 font-mono font-medium tracking-normal">
                 v{module.version}
@@ -886,23 +816,23 @@ function ModuleDetailPanel({
             Mã module: <code className="font-mono text-slate-700">{module.key}</code>
           </span>
         </div>
-        <p className="m-0 text-[13px] text-slate-600">{info.tagline}</p>
+        <p className="m-0 text-[14px] text-slate-600">{info.tagline}</p>
       </div>
 
       <div className="flex flex-col gap-[18px] px-5 py-[18px]">
         <div className="flex flex-col gap-1.5 rounded-[10px] border border-[#ffc90a]/35 bg-[#fffbeb] px-3.5 py-3">
-          <span className="flex items-center gap-1.5 text-[13px] font-bold text-[#8a6400]">
+          <span className="flex items-center gap-1.5 text-[14px] font-bold text-[#8a6400]">
             <Zap className="size-3.5" aria-hidden />
             Giá trị mang lại cho doanh nghiệp
           </span>
-          <p className="m-0 text-[13px] text-slate-700">{info.businessValue}</p>
+          <p className="m-0 text-[14px] text-slate-700">{info.businessValue}</p>
         </div>
 
         <div className="flex flex-col gap-2">
           <PanelHeading>CÁC PHÂN HỆ &amp; TÍNH NĂNG CỐT LÕI</PanelHeading>
           {info.features.map((feature) => (
             <div
-              className="flex items-start gap-2 rounded-[9px] border border-[#f1f3f6] px-3 py-[9px] text-[13px]"
+              className="flex items-start gap-2 rounded-[9px] border border-[#f1f3f6] px-3 py-[9px] text-[14px]"
               key={feature}
             >
               <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-600" aria-hidden />
@@ -915,14 +845,14 @@ function ModuleDetailPanel({
           <PanelHeading>ĐỐI TƯỢNG &amp; VAI TRÒ ÁP DỤNG</PanelHeading>
           <div className="flex flex-wrap gap-1.5">
             {info.targetRoles.map((role) => (
-              <span className="rounded-full bg-[#f1f3f6] px-2.5 py-[3px] text-[12.5px] text-slate-700" key={role}>
+              <span className="rounded-full bg-[#f1f3f6] px-2.5 py-[3px] text-[13px] text-slate-700" key={role}>
                 {role}
               </span>
             ))}
           </div>
         </div>
 
-        <dl className="m-0 grid grid-cols-[112px_1fr] gap-x-3 gap-y-2 rounded-[10px] border border-[#f1f3f6] bg-[#fafbfc] px-3.5 py-3 text-[12.5px]">
+        <dl className="m-0 grid grid-cols-[112px_1fr] gap-x-3 gap-y-2 rounded-[10px] border border-[#f1f3f6] bg-[#fafbfc] px-3.5 py-3 text-[13px]">
           <dt className="text-slate-500">Đường dẫn khởi chạy</dt>
           <dd className="m-0 break-all font-mono text-slate-700">{module.launchUrl}</dd>
           <dt className="text-slate-500">Tiêu chuẩn bảo mật</dt>
@@ -937,7 +867,7 @@ function ModuleDetailPanel({
 
       <div className="mt-auto flex justify-between gap-2 border-t border-[#eef0f3] px-5 py-3.5">
         <button
-          className="h-9 cursor-pointer rounded-lg border border-[#eef0f3] bg-white px-3.5 text-[13px] font-semibold text-slate-700 hover:bg-[#f4f6f9]"
+          className="h-9 cursor-pointer rounded-lg border border-[#eef0f3] bg-white px-3.5 text-[14px] font-semibold text-slate-700 hover:bg-[#f4f6f9]"
           onClick={onClose}
           type="button"
         >

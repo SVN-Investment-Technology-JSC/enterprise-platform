@@ -58,12 +58,12 @@ import { loadBoard, type MyDashboardData } from './use-my-dashboard';
 
 /* Bảng màu của Bàn làm việc viết thẳng bằng mã màu để không bị ảnh hưởng bởi việc đổi màu chung của các màn khác. */
 const CARD = 'rounded-2xl border border-slate-200/70 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]';
-const LINK = 'inline-flex items-center gap-0.5 text-[12px] font-semibold text-[#2563eb] hover:underline';
+const LINK = 'inline-flex items-center gap-0.5 text-[13px] font-semibold text-[#2563eb] hover:underline';
 
 function CardTitle({ children, href, hrefLabel = 'Xem chi tiết', icon }: { children: ReactNode; href?: string; hrefLabel?: string; icon?: ReactNode }) {
   return (
     <div className="mb-3 flex items-center justify-between gap-2">
-      <h2 className="flex items-center gap-2 text-[15px] font-bold text-slate-900">
+      <h2 className="flex items-center gap-2 text-[16px] font-bold text-slate-900">
         {icon}
         {children}
       </h2>
@@ -104,7 +104,7 @@ export function HeroBanner({ displayName }: { displayName: string }) {
             {greetingOf(clock.hour)}
             {name ? `, ${name}!` : '!'}
           </h1>
-          <p className="mt-1 text-[13px] text-slate-600">
+          <p className="mt-1 text-[14px] text-slate-600">
             Chúc bạn một ngày làm việc hiệu quả. Hôm nay là {weekdayName(clock.date)}, {formatDmy(clock.date)}.
           </p>
         </div>
@@ -112,7 +112,7 @@ export function HeroBanner({ displayName }: { displayName: string }) {
           <p className="text-[30px] font-extrabold leading-none tracking-tight text-[#0f1f3d]" data-testid="hero-clock">
             {clock.time}
           </p>
-          <p className="mt-1 text-[11px] text-slate-500">Giờ Việt Nam (UTC+7)</p>
+          <p className="mt-1 text-[12px] text-slate-500">Giờ Việt Nam (UTC+7)</p>
         </div>
       </div>
     </section>
@@ -129,11 +129,11 @@ const KPI_TONE: Record<KpiTone, { tile: string; text: string }> = {
 
 function Kpi({ tone, icon, label, value, testId, href, onClick, dropdown, expanded }: { tone: KpiTone; icon: ReactNode; label: string; value: ReactNode; testId: string; href?: string; onClick?: () => void; dropdown?: ReactNode; expanded?: boolean }) {
   const card = (
-    <div className={`${CARD} flex items-center gap-3 px-4 py-3.5`} data-testid={testId}>
-      <span className={`flex size-11 shrink-0 items-center justify-center rounded-xl ${KPI_TONE[tone].tile}`}>{icon}</span>
+    <div className={`${CARD} flex items-center gap-2.5 px-3.5 py-3.5`} data-testid={testId}>
+      <span className={`flex size-10 shrink-0 items-center justify-center rounded-xl ${KPI_TONE[tone].tile}`}>{icon}</span>
       <div className="min-w-0">
-        <p className="truncate text-[12px] text-slate-500">{label}</p>
-        <p className={`truncate text-[19px] font-extrabold leading-tight ${KPI_TONE[tone].text}`}>{value}</p>
+        <p className="truncate text-[13px] text-slate-500">{label}</p>
+        <p className={`truncate text-[20px] font-extrabold leading-tight ${KPI_TONE[tone].text}`}>{value}</p>
       </div>
     </div>
   );
@@ -218,8 +218,8 @@ export function KpiStrip({ data, hasShift }: { data: MyDashboardData; hasShift: 
                       className="flex items-center gap-2 px-4 py-2 text-left hover:bg-slate-50"
                     >
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate text-[13px] font-semibold text-slate-900">{requestHeadline(request)}</span>
-                        <span className="block truncate text-[11.5px] text-slate-500">Ngày {formatDmy(firstDate)}</span>
+                        <span className="block truncate text-[14px] font-semibold text-slate-900">{requestHeadline(request)}</span>
+                        <span className="block truncate text-[12px] text-slate-500">Ngày {formatDmy(firstDate)}</span>
                       </span>
                       <ChevronRight className="size-4 shrink-0 text-slate-400" />
                     </Link>
@@ -274,20 +274,20 @@ export function PunchCard({ punch, data }: { punch: PunchProps; data: MyDashboar
   return (
     <section aria-label="Chấm công hôm nay" className={`${CARD} p-5`}>
       <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-[15px] font-bold text-emerald-700">Chấm công hôm nay</h2>
-        <span className="rounded-full bg-emerald-50 px-2.5 py-0.5 font-mono text-[11px] font-semibold text-emerald-700">{formatDate(punch.workDate)}</span>
+        <h2 className="text-[16px] font-bold text-emerald-700">Chấm công hôm nay</h2>
+        <span className="rounded-full bg-emerald-50 px-2.5 py-0.5 font-mono text-[12px] font-semibold text-emerald-700">{formatDate(punch.workDate)}</span>
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="rounded-xl border border-slate-200/80 p-3.5">
-          <p className="text-[12px] text-slate-500">Ca làm việc:</p>
-          <p className="mt-0.5 text-[15px] font-bold text-slate-900">
+          <p className="text-[13px] text-slate-500">Ca làm việc:</p>
+          <p className="mt-0.5 text-[16px] font-bold text-slate-900">
             {punch.shiftName ? `${punch.shiftName} ` : ''}
             <span className="font-mono">({punch.shiftText})</span>
             {punch.hasShift ? (
-              <span className="ml-2 rounded-md bg-blue-50 px-1.5 py-0.5 align-middle text-[10.5px] font-semibold text-[#2563eb]">Ca hiện tại</span>
+              <span className="ml-2 rounded-md bg-blue-50 px-1.5 py-0.5 align-middle text-[12px] font-semibold text-[#2563eb]">Ca hiện tại</span>
             ) : null}
           </p>
-          <p className="mt-2 flex items-center gap-1.5 text-[12px] text-slate-500">
+          <p className="mt-2 flex items-center gap-1.5 text-[13px] text-slate-500">
             <MapPin className="size-3.5" />
             Phương thức: <span className="font-medium text-slate-700">{punch.requireGps ? 'Định vị GPS' : 'Ứng dụng di động'}</span>
           </p>
@@ -297,10 +297,10 @@ export function PunchCard({ punch, data }: { punch: PunchProps; data: MyDashboar
             <Clock className="size-6" />
           </span>
           <div className="min-w-0">
-            <p className="text-[15px] font-bold text-emerald-700" data-testid="punch-state">
+            <p className="text-[16px] font-bold text-emerald-700" data-testid="punch-state">
               {state.label}
             </p>
-            <p className="text-[12px] leading-snug text-slate-600">{stateHint}</p>
+            <p className="text-[13px] leading-snug text-slate-600">{stateHint}</p>
           </div>
         </div>
       </div>
@@ -327,7 +327,7 @@ export function PunchCard({ punch, data }: { punch: PunchProps; data: MyDashboar
             permission="hrm.self.attendance"
             onClick={() => punch.onPunch('check-in')}
             disabled={punch.busy || !punch.hasShift}
-            className="h-11 gap-2 rounded-xl border-0 bg-emerald-600 text-[13px] font-semibold text-white shadow-sm hover:bg-emerald-700 disabled:bg-emerald-600/40"
+            className="h-11 gap-2 rounded-xl border-0 bg-emerald-600 text-[14px] font-semibold text-white shadow-sm hover:bg-emerald-700 disabled:bg-emerald-600/40"
           >
             {punch.busy ? <Loader2 className="size-4 animate-spin" /> : <LogIn className="size-4" />}
             <span>Ghi nhận vào ca</span>
@@ -337,7 +337,7 @@ export function PunchCard({ punch, data }: { punch: PunchProps; data: MyDashboar
             onClick={() => punch.onPunch('check-out')}
             disabled={punch.busy || !punch.hasShift}
             variant="outline"
-            className={`h-11 gap-2 rounded-xl text-[13px] font-semibold ${checkedIn ? 'border-emerald-500 text-emerald-700 hover:bg-emerald-50' : 'border-emerald-200 text-emerald-600/70'
+            className={`h-11 gap-2 rounded-xl text-[14px] font-semibold ${checkedIn ? 'border-emerald-500 text-emerald-700 hover:bg-emerald-50' : 'border-emerald-200 text-emerald-600/70'
               }`}
           >
             {punch.busy ? <Loader2 className="size-4 animate-spin" /> : <LogOut className="size-4" />}
@@ -345,7 +345,7 @@ export function PunchCard({ punch, data }: { punch: PunchProps; data: MyDashboar
           </Button>
         </div>
       ) : (
-        <p className="mt-3 text-[11px] text-slate-500">Tài khoản không có quyền chấm công trên web. Hãy chấm công trên ứng dụng di động.</p>
+        <p className="mt-3 text-[12px] text-slate-500">Tài khoản không có quyền chấm công trên web. Hãy chấm công trên ứng dụng di động.</p>
       )}
     </section>
   );
@@ -380,11 +380,11 @@ export function LeaveCard({ data }: { data: MyDashboardData }) {
             />
           </svg>
           <div className="absolute inset-0 flex flex-col items-center justify-center">
-            <span className="text-[17px] font-extrabold text-slate-900">{a ? `${formatUnits(a.remaining)} / ${formatUnits(a.total)}` : '—'}</span>
-            <span className="text-[11px] text-slate-500" title="Số ngày dùng được đến hiện tại / định mức cả năm"></span>
+            <span className="text-[16px] font-extrabold text-slate-900">{a ? `${formatUnits(a.remaining)} / ${formatUnits(a.total)}` : '—'}</span>
+            <span className="text-[12px] text-slate-500" title="Số ngày dùng được đến hiện tại / định mức cả năm"></span>
           </div>
         </div>
-        <ul className="flex-1 space-y-2 text-[12.5px]">
+        <ul className="flex-1 space-y-2 text-[13px]">
           {(
             [
               ['bg-[#2563eb]', 'Đã sử dụng', a?.used],
@@ -404,7 +404,7 @@ export function LeaveCard({ data }: { data: MyDashboardData }) {
       </div>
       <Link
         href="/requests?create=leave"
-        className="mt-4 flex h-9 items-center justify-center rounded-lg border border-[#2563eb]/40 text-[13px] font-semibold text-[#2563eb] hover:bg-blue-50"
+        className="mt-4 flex h-9 items-center justify-center rounded-lg border border-[#2563eb]/40 text-[14px] font-semibold text-[#2563eb] hover:bg-blue-50"
       >
         Đăng ký nghỉ phép
       </Link>
@@ -429,7 +429,7 @@ export function QuickActions() {
           <Link
             key={q.href}
             href={q.href}
-            className="flex flex-col items-center gap-2 rounded-xl border border-slate-200/70 px-2 py-3.5 text-center text-[12.5px] font-semibold text-slate-700 transition-colors hover:border-slate-300 hover:bg-slate-50"
+            className="flex flex-col items-center gap-2 rounded-xl border border-slate-200/70 px-2 py-3.5 text-center text-[13px] font-semibold text-slate-700 transition-colors hover:border-slate-300 hover:bg-slate-50"
           >
             <span className={`flex size-10 items-center justify-center rounded-xl ${q.tile}`}>{q.icon}</span>
             {q.label}
@@ -504,7 +504,7 @@ export function MonthStrip({ data }: { data: MyDashboardData }) {
       <div className="mb-3">
         <MonthStepper month={month} onChange={changeMonth} />
       </div>
-      <ul className="mb-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-600" aria-label="Chú thích">
+      <ul className="mb-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-slate-600" aria-label="Chú thích">
         {LEGEND.map((l) => (
           <li key={l.tone} className="flex items-center gap-1.5">
             <span className={`size-2 rounded-full ${DOT_CLASS[l.tone]}`} />
@@ -521,7 +521,7 @@ export function MonthStrip({ data }: { data: MyDashboardData }) {
         <div data-testid="month-strip">
           <div className="grid grid-cols-7 gap-1 pb-1">
             {CAL_HEADERS.map((h, i) => (
-              <span key={h} className={`text-center text-[10px] font-semibold ${i === 6 ? 'text-rose-500' : 'text-slate-400'}`}>
+              <span key={h} className={`text-center text-[12px] font-semibold ${i === 6 ? 'text-rose-500' : 'text-slate-400'}`}>
                 {h}
               </span>
             ))}
@@ -553,7 +553,7 @@ export function MonthStrip({ data }: { data: MyDashboardData }) {
                         } ${isSelected ? 'border-[#2563eb] ring-1 ring-[#2563eb]' : ''}`}
                     >
                       <span
-                        className={`text-[11px] leading-none ${isToday ? 'rounded bg-[#ffc90a] px-1 py-0.5 font-bold text-slate-900' : 'font-semibold text-slate-600'
+                        className={`text-[12px] leading-none ${isToday ? 'rounded bg-[#ffc90a] px-1 py-0.5 font-bold text-slate-900' : 'font-semibold text-slate-600'
                           }`}
                       >
                         {Number(date.slice(8, 10))}
@@ -614,7 +614,7 @@ export function MonthTotals({ data }: { data: MyDashboardData }) {
           >
             <div className="flex justify-center">{t.icon}</div>
             <p className="mt-0.5 text-[20px] font-extrabold leading-tight">{data.loading ? '…' : t.value}</p>
-            <p className="text-[11px] font-medium opacity-80">{t.label}</p>
+            <p className="text-[12px] font-medium opacity-80">{t.label}</p>
           </button>
         ))}
       </div>
@@ -656,15 +656,15 @@ export function MyRequests({ data }: { data: MyDashboardData }) {
                     <FileText className="size-[18px]" />
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[13.5px] font-semibold text-slate-900">{requestHeadline(request)}</span>
-                    <span className="block truncate text-[12px] text-slate-500">
+                    <span className="block truncate text-[14px] font-semibold text-slate-900">{requestHeadline(request)}</span>
+                    <span className="block truncate text-[13px] text-slate-500">
                       Ngày {formatDmy(firstDate)}
                       {request.minutes && request.kind === 'OT' ? ` · ${formatMinutes(request.minutes)} giờ` : ''}
                     </span>
                   </span>
                   <span className="flex shrink-0 flex-col items-end gap-0.5">
-                    <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${tone.className}`}>{tone.label}</span>
-                    <span className="text-[11px] text-slate-400">{relativeTime(request.createdAt)}</span>
+                    <span className={`rounded-full px-2 py-0.5 text-[12px] font-semibold ${tone.className}`}>{tone.label}</span>
+                    <span className="text-[12px] text-slate-400">{relativeTime(request.createdAt)}</span>
                   </span>
                   <ChevronRight className="size-4 shrink-0 text-slate-400" />
                 </Link>
@@ -699,21 +699,21 @@ export function PayslipCard({ data }: { data: MyDashboardData }) {
             </span>
             <div className="min-w-0 flex-1">
               <p className="text-[14px] font-bold text-slate-900">{payslipPeriod(latest)}</p>
-              <p className="text-[12px] text-slate-500">Đã phát hành ngày {formatDmy((latest.publishedAt ?? latest.issuedAt).slice(0, 10))}</p>
+              <p className="text-[13px] text-slate-500">Đã phát hành ngày {formatDmy((latest.publishedAt ?? latest.issuedAt).slice(0, 10))}</p>
             </div>
             <Link
               href={`/profile?view=payslips&selected=${encodeURIComponent(latest.id)}`}
-              className="rounded-lg border border-[#2563eb]/40 px-3 py-1.5 text-[12.5px] font-semibold text-[#2563eb] hover:bg-blue-50"
+              className="rounded-lg border border-[#2563eb]/40 px-3 py-1.5 text-[13px] font-semibold text-[#2563eb] hover:bg-blue-50"
             >
               Xem chi tiết
             </Link>
           </div>
           {others.length > 0 && (
             <div className="mt-3">
-              <p className="mb-1 text-[12px] font-semibold text-slate-600">Các kỳ lương khác</p>
+              <p className="mb-1 text-[13px] font-semibold text-slate-600">Các kỳ lương khác</p>
               <ul className="space-y-1">
                 {others.map((s) => (
-                  <li key={s.id} className="flex items-center justify-between gap-2 text-[12.5px]">
+                  <li key={s.id} className="flex items-center justify-between gap-2 text-[13px]">
                     <span className="flex items-center gap-2 font-medium text-slate-800">
                       <CheckCircle2 className="size-4 text-emerald-500" />
                       {payslipPeriod(s)}
@@ -737,10 +737,10 @@ export function NotificationsCard() {
   return (
     <section aria-label="Thông báo" className={`${CARD} p-5`}>
       <div className="mb-3 flex items-center justify-between gap-2">
-        <h2 className="flex items-center gap-2 text-[15px] font-bold text-slate-900">
+        <h2 className="flex items-center gap-2 text-[16px] font-bold text-slate-900">
           Thông báo
           {center && center.unreadCount > 0 ? (
-            <span className="rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-bold text-white">{center.unreadCount}</span>
+            <span className="rounded-full bg-rose-500 px-1.5 py-0.5 text-[12px] font-bold text-white">{center.unreadCount}</span>
           ) : null}
         </h2>
         {center ? (
@@ -760,9 +760,9 @@ export function NotificationsCard() {
             <li key={n.id} className="flex items-start gap-2.5">
               <span className={`mt-1.5 size-2 shrink-0 rounded-full ${n.readAt ? 'bg-slate-300' : 'bg-[#2563eb]'}`} />
               <button type="button" onClick={() => void center?.openNotification(n)} className="min-w-0 flex-1 text-left">
-                <span className="block truncate text-[12.5px] font-medium text-slate-800">{n.title}</span>
+                <span className="block truncate text-[13px] font-medium text-slate-800">{n.title}</span>
               </button>
-              <span className="shrink-0 text-[11px] text-slate-400">{relativeTime(n.createdAt)}</span>
+              <span className="shrink-0 text-[12px] text-slate-400">{relativeTime(n.createdAt)}</span>
             </li>
           ))}
         </ul>

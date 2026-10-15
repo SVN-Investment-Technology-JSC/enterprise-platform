@@ -630,12 +630,16 @@ export async function previewApprovalRoute(
     selfApprovalBlocked,
     ...(conflictNote
       ? { note: conflictNote }
-      : manager
-        ? {}
-        : fallbackPosition
-          ? {
-              note: `Chưa có quản lý trực tiếp; đơn do người giữ chức danh ${fallbackPosition.positionName} hoặc người có quyền duyệt toàn bộ xử lý.`,
-            }
-          : { note: NO_DIRECT_MANAGER_NOTE }),
+      : manager && fallbackPosition
+        ? {
+            note: `Đơn có thể được duyệt bởi Quản lý trực tiếp (${manager.name}) hoặc người giữ chức danh ${fallbackPosition.positionName}.`,
+          }
+        : manager
+          ? {}
+          : fallbackPosition
+            ? {
+                note: `Chưa có quản lý trực tiếp; đơn do người giữ chức danh ${fallbackPosition.positionName} hoặc người có quyền duyệt toàn bộ xử lý.`,
+              }
+            : { note: NO_DIRECT_MANAGER_NOTE }),
   };
 }

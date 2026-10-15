@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type {
   CreateHrmPersonnelDecisionPayload,
   HrmAppointmentContext,
+  HrmOpenConcurrentPosition,
   HrmPersonnelDecision,
   HrmPersonnelDecisionStatus,
   HrmPersonnelDecisionType,
@@ -84,6 +85,15 @@ export async function getReportingLines(employeeId: string) {
   return res.data;
 }
 
+/** Kiêm nhiệm đang giữ của nhân viên, để chọn thay thế (kiêm nhiệm tiếp) hoặc bãi nhiệm. */
+export async function getOpenConcurrent(employeeId: string, excludeDecisionId?: string) {
+  const query = excludeDecisionId ? `?excludeDecisionId=${encodeURIComponent(excludeDecisionId)}` : '';
+  const res = await hrmFetch<{ data: HrmOpenConcurrentPosition[] }>(
+    `/employees/${employeeId}/open-concurrent${query}`,
+  );
+  return res.data;
+}
+
 export async function getAppointmentContext(employeeId: string) {
   const res = await hrmFetch<{ data: HrmAppointmentContext }>(
     `/employees/${employeeId}/appointment-context`,
@@ -98,7 +108,13 @@ export async function getAppointmentContext(employeeId: string) {
  */
 export async function quickAssignPosition(
   employeeId: string,
-  body: { toPositionNodeId: string; reason: string; effectiveDate?: string },
+  body: {
+    toPositionNodeId: string;
+    reason: string;
+    effectiveDate?: string;
+    /** REPLACE: thay chức danh chính · CONCURRENT: giữ chức danh cũ, thêm kiêm nhiệm. */
+    mode?: 'REPLACE' | 'CONCURRENT';
+  },
 ) {
   const res = await hrmFetch<{ data: HrmPersonnelDecision }>(
     `/employees/${employeeId}/quick-appoint`,
@@ -163,6 +179,16 @@ export function useReportingLines(employeeId: string | null | undefined) {
   return useAsync(
     employeeId ? () => getReportingLines(employeeId) : null,
     [employeeId],
+  );
+}
+
+export function useOpenConcurrent(
+  employeeId: string | null | undefined,
+  excludeDecisionId?: string,
+) {
+  return useAsync(
+    employeeId ? () => getOpenConcurrent(employeeId, excludeDecisionId) : null,
+    [employeeId, excludeDecisionId],
   );
 }
 

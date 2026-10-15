@@ -44,7 +44,7 @@ const ROW =
 const ACTION =
   'flex h-[30px] cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-[7px] border border-[#eef0f3] bg-white px-2.5 text-xs font-semibold text-slate-700 hover:bg-[#f4f6f9] disabled:cursor-not-allowed disabled:opacity-60';
 const FIELD =
-  'h-9 w-full rounded-[7px] border border-[#e5e7eb] bg-white px-2.5 text-[13px] text-[#18181b] outline-none focus:border-[#ffc90a]';
+  'h-9 w-full rounded-[7px] border border-[#e5e7eb] bg-white px-2.5 text-[14px] text-[#18181b] outline-none focus:border-[#ffc90a]';
 
 function initialsOf(name: string) {
   const words = name.trim().split(/\s+/).filter(Boolean);
@@ -223,8 +223,8 @@ export function TenantUsers({
     <div className="flex flex-col gap-4 text-[14px] text-[#18181b]">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0 flex-[1_1_360px]">
-          <h1 className="m-0 text-[22px] font-bold tracking-[-0.3px]">Người dùng</h1>
-          <p className="mt-1 text-[13.5px] text-slate-600">
+          <h1 className="m-0 text-[20px] font-bold tracking-[-0.3px]">Người dùng</h1>
+          <p className="mt-1 text-[14px] text-slate-600">
             Quản lý tài khoản và vai trò trong doanh nghiệp.
           </p>
         </div>
@@ -232,7 +232,7 @@ export function TenantUsers({
           <button
             type="button"
             disabled={busy}
-            className="flex h-[38px] cursor-pointer items-center gap-1.5 rounded-lg bg-[#ffc90a] px-3.5 text-[13px] font-bold text-[#18181b] hover:bg-[#ffd84d] disabled:opacity-60"
+            className="flex h-[38px] cursor-pointer items-center gap-1.5 rounded-lg bg-[#ffc90a] px-3.5 text-[14px] font-bold text-[#18181b] hover:bg-[#ffd84d] disabled:opacity-60"
             onClick={() => open()}
           >
             <Plus className="size-4" />
@@ -247,19 +247,34 @@ export function TenantUsers({
       >
         {(
           [
-            ['Tổng số', users.length, ''],
-            ['Hoạt động', users.filter((u) => u.status === 'active').length, 'text-emerald-700'],
-            ['Vô hiệu hóa', users.filter((u) => u.status === 'disabled').length, 'text-red-700'],
+            ['Tổng số', users.length, '', 'all'],
+            ['Hoạt động', users.filter((u) => u.status === 'active').length, 'text-emerald-700', 'active'],
+            ['Vô hiệu hóa', users.filter((u) => u.status === 'disabled').length, 'text-red-700', 'disabled'],
           ] as const
-        ).map(([label, count, tone], index) => (
-          <div
-            key={label}
-            className={`flex flex-col px-5 py-3.5 ${index < 2 ? 'border-r border-[#f1f3f6]' : ''}`}
-          >
-            <span className="text-xs text-slate-500">{label}</span>
-            <b className={`text-[22px] leading-tight tabular-nums ${tone}`}>{count}</b>
-          </div>
-        ))}
+        ).map(([label, count, tone, value], index) => {
+          const selected = status === value;
+          return (
+            <button
+              key={label}
+              type="button"
+              aria-pressed={selected}
+              data-testid={`users-stat-${value}`}
+              // Bấm thẻ: lọc danh sách theo trạng thái của thẻ (xoá tìm kiếm và vai trò để số khớp); bấm lại thì bỏ lọc.
+              onClick={() => {
+                setStatus(selected ? 'all' : value);
+                setQuery('');
+                setRoleId('all');
+                setPage(1);
+              }}
+              className={`flex cursor-pointer flex-col px-5 py-3.5 text-left hover:bg-[#fafbfc] ${
+                index < 2 ? 'border-r border-[#f1f3f6]' : ''
+              } ${selected && value !== 'all' ? 'bg-[#fffbeb] shadow-[inset_0_-3px_0_#ffc90a]' : ''}`}
+            >
+              <span className="text-xs text-slate-500">{label}</span>
+              <b className={`text-[20px] leading-tight tabular-nums ${tone}`}>{count}</b>
+            </button>
+          );
+        })}
       </section>
 
       {error && !form && (
@@ -285,7 +300,7 @@ export function TenantUsers({
                   setQuery(e.target.value);
                   setPage(1);
                 }}
-                className="min-w-0 flex-1 bg-transparent text-[13px] text-[#18181b] outline-none placeholder:text-slate-400"
+                className="min-w-0 flex-1 bg-transparent text-[14px] text-[#18181b] outline-none placeholder:text-slate-400"
               />
             </label>
             <div className="w-full sm:w-[200px]">
@@ -331,7 +346,7 @@ export function TenantUsers({
             >
               <div className="overflow-x-auto">
                 <div className="min-w-[700px]">
-                  <div className={`${ROW} py-2 text-[11px] font-semibold tracking-[0.4px] text-slate-500`}>
+                  <div className={`${ROW} py-2 text-[12px] font-semibold tracking-[0.4px] text-slate-500`}>
                     <span>NGƯỜI DÙNG</span>
                     <span>VAI TRÒ</span>
                     <span className="text-right">THAO TÁC</span>
@@ -448,7 +463,7 @@ export function TenantUsers({
             </p>
           )}
 
-          <div className="flex flex-wrap items-center justify-between gap-2 text-[12.5px] text-slate-500">
+          <div className="flex flex-wrap items-center justify-between gap-2 text-[13px] text-slate-500">
             <span>
               <b className="text-[#18181b]">{filtered.length}</b> / {users.length} người dùng
             </span>
@@ -530,7 +545,7 @@ export function TenantUsers({
                     <input
                       required
                       autoComplete="username"
-                      className="h-[34px] min-w-0 flex-1 px-2.5 text-[13px] outline-none"
+                      className="h-[34px] min-w-0 flex-1 px-2.5 text-[14px] outline-none"
                       value={form.email}
                       onChange={(e) =>
                         setForm({
@@ -560,7 +575,7 @@ export function TenantUsers({
                       setForm({ ...form, password: e.target.value })
                     }
                   />
-                  <span className="text-[11.5px] text-slate-500">Từ 6 đến 128 ký tự.</span>
+                  <span className="text-[12px] text-slate-500">Từ 6 đến 128 ký tự.</span>
                 </label>
                 {form.id && (
                   <div className="flex flex-col gap-1">
@@ -580,7 +595,7 @@ export function TenantUsers({
                   </div>
                 )}
                 {error && (
-                  <p role="alert" className="m-0 text-[13px] text-red-700">
+                  <p role="alert" className="m-0 text-[14px] text-red-700">
                     {error}
                   </p>
                 )}

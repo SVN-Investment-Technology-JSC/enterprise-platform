@@ -1,4 +1,5 @@
 @import 'tailwindcss';
+@import '../../../../packages/shared/ui/src/lib/type-scale.css';
 @source '../../../../packages/features/hrm';
 @source '../../../../packages/shared/ui';
 
@@ -7,7 +8,7 @@
   padding: 0;
 }
 .hrm-workspace > main > header h1 {
-  font-size: 1.125rem;
+  font-size: 1.25rem;
   line-height: 1.5rem;
 }
 .hrm-workspace .ant-table-wrapper {
@@ -29,7 +30,7 @@
   scrollbar-color: #cbd5e1 transparent;
 }
 .hrm-workspace button {
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
 }
 .hrm-workspace [role='alert'] {
   border: 1px solid #fecaca;

@@ -352,7 +352,7 @@ export default function EmployeesManagementPage() {
           </p>
           <p
             data-testid="core-owned-note"
-            className="mt-0.5 text-[11px] text-slate-400"
+            className="mt-0.5 text-[12px] text-slate-400"
           >
             Họ tên, email, đơn vị và chức danh được quản lý tại Core (
             <a href="/users" className="text-blue-600 hover:underline">
@@ -425,7 +425,7 @@ export default function EmployeesManagementPage() {
                   <span>Nạp nhân sự từ Core</span>
                   <span
                     title="Số người ở Core chưa có hồ sơ HRM"
-                    className="ml-1 rounded-full bg-slate-900/10 px-1.5 py-0.5 text-[10px] font-bold"
+                    className="ml-1 rounded-full bg-slate-900/10 px-1.5 py-0.5 text-[12px] font-bold"
                   >
                     {pendingCoreCount} chờ
                   </span>
@@ -497,7 +497,7 @@ export default function EmployeesManagementPage() {
           <div ref={tableRef} className="overflow-hidden rounded-xl border border-slate-200 bg-white">
             <div className="overflow-x-auto">
               <table className="w-full border-collapse text-left text-xs">
-                <thead className="border-b border-slate-200 bg-slate-50 text-[11px] font-bold text-slate-600">
+                <thead className="border-b border-slate-200 bg-slate-50 text-[12px] font-bold text-slate-600">
                   <tr>
                     <th className="w-10 px-3 py-2.5">
                       <input
@@ -600,7 +600,7 @@ export default function EmployeesManagementPage() {
                                 <span className="block truncate font-bold text-slate-900 group-hover:text-blue-600 group-hover:underline transition-colors">
                                   {emp.fullName || 'Chưa cập nhật tên'}
                                 </span>
-                                <span className="block truncate font-mono text-[11px] font-normal text-slate-500">
+                                <span className="block truncate font-mono text-[12px] font-normal text-slate-500">
                                   {emp.email || emp.personalEmail || '----'}
                                 </span>
                               </span>
@@ -613,7 +613,7 @@ export default function EmployeesManagementPage() {
                           </td>
                           <td className="px-3 py-2.5">
                             <Badge
-                              className={`border text-[10px] font-semibold ${
+                              className={`border text-[12px] font-semibold ${
                                 inactive
                                   ? 'border-rose-200 bg-rose-50 text-rose-600'
                                   : emp.employmentStatus === 'OFFICIAL'

@@ -32,7 +32,7 @@ function signedDays(value: number): string {
 function Stat({ label, value }: { label: string; value: number }) {
   return (
     <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
-      <span className="block text-[11px] font-semibold text-slate-500">
+      <span className="block text-[12px] font-semibold text-slate-500">
         {label}
       </span>
       <strong className="text-sm text-slate-900">

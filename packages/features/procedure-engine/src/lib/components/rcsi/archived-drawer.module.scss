@@ -62,7 +62,7 @@
   border-radius: 999px;
   background: #f1f5f9;
   color: #475569;
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   font-weight: 700;
 }
 
@@ -88,7 +88,7 @@
   margin: 0;
   padding: 0 1.25rem 0.75rem;
   color: #6e7d91;
-  font-size: 0.8rem;
+  font-size: 0.8125rem;
 }
 
 .search {
@@ -113,7 +113,7 @@
     outline: none;
     background: transparent;
     font: inherit;
-    font-size: 0.82rem;
+    font-size: 0.875rem;
     color: #17263d;
   }
 }
@@ -128,7 +128,7 @@
 .table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.82rem;
+  font-size: 0.875rem;
 
   th {
     position: sticky;
@@ -138,7 +138,7 @@
     border-bottom: 1px solid #e3e9f2;
     background: #f8fafc;
     color: #6e7d91;
-    font-size: 0.72rem;
+    font-size: 0.75rem;
     font-weight: 700;
     text-align: left;
     text-transform: uppercase;
@@ -166,7 +166,7 @@
 
 .code {
   color: #6e7d91;
-  font-size: 0.72rem;
+  font-size: 0.75rem;
 }
 
 .num {
@@ -185,7 +185,7 @@
   background: #f0f9ff;
   color: #0369a1;
   font: inherit;
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   font-weight: 600;
   white-space: nowrap;
   cursor: pointer;
@@ -212,7 +212,7 @@
   background: #fff;
   color: #b91c1c;
   font: inherit;
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   font-weight: 600;
   white-space: nowrap;
   cursor: pointer;
@@ -231,6 +231,6 @@
 .empty {
   padding: 2.5rem 1rem;
   color: #6e7d91;
-  font-size: 0.85rem;
+  font-size: 0.875rem;
   text-align: center;
 }

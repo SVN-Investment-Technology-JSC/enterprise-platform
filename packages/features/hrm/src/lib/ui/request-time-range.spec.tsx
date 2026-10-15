@@ -82,22 +82,49 @@ describe('RequestTimeRange', () => {
     expect(screen.getByText(/16:00 - 17:00 ngày 12\/10 trùng ca làm việc/)).toBeTruthy();
   });
 
-  it('đơn công tác: gửi kind=trip và hiển thị số ngày', async () => {
+  it('đơn công tác: gửi kind=trip, thẻ tổng hiển thị Số ngày công tác (không hiện số giờ)', async () => {
     fetchMock.mockResolvedValue({
-      data: preview({ totalMinutes: 3120, totalHours: 52, totalDays: 3, errors: [], warnings: [] }),
+      data: preview({ totalMinutes: 720, totalHours: 12, totalDays: 1.5, errors: [], warnings: [] }),
     } as never);
     render(
       <RequestTimeRange
         employeeId="e1"
         kind="trip"
         fromAt="2026-10-16T08:00"
-        toAt="2026-10-18T12:00"
+        toAt="2026-10-19T12:00"
         onChange={jest.fn()}
       />,
     );
     await settle();
-    await waitFor(() => expect(screen.getByTestId('time-total').textContent).toBe('Tổng thời gian: 52 giờ (3 ngày)'));
+    await waitFor(() => expect(screen.getByTestId('time-total').textContent).toBe('Số ngày công tác: 1,5 ngày'));
+    expect(screen.getByTestId('time-total').textContent).not.toContain('giờ');
     expect(String(fetchMock.mock.calls[0][0])).toContain('kind=trip');
+  });
+
+  it('đơn công tác sai khung ca: hiện lỗi của máy chủ, báo lên form cha để chặn gửi', async () => {
+    const onPreview = jest.fn();
+    fetchMock.mockResolvedValue({
+      data: preview({
+        totalMinutes: 180,
+        totalHours: 3,
+        totalDays: 0.5,
+        errors: ['2026-10-12: công tác theo ngày chỉ nhận cả ngày hoặc đúng nửa ca (240 phút); đang chọn 180 phút.'],
+        warnings: [],
+      }),
+    } as never);
+    render(
+      <RequestTimeRange
+        employeeId="e1"
+        kind="trip"
+        fromAt="2026-10-12T08:00"
+        toAt="2026-10-12T11:00"
+        onChange={jest.fn()}
+        onPreview={onPreview}
+      />,
+    );
+    await settle();
+    await waitFor(() => expect(screen.getByText(/chỉ nhận cả ngày hoặc đúng nửa ca/)).toBeTruthy());
+    expect(onPreview).toHaveBeenLastCalledWith(expect.objectContaining({ errors: [expect.stringContaining('nửa ca')] }));
   });
 
   it('thời điểm kết thúc không sau bắt đầu: báo lỗi và không gọi máy chủ', async () => {

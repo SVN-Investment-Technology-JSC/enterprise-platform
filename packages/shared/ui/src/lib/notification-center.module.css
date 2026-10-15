@@ -35,7 +35,7 @@
   border-radius: 999px;
   background: #dc2626;
   color: white;
-  font-size: 0.58rem;
+  font-size: 0.75rem;
   font-weight: 800;
   line-height: 1;
   box-shadow: 0 0 0 2px white;
@@ -79,8 +79,8 @@
 
 .headerText { min-width: 0; }
 .titleRow { display: flex; align-items: center; gap: 0.5rem; }
-.drawerHeader h2 { margin: 0; font-size: 1.1rem; font-weight: 800; letter-spacing: -0.01em; }
-.drawerHeader p { margin: 0.2rem 0 0; color: #64748b; font-size: 0.74rem; }
+.drawerHeader h2 { margin: 0; font-size: 1rem; font-weight: 800; letter-spacing: -0.01em; }
+.drawerHeader p { margin: 0.2rem 0 0; color: #64748b; font-size: 0.75rem; }
 
 .connected, .disconnected {
   display: inline-flex;
@@ -88,7 +88,7 @@
   gap: 0.28rem;
   padding: 0.16rem 0.45rem;
   border-radius: 999px;
-  font-size: 0.64rem;
+  font-size: 0.75rem;
   font-weight: 700;
   white-space: nowrap;
 }
@@ -140,7 +140,7 @@
 }
 .searchBox:hover { border-color: #cbd5e1; }
 .searchBox:focus-within { border-color: #2563eb; background: #fff; color: #2563eb; box-shadow: 0 0 0 3px rgb(37 99 235 / 14%); }
-.searchBox input { flex: 1 1 auto; min-width: 0; border: 0; outline: none; background: transparent; color: #0f172a; font-size: 0.82rem; }
+.searchBox input { flex: 1 1 auto; min-width: 0; border: 0; outline: none; background: transparent; color: #0f172a; font-size: 0.875rem; }
 .searchBox input::placeholder { color: #94a3b8; }
 .searchBox input::-webkit-search-cancel-button { display: none; }
 .clearSearch {
@@ -163,7 +163,7 @@
   border: 0;
   border-radius: 0.45rem;
   padding: 0.34rem 0.75rem;
-  font-size: 0.74rem;
+  font-size: 0.75rem;
   font-weight: 700;
   cursor: pointer;
   transition: background-color 140ms ease, color 140ms ease, box-shadow 140ms ease;
@@ -172,7 +172,7 @@
 .tab:hover { color: #0f172a; }
 .tabActive { background: #fff; color: #1d4ed8; box-shadow: 0 1px 2px rgb(15 23 42 / 10%); }
 .tab:focus-visible, .tabActive:focus-visible { outline: none; box-shadow: 0 0 0 2px rgb(37 99 235 / 35%); }
-.groupFilter { flex: 1 1 auto; min-width: 0; font-size: 0.78rem; }
+.groupFilter { flex: 1 1 auto; min-width: 0; font-size: 0.8125rem; }
 
 /* ---------- Danh sách ---------- */
 
@@ -232,19 +232,19 @@
 
 .itemContent { min-width: 0; display: flex; flex-direction: column; gap: 0.22rem; }
 .itemTop { display: flex; align-items: baseline; justify-content: space-between; gap: 0.6rem; }
-.itemTop strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.84rem; font-weight: 700; }
+.itemTop strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.875rem; font-weight: 700; }
 .unreadItem .itemTop strong { font-weight: 800; }
-.itemTime { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 0.35rem; color: #94a3b8; font-size: 0.68rem; font-weight: 600; white-space: nowrap; }
+.itemTime { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 0.35rem; color: #94a3b8; font-size: 0.75rem; font-weight: 600; white-space: nowrap; }
 .unreadDot { width: 0.5rem; height: 0.5rem; border-radius: 999px; background: #2563eb; box-shadow: 0 0 0 3px rgb(37 99 235 / 16%); }
-.body { display: -webkit-box; overflow: hidden; -webkit-line-clamp: 2; -webkit-box-orient: vertical; color: #475569; font-size: 0.76rem; line-height: 1.5; }
+.body { display: -webkit-box; overflow: hidden; -webkit-line-clamp: 2; -webkit-box-orient: vertical; color: #475569; font-size: 0.8125rem; line-height: 1.5; }
 
 .itemTags { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem; margin-top: 0.15rem; }
-.tag { padding: 0.12rem 0.45rem; border-radius: 0.4rem; background: #f1f5f9; color: #64748b; font-size: 0.64rem; font-weight: 700; }
+.tag { padding: 0.12rem 0.45rem; border-radius: 0.4rem; background: #f1f5f9; color: #64748b; font-size: 0.75rem; font-weight: 700; }
 .moduleTag { background: transparent; padding-left: 0; color: #334155; }
 .category { background: #f1f5f9; color: #64748b; }
 .priorityRequired { background: #fee2e2; color: #b91c1c; }
 .priorityActionable { background: #dbeafe; color: #1d4ed8; }
-.aggregate { margin-left: auto; padding: 0.12rem 0.45rem; border-radius: 999px; background: #e2e8f0; color: #475569; font-size: 0.66rem; font-weight: 800; }
+.aggregate { margin-left: auto; padding: 0.12rem 0.45rem; border-radius: 999px; background: #e2e8f0; color: #475569; font-size: 0.75rem; font-weight: 800; }
 .chevron { color: #cbd5e1; margin-left: auto; }
 .item:hover .chevron { color: #64748b; }
 
@@ -260,25 +260,25 @@
   padding: 2rem;
   background: #f8fafc;
   color: #64748b;
-  font-size: 0.8rem;
+  font-size: 0.8125rem;
   text-align: center;
 }
 .stateIcon { display: inline-flex; align-items: center; justify-content: center; width: 3rem; height: 3rem; border-radius: 999px; background: #e2e8f0; color: #64748b; }
 .loadingMore { min-height: auto; flex-direction: row; padding: 0.8rem; gap: 0.45rem; background: transparent; }
-.loadMore { display: block; margin: 0.75rem auto 1rem; border: 1px solid #cbd5e1; border-radius: 0.5rem; background: #fff; padding: 0.45rem 0.8rem; color: #334155; font-size: 0.72rem; font-weight: 700; cursor: pointer; }
+.loadMore { display: block; margin: 0.75rem auto 1rem; border: 1px solid #cbd5e1; border-radius: 0.5rem; background: #fff; padding: 0.45rem 0.8rem; color: #334155; font-size: 0.75rem; font-weight: 700; cursor: pointer; }
 .spin { animation: spin 900ms linear infinite; }
 
 /* ---------- Tùy chọn ---------- */
 
 .preferences { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 0.4rem 1.15rem 2rem; border-top: 1px solid #e2e8f0; }
 .preferencesIntro { padding: 0.8rem 0 0.9rem; }
-.preferencesIntro h3 { margin: 0; font-size: 0.92rem; }
-.preferencesIntro p { margin: 0.4rem 0 0; color: #64748b; font-size: 0.74rem; line-height: 1.5; }
+.preferencesIntro h3 { margin: 0; font-size: 0.875rem; }
+.preferencesIntro p { margin: 0.4rem 0 0; color: #64748b; font-size: 0.75rem; line-height: 1.5; }
 .preferenceRow { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 0.9rem; padding: 0.8rem 0; border-top: 1px solid #eef2f7; }
 .preferenceRow div { display: flex; min-width: 0; flex-direction: column; gap: 0.2rem; }
-.preferenceRow strong { font-size: 0.78rem; overflow-wrap: anywhere; }
-.preferenceRow span { color: #64748b; font-size: 0.68rem; }
-.preferenceRow label { display: inline-flex; align-items: center; gap: 0.35rem; color: #475569; font-size: 0.7rem; font-weight: 600; }
+.preferenceRow strong { font-size: 0.8125rem; overflow-wrap: anywhere; }
+.preferenceRow span { color: #64748b; font-size: 0.75rem; }
+.preferenceRow label { display: inline-flex; align-items: center; gap: 0.35rem; color: #475569; font-size: 0.75rem; font-weight: 600; }
 .preferenceRow input { accent-color: #2563eb; }
 
 @keyframes slideIn { from { transform: translateX(24px); opacity: 0.7; } to { transform: translateX(0); opacity: 1; } }

@@ -1,4 +1,5 @@
 @import 'tailwindcss';
+@import '../../../../packages/shared/ui/src/lib/type-scale.css';
 @import 'tw-animate-css';
 @import 'shadcn/tailwind.css';
 @import '@xyflow/react/dist/style.css';

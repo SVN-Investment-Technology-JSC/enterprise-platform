@@ -19,12 +19,12 @@ import {
 function VersionDetails({ v, lock }: { v: Version; lock: string }) {
   return (
     <div className="space-y-2">
-      {lock ? <p className="text-[11px] text-amber-700">Không sửa trực tiếp được: {lock}.</p> : null}
+      {lock ? <p className="text-[12px] text-amber-700">Không sửa trực tiếp được: {lock}.</p> : null}
       {v.policy_type === 'OT' && (
         <dl className="grid grid-cols-2 gap-2 text-xs @3xl:grid-cols-3 @5xl:grid-cols-4">
           {OT_FIELDS.map(([key, label]) => (
             <div key={key} className="rounded-md border border-slate-200 bg-white p-2">
-              <dt className="text-[11px] text-slate-500">{label}</dt>
+              <dt className="text-[12px] text-slate-500">{label}</dt>
               <dd className="font-semibold text-slate-800">{String(v.config_json[key] ?? 'Chưa cấu hình')}</dd>
             </div>
           ))}
@@ -35,7 +35,7 @@ function VersionDetails({ v, lock }: { v: Version; lock: string }) {
             ] as const
           ).map(([key, label]) => (
             <div key={key} className="rounded-md border border-slate-200 bg-white p-2">
-              <dt className="text-[11px] text-slate-500">{label}</dt>
+              <dt className="text-[12px] text-slate-500">{label}</dt>
               <dd className="font-semibold text-slate-800">
                 {minutesToTime(v.config_json[key] as number | undefined) || 'Mặc định'}
               </dd>

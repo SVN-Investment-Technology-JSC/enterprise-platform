@@ -422,7 +422,7 @@ export function SalaryGradesPanel() {
                         <StatusPill tone={g.status === 'ACTIVE' ? 'green' : 'slate'}>{g.status === 'ACTIVE' ? 'Đang dùng' : 'Đã ngừng'}</StatusPill>
                       </span>
                       <span className="mt-1 block text-xs font-semibold break-words text-slate-900">{g.name}</span>
-                      {g.description && <span className="mt-0.5 line-clamp-2 block text-[11px] leading-snug text-slate-500">{g.description}</span>}
+                      {g.description && <span className="mt-0.5 line-clamp-2 block text-[12px] leading-snug text-slate-500">{g.description}</span>}
                     </button>
                     <ActionMenu
                       label={`Thao tác ngạch ${g.code}`}

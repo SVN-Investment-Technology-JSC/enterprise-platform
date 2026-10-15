@@ -491,7 +491,7 @@ function ProcedureFlowDiagramCard({ workspace }: { workspace: ProcedureWorkspace
                       </span>
                     ))
                   ) : (
-                    <span style={{ fontSize: '0.65rem', color: '#94a3b8' }}>—</span>
+                    <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>—</span>
                   )}
                 </div>
               </div>

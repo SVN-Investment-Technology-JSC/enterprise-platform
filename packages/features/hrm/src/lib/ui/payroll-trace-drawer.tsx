@@ -133,7 +133,7 @@ export function PayrollTraceDrawer({
                         ];
                   return (
                     <div key={code}>
-                      <dt className="text-[11px] text-slate-500">{label}</dt>
+                      <dt className="text-[12px] text-slate-500">{label}</dt>
                       <dd className="font-mono font-semibold text-slate-900">
                         {code === 'TRIP_ALLOWANCE_AMOUNT' ? money(total) : `${total} phút`}
                       </dd>
@@ -145,7 +145,7 @@ export function PayrollTraceDrawer({
               <div className="overflow-x-auto rounded-lg border border-slate-200">
                 <table className="w-full border-separate border-spacing-0 text-xs" aria-label="Công từng ngày">
                   <thead>
-                    <tr className="text-left text-[11px] font-bold text-slate-600">
+                    <tr className="text-left text-[12px] font-bold text-slate-600">
                       {['Ngày', 'Trạng thái', 'Công trả', 'Tăng ca', 'Công tác phí', 'Đơn từ'].map((h) => (
                         <th key={h} className="sticky top-0 border-b border-slate-200 bg-slate-50 px-2 py-1.5">
                           {h}

@@ -20,14 +20,14 @@
 }
 
 .head h1 { margin: 0 0 0.35rem; font-size: 1.55rem; letter-spacing: -0.025em; }
-.head p { max-width: 60ch; margin: 0; color: #66768a; font-size: 0.88rem; line-height: 1.55; }
+.head p { max-width: 60ch; margin: 0; color: #66768a; font-size: 0.875rem; line-height: 1.55; }
 
 .action {
   flex: none;
   padding: 0.55rem 0.95rem;
   border: 1px solid transparent;
   border-radius: 0.6rem;
-  font-size: 0.84rem;
+  font-size: 0.875rem;
   font-weight: 700;
   text-decoration: none;
   cursor: pointer;
@@ -55,7 +55,7 @@
   border-radius: 0.65rem;
   color: #46586f;
   font: inherit;
-  font-size: 0.88rem;
+  font-size: 0.875rem;
   font-weight: 600;
   background: transparent;
   cursor: pointer;
@@ -77,8 +77,8 @@
   background: #fff;
 }
 
-.statStrip span { display: flex; gap: 0.5rem; align-items: baseline; color: #66768a; font-size: 0.82rem; }
-.statStrip strong { color: #182538; font-size: 1.15rem; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+.statStrip span { display: flex; gap: 0.5rem; align-items: baseline; color: #66768a; font-size: 0.875rem; }
+.statStrip strong { color: #182538; font-size: 1.25rem; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
 .statWarn strong { color: #9a6414; }
 
 /* ---- Cards ------------------------------------------------------------- */
@@ -99,9 +99,9 @@
   justify-content: space-between;
   margin-bottom: 1rem;
 }
-.cardHead h2, .cardHead h3 { margin: 0; font-size: 1.12rem; font-weight: 700; color: #0f172a; letter-spacing: -0.02em; }
+.cardHead h2, .cardHead h3 { margin: 0; font-size: 1rem; font-weight: 700; color: #0f172a; letter-spacing: -0.02em; }
 
-.countHint { color: #66768a; font-size: 0.8rem; font-variant-numeric: tabular-nums; }
+.countHint { color: #66768a; font-size: 0.8125rem; font-variant-numeric: tabular-nums; }
 
 /* ---- Bộ lọc ------------------------------------------------------------ */
 
@@ -114,7 +114,7 @@
   color: #46586f;
   background: #fff;
   font: inherit;
-  font-size: 0.8rem;
+  font-size: 0.8125rem;
   font-weight: 600;
   cursor: pointer;
 }
@@ -123,7 +123,7 @@
 .chipOn, .chipOn:hover { border-color: #1556d4; color: #fff; background: #1556d4; }
 
 .filterRow { display: flex; flex-wrap: wrap; gap: 0.7rem; align-items: flex-end; margin: 0.9rem 0 0.35rem; }
-.filterRow label { display: flex; flex-direction: column; gap: 0.25rem; color: #66768a; font-size: 0.74rem; font-weight: 700; }
+.filterRow label { display: flex; flex-direction: column; gap: 0.25rem; color: #66768a; font-size: 0.75rem; font-weight: 700; }
 
 .filterRow input,
 .filterRow select {
@@ -134,7 +134,7 @@
   color: #182538;
   background: #fff;
   font: inherit;
-  font-size: 0.84rem;
+  font-size: 0.875rem;
 }
 
 .reset {
@@ -144,7 +144,7 @@
   color: #182538;
   background: #fff;
   font: inherit;
-  font-size: 0.8rem;
+  font-size: 0.8125rem;
   font-weight: 700;
   cursor: pointer;
 }
@@ -157,7 +157,7 @@
   border: 1px solid #dbe3ed;
   border-radius: 0.5rem;
   font: inherit;
-  font-size: 0.85rem;
+  font-size: 0.875rem;
 }
 
 /* ---- Tables & Grid View ------------------------------------------------ */
@@ -173,7 +173,7 @@
 
 .sectionHeading h1 {
   margin: 0;
-  font-size: 1.35rem;
+  font-size: 1.25rem;
   font-weight: 700;
   color: #0f172a;
   letter-spacing: -0.02em;
@@ -186,7 +186,7 @@
   border-radius: 9999px;
   background: #eff6ff;
   color: #2563eb;
-  font-size: 0.76rem;
+  font-size: 0.8125rem;
   font-weight: 700;
   border: 1px solid #dbeafe;
 }
@@ -212,7 +212,7 @@
   background: #ffffff;
   color: #0f172a;
   font: inherit;
-  font-size: 0.84rem;
+  font-size: 0.875rem;
   outline: none;
   transition: all 140ms ease;
 }
@@ -234,7 +234,7 @@
   color: #ffffff;
   background: #2563eb;
   font: inherit;
-  font-size: 0.84rem;
+  font-size: 0.875rem;
   font-weight: 600;
   cursor: pointer;
   transition: background 140ms ease;
@@ -260,7 +260,7 @@
   color: #0f172a;
   background: #ffffff;
   font: inherit;
-  font-size: 0.84rem;
+  font-size: 0.875rem;
   font-weight: 600;
   cursor: pointer;
   transition: all 140ms ease;
@@ -282,7 +282,7 @@
   gap: 0.35rem;
   padding: 0.2rem 0.6rem;
   border-radius: 9999px;
-  font-size: 0.74rem;
+  font-size: 0.75rem;
   font-weight: 700;
   white-space: nowrap;
 }
@@ -310,7 +310,7 @@
 .table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.88rem;
+  font-size: 0.875rem;
 }
 
 .table th {
@@ -318,7 +318,7 @@
   border-bottom: 1px solid #e2e8f0;
   background: #f8fafc;
   color: #475569;
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   font-weight: 700;
   letter-spacing: 0.06em;
   text-align: left;
@@ -372,7 +372,7 @@
 }
 
 .code { font-weight: 700; color: #2563eb; }
-.sub { display: block; margin-top: 0.2rem; color: #64748b; font-size: 0.78rem; font-weight: 400; }
+.sub { display: block; margin-top: 0.2rem; color: #64748b; font-size: 0.8125rem; font-weight: 400; }
 .numeric { font-variant-numeric: tabular-nums; }
 .low { color: #b91c1c; font-weight: 700; }
 .negative { color: #b91c1c; font-weight: 700; }
@@ -385,7 +385,7 @@
   color: #2563eb;
   background: #eff6ff;
   border: 1px solid #dbeafe;
-  font-size: 0.74rem;
+  font-size: 0.75rem;
   font-weight: 700;
 }
 
@@ -403,8 +403,8 @@
   border: 1px solid #e2e8f0;
 }
 
-.detailGrid span { display: block; color: #64748b; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
-.detailGrid strong { display: block; margin-top: 0.25rem; font-size: 0.88rem; color: #0f172a; }
+.detailGrid span { display: block; color: #64748b; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+.detailGrid strong { display: block; margin-top: 0.25rem; font-size: 0.875rem; color: #0f172a; }
 
 .holderList { display: flex; flex-direction: column; gap: 0.35rem; margin: 0.35rem 0 0.25rem; padding: 0; list-style: none; }
 
@@ -417,10 +417,10 @@
   border: 1px solid #e5ebf4;
   border-radius: 0.5rem;
   background: #fff;
-  font-size: 0.82rem;
+  font-size: 0.875rem;
 }
 
-.holderList em { color: #66768a; font-size: 0.76rem; font-style: normal; }
+.holderList em { color: #66768a; font-size: 0.8125rem; font-style: normal; }
 
 /* ---- Cây tài sản + chi tiết -------------------------------------------- */
 
@@ -462,13 +462,13 @@
 
 .treePanelTitle {
   margin: 0;
-  font-size: 0.95rem;
+  font-size: 1rem;
   font-weight: 700;
   color: #0f172a;
 }
 
 .treePanelSubtitle {
-  font-size: 0.74rem;
+  font-size: 0.75rem;
   color: #64748b;
 }
 
@@ -482,7 +482,7 @@
 .treeSearchIcon {
   position: absolute;
   left: 0.65rem;
-  font-size: 0.78rem;
+  font-size: 0.8125rem;
   color: #94a3b8;
   pointer-events: none;
 }
@@ -494,7 +494,7 @@
   border: 1px solid #cbd5e1;
   border-radius: 6px;
   font: inherit;
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   color: #0f172a;
   background: #ffffff;
   outline: none;
@@ -512,7 +512,7 @@
   border: none;
   background: transparent;
   color: #94a3b8;
-  font-size: 0.8rem;
+  font-size: 0.8125rem;
   cursor: pointer;
   padding: 2px 4px;
 }
@@ -724,7 +724,7 @@
   width: 18px;
   height: 18px;
   border-radius: 4px;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 700;
   flex-shrink: 0;
 }
@@ -750,7 +750,7 @@
 }
 
 .nodeName {
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   font-weight: 600;
   color: #0f172a;
   white-space: nowrap;
@@ -762,7 +762,7 @@
   display: flex;
   align-items: center;
   gap: 0.35rem;
-  font-size: 0.72rem;
+  font-size: 0.75rem;
 }
 
 .nodeCodeBadge {
@@ -776,7 +776,7 @@
   background: #dcfce7;
   padding: 0.05rem 0.35rem;
   border-radius: 4px;
-  font-size: 0.7rem;
+  font-size: 0.75rem;
   font-weight: 600;
 }
 
@@ -812,7 +812,7 @@
   background: #f0fdf4;
   color: #166534;
   font: inherit;
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   font-weight: 700;
   cursor: pointer;
   transition: all 0.12s ease;
@@ -836,7 +836,7 @@
   background: #fef2f2;
   color: #b91c1c;
   font: inherit;
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   font-weight: 700;
   cursor: pointer;
   transition: all 0.12s ease;
@@ -866,7 +866,7 @@
   background: #ffffff;
   color: #1d4ed8;
   font: inherit;
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.12s ease;
@@ -890,12 +890,12 @@
   box-shadow: 0 14px 35px #17335d0a;
 }
 
-.detailHead h2 { margin: 0 0 0.2rem; font-size: 1.3rem; letter-spacing: -0.025em; }
-.detailHead p { margin: 0; color: #66768a; font-family: ui-monospace, SFMono-Regular, monospace; font-size: 0.8rem; }
+.detailHead h2 { margin: 0 0 0.2rem; font-size: 1.25rem; letter-spacing: -0.025em; }
+.detailHead p { margin: 0; color: #66768a; font-family: ui-monospace, SFMono-Regular, monospace; font-size: 0.8125rem; }
 
 .factRow { display: flex; flex-wrap: wrap; gap: 1.6rem; }
-.fact span { display: block; color: #66768a; font-size: 0.74rem; }
-.fact strong { display: block; margin-top: 0.2rem; font-size: 0.92rem; }
+.fact span { display: block; color: #66768a; font-size: 0.75rem; }
+.fact strong { display: block; margin-top: 0.2rem; font-size: 0.875rem; }
 
 .detailPanels {
   display: grid;
@@ -911,7 +911,7 @@
   justify-content: space-between;
   padding: 0.6rem 0;
   border-bottom: 1px solid #eef2f7;
-  font-size: 0.88rem;
+  font-size: 0.875rem;
 }
 
 .specRow:last-child { border-bottom: 0; }
@@ -922,20 +922,20 @@
 
 .linkButton {
   padding: 0; border: 0; background: transparent; color: #1556d4;
-  font: inherit; font-size: 0.82rem; font-weight: 700; cursor: pointer;
+  font: inherit; font-size: 0.875rem; font-weight: 700; cursor: pointer;
 }
 .linkButton:hover { text-decoration: underline; }
 
 .editList { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.75rem; }
 
-.hint { margin: 0 0 0.25rem; color: #66768a; font-size: 0.78rem; line-height: 1.5; }
+.hint { margin: 0 0 0.25rem; color: #66768a; font-size: 0.8125rem; line-height: 1.5; }
 
 .editRow { display: flex; gap: 0.4rem; align-items: center; }
 
 .editRow input {
   flex: 1; min-width: 0; padding: 0.45rem 0.6rem;
   border: 1px solid #dbe3ed; border-radius: 0.45rem;
-  color: #182538; font: inherit; font-size: 0.85rem;
+  color: #182538; font: inherit; font-size: 0.875rem;
 }
 .editRow input:focus-visible { outline: 2px solid #1556d4; outline-offset: 1px; }
 
@@ -949,7 +949,7 @@
 .addRow {
   align-self: flex-start; padding: 0.4rem 0.7rem;
   border: 1px dashed #dbe3ed; border-radius: 0.45rem;
-  color: #1556d4; background: #fff; font: inherit; font-size: 0.8rem; font-weight: 700; cursor: pointer;
+  color: #1556d4; background: #fff; font: inherit; font-size: 0.8125rem; font-weight: 700; cursor: pointer;
 }
 .addRow:hover { border-color: #1556d4; background: #f4f8ff; }
 
@@ -959,14 +959,14 @@
 
 .taskList li {
   display: grid; grid-template-columns: auto 1fr auto; gap: 0.6rem; align-items: center;
-  padding: 0.5rem 0.65rem; border: 1px solid #eef2f7; border-radius: 0.5rem; font-size: 0.85rem;
+  padding: 0.5rem 0.65rem; border: 1px solid #eef2f7; border-radius: 0.5rem; font-size: 0.875rem;
 }
 
-.taskList em { color: #66768a; font-size: 0.76rem; font-style: normal; white-space: nowrap; }
+.taskList em { color: #66768a; font-size: 0.8125rem; font-style: normal; white-space: nowrap; }
 
 .taskKey {
   display: grid; place-items: center; min-width: 2.2rem; padding: 0.1rem 0.4rem;
-  border-radius: 0.35rem; color: #1556d4; background: #eaf0ff; font-size: 0.72rem; font-weight: 800;
+  border-radius: 0.35rem; color: #1556d4; background: #eaf0ff; font-size: 0.75rem; font-weight: 800;
 }
 
 /* ---- States ------------------------------------------------------------ */
@@ -997,7 +997,7 @@
   border-radius: 0.65rem;
   color: #16624a;
   background: #f0faf5;
-  font-size: 0.86rem;
+  font-size: 0.875rem;
 }
 
 .formGrid {
@@ -1013,7 +1013,7 @@
   flex-direction: column;
   gap: 0.28rem;
   color: #66768a;
-  font-size: 0.74rem;
+  font-size: 0.75rem;
   font-weight: 700;
 }
 
@@ -1026,13 +1026,13 @@
   color: #182538;
   background: #fff;
   font: inherit;
-  font-size: 0.86rem;
+  font-size: 0.875rem;
   font-weight: 400;
 }
 
 .formGrid input:read-only { color: #66768a; background: #f7f9fd; }
 .formGrid small,
-.card > label small { color: #66768a; font-size: 0.72rem; font-weight: 400; }
+.card > label small { color: #66768a; font-size: 0.75rem; font-weight: 400; }
 
 .checkRow {
   display: flex;
@@ -1040,7 +1040,7 @@
   align-items: center;
   margin: 0.2rem 0 0.4rem;
   color: #46586f;
-  font-size: 0.85rem;
+  font-size: 0.875rem;
   font-weight: 600;
 }
 
@@ -1066,7 +1066,7 @@
   color: #dc2626;
   background: #fff;
   font: inherit;
-  font-size: 0.78rem;
+  font-size: 0.8125rem;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.14s ease;
@@ -1084,10 +1084,10 @@
 
 .dashList { display: flex; flex-direction: column; gap: 0.4rem; margin: 0; padding: 0; list-style: none; }
 .dashList li { display: flex; gap: 0.75rem; align-items: baseline; justify-content: space-between; }
-.dashList span { min-width: 0; overflow: hidden; font-size: 0.88rem; text-overflow: ellipsis; white-space: nowrap; }
-.dashList small { flex: none; color: #66768a; font-size: 0.8rem; font-variant-numeric: tabular-nums; }
+.dashList span { min-width: 0; overflow: hidden; font-size: 0.875rem; text-overflow: ellipsis; white-space: nowrap; }
+.dashList small { flex: none; color: #66768a; font-size: 0.8125rem; font-variant-numeric: tabular-nums; }
 
-.dashEmpty { margin: 0; color: #66768a; font-size: 0.85rem; }
+.dashEmpty { margin: 0; color: #66768a; font-size: 0.875rem; }
 
 /* Bảo hành đã hết hạn: con số chỉ có ích khi nhìn ra ngay giữa các ô khác. */
 .factWarn { color: #b4232a; }
@@ -1096,8 +1096,8 @@
 
 .spareList { display: flex; flex-direction: column; gap: 0.4rem; margin: 0 0 0.8rem; padding: 0; list-style: none; }
 .spareList li { display: flex; gap: 0.75rem; align-items: center; justify-content: space-between; padding: 0.5rem 0.75rem; border: 1px solid #dbe3ed; border-radius: 0.5rem; background: #ffffff; }
-.spareList strong { display: block; font-size: 0.88rem; }
-.spareList small { color: #66768a; font-size: 0.78rem; }
+.spareList strong { display: block; font-size: 0.875rem; }
+.spareList small { color: #66768a; font-size: 0.8125rem; }
 
 /* Thẻ phụ tùng BOM hiện đại */
 .spareCardGrid {
@@ -1145,7 +1145,7 @@
 }
 
 .spareCardIcon {
-  font-size: 1.1rem;
+  font-size: 1rem;
 }
 
 .spareCardInfo {
@@ -1162,7 +1162,7 @@
 }
 
 .spareCardName {
-  font-size: 0.9rem;
+  font-size: 0.875rem;
   font-weight: 700;
   color: #0f172a;
 }
@@ -1174,7 +1174,7 @@
   border: 1px solid #e2e8f0;
   color: #475569;
   font-family: monospace;
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   font-weight: 600;
 }
 
@@ -1186,7 +1186,7 @@
   background: #fef3c7;
   border: 1px solid #fde68a;
   color: #b45309;
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   font-weight: 700;
 }
 
@@ -1195,7 +1195,7 @@
   align-items: center;
   gap: 0.5rem;
   flex-wrap: wrap;
-  font-size: 0.78rem;
+  font-size: 0.8125rem;
   color: #64748b;
 }
 
@@ -1216,7 +1216,7 @@
   padding: 0.05rem 0.4rem;
   border-radius: 4px;
   font-weight: 600;
-  font-size: 0.74rem;
+  font-size: 0.75rem;
 }
 
 .stockBadgeDanger {
@@ -1228,12 +1228,12 @@
   padding: 0.05rem 0.4rem;
   border-radius: 4px;
   font-weight: 600;
-  font-size: 0.74rem;
+  font-size: 0.75rem;
 }
 
 .spareFreeStock {
   color: #64748b;
-  font-size: 0.74rem;
+  font-size: 0.75rem;
 }
 
 .deleteActionBtn {
@@ -1242,7 +1242,7 @@
   border-radius: 0.4rem;
   color: #b91c1c;
   font: inherit;
-  font-size: 0.76rem;
+  font-size: 0.8125rem;
   font-weight: 600;
   background: #fff;
   cursor: pointer;
@@ -1260,7 +1260,7 @@
   border-radius: 0.4rem;
   color: #2563eb;
   font: inherit;
-  font-size: 0.76rem;
+  font-size: 0.8125rem;
   font-weight: 600;
   background: #fff;
   cursor: pointer;
@@ -1286,7 +1286,7 @@
 }
 
 .popconfirmText {
-  font-size: 0.74rem;
+  font-size: 0.75rem;
   font-weight: 600;
   color: #991b1b;
   white-space: nowrap;
@@ -1305,7 +1305,7 @@
   background: #dc2626;
   color: #ffffff;
   font: inherit;
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   font-weight: 700;
   cursor: pointer;
   transition: background 0.12s ease;
@@ -1322,7 +1322,7 @@
   background: #ffffff;
   color: #475569;
   font: inherit;
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.12s ease;
@@ -1335,10 +1335,10 @@
 
 .spareForm { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
 .spareForm select { flex: 1; min-width: 12rem; }
-.spareForm select, .spareForm input[type='number'] { padding: 0.35rem 0.5rem; border: 1px solid #dbe3ed; border-radius: 0.45rem; font: inherit; font-size: 0.84rem; }
+.spareForm select, .spareForm input[type='number'] { padding: 0.35rem 0.5rem; border: 1px solid #dbe3ed; border-radius: 0.45rem; font: inherit; font-size: 0.875rem; }
 .spareForm input[type='number'] { width: 6rem; }
-.spareForm label { display: flex; gap: 0.35rem; align-items: center; font-size: 0.82rem; }
-.spareForm > button { padding: 0.4rem 0.8rem; border: 1px solid transparent; border-radius: 0.5rem; color: #fff; font: inherit; font-size: 0.82rem; font-weight: 700; background: #2563eb; cursor: pointer; }
+.spareForm label { display: flex; gap: 0.35rem; align-items: center; font-size: 0.875rem; }
+.spareForm > button { padding: 0.4rem 0.8rem; border: 1px solid transparent; border-radius: 0.5rem; color: #fff; font: inherit; font-size: 0.875rem; font-weight: 700; background: #2563eb; cursor: pointer; }
 .spareForm > button:hover:not(:disabled) { background: #1d4ed8; }
 .spareForm > button:disabled { opacity: 0.5; cursor: not-allowed; }
 
@@ -1445,7 +1445,7 @@
   border: 1px solid transparent;
   border-radius: 0.5rem;
   font: inherit;
-  font-size: 0.84rem;
+  font-size: 0.875rem;
   font-weight: 600;
   color: #475569;
   background: transparent;
@@ -1472,7 +1472,7 @@
   align-items: center;
   padding: 0.15rem 0.55rem;
   border-radius: 999px;
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   font-weight: 700;
   letter-spacing: 0.02em;
 }
@@ -1510,7 +1510,7 @@
   border: 1px solid transparent;
   border-radius: 0.5rem;
   font: inherit;
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   font-weight: 700;
   color: #ffffff;
   background: #2563eb;
@@ -1536,7 +1536,7 @@
   border: 1px solid #cbd5e1;
   border-radius: 0.5rem;
   font: inherit;
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   font-weight: 600;
   color: #334155;
   background: #ffffff;
@@ -1658,7 +1658,7 @@
   border-radius: 0.55rem;
   color: #64748b;
   background: transparent;
-  font-size: 1.2rem;
+  font-size: 1.25rem;
   cursor: pointer;
   transition: all 140ms ease;
 }
@@ -1701,7 +1701,7 @@
 
 .formGroup label {
   color: #1e293b;
-  font-size: 0.88rem;
+  font-size: 0.875rem;
   font-weight: 700;
 }
 
@@ -1715,7 +1715,7 @@
   color: #0f172a;
   background: #ffffff;
   font: inherit;
-  font-size: 0.92rem;
+  font-size: 0.875rem;
   transition: all 140ms ease;
 }
 
@@ -1729,7 +1729,7 @@
 
 .formGroup small {
   color: #64748b;
-  font-size: 0.78rem;
+  font-size: 0.8125rem;
   line-height: 1.4;
 }
 
@@ -1783,7 +1783,7 @@
   background: #2563eb;
   color: #ffffff;
   font: inherit;
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
@@ -1817,7 +1817,7 @@
   background: transparent;
   color: #475569;
   font: inherit;
-  font-size: 0.8rem;
+  font-size: 0.8125rem;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.14s ease;
@@ -1839,7 +1839,7 @@
   border-radius: 999px;
   background: rgba(37, 99, 235, 0.1);
   color: #2563eb;
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   font-weight: 700;
 }
 
@@ -1847,7 +1847,7 @@
   display: inline-block;
   font-family: ui-monospace, monospace;
   font-weight: 700;
-  font-size: 0.88rem;
+  font-size: 0.875rem;
   color: #1e40af;
 }
 
@@ -1862,7 +1862,7 @@
 .tableSearchIcon {
   position: absolute;
   left: 0.65rem;
-  font-size: 0.8rem;
+  font-size: 0.8125rem;
   color: #94a3b8;
   pointer-events: none;
 }
@@ -1874,7 +1874,7 @@
   border: 1px solid #cbd5e1;
   border-radius: 6px;
   font: inherit;
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   color: #0f172a;
   background: #ffffff;
   outline: none;
@@ -1892,7 +1892,7 @@
   border: 1px solid #cbd5e1;
   border-radius: 6px;
   font: inherit;
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   color: #0f172a;
   background: #ffffff;
   outline: none;
@@ -1916,7 +1916,7 @@
   background: #ffffff;
   color: #475569;
   font: inherit;
-  font-size: 0.8rem;
+  font-size: 0.8125rem;
   font-weight: 600;
   white-space: nowrap;
   cursor: pointer;
@@ -1940,7 +1940,7 @@
   min-width: 1100px;
   table-layout: fixed;
   border-collapse: collapse;
-  font-size: 0.85rem;
+  font-size: 0.875rem;
 }
 
 .standardTable th {
@@ -1948,7 +1948,7 @@
   border-bottom: 1px solid #e2e8f0;
   background: #f8fafc;
   color: #475569;
-  font-size: 0.74rem;
+  font-size: 0.75rem;
   font-weight: 700;
   text-align: left;
   white-space: nowrap;
@@ -1971,7 +1971,7 @@
   border: 1px solid #cbd5e1;
   border-radius: 4px;
   font: inherit;
-  font-size: 0.8rem;
+  font-size: 0.8125rem;
   background: #ffffff;
   color: #0f172a;
   outline: none;
@@ -2000,7 +2000,7 @@
   padding: 10px 14px;
   border-top: 1px solid #e2e8f0;
   background: #f8fafc;
-  font-size: 12px;
+  font-size: 13px;
   color: #64748b;
 }
 
@@ -2011,7 +2011,7 @@
 }
 
 .tableTotalRecords {
-  font-size: 12px;
+  font-size: 13px;
   color: #64748b;
 }
 
@@ -2023,7 +2023,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 11.5px;
+  font-size: 12px;
   color: #64748b;
 }
 
@@ -2034,7 +2034,7 @@
   background: #ffffff;
   color: #0f172a;
   font: inherit;
-  font-size: 11px;
+  font-size: 12px;
   outline: none;
   cursor: pointer;
   transition: all 0.14s ease;
@@ -2056,7 +2056,7 @@
 }
 
 .tablePageIndicator {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 700;
   color: #0f172a;
   padding: 0 4px;
@@ -2072,7 +2072,7 @@
   background: #ffffff;
   color: #0f172a;
   font: inherit;
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.14s ease;
@@ -2097,7 +2097,7 @@
   background: #f1f5f9;
   border: 1px solid #e2e8f0;
   color: #334155;
-  font-size: 0.76rem;
+  font-size: 0.8125rem;
   font-weight: 600;
 }
 
@@ -2107,7 +2107,7 @@
   gap: 0.35rem;
   padding: 0.15rem 0.55rem;
   border-radius: 999px;
-  font-size: 0.74rem;
+  font-size: 0.75rem;
   font-weight: 700;
   white-space: nowrap;
 }
@@ -2140,7 +2140,7 @@
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
-  font-size: 0.8rem;
+  font-size: 0.8125rem;
   color: #475569;
 }
 
@@ -2155,7 +2155,7 @@
   background: #ffffff;
   color: #2563eb;
   font: inherit;
-  font-size: 0.78rem;
+  font-size: 0.8125rem;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.14s ease;
@@ -2182,7 +2182,7 @@
   border-radius: 6px;
   background: #ffffff;
   color: #475569;
-  font-size: 0.85rem;
+  font-size: 0.875rem;
   cursor: pointer;
   transition: all 0.14s ease;
 }
@@ -2206,7 +2206,7 @@
   border: 1px solid #bfdbfe;
   border-radius: 6px;
   color: #1e40af;
-  font-size: 0.8rem;
+  font-size: 0.8125rem;
   line-height: 1.45;
 }
 
@@ -2227,7 +2227,7 @@
   background: #ffffff;
   color: #475569;
   font: inherit;
-  font-size: 0.84rem;
+  font-size: 0.875rem;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.14s ease;
@@ -2245,7 +2245,7 @@
   background: #2563eb;
   color: #ffffff;
   font: inherit;
-  font-size: 0.84rem;
+  font-size: 0.875rem;
   font-weight: 600;
   cursor: pointer;
   transition: background 0.14s ease;
@@ -2285,14 +2285,14 @@
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   font-weight: 700;
   color: #1d4ed8;
 }
 
 .inlineEditHint {
   margin: 0;
-  font-size: 0.76rem;
+  font-size: 0.8125rem;
   color: #64748b;
   line-height: 1.4;
 }
@@ -2307,7 +2307,7 @@
 .inlineEditTable {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.82rem;
+  font-size: 0.875rem;
 }
 
 .inlineEditTable th {
@@ -2315,7 +2315,7 @@
   background: #f1f5f9;
   border-bottom: 1px solid #e2e8f0;
   color: #334155;
-  font-size: 0.74rem;
+  font-size: 0.75rem;
   font-weight: 700;
   text-align: left;
 }
@@ -2333,7 +2333,7 @@
   border: 1px solid #cbd5e1;
   border-radius: 5px;
   font: inherit;
-  font-size: 0.8rem;
+  font-size: 0.8125rem;
   color: #0f172a;
   background: #ffffff;
   outline: none;
@@ -2355,7 +2355,7 @@
   border-radius: 5px;
   background: #ffffff;
   color: #dc2626;
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   cursor: pointer;
   transition: all 0.14s ease;
 }
@@ -2369,7 +2369,7 @@
   padding: 1.25rem !important;
   text-align: center;
   color: #64748b;
-  font-size: 0.8rem;
+  font-size: 0.8125rem;
 }
 
 .inlineActionRow {
@@ -2391,7 +2391,7 @@
   background: #ffffff;
   color: #2563eb;
   font: inherit;
-  font-size: 0.78rem;
+  font-size: 0.8125rem;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.14s ease;
@@ -2417,7 +2417,7 @@
   border: 1px solid #bbf7d0;
   border-radius: 4px;
   color: #15803d;
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   font-weight: 600;
 }
 
@@ -2430,7 +2430,7 @@
   border: 1px solid #e2e8f0;
   border-radius: 4px;
   color: #64748b;
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   font-weight: 500;
 }
 
@@ -2528,7 +2528,7 @@
   align-items: center;
   gap: 0.4rem;
   padding: 0.25rem 0.65rem;
-  font-size: 0.8125rem;
+  font-size: 0.875rem;
   font-weight: 500;
   color: #1e293b;
   background: #f1f5f9;
@@ -2554,7 +2554,7 @@
 }
 
 .unitTagBadge {
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   font-style: normal;
   font-weight: 600;
   padding: 0.05rem 0.35rem;
@@ -2591,7 +2591,7 @@
 }
 
 .unitEmpty {
-  font-size: 0.8125rem;
+  font-size: 0.875rem;
   color: #94a3b8;
   font-style: italic;
   padding: 0.25rem 0;
@@ -2630,7 +2630,7 @@
   box-sizing: border-box;
   padding: 0.475rem 0.75rem;
   font: inherit;
-  font-size: 0.8125rem;
+  font-size: 0.875rem;
   color: #0f172a;
   background: #ffffff;
   border: 1px solid #cbd5e1;
@@ -2662,7 +2662,7 @@
   gap: 0.35rem;
   padding: 0.475rem 0.9rem;
   font: inherit;
-  font-size: 0.8125rem;
+  font-size: 0.875rem;
   font-weight: 600;
   color: #ffffff;
   background: #2563eb;
@@ -2709,7 +2709,7 @@
     thead th {
       background: #f8fafc;
       padding: 0.65rem 0.85rem;
-      font-size: 0.75rem;
+      font-size: 0.8125rem;
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0.04em;
@@ -2722,7 +2722,7 @@
       padding: 0.5rem 0.75rem;
       border-bottom: 1px solid #f1f5f9;
       vertical-align: middle;
-      font-size: 0.8125rem;
+      font-size: 0.875rem;
     }
 
     tbody tr:last-child td {
@@ -2737,7 +2737,7 @@
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
       font-weight: 700;
       color: #1e293b;
-      font-size: 0.8125rem;
+      font-size: 0.875rem;
       letter-spacing: 0.03em;
     }
 
@@ -2747,7 +2747,7 @@
       box-sizing: border-box;
       padding: 0.4rem 0.65rem;
       font: inherit;
-      font-size: 0.8125rem;
+      font-size: 0.875rem;
       color: #0f172a;
       background: #ffffff;
       border: 1px solid #cbd5e1;
@@ -2832,7 +2832,7 @@
   box-sizing: border-box;
   padding: 0.475rem 0.75rem;
   font: inherit;
-  font-size: 0.8125rem;
+  font-size: 0.875rem;
   color: #0f172a;
   background: #ffffff;
   border: 1px solid #cbd5e1;
@@ -2872,7 +2872,7 @@
   gap: 0.35rem;
   padding: 0.475rem 1rem;
   font: inherit;
-  font-size: 0.8125rem;
+  font-size: 0.875rem;
   font-weight: 600;
   color: #ffffff;
   background: #2563eb;
@@ -2956,7 +2956,7 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -2973,7 +2973,7 @@
 
 .drawerSubtitle {
   margin: 0;
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   color: #64748b;
   display: flex;
   align-items: center;
@@ -2997,7 +2997,7 @@
   padding: 0.65rem 1.6rem;
   background: #f1f5f9;
   border-bottom: 1px solid #e2e8f0;
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   color: #334155;
   font-weight: 500;
 }
@@ -3020,7 +3020,7 @@
   border: none;
   border-bottom: 2px solid transparent;
   background: transparent;
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   font-weight: 600;
   color: #64748b;
   cursor: pointer;
@@ -3047,7 +3047,7 @@
   border-radius: 6px;
   background: #ffffff;
   color: #475569;
-  font-size: 0.85rem;
+  font-size: 0.875rem;
   cursor: pointer;
   transition: all 0.14s ease;
   flex-shrink: 0;
@@ -3076,7 +3076,7 @@
 
 .drawerSectionTitle {
   margin: 0;
-  font-size: 0.92rem;
+  font-size: 0.875rem;
   font-weight: 700;
   color: #1e293b;
   display: flex;
@@ -3102,13 +3102,13 @@
 }
 
 .drawerStockWarehouse {
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   font-weight: 700;
   color: #334155;
 }
 
 .drawerStockQty {
-  font-size: 1.15rem;
+  font-size: 1.25rem;
   font-weight: 700;
   color: #0f172a;
 }
@@ -3117,7 +3117,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   color: #64748b;
 }
 
@@ -3142,7 +3142,7 @@
 .binCoordinatePath {
   font-weight: 700;
   color: #1e40af;
-  font-size: 0.88rem;
+  font-size: 0.875rem;
 }
 
 /* Aging Card */
@@ -3163,7 +3163,7 @@
 }
 
 .agingCardTitle {
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   color: #64748b;
   font-weight: 600;
   text-transform: uppercase;
@@ -3171,13 +3171,13 @@
 }
 
 .agingCardValue {
-  font-size: 1.2rem;
+  font-size: 1.25rem;
   font-weight: 700;
   color: #0f172a;
 }
 
 .agingCardStatus {
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   font-weight: 600;
   display: inline-flex;
   align-items: center;
@@ -3199,7 +3199,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  font-size: 0.84rem;
+  font-size: 0.875rem;
   padding-bottom: 0.5rem;
   border-bottom: 1px dashed #e2e8f0;
 
@@ -3230,7 +3230,7 @@
   padding: 0.45rem 0.65rem;
   border: 1px solid #cbd5e1;
   border-radius: 6px;
-  font-size: 0.88rem;
+  font-size: 0.875rem;
   background: #ffffff;
   color: #0f172a;
 
@@ -3294,7 +3294,7 @@
   align-items: center;
   gap: 0.4rem;
   padding: 0.48rem 0.75rem;
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   font-weight: 600;
   border-radius: 6px;
   border: 1px solid #cbd5e1;
@@ -3383,7 +3383,7 @@
 .lotMovementDialogTitle h3 {
   margin: 0;
   color: #0f172a;
-  font-size: 18px;
+  font-size: 20px;
   font-weight: 700;
 }
 
@@ -3391,7 +3391,7 @@
   margin: 5px 0 0;
   overflow-wrap: anywhere;
   color: #64748b;
-  font-size: 12.5px;
+  font-size: 13px;
   line-height: 1.45;
 }
 
@@ -3464,7 +3464,7 @@
 }
 
 .formFieldBlock label {
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 600;
   color: #334155;
 }
@@ -3476,7 +3476,7 @@
   min-width: 0;
   width: 100%;
   padding: 7px 10px;
-  font-size: 13px;
+  font-size: 14px;
   border: 1px solid #cbd5e1;
   border-radius: 6px;
   background: #ffffff;
@@ -3512,7 +3512,7 @@
 .comboboxInput {
   width: 100%;
   padding: 8px 12px 8px 34px !important;
-  font-size: 13px !important;
+  font-size: 14px !important;
   border: 1px solid #cbd5e1 !important;
   border-radius: 6px !important;
   background: #ffffff !important;
@@ -3547,7 +3547,7 @@
   align-items: center;
   justify-content: space-between;
   padding: 8px 12px;
-  font-size: 12.5px;
+  font-size: 13px;
   cursor: pointer;
   transition: background 0.12s;
 
@@ -3571,7 +3571,7 @@
 }
 
 .comboboxItemName {
-  font-size: 12px;
+  font-size: 13px;
   color: #475569;
   white-space: nowrap;
   overflow: hidden;
@@ -3583,7 +3583,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 11.5px;
+  font-size: 12px;
   color: #64748b;
 }
 
@@ -3623,7 +3623,7 @@
   width: 100%;
   border-collapse: separate;
   border-spacing: 0;
-  font-size: 12.5px;
+  font-size: 13px;
   min-width: 980px;
 }
 
@@ -3631,7 +3631,7 @@
   padding: 9px 12px;
   background: #f8fafc;
   color: #475569;
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -3708,7 +3708,7 @@
 .gridCellInput {
   width: 100%;
   padding: 5px 8px;
-  font-size: 12.5px;
+  font-size: 13px;
   border: 1px solid #cbd5e1;
   border-radius: 5px;
   background: #ffffff;
@@ -3724,7 +3724,7 @@
 .gridCellSelect {
   width: 100%;
   padding: 5px 8px;
-  font-size: 12px;
+  font-size: 13px;
   border: 1px solid #cbd5e1;
   border-radius: 5px;
   background: #ffffff;
@@ -3762,7 +3762,7 @@
   gap: 4px;
   padding: 2px 7px;
   border-radius: 9999px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   white-space: nowrap;
 }
@@ -3793,7 +3793,7 @@
   padding: 10px 16px;
   background: #f8fafc;
   border-top: 1px solid #e2e8f0;
-  font-size: 12.5px;
+  font-size: 13px;
   color: #475569;
   flex-wrap: wrap;
   gap: 8px;
@@ -3803,7 +3803,7 @@
   display: flex;
   align-items: center;
   gap: 16px;
-  font-size: 12.5px;
+  font-size: 13px;
   flex-wrap: wrap;
 
   strong {
@@ -3862,7 +3862,7 @@
   align-items: center;
   gap: 10px;
   color: #64748b;
-  font-size: 12.5px;
+  font-size: 13px;
 }
 
 .fileUploadAttachedCard {
@@ -3873,7 +3873,7 @@
   background: #eff6ff;
   border: 1px solid #bfdbfe;
   border-radius: 6px;
-  font-size: 12.5px;
+  font-size: 13px;
   color: #1d4ed8;
 }
 
@@ -3923,7 +3923,7 @@
   background: #fef2f2;
   border-color: #fecaca;
   color: #b91c1c;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
 }
 
@@ -3978,7 +3978,7 @@
   display: flex;
   align-items: center;
   gap: 0.35rem;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   color: #64748b;
   text-transform: uppercase;
@@ -3991,14 +3991,14 @@
   gap: 0.35rem;
 
   strong {
-    font-size: 1.15rem;
+    font-size: 1.25rem;
     font-weight: 700;
     color: #0f172a;
     font-variant-numeric: tabular-nums;
   }
 
   small {
-    font-size: 11px;
+    font-size: 12px;
     color: #64748b;
     font-weight: 500;
   }
@@ -4051,7 +4051,7 @@
 .historySearchInput {
   width: 100%;
   padding: 0.42rem 0.65rem 0.42rem 2rem;
-  font-size: 12.5px;
+  font-size: 13px;
   border: 1px solid #cbd5e1;
   border-radius: 6px;
   background: #ffffff;
@@ -4085,7 +4085,7 @@
   border-radius: 6px;
   background: #ffffff;
   color: #64748b;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.14s ease;
@@ -4201,7 +4201,7 @@
   align-items: center;
   padding: 1px 7px;
   border-radius: 4px;
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 700;
 }
 
@@ -4225,14 +4225,14 @@
   border-radius: 4px;
   background: #f1f5f9;
   border: 1px solid #cbd5e1;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   color: #334155;
 }
 
 .historyTxCode {
   font-family: ui-monospace, monospace;
-  font-size: 10.5px;
+  font-size: 12px;
   color: #64748b;
   background: #f8fafc;
   border: 1px solid #e2e8f0;
@@ -4244,7 +4244,7 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 11px;
+  font-size: 12px;
   color: #64748b;
   font-weight: 500;
   font-variant-numeric: tabular-nums;
@@ -4260,12 +4260,12 @@
 .historyNoteCardEmpty {
   color: #94a3b8;
   font-style: italic;
-  font-size: 11.5px;
+  font-size: 12px;
 }
 
 .historyNoteText {
   margin: 0;
-  font-size: 12.5px;
+  font-size: 13px;
   color: #1e293b;
   line-height: 1.45;
   word-break: break-word;
@@ -4280,7 +4280,7 @@
 }
 
 .historyMetaTag {
-  font-size: 11px;
+  font-size: 12px;
   color: #475569;
   background: #f1f5f9;
   padding: 1px 6px;
@@ -4314,12 +4314,12 @@
 }
 
 .historyQtyNumber {
-  font-size: 1.18rem;
+  font-size: 1.25rem;
   font-weight: 800;
 }
 
 .historyQtyUnit {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   color: #64748b;
   margin-left: 2px;
@@ -4336,14 +4336,14 @@
   border: 1px dashed #cbd5e1;
   border-radius: 8px;
   color: #64748b;
-  font-size: 12.5px;
+  font-size: 13px;
 }
 
 .historyFooterNote {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  font-size: 11.5px;
+  font-size: 12px;
   color: #64748b;
   padding-top: 0.25rem;
 
@@ -4382,7 +4382,7 @@
   background: #fef2f2;
   border-color: #fecaca;
   color: #b91c1c;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
 }
 
@@ -4430,7 +4430,7 @@
   align-items: center;
   padding: 3px 9px;
   border-radius: 9999px;
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 700;
   border: 1px solid transparent;
 }
@@ -4468,7 +4468,7 @@
 }
 
 .stocktakeCompareLabel {
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 600;
   color: #64748b;
   text-transform: uppercase;
@@ -4481,21 +4481,21 @@
   gap: 0.35rem;
 
   strong {
-    font-size: 1.35rem;
+    font-size: 1.25rem;
     font-weight: 800;
     color: #0f172a;
     font-variant-numeric: tabular-nums;
   }
 
   small {
-    font-size: 12px;
+    font-size: 13px;
     color: #64748b;
     font-weight: 600;
   }
 }
 
 .stocktakeCompareHint {
-  font-size: 11.5px;
+  font-size: 12px;
   color: #94a3b8;
   line-height: 1.35;
 }
@@ -4534,7 +4534,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .stocktakeMetaLabel {
@@ -4556,7 +4556,7 @@
 
   code {
     font-family: ui-monospace, monospace;
-    font-size: 11px;
+    font-size: 12px;
     background: #ffffff;
     border: 1px solid #cbd5e1;
     padding: 1px 5px;
@@ -4578,7 +4578,7 @@
 }
 
 .stocktakeReasonTitle {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   color: #b45309;
   text-transform: uppercase;
@@ -4586,7 +4586,7 @@
 
 .stocktakeReasonText {
   margin: 0;
-  font-size: 12.5px;
+  font-size: 13px;
   color: #334155;
   line-height: 1.45;
 }
@@ -4600,7 +4600,7 @@
 
 .stocktakeAllocationsTitle {
   margin: 0;
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 700;
   color: #1e293b;
   display: flex;
@@ -4618,7 +4618,7 @@
 .stocktakeMiniTable {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12px;
+  font-size: 13px;
 
   th {
     background: #f8fafc;

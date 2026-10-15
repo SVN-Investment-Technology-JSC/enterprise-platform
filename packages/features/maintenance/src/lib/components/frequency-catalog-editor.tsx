@@ -449,7 +449,7 @@ export function FrequencyCatalogEditor({
       >
         <div className={styles.popupFormContent}>
           {addError && (
-            <p style={{ color: '#dc2626', fontSize: '13px', margin: 0 }}>{addError}</p>
+            <p style={{ color: '#dc2626', fontSize: '14px', margin: 0 }}>{addError}</p>
           )}
 
           <div className={styles.formField}>

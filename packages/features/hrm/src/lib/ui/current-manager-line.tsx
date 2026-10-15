@@ -25,10 +25,10 @@ export function CurrentManagerLine({
         {manager.code ? ` (${manager.code})` : ''}
       </span>
       {manager.title ? (
-        <span className="block text-[11px] font-normal text-slate-500">{manager.title}</span>
+        <span className="block text-[14px] font-normal text-slate-500">{manager.title}</span>
       ) : null}
       {manager.source === 'CHIEF_FALLBACK' ? (
-        <span className="block text-[11px] font-normal text-slate-500">Duyệt mặc định (chưa khai báo quản lý)</span>
+        <span className="block text-[14px] font-normal text-slate-500">Duyệt mặc định (chưa khai báo quản lý)</span>
       ) : null}
     </span>
   );

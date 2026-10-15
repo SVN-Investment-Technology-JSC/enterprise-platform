@@ -374,7 +374,7 @@ export function OrganizationTreeOutline({
                   {item.name}
                 </TooltipTrigger>
                 <TooltipContent side="right" className="max-w-sm flex-col items-start gap-0.5 py-2">
-                  <span className="text-[13px] font-semibold leading-snug">{item.name}</span>
+                  <span className="text-[14px] font-semibold leading-snug">{item.name}</span>
                   <span className="opacity-80">Mã: {item.code}</span>
                   {item.nodeTypeId && nodeTypes.get(item.nodeTypeId) ? (
                     <span className="opacity-80">Loại: {nodeTypes.get(item.nodeTypeId)?.name}</span>
@@ -388,7 +388,7 @@ export function OrganizationTreeOutline({
                 <span className="line-clamp-2 min-w-0 break-words">{item.name}</span>
                 {isHeadPosition ? (
                   <span
-                    className="inline-flex items-center gap-0.5 rounded-full bg-amber-100/90 px-1.5 py-0.2 text-[9px] font-bold text-amber-800 border border-amber-300 shrink-0"
+                    className="inline-flex items-center gap-0.5 rounded-full bg-amber-100/90 px-1.5 py-0.2 text-[12px] font-bold text-amber-800 border border-amber-300 shrink-0"
                     title="Chức danh quản lý chính của đơn vị"
                   >
                     ★ Quản lý
@@ -473,9 +473,9 @@ export function OrganizationTreeOutline({
       <div className="flex shrink-0 items-center justify-between border-b border-[#eef0f3] bg-[#fafbfc] px-3.5 py-3">
         <div className="flex items-center gap-2">
           <FolderTree className="size-4 text-amber-700" />
-          <h3 className="m-0 text-[13.5px] font-bold text-slate-900">Sơ đồ phân cấp</h3>
+          <h3 className="m-0 text-[14px] font-bold text-slate-900">Sơ đồ phân cấp</h3>
         </div>
-        <div className="flex items-center gap-1 text-[11px] text-slate-500">
+        <div className="flex items-center gap-1 text-[12px] text-slate-500">
           <button
             type="button"
             onClick={allCollapsed ? expandAll : collapseAll}
@@ -510,11 +510,11 @@ export function OrganizationTreeOutline({
           ) : null}
         </div>
         {searchTerm.trim() ? (
-          <div className="mt-1.5 flex items-center justify-between px-1 text-[11px] text-slate-500">
+          <div className="mt-1.5 flex items-center justify-between px-1 text-[12px] text-slate-500">
             <span>
               Tìm thấy: <b className="text-blue-600">{matchedDirectIds.size}</b> node phù hợp
             </span>
-            <span className="text-[10px] text-slate-400">Tự động giữ mạch tổ tiên</span>
+            <span className="text-[12px] text-slate-400">Tự động giữ mạch tổ tiên</span>
           </div>
         ) : null}
       </div>
@@ -533,7 +533,7 @@ export function OrganizationTreeOutline({
       </div>
 
       {/* Footer Status */}
-      <div className="flex shrink-0 items-center justify-between border-t border-[#eef0f3] px-3.5 py-2.5 text-[11.5px] text-slate-500">
+      <div className="flex shrink-0 items-center justify-between border-t border-[#eef0f3] px-3.5 py-2.5 text-[12px] text-slate-500">
         <span>Tổng cộng: <b className="text-[#18181b]">{nodes.length}</b> node</span>
         <span className="text-slate-400">Bấm node để xem chi tiết</span>
       </div>

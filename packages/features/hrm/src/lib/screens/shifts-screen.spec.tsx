@@ -245,4 +245,21 @@ describe('ShiftsScreen (danh mục ca làm việc)', () => {
     await waitFor(() => expect(patches()).toHaveLength(2));
     expect(JSON.parse(String(patches()[1].init?.body))).toMatchObject({ status: 'INACTIVE', expectedUpdatedAt: shift.updatedAt });
   });
+
+  it('xóa ca gửi DELETE kèm expectedUpdatedAt và tải lại danh mục sau khi xóa', async () => {
+    render(<ShiftsScreen />);
+    await screen.findByText('Hành chính');
+    const row = screen.getByTestId('shift-row-HC');
+    fireEvent.click(within(row).getByRole('button', { name: 'Xóa ca' }));
+    const confirmButtons = await screen.findAllByRole('button', { name: 'Xóa ca' });
+    fireEvent.click(confirmButtons[confirmButtons.length - 1]);
+    await waitFor(() => expect(calls.some((c) => c.init?.method === 'DELETE')).toBe(true));
+    const del = calls.find((c) => c.init?.method === 'DELETE');
+    expect(del?.path).toBe('/shifts/s1');
+    expect(JSON.parse(String(del?.init?.body))).toEqual({
+      expectedUpdatedAt: shift.updatedAt,
+    });
+    expect(calls.filter((c) => c.path === '/shifts' && !c.init)).toHaveLength(2);
+  });
 });
+

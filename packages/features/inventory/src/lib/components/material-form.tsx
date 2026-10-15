@@ -93,7 +93,7 @@ export function MaterialForm({
           <div className={styles.modalHead}>
             <div>
               <h2>{editing ? `Sửa vật tư ${editing.code}` : 'Thêm vật tư mới'}</h2>
-              <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#64748b' }}>
+              <p style={{ margin: '4px 0 0', fontSize: '14px', color: '#64748b' }}>
                 Khai báo mã SKU, định mức tồn và phương thức quản lý định danh (Sê-ri hoặc Lô).
               </p>
             </div>
@@ -185,7 +185,7 @@ export function MaterialForm({
               <span
                 style={{
                   display: 'block',
-                  fontSize: '13px',
+                  fontSize: '14px',
                   fontWeight: 700,
                   color: '#0f172a',
                   marginBottom: '8px',
@@ -227,7 +227,7 @@ export function MaterialForm({
                     <QrCode size={16} color={trackingMode === 'SERIAL' ? '#2563eb' : '#64748b'} />
                     <span
                       style={{
-                        fontSize: '13px',
+                        fontSize: '14px',
                         fontWeight: 700,
                         color: trackingMode === 'SERIAL' ? '#1d4ed8' : '#334155',
                       }}
@@ -235,7 +235,7 @@ export function MaterialForm({
                       Theo Sê-ri (SN)
                     </span>
                   </div>
-                  <span style={{ fontSize: '11.5px', color: '#64748b', lineHeight: '1.4' }}>
+                  <span style={{ fontSize: '12px', color: '#64748b', lineHeight: '1.4' }}>
                     Mỗi chiếc có số SN riêng biệt (thiết bị, rơ-le, máy biến áp, motor...).
                   </span>
                 </label>
@@ -266,7 +266,7 @@ export function MaterialForm({
                     <Layers size={16} color={trackingMode === 'LOT' ? '#16a34a' : '#64748b'} />
                     <span
                       style={{
-                        fontSize: '13px',
+                        fontSize: '14px',
                         fontWeight: 700,
                         color: trackingMode === 'LOT' ? '#15803d' : '#334155',
                       }}
@@ -274,7 +274,7 @@ export function MaterialForm({
                       Theo Lô (Lot/Batch)
                     </span>
                   </div>
-                  <span style={{ fontSize: '11.5px', color: '#64748b', lineHeight: '1.4' }}>
+                  <span style={{ fontSize: '12px', color: '#64748b', lineHeight: '1.4' }}>
                     Quản lý mẻ/kiện, hạn dùng FEFO, kiểm định (dầu, cáp, hoá chất...).
                   </span>
                 </label>
@@ -305,7 +305,7 @@ export function MaterialForm({
                     <Package size={16} color={trackingMode === 'NONE' ? '#0f172a' : '#64748b'} />
                     <span
                       style={{
-                        fontSize: '13px',
+                        fontSize: '14px',
                         fontWeight: 700,
                         color: trackingMode === 'NONE' ? '#0f172a' : '#334155',
                       }}
@@ -313,7 +313,7 @@ export function MaterialForm({
                       Thông thường
                     </span>
                   </div>
-                  <span style={{ fontSize: '11.5px', color: '#64748b', lineHeight: '1.4' }}>
+                  <span style={{ fontSize: '12px', color: '#64748b', lineHeight: '1.4' }}>
                     Quản lý tồn thuần túy theo số lượng, không cần định danh chi tiết.
                   </span>
                 </label>
@@ -334,7 +334,7 @@ export function MaterialForm({
               }}
             >
               <Info size={18} color="#64748b" style={{ flexShrink: 0, marginTop: '2px' }} />
-              <div style={{ fontSize: '12.5px', color: '#475569', lineHeight: '1.5' }}>
+              <div style={{ fontSize: '13px', color: '#475569', lineHeight: '1.5' }}>
                 {trackingMode === 'SERIAL' && (
                   <span>
                     Các số Sê-ri (SN) cụ thể của từng cá thể sẽ được ghi nhận và quét mã khi thực hiện{' '}

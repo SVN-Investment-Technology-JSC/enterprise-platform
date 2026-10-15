@@ -147,7 +147,7 @@ export default function AutoAttendanceScreen() {
               </li>
             ))}
           </ul>
-          {!enabled ? <p className="text-[11px] text-slate-500">Bật chấm công tự động để chọn các thứ áp dụng.</p> : null}
+          {!enabled ? <p className="text-[12px] text-slate-500">Bật chấm công tự động để chọn các thứ áp dụng.</p> : null}
         </div>
 
         {saved?.enabled && saved.enabledFrom ? (

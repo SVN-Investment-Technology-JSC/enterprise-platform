@@ -6,6 +6,7 @@ import type {
   HrmBoardEmployee,
 } from '@enterprise-platform/contracts-hrm';
 import { formatDateVn } from '../hrm-timesheet-format';
+import { UnitText } from './unit-text';
 import {
   boardDayTooltip,
   boardStatusCellClass,
@@ -13,30 +14,14 @@ import {
   formatDayNumber,
 } from './timesheet-board-format';
 import {
-  ABSENT_LETTER,
   calendarWeeks,
   textOnlyClass,
   isFutureDay,
   isLateOrEarly,
   monthCellNumber,
-  REQUEST_LETTERS,
-  type DayLetter,
 } from './my-timesheet-format';
 
 const WEEKDAY_HEADERS = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
-
-const LETTER_CLASS: Record<DayLetter['status'], string> = {
-  APPROVED: 'border-slate-800 bg-slate-800 text-white',
-  PENDING: 'border-dashed border-amber-500 bg-amber-50 text-amber-800',
-  REJECTED: 'border-slate-300 bg-white text-slate-400 line-through',
-  ABSENT: 'border-red-600 bg-red-600 text-white',
-};
-const LETTER_STATUS_TEXT: Record<DayLetter['status'], string> = {
-  APPROVED: 'đã duyệt',
-  PENDING: 'chờ duyệt',
-  REJECTED: 'từ chối',
-  ABSENT: 'không có đơn nghỉ',
-};
 
 /** Ô không tô nền: chỉ viền và màu chữ (đi trễ hoặc về sớm viền và chữ đỏ; còn lại theo trạng thái ngày). */
 function cellClass(day: HrmBoardDay, future: boolean): string {
@@ -45,52 +30,9 @@ function cellClass(day: HrmBoardDay, future: boolean): string {
   return `border-slate-200 bg-white ${textOnlyClass(boardStatusCellClass(day.status))}`;
 }
 
-export function LetterBadge({ letter }: { letter: DayLetter }) {
-  return (
-    <span
-      data-testid={`request-letter-${letter.kind}`}
-      title={`${letter.label} (${LETTER_STATUS_TEXT[letter.status]})`}
-      className={`inline-flex h-3.5 min-w-3.5 items-center justify-center rounded-sm border px-[2px] text-[8px] font-bold leading-none ${LETTER_CLASS[letter.status]}`}
-    >
-      {letter.letter}
-    </span>
-  );
-}
-
-/** Chú thích gọn trên một khối: ký tự đơn từ, KP, màu đỏ và cách đọc ô. */
-export function MyTimesheetLegend() {
-  const items = [...Object.values(REQUEST_LETTERS).filter((r) => r.letter !== 'ĐC'), ABSENT_LETTER];
-  return (
-    <div aria-label="Quy ước bảng công" className="space-y-1 text-[11px] text-slate-600">
-      <ul className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        {items.map((r) => (
-          <li key={r.letter} className="flex items-center gap-1">
-            <span
-              className={`inline-flex h-3.5 min-w-4 items-center justify-center rounded-sm px-[2px] text-[8px] font-bold text-white ${
-                r.letter === 'KP' ? 'bg-red-600' : 'bg-slate-800'
-              }`}
-            >
-              {r.letter}
-            </span>
-            <span>{r.label}</span>
-          </li>
-        ))}
-      </ul>
-      <p className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-slate-500">
-        <span>
-          <span className="mr-1 inline-block size-2.5 rounded-sm border border-red-400 bg-red-100 align-middle" />
-          Đi trễ hoặc về sớm
-        </span>
-        <span>Ngày chưa tới: mã ca. Ngày đã qua: số công</span>
-        <span>Nền đặc: đã duyệt. Viền đứt: chờ duyệt. Gạch ngang: từ chối</span>
-      </p>
-    </div>
-  );
-}
-
 /**
- * Lịch tháng gọn của một nhân viên: ngày chưa tới hiện mã ca, ngày đã qua hiện số công (không hiện mã ca);
- * đi trễ hoặc về sớm tô đỏ; ký tự nhỏ cho từng loại đơn từ dính tới ngày; bấm vào ô để xem chi tiết và đơn từ.
+ * Lịch tháng gọn, định dạng chuẩn của Bảng công (dùng chung cho Bảng công và Công của tôi): ngày chưa tới hiện mã ca,
+ * ngày đã qua hiện số công (không hiện mã ca); đi trễ hoặc về sớm viền và chữ đỏ; bấm vào ô để xem chi tiết và đơn từ.
  */
 export function MyTimesheetCalendar({
   calendar,
@@ -150,10 +92,17 @@ export function MyTimesheetCalendar({
                       className={`relative flex h-[52px] w-full cursor-pointer flex-col items-center justify-center rounded-md border px-0.5 text-center leading-none transition hover:ring-2 hover:ring-blue-400 ${cellClass(
                         day,
                         future,
-                      )} ${date === today ? 'outline outline-2 outline-offset-0 outline-blue-500' : ''} ${
-                        selectedDate === date ? 'ring-2 ring-blue-500' : ''
+                      )} ${
+                        selectedDate === date
+                          ? 'z-10 border-blue-600 bg-blue-50 shadow-md ring-2 ring-blue-600'
+                          : ''
                       }`}
                     >
+                      {date === today && (
+                        <span className="absolute right-0.5 top-0.5 rounded bg-blue-600 px-1 py-px text-[9px] font-bold leading-none text-white">
+                          Hôm nay
+                        </span>
+                      )}
                       <span className="absolute left-1 top-0.5 text-[9px] font-semibold text-slate-500">
                         {formatDayNumber(date)}
                       </span>
@@ -162,7 +111,7 @@ export function MyTimesheetCalendar({
                           cell.tone === 'bad' ? 'text-red-600' : cell.tone === 'ok' ? 'text-emerald-700' : 'text-slate-500'
                         }`}
                       >
-                        {cell.text}
+                        <UnitText text={cell.text} />
                       </span>
                     </button>
                   </td>
@@ -180,18 +129,19 @@ export function MyTimesheetCalendar({
 export function MonthNumberLegend() {
   const items = [
     { text: '1', tone: 'text-emerald-700', label: 'Công chuẩn' },
-    { text: '1P', tone: 'text-emerald-700', label: 'Có đơn phép tính lương' },
+    { text: '1P', tone: 'text-emerald-700', label: 'Nghỉ có lương' },
     { text: '1L', tone: 'text-emerald-700', label: 'Ngày lễ' },
     { text: '1CT', tone: 'text-emerald-700', label: 'Công tác' },
-    { text: '0', tone: 'text-emerald-700', label: 'Phép không lương' },
+    { text: '0', tone: 'text-emerald-700', label: 'Nghỉ không lương' },
     { text: '0', tone: 'text-red-600', label: 'Thiếu dữ liệu chấm công' },
     { text: '0.xx', tone: 'text-red-600', label: 'Đi trễ, về sớm hoặc thiếu công' },
   ];
   return (
-    <ul aria-label="Chú thích số công" className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-600">
+    <ul aria-label="Chú thích số công" className="flex flex-wrap items-center gap-1.5 text-[12px] text-slate-600">
       {items.map((item) => (
-        <li key={item.label} className="flex items-center gap-1.5">
-          <span className={`min-w-6 font-mono text-[13px] font-bold ${item.tone}`}>{item.text}</span>
+        // Mỗi mục là một ô có viền: số và nhãn đi liền nhau, không đọc nhầm số của mục kế tiếp.
+        <li key={item.label} className="flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 py-0.5">
+          <span className={`min-w-6 text-center font-mono text-[13px] font-bold ${item.tone}`}><UnitText text={item.text} /></span>
           <span>{item.label}</span>
         </li>
       ))}

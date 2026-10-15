@@ -451,17 +451,17 @@ export function MaintenanceHistory({
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <span style={{ fontSize: '13px', fontWeight: 600, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span style={{ fontSize: '14px', fontWeight: 600, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '6px' }}>
                     <Paperclip size={15} color="#475569" />
                     Tài liệu & Tệp đính kèm ({loadedAttachments.length})
                   </span>
                   {loadingAttachments ? (
-                    <span style={{ fontSize: '11.5px', color: '#64748b' }}>Đang tải…</span>
+                    <span style={{ fontSize: '12px', color: '#64748b' }}>Đang tải…</span>
                   ) : null}
                 </div>
 
                 {loadedAttachments.length === 0 && !loadingAttachments ? (
-                  <span style={{ fontSize: '12px', color: '#94a3b8', fontStyle: 'italic' }}>
+                  <span style={{ fontSize: '13px', color: '#94a3b8', fontStyle: 'italic' }}>
                     Chưa có tài liệu hay ảnh hiện trường nào được đính kèm.
                   </span>
                 ) : null}
@@ -477,7 +477,7 @@ export function MaintenanceHistory({
                       borderRadius: '5px',
                       background: '#ffffff',
                       border: '1px solid #cbd5e1',
-                      fontSize: '12.5px',
+                      fontSize: '13px',
                     }}
                   >
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', overflow: 'hidden' }}>
@@ -493,7 +493,7 @@ export function MaintenanceHistory({
                           </small>
                         ) : null}
                       </div>
-                      <span style={{ fontSize: '11px', color: '#94a3b8' }}>
+                      <span style={{ fontSize: '12px', color: '#94a3b8' }}>
                         {formatDate(att.createdAt)}
                         {att.uploadedBy ? ` · ${att.uploadedBy}` : ''}
                         {att.note ? ` · ${att.note}` : ''}
@@ -513,7 +513,7 @@ export function MaintenanceHistory({
                           border: '1px solid #cbd5e1',
                           background: '#ffffff',
                           color: '#2563eb',
-                          fontSize: '11.5px',
+                          fontSize: '12px',
                           fontWeight: 600,
                           cursor: 'pointer',
                         }}
@@ -603,7 +603,7 @@ export function MaintenanceHistory({
                             border: '1px solid #cbd5e1',
                             background: '#ffffff',
                             color: '#1e293b',
-                            fontSize: '12.5px',
+                            fontSize: '13px',
                             fontWeight: 600,
                             cursor: 'pointer',
                             boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
@@ -658,7 +658,7 @@ export function MaintenanceHistory({
                             event.target.value = '';
                           }}
                         />
-                        <span style={{ fontSize: '11.5px', color: '#64748b' }}>
+                        <span style={{ fontSize: '12px', color: '#64748b' }}>
                           (PDF, Word, Excel, JPG, PNG, MP4 - Tối đa 25MB)
                         </span>
                       </div>
@@ -678,7 +678,7 @@ export function MaintenanceHistory({
                                 borderRadius: '4px',
                                 background: '#ffffff',
                                 border: '1px solid #e2e8f0',
-                                fontSize: '12px',
+                                fontSize: '13px',
                               }}
                             >
                               <div style={{ display: 'flex', alignItems: 'center', gap: '6px', overflow: 'hidden' }}>
@@ -695,7 +695,7 @@ export function MaintenanceHistory({
                                   color: '#ef4444',
                                   cursor: 'pointer',
                                   padding: '2px 4px',
-                                  fontSize: '11px',
+                                  fontSize: '12px',
                                   fontWeight: 600,
                                 }}
                                 onClick={() => setPendingFiles((prev) => prev.filter((_, i) => i !== idx))}

@@ -1,4 +1,5 @@
 @import 'tailwindcss';
+@import '../../../../packages/shared/ui/src/lib/type-scale.css';
 @source '../../../../packages/features/finance';
 @source '../../../../packages/shared/ui';
 
@@ -21,7 +22,7 @@
   margin-block: 8px;
 }
 .finance-workspace button {
-  font-size: 0.8125rem;
+  font-size: 0.875rem;
 }
 
 @theme {

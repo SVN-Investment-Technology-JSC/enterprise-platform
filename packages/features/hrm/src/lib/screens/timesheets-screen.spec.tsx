@@ -9,6 +9,7 @@ import type {
 } from '@enterprise-platform/contracts-hrm';
 import { hrmFetch } from '../hrm-api';
 import { currentMonthVn, monthRange, weekdayVn } from '../hrm-timesheet-format';
+import { BOARD_FILTERS, matchesBoardFilter, type BoardFilter } from '../ui/my-timesheet-format';
 import TimesheetsScreen from './timesheets-screen';
 
 let mockAllowed: string[] = [];
@@ -138,9 +139,36 @@ const closeState = (
   data: { month: makeBoard('OPEN', true).month, blockersForRequests: requests, blockersForLock: lock },
 });
 
+/** Nhân viên không có bất thường nào (mọi ngày bình thường), tuỳ chỉnh thêm ngày và tổng. */
+const plain = (e: HrmBoardEmployee, extra: Record<string, HrmBoardDay> = {}, over: Partial<typeof totals> = {}) => ({
+  ...e,
+  days: { ...Object.fromEntries(Object.keys(e.days).map((k) => [k, baseDay(k)])), ...extra },
+  totals: { ...totals, lateMinutes: 0, lateDays: 0, abnormalDays: 0, ...over },
+});
+
+/** Giả lập máy chủ: lọc nhanh và đếm trên TOÀN BỘ nhân viên, rồi mới phân trang theo page/page_size. */
+function serveBoard(board: HrmTimesheetBoard, path: string): HrmTimesheetBoard {
+  // Bảng dựng sẵn cho một trang (meta.total khác số dòng): trả nguyên để kiểm thử riêng phần phân trang.
+  if (board.meta.total !== board.employees.length) return board;
+  const query = new URLSearchParams(path.split('?')[1] ?? '');
+  const flag = (query.get('flag') ?? 'ALL') as BoardFilter;
+  const page = Number(query.get('page') ?? 1);
+  const pageSize = Number(query.get('page_size') ?? 50);
+  const all = board.employees;
+  const matched = all.filter((e) => matchesBoardFilter(e, flag));
+  const counts = Object.fromEntries(
+    BOARD_FILTERS.map((f) => [f.id, all.filter((e) => matchesBoardFilter(e, f.id)).length]),
+  ) as Record<BoardFilter, number>;
+  return {
+    ...board,
+    employees: matched.slice((page - 1) * pageSize, page * pageSize),
+    meta: { total: matched.length, page, pageSize, counts },
+  };
+}
+
 function mockApi(board: HrmTimesheetBoard, close = closeState()) {
   fetchMock.mockImplementation((async (path: string) => {
-    if (path.startsWith('/timesheet-board')) return { data: board };
+    if (path.startsWith('/timesheet-board')) return { data: serveBoard(board, path) };
     if (path.endsWith('/close-state')) return close;
     return { data: {} };
   }) as never);
@@ -346,11 +374,6 @@ describe('TimesheetsScreen', () => {
   });
 
   it('bộ lọc nhanh đếm và lọc nhân viên: đi trễ, bất thường, vắng không phép, đơn chờ duyệt', async () => {
-    const plain = (e: HrmBoardEmployee, extra: Record<string, HrmBoardDay> = {}, over: Partial<typeof totals> = {}) => ({
-      ...e,
-      days: { ...Object.fromEntries(Object.keys(e.days).map((k) => [k, baseDay(k)])), ...extra },
-      totals: { ...totals, lateMinutes: 0, lateDays: 0, abnormalDays: 0, ...over },
-    });
     const quiet = plain(employee('e2', 'NV002', 'Trần Thị Bình'));
     const absent = plain(
       employee('e3', 'NV003', 'Lê Văn Cường'),
@@ -369,13 +392,41 @@ describe('TimesheetsScreen', () => {
     expect(screen.getByTestId('board-filter-ABSENT').textContent).toContain('1');
     expect(screen.getByTestId('board-filter-PENDING').textContent).toContain('1');
     fireEvent.click(screen.getByTestId('board-filter-ABSENT'));
-    expect(screen.getAllByTestId('board-row')).toHaveLength(1);
-    expect(screen.getByText('Lê Văn Cường')).toBeTruthy();
+    expect(await screen.findByText('Lê Văn Cường')).toBeTruthy();
+    await waitFor(() => expect(screen.getAllByTestId('board-row')).toHaveLength(1));
+    expect(String(fetchMock.mock.calls.at(-1)?.[0])).toContain('flag=ABSENT');
+    // số đếm không đổi khi đang lọc: vẫn tính trên toàn bộ nhân viên
+    expect(screen.getByTestId('board-filter-PENDING').textContent).toContain('1');
     fireEvent.click(screen.getByTestId('board-filter-PENDING'));
-    expect(screen.getByText('Phạm Thị Dung')).toBeTruthy();
-    expect(screen.queryByText('Lê Văn Cường')).toBeNull();
+    expect(await screen.findByText('Phạm Thị Dung')).toBeTruthy();
+    await waitFor(() => expect(screen.queryByText('Lê Văn Cường')).toBeNull());
     fireEvent.click(screen.getByTestId('board-filter-ALL'));
-    expect(screen.getAllByTestId('board-row')).toHaveLength(4);
+    await waitFor(() => expect(screen.getAllByTestId('board-row')).toHaveLength(4));
+    expect(String(fetchMock.mock.calls.at(-1)?.[0])).not.toContain('flag=');
+  });
+
+  it('lọc nhanh áp trên toàn bộ tháng, không phụ thuộc cỡ trang: người khớp ở trang sau vẫn được đếm và hiện', async () => {
+    const pending = (id: string) => [
+      { kind: 'LEAVE' as const, id, status: 'PENDING' as const, label: 'Nghỉ', minutes: 480 },
+    ];
+    // 12 nhân viên, cỡ trang mặc định 10: người có đơn chờ duyệt (NV011, NV012) nằm ở trang 2.
+    const people = Array.from({ length: 12 }, (_, i) => {
+      const code = `NV${String(i + 1).padStart(3, '0')}`;
+      const base = employee(`e${i + 1}`, code, `Nhân viên ${i + 1}`);
+      return i >= 10 ? plain(base, { [d(8)]: baseDay(d(8), { requests: pending(`p${i}`) }) }) : plain(base, {});
+    });
+    mockApi(makeBoard('OPEN', true, people));
+    render(<TimesheetsScreen />);
+    await screen.findAllByTestId('board-day-header');
+    expect(screen.getAllByTestId('board-row')).toHaveLength(10);
+    // trang 1 không có ai chờ duyệt nhưng nút vẫn đếm đủ 2 người của cả tháng
+    expect(screen.getByTestId('board-filter-PENDING').textContent).toContain('2');
+    expect(screen.getByTestId('board-filter-ALL').textContent).toContain('12');
+    fireEvent.click(screen.getByTestId('board-filter-PENDING'));
+    await waitFor(() => expect(screen.getAllByTestId('board-row')).toHaveLength(2));
+    expect(screen.getByText('Nhân viên 11')).toBeTruthy();
+    expect(screen.getByText('Nhân viên 12')).toBeTruthy();
+    expect(String(fetchMock.mock.calls.at(-1)?.[0])).toContain('page=1');
   });
 
   it('cột tổng hợp gọn: công, ngày trễ sớm, nghỉ, vắng, bất thường, tăng ca', async () => {
@@ -467,14 +518,12 @@ describe('TimesheetsScreen: tiêu đề, chọn dòng, số dòng mỗi trang', 
     expect(screen.getByTestId('timesheets-root').className).not.toContain('fixed');
   });
 
-  it('chú thích thu gọn ở màn nhỏ: nút Chú thích mở và ẩn', async () => {
+  it('chú thích nằm ở chân bảng, luôn hiện, không còn nút Chú thích ở thanh lọc', async () => {
     mockApi(makeBoard('OPEN', true));
     render(<TimesheetsScreen />);
     await screen.findAllByTestId('board-day-header');
-    const toggle = screen.getByRole('button', { name: 'Chú thích' });
-    expect(toggle.getAttribute('aria-expanded')).toBe('false');
-    fireEvent.click(toggle);
-    expect(screen.getByRole('button', { name: 'Ẩn chú thích' }).getAttribute('aria-expanded')).toBe('true');
+    expect(screen.queryByRole('button', { name: 'Chú thích' })).toBeNull();
+    expect(screen.getByLabelText('Chú thích bảng công')).toBeTruthy();
   });
 
   it('tick nhân viên thì nút Xuất CSV ghi số người đã chọn; tick tất cả chọn cả trang', async () => {

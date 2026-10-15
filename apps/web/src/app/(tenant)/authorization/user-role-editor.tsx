@@ -109,7 +109,7 @@ export function UserRoleEditor({
           />
 
           <div className="flex flex-col gap-2 rounded-[10px] border border-[#eef0f3] p-3">
-            <span className="flex items-center gap-1.5 text-[13px] font-bold text-[#18181b]">
+            <span className="flex items-center gap-1.5 text-[14px] font-bold text-[#18181b]">
               <ShieldCheck className="size-3.5 text-emerald-700" />
               Quyền hạn tổng hợp dự kiến
             </span>
@@ -129,7 +129,7 @@ export function UserRoleEditor({
                     modules.map((m) => (
                       <span
                         key={m}
-                        className="rounded-md bg-[#f1f3f6] px-[7px] font-mono text-[11.5px] text-slate-700"
+                        className="rounded-md bg-[#f1f3f6] px-[7px] font-mono text-[12px] text-slate-700"
                       >
                         {m === '*' ? 'Tất cả module khả dụng' : m}
                       </span>
@@ -147,7 +147,7 @@ export function UserRoleEditor({
                     {actions.map((a) => (
                       <span
                         key={a}
-                        className="rounded-md border border-[#e5e7eb] px-[7px] text-[11.5px] text-slate-700"
+                        className="rounded-md border border-[#e5e7eb] px-[7px] text-[12px] text-slate-700"
                       >
                         {TENANT_PERMISSION_ACTIONS.find((item) => item.key === a)?.label ?? a}
                       </span>

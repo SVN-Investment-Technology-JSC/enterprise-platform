@@ -4,7 +4,7 @@
 
 .toast {
   font-family: inherit;
-  font-size: 13px;
+  font-size: 14px;
   border-radius: 12px !important;
   padding: 14px 16px !important;
   box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.08), 0 8px 10px -6px rgba(0, 0, 0, 0.04) !important;
@@ -24,7 +24,7 @@
 }
 
 .description {
-  font-size: 12px !important;
+  font-size: 13px !important;
   line-height: 1.45 !important;
   opacity: 0.9;
   margin-top: 2px !important;
@@ -45,7 +45,7 @@
 }
 
 .actionButton {
-  font-size: 12px !important;
+  font-size: 13px !important;
   font-weight: 500 !important;
   padding: 6px 12px !important;
   border-radius: 8px !important;
@@ -53,7 +53,7 @@
 }
 
 .cancelButton {
-  font-size: 12px !important;
+  font-size: 13px !important;
   font-weight: 500 !important;
   padding: 6px 12px !important;
   border-radius: 8px !important;

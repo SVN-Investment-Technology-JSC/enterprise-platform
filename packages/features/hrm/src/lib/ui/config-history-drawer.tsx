@@ -118,12 +118,12 @@ export function ConfigHistoryDrawer({
                       <span className="min-w-0 flex-1">
                         <span className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
                           <StatusPill tone="blue">{row.actionLabel}</StatusPill>
-                          <span className="text-[11px] text-slate-500">{auditStamp(row.createdAt)}</span>
+                          <span className="text-[12px] text-slate-500">{auditStamp(row.createdAt)}</span>
                         </span>
                         {row.entityLabel ? (
                           <span className="mt-1 block break-words font-semibold text-slate-800">{row.entityLabel}</span>
                         ) : null}
-                        <span className="block text-[11px] text-slate-500">Người thực hiện: {row.actorLabel}</span>
+                        <span className="block text-[12px] text-slate-500">Người thực hiện: {row.actorLabel}</span>
                         {reason ? <span className="mt-0.5 block break-words text-slate-600">Ghi chú: {reason}</span> : null}
                       </span>
                     </button>

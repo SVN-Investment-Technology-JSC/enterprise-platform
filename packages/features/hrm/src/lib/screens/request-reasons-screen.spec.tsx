@@ -799,6 +799,18 @@ describe('RequestReasonsScreen: lý do của Đơn xin nghỉ (loại nghỉ)', 
     expect(within(dialog).getByLabelText(/Mã lý do nghỉ/)).toBeTruthy();
     expect(within(dialog).queryByText(/Hệ số tăng ca/)).toBeNull();
   });
+
+  it('xóa lý do nghỉ gọi DELETE /leave-types/:id kèm expectedUpdatedAt', async () => {
+    render(<RequestReasonsScreen />);
+    await screen.findByText('Nghỉ không lương');
+    await rowAction('Thao tác với lý do nghỉ Nghỉ không lương', 'Xóa');
+    const confirm = await screen.findByRole('button', { name: 'Xóa lý do' });
+    fireEvent.click(confirm);
+    await waitFor(() => expect(writes().some((c) => c.method === 'DELETE')).toBe(true));
+    const del = writes().find((c) => c.method === 'DELETE');
+    expect(del?.path).toBe('/leave-types/lt3');
+    expect(del?.body).toMatchObject({ expectedUpdatedAt: unpaidLeave.updatedAt });
+  });
 });
 
 describe('RequestReasonsScreen: loại đơn', () => {

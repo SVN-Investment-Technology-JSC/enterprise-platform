@@ -4,6 +4,7 @@ import type {
   HrmAction,
 } from '@enterprise-platform/contracts-identity';
 import { PlatformIdentityService } from '@enterprise-platform/platform-identity';
+import { approvalKindOfPermissions, assignedRequestIds } from './hrm-approval-policy.js';
 import {
   ForbiddenException,
   Injectable,
@@ -186,6 +187,14 @@ export class HrmContextService {
     if (
       this.has(context, permission) ||
       approverPermissions.some((p) => this.has(context, p))
+    )
+      return { ...context, employeeId: requestedEmployeeId };
+    // Danh sách chờ duyệt của người không có quyền duyệt HRM nhưng được giao xử lý (người dự phòng của PE hoặc chức
+    // danh duyệt dự phòng): được đọc; bộ lọc duyệt của handler giới hạn danh sách đúng các đơn được giao.
+    const approvalKind = approvalKindOfPermissions(approverPermissions);
+    if (
+      approvalKind &&
+      (await assignedRequestIds(context.pool, context.tenantId, approvalKind, context.principal.userId)).length > 0
     )
       return { ...context, employeeId: requestedEmployeeId };
     await this.getContext(request, 'hrm.self.read');

@@ -262,7 +262,7 @@ export default function LeaveSettingsScreen() {
                   <p className="text-xs font-semibold text-slate-900">
                     {task.title}
                   </p>
-                  <p className="text-[11px] leading-snug text-slate-500">
+                  <p className="text-[12px] leading-snug text-slate-500">
                     {task.description}
                   </p>
                 </div>

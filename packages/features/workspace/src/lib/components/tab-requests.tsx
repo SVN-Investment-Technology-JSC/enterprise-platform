@@ -646,7 +646,7 @@ export function TabRequests({
                   margin: '10px 0',
                   padding: '8px 10px',
                   borderRadius: 8,
-                  fontSize: 12.5,
+                  fontSize: 13,
                   border: `1px solid ${selected.reversalRequest.error ? '#fecaca' : '#fed7aa'}`,
                   background: selected.reversalRequest.error ? '#fef2f2' : '#fff7ed',
                   color: selected.reversalRequest.error ? '#b91c1c' : '#7c2d12',

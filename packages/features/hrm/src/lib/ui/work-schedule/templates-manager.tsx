@@ -412,7 +412,7 @@ export function TemplatesManager({
               ) : (
                 <table className="w-full border-separate border-spacing-0 text-xs">
                   <thead>
-                    <tr className="text-left text-[11px] font-bold tracking-wide text-slate-600 uppercase">
+                    <tr className="text-left text-[12px] font-bold tracking-wide text-slate-600 uppercase">
                       {['Mã', 'Tên mẫu', 'Lịch trong tuần', 'Trạng thái', 'Thao tác'].map((h) => (
                         <th key={h} scope="col" className="sticky top-0 border-b border-slate-200 bg-slate-50 px-3 py-2">
                           {h}
@@ -426,7 +426,7 @@ export function TemplatesManager({
                         <td className="border-b border-slate-100 px-3 py-2 font-mono font-semibold text-blue-700">{t.code}</td>
                         <td className="border-b border-slate-100 px-3 py-2">
                           <div className="font-semibold text-slate-900">{t.name}</div>
-                          {t.description ? <div className="text-[11px] text-slate-500">{t.description}</div> : null}
+                          {t.description ? <div className="text-[12px] text-slate-500">{t.description}</div> : null}
                         </td>
                         <td className="border-b border-slate-100 px-3 py-2 text-slate-700">
                           {summarizePattern(t.days, shifts)}
@@ -434,7 +434,7 @@ export function TemplatesManager({
                         <td className="border-b border-slate-100 px-3 py-2">
                           <span
                             className={cn(
-                              'inline-flex rounded-full border px-2 py-0.5 text-[11px] font-medium',
+                              'inline-flex rounded-full border px-2 py-0.5 text-[12px] font-medium',
                               t.status === 'ACTIVE'
                                 ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
                                 : 'border-slate-200 bg-slate-100 text-slate-500',

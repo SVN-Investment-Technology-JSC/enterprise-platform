@@ -90,10 +90,10 @@ export function MaterialStocktakePanel(props: {
     return (
       <div className={styles.stocktakeEmptyBox}>
         <ClipboardCheck size={38} strokeWidth={1.5} color="#94a3b8" />
-        <span style={{ fontSize: '13.5px', fontWeight: 700, color: '#334155' }}>
+        <span style={{ fontSize: '14px', fontWeight: 700, color: '#334155' }}>
           Chưa có kỳ kiểm kê nào ghi nhận cho vật tư này
         </span>
-        <span style={{ fontSize: '12px', color: '#64748b', maxWidth: 440, lineHeight: 1.5 }}>
+        <span style={{ fontSize: '13px', color: '#64748b', maxWidth: 440, lineHeight: 1.5 }}>
           Vật tư chưa được đưa vào danh mục kiểm đếm trong bất kỳ đợt kiểm kê kho nào gần đây. Kết quả và chênh lệch đối soát sẽ hiển thị tại đây sau khi hoàn tất kiểm kê.
         </span>
       </div>
@@ -129,7 +129,7 @@ export function MaterialStocktakePanel(props: {
             <StatusIcon size={22} strokeWidth={2.2} />
           </div>
           <div className={styles.stocktakeVerdictText}>
-            <span style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: '#64748b' }}>
+            <span style={{ fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', color: '#64748b' }}>
               Kết quả đối soát kiểm kê
             </span>
             <h5 style={{ margin: 0, fontSize: '14px', fontWeight: 800, color: statusCfg.color }}>
@@ -202,7 +202,7 @@ export function MaterialStocktakePanel(props: {
       <div className={styles.stocktakeDetailsCard}>
         <div className={styles.stocktakeDetailsHeader}>
           <FileSpreadsheet size={15} color="#2563eb" />
-          <span style={{ fontSize: '12.5px', fontWeight: 700, color: '#1e293b' }}>
+          <span style={{ fontSize: '13px', fontWeight: 700, color: '#1e293b' }}>
             Thông tin phiên kiểm kê {session.code}
           </span>
         </div>

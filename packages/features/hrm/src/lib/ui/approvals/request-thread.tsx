@@ -1,10 +1,11 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Loader2, MessageSquare, Send } from 'lucide-react';
+import { FileText, Loader2, MessageSquare, Paperclip, Send, X } from 'lucide-react';
 import type { HrmMentionCandidate, HrmRequestComment } from '@enterprise-platform/contracts-hrm';
 import { useRealtimeNotificationsOptional } from '@enterprise-platform/shared-ui';
 import { HrmApiError, hrmFetch } from '../../hrm-api';
+import { uploadHrmAttachment } from '../../hrm-attachment-upload';
 import { Button } from '../button';
 
 const DECISION_LABEL: Record<string, { label: string; className: string }> = {
@@ -73,6 +74,9 @@ export function RequestThread({ kind, requestId, refreshKey = 0 }: { kind: strin
   const [text, setText] = useState('');
   const [mentions, setMentions] = useState<HrmMentionCandidate[]>([]);
   const [busy, setBusy] = useState(false);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [uploadingFile, setUploadingFile] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [picker, setPicker] = useState<{ query: string; start: number } | null>(null);
   const [candidates, setCandidates] = useState<HrmMentionCandidate[]>([]);
   const [highlight, setHighlight] = useState(0);
@@ -102,6 +106,7 @@ export function RequestThread({ kind, requestId, refreshKey = 0 }: { kind: strin
   useEffect(() => {
     setComments([]);
     setText('');
+    setPendingFile(null);
     setMentions([]);
     void load();
   }, [load, refreshKey]);
@@ -174,27 +179,46 @@ export function RequestThread({ kind, requestId, refreshKey = 0 }: { kind: strin
 
   async function send() {
     const body = text.trim();
-    if (!body || busy) return;
+    if ((!body && !pendingFile) || busy) return;
     setBusy(true);
     setError('');
     try {
+      let attachmentsPayload: Array<{ id: string; name: string; contentType?: string; sizeBytes?: number }> | undefined;
+      if (pendingFile) {
+        setUploadingFile(true);
+        const uploaded = await uploadHrmAttachment('', pendingFile);
+        attachmentsPayload = [{
+          id: uploaded.id,
+          name: pendingFile.name,
+          contentType: pendingFile.type || undefined,
+          sizeBytes: pendingFile.size,
+        }];
+      }
       await hrmFetch('/request-comments', {
         method: 'POST',
-        body: JSON.stringify({ kind, requestId, body, mentionUserIds: activeMentions.map((m) => m.userId) }),
+        body: JSON.stringify({
+          kind,
+          requestId,
+          body: body || (pendingFile ? `[Đính kèm tệp: ${pendingFile.name}]` : ''),
+          mentionUserIds: activeMentions.map((m) => m.userId),
+          attachments: attachmentsPayload,
+        }),
       });
       setText('');
+      setPendingFile(null);
       setMentions([]);
       await load(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Không gửi được.');
     } finally {
       setBusy(false);
+      setUploadingFile(false);
     }
   }
 
   return (
     <section aria-label="Trao đổi về đơn" className="space-y-2">
-      <h3 className="flex items-center gap-1.5 text-[13px] font-bold text-slate-900">
+      <h3 className="flex items-center gap-1.5 text-[14px] font-bold text-slate-900">
         <MessageSquare className="size-4 text-[#2563eb]" />
         Trao đổi và ý kiến ({comments.length})
       </h3>
@@ -205,26 +229,61 @@ export function RequestThread({ kind, requestId, refreshKey = 0 }: { kind: strin
       ) : comments.length === 0 ? (
         <p className="rounded-lg bg-slate-50 px-3 py-3 text-center text-xs text-slate-500">Chưa có trao đổi nào. Gõ @ để nhắc tên người cần xem đơn này.</p>
       ) : (
-        <ul className="max-h-[260px] space-y-2.5 overflow-y-auto pr-1" data-testid="thread-list">
+        <ul className="max-h-[280px] space-y-2.5 overflow-y-auto pr-1" data-testid="thread-list">
           {comments.map((c) => {
             const decision = c.decision ? DECISION_LABEL[c.decision] : undefined;
             return (
               <li key={c.id} className="flex gap-2">
                 <span
                   aria-hidden="true"
-                  className={`flex size-7 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${c.mine ? 'bg-[#ffc90a] text-[#1a1a1a]' : 'bg-slate-200 text-slate-600'}`}
+                  className={`flex size-7 shrink-0 items-center justify-center rounded-full text-[12px] font-bold ${c.mine ? 'bg-[#ffc90a] text-[#1a1a1a]' : 'bg-slate-200 text-slate-600'}`}
                 >
                   {initials(c.authorName)}
                 </span>
                 <div className="min-w-0 flex-1">
-                  <p className="flex flex-wrap items-center gap-x-2 text-[11.5px]">
+                  <p className="flex flex-wrap items-center gap-x-2 text-[12px]">
                     <span className="font-semibold text-slate-900">{c.authorName}</span>
-                    {decision ? <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${decision.className}`}>{decision.label}</span> : null}
+                    {decision ? <span className={`rounded-full px-1.5 py-0.5 text-[12px] font-semibold ${decision.className}`}>{decision.label}</span> : null}
                     <span className="text-slate-400">{timeText(c.createdAt)}</span>
                   </p>
-                  <p className={`mt-0.5 whitespace-pre-wrap break-words rounded-lg px-2.5 py-1.5 text-[12.5px] ${c.kind === 'DECISION' ? 'border border-slate-200 bg-white' : 'bg-slate-50'}`}>
-                    <CommentBody comment={c} />
-                  </p>
+                  <div className={`mt-0.5 rounded-lg px-2.5 py-1.5 text-[13px] ${c.kind === 'DECISION' ? 'border border-slate-200 bg-white' : 'bg-slate-50'}`}>
+                    <p className="whitespace-pre-wrap break-words">
+                      <CommentBody comment={c} />
+                    </p>
+                    {c.attachments && c.attachments.length > 0 ? (
+                      <div className="mt-2 space-y-1.5 border-t border-slate-200/60 pt-1.5">
+                        {c.attachments.map((att) => (
+                          <div key={att.id} className="flex items-center justify-between gap-2 rounded border border-slate-200 bg-white p-2">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <FileText className="size-4 text-blue-600 shrink-0" />
+                              <span className="truncate text-[12px] font-medium text-slate-800" title={att.name}>{att.name}</span>
+                              {att.sizeBytes ? (
+                                <span className="text-[11px] text-slate-400 font-mono shrink-0">
+                                  ({Math.round(att.sizeBytes / 1024)} KB)
+                                </span>
+                              ) : null}
+                            </div>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-6 px-2 text-[11px] shrink-0"
+                              onClick={async () => {
+                                try {
+                                  const res = await hrmFetch<{ data: { url: string } }>(`/attachments/${att.id}/download`);
+                                  if (res.data?.url) window.open(res.data.url, '_blank');
+                                } catch {
+                                  alert('Không thể tải tệp đính kèm.');
+                                }
+                              }}
+                            >
+                              Xem tệp
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
               </li>
             );
@@ -237,7 +296,35 @@ export function RequestThread({ kind, requestId, refreshKey = 0 }: { kind: strin
           {error}
         </p>
       ) : null}
+
+      {/* Tệp đang chọn đính kèm */}
+      {pendingFile ? (
+        <div className="flex items-center gap-2 rounded-md bg-blue-50 border border-blue-200 px-2.5 py-1 text-xs text-blue-900 w-fit">
+          <Paperclip className="size-3.5 text-blue-600 shrink-0" />
+          <span className="font-medium truncate max-w-[200px]">{pendingFile.name}</span>
+          <span className="text-[11px] text-blue-600 font-mono">({Math.round(pendingFile.size / 1024)} KB)</span>
+          <button
+            type="button"
+            onClick={() => setPendingFile(null)}
+            className="text-blue-500 hover:text-blue-800 ml-1"
+            aria-label="Xoá tệp đính kèm"
+          >
+            <X className="size-3.5" />
+          </button>
+        </div>
+      ) : null}
+
       <div className="relative">
+        <input
+          ref={fileInputRef}
+          type="file"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) setPendingFile(file);
+            e.target.value = '';
+          }}
+        />
         <textarea
           ref={area}
           aria-label="Nội dung trao đổi"
@@ -267,18 +354,31 @@ export function RequestThread({ kind, requestId, refreshKey = 0 }: { kind: strin
             if (e.key === 'Escape') setPicker(null);
             if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) void send();
           }}
-          className="w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 pr-11 text-[12.5px] outline-none focus:border-[#d9ab00] focus:ring-2 focus:ring-[#d9ab00]/30"
+          className="w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 pr-16 text-[13px] outline-none focus:border-[#d9ab00] focus:ring-2 focus:ring-[#d9ab00]/30"
         />
-        <Button
-          type="button"
-          size="icon-sm"
-          aria-label="Gửi trao đổi"
-          disabled={busy || !text.trim()}
-          onClick={() => void send()}
-          className="absolute bottom-2 right-2"
-        >
-          {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Send className="size-3.5" />}
-        </Button>
+        <div className="absolute bottom-2 right-2 flex items-center gap-1">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Đính kèm tệp"
+            disabled={busy || uploadingFile}
+            onClick={() => fileInputRef.current?.click()}
+            className="text-slate-500 hover:text-slate-800 h-7 w-7"
+          >
+            <Paperclip className="size-3.5" />
+          </Button>
+          <Button
+            type="button"
+            size="icon-sm"
+            aria-label="Gửi trao đổi"
+            disabled={busy || uploadingFile || (!text.trim() && !pendingFile)}
+            onClick={() => void send()}
+            className="h-7 w-7"
+          >
+            {busy || uploadingFile ? <Loader2 className="size-3.5 animate-spin" /> : <Send className="size-3.5" />}
+          </Button>
+        </div>
         {picker && candidates.length > 0 ? (
           <ul role="listbox" aria-label="Người có thể nhắc tên" className="absolute bottom-full left-0 z-20 mb-1 max-h-48 w-72 overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
             {candidates.map((p, i) => (
@@ -291,10 +391,10 @@ export function RequestThread({ kind, requestId, refreshKey = 0 }: { kind: strin
                   }}
                   className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs ${i === highlight ? 'bg-slate-100' : ''}`}
                 >
-                  <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-slate-200 text-[10px] font-bold text-slate-600">{initials(p.name)}</span>
+                  <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-slate-200 text-[12px] font-bold text-slate-600">{initials(p.name)}</span>
                   <span className="min-w-0">
                     <span className="block truncate font-medium text-slate-900">{p.name}</span>
-                    <span className="block truncate text-[10.5px] text-slate-500">
+                    <span className="block truncate text-[12px] text-slate-500">
                       {[p.employeeCode, p.department].filter(Boolean).join(' · ')}
                     </span>
                   </span>
@@ -305,8 +405,9 @@ export function RequestThread({ kind, requestId, refreshKey = 0 }: { kind: strin
         ) : null}
       </div>
       {activeMentions.length > 0 ? (
-        <p className="text-[11px] text-slate-500">Sẽ thông báo cho: {activeMentions.map((m) => m.name).join(', ')}</p>
+        <p className="text-[12px] text-slate-500">Sẽ thông báo cho: {activeMentions.map((m) => m.name).join(', ')}</p>
       ) : null}
     </section>
   );
 }
+

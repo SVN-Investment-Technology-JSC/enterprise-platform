@@ -541,7 +541,7 @@ export function SubtaskPanel({
                             <FileText size={15} strokeWidth={2} />
                           </div>
                           <div className={styles.fileCardDetails}>
-                            <span className={styles.fileCardName} title={file.fileName} style={{ fontSize: '12px' }}>
+                            <span className={styles.fileCardName} title={file.fileName} style={{ fontSize: '13px' }}>
                               {file.fileName}
                             </span>
                           </div>
@@ -555,7 +555,7 @@ export function SubtaskPanel({
                                 target="_blank"
                                 rel="noreferrer"
                                 className={`${styles.fileActionBtn} ${styles.fileActionBtnPrimary}`}
-                                style={{ padding: '4px 8px', fontSize: '11px' }}
+                                style={{ padding: '4px 8px', fontSize: '12px' }}
                                 title="Xem trực tiếp trong tab mới"
                               >
                                 <ExternalLink size={12} strokeWidth={2} />
@@ -565,7 +565,7 @@ export function SubtaskPanel({
                                 href={file.downloadUrl}
                                 download={file.fileName}
                                 className={styles.fileActionBtn}
-                                style={{ padding: '4px 8px', fontSize: '11px' }}
+                                style={{ padding: '4px 8px', fontSize: '12px' }}
                                 title="Tải tệp về máy"
                               >
                                 <Download size={12} strokeWidth={2} />
@@ -573,7 +573,7 @@ export function SubtaskPanel({
                               </a>
                             </>
                           ) : (
-                            <span style={{ fontSize: '11px', color: '#94a3b8' }}>Đang nạp link...</span>
+                            <span style={{ fontSize: '12px', color: '#94a3b8' }}>Đang nạp link...</span>
                           )}
                         </div>
                       </div>
@@ -1010,7 +1010,7 @@ export function SubtaskPanel({
                   display: 'inline-flex',
                   alignItems: 'center',
                   gap: '4px',
-                  fontSize: '11px',
+                  fontSize: '12px',
                   padding: '3px 8px',
                 }}
               >

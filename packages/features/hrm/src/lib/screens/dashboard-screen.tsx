@@ -269,7 +269,7 @@ export default function HrmDashboardPage() {
       {showRight && (
         <div className="space-y-3 pt-2">
           <div className="flex items-center justify-between gap-2">
-            <h2 className="text-[15px] font-bold text-slate-900">Công việc quản lý</h2>
+            <h2 className="text-[16px] font-bold text-slate-900">Công việc quản lý</h2>
             <Button
               variant="outline"
               size="sm"
@@ -333,15 +333,15 @@ export default function HrmDashboardPage() {
                             {section.data}
                           </span>
                         ) : section.status === 'forbidden' ? (
-                          <span className="text-[11px] text-slate-500">
+                          <span className="text-[12px] text-slate-500">
                             {FORBIDDEN_TEXT}
                           </span>
                         ) : section.status === 'error' ? (
-                          <span className="text-[11px] text-red-700">
+                          <span className="text-[12px] text-red-700">
                             Không tải được
                           </span>
                         ) : (
-                          <span className="text-[11px] text-slate-400">...</span>
+                          <span className="text-[12px] text-slate-400">...</span>
                         )}
                       </Link>
                     );

@@ -39,7 +39,7 @@ import { RequestThread } from './request-thread';
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="grid grid-cols-[132px_1fr] gap-3 py-1.5 text-[12.5px]">
+    <div className="grid grid-cols-[132px_1fr] gap-3 py-1.5 text-[13px]">
       <dt className="text-slate-500">{label}</dt>
       <dd className="min-w-0 break-words font-medium text-slate-900">{children}</dd>
     </div>
@@ -67,11 +67,11 @@ export function FlowStepper({ row, progress }: { row: Row; progress: ProcedurePr
       {steps.map((s, i) => (
         <li key={s.key} className="relative flex min-w-0 flex-1 flex-col items-center text-center" data-state={s.state}>
           {i > 0 ? <span aria-hidden="true" className={`absolute right-1/2 top-3.5 h-0.5 w-full ${steps[i - 1].state === 'done' ? 'bg-emerald-300' : 'bg-slate-200'}`} /> : null}
-          <span className={`relative z-10 flex size-7 items-center justify-center rounded-full text-[12px] font-bold ${STEP_STYLE[s.state]}`}>
+          <span className={`relative z-10 flex size-7 items-center justify-center rounded-full text-[13px] font-bold ${STEP_STYLE[s.state]}`}>
             {s.state === 'done' ? <Check className="size-4" /> : s.state === 'rejected' ? <X className="size-4" /> : i + 1}
           </span>
-          <span className="mt-1.5 max-w-full truncate px-1 text-[12px] font-semibold text-slate-800">{s.label}</span>
-          <span className={`max-w-full truncate px-1 text-[11px] ${STEP_TEXT[s.state]}`}>{s.sub}</span>
+          <span className="mt-1.5 max-w-full truncate px-1 text-[13px] font-semibold text-slate-800">{s.label}</span>
+          <span className={`max-w-full truncate px-1 text-[12px] ${STEP_TEXT[s.state]}`}>{s.sub}</span>
         </li>
       ))}
     </ol>
@@ -123,9 +123,9 @@ export function ApprovalDetailPanel(props: ApprovalDetailPanelProps) {
   return (
     <aside aria-label="Chi tiết đơn" className="flex h-full min-h-0 flex-col rounded-2xl border border-slate-200/70 bg-white">
       <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-4 py-3">
-        <h2 className="text-[15px] font-bold text-slate-900">Chi tiết đơn</h2>
+        <h2 className="text-[16px] font-bold text-slate-900">Chi tiết đơn</h2>
         {row.link ? (
-          <a href={PROCEDURE_INSTANCES_PATH} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[12px] font-semibold text-[#2563eb] hover:underline">
+          <a href={PROCEDURE_INSTANCES_PATH} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[13px] font-semibold text-[#2563eb] hover:underline">
             <Workflow className="size-3.5" />
             Xem quy trình
           </a>
@@ -138,12 +138,12 @@ export function ApprovalDetailPanel(props: ApprovalDetailPanelProps) {
             <FileText className="size-6" />
           </span>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-[15px] font-bold text-slate-900" data-testid="detail-title">
+            <p className="truncate text-[16px] font-bold text-slate-900" data-testid="detail-title">
               {rowKindLabel(row)}
             </p>
-            <p className="font-mono text-[11.5px] text-slate-500">Mã đơn: {code}</p>
+            <p className="font-mono text-[12px] text-slate-500">Mã đơn: {code}</p>
           </div>
-          <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11.5px] font-semibold ${statusTone(row.status)}`}>{states[row.status] ?? row.status}</span>
+          <span className={`shrink-0 rounded-full px-2.5 py-1 text-[12px] font-semibold ${statusTone(row.status)}`}>{states[row.status] ?? row.status}</span>
         </div>
 
         {row.reversalReason ? (
@@ -153,12 +153,12 @@ export function ApprovalDetailPanel(props: ApprovalDetailPanelProps) {
         ) : null}
 
         <section aria-label="Thông tin nhân viên">
-          <h3 className="mb-2 text-[13px] font-bold text-slate-900">Thông tin nhân viên</h3>
+          <h3 className="mb-2 text-[14px] font-bold text-slate-900">Thông tin nhân viên</h3>
           <div className="flex items-center gap-3">
-            <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-slate-200 text-[13px] font-bold text-slate-600">{initialsOf(row.employeeName)}</span>
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-slate-200 text-[14px] font-bold text-slate-600">{initialsOf(row.employeeName)}</span>
             <div className="min-w-0">
-              <p className="truncate text-[13.5px] font-semibold text-slate-900">{row.employeeName}</p>
-              <p className="truncate text-[12px] text-slate-500">
+              <p className="truncate text-[14px] font-semibold text-slate-900">{row.employeeName}</p>
+              <p className="truncate text-[13px] text-slate-500">
                 {[row.employeeCode, row.department].filter(Boolean).join(' · ')}
               </p>
             </div>
@@ -172,7 +172,7 @@ export function ApprovalDetailPanel(props: ApprovalDetailPanelProps) {
             <span data-testid="approval-detail-reason">
               {row.reasonLabel}
               {isUnpaidOt(row) ? (
-                <Badge variant="outline" className="ml-1.5 border-amber-200 bg-amber-50 text-[10px] font-semibold text-amber-800">
+                <Badge variant="outline" className="ml-1.5 border-amber-200 bg-amber-50 text-[12px] font-semibold text-amber-800">
                   Không lương
                 </Badge>
               ) : null}
@@ -194,7 +194,7 @@ export function ApprovalDetailPanel(props: ApprovalDetailPanelProps) {
                 ) : typeof val === 'number' && key.toLowerCase().includes('minutes') ? (
                   <span className="font-mono">{val} phút</span>
                 ) : typeof val === 'object' ? (
-                  <pre className="overflow-x-auto rounded border border-slate-200 bg-slate-50 p-2 text-left font-mono text-[11px]">{JSON.stringify(val, null, 2)}</pre>
+                  <pre className="overflow-x-auto rounded border border-slate-200 bg-slate-50 p-2 text-left font-mono text-[12px]">{JSON.stringify(val, null, 2)}</pre>
                 ) : (
                   String(val)
                 )}
@@ -225,15 +225,15 @@ export function ApprovalDetailPanel(props: ApprovalDetailPanelProps) {
 
         {row.changes && Object.keys(row.changes).length > 0 ? (
           <section aria-label="Nội dung đề xuất cập nhật hồ sơ" className="rounded-xl border border-slate-200 p-3">
-            <h3 className="mb-2 flex items-center gap-1.5 text-[12.5px] font-bold text-slate-900">
+            <h3 className="mb-2 flex items-center gap-1.5 text-[13px] font-bold text-slate-900">
               <Layers className="size-3.5 text-[#2563eb]" />
               Nội dung đề xuất cập nhật hồ sơ
             </h3>
             <div className="grid grid-cols-2 gap-2">
               {Object.entries(row.changes).map(([k, v]) => (
                 <div key={k} className="rounded-lg bg-slate-50 p-2">
-                  <span className="block text-[11px] text-slate-500">{k}</span>
-                  <span className="block break-all text-[12.5px] font-semibold text-slate-900">{String(v ?? '—')}</span>
+                  <span className="block text-[12px] text-slate-500">{k}</span>
+                  <span className="block break-all text-[13px] font-semibold text-slate-900">{String(v ?? '—')}</span>
                 </div>
               ))}
             </div>
@@ -241,7 +241,7 @@ export function ApprovalDetailPanel(props: ApprovalDetailPanelProps) {
         ) : null}
 
         <section>
-          <h3 className="mb-3 text-[13px] font-bold text-slate-900">Quy trình phê duyệt</h3>
+          <h3 className="mb-3 text-[14px] font-bold text-slate-900">Quy trình phê duyệt</h3>
           <FlowStepper row={row} progress={progress} />
           {row.link ? (
             <details className="mt-3 rounded-lg border border-slate-200 px-3 py-2 text-xs">
@@ -262,7 +262,7 @@ export function ApprovalDetailPanel(props: ApprovalDetailPanelProps) {
               </div>
             </details>
           ) : (
-            <p className="mt-2 text-[11.5px] text-slate-500">Duyệt trực tiếp, không qua Procedure Engine.</p>
+            <p className="mt-2 text-[12px] text-slate-500">Duyệt trực tiếp, không qua Procedure Engine.</p>
           )}
         </section>
 
@@ -286,7 +286,7 @@ export function ApprovalDetailPanel(props: ApprovalDetailPanelProps) {
               value={note}
               onChange={(e) => setNote(e.target.value)}
               placeholder="Ý kiến xử lý (bắt buộc khi từ chối, tuỳ chọn khi phê duyệt)"
-              className="w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-[12.5px] outline-none focus:border-[#d9ab00] focus:ring-2 focus:ring-[#d9ab00]/30"
+              className="w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-[13px] outline-none focus:border-[#d9ab00] focus:ring-2 focus:ring-[#d9ab00]/30"
             />
             <div className="grid grid-cols-2 gap-2">
               <Button
@@ -294,7 +294,7 @@ export function ApprovalDetailPanel(props: ApprovalDetailPanelProps) {
                 disabled={props.busy || !hasNote}
                 title={hasNote ? undefined : 'Nhập ý kiến để từ chối'}
                 onClick={() => void props.onReject(note.trim())}
-                className="h-10 gap-1.5 border-rose-300 text-[13px] font-semibold text-rose-600 hover:bg-rose-50"
+                className="h-10 gap-1.5 border-rose-300 text-[14px] font-semibold text-rose-600 hover:bg-rose-50"
               >
                 <X className="size-4" />
                 Từ chối
@@ -307,7 +307,7 @@ export function ApprovalDetailPanel(props: ApprovalDetailPanelProps) {
                 okType="primary"
                 onConfirm={() => props.onApprove(note.trim())}
               >
-                <Button disabled={props.busy} className="h-10 w-full gap-1.5 border-0 bg-emerald-600 text-[13px] font-semibold text-white hover:bg-emerald-700">
+                <Button disabled={props.busy} className="h-10 w-full gap-1.5 border-0 bg-emerald-600 text-[14px] font-semibold text-white hover:bg-emerald-700">
                   <CheckCircle2 className="size-4" />
                   Phê duyệt
                 </Button>

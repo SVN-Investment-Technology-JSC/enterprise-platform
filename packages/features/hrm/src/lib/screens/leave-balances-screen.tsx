@@ -90,7 +90,7 @@ function RemainingCell({ row }: { row: Row }) {
     return (
       <Badge
         variant="outline"
-        className="border-slate-200 bg-slate-50 text-[11px] text-slate-500"
+        className="border-slate-200 bg-slate-50 text-[12px] text-slate-500"
         title="Nhân viên chưa có quỹ phép của năm này (chưa chạy cộng phép). Có thể điều chỉnh để tạo quỹ."
       >
         Chưa có quỹ
@@ -129,7 +129,7 @@ function SignDateNote({ row }: { row: Row }) {
   if (!row.signDate)
     return (
       <span
-        className="block truncate text-[11px] font-normal text-amber-600"
+        className="block truncate text-[12px] font-normal text-amber-600"
         title="Chưa có HĐLĐ chính thức đã ký nên chưa phát sinh phép năm"
       >
         Chưa có HĐLĐ
@@ -137,7 +137,7 @@ function SignDateNote({ row }: { row: Row }) {
     );
   return (
     <span
-      className="block truncate text-[11px] font-normal text-slate-500"
+      className="block truncate text-[12px] font-normal text-slate-500"
       title={
         row.eligibleFrom && row.eligibleFrom !== row.signDate
           ? `Bắt đầu hưởng phép từ ${dateVn(row.eligibleFrom)}`
@@ -228,7 +228,7 @@ function groupByDepartment(rows: readonly Row[]): DepartmentGroup[] {
     }));
 }
 
-const TH = 'px-3 py-2.5 text-[11px] font-bold text-slate-600';
+const TH = 'px-3 py-2.5 text-[12px] font-bold text-slate-600';
 const COLUMN_COUNT = 11;
 const DASH = <span className="text-slate-400">—</span>;
 
@@ -609,7 +609,7 @@ export default function LeaveBalancesScreen() {
                                   <ChevronDown className="size-4 text-slate-500" />
                                 )}
                                 <span>{group.name}</span>
-                                <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-bold text-blue-700">
+                                <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[12px] font-bold text-blue-700">
                                   {group.rows.length}
                                 </span>
                               </button>
@@ -738,7 +738,7 @@ export default function LeaveBalancesScreen() {
                   </tbody>
                 </table>
               </div>
-              <p className="text-[11px] text-slate-500">
+              <p className="text-[12px] text-slate-500">
                 {filtered.length !== rows.length
                   ? `${filtered.length} / ${rows.length}`
                   : rows.length}{' '}

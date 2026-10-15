@@ -90,6 +90,7 @@ integration('HRM time lifecycle PostgreSQL integration', () => {
     await migrate('hrm/0048-hrm-timesheet-payroll-linkage.sql');
     await migrate('hrm/0049-hrm-ot-reason-rate.sql');
     await migrate('hrm/0050-hrm-request-comments.sql');
+    await migrate('hrm/0056-hrm-shift-soft-delete.sql');
     const ctx = {
       getContext: async () => ({ pool, tenantId, principal: { userId } }),
       resolveEmployee: async () => ({ employeeId: userId }),

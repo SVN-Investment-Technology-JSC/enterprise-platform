@@ -195,8 +195,9 @@ export function SearchableSelect({
     });
   }, [options, query, dropdownQuery, searchInDropdown, selectedOption]);
 
-  // Đóng dropdown khi click ngoài
+  // Đóng dropdown khi click ngoài (hỗ trợ cả mousedown và click ở pha capture để không bị dialog chặn)
   useEffect(() => {
+    if (!isOpen) return;
     const handleClickOutside = (e: MouseEvent) => {
       const target = e.target as Node;
       if (
@@ -205,12 +206,17 @@ export function SearchableSelect({
         !dropdownRef.current?.contains(target)
       ) {
         setIsOpen(false);
-        setQuery(selectedOption ? selectedOption.label : '');
+        setQuery(selectedOptionLabelRef.current);
+        inputRef.current?.blur();
       }
     };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [selectedOption]);
+    document.addEventListener('mousedown', handleClickOutside, true);
+    document.addEventListener('click', handleClickOutside, true);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside, true);
+      document.removeEventListener('click', handleClickOutside, true);
+    };
+  }, [isOpen]);
 
   // Esc khi dropdown đang mở chỉ đóng dropdown. Dialog/Drawer (base-ui, Radix) nghe Esc trên document
   // (có thể ở pha capture) nên stopPropagation ở pha bubble của React là quá muộn:

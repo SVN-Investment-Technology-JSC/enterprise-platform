@@ -157,7 +157,7 @@ export function ApproverPreview({
           <strong className="font-semibold text-slate-900">{line.method}</strong>
           {line.detail ? ` (${line.detail})` : ''}
         </p>
-        {note ? <p className="text-[11px] text-amber-700">{note}</p> : null}
+        {note ? <p className="text-[12px] text-amber-700">{note}</p> : null}
       </div>
     </div>
   );
@@ -189,8 +189,8 @@ function PaidTag({ paid }: { paid: boolean }) {
       variant="outline"
       className={
         paid
-          ? 'border-emerald-200 bg-emerald-50 text-[10px] font-semibold text-emerald-700'
-          : 'border-amber-200 bg-amber-50 text-[10px] font-semibold text-amber-800'
+          ? 'border-emerald-200 bg-emerald-50 text-[12px] font-semibold text-emerald-700'
+          : 'border-amber-200 bg-amber-50 text-[12px] font-semibold text-amber-800'
       }
     >
       {paid ? 'Có lương' : 'Không lương'}
@@ -265,13 +265,13 @@ export function RequestReasonSection({
                     <span className="font-medium">{option.label}</span>
                     {showPaid && choice ? <PaidTag paid={choice.paid} /> : null}
                     {kind === 'leave' && choice?.deductBalance ? (
-                      <span className="text-[10px] font-semibold text-blue-700">
+                      <span className="text-[12px] font-semibold text-blue-700">
                         Trừ quỹ phép năm
                       </span>
                     ) : null}
                   </span>
                   {option.description ? (
-                    <span className="whitespace-normal text-[11px] font-normal leading-snug text-slate-500">
+                    <span className="whitespace-normal text-[12px] font-normal leading-snug text-slate-500">
                       {option.description}
                     </span>
                   ) : null}
@@ -294,7 +294,7 @@ export function RequestReasonSection({
         {error ? (
           <div
             role="alert"
-            className="flex items-center justify-between gap-2 rounded-md border border-red-200 bg-red-50 p-2.5 text-[11px] text-red-700"
+            className="flex items-center justify-between gap-2 rounded-md border border-red-200 bg-red-50 p-2.5 text-[12px] text-red-700"
           >
             <span>{`Không tải được danh sách lý do: ${error}`}</span>
             {onRetry ? (
@@ -314,7 +314,7 @@ export function RequestReasonSection({
         {empty ? (
           <div
             role="alert"
-            className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-2.5 text-[11px] text-amber-900"
+            className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-2.5 text-[12px] text-amber-900"
           >
             <AlertCircle className="mt-0.5 size-3.5 shrink-0 text-amber-700" />
             <span>{emptyReasonCatalogMessage(kind)}</span>
@@ -324,7 +324,7 @@ export function RequestReasonSection({
         {selected ? (
           <div className="space-y-1" data-testid="reason-guide">
             {selected.description ? (
-              <p className="text-[11px] leading-relaxed text-slate-500">
+              <p className="text-[12px] leading-relaxed text-slate-500">
                 {selected.description}
               </p>
             ) : null}
@@ -332,17 +332,17 @@ export function RequestReasonSection({
               <div className="flex flex-wrap items-center gap-1.5">
                 {showPaid ? <PaidTag paid={selected.paid} /> : null}
                 {kind === 'leave' && selected.deductBalance ? (
-                  <span className="text-[11px] font-medium text-slate-600">
+                  <span className="text-[12px] font-medium text-slate-600">
                     Trừ quỹ phép năm
                   </span>
                 ) : null}
                 {showRate ? (
-                  <span data-testid="reason-rate" className="text-[11px] font-medium text-slate-600">
+                  <span data-testid="reason-rate" className="text-[12px] font-medium text-slate-600">
                     Hệ số tăng ca x{String(selected.rateMultiplier).replace('.', ',')}
                   </span>
                 ) : null}
                 {kind === 'ot' && !selected.paid ? (
-                  <span className="text-[11px] text-slate-500">
+                  <span className="text-[12px] text-slate-500">
                     Làm thêm giờ không lương, không tính tiền OT.
                   </span>
                 ) : null}
@@ -381,7 +381,7 @@ export function RequestReasonSection({
           className="w-full rounded-md border border-slate-200 p-2.5 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-600"
         />
         {reasonNeedsDescription ? (
-          <p className="text-[11px] text-amber-700">
+          <p className="text-[12px] text-amber-700">
             Lý do đã chọn yêu cầu nhập mô tả.
           </p>
         ) : null}

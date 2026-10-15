@@ -43,7 +43,7 @@ export class HrmShiftController {
     const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.read');
     const res = await pool.query(
       `SELECT * FROM hrm_schema.shift_definitions
-       WHERE tenant_id = $1 AND ($2::text IS NULL OR status = $2)
+       WHERE tenant_id = $1 AND deleted_at IS NULL AND ($2::text IS NULL OR status = $2)
        ORDER BY code ASC`,
       [tenantId, status || null],
     );
@@ -69,7 +69,7 @@ export class HrmShiftController {
     const code = String(body.code).trim();
     const res = await hrmTransaction(pool, async (db) => {
       const duplicate = await db.query(
-        `SELECT 1 FROM hrm_schema.shift_definitions WHERE tenant_id=$1 AND lower(code)=lower($2) LIMIT 1`,
+        `SELECT 1 FROM hrm_schema.shift_definitions WHERE tenant_id=$1 AND lower(code)=lower($2) AND deleted_at IS NULL LIMIT 1`,
         [tenantId, code],
       );
       if (duplicate.rowCount)
@@ -113,7 +113,7 @@ export class HrmShiftController {
   async getShift(@Req() req: Request, @Param('shiftId') shiftId: string) {
     const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.read');
     const res = await pool.query(
-      `SELECT * FROM hrm_schema.shift_definitions WHERE tenant_id = $1 AND id = $2`,
+      `SELECT * FROM hrm_schema.shift_definitions WHERE tenant_id = $1 AND id = $2 AND deleted_at IS NULL`,
       [tenantId, shiftId],
     );
     if (res.rows.length === 0) {
@@ -140,7 +140,7 @@ export class HrmShiftController {
     );
     const res = await hrmTransaction(pool, async (db) => {
       const current = await db.query(
-        `SELECT * FROM hrm_schema.shift_definitions WHERE tenant_id=$1 AND id=$2 FOR UPDATE`,
+        `SELECT * FROM hrm_schema.shift_definitions WHERE tenant_id=$1 AND id=$2 AND deleted_at IS NULL FOR UPDATE`,
         [tenantId, requireUuid(shiftId, 'shiftId')],
       );
       if (!current.rows[0]) throw new NotFoundException('Không tìm thấy ca');
@@ -275,7 +275,7 @@ export class HrmShiftController {
     requireUuid(shiftId, 'shiftId');
     const result = await hrmTransaction(pool, async (db) => {
       const current = await db.query(
-        `SELECT * FROM hrm_schema.shift_definitions WHERE tenant_id=$1 AND id=$2 FOR UPDATE`,
+        `SELECT * FROM hrm_schema.shift_definitions WHERE tenant_id=$1 AND id=$2 AND deleted_at IS NULL FOR UPDATE`,
         [tenantId, shiftId],
       );
       if (!current.rows[0]) throw new NotFoundException('Không tìm thấy ca làm việc');
@@ -284,26 +284,27 @@ export class HrmShiftController {
       }
       const inUse = await this.isShiftInUse(db, tenantId, shiftId);
       if (inUse) {
-        if (current.rows[0].status !== 'INACTIVE') {
-          await db.query(
-            `UPDATE hrm_schema.shift_definitions SET status='INACTIVE', updated_at = GREATEST(clock_timestamp(), updated_at + interval '1 millisecond')
-             WHERE tenant_id=$1 AND id=$2`,
-            [tenantId, shiftId],
-          );
-          await lifecycleAudit(
-            db,
-            tenantId,
-            principal.userId,
-            'SHIFT_UPDATED',
-            shiftId,
-            { before: current.rows[0], changes: { status: 'INACTIVE' } },
-          );
-        }
+        await db.query(
+          `UPDATE hrm_schema.shift_definitions
+           SET deleted_at = clock_timestamp(),
+               status = 'INACTIVE',
+               updated_at = GREATEST(clock_timestamp(), updated_at + interval '1 millisecond')
+           WHERE tenant_id=$1 AND id=$2`,
+          [tenantId, shiftId],
+        );
+        await lifecycleAudit(
+          db,
+          tenantId,
+          principal.userId,
+          'SHIFT_DELETED',
+          shiftId,
+          { before: current.rows[0], changes: { status: 'INACTIVE', deleted_at: 'now()' } },
+        );
         return {
-          deleted: false,
+          deleted: true,
           status: 'INACTIVE',
           code: current.rows[0].code,
-          message: `Ca "${current.rows[0].code}" đã phát sinh dữ liệu (lịch phân ca / chấm công) nên không thể xóa vĩnh viễn; hệ thống đã chuyển sang Ngừng dùng.`,
+          message: `Ca "${current.rows[0].code}" đã phát sinh dữ liệu (lịch phân ca / chấm công) nên đã được lưu trữ và ẩn khỏi danh mục ca.`,
         };
       }
       await db.query(
@@ -332,57 +333,31 @@ export class HrmShiftController {
     };
   }
 
+  /**
+   * Ca đã phát sinh dữ liệu khi có bất kỳ bảng nào còn trỏ tới ca (lịch, mẫu lịch, gán đơn vị, bảng công, đơn đổi ca,
+   * ngày lễ). Kiểm bằng `to_regclass` thay vì bắt lỗi truy vấn: lỗi trong transaction làm hỏng cả transaction của Postgres.
+   */
   private async isShiftInUse(
     db: Pick<PoolClient, 'query'>,
     tenantId: string,
     shiftId: string,
   ): Promise<boolean> {
-    if (await workScheduleTableExists(db, tenantId)) {
-      const r1 = await db.query(
-        `SELECT 1 FROM hrm_schema.employee_work_days WHERE tenant_id=$1 AND shift_id=$2 LIMIT 1`,
-        [tenantId, shiftId],
-      );
-      if (r1.rowCount) return true;
+    const references: { table: string; where: string }[] = [
+      { table: 'employee_work_days', where: 'tenant_id=$1 AND shift_id=$2' },
+      { table: 'work_schedule_rule_days', where: 'tenant_id=$1 AND shift_id=$2' },
+      { table: 'work_schedule_template_days', where: 'tenant_id=$1 AND shift_id=$2' },
+      { table: 'unit_shift_assignments', where: 'tenant_id=$1 AND shift_id=$2' },
+      { table: 'shift_assignments', where: 'tenant_id=$1 AND shift_id=$2' },
+      { table: 'timesheets', where: 'tenant_id=$1 AND shift_id=$2' },
+      { table: 'shift_change_requests', where: 'tenant_id=$1 AND (current_shift_id=$2 OR requested_shift_id=$2)' },
+      { table: 'company_holidays', where: 'tenant_id=$1 AND shift_id=$2' },
+    ];
+    for (const { table, where } of references) {
+      const exists = await db.query('SELECT to_regclass($1) IS NOT NULL AS ok', [`hrm_schema.${table}`]);
+      if (!exists.rows[0]?.ok) continue;
+      const used = await db.query(`SELECT 1 FROM hrm_schema.${table} WHERE ${where} LIMIT 1`, [tenantId, shiftId]);
+      if (used.rowCount) return true;
     }
-    if (await ruleTableExists(db, tenantId)) {
-      const r2 = await db.query(
-        `SELECT 1 FROM hrm_schema.work_schedule_rule_days WHERE shift_id=$1 LIMIT 1`,
-        [shiftId],
-      );
-      if (r2.rowCount) return true;
-    }
-    const r3 = await db
-      .query(
-        `SELECT 1 FROM hrm_schema.shift_assignments WHERE tenant_id=$1 AND shift_id=$2 LIMIT 1`,
-        [tenantId, shiftId],
-      )
-      .catch(() => ({ rowCount: 0 }));
-    if (r3.rowCount) return true;
-
-    const r4 = await db
-      .query(
-        `SELECT 1 FROM hrm_schema.timesheet_entries WHERE tenant_id=$1 AND shift_id=$2 LIMIT 1`,
-        [tenantId, shiftId],
-      )
-      .catch(() => ({ rowCount: 0 }));
-    if (r4.rowCount) return true;
-
-    const r5 = await db
-      .query(
-        `SELECT 1 FROM hrm_schema.shift_change_requests WHERE tenant_id=$1 AND (current_shift_id=$2 OR requested_shift_id=$2) LIMIT 1`,
-        [tenantId, shiftId],
-      )
-      .catch(() => ({ rowCount: 0 }));
-    if (r5.rowCount) return true;
-
-    const r6 = await db
-      .query(
-        `SELECT 1 FROM hrm_schema.company_holidays WHERE tenant_id=$1 AND shift_id=$2 LIMIT 1`,
-        [tenantId, shiftId],
-      )
-      .catch(() => ({ rowCount: 0 }));
-    if (r6.rowCount) return true;
-
     return false;
   }
 
@@ -437,6 +412,7 @@ export class HrmShiftController {
       graceLateMinutes: row.grace_late_minutes as number,
       graceEarlyMinutes: row.grace_early_minutes as number,
       status: row.status as any,
+      deletedAt: row.deleted_at ? timestamp(row.deleted_at) : null,
       createdAt: timestamp(row.created_at),
       updatedAt: timestamp(row.updated_at),
     };

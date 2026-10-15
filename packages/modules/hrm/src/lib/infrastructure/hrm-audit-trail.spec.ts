@@ -10,6 +10,14 @@ describe('audit trail labels', () => {
     expect(auditActionLabel('SOMETHING_ODD')).toBe('something odd');
   });
 
+  it('xoá mềm: có nhãn tiếng Việt cho loại nghỉ, ca làm và loại đơn', () => {
+    expect(auditActionLabel('LEAVE_TYPE_CREATED')).toBe('Tạo loại nghỉ');
+    expect(auditActionLabel('LEAVE_TYPE_DEACTIVATED')).toBe('Ngừng sử dụng loại nghỉ');
+    expect(auditActionLabel('LEAVE_TYPE_DELETED')).toBe('Xóa loại nghỉ');
+    expect(auditActionLabel('SHIFT_DELETED')).toBe('Xóa ca làm việc');
+    expect(auditActionLabel('REQUEST_TYPE_DELETED')).toBe('Xóa loại đơn');
+  });
+
   it('describes a deleted record from its before snapshot', () => {
     expect(
       auditFallback('CALENDAR_DELETED', {

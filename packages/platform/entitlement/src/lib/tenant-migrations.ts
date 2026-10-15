@@ -331,6 +331,38 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     },
     { version: '0056-hrm-fleet', path: 'tenant/hrm/0056-hrm-fleet.sql' },
     {
+      version: '0056-hrm-shift-soft-delete',
+      path: 'tenant/hrm/0056-hrm-shift-soft-delete.sql',
+    },
+    {
+      version: '0057-hrm-leave-type-code-partial-unique',
+      path: 'tenant/hrm/0057-hrm-leave-type-code-partial-unique.sql',
+    },
+    {
+      version: '0058-hrm-system-request-type-legacy-code',
+      path: 'tenant/hrm/0058-hrm-system-request-type-legacy-code.sql',
+    },
+    {
+      version: '0059-hrm-request-comment-attachments',
+      path: 'tenant/hrm/0059-hrm-request-comment-attachments.sql',
+    },
+    {
+      version: '0060-hrm-personnel-decision-recorded',
+      path: 'tenant/hrm/0060-hrm-personnel-decision-recorded.sql',
+    },
+    {
+      version: '0061-hrm-personnel-decision-revoke',
+      path: 'tenant/hrm/0061-hrm-personnel-decision-revoke.sql',
+    },
+    {
+      version: '0062-hrm-personnel-decision-chain',
+      path: 'tenant/hrm/0062-hrm-personnel-decision-chain.sql',
+    },
+    {
+      version: '0063-hrm-leave-adjustment-actor-required',
+      path: 'tenant/hrm/0063-hrm-leave-adjustment-actor-required.sql',
+    },
+    {
       version: '0021-notification-outbox-v1',
       path: 'tenant/hrm/0021-notification-outbox-v1.sql',
     },

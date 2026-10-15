@@ -385,6 +385,35 @@ export interface HrmCareerHistoryItem {
   readonly note?: string | null;
 }
 
+/** Một sự kiện trong "Lịch sử bổ nhiệm và công tác": quyết định đã ghi nhận hoặc mốc hợp đồng. */
+export interface HrmCareerEvent {
+  readonly id: string;
+  readonly source: 'DECISION' | 'CONTRACT';
+  /** Loại quyết định hoặc loại hợp đồng (mã). */
+  readonly kind: string;
+  readonly title: string;
+  readonly effectiveDate: string;
+  readonly endDate: string | null;
+  readonly positionName: string | null;
+  readonly unitName: string | null;
+  readonly reference: string | null;
+  readonly note: string | null;
+  /** Kiêm nhiệm / Bãi nhiệm: mã nhánh kiêm nhiệm (gốc của chuỗi). */
+  readonly laneId?: string | null;
+  /** Quyết định kiêm nhiệm mà sự kiện này nối tiếp trong cùng nhánh. */
+  readonly replacesId?: string | null;
+}
+
+/** Kiêm nhiệm đang giữ (chưa bị thay thế hay bãi nhiệm): chọn để thay thế hoặc bãi nhiệm. */
+export interface HrmOpenConcurrentPosition {
+  readonly decisionId: string;
+  readonly decisionNo: string;
+  readonly positionNodeId: string | null;
+  readonly positionName: string | null;
+  readonly unitName: string | null;
+  readonly effectiveDate: string;
+}
+
 export interface CreateEmployeeProfileRequest {
   readonly employeeCode: string;
   readonly personalEmail?: string;
@@ -569,6 +598,7 @@ export interface HrmShiftDefinition {
   readonly graceLateMinutes: number;
   readonly graceEarlyMinutes: number;
   readonly status: 'ACTIVE' | 'INACTIVE';
+  readonly deletedAt?: string | null;
   readonly createdAt: string;
   readonly updatedAt: string;
 }
@@ -1351,6 +1381,13 @@ export interface HrmLeaveTransaction {
   readonly actorLabel?: string | null;
   /** Nguồn kích hoạt: người dùng bấm hoặc job tự động; null với dữ liệu cũ chưa ghi nhận. */
   readonly triggerSource?: 'MANUAL' | 'AUTOMATION' | null;
+  /** Email tài khoản thực hiện (điều chỉnh và đảo điều chỉnh luôn có). */
+  readonly actorEmail?: string | null;
+  readonly leaveTypeName?: string;
+  readonly leaveTypeCode?: string;
+  readonly employeeName?: string;
+  readonly employeeCode?: string;
+  readonly department?: string | null;
   readonly createdAt: string;
 }
 
@@ -2258,6 +2295,8 @@ export type HrmPersonnelDecisionType =
   | 'TRANSFER'
   | 'CONCURRENT'
   | 'DISMISS'
+  /** Bãi nhiệm: chấm dứt một chức danh kiêm nhiệm; chỉ ghi nhận lịch sử. */
+  | 'REVOKE'
   /** Chỉ còn trong dữ liệu cũ; không tạo mới được nữa. */
   | 'CHANGE_MANAGER';
 
@@ -2267,7 +2306,9 @@ export type HrmPersonnelDecisionStatus =
   | 'APPLY_PENDING'
   | 'APPLIED'
   | 'REJECTED'
-  | 'CANCELLED';
+  | 'CANCELLED'
+  /** Chỉ ghi nhận lịch sử công tác, không áp dụng sang chức danh, quan hệ báo cáo hay lương. */
+  | 'RECORDED';
 
 /** Chỉ còn trong dữ liệu cũ: quyết định không còn gán quản lý. KEEP: giữ nguyên · SET: đã gán · CLEAR: đã bỏ. */
 export type HrmManagerMode = 'KEEP' | 'SET' | 'CLEAR';
@@ -2285,6 +2326,7 @@ export interface HrmPersonnelDecision {
   readonly employeeCode?: string | null;
   readonly effectiveDate: string;
   readonly reason: string;
+  readonly replacesDecisionId?: string | null;
   readonly fromPositionName?: string | null;
   readonly fromUnitName?: string | null;
   readonly fromManagerEmployeeId?: string | null;
@@ -2329,6 +2371,8 @@ export interface CreateHrmPersonnelDecisionPayload {
   /** Bỏ trống để hệ thống cấp số theo năm. */
   readonly decisionNo?: string;
   readonly toPositionNodeId?: string | null;
+  /** Kiêm nhiệm / Bãi nhiệm: quyết định Kiêm nhiệm mà quyết định này nối tiếp (thay thế hoặc chấm dứt). */
+  readonly replacesDecisionId?: string | null;
   /** Bật khi quyết định thay đổi lương; các trường `toSalary*` khi đó là bắt buộc. */
   readonly salaryChanged?: boolean;
   readonly toSalaryGradeId?: string | null;
@@ -2909,12 +2953,23 @@ export interface HrmBoardCalendarDay {
  * GET /timesheet-board?month=YYYY-MM&employee_id=&q=&page=&page_size=
  * Người có hrm.timesheet.read xem được mọi nhân viên (`canViewAll = true`); người khác chỉ thấy bảng công của chính mình.
  */
+/** Bộ lọc nhanh của bảng công, tính trên toàn bộ nhân viên của tháng (không chỉ trang đang xem). */
+export type HrmBoardFlag = 'LATE_EARLY' | 'ABNORMAL' | 'ABSENT' | 'PENDING';
+export type HrmBoardFlagCounts = Readonly<Record<HrmBoardFlag | 'ALL', number>>;
+
 export interface HrmTimesheetBoard {
   readonly month: HrmBoardMonthInfo;
   readonly canViewAll: boolean;
   readonly calendar: readonly HrmBoardCalendarDay[];
   readonly employees: readonly HrmBoardEmployee[];
-  readonly meta: { readonly total: number; readonly page: number; readonly pageSize: number };
+  readonly meta: {
+    /** Tổng số nhân viên sau khi áp bộ lọc nhanh (dùng để phân trang). */
+    readonly total: number;
+    readonly page: number;
+    readonly pageSize: number;
+    /** Số nhân viên khớp từng bộ lọc nhanh trên toàn bộ kết quả tìm kiếm của tháng; ALL là chưa lọc. */
+    readonly counts?: HrmBoardFlagCounts;
+  };
 }
 
 /** Việc còn vướng trước khi chốt: đơn chờ duyệt trong tháng, ngày bất thường chưa xử lý... */
@@ -3010,6 +3065,13 @@ export interface HrmTripAllowanceRate {
 
 export type HrmRequestCommentKind = 'COMMENT' | 'DECISION';
 
+export interface HrmCommentAttachment {
+  readonly id: string;
+  readonly name: string;
+  readonly contentType?: string;
+  readonly sizeBytes?: number;
+}
+
 /** Một dòng trong luồng trao đổi của đơn: bình luận thường hoặc ý kiến đi kèm quyết định phê duyệt. */
 export interface HrmRequestComment {
   readonly id: string;
@@ -3023,6 +3085,8 @@ export interface HrmRequestComment {
   readonly body: string;
   /** Người được nhắc tên (@) trong nội dung. */
   readonly mentions: readonly HrmCommentMention[];
+  /** Tệp đính kèm trong tin nhắn trao đổi. */
+  readonly attachments?: readonly HrmCommentAttachment[];
   readonly createdAt: string;
   /** Bình luận của chính người đang xem. */
   readonly mine: boolean;
@@ -3046,6 +3110,7 @@ export interface CreateRequestCommentRequest {
   readonly mentionUserIds?: readonly string[];
   readonly commentKind?: HrmRequestCommentKind;
   readonly decision?: string;
+  readonly attachments?: readonly HrmCommentAttachment[];
 }
 
 /** Người có thể được nhắc tên: nhân viên có tài khoản đăng nhập. */

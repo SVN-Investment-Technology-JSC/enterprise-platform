@@ -71,7 +71,7 @@ const TONE: Record<MonitorTone, string> = {
 
 function StatusChip({ tone, children }: { tone: MonitorTone; children: React.ReactNode }) {
   return (
-    <span className={`inline-flex items-center whitespace-nowrap rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${TONE[tone]}`}>
+    <span className={`inline-flex items-center whitespace-nowrap rounded-full border px-2.5 py-0.5 text-[12px] font-semibold ${TONE[tone]}`}>
       {children}
     </span>
   );
@@ -104,12 +104,12 @@ function Kpi({
   }[tone];
   return (
     <KpiButton onClick={onClick} label={`Xem danh sách: ${typeof label === 'string' ? label : testId}`}>
-      <div className={`${CARD} flex items-center gap-3 px-4 py-3.5`} data-testid={testId}>
+      <div className={`${CARD} flex h-full min-h-[84px] items-center gap-3 px-4 py-3.5`} data-testid={testId}>
         <span className={`flex size-12 shrink-0 items-center justify-center rounded-xl ${tile}`}>{icon}</span>
         <div className="min-w-0">
-          <p className="text-[12.5px] leading-tight text-slate-500">{label}</p>
+          <p className="text-[13px] leading-tight text-slate-500">{label}</p>
           <p className="text-[26px] font-extrabold leading-tight text-slate-900">{value}</p>
-          <p className="text-[11.5px] text-slate-400">{sub}</p>
+          {sub ? <p className="text-[12px] text-slate-400">{sub}</p> : null}
         </div>
       </div>
     </KpiButton>
@@ -119,7 +119,7 @@ function Kpi({
 function FilterBox({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="min-w-[150px] flex-1 rounded-xl border border-slate-200/80 bg-white px-3 pb-1 pt-1.5">
-      <span className="block text-[10.5px] font-medium text-slate-500">{label}</span>
+      <span className="block text-[12px] font-medium text-slate-500">{label}</span>
       {children}
     </div>
   );
@@ -259,7 +259,7 @@ export default function AttendanceMonitorScreen() {
           </>
         }
       />
-      <p className="flex items-center justify-end gap-1.5 text-[11.5px] text-slate-500">
+      <p className="flex items-center justify-end gap-1.5 text-[12px] text-slate-500">
         {longDateVn(date)}
         {data ? (
           <>
@@ -281,9 +281,8 @@ export default function AttendanceMonitorScreen() {
         <Kpi
           tone="blue"
           icon={<Users className="size-6" />}
-          label={<>Tổng nhân sự<br />đi ca {isToday ? 'hôm nay' : 'ngày này'}</>}
+          label="Tổng nhân sự đi ca"
           value={summary?.scheduled ?? 0}
-          sub={`/ ${summary?.totalPeople ?? 0} nhân sự`}
           testId="kpi-scheduled"
           onClick={() => setKpi('SCHEDULED')}
         />
@@ -400,7 +399,7 @@ export default function AttendanceMonitorScreen() {
           </div>
 
           <div className="mt-3 overflow-x-auto rounded-xl border border-slate-200/80">
-            <table className="w-full min-w-[760px] text-left text-[13px]">
+            <table className="w-full min-w-[760px] text-left text-[14px]">
               <thead className="bg-slate-50 text-xs font-semibold text-slate-600">
                 <tr>
                   <th className="px-3 py-2.5">Nhân viên</th>
@@ -429,12 +428,12 @@ export default function AttendanceMonitorScreen() {
                     <tr key={row.employeeId} className="hover:bg-slate-50/60">
                       <td className="px-3 py-2.5">
                         <div className="flex items-center gap-2.5">
-                          <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-blue-100 text-[11px] font-bold text-blue-700">
+                          <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-blue-100 text-[12px] font-bold text-blue-700">
                             {initialsOf(row.employeeName)}
                           </span>
                           <div className="min-w-0">
                             <p className="truncate font-semibold text-slate-900">{row.employeeName}</p>
-                            <p className="truncate text-[11.5px] text-slate-500">{row.positionName || row.employeeCode}</p>
+                            <p className="truncate text-[12px] text-slate-500">{row.positionName || row.employeeCode}</p>
                           </div>
                         </div>
                       </td>
@@ -501,16 +500,16 @@ export default function AttendanceMonitorScreen() {
                 {requests.slice(0, 6).map((request) => (
                   <li key={request.key} className="flex items-center justify-between gap-3 py-2.5">
                     <div className="flex min-w-0 items-center gap-2.5">
-                      <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[11px] font-bold text-slate-600">
+                      <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[12px] font-bold text-slate-600">
                         {initialsOf(request.employeeName)}
                       </span>
                       <div className="min-w-0">
-                        <p className="truncate text-[13px] font-semibold text-slate-900">{request.employeeName}</p>
-                        <p className="truncate text-[11.5px] text-slate-500">{request.departmentName || '----'}</p>
+                        <p className="truncate text-[14px] font-semibold text-slate-900">{request.employeeName}</p>
+                        <p className="truncate text-[12px] text-slate-500">{request.departmentName || '----'}</p>
                       </div>
                     </div>
                     <div className="flex shrink-0 flex-col items-end gap-1">
-                      <span className="text-[12px] font-medium text-slate-700">{request.label}</span>
+                      <span className="text-[13px] font-medium text-slate-700">{request.label}</span>
                       <StatusChip tone={REQUEST_STATUS[request.status].tone}>{REQUEST_STATUS[request.status].label}</StatusChip>
                     </div>
                   </li>
@@ -528,14 +527,14 @@ export default function AttendanceMonitorScreen() {
               <p className="mt-4 text-sm text-slate-500">Chưa có dữ liệu phòng ban cho ngày này.</p>
             ) : (
               <div className="mt-3">
-                <div className="grid grid-cols-[minmax(0,1fr)_120px_52px] gap-2 text-[11px] font-semibold text-slate-500">
+                <div className="grid grid-cols-[minmax(0,1fr)_120px_52px] gap-2 text-[12px] font-semibold text-slate-500">
                   <span>Phòng ban</span>
                   <span>Đã vào ca / Tổng</span>
                   <span className="text-right">Tỷ lệ</span>
                 </div>
                 <ul className="mt-1 divide-y divide-slate-100">
                   {departments.slice(0, 8).map((dept) => (
-                    <li key={dept.name} className="grid grid-cols-[minmax(0,1fr)_120px_52px] items-center gap-2 py-2 text-[12.5px]">
+                    <li key={dept.name} className="grid grid-cols-[minmax(0,1fr)_120px_52px] items-center gap-2 py-2 text-[13px]">
                       <span className="truncate text-slate-800" title={dept.name}>{dept.name}</span>
                       <span className="flex items-center gap-2">
                         <span className="h-2 flex-1 overflow-hidden rounded-full bg-slate-100">
@@ -555,7 +554,7 @@ export default function AttendanceMonitorScreen() {
               </div>
             )}
             {data ? (
-              <p className="mt-3 flex items-center gap-1.5 text-[11.5px] text-slate-400">
+              <p className="mt-3 flex items-center gap-1.5 text-[12px] text-slate-400">
                 <CalendarOff className="size-3.5" />
                 Số liệu cập nhật lúc {updatedTimeVn(data.generatedAt)}
               </p>
@@ -584,7 +583,7 @@ export default function AttendanceMonitorScreen() {
 function DetailField({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="rounded-xl border border-slate-200/80 bg-slate-50/50 px-3 py-2">
-      <p className="text-[11px] font-medium text-slate-500">{label}</p>
+      <p className="text-[12px] font-medium text-slate-500">{label}</p>
       <p className="mt-0.5 text-sm font-semibold text-slate-900">{children}</p>
     </div>
   );

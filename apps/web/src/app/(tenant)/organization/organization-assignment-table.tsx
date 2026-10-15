@@ -109,14 +109,14 @@ export function OrganizationAssignmentTable({
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             placeholder="Tìm nhân sự, vị trí bổ nhiệm…"
-            className="min-w-0 flex-1 bg-transparent text-[13px] text-[#18181b] outline-none placeholder:text-slate-400"
+            className="min-w-0 flex-1 bg-transparent text-[14px] text-[#18181b] outline-none placeholder:text-slate-400"
           />
         </label>
         <select
           aria-label="Vai trò bổ nhiệm"
           value={primaryFilter}
           onChange={(e) => setPrimaryFilter(e.target.value as typeof primaryFilter)}
-          className="h-[38px] rounded-lg border border-[#eef0f3] bg-white px-2.5 text-[13px] text-slate-700"
+          className="h-[38px] rounded-lg border border-[#eef0f3] bg-white px-2.5 text-[14px] text-slate-700"
         >
           <option value="all">Tất cả vai trò</option>
           <option value="primary">Bổ nhiệm chính</option>
@@ -126,7 +126,7 @@ export function OrganizationAssignmentTable({
           aria-label="Trạng thái bổ nhiệm"
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
-          className="h-[38px] rounded-lg border border-[#eef0f3] bg-white px-2.5 text-[13px] text-slate-700"
+          className="h-[38px] rounded-lg border border-[#eef0f3] bg-white px-2.5 text-[14px] text-slate-700"
         >
           <option value="all">Tất cả trạng thái</option>
           <option value="active">Đang hoạt động</option>
@@ -149,7 +149,7 @@ export function OrganizationAssignmentTable({
         <Button
           disabled={!canCreate}
           onClick={onOpenCreate}
-          className="h-[38px] shrink-0 gap-1.5 bg-[#ffc90a] text-[13px] font-bold text-[#18181b] hover:bg-[#ffd84d]"
+          className="h-[38px] shrink-0 gap-1.5 bg-[#ffc90a] text-[14px] font-bold text-[#18181b] hover:bg-[#ffd84d]"
         >
           <Plus className="size-4" />
           Bổ nhiệm người dùng
@@ -170,7 +170,7 @@ export function OrganizationAssignmentTable({
           >
             <div className="overflow-x-auto">
               <div className="min-w-[860px]">
-                <div className={`${ROW} py-2 text-[11px] font-semibold tracking-[0.4px] text-slate-500`}>
+                <div className={`${ROW} py-2 text-[12px] font-semibold tracking-[0.4px] text-slate-500`}>
                   <span>NHÂN SỰ</span>
                   <span>VỊ TRÍ / CHỨC DANH</span>
                   <span>THỜI HẠN BỔ NHIỆM</span>
@@ -184,9 +184,9 @@ export function OrganizationAssignmentTable({
                   const userName = user?.fullName || 'Người dùng không xác định';
                   const nodeName = node?.name || 'Vị trí không xác định';
                   return (
-                    <div className={`${ROW} py-[11px] text-[13px] hover:bg-[#f4f6f9]/60`} key={item.id}>
+                    <div className={`${ROW} py-[11px] text-[14px] hover:bg-[#f4f6f9]/60`} key={item.id}>
                       <div className="flex min-w-0 items-center gap-2.5">
-                        <span className="grid size-8 shrink-0 place-items-center rounded-full bg-[#f1f3f6] text-[11.5px] font-bold text-slate-700">
+                        <span className="grid size-8 shrink-0 place-items-center rounded-full bg-[#f1f3f6] text-[12px] font-bold text-slate-700">
                           {initials(userName)}
                         </span>
                         <div className="flex min-w-0 flex-col">
@@ -199,7 +199,7 @@ export function OrganizationAssignmentTable({
                       <div className="flex min-w-0 flex-col">
                         <span className="truncate font-semibold">{nodeName}</span>
                         {node?.code ? (
-                          <span className="truncate font-mono text-[11.5px] text-slate-500">{node.code}</span>
+                          <span className="truncate font-mono text-[12px] text-slate-500">{node.code}</span>
                         ) : null}
                       </div>
                       <span className="text-slate-700 tabular-nums">
@@ -264,7 +264,7 @@ export function OrganizationAssignmentTable({
                 {more > 0 ? (
                   <button
                     type="button"
-                    className="block w-full cursor-pointer border-t border-[#f1f3f6] px-5 py-2.5 text-left text-[12.5px] font-semibold text-blue-700 hover:bg-[#f4f6f9]"
+                    className="block w-full cursor-pointer border-t border-[#f1f3f6] px-5 py-2.5 text-left text-[13px] font-semibold text-blue-700 hover:bg-[#f4f6f9]"
                     onClick={() => setExpandedGroups((prev) => new Set(prev).add(group.id))}
                   >
                     Xem thêm {more} bổ nhiệm
@@ -286,7 +286,7 @@ export function OrganizationAssignmentTable({
         </div>
       ) : null}
 
-      <div className="flex flex-wrap justify-between gap-2 text-[12.5px] text-slate-500">
+      <div className="flex flex-wrap justify-between gap-2 text-[13px] text-slate-500">
         <span>
           Hiển thị <b className="text-[#18181b]">{filteredAssignments.length}</b> / {assignments.length} bổ nhiệm
         </span>

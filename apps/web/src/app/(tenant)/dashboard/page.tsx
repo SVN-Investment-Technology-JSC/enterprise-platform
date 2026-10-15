@@ -387,13 +387,13 @@ export default async function TenantPortalPage() {
           </span>
         </div>
         <div className="relative flex min-w-0 flex-[1_1_360px] flex-col gap-1.5">
-          <span className="text-[11.5px] font-semibold tracking-[1.2px] text-[#ffc90a]">
+          <span className="text-[12px] font-semibold tracking-[1.2px] text-[#ffc90a]">
             TENANT PORTAL · {principal.tenantSlug.toUpperCase()}
           </span>
           <h1 className="m-0 text-[26px] font-bold leading-[1.3] tracking-[-0.3px] text-white">
             Xin chào, <span className="text-[#ffc90a]">{displayName}</span>
           </h1>
-          <p className="m-0 text-[14.5px] leading-relaxed text-white/80">
+          <p className="m-0 text-[14px] leading-relaxed text-white/80">
             {workClauses.length > 0 ? <>Hôm nay có {joinClauses(workClauses)}. </> : null}
             {activeUsers !== undefined ? (
               <>
@@ -551,7 +551,7 @@ export default async function TenantPortalPage() {
                     <Dot className="bg-red-500 shadow-[0_0_0_4px_rgba(239,68,68,.12)]" />
                     <Cell strong title={item.name}>{item.name}</Cell>
                     <Cell muted>{item.code}</Cell>
-                    <span className="flex items-center gap-2.5 text-[12.5px] text-slate-700">
+                    <span className="flex items-center gap-2.5 text-[13px] text-slate-700">
                       <span aria-hidden className="h-1.5 w-[120px] shrink-0 overflow-hidden rounded-full bg-[#f1f3f6]">
                         <span className="block h-full bg-red-500" style={{ width: `${ratio * 100}%` }} />
                       </span>
@@ -578,10 +578,10 @@ export default async function TenantPortalPage() {
           className="mt-2 overflow-hidden rounded-[14px] border border-[#eef0f3] bg-white"
         >
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2 bg-[#fafbfc] px-5 py-3">
-            <h2 id="ops-title" className="m-0 flex-1 text-[15px] font-bold">
+            <h2 id="ops-title" className="m-0 flex-1 text-[16px] font-bold">
               Tình hình vận hành
             </h2>
-            <span className="rounded-md border border-[#eef0f3] bg-white px-2.5 py-0.5 text-[12.5px] font-medium text-slate-500">
+            <span className="rounded-md border border-[#eef0f3] bg-white px-2.5 py-0.5 text-[13px] font-medium text-slate-500">
               {VN_WEEKDAY_DATE.format(new Date())}
             </span>
           </div>
@@ -592,9 +592,9 @@ export default async function TenantPortalPage() {
                 return (
                   <div
                     key={row.key}
-                    className="grid grid-cols-[28px_110px_minmax(220px,1fr)_200px_84px] items-center gap-x-3.5 border-t border-[#f1f3f6] px-5 py-[11px] text-[13px]"
+                    className="grid grid-cols-[28px_110px_minmax(220px,1fr)_200px_84px] items-center gap-x-3.5 border-t border-[#f1f3f6] px-5 py-[11px] text-[14px]"
                   >
-                    <span aria-hidden className={`grid size-7 place-items-center rounded-[7px] text-[10px] font-extrabold ${row.tint}`}>
+                    <span aria-hidden className={`grid size-7 place-items-center rounded-[7px] text-[12px] font-extrabold ${row.tint}`}>
                       {row.abbr}
                     </span>
                     <b className="font-semibold">{row.name}</b>
@@ -623,12 +623,12 @@ export default async function TenantPortalPage() {
                         </span>
                       ) : null}
                       {row.caption ? (
-                        <span className="text-[11.5px] text-slate-500">{row.caption}</span>
+                        <span className="text-[12px] text-slate-500">{row.caption}</span>
                       ) : null}
                     </span>
                     <a
                       href={row.href}
-                      className="justify-self-end text-[12.5px] font-semibold text-blue-700 hover:text-blue-800"
+                      className="justify-self-end text-[13px] font-semibold text-blue-700 hover:text-blue-800"
                     >
                       Mở module
                     </a>
@@ -653,7 +653,7 @@ export default async function TenantPortalPage() {
           </h2>
           <Link
             href="/organization"
-            className="flex items-center gap-0.5 text-[12.5px] font-semibold text-blue-700 hover:text-blue-800"
+            className="flex items-center gap-0.5 text-[13px] font-semibold text-blue-700 hover:text-blue-800"
           >
             Xem chi tiết
             <ChevronRight className="size-3.5" aria-hidden />
@@ -689,10 +689,10 @@ export default async function TenantPortalPage() {
             >
               <span className="flex items-center gap-2 border-b border-[#eef0f3] pb-2">
                 <span aria-hidden className="size-1.5 rounded-full bg-[#ffc90a]" />
-                <span className="min-w-0 flex-1 truncate text-[12.5px] font-semibold">
+                <span className="min-w-0 flex-1 truncate text-[13px] font-semibold">
                   {organizationTree.name}
                 </span>
-                <span className="rounded-[5px] bg-[#fff6d6] px-1.5 text-[10.5px] font-bold text-[#8a6400]">
+                <span className="rounded-[5px] bg-[#fff6d6] px-1.5 text-[12px] font-bold text-[#8a6400]">
                   Cây chính
                 </span>
               </span>
@@ -702,7 +702,7 @@ export default async function TenantPortalPage() {
                   title={`${rootNode.code} · ${rootNode.name}`}
                 >
                   <Building2 className="size-3.5 shrink-0 text-red-600" aria-hidden />
-                  <span className="truncate text-[12.5px] font-bold">{rootNode.name}</span>
+                  <span className="truncate text-[13px] font-bold">{rootNode.name}</span>
                 </span>
                 {displayBranches.length > 0 ? (
                   <>
@@ -731,7 +731,7 @@ export default async function TenantPortalPage() {
                             className="flex w-full flex-col items-center rounded-lg border border-slate-200 border-t-[3px] border-t-sky-500 bg-white px-2 py-[7px] text-center"
                             title={`${child.code} · ${child.name}`}
                           >
-                            <span className="max-w-full truncate text-[12px] font-semibold">
+                            <span className="max-w-full truncate text-[13px] font-semibold">
                               {child.name}
                             </span>
                           </span>
@@ -774,7 +774,7 @@ function QuickLink({
   return (
     <Link
       href={href}
-      className={`flex h-[34px] items-center gap-1.5 rounded-lg border px-3 text-[13px] font-semibold ${accent
+      className={`flex h-[34px] items-center gap-1.5 rounded-lg border px-3 text-[14px] font-semibold ${accent
         ? 'border-[#ffc90a]/50 bg-[#ffc90a]/12 text-[#ffd84d] hover:bg-[#ffc90a]/20'
         : 'border-white/20 bg-white/5 text-white hover:bg-white/10'
         }`}
@@ -800,7 +800,7 @@ function GroupTable({
     <div className="overflow-x-auto">
       <div className="min-w-[760px] py-1">
         <div
-          className="grid items-center gap-x-3 px-5 py-2 text-[11px] font-semibold tracking-[0.4px] text-slate-500"
+          className="grid items-center gap-x-3 px-5 py-2 text-[12px] font-semibold tracking-[0.4px] text-slate-500"
           style={{ gridTemplateColumns: columns }}
         >
           <span />
@@ -810,7 +810,7 @@ function GroupTable({
         </div>
         {children}
         {footer ? (
-          <div className="border-t border-[#f1f3f6] px-5 py-2.5 text-[13px]">{footer}</div>
+          <div className="border-t border-[#f1f3f6] px-5 py-2.5 text-[14px]">{footer}</div>
         ) : null}
       </div>
     </div>
@@ -829,7 +829,7 @@ function GroupRow({
   return (
     <a
       href={href}
-      className="grid items-center gap-x-3 border-t border-[#f1f3f6] px-5 py-[11px] text-[13.5px] text-[#18181b] hover:bg-[#f4f6f9]"
+      className="grid items-center gap-x-3 border-t border-[#f1f3f6] px-5 py-[11px] text-[14px] text-[#18181b] hover:bg-[#f4f6f9]"
       style={{ gridTemplateColumns: columns }}
     >
       {children}
@@ -853,8 +853,8 @@ function Cell({
   return (
     <span
       title={title}
-      className={`truncate ${strong ? 'font-medium' : ''} ${muted ? 'text-[12.5px] tabular-nums text-slate-600' : ''
-        } ${small ? 'text-[12.5px] text-slate-700' : ''}`}
+      className={`truncate ${strong ? 'font-medium' : ''} ${muted ? 'text-[13px] tabular-nums text-slate-600' : ''
+        } ${small ? 'text-[13px] text-slate-700' : ''}`}
     >
       {children}
     </span>
@@ -874,7 +874,7 @@ function Pill({ className, children }: { className: string; children: ReactNode 
 }
 
 function Empty({ children }: { children: ReactNode }) {
-  return <p className="m-0 px-5 py-[18px] text-center text-[13px] text-slate-500">{children}</p>;
+  return <p className="m-0 px-5 py-[18px] text-center text-[14px] text-slate-500">{children}</p>;
 }
 
 function OrgMetric({
@@ -893,7 +893,7 @@ function OrgMetric({
       <span aria-hidden className={`grid size-[26px] shrink-0 place-items-center rounded-[7px] ${tone}`}>
         {icon}
       </span>
-      <span className="flex-1 text-[11.5px] text-slate-500">{label}</span>
+      <span className="flex-1 text-[12px] text-slate-500">{label}</span>
       <b className="text-base tabular-nums">{value}</b>
     </div>
   );

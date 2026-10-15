@@ -59,7 +59,7 @@ export function PermissionPicker({
     <div className="space-y-2 rounded-[10px] border border-[#eef0f3] bg-[#fafbfc] p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <span className="text-[13px] font-semibold text-slate-800">{label}</span>
+          <span className="text-[14px] font-semibold text-slate-800">{label}</span>
           <span className="rounded-full bg-[#f1f3f6] px-2 text-xs font-semibold text-slate-700">
             {values.length} / {options.length}
           </span>
@@ -118,7 +118,7 @@ export function PermissionPicker({
             <label
               key={option.id}
               htmlFor={inputId}
-              className={`group flex cursor-pointer items-start gap-2.5 rounded-lg border px-2.5 py-2 text-[12.5px] transition-all ${
+              className={`group flex cursor-pointer items-start gap-2.5 rounded-lg border px-2.5 py-2 text-[13px] transition-all ${
                 isChecked
                   ? 'border-amber-300 bg-[#fffbeb] text-[#18181b]'
                   : 'border-[#eef0f3] bg-white hover:border-slate-300 hover:bg-[#f4f6f9] text-slate-700'
@@ -155,7 +155,7 @@ export function PermissionPicker({
                     {option.label}
                   </span>
                   {option.group && (
-                    <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500">
+                    <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[12px] font-medium text-slate-500">
                       {option.group}
                     </span>
                   )}

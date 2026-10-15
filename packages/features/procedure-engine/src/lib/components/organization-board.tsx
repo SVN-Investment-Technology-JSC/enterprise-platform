@@ -272,7 +272,7 @@ export function OrganizationBoard({
             />
           ))}
           {roots.length === 0 ? (
-            <p style={{ padding: '20px', color: 'var(--muted)', fontSize: '13px' }}>
+            <p style={{ padding: '20px', color: 'var(--muted)', fontSize: '14px' }}>
               Chưa có đơn vị tổ chức nào. Bấm &quot;Thêm đơn vị mới&quot; để khởi tạo.
             </p>
           ) : null}
@@ -325,7 +325,7 @@ export function OrganizationBoard({
                 <button
                   type="button"
                   className={styles.secondaryButton}
-                  style={{ fontSize: '11px', minHeight: '30px', padding: '0 10px' }}
+                  style={{ fontSize: '12px', minHeight: '30px', padding: '0 10px' }}
                   onClick={openAddMemberModal}
                 >
                   + Gán nhân sự
@@ -360,7 +360,7 @@ export function OrganizationBoard({
                           border: '1px solid #cbd5e1',
                           borderRadius: '6px',
                           padding: '3px 8px',
-                          fontSize: '11px',
+                          fontSize: '12px',
                           cursor: 'pointer',
                         }}
                         onClick={() => openEditMemberModal(member)}
@@ -380,7 +380,7 @@ export function OrganizationBoard({
                             padding: '2px 6px',
                           }}
                         >
-                          <span style={{ fontSize: '11px', color: '#b91c1c' }}>Gỡ?</span>
+                          <span style={{ fontSize: '12px', color: '#b91c1c' }}>Gỡ?</span>
                           <button
                             type="button"
                             style={{
@@ -389,7 +389,7 @@ export function OrganizationBoard({
                               border: 'none',
                               borderRadius: '4px',
                               padding: '2px 6px',
-                              fontSize: '10.5px',
+                              fontSize: '12px',
                               cursor: 'pointer',
                             }}
                             disabled={busyAction}
@@ -405,7 +405,7 @@ export function OrganizationBoard({
                               border: 'none',
                               borderRadius: '4px',
                               padding: '2px 6px',
-                              fontSize: '10.5px',
+                              fontSize: '12px',
                               cursor: 'pointer',
                             }}
                             onClick={() => setDeletingMemberId(null)}
@@ -422,7 +422,7 @@ export function OrganizationBoard({
                             color: '#b91c1c',
                             borderRadius: '6px',
                             padding: '3px 8px',
-                            fontSize: '11px',
+                            fontSize: '12px',
                             cursor: 'pointer',
                           }}
                           onClick={() => setDeletingMemberId(member.membershipId)}
@@ -434,14 +434,14 @@ export function OrganizationBoard({
                   </div>
                 ))}
                 {unitMembers.length === 0 ? (
-                  <p style={{ color: 'var(--muted)', fontSize: '12px', padding: '12px 0' }}>
+                  <p style={{ color: 'var(--muted)', fontSize: '13px', padding: '12px 0' }}>
                     Chưa có nhân sự nào được phân bổ vào đơn vị này.
                   </p>
                 ) : null}
               </div>
             </>
           ) : (
-            <p style={{ color: 'var(--muted)', fontSize: '13px' }}>
+            <p style={{ color: 'var(--muted)', fontSize: '14px' }}>
               Chọn một đơn vị từ cây cơ cấu bên trái để xem và phân bổ nhân sự.
             </p>
           )}
@@ -466,7 +466,7 @@ export function OrganizationBoard({
                     background: '#fee2e2',
                     color: '#b91c1c',
                     borderRadius: '6px',
-                    fontSize: '12px',
+                    fontSize: '13px',
                     marginBottom: '10px',
                   }}
                 >
@@ -568,7 +568,7 @@ export function OrganizationBoard({
                     background: '#fee2e2',
                     color: '#b91c1c',
                     borderRadius: '6px',
-                    fontSize: '12px',
+                    fontSize: '13px',
                     marginBottom: '10px',
                   }}
                 >
@@ -618,7 +618,7 @@ export function OrganizationBoard({
                   marginTop: '12px',
                   cursor: 'pointer',
                   fontWeight: 'normal',
-                  fontSize: '12px',
+                  fontSize: '13px',
                 }}
               >
                 <input
@@ -670,7 +670,7 @@ export function OrganizationBoard({
                     background: '#fee2e2',
                     color: '#b91c1c',
                     borderRadius: '6px',
-                    fontSize: '12px',
+                    fontSize: '13px',
                     marginBottom: '10px',
                   }}
                 >
@@ -679,8 +679,8 @@ export function OrganizationBoard({
               ) : null}
 
               <div style={{ marginBottom: '10px' }}>
-                <span style={{ fontSize: '11px', color: 'var(--muted)' }}>Nhân sự:</span>
-                <div style={{ fontWeight: 600, fontSize: '13px', marginTop: '2px' }}>
+                <span style={{ fontSize: '12px', color: 'var(--muted)' }}>Nhân sự:</span>
+                <div style={{ fontWeight: 600, fontSize: '14px', marginTop: '2px' }}>
                   {editMember.displayName} ({editMember.email})
                 </div>
               </div>
@@ -718,7 +718,7 @@ export function OrganizationBoard({
                   marginTop: '12px',
                   cursor: 'pointer',
                   fontWeight: 'normal',
-                  fontSize: '12px',
+                  fontSize: '13px',
                 }}
               >
                 <input

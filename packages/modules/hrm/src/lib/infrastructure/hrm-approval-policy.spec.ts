@@ -179,6 +179,43 @@ describe('assertCanDecide', () => {
     ).resolves.toBeUndefined();
   });
 
+  it('người không thuộc cấp dưới và không giữ chức danh dự phòng bị 403 APPROVAL_OUT_OF_SCOPE', async () => {
+    await expect(
+      assertCanDecide(
+        manager,
+        { id: 'r1' },
+        'leave',
+        fakeDeps({
+          subordinates: ['someone-else'],
+          fallbackPositionId: 'pos-fallback',
+          actorHoldsPosition: false,
+        }),
+      ),
+    ).rejects.toMatchObject({
+      response: { code: APPROVAL_OUT_OF_SCOPE },
+      status: 403,
+    });
+  });
+
+  it('không có chức danh dự phòng và không phải cấp dưới: bị chặn 403 kể cả không có quản lý trực tiếp', async () => {
+    await expect(
+      assertCanDecide(
+        manager,
+        { id: 'r1' },
+        'leave',
+        fakeDeps({
+          subordinates: [],
+          fallbackPositionId: null,
+          actorHoldsPosition: false,
+        }),
+      ),
+    ).rejects.toMatchObject({
+      response: { code: APPROVAL_OUT_OF_SCOPE },
+      status: 403,
+    });
+  });
+
+
   it('quyền approve.all duyệt toàn tenant dù khác đơn vị', async () => {
     await expect(
       assertCanDecide(

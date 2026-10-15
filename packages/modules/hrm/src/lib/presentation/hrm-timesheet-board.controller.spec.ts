@@ -66,8 +66,8 @@ function setup(permissions: string[], fixture: Partial<Fixture> = {}) {
     }
     if (sql.includes('SELECT id FROM hrm_schema.timesheets WHERE')) return rows(fx.lines);
     if (sql.includes('AS shift_changes')) return rows([{ leaves: 0, ots: 0, trips: 0, shift_changes: 0, corrections: 0, ...fx.pending }]);
-    if (sql.includes('count(*) OVER()')) {
-      const list = (params[3] ? [params[3] as string] : fx.employees.length ? fx.employees : [ME, OTHER]).map((id) => ({ employee_id: id, total: 2 }));
+    if (sql.includes('ORDER BY d.employee_code, d.employee_id')) {
+      const list = (params[3] ? [params[3] as string] : fx.employees.length ? fx.employees : [ME, OTHER]).map((id) => ({ employee_id: id }));
       return rows(list);
     }
     if (sql.includes('FROM hrm_schema.employee_profiles')) return rows(fx.employees.map((id) => ({ employee_id: id })));
@@ -107,18 +107,22 @@ describe('GET /timesheet-board: phạm vi do server quyết định', () => {
     expect(data.employees.map((e) => e.employeeId)).toEqual([ME, OTHER]);
     expect(data.calendar).toHaveLength(31);
     expect(data.month).toMatchObject({ month: PAST, from: '2020-01-01', to: '2020-01-31', state: 'OPEN', periodId: null });
-    expect(data.meta).toEqual({ total: 2, page: 1, pageSize: 50 });
-    const list = calls.find((c) => c.sql.includes('count(*) OVER()'))!;
+    expect(data.meta).toMatchObject({ total: 2, page: 1, pageSize: 50 });
+    expect(data.meta.counts?.ALL).toBe(2);
+    const list = calls.find((c) => c.sql.includes('ORDER BY d.employee_code, d.employee_id'))!;
     expect(list.params[3]).toBeNull();
   });
 
   it('có quyền xem tất cả: lọc theo q (không dấu) và employee_id, page_size tối đa 200', async () => {
     const { controller, calls } = setup(['hrm.timesheet.read']);
     await controller.board(req, PAST, OTHER, 'Nguyễn Đức', '2', '999');
-    const list = calls.find((c) => c.sql.includes('count(*) OVER()'))!;
+    const list = calls.find((c) => c.sql.includes('ORDER BY d.employee_code, d.employee_id'))!;
     expect(list.params[3]).toBe(OTHER);
     expect(list.params[4]).toBe('nguyen duc');
-    expect(list.params.slice(-2)).toEqual([200, 200]);
+    // trang 2 của danh sách 1 người (employee_id) với page_size bị chặn ở 200: rỗng, nhưng tổng vẫn đúng
+    const { data } = await controller.board(req, PAST, OTHER, 'Nguyễn Đức', '2', '999');
+    expect(data.meta).toMatchObject({ page: 2, pageSize: 200, total: 1 });
+    expect(data.employees).toEqual([]);
   });
 
   it('không có quyền xem: chỉ thấy chính mình, canViewAll = false, q bị bỏ qua', async () => {
@@ -126,7 +130,7 @@ describe('GET /timesheet-board: phạm vi do server quyết định', () => {
     const { data } = await controller.board(req, PAST, undefined, 'người khác');
     expect(data.canViewAll).toBe(false);
     expect(data.employees.map((e) => e.employeeId)).toEqual([ME]);
-    const list = calls.find((c) => c.sql.includes('count(*) OVER()'))!;
+    const list = calls.find((c) => c.sql.includes('ORDER BY d.employee_code, d.employee_id'))!;
     expect(list.params[3]).toBe(ME);
     expect(list.params[4]).toBeNull();
     // chính mình được phép xin rõ ràng
@@ -138,7 +142,7 @@ describe('GET /timesheet-board: phạm vi do server quyết định', () => {
     const { data } = await controller.board(req, PAST, undefined, 'ai đó', undefined, undefined, '1');
     expect(data.canViewAll).toBe(false);
     expect(data.employees.map((e) => e.employeeId)).toEqual([ME]);
-    const list = calls.find((c) => c.sql.includes('count(*) OVER()'))!;
+    const list = calls.find((c) => c.sql.includes('ORDER BY d.employee_code, d.employee_id'))!;
     expect(list.params[3]).toBe(ME);
     expect(list.params[4]).toBeNull();
     await expect(controller.board(req, PAST, OTHER, undefined, undefined, undefined, 'true')).rejects.toBeInstanceOf(ForbiddenException);
@@ -149,6 +153,29 @@ describe('GET /timesheet-board: phạm vi do server quyết định', () => {
     const { controller, calls } = setup(['hrm.self.read']);
     await expect(controller.board(req, PAST, OTHER)).rejects.toBeInstanceOf(ForbiddenException);
     expect(calls.some((c) => c.sql.includes('employee_directory'))).toBe(false);
+  });
+
+  it('bộ lọc nhanh áp trên toàn bộ nhân viên rồi mới phân trang; số đếm không đổi theo flag và cỡ trang', async () => {
+    const { controller } = setup(['hrm.timesheet.read']);
+    const all = (await controller.board(req, PAST)).data;
+    const counts = all.meta.counts!;
+    for (const flag of ['LATE_EARLY', 'ABNORMAL', 'ABSENT', 'PENDING'] as const) {
+      const filtered = (await controller.board(req, PAST, undefined, undefined, undefined, undefined, undefined, flag)).data;
+      expect(filtered.meta.total).toBe(counts[flag]);
+      expect(filtered.employees).toHaveLength(counts[flag]);
+      expect(filtered.meta.counts).toEqual(counts);
+      // cỡ trang 1 không làm đổi tổng: mỗi trang chỉ cắt từ danh sách đã lọc
+      const firstPage = (await controller.board(req, PAST, undefined, undefined, '1', '1', undefined, flag)).data;
+      expect(firstPage.meta.total).toBe(counts[flag]);
+      expect(firstPage.meta.counts).toEqual(counts);
+      expect(firstPage.employees.length).toBe(Math.min(1, counts[flag]));
+    }
+    expect((await controller.board(req, PAST, undefined, undefined, undefined, undefined, undefined, 'ALL')).data.meta.total).toBe(2);
+  });
+
+  it('flag không hợp lệ: 400', async () => {
+    const { controller } = setup(['hrm.timesheet.read']);
+    await expect(controller.board(req, PAST, undefined, undefined, undefined, undefined, undefined, 'FOO')).rejects.toMatchObject({ status: 400 });
   });
 
   it('tham số sai: tháng, employee_id, page_size', async () => {

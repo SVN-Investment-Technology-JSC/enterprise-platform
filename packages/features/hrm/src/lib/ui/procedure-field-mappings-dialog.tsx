@@ -162,7 +162,7 @@ export function ProcedureFieldMappingsDialog({
           <p className="py-6 text-center text-xs text-slate-500">Đang tải thuộc tính...</p>
         )}
         {state && state.isDefault && (
-          <p className="text-[11px] text-slate-500">
+          <p className="text-[12px] text-slate-500">
             Đang dùng ánh xạ mặc định (tương thích cấu hình cũ). Lưu để xác nhận cấu hình.
           </p>
         )}
@@ -188,7 +188,7 @@ export function ProcedureFieldMappingsDialog({
                       <span className="ml-1 font-bold text-red-500">*</span>
                     )}
                   </div>
-                  <div className="font-mono text-[11px] text-slate-500">
+                  <div className="font-mono text-[12px] text-slate-500">
                     {row.attribute.code} · {row.attribute.type}
                   </div>
                 </div>

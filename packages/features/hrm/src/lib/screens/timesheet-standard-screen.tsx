@@ -214,7 +214,7 @@ export default function TimesheetStandardScreen() {
       <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
         <table className="w-full min-w-[760px] border-collapse text-xs" aria-label="Các chính sách công chuẩn">
           <thead>
-            <tr className="bg-slate-50 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+            <tr className="bg-slate-50 text-left text-[12px] font-semibold uppercase tracking-wide text-slate-500">
               <th className="px-3 py-2">Áp dụng từ tháng</th>
               <th className="px-3 py-2">Cách tính</th>
               <th className="px-3 py-2">Ghi chú</th>
@@ -240,11 +240,11 @@ export default function TimesheetStandardScreen() {
                       <td className="px-3 py-2 text-slate-600">{policy.note ?? '----'}</td>
                       <td className="px-3 py-2">
                         {state === 'current' ? (
-                          <Badge className="border border-emerald-200 bg-emerald-50 text-[10px] text-emerald-700">Đang áp dụng</Badge>
+                          <Badge className="border border-emerald-200 bg-emerald-50 text-[12px] text-emerald-700">Đang áp dụng</Badge>
                         ) : state === 'upcoming' ? (
-                          <Badge className="border border-blue-200 bg-blue-50 text-[10px] text-blue-700">Sắp áp dụng</Badge>
+                          <Badge className="border border-blue-200 bg-blue-50 text-[12px] text-blue-700">Sắp áp dụng</Badge>
                         ) : (
-                          <Badge variant="outline" className="text-[10px] text-slate-500">Đã thay thế</Badge>
+                          <Badge variant="outline" className="text-[12px] text-slate-500">Đã thay thế</Badge>
                         )}
                       </td>
                       <td className="px-3 py-2 text-right">
@@ -270,9 +270,9 @@ export default function TimesheetStandardScreen() {
                   <td className="px-3 py-2">Dùng khi chưa có chính sách nào có hiệu lực</td>
                   <td className="px-3 py-2">
                     {hasCurrent ? (
-                      <Badge variant="outline" className="text-[10px] text-slate-500">Đã thay thế</Badge>
+                      <Badge variant="outline" className="text-[12px] text-slate-500">Đã thay thế</Badge>
                     ) : (
-                      <Badge className="border border-emerald-200 bg-emerald-50 text-[10px] text-emerald-700">Đang áp dụng</Badge>
+                      <Badge className="border border-emerald-200 bg-emerald-50 text-[12px] text-emerald-700">Đang áp dụng</Badge>
                     )}
                   </td>
                   <td className="px-3 py-2" />

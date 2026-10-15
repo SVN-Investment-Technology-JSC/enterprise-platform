@@ -147,7 +147,7 @@ export default function HrmPermissionsScreen() {
       width: 'minmax(0,1.3fr)',
       cardFull: true,
       cell: (r) => (
-        <code className="inline-block max-w-full break-all rounded border border-slate-200 bg-slate-100 px-2 py-0.5 font-mono text-[11px] text-blue-700">
+        <code className="inline-block max-w-full break-all rounded border border-slate-200 bg-slate-100 px-2 py-0.5 font-mono text-[12px] text-blue-700">
           {r.key}
         </code>
       ),

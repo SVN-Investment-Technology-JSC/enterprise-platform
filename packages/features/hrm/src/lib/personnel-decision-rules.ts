@@ -12,6 +12,7 @@ export const DECISION_TYPE_LABELS: Record<HrmPersonnelDecisionType, string> = {
   TRANSFER: 'Điều chuyển',
   CONCURRENT: 'Kiêm nhiệm',
   DISMISS: 'Miễn nhiệm',
+  REVOKE: 'Bãi nhiệm',
   CHANGE_MANAGER: 'Đổi quản lý trực tiếp',
 };
 
@@ -25,6 +26,7 @@ export const DECISION_STATUS_LABELS: Record<
   APPLIED: 'Đã áp dụng',
   REJECTED: 'Từ chối',
   CANCELLED: 'Đã hủy',
+  RECORDED: 'Đã ghi nhận',
 };
 
 export const DECISION_STATUS_TONES: Record<
@@ -37,6 +39,7 @@ export const DECISION_STATUS_TONES: Record<
   APPLIED: 'bg-emerald-50 text-emerald-700 border-emerald-200',
   REJECTED: 'bg-red-50 text-red-700 border-red-200',
   CANCELLED: 'bg-slate-100 text-slate-500 border-slate-200',
+  RECORDED: 'bg-teal-50 text-teal-700 border-teal-200',
 };
 
 /**
@@ -60,6 +63,7 @@ export const DECISION_TYPES: HrmPersonnelDecisionType[] = [
   'TRANSFER',
   'CONCURRENT',
   'DISMISS',
+  'REVOKE',
 ];
 export const DECISION_STATUSES = Object.keys(
   DECISION_STATUS_LABELS,
@@ -76,8 +80,9 @@ export function isPositionChanging(type: HrmPersonnelDecisionType): boolean {
   return POSITION_TYPES.includes(type);
 }
 
+/** Có chọn một chức danh làm đối tượng: giao chức danh mới hoặc bãi nhiệm chức danh kiêm nhiệm. */
 export function showsTargetPosition(type: HrmPersonnelDecisionType): boolean {
-  return isPositionChanging(type);
+  return isPositionChanging(type) || type === 'REVOKE';
 }
 
 export interface DecisionFormState {
@@ -86,6 +91,8 @@ export interface DecisionFormState {
   effectiveDate: string;
   reason: string;
   toPositionNodeId: string;
+  /** Kiêm nhiệm / Bãi nhiệm: kiêm nhiệm được nối tiếp (thay thế hoặc chấm dứt). */
+  replacesDecisionId: string;
   salaryChanged: boolean;
   toSalaryGradeId: string;
   toSalaryStepId: string;
@@ -100,6 +107,7 @@ export function emptyDecisionForm(employeeId = ''): DecisionFormState {
     effectiveDate: '',
     reason: '',
     toPositionNodeId: '',
+    replacesDecisionId: '',
     salaryChanged: false,
     toSalaryGradeId: '',
     toSalaryStepId: '',
@@ -115,6 +123,7 @@ export function decisionToForm(d: HrmPersonnelDecision): DecisionFormState {
     effectiveDate: d.effectiveDate.slice(0, 10),
     reason: d.reason,
     toPositionNodeId: d.toPositionNodeId ?? '',
+    replacesDecisionId: d.replacesDecisionId ?? '',
     salaryChanged: d.salaryChanged,
     toSalaryGradeId: d.toSalaryGradeId ?? '',
     toSalaryStepId: d.toSalaryStepId ?? '',
@@ -136,7 +145,9 @@ export function validateDecisionForm(
   if (!form.employeeId) errors.push('Chọn nhân viên.');
   if (!form.effectiveDate) errors.push('Nhập ngày hiệu lực.');
   if (!form.reason.trim()) errors.push('Nhập lý do / căn cứ.');
-  if (showsTargetPosition(form.decisionType) && !form.toPositionNodeId) {
+  if (form.decisionType === 'REVOKE') {
+    if (!form.replacesDecisionId) errors.push('Chọn kiêm nhiệm cần bãi nhiệm.');
+  } else if (showsTargetPosition(form.decisionType) && !form.toPositionNodeId) {
     errors.push('Chọn chức danh mới.');
   }
   if (isPositionChanging(form.decisionType) && ctx.hasAccount === false) {
@@ -163,9 +174,14 @@ export function buildDecisionPayload(
     employeeId: form.employeeId,
     effectiveDate: form.effectiveDate,
     reason: form.reason.trim(),
-    toPositionNodeId: showsTargetPosition(form.decisionType)
-      ? form.toPositionNodeId || null
-      : null,
+    toPositionNodeId:
+      showsTargetPosition(form.decisionType) && form.decisionType !== 'REVOKE'
+        ? form.toPositionNodeId || null
+        : null,
+    replacesDecisionId:
+      form.decisionType === 'CONCURRENT' || form.decisionType === 'REVOKE'
+        ? form.replacesDecisionId || null
+        : null,
     salaryChanged: form.salaryChanged,
     toSalaryGradeId: form.salaryChanged ? form.toSalaryGradeId : null,
     toSalaryStepId: form.salaryChanged ? form.toSalaryStepId : null,
@@ -187,9 +203,10 @@ export function decisionRowActions(
   perms: { manage: boolean; approve: boolean },
 ): DecisionRowActions {
   const draft = status === 'DRAFT';
+  const editable = draft || status === 'RECORDED';
   return {
-    edit: draft && perms.manage,
-    cancel: draft && perms.manage,
+    edit: editable && perms.manage,
+    cancel: editable && perms.manage,
     approve: draft && perms.approve,
     reject: draft && perms.approve,
     retry: status === 'APPLY_PENDING' && perms.approve,

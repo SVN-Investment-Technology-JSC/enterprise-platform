@@ -203,7 +203,7 @@ export function SparePartPanel({
       <header className={styles.cardHead}>
         <div>
           <h3>Vật tư trọng yếu (Phụ tùng BOM)</h3>
-          <p style={{ margin: '2px 0 0', fontSize: '11.5px', color: '#64748b' }}>
+          <p style={{ margin: '2px 0 0', fontSize: '12px', color: '#64748b' }}>
             Hiển thị theo các node con trong sơ đồ cây. Chỉ các node con đã lắp trên cây mới có thể gán cờ “Trọng yếu”.
           </p>
         </div>
@@ -211,7 +211,7 @@ export function SparePartPanel({
           <button
             type="button"
             className={styles.btnSecondary}
-            style={{ padding: '4px 10px', fontSize: '12px' }}
+            style={{ padding: '4px 10px', fontSize: '13px' }}
             disabled={disabled}
             onClick={startEditing}
           >
@@ -257,7 +257,7 @@ export function SparePartPanel({
                     <tr key={draft.materialCode}>
                       <td style={{ padding: '6px 10px' }}>
                         <strong>{name}</strong>
-                        <div style={{ fontSize: '11px', color: '#64748b' }}>
+                        <div style={{ fontSize: '12px', color: '#64748b' }}>
                           <code>{draft.materialCode}</code>
                           {' · '}
                           <span>trong kho: {formatNumber(stockOf(draft.materialCode))} {unit}</span>
@@ -296,7 +296,7 @@ export function SparePartPanel({
                               )
                             }
                           />
-                          <span style={{ fontSize: '11.5px', color: '#64748b' }}>{unit}</span>
+                          <span style={{ fontSize: '12px', color: '#64748b' }}>{unit}</span>
                         </div>
                       </td>
                       <td style={{ padding: '6px 10px' }}>
@@ -305,7 +305,7 @@ export function SparePartPanel({
                             display: 'inline-flex',
                             alignItems: 'center',
                             gap: '6px',
-                            fontSize: '12px',
+                            fontSize: '13px',
                             cursor: inTree ? 'pointer' : 'not-allowed',
                             opacity: inTree ? 1 : 0.45,
                             userSelect: 'none',
@@ -393,7 +393,7 @@ export function SparePartPanel({
                   width: '100%',
                   boxSizing: 'border-box',
                   padding: '6px 10px',
-                  fontSize: '12.5px',
+                  fontSize: '13px',
                   border: '1px solid #cbd5e1',
                   borderRadius: '5px',
                   outline: 'none',
@@ -433,7 +433,7 @@ export function SparePartPanel({
                           key={opt.code}
                           style={{
                             padding: '7px 10px',
-                            fontSize: '12px',
+                            fontSize: '13px',
                             cursor: 'pointer',
                             borderBottom: '1px solid #f1f5f9',
                             display: 'flex',
@@ -451,16 +451,16 @@ export function SparePartPanel({
                           }}
                         >
                           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            <span style={{ fontSize: '10px', padding: '1px 5px', borderRadius: '3px', background: '#dcfce7', color: '#166534', fontWeight: 600 }}>
+                            <span style={{ fontSize: '12px', padding: '1px 5px', borderRadius: '3px', background: '#dcfce7', color: '#166534', fontWeight: 600 }}>
                               Node con ({opt.unitCode})
                             </span>
                             <strong>{opt.name}</strong> <code style={{ color: '#2563eb' }}>({opt.code})</code>
                           </div>
-                          {opt.unit ? <span style={{ color: '#64748b', fontSize: '11px' }}>{opt.unit}</span> : null}
+                          {opt.unit ? <span style={{ color: '#64748b', fontSize: '12px' }}>{opt.unit}</span> : null}
                         </div>
                       ))}
                     {options.filter((opt) => !draftLines.some((d) => d.materialCode === opt.code)).length === 0 ? (
-                      <div style={{ padding: '10px', fontSize: '12px', color: '#64748b', textAlign: 'center' }}>
+                      <div style={{ padding: '10px', fontSize: '13px', color: '#64748b', textAlign: 'center' }}>
                         Không có node con nào khả dụng để thêm.
                       </div>
                     ) : null}
@@ -514,11 +514,11 @@ export function SparePartPanel({
                           <span className={styles.spareCardName}>{line.materialName}</span>
                           <span className={styles.spareCardCodeTag}>{line.materialCode}</span>
                           {inTree && childNode ? (
-                            <span className={styles.treeNodeBadge} style={{ fontSize: '11px', padding: '1px 6px' }}>
+                            <span className={styles.treeNodeBadge} style={{ fontSize: '12px', padding: '1px 6px' }}>
                               Node con: {childNode.unitCode}
                             </span>
                           ) : (
-                            <span className={styles.treeNodeBadgeNotInstalled} style={{ fontSize: '11px', padding: '1px 6px' }}>
+                            <span className={styles.treeNodeBadgeNotInstalled} style={{ fontSize: '12px', padding: '1px 6px' }}>
                               Chưa thuộc cây
                             </span>
                           )}

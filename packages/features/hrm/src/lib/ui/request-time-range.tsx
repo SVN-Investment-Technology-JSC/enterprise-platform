@@ -5,6 +5,8 @@ import { hrmFetch } from '../hrm-api';
 import { formatHours } from '../request-time-format';
 import { DateTimeInput, splitDateTime } from './date-time-input';
 
+const formatDays = (days: number) => String(Math.round(days * 100) / 100).replace('.', ',');
+
 /**
  * Chọn khoảng thời gian của đơn: từ ngày giờ đến ngày giờ. Số giờ và số ngày công do máy chủ tính theo ca thực tế
  * của nhân viên (`GET /requests/time-preview`), nên con số hiển thị trước khi gửi chính là con số sẽ được lưu.
@@ -32,7 +34,7 @@ export function RequestTimeRange({
   leaveTypeId?: string;
   /**
    * Loại đơn quyết định cách máy chủ tính: `leave` theo ca (bỏ ngày nghỉ), `ot` chỉ tính khoảng đã chọn và bắt lỗi khi trùng
-   * giờ ca, `trip` tính theo giờ của khoảng và số ngày lịch (không bắt lỗi theo ca).
+   * giờ ca, `trip` tính số ngày công tác theo ca (mỗi ngày cả ca hoặc nửa ca, ngày nghỉ và ngày lễ không tính) và báo lỗi khi sai khung ca.
    */
   kind?: 'leave' | 'ot' | 'trip';
   showPreview?: boolean;
@@ -112,6 +114,11 @@ export function RequestTimeRange({
           />
         </label>
       </div>
+      {kind === 'trip' && !preview && !previewError && (
+        <p className="text-[11px] text-slate-500">
+          Công tác chọn theo cả ngày (đủ khung ca hành chính) hoặc nửa ngày; ngày nghỉ và ngày lễ không tính.
+        </p>
+      )}
       {!ordered && (
         <p role="alert" className="text-xs font-semibold text-rose-600">
           Thời điểm kết thúc phải sau thời điểm bắt đầu.
@@ -127,13 +134,18 @@ export function RequestTimeRange({
           role="status"
           className="space-y-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700"
         >
-          <p className="font-semibold text-slate-900" data-testid="time-total">
-            {kind !== 'leave' ? 'Tổng thời gian: ' : ''}
-            {formatHours(preview.totalMinutes)} giờ
-            {preview.totalDays > 0
-              ? ` (${String(Math.round(preview.totalDays * 100) / 100).replace('.', ',')} ${kind === 'trip' ? 'ngày' : 'ngày công'})`
-              : ''}
-          </p>
+          {kind === 'trip' ? (
+            // Công tác tính theo ngày: chỉ hiện số ngày công tác (cả ca hoặc nửa ca mỗi ngày), không hiện số giờ.
+            <p className="font-semibold text-slate-900" data-testid="time-total">
+              Số ngày công tác: {formatDays(preview.totalDays)} ngày
+            </p>
+          ) : (
+            <p className="font-semibold text-slate-900" data-testid="time-total">
+              {kind !== 'leave' ? 'Tổng thời gian: ' : ''}
+              {formatHours(preview.totalMinutes)} giờ
+              {preview.totalDays > 0 ? ` (${formatDays(preview.totalDays)} ngày công)` : ''}
+            </p>
+          )}
           {preview.errors.map((text) => (
             <p key={text} className="font-semibold text-rose-600">
               {text}

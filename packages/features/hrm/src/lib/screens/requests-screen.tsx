@@ -146,6 +146,7 @@ import {
   matchesWorkflowFilter,
   waitingApproverLabel,
 } from '../procedure-progress-view';
+import { RequestThread } from '../ui/approvals/request-thread';
 
 /** Bản nháp đơn do máy chủ trả về khi lưu qua /request-drafts. */
 interface RequestDraft {
@@ -727,7 +728,7 @@ function UnpaidOtBadge() {
   return (
     <Badge
       variant="outline"
-      className="ml-1.5 border-amber-200 bg-amber-50 text-[10px] font-semibold text-amber-800"
+      className="ml-1.5 border-amber-200 bg-amber-50 text-[12px] font-semibold text-amber-800"
     >
       Không lương
     </Badge>
@@ -3459,7 +3460,7 @@ export default function RequestsPage() {
             <div className="font-semibold text-slate-800">
               Nhân viên khởi tạo yêu cầu
             </div>
-            <div className="text-[11px] text-slate-400">
+            <div className="text-[12px] text-slate-400">
               {selectedRequest?.createdAt}
             </div>
           </div>
@@ -3481,7 +3482,7 @@ export default function RequestsPage() {
               <div className="font-semibold text-slate-800">
                 Đồng nghiệp xác nhận đổi ca
               </div>
-              <div className="text-[11px] text-slate-500">
+              <div className="text-[12px] text-slate-500">
                 {selectedRequest.workflowStatus !== 'PENDING_PEER'
                   ? 'Đã xác nhận chéo'
                   : 'Đang chờ phản hồi'}
@@ -3510,7 +3511,7 @@ export default function RequestsPage() {
               Cấp thẩm quyền phê duyệt:{' '}
               <strong>{selectedRequest?.approver}</strong>
             </div>
-            <div className="text-[11px] text-slate-500">
+            <div className="text-[12px] text-slate-500">
               {selectedRequest?.requestStatus === 'CANCELLED'
                 ? 'Đã rút / hủy'
                 : selectedRequest?.workflowStatus === 'APPROVED'
@@ -3643,16 +3644,16 @@ export default function RequestsPage() {
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="flex items-center justify-between gap-2">
-                      <span role="heading" aria-level={3} className="truncate text-[13px] font-bold text-slate-900">
+                      <span role="heading" aria-level={3} className="truncate text-[14px] font-bold text-slate-900">
                         {cat.title}
                       </span>
-                      <Badge variant="outline" className="shrink-0 text-[10px] font-semibold">
+                      <Badge variant="outline" className="shrink-0 text-[12px] font-semibold">
                         {cat.tag}
                       </Badge>
                     </span>
-                    <span className="mt-0.5 line-clamp-1 block text-[11px] text-slate-500">{cat.desc}</span>
+                    <span className="mt-0.5 line-clamp-1 block text-[12px] text-slate-500">{cat.desc}</span>
                     {cat.balanceLabel ? (
-                      <span className="mt-1 block truncate text-[11px] font-medium text-slate-600">
+                      <span className="mt-1 block truncate text-[12px] font-medium text-slate-600">
                         {cat.balanceLabel}
                       </span>
                     ) : null}
@@ -3746,11 +3747,10 @@ export default function RequestsPage() {
                   {profile.fullName || '----'}
                   {profile.employeeCode ? ` (${profile.employeeCode})` : ''}
                   {profile.department ? (
-                    <span className="block text-[11px] font-normal text-slate-500">{profile.department}</span>
+                    <span className="block text-[12px] font-normal text-slate-500">{profile.department}</span>
                   ) : null}
                 </DetailField>
                 <DetailField label="Ngày tạo">{detailRow.createdAt}</DetailField>
-                <DetailField label="Người duyệt">{approverText(detailRow)}</DetailField>
                 {detailAttachmentId && (
                   <DetailField label="Tệp đính kèm">
                     <button
@@ -3762,15 +3762,6 @@ export default function RequestsPage() {
                     </button>
                   </DetailField>
                 )}
-                <DetailField label="Kết quả xử lý">
-                  {['CANCELLED', 'REJECTED'].includes(detailRow.requestStatus)
-                    ? 'Không áp dụng'
-                    : detailRow.requestStatus === 'APPLIED'
-                      ? 'Đã cập nhật dữ liệu công'
-                      : detailRow.requestStatus === 'DISBURSED'
-                        ? 'Đã giải ngân'
-                        : 'Chờ áp dụng'}
-                </DetailField>
               </>
             ) : null
           }
@@ -3920,7 +3911,7 @@ export default function RequestsPage() {
             {selectedCatalogId === 'advance' && (
               <div className="p-3 bg-indigo-50/60 rounded-lg border border-indigo-200 flex items-center justify-between">
                 <div>
-                  <span className="text-slate-600 block text-[11px]">
+                  <span className="text-slate-600 block text-[12px]">
                     Số tiền tạm ứng:
                   </span>
                   <strong className="text-sm text-indigo-900 font-mono">
@@ -3928,7 +3919,7 @@ export default function RequestsPage() {
                   </strong>
                 </div>
                 <div className="text-right">
-                  <span className="text-slate-500 block text-[11px]">
+                  <span className="text-slate-500 block text-[12px]">
                     Dự kiến trừ mỗi kỳ:
                   </span>
                   <strong className="text-sm text-emerald-700 font-mono">
@@ -3979,7 +3970,7 @@ export default function RequestsPage() {
                   >
                     {showLeaveFund && (
                       <div data-testid="leave-fund" className="space-y-0.5">
-                        <span className="block text-[11px] text-slate-600">
+                        <span className="block text-[12px] text-slate-600">
                           Quỹ phép năm khả dụng
                         </span>
                         <span className="font-mono text-sm font-bold text-[#021E73]">
@@ -3988,7 +3979,7 @@ export default function RequestsPage() {
                       </div>
                     )}
                     <div className="space-y-0.5">
-                      <span className="block text-[11px] text-slate-600">
+                      <span className="block text-[12px] text-slate-600">
                         Số ngày nghỉ tính toán
                       </span>
                       <span className="flex flex-wrap items-baseline gap-1.5">
@@ -3996,20 +3987,20 @@ export default function RequestsPage() {
                           {extraRanges.length > 0 ? totalLeaveDays : leaveDuration} ngày
                         </span>
                         {extraRanges.length > 0 && (
-                          <span className="text-[11px] text-slate-500">
+                          <span className="text-[12px] text-slate-500">
                             ({[leaveDuration, ...extraRanges.map((r) => r.preview?.totalDays ?? 0)]
                               .map((d, i) => `Khoảng ${i + 1}: ${d}`)
                               .join(' • ')})
                           </span>
                         )}
                         {currentLeavePolicy.stepRule === 'PERCENT_SHIFT' && (
-                          <span className="font-mono text-[11px] font-medium text-emerald-700">
+                          <span className="font-mono text-[12px] font-medium text-emerald-700">
                             ({(parseFloat(leaveDuration) * 100).toFixed(1)}% ca •{' '}
                             {(parseFloat(leaveDuration) * 8).toFixed(1)}h)
                           </span>
                         )}
                         {currentLeavePolicy.stepRule === 'HALF_DAY_STEP' && (
-                          <span className="text-[11px] text-slate-500">
+                          <span className="text-[12px] text-slate-500">
                             {parseFloat(leaveDuration) === 0.5
                               ? '(Nửa ngày ca sáng hoặc chiều)'
                               : parseFloat(leaveDuration) === 1.0
@@ -4024,7 +4015,7 @@ export default function RequestsPage() {
                     {showLeaveFund && (
                       <>
                         <div className="space-y-0.5">
-                          <span className="block text-[11px] text-slate-600">
+                          <span className="block text-[12px] text-slate-600">
                             Sau khi xin
                           </span>
                           <span className="font-mono text-sm font-bold text-emerald-700">
@@ -4038,7 +4029,7 @@ export default function RequestsPage() {
                           </span>
                         </div>
                         <div className="space-y-0.5">
-                          <span className="block text-[11px] text-slate-600">
+                          <span className="block text-[12px] text-slate-600">
                             Phép dư dự kiến
                           </span>
                           {leaveDisplay ? (
@@ -4057,7 +4048,7 @@ export default function RequestsPage() {
                     )}
                   </div>
                   {showLeaveFund && leaveDisplay && (
-                    <p className="text-[11px] leading-relaxed text-slate-500">
+                    <p className="text-[12px] leading-relaxed text-slate-500">
                       Hiện còn {leaveDisplay.available.toFixed(2)} ngày
                       {leaveDisplay.seniority > 0
                         ? ` (gồm ${leaveDisplay.seniority} ngày thâm niên)`
@@ -4075,19 +4066,19 @@ export default function RequestsPage() {
                     </p>
                   )}
                   {showLeaveFund && leaveDisplay?.status === 'ADVANCE' && (
-                    <p className="text-[11px] font-semibold text-amber-700">
+                    <p className="text-[12px] font-semibold text-amber-700">
                       Ứng {Math.abs(leaveDisplay.after).toFixed(2)} ngày phép theo hạn mức của quỹ phép năm.
                     </p>
                   )}
                   {showLeaveFund && leaveDisplay?.status === 'INSUFFICIENT' && (
-                    <p className="text-[11px] font-semibold text-rose-600">
+                    <p className="text-[12px] font-semibold text-rose-600">
                       Vượt hạn mức được nghỉ.
                     </p>
                   )}
                 </div>
 
                 {previewBreakdown && previewBreakdown.breakdown.length > 1 && (
-                  <div className="space-y-1 rounded-lg border border-slate-200 bg-white p-2.5 text-[11px] text-slate-600">
+                  <div className="space-y-1 rounded-lg border border-slate-200 bg-white p-2.5 text-[12px] text-slate-600">
                     <strong className="block font-semibold text-slate-700">
                       Chi tiết từng ngày
                     </strong>
@@ -4127,7 +4118,7 @@ export default function RequestsPage() {
                       <strong className="block font-semibold">
                         Không đủ quỹ phép năm
                       </strong>
-                      <p className="text-[11px] leading-relaxed">{leaveFundError}</p>
+                      <p className="text-[12px] leading-relaxed">{leaveFundError}</p>
                     </div>
                   </div>
                 )}
@@ -4138,7 +4129,7 @@ export default function RequestsPage() {
                       <strong className="block font-semibold">
                         Thời gian nghỉ chưa thỏa mãn quy định
                       </strong>
-                      <p className="text-[11px] leading-relaxed">
+                      <p className="text-[12px] leading-relaxed">
                         {leaveDurationValidation.errorMessage}
                       </p>
                     </div>
@@ -4153,7 +4144,7 @@ export default function RequestsPage() {
                         Dự án liên quan (Workspace)
                       </label>
                       {projectId && (
-                        <span className="rounded bg-blue-50 px-1.5 py-0.5 font-mono text-[10px] font-medium text-blue-700">
+                        <span className="rounded bg-blue-50 px-1.5 py-0.5 font-mono text-[12px] font-medium text-blue-700">
                           Mã:{' '}
                           {workspaceProjects.find((p) => p.id === projectId)?.code ||
                             projectId}
@@ -4179,13 +4170,13 @@ export default function RequestsPage() {
                     <span className="block font-semibold text-slate-800">
                       Tệp đính kèm (không bắt buộc)
                     </span>
-                    <label className="flex min-h-[38px] cursor-pointer flex-col items-center justify-center gap-0.5 rounded-lg border border-dashed border-slate-300 bg-slate-50/60 px-3 py-2 text-center text-[11px] text-slate-500 hover:border-[#ffc90a] hover:bg-amber-50/40">
+                    <label className="flex min-h-[38px] cursor-pointer flex-col items-center justify-center gap-0.5 rounded-lg border border-dashed border-slate-300 bg-slate-50/60 px-3 py-2 text-center text-[12px] text-slate-500 hover:border-[#ffc90a] hover:bg-amber-50/40">
                       <span>
                         <Upload className="mr-1 inline size-3.5 align-text-bottom" />
                         Kéo tệp vào đây hoặc{' '}
                         <span className="font-semibold text-blue-700">chọn tệp</span>
                       </span>
-                      <span className="text-[10px] text-slate-400">
+                      <span className="text-[12px] text-slate-400">
                         Hỗ trợ: PDF, DOC, DOCX, JPG, PNG (tối đa 10MB)
                       </span>
                       <input
@@ -4206,7 +4197,7 @@ export default function RequestsPage() {
                       />
                     </label>
                     {leaveFile && !leaveAttachmentId && (
-                      <div className="flex items-center justify-between gap-2 text-[11px] text-slate-600">
+                      <div className="flex items-center justify-between gap-2 text-[12px] text-slate-600">
                         <span className="truncate" title={leaveFile.name}>
                           {leaveFile.name}
                         </span>
@@ -4412,7 +4403,7 @@ export default function RequestsPage() {
                       Dự án liên quan (Workspace)
                     </label>
                     {projectId && (
-                      <span className="text-[10px] text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded font-mono font-medium">
+                      <span className="text-[12px] text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded font-mono font-medium">
                         Mã:{' '}
                         {workspaceProjects.find((p) => p.id === projectId)
                           ?.code || projectId}
@@ -4967,7 +4958,7 @@ export default function RequestsPage() {
                     <div className="space-y-1">
                       <label className="font-semibold text-slate-800 block text-xs">
                         Họ và tên pháp lý
-                        <span className="text-[10px] text-slate-400 font-normal ml-1">
+                        <span className="text-[12px] text-slate-400 font-normal ml-1">
                           (Hiện tại:{' '}
                           {rawProfile.fullName || profile.fullName || '----'})
                         </span>
@@ -4982,7 +4973,7 @@ export default function RequestsPage() {
                     <div className="space-y-1">
                       <label className="font-semibold text-slate-800 block text-xs">
                         Ngày sinh (date_of_birth)
-                        <span className="text-[10px] text-slate-400 font-normal ml-1">
+                        <span className="text-[12px] text-slate-400 font-normal ml-1">
                           (Hiện tại: {formatVnDate(rawProfile.dateOfBirth)})
                         </span>
                       </label>
@@ -5000,7 +4991,7 @@ export default function RequestsPage() {
                     <div className="space-y-1">
                       <label className="font-semibold text-slate-800 block text-xs">
                         Giới tính
-                        <span className="text-[10px] text-slate-400 font-normal ml-1">
+                        <span className="text-[12px] text-slate-400 font-normal ml-1">
                           (Hiện tại:{' '}
                           {rawProfile.gender === 'FEMALE'
                             ? 'Nữ'
@@ -5025,7 +5016,7 @@ export default function RequestsPage() {
                     <div className="space-y-1">
                       <label className="font-semibold text-slate-800 block text-xs">
                         Số CCCD / CMND
-                        <span className="text-[10px] text-slate-400 font-normal ml-1">
+                        <span className="text-[12px] text-slate-400 font-normal ml-1">
                           (Hiện tại: {rawProfile.identityCardNumber || '----'})
                         </span>
                       </label>
@@ -5043,7 +5034,7 @@ export default function RequestsPage() {
                     <div className="space-y-1">
                       <label className="font-semibold text-slate-800 block text-xs">
                         Ngày cấp CCCD
-                        <span className="text-[10px] text-slate-400 font-normal ml-1">
+                        <span className="text-[12px] text-slate-400 font-normal ml-1">
                           (Hiện tại:{' '}
                           {formatVnDate(rawProfile.identityCardIssuedDate)})
                         </span>
@@ -5058,7 +5049,7 @@ export default function RequestsPage() {
                     <div className="space-y-1">
                       <label className="font-semibold text-slate-800 block text-xs">
                         Nơi cấp CCCD
-                        <span className="text-[10px] text-slate-400 font-normal ml-1">
+                        <span className="text-[12px] text-slate-400 font-normal ml-1">
                           (Hiện tại:{' '}
                           {rawProfile.identityCardIssuedPlace || '----'})
                         </span>
@@ -5077,7 +5068,7 @@ export default function RequestsPage() {
                     <div className="space-y-1">
                       <label className="font-semibold text-slate-800 block text-xs">
                         Mã số thuế TNCN
-                        <span className="text-[10px] text-slate-400 font-normal ml-1">
+                        <span className="text-[12px] text-slate-400 font-normal ml-1">
                           (Hiện tại: {rawProfile.taxCode || '----'})
                         </span>
                       </label>
@@ -5091,7 +5082,7 @@ export default function RequestsPage() {
                     <div className="space-y-1">
                       <label className="font-semibold text-slate-800 block text-xs">
                         Mã số BHXH
-                        <span className="text-[10px] text-slate-400 font-normal ml-1">
+                        <span className="text-[12px] text-slate-400 font-normal ml-1">
                           (Hiện tại:{' '}
                           {rawProfile.socialInsuranceNumber || '----'})
                         </span>
@@ -5118,7 +5109,7 @@ export default function RequestsPage() {
                       placeholder="VD: Đã gửi bản scan 2 mặt CCCD gắn chip qua email hr@svn.vn"
                       className="text-xs"
                     />
-                    <span className="text-[11px] text-slate-500 italic block mt-0.5">
+                    <span className="text-[12px] text-slate-500 italic block mt-0.5">
                       * Ban Nhân sự sẽ căn cứ vào bản scan hoặc bản sao có chứng
                       thực để phê duyệt cập nhật vào Core.
                     </span>
@@ -5149,20 +5140,20 @@ export default function RequestsPage() {
 
             {/* THUỘC TÍNH ĐỘNG TỪ PROCEDURE ENGINE NODE S */}
             {procedureAvailable === false && (
-              <div className="p-2.5 rounded-md border border-amber-200 bg-amber-50 text-[11px] text-amber-800">
+              <div className="p-2.5 rounded-md border border-amber-200 bg-amber-50 text-[12px] text-amber-800">
                 Procedure Engine đang không khả dụng. Đơn thuộc quy trình duyệt
                 qua Procedure sẽ bị từ chối cho đến khi dịch vụ hoạt động lại.
               </div>
             )}
             {bindingState?.status === 'subtype-required' && (
-              <div className="p-2.5 rounded-md border border-blue-200 bg-blue-50 text-[11px] text-blue-800">
+              <div className="p-2.5 rounded-md border border-blue-200 bg-blue-50 text-[12px] text-blue-800">
                 {reasonedKind && !selectedReasonChoice
                   ? 'Chọn lý do để tải biểu mẫu quy trình.'
                   : bindingState.message}
               </div>
             )}
             {bindingState?.status === 'error' && (
-              <div className="p-2.5 rounded-md border border-red-200 bg-red-50 text-[11px] text-red-700 flex items-center justify-between gap-2">
+              <div className="p-2.5 rounded-md border border-red-200 bg-red-50 text-[12px] text-red-700 flex items-center justify-between gap-2">
                 <span>{bindingState.message}</span>
                 <Button
                   variant="outline"
@@ -5175,7 +5166,7 @@ export default function RequestsPage() {
               </div>
             )}
             {attributeNotice && (
-              <div className="p-2.5 rounded-md border border-amber-200 bg-amber-50 text-[11px] text-amber-800">
+              <div className="p-2.5 rounded-md border border-amber-200 bg-amber-50 text-[12px] text-amber-800">
                 {attributeNotice}
               </div>
             )}
@@ -5273,12 +5264,12 @@ export default function RequestsPage() {
                   selectedRequest?.workflowStatus === 'PENDING_PEER';
 
                 const badgeClass = isCompleted
-                  ? 'bg-emerald-100 text-emerald-800 text-[10px]'
+                  ? 'bg-emerald-100 text-emerald-800 text-[12px]'
                   : isRejected
-                    ? 'bg-rose-100 text-rose-700 text-[10px]'
+                    ? 'bg-rose-100 text-rose-700 text-[12px]'
                     : isPendingPeer
-                      ? 'bg-indigo-100 text-indigo-800 text-[10px]'
-                      : 'bg-amber-100 text-amber-800 text-[10px]';
+                      ? 'bg-indigo-100 text-indigo-800 text-[12px]'
+                      : 'bg-amber-100 text-amber-800 text-[12px]';
 
                 const label = isCompleted
                   ? selectedRequest?.statusText === 'Chờ phê duyệt' ||
@@ -5305,7 +5296,7 @@ export default function RequestsPage() {
           <div className="flex-1 min-h-0 overflow-y-auto p-6 space-y-5 text-xs">
             {/* KHỐI 2: THÔNG TIN ĐƠN (Business Information) */}
             <div className="space-y-2.5">
-              <h4 className="font-bold text-slate-800 uppercase tracking-wide text-[11px] flex items-center gap-1.5 text-blue-900">
+              <h4 className="font-bold text-slate-800 uppercase tracking-wide text-[12px] flex items-center gap-1.5 text-blue-900">
                 <FileText className="size-3.5 text-blue-600" />
                 Thông tin nghiệp vụ
               </h4>
@@ -5365,11 +5356,11 @@ export default function RequestsPage() {
 
             {/* KHỐI 3: THÔNG TIN HỖ TRỢ / ĐIỀU KIỆN */}
             <div className="space-y-2.5">
-              <h4 className="font-bold text-slate-800 uppercase tracking-wide text-[11px] flex items-center gap-1.5 text-blue-900">
+              <h4 className="font-bold text-slate-800 uppercase tracking-wide text-[12px] flex items-center gap-1.5 text-blue-900">
                 <Info className="size-3.5 text-blue-600" />
                 Thông tin hỗ trợ & Điều kiện áp dụng
               </h4>
-              <div className="bg-slate-50 rounded-lg p-3.5 border border-slate-200 text-[11px] text-slate-600 space-y-1.5">
+              <div className="bg-slate-50 rounded-lg p-3.5 border border-slate-200 text-[12px] text-slate-600 space-y-1.5">
                 {selectedRequest?.kind === 'leave' && (
                   <>
                     <div className="flex justify-between">
@@ -5490,7 +5481,7 @@ export default function RequestsPage() {
                             (selectedRequest.rawDetails as any)?.attributes
                               ?.destinationAddress,
                           ) && (
-                              <span className="text-[10px] text-slate-500 block font-normal">
+                              <span className="text-[12px] text-slate-500 block font-normal">
                                 {String(
                                   (selectedRequest.rawDetails as any)?.attributes
                                     ?.destinationAddress,
@@ -5585,7 +5576,7 @@ export default function RequestsPage() {
                           <span className="font-semibold text-blue-900 bg-blue-50 px-2 py-0.5 rounded border border-blue-200 text-right">
                             {label}
                             {link ? (
-                              <span className="text-[10px] text-slate-500 font-mono block">
+                              <span className="text-[12px] text-slate-500 font-mono block">
                                 {link.projectRequestCode
                                   ? `Mã đơn trong dự án: ${link.projectRequestCode}`
                                   : (PROJECT_LINK_STATUS_LABEL[link.status ?? ''] ?? link.status)}
@@ -5613,7 +5604,7 @@ export default function RequestsPage() {
                             <span className="font-semibold text-slate-700">
                               Phụ phí công tác dự trù:
                             </span>
-                            <span className="font-mono font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 text-[11px]">
+                            <span className="font-mono font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 text-[12px]">
                               {Number(
                                 (selectedRequest.rawDetails as any)?.attributes
                                   ?.totalSurcharges || 0,
@@ -5628,7 +5619,7 @@ export default function RequestsPage() {
                             ).map((s: any, idx: number) => (
                               <div
                                 key={idx}
-                                className="flex justify-between items-center text-[11px] text-slate-600"
+                                className="flex justify-between items-center text-[12px] text-slate-600"
                               >
                                 <span>• {s.name || 'Phụ phí'}</span>
                                 <span className="font-mono font-medium text-slate-800">
@@ -5644,7 +5635,7 @@ export default function RequestsPage() {
                       )}
 
                     {/* Checkbox OT & GPS */}
-                    <div className="flex flex-wrap gap-2 pt-1 border-t border-slate-200/60 text-[10px]">
+                    <div className="flex flex-wrap gap-2 pt-1 border-t border-slate-200/60 text-[12px]">
                       {Boolean(selectedRequest.rawDetails?.allow_ot) && (
                         <span className="bg-amber-50 text-amber-800 px-2 py-0.5 rounded font-medium border border-amber-200">
                           Cho phép tính làm thêm giờ (OT)
@@ -5730,7 +5721,7 @@ export default function RequestsPage() {
               )}
             {/* KHỐI 5: KẾT QUẢ XỬ LÝ (Result & Side-effects) */}
             <div className="space-y-2.5">
-              <h4 className="font-bold text-slate-800 uppercase tracking-wide text-[11px] flex items-center gap-1.5 text-blue-900">
+              <h4 className="font-bold text-slate-800 uppercase tracking-wide text-[12px] flex items-center gap-1.5 text-blue-900">
                 <FileCheck2 className="size-3.5 text-blue-600" />
                 Kết quả xử lý & Đồng bộ dữ liệu
               </h4>
@@ -5756,7 +5747,7 @@ export default function RequestsPage() {
                           : 'Chờ áp dụng'}
                   </Badge>
                 </div>
-                <div className="flex items-center justify-between text-slate-500 text-[11px]">
+                <div className="flex items-center justify-between text-slate-500 text-[12px]">
                   <span>Đồng bộ Timesheet / Payroll:</span>
                   <span className="font-mono text-slate-700">
                     {['CANCELLED', 'REJECTED'].includes(
@@ -5771,6 +5762,16 @@ export default function RequestsPage() {
                 </div>
               </div>
             </div>
+
+            {/* KHỐI 6: TRAO ĐỔI & Ý KIẾN */}
+            {selectedRequest && (
+              <div className="pt-2 border-t border-slate-200">
+                <RequestThread
+                  kind={selectedRequest.kind}
+                  requestId={selectedRequest.id}
+                />
+              </div>
+            )}
           </div>
 
           {/* FOOTER ACTIONS */}

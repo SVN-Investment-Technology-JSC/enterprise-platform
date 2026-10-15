@@ -213,10 +213,10 @@ export function AssetListModal({
         {/* Header Modal */}
         <div className={styles.modalHead}>
           <div>
-            <h2 style={{ fontSize: '1.2rem', margin: 0 }}>
+            <h2 style={{ fontSize: '1.25rem', margin: 0 }}>
               Danh mục Thiết bị (Bảng liệt kê đồng cấp)
             </h2>
-            <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#64748b' }}>
+            <p style={{ margin: '4px 0 0', fontSize: '14px', color: '#64748b' }}>
               Danh sách liệt kê toàn bộ {assets.length} thiết bị/vị trí đồng cấp trên hệ thống. Bấm vào một dòng để chọn và xem chi tiết.
             </p>
           </div>
@@ -269,7 +269,7 @@ export function AssetListModal({
                 padding: '6px 28px 6px 32px',
                 borderRadius: '6px',
                 border: '1px solid #cbd5e1',
-                fontSize: '12.5px',
+                fontSize: '13px',
                 outline: 'none',
               }}
             />
@@ -310,7 +310,7 @@ export function AssetListModal({
                 padding: '6px 10px',
                 borderRadius: '6px',
                 border: '1px solid #cbd5e1',
-                fontSize: '12px',
+                fontSize: '13px',
                 background: '#ffffff',
                 color: '#334155',
                 outline: 'none',
@@ -335,7 +335,7 @@ export function AssetListModal({
                 padding: '6px 10px',
                 borderRadius: '6px',
                 border: '1px solid #cbd5e1',
-                fontSize: '12px',
+                fontSize: '13px',
                 background: '#ffffff',
                 color: '#334155',
                 outline: 'none',
@@ -360,7 +360,7 @@ export function AssetListModal({
                 padding: '6px 10px',
                 borderRadius: '6px',
                 border: '1px solid #cbd5e1',
-                fontSize: '12px',
+                fontSize: '13px',
                 background: '#ffffff',
                 color: '#334155',
                 outline: 'none',
@@ -378,7 +378,7 @@ export function AssetListModal({
               <button
                 type="button"
                 className={styles.reset}
-                style={{ padding: '5px 10px', fontSize: '11.5px' }}
+                style={{ padding: '5px 10px', fontSize: '12px' }}
                 onClick={resetFilters}
               >
                 Xóa lọc
@@ -399,7 +399,7 @@ export function AssetListModal({
               justifyContent: 'space-between',
               flexWrap: 'wrap',
               gap: '8px',
-              fontSize: '12.5px',
+              fontSize: '13px',
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -414,7 +414,7 @@ export function AssetListModal({
                   border: 'none',
                   color: '#3b82f6',
                   cursor: 'pointer',
-                  fontSize: '12px',
+                  fontSize: '13px',
                   textDecoration: 'underline',
                   padding: 0,
                 }}
@@ -438,7 +438,7 @@ export function AssetListModal({
                   border: '1px solid #fca5a5',
                   borderRadius: '6px',
                   fontWeight: 600,
-                  fontSize: '12px',
+                  fontSize: '13px',
                   cursor: busy ? 'not-allowed' : 'pointer',
                   transition: 'all 0.15s ease',
                 }}
@@ -466,7 +466,7 @@ export function AssetListModal({
             style={{
               width: '100%',
               borderCollapse: 'collapse',
-              fontSize: '12.5px',
+              fontSize: '13px',
             }}
           >
             <thead>
@@ -504,7 +504,7 @@ export function AssetListModal({
                   style={{
                     padding: '9px 12px',
                     textAlign: 'center',
-                    fontSize: '11.5px',
+                    fontSize: '12px',
                     color: '#64748b',
                     width: '45px',
                     background: '#f8fafc',
@@ -516,7 +516,7 @@ export function AssetListModal({
                   style={{
                     padding: '9px 12px',
                     textAlign: 'left',
-                    fontSize: '11.5px',
+                    fontSize: '12px',
                     color: sortField === 'code' ? '#2563eb' : '#64748b',
                     cursor: 'pointer',
                     userSelect: 'none',
@@ -532,7 +532,7 @@ export function AssetListModal({
                   style={{
                     padding: '9px 12px',
                     textAlign: 'left',
-                    fontSize: '11.5px',
+                    fontSize: '12px',
                     color: sortField === 'name' ? '#2563eb' : '#64748b',
                     cursor: 'pointer',
                     userSelect: 'none',
@@ -547,7 +547,7 @@ export function AssetListModal({
                   style={{
                     padding: '9px 12px',
                     textAlign: 'left',
-                    fontSize: '11.5px',
+                    fontSize: '12px',
                     color: sortField === 'type' ? '#2563eb' : '#64748b',
                     cursor: 'pointer',
                     userSelect: 'none',
@@ -563,7 +563,7 @@ export function AssetListModal({
                   style={{
                     padding: '9px 12px',
                     textAlign: 'left',
-                    fontSize: '11.5px',
+                    fontSize: '12px',
                     color: sortField === 'parent' ? '#2563eb' : '#64748b',
                     cursor: 'pointer',
                     userSelect: 'none',
@@ -579,7 +579,7 @@ export function AssetListModal({
                   style={{
                     padding: '9px 12px',
                     textAlign: 'left',
-                    fontSize: '11.5px',
+                    fontSize: '12px',
                     color: sortField === 'status' ? '#2563eb' : '#64748b',
                     cursor: 'pointer',
                     userSelect: 'none',
@@ -595,7 +595,7 @@ export function AssetListModal({
                   style={{
                     padding: '9px 12px',
                     textAlign: 'left',
-                    fontSize: '11.5px',
+                    fontSize: '12px',
                     color: sortField === 'criticality' ? '#2563eb' : '#64748b',
                     cursor: 'pointer',
                     userSelect: 'none',
@@ -611,7 +611,7 @@ export function AssetListModal({
                   style={{
                     padding: '9px 12px',
                     textAlign: 'left',
-                    fontSize: '11.5px',
+                    fontSize: '12px',
                     color: '#64748b',
                     whiteSpace: 'nowrap',
                     background: '#f8fafc',
@@ -623,7 +623,7 @@ export function AssetListModal({
                   style={{
                     padding: '9px 12px',
                     textAlign: 'center',
-                    fontSize: '11.5px',
+                    fontSize: '12px',
                     color: '#64748b',
                     whiteSpace: 'nowrap',
                     width: '110px',
@@ -680,13 +680,13 @@ export function AssetListModal({
                     </td>
 
                     {/* STT */}
-                    <td style={{ padding: '10px 12px', textAlign: 'center', color: '#94a3b8', fontSize: '11.5px' }}>
+                    <td style={{ padding: '10px 12px', textAlign: 'center', color: '#94a3b8', fontSize: '12px' }}>
                       {stt}
                     </td>
 
                     {/* Mã thiết bị */}
                     <td style={{ padding: '10px 12px', whiteSpace: 'nowrap' }}>
-                      <span className={styles.nodeCodeBadge} style={{ fontWeight: 700, fontSize: '12px' }}>
+                      <span className={styles.nodeCodeBadge} style={{ fontWeight: 700, fontSize: '13px' }}>
                         {asset.code}
                       </span>
                     </td>
@@ -697,7 +697,7 @@ export function AssetListModal({
                         {asset.name}
                       </div>
                       {asset.serialNumber ? (
-                        <div style={{ fontSize: '11px', color: '#64748b' }}>
+                        <div style={{ fontSize: '12px', color: '#64748b' }}>
                           S/N: {asset.serialNumber} {asset.manufacturer ? `· Hãng: ${asset.manufacturer}` : ''}
                         </div>
                       ) : null}
@@ -714,17 +714,17 @@ export function AssetListModal({
                     <td style={{ padding: '10px 12px', whiteSpace: 'nowrap' }}>
                       {parent ? (
                         <span
-                          style={{ color: '#334155', fontSize: '12px' }}
+                          style={{ color: '#334155', fontSize: '13px' }}
                           title={`Thuộc ${parent.name} (${parent.code})`}
                         >
-                          ↳ <strong>{parent.name}</strong> <code style={{ fontSize: '11px', color: '#64748b' }}>({parent.code})</code>
+                          ↳ <strong>{parent.name}</strong> <code style={{ fontSize: '12px', color: '#64748b' }}>({parent.code})</code>
                         </span>
                       ) : (
                         <span
                           style={{
                             color: '#15803d',
                             fontWeight: 600,
-                            fontSize: '11px',
+                            fontSize: '12px',
                             background: '#dcfce7',
                             padding: '2px 8px',
                             borderRadius: '4px',
@@ -746,7 +746,7 @@ export function AssetListModal({
                     <td style={{ padding: '10px 12px', whiteSpace: 'nowrap' }}>
                       <span
                         style={{
-                          fontSize: '11.5px',
+                          fontSize: '12px',
                           fontWeight: 600,
                           color:
                             asset.criticality === 'CRITICAL'
@@ -765,11 +765,11 @@ export function AssetListModal({
                     {/* Linh kiện lắp ráp */}
                     <td style={{ padding: '10px 12px', whiteSpace: 'nowrap' }}>
                       {line ? (
-                        <span className={styles.installedQty} style={{ fontSize: '11px' }}>
+                        <span className={styles.installedQty} style={{ fontSize: '12px' }}>
                           Lắp: {line.quantity} {line.unit ?? ''}
                         </span>
                       ) : (
-                        <span style={{ color: '#94a3b8', fontSize: '11.5px' }}>—</span>
+                        <span style={{ color: '#94a3b8', fontSize: '12px' }}>—</span>
                       )}
                     </td>
 
@@ -780,7 +780,7 @@ export function AssetListModal({
                         className={styles.editRowBtn}
                         onClick={() => handleSelectAndClose(asset.id)}
                         title={`Xem chi tiết thiết bị ${asset.name}`}
-                        style={{ fontSize: '11.5px', padding: '3px 8px' }}
+                        style={{ fontSize: '12px', padding: '3px 8px' }}
                       >
                         {isSelected ? (
                           <>
@@ -803,7 +803,7 @@ export function AssetListModal({
                       textAlign: 'center',
                       padding: '36px 16px',
                       color: '#94a3b8',
-                      fontSize: '13px',
+                      fontSize: '14px',
                     }}
                   >
                     {isFiltered
@@ -827,7 +827,7 @@ export function AssetListModal({
             justifyContent: 'space-between',
             flexWrap: 'wrap',
             gap: '10px',
-            fontSize: '12px',
+            fontSize: '13px',
             color: '#64748b',
           }}
         >
@@ -838,7 +838,7 @@ export function AssetListModal({
               {assets.length !== sortedAssets.length ? ` (tổng ${assets.length})` : ''}
             </span>
 
-            <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '11.5px', color: '#64748b' }}>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#64748b' }}>
               <span>Hiển thị:</span>
               <select
                 value={pageSize}
@@ -852,7 +852,7 @@ export function AssetListModal({
                   border: '1px solid #cbd5e1',
                   background: '#ffffff',
                   color: '#0f172a',
-                  fontSize: '11.5px',
+                  fontSize: '12px',
                   outline: 'none',
                   cursor: 'pointer',
                 }}
@@ -871,19 +871,19 @@ export function AssetListModal({
               <button
                 type="button"
                 className={styles.reset}
-                style={{ padding: '4px 10px', fontSize: '11.5px' }}
+                style={{ padding: '4px 10px', fontSize: '12px' }}
                 disabled={safePage <= 1}
                 onClick={() => setPage((prev) => Math.max(1, prev - 1))}
               >
                 ← Trước
               </button>
-              <span style={{ fontWeight: 600, color: '#0f172a', fontSize: '12px', minWidth: '40px', textAlign: 'center' }}>
+              <span style={{ fontWeight: 600, color: '#0f172a', fontSize: '13px', minWidth: '40px', textAlign: 'center' }}>
                 {safePage} / {totalPages}
               </span>
               <button
                 type="button"
                 className={styles.reset}
-                style={{ padding: '4px 10px', fontSize: '11.5px' }}
+                style={{ padding: '4px 10px', fontSize: '12px' }}
                 disabled={safePage >= totalPages}
                 onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
               >
@@ -894,7 +894,7 @@ export function AssetListModal({
             <button
               type="button"
               className={styles.btnSecondary}
-              style={{ padding: '5px 14px', fontSize: '12px', fontWeight: 600 }}
+              style={{ padding: '5px 14px', fontSize: '13px', fontWeight: 600 }}
               onClick={onClose}
             >
               Đóng

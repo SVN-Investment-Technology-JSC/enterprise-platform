@@ -167,13 +167,13 @@ export function Field({
   children: ReactNode;
 }) {
   return (
-    <label className={styles.field}>
+    <div className={styles.field}>
       <span className={styles.fieldLabel}>
         {label}
         {required ? <span className={styles.fieldRequired}> *</span> : null}
       </span>
       {children}
       {hint ? <span className={styles.fieldHint}>{hint}</span> : null}
-    </label>
+    </div>
   );
 }

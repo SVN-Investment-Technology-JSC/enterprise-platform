@@ -304,7 +304,7 @@ export function RequestTypeDialog({
                     />
                     <div>
                       <p className="text-xs font-medium text-slate-700">Cần chứng từ</p>
-                      <p className="text-[11px] leading-snug text-slate-500">Người làm đơn phải đính kèm chứng từ.</p>
+                      <p className="text-[12px] leading-snug text-slate-500">Người làm đơn phải đính kèm chứng từ.</p>
                     </div>
                   </div>
                 </div>
@@ -327,7 +327,7 @@ export function RequestTypeDialog({
                   <div className="flex items-center justify-between gap-2">
                     <div>
                       <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">Trường bổ sung</h3>
-                      <p className="text-[11px] text-slate-500">
+                      <p className="text-[12px] text-slate-500">
                         Thông tin người làm đơn phải điền thêm (ví dụ Nơi nhận, Mức độ).
                       </p>
                     </div>
@@ -424,7 +424,7 @@ export function RequestTypeDialog({
               />
               <div>
                 <p className="text-xs font-medium text-slate-700">Đang sử dụng</p>
-                <p className="text-[11px] leading-snug text-slate-500">
+                <p className="text-[12px] leading-snug text-slate-500">
                   Tắt thì loại đơn ẩn khỏi danh sách chọn của đơn mới; đơn đã gửi không bị ảnh hưởng.
                 </p>
               </div>

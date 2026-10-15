@@ -10,7 +10,10 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   LEAVE_REJECTED: 'Từ chối đơn nghỉ',
   LEAVE_CANCELLED: 'Hủy đơn nghỉ',
   LEAVE_AMENDED: 'Điều chỉnh đơn nghỉ',
+  LEAVE_TYPE_CREATED: 'Tạo loại nghỉ',
   LEAVE_TYPE_UPDATED: 'Cập nhật loại nghỉ',
+  LEAVE_TYPE_DEACTIVATED: 'Ngừng sử dụng loại nghỉ',
+  LEAVE_TYPE_DELETED: 'Xóa loại nghỉ',
   LEAVE_TYPE_MERGED: 'Gộp loại nghỉ',
   LEAVE_ADJUSTMENT_REVERSED: 'Đảo điều chỉnh quỹ phép',
   LEAVE_SCHEDULE_EDIT: 'Sửa lịch cộng phép',
@@ -73,7 +76,12 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   approve: 'Duyệt thiết bị chấm công',
   revoke: 'Thu hồi thiết bị chấm công',
   POLICY_VERSION_PUBLISHED: 'Ban hành phiên bản chính sách',
+  SHIFT_CREATED: 'Tạo ca làm việc',
   SHIFT_UPDATED: 'Cập nhật ca làm việc',
+  SHIFT_DELETED: 'Xóa ca làm việc',
+  REQUEST_TYPE_CREATED: 'Tạo loại đơn',
+  REQUEST_TYPE_UPDATED: 'Cập nhật loại đơn',
+  REQUEST_TYPE_DELETED: 'Xóa loại đơn',
   ROSTER_CREATED: 'Phân ca',
   ROSTER_UPDATED: 'Sửa phân ca',
   ROSTER_CANCELLED: 'Hủy phân ca',
@@ -130,6 +138,9 @@ export function auditActionLabel(action: string): string {
     : action.replace(/_/g, ' ').toLowerCase();
 }
 
+/** Dòng đã xóa mềm (có cột deleted_at) vẫn hiện tên, kèm dấu để phân biệt với loại mới tạo lại cùng mã. */
+const DELETED_MARK = ` ||CASE WHEN x.deleted_at IS NOT NULL THEN ' (đã xóa)' ELSE '' END`;
+
 const emp = (col: string) =>
   `(SELECT ed.employee_code||' · '||ed.full_name FROM hrm_schema.employee_directory ed WHERE ed.tenant_id=a.tenant_id AND ed.employee_id=${col})`;
 const vn = (col: string) => `to_char(${col},'DD/MM/YYYY')`;
@@ -154,7 +165,8 @@ const ENTITY_SOURCES: [string, string, string][] = [
   ['Bản nháp đơn', 'hrm_schema.request_drafts x', `${kindLabel('x.request_kind')}||' · '||${emp('x.employee_id')}`],
   ['Liên kết quy trình', 'hrm_schema.procedure_links x', `COALESCE(x.instance_code,'Đang tạo')||' · '||${kindLabel('x.request_kind')}||COALESCE(' · '||${emp('x.employee_id')},'')`],
   ['Cấu hình quy trình duyệt', 'hrm_schema.request_procedure_bindings x', `${kindLabel('x.request_kind')}||COALESCE(' · '||x.sub_type_code,'')`],
-  ['Loại nghỉ', 'hrm_schema.leave_types x', `x.code||' · '||x.name`],
+  ['Loại nghỉ', 'hrm_schema.leave_types x', `x.code||' · '||x.name${DELETED_MARK}`],
+  ['Loại đơn', 'hrm_schema.request_reason_categories x', `x.code||' · '||x.name${DELETED_MARK}`],
   ['Lịch cộng phép', 'hrm_schema.leave_accrual_schedules x JOIN hrm_schema.leave_types lt ON lt.id=x.leave_type_id', `lt.name||' · từ '||${vn('x.effective_from')}`],
   ['Giao dịch phép', 'hrm_schema.leave_transactions x', `${emp('x.employee_id')}||' · năm '||x.balance_year`],
   ['Quyết toán phép', 'hrm_schema.leave_settlements x', `${emp('x.employee_id')}||' · năm '||x.year`],
@@ -173,7 +185,7 @@ const ENTITY_SOURCES: [string, string, string][] = [
   ['Thu hồi tạm ứng', 'hrm_schema.salary_advance_deductions x JOIN hrm_schema.salary_advance_requests ar ON ar.id=x.advance_request_id', `${emp('ar.employee_id')}||' · đợt '||x.installment_no`],
   ['Kỳ công', 'hrm_schema.timesheet_periods x', `x.period_code`],
   ['Bảng công', 'hrm_schema.timesheets x', `${emp('x.employee_id')}||' · '||${vn('x.work_date')}`],
-  ['Ca làm việc', 'hrm_schema.shift_definitions x', `x.code||' · '||x.name`],
+  ['Ca làm việc', 'hrm_schema.shift_definitions x', `x.code||' · '||x.name${DELETED_MARK}`],
   ['Phân ca', 'hrm_schema.shift_assignments x', `${emp('x.employee_id')}||' · từ '||${vn('x.effective_from')}`],
   ['Lịch làm việc', 'hrm_schema.work_calendar x', `${vn('x.work_date')}||' · '||x.name`],
   ['Địa điểm chấm công', 'hrm_schema.attendance_sites x', `x.name`],

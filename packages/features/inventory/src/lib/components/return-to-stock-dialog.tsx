@@ -127,7 +127,7 @@ export function ReturnToStockDialog({
             <p
               style={{
                 margin: '4px 0 0',
-                fontSize: '13.5px',
+                fontSize: '14px',
                 color: '#666666',
                 lineHeight: 1.4,
               }}
@@ -178,7 +178,7 @@ export function ReturnToStockDialog({
               style={{
                 padding: '10px 12px',
                 borderRadius: '6px',
-                fontSize: '12.5px',
+                fontSize: '13px',
                 background: '#fffbeb',
                 border: '1px solid #fde68a',
                 color: '#b45309',
@@ -197,7 +197,7 @@ export function ReturnToStockDialog({
           {/* Hàng 2 cột: Kho tiếp nhận & Số lượng */}
           <div style={{ display: 'grid', gridTemplateColumns: '1.15fr 0.85fr', gap: '14px', alignItems: 'flex-start' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              <label style={{ fontSize: '13.5px', fontWeight: 600, color: '#333333', whiteSpace: 'nowrap', minHeight: '20px', display: 'flex', alignItems: 'center' }}>
+              <label style={{ fontSize: '14px', fontWeight: 600, color: '#333333', whiteSpace: 'nowrap', minHeight: '20px', display: 'flex', alignItems: 'center' }}>
                 Kho tiếp nhận <span style={{ color: '#dc2626', marginLeft: '3px' }}>*</span>
               </label>
               <SearchableSelect
@@ -215,12 +215,12 @@ export function ReturnToStockDialog({
             {isAsset ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px', minHeight: '20px' }}>
-                  <label style={{ fontSize: '13.5px', fontWeight: 600, color: '#333333', whiteSpace: 'nowrap' }}>
+                  <label style={{ fontSize: '14px', fontWeight: 600, color: '#333333', whiteSpace: 'nowrap' }}>
                     Số lượng tháo dỡ
                   </label>
                   <span
                     style={{
-                      fontSize: '11px',
+                      fontSize: '12px',
                       color: '#0369a1',
                       fontWeight: 600,
                       background: '#e0f2fe',
@@ -239,7 +239,7 @@ export function ReturnToStockDialog({
                     borderRadius: '6px',
                     border: '1px solid #cbd5e1',
                     background: '#f8fafc',
-                    fontSize: '13.5px',
+                    fontSize: '14px',
                     fontWeight: 600,
                     color: '#0f172a',
                     display: 'flex',
@@ -249,17 +249,17 @@ export function ReturnToStockDialog({
                   }}
                 >
                   <span>1 {unit || 'thiết bị'}</span>
-                  <span style={{ fontSize: '12px', color: '#64748b', fontWeight: 500 }}>Cố định</span>
+                  <span style={{ fontSize: '13px', color: '#64748b', fontWeight: 500 }}>Cố định</span>
                 </div>
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px', minHeight: '20px' }}>
-                  <label style={{ fontSize: '13.5px', fontWeight: 600, color: '#333333', whiteSpace: 'nowrap' }}>
+                  <label style={{ fontSize: '14px', fontWeight: 600, color: '#333333', whiteSpace: 'nowrap' }}>
                     Số lượng {unit ? `(${unit})` : ''} <span style={{ color: '#dc2626' }}>*</span>
                   </label>
                   {maxQuantity !== undefined ? (
-                    <span style={{ fontSize: '12px', fontWeight: 600, color: '#0369a1', whiteSpace: 'nowrap' }}>
+                    <span style={{ fontSize: '13px', fontWeight: 600, color: '#0369a1', whiteSpace: 'nowrap' }}>
                       (Đang lắp: {maxQuantity} {unit ?? ''})
                     </span>
                   ) : null}
@@ -277,7 +277,7 @@ export function ReturnToStockDialog({
                       borderRadius: '6px',
                       border: over ? '1px solid #ef4444' : '1px solid #cbd5e1',
                       background: '#ffffff',
-                      fontSize: '13.5px',
+                      fontSize: '14px',
                       color: '#0f172a',
                       outline: 'none',
                       boxSizing: 'border-box',
@@ -292,7 +292,7 @@ export function ReturnToStockDialog({
                       style={{
                         height: '38px',
                         padding: '0 10px',
-                        fontSize: '12px',
+                        fontSize: '13px',
                         borderRadius: '6px',
                         border: '1px solid #cbd5e1',
                         background: '#f1f5f9',
@@ -319,7 +319,7 @@ export function ReturnToStockDialog({
               style={{
                 padding: '8px 12px',
                 borderRadius: '4px',
-                fontSize: '12.5px',
+                fontSize: '13px',
                 lineHeight: 1.4,
                 background: '#fef2f2',
                 border: '1px solid #fecaca',
@@ -338,7 +338,7 @@ export function ReturnToStockDialog({
 
           {/* Quy trình liên kết mở Work Order */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-            <label style={{ fontSize: '13.5px', fontWeight: 600, color: '#333333' }}>
+            <label style={{ fontSize: '14px', fontWeight: 600, color: '#333333' }}>
               Quy trình liên kết mở Work Order
             </label>
             <SearchableSelect
@@ -355,14 +355,14 @@ export function ReturnToStockDialog({
               clearable
               style={{ width: '100%' }}
             />
-            <span style={{ fontSize: '12px', color: '#64748b' }}>
+            <span style={{ fontSize: '13px', color: '#64748b' }}>
               Tự động khởi tạo Work Order bên module Quy trình khi hoàn tất lệnh tháo dỡ / hoàn kho.
             </span>
           </div>
 
           {/* Ghi chú */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            <label style={{ fontSize: '13.5px', fontWeight: 600, color: '#333333' }}>
+            <label style={{ fontSize: '14px', fontWeight: 600, color: '#333333' }}>
               Ghi chú hoàn kho
             </label>
             <input
@@ -372,7 +372,7 @@ export function ReturnToStockDialog({
                 borderRadius: '6px',
                 border: '1px solid #cbd5e1',
                 background: '#ffffff',
-                fontSize: '13.5px',
+                fontSize: '14px',
                 color: '#0f172a',
                 outline: 'none',
                 boxSizing: 'border-box',

@@ -43,7 +43,7 @@ export function CollapsibleGroup({
         <span aria-hidden className={`grid size-8 shrink-0 place-items-center rounded-lg ${tone}`}>
           {icon}
         </span>
-        <span id={headingId} className="flex-1 text-[14.5px] font-semibold">
+        <span id={headingId} className="flex-1 text-[14px] font-semibold">
           {title}
         </span>
         <span className="rounded-xl border border-[#eef0f3] bg-white px-2.5 py-0.5 text-xs font-semibold text-slate-500">

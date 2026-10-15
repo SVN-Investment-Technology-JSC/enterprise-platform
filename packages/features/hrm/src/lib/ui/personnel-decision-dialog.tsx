@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, Loader2 } from 'lucide-react';
+import { Info, Loader2 } from 'lucide-react';
 import type {
   HrmJobDescriptionItem,
   HrmPersonnelDecision,
@@ -17,6 +17,7 @@ import {
   createPersonnelDecision,
   updatePersonnelDecision,
   useAppointmentContext,
+  useOpenConcurrent,
 } from '../hrm-personnel-decisions-api';
 import {
   DECISION_TYPES,
@@ -93,7 +94,7 @@ export interface PersonnelDecisionDialogProps {
   onOpenChange: (open: boolean) => void;
   /** Nhân viên điền sẵn khi tạo mới. */
   initialEmployeeId?: string;
-  /** Có giá trị: chỉnh sửa quyết định nháp. */
+  /** Có giá trị: chỉnh sửa quyết định đã lập. */
   decision?: HrmPersonnelDecision | null;
   onSaved?: (decision: HrmPersonnelDecision) => void;
 }
@@ -170,9 +171,18 @@ export function PersonnelDecisionDialog({
   }, [open, form.toSalaryGradeId]);
 
   const context = useAppointmentContext(open ? form.employeeId : null);
+  const openConcurrent = useOpenConcurrent(open ? form.employeeId : null, decision?.id);
+  const concurrentOptions = useMemo<SearchableSelectOption[]>(
+    () =>
+      (openConcurrent.data ?? []).map((c) => ({
+        value: c.decisionId,
+        label: c.positionName ?? '----',
+        badge: c.decisionNo,
+        description: `Kiêm nhiệm từ ${c.effectiveDate.split('-').reverse().join('/')}${c.unitName ? ` · ${c.unitName}` : ''}`,
+      })),
+    [openConcurrent.data],
+  );
   const ctx = context.data;
-  const noAccount =
-    Boolean(ctx) && !ctx?.hasAccount && isPositionChanging(form.decisionType);
 
   const positionOptions = useMemo<SearchableSelectOption[]>(
     () =>
@@ -201,10 +211,7 @@ export function PersonnelDecisionDialog({
         })),
     [steps],
   );
-  const errors = validateDecisionForm(form, {
-    hasAccount: ctx ? ctx.hasAccount : undefined,
-  });
-  const blockedByAccount = noAccount;
+  const errors = validateDecisionForm(form);
 
   function patch(p: Partial<DecisionFormState>) {
     setForm((f) => ({ ...f, ...p }));
@@ -214,6 +221,7 @@ export function PersonnelDecisionDialog({
     patch({
       decisionType: t,
       toPositionNodeId: showsTargetPosition(t) ? form.toPositionNodeId : '',
+      replacesDecisionId: t === 'CONCURRENT' || t === 'REVOKE' ? form.replacesDecisionId : '',
     });
   }
 
@@ -231,7 +239,9 @@ export function PersonnelDecisionDialog({
   const targetPosition = positions.find(
     (p) => p.positionId === form.toPositionNodeId,
   );
-  const afterPosition = showsTargetPosition(form.decisionType)
+  const afterPosition = form.decisionType === 'REVOKE'
+    ? `Bãi nhiệm: ${concurrentOptions.find((o) => o.value === form.replacesDecisionId)?.label ?? '----'}`
+    : showsTargetPosition(form.decisionType)
     ? (targetPosition?.positionName ?? '----')
     : form.decisionType === 'DISMISS'
       ? 'Miễn nhiệm'
@@ -251,7 +261,7 @@ export function PersonnelDecisionDialog({
             })
           : await createPersonnelDecision(payload);
       toast.success(
-        editing ? 'Đã cập nhật quyết định nháp' : 'Đã tạo quyết định nháp',
+        editing ? 'Đã cập nhật quyết định' : 'Đã ghi nhận quyết định vào lịch sử công tác',
       );
       onSaved?.(saved);
       onOpenChange(false);
@@ -301,7 +311,60 @@ export function PersonnelDecisionDialog({
                 onChange={(v) => patch({ effectiveDate: v })}
               />
             </Field>
-            {showsTargetPosition(form.decisionType) && (
+            {isPositionChanging(form.decisionType) && (
+              <Field label="Hình thức">
+                <div role="radiogroup" aria-label="Hình thức bổ nhiệm" className="grid grid-cols-2 gap-1.5">
+                  {(
+                    [
+                      ['REPLACE', 'Thay thế'],
+                      ['CONCURRENT', 'Kiêm nhiệm'],
+                    ] as const
+                  ).map(([value, title]) => {
+                    const active = (form.decisionType === 'CONCURRENT') === (value === 'CONCURRENT');
+                    return (
+                      <button
+                        key={value}
+                        type="button"
+                        role="radio"
+                        aria-checked={active}
+                        disabled={editing}
+                        onClick={() => changeType(value === 'CONCURRENT' ? 'CONCURRENT' : 'APPOINT')}
+                        className={`h-[38px] rounded-md border px-2 font-semibold transition-colors disabled:opacity-60 ${
+                          active
+                            ? 'border-blue-600 bg-blue-50 text-blue-800'
+                            : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                        }`}
+                      >
+                        {title}
+                      </button>
+                    );
+                  })}
+                </div>
+              </Field>
+            )}
+            {form.decisionType === 'REVOKE' && (
+              <Field label="Kiêm nhiệm bị bãi nhiệm">
+                <SearchableSelect
+                  options={concurrentOptions}
+                  value={form.replacesDecisionId}
+                  placeholder={openConcurrent.loading ? 'Đang tải...' : 'Chọn kiêm nhiệm đang giữ'}
+                  clearable
+                  onChange={(v) => patch({ replacesDecisionId: v })}
+                />
+              </Field>
+            )}
+            {form.decisionType === 'CONCURRENT' && (
+              <Field label="Nối tiếp kiêm nhiệm">
+                <SearchableSelect
+                  options={concurrentOptions}
+                  value={form.replacesDecisionId}
+                  placeholder="Kiêm nhiệm mới (không nối tiếp)"
+                  clearable
+                  onChange={(v) => patch({ replacesDecisionId: v })}
+                />
+              </Field>
+            )}
+            {showsTargetPosition(form.decisionType) && form.decisionType !== 'REVOKE' && (
               <Field label="Chức danh mới">
                 <SearchableSelect
                   options={positionOptions}
@@ -337,28 +400,22 @@ export function PersonnelDecisionDialog({
               {context.error}
             </div>
           )}
-          {blockedByAccount && (
-            <div
-              role="alert"
-              className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 font-semibold text-amber-800"
-            >
-              <AlertTriangle className="mt-0.5 size-4 shrink-0" />
-              <span>
-                Nhân viên chưa liên kết tài khoản nên không thể bổ nhiệm vào
-                chức danh ở Core. Hãy liên kết tài khoản tại màn hình Nhân sự
-                &amp; Chức danh trước khi tạo quyết định này.
-              </span>
-            </div>
-          )}
+          <div className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-slate-600">
+            <Info className="mt-0.5 size-4 shrink-0" />
+            <span>
+              Quyết định chỉ được ghi vào lịch sử bổ nhiệm và công tác của nhân viên. Không thay đổi chức danh,
+              đơn vị, quản lý trực tiếp hay lương hiện tại.
+            </span>
+          </div>
 
           <div className="grid grid-cols-1 gap-3">
             <section className="rounded-lg border border-slate-200 p-3">
-              <h4 className="mb-2 text-[11px] font-bold uppercase text-slate-700">
+              <h4 className="mb-2 text-[12px] font-bold uppercase text-slate-700">
                 Trước / Sau
               </h4>
               <table className="w-full text-left">
                 <thead>
-                  <tr className="text-[11px] uppercase text-slate-400">
+                  <tr className="text-[12px] uppercase text-slate-400">
                     <th className="w-24 pb-1" />
                     <th className="pb-1">Trước</th>
                     <th className="pb-1">Sau</th>
@@ -474,7 +531,7 @@ export function PersonnelDecisionDialog({
           <Button
             size="sm"
             className="bg-blue-600 text-white hover:bg-blue-700"
-            disabled={submitting || blockedByAccount}
+            disabled={submitting}
             onClick={() => void submit()}
           >
             {submitting ? 'Đang lưu...' : editing ? 'Lưu thay đổi' : 'Tạo quyết định'}

@@ -37,7 +37,7 @@ function StatCard({
       <div className="min-w-0">
         <p className="truncate text-xs font-semibold text-slate-600">{label}</p>
         <p className="font-mono text-2xl font-bold leading-tight text-slate-900">{value}</p>
-        {note ? <p className={`truncate text-[11px] font-semibold ${noteTone}`}>{note}</p> : null}
+        {note ? <p className={`truncate text-[12px] font-semibold ${noteTone}`}>{note}</p> : null}
       </div>
     </div>
   );
@@ -199,7 +199,7 @@ export function EmployeeAvatar({ initials, seed }: { initials: string; seed: str
   return (
     <span
       aria-hidden="true"
-      className={`flex size-8 shrink-0 items-center justify-center rounded-full text-[11px] font-bold ${AVATAR_TONES[hash % AVATAR_TONES.length]}`}
+      className={`flex size-8 shrink-0 items-center justify-center rounded-full text-[12px] font-bold ${AVATAR_TONES[hash % AVATAR_TONES.length]}`}
     >
       {initials}
     </span>

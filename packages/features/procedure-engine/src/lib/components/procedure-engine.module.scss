@@ -66,14 +66,14 @@
 }
 
 .brand strong {
-  font-size: 15px;
+  font-size: 16px;
 }
 
 .brand span:not(.brandMark),
 .actor small,
 .tenantCard small {
   color: #9fb1ce;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .navigation {
@@ -85,7 +85,7 @@
 .navigation p {
   margin: 16px 12px 4px;
   color: #7f94b7;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 800;
   letter-spacing: 0.14em;
   text-transform: uppercase;
@@ -102,7 +102,7 @@
   border-radius: 12px;
   color: #cbd8ec;
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
   text-align: left;
   background: transparent;
 }
@@ -119,7 +119,7 @@
 
 .navigation button span {
   color: #779cde;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 900;
 }
 
@@ -132,7 +132,7 @@
   padding: 3px 6px;
   border-radius: 999px;
   color: #a8bce0;
-  font-size: 9px;
+  font-size: 12px;
   background: rgb(255 255 255 / 7%);
 }
 
@@ -148,7 +148,7 @@
 
 .tenantCard span {
   color: #88a5d4;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 800;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -187,7 +187,7 @@
 .eyebrow,
 .code {
   color: var(--blue);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 900;
   letter-spacing: 0.14em;
   text-transform: uppercase;
@@ -257,7 +257,7 @@
 }
 
 .summaryGrid small {
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .workspaceToolbar {
@@ -295,7 +295,7 @@
   padding: 0 15px;
   border-radius: 10px;
   font: inherit;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 800;
   cursor: pointer;
 }
@@ -308,7 +308,7 @@
 }
 
 .dispatchSettings label { display: flex; flex-direction: column; gap: 5px; }
-.dispatchSettings label span { color: var(--muted); font-size: 12px; font-weight: 800; }
+.dispatchSettings label span { color: var(--muted); font-size: 13px; font-weight: 800; }
 
 .dispatchSettings select {
   min-height: 39px;
@@ -318,10 +318,10 @@
   color: var(--ink);
   background: #fff;
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
 }
 
-.settingsHint { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.settingsHint { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
 
 .roleLegend {
   display: flex;
@@ -336,7 +336,7 @@
   align-items: center;
   gap: 5px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .roleLegend i,
@@ -376,7 +376,7 @@
   min-width: 130px;
   padding: 14px;
   color: #52647c;
-  font-size: 10px;
+  font-size: 12px;
   text-align: center;
   background: #f5f8fc;
 }
@@ -390,7 +390,7 @@
   display: block;
   margin-bottom: 3px;
   color: #8c9aad;
-  font-size: 8px;
+  font-size: 12px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -440,7 +440,7 @@
   place-items: center;
   border-radius: 9px;
   color: var(--blue);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 900;
   background: #e9f0ff;
 }
@@ -452,7 +452,7 @@
 
 .matrixStep small {
   color: var(--muted);
-  font-size: 9px;
+  font-size: 12px;
 }
 
 .matrixRoles {
@@ -490,7 +490,7 @@
 
 .orgTree header span {
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .orgTree > div > button,
@@ -521,7 +521,7 @@
   place-items: center;
   border-radius: 9px;
   color: var(--blue);
-  font-size: 10px;
+  font-size: 12px;
   font-style: normal;
   font-weight: 900;
   background: #e9f0ff;
@@ -536,7 +536,7 @@
 .orgHero small,
 .memberList small {
   color: var(--muted);
-  font-size: 9px;
+  font-size: 12px;
 }
 
 .orgHero {
@@ -572,17 +572,17 @@
 
 .orgDetail dt {
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .orgDetail dd {
   margin: 0;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 800;
 }
 
 .orgDetail h4 {
-  font-size: 11px;
+  font-size: 12px;
   text-transform: uppercase;
 }
 
@@ -601,7 +601,7 @@
   place-items: center;
   border-radius: 50%;
   color: white;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 900;
   background: #3d6ab7;
 }
@@ -613,7 +613,7 @@
 
 .memberList em {
   color: #087f5b;
-  font-size: 9px;
+  font-size: 12px;
   font-style: normal;
   font-weight: 900;
 }
@@ -625,7 +625,7 @@
   border-radius: 9px;
   color: #a52d39;
   font: inherit;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 900;
   background: #fff4f5;
   cursor: pointer;
@@ -670,7 +670,7 @@
 .orgDialog label {
   display: grid;
   gap: 6px;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 900;
 }
 
@@ -748,14 +748,14 @@
 .instanceCard p,
 .definitionCard p {
   margin: 7px 0 0;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .status {
   flex: 0 0 auto;
   padding: 6px 10px;
   border-radius: 999px;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 900;
   text-transform: uppercase;
 }
@@ -812,7 +812,7 @@
   border: 2px solid #bdc9da;
   border-radius: 50%;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 900;
   background: white;
 }
@@ -836,12 +836,12 @@
 .definitionCard footer > span,
 .instanceCard footer span {
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .progressStep em {
   color: var(--blue);
-  font-size: 10px;
+  font-size: 12px;
   font-style: normal;
   font-weight: 800;
 }
@@ -898,7 +898,7 @@
   place-items: center;
   border-radius: 7px;
   color: #fff;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 900;
   background: #5c6f8c;
 }
@@ -935,7 +935,7 @@
 }
 
 .createForm label {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 800;
 }
 
@@ -1168,7 +1168,7 @@
 }
 
 .dashMetricHint {
-  font-size: 0.78rem;
+  font-size: 0.8125rem;
   color: #64748b;
   margin: 0;
   line-height: 1.35;
@@ -1197,7 +1197,7 @@
 .dashToneIndigo .dashIconWrapper { background: rgba(139, 92, 246, 0.14); color: #6d28d9; }
 .dashToneSlate .dashIconWrapper { background: #f3f4f6; color: #4b5563; }
 
-.dashMono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.9rem; word-break: break-all; }
+.dashMono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.875rem; word-break: break-all; }
 
 /* ---- Thẻ biểu diễn sơ đồ quy trình (Flow Diagram Card) ---- */
 .dashFlowCard {
@@ -1220,7 +1220,7 @@
   border-radius: 0.5rem;
   background: #ffffff;
   color: #0f172a;
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   font-weight: 600;
   outline: none;
   cursor: pointer;
@@ -1267,12 +1267,12 @@
   border-radius: 999px;
   background: #e0f2fe;
   color: #0284c7;
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   font-weight: 800;
 }
 
 .dashFlowStepName {
-  font-size: 0.78rem;
+  font-size: 0.8125rem;
   font-weight: 700;
   color: #0f172a;
   max-width: 8rem;
@@ -1295,7 +1295,7 @@
   width: 1.15rem;
   height: 1.15rem;
   border-radius: 0.25rem;
-  font-size: 0.65rem;
+  font-size: 0.75rem;
   font-weight: 800;
   background: #f0fdf4;
   color: #166534;
@@ -1385,19 +1385,19 @@
 }
 
 .dashList .dashTodoTitle {
-  font-size: 13.5px;
+  font-size: 14px;
   font-weight: 600;
 }
 
 .dashList .dashTodoMeta {
   color: #4b5563;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 400;
 }
 
 .dashTodo .dashMono {
   color: #6b7280;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .dashTodo > :nth-child(2),
@@ -1407,7 +1407,7 @@
 
 /* Huy hiệu SLA giữ cỡ chữ của nó, không theo cỡ chữ tiêu đề dòng. */
 .dashTodo > :nth-child(2) {
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .dashListTitle {
@@ -1421,7 +1421,7 @@
 .dashList span {
   min-width: 0;
   overflow: hidden;
-  font-size: 0.85rem;
+  font-size: 0.875rem;
   font-weight: 600;
   color: #1e293b;
   text-overflow: ellipsis;
@@ -1437,7 +1437,7 @@
   background: #f3f4f6;
   color: #374151;
   border: 0;
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.02em;
@@ -1447,7 +1447,7 @@
   margin: 0;
   padding: 1.5rem 0;
   color: #94a3b8;
-  font-size: 0.85rem;
+  font-size: 0.875rem;
   text-align: center;
 }
 
@@ -1464,7 +1464,7 @@
 
 /* ---- Danh mục nhóm quy trình trong Cài đặt ----------------------------- */
 
-.groupToggle { display: flex; gap: 0.5rem; align-items: center; margin-bottom: 1rem; font-size: 0.88rem; }
+.groupToggle { display: flex; gap: 0.5rem; align-items: center; margin-bottom: 1rem; font-size: 0.875rem; }
 .groupList { display: flex; flex-direction: column; gap: 0.4rem; margin: 0 0 0.9rem; padding: 0; list-style: none; }
 
 .groupRow {
@@ -1477,7 +1477,7 @@
   background: #fff;
 }
 
-.groupLabel { flex: 1; min-width: 0; padding: 0.3rem 0.45rem; border: 1px solid #dbe3ed; border-radius: 0.4rem; font: inherit; font-size: 0.88rem; }
+.groupLabel { flex: 1; min-width: 0; padding: 0.3rem 0.45rem; border: 1px solid #dbe3ed; border-radius: 0.4rem; font: inherit; font-size: 0.875rem; }
 
 .groupRemove {
   flex: none;
@@ -1533,7 +1533,7 @@
   h3 {
     margin: 0;
     color: #64748b;
-    font-size: 0.72rem;
+    font-size: 0.75rem;
     font-weight: 700;
     letter-spacing: 0.04em;
     text-transform: uppercase;
@@ -1561,7 +1561,7 @@
   padding: 0;
   list-style: none;
   color: #334155;
-  font-size: 0.76rem;
+  font-size: 0.8125rem;
 
   li {
     display: inline-flex;

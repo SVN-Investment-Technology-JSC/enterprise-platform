@@ -109,7 +109,7 @@
 
 /** Chữ tắt thay nhãn khi rail thu gọn. */
 .navInitial {
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   font-weight: 700;
   letter-spacing: 0.02em;
 }
@@ -136,7 +136,7 @@
 .brandTitle {
   margin: 0;
   color: #ffffff;
-  font-size: 0.92rem;
+  font-size: 0.875rem;
   font-weight: 700;
   letter-spacing: -0.015em;
   white-space: nowrap;
@@ -147,7 +147,7 @@
 .brandSubtitle {
   margin: 0;
   color: #7dd3fc;
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
@@ -164,7 +164,7 @@
 .railGroup {
   padding: 1.1rem 0.6rem 0.35rem;
   color: #64748b;
-  font-size: 0.68rem;
+  font-size: 0.75rem;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -180,7 +180,7 @@
   border-radius: 0.5rem;
   color: #94a3b8;
   font: inherit;
-  font-size: 0.88rem;
+  font-size: 0.875rem;
   font-weight: 500;
   text-align: left;
   background: transparent;
@@ -206,7 +206,7 @@
   align-items: center;
   justify-content: center;
   flex: none;
-  font-size: 1.05rem;
+  font-size: 1rem;
   color: #94a3b8;
 }
 
@@ -226,7 +226,7 @@
   flex: none;
   padding: 0.1rem 0.45rem;
   border-radius: 999px;
-  font-size: 0.7rem;
+  font-size: 0.75rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   background: #334155;
@@ -264,7 +264,7 @@
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 0.5rem;
   color: #cbd5e1;
-  font-size: 0.78rem;
+  font-size: 0.8125rem;
   font-weight: 600;
   text-decoration: none;
   background: rgba(255, 255, 255, 0.03);
@@ -315,7 +315,7 @@
   border: 1px solid rgba(252, 165, 165, 0.45);
   border-radius: 0.45rem;
   color: #fee2e2;
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   line-height: 1.35;
   background: #7f1d1d;
 }
@@ -328,7 +328,7 @@
   padding: 0.55rem 0.75rem;
   border-radius: 0.5rem;
   color: #ffffff;
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   font-weight: 600;
   text-align: center;
   text-decoration: none;
@@ -384,7 +384,7 @@
   align-items: center;
   gap: 0.4rem;
   color: #64748b;
-  font-size: 0.78rem;
+  font-size: 0.8125rem;
   font-weight: 500;
 }
 
@@ -426,7 +426,7 @@
 
 .headTitles h1 {
   margin: 0;
-  font-size: 1.35rem;
+  font-size: 1.25rem;
   font-weight: 700;
   color: #091426;
   letter-spacing: -0.02em;
@@ -436,7 +436,7 @@
   max-width: 60ch;
   margin: 0;
   color: #64748b;
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   line-height: 1.45;
 }
 
@@ -501,7 +501,7 @@
   border-radius: 0.5rem;
   color: #0f172a;
   background: #ffffff;
-  font-size: 0.8rem;
+  font-size: 0.8125rem;
   font-weight: 600;
   text-decoration: none;
   cursor: pointer;
@@ -542,14 +542,14 @@
 }
 
 .userName {
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   font-weight: 700;
   color: #0f172a;
   line-height: 1.25;
 }
 
 .userRole {
-  font-size: 0.7rem;
+  font-size: 0.75rem;
   color: #64748b;
   line-height: 1.2;
 }
@@ -622,7 +622,7 @@
 .cardTitle {
   margin: 0 0 0.6rem;
   color: #64748b;
-  font-size: 0.78rem;
+  font-size: 0.8125rem;
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -639,7 +639,7 @@
   border: 1px dashed #cbd5e1;
   border-radius: 0.85rem;
   color: #64748b;
-  font-size: 0.88rem;
+  font-size: 0.875rem;
   text-align: center;
   background: #ffffff;
 }
@@ -649,7 +649,7 @@
 .chartEmpty {
   margin: 0;
   color: #64748b;
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   font-style: italic;
   padding: 0.5rem 0;
 }
@@ -677,7 +677,7 @@
 }
 
 .donutUnit {
-  font-size: 9.5px;
+  font-size: 12px;
   font-weight: 600;
   fill: #64748b;
   text-anchor: middle;
@@ -699,7 +699,7 @@
   display: flex;
   align-items: center;
   gap: 0.45rem;
-  font-size: 0.78rem;
+  font-size: 0.8125rem;
 }
 
 .legendDot {
@@ -725,13 +725,13 @@
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   color: #0f172a;
-  font-size: 0.78rem;
+  font-size: 0.8125rem;
 }
 
 .legendValue small {
   color: #64748b;
   font-weight: 500;
-  font-size: 0.72rem;
+  font-size: 0.75rem;
 }
 
 /* Lát bằng 0 vẫn có mặt trong chú giải, chỉ mờ đi. */
@@ -758,7 +758,7 @@
   display: flex;
   align-items: center;
   gap: 0.6rem;
-  font-size: 0.78rem;
+  font-size: 0.8125rem;
 }
 
 .barLabel {
@@ -808,7 +808,7 @@
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   color: #0f172a;
-  font-size: 0.78rem;
+  font-size: 0.8125rem;
 }
 
 /* ---- Cài đặt (Settings View) ------------------------------------------- */
@@ -839,7 +839,7 @@
 
 .sectionHead h2 {
   margin: 0 0 0.3rem;
-  font-size: 1.1rem;
+  font-size: 1rem;
   font-weight: 700;
   color: #0f172a;
   letter-spacing: -0.015em;
@@ -848,7 +848,7 @@
 .sectionHead p {
   margin: 0;
   color: #64748b;
-  font-size: 0.84rem;
+  font-size: 0.875rem;
   line-height: 1.5;
 }
 
@@ -864,7 +864,7 @@
 .dirtyHint {
   margin-right: auto;
   color: #b45309;
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   font-weight: 500;
 }
 
@@ -873,7 +873,7 @@
   padding: 0.55rem 0.95rem;
   border: 1px solid transparent;
   border-radius: 0.55rem;
-  font-size: 0.84rem;
+  font-size: 0.875rem;
   font-weight: 600;
   text-decoration: none;
   cursor: pointer;
@@ -935,13 +935,13 @@
 
 .pickerText strong {
   display: block;
-  font-size: 0.9rem;
+  font-size: 0.875rem;
   color: #0f172a;
 }
 
 .pickerText small {
   color: #64748b;
-  font-size: 0.8rem;
+  font-size: 0.8125rem;
   line-height: 1.5;
 }
 
@@ -976,7 +976,7 @@
 .pickerLimit {
   margin: 0.75rem 0 0;
   color: #64748b;
-  font-size: 0.8rem;
+  font-size: 0.8125rem;
 }
 
 @media (max-width: 64rem) {
@@ -1026,7 +1026,7 @@
   border: 1px solid #e2e8f0;
   border-radius: 9999px;
   background: #f8fafc;
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   color: #0f172a;
   outline: none;
   transition: all 140ms ease;
@@ -1081,7 +1081,7 @@
   border-radius: 9999px;
   background: #ef4444;
   color: #ffffff;
-  font-size: 0.58rem;
+  font-size: 0.75rem;
   font-weight: 700;
   display: flex;
   align-items: center;
@@ -1158,7 +1158,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   font-weight: 700;
   color: #ffffff;
   flex-shrink: 0;
@@ -1190,7 +1190,7 @@
   border: 0;
   background: transparent;
   color: #334155;
-  font-size: 0.78rem;
+  font-size: 0.8125rem;
   font-weight: 500;
   cursor: pointer;
   text-align: left;

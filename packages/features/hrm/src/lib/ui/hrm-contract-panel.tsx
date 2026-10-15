@@ -98,18 +98,6 @@ function fields(row?: HrmEmploymentContract): ActionField[] {
       optional: true,
       value: row?.baseSalary ?? '',
     },
-    {
-      key: 'fileUrl',
-      label: 'Đường dẫn tệp chứng từ (nếu có)',
-      optional: true,
-      value: row?.fileUrl || '',
-    },
-    {
-      key: 'note',
-      label: 'Ghi chú điều khoản',
-      optional: true,
-      value: row?.note || '',
-    },
   ];
 }
 
@@ -271,11 +259,11 @@ export function HrmContractPanel({
     <section className="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
         <div>
-          <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wide flex items-center gap-1.5">
+          <h3 className="text-[14px] font-bold text-slate-900 uppercase tracking-wide flex items-center gap-1.5">
             <FileText className="size-3.5 text-blue-600" />
             <span>Hợp đồng & Phụ lục lao động</span>
           </h3>
-          <p className="text-[11px] text-slate-500 mt-0.5">
+          <p className="text-[14px] text-slate-500 mt-0.5">
             Quản lý ngày ký, thời hạn hiệu lực và các văn bản điều chỉnh hợp đồng lao động.
           </p>
         </div>
@@ -284,7 +272,7 @@ export function HrmContractPanel({
           <Button
             permission="hrm.employee.manage"
             size="sm"
-            className="text-xs h-8 bg-blue-700 hover:bg-blue-800 text-white font-semibold gap-1.5 shadow-xs"
+            className="text-[14px] h-8 bg-blue-700 hover:bg-blue-800 text-white font-semibold gap-1.5 shadow-xs"
             onClick={() => createContract()}
           >
             <Plus className="size-3.5" />
@@ -302,7 +290,7 @@ export function HrmContractPanel({
         scroll={{ x: 1050 }}
         locale={{
           emptyText: (
-            <div className="py-6 text-center text-slate-400 text-xs">
+            <div className="py-6 text-center text-slate-400 text-[14px]">
               Chưa có hợp đồng hoặc phụ lục nào được ghi nhận
             </div>
           ),
@@ -315,9 +303,9 @@ export function HrmContractPanel({
             fixed: 'left',
             render: (code, r) => (
               <div>
-                <span className="font-semibold text-slate-900 block font-mono text-xs">{code}</span>
+                <span className="font-semibold text-slate-900 block font-mono text-[14px]">{code}</span>
                 {r.parentContractId && (
-                  <span className="text-[10px] text-amber-700 bg-amber-50 px-1 py-0.2 rounded border border-amber-200">
+                  <span className="text-[14px] text-amber-700 bg-amber-50 px-1 py-0.2 rounded border border-amber-200">
                     Phụ lục của:{' '}
                     {contracts.find((x) => x.id === r.parentContractId)?.contractCode || 'HĐ gốc'}
                   </span>
@@ -330,7 +318,7 @@ export function HrmContractPanel({
             dataIndex: 'contractType',
             width: 140,
             render: (type) => (
-              <span className="font-medium text-slate-700 text-xs">
+              <span className="font-medium text-slate-700 text-[14px]">
                 {contractTypeLabels[type] || type}
               </span>
             ),
@@ -340,7 +328,7 @@ export function HrmContractPanel({
             dataIndex: 'signDate',
             width: 110,
             render: (date) => (
-              <span className="font-mono font-semibold text-blue-700 text-xs">
+              <span className="font-mono font-semibold text-blue-700 text-[14px]">
                 {formatVnDate(date)}
               </span>
             ),
@@ -350,7 +338,7 @@ export function HrmContractPanel({
             dataIndex: 'effectiveFrom',
             width: 110,
             render: (date) => (
-              <span className="font-mono text-slate-700 text-xs">
+              <span className="font-mono text-slate-700 text-[14px]">
                 {formatVnDate(date)}
               </span>
             ),
@@ -360,7 +348,7 @@ export function HrmContractPanel({
             dataIndex: 'effectiveTo',
             width: 110,
             render: (date) => (
-              <span className="font-mono text-slate-700 text-xs">
+              <span className="font-mono text-slate-700 text-[14px]">
                 {date ? formatVnDate(date) : <span className="text-slate-400">Vô thời hạn</span>}
               </span>
             ),
@@ -370,7 +358,7 @@ export function HrmContractPanel({
             dataIndex: 'baseSalary',
             width: 120,
             render: (salary) => (
-              <span className="font-mono text-slate-800 text-xs font-medium">
+              <span className="font-mono text-slate-800 text-[14px] font-medium">
                 {salary != null ? `${Number(salary).toLocaleString('vi-VN')} đ` : '—'}
               </span>
             ),
@@ -385,7 +373,7 @@ export function HrmContractPanel({
               };
               return (
                 <span
-                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold border ${meta.className}`}
+                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[14px] font-semibold border ${meta.className}`}
                 >
                   {meta.label}
                 </span>
@@ -401,12 +389,12 @@ export function HrmContractPanel({
                   href={r.fileUrl}
                   target="_blank"
                   rel="noreferrer"
-                  className="text-blue-700 underline text-xs font-medium"
+                  className="text-blue-700 underline text-[14px] font-medium"
                 >
                   Tệp đính kèm
                 </a>
               ) : (
-                <span className="text-slate-400 text-[11px]">—</span>
+                <span className="text-slate-400 text-[14px]">—</span>
               ),
           },
           ...(!readOnly
@@ -424,7 +412,7 @@ export function HrmContractPanel({
                               permission="hrm.employee.manage"
                               size="xs"
                               variant="outline"
-                              className="h-6 text-[11px] px-2 text-blue-700 border-slate-200 hover:bg-blue-50"
+                              className="h-6 text-[14px] px-2 text-blue-700 border-slate-200 hover:bg-blue-50"
                               onClick={() => amend(r)}
                             >
                               Phụ lục
@@ -434,7 +422,7 @@ export function HrmContractPanel({
                             permission="hrm.employee.manage"
                             size="xs"
                             variant="outline"
-                            className="h-6 text-[11px] px-2 text-rose-700 border-slate-200 hover:bg-rose-50"
+                            className="h-6 text-[14px] px-2 text-rose-700 border-slate-200 hover:bg-rose-50"
                             onClick={() => terminate(r)}
                           >
                             Chấm dứt
@@ -447,7 +435,7 @@ export function HrmContractPanel({
                             permission="hrm.employee.manage"
                             size="xs"
                             variant="outline"
-                            className="h-6 text-[11px] px-2"
+                            className="h-6 text-[14px] px-2"
                             onClick={() => createContract(r)}
                           >
                             Sửa
@@ -473,7 +461,7 @@ export function HrmContractPanel({
                             <Button
                               permission="hrm.employee.manage"
                               size="xs"
-                              className="h-6 text-[11px] px-2 bg-emerald-600 hover:bg-emerald-700 text-white"
+                              className="h-6 text-[14px] px-2 bg-emerald-600 hover:bg-emerald-700 text-white"
                             >
                               Ban hành
                             </Button>
@@ -498,7 +486,7 @@ export function HrmContractPanel({
                               permission="hrm.employee.manage"
                               size="xs"
                               variant="outline"
-                              className="h-6 text-[11px] px-2 text-slate-500 hover:text-rose-600"
+                              className="h-6 text-[14px] px-2 text-slate-500 hover:text-rose-600"
                             >
                               Xóa
                             </Button>

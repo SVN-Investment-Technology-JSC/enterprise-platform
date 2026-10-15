@@ -26,7 +26,7 @@
   border-radius: 6px;
   background: #f1f5f9;
   border: 1px solid #e2e8f0;
-  font-size: 0.8rem;
+  font-size: 0.8125rem;
   color: #475569;
 }
 
@@ -111,7 +111,7 @@
   border: 1px solid #cbd5e1;
   border-radius: 6px;
   font: inherit;
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   color: #0f172a;
   background: #ffffff;
   outline: none;
@@ -129,7 +129,7 @@
   border: 1px solid #cbd5e1;
   border-radius: 6px;
   font: inherit;
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   color: #0f172a;
   background: #ffffff;
   outline: none;
@@ -152,7 +152,7 @@
   background: #ffffff;
   color: #475569;
   font: inherit;
-  font-size: 0.8rem;
+  font-size: 0.8125rem;
   font-weight: 600;
   white-space: nowrap;
   cursor: pointer;
@@ -175,7 +175,7 @@
   background: #2563eb;
   color: #ffffff;
   font: inherit;
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   font-weight: 600;
   cursor: pointer;
   transition: background 0.14s ease;
@@ -233,7 +233,7 @@
   width: 100%;
   min-width: 820px;
   border-collapse: collapse;
-  font-size: 0.84rem;
+  font-size: 0.875rem;
 }
 
 .standardTable th {
@@ -241,7 +241,7 @@
   border-bottom: 1px solid #e2e8f0;
   background: #f8fafc;
   color: #475569;
-  font-size: 0.74rem;
+  font-size: 0.75rem;
   font-weight: 700;
   text-align: left;
   white-space: nowrap;
@@ -266,7 +266,7 @@
   width: 44px;
   text-align: center;
   color: #64748b;
-  font-size: 0.78rem;
+  font-size: 0.8125rem;
   font-variant-numeric: tabular-nums;
 }
 
@@ -292,7 +292,7 @@
 .codeBadge {
   display: inline-block;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.78rem;
+  font-size: 0.8125rem;
   font-weight: 700;
   color: #1e40af;
   background: #eff6ff;
@@ -309,7 +309,7 @@
   border: 1px solid #cbd5e1;
   border-radius: 4px;
   font: inherit;
-  font-size: 0.84rem;
+  font-size: 0.875rem;
   color: #0f172a;
   background: #ffffff;
   outline: none;
@@ -336,7 +336,7 @@
 
 .cyclePrefix {
   color: #64748b;
-  font-size: 0.8rem;
+  font-size: 0.8125rem;
 }
 
 .countInput {
@@ -346,7 +346,7 @@
   border: 1px solid #cbd5e1;
   border-radius: 4px;
   font: inherit;
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   color: #0f172a;
   text-align: center;
   background: #ffffff;
@@ -369,7 +369,7 @@
   border: 1px solid #cbd5e1;
   border-radius: 4px;
   font: inherit;
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   color: #0f172a;
   background: #ffffff;
   outline: none;
@@ -396,7 +396,7 @@
   background: #ecfdf5;
   border: 1px solid #a7f3d0;
   color: #047857;
-  font-size: 0.74rem;
+  font-size: 0.75rem;
   font-weight: 600;
 }
 
@@ -409,7 +409,7 @@
   background: #f8fafc;
   border: 1px solid #e2e8f0;
   color: #64748b;
-  font-size: 0.74rem;
+  font-size: 0.75rem;
   font-weight: 500;
 }
 
@@ -462,7 +462,7 @@
   padding: 2.5rem 1rem;
   text-align: center;
   color: #64748b;
-  font-size: 0.85rem;
+  font-size: 0.875rem;
 }
 
 /* Vùng 3: Footer Chân Bảng Đồng Bộ */
@@ -475,7 +475,7 @@
   padding: 10px 14px;
   border-top: 1px solid #e2e8f0;
   background: #f8fafc;
-  font-size: 12px;
+  font-size: 13px;
   color: #64748b;
 }
 
@@ -486,7 +486,7 @@
 }
 
 .tableTotalRecords {
-  font-size: 12px;
+  font-size: 13px;
   color: #64748b;
 }
 
@@ -498,7 +498,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 11.5px;
+  font-size: 12px;
   color: #64748b;
 }
 
@@ -509,7 +509,7 @@
   background: #ffffff;
   color: #0f172a;
   font: inherit;
-  font-size: 11px;
+  font-size: 12px;
   outline: none;
   cursor: pointer;
   transition: all 0.14s ease;
@@ -531,7 +531,7 @@
 }
 
 .tablePageIndicator {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 700;
   color: #0f172a;
   padding: 0 4px;
@@ -547,7 +547,7 @@
   background: #ffffff;
   color: #0f172a;
   font: inherit;
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.14s ease;
@@ -579,7 +579,7 @@
 }
 
 .formField label {
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   font-weight: 600;
   color: #334155;
 }
@@ -590,7 +590,7 @@
   border: 1px solid #cbd5e1;
   border-radius: 6px;
   font: inherit;
-  font-size: 0.85rem;
+  font-size: 0.875rem;
   color: #0f172a;
   background: #ffffff;
   outline: none;
@@ -614,14 +614,14 @@
   align-items: center;
   gap: 0.5rem;
   cursor: pointer;
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   font-weight: 500;
   color: #1e293b;
   margin-top: 0.25rem;
 }
 
 .formHint {
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   color: #64748b;
   line-height: 1.4;
   margin: 0;
@@ -643,7 +643,7 @@
   background: #ffffff;
   color: #475569;
   font: inherit;
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.15s ease;
@@ -661,7 +661,7 @@
   background: #2563eb;
   color: #ffffff;
   font: inherit;
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   font-weight: 600;
   cursor: pointer;
   transition: background 0.14s ease;

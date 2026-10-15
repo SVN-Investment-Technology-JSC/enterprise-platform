@@ -434,8 +434,8 @@ export function OrganizationWorkspace({
       >
         {!isWorkspaceDetail ? (
           <div>
-            <h1 className="m-0 text-[22px] font-bold tracking-[-0.3px]">Sơ đồ tổ chức</h1>
-            <p className="mt-1 text-[13.5px] text-slate-600">
+            <h1 className="m-0 text-[20px] font-bold tracking-[-0.3px]">Sơ đồ tổ chức</h1>
+            <p className="mt-1 text-[14px] text-slate-600">
               Quản lý cấu trúc tổ chức trực tiếp trong dữ liệu lõi của tenant.
             </p>
           </div>
@@ -501,16 +501,16 @@ export function OrganizationWorkspace({
                       {tree?.name ?? 'Chưa chọn sơ đồ'}
                     </h1>
                     {tree?.isPrimary ? (
-                      <span className="rounded-[5px] bg-[#fff6d6] px-1.5 text-[10px] font-extrabold tracking-[0.4px] text-[#8a6400]">
+                      <span className="rounded-[5px] bg-[#fff6d6] px-1.5 text-[12px] font-extrabold tracking-[0.4px] text-[#8a6400]">
                         CHÍNH
                       </span>
                     ) : null}
-                    <span className="rounded-[5px] bg-[#f1f3f6] px-1.5 font-mono text-[11px] text-slate-700">
+                    <span className="rounded-[5px] bg-[#f1f3f6] px-1.5 font-mono text-[12px] text-slate-700">
                       {tree?.code}
                     </span>
                   </div>
                   {tree?.description ? (
-                    <p className="m-0 truncate text-[12.5px] text-slate-500">
+                    <p className="m-0 truncate text-[13px] text-slate-500">
                       {tree.description}
                     </p>
                   ) : null}
@@ -537,7 +537,7 @@ export function OrganizationWorkspace({
                           : 'Chưa có thay đổi vị trí'
                       }
                       variant="outline"
-                      className="h-9 border-[#eef0f3] text-[13px] font-semibold"
+                      className="h-9 border-[#eef0f3] text-[14px] font-semibold"
                     >
                       <Save className="mr-1 size-3.5" />
                       {layoutSaving ? 'Đang lưu…' : 'Lưu vị trí'}
@@ -547,7 +547,7 @@ export function OrganizationWorkspace({
                       variant="outline"
                       disabled={!canUpdate}
                       onClick={() => open('trees', tree)}
-                      className="h-9 border-[#eef0f3] text-[13px] font-semibold"
+                      className="h-9 border-[#eef0f3] text-[14px] font-semibold"
                     >
                       <Pencil className="mr-1 size-3.5" />
                       Sửa sơ đồ
@@ -556,7 +556,7 @@ export function OrganizationWorkspace({
                       size="sm"
                       disabled={!canCreate}
                       onClick={() => open('nodes')}
-                      className="h-9 bg-[#ffc90a] text-[13px] font-bold text-[#18181b] hover:bg-[#ffd84d]"
+                      className="h-9 bg-[#ffc90a] text-[14px] font-bold text-[#18181b] hover:bg-[#ffd84d]"
                     >
                       <Plus className="mr-1 size-3.5" />
                       Thêm node
@@ -934,7 +934,7 @@ function Form({
                 }))}
             />
             {hasExistingRoot ? (
-              <p className="mt-1 text-[11px] text-amber-600">
+              <p className="mt-1 text-[12px] text-amber-600">
                 Sơ đồ này đã có node gốc. Mỗi sơ đồ chỉ được phép tạo 1 node gốc duy nhất.
               </p>
             ) : null}
@@ -1141,7 +1141,7 @@ function Tab({
     >
       {label}
       <span
-        className={`rounded-full px-2 text-[11.5px] font-bold ${active ? 'bg-[#fff6d6] text-[#8a6400]' : 'bg-[#f1f3f6] text-slate-500'}`}
+        className={`rounded-full px-2 text-[12px] font-bold ${active ? 'bg-[#fff6d6] text-[#8a6400]' : 'bg-[#f1f3f6] text-slate-500'}`}
       >
         {count}
       </span>
