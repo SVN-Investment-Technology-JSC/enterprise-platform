@@ -10,6 +10,7 @@ import type {
   ChatChannel,
   ChatEntityType,
   ChatMessage,
+  ChatReader,
   CostEntry,
   ProjectRequest,
   ProjectRequestStatus,
@@ -2435,21 +2436,31 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
       return mapChannel(result.rows[0] as Row);
     },
 
-    listMessages: async (tenantId: string, channelId: string, limit: number) => {
+    listMessages: async (
+      tenantId: string,
+      channelId: string,
+      limit: number,
+      beforeMessageId?: string,
+    ) => {
       const pool = await this.poolFor(tenantId);
-      // Lấy N tin mới nhất rồi đảo lại: Drawer đọc từ trên xuống theo thời
-      // gian, nhưng phần cần cắt bỏ là phần cũ nhất.
+      // Lấy N tin mới nhất (hoặc N tin liền trước `beforeMessageId`) rồi đảo
+      // lại: Drawer đọc từ trên xuống theo thời gian, nhưng phần cần cắt bỏ là
+      // phần cũ nhất. Mốc là id tin chứ không phải thời điểm, vì JS chỉ giữ mili
+      // giây còn cột có micro giây; so cặp (created_at, id) để không lặp hay sót
+      // tin trùng thời điểm. Lấy dư một dòng để biết còn trang cũ hơn hay không.
       const result = await pool.query<Row>(
-        `SELECT * FROM (
-           SELECT ${MESSAGE_COLUMNS} FROM workspace_schema.chat_messages
-            WHERE channel_id = $1
-            ORDER BY created_at DESC
-            LIMIT $2
-         ) recent
-         ORDER BY created_at`,
-        [channelId, limit],
+        `SELECT ${MESSAGE_COLUMNS} FROM workspace_schema.chat_messages
+          WHERE channel_id = $1
+            AND ($3::uuid IS NULL OR (created_at, id) < (
+                  SELECT created_at, id FROM workspace_schema.chat_messages
+                   WHERE id = $3 AND channel_id = $1))
+          ORDER BY created_at DESC, id DESC
+          LIMIT $2`,
+        [channelId, limit + 1, beforeMessageId ?? null],
       );
-      return result.rows.map(mapMessage);
+      const hasMore = result.rows.length > limit;
+      const messages = result.rows.slice(0, limit).map(mapMessage).reverse();
+      return { messages, hasMore };
     },
 
     findMessage: async (tenantId: string, messageId: string) => {
@@ -2501,43 +2512,59 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
         if (message.mentions.length > 0) {
           await writeOutbox(client, tenantId, mentionEvent(message));
         }
+        await writeChatSignal(client, tenantId, message, actorUserId, 'created');
         return message;
       });
     },
 
     editMessage: async (
       tenantId: string,
+      actorUserId: string,
       messageId: string,
       body: string,
       mentions: readonly string[],
+      newlyMentioned: readonly string[],
     ) => {
       const pool = await this.poolFor(tenantId);
-      const result = await pool.query<Row>(
-        `UPDATE workspace_schema.chat_messages
-            SET body = $2, mentions = $3::uuid[], is_edited = true, updated_at = now()
-          WHERE id = $1
-          RETURNING ${MESSAGE_COLUMNS}`,
-        [messageId, body, mentions],
-      );
-      const row = result.rows[0];
-      if (!row) throw new ChatMessageNotFoundError(messageId);
-      return mapMessage(row);
+      return inTransaction(pool, async (client) => {
+        const result = await client.query<Row>(
+          `UPDATE workspace_schema.chat_messages
+              SET body = $2, mentions = $3::uuid[], is_edited = true, updated_at = now()
+            WHERE id = $1
+            RETURNING ${MESSAGE_COLUMNS}`,
+          [messageId, body, mentions],
+        );
+        const row = result.rows[0];
+        if (!row) throw new ChatMessageNotFoundError(messageId);
+        const message = mapMessage(row);
+        // Chỉ người mới được nhắc mới nhận thông báo; người đã được nhắc từ
+        // bản trước không bị báo lại mỗi lần sửa.
+        if (newlyMentioned.length > 0) {
+          await writeOutbox(client, tenantId, mentionEvent({ ...message, mentions: newlyMentioned }));
+        }
+        await writeChatSignal(client, tenantId, message, actorUserId, 'edited');
+        return message;
+      });
     },
 
-    softDeleteMessage: async (tenantId: string, messageId: string) => {
+    softDeleteMessage: async (tenantId: string, actorUserId: string, messageId: string) => {
       const pool = await this.poolFor(tenantId);
-      // Nội dung bị xoá thật khỏi cột, chỉ giữ lại cái vỏ: giữ nguyên chữ
-      // trong CSDL nghĩa là "thu hồi" chỉ là một lớp che ở giao diện.
-      const result = await pool.query<Row>(
-        `UPDATE workspace_schema.chat_messages
-            SET is_deleted = true, body = '', mentions = '{}', updated_at = now()
-          WHERE id = $1
-          RETURNING ${MESSAGE_COLUMNS}`,
-        [messageId],
-      );
-      const row = result.rows[0];
-      if (!row) throw new ChatMessageNotFoundError(messageId);
-      return mapMessage(row);
+      return inTransaction(pool, async (client) => {
+        // Nội dung bị xoá thật khỏi cột, chỉ giữ lại cái vỏ: giữ nguyên chữ
+        // trong CSDL nghĩa là "thu hồi" chỉ là một lớp che ở giao diện.
+        const result = await client.query<Row>(
+          `UPDATE workspace_schema.chat_messages
+              SET is_deleted = true, body = '', mentions = '{}', updated_at = now()
+            WHERE id = $1
+            RETURNING ${MESSAGE_COLUMNS}`,
+          [messageId],
+        );
+        const row = result.rows[0];
+        if (!row) throw new ChatMessageNotFoundError(messageId);
+        const message = mapMessage(row);
+        await writeChatSignal(client, tenantId, message, actorUserId, 'deleted');
+        return message;
+      });
     },
 
     unreadByProject: async (
@@ -2571,15 +2598,60 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
       }));
     },
 
-    markRead: async (tenantId: string, channelId: string, userId: string) => {
+    markRead: async (
+      tenantId: string,
+      channelId: string,
+      userId: string,
+      upToMessageId: string,
+      options: { readonly announce?: boolean } = {},
+    ) => {
       const pool = await this.poolFor(tenantId);
-      await pool.query(
-        `INSERT INTO workspace_schema.chat_reads (channel_id, user_id, last_read_at)
-         VALUES ($1, $2, now())
-         ON CONFLICT (channel_id, user_id)
-         DO UPDATE SET last_read_at = now(), updated_at = now()`,
-        [channelId, userId],
+      await inTransaction(pool, async (client) => {
+        // Mốc = `created_at` của chính tin đã hiển thị (giữ nguyên micro giây),
+        // và chỉ tiến lên: `WHERE ... <` khiến lần đánh dấu lùi hoặc trùng không
+        // trả dòng nào, nên cũng không phát tín hiệu thừa.
+        const moved = await client.query(
+          `INSERT INTO workspace_schema.chat_reads (channel_id, user_id, last_read_at)
+           SELECT $1, $2, m.created_at
+             FROM workspace_schema.chat_messages m
+            WHERE m.id = $3 AND m.channel_id = $1
+           ON CONFLICT (channel_id, user_id)
+           DO UPDATE SET last_read_at = EXCLUDED.last_read_at, updated_at = now()
+            WHERE workspace_schema.chat_reads.last_read_at < EXCLUDED.last_read_at
+           RETURNING 1`,
+          [channelId, userId, upToMessageId],
+        );
+        if ((moved.rowCount ?? 0) > 0 && options.announce) {
+          await writeChatSignal(
+            client,
+            tenantId,
+            { id: upToMessageId, channelId, createdBy: userId },
+            userId,
+            'read',
+          );
+        }
+      });
+    },
+
+    listReaders: async (tenantId: string, channelId: string): Promise<ChatReader[]> => {
+      const pool = await this.poolFor(tenantId);
+      // Tin mới nhất không muộn hơn mốc đọc của từng người: so sánh bằng id ở
+      // phía giao diện chính xác hơn so thời điểm đã bị làm tròn mili giây.
+      const result = await pool.query<Row>(
+        `SELECT r.user_id,
+                (SELECT m.id
+                   FROM workspace_schema.chat_messages m
+                  WHERE m.channel_id = r.channel_id AND m.created_at <= r.last_read_at
+                  ORDER BY m.created_at DESC, m.id DESC
+                  LIMIT 1) AS message_id
+           FROM workspace_schema.chat_reads r
+          WHERE r.channel_id = $1`,
+        [channelId],
       );
+      return result.rows.map((row) => ({
+        userId: str(row.user_id),
+        ...(row.message_id ? { messageId: str(row.message_id) } : {}),
+      }));
     },
   };
 
@@ -4306,6 +4378,75 @@ function assignedEvent(item: WorkItem, previousAssignee: string | undefined): Ou
       plannedEnd: item.plannedEnd ?? null,
     },
   };
+}
+
+/**
+ * Tín hiệu realtime "luồng chat đổi".
+ *
+ * Chỉ mang định danh và danh sách người nhận, không mang nội dung tin: sự kiện
+ * đi qua broker và Redis, còn nội dung do người nhận tự lấy lại qua API có kiểm
+ * quyền. `recipientUserIds` được chốt tại lúc ghi, nên người vừa bị gỡ khỏi dự
+ * án không nhận thêm tín hiệu nào về sau.
+ */
+export function chatSignalEvent(
+  message: Pick<ChatMessage, 'id' | 'channelId' | 'createdBy'>,
+  channel: { entityType: ChatEntityType; entityId: string; projectId: string },
+  change: 'created' | 'edited' | 'deleted' | 'read',
+  actorUserId: string,
+  recipientUserIds: readonly string[],
+): OutboxInput {
+  return {
+    type: 'workspace.chat.changed',
+    aggregateType: 'workspace-chat-message',
+    aggregateId: message.id,
+    payload: {
+      channelId: message.channelId,
+      entityType: channel.entityType,
+      entityId: channel.entityId,
+      projectId: channel.projectId,
+      messageId: message.id,
+      change,
+      actorUserId,
+      recipientUserIds: [...new Set(recipientUserIds)].filter((id) => id !== actorUserId),
+    },
+  };
+}
+
+/** Ghi tín hiệu cho các thành viên dự án khác, trong cùng transaction với thay đổi. */
+async function writeChatSignal(
+  client: PoolClient,
+  tenantId: string,
+  message: Pick<ChatMessage, 'id' | 'channelId' | 'createdBy'>,
+  actorUserId: string,
+  change: 'created' | 'edited' | 'deleted' | 'read',
+): Promise<void> {
+  const channel = await client.query<Row>(
+    `SELECT entity_type, entity_id, project_id FROM workspace_schema.chat_channels WHERE id = $1`,
+    [message.channelId],
+  );
+  const row = channel.rows[0];
+  if (!row) return;
+  const members = await client.query<Row>(
+    `SELECT user_id FROM workspace_schema.project_members
+      WHERE project_id = $1 AND user_id <> $2`,
+    [row.project_id, actorUserId],
+  );
+  if (members.rows.length === 0) return;
+  await writeOutbox(
+    client,
+    tenantId,
+    chatSignalEvent(
+      message,
+      {
+        entityType: str(row.entity_type) as ChatEntityType,
+        entityId: str(row.entity_id),
+        projectId: str(row.project_id),
+      },
+      change,
+      actorUserId,
+      members.rows.map((member) => str(member.user_id)),
+    ),
+  );
 }
 
 export function mentionEvent(

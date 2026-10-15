@@ -4,12 +4,14 @@ import {
   type ProcedureInstance,
   type ProcedureInstanceReversedPayload,
 } from '@enterprise-platform/contracts-procedure-engine';
+import { MAX_MENTION_RECIPIENTS } from '../domain/procedure-mentions.js';
 import { resolveFinalActorId } from '../domain/procedure-progress.js';
 
 export interface ProcedureNotificationEvent {
   readonly type:
     | 'procedure.assignment.created'
     | 'procedure.instance.completed'
+    | 'procedure.mention.created'
     | typeof PROCEDURE_INSTANCE_REVERSED
     | typeof PROCEDURE_INSTANCE_ADJUSTMENT_REQUESTED;
   readonly aggregateType: 'procedure-instance';
@@ -89,6 +91,47 @@ function submitters(instance: ProcedureInstance) {
   return { userIds: [...userIds], assignments };
 }
 
+/**
+ * Thông báo "bạn được nhắc" cho từng trao đổi MỚI có nhắc tên người.
+ *
+ * Chỉ nhìn các mục `comment` chưa có ở bản trước, nên sửa/ghi lại hồ sơ không báo lại những lần nhắc cũ.
+ * Không báo cho chính người gửi. `mentions` là id người dùng (giao diện đã mở rộng chức danh/đơn vị
+ * thành từng người), nên không cần giải sơ đồ tổ chức ở đây.
+ */
+export function procedureMentionEvents(
+  prior: ProcedureInstance | undefined,
+  instance: ProcedureInstance,
+): readonly ProcedureNotificationEvent[] {
+  const known = new Set((prior?.activity ?? []).map((entry) => entry.id));
+  const events: ProcedureNotificationEvent[] = [];
+  for (const entry of instance.activity) {
+    if (known.has(entry.id) || entry.action !== 'comment' || !entry.mentions?.length) continue;
+    const recipients = [...new Set(entry.mentions)]
+      .filter((userId) => userId && userId !== entry.actorId)
+      .slice(0, MAX_MENTION_RECIPIENTS);
+    if (recipients.length === 0) continue;
+    const body = (entry.comment ?? '').replace(/\s+/g, ' ').trim();
+    events.push({
+      type: 'procedure.mention.created',
+      aggregateType: 'procedure-instance',
+      aggregateId: instance.id,
+      payload: {
+        mentionId: entry.id,
+        threadId: instance.id,
+        instanceId: instance.id,
+        instanceCode: instance.code,
+        mentionedUserIds: recipients,
+        actorUserId: entry.actorId,
+        // Kèm tên người gửi và mã hồ sơ: thông báo là thứ duy nhất người được nhắc nhìn thấy trước khi mở.
+        excerpt: `${entry.actorName} · ${instance.code}: ${body}`.slice(0, 160),
+        deepLink: `/procedures/instances/${instance.id}`,
+        sourceType: 'procedure_comment',
+      },
+    });
+  }
+  return events;
+}
+
 export function procedureNotificationEvents(
   before: readonly ProcedureInstance[],
   after: readonly ProcedureInstance[],
@@ -97,6 +140,7 @@ export function procedureNotificationEvents(
   const events: ProcedureNotificationEvent[] = [];
   for (const instance of after) {
     const prior = previous.get(instance.id);
+    events.push(...procedureMentionEvents(prior, instance));
     if (
       instance.status === 'running' &&
       instance.currentStepId &&

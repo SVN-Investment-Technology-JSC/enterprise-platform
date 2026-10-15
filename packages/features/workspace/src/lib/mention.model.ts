@@ -124,15 +124,76 @@ export function extractMentions(
   members: readonly ProjectMember[],
   handles: ReadonlyMap<string, string> = new Map(),
 ): string[] {
+  return [...new Set(scanMentions(text, members, handles).map((span) => span.userId))];
+}
+
+/** Một lượt nhắc hợp lệ trong văn bản: `[start, end)` gồm cả dấu `@`. */
+export interface MentionSpan {
+  readonly start: number;
+  readonly end: number;
+  readonly userId: string;
+}
+
+/**
+ * Tìm mọi lượt nhắc hợp lệ trong văn bản, theo thứ tự xuất hiện.
+ *
+ * Dùng chung cho việc tô màu và rút id để hai nơi không bao giờ lệch nhau: chữ
+ * hiện màu xanh thì đúng là sẽ được gửi thông báo. `@` phải đứng đầu dòng hoặc
+ * sau khoảng trắng; token khớp tên gọn dài nhất, và ký tự liền sau không được là
+ * chữ/số/gạch (để `@An` không ăn vào `@Anh`), nhưng dấu câu như `,` `.` thì được.
+ */
+export function scanMentions(
+  text: string,
+  members: readonly ProjectMember[],
+  handles: ReadonlyMap<string, string> = new Map(),
+): MentionSpan[] {
   const byToken = new Map<string, string>();
   for (const member of members) byToken.set(member.userId, member.userId);
   for (const [userId, handle] of handles) byToken.set(handle, userId);
-  const found = new Set<string>();
-  for (const match of text.matchAll(/(?:^|\s)@(\S+)/g)) {
-    const userId = byToken.get(match[1] ?? '');
-    if (userId) found.add(userId);
+  // Dài trước ngắn: `NguyenThiMai-u-mai2` phải thắng `NguyenThiMai-u-mai`.
+  const tokens = [...byToken.keys()].sort((a, b) => b.length - a.length);
+
+  const spans: MentionSpan[] = [];
+  for (const match of text.matchAll(/(^|\s)@(?=\S)/g)) {
+    const start = (match.index ?? 0) + (match[1]?.length ?? 0);
+    const rest = text.slice(start + 1);
+    const token = tokens.find(
+      (candidate) =>
+        rest.startsWith(candidate) &&
+        !/^[\p{L}\p{N}_-]/u.test(rest.slice(candidate.length, candidate.length + 1)),
+    );
+    const userId = token === undefined ? undefined : byToken.get(token);
+    if (token !== undefined && userId) {
+      spans.push({ start, end: start + 1 + token.length, userId });
+    }
   }
-  return [...found];
+  return spans;
+}
+
+/** Cắt văn bản thành các đoạn thường và đoạn nhắc, để tô màu đoạn nhắc. */
+export function splitByMentions(
+  text: string,
+  spans: readonly MentionSpan[],
+): { readonly text: string; readonly mention: boolean }[] {
+  const parts: { text: string; mention: boolean }[] = [];
+  let cursor = 0;
+  for (const span of spans) {
+    if (span.start > cursor) parts.push({ text: text.slice(cursor, span.start), mention: false });
+    parts.push({ text: text.slice(span.start, span.end), mention: true });
+    cursor = span.end;
+  }
+  if (cursor < text.length) parts.push({ text: text.slice(cursor), mention: false });
+  return parts;
+}
+
+/** Mũi tên lên/xuống chọn người trong danh sách, đi vòng ở hai đầu. */
+export function nextActiveIndex(
+  current: number,
+  key: 'ArrowUp' | 'ArrowDown',
+  count: number,
+): number {
+  if (count <= 0) return 0;
+  return key === 'ArrowDown' ? (current + 1) % count : (current - 1 + count) % count;
 }
 
 /** Bỏ dấu và viết thường để so khớp tên tiếng Việt. */

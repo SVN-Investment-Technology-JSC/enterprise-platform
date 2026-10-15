@@ -45,6 +45,7 @@ import {
   normalizeAttributeValue,
 } from '../domain/procedure-attributes.js';
 import { resolveGatewayStepReferences } from '../domain/procedure-flow.policy.js';
+import { sanitizeMentions } from '../domain/procedure-mentions.js';
 import { buildInstanceProgress, buildInstanceStatusEntry, instanceSequence } from '../domain/procedure-progress.js';
 import {
   activateStep,
@@ -2762,7 +2763,7 @@ export class ProcedureEngineApplication {
         actorName: actor.displayName,
         summary: 'Đã gửi trao đổi.',
         comment: body,
-        mentions: input.mentions?.length ? [...new Set(input.mentions)] : undefined,
+        mentions: sanitizeMentions(input.mentions),
         // Chỉ nhận id trỏ tới một trao đổi CÓ THẬT trong chính hồ sơ này. Id lạ
         // bị bỏ đi thay vì chặn gửi: mất phần trích dẫn còn hơn mất cả nội dung
         // người dùng vừa gõ.
@@ -2779,6 +2780,39 @@ export class ProcedureEngineApplication {
       return instance;
     });
     return this.withAuthorization(result, actor);
+  }
+
+  /**
+   * Một hồ sơ mà người gọi là người tham gia, để trình duyệt làm mới ĐÚNG hồ sơ đang mở khi có tin mới
+   * (trước đây chỉ có thể nạp lại cả workspace). Người ngoài nhận 404 như thể hồ sơ không tồn tại.
+   */
+  async getInstance(actor: ProcedureActor, instanceId: string): Promise<ProcedureInstance> {
+    const instance = await this.participantInstance(actor, instanceId);
+    return this.withAuthorization(instance, actor);
+  }
+
+  /**
+   * Người gọi có được vào phòng thời gian thực của hồ sơ không. Dịch vụ realtime gọi bằng cookie của
+   * chính người đó, nên quyền vẫn do module này quyết định theo đúng luật người tham gia của hồ sơ.
+   */
+  async getChatAccess(
+    actor: ProcedureActor,
+    instanceId: string,
+  ): Promise<{ readonly canComment: boolean }> {
+    const instance = await this.participantInstance(actor, instanceId);
+    return { canComment: instance.status === 'running' };
+  }
+
+  private async participantInstance(
+    actor: ProcedureActor,
+    instanceId: string,
+  ): Promise<ProcedureInstance> {
+    const state = await this.store.read(actor.tenantId);
+    const instance = state.instances.find((candidate) => candidate.id === instanceId);
+    if (!instance || !isProcedureParticipant(instance, actor)) {
+      throw new ProcedureEngineError('not_found', 'Không tìm thấy hồ sơ.');
+    }
+    return instance;
   }
 
   async applyAction(

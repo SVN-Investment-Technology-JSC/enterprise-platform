@@ -4,66 +4,97 @@ import type {
   ProcedureActivity,
   ProcedureInstance,
 } from '@enterprise-platform/contracts-procedure-engine';
-import { Reply } from 'lucide-react';
-import { useMemo, useRef, useState, type ReactNode } from 'react';
+import {
+  sendRealtime,
+  useRealtimeEvent,
+  useRealtimeStatus,
+  type ProcedureCommentSignal,
+  type ProcedureTypingSignal,
+} from '@enterprise-platform/shared-ui';
+import { Ellipsis, Reply } from 'lucide-react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+  type SyntheticEvent,
+} from 'react';
+import {
+  applyMention,
+  extractMentionIds,
+  findMentionQuery,
+  nextActiveIndex,
+  scanMentions,
+  splitByMentions,
+  suggestPeople,
+  type MentionQuery,
+} from '../chat-mentions';
+import type { ChatPerson } from '../chat-people';
+import {
+  activeTypers,
+  nextTypingSignal,
+  pruneTyping,
+  typingLabel,
+  withTyping,
+  type TypingMap,
+} from '../chat-typing';
 import { activityTime, dayLabel } from './activity-format';
 import styles from './workspace-board.module.scss';
 
-/**
- * Tô đậm tên người được nhắc trong nội dung.
- *
- * Quét theo tên hiển thị đầy đủ, không dùng `\w+`: tên tiếng Việt có dấu cách
- * nên regex từ đơn sẽ cắt nhầm ở chữ đầu tiên. Duyệt tên dài trước để "Nguyễn
- * Văn A" không bị khớp nhầm thành "Nguyễn Văn".
- */
-function renderMentions(text: string, names: readonly string[]): ReactNode {
-  if (names.length === 0) return text;
-  const ordered = [...names].sort((left, right) => right.length - left.length);
-  const out: ReactNode[] = [];
-  let rest = text;
-  let guard = 0;
-
-  while (rest.length > 0 && guard < 200) {
-    guard += 1;
-    let hit: { index: number; name: string } | undefined;
-    for (const name of ordered) {
-      const index = rest.indexOf(`@${name}`);
-      if (index >= 0 && (hit === undefined || index < hit.index)) hit = { index, name };
-    }
-    if (!hit) break;
-    if (hit.index > 0) out.push(rest.slice(0, hit.index));
-    out.push(
-      <mark key={`${out.length}-${hit.name}`} className={styles.mention}>
-        @{hit.name}
-      </mark>,
-    );
-    rest = rest.slice(hit.index + hit.name.length + 1);
-  }
-  if (rest) out.push(rest);
-  return out.length > 0 ? out : text;
+/** Tô nổi tên người được nhắc trong tin đã gửi, dùng đúng bộ quét với phần rút id người nhận. */
+function renderMentions(text: string, people: readonly ChatPerson[]): ReactNode {
+  const parts = splitByMentions(text, scanMentions(text, people));
+  if (parts.length === 0) return text;
+  return parts.map((part, index) =>
+    part.mention ? (
+      <mark key={index} className={styles.mention}>
+        {part.text}
+      </mark>
+    ) : (
+      part.text
+    ),
+  );
 }
 
 const PAGE = 20;
+/** Gom nhiều tín hiệu dồn dập thành một lần tải lại. */
+const REFRESH_DEBOUNCE_MS = 250;
+/** Không có realtime thì hỏi lại theo nhịp này khi đang mở trao đổi. */
+const FALLBACK_REFRESH_MS = 30_000;
 
 export function ChatPanel({
   instance,
   busy,
   participants,
+  currentUserId,
   onSend,
+  onRefreshInstance,
 }: {
   instance: ProcedureInstance;
   busy?: string;
-  /** Tên người có mặt trong hồ sơ, dùng cho gợi ý @ và tô đậm. */
-  participants: readonly { id: string; name: string }[];
+  /** Những NGƯỜI có thể được nhắc (đã mở rộng từ chức danh/đơn vị), không gồm chính mình. */
+  participants: readonly ChatPerson[];
+  currentUserId?: string;
   onSend: (body: string, mentions: string[], replyToId?: string) => void;
+  /** Tải lại đúng hồ sơ này khi người khác có trao đổi mới (tín hiệu thời gian thực). */
+  onRefreshInstance?: (instanceId: string) => void | Promise<void>;
 }) {
   const [draft, setDraft] = useState('');
   const [visible, setVisible] = useState(PAGE);
-  const [caret, setCaret] = useState(0);
+  const [mention, setMention] = useState<MentionQuery>();
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [typers, setTypers] = useState<TypingMap>({});
   const textarea = useRef<HTMLTextAreaElement>(null);
+  const mirror = useRef<HTMLDivElement>(null);
+  // Trạng thái "tôi đang gõ" đã báo lên máy chủ, để không báo mỗi phím.
+  const typingState = useRef({ typing: false, at: 0 });
+  const live = useRealtimeStatus();
+  const instanceId = instance.id;
 
   const canComment = instance.authorization?.canComment ?? false;
-  const names = useMemo(() => participants.map((person) => person.name), [participants]);
 
   /**
    * Chỉ bình luận. Các chuyển trạng thái đã có tab "Lịch sử thao tác" riêng —
@@ -116,40 +147,150 @@ export function ChatPanel({
   // lại những câu trả lời mồ côi không hiểu nổi.
   const entries = roots.slice(0, visible);
 
-  /**
-   * Đoạn `@…` đang gõ ngay trước con trỏ.
-   *
-   * Tên tiếng Việt có dấu cách nên không thể dừng ở khoảng trắng đầu tiên: lấy
-   * cả phần sau `@` tới con trỏ rồi để phép khớp tiền tố lo phần còn lại.
-   */
-  const mentionQuery = useMemo(() => {
-    const before = draft.slice(0, caret);
-    const at = before.lastIndexOf('@');
-    if (at < 0) return undefined;
-    // Chỉ tính khi @ đứng đầu dòng hoặc sau khoảng trắng — tránh bắt nhầm email.
-    if (at > 0 && !/\s/.test(before[at - 1])) return undefined;
-    const query = before.slice(at + 1);
-    if (query.includes('\n')) return undefined;
-    return { at, query };
-  }, [draft, caret]);
+  /* ---------------------------------------------------------- thời gian thực */
 
-  const suggestions = useMemo(() => {
-    if (!mentionQuery) return [];
-    const needle = mentionQuery.query.trim().toLowerCase();
-    return participants
-      .filter((person) => !needle || person.name.toLowerCase().includes(needle))
-      .slice(0, 6);
-  }, [mentionQuery, participants]);
+  /** Vào phòng của hồ sơ: máy chủ kiểm quyền rồi mới cho vào; tín hiệu chỉ đến người đang mở hồ sơ. */
+  const joinRoom = useCallback(() => {
+    sendRealtime('procedure.subscribe', { instanceId });
+  }, [instanceId]);
 
-  const insertMention = (name: string) => {
-    if (!mentionQuery) return;
-    const next = `${draft.slice(0, mentionQuery.at)}@${name} ${draft.slice(caret)}`;
-    setDraft(next);
-    const position = mentionQuery.at + name.length + 2;
-    setCaret(position);
+  useEffect(() => {
+    joinRoom();
+    return () => {
+      // Báo ngừng gõ TRƯỚC khi rời phòng (rời rồi thì máy chủ không nhận nữa).
+      if (typingState.current.typing) {
+        sendRealtime('procedure.typing', { instanceId, typing: false });
+        typingState.current = { typing: false, at: 0 };
+      }
+      sendRealtime('procedure.unsubscribe', { instanceId });
+    };
+  }, [instanceId, joinRoom]);
+
+  const refreshTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  // Tín hiệu đến lúc tab ở nền: tải khi tab hiện lại.
+  const pendingRefresh = useRef(false);
+  const requestRefresh = useCallback(() => {
+    if (!onRefreshInstance) return;
+    if (document.visibilityState !== 'visible') {
+      pendingRefresh.current = true;
+      return;
+    }
+    clearTimeout(refreshTimer.current);
+    refreshTimer.current = setTimeout(() => {
+      pendingRefresh.current = false;
+      void onRefreshInstance(instanceId);
+    }, REFRESH_DEBOUNCE_MS);
+  }, [onRefreshInstance, instanceId]);
+
+  useRealtimeEvent(
+    'procedure.comment.changed',
+    (event) => {
+      const signal = event.data as Partial<ProcedureCommentSignal> | undefined;
+      if (signal?.instanceId !== instanceId) return;
+      // Người vừa gửi tin thì chắc chắn không còn đang gõ.
+      if (signal.actorUserId) {
+        setTypers((current) => withTyping(current, signal.actorUserId as string, false, Date.now()));
+      }
+      requestRefresh();
+    },
+    (connected) => {
+      // Nối lại: phòng đã mất (hoặc chưa từng vào) nên phải xin vào lại, và có thể đã lỡ tin trong lúc mất mạng.
+      if (connected) {
+        joinRoom();
+        requestRefresh();
+      }
+    },
+  );
+
+  useRealtimeEvent('procedure.comment.typing', (event) => {
+    const typing = event.data as Partial<ProcedureTypingSignal> | undefined;
+    if (
+      typing?.instanceId !== instanceId ||
+      !typing.userId ||
+      typing.userId === currentUserId
+    ) {
+      return;
+    }
+    setTypers((current) => withTyping(current, typing.userId as string, typing.typing === true, Date.now()));
+  });
+
+  // Mỗi giây dọn người đã hết hạn; không có ai đang gõ thì không chạy gì cả.
+  const hasTypers = Object.keys(typers).length > 0;
+  useEffect(() => {
+    if (!hasTypers) return;
+    const timer = setInterval(() => setTypers((current) => pruneTyping(current, Date.now())), 1_000);
+    return () => clearInterval(timer);
+  }, [hasTypers]);
+
+  // Không có realtime (mất kết nối hoặc trang không có kênh) thì tự hỏi lại theo nhịp.
+  useEffect(() => {
+    if (live === true) return;
+    const timer = setInterval(requestRefresh, FALLBACK_REFRESH_MS);
+    return () => clearInterval(timer);
+  }, [live, requestRefresh]);
+
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible' && pendingRefresh.current) requestRefresh();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible);
+      clearTimeout(refreshTimer.current);
+    };
+  }, [requestRefresh]);
+
+  const announceTyping = useCallback(
+    (hasText: boolean) => {
+      const next = nextTypingSignal(typingState.current, hasText, Date.now());
+      typingState.current = next.state;
+      if (next.send !== undefined) {
+        sendRealtime('procedure.typing', { instanceId, typing: next.send });
+      }
+    },
+    [instanceId],
+  );
+
+  /* ---------------------------------------------------------------- nhắc tên */
+
+  const suggestions = useMemo(
+    () => (mention ? suggestPeople(participants, mention.term) : []),
+    [mention, participants],
+  );
+
+  // Đổi từ khoá thì chọn lại từ đầu danh sách.
+  useEffect(() => {
+    setActiveIndex(0);
+  }, [mention?.start, mention?.term]);
+
+  // Gõ tiếp sau một `@` còn dang dở luôn mở lại danh sách tương ứng, kể cả khi trước đó đã bị đóng.
+  const onDraftChange = (value: string, caret: number) => {
+    setDraft(value);
+    setMention(findMentionQuery(value, caret));
+    announceTyping(value.trim().length > 0);
+  };
+
+  // Bấm ra chỗ khác, rời ô nhập hay nhấn Esc: ẩn danh sách cho tới lần gõ kế tiếp.
+  const closeSuggestions = () => setMention(undefined);
+
+  // Con trỏ đi ra khỏi lượt nhắc (bấm chuột vào chỗ khác, phím mũi tên trái/phải).
+  const onCaretMove = (event: SyntheticEvent<HTMLTextAreaElement>) => {
+    if (!mention) return;
+    const field = event.currentTarget;
+    const query = findMentionQuery(field.value, field.selectionStart ?? 0);
+    if (!query || query.start !== mention.start) closeSuggestions();
+  };
+
+  const pickMention = (person: ChatPerson) => {
+    const input = textarea.current;
+    if (!mention || !input) return;
+    const result = applyMention(draft, mention, input.selectionStart ?? draft.length, person.name);
+    setDraft(result.text);
+    setMention(undefined);
+    // Đặt lại con trỏ sau khi React vẽ xong giá trị mới.
     requestAnimationFrame(() => {
-      textarea.current?.focus();
-      textarea.current?.setSelectionRange(position, position);
+      input.focus();
+      input.setSelectionRange(result.caret, result.caret);
     });
   };
 
@@ -172,7 +313,8 @@ export function ChatPanel({
     const nextCaret = prefix.length + mentionText.length;
 
     setDraft(nextDraft);
-    setCaret(nextCaret);
+    setMention(undefined);
+    announceTyping(nextDraft.trim().length > 0);
 
     requestAnimationFrame(() => {
       textEl?.focus();
@@ -183,19 +325,82 @@ export function ChatPanel({
   const send = () => {
     const body = draft.trim();
     if (!body) return;
-    const mentions = participants
-      .filter((person) => body.includes(`@${person.name}`))
-      .map((person) => person.id);
-    onSend(body, mentions, replyToId);
+    // `mentions` là id NGƯỜI DÙNG thật, rút bằng đúng bộ quét đã tô màu chữ xanh.
+    onSend(body, extractMentionIds(body, participants), replyToId);
     setDraft('');
+    setMention(undefined);
     setReplyToId(undefined);
+    // Đã gửi: chữ "đang nhập" bên người khác phải tắt ngay, không chờ hết hạn.
+    announceTyping(false);
   };
+
+  const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    // Đang gõ dở bằng bộ gõ tiếng Việt (Telex/VNI): Enter chốt chữ, không phải lệnh.
+    if (event.nativeEvent.isComposing) return;
+
+    if (suggestions.length > 0) {
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        const key = event.key;
+        setActiveIndex((index) => nextActiveIndex(index, key, suggestions.length));
+        return;
+      }
+      if (event.key === 'Enter' || event.key === 'Tab') {
+        event.preventDefault();
+        const chosen = suggestions[activeIndex] ?? suggestions[0];
+        if (chosen) pickMention(chosen);
+        return;
+      }
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        closeSuggestions();
+        return;
+      }
+    }
+
+    // Enter gửi, Shift+Enter xuống dòng — thói quen của mọi ứng dụng chat.
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
+      send();
+    }
+  };
+
+  // Chữ thật nằm ở lớp phản chiếu để tô màu được lượt nhắc; textarea trong suốt nằm đè lên để nhận phím.
+  const draftParts = useMemo(
+    () => splitByMentions(draft, scanMentions(draft, participants)),
+    [draft, participants],
+  );
+
+  const nameOf = useCallback(
+    (userId: string) =>
+      participants.find((person) => person.id === userId)?.name ??
+      instance.activity.find((entry) => entry.actorId === userId)?.actorName ??
+      'Ai đó',
+    [participants, instance.activity],
+  );
+  const typingNames = activeTypers(typers, Date.now()).map(nameOf);
 
   return (
     <article className={styles.panel}>
       <header className={styles.chatHead}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <h3 className={styles.panelTitle}>Trao đổi &amp; Thảo luận</h3>
+          <span
+            className={styles.chatLive}
+            data-state={live === undefined ? 'connecting' : live ? 'live' : 'offline'}
+            role="status"
+            title={
+              live
+                ? 'Đang nhận tin mới theo thời gian thực.'
+                : live === undefined
+                  ? 'Đang kết nối kênh thời gian thực.'
+                  : 'Mất kết nối thời gian thực. Tin mới vẫn được cập nhật định kỳ khoảng 30 giây; sẽ tự nối lại.'
+            }
+          >
+            <i aria-hidden />
+            {live ? 'Trực tiếp' : live === undefined ? 'Đang kết nối' : 'Mất kết nối'}
+          </span>
         </div>
         <span className={styles.chatSummaryBadge}>{comments.length} tin nhắn</span>
       </header>
@@ -217,7 +422,7 @@ export function ChatPanel({
                 depth={0}
                 childrenOf={childrenOf}
                 orphan={Boolean(entry.replyToId)}
-                names={names}
+                people={participants}
                 canComment={canComment}
                 onReply={(id) => {
                   setReplyToId(id);
@@ -246,6 +451,17 @@ export function ChatPanel({
         </div>
       ) : null}
 
+      {/* Luôn chiếm một dòng để chữ "đang nhập" hiện/tắt không làm bố cục nhảy. */}
+      <p className={styles.chatTyping} role="status" aria-live="polite">
+        {typingNames.length > 0 ? (
+          <>
+            {typingLabel(typingNames)}
+            {/* Ba chấm nhấp nháy lần lượt; tắt hẳn khi người dùng chọn giảm chuyển động. */}
+            <Ellipsis className={styles.typingDots} size={16} aria-hidden />
+          </>
+        ) : null}
+      </p>
+
       {canComment ? (
         <div className={styles.composer}>
           {replyTo ? (
@@ -260,57 +476,75 @@ export function ChatPanel({
                 aria-label="Bỏ trả lời"
                 onClick={() => setReplyToId(undefined)}
               >
-                
+                ×
               </button>
             </div>
           ) : null}
           <div className={styles.composerBox}>
-            <textarea
-              ref={textarea}
-              rows={3}
-              className={styles.composerTextarea}
-              placeholder="Nhập trao đổi…"
-              value={draft}
-              onChange={(event) => {
-                setDraft(event.target.value);
-                setCaret(event.target.selectionStart ?? event.target.value.length);
-              }}
-              onSelect={(event) => setCaret(event.currentTarget.selectionStart ?? 0)}
-              onKeyDown={(event) => {
-                if (event.key === 'Escape' && suggestions.length > 0) {
-                  event.preventDefault();
-                  setCaret(-1);
-                  return;
-                }
-                if (event.key === 'Enter' && !event.shiftKey) {
-                  event.preventDefault();
-                  if (suggestions.length > 0) {
-                    insertMention(suggestions[0].name);
-                  } else {
-                    send();
-                  }
-                }
-              }}
-            />
+            {/* Nổi ngay trên ô nhập, nên luôn sát chỗ đang gõ. */}
             {suggestions.length > 0 ? (
-              <ul className={styles.mentionList}>
-                {suggestions.map((person) => (
-                  <li key={person.id}>
+              <ul className={styles.mentionList} role="listbox" aria-label="Gợi ý nhắc người">
+                {suggestions.map((person, index) => (
+                  <li
+                    key={person.id}
+                    role="option"
+                    aria-selected={index === activeIndex}
+                    className={index === activeIndex ? styles.mentionActive : undefined}
+                    ref={(element) => {
+                      // Đi bằng phím tới mục nằm ngoài vùng cuộn thì kéo nó vào tầm nhìn.
+                      if (index === activeIndex) element?.scrollIntoView({ block: 'nearest' });
+                    }}
+                  >
                     <button
                       type="button"
+                      tabIndex={-1}
                       className={styles.mentionItemBtn}
+                      // Giữ focus ở ô nhập: nhấn nút không được làm mất vị trí con trỏ.
                       onMouseDown={(event) => {
                         event.preventDefault();
-                        insertMention(person.name);
+                        pickMention(person);
                       }}
+                      onMouseEnter={() => setActiveIndex(index)}
                     >
-                      <span className={styles.mentionAvatar}></span>
                       <span>{person.name}</span>
+                      {person.hint ? <span className={styles.mentionHint}>{person.hint}</span> : null}
                     </button>
                   </li>
                 ))}
               </ul>
             ) : null}
+            <div className={styles.composerInputWrap}>
+              <div className={styles.composerMirror} ref={mirror} aria-hidden>
+                {draftParts.map((part, index) =>
+                  part.mention ? (
+                    <span key={index} className={styles.mentionInline}>
+                      {part.text}
+                    </span>
+                  ) : (
+                    part.text
+                  ),
+                )}
+                {/* Ký tự rộng 0 giữ chiều cao cho dòng trống cuối, như textarea. */}
+                {'​'}
+              </div>
+              <textarea
+                ref={textarea}
+                rows={3}
+                className={styles.composerTextarea}
+                placeholder="Nhập trao đổi, gõ @ để nhắc một người…"
+                value={draft}
+                onChange={(event) =>
+                  onDraftChange(event.target.value, event.target.selectionStart ?? event.target.value.length)
+                }
+                onKeyDown={onKeyDown}
+                onBlur={closeSuggestions}
+                onClick={onCaretMove}
+                onSelect={onCaretMove}
+                onScroll={(event) => {
+                  if (mirror.current) mirror.current.scrollTop = event.currentTarget.scrollTop;
+                }}
+              />
+            </div>
           </div>
           <div className={styles.composerFoot}>
             <span className={styles.composerHint}>
@@ -332,7 +566,9 @@ export function ChatPanel({
                   ))}
                   {participants.length > 3 ? '…' : ''}
                 </>
-              ) : ''}
+              ) : (
+                ''
+              )}
             </span>
             <button
               type="button"
@@ -366,7 +602,7 @@ function ThreadNode(props: {
   depth: number;
   childrenOf: ReadonlyMap<string, ProcedureActivity[]>;
   orphan: boolean;
-  names: readonly string[];
+  people: readonly ChatPerson[];
   canComment: boolean;
   onReply: (id: string) => void;
 }) {
@@ -414,7 +650,7 @@ function ThreadNode(props: {
         {/* Message Body */}
         {entry.comment ? (
           <div className={styles.chatBubble}>
-            {renderMentions(entry.comment, props.names)}
+            {renderMentions(entry.comment, props.people)}
           </div>
         ) : null}
       </div>
@@ -426,7 +662,7 @@ function ThreadNode(props: {
           depth={Math.min(depth + 1, MAX_INDENT)}
           childrenOf={childrenOf}
           orphan={false}
-          names={props.names}
+          people={props.people}
           canComment={props.canComment}
           onReply={props.onReply}
         />
