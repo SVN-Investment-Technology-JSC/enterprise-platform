@@ -8,6 +8,7 @@ import type {
   SharedDocumentSummary,
   SharedDocumentVersion,
   SharedFolder,
+  SharedTrashItem,
   StorageModuleUsage,
 } from '@enterprise-platform/contracts-shared';
 
@@ -81,6 +82,33 @@ export interface DocumentListQuery {
 /** Tài liệu kèm phiên bản hiện hành, trước khi tầng application gắn đường dẫn thư mục. */
 export type DocumentRow = Omit<SharedDocumentSummary, 'folderPath'>;
 
+/** Chỗ khôi phục một nhánh thư mục: thư mục cha, tên và độ lệch cấp của cả nhánh. */
+export interface BranchRestoreTarget {
+  readonly parentId: string | null;
+  readonly name: string;
+  readonly depthDelta: number;
+}
+
+/** Một thư mục đang ở Thùng rác, kèm cỡ nhánh đi theo nó. */
+export interface TrashedFolder {
+  readonly folder: SharedFolder;
+  readonly deletedAt: string;
+  /** Cấp sâu nhất trong nhánh, để kiểm giới hạn cấp trước khi khôi phục sang chỗ khác. */
+  readonly maxDepth: number;
+  readonly folders: number;
+  readonly documents: number;
+}
+
+/**
+ * Kết quả xoá vĩnh viễn. Dòng cơ sở dữ liệu đã xoá trong transaction; khoá
+ * tệp trả về để tầng application xoá nốt trong kho đối tượng.
+ */
+export interface PurgeResult {
+  readonly storageKeys: readonly string[];
+  readonly documents: number;
+  readonly folders: number;
+}
+
 export interface SharedStore {
   readonly diagnostics: {
     schemaStatus(tenantId: string): Promise<{ schemaExists: boolean; tablesReady: boolean }>;
@@ -92,8 +120,17 @@ export interface SharedStore {
     find(tenantId: string, folderId: string): Promise<SharedFolder | undefined>;
     create(tenantId: string, userId: string, input: FolderInsert): Promise<SharedFolder>;
     update(tenantId: string, folderId: string, input: FolderUpdate): Promise<SharedFolder>;
-    deactivate(tenantId: string, folderId: string): Promise<void>;
-    countContents(tenantId: string, folderId: string): Promise<{ folders: number; documents: number }>;
+    /**
+     * Chuyển thư mục cùng cả nhánh và mọi tài liệu bên trong vào Thùng rác, một
+     * transaction. `folderId` làm mã lượt xoá của cả nhánh.
+     */
+    trash(tenantId: string, folderId: string, userId: string): Promise<{ folders: number; documents: number }>;
+    /** Thư mục là gốc của một lượt xoá còn nằm trong Thùng rác. */
+    findTrashed(tenantId: string, folderId: string): Promise<TrashedFolder | undefined>;
+    /** Khôi phục cả nhánh; tên trùng thư mục đang dùng ở chỗ đó thì ném `SharedNameTakenError`. */
+    restoreBranch(tenantId: string, folderId: string, target: BranchRestoreTarget): Promise<SharedFolder>;
+    /** Xoá vĩnh viễn cả nhánh trong Thùng rác, kể cả tài liệu từng bị xoá riêng khỏi nhánh đó. */
+    purgeBranch(tenantId: string, folderId: string, userId: string): Promise<PurgeResult>;
   };
 
   readonly documents: {
@@ -107,6 +144,24 @@ export interface SharedStore {
     update(tenantId: string, documentId: string, input: DocumentUpdate): Promise<void>;
     setLock(tenantId: string, documentId: string, userId: string | null): Promise<void>;
     setStatus(tenantId: string, documentId: string, status: SharedDocumentStatus): Promise<void>;
+    /** Chuyển một tài liệu vào Thùng rác; tự mở khoá. */
+    trash(tenantId: string, documentId: string, userId: string): Promise<void>;
+    /** Đưa tài liệu ra khỏi Thùng rác vào `folderId` với tên `name`; trùng tên thì ném `SharedNameTakenError`. */
+    restoreFromTrash(
+      tenantId: string,
+      documentId: string,
+      target: { folderId: string; name: string },
+    ): Promise<void>;
+    /** Xoá vĩnh viễn một tài liệu đang ở Thùng rác, kèm phiên bản và nhật ký truy cập. */
+    purge(tenantId: string, documentId: string, userId: string): Promise<PurgeResult>;
+    /** Số tài liệu trong các thư mục này đang bị người khác (không phải `userId`) khoá. */
+    countLockedByOthers(tenantId: string, folderIds: readonly string[], userId: string): Promise<number>;
+    /** Số tài liệu trong các thư mục này mà người xem không được thấy theo độ mật. */
+    countHiddenFrom(
+      tenantId: string,
+      folderIds: readonly string[],
+      viewer: { userId: string; canSeeRestricted: boolean },
+    ): Promise<number>;
     listVersions(tenantId: string, documentId: string): Promise<SharedDocumentVersion[]>;
     findVersion(tenantId: string, versionId: string): Promise<SharedDocumentVersion | undefined>;
     addVersion(tenantId: string, userId: string, input: VersionInsert): Promise<SharedDocumentVersion>;
@@ -122,6 +177,11 @@ export interface SharedStore {
       entry: { documentId: string; versionId?: string; action: SharedAccessAction },
     ): Promise<void>;
     accessLog(tenantId: string, documentId: string, limit: number): Promise<SharedAccessLogEntry[]>;
+  };
+
+  readonly trash: {
+    /** Mọi dòng Thùng rác: thư mục gốc của mỗi lượt xoá và tài liệu xoá riêng lẻ, mới xoá trước. */
+    list(tenantId: string): Promise<SharedTrashItem[]>;
   };
 
   readonly storage: {

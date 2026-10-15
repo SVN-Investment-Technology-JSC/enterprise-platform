@@ -178,6 +178,8 @@ export interface SharedDocument extends SharedRecordMeta {
   readonly status: SharedDocumentStatus;
   readonly lockedByUserId?: string;
   readonly lockedAt?: string;
+  /** Có giá trị nghĩa là tài liệu đang ở Thùng rác; mọi danh sách thường không trả những dòng này. */
+  readonly deletedAt?: string;
   readonly createdBy: string;
   readonly createdByName?: string;
   readonly createdAt: string;
@@ -201,6 +203,7 @@ export const SHARED_ACCESS_ACTIONS = [
   'unlock',
   'archive',
   'restore',
+  'delete',
 ] as const;
 export type SharedAccessAction = (typeof SHARED_ACCESS_ACTIONS)[number];
 
@@ -216,6 +219,74 @@ export interface SharedAccessLogEntry {
 export interface SharedDocumentDetail extends SharedDocumentSummary {
   readonly versions: readonly SharedDocumentVersion[];
   readonly accessLog: readonly SharedAccessLogEntry[];
+}
+
+/* ---------------------------------------------------------------- thùng rác */
+
+/**
+ * Thùng rác giữ tài liệu và thư mục đã xoá cho tới khi quản lý xoá vĩnh viễn.
+ * Tệp vẫn nằm trong kho nên vẫn tính vào dung lượng.
+ */
+export type SharedTrashKind = 'folder' | 'document';
+
+/** Tên đoạn đường dẫn REST của từng loại: `/trash/folders/:id`, `/trash/documents/:id`. */
+export const SHARED_TRASH_PATHS: Readonly<Record<SharedTrashKind, string>> = {
+  folder: 'folders',
+  document: 'documents',
+};
+
+/**
+ * Một dòng của Thùng rác. Xoá một thư mục là một dòng: thư mục con và tài
+ * liệu bên trong đi theo và khôi phục cùng nó.
+ */
+export interface SharedTrashItem {
+  readonly kind: SharedTrashKind;
+  readonly id: string;
+  readonly name: string;
+  /** Đường dẫn của thư mục chứa nó trước khi xoá; rỗng là thư mục gốc. */
+  readonly location: string;
+  /** Thư mục chứa nó còn dùng được, khôi phục tại chỗ được. */
+  readonly locationAvailable: boolean;
+  /** Thư mục: số tài liệu đi theo. Tài liệu: luôn là 1. */
+  readonly documentCount: number;
+  /** Số thư mục con đi theo (không tính chính nó); tài liệu: 0. */
+  readonly folderCount: number;
+  readonly totalBytes: number;
+  readonly deletedAt: string;
+  readonly deletedBy: string;
+  readonly deletedByName?: string;
+  readonly fileName?: string;
+  readonly contentType?: string;
+  readonly docKind?: SharedDocumentKind;
+  readonly docNumber?: string;
+  readonly confidentiality?: SharedConfidentiality;
+  readonly createdBy?: string;
+}
+
+export interface RestoreSharedTrashRequest {
+  /**
+   * Chỗ khôi phục khi chỗ cũ không còn: thư mục chứa (tài liệu) hoặc thư mục
+   * cha (thư mục). Bỏ trống là về chỗ cũ.
+   */
+  readonly targetFolderId?: string;
+}
+
+export interface SharedTrashRestoreResult {
+  readonly kind: SharedTrashKind;
+  readonly id: string;
+  /** Tên sau khi khôi phục; có thể khác tên cũ nếu chỗ đó đã có mục cùng tên. */
+  readonly name: string;
+}
+
+/** Kết quả xoá một thư mục (vào Thùng rác): số thư mục con và tài liệu đi theo. */
+export interface SharedFolderDeleteResult {
+  readonly folders: number;
+  readonly documents: number;
+}
+
+export interface EmptySharedTrashResult {
+  readonly purged: number;
+  readonly failed: number;
 }
 
 /* --------------------------------------------------------------- yêu cầu */

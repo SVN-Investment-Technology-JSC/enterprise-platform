@@ -13,9 +13,10 @@ export interface SharedActor {
   /** `shared.document.write`: tải lên, sửa thông tin, phiên bản mới. */
   readonly canWriteDocuments: boolean;
   /**
-   * `shared.document.delete`: lưu trữ tài liệu, xoá thư mục rỗng.
+   * `shared.document.delete`: lưu trữ, xoá tài liệu và thư mục (vào Thùng rác),
+   * khôi phục. Xoá vĩnh viễn cần thêm `canManage`.
    *
-   * Tách khỏi quyền ghi như Workspace: dọn kho là thao tác không có đường lùi.
+   * Tách khỏi quyền ghi như Workspace: dọn kho là thao tác khó đảo ngược.
    */
   readonly canDeleteDocuments: boolean;
 }
