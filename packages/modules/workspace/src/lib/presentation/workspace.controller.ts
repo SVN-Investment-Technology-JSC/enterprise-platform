@@ -63,6 +63,7 @@ import { DirectoryService } from '../application/directory.service.js';
 import { DocumentService } from '../application/document.service.js';
 import { ExternalReferenceService } from '../application/external-reference.service.js';
 import { FinanceService } from '../application/finance.service.js';
+import { FleetTransportService } from '../application/fleet-transport.service.js';
 import { ProjectRequestService } from '../application/project-request.service.js';
 import { WorkdayRuleService } from '../application/workday-rule.service.js';
 import { InternalLookupService } from '../application/internal-lookup.service.js';
@@ -123,8 +124,43 @@ export class WorkspaceController {
     private readonly workdayRules: WorkdayRuleService,
     private readonly projectRoles: ProjectRoleService,
     private readonly workItemDeletion: WorkItemDeletionService,
+    private readonly fleetTransport: FleetTransportService,
     private readonly standaloneTasks: StandaloneTaskService,
   ) {}
+
+  /**
+   * Xe và tài xế còn trống (kèm khoảng bận) trong một khung giờ, để form công việc và lịch họp không cho chọn
+   * trùng. Dữ liệu do HRM trả lời; `excludeSource*` bỏ qua lịch của chính nguồn đang sửa.
+   */
+  @Get('fleet/availability')
+  fleetAvailability(
+    @Req() request: WorkspaceRequest,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('excludeSourceType') excludeSourceType?: string,
+    @Query('excludeSourceId') excludeSourceId?: string,
+  ) {
+    return this.execute(async () => ({
+      data: await this.fleetTransport.availability(this.actor(request), {
+        from,
+        to,
+        excludeSourceType,
+        excludeSourceId,
+      }),
+    }));
+  }
+
+  /** Phương tiện hiện có của một công việc hoặc lịch họp (`null` nếu chưa chọn). */
+  @Get('fleet/transports/:sourceType/:sourceId')
+  fleetTransportOf(
+    @Req() request: WorkspaceRequest,
+    @Param('sourceType') sourceType: string,
+    @Param('sourceId') sourceId: string,
+  ) {
+    return this.execute(async () => ({
+      data: await this.fleetTransport.find(this.actor(request), sourceType, sourceId),
+    }));
+  }
 
   /** Trạng thái cài đặt module cho tenant đang đăng nhập. */
   @Get('status')

@@ -21,6 +21,7 @@ import {
   mapCustomRequest,
   transitionCustomRequest,
 } from '../infrastructure/hrm-custom-request.js';
+import { saveRequestTransport } from '../infrastructure/hrm-fleet.js';
 import { HrmMissingSchemaInterceptor } from '../infrastructure/hrm-missing-schema.interceptor.js';
 import { HrmProcedureBridgeService } from '../infrastructure/hrm-procedure-bridge.service.js';
 import { attachProcedureLinkInfo } from '../infrastructure/hrm-procedure-link-info.js';
@@ -75,7 +76,32 @@ export class HrmCustomRequestController {
         title: String(type.name),
         attributes: body.attributes,
       },
-      (db) => createCustomRequest(db, tenantId, principal.userId, { ...body, employeeId }),
+      async (db) => {
+        const created = await createCustomRequest(db, tenantId, principal.userId, { ...body, employeeId });
+        // Khối phương tiện chỉ có ở loại đơn bật "Cần phương tiện".
+        if (!body.transport || !type.requires_transport) return created;
+        const transport = await saveRequestTransport(
+          db,
+          tenantId,
+          {
+            table: 'custom_requests',
+            sourceType: 'CUSTOM_REQUEST',
+            requestId: String(created.id),
+            requesterEmployeeId: employeeId,
+            sourceLabel: `${String(type.name)}`,
+            purpose: created.reason ?? null,
+            defaultRange:
+              created.from_at && created.to_at
+                ? {
+                    startAt: new Date(created.from_at).toISOString(),
+                    endAt: new Date(created.to_at).toISOString(),
+                  }
+                : null,
+          },
+          body.transport,
+        );
+        return { ...created, ...transport };
+      },
     );
     return {
       data: {

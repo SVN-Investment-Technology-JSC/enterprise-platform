@@ -16,6 +16,9 @@
       "path": "../../contracts/maintenance/tsconfig.lib.json"
     },
     {
+      "path": "../../contracts/integration/tsconfig.lib.json"
+    },
+    {
       "path": "../../adapters/storage/tsconfig.lib.json"
     },
     {

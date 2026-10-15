@@ -143,6 +143,12 @@ export const HRM_ROLE_TEMPLATES: readonly HrmRoleTemplate[] = [
     ],
   },
   {
+    key: 'fleet-admin',
+    name: 'HRM - Quản lý xe',
+    description: 'Quản lý danh mục xe, tài xế và xem lịch xe công ty.',
+    actions: [...SELF_ACTIONS, 'hrm.fleet.read', 'hrm.fleet.manage'],
+  },
+  {
     key: 'hrm-admin',
     name: 'HRM - Quản trị HRM',
     description: 'Toàn quyền nghiệp vụ HRM trong tenant.',

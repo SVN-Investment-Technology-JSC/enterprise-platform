@@ -210,6 +210,8 @@ services:
       S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?}
       PROCEDURE_API_URL: http://procedure-api:3334/api/procedure
       INVENTORY_API_URL: http://inventory-api:3336/api/inventory
+      # Bảo trì hỏi HRM xe và tài xế còn trống khi tạo sự cố cần đi hiện trường (chỉ đọc).
+      HRM_API_URL: http://hrm-api:3339/api/hrm
     depends_on:
       api:
         condition: service_healthy

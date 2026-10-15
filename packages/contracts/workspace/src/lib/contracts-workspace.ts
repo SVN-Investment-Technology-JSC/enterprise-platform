@@ -418,6 +418,8 @@ export interface CreateWorkItemRequest {
   readonly procedureDefinitionId?: string;
   /** Công việc điều chỉnh cho một công việc đã huỷ hiệu lực (cùng dự án). */
   readonly adjustmentOfId?: string;
+  /** Phương tiện di chuyển; xe công ty được giữ chỗ trên Lịch xe của HRM. */
+  readonly transport?: TransportInput | null;
 }
 
 export interface UpdateWorkItemRequest {
@@ -433,6 +435,8 @@ export interface UpdateWorkItemRequest {
   readonly plannedEnd?: string | null;
   readonly estimateHours?: number | null;
   readonly progressPercent?: number;
+  /** Bỏ trống: giữ nguyên; `null`: bỏ phương tiện (trả xe nếu đang giữ). */
+  readonly transport?: TransportInput | null;
 }
 
 export interface ChangeWorkItemStatusRequest {
@@ -648,6 +652,8 @@ export interface CreateEventRequest {
   readonly recurrenceUntil?: string;
   readonly recurrenceCount?: number;
   readonly participantUserIds?: readonly string[];
+  /** Chỉ cho sự kiện không lặp. */
+  readonly transport?: TransportInput | null;
 }
 
 export interface UpdateEventRequest {
@@ -659,6 +665,8 @@ export interface UpdateEventRequest {
   readonly endAt?: string;
   readonly allDay?: boolean;
   readonly participantUserIds?: readonly string[];
+  /** Bỏ trống: giữ nguyên; `null`: bỏ phương tiện. Chỉ cho sự kiện không lặp. */
+  readonly transport?: TransportInput | null;
   /**
    * Buổi nào của chuỗi bị tác động.
    *
@@ -1724,6 +1732,61 @@ export interface UpdateWorkdayRulesRequest {
 
 /** Công mỗi ngày nằm trong [0, 10], tối đa hai chữ số thập phân. */
 export const MAX_WORKDAY_UNITS = 10;
+
+// ---- Phương tiện di chuyển (xe công ty đặt trên Lịch xe của HRM) ----
+
+export type TransportMode = 'COMPANY_VEHICLE' | 'EXTERNAL';
+/** Nguồn có thể kèm phương tiện: công việc hoặc lịch họp. */
+export type TransportSourceType = 'WORK_ITEM' | 'CALENDAR_EVENT';
+/** NONE: tự sắp xếp, không đặt xe · REQUESTED: đã gửi HRM · CONFIRMED: HRM đã giữ xe · CONFLICT: xe đã có người đặt trước. */
+export type TransportStatus = 'NONE' | 'REQUESTED' | 'CONFIRMED' | 'CONFLICT';
+
+export interface TransportInput {
+  readonly mode: TransportMode;
+  /** Phương tiện ngoài: taxi hoặc xe ngoài, máy bay, xe cá nhân... */
+  readonly detail?: string | null;
+  /** Xe công ty: xe và tài xế còn trống trong khung giờ. */
+  readonly vehicleId?: string;
+  readonly driverId?: string;
+  readonly startAt?: string;
+  readonly endAt?: string;
+  readonly destination?: string | null;
+}
+
+export interface SourceTransport {
+  readonly sourceType: TransportSourceType;
+  readonly sourceId: string;
+  readonly mode: TransportMode;
+  readonly detail: string | null;
+  readonly vehicleId: string | null;
+  readonly driverId: string | null;
+  readonly startAt: string | null;
+  readonly endAt: string | null;
+  readonly destination: string | null;
+  readonly status: TransportStatus;
+  /** Lý do khi `CONFLICT`. */
+  readonly statusReason: string | null;
+}
+
+export interface FleetBusySlotView {
+  readonly startAt: string;
+  readonly endAt: string;
+  readonly sourceLabel: string | null;
+}
+export interface FleetAvailabilityView {
+  readonly vehicles: readonly {
+    readonly id: string;
+    readonly plateNo: string;
+    readonly name: string;
+    readonly seats: number;
+    readonly busy: readonly FleetBusySlotView[];
+  }[];
+  readonly drivers: readonly {
+    readonly id: string;
+    readonly employeeName: string | null;
+    readonly busy: readonly FleetBusySlotView[];
+  }[];
+}
 
 /* =========================================================================
    CÔNG VIỆC NGOÀI DỰ ÁN (giao việc lẻ)

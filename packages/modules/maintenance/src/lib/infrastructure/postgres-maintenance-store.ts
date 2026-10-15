@@ -16,7 +16,8 @@ import type {
   UpdateMaintenanceScheduleRequest,
 } from '@enterprise-platform/contracts-maintenance';
 import { randomUUID } from 'node:crypto';
-import type { PoolClient, QueryResultRow } from 'pg';
+import type { Pool, PoolClient, QueryResultRow } from 'pg';
+import { createIncidentTransportStore } from './postgres-fleet-transport.js';
 import {
   maintenanceOccurrenceEvent,
   type MaintenanceNotificationEvent,
@@ -66,6 +67,10 @@ export class PostgresMaintenanceStore implements MaintenanceStore {
     private readonly pools: PostgresPoolRegistry,
     private readonly procedureApiUrl: string = process.env['PROCEDURE_API_URL'] || 'http://localhost:3334/api/procedure',
   ) {}
+
+  readonly fleetTransport = createIncidentTransportStore(async (tenantId) =>
+    (await this.pools.forTenant(this.references.require(tenantId))) as unknown as Pool,
+  );
 
   async read(tenantId: string): Promise<MaintenanceSnapshot> {
     const pool = await this.pools.forTenant(this.references.require(tenantId));

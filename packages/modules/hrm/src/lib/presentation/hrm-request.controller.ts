@@ -12,6 +12,7 @@ import {
   calendarDatesOf,
   resolveRequestTime,
 } from '../infrastructure/hrm-request-time.js';
+import { saveRequestTransport } from '../infrastructure/hrm-fleet.js';
 import { assertNoRequestOverlap } from '../infrastructure/hrm-request-overlap.js';
 import {
   resolveDraftSubmission,
@@ -488,7 +489,25 @@ export class HrmRequestController {
       RETURNING *`,
               params,
             );
-        return inserted.rows[0];
+        const tripRow = inserted.rows[0];
+        const transport = await saveRequestTransport(
+          db,
+          tenantId,
+          {
+            table: 'business_trip_requests',
+            sourceType: 'BUSINESS_TRIP',
+            requestId: String(tripRow.id),
+            requesterEmployeeId: employeeId,
+            sourceLabel: `Đơn công tác: ${body.destination}`,
+            destination: body.destination,
+            purpose: description,
+            defaultRange: tripAt
+              ? { startAt: tripAt.fromAt, endAt: tripAt.toAt }
+              : null,
+          },
+          body.transport,
+        );
+        return { ...tripRow, ...transport };
       },
     );
 
@@ -1164,6 +1183,8 @@ export class HrmRequestController {
       daysCount: Number(row.days_count),
       allowOt: Boolean(row.allow_ot),
       perDiemPolicyId: row.per_diem_policy_id as string | null,
+      transportMode: (row.transport_mode ?? null) as HrmBusinessTripRequest['transportMode'],
+      transportDetail: (row.transport_detail ?? null) as string | null,
       ...requestReasonView(row),
       status: row.status as any,
       workflowInstanceId: row.workflow_instance_id as string | null,

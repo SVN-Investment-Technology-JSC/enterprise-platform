@@ -36,6 +36,11 @@ export const HRM_HUBS = {
     { id: 'runs', label: 'Bảng lương', permissions: ['hrm.payroll.read'] },
     { id: 'advances', label: 'Ứng và thu hồi', permissions: ['hrm.advance.read'] },
   ],
+  '/fleet': [
+    { id: 'schedule', label: 'Lịch xe', permissions: ['hrm.fleet.read'] },
+    { id: 'vehicles', label: 'Danh mục xe', permissions: ['hrm.fleet.manage'] },
+    { id: 'drivers', label: 'Tài xế', permissions: ['hrm.fleet.manage'] },
+  ],
   '/settings': [
     { id: 'leave', label: 'Chính sách phép năm', permissions: ['hrm.leave.manage'] },
     { id: 'time', label: 'Công và thiết bị', permissions: ['hrm.time.configure', 'hrm.device.manage'] },

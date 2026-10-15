@@ -50,6 +50,7 @@ import {
   type ProjectService,
 } from './project.service.js';
 import { timezoneOf, todayKey } from '../domain/tenant-time.js';
+import { parseTransport, type FleetTransportService } from './fleet-transport.service.js';
 import type { ProcedureReversalChecker } from './procedure-reversal-check.port.js';
 import type { WorkspaceActor } from './workspace.application.js';
 import type { WorkspaceStore } from './workspace-store.port.js';
@@ -72,6 +73,7 @@ export class WorkItemService {
     private readonly store: WorkspaceStore,
     private readonly projects: ProjectService,
     private readonly procedureReversal?: ProcedureReversalChecker,
+    private readonly fleet?: FleetTransportService,
   ) {}
 
   /** Toàn bộ cây WBS của một dự án, trả phẳng kèm `parentId` và `depth`. */
@@ -175,9 +177,12 @@ export class WorkItemService {
       access.project.id,
       input.adjustmentOfId,
     );
+    // Kiểm hình thức phương tiện trước khi lưu công việc để lỗi nhập liệu không để lại công việc dở dang.
+    const { transport, ...itemInput } = input;
+    const parsedTransport = transport ? parseTransport(transport) : undefined;
 
     const created = await this.store.workItem.create(actor.tenantId, actor.userId, {
-      ...input,
+      ...itemInput,
       adjustmentOfId,
       procedureDefinitionId,
       participantUserIds,
@@ -203,6 +208,11 @@ export class WorkItemService {
     });
 
     await this.recalculate(actor, access.project.id);
+    await this.fleet?.apply(
+      actor,
+      { sourceType: 'WORK_ITEM', sourceId: created.id, label: `${created.code} ${created.title}` },
+      parsedTransport,
+    );
     return created;
   }
 
@@ -262,7 +272,10 @@ export class WorkItemService {
       );
     }
 
-    const patch: UpdateWorkItemRequest = { ...input };
+    const { transport, ...patchInput } = input;
+    const patch: UpdateWorkItemRequest = { ...patchInput };
+    // `undefined`: giữ nguyên · `null`: bỏ phương tiện · còn lại: kiểm hình thức trước khi lưu.
+    const parsedTransport = transport === undefined ? undefined : transport === null ? null : parseTransport(transport);
     if (input.title !== undefined) {
       Object.assign(patch, { title: requireText(input.title, 'Tên công việc', 200) });
     }
@@ -321,6 +334,11 @@ export class WorkItemService {
       actor.userId,
     );
     await this.recalculate(actor, item.projectId);
+    await this.fleet?.apply(
+      actor,
+      { sourceType: 'WORK_ITEM', sourceId: updated.id, label: `${updated.code} ${updated.title}` },
+      parsedTransport,
+    );
     return updated;
   }
 
@@ -410,6 +428,8 @@ export class WorkItemService {
       todayKey(timezoneOf(actor.tenantId)),
     );
     await this.recalculate(actor, item.projectId);
+    // Công việc bị huỷ thì trả xe đã giữ.
+    if (next === 'cancelled') await this.fleet?.release(actor.tenantId, 'WORK_ITEM', workItemId);
     return updated;
   }
 

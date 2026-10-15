@@ -1670,6 +1670,9 @@ importers:
       '@enterprise-platform/adapter-storage':
         specifier: workspace:*
         version: link:../../adapters/storage
+      '@enterprise-platform/contracts-integration':
+        specifier: workspace:*
+        version: link:../../contracts/integration
       '@enterprise-platform/contracts-maintenance':
         specifier: workspace:*
         version: link:../../contracts/maintenance

@@ -14,6 +14,7 @@ import { HrmAnnualLeavePolicyController } from './presentation/hrm-annual-leave-
 import { HrmRequestReasonController } from './presentation/hrm-request-reason.controller.js';
 import { HrmRequestTypeController } from './presentation/hrm-request-type.controller.js';
 import { HrmRequestTimeController } from './presentation/hrm-request-time.controller.js';
+import { HrmFleetController } from './presentation/hrm-fleet.controller.js';
 import { HrmTripAllowanceController } from './presentation/hrm-trip-allowance.controller.js';
 import { HrmCustomRequestController } from './presentation/hrm-custom-request.controller.js';
 import { HrmPayrollController } from './presentation/hrm-payroll.controller.js';
@@ -78,6 +79,7 @@ import { OrgHrmBridgeConsumer } from './infrastructure/org-hrm-bridge.consumer.j
     HrmRequestTypeController,
     HrmRequestTimeController,
     HrmTripAllowanceController,
+    HrmFleetController,
     HrmCustomRequestController,
     HrmRequestController,
     HrmTimesheetController,

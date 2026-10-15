@@ -3,7 +3,13 @@ import { Injectable, Logger, Module, OnModuleDestroy, OnModuleInit } from '@nest
 import { MaintenanceApplication } from './application/maintenance.application.js';
 import { MAINTENANCE_STORE, type MaintenanceStore } from './application/maintenance-store.port.js';
 import { OccurrenceAttachmentService } from './application/occurrence-attachment.service.js';
+import {
+  FLEET_AVAILABILITY_READER,
+  FleetTransportService,
+  type FleetAvailabilityReader,
+} from './application/fleet-transport.service.js';
 import { HttpAssetDirectory } from './infrastructure/http-asset-directory.js';
+import { HttpFleetAvailabilityClient } from './infrastructure/http-fleet-availability.js';
 import { PostgresMaintenanceStore } from './infrastructure/postgres-maintenance-store.js';
 import { MaintenanceController } from './presentation/maintenance.controller.js';
 
@@ -69,10 +75,15 @@ class MaintenanceScheduler implements OnModuleInit, OnModuleDestroy {
     },
     { provide: MAINTENANCE_STORE, useExisting: PostgresMaintenanceStore },
     {
+      // Lịch bận của xe do HRM trả lời qua HTTP chỉ đọc; đặt xe đi bằng sự kiện.
+      provide: FLEET_AVAILABILITY_READER,
+      useFactory: () => new HttpFleetAvailabilityClient(),
+    },
+    {
       provide: MaintenanceApplication,
-      useFactory: (store: MaintenanceStore) =>
-        new MaintenanceApplication(store, new HttpAssetDirectory()),
-      inject: [MAINTENANCE_STORE],
+      useFactory: (store: MaintenanceStore, reader: FleetAvailabilityReader) =>
+        new MaintenanceApplication(store, new HttpAssetDirectory(), new FleetTransportService(store, reader)),
+      inject: [MAINTENANCE_STORE, FLEET_AVAILABILITY_READER],
     },
     OccurrenceAttachmentService,
     MaintenanceScheduler,

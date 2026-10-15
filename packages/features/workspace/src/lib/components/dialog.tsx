@@ -108,6 +108,7 @@ export function Dialog({
             onSubmit();
           }}
         >
+          <div className={styles.dialogScroll}>
           {children}
           {error ? (
             <p role="alert" className={styles.alert}>
@@ -130,6 +131,7 @@ export function Dialog({
               </button>
             </div>
           ) : null}
+          </div>
           <footer className={styles.dialogFoot}>
             {cancelLabel === null ? null : (
               <button type="button" className={styles.buttonGhost} onClick={onClose}>

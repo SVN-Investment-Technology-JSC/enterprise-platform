@@ -241,14 +241,14 @@ export function ProjectForm({
       <div className={styles.fieldRow}>
         <Field label="Ngày bắt đầu">
           <DatePickerInput
-            height={36}
+            height={38}
             value={form.startDate}
             onChange={(value) => set({ startDate: value })}
           />
         </Field>
         <Field label="Ngày kết thúc">
           <DatePickerInput
-            height={36}
+            height={38}
             value={form.endDate}
             onChange={(value) => set({ endDate: value })}
           />

@@ -132,6 +132,7 @@ export function mapRequestType(row: Row): HrmRequestType {
     kind: ENGINE_REQUEST_KIND[engine] ?? 'custom',
     timeMode: row.time_mode as HrmRequestTimeMode,
     requiresAttachment: row.requires_attachment === true,
+    requiresTransport: row.requires_transport === true,
     fields: Array.isArray(row.fields) ? (row.fields as HrmRequestTypeField[]) : [],
     icon: row.icon ?? null,
     isSystem: row.is_system === true,

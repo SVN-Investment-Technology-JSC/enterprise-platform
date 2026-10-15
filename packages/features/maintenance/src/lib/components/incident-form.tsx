@@ -6,10 +6,23 @@ import type {
   MaintenancePriority,
   MaintenanceProcedureCatalogEntry,
 } from '@enterprise-platform/contracts-maintenance';
-import { MinimalPopupForm, SearchableSelect } from '@enterprise-platform/shared-ui';
+import {
+  EMPTY_TRANSPORT,
+  MinimalPopupForm,
+  SearchableSelect,
+  TransportField,
+  toTransportPayload,
+  transportError,
+  type TransportFieldValue,
+  type TransportRange,
+} from '@enterprise-platform/shared-ui';
 import { Paperclip, Upload, X } from 'lucide-react';
-import { useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { loadFleetAvailability } from '../maintenance-api';
 import styles from './maintenance-history.module.scss';
+
+/** Chờ người dùng gõ xong giờ rồi mới hỏi xe trống, tránh gọi API sau mỗi phím. */
+const DEBOUNCE_MS = 300;
 
 const PRIORITY_OPTIONS = [
   { value: 'High', label: 'Cao' },
@@ -40,6 +53,41 @@ export function IncidentForm({
   const [assigneeId, setAssigneeId] = useState('');
   const [attachments, setAttachments] = useState<{ file: File; name: string; size: string }[]>([]);
   const [formError, setFormError] = useState<string>();
+
+  // Phương tiện đi hiện trường: xe công ty được giữ trên Lịch xe của HRM, tài xế và xe chọn trong danh sách còn trống.
+  const [transport, setTransport] = useState<TransportFieldValue>(EMPTY_TRANSPORT);
+  const [transportRange, setTransportRange] = useState<TransportRange>({ startAt: '', endAt: '' });
+  const [transportDestination, setTransportDestination] = useState('');
+  const [availability, setAvailability] = useState<Awaited<ReturnType<typeof loadFleetAvailability>> | null>(null);
+  const [availabilityLoading, setAvailabilityLoading] = useState(false);
+  const [availabilityError, setAvailabilityError] = useState<string | null>(null);
+  const rangeReady =
+    Boolean(transportRange.startAt && transportRange.endAt) &&
+    Date.parse(transportRange.endAt) > Date.parse(transportRange.startAt);
+  const needsAvailability = transport.mode === 'COMPANY_VEHICLE' && rangeReady;
+  useEffect(() => {
+    if (!needsAvailability) return;
+    let cancelled = false;
+    setAvailabilityLoading(true);
+    const timer = setTimeout(() => {
+      loadFleetAvailability(transportRange.startAt, transportRange.endAt)
+        .then((data) => {
+          if (cancelled) return;
+          setAvailability(data);
+          setAvailabilityError(null);
+        })
+        .catch((cause: unknown) => {
+          if (!cancelled) setAvailabilityError(cause instanceof Error ? cause.message : 'Không tải được danh sách xe.');
+        })
+        .finally(() => {
+          if (!cancelled) setAvailabilityLoading(false);
+        });
+    }, DEBOUNCE_MS);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [needsAvailability, transportRange.startAt, transportRange.endAt]);
 
   // Tra tên thiết bị ngay khi chọn hoặc gõ mã
   const asset = useMemo(
@@ -85,6 +133,11 @@ export function IncidentForm({
       setFormError('Vui lòng nhập tiêu đề sự cố');
       return;
     }
+    const transportProblem = transport.mode ? transportError(transport, transportRange) : null;
+    if (transportProblem) {
+      setFormError(transportProblem);
+      return;
+    }
     setFormError(undefined);
     const member = members.find((item) => item.userId === assigneeId);
     onSubmit(
@@ -96,6 +149,7 @@ export function IncidentForm({
         procedureDefinitionId: procedureDefinitionId || undefined,
         assigneeId: member?.userId,
         assigneeName: member?.displayName,
+        transport: toTransportPayload(transport, transportRange, transportDestination.trim() || null) ?? undefined,
       },
       attachments.map((a) => a.file),
     );
@@ -109,6 +163,7 @@ export function IncidentForm({
       onClose={onCancel}
     >
       <form className={styles.incidentForm} onSubmit={submit} noValidate>
+        <div className={styles.incidentBody}>
         <div>
           <span className={styles.dangerBadge}>Phát sinh ngoài kế hoạch</span>
         </div>
@@ -342,6 +397,33 @@ export function IncidentForm({
               onChange={(val) => setProcedureDefinitionId(val)}
             />
           </div>
+        </div>
+
+        <TransportField
+          idPrefix="incident-transport"
+          value={transport}
+          onChange={setTransport}
+          range={transportRange}
+          onRangeChange={setTransportRange}
+          availability={availability}
+          loading={availabilityLoading}
+          error={needsAvailability ? availabilityError : null}
+          disabled={busy}
+          note="Xe được giữ trên Lịch xe của HRM ngay khi tạo sự cố; nếu xe vừa có người đặt trước, phiếu báo lại để chọn xe khác."
+        />
+        {transport.mode === 'COMPANY_VEHICLE' ? (
+          <div className={styles.formField}>
+            <label htmlFor="incident-destination">Điểm đến</label>
+            <input
+              id="incident-destination"
+              maxLength={255}
+              placeholder="VD: Trạm biến áp 500kV Phố Nối"
+              value={transportDestination}
+              onChange={(event) => setTransportDestination(event.target.value)}
+            />
+          </div>
+        ) : null}
+
         </div>
 
         <div className={styles.incidentActions}>
