@@ -1,4 +1,4 @@
-import { S3ObjectStorage, type ObjectStoragePort } from '@enterprise-platform/adapter-storage';
+import { S3ObjectStorage, type ObjectStorageManagementPort } from '@enterprise-platform/adapter-storage';
 import {
   SHARED_ALLOWED_CONTENT_TYPES,
   SHARED_CONFIDENTIALITY_LEVELS,
@@ -12,6 +12,8 @@ import {
   type CreateSharedDocumentResponse,
   type CreateSharedFolderRequest,
   type CreateSharedVersionRequest,
+  type EmptySharedTrashResult,
+  type RestoreSharedTrashRequest,
   type SharedConfidentiality,
   type SharedDocumentDetail,
   type SharedDocumentKind,
@@ -22,21 +24,29 @@ import {
   type SharedDownloadMode,
   type SharedDownloadTicket,
   type SharedFolder,
+  type SharedFolderDeleteResult,
   type SharedRecordMeta,
+  type SharedTrashItem,
+  type SharedTrashKind,
+  type SharedTrashRestoreResult,
   type SharedUploadTicket,
   type UpdateSharedDocumentRequest,
   type UpdateSharedFolderRequest,
 } from '@enterprise-platform/contracts-shared';
+import { Logger } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import {
   SharedDocumentLockedError,
   SharedDocumentNotFoundError,
+  SharedFolderLockedError,
   SharedFolderNotFoundError,
+  SharedFolderUnavailableError,
   SharedForbiddenError,
+  SharedNameTakenError,
   SharedValidationError,
 } from '../domain/shared.error.js';
 import { isSharedManager, type SharedActor } from './shared-actor.js';
-import type { DocumentRow, RecordMetaInput, SharedStore } from './shared-store.port.js';
+import type { DocumentRow, PurgeResult, RecordMetaInput, SharedStore } from './shared-store.port.js';
 import type { StorageQuotaService } from './storage-quota.service.js';
 
 /** Kết quả tìm kiếm toàn kho tối đa từng này dòng; trong một thư mục thì lấy hết. */
@@ -58,7 +68,7 @@ export class CompanyDocumentService {
   constructor(
     private readonly store: SharedStore,
     private readonly quota: StorageQuotaService,
-    private readonly storage: ObjectStoragePort = new S3ObjectStorage({
+    private readonly storage: ObjectStorageManagementPort = new S3ObjectStorage({
       // Hai đầu nối: server gọi kho trong mạng nội bộ, còn URL ký sẵn phải mang
       // host công khai cho trình duyệt mở. Xem `DocumentService` của Workspace.
       internalEndpoint:
@@ -71,6 +81,8 @@ export class CompanyDocumentService {
       secretAccessKey: process.env.S3_SECRET_ACCESS_KEY ?? 'platform-development-secret',
     }),
   ) {}
+
+  private readonly logger = new Logger(CompanyDocumentService.name);
 
   /* ------------------------------------------------------------ thư mục */
 
@@ -162,24 +174,32 @@ export class CompanyDocumentService {
     });
   }
 
-  /** Chỉ gỡ thư mục rỗng; còn gì bên trong thì nói rõ còn bao nhiêu. */
-  async removeFolder(actor: SharedActor, folderId: string): Promise<void> {
-    if (!actor.canDeleteDocuments && !actor.isTenantAdmin) {
-      throw new SharedForbiddenError('Bạn không có quyền xoá thư mục.');
+  /**
+   * Xoá thư mục: cả nhánh và mọi tài liệu bên trong vào Thùng rác, khôi phục
+   * được. Thư mục gốc của kho chỉ người quản trị kho xoá — cũng như chỉ họ dựng.
+   */
+  async deleteFolder(actor: SharedActor, folderId: string): Promise<SharedFolderDeleteResult> {
+    this.requireDelete(actor, 'Bạn không có quyền xoá thư mục.');
+    const folder = await this.activeFolder(actor, folderId);
+    if (folder.depth === 0 && !isSharedManager(actor)) {
+      throw new SharedForbiddenError('Chỉ người quản trị kho xoá được thư mục gốc.');
     }
-    await this.activeFolder(actor, folderId);
-    const contents = await this.store.folders.countContents(actor.tenantId, folderId);
-    if (contents.folders > 0) {
-      throw new SharedValidationError(
-        `Thư mục còn ${contents.folders} thư mục con. Hãy xoá hoặc chuyển chúng đi trước.`,
-      );
+    const branch = [...branchOf(await this.store.folders.list(actor.tenantId), folder.id)];
+    const locked = await this.store.documents.countLockedByOthers(actor.tenantId, branch, actor.userId);
+    if (locked > 0) throw new SharedFolderLockedError(locked);
+    if (!isSharedManager(actor)) {
+      // Không xoá hộ những tài liệu mà chính người xoá không được thấy.
+      const hidden = await this.store.documents.countHiddenFrom(actor.tenantId, branch, {
+        userId: actor.userId,
+        canSeeRestricted: actor.canWriteDocuments,
+      });
+      if (hidden > 0) {
+        throw new SharedForbiddenError(
+          `Thư mục có ${hidden} tài liệu bạn không có quyền xem nên bạn không xoá được.`,
+        );
+      }
     }
-    if (contents.documents > 0) {
-      throw new SharedValidationError(
-        `Thư mục còn ${contents.documents} tài liệu. Hãy lưu trữ chúng trước khi xoá thư mục.`,
-      );
-    }
-    await this.store.folders.deactivate(actor.tenantId, folderId);
+    return this.store.folders.trash(actor.tenantId, folder.id, actor.userId);
   }
 
   /* ----------------------------------------------------------- tài liệu */
@@ -467,6 +487,188 @@ export class CompanyDocumentService {
     return this.changeStatus(actor, documentId, 'active');
   }
 
+  /* --------------------------------------------------- xoá, Thùng rác, nhân bản */
+
+  /** Xoá tài liệu: vào Thùng rác, khôi phục được. Tệp vẫn nằm trong kho. */
+  async deleteDocument(actor: SharedActor, documentId: string): Promise<void> {
+    this.requireDelete(actor, 'Bạn không có quyền xoá tài liệu.');
+    const document = await this.visibleDocument(actor, documentId);
+    this.requireNotLockedByOther(actor, document);
+    await this.store.documents.trash(actor.tenantId, documentId, actor.userId);
+    await this.store.documents.log(actor.tenantId, actor.userId, { documentId, action: 'delete' });
+  }
+
+  /** Thùng rác của tenant. Tài liệu mật chỉ hiện với người được xem chúng. */
+  async trash(actor: SharedActor): Promise<SharedTrashItem[]> {
+    this.requireDelete(actor, 'Bạn không có quyền xem Thùng rác.');
+    const items = await this.store.trash.list(actor.tenantId);
+    return items.filter(
+      (item) =>
+        item.kind === 'folder' ||
+        canSee(actor, { confidentiality: item.confidentiality ?? 'internal', createdBy: item.createdBy ?? '' }),
+    );
+  }
+
+  /**
+   * Khôi phục về chỗ cũ, hoặc vào `targetFolderId` khi chỗ cũ không còn. Chỗ đó
+   * đã có mục cùng tên thì mục khôi phục mang thêm hậu tố "(khôi phục)".
+   */
+  async restoreFromTrash(
+    actor: SharedActor,
+    kind: SharedTrashKind,
+    id: string,
+    input?: RestoreSharedTrashRequest,
+  ): Promise<SharedTrashRestoreResult> {
+    this.requireDelete(actor, 'Bạn không có quyền khôi phục từ Thùng rác.');
+    const targetFolderId = input?.targetFolderId || undefined;
+
+    if (kind === 'folder') {
+      const trashed = await this.store.folders.findTrashed(actor.tenantId, id);
+      if (!trashed) throw new SharedFolderNotFoundError(id);
+      const { folder } = trashed;
+
+      let parentId: string | null;
+      let depth: number;
+      if (targetFolderId || folder.parentId) {
+        const parent = await this.availableFolder(actor, targetFolderId ?? (folder.parentId as string));
+        parentId = parent.id;
+        depth = parent.depth + 1;
+      } else {
+        if (!isSharedManager(actor)) {
+          throw new SharedForbiddenError('Chỉ người quản trị kho khôi phục được thư mục gốc.');
+        }
+        parentId = null;
+        depth = 0;
+      }
+      const depthDelta = depth - folder.depth;
+      if (trashed.maxDepth + depthDelta > SHARED_MAX_FOLDER_DEPTH - 1) {
+        throw new SharedValidationError(`Cây thư mục tối đa ${SHARED_MAX_FOLDER_DEPTH} cấp.`);
+      }
+      const restored = await withFreeName(folder.name, 180, 'khôi phục', (name) =>
+        this.store.folders.restoreBranch(actor.tenantId, id, { parentId, name, depthDelta }),
+      );
+      return { kind, id, name: restored.name };
+    }
+
+    const document = await this.trashedDocument(actor, id);
+    const folder = await this.availableFolder(actor, targetFolderId ?? document.folderId);
+    const restored = await withFreeName(document.name, 255, 'khôi phục', (name) =>
+      this.store.documents.restoreFromTrash(actor.tenantId, id, { folderId: folder.id, name }),
+    );
+    await this.store.documents.log(actor.tenantId, actor.userId, { documentId: id, action: 'restore' });
+    return { kind, id, name: restored.name };
+  }
+
+  /**
+   * Xoá vĩnh viễn một mục trong Thùng rác: dòng cơ sở dữ liệu, mọi phiên bản và
+   * tệp trong kho. Dung lượng trả lại cho hạn mức của tenant.
+   */
+  async purge(actor: SharedActor, kind: SharedTrashKind, id: string): Promise<void> {
+    this.requirePurge(actor);
+    let result: PurgeResult;
+    if (kind === 'folder') {
+      if (!(await this.store.folders.findTrashed(actor.tenantId, id))) throw new SharedFolderNotFoundError(id);
+      result = await this.store.folders.purgeBranch(actor.tenantId, id, actor.userId);
+    } else {
+      const document = await this.trashedDocument(actor, id);
+      result = await this.store.documents.purge(actor.tenantId, document.id, actor.userId);
+    }
+    await this.removeFiles(result.storageKeys);
+  }
+
+  /** Dọn sạch Thùng rác. Mục nào hỏng thì bỏ qua và đếm, không dừng cả lượt. */
+  async emptyTrash(actor: SharedActor): Promise<EmptySharedTrashResult> {
+    this.requirePurge(actor);
+    // Thư mục trước: xoá nó kéo theo cả tài liệu từng bị xoá riêng khỏi nhánh đó.
+    const items = (await this.store.trash.list(actor.tenantId)).sort(
+      (left, right) => Number(right.kind === 'folder') - Number(left.kind === 'folder'),
+    );
+    let purged = 0;
+    let failed = 0;
+    for (const item of items) {
+      try {
+        await this.purge(actor, item.kind, item.id);
+        purged += 1;
+      } catch (error) {
+        // Đã đi theo thư mục vừa xoá: không phải lỗi.
+        if (error instanceof SharedDocumentNotFoundError || error instanceof SharedFolderNotFoundError) continue;
+        failed += 1;
+        this.logger.error(
+          `Không xoá vĩnh viễn được ${item.kind} ${item.id}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
+    return { purged, failed };
+  }
+
+  /**
+   * Nhân bản tài liệu trong cùng thư mục: một tài liệu mới có phiên bản đầu là
+   * bản hiện hành của tài liệu gốc. Tệp sao chép ngay trong kho, không qua máy
+   * chủ ứng dụng, và tính vào hạn mức dung lượng.
+   */
+  async duplicate(actor: SharedActor, documentId: string): Promise<SharedDocumentSummary> {
+    this.requireWrite(actor);
+    const document = await this.visibleDocument(actor, documentId);
+    if (document.status !== 'active') {
+      throw new SharedValidationError('Tài liệu đã lưu trữ; khôi phục trước khi nhân bản.');
+    }
+    const source = document.currentVersion;
+    if (!source || source.sizeBytes == null) {
+      throw new SharedValidationError('Phiên bản hiện hành chưa tải lên xong, chưa nhân bản được.');
+    }
+    const sourceKey = await this.store.documents.storageKeyOf(actor.tenantId, source.id);
+    if (!sourceKey) throw new SharedDocumentNotFoundError(source.id);
+    const sizeBytes = source.sizeBytes;
+    await this.quota.ensureCapacity(actor.tenantId, sizeBytes);
+
+    const siblings = await this.store.documents.list(actor.tenantId, {
+      folderId: document.folderId,
+      status: 'active',
+      limit: FOLDER_LIMIT,
+    });
+    const taken = new Set(siblings.map((entry) => entry.name.toLowerCase()));
+    let name = `${document.name.slice(0, 255 - ' (bản sao)'.length)} (bản sao)`;
+    for (let n = 2; taken.has(name.toLowerCase()) && n <= 100; n += 1) {
+      const tail = ` (bản sao ${n})`;
+      name = `${document.name.slice(0, 255 - tail.length)}${tail}`;
+    }
+
+    const storageKey = this.storageKey(actor, 1, source.fileName);
+    await this.storage.copyObject({ from: sourceKey, to: storageKey });
+    let created: Awaited<ReturnType<SharedStore['documents']['create']>>;
+    try {
+      created = await this.store.documents.create(actor.tenantId, actor.userId, {
+        folderId: document.folderId,
+        name,
+        description: document.description ?? null,
+        effectiveFrom: document.effectiveFrom ?? null,
+        confidentiality: document.confidentiality,
+        tags: document.tags,
+        sourceLabel: document.sourceLabel ?? null,
+        storageKey,
+        fileName: source.fileName,
+        contentType: source.contentType,
+        changeNote: `Nhân bản từ "${document.name}"`.slice(0, 500),
+        docKind: document.docKind ?? null,
+        docNumber: document.docNumber ?? null,
+        partner: document.partner ?? null,
+        issuedOn: document.issuedOn ?? null,
+        effectiveTo: document.effectiveTo ?? null,
+      });
+    } catch (error) {
+      // Chưa có dòng nào trỏ tới bản sao: dọn tệp vừa chép.
+      await this.removeFiles([storageKey]);
+      throw error;
+    }
+    await this.store.documents.completeVersion(actor.tenantId, created.version.id, sizeBytes);
+    await this.store.documents.log(actor.tenantId, actor.userId, {
+      documentId: created.document.id,
+      versionId: created.version.id,
+      action: 'upload',
+    });
+    return this.summary(actor, created.document.id);
+  }
+
   /* ------------------------------------------------------------ nội bộ */
 
   private async changeStatus(
@@ -501,11 +703,65 @@ export class CompanyDocumentService {
     return folder;
   }
 
-  private async visibleDocument(actor: SharedActor, documentId: string): Promise<DocumentRow> {
+  /**
+   * Tài liệu người gọi được xem. Tài liệu trong Thùng rác coi như không có,
+   * trừ khi nơi gọi chủ động hỏi `trashed` (khôi phục, xoá vĩnh viễn).
+   */
+  private async visibleDocument(
+    actor: SharedActor,
+    documentId: string,
+    options: { trashed?: boolean } = {},
+  ): Promise<DocumentRow> {
     const document = await this.store.documents.find(actor.tenantId, documentId);
-    if (!document || !canSee(actor, document)) throw new SharedDocumentNotFoundError(documentId);
+    if (
+      !document ||
+      !canSee(actor, document) ||
+      Boolean(document.deletedAt) !== Boolean(options.trashed)
+    ) {
+      throw new SharedDocumentNotFoundError(documentId);
+    }
     return document;
   }
+
+  private trashedDocument(actor: SharedActor, documentId: string): Promise<DocumentRow> {
+    return this.visibleDocument(actor, documentId, { trashed: true });
+  }
+
+  /** Thư mục dùng được làm chỗ khôi phục; không thì để người dùng chọn chỗ khác. */
+  private async availableFolder(actor: SharedActor, folderId: string): Promise<SharedFolder> {
+    const folder = await this.store.folders.find(actor.tenantId, folderId);
+    if (!folder || !folder.isActive) throw new SharedFolderUnavailableError();
+    return folder;
+  }
+
+  private requireDelete(actor: SharedActor, message: string): void {
+    if (!actor.canDeleteDocuments && !actor.isTenantAdmin) throw new SharedForbiddenError(message);
+  }
+
+  /** Xoá vĩnh viễn không có đường lùi: cần cả quyền xoá lẫn quyền quản trị kho. */
+  private requirePurge(actor: SharedActor): void {
+    const allowed = actor.isTenantAdmin || (actor.canDeleteDocuments && actor.canManage);
+    if (!allowed) throw new SharedForbiddenError('Chỉ quản trị kho có quyền xoá mới xoá vĩnh viễn được.');
+  }
+
+  /**
+   * Xoá tệp trong kho đối tượng sau khi dòng cơ sở dữ liệu đã mất. Hỏng thì chỉ
+   * ghi log: dòng đã xoá không hoàn lại được, tệp mồ côi dọn sau.
+   */
+  private async removeFiles(keys: readonly string[]): Promise<void> {
+    if (keys.length === 0) return;
+    try {
+      const { failed } = await this.storage.deleteObjects(keys);
+      if (failed.length > 0) {
+        this.logger.error(`Kho không xoá được ${failed.length}/${keys.length} tệp: ${failed.join(', ')}`);
+      }
+    } catch (error) {
+      this.logger.error(
+        `Không xoá được ${keys.length} tệp trong kho: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
 
   private requireWrite(actor: SharedActor): void {
     if (!actor.canWriteDocuments && !isSharedManager(actor)) {
@@ -577,6 +833,31 @@ export function folderPaths(folders: readonly SharedFolder[]): Map<string, strin
   };
   for (const folder of folders) resolve(folder.id, 0);
   return paths;
+}
+
+/** Lần đổi tên tối đa khi khôi phục vào chỗ đã có mục cùng tên. */
+const MAX_RESTORE_RENAMES = 50;
+
+/**
+ * Thử `attempt` với tên gốc, rồi "tên (khôi phục)", "tên (khôi phục 2)"… cho
+ * tới khi không trùng. Thùng rác không được kẹt vì chỗ cũ đã có mục cùng tên.
+ */
+export async function withFreeName<TValue>(
+  base: string,
+  maxLength: number,
+  suffix: string,
+  attempt: (name: string) => Promise<TValue>,
+): Promise<{ name: string; value: TValue }> {
+  for (let n = 0; n <= MAX_RESTORE_RENAMES; n += 1) {
+    const tail = n === 0 ? '' : n === 1 ? ` (${suffix})` : ` (${suffix} ${n})`;
+    const name = `${base.slice(0, maxLength - tail.length)}${tail}`;
+    try {
+      return { name, value: await attempt(name) };
+    } catch (error) {
+      if (!(error instanceof SharedNameTakenError)) throw error;
+    }
+  }
+  throw new SharedNameTakenError(base);
 }
 
 /** Thư mục và mọi con cháu đang dùng của nó. */

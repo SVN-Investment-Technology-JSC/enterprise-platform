@@ -12,17 +12,21 @@ import type {
   SharedDocumentStatus,
   SharedDocumentVersion,
   SharedFolder,
+  SharedTrashItem,
   StorageModuleUsage,
 } from '@enterprise-platform/contracts-shared';
-import type { Pool } from 'pg';
+import type { Pool, PoolClient } from 'pg';
 import type {
+  BranchRestoreTarget,
   DocumentInsert,
   DocumentListQuery,
   DocumentRow,
   DocumentUpdate,
   FolderInsert,
   FolderUpdate,
+  PurgeResult,
   SharedStore,
+  TrashedFolder,
   VersionInsert,
 } from '../application/shared-store.port.js';
 import { SharedNameTakenError, SharedNotProvisionedError } from '../domain/shared.error.js';
@@ -95,6 +99,7 @@ interface DocumentRecord {
   status: string;
   locked_by_user_id: string | null;
   locked_at: Date | null;
+  deleted_at?: Date | null;
   created_by: string;
   created_by_name?: string | null;
   created_at: Date;
@@ -119,7 +124,7 @@ const FOLDER_COLUMNS = `f.id, f.parent_id, f.name, f.depth, f.is_active, f.doc_k
 const DOCUMENT_COLUMNS = `d.id, d.folder_id, d.name, d.description, d.doc_kind, d.doc_number, d.partner,
   d.issued_on::text AS issued_on, d.effective_from::text AS effective_from,
   d.effective_to::text AS effective_to, d.confidentiality, d.tags, d.source_label,
-  d.current_version_id, d.status, d.locked_by_user_id, d.locked_at, d.created_by,
+  d.current_version_id, d.status, d.locked_by_user_id, d.locked_at, d.deleted_at, d.created_by,
   d.created_at, d.updated_at`;
 
 /**
@@ -194,14 +199,14 @@ export class PostgresSharedStore implements SharedStore {
              docs AS (
                SELECT d.folder_id, count(*) AS documents
                  FROM shared_schema.documents d
-                WHERE d.status = 'active'
+                WHERE d.status = 'active' AND d.deleted_at IS NULL
                 GROUP BY d.folder_id
              ),
              bytes AS (
                SELECT d.folder_id, COALESCE(sum(v.size_bytes), 0) AS bytes
                  FROM shared_schema.documents d
                  JOIN shared_schema.document_versions v ON v.document_id = d.id
-                WHERE d.status = 'active'
+                WHERE d.status = 'active' AND d.deleted_at IS NULL
                 GROUP BY d.folder_id
              ),
              totals AS (
@@ -304,32 +309,194 @@ export class PostgresSharedStore implements SharedStore {
         }),
       ),
 
-    deactivate: (tenantId: string, folderId: string) =>
-      this.run(tenantId, async (pool) => {
-        await pool.query(
-          `UPDATE shared_schema.folders SET is_active = false, updated_at = now() WHERE id = $1`,
-          [folderId],
-        );
-      }),
+    trash: (tenantId: string, folderId: string, userId: string) =>
+      this.run(tenantId, (pool) =>
+        inTransaction(pool, async (client) => {
+          // Cả nhánh đang dùng của thư mục; `now()` cố định trong transaction nên
+          // mọi dòng của lượt xoá mang cùng `deleted_at`.
+          const branch = await client.query<{ id: string }>(
+            `WITH RECURSIVE branch AS (
+                 SELECT id FROM shared_schema.folders WHERE id = $1 AND is_active
+                 UNION ALL
+                 SELECT c.id FROM shared_schema.folders c JOIN branch b ON c.parent_id = b.id WHERE c.is_active
+               )
+             SELECT id FROM branch`,
+            [folderId],
+          );
+          const ids = branch.rows.map((row) => row.id);
+          if (ids.length === 0) return { folders: 0, documents: 0 };
+          await client.query(
+            `UPDATE shared_schema.folders
+                SET is_active = false, deleted_at = now(), deleted_by = $2, deleted_batch = $3, updated_at = now()
+              WHERE id = ANY($1::uuid[])`,
+            [ids, userId, folderId],
+          );
+          const documents = await client.query(
+            `UPDATE shared_schema.documents
+                SET deleted_at = now(), deleted_by = $2, deleted_batch = $3,
+                    locked_by_user_id = NULL, locked_at = NULL, updated_at = now()
+              WHERE folder_id = ANY($1::uuid[]) AND deleted_at IS NULL`,
+            [ids, userId, folderId],
+          );
+          return { folders: ids.length - 1, documents: documents.rowCount ?? 0 };
+        }),
+      ),
 
-    countContents: (tenantId: string, folderId: string) =>
-      this.run(tenantId, async (pool) => {
-        const result = await pool.query<{ folders: string; documents: string }>(
-          `SELECT (SELECT count(*) FROM shared_schema.folders WHERE parent_id = $1 AND is_active) AS folders,
-                  (SELECT count(*) FROM shared_schema.documents WHERE folder_id = $1 AND status = 'active') AS documents`,
+    findTrashed: (tenantId: string, folderId: string) =>
+      this.run(tenantId, async (pool): Promise<TrashedFolder | undefined> => {
+        const result = await pool.query<
+          FolderRecord & { deleted_at: Date; max_depth: number; branch_folders: string; branch_documents: string }
+        >(
+          `SELECT ${FOLDER_COLUMNS}, 0 AS document_count, 0 AS total_document_count, 0 AS total_bytes,
+                  f.deleted_at,
+                  (SELECT max(b.depth) FROM shared_schema.folders b WHERE b.deleted_batch = f.id) AS max_depth,
+                  (SELECT count(*) FROM shared_schema.folders b WHERE b.deleted_batch = f.id) AS branch_folders,
+                  (SELECT count(*) FROM shared_schema.documents d WHERE d.deleted_batch = f.id) AS branch_documents
+             FROM shared_schema.folders f
+            WHERE f.id = $1 AND f.deleted_batch = f.id`,
           [folderId],
         );
+        const row = result.rows[0];
+        if (!row) return undefined;
         return {
-          folders: Number(result.rows[0]?.folders ?? 0),
-          documents: Number(result.rows[0]?.documents ?? 0),
+          folder: mapFolder(row),
+          deletedAt: row.deleted_at.toISOString(),
+          maxDepth: Number(row.max_depth),
+          folders: Number(row.branch_folders) - 1,
+          documents: Number(row.branch_documents),
         };
       }),
+
+    restoreBranch: (tenantId: string, folderId: string, target: BranchRestoreTarget) =>
+      this.run(tenantId, (pool) =>
+        inTransaction(pool, async (client) => {
+          try {
+            // Gốc còn nằm trong Thùng rác (không tính vào chỉ mục tên) nên đổi chỗ
+            // và tên trước; tên chỉ bị kiểm khi cả nhánh mở lại ở câu sau.
+            await client.query(
+              `UPDATE shared_schema.folders SET parent_id = $2, name = $3 WHERE id = $1 AND deleted_batch = $1`,
+              [folderId, target.parentId, target.name],
+            );
+            await client.query(
+              `UPDATE shared_schema.folders
+                  SET depth = depth + $2, is_active = true, deleted_at = NULL, deleted_by = NULL,
+                      deleted_batch = NULL, updated_at = now()
+                WHERE deleted_batch = $1`,
+              [folderId, target.depthDelta],
+            );
+            await client.query(
+              `UPDATE shared_schema.documents
+                  SET deleted_at = NULL, deleted_by = NULL, deleted_batch = NULL, updated_at = now()
+                WHERE deleted_batch = $1`,
+              [folderId],
+            );
+            const result = await client.query<FolderRecord>(
+              `SELECT ${FOLDER_COLUMNS}, 0 AS document_count, 0 AS total_document_count, 0 AS total_bytes
+                 FROM shared_schema.folders f WHERE f.id = $1`,
+              [folderId],
+            );
+            return mapFolder(first(result.rows));
+          } catch (error) {
+            throw nameTaken(error, target.name);
+          }
+        }),
+      ),
+
+    purgeBranch: (tenantId: string, folderId: string, userId: string) =>
+      this.run(tenantId, (pool) =>
+        inTransaction(pool, async (client): Promise<PurgeResult> => {
+          // Cả cây con dưới các thư mục của lượt xoá, kể cả thư mục từng bị xoá riêng
+          // ở lượt trước (xoá lá rồi mới xoá tổ tiên): khoá ngoại cha RESTRICT không
+          // cho xoá một thư mục khi còn thư mục con trỏ tới.
+          const branch = await client.query<{
+            id: string;
+            name: string;
+            parent_id: string | null;
+            deleted_by: string | null;
+            deleted_at: Date | null;
+          }>(
+            `WITH RECURSIVE subtree AS (
+                 SELECT id FROM shared_schema.folders WHERE deleted_batch = $1
+                 UNION
+                 SELECT c.id FROM shared_schema.folders c JOIN subtree s ON c.parent_id = s.id
+               )
+             SELECT f.id, f.name, f.parent_id, f.deleted_by, f.deleted_at
+               FROM shared_schema.folders f
+              WHERE f.id IN (SELECT id FROM subtree)
+                FOR UPDATE OF f`,
+            [folderId],
+          );
+          const root = branch.rows.find((row) => row.id === folderId);
+          if (!root) return { storageKeys: [], documents: 0, folders: 0 };
+          const ids = branch.rows.map((row) => row.id);
+
+          // Cả tài liệu từng bị xoá riêng khỏi các thư mục này: thư mục biến mất
+          // thì chúng không còn chỗ để khôi phục về, và khoá ngoại cũng không cho
+          // xoá thư mục còn tài liệu trỏ tới.
+          const versions = await client.query<{ storage_key: string; size_bytes: string | null }>(
+            `SELECT v.storage_key, v.size_bytes
+               FROM shared_schema.document_versions v
+               JOIN shared_schema.documents d ON d.id = v.document_id
+              WHERE d.folder_id = ANY($1::uuid[])`,
+            [ids],
+          );
+          const documentCount = Number(
+            (
+              await client.query<{ n: string }>(
+                `SELECT count(*) AS n FROM shared_schema.documents WHERE folder_id = ANY($1::uuid[])`,
+                [ids],
+              )
+            ).rows[0]?.n ?? 0,
+          );
+          const paths = await loadFolderPaths(client);
+          await client.query(
+            `INSERT INTO shared_schema.purge_log
+                    (kind, name, location, document_count, version_count, total_bytes, deleted_by, deleted_at, purged_by)
+             VALUES ('folder', $1, $2, $3, $4, $5, $6, $7, $8)`,
+            [
+              root.name,
+              root.parent_id ? (paths.get(root.parent_id) ?? '') : '',
+              documentCount,
+              versions.rowCount ?? 0,
+              versions.rows.reduce((sum, row) => sum + Number(row.size_bytes ?? 0), 0),
+              root.deleted_by,
+              root.deleted_at,
+              userId,
+            ],
+          );
+
+          await client.query(`DELETE FROM shared_schema.documents WHERE folder_id = ANY($1::uuid[])`, [ids]);
+          // Khoá ngoại cha RESTRICT: xoá từ lá lên gốc, mỗi vòng bỏ những thư mục
+          // không còn con trong lượt này.
+          for (;;) {
+            const removed = await client.query(
+              `DELETE FROM shared_schema.folders f
+                WHERE f.id = ANY($1::uuid[])
+                  AND NOT EXISTS (SELECT 1 FROM shared_schema.folders c WHERE c.parent_id = f.id)`,
+              [ids],
+            );
+            if (!removed.rowCount) break;
+          }
+          const left = await client.query<{ n: string }>(
+            `SELECT count(*) AS n FROM shared_schema.folders WHERE id = ANY($1::uuid[])`,
+            [ids],
+          );
+          if (Number(left.rows[0]?.n ?? 0) > 0) {
+            throw new Error('Không xoá hết được các thư mục của nhánh trong Thùng rác.');
+          }
+          return {
+            storageKeys: versions.rows.map((row) => row.storage_key),
+            documents: documentCount,
+            folders: ids.length - 1,
+          };
+        }),
+      ),
   };
 
   readonly documents = {
     list: (tenantId: string, query: DocumentListQuery) =>
       this.run(tenantId, async (pool) => {
-        const where = ['d.status = $1'];
+        const where = ['d.status = $1', 'd.deleted_at IS NULL'];
         const values: unknown[] = [query.status];
         if (query.folderId) {
           values.push(query.folderId);
@@ -482,6 +649,100 @@ export class PostgresSharedStore implements SharedStore {
         }
       }),
 
+    trash: (tenantId: string, documentId: string, userId: string) =>
+      this.run(tenantId, async (pool) => {
+        await pool.query(
+          `UPDATE shared_schema.documents
+              SET deleted_at = now(), deleted_by = $2, deleted_batch = NULL,
+                  locked_by_user_id = NULL, locked_at = NULL, updated_at = now()
+            WHERE id = $1 AND deleted_at IS NULL`,
+          [documentId, userId],
+        );
+      }),
+
+    restoreFromTrash: (tenantId: string, documentId: string, target: { folderId: string; name: string }) =>
+      this.run(tenantId, async (pool) => {
+        try {
+          await pool.query(
+            `UPDATE shared_schema.documents
+                SET folder_id = $2, name = $3, deleted_at = NULL, deleted_by = NULL,
+                    deleted_batch = NULL, updated_at = now()
+              WHERE id = $1 AND deleted_at IS NOT NULL`,
+            [documentId, target.folderId, target.name],
+          );
+        } catch (error) {
+          throw nameTaken(error, target.name);
+        }
+      }),
+
+    purge: (tenantId: string, documentId: string, userId: string) =>
+      this.run(tenantId, (pool) =>
+        inTransaction(pool, async (client): Promise<PurgeResult> => {
+          const found = await client.query<{
+            name: string;
+            folder_id: string;
+            deleted_by: string | null;
+            deleted_at: Date | null;
+          }>(
+            `SELECT name, folder_id, deleted_by, deleted_at
+               FROM shared_schema.documents WHERE id = $1 AND deleted_at IS NOT NULL FOR UPDATE`,
+            [documentId],
+          );
+          const document = found.rows[0];
+          if (!document) return { storageKeys: [], documents: 0, folders: 0 };
+          const versions = await client.query<{ storage_key: string; size_bytes: string | null }>(
+            `SELECT storage_key, size_bytes FROM shared_schema.document_versions WHERE document_id = $1`,
+            [documentId],
+          );
+          const paths = await loadFolderPaths(client);
+          await client.query(
+            `INSERT INTO shared_schema.purge_log
+                    (kind, name, location, document_count, version_count, total_bytes, deleted_by, deleted_at, purged_by)
+             VALUES ('document', $1, $2, 1, $3, $4, $5, $6, $7)`,
+            [
+              document.name,
+              paths.get(document.folder_id) ?? '',
+              versions.rowCount ?? 0,
+              versions.rows.reduce((sum, row) => sum + Number(row.size_bytes ?? 0), 0),
+              document.deleted_by,
+              document.deleted_at,
+              userId,
+            ],
+          );
+          // Phiên bản và nhật ký truy cập đi theo tài liệu (ON DELETE CASCADE).
+          await client.query(`DELETE FROM shared_schema.documents WHERE id = $1`, [documentId]);
+          return { storageKeys: versions.rows.map((row) => row.storage_key), documents: 1, folders: 0 };
+        }),
+      ),
+
+    countLockedByOthers: (tenantId: string, folderIds: readonly string[], userId: string) =>
+      this.run(tenantId, async (pool) => {
+        const result = await pool.query<{ n: string }>(
+          `SELECT count(*) AS n FROM shared_schema.documents
+            WHERE folder_id = ANY($1::uuid[]) AND deleted_at IS NULL
+              AND locked_by_user_id IS NOT NULL AND locked_by_user_id <> $2`,
+          [[...folderIds], userId],
+        );
+        return Number(result.rows[0]?.n ?? 0);
+      }),
+
+    countHiddenFrom: (
+      tenantId: string,
+      folderIds: readonly string[],
+      viewer: { userId: string; canSeeRestricted: boolean },
+    ) =>
+      this.run(tenantId, async (pool) => {
+        // Cùng luật với `canSee` của tầng application, viết bằng SQL để đếm cả nhánh.
+        const result = await pool.query<{ n: string }>(
+          `SELECT count(*) AS n FROM shared_schema.documents
+            WHERE folder_id = ANY($1::uuid[]) AND deleted_at IS NULL AND created_by <> $2
+              AND (confidentiality = 'confidential'
+                   OR (confidentiality = 'restricted' AND NOT $3::boolean))`,
+          [[...folderIds], viewer.userId, viewer.canSeeRestricted],
+        );
+        return Number(result.rows[0]?.n ?? 0);
+      }),
+
     listVersions: (tenantId: string, documentId: string) =>
       this.run(tenantId, async (pool) => {
         const result = await pool.query<VersionRecord>(
@@ -602,6 +863,116 @@ export class PostgresSharedStore implements SharedStore {
       }),
   };
 
+  readonly trash = {
+    list: (tenantId: string) =>
+      this.run(tenantId, async (pool): Promise<SharedTrashItem[]> => {
+        const paths = await loadFolderPaths(pool);
+        const folders = await pool.query<{
+          id: string;
+          name: string;
+          parent_id: string | null;
+          doc_kind: string | null;
+          doc_number: string | null;
+          deleted_at: Date;
+          deleted_by: string;
+          deleted_by_name: string | null;
+          branch_folders: string;
+          branch_documents: string;
+          branch_bytes: string;
+          location_available: boolean;
+        }>(
+          `SELECT f.id, f.name, f.parent_id, f.doc_kind, f.doc_number, f.deleted_at, f.deleted_by,
+                  u.full_name AS deleted_by_name,
+                  (SELECT count(*) FROM shared_schema.folders b WHERE b.deleted_batch = f.id) AS branch_folders,
+                  (SELECT count(*) FROM shared_schema.documents d WHERE d.deleted_batch = f.id) AS branch_documents,
+                  (SELECT COALESCE(sum(v.size_bytes), 0)
+                     FROM shared_schema.document_versions v
+                     JOIN shared_schema.documents d ON d.id = v.document_id
+                    WHERE d.deleted_batch = f.id) AS branch_bytes,
+                  (f.parent_id IS NULL OR EXISTS (
+                     SELECT 1 FROM shared_schema.folders p WHERE p.id = f.parent_id AND p.is_active
+                  )) AS location_available
+             FROM shared_schema.folders f
+             LEFT JOIN core_schema.users u ON u.id = f.deleted_by
+            WHERE f.deleted_batch = f.id
+            ORDER BY f.deleted_at DESC
+            LIMIT 5000`,
+        );
+        const documents = await pool.query<{
+          id: string;
+          name: string;
+          folder_id: string;
+          doc_kind: string | null;
+          doc_number: string | null;
+          confidentiality: string;
+          created_by: string;
+          deleted_at: Date;
+          deleted_by: string;
+          deleted_by_name: string | null;
+          file_name: string | null;
+          content_type: string | null;
+          total_bytes: string;
+          location_available: boolean;
+        }>(
+          `SELECT d.id, d.name, d.folder_id, d.doc_kind, d.doc_number, d.confidentiality, d.created_by,
+                  d.deleted_at, d.deleted_by, u.full_name AS deleted_by_name,
+                  cv.file_name, cv.content_type,
+                  (SELECT COALESCE(sum(v.size_bytes), 0)
+                     FROM shared_schema.document_versions v WHERE v.document_id = d.id) AS total_bytes,
+                  EXISTS (
+                    SELECT 1 FROM shared_schema.folders p WHERE p.id = d.folder_id AND p.is_active
+                  ) AS location_available
+             FROM shared_schema.documents d
+             LEFT JOIN shared_schema.document_versions cv ON cv.id = d.current_version_id
+             LEFT JOIN core_schema.users u ON u.id = d.deleted_by
+            WHERE d.deleted_at IS NOT NULL AND d.deleted_batch IS NULL
+            ORDER BY d.deleted_at DESC
+            LIMIT 5000`,
+        );
+        const items: SharedTrashItem[] = [
+          ...folders.rows.map(
+            (row): SharedTrashItem => ({
+              kind: 'folder',
+              id: row.id,
+              name: row.name,
+              location: row.parent_id ? (paths.get(row.parent_id) ?? '') : '',
+              locationAvailable: row.location_available,
+              documentCount: Number(row.branch_documents),
+              folderCount: Math.max(0, Number(row.branch_folders) - 1),
+              totalBytes: Number(row.branch_bytes),
+              deletedAt: row.deleted_at.toISOString(),
+              deletedBy: row.deleted_by,
+              deletedByName: row.deleted_by_name ?? undefined,
+              docKind: (row.doc_kind as SharedDocumentKind | null) ?? undefined,
+              docNumber: row.doc_number ?? undefined,
+            }),
+          ),
+          ...documents.rows.map(
+            (row): SharedTrashItem => ({
+              kind: 'document',
+              id: row.id,
+              name: row.name,
+              location: paths.get(row.folder_id) ?? '',
+              locationAvailable: row.location_available,
+              documentCount: 1,
+              folderCount: 0,
+              totalBytes: Number(row.total_bytes),
+              deletedAt: row.deleted_at.toISOString(),
+              deletedBy: row.deleted_by,
+              deletedByName: row.deleted_by_name ?? undefined,
+              fileName: row.file_name ?? undefined,
+              contentType: row.content_type ?? undefined,
+              docKind: (row.doc_kind as SharedDocumentKind | null) ?? undefined,
+              docNumber: row.doc_number ?? undefined,
+              confidentiality: row.confidentiality as SharedConfidentiality,
+              createdBy: row.created_by,
+            }),
+          ),
+        ];
+        return items.sort((left, right) => right.deletedAt.localeCompare(left.deletedAt));
+      }),
+  };
+
   readonly storage = {
     usageByModule: async (tenantId: string): Promise<StorageModuleUsage[]> => {
       const pool = await this.poolFor(tenantId);
@@ -643,6 +1014,30 @@ function missingRow(): never {
 
 function first<T>(rows: readonly T[]): T {
   return rows[0] ?? missingRow();
+}
+
+/**
+ * Đường dẫn "A / B / C" của mọi thư mục, kể cả thư mục đã vào Thùng rác — nơi
+ * một mục bị xoá nằm trước đó có thể chính là một thư mục đã xoá.
+ */
+async function loadFolderPaths(db: Pick<Pool | PoolClient, 'query'>): Promise<Map<string, string>> {
+  const result = await db.query<{ id: string; parent_id: string | null; name: string }>(
+    `SELECT id, parent_id, name FROM shared_schema.folders`,
+  );
+  const byId = new Map(result.rows.map((row) => [row.id, row]));
+  const paths = new Map<string, string>();
+  const resolve = (id: string, guard: number): string => {
+    const cached = paths.get(id);
+    if (cached !== undefined) return cached;
+    const row = byId.get(id);
+    if (!row) return '';
+    const parent = row.parent_id && guard < 10 ? resolve(row.parent_id, guard + 1) : '';
+    const path = parent ? `${parent} / ${row.name}` : row.name;
+    paths.set(id, path);
+    return path;
+  };
+  for (const row of result.rows) resolve(row.id, 0);
+  return paths;
 }
 
 function nameTaken(error: unknown, name: string): unknown {
@@ -705,6 +1100,7 @@ function mapDocument(row: DocumentRecord): SharedDocument {
     status: row.status as SharedDocumentStatus,
     lockedByUserId: row.locked_by_user_id ?? undefined,
     lockedAt: row.locked_at?.toISOString(),
+    deletedAt: row.deleted_at?.toISOString(),
     createdBy: row.created_by,
     createdByName: row.created_by_name ?? undefined,
     createdAt: row.created_at.toISOString(),

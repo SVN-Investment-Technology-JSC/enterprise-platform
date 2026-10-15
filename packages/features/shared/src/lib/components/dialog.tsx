@@ -9,8 +9,12 @@ export interface DialogProps {
   readonly open: boolean;
   readonly title: string;
   readonly submitLabel?: string;
+  /** Chữ trên nút khi đang gửi; mặc định "Đang lưu…". */
+  readonly submittingLabel?: string;
   readonly submitting?: boolean;
   readonly submitDisabled?: boolean;
+  /** Nút xác nhận mang kiểu nguy hiểm: xoá, xoá vĩnh viễn. */
+  readonly danger?: boolean;
   readonly error?: string;
   readonly onClose: () => void;
   readonly onSubmit: () => void;
@@ -27,8 +31,10 @@ export function Dialog({
   open,
   title,
   submitLabel = 'Lưu',
+  submittingLabel = 'Đang lưu…',
   submitting = false,
   submitDisabled = false,
+  danger = false,
   error,
   onClose,
   onSubmit,
@@ -116,10 +122,10 @@ export function Dialog({
             </button>
             <button
               type="submit"
-              className={styles.buttonPrimary}
+              className={danger ? styles.buttonDanger : styles.buttonPrimary}
               disabled={submitting || submitDisabled}
             >
-              {submitting ? 'Đang lưu…' : submitLabel}
+              {submitting ? submittingLabel : submitLabel}
             </button>
           </footer>
         </form>
