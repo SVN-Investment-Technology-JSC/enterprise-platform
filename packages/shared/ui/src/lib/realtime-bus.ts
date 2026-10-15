@@ -2,13 +2,21 @@
 
 import { useEffect, useRef, useSyncExternalStore } from 'react';
 import type {
+  ProcedureCommentSignal,
+  ProcedureTypingSignal,
   RealtimeEventEnvelope,
   WorkspaceChatSignal,
   WorkspaceChatTyping,
 } from '@enterprise-platform/contracts-realtime';
 
 // Tái xuất để các màn hình dùng bus không phải thêm phụ thuộc vào contracts-realtime.
-export type { RealtimeEventEnvelope, WorkspaceChatSignal, WorkspaceChatTyping };
+export type {
+  ProcedureCommentSignal,
+  ProcedureTypingSignal,
+  RealtimeEventEnvelope,
+  WorkspaceChatSignal,
+  WorkspaceChatTyping,
+};
 
 /**
  * Cầu nối sự kiện realtime cho mọi màn hình.

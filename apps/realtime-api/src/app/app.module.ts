@@ -6,6 +6,7 @@ import {
 import { Module } from '@nestjs/common';
 import { createClient } from 'redis';
 import { HttpTypingRecipientsClient, RealtimeChatTyping } from './realtime-chat-typing';
+import { HttpProcedureAccessClient, RealtimeProcedureRooms } from './realtime-procedure-rooms';
 import { RealtimeDeliveryConsumer, RealtimeDeliveryHandler } from './realtime-delivery';
 import { RealtimeGateway, RealtimeOriginPolicy, RealtimeSessionRevalidator } from './realtime.gateway';
 import { RealtimeHealthController } from './realtime-health.controller';
@@ -105,6 +106,17 @@ function allowedOrigins(): readonly string[] {
             process.env.WORKSPACE_INTERNAL_URL ?? 'http://localhost:3337',
           ),
           featureFlag(process.env.REALTIME_TYPING_ENABLED, true),
+        ),
+    },
+    {
+      // Phòng theo hồ sơ cho trao đổi quy trình: kiểm quyền vào phòng bằng cookie của người dùng.
+      provide: RealtimeProcedureRooms,
+      useFactory: () =>
+        new RealtimeProcedureRooms(
+          new HttpProcedureAccessClient(
+            process.env.PROCEDURE_INTERNAL_URL ?? 'http://localhost:3334',
+          ),
+          featureFlag(process.env.REALTIME_PROCEDURE_ROOMS_ENABLED, true),
         ),
     },
     {
