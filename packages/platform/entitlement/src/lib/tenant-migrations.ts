@@ -529,6 +529,10 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       version: '0020-workspace-project-role-definitions',
       path: 'tenant/workspace/0020-workspace-project-role-definitions.sql',
     },
+    {
+      version: '0021-workspace-standalone-tasks',
+      path: 'tenant/workspace/0021-workspace-standalone-tasks.sql',
+    },
   ],
 };
 

@@ -14,7 +14,14 @@ import {
   type WorkItemStatus,
 } from '@enterprise-platform/contracts-workspace';
 import { formatTime } from '@enterprise-platform/shared-ui';
-import { AtSign, CalendarClock, ExternalLink, Plus, RefreshCw } from 'lucide-react';
+import {
+  AtSign,
+  CalendarClock,
+  ClipboardList,
+  ExternalLink,
+  Plus,
+  RefreshCw,
+} from 'lucide-react';
 import {
   Fragment,
   useCallback,
@@ -32,6 +39,7 @@ import {
   PRIORITY_LABELS,
   PRIORITY_TONE,
   WORK_ITEM_STATUS_LABELS,
+  WORK_ITEM_STATUS_TONE,
   formatDate,
   formatDateTime,
   workItemStatusLabel,
@@ -66,9 +74,11 @@ const INVITATION_RESPONSES: readonly {
 export interface MyWorkViewProps {
   /** Mở một node trong trang Dự án: công việc, sự kiện hay luồng trao đổi. */
   readonly onOpen?: (projectId: string, target: string) => void;
+  /** Mở một việc ở trang "Công việc ngoài dự án". */
+  readonly onOpenTask?: (taskId: string) => void;
 }
 
-export function MyWorkView({ onOpen }: MyWorkViewProps = {}) {
+export function MyWorkView({ onOpen, onOpenTask }: MyWorkViewProps = {}) {
   const directory = useDirectory();
   const [summary, setSummary] = useState<MyWorkSummary>();
   const [isTenantAdmin, setIsTenantAdmin] = useState(false);
@@ -432,10 +442,76 @@ export function MyWorkView({ onOpen }: MyWorkViewProps = {}) {
         </div>
         {summary && items.length === 0 ? (
           <p className={styles.emptyRow}>
-            {hasFilter ? 'Không có việc nào khớp bộ lọc.' : 'Bạn không có việc nào đang mở.'}
+            {hasFilter
+              ? 'Không có việc nào khớp bộ lọc.'
+              : summary.standaloneTasks.length > 0
+                ? 'Bạn không có việc dự án nào đang mở.'
+                : 'Bạn không có việc nào đang mở.'}
           </p>
         ) : null}
       </section>
+
+      {summary?.standaloneTasks.length ? (
+        <section className={styles.tableCard} aria-label="Công việc ngoài dự án">
+          <div className={styles.tableScroll}>
+            <table className={styles.table}>
+              <thead>
+                <tr>
+                  <th>
+                    <ClipboardList size={14} aria-hidden /> Công việc ngoài dự án
+                  </th>
+                  <th>Người giao</th>
+                  <th>Ưu tiên</th>
+                  <th>Trạng thái</th>
+                  <th>Hạn</th>
+                </tr>
+              </thead>
+              <tbody>
+                {summary.standaloneTasks.map((entry) => {
+                  const status = WORK_ITEM_STATUS_TONE[entry.task.status];
+                  const priority = PRIORITY_TONE[entry.task.priority];
+                  return (
+                    <tr key={entry.task.id}>
+                      <td>
+                        <button
+                          type="button"
+                          className={styles.cellTitleButton}
+                          onClick={() => onOpenTask?.(entry.task.id)}
+                        >
+                          <span className={styles.treeCode}>{entry.task.code}</span>
+                          {entry.task.title}
+                        </button>
+                      </td>
+                      <td className={styles.cellSub}>
+                        {entry.awaitingMyApproval ? 'Chờ bạn duyệt' : directory.nameOf(entry.task.createdBy)}
+                      </td>
+                      <td>
+                        <span
+                          className={styles.pill}
+                          style={{ background: priority.bg, color: priority.fg }}
+                        >
+                          {PRIORITY_LABELS[entry.task.priority]}
+                        </span>
+                      </td>
+                      <td>
+                        <span
+                          className={styles.pill}
+                          style={{ background: status.bg, color: status.fg }}
+                        >
+                          {WORK_ITEM_STATUS_LABELS[entry.task.status]}
+                        </span>
+                      </td>
+                      <td className={entry.bucket === 'overdue' ? styles.cellDanger : undefined}>
+                        {formatDate(entry.task.dueDate) || '—'}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
 
       <div className={styles.twoColumns}>
         <section className={styles.panel}>

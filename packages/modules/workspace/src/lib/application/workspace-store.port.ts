@@ -38,6 +38,12 @@ import type {
   ProjectTypeOption,
   SavedFilter,
   SavedFilterView,
+  StandaloneTask,
+  StandaloneTaskAdjustmentRef,
+  StandaloneTaskExecutionType,
+  StandaloneTaskHistoryEntry,
+  StandaloneTaskRef,
+  StandaloneTaskScope,
   Tag,
   UpdateProjectFinanceRequest,
   UpdateProjectRequest,
@@ -160,6 +166,35 @@ export interface ReportScopeFilter {
   /** Người gọi tự giới hạn vào vài dự án; rỗng nghĩa là cả phạm vi. */
   readonly projectIds?: readonly string[];
 }
+
+/** Việc giao lẻ đã chuẩn hoá ở tầng ứng dụng, sẵn sàng ghi. */
+export interface StandaloneTaskWriteModel {
+  readonly title: string;
+  readonly description: string | null;
+  readonly priority: StandaloneTask['priority'];
+  readonly assigneeUserId: string;
+  readonly participantUserIds: readonly string[];
+  readonly followerUserIds: readonly string[];
+  readonly plannedStart: string | null;
+  readonly dueDate: string | null;
+}
+
+/** Thêm khi tạo: vị trí trong cây và cách thực hiện. */
+export interface StandaloneTaskCreateModel extends StandaloneTaskWriteModel {
+  readonly parentId: string | null;
+  readonly executionType: StandaloneTaskExecutionType;
+  readonly procedureDefinitionId: string | null;
+  /** Việc điều chỉnh của việc đã huỷ hiệu lực này. */
+  readonly adjustmentOfId: string | null;
+  /** Người tạo, để module Quy trình mở hồ sơ dưới danh nghĩa họ. */
+  readonly requester: {
+    readonly displayName: string;
+    readonly isTenantAdmin: boolean;
+  };
+}
+
+/** Kết quả cuối của hồ sơ quy trình, theo sự kiện `procedure.instance.completed`. */
+export type StandaloneTaskProcedureOutcome = 'completed' | 'rejected' | 'cancelled';
 
 /** Số tin chưa đọc của một node, trước khi cuộn lên nhánh cha. */
 export interface UnreadRow {
@@ -949,6 +984,114 @@ export interface WorkspaceStore {
       filter: { readonly workItemId?: string; readonly projectId?: string },
       limit: number,
     ): Promise<readonly CostEntry[]>;
+  };
+
+  /**
+   * Công việc ngoài dự án.
+   *
+   * Store không kiểm quyền — tầng ứng dụng đã làm. Riêng `changeStatus` tự
+   * so trạng thái hiện tại với `from` trong transaction, để hai người bấm
+   * cùng lúc không đè lên nhau.
+   */
+  readonly standaloneTask: {
+    /** Việc mà `userId` giữ đúng vai trong ngăn `scope`, kèm việc cha nếu có. */
+    listForUser(
+      tenantId: string,
+      userId: string,
+      scope: StandaloneTaskScope,
+    ): Promise<readonly { readonly task: StandaloneTask; readonly parent?: StandaloneTaskRef }[]>;
+    findById(tenantId: string, taskId: string): Promise<StandaloneTask | undefined>;
+    /** Việc con trực tiếp, theo thứ tự tạo. */
+    children(tenantId: string, taskId: string): Promise<readonly StandaloneTask[]>;
+    /** Chính việc này và mọi việc con cháu. */
+    subtree(tenantId: string, taskId: string): Promise<readonly StandaloneTask[]>;
+    /** Từ việc gốc xuống việc cha trực tiếp; rỗng với việc gốc. */
+    ancestors(tenantId: string, taskId: string): Promise<readonly StandaloneTaskRef[]>;
+    /** `userId` giữ vai nào đó ở một việc bất kỳ trong cây `rootId`. */
+    isTreeMember(tenantId: string, rootId: string, userId: string): Promise<boolean>;
+    /**
+     * Tạo việc. Có `parentId` thì nối vào cây của việc cha (cùng `root_id`,
+     * sâu thêm một cấp); theo quy trình thì phát sự kiện nhờ Quy trình mở hồ sơ.
+     */
+    create(
+      tenantId: string,
+      actorUserId: string,
+      input: StandaloneTaskCreateModel,
+    ): Promise<StandaloneTask>;
+    /** Ghi đè các trường nội dung; `progressPercent` chỉ đổi khi có mặt. */
+    update(
+      tenantId: string,
+      taskId: string,
+      actorUserId: string,
+      input: Partial<StandaloneTaskWriteModel> & { readonly progressPercent?: number },
+    ): Promise<StandaloneTask>;
+    /** `undefined` khi trạng thái hiện tại đã khác `from` (có người đổi trước). */
+    changeStatus(
+      tenantId: string,
+      taskId: string,
+      actorUserId: string,
+      from: StandaloneTask['status'],
+      next: StandaloneTask['status'],
+      note: string | undefined,
+      today: string,
+    ): Promise<StandaloneTask | undefined>;
+    remove(tenantId: string, taskId: string): Promise<void>;
+    history(
+      tenantId: string,
+      taskId: string,
+      limit: number,
+    ): Promise<readonly StandaloneTaskHistoryEntry[]>;
+    /**
+     * Cho trang "Công việc của tôi": việc đang mở mà tôi thực hiện (phụ
+     * trách hoặc cùng làm), cộng việc tôi giao đang ở `review`.
+     */
+    forMyWork(tenantId: string, userId: string): Promise<readonly StandaloneTask[]>;
+
+    /**
+     * Huỷ hiệu lực: `status = 'cancelled'` kèm thông tin huỷ, ghi nhật ký, báo
+     * người liên quan. `notifyProcedure` thì nhờ Quy trình huỷ hiệu lực hồ sơ
+     * đã hoàn tất gắn với việc. Việc đã huỷ hiệu lực thì trả nguyên trạng.
+     */
+    reverse(
+      tenantId: string,
+      taskId: string,
+      input: {
+        readonly reversedBy: string;
+        readonly reversedByName?: string;
+        readonly reason: string;
+        readonly today: string;
+        readonly notifyProcedure: boolean;
+        readonly adjustmentRequested: boolean;
+      },
+    ): Promise<StandaloneTask>;
+    /** Các việc điều chỉnh của việc này (kể cả đã huỷ), cũ trước. */
+    adjustments(tenantId: string, taskId: string): Promise<readonly StandaloneTaskAdjustmentRef[]>;
+    /** Việc gắn với hồ sơ quy trình này, nếu có. */
+    findByProcedureInstance(
+      tenantId: string,
+      instanceId: string,
+    ): Promise<StandaloneTask | undefined>;
+
+    /* Đồng bộ với hồ sơ quy trình (sự kiện từ module Quy trình). */
+    markProcedureStarted(
+      tenantId: string,
+      taskId: string,
+      instanceId: string,
+      instanceCode: string,
+    ): Promise<void>;
+    markProcedureStartRejected(tenantId: string, taskId: string, reason: string): Promise<void>;
+    /**
+     * Hồ sơ đã đóng. Hoàn tất thì việc gốc tự sang Chờ duyệt, việc con tự
+     * Hoàn thành; bị từ chối hay huỷ thì chỉ ghi nhận và báo người liên quan.
+     * Gọi lại cho cùng hồ sơ không làm gì thêm.
+     */
+    applyProcedureOutcome(
+      tenantId: string,
+      instanceId: string,
+      outcome: StandaloneTaskProcedureOutcome,
+      instanceCode: string,
+      today: string,
+    ): Promise<void>;
   };
 
   readonly history: {

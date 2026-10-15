@@ -10,10 +10,12 @@ import {
 import type { ProjectSummary, ProjectTypeOption } from '@enterprise-platform/contracts-workspace';
 import {
   BarChart3,
+  ClipboardList,
   FileText,
   FolderKanban,
   FolderPlus,
   ListChecks,
+  Plus,
   Settings,
   Upload,
 } from 'lucide-react';
@@ -35,6 +37,7 @@ import { QuickSearch, type QuickSearchTarget } from './components/quick-search';
 import { ReportsView } from './components/reports-view';
 import { ProjectRoleSettings } from './components/project-role-settings';
 import { ProjectsView } from './components/projects-view';
+import { StandaloneTasksView } from './components/standalone-tasks-view';
 import styles from './workspace.module.scss';
 
 /**
@@ -43,7 +46,7 @@ import styles from './workspace.module.scss';
  * `projects` gộp ba màn cũ Dự án, Công việc và Lịch biểu: cột trái là cây dự
  * án, cột phải là các tab đổi theo node đang chọn.
  */
-type Tab = 'my-work' | 'projects' | 'documents' | 'reports' | 'settings';
+type Tab = 'my-work' | 'tasks' | 'projects' | 'documents' | 'reports' | 'settings';
 
 /**
  * Mục điều hướng. "Dự án" không có dòng riêng: các dự án nằm thẳng ở mục Dự
@@ -51,6 +54,12 @@ type Tab = 'my-work' | 'projects' | 'documents' | 'reports' | 'settings';
  */
 const NAV: readonly ModuleNavItem<Tab>[] = [
   { id: 'my-work', label: 'Công việc của tôi', group: 'Công việc', icon: <ListChecks size={16} /> },
+  {
+    id: 'tasks',
+    label: 'Công việc ngoài dự án',
+    group: 'Công việc',
+    icon: <ClipboardList size={16} />,
+  },
   { id: 'documents', label: 'Tài liệu', group: 'Công việc', icon: <FileText size={16} /> },
   { id: 'reports', label: 'Báo cáo', group: 'Công việc', icon: <BarChart3 size={16} /> },
   { id: 'projects', label: 'Dự án', group: 'Công việc', icon: <FolderKanban size={16} />, hidden: true },
@@ -67,6 +76,10 @@ const TITLES: Record<Tab, { title: string; subtitle: string }> = {
   'my-work': {
     title: 'Công việc của tôi',
     subtitle: 'Việc được giao, lịch hôm nay và những nơi có người nhắc tên bạn.',
+  },
+  tasks: {
+    title: 'Công việc ngoài dự án',
+    subtitle: 'Giao việc cho bất kỳ ai trong tổ chức mà không cần dự án; người giao duyệt kết quả.',
   },
   projects: {
     title: 'Dự án',
@@ -157,6 +170,13 @@ export function WorkspaceScreen() {
   /** Bộ đếm lượt bấm "+" ở mục Dự án; trang Dự án mở hộp tạo dự án khi nó tăng. */
   const [createProjectRequest, setCreateProjectRequest] = useState(0);
   const clearCreateProjectRequest = useCallback(() => setCreateProjectRequest(0), []);
+  /** Bộ đếm lượt bấm "Giao việc" ở đầu trang Công việc ngoài dự án. */
+  const [createTaskRequest, setCreateTaskRequest] = useState(0);
+  const clearCreateTaskRequest = useCallback(() => setCreateTaskRequest(0), []);
+  const openTask = useCallback(
+    (taskId: string | undefined) => navigate('tasks', taskId),
+    [navigate],
+  );
   /** Lệnh từ hai nút đầu trang Tài liệu, chuyển xuống DocumentPanel. */
   const [documentRequest, setDocumentRequest] = useState<{
     kind: 'upload' | 'folder';
@@ -384,6 +404,14 @@ export function WorkspaceScreen() {
         view === 'projects' && !provisioning ? (
           // Trang Dự án tự đặt nút Trao đổi và "⋯" của dự án đang mở vào đây.
           <div ref={setActionsSlot} className={styles.headActions} />
+        ) : view === 'tasks' && !provisioning ? (
+          <button
+            type="button"
+            className={styles.buttonPrimary}
+            onClick={() => setCreateTaskRequest((count) => count + 1)}
+          >
+            <Plus size={15} /> Giao việc
+          </button>
         ) : view === 'documents' && canSeeDocuments && !provisioning ? (
           <>
             <button
@@ -420,7 +448,14 @@ export function WorkspaceScreen() {
       }
     >
       {view === 'my-work' && !provisioning ? (
-        <MyWorkView onOpen={openInProject} />
+        <MyWorkView onOpen={openInProject} onOpenTask={openTask} />
+      ) : view === 'tasks' && !provisioning ? (
+        <StandaloneTasksView
+          focusTaskId={sub}
+          onFocusChange={openTask}
+          createRequest={createTaskRequest}
+          onCreateHandled={clearCreateTaskRequest}
+        />
       ) : view === 'projects' && !provisioning ? (
         <ProjectsView
           canDelete={canDelete}
