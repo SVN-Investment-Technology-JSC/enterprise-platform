@@ -102,8 +102,19 @@ export async function loadStartableProcedures(
   userId: string,
   orgNodeIds: readonly string[],
 ): Promise<ProcedureOption[]> {
+  return (await loadStartableProceduresOrUnavailable(userId, orgNodeIds)) ?? [];
+}
+
+/**
+ * Như `loadStartableProcedures`, nhưng trả `undefined` khi không đọc được module
+ * Quy trình — để form nói đúng "không tải được" thay vì "bạn không có quy trình nào".
+ */
+export async function loadStartableProceduresOrUnavailable(
+  userId: string,
+  orgNodeIds: readonly string[],
+): Promise<ProcedureOption[] | undefined> {
   const body = await loadWorkspacePayload();
-  if (!body) return [];
+  if (!body) return undefined;
   const nodes = new Set(orgNodeIds);
   const canOverride = body.permissions?.canOverrideActions === true;
   return (body.definitions ?? [])
