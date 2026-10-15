@@ -14,9 +14,10 @@ interface SharedRequest extends Request {
  * giữ phần riêng của Hệ dùng chung — ánh xạ quyền và dựng actor.
  *
  * Mọi lời gọi cần `shared.read` (ghi, xoá, quản trị kho đều kéo theo quyền này
- * — xem TENANT_ACTION_IMPLIES); lời gọi ghi cần thêm `shared.document.write`.
- * Quyền xoá và quyền dựng khung kho kiểm tiếp ở tầng application, nơi biết
- * thao tác cụ thể là gì.
+ * — xem TENANT_ACTION_IMPLIES); lời gọi thay đổi dữ liệu cần thêm quyền ghi
+ * hoặc quyền xoá. Quyền xoá không kéo theo quyền ghi nên người chỉ có quyền xoá
+ * vẫn dọn được tài liệu. Thao tác cụ thể cần quyền nào, và quyền dựng khung
+ * kho, kiểm tiếp ở tầng application, nơi biết thao tác đó là gì.
  *
  * Phân hệ chưa có route nội bộ `/v1/internal/*` nào, nên không nhận lời gọi
  * service-to-service.
@@ -52,7 +53,12 @@ export class SharedAccessGuard implements CanActivate {
     // hoặc được cấp đích danh.
     const canDeleteDocuments = tenantAdmin || held.includes('shared.document.delete');
 
-    if (request.method !== 'GET' && request.method !== 'HEAD' && !canWriteDocuments) {
+    if (
+      request.method !== 'GET' &&
+      request.method !== 'HEAD' &&
+      !canWriteDocuments &&
+      !canDeleteDocuments
+    ) {
       throw new ForbiddenException({
         code: 'ACCESS_DENIED',
         message: 'Bạn chỉ có quyền xem tài liệu công ty.',

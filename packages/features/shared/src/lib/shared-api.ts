@@ -1,20 +1,26 @@
-import type {
-  CreateSharedDocumentRequest,
-  CreateSharedDocumentResponse,
-  CreateSharedFolderRequest,
-  CreateSharedVersionRequest,
-  SharedDocumentDetail,
-  SharedDocumentQuery,
-  SharedDocumentSummary,
-  SharedDocumentVersion,
-  SharedDownloadMode,
-  SharedDownloadTicket,
-  SharedFolder,
-  SharedStatus,
-  SharedUploadTicket,
-  StorageUsage,
-  UpdateSharedDocumentRequest,
-  UpdateSharedFolderRequest,
+import {
+  SHARED_TRASH_PATHS,
+  type CreateSharedDocumentRequest,
+  type CreateSharedDocumentResponse,
+  type CreateSharedFolderRequest,
+  type CreateSharedVersionRequest,
+  type EmptySharedTrashResult,
+  type RestoreSharedTrashRequest,
+  type SharedDocumentDetail,
+  type SharedDocumentQuery,
+  type SharedDocumentSummary,
+  type SharedDocumentVersion,
+  type SharedDownloadMode,
+  type SharedDownloadTicket,
+  type SharedFolder,
+  type SharedFolderDeleteResult,
+  type SharedStatus,
+  type SharedTrashItem,
+  type SharedTrashRestoreResult,
+  type SharedUploadTicket,
+  type StorageUsage,
+  type UpdateSharedDocumentRequest,
+  type UpdateSharedFolderRequest,
 } from '@enterprise-platform/contracts-shared';
 import { authFetch } from '@enterprise-platform/shared-ui';
 import { contentTypeOf } from './library.model';
@@ -86,8 +92,9 @@ export const createFolder = (body: CreateSharedFolderRequest) =>
 export const updateFolder = (id: string, body: UpdateSharedFolderRequest) =>
   request<SharedFolder>(`/folders/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
 
-export const removeFolder = (id: string) =>
-  request<void>(`/folders/${id}`, { method: 'DELETE' });
+/** Chuyển cả nhánh vào Thùng rác; trả số thư mục con và tài liệu đã chuyển theo. */
+export const deleteFolder = (id: string) =>
+  request<SharedFolderDeleteResult>(`/folders/${id}`, { method: 'DELETE' });
 
 /* ----------------------------------------------------------- tài liệu */
 
@@ -148,6 +155,33 @@ export const archiveDocument = (id: string) =>
 
 export const restoreDocument = (id: string) =>
   request<SharedDocumentSummary>(`/documents/${id}/restore`, { method: 'POST' });
+
+/** Chuyển tài liệu vào Thùng rác. */
+export const deleteDocument = (id: string) => request<void>(`/documents/${id}`, { method: 'DELETE' });
+
+/** Nhân bản vào cùng thư mục; tệp sao chép ngay trong kho. */
+export const duplicateDocument = (id: string) =>
+  request<SharedDocumentSummary>(`/documents/${id}/duplicate`, { method: 'POST' });
+
+/* ---------------------------------------------------------- Thùng rác */
+
+export const listTrash = () =>
+  request<{ items: SharedTrashItem[] }>('/trash', { cache: 'no-store' }).then((body) => body.items);
+
+type TrashRef = Pick<SharedTrashItem, 'kind' | 'id'>;
+
+/** Về chỗ cũ, hoặc vào `targetFolderId` khi chỗ cũ không còn. */
+export const restoreFromTrash = (item: TrashRef, body: RestoreSharedTrashRequest = {}) =>
+  request<SharedTrashRestoreResult>(`/trash/${SHARED_TRASH_PATHS[item.kind]}/${item.id}/restore`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+
+/** Xoá vĩnh viễn một mục: dòng dữ liệu và tệp trong kho. */
+export const purgeFromTrash = (item: TrashRef) =>
+  request<void>(`/trash/${SHARED_TRASH_PATHS[item.kind]}/${item.id}`, { method: 'DELETE' });
+
+export const emptyTrash = () => request<EmptySharedTrashResult>('/trash', { method: 'DELETE' });
 
 /** Chặng 2 của tải lên: trình duyệt `PUT` thẳng vào kho đối tượng qua URL ký sẵn. */
 export async function uploadToStorage(uploadUrl: string, file: File): Promise<void> {

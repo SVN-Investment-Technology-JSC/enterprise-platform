@@ -75,6 +75,9 @@ export function SharedScreen() {
   const provisioning = Boolean(status && !status.tablesReady);
   const canWrite = capabilities.canWriteDocuments && !provisioning;
   const tone = usage ? meterTone(usage) : 'normal';
+  // Thùng rác là đoạn `trash` sau `library/`; người không có quyền xoá thì coi như không có.
+  const inTrash =
+    view === 'library' && sub === 'trash' && (capabilities.canDeleteDocuments || capabilities.isTenantAdmin);
 
   const nav: readonly ModuleNavItem<Tab>[] = [
     { id: 'library', label: 'Tài liệu công ty', group: 'Tài liệu', icon: <FolderOpen size={16} /> },
@@ -92,6 +95,7 @@ export function SharedScreen() {
     (folderId: string | undefined) => navigate('library', folderId),
     [navigate],
   );
+  const openTrash = useCallback(() => navigate('library', 'trash'), [navigate]);
 
   return (
     <ModuleShell<Tab>
@@ -108,7 +112,7 @@ export function SharedScreen() {
       // Khung tự thêm nhãn trang (trừ trang đầu); ở kho chỉ cần đường dẫn thư mục.
       crumbs={view === 'library' ? crumbs : undefined}
       actions={
-        view === 'library' && canWrite ? (
+        view === 'library' && canWrite && !inTrash ? (
           <div className={styles.headActions}>
             <button
               type="button"
@@ -154,11 +158,13 @@ export function SharedScreen() {
         <LibraryView
           capabilities={capabilities}
           currentUserId={me}
-          folderId={view === 'library' ? sub : undefined}
+          folderId={view === 'library' && !inTrash ? sub : undefined}
           onOpenFolder={openFolder}
           onPathChange={setCrumbs}
           request={request}
           onStorageChanged={reloadUsage}
+          trash={inTrash}
+          onOpenTrash={openTrash}
         />
       )}
     </ModuleShell>

@@ -27,6 +27,7 @@ const ACTION_LABELS: Readonly<Record<SharedAccessAction, string>> = {
   unlock: 'mở khoá',
   archive: 'lưu trữ',
   restore: 'khôi phục',
+  delete: 'xoá',
 };
 
 function Fact({ label, wide, children }: { readonly label: string; readonly wide?: boolean; readonly children: ReactNode }) {
@@ -66,7 +67,9 @@ export function FolderDetail({
   onRemove,
   onSelectDocument,
 }: FolderDetailProps) {
-  const canDelete = capabilities.canDeleteDocuments || capabilities.isTenantAdmin;
+  // Thư mục gốc là khung của kho: chỉ quản trị kho xoá, như chỉ họ dựng.
+  const canDelete =
+    (capabilities.canDeleteDocuments || capabilities.isTenantAdmin) && (Boolean(folder.parentId) || capabilities.canManage);
   return (
     <aside className={`${styles.panel} ${styles.detail}`} aria-label={`Chi tiết thư mục ${folder.name}`}>
       <div className={styles.detailHead}>
@@ -126,7 +129,7 @@ export function FolderDetail({
         ) : null}
         {canDelete ? (
           <Popconfirm
-            title={`Xoá thư mục ${folder.name}?`}
+            title={`Chuyển thư mục ${folder.name} vào Thùng rác?`}
             okText="Xoá"
             okType="danger"
             onConfirm={onRemove}
@@ -156,6 +159,7 @@ export interface DocumentDetailProps {
   readonly onUnlock: () => void;
   readonly onArchive: () => Promise<void>;
   readonly onRestore: () => void;
+  readonly onDelete: () => Promise<void>;
 }
 
 export function DocumentDetail({
@@ -171,6 +175,7 @@ export function DocumentDetail({
   onUnlock,
   onArchive,
   onRestore,
+  onDelete,
 }: DocumentDetailProps) {
   const current = document.currentVersion;
   const active = document.status === 'active';
@@ -331,6 +336,19 @@ export function DocumentDetail({
               Khôi phục
             </button>
           )
+        ) : null}
+        {canArchive ? (
+          <Popconfirm
+            title={`Chuyển ${document.name} vào Thùng rác?`}
+            okText="Xoá"
+            okType="danger"
+            disabled={busy || lockedByOther}
+            onConfirm={onDelete}
+          >
+            <button type="button" className={styles.buttonGhost} disabled={busy || lockedByOther}>
+              Xoá
+            </button>
+          </Popconfirm>
         ) : null}
       </div>
     </aside>

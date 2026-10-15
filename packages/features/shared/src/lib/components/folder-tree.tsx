@@ -1,10 +1,11 @@
 'use client';
 
 import { formatBytes, type SharedFolder } from '@enterprise-platform/contracts-shared';
-import { ChevronRight, ChevronsDownUp, Folder, Library } from 'lucide-react';
+import { ChevronRight, ChevronsDownUp, Folder, Library, Trash2 } from 'lucide-react';
 import { useMemo } from 'react';
 import { flattenTree } from '../library.model';
 import styles from '../shared.module.scss';
+import { anchorFromElement, anchorFromMouse, isMenuKey, type MenuAnchor } from './context-menu';
 
 export interface FolderTreeProps {
   readonly folders: readonly SharedFolder[];
@@ -13,9 +14,22 @@ export interface FolderTreeProps {
   readonly onToggle: (folderId: string) => void;
   readonly onCollapseAll: () => void;
   readonly onOpen: (folderId: string | undefined) => void;
+  /** Chuột phải (hay phím Menu) trên một thư mục, hoặc trên gốc kho khi `folder` rỗng. */
+  readonly onMenu: (folder: SharedFolder | undefined, anchor: MenuAnchor) => void;
+  /** Dòng Thùng rác ở chân cây; rỗng thì không hiện (người dùng không có quyền xoá). */
+  readonly trash?: { readonly active: boolean; readonly onOpen: () => void };
 }
 
-export function FolderTree({ folders, currentId, expanded, onToggle, onCollapseAll, onOpen }: FolderTreeProps) {
+export function FolderTree({
+  folders,
+  currentId,
+  expanded,
+  onToggle,
+  onCollapseAll,
+  onOpen,
+  onMenu,
+  trash,
+}: FolderTreeProps) {
   const rows = useMemo(() => flattenTree(folders, expanded), [folders, expanded]);
   const totalBytes = useMemo(
     () => folders.filter((folder) => !folder.parentId).reduce((sum, folder) => sum + folder.totalBytes, 0),
@@ -34,9 +48,18 @@ export function FolderTree({ folders, currentId, expanded, onToggle, onCollapseA
         <button
           type="button"
           role="treeitem"
-          aria-current={currentId ? 'false' : 'true'}
+          aria-current={currentId || trash?.active ? 'false' : 'true'}
           className={`${styles.treeRow} ${styles.treeRoot}`}
           onClick={() => onOpen(undefined)}
+          onContextMenu={(event) => {
+            event.preventDefault();
+            onMenu(undefined, anchorFromMouse(event));
+          }}
+          onKeyDown={(event) => {
+            if (!isMenuKey(event)) return;
+            event.preventDefault();
+            onMenu(undefined, anchorFromElement(event.currentTarget));
+          }}
         >
           <Library size={14} className={styles.treeIcon} aria-hidden />
           <span className={styles.treeName}>Tài liệu công ty</span>
@@ -52,7 +75,15 @@ export function FolderTree({ folders, currentId, expanded, onToggle, onCollapseA
             style={{ paddingLeft: 10 + (level + 1) * 14 }}
             tabIndex={0}
             onClick={() => onOpen(folder.id)}
+            onContextMenu={(event) => {
+              event.preventDefault();
+              onMenu(folder, anchorFromMouse(event));
+            }}
             onKeyDown={(event) => {
+              if (isMenuKey(event)) {
+                event.preventDefault();
+                onMenu(folder, anchorFromElement(event.currentTarget));
+              }
               if (event.key === 'Enter') onOpen(folder.id);
               if (event.key === 'ArrowRight' && hasChildren && !open) onToggle(folder.id);
               if (event.key === 'ArrowLeft' && open) onToggle(folder.id);
@@ -82,6 +113,20 @@ export function FolderTree({ folders, currentId, expanded, onToggle, onCollapseA
           </div>
         ))}
       </div>
+      {trash ? (
+        <div className={styles.treeFoot}>
+          <button
+            type="button"
+            role="treeitem"
+            aria-current={trash.active ? 'true' : 'false'}
+            className={styles.treeRow}
+            onClick={trash.onOpen}
+          >
+            <Trash2 size={14} className={styles.treeIcon} aria-hidden />
+            <span className={styles.treeName}>Thùng rác</span>
+          </button>
+        </div>
+      ) : null}
     </aside>
   );
 }

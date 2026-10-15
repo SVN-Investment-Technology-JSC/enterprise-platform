@@ -5,8 +5,10 @@ import {
   type SharedDocumentSummary,
   type SharedFolder,
 } from '@enterprise-platform/contracts-shared';
+import type { KeyboardEvent, MouseEvent } from 'react';
 import { expiryTone, fileBadge, formatDate, formatDateTime } from '../library.model';
 import styles from '../shared.module.scss';
+import { anchorFromElement, anchorFromMouse, isMenuKey, type MenuAnchor } from './context-menu';
 
 export type ContentRow =
   | { readonly type: 'folder'; readonly folder: SharedFolder }
@@ -24,6 +26,10 @@ export interface ContentsTableProps {
   readonly onSelect: (selection: Selection) => void;
   readonly onOpenFolder: (folderId: string) => void;
   readonly onOpenDocument: (document: SharedDocumentSummary) => void;
+  /** Chuột phải (hay phím Menu) trên một dòng. */
+  readonly onRowMenu: (row: ContentRow, anchor: MenuAnchor) => void;
+  /** Chuột phải ở chỗ trống; trả `false` khi không có menu nào để hiện, trình duyệt tự xử lý. */
+  readonly onBlankMenu: (anchor: MenuAnchor) => boolean;
 }
 
 function Expiry({ value }: { readonly value?: string }) {
@@ -43,12 +49,35 @@ export function ContentsTable({
   onSelect,
   onOpenFolder,
   onOpenDocument,
+  onRowMenu,
+  onBlankMenu,
 }: ContentsTableProps) {
   const folderCount = rows.filter((row) => row.type === 'folder').length;
   const documentCount = rows.length - folderCount;
 
+  /** Chuột phải và phím Menu dùng chung cho dòng thư mục và dòng tài liệu. */
+  const menuHandlers = (row: ContentRow) => ({
+    onContextMenu: (event: MouseEvent<HTMLElement>) => {
+      event.preventDefault();
+      // Dòng đã lo menu của nó; không để chuột phải nổi lên thành menu chỗ trống.
+      event.stopPropagation();
+      onRowMenu(row, anchorFromMouse(event));
+    },
+    onKeyDown: (event: KeyboardEvent<HTMLElement>) => {
+      if (!isMenuKey(event)) return;
+      event.preventDefault();
+      onRowMenu(row, anchorFromElement(event.currentTarget));
+    },
+  });
+
   return (
-    <section className={`${styles.panel} ${styles.contents}`} aria-label={label}>
+    <section
+      className={`${styles.panel} ${styles.contents}`}
+      aria-label={label}
+      onContextMenu={(event) => {
+        if (onBlankMenu(anchorFromMouse(event))) event.preventDefault();
+      }}
+    >
       <div className={styles.tableScroll}>
         <div className={styles.table} role="table">
           <div className={styles.tableHead} role="row">
@@ -75,6 +104,7 @@ export function ContentsTable({
                     className={styles.tableRow}
                     onClick={() => onSelect({ type: 'folder', id: folder.id })}
                     onDoubleClick={() => onOpenFolder(folder.id)}
+                    {...menuHandlers(row)}
                   >
                     <span className={styles.fileIcon} data-kind="TM" aria-hidden>
                       TM
@@ -108,6 +138,7 @@ export function ContentsTable({
                   className={styles.tableRow}
                   onClick={() => onSelect({ type: 'document', id: document.id })}
                   onDoubleClick={() => onOpenDocument(document)}
+                  {...menuHandlers(row)}
                 >
                   <span className={styles.fileIcon} data-kind={badge} aria-hidden>
                     {badge}
