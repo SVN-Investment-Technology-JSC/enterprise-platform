@@ -76,8 +76,8 @@ export class ChatService {
   }
 
   /**
-   * Những người cần biết "có người đang nhập" ở một node: thành viên dự án,
-   * trừ chính người hỏi.
+   * Những người cần biết "có người đang nhập" ở một node: thành viên dự án và những người đã
+   * mở luồng chat này (quản trị tenant xem được dự án mà không phải thành viên), trừ chính người hỏi.
    *
    * Chỉ người được phép nhắn (`member` trở lên) mới hỏi được, vì viewer không
    * có ô nhập. Dịch vụ realtime gọi hàm này bằng chính cookie của người đang gõ,
@@ -91,7 +91,11 @@ export class ChatService {
     const target = await this.resolve(actor, entityType, entityId);
     requireProjectRole(target.access, 'member');
     const members = await this.store.member.list(actor.tenantId, target.projectId);
-    return { userIds: members.map((member) => member.userId).filter((id) => id !== actor.userId) };
+    const channel = await this.store.chat.findChannel(actor.tenantId, target.entityType, target.entityId);
+    const readers = channel ? await this.store.chat.listReaders(actor.tenantId, channel.id) : [];
+    const userIds = new Set([...members.map((member) => member.userId), ...readers.map((reader) => reader.userId)]);
+    userIds.delete(actor.userId);
+    return { userIds: [...userIds] };
   }
 
   async send(

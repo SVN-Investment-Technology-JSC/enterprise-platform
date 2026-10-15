@@ -4426,10 +4426,15 @@ async function writeChatSignal(
   );
   const row = channel.rows[0];
   if (!row) return;
+  // Thành viên dự án CỘNG những người đã mở luồng chat này: quản trị tenant xem và nhắn được trong dự án
+  // mà không phải thành viên, nên nếu chỉ tính thành viên thì họ không bao giờ nhận được tín hiệu.
   const members = await client.query<Row>(
     `SELECT user_id FROM workspace_schema.project_members
-      WHERE project_id = $1 AND user_id <> $2`,
-    [row.project_id, actorUserId],
+      WHERE project_id = $1 AND user_id <> $3
+      UNION
+     SELECT user_id FROM workspace_schema.chat_reads
+      WHERE channel_id = $2 AND user_id <> $3`,
+    [row.project_id, message.channelId, actorUserId],
   );
   if (members.rows.length === 0) return;
   await writeOutbox(
