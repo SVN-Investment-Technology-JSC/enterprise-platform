@@ -10,7 +10,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { parseTags } from '../library.model';
 import * as api from '../shared-api';
 import styles from '../shared.module.scss';
-import { Dialog, Field } from './dialog';
+import { Dialog, Field, SelectField } from './dialog';
 import { folderOptions, recordDraft, RecordFields, recordPayload, type RecordDraft } from './record-fields';
 import { CONFIDENTIALITY_OPTIONS } from './upload-dialog';
 
@@ -83,22 +83,22 @@ export function DocumentDialog({ target, folders, onClose, onSaved }: DocumentDi
       <Field label="Tên tài liệu" required>
         <input value={name} maxLength={255} onChange={(event) => setName(event.target.value)} />
       </Field>
-      <Field label="Thư mục" required>
+      <SelectField label="Thư mục" required>
         <SearchableSelect clearable={false} options={options} value={folderId} onChange={setFolderId} />
-      </Field>
+      </SelectField>
       <RecordFields draft={record} onChange={setRecord} />
       <div className={styles.fieldRow}>
         <Field label="Hiệu lực từ">
           <input type="date" value={effectiveFrom} onChange={(event) => setEffectiveFrom(event.target.value)} />
         </Field>
-        <Field label="Độ mật">
+        <SelectField label="Độ mật">
           <SearchableSelect
             options={CONFIDENTIALITY_OPTIONS}
             value={confidentiality}
             clearable={false}
             onChange={(value) => setConfidentiality((value || 'internal') as SharedConfidentiality)}
           />
-        </Field>
+        </SelectField>
       </div>
       <Field label="Thẻ">
         <input value={tags} onChange={(event) => setTags(event.target.value)} />
