@@ -217,8 +217,10 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
         headerText(client.handshake.headers.cookie),
         body,
       );
+      this.metrics.procedureJoin(ok ? 'joined' : 'denied');
       return { ok };
     } catch {
+      this.metrics.procedureJoin('error');
       return { ok: false };
     }
   }
