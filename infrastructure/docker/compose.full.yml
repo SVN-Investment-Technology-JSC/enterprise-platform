@@ -311,6 +311,33 @@ services:
     init: true
     restart: unless-stopped
 
+  shared-api:
+    build:
+      context: ../..
+      dockerfile: apps/shared-api/Dockerfile
+    environment:
+      <<: [*database-environment, *platform-access-environment]
+      PORT: '3342'
+      PLATFORM_TENANT_LIMITS_URL: http://api:3333/api/platform/internal/v1/tenant-limits
+      # Như workspace-api: server gọi kho qua mạng Docker, URL ký sẵn mang host
+      # mà trình duyệt mở được.
+      S3_INTERNAL_ENDPOINT: http://minio:9000
+      S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-http://localhost:9010}
+      S3_ENDPOINT: http://minio:9000
+      S3_REGION: us-east-1
+      S3_BUCKET: enterprise-platform
+      S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-platform}
+      S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+    depends_on:
+      api:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+      minio-init:
+        condition: service_completed_successfully
+    init: true
+    restart: unless-stopped
+
   realtime-api:
     build:
       context: ../..
@@ -492,6 +519,16 @@ services:
     init: true
     restart: unless-stopped
 
+  shared-web:
+    build:
+      context: ../..
+      dockerfile: apps/shared-web/Dockerfile
+    depends_on:
+      shared-api:
+        condition: service_healthy
+    init: true
+    restart: unless-stopped
+
   gateway:
     image: nginx:1.29-alpine
     ports:
@@ -503,6 +540,7 @@ services:
       # nginx.docker.conf trỏ error_page của Workspace vào tệp này; thiếu mount
       # thì khi Workspace sập người dùng nhận 404 thay vì trang bảo trì.
       - ../nginx/workspace-maintenance.html:/usr/share/nginx/html/workspace-maintenance.html:ro
+      - ../nginx/shared-maintenance.html:/usr/share/nginx/html/shared-maintenance.html:ro
     depends_on:
       web:
         condition: service_healthy

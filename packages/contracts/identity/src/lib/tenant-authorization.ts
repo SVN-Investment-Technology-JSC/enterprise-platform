@@ -496,6 +496,10 @@ export const TENANT_PERMISSION_ACTIONS = [
   { key: 'workspace.document.delete', group: 'Workspace', label: 'Xoá và lưu trữ tài liệu' },
   { key: 'workspace.project.create', group: 'Workspace', label: 'Tạo dự án mới' },
   ...FINANCE_PERMISSION_ACTIONS,
+  { key: 'shared.read', group: 'Hệ dùng chung', label: 'Xem tài liệu công ty' },
+  { key: 'shared.manage', group: 'Hệ dùng chung', label: 'Quản trị kho tài liệu công ty' },
+  { key: 'shared.document.write', group: 'Hệ dùng chung', label: 'Tải lên và sửa tài liệu công ty' },
+  { key: 'shared.document.delete', group: 'Hệ dùng chung', label: 'Lưu trữ và xoá tài liệu công ty' },
 ] as const;
 export type TenantAction = (typeof TENANT_PERMISSION_ACTIONS)[number]['key'];
 export interface TenantPermission {
@@ -559,6 +563,11 @@ export const TENANT_ACTION_IMPLIES: Readonly<Record<string, readonly string[]>> 
   'finance.manage': FINANCE_PERMISSION_ACTIONS.map((a) => a.key as string).filter(
     (key) => key !== 'finance.manage',
   ),
+  // Hệ dùng chung: ai ghi hay xoá tài liệu công ty cũng xem được kho. Như Workspace,
+  // `shared.manage` không kéo theo quyền xoá.
+  'shared.manage': ['shared.read', 'shared.document.write'],
+  'shared.document.write': ['shared.read'],
+  'shared.document.delete': ['shared.read'],
 };
 
 /** Người giữ `held` có `action` không, kể cả khi được bao hàm bởi một action quản lý. */
@@ -583,6 +592,7 @@ const MODULE_ACTION_PREFIX: Readonly<Record<string, string>> = {
   inventory: 'inventory',
   workspace: 'workspace',
   finance: 'finance',
+  shared: 'shared',
 };
 /** Module nhận probe `module.access`: chỉ cần được vào module, không đòi action cụ thể. */
 const MODULES_WITH_ADMISSION_PROBE = new Set([

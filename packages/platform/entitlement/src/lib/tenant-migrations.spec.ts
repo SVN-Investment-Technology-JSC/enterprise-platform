@@ -28,6 +28,7 @@ const MODULE_DIRECTORIES: Readonly<Record<string, string>> = {
   inventory: 'tenant/inventory',
   'procedure-engine': 'tenant/procedure',
   maintenance: 'tenant/maintenance',
+  shared: 'tenant/shared',
   workspace: 'tenant/workspace',
 };
 

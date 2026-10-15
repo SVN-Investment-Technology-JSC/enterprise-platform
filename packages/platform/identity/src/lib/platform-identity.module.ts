@@ -5,13 +5,25 @@ import { TenantDeletionController } from './tenant-deletion.controller.js';
 import { PlatformAccessController } from './platform-access.controller.js';
 import { PlatformIdentityController } from './platform-identity.controller.js';
 import { PlatformIdentityService } from './platform-identity.service.js';
+import { TenantLimitsController } from './tenant-limits.controller.js';
+import { TenantLimitsService } from './tenant-limits.js';
 
 @Module({
-  controllers: [PlatformIdentityController, PlatformAccessController, TenantDeletionController],
+  controllers: [
+    PlatformIdentityController,
+    PlatformAccessController,
+    TenantDeletionController,
+    TenantLimitsController,
+  ],
   providers: [PlatformIdentityService, {
     provide: TenantDeletionService,
     useFactory: () => new TenantDeletionService(createPostgresPool(process.env.PLATFORM_DATABASE_URL ?? 'postgresql://platform:platform@localhost:55432/platform', {
       max: 4, application_name: 'enterprise-platform:tenant-deletion-api',
+    })),
+  }, {
+    provide: TenantLimitsService,
+    useFactory: () => new TenantLimitsService(createPostgresPool(process.env.PLATFORM_DATABASE_URL ?? 'postgresql://platform:platform@localhost:55432/platform', {
+      max: 2, application_name: 'enterprise-platform:tenant-limits-api',
     })),
   }],
   exports: [PlatformIdentityService],

@@ -13,6 +13,7 @@ import {
   CheckCircle2,
   CircleAlert,
   Database,
+  FolderArchive,
   KanbanSquare,
   Landmark,
   LoaderCircle,
@@ -79,6 +80,7 @@ const MODULE_ICONS: Record<string, LucideIcon> = {
   finance: Landmark,
   maintenance: Wrench,
   'procedure-engine': Workflow,
+  shared: FolderArchive,
   workspace: KanbanSquare,
 };
 
