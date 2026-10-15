@@ -35,15 +35,12 @@ import { createPortal } from 'react-dom';
 import { Check, ChevronLeft, ChevronRight, Download, FileText, Plus, Search, X } from 'lucide-react';
 import type { AssetCatalogItem, MaterialCatalogItem } from '../procedure-api';
 import {
-  loadProjectFinanceEnabled,
   loadProjectPeople,
   loadProjectWorkItems,
   loadRelatedProjects,
   procedureNameFor,
   WORK_ITEM_PRIORITY_OPTIONS,
   WORK_ITEM_TYPE_OPTIONS,
-  formatVndInput,
-  parseVndInput,
   type ProjectPerson,
   type ProjectWorkItemInput,
   type ProjectWorkItemOption,
@@ -395,8 +392,6 @@ export function WorkspaceBoard({
   const [itemAssignee, setItemAssignee] = useState('');
   const [itemHours, setItemHours] = useState('');
   const [itemType, setItemType] = useState<WorkItemType>('task');
-  const [itemCost, setItemCost] = useState('');
-  const [financeEnabled, setFinanceEnabled] = useState(false);
   const project = relatedProjects?.find((item) => item.id === projectId);
 
   useEffect(() => {
@@ -410,8 +405,6 @@ export function WorkspaceBoard({
     setProjectWorkItems([]);
     setItemParentId('');
     setItemSubmitter('');
-    setFinanceEnabled(false);
-    setItemCost('');
     if (!projectId) return;
     let cancelled = false;
     void loadProjectPeople(projectId)
@@ -424,9 +417,6 @@ export function WorkspaceBoard({
         if (!cancelled) setProjectWorkItems(items);
       })
       .catch(() => undefined);
-    void loadProjectFinanceEnabled(projectId).then((enabled) => {
-      if (!cancelled) setFinanceEnabled(enabled);
-    });
     return () => {
       cancelled = true;
     };
@@ -441,7 +431,6 @@ export function WorkspaceBoard({
     setItemPriority('normal');
     setItemHours('');
     setItemType('task');
-    setItemCost('');
   }, [creating]);
 
   const assigneeOptions = useMemo(
@@ -801,7 +790,6 @@ export function WorkspaceBoard({
                       plannedStart: startDate,
                       plannedEnd: endDate,
                       estimateHours: hoursValue,
-                      estimatedCost: financeEnabled ? parseVndInput(itemCost) : undefined,
                       parentId: itemParentId || undefined,
                       submitterUserId: itemSubmitter || undefined,
                     }
@@ -967,30 +955,6 @@ export function WorkspaceBoard({
                   </div>
                 </div>
 
-                {financeEnabled ? (
-                  <div className={styles.createTimeDateGrid}>
-                    <div className={styles.createFieldGroup}>
-                      <label className={styles.createFieldLabel} htmlFor="create-item-cost">
-                        Chi phí dự toán (VND)
-                      </label>
-                      <input
-                        id="create-item-cost"
-                        inputMode="decimal"
-                        className={styles.createTextInput}
-                        placeholder="Ví dụ 150.000.000"
-                        value={itemCost}
-                        onChange={(event) => setItemCost(formatVndInput(event.target.value))}
-                      />
-                    </div>
-                    <div className={styles.createFieldGroup}>
-                      <label className={styles.createFieldLabel} htmlFor="create-item-actual">
-                        Chi phí thực tế (VND)
-                      </label>
-                      {/* Chi phí thực tế ghi qua sổ chi phí ở tab Tài chính bên Workspace. */}
-                      <input id="create-item-actual" readOnly className={styles.createTextInput} value="0" />
-                    </div>
-                  </div>
-                ) : null}
 
                 <p className={styles.createFormHint}>
                   {isHoursInvalid

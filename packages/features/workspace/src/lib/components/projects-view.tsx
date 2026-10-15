@@ -63,26 +63,24 @@ import { TabActivity } from './tab-activity';
 import { TabCalendar } from './tab-calendar';
 import { TabFinance } from './tab-finance';
 import { TabRequests } from './tab-requests';
-import { TabVouchers } from './tab-vouchers';
 import { TabOverview } from './tab-overview';
 import { TabWork } from './tab-work';
 import { useDirectory } from './use-directory';
 import { ChildItems, WorkItemDialog } from './work-item-dialog';
-import { WorkItemForm, type WorkItemCostInput } from './work-item-form';
+import { WorkItemForm } from './work-item-form';
 import { pendingProcedureOf, type PendingProcedure } from '../procedure-pending';
 
 /**
  * Các tab của dự án. Chi tiết một công việc không còn là tab: bấm một dòng
  * trong bảng WBS thì mở hộp chi tiết của công việc đó.
  */
-type TabId = 'work-items' | 'calendar' | 'documents' | 'finance' | 'vouchers' | 'requests' | 'activity';
+type TabId = 'work-items' | 'calendar' | 'documents' | 'finance' | 'requests' | 'activity';
 
 const TABS: readonly { id: TabId; label: string }[] = [
   { id: 'work-items', label: 'Công việc' },
   { id: 'calendar', label: 'Lịch' },
   { id: 'documents', label: 'Tài liệu' },
   { id: 'finance', label: 'Tài chính' },
-  { id: 'vouchers', label: 'Thu chi' },
   { id: 'requests', label: 'Đơn từ' },
   { id: 'activity', label: 'Hoạt động' },
 ];
@@ -96,7 +94,9 @@ const TAB_IDS = TABS.map((entry) => entry.id);
  */
 function readUrlNode(): { item?: string; tab: TabId } {
   const params = new URLSearchParams(window.location.search);
-  const tab = params.get('tab') as TabId | null;
+  // Đường dẫn cũ `?tab=vouchers` (tab Thu chi đã gộp vào Tài chính) mở thẳng tab Tài chính.
+  const rawTab = params.get('tab');
+  const tab = (rawTab === 'vouchers' ? 'finance' : rawTab) as TabId | null;
   return {
     item: params.get('item') ?? undefined,
     tab: tab && TAB_IDS.includes(tab) ? tab : 'work-items',
@@ -646,18 +646,14 @@ export function ProjectsView({
    * payload. Tab bị gỡ khỏi thanh — không làm mờ, không để một tab trống.
    */
   const visibleTabs = useMemo(
-    // "Thu chi" (phiếu thu/chi của Tài chính) theo cùng quy tắc xem tài chính dự án: Tài chính hỏi lại Workspace khi trả dữ liệu.
-    () =>
-      TABS.filter(
-        (entry) => !['finance', 'vouchers'].includes(entry.id) || Boolean(detail?.project.finance),
-      ),
+    () => TABS.filter((entry) => entry.id !== 'finance' || Boolean(detail?.project.finance)),
     [detail],
   );
 
   // Đang đứng ở tab Tài chính mà chuyển sang dự án không được xem tài chính
   // thì lùi về Tổng quan, thay vì để một vùng nội dung trống.
   useEffect(() => {
-    if ((tab === 'finance' || tab === 'vouchers') && detail && !detail.project.finance) setTab('work-items');
+    if (tab === 'finance' && detail && !detail.project.finance) setTab('work-items');
   }, [tab, detail]);
 
   // Chi tiết dự án vừa tải: áp việc và tab ghi trên đường dẫn (tải lại trang,
@@ -1132,9 +1128,6 @@ export function ProjectsView({
               onChanged={() => void refreshDetail(detail.project.id)}
             />
           ) : null}
-          {tab === 'vouchers' && detail.project.finance ? (
-            <TabVouchers projectId={detail.project.id} />
-          ) : null}
           {tab === 'requests' ? (
             <TabRequests
               projectId={detail.project.id}
@@ -1322,39 +1315,25 @@ export function ProjectsView({
         members={detail?.members ?? []}
         currentUserId={me}
         canAssignOthers={canManage}
-        // Có `project.finance` nghĩa là server đã xác nhận người dùng được
-        // xem tài chính; không có thì hai ô chi phí không được dựng.
-        financeEnabled={Boolean(detail?.project.finance)}
-        initialCost={
-          itemForm.edit
-            ? detail?.project.finance?.items.find(
-                (entry) => entry.workItemId === itemForm.edit?.id,
-              )
-            : undefined
-        }
         adjustmentOf={itemForm.adjustmentOf}
         onClose={() => setItemForm({ open: false })}
         onCreate={async (
           input: Omit<CreateWorkItemRequest, 'projectId'>,
           procedureDefinitionId?: string,
-          costs?: WorkItemCostInput,
         ) => {
           if (!detail) return;
           // Tạo công việc; chọn "Theo quy trình" thì gửi kèm quy trình — Workspace
           // ghi yêu cầu và phát sự kiện, hồ sơ do Quy trình tự mở rồi báo về.
-          const created = await api.createWorkItem({
+          await api.createWorkItem({
             ...input,
             projectId: detail.project.id,
             procedureDefinitionId,
           });
-          // Chi phí đi qua endpoint riêng, không chung payload với công việc.
-          if (costs) await api.updateWorkItemCost(created.id, costs);
           await refreshDetail(detail.project.id);
         }}
-        onUpdate={async (input: UpdateWorkItemRequest, costs?: WorkItemCostInput) => {
+        onUpdate={async (input: UpdateWorkItemRequest) => {
           if (!itemForm.edit || !detail) return;
           await api.updateWorkItem(itemForm.edit.id, input);
-          if (costs) await api.updateWorkItemCost(itemForm.edit.id, costs);
           await refreshDetail(detail.project.id);
         }}
       />

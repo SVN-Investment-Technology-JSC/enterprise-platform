@@ -69,7 +69,6 @@ export interface ProjectWorkItemInput {
   readonly plannedStart?: string;
   readonly plannedEnd?: string;
   readonly estimateHours?: number;
-  readonly estimatedCost?: number;
   /** Công việc cha trong dự án; bỏ trống nghĩa là đặt ở gốc dự án. */
   readonly parentId?: string;
   /** Người submit đơn, chọn trong danh sách người tham gia dự án. */
@@ -152,24 +151,6 @@ export async function loadRelatedProjects(): Promise<RelatedProject[]> {
 }
 
 /**
- * Người dùng có được nhập chi phí trong dự án này không.
- *
- * Workspace chỉ gửi `finance` trong chi tiết dự án (không có ở danh sách) và
- * chỉ cho người được xem tài chính — dựa vào sự có mặt của nó, như form công
- * việc bên đó, thay vì tự suy từ vai trò.
- */
-export async function loadProjectFinanceEnabled(projectId: string): Promise<boolean> {
-  try {
-    const project = await request<{ finance?: unknown }>(`/projects/${projectId}`, {
-      cache: 'no-store',
-    });
-    return Boolean(project.finance);
-  } catch {
-    return false;
-  }
-}
-
-/**
  * Dự án của một công việc Workspace (đọc bằng phiên người dùng). Hồ sơ mở từ
  * công việc "Theo quy trình" không lưu dự án, nên hồ sơ điều chỉnh tra ở đây.
  */
@@ -224,18 +205,6 @@ export async function loadProjectPeople(projectId: string): Promise<ProjectPerso
     userId: member.userId,
     displayName: names.get(member.userId) ?? member.userId,
   }));
-}
-
-/** Định dạng số tiền khi gõ: chỉ giữ chữ số, chèn chấm ngăn nghìn. */
-export function formatVndInput(value: string): string {
-  const digits = value.replace(/\D/g, '').replace(/^0+(?=\d)/, '');
-  return digits.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
-}
-
-/** Đọc lại số tiền đã định dạng; rỗng nghĩa là không nhập. */
-export function parseVndInput(value: string): number | undefined {
-  const digits = value.replace(/\D/g, '');
-  return digits ? Number(digits) : undefined;
 }
 
 /**
