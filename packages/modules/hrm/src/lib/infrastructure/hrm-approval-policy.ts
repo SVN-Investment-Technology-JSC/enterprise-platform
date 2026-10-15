@@ -12,6 +12,7 @@ import {
 import type { PoolClient } from 'pg';
 import { fetchActionableProcedureInstanceIds } from './hrm-procedure-api.js';
 import { HRM_REQUEST_TABLES } from './hrm-procedure-links.js';
+import { chiefFallbackUserIds } from './hrm-chief-fallback.js';
 
 /**
  * FIX-E-07 - Chính sách duyệt đơn ở chế độ DIRECT (ISS-BE-001).
@@ -175,7 +176,10 @@ export async function assertCanDecide(
     const subordinates = row.user_id
       ? await deps.orgScope.subordinateUserIds(deps.tenantId, actor.userId)
       : new Set<string>();
-    let inScope = !!row.user_id && subordinates.has(row.user_id);
+    let inScope =
+      !!row.user_id &&
+      (subordinates.has(row.user_id) ||
+        (await chiefFallbackUserIds(deps.db, deps.tenantId, actor.userId)).has(row.user_id));
     if (!inScope && row.user_id) {
       const fallbackPositionId = await resolveDirectFallbackPosition(
         deps.db,
@@ -577,6 +581,7 @@ export async function resolveApprovalScope(
     deps.tenantId,
     actor.userId,
   );
+  const unassigned = await chiefFallbackUserIds(deps.db, deps.tenantId, actor.userId);
   // Đơn qua Procedure mà PE giao cho người này (quản lý trực tiếp hoặc người dự phòng) dù không thuộc cấp dưới.
   const procedureRequestIds = await procedureActionableRequestIds(deps.db, deps.tenantId, kind, actor.userId);
   // Đơn duyệt trực tiếp mà người này giữ chức danh duyệt dự phòng được cấu hình.
@@ -584,7 +589,7 @@ export async function resolveApprovalScope(
   const requestIds = [...new Set([...procedureRequestIds, ...directFallbackRequestIds])];
   return {
     all: false,
-    userIds: [...subordinates],
+    userIds: [...new Set([...subordinates, ...unassigned])],
     excludeUserId,
     requestIds,
   };
@@ -854,9 +859,12 @@ export class HrmApprovalPolicyService {
       ctx.tenantId,
       ctx.principal.userId,
     );
+    const unassigned = ctx.pool
+      ? await chiefFallbackUserIds(ctx.pool, ctx.tenantId, ctx.principal.userId)
+      : new Set<string>();
     return describeApprovalScope(
       permissions,
-      subordinates.size,
+      new Set([...subordinates, ...unassigned]).size,
     );
   }
 

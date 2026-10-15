@@ -28,6 +28,7 @@ import {
 import { loadAllowSelfApproval, SELF_APPROVAL_FORBIDDEN } from './hrm-approval-policy.js';
 
 import { lifecycleAudit } from './hrm-lifecycle.js';
+import { loadChiefFor } from './hrm-chief-fallback.js';
 import {
   type HrmOrgAppointmentPort,
   HrmOrgAppointmentError,
@@ -563,7 +564,19 @@ export async function loadDirectManagerRef(
   tenantId: string,
   employeeId: string,
 ): Promise<HrmDirectManagerRef | null> {
-  return managerFromCorePositions(db, tenantId, employeeId);
+  const fromCore = await managerFromCorePositions(db, tenantId, employeeId);
+  if (fromCore) return fromCore;
+  const chief = await loadChiefFor(db, tenantId, employeeId).catch(() => null);
+  return chief
+    ? {
+        employeeId: chief.employeeId,
+        name: chief.name,
+        title: chief.title,
+        email: chief.email,
+        code: chief.code,
+        source: 'CHIEF_FALLBACK',
+      }
+    : null;
 }
 
 export async function loadAppointmentContext(
