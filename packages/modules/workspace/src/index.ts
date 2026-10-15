@@ -28,3 +28,5 @@ export * from './lib/application/workday-rule.service.js';
 export * from './lib/application/project-role.service.js';
 export * from './lib/application/fleet-transport.service.js';
 export * from './lib/infrastructure/project-request-events.js';
+export * from './lib/application/standalone-task.service.js';
+export * from './lib/domain/standalone-task.rules.js';

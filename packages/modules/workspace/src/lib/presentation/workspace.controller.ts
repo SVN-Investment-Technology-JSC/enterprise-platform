@@ -24,6 +24,10 @@ import type {
   CreateFolderRequest,
   UpdateFolderRequest,
   AddFolderRefRequest,
+  ChangeStandaloneTaskStatusRequest,
+  CreateStandaloneTaskRequest,
+  ReverseStandaloneTaskRequest,
+  UpdateStandaloneTaskRequest,
   EnsureFolderPathRequest,
   CreateProjectRequest,
   CreateSavedFilterRequest,
@@ -65,6 +69,7 @@ import { WorkdayRuleService } from '../application/workday-rule.service.js';
 import { InternalLookupService } from '../application/internal-lookup.service.js';
 import { MyWorkService } from '../application/my-work.service.js';
 import { ReportService } from '../application/report.service.js';
+import { StandaloneTaskService } from '../application/standalone-task.service.js';
 import { WorkspaceError } from '../domain/workspace.error.js';
 
 /**
@@ -120,6 +125,7 @@ export class WorkspaceController {
     private readonly projectRoles: ProjectRoleService,
     private readonly workItemDeletion: WorkItemDeletionService,
     private readonly fleetTransport: FleetTransportService,
+    private readonly standaloneTasks: StandaloneTaskService,
   ) {}
 
   /**
@@ -710,8 +716,29 @@ export class WorkspaceController {
     @Req() request: WorkspaceRequest,
     @Param('entityType') entityType: string,
     @Param('entityId') entityId: string,
+    @Query('before') before?: string,
   ) {
-    return this.execute(() => this.chat.thread(this.actor(request), entityType, entityId));
+    return this.execute(() =>
+      this.chat.thread(this.actor(request), entityType, entityId, before || undefined),
+    );
+  }
+
+  /**
+   * Ai cần nhận tín hiệu "đang nhập" của một node.
+   *
+   * Dịch vụ realtime gọi bằng cookie của người đang gõ để kiểm quyền và lấy danh
+   * sách; kết quả được nó lưu tạm. Dùng tiền tố riêng `chat-typing` để không bao
+   * giờ bị route `chat/:entityType/:entityId` bắt nhầm.
+   */
+  @Get('chat-typing/recipients')
+  chatTypingRecipients(
+    @Req() request: WorkspaceRequest,
+    @Query('entityType') entityType: string,
+    @Query('entityId') entityId: string,
+  ) {
+    return this.execute(() =>
+      this.chat.typingRecipients(this.actor(request), entityType ?? '', entityId ?? ''),
+    );
   }
 
   @Post('chat/messages')
@@ -806,6 +833,80 @@ export class WorkspaceController {
   @Get('my-work')
   myWork(@Req() request: WorkspaceRequest) {
     return this.execute(() => this.myWorkService.summary(this.actor(request)));
+  }
+
+  /* ------------------------------------------ Công việc ngoài dự án */
+
+  /** `scope`: `assigned_to_me` (mặc định), `assigned_by_me` hoặc `following`. */
+  @Get('standalone-tasks')
+  listStandaloneTasks(@Req() request: WorkspaceRequest, @Query('scope') scope?: string) {
+    return this.execute(() => this.standaloneTasks.list(this.actor(request), scope));
+  }
+
+  @Get('standalone-tasks/:id')
+  getStandaloneTask(@Req() request: WorkspaceRequest, @Param('id') id: string) {
+    return this.execute(() => this.standaloneTasks.detail(this.actor(request), id));
+  }
+
+  @Post('standalone-tasks')
+  @HttpCode(201)
+  createStandaloneTask(
+    @Req() request: WorkspaceRequest,
+    @Body() body: CreateStandaloneTaskRequest,
+  ) {
+    return this.execute(() =>
+      this.standaloneTasks.create(
+        this.actor(request),
+        body ?? ({} as CreateStandaloneTaskRequest),
+      ),
+    );
+  }
+
+  @Patch('standalone-tasks/:id')
+  updateStandaloneTask(
+    @Req() request: WorkspaceRequest,
+    @Param('id') id: string,
+    @Body() body: UpdateStandaloneTaskRequest,
+  ) {
+    return this.execute(() => this.standaloneTasks.update(this.actor(request), id, body ?? {}));
+  }
+
+  @Patch('standalone-tasks/:id/status')
+  changeStandaloneTaskStatus(
+    @Req() request: WorkspaceRequest,
+    @Param('id') id: string,
+    @Body() body: ChangeStandaloneTaskStatusRequest,
+  ) {
+    return this.execute(() =>
+      this.standaloneTasks.changeStatus(
+        this.actor(request),
+        id,
+        body ?? ({} as ChangeStandaloneTaskStatusRequest),
+      ),
+    );
+  }
+
+  /** Huỷ hiệu lực việc đã hoàn thành (người giao). */
+  @Post('standalone-tasks/:id/reverse')
+  @HttpCode(200)
+  reverseStandaloneTask(
+    @Req() request: WorkspaceRequest,
+    @Param('id') id: string,
+    @Body() body: ReverseStandaloneTaskRequest,
+  ) {
+    return this.execute(() =>
+      this.standaloneTasks.reverse(
+        this.actor(request),
+        id,
+        body ?? ({} as ReverseStandaloneTaskRequest),
+      ),
+    );
+  }
+
+  @Delete('standalone-tasks/:id')
+  @HttpCode(204)
+  removeStandaloneTask(@Req() request: WorkspaceRequest, @Param('id') id: string) {
+    return this.execute(() => this.standaloneTasks.remove(this.actor(request), id));
   }
 
   /* ----------------------------------------------------------- Báo cáo */

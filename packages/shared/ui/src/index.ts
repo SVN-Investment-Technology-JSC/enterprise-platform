@@ -9,4 +9,5 @@ export * from './lib/auth-fetch';
 export * from './lib/session-keep-alive';
 export * from './lib/notification-client';
 export * from './lib/notification-center';
+export * from './lib/realtime-bus';
 export * from './lib/date-format';

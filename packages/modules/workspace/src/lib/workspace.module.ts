@@ -28,6 +28,7 @@ import {
 } from './application/organization-directory.port.js';
 import { ProjectService } from './application/project.service.js';
 import { ReportService } from './application/report.service.js';
+import { StandaloneTaskService } from './application/standalone-task.service.js';
 import { WorkItemService } from './application/work-item.service.js';
 import { WorkItemDeletionService } from './application/work-item-deletion.service.js';
 import { HttpProcedureReversalChecker } from './infrastructure/http-procedure-reversal-check.js';
@@ -192,6 +193,14 @@ import { WorkspaceController } from './presentation/workspace.controller.js';
       inject: [WORKSPACE_STORE, ProjectService],
     },
     {
+      // Không nhận ProjectService: việc giao lẻ không thuộc dự án nào, quyền
+      // suy từ vai của người gọi trên chính việc đó.
+      provide: StandaloneTaskService,
+      useFactory: (store: WorkspaceStore, directory: DirectoryService) =>
+        new StandaloneTaskService(store, directory, new HttpProcedureReversalChecker()),
+      inject: [WORKSPACE_STORE, DirectoryService],
+    },
+    {
       provide: CatalogService,
       useFactory: (store: WorkspaceStore, projects: ProjectService) =>
         new CatalogService(store, projects),
@@ -215,6 +224,7 @@ import { WorkspaceController } from './presentation/workspace.controller.js';
     ProjectRoleService,
     CatalogService,
     FleetTransportService,
+    StandaloneTaskService,
     TenantDatabaseRegistry,
     PostgresPoolRegistry,
   ],

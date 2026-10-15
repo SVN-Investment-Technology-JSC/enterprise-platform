@@ -1,5 +1,12 @@
 import {
+  PROCEDURE_INSTANCE_COMPLETED,
   PROCEDURE_INSTANCE_REVERSED,
+  PROCEDURE_STANDALONE_TASK_START_REJECTED,
+  PROCEDURE_STARTED_FOR_STANDALONE_TASK,
+  STANDALONE_TASK_PROCEDURE_SOURCE,
+  type ProcedureInstanceCompletedPayload,
+  type ProcedureStandaloneTaskStartRejectedPayload,
+  type ProcedureStartedForStandaloneTaskPayload,
   PROCEDURE_STARTED_FOR_WORK_ITEM,
   PROCEDURE_WORK_ITEM_START_REJECTED,
   PROCEDURE_WORKSPACE_LINK_REQUESTED,
@@ -10,6 +17,7 @@ import {
   type ProcedureStartedForWorkItemPayload,
   type ProcedureWorkItemStartRejectedPayload,
 } from '../domain/workspace-procedure-link.js';
+import { timezoneOf, todayKey } from '../domain/tenant-time.js';
 import { WorkspaceError, WorkspaceSchemaNotReadyError } from '../domain/workspace.error.js';
 import type { FinanceService } from './finance.service.js';
 import type { WorkspaceActor } from './workspace.application.js';
@@ -22,6 +30,10 @@ export const WORKSPACE_PROCEDURE_EVENT_TYPES = [
   PROCEDURE_STARTED_FOR_WORK_ITEM,
   PROCEDURE_WORK_ITEM_START_REJECTED,
   PROCEDURE_INSTANCE_REVERSED,
+  // Công việc ngoài dự án theo quy trình.
+  PROCEDURE_STARTED_FOR_STANDALONE_TASK,
+  PROCEDURE_STANDALONE_TASK_START_REJECTED,
+  PROCEDURE_INSTANCE_COMPLETED,
 ] as const;
 
 /**
@@ -49,6 +61,10 @@ export class WorkspaceProcedureEvents {
     } else if (type === PROCEDURE_INSTANCE_REVERSED) {
       // Hồ sơ gắn công việc bị huỷ hiệu lực → công việc huỷ hiệu lực theo.
       const reversed = payload as ProcedureInstanceReversedPayload;
+      if (reversed.sourceType === STANDALONE_TASK_PROCEDURE_SOURCE) {
+        await this.reverseStandaloneTask(tenantId, reversed);
+        return;
+      }
       if (!reversed.workItemId) return;
       await this.workItems.reverseForProcedure(tenantId, reversed.workItemId, {
         instanceCode: reversed.instanceCode,
@@ -60,7 +76,67 @@ export class WorkspaceProcedureEvents {
     } else if (type === PROCEDURE_WORK_ITEM_START_REJECTED) {
       const rejected = payload as ProcedureWorkItemStartRejectedPayload;
       await this.store.procedureRequest.markRejected(tenantId, rejected.workItemId, rejected.reason);
+    } else if (type === PROCEDURE_STARTED_FOR_STANDALONE_TASK) {
+      const started = payload as ProcedureStartedForStandaloneTaskPayload;
+      await this.store.standaloneTask.markProcedureStarted(
+        tenantId,
+        started.taskId,
+        started.instanceId,
+        started.instanceCode,
+      );
+    } else if (type === PROCEDURE_STANDALONE_TASK_START_REJECTED) {
+      const rejected = payload as ProcedureStandaloneTaskStartRejectedPayload;
+      await this.store.standaloneTask.markProcedureStartRejected(
+        tenantId,
+        rejected.taskId,
+        rejected.reason,
+      );
+    } else if (type === PROCEDURE_INSTANCE_COMPLETED) {
+      // Sự kiện chung cho mọi hồ sơ; chỉ hồ sơ mở cho việc ngoài dự án là của Workspace.
+      const completed = payload as ProcedureInstanceCompletedPayload;
+      if (completed?.sourceType !== STANDALONE_TASK_PROCEDURE_SOURCE || !completed.instanceId) return;
+      const outcome =
+        completed.status === 'completed'
+          ? 'completed'
+          : completed.status === 'rejected'
+            ? 'rejected'
+            : completed.status === 'cancelled'
+              ? 'cancelled'
+              : undefined;
+      if (!outcome) return;
+      await this.store.standaloneTask.applyProcedureOutcome(
+        tenantId,
+        completed.instanceId,
+        outcome,
+        completed.instanceCode,
+        todayKey(timezoneOf(tenantId)),
+      );
     }
+  }
+
+  /**
+   * Hồ sơ của việc ngoài dự án bị huỷ hiệu lực bên Quy trình → việc huỷ hiệu
+   * lực theo. Quyết định đã do Quy trình đưa ra nên không kiểm vai; không nhờ
+   * Quy trình huỷ lại hồ sơ (tránh vòng lặp). Việc đã huỷ hiệu lực thì thôi.
+   */
+  private async reverseStandaloneTask(
+    tenantId: string,
+    reversed: ProcedureInstanceReversedPayload,
+  ): Promise<void> {
+    const task = await this.store.standaloneTask.findByProcedureInstance(
+      tenantId,
+      reversed.instanceId,
+    );
+    if (!task || task.reversal) return;
+    await this.store.standaloneTask.reverse(tenantId, task.id, {
+      reversedBy: reversed.reversedBy,
+      reversedByName: reversed.reversedByName,
+      reason: `Hồ sơ ${reversed.instanceCode} bị huỷ hiệu lực: ${reversed.reason}`.slice(0, 1000),
+      today: todayKey(timezoneOf(tenantId)),
+      notifyProcedure: false,
+      // Quy trình yêu cầu điều chỉnh: ghi nhận để người giao lập việc điều chỉnh.
+      adjustmentRequested: reversed.adjustmentRequested === true,
+    });
   }
 
   /**

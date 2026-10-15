@@ -7,14 +7,12 @@ import {
   type ProjectMember,
   type UpdateWorkItemRequest,
   type WorkItem,
-  type WorkItemCost,
   type WorkItemPriority,
   type WorkItemType,
 } from '@enterprise-platform/contracts-workspace';
 import { fromLocalInput } from '@enterprise-platform/shared-ui';
 import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import { useEffect, useState } from 'react';
-import { formatVndWhileTyping, parseVndInput, toVndInput } from '../money';
 import { loadProcedureOptions, type ProcedureOption } from '../procedure-api';
 import { ITEM_TYPE_LABELS, PRIORITY_LABELS } from '../workspace-labels';
 import styles from '../workspace.module.scss';
@@ -48,16 +46,8 @@ export interface WorkItemFormProps {
   readonly onCreate: (
     input: Omit<CreateWorkItemRequest, 'projectId'>,
     procedureDefinitionId?: string,
-    costs?: WorkItemCostInput,
   ) => Promise<void>;
-  readonly onUpdate: (input: UpdateWorkItemRequest, costs?: WorkItemCostInput) => Promise<void>;
-  /**
-   * Người dùng được nhập chi phí — chỉ `owner`, `manager` và quản trị viên.
-   * Tắt thì hai ô chi phí **không được dựng**, không phải bị vô hiệu hoá.
-   */
-  readonly financeEnabled?: boolean;
-  /** Chi phí hiện có khi sửa; lấy từ payload tài chính của dự án. */
-  readonly initialCost?: WorkItemCost;
+  readonly onUpdate: (input: UpdateWorkItemRequest) => Promise<void>;
   /** Tạo công việc điều chỉnh cho công việc đã huỷ hiệu lực: điền sẵn từ công việc gốc. */
   readonly adjustmentOf?: WorkItem;
   /**
@@ -77,16 +67,6 @@ export interface WorkItemFormProps {
   readonly onProjectChange?: (projectId: string) => void;
 }
 
-/**
- * Chi phí gửi kèm khi lưu công việc.
- *
- * Nơi gọi ghi chúng qua endpoint riêng `PATCH /work-items/:id/costs` — số
- * tiền không bao giờ đi chung payload với các trường thường của công việc.
- */
-export interface WorkItemCostInput {
-  readonly estimatedCost: number | null;
-}
-
 interface FormState {
   projectId: string;
   parentId: string;
@@ -102,7 +82,6 @@ interface FormState {
   plannedEnd: string;
   estimateHours: string;
   procedureDefinitionId: string;
-  estimatedCost: string;
 }
 
 const EMPTY: FormState = {
@@ -120,7 +99,6 @@ const EMPTY: FormState = {
   plannedEnd: '',
   estimateHours: '',
   procedureDefinitionId: '',
-  estimatedCost: '',
 };
 
 export function WorkItemForm({
@@ -133,8 +111,6 @@ export function WorkItemForm({
   onClose,
   onCreate,
   onUpdate,
-  financeEnabled = false,
-  initialCost,
   adjustmentOf,
   parentOptions,
   defaultParentId,
@@ -174,7 +150,6 @@ export function WorkItemForm({
             plannedEnd: item.plannedEnd ?? '',
             estimateHours: item.estimateHours == null ? '' : String(item.estimateHours),
             procedureDefinitionId: '',
-            estimatedCost: toVndInput(initialCost?.estimatedCost),
           }
         : adjustmentOf
           ? {
@@ -198,7 +173,7 @@ export function WorkItemForm({
     );
     setError(undefined);
     setSubmitting(false);
-  }, [open, item, initialCost, adjustmentOf, defaultParentId, parent?.id]);
+  }, [open, item, adjustmentOf, defaultParentId, parent?.id]);
 
   const set = (patch: Partial<FormState>) => setForm((current) => ({ ...current, ...patch }));
 
@@ -235,30 +210,8 @@ export function WorkItemForm({
         },
     );
 
-  // Chi phí chỉ có nghĩa với việc thật, không với nhóm công việc — server
-  // cũng từ chối chi phí trên `phase` vì nó sẽ bị cộng hai lần cùng việc con.
-  const showCosts = financeEnabled && !isPhase;
-
-  /**
-   * Đọc ô chi phí dự toán. Chi phí thực tế không nhập ở đây — nó ghi qua sổ
-   * chi phí (tab Tài chính) để mỗi khoản có lý do và người ghi. Chặn số âm và chuỗi không đọc được ngay ở đây để báo
-   * sớm; server vẫn kiểm lại — client chỉ là tiện lợi, không phải hàng rào.
-   */
-  const readCosts = (): WorkItemCostInput | string | undefined => {
-    if (!showCosts) return undefined;
-    const estimated = parseVndInput(form.estimatedCost);
-    if (estimated === undefined) return 'Chi phí dự toán: không đọc được số.';
-    if ((estimated ?? 0) < 0) return 'Chi phí dự toán không được là số âm.';
-    return { estimatedCost: estimated };
-  };
-
   const submit = async () => {
     setError(undefined);
-    const costs = readCosts();
-    if (typeof costs === 'string') {
-      setError(costs);
-      return;
-    }
     // Nhóm công việc không đi lại; các loại khác: xe công ty phải chọn đủ xe, tài xế và giờ.
     const transportBlock = isPhase ? undefined : transport.payload();
     if (!isPhase && transport.value.mode && transport.problem) {
@@ -284,7 +237,7 @@ export function WorkItemForm({
           plannedEnd: form.plannedEnd || null,
           estimateHours: isPhase ? null : (hours ?? null),
           transport: transportBlock,
-        }, costs);
+        });
       } else {
         if (projectOptions && !form.projectId) {
           setError('Hãy chọn dự án cho công việc này.');
@@ -313,7 +266,6 @@ export function WorkItemForm({
           transport: transportBlock ?? undefined,
         },
         form.executionType === 'procedure' ? form.procedureDefinitionId : undefined,
-        costs,
         );
       }
       onClose();
@@ -532,27 +484,6 @@ export function WorkItemForm({
       </div>
 
       {isPhase ? null : <TransportSection state={transport} editableRange idPrefix="work-item-transport" />}
-
-      {showCosts ? (
-        <div className={styles.fieldRow}>
-          <Field label="Chi phí dự toán (VND)">
-            <input
-              inputMode="decimal"
-              value={form.estimatedCost}
-              placeholder="Ví dụ 150.000.000"
-              // Chấm ngăn nghìn hiện ngay khi gõ; đếm số 0 bằng mắt là cách
-              // chắc chắn nhập sai một bậc.
-              onChange={(event) =>
-                set({ estimatedCost: formatVndWhileTyping(event.target.value) })
-              }
-            />
-          </Field>
-          <Field label="Chi phí thực tế (VND)" hint="Ghi từng khoản kèm lý do ở tab Tài chính.">
-            {/* Đơn vị đã nằm ở nhãn "(VND)", không lặp lại ký hiệu đ trong ô. */}
-            <input readOnly value={toVndInput(initialCost?.actualCost ?? 0)} />
-          </Field>
-        </div>
-      ) : null}
     </Dialog>
   );
 }

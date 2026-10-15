@@ -45,6 +45,7 @@ import {
   normalizeAttributeValue,
 } from '../domain/procedure-attributes.js';
 import { resolveGatewayStepReferences } from '../domain/procedure-flow.policy.js';
+import { sanitizeMentions } from '../domain/procedure-mentions.js';
 import { buildInstanceProgress, buildInstanceStatusEntry, instanceSequence } from '../domain/procedure-progress.js';
 import {
   activateStep,
@@ -90,8 +91,10 @@ import {
 } from './procedure-settings.js';
 import { computeSlaDueAt } from '@enterprise-platform/contracts-procedure-engine';
 import {
+  standaloneTaskIdempotencyKey,
   workItemIdempotencyKey,
   workspaceInstanceTitle,
+  type StandaloneTaskProcedureRequestedPayload,
   type WorkItemProcedureRequestedPayload,
 } from '../domain/procedure-workspace-link.js';
 import type {
@@ -2760,7 +2763,7 @@ export class ProcedureEngineApplication {
         actorName: actor.displayName,
         summary: 'Đã gửi trao đổi.',
         comment: body,
-        mentions: input.mentions?.length ? [...new Set(input.mentions)] : undefined,
+        mentions: sanitizeMentions(input.mentions),
         // Chỉ nhận id trỏ tới một trao đổi CÓ THẬT trong chính hồ sơ này. Id lạ
         // bị bỏ đi thay vì chặn gửi: mất phần trích dẫn còn hơn mất cả nội dung
         // người dùng vừa gõ.
@@ -2777,6 +2780,39 @@ export class ProcedureEngineApplication {
       return instance;
     });
     return this.withAuthorization(result, actor);
+  }
+
+  /**
+   * Một hồ sơ mà người gọi là người tham gia, để trình duyệt làm mới ĐÚNG hồ sơ đang mở khi có tin mới
+   * (trước đây chỉ có thể nạp lại cả workspace). Người ngoài nhận 404 như thể hồ sơ không tồn tại.
+   */
+  async getInstance(actor: ProcedureActor, instanceId: string): Promise<ProcedureInstance> {
+    const instance = await this.participantInstance(actor, instanceId);
+    return this.withAuthorization(instance, actor);
+  }
+
+  /**
+   * Người gọi có được vào phòng thời gian thực của hồ sơ không. Dịch vụ realtime gọi bằng cookie của
+   * chính người đó, nên quyền vẫn do module này quyết định theo đúng luật người tham gia của hồ sơ.
+   */
+  async getChatAccess(
+    actor: ProcedureActor,
+    instanceId: string,
+  ): Promise<{ readonly canComment: boolean }> {
+    const instance = await this.participantInstance(actor, instanceId);
+    return { canComment: instance.status === 'running' };
+  }
+
+  private async participantInstance(
+    actor: ProcedureActor,
+    instanceId: string,
+  ): Promise<ProcedureInstance> {
+    const state = await this.store.read(actor.tenantId);
+    const instance = state.instances.find((candidate) => candidate.id === instanceId);
+    if (!instance || !isProcedureParticipant(instance, actor)) {
+      throw new ProcedureEngineError('not_found', 'Không tìm thấy hồ sơ.');
+    }
+    return instance;
   }
 
   async applyAction(
@@ -3251,24 +3287,67 @@ export class ProcedureEngineApplication {
     return { projectId, projectCode, workItem: { ...item } };
   }
 
-  /**
-   * Mở hồ sơ cho một công việc "Theo quy trình" bên Workspace, khi nhận sự kiện.
-   *
-   * Chạy dưới danh nghĩa người tạo công việc: tra tổ chức của họ để kiểm vai S
-   * như khi họ tự bấm mở hồ sơ. Quản trị tenant (Workspace đã xác thực) được
-   * bỏ qua vai S như ở giao diện. Lỗi nghiệp vụ trả về lý do để báo lại
-   * Workspace; lỗi hạ tầng ném ra để sự kiện được xử lý lại.
-   */
+  /** Mở hồ sơ cho một công việc dự án "Theo quy trình" bên Workspace, khi nhận sự kiện. */
   async startForWorkspaceWorkItem(
     tenantId: string,
     request: WorkItemProcedureRequestedPayload,
   ): Promise<{ ok: true; instance: ProcedureInstance } | { ok: false; reason: string }> {
+    return this.startForWorkspaceSource(tenantId, request, {
+      definitionId: request.definitionId,
+      title: workspaceInstanceTitle(request.projectCode, request.workItemCode, request.title),
+      idempotencyKey: workItemIdempotencyKey(request.workItemId),
+      sourceType: 'workspace_work_item',
+      sourceId: request.workItemId,
+    });
+  }
+
+  /**
+   * Mở hồ sơ cho một việc ngoài dự án "Theo quy trình", cùng luật với công
+   * việc dự án: chạy dưới danh nghĩa người giao việc, kiểm vai S như khi họ tự
+   * bấm. Tên hồ sơ là `[mã việc]-[tên]`, ví dụ `GV012-Soạn báo giá`.
+   */
+  async startForWorkspaceStandaloneTask(
+    tenantId: string,
+    request: StandaloneTaskProcedureRequestedPayload,
+  ): Promise<{ ok: true; instance: ProcedureInstance } | { ok: false; reason: string }> {
+    return this.startForWorkspaceSource(tenantId, request, {
+      definitionId: request.definitionId,
+      title: workspaceInstanceTitle('', request.taskCode, request.title),
+      idempotencyKey: standaloneTaskIdempotencyKey(request.taskId),
+      sourceType: 'workspace_standalone_task',
+      sourceId: request.taskId,
+    });
+  }
+
+  /**
+   * Mở hồ sơ thay cho một người dùng Workspace, khi nhận sự kiện.
+   *
+   * Tra tổ chức của người yêu cầu để kiểm vai S như khi họ tự bấm mở hồ sơ.
+   * Quản trị tenant (Workspace đã xác thực) được bỏ qua vai S như ở giao diện.
+   * Lỗi nghiệp vụ trả về lý do để báo lại Workspace; lỗi hạ tầng ném ra để sự
+   * kiện được xử lý lại.
+   */
+  private async startForWorkspaceSource(
+    tenantId: string,
+    requester: {
+      readonly requestedBy: string;
+      readonly requestedByName?: string;
+      readonly requestedByIsTenantAdmin: boolean;
+    },
+    start: {
+      readonly definitionId: string;
+      readonly title: string;
+      readonly idempotencyKey: string;
+      readonly sourceType: 'workspace_work_item' | 'workspace_standalone_task';
+      readonly sourceId: string;
+    },
+  ): Promise<{ ok: true; instance: ProcedureInstance } | { ok: false; reason: string }> {
     const resolved = await this.initiatorActors?.resolve(
       tenantId,
-      request.requestedBy,
-      request.requestedByName,
+      requester.requestedBy,
+      requester.requestedByName,
     );
-    if (!resolved && !request.requestedByIsTenantAdmin) {
+    if (!resolved && !requester.requestedByIsTenantAdmin) {
       return {
         ok: false,
         reason: 'Người tạo công việc chưa có trong sơ đồ tổ chức nên không khớp được vai S của quy trình.',
@@ -3277,25 +3356,25 @@ export class ProcedureEngineApplication {
     const actor: ProcedureActor = {
       ...(resolved ?? {
         tenantId,
-        userId: request.requestedBy,
-        membershipId: request.requestedBy,
-        displayName: request.requestedByName || request.requestedBy,
+        userId: requester.requestedBy,
+        membershipId: requester.requestedBy,
+        displayName: requester.requestedByName || requester.requestedBy,
         canDesign: false,
         canPublish: false,
         organizationUnitIds: [],
         positionIds: [],
       }),
       canCreateInstances: true,
-      isOverride: request.requestedByIsTenantAdmin,
+      isOverride: requester.requestedByIsTenantAdmin,
     } as ProcedureActor;
     try {
       const { instance } = await this.startInstanceDetailed(actor, {
-        definitionId: request.definitionId,
-        title: workspaceInstanceTitle(request.projectCode, request.workItemCode, request.title),
-        idempotencyKey: workItemIdempotencyKey(request.workItemId),
-        sourceType: 'workspace_work_item',
-        sourceId: request.workItemId,
-        initiatedByName: request.requestedByName,
+        definitionId: start.definitionId,
+        title: start.title,
+        idempotencyKey: start.idempotencyKey,
+        sourceType: start.sourceType,
+        sourceId: start.sourceId,
+        initiatedByName: requester.requestedByName,
       });
       return { ok: true, instance };
     } catch (error) {

@@ -535,10 +535,16 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       path: 'tenant/workspace/0020-workspace-project-role-definitions.sql',
     },
     {
-      version: '0021-workspace-fleet-transport',
-      path: 'tenant/workspace/0021-workspace-fleet-transport.sql',
+      version: '0021-workspace-standalone-tasks',
+      path: 'tenant/workspace/0021-workspace-standalone-tasks.sql',
+    },
+    {
+      version: '0022-workspace-fleet-transport',
+      path: 'tenant/workspace/0022-workspace-fleet-transport.sql',
     },
   ],
+  // Hệ dùng chung: phần đầu là Tài liệu công ty (kho tách khỏi tài liệu dự án).
+  shared: [{ version: '0001-shared-documents', path: 'tenant/shared/0001-shared-documents.sql' }],
 };
 
 /**

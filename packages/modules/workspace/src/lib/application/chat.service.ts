@@ -1,10 +1,12 @@
 import {
   CHAT_EDIT_WINDOW_MINUTES,
   CHAT_ENTITY_TYPES,
+  CHAT_PAGE_SIZE,
   MAX_CHAT_BODY_LENGTH,
   type ChatEntityType,
   type ChatMessage,
   type ChatThread,
+  type ChatTypingRecipients,
   type SendChatMessageRequest,
   type SendChatMessageResponse,
   type UnreadSummary,
@@ -17,12 +19,11 @@ import {
   WorkItemNotFoundError,
   WorkspaceValidationError,
 } from '../domain/workspace.error.js';
-import { hasProjectRole, requireProjectRole, type ProjectService } from './project.service.js';
+import { requireProjectRole, type ProjectService } from './project.service.js';
 import type { WorkspaceActor } from './workspace.application.js';
 import type { WorkspaceStore } from './workspace-store.port.js';
 
-/** Số tin tải về mỗi lần mở Drawer. Cuộn lên xa hơn chưa hỗ trợ ở đợt này. */
-const MESSAGE_PAGE_SIZE = 200;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export class ChatService {
   constructor(
@@ -40,23 +41,61 @@ export class ChatService {
     actor: WorkspaceActor,
     entityType: string,
     entityId: string,
+    before?: string,
   ): Promise<ChatThread> {
+    if (before !== undefined && !UUID.test(before)) {
+      throw new WorkspaceValidationError('Mốc phân trang "before" phải là id tin nhắn.');
+    }
     const target = await this.resolve(actor, entityType, entityId);
     const channel = await this.store.chat.findChannel(
       actor.tenantId,
       target.entityType,
       target.entityId,
     );
-    if (!channel) return { messages: [] };
+    if (!channel) return { messages: [], hasMore: false };
 
-    const messages = await this.store.chat.listMessages(
+    const page = await this.store.chat.listMessages(
       actor.tenantId,
       channel.id,
-      MESSAGE_PAGE_SIZE,
+      CHAT_PAGE_SIZE,
+      before,
     );
-    // Mở luồng ra là đã đọc; đánh dấu ngay để chấm đỏ tắt ở lần hỏi kế tiếp.
-    await this.store.chat.markRead(actor.tenantId, channel.id, actor.userId);
-    return { channel, messages };
+    // Xin trang cũ hơn chỉ là cuộn lại quá khứ, không phải xem thêm tin mới.
+    if (before) return { channel, messages: page.messages, hasMore: page.hasMore };
+
+    // Mở luồng ra là đã đọc, nhưng chỉ TỚI tin mới nhất vừa trả về: tin đến sau
+    // lúc truy vấn trên chưa được hiển thị nên vẫn phải là chưa đọc.
+    const newest = page.messages[page.messages.length - 1];
+    if (newest) {
+      await this.store.chat.markRead(actor.tenantId, channel.id, actor.userId, newest.id, {
+        announce: true,
+      });
+    }
+    const readers = await this.store.chat.listReaders(actor.tenantId, channel.id);
+    return { channel, messages: page.messages, hasMore: page.hasMore, readers };
+  }
+
+  /**
+   * Những người cần biết "có người đang nhập" ở một node: thành viên dự án và những người đã
+   * mở luồng chat này (quản trị tenant xem được dự án mà không phải thành viên), trừ chính người hỏi.
+   *
+   * Chỉ người được phép nhắn (`member` trở lên) mới hỏi được, vì viewer không
+   * có ô nhập. Dịch vụ realtime gọi hàm này bằng chính cookie của người đang gõ,
+   * nên quyền vẫn do module này quyết định, không phải dịch vụ realtime.
+   */
+  async typingRecipients(
+    actor: WorkspaceActor,
+    entityType: string,
+    entityId: string,
+  ): Promise<ChatTypingRecipients> {
+    const target = await this.resolve(actor, entityType, entityId);
+    requireProjectRole(target.access, 'member');
+    const members = await this.store.member.list(actor.tenantId, target.projectId);
+    const channel = await this.store.chat.findChannel(actor.tenantId, target.entityType, target.entityId);
+    const readers = channel ? await this.store.chat.listReaders(actor.tenantId, channel.id) : [];
+    const userIds = new Set([...members.map((member) => member.userId), ...readers.map((reader) => reader.userId)]);
+    userIds.delete(actor.userId);
+    return { userIds: [...userIds] };
   }
 
   async send(
@@ -95,8 +134,9 @@ export class ChatService {
       attachmentDocumentId,
     });
 
-    // Người gửi coi như đã đọc chính tin của mình.
-    await this.store.chat.markRead(actor.tenantId, channel.id, actor.userId);
+    // Người gửi coi như đã đọc chính tin của mình. Không cần báo cho người khác
+    // (tin vừa gửi đã có tín hiệu `created`).
+    await this.store.chat.markRead(actor.tenantId, channel.id, actor.userId, message.id);
     return { message, droppedMentions: dropped };
   }
 
@@ -128,22 +168,34 @@ export class ChatService {
 
     const body = requireBody(input.body);
     const { mentions } = await this.filterMentions(actor, projectId, input.mentions);
-    return this.store.chat.editMessage(actor.tenantId, messageId, body, mentions);
+    const alreadyMentioned = new Set(message.mentions);
+    return this.store.chat.editMessage(
+      actor.tenantId,
+      actor.userId,
+      messageId,
+      body,
+      mentions,
+      mentions.filter((userId) => !alreadyMentioned.has(userId)),
+    );
   }
 
   /**
    * Thu hồi tin nhắn.
    *
-   * Xoá mềm: dòng ở lại để các trả lời bên dưới không mất ngữ cảnh. Người gửi
-   * tự thu hồi được; `owner` và `manager` thu hồi được tin của người khác
-   * trong dự án mình phụ trách.
+   * Xoá mềm: dòng ở lại để các trả lời bên dưới không mất ngữ cảnh.
+   *
+   * CHỈ người gửi mới thu hồi được tin của chính mình. Không ai khác được thu hồi
+   * hộ — kể cả chủ dự án, quản lý hay quản trị viên tenant: tin nhắn là lời của
+   * người gửi, và người khác đã đọc, trả lời dựa trên nó. Cũng giống việc sửa tin,
+   * đây là chuyện toàn vẹn của cuộc trao đổi chứ không phải phân quyền.
    */
   async remove(actor: WorkspaceActor, messageId: string): Promise<ChatMessage> {
-    const { message, access } = await this.loadMessage(actor, messageId);
-    if (message.createdBy !== actor.userId && !hasProjectRole(access, 'manager')) {
-      throw new ChatEditForbiddenError('Chỉ quản lý dự án mới thu hồi được tin của người khác.');
+    // Vẫn đi qua `loadMessage` để người ngoài dự án nhận 403 trước, không biết tin có tồn tại.
+    const { message } = await this.loadMessage(actor, messageId);
+    if (message.createdBy !== actor.userId) {
+      throw new ChatEditForbiddenError('Chỉ người gửi mới thu hồi được tin nhắn của mình.');
     }
-    return this.store.chat.softDeleteMessage(actor.tenantId, messageId);
+    return this.store.chat.softDeleteMessage(actor.tenantId, actor.userId, messageId);
   }
 
   /**

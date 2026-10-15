@@ -4,6 +4,13 @@ import type {
   CalendarEvent,
   CalendarRangeResponse,
   ChangeWorkItemStatusRequest,
+  ChangeStandaloneTaskStatusRequest,
+  CreateStandaloneTaskRequest,
+  ReverseStandaloneTaskRequest,
+  StandaloneTaskDetail,
+  StandaloneTaskList,
+  StandaloneTaskScope,
+  UpdateStandaloneTaskRequest,
   ReverseWorkItemRequest,
   ReverseProjectRequestRequest,
   ProjectRequest,
@@ -343,8 +350,12 @@ export const listProjectDependencies = (projectId: string) =>
    ========================================================================= */
 
 /** Luồng tin của một node; node chưa ai nhắn vẫn trả luồng rỗng. */
-export const loadChatThread = (entityType: ChatEntityType, entityId: string) =>
-  request<ChatThread>(`/chat/${entityType}/${entityId}`, { cache: 'no-store' });
+/** `before` = id tin cũ nhất đang có, để lấy trang liền trước nó. */
+export const loadChatThread = (entityType: ChatEntityType, entityId: string, before?: string) =>
+  request<ChatThread>(
+    `/chat/${entityType}/${entityId}${before ? `?before=${encodeURIComponent(before)}` : ''}`,
+    { cache: 'no-store' },
+  );
 
 export const sendChatMessage = (body: SendChatMessageRequest) =>
   request<SendChatMessageResponse>('/chat/messages', {
@@ -521,6 +532,42 @@ export async function uploadToStorage(
  * Truyền `userId` lên cũng vô nghĩa vì không endpoint nào đọc tới nó.
  */
 export const loadMyWork = () => request<MyWorkSummary>('/my-work', { cache: 'no-store' });
+
+/* Công việc ngoài dự án */
+
+export const listStandaloneTasks = (scope: StandaloneTaskScope) =>
+  request<StandaloneTaskList>(`/standalone-tasks?scope=${scope}`, { cache: 'no-store' });
+
+export const getStandaloneTask = (id: string) =>
+  request<StandaloneTaskDetail>(`/standalone-tasks/${id}`, { cache: 'no-store' });
+
+export const createStandaloneTask = (body: CreateStandaloneTaskRequest) =>
+  request<StandaloneTaskDetail>('/standalone-tasks', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+
+export const updateStandaloneTask = (id: string, body: UpdateStandaloneTaskRequest) =>
+  request<StandaloneTaskDetail>(`/standalone-tasks/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+
+export const changeStandaloneTaskStatus = (id: string, body: ChangeStandaloneTaskStatusRequest) =>
+  request<StandaloneTaskDetail>(`/standalone-tasks/${id}/status`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+
+/** Huỷ hiệu lực việc ngoài dự án đã hoàn thành (người giao). */
+export const reverseStandaloneTask = (id: string, body: ReverseStandaloneTaskRequest) =>
+  request<StandaloneTaskDetail>(`/standalone-tasks/${id}/reverse`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+
+export const deleteStandaloneTask = (id: string) =>
+  request<void>(`/standalone-tasks/${id}`, { method: 'DELETE' });
 
 /**
  * Người đang đăng nhập có phải quản trị viên tenant không.

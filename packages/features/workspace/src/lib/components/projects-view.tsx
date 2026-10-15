@@ -18,6 +18,7 @@ import type {
   UpdateWorkItemRequest,
   WorkItem,
   WorkItemDependency,
+  WorkItemStatus,
   WorkItemStatusHistoryEntry,
   WorkItemProcedureRequest,
 } from '@enterprise-platform/contracts-workspace';
@@ -29,8 +30,9 @@ import {
   type SystemProjectRole,
 } from '@enterprise-platform/contracts-workspace';
 import { CHAT_UNREAD_POLL_MS } from '@enterprise-platform/contracts-workspace';
+import { useRealtimeEvent, type WorkspaceChatSignal } from '@enterprise-platform/shared-ui';
 import { MessageSquare, MoreHorizontal, Plus } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   loadInstance,
@@ -39,6 +41,7 @@ import {
   type ProcedureInstanceView,
   type ProcedureOption,
 } from '../procedure-api';
+import { sameUnread } from '../chat.model';
 import { branchOf, mergeNewProjectMembers, parentCandidateOptions } from '../project-tree.model';
 import * as api from '../workspace-api';
 import styles from '../workspace.module.scss';
@@ -60,26 +63,24 @@ import { TabActivity } from './tab-activity';
 import { TabCalendar } from './tab-calendar';
 import { TabFinance } from './tab-finance';
 import { TabRequests } from './tab-requests';
-import { TabVouchers } from './tab-vouchers';
 import { TabOverview } from './tab-overview';
 import { TabWork } from './tab-work';
 import { useDirectory } from './use-directory';
 import { ChildItems, WorkItemDialog } from './work-item-dialog';
-import { WorkItemForm, type WorkItemCostInput } from './work-item-form';
+import { WorkItemForm } from './work-item-form';
 import { pendingProcedureOf, type PendingProcedure } from '../procedure-pending';
 
 /**
  * Các tab của dự án. Chi tiết một công việc không còn là tab: bấm một dòng
  * trong bảng WBS thì mở hộp chi tiết của công việc đó.
  */
-type TabId = 'work-items' | 'calendar' | 'documents' | 'finance' | 'vouchers' | 'requests' | 'activity';
+type TabId = 'work-items' | 'calendar' | 'documents' | 'finance' | 'requests' | 'activity';
 
 const TABS: readonly { id: TabId; label: string }[] = [
   { id: 'work-items', label: 'Công việc' },
   { id: 'calendar', label: 'Lịch' },
   { id: 'documents', label: 'Tài liệu' },
   { id: 'finance', label: 'Tài chính' },
-  { id: 'vouchers', label: 'Thu chi' },
   { id: 'requests', label: 'Đơn từ' },
   { id: 'activity', label: 'Hoạt động' },
 ];
@@ -93,7 +94,9 @@ const TAB_IDS = TABS.map((entry) => entry.id);
  */
 function readUrlNode(): { item?: string; tab: TabId } {
   const params = new URLSearchParams(window.location.search);
-  const tab = params.get('tab') as TabId | null;
+  // Đường dẫn cũ `?tab=vouchers` (tab Thu chi đã gộp vào Tài chính) mở thẳng tab Tài chính.
+  const rawTab = params.get('tab');
+  const tab = (rawTab === 'vouchers' ? 'finance' : rawTab) as TabId | null;
   return {
     item: params.get('item') ?? undefined,
     tab: tab && TAB_IDS.includes(tab) ? tab : 'work-items',
@@ -465,7 +468,10 @@ export function ProjectsView({
 
   const refreshUnread = useCallback(async (projectId: string) => {
     try {
-      setUnread(await api.loadUnread(projectId));
+      const next = await api.loadUnread(projectId);
+      // Không gán lại khi không đổi (khỏi vẽ lại cả bảng), và nếu có đổi thì đánh dấu là cập
+      // nhật không khẩn cấp để không chặn khung hình ngay lúc ngăn Trao đổi đang trượt vào.
+      startTransition(() => setUnread((current) => (sameUnread(current, next) ? current : next)));
     } catch {
       // Chấm đỏ là phụ trợ: hỏng thì bỏ qua, không phá cả màn hình.
       setUnread(undefined);
@@ -509,14 +515,36 @@ export function ProjectsView({
       .catch(() => setProjectFolders([]));
   }, [openId, calendarToken]);
 
-  // Không có WebSocket trong repo, nên chấm đỏ cập nhật theo nhịp hỏi lại.
-  // 30 giây là đủ nhanh để không ai bỏ lỡ, và đủ thưa để không dồn tải.
+  // Chấm đỏ cập nhật ngay khi có tín hiệu realtime của dự án đang mở; nhịp hỏi
+  // lại 30 giây chỉ còn là lưới an toàn khi mất kết nối hoặc broker chậm.
   useEffect(() => {
     if (!openId) return;
     void refreshUnread(openId);
     const timer = setInterval(() => void refreshUnread(openId), CHAT_UNREAD_POLL_MS);
     return () => clearInterval(timer);
   }, [openId, refreshUnread]);
+
+  // Nhiều tín hiệu dồn trong chốc lát chỉ cần một lần hỏi lại.
+  const unreadDebounce = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const scheduleUnreadRefresh = useCallback(
+    (projectId: string) => {
+      clearTimeout(unreadDebounce.current);
+      unreadDebounce.current = setTimeout(() => void refreshUnread(projectId), 300);
+    },
+    [refreshUnread],
+  );
+  useEffect(() => () => clearTimeout(unreadDebounce.current), []);
+  useRealtimeEvent(
+    'workspace.chat.changed',
+    (event) => {
+      const signal = event.data as Partial<WorkspaceChatSignal> | undefined;
+      if (openId && signal?.projectId === openId) scheduleUnreadRefresh(openId);
+    },
+    (connected) => {
+      // Nối lại: có thể đã lỡ tín hiệu trong lúc mất kết nối.
+      if (connected && openId) scheduleUnreadRefresh(openId);
+    },
+  );
 
   /**
    * Quy trình người dùng khởi tạo được, lọc theo vai S.
@@ -618,18 +646,14 @@ export function ProjectsView({
    * payload. Tab bị gỡ khỏi thanh — không làm mờ, không để một tab trống.
    */
   const visibleTabs = useMemo(
-    // "Thu chi" (phiếu thu/chi của Tài chính) theo cùng quy tắc xem tài chính dự án: Tài chính hỏi lại Workspace khi trả dữ liệu.
-    () =>
-      TABS.filter(
-        (entry) => !['finance', 'vouchers'].includes(entry.id) || Boolean(detail?.project.finance),
-      ),
+    () => TABS.filter((entry) => entry.id !== 'finance' || Boolean(detail?.project.finance)),
     [detail],
   );
 
   // Đang đứng ở tab Tài chính mà chuyển sang dự án không được xem tài chính
   // thì lùi về Tổng quan, thay vì để một vùng nội dung trống.
   useEffect(() => {
-    if ((tab === 'finance' || tab === 'vouchers') && detail && !detail.project.finance) setTab('work-items');
+    if (tab === 'finance' && detail && !detail.project.finance) setTab('work-items');
   }, [tab, detail]);
 
   // Chi tiết dự án vừa tải: áp việc và tab ghi trên đường dẫn (tải lại trang,
@@ -719,11 +743,14 @@ export function ProjectsView({
   }, [selectedItem, procedureRef, detail, canWrite, openId, refreshDetail]);
   const canOwn = role === 'owner' || !role;
 
+  /**
+   * Tin chưa đọc của CHÍNH luồng chat cấp dự án. Nút Trao đổi ở đầu trang mở đúng luồng này, nên số trên
+   * nút phải mất khi mở nó; tin chưa đọc ở các công việc bên dưới đã có chấm đỏ riêng trên cây node.
+   */
+  const projectChatUnread = (openId ? unread?.byNode[openId] : undefined) ?? 0;
   /** Tin chưa đọc của node đang chọn, để đánh số lên nút Trao đổi. */
   const nodeUnread =
-    selected.kind === 'project'
-      ? (unread?.total ?? 0)
-      : (unread?.rolledUp[selected.id] ?? 0);
+    selected.kind === 'project' ? projectChatUnread : (unread?.rolledUp[selected.id] ?? 0);
 
   /* --------------------------------------------------- Menu chuột phải */
 
@@ -910,7 +937,33 @@ export function ProjectsView({
 
   /* ------------------------------------------------------------ Render */
 
-  const openItem = (item: WorkItem) => goToItem(item.id);
+  // Các hàm truyền cho bảng công việc phải ổn định giữa các lần vẽ: `TabWork` được bọc
+  // `memo`, nên chỉ khi chúng ổn định thì bật/tắt ngăn Trao đổi mới không vẽ lại cả
+  // bảng 600+ dòng (từng gây giật ~150–400ms mỗi lần bấm nút Trao đổi).
+  const openItem = useCallback((item: WorkItem) => goToItem(item.id), [goToItem]);
+  const openItemForm = useCallback(() => setItemForm({ open: true }), []);
+  const openItemMenu = useCallback(
+    (item: WorkItem, at: { x: number; y: number }) =>
+      setMenu({ ...at, node: { kind: 'work-item', id: item.id } }),
+    [],
+  );
+  const openProjectId = detail?.project.id;
+  const changeItemStatus = useCallback(
+    async (item: WorkItem, next: WorkItemStatus) => {
+      // Kéo sang cột Đã huỷ cũng phải qua bước xác nhận.
+      if (next === 'cancelled') {
+        if (!canCancelItem) {
+          setError('Vai trò của bạn trong dự án chưa có quyền huỷ công việc.');
+          return;
+        }
+        setCancellingItem(item);
+        return;
+      }
+      await api.changeWorkItemStatus(item.id, { status: next });
+      if (openProjectId) await refreshDetail(openProjectId);
+    },
+    [canCancelItem, openProjectId, refreshDetail],
+  );
 
   /** Con số nhỏ cạnh tên tab, như bản thiết kế: số công việc, số tài liệu. */
   const tabCount = (id: TabId) =>
@@ -930,8 +983,8 @@ export function ProjectsView({
                 type="button"
                 className={styles.buttonGhost}
                 aria-label={
-                  (unread?.total ?? 0) > 0
-                    ? `Trao đổi, ${unread?.total} tin chưa đọc`
+                  projectChatUnread > 0
+                    ? `Trao đổi, ${projectChatUnread} tin chưa đọc`
                     : 'Trao đổi'
                 }
                 onClick={() => {
@@ -940,8 +993,8 @@ export function ProjectsView({
                 }}
               >
                 <MessageSquare size={15} /> Trao đổi
-                {(unread?.total ?? 0) > 0 ? (
-                  <span className={styles.countBadge}>{unread?.total}</span>
+                {projectChatUnread > 0 ? (
+                  <span className={styles.countBadge}>{projectChatUnread}</span>
                 ) : null}
               </button>
               <button
@@ -1042,21 +1095,9 @@ export function ProjectsView({
               canWrite={canWrite}
               currentUserId={me}
               onOpen={openItem}
-              onAddRoot={() => setItemForm({ open: true })}
-              onMenu={(item, at) => setMenu({ ...at, node: { kind: 'work-item', id: item.id } })}
-              onChangeStatus={async (item, next) => {
-                // Kéo sang cột Đã huỷ cũng phải qua bước xác nhận.
-                if (next === 'cancelled') {
-                  if (!canCancelItem) {
-                    setError('Vai trò của bạn trong dự án chưa có quyền huỷ công việc.');
-                    return;
-                  }
-                  setCancellingItem(item);
-                  return;
-                }
-                await api.changeWorkItemStatus(item.id, { status: next });
-                await refreshDetail(detail.project.id);
-              }}
+              onAddRoot={openItemForm}
+              onMenu={openItemMenu}
+              onChangeStatus={changeItemStatus}
             />
           ) : null}
           {tab === 'calendar' ? (
@@ -1086,9 +1127,6 @@ export function ProjectsView({
               initial={detail.project.finance}
               onChanged={() => void refreshDetail(detail.project.id)}
             />
-          ) : null}
-          {tab === 'vouchers' && detail.project.finance ? (
-            <TabVouchers projectId={detail.project.id} />
           ) : null}
           {tab === 'requests' ? (
             <TabRequests
@@ -1222,7 +1260,6 @@ export function ProjectsView({
         }
         members={detail?.members ?? []}
         canWrite={canWrite}
-        canModerate={canManage}
         documents={projectDocuments}
         folders={projectFolders}
         projectId={openId}
@@ -1278,39 +1315,25 @@ export function ProjectsView({
         members={detail?.members ?? []}
         currentUserId={me}
         canAssignOthers={canManage}
-        // Có `project.finance` nghĩa là server đã xác nhận người dùng được
-        // xem tài chính; không có thì hai ô chi phí không được dựng.
-        financeEnabled={Boolean(detail?.project.finance)}
-        initialCost={
-          itemForm.edit
-            ? detail?.project.finance?.items.find(
-                (entry) => entry.workItemId === itemForm.edit?.id,
-              )
-            : undefined
-        }
         adjustmentOf={itemForm.adjustmentOf}
         onClose={() => setItemForm({ open: false })}
         onCreate={async (
           input: Omit<CreateWorkItemRequest, 'projectId'>,
           procedureDefinitionId?: string,
-          costs?: WorkItemCostInput,
         ) => {
           if (!detail) return;
           // Tạo công việc; chọn "Theo quy trình" thì gửi kèm quy trình — Workspace
           // ghi yêu cầu và phát sự kiện, hồ sơ do Quy trình tự mở rồi báo về.
-          const created = await api.createWorkItem({
+          await api.createWorkItem({
             ...input,
             projectId: detail.project.id,
             procedureDefinitionId,
           });
-          // Chi phí đi qua endpoint riêng, không chung payload với công việc.
-          if (costs) await api.updateWorkItemCost(created.id, costs);
           await refreshDetail(detail.project.id);
         }}
-        onUpdate={async (input: UpdateWorkItemRequest, costs?: WorkItemCostInput) => {
+        onUpdate={async (input: UpdateWorkItemRequest) => {
           if (!itemForm.edit || !detail) return;
           await api.updateWorkItem(itemForm.edit.id, input);
-          if (costs) await api.updateWorkItemCost(itemForm.edit.id, costs);
           await refreshDetail(detail.project.id);
         }}
       />

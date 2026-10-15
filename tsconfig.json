@@ -176,6 +176,18 @@
     },
     {
       "path": "./apps/finance-web"
+    },
+    {
+      "path": "./packages/contracts/shared"
+    },
+    {
+      "path": "./packages/modules/shared"
+    },
+    {
+      "path": "./apps/shared-api"
+    },
+    {
+      "path": "./apps/shared-web"
     }
   ]
 }
