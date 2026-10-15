@@ -44,6 +44,7 @@ import {
 import { useEffect, useState } from 'react';
 import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import { Badge } from '../ui/badge';
+import { CareerTimeline } from '../ui/career-timeline';
 import { Button } from '../ui/button';
 import { Dialog, DialogContent } from '../ui/dialog';
 import { EmployeeHeroCard } from '../ui/employee-hero-card';
@@ -1104,88 +1105,7 @@ export default function HrmProfilePage() {
                   <span>Đang tải lịch sử bổ nhiệm và công tác...</span>
                 </div>
               ) : careerEvents.length > 0 ? (
-                <div className="relative pl-6 sm:pl-8 border-l-2 border-blue-200 space-y-6 ml-2 sm:ml-4">
-                  {careerEvents.map((ev, index) => {
-                    const isDecision = ev.source === 'DECISION';
-                    const isConcurrent = isDecision && ev.kind === 'CONCURRENT';
-                    const isEnd = isDecision && ev.kind === 'DISMISS';
-                    return (
-                      <div key={`${ev.source}-${ev.id}`} className="relative group">
-                        <span
-                          className={`absolute -left-[31px] sm:-left-[39px] top-1 size-4 rounded-full border-2 border-white ring-2 ${
-                            isConcurrent
-                              ? 'bg-amber-500 ring-amber-200'
-                              : index === 0
-                                ? 'bg-[#021E73] ring-blue-300'
-                                : 'bg-slate-400 ring-slate-200'
-                          }`}
-                        />
-                        <div
-                          className={`hover:bg-slate-50/80 transition-colors p-4 rounded-xl border ${
-                            isConcurrent ? 'bg-amber-50/50 border-amber-200' : 'bg-slate-50 border-slate-200'
-                          }`}
-                        >
-                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 mb-2">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <h4 className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
-                                <Briefcase className={`size-3.5 ${isConcurrent ? 'text-amber-600' : 'text-[#021E73]'}`} />
-                                {ev.title}
-                                {ev.positionName ? `: ${ev.positionName}` : ''}
-                              </h4>
-                              <Badge
-                                variant="outline"
-                                className={`text-[10px] font-semibold ${
-                                  isDecision
-                                    ? 'text-blue-800 border-blue-300 bg-blue-50'
-                                    : 'text-slate-600 border-slate-300'
-                                }`}
-                              >
-                                {isDecision ? 'Quyết định' : 'Hợp đồng'}
-                              </Badge>
-                              {isDecision && !isEnd && (
-                                <Badge
-                                  variant="outline"
-                                  className={`text-[10px] font-semibold ${
-                                    isConcurrent
-                                      ? 'text-amber-800 border-amber-300 bg-amber-100'
-                                      : 'text-emerald-800 border-emerald-300 bg-emerald-50'
-                                  }`}
-                                >
-                                  {isConcurrent ? 'Kiêm nhiệm, giữ chức danh cũ' : 'Thay thế chức danh chính'}
-                                </Badge>
-                              )}
-                              {ev.reference && (
-                                <span className="text-[11px] font-mono text-slate-500">{ev.reference}</span>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-1 text-xs font-semibold text-blue-700">
-                              <Calendar className="size-3 text-slate-400" />
-                              <span>
-                                {formatVnDate(ev.effectiveDate)}
-                                {!isDecision ? ` - ${ev.endDate ? formatVnDate(ev.endDate) : 'Hiện tại'}` : ''}
-                              </span>
-                            </div>
-                          </div>
-
-                          {ev.unitName && (
-                            <div className="flex flex-wrap items-center gap-4 text-[11px] text-slate-600 font-medium">
-                              <span className="flex items-center gap-1">
-                                <Building2 className="size-3 text-slate-400" />
-                                Đơn vị: <strong>{ev.unitName}</strong>
-                              </span>
-                            </div>
-                          )}
-
-                          {ev.note && (
-                            <div className="mt-2.5 p-2 bg-white rounded-lg border border-slate-200/80 text-[11px] text-slate-600 leading-relaxed">
-                              {ev.note}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+                <CareerTimeline events={careerEvents} />
               ) : (
                 <div className="relative pl-6 sm:pl-8 border-l-2 border-blue-200 space-y-6 ml-2 sm:ml-4">
                   {profileMeta.officialDate && (

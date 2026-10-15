@@ -17,6 +17,7 @@ import {
   createPersonnelDecision,
   updatePersonnelDecision,
   useAppointmentContext,
+  useOpenConcurrent,
 } from '../hrm-personnel-decisions-api';
 import {
   DECISION_TYPES,
@@ -25,6 +26,7 @@ import {
   decisionToForm,
   emptyDecisionForm,
   formatMoney,
+  isPositionChanging,
   showsTargetPosition,
   validateDecisionForm,
   type DecisionFormState,
@@ -169,6 +171,17 @@ export function PersonnelDecisionDialog({
   }, [open, form.toSalaryGradeId]);
 
   const context = useAppointmentContext(open ? form.employeeId : null);
+  const openConcurrent = useOpenConcurrent(open ? form.employeeId : null, decision?.id);
+  const concurrentOptions = useMemo<SearchableSelectOption[]>(
+    () =>
+      (openConcurrent.data ?? []).map((c) => ({
+        value: c.decisionId,
+        label: c.positionName ?? '----',
+        badge: c.decisionNo,
+        description: `Kiêm nhiệm từ ${c.effectiveDate.split('-').reverse().join('/')}${c.unitName ? ` · ${c.unitName}` : ''}`,
+      })),
+    [openConcurrent.data],
+  );
   const ctx = context.data;
 
   const positionOptions = useMemo<SearchableSelectOption[]>(
@@ -208,6 +221,7 @@ export function PersonnelDecisionDialog({
     patch({
       decisionType: t,
       toPositionNodeId: showsTargetPosition(t) ? form.toPositionNodeId : '',
+      replacesDecisionId: t === 'CONCURRENT' || t === 'REVOKE' ? form.replacesDecisionId : '',
     });
   }
 
@@ -225,7 +239,9 @@ export function PersonnelDecisionDialog({
   const targetPosition = positions.find(
     (p) => p.positionId === form.toPositionNodeId,
   );
-  const afterPosition = showsTargetPosition(form.decisionType)
+  const afterPosition = form.decisionType === 'REVOKE'
+    ? `Bãi nhiệm: ${concurrentOptions.find((o) => o.value === form.replacesDecisionId)?.label ?? '----'}`
+    : showsTargetPosition(form.decisionType)
     ? (targetPosition?.positionName ?? '----')
     : form.decisionType === 'DISMISS'
       ? 'Miễn nhiệm'
@@ -295,7 +311,7 @@ export function PersonnelDecisionDialog({
                 onChange={(v) => patch({ effectiveDate: v })}
               />
             </Field>
-            {showsTargetPosition(form.decisionType) && (
+            {isPositionChanging(form.decisionType) && (
               <Field label="Hình thức">
                 <div role="radiogroup" aria-label="Hình thức bổ nhiệm" className="grid grid-cols-2 gap-1.5">
                   {(
@@ -326,7 +342,29 @@ export function PersonnelDecisionDialog({
                 </div>
               </Field>
             )}
-            {showsTargetPosition(form.decisionType) && (
+            {form.decisionType === 'REVOKE' && (
+              <Field label="Kiêm nhiệm bị bãi nhiệm">
+                <SearchableSelect
+                  options={concurrentOptions}
+                  value={form.replacesDecisionId}
+                  placeholder={openConcurrent.loading ? 'Đang tải...' : 'Chọn kiêm nhiệm đang giữ'}
+                  clearable
+                  onChange={(v) => patch({ replacesDecisionId: v })}
+                />
+              </Field>
+            )}
+            {form.decisionType === 'CONCURRENT' && (
+              <Field label="Nối tiếp kiêm nhiệm">
+                <SearchableSelect
+                  options={concurrentOptions}
+                  value={form.replacesDecisionId}
+                  placeholder="Kiêm nhiệm mới (không nối tiếp)"
+                  clearable
+                  onChange={(v) => patch({ replacesDecisionId: v })}
+                />
+              </Field>
+            )}
+            {showsTargetPosition(form.decisionType) && form.decisionType !== 'REVOKE' && (
               <Field label="Chức danh mới">
                 <SearchableSelect
                   options={positionOptions}

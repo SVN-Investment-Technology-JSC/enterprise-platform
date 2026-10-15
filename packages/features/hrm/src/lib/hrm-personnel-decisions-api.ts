@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type {
   CreateHrmPersonnelDecisionPayload,
   HrmAppointmentContext,
+  HrmOpenConcurrentPosition,
   HrmPersonnelDecision,
   HrmPersonnelDecisionStatus,
   HrmPersonnelDecisionType,
@@ -80,6 +81,15 @@ export async function runPersonnelDecisionCommand(
 export async function getReportingLines(employeeId: string) {
   const res = await hrmFetch<{ data: HrmReportingOverview }>(
     `/employees/${employeeId}/reporting-lines`,
+  );
+  return res.data;
+}
+
+/** Kiêm nhiệm đang giữ của nhân viên, để chọn thay thế (kiêm nhiệm tiếp) hoặc bãi nhiệm. */
+export async function getOpenConcurrent(employeeId: string, excludeDecisionId?: string) {
+  const query = excludeDecisionId ? `?excludeDecisionId=${encodeURIComponent(excludeDecisionId)}` : '';
+  const res = await hrmFetch<{ data: HrmOpenConcurrentPosition[] }>(
+    `/employees/${employeeId}/open-concurrent${query}`,
   );
   return res.data;
 }
@@ -169,6 +179,16 @@ export function useReportingLines(employeeId: string | null | undefined) {
   return useAsync(
     employeeId ? () => getReportingLines(employeeId) : null,
     [employeeId],
+  );
+}
+
+export function useOpenConcurrent(
+  employeeId: string | null | undefined,
+  excludeDecisionId?: string,
+) {
+  return useAsync(
+    employeeId ? () => getOpenConcurrent(employeeId, excludeDecisionId) : null,
+    [employeeId, excludeDecisionId],
   );
 }
 

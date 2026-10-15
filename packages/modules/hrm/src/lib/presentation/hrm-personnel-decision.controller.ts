@@ -26,6 +26,7 @@ import {
   cancelDecision,
   createDecision,
   listDecisions,
+  listOpenConcurrent,
   loadAppointmentContext,
   loadDecision,
   loadReportingOverview,
@@ -142,6 +143,27 @@ export class HrmPersonnelDecisionController {
     const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.appointment.approve');
     return {
       data: await applyDecision(pool, tenantId, id, { org: this.org }),
+      meta: meta(req),
+    };
+  }
+
+  /** Kiêm nhiệm đang giữ (đã ghi nhận, chưa bãi nhiệm) để chọn thay thế hoặc bãi nhiệm. */
+  @Get('employees/:employeeId/open-concurrent')
+  @RequirePermission('hrm.appointment.read')
+  async openConcurrent(
+    @Req() req: Request,
+    @Param('employeeId') employeeId: string,
+    @Query('excludeDecisionId') excludeDecisionId?: string,
+  ) {
+    requireUuid(employeeId, 'Nhân viên');
+    const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.appointment.read');
+    return {
+      data: await listOpenConcurrent(
+        pool,
+        tenantId,
+        employeeId,
+        excludeDecisionId ? requireUuid(excludeDecisionId, 'Quyết định') : undefined,
+      ),
       meta: meta(req),
     };
   }

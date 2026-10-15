@@ -12,6 +12,7 @@ export const DECISION_TYPES = [
   'TRANSFER',
   'CONCURRENT',
   'DISMISS',
+  'REVOKE',
 ] as const;
 /**
  * Loại `CHANGE_MANAGER` không còn được tạo mới; chỉ còn trong dữ liệu cũ (bảng vẫn cho phép giá trị này)
@@ -29,6 +30,16 @@ const ASSIGNING_TYPES: readonly DecisionType[] = [
   'TRANSFER',
   'CONCURRENT',
 ];
+
+/** Loại chỉ ghi nhận lịch sử, không áp dụng sang Core: bãi nhiệm một chức danh kiêm nhiệm. */
+export function isRecordOnlyType(type: DecisionType): boolean {
+  return type === 'REVOKE';
+}
+
+/** Loại cần chọn một chức danh làm đối tượng (giao mới hoặc bãi nhiệm). */
+export function takesPositionTarget(type: DecisionType): boolean {
+  return isAssigningType(type) || isRecordOnlyType(type);
+}
 
 export function isAssigningType(type: DecisionType): boolean {
   return ASSIGNING_TYPES.includes(type);
@@ -59,9 +70,9 @@ export interface DecisionShape {
 export function decisionShapeErrors(input: DecisionShape): string[] {
   const errors: string[] = [];
   const type = input.decisionType;
-  if (isAssigningType(type) && !input.toPositionNodeId)
-    errors.push('Cần chọn chức danh được bổ nhiệm.');
-  if (!isAssigningType(type) && input.toPositionNodeId)
+  if (takesPositionTarget(type) && !input.toPositionNodeId)
+    errors.push(isRecordOnlyType(type) ? 'Cần chọn chức danh kiêm nhiệm bị bãi nhiệm.' : 'Cần chọn chức danh được bổ nhiệm.');
+  if (!takesPositionTarget(type) && input.toPositionNodeId)
     errors.push('Loại quyết định này không đổi chức danh.');
   if (input.salaryChanged) {
     const salary = input.toBaseSalary;

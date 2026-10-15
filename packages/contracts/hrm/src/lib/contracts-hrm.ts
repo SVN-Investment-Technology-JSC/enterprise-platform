@@ -398,6 +398,20 @@ export interface HrmCareerEvent {
   readonly unitName: string | null;
   readonly reference: string | null;
   readonly note: string | null;
+  /** Kiêm nhiệm / Bãi nhiệm: mã nhánh kiêm nhiệm (gốc của chuỗi). */
+  readonly laneId?: string | null;
+  /** Quyết định kiêm nhiệm mà sự kiện này nối tiếp trong cùng nhánh. */
+  readonly replacesId?: string | null;
+}
+
+/** Kiêm nhiệm đang giữ (chưa bị thay thế hay bãi nhiệm): chọn để thay thế hoặc bãi nhiệm. */
+export interface HrmOpenConcurrentPosition {
+  readonly decisionId: string;
+  readonly decisionNo: string;
+  readonly positionNodeId: string | null;
+  readonly positionName: string | null;
+  readonly unitName: string | null;
+  readonly effectiveDate: string;
 }
 
 export interface CreateEmployeeProfileRequest {
@@ -2162,6 +2176,8 @@ export type HrmPersonnelDecisionType =
   | 'TRANSFER'
   | 'CONCURRENT'
   | 'DISMISS'
+  /** Bãi nhiệm: chấm dứt một chức danh kiêm nhiệm; chỉ ghi nhận lịch sử. */
+  | 'REVOKE'
   /** Chỉ còn trong dữ liệu cũ; không tạo mới được nữa. */
   | 'CHANGE_MANAGER';
 
@@ -2191,6 +2207,7 @@ export interface HrmPersonnelDecision {
   readonly employeeCode?: string | null;
   readonly effectiveDate: string;
   readonly reason: string;
+  readonly replacesDecisionId?: string | null;
   readonly fromPositionName?: string | null;
   readonly fromUnitName?: string | null;
   readonly fromManagerEmployeeId?: string | null;
@@ -2235,6 +2252,8 @@ export interface CreateHrmPersonnelDecisionPayload {
   /** Bỏ trống để hệ thống cấp số theo năm. */
   readonly decisionNo?: string;
   readonly toPositionNodeId?: string | null;
+  /** Kiêm nhiệm / Bãi nhiệm: quyết định Kiêm nhiệm mà quyết định này nối tiếp (thay thế hoặc chấm dứt). */
+  readonly replacesDecisionId?: string | null;
   /** Bật khi quyết định thay đổi lương; các trường `toSalary*` khi đó là bắt buộc. */
   readonly salaryChanged?: boolean;
   readonly toSalaryGradeId?: string | null;

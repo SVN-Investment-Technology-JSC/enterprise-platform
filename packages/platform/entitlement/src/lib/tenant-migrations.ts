@@ -342,8 +342,20 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       path: 'tenant/hrm/0058-hrm-system-request-type-legacy-code.sql',
     },
     {
+      version: '0059-hrm-request-comment-attachments',
+      path: 'tenant/hrm/0059-hrm-request-comment-attachments.sql',
+    },
+    {
       version: '0060-hrm-personnel-decision-recorded',
       path: 'tenant/hrm/0060-hrm-personnel-decision-recorded.sql',
+    },
+    {
+      version: '0061-hrm-personnel-decision-revoke',
+      path: 'tenant/hrm/0061-hrm-personnel-decision-revoke.sql',
+    },
+    {
+      version: '0062-hrm-personnel-decision-chain',
+      path: 'tenant/hrm/0062-hrm-personnel-decision-chain.sql',
     },
     {
       version: '0021-notification-outbox-v1',

@@ -9,6 +9,7 @@ import {
   cancelDecision,
   createDecision,
   listCareerEvents,
+  listOpenConcurrent,
   loadAppointmentContext,
   loadDecision,
   mapDecision,
@@ -129,6 +130,8 @@ integration('HRM personnel decisions PostgreSQL integration', () => {
       'hrm/0032-hrm-personnel-decisions.sql',
       'hrm/0033-leave-annual-policy.sql',
       'hrm/0060-hrm-personnel-decision-recorded.sql',
+      'hrm/0061-hrm-personnel-decision-revoke.sql',
+      'hrm/0062-hrm-personnel-decision-chain.sql',
     ])
       await migrate(path);
     await pool.query(
@@ -297,6 +300,78 @@ integration('HRM personnel decisions PostgreSQL integration', () => {
     expect(applied.decisionType).toBe('CONCURRENT');
     expect(applied.status).toBe('APPLIED');
     expect(core.commands.at(-1)).toMatchObject({ action: 'ASSIGN', nodeId: posLead, isPrimary: false, endCurrent: false });
+  });
+
+  it('bãi nhiệm: chỉ ghi nhận lịch sử, không tạo được dạng có áp dụng, không đổi phân công', async () => {
+    const employee = await person('Bãi nhiệm');
+    await quickAssignPosition(
+      pool, tenantId, hrUser,
+      { employeeId: employee.id, toPositionNodeId: posLead, reason: 'Kiêm nhiệm', mode: 'CONCURRENT' },
+      { org: core },
+    );
+    const calls = core.commands.length;
+    await expect(
+      createDecision(pool, tenantId, hrUser, {
+        decisionType: 'REVOKE', employeeId: employee.id, toPositionNodeId: posLead,
+        effectiveDate: '2026-05-01', reason: 'Thử không ghi nhận',
+      }),
+    ).rejects.toThrow(/chỉ ghi nhận/);
+    await expect(
+      createDecision(pool, tenantId, hrUser, {
+        decisionType: 'REVOKE', employeeId: employee.id, effectiveDate: '2026-05-01', reason: 'Thiếu chức danh',
+      }, true),
+    ).rejects.toThrow(/chức danh kiêm nhiệm/);
+    const revoked = await createDecision(pool, tenantId, hrUser, {
+      decisionType: 'REVOKE', employeeId: employee.id, toPositionNodeId: posLead,
+      effectiveDate: '2026-05-01', reason: 'Bãi nhiệm kiêm nhiệm',
+    }, true);
+    expect(revoked.status).toBe('RECORDED');
+    expect(core.commands.length).toBe(calls);
+    const events = await listCareerEvents(pool, tenantId, employee.id);
+    expect(events.find((e) => e.id === revoked.id)).toMatchObject({ kind: 'REVOKE', title: 'Bãi nhiệm' });
+  });
+
+  it('nhánh kiêm nhiệm nối tiếp: kế toán → kế toán trưởng → bãi nhiệm, tách khỏi nhánh khác', async () => {
+    const employee = await person('Chuỗi kiêm nhiệm', false);
+    const other = await person('Người khác', false);
+    const concurrent = (extra: Record<string, unknown>) =>
+      createDecision(
+        pool, tenantId, hrUser,
+        { decisionType: 'CONCURRENT', employeeId: employee.id, reason: 'Kiêm nhiệm', ...extra } as never,
+        true,
+      );
+    const a = await concurrent({ toPositionNodeId: posStaff, effectiveDate: '2026-01-10' });
+    const side = await concurrent({ toPositionNodeId: posLead, effectiveDate: '2026-02-10' }); // nhánh song song
+    const b = await concurrent({ toPositionNodeId: posLead, effectiveDate: '2026-03-10', replacesDecisionId: a.id });
+    expect((await listOpenConcurrent(pool, tenantId, employee.id)).map((o) => o.decisionId).sort()).toEqual([b.id, side.id].sort());
+
+    // Không nối tiếp hai lần, không nối sang người khác, không nối lùi ngày.
+    await expect(concurrent({ toPositionNodeId: posLead, effectiveDate: '2026-04-10', replacesDecisionId: a.id })).rejects.toThrow(/đã có quyết định nối tiếp/);
+    await expect(
+      createDecision(pool, tenantId, hrUser, { decisionType: 'CONCURRENT', employeeId: other.id, toPositionNodeId: posLead, effectiveDate: '2026-04-10', reason: 'x', replacesDecisionId: b.id } as never, true),
+    ).rejects.toThrow(/không hợp lệ/);
+    await expect(concurrent({ toPositionNodeId: posLead, effectiveDate: '2026-01-01', replacesDecisionId: b.id })).rejects.toThrow(/trước ngày/);
+    await expect(
+      createDecision(pool, tenantId, hrUser, { decisionType: 'APPOINT', employeeId: employee.id, toPositionNodeId: posLead, effectiveDate: '2026-04-10', reason: 'x', replacesDecisionId: b.id } as never, true),
+    ).rejects.toThrow(/Kiêm nhiệm hoặc Bãi nhiệm/);
+    // Không hủy được quyết định đã có người nối tiếp.
+    await expect(cancelDecision(pool, tenantId, hrUser, a.id)).rejects.toThrow(/nối tiếp/);
+
+    const revoke = await createDecision(
+      pool, tenantId, hrUser,
+      { decisionType: 'REVOKE', employeeId: employee.id, effectiveDate: '2026-05-10', reason: 'Bãi nhiệm', replacesDecisionId: b.id } as never,
+      true,
+    );
+    expect(revoke.toPositionName).toBe('Trưởng phòng Kỹ thuật');
+    expect((await listOpenConcurrent(pool, tenantId, employee.id)).map((o) => o.decisionId)).toEqual([side.id]);
+
+    const events = (await listCareerEvents(pool, tenantId, employee.id)).filter((e) => e.source === 'DECISION');
+    const laneOf = (id: string) => events.find((e) => e.id === id)?.laneId;
+    expect(laneOf(a.id)).toBe(a.id);
+    expect(laneOf(b.id)).toBe(a.id);
+    expect(laneOf(revoke.id)).toBe(a.id);
+    expect(laneOf(side.id)).toBe(side.id);
+    expect(events.find((e) => e.id === b.id)?.replacesId).toBe(a.id);
   });
 
   it('Core lỗi thì dừng ở APPLY_PENDING và thử lại chỉ làm tiếp bước còn thiếu', async () => {
