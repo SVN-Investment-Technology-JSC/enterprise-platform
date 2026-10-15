@@ -18,6 +18,7 @@ function makeStore(options: {
   roles: Record<string, ProjectRole>;
   documents?: Partial<WorkspaceDocument>[];
   messages?: Partial<ChatMessage>[];
+  readers?: { userId: string; messageId?: string }[];
 }) {
   const sent: { attachmentDocumentId: string | null; mentions: string[] }[] = [];
   const edits: { mentions: readonly string[]; newlyMentioned: readonly string[] }[] = [];
@@ -63,7 +64,7 @@ function makeStore(options: {
       ) => {
         marked.push({ channelId, upTo, announce: options?.announce });
       },
-      listReaders: async () => [{ userId: 'mate', messageId: 'm1' }],
+      listReaders: async () => options.readers ?? [{ userId: 'mate', messageId: 'm1' }],
       findChannel: async () => ({ id: 'c1', projectId: 'p1' }),
       findChannelById: async () => ({ id: 'c1', projectId: 'p1' }),
       listMessages: async (_tenant: string, _channel: string, limit: number, before?: string) => {
@@ -202,6 +203,15 @@ describe('ChatService — người gửi và "đang nhập"', () => {
     const { store } = makeStore({ roles: { me: 'member', mate: 'member', viewer: 'viewer' } });
     const result = await serviceFor(store).typingRecipients(actorOf('me'), 'project', 'p1');
     expect([...result.userIds].sort()).toEqual(['mate', 'viewer']);
+  });
+
+  it('người đã mở luồng chat nhưng không phải thành viên (quản trị tenant) vẫn nhận "đang nhập"', async () => {
+    const { store } = makeStore({
+      roles: { me: 'member', mate: 'member' },
+      readers: [{ userId: 'admin' }, { userId: 'me' }, { userId: 'mate' }],
+    });
+    const result = await serviceFor(store).typingRecipients(actorOf('me'), 'project', 'p1');
+    expect([...result.userIds].sort()).toEqual(['admin', 'mate']);
   });
 
   it('viewer không có ô nhập nên không hỏi được danh sách', async () => {

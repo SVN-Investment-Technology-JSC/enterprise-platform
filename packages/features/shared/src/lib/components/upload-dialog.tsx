@@ -14,7 +14,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { nameFromFile, parseTags } from '../library.model';
 import * as api from '../shared-api';
 import styles from '../shared.module.scss';
-import { Dialog, Field } from './dialog';
+import { Dialog, Field, SelectField } from './dialog';
 import { folderOptions, recordDraft, RecordFields, recordPayload, type RecordDraft } from './record-fields';
 
 export const CONFIDENTIALITY_OPTIONS = SHARED_CONFIDENTIALITY_LEVELS.map((level) => ({
@@ -127,9 +127,9 @@ export function UploadDialog({ open, folders, defaultFolderId, onClose, onUpload
       onClose={onClose}
       onSubmit={() => void submit()}
     >
-      <Field label="Thư mục" required>
+      <SelectField label="Thư mục" required>
         <SearchableSelect clearable={false} options={options} value={folderId} placeholder="Chọn thư mục" onChange={setFolderId} />
-      </Field>
+      </SelectField>
       <Field label="Tệp" required>
         <input type="file" multiple accept={FILE_ACCEPT} onChange={(event) => pickFiles(event.target.files)} />
       </Field>
@@ -152,14 +152,14 @@ export function UploadDialog({ open, folders, defaultFolderId, onClose, onUpload
         <Field label="Hiệu lực từ">
           <input type="date" value={effectiveFrom} onChange={(event) => setEffectiveFrom(event.target.value)} />
         </Field>
-        <Field label="Độ mật">
+        <SelectField label="Độ mật">
           <SearchableSelect
             options={CONFIDENTIALITY_OPTIONS}
             value={confidentiality}
             clearable={false}
             onChange={(value) => setConfidentiality((value || 'internal') as SharedConfidentiality)}
           />
-        </Field>
+        </SelectField>
       </div>
       <Field label="Thẻ">
         <input value={tags} onChange={(event) => setTags(event.target.value)} />

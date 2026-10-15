@@ -5,7 +5,7 @@ import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import { useEffect, useMemo, useState } from 'react';
 import { branchIds } from '../library.model';
 import * as api from '../shared-api';
-import { Dialog, Field } from './dialog';
+import { Dialog, Field, SelectField } from './dialog';
 import { folderOptions, recordDraft, RecordFields, recordPayload, type RecordDraft } from './record-fields';
 
 const ROOT = '__root__';
@@ -85,7 +85,7 @@ export function FolderDialog({ target, folders, canManage, onClose, onSaved }: F
       <Field label="Tên thư mục" required>
         <input value={name} maxLength={180} autoFocus onChange={(event) => setName(event.target.value)} />
       </Field>
-      <Field label="Nằm trong" required>
+      <SelectField label="Nằm trong" required>
         <SearchableSelect
           options={parentOptions}
           value={parent}
@@ -94,7 +94,7 @@ export function FolderDialog({ target, folders, canManage, onClose, onSaved }: F
           disabled={Boolean(editing) && !canManage}
           onChange={setParent}
         />
-      </Field>
+      </SelectField>
       <RecordFields draft={record} onChange={setRecord} />
       <Field label="Ghi chú">
         <textarea rows={2} value={note} maxLength={2000} onChange={(event) => setNote(event.target.value)} />

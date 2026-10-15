@@ -743,11 +743,14 @@ export function ProjectsView({
   }, [selectedItem, procedureRef, detail, canWrite, openId, refreshDetail]);
   const canOwn = role === 'owner' || !role;
 
+  /**
+   * Tin chưa đọc của CHÍNH luồng chat cấp dự án. Nút Trao đổi ở đầu trang mở đúng luồng này, nên số trên
+   * nút phải mất khi mở nó; tin chưa đọc ở các công việc bên dưới đã có chấm đỏ riêng trên cây node.
+   */
+  const projectChatUnread = (openId ? unread?.byNode[openId] : undefined) ?? 0;
   /** Tin chưa đọc của node đang chọn, để đánh số lên nút Trao đổi. */
   const nodeUnread =
-    selected.kind === 'project'
-      ? (unread?.total ?? 0)
-      : (unread?.rolledUp[selected.id] ?? 0);
+    selected.kind === 'project' ? projectChatUnread : (unread?.rolledUp[selected.id] ?? 0);
 
   /* --------------------------------------------------- Menu chuột phải */
 
@@ -980,8 +983,8 @@ export function ProjectsView({
                 type="button"
                 className={styles.buttonGhost}
                 aria-label={
-                  (unread?.total ?? 0) > 0
-                    ? `Trao đổi, ${unread?.total} tin chưa đọc`
+                  projectChatUnread > 0
+                    ? `Trao đổi, ${projectChatUnread} tin chưa đọc`
                     : 'Trao đổi'
                 }
                 onClick={() => {
@@ -990,8 +993,8 @@ export function ProjectsView({
                 }}
               >
                 <MessageSquare size={15} /> Trao đổi
-                {(unread?.total ?? 0) > 0 ? (
-                  <span className={styles.countBadge}>{unread?.total}</span>
+                {projectChatUnread > 0 ? (
+                  <span className={styles.countBadge}>{projectChatUnread}</span>
                 ) : null}
               </button>
               <button
