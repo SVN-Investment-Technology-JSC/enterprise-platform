@@ -70,7 +70,7 @@ describe('định dạng', () => {
 
   it('CSV có tiêu đề và đúng các dòng, tiền là số', () => {
     const item = {
-      code: 'PT_1_10_2026',
+      code: 'PT-2610-0001',
       kind: 'RECEIPT',
       voucherDate: '2026-10-14',
       postingDate: '2026-10-14',
@@ -86,7 +86,7 @@ describe('định dạng', () => {
     } as FinanceVoucherSummary;
     const rows = voucherCsvRows([item]);
     expect(rows[0]).toContain('Trạng thái');
-    expect(rows[1]).toEqual(['PT_1_10_2026', 'Phiếu thu', '14/10/2026', '14/10/2026', 'Thu tiền hàng', 'Thu tiền hàng', 'VCB', '', 'Khách hàng', 'Công ty ABC', 300000, 'Đã duyệt', 'An']);
+    expect(rows[1]).toEqual(['PT-2610-0001', 'Phiếu thu', '14/10/2026', '14/10/2026', 'Thu tiền hàng', 'Thu tiền hàng', 'VCB', '', 'Khách hàng', 'Công ty ABC', 300000, 'Đã duyệt', 'An']);
   });
 });
 

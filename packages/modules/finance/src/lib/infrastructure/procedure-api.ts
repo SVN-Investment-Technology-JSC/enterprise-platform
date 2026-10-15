@@ -4,6 +4,7 @@ import type {
   ProcedureDefinition,
   ProcedureInstanceProgress,
 } from '@enterprise-platform/contracts-procedure-engine';
+import type { FinanceStepCanActRequest, FinanceStepCanActResponse } from '@enterprise-platform/contracts-finance';
 import { FinanceError } from '../domain/finance.error.js';
 
 /**
@@ -136,5 +137,47 @@ export async function applyProcedureAction(session: ForwardedSession, instanceId
   if (!response.ok) {
     const message = await errorMessage(response, `Procedure trả mã ${response.status}`);
     throw new FinanceError('FINANCE_PROCEDURE_ACTION_FAILED', message, response.status === 403 ? 403 : response.status === 404 ? 404 : response.status === 409 ? 409 : 422);
+  }
+}
+
+/** Lỗi khi không hỏi được Procedure ai được thao tác ở bước Tài chính: từ chối thao tác (fail closed). */
+export const FINANCE_STEP_UNVERIFIED_CODE = 'FINANCE_STEP_UNVERIFIED';
+export const stepUnverified = () =>
+  new FinanceError(FINANCE_STEP_UNVERIFIED_CODE, 'Không xác minh được quyền ở bước quy trình, thử lại sau.', 409);
+
+/**
+ * Người dùng có đang được thao tác ở bước Tài chính của hồ sơ không, theo chính logic phân công của Procedure (chức danh, đơn vị,
+ * leo thang, uỷ quyền) tại thời điểm hỏi. Mọi lỗi (mạng, token, 5xx, phản hồi lạ) đều ném `stepUnverified`: không xác minh được
+ * thì không cho ghi sổ hay trả hồ sơ.
+ */
+export async function procedureStepCanAct(
+  tenantId: string,
+  instanceId: string,
+  stepInstanceId: string,
+  body: FinanceStepCanActRequest,
+): Promise<FinanceStepCanActResponse> {
+  let response: Response;
+  try {
+    response = await fetch(
+      `${baseUrl()}/v1/internal/instances/${encodeURIComponent(instanceId)}/steps/${encodeURIComponent(stepInstanceId)}/can-act`,
+      {
+        method: 'POST',
+        redirect: 'error',
+        headers: { ...serviceHeaders(tenantId), 'content-type': 'application/json' },
+        signal: AbortSignal.timeout(6000),
+        body: JSON.stringify(body),
+      },
+    );
+  } catch {
+    throw stepUnverified();
+  }
+  if (response.status === 404) return { allowed: false, reason: 'Hồ sơ hoặc bước quy trình không còn tồn tại.' };
+  if (!response.ok) throw stepUnverified();
+  try {
+    const result = (await response.json()) as FinanceStepCanActResponse;
+    if (typeof result?.allowed !== 'boolean') throw stepUnverified();
+    return result;
+  } catch {
+    throw stepUnverified();
   }
 }

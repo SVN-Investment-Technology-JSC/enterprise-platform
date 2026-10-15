@@ -58,6 +58,8 @@ import {
 } from './instance-flow-view';
 import { chatPeopleOf } from '../chat-people';
 import { ChatPanel } from './chat-panel';
+import { FinanceVoucherCard } from './finance-voucher-card';
+import financeStyles from './finance-voucher-card.module.scss';
 import { HistoryPanel } from './history-panel';
 import { LinkedPanel } from './linked-panel';
 import { SlaBadge } from './sla-badge';
@@ -1101,6 +1103,9 @@ export function WorkspaceBoard({
                   : ''}
               {selected.workspaceLink?.status === 'linked'
                 ? ` Công việc ${selected.workspaceLink.workItemCode ?? ''} của dự án ${selected.workspaceLink.projectCode} được báo để xử lý theo.`
+                : ''}
+              {selected.steps.some((step) => step.financeVoucher?.state === 'posted')
+                ? ' Phiếu của bước Tài chính đã ghi sổ sẽ được đảo bút toán vào hôm nay; bị chặn nếu sổ đã khoá hoặc tài khoản không đủ số dư.'
                 : ''}{' '}
               Bị chặn nếu kỳ công/kỳ lương đã chốt hoặc vật tư đã xuất kho.
             </p>
@@ -1728,6 +1733,8 @@ export function WorkspaceBoard({
                                   <RoleLine key={line.role} line={line} submitterName={submitterName} />
                                 ))}
                               </div>
+
+                              <FinanceVoucherCard step={step} />
 
                               {/* QT-U1: tài liệu nộp ở chính bước này, để bước sau xem được bước trước up gì. */}
                               <StepDocuments
@@ -2377,6 +2384,13 @@ function ActionPanel({
           />
 
           {/* QT-U5: ô "trả lại về bước" + xác nhận nằm trong pop-up nền mờ (xem cuối panel). */}
+
+          {current?.integration?.module === 'finance' && current.status === 'active' ? (
+            <p className={financeStyles.waitingNote}>
+              Bước này đóng khi kế toán ghi sổ phiếu ở module Tài chính; kế toán trả hồ sơ thì hồ sơ tự quay về bước đã cấu
+              hình. Ở đây chỉ gửi trao đổi.
+            </p>
+          ) : null}
 
           {/* Ý kiến và nút thao tác ghim ở đáy khung chi tiết: bước dài vẫn bấm được ngay. */}
           <div className={styles.actionDock}>

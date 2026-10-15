@@ -99,6 +99,9 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     { version: '0002-finance-approval', path: 'tenant/finance/0002-finance-approval.sql' },
     { version: '0003-finance-attachments', path: 'tenant/finance/0003-finance-attachments.sql' },
     { version: '0004-finance-workspace-links', path: 'tenant/finance/0004-finance-workspace-links.sql' },
+    { version: '0005-finance-voucher-codes', path: 'tenant/finance/0005-finance-voucher-codes.sql' },
+    { version: '0006-finance-voucher-sources', path: 'tenant/finance/0006-finance-voucher-sources.sql' },
+    { version: '0007-finance-source-reversal', path: 'tenant/finance/0007-finance-source-reversal.sql' },
   ],
   hrm: [
     { version: '0001-hrm', path: 'tenant/hrm/0001-hrm.sql' },

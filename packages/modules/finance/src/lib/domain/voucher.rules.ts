@@ -1,4 +1,5 @@
 import {
+  type FinanceApprovalMode,
   FINANCE_MAX_AMOUNT,
   FINANCE_VOUCHER_KINDS,
   financeLineTotal,
@@ -252,13 +253,27 @@ export interface PermissionInput {
   canCreate: boolean;
   canApprove: boolean;
   allowSelfApproval: boolean;
-  approvalMode: 'DIRECT' | 'PROCEDURE';
+  approvalMode: FinanceApprovalMode;
   /** Chế độ PROCEDURE: người dùng đang được giao bước hiện tại (null: chưa biết). */
   procedureCanAct: boolean | null;
 }
 
 /** Thao tác người xem được làm trên một phiếu. Server kiểm lại ở từng endpoint, đây chỉ để giao diện hiển thị nút. */
 export function computeVoucherPermissions(input: PermissionInput): FinanceVoucherPermissions {
+  const sourced = { canEditSourced: false, canPost: false, canReturnSource: false, canTakeOver: false, canRetryReversal: false };
+  // Phiếu tạo từ hồ sơ quy trình: không có thao tác thường; thao tác của kế toán do nơi gọi tính (cần hỏi Procedure).
+  if (input.approvalMode === 'INHERITED')
+    return {
+      canEdit: false,
+      canSubmit: false,
+      canApprove: false,
+      canReject: false,
+      canCancel: false,
+      canReverse: false,
+      canDelete: false,
+      canRetryProcedure: false,
+      sourced,
+    };
   const mine = input.createdBy === input.actorId;
   const owner = mine && input.canCreate;
   const editable = input.status === 'DRAFT' || input.status === 'REJECTED';
@@ -277,6 +292,7 @@ export function computeVoucherPermissions(input: PermissionInput): FinanceVouche
     canDelete: input.status === 'DRAFT' && owner,
     // Nơi gọi (có thông tin liên kết quy trình) bật cờ này sau khi tính.
     canRetryProcedure: false,
+    sourced,
   };
 }
 

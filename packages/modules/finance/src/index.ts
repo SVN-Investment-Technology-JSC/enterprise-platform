@@ -6,6 +6,8 @@ export {
   FINANCE_INTEGRATION_QUEUE,
   FINANCE_PROCEDURE_EVENT_TYPES,
   isFinanceProcedureEvent,
+  isFinanceSourcedInstanceEvent,
   receiveFinanceProcedureEvent,
 } from './lib/infrastructure/procedure-events.js';
 export { financeProcedureReady, processFinanceProcedureSync } from './lib/infrastructure/procedure-links.store.js';
+export { financeVoucherSourcesReady } from './lib/infrastructure/voucher-sources.store.js';

@@ -1,7 +1,7 @@
 'use client';
 
 import { useId, useLayoutEffect, useRef, type ReactNode } from 'react';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, Lock } from 'lucide-react';
 import { useState } from 'react';
 import { FINANCE_VOUCHER_STATUS_LABELS, type FinanceVoucherStatus } from '@enterprise-platform/contracts-finance';
 import { FINANCE_STATUS_STYLE } from '../finance-kinds';
@@ -15,10 +15,13 @@ export function Field({
   error,
   hint,
   className,
+  locked,
   children,
 }: {
   label: string;
   required?: boolean;
+  /** Trường lấy từ hồ sơ quy trình: hiện biểu tượng khoá, người dùng không sửa được. */
+  locked?: boolean;
   error?: string | null;
   hint?: string;
   className?: string;
@@ -30,6 +33,11 @@ export function Field({
       <label htmlFor={id} className="text-xs font-medium text-slate-600">
         {label}
         {required ? <span className="ml-0.5 text-red-500" aria-hidden>*</span> : null}
+        {locked ? (
+          <span className="ml-1 inline-flex align-middle text-slate-400" title="Lấy từ hồ sơ, muốn sửa thì trả hồ sơ về">
+            <Lock className="size-3" aria-label="Lấy từ hồ sơ" />
+          </span>
+        ) : null}
       </label>
       {children(id)}
       {error ? (

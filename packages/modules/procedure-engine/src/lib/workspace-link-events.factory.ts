@@ -1,5 +1,6 @@
 import { PostgresPoolRegistry, TenantDatabaseRegistry } from '@enterprise-platform/adapter-database';
 import { ProcedureEngineApplication } from './application/procedure-engine.application.js';
+import { PROCEDURE_FINANCE_EVENT_TYPES, ProcedureFinanceEvents } from './application/finance-step-events.js';
 import { ProcedureWorkspaceEvents } from './application/workspace-link-events.js';
 import { HttpDirectManagerResolver } from './infrastructure/http-direct-manager.resolver.js';
 import { HttpInitiatorActorResolver } from './infrastructure/http-initiator-actor.resolver.js';
@@ -12,8 +13,11 @@ import {
 } from './infrastructure/system-procedure-services.js';
 
 /**
- * Dựng bộ xử lý sự kiện Workspace ngoài Nest (worker), cùng cách
+ * Dựng bộ xử lý sự kiện tích hợp của Quy trình ngoài Nest (worker), cùng cách
  * `ProcedureEngineModule` nối ứng dụng, dùng chung registry DB của worker.
+ * Một hàng đợi `procedure.integrations.v1` nhận cả sự kiện của Workspace lẫn kết
+ * quả bước Tài chính (`finance.voucher.*`); hai consumer trên một hàng đợi sẽ chia
+ * sự kiện cho nhau nên phân luồng ở đây.
  */
 export function createProcedureWorkspaceEvents(
   references: TenantDatabaseRegistry,
@@ -36,6 +40,8 @@ export function createProcedureWorkspaceEvents(
   const events = new ProcedureWorkspaceEvents(procedures, (tenantId, input) =>
     store.emitIntegrationEvent(tenantId, input),
   );
+  const finance = new ProcedureFinanceEvents(procedures);
+  const financeTypes: readonly string[] = PROCEDURE_FINANCE_EVENT_TYPES;
   // Worker chỉ gọi qua đây, không tự đọc bảng nào của Quy trình.
   return {
     ready: async (tenantId) => {
@@ -45,6 +51,7 @@ export function createProcedureWorkspaceEvents(
       );
       return Boolean(result.rows[0]?.relation);
     },
-    handle: (tenantId, type, payload) => events.handle(tenantId, type, payload),
+    handle: (tenantId, type, payload) =>
+      financeTypes.includes(type) ? finance.handle(tenantId, type, payload) : events.handle(tenantId, type, payload),
   };
 }

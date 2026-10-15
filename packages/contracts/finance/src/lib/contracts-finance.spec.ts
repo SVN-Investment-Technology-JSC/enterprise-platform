@@ -3,7 +3,9 @@ import {
   financeIncludedTax,
   financeLineTotal,
   financeLinesTotal,
-  formatFinanceVoucherCode,
+  financePeriodOf,
+  formatFinanceDraftCode,
+  formatFinanceOfficialCode,
   roundMoney,
 } from './contracts-finance.js';
 
@@ -26,10 +28,22 @@ describe('tính tiền dùng chung', () => {
     expect(financeIncludedTax(110_000, 0)).toBe(0);
   });
 
-  it('mã phiếu theo dạng PT_<số>_<tháng>_<năm>', () => {
-    expect(formatFinanceVoucherCode('RECEIPT', 2027, '2026-10-14')).toBe('PT_2027_10_2026');
-    expect(formatFinanceVoucherCode('PAYMENT', 2015, '2026-10-14')).toBe('PC_2015_10_2026');
-    expect(formatFinanceVoucherCode('TRANSFER', 288, '2026-01-05')).toBe('PCT_288_01_2026');
+  it('kỳ đánh số là YYMM của ngày', () => {
+    expect(financePeriodOf('2026-10-14')).toBe('2610');
+    expect(financePeriodOf('2027-01-05')).toBe('2701');
+  });
+
+  it('mã chính thức <tiền tố>-<YYMM>-<4 số>', () => {
+    expect(formatFinanceOfficialCode('PAYMENT', '2610', 45)).toBe('PC-2610-0045');
+    expect(formatFinanceOfficialCode('RECEIPT', '2610', 12)).toBe('PT-2610-0012');
+    expect(formatFinanceOfficialCode('TRANSFER', '2601', 3)).toBe('CT-2601-0003');
+    expect(formatFinanceOfficialCode('PAYMENT', '2610', 12345)).toBe('PC-2610-12345');
     expect(FINANCE_VOUCHER_KINDS).toHaveLength(3);
+  });
+
+  it('mã nháp NHAP_<tiền tố>_<YYMM>_<4 số>, không trùng dạng mã chính thức', () => {
+    expect(formatFinanceDraftCode('PAYMENT', '2610', 45)).toBe('NHAP_PC_2610_0045');
+    expect(formatFinanceDraftCode('TRANSFER', '2610', 3)).toBe('NHAP_CT_2610_0003');
+    expect(formatFinanceDraftCode('PAYMENT', '2610', 45)).not.toBe(formatFinanceOfficialCode('PAYMENT', '2610', 45));
   });
 });

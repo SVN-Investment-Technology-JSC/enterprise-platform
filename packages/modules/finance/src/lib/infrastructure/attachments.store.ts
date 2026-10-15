@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { S3ObjectStorage } from '@enterprise-platform/adapter-storage';
 import type { FinanceVoucherAttachment } from '@enterprise-platform/contracts-finance';
 import type { QueryResultRow } from 'pg';
-import { canCreate, type FinanceActor } from '../domain/finance.access.js';
+import { canApprove, canCreate, type FinanceActor } from '../domain/finance.access.js';
 import { FinanceError, conflict, invalid, notFound } from '../domain/finance.error.js';
 import { iso, num, optStr, type Db } from './finance.database.js';
 import type { FinanceVoucherKind } from '@enterprise-platform/contracts-finance';
@@ -84,7 +84,19 @@ export function cleanFileName(value: unknown): string {
 
 /** Chỉ người lập (có quyền lập loại phiếu) mới thêm/gỡ tệp, và chỉ khi phiếu còn sửa được (nháp hoặc bị từ chối). */
 async function editableVoucher(db: Db, tenantId: string, actor: FinanceActor, voucherId: string): Promise<Row> {
-  const voucher = (await db.query(`SELECT id, kind, status, created_by FROM finance_schema.vouchers WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, [tenantId, voucherId])).rows[0] as Row | undefined;
+  const voucher = (
+    await db.query(`SELECT id, kind, status, created_by, approval_mode FROM finance_schema.vouchers WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, [tenantId, voucherId])
+  ).rows[0] as Row | undefined;
+  if (voucher?.approval_mode === 'INHERITED') {
+    // Phiếu tạo từ hồ sơ: chứng từ do kế toán (người duyệt loại phiếu) đính kèm khi phiếu còn chờ ghi sổ.
+    if (!canApprove(actor, voucher.kind as FinanceVoucherKind)) throw notFound('phiếu');
+    const source = (await db.query(`SELECT status FROM finance_schema.voucher_sources WHERE tenant_id=$1 AND voucher_id=$2`, [tenantId, voucherId])).rows[0] as
+      | Row
+      | undefined;
+    if (voucher.status !== 'DRAFT' || source?.status !== 'OPEN')
+      throw conflict('FINANCE_VOUCHER_LOCKED', 'Chỉ đính kèm được khi phiếu còn chờ ghi sổ.');
+    return voucher;
+  }
   if (!voucher || voucher.created_by !== actor.userId || !canCreate(actor, voucher.kind as FinanceVoucherKind)) throw notFound('phiếu');
   if (voucher.status !== 'DRAFT' && voucher.status !== 'REJECTED') throw conflict('FINANCE_VOUCHER_LOCKED', 'Chỉ đính kèm được khi phiếu còn là nháp hoặc bị từ chối.');
   return voucher;

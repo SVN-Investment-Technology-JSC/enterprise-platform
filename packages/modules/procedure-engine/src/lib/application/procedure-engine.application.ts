@@ -1,4 +1,5 @@
 import type { InstanceReversalGuard } from './instance-reversal-guard.port.js';
+import type { FinanceIntegrationResolver } from './finance-integration.port.js';
 import type { InventoryTaskTemplateResolver } from './inventory-task-template.port.js';
 import {
   PROCEDURE_SYSTEM_ACTOR_ID,
@@ -27,6 +28,7 @@ import {
 } from '@enterprise-platform/contracts-procedure-engine';
 import {
   deriveProcedureAuthorization,
+  evaluateFinanceStepActor,
   isProcedureParticipant,
   canStartWithAssignment,
   matchesProcedureAssignment,
@@ -39,6 +41,7 @@ import {
   validateDefinitionForPublish,
 } from '../domain/procedure-definition.policy.js';
 import { ProcedureEngineError } from '../domain/procedure-engine.error.js';
+import { hasFinanceVoucher, isFinanceStep, isFinanceStepWaiting, normalizeStepIntegrations } from '../domain/procedure-finance-step.js';
 import {
   missingRequiredAttributes,
   normalizeAttributeDefinitions,
@@ -57,6 +60,7 @@ import {
   recomputeProgress,
   returnTargetStepIds,
   returnToStep,
+  stepByDefinitionId,
   type ProcedureFlowContext,
   type ProcedureManagerContext,
 } from '../domain/procedure-runtime-flow.js';
@@ -68,6 +72,12 @@ import {
   firstFlowStepId,
   type ProcedureAttributeValue,
   type ProcedureAttributeValueRecord,
+  type FinanceVoucherLinkedPayload,
+  type FinanceVoucherPostedPayload,
+  type FinanceVoucherReturnedPayload,
+  type ProcedureFinanceStepCanActRequest,
+  type ProcedureFinanceStepCanActResponse,
+  type ProcedureFinanceVoucherKind,
   type ProcedureValidationReport,
   type SaveProcedureAttributeValuesRequest,
 } from '@enterprise-platform/contracts-procedure-engine';
@@ -184,6 +194,11 @@ export class ProcedureEngineApplication {
      * module khác KHÔNG được huỷ — không ai xác nhận được bên kia hoàn tác nổi.
      */
     private readonly reversalGuard?: InstanceReversalGuard,
+    /**
+     * Hỏi Tài chính lúc công bố quy trình có bước Tài chính. Vắng mặt thì quy trình
+     * có bước Tài chính KHÔNG công bố được — không ai xác nhận Tài chính nhận phiếu.
+     */
+    private readonly financeIntegration?: FinanceIntegrationResolver,
   ) {}
 
   /**
@@ -333,6 +348,7 @@ export class ProcedureEngineApplication {
       slaHours: step.slaHours,
       materials: step.materials?.map((item) => ({ ...item })),
       attributes: step.attributes?.map((item) => structuredClone(item)),
+      ...(step.integration ? { integration: structuredClone(step.integration) } : {}),
     }));
 
     const instance: ProcedureInstance = {
@@ -572,6 +588,7 @@ export class ProcedureEngineApplication {
             slaHours: step.slaHours,
             materials: step.materials?.map((item) => ({ ...item })),
             attributes: normalizeAttributeDefinitions(step.attributes, () => this.ids.next()),
+            ...(step.integration ? { integration: structuredClone(step.integration) } : {}),
             assignments: step.assignments.map((assignment) => ({
               id: this.ids.next(),
               ...assignment,
@@ -585,6 +602,7 @@ export class ProcedureEngineApplication {
       };
       // Bước vừa có id, nên đổi tham chiếu bằng mã bước trong gateway sang id.
       definition.gateways = this.normalizeGateways(input.gateways, definition);
+      normalizeStepIntegrations(definition.steps);
       state.definitions.push(definition);
       return definition;
     });
@@ -697,6 +715,7 @@ export class ProcedureEngineApplication {
           slaHours: step.slaHours,
           materials: step.materials?.map((item) => ({ ...item })),
           attributes: normalizeAttributeDefinitions(step.attributes, () => this.ids.next()),
+          ...(step.integration ? { integration: structuredClone(step.integration) } : {}),
           assignments: step.assignments.map((assignment) => ({
             id: this.ids.next(),
             ...assignment,
@@ -704,6 +723,7 @@ export class ProcedureEngineApplication {
             subjectLabel: assignment.subjectLabel?.trim() || undefined,
           })),
         }));
+      normalizeStepIntegrations(definition.steps);
       // Bỏ trống = giữ nguyên: client cũ không gửi hai trường này thì cũng không
       // được làm mất cấu hình rẽ nhánh mỗi lần sửa một ô RCSI.
       if (input.attributes !== undefined) {
@@ -767,6 +787,7 @@ export class ProcedureEngineApplication {
     }
     const resolvedTasks = await this.resolveInventoryTaskTemplates(actor.tenantId, draft);
     const resolvedMaterials = await this.resolveStepMaterials(actor.tenantId, draft);
+    await this.requireFinanceCapabilities(actor.tenantId, draft);
 
     return this.store.transaction(actor.tenantId, (state) => {
       const definition = this.requireDefinition(
@@ -807,6 +828,78 @@ export class ProcedureEngineApplication {
       definition.publishedAt = now;
       return definition;
     });
+  }
+
+  /**
+   * Quy trình có bước Tài chính chỉ công bố được khi Tài chính trả lời và nhận đúng
+   * loại phiếu. Gọi mạng nên chạy NGOÀI transaction, cùng lý do với Kho ở trên.
+   */
+  private async requireFinanceCapabilities(tenantId: string, definition: ProcedureDefinition): Promise<void> {
+    const kinds = [
+      ...new Set(
+        definition.steps
+          .filter((step) => isFinanceStep(step))
+          .map((step) => step.integration?.voucherKind as ProcedureFinanceVoucherKind),
+      ),
+    ];
+    if (!kinds.length) return;
+    if (!this.financeIntegration) {
+      throw new ProcedureEngineError(
+        'conflict',
+        'Chưa cấu hình kết nối tới module Tài chính nên không công bố được quy trình có bước Tài chính.',
+      );
+    }
+    let supported: readonly ProcedureFinanceVoucherKind[];
+    try {
+      supported = (await this.financeIntegration.capabilities(tenantId)).voucherKinds;
+    } catch {
+      throw new ProcedureEngineError(
+        'conflict',
+        'Module Tài chính không phản hồi nên chưa công bố được quy trình có bước Tài chính; thử lại sau.',
+      );
+    }
+    const missing = kinds.filter((kind) => !supported.includes(kind));
+    if (missing.length) {
+      throw new ProcedureEngineError(
+        'validation',
+        `Module Tài chính chưa nhận ${missing.map((kind) => (kind === 'PAYMENT' ? 'phiếu chi' : 'phiếu thu')).join(', ')} từ quy trình.`,
+      );
+    }
+  }
+
+  /**
+   * Tài chính hỏi trước khi ghi sổ / trả hồ sơ: người này có đang phụ trách bước Tài
+   * chính của hồ sơ không. Tính theo chức danh, đơn vị HIỆN TẠI của họ (đọc Core) cộng
+   * uỷ quyền — đúng luật của mọi bước khác. Không đọc được sơ đồ tổ chức thì ném lỗi
+   * để bên gọi từ chối thao tác (fail closed), không đoán.
+   */
+  async canActOnFinanceStepForService(
+    tenantId: string,
+    instanceId: string,
+    stepInstanceId: string,
+    input: ProcedureFinanceStepCanActRequest,
+  ): Promise<ProcedureFinanceStepCanActResponse> {
+    const userId = typeof input?.userId === 'string' ? input.userId.trim() : '';
+    const activation = Number(input?.activation);
+    if (!userId || !Number.isInteger(activation) || activation < 1) {
+      throw new ProcedureEngineError('validation', 'Cần userId và activation (số nguyên dương).');
+    }
+    const instance = (await this.store.read(tenantId)).instances.find((candidate) => candidate.id === instanceId);
+    if (!instance) throw new ProcedureEngineError('not_found', 'Không tìm thấy phiên quy trình.');
+    const actor =
+      (this.initiatorActors ? await this.initiatorActors.resolve(tenantId, userId) : null) ?? {
+        tenantId,
+        userId,
+        membershipId: '',
+        displayName: userId,
+        canDesign: false,
+        canPublish: false,
+        canCreateInstances: false,
+        isOverride: false,
+        organizationUnitIds: [],
+        positionIds: [],
+      };
+    return evaluateFinanceStepActor(instance, stepInstanceId, activation, actor);
   }
 
   /** Ngừng nhận hồ sơ mới / lưu trữ bản nháp, nhưng giữ nguyên cấu hình và các hồ sơ đã khởi tạo. */
@@ -1125,20 +1218,35 @@ export class ProcedureEngineApplication {
     });
   }
 
-  /** Đơn HRM đứng sau hồ sơ phải huỷ được (kỳ công/lương chưa khoá...). */
+  /**
+   * Module liên kết phải huỷ được phần của nó: đơn HRM / phiếu nguồn (kỳ công/lương chưa khoá...), và phiếu do
+   * bước Tài chính sinh ra (bất kể nguồn mở hồ sơ). Hồ sơ vừa có nguồn vừa có bước Tài chính thì hỏi cả hai.
+   */
   private async assertSourceReversible(tenantId: string, target: ProcedureInstance): Promise<void> {
-    if (!REVERSAL_GUARDED_SOURCE_TYPES.includes(target.sourceType as string) || !target.sourceId) return;
-    const check = this.reversalGuard
-      ? await this.reversalGuard.check(tenantId, {
-          sourceType: target.sourceType as string,
-          sourceId: target.sourceId,
-        })
-      : { allowed: false, reason: 'Chưa cấu hình kiểm tra với module nguồn.' };
-    if (!check.allowed) {
-      throw new ProcedureEngineError(
-        'conflict',
-        `Không huỷ hiệu lực được: ${check.reason ?? 'Module nguồn không cho phép huỷ chứng từ gốc.'}`,
-      );
+    if (REVERSAL_GUARDED_SOURCE_TYPES.includes(target.sourceType as string) && target.sourceId) {
+      const check = this.reversalGuard
+        ? await this.reversalGuard.check(tenantId, {
+            sourceType: target.sourceType as string,
+            sourceId: target.sourceId,
+          })
+        : { allowed: false, reason: 'Chưa cấu hình kiểm tra với module nguồn.' };
+      if (!check.allowed) {
+        throw new ProcedureEngineError(
+          'conflict',
+          `Không huỷ hiệu lực được: ${check.reason ?? 'Module nguồn không cho phép huỷ chứng từ gốc.'}`,
+        );
+      }
+    }
+    if (hasFinanceVoucher(target)) {
+      const check = this.reversalGuard?.checkFinanceStep
+        ? await this.reversalGuard.checkFinanceStep(tenantId, target.id)
+        : { allowed: false, reason: 'Chưa cấu hình kiểm tra với Tài chính.' };
+      if (!check.allowed) {
+        throw new ProcedureEngineError(
+          'conflict',
+          `Không huỷ hiệu lực được: ${check.reason ?? 'Tài chính không cho phép đảo phiếu của hồ sơ.'}`,
+        );
+      }
     }
   }
 
@@ -3421,6 +3529,200 @@ export class ProcedureEngineApplication {
       if (link.status === 'linked') return;
       instance.workspaceLink = { ...link, status: 'rejected', error: result.rejected, resolvedAt: now };
     });
+  }
+
+  /* ------------------------- Kết quả từ Tài chính ------------------------- */
+
+  /**
+   * Tìm bước Tài chính mà sự kiện của Tài chính nhắm tới. Trả `undefined` (bỏ qua
+   * sự kiện) khi hồ sơ đã kết thúc, bước không còn là bước hiện tại, không còn
+   * chờ, hoặc sự kiện thuộc một lần kích hoạt cũ: kết quả muộn không được đụng
+   * tới lần xử lý mới của bước.
+   */
+  private waitingFinanceStep(
+    state: ProcedureTenantState,
+    payload: { readonly instanceId: string; readonly stepInstanceId: string; readonly activation: number },
+  ): { instance: ProcedureInstance; step: ProcedureInstanceStep } | undefined {
+    const instance = state.instances.find((candidate) => candidate.id === payload?.instanceId);
+    if (!instance || instance.status !== 'running' || instance.currentStepId !== payload.stepInstanceId) return undefined;
+    const step = instance.steps.find((candidate) => candidate.id === payload.stepInstanceId);
+    if (!step || !isFinanceStepWaiting(step) || step.financeVoucher?.activation !== payload.activation) return undefined;
+    return { instance, step };
+  }
+
+  /** Tài chính đã tạo/cập nhật phiếu nháp cho bước: ghi mã phiếu để hồ sơ hiển thị. */
+  async applyFinanceVoucherLinked(tenantId: string, payload: FinanceVoucherLinkedPayload): Promise<void> {
+    const now = this.clock.now().toISOString();
+    await this.store.transaction(tenantId, (state) => {
+      const target = this.waitingFinanceStep(state, payload);
+      const voucher = target?.step.financeVoucher;
+      if (!target || !voucher || voucher.state === 'returned') return;
+      target.step.financeVoucher = {
+        ...voucher,
+        state: 'linked',
+        voucherId: payload.voucherId,
+        code: payload.code,
+        amount: Number(payload.amount),
+        updatedAt: now,
+      };
+    });
+  }
+
+  /**
+   * Phiếu đã ghi sổ: đóng bước Tài chính với người thực hiện là người ghi sổ rồi đi
+   * tiếp theo luồng. Tiền đã ghi sổ nên kết quả luôn được áp; người ghi sổ không
+   * còn phụ trách bước (đổi chức danh giữa chừng...) chỉ để lại cảnh báo trong nhật ký.
+   */
+  async applyFinanceVoucherPosted(tenantId: string, payload: FinanceVoucherPostedPayload): Promise<void> {
+    const snapshot = (await this.store.read(tenantId)).instances.find((candidate) => candidate.id === payload?.instanceId);
+    if (!snapshot) return;
+    const managers = needsManagerChain(snapshot)
+      ? (await this.loadManagers(tenantId, snapshot.initiatedBy, snapshot.initiatorPositionId, true)).managers
+      : undefined;
+    const permissionWarning = await this.financePosterWarning(tenantId, snapshot, payload);
+
+    await this.store.transaction(tenantId, (state) => {
+      const idempotencyKey = `finance:posted:${payload.stepInstanceId}:${payload.activation}`;
+      if (state.idempotency[idempotencyKey]) return;
+      const target = this.waitingFinanceStep(state, payload);
+      if (!target) return;
+      const { instance, step } = target;
+      const now = this.clock.now().toISOString();
+      const actorName = payload.postedByName?.trim() || 'Kế toán';
+      ensurePath(instance);
+      step.financeVoucher = {
+        ...(step.financeVoucher as NonNullable<ProcedureInstanceStep['financeVoucher']>),
+        state: 'posted',
+        voucherId: payload.voucherId,
+        code: payload.code,
+        amount: Number(payload.amount),
+        postedAt: payload.postedAt,
+        postedBy: payload.postedBy,
+        postedByName: payload.postedByName,
+        updatedAt: now,
+      };
+      // Bước Tài chính chỉ có vai R (và I theo dõi), nhưng vẫn đi hết các pha còn lại
+      // cho chắc: bước phải rời vị trí hiện tại sau khi tiền đã ghi sổ.
+      for (let guard = 0; guard < 6 && step.status !== 'completed' && instance.currentStepId === step.id; guard += 1) {
+        this.advance(instance, step, now, state, managers);
+      }
+      recomputeProgress(instance);
+      if (permissionWarning) {
+        instance.activity.unshift({
+          id: this.ids.next(),
+          action: 'comment',
+          actorId: PROCEDURE_SYSTEM_ACTOR_ID,
+          actorName: 'Hệ thống',
+          summary: permissionWarning,
+          createdAt: now,
+          stepInstanceId: step.id,
+          idempotencyKey: `${idempotencyKey}:warning`,
+        });
+      }
+      instance.activity.unshift({
+        id: this.ids.next(),
+        action: 'complete',
+        actorId: payload.postedBy,
+        actorName,
+        summary: `Đã ghi sổ ${payload.code} bởi ${actorName}.`,
+        createdAt: now,
+        stepInstanceId: step.id,
+        idempotencyKey,
+      });
+      state.idempotency[idempotencyKey] = instance.id;
+    });
+  }
+
+  /** Kế toán trả hồ sơ về: trả về bước đã cấu hình (mặc định bước liền trước), kèm lý do. */
+  async applyFinanceVoucherReturned(tenantId: string, payload: FinanceVoucherReturnedPayload): Promise<void> {
+    const snapshot = (await this.store.read(tenantId)).instances.find((candidate) => candidate.id === payload?.instanceId);
+    if (!snapshot) return;
+    const managers = needsManagerChain(snapshot)
+      ? (await this.loadManagers(tenantId, snapshot.initiatedBy, snapshot.initiatorPositionId, true)).managers
+      : undefined;
+
+    await this.store.transaction(tenantId, (state) => {
+      const idempotencyKey = `finance:returned:${payload.stepInstanceId}:${payload.activation}`;
+      if (state.idempotency[idempotencyKey]) return;
+      const target = this.waitingFinanceStep(state, payload);
+      if (!target) return;
+      const { instance, step } = target;
+      const now = this.clock.now().toISOString();
+      const reason = payload.reason?.trim() || 'Không ghi lý do.';
+      const actorName = payload.actorName?.trim() || 'Kế toán';
+      ensurePath(instance);
+      step.financeVoucher = {
+        ...(step.financeVoucher as NonNullable<ProcedureInstanceStep['financeVoucher']>),
+        state: 'returned',
+        voucherId: payload.voucherId,
+        returnedReason: reason,
+        updatedAt: now,
+      };
+      // Bước đích cấu hình theo id bước định nghĩa; không còn nằm trên đường đã đi
+      // (nhánh khác) thì về bước liền trước như mọi lần trả về khác.
+      const targets = returnTargetStepIds(instance);
+      const configured = step.integration?.returnToStepId
+        ? stepByDefinitionId(instance, step.integration.returnToStepId)?.id
+        : undefined;
+      this.returnToPreviousStep(
+        instance,
+        step,
+        now,
+        configured && targets.includes(configured) ? configured : undefined,
+        managers,
+      );
+      recomputeProgress(instance);
+      instance.activity.unshift({
+        id: this.ids.next(),
+        action: 'return',
+        actorId: payload.actorId,
+        actorName,
+        summary: `Kế toán trả hồ sơ về từ bước ${step.name}.`,
+        comment: reason,
+        createdAt: now,
+        stepInstanceId: step.id,
+        idempotencyKey,
+      });
+      state.idempotency[idempotencyKey] = instance.id;
+    });
+  }
+
+  /**
+   * Kiểm lại người ghi sổ bằng đúng luật `can-act`, trước khi mở transaction (hỏi Core).
+   * Trả về câu cảnh báo khi không khớp hoặc không xác minh được; `undefined` khi hợp lệ.
+   */
+  private async financePosterWarning(
+    tenantId: string,
+    instance: ProcedureInstance,
+    payload: FinanceVoucherPostedPayload,
+  ): Promise<string | undefined> {
+    const name = payload.postedByName?.trim() || payload.postedBy;
+    let actor: ProcedureActor | null = null;
+    try {
+      actor = this.initiatorActors ? await this.initiatorActors.resolve(tenantId, payload.postedBy) : null;
+    } catch {
+      return `Cảnh báo: chưa xác minh được ${name} có phụ trách bước Tài chính lúc ghi sổ ${payload.code} (không đọc được sơ đồ tổ chức).`;
+    }
+    const check = evaluateFinanceStepActor(
+      instance,
+      payload.stepInstanceId,
+      payload.activation,
+      actor ?? {
+        tenantId,
+        userId: payload.postedBy,
+        membershipId: '',
+        displayName: name,
+        canDesign: false,
+        canPublish: false,
+        canCreateInstances: false,
+        isOverride: false,
+        organizationUnitIds: [],
+        positionIds: [],
+      },
+    );
+    return check.allowed
+      ? undefined
+      : `Cảnh báo: ${name} ghi sổ ${payload.code} nhưng không phụ trách bước Tài chính lúc nhận kết quả (${check.reason ?? 'không khớp phân công'}).`;
   }
 
   private requireDefinition(

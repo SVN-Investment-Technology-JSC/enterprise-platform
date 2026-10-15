@@ -7,7 +7,7 @@ import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import {
   FINANCE_VOUCHER_KIND_LABELS,
   type FinanceApprovalBinding,
-  type FinanceApprovalMode,
+  type FinanceBindingMode,
   type FinanceCatalogs,
   type FinanceSettings,
   type FinanceVoucherKind,
@@ -152,7 +152,7 @@ function CatalogPanel({
   );
 }
 
-const MODE_OPTIONS: { value: FinanceApprovalMode; label: string }[] = [
+const MODE_OPTIONS: { value: FinanceBindingMode; label: string }[] = [
   { value: 'DIRECT', label: 'Duyệt trực tiếp (người có quyền duyệt)' },
   { value: 'PROCEDURE', label: 'Duyệt qua quy trình (Procedure)' },
 ];
@@ -162,7 +162,7 @@ function ApprovalPanel() {
   const [bindings, setBindings] = useState<FinanceApprovalBinding[] | null>(null);
   const [definitions, setDefinitions] = useState<{ id: string; code: string; name: string }[] | null>(null);
   const [definitionsError, setDefinitionsError] = useState<string | null>(null);
-  const [draft, setDraft] = useState<Partial<Record<FinanceVoucherKind, { mode: FinanceApprovalMode; definitionId: string }>>>({});
+  const [draft, setDraft] = useState<Partial<Record<FinanceVoucherKind, { mode: FinanceBindingMode; definitionId: string }>>>({});
   const [warnings, setWarnings] = useState<Partial<Record<FinanceVoucherKind, string[]>>>({});
   const [savingKind, setSavingKind] = useState<FinanceVoucherKind | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -237,7 +237,7 @@ function ApprovalPanel() {
                     name={id}
                     options={MODE_OPTIONS}
                     value={value.mode}
-                    onChange={(mode) => mode && setDraft({ ...draft, [binding.kind]: { ...value, mode: mode as FinanceApprovalMode } })}
+                    onChange={(mode) => mode && setDraft({ ...draft, [binding.kind]: { ...value, mode: mode as FinanceBindingMode } })}
                     height={32}
                   />
                 )}

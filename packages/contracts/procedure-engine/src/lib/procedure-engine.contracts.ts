@@ -9,6 +9,7 @@ import type {
   ProcedurePathEntry,
   ProcedureProgress,
 } from './procedure-flow.types.js';
+import type { ProcedureStepFinanceVoucher, ProcedureStepIntegration } from './procedure-finance-step.js';
 
 export const PROCEDURE_KINDS = [
   'process',
@@ -180,6 +181,8 @@ export interface ProcedureStepDefinition {
   slaHours?: number;
   /** Trường dữ liệu người thực hiện bước nhập khi chạy hồ sơ. */
   attributes?: ProcedureAttributeDefinition[];
+  /** Bước tích hợp (ví dụ bước Tài chính): việc làm thật nằm ở module khác. */
+  integration?: ProcedureStepIntegration;
   assignments: ProcedureRaciAssignment[];
 }
 
@@ -278,6 +281,13 @@ export interface ProcedureInstanceStep {
   materialReservations?: string[];
   /** Chụp từ định nghĩa lúc khởi tạo. */
   attributes?: ProcedureAttributeDefinition[];
+  /**
+   * Chụp từ định nghĩa lúc khởi tạo. Bước có cấu hình này chờ module ngoài: không
+   * ai hoàn thành được bằng tay, bước đóng khi module đó báo kết quả.
+   */
+  integration?: ProcedureStepIntegration;
+  /** Tiến trình phiếu của bước Tài chính; chỉ có khi `integration.module = 'finance'`. */
+  financeVoucher?: ProcedureStepFinanceVoucher;
   /**
    * Bản gốc của các assignment động trước khi phân giải. Giữ lại để khi bước bị
    * trả về thì lần kích hoạt sau phân giải lại theo tổ chức lúc đó.
@@ -493,6 +503,8 @@ export interface CreateProcedureStepInput {
   /** Vật tư bước cần; tên và đơn vị sẽ được server điền lúc công bố. */
   materials?: ProcedureStepMaterial[];
   attributes?: ProcedureAttributeDefinition[];
+  /** Bước tích hợp; `returnToStepId` được phép ghi mã bước khi bước đích chưa có id. */
+  integration?: ProcedureStepIntegration;
   assignments: CreateProcedureRaciAssignmentInput[];
 }
 

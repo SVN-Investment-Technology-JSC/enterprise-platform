@@ -13,7 +13,9 @@ import {
 } from '@nestjs/common';
 import type {
   FinanceDecisionRequest,
+  FinancePostSourcedRequest,
   FinanceProcedureActionRequest,
+  FinanceReturnSourceRequest,
   FinanceVoucherKind,
   FinanceVoucherListQuery,
   FinanceVoucherStatus,
@@ -157,6 +159,7 @@ export class FinanceController {
     @Query('from') from?: string,
     @Query('to') to?: string,
     @Query('scope') scope?: FinanceVoucherListQuery['scope'],
+    @Query('source') source?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
   ) {
@@ -171,6 +174,7 @@ export class FinanceController {
         from: from || undefined,
         to: to || undefined,
         scope: scope || undefined,
+        source: source === 'procedure' ? 'procedure' : undefined,
         page: int(page),
         pageSize: int(pageSize),
       }),
@@ -239,6 +243,28 @@ export class FinanceController {
   procedureRetry(@Req() request: FinanceRequest, @Param('id') id: string) {
     return this.run(() => this.app.retryProcedure(this.actor(request), id));
   }
+  /* Phiếu tạo từ hồ sơ quy trình (bước Tài chính) */
+  @Post('vouchers/:id/post-sourced')
+  @HttpCode(200)
+  postSourced(@Req() request: FinanceRequest, @Param('id') id: string, @Body() body: FinancePostSourcedRequest) {
+    return this.run(() => this.app.postSourced(this.actor(request), id, { note: body?.note, revision: body?.revision }));
+  }
+  @Post('vouchers/:id/return-source')
+  @HttpCode(200)
+  returnSource(@Req() request: FinanceRequest, @Param('id') id: string, @Body() body: FinanceReturnSourceRequest & { revision?: number }) {
+    return this.run(() => this.app.returnSourced(this.actor(request), id, { reason: body?.reason, revision: body?.revision }));
+  }
+  @Post('vouchers/:id/take-over')
+  @HttpCode(200)
+  takeOver(@Req() request: FinanceRequest, @Param('id') id: string) {
+    return this.run(() => this.app.takeOverSourced(this.actor(request), id));
+  }
+  @Post('vouchers/:id/retry-source-reversal')
+  @HttpCode(200)
+  retrySourceReversal(@Req() request: FinanceRequest, @Param('id') id: string) {
+    return this.run(() => this.app.retrySourceReversal(this.actor(request), id));
+  }
+
   @Post('vouchers/:id/reverse')
   @HttpCode(200)
   reverse(@Req() request: FinanceRequest, @Param('id') id: string, @Body() body: FinanceDecisionRequest) {
@@ -279,10 +305,25 @@ export class FinanceController {
     return this.run(() => this.app.procedureDefinitions(this.actor(request), sessionOf(request)));
   }
 
+  /** Route nội bộ cho Procedure (service token): loại phiếu bước Tài chính tạo được, hỏi lúc công bố quy trình. */
+  @Get('internal/integration/capabilities')
+  integrationCapabilities(@Req() request: FinanceRequest) {
+    return this.run(() => {
+      this.actor(request);
+      return this.app.integrationCapabilities();
+    });
+  }
+
   /** Route nội bộ cho Procedure (service token, không có người dùng): huỷ hiệu lực hồ sơ có được không. */
   @Get('internal/procedure-links/:linkId/reversal-check')
   reversalCheck(@Req() request: FinanceRequest, @Param('linkId') linkId: string) {
     return this.run(() => this.app.procedureReversalCheck(this.actor(request).tenantId, linkId));
+  }
+
+  /** Route nội bộ cho Procedure (service token): huỷ hiệu lực một hồ sơ (có thể có bước Tài chính) có được không. */
+  @Get('internal/instances/:instanceId/reversal-check')
+  instanceReversalCheck(@Req() request: FinanceRequest, @Param('instanceId') instanceId: string) {
+    return this.run(() => this.app.instanceReversalCheck(this.actor(request).tenantId, instanceId));
   }
 
   /* Báo cáo */

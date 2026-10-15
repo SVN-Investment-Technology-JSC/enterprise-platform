@@ -28,7 +28,8 @@ import { Button } from '../ui/button';
 import { Avatar, ErrorBanner, StatusBadge } from '../ui/form-parts';
 import { cn } from '../utils';
 
-type Scope = 'all' | 'mine' | 'to-approve';
+/** `procedure` là bộ lọc "Từ quy trình" (tham số `source`), các giá trị còn lại là tham số `scope`. */
+type Scope = 'all' | 'mine' | 'to-approve' | 'to-post' | 'awaiting-post' | 'procedure';
 
 /**
  * Kỳ xem mặc định: tháng hiện tại, để danh sách gọn và theo dõi từng tháng. `?month=all` xem toàn bộ thời gian
@@ -94,7 +95,7 @@ export default function VoucherListScreen({ kind }: { kind: FinanceVoucherKind }
     setLoading(true);
     try {
       const result = await financeFetch<FinanceVoucherList>(
-        `/vouchers${toQuery({ kind, status, scope: scope === 'all' ? undefined : scope, search: debouncedSearch, accountId, reasonId, projectId, from: range.from, to: range.to, page, pageSize })}`,
+        `/vouchers${toQuery({ kind, status, scope: scope === 'all' || scope === 'procedure' ? undefined : scope, source: scope === 'procedure' ? 'procedure' : undefined, search: debouncedSearch, accountId, reasonId, projectId, from: range.from, to: range.to, page, pageSize })}`,
       );
       if (mine !== sequence.current) return;
       setData(result);
@@ -151,13 +152,15 @@ export default function VoucherListScreen({ kind }: { kind: FinanceVoucherKind }
       render: (code: string, row) => (
         <a
           href={`${config.path}/${row.id}`}
-          className="font-medium text-link hover:underline"
+          // Phiếu chưa ghi sổ chỉ có mã nháp: hiện nhạt hơn để phân biệt với mã chính thức.
+          className={row.officialCode ? 'font-medium text-link hover:underline' : 'font-medium text-slate-500 hover:text-link hover:underline'}
           onClick={(event) => {
             event.preventDefault();
             router.push(`${config.path}/${row.id}`);
           }}
         >
           {code}
+          {row.sourceCode ? <span className="block text-xs font-normal text-slate-500">Từ hồ sơ {row.sourceCode}</span> : null}
         </a>
       ),
     },
@@ -199,6 +202,10 @@ export default function VoucherListScreen({ kind }: { kind: FinanceVoucherKind }
     { id: 'all', label: 'Tất cả phiếu', visible: true },
     { id: 'mine', label: 'Của tôi', visible: true },
     { id: 'to-approve', label: 'Chờ tôi duyệt', visible: Boolean(kindCaps?.approve) },
+    // Phiếu tạo từ bước Tài chính của quy trình (lệnh chuyển tiền không đi qua quy trình).
+    { id: 'to-post', label: 'Chờ tôi ghi sổ', visible: kind !== 'TRANSFER' && Boolean(kindCaps?.approve) },
+    { id: 'awaiting-post', label: 'Chờ ghi sổ (tất cả)', visible: kind !== 'TRANSFER' && Boolean(kindCaps?.approve) },
+    { id: 'procedure', label: 'Từ quy trình', visible: kind !== 'TRANSFER' },
   ];
 
   return (

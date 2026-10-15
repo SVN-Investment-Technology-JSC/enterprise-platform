@@ -6,6 +6,7 @@ import type {
   CreateProcedureDelegationRequest,
   CreateProcedureInstanceRequest,
   PostProcedureCommentRequest,
+  ProcedureFinanceStepCanActRequest,
   ProcedureSettingsKey,
   RequestProcedureMaterialsRequest,
   SaveProcedureAttributeValuesRequest,
@@ -240,6 +241,24 @@ export class ProcedureEngineController {
     const tenantId = this.internalTenant(request);
     return this.execute(() =>
       this.procedures.getInstanceStatusesForService(tenantId, input?.ids ?? []),
+    );
+  }
+
+  /**
+   * Tài chính hỏi trước khi ghi sổ / trả hồ sơ ở bước Tài chính: người này có đang
+   * phụ trách bước không (chỉ đọc, service token).
+   */
+  @Post('internal/instances/:instanceId/steps/:stepInstanceId/can-act')
+  @HttpCode(200)
+  internalFinanceStepCanAct(
+    @Req() request: any,
+    @Param('instanceId') instanceId: string,
+    @Param('stepInstanceId') stepInstanceId: string,
+    @Body() input: ProcedureFinanceStepCanActRequest,
+  ) {
+    const tenantId = this.internalTenant(request);
+    return this.execute(() =>
+      this.procedures.canActOnFinanceStepForService(tenantId, instanceId, stepInstanceId, input),
     );
   }
 

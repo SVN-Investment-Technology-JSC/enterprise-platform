@@ -46,12 +46,15 @@ import {
   FINANCE_INTEGRATION_QUEUE,
   FINANCE_PROCEDURE_EVENT_TYPES,
   financeProcedureReady,
+  financeVoucherSourcesReady,
   isFinanceProcedureEvent,
+  isFinanceSourcedInstanceEvent,
   processFinanceProcedureSync,
   receiveFinanceProcedureEvent,
 } from '@enterprise-platform/module-finance';
 import {
   createProcedureWorkspaceEvents,
+  PROCEDURE_FINANCE_EVENT_TYPES,
   PROCEDURE_WORKSPACE_EVENT_TYPES,
 } from '@enterprise-platform/module-procedure-engine';
 import {
@@ -141,7 +144,8 @@ const workspaceConsumer = new RabbitMqConsumer(
 );
 const procedureConsumer = new RabbitMqConsumer(
   process.env.RABBITMQ_URL ?? 'amqp://platform:platform@localhost:5672',
-  { queue: 'procedure.integrations.v1', bindings: [...PROCEDURE_WORKSPACE_EVENT_TYPES] },
+  // Sự kiện của Workspace và kết quả bước Tài chính (finance.voucher.*) chung một hàng đợi, một consumer.
+  { queue: 'procedure.integrations.v1', bindings: [...PROCEDURE_WORKSPACE_EVENT_TYPES, ...PROCEDURE_FINANCE_EVENT_TYPES] },
 );
 const moduleDatabases = new TenantDatabaseRegistry();
 const workspaceProcedureEvents = createWorkspaceProcedureEvents(moduleDatabases, tenantPools);
@@ -271,17 +275,29 @@ async function processHrmJobs(database: TenantDatabaseReference) {
 void financeConsumer
   .start(async (event) => {
     if (!isFinanceProcedureEvent(event)) return;
+    // Hồ sơ không do phiếu mở kết thúc / huỷ hiệu lực: phát cho mọi hồ sơ. Tenant chưa bật hoặc chưa migrate Tài chính thì
+    // không thể có phiếu của bước Tài chính, bỏ qua thay vì thử lại mãi.
+    const sourcedInstance = isFinanceSourcedInstanceEvent(event);
     const database = await activeTenantDatabase(event.tenantId);
     if (!database) return;
-    if (!(await moduleEnabled(event.tenantId, 'finance')))
+    if (!(await moduleEnabled(event.tenantId, 'finance'))) {
+      if (sourcedInstance) return;
       throw new TransientConsumerError('Tài chính entitlement chưa hoạt động');
+    }
     const outcome = await withActiveTenant(
       platformPool,
       event.tenantId,
       async () => {
         const pool = (await tenantPools.forTenant(database)) as unknown as Pool;
+        if (sourcedInstance) {
+          await receiveFinanceProcedureEvent(pool, event.tenantId, event);
+          return;
+        }
         if (!(await financeProcedureReady(pool)))
           throw new TransientConsumerError('Tài chính cần migration trước khi nhận kết quả quy trình');
+        // Bước Tài chính của quy trình: cần bảng nguồn phiếu (migration 0006) trước khi tạo phiếu.
+        if (event.type === 'procedure.step.finance_voucher_requested' && !(await financeVoucherSourcesReady(pool)))
+          throw new TransientConsumerError('Tài chính cần migration trước khi nhận yêu cầu tạo phiếu từ quy trình');
         await receiveFinanceProcedureEvent(pool, event.tenantId, event);
       },
       { mode: 'shared' },

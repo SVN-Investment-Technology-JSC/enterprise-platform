@@ -232,6 +232,21 @@ describe('computeVoucherPermissions', () => {
     procedureCanAct: null,
   };
 
+  it('phiếu tạo từ hồ sơ quy trình (INHERITED): không có thao tác thường nào, kể cả với chủ phiếu và người duyệt', () => {
+    for (const status of ['DRAFT', 'APPROVED'] as const)
+      expect(computeVoucherPermissions({ ...base, status, canApprove: true, approvalMode: 'INHERITED' })).toEqual({
+        canEdit: false,
+        canSubmit: false,
+        canApprove: false,
+        canReject: false,
+        canCancel: false,
+        canReverse: false,
+        canDelete: false,
+        canRetryProcedure: false,
+        sourced: { canEditSourced: false, canPost: false, canReturnSource: false, canTakeOver: false, canRetryReversal: false },
+      });
+  });
+
   it('chủ phiếu sửa, gửi duyệt, huỷ, xoá được khi còn nháp; người khác thì không', () => {
     expect(computeVoucherPermissions(base)).toMatchObject({ canEdit: true, canSubmit: true, canCancel: true, canDelete: true, canApprove: false });
     expect(computeVoucherPermissions({ ...base, actorId: 'u2' })).toMatchObject({ canEdit: false, canSubmit: false, canDelete: false });

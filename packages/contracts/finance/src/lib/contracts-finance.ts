@@ -4,6 +4,7 @@
  * Phiếu thu, phiếu chi và lệnh chuyển tiền dùng chung một bảng `vouchers`; khác nhau ở `kind`.
  * Tiền được ghi sổ (sổ cái tài khoản) khi phiếu được DUYỆT, không phải khi lập.
  */
+import type { FinanceSourcedVoucherPermissions, FinanceVoucherSource } from './finance-procedure-step.js';
 
 export const FINANCE_VOUCHER_KINDS = ['RECEIPT', 'PAYMENT', 'TRANSFER'] as const;
 export type FinanceVoucherKind = (typeof FINANCE_VOUCHER_KINDS)[number];
@@ -14,11 +15,14 @@ export const FINANCE_VOUCHER_KIND_LABELS: Readonly<Record<FinanceVoucherKind, st
   TRANSFER: 'Lệnh chuyển tiền',
 };
 
-/** Tiền tố mã phiếu: PT_<số thứ tự>_<tháng>_<năm>. */
+/**
+ * Tiền tố mã phiếu. Mã chính thức `PC-2610-0045` (cấp lúc ghi sổ), mã nháp `NHAP_PC_2610_0045` (cấp lúc lập).
+ * Xem `formatFinanceOfficialCode` / `formatFinanceDraftCode`.
+ */
 export const FINANCE_VOUCHER_CODE_PREFIX: Readonly<Record<FinanceVoucherKind, string>> = {
   RECEIPT: 'PT',
   PAYMENT: 'PC',
-  TRANSFER: 'PCT',
+  TRANSFER: 'CT',
 };
 
 export const FINANCE_VOUCHER_STATUSES = ['DRAFT', 'PENDING', 'APPROVED', 'REJECTED', 'CANCELLED'] as const;
@@ -273,7 +277,9 @@ export type FinanceVoucherEventAction =
   | 'REJECTED'
   | 'RETURNED'
   | 'CANCELLED'
-  | 'REVERSED';
+  | 'REVERSED'
+  /** Phiếu tạo từ bước Tài chính: người khác nhận xử lý thay người đang giữ khoá mềm. */
+  | 'TAKEN_OVER';
 
 export const FINANCE_VOUCHER_EVENT_LABELS: Readonly<Record<FinanceVoucherEventAction, string>> = {
   CREATED: 'Tạo phiếu',
@@ -284,6 +290,7 @@ export const FINANCE_VOUCHER_EVENT_LABELS: Readonly<Record<FinanceVoucherEventAc
   RETURNED: 'Trả về chỉnh sửa',
   CANCELLED: 'Huỷ phiếu',
   REVERSED: 'Huỷ phiếu đã ghi sổ (đảo bút toán)',
+  TAKEN_OVER: 'Nhận xử lý thay',
 };
 
 export interface FinanceVoucherEvent {
@@ -318,10 +325,19 @@ export interface FinanceVoucherSummary {
   updatedAt: string;
   submittedAt: string | null;
   decidedAt: string | null;
-  /** Đang chạy qua quy trình duyệt (Procedure) hay duyệt trực tiếp. */
+  /**
+   * Đang chạy qua quy trình duyệt (Procedure), duyệt trực tiếp, hay INHERITED: phiếu tạo từ bước Tài chính của một hồ sơ
+   * quy trình (đã duyệt ở quy trình, kế toán chỉ ghi sổ hoặc trả hồ sơ).
+   */
   approvalMode: FinanceApprovalMode;
   /** Hạch toán nội bộ, hiển thị ở danh sách. */
   allocation: FinanceAllocation | null;
+  /** Mã nháp cấp lúc lập phiếu; giữ suốt vòng đời để tra cứu. Null với phiếu cũ đã ghi sổ trước khi có mã nháp. */
+  draftCode: string | null;
+  /** Mã chính thức cấp lúc ghi sổ; null khi phiếu chưa từng ghi sổ. `code` là mã đang hiển thị. */
+  officialCode: string | null;
+  /** Mã hồ sơ quy trình đã tạo ra phiếu (INHERITED); null với phiếu thường. */
+  sourceCode: string | null;
 }
 
 export interface FinanceVoucher extends FinanceVoucherSummary {
@@ -348,6 +364,8 @@ export interface FinanceVoucher extends FinanceVoucherSummary {
   posted: boolean;
   /** Tiến độ quy trình (chế độ PROCEDURE). */
   procedure: FinanceProcedureProgress | null;
+  /** Hồ sơ quy trình đã tạo ra phiếu (chế độ INHERITED). */
+  source: FinanceVoucherSource | null;
   /** Thao tác người xem được phép làm ngay bây giờ. */
   permissions: FinanceVoucherPermissions;
 }
@@ -363,6 +381,8 @@ export interface FinanceVoucherPermissions {
   canDelete: boolean;
   /** Phiếu duyệt qua quy trình đang kẹt (chưa tạo được hồ sơ hoặc chưa ghi sổ được): được bấm thử lại/áp lại. */
   canRetryProcedure: boolean;
+  /** Phiếu có nguồn hồ sơ (INHERITED): thao tác của kế toán. Phiếu thường luôn là false. */
+  sourced: FinanceSourcedVoucherPermissions;
 }
 
 export interface SaveFinanceVoucherRequest {
@@ -403,8 +423,13 @@ export interface FinanceVoucherListQuery {
   projectId?: string;
   from?: string;
   to?: string;
-  /** Chỉ phiếu của tôi / chỉ phiếu chờ tôi duyệt. */
-  scope?: 'mine' | 'to-approve';
+  /**
+   * Chỉ phiếu của tôi / chờ tôi duyệt / chờ tôi ghi sổ (phiếu từ quy trình mà tôi được giao bước Tài chính) /
+   * chờ ghi sổ (mọi phiếu từ quy trình đang chờ, cho người có quyền duyệt loại phiếu).
+   */
+  scope?: 'mine' | 'to-approve' | 'to-post' | 'awaiting-post';
+  /** Chỉ phiếu tạo từ quy trình. */
+  source?: 'procedure';
   page?: number;
   pageSize?: number;
 }
@@ -431,17 +456,19 @@ export interface FinanceDecisionRequest {
 
 /* --------------------------- Quy trình duyệt --------------------------- */
 
-export type FinanceApprovalMode = 'DIRECT' | 'PROCEDURE';
+/** Cách duyệt của phiếu. Cấu hình theo loại phiếu chỉ chọn DIRECT/PROCEDURE; INHERITED chỉ có ở phiếu tạo từ quy trình. */
+export type FinanceApprovalMode = 'DIRECT' | 'PROCEDURE' | 'INHERITED';
+export type FinanceBindingMode = Exclude<FinanceApprovalMode, 'INHERITED'>;
 
 export interface FinanceApprovalBinding {
   kind: FinanceVoucherKind;
-  mode: FinanceApprovalMode;
+  mode: FinanceBindingMode;
   procedureDefinitionId: string | null;
   procedureDefinitionName: string | null;
   isActive: boolean;
 }
 export interface SaveFinanceApprovalBindingRequest {
-  mode: FinanceApprovalMode;
+  mode: FinanceBindingMode;
   procedureDefinitionId?: string | null;
 }
 
@@ -608,10 +635,20 @@ export function financeIncludedTax(total: number, taxRate: number): number {
   return roundMoney(total - total / (1 + taxRate / 100));
 }
 
-/** Mã phiếu: PT_<số thứ tự>_<tháng 2 chữ số>_<năm>. */
-export function formatFinanceVoucherCode(kind: FinanceVoucherKind, sequence: number, date: string): string {
+/** Kỳ đánh số của một ngày `YYYY-MM-DD`: `YYMM` (2026-10-14 → 2610). */
+export function financePeriodOf(date: string): string {
   const [year, month] = date.split('-');
-  return `${FINANCE_VOUCHER_CODE_PREFIX[kind]}_${sequence}_${month}_${year}`;
+  return `${year.slice(-2)}${month}`;
+}
+
+/** Mã chính thức, cấp lúc ghi sổ, đánh số lại từ 1 mỗi kỳ: `PC-2610-0045`. */
+export function formatFinanceOfficialCode(kind: FinanceVoucherKind, period: string, sequence: number): string {
+  return `${FINANCE_VOUCHER_CODE_PREFIX[kind]}-${period}-${String(sequence).padStart(4, '0')}`;
+}
+
+/** Mã nháp, cấp lúc lập phiếu theo dãy riêng: `NHAP_PC_2610_0045`. */
+export function formatFinanceDraftCode(kind: FinanceVoucherKind, period: string, sequence: number): string {
+  return `NHAP_${FINANCE_VOUCHER_CODE_PREFIX[kind]}_${period}_${String(sequence).padStart(4, '0')}`;
 }
 
 export function formatFinanceMoney(value: number): string {

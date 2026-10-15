@@ -4,6 +4,7 @@ import type {
 } from '@enterprise-platform/contracts-procedure-engine';
 import type { ProcedureActor } from '../domain/procedure-authorization.js';
 import { InMemoryProcedureStore } from '../infrastructure/in-memory-procedure-store.js';
+import { HttpInstanceReversalGuard } from '../infrastructure/http-instance-reversal.guard.js';
 import type { InstanceReversalGuard } from './instance-reversal-guard.port.js';
 import { ProcedureEngineApplication } from './procedure-engine.application.js';
 import type { ProcedureClock, ProcedureIdGenerator } from './procedure-store.port.js';
@@ -197,5 +198,104 @@ describe('Huỷ hiệu lực hồ sơ', () => {
       application.reverseInstance(admin, done.id, { reason: 'Sai ngày nghỉ', createAdjustment: false }),
     ).rejects.toMatchObject({ code: 'conflict', message: expect.stringContaining('Kỳ lương đã chốt') });
     expect(guard.check).toHaveBeenCalledWith(TENANT, { sourceType: 'hrm_request', sourceId: 'link-1' });
+  });
+
+  describe('hồ sơ có bước Tài chính đã sinh phiếu', () => {
+    /** Ghi phiếu vào bước cuối của hồ sơ đã hoàn thành, như sau khi Tài chính ghi sổ. */
+    async function withVoucher(store: InMemoryProcedureStore, instanceId: string, sourceType?: 'hrm_request') {
+      await store.transaction(TENANT, (state) => {
+        const instance = state.instances.find((candidate) => candidate.id === instanceId);
+        if (!instance) throw new Error('missing instance');
+        const step = instance.steps[instance.steps.length - 1];
+        step.financeVoucher = {
+          activation: 1,
+          state: 'posted',
+          requestedAt: '2026-10-09T08:00:00.000Z',
+          voucherId: 'voucher-1',
+          code: 'PC-2610-0001',
+        };
+        if (sourceType) {
+          instance.sourceType = sourceType;
+          instance.sourceId = 'link-1';
+        }
+        return instance;
+      });
+    }
+
+    it('hỏi Tài chính theo id hồ sơ và cho huỷ khi Tài chính đồng ý', async () => {
+      const guard: InstanceReversalGuard = {
+        check: jest.fn().mockResolvedValue({ allowed: true }),
+        checkFinanceStep: jest.fn().mockResolvedValue({ allowed: true }),
+      };
+      const { application, store } = setup(guard);
+      const done = await completed(application);
+      await withVoucher(store, done.id);
+      const reversed = await application.reverseInstance(admin, done.id, { reason: 'Sai số tiền', createAdjustment: false });
+      expect(reversed.status).toBe('reversed');
+      expect(guard.checkFinanceStep).toHaveBeenCalledWith(TENANT, done.id);
+      // Hồ sơ thủ công: không có nguồn để hỏi.
+      expect(guard.check).not.toHaveBeenCalled();
+    });
+
+    it('chặn khi Tài chính từ chối (kỳ đã khoá sổ)', async () => {
+      const guard: InstanceReversalGuard = {
+        check: jest.fn(),
+        checkFinanceStep: jest.fn().mockResolvedValue({ allowed: false, reason: 'Sổ đã khoá đến ngày 2026-10-31' }),
+      };
+      const { application, store } = setup(guard);
+      const done = await completed(application);
+      await withVoucher(store, done.id);
+      await expect(
+        application.reverseInstance(admin, done.id, { reason: 'Sai số tiền', createAdjustment: false }),
+      ).rejects.toMatchObject({ code: 'conflict', message: expect.stringContaining('Sổ đã khoá') });
+      expect((await store.read(TENANT)).instances.find((item) => item.id === done.id)?.status).toBe('completed');
+    });
+
+    it('chặn khi không liên lạc được Tài chính, hoặc guard chưa hỗ trợ bước Tài chính', async () => {
+      const fetchMock = jest.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('ECONNREFUSED'));
+      try {
+        const { application, store } = setup(new HttpInstanceReversalGuard('http://hrm', 'http://finance'));
+        const done = await completed(application);
+        await withVoucher(store, done.id);
+        await expect(
+          application.reverseInstance(admin, done.id, { reason: 'Sai số tiền', createAdjustment: false }),
+        ).rejects.toMatchObject({ code: 'conflict', message: expect.stringContaining('Không liên lạc được Tài chính') });
+        expect(fetchMock).toHaveBeenCalledWith(
+          `http://finance/v1/internal/instances/${done.id}/reversal-check`,
+          expect.objectContaining({ headers: expect.objectContaining({ 'x-tenant-id': TENANT }) }),
+        );
+      } finally {
+        fetchMock.mockRestore();
+      }
+
+      const legacy: InstanceReversalGuard = { check: jest.fn().mockResolvedValue({ allowed: true }) };
+      const { application, store } = setup(legacy);
+      const done = await completed(application);
+      await withVoucher(store, done.id);
+      await expect(
+        application.reverseInstance(admin, done.id, { reason: 'Sai số tiền', createAdjustment: false }),
+      ).rejects.toMatchObject({ code: 'conflict', message: expect.stringContaining('Chưa cấu hình kiểm tra với Tài chính') });
+    });
+
+    it('hồ sơ vừa có nguồn HRM vừa có phiếu: hỏi cả hai', async () => {
+      const guard: InstanceReversalGuard = {
+        check: jest.fn().mockResolvedValue({ allowed: true }),
+        checkFinanceStep: jest.fn().mockResolvedValue({ allowed: true }),
+      };
+      const { application, store } = setup(guard);
+      const done = await completed(application);
+      await withVoucher(store, done.id, 'hrm_request');
+      await application.reverseInstance(admin, done.id, { reason: 'Sai số tiền', createAdjustment: false });
+      expect(guard.check).toHaveBeenCalledWith(TENANT, { sourceType: 'hrm_request', sourceId: 'link-1' });
+      expect(guard.checkFinanceStep).toHaveBeenCalledWith(TENANT, done.id);
+    });
+
+    it('hồ sơ không có bước Tài chính: không hỏi Tài chính', async () => {
+      const guard: InstanceReversalGuard = { check: jest.fn(), checkFinanceStep: jest.fn() };
+      const { application } = setup(guard);
+      const done = await completed(application);
+      await application.reverseInstance(admin, done.id, { reason: 'Sai số tiền', createAdjustment: false });
+      expect(guard.checkFinanceStep).not.toHaveBeenCalled();
+    });
   });
 });

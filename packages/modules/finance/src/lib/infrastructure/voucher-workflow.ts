@@ -13,7 +13,16 @@ import {
   type VoucherNotificationFacts,
 } from './finance-notification-events.js';
 import { dateOnly, num, optStr, todayVn, type Db } from './finance.database.js';
-import { addEvent, canViewVoucher, loadVoucherRecord, mapAllocation, type Row, type VoucherRecord } from './vouchers.store.js';
+import {
+  addEvent,
+  assignOfficialCode,
+  canViewVoucher,
+  loadVoucherRecord,
+  mapAllocation,
+  sourceManaged,
+  type Row,
+  type VoucherRecord,
+} from './vouchers.store.js';
 
 function normalizedAllocationOf(row: Row): NormalizedVoucher['allocation'] {
   const allocation = mapAllocation(row);
@@ -88,6 +97,23 @@ async function accountRef(db: Db, tenantId: string, id: string | null) {
   return row ? { name: String(row.name), isActive: Boolean(row.is_active), openingDate: dateOnly(row.opening_date) } : null;
 }
 
+/** Lý do phiếu chưa đủ điều kiện gửi duyệt / ghi sổ (rỗng = đủ), dựng lại từ phiếu đã lưu. */
+export async function submitErrors(db: Db, tenantId: string, record: VoucherRecord): Promise<string[]> {
+  const voucher = recordToNormalized(record);
+  const reason = voucher.reasonId
+    ? ((await db.query(`SELECT kind, is_active FROM finance_schema.reasons WHERE tenant_id=$1 AND id=$2`, [tenantId, voucher.reasonId])).rows[0] as Row | undefined)
+    : undefined;
+  const group = voucher.counterpartyGroupId
+    ? ((await db.query(`SELECT is_active FROM finance_schema.counterparty_groups WHERE tenant_id=$1 AND id=$2`, [tenantId, voucher.counterpartyGroupId])).rows[0] as Row | undefined)
+    : undefined;
+  return validateForSubmit(voucher, {
+    account: await accountRef(db, tenantId, voucher.accountId),
+    dest: await accountRef(db, tenantId, voucher.destAccountId),
+    reason: reason ? { kind: String(reason.kind), isActive: Boolean(reason.is_active) } : null,
+    counterpartyGroup: group ? { isActive: Boolean(group.is_active) } : null,
+  });
+}
+
 /**
  * Gửi duyệt: kiểm đủ điều kiện rồi chuyển PENDING. `mode` là cách duyệt đang áp cho loại phiếu: với PROCEDURE, nơi gọi
  * tạo liên kết quy trình trong cùng giao dịch (từ phiếu trả về) để phiếu và liên kết cùng thành công hoặc cùng huỷ.
@@ -101,23 +127,11 @@ export async function submitVoucher(
 ): Promise<Row> {
   const row = await lockVoucher(db, tenantId, actor, id);
   const kind = row.kind as FinanceVoucherKind;
+  if (row.approval_mode === 'INHERITED') throw sourceManaged();
   if (row.created_by !== actor.userId || !canCreate(actor, kind)) throw forbidden('Chỉ người lập phiếu mới được gửi duyệt.');
   if (row.status !== 'DRAFT' && row.status !== 'REJECTED') throw conflict('FINANCE_VOUCHER_LOCKED', 'Phiếu đã gửi duyệt hoặc đã xử lý.');
   const record = await loadVoucherRecord(db, tenantId, id);
-  const voucher = recordToNormalized(record);
-
-  const reason = voucher.reasonId
-    ? ((await db.query(`SELECT kind, is_active FROM finance_schema.reasons WHERE tenant_id=$1 AND id=$2`, [tenantId, voucher.reasonId])).rows[0] as Row | undefined)
-    : undefined;
-  const group = voucher.counterpartyGroupId
-    ? ((await db.query(`SELECT is_active FROM finance_schema.counterparty_groups WHERE tenant_id=$1 AND id=$2`, [tenantId, voucher.counterpartyGroupId])).rows[0] as Row | undefined)
-    : undefined;
-  const errors = validateForSubmit(voucher, {
-    account: await accountRef(db, tenantId, voucher.accountId),
-    dest: await accountRef(db, tenantId, voucher.destAccountId),
-    reason: reason ? { kind: String(reason.kind), isActive: Boolean(reason.is_active) } : null,
-    counterpartyGroup: group ? { isActive: Boolean(group.is_active) } : null,
-  });
+  const errors = await submitErrors(db, tenantId, record);
   if (errors.length) throw invalidMany('FINANCE_SUBMIT_INVALID', errors);
 
   await db.query(
@@ -258,14 +272,17 @@ export async function postApproval(db: Db, tenantId: string, row: Row, decider: 
   const settings = await loadSettings(db, tenantId);
   const postingDate = dateOnly(row.posting_date);
   assertPostingDateAllowed(postingDate, settings.booksLockedUntil, todayVn());
-  await postEntries(db, tenantId, decider, toPostable(row), { reversal: false, postedDate: postingDate, checkOpeningDate: true });
+  // Mã chính thức cấp ngay trong giao dịch ghi sổ: lỗi ghi sổ phía sau làm lùi cả bộ đếm, dãy số không bị thủng.
+  const code = await assignOfficialCode(db, tenantId, row);
+  const posted: Row = { ...row, code, official_code: code };
+  await postEntries(db, tenantId, decider, toPostable(posted), { reversal: false, postedDate: postingDate, checkOpeningDate: true });
   await db.query(
     `UPDATE finance_schema.vouchers SET status='APPROVED', decided_by=$3, decided_by_name=$4, decided_at=now(), decision_note=$5, posted_at=now(), updated_at=now()
       WHERE tenant_id=$1 AND id=$2`,
     [tenantId, String(row.id), decider.userId, decider.displayName, note?.trim() || null],
   );
   await addEvent(db, tenantId, String(row.id), 'APPROVED', decider, note);
-  await notifyOutcome(db, notificationFacts(tenantId, row), 'APPROVED', decider.userId, decider.displayName, note ?? null);
+  await notifyOutcome(db, notificationFacts(tenantId, posted), 'APPROVED', decider.userId, decider.displayName, note ?? null);
 }
 
 /** Đưa phiếu về trạng thái đã xử lý không ghi sổ (từ chối hoặc huỷ), dùng chung cho thao tác thủ công và kết quả quy trình. */
@@ -311,6 +328,7 @@ export async function rejectVoucher(db: Db, tenantId: string, actor: FinanceActo
 export async function cancelVoucher(db: Db, tenantId: string, actor: FinanceActor, id: string, note: string | undefined): Promise<void> {
   const row = await lockVoucher(db, tenantId, actor, id);
   const kind = row.kind as FinanceVoucherKind;
+  if (row.approval_mode === 'INHERITED') throw sourceManaged();
   if (row.status === 'APPROVED') throw conflict('FINANCE_VOUCHER_STATE', 'Phiếu đã ghi sổ; dùng Huỷ phiếu đã ghi sổ (đảo bút toán).');
   if (row.status === 'CANCELLED') throw conflict('FINANCE_VOUCHER_STATE', 'Phiếu đã huỷ.');
   const owner = row.created_by === actor.userId && canCreate(actor, kind);
@@ -332,19 +350,60 @@ export async function cancelVoucher(db: Db, tenantId: string, actor: FinanceActo
 export async function reverseVoucher(db: Db, tenantId: string, actor: FinanceActor, id: string, note: string | undefined): Promise<void> {
   const row = await lockVoucher(db, tenantId, actor, id);
   const kind = row.kind as FinanceVoucherKind;
+  // Phiếu tạo từ hồ sơ chỉ đảo theo hồ sơ: huỷ hiệu lực hồ sơ thì phiếu tự đảo.
+  if (row.approval_mode === 'INHERITED') {
+    const source = (await db.query(`SELECT instance_code FROM finance_schema.voucher_sources WHERE tenant_id=$1 AND voucher_id=$2`, [tenantId, id]))
+      .rows[0] as Row | undefined;
+    throw conflict(
+      'FINANCE_SOURCE_MANAGED',
+      `Phiếu thuộc hồ sơ ${source ? String(source.instance_code) : 'quy trình'}; huỷ hiệu lực hồ sơ để đảo phiếu.`,
+    );
+  }
   if (!canApprove(actor, kind)) throw forbidden('Bạn không có quyền huỷ phiếu đã ghi sổ.');
   if (row.status !== 'APPROVED') throw conflict('FINANCE_VOUCHER_STATE', 'Chỉ đảo được phiếu đã duyệt và ghi sổ.');
   const reason = note?.trim();
   if (!reason) throw invalid('Nhập lý do huỷ phiếu đã ghi sổ.');
+  await postReversal(db, tenantId, row, actor, reason);
+}
+
+/**
+ * Ghi bút toán đảo (ngày hôm nay) và chuyển phiếu đã ghi sổ sang ĐÃ HUỶ. Dùng chung cho thao tác thủ công và cho phiếu có nguồn
+ * khi hồ sơ bị huỷ hiệu lực; người gọi kiểm quyền và trạng thái. Khoá sổ hoặc số dư không đủ thì ném lỗi trước khi ghi gì.
+ */
+export async function postReversal(db: Db, tenantId: string, row: Row, decider: Decider, reason: string): Promise<void> {
   const settings = await loadSettings(db, tenantId);
   const today = todayVn();
   assertPostingDateAllowed(today, settings.booksLockedUntil, today);
-  await postEntries(db, tenantId, actor, toPostable(row), { reversal: true, postedDate: today, checkOpeningDate: false });
+  await postEntries(db, tenantId, decider, toPostable(row), { reversal: true, postedDate: today, checkOpeningDate: false });
   await db.query(
     `UPDATE finance_schema.vouchers SET status='CANCELLED', decided_by=$3, decided_by_name=$4, decided_at=now(), decision_note=$5, updated_at=now()
       WHERE tenant_id=$1 AND id=$2`,
-    [tenantId, id, actor.userId, actor.displayName, reason],
+    [tenantId, String(row.id), decider.userId, decider.displayName, reason],
   );
-  await addEvent(db, tenantId, id, 'REVERSED', actor, reason);
-  await notifyOutcome(db, notificationFacts(tenantId, row), 'REVERSED', actor.userId, actor.displayName, reason);
+  await addEvent(db, tenantId, String(row.id), 'REVERSED', decider, reason);
+  await notifyOutcome(db, notificationFacts(tenantId, row), 'REVERSED', decider.userId, decider.displayName, reason);
+}
+
+/** Lỗi nếu đảo phiếu này vào hôm nay: kỳ hiện tại đã khoá sổ, hoặc tài khoản không đủ số dư cho bút toán đảo. Chỉ đọc. */
+export async function reversalBlocker(db: Db, tenantId: string, row: Row): Promise<string | null> {
+  const settings = await loadSettings(db, tenantId);
+  const today = todayVn();
+  if (settings.booksLockedUntil && today <= settings.booksLockedUntil)
+    return `Sổ đã khoá đến ngày ${settings.booksLockedUntil}; không ghi được bút toán đảo phiếu ${String(row.code)} vào hôm nay.`;
+  const plan = ledgerPlan(toPostable(row), true).filter((entry) => entry.amount < 0);
+  if (!plan.length) return null;
+  const rows = (
+    await db.query(
+      `SELECT a.id, a.name, a.allow_negative,
+              a.opening_balance + COALESCE((SELECT SUM(l.amount) FROM finance_schema.ledger_entries l WHERE l.account_id = a.id), 0) AS balance
+         FROM finance_schema.accounts a WHERE a.tenant_id = $1 AND a.id = ANY($2::uuid[])`,
+      [tenantId, plan.map((entry) => entry.accountId)],
+    )
+  ).rows as Row[];
+  for (const entry of plan) {
+    const account = rows.find((candidate) => String(candidate.id) === entry.accountId);
+    if (account && !account.allow_negative && num(account.balance) + entry.amount < 0)
+      return `Số dư ${String(account.name)} không đủ để đảo phiếu ${String(row.code)}: hiện có ${num(account.balance).toLocaleString('vi-VN')}, cần ${(-entry.amount).toLocaleString('vi-VN')}.`;
+  }
+  return null;
 }

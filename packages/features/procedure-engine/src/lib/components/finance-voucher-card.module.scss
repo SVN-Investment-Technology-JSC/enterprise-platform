@@ -1,0 +1,13 @@
+.card { display: flex; gap: .6rem; align-items: center; margin-top: .5rem; padding: .55rem .7rem; border: 1px solid #dbe3ed; border-left: 3px solid #94a3b8; border-radius: .5rem; background: #f8fafc; }
+.waiting { border-left-color: #94a3b8; }
+.info { border-left-color: #2563eb; background: #eff6ff; }
+.success { border-left-color: #16a34a; background: #f0fdf4; }
+.warning { border-left-color: #d97706; background: #fdf3e2; }
+.icon { flex: none; color: #475569; }
+.body { display: grid; flex: 1; gap: .1rem; min-width: 0; }
+.kind { color: #64748b; font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; }
+.title { overflow: hidden; color: #1e293b; font-size: .84rem; text-overflow: ellipsis; white-space: nowrap; }
+.detail { color: #8a5b00; font-size: .78rem; }
+.open { display: inline-flex; flex: none; gap: .3rem; align-items: center; padding: .3rem .6rem; border: 1px solid #cbd5e1; border-radius: .35rem; color: #2563eb; background: #fff; font-size: .78rem; font-weight: 700; text-decoration: none; }
+.open:hover { border-color: #2563eb; }
+.waitingNote { margin: 0 0 .5rem; padding: .5rem .7rem; border-radius: .45rem; color: #1e3a8a; background: #eff6ff; font-size: .8rem; line-height: 1.45; }

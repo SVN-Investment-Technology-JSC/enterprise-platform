@@ -6,6 +6,7 @@ import {
   type ProcedureRuntimeAction,
   type ProcedureRuntimeAuthorization,
 } from '@enterprise-platform/contracts-procedure-engine';
+import { isFinanceStepWaiting } from './procedure-finance-step.js';
 import { editableAttributeKeys, returnTargetStepIds } from './procedure-runtime-flow.js';
 
 export interface ProcedureActor {
@@ -271,6 +272,14 @@ export function deriveProcedureAuthorization(
     }
   }
 
+  // Bước Tài chính đang chờ: bước chỉ đóng khi Tài chính báo đã ghi sổ. Không ai —
+  // kể cả quản trị override — được hoàn thành/duyệt bằng tay, nếu không hồ sơ sẽ
+  // hoàn tất mà tiền chưa được ghi sổ. Trả về, huỷ, trao đổi vẫn giữ nguyên.
+  if (isFinanceStepWaiting(current)) {
+    actions.delete('complete');
+    actions.delete('approve');
+  }
+
   // Đầu việc của chính người này ở bước hiện tại. Người được vai trò E phân công
   // không giữ vai trò RACI nào, nên đây là đường duy nhất để họ thấy phần việc
   // của mình và được phép đánh dấu xong.
@@ -300,4 +309,51 @@ export function deriveProcedureAuthorization(
       actions.has('complete') || actions.has('approve') ? editableAttributeKeys(instance) : [],
     returnTargetStepIds: actions.has('return') ? returnTargets : [],
   };
+}
+
+export interface FinanceStepActorCheck {
+  readonly allowed: boolean;
+  readonly reason?: string;
+  readonly viaDelegation?: boolean;
+  readonly viaEscalation?: boolean;
+}
+
+/**
+ * Người này có được ghi sổ / trả hồ sơ ở bước Tài chính không — đúng luật dùng cho
+ * mọi bước khác: khớp phân công R (chức danh, đơn vị qua trưởng đơn vị, leo thang)
+ * hoặc được uỷ quyền vai R cho bước này. Gọi vào lúc người đó thao tác, với chức
+ * danh hiện tại của họ, nên người vừa bổ nhiệm được, người vừa chuyển đi thì không.
+ */
+export function evaluateFinanceStepActor(
+  instance: ProcedureInstance,
+  stepInstanceId: string,
+  activation: number,
+  actor: ProcedureActor,
+): FinanceStepActorCheck {
+  if (instance.status !== 'running') return { allowed: false, reason: 'Hồ sơ đã kết thúc.' };
+  const step = instance.steps.find((candidate) => candidate.id === stepInstanceId);
+  if (!step || !step.integration || step.integration.module !== 'finance') {
+    return { allowed: false, reason: 'Không phải bước Tài chính của hồ sơ.' };
+  }
+  if (instance.currentStepId !== step.id || !isFinanceStepWaiting(step)) {
+    return { allowed: false, reason: 'Bước Tài chính không còn ở lượt xử lý.' };
+  }
+  if (step.financeVoucher?.activation !== activation) {
+    return { allowed: false, reason: 'Yêu cầu thuộc một lần kích hoạt cũ của bước.' };
+  }
+  let escalated = false;
+  const direct = step.assignments.some((assignment) => {
+    if (assignment.role !== 'R' || !matchesProcedureAssignment(assignment, actor)) return false;
+    escalated = escalated || matchesByEscalation(assignment, actor);
+    return true;
+  });
+  if (direct) return { allowed: true, ...(escalated ? { viaEscalation: true } : {}) };
+  const delegated = (instance.delegations ?? []).some(
+    (delegation) =>
+      delegation.delegatedTo === actor.userId &&
+      (!delegation.stepInstanceId || delegation.stepInstanceId === step.id) &&
+      delegation.roles.includes('R'),
+  );
+  if (delegated) return { allowed: true, viaDelegation: true };
+  return { allowed: false, reason: 'Người này không phụ trách bước Tài chính của hồ sơ.' };
 }
