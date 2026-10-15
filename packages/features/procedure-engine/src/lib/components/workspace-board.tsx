@@ -1903,7 +1903,7 @@ export function WorkspaceBoard({
                         background: 'rgba(37, 99, 235, 0.1)',
                         color: '#2563eb',
                         fontWeight: 700,
-                        fontSize: '11px',
+                        fontSize: '12px',
                         padding: '2px 8px',
                         borderRadius: '4px',
                       }}
@@ -1916,7 +1916,7 @@ export function WorkspaceBoard({
                     {activeStepDrawer.step.slaHours ? (
                       <span
                         style={{
-                          fontSize: '11px',
+                          fontSize: '12px',
                           color: 'var(--muted)',
                           background: '#e2e8f0',
                           padding: '2px 6px',
@@ -1927,10 +1927,10 @@ export function WorkspaceBoard({
                       </span>
                     ) : null}
                   </div>
-                  <h3 style={{ margin: '6px 0 2px', fontSize: '17px', fontWeight: 800, color: 'var(--ink)' }}>
+                  <h3 style={{ margin: '6px 0 2px', fontSize: '16px', fontWeight: 800, color: 'var(--ink)' }}>
                     {activeStepDrawer.step.name}
                   </h3>
-                  <p style={{ margin: 0, fontSize: '12px', color: 'var(--faint)' }}>
+                  <p style={{ margin: 0, fontSize: '13px', color: 'var(--faint)' }}>
                     Hồ sơ: <strong style={{ color: 'var(--ink)' }}>{selected.code}</strong> · {selected.title}
                   </p>
                 </div>
@@ -1958,7 +1958,7 @@ export function WorkspaceBoard({
                     padding: '6px 12px',
                     borderRadius: '6px',
                     border: 'none',
-                    fontSize: '12px',
+                    fontSize: '13px',
                     fontWeight: 700,
                     cursor: 'pointer',
                     background: activeStepDrawer.tab === 'execution' ? 'var(--blue)' : '#e2e8f0',
@@ -1974,7 +1974,7 @@ export function WorkspaceBoard({
                     padding: '6px 12px',
                     borderRadius: '6px',
                     border: 'none',
-                    fontSize: '12px',
+                    fontSize: '13px',
                     fontWeight: 700,
                     cursor: 'pointer',
                     background: activeStepDrawer.tab === 'chat' ? 'var(--blue)' : '#e2e8f0',
@@ -1990,7 +1990,7 @@ export function WorkspaceBoard({
                     padding: '6px 12px',
                     borderRadius: '6px',
                     border: 'none',
-                    fontSize: '12px',
+                    fontSize: '13px',
                     fontWeight: 700,
                     cursor: 'pointer',
                     background: activeStepDrawer.tab === 'files' ? 'var(--blue)' : '#e2e8f0',
@@ -2006,7 +2006,7 @@ export function WorkspaceBoard({
             <div style={{ flex: 1, overflowY: 'auto', padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
               {activeStepDrawer.tab === 'execution' ? (
                 <div>
-                  <h4 style={{ fontSize: '12px', fontWeight: 700, margin: '0 0 10px', textTransform: 'uppercase', color: 'var(--muted)' }}>
+                  <h4 style={{ fontSize: '13px', fontWeight: 700, margin: '0 0 10px', textTransform: 'uppercase', color: 'var(--muted)' }}>
                     Phân vai RCSI cho bước này
                   </h4>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '20px' }}>
@@ -2036,13 +2036,13 @@ export function WorkspaceBoard({
                               {asgn.role}
                             </i>
                             <div>
-                              <strong style={{ fontSize: '13px', color: 'var(--ink)' }}>{holderLabel}</strong>
-                              <div style={{ fontSize: '11px', color: 'var(--faint)' }}>
+                              <strong style={{ fontSize: '14px', color: 'var(--ink)' }}>{holderLabel}</strong>
+                              <div style={{ fontSize: '12px', color: 'var(--faint)' }}>
                                 Loại: {asgn.subjectType === 'user' ? 'Nhân sự' : asgn.subjectType === 'organization_unit' ? 'Đơn vị' : 'Chức vụ'}
                               </div>
                             </div>
                           </div>
-                          <span style={{ fontSize: '11.5px', fontWeight: 700, color: 'var(--blue)' }}>
+                          <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--blue)' }}>
                             {asgn.role === 'R'
                               ? 'Thực hiện chính'
                               : asgn.role === 'A'
@@ -2063,7 +2063,7 @@ export function WorkspaceBoard({
                   {/* Step Material Requirements */}
                   {activeStepDrawer.step.materials && activeStepDrawer.step.materials.length > 0 ? (
                     <div style={{ borderTop: '1px solid var(--line)', paddingTop: '16px' }}>
-                      <h4 style={{ fontSize: '12px', fontWeight: 700, margin: '0 0 10px', textTransform: 'uppercase', color: 'var(--muted)' }}>
+                      <h4 style={{ fontSize: '13px', fontWeight: 700, margin: '0 0 10px', textTransform: 'uppercase', color: 'var(--muted)' }}>
                         Vật tư / Thiết bị yêu cầu cho bước
                       </h4>
                       <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '6px' }}>
@@ -2076,7 +2076,7 @@ export function WorkspaceBoard({
                               borderRadius: '6px',
                               display: 'flex',
                               justifyContent: 'space-between',
-                              fontSize: '12.5px',
+                              fontSize: '13px',
                             }}
                           >
                             <span>{mat.materialName ?? mat.materialCode}</span>
@@ -2388,7 +2388,7 @@ function ActionPanel({
                   <i className={`${styles.role} ${styles.roleE}`} style={{ display: 'inline-grid', verticalAlign: 'middle', marginRight: '6px' }}>E</i>
                   Phân rã công việc (WBS)
                   {stepSubtasks.length > 0 ? (
-                    <span style={{ marginLeft: '8px', fontSize: '11px', color: 'var(--blue)', fontWeight: 600 }}>
+                    <span style={{ marginLeft: '8px', fontSize: '12px', color: 'var(--blue)', fontWeight: 600 }}>
                       ({subtasksResolved}/{stepSubtasks.length} xử lý · {Math.round(subtasksDoneWeight * 100) / 100}%)
                     </span>
                   ) : null}
@@ -2572,7 +2572,7 @@ function ActionPanel({
                                   <button
                                     type="button"
                                     className={styles.ghost}
-                                    style={{ fontSize: '11px', padding: '3px 8px' }}
+                                    style={{ fontSize: '12px', padding: '3px 8px' }}
                                     onClick={() => setConfirmRejectOpen(false)}
                                   >
                                     Huỷ
@@ -2580,7 +2580,7 @@ function ActionPanel({
                                   <button
                                     type="button"
                                     className={styles.danger}
-                                    style={{ fontSize: '11px', padding: '3px 10px' }}
+                                    style={{ fontSize: '12px', padding: '3px 10px' }}
                                     onClick={() => {
                                       setConfirmRejectOpen(false);
                                       act('reject', comment || undefined);

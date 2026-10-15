@@ -120,7 +120,7 @@ function ColumnMappingSelect({ headers, value, placeholder, onChange }: ColumnMa
       emptyText="Không tìm thấy cột Excel phù hợp"
       onChange={onChange}
       clearable
-      style={{ width: '100%', maxWidth: '320px', fontSize: '13px' }}
+      style={{ width: '100%', maxWidth: '320px', fontSize: '14px' }}
     />
   );
 }
@@ -538,10 +538,10 @@ export function ExcelImportDialog({
                 <FileSpreadsheet size={18} />
               </div>
               <div>
-                <h2 style={{ margin: 0, fontSize: '17px', fontWeight: 700, color: '#0f172a' }}>
+                <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#0f172a' }}>
                   Thêm vật tư hàng loạt cho phiếu {movementLabel} từ tệp Excel
                 </h2>
-                <p style={{ margin: '2px 0 0', fontSize: '12.5px', color: '#64748b' }}>
+                <p style={{ margin: '2px 0 0', fontSize: '13px', color: '#64748b' }}>
                   Tự động nhận diện cấu trúc tệp của mọi phần mềm và hỗ trợ khớp cột linh hoạt.
                 </p>
               </div>
@@ -580,13 +580,13 @@ export function ExcelImportDialog({
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                fontSize: '12px',
+                fontSize: '13px',
                 fontWeight: 700,
               }}
             >
               1
             </div>
-            <span style={{ fontSize: '13px', fontWeight: step === 1 ? 700 : 500, color: step === 1 ? '#0f172a' : '#64748b' }}>
+            <span style={{ fontSize: '14px', fontWeight: step === 1 ? 700 : 500, color: step === 1 ? '#0f172a' : '#64748b' }}>
               Chọn tệp Excel
             </span>
           </div>
@@ -604,13 +604,13 @@ export function ExcelImportDialog({
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                fontSize: '12px',
+                fontSize: '13px',
                 fontWeight: 700,
               }}
             >
               2
             </div>
-            <span style={{ fontSize: '13px', fontWeight: step === 2 ? 700 : 500, color: step === 2 ? '#0f172a' : '#64748b' }}>
+            <span style={{ fontSize: '14px', fontWeight: step === 2 ? 700 : 500, color: step === 2 ? '#0f172a' : '#64748b' }}>
               Ánh xạ cột dữ liệu
             </span>
           </div>
@@ -628,13 +628,13 @@ export function ExcelImportDialog({
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                fontSize: '12px',
+                fontSize: '13px',
                 fontWeight: 700,
               }}
             >
               3
             </div>
-            <span style={{ fontSize: '13px', fontWeight: step === 3 ? 700 : 500, color: step === 3 ? '#0f172a' : '#64748b' }}>
+            <span style={{ fontSize: '14px', fontWeight: step === 3 ? 700 : 500, color: step === 3 ? '#0f172a' : '#64748b' }}>
               Kiểm tra &amp; Nạp vào phiếu
             </span>
           </div>
@@ -698,10 +698,10 @@ export function ExcelImportDialog({
                 >
                   <Upload size={24} />
                 </div>
-                <h3 style={{ margin: '0 0 6px', fontSize: '15px', fontWeight: 600, color: '#1e293b' }}>
+                <h3 style={{ margin: '0 0 6px', fontSize: '16px', fontWeight: 600, color: '#1e293b' }}>
                   {fileName ? `Đã chọn: ${fileName} (${fileSize})` : 'Kéo thả tệp Excel vào đây hoặc bấm để chọn tệp'}
                 </h3>
-                <p style={{ margin: 0, fontSize: '13px', color: '#64748b' }}>
+                <p style={{ margin: 0, fontSize: '14px', color: '#64748b' }}>
                   Chấp nhận file định dạng .xlsx, .xls hoặc .csv (dung lượng tối đa 20MB)
                 </p>
                 {fileName ? (
@@ -714,7 +714,7 @@ export function ExcelImportDialog({
                       border: '1px solid #cbd5e1',
                       background: '#ffffff',
                       color: '#0f172a',
-                      fontSize: '12.5px',
+                      fontSize: '13px',
                       fontWeight: 600,
                       cursor: 'pointer',
                     }}
@@ -738,7 +738,7 @@ export function ExcelImportDialog({
                         border: '1px solid #2563eb',
                         background: '#2563eb',
                         color: '#ffffff',
-                        fontSize: '12px',
+                        fontSize: '13px',
                         fontWeight: 600,
                         cursor: 'pointer',
                         boxShadow: '0 1px 2px rgba(37,99,235,0.2)',
@@ -764,7 +764,7 @@ export function ExcelImportDialog({
                         border: '1px solid #cbd5e1',
                         background: '#ffffff',
                         color: '#2563eb',
-                        fontSize: '12px',
+                        fontSize: '13px',
                         fontWeight: 600,
                         textDecoration: 'none',
                         boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
@@ -787,7 +787,7 @@ export function ExcelImportDialog({
                         border: '1px solid #cbd5e1',
                         background: '#ffffff',
                         color: '#15803d',
-                        fontSize: '12px',
+                        fontSize: '13px',
                         fontWeight: 600,
                         textDecoration: 'none',
                         boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
@@ -815,7 +815,7 @@ export function ExcelImportDialog({
                 >
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                     <div>
-                      <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
+                      <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
                         Trang tính (Sheet) cần đọc:
                       </label>
                       <SearchableSelect
@@ -825,12 +825,12 @@ export function ExcelImportDialog({
                         emptyText="Không tìm thấy trang tính"
                         clearable={false}
                         onChange={setSelectedSheet}
-                        style={{ width: '100%', fontSize: '13px' }}
+                        style={{ width: '100%', fontSize: '14px' }}
                       />
                     </div>
 
                     <div>
-                      <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
+                      <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
                         {warehouseLabel} mặc định:
                       </label>
                       <SearchableSelect
@@ -844,7 +844,7 @@ export function ExcelImportDialog({
                         emptyText="Không tìm thấy kho phù hợp"
                         clearable={false}
                         onChange={setFallbackWarehouse}
-                        style={{ width: '100%', fontSize: '13px' }}
+                        style={{ width: '100%', fontSize: '14px' }}
                       />
                     </div>
                   </div>
@@ -852,16 +852,16 @@ export function ExcelImportDialog({
                   {/* Chọn dòng Tiêu đề (Header Row) */}
                   <div>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
-                      <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
+                      <label style={{ fontSize: '14px', fontWeight: 600, color: '#334155' }}>
                         Dòng tiêu đề (Chứa tên các cột):
                       </label>
-                      <span style={{ fontSize: '12px', color: '#64748b' }}>
+                      <span style={{ fontSize: '13px', color: '#64748b' }}>
                         Hệ thống tự động phát hiện dòng số <strong>{headerRowIdx + 1}</strong>
                       </span>
                     </div>
 
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span style={{ fontSize: '12.5px', color: '#475569' }}>Dòng số:</span>
+                      <span style={{ fontSize: '13px', color: '#475569' }}>Dòng số:</span>
                       <input
                         type="number"
                         min={1}
@@ -871,13 +871,13 @@ export function ExcelImportDialog({
                           padding: '6px 8px',
                           borderRadius: '6px',
                           border: '1px solid #cbd5e1',
-                          fontSize: '13px',
+                          fontSize: '14px',
                           textAlign: 'center',
                         }}
                         value={headerRowIdx + 1}
                         onChange={(e) => handleChangeHeaderRow(Number(e.target.value) - 1)}
                       />
-                      <span style={{ fontSize: '12px', color: '#64748b' }}>
+                      <span style={{ fontSize: '13px', color: '#64748b' }}>
                         (Bỏ qua các dòng tên công ty / tiêu đề hóa đơn ở các dòng trên)
                       </span>
                     </div>
@@ -886,11 +886,11 @@ export function ExcelImportDialog({
                   {/* Xem trước 3 dòng đầu tiên của file */}
                   {rawRows.length > 0 ? (
                     <div>
-                      <span style={{ fontSize: '12.5px', fontWeight: 600, color: '#475569', display: 'block', marginBottom: '6px' }}>
+                      <span style={{ fontSize: '13px', fontWeight: 600, color: '#475569', display: 'block', marginBottom: '6px' }}>
                         Xem trước cấu trúc file (3 dòng đầu):
                       </span>
                       <div style={{ overflowX: 'auto', border: '1px solid #f1f5f9', borderRadius: '6px' }}>
-                        <table style={{ width: '100%', fontSize: '12px', borderCollapse: 'collapse' }}>
+                        <table style={{ width: '100%', fontSize: '13px', borderCollapse: 'collapse' }}>
                           <tbody>
                             {rawRows.slice(0, 4).map((r, rIdx) => (
                               <tr
@@ -941,7 +941,7 @@ export function ExcelImportDialog({
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <Sparkles size={16} color="#16a34a" />
-                  <span style={{ fontSize: '13px', fontWeight: 600, color: '#166534' }}>
+                  <span style={{ fontSize: '14px', fontWeight: 600, color: '#166534' }}>
                     Mẫu cấu hình khớp cột (Mapping Profiles):
                   </span>
                   <SearchableSelect
@@ -955,7 +955,7 @@ export function ExcelImportDialog({
                     emptyText="Chưa có cấu hình đã lưu phù hợp"
                     onChange={handleApplyProfile}
                     clearable
-                    style={{ width: '260px', fontSize: '12.5px' }}
+                    style={{ width: '260px', fontSize: '13px' }}
                   />
                 </div>
 
@@ -967,7 +967,7 @@ export function ExcelImportDialog({
                         background: 'none',
                         border: 'none',
                         color: '#dc2626',
-                        fontSize: '12px',
+                        fontSize: '13px',
                         cursor: 'pointer',
                         textDecoration: 'underline',
                       }}
@@ -985,7 +985,7 @@ export function ExcelImportDialog({
                       border: '1px solid #86efac',
                       background: '#ffffff',
                       color: '#15803d',
-                      fontSize: '12.5px',
+                      fontSize: '13px',
                       fontWeight: 600,
                       cursor: 'pointer',
                     }}
@@ -1004,7 +1004,7 @@ export function ExcelImportDialog({
                   overflow: 'hidden',
                 }}
               >
-                <table style={{ width: '100%', fontSize: '13px', borderCollapse: 'collapse' }}>
+                <table style={{ width: '100%', fontSize: '14px', borderCollapse: 'collapse' }}>
                   <thead style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
                     <tr>
                       <th style={{ padding: '10px 14px', textAlign: 'left', width: '220px', color: '#475569' }}>
@@ -1028,7 +1028,7 @@ export function ExcelImportDialog({
                         Mã vật tư / SKU
                       </td>
                       <td style={{ padding: '10px 14px' }}>
-                        <span style={{ fontSize: '11px', background: '#fee2e2', color: '#b91c1c', padding: '2px 6px', borderRadius: '4px', fontWeight: 600 }}>
+                        <span style={{ fontSize: '12px', background: '#fee2e2', color: '#b91c1c', padding: '2px 6px', borderRadius: '4px', fontWeight: 600 }}>
                           Bắt buộc
                         </span>
                       </td>
@@ -1052,7 +1052,7 @@ export function ExcelImportDialog({
                       <td style={{ padding: '10px 14px', fontWeight: 600, color: '#0f172a' }}>
                         Tên vật tư / Quy cách
                       </td>
-                      <td style={{ padding: '10px 14px', color: '#64748b', fontSize: '12px' }}>
+                      <td style={{ padding: '10px 14px', color: '#64748b', fontSize: '13px' }}>
                         Tùy chọn
                       </td>
                       <td style={{ padding: '10px 14px' }}>
@@ -1075,7 +1075,7 @@ export function ExcelImportDialog({
                       <td style={{ padding: '10px 14px', fontWeight: 600, color: '#0f172a' }}>
                         Đơn vị tính (ĐVT)
                       </td>
-                      <td style={{ padding: '10px 14px', color: '#64748b', fontSize: '12px' }}>
+                      <td style={{ padding: '10px 14px', color: '#64748b', fontSize: '13px' }}>
                         Tùy chọn
                       </td>
                       <td style={{ padding: '10px 14px' }}>
@@ -1099,7 +1099,7 @@ export function ExcelImportDialog({
                         Số lượng nhập
                       </td>
                       <td style={{ padding: '10px 14px' }}>
-                        <span style={{ fontSize: '11px', background: '#fee2e2', color: '#b91c1c', padding: '2px 6px', borderRadius: '4px', fontWeight: 600 }}>
+                        <span style={{ fontSize: '12px', background: '#fee2e2', color: '#b91c1c', padding: '2px 6px', borderRadius: '4px', fontWeight: 600 }}>
                           Bắt buộc
                         </span>
                       </td>
@@ -1123,7 +1123,7 @@ export function ExcelImportDialog({
                       <td style={{ padding: '10px 14px', fontWeight: 600, color: '#0f172a' }}>
                         Đơn giá nhập (VNĐ)
                       </td>
-                      <td style={{ padding: '10px 14px', color: '#64748b', fontSize: '12px' }}>
+                      <td style={{ padding: '10px 14px', color: '#64748b', fontSize: '13px' }}>
                         Tùy chọn
                       </td>
                       <td style={{ padding: '10px 14px' }}>
@@ -1146,7 +1146,7 @@ export function ExcelImportDialog({
                       <td style={{ padding: '10px 14px', fontWeight: 600, color: '#0f172a' }}>
                         Thuế suất VAT (%)
                       </td>
-                      <td style={{ padding: '10px 14px', color: '#64748b', fontSize: '12px' }}>
+                      <td style={{ padding: '10px 14px', color: '#64748b', fontSize: '13px' }}>
                         Tùy chọn
                       </td>
                       <td style={{ padding: '10px 14px' }}>
@@ -1169,7 +1169,7 @@ export function ExcelImportDialog({
                       <td style={{ padding: '10px 14px', fontWeight: 600, color: '#0f172a' }}>
                         {warehouseLabel} riêng từng dòng
                       </td>
-                      <td style={{ padding: '10px 14px', color: '#64748b', fontSize: '12px' }}>
+                      <td style={{ padding: '10px 14px', color: '#64748b', fontSize: '13px' }}>
                         Tùy chọn
                       </td>
                       <td style={{ padding: '10px 14px' }}>
@@ -1192,7 +1192,7 @@ export function ExcelImportDialog({
                       <td style={{ padding: '10px 14px', fontWeight: 600, color: '#0f172a' }}>
                         Số lô (Lot / Batch)
                       </td>
-                      <td style={{ padding: '10px 14px', color: '#64748b', fontSize: '12px' }}>
+                      <td style={{ padding: '10px 14px', color: '#64748b', fontSize: '13px' }}>
                         Tùy chọn
                       </td>
                       <td style={{ padding: '10px 14px' }}>
@@ -1215,7 +1215,7 @@ export function ExcelImportDialog({
                       <td style={{ padding: '10px 14px', fontWeight: 600, color: '#0f172a' }}>
                         Ghi chú dòng
                       </td>
-                      <td style={{ padding: '10px 14px', color: '#64748b', fontSize: '12px' }}>
+                      <td style={{ padding: '10px 14px', color: '#64748b', fontSize: '13px' }}>
                         Tùy chọn
                       </td>
                       <td style={{ padding: '10px 14px' }}>
@@ -1254,32 +1254,32 @@ export function ExcelImportDialog({
                   flexWrap: 'wrap',
                 }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '14px' }}>
                   <span style={{ color: '#64748b' }}>Tổng số dòng đọc được:</span>
                   <strong style={{ color: '#0f172a' }}>{stats.total}</strong>
                 </div>
 
                 <div style={{ width: '1px', height: '16px', background: '#cbd5e1' }} />
 
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '14px' }}>
                   <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#16a34a' }} />
                   <span style={{ color: '#166534', fontWeight: 600 }}>Hợp lệ: {stats.valid}</span>
                 </div>
 
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '14px' }}>
                   <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#eab308' }} />
                   <span style={{ color: '#854d0e', fontWeight: 600 }}>Mã mới (tự tạo): {stats.warning}</span>
                 </div>
 
                 {stats.error > 0 ? (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '14px' }}>
                     <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#dc2626' }} />
                     <span style={{ color: '#991b1b', fontWeight: 600 }}>Lỗi (bỏ qua): {stats.error}</span>
                   </div>
                 ) : null}
 
                 <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span style={{ fontSize: '12.5px', color: '#475569' }}>
+                  <span style={{ fontSize: '13px', color: '#475569' }}>
                     Tổng số lượng dự kiến nhập: <strong>{new Intl.NumberFormat('vi-VN').format(stats.totalQty)}</strong>
                   </span>
                 </div>
@@ -1294,7 +1294,7 @@ export function ExcelImportDialog({
                   maxHeight: '400px',
                 }}
               >
-                <table style={{ width: '100%', fontSize: '12.5px', borderCollapse: 'collapse' }}>
+                <table style={{ width: '100%', fontSize: '13px', borderCollapse: 'collapse' }}>
                   <thead style={{ background: '#f8fafc', position: 'sticky', top: 0, zIndex: 1, borderBottom: '1px solid #e2e8f0' }}>
                     <tr>
                       <th style={{ padding: '8px 10px', textAlign: 'center', width: '45px' }}>#</th>
@@ -1324,15 +1324,15 @@ export function ExcelImportDialog({
                         </td>
                         <td style={{ padding: '8px 10px', textAlign: 'center' }}>
                           {r.status === 'valid' ? (
-                            <span style={{ fontSize: '11px', background: '#dcfce7', color: '#15803d', padding: '2px 6px', borderRadius: '4px', fontWeight: 600 }}>
+                            <span style={{ fontSize: '12px', background: '#dcfce7', color: '#15803d', padding: '2px 6px', borderRadius: '4px', fontWeight: 600 }}>
                               Hợp lệ
                             </span>
                           ) : r.status === 'warning' ? (
-                            <span style={{ fontSize: '11px', background: '#fef08a', color: '#854d0e', padding: '2px 6px', borderRadius: '4px', fontWeight: 600 }}>
+                            <span style={{ fontSize: '12px', background: '#fef08a', color: '#854d0e', padding: '2px 6px', borderRadius: '4px', fontWeight: 600 }}>
                               Mã mới
                             </span>
                           ) : (
-                            <span style={{ fontSize: '11px', background: '#fee2e2', color: '#b91c1c', padding: '2px 6px', borderRadius: '4px', fontWeight: 600 }}>
+                            <span style={{ fontSize: '12px', background: '#fee2e2', color: '#b91c1c', padding: '2px 6px', borderRadius: '4px', fontWeight: 600 }}>
                               Lỗi
                             </span>
                           )}
@@ -1361,7 +1361,7 @@ export function ExcelImportDialog({
                         <td style={{ padding: '8px 10px', color: '#64748b' }}>
                           {r.lotNumber || '—'}
                         </td>
-                        <td style={{ padding: '8px 10px', fontSize: '12px' }}>
+                        <td style={{ padding: '8px 10px', fontSize: '13px' }}>
                           {r.errors.length > 0 ? (
                             <span style={{ color: '#dc2626', fontWeight: 500 }}>
                               {r.errors.join(', ')}
@@ -1410,10 +1410,10 @@ export function ExcelImportDialog({
               }}
               onClick={(e) => e.stopPropagation()}
             >
-              <h4 style={{ margin: '0 0 8px', fontSize: '15px', fontWeight: 700, color: '#0f172a' }}>
+              <h4 style={{ margin: '0 0 8px', fontSize: '16px', fontWeight: 700, color: '#0f172a' }}>
                 Lưu cấu hình khớp cột
               </h4>
-              <p style={{ margin: '0 0 14px', fontSize: '12.5px', color: '#64748b' }}>
+              <p style={{ margin: '0 0 14px', fontSize: '13px', color: '#64748b' }}>
                 Đặt tên cho mẫu để sử dụng lại cho các file có cấu trúc tương tự (ví dụ: "File NCC Tân Á", "File MISA").
               </p>
               <input
@@ -1424,7 +1424,7 @@ export function ExcelImportDialog({
                   padding: '8px 12px',
                   borderRadius: '6px',
                   border: '1px solid #cbd5e1',
-                  fontSize: '13px',
+                  fontSize: '14px',
                   marginBottom: '16px',
                 }}
                 value={newProfileName}
@@ -1440,7 +1440,7 @@ export function ExcelImportDialog({
                     border: '1px solid #cbd5e1',
                     background: '#fff',
                     color: '#475569',
-                    fontSize: '12.5px',
+                    fontSize: '13px',
                     cursor: 'pointer',
                   }}
                   onClick={() => setShowSaveProfileModal(false)}
@@ -1455,7 +1455,7 @@ export function ExcelImportDialog({
                     border: 'none',
                     background: '#2563eb',
                     color: '#fff',
-                    fontSize: '12.5px',
+                    fontSize: '13px',
                     fontWeight: 600,
                     cursor: 'pointer',
                   }}

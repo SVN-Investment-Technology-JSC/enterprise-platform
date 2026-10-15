@@ -66,14 +66,14 @@ export function DayRequestList({ day, canViewAll }: { day: HrmBoardDay; canViewA
                 <span
                   aria-hidden="true"
                   title={REQUEST_LETTERS[item.kind].label}
-                  className="mt-0.5 inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded bg-slate-800 px-1 text-[10px] font-bold text-white"
+                  className="mt-0.5 inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded bg-slate-800 px-1 text-[12px] font-bold text-white"
                 >
                   {REQUEST_LETTERS[item.kind].letter}
                 </span>
                 <span className="font-semibold text-slate-900">
                   {item.text}
                   <span
-                    className={`ml-2 rounded-full border px-1.5 py-0.5 text-[10px] font-semibold ${STATUS_CLASS[item.status]}`}
+                    className={`ml-2 rounded-full border px-1.5 py-0.5 text-[12px] font-semibold ${STATUS_CLASS[item.status]}`}
                   >
                     {requestStatusLabel(item.status)}
                   </span>
@@ -89,7 +89,7 @@ export function DayRequestList({ day, canViewAll }: { day: HrmBoardDay; canViewA
               </Link>
             </div>
             {item.rows.length > 0 && (
-              <dl className="mt-1.5 grid grid-cols-[120px_1fr] gap-x-3 gap-y-0.5 pl-7 text-[11px]">
+              <dl className="mt-1.5 grid grid-cols-[120px_1fr] gap-x-3 gap-y-0.5 pl-7 text-[12px]">
                 {item.rows.map(([label, value]) => (
                   <div key={label} className="contents">
                     <dt className="text-slate-500">{label}</dt>
@@ -101,7 +101,7 @@ export function DayRequestList({ day, canViewAll }: { day: HrmBoardDay; canViewA
           </li>
         ))}
       </ul>
-      <p className="mt-2 text-[11px] text-slate-500">
+      <p className="mt-2 text-[12px] text-slate-500">
         Chỉ đơn đã duyệt được tính vào công; đơn chờ duyệt hoặc bị từ chối chỉ để tham khảo.
       </p>
     </div>

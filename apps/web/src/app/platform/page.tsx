@@ -500,7 +500,7 @@ function AlertItem({
           </p>
           <Badge
             className={cn(
-              'text-[10px]',
+              'text-[12px]',
               isDanger
                 ? 'bg-red-600 text-white hover:bg-red-600'
                 : 'bg-amber-500 text-white hover:bg-amber-500',

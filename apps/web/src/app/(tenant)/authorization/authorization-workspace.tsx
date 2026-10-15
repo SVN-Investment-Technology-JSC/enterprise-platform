@@ -2,6 +2,7 @@
 
 import {
   TENANT_PERMISSION_ACTIONS,
+  tenantModulePermissions,
   type TenantPermission,
   type TenantRole,
 } from '@enterprise-platform/contracts-identity';
@@ -29,6 +30,7 @@ import {
 import { toast } from '@/components/ui/sonner';
 import { cn } from '@/lib/utils';
 import { panelButton } from '../side-panel';
+import { AuthorizationKpiSheet } from './authorization-kpi-sheet';
 import { PermissionPicker } from './permission-picker';
 import { RoleMembers, type RoleMemberUser } from './role-members';
 import { authorizationRequest, searchText } from './authorization-client';
@@ -77,6 +79,7 @@ export function AuthorizationWorkspace({
   const [busy, setBusy] = useState(false);
   const [detailPick, setDetailPick] = useState<{ id: string; tab: 'actions' | 'members' }>();
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [kpiSheet, setKpiSheet] = useState<'modules' | 'people'>();
 
   // Statistics calculation
   const stats = useMemo(() => {
@@ -98,6 +101,78 @@ export function AuthorizationWorkspace({
       totalAssignedUsers,
     };
   }, [roles, permissions, modules]);
+
+  // Thẻ "Module gói cấp": module đang có hiệu lực trước, kèm số vai trò có quyền của module đó.
+  const moduleRows = useMemo(
+    () =>
+      [...modules]
+        .sort(
+          (a, b) =>
+            Number(b.entitlementStatus === 'active') - Number(a.entitlementStatus === 'active') ||
+            a.name.localeCompare(b.name, 'vi'),
+        )
+        .map((m) => {
+          // Quyền của module = các action mang tiền tố của module, gom theo nhóm như khi cấu hình vai trò.
+          const keys = new Set(tenantModulePermissions(m.key));
+          const groups: { group: string; items: { key: string; label: string }[] }[] = [];
+          for (const def of TENANT_PERMISSION_ACTIONS) {
+            if (!keys.has(def.key)) continue;
+            let entry = groups.find((g) => g.group === def.group);
+            if (!entry) {
+              entry = { group: def.group, items: [] };
+              groups.push(entry);
+            }
+            entry.items.push({ key: def.key, label: def.label });
+          }
+          return {
+            module: m,
+            groups,
+            roleCount: roles.filter((r) => r.moduleKeys.includes('*') || r.moduleKeys.includes(m.key)).length,
+          };
+        }),
+    [modules, roles],
+  );
+
+  // Số thao tác và tên module của từng vai trò, để hiện trong danh sách nhân sự.
+  const roleSummary = useMemo(() => {
+    const byPermission = new Map(permissions.map((p) => [p.id, p]));
+    return new Map(
+      roles.map((r) => {
+        const keys = new Set(r.permissionIds.flatMap((id) => byPermission.get(id)?.actionKeys ?? []));
+        const moduleNames = r.moduleKeys.includes('*')
+          ? ['Tất cả module']
+          : r.moduleKeys.map((k) => modules.find((m) => m.key === k)?.name ?? k);
+        return [r.id, { actionCount: keys.size, moduleNames }] as const;
+      }),
+    );
+  }, [roles, permissions, modules]);
+
+  // Thẻ "Nhân sự phân quyền": người đã có vai trò (kèm tên các vai trò) và người chưa có vai trò nào.
+  const peopleRows = useMemo(() => {
+    const byId = new Map(users.map((u) => [u.id, u]));
+    const rolesOf = new Map<string, TenantRole[]>();
+    for (const r of roles)
+      for (const id of r.userIds) rolesOf.set(id, [...(rolesOf.get(id) ?? []), r]);
+    const assigned = [...rolesOf.entries()]
+      .map(([id, rs]) => ({ id, user: byId.get(id), roles: rs }))
+      .sort((a, b) => (a.user?.fullName ?? a.id).localeCompare(b.user?.fullName ?? b.id, 'vi'));
+    const unassigned = users.filter((u) => !rolesOf.has(u.id));
+    return { assigned, unassigned };
+  }, [roles, users]);
+
+  // Bấm một người: mở vai trò đầu tiên của họ ở tab Người dùng để gán/gỡ ngay.
+  const openPerson = (first: TenantRole) => {
+    if (busy) return;
+    const index = roles.findIndex((r) => r.id === first.id);
+    setTab('roles');
+    setQuery('');
+    setFilter('all');
+    setEditor(undefined);
+    setPage(Math.floor(Math.max(index, 0) / 12) + 1);
+    setSelectedId(first.id);
+    setDetailPick({ id: first.id, tab: 'members' });
+    setKpiSheet(undefined);
+  };
 
   // Filtered list of items
   const items = useMemo(() => {
@@ -335,8 +410,8 @@ export function AuthorizationWorkspace({
     <div className="flex flex-col gap-4 text-[14px] text-[#18181b]">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0 flex-[1_1_420px]">
-          <h1 className="m-0 text-[22px] font-bold tracking-[-0.3px]">Vai trò &amp; Phân quyền</h1>
-          <p className="mt-1 text-[13.5px] text-slate-600">
+          <h1 className="m-0 text-[20px] font-bold tracking-[-0.3px]">Vai trò &amp; Phân quyền</h1>
+          <p className="mt-1 text-[14px] text-slate-600">
             Cấu hình quyền thao tác Core và module cho người dùng tenant; quyền vào module được suy ra từ các thao tác được cấp.
           </p>
         </div>
@@ -345,7 +420,7 @@ export function AuthorizationWorkspace({
             type="button"
             disabled={isRefreshing}
             onClick={() => void reload()}
-            className="flex h-[38px] cursor-pointer items-center gap-1.5 rounded-lg border border-[#eef0f3] bg-white px-3 text-[13px] font-semibold text-slate-700 hover:bg-[#f4f6f9] disabled:opacity-60"
+            className="flex h-[38px] cursor-pointer items-center gap-1.5 rounded-lg border border-[#eef0f3] bg-white px-3 text-[14px] font-semibold text-slate-700 hover:bg-[#f4f6f9] disabled:opacity-60"
           >
             <RefreshCw className={cn('size-3.5', isRefreshing && 'animate-spin')} />
             Làm mới
@@ -354,7 +429,7 @@ export function AuthorizationWorkspace({
             type="button"
             disabled={busy}
             onClick={() => setEditor({ ...emptyEditor })}
-            className="flex h-[38px] cursor-pointer items-center gap-1.5 rounded-lg bg-[#ffc90a] px-3.5 text-[13px] font-bold text-[#18181b] hover:bg-[#ffd84d] disabled:opacity-60"
+            className="flex h-[38px] cursor-pointer items-center gap-1.5 rounded-lg bg-[#ffc90a] px-3.5 text-[14px] font-bold text-[#18181b] hover:bg-[#ffd84d] disabled:opacity-60"
           >
             <Plus className="size-4" />
             Tạo {tab === 'roles' ? 'vai trò' : 'permission'}
@@ -387,6 +462,8 @@ export function AuthorizationWorkspace({
           value={stats.activeModules}
           valueClass="text-emerald-700"
           note={`/ ${modules.length} kích hoạt`}
+          onClick={() => setKpiSheet('modules')}
+          testId="auth-kpi-modules"
         />
         <Kpi
           icon={<Users className="size-4" />}
@@ -395,8 +472,23 @@ export function AuthorizationWorkspace({
           value={stats.totalAssignedUsers}
           note="người dùng"
           last
+          onClick={() => setKpiSheet('people')}
+          testId="auth-kpi-people"
         />
       </section>
+
+      <AuthorizationKpiSheet
+        activeModules={stats.activeModules}
+        assigned={peopleRows.assigned}
+        kind={kpiSheet}
+        moduleRows={moduleRows}
+        onClose={() => setKpiSheet(undefined)}
+        onOpenRole={openPerson}
+        roleSummary={roleSummary}
+        roles={roles}
+        totalModules={modules.length}
+        unassigned={peopleRows.unassigned}
+      />
 
       <div className="flex flex-wrap items-start gap-4">
         <section
@@ -424,7 +516,7 @@ export function AuthorizationWorkspace({
                     aria-selected={active}
                     onClick={() => switchTab(value)}
                     className={cn(
-                      'flex h-8 cursor-pointer items-center gap-1.5 rounded-[7px] px-3 text-[12.5px] font-semibold',
+                      'flex h-8 cursor-pointer items-center gap-1.5 rounded-[7px] px-3 text-[13px] font-semibold',
                       active
                         ? 'bg-white text-[#18181b] shadow-[0_1px_2px_rgba(0,0,0,.08)]'
                         : 'text-slate-500 hover:text-[#18181b]',
@@ -433,7 +525,7 @@ export function AuthorizationWorkspace({
                     {label}
                     <span
                       className={cn(
-                        'rounded-full px-[7px] text-[11px]',
+                        'rounded-full px-[7px] text-[12px]',
                         active ? 'bg-[#ffc90a] text-[#18181b]' : 'bg-slate-200 text-slate-600',
                       )}
                     >
@@ -444,7 +536,7 @@ export function AuthorizationWorkspace({
               })}
             </div>
             <span className="flex-1" />
-            <span className="text-[12.5px] text-slate-500">{items.length} kết quả</span>
+            <span className="text-[13px] text-slate-500">{items.length} kết quả</span>
           </div>
 
           <div className="flex flex-wrap gap-2">
@@ -459,7 +551,7 @@ export function AuthorizationWorkspace({
                   setQuery(e.target.value);
                   setPage(1);
                 }}
-                className="min-w-0 flex-1 bg-transparent text-[12.5px] text-[#18181b] outline-none placeholder:text-slate-400"
+                className="min-w-0 flex-1 bg-transparent text-[13px] text-[#18181b] outline-none placeholder:text-slate-400"
               />
               {query ? (
                 <button
@@ -504,7 +596,7 @@ export function AuthorizationWorkspace({
                 >
                   {tab === 'roles' ? <Shield className="size-3.5" /> : <KeyRound className="size-3.5" />}
                 </span>
-                <span className="flex-1 text-[13.5px] font-semibold">{group.title}</span>
+                <span className="flex-1 text-[14px] font-semibold">{group.title}</span>
                 <span className="rounded-xl border border-[#eef0f3] bg-white px-2 py-0.5 text-xs font-semibold text-slate-500">
                   {group.total}
                 </span>
@@ -527,7 +619,7 @@ export function AuthorizationWorkspace({
                       isSelected ? 'bg-[#fffbeb] shadow-[inset_3px_0_0_#ffc90a]' : 'bg-white hover:bg-[#f4f6f9]/60',
                     )}
                   >
-                    <b className="text-[13px]">{item.name}</b>
+                    <b className="text-[14px]">{item.name}</b>
                     <span className="line-clamp-2 text-xs text-slate-500">
                       {item.description || 'Không có mô tả chi tiết.'}
                     </span>
@@ -564,7 +656,7 @@ export function AuthorizationWorkspace({
             </div>
           )}
 
-          <div className="flex items-center justify-between text-[12.5px] text-slate-500">
+          <div className="flex items-center justify-between text-[13px] text-slate-500">
             <span>
               Trang {currentPage} / {pages}
             </span>
@@ -610,7 +702,7 @@ export function AuthorizationWorkspace({
                   {editor.id ? 'Chỉnh sửa' : 'Tạo mới'}{' '}
                   {tab === 'roles' ? 'vai trò người dùng' : 'permission'}
                 </h2>
-                <p className="m-0 mt-0.5 text-[12.5px] text-slate-500">
+                <p className="m-0 mt-0.5 text-[13px] text-slate-500">
                   {tab === 'roles'
                     ? 'Khai báo thông tin định danh và chọn các quyền thao tác cho vai trò.'
                     : 'Chọn các hành động Core hoặc module. Có bất kỳ hành động nào của module là vào được module đó.'}
@@ -618,7 +710,7 @@ export function AuthorizationWorkspace({
               </div>
             </div>
 
-            <fieldset disabled={busy} className="flex flex-col gap-[18px] px-5 py-[18px] text-[12.5px]">
+            <fieldset disabled={busy} className="flex flex-col gap-[18px] px-5 py-[18px] text-[13px]">
               <div className="flex flex-col gap-2.5">
                 <FormHeading
                   aside={
@@ -739,7 +831,7 @@ export function AuthorizationWorkspace({
                       {role ? (
                         <span
                           className={cn(
-                            'rounded-full border px-2 text-[11.5px] font-semibold',
+                            'rounded-full border px-2 text-[12px] font-semibold',
                             role.isSystem
                               ? 'border-slate-200 bg-slate-100 text-slate-600'
                               : 'border-amber-200 bg-[#fff6d6] text-[#8a6400]',
@@ -765,7 +857,7 @@ export function AuthorizationWorkspace({
                         </button>
                       </span>
                     )}
-                    <p className="m-0 text-[13px] text-slate-600">
+                    <p className="m-0 text-[14px] text-slate-600">
                       {selected.description || 'Chưa thiết lập mô tả cho mục này.'}
                     </p>
                   </div>
@@ -776,7 +868,7 @@ export function AuthorizationWorkspace({
                         type="button"
                         disabled={busy}
                         onClick={edit}
-                        className="flex h-8 cursor-pointer items-center gap-1.5 rounded-[7px] border border-[#eef0f3] bg-white px-2.5 text-[12.5px] font-semibold text-slate-700 hover:bg-[#f4f6f9] disabled:opacity-60"
+                        className="flex h-8 cursor-pointer items-center gap-1.5 rounded-[7px] border border-[#eef0f3] bg-white px-2.5 text-[13px] font-semibold text-slate-700 hover:bg-[#f4f6f9] disabled:opacity-60"
                       >
                         <Pencil className="size-3.5" />
                         Chỉnh sửa
@@ -799,7 +891,7 @@ export function AuthorizationWorkspace({
                                 : 'Gỡ permission khỏi các vai trò trước khi xóa'
                               : undefined
                           }
-                          className="flex h-8 cursor-pointer items-center gap-1.5 rounded-[7px] border border-red-200 bg-white px-2.5 text-[12.5px] font-semibold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                          className="flex h-8 cursor-pointer items-center gap-1.5 rounded-[7px] border border-red-200 bg-white px-2.5 text-[13px] font-semibold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           <Trash2 className="size-3.5" />
                           Xóa
@@ -811,7 +903,7 @@ export function AuthorizationWorkspace({
 
                 <div className="flex flex-col gap-[18px] px-5 py-[18px]">
                   {role?.key === 'tenant-admin' && (
-                    <p className="m-0 rounded-[10px] bg-blue-50 px-3 py-2.5 text-[13px] text-blue-900">
+                    <p className="m-0 rounded-[10px] bg-blue-50 px-3 py-2.5 text-[14px] text-blue-900">
                       <b className="block">Vai trò Quản trị viên cấp cao (tenant-admin)</b>
                       Sở hữu toàn bộ quyền thao tác Core và module đang kích hoạt cho tenant. Đây là vai trò hệ thống, không thể thay đổi hoặc xóa bỏ.
                     </p>
@@ -838,7 +930,7 @@ export function AuthorizationWorkspace({
                             aria-selected={active}
                             onClick={() => setDetailPick({ id: role.id, tab: value })}
                             className={cn(
-                              'flex h-8 cursor-pointer items-center gap-1.5 rounded-[7px] px-3 text-[12.5px] font-semibold',
+                              'flex h-8 cursor-pointer items-center gap-1.5 rounded-[7px] px-3 text-[13px] font-semibold',
                               active
                                 ? 'bg-white text-[#18181b] shadow-[0_1px_2px_rgba(0,0,0,.08)]'
                                 : 'text-slate-500 hover:text-[#18181b]',
@@ -847,7 +939,7 @@ export function AuthorizationWorkspace({
                             {label}
                             <span
                               className={cn(
-                                'rounded-full px-[7px] text-[11px]',
+                                'rounded-full px-[7px] text-[12px]',
                                 active ? 'bg-[#ffc90a] text-[#18181b]' : 'bg-slate-200 text-slate-600',
                               )}
                             >
@@ -868,7 +960,7 @@ export function AuthorizationWorkspace({
                             key={group.group}
                             className="flex flex-col gap-1.5 rounded-[10px] border border-[#f1f3f6] bg-[#fafbfc] px-3 py-2.5"
                           >
-                            <span className="text-[11px] font-bold tracking-[0.4px] text-slate-500">
+                            <span className="text-[12px] font-bold tracking-[0.4px] text-slate-500">
                               {group.group.toUpperCase()}
                             </span>
                             <div className="flex flex-wrap gap-1.5">
@@ -879,14 +971,14 @@ export function AuthorizationWorkspace({
                                 >
                                   <Check className="size-3 stroke-[3] text-emerald-600" />
                                   {action.label}
-                                  <code className="font-mono text-[10.5px] text-slate-400">({action.key})</code>
+                                  <code className="font-mono text-[12px] text-slate-400">({action.key})</code>
                                 </span>
                               ))}
                             </div>
                           </div>
                         ))
                       ) : (
-                        <p className="m-0 rounded-[10px] border border-dashed border-[#e5e7eb] p-3.5 text-center text-[13px] text-slate-500">
+                        <p className="m-0 rounded-[10px] border border-dashed border-[#e5e7eb] p-3.5 text-center text-[14px] text-slate-500">
                           Không cấp quyền thao tác Core hoặc module.
                         </p>
                       )}
@@ -898,15 +990,15 @@ export function AuthorizationWorkspace({
                   ) : null}
                   {!role ? (
                     <div className="flex flex-col gap-2.5 rounded-[10px] border border-[#f1f3f6] bg-[#fafbfc] px-3.5 py-3">
-                      <span className="flex flex-wrap items-center gap-2 text-[13px] font-bold">
+                      <span className="flex flex-wrap items-center gap-2 text-[14px] font-bold">
                         <Users className="size-3.5" />
                         <span className="flex-1">Vai trò đang dùng permission</span>
-                        <span className="text-[12.5px] font-medium text-slate-600">
+                        <span className="text-[13px] font-medium text-slate-600">
                           {used} vai trò sử dụng permission
                         </span>
                       </span>
                       {used > 0 && !role ? (
-                        <p className="m-0 rounded-lg border border-amber-200 bg-[#fffbeb] px-2.5 py-2 text-[12.5px] text-amber-800">
+                        <p className="m-0 rounded-lg border border-amber-200 bg-[#fffbeb] px-2.5 py-2 text-[13px] text-amber-800">
                           Permission này hiện đang được dùng trong <b>{used} vai trò</b>. Vui lòng gỡ permission khỏi các vai trò trước khi thực hiện xóa.
                         </p>
                       ) : null}
@@ -935,7 +1027,7 @@ export function AuthorizationWorkspace({
 const PAGER =
   'flex h-7 cursor-pointer items-center gap-0.5 rounded-[7px] border border-[#eef0f3] bg-white px-2.5 text-xs text-slate-700 hover:bg-[#f4f6f9] disabled:cursor-not-allowed disabled:text-slate-400';
 const FIELD =
-  'h-9 w-full rounded-[7px] border border-[#e5e7eb] bg-white px-2.5 text-[13px] text-[#18181b] outline-none focus:border-[#ffc90a]';
+  'h-9 w-full rounded-[7px] border border-[#e5e7eb] bg-white px-2.5 text-[14px] text-[#18181b] outline-none focus:border-[#ffc90a]';
 
 function Kpi({
   icon,
@@ -945,6 +1037,8 @@ function Kpi({
   valueClass,
   note,
   last = false,
+  onClick,
+  testId,
 }: {
   icon: ReactNode;
   tone: string;
@@ -953,37 +1047,44 @@ function Kpi({
   valueClass?: string;
   note: string;
   last?: boolean;
+  /** Có thì thẻ bấm được (mở danh sách dữ liệu thẻ đang tổng hợp). */
+  onClick?: () => void;
+  testId?: string;
 }) {
+  const Wrapper = onClick ? 'button' : 'div';
   return (
-    <div
+    <Wrapper
+      {...(onClick ? { type: 'button' as const, onClick } : {})}
+      data-testid={testId}
       className={cn(
         'flex items-center gap-3 border-[#f1f3f6] px-[18px] py-3.5',
         !last && 'border-b xl:border-b-0 xl:border-r',
+        onClick && 'cursor-pointer text-left hover:bg-[#fafbfc]',
       )}
     >
       <span aria-hidden className={`grid size-8 shrink-0 place-items-center rounded-lg ${tone}`}>
         {icon}
       </span>
       <div className="flex flex-col">
-        <span className="text-[11px] font-bold tracking-[0.5px] text-slate-500">{label}</span>
+        <span className="text-[12px] font-bold tracking-[0.5px] text-slate-500">{label}</span>
         <span>
           <b className={cn('text-xl tabular-nums', valueClass)}>{value}</b>{' '}
           <span className="text-xs text-slate-500">{note}</span>
         </span>
       </div>
-    </div>
+    </Wrapper>
   );
 }
 
 function Chip({ children }: { children: ReactNode }) {
   return (
-    <span className="rounded-md bg-[#f1f3f6] px-[7px] text-[11.5px] text-slate-600">{children}</span>
+    <span className="rounded-md bg-[#f1f3f6] px-[7px] text-[12px] text-slate-600">{children}</span>
   );
 }
 
 function SectionHeading({ aside, children }: { aside?: ReactNode; children: ReactNode }) {
   return (
-    <span className="flex items-center gap-2 text-[11.5px] font-bold tracking-[0.6px] text-slate-500">
+    <span className="flex items-center gap-2 text-[12px] font-bold tracking-[0.6px] text-slate-500">
       <span aria-hidden className="h-3.5 w-[3px] rounded-sm bg-[#ffc90a]" />
       <span className="flex-1">{children}</span>
       {aside}
@@ -993,7 +1094,7 @@ function SectionHeading({ aside, children }: { aside?: ReactNode; children: Reac
 
 function FormHeading({ aside, children }: { aside?: ReactNode; children: ReactNode }) {
   return (
-    <span className="flex flex-wrap justify-between gap-2 border-b border-[#f1f3f6] pb-1.5 text-[11.5px] font-bold tracking-[0.5px] text-slate-700">
+    <span className="flex flex-wrap justify-between gap-2 border-b border-[#f1f3f6] pb-1.5 text-[12px] font-bold tracking-[0.5px] text-slate-700">
       {children}
       {aside ? <span className="font-medium tracking-normal text-slate-500">{aside}</span> : null}
     </span>

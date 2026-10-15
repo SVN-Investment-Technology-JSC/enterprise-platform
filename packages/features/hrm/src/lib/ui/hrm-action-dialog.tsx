@@ -88,7 +88,7 @@ function MilestoneEditor({
   return (
     <div className="space-y-2 rounded-lg border border-slate-200 p-2.5">
       {rows.length === 0 && (
-        <p className="text-[11px] font-normal text-slate-500">
+        <p className="text-[12px] font-normal text-slate-500">
           Chưa có mốc. Lịch dùng cặp "mỗi N năm cộng M ngày" ở trên. Khi có mốc, tại tháng kỷ niệm chỉ cộng phần thưởng của mốc cao nhất đã đạt (không cộng dồn).
         </p>
       )}

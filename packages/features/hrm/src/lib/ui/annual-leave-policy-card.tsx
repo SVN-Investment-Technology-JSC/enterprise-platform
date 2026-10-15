@@ -565,7 +565,7 @@ export function AnnualLeavePolicyCard({
                   <p className="text-xs font-semibold text-slate-800">
                     Cho ứng phép
                   </p>
-                  <p className="text-[11px] leading-snug text-slate-500">
+                  <p className="text-[12px] leading-snug text-slate-500">
                     {form.advanceAllowed
                       ? 'Được dùng trước phần phép chưa cộng, đến hết năm.'
                       : 'Chỉ được dùng số phép đã cộng đến tháng hiện tại.'}
@@ -695,7 +695,7 @@ export function AnnualLeavePolicyCard({
                     />
                     <p
                       data-testid="reason-counter"
-                      className="text-right text-[11px] text-slate-400"
+                      className="text-right text-[12px] text-slate-400"
                     >
                       {form.reason.length}/{REASON_MAX_LENGTH}
                     </p>

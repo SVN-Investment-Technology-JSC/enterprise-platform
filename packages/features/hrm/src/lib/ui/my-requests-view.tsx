@@ -77,7 +77,7 @@ export function StatusPill({
 }) {
   return (
     <span
-      className={`inline-flex whitespace-nowrap rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${STATUS_TONE_CLASS[meta.tone]} ${className}`}
+      className={`inline-flex whitespace-nowrap rounded-full border px-2.5 py-0.5 text-[12px] font-semibold ${STATUS_TONE_CLASS[meta.tone]} ${className}`}
     >
       {meta.label}
     </span>
@@ -139,11 +139,11 @@ export function QuickCreateRow({
               <span
                 role="heading"
                 aria-level={3}
-                className="block truncate text-[13px] font-bold text-slate-900"
+                className="block truncate text-[14px] font-bold text-slate-900"
               >
                 {item.title}
               </span>
-              <span className="block truncate text-[11px] text-slate-500">
+              <span className="block truncate text-[12px] text-slate-500">
                 {item.desc}
               </span>
             </span>
@@ -309,7 +309,7 @@ export function RequestListPanel({
 
       <div className="min-h-0 flex-1 overflow-auto">
         <table className="w-full min-w-[760px] border-collapse text-left text-xs">
-          <thead className="bg-slate-50 text-[11px] font-bold text-slate-500">
+          <thead className="bg-slate-50 text-[12px] font-bold text-slate-500">
             <tr>
               <th className="w-10 px-3 py-2.5">#</th>
               <th className="px-3 py-2.5">Mã đơn</th>
@@ -383,7 +383,7 @@ export function RequestListPanel({
                     <td className="px-3 py-2.5">
                       <StatusPill meta={rowStatusMeta(row)} />
                     </td>
-                    <td className="px-3 py-2.5 font-mono text-[11px] text-slate-600">
+                    <td className="px-3 py-2.5 font-mono text-[12px] text-slate-600">
                       {row.createdAt}
                     </td>
                     <td className="px-2 py-2.5 text-slate-400">

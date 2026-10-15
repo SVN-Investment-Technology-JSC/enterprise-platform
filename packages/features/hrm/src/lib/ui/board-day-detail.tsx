@@ -41,10 +41,10 @@ function Kpi({
       data-testid={testId}
       className={`rounded-xl border px-3 py-2 ${tone === 'bad' ? 'border-orange-200 bg-orange-50' : 'border-slate-200 bg-white'}`}
     >
-      <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+      <p className="text-[12px] font-semibold uppercase tracking-wide text-slate-500">{label}</p>
       <p className={`font-mono text-xl font-bold leading-tight ${color}`}>
         {value}
-        {unit ? <span className="ml-0.5 text-[11px] font-semibold text-slate-500">{unit}</span> : null}
+        {unit ? <span className="ml-0.5 text-[12px] font-semibold text-slate-500">{unit}</span> : null}
       </p>
     </div>
   );
@@ -55,7 +55,7 @@ function SymbolBox({ text, className }: { text: string; className: string }) {
   return (
     <span
       aria-hidden="true"
-      className={`inline-flex h-[20px] min-w-[22px] items-center justify-center rounded px-1 text-[10px] font-bold ${className}`}
+      className={`inline-flex h-[20px] min-w-[22px] items-center justify-center rounded px-1 text-[12px] font-bold ${className}`}
     >
       {text}
     </span>
@@ -82,8 +82,8 @@ function PunchTile({
   return (
     <div className={`rounded-xl border px-3 py-2 ${style}`}>
       <div className="flex items-center justify-between gap-2">
-        <span className="text-[10px] font-bold uppercase tracking-wide">{label}</span>
-        {note ? <span className="text-[10px] font-bold">{note}</span> : null}
+        <span className="text-[12px] font-bold uppercase tracking-wide">{label}</span>
+        {note ? <span className="text-[12px] font-bold">{note}</span> : null}
       </div>
       <p className="font-mono text-lg font-bold leading-tight">{time ?? '--:--'}</p>
     </div>
@@ -152,7 +152,7 @@ export function PunchTimeline({ day }: { day: HrmBoardDay }) {
           <span className="flex flex-1 items-baseline justify-between gap-2">
             <span className={e.tone === 'plan' ? 'text-slate-500' : 'font-semibold text-slate-900'}>{e.label}</span>
             <span className="flex items-baseline gap-2">
-              {e.note && <span className="text-[11px] font-bold text-orange-600">{e.note}</span>}
+              {e.note && <span className="text-[12px] font-bold text-orange-600">{e.note}</span>}
               <span className={`font-mono ${e.tone === 'bad' ? 'font-bold text-orange-600' : 'font-semibold text-slate-800'}`}>
                 {e.time}
               </span>
@@ -161,7 +161,7 @@ export function PunchTimeline({ day }: { day: HrmBoardDay }) {
         </li>
       ))}
       {(missingIn || missingOut) && (
-        <li className="pt-1 text-[11px] font-semibold text-fuchsia-700">
+        <li className="pt-1 text-[12px] font-semibold text-fuchsia-700">
           {missingIn && missingOut ? 'Chưa có giờ vào và giờ ra' : missingIn ? 'Chưa có giờ vào' : 'Chưa có giờ ra'}
         </li>
       )}
@@ -199,7 +199,7 @@ export function DayBands({ day }: { day: HrmBoardDay }) {
         </p>
       )}
       {isLateOrEarly(day) && day.tripId == null && day.otMinutes === 0 && (
-        <p className="mt-2 text-[11px] text-slate-500">
+        <p className="mt-2 text-[12px] text-slate-500">
           Trễ và sớm tính theo giờ ca sau khi trừ dung sai của ca.
         </p>
       )}
@@ -272,7 +272,7 @@ export function BoardDayContent({
           <p className="font-semibold text-slate-800">
             {hasShift ? (
               <>
-                <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] font-bold text-slate-700">
+                <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[12px] font-bold text-slate-700">
                   {day.shiftCode ?? day.shiftName}
                 </span>
                 {day.shiftCode && day.shiftName ? <span className="ml-2">{day.shiftName}</span> : null}
@@ -320,13 +320,13 @@ function DayStatusChip({ day }: { day: HrmBoardDay }) {
     <>
       <span
         data-testid="day-status"
-        className={`inline-flex items-center gap-1.5 rounded-full border border-slate-200 px-2.5 py-0.5 text-[11px] font-semibold ${boardStatusCellClass(day.status)}`}
+        className={`inline-flex items-center gap-1.5 rounded-full border border-slate-200 px-2.5 py-0.5 text-[12px] font-semibold ${boardStatusCellClass(day.status)}`}
       >
         <span aria-hidden="true" className={`size-1.5 rounded-full ${DAY_TONE_DOT[dayTone(day, todayIso())]}`} />
         {boardStatusLabel(day.status)}
       </span>
       {day.adjusted && (
-        <span className="rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-700">
+        <span className="rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[12px] font-semibold text-indigo-700">
           Đã chỉnh tay
         </span>
       )}

@@ -40,7 +40,7 @@ export function ScheduleListView({
 }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white">
-      <p className="shrink-0 border-b border-slate-100 bg-slate-50 px-3.5 py-1.5 text-[11px] text-slate-500">
+      <p className="shrink-0 border-b border-slate-100 bg-slate-50 px-3.5 py-1.5 text-[12px] text-slate-500">
         Danh sách này chỉ gồm lịch gán theo khoảng ngày cố định. Lịch định kỳ (không có ngày kết thúc) xem trong
         Lịch định kỳ và trên Lịch tháng, Lịch tuần.
       </p>
@@ -60,7 +60,7 @@ export function ScheduleListView({
         ) : rows ? (
           <table className={cn('w-full border-separate border-spacing-0 text-xs', loading && 'opacity-60')}>
             <thead>
-              <tr className="text-left text-[11px] font-bold tracking-wide text-slate-600 uppercase">
+              <tr className="text-left text-[12px] font-bold tracking-wide text-slate-600 uppercase">
                 {['Nhân viên', 'Đơn vị', 'Khoảng ngày', 'Thứ trong tuần', 'Ca', 'Nguồn', 'Trạng thái'].map((h) => (
                   <th key={h} scope="col" className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50 px-3 py-2">
                     {h}
@@ -80,7 +80,7 @@ export function ScheduleListView({
                       className="cursor-pointer text-left outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                       onClick={() => onSelectEmployee(row.employeeId)}
                     >
-                      <span className="font-mono text-[11px] font-semibold text-blue-700">{row.employeeCode}</span>{' '}
+                      <span className="font-mono text-[12px] font-semibold text-blue-700">{row.employeeCode}</span>{' '}
                       <span className="font-semibold text-slate-900">{row.employeeName}</span>
                     </button>
                   </td>
@@ -95,7 +95,7 @@ export function ScheduleListView({
                         <span
                           key={weekday}
                           className={cn(
-                            'inline-flex h-5 min-w-6 items-center justify-center rounded text-[10px] font-semibold',
+                            'inline-flex h-5 min-w-6 items-center justify-center rounded text-[12px] font-semibold',
                             row.weekdays.includes(weekday)
                               ? 'bg-blue-600 text-white'
                               : 'bg-slate-100 text-slate-400',
@@ -117,7 +117,7 @@ export function ScheduleListView({
                     )}
                   </td>
                   <td className="border-b border-slate-100 px-3 py-1.5">
-                    <span className={cn('inline-flex rounded-full border px-2 py-0.5 text-[11px] font-medium', SOURCE_CLASS[row.source])}>
+                    <span className={cn('inline-flex rounded-full border px-2 py-0.5 text-[12px] font-medium', SOURCE_CLASS[row.source])}>
                       {SOURCE_LABELS[row.source]}
                     </span>
                   </td>

@@ -101,13 +101,13 @@ function Row({
     if (isCoreOwned && !editControl) {
       return (
         <div className="flex items-center justify-between gap-3 border-b border-slate-100 py-1.5 last:border-b-0">
-          <dt className="shrink-0 text-[11px] text-slate-400 flex items-center gap-1">
+          <dt className="shrink-0 text-[12px] text-slate-400 flex items-center gap-1">
             {label}
             <Lock className="size-3 text-slate-400" aria-label="Quản lý tại Core" />
           </dt>
           <dd className="min-w-0 text-right text-xs font-semibold text-slate-500 flex items-center justify-end gap-1.5">
             {children}
-            <span className="text-[10px] font-normal text-slate-500 bg-slate-100 px-1 py-0.2 rounded border border-slate-200">
+            <span className="text-[12px] font-normal text-slate-500 bg-slate-100 px-1 py-0.2 rounded border border-slate-200">
               Core
             </span>
           </dd>
@@ -117,7 +117,7 @@ function Row({
     if (isSensitiveHidden) {
       return (
         <div className="flex items-center justify-between gap-3 border-b border-slate-100 py-1.5 last:border-b-0">
-          <dt className="shrink-0 text-[11px] text-slate-400">{label}</dt>
+          <dt className="shrink-0 text-[12px] text-slate-400">{label}</dt>
           <dd className="min-w-0 text-right text-xs text-slate-400 italic">
             Ẩn (Không có quyền)
           </dd>
@@ -126,7 +126,7 @@ function Row({
     }
     return (
       <div className="space-y-1 border-b border-blue-100/70 py-2 last:border-b-0">
-        <label className="flex items-center justify-between text-[11px] font-medium text-slate-700">
+        <label className="flex items-center justify-between text-[12px] font-medium text-slate-700">
           <span className="flex items-center gap-1.5">
             <span className="size-1.5 rounded-full bg-blue-600 animate-pulse" />
             {label}
@@ -134,14 +134,14 @@ function Row({
           <span className="flex items-center gap-1">
             {isCoreOwned && (
               <span
-                className="flex items-center gap-0.5 text-[10px] font-normal text-slate-500 bg-slate-100 px-1 py-0.2 rounded border border-slate-200"
+                className="flex items-center gap-0.5 text-[12px] font-normal text-slate-500 bg-slate-100 px-1 py-0.2 rounded border border-slate-200"
                 title="Lưu sẽ gửi sang Core qua quyết định nhân sự, không ghi thẳng hồ sơ HRM"
               >
                 <Lock className="size-2.5" aria-hidden="true" />
                 Core
               </span>
             )}
-            <span className="text-[10px] text-blue-600 font-semibold bg-blue-50 px-1.5 py-0.2 rounded border border-blue-200/60">
+            <span className="text-[12px] text-blue-600 font-semibold bg-blue-50 px-1.5 py-0.2 rounded border border-blue-200/60">
               Chỉnh sửa trực tiếp
             </span>
           </span>
@@ -153,7 +153,7 @@ function Row({
 
   return (
     <div className="flex items-baseline justify-between gap-3 border-b border-slate-100 py-1.5 last:border-b-0">
-      <dt className="shrink-0 text-[11px] text-slate-500">{label}</dt>
+      <dt className="shrink-0 text-[12px] text-slate-500">{label}</dt>
       <dd
         className={`min-w-0 text-right text-xs font-semibold text-slate-900 ${mono ? 'font-mono' : ''
           }`}
@@ -189,7 +189,7 @@ function Block({
           {title}
         </span>
         {isEditing && (
-          <span className="text-[10px] text-blue-600 font-normal">
+          <span className="text-[12px] text-blue-600 font-normal">
             Trực tiếp trên Drawer
           </span>
         )}
@@ -526,7 +526,7 @@ export function EmployeeDetailDialog({
                         {employee.fullName || 'Hồ sơ nhân sự'}
                       </SheetTitle>
                       <Badge
-                        className={`border text-[10px] font-bold ${active
+                        className={`border text-[12px] font-bold ${active
                             ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
                             : 'border-rose-200 bg-rose-50 text-rose-700'
                           }`}
@@ -536,7 +536,7 @@ export function EmployeeDetailDialog({
                       </Badge>
                       <Badge
                         variant="outline"
-                        className="bg-white font-mono text-[10px] text-slate-700 border-slate-300"
+                        className="bg-white font-mono text-[12px] text-slate-700 border-slate-300"
                       >
                         {employee.employeeCode}
                       </Badge>
@@ -566,7 +566,7 @@ export function EmployeeDetailDialog({
                   className="w-48 sm:w-56"
                   title="Mức hoàn thiện hồ sơ nhân sự"
                 >
-                  <div className="mb-1 flex items-center justify-between text-[11px] text-slate-500">
+                  <div className="mb-1 flex items-center justify-between text-[12px] text-slate-500">
                     <span>Hồ sơ hoàn thiện</span>
                     <span className="font-mono font-bold text-slate-800">
                       {completeness}%
@@ -595,12 +595,12 @@ export function EmployeeDetailDialog({
                 {/* Highlight chỉ báo tính năng chỉnh sửa */}
                 <div className="flex items-center gap-2">
                   {!isEditing ? (
-                    <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-2.5 py-1 text-[11px] font-semibold text-blue-700 border border-blue-200/80 shadow-2xs">
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-2.5 py-1 text-[12px] font-semibold text-blue-700 border border-blue-200/80 shadow-2xs">
                       <Sparkles className="size-3 text-blue-600" />
                       {/* Chỉnh sửa trực tiếp trên Drawer */}
                     </span>
                   ) : (
-                    <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-bold text-amber-800 border border-amber-300 shadow-2xs animate-pulse">
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-[12px] font-bold text-amber-800 border border-amber-300 shadow-2xs animate-pulse">
                       <PencilLine className="size-3 text-amber-600" />
                       Đang ở chế độ chỉnh sửa
                     </span>
@@ -624,7 +624,7 @@ export function EmployeeDetailDialog({
                           <span className="font-bold text-sm text-blue-950">
                             Chế độ chỉnh sửa trực tiếp đang bật
                           </span>
-                          <Badge className="bg-blue-600 text-white text-[10px] px-1.5 py-0.5 font-bold">
+                          <Badge className="bg-blue-600 text-white text-[12px] px-1.5 py-0.5 font-bold">
                             Đang sửa
                           </Badge>
                         </div>
@@ -899,7 +899,7 @@ export function EmployeeDetailDialog({
                           />
                         )}
                         {positionChanged && (
-                          <p className="text-[10px] text-amber-700">
+                          <p className="text-[12px] text-amber-700">
                             Có hiệu lực ngay khi lưu, không qua người duyệt khác.
                           </p>
                         )}
@@ -952,7 +952,7 @@ export function EmployeeDetailDialog({
                   }
                 >
                   <Badge
-                    className={`border text-[10px] font-bold ${active
+                    className={`border text-[12px] font-bold ${active
                         ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
                         : 'border-rose-200 bg-rose-50 text-rose-700'
                       }`}

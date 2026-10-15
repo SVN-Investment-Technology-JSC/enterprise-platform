@@ -4,6 +4,7 @@ import {
   procedureFieldsOf,
   procedureSyncNotice,
   shouldPollProcedureProgress,
+  summarizeRoleTitle,
   waitingApproverLabel,
 } from './procedure-progress-view';
 
@@ -101,5 +102,22 @@ describe('procedure-progress-view', () => {
     expect(
       approvalErrorMessage({ status: 500, message: 'Lỗi máy chủ' }, 'procedure'),
     ).toBe('Lỗi máy chủ');
+  });
+});
+
+describe('summarizeRoleTitle', () => {
+  const many = Array.from({ length: 30 }, (_, i) => `Chức danh ${i + 1}`).join(', ');
+
+  it('rút gọn danh sách dài thành 2 mục đầu kèm +N, tooltip giữ đủ', () => {
+    const result = summarizeRoleTitle(many);
+    expect(result?.text).toBe('Chức danh 1, Chức danh 2 +28');
+    expect(result?.full).toBe(many);
+  });
+
+  it('giữ nguyên khi ít mục, khử trùng lặp, rỗng thì null', () => {
+    expect(summarizeRoleTitle('Tổng Giám đốc')?.text).toBe('Tổng Giám đốc');
+    expect(summarizeRoleTitle('A, B, A')?.text).toBe('A, B');
+    expect(summarizeRoleTitle('')).toBeNull();
+    expect(summarizeRoleTitle(undefined)).toBeNull();
   });
 });

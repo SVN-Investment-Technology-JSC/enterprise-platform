@@ -32,15 +32,15 @@ export function MonthStatsBar({ employee }: { employee: HrmBoardEmployee }) {
             stat.alert ? 'border-red-200 bg-red-50/60' : index === 0 ? 'border-blue-200 bg-blue-50/60' : 'border-slate-200'
           }`}
         >
-          <p className="truncate text-[9px] font-semibold uppercase tracking-wide text-slate-500">{stat.label}</p>
+          <p className="truncate text-[12px] font-semibold uppercase tracking-wide text-slate-500">{stat.label}</p>
           <p className="flex items-baseline gap-1">
             <span
-              className={`font-mono text-[15px] font-bold leading-tight ${stat.alert ? 'text-red-600' : 'text-slate-900'}`}
+              className={`font-mono text-[16px] font-bold leading-tight ${stat.alert ? 'text-red-600' : 'text-slate-900'}`}
             >
               {stat.value}
             </span>
             {stat.hint && (
-              <span className="truncate text-[10px] text-slate-500" title={stat.hint}>
+              <span className="truncate text-[12px] text-slate-500" title={stat.hint}>
                 {stat.hint}
               </span>
             )}
@@ -86,7 +86,7 @@ export function MonthRequestsPanel({
               >
                 <span
                   aria-hidden="true"
-                  className="mt-0.5 inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded bg-slate-800 px-1 text-[10px] font-bold text-white"
+                  className="mt-0.5 inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded bg-slate-800 px-1 text-[12px] font-bold text-white"
                 >
                   {REQUEST_LETTERS[request.kind].letter}
                 </span>
@@ -97,7 +97,7 @@ export function MonthRequestsPanel({
                       {request.kind !== 'CUSTOM' && request.label ? `: ${request.label}` : ''}
                     </span>
                     <span
-                      className={`shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] font-semibold ${REQUEST_STATUS_TONE[request.status]}`}
+                      className={`shrink-0 rounded-full border px-1.5 py-0.5 text-[12px] font-semibold ${REQUEST_STATUS_TONE[request.status]}`}
                     >
                       {requestStatusLabel(request.status)}
                     </span>

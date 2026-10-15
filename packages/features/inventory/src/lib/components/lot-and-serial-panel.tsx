@@ -232,10 +232,10 @@ export function LotAndSerialPanel({
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <Layers size={16} color="#2563eb" />
           <div>
-            <h4 style={{ margin: 0, fontSize: '13.5px', fontWeight: 700, color: '#0f172a' }}>
+            <h4 style={{ margin: 0, fontSize: '14px', fontWeight: 700, color: '#0f172a' }}>
               Quản lý Lô &amp; Cá thể Sê-ri ({totalEntries} bản ghi)
             </h4>
-            <span style={{ fontSize: '12px', color: '#64748b' }}>
+            <span style={{ fontSize: '13px', color: '#64748b' }}>
               Theo dõi tình trạng kiểm định, chất lượng, hạn sử dụng và vị trí từng Lô/Sê-ri.
             </span>
           </div>
@@ -262,7 +262,7 @@ export function LotAndSerialPanel({
           <button
             type="button"
             className={`${styles.drawerTabBtn} ${filterView === 'all' ? styles.drawerTabBtnActive : ''}`}
-            style={{ padding: '4px 10px', fontSize: '12px', border: '1px solid #e2e8f0', borderRadius: '4px' }}
+            style={{ padding: '4px 10px', fontSize: '13px', border: '1px solid #e2e8f0', borderRadius: '4px' }}
             onClick={() => setFilterView('all')}
           >
             <Filter size={12} />
@@ -271,7 +271,7 @@ export function LotAndSerialPanel({
           <button
             type="button"
             className={`${styles.drawerTabBtn} ${filterView === 'lots' ? styles.drawerTabBtnActive : ''}`}
-            style={{ padding: '4px 10px', fontSize: '12px', border: '1px solid #e2e8f0', borderRadius: '4px' }}
+            style={{ padding: '4px 10px', fontSize: '13px', border: '1px solid #e2e8f0', borderRadius: '4px' }}
             onClick={() => setFilterView('lots')}
           >
             <Layers size={12} />
@@ -280,7 +280,7 @@ export function LotAndSerialPanel({
           <button
             type="button"
             className={`${styles.drawerTabBtn} ${filterView === 'serials' ? styles.drawerTabBtnActive : ''}`}
-            style={{ padding: '4px 10px', fontSize: '12px', border: '1px solid #e2e8f0', borderRadius: '4px' }}
+            style={{ padding: '4px 10px', fontSize: '13px', border: '1px solid #e2e8f0', borderRadius: '4px' }}
             onClick={() => setFilterView('serials')}
           >
             <QrCode size={12} />
@@ -299,7 +299,7 @@ export function LotAndSerialPanel({
               padding: '5px 8px 5px 28px',
               borderRadius: '5px',
               border: '1px solid #cbd5e1',
-              fontSize: '12px',
+              fontSize: '13px',
               outline: 'none',
               background: '#ffffff',
             }}
@@ -329,7 +329,7 @@ export function LotAndSerialPanel({
       {filterView !== 'serials' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: '12px', fontWeight: 700, color: '#1e40af', textTransform: 'uppercase' }}>
+            <span style={{ fontSize: '13px', fontWeight: 700, color: '#1e40af', textTransform: 'uppercase' }}>
               Danh sách Lô hàng ({filteredLots.length} lô)
             </span>
           </div>
@@ -343,7 +343,7 @@ export function LotAndSerialPanel({
                 background: '#ffffff',
                 border: '1px dashed #cbd5e1',
                 borderRadius: '6px',
-                fontSize: '12.5px',
+                fontSize: '13px',
                 color: '#64748b',
                 textAlign: 'center',
               }}
@@ -376,7 +376,7 @@ export function LotAndSerialPanel({
                       <span
                         style={{
                           fontFamily: 'ui-monospace, monospace',
-                          fontSize: '13px',
+                          fontSize: '14px',
                           fontWeight: 700,
                           color: '#1e40af',
                           background: '#eff6ff',
@@ -387,21 +387,21 @@ export function LotAndSerialPanel({
                       >
                         {lot.lotNumber}
                       </span>
-                      <span style={{ fontSize: '12.5px', fontWeight: 600, color: '#0f172a' }}>
+                      <span style={{ fontSize: '13px', fontWeight: 600, color: '#0f172a' }}>
                         Số lượng: <strong>{lot.quantity}</strong> {lot.unit}
                       </span>
-                      <span style={{ fontSize: '11.5px', color: '#64748b' }}>({lot.warehouseCode})</span>
+                      <span style={{ fontSize: '12px', color: '#64748b' }}>({lot.warehouseCode})</span>
                     </div>
 
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <span style={{ fontSize: '12px', color: '#64748b' }}>Tình trạng lô:</span>
+                      <span style={{ fontSize: '13px', color: '#64748b' }}>Tình trạng lô:</span>
                       <select
                         value={lot.status}
                         disabled={busy}
                         style={{
                           padding: '3px 8px',
                           borderRadius: '4px',
-                          fontSize: '12px',
+                          fontSize: '13px',
                           fontWeight: 600,
                           background: badge.bg,
                           color: badge.text,
@@ -428,7 +428,7 @@ export function LotAndSerialPanel({
                       padding: '6px 10px',
                       background: '#f8fafc',
                       borderRadius: '5px',
-                      fontSize: '11.5px',
+                      fontSize: '12px',
                     }}
                   >
                     <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
@@ -477,7 +477,7 @@ export function LotAndSerialPanel({
       {filterView !== 'lots' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '4px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: '12px', fontWeight: 700, color: '#1e40af', textTransform: 'uppercase' }}>
+            <span style={{ fontSize: '13px', fontWeight: 700, color: '#1e40af', textTransform: 'uppercase' }}>
               Danh sách cá thể theo Sê-ri ({filteredSerials.length} cá thể)
             </span>
           </div>
@@ -549,7 +549,7 @@ export function LotAndSerialPanel({
                 background: '#ffffff',
                 border: '1px dashed #cbd5e1',
                 borderRadius: '6px',
-                fontSize: '12.5px',
+                fontSize: '13px',
                 color: '#64748b',
                 textAlign: 'center',
               }}
@@ -593,10 +593,10 @@ export function LotAndSerialPanel({
           >
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
               <div>
-                <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: '#0f172a' }}>
+                <h3 style={{ margin: 0, fontSize: '20px', fontWeight: 700, color: '#0f172a' }}>
                   Khai báo Lô hàng mới (Batch / Lot)
                 </h3>
-                <p style={{ margin: '2px 0 0', fontSize: '12.5px', color: '#64748b' }}>
+                <p style={{ margin: '2px 0 0', fontSize: '13px', color: '#64748b' }}>
                   Vật tư: <strong>{material.name}</strong> ({material.code})
                 </p>
               </div>
@@ -612,7 +612,7 @@ export function LotAndSerialPanel({
             <form onSubmit={handleCreateLot} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '12px' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  <label style={{ fontSize: '12.5px', fontWeight: 600, color: '#334155' }}>
+                  <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
                     Mã số Lô (Batch / Lot No) <span style={{ color: '#dc2626' }}>*</span>
                   </label>
                   <input
@@ -624,7 +624,7 @@ export function LotAndSerialPanel({
                       padding: '8px 10px',
                       borderRadius: '4px',
                       border: '1px solid #cbd5e1',
-                      fontSize: '13px',
+                      fontSize: '14px',
                       outline: 'none',
                     }}
                     onChange={(e) => setLotNumber(e.target.value)}
@@ -632,7 +632,7 @@ export function LotAndSerialPanel({
                 </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  <label style={{ fontSize: '12.5px', fontWeight: 600, color: '#334155' }}>
+                  <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
                     Số lượng ({material.unit ?? 'Đơn vị'}) <span style={{ color: '#dc2626' }}>*</span>
                   </label>
                   <input
@@ -644,7 +644,7 @@ export function LotAndSerialPanel({
                       padding: '8px 10px',
                       borderRadius: '4px',
                       border: '1px solid #cbd5e1',
-                      fontSize: '13px',
+                      fontSize: '14px',
                       outline: 'none',
                     }}
                     onChange={(e) => setLotQuantity(e.target.value)}
@@ -654,7 +654,7 @@ export function LotAndSerialPanel({
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  <label style={{ fontSize: '12.5px', fontWeight: 600, color: '#334155' }}>
+                  <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
                     Kho lưu trữ
                   </label>
                   <select
@@ -663,7 +663,7 @@ export function LotAndSerialPanel({
                       padding: '8px 10px',
                       borderRadius: '4px',
                       border: '1px solid #cbd5e1',
-                      fontSize: '13px',
+                      fontSize: '14px',
                       outline: 'none',
                     }}
                     onChange={(e) => setLotWarehouse(e.target.value)}
@@ -677,7 +677,7 @@ export function LotAndSerialPanel({
                 </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  <label style={{ fontSize: '12.5px', fontWeight: 600, color: '#334155' }}>
+                  <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
                     Tình trạng kiểm định
                   </label>
                   <select
@@ -686,7 +686,7 @@ export function LotAndSerialPanel({
                       padding: '8px 10px',
                       borderRadius: '4px',
                       border: '1px solid #cbd5e1',
-                      fontSize: '13px',
+                      fontSize: '14px',
                       outline: 'none',
                     }}
                     onChange={(e) => setLotStatus(e.target.value as LotStatus)}
@@ -702,14 +702,14 @@ export function LotAndSerialPanel({
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  <label style={{ fontSize: '12.5px', fontWeight: 600, color: '#334155' }}>
+                  <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
                     Ngày sản xuất (MFG)
                   </label>
                   <DatePickerInput value={manufactureDate} onChange={setManufactureDate} height={36} />
                 </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  <label style={{ fontSize: '12.5px', fontWeight: 600, color: '#334155' }}>
+                  <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
                     Hạn sử dụng (EXP)
                   </label>
                   <DatePickerInput value={expiryDate} onChange={setExpiryDate} height={36} />
@@ -718,7 +718,7 @@ export function LotAndSerialPanel({
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  <label style={{ fontSize: '12.5px', fontWeight: 600, color: '#334155' }}>
+                  <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
                     Nhà cung cấp / Xuất xứ
                   </label>
                   <input
@@ -729,7 +729,7 @@ export function LotAndSerialPanel({
                       padding: '8px 10px',
                       borderRadius: '4px',
                       border: '1px solid #cbd5e1',
-                      fontSize: '13px',
+                      fontSize: '14px',
                       outline: 'none',
                     }}
                     onChange={(e) => setSupplier(e.target.value)}
@@ -737,7 +737,7 @@ export function LotAndSerialPanel({
                 </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  <label style={{ fontSize: '12.5px', fontWeight: 600, color: '#334155' }}>
+                  <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
                     Số chứng chỉ CO/CQ
                   </label>
                   <input
@@ -748,7 +748,7 @@ export function LotAndSerialPanel({
                       padding: '8px 10px',
                       borderRadius: '4px',
                       border: '1px solid #cbd5e1',
-                      fontSize: '13px',
+                      fontSize: '14px',
                       outline: 'none',
                     }}
                     onChange={(e) => setCoCqNumber(e.target.value)}
@@ -757,7 +757,7 @@ export function LotAndSerialPanel({
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                <label style={{ fontSize: '12.5px', fontWeight: 600, color: '#334155' }}>
+                <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
                   Ghi chú kiểm định
                 </label>
                 <input
@@ -768,7 +768,7 @@ export function LotAndSerialPanel({
                     padding: '8px 10px',
                     borderRadius: '4px',
                     border: '1px solid #cbd5e1',
-                    fontSize: '13px',
+                    fontSize: '14px',
                     outline: 'none',
                   }}
                   onChange={(e) => setLotNote(e.target.value)}

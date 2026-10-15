@@ -235,7 +235,7 @@ export function OrganizationNodeInspector({
       theme={{
         token: {
           fontFamily: 'var(--font-sans), ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-          fontSize: 12,
+          fontSize: 13,
           colorPrimary: '#2563eb',
           borderRadius: 6,
           colorText: '#0f172a',
@@ -244,18 +244,18 @@ export function OrganizationNodeInspector({
         },
         components: {
           Select: {
-            fontSize: 12,
+            fontSize: 13,
             optionFontSize: 12,
             controlHeight: 36,
             borderRadius: 6,
           },
           Input: {
-            fontSize: 12,
+            fontSize: 13,
             controlHeight: 30,
             borderRadius: 6,
           },
           Popconfirm: {
-            fontSize: 12,
+            fontSize: 13,
           },
         },
       }}
@@ -264,12 +264,12 @@ export function OrganizationNodeInspector({
         {/* Header */}
         <div className="flex shrink-0 items-center gap-2 border-b border-[#eef0f3] bg-[#fafbfc] px-4 py-3">
           <SlidersHorizontal className="size-4 text-amber-700" />
-          <h3 className="m-0 flex-1 text-[11.5px] font-bold uppercase tracking-[0.6px] text-slate-700">
+          <h3 className="m-0 flex-1 text-[12px] font-bold uppercase tracking-[0.6px] text-slate-700">
             Thuộc tính chi tiết
           </h3>
           <span
             className={cn(
-              'rounded-full px-2 py-px text-[11.5px] font-bold',
+              'rounded-full px-2 py-px text-[12px] font-bold',
               isPositionNode ? 'bg-violet-50 text-violet-700' : 'bg-blue-50 text-blue-700',
             )}
           >
@@ -401,7 +401,7 @@ export function OrganizationNodeInspector({
                   ]}
                 />
                 {hasOtherRoot ? (
-                  <p className="mt-1 text-[11px] text-amber-600">
+                  <p className="mt-1 text-[12px] text-amber-600">
                     Sơ đồ này đã có node gốc. Mỗi sơ đồ chỉ có 1 node gốc duy nhất.
                   </p>
                 ) : null}
@@ -427,12 +427,12 @@ export function OrganizationNodeInspector({
                     ]}
                   />
                   {childPositions.length === 0 ? (
-                    <p className="mt-1 text-[11px] text-slate-400 italic">
+                    <p className="mt-1 text-[12px] text-slate-400 italic">
                       Chưa có chức danh trực thuộc đơn vị này.
                     </p>
                   ) : null}
                   {headPositionWarning ? (
-                    <div className="mt-2 flex items-start gap-1.5 rounded-md border border-amber-200 bg-amber-50/70 p-2 text-[11px] text-amber-800 leading-snug">
+                    <div className="mt-2 flex items-start gap-1.5 rounded-md border border-amber-200 bg-amber-50/70 p-2 text-[12px] text-amber-800 leading-snug">
                       <AlertTriangle className="size-3.5 shrink-0 text-amber-600 mt-0.5" />
                       <span>{headPositionWarning}</span>
                     </div>
@@ -460,7 +460,7 @@ export function OrganizationNodeInspector({
               <Button
                 type="submit"
                 disabled={!canUpdate || saving}
-                className="w-full gap-1.5 bg-[#18181b] text-[13px] font-semibold text-white hover:bg-[#2a2a2f] h-9"
+                className="w-full gap-1.5 bg-[#18181b] text-[14px] font-semibold text-white hover:bg-[#2a2a2f] h-9"
               >
                 {saving ? (
                   <Loader2 className="size-3.5 animate-spin" />
@@ -478,19 +478,19 @@ export function OrganizationNodeInspector({
           {isPositionNode ? (
             <div className="mt-4 pt-4 border-t border-slate-200 space-y-3">
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-[11.5px] font-bold uppercase tracking-[0.6px] text-slate-500">
+                <div className="flex items-center gap-2 text-[12px] font-bold uppercase tracking-[0.6px] text-slate-500">
                   <span aria-hidden className="h-3.5 w-[3px] rounded-sm bg-[#ffc90a]" />
                   <Users className="size-3.5" />
                   <span>Nhân sự đương nhiệm</span>
                 </div>
-                <span className="rounded-full bg-[#f1f3f6] px-2 text-[11px] font-semibold text-slate-700">
+                <span className="rounded-full bg-[#f1f3f6] px-2 text-[12px] font-semibold text-slate-700">
                   {nodeAssignees.length} nhân sự
                 </span>
               </div>
 
               {/* Cảnh báo nếu có >= 2 nhân sự nhưng chưa chọn ai làm Vị trí chính */}
               {nodeAssignees.length > 1 && !nodeAssignees.some((a) => a.isPrimary) ? (
-                <div className="flex items-start gap-1.5 rounded-md border border-amber-200 bg-amber-50/70 p-2 text-[11px] text-amber-800 leading-snug">
+                <div className="flex items-start gap-1.5 rounded-md border border-amber-200 bg-amber-50/70 p-2 text-[12px] text-amber-800 leading-snug">
                   <AlertTriangle className="size-3.5 shrink-0 text-amber-600 mt-0.5" />
                   <span>
                     Chức danh này đang có {nodeAssignees.length} nhân sự nhưng chưa có ai được đặt làm &ldquo;Vị trí chính&rdquo;. Hãy chọn 1 người làm vị trí chính để đại diện quản lý đơn vị.
@@ -498,7 +498,7 @@ export function OrganizationNodeInspector({
                 </div>
               ) : null}
 
-              <p className="text-[11px] leading-snug text-slate-500">
+              <p className="text-[12px] leading-snug text-slate-500">
                 Một chức danh có thể có nhiều người giữ vị trí chính, nhưng mỗi người chỉ giữ vị trí chính ở một chức danh.
               </p>
 
@@ -518,11 +518,11 @@ export function OrganizationNodeInspector({
                           <p className="font-semibold text-slate-900 truncate">
                             {item.user?.fullName ?? item.userId}
                           </p>
-                          <p className="text-[11px] text-slate-500 truncate">
+                          <p className="text-[12px] text-slate-500 truncate">
                             {item.user?.email ?? ''}
                           </p>
                           {primaryAt ? (
-                            <p className="mt-0.5 flex items-start gap-1 text-[10.5px] leading-snug text-amber-700">
+                            <p className="mt-0.5 flex items-start gap-1 text-[12px] leading-snug text-amber-700">
                               <AlertTriangle className="mt-px size-3 shrink-0" />
                               <span>Đang giữ vị trí chính tại &ldquo;{primaryAt}&rdquo;</span>
                             </p>
@@ -532,14 +532,14 @@ export function OrganizationNodeInspector({
                       <div className="flex items-center gap-1.5 shrink-0">
                         {item.isPrimary ? (
                           <>
-                            <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 border border-amber-200">
+                            <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[12px] font-semibold text-amber-700 border border-amber-200">
                               Vị trí chính
                             </span>
                             {canUpdate && onUnsetPrimaryAssignment ? (
                               <button
                                 type="button"
                                 onClick={() => void onUnsetPrimaryAssignment(item.id)}
-                                className="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-medium text-slate-600 hover:border-red-300 hover:bg-red-50 hover:text-red-700 cursor-pointer"
+                                className="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[12px] font-medium text-slate-600 hover:border-red-300 hover:bg-red-50 hover:text-red-700 cursor-pointer"
                                 title="Bỏ vị trí chính ở chức danh này"
                               >
                                 Bỏ chính
@@ -549,7 +549,7 @@ export function OrganizationNodeInspector({
                         ) : (
                           <>
                             {concurrent ? (
-                              <span className="rounded bg-violet-50 px-1.5 py-0.5 text-[10px] font-semibold text-violet-700 border border-violet-200">
+                              <span className="rounded bg-violet-50 px-1.5 py-0.5 text-[12px] font-semibold text-violet-700 border border-violet-200">
                                 Kiêm nhiệm
                               </span>
                             ) : null}
@@ -563,7 +563,7 @@ export function OrganizationNodeInspector({
                                     ? `Nhân sự đang giữ vị trí chính tại "${primaryAt}". Hãy bỏ vị trí chính ở đó trước.`
                                     : 'Đặt làm vị trí chính'
                                 }
-                                className="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-medium text-slate-600 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-slate-200 disabled:hover:bg-white disabled:hover:text-slate-600"
+                                className="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[12px] font-medium text-slate-600 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-slate-200 disabled:hover:bg-white disabled:hover:text-slate-600"
                               >
                                 Đặt làm chính
                               </button>
@@ -622,14 +622,14 @@ export function OrganizationNodeInspector({
                     type="button"
                     disabled={!assignUserId || assigning}
                     onClick={() => void handleAssign()}
-                    className="h-9 shrink-0 bg-[#ffc90a] text-[12.5px] font-bold text-[#18181b] hover:bg-[#ffd84d]"
+                    className="h-9 shrink-0 bg-[#ffc90a] text-[13px] font-bold text-[#18181b] hover:bg-[#ffd84d]"
                   >
                     {assigning ? <Loader2 className="size-3.5 animate-spin" /> : 'Bổ nhiệm'}
                   </Button>
                 </div>
               ) : null}
               {canCreate && onQuickAssign && pickedUserPrimaryNode ? (
-                <div className="flex items-start gap-1.5 rounded-md border border-amber-200 bg-amber-50/70 p-2 text-[11px] leading-snug text-amber-800">
+                <div className="flex items-start gap-1.5 rounded-md border border-amber-200 bg-amber-50/70 p-2 text-[12px] leading-snug text-amber-800">
                   <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-amber-600" />
                   <span>
                     Nhân sự này đang giữ vị trí chính tại &ldquo;{pickedUserPrimaryNode}&rdquo;. Bổ nhiệm vào chức danh này sẽ là kiêm nhiệm; muốn đặt vị trí chính ở đây, hãy bỏ vị trí chính ở chức danh kia trước.
@@ -643,12 +643,12 @@ export function OrganizationNodeInspector({
           {!isPositionNode ? (
             <div className="mt-4 pt-4 border-t border-slate-200 space-y-3">
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-[11.5px] font-bold uppercase tracking-[0.6px] text-slate-500">
+                <div className="flex items-center gap-2 text-[12px] font-bold uppercase tracking-[0.6px] text-slate-500">
                   <span aria-hidden className="h-3.5 w-[3px] rounded-sm bg-[#ffc90a]" />
                   <Briefcase className="size-3.5" />
                   <span>Chức danh trực thuộc</span>
                 </div>
-                <span className="rounded-full bg-[#f1f3f6] px-2 text-[11px] font-semibold text-slate-700">
+                <span className="rounded-full bg-[#f1f3f6] px-2 text-[12px] font-semibold text-slate-700">
                   {childPositions.length} chức danh
                 </span>
               </div>
@@ -686,23 +686,23 @@ export function OrganizationNodeInspector({
                                 <span className="font-semibold text-slate-900 truncate">
                                   {pos.name}
                                 </span>
-                                {/* <span className="text-[10px] text-slate-400 font-mono">
+                                {/* <span className="text-[12px] text-slate-400 font-mono">
                                   ({pos.code})
                                 </span> */}
                                 {isHead ? (
-                                  <span className="rounded bg-amber-100 px-1.5 py-0.2 text-[10px] font-bold text-amber-800 border border-amber-300 inline-flex items-center gap-0.5">
+                                  <span className="rounded bg-amber-100 px-1.5 py-0.2 text-[12px] font-bold text-amber-800 border border-amber-300 inline-flex items-center gap-0.5">
                                     ★ Quản lý
                                   </span>
                                 ) : null}
                               </div>
                               {/* Danh sách nhân sự trong chức danh */}
-                              <div className="mt-1 flex items-center gap-1 flex-wrap text-[11px]">
+                              <div className="mt-1 flex items-center gap-1 flex-wrap text-[12px]">
                                 {posAssignees.length > 0 ? (
                                   posAssignees.map((a) => (
                                     <span
                                       key={a.id}
                                       className={cn(
-                                        'inline-flex items-center gap-1 rounded px-1.5 py-0.2 text-[10px] border',
+                                        'inline-flex items-center gap-1 rounded px-1.5 py-0.2 text-[12px] border',
                                         a.isPrimary
                                           ? 'bg-blue-50 text-blue-700 border-blue-200 font-medium'
                                           : 'bg-slate-50 text-slate-600 border-slate-200',
@@ -713,7 +713,7 @@ export function OrganizationNodeInspector({
                                     </span>
                                   ))
                                 ) : (
-                                  <span className="italic text-slate-400 text-[10px]">
+                                  <span className="italic text-slate-400 text-[12px]">
                                     (Chưa có nhân sự)
                                   </span>
                                 )}
@@ -726,7 +726,7 @@ export function OrganizationNodeInspector({
                               <button
                                 type="button"
                                 onClick={() => setHeadPositionId(pos.id)}
-                                className="rounded border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-600 hover:bg-amber-50 hover:text-amber-800 hover:border-amber-300 transition cursor-pointer"
+                                className="rounded border border-slate-200 bg-white px-2 py-1 text-[12px] font-medium text-slate-600 hover:bg-amber-50 hover:text-amber-800 hover:border-amber-300 transition cursor-pointer"
                                 title="Chọn làm chức danh quản lý đơn vị"
                               >
                                 Đặt làm quản lý
@@ -759,7 +759,7 @@ export function OrganizationNodeInspector({
 
         {/* Footer Danger Action with Ant Design Popconfirm */}
         <div className="flex shrink-0 items-center justify-between border-t border-[#eef0f3] bg-[#fafbfc] px-4 py-2.5 font-sans">
-          <span className="font-mono text-[11px] text-slate-500">{selectedNode.code}</span>
+          <span className="font-mono text-[12px] text-slate-500">{selectedNode.code}</span>
           <Popconfirm
             title="Xoá node tổ chức?"
             description={`Bạn có chắc chắn muốn xoá node "${selectedNode.name}"? Dữ liệu lịch sử vẫn được lưu trữ.`}

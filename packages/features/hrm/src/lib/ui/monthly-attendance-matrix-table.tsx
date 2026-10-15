@@ -115,7 +115,7 @@ export function renderMatrixSymbol(symbol: string): React.ReactNode {
     return (
       <span className="inline-flex items-baseline">
         <span>1</span>
-        <sup className="text-[9px] font-extrabold uppercase leading-none ml-px -top-1">S</sup>
+        <sup className="text-[12px] font-extrabold uppercase leading-none ml-px -top-1">S</sup>
       </span>
     );
   }
@@ -470,7 +470,7 @@ export function MonthlyAttendanceMatrixTable({
         </div>
 
         {/* Counter summary */}
-        <div className="text-[11px] text-slate-500 pb-2">
+        <div className="text-[12px] text-slate-500 pb-2">
           Hiển thị <strong>{filteredEmployees.length}</strong> /{' '}
           <strong>{employees.length}</strong> bản ghi
         </div>
@@ -542,7 +542,7 @@ export function MonthlyAttendanceMatrixTable({
           {/* Table Header */}
           <thead>
             {/* Hàng 1: Tiêu đề cố định & Thứ trong tuần */}
-            <tr className="bg-slate-100 text-[11px] font-bold text-slate-600 border-b border-slate-200">
+            <tr className="bg-slate-100 text-[12px] font-bold text-slate-600 border-b border-slate-200">
               <th className="sticky left-0 z-30 bg-slate-100 px-2 py-1.5 w-[48px] border-r border-slate-200 text-center shadow-xs">
                 STT
               </th>
@@ -585,7 +585,7 @@ export function MonthlyAttendanceMatrixTable({
             </tr>
 
             {/* Hàng 2: Số ngày trong tháng (01, 02, ..., 30) */}
-            <tr className="bg-slate-50 text-[10px] font-bold text-slate-500 border-b border-slate-300 shadow-xs">
+            <tr className="bg-slate-50 text-[12px] font-bold text-slate-500 border-b border-slate-300 shadow-xs">
               <th
                 colSpan={5}
                 className="sticky left-0 z-30 bg-slate-50 px-3 py-1 text-slate-400 font-normal border-r border-slate-300 w-[548px]"
@@ -608,10 +608,10 @@ export function MonthlyAttendanceMatrixTable({
                 </th>
               ))}
 
-              <th className="text-center py-1 font-mono text-[9px] text-slate-500 border-r border-slate-200 w-[64px]">
+              <th className="text-center py-1 font-mono text-[12px] text-slate-500 border-r border-slate-200 w-[64px]">
                 Giờ
               </th>
-              <th className="text-center py-1 font-mono text-[9px] text-slate-500 w-[64px]">
+              <th className="text-center py-1 font-mono text-[12px] text-slate-500 w-[64px]">
                 Ngày
               </th>
             </tr>
@@ -730,13 +730,13 @@ export function MonthlyAttendanceMatrixTable({
                               </span>
                             </div>
                           ) : isTimesheet ? (
-                            <div className="flex items-center justify-center text-[10px] font-mono font-bold text-emerald-700">
+                            <div className="flex items-center justify-center text-[12px] font-mono font-bold text-emerald-700">
                               {res.symbol === '—'
                                 ? '—'
                                 : formatMinutes(res.workHours * 60)}
                             </div>
                           ) : (
-                            <div className="flex flex-col items-center justify-center text-[9px] font-mono leading-tight py-0.5">
+                            <div className="flex flex-col items-center justify-center text-[12px] font-mono leading-tight py-0.5">
                               <span className="text-emerald-700 font-bold">
                                 {res.inTime}
                               </span>
@@ -819,13 +819,13 @@ export function MonthlyAttendanceMatrixTable({
               {/* Trạng thái công & Ký hiệu */}
               <div className="flex items-center justify-between p-3 rounded-lg bg-slate-50 border border-slate-200">
                 <div className="space-y-1">
-                  <span className="text-[11px] text-slate-500 font-medium">Trạng thái ghi nhận:</span>
+                  <span className="text-[12px] text-slate-500 font-medium">Trạng thái ghi nhận:</span>
                   <div className="font-semibold text-slate-900">
                     {selectedCellDetail.cell.badgeText}
                   </div>
                 </div>
                 <div className="text-right">
-                  <span className="text-[11px] text-slate-500 font-medium">Ký hiệu ma trận:</span>
+                  <span className="text-[12px] text-slate-500 font-medium">Ký hiệu ma trận:</span>
                   <div className="mt-0.5">
                     <span
                       className={`inline-flex items-center justify-center px-2.5 py-1 rounded-md text-xs font-mono font-bold ${selectedCellDetail.cell.colorClass}`}
@@ -840,7 +840,7 @@ export function MonthlyAttendanceMatrixTable({
               {!isTimesheet && (
               <div className="grid grid-cols-2 gap-3">
                 <div className="p-3 rounded-lg border border-slate-200 bg-white space-y-1">
-                  <div className="flex items-center gap-1.5 text-emerald-700 font-semibold text-[11px]">
+                  <div className="flex items-center gap-1.5 text-emerald-700 font-semibold text-[12px]">
                     <LogIn className="size-3.5" />
                     <span>Giờ vào (Check-in)</span>
                   </div>
@@ -850,7 +850,7 @@ export function MonthlyAttendanceMatrixTable({
                 </div>
 
                 <div className="p-3 rounded-lg border border-slate-200 bg-white space-y-1">
-                  <div className="flex items-center gap-1.5 text-blue-700 font-semibold text-[11px]">
+                  <div className="flex items-center gap-1.5 text-blue-700 font-semibold text-[12px]">
                     <LogOut className="size-3.5" />
                     <span>Giờ ra (Check-out)</span>
                   </div>

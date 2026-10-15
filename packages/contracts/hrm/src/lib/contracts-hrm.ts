@@ -569,6 +569,7 @@ export interface HrmShiftDefinition {
   readonly graceLateMinutes: number;
   readonly graceEarlyMinutes: number;
   readonly status: 'ACTIVE' | 'INACTIVE';
+  readonly deletedAt?: string | null;
   readonly createdAt: string;
   readonly updatedAt: string;
 }
@@ -2797,12 +2798,23 @@ export interface HrmBoardCalendarDay {
  * GET /timesheet-board?month=YYYY-MM&employee_id=&q=&page=&page_size=
  * Người có hrm.timesheet.read xem được mọi nhân viên (`canViewAll = true`); người khác chỉ thấy bảng công của chính mình.
  */
+/** Bộ lọc nhanh của bảng công, tính trên toàn bộ nhân viên của tháng (không chỉ trang đang xem). */
+export type HrmBoardFlag = 'LATE_EARLY' | 'ABNORMAL' | 'ABSENT' | 'PENDING';
+export type HrmBoardFlagCounts = Readonly<Record<HrmBoardFlag | 'ALL', number>>;
+
 export interface HrmTimesheetBoard {
   readonly month: HrmBoardMonthInfo;
   readonly canViewAll: boolean;
   readonly calendar: readonly HrmBoardCalendarDay[];
   readonly employees: readonly HrmBoardEmployee[];
-  readonly meta: { readonly total: number; readonly page: number; readonly pageSize: number };
+  readonly meta: {
+    /** Tổng số nhân viên sau khi áp bộ lọc nhanh (dùng để phân trang). */
+    readonly total: number;
+    readonly page: number;
+    readonly pageSize: number;
+    /** Số nhân viên khớp từng bộ lọc nhanh trên toàn bộ kết quả tìm kiếm của tháng; ALL là chưa lọc. */
+    readonly counts?: HrmBoardFlagCounts;
+  };
 }
 
 /** Việc còn vướng trước khi chốt: đơn chờ duyệt trong tháng, ngày bất thường chưa xử lý... */

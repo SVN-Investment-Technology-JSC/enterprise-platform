@@ -79,10 +79,10 @@ export function MaterialRequisitionsCard({
             <FileSpreadsheet size={20} strokeWidth={2.2} />
           </div>
           <div>
-            <h2 style={{ margin: 0, fontSize: '15.5px', fontWeight: 700, color: '#0f172a' }}>
+            <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#0f172a' }}>
               Nhu cầu cấp phát vật tư từ Quy trình (Bảng kê CSV)
             </h2>
-            <p style={{ margin: '2px 0 0', fontSize: '12.5px', color: '#64748b' }}>
+            <p style={{ margin: '2px 0 0', fontSize: '13px', color: '#64748b' }}>
               Quy trình con &amp; lệnh bảo trì tự động kết xuất bảng kê CSV để thủ kho chủ động lập phiếu xuất/giữ chỗ.
             </p>
           </div>
@@ -92,7 +92,7 @@ export function MaterialRequisitionsCard({
           style={{
             padding: '3px 10px',
             borderRadius: '999px',
-            fontSize: '12px',
+            fontSize: '13px',
             fontWeight: 700,
             background: requisitions.length > 0 ? '#dbeafe' : '#f1f5f9',
             color: requisitions.length > 0 ? '#1d4ed8' : '#64748b',
@@ -103,7 +103,7 @@ export function MaterialRequisitionsCard({
       </div>
 
       {loading ? (
-        <p style={{ padding: '16px', color: '#64748b', fontSize: '13px', margin: 0 }}>
+        <p style={{ padding: '16px', color: '#64748b', fontSize: '14px', margin: 0 }}>
           Đang quét dữ liệu bảng kê từ Quy trình…
         </p>
       ) : requisitions.length === 0 ? (
@@ -117,7 +117,7 @@ export function MaterialRequisitionsCard({
             margin: '8px 0 4px',
           }}
         >
-          <p style={{ margin: 0, fontSize: '13px', color: '#64748b' }}>
+          <p style={{ margin: 0, fontSize: '14px', color: '#64748b' }}>
             Hiện chưa có hồ sơ quy trình nào gửi yêu cầu vật tư hoặc bảng kê CSV chờ xử lý.
           </p>
         </div>
@@ -157,7 +157,7 @@ export function MaterialRequisitionsCard({
                       style={{
                         padding: '3px 8px',
                         borderRadius: '6px',
-                        fontSize: '11.5px',
+                        fontSize: '12px',
                         fontWeight: 700,
                         fontFamily: 'monospace',
                         background: '#eff6ff',
@@ -172,7 +172,7 @@ export function MaterialRequisitionsCard({
                       <div
                         style={{
                           fontWeight: 600,
-                          fontSize: '13px',
+                          fontSize: '14px',
                           color: '#1e293b',
                           display: 'flex',
                           alignItems: 'center',
@@ -184,13 +184,13 @@ export function MaterialRequisitionsCard({
                       >
                         <span>{req.title}</span>
                         {req.assetCode ? (
-                          <span style={{ fontSize: '11px', color: '#64748b', fontWeight: 500 }}>
+                          <span style={{ fontSize: '12px', color: '#64748b', fontWeight: 500 }}>
                             (Thiết bị: {req.assetCode})
                           </span>
                         ) : null}
                       </div>
 
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '11.5px', color: '#64748b', marginTop: '3px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '12px', color: '#64748b', marginTop: '3px' }}>
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
                           <Boxes size={13} /> {req.lines.length} dòng vật tư (tổng {formatNumber(totalItems)})
                         </span>
@@ -229,7 +229,7 @@ export function MaterialRequisitionsCard({
                                     gap: '3px',
                                     padding: '1px 6px',
                                     borderRadius: '10px',
-                                    fontSize: '11px',
+                                    fontSize: '12px',
                                     fontWeight: 600,
                                     background: '#ecfdf5',
                                     color: '#047857',
@@ -248,7 +248,7 @@ export function MaterialRequisitionsCard({
                                     gap: '3px',
                                     padding: '1px 6px',
                                     borderRadius: '10px',
-                                    fontSize: '11px',
+                                    fontSize: '12px',
                                     fontWeight: 600,
                                     background: '#fffbeb',
                                     color: '#b45309',
@@ -267,7 +267,7 @@ export function MaterialRequisitionsCard({
                                     gap: '3px',
                                     padding: '1px 6px',
                                     borderRadius: '10px',
-                                    fontSize: '11px',
+                                    fontSize: '12px',
                                     fontWeight: 600,
                                     background: '#fef2f2',
                                     color: '#b91c1c',
@@ -301,7 +301,7 @@ export function MaterialRequisitionsCard({
                         border: '1px solid #cbd5e1',
                         background: '#ffffff',
                         color: '#334155',
-                        fontSize: '12px',
+                        fontSize: '13px',
                         fontWeight: 600,
                         cursor: 'pointer',
                         transition: 'all 0.15s ease',
@@ -339,7 +339,7 @@ export function MaterialRequisitionsCard({
                       }}
                     >
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span style={{ fontSize: '12.5px', fontWeight: 700, color: '#334155' }}>
+                        <span style={{ fontSize: '13px', fontWeight: 700, color: '#334155' }}>
                           Danh sách {req.lines.length} hạng mục vật tư chi tiết:
                         </span>
                         <a
@@ -349,7 +349,7 @@ export function MaterialRequisitionsCard({
                           style={{
                             color: '#2563eb',
                             textDecoration: 'none',
-                            fontSize: '12px',
+                            fontSize: '13px',
                             display: 'inline-flex',
                             alignItems: 'center',
                             gap: '4px',
@@ -373,7 +373,7 @@ export function MaterialRequisitionsCard({
                             border: '1px solid #cbd5e1',
                             background: '#ffffff',
                             color: '#334155',
-                            fontSize: '12px',
+                            fontSize: '13px',
                             fontWeight: 600,
                             cursor: 'pointer',
                             transition: 'all 0.15s ease',
@@ -397,7 +397,7 @@ export function MaterialRequisitionsCard({
                               border: '1px solid #cbd5e1',
                               background: '#ffffff',
                               color: '#0f172a',
-                              fontSize: '12px',
+                              fontSize: '13px',
                               fontWeight: 600,
                               cursor: 'pointer',
                               transition: 'all 0.15s ease',
@@ -421,7 +421,7 @@ export function MaterialRequisitionsCard({
                             border: '1px solid #2563eb',
                             background: '#2563eb',
                             color: '#ffffff',
-                            fontSize: '12px',
+                            fontSize: '13px',
                             fontWeight: 600,
                             cursor: 'pointer',
                             boxShadow: '0 1px 2px rgba(37,99,235,0.2)',
@@ -442,7 +442,7 @@ export function MaterialRequisitionsCard({
                     </div>
 
                     {req.lines.length === 0 ? (
-                      <p style={{ margin: 0, fontSize: '12px', color: '#94a3b8', fontStyle: 'italic' }}>
+                      <p style={{ margin: 0, fontSize: '13px', color: '#94a3b8', fontStyle: 'italic' }}>
                         Chưa có dòng vật tư chi tiết. Bấm "Xử lý phiếu yêu cầu" để nạp trực tiếp vào phiếu.
                       </p>
                     ) : (
@@ -450,7 +450,7 @@ export function MaterialRequisitionsCard({
                         style={{
                           width: '100%',
                           borderCollapse: 'collapse',
-                          fontSize: '12px',
+                          fontSize: '13px',
                           background: '#ffffff',
                           borderRadius: '6px',
                           overflow: 'hidden',
@@ -550,7 +550,7 @@ export function MaterialRequisitionsCard({
                                         gap: '4px',
                                         padding: '2px 8px',
                                         borderRadius: '12px',
-                                        fontSize: '11.5px',
+                                        fontSize: '12px',
                                         fontWeight: 600,
                                         background: '#ecfdf5',
                                         color: '#047857',
@@ -568,7 +568,7 @@ export function MaterialRequisitionsCard({
                                         gap: '4px',
                                         padding: '2px 8px',
                                         borderRadius: '12px',
-                                        fontSize: '11.5px',
+                                        fontSize: '12px',
                                         fontWeight: 600,
                                         background: '#fffbeb',
                                         color: '#b45309',
@@ -586,7 +586,7 @@ export function MaterialRequisitionsCard({
                                         gap: '4px',
                                         padding: '2px 8px',
                                         borderRadius: '12px',
-                                        fontSize: '11.5px',
+                                        fontSize: '12px',
                                         fontWeight: 600,
                                         background: '#fef2f2',
                                         color: '#b91c1c',
@@ -611,7 +611,7 @@ export function MaterialRequisitionsCard({
                                           background: '#f8fafc',
                                           color: '#475569',
                                           fontWeight: 600,
-                                          fontSize: '11px',
+                                          fontSize: '12px',
                                           cursor: 'pointer',
                                           padding: '3px 8px',
                                           borderRadius: '4px',
@@ -636,7 +636,7 @@ export function MaterialRequisitionsCard({
                                           background: '#fffbeb',
                                           color: '#b45309',
                                           fontWeight: 600,
-                                          fontSize: '11px',
+                                          fontSize: '12px',
                                           cursor: 'pointer',
                                           padding: '3px 8px',
                                           borderRadius: '4px',
@@ -664,7 +664,7 @@ export function MaterialRequisitionsCard({
                                               ? '#d97706'
                                               : '#2563eb',
                                         fontWeight: 600,
-                                        fontSize: '11.5px',
+                                        fontSize: '12px',
                                         cursor: 'pointer',
                                         padding: '3px 6px',
                                         borderRadius: '4px',

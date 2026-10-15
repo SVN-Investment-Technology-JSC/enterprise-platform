@@ -197,7 +197,7 @@ export function ReleaseFields({ flow, catalog }: { flow: ReleaseFlow; catalog: R
           />
           <span
             aria-hidden="true"
-            className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-[11px] text-slate-400"
+            className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-[12px] text-slate-400"
           >
             {flow.reason.length}/{REASON_MAX}
           </span>

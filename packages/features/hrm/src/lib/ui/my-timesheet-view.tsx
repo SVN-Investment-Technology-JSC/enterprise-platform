@@ -28,8 +28,7 @@ import {
 } from './board-day-detail';
 import { DayRequestList } from './day-request-list';
 import { MonthRequestsPanel } from './employee-month-view';
-import { MonthDotLegend, MyMonthCalendar } from './my-month-calendar';
-import { MyTimesheetLegend } from './my-timesheet-calendar';
+import { MonthNumberLegend, MyTimesheetCalendar } from './my-timesheet-calendar';
 import {
   dayLetters,
   dayStatusPill,
@@ -553,21 +552,18 @@ export function MyTimesheetView({
       <MyKpiStrip employee={employee} onSelectDate={pick} />
       <div className="grid min-h-0 grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_420px]">
         <section className="min-w-0 rounded-xl border border-slate-200 bg-white p-4 shadow-xs">
-          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-base font-bold text-slate-900">
-              Lịch công tháng {month.slice(5, 7)}/{month.slice(0, 4)}
-            </h2>
-            <MonthDotLegend />
-          </div>
-          <MyMonthCalendar
+          <h2 className="mb-2 text-base font-bold text-slate-900">
+            Lịch công tháng {month.slice(5, 7)}/{month.slice(0, 4)}
+          </h2>
+          <MyTimesheetCalendar
             calendar={calendar}
             employee={employee}
             today={today}
             selectedDate={activeDate}
             onSelect={pick}
           />
-          <div className="mt-2 border-t border-slate-100 pt-2">
-            <MyTimesheetLegend />
+          <div className="mt-2 rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-xs">
+            <MonthNumberLegend />
           </div>
         </section>
 

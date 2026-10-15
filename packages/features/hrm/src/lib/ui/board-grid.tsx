@@ -111,7 +111,7 @@ export function BoardGrid({
       <div className="min-h-0 flex-1 overflow-auto">
         <table
           aria-label="Bảng công theo tháng"
-          className="border-separate border-spacing-0 text-[11px]"
+          className="border-separate border-spacing-0 text-[12px]"
           style={{ tableLayout: 'fixed', width: '100%', minWidth }}
         >
           <colgroup>
@@ -143,7 +143,7 @@ export function BoardGrid({
                 className={`${stickyHead} z-40 border-r px-3 py-2 text-left text-xs font-bold text-slate-700`}
               >
                 Nhân viên
-                <span className="block text-[10px] font-normal text-slate-400">
+                <span className="block text-[12px] font-normal text-slate-400">
                   ({employees.length} nhân viên
                   {standardWorkdays ? `, công chuẩn ${formatUnits(standardWorkdays)}` : ''})
                 </span>
@@ -170,7 +170,7 @@ export function BoardGrid({
                     }
                     className={`${stickyHead} z-20 px-0 py-1.5 text-center font-bold ${tone}`}
                   >
-                    <div className="text-[9px] font-bold leading-none">{weekdayVn(c.date)}</div>
+                    <div className="text-[12px] font-bold leading-none">{weekdayVn(c.date)}</div>
                     <div className="mt-0.5 text-xs leading-tight">{formatDayNumber(c.date)}</div>
                   </th>
                 );
@@ -185,7 +185,7 @@ export function BoardGrid({
                   key={c.key}
                   title={c.title}
                   style={{ right: (TOTAL_COLUMNS.length - 1 - i) * COL_TOTAL }}
-                  className={`${stickyHead} z-30 px-0 py-2 text-center text-[11px] font-bold text-slate-700 ${i === 0 ? 'border-l' : ''}`}
+                  className={`${stickyHead} z-30 px-0 py-2 text-center text-[12px] font-bold text-slate-700 ${i === 0 ? 'border-l' : ''}`}
                 >
                   {c.label}
                 </th>
@@ -225,7 +225,7 @@ export function BoardGrid({
                         <span className="block truncate text-xs font-bold leading-tight text-slate-900 hover:text-blue-700">
                           {emp.employeeName}
                         </span>
-                        <span className="block truncate text-[10px] leading-tight text-slate-500">
+                        <span className="block truncate text-[12px] leading-tight text-slate-500">
                           {emp.employeeCode}
                           {emp.departmentName ? ` · ${emp.departmentName}` : ''}
                         </span>
@@ -233,7 +233,7 @@ export function BoardGrid({
                     ) : (
                       <span className="min-w-0">
                         <span className="block truncate text-xs font-bold leading-tight">{emp.employeeName}</span>
-                        <span className="block truncate text-[10px] leading-tight text-slate-500">
+                        <span className="block truncate text-[12px] leading-tight text-slate-500">
                           {emp.employeeCode}
                         </span>
                       </span>
@@ -263,25 +263,25 @@ export function BoardGrid({
                         aria-label={`Chi tiết ngày ${formatDateVn(c.date)} của ${emp.employeeName}: ${boardStatusLabel(day.status)}`}
                         title={boardDayTooltip(day)}
                         onClick={() => onSelectDay(emp.employeeId, c.date)}
-                        className="relative flex h-10 w-full cursor-pointer items-center justify-center text-[11px] leading-none hover:bg-blue-100/60"
+                        className="relative flex h-10 w-full cursor-pointer items-center justify-center text-[12px] leading-none hover:bg-blue-100/60"
                       >
                         {view.type === 'units' && (
                           <span
                             data-testid="cell-units"
                             data-tone={view.tone}
-                            className={`font-mono text-[11px] font-bold ${view.tone === 'bad' ? 'text-red-600' : 'text-emerald-600'}`}
+                            className={`font-mono text-[12px] font-bold ${view.tone === 'bad' ? 'text-red-600' : 'text-emerald-600'}`}
                           >
                             {view.text}
                           </span>
                         )}
                         {view.type === 'text' &&
                           (future && day.shiftCode ? (
-                            <span data-testid="cell-shift-code" className="truncate px-px text-[9px] font-medium text-slate-400">
+                            <span data-testid="cell-shift-code" className="truncate px-px text-[12px] font-medium leading-4 text-slate-400">
                               {view.text}
                             </span>
                           ) : (
                             <span
-                              className={`text-[10px] font-semibold ${view.muted ? 'text-slate-400' : 'text-rose-500'}`}
+                              className={`text-[12px] font-semibold ${view.muted ? 'text-slate-400' : 'text-rose-500'}`}
                             >
                               {view.text}
                             </span>

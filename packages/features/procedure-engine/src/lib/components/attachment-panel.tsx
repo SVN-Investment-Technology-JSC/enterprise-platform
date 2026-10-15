@@ -128,7 +128,7 @@ export function AttachmentPanel({
                     </a>
                   </>
                 ) : (
-                  <span style={{ fontSize: '11.5px', color: '#94a3b8' }}>Đang xử lý link...</span>
+                  <span style={{ fontSize: '12px', color: '#94a3b8' }}>Đang xử lý link...</span>
                 )}
               </div>
             </div>

@@ -206,7 +206,7 @@ function ModuleBadge({ module }: { module: CatalogModule }) {
   return (
     <span
       aria-hidden
-      className={`grid size-[22px] place-items-center rounded-md text-[9.5px] font-extrabold ${moduleTint(module.key)}`}
+      className={`grid h-6 min-w-[34px] place-items-center rounded-md px-1 text-[12px] font-extrabold ${moduleTint(module.key)}`}
     >
       {moduleAbbr(module)}
     </span>

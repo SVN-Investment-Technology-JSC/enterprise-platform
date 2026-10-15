@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import type { HrmTimesheetBoard } from '@enterprise-platform/contracts-hrm';
 import { isMonthKey, shiftMonth, todayVn } from '../hrm-timesheet-format';
@@ -12,7 +12,6 @@ import { MonthNumberLegend } from './my-timesheet-calendar';
 import { Input } from './input';
 import {
   BOARD_FILTERS,
-  matchesBoardFilter,
   type BoardFilter,
 } from './my-timesheet-format';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from './sheet';
@@ -83,8 +82,13 @@ export function TimesheetBoard({
   onSelectedChange,
   footer,
   fullscreen = false,
+  filter,
+  onFilterChange,
 }: {
   board: HrmTimesheetBoard;
+  /** Bộ lọc nhanh đang áp. Do màn hình giữ và gửi lên máy chủ để lọc trên toàn bộ tháng rồi mới phân trang. */
+  filter: BoardFilter;
+  onFilterChange: (filter: BoardFilter) => void;
   /** Nhân viên được tick ở cột đầu (dùng để xuất đúng người đã chọn). */
   selectedIds?: ReadonlySet<string>;
   onSelectedChange?: (ids: Set<string>) => void;
@@ -101,7 +105,6 @@ export function TimesheetBoard({
   const [selected, setSelected] = useState<{ employeeId: string; date: string } | null>(null);
   const [monthOf, setMonthOf] = useState<string | null>(null);
   const [monthDate, setMonthDate] = useState<string | null>(null);
-  const [filter, setFilter] = useState<BoardFilter>('ALL');
   const [legendOpen, setLegendOpen] = useState(false);
   const today = todayVn();
 
@@ -120,17 +123,9 @@ export function TimesheetBoard({
     }
   }, [focus, board.employees, onFocusHandled, openMonth]);
 
-  const counts = useMemo(
-    () =>
-      Object.fromEntries(
-        BOARD_FILTERS.map((f) => [f.id, board.employees.filter((e) => matchesBoardFilter(e, f.id)).length]),
-      ) as Record<BoardFilter, number>,
-    [board.employees],
-  );
-  const visible = useMemo(
-    () => board.employees.filter((e) => matchesBoardFilter(e, filter)),
-    [board.employees, filter],
-  );
+  // Số đếm và danh sách đều do máy chủ tính trên toàn bộ nhân viên của tháng, không đổi theo cỡ trang.
+  const counts = board.meta.counts;
+  const visible = board.employees;
 
   const monthEmployee = monthOf ? (board.employees.find((e) => e.employeeId === monthOf) ?? null) : null;
   const inlineDay =
@@ -160,8 +155,8 @@ export function TimesheetBoard({
                 type="button"
                 aria-pressed={active}
                 data-testid={`board-filter-${f.id}`}
-                title={f.id === 'ALL' ? 'Tổng số nhân viên của bộ lọc tìm kiếm' : 'Số nhân viên khớp trong trang đang xem'}
-                onClick={() => setFilter(f.id)}
+                title={f.id === 'ALL' ? 'Tổng số nhân viên của bộ lọc tìm kiếm' : 'Số nhân viên khớp trong cả tháng'}
+                onClick={() => onFilterChange(f.id)}
                 className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition ${
                   active
                     ? 'border-blue-300 bg-blue-50 text-blue-700'
@@ -171,7 +166,7 @@ export function TimesheetBoard({
                 {dotClass[f.id] && <span aria-hidden="true" className={`inline-block size-2 rounded-full ${dotClass[f.id]}`} />}
                 {f.label}
                 <span className={active ? 'text-blue-600' : 'text-slate-400'}>
-                  ({f.id === 'ALL' ? Math.max(board.meta.total, counts.ALL) : counts[f.id]})
+                  ({counts ? counts[f.id] : f.id === 'ALL' ? board.meta.total : '-'})
                 </span>
               </button>
             );
@@ -192,7 +187,7 @@ export function TimesheetBoard({
 
       {visible.length === 0 ? (
         <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-          <p className="p-6 text-center text-xs text-slate-500">Không có nhân viên nào khớp bộ lọc trong trang này.</p>
+          <p className="p-6 text-center text-xs text-slate-500">Không có nhân viên nào khớp bộ lọc này.</p>
           {footer}
         </div>
       ) : (

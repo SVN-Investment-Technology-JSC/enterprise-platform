@@ -38,7 +38,7 @@ export function ConflictTable({
       <div className="max-h-56 overflow-auto rounded-lg border border-slate-200">
         <table className="w-full border-separate border-spacing-0 text-xs">
           <thead>
-            <tr className="text-left text-[11px] font-bold text-slate-600">
+            <tr className="text-left text-[12px] font-bold text-slate-600">
               {['Nhân viên', 'Ngày', 'Lịch hiện có', 'Lịch mới'].map((h) => (
                 <th key={h} scope="col" className="sticky top-0 border-b border-slate-200 bg-slate-50 px-2.5 py-1.5">
                   {h}
@@ -50,7 +50,7 @@ export function ConflictTable({
             {conflicts.map((c) => (
               <tr key={`${c.employeeId}-${c.date}`}>
                 <td className="border-b border-slate-100 px-2.5 py-1">
-                  <span className="font-mono text-[11px] text-blue-700">{c.employeeCode}</span> {c.employeeName}
+                  <span className="font-mono text-[12px] text-blue-700">{c.employeeCode}</span> {c.employeeName}
                 </td>
                 <td className="border-b border-slate-100 px-2.5 py-1 whitespace-nowrap">{formatVnDate(c.date)}</td>
                 <td className="border-b border-slate-100 px-2.5 py-1">
@@ -66,7 +66,7 @@ export function ConflictTable({
         </table>
       </div>
       {total > conflicts.length ? (
-        <span className="text-[11px] text-slate-500">
+        <span className="text-[12px] text-slate-500">
           Chỉ hiển thị {conflicts.length} dòng đầu trong tổng {total} xung đột.
         </span>
       ) : null}
@@ -90,7 +90,7 @@ export function RequestConflictTable({
       <div className="max-h-44 overflow-auto rounded-lg border border-slate-200">
         <table className="w-full border-separate border-spacing-0 text-xs">
           <thead>
-            <tr className="text-left text-[11px] font-bold text-slate-600">
+            <tr className="text-left text-[12px] font-bold text-slate-600">
               {['Nhân viên', 'Ngày', 'Đơn', 'Trạng thái'].map((h) => (
                 <th key={h} scope="col" className="sticky top-0 border-b border-slate-200 bg-slate-50 px-2.5 py-1.5">
                   {h}
@@ -102,7 +102,7 @@ export function RequestConflictTable({
             {conflicts.map((c) => (
               <tr key={`${c.requestId}-${c.date}`}>
                 <td className="border-b border-slate-100 px-2.5 py-1">
-                  <span className="font-mono text-[11px] text-blue-700">{c.employeeCode}</span> {c.employeeName}
+                  <span className="font-mono text-[12px] text-blue-700">{c.employeeCode}</span> {c.employeeName}
                 </td>
                 <td className="border-b border-slate-100 px-2.5 py-1 whitespace-nowrap">{formatVnDate(c.date)}</td>
                 <td className="border-b border-slate-100 px-2.5 py-1">{REQUEST_KIND_LABEL[c.kind]}</td>
@@ -117,7 +117,7 @@ export function RequestConflictTable({
         </table>
       </div>
       {total > conflicts.length ? (
-        <span className="text-[11px] text-slate-500">
+        <span className="text-[12px] text-slate-500">
           Chỉ hiển thị {conflicts.length} dòng đầu trong tổng {total} ngày.
         </span>
       ) : null}
@@ -129,7 +129,7 @@ function Stat({ label, value, tone }: { label: string; value: number; tone?: str
   return (
     <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
       <div className={`text-lg font-bold ${tone ?? 'text-slate-900'}`}>{value}</div>
-      <div className="text-[11px] text-slate-500">{label}</div>
+      <div className="text-[12px] text-slate-500">{label}</div>
     </div>
   );
 }
@@ -193,7 +193,7 @@ export function PreviewPanel({ preview }: { preview: HrmSchedulePreview }) {
           <ul className="mt-2 grid max-h-32 grid-cols-1 gap-x-4 gap-y-0.5 overflow-auto @lg:grid-cols-2">
             {preview.employees.map((e) => (
               <li key={e.employeeId} className="truncate">
-                <span className="font-mono text-[11px] text-blue-700">{e.code}</span> {e.name}
+                <span className="font-mono text-[12px] text-blue-700">{e.code}</span> {e.name}
                 <span className="text-slate-400"> - {e.days} ngày</span>
               </li>
             ))}
@@ -214,7 +214,7 @@ export function RuleChangesList({ rules }: { rules: readonly HrmScheduleRulePrev
       <div className="max-h-56 overflow-auto rounded-lg border border-slate-200">
         <table className="w-full border-separate border-spacing-0 text-xs">
           <thead>
-            <tr className="text-left text-[11px] font-bold text-slate-600">
+            <tr className="text-left text-[12px] font-bold text-slate-600">
               {['Phạm vi', 'Hiệu lực hiện tại', 'Mẫu lịch', 'Xử lý'].map((h) => (
                 <th key={h} scope="col" className="sticky top-0 border-b border-slate-200 bg-slate-50 px-2.5 py-1.5">
                   {h}

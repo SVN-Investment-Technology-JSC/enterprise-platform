@@ -115,7 +115,7 @@ export function CreateStocktakeDialog({
               <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#0f172a' }}>
                 Khởi tạo Đợt Kiểm kê Kho
               </h3>
-              <p style={{ margin: '2px 0 0', fontSize: '12px', color: '#64748b' }}>
+              <p style={{ margin: '2px 0 0', fontSize: '13px', color: '#64748b' }}>
                 Thiết lập thông tin đợt kiểm kê và phạm vi đối soát sổ sách.
               </p>
             </div>
@@ -153,7 +153,7 @@ export function CreateStocktakeDialog({
                 border: '1px solid #fca5a5',
                 borderRadius: '6px',
                 color: '#b91c1c',
-                fontSize: '12.5px',
+                fontSize: '13px',
               }}
             >
               <AlertCircle size={16} />
@@ -163,7 +163,7 @@ export function CreateStocktakeDialog({
 
           {/* Tên đợt */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-            <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
+            <label style={{ fontSize: '14px', fontWeight: 600, color: '#334155' }}>
               Tên đợt kiểm kê <span style={{ color: '#dc2626' }}>*</span>
             </label>
             <input
@@ -173,7 +173,7 @@ export function CreateStocktakeDialog({
               placeholder="VD: Kiểm kê định kỳ Kho Trung tâm - Tháng 9/2026"
               style={{
                 padding: '8px 12px',
-                fontSize: '13.5px',
+                fontSize: '14px',
                 border: '1px solid #cbd5e1',
                 borderRadius: '4px',
                 outline: 'none',
@@ -184,7 +184,7 @@ export function CreateStocktakeDialog({
 
           {/* Kho hàng */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-            <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
+            <label style={{ fontSize: '14px', fontWeight: 600, color: '#334155' }}>
               Kho kiểm kê <span style={{ color: '#dc2626' }}>*</span>
             </label>
             <SearchableSelect
@@ -198,7 +198,7 @@ export function CreateStocktakeDialog({
 
           {/* Phạm vi */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-            <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
+            <label style={{ fontSize: '14px', fontWeight: 600, color: '#334155' }}>
               Phạm vi kiểm kê
             </label>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
@@ -214,11 +214,11 @@ export function CreateStocktakeDialog({
                   textAlign: 'left',
                   cursor: 'pointer',
                   fontWeight: 600,
-                  fontSize: '12.5px',
+                  fontSize: '13px',
                 }}
               >
                 <div>Toàn bộ kho</div>
-                <span style={{ fontSize: '11px', color: '#64748b', fontWeight: 400 }}>
+                <span style={{ fontSize: '12px', color: '#64748b', fontWeight: 400 }}>
                   Đối soát tất cả mặt hàng có tồn
                 </span>
               </button>
@@ -234,11 +234,11 @@ export function CreateStocktakeDialog({
                   textAlign: 'left',
                   cursor: 'pointer',
                   fontWeight: 600,
-                  fontSize: '12.5px',
+                  fontSize: '13px',
                 }}
               >
                 <div>Theo nhóm vật tư</div>
-                <span style={{ fontSize: '11px', color: '#64748b', fontWeight: 400 }}>
+                <span style={{ fontSize: '12px', color: '#64748b', fontWeight: 400 }}>
                   Kiểm đếm chọn lọc theo phân loại
                 </span>
               </button>
@@ -248,7 +248,7 @@ export function CreateStocktakeDialog({
           {/* Tổ kiểm kê */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-              <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
+              <label style={{ fontSize: '14px', fontWeight: 600, color: '#334155' }}>
                 Trưởng nhóm kiểm kê
               </label>
               <input
@@ -258,14 +258,14 @@ export function CreateStocktakeDialog({
                 placeholder="Họ tên trưởng nhóm"
                 style={{
                   padding: '8px 12px',
-                  fontSize: '13px',
+                  fontSize: '14px',
                   border: '1px solid #cbd5e1',
                   borderRadius: '4px',
                 }}
               />
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-              <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
+              <label style={{ fontSize: '14px', fontWeight: 600, color: '#334155' }}>
                 Thành viên tham gia
               </label>
               <input
@@ -275,7 +275,7 @@ export function CreateStocktakeDialog({
                 placeholder="Phân cách bằng dấu phẩy"
                 style={{
                   padding: '8px 12px',
-                  fontSize: '13px',
+                  fontSize: '14px',
                   border: '1px solid #cbd5e1',
                   borderRadius: '4px',
                 }}
@@ -285,7 +285,7 @@ export function CreateStocktakeDialog({
 
           {/* Ghi chú */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-            <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
+            <label style={{ fontSize: '14px', fontWeight: 600, color: '#334155' }}>
               Mục đích &amp; Ghi chú đợt kiểm kê
             </label>
             <textarea
@@ -295,7 +295,7 @@ export function CreateStocktakeDialog({
               placeholder="VD: Kiểm kê định kỳ phục vụ kiểm toán tài chính quý 3..."
               style={{
                 padding: '8px 12px',
-                fontSize: '13px',
+                fontSize: '14px',
                 border: '1px solid #cbd5e1',
                 borderRadius: '4px',
                 resize: 'none',
@@ -320,7 +320,7 @@ export function CreateStocktakeDialog({
               disabled={busy}
               style={{
                 padding: '8px 16px',
-                fontSize: '13px',
+                fontSize: '14px',
                 fontWeight: 600,
                 background: 'transparent',
                 border: '1px solid #cbd5e1',
@@ -336,7 +336,7 @@ export function CreateStocktakeDialog({
               disabled={busy}
               style={{
                 padding: '8px 18px',
-                fontSize: '13px',
+                fontSize: '14px',
                 fontWeight: 700,
                 background: '#2563eb',
                 border: 'none',

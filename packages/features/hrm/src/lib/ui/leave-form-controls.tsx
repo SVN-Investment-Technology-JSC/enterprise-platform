@@ -79,7 +79,7 @@ export function LeaveField({
       )}
       {children}
       {hint ? (
-        <p className="text-[11px] leading-snug text-slate-500">{hint}</p>
+        <p className="text-[12px] leading-snug text-slate-500">{hint}</p>
       ) : null}
     </div>
   );

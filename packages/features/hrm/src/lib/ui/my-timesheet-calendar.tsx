@@ -13,30 +13,14 @@ import {
   formatDayNumber,
 } from './timesheet-board-format';
 import {
-  ABSENT_LETTER,
   calendarWeeks,
   textOnlyClass,
   isFutureDay,
   isLateOrEarly,
   monthCellNumber,
-  REQUEST_LETTERS,
-  type DayLetter,
 } from './my-timesheet-format';
 
 const WEEKDAY_HEADERS = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
-
-const LETTER_CLASS: Record<DayLetter['status'], string> = {
-  APPROVED: 'border-slate-800 bg-slate-800 text-white',
-  PENDING: 'border-dashed border-amber-500 bg-amber-50 text-amber-800',
-  REJECTED: 'border-slate-300 bg-white text-slate-400 line-through',
-  ABSENT: 'border-red-600 bg-red-600 text-white',
-};
-const LETTER_STATUS_TEXT: Record<DayLetter['status'], string> = {
-  APPROVED: 'đã duyệt',
-  PENDING: 'chờ duyệt',
-  REJECTED: 'từ chối',
-  ABSENT: 'không có đơn nghỉ',
-};
 
 /** Ô không tô nền: chỉ viền và màu chữ (đi trễ hoặc về sớm viền và chữ đỏ; còn lại theo trạng thái ngày). */
 function cellClass(day: HrmBoardDay, future: boolean): string {
@@ -45,52 +29,9 @@ function cellClass(day: HrmBoardDay, future: boolean): string {
   return `border-slate-200 bg-white ${textOnlyClass(boardStatusCellClass(day.status))}`;
 }
 
-export function LetterBadge({ letter }: { letter: DayLetter }) {
-  return (
-    <span
-      data-testid={`request-letter-${letter.kind}`}
-      title={`${letter.label} (${LETTER_STATUS_TEXT[letter.status]})`}
-      className={`inline-flex h-3.5 min-w-3.5 items-center justify-center rounded-sm border px-[2px] text-[8px] font-bold leading-none ${LETTER_CLASS[letter.status]}`}
-    >
-      {letter.letter}
-    </span>
-  );
-}
-
-/** Chú thích gọn trên một khối: ký tự đơn từ, KP, màu đỏ và cách đọc ô. */
-export function MyTimesheetLegend() {
-  const items = [...Object.values(REQUEST_LETTERS).filter((r) => r.letter !== 'ĐC'), ABSENT_LETTER];
-  return (
-    <div aria-label="Quy ước bảng công" className="space-y-1 text-[11px] text-slate-600">
-      <ul className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        {items.map((r) => (
-          <li key={r.letter} className="flex items-center gap-1">
-            <span
-              className={`inline-flex h-3.5 min-w-4 items-center justify-center rounded-sm px-[2px] text-[8px] font-bold text-white ${
-                r.letter === 'KP' ? 'bg-red-600' : 'bg-slate-800'
-              }`}
-            >
-              {r.letter}
-            </span>
-            <span>{r.label}</span>
-          </li>
-        ))}
-      </ul>
-      <p className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-slate-500">
-        <span>
-          <span className="mr-1 inline-block size-2.5 rounded-sm border border-red-400 bg-red-100 align-middle" />
-          Đi trễ hoặc về sớm
-        </span>
-        <span>Ngày chưa tới: mã ca. Ngày đã qua: số công</span>
-        <span>Nền đặc: đã duyệt. Viền đứt: chờ duyệt. Gạch ngang: từ chối</span>
-      </p>
-    </div>
-  );
-}
-
 /**
- * Lịch tháng gọn của một nhân viên: ngày chưa tới hiện mã ca, ngày đã qua hiện số công (không hiện mã ca);
- * đi trễ hoặc về sớm tô đỏ; ký tự nhỏ cho từng loại đơn từ dính tới ngày; bấm vào ô để xem chi tiết và đơn từ.
+ * Lịch tháng gọn, định dạng chuẩn của Bảng công (dùng chung cho Bảng công và Công của tôi): ngày chưa tới hiện mã ca,
+ * ngày đã qua hiện số công (không hiện mã ca); đi trễ hoặc về sớm viền và chữ đỏ; bấm vào ô để xem chi tiết và đơn từ.
  */
 export function MyTimesheetCalendar({
   calendar,

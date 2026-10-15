@@ -246,7 +246,7 @@ export function SitesPanel({
     {
       id: 'coords',
       header: 'Tọa độ',
-      cell: (r) => <span className="font-mono text-[11px]">{`${r.latitude}, ${r.longitude}`}</span>,
+      cell: (r) => <span className="font-mono text-[12px]">{`${r.latitude}, ${r.longitude}`}</span>,
     },
     { id: 'radius', header: 'Bán kính', cell: (r) => `${r.radius_meters} m` },
     {

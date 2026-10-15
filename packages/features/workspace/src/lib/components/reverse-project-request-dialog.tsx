@@ -86,7 +86,7 @@ export function ReverseProjectRequestDialog({
           onChange={(event) => setReason(event.target.value)}
         />
       </Field>
-      <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 13, cursor: 'pointer' }}>
+      <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 14, cursor: 'pointer' }}>
         <input type="checkbox" checked={adjust} onChange={(event) => setAdjust(event.target.checked)} />
         <span>
           <strong>Lập hồ sơ điều chỉnh</strong>

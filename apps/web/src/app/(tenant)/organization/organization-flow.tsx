@@ -138,7 +138,7 @@ function OrganizationFlowNode({ data }: NodeProps<Node<FlowData>>) {
         className="organization-drag-handle flex cursor-grab items-center justify-between gap-1 pb-1.5 active:cursor-grabbing"
         title="Kéo node để điều chỉnh vị trí"
       >
-        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+        <span className="text-[12px] font-bold uppercase tracking-wider text-slate-400">
           {/* {data.type?.name ?? (isUnit ? 'Đơn vị' : 'Chức danh')} */}
           {isUnit ? 'Đơn vị' : 'Chức danh'}
         </span>
@@ -188,12 +188,12 @@ function OrganizationFlowNode({ data }: NodeProps<Node<FlowData>>) {
         {isUnit && (data.childUnitCount > 0 || data.childPersonnelCount > 0) ? (
           <div className="mt-2 flex flex-wrap justify-center gap-1">
             {data.childUnitCount > 0 ? (
-              <span className="inline-flex rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 border border-blue-100">
+              <span className="inline-flex rounded bg-blue-50 px-1.5 py-0.5 text-[12px] font-medium text-blue-700 border border-blue-100">
                 {data.childUnitCount} đơn vị
               </span>
             ) : null}
             {data.childPersonnelCount > 0 ? (
-              <span className="inline-flex rounded bg-violet-50 px-1.5 py-0.5 text-[10px] font-medium text-violet-700 border border-violet-100">
+              <span className="inline-flex rounded bg-violet-50 px-1.5 py-0.5 text-[12px] font-medium text-violet-700 border border-violet-100">
                 {data.childPersonnelCount} nhân sự
               </span>
             ) : null}

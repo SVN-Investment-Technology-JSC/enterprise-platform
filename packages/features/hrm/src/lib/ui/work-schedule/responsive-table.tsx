@@ -27,7 +27,7 @@ export function ResponsiveTable({
       className={cn('block w-full text-xs @2xl:table @2xl:border-separate @2xl:border-spacing-0', loading && 'opacity-60', className)}
     >
       <thead className="hidden @2xl:table-header-group">
-        <tr className="text-left text-[11px] font-bold text-slate-600">
+        <tr className="text-left text-[12px] font-bold text-slate-600">
           {columns.map((name) => (
             <th key={name} scope="col" className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50 px-3 py-2">
               {name}
@@ -67,7 +67,7 @@ export function RCell({
     <td
       data-label={label}
       className={cn(
-        'flex min-w-0 items-baseline justify-between gap-3 py-1 before:shrink-0 before:text-[11px] before:text-slate-500 before:content-[attr(data-label)] @2xl:table-cell @2xl:border-b @2xl:border-slate-100 @2xl:px-3 @2xl:py-2 @2xl:before:hidden',
+        'flex min-w-0 items-baseline justify-between gap-3 py-1 before:shrink-0 before:text-[12px] before:text-slate-500 before:content-[attr(data-label)] @2xl:table-cell @2xl:border-b @2xl:border-slate-100 @2xl:px-3 @2xl:py-2 @2xl:before:hidden',
         className,
       )}
     >

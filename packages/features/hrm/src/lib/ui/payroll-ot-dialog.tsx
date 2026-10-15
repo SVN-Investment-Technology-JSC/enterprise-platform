@@ -47,7 +47,7 @@ function GroupTitle({ icon, title, hint }: { icon: typeof Timer; title: string; 
       <IconTile icon={icon} tone="amber" size="sm" />
       <div className="min-w-0">
         <h3 className="text-sm font-bold text-slate-900">{title}</h3>
-        {hint ? <p className="text-[11px] text-slate-500">{hint}</p> : null}
+        {hint ? <p className="text-[12px] text-slate-500">{hint}</p> : null}
       </div>
     </div>
   );

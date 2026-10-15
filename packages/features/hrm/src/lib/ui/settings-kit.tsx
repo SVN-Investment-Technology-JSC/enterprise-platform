@@ -220,7 +220,7 @@ export function SectionTabs({
             {tab.label}
             {tab.count != null ? (
               <span
-                className={`rounded-full px-1.5 py-0.5 text-[11px] font-semibold ${
+                className={`rounded-full px-1.5 py-0.5 text-[12px] font-semibold ${
                   selected ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-500'
                 }`}
               >
@@ -285,7 +285,7 @@ export function SegmentedTabs({
             <span className="truncate">{tab.label}</span>
             {tab.count != null ? (
               <span
-                className={`rounded-full px-1.5 py-0.5 text-[11px] font-semibold ${
+                className={`rounded-full px-1.5 py-0.5 text-[12px] font-semibold ${
                   selected ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'
                 }`}
               >
@@ -397,7 +397,7 @@ export type PillTone = keyof typeof PILL_TONE;
 export function StatusPill({ tone = 'slate', children }: { tone?: PillTone; children: ReactNode }) {
   return (
     <span
-      className={`inline-flex items-center whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] font-semibold ${PILL_TONE[tone]}`}
+      className={`inline-flex items-center whitespace-nowrap rounded-full border px-2 py-0.5 text-[12px] font-semibold ${PILL_TONE[tone]}`}
     >
       {children}
     </span>

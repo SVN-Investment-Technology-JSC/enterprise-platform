@@ -45,7 +45,7 @@ export function PayrollVersionTimeline({ versions }: { versions: Item[] }) {
                       <span className="font-mono font-semibold text-slate-900">v{v.version_no}</span>
                       <StatusPill tone={VERSION_STATE_TONE[state]}>{VERSION_STATE_LABEL[state]}</StatusPill>
                     </div>
-                    <div className="text-[11px] text-slate-600">
+                    <div className="text-[12px] text-slate-600">
                       {formatDateVn(from)} đến {to ? formatDateVn(to) : 'nay'}
                     </div>
                   </li>
@@ -53,13 +53,13 @@ export function PayrollVersionTimeline({ versions }: { versions: Item[] }) {
               })}
             </ol>
             {issues.map((i) => (
-              <InfoNote key={i.message} tone={i.kind === 'GAP' ? 'amber' : 'red'} className="p-2 text-[11px]">
+              <InfoNote key={i.message} tone={i.kind === 'GAP' ? 'amber' : 'red'} className="p-2 text-[12px]">
                 {i.kind === 'GAP' ? '' : 'Chồng lấn: '}
                 {i.message.replace(/(\d{4})-(\d{2})-(\d{2})/g, '$3/$2/$1')}
               </InfoNote>
             ))}
             {!issues.length && (
-              <p className="flex items-center gap-1.5 text-[11px] text-emerald-700">
+              <p className="flex items-center gap-1.5 text-[12px] text-emerald-700">
                 <CheckCircle2 aria-hidden="true" className="size-3.5" />
                 Chuỗi phiên bản liền mạch
               </p>

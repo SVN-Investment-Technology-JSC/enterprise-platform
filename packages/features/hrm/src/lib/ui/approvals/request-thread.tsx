@@ -194,7 +194,7 @@ export function RequestThread({ kind, requestId, refreshKey = 0 }: { kind: strin
 
   return (
     <section aria-label="Trao đổi về đơn" className="space-y-2">
-      <h3 className="flex items-center gap-1.5 text-[13px] font-bold text-slate-900">
+      <h3 className="flex items-center gap-1.5 text-[14px] font-bold text-slate-900">
         <MessageSquare className="size-4 text-[#2563eb]" />
         Trao đổi và ý kiến ({comments.length})
       </h3>
@@ -212,17 +212,17 @@ export function RequestThread({ kind, requestId, refreshKey = 0 }: { kind: strin
               <li key={c.id} className="flex gap-2">
                 <span
                   aria-hidden="true"
-                  className={`flex size-7 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${c.mine ? 'bg-[#ffc90a] text-[#1a1a1a]' : 'bg-slate-200 text-slate-600'}`}
+                  className={`flex size-7 shrink-0 items-center justify-center rounded-full text-[12px] font-bold ${c.mine ? 'bg-[#ffc90a] text-[#1a1a1a]' : 'bg-slate-200 text-slate-600'}`}
                 >
                   {initials(c.authorName)}
                 </span>
                 <div className="min-w-0 flex-1">
-                  <p className="flex flex-wrap items-center gap-x-2 text-[11.5px]">
+                  <p className="flex flex-wrap items-center gap-x-2 text-[12px]">
                     <span className="font-semibold text-slate-900">{c.authorName}</span>
-                    {decision ? <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${decision.className}`}>{decision.label}</span> : null}
+                    {decision ? <span className={`rounded-full px-1.5 py-0.5 text-[12px] font-semibold ${decision.className}`}>{decision.label}</span> : null}
                     <span className="text-slate-400">{timeText(c.createdAt)}</span>
                   </p>
-                  <p className={`mt-0.5 whitespace-pre-wrap break-words rounded-lg px-2.5 py-1.5 text-[12.5px] ${c.kind === 'DECISION' ? 'border border-slate-200 bg-white' : 'bg-slate-50'}`}>
+                  <p className={`mt-0.5 whitespace-pre-wrap break-words rounded-lg px-2.5 py-1.5 text-[13px] ${c.kind === 'DECISION' ? 'border border-slate-200 bg-white' : 'bg-slate-50'}`}>
                     <CommentBody comment={c} />
                   </p>
                 </div>
@@ -267,7 +267,7 @@ export function RequestThread({ kind, requestId, refreshKey = 0 }: { kind: strin
             if (e.key === 'Escape') setPicker(null);
             if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) void send();
           }}
-          className="w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 pr-11 text-[12.5px] outline-none focus:border-[#d9ab00] focus:ring-2 focus:ring-[#d9ab00]/30"
+          className="w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 pr-11 text-[13px] outline-none focus:border-[#d9ab00] focus:ring-2 focus:ring-[#d9ab00]/30"
         />
         <Button
           type="button"
@@ -291,10 +291,10 @@ export function RequestThread({ kind, requestId, refreshKey = 0 }: { kind: strin
                   }}
                   className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs ${i === highlight ? 'bg-slate-100' : ''}`}
                 >
-                  <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-slate-200 text-[10px] font-bold text-slate-600">{initials(p.name)}</span>
+                  <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-slate-200 text-[12px] font-bold text-slate-600">{initials(p.name)}</span>
                   <span className="min-w-0">
                     <span className="block truncate font-medium text-slate-900">{p.name}</span>
-                    <span className="block truncate text-[10.5px] text-slate-500">
+                    <span className="block truncate text-[12px] text-slate-500">
                       {[p.employeeCode, p.department].filter(Boolean).join(' · ')}
                     </span>
                   </span>
@@ -305,7 +305,7 @@ export function RequestThread({ kind, requestId, refreshKey = 0 }: { kind: strin
         ) : null}
       </div>
       {activeMentions.length > 0 ? (
-        <p className="text-[11px] text-slate-500">Sẽ thông báo cho: {activeMentions.map((m) => m.name).join(', ')}</p>
+        <p className="text-[12px] text-slate-500">Sẽ thông báo cho: {activeMentions.map((m) => m.name).join(', ')}</p>
       ) : null}
     </section>
   );

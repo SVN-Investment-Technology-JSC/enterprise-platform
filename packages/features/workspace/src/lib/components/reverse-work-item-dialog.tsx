@@ -98,7 +98,7 @@ export function ReverseWorkItemDialog({
             border: '1px solid #fed7aa',
             background: '#fff7ed',
             color: '#7c2d12',
-            fontSize: 12.5,
+            fontSize: 13,
           }}
         >
           Có {dependents.length} việc phải chờ việc này xong (phụ thuộc FS):{' '}
@@ -110,7 +110,7 @@ export function ReverseWorkItemDialog({
           hoặc nối chúng vào công việc điều chỉnh.
         </p>
       ) : null}
-      <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 13, cursor: 'pointer' }}>
+      <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 14, cursor: 'pointer' }}>
         <input type="checkbox" checked={adjust} onChange={(event) => setAdjust(event.target.checked)} />
         <span>
           <strong>Lập hồ sơ điều chỉnh</strong>

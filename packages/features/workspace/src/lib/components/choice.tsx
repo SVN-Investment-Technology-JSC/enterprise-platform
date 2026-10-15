@@ -4,7 +4,7 @@ import {
   SearchableSelect,
   type SearchableSelectOption,
 } from '@enterprise-platform/shared-ui';
-import { useEffect, useRef } from 'react';
+import { useRef } from 'react';
 
 /**
  * Ô chọn duy nhất của Workspace.
@@ -47,23 +47,7 @@ export function Choice({
   const all = emptyOption === undefined ? options : [{ value: '', label: emptyOption }, ...options];
   const box = useRef<HTMLDivElement>(null);
 
-  /**
-   * Ô chọn nằm trong thẻ `<label>` của `Field`. Trình duyệt coi mọi cú bấm bên
-   * trong nhãn là "kích hoạt nhãn": nó bắn tiếp một cú bấm vào ô nhập bên
-   * trong, ô nhập nhận focus và **mở lại danh sách vừa đóng**. Người dùng chọn
-   * một mục xong lại thấy danh sách bung ra, che mất trường ngay bên dưới.
-   *
-   * Phải chặn ở tầng DOM thật: `SearchableSelect` đã gọi `stopPropagation`
-   * trên sự kiện React của từng mục, nên một `onClick` của React đặt ở đây
-   * không bao giờ chạy.
-   */
-  useEffect(() => {
-    const element = box.current;
-    if (!element) return;
-    const cancelLabelActivation = (event: MouseEvent) => event.preventDefault();
-    element.addEventListener('click', cancelLabelActivation);
-    return () => element.removeEventListener('click', cancelLabelActivation);
-  }, []);
+
 
   return (
     <div

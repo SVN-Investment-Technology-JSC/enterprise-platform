@@ -461,7 +461,7 @@ export function BulkInitializeEmployeesDialog({
                                 <p className="font-semibold text-slate-800">
                                   {person.fullName}
                                 </p>
-                                <p className="text-[11px] text-slate-500">
+                                <p className="text-[12px] text-slate-500">
                                   {person.email || 'Chưa có email'}
                                 </p>
                               </td>

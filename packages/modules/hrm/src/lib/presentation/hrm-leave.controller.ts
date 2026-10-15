@@ -239,7 +239,7 @@ export class HrmLeaveController {
     @Req() req: Request,
     @Body() body: CreateLeaveTypeRequest,
   ) {
-    const { pool, tenantId } = await this.ctx.getContext(
+    const { pool, tenantId, principal } = await this.ctx.getContext(
       req,
       'hrm.leave.manage',
     );
@@ -279,6 +279,9 @@ export class HrmLeaveController {
       ],
       )
       .catch(rethrowDuplicateLeaveCode);
+    await lifecycleAudit(pool, tenantId, principal.userId, 'LEAVE_TYPE_CREATED', res.rows[0].id, {
+      after: { id: res.rows[0].id, code: res.rows[0].code, name: res.rows[0].name },
+    });
     const existing = await pool.query(
       `SELECT id,code,name FROM hrm_schema.leave_types WHERE tenant_id=$1 AND deleted_at IS NULL AND id<>$2`,
       [tenantId, res.rows[0].id],
@@ -454,7 +457,7 @@ export class HrmLeaveController {
         Number(
           (
             await db.query(
-              'SELECT 1 FROM hrm_schema.leave_balances WHERE tenant_id=$1 AND leave_type_id=$2 AND (balance <> 0 OR pending <> 0 OR used <> 0) LIMIT 1',
+              'SELECT 1 FROM hrm_schema.leave_balances WHERE tenant_id=$1 AND leave_type_id=$2 AND (remaining <> 0 OR pending <> 0 OR used <> 0 OR opening_balance <> 0 OR accrued <> 0) LIMIT 1',
               [tenantId, id],
             )
           ).rowCount ?? 0,
@@ -464,7 +467,7 @@ export class HrmLeaveController {
       if (inUse) {
         if (before.active) {
           await db.query(
-            `UPDATE hrm_schema.leave_types SET name=COALESCE($3,name),paid=COALESCE($4,paid),requires_attachment=COALESCE($5,requires_attachment),carryover_allowed=COALESCE($6,carryover_allowed),max_carryover_days=COALESCE($7,max_carryover_days),carryover_expiry_month=COALESCE($8,carryover_expiry_month),active=false,deduct_balance=$10,negative_limit=COALESCE($11,negative_limit),updated_at=GREATEST(clock_timestamp(),updated_at+interval '1 millisecond') WHERE tenant_id=$1 AND id=$2 RETURNING *`,
+            `UPDATE hrm_schema.leave_types SET name=COALESCE($3,name),paid=COALESCE($4,paid),requires_attachment=COALESCE($5,requires_attachment),carryover_allowed=COALESCE($6,carryover_allowed),max_carryover_days=COALESCE($7,max_carryover_days),carryover_expiry_month=COALESCE($8,carryover_expiry_month),active=$9,deduct_balance=$10,negative_limit=COALESCE($11,negative_limit),updated_at=GREATEST(clock_timestamp(),updated_at+interval '1 millisecond') WHERE tenant_id=$1 AND id=$2 RETURNING *`,
             [
               tenantId,
               id,
@@ -488,7 +491,7 @@ export class HrmLeaveController {
               'LEAVE_TYPE_DEACTIVATED',
               id,
               JSON.stringify({
-                before: { code: before.code, name: before.name },
+                before: { id, code: before.code, name: before.name },
                 reason: body?.reason || 'Ngừng sử dụng khi xóa lý do đã phát sinh dữ liệu',
               }),
             ],
@@ -501,7 +504,7 @@ export class HrmLeaveController {
       }
 
       await db.query(
-        `UPDATE hrm_schema.leave_types SET name=COALESCE($3,name),paid=COALESCE($4,paid),requires_attachment=COALESCE($5,requires_attachment),carryover_allowed=COALESCE($6,carryover_allowed),max_carryover_days=COALESCE($7,max_carryover_days),carryover_expiry_month=COALESCE($8,carryover_expiry_month),active=false,deduct_balance=$10,negative_limit=COALESCE($11,negative_limit),updated_at=GREATEST(clock_timestamp(),updated_at+interval '1 millisecond') WHERE tenant_id=$1 AND id=$2 RETURNING *`,
+        `UPDATE hrm_schema.leave_types SET name=COALESCE($3,name),paid=COALESCE($4,paid),requires_attachment=COALESCE($5,requires_attachment),carryover_allowed=COALESCE($6,carryover_allowed),max_carryover_days=COALESCE($7,max_carryover_days),carryover_expiry_month=COALESCE($8,carryover_expiry_month),active=$9,deduct_balance=$10,negative_limit=COALESCE($11,negative_limit),updated_at=GREATEST(clock_timestamp(),updated_at+interval '1 millisecond') WHERE tenant_id=$1 AND id=$2 RETURNING *`,
         [
           tenantId,
           id,
@@ -520,6 +523,12 @@ export class HrmLeaveController {
         `UPDATE hrm_schema.leave_types SET deleted_at=now(), active=false WHERE tenant_id=$1 AND id=$2`,
         [tenantId, id],
       );
+      // Cách duyệt của đơn nghỉ gắn theo mã loại: gỡ liên kết để loại mới tạo lại cùng mã không thừa hưởng cấu hình cũ.
+      await db.query(
+        `UPDATE hrm_schema.request_procedure_bindings SET is_active=false, updated_at=now(), updated_by=$3
+          WHERE tenant_id=$1 AND request_kind='leave' AND sub_type_code=$2 AND is_active`,
+        [tenantId, before.code, principal.userId],
+      );
       await db.query(
         `INSERT INTO hrm_schema.audit_log (tenant_id, actor_id, action, entity_id, detail)
          VALUES ($1, $2, $3, $4, $5)`,
@@ -529,7 +538,7 @@ export class HrmLeaveController {
           'LEAVE_TYPE_DELETED',
           id,
           JSON.stringify({
-            before: { code: before.code, name: before.name },
+            before: { id, code: before.code, name: before.name },
             reason: body?.reason || 'Xóa lý do nghỉ chưa phát sinh dữ liệu',
           }),
         ],

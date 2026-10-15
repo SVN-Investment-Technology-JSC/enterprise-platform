@@ -242,10 +242,10 @@ export function BatchRequisitionModal({
               <Layers size={20} strokeWidth={2.2} />
             </div>
             <div>
-              <h2 style={{ margin: 0, fontSize: '17px', fontWeight: 700, color: '#0f172a' }}>
+              <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#0f172a' }}>
                 Xử lý Phiếu yêu cầu cấp phát vật tư ({req.lines.length} hạng mục)
               </h2>
-              <p style={{ margin: '2px 0 0', fontSize: '12.5px', color: '#64748b' }}>
+              <p style={{ margin: '2px 0 0', fontSize: '13px', color: '#64748b' }}>
                 Hồ sơ <strong>{req.code}</strong> • Bảng kê: <code>{req.csvFileName}</code>
                 {req.assetCode ? ` • Thiết bị nhận: ${req.assetCode}` : ''}
               </p>
@@ -285,7 +285,7 @@ export function BatchRequisitionModal({
                   background: '#fef2f2',
                   border: '1px solid #fecaca',
                   color: '#b91c1c',
-                  fontSize: '13px',
+                  fontSize: '14px',
                   display: 'flex',
                   alignItems: 'center',
                   gap: '8px',
@@ -319,7 +319,7 @@ export function BatchRequisitionModal({
                   <div
                     style={{
                       fontWeight: 700,
-                      fontSize: '13px',
+                      fontSize: '14px',
                       color: stockSummary.allReady ? '#15803d' : '#0f172a',
                     }}
                   >
@@ -327,7 +327,7 @@ export function BatchRequisitionModal({
                       ? 'Kho đã có đủ hàng sẵn sàng xuất cho toàn bộ danh sách!'
                       : 'Tình trạng đáp ứng tồn kho của Phiếu yêu cầu:'}
                   </div>
-                  <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>
+                  <div style={{ fontSize: '13px', color: '#64748b', marginTop: '2px' }}>
                     Thủ kho kiểm tra kho xuất và xác nhận cấp phát cho quy trình bảo dưỡng.
                   </div>
                 </div>
@@ -340,7 +340,7 @@ export function BatchRequisitionModal({
                     style={{
                       padding: '2px 8px',
                       borderRadius: '12px',
-                      fontSize: '11px',
+                      fontSize: '12px',
                       fontWeight: 600,
                       background: '#ecfdf5',
                       color: '#047857',
@@ -357,7 +357,7 @@ export function BatchRequisitionModal({
                     style={{
                       padding: '2px 8px',
                       borderRadius: '12px',
-                      fontSize: '11px',
+                      fontSize: '12px',
                       fontWeight: 600,
                       background: '#fffbeb',
                       color: '#b45309',
@@ -374,7 +374,7 @@ export function BatchRequisitionModal({
                     style={{
                       padding: '2px 8px',
                       borderRadius: '12px',
-                      fontSize: '11px',
+                      fontSize: '12px',
                       fontWeight: 600,
                       background: '#fef2f2',
                       color: '#b91c1c',
@@ -401,12 +401,12 @@ export function BatchRequisitionModal({
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <span style={{ fontSize: '13px', fontWeight: 700, color: '#166534' }}>
+                <span style={{ fontSize: '14px', fontWeight: 700, color: '#166534' }}>
                   Phân loại hạch toán & Gán thiết bị bảo trì:
                 </span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: 600, color: '#1e293b', cursor: 'pointer' }}>
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '14px', fontWeight: 600, color: '#1e293b', cursor: 'pointer' }}>
                   <input
                     type="radio"
                     name="batch_purpose"
@@ -415,7 +415,7 @@ export function BatchRequisitionModal({
                   />
                   Lắp đặt / Thay thế cho thiết bị <span style={{ color: '#16a34a' }}>(Cộng vào "Đang sử dụng")</span>
                 </label>
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: 600, color: '#64748b', cursor: 'pointer' }}>
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '14px', fontWeight: 600, color: '#64748b', cursor: 'pointer' }}>
                   <input
                     type="radio"
                     name="batch_purpose"
@@ -428,7 +428,7 @@ export function BatchRequisitionModal({
 
               {isAssignToAsset ? (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '4px' }}>
-                  <span style={{ fontSize: '12.5px', fontWeight: 600, color: '#334155', whiteSpace: 'nowrap' }}>
+                  <span style={{ fontSize: '13px', fontWeight: 600, color: '#334155', whiteSpace: 'nowrap' }}>
                     Thiết bị tiếp nhận:
                   </span>
                   <select
@@ -436,7 +436,7 @@ export function BatchRequisitionModal({
                       padding: '6px 10px',
                       borderRadius: '6px',
                       border: '1px solid #86efac',
-                      fontSize: '12.5px',
+                      fontSize: '13px',
                       background: '#ffffff',
                       outline: 'none',
                       flex: 1,
@@ -452,7 +452,7 @@ export function BatchRequisitionModal({
                       </option>
                     ))}
                   </select>
-                  <span style={{ fontSize: '11.5px', color: '#15803d' }}>
+                  <span style={{ fontSize: '12px', color: '#15803d' }}>
                     Các vật tư xuất ra sẽ được tự động cộng vào cột <strong>"Đang sử dụng"</strong>.
                   </span>
                 </div>
@@ -465,7 +465,7 @@ export function BatchRequisitionModal({
                 style={{
                   width: '100%',
                   borderCollapse: 'collapse',
-                  fontSize: '12.5px',
+                  fontSize: '13px',
                   background: '#ffffff',
                 }}
               >
@@ -516,7 +516,7 @@ export function BatchRequisitionModal({
                         </td>
                         <td style={{ padding: '8px 12px' }}>
                           <div style={{ fontWeight: 600, color: '#2563eb' }}>{item.materialCode}</div>
-                          <div style={{ fontSize: '11.5px', color: '#475569' }}>{item.materialName}</div>
+                          <div style={{ fontSize: '12px', color: '#475569' }}>{item.materialName}</div>
                         </td>
                         <td style={{ padding: '8px 12px', textAlign: 'right' }}>
                           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '4px' }}>
@@ -534,11 +534,11 @@ export function BatchRequisitionModal({
                                 borderRadius: '4px',
                                 border: status.overdraw ? '1px solid #ef4444' : '1px solid #cbd5e1',
                                 textAlign: 'right',
-                                fontSize: '12.5px',
+                                fontSize: '13px',
                                 fontWeight: 700,
                               }}
                             />
-                            <span style={{ fontSize: '11.5px', color: '#64748b', minWidth: '25px' }}>
+                            <span style={{ fontSize: '12px', color: '#64748b', minWidth: '25px' }}>
                               {item.unit}
                             </span>
                           </div>
@@ -550,7 +550,7 @@ export function BatchRequisitionModal({
                                   border: 'none',
                                   background: 'transparent',
                                   color: '#2563eb',
-                                  fontSize: '10.5px',
+                                  fontSize: '12px',
                                   textDecoration: 'underline',
                                   cursor: 'pointer',
                                   padding: 0,
@@ -571,7 +571,7 @@ export function BatchRequisitionModal({
                               padding: '5px 8px',
                               borderRadius: '4px',
                               border: '1px solid #cbd5e1',
-                              fontSize: '12px',
+                              fontSize: '13px',
                               background: '#ffffff',
                             }}
                           >
@@ -597,7 +597,7 @@ export function BatchRequisitionModal({
                                 gap: '3px',
                                 padding: '2px 7px',
                                 borderRadius: '10px',
-                                fontSize: '11px',
+                                fontSize: '12px',
                                 fontWeight: 600,
                                 background: '#ecfdf5',
                                 color: '#047857',
@@ -614,7 +614,7 @@ export function BatchRequisitionModal({
                                 gap: '3px',
                                 padding: '2px 7px',
                                 borderRadius: '10px',
-                                fontSize: '11px',
+                                fontSize: '12px',
                                 fontWeight: 600,
                                 background: '#fffbeb',
                                 color: '#b45309',
@@ -632,7 +632,7 @@ export function BatchRequisitionModal({
                                 gap: '3px',
                                 padding: '2px 7px',
                                 borderRadius: '10px',
-                                fontSize: '11px',
+                                fontSize: '12px',
                                 fontWeight: 600,
                                 background: '#fef2f2',
                                 color: '#b91c1c',
@@ -644,7 +644,7 @@ export function BatchRequisitionModal({
                             </span>
                           )}
                           {status.overdraw ? (
-                            <div style={{ fontSize: '10.5px', color: '#dc2626', marginTop: '2px', fontWeight: 500 }}>
+                            <div style={{ fontSize: '12px', color: '#dc2626', marginTop: '2px', fontWeight: 500 }}>
                               Kho chọn chỉ còn {formatNumber(status.onHand)}!
                             </div>
                           ) : null}
@@ -658,7 +658,7 @@ export function BatchRequisitionModal({
 
             {/* Ghi chú chứng từ chung */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-              <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
+              <label style={{ fontSize: '14px', fontWeight: 600, color: '#334155' }}>
                 Ghi chú chứng từ xuất / tham chiếu quy trình:
               </label>
               <textarea
@@ -669,7 +669,7 @@ export function BatchRequisitionModal({
                   padding: '8px 12px',
                   borderRadius: '6px',
                   border: '1px solid #cbd5e1',
-                  fontSize: '12.5px',
+                  fontSize: '13px',
                   fontFamily: 'inherit',
                   resize: 'vertical',
                 }}
@@ -679,7 +679,7 @@ export function BatchRequisitionModal({
 
           {/* Modal Footer */}
           <div className={styles.modalFoot}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#64748b' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', color: '#64748b' }}>
               <CheckCircle2 size={15} color="#16a34a" />
               <span>
                 Sẽ ghi đồng thời <strong>{items.filter(i => i.quantity > 0).length} bút toán xuất kho</strong> vào sổ cái.

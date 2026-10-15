@@ -275,7 +275,7 @@ export function HrmContractPanel({
             <FileText className="size-3.5 text-blue-600" />
             <span>Hợp đồng & Phụ lục lao động</span>
           </h3>
-          <p className="text-[11px] text-slate-500 mt-0.5">
+          <p className="text-[12px] text-slate-500 mt-0.5">
             Quản lý ngày ký, thời hạn hiệu lực và các văn bản điều chỉnh hợp đồng lao động.
           </p>
         </div>
@@ -317,7 +317,7 @@ export function HrmContractPanel({
               <div>
                 <span className="font-semibold text-slate-900 block font-mono text-xs">{code}</span>
                 {r.parentContractId && (
-                  <span className="text-[10px] text-amber-700 bg-amber-50 px-1 py-0.2 rounded border border-amber-200">
+                  <span className="text-[12px] text-amber-700 bg-amber-50 px-1 py-0.2 rounded border border-amber-200">
                     Phụ lục của:{' '}
                     {contracts.find((x) => x.id === r.parentContractId)?.contractCode || 'HĐ gốc'}
                   </span>
@@ -385,7 +385,7 @@ export function HrmContractPanel({
               };
               return (
                 <span
-                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold border ${meta.className}`}
+                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[12px] font-semibold border ${meta.className}`}
                 >
                   {meta.label}
                 </span>
@@ -406,7 +406,7 @@ export function HrmContractPanel({
                   Tệp đính kèm
                 </a>
               ) : (
-                <span className="text-slate-400 text-[11px]">—</span>
+                <span className="text-slate-400 text-[12px]">—</span>
               ),
           },
           ...(!readOnly
@@ -424,7 +424,7 @@ export function HrmContractPanel({
                               permission="hrm.employee.manage"
                               size="xs"
                               variant="outline"
-                              className="h-6 text-[11px] px-2 text-blue-700 border-slate-200 hover:bg-blue-50"
+                              className="h-6 text-[12px] px-2 text-blue-700 border-slate-200 hover:bg-blue-50"
                               onClick={() => amend(r)}
                             >
                               Phụ lục
@@ -434,7 +434,7 @@ export function HrmContractPanel({
                             permission="hrm.employee.manage"
                             size="xs"
                             variant="outline"
-                            className="h-6 text-[11px] px-2 text-rose-700 border-slate-200 hover:bg-rose-50"
+                            className="h-6 text-[12px] px-2 text-rose-700 border-slate-200 hover:bg-rose-50"
                             onClick={() => terminate(r)}
                           >
                             Chấm dứt
@@ -447,7 +447,7 @@ export function HrmContractPanel({
                             permission="hrm.employee.manage"
                             size="xs"
                             variant="outline"
-                            className="h-6 text-[11px] px-2"
+                            className="h-6 text-[12px] px-2"
                             onClick={() => createContract(r)}
                           >
                             Sửa
@@ -473,7 +473,7 @@ export function HrmContractPanel({
                             <Button
                               permission="hrm.employee.manage"
                               size="xs"
-                              className="h-6 text-[11px] px-2 bg-emerald-600 hover:bg-emerald-700 text-white"
+                              className="h-6 text-[12px] px-2 bg-emerald-600 hover:bg-emerald-700 text-white"
                             >
                               Ban hành
                             </Button>
@@ -498,7 +498,7 @@ export function HrmContractPanel({
                               permission="hrm.employee.manage"
                               size="xs"
                               variant="outline"
-                              className="h-6 text-[11px] px-2 text-slate-500 hover:text-rose-600"
+                              className="h-6 text-[12px] px-2 text-slate-500 hover:text-rose-600"
                             >
                               Xóa
                             </Button>

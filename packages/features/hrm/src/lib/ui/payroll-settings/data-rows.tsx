@@ -115,7 +115,7 @@ export function DataList<T>({
                           c.cardEnd ? 'ml-auto @2xl:ml-0' : ''
                         } ${CARD_ORDER[c.cardOrder ?? 0]} ${c.align === 'right' ? '@2xl:text-right' : ''}`}
                       >
-                        {c.cardLabel ? <span className="mr-1 text-[11px] text-slate-500 @2xl:hidden">{c.header}:</span> : null}
+                        {c.cardLabel ? <span className="mr-1 text-[12px] text-slate-500 @2xl:hidden">{c.header}:</span> : null}
                         {c.cell(row, ctx)}
                       </div>
                     ),
@@ -130,7 +130,7 @@ export function DataList<T>({
         </div>
       </div>
       {pageSize && rows.length > pageSize ? (
-        <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500">
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[12px] text-slate-500">
           <span>
             Hiển thị {(current - 1) * pageSize + 1}–{Math.min(current * pageSize, rows.length)} / {rows.length}
           </span>

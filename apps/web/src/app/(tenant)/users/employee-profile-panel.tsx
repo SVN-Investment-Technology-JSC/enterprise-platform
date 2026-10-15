@@ -149,7 +149,7 @@ export function EmployeeProfilePanel({
               <section key={member.assignmentId ?? member.positionId} className="grid gap-2.5 rounded-[10px] border border-[#eef0f3] px-3.5 py-3">
                 <header className="flex items-start justify-between gap-2">
                   <div>
-                    <p className="m-0 text-[13.5px] font-bold text-slate-900">{position?.name ?? member.positionName}</p>
+                    <p className="m-0 text-[14px] font-bold text-slate-900">{position?.name ?? member.positionName}</p>
                     <p className="m-0 text-xs text-slate-500">{unitName.get(position?.unitId ?? '') ?? ''}</p>
                   </div>
                   {member.isHead ? (
@@ -157,7 +157,7 @@ export function EmployeeProfilePanel({
                   ) : null}
                 </header>
 
-                <dl className="m-0 grid gap-1.5 text-[12.5px]">
+                <dl className="m-0 grid gap-1.5 text-[13px]">
                   <div className="grid grid-cols-[minmax(0,9rem)_1fr] gap-2.5">
                     <dt className="text-slate-500">Báo cáo cho (theo chức danh)</dt>
                     <dd className="font-medium text-slate-800">{positionLabel(position?.reportsToPositionId)}</dd>

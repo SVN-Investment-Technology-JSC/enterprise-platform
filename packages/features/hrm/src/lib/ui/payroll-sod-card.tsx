@@ -35,7 +35,7 @@ function FlowStep({ title, note }: { title: string; note: string }) {
   return (
     <div className="min-w-0 flex-1 basis-32 rounded-lg border border-slate-200 bg-white px-3 py-2">
       <p className="text-xs font-semibold text-slate-900">{title}</p>
-      <p className="text-[11px] text-slate-500">{note}</p>
+      <p className="text-[12px] text-slate-500">{note}</p>
     </div>
   );
 }

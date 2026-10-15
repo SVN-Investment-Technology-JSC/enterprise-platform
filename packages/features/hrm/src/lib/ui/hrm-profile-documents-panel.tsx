@@ -418,7 +418,7 @@ export function HrmProfileDocumentsPanel({
     props: { date?: boolean } = {},
   ) => (
     <div className="space-y-1.5">
-      <label className="block text-[13px] font-semibold text-slate-800">
+      <label className="block text-[14px] font-semibold text-slate-800">
         {label}
       </label>
       {props.date ? (
@@ -462,7 +462,7 @@ export function HrmProfileDocumentsPanel({
           {editing?.kind === 'qualification' && (
             <div className="grid grid-cols-1 gap-x-4 gap-y-3.5 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <label className="block text-[13px] font-semibold text-slate-800">
+                <label className="block text-[14px] font-semibold text-slate-800">
                   Loại
                 </label>
                 <SearchableSelect
@@ -488,7 +488,7 @@ export function HrmProfileDocumentsPanel({
           )}
           {editingDocumentType && !isPhoto && (
             <div className="space-y-1.5 sm:max-w-[50%]">
-              <label className="block text-[13px] font-semibold text-slate-800">
+              <label className="block text-[14px] font-semibold text-slate-800">
                 Ngày hết hạn CCCD
               </label>
               <DatePickerInput
@@ -500,7 +500,7 @@ export function HrmProfileDocumentsPanel({
             </div>
           )}
           <div className="space-y-1.5">
-            <label className="block text-[13px] font-semibold text-slate-800">
+            <label className="block text-[14px] font-semibold text-slate-800">
               {editingDocumentType ? 'Tệp' : 'Tệp đính kèm (không bắt buộc)'}
               <span className="ml-1 font-normal text-slate-400">
                 {isPhoto
@@ -545,7 +545,7 @@ export function HrmProfileDocumentsPanel({
       <div className="space-y-2 rounded-lg border border-dashed border-slate-300 p-2.5">
         <div className="text-xs font-semibold text-slate-800">
           {title}
-          {required && <span className="ml-1 text-[10px] font-normal text-red-600">Bắt buộc</span>}
+          {required && <span className="ml-1 text-[12px] font-normal text-red-600">Bắt buộc</span>}
         </div>
         {body}
         {!readOnly && (
@@ -646,7 +646,7 @@ export function HrmProfileDocumentsPanel({
             <div className="text-xs font-semibold text-slate-800">
               {documentLabels[type]}
               {type !== 'PHOTO' && (
-                <span className="ml-1 text-[10px] font-normal text-red-600">
+                <span className="ml-1 text-[12px] font-normal text-red-600">
                   Bắt buộc
                 </span>
               )}

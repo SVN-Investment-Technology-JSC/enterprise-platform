@@ -113,10 +113,10 @@ export function BulkReturnToStockDialog({
         {/* Tiêu đề Modal */}
         <div className={styles.modalHead}>
           <div>
-            <h2 style={{ fontSize: '1.2rem', margin: 0 }}>
+            <h2 style={{ fontSize: '1.25rem', margin: 0 }}>
               Tháo dỡ / Gỡ thiết bị hàng loạt ({items.length} thiết bị)
             </h2>
-            <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#64748b' }}>
+            <p style={{ margin: '4px 0 0', fontSize: '14px', color: '#64748b' }}>
               Tháo dỡ các thiết bị đã chọn khỏi cây tài sản và nhập về các kho tương ứng. Thao tác này sẽ ghi nhận các bút toán nhập kho thực tế.
             </p>
           </div>
@@ -146,7 +146,7 @@ export function BulkReturnToStockDialog({
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, minWidth: '320px' }}>
             <WarehouseIcon size={16} style={{ color: '#475569', flexShrink: 0 }} />
-            <span style={{ fontSize: '12.5px', fontWeight: 600, color: '#334155', whiteSpace: 'nowrap' }}>
+            <span style={{ fontSize: '13px', fontWeight: 600, color: '#334155', whiteSpace: 'nowrap' }}>
               Áp dụng kho chung cho tất cả dòng:
             </span>
             <div style={{ flex: 1, maxWidth: '280px' }}>
@@ -160,7 +160,7 @@ export function BulkReturnToStockDialog({
             </div>
           </div>
 
-          <div style={{ fontSize: '12px', color: '#64748b' }}>
+          <div style={{ fontSize: '13px', color: '#64748b' }}>
             Tổng số: <strong style={{ color: '#0f172a' }}>{items.length}</strong> thiết bị
           </div>
         </div>
@@ -175,7 +175,7 @@ export function BulkReturnToStockDialog({
               display: 'flex',
               alignItems: 'center',
               gap: '8px',
-              fontSize: '12px',
+              fontSize: '13px',
               color: '#b45309',
             }}
           >
@@ -188,7 +188,7 @@ export function BulkReturnToStockDialog({
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
           <div style={{ flex: 1, overflowY: 'auto', maxHeight: 'calc(90vh - 240px)', padding: '0 20px' }}>
             {items.length === 0 ? (
-              <div style={{ padding: '40px 20px', textAlign: 'center', color: '#94a3b8', fontSize: '13px' }}>
+              <div style={{ padding: '40px 20px', textAlign: 'center', color: '#94a3b8', fontSize: '14px' }}>
                 Đã xoá hết thiết bị khỏi danh sách gỡ. Vui lòng đóng hộp thoại hoặc quay lại bảng chọn thiết bị.
               </div>
             ) : (
@@ -196,7 +196,7 @@ export function BulkReturnToStockDialog({
                 style={{
                   width: '100%',
                   borderCollapse: 'collapse',
-                  fontSize: '12.5px',
+                  fontSize: '13px',
                   marginTop: '12px',
                   marginBottom: '16px',
                 }}
@@ -244,7 +244,7 @@ export function BulkReturnToStockDialog({
                         </td>
                         <td style={{ padding: '10px 12px' }}>
                           <div style={{ fontWeight: 600, color: '#0f172a' }}>{item.asset.name}</div>
-                          <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
+                          <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>
                             <code style={{ background: '#f1f5f9', padding: '1px 5px', borderRadius: '3px' }}>
                               {item.asset.code}
                             </code>
@@ -270,7 +270,7 @@ export function BulkReturnToStockDialog({
                             style={{
                               width: '100%',
                               padding: '6px 10px',
-                              fontSize: '12px',
+                              fontSize: '13px',
                               border: '1px solid #cbd5e1',
                               borderRadius: '6px',
                               outline: 'none',
@@ -325,7 +325,7 @@ export function BulkReturnToStockDialog({
               background: '#f8fafc',
             }}
           >
-            <div style={{ fontSize: '12px', color: '#64748b' }}>
+            <div style={{ fontSize: '13px', color: '#64748b' }}>
               {hasMissingWarehouse && items.length > 0 ? (
                 <span style={{ color: '#dc2626', fontWeight: 500 }}>
                   Vui lòng chọn kho tiếp nhận cho toàn bộ {items.length} thiết bị trước khi xác nhận.
@@ -343,7 +343,7 @@ export function BulkReturnToStockDialog({
                 className={styles.btnSecondary}
                 onClick={onCancel}
                 disabled={busy}
-                style={{ padding: '7px 14px', fontSize: '12.5px' }}
+                style={{ padding: '7px 14px', fontSize: '13px' }}
               >
                 Huỷ bỏ
               </button>
@@ -353,7 +353,7 @@ export function BulkReturnToStockDialog({
                 disabled={!isValid || busy}
                 style={{
                   padding: '7px 16px',
-                  fontSize: '12.5px',
+                  fontSize: '13px',
                   background: !isValid || busy ? '#94a3b8' : '#dc2626',
                   borderColor: !isValid || busy ? '#94a3b8' : '#dc2626',
                   color: '#ffffff',

@@ -330,6 +330,18 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       path: 'tenant/hrm/0055-hrm-auto-attendance-settings.sql',
     },
     {
+      version: '0056-hrm-shift-soft-delete',
+      path: 'tenant/hrm/0056-hrm-shift-soft-delete.sql',
+    },
+    {
+      version: '0057-hrm-leave-type-code-partial-unique',
+      path: 'tenant/hrm/0057-hrm-leave-type-code-partial-unique.sql',
+    },
+    {
+      version: '0058-hrm-system-request-type-legacy-code',
+      path: 'tenant/hrm/0058-hrm-system-request-type-legacy-code.sql',
+    },
+    {
       version: '0021-notification-outbox-v1',
       path: 'tenant/hrm/0021-notification-outbox-v1.sql',
     },

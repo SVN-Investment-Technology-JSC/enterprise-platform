@@ -353,12 +353,12 @@ export function PersonnelDecisionDialog({
 
           <div className="grid grid-cols-1 gap-3">
             <section className="rounded-lg border border-slate-200 p-3">
-              <h4 className="mb-2 text-[11px] font-bold uppercase text-slate-700">
+              <h4 className="mb-2 text-[12px] font-bold uppercase text-slate-700">
                 Trước / Sau
               </h4>
               <table className="w-full text-left">
                 <thead>
-                  <tr className="text-[11px] uppercase text-slate-400">
+                  <tr className="text-[12px] uppercase text-slate-400">
                     <th className="w-24 pb-1" />
                     <th className="pb-1">Trước</th>
                     <th className="pb-1">Sau</th>

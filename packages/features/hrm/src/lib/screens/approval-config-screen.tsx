@@ -292,7 +292,7 @@ function RouteRow({
         <span className="block truncate text-sm font-bold text-slate-900">
           {item.label}
         </span>
-        <span className="block text-[11px] text-slate-500">
+        <span className="block text-[12px] text-slate-500">
           {group.reasonCount === 0
             ? 'Không có lý do riêng'
             : `${group.reasonCount} lý do${
@@ -308,7 +308,7 @@ function RouteRow({
       <span className="block truncate text-xs font-semibold text-slate-800">
         {item.reasonName ?? item.reasonCode}
       </span>
-      <span className="block font-mono text-[11px] text-slate-500">
+      <span className="block font-mono text-[12px] text-slate-500">
         {item.reasonCode}
       </span>
     </span>
@@ -371,7 +371,7 @@ function RouteRow({
       </div>
 
       <div className="min-w-0">
-        <span className="mb-1 block text-[11px] font-medium text-slate-500 @3xl:sr-only">
+        <span className="mb-1 block text-[12px] font-medium text-slate-500 @3xl:sr-only">
           Cách duyệt
         </span>
         <div role="group" aria-label={`Cách duyệt của ${item.label}`}>
@@ -387,7 +387,7 @@ function RouteRow({
       </div>
 
       <div className="min-w-0">
-        <span className="mb-1 block text-[11px] font-medium text-slate-500 @3xl:sr-only">
+        <span className="mb-1 block text-[12px] font-medium text-slate-500 @3xl:sr-only">
           {shown.choice === 'DIRECT' ? 'Chức danh dự phòng' : 'Quy trình'}
         </span>
         {shown.choice === 'PROCEDURE' ? (
@@ -403,7 +403,7 @@ function RouteRow({
               />
             </div>
             {!saveable && (
-              <p className="text-[11px] font-medium text-amber-700">
+              <p className="text-[12px] font-medium text-amber-700">
                 Chọn quy trình để lưu.
               </p>
             )}
@@ -432,7 +432,7 @@ function RouteRow({
                 onChange={(value) => onFallbackPosition(value ?? '')}
               />
             </div>
-            <p className="text-[11px] text-slate-500">
+            <p className="text-[12px] text-slate-500">
               {shown.fallbackPositionId
                 ? 'Quản lý trực tiếp hoặc người giữ chức danh này đều có thể duyệt.'
                 : 'Chỉ quản lý trực tiếp duyệt (chưa chọn chức danh dự phòng).'}

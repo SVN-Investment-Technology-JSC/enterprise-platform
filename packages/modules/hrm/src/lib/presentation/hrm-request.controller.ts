@@ -1,3 +1,4 @@
+import type { PoolClient } from 'pg';
 import { attachProcedureLinkInfo } from '../infrastructure/hrm-procedure-link-info.js';
 import {
   attachRequestProjectLinks,
@@ -9,7 +10,7 @@ import { workflowProgressFilter } from '../infrastructure/hrm-workflow-filter.js
 import { syncEmployeeProcedureResults } from '../infrastructure/hrm-procedure-sync.js';
 import {
   calendarDatesOf,
-  resolveRequestRange,
+  resolveRequestTime,
 } from '../infrastructure/hrm-request-time.js';
 import { assertNoRequestOverlap } from '../infrastructure/hrm-request-overlap.js';
 import {
@@ -338,19 +339,23 @@ export class HrmRequestController {
       body,
     );
     body = submission.body;
-    // Thời gian công tác: "từ ngày giờ đến ngày giờ" (server suy ra khoảng ngày và số ngày lịch) hoặc cách cũ.
+    // Thời gian công tác: "từ ngày giờ đến ngày giờ"; server tính số ngày công tác theo ca (cả ca hoặc nửa ca mỗi ngày,
+    // ngày nghỉ và ngày lễ không tính) và chặn khoảng sai khung ca; hoặc cách cũ (ngày và số ngày do client gửi).
     let tripAt: { fromAt: string; toAt: string } | null = null;
     let tripFrom: string;
     let tripTo: string;
     let tripDays: number | undefined;
     if (body.fromAt !== undefined || body.toAt !== undefined) {
-      const { timezone, fromMs, toMs } = await resolveRequestRange(
-        pool,
+      const { timezone, fromMs, toMs, result } = await resolveRequestTime(
+        pool as unknown as PoolClient,
         tenantId,
         employeeId,
         body.fromAt,
         body.toAt,
+        'DAYS',
+        'TRIP',
       );
+      if (result.errors.length) throw new BadRequestException(result.errors.join(' '));
       const dates = calendarDatesOf(fromMs, toMs, timezone);
       tripAt = {
         fromAt: new Date(fromMs).toISOString(),
@@ -358,7 +363,7 @@ export class HrmRequestController {
       };
       tripFrom = dates[0];
       tripTo = dates[dates.length - 1];
-      tripDays = dates.length;
+      tripDays = result.totalDays;
     } else {
       tripFrom = requireDate(body.fromDate, 'fromDate');
       tripTo = requireDate(body.toDate, 'toDate');

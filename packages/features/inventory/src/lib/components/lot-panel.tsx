@@ -121,7 +121,7 @@ export function LotPanel({
               Quản lý danh sách Lô / Mẻ hàng (Batch & Lot Tracking)
             </h4>
           </div>
-          <p style={{ margin: '3px 0 0', fontSize: '12px', color: '#64748b' }}>
+          <p style={{ margin: '3px 0 0', fontSize: '13px', color: '#64748b' }}>
             Theo dõi tình trạng chất lượng, hạn sử dụng (FEFO) và chứng chỉ CO/CQ của từng lô nhập.
           </p>
         </div>
@@ -151,10 +151,10 @@ export function LotPanel({
             color: '#64748b',
           }}
         >
-          <p style={{ margin: 0, fontSize: '13.5px', fontWeight: 600, color: '#334155' }}>
+          <p style={{ margin: 0, fontSize: '14px', fontWeight: 600, color: '#334155' }}>
             Chưa có thông tin Lô (Batch/Lot) cho vật tư này.
           </p>
-          <p style={{ margin: '4px 0 12px', fontSize: '12px' }}>
+          <p style={{ margin: '4px 0 12px', fontSize: '13px' }}>
             Vật tư chưa được chia theo mẻ hoặc được quản lý theo số lượng thông thường.
           </p>
           <button
@@ -194,7 +194,7 @@ export function LotPanel({
                     <span
                       style={{
                         fontFamily: 'ui-monospace, monospace',
-                        fontSize: '13.5px',
+                        fontSize: '14px',
                         fontWeight: 700,
                         color: '#1e40af',
                         background: '#eff6ff',
@@ -205,21 +205,21 @@ export function LotPanel({
                     >
                       {lot.lotNumber}
                     </span>
-                    <span style={{ fontSize: '13px', fontWeight: 600, color: '#0f172a' }}>
+                    <span style={{ fontSize: '14px', fontWeight: 600, color: '#0f172a' }}>
                       Số lượng: <strong>{lot.quantity}</strong> {lot.unit}
                     </span>
                   </div>
 
                   {/* Dropdown chỉnh sửa nhanh Tình trạng của Lô */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <span style={{ fontSize: '12px', color: '#64748b' }}>Tình trạng:</span>
+                    <span style={{ fontSize: '13px', color: '#64748b' }}>Tình trạng:</span>
                     <select
                       value={lot.status}
                       disabled={!canManage || busy}
                       style={{
                         padding: '4px 8px',
                         borderRadius: '4px',
-                        fontSize: '12px',
+                        fontSize: '13px',
                         fontWeight: 600,
                         background: badge.bg,
                         color: badge.text,
@@ -247,7 +247,7 @@ export function LotPanel({
                     padding: '8px 10px',
                     background: '#f8fafc',
                     borderRadius: '6px',
-                    fontSize: '12px',
+                    fontSize: '13px',
                   }}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -276,7 +276,7 @@ export function LotPanel({
                 </div>
 
                 {lot.note ? (
-                  <div style={{ fontSize: '12px', color: '#475569', fontStyle: 'italic' }}>
+                  <div style={{ fontSize: '13px', color: '#475569', fontStyle: 'italic' }}>
                     Ghi chú: {lot.note}
                   </div>
                 ) : null}
@@ -301,10 +301,10 @@ export function LotPanel({
           >
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
               <div>
-                <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: '#0f172a' }}>
+                <h3 style={{ margin: 0, fontSize: '20px', fontWeight: 700, color: '#0f172a' }}>
                   Khai báo Lô hàng mới (Batch / Lot)
                 </h3>
-                <p style={{ margin: '2px 0 0', fontSize: '12.5px', color: '#64748b' }}>
+                <p style={{ margin: '2px 0 0', fontSize: '13px', color: '#64748b' }}>
                   Vật tư: <strong>{materialName ?? materialCode}</strong> ({materialCode})
                 </p>
               </div>
@@ -320,7 +320,7 @@ export function LotPanel({
             <form onSubmit={handleCreateLot} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '12px' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  <label style={{ fontSize: '12.5px', fontWeight: 600, color: '#334155' }}>
+                  <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
                     Mã số Lô (Batch / Lot No) <span style={{ color: '#dc2626' }}>*</span>
                   </label>
                   <input
@@ -332,7 +332,7 @@ export function LotPanel({
                       padding: '8px 10px',
                       borderRadius: '4px',
                       border: '1px solid #cbd5e1',
-                      fontSize: '13px',
+                      fontSize: '14px',
                       outline: 'none',
                     }}
                     onChange={(e) => setLotNumber(e.target.value)}
@@ -340,7 +340,7 @@ export function LotPanel({
                 </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  <label style={{ fontSize: '12.5px', fontWeight: 600, color: '#334155' }}>
+                  <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
                     Số lượng {unit ? `(${unit})` : ''} <span style={{ color: '#dc2626' }}>*</span>
                   </label>
                   <input
@@ -352,7 +352,7 @@ export function LotPanel({
                       padding: '8px 10px',
                       borderRadius: '4px',
                       border: '1px solid #cbd5e1',
-                      fontSize: '13px',
+                      fontSize: '14px',
                       outline: 'none',
                     }}
                     onChange={(e) => setQuantity(e.target.value)}
@@ -362,7 +362,7 @@ export function LotPanel({
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  <label style={{ fontSize: '12.5px', fontWeight: 600, color: '#334155' }}>
+                  <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
                     Kho lưu trữ
                   </label>
                   <select
@@ -371,7 +371,7 @@ export function LotPanel({
                       padding: '8px 10px',
                       borderRadius: '4px',
                       border: '1px solid #cbd5e1',
-                      fontSize: '13px',
+                      fontSize: '14px',
                       outline: 'none',
                     }}
                     onChange={(e) => setWarehouseCode(e.target.value)}
@@ -385,7 +385,7 @@ export function LotPanel({
                 </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  <label style={{ fontSize: '12.5px', fontWeight: 600, color: '#334155' }}>
+                  <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
                     Tình trạng kiểm định
                   </label>
                   <select
@@ -394,7 +394,7 @@ export function LotPanel({
                       padding: '8px 10px',
                       borderRadius: '4px',
                       border: '1px solid #cbd5e1',
-                      fontSize: '13px',
+                      fontSize: '14px',
                       outline: 'none',
                     }}
                     onChange={(e) => setStatus(e.target.value as LotStatus)}
@@ -410,14 +410,14 @@ export function LotPanel({
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  <label style={{ fontSize: '12.5px', fontWeight: 600, color: '#334155' }}>
+                  <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
                     Ngày sản xuất (MFG)
                   </label>
                   <DatePickerInput value={manufactureDate} onChange={setManufactureDate} height={36} />
                 </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  <label style={{ fontSize: '12.5px', fontWeight: 600, color: '#334155' }}>
+                  <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
                     Hạn sử dụng (EXP)
                   </label>
                   <DatePickerInput value={expiryDate} onChange={setExpiryDate} height={36} />
@@ -426,7 +426,7 @@ export function LotPanel({
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  <label style={{ fontSize: '12.5px', fontWeight: 600, color: '#334155' }}>
+                  <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
                     Nhà cung cấp / Xuất xứ
                   </label>
                   <input
@@ -437,7 +437,7 @@ export function LotPanel({
                       padding: '8px 10px',
                       borderRadius: '4px',
                       border: '1px solid #cbd5e1',
-                      fontSize: '13px',
+                      fontSize: '14px',
                       outline: 'none',
                     }}
                     onChange={(e) => setSupplier(e.target.value)}
@@ -445,7 +445,7 @@ export function LotPanel({
                 </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  <label style={{ fontSize: '12.5px', fontWeight: 600, color: '#334155' }}>
+                  <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
                     Số chứng chỉ CO/CQ
                   </label>
                   <input
@@ -456,7 +456,7 @@ export function LotPanel({
                       padding: '8px 10px',
                       borderRadius: '4px',
                       border: '1px solid #cbd5e1',
-                      fontSize: '13px',
+                      fontSize: '14px',
                       outline: 'none',
                     }}
                     onChange={(e) => setCoCqNumber(e.target.value)}
@@ -465,7 +465,7 @@ export function LotPanel({
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                <label style={{ fontSize: '12.5px', fontWeight: 600, color: '#334155' }}>
+                <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
                   Ghi chú kiểm định
                 </label>
                 <input
@@ -476,7 +476,7 @@ export function LotPanel({
                     padding: '8px 10px',
                     borderRadius: '4px',
                     border: '1px solid #cbd5e1',
-                    fontSize: '13px',
+                    fontSize: '14px',
                     outline: 'none',
                   }}
                   onChange={(e) => setNote(e.target.value)}

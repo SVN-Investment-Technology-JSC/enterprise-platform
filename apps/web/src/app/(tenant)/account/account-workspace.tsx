@@ -60,8 +60,8 @@ export function AccountWorkspace({ principal }: { principal: AuthenticatedPrinci
             items={[{ label: 'Platform', href: '/platform' }, { label: 'Tài khoản của tôi' }]}
           />
         ) : null}
-        <h1 className="m-0 text-[22px] font-bold tracking-[-0.3px]">Tài khoản của tôi</h1>
-        <p className="mt-1 text-[13.5px] text-slate-600">
+        <h1 className="m-0 text-[20px] font-bold tracking-[-0.3px]">Tài khoản của tôi</h1>
+        <p className="mt-1 text-[14px] text-slate-600">
           Xem thông tin tài khoản và tự đổi mật khẩu đăng nhập của bạn.
         </p>
       </div>
@@ -89,13 +89,13 @@ export function AccountWorkspace({ principal }: { principal: AuthenticatedPrinci
                 className="absolute bottom-1 right-0.5 size-3.5 rounded-full border-[3px] border-[#232327] bg-[#10b981]"
               />
             </span>
-            <b className="relative text-[17px] text-white">{principal.displayName}</b>
-            <span className="relative break-all text-[13px] text-white/70">{principal.email}</span>
+            <b className="relative text-[16px] text-white">{principal.displayName}</b>
+            <span className="relative break-all text-[14px] text-white/70">{principal.email}</span>
             <div className="relative flex flex-wrap justify-center gap-1.5">
               {(principal.roles.length ? principal.roles : [principal.kind]).map((role) => (
                 <span
                   key={role}
-                  className="rounded-full border border-[#ffc90a]/50 bg-[#ffc90a]/[.12] px-2.5 py-0.5 text-[12px] font-semibold text-[#ffd84d]"
+                  className="rounded-full border border-[#ffc90a]/50 bg-[#ffc90a]/[.12] px-2.5 py-0.5 text-[13px] font-semibold text-[#ffd84d]"
                 >
                   {ROLE_LABELS[role] ?? roleNames?.[role] ?? role}
                 </span>
@@ -116,7 +116,7 @@ export function AccountWorkspace({ principal }: { principal: AuthenticatedPrinci
             />
           </dl>
 
-          <p className="mx-4 mb-4 mt-0 rounded-[10px] border border-[#f1f3f6] bg-[#fafbfc] px-3 py-2.5 text-[12.5px] text-slate-600">
+          <p className="mx-4 mb-4 mt-0 rounded-[10px] border border-[#f1f3f6] bg-[#fafbfc] px-3 py-2.5 text-[13px] text-slate-600">
             {principal.kind === 'platform-admin'
               ? 'Họ tên và email của tài khoản quản trị nền tảng được cấu hình khi khởi tạo hệ thống.'
               : 'Họ tên và email do quản trị viên doanh nghiệp quản lý. Liên hệ quản trị viên nếu cần thay đổi.'}
@@ -139,7 +139,7 @@ export function AccountWorkspace({ principal }: { principal: AuthenticatedPrinci
               <h2 id="account-password-title" className="m-0 text-[16px] font-bold">
                 Đổi mật khẩu
               </h2>
-              <p className="mt-0.5 text-[12.5px] text-slate-500">
+              <p className="mt-0.5 text-[13px] text-slate-500">
                 Sau khi đổi, các phiên đăng nhập trên thiết bị khác sẽ bị đăng xuất. Phiên hiện tại được giữ lại.
               </p>
             </div>
@@ -168,7 +168,7 @@ function ProfileRow({ icon, label, value }: { icon: ReactNode; label: string; va
   return (
     <div className="flex items-center gap-2.5 border-t border-[#f1f3f6] px-5 py-2.5 first:border-t-0">
       <span className="shrink-0 text-slate-500 [&_svg]:size-4">{icon}</span>
-      <dt className="shrink-0 basis-[120px] text-[12.5px] text-slate-500">{label}</dt>
+      <dt className="shrink-0 basis-[120px] text-[13px] text-slate-500">{label}</dt>
       <dd className="m-0 min-w-0 font-semibold [overflow-wrap:anywhere]">{value}</dd>
     </div>
   );
@@ -261,7 +261,7 @@ function ChangePasswordForm() {
                   />
                 ))}
               </span>
-              <span className={cn('min-w-16 text-right text-[12px] font-semibold', STRENGTH[strength].text)}>
+              <span className={cn('min-w-16 text-right text-[13px] font-semibold', STRENGTH[strength].text)}>
                 {STRENGTH[strength].label}
               </span>
             </span>
@@ -276,13 +276,13 @@ function ChangePasswordForm() {
         />
 
         {error ? (
-          <p className="m-0 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-[13px] text-red-800" role="alert">
+          <p className="m-0 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-[14px] text-red-800" role="alert">
             {error}
           </p>
         ) : null}
         {success ? (
           <p
-            className="m-0 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-[13px] text-emerald-800"
+            className="m-0 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-[14px] text-emerald-800"
             role="status"
           >
             {success}
@@ -291,7 +291,7 @@ function ChangePasswordForm() {
 
         <div className="mt-1 flex flex-wrap gap-2">
           <button
-            className="flex h-10 cursor-pointer items-center gap-1.5 rounded-lg bg-[#18181b] px-4 text-[13px] font-semibold text-white hover:bg-[#2a2a2f] disabled:cursor-not-allowed disabled:opacity-45"
+            className="flex h-10 cursor-pointer items-center gap-1.5 rounded-lg bg-[#18181b] px-4 text-[14px] font-semibold text-white hover:bg-[#2a2a2f] disabled:cursor-not-allowed disabled:opacity-45"
             disabled={!canSubmit}
             type="submit"
           >
@@ -299,7 +299,7 @@ function ChangePasswordForm() {
             {busy ? 'Đang cập nhật…' : 'Cập nhật mật khẩu'}
           </button>
           <button
-            className="h-10 cursor-pointer rounded-lg border border-[#eef0f3] bg-white px-4 text-[13px] font-semibold text-slate-700 hover:bg-[#fafbfc] disabled:cursor-not-allowed disabled:opacity-45"
+            className="h-10 cursor-pointer rounded-lg border border-[#eef0f3] bg-white px-4 text-[14px] font-semibold text-slate-700 hover:bg-[#fafbfc] disabled:cursor-not-allowed disabled:opacity-45"
             disabled={busy || (!draft.currentPassword && !draft.newPassword && !draft.confirmation)}
             onClick={() => {
               setDraft(EMPTY_DRAFT);
@@ -314,7 +314,7 @@ function ChangePasswordForm() {
       </div>
 
       <div className="flex min-w-0 flex-[1_1_280px] flex-col gap-2.5 rounded-xl border border-[#f1f3f6] bg-[#fafbfc] px-4 py-3.5">
-        <p className="m-0 flex items-center gap-2 text-[11.5px] font-bold uppercase tracking-[0.6px] text-slate-500">
+        <p className="m-0 flex items-center gap-2 text-[12px] font-bold uppercase tracking-[0.6px] text-slate-500">
           <span aria-hidden="true" className="h-3.5 w-[3px] rounded-sm bg-[#ffc90a]" />
           Yêu cầu mật khẩu
         </p>
@@ -322,7 +322,7 @@ function ChangePasswordForm() {
           {rules.map((rule) => (
             <li
               key={rule.id}
-              className={cn('flex items-center gap-2 text-[13px]', rule.passed ? 'text-[#18181b]' : 'text-slate-600')}
+              className={cn('flex items-center gap-2 text-[14px]', rule.passed ? 'text-[#18181b]' : 'text-slate-600')}
             >
               {rule.passed ? (
                 <CheckCircle2 aria-hidden="true" className="size-4 shrink-0 text-[#059669]" />
@@ -331,14 +331,14 @@ function ChangePasswordForm() {
               )}
               <span className="min-w-0 flex-1">{rule.label}</span>
               {rule.required ? null : (
-                <span className="shrink-0 whitespace-nowrap text-[10px] font-bold uppercase tracking-[0.4px] text-[#9ca3af]">
+                <span className="shrink-0 whitespace-nowrap text-[12px] font-bold uppercase tracking-[0.4px] text-[#9ca3af]">
                   Khuyến nghị
                 </span>
               )}
             </li>
           ))}
         </ul>
-        <p className="m-0 mt-1 border-t border-[#eef0f3] pt-2.5 text-[12px] text-slate-500">
+        <p className="m-0 mt-1 border-t border-[#eef0f3] pt-2.5 text-[13px] text-slate-500">
           Không dùng lại mật khẩu của dịch vụ khác. Nên dùng cụm từ dài, dễ nhớ với bạn nhưng khó đoán với người khác.
         </p>
       </div>
@@ -365,7 +365,7 @@ function PasswordField({
   const [visible, setVisible] = useState(false);
   return (
     <div className="flex flex-col gap-[5px]">
-      <label className="text-[13px] font-semibold text-slate-700" htmlFor={id}>
+      <label className="text-[14px] font-semibold text-slate-700" htmlFor={id}>
         {label}
       </label>
       <span

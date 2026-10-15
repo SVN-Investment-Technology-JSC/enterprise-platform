@@ -387,7 +387,7 @@ export function CatalogRemoval({
         variant="outline"
         size="sm"
         disabled={busy}
-        className={className || 'h-6.5 text-[11px] px-2 text-rose-600 hover:bg-rose-50 border-rose-200'}
+        className={className || 'h-6.5 text-[12px] px-2 text-rose-600 hover:bg-rose-50 border-rose-200'}
       >
         Xóa
       </Button>
@@ -547,7 +547,7 @@ function CatalogStatusAction({
         permission={permission}
         size="sm"
         variant="outline"
-        className={className || 'h-6.5 text-[11px] px-2 text-slate-700 hover:bg-slate-50 border-slate-200'}
+        className={className || 'h-6.5 text-[12px] px-2 text-slate-700 hover:bg-slate-50 border-slate-200'}
       >
         {active ? 'Ngừng' : 'Kích hoạt'}
       </Button>

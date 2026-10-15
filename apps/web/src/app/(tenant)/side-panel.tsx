@@ -42,7 +42,7 @@ export function SidePanel({
     <aside
       ref={ref}
       aria-label={ariaLabel ?? (typeof title === 'string' ? title : undefined)}
-      className="flex max-w-full flex-[1_1_360px] scroll-mt-4 flex-col self-start overflow-hidden rounded-[14px] border border-[#eef0f3] bg-white text-[12.5px] lg:sticky lg:top-4 lg:max-h-[calc(100dvh-8rem)]"
+      className="flex max-w-full flex-[1_1_360px] scroll-mt-4 flex-col self-start overflow-hidden rounded-[14px] border border-[#eef0f3] bg-white text-[13px] lg:sticky lg:top-4 lg:max-h-[calc(100dvh-8rem)]"
     >
       <div className="flex shrink-0 items-start gap-2.5 border-b border-[#eef0f3] bg-[#fafbfc] px-[18px] py-3.5">
         {icon ? (
@@ -54,8 +54,8 @@ export function SidePanel({
           </span>
         ) : null}
         <div className="min-w-0 flex-1">
-          <h2 className="m-0 text-[15px] font-bold text-[#18181b]">{title}</h2>
-          {subtitle ? <p className="m-0 mt-0.5 text-[12.5px] text-slate-500">{subtitle}</p> : null}
+          <h2 className="m-0 text-[16px] font-bold text-[#18181b]">{title}</h2>
+          {subtitle ? <p className="m-0 mt-0.5 text-[13px] text-slate-500">{subtitle}</p> : null}
         </div>
         <button
           type="button"
@@ -80,7 +80,7 @@ export function SidePanel({
 /** Nút phụ và nút chính ở chân khung, cùng cỡ với các trang khác. */
 export const panelButton = {
   secondary:
-    'h-9 cursor-pointer rounded-lg border border-[#eef0f3] bg-white px-3.5 text-[13px] font-semibold text-slate-700 hover:bg-[#f4f6f9] disabled:cursor-not-allowed disabled:opacity-60',
+    'h-9 cursor-pointer rounded-lg border border-[#eef0f3] bg-white px-3.5 text-[14px] font-semibold text-slate-700 hover:bg-[#f4f6f9] disabled:cursor-not-allowed disabled:opacity-60',
   primary:
-    'h-9 cursor-pointer rounded-lg bg-[#18181b] px-3.5 text-[13px] font-semibold text-white hover:bg-[#2a2a2f] disabled:cursor-not-allowed disabled:opacity-60',
+    'h-9 cursor-pointer rounded-lg bg-[#18181b] px-3.5 text-[14px] font-semibold text-white hover:bg-[#2a2a2f] disabled:cursor-not-allowed disabled:opacity-60',
 };

@@ -219,7 +219,7 @@ export function OrganizationPositionTable() {
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Tìm chức danh, đơn vị, người giữ…"
             aria-label="Tìm chức danh"
-            className="min-w-0 flex-1 bg-transparent text-[13px] text-[#18181b] outline-none placeholder:text-slate-400"
+            className="min-w-0 flex-1 bg-transparent text-[14px] text-[#18181b] outline-none placeholder:text-slate-400"
           />
         </label>
         {!canUpdate ? (
@@ -231,7 +231,7 @@ export function OrganizationPositionTable() {
         <Button
           disabled={!canUpdate || !pendingSuggestions.length || Boolean(saving)}
           onClick={() => void applySuggestions()}
-          className="h-[38px] shrink-0 gap-1.5 bg-[#ffc90a] text-[13px] font-bold text-[#18181b] hover:bg-[#ffd84d]"
+          className="h-[38px] shrink-0 gap-1.5 bg-[#ffc90a] text-[14px] font-bold text-[#18181b] hover:bg-[#ffd84d]"
           title="Điền gợi ý từ cây cho các chức danh chưa khai báo Báo cáo cho"
         >
           <Sparkles className="size-4" />
@@ -263,7 +263,7 @@ export function OrganizationPositionTable() {
         >
           <div className="overflow-x-auto">
             <div className="min-w-[820px]">
-              <div className={`${ROW} py-2 text-[11px] font-semibold tracking-[0.4px] text-slate-500`}>
+              <div className={`${ROW} py-2 text-[12px] font-semibold tracking-[0.4px] text-slate-500`}>
                 <span>CHỨC DANH</span>
                 <span>NGƯỜI GIỮ</span>
                 <span>BÁO CÁO CHO</span>
@@ -283,11 +283,11 @@ export function OrganizationPositionTable() {
                   }));
                 const current = position.reportsToPositionId ?? '';
                 return (
-                  <div className={`${ROW} py-[9px] text-[13px] hover:bg-[#f4f6f9]/60`} key={position.id}>
+                  <div className={`${ROW} py-[9px] text-[14px] hover:bg-[#f4f6f9]/60`} key={position.id}>
                     <span className="flex min-w-0 items-center gap-2">
                       <b className="truncate font-semibold">{position.name}</b>
                       {unit?.headPositionId === position.id ? (
-                        <span className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-[5px] border border-amber-200 bg-amber-50 px-1.5 text-[11px] font-semibold text-amber-700">
+                        <span className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-[5px] border border-amber-200 bg-amber-50 px-1.5 text-[12px] font-semibold text-amber-700">
                           <Star className="size-3" />
                           Quản lý
                         </span>
@@ -344,7 +344,7 @@ export function OrganizationPositionTable() {
         </div>
       ) : null}
 
-      <div className="flex flex-wrap justify-between gap-2 text-[12.5px] text-slate-500">
+      <div className="flex flex-wrap justify-between gap-2 text-[13px] text-slate-500">
         <span>
           Hiển thị <b className="text-[#18181b]">{rows.length}</b> / {allRows.length} chức danh
         </span>

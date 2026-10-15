@@ -95,7 +95,7 @@ export function RoleMembers({ role, users, onChanged }: RoleMembersProps) {
 
   return (
     <div className="flex flex-col gap-2.5 rounded-[10px] border border-[#f1f3f6] bg-[#fafbfc] px-3.5 py-3">
-      <span className="flex flex-wrap items-center gap-2 text-[13px] font-bold">
+      <span className="flex flex-wrap items-center gap-2 text-[14px] font-bold">
         <Users className="size-3.5" />
         <span className="flex-1">Người đang giữ vai trò ({members.length})</span>
       </span>
@@ -130,12 +130,12 @@ export function RoleMembers({ role, users, onChanged }: RoleMembersProps) {
           onChange={(e) => setFilter(e.target.value)}
           placeholder="Lọc trong danh sách đang giữ vai trò"
           aria-label="Lọc người đang giữ vai trò"
-          className="h-8 w-full rounded-[7px] border border-[#e5e7eb] bg-white px-2.5 text-[12.5px] outline-none focus:border-[#ffc90a]"
+          className="h-8 w-full rounded-[7px] border border-[#e5e7eb] bg-white px-2.5 text-[13px] outline-none focus:border-[#ffc90a]"
         />
       ) : null}
 
       {members.length === 0 ? (
-        <p className="m-0 rounded-[10px] border border-dashed border-[#e5e7eb] bg-white p-3.5 text-center text-[13px] text-slate-500">
+        <p className="m-0 rounded-[10px] border border-dashed border-[#e5e7eb] bg-white p-3.5 text-center text-[14px] text-slate-500">
           Chưa có người dùng nào giữ vai trò này.
         </p>
       ) : (
@@ -147,20 +147,20 @@ export function RoleMembers({ role, users, onChanged }: RoleMembersProps) {
             >
               <span
                 aria-hidden
-                className="grid size-7 shrink-0 place-items-center rounded-full bg-[#fff6d6] text-[11px] font-bold text-[#8a6400]"
+                className="grid size-7 shrink-0 place-items-center rounded-full bg-[#fff6d6] text-[12px] font-bold text-[#8a6400]"
               >
                 {(user?.fullName ?? '?').trim().charAt(0).toUpperCase()}
               </span>
               <span className="flex min-w-0 flex-1 flex-col">
-                <b className="truncate text-[12.5px]">
+                <b className="truncate text-[13px]">
                   {user?.fullName ?? 'Người dùng không xác định'}
                 </b>
-                <span className="truncate text-[11.5px] text-slate-500">
+                <span className="truncate text-[12px] text-slate-500">
                   {user?.email ?? id}
                 </span>
               </span>
               {user?.status === 'disabled' ? (
-                <span className="rounded-full bg-slate-100 px-1.5 text-[10.5px] font-semibold text-slate-600">
+                <span className="rounded-full bg-slate-100 px-1.5 text-[12px] font-semibold text-slate-600">
                   Vô hiệu
                 </span>
               ) : null}
@@ -184,7 +184,7 @@ export function RoleMembers({ role, users, onChanged }: RoleMembersProps) {
             </li>
           ))}
           {shown.length === 0 ? (
-            <li className="p-2 text-center text-[12.5px] text-slate-500">
+            <li className="p-2 text-center text-[13px] text-slate-500">
               Không có kết quả phù hợp.
             </li>
           ) : null}

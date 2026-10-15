@@ -117,6 +117,25 @@ export function waitingApproverLabel(input: {
   return `Đang chờ ${who ? `${who} ` : ''}duyệt${step ? ` - ${step}` : ''}`;
 }
 
+/** Rút gọn nhãn người xử lý (các mục cách nhau dấu phẩy): hiện `max` mục đầu kèm "+N", `full` giữ đủ cho tooltip. */
+export function summarizeRoleTitle(
+  roleTitle: string | null | undefined,
+  max = 2,
+): { text: string; full: string } | null {
+  const items = [
+    ...new Set(
+      (roleTitle ?? '')
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean),
+    ),
+  ];
+  if (!items.length) return null;
+  const full = items.join(', ');
+  if (items.length <= max) return { text: full, full };
+  return { text: `${items.slice(0, max).join(', ')} +${items.length - max}`, full };
+}
+
 /** Đọc thông tin quy trình từ một dòng đơn (các trường có thể thiếu). */
 function positiveInt(v: unknown): number | undefined {
   const n = Number(v);

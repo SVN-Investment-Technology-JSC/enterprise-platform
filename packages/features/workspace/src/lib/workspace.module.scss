@@ -1661,6 +1661,43 @@
   gap: 14px;
 }
 
+.dateInputWrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+
+  input {
+    width: 100%;
+    padding-right: 36px !important;
+  }
+}
+
+.datePickerTrigger {
+  position: absolute;
+  right: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5px;
+  border: 0;
+  border-radius: var(--ep-radius-sm);
+  background: transparent;
+  color: var(--ep-text-muted);
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease;
+
+  &:hover {
+    background: var(--ep-hover);
+    color: var(--ep-text);
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+}
+
 .fieldLabel {
   color: var(--ep-text-sub);
   font-size: 12.5px;

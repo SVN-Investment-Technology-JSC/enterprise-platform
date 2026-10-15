@@ -103,7 +103,7 @@ export function ExtraTimeRanges({
           Thêm khoảng {noun}
         </Button>
         {ranges.length > 0 && (
-          <span className="text-[11px] text-slate-500">
+          <span className="text-[12px] text-slate-500">
             Gửi thành {total} đơn {noun}, cùng lý do, mô tả và chứng từ.
           </span>
         )}

@@ -24,7 +24,7 @@
 
 .eyebrow {
   color: #91b8ff;
-  font-size: 0.7rem;
+  font-size: 0.75rem;
   font-weight: 900;
   letter-spacing: 0.16em;
   text-transform: uppercase;
@@ -58,7 +58,7 @@
   border: 1px solid transparent;
   border-radius: 4px;
   font: inherit;
-  font-size: 0.85rem;
+  font-size: 0.875rem;
   font-weight: 600;
   cursor: pointer;
   transition: all 140ms ease;
@@ -107,7 +107,7 @@
   border: 0;
   border-radius: 0.7rem;
   color: #46586f;
-  font-size: 0.9rem;
+  font-size: 0.875rem;
   font-weight: 600;
   background: transparent;
   cursor: pointer;
@@ -137,7 +137,7 @@
 .kpi span {
   display: block;
   color: #66768a;
-  font-size: 0.78rem;
+  font-size: 0.8125rem;
   font-weight: 600;
 }
 
@@ -169,14 +169,14 @@
 
 .panel > span {
   color: #1556d4;
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   font-weight: 800;
   letter-spacing: 0.12em;
   text-transform: uppercase;
 }
 
-.panel h3 { margin: 0.5rem 0 0.3rem; font-size: 1.35rem; letter-spacing: -0.02em; }
-.panel p { margin: 0; color: #66768a; font-size: 0.9rem; }
+.panel h3 { margin: 0.5rem 0 0.3rem; font-size: 1.25rem; letter-spacing: -0.02em; }
+.panel p { margin: 0; color: #66768a; font-size: 0.875rem; }
 
 .card {
   padding: 1.4rem clamp(1rem, 2vw, 1.6rem);
@@ -197,12 +197,12 @@
 
 .cardHeader > h2 {
   margin: 0;
-  font-size: 1.3rem;
+  font-size: 1.25rem;
   letter-spacing: -0.02em;
 }
 
-.card > h2 { margin: 0 0 1rem; font-size: 1.3rem; letter-spacing: -0.02em; }
-.card > p { margin: -0.6rem 0 1rem; color: #66768a; font-size: 0.9rem; }
+.card > h2 { margin: 0 0 1rem; font-size: 1.25rem; letter-spacing: -0.02em; }
+.card > p { margin: -0.6rem 0 1rem; color: #66768a; font-size: 0.875rem; }
 
 /* ---- Modal ------------------------------------------------------------ */
 
@@ -239,14 +239,14 @@
 
 .modalHeader > div > span {
   color: #2563eb;
-  font-size: 0.7rem;
+  font-size: 0.75rem;
   font-weight: 800;
   letter-spacing: 0.1em;
   text-transform: uppercase;
 }
 
-.modalHeader h2 { margin: 0.25rem 0; font-size: 1.35rem; letter-spacing: -0.025em; }
-.modalHeader p { margin: 0; color: #66768a; font-size: 0.85rem; line-height: 1.45; }
+.modalHeader h2 { margin: 0.25rem 0; font-size: 1.25rem; letter-spacing: -0.025em; }
+.modalHeader p { margin: 0; color: #66768a; font-size: 0.875rem; line-height: 1.45; }
 
 .modalDialog > .formGrid { padding: 1.25rem clamp(1rem, 2vw, 1.6rem) 0; }
 .modalDialog > .formActions {
@@ -261,7 +261,7 @@
 
 .eyebrowDark {
   color: #66768a;
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -269,13 +269,13 @@
 
 .tableWrap { overflow-x: auto; }
 
-.table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+.table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
 
 .table th {
   padding: 0 0 0.7rem;
   border-bottom: 1px solid #dbe3ed;
   color: #66768a;
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-align: left;
@@ -288,7 +288,7 @@
 .table tbody tr:hover { background: #f8fafd; }
 
 .code { font-weight: 700; }
-.sub { display: block; margin-top: 0.2rem; color: #66768a; font-size: 0.82rem; }
+.sub { display: block; margin-top: 0.2rem; color: #66768a; font-size: 0.875rem; }
 .numeric { font-variant-numeric: tabular-nums; }
 .low { color: #c2622f; font-weight: 700; }
 .negative { color: #c2622f; font-weight: 700; }
@@ -300,7 +300,7 @@
   border-radius: 999px;
   background: #eaf0ff;
   color: #1556d4;
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   font-weight: 700;
 }
 
@@ -320,10 +320,10 @@
   box-shadow: 0 14px 35px #17335d0a;
 }
 
-.gridCard > span { color: #66768a; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
-.gridCard h3 { margin: 0.45rem 0 0.35rem; font-size: 1.2rem; letter-spacing: -0.02em; }
-.gridCard p { margin: 0 0 0.6rem; color: #46586f; font-size: 0.9rem; }
-.gridCard small { color: #66768a; font-size: 0.82rem; }
+.gridCard > span { color: #66768a; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+.gridCard h3 { margin: 0.45rem 0 0.35rem; font-size: 1.25rem; letter-spacing: -0.02em; }
+.gridCard p { margin: 0 0 0.6rem; color: #46586f; font-size: 0.875rem; }
+.gridCard small { color: #66768a; font-size: 0.875rem; }
 
 /* ---- Asset tree + detail ----------------------------------------------- */
 
@@ -344,7 +344,7 @@
   border: 1px solid #dbe3ed;
   border-radius: 0.6rem;
   font: inherit;
-  font-size: 0.88rem;
+  font-size: 0.875rem;
 }
 
 .tree { display: grid; gap: 0.15rem; max-height: 30rem; overflow-y: auto; }
@@ -363,8 +363,8 @@
 
 .node:hover { background: #f0f4fb; }
 .nodeActive { background: #eaf0ff; }
-.node strong { display: block; font-size: 0.88rem; font-weight: 600; }
-.node small { color: #66768a; font-size: 0.75rem; }
+.node strong { display: block; font-size: 0.875rem; font-weight: 600; }
+.node small { color: #66768a; font-size: 0.8125rem; }
 
 .detailBanner {
   padding: 1.3rem 1.4rem;
@@ -373,9 +373,9 @@
   background: linear-gradient(125deg, #0c2550, #1556d4);
 }
 
-.detailBanner > span { color: #91b8ff; font-size: 0.7rem; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; }
+.detailBanner > span { color: #91b8ff; font-size: 0.75rem; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; }
 .detailBanner h2 { margin: 0.4rem 0 0.2rem; font-size: 1.6rem; letter-spacing: -0.03em; }
-.detailBanner p { margin: 0; color: #c7d8f4; font-size: 0.88rem; }
+.detailBanner p { margin: 0; color: #c7d8f4; font-size: 0.875rem; }
 
 .factRow {
   display: grid;
@@ -388,7 +388,7 @@
 
 .fact { padding: 1rem 1.2rem; border-right: 1px solid #eef2f7; }
 .fact:last-child { border-right: 0; }
-.fact span { display: block; color: #66768a; font-size: 0.78rem; }
+.fact span { display: block; color: #66768a; font-size: 0.8125rem; }
 .fact strong { display: block; margin-top: 0.25rem; font-size: 1rem; }
 
 .specList { display: grid; gap: 0; margin-top: 0.85rem; }
@@ -398,7 +398,7 @@
   justify-content: space-between;
   padding: 0.7rem 0;
   border-bottom: 1px solid #eef2f7;
-  font-size: 0.9rem;
+  font-size: 0.875rem;
 }
 
 .specRow:last-child { border-bottom: 0; }
@@ -427,12 +427,12 @@
 
 .formGridFull { grid-column: 1 / -1; }
 
-.formGrid label { display: grid; gap: 0.35rem; color: #46586f; font-size: 0.85rem; font-weight: 600; }
+.formGrid label { display: grid; gap: 0.35rem; color: #46586f; font-size: 0.875rem; font-weight: 600; }
 
 .fieldHint {
   display: block;
   margin-top: 0.15rem;
-  font-size: 0.78rem;
+  font-size: 0.8125rem;
   color: #64748b;
   font-weight: 500;
 }
@@ -446,7 +446,7 @@
   border-radius: 0.6rem;
   color: #182538;
   font: inherit;
-  font-size: 0.88rem;
+  font-size: 0.875rem;
   background: #f8fafc;
   transition: all 140ms ease;
 }
@@ -478,7 +478,7 @@
 
 .fieldLabel {
   color: #46586f;
-  font-size: 0.85rem;
+  font-size: 0.875rem;
   font-weight: 600;
 }
 
@@ -510,7 +510,7 @@
 
 .checkboxCard span {
   color: #1e293b;
-  font-size: 0.85rem;
+  font-size: 0.875rem;
   font-weight: 600;
 }
 
@@ -541,7 +541,7 @@
   border: 1px solid #dbe3ed;
   border-radius: 0.5rem;
   color: #1556d4;
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   font-weight: 600;
   background: #fff;
   cursor: pointer;
@@ -577,14 +577,14 @@
 
 .confirmEyebrow {
   color: #66768a;
-  font-size: 0.7rem;
+  font-size: 0.75rem;
   font-weight: 800;
   letter-spacing: 0.1em;
   text-transform: uppercase;
 }
 
-.confirmDialog h2 { margin: 0.35rem 0 0.6rem; font-size: 1.2rem; letter-spacing: -0.02em; }
-.confirmDialog p { margin: 0; color: #46586f; font-size: 0.9rem; line-height: 1.55; }
+.confirmDialog h2 { margin: 0.35rem 0 0.6rem; font-size: 1.25rem; letter-spacing: -0.02em; }
+.confirmDialog p { margin: 0; color: #46586f; font-size: 0.875rem; line-height: 1.55; }
 .confirmDialog p strong { color: #182538; }
 
 .confirmActions {
@@ -643,16 +643,16 @@
 
 .dashValue { display: flex; gap: 0.5rem; align-items: baseline; margin: 0; }
 .dashValue strong { font-size: 1.7rem; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
-.dashValue span { color: #66768a; font-size: 0.82rem; }
+.dashValue span { color: #66768a; font-size: 0.875rem; }
 .dashValueAlert strong { color: #b4232a; }
 
 .dashList { display: flex; flex-direction: column; gap: 0.4rem; margin: 0; padding: 0; list-style: none; }
 .dashList li { display: flex; gap: 0.75rem; align-items: baseline; justify-content: space-between; }
-.dashList span { min-width: 0; overflow: hidden; font-size: 0.88rem; text-overflow: ellipsis; white-space: nowrap; }
-.dashList small { flex: none; color: #66768a; font-size: 0.8rem; font-variant-numeric: tabular-nums; }
+.dashList span { min-width: 0; overflow: hidden; font-size: 0.875rem; text-overflow: ellipsis; white-space: nowrap; }
+.dashList small { flex: none; color: #66768a; font-size: 0.8125rem; font-variant-numeric: tabular-nums; }
 
-.dashEmpty { margin: 0; color: #66768a; font-size: 0.85rem; }
-.dashAlert { margin: 0; color: #a2662a; font-size: 0.85rem; line-height: 1.5; }
+.dashEmpty { margin: 0; color: #66768a; font-size: 0.875rem; }
+.dashAlert { margin: 0; color: #a2662a; font-size: 0.875rem; line-height: 1.5; }
 
 /* ========================================================================= */
 /* BẢNG CHUẨN 3 VÙNG CHO PHIẾU PHÁT SINH (OCCURRENCES)                       */
@@ -680,7 +680,7 @@
 
 .occHeader h2 {
   margin: 0;
-  font-size: 1.15rem;
+  font-size: 1.25rem;
   font-weight: 700;
   color: #0f172a;
 }
@@ -688,7 +688,7 @@
 .occHeader p {
   margin: 4px 0 0;
   color: #64748b;
-  font-size: 0.84rem;
+  font-size: 0.875rem;
 }
 
 /* Vùng 1: Header Controls & Filter Bar */
@@ -727,7 +727,7 @@
   border: 1px solid #cbd5e1;
   border-radius: 6px;
   font: inherit;
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   color: #0f172a;
   background: #ffffff;
   outline: none;
@@ -768,7 +768,7 @@
   background: #ffffff;
   color: #475569;
   font: inherit;
-  font-size: 0.8rem;
+  font-size: 0.8125rem;
   font-weight: 600;
   white-space: nowrap;
   cursor: pointer;
@@ -792,7 +792,7 @@
   min-width: 900px;
   table-layout: fixed;
   border-collapse: collapse;
-  font-size: 0.85rem;
+  font-size: 0.875rem;
 }
 
 .occTable th {
@@ -800,7 +800,7 @@
   border-bottom: 1px solid #e2e8f0;
   background: #f8fafc;
   color: #475569;
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   font-weight: 700;
   text-align: left;
   white-space: nowrap;
@@ -820,7 +820,7 @@
   display: inline-block;
   padding: 0.12rem 0.45rem;
   border-radius: 4px;
-  font-size: 0.74rem;
+  font-size: 0.75rem;
   font-weight: 600;
   margin-right: 0.4rem;
   vertical-align: middle;
@@ -845,7 +845,7 @@
   background: #f1f5f9;
   border: 1px solid #e2e8f0;
   font-family: ui-monospace, monospace;
-  font-size: 0.78rem;
+  font-size: 0.8125rem;
   font-weight: 600;
   color: #334155;
 }
@@ -854,7 +854,7 @@
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
-  font-size: 0.78rem;
+  font-size: 0.8125rem;
   font-weight: 600;
 }
 
@@ -870,7 +870,7 @@
   display: inline-block;
   padding: 0.12rem 0.45rem;
   border-radius: 999px;
-  font-size: 0.74rem;
+  font-size: 0.75rem;
   font-weight: 700;
 }
 
@@ -896,7 +896,7 @@
   padding: 2.5rem 1rem;
   text-align: center;
   color: #64748b;
-  font-size: 0.85rem;
+  font-size: 0.875rem;
 }
 
 /* Vùng 3: Footer Phân Trang */
@@ -909,7 +909,7 @@
   padding: 10px 16px;
   border-top: 1px solid #e2e8f0;
   background: #f8fafc;
-  font-size: 12px;
+  font-size: 13px;
   color: #64748b;
 }
 
@@ -920,7 +920,7 @@
 }
 
 .occTotalRecords {
-  font-size: 12px;
+  font-size: 13px;
   color: #64748b;
 }
 
@@ -932,7 +932,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 11.5px;
+  font-size: 12px;
   color: #64748b;
 }
 
@@ -952,7 +952,7 @@
 }
 
 .occPageIndicator {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 700;
   color: #0f172a;
   padding: 0 4px;
@@ -968,7 +968,7 @@
   background: #ffffff;
   color: #0f172a;
   font: inherit;
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.14s ease;

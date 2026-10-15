@@ -41,7 +41,7 @@ export function ProfileCard({
   );
 }
 
-const LABEL = 'block text-[11px] font-semibold text-slate-600';
+const LABEL = 'block text-[12px] font-semibold text-slate-600';
 
 /** Ô chỉ đọc có icon bên trái (dữ liệu do Core hoặc nhân sự quản lý). */
 export function ReadonlyField({
@@ -135,7 +135,7 @@ export function FieldLabel({ children }: { children: ReactNode }) {
 export function InfoCell({ label, children, icon: Icon }: { label: string; children: ReactNode; icon?: LucideIcon }) {
   return (
     <div className="min-w-0">
-      <p className="text-[11px] text-slate-500">{label}</p>
+      <p className="text-[12px] text-slate-500">{label}</p>
       <p className="mt-0.5 flex items-center gap-1.5 text-sm font-semibold text-slate-900">
         {Icon && <Icon className="size-3.5 shrink-0 text-slate-400" aria-hidden="true" />}
         <span className="min-w-0 truncate">{children}</span>

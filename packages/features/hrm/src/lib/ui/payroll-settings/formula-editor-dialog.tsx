@@ -208,7 +208,7 @@ export function FormulaEditorDialog({
                       />
                     </SettingsField>
                   )}
-                  <p className="text-[11px] leading-snug text-slate-500">
+                  <p className="text-[12px] leading-snug text-slate-500">
                     {standardMode === 'FIXED'
                       ? 'Lương theo công = lương tháng x công được trả / công chuẩn cố định, dù tháng có bao nhiêu ngày nghỉ. Công thức mẫu tính đơn giá tăng ca cũng chia theo công chuẩn này (biến STANDARD_PERIOD_MINUTES).'
                       : standardMode === 'MINUTES'
@@ -253,7 +253,7 @@ export function FormulaEditorDialog({
                       </Button>
                     </div>
                   </div>
-                  <p className="text-[11px] text-slate-500">
+                  <p className="text-[12px] text-slate-500">
                     Mẫu gồm lương theo công, OT, phụ cấp, BHXH/BHYT/BHTN, giảm trừ gia cảnh, thuế TNCN, tạm ứng, thực lĩnh.
                   </p>
                   {templateNote.length > 0 && (
@@ -368,7 +368,7 @@ export function FormulaEditorDialog({
                 </SideCard>
                 <PayrollDryRunPanel components={components} inputs={() => parameters(inputs)} />
                 <SideCard title="Biến hệ thống">
-                  <p className="text-[11px] leading-snug text-slate-500">
+                  <p className="text-[12px] leading-snug text-slate-500">
                     Tự tính theo kỳ, không nhập trong tham số.
                   </p>
                   <details className="group rounded-lg border border-slate-200 bg-slate-50/60">
@@ -376,7 +376,7 @@ export function FormulaEditorDialog({
                       <Variable aria-hidden="true" className="size-3.5 text-slate-500" />
                       {PAYROLL_SYSTEM_INPUTS.length} biến có thể dùng trong công thức
                     </summary>
-                    <dl className="max-h-64 space-y-1.5 overflow-y-auto border-t border-slate-200 p-2.5 text-[11px]">
+                    <dl className="max-h-64 space-y-1.5 overflow-y-auto border-t border-slate-200 p-2.5 text-[12px]">
                       {PAYROLL_SYSTEM_INPUTS.map((item) => (
                         <div key={item.code} className="min-w-0">
                           <dt className="font-mono font-semibold break-all text-slate-800">{item.code}</dt>
@@ -385,7 +385,7 @@ export function FormulaEditorDialog({
                       ))}
                     </dl>
                   </details>
-                  <p className="text-[11px] leading-relaxed text-slate-500">
+                  <p className="text-[12px] leading-relaxed text-slate-500">
                     Toán tử: <code className="font-mono">+ - * /</code>, so sánh{' '}
                     <code className="font-mono">{'< > <= >= == !='}</code>; hàm <code className="font-mono">MIN(a, b)</code>,{' '}
                     <code className="font-mono">MAX(a, b)</code>, <code className="font-mono">ROUND(x, số chữ số)</code>,{' '}

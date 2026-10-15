@@ -114,7 +114,7 @@ export function IncidentForm({
         </div>
 
         {formError ? (
-          <p style={{ color: '#dc2626', fontSize: '13px', margin: 0 }}>{formError}</p>
+          <p style={{ color: '#dc2626', fontSize: '14px', margin: 0 }}>{formError}</p>
         ) : null}
 
         <div className={styles.incidentGrid}>
@@ -204,7 +204,7 @@ export function IncidentForm({
                   border: '1px solid #cbd5e1',
                   background: '#ffffff',
                   color: '#1e293b',
-                  fontSize: '12.5px',
+                  fontSize: '13px',
                   fontWeight: 600,
                   cursor: 'pointer',
                   boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
@@ -260,7 +260,7 @@ export function IncidentForm({
                   event.target.value = '';
                 }}
               />
-              <span style={{ fontSize: '11.5px', color: '#64748b' }}>
+              <span style={{ fontSize: '12px', color: '#64748b' }}>
                 (Ảnh chụp hiện trường, biên bản, video ngắn - Tối đa 25MB)
               </span>
             </div>
@@ -279,7 +279,7 @@ export function IncidentForm({
                       borderRadius: '4px',
                       background: '#ffffff',
                       border: '1px solid #e2e8f0',
-                      fontSize: '12px',
+                      fontSize: '13px',
                     }}
                   >
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', overflow: 'hidden' }}>

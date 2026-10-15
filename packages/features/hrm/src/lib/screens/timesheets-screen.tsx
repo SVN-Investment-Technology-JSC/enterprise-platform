@@ -18,6 +18,7 @@ import {
   DialogTitle,
 } from '../ui/dialog';
 import { Input } from '../ui/input';
+import type { BoardFilter } from '../ui/my-timesheet-format';
 import { TimesheetBoard } from '../ui/timesheet-board';
 import { MonthStepper } from '../ui/month-stepper';
 import { PageTitle } from '../ui/page-title';
@@ -226,6 +227,7 @@ export default function TimesheetsScreen() {
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
+  const [flag, setFlag] = useState<BoardFilter>('ALL');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const searchRef = useRef<HTMLInputElement>(null);
   const [fullscreen, setFullscreen] = useState(false);
@@ -263,6 +265,7 @@ export default function TimesheetsScreen() {
       page_size: String(pageSize),
     });
     if (query) params.set('q', query);
+    if (flag !== 'ALL') params.set('flag', flag);
     hrmFetch<{ data: HrmTimesheetBoard }>(`/timesheet-board?${params}`)
       .then((result) => {
         if (live) setBoard(result.data);
@@ -278,7 +281,11 @@ export default function TimesheetsScreen() {
     return () => {
       live = false;
     };
-  }, [month, page, pageSize, query, reloadKey]);
+  }, [month, page, pageSize, query, flag, reloadKey]);
+  const changeFlag = useCallback((next: BoardFilter) => {
+    setFlag(next);
+    setPage(1);
+  }, []);
 
   const changeMonth = useCallback((value: string) => {
     setMonth(value);
@@ -346,6 +353,7 @@ export default function TimesheetsScreen() {
             page_size: String(PAGE_SIZE),
           });
           if (query) params.set('q', query);
+          if (flag !== 'ALL') params.set('flag', flag);
           const result = await hrmFetch<{ data: HrmTimesheetBoard }>(
             `/timesheet-board?${params}`,
           );
@@ -361,7 +369,7 @@ export default function TimesheetsScreen() {
     } finally {
       setExporting(false);
     }
-  }, [board, month, query, selectedIds]);
+  }, [board, month, query, flag, selectedIds]);
 
   const calculate = useCallback(async () => {
     setCalculating(true);
@@ -536,7 +544,7 @@ export default function TimesheetsScreen() {
           <Loader2 className="size-4 animate-spin" />
           <span>Đang tải bảng công...</span>
         </div>
-      ) : board && board.employees.length === 0 ? (
+      ) : board && board.employees.length === 0 && flag === 'ALL' ? (
         <p className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-500">
           Không có nhân viên nào trong bảng công tháng này.
         </p>
@@ -549,6 +557,8 @@ export default function TimesheetsScreen() {
           selectedIds={selectedIds}
           onSelectedChange={setSelectedIds}
           fullscreen={fullscreen}
+          filter={flag}
+          onFilterChange={changeFlag}
           footer={
             canViewAll ? (
               <BoardPagination

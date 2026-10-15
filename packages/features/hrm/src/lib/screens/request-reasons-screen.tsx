@@ -566,7 +566,7 @@ export default function RequestReasonsScreen() {
       cell: (r) => (
         <span className="block min-w-0">
           <span className="block font-semibold text-slate-900">{r.name}</span>
-          {r.description ? <span className="block text-[11px] text-slate-500">{r.description}</span> : null}
+          {r.description ? <span className="block text-[12px] text-slate-500">{r.description}</span> : null}
         </span>
       ),
     },
@@ -575,7 +575,7 @@ export default function RequestReasonsScreen() {
       header: 'Mã',
       width: 'minmax(0,1fr)',
       cardLabel: true,
-      cell: (r) => <span className="font-mono text-[11px] text-slate-600">{r.code}</span>,
+      cell: (r) => <span className="font-mono text-[12px] text-slate-600">{r.code}</span>,
     },
     ...(kind === 'OVERTIME'
       ? [
@@ -672,7 +672,7 @@ export default function RequestReasonsScreen() {
       header: 'Mã',
       width: 'minmax(0,1fr)',
       cardLabel: true,
-      cell: (r) => <span className="font-mono text-[11px] text-slate-600">{r.code}</span>,
+      cell: (r) => <span className="font-mono text-[12px] text-slate-600">{r.code}</span>,
     },
     {
       key: 'paid',
@@ -985,16 +985,16 @@ export default function RequestReasonsScreen() {
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-sm font-semibold text-slate-900">
                         {entry.name}
-                        {entry.active ? null : <span className="ml-1.5 text-[11px] font-medium text-slate-500">(ngừng)</span>}
+                        {entry.active ? null : <span className="ml-1.5 text-[12px] font-medium text-slate-500">(ngừng)</span>}
                       </span>
                       {entry.description ? (
-                        <span className="block truncate text-[11px] text-slate-500">{entry.description}</span>
+                        <span className="block truncate text-[12px] text-slate-500">{entry.description}</span>
                       ) : null}
                     </span>
                     {count != null ? (
                       <span
                         aria-label={`${count} lý do`}
-                        className={`inline-flex min-w-6 items-center justify-center rounded-full border px-1.5 py-0.5 text-[11px] font-semibold ${
+                        className={`inline-flex min-w-6 items-center justify-center rounded-full border px-1.5 py-0.5 text-[12px] font-semibold ${
                           selected ? 'border-blue-300 bg-white text-blue-700' : 'border-slate-200 bg-white text-slate-600'
                         }`}
                       >

@@ -131,7 +131,7 @@ export function LedgerTable({
                     {materialById.get(entry.materialId)?.isActive === false ? (
                       <span
                         style={{
-                          fontSize: '10px',
+                          fontSize: '12px',
                           padding: '1px 5px',
                           borderRadius: '4px',
                           background: '#f1f5f9',

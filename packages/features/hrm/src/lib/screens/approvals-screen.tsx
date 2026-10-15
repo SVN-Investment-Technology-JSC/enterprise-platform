@@ -73,7 +73,7 @@ export default function ApprovalsScreen() {
 function FilterBox({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="min-w-[140px] flex-1">
-      <span className="mb-1 block text-[11px] font-semibold text-slate-500">{label}</span>
+      <span className="mb-1 block text-[12px] font-semibold text-slate-500">{label}</span>
       {children}
     </div>
   );
@@ -388,7 +388,7 @@ function ApprovalsContent() {
       <div className="flex flex-wrap items-end justify-between gap-2">
         <div>
           <h1 className="text-[26px] font-extrabold leading-tight tracking-tight text-slate-900">Đơn từ cần xử lý</h1>
-          <p className="text-[13px] text-slate-500">Theo dõi và phê duyệt các yêu cầu đang chờ xử lý.</p>
+          <p className="text-[14px] text-slate-500">Theo dõi và phê duyệt các yêu cầu đang chờ xử lý.</p>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" onClick={() => void load().catch((e) => setError(e.message))} className="gap-1.5">
@@ -428,7 +428,7 @@ function ApprovalsContent() {
               placeholder="Tên nhân viên, mã đơn, lý do..."
               value={filter.search}
               onChange={(e) => patch({ search: e.target.value })}
-              className="h-full w-full bg-transparent text-[13.5px] outline-none placeholder:text-slate-400"
+              className="h-full w-full bg-transparent text-[14px] outline-none placeholder:text-slate-400"
             />
           </div>
         </FilterBox>
@@ -481,7 +481,7 @@ function ApprovalsContent() {
       <div className="grid gap-3 xl:h-[calc(100dvh-320px)] xl:min-h-[520px] xl:grid-cols-[minmax(0,1fr)_430px]">
         <section className={`${CARD} flex min-h-[420px] min-w-0 flex-col overflow-hidden`} aria-label="Danh sách đơn">
           <div className="flex shrink-0 items-center justify-between gap-2 border-b border-slate-100 px-3">
-            <div className="flex gap-1 text-[13px]" aria-label="Nhóm đơn">
+            <div className="flex gap-1 text-[14px]" aria-label="Nhóm đơn">
               {tabs.map((t) => (
                 <button
                   key={t.id}
@@ -515,8 +515,8 @@ function ApprovalsContent() {
           </div>
 
           <div className="min-h-0 flex-1 overflow-auto">
-            <table className="w-full min-w-[640px] border-collapse text-[13px]" aria-label="Danh sách đơn từ">
-              <thead className="sticky top-0 z-10 bg-slate-50 text-left text-[12.5px] font-semibold text-slate-700">
+            <table className="w-full min-w-[640px] border-collapse text-[14px]" aria-label="Danh sách đơn từ">
+              <thead className="sticky top-0 z-10 bg-slate-50 text-left text-[13px] font-semibold text-slate-700">
                 <tr>
                   <th className="w-10 px-3 py-2.5">
                     <input
@@ -578,34 +578,34 @@ function ApprovalsContent() {
                         </td>
                         <td className="px-2 py-2.5">
                           <div className="flex items-center gap-2.5">
-                            <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-slate-200 text-[11.5px] font-bold text-slate-600">{initialsOf(r.employeeName)}</span>
+                            <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-slate-200 text-[12px] font-bold text-slate-600">{initialsOf(r.employeeName)}</span>
                             <div className="min-w-0">
                               <p className="truncate font-semibold text-slate-900">{r.employeeName}</p>
-                              <p className="truncate text-[11.5px] text-slate-500">{[r.employeeCode, r.department].filter(Boolean).join(' · ')}</p>
+                              <p className="truncate text-[12px] text-slate-500">{[r.employeeCode, r.department].filter(Boolean).join(' · ')}</p>
                             </div>
                           </div>
                         </td>
                         <td className="px-2 py-2.5">
-                          <span className={`inline-flex max-w-[170px] items-center truncate rounded-lg px-2.5 py-1 text-[12px] font-semibold ${kindChip(r.source.kind)}`}>{rowKindLabel(r)}</span>
+                          <span className={`inline-flex max-w-[170px] items-center truncate rounded-lg px-2.5 py-1 text-[13px] font-semibold ${kindChip(r.source.kind)}`}>{rowKindLabel(r)}</span>
                         </td>
                         <td className="px-2 py-2.5">
                           <p className="font-medium text-slate-900">{r.period || '—'}</p>
-                          {amount ? <p className="text-[11.5px] text-slate-500">{amount}</p> : null}
+                          {amount ? <p className="text-[12px] text-slate-500">{amount}</p> : null}
                         </td>
                         <td className="max-w-[200px] px-2 py-2.5">
                           <p className="truncate text-slate-800" title={r.reasonLabel}>
                             {r.reasonLabel}
-                            {isUnpaidOt(r) ? <span className="ml-1.5 rounded bg-amber-50 px-1 text-[10px] font-semibold text-amber-800">Không lương</span> : null}
+                            {isUnpaidOt(r) ? <span className="ml-1.5 rounded bg-amber-50 px-1 text-[12px] font-semibold text-amber-800">Không lương</span> : null}
                           </p>
                         </td>
                         <td className="px-2 py-2.5">
                           <span
-                            className={`inline-flex rounded-lg px-2.5 py-1 text-[12px] font-semibold ${statusTone(r.status)}`}
+                            className={`inline-flex rounded-lg px-2.5 py-1 text-[13px] font-semibold ${statusTone(r.status)}`}
                             title={r.reversalReason ? `Lý do: ${r.reversalReason}` : undefined}
                           >
                             {states[r.status] || r.status}
                           </span>
-                          {isOverdue(r) ? <span className="ml-1.5 text-[10.5px] font-semibold text-rose-600">Quá hạn</span> : null}
+                          {isOverdue(r) ? <span className="ml-1.5 text-[12px] font-semibold text-rose-600">Quá hạn</span> : null}
                         </td>
                       </tr>
                     );
@@ -615,7 +615,7 @@ function ApprovalsContent() {
             </table>
           </div>
 
-          <div className="flex shrink-0 items-center justify-between gap-2 border-t border-slate-100 px-3 py-2.5 text-[12.5px] text-slate-600">
+          <div className="flex shrink-0 items-center justify-between gap-2 border-t border-slate-100 px-3 py-2.5 text-[13px] text-slate-600">
             <span>
               Hiển thị {paged.from}–{paged.to} trên {visible.length} đơn
             </span>
@@ -623,7 +623,7 @@ function ApprovalsContent() {
               <button type="button" aria-label="Trang trước" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))} className="flex size-8 items-center justify-center rounded-lg border border-slate-200 disabled:opacity-40">
                 <ChevronLeft className="size-4" />
               </button>
-              <span className="flex size-8 items-center justify-center rounded-lg bg-amber-100 text-[12.5px] font-bold text-amber-900">{Math.min(page, paged.pages)}</span>
+              <span className="flex size-8 items-center justify-center rounded-lg bg-amber-100 text-[13px] font-bold text-amber-900">{Math.min(page, paged.pages)}</span>
               <button type="button" aria-label="Trang sau" disabled={page >= paged.pages} onClick={() => setPage((p) => Math.min(paged.pages, p + 1))} className="flex size-8 items-center justify-center rounded-lg border border-slate-200 disabled:opacity-40">
                 <ChevronRight className="size-4" />
               </button>

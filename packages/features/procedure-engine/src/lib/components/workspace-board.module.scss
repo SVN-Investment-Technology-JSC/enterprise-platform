@@ -49,7 +49,7 @@
   padding: 0 14px;
   border-radius: 8px;
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   white-space: nowrap;
   cursor: pointer;
@@ -111,7 +111,7 @@
   background: transparent;
   color: var(--muted);
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   cursor: pointer;
 }
@@ -151,7 +151,7 @@
   background: transparent;
   color: #374151;
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   white-space: nowrap;
   cursor: pointer;
@@ -168,7 +168,7 @@
   border-radius: 999px;
   background: var(--line);
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   line-height: 18px;
   text-align: center;
@@ -223,7 +223,7 @@
   border-radius: 8px;
   background: #fafbfc;
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
   color: var(--ink);
   outline: none;
 }
@@ -236,7 +236,7 @@
   border-radius: 8px;
   background: #ffffff;
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
   color: var(--ink);
   outline: none;
   cursor: pointer;
@@ -249,7 +249,7 @@
   border-radius: 7px;
   background: #fafbfc;
   font: inherit;
-  font-size: 12.5px;
+  font-size: 13px;
   color: var(--ink);
   outline: none;
   cursor: pointer;
@@ -270,7 +270,7 @@
   background: transparent;
   color: var(--blue-hover);
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   cursor: pointer;
 }
@@ -317,7 +317,7 @@
   min-height: 42px;
   padding: 0 10px 0 14px;
   border-bottom: 1px solid var(--line);
-  font-size: 12.5px;
+  font-size: 13px;
   color: var(--faint);
 }
 
@@ -378,7 +378,7 @@
   align-items: center;
   gap: 8px;
   min-width: 0;
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--faint);
 }
 
@@ -397,7 +397,7 @@
 
 .caseRowTitle {
   overflow: hidden;
-  font-size: 13.5px;
+  font-size: 14px;
   font-weight: 600;
   line-height: 1.35;
   /* QT-U6: tên hồ sơ ở thẻ preview tối đa 2 dòng. */
@@ -412,7 +412,7 @@
   align-items: center;
   gap: 8px;
   min-width: 0;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
 }
 
@@ -451,7 +451,7 @@
 .code {
   color: var(--faint);
   font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.2px;
   white-space: nowrap;
@@ -462,7 +462,7 @@
   align-items: center;
   padding: 2px 8px;
   border-radius: 6px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   white-space: nowrap;
 }
@@ -483,18 +483,18 @@
   border-radius: 8px;
   background: #fff7ed;
   color: #7c2d12;
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.5;
 }
 
 .reversalTitle {
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 700;
   color: #9a3412;
 }
 
 .reversalMeta {
-  font-size: 11.5px;
+  font-size: 12px;
   color: #9a3412;
   opacity: 0.85;
 }
@@ -514,7 +514,7 @@
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  font-size: 12.5px;
+  font-size: 13px;
   color: #0f172a;
   cursor: pointer;
 }
@@ -525,7 +525,7 @@
   align-items: center;
   padding: 2px 8px;
   border-radius: 6px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -543,7 +543,7 @@
 
 .slaNone {
   color: #9ca3af;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 /* ---- Dạng bảng ---- */
@@ -552,7 +552,7 @@
   border-collapse: separate;
   border-spacing: 0;
   table-layout: fixed;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .masterTable th {
@@ -564,7 +564,7 @@
   border-bottom: 1px solid var(--line);
   background: #fafbfc;
   color: var(--faint);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.5px;
   text-align: left;
@@ -636,7 +636,7 @@
   padding: 0 10px 0 14px;
   border-top: 1px solid var(--line);
   color: var(--faint);
-  font-size: 12.5px;
+  font-size: 13px;
 }
 
 .pagerInfo {
@@ -686,7 +686,7 @@
 .panelTitle {
   margin: 0;
   color: var(--faint);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.8px;
   text-transform: uppercase;
@@ -719,7 +719,7 @@
   background: #ffffff;
   color: #b91c1c;
   font: inherit;
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 600;
   cursor: pointer;
 }
@@ -737,7 +737,7 @@
 .detailTitle {
   margin: 0;
   color: var(--ink);
-  font-size: 18px;
+  font-size: 20px;
   font-weight: 700;
   line-height: 1.3;
   /* QT-U6: tên hồ sơ tối đa 2 dòng, dài hơn thì cắt bằng dấu ba chấm. */
@@ -750,7 +750,7 @@
 .detailCode {
   margin-top: 4px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
   letter-spacing: 0.02em;
 }
@@ -761,7 +761,7 @@
   gap: 4px 16px;
   margin: 0;
   color: var(--muted);
-  font-size: 12.5px;
+  font-size: 13px;
 }
 
 .metaLine > div {
@@ -782,7 +782,7 @@
 .linkNote {
   margin: 0;
   color: var(--muted);
-  font-size: 12.5px;
+  font-size: 13px;
 }
 
 .linkNoteError {
@@ -807,7 +807,7 @@
   background: transparent;
   color: var(--muted);
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   white-space: nowrap;
   cursor: pointer;
@@ -828,7 +828,7 @@
   border-radius: 999px;
   background: var(--line);
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   line-height: 18px;
 }
@@ -907,7 +907,7 @@
   width: 24px;
   height: 24px;
   border-radius: 999px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
 }
 
@@ -952,7 +952,7 @@
 
 .timelineOrder {
   color: var(--faint);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.3px;
   text-transform: uppercase;
@@ -963,7 +963,7 @@
   flex: 1 1 160px;
   min-width: 0;
   color: var(--ink);
-  font-size: 13.5px;
+  font-size: 14px;
   font-weight: 600;
 }
 
@@ -994,7 +994,7 @@
   align-items: center;
   gap: 5px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .roleName {
@@ -1020,7 +1020,7 @@
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .roleCount {
@@ -1040,7 +1040,7 @@
   background: #fff;
   color: #1d4ed8;
   font: inherit;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   cursor: pointer;
 
@@ -1086,7 +1086,7 @@
     background: #f9fafb;
     color: var(--ink);
     font: inherit;
-    font-size: 12px;
+    font-size: 13px;
 
     &:focus {
       outline: 2px solid var(--accent-strong);
@@ -1100,7 +1100,7 @@
   border-top: 1px solid var(--line);
   background: #f9fafb;
   color: var(--faint);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.5px;
   text-transform: uppercase;
@@ -1116,7 +1116,7 @@
   gap: 8px;
   padding: 5px 10px;
   border-top: 1px solid var(--line);
-  font-size: 12px;
+  font-size: 13px;
 
   span:first-child {
     color: var(--ink);
@@ -1131,7 +1131,7 @@
 .roleEmpty {
   padding: 12px;
   color: var(--faint);
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .role {
@@ -1141,7 +1141,7 @@
   width: 18px;
   height: 18px;
   border-radius: 5px;
-  font-size: 10.5px;
+  font-size: 12px;
   font-style: normal;
   font-weight: 700;
 }
@@ -1185,7 +1185,7 @@
 }
 
 .stepBadge {
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 700;
   color: #1e40af;
   background: #dbeafe;
@@ -1200,7 +1200,7 @@
   gap: 6px;
   margin: 0;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 
 /* Phần xử lý của người đang xem, nằm trong thẻ bước đang chạy. */
@@ -1247,7 +1247,7 @@
   display: inline-flex;
   padding: 2px 7px;
   border-radius: 4px;
-  font-size: 10.5px;
+  font-size: 12px;
   font-weight: 700;
   background: #f1f5f9;
   color: var(--muted);
@@ -1262,7 +1262,7 @@
 
 .commentLabel {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
 }
 
@@ -1275,7 +1275,7 @@
   background: #ffffff;
   color: var(--ink);
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
   outline: none;
   resize: vertical;
 }
@@ -1328,14 +1328,14 @@
 }
 
 .popconfirmTitle {
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 700;
   color: #0f172a;
   margin-bottom: 4px;
 }
 
 .popconfirmDesc {
-  font-size: 11.5px;
+  font-size: 12px;
   color: #64748b;
   line-height: 1.45;
   margin-bottom: 10px;
@@ -1351,7 +1351,7 @@
 .popconfirmActions .danger {
   min-height: 30px;
   padding: 0 10px;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 /* Hộp xác nhận mở xuống dưới: nút ở đầu khung chi tiết, mở lên sẽ bị cắt. */
@@ -1379,7 +1379,7 @@
   background: transparent;
   border: 0;
   color: #dc2626;
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 600;
   cursor: pointer;
   padding: 4px 8px;
@@ -1402,7 +1402,7 @@
   background: #fee2e2;
   border-radius: 6px;
   color: #991b1b;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   margin: 0 0 10px;
 }
@@ -1412,7 +1412,7 @@
   background: #f0fdf4;
   border-radius: 6px;
   color: #166534;
-  font-size: 12px;
+  font-size: 13px;
   margin: 0 0 10px;
 }
 
@@ -1432,7 +1432,7 @@
   padding: 8px 12px;
   border-radius: 6px;
   background: #f8fafc;
-  font-size: 12.5px;
+  font-size: 13px;
 }
 
 .lineShort {
@@ -1441,7 +1441,7 @@
 }
 
 .panelHint {
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--faint);
   margin: 8px 0 0;
 }
@@ -1460,7 +1460,7 @@
 
 .empty p {
   margin: 0 0 14px;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 @keyframes fadeIn {
@@ -1486,7 +1486,7 @@
   border: 1px dashed #cbd5e1;
   border-radius: 8px;
   font: inherit;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--muted);
   cursor: pointer;
@@ -1508,12 +1508,12 @@
 }
 
 .attachToggleIcon {
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .attachToggleHint {
   margin-left: auto;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--blue);
 }
@@ -1522,7 +1522,7 @@
   margin-left: auto;
   background: var(--blue);
   color: #ffffff;
-  font-size: 10.5px;
+  font-size: 12px;
   font-weight: 700;
   padding: 2px 7px;
   border-radius: 999px;
@@ -1553,7 +1553,7 @@
   background: #ffffff;
   border: 1px solid #cbd5e1;
   border-radius: 6px;
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--ink);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
 }
@@ -1567,7 +1567,7 @@
 }
 
 .attachChipSize {
-  font-size: 10px;
+  font-size: 12px;
   color: var(--faint);
 }
 
@@ -1603,7 +1603,7 @@
   border: 1px solid #93c5fd;
   border-radius: 6px;
   font: inherit;
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 700;
   color: #1e40af;
   cursor: pointer;
@@ -1617,7 +1617,7 @@
 }
 
 .attachSubtext {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--faint);
 }
 
@@ -1640,7 +1640,7 @@
   border: none;
   border-bottom: 1px solid transparent;
   font: inherit;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 700;
   color: var(--ink);
   cursor: pointer;
@@ -1670,7 +1670,7 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 700;
   color: var(--ink);
 }
@@ -1682,7 +1682,7 @@
   border-radius: 8px;
   background: #ffffff;
   font: inherit;
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--ink);
   outline: none;
@@ -1751,7 +1751,7 @@
 
 .subtaskOrder {
   font-family: ui-monospace, SFMono-Regular, monospace;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 800;
   color: var(--faint);
   background: #f1f5f9;
@@ -1760,7 +1760,7 @@
 }
 
 .subtaskWeight {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 800;
   color: #1e40af;
   background: #eff6ff;
@@ -1771,7 +1771,7 @@
 }
 
 .subtaskTitle {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
   color: var(--ink);
   flex: 1 1 180px;
@@ -1779,7 +1779,7 @@
 
 .mineTag {
   font-style: normal;
-  font-size: 10.5px;
+  font-size: 12px;
   font-weight: 700;
   color: #059669;
   background: #d1fae5;
@@ -1789,7 +1789,7 @@
 }
 
 .subtaskStatus {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   padding: 2px 8px;
   border-radius: 999px;
@@ -1821,7 +1821,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--muted);
   padding-top: 4px;
 }
@@ -1863,7 +1863,7 @@
   border-radius: 6px;
   background: #ffffff;
   font: inherit;
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--ink);
   cursor: pointer;
@@ -1886,7 +1886,7 @@
   background: #059669;
   color: #ffffff;
   font: inherit;
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 700;
   cursor: pointer;
   box-shadow: 0 1px 3px rgba(5, 150, 105, 0.2);
@@ -1907,7 +1907,7 @@
   background: #fff1f2;
   color: #e11d48;
   font: inherit;
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.15s;
@@ -1941,7 +1941,7 @@
   padding: 4px 8px;
   background: #f8fafc;
   border-radius: 4px;
-  font-size: 11.5px;
+  font-size: 12px;
 }
 
 .evidenceList {
@@ -1960,7 +1960,7 @@
   background: #f1f5f9;
   border: 1px solid #e2e8f0;
   border-radius: 4px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   color: #1e40af;
 }
@@ -1990,14 +1990,14 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--ink);
 }
 
 .modeRow em {
   font-style: normal;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--faint);
   margin-left: auto;
 }
@@ -2008,7 +2008,7 @@
   border-radius: 6px;
   background: #ffffff;
   font: inherit;
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--muted);
   cursor: pointer;
@@ -2043,7 +2043,7 @@
   border: 1px solid #cbd5e1;
   border-radius: 6px;
   font: inherit;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .subtaskRow input[type="number"] {
@@ -2052,7 +2052,7 @@
   border: 1px solid #cbd5e1;
   border-radius: 6px;
   font: inherit;
-  font-size: 12px;
+  font-size: 13px;
   text-align: right;
 }
 
@@ -2063,7 +2063,7 @@
   border-radius: 6px;
   background: #ffffff;
   font: inherit;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .orderControls {
@@ -2077,7 +2077,7 @@
   background: #ffffff;
   padding: 2px 6px;
   border-radius: 4px;
-  font-size: 10px;
+  font-size: 12px;
   cursor: pointer;
 }
 
@@ -2141,7 +2141,7 @@
 
 .subtaskEditorDrawerHead p {
   margin: 4px 0 0;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--faint);
 }
 
@@ -2156,7 +2156,7 @@
   background: #ffffff;
   color: var(--faint);
   cursor: pointer;
-  font-size: 18px;
+  font-size: 20px;
   line-height: 1;
   transition: all 0.15s ease;
 }
@@ -2193,13 +2193,13 @@
 }
 
 .totalOk {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 700;
   color: #059669;
 }
 
 .totalBad {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 700;
   color: #dc2626;
 }
@@ -2224,7 +2224,7 @@
   padding: 4px 8px;
   border: 1px solid #cbd5e1;
   border-radius: 4px;
-  font-size: 11.5px;
+  font-size: 12px;
 }
 
 .materialRow input[type="number"] {
@@ -2232,11 +2232,11 @@
   padding: 4px 6px;
   border: 1px solid #cbd5e1;
   border-radius: 4px;
-  font-size: 11.5px;
+  font-size: 12px;
 }
 
 .materialStock {
-  font-size: 11px;
+  font-size: 12px;
   color: #059669;
   white-space: nowrap;
 }
@@ -2262,7 +2262,7 @@
 
 .orderHead h4 {
   margin: 0;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
   color: var(--ink);
 }
@@ -2284,7 +2284,7 @@
   background: #ffffff;
   border: 1px solid #e2e8f0;
   border-radius: 6px;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .orderName {
@@ -2299,12 +2299,12 @@
 }
 
 .orderStock {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--faint);
 }
 
 .orderFrom {
-  font-size: 10.5px;
+  font-size: 12px;
   color: var(--muted);
   background: #f1f5f9;
   padding: 1px 6px;
@@ -2326,7 +2326,7 @@
   padding: 4px 8px;
   border: 1px solid #cbd5e1;
   border-radius: 4px;
-  font-size: 12px;
+  font-size: 13px;
   text-align: right;
 }
 
@@ -2347,7 +2347,7 @@
   border: 1px solid #e2e8f0;
   border-radius: 8px;
   font: inherit;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--ink);
   cursor: pointer;
@@ -2371,7 +2371,7 @@
 }
 
 .drawerTriggerArrow {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--faint);
   transition: transform 0.15s ease, color 0.15s ease;
@@ -2397,7 +2397,7 @@
 }
 
 .historySummaryBadge {
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 700;
   color: #1e40af;
   background: #eff6ff;
@@ -2451,14 +2451,14 @@
 }
 
 .roundTitle {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 800;
   color: var(--ink);
   letter-spacing: -0.01em;
 }
 
 .roundCurrentTag {
-  font-size: 10.5px;
+  font-size: 12px;
   font-weight: 800;
   color: #1d4ed8;
   background: #dbeafe;
@@ -2469,7 +2469,7 @@
 }
 
 .roundPastTag {
-  font-size: 10.5px;
+  font-size: 12px;
   font-weight: 700;
   color: #64748b;
   background: #f1f5f9;
@@ -2478,7 +2478,7 @@
 }
 
 .roundCountHint {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--faint);
 }
@@ -2582,7 +2582,7 @@
 }
 
 .eventActionBadge {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   padding: 2px 8px;
   border-radius: 999px;
@@ -2592,7 +2592,7 @@
 }
 
 .eventTime {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--faint);
 }
@@ -2604,7 +2604,7 @@
 }
 
 .eventActorSummary {
-  font-size: 12.5px;
+  font-size: 13px;
   color: var(--ink);
   line-height: 1.4;
 }
@@ -2623,14 +2623,14 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 700;
   color: #1e40af;
   margin-top: 2px;
 }
 
 .eventStepIcon {
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .eventCommentBox {
@@ -2656,7 +2656,7 @@
 
 .eventCommentLabel {
   display: block;
-  font-size: 10.5px;
+  font-size: 12px;
   font-weight: 700;
   color: var(--muted);
   text-transform: uppercase;
@@ -2666,7 +2666,7 @@
 
 .eventCommentText {
   margin: 0;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--ink);
   line-height: 1.45;
   font-weight: 500;
@@ -2687,7 +2687,7 @@
 }
 
 .chatSummaryBadge {
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 700;
   color: #1e40af;
   background: #eff6ff;
@@ -2733,7 +2733,7 @@
   padding: 1px 8px;
   border: 1px solid #e2e8f0;
   border-radius: 999px;
-  font-size: 10.5px;
+  font-size: 12px;
   font-weight: 700;
   color: var(--muted);
 }
@@ -2747,7 +2747,7 @@
   text-align: center;
   color: var(--muted);
   gap: 6px;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 /* Thread Nesting */
@@ -2810,19 +2810,19 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 800;
   flex-shrink: 0;
 }
 
 .chatSenderName {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 700;
   color: var(--ink);
 }
 
 .chatTimestamp {
-  font-size: 10.5px;
+  font-size: 12px;
   color: var(--faint);
   font-weight: 500;
   margin-left: 2px;
@@ -2835,7 +2835,7 @@
 }
 
 .threadCount {
-  font-size: 10.5px;
+  font-size: 12px;
   font-weight: 700;
   color: var(--blue);
   background: #eff6ff;
@@ -2853,7 +2853,7 @@
   background: transparent;
   border-radius: 4px;
   color: #94a3b8;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
   cursor: pointer;
   line-height: 1;
@@ -2869,7 +2869,7 @@
 }
 
 .chatBubble {
-  font-size: 12.5px;
+  font-size: 13px;
   color: var(--ink);
   line-height: 1.45;
   word-break: break-word;
@@ -2885,12 +2885,12 @@
   padding: 0 5px;
   border-radius: 4px;
   border: 1px solid #bfdbfe;
-  font-size: 11.5px;
+  font-size: 12px;
 }
 
 .replyQuote {
   margin: 0;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--faint);
   padding-left: 26px;
 }
@@ -2916,7 +2916,7 @@
   background: #eff6ff;
   border: 1px solid #bfdbfe;
   border-radius: 6px;
-  font-size: 11.5px;
+  font-size: 12px;
   color: #1e40af;
 }
 
@@ -2931,7 +2931,7 @@
   border: none;
   background: transparent;
   color: #64748b;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 700;
   cursor: pointer;
   padding: 0 4px;
@@ -2953,7 +2953,7 @@
   border-radius: 8px;
   background: #ffffff;
   font: inherit;
-  font-size: 12.5px;
+  font-size: 13px;
   color: var(--ink);
   line-height: 1.45;
   resize: vertical;
@@ -2993,7 +2993,7 @@
   background: transparent;
   border-radius: 4px;
   font: inherit;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--ink);
   cursor: pointer;
@@ -3006,7 +3006,7 @@
 }
 
 .mentionAvatar {
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .composerFoot {
@@ -3018,7 +3018,7 @@
 }
 
 .composerHint {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--faint);
   display: flex;
   align-items: center;
@@ -3034,7 +3034,7 @@
   border: 1px solid #cbd5e1;
   border-radius: 4px;
   font: inherit;
-  font-size: 10.5px;
+  font-size: 12px;
   font-weight: 700;
   color: var(--blue);
   cursor: pointer;
@@ -3056,7 +3056,7 @@
   border-radius: 6px;
   color: #ffffff;
   font: inherit;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 700;
   cursor: pointer;
   box-shadow: 0 1px 3px rgba(37, 99, 235, 0.2);
@@ -3115,7 +3115,7 @@
 
 .createModalTitle {
   margin: 0;
-  font-size: 16.5px;
+  font-size: 16px;
   font-weight: 800;
   color: var(--ink);
   letter-spacing: -0.01em;
@@ -3123,7 +3123,7 @@
 
 .createModalSubtitle {
   margin: 3px 0 0;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   font-weight: 500;
 }
@@ -3163,7 +3163,7 @@
   align-items: center;
   gap: 6px;
   color: #ef4444;
-  font-size: 13.5px;
+  font-size: 14px;
   font-weight: 700;
   margin-bottom: 2px;
 }
@@ -3195,7 +3195,7 @@
   border: 1px solid #e0e0e0;
   border-radius: 4px;
   font: inherit;
-  font-size: 15px;
+  font-size: 16px;
   color: #333333;
   outline: none;
   transition: all 0.15s ease;
@@ -3217,7 +3217,7 @@
   border: 1px solid #cbd5e1;
   border-radius: 8px;
   font: inherit;
-  font-size: 13.5px;
+  font-size: 14px;
   color: var(--ink);
   outline: none;
   cursor: pointer;
@@ -3250,7 +3250,7 @@
   border: 1px solid #e0e0e0;
   border-radius: 4px;
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
   color: var(--ink);
   outline: none;
 }
@@ -3263,7 +3263,7 @@
   border: 1px solid #e0e0e0;
   border-radius: 4px;
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
   color: var(--ink);
   outline: none;
 }
@@ -3272,7 +3272,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
   color: #334155;
   cursor: pointer;
@@ -3301,7 +3301,7 @@
   border: 1px solid #cbd5e1;
   border-radius: 8px;
   font: inherit;
-  font-size: 13.5px;
+  font-size: 14px;
   color: var(--ink);
   outline: none;
   transition: all 0.15s ease;
@@ -3344,7 +3344,7 @@
   justify-content: space-between;
   padding: 8px 12px;
   border-radius: 6px;
-  font-size: 13px;
+  font-size: 14px;
   color: #1e293b;
   cursor: pointer;
   background: transparent;
@@ -3379,14 +3379,14 @@
   background: #eff6ff;
   border: 1px solid #bfdbfe;
   border-radius: 6px;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   color: #1d4ed8;
 }
 
 .createTagRemove {
   cursor: pointer;
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1;
   color: #64748b;
 }
@@ -3406,7 +3406,7 @@
 }
 
 .createStepPreviewTitle {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 700;
   color: #475569;
   text-transform: uppercase;
@@ -3428,14 +3428,14 @@
   background: #ffffff;
   border: 1px solid #e2e8f0;
   border-radius: 6px;
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 600;
   color: #1e293b;
 }
 
 .createStepArrow {
   color: #94a3b8;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .createSubmitBtnRed {
@@ -3448,7 +3448,7 @@
   border-radius: 6px;
   color: #ffffff;
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
   cursor: pointer;
   transition: all 0.15s ease;
@@ -3475,7 +3475,7 @@
   border-radius: 4px;
   color: #4b5563;
   font: inherit;
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.15s ease;
@@ -3489,14 +3489,14 @@
 
 .createFormHint {
   margin: 2px 0 0;
-  font-size: 12px;
+  font-size: 13px;
   color: #64748b;
   line-height: 1.4;
 }
 
 .createScheduleError {
   margin: -4px 0 0;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   color: #dc2626;
   line-height: 1.4;
@@ -3524,7 +3524,7 @@
   box-shadow: 0 1px 3px rgba(37, 99, 235, 0.2);
   color: #ffffff;
   font: inherit;
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 700;
   cursor: pointer;
   transition: background-color 0.15s ease, border-color 0.15s ease;
@@ -3563,7 +3563,7 @@
   background: #f1f5f9;
   border-radius: 999px;
   color: #64748b;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
   cursor: pointer;
   transition: all 0.15s;
@@ -3607,7 +3607,7 @@
   border: 1px solid #cbd5e1;
   border-radius: 8px;
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
   color: var(--ink);
   outline: none;
   transition: all 0.15s;
@@ -3630,7 +3630,7 @@
   border: none;
   background: #e2e8f0;
   border-radius: 999px;
-  font-size: 10.5px;
+  font-size: 12px;
   color: #64748b;
   cursor: pointer;
 }
@@ -3652,7 +3652,7 @@
   border: 1px solid #cbd5e1;
   border-radius: 8px;
   font: inherit;
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--ink);
   outline: none;
@@ -3687,7 +3687,7 @@
   width: 100%;
   border-collapse: collapse;
   text-align: left;
-  font-size: 12.5px;
+  font-size: 13px;
 }
 
 .createTable th {
@@ -3696,7 +3696,7 @@
   color: var(--faint);
   font-weight: 700;
   text-transform: uppercase;
-  font-size: 10.5px;
+  font-size: 12px;
   letter-spacing: 0.04em;
   border-bottom: 1px solid #e2e8f0;
 }
@@ -3730,7 +3730,7 @@
 
 .createTableCode {
   font-family: ui-monospace, SFMono-Regular, monospace;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 800;
   color: #1e40af;
   background: #eff6ff;
@@ -3747,14 +3747,14 @@
 }
 
 .createTableName {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
   color: var(--ink);
   line-height: 1.35;
 }
 
 .createTableDesc {
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--muted);
   line-height: 1.35;
   display: -webkit-box;
@@ -3765,7 +3765,7 @@
 
 .createTableCategoryTag {
   display: inline-flex;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   color: #475569;
   background: #f1f5f9;
@@ -3781,7 +3781,7 @@
 }
 
 .createTableStepsBadge {
-  font-size: 10.5px;
+  font-size: 12px;
   font-weight: 700;
   color: var(--faint);
 }
@@ -3793,7 +3793,7 @@
 }
 
 .createStepPill {
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--faint);
   background: #f1f5f9;
@@ -3803,7 +3803,7 @@
 }
 
 .createStepMore {
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 700;
   color: var(--blue);
   padding: 1px 3px;
@@ -3819,7 +3819,7 @@
   border: none;
   border-radius: 6px;
   font: inherit;
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 700;
   cursor: pointer;
   transition: all 0.15s;
@@ -3849,7 +3849,7 @@
 
 .createEmptyState p {
   margin: 0;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .createModalFoot {
@@ -3862,7 +3862,7 @@
 }
 
 .createModalHint {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--faint);
 }
 
@@ -3914,7 +3914,7 @@
 }
 
 .fileCardName {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   color: #0f172a;
   white-space: nowrap;
@@ -3926,7 +3926,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 11.5px;
+  font-size: 12px;
   color: #64748b;
 }
 
@@ -3943,7 +3943,7 @@
   gap: 5px;
   padding: 5px 10px;
   border-radius: 6px;
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 600;
   text-decoration: none;
   cursor: pointer;
@@ -3976,7 +3976,7 @@
 }
 
 .createTableStepsBadge {
-  font-size: 10.5px;
+  font-size: 12px;
   font-weight: 700;
   color: var(--faint);
 }
@@ -3988,7 +3988,7 @@
 }
 
 .createStepPill {
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--faint);
   background: #f1f5f9;
@@ -3998,7 +3998,7 @@
 }
 
 .createStepMore {
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 700;
   color: var(--blue);
   padding: 1px 3px;
@@ -4014,7 +4014,7 @@
   border: none;
   border-radius: 6px;
   font: inherit;
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 700;
   cursor: pointer;
   transition: all 0.15s;
@@ -4044,7 +4044,7 @@
 
 .createEmptyState p {
   margin: 0;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .createModalFoot {
@@ -4057,7 +4057,7 @@
 }
 
 .createModalHint {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--faint);
 }
 
@@ -4109,7 +4109,7 @@
 }
 
 .fileCardName {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   color: #0f172a;
   white-space: nowrap;
@@ -4121,7 +4121,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 11.5px;
+  font-size: 12px;
   color: #64748b;
 }
 
@@ -4138,7 +4138,7 @@
   gap: 5px;
   padding: 5px 10px;
   border-radius: 6px;
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 600;
   text-decoration: none;
   cursor: pointer;
@@ -4201,7 +4201,7 @@
 
 .linkedGroup header h4 {
   margin: 0;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 800;
   color: var(--ink);
   letter-spacing: -0.01em;
@@ -4236,7 +4236,7 @@
   border-radius: 999px;
   background: #e2e8f0;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   flex-shrink: 0;
 }
@@ -4276,13 +4276,13 @@
 
 .linkedCode {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   color: var(--blue);
 }
 
 .linkedTitle {
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--ink);
   white-space: nowrap;
@@ -4295,7 +4295,7 @@
   align-items: center;
   padding: 3px 8px;
   border-radius: 999px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   white-space: nowrap;
   flex-shrink: 0;
@@ -4345,12 +4345,12 @@
 
 .panelSubtitle {
   margin: 2px 0 0;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
 }
 
 .panelHint {
-  font-size: 12.5px;
+  font-size: 13px;
   color: var(--muted);
   margin: 8px 0 0;
 }
@@ -4358,7 +4358,7 @@
 .select {
   height: 32px;
   padding: 0 28px 0 10px;
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 500;
   color: #1e293b;
   background-color: #ffffff;
@@ -4406,12 +4406,12 @@
   border: 1px dashed #93c5fd;
   border-radius: 8px;
   background: #eff6ff;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .timelineDecision strong {
   color: #1e3a8a;
-  font-size: 12.5px;
+  font-size: 13px;
 }
 
 .timelineDecision p {
@@ -4426,7 +4426,7 @@
   border-radius: 4px;
   color: #fff;
   background: #2563eb;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 800;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -4441,7 +4441,7 @@
   border-radius: 8px;
   color: #94a3b8;
   background: #f8fafc;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .timelineSkipped strong {
@@ -4453,7 +4453,7 @@
   gap: 4px;
   margin: 8px 0;
   color: #334155;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 700;
 }
 
@@ -4461,19 +4461,19 @@
 .filterCombo {
   width: 190px;
   min-width: 0;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .sortCombo {
   width: 120px;
   min-width: 0;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .pagerCombo {
   width: 112px;
   min-width: 0;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 /* ===== QT-L3 / QT-U1 / QT-U4 / QT-U5 bổ sung ===== */
@@ -4487,7 +4487,7 @@
 /* QT-U5: nhãn + hàng nút trong ô "Trả lại về bước". */
 .returnPickerLabel {
   color: #334155;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 700;
 }
 
@@ -4509,14 +4509,14 @@
 .confirmModalText {
   margin: 0;
   color: var(--ink);
-  font-size: 13.5px;
+  font-size: 14px;
   line-height: 1.5;
 }
 
 .confirmModalNote {
   margin: 0;
   color: var(--muted);
-  font-size: 12.5px;
+  font-size: 13px;
   line-height: 1.45;
 }
 
@@ -4537,7 +4537,7 @@
 
 .stepDocsLabel {
   color: var(--faint);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.3px;
   text-transform: uppercase;
@@ -4559,7 +4559,7 @@
   border-radius: 999px;
   background: #f8fafc;
   color: #1d4ed8;
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 600;
   text-decoration: none;
 }
@@ -4592,7 +4592,7 @@ a.stepDocChip:hover {
   border-radius: 999px;
   background: #e2e8f0;
   color: #334155;
-  font-size: 10.5px;
+  font-size: 12px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
@@ -4628,7 +4628,7 @@ a.stepDocChip:hover {
 
 .rolePopoverHead {
   color: var(--faint);
-  font-size: 10.5px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.3px;
   text-transform: uppercase;
@@ -4636,6 +4636,6 @@ a.stepDocChip:hover {
 
 .rolePopoverItem {
   color: var(--ink);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.4;
 }

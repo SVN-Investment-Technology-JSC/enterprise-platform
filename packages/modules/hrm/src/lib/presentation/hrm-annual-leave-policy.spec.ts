@@ -132,6 +132,7 @@ interface World {
   balances: Row[];
   employees: Row[];
   audits: Row[];
+  bindingsDeactivated: { code: string }[];
 }
 
 /** Giả lập các truy vấn SQL của HRM đủ cho chính sách phép năm và các quy tắc lý do nghỉ. */
@@ -145,6 +146,7 @@ function build(init: Partial<World> = {}, granted = ['hrm.read', 'hrm.leave.read
     balances: [],
     employees: [],
     audits: [],
+    bindingsDeactivated: [],
     ...init,
   };
   const calls: Call[] = [];
@@ -194,6 +196,10 @@ function build(init: Partial<World> = {}, granted = ['hrm.read', 'hrm.leave.read
         updated_at: new Date(Date.now() + ++seq),
       });
       return [type];
+    }
+    if (q.startsWith('UPDATE hrm_schema.request_procedure_bindings SET is_active=false')) {
+      world.bindingsDeactivated.push({ code: params[1] as string });
+      return [];
     }
     if (q.startsWith('UPDATE hrm_schema.leave_types SET deleted_at')) {
       const type = typeById(params[1]);
@@ -851,6 +857,8 @@ describe('Lý do nghỉ: tạo, sửa, ngừng', () => {
     const { leave, world } = build({ types: [leaveType(SICK)] });
     await leave.deleteLeaveType(req, SICK, patch);
     expect(world.types[0].active).toBe(false);
+    // Xoá mềm loại thì gỡ liên kết quy trình theo mã loại để loại tạo lại cùng mã không thừa hưởng.
+    expect(world.bindingsDeactivated).toEqual([{ code: world.types[0].code }]);
   });
 
   it('GET /leave-types trả thêm isAnnual', async () => {

@@ -546,11 +546,11 @@ export default function PayrollScreen() {
                         <span className="font-semibold">{p.periodCode}</span>
                         {getPeriodStatusBadge(p.status)}
                       </div>
-                      <p className="text-[11px] text-slate-500">
+                      <p className="text-[12px] text-slate-500">
                         {formatDate(p.fromDate)} → {formatDate(p.toDate)}
                       </p>
                       {p.paymentDate && (
-                        <p className="mt-0.5 text-[11px] text-slate-400">
+                        <p className="mt-0.5 text-[12px] text-slate-400">
                           Dự kiến chi: {p.paymentDate}
                         </p>
                       )}
@@ -775,7 +775,7 @@ export default function PayrollScreen() {
                       render: (_, r) => (
                         <div>
                           <span className="block font-semibold text-slate-900">{r.full_name}</span>
-                          <span className="font-mono text-[11px] text-slate-500">{r.employee_code}</span>
+                          <span className="font-mono text-[12px] text-slate-500">{r.employee_code}</span>
                         </div>
                       ),
                     },
@@ -921,7 +921,7 @@ export default function PayrollScreen() {
                             >
                               <div>
                                 <span className="font-semibold text-slate-900">{i.description}</span>
-                                <span className="ml-2 text-[11px] text-slate-500">
+                                <span className="ml-2 text-[12px] text-slate-500">
                                   ({String(i.calculationSnapshot?.formula || 'Khoản điều chỉnh')})
                                 </span>
                               </div>
@@ -934,7 +934,7 @@ export default function PayrollScreen() {
                                       variant="outline"
                                       disabled={!editable || busy}
                                       onClick={() => editItem(i)}
-                                      className="h-6 px-2 text-[11px]"
+                                      className="h-6 px-2 text-[12px]"
                                     >
                                       Sửa
                                     </Button>
@@ -943,7 +943,7 @@ export default function PayrollScreen() {
                                       variant="outline"
                                       disabled={!editable || busy}
                                       onClick={() => editItem(i, true)}
-                                      className="h-6 border-rose-200 px-2 text-[11px] text-rose-600 hover:bg-rose-50"
+                                      className="h-6 border-rose-200 px-2 text-[12px] text-rose-600 hover:bg-rose-50"
                                     >
                                       Xóa
                                     </Button>

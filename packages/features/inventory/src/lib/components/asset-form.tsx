@@ -119,7 +119,7 @@ export function AssetForm({
             <p
               style={{
                 margin: '4px 0 0',
-                fontSize: '13.5px',
+                fontSize: '14px',
                 color: '#666666',
                 lineHeight: 1.4,
               }}
@@ -167,7 +167,7 @@ export function AssetForm({
                     background: 'none',
                     border: 'none',
                     color: '#2563eb',
-                    fontSize: '12.5px',
+                    fontSize: '13px',
                     cursor: 'pointer',
                     textDecoration: 'underline',
                     padding: 0,
@@ -204,7 +204,7 @@ export function AssetForm({
                   borderRadius: '4px',
                   border: '1px solid #e0e0e0',
                   background: '#ffffff',
-                  fontSize: '15px',
+                  fontSize: '16px',
                   color: '#333333',
                   outline: 'none',
                 }}
@@ -215,7 +215,7 @@ export function AssetForm({
                 onChange={(event) => setCode(event.target.value)}
               />
             )}
-            <span style={{ fontSize: '12px', color: '#64748b' }}>
+            <span style={{ fontSize: '13px', color: '#64748b' }}>
               {materials.length > 0 && !isCustomCode
                 ? 'Chọn thiết bị/vật tư đã được khai báo trong danh mục vật tư kho.'
                 : 'Mã định danh viết hoa duy nhất dùng trong quản trị và vận hành.'}
@@ -233,7 +233,7 @@ export function AssetForm({
                 borderRadius: '4px',
                 border: '1px solid #e0e0e0',
                 background: '#ffffff',
-                fontSize: '15px',
+                fontSize: '16px',
                 color: '#333333',
                 outline: 'none',
               }}
@@ -313,7 +313,7 @@ export function AssetForm({
                   borderRadius: '4px',
                   border: '1px solid #e0e0e0',
                   background: '#ffffff',
-                  fontSize: '14.5px',
+                  fontSize: '14px',
                   color: '#333333',
                   outline: 'none',
                 }}

@@ -301,7 +301,7 @@ export function SalaryProfilesPanel() {
       {employee && activeProfile && (
         <div className="grid grid-cols-2 gap-3 rounded-lg border border-blue-100 bg-blue-50/50 p-3 text-xs @3xl:grid-cols-4">
           <div>
-            <span className="block text-[11px] text-slate-500">Mức lương hiện hành</span>
+            <span className="block text-[12px] text-slate-500">Mức lương hiện hành</span>
             <strong className="font-mono text-blue-700">
               {activeProfile.baseSalary === null ? (
                 <span title="Bạn không có quyền xem mức lương">Ẩn</span>
@@ -311,11 +311,11 @@ export function SalaryProfilesPanel() {
             </strong>
           </div>
           <div>
-            <span className="block text-[11px] text-slate-500">Loại lương</span>
+            <span className="block text-[12px] text-slate-500">Loại lương</span>
             <strong>{SALARY_TYPE_LABELS[activeProfile.salaryType] ?? activeProfile.salaryType}</strong>
           </div>
           <div className="min-w-0">
-            <span className="block text-[11px] text-slate-500">Ngạch và bậc</span>
+            <span className="block text-[12px] text-slate-500">Ngạch và bậc</span>
             <strong className="break-words">
               {activeProfile.salaryGradeId
                 ? `${gradeLabel.get(activeProfile.salaryGradeId) ?? 'Ngạch đã chọn'}${stepNo(activeProfile) ? ` / Bậc ${stepNo(activeProfile)}` : ''}`
@@ -323,7 +323,7 @@ export function SalaryProfilesPanel() {
             </strong>
           </div>
           <div>
-            <span className="block text-[11px] text-slate-500">Hiệu lực từ</span>
+            <span className="block text-[12px] text-slate-500">Hiệu lực từ</span>
             <strong>{dateVn(activeProfile.effectiveFrom)}</strong>
           </div>
         </div>

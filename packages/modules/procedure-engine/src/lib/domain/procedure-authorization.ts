@@ -169,6 +169,10 @@ export function runtimeStages(
  *
  * Dùng chung cho getWorkspace, đọc feed và liệt kê tệp, để ba nơi không trôi
  * khỏi nhau — một hồ sơ đã hiện ra trong danh sách thì tệp của nó cũng phải mở.
+ *
+ * Phân công vai S không tính: S chỉ là tập người ĐƯỢC PHÉP khởi tạo (có thể là cả phòng ban
+ * hoặc "Toàn bộ nhân viên"). Người khởi tạo thật đã được tính qua `initiatedBy`; nếu tính cả S
+ * thì đơn cá nhân lộ ra cho mọi thành viên các đơn vị được gán ở bước đầu.
  */
 export function isProcedureParticipant(
   instance: ProcedureInstance,
@@ -178,7 +182,9 @@ export function isProcedureParticipant(
   if (instance.initiatedBy === actor.userId) return true;
   if (
     instance.steps.some((step) =>
-      step.assignments.some((assignment) => matchesProcedureAssignment(assignment, actor)),
+      step.assignments.some(
+        (assignment) => assignment.role !== 'S' && matchesProcedureAssignment(assignment, actor),
+      ),
     )
   ) {
     return true;

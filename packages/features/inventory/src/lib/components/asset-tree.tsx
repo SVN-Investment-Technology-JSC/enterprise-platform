@@ -271,7 +271,7 @@ export function AssetTree({
             className={styles.btnSecondary}
             style={{
               padding: '3px 8px',
-              fontSize: '11px',
+              fontSize: '12px',
               display: 'inline-flex',
               alignItems: 'center',
               gap: '4px',
@@ -288,7 +288,7 @@ export function AssetTree({
               className={styles.btnSecondary}
               style={{
                 padding: '3px 6px',
-                fontSize: '11px',
+                fontSize: '12px',
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: '2px',
@@ -303,7 +303,7 @@ export function AssetTree({
             <button
               type="button"
               className={styles.btnSecondary}
-              style={{ padding: '3px 8px', fontSize: '11px' }}
+              style={{ padding: '3px 8px', fontSize: '12px' }}
               title="Thêm thiết bị gốc cấp cao nhất"
               onClick={() => onAddAsset(undefined)}
             >
@@ -525,7 +525,7 @@ export function AssetTree({
               border: '1.5px dashed #3b82f6',
               background: '#eff6ff',
               color: '#1d4ed8',
-              fontSize: '12px',
+              fontSize: '13px',
               fontWeight: 600,
               textAlign: 'center',
               display: 'flex',

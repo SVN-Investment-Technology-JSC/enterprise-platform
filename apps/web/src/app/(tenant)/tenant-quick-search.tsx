@@ -125,7 +125,7 @@ export function TenantQuickSearch({
           {rows.map((row, index) => (
             <li key={row.id} role="presentation">
               {index === 0 || rows[index - 1].group !== row.group ? (
-                <span className="block px-2.5 pb-1 pt-2 text-[10.5px] font-bold uppercase tracking-[0.06em] text-slate-400">
+                <span className="block px-2.5 pb-1 pt-2 text-[12px] font-bold uppercase tracking-[0.06em] text-slate-400">
                   {row.group}
                 </span>
               ) : null}
@@ -134,7 +134,7 @@ export function TenantQuickSearch({
                 type="button"
                 role="option"
                 aria-selected={index === active}
-                className={`flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left text-[13px] ${
+                className={`flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left text-[14px] ${
                   index === active ? 'bg-[#fff8dc] text-slate-900' : 'text-slate-700'
                 }`}
                 onMouseEnter={() => setActive(index)}
@@ -142,19 +142,19 @@ export function TenantQuickSearch({
               >
                 <span className="min-w-0 flex-1 truncate font-semibold">{row.label}</span>
                 {row.hint ? (
-                  <span className="max-w-[45%] truncate text-[12px] text-slate-400">{row.hint}</span>
+                  <span className="max-w-[45%] truncate text-[13px] text-slate-400">{row.hint}</span>
                 ) : null}
               </button>
             </li>
           ))}
           {rows.length === 0 ? (
-            <li className="px-2.5 py-6 text-center text-[13px] text-slate-400">
+            <li className="px-2.5 py-6 text-center text-[14px] text-slate-400">
               Không có trang hay ứng dụng nào khớp.
             </li>
           ) : null}
         </ul>
 
-        <p className="border-t border-[#eef0f3] px-4 py-2 text-[11.5px] text-slate-400">
+        <p className="border-t border-[#eef0f3] px-4 py-2 text-[12px] text-slate-400">
           <kbd>↑</kbd> <kbd>↓</kbd> để chọn · <kbd>Enter</kbd> để mở · <kbd>Esc</kbd> để đóng
         </p>
       </div>
