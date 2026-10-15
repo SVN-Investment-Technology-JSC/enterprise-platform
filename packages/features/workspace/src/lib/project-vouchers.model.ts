@@ -155,21 +155,13 @@ export function projectLevelMoneyRow(list: Pick<ProjectVoucherList, 'projectLeve
 }
 
 /**
- * Lợi nhuận tạm tính = giá trị hợp đồng - chi phí thực tế (chi đã duyệt). Rỗng khi chưa nhập hợp đồng. Biên lợi nhuận tính theo
- * hợp đồng, làm tròn một chữ số thập phân, rỗng khi hợp đồng bằng 0.
+ * Lợi nhuận thực tế = đã thu - đã chi, cùng tính trên phiếu ĐÃ GHI SỔ nên khớp số dư thu - chi. Không lấy giá trị hợp đồng làm gốc:
+ * hợp đồng là số dự kiến, đã thu có thể lệch (thu thêm, chưa thu đủ) nên lấy nó trừ chi phí sẽ ra con số không có thật.
+ * Biên lợi nhuận = lợi nhuận / đã thu, làm tròn một chữ số thập phân; rỗng khi chưa thu đồng nào.
  */
-export function provisionalProfit(
-  contractValue: number | null,
-  actualCost: number,
-): { readonly profit: number | null; readonly margin: number | null } {
-  if (contractValue == null) return { profit: null, margin: null };
-  const profit = round2(contractValue - actualCost);
-  return { profit, margin: contractValue ? Math.round((profit / contractValue) * 1000) / 10 : null };
-}
-
-/** Còn phải thu theo hợp đồng; không âm (thu vượt hợp đồng thì không còn phải thu). Rỗng khi chưa nhập hợp đồng. */
-export function receivableLeft(contractValue: number | null, received: number): number | null {
-  return contractValue == null ? null : Math.max(round2(contractValue - received), 0);
+export function actualProfit(received: number, paid: number): { readonly profit: number; readonly margin: number | null } {
+  const profit = round2(received - paid);
+  return { profit, margin: received > 0 ? Math.round((profit / received) * 1000) / 10 : null };
 }
 
 const ZERO_TOTALS: ProjectVoucherTotals = { received: 0, paid: 0, pendingReceived: 0, pendingPaid: 0, receiptCount: 0, paymentCount: 0 };
