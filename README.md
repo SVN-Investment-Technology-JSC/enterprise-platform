@@ -295,3 +295,27 @@ Mọi lệnh Nx trong workspace nên chạy qua `pnpm nx ...`. Trước khi gene
 Sao chép `.env.example` thành `.env`, thay toàn bộ password/token mẫu, rồi chạy `pnpm infra:up`, `pnpm db:provision` và `pnpm dev`. Platform Web dùng cổng `3002`, Procedure Web `3003`, Maintenance Web `3004`, Inventory Web `3005`; bốn API dùng `3333`–`3336`. Nginx cung cấp single origin tại `http://localhost:8080`. Platform DB và tenant PostgreSQL instance lần lượt dùng cổng `55432` và `55433`; RabbitMQ dùng `5672/15672`, MinIO dùng `9010/9011`.
 
 Migrator chỉ seed Platform Super Admin, roles/permissions và module registry; không tạo tenant, tenant admin hoặc dữ liệu nghiệp vụ mẫu. Tạo tenant đầu tiên từ Platform Admin. Password không nằm trong source mà chỉ lấy từ biến môi trường.
+
+### Sau khi kéo hoặc gộp code mới
+
+Mỗi lần `git pull`, `git merge` hoặc đổi nhánh mà có package workspace mới, dependency đổi hay `pnpm-lock.yaml` đổi, phải cài lại trước khi chạy tiếp:
+
+1. Dừng `pnpm dev` (Ctrl+C). Cài khi các dịch vụ còn chạy có thể lỗi file bị khóa trên Windows.
+2. Chạy `pnpm install` (thêm `--frozen-lockfile` nếu chỉ muốn khớp đúng lockfile, không sửa nó).
+3. Nếu có migration mới: chạy `pnpm db:provision`.
+4. Chạy lại `pnpm dev`, rồi `pnpm dev:status` để kiểm tra.
+
+Cần cài lại khi lệnh sau có kết quả (chạy ngay sau `git pull`/`git merge`):
+
+```powershell
+git diff --name-only ORIG_HEAD HEAD -- pnpm-lock.yaml pnpm-workspace.yaml "**/package.json"
+```
+
+**Quên bước này thì dịch vụ chết im lặng.** Khi code đổi, từng dịch vụ trong `pnpm dev` tự build lại; thiếu link package thì build báo `Cannot find module '@enterprise-platform/...'` và dịch vụ đó dừng hẳn, các dịch vụ khác vẫn chạy nên nhìn bề ngoài vẫn bình thường. Nguy hiểm nhất là `worker`: nó chuyển outbox sang RabbitMQ, nên khi nó chết thì tin chat, thông báo và sự kiện giữa các module vẫn được lưu vào DB nhưng **không bao giờ đến người khác**. Cách kiểm tra nhanh:
+
+```sql
+-- Sự kiện đã ghi nhưng chưa được chuyển đi; số này cứ tăng là worker không chạy
+SELECT count(*) FROM integration_schema.outbox_events WHERE published_at IS NULL;
+```
+
+Hoặc xem trang quản lý RabbitMQ (`http://localhost:15672`): các hàng đợi `*.integrations.v1` phải có ít nhất 1 consumer. Sau khi cài lại và chạy `pnpm dev`, các sự kiện đang kẹt sẽ được gửi bù vì chúng nằm trong DB.

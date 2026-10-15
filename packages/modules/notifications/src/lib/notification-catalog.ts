@@ -206,6 +206,27 @@ export const DEFAULT_NOTIFICATION_POLICIES: readonly NotificationPolicy[] = [
     },
   }),
   directPolicy({
+    // Được nhắc tên trong trao đổi của hồ sơ quy trình. `mentionedUserIds` là id người dùng thật (giao diện
+    // đã mở rộng chức danh/đơn vị thành từng người), nên nhận thẳng từ payload như Workspace.
+    eventType: 'procedure.mention.created',
+    module: 'procedure',
+    category: 'mention',
+    priority: 'actionable',
+    recipients: { kind: 'payload', fields: ['mentionedUserIds'] },
+    actorField: 'actorUserId',
+    template: ({ payload }) => ({
+      title: 'Bạn được nhắc đến trong hồ sơ quy trình',
+      body: text(payload, 'excerpt', 'Bạn được nhắc đến trong một trao đổi của hồ sơ.'),
+      deepLink: text(payload, 'deepLink', '/modules/procedure'),
+      sourceType: text(payload, 'sourceType', 'procedure_comment'),
+      sourceId: id(payload, 'mentionId'),
+    }),
+    aggregation: {
+      windowMinutes: 15,
+      key: ({ payload }) => `procedure:mention:${id(payload, 'threadId')}`,
+    },
+  }),
+  directPolicy({
     eventType: 'workspace.work-item.completed',
     module: 'workspace',
     category: 'result',
@@ -221,6 +242,38 @@ export const DEFAULT_NOTIFICATION_POLICIES: readonly NotificationPolicy[] = [
       sourceId: `${id(payload, 'workItemId')}:${event.id}`,
     }),
   }),
+  ...(
+    [
+      ['assigned', 'assignment', 'actionable', 'Bạn được giao việc ngoài dự án'],
+      ['review-requested', 'approval', 'actionable', 'Công việc chờ bạn duyệt'],
+      ['returned', 'assignment', 'actionable', 'Công việc bị trả lại'],
+      ['completed', 'result', 'informational', 'Công việc đã được duyệt hoàn thành'],
+      ['cancelled', 'result', 'informational', 'Công việc đã bị huỷ'],
+      ['reversed', 'result', 'actionable', 'Công việc đã bị huỷ hiệu lực'],
+      ['procedure-failed', 'result', 'actionable', 'Hồ sơ quy trình của công việc không thành'],
+    ] as const
+  ).map(([kind, category, priority, title]) =>
+    directPolicy({
+      eventType: `workspace.standalone-task.${kind}`,
+      module: 'workspace',
+      category,
+      priority,
+      recipients: { kind: 'payload', fields: ['recipientUserIds'] },
+      actorField: 'actorUserId',
+      template: ({ payload, event }) => {
+        const subject = `${text(payload, 'code', '')} ${text(payload, 'title', 'Công việc')}`.trim();
+        const note = typeof payload.note === 'string' && payload.note.trim() ? payload.note.trim() : '';
+        return {
+          title,
+          // Trả lại và huỷ luôn có lý do; đưa thẳng vào thông báo để người nhận khỏi phải mở.
+          body: note ? `${subject}: ${note}` : subject,
+          deepLink: text(payload, 'deepLink', '/modules/workspace#tasks'),
+          sourceType: 'workspace_standalone_task',
+          sourceId: `${id(payload, 'taskId')}:${event.id}`,
+        };
+      },
+    }),
+  ),
   directPolicy({
     eventType: 'procedure.instance.reversal_failed',
     module: 'procedure',

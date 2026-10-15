@@ -1,26 +1,33 @@
 'use client';
 
+import type { ProjectFinance, UpdateProjectFinanceRequest } from '@enterprise-platform/contracts-workspace';
+import { authFetch } from '@enterprise-platform/shared-ui';
+import { ExternalLink, Pencil } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { formatPercent, formatVnd, formatVndCompact, parseVndInput, toVndInput } from '../money';
 import {
-  MAX_COST_NOTE_LENGTH,
-  type CostEntry,
-  type ProjectFinance,
-  type UpdateProjectFinanceRequest,
-  type WorkItemCost,
-} from '@enterprise-platform/contracts-workspace';
-import { Pencil } from 'lucide-react';
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import {
-  formatPercent,
-  formatVnd,
-  formatVndCompact,
-  parseVndInput,
-  toVndInput,
-} from '../money';
+  NO_VOUCHER_FILTER,
+  PROJECT_VOUCHER_KIND_LABELS,
+  PROJECT_VOUCHER_LINK_LABELS,
+  PROJECT_VOUCHER_STATUS_LABELS,
+  PROJECT_VOUCHER_STATUS_TONE,
+  buildWorkItemMoneyRows,
+  classifyProjectVoucherResponse,
+  filterProjectVouchers,
+  projectLevelMoneyRow,
+  projectVoucherHref,
+  projectVoucherNet,
+  provisionalProfit,
+  receivableLeft,
+  type ProjectVoucherFilter,
+  type ProjectVoucherList,
+  type ProjectVoucherResult,
+} from '../project-vouchers.model';
 import * as api from '../workspace-api';
-import { formatDateTime, workItemStatusLabel } from '../workspace-labels';
+import { WORK_ITEM_STATUS_LABELS } from '../workspace-labels';
 import styles from '../workspace.module.scss';
+import { Choice } from './choice';
 import { Dialog, Field } from './dialog';
-import { useDirectory } from './use-directory';
 
 export interface TabFinanceProps {
   readonly projectId: string;
@@ -28,281 +35,352 @@ export interface TabFinanceProps {
   readonly initial: ProjectFinance;
   /** Gọi sau khi ghi, để phần còn lại của màn Dự án tải lại. */
   readonly onChanged: () => void;
-  /** Công việc của nhánh đang xem; có thì bảng chi phí và sổ chi lọc theo nhánh. */
-  readonly scopeWorkItemIds?: ReadonlySet<string>;
-  /** Dòng nhắc đang xem một nhánh, do trang Dự án dựng. */
-  readonly scopeNote?: ReactNode;
+}
+
+/** `2026-10-09` → `09/10/2026`; đọc thẳng chuỗi, không qua Date (lệch múi giờ). */
+function formatDay(value: string): string {
+  const [year, month, day] = value.slice(0, 10).split('-');
+  return year && month && day ? `${day}/${month}/${year}` : '—';
 }
 
 /**
- * Tab Tài chính.
+ * Tab Tài chính của dự án: giá trị hợp đồng (Workspace) cùng thu chi thực tế (module Tài chính).
  *
- * **Component này chỉ được dựng khi người dùng được xem tài chính.** Với
- * `member` và `viewer`, tab bị gỡ khỏi thanh tab ngay từ đầu — không làm mờ,
- * không để trống — vì server đã không gửi số liệu xuống cho họ.
+ * **Chỉ được dựng khi người dùng được xem tài chính dự án** (chủ nhiệm, quản lý, quản trị tenant). Với thành viên và người xem,
+ * tab bị gỡ khỏi thanh tab và server không gửi số liệu xuống. Số thu chi thuộc module Tài chính nên cần thêm quyền xem phiếu
+ * ở đó; thiếu quyền hay Tài chính chưa bật thì tab vẫn dựng được phần hợp đồng và nói rõ vì sao chưa có số thu chi.
+ *
+ * Chi phí thực tế = chi ĐÃ DUYỆT hạch toán cho dự án hoặc cho công việc; phiếu chờ duyệt chưa ghi sổ nên hiện riêng. Không còn
+ * ngân sách, dự toán hay chi phí dự kiến: chỉ có tiền đã thu và đã chi thật.
  */
-export function TabFinance({
-  projectId,
-  initial,
-  onChanged,
-  scopeWorkItemIds,
-  scopeNote,
-}: TabFinanceProps) {
+export function TabFinance({ projectId, initial, onChanged }: TabFinanceProps) {
   const [finance, setFinance] = useState<ProjectFinance>(initial);
-  const [editingProject, setEditingProject] = useState(false);
-  const [editingItem, setEditingItem] = useState<WorkItemCost>();
-  const [recordingItem, setRecordingItem] = useState<WorkItemCost>();
-  const [entries, setEntries] = useState<readonly CostEntry[]>();
-  const [entriesError, setEntriesError] = useState<string>();
-  const directory = useDirectory();
-
-  const loadEntries = useCallback(async () => {
-    setEntriesError(undefined);
-    try {
-      setEntries((await api.listProjectCostEntries(projectId)).items);
-    } catch (cause) {
-      setEntriesError((cause as { message?: string })?.message ?? 'Không tải được sổ chi phí.');
-    }
-  }, [projectId]);
-
-  useEffect(() => {
-    setEntries(undefined);
-    void loadEntries();
-  }, [loadEntries]);
+  const [editing, setEditing] = useState(false);
+  const [result, setResult] = useState<ProjectVoucherResult>();
+  const [filter, setFilter] = useState<ProjectVoucherFilter>(NO_VOUCHER_FILTER);
 
   // Payload chi tiết dự án đổi (tải lại, chuyển dự án) thì lấy số mới.
   useEffect(() => setFinance(initial), [initial]);
 
-  const apply = (next: ProjectFinance) => {
-    setFinance(next);
-    onChanged();
-  };
+  useEffect(() => {
+    let alive = true;
+    setResult(undefined);
+    setFilter(NO_VOUCHER_FILTER);
+    authFetch(`/api/finance/v1/projects/${encodeURIComponent(projectId)}/vouchers`, { cache: 'no-store' })
+      .then(classifyProjectVoucherResponse)
+      .then((next) => {
+        if (alive) setResult(next);
+      })
+      .catch(() => {
+        if (alive) setResult({ state: 'unavailable', message: 'Không kết nối được module Tài chính.' });
+      });
+    return () => {
+      alive = false;
+    };
+  }, [projectId]);
 
-  /**
-   * Sau mỗi lần ghi, đọc lại cả số tổng lẫn sổ từ server.
-   *
-   * Không cộng dồn tại chỗ: thẻ tổng, bảng theo công việc và sổ phải là cùng
-   * một ảnh chụp, nếu không sổ có dòng mới mà thẻ vẫn hiện số cũ.
-   */
-  const reload = async () => {
-    try {
-      setFinance(await api.getProjectFinance(projectId));
-    } catch {
-      // Đọc lại hỏng thì giữ số vừa nhận từ lần ghi.
-    }
-    await loadEntries();
-  };
+  const data: ProjectVoucherList | undefined = result?.state === 'ok' ? result.data : undefined;
+  const contract = finance.contractValue;
+  const received = data?.totals.received ?? 0;
+  const paid = data?.totals.paid ?? 0;
+  const { profit, margin } = provisionalProfit(contract, paid);
 
-  const scopedCosts = scopeWorkItemIds
-    ? finance.items.filter((item) => scopeWorkItemIds.has(item.workItemId))
-    : finance.items;
-  const scopedEntries = scopeWorkItemIds
-    ? entries?.filter((entry) => scopeWorkItemIds.has(entry.workItemId))
-    : entries;
-  const branchEstimate = scopedCosts.reduce((sum, item) => sum + (item.estimatedCost ?? 0), 0);
-  const branchActual = scopedCosts.reduce((sum, item) => sum + item.actualCost, 0);
+  const projectRow = useMemo(() => (data ? projectLevelMoneyRow(data) : undefined), [data]);
+  const itemRows = useMemo(() => (data ? buildWorkItemMoneyRows(finance.items, data) : []), [data, finance.items]);
+  const visibleVouchers = useMemo(() => (data ? filterProjectVouchers(data.items, filter) : []), [data, filter]);
+  const filtering = filter.kind !== 'all' || filter.link !== 'all' || filter.status !== 'all';
 
   return (
     <div className={styles.tabBody}>
-      {scopeNote}
       <div className={styles.statRow}>
-        <MoneyStat label="Giá trị hợp đồng" value={finance.contractValue} />
-        <MoneyStat label="Chi phí thực tế" value={finance.actualCost} />
-        <MoneyStat
-          label={finance.forecastOverridden ? 'Chi phí dự kiến (ghi đè)' : 'Chi phí dự kiến'}
-          value={finance.forecastCost}
-        />
-        <MoneyStat
-          label="Lợi nhuận dự kiến"
-          value={finance.profit}
-          danger={finance.profit != null && finance.profit < 0}
-        />
-        <div
-          className={
-            finance.profitMargin != null && finance.profitMargin < 0
-              ? styles.statDanger
-              : styles.stat
-          }
-        >
-          <span className={styles.statValue}>{formatPercent(finance.profitMargin)}</span>
-          <span className={styles.statLabel}>Biên lợi nhuận</span>
-        </div>
+        <MoneyStat label="Giá trị hợp đồng" value={contract} />
+        {data ? (
+          <>
+            <MoneyStat label="Đã thu" value={data.totals.received} hint={`${data.totals.receiptCount} phiếu thu hạch toán cho dự án`} />
+            <MoneyStat label="Đã chi (chi phí thực tế)" value={data.totals.paid} hint={`${data.totals.paymentCount} phiếu chi hạch toán cho dự án`} />
+            <MoneyStat label="Số dư thu - chi" value={projectVoucherNet(data.totals)} danger={projectVoucherNet(data.totals) < 0} />
+            <MoneyStat
+              label={margin == null ? 'Lợi nhuận tạm tính' : `Lợi nhuận tạm tính (${formatPercent(margin)})`}
+              value={profit}
+              danger={profit != null && profit < 0}
+              hint="Giá trị hợp đồng trừ chi phí thực tế đã duyệt"
+            />
+          </>
+        ) : null}
       </div>
 
       <section className={styles.panel}>
         <h3 className={styles.panelHeadRow}>
           Số liệu dự án
-          <button
-            type="button"
-            className={styles.buttonGhost}
-            onClick={() => setEditingProject(true)}
-          >
-            <Pencil size={13} /> Sửa
+          <button type="button" className={styles.buttonGhost} onClick={() => setEditing(true)}>
+            <Pencil size={13} /> Sửa hợp đồng
           </button>
         </h3>
         <dl className={styles.definitionList}>
           <dt>Giá trị hợp đồng</dt>
-          <dd>{formatVnd(finance.contractValue)}</dd>
-          <dt>Ngân sách được duyệt</dt>
-          <dd>{formatVnd(finance.budget)}</dd>
-          <dt>Chi phí đã cam kết</dt>
-          <dd>{formatVnd(finance.committedCost)}</dd>
-          <dt>Chi phí thực tế</dt>
-          <dd>{formatVnd(finance.actualCost)}</dd>
-          <dt>Dự toán còn lại</dt>
-          <dd>{formatVnd(finance.remainingEstimate)}</dd>
-          <dt>Chi phí dự kiến</dt>
-          <dd>
-            {formatVnd(finance.forecastCost)}
-            {finance.forecastOverridden ? (
-              <span className={styles.muted}> — ghi đè tay, không theo công thức</span>
-            ) : null}
-          </dd>
-          <dt>Chênh lệch ngân sách</dt>
-          <dd className={finance.budgetVariance != null && finance.budgetVariance < 0 ? styles.cellDanger : undefined}>
-            {formatVnd(finance.budgetVariance)}
-            {finance.budgetVariance != null && finance.budgetVariance < 0 ? ' — dự kiến vượt ngân sách' : ''}
-          </dd>
-        </dl>
-      </section>
-
-      <section className={styles.panel}>
-        <h3 className={styles.panelHeadRow}>
-          Chi phí theo công việc
-          {scopeWorkItemIds ? (
-            <span className={styles.muted}>
-              Nhánh này: dự toán {formatVnd(branchEstimate)} · thực tế {formatVnd(branchActual)}
-            </span>
+          <dd>{formatVnd(contract)}</dd>
+          {data ? (
+            <>
+              <dt>Đã thu (đã ghi sổ)</dt>
+              <dd>{formatVnd(received)}</dd>
+              <dt>Còn phải thu theo hợp đồng</dt>
+              <dd>{formatVnd(receivableLeft(contract, received))}</dd>
+              <dt>Chi phí thực tế (đã chi)</dt>
+              <dd>
+                {formatVnd(paid)}
+                <span className={styles.muted}>
+                  {' '}
+                  — công việc {formatVnd(paid - (projectRow?.paid ?? 0))} · chung dự án {formatVnd(projectRow?.paid ?? 0)}
+                </span>
+              </dd>
+              <dt>Chờ duyệt (chưa ghi sổ)</dt>
+              <dd>
+                thu {formatVnd(data.totals.pendingReceived)} · chi {formatVnd(data.totals.pendingPaid)}
+              </dd>
+              <dt>Lợi nhuận tạm tính</dt>
+              <dd className={profit != null && profit < 0 ? styles.cellDanger : undefined}>
+                {formatVnd(profit)}
+                {margin != null ? <span className={styles.muted}> — biên {formatPercent(margin)}</span> : null}
+              </dd>
+            </>
           ) : null}
-        </h3>
-        {scopedCosts.length === 0 ? (
+        </dl>
+        {finance.actualCost > 0 ? (
           <p className={styles.muted}>
-            {scopeWorkItemIds ? 'Nhánh này chưa có công việc nào.' : 'Dự án chưa có công việc nào.'}
+            Dự án còn {formatVnd(finance.actualCost)} chi phí ghi tay theo cách cũ ở Workspace. Khoản này không tính vào số liệu trên; chi phí thực tế nay lấy từ phiếu chi đã duyệt ở module Tài chính.
           </p>
-        ) : (
-          <table className={styles.table}>
-            <thead>
-              <tr>
-                <th>Mã</th>
-                <th>Công việc</th>
-                <th>Trạng thái</th>
-                <th className={styles.numeric}>Dự toán</th>
-                <th className={styles.numeric}>Thực tế</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {scopedCosts.map((item) => (
-                <tr key={item.workItemId}>
-                  <td className={styles.treeCode}>{item.code}</td>
-                  <td>{item.title}</td>
-                  <td>{workItemStatusLabel(item)}</td>
-                  <td className={styles.numeric}>{formatVnd(item.estimatedCost)}</td>
-                  <td className={styles.numeric}>{formatVnd(item.actualCost)}</td>
-                  <td>
-                    <div className={styles.rowActions}>
-                      <button
-                        type="button"
-                        className={styles.linkButton}
-                        onClick={() => setEditingItem(item)}
-                      >
-                        Dự toán
-                      </button>
-                      <button
-                        type="button"
-                        className={styles.linkButton}
-                        onClick={() => setRecordingItem(item)}
-                      >
-                        Ghi chi phí
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </section>
-
-      <section className={styles.panel}>
-        <h3>Sổ chi phí thực tế</h3>
-        {entriesError ? <p className={styles.alert}>{entriesError}</p> : null}
-        {entries === undefined && !entriesError ? <p className={styles.muted}>Đang tải…</p> : null}
-        {scopedEntries?.length === 0 ? <p className={styles.muted}>Chưa ghi khoản chi nào.</p> : null}
-        {scopedEntries && scopedEntries.length > 0 ? (
-          <table className={styles.table}>
-            <thead>
-              <tr>
-                <th>Thời điểm</th>
-                <th>Công việc</th>
-                <th>Lý do</th>
-                <th>Người ghi</th>
-                <th className={styles.numeric}>Số tiền</th>
-              </tr>
-            </thead>
-            <tbody>
-              {scopedEntries.map((entry) => (
-                <tr key={entry.id}>
-                  <td>{formatDateTime(entry.createdAt)}</td>
-                  <td>
-                    <span className={styles.treeCode}>{entry.workItemCode}</span> {entry.workItemTitle}
-                  </td>
-                  <td>{entry.note}</td>
-                  <td>{directory.nameOf(entry.createdBy)}</td>
-                  <td className={entry.amount < 0 ? `${styles.numeric} ${styles.cellDanger}` : styles.numeric}>
-                    {formatVnd(entry.amount)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
         ) : null}
       </section>
 
-      <ProjectFinanceDialog
-        open={editingProject}
+      {!result ? <p className={styles.muted}>Đang tải thu chi của dự án…</p> : null}
+      {result && !data ? (
+        <section className={styles.panel}>
+          <h3>Thu chi</h3>
+          <p className={styles.muted} role="status">
+            {result.state === 'ok' ? '' : result.message}
+          </p>
+        </section>
+      ) : null}
+
+      {data && projectRow ? (
+        <section className={styles.panel}>
+          <h3 className={styles.panelHeadRow}>
+            Thu chi theo công việc
+            <span className={styles.muted}>Chi đã duyệt hạch toán cho công việc là chi phí thực tế của công việc đó. Lập và duyệt phiếu ở module Tài chính.</span>
+          </h3>
+          <div className={styles.tableScroll}>
+            <table className={styles.table}>
+              <thead>
+                <tr>
+                  <th>Mã</th>
+                  <th>Công việc</th>
+                  <th>Trạng thái</th>
+                  <th className={styles.numeric}>Đã thu</th>
+                  <th className={styles.numeric}>Đã chi (thực tế)</th>
+                  <th className={styles.numeric}>Còn lại (thu - chi)</th>
+                  <th className={styles.numeric}>Chờ duyệt (thu / chi)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[projectRow, ...itemRows].map((row) => (
+                  <tr key={row.workItemId ?? 'project'}>
+                    <td className={styles.treeCode}>{row.code}</td>
+                    <td>{row.title}</td>
+                    <td>{row.status ? WORK_ITEM_STATUS_LABELS[row.status] : ''}</td>
+                    <td className={styles.numeric}>{formatVnd(row.received)}</td>
+                    <td className={styles.numeric}>{formatVnd(row.paid)}</td>
+                    <td className={row.balance < 0 ? `${styles.numeric} ${styles.cellDanger}` : styles.numeric}>{formatVnd(row.balance)}</td>
+                    <td className={styles.numeric}>
+                      {row.pendingReceived || row.pendingPaid ? `${formatVnd(row.pendingReceived)} / ${formatVnd(row.pendingPaid)}` : '—'}
+                    </td>
+                  </tr>
+                ))}
+                <tr>
+                  <td />
+                  <td>
+                    <strong>Tổng dự án</strong>
+                  </td>
+                  <td />
+                  <td className={styles.numeric}>
+                    <strong>{formatVnd(data.totals.received)}</strong>
+                  </td>
+                  <td className={styles.numeric}>
+                    <strong>{formatVnd(data.totals.paid)}</strong>
+                  </td>
+                  <td className={styles.numeric}>
+                    <strong>{formatVnd(projectVoucherNet(data.totals))}</strong>
+                  </td>
+                  <td className={styles.numeric}>
+                    {data.totals.pendingReceived || data.totals.pendingPaid
+                      ? `${formatVnd(data.totals.pendingReceived)} / ${formatVnd(data.totals.pendingPaid)}`
+                      : '—'}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
+
+      {data ? (
+        <section className={styles.panel}>
+          <h3 className={styles.panelHeadRow}>
+            Phiếu thu chi của dự án
+            <span className={styles.muted}>Phiếu có dự án này ở mục "Đối tượng liên quan" chỉ để tra cứu, không cộng vào tổng.</span>
+          </h3>
+          <div className={styles.workFilters}>
+            <div className={styles.filterField}>
+              <span className={styles.filterLabel}>Loại phiếu</span>
+              <Choice
+                label="Lọc theo loại phiếu"
+                value={filter.kind}
+                options={[
+                  { value: 'all', label: 'Tất cả' },
+                  { value: 'RECEIPT', label: PROJECT_VOUCHER_KIND_LABELS.RECEIPT },
+                  { value: 'PAYMENT', label: PROJECT_VOUCHER_KIND_LABELS.PAYMENT },
+                ]}
+                onChange={(value) => setFilter((current) => ({ ...current, kind: value as ProjectVoucherFilter['kind'] }))}
+              />
+            </div>
+            <div className={styles.filterField}>
+              <span className={styles.filterLabel}>Quan hệ với dự án</span>
+              <Choice
+                label="Lọc theo quan hệ với dự án"
+                value={filter.link}
+                options={[
+                  { value: 'all', label: 'Tất cả' },
+                  { value: 'ALLOCATION', label: PROJECT_VOUCHER_LINK_LABELS.ALLOCATION },
+                  { value: 'RELATED', label: PROJECT_VOUCHER_LINK_LABELS.RELATED },
+                ]}
+                onChange={(value) => setFilter((current) => ({ ...current, link: value as ProjectVoucherFilter['link'] }))}
+              />
+            </div>
+            <div className={styles.filterField}>
+              <span className={styles.filterLabel}>Trạng thái</span>
+              <Choice
+                label="Lọc theo trạng thái phiếu"
+                value={filter.status}
+                options={[
+                  { value: 'all', label: 'Tất cả' },
+                  { value: 'APPROVED', label: PROJECT_VOUCHER_STATUS_LABELS.APPROVED },
+                  { value: 'PENDING', label: PROJECT_VOUCHER_STATUS_LABELS.PENDING },
+                ]}
+                onChange={(value) => setFilter((current) => ({ ...current, status: value as ProjectVoucherFilter['status'] }))}
+              />
+            </div>
+            {filtering ? (
+              <button type="button" className={styles.linkButton} onClick={() => setFilter(NO_VOUCHER_FILTER)}>
+                Bỏ lọc
+              </button>
+            ) : null}
+          </div>
+          <div className={styles.tableScroll}>
+            <table className={`${styles.table} ${styles.wbsTable}`}>
+              <thead>
+                <tr>
+                  <th>Phiếu</th>
+                  <th>Ngày</th>
+                  <th>Nội dung</th>
+                  <th>Hạch toán</th>
+                  <th style={{ textAlign: 'right' }}>Số tiền</th>
+                  <th>Trạng thái</th>
+                  <th>Người lập</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.items.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className={styles.muted}>
+                      Dự án chưa có phiếu thu chi nào. Phiếu hạch toán cho dự án này ở module Tài chính sẽ hiện ở đây.
+                    </td>
+                  </tr>
+                ) : visibleVouchers.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className={styles.muted}>
+                      Không có phiếu nào khớp bộ lọc.
+                    </td>
+                  </tr>
+                ) : null}
+                {visibleVouchers.map((item) => {
+                  const tone = PROJECT_VOUCHER_STATUS_TONE[item.status];
+                  const sign = item.kind === 'PAYMENT' ? '-' : '';
+                  return (
+                    <tr key={item.id}>
+                      <td>
+                        <a className={styles.wbsProcedure} href={projectVoucherHref(item)} title="Mở phiếu ở module Tài chính">
+                          <ExternalLink size={12} aria-hidden />
+                          {item.code}
+                        </a>
+                        <span className={styles.muted} style={{ display: 'block' }}>
+                          {PROJECT_VOUCHER_KIND_LABELS[item.kind]}
+                        </span>
+                      </td>
+                      <td>{formatDay(item.voucherDate)}</td>
+                      <td>
+                        <span className={styles.treeTitle} title={item.content}>
+                          {item.content}
+                        </span>
+                        {item.reasonName ? (
+                          <span className={styles.muted} style={{ display: 'block' }}>
+                            {item.reasonName}
+                          </span>
+                        ) : null}
+                      </td>
+                      <td>
+                        {item.link === 'RELATED' ? (
+                          <span className={styles.muted}>Chỉ liên quan</span>
+                        ) : item.workItem ? (
+                          <span title={item.workItem.title}>
+                            <span className={styles.treeCode}>{item.workItem.code}</span> {item.workItem.title}
+                          </span>
+                        ) : (
+                          'Cả dự án'
+                        )}
+                      </td>
+                      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                        {item.link === 'RELATED' ? (
+                          <span className={styles.muted}>
+                            {sign}
+                            {formatVnd(item.totalAmount)}
+                          </span>
+                        ) : (
+                          `${sign}${formatVnd(item.totalAmount)}`
+                        )}
+                      </td>
+                      <td>
+                        <span className={styles.pill} style={{ background: tone.bg, color: tone.fg }}>
+                          {PROJECT_VOUCHER_STATUS_LABELS[item.status]}
+                        </span>
+                      </td>
+                      <td>{item.createdByName ?? '—'}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          {data.truncated ? (
+            <p className={styles.muted}>Chỉ hiển thị 200 phiếu gần nhất; tổng tiền ở trên vẫn tính đủ mọi phiếu hạch toán.</p>
+          ) : null}
+        </section>
+      ) : null}
+
+      <ContractDialog
+        open={editing}
         finance={finance}
-        onClose={() => setEditingProject(false)}
-        onSave={async (input) => apply(await api.updateProjectFinance(projectId, input))}
-      />
-
-      <ItemCostDialog
-        item={editingItem}
-        onClose={() => setEditingItem(undefined)}
-        onSave={async (estimatedCost) => {
-          if (!editingItem) return;
-          // Lỗi ném ra để hộp thoại tự hiện; không nhân đôi lên đầu trang.
-          apply(await api.updateWorkItemCost(editingItem.workItemId, { estimatedCost }));
-          void reload();
-        }}
-      />
-
-      <CostEntryDialog
-        item={recordingItem}
-        onClose={() => setRecordingItem(undefined)}
-        onSave={async (amount, note) => {
-          if (!recordingItem) return;
-          const result = await api.addCostEntry(recordingItem.workItemId, { amount, note });
-          apply(result.finance);
-          setEntries((current) => (current ? [result.entry, ...current] : [result.entry]));
-          void reload();
+        onClose={() => setEditing(false)}
+        onSave={async (input) => {
+          setFinance(await api.updateProjectFinance(projectId, input));
+          onChanged();
         }}
       />
     </div>
   );
 }
 
-function MoneyStat({
-  label,
-  value,
-  danger,
-}: {
-  label: string;
-  value: number | null;
-  danger?: boolean;
-}) {
+function MoneyStat({ label, value, danger, hint }: { label: string; value: number | null; danger?: boolean; hint?: string }) {
   return (
-    <div className={danger ? styles.statDanger : styles.stat} title={formatVnd(value)}>
+    <div className={danger ? styles.statDanger : styles.stat} title={hint ?? formatVnd(value)}>
       <span className={styles.statValue}>{formatVndCompact(value)}</span>
       <span className={styles.statLabel}>{label}</span>
     </div>
@@ -310,26 +388,10 @@ function MoneyStat({
 }
 
 /**
- * Một ô nhập tiền.
- *
- * Kiểm số âm và chuỗi không đọc được **ngay ở client** để báo sớm; server vẫn
- * kiểm lại — client chỉ là tiện lợi, không phải hàng rào.
+ * Sửa giá trị hợp đồng, số duy nhất của dự án do Workspace giữ. Kiểm số âm và chuỗi không đọc được ngay ở client để báo sớm;
+ * server vẫn kiểm lại — client chỉ là tiện lợi, không phải hàng rào.
  */
-function readMoney(
-  text: string,
-  label: string,
-  nullable: boolean,
-): { value?: number | null; error?: string } {
-  const parsed = parseVndInput(text);
-  if (parsed === undefined) return { error: `${label}: không đọc được số.` };
-  if (parsed === null) {
-    return nullable ? { value: null } : { error: `${label} không được để trống.` };
-  }
-  if (parsed < 0) return { error: `${label} không được là số âm.` };
-  return { value: parsed };
-}
-
-function ProjectFinanceDialog({
+function ContractDialog({
   open,
   finance,
   onClose,
@@ -340,55 +402,35 @@ function ProjectFinanceDialog({
   onClose: () => void;
   onSave: (input: UpdateProjectFinanceRequest) => Promise<void>;
 }) {
-  const [form, setForm] = useState({ contract: '', budget: '', committed: '', override: '' });
+  const [contract, setContract] = useState('');
   const [error, setError] = useState<string>();
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (!open) return;
-    setForm({
-      contract: toVndInput(finance.contractValue),
-      budget: toVndInput(finance.budget),
-      committed: toVndInput(finance.committedCost),
-      override: toVndInput(finance.forecastCostOverride),
-    });
+    setContract(toVndInput(finance.contractValue));
     setError(undefined);
     setSubmitting(false);
   }, [open, finance]);
 
   const submit = async () => {
-    const contract = readMoney(form.contract, 'Giá trị hợp đồng', true);
-    const budget = readMoney(form.budget, 'Ngân sách', true);
-    const committed = readMoney(form.committed || '0', 'Chi phí đã cam kết', false);
-    const override = readMoney(form.override, 'Chi phí dự kiến ghi đè', true);
-    const firstError = [contract, budget, committed, override].find((entry) => entry.error)?.error;
-    if (firstError) {
-      setError(firstError);
-      return;
-    }
-
+    const parsed = parseVndInput(contract);
+    if (parsed === undefined) return setError('Giá trị hợp đồng: không đọc được số.');
+    if (parsed !== null && parsed < 0) return setError('Giá trị hợp đồng không được là số âm.');
     setSubmitting(true);
     try {
-      await onSave({
-        contractValue: contract.value,
-        budget: budget.value,
-        committedCost: committed.value as number,
-        forecastCostOverride: override.value,
-      });
+      await onSave({ contractValue: parsed });
       onClose();
     } catch (cause) {
-      setError((cause as { message?: string })?.message ?? 'Không lưu được số liệu tài chính.');
+      setError((cause as { message?: string })?.message ?? 'Không lưu được giá trị hợp đồng.');
       setSubmitting(false);
     }
   };
 
-  const set = (key: keyof typeof form) => (value: string) =>
-    setForm((current) => ({ ...current, [key]: value }));
-
   return (
     <Dialog
       open={open}
-      title="Số liệu tài chính dự án"
+      title="Giá trị hợp đồng"
       subtitle="Đơn vị VND. Gõ 25.500.000.000 hoặc 25500000000 đều được."
       submitLabel="Lưu"
       submitting={submitting}
@@ -397,164 +439,7 @@ function ProjectFinanceDialog({
       onSubmit={() => void submit()}
     >
       <Field label="Giá trị hợp đồng" hint="Để trống nếu chưa ký hợp đồng.">
-        <input inputMode="decimal" value={form.contract} onChange={(event) => set('contract')(event.target.value)} />
-      </Field>
-      <Field label="Ngân sách được duyệt">
-        <input inputMode="decimal" value={form.budget} onChange={(event) => set('budget')(event.target.value)} />
-      </Field>
-      <Field label="Chi phí đã cam kết" hint="Đã ký, đã đặt hàng nhưng chưa phát sinh.">
-        <input inputMode="decimal" value={form.committed} onChange={(event) => set('committed')(event.target.value)} />
-      </Field>
-      <Field
-        label="Chi phí dự kiến — ghi đè"
-        hint="Chỉ điền khi muốn thay con số từ công thức. Để trống để dùng công thức."
-      >
-        <input inputMode="decimal" value={form.override} onChange={(event) => set('override')(event.target.value)} />
-      </Field>
-    </Dialog>
-  );
-}
-
-function ItemCostDialog({
-  item,
-  onClose,
-  onSave,
-}: {
-  item?: WorkItemCost;
-  onClose: () => void;
-  onSave: (estimatedCost: number | null) => Promise<void>;
-}) {
-  const [estimated, setEstimated] = useState('');
-  const [error, setError] = useState<string>();
-  const [submitting, setSubmitting] = useState(false);
-
-  useEffect(() => {
-    if (!item) return;
-    setEstimated(toVndInput(item.estimatedCost));
-    setError(undefined);
-    setSubmitting(false);
-  }, [item]);
-
-  const submit = async () => {
-    const estimatedValue = readMoney(estimated, 'Chi phí dự toán', true);
-    if (estimatedValue.error) {
-      setError(estimatedValue.error);
-      return;
-    }
-    setSubmitting(true);
-    try {
-      await onSave(estimatedValue.value ?? null);
-      onClose();
-    } catch (cause) {
-      setError((cause as { message?: string })?.message ?? 'Không lưu được chi phí.');
-      setSubmitting(false);
-    }
-  };
-
-  return (
-    <Dialog
-      open={Boolean(item)}
-      title={item ? `Dự toán ${item.code}` : 'Dự toán'}
-      subtitle={item?.title}
-      submitLabel="Lưu"
-      submitting={submitting}
-      error={error}
-      onClose={onClose}
-      onSubmit={() => void submit()}
-    >
-      <Field label="Chi phí dự toán">
-        <input inputMode="decimal" value={estimated} onChange={(event) => setEstimated(event.target.value)} />
-      </Field>
-      <p className={styles.muted}>
-        Chi phí thực tế hiện tại: {formatVnd(item?.actualCost ?? 0)} — ghi thêm bằng nút “Ghi chi
-        phí”.
-      </p>
-    </Dialog>
-  );
-}
-
-/**
- * Ghi một dòng sổ chi phí thực tế.
- *
- * Được nhập số âm để điều chỉnh khoản ghi sai; server chặn khi tổng của công
- * việc sẽ thành âm và báo lỗi ngay trong hộp thoại.
- */
-function CostEntryDialog({
-  item,
-  onClose,
-  onSave,
-}: {
-  item?: WorkItemCost;
-  onClose: () => void;
-  onSave: (amount: number, note: string) => Promise<void>;
-}) {
-  const [amount, setAmount] = useState('');
-  const [note, setNote] = useState('');
-  const [error, setError] = useState<string>();
-  const [submitting, setSubmitting] = useState(false);
-
-  useEffect(() => {
-    if (!item) return;
-    setAmount('');
-    setNote('');
-    setError(undefined);
-    setSubmitting(false);
-  }, [item]);
-
-  const submit = async () => {
-    const parsed = parseVndInput(amount);
-    if (parsed === undefined || parsed === null) {
-      setError('Số tiền: không đọc được số.');
-      return;
-    }
-    if (parsed === 0) {
-      setError('Số tiền phải khác 0.');
-      return;
-    }
-    if (!note.trim()) {
-      setError('Hãy ghi lý do cho khoản chi này.');
-      return;
-    }
-    if ((item?.actualCost ?? 0) + parsed < 0) {
-      setError('Điều chỉnh này làm chi phí thực tế của công việc thành số âm.');
-      return;
-    }
-    setSubmitting(true);
-    try {
-      await onSave(parsed, note.trim());
-      onClose();
-    } catch (cause) {
-      setError((cause as { message?: string })?.message ?? 'Không ghi được chi phí.');
-      setSubmitting(false);
-    }
-  };
-
-  return (
-    <Dialog
-      open={Boolean(item)}
-      title={item ? `Ghi chi phí ${item.code}` : 'Ghi chi phí'}
-      subtitle={item ? `${item.title} · thực tế hiện tại ${formatVnd(item.actualCost)}` : undefined}
-      submitLabel="Ghi vào sổ"
-      submitting={submitting}
-      error={error}
-      onClose={onClose}
-      onSubmit={() => void submit()}
-    >
-      <Field label="Số tiền (VND)" hint="Gõ số âm, ví dụ -1.500.000, để điều chỉnh khoản ghi sai.">
-        <input
-          inputMode="decimal"
-          value={amount}
-          placeholder="Ví dụ 12.500.000"
-          onChange={(event) => setAmount(event.target.value)}
-        />
-      </Field>
-      <Field label="Lý do" hint="Số hoá đơn, nội dung chi, hoặc lý do điều chỉnh.">
-        <textarea
-          rows={3}
-          maxLength={MAX_COST_NOTE_LENGTH}
-          value={note}
-          onChange={(event) => setNote(event.target.value)}
-        />
+        <input inputMode="decimal" value={contract} onChange={(event) => setContract(event.target.value)} />
       </Field>
     </Dialog>
   );

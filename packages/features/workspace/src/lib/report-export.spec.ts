@@ -164,6 +164,8 @@ describe('xuất kèm tài chính', () => {
     profit: -500_000_000,
     profitMargin: -5,
   };
+  // Tệp xuất chỉ còn số dự án và giá trị hợp đồng; thu chi thực tế thuộc module Tài chính.
+  const negativeContract = { ...finance, contractValue: -500_000_000 };
 
   it('không có trường finance thì không có bảng, không có cảnh báo', () => {
     const sheets = buildExportSheets(bundle());
@@ -177,11 +179,12 @@ describe('xuất kèm tài chính', () => {
     const last = sheets[sheets.length - 1];
     expect(last?.title).toBe('Tài chính tổng hợp (VND)');
     expect(last?.rows[0]).toHaveLength(last?.headers.length ?? 0);
+    expect(last?.headers).toEqual(['Số dự án', 'Giá trị hợp đồng']);
     expect(buildExportHeader(withFinance).join(' ')).toContain('CẢNH BÁO');
   });
 
   it('số âm thật giữ là số, không bị thêm nháy đơn', () => {
-    const csv = buildCsv(bundle({ finance }));
+    const csv = buildCsv(bundle({ finance: negativeContract }));
     expect(csv).toContain('"-500000000"');
     expect(csv).not.toContain(`"'-500000000"`);
   });

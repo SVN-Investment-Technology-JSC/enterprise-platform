@@ -4,10 +4,13 @@ import {
   type MyWorkBucket,
   type MyWorkEvent,
   type MyWorkItem,
+  type MyWorkStandaloneTask,
   type MyWorkSummary,
+  type StandaloneTask,
   type ParticipantResponse,
   type WorkItem,
 } from '@enterprise-platform/contracts-workspace';
+import { standaloneTaskRoleOf } from '../domain/standalone-task.rules.js';
 import { dayWindow, timezoneOf, todayKey, weekWindow } from '../domain/tenant-time.js';
 import { buildOccurrences } from './calendar.service.js';
 import type { WorkspaceActor } from './workspace.application.js';
@@ -56,24 +59,46 @@ export class MyWorkService {
     const today = dayWindow(now, timezone);
     const week = weekWindow(timezone, now);
 
-    const [assigned, completedThisWeek, myEvents, pendingInvitations, mentions, externalCards] =
-      await Promise.all([
-        this.store.myWork.assignedItems(actor.tenantId, actor.userId),
-        this.store.myWork.completedCount(actor.tenantId, actor.userId, week.from, week.to),
-        this.store.myWork.eventsForUser(actor.tenantId, actor.userId, today.from, today.to),
-        this.store.myWork.pendingInvitations(actor.tenantId, actor.userId),
-        this.store.myWork.mentions(actor.tenantId, actor.userId, MENTION_LIMIT),
-        this.store.myWork.externalCards(actor.tenantId, actor.userId),
-      ]);
+    const [
+      assigned,
+      completedThisWeek,
+      myEvents,
+      pendingInvitations,
+      mentions,
+      externalCards,
+      tasks,
+    ] = await Promise.all([
+      this.store.myWork.assignedItems(actor.tenantId, actor.userId),
+      this.store.myWork.completedCount(actor.tenantId, actor.userId, week.from, week.to),
+      this.store.myWork.eventsForUser(actor.tenantId, actor.userId, today.from, today.to),
+      this.store.myWork.pendingInvitations(actor.tenantId, actor.userId),
+      this.store.myWork.mentions(actor.tenantId, actor.userId, MENTION_LIMIT),
+      this.store.myWork.externalCards(actor.tenantId, actor.userId),
+      this.store.standaloneTask.forMyWork(actor.tenantId, actor.userId),
+    ]);
 
     const items = bucketise(assigned, today.dateKey, week.dateKey, timezone, now);
+    const standaloneTasks = bucketiseTasks(
+      tasks,
+      actor.userId,
+      today.dateKey,
+      week.dateKey,
+      timezone,
+      now,
+    );
     const todayEvents = await this.expandToday(actor, myEvents, today.from, today.to);
+
+    // Con số đầu trang đếm việc tôi phải LÀM; việc chờ tôi duyệt không tính.
+    const buckets = [
+      ...items.map((entry) => entry.bucket),
+      ...standaloneTasks.filter((entry) => !entry.awaitingMyApproval).map((entry) => entry.bucket),
+    ];
 
     return {
       counters: {
-        openItems: items.length,
-        overdueItems: items.filter((entry) => entry.bucket === 'overdue').length,
-        dueToday: items.filter((entry) => entry.bucket === 'today').length,
+        openItems: buckets.length,
+        overdueItems: buckets.filter((bucket) => bucket === 'overdue').length,
+        dueToday: buckets.filter((bucket) => bucket === 'today').length,
         completedThisWeek,
       },
       items,
@@ -81,6 +106,7 @@ export class MyWorkService {
       pendingInvitations,
       mentions,
       externalCards,
+      standaloneTasks,
       timezone,
       today: todayKey(timezone, now),
     };
@@ -170,8 +196,55 @@ export function bucketise(
   });
 }
 
+/**
+ * Việc ngoài dự án cho trang "Công việc của tôi": cùng cách chia nhóm theo hạn
+ * như việc dự án. Việc chờ tôi duyệt đứng đầu nhóm của nó — nó đang chặn
+ * người khác.
+ */
+export function bucketiseTasks(
+  tasks: readonly StandaloneTask[],
+  userId: string,
+  todayDateKey: string,
+  weekStartKey: string,
+  timezone: string,
+  now: Date,
+): MyWorkStandaloneTask[] {
+  const weekEndKey = dayWindow(now, timezone, 6 - daysSince(weekStartKey, todayDateKey)).dateKey;
+
+  const entries = tasks.map<MyWorkStandaloneTask>((task) => {
+    const myRole = standaloneTaskRoleOf(task, userId) ?? 'follower';
+    return {
+      task,
+      myRole,
+      awaitingMyApproval:
+        myRole === 'assigner' && task.status === 'review' && task.assigneeUserId !== userId,
+      bucket: bucketOfDue(task.dueDate, todayDateKey, weekEndKey),
+    };
+  });
+
+  return entries.sort((left, right) => {
+    const byBucket = BUCKET_RANK[left.bucket] - BUCKET_RANK[right.bucket];
+    if (byBucket !== 0) return byBucket;
+    if (left.awaitingMyApproval !== right.awaitingMyApproval) {
+      return left.awaitingMyApproval ? -1 : 1;
+    }
+    const byPriority =
+      (PRIORITY_RANK.get(left.task.priority) ?? 99) - (PRIORITY_RANK.get(right.task.priority) ?? 99);
+    if (byPriority !== 0) return byPriority;
+    return (left.task.dueDate ?? '9999-12-31').localeCompare(right.task.dueDate ?? '9999-12-31');
+  });
+}
+
 function bucketOf(item: WorkItem, todayDateKey: string, weekEndKey: string): MyWorkBucket {
-  const due = item.plannedEnd?.slice(0, 10);
+  return bucketOfDue(item.plannedEnd, todayDateKey, weekEndKey);
+}
+
+function bucketOfDue(
+  dueDate: string | undefined,
+  todayDateKey: string,
+  weekEndKey: string,
+): MyWorkBucket {
+  const due = dueDate?.slice(0, 10);
   if (!due) return 'no_due';
   if (due < todayDateKey) return 'overdue';
   if (due === todayDateKey) return 'today';

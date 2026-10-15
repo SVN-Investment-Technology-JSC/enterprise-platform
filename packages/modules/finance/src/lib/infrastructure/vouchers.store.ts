@@ -4,7 +4,9 @@ import {
   formatFinanceVoucherCode,
   type FinanceAllocation,
   type FinanceProjectVoucher,
+  type FinanceProjectTotals,
   type FinanceProjectVoucherList,
+  type FinanceProjectWorkItemTotals,
   type FinanceRelatedProject,
   type FinanceVoucherAttachment,
   type FinanceVoucherEvent,
@@ -406,40 +408,55 @@ const PROJECT_STATUSES = ['PENDING', 'APPROVED'];
 /**
  * Phiếu thu/chi gắn với một dự án, cho trang dự án bên Workspace.
  *
- * Người gọi đã được Workspace xác nhận xem được tài chính dự án; Tài chính vẫn áp phạm vi xem phiếu của chính nó
- * (người chỉ có quyền lập phiếu chỉ thấy phiếu của mình) để không lộ phiếu của người khác. Tổng tiền chỉ tính phiếu
- * HẠCH TOÁN cho dự án (kể cả công việc thuộc dự án); phiếu "liên quan" chỉ để tra cứu.
+ * Người gọi đã được Workspace xác nhận xem được tài chính dự án và có quyền `finance.read` (kiểm ở tầng application), nên
+ * số liệu tính trên mọi phiếu của dự án. Tổng tiền chỉ tính phiếu HẠCH TOÁN cho dự án (kể cả công việc thuộc dự án);
+ * phiếu "liên quan" chỉ để tra cứu. Chi đã duyệt hạch toán cho công việc là chi phí thực tế của công việc đó.
  */
-export async function listProjectVouchers(db: Db, tenantId: string, actor: FinanceActor, projectId: string): Promise<FinanceProjectVoucherList> {
+export async function listProjectVouchers(db: Db, tenantId: string, projectId: string): Promise<FinanceProjectVoucherList> {
   const params: unknown[] = [tenantId, projectId, PROJECT_STATUSES];
-  let visible = 'TRUE';
-  if (!canReadAll(actor)) {
-    params.push(actor.userId, approvableKinds(actor));
-    visible = `(v.created_by = $4 OR v.kind = ANY($5::text[]))`;
-  }
-  const scope = `v.tenant_id = $1 AND v.kind IN ('RECEIPT','PAYMENT') AND v.status = ANY($3::text[]) AND ${visible}`;
+  const scope = `v.tenant_id = $1 AND v.kind IN ('RECEIPT','PAYMENT') AND v.status = ANY($3::text[])`;
 
   const totalsRows = (
     await db.query(
-      `SELECT v.kind, v.status, count(*)::int AS n, COALESCE(SUM(v.total_amount),0) AS amount
-         FROM finance_schema.vouchers v WHERE ${scope} AND v.alloc_project_id = $2::uuid GROUP BY v.kind, v.status`,
+      `SELECT v.alloc_work_item_id, max(v.alloc_work_item_code) AS work_item_code, max(v.alloc_work_item_title) AS work_item_title,
+              v.kind, v.status, count(*)::int AS n, COALESCE(SUM(v.total_amount),0) AS amount
+         FROM finance_schema.vouchers v WHERE ${scope} AND v.alloc_project_id = $2::uuid
+        GROUP BY v.alloc_work_item_id, v.kind, v.status`,
       params,
     )
   ).rows as Row[];
-  const totals = { received: 0, paid: 0, pendingReceived: 0, pendingPaid: 0, receiptCount: 0, paymentCount: 0 };
-  for (const row of totalsRows) {
+  const emptyTotals = (): FinanceProjectTotals => ({ received: 0, paid: 0, pendingReceived: 0, pendingPaid: 0, receiptCount: 0, paymentCount: 0 });
+  const add = (target: FinanceProjectTotals, row: Row) => {
     const amount = num(row.amount);
     const approved = row.status === 'APPROVED';
     if (row.kind === 'RECEIPT') {
-      totals.receiptCount += num(row.n);
-      if (approved) totals.received += amount;
-      else totals.pendingReceived += amount;
+      target.receiptCount += num(row.n);
+      if (approved) target.received += amount;
+      else target.pendingReceived += amount;
     } else {
-      totals.paymentCount += num(row.n);
-      if (approved) totals.paid += amount;
-      else totals.pendingPaid += amount;
+      target.paymentCount += num(row.n);
+      if (approved) target.paid += amount;
+      else target.pendingPaid += amount;
     }
+  };
+  const totals = emptyTotals();
+  const projectLevel = emptyTotals();
+  const byWorkItem = new Map<string, FinanceProjectWorkItemTotals>();
+  for (const row of totalsRows) {
+    add(totals, row);
+    if (!row.alloc_work_item_id) {
+      add(projectLevel, row);
+      continue;
+    }
+    const id = String(row.alloc_work_item_id);
+    let entry = byWorkItem.get(id);
+    if (!entry) {
+      entry = { workItemId: id, code: String(row.work_item_code ?? ''), title: String(row.work_item_title ?? ''), ...emptyTotals() };
+      byWorkItem.set(id, entry);
+    }
+    add(entry, row);
   }
+  const workItems = [...byWorkItem.values()].sort((a, b) => a.code.localeCompare(b.code, 'vi', { numeric: true }));
 
   const rows = (
     await db.query(
@@ -470,5 +487,5 @@ export async function listProjectVouchers(db: Db, tenantId: string, actor: Finan
         : null,
     createdByName: optStr(row.created_by_name),
   }));
-  return { items, totals, truncated: rows.length > PROJECT_LIST_LIMIT };
+  return { items, totals, projectLevel, workItems, truncated: rows.length > PROJECT_LIST_LIMIT };
 }

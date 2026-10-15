@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
 import { buildStepChangedPayload, instancesWithStepChange } from '../domain/procedure-progress.js';
 import type { ProcedureStore, ProcedureTenantState } from '../application/procedure-store.port.js';
+import { procedureCommentSignals } from './procedure-comment-signals.js';
 import { procedureNotificationEvents } from './procedure-notification-events.js';
 import { workspaceLinkEvents } from '../domain/procedure-workspace-link.js';
 
@@ -303,6 +304,17 @@ export class PostgresProcedureStore implements ProcedureStore {
       await client.query(`INSERT INTO integration_schema.outbox_events
         (id,aggregate_type,aggregate_id,event_type,event_version,payload,occurred_at)
         VALUES ($1,'procedure-instance',$2,$3,$4,$5::jsonb,$6)`, [event.id,linkEvent.aggregateId,event.type,event.version,JSON.stringify(event),event.occurredAt]);
+    }
+
+    // Trao đổi mới trong hồ sơ: tín hiệu thời gian thực cho những người đang mở hồ sơ đó.
+    // Cùng transaction với việc ghi trao đổi nên không có tin nào mà thiếu tín hiệu (và ngược lại).
+    for (const signal of procedureCommentSignals(before.instances, after.instances)) {
+      const event = createIntegrationEvent({ id:randomUUID(),type:signal.type,version:1,tenantId,
+        source:'procedure-engine',correlationId:signal.aggregateId,payload:{ ...signal.payload } });
+      await client.query(`INSERT INTO integration_schema.outbox_events
+        (id,aggregate_type,aggregate_id,event_type,event_version,payload,occurred_at)
+        VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7)`, [event.id,signal.aggregateType,signal.aggregateId,
+          event.type,event.version,JSON.stringify(event),event.occurredAt]);
     }
 
     // Assignment and terminal-result facts come from the before/after snapshot,

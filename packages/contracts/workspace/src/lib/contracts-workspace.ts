@@ -726,8 +726,21 @@ export const MAX_CHAT_REPLY_DEPTH = 2;
  */
 export const CHAT_EDIT_WINDOW_MINUTES = 15;
 
-/** Nhịp hỏi lại số tin chưa đọc. Không có WebSocket trong repo. */
+/**
+ * Nhịp hỏi lại số tin chưa đọc.
+ *
+ * Tin mới đã được đẩy realtime (`workspace.chat.changed`); nhịp này chỉ còn là
+ * lưới an toàn khi mất kết nối hoặc broker chậm.
+ */
 export const CHAT_UNREAD_POLL_MS = 30_000;
+
+/**
+ * Số tin mỗi trang khi mở luồng và mỗi lần cuộn lên xem tin cũ.
+ *
+ * Nhỏ có chủ đích: mở khung chỉ dựng ~10 tin nên hiện ngay, không giật; tin cũ nạp dần
+ * khi cuộn lên (và tự nạp tiếp nếu 10 tin chưa lấp đầy khung).
+ */
+export const CHAT_PAGE_SIZE = 10;
 
 export interface ChatMessage {
   readonly id: string;
@@ -761,6 +774,24 @@ export interface ChatChannel {
 export interface ChatThread {
   readonly channel?: ChatChannel;
   readonly messages: readonly ChatMessage[];
+  /** Còn tin cũ hơn tin đầu danh sách; xin trang kế bằng `before` = id tin đầu. */
+  readonly hasMore?: boolean;
+  /**
+   * Mỗi người đã đọc tới tin nào (chỉ có ở trang mới nhất). Dùng id tin chứ không
+   * dùng thời điểm để so với tin mới nhất không bao giờ sai vì làm tròn mili giây.
+   */
+  readonly readers?: readonly ChatReader[];
+}
+
+export interface ChatReader {
+  readonly userId: string;
+  /** Tin mới nhất người này đã đọc tới; vắng nếu mốc đọc cũ hơn mọi tin còn lại. */
+  readonly messageId?: string;
+}
+
+/** Danh sách người nhận tín hiệu "đang nhập" của một node, không gồm người hỏi. */
+export interface ChatTypingRecipients {
+  readonly userIds: readonly string[];
 }
 
 export interface SendChatMessageRequest {
@@ -1154,6 +1185,11 @@ export interface MyWorkSummary {
   readonly pendingInvitations: readonly MyWorkEvent[];
   readonly mentions: readonly MyWorkMention[];
   readonly externalCards: readonly MyWorkExternalCard[];
+  /**
+   * Việc ngoài dự án: việc tôi đang thực hiện, cộng việc tôi giao đang chờ tôi
+   * duyệt. Việc tôi thực hiện được tính vào `counters`.
+   */
+  readonly standaloneTasks: readonly MyWorkStandaloneTask[];
   /** Múi giờ dùng để cắt "hôm nay" và "tuần này". */
   readonly timezone: string;
   readonly today: string;
@@ -1688,3 +1724,360 @@ export interface UpdateWorkdayRulesRequest {
 
 /** Công mỗi ngày nằm trong [0, 10], tối đa hai chữ số thập phân. */
 export const MAX_WORKDAY_UNITS = 10;
+
+/* =========================================================================
+   CÔNG VIỆC NGOÀI DỰ ÁN (giao việc lẻ)
+
+   Một người giao việc cho bất kỳ ai trong tenant, không cần dự án. Dùng
+   chung trạng thái và mức ưu tiên với công việc trong dự án. Không có trong
+   trang Báo cáo.
+
+   - Việc gốc: người thực hiện chỉ đưa tới `review`, bước `done` do người giao.
+   - Việc con (lồng tối đa `MAX_WORK_ITEM_DEPTH` cấp): không cần duyệt, người
+     thực hiện tự hoàn thành. Người giao và người phụ trách của việc cha được
+     tạo việc con. Việc cha không đóng được khi còn việc con đang mở; tiến độ
+     việc cha tính từ việc con.
+   - Theo quy trình: module Quy trình mở hồ sơ; hồ sơ hoàn tất thì việc gốc
+     tự sang `review` (việc con tự `done`). Khi hồ sơ còn chạy, không ai đưa
+     việc tới `review`/`done` bằng tay.
+   ========================================================================= */
+
+/**
+ * Vai của một người trên việc giao lẻ, nhìn từ phía người đang xem.
+ *
+ * `viewer`: không giữ vai trực tiếp trên việc này nhưng giữ vai ở một việc
+ * khác cùng cây (việc cha, việc con) — được xem để nắm bối cảnh, không thao tác.
+ */
+export const STANDALONE_TASK_ROLES = [
+  'assigner',
+  'assignee',
+  'participant',
+  'follower',
+  'viewer',
+] as const;
+export type StandaloneTaskRole = (typeof STANDALONE_TASK_ROLES)[number];
+
+/** Ba ngăn của trang danh sách. */
+export const STANDALONE_TASK_SCOPES = ['assigned_to_me', 'assigned_by_me', 'following'] as const;
+export type StandaloneTaskScope = (typeof STANDALONE_TASK_SCOPES)[number];
+
+/**
+ * Người thao tác "hệ thống" trong nhật ký việc giao lẻ — các bước tự động theo
+ * hồ sơ quy trình. Cột `created_by` là uuid nên dùng một uuid cố định.
+ */
+export const STANDALONE_TASK_SYSTEM_ACTOR_ID = '00000000-0000-4000-8000-000000000004';
+
+export const STANDALONE_TASK_EXECUTION_TYPES = ['manual', 'procedure'] as const;
+export type StandaloneTaskExecutionType = (typeof STANDALONE_TASK_EXECUTION_TYPES)[number];
+
+/**
+ * Trạng thái hồ sơ quy trình gắn với việc, đi theo sự kiện từ module Quy trình.
+ * `start_rejected`: Quy trình không mở được hồ sơ (thiếu vai S, quy trình đổi…).
+ */
+export const STANDALONE_TASK_PROCEDURE_STATUSES = [
+  'pending',
+  'started',
+  'start_rejected',
+  'completed',
+  'rejected',
+  'cancelled',
+] as const;
+export type StandaloneTaskProcedureStatus = (typeof STANDALONE_TASK_PROCEDURE_STATUSES)[number];
+
+/**
+ * Chuyển trạng thái của việc gốc, chưa xét ai bấm.
+ *
+ * Khác bảng của công việc dự án ở một chỗ: `in_progress` không đi thẳng sang
+ * `done` — kết quả phải qua `review` để người giao duyệt. Ngoại lệ tự giao
+ * cho chính mình xử lý trong `allowedStandaloneTaskTransitions`.
+ */
+export const STANDALONE_TASK_STATUS_TRANSITIONS: Readonly<
+  Record<WorkItemStatus, readonly WorkItemStatus[]>
+> = {
+  todo: ['in_progress', 'blocked', 'cancelled'],
+  in_progress: ['todo', 'blocked', 'review', 'cancelled'],
+  blocked: ['todo', 'in_progress', 'cancelled'],
+  review: ['in_progress', 'done', 'cancelled'],
+  done: ['in_progress'],
+  cancelled: ['todo'],
+};
+
+/** Người thực hiện việc gốc: chỉ tới `review`, và rút lại từ `review`. */
+const EXECUTOR_TRANSITIONS: Readonly<Record<WorkItemStatus, readonly WorkItemStatus[]>> = {
+  todo: ['in_progress', 'blocked'],
+  in_progress: ['todo', 'blocked', 'review'],
+  blocked: ['todo', 'in_progress'],
+  review: ['in_progress'],
+  done: [],
+  cancelled: [],
+};
+
+/** Người giao việc con: không có bước duyệt, `in_progress` đi thẳng sang `done`. */
+const CHILD_ASSIGNER_TRANSITIONS: Readonly<Record<WorkItemStatus, readonly WorkItemStatus[]>> = {
+  todo: ['in_progress', 'blocked', 'cancelled'],
+  in_progress: ['todo', 'blocked', 'done', 'cancelled'],
+  blocked: ['todo', 'in_progress', 'cancelled'],
+  review: ['in_progress', 'done', 'cancelled'],
+  done: ['in_progress'],
+  cancelled: ['todo'],
+};
+
+/** Người thực hiện việc con: tự hoàn thành và tự mở lại; huỷ vẫn là của người giao. */
+const CHILD_EXECUTOR_TRANSITIONS: Readonly<Record<WorkItemStatus, readonly WorkItemStatus[]>> = {
+  todo: ['in_progress', 'blocked'],
+  in_progress: ['todo', 'blocked', 'done'],
+  blocked: ['todo', 'in_progress'],
+  review: ['in_progress', 'done'],
+  done: ['in_progress'],
+  cancelled: [],
+};
+
+/** Hồ sơ quy trình còn đang chạy (hoặc đang chờ mở): kết quả chưa có. */
+export function standaloneTaskProcedureRunning(
+  task: Pick<StandaloneTask, 'executionType' | 'procedure'>,
+): boolean {
+  return (
+    task.executionType === 'procedure' &&
+    (task.procedure?.status === 'pending' || task.procedure?.status === 'started')
+  );
+}
+
+/**
+ * Các trạng thái kế tiếp mà người đang xem được chuyển tới.
+ *
+ * Dùng chung cho server (kiểm quyền) và giao diện (chỉ hiện nút hợp lệ):
+ * - việc gốc: người giao mọi bước; người thực hiện chỉ tới `review`; tự giao
+ *   cho chính mình thì được `in_progress` → `done`;
+ * - việc con: không có bước duyệt; người thực hiện tự `done`, chỉ người giao huỷ;
+ * - người theo dõi và người xem qua cây: không bước nào;
+ * - còn việc con đang mở: không đóng (`review`/`done`/`cancelled`) được;
+ * - hồ sơ quy trình còn chạy: không ai đưa tới `review`/`done` bằng tay.
+ */
+export function allowedStandaloneTaskTransitions(
+  task: Pick<
+    StandaloneTask,
+    | 'status'
+    | 'createdBy'
+    | 'assigneeUserId'
+    | 'parentId'
+    | 'openChildCount'
+    | 'executionType'
+    | 'procedure'
+    | 'reversal'
+  >,
+  role: StandaloneTaskRole,
+): readonly WorkItemStatus[] {
+  // Đã huỷ hiệu lực là trạng thái cuối: không mở lại được.
+  if (task.reversal) return [];
+  const isChild = Boolean(task.parentId);
+  let next: readonly WorkItemStatus[];
+  if (role === 'assigner') {
+    if (isChild) next = CHILD_ASSIGNER_TRANSITIONS[task.status];
+    else {
+      const base = STANDALONE_TASK_STATUS_TRANSITIONS[task.status];
+      const selfAssigned = task.assigneeUserId === task.createdBy;
+      next = selfAssigned && task.status === 'in_progress' ? [...base, 'done'] : base;
+    }
+  } else if (role === 'assignee' || role === 'participant') {
+    next = isChild ? CHILD_EXECUTOR_TRANSITIONS[task.status] : EXECUTOR_TRANSITIONS[task.status];
+  } else {
+    return [];
+  }
+  const closing: readonly WorkItemStatus[] = ['review', 'done', 'cancelled'];
+  if ((task.openChildCount ?? 0) > 0) next = next.filter((status) => !closing.includes(status));
+  if (standaloneTaskProcedureRunning(task)) {
+    next = next.filter((status) => status !== 'review' && status !== 'done');
+  }
+  return next;
+}
+
+/**
+ * Việc đã hoàn thành bị huỷ hiệu lực. Khi đó `status = 'cancelled'`, việc
+ * không mở lại và không xoá được.
+ */
+export interface StandaloneTaskReversal {
+  readonly reversedAt: string;
+  readonly reversedBy: string;
+  readonly reversedByName?: string;
+  readonly reason: string;
+  /** Người huỷ có yêu cầu lập công việc điều chỉnh. */
+  readonly adjustmentRequested: boolean;
+}
+
+/**
+ * Huỷ hiệu lực việc đã hoàn thành (người giao).
+ *
+ * `createAdjustment` chỉ ghi nhận yêu cầu; việc điều chỉnh do người giao tạo
+ * ngay sau đó bằng form điền sẵn (`CreateStandaloneTaskRequest.adjustmentOfId`).
+ */
+export interface ReverseStandaloneTaskRequest {
+  readonly reason: string;
+  readonly createAdjustment?: boolean;
+}
+
+/** Việc điều chỉnh của một việc đã huỷ hiệu lực, kèm trạng thái để hiện liên kết. */
+export interface StandaloneTaskAdjustmentRef extends StandaloneTaskRef {
+  readonly status: WorkItemStatus;
+}
+
+/** Hồ sơ quy trình gắn với việc. */
+export interface StandaloneTaskProcedure {
+  readonly definitionId: string;
+  readonly status: StandaloneTaskProcedureStatus;
+  readonly instanceId?: string;
+  readonly instanceCode?: string;
+  /** Lý do Quy trình không mở được hồ sơ. */
+  readonly error?: string;
+}
+
+export interface StandaloneTask {
+  readonly id: string;
+  /** `GV001`, đánh số chung toàn tenant (việc con cũng có mã riêng). */
+  readonly code: string;
+  readonly title: string;
+  readonly description?: string;
+  readonly status: WorkItemStatus;
+  readonly priority: WorkItemPriority;
+  /** Việc cha; vắng là việc gốc. */
+  readonly parentId?: string;
+  /** Việc gốc của cây; việc gốc trỏ về chính nó. */
+  readonly rootId: string;
+  /** 0 là việc gốc. */
+  readonly depth: number;
+  /** Số việc con trực tiếp, và số việc con trực tiếp chưa đóng. */
+  readonly childCount: number;
+  readonly openChildCount: number;
+  readonly executionType: StandaloneTaskExecutionType;
+  readonly procedure?: StandaloneTaskProcedure;
+  /** Có khi việc đã bị huỷ hiệu lực. */
+  readonly reversal?: StandaloneTaskReversal;
+  /** Việc này là việc điều chỉnh của việc đã huỷ hiệu lực này. */
+  readonly adjustmentOfId?: string;
+  /** Người phụ trách chính; luôn có. */
+  readonly assigneeUserId: string;
+  readonly participantUserIds: readonly string[];
+  readonly followerUserIds: readonly string[];
+  readonly plannedStart?: string;
+  /** Hạn hoàn thành (`YYYY-MM-DD`). */
+  readonly dueDate?: string;
+  readonly actualStart?: string;
+  readonly actualEnd?: string;
+  /** Có việc con thì tự tính: trung bình tiến độ các việc con chưa huỷ. */
+  readonly progressPercent: number;
+  /** Người giao. */
+  readonly createdBy: string;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly statusChangedAt: string;
+}
+
+/** Mã và tên của một việc, cho đường dẫn việc cha và nhãn "Thuộc …". */
+export interface StandaloneTaskRef {
+  readonly id: string;
+  readonly code: string;
+  readonly title: string;
+}
+
+/** Một dòng trong danh sách, kèm vai của người đang xem để giao diện khỏi tự suy. */
+export interface StandaloneTaskListItem {
+  readonly task: StandaloneTask;
+  readonly myRole: StandaloneTaskRole;
+  /** Việc cha trực tiếp, khi đây là việc con. */
+  readonly parent?: StandaloneTaskRef;
+}
+
+export interface StandaloneTaskList {
+  readonly items: readonly StandaloneTaskListItem[];
+}
+
+export interface StandaloneTaskHistoryEntry {
+  readonly id: string;
+  readonly fromStatus?: WorkItemStatus;
+  readonly toStatus: WorkItemStatus;
+  readonly note?: string;
+  readonly createdBy: string;
+  readonly createdAt: string;
+}
+
+export interface StandaloneTaskDetail {
+  readonly task: StandaloneTask;
+  readonly myRole: StandaloneTaskRole;
+  /** Trạng thái người đang xem được chuyển tới, đã xét vai. */
+  readonly allowedStatuses: readonly WorkItemStatus[];
+  /** Người đang xem được thêm việc con (người giao hoặc người phụ trách, việc chưa đóng). */
+  readonly canAddChild: boolean;
+  /** Người đang xem được huỷ hiệu lực việc này (người giao, việc đã hoàn thành). */
+  readonly canReverse: boolean;
+  /**
+   * Người đang xem được lập việc điều chỉnh: người giao, việc đã huỷ hiệu lực,
+   * chưa có việc điều chỉnh nào còn hiệu lực.
+   */
+  readonly canCreateAdjustment: boolean;
+  /** Việc gốc đã huỷ hiệu lực, khi đây là việc điều chỉnh. */
+  readonly adjustmentOf?: StandaloneTaskRef;
+  /** Các việc điều chỉnh của việc này (kể cả đã huỷ), cũ trước. */
+  readonly adjustments: readonly StandaloneTaskAdjustmentRef[];
+  /** Từ việc gốc xuống việc cha trực tiếp. */
+  readonly ancestors: readonly StandaloneTaskRef[];
+  /** Việc con trực tiếp. */
+  readonly children: readonly StandaloneTask[];
+  readonly history: readonly StandaloneTaskHistoryEntry[];
+}
+
+export interface CreateStandaloneTaskRequest {
+  readonly title: string;
+  readonly description?: string;
+  readonly priority?: WorkItemPriority;
+  readonly assigneeUserId: string;
+  readonly participantUserIds?: readonly string[];
+  readonly followerUserIds?: readonly string[];
+  readonly plannedStart?: string;
+  readonly dueDate?: string;
+  /** Tạo làm việc con của việc này. */
+  readonly parentId?: string;
+  readonly executionType?: StandaloneTaskExecutionType;
+  /** Bắt buộc khi `executionType = 'procedure'`. */
+  readonly procedureDefinitionId?: string;
+  /**
+   * Lập làm việc điều chỉnh của việc đã huỷ hiệu lực này. Việc điều chỉnh là
+   * việc gốc (không đi cùng `parentId`); chỉ người giao của việc cũ được lập.
+   */
+  readonly adjustmentOfId?: string;
+}
+
+/**
+ * Sửa việc giao lẻ.
+ *
+ * Người giao sửa được mọi trường. Người thực hiện chỉ được gửi
+ * `progressPercent`; gửi trường khác bị từ chối. Cách thực hiện (thủ công hay
+ * theo quy trình) không đổi được sau khi tạo.
+ */
+export interface UpdateStandaloneTaskRequest {
+  readonly title?: string;
+  readonly description?: string | null;
+  readonly priority?: WorkItemPriority;
+  readonly assigneeUserId?: string;
+  readonly participantUserIds?: readonly string[];
+  readonly followerUserIds?: readonly string[];
+  readonly plannedStart?: string | null;
+  readonly dueDate?: string | null;
+  readonly progressPercent?: number;
+}
+
+/**
+ * Đổi trạng thái. `note` bắt buộc khi người giao trả lại (`review` →
+ * `in_progress`) hoặc huỷ.
+ */
+export interface ChangeStandaloneTaskStatusRequest {
+  readonly status: WorkItemStatus;
+  readonly note?: string;
+}
+
+/** Việc giao lẻ trên trang "Công việc của tôi". */
+export interface MyWorkStandaloneTask {
+  readonly task: StandaloneTask;
+  readonly bucket: MyWorkBucket;
+  readonly myRole: StandaloneTaskRole;
+  /** Tôi là người giao và việc đang chờ tôi duyệt. */
+  readonly awaitingMyApproval: boolean;
+}

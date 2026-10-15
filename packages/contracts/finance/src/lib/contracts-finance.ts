@@ -636,10 +636,31 @@ export interface FinanceProjectVoucher {
   createdByName: string | null;
 }
 
+/** Tổng thu/chi của một nhóm phiếu hạch toán: đã duyệt là đã ghi sổ, chờ duyệt chưa ghi sổ. */
+export interface FinanceProjectTotals {
+  received: number;
+  paid: number;
+  pendingReceived: number;
+  pendingPaid: number;
+  receiptCount: number;
+  paymentCount: number;
+}
+
+/** Thu/chi hạch toán riêng cho một công việc; chi đã duyệt chính là chi phí thực tế của công việc. */
+export interface FinanceProjectWorkItemTotals extends FinanceProjectTotals {
+  workItemId: string;
+  code: string;
+  title: string;
+}
+
 export interface FinanceProjectVoucherList {
   items: FinanceProjectVoucher[];
-  /** Chỉ tính phiếu HẠCH TOÁN cho dự án, theo trạng thái: đã duyệt là đã ghi sổ, chờ duyệt chưa ghi sổ. */
-  totals: { received: number; paid: number; pendingReceived: number; pendingPaid: number; receiptCount: number; paymentCount: number };
+  /** Chỉ tính phiếu HẠCH TOÁN cho dự án (gồm cả phiếu hạch toán cho công việc của dự án). */
+  totals: FinanceProjectTotals;
+  /** Phần hạch toán cho cả dự án, không gắn công việc nào (chi phí chung, thu chung). */
+  projectLevel: FinanceProjectTotals;
+  /** Phần hạch toán cho từng công việc của dự án; `totals` = `projectLevel` + tổng các dòng này. */
+  workItems: FinanceProjectWorkItemTotals[];
   /** Có phiếu nhiều hơn số trả về (trần danh sách). */
   truncated: boolean;
 }

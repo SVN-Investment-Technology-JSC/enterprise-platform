@@ -58,6 +58,26 @@ const moduleCatalogMetadata: Record<string, ModuleExtraInfo> = {
     businessValue:
       'Người dùng tự tra cách làm và số liệu của mình ngay trên ERP, giảm câu hỏi lặp lại gửi tới quản trị viên.',
   },
+  shared: {
+    category: 'Nền tảng dùng chung',
+    tagline: 'Kho tài liệu công ty có phiên bản, thông tin hợp đồng và hạn hiệu lực, dùng chung cho mọi phòng ban.',
+    accentColor: {
+      bg: 'bg-stone-50/70',
+      border: 'border-stone-200/80',
+      text: 'text-stone-800',
+      iconBg: 'bg-stone-100 text-stone-800',
+    },
+    features: [
+      'Cây thư mục nhiều cấp theo phòng ban, năm, loại hồ sơ',
+      'Số hiệu, đối tác, ngày ký và hạn hiệu lực cho cả thư mục hợp đồng lẫn từng tài liệu',
+      'Giữ mọi phiên bản, khoá khi đang sửa, nhật ký xem và tải xuống',
+      'Độ mật Nội bộ, Hạn chế, Mật',
+      'Một hạn mức dung lượng chung cho tệp của mọi phân hệ',
+    ],
+    targetRoles: ['Văn thư, Hành chính', 'Kinh doanh', 'Ban Tổng giám đốc'],
+    businessValue:
+      'Hợp đồng, quyết định và văn bản của công ty nằm một chỗ, tìm được theo số hiệu, đối tác và hạn hiệu lực.',
+  },
   'procedure-engine': {
     category: 'Vận hành & Quy trình',
     tagline: 'Thiết kế, ban hành và tự động hóa luồng phê duyệt văn bản, tờ trình đa cấp.',

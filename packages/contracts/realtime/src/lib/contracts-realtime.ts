@@ -6,9 +6,85 @@ export const REALTIME_SERVER_EVENTS = [
   'notification.updated',
   'notification.read',
   'notification.summary-updated',
+  'workspace.chat.changed',
+  'workspace.chat.typing',
+  'procedure.comment.changed',
+  'procedure.comment.typing',
 ] as const;
 
 export type RealtimeServerEvent = (typeof REALTIME_SERVER_EVENTS)[number];
+
+/**
+ * Tín hiệu "luồng chat có thay đổi" gửi tới từng thành viên dự án.
+ *
+ * Chỉ mang định danh, không mang nội dung tin: người nhận gọi lại API chat (có
+ * kiểm quyền) để lấy dữ liệu, nên nội dung không đi qua broker và Redis, và
+ * tin bị sửa/thu hồi không bao giờ lệch với bản trong CSDL.
+ */
+export interface WorkspaceChatSignal {
+  readonly channelId: string;
+  readonly entityType: 'project' | 'work_item';
+  readonly entityId: string;
+  readonly projectId: string;
+  /**
+   * Tin bị đổi. Với `read` là tin MỚI NHẤT mà `actorUserId` vừa đọc tới, để người
+   * khác cập nhật "đã xem" ngay mà không phải tải lại cả luồng.
+   */
+  readonly messageId: string;
+  readonly change: 'created' | 'edited' | 'deleted' | 'read';
+  readonly actorUserId: string;
+}
+
+/**
+ * "Đang nhập": tín hiệu tạm, không lưu ở đâu cả. Người nhận tự hết hiệu lực sau
+ * vài giây nếu không có tín hiệu mới.
+ */
+export interface WorkspaceChatTyping {
+  readonly entityType: 'project' | 'work_item';
+  readonly entityId: string;
+  /** Người đang gõ, do máy chủ gắn từ phiên đăng nhập, không lấy từ client. */
+  readonly userId: string;
+  /** `false` khi người đó xoá hết nội dung hoặc đã gửi. */
+  readonly typing: boolean;
+}
+
+/**
+ * Hồ sơ quy trình có trao đổi mới. Gửi vào PHÒNG của hồ sơ (không gửi từng người): người tham gia
+ * hồ sơ được suy ra động từ RACI, chức danh, đơn vị, ủy quyền nên không liệt kê được lúc ghi.
+ * Chỉ mang id; người nhận gọi lại API có kiểm quyền. Với sự kiện theo phòng, `userId` của bao thư
+ * là người thực hiện chứ không phải người nhận.
+ */
+export interface ProcedureCommentSignal {
+  readonly instanceId: string;
+  readonly activityId: string;
+  readonly actorUserId: string;
+}
+
+/** "Đang nhập" ở một hồ sơ quy trình; tín hiệu tạm, theo phòng của hồ sơ. */
+export interface ProcedureTypingSignal {
+  readonly instanceId: string;
+  /** Người gõ, do máy chủ gắn từ phiên đăng nhập. */
+  readonly userId: string;
+  readonly typing: boolean;
+}
+
+/** Client xin vào / rời phòng của một hồ sơ (sự kiện `procedure.subscribe` / `procedure.unsubscribe`). */
+export interface ProcedureRoomMessage {
+  readonly instanceId: string;
+}
+
+/** Client báo đang gõ ở hồ sơ (sự kiện `procedure.typing`); phải đã vào phòng của hồ sơ đó. */
+export interface ProcedureTypingMessage {
+  readonly instanceId: string;
+  readonly typing: boolean;
+}
+
+/** Nội dung client gửi lên qua socket để báo mình đang gõ (tên sự kiện `chat.typing`). */
+export interface ChatTypingMessage {
+  readonly entityType: 'project' | 'work_item';
+  readonly entityId: string;
+  readonly typing: boolean;
+}
 
 export interface RealtimeEventEnvelope<TData = unknown> {
   readonly id: string;

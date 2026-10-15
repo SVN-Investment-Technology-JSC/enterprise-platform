@@ -35,15 +35,12 @@ import { createPortal } from 'react-dom';
 import { Check, ChevronLeft, ChevronRight, Download, FileText, Plus, Search, X } from 'lucide-react';
 import type { AssetCatalogItem, MaterialCatalogItem } from '../procedure-api';
 import {
-  loadProjectFinanceEnabled,
   loadProjectPeople,
   loadProjectWorkItems,
   loadRelatedProjects,
   procedureNameFor,
   WORK_ITEM_PRIORITY_OPTIONS,
   WORK_ITEM_TYPE_OPTIONS,
-  formatVndInput,
-  parseVndInput,
   type ProjectPerson,
   type ProjectWorkItemInput,
   type ProjectWorkItemOption,
@@ -59,6 +56,7 @@ import {
   progressPercent,
   timelineEntries,
 } from './instance-flow-view';
+import { chatPeopleOf } from '../chat-people';
 import { ChatPanel } from './chat-panel';
 import { HistoryPanel } from './history-panel';
 import { LinkedPanel } from './linked-panel';
@@ -135,44 +133,6 @@ const ROLE_ORDER: readonly ProcedureRaciRole[] = ['S', 'R', 'E', 'C', 'A', 'I'];
 
 function formatDateTime(value?: string): string {
   return formatSharedDateTime(value, '—');
-}
-
-function subjectNames(snapshot?: TenantOrganizationSnapshot) {
-  const label = new Map<string, string>();
-  if (!snapshot) return label;
-
-  const units = snapshot.units ?? [];
-  const positions = snapshot.positions ?? [];
-  const members = snapshot.members ?? [];
-
-  for (const unit of units) {
-    label.set(unit.id, unit.headName ? `${unit.headName} (${unit.name})` : unit.name);
-  }
-  for (const position of positions) {
-    const holders = members
-      .filter((member) => member.positionId === position.id)
-      .map((member) => member.displayName);
-    label.set(position.id, holders.length > 0 ? holders.join(', ') : position.name);
-  }
-  for (const member of members) label.set(member.userId, member.displayName);
-  return label;
-}
-
-function participantsOf(
-  instance: ProcedureInstance,
-  names: ReadonlyMap<string, string>,
-): { id: string; name: string }[] {
-  const seen = new Map<string, string>();
-  for (const step of instance.steps) {
-    for (const assignment of step.assignments) {
-      const label = names.get(assignment.subjectId) ?? assignment.subjectLabel;
-      if (label) seen.set(assignment.subjectId, label);
-    }
-  }
-  for (const subtask of instance.subtasks ?? []) {
-    if (subtask.assigneeId && subtask.assigneeName) seen.set(subtask.assigneeId, subtask.assigneeName);
-  }
-  return [...seen].map(([id, name]) => ({ id, name }));
 }
 
 /**
@@ -324,6 +284,7 @@ export function WorkspaceBoard({
   onUploadEvidence,
   onUploadFile,
   onSendComment,
+  onRefreshInstance,
   handoffTitle,
   handoff,
   canReverse = false,
@@ -376,6 +337,8 @@ export function WorkspaceBoard({
   onUploadEvidence?: (instanceId: string, subtaskId: string, file: File) => void;
   onUploadFile?: (instanceId: string, file: File) => void;
   onSendComment?: (instanceId: string, body: string, mentions: string[], replyToId?: string) => void;
+  /** Tải lại đúng một hồ sơ khi người khác có trao đổi mới (thời gian thực). */
+  onRefreshInstance?: (instanceId: string) => void | Promise<void>;
   handoffTitle?: string;
   handoff?: StartHandoff;
   /** Quản trị viên Quy trình: được huỷ hiệu lực hồ sơ đã hoàn thành. */
@@ -429,8 +392,6 @@ export function WorkspaceBoard({
   const [itemAssignee, setItemAssignee] = useState('');
   const [itemHours, setItemHours] = useState('');
   const [itemType, setItemType] = useState<WorkItemType>('task');
-  const [itemCost, setItemCost] = useState('');
-  const [financeEnabled, setFinanceEnabled] = useState(false);
   const project = relatedProjects?.find((item) => item.id === projectId);
 
   useEffect(() => {
@@ -444,8 +405,6 @@ export function WorkspaceBoard({
     setProjectWorkItems([]);
     setItemParentId('');
     setItemSubmitter('');
-    setFinanceEnabled(false);
-    setItemCost('');
     if (!projectId) return;
     let cancelled = false;
     void loadProjectPeople(projectId)
@@ -458,9 +417,6 @@ export function WorkspaceBoard({
         if (!cancelled) setProjectWorkItems(items);
       })
       .catch(() => undefined);
-    void loadProjectFinanceEnabled(projectId).then((enabled) => {
-      if (!cancelled) setFinanceEnabled(enabled);
-    });
     return () => {
       cancelled = true;
     };
@@ -475,7 +431,6 @@ export function WorkspaceBoard({
     setItemPriority('normal');
     setItemHours('');
     setItemType('task');
-    setItemCost('');
   }, [creating]);
 
   const assigneeOptions = useMemo(
@@ -558,7 +513,6 @@ export function WorkspaceBoard({
   }, [handoffTitle, handoff, canCreateInstances]);
 
   const published = definitions.filter((item) => item.status === 'published');
-  const names = useMemo(() => subjectNames(organization), [organization]);
   const roleLabels = useMemo(() => subjectRoleLabels(organization), [organization]);
 
   const selectedCreateDef = useMemo(() => {
@@ -618,6 +572,11 @@ export function WorkspaceBoard({
 
   const selected =
     visible.find((instance) => instance.id === selectedId) ?? paged[0] ?? visible[0];
+  // Những NGƯỜI có thể được nhắc: vai giao cho chức danh/đơn vị được mở rộng thành từng người đang giữ.
+  const chatPeople = useMemo(
+    () => (selected ? chatPeopleOf(selected, organization, actorId) : []),
+    [selected, organization, actorId],
+  );
 
   const [headerCancelOpen, setHeaderCancelOpen] = useState(false);
   const [reverseOpen, setReverseOpen] = useState(false);
@@ -831,7 +790,6 @@ export function WorkspaceBoard({
                       plannedStart: startDate,
                       plannedEnd: endDate,
                       estimateHours: hoursValue,
-                      estimatedCost: financeEnabled ? parseVndInput(itemCost) : undefined,
                       parentId: itemParentId || undefined,
                       submitterUserId: itemSubmitter || undefined,
                     }
@@ -997,30 +955,6 @@ export function WorkspaceBoard({
                   </div>
                 </div>
 
-                {financeEnabled ? (
-                  <div className={styles.createTimeDateGrid}>
-                    <div className={styles.createFieldGroup}>
-                      <label className={styles.createFieldLabel} htmlFor="create-item-cost">
-                        Chi phí dự toán (VND)
-                      </label>
-                      <input
-                        id="create-item-cost"
-                        inputMode="decimal"
-                        className={styles.createTextInput}
-                        placeholder="Ví dụ 150.000.000"
-                        value={itemCost}
-                        onChange={(event) => setItemCost(formatVndInput(event.target.value))}
-                      />
-                    </div>
-                    <div className={styles.createFieldGroup}>
-                      <label className={styles.createFieldLabel} htmlFor="create-item-actual">
-                        Chi phí thực tế (VND)
-                      </label>
-                      {/* Chi phí thực tế ghi qua sổ chi phí ở tab Tài chính bên Workspace. */}
-                      <input id="create-item-actual" readOnly className={styles.createTextInput} value="0" />
-                    </div>
-                  </div>
-                ) : null}
 
                 <p className={styles.createFormHint}>
                   {isHoursInvalid
@@ -1826,9 +1760,12 @@ export function WorkspaceBoard({
                   <div className={styles.tabPanel}>
                     {detailTab === 'chat' ? (
                       <ChatPanel
+                        key={selected.id}
                         instance={selected}
                         busy={busy}
-                        participants={participantsOf(selected, names)}
+                        participants={chatPeople}
+                        currentUserId={actorId}
+                        onRefreshInstance={onRefreshInstance}
                         onSend={(body, mentions, replyToId) =>
                           onSendComment?.(selected.id, body, mentions, replyToId)
                         }
@@ -2090,9 +2027,12 @@ export function WorkspaceBoard({
               ) : activeStepDrawer.tab === 'chat' ? (
                 <div>
                   <ChatPanel
+                    key={selected.id}
                     instance={selected}
                     busy={busy}
-                    participants={participantsOf(selected, names)}
+                    participants={chatPeople}
+                    currentUserId={actorId}
+                    onRefreshInstance={onRefreshInstance}
                     onSend={(body, mentions, replyToId) =>
                       onSendComment?.(selected.id, body, mentions, replyToId)
                     }

@@ -242,6 +242,7 @@ describe('Hạch toán nội bộ và dự án liên quan', () => {
     expect(allocationProblem({ allocType: 'WORK_ITEM', allocProjectId: 'p1', allocWorkItemId: '' })).toBe('Chọn công việc để hạch toán.');
     expect(allocationProblem({ allocType: 'WORK_ITEM', allocProjectId: 'p1', allocWorkItemId: 'w1' })).toBeNull();
   });
+
 });
 
 describe('Đính kèm trong form', () => {

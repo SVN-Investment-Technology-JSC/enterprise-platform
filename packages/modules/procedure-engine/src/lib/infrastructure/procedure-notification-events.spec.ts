@@ -167,3 +167,73 @@ describe('procedureNotificationEvents', () => {
     ).toEqual(['procedure.instance.reversed']);
   });
 });
+
+describe('procedureMentionEvents (thông báo "bạn được nhắc")', () => {
+  const activity = (id: string, extra: Record<string, unknown> = {}) => ({
+    id,
+    action: 'comment' as const,
+    actorId: 'user-actor',
+    actorName: 'Đậu Bá Kiên',
+    summary: 'Đã gửi trao đổi.',
+    comment: 'Nhờ @Tài Búa xem giúp',
+    createdAt: '2026-10-01T08:00:00.000Z',
+    ...extra,
+  });
+  const mentionEvents = (before: ProcedureInstance, after: ProcedureInstance) =>
+    procedureNotificationEvents([before], [after]).filter(
+      (event) => event.type === 'procedure.mention.created',
+    );
+
+  it('báo từng người được nhắc, kèm tên người gửi, mã hồ sơ và đường dẫn mở hồ sơ', () => {
+    const after = instance({ activity: [activity('c1', { mentions: ['user-b', 'user-c'] })] });
+    expect(mentionEvents(instance(), after)).toEqual([
+      {
+        type: 'procedure.mention.created',
+        aggregateType: 'procedure-instance',
+        aggregateId: after.id,
+        payload: {
+          mentionId: 'c1',
+          threadId: after.id,
+          instanceId: after.id,
+          instanceCode: 'QT-001',
+          mentionedUserIds: ['user-b', 'user-c'],
+          actorUserId: 'user-actor',
+          excerpt: 'Đậu Bá Kiên · QT-001: Nhờ @Tài Búa xem giúp',
+          deepLink: `/procedures/instances/${after.id}`,
+          sourceType: 'procedure_comment',
+        },
+      },
+    ]);
+  });
+
+  it('không báo cho chính người gửi, và không phát gì khi chỉ nhắc chính mình', () => {
+    const after = instance({ activity: [activity('c1', { mentions: ['user-actor', 'user-b'] })] });
+    const [event] = mentionEvents(instance(), after);
+    expect(event.payload.mentionedUserIds).toEqual(['user-b']);
+
+    const self = instance({ activity: [activity('c2', { mentions: ['user-actor'] })] });
+    expect(mentionEvents(instance(), self)).toEqual([]);
+  });
+
+  it('chỉ báo trao đổi MỚI: ghi lại hồ sơ không báo lại lần nhắc cũ', () => {
+    const old = instance({ activity: [activity('c1', { mentions: ['user-b'] })] });
+    expect(mentionEvents(old, old)).toEqual([]);
+  });
+
+  it('không báo khi trao đổi không nhắc ai, hoặc khi mục không phải trao đổi', () => {
+    const plain = instance({ activity: [activity('c1')] });
+    const approve = instance({
+      activity: [activity('a1', { action: 'approve', mentions: ['user-b'] })],
+    });
+    expect(mentionEvents(instance(), plain)).toEqual([]);
+    expect(mentionEvents(instance(), approve)).toEqual([]);
+  });
+
+  it('cắt người nhận ở giới hạn và cắt trích đoạn ở 160 ký tự', () => {
+    const mentions = Array.from({ length: 30 }, (_, i) => `user-${i}`);
+    const after = instance({ activity: [activity('c1', { mentions, comment: 'x'.repeat(500) })] });
+    const [event] = mentionEvents(instance(), after);
+    expect(event.payload.mentionedUserIds as string[]).toHaveLength(20);
+    expect((event.payload.excerpt as string).length).toBe(160);
+  });
+});
