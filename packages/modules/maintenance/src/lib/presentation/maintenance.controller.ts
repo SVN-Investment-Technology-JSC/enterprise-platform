@@ -7,6 +7,7 @@ import type {
   MaintenanceOccurrenceStatus,
   MaintenanceSettingsKey,
   SaveMaintenanceMatrixRequest,
+  SetOccurrenceTransportRequest,
   UpdateMaintenanceScheduleRequest,
   UpdateMaintenanceSettingsRequest,
 } from '@enterprise-platform/contracts-maintenance';
@@ -87,6 +88,40 @@ export class MaintenanceController {
     @Body() input: CreateMaintenanceIncidentRequest,
   ) {
     return this.execute(() => this.maintenance.createIncident(this.actor(request), input));
+  }
+
+  /**
+   * Xe và tài xế còn trống (kèm khoảng bận) trong một khung giờ, để form sự cố không cho chọn trùng.
+   * Dữ liệu do HRM trả lời; `excludeIncidentId` bỏ qua lịch của chính phiếu đang sửa.
+   */
+  @Get('fleet/availability')
+  fleetAvailability(
+    @Req() request: MaintenanceRequest,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('excludeIncidentId') excludeIncidentId?: string,
+  ) {
+    return this.execute(async () => ({
+      data: await this.maintenance.fleetAvailability(this.actor(request), { from, to, excludeIncidentId }),
+    }));
+  }
+
+  /** Phương tiện hiện có của một phiếu sự cố (`null` nếu chưa chọn). */
+  @Get('occurrences/:id/transport')
+  incidentTransport(@Req() request: MaintenanceRequest, @Param('id') id: string) {
+    return this.execute(async () => ({ data: await this.maintenance.incidentTransport(this.actor(request), id) }));
+  }
+
+  /** Đổi hoặc bỏ (`transport: null`) phương tiện của phiếu sự cố; xe công ty được giữ chỗ trên Lịch xe của HRM. */
+  @Put('occurrences/:id/transport')
+  setIncidentTransport(
+    @Req() request: MaintenanceRequest,
+    @Param('id') id: string,
+    @Body() input: SetOccurrenceTransportRequest,
+  ) {
+    return this.execute(async () => ({
+      data: await this.maintenance.setIncidentTransport(this.actor(request), id, input?.transport ?? null),
+    }));
   }
 
   @Post('occurrences/:id/complete')
@@ -230,7 +265,7 @@ export class MaintenanceController {
     try { return await operation(); }
     catch (error) {
       if (!(error instanceof MaintenanceError)) throw error;
-      const status = { validation: 400, forbidden: 403, not_found: 404, conflict: 409 }[error.code];
+      const status = { validation: 400, forbidden: 403, not_found: 404, conflict: 409, unavailable: 503 }[error.code];
       throw new HttpException({ statusCode: status, code: error.code.toUpperCase(), message: error.message }, status);
     }
   }

@@ -91,11 +91,18 @@ import {
   paginate,
 } from '../request-history-view';
 import {
+  EMPTY_TRANSPORT,
   SearchableSelect,
   type SearchableSelectOption,
   Popconfirm,
+  TransportField,
+  type TransportFieldValue,
   formatDate,
+  fromLocalInput,
+  toTransportPayload,
+  transportError,
 } from '@enterprise-platform/shared-ui';
+import { useFleetAvailability } from '../use-fleet-availability';
 import {
   DynamicAttributeForm,
   type ProcedureAttributeItem,
@@ -291,13 +298,6 @@ export interface BusinessTripSurchargeItem {
   name: string;
   amount: number;
 }
-
-export const TRIP_VEHICLE_OPTIONS: SearchableSelectOption[] = [
-  { value: 'Xe công ty', label: 'Xe công ty (xe công vụ điều động)' },
-  { value: 'Xe ngoài', label: 'Xe ngoài (xe khách, taxi, xe hợp đồng)' },
-  { value: 'Máy bay', label: 'Máy bay (chuyến bay công tác xa)' },
-  { value: 'Phương tiện cá nhân', label: 'Phương tiện cá nhân' },
-];
 
 export const TRIP_TYPE_OPTIONS: SearchableSelectOption[] = [
   { value: 'DOMESTIC', label: 'Công tác trong nước (Nội địa)' },
@@ -753,6 +753,9 @@ export default function RequestsPage() {
   const [customValues, setCustomValues] = useState<Record<string, unknown>>({});
   const [customFromAt, setCustomFromAt] = useState('');
   const [customToAt, setCustomToAt] = useState('');
+  // Phương tiện của loại đơn bật "Cần phương tiện"; loại đơn không nhập giờ (chỉ ngày) thì giờ dùng xe nhập riêng.
+  const [customTransport, setCustomTransport] = useState<TransportFieldValue>(EMPTY_TRANSPORT);
+  const [customTransportRange, setCustomTransportRange] = useState({ startAt: '', endAt: '' });
   // Các khoảng thời gian bổ sung của đơn nghỉ, làm thêm giờ, công tác (mỗi khoảng gửi thành một đơn).
   const [extraRanges, setExtraRanges] = useState<ExtraRange[]>([]);
   // Kết quả tính giờ của máy chủ cho khoảng thời gian đang chọn (nghỉ, làm thêm giờ, công tác).
@@ -833,7 +836,7 @@ export default function RequestsPage() {
   const [destination, setDestination] = useState('');
   const [tripAddress, setTripAddress] = useState('');
   const [tripDepartment, setTripDepartment] = useState('');
-  const [tripVehicle, setTripVehicle] = useState('Xe công ty');
+  const [tripTransport, setTripTransport] = useState<TransportFieldValue>(EMPTY_TRANSPORT);
   const [tripRequiredFinger, setTripRequiredFinger] = useState(false);
   const [tripStartTime, setTripStartTime] = useState('08:00');
   const [tripEndTime, setTripEndTime] = useState('17:30');
@@ -1079,6 +1082,20 @@ export default function RequestsPage() {
   const otToAt = !fromDate ? '' : dateTimeOf(toDate || fromDate, endTime);
   const tripFromAt = dateTimeOf(fromDate, tripStartTime);
   const tripToAt = dateTimeOf(toDate || fromDate, tripEndTime);
+  // Khung giờ dùng xe công ty = thời gian công tác; xe và tài xế bận trong khung này không chọn được.
+  const tripTransportRange = tripFromAt && tripToAt ? { startAt: fromLocalInput(tripFromAt), endAt: fromLocalInput(tripToAt) } : null;
+  const tripFleet = useFleetAvailability(tripTransportRange, tripTransport.mode === 'COMPANY_VEHICLE');
+  const customNeedsTransport = selectedCatalogId === 'custom' && selectedCustomType?.requiresTransport === true;
+  const customTimeIsDateTime = selectedCustomType?.timeMode === 'RANGE_DATETIME';
+  const customTransportWindow = customTimeIsDateTime
+    ? customFromAt && customToAt
+      ? { startAt: fromLocalInput(customFromAt), endAt: fromLocalInput(customToAt) }
+      : null
+    : customTransportRange;
+  const customFleet = useFleetAvailability(
+    customTransportWindow,
+    customNeedsTransport && customTransport.mode === 'COMPANY_VEHICLE',
+  );
   const applyTimeRange =
     (setStart: (t: string) => void, setEnd: (t: string) => void, touched?: () => void) =>
     (next: { fromAt: string; toAt: string }) => {
@@ -2074,7 +2091,7 @@ export default function RequestsPage() {
       </div>
       <div className="w-48">
         <SearchableSelect
-          height={32}
+          height={36}
           options={workflowStepOptions}
           value={waitStep}
           onChange={(val) => setWaitStep(val || '')}
@@ -2114,6 +2131,8 @@ export default function RequestsPage() {
     setCustomValues({});
     setCustomFromAt('');
     setCustomToAt('');
+    setCustomTransport(EMPTY_TRANSPORT);
+    setCustomTransportRange({ startAt: '', endAt: '' });
     setTimePreview(null);
     setSelectedTypeTitle(typeTitle);
     const todayStr = new Date().toISOString().slice(0, 10);
@@ -2147,7 +2166,7 @@ export default function RequestsPage() {
     setDestination('');
     setTripAddress('');
     setTripDepartment(rawProfile.department || profile.department || '');
-    setTripVehicle('Xe công ty');
+    setTripTransport(EMPTY_TRANSPORT);
     setTripRequiredFinger(false);
     setTripSurcharges([]);
     setAllowOt(false);
@@ -2868,6 +2887,14 @@ export default function RequestsPage() {
           return;
         }
 
+        if (!saveAsDraft) {
+          const transportProblem = transportError(tripTransport, tripTransportRange);
+          if (transportProblem) {
+            notifyFormError('Thiếu thông tin phương tiện', transportProblem);
+            return;
+          }
+        }
+
         if (!saveAsDraft && extraRanges.length) {
           const problem = extraRangesProblem('trip', { fromAt: tripFromAt, toAt: tripToAt }, extraRanges);
           if (problem) {
@@ -2907,6 +2934,13 @@ export default function RequestsPage() {
               ) + 1,
             ),
             allowOt,
+            // Mỗi khoảng thời gian của đơn giữ xe theo đúng khoảng đó.
+            transport:
+              toTransportPayload(
+                tripTransport,
+                { startAt: fromLocalInput(range.fromAt), endAt: fromLocalInput(range.toAt) },
+                destination.trim(),
+              ) ?? undefined,
             ...reasonPayload('business_trip', reasonId, description),
             attributes: {
               ...dynamicValues,
@@ -2914,7 +2948,12 @@ export default function RequestsPage() {
               tripEndTime: range.endTime,
               destinationAddress: tripAddress.trim() || undefined,
               workDepartment: tripDepartment.trim() || undefined,
-              vehicle: tripVehicle,
+              vehicle:
+                tripTransport.mode === 'COMPANY_VEHICLE'
+                  ? 'Xe công ty'
+                  : tripTransport.mode === 'EXTERNAL'
+                    ? tripTransport.detail
+                    : undefined,
               requiredFinger: tripRequiredFinger,
               surcharges: tripSurcharges.filter(
                 (s) => s.name.trim() || s.amount > 0,
@@ -2999,6 +3038,13 @@ export default function RequestsPage() {
           }),
         });
       } else if (selectedCatalogId === 'custom' && selectedCustomType) {
+        if (!saveAsDraft && customNeedsTransport) {
+          const transportProblem = transportError(customTransport, customTransportWindow);
+          if (transportProblem) {
+            notifyFormError('Thiếu thông tin phương tiện', transportProblem);
+            return;
+          }
+        }
         let attachmentFileId = leaveAttachmentId;
         if (leaveFile && !attachmentFileId) {
           attachmentFileId = (await uploadHrmAttachment(profile.id, leaveFile)).id;
@@ -3016,6 +3062,9 @@ export default function RequestsPage() {
             typeId: selectedCustomType.id,
             fromAt: customFromAt || null,
             toAt: customToAt || null,
+            transport: customNeedsTransport
+              ? (toTransportPayload(customTransport, customTransportWindow, null) ?? undefined)
+              : undefined,
             fields: customValues,
             reasonId: reasonId || null,
             description,
@@ -4112,7 +4161,7 @@ export default function RequestsPage() {
                       )}
                     </div>
                     <SearchableSelect
-                      height={32}
+                      height={36}
                       options={projectOptions}
                       value={projectId}
                       onChange={(val) => {
@@ -4257,7 +4306,7 @@ export default function RequestsPage() {
                       Lý do <span className="text-red-500">*</span>
                     </label>
                     <SearchableSelect
-                      height={32}
+                      height={36}
                       options={catalogReasons.choices.map((choice) => ({
                         value: choice.id,
                         label: choice.name,
@@ -4288,13 +4337,28 @@ export default function RequestsPage() {
                   onValuesChange={setCustomValues}
                   disabled={isSubmitting}
                 />
+                {customNeedsTransport ? (
+                  <TransportField
+                    idPrefix="custom-transport"
+                    selectHeight={36}
+                    value={customTransport}
+                    onChange={setCustomTransport}
+                    range={customTransportWindow}
+                    onRangeChange={customTimeIsDateTime ? undefined : setCustomTransportRange}
+                    availability={customFleet.availability}
+                    loading={customFleet.loading}
+                    error={customFleet.error}
+                    disabled={isSubmitting}
+                    note="Xe được giữ chỗ ngay khi gửi đơn và tự xác nhận khi đơn được duyệt; đơn bị từ chối hoặc huỷ thì xe được trả lại."
+                  />
+                ) : null}
                 <label className="block space-y-1 font-semibold">
                   Mô tả (nhập thêm chi tiết nếu cần)
                   <textarea
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
                     rows={3}
-                    className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-normal outline-none focus-visible:border-blue-600 focus-visible:ring-2 focus-visible:ring-blue-100"
+                    className="w-full rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-normal outline-none focus-visible:border-blue-600 focus-visible:ring-2 focus-visible:ring-blue-100"
                   />
                 </label>
                 <label className="block space-y-1 font-semibold">
@@ -4304,6 +4368,7 @@ export default function RequestsPage() {
                   )}
                   <Input
                     type="file"
+                    className="text-xs"
                     accept=".pdf,.png,.jpg,.jpeg"
                     onChange={(e) => {
                       setLeaveFile(e.target.files?.[0] || null);
@@ -4355,7 +4420,7 @@ export default function RequestsPage() {
                     )}
                   </div>
                   <SearchableSelect
-                    height={32}
+                    height={36}
                     options={projectOptions}
                     value={projectId}
                     onChange={(val) => {
@@ -4479,7 +4544,7 @@ export default function RequestsPage() {
                       Hình thức công tác *
                     </label>
                     <SearchableSelect
-                      height={32}
+                      height={36}
                       options={TRIP_TYPE_OPTIONS}
                       value={tripType}
                       onChange={(val) => setTripType(val as any)}
@@ -4516,20 +4581,17 @@ export default function RequestsPage() {
                 </div>
 
                 {/* Hàng 4: Phương tiện di chuyển (lý do công tác chọn ở khối Lý do đầu form) */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <label className="font-semibold text-slate-800 block text-xs">
-                      Phương tiện di chuyển
-                    </label>
-                    <SearchableSelect
-                      height={32}
-                      options={TRIP_VEHICLE_OPTIONS}
-                      value={tripVehicle}
-                      onChange={(val) => setTripVehicle(val)}
-                      clearable={false}
-                    />
-                  </div>
-                </div>
+                <TransportField
+                  idPrefix="trip-transport"
+                  selectHeight={36}
+                  value={tripTransport}
+                  onChange={setTripTransport}
+                  range={tripTransportRange}
+                  availability={tripFleet.availability}
+                  loading={tripFleet.loading}
+                  error={tripFleet.error}
+                  note="Xe được giữ chỗ ngay khi gửi đơn và tự xác nhận khi đơn được duyệt; đơn bị từ chối hoặc huỷ thì xe được trả lại."
+                />
 
                 {/* Các thiết lập tuỳ chọn: Cho phép OT & Chấm công GPS */}
 
@@ -4569,7 +4631,7 @@ export default function RequestsPage() {
                         >
                           <div className="flex-1">
                             <SearchableSelect
-                              height={32}
+                              height={36}
                               options={SURCHARGE_PRESET_OPTIONS}
                               value={sur.name}
                               onChange={(val) =>
@@ -4722,7 +4784,7 @@ export default function RequestsPage() {
                     Hình thức đổi ca *
                   </label>
                   <SearchableSelect
-                    height={32}
+                    height={36}
                     options={[
                       {
                         value: 'SWAP',
@@ -4745,7 +4807,7 @@ export default function RequestsPage() {
                       Ca làm việc hiện tại *
                     </label>
                     <SearchableSelect
-                      height={32}
+                      height={36}
                       options={shiftOptions}
                       value={currentShiftId}
                       onChange={(val) => setCurrentShiftId(val)}
@@ -4758,7 +4820,7 @@ export default function RequestsPage() {
                       Ca làm việc đề xuất chuyển *
                     </label>
                     <SearchableSelect
-                      height={32}
+                      height={36}
                       options={shiftOptions}
                       value={requestedShiftId}
                       onChange={(val) => setRequestedShiftId(val)}
@@ -4773,7 +4835,7 @@ export default function RequestsPage() {
                       Đồng nghiệp hoán đổi ca *
                     </label>
                     <SearchableSelect
-                      height={32}
+                      height={36}
                       options={colleagueOptions}
                       value={swapWithEmployeeId}
                       onChange={(val) => setSwapWithEmployeeId(val)}
@@ -4788,7 +4850,7 @@ export default function RequestsPage() {
                       Từ ngày áp dụng *
                     </label>
                     <DatePickerInput
-                      height={32}
+                      height={36}
                       value={fromDate}
                       onChange={(val) => setFromDate(val)}
                       placeholder="dd/mm/yyyy"
@@ -4799,7 +4861,7 @@ export default function RequestsPage() {
                       Đến ngày áp dụng *
                     </label>
                     <DatePickerInput
-                      height={32}
+                      height={36}
                       value={toDate}
                       onChange={(val) => setToDate(val)}
                       placeholder="dd/mm/yyyy"
@@ -4817,7 +4879,7 @@ export default function RequestsPage() {
                     Ngày phát sinh điều chỉnh *
                   </label>
                   <DatePickerInput
-                    height={32}
+                    height={36}
                     value={fromDate}
                     onChange={(val) => setFromDate(val)}
                     placeholder="dd/mm/yyyy"
@@ -4845,7 +4907,7 @@ export default function RequestsPage() {
                       Ngày yêu cầu tạm ứng *
                     </label>
                     <DatePickerInput
-                      height={32}
+                      height={36}
                       value={fromDate}
                       onChange={(val) => setFromDate(val)}
                       placeholder="dd/mm/yyyy"
@@ -4869,7 +4931,7 @@ export default function RequestsPage() {
                     Số kỳ khấu trừ hoàn trả *
                   </label>
                   <SearchableSelect
-                    height={32}
+                    height={36}
                     options={[
                       {
                         value: '1',
@@ -4925,7 +4987,7 @@ export default function RequestsPage() {
                         </span>
                       </label>
                       <DatePickerInput
-                        height={32}
+                        height={36}
                         value={adjustDateOfBirth}
                         onChange={(val) => setAdjustDateOfBirth(val)}
                         placeholder="dd/mm/yyyy"
@@ -4949,7 +5011,7 @@ export default function RequestsPage() {
                         </span>
                       </label>
                       <SearchableSelect
-                        height={32}
+                        height={36}
                         options={[
                           { value: 'MALE', label: 'Nam' },
                           { value: 'FEMALE', label: 'Nữ' },
@@ -4987,7 +5049,7 @@ export default function RequestsPage() {
                         </span>
                       </label>
                       <DatePickerInput
-                        height={32}
+                        height={36}
                         value={adjustIdentityDate}
                         onChange={(val) => setAdjustIdentityDate(val)}
                         placeholder="dd/mm/yyyy"
@@ -5456,19 +5518,24 @@ export default function RequestsPage() {
                       )}
 
                     {/* Phương tiện */}
-                    {Boolean(
-                      (selectedRequest.rawDetails as any)?.attributes?.vehicle,
-                    ) && (
+                    {(() => {
+                      // Phương tiện lưu thành cột của đơn (không phụ thuộc quy trình); đơn cũ chỉ có trong attributes.
+                      const details = selectedRequest.rawDetails as any;
+                      const vehicleText =
+                        details?.transportMode === 'COMPANY_VEHICLE'
+                          ? 'Xe công ty'
+                          : details?.transportMode === 'EXTERNAL'
+                            ? String(details.transportDetail ?? 'Phương tiện ngoài')
+                            : details?.attributes?.vehicle
+                              ? String(details.attributes.vehicle)
+                              : '';
+                      return vehicleText ? (
                         <div className="flex justify-between items-center">
                           <span>Phương tiện:</span>
-                          <span className="font-semibold text-slate-800">
-                            {String(
-                              (selectedRequest.rawDetails as any)?.attributes
-                                ?.vehicle,
-                            )}
-                          </span>
+                          <span className="font-semibold text-slate-800">{vehicleText}</span>
                         </div>
-                      )}
+                      ) : null;
+                    })()}
 
                     {/* Thời gian giờ đi/giờ về */}
                     {Boolean(

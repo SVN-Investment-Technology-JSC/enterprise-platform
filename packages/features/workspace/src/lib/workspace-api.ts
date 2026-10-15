@@ -82,6 +82,9 @@ import type {
   WorkdayRuleSet,
   ProjectRoleList,
   SaveProjectRoleRequest,
+  FleetAvailabilityView,
+  SourceTransport,
+  TransportSourceType,
 } from '@enterprise-platform/contracts-workspace';
 import { authFetch } from '@enterprise-platform/shared-ui';
 
@@ -707,3 +710,23 @@ export const listProjectRequests = (projectId: string) =>
 
 export const listProjectCostEntries = (projectId: string) =>
   request<CostEntryList>(`/projects/${projectId}/cost-entries`, { cache: 'no-store' });
+
+/** Xe và tài xế còn trống (kèm khoảng bận) trong một khung giờ; dữ liệu do HRM trả lời. */
+export const getFleetAvailability = (query: {
+  from: string;
+  to: string;
+  exclude?: { sourceType: TransportSourceType; sourceId: string };
+}) => {
+  const params = new URLSearchParams({ from: query.from, to: query.to });
+  if (query.exclude) {
+    params.set('excludeSourceType', query.exclude.sourceType);
+    params.set('excludeSourceId', query.exclude.sourceId);
+  }
+  return request<{ data: FleetAvailabilityView }>(`/fleet/availability?${params}`, { cache: 'no-store' });
+};
+
+/** Phương tiện hiện có của một công việc hoặc lịch họp (`data: null` nếu chưa chọn). */
+export const getSourceTransport = (sourceType: TransportSourceType, sourceId: string) =>
+  request<{ data: SourceTransport | null }>(`/fleet/transports/${sourceType}/${sourceId}`, {
+    cache: 'no-store',
+  });

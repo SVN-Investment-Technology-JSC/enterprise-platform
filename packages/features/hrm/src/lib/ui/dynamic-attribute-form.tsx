@@ -98,7 +98,7 @@ export const DynamicAttributeForm: React.FC<DynamicAttributeFormProps> = ({
                   {attr.name} {isRequired && <span className="text-red-500 font-bold">*</span>}
                 </label>
                 <SearchableSelect
-                  height={32}
+                  height={36}
                   options={userOptions}
                   value={typeof val === 'string' ? val : ''}
                   onChange={(next) => onChange(attr.code, next || undefined)}
@@ -193,7 +193,7 @@ export const DynamicAttributeForm: React.FC<DynamicAttributeFormProps> = ({
                   {attr.name} {isRequired && <span className="text-red-500 font-bold">*</span>}
                 </label>
                 <SearchableSelect
-                  height={32}
+                  height={36}
                   options={options}
                   value={typeof val === 'string' ? val : ''}
                   onChange={(next) => onChange(attr.code, next || undefined)}
@@ -211,7 +211,7 @@ export const DynamicAttributeForm: React.FC<DynamicAttributeFormProps> = ({
                   {attr.name} {isRequired && <span className="text-red-500 font-bold">*</span>}
                 </label>
                 <DatePickerInput
-                  height={32}
+                  height={36}
                   value={typeof val === 'string' ? val : ''}
                   onChange={(next) => onChange(attr.code, next || undefined)}
                   placeholder="dd/mm/yyyy"

@@ -888,6 +888,8 @@ export interface HrmRequestType {
   readonly kind: HrmRequestKind;
   readonly timeMode: HrmRequestTimeMode;
   readonly requiresAttachment: boolean;
+  /** Form đơn của loại này hiện khối "Phương tiện di chuyển" (xe công ty hoặc tự sắp xếp). */
+  readonly requiresTransport?: boolean;
   readonly fields: readonly HrmRequestTypeField[];
   readonly icon: string | null;
   readonly isSystem: boolean;
@@ -909,6 +911,7 @@ export interface SaveRequestTypeRequest {
   readonly description?: string | null;
   readonly timeMode?: HrmRequestTimeMode;
   readonly requiresAttachment?: boolean;
+  readonly requiresTransport?: boolean;
   readonly fields?: readonly HrmRequestTypeField[];
   readonly icon?: string | null;
   readonly active?: boolean;
@@ -964,6 +967,8 @@ export interface HrmCustomRequest extends HrmRequestReasonView {
   readonly durationMinutes: number | null;
   readonly fields: Record<string, unknown>;
   readonly attachmentFileId: string | null;
+  readonly transportMode?: HrmTransportMode | null;
+  readonly transportDetail?: string | null;
   readonly status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
   readonly submittedBy: string;
   readonly approvedBy: string | null;
@@ -983,6 +988,8 @@ export interface CreateCustomRequestPayload extends RequestDescriptionInput {
   readonly toAt?: string | null;
   readonly fields?: Record<string, unknown>;
   readonly attachmentFileId?: string | null;
+  /** Chỉ nhận khi loại đơn bật `requiresTransport`. */
+  readonly transport?: HrmTransportInput;
 }
 
 export interface HrmLeaveType {
@@ -1511,6 +1518,8 @@ export interface HrmBusinessTripRequest extends HrmRequestReasonView, Partial<Hr
   readonly daysCount: number;
   readonly allowOt: boolean;
   readonly perDiemPolicyId?: string | null;
+  readonly transportMode?: HrmTransportMode | null;
+  readonly transportDetail?: string | null;
   readonly status: HrmBusinessTripStatus;
   readonly workflowInstanceId?: string | null;
   readonly procedureInstanceId?: string | null;
@@ -1545,6 +1554,109 @@ export interface CreateBusinessTripRequestPayload extends RequestReasonInput {
   readonly daysCount?: number;
   readonly allowOt?: boolean;
   readonly perDiemPolicyId?: string | null;
+  readonly transport?: HrmTransportInput;
+}
+
+/** Phương tiện di chuyển ghi trên đơn/công việc: xe công ty (có lịch xe) hoặc tự sắp xếp. */
+export type HrmTransportMode = 'COMPANY_VEHICLE' | 'EXTERNAL';
+
+export interface HrmTransportInput {
+  readonly mode: HrmTransportMode;
+  /** EXTERNAL: taxi/xe ngoài, máy bay, xe cá nhân... */
+  readonly detail?: string | null;
+  /** COMPANY_VEHICLE: xe và tài xế còn trống trong khung giờ (lấy từ /fleet/availability). */
+  readonly vehicleId?: string;
+  readonly driverId?: string;
+  /** Mặc định lấy theo thời gian của đơn. */
+  readonly startAt?: string;
+  readonly endAt?: string;
+  readonly destination?: string | null;
+}
+
+export type HrmFleetEntityStatus = 'ACTIVE' | 'INACTIVE';
+export type HrmFleetBookingStatus = 'PENDING' | 'CONFIRMED' | 'CANCELLED';
+export type HrmFleetSourceModule = 'HRM' | 'WORKSPACE' | 'MAINTENANCE';
+export type HrmFleetSourceType =
+  | 'BUSINESS_TRIP'
+  | 'CUSTOM_REQUEST'
+  | 'WORK_ITEM'
+  | 'CALENDAR_EVENT'
+  | 'INCIDENT';
+
+export interface HrmFleetVehicle {
+  readonly id: string;
+  readonly plateNo: string;
+  readonly name: string;
+  readonly seats: number;
+  readonly status: HrmFleetEntityStatus;
+  readonly note: string | null;
+}
+
+export interface SaveFleetVehicleRequest {
+  readonly plateNo?: string;
+  readonly name?: string;
+  readonly seats?: number;
+  readonly status?: HrmFleetEntityStatus;
+  readonly note?: string | null;
+}
+
+export interface HrmFleetDriver {
+  readonly id: string;
+  readonly employeeId: string;
+  readonly employeeName: string | null;
+  readonly employeeCode: string | null;
+  readonly licenseNo: string | null;
+  readonly status: HrmFleetEntityStatus;
+}
+
+export interface SaveFleetDriverRequest {
+  readonly employeeId?: string;
+  readonly licenseNo?: string | null;
+  readonly status?: HrmFleetEntityStatus;
+}
+
+export interface HrmFleetBooking {
+  readonly id: string;
+  readonly vehicleId: string;
+  readonly vehiclePlateNo: string;
+  readonly vehicleName: string;
+  readonly driverId: string;
+  readonly driverName: string | null;
+  readonly startAt: string;
+  readonly endAt: string;
+  readonly destination: string | null;
+  readonly purpose: string | null;
+  readonly requesterEmployeeId: string | null;
+  readonly requesterName: string | null;
+  readonly sourceModule: HrmFleetSourceModule;
+  readonly sourceType: HrmFleetSourceType;
+  readonly sourceId: string;
+  readonly sourceLabel: string | null;
+  readonly status: HrmFleetBookingStatus;
+}
+
+/** Khoảng bận của xe hoặc tài xế: đủ để form hiển thị lý do không chọn được. */
+export interface HrmFleetBusySlot {
+  readonly startAt: string;
+  readonly endAt: string;
+  readonly status: Exclude<HrmFleetBookingStatus, 'CANCELLED'>;
+  readonly sourceLabel: string | null;
+}
+
+export interface HrmFleetAvailabilityVehicle extends HrmFleetVehicle {
+  readonly busy: readonly HrmFleetBusySlot[];
+}
+export interface HrmFleetAvailabilityDriver {
+  readonly id: string;
+  readonly employeeId: string;
+  readonly employeeName: string | null;
+  readonly licenseNo: string | null;
+  readonly busy: readonly HrmFleetBusySlot[];
+}
+/** Xe và tài xế đang hoạt động kèm các khoảng bận trong cửa sổ [from, to]. */
+export interface HrmFleetAvailability {
+  readonly vehicles: readonly HrmFleetAvailabilityVehicle[];
+  readonly drivers: readonly HrmFleetAvailabilityDriver[];
 }
 
 export type HrmShiftChangeType = 'SWAP' | 'CHANGE_SHIFT';

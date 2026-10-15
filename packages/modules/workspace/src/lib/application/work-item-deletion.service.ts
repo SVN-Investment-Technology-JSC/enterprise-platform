@@ -4,6 +4,7 @@ import {
   ProjectPermissionForbiddenError,
   WorkItemNotFoundError,
 } from '../domain/workspace.error.js';
+import type { FleetTransportService } from './fleet-transport.service.js';
 import { permissionsOf, type ProjectService } from './project.service.js';
 import type { WorkspaceActor } from './workspace.application.js';
 import type { WorkspaceStore } from './workspace-store.port.js';
@@ -23,6 +24,7 @@ export class WorkItemDeletionService {
   constructor(
     private readonly store: WorkspaceStore,
     private readonly projects: ProjectService,
+    private readonly fleet?: FleetTransportService,
   ) {}
 
   async delete(actor: WorkspaceActor, workItemId: string): Promise<void> {
@@ -37,17 +39,31 @@ export class WorkItemDeletionService {
       throw new ProjectPermissionForbiddenError(PROJECT_PERMISSION_LABELS['work_item.delete']);
     }
 
+    // Xoá kéo theo cả nhánh con: tìm trước, rồi trả xe của từng công việc sau khi xoá.
+    const doomed = this.fleet ? await this.subtreeIds(actor, item.projectId, item.id) : [];
+
     await this.store.workItem.remove(actor.tenantId, workItemId, {
       projectId: item.projectId,
       fromStatus: item.status,
       note: `Đã xoá công việc: ${item.code} — ${item.title}`,
       createdBy: actor.userId,
     });
+    for (const id of doomed) await this.fleet?.release(actor.tenantId, 'WORK_ITEM', id);
 
     // Cây đã đổi: tính lại tiến độ cuộn của cha và của dự án. Cùng các bước như
     // `WorkItemService.recalculate`, dùng lại hàm miền `rollUpProgress` /
     // `projectProgress` để hai nơi không lệch công thức.
     await this.recalculate(actor, item.projectId);
+  }
+
+  /** Công việc và mọi công việc con cháu của nó. */
+  private async subtreeIds(actor: WorkspaceActor, projectId: string, rootId: string): Promise<string[]> {
+    const all = await this.store.workItem.listByProject(actor.tenantId, projectId);
+    const ids = [rootId];
+    for (let index = 0; index < ids.length; index++) {
+      for (const node of all) if (node.parentId === ids[index]) ids.push(node.id);
+    }
+    return ids;
   }
 
   private async recalculate(actor: WorkspaceActor, projectId: string): Promise<void> {

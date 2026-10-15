@@ -10,6 +10,7 @@ import {
   type WorkItemPriority,
   type WorkItemType,
 } from '@enterprise-platform/contracts-workspace';
+import { fromLocalInput } from '@enterprise-platform/shared-ui';
 import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import { useEffect, useState } from 'react';
 import { loadProcedureOptions, type ProcedureOption } from '../procedure-api';
@@ -20,6 +21,8 @@ import { Choice } from './choice';
 import { Dialog, Field } from './dialog';
 import { PeoplePicker } from './people-picker';
 import { TagPicker } from './tag-picker';
+import { TransportSection } from './transport-section';
+import { useSourceTransport } from './use-source-transport';
 
 export interface WorkItemFormProps {
   readonly open: boolean;
@@ -174,6 +177,21 @@ export function WorkItemForm({
 
   const set = (patch: Partial<FormState>) => setForm((current) => ({ ...current, ...patch }));
 
+  // Công việc chỉ có ngày dự kiến, nên khung giờ dùng xe gợi ý là 8 giờ ngày bắt đầu đến 17 giờ ngày kết thúc;
+  // người dùng chỉnh được ngay trên khối phương tiện.
+  const transport = useSourceTransport({
+    open,
+    sourceType: 'WORK_ITEM',
+    sourceId: item?.id,
+    followsSource: false,
+    defaultRange: form.plannedStart
+      ? {
+          startAt: fromLocalInput(`${form.plannedStart}T08:00`),
+          endAt: fromLocalInput(`${form.plannedEnd || form.plannedStart}T17:00`),
+        }
+      : null,
+  });
+
   // Nhóm công việc chỉ là vỏ chứa: server từ chối người phụ trách và giờ ước
   // lượng trên nó, nên ẩn hai ô đó thay vì để người dùng nhập rồi báo lỗi.
   const isPhase = form.itemType === 'phase';
@@ -194,6 +212,12 @@ export function WorkItemForm({
 
   const submit = async () => {
     setError(undefined);
+    // Nhóm công việc không đi lại; các loại khác: xe công ty phải chọn đủ xe, tài xế và giờ.
+    const transportBlock = isPhase ? undefined : transport.payload();
+    if (!isPhase && transport.value.mode && transport.problem) {
+      setError(transport.problem);
+      return;
+    }
     setSubmitting(true);
     try {
       const hours = form.estimateHours.trim() ? Number(form.estimateHours) : undefined;
@@ -212,6 +236,7 @@ export function WorkItemForm({
           plannedStart: form.plannedStart || null,
           plannedEnd: form.plannedEnd || null,
           estimateHours: isPhase ? null : (hours ?? null),
+          transport: transportBlock,
         });
       } else {
         if (projectOptions && !form.projectId) {
@@ -238,6 +263,7 @@ export function WorkItemForm({
           plannedEnd: form.plannedEnd || undefined,
           estimateHours: isPhase ? undefined : hours,
           adjustmentOfId: adjustmentOf?.id,
+          transport: transportBlock ?? undefined,
         },
         form.executionType === 'procedure' ? form.procedureDefinitionId : undefined,
         );
@@ -443,20 +469,21 @@ export function WorkItemForm({
       <div className={styles.fieldRow}>
         <Field label="Bắt đầu dự kiến">
           <DatePickerInput
-            height={36}
+            height={38}
             value={form.plannedStart}
             onChange={(value) => set({ plannedStart: value })}
           />
         </Field>
         <Field label="Kết thúc dự kiến">
           <DatePickerInput
-            height={36}
+            height={38}
             value={form.plannedEnd}
             onChange={(value) => set({ plannedEnd: value })}
           />
         </Field>
       </div>
 
+      {isPhase ? null : <TransportSection state={transport} editableRange idPrefix="work-item-transport" />}
     </Dialog>
   );
 }

@@ -20,7 +20,9 @@ import styles from '../workspace.module.scss';
 import { Choice } from './choice';
 import { Dialog, Field } from './dialog';
 import { PeoplePicker } from './people-picker';
+import { TransportSection } from './transport-section';
 import { useDirectory } from './use-directory';
+import { useSourceTransport } from './use-source-transport';
 
 export interface EventFormProps {
   readonly open: boolean;
@@ -93,6 +95,12 @@ const SCOPE_LABELS: Record<RecurrenceScope, string> = {
 /** `2026-09-21` + `09:00` → mốc ISO theo múi giờ trình duyệt. */
 function toInstant(date: string, time: string): string {
   return new Date(`${date}T${time}:00`).toISOString();
+}
+
+/** Như `toInstant` nhưng trả chuỗi rỗng khi giờ chưa nhập đủ, để dựng khung giờ khi người dùng đang gõ. */
+function instantOrEmpty(date: string, time: string): string {
+  const value = new Date(`${date}T${time}:00`);
+  return Number.isFinite(value.getTime()) ? value.toISOString() : '';
 }
 
 function timeOf(iso: string): string {
@@ -203,6 +211,21 @@ export function EventForm({
 
   const canEdit = !occurrence || organizerId === currentUserId || isTenantAdmin;
 
+  // Xe công ty được giữ cho đúng giờ của sự kiện. Chuỗi lặp chưa hỗ trợ: mỗi buổi là một chuyến riêng.
+  const supportsTransport = canEdit && !form.repeats && !occurrence?.isRecurring;
+  const transport = useSourceTransport({
+    open: open && supportsTransport,
+    sourceType: 'CALENDAR_EVENT',
+    sourceId: occurrence?.eventId,
+    followsSource: true,
+    defaultRange: form.date
+      ? {
+          startAt: instantOrEmpty(form.date, form.allDay ? '00:00' : form.startTime),
+          endAt: instantOrEmpty(form.date, form.allDay ? '23:59' : form.endTime),
+        }
+      : null,
+  });
+
   const invitable = useMemo(() => {
     if (!memberUserIds) return directory.people;
     const members = new Set(memberUserIds);
@@ -229,7 +252,9 @@ export function EventForm({
       if (!form.date) throw new Error('Vui lòng chọn ngày.');
       const startAt = toInstant(form.date, form.allDay ? '00:00' : form.startTime);
       const endAt = toInstant(form.date, form.allDay ? '23:59' : form.endTime);
+      if (supportsTransport && transport.value.mode && transport.problem) throw new Error(transport.problem);
       const common = {
+        transport: supportsTransport ? transport.payload() : undefined,
         title: form.title,
         description: form.description || undefined,
         location: form.location || undefined,
@@ -357,34 +382,35 @@ export function EventForm({
         </Field>
       </div>
 
-      <div className={styles.fieldRow}>
+      <div className={styles.fieldRowDateTime}>
         <Field label="Ngày">
           <DatePickerInput
-            height={36}
+            height={38}
             value={form.date}
             disabled={!canEdit}
             onChange={(value) => set({ date: value })}
           />
         </Field>
         {form.allDay ? null : (
-          <>
-            <Field label="Bắt đầu">
+          <Field label="Giờ bắt đầu - kết thúc">
+            <div className={styles.timeRange}>
               <input
                 type="time"
+                aria-label="Giờ bắt đầu"
                 value={form.startTime}
                 disabled={!canEdit}
                 onChange={(event) => set({ startTime: event.target.value })}
               />
-            </Field>
-            <Field label="Kết thúc">
+              <span aria-hidden>-</span>
               <input
                 type="time"
+                aria-label="Giờ kết thúc"
                 value={form.endTime}
                 disabled={!canEdit}
                 onChange={(event) => set({ endTime: event.target.value })}
               />
-            </Field>
-          </>
+            </div>
+          </Field>
         )}
       </div>
 
@@ -429,6 +455,8 @@ export function EventForm({
           onChange={(event) => set({ description: event.target.value })}
         />
       </Field>
+
+      {supportsTransport ? <TransportSection state={transport} editableRange={false} idPrefix="event-transport" /> : null}
 
       {occurrence || !canEdit ? null : (
         <>

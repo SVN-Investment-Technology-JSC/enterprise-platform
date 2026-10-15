@@ -29,6 +29,7 @@ import {
   WorkspaceValidationError,
 } from '../domain/workspace.error.js';
 import type { DirectoryService } from './directory.service.js';
+import { parseTransport, type FleetTransportService } from './fleet-transport.service.js';
 import { requireProjectRole, type ProjectService } from './project.service.js';
 import type { WorkspaceActor } from './workspace.application.js';
 import type { EventException, WorkspaceStore } from './workspace-store.port.js';
@@ -44,6 +45,7 @@ export class CalendarService {
     private readonly store: WorkspaceStore,
     private readonly projects: ProjectService,
     private readonly directory?: DirectoryService,
+    private readonly fleet?: FleetTransportService,
   ) {}
 
   /**
@@ -113,11 +115,21 @@ export class CalendarService {
     if (input.projectId) {
       await this.requireProjectParticipants(actor, input.projectId, participantUserIds);
     }
+    // Đặt xe cho cả một chuỗi lặp chưa hỗ trợ: mỗi buổi là một chuyến riêng.
+    if (input.transport && input.recurrenceRule) {
+      throw new WorkspaceValidationError('Sự kiện lặp lại chưa hỗ trợ chọn phương tiện.');
+    }
+    const parsedTransport = input.transport ? parseTransport(input.transport) : undefined;
     const created = await this.store.calendar.createEvent(
       actor.tenantId,
       actor.userId,
       draft,
       participantUserIds,
+    );
+    await this.fleet?.apply(
+      actor,
+      { sourceType: 'CALENDAR_EVENT', sourceId: created.event.id, label: created.event.title },
+      parsedTransport,
     );
 
     return {
@@ -175,6 +187,12 @@ export class CalendarService {
     if (scope === 'single') return this.splitOccurrence(actor, event, input);
     if (scope === 'following') return this.splitFollowing(actor, event, input);
 
+    if (input.transport && event.recurrenceRule) {
+      throw new WorkspaceValidationError('Sự kiện lặp lại chưa hỗ trợ chọn phương tiện.');
+    }
+    // `undefined`: giữ nguyên · `null`: bỏ phương tiện.
+    const parsedTransport =
+      input.transport === undefined ? undefined : input.transport === null ? null : parseTransport(input.transport);
     const startAt = input.startAt ? parseInstant(input.startAt, 'startAt') : undefined;
     const endAt = input.endAt ? parseInstant(input.endAt, 'endAt') : undefined;
     assertOrder(startAt ?? new Date(event.startAt), endAt ?? new Date(event.endAt));
@@ -193,6 +211,11 @@ export class CalendarService {
         allDay: input.allDay,
       },
       input.participantUserIds ? normaliseParticipants(input.participantUserIds) : undefined,
+    );
+    await this.fleet?.apply(
+      actor,
+      { sourceType: 'CALENDAR_EVENT', sourceId: eventId, label: updated.event.title },
+      parsedTransport,
     );
 
     return {
@@ -255,7 +278,10 @@ export class CalendarService {
       return event;
     }
 
-    return this.store.calendar.cancelEvent(actor.tenantId, eventId);
+    const cancelled = await this.store.calendar.cancelEvent(actor.tenantId, eventId);
+    // Sự kiện bị huỷ thì trả xe đã giữ.
+    await this.fleet?.release(actor.tenantId, 'CALENDAR_EVENT', eventId);
+    return cancelled;
   }
 
   /** Phản hồi lời mời. Chỉ chính chủ đổi được trạng thái của mình. */

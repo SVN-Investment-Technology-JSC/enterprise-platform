@@ -329,6 +329,7 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       version: '0055-hrm-auto-attendance-settings',
       path: 'tenant/hrm/0055-hrm-auto-attendance-settings.sql',
     },
+    { version: '0056-hrm-fleet', path: 'tenant/hrm/0056-hrm-fleet.sql' },
     {
       version: '0021-notification-outbox-v1',
       path: 'tenant/hrm/0021-notification-outbox-v1.sql',
@@ -468,6 +469,10 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       version: '0006-occurrence-attachments',
       path: 'tenant/maintenance/0006-occurrence-attachments.sql',
     },
+    {
+      version: '0007-maintenance-fleet-transport',
+      path: 'tenant/maintenance/0007-maintenance-fleet-transport.sql',
+    },
   ],
   workspace: [
     { version: '0001-workspace', path: 'tenant/workspace/0001-workspace.sql' },
@@ -532,6 +537,10 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     {
       version: '0021-workspace-standalone-tasks',
       path: 'tenant/workspace/0021-workspace-standalone-tasks.sql',
+    },
+    {
+      version: '0022-workspace-fleet-transport',
+      path: 'tenant/workspace/0022-workspace-fleet-transport.sql',
     },
   ],
   // Hệ dùng chung: phần đầu là Tài liệu công ty (kho tách khỏi tài liệu dự án).

@@ -38,6 +38,9 @@ const RequestReasonsScreen = lazyScreen(() => import('./request-reasons-screen')
 const ApprovalConfigScreen = lazyScreen(() => import('./approval-config-screen'));
 const OperationsScreen = lazyScreen(() => import('./operations-screen'));
 const HrmPermissionsScreen = lazyScreen(() => import('./hrm-permissions-screen'));
+const FleetScheduleScreen = lazyScreen(() => import('./fleet-schedule-screen'));
+const FleetVehiclesScreen = lazyScreen(() => import('./fleet-vehicles-screen'));
+const FleetDriversScreen = lazyScreen(() => import('./fleet-drivers-screen'));
 
 /** Gắn màn hình vào từng tab; nhãn và quyền lấy từ `HRM_HUBS`. */
 const SCREENS: Record<HrmHubPath, Record<string, ComponentType>> = {
@@ -53,6 +56,7 @@ const SCREENS: Record<HrmHubPath, Record<string, ComponentType>> = {
     data: AttendanceDataScreen,
   },
   '/payroll': { runs: PayrollScreen, advances: AdvancesScreen },
+  '/fleet': { schedule: FleetScheduleScreen, vehicles: FleetVehiclesScreen, drivers: FleetDriversScreen },
   '/settings': {
     leave: LeaveSettingsScreen,
     time: TimeSettingsScreen,
@@ -84,5 +88,7 @@ export const LeaveHub = () => <HrmTabHub tabs={tabsOf('/leave')} />;
 export const TimekeepingHub = () => <HrmTabHub tabs={tabsOf('/timekeeping')} tabsInHeader />;
 /** Lương và chi trả: bảng lương, ứng và thu hồi. */
 export const PayrollHub = () => <HrmTabHub tabs={tabsOf('/payroll')} tabsInHeader />;
+/** Lịch xe công ty: lịch đặt xe, danh mục xe và tài xế. */
+export const FleetHub = () => <HrmTabHub tabs={tabsOf('/fleet')} tabsInHeader />;
 /** Trung tâm cấu hình: thanh bên theo nhóm chức năng và trang tổng quan. */
 export const SettingsHub = () => <SettingsCenter screens={SCREENS['/settings']} />;
