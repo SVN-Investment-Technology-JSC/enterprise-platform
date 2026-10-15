@@ -2,7 +2,7 @@
 
 import type { DirectoryPerson } from '@enterprise-platform/contracts-workspace';
 import { X } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type KeyboardEvent } from 'react';
 import styles from '../workspace.module.scss';
 
 export interface PeoplePickerProps {
@@ -59,6 +59,8 @@ export function PeoplePicker({
   loaded = true,
 }: PeoplePickerProps) {
   const [term, setTerm] = useState('');
+  /** Gợi ý đang được chọn bằng phím Lên/Xuống. */
+  const [active, setActive] = useState(0);
 
   const suggestions = useMemo(() => {
     const needle = fold(term.trim());
@@ -75,6 +77,32 @@ export function PeoplePicker({
   const add = (userId: string) => {
     onChange([...selected, userId]);
     setTerm('');
+    setActive(0);
+  };
+
+  /**
+   * Phím trong ô tìm. Ô nằm trong `<form>` của hộp thoại: để Enter lọt xuống
+   * là gửi luôn cả form khi người dùng chỉ định chọn một gợi ý.
+   */
+  const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      const person = suggestions[Math.min(active, suggestions.length - 1)];
+      if (person) add(person.userId);
+    } else if (event.key === 'ArrowDown' && suggestions.length > 0) {
+      event.preventDefault();
+      setActive((index) => (index + 1) % suggestions.length);
+    } else if (event.key === 'ArrowUp' && suggestions.length > 0) {
+      event.preventDefault();
+      setActive((index) => (index - 1 + suggestions.length) % suggestions.length);
+    } else if (event.key === 'Escape' && term) {
+      // Chỉ xoá ô tìm; không để Esc đóng luôn hộp thoại.
+      event.preventDefault();
+      event.stopPropagation();
+      event.nativeEvent.stopImmediatePropagation();
+      setTerm('');
+      setActive(0);
+    }
   };
 
   return (
@@ -112,13 +140,23 @@ export function PeoplePicker({
             value={term}
             placeholder={placeholder}
             aria-label={placeholder}
-            onChange={(event) => setTerm(event.target.value)}
+            onChange={(event) => {
+              setTerm(event.target.value);
+              setActive(0);
+            }}
+            onKeyDown={onKeyDown}
           />
           {suggestions.length > 0 ? (
             <ul className={styles.mentionList}>
-              {suggestions.map((person) => (
+              {suggestions.map((person, index) => (
                 <li key={person.userId}>
-                  <button type="button" onClick={() => add(person.userId)}>
+                  <button
+                    type="button"
+                    aria-selected={index === active}
+                    className={index === active ? styles.mentionActive : undefined}
+                    onMouseEnter={() => setActive(index)}
+                    onClick={() => add(person.userId)}
+                  >
                     <strong>{person.displayName}</strong>
                     {person.unitNames.length > 0 || person.email ? (
                       <span className={styles.muted}>

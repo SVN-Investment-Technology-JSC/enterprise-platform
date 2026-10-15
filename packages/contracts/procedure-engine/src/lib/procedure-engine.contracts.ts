@@ -777,7 +777,9 @@ export type ProcedureInstanceSourceType =
   | 'maintenance_occurrence'
   | 'auto_from_parent'
   /** Mở theo yêu cầu của một công việc "Theo quy trình" bên Workspace. */
-  | 'workspace_work_item';
+  | 'workspace_work_item'
+  /** Mở theo yêu cầu của một việc ngoài dự án "Theo quy trình" bên Workspace. */
+  | 'workspace_standalone_task';
 
 /**
  * Các trường của công việc sẽ được Workspace tạo khi hồ sơ gắn một dự án.
