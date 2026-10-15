@@ -12,22 +12,39 @@ import {
   Query,
   Req,
 } from '@nestjs/common';
-import type {
-  CompleteSharedUploadRequest,
-  CreateSharedDocumentRequest,
-  CreateSharedFolderRequest,
-  CreateSharedVersionRequest,
-  SharedDocumentKind,
-  SharedDocumentStatus,
-  SharedStatus,
-  UpdateSharedDocumentRequest,
-  UpdateSharedFolderRequest,
+import {
+  SHARED_TRASH_PATHS,
+  type CompleteSharedUploadRequest,
+  type CreateSharedDocumentRequest,
+  type CreateSharedFolderRequest,
+  type CreateSharedVersionRequest,
+  type RestoreSharedTrashRequest,
+  type SharedDocumentKind,
+  type SharedDocumentStatus,
+  type SharedStatus,
+  type SharedTrashKind,
+  type UpdateSharedDocumentRequest,
+  type UpdateSharedFolderRequest,
 } from '@enterprise-platform/contracts-shared';
 import { CompanyDocumentService } from '../application/company-document.service.js';
 import type { SharedActor } from '../application/shared-actor.js';
 import { StorageQuotaService } from '../application/storage-quota.service.js';
 import { SHARED_STORE, type SharedStore } from '../application/shared-store.port.js';
 import { SharedError } from '../domain/shared.error.js';
+
+/** Đoạn đường dẫn `folders`/`documents` của Thùng rác → loại mục. Lạ thì coi như không có route. */
+function trashKind(segment: string): SharedTrashKind {
+  const kind = (Object.keys(SHARED_TRASH_PATHS) as SharedTrashKind[]).find(
+    (key) => SHARED_TRASH_PATHS[key] === segment,
+  );
+  if (!kind) {
+    throw new HttpException(
+      { statusCode: 404, code: 'NOT_FOUND', message: 'Không tìm thấy mục được yêu cầu.' },
+      404,
+    );
+  }
+  return kind;
+}
 
 /** Guard gắn danh tính đã xác minh vào request dưới tên `sharedActor`. */
 interface SharedRequest {
@@ -89,10 +106,10 @@ export class SharedController {
     return this.execute(() => this.documents.updateFolder(this.actor(request), id, body ?? {}));
   }
 
+  /** Chuyển cả nhánh vào Thùng rác; trả số thư mục và tài liệu đã chuyển. */
   @Delete('folders/:id')
-  @HttpCode(204)
-  removeFolder(@Req() request: SharedRequest, @Param('id') id: string) {
-    return this.execute(() => this.documents.removeFolder(this.actor(request), id));
+  deleteFolder(@Req() request: SharedRequest, @Param('id') id: string) {
+    return this.execute(() => this.documents.deleteFolder(this.actor(request), id));
   }
 
   /* ----------------------------------------------------------- tài liệu */
@@ -199,6 +216,53 @@ export class SharedController {
   @Post('documents/:id/restore')
   restore(@Req() request: SharedRequest, @Param('id') id: string) {
     return this.execute(() => this.documents.restore(this.actor(request), id));
+  }
+
+  @Post('documents/:id/duplicate')
+  duplicate(@Req() request: SharedRequest, @Param('id') id: string) {
+    return this.execute(() => this.documents.duplicate(this.actor(request), id));
+  }
+
+  /** Chuyển tài liệu vào Thùng rác. */
+  @Delete('documents/:id')
+  @HttpCode(204)
+  async deleteDocument(@Req() request: SharedRequest, @Param('id') id: string): Promise<void> {
+    await this.execute(() => this.documents.deleteDocument(this.actor(request), id));
+  }
+
+  /* ---------------------------------------------------------- Thùng rác */
+
+  @Get('trash')
+  trash(@Req() request: SharedRequest) {
+    return this.execute(async () => ({ items: await this.documents.trash(this.actor(request)) }));
+  }
+
+  @Post('trash/:kind/:id/restore')
+  restoreFromTrash(
+    @Req() request: SharedRequest,
+    @Param('kind') kind: string,
+    @Param('id') id: string,
+    @Body() body?: RestoreSharedTrashRequest,
+  ) {
+    return this.execute(() =>
+      this.documents.restoreFromTrash(this.actor(request), trashKind(kind), id, body ?? undefined),
+    );
+  }
+
+  @Delete('trash/:kind/:id')
+  @HttpCode(204)
+  async purge(
+    @Req() request: SharedRequest,
+    @Param('kind') kind: string,
+    @Param('id') id: string,
+  ): Promise<void> {
+    await this.execute(() => this.documents.purge(this.actor(request), trashKind(kind), id));
+  }
+
+  /** Dọn sạch Thùng rác. */
+  @Delete('trash')
+  emptyTrash(@Req() request: SharedRequest) {
+    return this.execute(() => this.documents.emptyTrash(this.actor(request)));
   }
 
   /* ------------------------------------------------------------ nội bộ */

@@ -551,7 +551,10 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     },
   ],
   // Hệ dùng chung: phần đầu là Tài liệu công ty (kho tách khỏi tài liệu dự án).
-  shared: [{ version: '0001-shared-documents', path: 'tenant/shared/0001-shared-documents.sql' }],
+  shared: [
+    { version: '0001-shared-documents', path: 'tenant/shared/0001-shared-documents.sql' },
+    { version: '0002-shared-trash', path: 'tenant/shared/0002-shared-trash.sql' },
+  ],
 };
 
 /**

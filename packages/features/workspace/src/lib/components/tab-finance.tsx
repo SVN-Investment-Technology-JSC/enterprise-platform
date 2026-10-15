@@ -17,8 +17,7 @@ import {
   projectLevelMoneyRow,
   projectVoucherHref,
   projectVoucherNet,
-  provisionalProfit,
-  receivableLeft,
+  actualProfit,
   type ProjectVoucherFilter,
   type ProjectVoucherList,
   type ProjectVoucherResult,
@@ -83,7 +82,7 @@ export function TabFinance({ projectId, initial, onChanged }: TabFinanceProps) {
   const contract = finance.contractValue;
   const received = data?.totals.received ?? 0;
   const paid = data?.totals.paid ?? 0;
-  const { profit, margin } = provisionalProfit(contract, paid);
+  const { profit, margin } = actualProfit(received, paid);
 
   const projectRow = useMemo(() => (data ? projectLevelMoneyRow(data) : undefined), [data]);
   const itemRows = useMemo(() => (data ? buildWorkItemMoneyRows(finance.items, data) : []), [data, finance.items]);
@@ -98,12 +97,11 @@ export function TabFinance({ projectId, initial, onChanged }: TabFinanceProps) {
           <>
             <MoneyStat label="Đã thu" value={data.totals.received} hint={`${data.totals.receiptCount} phiếu thu hạch toán cho dự án`} />
             <MoneyStat label="Đã chi (chi phí thực tế)" value={data.totals.paid} hint={`${data.totals.paymentCount} phiếu chi hạch toán cho dự án`} />
-            <MoneyStat label="Số dư thu - chi" value={projectVoucherNet(data.totals)} danger={projectVoucherNet(data.totals) < 0} />
             <MoneyStat
-              label={margin == null ? 'Lợi nhuận tạm tính' : `Lợi nhuận tạm tính (${formatPercent(margin)})`}
+              label={margin == null ? 'Lợi nhuận' : `Lợi nhuận (${formatPercent(margin)})`}
               value={profit}
               danger={profit != null && profit < 0}
-              hint="Giá trị hợp đồng trừ chi phí thực tế đã duyệt"
+              hint="Đã thu trừ đã chi, tính trên phiếu đã ghi sổ; biên lợi nhuận tính trên đã thu"
             />
           </>
         ) : null}
@@ -121,26 +119,13 @@ export function TabFinance({ projectId, initial, onChanged }: TabFinanceProps) {
           <dd>{formatVnd(contract)}</dd>
           {data ? (
             <>
-              <dt>Đã thu (đã ghi sổ)</dt>
+              <dt>Đã thu</dt>
               <dd>{formatVnd(received)}</dd>
-              <dt>Còn phải thu theo hợp đồng</dt>
-              <dd>{formatVnd(receivableLeft(contract, received))}</dd>
-              <dt>Chi phí thực tế (đã chi)</dt>
-              <dd>
-                {formatVnd(paid)}
-                <span className={styles.muted}>
-                  {' '}
-                  — công việc {formatVnd(paid - (projectRow?.paid ?? 0))} · chung dự án {formatVnd(projectRow?.paid ?? 0)}
-                </span>
-              </dd>
-              <dt>Chờ duyệt (chưa ghi sổ)</dt>
+              <dt>Đã chi</dt>
+              <dd>{formatVnd(paid)}</dd>
+              <dt>Chờ duyệt</dt>
               <dd>
                 thu {formatVnd(data.totals.pendingReceived)} · chi {formatVnd(data.totals.pendingPaid)}
-              </dd>
-              <dt>Lợi nhuận tạm tính</dt>
-              <dd className={profit != null && profit < 0 ? styles.cellDanger : undefined}>
-                {formatVnd(profit)}
-                {margin != null ? <span className={styles.muted}> — biên {formatPercent(margin)}</span> : null}
               </dd>
             </>
           ) : null}

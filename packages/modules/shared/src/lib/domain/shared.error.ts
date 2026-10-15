@@ -56,6 +56,30 @@ export class SharedDocumentLockedError extends SharedError {
   }
 }
 
+/** Chỗ cũ của một mục trong Thùng rác không còn dùng được; người dùng chọn thư mục khác. */
+export class SharedFolderUnavailableError extends SharedError {
+  constructor() {
+    super(
+      'FOLDER_UNAVAILABLE',
+      'Thư mục chứa mục này không còn dùng được. Hãy chọn thư mục khác để khôi phục.',
+      409,
+    );
+    Object.setPrototypeOf(this, SharedFolderUnavailableError.prototype);
+  }
+}
+
+/** Xoá thư mục mà bên trong còn tài liệu đang bị người khác khoá. */
+export class SharedFolderLockedError extends SharedError {
+  constructor(count: number) {
+    super(
+      'FOLDER_HAS_LOCKED_DOCUMENTS',
+      `Có ${count} tài liệu trong thư mục đang bị người khác khoá. Chờ họ mở khoá, hoặc nhờ quản trị kho mở khoá, rồi xoá lại.`,
+      409,
+    );
+    Object.setPrototypeOf(this, SharedFolderLockedError.prototype);
+  }
+}
+
 export class SharedNameTakenError extends SharedError {
   constructor(name: string) {
     super('NAME_TAKEN', `Đã có mục tên "${name}" ở cùng chỗ.`, 409);
