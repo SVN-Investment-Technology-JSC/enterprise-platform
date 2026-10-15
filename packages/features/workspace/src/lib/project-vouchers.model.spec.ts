@@ -7,8 +7,7 @@ import {
   projectLevelMoneyRow,
   projectVoucherHref,
   projectVoucherNet,
-  provisionalProfit,
-  receivableLeft,
+  actualProfit,
   type ProjectVoucher,
   type ProjectVoucherList,
 } from './project-vouchers.model';
@@ -109,17 +108,13 @@ describe('thu chi theo công việc', () => {
     expect(rows.reduce((sum, r) => sum + r.paid, 0)).toBe(2_000_000 + 5_000_000 + 700_000);
   });
 
-  it('lợi nhuận tạm tính = hợp đồng - chi phí thực tế; rỗng khi chưa có hợp đồng', () => {
-    expect(provisionalProfit(200_000_000, 50_000_000)).toEqual({ profit: 150_000_000, margin: 75 });
-    expect(provisionalProfit(100, 150)).toEqual({ profit: -50, margin: -50 });
-    expect(provisionalProfit(null, 5)).toEqual({ profit: null, margin: null });
-    expect(provisionalProfit(0, 5)).toEqual({ profit: -5, margin: null });
-  });
-
-  it('còn phải thu không âm và rỗng khi chưa có hợp đồng', () => {
-    expect(receivableLeft(200_000_000, 120_000_000)).toBe(80_000_000);
-    expect(receivableLeft(100, 250)).toBe(0);
-    expect(receivableLeft(null, 10)).toBeNull();
+  it('lợi nhuận thực tế = đã thu - đã chi, không phụ thuộc giá trị hợp đồng; biên tính trên đã thu', () => {
+    // Dự án mẫu: thu 250 triệu (vượt hợp đồng 200 triệu), chi 1,3 triệu.
+    expect(actualProfit(250_000_000, 1_300_000)).toEqual({ profit: 248_700_000, margin: 99.5 });
+    expect(actualProfit(100, 150)).toEqual({ profit: -50, margin: -50 });
+    expect(actualProfit(0, 5)).toEqual({ profit: -5, margin: null });
+    expect(actualProfit(0, 0)).toEqual({ profit: 0, margin: null });
+    expect(actualProfit(0.1 + 0.2, 0).profit).toBe(0.3);
   });
 
   it('chuẩn hoá phản hồi thiếu trường', () => {
