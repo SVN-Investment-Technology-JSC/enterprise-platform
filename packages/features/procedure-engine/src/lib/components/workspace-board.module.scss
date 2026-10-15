@@ -2722,7 +2722,8 @@
 /* "A đang nhập" nằm giữa luồng tin và ô nhập; luôn giữ chiều cao một dòng để chữ hiện/tắt không làm bố cục nhảy. */
 .chatTyping {
   min-height: 20px;
-  margin: 0;
+  /* Khoảng cách tới tin và ô nhập do cha (gap 12px) đã có; âm bớt để dòng này không làm khoảng trống phình ra. */
+  margin: -6px 0 -4px;
   padding: 2px 4px 0;
   overflow: hidden;
   color: var(--faint);
@@ -2799,7 +2800,6 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-  margin-bottom: 14px;
 }
 
 .chatFeedItem {
@@ -2856,13 +2856,48 @@
   gap: 6px;
 }
 
+/*
+ * Đường nối kiểu khuỷu: mỗi câu trả lời có một đoạn cong đi từ đường dọc của tin cha vào đúng tin đó
+ * (không kéo dài suốt cả nhánh). Đường dọc chỉ chạy tiếp xuống khi còn câu trả lời anh em phía sau.
+ * --thread-elbow là độ cao từ mép trên thẻ tới hàng tên người gửi, nơi đường nối chạm vào.
+ */
 .threadChild {
+  --thread-elbow: 18px;
+  --thread-line: 2px solid #cbd5e1;
+
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 6px;
   margin-left: 14px;
-  padding-left: 10px;
-  border-left: 2px solid #e2e8f0;
+  padding-left: 12px;
+}
+
+.threadChild::before {
+  content: '';
+  position: absolute;
+  top: -6px;
+  left: 0;
+  width: 10px;
+  height: calc(var(--thread-elbow) + 6px);
+  border-bottom: var(--thread-line);
+  border-left: var(--thread-line);
+  border-bottom-left-radius: 8px;
+  pointer-events: none;
+}
+
+/*
+ * Còn câu trả lời anh em phía sau: đường dọc chạy liền từ mép trên tới mép dưới (không để đứt ở chỗ khuỷu bo
+ * góc); khuỷu cong của chính tin đó vẽ chồng lên đường dọc này nên nhánh rẽ vẫn cong.
+ */
+.threadChild:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  top: -6px;
+  bottom: -6px;
+  left: 0;
+  border-left: var(--thread-line);
+  pointer-events: none;
 }
 
 /* Compact Chat Message Card */
