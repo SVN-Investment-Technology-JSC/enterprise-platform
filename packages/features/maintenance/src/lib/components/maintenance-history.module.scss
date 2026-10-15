@@ -753,9 +753,22 @@
 
 .incidentForm {
   display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  padding: 0.5rem 0 0;
+}
+
+/* Phần nhập liệu cuộn bên trong; tiêu đề popup và hàng nút ở chân luôn cố định. */
+.incidentBody {
+  display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
   gap: 1.1rem;
-  padding: 0.5rem 0 0.25rem;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 0.35rem 0.5rem 0;
 }
 
 .incidentForm label {
@@ -820,7 +833,8 @@
   align-items: center;
   justify-content: flex-end;
   gap: 12px;
-  margin-top: 18px;
+  flex-shrink: 0;
+  margin-top: 8px;
   padding-top: 16px;
   border-top: 1px solid #e5e7eb;
 }

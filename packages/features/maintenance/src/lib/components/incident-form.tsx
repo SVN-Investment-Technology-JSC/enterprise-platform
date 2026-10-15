@@ -163,6 +163,7 @@ export function IncidentForm({
       onClose={onCancel}
     >
       <form className={styles.incidentForm} onSubmit={submit} noValidate>
+        <div className={styles.incidentBody}>
         <div>
           <span className={styles.dangerBadge}>Phát sinh ngoài kế hoạch</span>
         </div>
@@ -402,7 +403,7 @@ export function IncidentForm({
           idPrefix="incident-transport"
           value={transport}
           onChange={setTransport}
-          range={rangeReady ? transportRange : null}
+          range={transportRange}
           onRangeChange={setTransportRange}
           availability={availability}
           loading={availabilityLoading}
@@ -422,6 +423,8 @@ export function IncidentForm({
             />
           </div>
         ) : null}
+
+        </div>
 
         <div className={styles.incidentActions}>
           <button

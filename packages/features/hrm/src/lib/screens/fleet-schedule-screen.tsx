@@ -227,7 +227,8 @@ export default function FleetScheduleScreen() {
                               ? 'bg-blue-600 text-white'
                               : 'border border-dashed border-amber-500 bg-amber-100 text-amber-900',
                           )}
-                          style={{ left: `${left}%`, width: `${width}%` }}
+                          // Chuyến ngắn trên khung nhiều ngày vẫn đủ rộng để thấy và bấm được.
+                          style={{ left: `${left}%`, width: `${width}%`, minWidth: 22 }}
                         >
                           <span className="block truncate">{booking.sourceLabel ?? SOURCE_LABEL[booking.sourceType]}</span>
                           <span className="block truncate font-normal opacity-90">

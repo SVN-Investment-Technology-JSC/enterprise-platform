@@ -2091,7 +2091,7 @@ export default function RequestsPage() {
       </div>
       <div className="w-48">
         <SearchableSelect
-          height={32}
+          height={36}
           options={workflowStepOptions}
           value={waitStep}
           onChange={(val) => setWaitStep(val || '')}
@@ -4161,7 +4161,7 @@ export default function RequestsPage() {
                       )}
                     </div>
                     <SearchableSelect
-                      height={32}
+                      height={36}
                       options={projectOptions}
                       value={projectId}
                       onChange={(val) => {
@@ -4306,7 +4306,7 @@ export default function RequestsPage() {
                       Lý do <span className="text-red-500">*</span>
                     </label>
                     <SearchableSelect
-                      height={32}
+                      height={36}
                       options={catalogReasons.choices.map((choice) => ({
                         value: choice.id,
                         label: choice.name,
@@ -4340,6 +4340,7 @@ export default function RequestsPage() {
                 {customNeedsTransport ? (
                   <TransportField
                     idPrefix="custom-transport"
+                    selectHeight={36}
                     value={customTransport}
                     onChange={setCustomTransport}
                     range={customTransportWindow}
@@ -4357,7 +4358,7 @@ export default function RequestsPage() {
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
                     rows={3}
-                    className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-normal outline-none focus-visible:border-blue-600 focus-visible:ring-2 focus-visible:ring-blue-100"
+                    className="w-full rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-normal outline-none focus-visible:border-blue-600 focus-visible:ring-2 focus-visible:ring-blue-100"
                   />
                 </label>
                 <label className="block space-y-1 font-semibold">
@@ -4367,6 +4368,7 @@ export default function RequestsPage() {
                   )}
                   <Input
                     type="file"
+                    className="text-xs"
                     accept=".pdf,.png,.jpg,.jpeg"
                     onChange={(e) => {
                       setLeaveFile(e.target.files?.[0] || null);
@@ -4418,7 +4420,7 @@ export default function RequestsPage() {
                     )}
                   </div>
                   <SearchableSelect
-                    height={32}
+                    height={36}
                     options={projectOptions}
                     value={projectId}
                     onChange={(val) => {
@@ -4542,7 +4544,7 @@ export default function RequestsPage() {
                       Hình thức công tác *
                     </label>
                     <SearchableSelect
-                      height={32}
+                      height={36}
                       options={TRIP_TYPE_OPTIONS}
                       value={tripType}
                       onChange={(val) => setTripType(val as any)}
@@ -4581,6 +4583,7 @@ export default function RequestsPage() {
                 {/* Hàng 4: Phương tiện di chuyển (lý do công tác chọn ở khối Lý do đầu form) */}
                 <TransportField
                   idPrefix="trip-transport"
+                  selectHeight={36}
                   value={tripTransport}
                   onChange={setTripTransport}
                   range={tripTransportRange}
@@ -4628,7 +4631,7 @@ export default function RequestsPage() {
                         >
                           <div className="flex-1">
                             <SearchableSelect
-                              height={32}
+                              height={36}
                               options={SURCHARGE_PRESET_OPTIONS}
                               value={sur.name}
                               onChange={(val) =>
@@ -4781,7 +4784,7 @@ export default function RequestsPage() {
                     Hình thức đổi ca *
                   </label>
                   <SearchableSelect
-                    height={32}
+                    height={36}
                     options={[
                       {
                         value: 'SWAP',
@@ -4804,7 +4807,7 @@ export default function RequestsPage() {
                       Ca làm việc hiện tại *
                     </label>
                     <SearchableSelect
-                      height={32}
+                      height={36}
                       options={shiftOptions}
                       value={currentShiftId}
                       onChange={(val) => setCurrentShiftId(val)}
@@ -4817,7 +4820,7 @@ export default function RequestsPage() {
                       Ca làm việc đề xuất chuyển *
                     </label>
                     <SearchableSelect
-                      height={32}
+                      height={36}
                       options={shiftOptions}
                       value={requestedShiftId}
                       onChange={(val) => setRequestedShiftId(val)}
@@ -4832,7 +4835,7 @@ export default function RequestsPage() {
                       Đồng nghiệp hoán đổi ca *
                     </label>
                     <SearchableSelect
-                      height={32}
+                      height={36}
                       options={colleagueOptions}
                       value={swapWithEmployeeId}
                       onChange={(val) => setSwapWithEmployeeId(val)}
@@ -4847,7 +4850,7 @@ export default function RequestsPage() {
                       Từ ngày áp dụng *
                     </label>
                     <DatePickerInput
-                      height={32}
+                      height={36}
                       value={fromDate}
                       onChange={(val) => setFromDate(val)}
                       placeholder="dd/mm/yyyy"
@@ -4858,7 +4861,7 @@ export default function RequestsPage() {
                       Đến ngày áp dụng *
                     </label>
                     <DatePickerInput
-                      height={32}
+                      height={36}
                       value={toDate}
                       onChange={(val) => setToDate(val)}
                       placeholder="dd/mm/yyyy"
@@ -4876,7 +4879,7 @@ export default function RequestsPage() {
                     Ngày phát sinh điều chỉnh *
                   </label>
                   <DatePickerInput
-                    height={32}
+                    height={36}
                     value={fromDate}
                     onChange={(val) => setFromDate(val)}
                     placeholder="dd/mm/yyyy"
@@ -4904,7 +4907,7 @@ export default function RequestsPage() {
                       Ngày yêu cầu tạm ứng *
                     </label>
                     <DatePickerInput
-                      height={32}
+                      height={36}
                       value={fromDate}
                       onChange={(val) => setFromDate(val)}
                       placeholder="dd/mm/yyyy"
@@ -4928,7 +4931,7 @@ export default function RequestsPage() {
                     Số kỳ khấu trừ hoàn trả *
                   </label>
                   <SearchableSelect
-                    height={32}
+                    height={36}
                     options={[
                       {
                         value: '1',
@@ -4984,7 +4987,7 @@ export default function RequestsPage() {
                         </span>
                       </label>
                       <DatePickerInput
-                        height={32}
+                        height={36}
                         value={adjustDateOfBirth}
                         onChange={(val) => setAdjustDateOfBirth(val)}
                         placeholder="dd/mm/yyyy"
@@ -5008,7 +5011,7 @@ export default function RequestsPage() {
                         </span>
                       </label>
                       <SearchableSelect
-                        height={32}
+                        height={36}
                         options={[
                           { value: 'MALE', label: 'Nam' },
                           { value: 'FEMALE', label: 'Nữ' },
@@ -5046,7 +5049,7 @@ export default function RequestsPage() {
                         </span>
                       </label>
                       <DatePickerInput
-                        height={32}
+                        height={36}
                         value={adjustIdentityDate}
                         onChange={(val) => setAdjustIdentityDate(val)}
                         placeholder="dd/mm/yyyy"

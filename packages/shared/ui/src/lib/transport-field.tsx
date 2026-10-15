@@ -1,6 +1,6 @@
 'use client';
 
-import type { ReactNode } from 'react';
+import { Suspense, lazy, type ReactNode } from 'react';
 import { SearchableSelect, type SearchableSelectOption } from './searchable-select';
 import styles from './transport-field.module.css';
 
@@ -55,6 +55,14 @@ export const DEFAULT_EXTERNAL_TRANSPORTS: readonly string[] = [
   'Xe cá nhân',
   'Phương tiện khác',
 ];
+
+/**
+ * Ô chọn ngày giờ (Ant Design) tải theo nhu cầu: gói gốc của shared-ui không kéo Ant Design vào những nơi
+ * không dùng khối phương tiện.
+ */
+const DateTimePicker = lazy(() =>
+  import('./date-picker-input').then((module) => ({ default: module.DateTimePickerInput })),
+);
 
 const MODE_OPTIONS: SearchableSelectOption[] = [
   { value: 'COMPANY_VEHICLE', label: 'Xe công ty' },
@@ -153,6 +161,8 @@ export interface TransportFieldProps {
   readonly externalOptions?: readonly string[];
   readonly disabled?: boolean;
   readonly idPrefix?: string;
+  /** Chiều cao các ô chọn và ô giờ (px), khớp với các ô khác trong form; mặc định 38 như SearchableSelect. */
+  readonly selectHeight?: number;
   /** Dòng ghi chú dưới khối (ví dụ lịch xe sẽ được giữ chỗ tới khi đơn được duyệt). */
   readonly note?: ReactNode;
 }
@@ -179,6 +189,7 @@ export function TransportField({
   externalOptions = DEFAULT_EXTERNAL_TRANSPORTS,
   disabled = false,
   idPrefix = 'transport',
+  selectHeight = 38,
   note,
 }: TransportFieldProps) {
   const vehicleOptions: SearchableSelectOption[] = (availability?.vehicles ?? []).map((vehicle) => {
@@ -206,7 +217,7 @@ export function TransportField({
     <div className={styles.root} data-testid="transport-field">
       <Field id={`${idPrefix}-mode`} label="Phương tiện di chuyển">
         <SearchableSelect
-          height={32}
+          height={selectHeight}
           options={MODE_OPTIONS}
           value={value.mode}
           placeholder="Không cần phương tiện"
@@ -219,7 +230,7 @@ export function TransportField({
       {value.mode === 'EXTERNAL' ? (
         <Field id={`${idPrefix}-detail`} label="Loại phương tiện">
           <SearchableSelect
-            height={32}
+            height={selectHeight}
             options={externalOptions.map((option) => ({ value: option, label: option }))}
             value={value.detail}
             placeholder="Chọn loại phương tiện"
@@ -235,31 +246,33 @@ export function TransportField({
           {onRangeChange ? (
             <div className={styles.row}>
               <Field id={`${idPrefix}-start`} label="Giờ đi">
-                <input
-                  id={`${idPrefix}-start`}
-                  type="datetime-local"
-                  className={styles.input}
-                  disabled={disabled}
-                  value={range?.startAt ? toLocalInput(range.startAt) : ''}
-                  onChange={(e) => onRangeChange({ startAt: fromLocalInput(e.target.value), endAt: range?.endAt ?? '' })}
-                />
+                <Suspense fallback={<div className={styles.input} style={{ height: selectHeight }} aria-hidden />}>
+                  <DateTimePicker
+                    id={`${idPrefix}-start`}
+                    height={selectHeight}
+                    disabled={disabled}
+                    value={range?.startAt ?? ''}
+                    onChange={(startAt) => onRangeChange({ startAt, endAt: range?.endAt ?? '' })}
+                  />
+                </Suspense>
               </Field>
               <Field id={`${idPrefix}-end`} label="Giờ về">
-                <input
-                  id={`${idPrefix}-end`}
-                  type="datetime-local"
-                  className={styles.input}
-                  disabled={disabled}
-                  value={range?.endAt ? toLocalInput(range.endAt) : ''}
-                  onChange={(e) => onRangeChange({ startAt: range?.startAt ?? '', endAt: fromLocalInput(e.target.value) })}
-                />
+                <Suspense fallback={<div className={styles.input} style={{ height: selectHeight }} aria-hidden />}>
+                  <DateTimePicker
+                    id={`${idPrefix}-end`}
+                    height={selectHeight}
+                    disabled={disabled}
+                    value={range?.endAt ?? ''}
+                    onChange={(endAt) => onRangeChange({ startAt: range?.startAt ?? '', endAt })}
+                  />
+                </Suspense>
               </Field>
             </div>
           ) : null}
           <div className={styles.row}>
             <Field id={`${idPrefix}-vehicle`} label="Xe công ty">
               <SearchableSelect
-                height={32}
+                height={selectHeight}
                 options={vehicleOptions}
                 value={value.vehicleId}
                 placeholder={loading ? 'Đang tải xe…' : 'Chọn xe còn trống'}
@@ -271,7 +284,7 @@ export function TransportField({
             </Field>
             <Field id={`${idPrefix}-driver`} label="Tài xế">
               <SearchableSelect
-                height={32}
+                height={selectHeight}
                 options={driverOptions}
                 value={value.driverId}
                 placeholder={loading ? 'Đang tải tài xế…' : 'Chọn tài xế còn trống'}

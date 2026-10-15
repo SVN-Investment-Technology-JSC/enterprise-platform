@@ -517,14 +517,14 @@ export function WorkItemForm({
       <div className={styles.fieldRow}>
         <Field label="Bắt đầu dự kiến">
           <DatePickerInput
-            height={36}
+            height={38}
             value={form.plannedStart}
             onChange={(value) => set({ plannedStart: value })}
           />
         </Field>
         <Field label="Kết thúc dự kiến">
           <DatePickerInput
-            height={36}
+            height={38}
             value={form.plannedEnd}
             onChange={(value) => set({ plannedEnd: value })}
           />

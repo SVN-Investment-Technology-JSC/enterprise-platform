@@ -382,34 +382,35 @@ export function EventForm({
         </Field>
       </div>
 
-      <div className={styles.fieldRow}>
+      <div className={styles.fieldRowDateTime}>
         <Field label="Ngày">
           <DatePickerInput
-            height={36}
+            height={38}
             value={form.date}
             disabled={!canEdit}
             onChange={(value) => set({ date: value })}
           />
         </Field>
         {form.allDay ? null : (
-          <>
-            <Field label="Bắt đầu">
+          <Field label="Giờ bắt đầu - kết thúc">
+            <div className={styles.timeRange}>
               <input
                 type="time"
+                aria-label="Giờ bắt đầu"
                 value={form.startTime}
                 disabled={!canEdit}
                 onChange={(event) => set({ startTime: event.target.value })}
               />
-            </Field>
-            <Field label="Kết thúc">
+              <span aria-hidden>-</span>
               <input
                 type="time"
+                aria-label="Giờ kết thúc"
                 value={form.endTime}
                 disabled={!canEdit}
                 onChange={(event) => set({ endTime: event.target.value })}
               />
-            </Field>
-          </>
+            </div>
+          </Field>
         )}
       </div>
 

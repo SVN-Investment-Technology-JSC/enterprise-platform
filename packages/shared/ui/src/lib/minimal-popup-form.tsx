@@ -161,6 +161,7 @@ export function MinimalPopupForm({
           </button>
         </header>
 
+        <div className={styles.content}>
         {children ? (
           children
         ) : (
@@ -243,6 +244,7 @@ export function MinimalPopupForm({
             </div>
           </form>
         )}
+        </div>
       </div>
     </div>
   );

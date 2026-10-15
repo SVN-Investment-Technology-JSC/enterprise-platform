@@ -1587,19 +1587,33 @@
   }
 }
 
+/* Form chiếm phần còn lại dưới tiêu đề: vùng nhập liệu cuộn, chân (nút lưu/huỷ) luôn cố định. */
 .dialogBody {
   display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.dialogScroll {
+  display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
   gap: 14px;
-  padding: 18px 20px 20px;
+  min-height: 0;
+  padding: 18px 20px 16px;
   overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .dialogFoot {
   display: flex;
+  flex-shrink: 0;
   justify-content: flex-end;
   gap: 8px;
-  padding-top: 6px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--ep-border);
+  background: var(--ep-surface);
 }
 
 .discardBar {
@@ -1637,6 +1651,13 @@
     background: var(--ep-surface-soft);
   }
 
+  /* Mọi ô một dòng trong form cao bằng nhau (38px, như ô chọn SearchableSelect). */
+  input:not([type='checkbox']):not([type='radio']),
+  select {
+    height: 38px;
+    min-height: 38px;
+  }
+
   textarea {
     padding-top: 8px;
     padding-bottom: 8px;
@@ -1659,6 +1680,25 @@
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
   gap: 14px;
+}
+
+/* Hai cột: ngày bên trái, khoảng giờ bắt đầu - kết thúc bên phải. */
+.fieldRowDateTime {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+/* Hai ô giờ (bắt đầu, kết thúc) chia đều trong một cột. */
+.timeRange {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  input {
+    flex: 1 1 0;
+    min-width: 0;
+  }
 }
 
 .fieldLabel {

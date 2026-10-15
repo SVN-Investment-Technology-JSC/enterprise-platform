@@ -49,7 +49,7 @@ export function DatePickerInput({
       id={id}
       aria-label={ariaLabel}
       className={`w-full ${className ?? ''}`.trim()}
-      style={{ height, borderRadius: 8, fontSize: height >= 36 ? 13.5 : 12 }}
+      style={{ height, borderRadius: 6, fontSize: height >= 36 ? 13.5 : 12 }}
       value={current}
       format={DISPLAY_FORMAT}
       placeholder={placeholder}
@@ -114,7 +114,7 @@ export function MonthPickerInput({
       id={id}
       aria-label={ariaLabel}
       className={`w-full ${className ?? ''}`.trim()}
-      style={{ height, borderRadius: 8, fontSize: height >= 36 ? 13.5 : 12 }}
+      style={{ height, borderRadius: 6, fontSize: height >= 36 ? 13.5 : 12 }}
       value={current}
       format="MM/YYYY"
       placeholder={placeholder}
@@ -122,6 +122,54 @@ export function MonthPickerInput({
       allowClear
       needConfirm={false}
       onChange={(date) => onChange?.(date ? date.format('YYYY-MM') : '')}
+    />
+  );
+}
+
+export interface DateTimePickerInputProps {
+  'aria-label'?: string;
+  /** Thời điểm ISO (UTC); rỗng khi chưa chọn. */
+  value?: string;
+  /** Phát thời điểm ISO ('' khi xoá). */
+  onChange?: (iso: string) => void;
+  placeholder?: string;
+  className?: string;
+  disabled?: boolean;
+  id?: string;
+  height?: number;
+}
+
+/**
+ * Ô chọn ngày giờ dùng lịch của Ant Design (không dùng `datetime-local` gốc của trình duyệt).
+ * Hiển thị dd/mm/yyyy HH:mm theo múi giờ máy người dùng; giá trị vào/ra là chuỗi ISO.
+ */
+export function DateTimePickerInput({
+  'aria-label': ariaLabel,
+  value,
+  onChange,
+  placeholder = 'dd/mm/yyyy hh:mm',
+  className,
+  disabled,
+  id,
+  height = 32,
+}: DateTimePickerInputProps) {
+  const parsed = value ? dayjs(value) : null;
+  const current = parsed && parsed.isValid() ? parsed : null;
+  return (
+    <DatePicker
+      id={id}
+      aria-label={ariaLabel}
+      className={`w-full ${className ?? ''}`.trim()}
+      style={{ height, borderRadius: 6, fontSize: height >= 36 ? 13.5 : 12 }}
+      // Nằm trong hộp thoại có z-index cao: danh sách chọn phải nổi lên trên.
+      styles={{ popup: { root: { zIndex: 10050 } } }}
+      value={current}
+      format="DD/MM/YYYY HH:mm"
+      showTime={{ format: 'HH:mm', minuteStep: 5 }}
+      placeholder={placeholder}
+      disabled={disabled}
+      allowClear
+      onChange={(date) => onChange?.(date ? date.toDate().toISOString() : '')}
     />
   );
 }
