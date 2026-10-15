@@ -1,19 +1,31 @@
-import type { ObjectStoragePort } from '@enterprise-platform/adapter-storage';
+import type { ObjectStorageCopy, ObjectStorageManagementPort } from '@enterprise-platform/adapter-storage';
 import type {
   SharedDocument,
   SharedDocumentVersion,
   SharedFolder,
+  SharedTrashItem,
   StorageModuleUsage,
   TenantStorageLimit,
 } from '@enterprise-platform/contracts-shared';
+import { Logger } from '@nestjs/common';
 import {
   SharedDocumentLockedError,
   SharedDocumentNotFoundError,
+  SharedFolderLockedError,
+  SharedFolderNotFoundError,
+  SharedFolderUnavailableError,
   SharedForbiddenError,
+  SharedNameTakenError,
   SharedValidationError,
   StorageQuotaExceededError,
 } from '../domain/shared.error.js';
-import { CompanyDocumentService, canSee, folderPaths, sortFolders } from './company-document.service.js';
+import {
+  CompanyDocumentService,
+  canSee,
+  folderPaths,
+  sortFolders,
+  withFreeName,
+} from './company-document.service.js';
 import type { SharedActor } from './shared-actor.js';
 import type { DocumentRow, SharedStore } from './shared-store.port.js';
 import { StorageQuotaService } from './storage-quota.service.js';
@@ -36,6 +48,10 @@ function actor(overrides: Partial<SharedActor> = {}): SharedActor {
 
 const admin = actor({ userId: 'user-admin', isTenantAdmin: true, canManage: true, canDeleteDocuments: true });
 const reader = actor({ userId: 'user-reader', canWriteDocuments: false });
+/** Có quyền xoá nhưng không quản trị kho: xoá vào Thùng rác được, xoá vĩnh viễn thì không. */
+const deleter = actor({ userId: 'user-deleter', canDeleteDocuments: true });
+/** Quản trị kho có quyền xoá, không phải quản trị tenant. */
+const keeper = actor({ userId: 'user-keeper', canManage: true, canDeleteDocuments: true });
 
 /** Kho giả trong bộ nhớ, đủ cho các luật của tầng application. */
 function fakeStore(usage: StorageModuleUsage[] = []) {
@@ -45,6 +61,39 @@ function fakeStore(usage: StorageModuleUsage[] = []) {
   let sequence = 0;
   const id = (prefix: string) => `${prefix}-${++sequence}`;
   const now = new Date('2026-10-15T00:00:00Z').toISOString();
+
+  // Trạng thái Thùng rác; `SharedFolder` công khai không mang các cột này.
+  const folderTrash = new Map<string, { deletedAt: string; deletedBy: string; batch: string }>();
+  const documentTrash = new Map<string, { deletedBy: string; batch?: string }>();
+
+  /** `rootId` và mọi con cháu thoả `include`. */
+  const branchIds = (rootId: string, include: (folder: SharedFolder) => boolean) => {
+    const ids = new Set<string>([rootId]);
+    for (let grew = true; grew; ) {
+      grew = false;
+      for (const folder of folders.values()) {
+        if (folder.parentId && ids.has(folder.parentId) && !ids.has(folder.id) && include(folder)) {
+          ids.add(folder.id);
+          grew = true;
+        }
+      }
+    }
+    return ids;
+  };
+
+  /** Xoá hẳn một tài liệu cùng phiên bản; trả khoá tệp của chúng. */
+  const dropDocument = (documentId: string): string[] => {
+    const keys: string[] = [];
+    for (const [versionId, version] of versions) {
+      if (version.documentId === documentId) {
+        keys.push(version.storageKey);
+        versions.delete(versionId);
+      }
+    }
+    documents.delete(documentId);
+    documentTrash.delete(documentId);
+    return keys;
+  };
 
   const store: SharedStore = {
     diagnostics: { schemaStatus: async () => ({ schemaExists: true, tablesReady: true }) },
@@ -80,18 +129,99 @@ function fakeStore(usage: StorageModuleUsage[] = []) {
         folders.set(folderId, next);
         return next;
       },
-      deactivate: async (_tenant, folderId) => {
-        folders.set(folderId, { ...folders.get(folderId)!, isActive: false });
+      trash: async (_tenant, folderId, userId) => {
+        const ids = branchIds(folderId, (folder) => folder.isActive);
+        for (const memberId of ids) {
+          folders.set(memberId, { ...folders.get(memberId)!, isActive: false });
+          folderTrash.set(memberId, { deletedAt: now, deletedBy: userId, batch: folderId });
+        }
+        let moved = 0;
+        for (const doc of documents.values()) {
+          if (ids.has(doc.folderId) && !doc.deletedAt) {
+            documents.set(doc.id, { ...doc, deletedAt: now, lockedByUserId: undefined, lockedAt: undefined });
+            documentTrash.set(doc.id, { deletedBy: userId, batch: folderId });
+            moved += 1;
+          }
+        }
+        return { folders: ids.size - 1, documents: moved };
       },
-      countContents: async (_tenant, folderId) => ({
-        folders: [...folders.values()].filter((f) => f.parentId === folderId && f.isActive).length,
-        documents: [...documents.values()].filter((d) => d.folderId === folderId && d.status === 'active').length,
-      }),
+      findTrashed: async (_tenant, folderId) => {
+        const mark = folderTrash.get(folderId);
+        const folder = folders.get(folderId);
+        if (!mark || !folder || mark.batch !== folderId) return undefined;
+        const members = [...folderTrash.entries()]
+          .filter(([, value]) => value.batch === folderId)
+          .map(([memberId]) => folders.get(memberId)!);
+        return {
+          folder,
+          deletedAt: mark.deletedAt,
+          maxDepth: Math.max(...members.map((member) => member.depth)),
+          folders: members.length - 1,
+          documents: [...documentTrash.values()].filter((value) => value.batch === folderId).length,
+        };
+      },
+      restoreBranch: async (_tenant, folderId, target) => {
+        const taken = [...folders.values()].some(
+          (folder) =>
+            folder.isActive &&
+            (folder.parentId ?? null) === target.parentId &&
+            folder.name.toLowerCase() === target.name.toLowerCase(),
+        );
+        if (taken) throw new SharedNameTakenError(target.name);
+        for (const [memberId, mark] of [...folderTrash.entries()]) {
+          if (mark.batch !== folderId) continue;
+          const member = folders.get(memberId)!;
+          folders.set(memberId, {
+            ...member,
+            isActive: true,
+            depth: member.depth + target.depthDelta,
+            ...(memberId === folderId ? { name: target.name, parentId: target.parentId ?? undefined } : {}),
+          });
+          folderTrash.delete(memberId);
+        }
+        for (const [docId, mark] of [...documentTrash.entries()]) {
+          if (mark.batch !== folderId) continue;
+          documents.set(docId, { ...documents.get(docId)!, deletedAt: undefined });
+          documentTrash.delete(docId);
+        }
+        return folders.get(folderId)!;
+      },
+      purgeBranch: async (_tenant, folderId) => {
+        const ids = new Set(
+          [...folderTrash.entries()].filter(([, mark]) => mark.batch === folderId).map(([memberId]) => memberId),
+        );
+        // Cả cây con, kể cả thư mục từng bị xoá riêng ở lượt trước.
+        for (let grew = true; grew; ) {
+          grew = false;
+          for (const folder of folders.values()) {
+            if (folder.parentId && ids.has(folder.parentId) && !ids.has(folder.id)) {
+              ids.add(folder.id);
+              grew = true;
+            }
+          }
+        }
+        const storageKeys: string[] = [];
+        let removed = 0;
+        // Cả tài liệu từng bị xoá riêng khỏi các thư mục này.
+        for (const doc of [...documents.values()]) {
+          if (!ids.has(doc.folderId)) continue;
+          storageKeys.push(...dropDocument(doc.id));
+          removed += 1;
+        }
+        for (const memberId of ids) {
+          folders.delete(memberId);
+          folderTrash.delete(memberId);
+        }
+        return { storageKeys, documents: removed, folders: Math.max(0, ids.size - 1) };
+      },
     },
     documents: {
       list: async (_tenant, query) =>
         [...documents.values()].filter(
-          (doc) => doc.status === query.status && (!query.folderId || doc.folderId === query.folderId),
+          (doc) =>
+            !doc.deletedAt &&
+            doc.status === query.status &&
+            (!query.folderId || doc.folderId === query.folderId),
         ),
       find: async (_tenant, documentId) => documents.get(documentId),
       create: async (_tenant, userId, input) => {
@@ -136,6 +266,52 @@ function fakeStore(usage: StorageModuleUsage[] = []) {
       setStatus: async (_tenant, documentId, status) => {
         documents.set(documentId, { ...documents.get(documentId)!, status });
       },
+      trash: async (_tenant, documentId, userId) => {
+        documents.set(documentId, {
+          ...documents.get(documentId)!,
+          deletedAt: now,
+          lockedByUserId: undefined,
+          lockedAt: undefined,
+        });
+        documentTrash.set(documentId, { deletedBy: userId });
+      },
+      restoreFromTrash: async (_tenant, documentId, target) => {
+        const current = documents.get(documentId)!;
+        const taken =
+          current.status === 'active' &&
+          [...documents.values()].some(
+            (doc) =>
+              !doc.deletedAt &&
+              doc.status === 'active' &&
+              doc.folderId === target.folderId &&
+              doc.name.toLowerCase() === target.name.toLowerCase(),
+          );
+        if (taken) throw new SharedNameTakenError(target.name);
+        documents.set(documentId, { ...current, folderId: target.folderId, name: target.name, deletedAt: undefined });
+        documentTrash.delete(documentId);
+      },
+      purge: async (_tenant, documentId) => ({
+        storageKeys: dropDocument(documentId),
+        documents: 1,
+        folders: 0,
+      }),
+      countLockedByOthers: async (_tenant, folderIds, userId) =>
+        [...documents.values()].filter(
+          (doc) =>
+            !doc.deletedAt &&
+            folderIds.includes(doc.folderId) &&
+            doc.lockedByUserId &&
+            doc.lockedByUserId !== userId,
+        ).length,
+      countHiddenFrom: async (_tenant, folderIds, viewer) =>
+        [...documents.values()].filter(
+          (doc) =>
+            !doc.deletedAt &&
+            folderIds.includes(doc.folderId) &&
+            doc.createdBy !== viewer.userId &&
+            (doc.confidentiality === 'confidential' ||
+              (doc.confidentiality === 'restricted' && !viewer.canSeeRestricted)),
+        ).length,
       listVersions: async (_tenant, documentId) =>
         [...versions.values()].filter((version) => version.documentId === documentId),
       findVersion: async (_tenant, versionId) => versions.get(versionId),
@@ -158,27 +334,87 @@ function fakeStore(usage: StorageModuleUsage[] = []) {
         if (!version) return undefined;
         const next = { ...version, sizeBytes };
         versions.set(versionId, next);
+        const owner = documents.get(version.documentId);
+        if (owner?.currentVersionId === versionId) documents.set(owner.id, { ...owner, currentVersion: next });
         return next;
       },
       storageKeyOf: async (_tenant, versionId) => versions.get(versionId)?.storageKey,
       log: async () => undefined,
       accessLog: async () => [],
     },
+    trash: {
+      list: async () => {
+        const paths = folderPaths([...folders.values()]);
+        const items: SharedTrashItem[] = [];
+        for (const [folderId, mark] of folderTrash) {
+          if (mark.batch !== folderId) continue;
+          const folder = folders.get(folderId)!;
+          items.push({
+            kind: 'folder',
+            id: folderId,
+            name: folder.name,
+            location: folder.parentId ? (paths.get(folder.parentId) ?? '') : '',
+            locationAvailable: !folder.parentId || Boolean(folders.get(folder.parentId)?.isActive),
+            documentCount: [...documentTrash.values()].filter((value) => value.batch === folderId).length,
+            folderCount: [...folderTrash.values()].filter((value) => value.batch === folderId).length - 1,
+            totalBytes: 0,
+            deletedAt: mark.deletedAt,
+            deletedBy: mark.deletedBy,
+          });
+        }
+        for (const [documentId, mark] of documentTrash) {
+          if (mark.batch) continue;
+          const doc = documents.get(documentId)!;
+          items.push({
+            kind: 'document',
+            id: documentId,
+            name: doc.name,
+            location: paths.get(doc.folderId) ?? '',
+            locationAvailable: Boolean(folders.get(doc.folderId)?.isActive),
+            documentCount: 1,
+            folderCount: 0,
+            totalBytes: doc.currentVersion?.sizeBytes ?? 0,
+            deletedAt: doc.deletedAt ?? now,
+            deletedBy: mark.deletedBy,
+            confidentiality: doc.confidentiality,
+            createdBy: doc.createdBy,
+          });
+        }
+        // Mới xoá trước, như `ORDER BY deleted_at DESC` của cơ sở dữ liệu.
+        return items.reverse();
+      },
+    },
     storage: { usageByModule: async () => usage },
   };
   return { store, folders, documents, versions };
 }
 
-const storage: ObjectStoragePort = {
-  createUploadUrl: async (input) => `https://files.example/upload/${input.key}`,
-  createDownloadUrl: async (key) => `https://files.example/download/${key}`,
-  putObject: async () => undefined,
-};
+/** Kho đối tượng giả: ghi lại các lần sao chép, xoá, và gây lỗi theo yêu cầu. */
+function fakeStorage() {
+  const copies: ObjectStorageCopy[] = [];
+  const deleted: string[] = [];
+  const faults = { failedKeys: [] as string[], throwOnDelete: false };
+  const port: ObjectStorageManagementPort = {
+    createUploadUrl: async (input) => `https://files.example/upload/${input.key}`,
+    createDownloadUrl: async (key) => `https://files.example/download/${key}`,
+    putObject: async () => undefined,
+    copyObject: async (input) => {
+      copies.push(input);
+    },
+    deleteObjects: async (keys) => {
+      if (faults.throwOnDelete) throw new Error('kho không phản hồi');
+      deleted.push(...keys);
+      return { failed: keys.filter((key) => faults.failedKeys.includes(key)) };
+    },
+  };
+  return { port, copies, deleted, faults };
+}
 
 function setup(options: { usage?: StorageModuleUsage[]; limit?: TenantStorageLimit } = {}) {
   const fake = fakeStore(options.usage);
   const quota = new StorageQuotaService(fake.store, { storageLimit: async () => options.limit });
-  return { ...fake, service: new CompanyDocumentService(fake.store, quota, storage) };
+  const files = fakeStorage();
+  return { ...fake, files, service: new CompanyDocumentService(fake.store, quota, files.port) };
 }
 
 const pdf = { fileName: 'HĐ 01.026.HĐTN.TNWP-SAVINA.pdf', contentType: 'application/pdf', sizeBytes: 2_400_000 };
@@ -226,14 +462,47 @@ describe('CompanyDocumentService – thư mục', () => {
     );
   });
 
-  it('chỉ xoá thư mục rỗng, và cần quyền xoá', async () => {
+  it('xoá thư mục cần quyền xoá, và gốc của kho chỉ quản trị kho xoá', async () => {
     const { service } = setup();
     const root = await service.createFolder(admin, { name: 'A' });
-    await service.createFolder(admin, { parentId: root.id, name: 'B' });
-    await expect(service.removeFolder(actor(), root.id)).rejects.toBeInstanceOf(SharedForbiddenError);
-    await expect(service.removeFolder(admin, root.id)).rejects.toThrow('còn 1 thư mục con');
+    const child = await service.createFolder(admin, { parentId: root.id, name: 'B' });
+    await expect(service.deleteFolder(actor(), child.id)).rejects.toBeInstanceOf(SharedForbiddenError);
+    await expect(service.deleteFolder(deleter, root.id)).rejects.toThrow('thư mục gốc');
+    await expect(service.deleteFolder(deleter, child.id)).resolves.toEqual({ folders: 0, documents: 0 });
+    await expect(service.deleteFolder(keeper, root.id)).resolves.toEqual({ folders: 0, documents: 0 });
   });
 
+  it('xoá thư mục chuyển cả nhánh và tài liệu bên trong vào Thùng rác', async () => {
+    const { service } = setup();
+    const root = await service.createFolder(admin, { name: 'A' });
+    const child = await service.createFolder(admin, { parentId: root.id, name: 'B' });
+    await service.create(actor(), { folderId: child.id, name: 'HĐ', ...pdf });
+    await expect(service.deleteFolder(admin, root.id)).resolves.toEqual({ folders: 1, documents: 1 });
+    await expect(service.folders(admin)).resolves.toEqual([]);
+    await expect(service.deleteFolder(admin, root.id)).rejects.toBeInstanceOf(SharedFolderNotFoundError);
+    const items = await service.trash(admin);
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ kind: 'folder', name: 'A', folderCount: 1, documentCount: 1 });
+  });
+
+  it('không xoá thư mục có tài liệu đang bị người khác khoá', async () => {
+    const { service } = setup();
+    const root = await service.createFolder(admin, { name: 'A' });
+    const created = await service.create(actor(), { folderId: root.id, name: 'HĐ', ...pdf });
+    await service.lock(actor({ userId: 'user-other' }), created.document.id);
+    await expect(service.deleteFolder(admin, root.id)).rejects.toBeInstanceOf(SharedFolderLockedError);
+    await service.unlock(admin, created.document.id);
+    await expect(service.deleteFolder(admin, root.id)).resolves.toMatchObject({ documents: 1 });
+  });
+
+  it('người không quản trị không xoá hộ tài liệu mật mà họ không được xem', async () => {
+    const { service } = setup();
+    const root = await service.createFolder(admin, { name: 'A' });
+    const child = await service.createFolder(admin, { parentId: root.id, name: 'B' });
+    await service.create(actor(), { folderId: child.id, name: 'Lương', ...pdf, confidentiality: 'confidential' });
+    await expect(service.deleteFolder(deleter, child.id)).rejects.toThrow('không có quyền xem');
+    await expect(service.deleteFolder(admin, child.id)).resolves.toMatchObject({ documents: 1 });
+  });
   it('sắp tên có số theo giá trị và dựng đường dẫn', () => {
     const base = { isActive: true, documentCount: 0, totalDocumentCount: 0, totalBytes: 0, createdBy: 'u', createdAt: '', updatedAt: '' };
     const folders: SharedFolder[] = [
@@ -364,5 +633,343 @@ describe('Hạn mức dung lượng', () => {
     expect(usage.quotaBytes).toBe(150 * GB);
     expect(usage.addOnBytes).toBe(100 * GB);
     expect(usage.byModule.map((item) => item.moduleKey)).toEqual(['workspace', 'shared']);
+  });
+});
+
+describe('CompanyDocumentService – xoá và Thùng rác', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  async function withDocument(options: { confidentiality?: 'confidential' } = {}) {
+    const context = setup();
+    const folder = await context.service.createFolder(admin, { name: '3. HỢP ĐỒNG' });
+    const created = await context.service.create(actor(), { folderId: folder.id, name: 'HĐ', ...pdf, ...options });
+    await context.service.completeUpload(actor(), created.document.id, created.version.id, pdf.sizeBytes);
+    return { ...context, folder, documentId: created.document.id, versionId: created.version.id };
+  }
+
+  it('xoá tài liệu cần quyền xoá, và không xoá khi người khác đang khoá', async () => {
+    const { service, documentId } = await withDocument();
+    await expect(service.deleteDocument(actor(), documentId)).rejects.toBeInstanceOf(SharedForbiddenError);
+    await service.lock(actor({ userId: 'user-other' }), documentId);
+    await expect(service.deleteDocument(deleter, documentId)).rejects.toBeInstanceOf(SharedDocumentLockedError);
+  });
+
+  it('tài liệu đã xoá biến khỏi danh sách và chi tiết, nằm trong Thùng rác', async () => {
+    const { service, folder, documentId } = await withDocument();
+    await service.deleteDocument(deleter, documentId);
+    await expect(service.list(admin, { folderId: folder.id })).resolves.toEqual([]);
+    await expect(service.detail(admin, documentId)).rejects.toBeInstanceOf(SharedDocumentNotFoundError);
+    await expect(service.deleteDocument(deleter, documentId)).rejects.toBeInstanceOf(SharedDocumentNotFoundError);
+    await expect(service.trash(deleter)).resolves.toMatchObject([
+      { kind: 'document', id: documentId, name: 'HĐ', location: '3. HỢP ĐỒNG', locationAvailable: true },
+    ]);
+  });
+
+  it('người không có quyền xoá không xem và không khôi phục được từ Thùng rác', async () => {
+    const { service, documentId } = await withDocument();
+    await service.deleteDocument(deleter, documentId);
+    await expect(service.trash(actor())).rejects.toBeInstanceOf(SharedForbiddenError);
+    await expect(service.restoreFromTrash(actor(), 'document', documentId)).rejects.toBeInstanceOf(
+      SharedForbiddenError,
+    );
+  });
+
+  it('Thùng rác ẩn tài liệu mật với người không được xem chúng', async () => {
+    const { service, documentId } = await withDocument({ confidentiality: 'confidential' });
+    await service.deleteDocument(admin, documentId);
+    await expect(service.trash(deleter)).resolves.toEqual([]);
+    await expect(service.trash(admin)).resolves.toHaveLength(1);
+    await expect(service.restoreFromTrash(deleter, 'document', documentId)).rejects.toBeInstanceOf(
+      SharedDocumentNotFoundError,
+    );
+  });
+
+  it('khôi phục tài liệu về chỗ cũ', async () => {
+    const { service, folder, documentId } = await withDocument();
+    await service.deleteDocument(deleter, documentId);
+    await expect(service.restoreFromTrash(deleter, 'document', documentId)).resolves.toEqual({
+      kind: 'document',
+      id: documentId,
+      name: 'HĐ',
+    });
+    await expect(service.list(admin, { folderId: folder.id })).resolves.toHaveLength(1);
+    await expect(service.trash(admin)).resolves.toEqual([]);
+  });
+
+  it('khôi phục vào chỗ đã có tài liệu cùng tên thì thêm hậu tố "(khôi phục)"', async () => {
+    const { service, folder, documentId } = await withDocument();
+    await service.deleteDocument(deleter, documentId);
+    await service.create(actor(), { folderId: folder.id, name: 'HĐ', ...pdf });
+    await expect(service.restoreFromTrash(deleter, 'document', documentId)).resolves.toMatchObject({
+      name: 'HĐ (khôi phục)',
+    });
+  });
+
+  it('chỗ cũ không còn thì báo FOLDER_UNAVAILABLE, chọn thư mục khác thì khôi phục được', async () => {
+    const { service, folder, documentId } = await withDocument();
+    const other = await service.createFolder(admin, { name: 'Khác' });
+    await service.deleteDocument(deleter, documentId);
+    await service.deleteFolder(admin, folder.id);
+    await expect(service.restoreFromTrash(deleter, 'document', documentId)).rejects.toBeInstanceOf(
+      SharedFolderUnavailableError,
+    );
+    await expect(
+      service.restoreFromTrash(deleter, 'document', documentId, { targetFolderId: other.id }),
+    ).resolves.toMatchObject({ name: 'HĐ' });
+    await expect(service.list(admin, { folderId: other.id })).resolves.toHaveLength(1);
+  });
+
+  it('khôi phục thư mục cùng cả nhánh và tài liệu về chỗ cũ', async () => {
+    const { service } = setup();
+    const root = await service.createFolder(admin, { name: 'A' });
+    const child = await service.createFolder(admin, { parentId: root.id, name: 'B' });
+    await service.create(actor(), { folderId: child.id, name: 'HĐ', ...pdf });
+    await service.deleteFolder(admin, child.id);
+    await expect(service.restoreFromTrash(admin, 'folder', child.id)).resolves.toMatchObject({ name: 'B' });
+    const names = (await service.folders(admin)).map((folder) => folder.name).sort();
+    expect(names).toEqual(['A', 'B']);
+    await expect(service.list(admin, { folderId: child.id })).resolves.toHaveLength(1);
+    await expect(service.trash(admin)).resolves.toEqual([]);
+  });
+
+  it('khôi phục thư mục vào chỗ đã có thư mục cùng tên thì thêm hậu tố', async () => {
+    const { service } = setup();
+    const root = await service.createFolder(admin, { name: 'A' });
+    const child = await service.createFolder(admin, { parentId: root.id, name: 'B' });
+    await service.deleteFolder(admin, child.id);
+    await service.createFolder(admin, { parentId: root.id, name: 'B' });
+    await expect(service.restoreFromTrash(admin, 'folder', child.id)).resolves.toMatchObject({
+      name: 'B (khôi phục)',
+    });
+  });
+
+  it('thư mục cha cũng đã xoá thì phải chọn chỗ khác, cả nhánh đổi cấp theo', async () => {
+    const { service } = setup();
+    const root = await service.createFolder(admin, { name: 'A' });
+    const mid = await service.createFolder(admin, { parentId: root.id, name: 'B' });
+    const leaf = await service.createFolder(admin, { parentId: mid.id, name: 'C' });
+    const target = await service.createFolder(admin, { name: 'Đích' });
+    await service.deleteFolder(admin, leaf.id);
+    await service.deleteFolder(admin, root.id);
+    await expect(service.restoreFromTrash(admin, 'folder', leaf.id)).rejects.toBeInstanceOf(
+      SharedFolderUnavailableError,
+    );
+    await service.restoreFromTrash(admin, 'folder', leaf.id, { targetFolderId: target.id });
+    const folders = await service.folders(admin);
+    expect(folders.find((folder) => folder.id === leaf.id)).toMatchObject({ parentId: target.id, depth: 1 });
+  });
+
+  it('khôi phục thư mục gốc cần quản trị kho; chuyển sang chỗ quá sâu thì từ chối', async () => {
+    const { service } = setup();
+    const root = await service.createFolder(admin, { name: 'A' });
+    await service.deleteFolder(admin, root.id);
+    await expect(service.restoreFromTrash(deleter, 'folder', root.id)).rejects.toBeInstanceOf(SharedForbiddenError);
+    await expect(service.restoreFromTrash(keeper, 'folder', root.id)).resolves.toMatchObject({ name: 'A' });
+
+    let parent = await service.createFolder(admin, { name: 'N0' });
+    for (let level = 1; level <= 5; level += 1) {
+      parent = await service.createFolder(admin, { parentId: parent.id, name: `N${level}` });
+    }
+    const branch = await service.createFolder(admin, { name: 'Nhánh' });
+    await service.createFolder(admin, { parentId: branch.id, name: 'Cành' });
+    await service.deleteFolder(admin, branch.id);
+    await expect(
+      service.restoreFromTrash(admin, 'folder', branch.id, { targetFolderId: parent.id }),
+    ).rejects.toBeInstanceOf(SharedValidationError);
+  });
+
+  it('xoá vĩnh viễn cần quản trị kho có quyền xoá', async () => {
+    const { service, documentId } = await withDocument();
+    await service.deleteDocument(deleter, documentId);
+    await expect(service.purge(deleter, 'document', documentId)).rejects.toBeInstanceOf(SharedForbiddenError);
+    await expect(service.purge(actor({ canManage: true }), 'document', documentId)).rejects.toBeInstanceOf(
+      SharedForbiddenError,
+    );
+    await expect(service.purge(keeper, 'document', documentId)).resolves.toBeUndefined();
+    await expect(service.emptyTrash(deleter)).rejects.toBeInstanceOf(SharedForbiddenError);
+  });
+
+  it('xoá vĩnh viễn xoá dòng, mọi phiên bản và tệp trong kho', async () => {
+    const { service, files, documentId } = await withDocument();
+    await service.addVersion(actor(), documentId, { ...pdf, changeNote: 'Bản ký' });
+    await service.deleteDocument(deleter, documentId);
+    await service.purge(admin, 'document', documentId);
+    expect(files.deleted.map((key) => /\/(v\d+)-/.exec(key)?.[1]).sort()).toEqual(['v1', 'v2']);
+    await expect(service.trash(admin)).resolves.toEqual([]);
+    await expect(service.restoreFromTrash(admin, 'document', documentId)).rejects.toBeInstanceOf(
+      SharedDocumentNotFoundError,
+    );
+  });
+
+  it('chỉ xoá vĩnh viễn được mục đang ở trong Thùng rác', async () => {
+    const { service, folder, documentId } = await withDocument();
+    await expect(service.purge(admin, 'document', documentId)).rejects.toBeInstanceOf(SharedDocumentNotFoundError);
+    await expect(service.purge(admin, 'folder', folder.id)).rejects.toBeInstanceOf(SharedFolderNotFoundError);
+  });
+
+  it('kho không xoá được tệp thì dòng vẫn mất, chỉ ghi log', async () => {
+    const logged = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    const { service, files, documentId } = await withDocument();
+    await service.deleteDocument(deleter, documentId);
+    files.faults.throwOnDelete = true;
+    await expect(service.purge(admin, 'document', documentId)).resolves.toBeUndefined();
+    expect(logged).toHaveBeenCalledTimes(1);
+    await expect(service.trash(admin)).resolves.toEqual([]);
+  });
+
+  it('kho từ chối một số tệp thì ghi log từng khoá', async () => {
+    const logged = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    const { service, files, versionId, store, documentId } = await withDocument();
+    const key = (await store.documents.storageKeyOf(TENANT, versionId))!;
+    await service.deleteDocument(deleter, documentId);
+    files.faults.failedKeys.push(key);
+    await expect(service.purge(admin, 'document', documentId)).resolves.toBeUndefined();
+    expect(logged).toHaveBeenCalledWith(expect.stringContaining(key));
+  });
+
+  it('xoá vĩnh viễn thư mục kéo theo cả tài liệu từng xoá riêng trong nhánh', async () => {
+    const { service, files, folder, documentId } = await withDocument();
+    const second = await service.create(actor(), { folderId: folder.id, name: 'HĐ 2', ...pdf });
+    await service.completeUpload(actor(), second.document.id, second.version.id, pdf.sizeBytes);
+    await service.deleteDocument(deleter, documentId);
+    await service.deleteFolder(admin, folder.id);
+    const kinds = (await service.trash(admin)).map((item) => item.kind).sort();
+    expect(kinds).toEqual(['document', 'folder']);
+    await service.purge(admin, 'folder', folder.id);
+    expect(files.deleted).toHaveLength(2);
+    await expect(service.trash(admin)).resolves.toEqual([]);
+  });
+
+  it('xoá vĩnh viễn nhánh kéo theo cả thư mục con từng xoá riêng; dọn Thùng rác không báo lỗi', async () => {
+    const { service, files } = setup();
+    const root = await service.createFolder(admin, { name: 'A' });
+    const mid = await service.createFolder(admin, { parentId: root.id, name: 'B' });
+    const leaf = await service.createFolder(admin, { parentId: mid.id, name: 'C' });
+    await service.create(actor(), { folderId: leaf.id, name: 'HĐ', ...pdf });
+    await service.deleteFolder(admin, leaf.id);
+    await service.deleteFolder(admin, root.id);
+    await expect(service.trash(admin)).resolves.toHaveLength(2);
+    await expect(service.emptyTrash(admin)).resolves.toEqual({ purged: 1, failed: 0 });
+    expect(files.deleted).toHaveLength(1);
+    await expect(service.trash(admin)).resolves.toEqual([]);
+  });
+
+  it('dọn Thùng rác xoá hết, thư mục trước, và không tính lỗi cho mục đã đi theo thư mục', async () => {
+    const { service, files, folder, documentId } = await withDocument();
+    const other = await service.createFolder(admin, { name: 'Khác' });
+    const loose = await service.create(actor(), { folderId: other.id, name: 'Lẻ', ...pdf });
+    await service.deleteDocument(deleter, documentId);
+    await service.deleteDocument(deleter, loose.document.id);
+    await service.deleteFolder(admin, folder.id);
+    await expect(service.emptyTrash(admin)).resolves.toEqual({ purged: 2, failed: 0 });
+    expect(files.deleted).toHaveLength(2);
+    await expect(service.trash(admin)).resolves.toEqual([]);
+  });
+
+  it('dọn Thùng rác: một mục hỏng thì bỏ qua, đếm và đi tiếp', async () => {
+    const logged = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    const { service, store, documentId } = await withDocument();
+    const other = await service.createFolder(admin, { name: 'Khác' });
+    const second = await service.create(actor(), { folderId: other.id, name: 'Hai', ...pdf });
+    await service.deleteDocument(deleter, documentId);
+    await service.deleteDocument(deleter, second.document.id);
+    jest.spyOn(store.documents, 'purge').mockRejectedValueOnce(new Error('mất kết nối'));
+    await expect(service.emptyTrash(admin)).resolves.toEqual({ purged: 1, failed: 1 });
+    expect(logged).toHaveBeenCalledTimes(1);
+    await expect(service.trash(admin)).resolves.toHaveLength(1);
+  });
+});
+
+describe('CompanyDocumentService – nhân bản', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  async function ready(options: Parameters<typeof setup>[0] = {}) {
+    const context = setup(options);
+    const folder = await context.service.createFolder(admin, { name: '3. HỢP ĐỒNG' });
+    const created = await context.service.create(actor(), { folderId: folder.id, name: 'HĐ', ...pdf });
+    await context.service.completeUpload(actor(), created.document.id, created.version.id, pdf.sizeBytes);
+    return { ...context, folder, documentId: created.document.id, versionId: created.version.id };
+  }
+
+  it('nhân bản vào cùng thư mục, sao chép tệp ngay trong kho và đặt tên bản sao', async () => {
+    const { service, files, folder, documentId, store, versionId } = await ready();
+    const copy = await service.duplicate(actor(), documentId);
+    expect(copy).toMatchObject({ name: 'HĐ (bản sao)', folderId: folder.id, versionCount: 1, status: 'active' });
+    expect(copy.id).not.toBe(documentId);
+    expect(copy.currentVersion?.sizeBytes).toBe(pdf.sizeBytes);
+    const sourceKey = await store.documents.storageKeyOf(TENANT, versionId);
+    expect(files.copies).toEqual([{ from: sourceKey, to: expect.stringContaining(`tenants/${TENANT}/shared/`) }]);
+    expect(files.copies[0]?.to).not.toBe(sourceKey);
+
+    const again = await service.duplicate(actor(), documentId);
+    expect(again.name).toBe('HĐ (bản sao 2)');
+  });
+
+  it('người chỉ đọc không nhân bản được', async () => {
+    const { service, documentId } = await ready();
+    await expect(service.duplicate(reader, documentId)).rejects.toBeInstanceOf(SharedForbiddenError);
+  });
+
+  it('chỉ nhân bản được tài liệu đang dùng và đã tải lên xong', async () => {
+    const { service, folder, documentId } = await ready();
+    const pending = await service.create(actor(), { folderId: folder.id, name: 'Chưa xong', ...pdf });
+    await expect(service.duplicate(actor(), pending.document.id)).rejects.toThrow('chưa tải lên xong');
+    await service.archive(admin, documentId);
+    await expect(service.duplicate(actor(), documentId)).rejects.toThrow('đã lưu trữ');
+  });
+
+  it('vượt hạn mức thì không sao chép tệp', async () => {
+    const usage: StorageModuleUsage[] = [];
+    const { service, files, documentId } = await ready({
+      usage,
+      limit: { resourceKey: 'storage_gb', limitValue: 50, enforcement: 'hard', source: 'plan', planKey: 'standard', addOnValue: 0 },
+    });
+    // Kho đầy sau khi tài liệu gốc đã tải lên.
+    usage.push({ moduleKey: 'workspace', label: 'Workspace', bytes: 50 * GB - 1_000_000, files: 10 });
+    await expect(service.duplicate(actor(), documentId)).rejects.toBeInstanceOf(StorageQuotaExceededError);
+    expect(files.copies).toEqual([]);
+  });
+
+  it('ghi dòng lỗi thì dọn tệp vừa sao chép', async () => {
+    const { service, files, store, documentId } = await ready();
+    jest.spyOn(store.documents, 'create').mockRejectedValueOnce(new Error('mất kết nối'));
+    await expect(service.duplicate(actor(), documentId)).rejects.toThrow('mất kết nối');
+    expect(files.copies).toHaveLength(1);
+    expect(files.deleted).toEqual([files.copies[0]?.to]);
+  });
+});
+
+describe('withFreeName', () => {
+  const taken = (...names: string[]) => async (name: string) => {
+    if (names.includes(name)) throw new SharedNameTakenError(name);
+    return name;
+  };
+
+  it('giữ tên gốc khi chưa trùng', async () => {
+    await expect(withFreeName('HĐ', 255, 'khôi phục', taken())).resolves.toEqual({ name: 'HĐ', value: 'HĐ' });
+  });
+
+  it('thêm hậu tố rồi đánh số cho tới khi hết trùng', async () => {
+    const result = await withFreeName('HĐ', 255, 'khôi phục', taken('HĐ', 'HĐ (khôi phục)', 'HĐ (khôi phục 2)'));
+    expect(result.name).toBe('HĐ (khôi phục 3)');
+  });
+
+  it('cắt tên gốc cho vừa độ dài tối đa kể cả hậu tố', async () => {
+    const base = 'x'.repeat(255);
+    const result = await withFreeName(base, 255, 'khôi phục', taken(base));
+    expect(result.name).toHaveLength(255);
+    expect(result.name.endsWith(' (khôi phục)')).toBe(true);
+  });
+
+  it('lỗi không phải trùng tên thì ném thẳng, không thử tiếp', async () => {
+    const attempt = jest.fn().mockRejectedValue(new Error('mất kết nối'));
+    await expect(withFreeName('HĐ', 255, 'khôi phục', attempt)).rejects.toThrow('mất kết nối');
+    expect(attempt).toHaveBeenCalledTimes(1);
+  });
+
+  it('thử mãi vẫn trùng thì bỏ cuộc với lỗi trùng tên', async () => {
+    const attempt = jest.fn().mockRejectedValue(new SharedNameTakenError('HĐ'));
+    await expect(withFreeName('HĐ', 255, 'khôi phục', attempt)).rejects.toBeInstanceOf(SharedNameTakenError);
+    expect(attempt.mock.calls.length).toBeGreaterThan(10);
   });
 });

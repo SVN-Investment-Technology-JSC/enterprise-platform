@@ -423,11 +423,16 @@
 /* ---------------------------------------------------------------- bảng */
 
 .contents {
+  // Có chiều cao tối thiểu để thư mục ít mục vẫn còn chỗ trống mà bấm chuột phải.
+  display: flex;
   flex: 1 1 420px;
+  flex-direction: column;
+  min-height: min(480px, calc(100vh - 280px));
   overflow: hidden;
 }
 
 .tableScroll {
+  flex: 1 1 auto;
   overflow-x: auto;
 }
 
@@ -1055,4 +1060,114 @@
     max-height: 100%;
     object-fit: contain;
   }
+}
+
+/* ===========================================================================
+   MENU CHUỘT PHẢI, THÙNG RÁC
+   =========================================================================== */
+
+// Menu dựng qua portal vào `document.body`, ngoài vỏ trang, nên khai lại bộ biến như `.overlay`.
+.contextMenu {
+  @include ep-tokens;
+
+  position: fixed;
+  z-index: 80;
+  min-width: 220px;
+  max-width: min(320px, calc(100vw - 16px));
+  max-height: calc(100vh - 16px);
+  padding: 6px;
+  overflow-y: auto;
+  border: 1px solid var(--ep-border-strong);
+  border-radius: var(--ep-radius-md);
+  background: var(--ep-surface);
+  box-shadow: 0 12px 32px rgb(15 23 42 / 18%);
+  color: var(--ep-text);
+  font-family: var(--ep-font);
+  font-size: 13px;
+}
+
+.contextItem {
+  @include ellipsis;
+
+  display: block;
+  width: 100%;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--ep-radius-sm);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+
+  &:hover,
+  &:focus-visible {
+    background: var(--ep-hover);
+    outline: none;
+  }
+}
+
+.contextItemDanger {
+  color: var(--ep-danger);
+
+  &:hover,
+  &:focus-visible {
+    background: #fef2f2;
+  }
+}
+
+.contextItemDisabled {
+  color: var(--ep-text-faint);
+  cursor: not-allowed;
+
+  &:hover,
+  &:focus-visible {
+    background: transparent;
+  }
+}
+
+.contextSeparator {
+  height: 1px;
+  margin: 4px 2px;
+  background: var(--ep-border);
+}
+
+.treeFoot {
+  padding: 4px 0 6px;
+  border-top: 1px solid var(--ep-border);
+}
+
+.trashGrid {
+  grid-template-columns: 28px minmax(200px, 1fr) 76px 84px 112px 116px;
+}
+
+.tableHead.trashGrid {
+  span:nth-child(4) {
+    text-align: right;
+  }
+
+  span:last-child {
+    text-align: left;
+  }
+}
+
+.cellName small[data-gone='true'] {
+  text-decoration: line-through;
+}
+
+.panel > .alert {
+  margin: 10px 12px 0;
+}
+
+.confirmText {
+  margin: 0;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.confirmDetail {
+  margin: -6px 0 0;
+  color: var(--ep-text-muted);
+  font-size: 12.5px;
 }

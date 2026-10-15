@@ -142,9 +142,10 @@ jobs:
           NOTIFICATIONS_TEST_ADMIN_URL: postgresql://notification_test:notification_test@localhost:5432/postgres
           HRM_TEST_ADMIN_URL: postgresql://notification_test:notification_test@localhost:5432/postgres
           FINANCE_TEST_ADMIN_URL: postgresql://notification_test:notification_test@localhost:5432/postgres
+          SHARED_TEST_ADMIN_URL: postgresql://notification_test:notification_test@localhost:5432/postgres
           RABBITMQ_TEST_URL: amqp://notification_test:notification_test@localhost:5672
           REALTIME_TEST_REDIS_URL: redis://localhost:6379
-        run: pnpm nx run-many -t test -p contracts-realtime module-notifications adapter-events realtime-api notification-worker platform-entitlement module-hrm module-finance --runInBand --detectOpenHandles --skipNxCache --parallel=1
+        run: pnpm nx run-many -t test -p contracts-realtime module-notifications adapter-events realtime-api notification-worker platform-entitlement module-hrm module-finance module-shared --runInBand --detectOpenHandles --skipNxCache --parallel=1
 
   prepare-services:
     name: Create deployment matrix

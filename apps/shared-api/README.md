@@ -6,8 +6,40 @@ liệu cấp công ty, tách khỏi tài liệu dự án của Workspace.
 
 - Bảng: `shared_schema` trong DB tenant (`migrations/tenant/shared`).
 - Tệp: presigned URL qua MinIO/S3, khoá `tenants/<tenantId>/shared/…`.
-- Quyền: `shared.read`, `shared.document.write`, `shared.document.delete`,
-  `shared.manage` (dựng thư mục gốc, chuyển thư mục, xem dung lượng).
+- Quyền: `shared.read`, `shared.document.write`, `shared.document.delete`
+  (lưu trữ, xoá, khôi phục), `shared.manage` (dựng thư mục gốc, chuyển thư mục,
+  xem dung lượng, xoá vĩnh viễn).
+
+## Xoá và Thùng rác
+
+Xoá tài liệu hay thư mục là chuyển vào **Thùng rác** (`deleted_at`), khôi phục
+được. Tệp vẫn nằm trong kho nên **vẫn tính vào dung lượng** cho tới khi xoá vĩnh
+viễn. "Lưu trữ" là trạng thái riêng, không phải xoá.
+
+| Thao tác | Quyền |
+| --- | --- |
+| Xoá tài liệu hay thư mục; xem, khôi phục từ Thùng rác | `shared.document.delete` (hoặc quản trị tenant) |
+| Xoá thư mục gốc, khôi phục thư mục về gốc | thêm `shared.manage` |
+| Xoá vĩnh viễn, dọn Thùng rác | `shared.document.delete` **và** `shared.manage` (hoặc quản trị tenant) |
+
+- Xoá thư mục kéo cả nhánh và tài liệu bên trong vào Thùng rác một lượt
+  (`deleted_batch`); khôi phục cũng cả nhánh. Thư mục còn tài liệu người khác
+  đang khoá, hoặc tài liệu người xoá không được xem theo độ mật, thì không xoá được.
+- Khôi phục về chỗ cũ. Chỗ đó đã có mục cùng tên thì mục khôi phục thêm hậu tố
+  "(khôi phục)"; chỗ cũ không còn thì `409 FOLDER_UNAVAILABLE` và người dùng chọn
+  thư mục khác (`targetFolderId`).
+- Xoá vĩnh viễn xoá dòng dữ liệu (kèm phiên bản, nhật ký truy cập) rồi xoá tệp
+  trong kho theo lô. Kho từ chối thì chỉ ghi log, tệp mồ côi dọn sau. Mỗi lần xoá
+  ghi một dòng vào `shared_schema.purge_log` (chỉ ghi thêm).
+- Không tự dọn sau một số ngày: Thùng rác chỉ vơi khi có người xoá vĩnh viễn.
+
+| Route | Ý nghĩa |
+| --- | --- |
+| `DELETE /v1/documents/:id`, `DELETE /v1/folders/:id` | chuyển vào Thùng rác |
+| `POST /v1/documents/:id/duplicate` | nhân bản trong cùng thư mục, tệp sao chép ngay trong kho |
+| `GET /v1/trash` | các mục đang ở Thùng rác |
+| `POST /v1/trash/{folders,documents}/:id/restore` | khôi phục, thân `{ targetFolderId? }` |
+| `DELETE /v1/trash/{folders,documents}/:id`, `DELETE /v1/trash` | xoá vĩnh viễn một mục, dọn sạch |
 
 ## Hạn mức dung lượng
 

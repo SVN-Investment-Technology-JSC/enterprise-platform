@@ -1,4 +1,6 @@
 import {
+  CopyObjectCommand,
+  DeleteObjectsCommand,
   GetObjectCommand,
   HeadObjectCommand,
   PutObjectCommand,
@@ -40,6 +42,30 @@ export interface ObjectStoragePort {
   putObject(input: ObjectStoragePut): Promise<void>;
 }
 
+export interface ObjectStorageCopy {
+  /** Khoá nguồn đã có trong kho. */
+  readonly from: string;
+  readonly to: string;
+}
+
+/**
+ * Thao tác phía máy chủ trên đối tượng đã có: sao chép và xoá. Tách khỏi
+ * `ObjectStoragePort` để các module chỉ cần ký URL không phải khai thêm hai
+ * hàm này.
+ */
+export interface ObjectStorageManagementPort extends ObjectStoragePort {
+  /** Sao chép ngay trong kho, tệp không đi qua máy chủ ứng dụng. */
+  copyObject(input: ObjectStorageCopy): Promise<void>;
+  /**
+   * Xoá theo lô. Khoá không còn trong kho coi như đã xoá; trả về những khoá
+   * kho từ chối xoá để nơi gọi ghi nhận.
+   */
+  deleteObjects(keys: readonly string[]): Promise<{ readonly failed: readonly string[] }>;
+}
+
+/** Giới hạn của S3 cho một lệnh `DeleteObjects`. */
+const DELETE_BATCH_SIZE = 1000;
+
 export interface S3ObjectStorageOptions {
   /** Docker/private address used only by server-side calls. */
   readonly internalEndpoint?: string;
@@ -54,7 +80,7 @@ export interface S3ObjectStorageOptions {
   readonly forcePathStyle?: boolean;
 }
 
-export class S3ObjectStorage implements ObjectStoragePort {
+export class S3ObjectStorage implements ObjectStorageManagementPort {
   private readonly internalClient: S3Client;
   private readonly publicClient: S3Client;
 
@@ -126,6 +152,31 @@ export class S3ObjectStorage implements ObjectStoragePort {
       }),
       { abortSignal: AbortSignal.timeout(TENANT_STORAGE_WRITE_TIMEOUT_SECONDS * 1000) },
     );
+  }
+
+  async copyObject(input: ObjectStorageCopy): Promise<void> {
+    // `CopySource` là "bucket/khoá" đã mã hoá từng đoạn; dấu "/" giữ nguyên.
+    const source = `${this.options.bucket}/${input.from.split('/').map(encodeURIComponent).join('/')}`;
+    await this.internalClient.send(
+      new CopyObjectCommand({ Bucket: this.options.bucket, Key: input.to, CopySource: source }),
+      { abortSignal: AbortSignal.timeout(TENANT_STORAGE_WRITE_TIMEOUT_SECONDS * 1000) },
+    );
+  }
+
+  async deleteObjects(keys: readonly string[]): Promise<{ readonly failed: readonly string[] }> {
+    const failed: string[] = [];
+    for (let start = 0; start < keys.length; start += DELETE_BATCH_SIZE) {
+      const batch = keys.slice(start, start + DELETE_BATCH_SIZE);
+      const result = await this.internalClient.send(
+        new DeleteObjectsCommand({
+          Bucket: this.options.bucket,
+          Delete: { Objects: batch.map((Key) => ({ Key })), Quiet: true },
+        }),
+        { abortSignal: AbortSignal.timeout(TENANT_STORAGE_WRITE_TIMEOUT_SECONDS * 1000) },
+      );
+      for (const error of result.Errors ?? []) if (error.Key) failed.push(error.Key);
+    }
+    return { failed };
   }
 
   async objectMetadata(key: string): Promise<{sizeBytes: number; contentType: string}> {
