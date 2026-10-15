@@ -1,4 +1,4 @@
-import type { ChatMessage } from '@enterprise-platform/contracts-workspace';
+import type { ChatMessage, UnreadSummary } from '@enterprise-platform/contracts-workspace';
 import {
   activeTypers,
   groupThread,
@@ -6,6 +6,7 @@ import {
   mergeMessages,
   nextTypingSignal,
   pruneTyping,
+  sameUnread,
   seenByNewest,
   seenLabel,
   typingLabel,
@@ -279,5 +280,33 @@ describe('mergeLatestPage (trang 10 tin, không để lỗ hổng)', () => {
   it('trang trống thì giữ nguyên danh sách', () => {
     const current = range(1, 3);
     expect(ids(mergeLatestPage(current, [], false).messages)).toEqual(ids(current));
+  });
+});
+
+describe('sameUnread (khỏi vẽ lại bảng khi số chưa đọc không đổi)', () => {
+  const summary = (byNode: Record<string, number>, rolledUp = byNode): UnreadSummary => ({
+    byNode,
+    rolledUp,
+    total: Object.values(byNode).reduce((sum, n) => sum + n, 0),
+  });
+
+  it('cùng nội dung nhưng khác đối tượng thì coi là giống nhau', () => {
+    expect(sameUnread(summary({ a: 2 }, { a: 2, p: 2 }), summary({ a: 2 }, { a: 2, p: 2 }))).toBe(true);
+  });
+
+  it('khác số đếm, khác tổng hoặc khác tập node thì khác nhau', () => {
+    expect(sameUnread(summary({ a: 2 }), summary({ a: 1 }))).toBe(false);
+    expect(sameUnread(summary({ a: 2 }), summary({ a: 2, b: 1 }))).toBe(false);
+    expect(sameUnread(summary({ a: 2 }, { p: 2 }), summary({ a: 2 }, { q: 2 }))).toBe(false);
+  });
+
+  it('chưa có so với đã có thì khác; cả hai chưa có thì giống', () => {
+    expect(sameUnread(undefined, undefined)).toBe(true);
+    expect(sameUnread(undefined, summary({}))).toBe(false);
+    expect(sameUnread(summary({}), undefined)).toBe(false);
+  });
+
+  it('đọc hết (về rỗng) là một thay đổi thật', () => {
+    expect(sameUnread(summary({ a: 2 }), summary({}))).toBe(false);
   });
 });

@@ -1,4 +1,4 @@
-import type { ChatMessage, ChatReader } from '@enterprise-platform/contracts-workspace';
+import type { ChatMessage, ChatReader, UnreadSummary } from '@enterprise-platform/contracts-workspace';
 
 /**
  * Gộp tin mới tải về vào danh sách đang có, theo id.
@@ -16,6 +16,23 @@ export function mergeMessages(
   return [...byId.values()].sort(
     (a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id),
   );
+}
+
+const sameCounts = (a: Readonly<Record<string, number>>, b: Readonly<Record<string, number>>): boolean => {
+  const keys = Object.keys(a);
+  return keys.length === Object.keys(b).length && keys.every((key) => a[key] === b[key]);
+};
+
+/**
+ * Hai bản "tin chưa đọc" có cùng nội dung không.
+ *
+ * Hỏi lại số chưa đọc rất thường xuyên (mỗi tín hiệu realtime, mỗi 30 giây). Nếu kết quả không
+ * đổi mà vẫn gán một đối tượng mới vào state thì cả bảng 600+ dòng bị vẽ lại một cách vô ích.
+ */
+export function sameUnread(a: UnreadSummary | undefined, b: UnreadSummary | undefined): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return a.total === b.total && sameCounts(a.byNode, b.byNode) && sameCounts(a.rolledUp, b.rolledUp);
 }
 
 const before = (a: ChatMessage, b: ChatMessage): number =>

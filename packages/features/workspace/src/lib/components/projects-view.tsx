@@ -32,7 +32,7 @@ import {
 import { CHAT_UNREAD_POLL_MS } from '@enterprise-platform/contracts-workspace';
 import { useRealtimeEvent, type WorkspaceChatSignal } from '@enterprise-platform/shared-ui';
 import { MessageSquare, MoreHorizontal, Plus } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   loadInstance,
@@ -41,6 +41,7 @@ import {
   type ProcedureInstanceView,
   type ProcedureOption,
 } from '../procedure-api';
+import { sameUnread } from '../chat.model';
 import { branchOf, mergeNewProjectMembers, parentCandidateOptions } from '../project-tree.model';
 import * as api from '../workspace-api';
 import styles from '../workspace.module.scss';
@@ -467,7 +468,10 @@ export function ProjectsView({
 
   const refreshUnread = useCallback(async (projectId: string) => {
     try {
-      setUnread(await api.loadUnread(projectId));
+      const next = await api.loadUnread(projectId);
+      // Không gán lại khi không đổi (khỏi vẽ lại cả bảng), và nếu có đổi thì đánh dấu là cập
+      // nhật không khẩn cấp để không chặn khung hình ngay lúc ngăn Trao đổi đang trượt vào.
+      startTransition(() => setUnread((current) => (sameUnread(current, next) ? current : next)));
     } catch {
       // Chấm đỏ là phụ trợ: hỏng thì bỏ qua, không phá cả màn hình.
       setUnread(undefined);
@@ -521,7 +525,7 @@ export function ProjectsView({
   }, [openId, refreshUnread]);
 
   // Nhiều tín hiệu dồn trong chốc lát chỉ cần một lần hỏi lại.
-  const unreadDebounce = useRef<ReturnType<typeof setTimeout>>();
+  const unreadDebounce = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const scheduleUnreadRefresh = useCallback(
     (projectId: string) => {
       clearTimeout(unreadDebounce.current);

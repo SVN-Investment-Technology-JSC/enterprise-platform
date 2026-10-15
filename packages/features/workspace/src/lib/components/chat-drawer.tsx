@@ -157,10 +157,10 @@ export function ChatDrawer({
   // Đang ở sát đáy thì tin mới tự kéo xuống; đang đọc tin cũ thì không giật.
   const stickToBottom = useRef(true);
   // Vị trí cuộn trước khi chèn tin cũ lên đầu, để giữ nguyên chỗ đang đọc.
-  const prependAnchor = useRef<{ height: number; top: number }>();
+  const prependAnchor = useRef<{ height: number; top: number } | undefined>(undefined);
   // Tín hiệu đến lúc tab ở nền: tải khi tab hiện lại.
   const pendingRefresh = useRef(false);
-  const refreshTimer = useRef<ReturnType<typeof setTimeout>>();
+  const refreshTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   // Số thứ tự lần tải, để kết quả đến muộn của luồng cũ không ghi đè luồng mới.
   const loadSeq = useRef(0);
   // Bản sao mới nhất của danh sách tin và `onChanged`, để các hàm ổn định (memo) đọc được
@@ -209,6 +209,9 @@ export function ChatDrawer({
           setHasMore(Boolean(thread.hasMore));
         }
         setError(undefined);
+        // Mở luồng là đã đọc: báo nơi gọi hỏi lại số chưa đọc để nút/chấm đỏ tắt ngay, thay vì
+        // chờ nhịp 30 giây. (Làm mới ngầm đã tự báo ở nơi gọi nó.)
+        if (!silent) onChangedRef.current();
       } catch (cause) {
         if (seq !== loadSeq.current || silent) return;
         setMessages([]);
