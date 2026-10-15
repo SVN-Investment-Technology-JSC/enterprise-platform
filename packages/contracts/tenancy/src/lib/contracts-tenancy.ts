@@ -165,6 +165,45 @@ export interface PlanLimit {
   readonly enforcement: 'hard' | 'soft';
 }
 
+/**
+ * Hạn mức dung lượng tệp (GB) của cả tenant: tệp ở mọi phân hệ cộng chung vào
+ * một con số. Platform giữ con số theo gói (`subscription_schema.plan_limits`)
+ * và gói mua thêm (`subscription_schema.tenant_limit_addons`).
+ */
+export const STORAGE_RESOURCE_KEY = 'storage_gb';
+
+/** Tenant chưa gắn gói nào thì dùng mức này. */
+export const STORAGE_DEFAULT_QUOTA_GB = 50;
+
+/** Gói mua thêm bán theo bội 100 GB. */
+export const STORAGE_ADD_ON_STEP_GB = 100;
+
+/** Dung lượng đi kèm từng gói (GB), khớp bản ghi gieo ở migration platform 0009. */
+export const STORAGE_PLAN_QUOTAS_GB: Readonly<Record<string, number>> = {
+  standard: 50,
+  enterprise: 500,
+};
+
+export type LimitEnforcement = 'hard' | 'soft';
+
+/** Hạn mức hiệu lực của một tenant cho một tài nguyên, đã cộng gói mua thêm. */
+export interface TenantResourceLimit {
+  readonly resourceKey: string;
+  /** Hạn mức gói (hoặc mặc định) cộng gói mua thêm. */
+  readonly limitValue: number;
+  readonly enforcement: LimitEnforcement;
+  readonly source: 'plan' | 'default';
+  readonly planKey?: string;
+  /** Phần mua thêm, đã gộp trong `limitValue`. */
+  readonly addOnValue: number;
+}
+
+/** Endpoint nội bộ `GET /api/platform/internal/v1/tenant-limits/:tenantId`. */
+export interface TenantLimitsResponse {
+  readonly tenantId: string;
+  readonly limits: readonly TenantResourceLimit[];
+}
+
 export interface PlanSummary {
   readonly id: string;
   readonly key: string;

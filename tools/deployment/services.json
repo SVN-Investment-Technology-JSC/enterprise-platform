@@ -30,6 +30,10 @@
       "dockerfile": "apps/workspace-api/Dockerfile"
     },
     {
+      "id": "shared-api",
+      "dockerfile": "apps/shared-api/Dockerfile"
+    },
+    {
       "id": "realtime-api",
       "dockerfile": "apps/realtime-api/Dockerfile",
       "runtimeCheck": {
@@ -99,6 +103,13 @@
     {
       "id": "workspace-web",
       "dockerfile": "apps/workspace-web/Dockerfile",
+      "runtimeCheck": {
+        "nodeModules": ["@swc/helpers/esm/_interop_require_default.js"]
+      }
+    },
+    {
+      "id": "shared-web",
+      "dockerfile": "apps/shared-web/Dockerfile",
       "runtimeCheck": {
         "nodeModules": ["@swc/helpers/esm/_interop_require_default.js"]
       }
