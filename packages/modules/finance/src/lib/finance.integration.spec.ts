@@ -2,12 +2,12 @@ import { randomUUID } from 'node:crypto';
 import { readFile, readdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { createPostgresPool } from '@enterprise-platform/adapter-database';
-import type { SaveFinanceVoucherRequest } from '@enterprise-platform/contracts-finance';
+import { financePeriodOf, type SaveFinanceVoucherRequest } from '@enterprise-platform/contracts-finance';
 import type { Pool } from 'pg';
 import { FinanceApplication } from './application/finance.application.js';
 import type { FinanceActor } from './domain/finance.access.js';
 import { todayVn } from './infrastructure/finance.database.js';
-import { FakeFinanceStorage, TestFinanceDatabase } from './finance-test-support.js';
+import { FakeFinanceStorage, TestFinanceDatabase, dropTestDatabase } from './finance-test-support.js';
 
 const integration = process.env.FINANCE_TEST_ADMIN_URL ? describe : describe.skip;
 
@@ -133,13 +133,10 @@ integration('Tài chính: phiếu thu, chi, chuyển tiền và sổ cái (Postg
   }, 120_000);
 
   afterAll(async () => {
-    // Đóng pool của DB test trước, nếu không DROP DATABASE báo "is being accessed by other users" trên PostgreSQL thật.
-    await pool?.end();
     if (admin) {
-      if (!/^finance_test_[a-f0-9]{32}$/.test(databaseName)) throw new Error('Invalid test database');
-      await admin.query(`DROP DATABASE IF EXISTS "${databaseName}" WITH (FORCE)`);
+      await dropTestDatabase(admin, pool, databaseName);
       await admin.end();
-    }
+    } else await pool?.end();
   }, 60_000);
 
   it('danh mục: nhóm đối tượng mặc định được nạp một lần; tài khoản ngân hàng bắt buộc có số tài khoản; trùng mã bị từ chối', async () => {
@@ -152,10 +149,11 @@ integration('Tài chính: phiếu thu, chi, chuyển tiền và sổ cái (Postg
     await rejects(app.saveAccount(accountant, null, { code: 'Z', name: 'Không quyền', accountType: 'CASH' }), 'FINANCE_FORBIDDEN');
   });
 
-  it('phiếu thu: mã theo PT_<số>_<tháng>_<năm>; chỉ ghi sổ khi được duyệt; người lập không tự duyệt', async () => {
-    const [year, month] = today.split('-');
+  it('phiếu thu: mã nháp lúc lập, mã chính thức lúc ghi sổ; chỉ ghi sổ khi được duyệt; người lập không tự duyệt', async () => {
+    const period = financePeriodOf(today);
     const created = await app.createVoucher(accountant, receipt());
-    expect(created.code).toBe(`PT_1_${month}_${year}`);
+    expect(created.code).toBe(`NHAP_PT_${period}_0001`);
+    expect(created).toMatchObject({ draftCode: `NHAP_PT_${period}_0001`, officialCode: null });
     expect(created).toMatchObject({ status: 'DRAFT', totalAmount: 300_000, kind: 'RECEIPT' });
     expect(created.lines[0].total).toBe(300_000);
     expect(await balance(accountA)).toBe(10_000_000);
@@ -177,6 +175,8 @@ integration('Tài chính: phiếu thu, chi, chuyển tiền và sổ cái (Postg
     await app.cancel(maker, session, own.id, 'Chỉ dùng kiểm thử');
     const approved = await app.approve(approver, created.id, 'Đã đối chiếu sao kê');
     expect(approved).toMatchObject({ status: 'APPROVED', posted: true, decidedByName: 'Kế toán trưởng' });
+    // Phiếu tự huỷ ở trên không ghi sổ nên không tiêu số chính thức.
+    expect(approved).toMatchObject({ code: `PT-${period}-0001`, officialCode: `PT-${period}-0001`, draftCode: `NHAP_PT_${period}_0001` });
     expect(approved.events.map((e) => e.action)).toEqual(['CREATED', 'SUBMITTED', 'APPROVED']);
     expect(await balance(accountA)).toBe(10_300_000);
 
@@ -489,14 +489,16 @@ integration('Tài chính: phiếu thu, chi, chuyển tiền và sổ cái (Postg
     expect(String(requested.p['summary'])).toContain(`Phiếu chi ${draft.code} (750.000 đ) do Kế toán viên lập`);
     expect(String(requested.p['summary'])).toContain('Mua bàn ghế');
 
-    await app.approve(approver, draft.id, 'Đã đối chiếu');
-    const [approved] = await outbox(draft.code, 'finance.voucher.status-changed');
+    // Ghi sổ đổi mã hiển thị sang mã chính thức; thông báo kết quả mang mã chính thức.
+    const posted = await app.approve(approver, draft.id, 'Đã đối chiếu');
+    expect(posted.code).not.toBe(draft.code);
+    const [approved] = await outbox(posted.code, 'finance.voucher.status-changed');
     expect(approved.p).toMatchObject({ status: 'APPROVED', requesterUserId: accountant.userId, actorUserId: approver.userId, title: 'Phiếu đã được duyệt' });
     expect(String(approved.p['summary'])).toContain('đã được duyệt và ghi sổ bởi Kế toán trưởng');
     expect(String(approved.p['summary'])).toContain('Ghi chú: Đã đối chiếu');
 
     await app.reverse(approver, draft.id, 'Chi nhầm');
-    const reversed = (await outbox(draft.code, 'finance.voucher.status-changed')).at(-1);
+    const reversed = (await outbox(posted.code, 'finance.voucher.status-changed')).at(-1);
     expect(reversed?.p).toMatchObject({ status: 'REVERSED', requesterUserId: accountant.userId });
 
     // Từ chối: người lập nhận kèm lý do.
@@ -579,5 +581,41 @@ integration('Tài chính: phiếu thu, chi, chuyển tiền và sổ cái (Postg
     expect(accountantDash.accounts).toEqual([]);
     expect(accountantDash.pendingApprovalCount).toBe(0);
     expect(accountantDash.myDraftCount).toBeGreaterThanOrEqual(0);
+  });
+
+  it('mã chính thức: cấp lúc ghi sổ theo kỳ của ngày hạch toán, liền mạch khi ghi sổ lỗi; mã nháp giữ nguyên khi đổi ngày', async () => {
+    const fund = (
+      await app.saveAccount(admin2, null, { code: 'QUY-MA', name: 'Quỹ kiểm thử mã', accountType: 'CASH', openingBalance: 100_000, openingDate: '2026-01-01' })
+    ).id;
+    const period = financePeriodOf(today);
+    const sequence = (code: string) => Number(code.split('-')[2]);
+
+    const first = await post(payment(1_000, { accountId: fund, content: 'Mã thứ nhất' }));
+    expect(first.code).toMatch(new RegExp(`^PC-${period}-\\d{4}$`));
+    expect(first.officialCode).toBe(first.code);
+    expect(first.draftCode).toMatch(new RegExp(`^NHAP_PC_${period}_\\d{4}$`));
+
+    // Ghi sổ lỗi (không đủ số dư) không tiêu số chính thức và phiếu vẫn mang mã nháp.
+    const failing = await app.createVoucher(accountant, payment(5_000_000, { accountId: fund, content: 'Vượt số dư' }));
+    await app.submit(accountant, failing.id);
+    await rejects(app.approve(approver, failing.id), 'FINANCE_INSUFFICIENT_BALANCE');
+    expect(await app.voucher(approver, failing.id)).toMatchObject({ code: failing.code, officialCode: null });
+    await app.cancel(accountant, session, failing.id, 'Nhập sai');
+
+    const second = await post(payment(1_000, { accountId: fund, content: 'Mã thứ hai' }));
+    expect(sequence(second.code)).toBe(sequence(first.code) + 1);
+    expect(await app.listVouchers(approver, { kind: 'PAYMENT', search: second.draftCode ?? '' })).toMatchObject({ items: [{ id: second.id }] });
+    expect(await app.listVouchers(approver, { kind: 'PAYMENT', search: second.code })).toMatchObject({ items: [{ id: second.id }] });
+
+    // Ngày hạch toán thuộc tháng trước: số lấy theo kỳ tháng trước. Mã nháp giữ nguyên khi sửa ngày.
+    const [year, month] = today.split('-').map(Number);
+    const lastMonth = new Date(Date.UTC(year, month - 1, 0)).toISOString().slice(0, 10);
+    const draft = await app.createVoucher(accountant, payment(1_000, { accountId: fund, content: 'Phiếu tháng trước' }));
+    const moved = await app.updateVoucher(accountant, draft.id, payment(1_000, { accountId: fund, content: 'Phiếu tháng trước', postingDate: lastMonth, voucherDate: lastMonth }));
+    expect(moved.code).toBe(draft.code);
+    await app.submit(accountant, draft.id);
+    const old = await app.approve(approver, draft.id);
+    expect(old.code).toMatch(new RegExp(`^PC-${financePeriodOf(lastMonth)}-\\d{4}$`));
+    expect(old.draftCode).toBe(draft.code);
   });
 });

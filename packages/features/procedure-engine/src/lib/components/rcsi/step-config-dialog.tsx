@@ -1,12 +1,29 @@
 'use client';
 
 import type {
+  FinanceVoucherSourceField,
   ProcedureDefinition,
+  ProcedureFinanceVoucherKind,
   ProcedureStepDefinition,
+  ProcedureStepIntegration,
+} from '@enterprise-platform/contracts-procedure-engine';
+import {
+  FINANCE_VOUCHER_SOURCE_ATTRIBUTE_CODES,
+  FINANCE_VOUCHER_SOURCE_FIELD_LABELS,
+  FINANCE_VOUCHER_SOURCE_FIELDS,
+  PROCEDURE_FINANCE_VOUCHER_KIND_LABELS,
+  PROCEDURE_FINANCE_VOUCHER_KINDS,
 } from '@enterprise-platform/contracts-procedure-engine';
 import { MinimalPopupForm, SearchableSelect } from '@enterprise-platform/shared-ui';
-import { ListChecks } from 'lucide-react';
+import { Landmark, ListChecks } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import {
+  autoMatchedCandidate,
+  candidatesForField,
+  cleanIntegration,
+  financeAttributeCandidates,
+  financeReturnTargets,
+} from './finance-step';
 import { branchOfStep, type BranchTarget } from './flow-edit';
 import styles from './flow-editors.module.scss';
 
@@ -15,9 +32,15 @@ export interface StepConfigChange {
   readonly linkedDefinitionId?: string;
   /** undefined = không đổi nhánh; null = về trục chính. */
   readonly branch?: BranchTarget | null;
+  /** Cấu hình bước Tài chính; undefined = bước thường. */
+  readonly integration?: ProcedureStepIntegration;
 }
 
 const TRUNK = '__trunk__';
+/** Giá trị của ô ánh xạ khi để server tự khớp theo mã chuẩn. */
+const AUTO = '';
+/** Vai được phép ở bước Tài chính: không có pha nào cần người bấm hoàn thành. */
+const FINANCE_ALLOWED_ROLES = new Set(['R', 'I']);
 
 /**
  * Cấu hình một bước: SLA, quy trình nối tiếp, nhánh chứa bước, và lối vào
@@ -46,6 +69,13 @@ export function StepConfigDialog({
   const [link, setLink] = useState(step.linkedDefinitionId ?? '');
   const [branch, setBranch] = useState(current ? `${current.gatewayId}:${current.branchId}` : TRUNK);
   const [error, setError] = useState<string>();
+  const [finance, setFinance] = useState<ProcedureStepIntegration | undefined>(step.integration);
+
+  const financeCandidates = useMemo(() => financeAttributeCandidates(definition, step.id), [definition, step.id]);
+  const returnTargets = useMemo(() => financeReturnTargets(definition, step.id), [definition, step.id]);
+  const extraRoles = [...new Set(step.assignments.map((item) => item.role))].filter((role) => !FINANCE_ALLOWED_ROLES.has(role));
+  const setMapping = (field: FinanceVoucherSourceField, key: string) =>
+    setFinance((current) => (current ? { ...current, mapping: { ...current.mapping, [field]: key || undefined } } : current));
 
   // Bước đang có điểm rẽ nhánh đứng sau thì không đưa vào nhánh được: đó là
   // rẽ nhánh lồng nhau, chưa hỗ trợ.
@@ -82,15 +112,20 @@ export function StepConfigDialog({
         nextBranch = { gatewayId, branchId };
       }
     }
-    onSave({ slaHours, linkedDefinitionId: link || undefined, branch: nextBranch });
+    onSave({
+      slaHours,
+      linkedDefinitionId: link || undefined,
+      branch: nextBranch,
+      integration: finance ? cleanIntegration(finance) : undefined,
+    });
   };
 
   return (
     <MinimalPopupForm
       isOpen
       title={`Cấu hình bước “${step.name}”`}
-      subtitle="SLA, quy trình nối tiếp, nhánh chứa bước và thuộc tính người thực hiện nhập."
-      maxWidth="620px"
+      subtitle="SLA, quy trình nối tiếp, nhánh chứa bước, thuộc tính người thực hiện nhập và bước Tài chính."
+      maxWidth="720px"
       onClose={onClose}
     >
       <div className={styles.editor}>
@@ -144,6 +179,110 @@ export function StepConfigDialog({
             <ListChecks size={14} aria-hidden="true" />
             {step.attributes?.length ? `${step.attributes.length} thuộc tính — xem / sửa` : 'Khai báo thuộc tính'}
           </button>
+        </div>
+
+        <div className={styles.financeSection}>
+          <label className={styles.financeToggle}>
+            <input
+              type="checkbox"
+              checked={Boolean(finance)}
+              disabled={readOnly}
+              onChange={(event) =>
+                setFinance(event.target.checked ? { module: 'finance', action: 'voucher', voucherKind: 'PAYMENT' } : undefined)
+              }
+            />
+            <Landmark size={14} aria-hidden="true" />
+            <span>Bước Tài chính</span>
+          </label>
+          <small className={styles.hint}>
+            Khi hồ sơ tới bước này, module Tài chính tự tạo phiếu nháp từ thuộc tính của hồ sơ. Bước chỉ đóng khi kế toán ghi
+            sổ; kế toán trả hồ sơ thì hồ sơ quay về bước đã chọn bên dưới.
+          </small>
+
+          {finance ? (
+            <>
+              <div className={styles.fieldRow}>
+                <span>Loại phiếu</span>
+                <SearchableSelect
+                  options={PROCEDURE_FINANCE_VOUCHER_KINDS.map((kind) => ({
+                    value: kind,
+                    label: PROCEDURE_FINANCE_VOUCHER_KIND_LABELS[kind],
+                  }))}
+                  value={finance.voucherKind}
+                  clearable={false}
+                  disabled={readOnly}
+                  onChange={(value) =>
+                    setFinance((current) =>
+                      current && value ? { ...current, voucherKind: value as ProcedureFinanceVoucherKind } : current,
+                    )
+                  }
+                />
+              </div>
+
+              <div className={styles.fieldRow}>
+                <span>Lấy dữ liệu phiếu từ thuộc tính hồ sơ</span>
+                <div className={styles.mappingTable}>
+                  {FINANCE_VOUCHER_SOURCE_FIELDS.map((field) => {
+                    const auto = autoMatchedCandidate(field, financeCandidates);
+                    const codes = FINANCE_VOUCHER_SOURCE_ATTRIBUTE_CODES[field].join(', ');
+                    const autoLabel = auto
+                      ? `Tự khớp theo mã chuẩn: ${auto.attribute.name} (${auto.attribute.code})`
+                      : `Tự khớp theo mã chuẩn (${codes}): chưa có thuộc tính khớp`;
+                    return (
+                      <div key={field} className={styles.mappingRow}>
+                        <span className={styles.mappingLabel}>
+                          {FINANCE_VOUCHER_SOURCE_FIELD_LABELS[field]}
+                          {field === 'amount' ? <em> *</em> : null}
+                        </span>
+                        <SearchableSelect
+                          options={[
+                            { value: AUTO, label: autoLabel },
+                            ...candidatesForField(field, financeCandidates).map((candidate) => ({
+                              value: candidate.key,
+                              label: candidate.attribute.name,
+                              description: `${candidate.attribute.code} · ${candidate.scopeLabel}`,
+                            })),
+                          ]}
+                          value={finance.mapping?.[field] ?? AUTO}
+                          clearable={false}
+                          disabled={readOnly}
+                          onChange={(value) => setMapping(field, value)}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+                <small className={styles.hint}>
+                  Chỉ liệt kê thuộc tính cấp quy trình hoặc của bước chắc chắn đã đi qua trước bước này. Số tiền là bắt buộc;
+                  các trường khác bỏ trống thì kế toán tự nhập trên phiếu.
+                </small>
+              </div>
+
+              <div className={styles.fieldRow}>
+                <span>Khi kế toán trả hồ sơ, chuyển về bước</span>
+                <SearchableSelect
+                  options={returnTargets.map((target) => ({ value: target.id, label: target.name, description: target.key }))}
+                  value={finance.returnToStepId ?? ''}
+                  placeholder="Bước liền trước trên đường đã đi"
+                  disabled={readOnly}
+                  onChange={(value) =>
+                    setFinance((current) => (current ? { ...current, returnToStepId: value || undefined } : current))
+                  }
+                />
+              </div>
+
+              {extraRoles.length ? (
+                <p className={styles.warning}>
+                  Bước Tài chính chỉ được có vai R (người ghi sổ) và I (người được báo). Bước này đang có vai{' '}
+                  {extraRoles.join(', ')}; hãy bỏ trước khi công bố.
+                </p>
+              ) : (
+                <small className={styles.hint}>
+                  Giao vai R cho chức danh kế toán hoặc thủ quỹ. Người ghi sổ cần thêm quyền ghi sổ phiếu tương ứng bên Tài chính.
+                </small>
+              )}
+            </>
+          ) : null}
         </div>
 
         {error ? <p className={styles.errorText}>{error}</p> : null}

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Plus, Trash2, X } from 'lucide-react';
+import { Lock, Plus, Trash2, X } from 'lucide-react';
 import { SearchableSelect, toast } from '@enterprise-platform/shared-ui';
 import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import {
@@ -14,7 +14,9 @@ import {
   type FinanceAccount,
   type FinanceAllocationType,
   type FinanceCatalogs,
+  type FinanceSourceLockedField,
   type FinanceVoucher,
+  type FinanceVoucherSource,
   type FinanceVoucherAttachment,
   type FinanceVoucherKind,
   type SaveFinanceVoucherRequest,
@@ -199,6 +201,8 @@ export default function VoucherFormScreen({ kind, id }: { kind: FinanceVoucherKi
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [locked, setLocked] = useState(false);
+  /** Phiếu tạo từ hồ sơ quy trình: kế toán chỉ nhập phần kế toán; trường lấy từ hồ sơ bị khoá. */
+  const [source, setSource] = useState<FinanceVoucherSource | null>(null);
   const [savedFiles, setSavedFiles] = useState<FinanceVoucherAttachment[]>([]);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   // Dự án/công việc của Workspace: nạp riêng, lỗi (Workspace tắt hoặc chưa kết nối) chỉ báo ở ô hạch toán, không chặn lưu phiếu.
@@ -230,7 +234,8 @@ export default function VoucherFormScreen({ kind, id }: { kind: FinanceVoucherKi
           setForm(fromVoucher(voucher));
           setCode(voucher.code);
           setRevision(voucher.revision);
-          setLocked(!voucher.permissions.canEdit);
+          setLocked(!voucher.permissions.canEdit && !voucher.permissions.sourced.canEditSourced);
+          setSource(voucher.approvalMode === 'INHERITED' ? voucher.source : null);
           setSavedFiles(voucher.attachments);
           const stored = new Map<string, WorkspaceProjectOption>();
           for (const project of voucher.relatedProjects) stored.set(project.projectId, { id: project.projectId, code: project.projectCode, name: project.projectName, status: '' });
@@ -297,6 +302,8 @@ export default function VoucherFormScreen({ kind, id }: { kind: FinanceVoucherKi
   }, [needsWorkItems, allocProjectId]);
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) => setForm((current) => ({ ...current, [key]: value }));
+  /** Trường lấy từ hồ sơ quy trình (chỉ với phiếu có nguồn). Nội dung và dòng chi tiết luôn thuộc hồ sơ. */
+  const fromSource = (field: FinanceSourceLockedField) => Boolean(source && (field === 'content' || field === 'amount' || source.lockedFields.includes(field)));
   const patchLine = (key: number, patch: Partial<LineState>) =>
     setForm((current) => ({ ...current, lines: current.lines.map((line) => (line.key === key ? { ...line, ...patch } : line)) }));
 
@@ -415,7 +422,9 @@ export default function VoucherFormScreen({ kind, id }: { kind: FinanceVoucherKi
   if (locked)
     return (
       <div role="alert" className="m-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-        Phiếu này không còn sửa được (đã gửi duyệt hoặc đã xử lý).{' '}
+        {source
+          ? 'Phiếu tạo từ hồ sơ quy trình: chỉ kế toán đang được giao bước Tài chính mới nhập được.'
+          : 'Phiếu này không còn sửa được (đã gửi duyệt hoặc đã xử lý).'}{' '}
         <button type="button" className="font-semibold underline" onClick={() => router.push(`${config.path}/${id}`)}>
           Xem phiếu
         </button>
@@ -431,20 +440,28 @@ export default function VoucherFormScreen({ kind, id }: { kind: FinanceVoucherKi
       <div className="min-h-0 flex-1 overflow-y-auto bg-slate-50 p-4">
         <div className="mx-auto max-w-4xl rounded-xl border border-slate-200 bg-white px-5 shadow-sm">
           <ErrorBanner message={error} />
+          {source ? (
+            <p role="note" className="mt-4 rounded-lg border border-sky-200 bg-sky-50 p-3 text-sm text-sky-900">
+              Phiếu tạo từ hồ sơ {source.instanceCode}
+              {source.definitionName ? ` (${source.definitionName})` : ''}. Các trường có biểu tượng khoá lấy từ hồ sơ; muốn sửa thì trả hồ sơ về.
+            </p>
+          ) : null}
 
           <FormSection title="Thông tin chung">
             <div className="grid gap-3 sm:grid-cols-3">
               <Field label={config.codeLabel}>{(fieldId) => <Input id={fieldId} value={code} disabled readOnly />}</Field>
-              <Field label={config.dateLabel} required>
-                {(fieldId) => <DatePickerInput id={fieldId} value={form.voucherDate} onChange={(value) => set('voucherDate', value)} />}
+              <Field label={config.dateLabel} required locked={fromSource('voucherDate')}>
+                {(fieldId) => <DatePickerInput id={fieldId} value={form.voucherDate} disabled={fromSource('voucherDate')} onChange={(value) => set('voucherDate', value)} />}
               </Field>
               <Field label="Ngày hạch toán" required>
                 {(fieldId) => <DatePickerInput id={fieldId} value={form.postingDate} onChange={(value) => set('postingDate', value)} />}
               </Field>
             </div>
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
-              <Field label={config.contentLabel} required className="sm:col-span-2">
-                {(fieldId) => <Input id={fieldId} value={form.content} placeholder={config.contentPlaceholder} maxLength={500} onChange={(e) => set('content', e.target.value)} />}
+              <Field label={config.contentLabel} required className="sm:col-span-2" locked={fromSource('content')}>
+                {(fieldId) => (
+                  <Input id={fieldId} value={form.content} disabled={fromSource('content')} placeholder={config.contentPlaceholder} maxLength={500} onChange={(e) => set('content', e.target.value)} />
+                )}
               </Field>
 
               {config.hasLines ? (
@@ -458,18 +475,29 @@ export default function VoucherFormScreen({ kind, id }: { kind: FinanceVoucherKi
                   <Field label={config.counterpartyLabel} required>
                     {(fieldId) => <SearchableSelect name={fieldId} options={groupOptions} value={form.counterpartyGroupId} onChange={(v) => set('counterpartyGroupId', v)} placeholder={`Chọn ${config.counterpartyLabel.toLowerCase()}`} clearable height={32} />}
                   </Field>
-                  <Field label={config.personLabel}>
-                    {(fieldId) => <Input id={fieldId} value={form.counterpartyName} maxLength={255} onChange={(e) => set('counterpartyName', e.target.value)} />}
+                  <Field label={config.personLabel} locked={fromSource('counterpartyName')}>
+                    {(fieldId) => (
+                      <Input id={fieldId} value={form.counterpartyName} disabled={fromSource('counterpartyName')} maxLength={255} onChange={(e) => set('counterpartyName', e.target.value)} />
+                    )}
                   </Field>
-                  <Field label={config.personAccountLabel}>
-                    {(fieldId) => <Input id={fieldId} value={form.counterpartyAccountNo} maxLength={60} onChange={(e) => set('counterpartyAccountNo', e.target.value)} />}
+                  <Field label={config.personAccountLabel} locked={fromSource('counterpartyAccountNo')}>
+                    {(fieldId) => (
+                      <Input id={fieldId} value={form.counterpartyAccountNo} disabled={fromSource('counterpartyAccountNo')} maxLength={60} onChange={(e) => set('counterpartyAccountNo', e.target.value)} />
+                    )}
                   </Field>
-                  <Field label={config.personBankLabel}>
-                    {(fieldId) => <SearchableSelect name={fieldId} options={bankOptions} value={form.counterpartyBank} onChange={(v) => set('counterpartyBank', v)} placeholder="Chọn ngân hàng" clearable height={32} />}
+                  <Field label={config.personBankLabel} locked={fromSource('counterpartyBank')}>
+                    {(fieldId) => (
+                      <SearchableSelect name={fieldId} options={bankOptions} value={form.counterpartyBank} disabled={fromSource('counterpartyBank')} onChange={(v) => set('counterpartyBank', v)} placeholder="Chọn ngân hàng" clearable height={32} />
+                    )}
                   </Field>
-                  <Field label="Hạch toán nội bộ" hint={form.allocType ? undefined : 'Gắn khoản thu chi vào dự án hoặc công việc của dự án (không bắt buộc).'}>
+                  <Field
+                    label="Hạch toán nội bộ"
+                    locked={fromSource('allocation')}
+                    hint={form.allocType ? undefined : 'Gắn khoản thu chi vào dự án hoặc công việc của dự án (không bắt buộc).'}
+                  >
                     {(fieldId) => (
                       <SearchableSelect
+                        disabled={fromSource('allocation')}
                         name={fieldId}
                         options={allocationTypeOptions}
                         value={form.allocType}
@@ -489,9 +517,10 @@ export default function VoucherFormScreen({ kind, id }: { kind: FinanceVoucherKi
                     )}
                   </Field>
                   {form.allocType ? (
-                    <Field label="Dự án" required hint={workspaceHint}>
+                    <Field label="Dự án" required hint={workspaceHint} locked={fromSource('allocation')}>
                       {(fieldId) => (
                         <SearchableSelect
+                          disabled={fromSource('allocation')}
                           name={fieldId}
                           options={projectOptions}
                           value={form.allocProjectId}
@@ -506,14 +535,14 @@ export default function VoucherFormScreen({ kind, id }: { kind: FinanceVoucherKi
                     </Field>
                   ) : null}
                   {form.allocType === 'WORK_ITEM' ? (
-                    <Field label="Công việc" required className="sm:col-span-2">
+                    <Field label="Công việc" required className="sm:col-span-2" locked={fromSource('allocation')}>
                       {(fieldId) => (
                         <SearchableSelect
                           name={fieldId}
                           options={workItemOptions}
                           value={form.allocWorkItemId}
                           onChange={(v) => set('allocWorkItemId', v)}
-                          disabled={!form.allocProjectId}
+                          disabled={!form.allocProjectId || fromSource('allocation')}
                           placeholder={!form.allocProjectId ? 'Chọn dự án trước' : workItemsLoading ? 'Đang tải công việc…' : 'Chọn công việc'}
                           searchPlaceholder="Gõ mã hoặc tên công việc"
                           emptyText="Dự án chưa có công việc nào"
@@ -572,22 +601,23 @@ export default function VoucherFormScreen({ kind, id }: { kind: FinanceVoucherKi
                   </div>
                   {form.lines.map((line, index) => (
                     <div role="row" key={line.key} className="grid grid-cols-2 items-center gap-2 sm:grid-cols-[1fr_90px_150px_150px_28px]">
-                      <Input aria-label={`Diễn giải dòng ${index + 1}`} className="col-span-2 sm:col-span-1" placeholder={config.lineDescriptionPlaceholder} value={line.description} maxLength={500} onChange={(e) => patchLine(line.key, { description: e.target.value })} />
+                      <Input aria-label={`Diễn giải dòng ${index + 1}`} className="col-span-2 sm:col-span-1" disabled={fromSource('amount')} placeholder={config.lineDescriptionPlaceholder} value={line.description} maxLength={500} onChange={(e) => patchLine(line.key, { description: e.target.value })} />
                       <input
                         aria-label={`Số lượng dòng ${index + 1}`}
                         inputMode="decimal"
+                        disabled={fromSource('amount')}
                         value={line.quantity || ''}
                         onChange={(e) => patchLine(line.key, { quantity: Number(e.target.value.replace(',', '.')) || 0 })}
-                        className="h-8 w-full rounded-lg border border-slate-200 px-2.5 text-right text-sm"
+                        className="h-8 w-full rounded-lg border border-slate-200 px-2.5 text-right text-sm disabled:cursor-not-allowed disabled:bg-slate-100 disabled:opacity-60"
                       />
-                      <MoneyInput aria-label={`Số tiền dòng ${index + 1}`} value={line.unitAmount} onChange={(v) => patchLine(line.key, { unitAmount: v })} />
+                      <MoneyInput aria-label={`Số tiền dòng ${index + 1}`} disabled={fromSource('amount')} value={line.unitAmount} onChange={(v) => patchLine(line.key, { unitAmount: v })} />
                       <div aria-label={`Thành tiền dòng ${index + 1}`} className="flex h-8 items-center justify-end rounded-lg bg-slate-50 px-2.5 text-sm tabular-nums text-slate-700">
                         {money(financeLineTotal(line.quantity, line.unitAmount))}
                       </div>
                       <button
                         type="button"
                         aria-label={`Xoá dòng ${index + 1}`}
-                        disabled={form.lines.length === 1}
+                        disabled={form.lines.length === 1 || fromSource('amount')}
                         onClick={() => set('lines', form.lines.filter((l) => l.key !== line.key))}
                         className="flex size-7 items-center justify-center rounded-md text-slate-500 hover:bg-red-50 hover:text-red-600 disabled:opacity-30"
                       >
@@ -597,9 +627,15 @@ export default function VoucherFormScreen({ kind, id }: { kind: FinanceVoucherKi
                   ))}
                 </div>
                 <div className="mt-2 flex items-center justify-between">
-                  <Button type="button" variant="outline" size="sm" onClick={() => set('lines', [...form.lines, blankLine()])}>
-                    <Plus aria-hidden /> Thêm dòng
-                  </Button>
+                  {fromSource('amount') ? (
+                    <span className="flex items-center gap-1 text-xs text-slate-500">
+                      <Lock className="size-3" aria-hidden /> Dòng chi tiết và số tiền lấy từ hồ sơ
+                    </span>
+                  ) : (
+                    <Button type="button" variant="outline" size="sm" onClick={() => set('lines', [...form.lines, blankLine()])}>
+                      <Plus aria-hidden /> Thêm dòng
+                    </Button>
+                  )}
                   <div className="text-right text-sm">
                     <div className="font-semibold text-slate-900">Tổng tiền: <span data-testid="voucher-total" className="tabular-nums">{money(total)}</span></div>
                     {form.taxIncluded ? <div className="text-xs text-slate-500">Trong đó thuế: {money(includedTax)}</div> : null}
@@ -693,8 +729,10 @@ export default function VoucherFormScreen({ kind, id }: { kind: FinanceVoucherKi
       </div>
 
       <footer className="flex items-center gap-2 border-t border-slate-200 bg-white px-5 py-3">
-        <Button type="button" disabled={saving} onClick={() => void save(false)}>Lưu nháp</Button>
-        <Button type="button" variant="secondary" disabled={saving} onClick={() => void save(true)}>Lưu và gửi duyệt</Button>
+        <Button type="button" disabled={saving} onClick={() => void save(false)}>{source ? 'Lưu' : 'Lưu nháp'}</Button>
+        {source ? null : (
+          <Button type="button" variant="secondary" disabled={saving} onClick={() => void save(true)}>Lưu và gửi duyệt</Button>
+        )}
         <Button type="button" variant="outline" disabled={saving} onClick={() => router.push(config.path)}>Hủy bỏ</Button>
       </footer>
     </div>

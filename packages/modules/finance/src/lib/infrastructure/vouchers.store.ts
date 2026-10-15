@@ -1,7 +1,9 @@
 import {
   FINANCE_VOUCHER_STATUSES,
   financeIncludedTax,
-  formatFinanceVoucherCode,
+  financePeriodOf,
+  formatFinanceDraftCode,
+  formatFinanceOfficialCode,
   type FinanceAllocation,
   type FinanceProjectVoucher,
   type FinanceProjectTotals,
@@ -28,12 +30,13 @@ export type Row = QueryResultRow & Record<string, unknown>;
 
 export const VOUCHER_SELECT = `
   SELECT v.*, r.name AS reason_name, a.name AS account_name, d.name AS dest_account_name,
-         g.name AS group_name
+         g.name AS group_name, src.instance_code AS source_instance_code
     FROM finance_schema.vouchers v
     LEFT JOIN finance_schema.reasons r ON r.id = v.reason_id
     LEFT JOIN finance_schema.accounts a ON a.id = v.account_id
     LEFT JOIN finance_schema.accounts d ON d.id = v.dest_account_id
-    LEFT JOIN finance_schema.counterparty_groups g ON g.id = v.counterparty_group_id`;
+    LEFT JOIN finance_schema.counterparty_groups g ON g.id = v.counterparty_group_id
+    LEFT JOIN finance_schema.voucher_sources src ON src.voucher_id = v.id`;
 
 /** Hạch toán lưu trên dòng phiếu; null khi chưa hạch toán. */
 export function mapAllocation(row: Row): FinanceAllocation | null {
@@ -75,6 +78,9 @@ export function mapSummary(row: Row): FinanceVoucherSummary {
     decidedAt: row.decided_at ? iso(row.decided_at) : null,
     approvalMode: row.approval_mode as FinanceVoucherSummary['approvalMode'],
     allocation: mapAllocation(row),
+    draftCode: optStr(row.draft_code),
+    officialCode: optStr(row.official_code),
+    sourceCode: optStr(row.source_instance_code),
   };
 }
 
@@ -84,23 +90,60 @@ export interface ResolvedWorkspaceLinks {
   relatedProjects: FinanceRelatedProject[];
 }
 
-/** Cấp mã phiếu kế tiếp, tăng nguyên tử trong cùng giao dịch tạo phiếu. */
-async function allocateCode(db: Db, tenantId: string, kind: FinanceVoucherKind, voucherDate: string): Promise<string> {
+type CodeSeries = 'DRAFT' | 'OFFICIAL';
+
+/**
+ * Tăng bộ đếm của một dãy mã trong giao dịch hiện tại. Bộ đếm là dòng bảng (không phải sequence): giao dịch lùi thì số
+ * cũng lùi, nên dãy số liền mạch; dòng bộ đếm bị khoá tới hết giao dịch nên hai phiếu cùng kỳ không lấy trùng số.
+ */
+async function nextSequence(db: Db, tenantId: string, kind: FinanceVoucherKind, series: CodeSeries, period: string): Promise<number> {
   const row = (
     await db.query(
-      `INSERT INTO finance_schema.counters (tenant_id, kind, last_value) VALUES ($1, $2, 1)
-       ON CONFLICT (tenant_id, kind) DO UPDATE SET last_value = finance_schema.counters.last_value + 1
+      `INSERT INTO finance_schema.code_counters (tenant_id, kind, series, period, last_value) VALUES ($1, $2, $3, $4, 1)
+       ON CONFLICT (tenant_id, kind, series, period) DO UPDATE SET last_value = finance_schema.code_counters.last_value + 1
        RETURNING last_value`,
-      [tenantId, kind],
+      [tenantId, kind, series, period],
     )
   ).rows[0] as Row;
-  return formatFinanceVoucherCode(kind, num(row.last_value), voucherDate);
+  return num(row.last_value);
 }
 
-/** Mã phiếu kế tiếp dự kiến, để form hiện trước khi lưu (không giữ chỗ). */
-export async function peekNextCode(db: Db, tenantId: string, kind: FinanceVoucherKind, voucherDate: string): Promise<string> {
-  const row = (await db.query(`SELECT last_value FROM finance_schema.counters WHERE tenant_id=$1 AND kind=$2`, [tenantId, kind])).rows[0] as Row | undefined;
-  return formatFinanceVoucherCode(kind, num(row?.last_value) + 1, voucherDate);
+/** Cấp mã nháp `NHAP_PC_2610_0045` lúc lập phiếu, theo kỳ của ngày hạch toán. */
+async function allocateDraftCode(db: Db, tenantId: string, kind: FinanceVoucherKind, postingDate: string): Promise<string> {
+  const period = financePeriodOf(postingDate);
+  return formatFinanceDraftCode(kind, period, await nextSequence(db, tenantId, kind, 'DRAFT', period));
+}
+
+/**
+ * Cấp mã chính thức `PC-2610-0045` cho phiếu đang ghi sổ, theo kỳ của ngày hạch toán, và đặt nó làm mã hiển thị.
+ * Gọi trong CÙNG giao dịch ghi sổ (sau khi đã khoá dòng phiếu) để số chỉ được tiêu khi ghi sổ thật sự thành công.
+ * Phiếu đã có mã chính thức (phiếu cũ) thì giữ nguyên. Trả về mã chính thức; `row.code` không bị sửa tại chỗ.
+ */
+export async function assignOfficialCode(db: Db, tenantId: string, row: Row): Promise<string> {
+  const existing = optStr(row.official_code);
+  if (existing) return existing;
+  const kind = row.kind as FinanceVoucherKind;
+  const period = financePeriodOf(dateOnly(row.posting_date));
+  const code = formatFinanceOfficialCode(kind, period, await nextSequence(db, tenantId, kind, 'OFFICIAL', period));
+  await db.query(`UPDATE finance_schema.vouchers SET official_code=$3, code=$3, updated_at=now() WHERE tenant_id=$1 AND id=$2`, [
+    tenantId,
+    String(row.id),
+    code,
+  ]);
+  return code;
+}
+
+/** Mã nháp kế tiếp dự kiến, để form hiện trước khi lưu (không giữ chỗ). */
+export async function peekNextCode(db: Db, tenantId: string, kind: FinanceVoucherKind, postingDate: string): Promise<string> {
+  const period = financePeriodOf(postingDate);
+  const row = (
+    await db.query(`SELECT last_value FROM finance_schema.code_counters WHERE tenant_id=$1 AND kind=$2 AND series='DRAFT' AND period=$3`, [
+      tenantId,
+      kind,
+      period,
+    ])
+  ).rows[0] as Row | undefined;
+  return formatFinanceDraftCode(kind, period, num(row?.last_value) + 1);
 }
 
 /** Mọi id tham chiếu phải thuộc tenant: khoá ngoại không kiểm tenant_id. */
@@ -128,7 +171,7 @@ export async function loadStoredLinks(db: Db, tenantId: string, voucherId: strin
   return { allocation: mapAllocation(row), relatedProjects: related.map(mapRelatedProject) };
 }
 
-async function replaceChildren(db: Db, tenantId: string, voucherId: string, v: NormalizedVoucher, links: ResolvedWorkspaceLinks): Promise<void> {
+export async function replaceChildren(db: Db, tenantId: string, voucherId: string, v: NormalizedVoucher, links: ResolvedWorkspaceLinks): Promise<void> {
   await db.query(`DELETE FROM finance_schema.voucher_lines WHERE voucher_id=$1`, [voucherId]);
   await db.query(`DELETE FROM finance_schema.voucher_invoices WHERE voucher_id=$1`, [voucherId]);
   await db.query(`DELETE FROM finance_schema.voucher_related WHERE voucher_id=$1`, [voucherId]);
@@ -150,7 +193,7 @@ async function replaceChildren(db: Db, tenantId: string, voucherId: string, v: N
 }
 
 /** Cột hạch toán theo thứ tự cố định: type, project id/code/name, work item id/code/title. */
-function allocationColumns(links: ResolvedWorkspaceLinks): (string | null)[] {
+export function allocationColumns(links: ResolvedWorkspaceLinks): (string | null)[] {
   const a = links.allocation;
   return a ? [a.type, a.projectId, a.projectCode, a.projectName, a.workItemId, a.workItemCode, a.workItemTitle] : [null, null, null, null, null, null, null];
 }
@@ -171,15 +214,15 @@ export async function addEvent(
 
 export async function createVoucher(db: Db, tenantId: string, actor: FinanceActor, v: NormalizedVoucher, links: ResolvedWorkspaceLinks): Promise<string> {
   await assertReferences(db, tenantId, v);
-  const code = await allocateCode(db, tenantId, v.kind, v.voucherDate);
+  const code = await allocateDraftCode(db, tenantId, v.kind, v.postingDate);
   const row = (
     await db.query(
       `INSERT INTO finance_schema.vouchers
-         (tenant_id, kind, code, voucher_date, posting_date, content, reason_id, account_id, dest_account_id, counterparty_group_id,
+         (tenant_id, kind, code, draft_code, voucher_date, posting_date, content, reason_id, account_id, dest_account_id, counterparty_group_id,
           counterparty_name, counterparty_account_no, counterparty_bank, tax_included, tax_rate, total_amount, note,
           created_by, created_by_name,
           alloc_type, alloc_project_id, alloc_project_code, alloc_project_name, alloc_work_item_id, alloc_work_item_code, alloc_work_item_title)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26) RETURNING id`,
+       VALUES ($1,$2,$3,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26) RETURNING id`,
       [
         tenantId, v.kind, code, v.voucherDate, v.postingDate, v.content, v.reasonId, v.accountId, v.destAccountId, v.counterpartyGroupId,
         v.counterpartyName, v.counterpartyAccountNo, v.counterpartyBank, v.taxIncluded, v.taxRate, v.totalAmount, v.note,
@@ -208,6 +251,7 @@ export async function updateVoucher(
     | Row
     | undefined;
   if (!current || current.created_by !== actor.userId) throw notFound('phiếu');
+  if (current.approval_mode === 'INHERITED') throw sourceManaged();
   if (current.kind !== v.kind) throw invalid('Không đổi được loại phiếu.');
   if (current.status !== 'DRAFT' && current.status !== 'REJECTED')
     throw conflict('FINANCE_VOUCHER_LOCKED', 'Chỉ sửa được phiếu ở trạng thái nháp hoặc bị từ chối.');
@@ -233,11 +277,16 @@ export async function updateVoucher(
   await addEvent(db, tenantId, id, 'UPDATED', actor, current.status === 'REJECTED' ? 'Sửa phiếu bị từ chối' : null);
 }
 
+/** Phiếu tạo từ hồ sơ quy trình chỉ thay đổi qua thao tác của kế toán (ghi sổ / trả hồ sơ) hoặc qua chính hồ sơ. */
+export const sourceManaged = () =>
+  conflict('FINANCE_SOURCE_MANAGED', 'Phiếu tạo từ hồ sơ quy trình: kế toán ghi sổ hoặc trả hồ sơ; người lập sửa tại hồ sơ.');
+
 export async function deleteDraft(db: Db, tenantId: string, actor: FinanceActor, id: string): Promise<void> {
-  const current = (await db.query(`SELECT created_by, status FROM finance_schema.vouchers WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, [tenantId, id])).rows[0] as
-    | Row
-    | undefined;
+  const current = (
+    await db.query(`SELECT created_by, status, approval_mode FROM finance_schema.vouchers WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, [tenantId, id])
+  ).rows[0] as Row | undefined;
   if (!current || current.created_by !== actor.userId) throw notFound('phiếu');
+  if (current.approval_mode === 'INHERITED') throw sourceManaged();
   if (current.status !== 'DRAFT') throw conflict('FINANCE_VOUCHER_LOCKED', 'Chỉ xoá được phiếu nháp; phiếu đã gửi duyệt thì huỷ.');
   await db.query(`DELETE FROM finance_schema.vouchers WHERE tenant_id=$1 AND id=$2`, [tenantId, id]);
 }
@@ -328,6 +377,8 @@ export async function listVouchers(
   actor: FinanceActor,
   query: FinanceVoucherListQuery,
   allowSelfApproval: boolean,
+  /** Bộ lọc "Chờ tôi ghi sổ": chỉ các phiếu này (đã lọc theo phân công ở tầng ứng dụng). */
+  restrictIds?: readonly string[],
 ): Promise<FinanceVoucherList> {
   const params: unknown[] = [tenantId, query.kind];
   const where: string[] = ['v.tenant_id = $1', 'v.kind = $2'];
@@ -344,6 +395,15 @@ export async function listVouchers(
     if (!approvableKinds(actor).includes(query.kind)) where.push('FALSE');
     else if (!allowSelfApproval) add('v.created_by <> ?', actor.userId);
   }
+  if (query.scope === 'to-post' || query.scope === 'awaiting-post') {
+    // Phiếu từ quy trình đang chờ kế toán ghi sổ; chỉ người duyệt loại phiếu mới có việc ở đây.
+    where.push(
+      `v.approval_mode = 'INHERITED' AND v.status = 'DRAFT' AND EXISTS (SELECT 1 FROM finance_schema.voucher_sources s WHERE s.voucher_id = v.id AND s.status = 'OPEN')`,
+    );
+    if (!approvableKinds(actor).includes(query.kind)) where.push('FALSE');
+    if (query.scope === 'to-post') add('v.id = ANY(?::uuid[])', [...(restrictIds ?? [])]);
+  }
+  if (query.source === 'procedure') where.push(`v.approval_mode = 'INHERITED'`);
   if (query.accountId) {
     params.push(query.accountId);
     where.push(`(v.account_id = $${params.length} OR v.dest_account_id = $${params.length})`);
@@ -363,7 +423,8 @@ export async function listVouchers(
     params.push(`%${search.replace(/[\\%_]/g, (c) => `\\${c}`)}%`);
     const p = `$${params.length}`;
     where.push(
-      `(v.code ILIKE ${p} OR v.content ILIKE ${p} OR v.counterparty_name ILIKE ${p} OR v.created_by_name ILIKE ${p} OR r.name ILIKE ${p})`,
+      `(v.code ILIKE ${p} OR v.draft_code ILIKE ${p} OR v.official_code ILIKE ${p} OR v.content ILIKE ${p} OR v.counterparty_name ILIKE ${p} OR v.created_by_name ILIKE ${p} OR r.name ILIKE ${p}
+        OR EXISTS (SELECT 1 FROM finance_schema.voucher_sources s WHERE s.voucher_id = v.id AND s.instance_code ILIKE ${p}))`,
     );
   }
   const base = where.join(' AND ');

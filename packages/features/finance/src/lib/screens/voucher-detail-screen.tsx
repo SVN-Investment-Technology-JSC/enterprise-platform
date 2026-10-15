@@ -2,14 +2,16 @@
 
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
-import { Ban, Check, Paperclip, Pencil, RefreshCw, Send, Trash2, Undo2, X } from 'lucide-react';
+import { Ban, BookCheck, Check, CornerUpLeft, Lock, Paperclip, Pencil, RefreshCw, Send, Trash2, Undo2, UserCheck, X } from 'lucide-react';
 import { Popconfirm, toast } from '@enterprise-platform/shared-ui';
 import {
   FINANCE_ALLOCATION_LABELS,
   FINANCE_VOUCHER_EVENT_LABELS,
   financeAllocationLabel,
   type FinanceProcedureProgress,
+  type FinanceSourceLockedField,
   type FinanceVoucher,
+  type FinanceVoucherSource,
   type FinanceVoucherKind,
 } from '@enterprise-platform/contracts-finance';
 import { formatBytes, openFinanceAttachment } from '../attachment-upload';
@@ -67,7 +69,74 @@ function ProcedurePanel({ procedure }: { procedure: FinanceProcedureProgress }) 
   );
 }
 
-function Info({ label, children }: { label: string; children: ReactNode }) {
+const SOURCE_STATUS_TEXT: Record<FinanceVoucherSource['status'], string> = {
+  OPEN: 'Chờ ghi sổ',
+  RETURNED: 'Đã trả hồ sơ, chờ hồ sơ quay lại',
+  POSTED: 'Đã ghi sổ',
+  CLOSED: 'Đã đóng',
+  REVERSAL_PENDING: 'Hồ sơ đã huỷ hiệu lực, chờ đảo phiếu',
+};
+
+/** Khối "Nguồn": hồ sơ quy trình đã tạo ra phiếu, giá trị nhận từ hồ sơ, ai phụ trách và ai đang xử lý. */
+function SourcePanel({ source }: { source: FinanceVoucherSource }) {
+  const values = source.values;
+  return (
+    <section aria-label="Nguồn hồ sơ quy trình" className="rounded-xl border border-sky-200 bg-white p-4 shadow-sm">
+      <h2 className="mb-3 text-sm font-semibold text-slate-900">
+        Nguồn: hồ sơ{' '}
+        <a className="font-semibold text-link hover:underline" href={`/modules/procedure#workspace/${encodeURIComponent(source.instanceId)}`}>
+          {source.instanceCode}
+        </a>
+        {source.definitionName ? <span className="font-normal text-slate-600"> – {source.definitionName}</span> : null}
+      </h2>
+      <dl className="grid gap-x-4 gap-y-3 sm:grid-cols-3">
+        <Info label="Bước">{source.stepName}</Info>
+        <Info label="Tình trạng">{SOURCE_STATUS_TEXT[source.status]}</Info>
+        <Info label="Phụ trách">{source.assigneeLabel}</Info>
+        <Info label="Số tiền đề nghị">{values.amount !== null ? <span className="tabular-nums">{money(values.amount)}</span> : null}</Info>
+        <Info label="Người nhận">{values.counterpartyName}</Info>
+        <Info label="Tài khoản người nhận">{[values.counterpartyAccountNo, values.counterpartyBank].filter(Boolean).join(' · ')}</Info>
+        <div className="sm:col-span-3"><Info label="Nội dung đề nghị">{values.content}</Info></div>
+      </dl>
+      {source.handlingBy ? (
+        <p role="status" className="mt-3 text-sm text-slate-700">
+          Đang xử lý: <span className="font-medium">{source.handlingByName ?? 'Người khác'}</span>
+          {source.handlingSince ? ` (từ ${dateTimeVn(source.handlingSince)})` : ''}
+        </p>
+      ) : null}
+      {source.status === 'OPEN' && source.canAct === null && source.canActReason ? (
+        <p role="alert" className="mt-3 rounded-lg bg-amber-50 p-2 text-sm text-amber-800">{source.canActReason}</p>
+      ) : null}
+      {source.status === 'REVERSAL_PENDING' ? (
+        <p role="alert" className="mt-3 rounded-lg bg-red-50 p-2 text-sm text-red-700">
+          {source.reversalReason ? `${source.reversalReason}. ` : ''}Chưa đảo được phiếu{source.reversalError ? `: ${source.reversalError}` : ''}. Xử lý nguyên
+          nhân (mở khoá sổ, bổ sung số dư) rồi bấm Đảo lại.
+        </p>
+      ) : null}
+      {source.status === 'OPEN' && source.canAct === false ? (
+        <p role="status" className="mt-3 rounded-lg bg-slate-50 p-2 text-sm text-slate-600">
+          {source.canActReason ?? 'Bạn không được giao bước Tài chính của hồ sơ này.'} Phiếu chỉ xem.
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
+/** Nhãn kèm biểu tượng khoá cho trường lấy từ hồ sơ. */
+function lockedLabel(label: string, source: FinanceVoucherSource | null, field: FinanceSourceLockedField): ReactNode {
+  const locked = Boolean(source && (field === 'content' || field === 'amount' || source.lockedFields.includes(field)));
+  if (!locked) return label;
+  return (
+    <span className="inline-flex items-center gap-1">
+      {label}
+      <span title="Lấy từ hồ sơ, muốn sửa thì trả hồ sơ về" className="inline-flex text-slate-400">
+        <Lock className="size-3" aria-label="Lấy từ hồ sơ" />
+      </span>
+    </span>
+  );
+}
+
+function Info({ label, children }: { label: ReactNode; children: ReactNode }) {
   return (
     <div className="min-w-0">
       <dt className="text-xs text-slate-500">{label}</dt>
@@ -142,17 +211,69 @@ export default function VoucherDetailScreen({ kind, id }: { kind: FinanceVoucher
     );
 
   const can = voucher.permissions;
+  const sourced = can.sourced;
+  const source = voucher.approvalMode === 'INHERITED' ? voucher.source : null;
   const isTransfer = kind === 'TRANSFER';
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       <header className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-white px-5 py-3">
         <div className="flex items-center gap-3">
-          <h1 className="text-lg font-semibold text-slate-900">{voucher.code}</h1>
+          <div>
+            <h1 className="text-lg font-semibold text-slate-900">{voucher.code}</h1>
+            {voucher.draftCode && voucher.draftCode !== voucher.code ? (
+              <p className="text-xs text-slate-500">Mã nháp: {voucher.draftCode}</p>
+            ) : null}
+          </div>
           <StatusBadge status={voucher.status} />
           {voucher.posted && voucher.status === 'APPROVED' ? <span className="text-xs text-emerald-700">Đã ghi sổ tài khoản</span> : null}
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {sourced.canEditSourced ? (
+            <Button type="button" variant="outline" onClick={() => router.push(`${config.path}/${id}/edit`)}>
+              <Pencil aria-hidden /> Nhập thông tin kế toán
+            </Button>
+          ) : null}
+          {sourced.canPost ? (
+            <Popconfirm
+              title="Ghi sổ phiếu này?"
+              description="Tiền được ghi vào sổ tài khoản, phiếu nhận mã chính thức và bước Tài chính của hồ sơ được đóng."
+              okType="primary"
+              okText="Ghi sổ"
+              onConfirm={() => act('post-sourced', { revision: voucher.revision }, 'Đã ghi sổ')}
+            >
+              <Button type="button" disabled={busy}><BookCheck aria-hidden /> Ghi sổ</Button>
+            </Popconfirm>
+          ) : null}
+          {sourced.canReturnSource ? (
+            <Popconfirm
+              title="Trả hồ sơ"
+              description="Hồ sơ quay về bước đã cấu hình để người lập sửa; phiếu chỉ xem cho tới khi hồ sơ quay lại."
+              reasonRequired
+              reasonLabel="Lý do trả hồ sơ"
+              reasonPlaceholder="Nhập lý do để người lập chỉnh sửa hồ sơ"
+              okText="Trả hồ sơ"
+              onConfirm={(reason) => act('return-source', { reason, revision: voucher.revision }, 'Đã trả hồ sơ')}
+            >
+              <Button type="button" variant="destructive" disabled={busy}><CornerUpLeft aria-hidden /> Trả hồ sơ</Button>
+            </Popconfirm>
+          ) : null}
+          {sourced.canTakeOver ? (
+            <Popconfirm
+              title="Nhận xử lý thay?"
+              description={`${source?.handlingByName ?? 'Người khác'} đang xử lý phiếu này. Việc nhận thay được ghi vào lịch sử phiếu.`}
+              okType="primary"
+              okText="Nhận xử lý"
+              onConfirm={() => act('take-over', {}, 'Đã nhận xử lý phiếu')}
+            >
+              <Button type="button" variant="outline" disabled={busy}><UserCheck aria-hidden /> Nhận xử lý thay</Button>
+            </Popconfirm>
+          ) : null}
+          {sourced.canRetryReversal ? (
+            <Button type="button" variant="outline" disabled={busy} onClick={() => act('retry-source-reversal', {}, 'Đã đảo phiếu theo hồ sơ')}>
+              <RefreshCw aria-hidden /> Đảo lại
+            </Button>
+          ) : null}
           {can.canEdit ? (
             <Button type="button" variant="outline" onClick={() => router.push(`${config.path}/${id}/edit`)}>
               <Pencil aria-hidden /> Sửa
@@ -200,13 +321,14 @@ export default function VoucherDetailScreen({ kind, id }: { kind: FinanceVoucher
         <ErrorBanner message={error} />
         <div className="mt-2 grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
           <div className="min-w-0 space-y-4">
+            {source ? <SourcePanel source={source} /> : null}
             <section aria-label="Thông tin chung" className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
               <h2 className="mb-3 text-sm font-semibold text-slate-900">Thông tin chung</h2>
               <dl className="grid gap-x-4 gap-y-3 sm:grid-cols-3">
                 <Info label={config.dateLabel}>{dateVn(voucher.voucherDate)}</Info>
                 <Info label="Ngày hạch toán">{dateVn(voucher.postingDate)}</Info>
-                <Info label="Số tiền"><span className="font-semibold tabular-nums">{money(voucher.totalAmount)}</span></Info>
-                <div className="sm:col-span-3"><Info label={config.contentLabel}>{voucher.content}</Info></div>
+                <Info label={lockedLabel('Số tiền', source, 'amount')}><span className="font-semibold tabular-nums">{money(voucher.totalAmount)}</span></Info>
+                <div className="sm:col-span-3"><Info label={lockedLabel(config.contentLabel, source, 'content')}>{voucher.content}</Info></div>
                 {isTransfer ? (
                   <>
                     <Info label={config.accountLabel}>{voucher.accountName}</Info>
@@ -217,10 +339,10 @@ export default function VoucherDetailScreen({ kind, id }: { kind: FinanceVoucher
                     <Info label={config.reasonLabel}>{voucher.reasonName}</Info>
                     <Info label={config.accountLabel}>{voucher.accountName}</Info>
                     <Info label={config.counterpartyLabel}>{voucher.counterpartyGroupName}</Info>
-                    <Info label={config.personLabel}>{voucher.counterpartyName}</Info>
-                    <Info label={config.personAccountLabel}>{voucher.counterpartyAccountNo}</Info>
-                    <Info label={config.personBankLabel}>{voucher.counterpartyBank}</Info>
-                    <Info label="Hạch toán nội bộ">
+                    <Info label={lockedLabel(config.personLabel, source, 'counterpartyName')}>{voucher.counterpartyName}</Info>
+                    <Info label={lockedLabel(config.personAccountLabel, source, 'counterpartyAccountNo')}>{voucher.counterpartyAccountNo}</Info>
+                    <Info label={lockedLabel(config.personBankLabel, source, 'counterpartyBank')}>{voucher.counterpartyBank}</Info>
+                    <Info label={lockedLabel('Hạch toán nội bộ', source, 'allocation')}>
                       {voucher.allocation ? `${FINANCE_ALLOCATION_LABELS[voucher.allocation.type]}: ${financeAllocationLabel(voucher.allocation)}` : null}
                     </Info>
                     {voucher.allocation?.workItemId ? (

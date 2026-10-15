@@ -19,6 +19,7 @@ import {
   type ProcedureValidationReport,
 } from '@enterprise-platform/contracts-procedure-engine';
 import { ProcedureEngineError } from './procedure-engine.error.js';
+import { collectFinanceStepIssues } from './procedure-finance-step.js';
 
 const KEY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$/;
 const MAX_GATEWAYS = 50;
@@ -387,6 +388,10 @@ export function collectFlowIssues(definition: ProcedureDefinition): ProcedureVal
       }
     }
   }
+
+  const finance = collectFinanceStepIssues(definition);
+  errors.push(...finance.errors);
+  warnings.push(...finance.warnings);
 
   return { errors, warnings };
 }

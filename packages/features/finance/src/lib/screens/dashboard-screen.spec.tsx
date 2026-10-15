@@ -36,7 +36,7 @@ const full: FinanceDashboard = {
     {
       id: 'v1',
       kind: 'PAYMENT',
-      code: 'PC_1_10_2026',
+      code: 'NHAP_PC_2610_0001',
       voucherDate: '2026-10-14',
       postingDate: '2026-10-14',
       content: 'Chi văn phòng phẩm',
@@ -58,6 +58,9 @@ const full: FinanceDashboard = {
       decidedAt: null,
       approvalMode: 'DIRECT',
       allocation: null,
+      draftCode: 'NHAP_PC_2610_0001',
+      officialCode: null,
+      sourceCode: null,
     },
   ],
 };
@@ -79,7 +82,7 @@ describe('Dashboard Tài chính', () => {
     expect(within(accounts).getByText('Vietcombank')).toBeTruthy();
     expect(within(accounts).getByText('Chờ chi 250.000')).toBeTruthy();
     expect(screen.getByText('Tổng 750.000')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: /PC_1_10_2026/ }));
+    fireEvent.click(screen.getByRole('button', { name: /NHAP_PC_2610_0001/ }));
     expect(mockPush).toHaveBeenCalledWith('/payments/v1');
   });
 

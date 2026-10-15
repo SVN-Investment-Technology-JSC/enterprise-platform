@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type {
   FinanceApprovalBinding,
-  FinanceApprovalMode,
+  FinanceBindingMode,
   FinanceProcedureProgress,
   FinanceVoucherKind,
   SaveFinanceApprovalBindingRequest,
@@ -49,7 +49,7 @@ export async function listBindings(db: Db, tenantId: string): Promise<FinanceApp
     const row = byKind.get(kind);
     return {
       kind,
-      mode: (row?.mode as FinanceApprovalMode | undefined) ?? 'DIRECT',
+      mode: (row?.mode as FinanceBindingMode | undefined) ?? 'DIRECT',
       procedureDefinitionId: optStr(row?.procedure_definition_id),
       procedureDefinitionName: optStr(row?.procedure_definition_name),
       isActive: true,

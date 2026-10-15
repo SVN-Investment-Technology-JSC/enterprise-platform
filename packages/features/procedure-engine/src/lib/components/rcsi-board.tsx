@@ -14,7 +14,11 @@ import type {
   ProcedureValidationReport,
   UpdateProcedureDefinitionRequest,
 } from '@enterprise-platform/contracts-procedure-engine';
-import { buildFlowIndex, dominatorStepIds } from '@enterprise-platform/contracts-procedure-engine';
+import {
+  buildFlowIndex,
+  dominatorStepIds,
+  PROCEDURE_FINANCE_VOUCHER_KIND_LABELS,
+} from '@enterprise-platform/contracts-procedure-engine';
 import { AttributeEditor } from './rcsi/attribute-editor';
 import { BulkAssignDialog } from './rcsi/bulk-assign-dialog';
 import { DynamicApproverEditor } from './rcsi/dynamic-approver-editor';
@@ -152,6 +156,7 @@ function toStepInput(step: ProcedureStepDefinition): CreateProcedureStepInput {
     // mất trường đó mỗi lần người dùng bấm một ô RACI.
     materials: step.materials?.map((item) => ({ ...item })),
     attributes: step.attributes?.map((item) => ({ ...item })),
+    integration: step.integration ? structuredClone(step.integration) : undefined,
     assignments: step.assignments.map((item) => ({
       role: item.role,
       subjectType: item.subjectType,
@@ -684,7 +689,12 @@ export function RcsiBoard({
     if (!onUpdateDefinition) return;
     const withStep = (step: ProcedureStepDefinition): CreateProcedureStepInput =>
       step.id === stepId
-        ? { ...toStepInput(step), slaHours: change.slaHours, linkedDefinitionId: change.linkedDefinitionId }
+        ? {
+            ...toStepInput(step),
+            slaHours: change.slaHours,
+            linkedDefinitionId: change.linkedDefinitionId,
+            integration: change.integration,
+          }
         : toStepInput(step);
     if (change.branch !== undefined) {
       applyFlow(definition, moveStepToBranch(definition, stepId, change.branch, withStep));
@@ -2439,6 +2449,11 @@ function DefinitionRows({
                   ) : null}
                   {dynamic ? (
                     <span className={styles.attrTag}>{dynamic.role}: QL trực tiếp</span>
+                  ) : null}
+                  {step.integration?.module === 'finance' ? (
+                    <span className={styles.attrTag} title="Bước Tài chính: kế toán ghi sổ phiếu thì bước mới đóng">
+                      Tài chính: {PROCEDURE_FINANCE_VOUCHER_KIND_LABELS[step.integration.voucherKind]}
+                    </span>
                   ) : null}
                 </div>
               </div>

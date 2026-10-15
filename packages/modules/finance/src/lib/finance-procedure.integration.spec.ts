@@ -7,7 +7,7 @@ import type { SaveFinanceVoucherRequest } from '@enterprise-platform/contracts-f
 import type { Pool } from 'pg';
 import { FinanceApplication } from './application/finance.application.js';
 import type { FinanceActor } from './domain/finance.access.js';
-import { FakeFinanceStorage, TestFinanceDatabase } from './finance-test-support.js';
+import { FakeFinanceStorage, TestFinanceDatabase, dropTestDatabase } from './finance-test-support.js';
 import { todayVn } from './infrastructure/finance.database.js';
 import { receiveFinanceProcedureEvent } from './infrastructure/procedure-events.js';
 import { processFinanceProcedureSync } from './infrastructure/procedure-links.store.js';
@@ -168,13 +168,10 @@ integration('Tài chính: duyệt phiếu qua quy trình (PostgreSQL, Procedure 
 
   afterAll(async () => {
     global.fetch = originalFetch;
-    // Đóng pool của DB test trước, nếu không DROP DATABASE báo "is being accessed by other users" trên PostgreSQL thật.
-    await pool?.end();
     if (admin) {
-      if (!/^finance_test_[a-f0-9]{32}$/.test(databaseName)) throw new Error('Invalid test database');
-      await admin.query(`DROP DATABASE IF EXISTS "${databaseName}" WITH (FORCE)`);
+      await dropTestDatabase(admin, pool, databaseName);
       await admin.end();
-    }
+    } else await pool?.end();
   }, 60_000);
 
   it('cấu hình: chỉ người có quyền cấu hình được gán; thuộc tính bắt buộc Tài chính không điền được thì từ chối; Procedure sập thì báo rõ', async () => {

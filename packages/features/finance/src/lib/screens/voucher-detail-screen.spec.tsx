@@ -14,13 +14,14 @@ jest.mock('../finance-api', () => {
 const fetchMock = financeFetch as jest.MockedFunction<typeof financeFetch>;
 const postMock = financePost as jest.MockedFunction<typeof financePost>;
 
-const none = { canEdit: false, canSubmit: false, canApprove: false, canReject: false, canCancel: false, canReverse: false, canDelete: false, canRetryProcedure: false };
+const noSourced = { canEditSourced: false, canPost: false, canReturnSource: false, canTakeOver: false, canRetryReversal: false };
+const none = { canEdit: false, canSubmit: false, canApprove: false, canReject: false, canCancel: false, canReverse: false, canDelete: false, canRetryProcedure: false, sourced: noSourced };
 
 function voucher(over: Partial<FinanceVoucher> = {}): FinanceVoucher {
   return {
     id: 'v1',
     kind: 'PAYMENT',
-    code: 'PC_3_10_2026',
+    code: 'NHAP_PC_2610_0003',
     voucherDate: '2026-10-14',
     postingDate: '2026-10-14',
     content: 'Chi văn phòng phẩm',
@@ -41,6 +42,9 @@ function voucher(over: Partial<FinanceVoucher> = {}): FinanceVoucher {
     submittedAt: '2026-10-14T02:05:00.000Z',
     decidedAt: null,
     approvalMode: 'DIRECT',
+    draftCode: 'NHAP_PC_2610_0003',
+    officialCode: null,
+    sourceCode: null,
     counterpartyGroupId: 'g1',
     counterpartyAccountNo: null,
     counterpartyBank: null,
@@ -71,6 +75,7 @@ function voucher(over: Partial<FinanceVoucher> = {}): FinanceVoucher {
     ],
     posted: false,
     procedure: null,
+    source: null,
     permissions: { ...none },
     ...over,
   } as FinanceVoucher;
@@ -90,10 +95,24 @@ beforeEach(() => {
 });
 
 describe('Chi tiết phiếu', () => {
+  it('phiếu đã ghi sổ hiện mã chính thức, kèm mã nháp bên dưới', async () => {
+    load(voucher({ status: 'APPROVED', code: 'PC-2610-0045', officialCode: 'PC-2610-0045' }));
+    render(<VoucherDetailScreen kind="PAYMENT" id="v1" />);
+    expect(await screen.findByRole('heading', { name: 'PC-2610-0045' })).toBeTruthy();
+    expect(screen.getByText('Mã nháp: NHAP_PC_2610_0003')).toBeTruthy();
+  });
+
+  it('phiếu chưa ghi sổ chỉ hiện mã nháp, không lặp lại', async () => {
+    load(voucher());
+    render(<VoucherDetailScreen kind="PAYMENT" id="v1" />);
+    await screen.findByRole('heading', { name: 'NHAP_PC_2610_0003' });
+    expect(screen.queryByText(/^Mã nháp:/)).toBeNull();
+  });
+
   it('hiện thông tin chung, dòng chi tiết với thuế, hoá đơn, ghi chú, đối tượng liên quan và lịch sử xử lý', async () => {
     load(voucher());
     render(<VoucherDetailScreen kind="PAYMENT" id="v1" />);
-    expect(await screen.findByRole('heading', { name: 'PC_3_10_2026' })).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: 'NHAP_PC_2610_0003' })).toBeTruthy();
     expect(screen.getByText('Chờ duyệt')).toBeTruthy();
     const info = screen.getByRole('region', { name: 'Thông tin chung' });
     expect(within(info).getAllByText('14/10/2026').length).toBe(2); // ngày lập và ngày hạch toán
@@ -115,7 +134,7 @@ describe('Chi tiết phiếu', () => {
   it('lệnh chuyển tiền hiện hai tài khoản, không có bảng chi tiết dòng', async () => {
     load(voucher({ kind: 'TRANSFER', accountName: 'Vietcombank', destAccountName: 'Quỹ tiền mặt', lines: [], taxIncluded: false }));
     render(<VoucherDetailScreen kind="TRANSFER" id="v1" />);
-    await screen.findByRole('heading', { name: 'PC_3_10_2026' });
+    await screen.findByRole('heading', { name: 'NHAP_PC_2610_0003' });
     expect(screen.getByText('Tài khoản nguồn')).toBeTruthy();
     expect(screen.getByText('Quỹ tiền mặt')).toBeTruthy();
     expect(screen.queryByRole('region', { name: 'Thông tin chuyển tiền' })).toBeNull();
@@ -185,6 +204,98 @@ describe('Chi tiết phiếu', () => {
     expect(screen.getByRole('button', { name: /Huỷ phiếu đã ghi sổ/ })).toBeTruthy();
     expect(screen.queryByRole('button', { name: /Sửa/ })).toBeNull();
     expect(screen.queryByRole('button', { name: /Xoá/ })).toBeNull();
+  });
+
+  describe('phiếu tạo từ hồ sơ quy trình', () => {
+    const source = (over: Partial<NonNullable<FinanceVoucher['source']>> = {}): NonNullable<FinanceVoucher['source']> => ({
+      instanceId: 'inst-12',
+      instanceCode: 'PR-0012',
+      instanceTitle: 'Đề nghị thanh toán',
+      definitionName: 'Đề nghị thanh toán',
+      stepName: 'Chi tiền',
+      activation: 1,
+      status: 'OPEN',
+      values: { amount: 1_500_000, content: 'Chi văn phòng phẩm', counterpartyName: 'Công ty ABC', counterpartyAccountNo: '0123', counterpartyBank: 'VCB', voucherDate: null },
+      requestedProjectId: null,
+      requestedWorkItemId: null,
+      lockedFields: ['amount', 'content', 'counterpartyName'],
+      assigneeLabel: 'Kế toán thanh toán',
+      handlingBy: null,
+      handlingByName: null,
+      handlingSince: null,
+      canAct: true,
+      canActReason: null,
+      reversalReason: null,
+      reversalError: null,
+      ...over,
+    });
+    const sourced = (over: Partial<FinanceVoucher> = {}) =>
+      voucher({ status: 'DRAFT', approvalMode: 'INHERITED', sourceCode: 'PR-0012', source: source(), ...over });
+
+    it('hiện khối Nguồn, trường lấy từ hồ sơ có biểu tượng khoá; Ghi sổ gửi kèm phiên bản đang xem', async () => {
+      load(sourced({ permissions: { ...none, sourced: { canEditSourced: true, canPost: true, canReturnSource: true, canTakeOver: false, canRetryReversal: false } } }));
+      render(<VoucherDetailScreen kind="PAYMENT" id="v1" />);
+      const panel = await screen.findByRole('region', { name: 'Nguồn hồ sơ quy trình' });
+      expect(within(panel).getByRole('link', { name: 'PR-0012' }).getAttribute('href')).toBe('/modules/procedure#workspace/inst-12');
+      expect(within(panel).getByText('Kế toán thanh toán')).toBeTruthy();
+      const info = screen.getByRole('region', { name: 'Thông tin chung' });
+      expect(within(info).getAllByLabelText('Lấy từ hồ sơ').length).toBe(3); // số tiền, nội dung, người nhận
+      expect(screen.queryByRole('button', { name: /Gửi duyệt/ })).toBeNull();
+
+      fireEvent.click(screen.getByRole('button', { name: /Nhập thông tin kế toán/ }));
+      expect(mockPush).toHaveBeenCalledWith('/payments/v1/edit');
+      fireEvent.click(screen.getByRole('button', { name: /Ghi sổ/ }));
+      await confirm('Ghi sổ');
+      await waitFor(() => expect(postMock).toHaveBeenCalledWith('/vouchers/v1/post-sourced', { revision: 2 }));
+    });
+
+    it('người khác đang xử lý: chỉ có Nhận xử lý thay', async () => {
+      load(
+        sourced({
+          source: source({ handlingBy: 'u9', handlingByName: 'Trần Kế Toán', handlingSince: '2026-10-14T03:00:00.000Z' }),
+          permissions: { ...none, sourced: { canEditSourced: false, canPost: false, canReturnSource: false, canTakeOver: true, canRetryReversal: false } },
+        }),
+      );
+      render(<VoucherDetailScreen kind="PAYMENT" id="v1" />);
+      expect((await screen.findByRole('region', { name: 'Nguồn hồ sơ quy trình' })).textContent).toContain('Đang xử lý: Trần Kế Toán');
+      expect(screen.queryByRole('button', { name: /Ghi sổ/ })).toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: /Nhận xử lý thay/ }));
+      await confirm('Nhận xử lý');
+      await waitFor(() => expect(postMock).toHaveBeenCalledWith('/vouchers/v1/take-over', {}));
+    });
+
+    it('không được giao bước hoặc không xác minh được: phiếu chỉ xem, nêu lý do', async () => {
+      load(sourced({ source: source({ canAct: false, canActReason: 'Bạn không giữ vai R của bước này.' }) }));
+      const { unmount } = render(<VoucherDetailScreen kind="PAYMENT" id="v1" />);
+      expect((await screen.findByRole('region', { name: 'Nguồn hồ sơ quy trình' })).textContent).toContain('Bạn không giữ vai R của bước này. Phiếu chỉ xem.');
+      expect(screen.queryByRole('button', { name: /Ghi sổ|Trả hồ sơ|Nhập thông tin/ })).toBeNull();
+      unmount();
+
+      load(sourced({ source: source({ canAct: null, canActReason: 'Không xác minh được quyền ở bước quy trình, thử lại sau.' }) }));
+      render(<VoucherDetailScreen kind="PAYMENT" id="v1" />);
+      expect((await screen.findByRole('alert')).textContent).toContain('Không xác minh được');
+    });
+
+    it('hồ sơ đã huỷ hiệu lực mà chưa đảo được: nêu lỗi, người có quyền bấm Đảo lại', async () => {
+      load(
+        sourced({
+          status: 'APPROVED',
+          source: source({
+            status: 'REVERSAL_PENDING',
+            canAct: null,
+            reversalReason: 'Hồ sơ PR-0012 bị huỷ hiệu lực: nhập sai',
+            reversalError: 'Sổ đã khoá đến ngày 2026-10-31',
+          }),
+          permissions: { ...none, sourced: { canEditSourced: false, canPost: false, canReturnSource: false, canTakeOver: false, canRetryReversal: true } },
+        }),
+      );
+      render(<VoucherDetailScreen kind="PAYMENT" id="v1" />);
+      const panel = await screen.findByRole('region', { name: 'Nguồn hồ sơ quy trình' });
+      expect(panel.textContent).toContain('chờ đảo phiếu');
+      expect(within(panel).getByRole('alert').textContent).toContain('Sổ đã khoá đến ngày 2026-10-31');
+      fireEvent.click(screen.getByRole('button', { name: /Đảo lại/ }));
+      await waitFor(() => expect(postMock).toHaveBeenCalledWith('/vouchers/v1/retry-source-reversal', {}));
+    });
   });
 
   it('báo lỗi khi không xem được phiếu (không lộ nội dung) và cho về danh sách', async () => {

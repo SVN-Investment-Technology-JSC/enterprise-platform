@@ -6,7 +6,7 @@ import type { SaveFinanceVoucherRequest } from '@enterprise-platform/contracts-f
 import type { Pool } from 'pg';
 import { FinanceApplication } from './application/finance.application.js';
 import type { FinanceActor } from './domain/finance.access.js';
-import { FakeFinanceStorage, TestFinanceDatabase } from './finance-test-support.js';
+import { FakeFinanceStorage, TestFinanceDatabase, dropTestDatabase } from './finance-test-support.js';
 import { todayVn } from './infrastructure/finance.database.js';
 
 const integration = process.env.FINANCE_TEST_ADMIN_URL ? describe : describe.skip;
@@ -143,13 +143,10 @@ integration('Tài chính: hạch toán cho dự án/công việc và dự án li
 
   afterAll(async () => {
     global.fetch = originalFetch;
-    // Đóng pool của DB test trước, nếu không DROP DATABASE báo "is being accessed by other users" trên PostgreSQL thật.
-    await pool?.end();
     if (admin) {
-      if (!/^finance_test_[a-f0-9]{32}$/.test(databaseName)) throw new Error('Invalid test database');
-      await admin.query(`DROP DATABASE IF EXISTS "${databaseName}" WITH (FORCE)`);
+      await dropTestDatabase(admin, pool, databaseName);
       await admin.end();
-    }
+    } else await pool?.end();
   }, 60_000);
 
   beforeEach(() => {

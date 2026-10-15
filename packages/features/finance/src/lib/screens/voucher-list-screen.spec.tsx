@@ -33,7 +33,7 @@ const fetchMock = financeFetch as jest.MockedFunction<typeof financeFetch>;
 const summary = (over: Partial<FinanceVoucherSummary>): FinanceVoucherSummary => ({
   id: 'v1',
   kind: 'RECEIPT',
-  code: 'PT_1_10_2026',
+  code: 'PT-2610-0001',
   voucherDate: '2026-10-14',
   postingDate: '2026-10-14',
   content: 'Thu tiền hàng',
@@ -55,6 +55,9 @@ const summary = (over: Partial<FinanceVoucherSummary>): FinanceVoucherSummary =>
   decidedAt: null,
   approvalMode: 'DIRECT',
   allocation: null,
+  draftCode: null,
+  officialCode: 'PT-2610-0001',
+  sourceCode: null,
   ...over,
 });
 
@@ -74,7 +77,7 @@ beforeEach(() => {
     if (path.startsWith('/accounts')) return [{ id: 'a1', name: 'Vietcombank' }] as never;
     if (path.startsWith('/catalogs')) return { reasons: [{ id: 'r1', kind: 'RECEIPT', name: 'Thu tiền hàng' }], counterpartyGroups: [] } as never;
     if (path.startsWith('/workspace/projects')) return { items: [{ id: 'p1', code: 'DA001', name: 'Trạm biến áp Đà Nẵng', status: 'active' }], truncated: false } as never;
-    if (path.startsWith('/vouchers')) return list([summary({}), summary({ id: 'v2', code: 'PT_2_10_2026', status: 'PENDING', totalAmount: 50_000 })], { APPROVED: 1, PENDING: 1 }) as never;
+    if (path.startsWith('/vouchers')) return list([summary({}), summary({ id: 'v2', code: 'NHAP_PT_2610_0002', status: 'PENDING', totalAmount: 50_000 })], { APPROVED: 1, PENDING: 1 }) as never;
     throw new Error(`route lạ ${path}`);
   });
 });
@@ -83,7 +86,7 @@ describe('Danh sách phiếu thu', () => {
   it('hiện tiêu đề, các tab trạng thái kèm số lượng và các dòng phiếu', async () => {
     render(<VoucherListScreen kind="RECEIPT" />);
     expect(screen.getByRole('heading', { name: 'Danh sách phiếu thu' })).toBeTruthy();
-    expect(await screen.findByText('PT_1_10_2026')).toBeTruthy();
+    expect(await screen.findByText('PT-2610-0001')).toBeTruthy();
     expect(screen.getByRole('tab', { name: 'Tất cả (2)' })).toBeTruthy();
     expect(screen.getByRole('tab', { name: 'Chờ duyệt (1)' })).toBeTruthy();
     expect(screen.getByRole('tab', { name: 'Đã duyệt (1)' })).toBeTruthy();
@@ -94,7 +97,7 @@ describe('Danh sách phiếu thu', () => {
 
   it('đổi tab gửi trạng thái lên máy chủ và về trang 1; từ khoá tìm kiếm được gửi sau khi dừng gõ', async () => {
     render(<VoucherListScreen kind="RECEIPT" />);
-    await screen.findByText('PT_1_10_2026');
+    await screen.findByText('PT-2610-0001');
     fireEvent.click(screen.getByRole('tab', { name: 'Chờ duyệt (1)' }));
     await waitFor(() => expect(paths().some((p) => p.includes('status=PENDING') && p.includes('kind=RECEIPT') && p.includes('page=1'))).toBe(true));
     fireEvent.change(screen.getByLabelText('Tìm phiếu'), { target: { value: 'ABC' } });
@@ -104,20 +107,20 @@ describe('Danh sách phiếu thu', () => {
   it('bộ lọc tài khoản lấy từ liên kết đến từ danh sách tài khoản (?accountId=...)', async () => {
     mockQuery = 'accountId=a1';
     render(<VoucherListScreen kind="RECEIPT" />);
-    await screen.findByText('PT_1_10_2026');
+    await screen.findByText('PT-2610-0001');
     expect(paths().some((p) => p.includes('accountId=a1'))).toBe(true);
   });
 
   it('nút Tạo mới chỉ hiện khi có quyền lập loại phiếu này; "Chờ tôi duyệt" chỉ hiện với người duyệt', async () => {
     const { unmount } = render(<VoucherListScreen kind="RECEIPT" />);
-    await screen.findByText('PT_1_10_2026');
+    await screen.findByText('PT-2610-0001');
     fireEvent.click(screen.getByRole('button', { name: /Tạo mới/ }));
     expect(mockPush).toHaveBeenCalledWith('/receipts/new');
     expect(screen.queryByRole('button', { name: 'Chờ tôi duyệt' })).toBeNull();
     unmount();
 
     render(<VoucherListScreen kind="PAYMENT" />);
-    await screen.findAllByText('PT_1_10_2026');
+    await screen.findAllByText('PT-2610-0001');
     expect(screen.queryByRole('button', { name: /Tạo mới/ })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Chờ tôi duyệt' }));
     await waitFor(() => expect(paths().some((p) => p.includes('scope=to-approve') && p.includes('kind=PAYMENT'))).toBe(true));
@@ -125,19 +128,19 @@ describe('Danh sách phiếu thu', () => {
 
   it('xuất Excel đúng các dòng đang hiện', async () => {
     render(<VoucherListScreen kind="RECEIPT" />);
-    await screen.findByText('PT_1_10_2026');
+    await screen.findByText('PT-2610-0001');
     fireEvent.click(screen.getByRole('button', { name: /Xuất Excel/ }));
     expect(mockDownload).toHaveBeenCalledTimes(1);
     const csv = String(mockDownload.mock.calls[0][1]);
-    expect(csv).toContain('PT_1_10_2026');
-    expect(csv).toContain('PT_2_10_2026');
+    expect(csv).toContain('PT-2610-0001');
+    expect(csv).toContain('NHAP_PT_2610_0002');
     expect(csv).toContain('Mã phiếu');
   });
 
   it('danh sách lệnh chuyển tiền hiện cột từ tài khoản đến tài khoản và không có cột lý do', async () => {
     fetchMock.mockImplementation(async (path: string) => {
       if (path.startsWith('/vouchers'))
-        return list([summary({ id: 't1', kind: 'TRANSFER', code: 'PCT_1_10_2026', accountName: 'Vietcombank', destAccountName: 'Quỹ tiền mặt', reasonName: null })], { APPROVED: 1 }) as never;
+        return list([summary({ id: 't1', kind: 'TRANSFER', code: 'CT-2610-0001', accountName: 'Vietcombank', destAccountName: 'Quỹ tiền mặt', reasonName: null })], { APPROVED: 1 }) as never;
       return [] as never;
     });
     render(<VoucherListScreen kind="TRANSFER" />);
@@ -156,10 +159,10 @@ describe('Danh sách phiếu thu', () => {
           summary({ allocation: { type: 'PROJECT', projectId: 'p1', projectCode: 'DA001', projectName: 'Trạm biến áp Đà Nẵng', workItemId: null, workItemCode: null, workItemTitle: null } }),
           summary({
             id: 'v2',
-            code: 'PT_2_10_2026',
+            code: 'NHAP_PT_2610_0002',
             allocation: { type: 'WORK_ITEM', projectId: 'p1', projectCode: 'DA001', projectName: 'Trạm biến áp Đà Nẵng', workItemId: 'w1', workItemCode: 'CV-12', workItemTitle: 'Lắp đặt tủ điện' },
           }),
-          summary({ id: 'v3', code: 'PT_3_10_2026', allocation: null }),
+          summary({ id: 'v3', code: 'PT-2610-0003', allocation: null }),
         ],
         { APPROVED: 3 },
       ) as never;
@@ -174,7 +177,7 @@ describe('Danh sách phiếu thu', () => {
 
   it('lệnh chuyển tiền không có cột hạch toán và không có ô lọc dự án', async () => {
     fetchMock.mockImplementation(async (path: string) => {
-      if (path.startsWith('/vouchers')) return list([summary({ id: 't1', kind: 'TRANSFER', code: 'PCT_1_10_2026', accountName: 'VCB', destAccountName: 'Quỹ' })], { APPROVED: 1 }) as never;
+      if (path.startsWith('/vouchers')) return list([summary({ id: 't1', kind: 'TRANSFER', code: 'CT-2610-0001', accountName: 'VCB', destAccountName: 'Quỹ' })], { APPROVED: 1 }) as never;
       return [] as never;
     });
     render(<VoucherListScreen kind="TRANSFER" />);
@@ -202,7 +205,7 @@ describe('Theo dõi theo tháng', () => {
 
   it('mặc định xem tháng hiện tại: gửi khoảng ngày của tháng, hiện nhãn tháng và ẩn ô Từ ngày/Đến ngày', async () => {
     render(<VoucherListScreen kind="RECEIPT" />);
-    await screen.findByText('PT_1_10_2026');
+    await screen.findByText('PT-2610-0001');
     const { from, to } = monthRange(thisMonth);
     expect(paths()[0]).toContain(`from=${from}&to=${to}`);
     expect(screen.getByText(monthLabel(thisMonth))).toBeTruthy();
@@ -213,7 +216,7 @@ describe('Theo dõi theo tháng', () => {
 
   it('chuyển tháng trước/sau gửi đúng khoảng ngày, về trang 1; "Về tháng này" quay lại tháng hiện tại', async () => {
     render(<VoucherListScreen kind="RECEIPT" />);
-    await screen.findByText('PT_1_10_2026');
+    await screen.findByText('PT-2610-0001');
     fireEvent.click(screen.getByRole('button', { name: 'Tháng trước' }));
     const previous = shiftMonth(thisMonth, -1);
     await waitFor(() => expect(lastCall()).toContain(`from=${monthRange(previous).from}&to=${monthRange(previous).to}`));
@@ -227,7 +230,7 @@ describe('Theo dõi theo tháng', () => {
 
   it('chọn "Tất cả": bỏ giới hạn tháng, hiện lại ô lọc theo ngày; chọn "Theo tháng" quay về tháng hiện tại', async () => {
     render(<VoucherListScreen kind="RECEIPT" />);
-    await screen.findByText('PT_1_10_2026');
+    await screen.findByText('PT-2610-0001');
     fireEvent.click(screen.getByRole('button', { name: 'Tất cả' }));
     await waitFor(() => expect(lastCall()).not.toContain('from='));
     expect(lastCall()).not.toContain('to=');
@@ -241,14 +244,14 @@ describe('Theo dõi theo tháng', () => {
   it('liên kết ?month=all (từ danh sách tài khoản) xem toàn bộ thời gian; ?month=YYYY-MM mở đúng tháng đó', async () => {
     mockQuery = 'accountId=a1&month=all';
     const { unmount } = render(<VoucherListScreen kind="RECEIPT" />);
-    await screen.findByText('PT_1_10_2026');
+    await screen.findByText('PT-2610-0001');
     expect(paths()[0]).toContain('accountId=a1');
     expect(paths()[0]).not.toContain('from=');
     unmount();
     fetchMock.mockClear();
     mockQuery = 'month=2026-02';
     render(<VoucherListScreen kind="RECEIPT" />);
-    await screen.findByText('PT_1_10_2026');
+    await screen.findByText('PT-2610-0001');
     expect(paths()[0]).toContain('from=2026-02-01&to=2026-02-28');
     expect(screen.getByText('Tháng 2/2026')).toBeTruthy();
   });
@@ -263,7 +266,7 @@ describe('Theo dõi theo tháng', () => {
       return [] as never;
     });
     render(<VoucherListScreen kind="PAYMENT" />);
-    await screen.findByText('PT_1_10_2026');
+    await screen.findByText('PT-2610-0001');
     const card = (id: string) => screen.getByTestId(`summary-${id}`);
     expect(within(card('total')).getByText('11 phiếu')).toBeTruthy();
     expect(within(card('approved')).getByText('3 phiếu')).toBeTruthy();

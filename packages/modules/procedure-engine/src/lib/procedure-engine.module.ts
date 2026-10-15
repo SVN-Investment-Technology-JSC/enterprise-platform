@@ -3,6 +3,11 @@ import {
   type InstanceReversalGuard,
 } from './application/instance-reversal-guard.port.js';
 import { HttpInstanceReversalGuard } from './infrastructure/http-instance-reversal.guard.js';
+import {
+  FINANCE_INTEGRATION_RESOLVER,
+  type FinanceIntegrationResolver,
+} from './application/finance-integration.port.js';
+import { HttpFinanceIntegrationResolver } from './infrastructure/http-finance-integration.resolver.js';
 import { Module } from '@nestjs/common';
 import { PostgresPoolRegistry, TenantDatabaseRegistry } from '@enterprise-platform/adapter-database';
 import { ProcedureEngineApplication } from './application/procedure-engine.application.js';
@@ -74,6 +79,10 @@ import { ProcedureEngineController } from './presentation/procedure-engine.contr
       useFactory: () => new HttpInstanceReversalGuard(),
     },
     {
+      provide: FINANCE_INTEGRATION_RESOLVER,
+      useFactory: () => new HttpFinanceIntegrationResolver(),
+    },
+    {
       provide: ProcedureEngineApplication,
       useFactory: (
         store: ProcedureStore,
@@ -84,6 +93,7 @@ import { ProcedureEngineController } from './presentation/procedure-engine.contr
         directManagers: DirectManagerResolver,
         initiatorActors: InitiatorActorResolver,
         reversalGuard: InstanceReversalGuard,
+        financeIntegration: FinanceIntegrationResolver,
       ) =>
         new ProcedureEngineApplication(
           store,
@@ -94,6 +104,7 @@ import { ProcedureEngineController } from './presentation/procedure-engine.contr
           directManagers,
           initiatorActors,
           reversalGuard,
+          financeIntegration,
         ),
       inject: [
         PROCEDURE_STORE,
@@ -104,6 +115,7 @@ import { ProcedureEngineController } from './presentation/procedure-engine.contr
         DIRECT_MANAGER_RESOLVER,
         INITIATOR_ACTOR_RESOLVER,
         INSTANCE_REVERSAL_GUARD,
+        FINANCE_INTEGRATION_RESOLVER,
       ],
     },
   ],

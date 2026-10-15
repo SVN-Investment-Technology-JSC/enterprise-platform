@@ -299,6 +299,19 @@ export function activateStep(
   step.status = stageStatus(stage);
   step.startedAt = context.now;
   step.completedAt = undefined;
+  // Bước Tài chính: mỗi lần kích hoạt là một lần yêu cầu tạo/cập nhật phiếu. Giữ
+  // voucherId/code của lần trước — một hồ sơ chỉ có một phiếu.
+  if (step.integration?.module === 'finance') {
+    const previous = step.financeVoucher;
+    step.financeVoucher = {
+      activation: (previous?.activation ?? 0) + 1,
+      state: 'requested',
+      requestedAt: context.now,
+      ...(previous?.voucherId ? { voucherId: previous.voucherId } : {}),
+      ...(previous?.code ? { code: previous.code } : {}),
+      ...(previous?.amount !== undefined ? { amount: previous.amount } : {}),
+    };
+  }
   context.onStepStarted?.(step);
   instance.currentStepId = step.id;
   ensurePath(instance).push({ stepInstanceId: step.id, enteredAt: context.now, viaDecisionId });

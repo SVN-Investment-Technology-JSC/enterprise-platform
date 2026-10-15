@@ -18,4 +18,10 @@ export interface InstanceReversalGuard {
     tenantId: string,
     source: { readonly sourceType: string; readonly sourceId: string },
   ): Promise<ReversalCheck>;
+
+  /**
+   * Hồ sơ có bước Tài chính đã sinh phiếu (bất kể nguồn mở hồ sơ): hỏi Tài chính có đảo được phiếu không
+   * (vd hôm nay nằm trong kỳ đã khoá sổ). Không cài đặt thì coi như không cho huỷ.
+   */
+  checkFinanceStep?(tenantId: string, instanceId: string): Promise<ReversalCheck>;
 }
