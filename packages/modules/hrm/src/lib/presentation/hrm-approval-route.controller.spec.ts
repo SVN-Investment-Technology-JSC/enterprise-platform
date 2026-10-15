@@ -450,6 +450,7 @@ describe('GET /approval-route (xem trước người duyệt)', () => {
     expect(data).toEqual({
       mode: 'DIRECT',
       directManager: { employeeId: MANAGER, fullName: 'Trần Quản Lý', positionName: 'Trưởng phòng' },
+      fallbackPosition: null,
       selfApprovalBlocked: true,
     });
     expect(loadDirectManagerRef).toHaveBeenCalledWith(expect.anything(), TENANT, OWN);

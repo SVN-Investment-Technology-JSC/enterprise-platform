@@ -343,6 +343,69 @@ export const HRM_PERMISSION_ACTIONS = [
 ] as const;
 export type HrmAction = (typeof HRM_PERMISSION_ACTIONS)[number]['key'];
 
+/**
+ * Quyền của module Tài chính. Phiếu thu, chi và chuyển tiền tách quyền lập và quyền duyệt để
+ * người lập không tự duyệt phiếu của mình (nguyên tắc hai người trong kế toán).
+ */
+export const FINANCE_PERMISSION_ACTIONS = [
+  {
+    key: 'finance.read',
+    group: 'Tài chính · Truy cập',
+    label: 'Vào Tài chính, xem toàn bộ phiếu, tài khoản và báo cáo',
+  },
+  {
+    key: 'finance.receipt.create',
+    group: 'Tài chính · Phiếu thu',
+    label: 'Lập, sửa và gửi duyệt phiếu thu của mình',
+  },
+  {
+    key: 'finance.receipt.approve',
+    group: 'Tài chính · Phiếu thu',
+    label: 'Duyệt, từ chối và huỷ phiếu thu',
+  },
+  {
+    key: 'finance.payment.create',
+    group: 'Tài chính · Phiếu chi',
+    label: 'Lập, sửa và gửi duyệt phiếu chi của mình',
+  },
+  {
+    key: 'finance.payment.approve',
+    group: 'Tài chính · Phiếu chi',
+    label: 'Duyệt, từ chối và huỷ phiếu chi',
+  },
+  {
+    key: 'finance.transfer.create',
+    group: 'Tài chính · Chuyển tiền',
+    label: 'Lập, sửa và gửi duyệt lệnh chuyển tiền của mình',
+  },
+  {
+    key: 'finance.transfer.approve',
+    group: 'Tài chính · Chuyển tiền',
+    label: 'Duyệt, từ chối và huỷ lệnh chuyển tiền',
+  },
+  {
+    key: 'finance.account.manage',
+    group: 'Tài chính · Danh mục',
+    label: 'Quản lý tài khoản ngân hàng và quỹ tiền mặt của công ty',
+  },
+  {
+    key: 'finance.report.read',
+    group: 'Tài chính · Báo cáo',
+    label: 'Xem báo cáo thu chi và dòng tiền',
+  },
+  {
+    key: 'finance.settings.manage',
+    group: 'Tài chính · Cấu hình',
+    label: 'Cấu hình danh mục lý do, quy trình duyệt và khoá sổ',
+  },
+  {
+    key: 'finance.manage',
+    group: 'Tài chính · Quản trị',
+    label: 'Toàn quyền nghiệp vụ Tài chính trong tenant',
+  },
+] as const;
+export type FinanceAction = (typeof FINANCE_PERMISSION_ACTIONS)[number]['key'];
+
 export const TENANT_PERMISSION_ACTIONS = [
   ...HRM_PERMISSION_ACTIONS,
   { key: 'inventory.read', group: 'Inventory', label: 'Xem kho và tài sản' },
@@ -432,6 +495,7 @@ export const TENANT_PERMISSION_ACTIONS = [
   { key: 'workspace.document.write', group: 'Workspace', label: 'Ghi tài liệu' },
   { key: 'workspace.document.delete', group: 'Workspace', label: 'Xoá và lưu trữ tài liệu' },
   { key: 'workspace.project.create', group: 'Workspace', label: 'Tạo dự án mới' },
+  ...FINANCE_PERMISSION_ACTIONS,
 ] as const;
 export type TenantAction = (typeof TENANT_PERMISSION_ACTIONS)[number]['key'];
 export interface TenantPermission {
@@ -491,6 +555,10 @@ export const TENANT_ACTION_IMPLIES: Readonly<Record<string, readonly string[]>> 
     'workspace.task.write',
     'workspace.document.write',
   ],
+  // Toàn quyền nghiệp vụ Tài chính: gồm mọi action còn lại của module.
+  'finance.manage': FINANCE_PERMISSION_ACTIONS.map((a) => a.key as string).filter(
+    (key) => key !== 'finance.manage',
+  ),
 };
 
 /** Người giữ `held` có `action` không, kể cả khi được bao hàm bởi một action quản lý. */
@@ -514,10 +582,12 @@ const MODULE_ACTION_PREFIX: Readonly<Record<string, string>> = {
   maintenance: 'maintenance',
   inventory: 'inventory',
   workspace: 'workspace',
+  finance: 'finance',
 };
 /** Module nhận probe `module.access`: chỉ cần được vào module, không đòi action cụ thể. */
 const MODULES_WITH_ADMISSION_PROBE = new Set([
   'assistant',
+  'finance',
   'hrm',
   'procedure-engine',
   'workspace',

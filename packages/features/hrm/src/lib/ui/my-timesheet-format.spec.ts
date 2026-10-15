@@ -285,14 +285,15 @@ describe('Lịch công của tôi: chấm màu, giờ làm trong ô, nhãn trạ
     expect(dayTone(day({ date: '2026-09-20', status: 'FUTURE' }), TODAY)).toBe('none');
   });
 
-  it('nội dung ô: ngày đã qua hiện số công (hệ số), không hiện mã ca; ngày chưa tới hiện mã ca; vắng và nghỉ hiện gạch dài', () => {
+  it('nội dung ô: ngày đã qua hiện số công (hệ số), không hiện mã ca; ngày chưa tới hiện mã ca; vắng và thiếu dữ liệu chấm công hiện 0; nghỉ hiện gạch dài', () => {
     expect(myCellContent(day({ workedMinutes: 450, workdayUnits: 1 }), TODAY)).toEqual({ text: '', units: '1' });
     expect(myCellContent(day({ workedMinutes: 240, workdayUnits: 0.5 }), TODAY)).toEqual({ text: '', units: '0.5' });
     expect(myCellContent(day({ date: '2026-09-20', status: 'FUTURE', workedMinutes: 0 }), TODAY)).toEqual({
       text: 'HC',
       units: '',
     });
-    expect(myCellContent(day({ status: 'ABSENT', workedMinutes: 480 }), TODAY)).toEqual({ text: '—', units: '' });
+    expect(myCellContent(day({ status: 'ABSENT', workedMinutes: 480 }), TODAY)).toEqual({ text: '', units: '0' });
+    expect(myCellContent(day({ status: 'ABNORMAL', workedMinutes: 0, workdayUnits: 0 }), TODAY)).toEqual({ text: '', units: '0' });
     expect(myCellContent(day({ status: 'ANNUAL_LEAVE', workedMinutes: 0 }), TODAY)).toEqual({ text: '—', units: '' });
     expect(myCellContent(day({ status: 'OFF', kind: 'OFF', workedMinutes: 0 }), TODAY)).toEqual({ text: 'OFF', units: '' });
     expect(myCellContent(day({ status: 'HOLIDAY', kind: 'HOLIDAY', workedMinutes: 0 }), TODAY).text).toBe('L');
@@ -319,21 +320,28 @@ describe('gridCellView: ô ngày của bảng công nhiều nhân viên', () => 
     expect(gridCellView(day({ status: 'LATE', lateMinutes: 20, scheduledMinutes: 240, paidMinutes: 220, workdayUnits: 0.46 }), TODAY)).toEqual({ type: 'units', text: '0.46', tone: 'bad' });
     expect(gridCellView(day({ status: 'LATE', lateMinutes: 10, workdayUnits: 0.9333 }), TODAY)).toEqual({ type: 'units', text: '0.93', tone: 'bad' });
     expect(gridCellView(day({ status: 'EARLY_LEAVE', earlyLeaveMinutes: 5, workdayUnits: 0.9 }), TODAY)).toEqual({ type: 'units', text: '0.9', tone: 'bad' });
-    expect(gridCellView(day({ status: 'ANNUAL_LEAVE', leave: { requestId: 'l1', reasonName: null, paid: true, annual: true, days: 0.5 }, workdayUnits: 1 }), TODAY)).toEqual({ type: 'units', text: '0.5', tone: 'ok' });
+    expect(gridCellView(day({ status: 'ANNUAL_LEAVE', leave: { requestId: 'l1', reasonName: null, paid: true, annual: true, days: 0.5 }, workdayUnits: 1 }), TODAY)).toEqual({ type: 'units', text: '1P', tone: 'ok' });
     expect(gridCellView(day({ status: 'ABNORMAL', anomalies: ['MISSING_CHECK_OUT'], workedMinutes: 0, workdayUnits: 0 }), TODAY)).toEqual({ type: 'units', text: '0', tone: 'bad' });
   });
 
-  it('nghỉ phép P, công tác CT, vắng KP, bất thường ! là ô ký hiệu', () => {
-    expect(gridCellView(day({ status: 'ANNUAL_LEAVE' }), TODAY)).toEqual({ type: 'box', text: 'P', tone: 'leave' });
-    expect(gridCellView(day({ status: 'UNPAID_LEAVE' }), TODAY)).toMatchObject({ text: 'P' });
-    expect(gridCellView(day({ status: 'TRIP' }), TODAY)).toEqual({ type: 'box', text: 'CT', tone: 'trip' });
-    expect(gridCellView(day({ status: 'ABSENT' }), TODAY)).toEqual({ type: 'box', text: 'KP', tone: 'absent' });
-    expect(gridCellView(day({ status: 'ABNORMAL' }), TODAY)).toEqual({ type: 'box', text: '!', tone: 'abnormal' });
+  it('nghỉ phép, công tác, vắng, bất thường đều là số: 1p, 1, 0 xanh hoặc đỏ', () => {
+    const leave = (paid: boolean) => ({ requestId: 'l1', reasonName: null, paid, annual: false, days: 1 });
+    expect(gridCellView(day({ status: 'ANNUAL_LEAVE', leave: leave(true) }), TODAY)).toEqual({ type: 'units', text: '1P', tone: 'ok' });
+    expect(gridCellView(day({ status: 'UNPAID_LEAVE', workdayUnits: 0, leave: leave(false) }), TODAY)).toEqual({ type: 'units', text: '0', tone: 'ok' });
+    expect(gridCellView(day({ status: 'TRIP' }), TODAY)).toEqual({ type: 'units', text: '1CT', tone: 'ok' });
+    expect(gridCellView(day({ status: 'ABSENT', workdayUnits: 0 }), TODAY)).toEqual({ type: 'units', text: '0', tone: 'bad' });
+  });
+
+  it('công tác: nửa ngày là 0.5CT, cả ngày là 1CT', () => {
+    const trip = (minutes: number | null) => day({ status: 'TRIP', sources: [{ kind: 'TRIP', id: 't1', minutes, label: null }] });
+    expect(gridCellView(trip(240), TODAY)).toEqual({ type: 'units', text: '0.5CT', tone: 'ok' });
+    expect(gridCellView(trip(480), TODAY)).toEqual({ type: 'units', text: '1CT', tone: 'ok' });
+    expect(gridCellView(trip(null), TODAY)).toEqual({ type: 'units', text: '1CT', tone: 'ok' });
   });
 
   it('ngày nghỉ OFF, lễ L, chưa có lịch "-"', () => {
     expect(gridCellView(day({ status: 'OFF', kind: 'OFF', workedMinutes: 0 }), TODAY)).toEqual({ type: 'text', text: 'OFF', muted: true });
-    expect(gridCellView(day({ status: 'HOLIDAY', kind: 'HOLIDAY', workedMinutes: 0 }), TODAY)).toMatchObject({ text: 'L' });
+    expect(gridCellView(day({ status: 'HOLIDAY', kind: 'HOLIDAY', workedMinutes: 0 }), TODAY)).toEqual({ type: 'units', text: '1L', tone: 'ok' });
     expect(gridCellView(day({ status: 'NO_SCHEDULE', kind: 'NO_SCHEDULE' }), TODAY)).toMatchObject({ text: '-' });
   });
 
@@ -342,5 +350,30 @@ describe('gridCellView: ô ngày của bảng công nhiều nhân viên', () => 
     expect(gridCellView(future, TODAY)).toEqual({ type: 'text', text: 'T7', muted: true });
     expect(gridCellView(day(), TODAY).type).toBe('units');
     expect(gridCellView(day({ date: '2026-09-20', status: 'FUTURE', shiftCode: null, kind: 'OFF' }), TODAY)).toMatchObject({ text: 'OFF' });
+  });
+});
+
+import { monthCellNumber } from './my-timesheet-format';
+
+describe('monthCellNumber: ô lịch tháng thuần số', () => {
+  const TODAY = '2026-10-20';
+  const leave = (paid: boolean, days = 1) => ({ requestId: 'l1', reasonName: null, paid, annual: false, days });
+
+  it('công chuẩn là 1 xanh', () => {
+    expect(monthCellNumber(day({ workdayUnits: 1, scheduledMinutes: 480 }), TODAY)).toEqual({ text: '1', tone: 'ok' });
+  });
+  it('có đơn phép tính lương là 1P xanh', () => {
+    expect(monthCellNumber(day({ status: 'PAID_LEAVE', workdayUnits: 1, leave: leave(true) }), TODAY)).toEqual({ text: '1P', tone: 'ok' });
+    expect(monthCellNumber(day({ status: 'PAID_LEAVE', workdayUnits: 0, leave: leave(true) }), TODAY)).toEqual({ text: '1P', tone: 'ok' });
+  });
+  it('phép không lương là 0 xanh', () => {
+    expect(monthCellNumber(day({ status: 'UNPAID_LEAVE', workdayUnits: 0, leave: leave(false) }), TODAY)).toEqual({ text: '0', tone: 'ok' });
+  });
+  it('thiếu dữ liệu chấm công và vắng không phép là 0 đỏ', () => {
+    expect(monthCellNumber(day({ workdayUnits: 0, anomalies: ['MISSING_CHECK_OUT'] }), TODAY)).toEqual({ text: '0', tone: 'bad' });
+    expect(monthCellNumber(day({ status: 'ABSENT', workdayUnits: 0 }), TODAY)).toEqual({ text: '0', tone: 'bad' });
+  });
+  it('ngày chưa tới giữ mã ca, không tô màu', () => {
+    expect(monthCellNumber(day({ date: '2026-10-25', status: 'FUTURE', shiftCode: 'HC' }), TODAY)).toEqual({ text: 'HC', tone: 'none' });
   });
 });

@@ -356,6 +356,7 @@ Ghi chú môi trường test: chạy qua gateway riêng (nginx trong Docker, c�
 - ~~Khi module Quy trình không truy cập được, form báo nhầm "Bạn chưa có quy trình nào được phép khởi tạo".~~ Đã sửa ở lần 3.
 - ~~Hồ sơ quy trình bị huỷ hiệu lực thì việc ngoài dự án chưa tự huỷ theo.~~ Đã làm ở lần 3 (mục 4.3).
 - ~~Huỷ hiệu lực chưa có tuỳ chọn "lập công việc điều chỉnh".~~ Đã làm ở lần 4 (mục 4.4).
+- Danh sách mỗi ngăn trả tối đa 500 việc (việc đang mở xếp trước), và bộ lọc trạng thái chạy ở phía trình duyệt. Người có hơn 500 việc trong một ngăn sẽ không thấy các việc đã đóng cũ khi lọc "Hoàn thành", "Đã huỷ" hay "Đã huỷ hiệu lực". Phát hiện khi tài khoản test có 850 việc. Hướng sửa: đẩy bộ lọc trạng thái và tìm kiếm xuống server, kèm phân trang.
 
 ## 11. Triển khai
 

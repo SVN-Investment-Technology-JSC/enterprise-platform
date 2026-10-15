@@ -94,6 +94,12 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
 > = {
   // Trợ lý (savina-agent) không có bảng trong DB tenant; migration rỗng để bật phân hệ được.
   assistant: [{ version: '0001-assistant', path: 'tenant/assistant/0001-assistant.sql' }],
+  finance: [
+    { version: '0001-finance', path: 'tenant/finance/0001-finance.sql' },
+    { version: '0002-finance-approval', path: 'tenant/finance/0002-finance-approval.sql' },
+    { version: '0003-finance-attachments', path: 'tenant/finance/0003-finance-attachments.sql' },
+    { version: '0004-finance-workspace-links', path: 'tenant/finance/0004-finance-workspace-links.sql' },
+  ],
   hrm: [
     { version: '0001-hrm', path: 'tenant/hrm/0001-hrm.sql' },
     {
@@ -314,6 +320,14 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     {
       version: '0053-hrm-schedule-auto-attendance',
       path: 'tenant/hrm/0053-hrm-schedule-auto-attendance.sql',
+    },
+    {
+      version: '0054-hrm-direct-fallback-position',
+      path: 'tenant/hrm/0054-hrm-direct-fallback-position.sql',
+    },
+    {
+      version: '0055-hrm-auto-attendance-settings',
+      path: 'tenant/hrm/0055-hrm-auto-attendance-settings.sql',
     },
     {
       version: '0021-notification-outbox-v1',

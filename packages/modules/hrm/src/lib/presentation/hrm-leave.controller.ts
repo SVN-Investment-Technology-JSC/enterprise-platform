@@ -415,9 +415,130 @@ export class HrmLeaveController {
   async deleteLeaveType(
     @Req() req: Request,
     @Param('id') id: string,
-    @Body() body: { expectedUpdatedAt?: string; reason?: string },
+    @Body() body?: { expectedUpdatedAt?: string; reason?: string },
   ) {
-    return this.updateLeaveType(req, id, { ...body, active: false });
+    const { pool, tenantId, principal } = await this.ctx.getContext(
+      req,
+      'hrm.leave.manage',
+    );
+    requireUuid(id, 'Loại nghỉ');
+    return hrmTransaction(pool, async (db) => {
+      await lockAccrualConfiguration(db, tenantId);
+      const before = (
+        await db.query(
+          'SELECT * FROM hrm_schema.leave_types WHERE tenant_id=$1 AND id=$2 AND deleted_at IS NULL FOR UPDATE',
+          [tenantId, id],
+        )
+      ).rows[0];
+      if (!before) throw new NotFoundException('Không tìm thấy loại nghỉ');
+      if (body?.expectedUpdatedAt) {
+        assertLifecycleVersion(before, body.expectedUpdatedAt);
+      }
+      if (before.is_annual) {
+        throw new ConflictException(
+          'Không thể ngừng lý do phép năm duy nhất của hệ thống',
+        );
+      }
+
+      const hasRequests =
+        Number(
+          (
+            await db.query(
+              'SELECT id FROM hrm_schema.leave_requests WHERE tenant_id=$1 AND leave_type_id=$2 LIMIT 1',
+              [tenantId, id],
+            )
+          ).rowCount ?? 0,
+        ) > 0;
+
+      const hasBalances =
+        Number(
+          (
+            await db.query(
+              'SELECT 1 FROM hrm_schema.leave_balances WHERE tenant_id=$1 AND leave_type_id=$2 AND (balance <> 0 OR pending <> 0 OR used <> 0) LIMIT 1',
+              [tenantId, id],
+            )
+          ).rowCount ?? 0,
+        ) > 0;
+
+      const inUse = hasRequests || hasBalances;
+      if (inUse) {
+        if (before.active) {
+          await db.query(
+            `UPDATE hrm_schema.leave_types SET name=COALESCE($3,name),paid=COALESCE($4,paid),requires_attachment=COALESCE($5,requires_attachment),carryover_allowed=COALESCE($6,carryover_allowed),max_carryover_days=COALESCE($7,max_carryover_days),carryover_expiry_month=COALESCE($8,carryover_expiry_month),active=false,deduct_balance=$10,negative_limit=COALESCE($11,negative_limit),updated_at=GREATEST(clock_timestamp(),updated_at+interval '1 millisecond') WHERE tenant_id=$1 AND id=$2 RETURNING *`,
+            [
+              tenantId,
+              id,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              false,
+              false,
+              null,
+            ],
+          );
+          await db.query(
+            `INSERT INTO hrm_schema.audit_log (tenant_id, actor_id, action, entity_id, detail)
+             VALUES ($1, $2, $3, $4, $5)`,
+            [
+              tenantId,
+              principal.userId,
+              'LEAVE_TYPE_DEACTIVATED',
+              id,
+              JSON.stringify({
+                before: { code: before.code, name: before.name },
+                reason: body?.reason || 'Ngừng sử dụng khi xóa lý do đã phát sinh dữ liệu',
+              }),
+            ],
+          );
+        }
+        return {
+          data: { id, deleted: false, active: false, code: before.code },
+          message: `Lý do nghỉ "${before.name}" đã phát sinh dữ liệu (đơn nghỉ/sổ phép) nên chỉ được chuyển sang ngừng sử dụng.`,
+        };
+      }
+
+      await db.query(
+        `UPDATE hrm_schema.leave_types SET name=COALESCE($3,name),paid=COALESCE($4,paid),requires_attachment=COALESCE($5,requires_attachment),carryover_allowed=COALESCE($6,carryover_allowed),max_carryover_days=COALESCE($7,max_carryover_days),carryover_expiry_month=COALESCE($8,carryover_expiry_month),active=false,deduct_balance=$10,negative_limit=COALESCE($11,negative_limit),updated_at=GREATEST(clock_timestamp(),updated_at+interval '1 millisecond') WHERE tenant_id=$1 AND id=$2 RETURNING *`,
+        [
+          tenantId,
+          id,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          false,
+          false,
+          null,
+        ],
+      );
+      await db.query(
+        `UPDATE hrm_schema.leave_types SET deleted_at=now(), active=false WHERE tenant_id=$1 AND id=$2`,
+        [tenantId, id],
+      );
+      await db.query(
+        `INSERT INTO hrm_schema.audit_log (tenant_id, actor_id, action, entity_id, detail)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [
+          tenantId,
+          principal.userId,
+          'LEAVE_TYPE_DELETED',
+          id,
+          JSON.stringify({
+            before: { code: before.code, name: before.name },
+            reason: body?.reason || 'Xóa lý do nghỉ chưa phát sinh dữ liệu',
+          }),
+        ],
+      );
+      return {
+        data: { id, deleted: true, active: false, code: before.code },
+        message: `Đã xóa lý do nghỉ "${before.name}".`,
+      };
+    });
   }
 
   // --------------------------------------------------------------------------

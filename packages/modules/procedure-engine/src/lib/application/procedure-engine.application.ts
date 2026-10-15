@@ -147,6 +147,11 @@ function autoCompleteKey(startKey: string): string {
   return `autocomplete:${startKey.trim()}`;
 }
 
+/** Nguồn được tự hoàn thành bước S của người khởi tạo (chỉ qua dịch vụ nội bộ). */
+const AUTO_COMPLETE_SOURCE_TYPES: readonly string[] = ['hrm_request', 'finance_voucher'];
+/** Nguồn phải được hỏi trước khi huỷ hiệu lực hồ sơ: module nguồn có thể đã ghi sổ/áp dụng kết quả. */
+const REVERSAL_GUARDED_SOURCE_TYPES: readonly string[] = ['hrm_request', 'finance_voucher'];
+
 /** Kết quả tự hoàn thành bước S khi khởi tạo hồ sơ. */
 export interface ProcedureAutoCompleteOutcome {
   readonly status: 'completed' | 'skipped';
@@ -1121,17 +1126,17 @@ export class ProcedureEngineApplication {
 
   /** Đơn HRM đứng sau hồ sơ phải huỷ được (kỳ công/lương chưa khoá...). */
   private async assertSourceReversible(tenantId: string, target: ProcedureInstance): Promise<void> {
-    if (target.sourceType !== 'hrm_request' || !target.sourceId) return;
+    if (!REVERSAL_GUARDED_SOURCE_TYPES.includes(target.sourceType as string) || !target.sourceId) return;
     const check = this.reversalGuard
       ? await this.reversalGuard.check(tenantId, {
-          sourceType: target.sourceType,
+          sourceType: target.sourceType as string,
           sourceId: target.sourceId,
         })
-      : { allowed: false, reason: 'Chưa cấu hình kiểm tra với HRM.' };
+      : { allowed: false, reason: 'Chưa cấu hình kiểm tra với module nguồn.' };
     if (!check.allowed) {
       throw new ProcedureEngineError(
         'conflict',
-        `Không huỷ hiệu lực được: ${check.reason ?? 'HRM không cho phép huỷ đơn gốc.'}`,
+        `Không huỷ hiệu lực được: ${check.reason ?? 'Module nguồn không cho phép huỷ chứng từ gốc.'}`,
       );
     }
   }
@@ -1432,11 +1437,11 @@ export class ProcedureEngineApplication {
     }
     if (
       input.autoCompleteInitiatorStep &&
-      (actor.userId !== PROCEDURE_SYSTEM_ACTOR_ID || input.sourceType !== 'hrm_request')
+      (actor.userId !== PROCEDURE_SYSTEM_ACTOR_ID || !AUTO_COMPLETE_SOURCE_TYPES.includes(input.sourceType as string))
     ) {
       throw new ProcedureEngineError(
         'validation',
-        'autoCompleteInitiatorStep chỉ nhận từ dịch vụ nội bộ với sourceType hrm_request.',
+        'autoCompleteInitiatorStep chỉ nhận từ dịch vụ nội bộ với sourceType hrm_request hoặc finance_voucher.',
       );
     }
     if (!input.title?.trim() || input.title.trim().length > 255) {
@@ -1808,6 +1813,35 @@ export class ProcedureEngineApplication {
     };
   }
 
+  /**
+   * Trong các hồ sơ `instanceIds` (tối đa 100), những hồ sơ đang chạy mà người dùng này đang được giao bước hiện tại
+   * (có thể duyệt / hoàn thành / từ chối / trả lại). Dùng cùng phép phân quyền với `canAct` nên HRM đưa đúng các đơn
+   * người này xử lý được vào danh sách duyệt, kể cả khi họ là người dự phòng chứ không phải quản lý trực tiếp.
+   * Không xác định được người dùng trong sơ đồ tổ chức thì trả rỗng (không đoán).
+   */
+  async getActionableInstanceIdsForService(
+    tenantId: string,
+    actorUserId: string,
+    instanceIds: readonly string[],
+  ): Promise<string[]> {
+    const ids = [...new Set((instanceIds ?? []).filter((id) => typeof id === 'string' && id.trim()))];
+    if (!actorUserId?.trim()) return [];
+    if (ids.length > 100) throw new ProcedureEngineError('validation', 'Tối đa 100 mã hồ sơ mỗi lần.');
+    if (!ids.length || !this.initiatorActors) return [];
+    const actor = await this.initiatorActors.resolve(tenantId, actorUserId.trim());
+    if (!actor) return [];
+    const wanted = new Set(ids);
+    const state = await this.store.read(tenantId);
+    return state.instances
+      .filter((item) => wanted.has(item.id) && item.status === 'running')
+      .filter((item) =>
+        deriveProcedureAuthorization(item, actor).availableActions.some((action) =>
+          ['complete', 'approve', 'reject', 'return'].includes(action),
+        ),
+      )
+      .map((item) => item.id);
+  }
+
   /** Đối soát: trạng thái và bước hiện tại của tối đa 100 hồ sơ; id không tồn tại bị bỏ qua. */
   async getInstanceStatusesForService(
     tenantId: string,
@@ -1842,10 +1876,10 @@ export class ProcedureEngineApplication {
         'idempotencyKey là bắt buộc.',
       );
     }
-    if (input.autoCompleteInitiatorStep && input.sourceType !== 'hrm_request') {
+    if (input.autoCompleteInitiatorStep && !AUTO_COMPLETE_SOURCE_TYPES.includes(input.sourceType as string)) {
       throw new ProcedureEngineError(
         'validation',
-        'autoCompleteInitiatorStep chỉ nhận khi sourceType là hrm_request.',
+        'autoCompleteInitiatorStep chỉ nhận khi sourceType là hrm_request hoặc finance_voucher.',
       );
     }
 

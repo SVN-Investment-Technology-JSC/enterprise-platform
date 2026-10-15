@@ -85,6 +85,7 @@ export function DatePickerInput({
 }
 
 export interface MonthPickerInputProps {
+  'aria-label'?: string;
   value?: string; // YYYY-MM
   onChange?: (val: string) => void; // emits YYYY-MM ('' khi xóa)
   placeholder?: string;
@@ -96,6 +97,7 @@ export interface MonthPickerInputProps {
 
 /** Ô chọn tháng (Ant Design), giá trị vào/ra YYYY-MM, hiển thị mm/yyyy. */
 export function MonthPickerInput({
+  'aria-label': ariaLabel,
   value,
   onChange,
   placeholder = 'mm/yyyy',
@@ -110,6 +112,7 @@ export function MonthPickerInput({
     <DatePicker
       picker="month"
       id={id}
+      aria-label={ariaLabel}
       className={`w-full ${className ?? ''}`.trim()}
       style={{ height, borderRadius: 8, fontSize: height >= 36 ? 13.5 : 12 }}
       value={current}

@@ -16,6 +16,7 @@ import {
   type ShiftWindow,
 } from '../domain/attendance-calculation.js';
 import {
+  coveredMinutesOf,
   resolveDayOutcome,
   type CoveredInterval,
   type DayShiftBounds,
@@ -346,6 +347,17 @@ export function computeBoardDay(input: BoardDayInput): HrmBoardDay {
   const anomalies = calc.anomalies
     .filter((a) => !(isToday && a === 'MISSING_OUT'))
     .filter((a) => !(future && a === 'NO_SHIFT'));
+  const tripInputs = input.tripIds.map((_, i) => {
+    const interval = input.tripIntervals?.[i] ?? null;
+    const dayStartMs = zonedMs(date, '00:00:00', timezone);
+    const dayEndMs = zonedMs(addDays(date, 1), '00:00:00', timezone);
+    return {
+      interval,
+      dayMinutes: interval
+        ? Math.max(0, Math.round((Math.min(interval.endMs, dayEndMs) - Math.max(interval.startMs, dayStartMs)) / 60000))
+        : null,
+    };
+  });
   const outcome = resolveDayOutcome({
     off,
     holiday,
@@ -365,17 +377,7 @@ export function computeBoardDay(input: BoardDayInput): HrmBoardDay {
       legacy: l.legacy,
     })),
     hasOt: input.ot.length > 0,
-    trips: input.tripIds.map((_, i) => {
-      const interval = input.tripIntervals?.[i] ?? null;
-      const dayStartMs = zonedMs(date, '00:00:00', timezone);
-      const dayEndMs = zonedMs(addDays(date, 1), '00:00:00', timezone);
-      return {
-        interval,
-        dayMinutes: interval
-          ? Math.max(0, Math.round((Math.min(interval.endMs, dayEndMs) - Math.max(interval.startMs, dayStartMs)) / 60000))
-          : null,
-      };
-    }),
+    trips: tripInputs,
   });
   const paid = outcome.paidMinutes;
   const issues = outcome.issues.map((a) => ANOMALY_NAMES[a] ?? a);
@@ -407,7 +409,8 @@ export function computeBoardDay(input: BoardDayInput): HrmBoardDay {
     ...input.tripIds.map((id, i) => ({
       kind: 'TRIP' as const,
       id,
-      minutes: null,
+      // Số phút ca mà riêng đơn công tác này bao phủ (nửa ngày công tác: nửa ca; cả ngày: cả ca).
+      minutes: window ? coveredMinutesOf(boundsOfWindow(window), scheduled, [], [tripInputs[i]]).minutes : null,
       label: input.tripLabels?.[i] ?? null,
     })),
     ...input.ot

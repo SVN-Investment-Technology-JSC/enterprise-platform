@@ -146,6 +146,7 @@ integration('canonical HRM Procedure linkage', () => {
       'hrm/0048-hrm-timesheet-payroll-linkage.sql',
       'hrm/0049-hrm-ot-reason-rate.sql',
       'hrm/0050-hrm-request-comments.sql',
+      'hrm/0054-hrm-direct-fallback-position.sql',
       'hrm/0034-hrm-request-project-links.sql',
       'hrm/0035-hrm-request-trip-links.sql',
       'hrm/0036-hrm-project-request-reversed.sql',

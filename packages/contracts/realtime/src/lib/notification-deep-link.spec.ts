@@ -7,6 +7,7 @@ describe('notification routes', () => {
     ['/workspace/calendar/event-a', '/modules/workspace#my-work/calendar/event-a'],
     ['/workspace/projects/project-a', '/modules/workspace?project=project-a#projects'],
     ['/hrm/requests/request-a', '/modules/hrm/requests?request=request-a'],
+    ['/modules/finance/payments/voucher-a', '/modules/finance/payments/voucher-a'],
     ['/hrm/payslips/payslip-a', '/modules/hrm/payslips?selected=payslip-a'],
     ['/maintenance/occurrences/occurrence-a', '/modules/maintenance#history/occurrence-a'],
   ])('resolves %s to the installed module route', (value, expected) => {

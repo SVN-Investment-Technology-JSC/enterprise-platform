@@ -23,7 +23,16 @@ const row = (
   sub: string | null,
   mode: 'DIRECT' | 'PROCEDURE',
   proc: string | null = null,
-): ApprovalBindingRow => ({ id, request_kind: kind, sub_type_code: sub, mode, procedure_definition_id: proc, configuration_status: 'ACTIVE' });
+  fallback: string | null = null,
+): ApprovalBindingRow => ({
+  id,
+  request_kind: kind,
+  sub_type_code: sub,
+  mode,
+  procedure_definition_id: proc,
+  fallback_position_id: fallback,
+  configuration_status: 'ACTIVE',
+});
 
 describe('chọn cách duyệt: riêng theo mã lý do, rồi tới chung của loại đơn', () => {
   it('cấu hình riêng thắng, kể cả DIRECT riêng thắng PROCEDURE chung', () => {
@@ -98,7 +107,30 @@ describe('PUT /approval-config: kiểm tra body', () => {
       reasonCode: 'SICK',
       mode: 'DIRECT',
       definitionId: null,
+      fallbackPositionId: null,
     });
+  });
+  it('nhận và xác thực fallbackPositionId khi DIRECT', () => {
+    expect(
+      parseSetApprovalRoute({
+        requestKind: 'leave',
+        mode: 'DIRECT',
+        fallbackPositionId: D_GENERAL,
+      }),
+    ).toEqual({
+      kind: 'leave',
+      reasonCode: null,
+      mode: 'DIRECT',
+      definitionId: null,
+      fallbackPositionId: D_GENERAL,
+    });
+    expect(() =>
+      parseSetApprovalRoute({
+        requestKind: 'leave',
+        mode: 'DIRECT',
+        fallbackPositionId: 'not-a-uuid',
+      }),
+    ).toThrow(BadRequestException);
   });
   it('bỏ qua procedureDefinitionId khi DIRECT và yêu cầu UUID khi PROCEDURE', () => {
     expect(parseSetApprovalRoute({ requestKind: 'ot', mode: 'DIRECT', procedureDefinitionId: D_GENERAL }).definitionId).toBeNull();

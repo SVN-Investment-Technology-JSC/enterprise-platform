@@ -36,6 +36,9 @@
       "path": "../../packages/modules/hrm/tsconfig.lib.json"
     },
     {
+      "path": "../../packages/modules/finance/tsconfig.lib.json"
+    },
+    {
       "path": "../../packages/contracts/tenancy/tsconfig.lib.json"
     },
     {

@@ -1,12 +1,10 @@
 'use client';
 import {
-  correctionPayload,
+  CORRECTION_DEFAULT_TIME,
+  correctionPunchAt,
   correctionPunchPayload,
-  suggestPunchRow,
-  type CorrectionPunchRow,
-  type CorrectionSessionRow,
+  type CorrectionPunchKind,
 } from '../hrm-correction-sessions';
-import { HrmCorrectionSessions } from '../ui/hrm-correction-sessions';
 import { HrmCorrectionPunches } from '../ui/hrm-correction-punches';
 
 import {
@@ -42,7 +40,6 @@ import {
   QuickCreateRow,
   RequestDetailCard,
   RequestListPanel,
-  RequestStatCards,
   type QuickCreateItem,
 } from '../ui/my-requests-view';
 import {
@@ -52,7 +49,6 @@ import {
   pickSelectedId,
   QUICK_CREATE_KINDS,
   requestMonthOf,
-  requestStatCards,
   type RequestStatusFilter,
 } from '../my-requests-model';
 import { currentMonthVn } from '../hrm-timesheet-format';
@@ -60,6 +56,7 @@ import { DatePickerInput } from '../ui/date-picker-input';
 import type {
   HrmRequestTimePreview,
   HrmRequestType,
+  HrmTimesheetBoard,
 } from '@enterprise-platform/contracts-hrm';
 import { splitDateTime } from '../ui/date-time-input';
 import { RequestTimeRange } from '../ui/request-time-range';
@@ -895,14 +892,45 @@ export default function RequestsPage() {
   const [swapWithEmployeeId, setSwapWithEmployeeId] = useState('');
 
   // Attendance correction state
-  const [correctionSessions, setCorrectionSessions] = useState<
-    CorrectionSessionRow[]
-  >([{ start: '', end: '' }]);
-  // Hai cách khai báo: từng mốc giờ vào / ra (mặc định, bổ sung giờ còn thiếu) hoặc theo phiên (thay cả ngày chấm công).
-  const [correctionMode, setCorrectionMode] = useState<'punch' | 'session'>('punch');
-  const [correctionPunches, setCorrectionPunches] = useState<CorrectionPunchRow[]>([
-    { kind: 'IN', at: '' },
-  ]);
+  // Mỗi đơn giải trình chỉ một mốc giờ vào hoặc giờ ra; ngày của mốc giờ luôn là "Ngày phát sinh điều chỉnh" (fromDate).
+  const [correctionKind, setCorrectionKind] = useState<CorrectionPunchKind | ''>('IN');
+  const [correctionTime, setCorrectionTime] = useState(CORRECTION_DEFAULT_TIME.IN);
+  // Giờ bắt đầu / kết thúc ca được gán của ngày phát sinh điều chỉnh: làm giờ gợi ý cho giờ vào / giờ ra.
+  const [correctionShift, setCorrectionShift] = useState<{ start: string | null; end: string | null }>({
+    start: null,
+    end: null,
+  });
+  const correctionDefaults = useMemo(
+    () => ({
+      IN: correctionShift.start || CORRECTION_DEFAULT_TIME.IN,
+      OUT: correctionShift.end || CORRECTION_DEFAULT_TIME.OUT,
+    }),
+    [correctionShift],
+  );
+  const prevCorrectionDefaults = useRef(correctionDefaults);
+
+  useEffect(() => {
+    if (selectedCatalogId !== 'correction' || !/^\d{4}-\d{2}-\d{2}$/.test(fromDate)) return;
+    let live = true;
+    hrmFetch<{ data: HrmTimesheetBoard }>(`/timesheet-board?${new URLSearchParams({ month: fromDate.slice(0, 7), self: '1' })}`)
+      .then((res) => {
+        if (!live) return;
+        const day = res.data.employees[0]?.days[fromDate];
+        setCorrectionShift({ start: day?.shiftStart ?? null, end: day?.shiftEnd ?? null });
+      })
+      .catch(() => live && setCorrectionShift({ start: null, end: null }));
+    return () => {
+      live = false;
+    };
+  }, [selectedCatalogId, fromDate]);
+
+  // Ca của ngày đổi thì giờ gợi ý đổi theo, trừ khi người dùng đã tự sửa giờ.
+  useEffect(() => {
+    const previous = prevCorrectionDefaults.current;
+    if (previous === correctionDefaults) return;
+    prevCorrectionDefaults.current = correctionDefaults;
+    if (correctionKind && correctionTime === previous[correctionKind]) setCorrectionTime(correctionDefaults[correctionKind]);
+  }, [correctionDefaults, correctionKind, correctionTime]);
 
   // Salary advance state
   const [requestedAmount, setRequestedAmount] = useState('5000000');
@@ -1953,27 +1981,9 @@ export default function RequestsPage() {
   useEffect(() => {
     void loadData();
     const todayStr = new Date().toISOString().slice(0, 10);
-    setCorrectionSessions([
-      { start: todayStr + 'T08:00:00', end: todayStr + 'T17:00:00' },
-    ]);
-    setCorrectionPunches([suggestPunchRow(todayStr, 'IN')]);
     setFromDate(todayStr);
     setToDate(todayStr);
   }, []);
-
-  // Đổi "Ngày phát sinh điều chỉnh": các mốc giờ đang nằm đúng ngày cũ chuyển theo ngày mới (giữ nguyên giờ); mốc đã chọn
-  // sang ngày khác (ví dụ giờ ra của ca qua đêm) thì giữ nguyên.
-  const previousCorrectionDate = useRef('');
-  useEffect(() => {
-    const previous = previousCorrectionDate.current;
-    previousCorrectionDate.current = fromDate;
-    if (!previous || !fromDate || previous === fromDate) return;
-    setCorrectionPunches((rows) =>
-      rows.map((row) =>
-        row.at.startsWith(`${previous}T`) ? { ...row, at: `${fromDate}${row.at.slice(10)}` } : row,
-      ),
-    );
-  }, [fromDate]);
 
   // Tổng số lượng đơn đang chờ duyệt thực tế (dùng cho badge hiển thị trên Tab)
   // Bộ lọc danh sách: tháng (theo ngày tạo), từ khóa, loại đơn và bước quy trình; trạng thái lọc thêm ở bên dưới.
@@ -2017,11 +2027,6 @@ export default function RequestsPage() {
         count: baseFiltered.filter((item) => matchesStatusFilter(item, id)).length,
       })),
     [baseFiltered],
-  );
-
-  const statCards = useMemo(
-    () => requestStatCards(requestsList, listMonth ?? currentMonthVn()),
-    [requestsList, listMonth],
   );
 
   // Đổi bộ lọc thì quay về trang đầu để không đứng ở trang không còn dữ liệu.
@@ -2963,17 +2968,18 @@ export default function RequestsPage() {
           }),
         });
       } else if (selectedCatalogId === 'correction') {
-        let sessions: ReturnType<typeof correctionPayload> | undefined;
-        let punches: ReturnType<typeof correctionPunchPayload> | undefined;
+        let punches: ReturnType<typeof correctionPunchPayload>;
         try {
           if (!saveAsDraft && !fromDate)
             throw new Error('Vui lòng chọn ngày phát sinh điều chỉnh.');
-          if (correctionMode === 'punch') punches = correctionPunchPayload(correctionPunches);
-          else sessions = correctionPayload(correctionSessions);
+          // Ngày của mốc giờ lấy từ "Ngày phát sinh điều chỉnh" nên hai ngày luôn trùng nhau.
+          punches = correctionPunchPayload([
+            { kind: correctionKind, at: correctionPunchAt(fromDate, correctionTime) },
+          ]);
         } catch (error) {
           notifyFormError(
             'Thời gian không hợp lệ',
-            error instanceof Error ? error.message : 'Phiên vào–ra không hợp lệ.',
+            error instanceof Error ? error.message : 'Giờ chấm công không hợp lệ.',
           );
           return;
         }
@@ -2987,7 +2993,7 @@ export default function RequestsPage() {
           body: JSON.stringify({
             employeeId: profile.id,
             requestDate: fromDate,
-            ...(punches ? { punches } : { sessions }),
+            punches,
             ...reasonPayload('correction', reasonId, description),
             attributes: dynamicValues,
           }),
@@ -3551,8 +3557,6 @@ export default function RequestsPage() {
           </Button>
         </div>
       </div>
-
-      <RequestStatCards cards={statCards} month={activeMonth} />
 
       {!canCreateRequest && (
         <div role="status" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
@@ -4819,45 +4823,16 @@ export default function RequestsPage() {
                     placeholder="dd/mm/yyyy"
                   />
                 </div>
-                <div className="space-y-1">
-                  <span className="block font-semibold text-slate-800">Cách khai báo</span>
-                  <div role="tablist" aria-label="Cách khai báo giải trình công" className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5 text-xs font-semibold">
-                    {(
-                      [
-                        ['punch', 'Bổ sung giờ vào / giờ ra'],
-                        ['session', 'Khai báo theo phiên vào - ra (thay cả ngày)'],
-                      ] as const
-                    ).map(([id, label]) => (
-                      <button
-                        key={id}
-                        type="button"
-                        role="tab"
-                        aria-selected={correctionMode === id}
-                        onClick={() => setCorrectionMode(id)}
-                        className={`rounded-md px-3 py-1.5 transition ${
-                          correctionMode === id
-                            ? 'bg-white text-slate-900 shadow-xs'
-                            : 'text-slate-500 hover:text-slate-800'
-                        }`}
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                {correctionMode === 'punch' ? (
-                  <HrmCorrectionPunches
-                    rows={correctionPunches}
-                    onChange={setCorrectionPunches}
-                    date={fromDate}
-                    disabled={isSubmitting}
-                  />
-                ) : (
-                  <HrmCorrectionSessions
-                    rows={correctionSessions}
-                    onChange={setCorrectionSessions}
-                  />
-                )}
+                <HrmCorrectionPunches
+                  kind={correctionKind}
+                  time={correctionTime}
+                  onChange={(next) => {
+                    setCorrectionKind(next.kind);
+                    setCorrectionTime(next.time);
+                  }}
+                  defaults={correctionDefaults}
+                  disabled={isSubmitting}
+                />
               </>
             )}
 

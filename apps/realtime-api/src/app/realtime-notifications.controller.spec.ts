@@ -109,7 +109,7 @@ describe('RealtimeNotificationsController', () => {
       controller.notifications(request(), undefined, undefined, 'yes', undefined),
     ).rejects.toBeInstanceOf(BadRequestException);
     await expect(
-      controller.notifications(request(), undefined, undefined, undefined, 'finance'),
+      controller.notifications(request(), undefined, undefined, undefined, 'crm'),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
@@ -222,7 +222,7 @@ describe('RealtimeNotificationsController', () => {
     expect(store.setPreferences).toHaveBeenCalledWith('user-a', [preference]);
     await expect(
       controller.setPreferences(request(), {
-        preferences: [{ ...preference, module: 'finance' } as never],
+        preferences: [{ ...preference, module: 'crm' } as never],
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
     await expect(

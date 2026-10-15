@@ -28,6 +28,7 @@ const TimesheetsScreen = lazyScreen(() => import('./timesheets-screen'));
 const AttendanceDataScreen = lazyScreen(() => import('./attendance-data-screen'));
 const ShiftsScreen = lazyScreen(() => import('./shifts-screen'));
 const TimesheetStandardScreen = lazyScreen(() => import('./timesheet-standard-screen'));
+const AutoAttendanceScreen = lazyScreen(() => import('./auto-attendance-screen'));
 const PayrollScreen = lazyScreen(() => import('./payroll-screen'));
 const AdvancesScreen = lazyScreen(() => import('./advances-screen'));
 const TimeSettingsScreen = lazyScreen(() => import('./time-settings-screen'));
@@ -58,6 +59,7 @@ const SCREENS: Record<HrmHubPath, Record<string, ComponentType>> = {
     schedules: WorkScheduleScreen,
     shifts: ShiftsScreen,
     'standard-work': TimesheetStandardScreen,
+    'auto-attendance': AutoAttendanceScreen,
     payroll: PayrollSettingsScreen,
     'request-reasons': RequestReasonsScreen,
     approval: ApprovalConfigScreen,

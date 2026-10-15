@@ -16,12 +16,14 @@ export const ROUTES = [
   ['/api/maintenance/', 3335],
   ['/api/inventory/', 3336],
   ['/api/workspace/', 3337],
+  ['/api/finance/', 3341],
   ['/api/auth/', 3333],
   ['/api/platform/', 3333],
   ['/modules/procedure', 3003],
   ['/modules/maintenance', 3004],
   ['/modules/inventory', 3005],
   ['/modules/hrm', 3008],
+  ['/modules/finance', 3009],
   ['/modules/workspace', 3006],
 ];
 const DEFAULT_PORT = 3002;

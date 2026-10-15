@@ -1,6 +1,9 @@
 import {
+  INTERNAL_PROJECT_OPTION_LIMIT,
   WORKSPACE_LAUNCH_URL,
+  type InternalProjectOptionList,
   type InternalProjectSummary,
+  type InternalWorkItemOption,
   type InternalWorkItemSummary,
 } from '@enterprise-platform/contracts-workspace';
 import { timezoneOf, todayKey } from '../domain/tenant-time.js';
@@ -45,6 +48,40 @@ export class InternalLookupService {
       },
       launchUrl: WORKSPACE_LAUNCH_URL,
     };
+  }
+
+  /**
+   * Dự án của cả tenant (không theo thành viên) để module khác cho chọn. Dự án bị huỷ không được chào mời:
+   * không ai hạch toán thêm vào đó.
+   */
+  async listProjects(
+    actor: WorkspaceActor,
+    query: { readonly search?: string; readonly limit?: number | string },
+  ): Promise<InternalProjectOptionList> {
+    const limit = Math.min(
+      Math.max(Math.trunc(Number(query.limit) || INTERNAL_PROJECT_OPTION_LIMIT), 1),
+      INTERNAL_PROJECT_OPTION_LIMIT,
+    );
+    const { items, total } = await this.store.project.list(actor.tenantId, {
+      search: query.search?.trim() || undefined,
+      page: 1,
+      pageSize: limit,
+    });
+    const open = items.filter((project) => project.status !== 'cancelled');
+    return {
+      items: open.map(({ id, code, name, status }) => ({ id, code, name, status })),
+      truncated: total > items.length,
+    };
+  }
+
+  /** Công việc của một dự án (cây đã làm phẳng, theo thứ tự cây), bỏ công việc đã huỷ hiệu lực. */
+  async projectWorkItems(actor: WorkspaceActor, projectId: string): Promise<readonly InternalWorkItemOption[]> {
+    const project = await this.store.project.findById(actor.tenantId, projectId);
+    if (!project) throw new ProjectNotFoundError(projectId);
+    const items = await this.store.workItem.listByProject(actor.tenantId, projectId);
+    return items
+      .filter((item) => item.status !== 'cancelled')
+      .map(({ id, code, title, status, depth }) => ({ id, code, title, status, depth }));
   }
 
   async project(actor: WorkspaceActor, projectId: string): Promise<InternalProjectSummary> {

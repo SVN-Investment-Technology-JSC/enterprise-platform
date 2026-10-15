@@ -10,7 +10,7 @@
   "scripts": {
     "check": "nx run-many -t lint typecheck test build --nxBail",
     "check:affected": "nx affected -t lint typecheck test build --nxBail",
-    "dev": "node tools/dev.mjs run-many -t dev serve --projects=web,procedure-web,maintenance-web,inventory-web,workspace-web,hrm-web,api,procedure-api,maintenance-api,inventory-api,hrm-api,workspace-api,realtime-api,notification-worker,worker --configuration=development --parallel=2 --outputStyle=stream",
+    "dev": "node tools/dev.mjs run-many -t dev serve --projects=web,procedure-web,maintenance-web,inventory-web,workspace-web,hrm-web,finance-web,api,procedure-api,maintenance-api,inventory-api,hrm-api,finance-api,workspace-api,realtime-api,notification-worker,worker --configuration=development --parallel=2 --outputStyle=stream",
     "dev:api": "node tools/dev.mjs serve api",
     "dev:web": "node tools/dev.mjs dev web",
     "dev:worker": "node tools/dev.mjs serve worker",
@@ -29,6 +29,9 @@
     "dev:hrm": "node tools/dev.mjs run-many -t dev serve --projects=hrm-web,hrm-api --parallel=2 --outputStyle=stream",
     "dev:hrm-api": "node tools/dev.mjs serve hrm-api",
     "dev:hrm-web": "node tools/dev.mjs dev hrm-web",
+    "dev:finance": "node tools/dev.mjs run-many -t dev serve --projects=finance-web,finance-api --parallel=2 --outputStyle=stream",
+    "dev:finance-api": "node tools/dev.mjs serve finance-api",
+    "dev:finance-web": "node tools/dev.mjs dev finance-web",
     "dev:workspace": "node tools/dev.mjs run-many -t dev serve --projects=workspace-web,workspace-api --parallel=2 --outputStyle=stream",
     "dev:workspace-api": "node tools/dev.mjs serve workspace-api",
     "dev:workspace-web": "node tools/dev.mjs dev workspace-web",

@@ -749,6 +749,24 @@ export class WorkspaceController {
     return this.execute(() => this.internalLookup.workItem(this.actor(request), id));
   }
 
+  /** Danh sách dự án của tenant cho module khác cho chọn (Tài chính hạch toán thu chi); chỉ mã, tên, trạng thái. */
+  @Get('internal/projects')
+  internalProjects(
+    @Req() request: WorkspaceRequest,
+    @Query('search') search?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.execute(() => this.internalLookup.listProjects(this.actor(request), { search, limit }));
+  }
+
+  /** Công việc của một dự án cho module khác cho chọn. */
+  @Get('internal/projects/:id/work-items')
+  internalProjectWorkItems(@Req() request: WorkspaceRequest, @Param('id') id: string) {
+    return this.execute(async () => ({
+      items: await this.internalLookup.projectWorkItems(this.actor(request), id),
+    }));
+  }
+
   /** Nhãn và số liệu tiến độ của dự án cho module khác; không tài chính. */
   @Get('internal/projects/:id')
   internalProject(@Req() request: WorkspaceRequest, @Param('id') id: string) {

@@ -20,6 +20,8 @@ function fakeDeps(options: {
   allowSelf?: boolean;
   subordinates?: string[];
   missing?: boolean;
+  fallbackPositionId?: string | null;
+  actorHoldsPosition?: boolean;
 }): HrmApprovalDeps {
   const orgScope: HrmOrgScopePort = {
     subordinateUserIds: async () => new Set(options.subordinates ?? []),
@@ -41,6 +43,26 @@ function fakeDeps(options: {
             rows: options.link ? [{ '?column?': 1 }] : [],
             rowCount: options.link ? 1 : 0,
           };
+        if (sql.includes('organization_node_assignments')) {
+          return {
+            rows: options.actorHoldsPosition ? [{ '?column?': 1 }] : [],
+            rowCount: options.actorHoldsPosition ? 1 : 0,
+          };
+        }
+        if (sql.includes('request_procedure_bindings')) {
+          return {
+            rows: options.fallbackPositionId
+              ? [
+                  {
+                    sub_type_code: null,
+                    mode: 'DIRECT',
+                    fallback_position_id: options.fallbackPositionId,
+                  },
+                ]
+              : [],
+            rowCount: options.fallbackPositionId ? 1 : 0,
+          };
+        }
         if (options.missing) return { rows: [], rowCount: 0 };
         return {
           rows: [
@@ -138,6 +160,21 @@ describe('assertCanDecide', () => {
         { id: 'r1' },
         'leave',
         fakeDeps({ subordinates: [OWNER] }),
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  it('người giữ chức danh duyệt dự phòng được duyệt đơn dù không thuộc cấp dưới', async () => {
+    await expect(
+      assertCanDecide(
+        manager,
+        { id: 'r1' },
+        'leave',
+        fakeDeps({
+          subordinates: ['someone-else'],
+          fallbackPositionId: 'pos-fallback',
+          actorHoldsPosition: true,
+        }),
       ),
     ).resolves.toBeUndefined();
   });

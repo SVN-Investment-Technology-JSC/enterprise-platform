@@ -1162,7 +1162,9 @@ export function WorkspaceBoard({
               Hồ sơ không mở lại: chuyển sang "Đã huỷ hiệu lực", giữ nguyên lịch sử phê duyệt.
               {selected.sourceType === 'hrm_request'
                 ? ' Đơn HRM đứng sau hồ sơ cũng bị huỷ hiệu lực (công, phép, tạm ứng được hoàn lại).'
-                : ''}
+                : selected.sourceType === 'finance_voucher'
+                  ? ' Phiếu tài chính đã ghi sổ thì không huỷ hiệu lực được: huỷ phiếu (đảo bút toán) trong Tài chính trước.'
+                  : ''}
               {selected.workspaceLink?.status === 'linked'
                 ? ` Công việc ${selected.workspaceLink.workItemCode ?? ''} của dự án ${selected.workspaceLink.projectCode} được báo để xử lý theo.`
                 : ''}{' '}
@@ -1653,7 +1655,7 @@ export function WorkspaceBoard({
                   </div>
                   <div>
                     <dt>Nguồn</dt>
-                    <dd>{selected.sourceType === 'hrm_request' ? <a className="text-blue-600 underline" href={`/modules/hrm/approvals?workflow=${encodeURIComponent(selected.sourceId||'')}`}>Đơn HRM · Xem nội dung và chứng từ</a> : selected.sourceType === 'maintenance_occurrence' ? 'Lịch bảo trì' : 'Tạo thủ công'}</dd>
+                    <dd>{selected.sourceType === 'hrm_request' ? <a className="text-blue-600 underline" href={`/modules/hrm/approvals?workflow=${encodeURIComponent(selected.sourceId||'')}`}>Đơn HRM · Xem nội dung và chứng từ</a> : selected.sourceType === 'finance_voucher' ? <a className="text-blue-600 underline" href={`/modules/finance/open/${encodeURIComponent(selected.sourceId||'')}`}>Phiếu tài chính · Xem nội dung và chứng từ</a> : selected.sourceType === 'maintenance_occurrence' ? 'Lịch bảo trì' : 'Tạo thủ công'}</dd>
                   </div>
                   <div>
                     <dt>{selected.completedAt ? 'Hoàn tất' : 'Mở đơn'}</dt>

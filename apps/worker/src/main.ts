@@ -36,6 +36,14 @@ import {
   receiveWorkspaceProjectRequestEvent,
 } from '@enterprise-platform/module-hrm';
 import {
+  FINANCE_INTEGRATION_QUEUE,
+  FINANCE_PROCEDURE_EVENT_TYPES,
+  financeProcedureReady,
+  isFinanceProcedureEvent,
+  processFinanceProcedureSync,
+  receiveFinanceProcedureEvent,
+} from '@enterprise-platform/module-finance';
+import {
   createProcedureWorkspaceEvents,
   PROCEDURE_WORKSPACE_EVENT_TYPES,
 } from '@enterprise-platform/module-procedure-engine';
@@ -103,6 +111,11 @@ const hrmConsumer = new RabbitMqConsumer(
       ...HRM_WORKSPACE_EVENT_BINDINGS,
     ],
   },
+);
+// Tài chính nhận kết quả duyệt phiếu từ Quy trình bằng hàng đợi riêng; việc ghi sổ do chính module Tài chính làm.
+const financeConsumer = new RabbitMqConsumer(
+  process.env.RABBITMQ_URL ?? 'amqp://platform:platform@localhost:5672',
+  { queue: FINANCE_INTEGRATION_QUEUE, bindings: [...FINANCE_PROCEDURE_EVENT_TYPES] },
 );
 // Liên kết Quy trình ↔ Workspace đi bằng sự kiện: mỗi module có một hàng đợi
 // riêng nhận sự kiện của module kia, và tự ghi dữ liệu của chính nó.
@@ -240,6 +253,37 @@ async function processHrmJobs(database: TenantDatabaseReference) {
         outcome.reason instanceof Error ? outcome.reason.message : 'Job failed',
       );
 }
+/**
+ * Kết quả quy trình cho phiếu tài chính. Chỉ nhận sự kiện của nguồn `finance_voucher`; module chưa bật hoặc chưa migrate
+ * thì thử lại sau (tránh mất kết quả duyệt), còn lỗi nghiệp vụ khi ghi sổ đã được module ghi vào phiếu nên không ném ra ngoài.
+ */
+void financeConsumer
+  .start(async (event) => {
+    if (!isFinanceProcedureEvent(event)) return;
+    const database = await activeTenantDatabase(event.tenantId);
+    if (!database) return;
+    if (!(await moduleEnabled(event.tenantId, 'finance')))
+      throw new TransientConsumerError('Tài chính entitlement chưa hoạt động');
+    const outcome = await withActiveTenant(
+      platformPool,
+      event.tenantId,
+      async () => {
+        const pool = (await tenantPools.forTenant(database)) as unknown as Pool;
+        if (!(await financeProcedureReady(pool)))
+          throw new TransientConsumerError('Tài chính cần migration trước khi nhận kết quả quy trình');
+        await receiveFinanceProcedureEvent(pool, event.tenantId, event);
+      },
+      { mode: 'shared' },
+    );
+    if (!outcome.executed && outcome.reason === 'busy')
+      throw new TransientConsumerError(`Tenant ${event.tenantId} đang bận (khóa exclusive)`);
+  })
+  .catch((error) =>
+    console.error(
+      'Finance consumer requires restart:',
+      error instanceof Error ? error.message : 'Connection failed',
+    ),
+  );
 void hrmConsumer
   .start(async (event) => {
     const fromWorkspace =
@@ -415,7 +459,15 @@ async function reportOutboxHealth(tenantId: string, pool: any): Promise<void> {
   }
 }
 
-/** Một lần withActiveTenant (khóa SHARED) cho mỗi tenant mỗi tick: outbox rồi HRM jobs, tuần tự. */
+// Chạy bên trong withActiveTenant (khóa SHARED) của tick. Tạo hồ sơ quy trình còn thiếu, đối soát hồ sơ đang chạy và áp lại kết quả kẹt.
+async function processFinanceJobs(database: TenantDatabaseReference) {
+  if (!(await moduleEnabled(database.tenantId, 'finance'))) return;
+  const pool = (await tenantPools.forTenant(database)) as unknown as Pool;
+  if (!(await financeProcedureReady(pool))) return;
+  await processFinanceProcedureSync(pool, database.tenantId);
+}
+
+/** Một lần withActiveTenant (khóa SHARED) cho mỗi tenant mỗi tick: outbox rồi HRM jobs và Finance jobs, tuần tự. */
 async function processTenantTick(
   database: TenantDatabaseReference,
 ): Promise<void> {
@@ -424,7 +476,7 @@ async function processTenantTick(
     database.tenantId,
     async () => {
       const errors: unknown[] = [];
-      for (const step of [flushTenantOutbox, processHrmJobs]) {
+      for (const step of [flushTenantOutbox, processHrmJobs, processFinanceJobs]) {
         try {
           await step(database);
         } catch (error) {
@@ -567,6 +619,7 @@ async function shutdown() {
     publisher.close(),
     consumer.close(),
     hrmConsumer.close(),
+    financeConsumer.close(),
     workspaceConsumer.close(),
     procedureConsumer.close(),
     tenantPools.closeAll(),

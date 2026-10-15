@@ -5,7 +5,7 @@ const NOW = Date.parse('2026-10-11T12:00:00Z');
 const at = (time: string) => `2026-10-11T${time}:00.000Z`;
 
 describe('parseCorrectionPunches', () => {
-  it('không gửi gì thì không phải đơn theo mốc giờ', () => {
+  it('không gửi gì thì trả mảng rỗng (đơn mới sẽ bị từ chối ở bộ điều khiển)', () => {
     expect(parseCorrectionPunches(undefined, NOW)).toEqual([]);
     expect(parseCorrectionPunches(null, NOW)).toEqual([]);
   });
@@ -15,38 +15,21 @@ describe('parseCorrectionPunches', () => {
     expect(parseCorrectionPunches([{ kind: 'OUT', at: at('10:00') }], NOW)).toEqual([{ kind: 'OUT', at: at('10:00') }]);
   });
 
-  it('cả hai loại: giờ ra phải sau giờ vào và trong 24 giờ', () => {
-    const ok = parseCorrectionPunches(
-      [
-        { kind: 'OUT', at: at('10:00') },
-        { kind: 'IN', at: at('01:00') },
-      ],
-      NOW,
-    );
-    expect(ok.map((p) => p.kind)).toEqual(['OUT', 'IN']);
+  it('mỗi đơn chỉ đúng một mốc: nhiều hơn một (kể cả một vào + một ra) hoặc rỗng đều bị từ chối', () => {
     expect(() =>
-      parseCorrectionPunches([{ kind: 'IN', at: at('10:00') }, { kind: 'OUT', at: at('09:00') }], NOW),
-    ).toThrow('Giờ ra phải sau giờ vào');
-    expect(() =>
-      parseCorrectionPunches(
-        [{ kind: 'IN', at: '2026-10-09T01:00:00Z' }, { kind: 'OUT', at: '2026-10-11T01:00:00Z' }],
-        NOW,
-      ),
-    ).toThrow('tối đa 24 giờ');
-  });
-
-  it('bắt buộc chọn loại, một giờ vào và một giờ ra tối đa, không ở tương lai', () => {
-    expect(() => parseCorrectionPunches([{ kind: '', at: at('01:00') }], NOW)).toThrow(BadRequestException);
-    expect(() => parseCorrectionPunches([], NOW)).toThrow('Cần khai báo');
+      parseCorrectionPunches([{ kind: 'IN', at: at('01:00') }, { kind: 'OUT', at: at('10:00') }], NOW),
+    ).toThrow('chỉ khai báo một');
     expect(() =>
       parseCorrectionPunches([{ kind: 'IN', at: at('01:00') }, { kind: 'IN', at: at('02:00') }], NOW),
-    ).toThrow('một giờ vào');
-    expect(() =>
-      parseCorrectionPunches([{ kind: 'OUT', at: at('01:00') }, { kind: 'OUT', at: at('02:00') }], NOW),
-    ).toThrow('một giờ ra');
+    ).toThrow(BadRequestException);
+    expect(() => parseCorrectionPunches([], NOW)).toThrow('chỉ khai báo một');
+    expect(() => parseCorrectionPunches('x', NOW)).toThrow('chỉ khai báo một');
+  });
+
+  it('bắt buộc chọn loại, giờ hợp lệ và không ở tương lai', () => {
+    expect(() => parseCorrectionPunches([{ kind: '', at: at('01:00') }], NOW)).toThrow(BadRequestException);
     expect(() => parseCorrectionPunches([{ kind: 'OUT', at: '2026-10-11T13:00:00Z' }], NOW)).toThrow('tương lai');
     expect(() => parseCorrectionPunches([{ kind: 'IN', at: 'không phải ngày' }], NOW)).toThrow('không hợp lệ');
-    expect(() => parseCorrectionPunches('x', NOW)).toThrow('Cần khai báo');
   });
 });
 
