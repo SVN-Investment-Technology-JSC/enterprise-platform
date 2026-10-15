@@ -250,6 +250,34 @@ describe('NotificationProvider', () => {
     offStatus();
   });
 
+  it('routes procedure comment signals to the bus without touching the notification sequence', async () => {
+    const fixture = fakeClient();
+    await renderProvider(fixture.client);
+    const handlers = fixture.getHandlers();
+    const heard = jest.fn();
+    const off = subscribeRealtime(heard);
+
+    for (const event of ['procedure.comment.changed', 'procedure.comment.typing'] as const) {
+      await act(async () => {
+        handlers?.onEvent({
+          id: `${event}:1`,
+          event,
+          version: 1,
+          tenantId: 'tenant-a',
+          userId: 'user-a',
+          sequence: 1,
+          occurredAt: '2026-10-01T07:00:00.000Z',
+          data: { instanceId: 'i1' },
+        });
+      });
+    }
+
+    expect(heard).toHaveBeenCalledTimes(2);
+    expect(screen.getByLabelText('sequence').textContent).toBe('10');
+    expect(fixture.client.sync).not.toHaveBeenCalled();
+    off();
+  });
+
   it('routes typing signals to the bus too, and exposes the socket sender while mounted', async () => {
     const emit = jest.fn();
     let captured: NotificationSocketHandlers | undefined;

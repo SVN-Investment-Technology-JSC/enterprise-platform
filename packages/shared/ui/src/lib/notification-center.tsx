@@ -252,7 +252,12 @@ export function NotificationProvider({ children, client: suppliedClient }: Notif
             if (!active) return;
             // Sự kiện không thuộc chuỗi thông báo (sequence riêng) phải đi đường
             // khác, nếu không sẽ làm lệch `lastSequence` và gây đồng bộ lại vô ích.
-            if (event.event === 'workspace.chat.changed' || event.event === 'workspace.chat.typing') {
+            if (
+              event.event === 'workspace.chat.changed' ||
+              event.event === 'workspace.chat.typing' ||
+              event.event === 'procedure.comment.changed' ||
+              event.event === 'procedure.comment.typing'
+            ) {
               publishRealtimeEvent(event);
               return;
             }

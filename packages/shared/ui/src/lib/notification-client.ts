@@ -81,6 +81,8 @@ const NOTIFICATION_EVENTS = [
   // chuyển nó sang `realtime-bus` thay vì đưa vào chuỗi thông báo có thứ tự.
   'workspace.chat.changed',
   'workspace.chat.typing',
+  'procedure.comment.changed',
+  'procedure.comment.typing',
 ] as const;
 
 export class BrowserNotificationClient implements NotificationClient {
