@@ -172,13 +172,6 @@ export function receivableLeft(contractValue: number | null, received: number): 
   return contractValue == null ? null : Math.max(round2(contractValue - received), 0);
 }
 
-/** Đường mở phiếu mới ở module Tài chính, điền sẵn hạch toán cho dự án hoặc công việc (Tài chính đọc `?projectId=&workItemId=`). */
-export function newVoucherHref(kind: ProjectVoucherKind, projectId: string, workItemId?: string | null): string {
-  const query = new URLSearchParams({ projectId });
-  if (workItemId) query.set('workItemId', workItemId);
-  return `/modules/finance/${kind === 'RECEIPT' ? 'receipts' : 'payments'}/new?${query.toString()}`;
-}
-
 const ZERO_TOTALS: ProjectVoucherTotals = { received: 0, paid: 0, pendingReceived: 0, pendingPaid: 0, receiptCount: 0, paymentCount: 0 };
 
 /** Bản Tài chính cũ chưa trả phần chung và phần theo công việc: coi như chưa có, để màn hình không vỡ. */

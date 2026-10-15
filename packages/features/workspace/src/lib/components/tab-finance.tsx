@@ -14,7 +14,6 @@ import {
   buildWorkItemMoneyRows,
   classifyProjectVoucherResponse,
   filterProjectVouchers,
-  newVoucherHref,
   projectLevelMoneyRow,
   projectVoucherHref,
   projectVoucherNet,
@@ -113,21 +112,9 @@ export function TabFinance({ projectId, initial, onChanged }: TabFinanceProps) {
       <section className={styles.panel}>
         <h3 className={styles.panelHeadRow}>
           Số liệu dự án
-          <span className={styles.rowActions}>
-            {data ? (
-              <>
-                <a className={styles.buttonGhost} href={newVoucherHref('RECEIPT', projectId)} title="Lập phiếu thu hạch toán cho dự án">
-                  Lập phiếu thu
-                </a>
-                <a className={styles.buttonGhost} href={newVoucherHref('PAYMENT', projectId)} title="Lập phiếu chi hạch toán cho dự án">
-                  Lập phiếu chi
-                </a>
-              </>
-            ) : null}
-            <button type="button" className={styles.buttonGhost} onClick={() => setEditing(true)}>
-              <Pencil size={13} /> Sửa hợp đồng
-            </button>
-          </span>
+          <button type="button" className={styles.buttonGhost} onClick={() => setEditing(true)}>
+            <Pencil size={13} /> Sửa hợp đồng
+          </button>
         </h3>
         <dl className={styles.definitionList}>
           <dt>Giá trị hợp đồng</dt>
@@ -179,7 +166,7 @@ export function TabFinance({ projectId, initial, onChanged }: TabFinanceProps) {
         <section className={styles.panel}>
           <h3 className={styles.panelHeadRow}>
             Thu chi theo công việc
-            <span className={styles.muted}>Chi đã duyệt hạch toán cho công việc là chi phí thực tế của công việc đó.</span>
+            <span className={styles.muted}>Chi đã duyệt hạch toán cho công việc là chi phí thực tế của công việc đó. Lập và duyệt phiếu ở module Tài chính.</span>
           </h3>
           <div className={styles.tableScroll}>
             <table className={styles.table}>
@@ -192,7 +179,6 @@ export function TabFinance({ projectId, initial, onChanged }: TabFinanceProps) {
                   <th className={styles.numeric}>Đã chi (thực tế)</th>
                   <th className={styles.numeric}>Còn lại (thu - chi)</th>
                   <th className={styles.numeric}>Chờ duyệt (thu / chi)</th>
-                  <th />
                 </tr>
               </thead>
               <tbody>
@@ -206,16 +192,6 @@ export function TabFinance({ projectId, initial, onChanged }: TabFinanceProps) {
                     <td className={row.balance < 0 ? `${styles.numeric} ${styles.cellDanger}` : styles.numeric}>{formatVnd(row.balance)}</td>
                     <td className={styles.numeric}>
                       {row.pendingReceived || row.pendingPaid ? `${formatVnd(row.pendingReceived)} / ${formatVnd(row.pendingPaid)}` : '—'}
-                    </td>
-                    <td>
-                      <div className={styles.rowActions}>
-                        <a className={styles.linkButton} href={newVoucherHref('PAYMENT', projectId, row.workItemId)}>
-                          Lập phiếu chi
-                        </a>
-                        <a className={styles.linkButton} href={newVoucherHref('RECEIPT', projectId, row.workItemId)}>
-                          Lập phiếu thu
-                        </a>
-                      </div>
                     </td>
                   </tr>
                 ))}
@@ -239,7 +215,6 @@ export function TabFinance({ projectId, initial, onChanged }: TabFinanceProps) {
                       ? `${formatVnd(data.totals.pendingReceived)} / ${formatVnd(data.totals.pendingPaid)}`
                       : '—'}
                   </td>
-                  <td />
                 </tr>
               </tbody>
             </table>

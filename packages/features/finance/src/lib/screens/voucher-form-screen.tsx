@@ -107,22 +107,6 @@ function emptyState(): FormState {
   };
 }
 
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-/**
- * Hạch toán điền sẵn từ đường dẫn `?projectId=&workItemId=`: trang dự án bên Workspace mở phiếu mới đã gắn dự án hoặc công việc.
- * Chỉ nhận mã dạng UUID; Tài chính vẫn tra lại tên dự án/công việc ở Workspace khi lưu, nên đường dẫn không tự đặt được nhãn.
- */
-export function allocationFromQuery(search: string): Pick<FormState, 'allocType' | 'allocProjectId' | 'allocWorkItemId'> | null {
-  const query = new URLSearchParams(search);
-  const projectId = query.get('projectId')?.toLowerCase() ?? '';
-  if (!UUID_PATTERN.test(projectId)) return null;
-  const workItemId = query.get('workItemId')?.toLowerCase() ?? '';
-  return UUID_PATTERN.test(workItemId)
-    ? { allocType: 'WORK_ITEM', allocProjectId: projectId, allocWorkItemId: workItemId }
-    : { allocType: 'PROJECT', allocProjectId: projectId, allocWorkItemId: '' };
-}
-
 function fromVoucher(voucher: FinanceVoucher): FormState {
   return {
     voucherDate: voucher.voucherDate,
@@ -257,11 +241,7 @@ export default function VoucherFormScreen({ kind, id }: { kind: FinanceVoucherKi
             setStoredWorkItem({ id: voucher.allocation.workItemId, code: voucher.allocation.workItemCode ?? '', title: voucher.allocation.workItemTitle ?? '', status: '', depth: 0 });
         } else {
           const next = await financeFetch<{ code: string }>(`/vouchers/next-code${toQuery({ kind, date: todayVn() })}`);
-          if (active) {
-            setCode(next.code);
-            const prefill = kind === 'TRANSFER' ? null : allocationFromQuery(window.location.search);
-            if (prefill) setForm((current) => ({ ...current, ...prefill }));
-          }
+          if (active) setCode(next.code);
         }
       } catch (e) {
         if (active) setError(financeErrorMessage(e, 'Không tải được dữ liệu.'));

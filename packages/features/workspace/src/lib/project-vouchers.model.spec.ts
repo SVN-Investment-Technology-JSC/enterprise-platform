@@ -3,7 +3,6 @@ import {
   buildWorkItemMoneyRows,
   classifyProjectVoucherResponse,
   filterProjectVouchers,
-  newVoucherHref,
   normalizeProjectVoucherList,
   projectLevelMoneyRow,
   projectVoucherHref,
@@ -121,12 +120,6 @@ describe('thu chi theo công việc', () => {
     expect(receivableLeft(200_000_000, 120_000_000)).toBe(80_000_000);
     expect(receivableLeft(100, 250)).toBe(0);
     expect(receivableLeft(null, 10)).toBeNull();
-  });
-
-  it('đường lập phiếu mới điền sẵn dự án và công việc', () => {
-    expect(newVoucherHref('PAYMENT', 'p1')).toBe('/modules/finance/payments/new?projectId=p1');
-    expect(newVoucherHref('RECEIPT', 'p1', 'w1')).toBe('/modules/finance/receipts/new?projectId=p1&workItemId=w1');
-    expect(newVoucherHref('RECEIPT', 'p1', null)).toBe('/modules/finance/receipts/new?projectId=p1');
   });
 
   it('chuẩn hoá phản hồi thiếu trường', () => {
