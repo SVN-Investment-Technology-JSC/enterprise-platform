@@ -7,10 +7,38 @@ import type {
   MaintenanceProcedureCatalogEntry,
   MaintenanceSchedule,
   MaintenanceSettingsEntry,
+  MaintenanceTransport,
+  MaintenanceTransportMode,
   UpdateMaintenanceScheduleRequest,
 } from '@enterprise-platform/contracts-maintenance';
 
 export const MAINTENANCE_STORE = Symbol('MAINTENANCE_STORE');
+
+/** Lựa chọn phương tiện của phiếu sự cố đã kiểm tra, sẵn sàng ghi. Xe công ty có đủ xe, tài xế và khung giờ. */
+export interface SaveIncidentTransport {
+  readonly incidentId: string;
+  readonly sourceLabel: string;
+  readonly requesterUserId: string;
+  readonly mode: MaintenanceTransportMode;
+  readonly detail?: string | null;
+  readonly vehicleId?: string;
+  readonly driverId?: string;
+  readonly startAt?: string;
+  readonly endAt?: string;
+  readonly destination?: string | null;
+}
+
+/**
+ * Phương tiện của phiếu sự cố. Xe công ty chỉ được GIỮ ở HRM: lựa chọn và sự kiện `maintenance.fleet-booking.*`
+ * được ghi trong cùng một transaction, HRM trả lời `confirmed` hoặc `conflicted`.
+ */
+export interface IncidentTransportStore {
+  find(tenantId: string, incidentId: string): Promise<MaintenanceTransport | undefined>;
+  /** Ghi lựa chọn mới; không đổi gì so với bản đang giữ thì không phát lại sự kiện. */
+  save(tenantId: string, input: SaveIncidentTransport): Promise<MaintenanceTransport>;
+  /** Bỏ phương tiện của phiếu; đang giữ xe thì trả xe. */
+  clear(tenantId: string, incidentId: string): Promise<void>;
+}
 
 export interface MaintenanceActor {
   readonly tenantId: string;
@@ -35,6 +63,7 @@ export interface MaintenanceSnapshot {
 }
 
 export interface MaintenanceStore {
+  readonly fleetTransport: IncidentTransportStore;
   read(tenantId: string): Promise<MaintenanceSnapshot>;
 
   /**

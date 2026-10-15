@@ -2,6 +2,7 @@ import {
   Activity,
   CalendarClock,
   CalendarDays,
+  Car,
   ClipboardCheck,
   Clock,
   FileText,
@@ -55,6 +56,7 @@ export const hrmNavigationSections: NavSection[] = [
       { id: 'timekeeping', label: 'Bảng công', icon: CalendarClock, href: '/timekeeping' },
       { id: 'leave', label: 'Phép năm', icon: CalendarDays, href: '/leave' },
       { id: 'payroll', label: 'Lương và chi trả', icon: TrendingUp, href: '/payroll' },
+      { id: 'fleet', label: 'Lịch xe', icon: Car, href: '/fleet' },
     ],
   },
   {

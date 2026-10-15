@@ -18,7 +18,7 @@ describe('HRM role templates', () => {
     const names = HRM_ROLE_TEMPLATES.map((t) => t.name);
     expect(new Set(keys).size).toBe(keys.length);
     expect(new Set(names).size).toBe(names.length);
-    expect(HRM_ROLE_TEMPLATES).toHaveLength(9);
+    expect(HRM_ROLE_TEMPLATES).toHaveLength(10);
   });
 
   it('keeps payroll duties separated', () => {

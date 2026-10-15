@@ -2,6 +2,7 @@ import type {
   CompleteMaintenanceOccurrenceRequest,
   CreateMaintenanceIncidentRequest,
   CreateMaintenanceScheduleRequest,
+  MaintenanceFleetAvailability,
   MaintenanceSchedule,
   MaintenanceHistoryFilter,
   MaintenanceHistoryPage,
@@ -183,6 +184,12 @@ export function createMaintenanceIncident(
     method: 'POST',
     body: JSON.stringify(input),
   });
+}
+
+/** Xe và tài xế còn trống (kèm khoảng bận) trong một khung giờ; dữ liệu do HRM trả lời. */
+export async function loadFleetAvailability(from: string, to: string): Promise<MaintenanceFleetAvailability> {
+  const params = new URLSearchParams({ from, to });
+  return (await request<{ data: MaintenanceFleetAvailability }>(`/fleet/availability?${params}`, { cache: 'no-store' })).data;
 }
 
 export function completeMaintenanceOccurrence(

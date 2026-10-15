@@ -4,6 +4,7 @@ import {
   inTransaction,
 } from '@enterprise-platform/adapter-database';
 import { createIntegrationEvent } from '@enterprise-platform/contracts-integration';
+import { createFleetTransportStore } from './postgres-fleet-transport.js';
 import type {
   WorkItemProcedureRequest,
   CalendarEvent,
@@ -3019,6 +3020,8 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
       );
     },
   };
+
+  readonly fleetTransport = createFleetTransportStore((tenantId) => this.poolFor(tenantId));
 
   readonly integration = {
     emit: async (tenantId: string, input: OutboxInput) => {

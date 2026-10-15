@@ -128,6 +128,7 @@ export function RequestTypeDialog({
   const [description, setDescription] = useState(row?.description ?? '');
   const [timeMode, setTimeMode] = useState<HrmRequestTimeMode>(row?.timeMode ?? 'RANGE_DATETIME');
   const [requiresAttachment, setRequiresAttachment] = useState(row?.requiresAttachment ?? false);
+  const [requiresTransport, setRequiresTransport] = useState(row?.requiresTransport ?? false);
   const [active, setActive] = useState(row?.active ?? true);
   const [fields, setFields] = useState<FieldRow[]>(toRows(row?.fields));
   const [busy, setBusy] = useState(false);
@@ -167,6 +168,7 @@ export function RequestTypeDialog({
           ...common,
           timeMode,
           requiresAttachment,
+          requiresTransport,
           fields: buildFieldDefinitions(fields),
         };
     setBusy(true);
@@ -304,6 +306,20 @@ export function RequestTypeDialog({
                       <p className="text-xs font-medium text-slate-700">Cần chứng từ</p>
                       <p className="text-[11px] leading-snug text-slate-500">Người làm đơn phải đính kèm chứng từ.</p>
                     </div>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3">
+                  <LeaveSwitch
+                    label="Cần phương tiện"
+                    checked={requiresTransport}
+                    disabled={busy}
+                    onChange={setRequiresTransport}
+                  />
+                  <div>
+                    <p className="text-xs font-medium text-slate-700">Cần phương tiện</p>
+                    <p className="text-[11px] leading-snug text-slate-500">
+                      Form đơn có khối chọn xe công ty hoặc phương tiện tự sắp xếp; xe công ty được giữ chỗ trên Lịch xe.
+                    </p>
                   </div>
                 </div>
 

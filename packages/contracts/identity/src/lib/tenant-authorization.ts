@@ -331,6 +331,16 @@ export const HRM_PERMISSION_ACTIONS = [
     label: 'Xem nhật ký nghiệp vụ',
   },
   {
+    key: 'hrm.fleet.read',
+    group: 'HRM · Lịch xe',
+    label: 'Xem lịch xe công ty',
+  },
+  {
+    key: 'hrm.fleet.manage',
+    group: 'HRM · Lịch xe',
+    label: 'Quản lý danh mục xe và tài xế',
+  },
+  {
     key: 'hrm.read',
     group: 'HRM · Truy cập',
     label: 'Vào HRM và xem danh mục dùng chung',
@@ -637,6 +647,7 @@ export function expandTenantActions(actions: readonly string[]): string[] {
       'hrm.schedule.manage': ['hrm.schedule.read'],
       'hrm.schedule.bulk': ['hrm.schedule.manage', 'hrm.schedule.read'],
       'hrm.schedule.calendar': ['hrm.schedule.read'],
+      'hrm.fleet.manage': ['hrm.fleet.read'],
       // Quyền duyệt chỉ cho xử lý đơn thuộc phạm vi của người duyệt; KHÔNG kéo theo quyền đọc toàn tenant
       // (hrm.request.read, hrm.attendance.read, hrm.leave.read): những quyền đó phải được cấp riêng.
       'hrm.shift.approve.all': ['hrm.shift.approve'],

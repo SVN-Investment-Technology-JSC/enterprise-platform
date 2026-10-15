@@ -38,7 +38,10 @@ import type {
   ProjectTypeOption,
   SavedFilter,
   SavedFilterView,
+  SourceTransport,
   Tag,
+  TransportMode,
+  TransportSourceType,
   UpdateProjectFinanceRequest,
   UpdateProjectRequest,
   UpdateTagRequest,
@@ -166,6 +169,21 @@ export interface UnreadRow {
   readonly entityType: ChatEntityType;
   readonly entityId: string;
   readonly unread: number;
+}
+
+/** Lựa chọn phương tiện đã kiểm tra, sẵn sàng ghi. Xe công ty có đủ xe, tài xế và khung giờ. */
+export interface SaveSourceTransport {
+  readonly sourceType: TransportSourceType;
+  readonly sourceId: string;
+  readonly sourceLabel: string;
+  readonly requesterUserId: string;
+  readonly mode: TransportMode;
+  readonly detail?: string | null;
+  readonly vehicleId?: string;
+  readonly driverId?: string;
+  readonly startAt?: string;
+  readonly endAt?: string;
+  readonly destination?: string | null;
 }
 
 export interface WorkspaceStore {
@@ -796,6 +814,21 @@ export interface WorkspaceStore {
       input: { readonly name: string; readonly permissions: readonly ProjectPermission[] },
     ): Promise<void>;
     remove(tenantId: string, key: string): Promise<void>;
+  };
+  /**
+   * Phương tiện di chuyển của công việc và lịch họp. Xe công ty chỉ được GIỮ ở HRM: lựa chọn và sự kiện
+   * `workspace.fleet-booking.*` được ghi trong cùng một transaction, HRM trả lời `confirmed` hoặc `conflicted`.
+   */
+  readonly fleetTransport: {
+    find(
+      tenantId: string,
+      sourceType: TransportSourceType,
+      sourceId: string,
+    ): Promise<SourceTransport | undefined>;
+    /** Ghi lựa chọn mới; không đổi gì so với bản đang giữ thì không phát lại sự kiện. */
+    save(tenantId: string, input: SaveSourceTransport): Promise<SourceTransport>;
+    /** Bỏ phương tiện của nguồn (hoặc nguồn bị huỷ, xoá); đang giữ xe thì trả xe. */
+    clear(tenantId: string, sourceType: TransportSourceType, sourceId: string): Promise<void>;
   };
   /** Thứ tự ưu tiên tính công, dùng chung toàn tenant. */
   readonly workdayRules: {

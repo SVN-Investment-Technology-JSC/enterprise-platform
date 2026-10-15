@@ -129,6 +129,7 @@ function snapshot(row: Row) {
     engine: row.engine,
     timeMode: row.time_mode,
     requiresAttachment: row.requires_attachment === true,
+    requiresTransport: row.requires_transport === true,
     fields: row.fields,
     icon: row.icon ?? null,
     active: Boolean(row.active),
@@ -182,6 +183,7 @@ export class HrmRequestTypeController {
     const description = optionalText(input.description, 'Mô tả', 1000);
     const timeMode = optionalTimeMode(input.timeMode) ?? 'RANGE_DATETIME';
     const requiresAttachment = optionalBoolean(input.requiresAttachment, 'Bắt buộc chứng từ') ?? false;
+    const requiresTransport = optionalBoolean(input.requiresTransport, 'Cần phương tiện') ?? false;
     const fields = input.fields === undefined ? [] : validateRequestTypeFields(input.fields);
     const icon = optionalIcon(input.icon);
     const active = optionalBoolean(input.active, 'Đang sử dụng') ?? true;
@@ -214,11 +216,12 @@ export class HrmRequestTypeController {
       const inserted = await db
         .query(
           `INSERT INTO hrm_schema.request_reason_categories
-             (tenant_id, code, name, description, engine, time_mode, requires_attachment, fields, icon, is_system, active, sort_order)
+             (tenant_id, code, name, description, engine, time_mode, requires_attachment, fields, icon, is_system, active, sort_order,
+              requires_transport)
            VALUES ($1, $2, $3, $4, 'GENERIC', $5, $6, $7::jsonb, $8, false, $9,
              COALESCE($10::int,
                (SELECT COALESCE(MAX(sort_order), 0) + 10 FROM hrm_schema.request_reason_categories
-                 WHERE tenant_id = $1 AND deleted_at IS NULL)))
+                 WHERE tenant_id = $1 AND deleted_at IS NULL)), $11)
            RETURNING id`,
           [
             tenantId,
@@ -231,6 +234,7 @@ export class HrmRequestTypeController {
             icon ?? null,
             active,
             sortOrder ?? null,
+            requiresTransport,
           ],
         )
         .catch(rethrowDuplicate);
@@ -254,6 +258,7 @@ export class HrmRequestTypeController {
     const description = optionalText(input.description, 'Mô tả', 1000);
     const timeMode = optionalTimeMode(input.timeMode);
     const requiresAttachment = optionalBoolean(input.requiresAttachment, 'Bắt buộc chứng từ');
+    const requiresTransport = optionalBoolean(input.requiresTransport, 'Cần phương tiện');
     const fields = input.fields === undefined ? undefined : validateRequestTypeFields(input.fields);
     const icon = optionalIcon(input.icon);
     const active = optionalBoolean(input.active, 'Đang sử dụng');
@@ -266,9 +271,14 @@ export class HrmRequestTypeController {
       if (input.code !== undefined && String(input.code).trim().toUpperCase() !== String(before.code).toUpperCase())
         throw new BadRequestException('Không đổi được mã loại đơn.');
       if (before.is_system) {
-        if (timeMode !== undefined || requiresAttachment !== undefined || fields !== undefined)
+        if (
+          timeMode !== undefined ||
+          requiresAttachment !== undefined ||
+          requiresTransport !== undefined ||
+          fields !== undefined
+        )
           throw new BadRequestException(
-            'Loại đơn hệ thống không đổi được cách nhập thời gian, chứng từ và trường; chỉ đổi tên, mô tả, thứ tự, biểu tượng, bật/tắt.',
+            'Loại đơn hệ thống không đổi được cách nhập thời gian, chứng từ, phương tiện và trường; chỉ đổi tên, mô tả, thứ tự, biểu tượng, bật/tắt.',
           );
         if (active === false && before.code === 'LEAVE')
           throw new ConflictException('Không thể ngừng loại đơn Nghỉ phép.');
@@ -292,6 +302,7 @@ export class HrmRequestTypeController {
              icon = CASE WHEN $9::boolean THEN $10 ELSE icon END,
              active = COALESCE($11, active),
              sort_order = COALESCE($12::int, sort_order),
+             requires_transport = COALESCE($13, requires_transport),
              updated_at = GREATEST(clock_timestamp(), updated_at + interval '1 millisecond')
            WHERE tenant_id = $1 AND id = $2 AND deleted_at IS NULL`,
           [
@@ -307,6 +318,7 @@ export class HrmRequestTypeController {
             icon ?? null,
             active ?? null,
             sortOrder ?? null,
+            requiresTransport ?? null,
           ],
         )
         .catch(rethrowDuplicate);

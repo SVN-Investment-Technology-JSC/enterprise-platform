@@ -33,7 +33,13 @@ describe('HRM navigation', () => {
       ['CÁ NHÂN', ['Công của tôi /my-work', 'Đơn từ của tôi /requests', 'Hồ sơ và lương /profile']],
       [
         'QUẢN LÝ',
-        ['Nhân sự /employees', 'Bảng công /timekeeping', 'Phép năm /leave', 'Lương và chi trả /payroll'],
+        [
+          'Nhân sự /employees',
+          'Bảng công /timekeeping',
+          'Phép năm /leave',
+          'Lương và chi trả /payroll',
+          'Lịch xe /fleet',
+        ],
       ],
       ['HỆ THỐNG', ['Cấu hình /settings']],
     ]);

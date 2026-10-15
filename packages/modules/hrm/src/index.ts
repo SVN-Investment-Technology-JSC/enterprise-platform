@@ -15,6 +15,11 @@ export {
   receiveWorkspaceProjectRequestEvent,
 } from './lib/infrastructure/hrm-request-project-links.js';
 export {
+  HRM_FLEET_EVENT_BINDINGS,
+  isFleetBookingInboundEvent,
+  receiveFleetBookingEvent,
+} from './lib/infrastructure/hrm-fleet-events.js';
+export {
   receiveHrmProcedureReversal,
   receiveWorkspaceReversalRequest,
   WORKSPACE_PROJECT_REQUEST_REVERSAL_REQUESTED as HRM_WORKSPACE_REVERSAL_BINDING,

@@ -155,6 +155,7 @@ export const hrmPagePermissions: Record<string, HrmAction[]> = {
   '/leave': hubPagePermissions('/leave'),
   '/timekeeping': hubPagePermissions('/timekeeping'),
   '/payroll': hubPagePermissions('/payroll'),
+  '/fleet': hubPagePermissions('/fleet'),
   // Hệ thống
   '/settings': hubPagePermissions('/settings'),
 };
