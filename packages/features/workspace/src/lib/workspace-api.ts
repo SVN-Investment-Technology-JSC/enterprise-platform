@@ -347,8 +347,12 @@ export const listProjectDependencies = (projectId: string) =>
    ========================================================================= */
 
 /** Luồng tin của một node; node chưa ai nhắn vẫn trả luồng rỗng. */
-export const loadChatThread = (entityType: ChatEntityType, entityId: string) =>
-  request<ChatThread>(`/chat/${entityType}/${entityId}`, { cache: 'no-store' });
+/** `before` = id tin cũ nhất đang có, để lấy trang liền trước nó. */
+export const loadChatThread = (entityType: ChatEntityType, entityId: string, before?: string) =>
+  request<ChatThread>(
+    `/chat/${entityType}/${entityId}${before ? `?before=${encodeURIComponent(before)}` : ''}`,
+    { cache: 'no-store' },
+  );
 
 export const sendChatMessage = (body: SendChatMessageRequest) =>
   request<SendChatMessageResponse>('/chat/messages', {

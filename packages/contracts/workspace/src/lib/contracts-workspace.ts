@@ -726,8 +726,21 @@ export const MAX_CHAT_REPLY_DEPTH = 2;
  */
 export const CHAT_EDIT_WINDOW_MINUTES = 15;
 
-/** Nhịp hỏi lại số tin chưa đọc. Không có WebSocket trong repo. */
+/**
+ * Nhịp hỏi lại số tin chưa đọc.
+ *
+ * Tin mới đã được đẩy realtime (`workspace.chat.changed`); nhịp này chỉ còn là
+ * lưới an toàn khi mất kết nối hoặc broker chậm.
+ */
 export const CHAT_UNREAD_POLL_MS = 30_000;
+
+/**
+ * Số tin mỗi trang khi mở luồng và mỗi lần cuộn lên xem tin cũ.
+ *
+ * Nhỏ có chủ đích: mở khung chỉ dựng ~10 tin nên hiện ngay, không giật; tin cũ nạp dần
+ * khi cuộn lên (và tự nạp tiếp nếu 10 tin chưa lấp đầy khung).
+ */
+export const CHAT_PAGE_SIZE = 10;
 
 export interface ChatMessage {
   readonly id: string;
@@ -761,6 +774,24 @@ export interface ChatChannel {
 export interface ChatThread {
   readonly channel?: ChatChannel;
   readonly messages: readonly ChatMessage[];
+  /** Còn tin cũ hơn tin đầu danh sách; xin trang kế bằng `before` = id tin đầu. */
+  readonly hasMore?: boolean;
+  /**
+   * Mỗi người đã đọc tới tin nào (chỉ có ở trang mới nhất). Dùng id tin chứ không
+   * dùng thời điểm để so với tin mới nhất không bao giờ sai vì làm tròn mili giây.
+   */
+  readonly readers?: readonly ChatReader[];
+}
+
+export interface ChatReader {
+  readonly userId: string;
+  /** Tin mới nhất người này đã đọc tới; vắng nếu mốc đọc cũ hơn mọi tin còn lại. */
+  readonly messageId?: string;
+}
+
+/** Danh sách người nhận tín hiệu "đang nhập" của một node, không gồm người hỏi. */
+export interface ChatTypingRecipients {
+  readonly userIds: readonly string[];
 }
 
 export interface SendChatMessageRequest {

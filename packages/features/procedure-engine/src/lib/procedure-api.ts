@@ -96,6 +96,16 @@ export function loadProcedureWorkspace(): Promise<ProcedureWorkspace> {
   return request<ProcedureWorkspace>('/workspace', { cache: 'no-store' });
 }
 
+/**
+ * Một hồ sơ mà người dùng là người tham gia. Dùng để làm mới ĐÚNG hồ sơ đang mở khi có trao đổi mới, thay vì
+ * nạp lại cả workspace (kèm đính kèm của mọi hồ sơ, có lúc mất nhiều giây).
+ */
+export function loadProcedureInstance(instanceId: string): Promise<ProcedureInstance> {
+  return request<ProcedureInstance>(`/instances/${encodeURIComponent(instanceId)}`, {
+    cache: 'no-store',
+  });
+}
+
 export function createProcedureDefinition(
   input: CreateProcedureDefinitionRequest,
 ): Promise<ProcedureDefinition> {
