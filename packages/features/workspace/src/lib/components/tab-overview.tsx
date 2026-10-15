@@ -10,6 +10,7 @@ import {
   type WorkItemDependency,
 } from '@enterprise-platform/contracts-workspace';
 import { Popconfirm } from '@enterprise-platform/shared-ui';
+import { CalendarClock, MapPin, UserRound } from 'lucide-react';
 import { useState } from 'react';
 import {
   DEPENDENCY_TYPE_LABELS,
@@ -21,6 +22,7 @@ import styles from '../workspace.module.scss';
 import { Choice } from './choice';
 import { useDirectory } from './use-directory';
 import { useProjectRoles } from './use-project-roles';
+import { useTransportSummary, type TransportSummary } from './use-transport-summary';
 import type { PendingProcedure } from '../procedure-pending';
 
 export interface TabOverviewProps {
@@ -82,11 +84,13 @@ export function TabOverview({
   const links = selected
     ? externalRefs.filter((ref) => ref.entityType === 'work_item' && ref.entityId === selected.id)
     : [];
+  const transport = useTransportSummary('WORK_ITEM', selected?.id, selected?.updatedAt);
 
   return (
     <div className={styles.tabBody}>
       <section className={styles.panel}>
         <h3>Chi tiết</h3>
+        <div className={transport ? styles.detailColumns : undefined}>
         <dl className={styles.definitionList}>
           {selected ? (
             <>
@@ -110,6 +114,8 @@ export function TabOverview({
             </>
           )}
         </dl>
+        {selected ? <TransportCard summary={transport} /> : null}
+        </div>
         {selected?.description || project.description ? (
           <p className={styles.description}>{selected?.description ?? project.description}</p>
         ) : null}
@@ -215,6 +221,67 @@ export function TabOverview({
       )}
     </div>
   );
+}
+
+/** Phương tiện di chuyển của công việc (cột phải của phần Chi tiết); không có thì không hiện gì. */
+function TransportCard({ summary }: { summary: TransportSummary | null }) {
+  if (!summary) return null;
+  const { transport } = summary;
+  if (transport.mode === 'EXTERNAL') {
+    return (
+      <div className={`${styles.transportCard} ${styles.transportExternal}`}>
+        <div className={styles.transportHead}>
+          <div className={styles.transportTitle}>
+            <small>Phương tiện</small>
+            <strong>Tự sắp xếp{transport.detail ? ` · ${transport.detail}` : ''}</strong>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  const tone =
+    transport.status === 'CONFIRMED' ? styles.toneOk : transport.status === 'CONFLICT' ? styles.toneBad : styles.toneWait;
+  const statusText =
+    transport.status === 'CONFIRMED' ? 'Đã giữ xe' : transport.status === 'CONFLICT' ? 'Bị trùng lịch' : 'Chờ HRM giữ xe';
+  return (
+    <div className={styles.transportCard}>
+      <div className={styles.transportHead}>
+        <div className={styles.transportTitle}>
+          <small>Xe công ty</small>
+          <strong>{summary.vehicleLabel ?? 'Chưa rõ xe'}</strong>
+        </div>
+        <span className={`${styles.transportStatus} ${tone}`}>{statusText}</span>
+      </div>
+      <div className={styles.transportChips}>
+        <span className={styles.transportChip}>
+          <UserRound size={14} aria-hidden />
+          {summary.driverLabel ?? 'Chưa rõ tài xế'}
+        </span>
+        <span className={styles.transportChip}>
+          <CalendarClock size={14} aria-hidden />
+          {timeRange(transport.startAt, transport.endAt)}
+        </span>
+        {transport.destination ? (
+          <span className={styles.transportChip}>
+            <MapPin size={14} aria-hidden />
+            {transport.destination}
+          </span>
+        ) : null}
+      </div>
+      {transport.status === 'CONFLICT' ? (
+        <p className={styles.transportWarn}>
+          {transport.statusReason ?? 'Xe đã có người đặt trước.'} Hãy sửa công việc để chọn xe hoặc giờ khác.
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function timeRange(start?: string | null, end?: string | null): string {
+  if (!start || !end) return '—';
+  const text = (iso: string) =>
+    new Date(iso).toLocaleString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
+  return `${text(start)} → ${text(end)}`;
 }
 
 function Definition({ label, value }: { label: string; value: string }) {
