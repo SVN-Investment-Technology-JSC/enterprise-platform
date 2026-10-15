@@ -272,6 +272,18 @@ export class ProcedureEngineController {
     );
   }
 
+  /** Một hồ sơ của người tham gia: để làm mới đúng hồ sơ đang mở khi có trao đổi mới. */
+  @Get('instances/:instanceId')
+  getInstance(@Req() request: ProcedureRequest, @Param('instanceId') instanceId: string) {
+    return this.execute(() => this.procedures.getInstance(this.actor(request), instanceId));
+  }
+
+  /** Dịch vụ realtime hỏi (bằng cookie của người dùng) trước khi cho vào phòng của hồ sơ. */
+  @Get('instances/:instanceId/chat-access')
+  chatAccess(@Req() request: ProcedureRequest, @Param('instanceId') instanceId: string) {
+    return this.execute(() => this.procedures.getChatAccess(this.actor(request), instanceId));
+  }
+
   @Post('instances/:instanceId/comments')
   @HttpCode(201)
   postComment(

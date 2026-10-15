@@ -206,6 +206,27 @@ export const DEFAULT_NOTIFICATION_POLICIES: readonly NotificationPolicy[] = [
     },
   }),
   directPolicy({
+    // Được nhắc tên trong trao đổi của hồ sơ quy trình. `mentionedUserIds` là id người dùng thật (giao diện
+    // đã mở rộng chức danh/đơn vị thành từng người), nên nhận thẳng từ payload như Workspace.
+    eventType: 'procedure.mention.created',
+    module: 'procedure',
+    category: 'mention',
+    priority: 'actionable',
+    recipients: { kind: 'payload', fields: ['mentionedUserIds'] },
+    actorField: 'actorUserId',
+    template: ({ payload }) => ({
+      title: 'Bạn được nhắc đến trong hồ sơ quy trình',
+      body: text(payload, 'excerpt', 'Bạn được nhắc đến trong một trao đổi của hồ sơ.'),
+      deepLink: text(payload, 'deepLink', '/modules/procedure'),
+      sourceType: text(payload, 'sourceType', 'procedure_comment'),
+      sourceId: id(payload, 'mentionId'),
+    }),
+    aggregation: {
+      windowMinutes: 15,
+      key: ({ payload }) => `procedure:mention:${id(payload, 'threadId')}`,
+    },
+  }),
+  directPolicy({
     eventType: 'workspace.work-item.completed',
     module: 'workspace',
     category: 'result',
