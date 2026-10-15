@@ -3,6 +3,10 @@ import type {
   EventType,
   MyWorkBucket,
   ParticipantResponse,
+  StandaloneTask,
+  StandaloneTaskProcedureStatus,
+  StandaloneTaskRole,
+  StandaloneTaskScope,
   SystemProjectRole,
   ProjectStatus,
   WorkItem,
@@ -201,3 +205,41 @@ export const PROJECT_REQUEST_STATUS_TONE: Record<ProjectRequestStatus, { bg: str
   CANCELLED: { bg: '#f3f4f6', fg: '#6b7280' },
   REVERSED: { bg: '#fff7ed', fg: '#9a3412' },
 };
+
+/** Vai của người đang xem trên một việc ngoài dự án. */
+export const STANDALONE_TASK_ROLE_LABELS: Record<StandaloneTaskRole, string> = {
+  assigner: 'Người giao',
+  assignee: 'Người phụ trách',
+  participant: 'Người cùng thực hiện',
+  follower: 'Người theo dõi',
+  viewer: 'Người liên quan (xem qua việc cha/con)',
+};
+
+/** Trạng thái hồ sơ quy trình gắn với việc ngoài dự án. */
+export const STANDALONE_TASK_PROCEDURE_STATUS_LABELS: Record<StandaloneTaskProcedureStatus, string> = {
+  pending: 'Đang mở hồ sơ',
+  started: 'Hồ sơ đang chạy',
+  start_rejected: 'Không mở được hồ sơ',
+  completed: 'Hồ sơ đã hoàn tất',
+  rejected: 'Hồ sơ bị từ chối',
+  cancelled: 'Hồ sơ đã huỷ',
+};
+
+/** Ba ngăn của trang "Công việc ngoài dự án". */
+export const STANDALONE_TASK_SCOPE_LABELS: Record<StandaloneTaskScope, string> = {
+  assigned_to_me: 'Giao cho tôi',
+  assigned_by_me: 'Tôi giao',
+  following: 'Tôi theo dõi',
+};
+
+/** Nhãn trạng thái việc ngoài dự án: việc huỷ hiệu lực vẫn là `cancelled` nhưng hiện riêng. */
+export function standaloneTaskStatusLabel(task: Pick<StandaloneTask, 'status' | 'reversal'>): string {
+  return task.reversal ? 'Đã huỷ hiệu lực' : WORK_ITEM_STATUS_LABELS[task.status];
+}
+
+/** Màu huy hiệu trạng thái việc ngoài dự án, cùng bảng với công việc dự án. */
+export function standaloneTaskStatusTone(
+  task: Pick<StandaloneTask, 'status' | 'reversal'>,
+): { bg: string; fg: string } {
+  return task.reversal ? { bg: '#fff7ed', fg: '#9a3412' } : WORK_ITEM_STATUS_TONE[task.status];
+}

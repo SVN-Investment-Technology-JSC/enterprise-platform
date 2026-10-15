@@ -301,3 +301,40 @@ export class FinanceForbiddenError extends WorkspaceError {
     Object.setPrototypeOf(this, FinanceForbiddenError.prototype);
   }
 }
+
+/**
+ * Việc giao lẻ không tồn tại, hoặc người gọi không liên quan tới nó.
+ *
+ * Gộp hai trường hợp làm một 404: trả 403 là tiết lộ rằng việc đó có thật.
+ */
+export class StandaloneTaskNotFoundError extends WorkspaceError {
+  constructor() {
+    // Không nêu id: người nhận link thường chỉ thấy một chuỗi UUID vô nghĩa.
+    super(
+      'STANDALONE_TASK_NOT_FOUND',
+      'Công việc không tồn tại, đã bị xoá, hoặc bạn không còn liên quan tới công việc này.',
+      404,
+    );
+    Object.setPrototypeOf(this, StandaloneTaskNotFoundError.prototype);
+  }
+}
+
+/** Người gọi có liên quan tới việc nhưng vai của họ không làm được thao tác này. */
+export class StandaloneTaskForbiddenError extends WorkspaceError {
+  constructor(message: string) {
+    super('STANDALONE_TASK_FORBIDDEN', message, 403);
+    Object.setPrototypeOf(this, StandaloneTaskForbiddenError.prototype);
+  }
+}
+
+/** Trạng thái đã bị người khác đổi trong lúc người gọi đang thao tác. */
+export class StandaloneTaskConflictError extends WorkspaceError {
+  constructor() {
+    super(
+      'STANDALONE_TASK_CONFLICT',
+      'Công việc vừa được người khác cập nhật. Hãy tải lại rồi thử lại.',
+      409,
+    );
+    Object.setPrototypeOf(this, StandaloneTaskConflictError.prototype);
+  }
+}

@@ -45,6 +45,12 @@ import type {
   ProjectStatus,
   SavedFilter,
   SavedFilterView,
+  StandaloneTask,
+  StandaloneTaskAdjustmentRef,
+  StandaloneTaskHistoryEntry,
+  StandaloneTaskProcedureStatus,
+  StandaloneTaskRef,
+  StandaloneTaskScope,
   Tag,
   UpdateProjectFinanceRequest,
   UpdateProjectRequest,
@@ -60,7 +66,11 @@ import type {
   WorkspaceDocument,
   ProjectRequestReversalRequestedPayload,
 } from '@enterprise-platform/contracts-workspace';
-import { WORKSPACE_PROJECT_REQUEST_REVERSAL_REQUESTED } from '@enterprise-platform/contracts-workspace';
+import {
+  CLOSED_WORK_ITEM_STATUSES,
+  STANDALONE_TASK_SYSTEM_ACTOR_ID,
+  WORKSPACE_PROJECT_REQUEST_REVERSAL_REQUESTED,
+} from '@enterprise-platform/contracts-workspace';
 import { randomUUID } from 'node:crypto';
 import type { Pool, PoolClient, QueryResultRow } from 'pg';
 
@@ -69,6 +79,8 @@ type Queryable = Pick<PoolClient, 'query'>;
 import type { FinanceInputs } from '../domain/finance.rules.js';
 import {
   PROCEDURE_LAUNCH_URL,
+  STANDALONE_TASK_PROCEDURE_REQUESTED,
+  STANDALONE_TASK_REVERSED,
   WORK_ITEM_PROCEDURE_LINKED,
   WORK_ITEM_REVERSED,
   WORK_ITEM_PROCEDURE_REQUESTED,
@@ -83,6 +95,7 @@ import {
   NameConflictError,
   ProjectCodeConflictError,
   ProjectNotFoundError,
+  StandaloneTaskNotFoundError,
   WorkItemNotFoundError,
   WorkspaceValidationError,
 } from '../domain/workspace.error.js';
@@ -93,6 +106,9 @@ import type {
   ParticipantBusySlot,
   ProjectRollup,
   ReportScopeFilter,
+  StandaloneTaskCreateModel,
+  StandaloneTaskProcedureOutcome,
+  StandaloneTaskWriteModel,
   UnreadRow,
   WorkItemDeletionLog,
   WorkItemProgressRow,
@@ -3536,6 +3552,555 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
       return result.rows.map(mapCostEntry);
     },
   };
+  readonly standaloneTask = {
+    listForUser: async (
+      tenantId: string,
+      userId: string,
+      scope: StandaloneTaskScope,
+    ): Promise<{ task: StandaloneTask; parent?: StandaloneTaskRef }[]> => {
+      const pool = await this.poolFor(tenantId);
+      const where =
+        scope === 'assigned_by_me'
+          ? `t.created_by = $1`
+          : scope === 'following'
+            ? `EXISTS (SELECT 1 FROM workspace_schema.standalone_task_members m
+                        WHERE m.task_id = t.id AND m.user_id = $1 AND m.role = 'follower')`
+            : taskExecutor('$1');
+      // Việc đang mở lên trước; trong đó hạn gần trước, việc không hạn cuối.
+      const result = await pool.query<Row>(
+        `SELECT ${STANDALONE_TASK_SELECT}, p.code AS parent_code, p.title AS parent_title
+           FROM workspace_schema.standalone_tasks t
+           LEFT JOIN workspace_schema.standalone_tasks p ON p.id = t.parent_id
+          WHERE ${where}
+          ORDER BY (t.status IN ('done','cancelled')), t.due_date NULLS LAST, t.updated_at DESC
+          LIMIT 500`,
+        [userId],
+      );
+      return result.rows.map((row) => ({
+        task: mapStandaloneTask(row),
+        parent: row.parent_id
+          ? { id: str(row.parent_id), code: str(row.parent_code), title: str(row.parent_title) }
+          : undefined,
+      }));
+    },
+
+    findById: async (tenantId: string, taskId: string) => {
+      const pool = await this.poolFor(tenantId);
+      return readStandaloneTask(pool, taskId);
+    },
+
+    children: async (tenantId: string, taskId: string): Promise<StandaloneTask[]> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `SELECT ${STANDALONE_TASK_SELECT}
+           FROM workspace_schema.standalone_tasks t
+          WHERE t.parent_id = $1
+          ORDER BY t.created_at`,
+        [taskId],
+      );
+      return result.rows.map(mapStandaloneTask);
+    },
+
+    subtree: async (tenantId: string, taskId: string): Promise<StandaloneTask[]> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `WITH RECURSIVE tree AS (
+           SELECT id FROM workspace_schema.standalone_tasks WHERE id = $1
+           UNION ALL
+           SELECT c.id FROM workspace_schema.standalone_tasks c JOIN tree ON c.parent_id = tree.id
+         )
+         SELECT ${STANDALONE_TASK_SELECT}
+           FROM workspace_schema.standalone_tasks t
+          WHERE t.id IN (SELECT id FROM tree)
+          ORDER BY t.depth, t.created_at`,
+        [taskId],
+      );
+      return result.rows.map(mapStandaloneTask);
+    },
+
+    ancestors: async (tenantId: string, taskId: string): Promise<StandaloneTaskRef[]> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `WITH RECURSIVE up AS (
+           SELECT parent_id FROM workspace_schema.standalone_tasks WHERE id = $1
+           UNION ALL
+           SELECT p.parent_id FROM workspace_schema.standalone_tasks p JOIN up ON p.id = up.parent_id
+         )
+         SELECT t.id, t.code, t.title
+           FROM workspace_schema.standalone_tasks t
+          WHERE t.id IN (SELECT parent_id FROM up WHERE parent_id IS NOT NULL)
+          ORDER BY t.depth`,
+        [taskId],
+      );
+      return result.rows.map((row) => ({
+        id: str(row.id),
+        code: str(row.code),
+        title: str(row.title),
+      }));
+    },
+
+    isTreeMember: async (tenantId: string, rootId: string, userId: string) => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query(
+        `SELECT 1 FROM workspace_schema.standalone_tasks t
+          WHERE t.root_id = $1
+            AND (t.created_by = $2 OR t.assignee_user_id = $2 OR EXISTS (
+                  SELECT 1 FROM workspace_schema.standalone_task_members m
+                   WHERE m.task_id = t.id AND m.user_id = $2))
+          LIMIT 1`,
+        [rootId, userId],
+      );
+      return (result.rowCount ?? 0) > 0;
+    },
+
+    create: async (tenantId: string, actorUserId: string, input: StandaloneTaskCreateModel) => {
+      const pool = await this.poolFor(tenantId);
+      return inTransaction(pool, async (client) => {
+        // Việc cha khoá lại để không bị xoá hay đóng giữa lúc thêm việc con.
+        let rootId: string | undefined;
+        let depth = 0;
+        if (input.parentId) {
+          const parent = await client.query<Row>(
+            `SELECT root_id, depth, status FROM workspace_schema.standalone_tasks
+              WHERE id = $1 FOR UPDATE`,
+            [input.parentId],
+          );
+          const row = parent.rows[0];
+          if (!row) throw new StandaloneTaskNotFoundError();
+          if (CLOSED_WORK_ITEM_STATUSES.includes(str(row.status) as WorkItemStatus)) {
+            throw new WorkspaceValidationError('Việc cha đã đóng, không thêm việc con được.');
+          }
+          rootId = str(row.root_id);
+          depth = num(row.depth) + 1;
+        }
+        // Mã đánh số chung toàn tenant; khoá tư vấn để hai lượt tạo cùng lúc
+        // không cùng đọc một MAX.
+        await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [
+          'workspace-standalone-task-code',
+        ]);
+        const next = await client.query<{ next: string }>(
+          `SELECT COALESCE(MAX(NULLIF(regexp_replace(code, '\\D', '', 'g'), '')::int), 0) + 1 AS next
+             FROM workspace_schema.standalone_tasks`,
+        );
+        const code = `GV${String(num(next.rows[0]?.next) || 1).padStart(3, '0')}`;
+        const taskId = randomUUID();
+        const procedure = input.executionType === 'procedure';
+        await adjustmentGuard(() => client.query(
+          `INSERT INTO workspace_schema.standalone_tasks
+             (id, parent_id, root_id, depth, code, title, description, priority, assignee_user_id,
+              planned_start, due_date, created_by, execution_type, procedure_definition_id,
+              procedure_status, adjustment_of_id)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
+          [
+            taskId,
+            input.parentId,
+            rootId ?? taskId,
+            depth,
+            code,
+            input.title,
+            input.description,
+            input.priority,
+            input.assigneeUserId,
+            input.plannedStart,
+            input.dueDate,
+            actorUserId,
+            input.executionType,
+            procedure ? input.procedureDefinitionId : null,
+            procedure ? 'pending' : null,
+            input.adjustmentOfId,
+          ],
+        ));
+        await replaceStandaloneTaskMembers(
+          client,
+          taskId,
+          input.participantUserIds,
+          input.followerUserIds,
+          actorUserId,
+        );
+        await client.query(
+          `INSERT INTO workspace_schema.standalone_task_history (task_id, to_status, created_by)
+           VALUES ($1, 'todo', $2)`,
+          [taskId, actorUserId],
+        );
+        // Việc con mới (0%) kéo tiến độ của các việc cha xuống.
+        await rollUpStandaloneProgress(client, input.parentId);
+        const task = await readStandaloneTask(client, taskId);
+        if (!task) throw new StandaloneTaskNotFoundError();
+        await writeOutbox(
+          client,
+          tenantId,
+          standaloneTaskEvent('assigned', task, actorUserId, [
+            task.assigneeUserId,
+            ...task.participantUserIds,
+          ]),
+        );
+        if (procedure && input.procedureDefinitionId) {
+          // Quy trình tự mở hồ sơ dưới danh nghĩa người tạo việc khi nhận sự kiện này.
+          await writeOutbox(client, tenantId, {
+            type: STANDALONE_TASK_PROCEDURE_REQUESTED,
+            aggregateType: 'workspace-standalone-task',
+            aggregateId: task.id,
+            payload: {
+              taskId: task.id,
+              taskCode: task.code,
+              title: task.title,
+              definitionId: input.procedureDefinitionId,
+              requestedBy: actorUserId,
+              requestedByName: input.requester.displayName,
+              requestedByIsTenantAdmin: input.requester.isTenantAdmin,
+            },
+          });
+        }
+        return task;
+      });
+    },
+
+    update: async (
+      tenantId: string,
+      taskId: string,
+      actorUserId: string,
+      input: Partial<StandaloneTaskWriteModel> & { readonly progressPercent?: number },
+    ) => {
+      const pool = await this.poolFor(tenantId);
+      return inTransaction(pool, async (client) => {
+        const before = await readStandaloneTask(client, taskId, true);
+        if (!before) throw new StandaloneTaskNotFoundError();
+
+        const { clause, values } = buildSet(
+          input as Record<string, unknown>,
+          {
+            title: 'title',
+            description: 'description',
+            priority: 'priority',
+            assigneeUserId: 'assignee_user_id',
+            plannedStart: 'planned_start',
+            dueDate: 'due_date',
+            progressPercent: 'progress_percent',
+          },
+          2,
+        );
+        await client.query(
+          `UPDATE workspace_schema.standalone_tasks
+              SET ${clause ? `${clause}, ` : ''}updated_at = now()
+            WHERE id = $1`,
+          [taskId, ...values],
+        );
+        if (input.participantUserIds !== undefined || input.followerUserIds !== undefined) {
+          await replaceStandaloneTaskMembers(
+            client,
+            taskId,
+            input.participantUserIds ?? before.participantUserIds,
+            input.followerUserIds ?? before.followerUserIds,
+            actorUserId,
+          );
+        }
+        if (input.progressPercent !== undefined) {
+          await rollUpStandaloneProgress(client, before.parentId);
+        }
+
+        const task = await readStandaloneTask(client, taskId);
+        if (!task) throw new StandaloneTaskNotFoundError();
+        // Chỉ báo cho người MỚI vào vai thực hiện; người đã có thì đã được báo.
+        const previous = new Set([before.assigneeUserId, ...before.participantUserIds]);
+        const added = [task.assigneeUserId, ...task.participantUserIds].filter(
+          (userId) => !previous.has(userId),
+        );
+        if (added.length > 0) {
+          await writeOutbox(client, tenantId, standaloneTaskEvent('assigned', task, actorUserId, added));
+        }
+        return task;
+      });
+    },
+
+    changeStatus: async (
+      tenantId: string,
+      taskId: string,
+      actorUserId: string,
+      from: StandaloneTask['status'],
+      next: StandaloneTask['status'],
+      note: string | undefined,
+      today: string,
+    ) => {
+      const pool = await this.poolFor(tenantId);
+      return inTransaction(pool, async (client) => {
+        const task = await setStandaloneStatus(client, taskId, actorUserId, from, next, note, today);
+        if (!task) return undefined;
+        const event = statusEvent(task, actorUserId, from, next, note);
+        if (event) await writeOutbox(client, tenantId, event);
+        return task;
+      });
+    },
+
+    remove: async (tenantId: string, taskId: string) => {
+      const pool = await this.poolFor(tenantId);
+      await inTransaction(pool, async (client) => {
+        const removed = await client.query<{ parent_id: string | null }>(
+          `DELETE FROM workspace_schema.standalone_tasks WHERE id = $1 RETURNING parent_id`,
+          [taskId],
+        );
+        // Việc con, thành viên và nhật ký xoá theo `ON DELETE CASCADE`; tiến độ
+        // việc cha tính lại khi bớt một việc con.
+        await rollUpStandaloneProgress(client, removed.rows[0]?.parent_id ?? undefined);
+      });
+    },
+
+    history: async (
+      tenantId: string,
+      taskId: string,
+      limit: number,
+    ): Promise<StandaloneTaskHistoryEntry[]> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `SELECT id, from_status, to_status, note, created_by, created_at
+           FROM workspace_schema.standalone_task_history
+          WHERE task_id = $1
+          ORDER BY created_at DESC
+          LIMIT $2`,
+        [taskId, limit],
+      );
+      return result.rows.map((row) => ({
+        id: str(row.id),
+        fromStatus: opt(row.from_status) as WorkItemStatus | undefined,
+        toStatus: str(row.to_status) as WorkItemStatus,
+        note: opt(row.note),
+        createdBy: str(row.created_by),
+        createdAt: iso(row.created_at),
+      }));
+    },
+
+    forMyWork: async (tenantId: string, userId: string): Promise<StandaloneTask[]> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `SELECT ${STANDALONE_TASK_SELECT}
+           FROM workspace_schema.standalone_tasks t
+          WHERE t.status NOT IN ('done','cancelled')
+            AND (${taskExecutor('$1')} OR (t.created_by = $1 AND t.status = 'review'))
+          LIMIT 500`,
+        [userId],
+      );
+      return result.rows.map(mapStandaloneTask);
+    },
+
+    reverse: async (
+      tenantId: string,
+      taskId: string,
+      input: {
+        readonly reversedBy: string;
+        readonly reversedByName?: string;
+        readonly reason: string;
+        readonly today: string;
+        readonly notifyProcedure: boolean;
+        readonly adjustmentRequested: boolean;
+      },
+    ) => {
+      const pool = await this.poolFor(tenantId);
+      return inTransaction(pool, async (client) => {
+        const before = await readStandaloneTask(client, taskId, true);
+        if (!before) throw new StandaloneTaskNotFoundError();
+        // Sự kiện đến lại, hoặc hai chiều (người dùng và Quy trình) cùng huỷ: giữ lần đầu.
+        if (before.reversal) return before;
+        await client.query(
+          `UPDATE workspace_schema.standalone_tasks
+              SET status = 'cancelled',
+                  actual_end = COALESCE(actual_end, $2::date),
+                  reversed_at = now(), reversed_by = $3, reversed_by_name = $4,
+                  reversal_reason = $5, adjustment_requested = $6,
+                  status_changed_at = now(), updated_at = now()
+            WHERE id = $1`,
+          [
+            taskId,
+            input.today,
+            input.reversedBy,
+            input.reversedByName ?? null,
+            input.reason,
+            input.adjustmentRequested,
+          ],
+        );
+        await client.query(
+          `INSERT INTO workspace_schema.standalone_task_history
+             (task_id, from_status, to_status, note, created_by)
+           VALUES ($1, $2, 'cancelled', $3, $4)`,
+          [taskId, before.status, `Huỷ hiệu lực: ${input.reason}`, input.reversedBy],
+        );
+        // Việc bị huỷ hiệu lực rời khỏi phép tính tiến độ của việc cha.
+        await rollUpStandaloneProgress(client, before.parentId);
+        const task = await readStandaloneTask(client, taskId);
+        if (!task) throw new StandaloneTaskNotFoundError();
+        await writeOutbox(
+          client,
+          tenantId,
+          standaloneTaskEvent(
+            'reversed',
+            task,
+            input.reversedBy,
+            [task.createdBy, task.assigneeUserId, ...task.participantUserIds, ...task.followerUserIds],
+            input.adjustmentRequested
+              ? `${input.reason} (cần lập công việc điều chỉnh)`
+              : input.reason,
+          ),
+        );
+        const instanceId = before.procedure?.instanceId;
+        if (input.notifyProcedure && instanceId && before.procedure?.status === 'completed') {
+          await writeOutbox(client, tenantId, {
+            type: STANDALONE_TASK_REVERSED,
+            aggregateType: 'workspace-standalone-task',
+            aggregateId: task.id,
+            payload: {
+              taskId: task.id,
+              taskCode: task.code,
+              instanceId,
+              reason: input.reason,
+              reversedBy: input.reversedBy,
+              reversedByName: input.reversedByName ?? null,
+            },
+          });
+        }
+        return task;
+      });
+    },
+
+    adjustments: async (tenantId: string, taskId: string): Promise<StandaloneTaskAdjustmentRef[]> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `SELECT id, code, title, status FROM workspace_schema.standalone_tasks
+          WHERE adjustment_of_id = $1 ORDER BY created_at`,
+        [taskId],
+      );
+      return result.rows.map((row) => ({
+        id: str(row.id),
+        code: str(row.code),
+        title: str(row.title),
+        status: str(row.status) as WorkItemStatus,
+      }));
+    },
+
+    findByProcedureInstance: async (tenantId: string, instanceId: string) => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `SELECT ${STANDALONE_TASK_SELECT}
+           FROM workspace_schema.standalone_tasks t
+          WHERE t.procedure_instance_id = $1`,
+        [instanceId],
+      );
+      const row = result.rows[0];
+      return row ? mapStandaloneTask(row) : undefined;
+    },
+
+    markProcedureStarted: async (
+      tenantId: string,
+      taskId: string,
+      instanceId: string,
+      instanceCode: string,
+    ) => {
+      const pool = await this.poolFor(tenantId);
+      // Chỉ nhận khi đang chờ mở: sự kiện đến lại hay đến sau kết quả thì bỏ qua.
+      await pool.query(
+        `UPDATE workspace_schema.standalone_tasks
+            SET procedure_status = 'started', procedure_instance_id = $2,
+                procedure_instance_code = $3, procedure_error = NULL, updated_at = now()
+          WHERE id = $1 AND execution_type = 'procedure'
+            AND procedure_status IN ('pending','start_rejected')`,
+        [taskId, instanceId, instanceCode],
+      );
+    },
+
+    markProcedureStartRejected: async (tenantId: string, taskId: string, reason: string) => {
+      const pool = await this.poolFor(tenantId);
+      await inTransaction(pool, async (client) => {
+        const updated = await client.query(
+          `UPDATE workspace_schema.standalone_tasks
+              SET procedure_status = 'start_rejected', procedure_error = $2, updated_at = now()
+            WHERE id = $1 AND execution_type = 'procedure' AND procedure_status = 'pending'`,
+          [taskId, reason],
+        );
+        if (updated.rowCount === 0) return;
+        const task = await readStandaloneTask(client, taskId);
+        if (!task) return;
+        await writeOutbox(
+          client,
+          tenantId,
+          standaloneTaskEvent(
+            'procedure-failed',
+            task,
+            STANDALONE_TASK_SYSTEM_ACTOR_ID,
+            [task.createdBy, task.assigneeUserId, ...task.participantUserIds],
+            `Không mở được hồ sơ quy trình: ${reason}`,
+          ),
+        );
+      });
+    },
+
+    applyProcedureOutcome: async (
+      tenantId: string,
+      instanceId: string,
+      outcome: StandaloneTaskProcedureOutcome,
+      instanceCode: string,
+      today: string,
+    ) => {
+      const pool = await this.poolFor(tenantId);
+      await inTransaction(pool, async (client) => {
+        const found = await client.query<Row>(
+          `SELECT id FROM workspace_schema.standalone_tasks
+            WHERE procedure_instance_id = $1 AND procedure_status = 'started'
+            FOR UPDATE`,
+          [instanceId],
+        );
+        const taskId = found.rows[0]?.id;
+        // Chưa có liên kết (sự kiện "đã mở" chưa tới) hoặc đã xử lý rồi: bỏ qua.
+        if (!taskId) return;
+        await client.query(
+          `UPDATE workspace_schema.standalone_tasks
+              SET procedure_status = $2, updated_at = now() WHERE id = $1`,
+          [str(taskId), outcome],
+        );
+        const task = await readStandaloneTask(client, str(taskId));
+        if (!task) return;
+
+        if (outcome !== 'completed') {
+          await writeOutbox(
+            client,
+            tenantId,
+            standaloneTaskEvent(
+              'procedure-failed',
+              task,
+              STANDALONE_TASK_SYSTEM_ACTOR_ID,
+              [task.createdBy, task.assigneeUserId, ...task.participantUserIds],
+              `Hồ sơ ${instanceCode} ${outcome === 'rejected' ? 'bị từ chối' : 'đã bị huỷ'}.`,
+            ),
+          );
+          return;
+        }
+        // Hồ sơ xong: việc gốc sang Chờ duyệt để người giao duyệt; việc con
+        // không có bước duyệt nên Hoàn thành luôn. Việc đã đóng hay còn việc
+        // con mở thì giữ nguyên, người dùng tự xử lý.
+        const target: WorkItemStatus = task.parentId ? 'done' : 'review';
+        if (CLOSED_WORK_ITEM_STATUSES.includes(task.status) || task.status === target) return;
+        if (task.status === 'review' || task.openChildCount > 0) return;
+        const note = `Hồ sơ quy trình ${instanceCode} đã hoàn tất.`;
+        // Hồ sơ xong nghĩa là phần việc đã làm xong; việc có việc con thì tiến
+        // độ vẫn tính từ việc con.
+        if (task.childCount === 0) {
+          await client.query(
+            `UPDATE workspace_schema.standalone_tasks SET progress_percent = 100 WHERE id = $1`,
+            [task.id],
+          );
+        }
+        const changed = await setStandaloneStatus(
+          client,
+          task.id,
+          STANDALONE_TASK_SYSTEM_ACTOR_ID,
+          task.status,
+          target,
+          note,
+          today,
+        );
+        if (!changed) return;
+        const event = statusEvent(changed, STANDALONE_TASK_SYSTEM_ACTOR_ID, task.status, target, note);
+        if (event) await writeOutbox(client, tenantId, event);
+      });
+    },
+  };
+
   readonly history = {
     listByWorkItem: async (
       tenantId: string,
@@ -4062,4 +4627,283 @@ async function replaceTags(
      ON CONFLICT DO NOTHING`,
     [workItemId, [...new Set(tagIds)], actorUserId],
   );
+}
+
+/* =========================================================================
+   CÔNG VIỆC NGOÀI DỰ ÁN
+   ========================================================================= */
+
+/** Cột của việc giao lẻ (alias `t`) kèm thành viên và số việc con gom sẵn. */
+const STANDALONE_TASK_SELECT = `t.id, t.code, t.title, t.description, t.status, t.priority,
+       t.parent_id, t.root_id, t.depth,
+       t.assignee_user_id, t.planned_start, t.due_date, t.actual_start, t.actual_end,
+       t.progress_percent, t.created_by, t.created_at, t.updated_at, t.status_changed_at,
+       t.execution_type, t.procedure_definition_id, t.procedure_status,
+       t.procedure_instance_id, t.procedure_instance_code, t.procedure_error,
+       t.reversed_at, t.reversed_by, t.reversed_by_name, t.reversal_reason,
+       t.adjustment_requested, t.adjustment_of_id,
+       ARRAY(SELECT m.user_id::text FROM workspace_schema.standalone_task_members m
+              WHERE m.task_id = t.id AND m.role = 'participant' ORDER BY m.created_at) AS participant_ids,
+       ARRAY(SELECT m.user_id::text FROM workspace_schema.standalone_task_members m
+              WHERE m.task_id = t.id AND m.role = 'follower' ORDER BY m.created_at) AS follower_ids,
+       (SELECT COUNT(*) FROM workspace_schema.standalone_tasks c WHERE c.parent_id = t.id) AS child_count,
+       (SELECT COUNT(*) FROM workspace_schema.standalone_tasks c
+         WHERE c.parent_id = t.id AND c.status NOT IN ('done','cancelled')) AS open_child_count`;
+
+function mapStandaloneTask(row: Row): StandaloneTask {
+  const procedureStatus = opt(row.procedure_status) as StandaloneTaskProcedureStatus | undefined;
+  return {
+    id: str(row.id),
+    code: str(row.code),
+    title: str(row.title),
+    description: opt(row.description),
+    status: str(row.status) as WorkItemStatus,
+    priority: str(row.priority) as StandaloneTask['priority'],
+    parentId: opt(row.parent_id),
+    rootId: str(row.root_id),
+    depth: num(row.depth),
+    childCount: num(row.child_count),
+    openChildCount: num(row.open_child_count),
+    executionType: str(row.execution_type) as StandaloneTask['executionType'],
+    procedure:
+      row.procedure_definition_id && procedureStatus
+        ? {
+            definitionId: str(row.procedure_definition_id),
+            status: procedureStatus,
+            instanceId: opt(row.procedure_instance_id),
+            instanceCode: opt(row.procedure_instance_code),
+            error: opt(row.procedure_error),
+          }
+        : undefined,
+    reversal: row.reversed_at
+      ? {
+          reversedAt: iso(row.reversed_at),
+          reversedBy: str(row.reversed_by),
+          reversedByName: opt(row.reversed_by_name),
+          reason: str(row.reversal_reason),
+          adjustmentRequested: row.adjustment_requested === true,
+        }
+      : undefined,
+    adjustmentOfId: opt(row.adjustment_of_id),
+    assigneeUserId: str(row.assignee_user_id),
+    participantUserIds: ((row.participant_ids as unknown[] | null) ?? []).map(str),
+    followerUserIds: ((row.follower_ids as unknown[] | null) ?? []).map(str),
+    plannedStart: day(row.planned_start),
+    dueDate: day(row.due_date),
+    actualStart: day(row.actual_start),
+    actualEnd: day(row.actual_end),
+    progressPercent: num(row.progress_percent),
+    createdBy: str(row.created_by),
+    createdAt: iso(row.created_at),
+    updatedAt: iso(row.updated_at),
+    statusChangedAt: iso(row.status_changed_at),
+  };
+}
+
+/** Người thực hiện việc (`param` chứa userId): phụ trách hoặc cùng làm. Bảng có alias `t`. */
+function taskExecutor(param: string): string {
+  return `(t.assignee_user_id = ${param} OR EXISTS (
+            SELECT 1 FROM workspace_schema.standalone_task_members m
+             WHERE m.task_id = t.id AND m.user_id = ${param} AND m.role = 'participant'))`;
+}
+
+async function readStandaloneTask(
+  db: Queryable,
+  taskId: string,
+  forUpdate = false,
+): Promise<StandaloneTask | undefined> {
+  const result = await db.query<Row>(
+    `SELECT ${STANDALONE_TASK_SELECT}
+       FROM workspace_schema.standalone_tasks t
+      WHERE t.id = $1${forUpdate ? ' FOR UPDATE OF t' : ''}`,
+    [taskId],
+  );
+  const row = result.rows[0];
+  return row ? mapStandaloneTask(row) : undefined;
+}
+
+/**
+ * Đổi trạng thái một việc trong transaction đang mở, ghi nhật ký và tính lại
+ * tiến độ các việc cha. `undefined` khi trạng thái hiện tại đã khác `from`.
+ */
+async function setStandaloneStatus(
+  client: PoolClient,
+  taskId: string,
+  actorUserId: string,
+  from: WorkItemStatus,
+  next: WorkItemStatus,
+  note: string | undefined,
+  today: string,
+): Promise<StandaloneTask | undefined> {
+  // So trạng thái ngay trong câu UPDATE: người khác đổi trước thì không dòng
+  // nào khớp, và người gọi nhận xung đột thay vì đè lên.
+  const updated = await adjustmentGuard(() => client.query<{ parent_id: string | null }>(
+    `UPDATE workspace_schema.standalone_tasks
+        SET status = $3::varchar,
+            actual_start = CASE WHEN $3::varchar = 'in_progress' AND actual_start IS NULL
+                                THEN $4::date ELSE actual_start END,
+            actual_end   = CASE WHEN $3::varchar IN ('done','cancelled') THEN $4::date ELSE NULL END,
+            progress_percent = CASE WHEN $3::varchar = 'done' THEN 100
+                                    WHEN $3::varchar = 'todo' THEN 0
+                                    ELSE progress_percent END,
+            status_changed_at = now(),
+            updated_at = now()
+      WHERE id = $1 AND status = $2::varchar
+      RETURNING parent_id`,
+    [taskId, from, next, today],
+  ));
+  if (updated.rowCount === 0) return undefined;
+  await client.query(
+    `INSERT INTO workspace_schema.standalone_task_history
+       (task_id, from_status, to_status, note, created_by)
+     VALUES ($1, $2, $3, $4, $5)`,
+    [taskId, from, next, note ?? null, actorUserId],
+  );
+  await rollUpStandaloneProgress(client, updated.rows[0]?.parent_id ?? undefined);
+  return readStandaloneTask(client, taskId);
+}
+
+/**
+ * Tính lại tiến độ từ việc cha `parentId` lên tới việc gốc: trung bình tiến độ
+ * các việc con chưa huỷ. Việc cha đã đóng giữ nguyên; việc cha mà mọi con đều
+ * huỷ cũng giữ nguyên (không có gì để tính).
+ */
+async function rollUpStandaloneProgress(
+  client: PoolClient,
+  parentId: string | null | undefined,
+): Promise<void> {
+  let current = parentId ?? undefined;
+  // Cây tối đa 10 cấp; vòng lặp có trần để dữ liệu hỏng không thành lặp vô hạn.
+  for (let guard = 0; current && guard < 10; guard++) {
+    const result = await client.query<{ parent_id: string | null }>(
+      `UPDATE workspace_schema.standalone_tasks p
+          SET progress_percent = sub.avg, updated_at = now()
+         FROM (SELECT ROUND(AVG(progress_percent))::smallint AS avg
+                 FROM workspace_schema.standalone_tasks
+                WHERE parent_id = $1 AND status <> 'cancelled') sub
+        WHERE p.id = $1 AND sub.avg IS NOT NULL AND p.status NOT IN ('done','cancelled')
+        RETURNING p.parent_id`,
+      [current],
+    );
+    if (result.rowCount === 0) {
+      // Không cập nhật (đã đóng / không có con) nhưng vẫn đi tiếp lên trên.
+      const parent = await client.query<{ parent_id: string | null }>(
+        `SELECT parent_id FROM workspace_schema.standalone_tasks WHERE id = $1`,
+        [current],
+      );
+      current = parent.rows[0]?.parent_id ?? undefined;
+    } else {
+      current = result.rows[0]?.parent_id ?? undefined;
+    }
+  }
+}
+
+/**
+ * Một việc đã huỷ hiệu lực chỉ có một việc điều chỉnh còn hiệu lực (unique
+ * index). Hai lượt lập cùng lúc, hay mở lại một việc điều chỉnh đã huỷ trong
+ * khi đã có việc khác: báo rõ thay vì lỗi 500.
+ */
+async function adjustmentGuard<TValue>(work: () => Promise<TValue>): Promise<TValue> {
+  try {
+    return await work();
+  } catch (error) {
+    const failure = error as { code?: string; constraint?: string } | null;
+    if (failure?.code === '23505' && failure.constraint === 'standalone_tasks_one_open_adjustment') {
+      throw new WorkspaceValidationError(
+        'Việc gốc đã có một công việc điều chỉnh còn hiệu lực; hãy huỷ việc điều chỉnh đó trước.',
+      );
+    }
+    throw error;
+  }
+}
+
+/** Thay toàn bộ thành viên; tầng ứng dụng đã bảo đảm một người chỉ một vai. */
+async function replaceStandaloneTaskMembers(
+  client: PoolClient,
+  taskId: string,
+  participantUserIds: readonly string[],
+  followerUserIds: readonly string[],
+  actorUserId: string,
+): Promise<void> {
+  await client.query(`DELETE FROM workspace_schema.standalone_task_members WHERE task_id = $1`, [
+    taskId,
+  ]);
+  const rows = [
+    ...participantUserIds.map((userId) => [userId, 'participant'] as const),
+    ...followerUserIds.map((userId) => [userId, 'follower'] as const),
+  ];
+  if (rows.length === 0) return;
+  await client.query(
+    `INSERT INTO workspace_schema.standalone_task_members (task_id, user_id, role, created_by)
+     SELECT $1, u.user_id::uuid, u.role, $4
+       FROM unnest($2::text[], $3::text[]) AS u(user_id, role)
+     ON CONFLICT (task_id, user_id) DO NOTHING`,
+    [taskId, rows.map((row) => row[0]), rows.map((row) => row[1]), actorUserId],
+  );
+}
+
+/** Thông báo cho một lần đổi trạng thái; `undefined` khi bước này không cần báo ai. */
+function statusEvent(
+  task: StandaloneTask,
+  actorUserId: string,
+  from: WorkItemStatus,
+  next: WorkItemStatus,
+  note: string | undefined,
+): OutboxInput | undefined {
+  const executors = [task.assigneeUserId, ...task.participantUserIds];
+  // Từ Chờ duyệt về Đang làm: người giao bấm là "trả lại"; người thực hiện
+  // bấm là tự rút lại — không báo ai cả.
+  const returned = from === 'review' && next === 'in_progress' && actorUserId === task.createdBy;
+  if (next === 'review') {
+    return standaloneTaskEvent('review-requested', task, actorUserId, [task.createdBy], note);
+  }
+  if (returned) return standaloneTaskEvent('returned', task, actorUserId, executors, note);
+  if (next === 'done') {
+    return standaloneTaskEvent('completed', task, actorUserId, [
+      task.createdBy,
+      ...executors,
+      ...task.followerUserIds,
+    ]);
+  }
+  if (next === 'cancelled') {
+    return standaloneTaskEvent('cancelled', task, actorUserId, executors, note);
+  }
+  return undefined;
+}
+
+/**
+ * Sự kiện thông báo của việc giao lẻ.
+ *
+ * Người nhận tính sẵn ở đây; bên thông báo tự bỏ người vừa thao tác
+ * (`actorUserId`) khỏi danh sách.
+ */
+function standaloneTaskEvent(
+  kind:
+    | 'assigned'
+    | 'review-requested'
+    | 'returned'
+    | 'completed'
+    | 'cancelled'
+    | 'reversed'
+    | 'procedure-failed',
+  task: StandaloneTask,
+  actorUserId: string,
+  recipientUserIds: readonly string[],
+  note?: string,
+): OutboxInput {
+  return {
+    type: `workspace.standalone-task.${kind}`,
+    aggregateType: 'workspace-standalone-task',
+    aggregateId: task.id,
+    payload: {
+      taskId: task.id,
+      code: task.code,
+      title: task.title,
+      dueDate: task.dueDate ?? null,
+      note: note ?? null,
+      recipientUserIds: [...new Set(recipientUserIds)],
+      actorUserId,
+      deepLink: `/modules/workspace#tasks/${task.id}`,
+    },
+  };
 }
