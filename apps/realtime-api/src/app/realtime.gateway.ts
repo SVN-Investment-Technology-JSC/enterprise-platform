@@ -1,13 +1,19 @@
 import type { TenantUserPrincipal } from '@enterprise-platform/contracts-identity';
 import type { RealtimeEventEnvelope } from '@enterprise-platform/contracts-realtime';
-import { Inject } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
+import { Inject, Optional } from '@nestjs/common';
 import {
+  ConnectedSocket,
+  MessageBody,
+  SubscribeMessage,
   WebSocketGateway,
   WebSocketServer,
   type OnGatewayConnection,
   type OnGatewayDisconnect,
 } from '@nestjs/websockets';
 import type { Server, Socket } from 'socket.io';
+import { RealtimeChatTyping } from './realtime-chat-typing';
+import { RealtimeProcedureRooms } from './realtime-procedure-rooms';
 import type { RealtimeAuthClient } from './realtime-runtime';
 import { REALTIME_AUTH_CLIENT } from './realtime-tokens';
 import { RealtimeMetrics } from './realtime-health';
@@ -129,6 +135,8 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     private readonly origins: RealtimeOriginPolicy,
     private readonly revalidator: RealtimeSessionRevalidator,
     private readonly metrics: RealtimeMetrics = new RealtimeMetrics(),
+    @Optional() private readonly typing?: RealtimeChatTyping,
+    @Optional() private readonly rooms?: RealtimeProcedureRooms,
   ) {}
 
   async handleConnection(client: Socket): Promise<void> {
@@ -162,7 +170,107 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     }
   }
 
+  /**
+   * Client báo "tôi đang gõ / ngừng gõ" ở một node chat.
+   *
+   * Chỉ socket đã xác thực mới được gửi; người gõ lấy từ phiên chứ không từ nội
+   * dung tin. Đây là tín hiệu tạm nên mọi lỗi đều bị nuốt: mất một lần "đang gõ"
+   * không được làm hỏng kết nối hay chặn các tin chat thật.
+   */
+  @SubscribeMessage('chat.typing')
+  async handleChatTyping(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() body: unknown,
+  ): Promise<void> {
+    const principal = client.data.principal as TenantUserPrincipal | undefined;
+    if (!principal || !this.typing || !this.authenticatedSockets.has(client.id)) return;
+    try {
+      await this.typing.handle(
+        principal,
+        client.id,
+        headerText(client.handshake.headers.cookie),
+        body,
+        (event) => this.emitUserEvent(event),
+      );
+    } catch {
+      // Best-effort.
+    }
+  }
+
+  /**
+   * Xin vào phòng của một hồ sơ quy trình (khi người dùng mở hồ sơ).
+   *
+   * Chỉ socket đã xác thực; mỗi lần đều được procedure-api kiểm quyền bằng cookie của chính người đó. Trả về
+   * `{ ok }` làm xác nhận (acknowledgement) để client biết đã vào phòng; mọi lỗi đều thành `ok: false`.
+   */
+  @SubscribeMessage('procedure.subscribe')
+  async handleProcedureSubscribe(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() body: unknown,
+  ): Promise<{ ok: boolean }> {
+    const principal = client.data.principal as TenantUserPrincipal | undefined;
+    if (!principal || !this.rooms || !this.authenticatedSockets.has(client.id)) return { ok: false };
+    try {
+      const ok = await this.rooms.subscribe(
+        principal,
+        client,
+        headerText(client.handshake.headers.cookie),
+        body,
+      );
+      return { ok };
+    } catch {
+      return { ok: false };
+    }
+  }
+
+  @SubscribeMessage('procedure.unsubscribe')
+  async handleProcedureUnsubscribe(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() body: unknown,
+  ): Promise<void> {
+    const principal = client.data.principal as TenantUserPrincipal | undefined;
+    if (!principal || !this.rooms || !this.authenticatedSockets.has(client.id)) return;
+    try {
+      await this.rooms.unsubscribe(principal, client, body);
+    } catch {
+      // Best-effort: rời phòng lỗi thì phòng tự dọn khi socket đóng.
+    }
+  }
+
+  /** "Đang nhập" trong hồ sơ: chỉ socket đã vào phòng của hồ sơ đó; không gửi ngược lại cho chính socket đó. */
+  @SubscribeMessage('procedure.typing')
+  async handleProcedureTyping(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() body: unknown,
+  ): Promise<void> {
+    const principal = client.data.principal as TenantUserPrincipal | undefined;
+    if (!principal || !this.rooms || !this.authenticatedSockets.has(client.id)) return;
+    try {
+      await this.rooms.typing(principal, client.id, body, (room, signal) =>
+        this.emitRoomEvent(
+          room,
+          {
+            id: randomUUID(),
+            event: 'procedure.comment.typing',
+            version: 1,
+            tenantId: principal.tenantId,
+            userId: principal.userId,
+            // Tín hiệu tạm, không nằm trong chuỗi thông báo có thứ tự.
+            sequence: 1,
+            occurredAt: new Date().toISOString(),
+            data: signal,
+          },
+          [client.id],
+        ),
+      );
+    } catch {
+      // Best-effort như "đang nhập" của Workspace.
+    }
+  }
+
   handleDisconnect(client: Socket): void {
+    this.rooms?.forget(client.id);
+    this.typing?.forget(client.id);
     this.revalidator.unwatch(client);
     if (this.authenticatedSockets.delete(client.id)) {
       this.metrics.socketDisconnected();
@@ -175,6 +283,23 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     const offset = await this.publishClusterEvent(room, event.event, event);
     this.metrics.deliveryPublished(event.event, event.occurredAt);
     this.server.local.to(room).emit(event.event, event, offset);
+  }
+
+  /**
+   * Đẩy một bao thư vào MỘT PHÒNG (khác phòng cá nhân), kể cả các replica khác qua Redis Streams.
+   * `except` là id socket không nhận (ví dụ chính người đang gõ). Với sự kiện theo phòng, `userId` của
+   * bao thư là người thực hiện chứ không phải người nhận.
+   */
+  async emitRoomEvent(
+    room: string,
+    event: RealtimeEventEnvelope,
+    except: readonly string[] = [],
+  ): Promise<void> {
+    if (!this.server) throw new Error('Realtime gateway is not ready.');
+    const offset = await this.publishClusterEvent(room, event.event, event, except);
+    this.metrics.deliveryPublished(event.event, event.occurredAt);
+    const target = this.server.local.to(room);
+    (except.length > 0 ? target.except([...except]) : target).emit(event.event, event, offset);
   }
 
   async disconnectSession(
@@ -209,6 +334,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     room: string,
     eventName: string,
     payload: unknown,
+    except: readonly string[] = [],
   ): Promise<string> {
     const { namespace, adapter } = this.adapter();
     return adapter.doPublish({
@@ -221,7 +347,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
           nsp: namespace,
           data: [eventName, payload],
         },
-        opts: { rooms: [room], except: [], flags: {} },
+        opts: { rooms: [room], except: [...except], flags: {} },
       },
     });
   }

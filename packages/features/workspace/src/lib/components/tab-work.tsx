@@ -11,7 +11,7 @@ import {
   type WorkItemStatus,
 } from '@enterprise-platform/contracts-workspace';
 import { ChevronDown, ChevronRight, CornerDownRight, Diamond, Plus, Workflow } from 'lucide-react';
-import { useEffect, useMemo, useState, type MouseEvent, type ReactNode } from 'react';
+import { memo, useEffect, useMemo, useState, type MouseEvent, type ReactNode } from 'react';
 import { buildWorkItemTree } from '../project-tree.model';
 import * as api from '../workspace-api';
 import {
@@ -171,7 +171,7 @@ export interface TabWorkProps {
  * Cây công việc trước đây nằm ở cột trái; giờ chính bảng này là cây, nên
  * vùng chính không phải chia cột. Bấm một dòng để mở chi tiết công việc.
  */
-export function TabWork({
+function TabWorkImpl({
   projectId,
   items,
   dependencies,
@@ -789,3 +789,10 @@ function People({
     </span>
   );
 }
+
+/**
+ * Bảng 600+ dòng rất tốn khi vẽ lại. Bọc `memo` để bật/tắt ngăn Trao đổi (hay bất kỳ
+ * state nào khác của `ProjectsView` không liên quan tới bảng) không vẽ lại cả bảng;
+ * nơi gọi phải truyền hàm ổn định (`useCallback`), nếu không `memo` không có tác dụng.
+ */
+export const TabWork = memo(TabWorkImpl);

@@ -318,6 +318,10 @@ services:
     environment:
       PLATFORM_DATABASE_URL: postgresql://platform:${PLATFORM_DB_PASSWORD:-platform_local_2026}@platform-db:5432/platform
       PLATFORM_INTERNAL_URL: http://api:3333
+      # "Đang nhập" trong chat: hỏi workspace-api ai là người nhận (bằng cookie của người gõ).
+      WORKSPACE_INTERNAL_URL: http://workspace-api:3337
+      # Phòng thời gian thực của trao đổi quy trình: kiểm quyền vào phòng bằng cookie của người dùng.
+      PROCEDURE_INTERNAL_URL: http://procedure-api:3334
       # Cả hai service mở DB của từng tenant (thông báo nằm trong tenant DB), nên cần mẫu URL này như các API khác.
       TENANT_DATABASE_URL_TEMPLATE: postgresql://tenant:${TENANT_DB_PASSWORD:-tenant_local_2026}@tenant-db:5432/{databaseName}
       RABBITMQ_URL: amqp://platform:${RABBITMQ_PASSWORD:-rabbit_local_2026}@rabbitmq:5672

@@ -18,6 +18,7 @@ import type {
   UpdateWorkItemRequest,
   WorkItem,
   WorkItemDependency,
+  WorkItemStatus,
   WorkItemStatusHistoryEntry,
   WorkItemProcedureRequest,
 } from '@enterprise-platform/contracts-workspace';
@@ -29,8 +30,9 @@ import {
   type SystemProjectRole,
 } from '@enterprise-platform/contracts-workspace';
 import { CHAT_UNREAD_POLL_MS } from '@enterprise-platform/contracts-workspace';
+import { useRealtimeEvent, type WorkspaceChatSignal } from '@enterprise-platform/shared-ui';
 import { MessageSquare, MoreHorizontal, Plus } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   loadInstance,
@@ -39,6 +41,7 @@ import {
   type ProcedureInstanceView,
   type ProcedureOption,
 } from '../procedure-api';
+import { sameUnread } from '../chat.model';
 import { branchOf, mergeNewProjectMembers, parentCandidateOptions } from '../project-tree.model';
 import * as api from '../workspace-api';
 import styles from '../workspace.module.scss';
@@ -465,7 +468,10 @@ export function ProjectsView({
 
   const refreshUnread = useCallback(async (projectId: string) => {
     try {
-      setUnread(await api.loadUnread(projectId));
+      const next = await api.loadUnread(projectId);
+      // Không gán lại khi không đổi (khỏi vẽ lại cả bảng), và nếu có đổi thì đánh dấu là cập
+      // nhật không khẩn cấp để không chặn khung hình ngay lúc ngăn Trao đổi đang trượt vào.
+      startTransition(() => setUnread((current) => (sameUnread(current, next) ? current : next)));
     } catch {
       // Chấm đỏ là phụ trợ: hỏng thì bỏ qua, không phá cả màn hình.
       setUnread(undefined);
@@ -509,14 +515,36 @@ export function ProjectsView({
       .catch(() => setProjectFolders([]));
   }, [openId, calendarToken]);
 
-  // Không có WebSocket trong repo, nên chấm đỏ cập nhật theo nhịp hỏi lại.
-  // 30 giây là đủ nhanh để không ai bỏ lỡ, và đủ thưa để không dồn tải.
+  // Chấm đỏ cập nhật ngay khi có tín hiệu realtime của dự án đang mở; nhịp hỏi
+  // lại 30 giây chỉ còn là lưới an toàn khi mất kết nối hoặc broker chậm.
   useEffect(() => {
     if (!openId) return;
     void refreshUnread(openId);
     const timer = setInterval(() => void refreshUnread(openId), CHAT_UNREAD_POLL_MS);
     return () => clearInterval(timer);
   }, [openId, refreshUnread]);
+
+  // Nhiều tín hiệu dồn trong chốc lát chỉ cần một lần hỏi lại.
+  const unreadDebounce = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const scheduleUnreadRefresh = useCallback(
+    (projectId: string) => {
+      clearTimeout(unreadDebounce.current);
+      unreadDebounce.current = setTimeout(() => void refreshUnread(projectId), 300);
+    },
+    [refreshUnread],
+  );
+  useEffect(() => () => clearTimeout(unreadDebounce.current), []);
+  useRealtimeEvent(
+    'workspace.chat.changed',
+    (event) => {
+      const signal = event.data as Partial<WorkspaceChatSignal> | undefined;
+      if (openId && signal?.projectId === openId) scheduleUnreadRefresh(openId);
+    },
+    (connected) => {
+      // Nối lại: có thể đã lỡ tín hiệu trong lúc mất kết nối.
+      if (connected && openId) scheduleUnreadRefresh(openId);
+    },
+  );
 
   /**
    * Quy trình người dùng khởi tạo được, lọc theo vai S.
@@ -910,7 +938,33 @@ export function ProjectsView({
 
   /* ------------------------------------------------------------ Render */
 
-  const openItem = (item: WorkItem) => goToItem(item.id);
+  // Các hàm truyền cho bảng công việc phải ổn định giữa các lần vẽ: `TabWork` được bọc
+  // `memo`, nên chỉ khi chúng ổn định thì bật/tắt ngăn Trao đổi mới không vẽ lại cả
+  // bảng 600+ dòng (từng gây giật ~150–400ms mỗi lần bấm nút Trao đổi).
+  const openItem = useCallback((item: WorkItem) => goToItem(item.id), [goToItem]);
+  const openItemForm = useCallback(() => setItemForm({ open: true }), []);
+  const openItemMenu = useCallback(
+    (item: WorkItem, at: { x: number; y: number }) =>
+      setMenu({ ...at, node: { kind: 'work-item', id: item.id } }),
+    [],
+  );
+  const openProjectId = detail?.project.id;
+  const changeItemStatus = useCallback(
+    async (item: WorkItem, next: WorkItemStatus) => {
+      // Kéo sang cột Đã huỷ cũng phải qua bước xác nhận.
+      if (next === 'cancelled') {
+        if (!canCancelItem) {
+          setError('Vai trò của bạn trong dự án chưa có quyền huỷ công việc.');
+          return;
+        }
+        setCancellingItem(item);
+        return;
+      }
+      await api.changeWorkItemStatus(item.id, { status: next });
+      if (openProjectId) await refreshDetail(openProjectId);
+    },
+    [canCancelItem, openProjectId, refreshDetail],
+  );
 
   /** Con số nhỏ cạnh tên tab, như bản thiết kế: số công việc, số tài liệu. */
   const tabCount = (id: TabId) =>
@@ -1042,21 +1096,9 @@ export function ProjectsView({
               canWrite={canWrite}
               currentUserId={me}
               onOpen={openItem}
-              onAddRoot={() => setItemForm({ open: true })}
-              onMenu={(item, at) => setMenu({ ...at, node: { kind: 'work-item', id: item.id } })}
-              onChangeStatus={async (item, next) => {
-                // Kéo sang cột Đã huỷ cũng phải qua bước xác nhận.
-                if (next === 'cancelled') {
-                  if (!canCancelItem) {
-                    setError('Vai trò của bạn trong dự án chưa có quyền huỷ công việc.');
-                    return;
-                  }
-                  setCancellingItem(item);
-                  return;
-                }
-                await api.changeWorkItemStatus(item.id, { status: next });
-                await refreshDetail(detail.project.id);
-              }}
+              onAddRoot={openItemForm}
+              onMenu={openItemMenu}
+              onChangeStatus={changeItemStatus}
             />
           ) : null}
           {tab === 'calendar' ? (
@@ -1222,7 +1264,6 @@ export function ProjectsView({
         }
         members={detail?.members ?? []}
         canWrite={canWrite}
-        canModerate={canManage}
         documents={projectDocuments}
         folders={projectFolders}
         projectId={openId}

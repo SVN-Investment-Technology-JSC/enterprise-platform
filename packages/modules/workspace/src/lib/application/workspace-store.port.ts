@@ -3,6 +3,7 @@ import type {
   ChatChannel,
   ChatEntityType,
   ChatMessage,
+  ChatReader,
   CostEntry,
   ProjectRequest,
   WorkdayRuleKind,
@@ -661,13 +662,22 @@ export interface WorkspaceStore {
         readonly projectId: string;
       },
     ): Promise<ChatChannel>;
+    /**
+     * Một trang tin, cũ → mới. `beforeMessageId` lấy trang liền trước tin đó;
+     * vắng thì lấy trang mới nhất. `hasMore` báo còn tin cũ hơn trang này.
+     */
     listMessages(
       tenantId: string,
       channelId: string,
       limit: number,
-    ): Promise<readonly ChatMessage[]>;
+      beforeMessageId?: string,
+    ): Promise<{ readonly messages: readonly ChatMessage[]; readonly hasMore: boolean }>;
     findMessage(tenantId: string, messageId: string): Promise<ChatMessage | undefined>;
-    /** Ghi tin và cập nhật `last_message_at` của kênh trong cùng transaction. */
+    /**
+     * Ghi tin và cập nhật `last_message_at` của kênh trong cùng transaction.
+     * Cùng transaction đó ghi sự kiện outbox: nhắc tên (nếu có) và tín hiệu
+     * realtime cho các thành viên dự án khác.
+     */
     sendMessage(
       tenantId: string,
       actorUserId: string,
@@ -679,14 +689,24 @@ export interface WorkspaceStore {
         readonly attachmentDocumentId?: string | null;
       },
     ): Promise<ChatMessage>;
+    /**
+     * `newlyMentioned` là những người mới được nhắc so với bản trước: chỉ họ
+     * nhận thông báo, người đã được nhắc từ đầu không bị báo lại.
+     */
     editMessage(
       tenantId: string,
+      actorUserId: string,
       messageId: string,
       body: string,
       mentions: readonly string[],
+      newlyMentioned: readonly string[],
     ): Promise<ChatMessage>;
     /** Xoá mềm: dòng ở lại để các trả lời bên dưới không mất ngữ cảnh. */
-    softDeleteMessage(tenantId: string, messageId: string): Promise<ChatMessage>;
+    softDeleteMessage(
+      tenantId: string,
+      actorUserId: string,
+      messageId: string,
+    ): Promise<ChatMessage>;
 
     /**
      * Số tin chưa đọc của mọi node trong một dự án, trong MỘT truy vấn.
@@ -698,7 +718,24 @@ export interface WorkspaceStore {
       projectId: string,
       userId: string,
     ): Promise<readonly UnreadRow[]>;
-    markRead(tenantId: string, channelId: string, userId: string): Promise<void>;
+    /**
+     * Đánh dấu đã đọc TỚI đúng tin `upToMessageId`, không phải tới "bây giờ".
+     *
+     * Đánh dấu theo giờ máy chủ sẽ nuốt mất tin đến giữa lúc tải luồng và lúc
+     * đánh dấu: nó không nằm trong danh sách vừa hiển thị nhưng vẫn bị tính là
+     * đã đọc. Mốc chỉ tiến lên, không bao giờ lùi. `announce` ghi thêm tín hiệu
+     * `read` cho các thành viên khác (chỉ khi mốc thật sự tiến) để "đã xem" cập
+     * nhật ngay; người gửi tự đánh dấu tin của mình thì không cần báo.
+     */
+    markRead(
+      tenantId: string,
+      channelId: string,
+      userId: string,
+      upToMessageId: string,
+      options?: { readonly announce?: boolean },
+    ): Promise<void>;
+    /** Mỗi người đã đọc tới tin nào của kênh. */
+    listReaders(tenantId: string, channelId: string): Promise<readonly ChatReader[]>;
   };
 
   /**

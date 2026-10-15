@@ -51,6 +51,11 @@ export interface NotificationSocketHandlers {
 
 export interface NotificationSocketConnection {
   disconnect(): void;
+  /**
+   * Gửi một sự kiện lên máy chủ qua socket đang mở (ví dụ báo "đang nhập").
+   * Im lặng bỏ qua nếu socket chưa nối: đây là tín hiệu tạm, không có hàng đợi.
+   */
+  emit?(event: string, payload: unknown): void;
 }
 
 export interface NotificationClient {
@@ -72,6 +77,10 @@ const NOTIFICATION_EVENTS = [
   'notification.updated',
   'notification.read',
   'notification.summary-updated',
+  // Không phải thông báo, nhưng đi chung một kết nối; `NotificationCenter`
+  // chuyển nó sang `realtime-bus` thay vì đưa vào chuỗi thông báo có thứ tự.
+  'workspace.chat.changed',
+  'workspace.chat.typing',
 ] as const;
 
 export class BrowserNotificationClient implements NotificationClient {
@@ -141,6 +150,9 @@ export class BrowserNotificationClient implements NotificationClient {
       void handlers.onConnected();
     });
     socket.on('disconnect', () => handlers.onDisconnected?.());
+    // Nối hỏng ngay từ đầu (máy chủ tắt, phiên hết hạn) chỉ bắn `connect_error`,
+    // không bắn `disconnect`; coi như mất kết nối để giao diện báo đúng.
+    socket.on('connect_error', () => handlers.onDisconnected?.());
     socket.on('session.revoked', (payload: unknown) => {
       const reason = isRecord(payload) && typeof payload.reason === 'string' ? payload.reason : undefined;
       handlers.onSessionRevoked?.(reason);
@@ -155,7 +167,12 @@ export class BrowserNotificationClient implements NotificationClient {
       });
     }
 
-    return { disconnect: () => socket.disconnect() };
+    return {
+      disconnect: () => socket.disconnect(),
+      emit: (event, payload) => {
+        if (socket.connected) socket.emit(event, payload);
+      },
+    };
   }
 
   private get<T>(path: string): Promise<T> {

@@ -2686,6 +2686,105 @@
   border-bottom: 1px solid var(--line);
 }
 
+/* Chỉ báo kênh thời gian thực: chấm màu + chữ (không chỉ dựa vào màu). */
+.chatLive {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--faint);
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.chatLive i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--faint);
+}
+
+.chatLive[data-state='live'] {
+  color: #047857;
+}
+
+.chatLive[data-state='live'] i {
+  background: #047857;
+}
+
+.chatLive[data-state='offline'] {
+  color: #b91c1c;
+}
+
+.chatLive[data-state='offline'] i {
+  background: #b91c1c;
+}
+
+/* "A đang nhập" nằm giữa luồng tin và ô nhập; luôn giữ chiều cao một dòng để chữ hiện/tắt không làm bố cục nhảy. */
+.chatTyping {
+  min-height: 20px;
+  margin: 0;
+  padding: 2px 4px 0;
+  overflow: hidden;
+  color: var(--faint);
+  font-size: 11.5px;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Ba chấm sáng lần lượt từ trái sang phải. Thứ tự vòng tròn trong biểu tượng Ellipsis của lucide là giữa (1), phải (2), trái (3). */
+.typingDots {
+  display: inline-block;
+  margin-left: 2px;
+  vertical-align: middle;
+}
+
+.typingDots circle {
+  animation: procedureTypingDot 1.2s ease-in-out infinite;
+}
+
+.typingDots circle:nth-child(3) {
+  animation-delay: 0s;
+}
+
+.typingDots circle:nth-child(1) {
+  animation-delay: 0.2s;
+}
+
+.typingDots circle:nth-child(2) {
+  animation-delay: 0.4s;
+}
+
+@keyframes procedureTypingDot {
+  0%,
+  80%,
+  100% {
+    opacity: 0.25;
+  }
+
+  40% {
+    opacity: 1;
+  }
+}
+
+@keyframes procedureMessageIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .typingDots circle {
+    animation: none;
+  }
+}
+
 .chatSummaryBadge {
   font-size: 11.5px;
   font-weight: 700;
@@ -2774,6 +2873,15 @@
   border-radius: 8px;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.02);
   transition: all 0.15s ease;
+  /* Tin hiện dần khi xuất hiện (mở trao đổi, có tin mới). Chỉ opacity và transform nên chạy trên GPU. */
+  animation: procedureMessageIn 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Phải nằm SAU luật gốc của .chatMessageCard thì mới ghi đè được animation. */
+@media (prefers-reduced-motion: reduce) {
+  .chatMessageCard {
+    animation: none;
+  }
 }
 
 .chatMessageCard:hover {
@@ -2945,20 +3053,63 @@
   position: relative;
 }
 
-.composerTextarea {
-  width: 100%;
+/*
+ * Ô nhập gồm hai lớp chồng nhau: bản phản chiếu (.composerMirror) vẽ chữ thật để tô màu được lượt nhắc,
+ * textarea trong suốt nằm đè lên để nhận phím, con trỏ và vùng chọn. Hai lớp PHẢI cùng font, đệm, viền,
+ * cách ngắt dòng và thanh cuộn, nếu không chữ tô màu sẽ lệch khỏi con trỏ. Không đổi độ đậm hay cỡ chữ ở
+ * bản phản chiếu vì sẽ làm lệch dòng.
+ */
+.composerInputWrap {
+  position: relative;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.composerTextarea,
+.composerMirror {
   box-sizing: border-box;
   padding: 10px 12px;
   border: 1px solid #cbd5e1;
-  border-radius: 8px;
-  background: #ffffff;
   font: inherit;
   font-size: 12.5px;
-  color: var(--ink);
   line-height: 1.45;
+  letter-spacing: normal;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  word-break: normal;
+  scrollbar-gutter: stable;
+}
+
+.composerTextarea {
+  position: relative;
+  display: block;
+  width: 100%;
+  border-radius: 8px;
+  background: transparent;
+  color: transparent;
+  caret-color: var(--ink);
   resize: vertical;
   outline: none;
   transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.composerTextarea::placeholder {
+  color: var(--faint);
+}
+
+.composerMirror {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-color: transparent;
+  border-radius: 8px;
+  color: var(--ink);
+  pointer-events: none;
+}
+
+/* Lượt nhắc hợp lệ trong ô nhập: chỉ đổi màu, không đổi độ đậm/đệm (xem ghi chú ở trên). */
+.mentionInline {
+  color: #1677ff;
 }
 
 .composerTextarea:focus {
@@ -3000,9 +3151,21 @@
   text-align: left;
 }
 
-.mentionItemBtn:hover {
+.mentionItemBtn:hover,
+.mentionActive .mentionItemBtn {
   background: #eff6ff;
   color: var(--blue);
+}
+
+.mentionHint {
+  margin-left: auto;
+  padding-left: 8px;
+  overflow: hidden;
+  color: var(--faint);
+  font-size: 10.5px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .mentionAvatar {
