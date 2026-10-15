@@ -27,7 +27,7 @@ export function ProfileCard({
       className="rounded-xl border border-slate-200 bg-white p-4 shadow-xs"
     >
       <div className="mb-3 flex items-center justify-between gap-2">
-        <h2 className="flex items-center gap-2 text-sm font-bold text-slate-900">
+        <h2 className="flex items-center gap-2 text-[15px] font-bold text-slate-900">
           <Icon className="size-4.5 text-blue-600" aria-hidden="true" />
           {title}
         </h2>
@@ -41,7 +41,7 @@ export function ProfileCard({
   );
 }
 
-const LABEL = 'block text-[12px] font-semibold text-slate-600';
+const LABEL = 'block text-[14px] font-semibold text-slate-600';
 
 /** Ô chỉ đọc có icon bên trái (dữ liệu do Core hoặc nhân sự quản lý). */
 export function ReadonlyField({
@@ -74,7 +74,7 @@ export function ReadonlyField({
           type="text"
           readOnly
           value={value}
-          className={`h-9 bg-slate-50 text-xs ${Icon ? 'pl-9' : ''} ${mono ? 'font-mono' : ''}`}
+          className={`h-9 bg-slate-50 text-[14px] ${Icon ? 'pl-9' : ''} ${mono ? 'font-mono' : ''}`}
         />
       </div>
     </div>
@@ -120,7 +120,7 @@ export function IconInput({
           value={value}
           placeholder={placeholder}
           onChange={(e) => onChange(e.target.value)}
-          className={`h-9 text-xs ${Icon ? 'pl-9' : ''}`}
+          className={`h-9 text-[14px] ${Icon ? 'pl-9' : ''}`}
         />
       </div>
     </div>
@@ -135,8 +135,8 @@ export function FieldLabel({ children }: { children: ReactNode }) {
 export function InfoCell({ label, children, icon: Icon }: { label: string; children: ReactNode; icon?: LucideIcon }) {
   return (
     <div className="min-w-0">
-      <p className="text-[12px] text-slate-500">{label}</p>
-      <p className="mt-0.5 flex items-center gap-1.5 text-sm font-semibold text-slate-900">
+      <p className="text-[14px] text-slate-500">{label}</p>
+      <p className="mt-0.5 flex items-center gap-1.5 text-[15px] font-semibold text-slate-900">
         {Icon && <Icon className="size-3.5 shrink-0 text-slate-400" aria-hidden="true" />}
         <span className="min-w-0 truncate">{children}</span>
       </p>

@@ -121,18 +121,19 @@ export function MyTimesheetCalendar({
 export function MonthNumberLegend() {
   const items = [
     { text: '1', tone: 'text-emerald-700', label: 'Công chuẩn' },
-    { text: '1P', tone: 'text-emerald-700', label: 'Có đơn phép tính lương' },
+    { text: '1P', tone: 'text-emerald-700', label: 'Nghỉ có lương' },
     { text: '1L', tone: 'text-emerald-700', label: 'Ngày lễ' },
     { text: '1CT', tone: 'text-emerald-700', label: 'Công tác' },
-    { text: '0', tone: 'text-emerald-700', label: 'Phép không lương' },
+    { text: '0', tone: 'text-emerald-700', label: 'Nghỉ không lương' },
     { text: '0', tone: 'text-red-600', label: 'Thiếu dữ liệu chấm công' },
     { text: '0.xx', tone: 'text-red-600', label: 'Đi trễ, về sớm hoặc thiếu công' },
   ];
   return (
-    <ul aria-label="Chú thích số công" className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-600">
+    <ul aria-label="Chú thích số công" className="flex flex-wrap items-center gap-1.5 text-[12px] text-slate-600">
       {items.map((item) => (
-        <li key={item.label} className="flex items-center gap-1.5">
-          <span className={`min-w-6 font-mono text-[13px] font-bold ${item.tone}`}>{item.text}</span>
+        // Mỗi mục là một ô có viền: số và nhãn đi liền nhau, không đọc nhầm số của mục kế tiếp.
+        <li key={item.label} className="flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 py-0.5">
+          <span className={`min-w-6 text-center font-mono text-[13px] font-bold ${item.tone}`}>{item.text}</span>
           <span>{item.label}</span>
         </li>
       ))}

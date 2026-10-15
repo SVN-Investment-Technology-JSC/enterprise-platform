@@ -101,13 +101,13 @@ function Row({
     if (isCoreOwned && !editControl) {
       return (
         <div className="flex items-center justify-between gap-3 border-b border-slate-100 py-1.5 last:border-b-0">
-          <dt className="shrink-0 text-[12px] text-slate-400 flex items-center gap-1">
+          <dt className="shrink-0 text-[14px] text-slate-400 flex items-center gap-1">
             {label}
             <Lock className="size-3 text-slate-400" aria-label="Quản lý tại Core" />
           </dt>
-          <dd className="min-w-0 text-right text-xs font-semibold text-slate-500 flex items-center justify-end gap-1.5">
+          <dd className="min-w-0 text-right text-[14px] font-semibold text-slate-500 flex items-center justify-end gap-1.5">
             {children}
-            <span className="text-[12px] font-normal text-slate-500 bg-slate-100 px-1 py-0.2 rounded border border-slate-200">
+            <span className="text-[14px] font-normal text-slate-500 bg-slate-100 px-1 py-0.2 rounded border border-slate-200">
               Core
             </span>
           </dd>
@@ -117,8 +117,8 @@ function Row({
     if (isSensitiveHidden) {
       return (
         <div className="flex items-center justify-between gap-3 border-b border-slate-100 py-1.5 last:border-b-0">
-          <dt className="shrink-0 text-[12px] text-slate-400">{label}</dt>
-          <dd className="min-w-0 text-right text-xs text-slate-400 italic">
+          <dt className="shrink-0 text-[14px] text-slate-400">{label}</dt>
+          <dd className="min-w-0 text-right text-[14px] text-slate-400 italic">
             Ẩn (Không có quyền)
           </dd>
         </div>
@@ -126,7 +126,7 @@ function Row({
     }
     return (
       <div className="space-y-1 border-b border-blue-100/70 py-2 last:border-b-0">
-        <label className="flex items-center justify-between text-[12px] font-medium text-slate-700">
+        <label className="flex items-center justify-between text-[14px] font-medium text-slate-700">
           <span className="flex items-center gap-1.5">
             <span className="size-1.5 rounded-full bg-blue-600 animate-pulse" />
             {label}
@@ -134,14 +134,14 @@ function Row({
           <span className="flex items-center gap-1">
             {isCoreOwned && (
               <span
-                className="flex items-center gap-0.5 text-[12px] font-normal text-slate-500 bg-slate-100 px-1 py-0.2 rounded border border-slate-200"
+                className="flex items-center gap-0.5 text-[14px] font-normal text-slate-500 bg-slate-100 px-1 py-0.2 rounded border border-slate-200"
                 title="Lưu sẽ gửi sang Core qua quyết định nhân sự, không ghi thẳng hồ sơ HRM"
               >
                 <Lock className="size-2.5" aria-hidden="true" />
                 Core
               </span>
             )}
-            <span className="text-[12px] text-blue-600 font-semibold bg-blue-50 px-1.5 py-0.2 rounded border border-blue-200/60">
+            <span className="text-[14px] text-blue-600 font-semibold bg-blue-50 px-1.5 py-0.2 rounded border border-blue-200/60">
               Chỉnh sửa trực tiếp
             </span>
           </span>
@@ -153,9 +153,9 @@ function Row({
 
   return (
     <div className="flex items-baseline justify-between gap-3 border-b border-slate-100 py-1.5 last:border-b-0">
-      <dt className="shrink-0 text-[12px] text-slate-500">{label}</dt>
+      <dt className="shrink-0 text-[14px] text-slate-500">{label}</dt>
       <dd
-        className={`min-w-0 text-right text-xs font-semibold text-slate-900 ${mono ? 'font-mono' : ''
+        className={`min-w-0 text-right text-[14px] font-semibold text-slate-900 ${mono ? 'font-mono' : ''
           }`}
       >
         {children}
@@ -183,13 +183,13 @@ function Block({
           : 'border-slate-200 hover:border-slate-300'
         }`}
     >
-      <h3 className="mb-2 flex items-center justify-between text-xs font-bold text-slate-900 border-b border-slate-100 pb-1.5">
+      <h3 className="mb-2 flex items-center justify-between text-[14px] font-bold text-slate-900 border-b border-slate-100 pb-1.5">
         <span className="flex items-center gap-1.5">
           <Icon className="size-3.5 text-blue-600" aria-hidden="true" />
           {title}
         </span>
         {isEditing && (
-          <span className="text-[12px] text-blue-600 font-normal">
+          <span className="text-[14px] text-blue-600 font-normal">
             Trực tiếp trên Drawer
           </span>
         )}
@@ -503,13 +503,13 @@ export function EmployeeDetailDialog({
   };
 
   const editableInputClass =
-    'h-8 border-blue-300 bg-blue-50/20 ring-2 ring-blue-500/15 focus:border-blue-600 focus:bg-white focus:ring-2 focus:ring-blue-500/35 text-xs rounded-lg transition-all shadow-2xs';
+    'h-8 border-blue-300 bg-blue-50/20 ring-2 ring-blue-500/15 focus:border-blue-600 focus:bg-white focus:ring-2 focus:ring-blue-500/35 text-[14px] rounded-lg transition-all shadow-2xs';
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         showCloseButton={false}
-        className="flex h-full w-full max-w-[720px] sm:w-[720px] flex-col gap-0 overflow-hidden bg-white p-0 shadow-2xl border-l border-slate-200"
+        className="flex h-full w-full max-w-[720px] sm:w-[720px] flex-col gap-0 overflow-hidden bg-white p-0 shadow-2xl border-l border-slate-200 [&_button]:text-[14px] [&_.ant-table-wrapper_.ant-table]:text-[14px] [&_.ant-table-wrapper_.ant-table-cell]:text-[14px]"
       >
         {employee && (
           <>
@@ -526,7 +526,7 @@ export function EmployeeDetailDialog({
                         {employee.fullName || 'Hồ sơ nhân sự'}
                       </SheetTitle>
                       <Badge
-                        className={`border text-[12px] font-bold ${active
+                        className={`border text-[14px] font-bold ${active
                             ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
                             : 'border-rose-200 bg-rose-50 text-rose-700'
                           }`}
@@ -536,12 +536,12 @@ export function EmployeeDetailDialog({
                       </Badge>
                       <Badge
                         variant="outline"
-                        className="bg-white font-mono text-[12px] text-slate-700 border-slate-300"
+                        className="bg-white font-mono text-[14px] text-slate-700 border-slate-300"
                       >
                         {employee.employeeCode}
                       </Badge>
                     </div>
-                    <SheetDescription className="truncate mt-0.5 text-xs text-slate-500">
+                    <SheetDescription className="truncate mt-0.5 text-[14px] text-slate-500">
                       {employee.position || 'Chưa phân chức danh'} •{' '}
                       {employee.department || 'Chưa phân phòng ban'}
                     </SheetDescription>
@@ -561,12 +561,12 @@ export function EmployeeDetailDialog({
               </div>
 
               {/* Mức hoàn thiện và badge thông báo có thể chỉnh sửa */}
-              <div className="flex flex-wrap items-center justify-between gap-3 pt-1 border-t border-slate-200/60 text-xs">
+              <div className="flex flex-wrap items-center justify-between gap-3 pt-1 border-t border-slate-200/60 text-[14px]">
                 <div
                   className="w-48 sm:w-56"
                   title="Mức hoàn thiện hồ sơ nhân sự"
                 >
-                  <div className="mb-1 flex items-center justify-between text-[12px] text-slate-500">
+                  <div className="mb-1 flex items-center justify-between text-[14px] text-slate-500">
                     <span>Hồ sơ hoàn thiện</span>
                     <span className="font-mono font-bold text-slate-800">
                       {completeness}%
@@ -595,12 +595,12 @@ export function EmployeeDetailDialog({
                 {/* Highlight chỉ báo tính năng chỉnh sửa */}
                 <div className="flex items-center gap-2">
                   {!isEditing ? (
-                    <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-2.5 py-1 text-[12px] font-semibold text-blue-700 border border-blue-200/80 shadow-2xs">
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-2.5 py-1 text-[14px] font-semibold text-blue-700 border border-blue-200/80 shadow-2xs">
                       <Sparkles className="size-3 text-blue-600" />
                       {/* Chỉnh sửa trực tiếp trên Drawer */}
                     </span>
                   ) : (
-                    <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-[12px] font-bold text-amber-800 border border-amber-300 shadow-2xs animate-pulse">
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-[14px] font-bold text-amber-800 border border-amber-300 shadow-2xs animate-pulse">
                       <PencilLine className="size-3 text-amber-600" />
                       Đang ở chế độ chỉnh sửa
                     </span>
@@ -610,7 +610,7 @@ export function EmployeeDetailDialog({
             </SheetHeader>
 
             {/* Nội dung scroll bên trong Drawer */}
-            <div className="min-h-0 flex-1 space-y-3.5 overflow-y-auto p-4 sm:p-5 text-xs">
+            <div className="min-h-0 flex-1 space-y-3.5 overflow-y-auto p-4 sm:p-5 text-[14px]">
               {/* Highlight Banner khi chế độ sửa đang bật */}
               {isEditing && (
                 <div className="rounded-xl border border-blue-300 bg-gradient-to-r from-blue-50 via-sky-50 to-indigo-50 p-3.5 shadow-sm ring-2 ring-blue-500/25">
@@ -621,14 +621,14 @@ export function EmployeeDetailDialog({
                       </div>
                       <div>
                         <div className="flex items-center gap-2">
-                          <span className="font-bold text-sm text-blue-950">
+                          <span className="font-bold text-[15px] text-blue-950">
                             Chế độ chỉnh sửa trực tiếp đang bật
                           </span>
-                          <Badge className="bg-blue-600 text-white text-[12px] px-1.5 py-0.5 font-bold">
+                          <Badge className="bg-blue-600 text-white text-[14px] px-1.5 py-0.5 font-bold">
                             Đang sửa
                           </Badge>
                         </div>
-                        <p className="text-xs text-blue-800/90 mt-0.5">
+                        <p className="text-[14px] text-blue-800/90 mt-0.5">
                           Các trường có viền nổi bật màu xanh cho phép chỉnh sửa
                           trực tiếp. Nhấn "Lưu thay đổi" khi hoàn tất.
                         </p>
@@ -641,7 +641,7 @@ export function EmployeeDetailDialog({
                         variant="outline"
                         disabled={isSaving}
                         onClick={handleCancelEdit}
-                        className="h-8 border-slate-300 bg-white px-3 text-xs text-slate-700 hover:bg-slate-100"
+                        className="h-8 border-slate-300 bg-white px-3 text-[14px] text-slate-700 hover:bg-slate-100"
                       >
                         Hủy
                       </Button>
@@ -650,7 +650,7 @@ export function EmployeeDetailDialog({
                         size="sm"
                         disabled={isSaving}
                         onClick={handleSaveEdit}
-                        className="h-8 gap-1.5 bg-blue-600 px-3.5 text-xs font-semibold text-white hover:bg-blue-700 shadow-xs"
+                        className="h-8 gap-1.5 bg-blue-600 px-3.5 text-[14px] font-semibold text-white hover:bg-blue-700 shadow-xs"
                       >
                         {isSaving ? (
                           <Loader2 className="size-3.5 animate-spin" />
@@ -899,7 +899,7 @@ export function EmployeeDetailDialog({
                           />
                         )}
                         {positionChanged && (
-                          <p className="text-[12px] text-amber-700">
+                          <p className="text-[14px] text-amber-700">
                             Có hiệu lực ngay khi lưu, không qua người duyệt khác.
                           </p>
                         )}
@@ -952,7 +952,7 @@ export function EmployeeDetailDialog({
                   }
                 >
                   <Badge
-                    className={`border text-[12px] font-bold ${active
+                    className={`border text-[14px] font-bold ${active
                         ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
                         : 'border-rose-200 bg-rose-50 text-rose-700'
                       }`}
@@ -1157,7 +1157,7 @@ export function EmployeeDetailDialog({
                       role="tab"
                       aria-selected={tab === id}
                       onClick={() => setTab(id)}
-                      className={`-mb-px border-b-2 px-3 py-2.5 text-xs font-semibold transition ${tab === id
+                      className={`-mb-px border-b-2 px-3 py-2.5 text-[14px] font-semibold transition ${tab === id
                           ? 'border-blue-600 text-blue-700 bg-white'
                           : 'border-transparent text-slate-500 hover:text-slate-800'
                         }`}
@@ -1204,7 +1204,7 @@ export function EmployeeDetailDialog({
                       size="sm"
                       disabled={isSaving}
                       onClick={handleSaveEdit}
-                      className="h-8 gap-1.5 bg-blue-600 px-3.5 text-xs font-semibold text-white hover:bg-blue-700 shadow-xs"
+                      className="h-8 gap-1.5 bg-blue-600 px-3.5 text-[14px] font-semibold text-white hover:bg-blue-700 shadow-xs"
                     >
                       {isSaving ? (
                         <Loader2 className="size-3.5 animate-spin" />
@@ -1219,7 +1219,7 @@ export function EmployeeDetailDialog({
                       variant="outline"
                       disabled={isSaving}
                       onClick={handleCancelEdit}
-                      className="h-8 border-slate-300 text-xs text-slate-700 hover:bg-slate-100"
+                      className="h-8 border-slate-300 text-[14px] text-slate-700 hover:bg-slate-100"
                     >
                       Hủy
                     </Button>

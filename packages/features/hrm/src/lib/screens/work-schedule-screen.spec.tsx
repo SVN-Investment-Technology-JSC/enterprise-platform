@@ -135,7 +135,9 @@ async function walkToPreview(fixedRange = false) {
     openAdvanced();
     fireEvent.click(await screen.findByRole('checkbox', { name: /Không có ngày kết thúc/ }));
   }
-  fireEvent.click(screen.getByRole('button', { name: 'Xác nhận phân ca' }));
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'Xác nhận phân ca' }));
+  });
 }
 
 beforeEach(() => {

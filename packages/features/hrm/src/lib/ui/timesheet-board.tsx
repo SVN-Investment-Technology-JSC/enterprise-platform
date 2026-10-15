@@ -60,10 +60,10 @@ export function BoardMonthPicker({
 /** Chú thích số công của lưới bảng công (cùng quy ước với lịch tháng của một nhân viên) và ký hiệu ngày nghỉ. */
 export function BoardLegend() {
   return (
-    <div aria-label="Chú thích bảng công" className="flex flex-wrap items-center gap-x-4 gap-y-1">
+    <div aria-label="Chú thích bảng công" className="flex flex-wrap items-center gap-1.5">
       <MonthNumberLegend />
-      <span className="flex items-center gap-1.5 text-[11px] text-slate-600">
-        <span className="min-w-6 text-[10px] font-semibold text-slate-400">OFF</span>Ngày nghỉ
+      <span className="flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 py-0.5 text-[12px] text-slate-600">
+        <span className="min-w-6 text-center text-[12px] font-semibold text-slate-400">OFF</span>Ngày nghỉ
       </span>
     </div>
   );

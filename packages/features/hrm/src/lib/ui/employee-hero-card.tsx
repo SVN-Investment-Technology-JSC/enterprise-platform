@@ -46,14 +46,14 @@ export function EmployeeHeroCard({ profile, syncLabel }: EmployeeHeroCardProps) 
         <div className="space-y-1.5">
           <div className="flex flex-wrap items-center gap-2.5">
             <h2 className="text-2xl font-bold text-slate-900">{fullName}</h2>
-            <Badge className="border border-emerald-200 bg-emerald-50 text-xs font-bold text-emerald-700 hover:bg-emerald-50">
+            <Badge className="border border-emerald-200 bg-emerald-50 text-[14px] font-bold text-emerald-700 hover:bg-emerald-50">
               {employmentStatus}
             </Badge>
-            <Badge variant="outline" className="bg-slate-50 font-mono text-xs text-slate-700">
+            <Badge variant="outline" className="bg-slate-50 font-mono text-[14px] text-slate-700">
               Mã: {profile.employeeCode || '----'}
             </Badge>
           </div>
-          <p className="flex flex-wrap items-center gap-x-2 text-xs font-medium text-slate-600">
+          <p className="flex flex-wrap items-center gap-x-2 text-[14px] font-medium text-slate-600">
             {line.map((part, index) => (
               <span key={index} className="flex items-center gap-2">
                 {index > 0 && <span aria-hidden="true">•</span>}
@@ -61,7 +61,7 @@ export function EmployeeHeroCard({ profile, syncLabel }: EmployeeHeroCardProps) 
               </span>
             ))}
           </p>
-          <div className="flex flex-wrap items-center gap-x-5 gap-y-1 pt-0.5 text-xs text-slate-500">
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-1 pt-0.5 text-[14px] text-slate-500">
             <span className="flex items-center gap-1.5">
               <Mail className="size-3.5 text-slate-400" />
               {profile.workEmail || '----'}
@@ -82,7 +82,7 @@ export function EmployeeHeroCard({ profile, syncLabel }: EmployeeHeroCardProps) 
         </div>
       </div>
       {syncLabel && (
-        <span className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
+        <span className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[14px] font-semibold text-amber-800">
           <Link2 className="size-3.5" aria-hidden="true" />
           {syncLabel}
         </span>
