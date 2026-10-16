@@ -1,8 +1,10 @@
 import {
+  roleAtLeast,
   SHARED_PREVIEWABLE_CONTENT_TYPES,
   type SharedCapabilities,
   type SharedDocumentSummary,
   type SharedFolder,
+  type SharedFolderRole,
   type SharedTrashItem,
 } from '@enterprise-platform/contracts-shared';
 
@@ -14,6 +16,7 @@ export type MenuActionId =
   | 'locate'
   | 'new-folder'
   | 'upload'
+  | 'share'
   | 'edit-description'
   | 'rename'
   | 'move'
@@ -60,19 +63,35 @@ export interface MenuContext {
   readonly currentUserId: string;
   /** Bảng đang là kết quả tìm kiếm hay lọc toàn kho: dòng nằm ngoài thư mục đang mở. */
   readonly flat: boolean;
+  /** Quyền của người dùng ở từng thư mục (`SharedFolder.access`). */
+  readonly roleOf: (folderId: string | undefined) => SharedFolderRole | undefined;
+  /** Có ít nhất một thư mục người dùng tải lên được: "Tải file lên" ở gốc kho mới có chỗ để chọn. */
+  readonly canUploadSomewhere: boolean;
 }
 
-/** Quyền của người dùng, đọc từ `capabilities` đúng như guard và service phía server. */
-export function rightsOf(capabilities: SharedCapabilities) {
-  const remove = capabilities.canDeleteDocuments || capabilities.isTenantAdmin;
+/**
+ * Quyền của người dùng ở một thư mục, ghép quyền phân hệ (`capabilities`) với
+ * quyền ở thư mục (`role`) đúng như service phía server: ghi cần quyền ghi của
+ * phân hệ và quyền Sửa ở thư mục; xoá cần quyền xoá và quyền Sửa; chia sẻ cần
+ * quyền Quản lý ở thư mục kèm quyền ghi. Quản trị kho làm được ở mọi thư mục.
+ */
+export function rightsOf(capabilities: SharedCapabilities, role?: SharedFolderRole) {
+  const keeper = capabilities.isTenantAdmin || capabilities.canManage;
+  const editor = keeper || roleAtLeast(role, 'editor');
   return {
-    write: capabilities.canWriteDocuments || capabilities.canManage,
+    write: editor && (capabilities.canWriteDocuments || capabilities.canManage),
+    /** Quản trị kho: dựng và chuyển thư mục gốc, khôi phục về gốc kho. */
     manage: capabilities.canManage,
-    remove,
+    remove: editor && (capabilities.canDeleteDocuments || capabilities.isTenantAdmin),
     /** Xoá vĩnh viễn không có đường lùi: quản trị kho có quyền xoá. */
     purge: capabilities.isTenantAdmin || (capabilities.canDeleteDocuments && capabilities.canManage),
+    share: keeper || (role === 'manager' && capabilities.canWriteDocuments),
+    /** Mở khoá người khác đang giữ. */
+    unlockOthers: keeper || role === 'manager',
   };
 }
+
+export type FolderRights = ReturnType<typeof rightsOf>;
 
 type Slot = MenuItem | false | undefined;
 
@@ -96,7 +115,7 @@ function assemble(groups: readonly (readonly Slot[])[]): MenuEntry[] {
 }
 
 function documentMenu(document: SharedDocumentSummary, context: MenuContext): MenuEntry[] {
-  const { write, manage, remove } = rightsOf(context.capabilities);
+  const { write, remove, unlockOthers } = rightsOf(context.capabilities, context.roleOf(document.folderId));
   const version = document.currentVersion;
   const uploaded = version?.sizeBytes !== undefined;
   const active = document.status === 'active';
@@ -123,7 +142,7 @@ function documentMenu(document: SharedDocumentSummary, context: MenuContext): Me
       editable && !document.lockedByUserId && item('lock', 'Khoá'),
       active &&
         Boolean(document.lockedByUserId) &&
-        (!lockedByOther || manage) &&
+        (!lockedByOther || unlockOthers) &&
         item('unlock', 'Mở khoá'),
       remove && (active ? item('archive', 'Lưu trữ') : item('unarchive', 'Khôi phục')),
     ],
@@ -136,12 +155,13 @@ function documentMenu(document: SharedDocumentSummary, context: MenuContext): Me
  * thư mục đang mở bấm ở chỗ trống của bảng.
  */
 function folderMenu(folder: SharedFolder, context: MenuContext, mode: 'row' | 'current'): MenuEntry[] {
-  const { write, manage, remove } = rightsOf(context.capabilities);
+  const { write, manage, remove, share } = rightsOf(context.capabilities, context.roleOf(folder.id) ?? folder.access);
   const root = !folder.parentId;
 
   return assemble([
     [mode === 'row' && item('open', 'Mở')],
     [write && item('new-folder', 'Tạo thư mục'), write && item('upload', 'Tải file lên')],
+    [share && item('share', 'Chia sẻ')],
     [
       mode === 'row' && context.flat && item('locate', 'Đến vị trí thư mục'),
       write && item('edit-description', 'Cập nhật mô tả'),
@@ -156,12 +176,14 @@ function folderMenu(folder: SharedFolder, context: MenuContext, mode: 'row' | 'c
 
 /** Chỗ trống ở gốc kho: chưa có thư mục nào đang mở. */
 function rootMenu(context: MenuContext): MenuEntry[] {
-  const { write, manage } = rightsOf(context.capabilities);
-  return assemble([[manage && item('new-folder', 'Tạo thư mục'), write && item('upload', 'Tải file lên')]]);
+  const { manage } = rightsOf(context.capabilities);
+  const upload = context.canUploadSomewhere && (context.capabilities.canWriteDocuments || manage);
+  return assemble([[manage && item('new-folder', 'Tạo thư mục'), upload && item('upload', 'Tải file lên')]]);
 }
 
 function trashMenu(trashed: SharedTrashItem, context: MenuContext): MenuEntry[] {
-  const { manage, remove, purge } = rightsOf(context.capabilities);
+  // Server chỉ trả những mục nằm ở thư mục người dùng có quyền Sửa.
+  const { manage, remove, purge } = rightsOf(context.capabilities, 'editor');
   // Thư mục gốc của kho chỉ quản trị kho khôi phục về gốc được.
   const rootFolder = trashed.kind === 'folder' && !trashed.location;
   const rootOnly = rootFolder && !manage ? { disabledReason: 'Chỉ quản trị kho khôi phục được thư mục gốc' } : {};

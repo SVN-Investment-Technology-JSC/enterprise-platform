@@ -21,17 +21,20 @@ import {
 } from '../domain/shared.error.js';
 import {
   CompanyDocumentService,
-  canSee,
   folderPaths,
   sortFolders,
   withFreeName,
 } from './company-document.service.js';
+import { canSee, FolderAccessService, type ShareRecord } from './folder-access.js';
+import { FolderSharingService } from './folder-sharing.service.js';
+import type { OrganizationSnapshot } from './organization.port.js';
 import type { SharedActor } from './shared-actor.js';
-import type { DocumentRow, SharedStore } from './shared-store.port.js';
+import type { DocumentRow, SharedStore, TenantPerson } from './shared-store.port.js';
 import { StorageQuotaService } from './storage-quota.service.js';
 
 const TENANT = 'tenant-1';
 const GB = 1024 * 1024 * 1024;
+const TODAY = '2026-10-16';
 
 function actor(overrides: Partial<SharedActor> = {}): SharedActor {
   return {
@@ -53,11 +56,19 @@ const deleter = actor({ userId: 'user-deleter', canDeleteDocuments: true });
 /** Quản trị kho có quyền xoá, không phải quản trị tenant. */
 const keeper = actor({ userId: 'user-keeper', canManage: true, canDeleteDocuments: true });
 
-/** Kho giả trong bộ nhớ, đủ cho các luật của tầng application. */
-function fakeStore(usage: StorageModuleUsage[] = []) {
+/**
+ * Kho giả trong bộ nhớ, đủ cho các luật của tầng application.
+ *
+ * `openRoots`: mọi thư mục gốc chia sẻ "Mọi người · Sửa" — như kho trước khi có
+ * chia sẻ thư mục, để các ca về tài liệu và Thùng rác chỉ còn xét quyền phân hệ.
+ */
+function fakeStore(usage: StorageModuleUsage[] = [], options: { openRoots?: boolean } = {}) {
+  const openRoots = options.openRoots ?? true;
   const folders = new Map<string, SharedFolder>();
   const documents = new Map<string, DocumentRow>();
   const versions = new Map<string, SharedDocumentVersion & { storageKey: string }>();
+  const shares: ShareRecord[] = [];
+  const people: TenantPerson[] = [];
   let sequence = 0;
   const id = (prefix: string) => `${prefix}-${++sequence}`;
   const now = new Date('2026-10-15T00:00:00Z').toISOString();
@@ -99,6 +110,14 @@ function fakeStore(usage: StorageModuleUsage[] = []) {
     diagnostics: { schemaStatus: async () => ({ schemaExists: true, tablesReady: true }) },
     folders: {
       list: async () => [...folders.values()].filter((folder) => folder.isActive),
+      skeleton: async () =>
+        [...folders.values()].map((folder) => ({
+          id: folder.id,
+          parentId: folder.parentId,
+          name: folder.name,
+          createdBy: folder.createdBy,
+          isActive: folder.isActive,
+        })),
       find: async (_tenant, folderId) => folders.get(folderId),
       create: async (_tenant, userId, input) => {
         const folder: SharedFolder = {
@@ -221,7 +240,9 @@ function fakeStore(usage: StorageModuleUsage[] = []) {
           (doc) =>
             !doc.deletedAt &&
             doc.status === query.status &&
-            (!query.folderId || doc.folderId === query.folderId),
+            (!query.folderId || doc.folderId === query.folderId) &&
+            (!query.folderIds || query.folderIds.includes(doc.folderId)) &&
+            (!query.search || doc.name.toLowerCase().includes(query.search.toLowerCase())),
         ),
       find: async (_tenant, documentId) => documents.get(documentId),
       create: async (_tenant, userId, input) => {
@@ -370,6 +391,7 @@ function fakeStore(usage: StorageModuleUsage[] = []) {
             id: documentId,
             name: doc.name,
             location: paths.get(doc.folderId) ?? '',
+            folderId: doc.folderId,
             locationAvailable: Boolean(folders.get(doc.folderId)?.isActive),
             documentCount: 1,
             folderCount: 0,
@@ -384,9 +406,56 @@ function fakeStore(usage: StorageModuleUsage[] = []) {
         return items.reverse();
       },
     },
+    shares: {
+      list: async () => [
+        ...shares,
+        ...(openRoots
+          ? [...folders.values()]
+              .filter((folder) => !folder.parentId)
+              .map(
+                (folder): ShareRecord => ({
+                  folderId: folder.id,
+                  principalType: 'everyone',
+                  role: 'editor',
+                  updatedBy: 'user-admin',
+                  updatedAt: now,
+                }),
+              )
+          : []),
+      ],
+      replace: async (_tenant, folderId, userId, grants) => {
+        const kept = shares.filter((share) => share.folderId !== folderId);
+        const before = shares.filter((share) => share.folderId === folderId);
+        shares.length = 0;
+        shares.push(...kept);
+        for (const grant of grants) {
+          const old = before.find(
+            (share) => share.principalType === grant.principalType && share.principalId === grant.principalId,
+          );
+          const same = old && old.role === grant.role && old.expiresOn === grant.expiresOn;
+          shares.push({
+            ...grant,
+            folderId,
+            updatedBy: same ? old.updatedBy : userId,
+            updatedAt: same ? old.updatedAt : now,
+          });
+        }
+      },
+    },
+    people: { list: async () => people },
     storage: { usageByModule: async () => usage },
   };
-  return { store, folders, documents, versions };
+  return { store, folders, documents, versions, shares, people };
+}
+
+/** Sơ đồ tổ chức giả: sửa trực tiếp `nodes`, `assignments`, `degraded` trong từng ca. */
+function fakeOrganization() {
+  const state: { -readonly [K in keyof OrganizationSnapshot]: OrganizationSnapshot[K] } = {
+    nodes: [],
+    assignments: [],
+    degraded: false,
+  };
+  return { state, reader: { snapshot: async () => ({ ...state }) } };
 }
 
 /** Kho đối tượng giả: ghi lại các lần sao chép, xoá, và gây lỗi theo yêu cầu. */
@@ -410,11 +479,21 @@ function fakeStorage() {
   return { port, copies, deleted, faults };
 }
 
-function setup(options: { usage?: StorageModuleUsage[]; limit?: TenantStorageLimit } = {}) {
-  const fake = fakeStore(options.usage);
+function setup(
+  options: { usage?: StorageModuleUsage[]; limit?: TenantStorageLimit; openRoots?: boolean } = {},
+) {
+  const fake = fakeStore(options.usage, { openRoots: options.openRoots });
   const quota = new StorageQuotaService(fake.store, { storageLimit: async () => options.limit });
   const files = fakeStorage();
-  return { ...fake, files, service: new CompanyDocumentService(fake.store, quota, files.port) };
+  const organization = fakeOrganization();
+  const access = new FolderAccessService(fake.store, organization.reader, () => TODAY);
+  return {
+    ...fake,
+    files,
+    organization: organization.state,
+    service: new CompanyDocumentService(fake.store, quota, access, files.port),
+    sharing: new FolderSharingService(fake.store, access, organization.reader),
+  };
 }
 
 const pdf = { fileName: 'HĐ 01.026.HĐTN.TNWP-SAVINA.pdf', contentType: 'application/pdf', sizeBytes: 2_400_000 };
@@ -578,8 +657,8 @@ describe('CompanyDocumentService – tài liệu', () => {
       SharedDocumentNotFoundError,
     );
     await expect(service.detail(admin, created.document.id)).resolves.toMatchObject({ name: 'Hồ sơ lương' });
-    expect(canSee(reader, { confidentiality: 'restricted', createdBy: 'x' })).toBe(false);
-    expect(canSee(actor(), { confidentiality: 'restricted', createdBy: 'x' })).toBe(true);
+    expect(canSee(reader, { confidentiality: 'restricted', createdBy: 'x' }, 'viewer')).toBe(false);
+    expect(canSee(actor(), { confidentiality: 'restricted', createdBy: 'x' }, 'editor')).toBe(true);
   });
 
   it('lưu trữ cần quyền xoá, khôi phục trả lại trạng thái đang dùng', async () => {
@@ -936,6 +1015,302 @@ describe('CompanyDocumentService – nhân bản', () => {
     await expect(service.duplicate(actor(), documentId)).rejects.toThrow('mất kết nối');
     expect(files.copies).toHaveLength(1);
     expect(files.deleted).toEqual([files.copies[0]?.to]);
+  });
+});
+
+describe('Chia sẻ thư mục', () => {
+  // Sơ đồ tổ chức: Công ty › Khối thí nghiệm › Phòng TN điện › (chức danh) Kỹ sư thí nghiệm;
+  // Công ty › Phòng Kinh doanh › (chức danh) Chuyên viên kinh doanh.
+  const COMPANY = '0a000000-0000-4000-8000-000000000001';
+  const LAB_DIVISION = '0a000000-0000-4000-8000-000000000002';
+  const LAB_ROOM = '0a000000-0000-4000-8000-000000000003';
+  const LAB_ENGINEER = '0a000000-0000-4000-8000-000000000004';
+  const SALES_ROOM = '0a000000-0000-4000-8000-000000000005';
+  const SALES_STAFF = '0a000000-0000-4000-8000-000000000006';
+  const LAB_USER = '0b000000-0000-4000-8000-000000000001';
+  const SALES_USER = '0b000000-0000-4000-8000-000000000002';
+  const LEFT_USER = '0b000000-0000-4000-8000-000000000003';
+
+  /** Người của phòng thí nghiệm: ghi được, chưa có quyền xoá. */
+  const lab = actor({ userId: LAB_USER, displayName: 'Trần Thí Nghiệm' });
+  const sales = actor({ userId: SALES_USER, displayName: 'Lê Kinh Doanh' });
+
+  async function organized() {
+    const context = setup({ openRoots: false });
+    context.organization.nodes = [
+      { id: COMPANY, name: 'Công ty', kind: 'unit' },
+      { id: LAB_DIVISION, name: 'Khối thí nghiệm', parentId: COMPANY, kind: 'unit' },
+      { id: LAB_ROOM, name: 'Phòng TN điện', parentId: LAB_DIVISION, kind: 'unit' },
+      { id: LAB_ENGINEER, name: 'Kỹ sư thí nghiệm', parentId: LAB_ROOM, kind: 'position' },
+      { id: SALES_ROOM, name: 'Phòng Kinh doanh', parentId: COMPANY, kind: 'unit' },
+      { id: SALES_STAFF, name: 'Chuyên viên kinh doanh', parentId: SALES_ROOM, kind: 'position' },
+    ];
+    context.organization.assignments = [
+      { userId: LAB_USER, nodeId: LAB_ENGINEER },
+      { userId: SALES_USER, nodeId: SALES_STAFF },
+    ];
+    context.people.push(
+      { id: LAB_USER, name: 'Trần Thí Nghiệm', active: true },
+      { id: SALES_USER, name: 'Lê Kinh Doanh', active: true },
+      { id: LEFT_USER, name: 'Người Đã Nghỉ', active: false },
+      { id: 'user-admin', name: 'Quản trị', active: true },
+    );
+    const { service } = context;
+    const labRoot = await service.createFolder(admin, { name: '6. Khối Thí nghiệm' });
+    const contracts = await service.createFolder(admin, { name: '3. HỢP ĐỒNG' });
+    const year = await service.createFolder(admin, { parentId: contracts.id, name: 'HỒ SƠ 2026' });
+    return { ...context, labRoot, contracts, year };
+  }
+
+  it('vào được phân hệ chưa có nghĩa là thấy kho: chưa chia sẻ thì không thấy gì', async () => {
+    const { service, sharing, labRoot, year } = await organized();
+    const doc = await service.create(admin, { folderId: year.id, name: 'HĐ Trung Nam', ...pdf });
+    await expect(service.folders(lab)).resolves.toEqual([]);
+    await expect(service.list(lab, { search: 'HĐ' })).resolves.toEqual([]);
+    await expect(service.detail(lab, doc.document.id)).rejects.toBeInstanceOf(SharedDocumentNotFoundError);
+    await expect(service.list(lab, { folderId: year.id })).rejects.toBeInstanceOf(SharedFolderNotFoundError);
+    await expect(service.createFolder(lab, { parentId: labRoot.id, name: 'X' })).rejects.toBeInstanceOf(
+      SharedFolderNotFoundError,
+    );
+    await expect(sharing.sharing(lab, labRoot.id)).rejects.toBeInstanceOf(SharedFolderNotFoundError);
+    // Quản trị kho vẫn thấy cả kho, quyền Quản lý ở mọi thư mục.
+    expect((await service.folders(admin)).map((folder) => folder.access)).toEqual(['manager', 'manager', 'manager']);
+  });
+
+  it('chia sẻ cho phòng ban tới cả người ở đơn vị con, áp xuống thư mục con', async () => {
+    const { service, sharing, labRoot } = await organized();
+    await sharing.updateSharing(admin, labRoot.id, {
+      shares: [{ principalType: 'unit', principalId: LAB_DIVISION, role: 'editor' }],
+    });
+    const sub = await service.createFolder(admin, { parentId: labRoot.id, name: 'ISO 17025' });
+    const seen = await service.folders(lab);
+    expect(seen.map((folder) => [folder.name, folder.access])).toEqual([
+      ['6. Khối Thí nghiệm', 'editor'],
+      ['ISO 17025', 'editor'],
+    ]);
+    await expect(service.create(lab, { folderId: sub.id, name: 'Biên bản', ...pdf })).resolves.toBeDefined();
+    await expect(service.folders(sales)).resolves.toEqual([]);
+    await expect(service.create(sales, { folderId: sub.id, name: 'X', ...pdf })).rejects.toBeInstanceOf(
+      SharedFolderNotFoundError,
+    );
+  });
+
+  it('chia sẻ cho chức danh, quyền Xem không ghi được', async () => {
+    const { service, sharing, contracts, year } = await organized();
+    await sharing.updateSharing(admin, contracts.id, {
+      shares: [{ principalType: 'position', principalId: SALES_STAFF, role: 'viewer' }],
+    });
+    expect((await service.folders(sales)).map((folder) => folder.id)).toEqual([contracts.id, year.id]);
+    await expect(service.create(sales, { folderId: year.id, name: 'X', ...pdf })).rejects.toBeInstanceOf(
+      SharedForbiddenError,
+    );
+    await expect(service.createFolder(sales, { parentId: year.id, name: 'X' })).rejects.toBeInstanceOf(
+      SharedForbiddenError,
+    );
+    await expect(service.folders(lab)).resolves.toEqual([]);
+  });
+
+  it('thời hạn tính hết ngày: hôm qua là hết quyền, hôm nay còn', async () => {
+    const { service, sharing, labRoot } = await organized();
+    await sharing.updateSharing(admin, labRoot.id, {
+      shares: [{ principalType: 'user', principalId: LAB_USER, role: 'viewer', expiresOn: '2026-10-15' }],
+    });
+    await expect(service.folders(lab)).resolves.toEqual([]);
+    const view = await sharing.sharing(admin, labRoot.id);
+    expect(view.shares[0]).toMatchObject({ label: 'Trần Thí Nghiệm', expired: true });
+    await sharing.updateSharing(admin, labRoot.id, {
+      shares: [{ principalType: 'user', principalId: LAB_USER, role: 'viewer', expiresOn: TODAY }],
+    });
+    await expect(service.folders(lab)).resolves.toHaveLength(1);
+  });
+
+  it('người tạo thư mục con là chủ sở hữu: Quản lý ở đó và chia sẻ tiếp được', async () => {
+    const { service, sharing, labRoot } = await organized();
+    await sharing.updateSharing(admin, labRoot.id, {
+      shares: [{ principalType: 'unit', principalId: LAB_DIVISION, role: 'editor' }],
+    });
+    const own = await service.createFolder(lab, { parentId: labRoot.id, name: 'Báo cáo tháng' });
+    expect(own.access).toBe('manager');
+    await expect(sharing.sharing(lab, labRoot.id)).rejects.toBeInstanceOf(SharedForbiddenError);
+    await sharing.updateSharing(lab, own.id, {
+      shares: [{ principalType: 'user', principalId: SALES_USER, role: 'viewer' }],
+    });
+    expect((await service.folders(sales)).map((folder) => folder.name)).toEqual(['Báo cáo tháng']);
+
+    const view = await sharing.sharing(lab, own.id);
+    expect(view.owner).toEqual({ userId: LAB_USER, name: 'Trần Thí Nghiệm' });
+    expect(view.shares).toEqual([
+      expect.objectContaining({ principalType: 'user', label: 'Lê Kinh Doanh', detail: 'Chuyên viên kinh doanh · Phòng Kinh doanh' }),
+    ]);
+    expect(view.inherited).toEqual([
+      expect.objectContaining({ owner: true, label: 'Quản trị', role: 'manager', fromFolderName: '6. Khối Thí nghiệm' }),
+      expect.objectContaining({
+        principalType: 'unit',
+        label: 'Khối thí nghiệm',
+        detail: 'Công ty',
+        role: 'editor',
+        fromFolderId: labRoot.id,
+      }),
+    ]);
+  });
+
+  it('người chỉ có quyền xem của phân hệ: không ghi, không chia sẻ dù được giao Quản lý', async () => {
+    const { service, sharing, labRoot } = await organized();
+    const viewerOnly = actor({ userId: LAB_USER, canWriteDocuments: false });
+    await sharing.updateSharing(admin, labRoot.id, {
+      shares: [{ principalType: 'user', principalId: LAB_USER, role: 'manager' }],
+    });
+    await expect(service.folders(viewerOnly)).resolves.toMatchObject([{ access: 'manager' }]);
+    await expect(service.create(viewerOnly, { folderId: labRoot.id, name: 'X', ...pdf })).rejects.toBeInstanceOf(
+      SharedForbiddenError,
+    );
+    await expect(sharing.sharing(viewerOnly, labRoot.id)).rejects.toBeInstanceOf(SharedForbiddenError);
+    await expect(sharing.directory(viewerOnly)).rejects.toBeInstanceOf(SharedForbiddenError);
+  });
+
+  it('độ mật theo quyền ở thư mục: Hạn chế cần Sửa, Mật cần Quản lý', async () => {
+    const { service, sharing, labRoot } = await organized();
+    await sharing.updateSharing(admin, labRoot.id, {
+      shares: [
+        { principalType: 'unit', principalId: LAB_DIVISION, role: 'editor' },
+        { principalType: 'user', principalId: SALES_USER, role: 'viewer' },
+      ],
+    });
+    const restricted = await service.create(admin, { folderId: labRoot.id, name: 'Báo giá', ...pdf, confidentiality: 'restricted' });
+    const secret = await service.create(admin, { folderId: labRoot.id, name: 'Lương', ...pdf, confidentiality: 'confidential' });
+    const names = async (who: SharedActor) =>
+      (await service.list(who, { folderId: labRoot.id })).map((doc) => doc.name).sort();
+    await expect(names(sales)).resolves.toEqual([]);
+    await expect(names(lab)).resolves.toEqual(['Báo giá']);
+    await expect(service.detail(sales, restricted.document.id)).rejects.toBeInstanceOf(SharedDocumentNotFoundError);
+    await sharing.updateSharing(admin, labRoot.id, {
+      shares: [{ principalType: 'unit', principalId: LAB_DIVISION, role: 'manager' }],
+    });
+    await expect(names(lab)).resolves.toEqual(['Báo giá', 'Lương']);
+    await expect(service.detail(lab, secret.document.id)).resolves.toMatchObject({ name: 'Lương' });
+  });
+
+  it('tìm cả kho chỉ trong thư mục được vào; thư mục con chia sẻ riêng hiện như gốc', async () => {
+    const { service, sharing, labRoot, year } = await organized();
+    await service.create(admin, { folderId: labRoot.id, name: 'HĐ thí nghiệm', ...pdf });
+    await service.create(admin, { folderId: year.id, name: 'HĐ Trung Nam', ...pdf });
+    await sharing.updateSharing(admin, year.id, {
+      shares: [{ principalType: 'user', principalId: SALES_USER, role: 'viewer' }],
+    });
+    const folders = await service.folders(sales);
+    expect(folders).toEqual([expect.objectContaining({ id: year.id, parentId: expect.any(String), access: 'viewer' })]);
+    const found = await service.list(sales, { search: 'HĐ' });
+    expect(found.map((doc) => [doc.name, doc.folderPath])).toEqual([['HĐ Trung Nam', 'HỒ SƠ 2026']]);
+  });
+
+  it('Thùng rác chỉ hiện mục ở thư mục người dùng có quyền Sửa', async () => {
+    const { service, sharing, labRoot, year } = await organized();
+    const labDeleter = actor({ userId: LAB_USER, canDeleteDocuments: true });
+    await sharing.updateSharing(admin, labRoot.id, {
+      shares: [{ principalType: 'unit', principalId: LAB_DIVISION, role: 'editor' }],
+    });
+    const mine = await service.create(admin, { folderId: labRoot.id, name: 'Của khối', ...pdf });
+    const theirs = await service.create(admin, { folderId: year.id, name: 'Của kinh doanh', ...pdf });
+    await service.deleteDocument(labDeleter, mine.document.id);
+    await service.deleteDocument(admin, theirs.document.id);
+    await expect(service.trash(labDeleter)).resolves.toMatchObject([{ id: mine.document.id, location: '6. Khối Thí nghiệm' }]);
+    await expect(service.restoreFromTrash(labDeleter, 'document', theirs.document.id)).rejects.toBeInstanceOf(
+      SharedDocumentNotFoundError,
+    );
+    // Khôi phục sang chỗ không có quyền Sửa thì từ chối.
+    await expect(
+      service.restoreFromTrash(labDeleter, 'document', mine.document.id, { targetFolderId: year.id }),
+    ).rejects.toBeInstanceOf(SharedForbiddenError);
+    await expect(service.restoreFromTrash(labDeleter, 'document', mine.document.id)).resolves.toMatchObject({
+      name: 'Của khối',
+    });
+  });
+
+  it('kiểm danh sách chia sẻ: trùng, thiếu quyền, đối tượng không có thật', async () => {
+    const { sharing, labRoot } = await organized();
+    const save = (shares: unknown[]) =>
+      sharing.updateSharing(admin, labRoot.id, { shares } as Parameters<typeof sharing.updateSharing>[2]);
+    await expect(
+      save([
+        { principalType: 'unit', principalId: LAB_DIVISION, role: 'viewer' },
+        { principalType: 'unit', principalId: LAB_DIVISION, role: 'editor' },
+      ]),
+    ).rejects.toThrow('một lần');
+    await expect(save([{ principalType: 'unit', principalId: LAB_DIVISION }])).rejects.toThrow('Chọn quyền');
+    await expect(save([{ principalType: 'unit', role: 'viewer' }])).rejects.toThrow('Chọn đối tượng');
+    await expect(save([{ principalType: 'unit', principalId: LAB_ENGINEER, role: 'viewer' }])).rejects.toThrow(
+      'không còn trong sơ đồ tổ chức',
+    );
+    await expect(save([{ principalType: 'user', principalId: LEFT_USER, role: 'viewer' }])).rejects.toThrow(
+      'không còn trong danh sách',
+    );
+    await expect(save([{ principalType: 'everyone', role: 'viewer', expiresOn: '16/10/2026' }])).rejects.toThrow(
+      'YYYY-MM-DD',
+    );
+    await expect(save([{ principalType: 'group', principalId: COMPANY, role: 'viewer' }])).rejects.toThrow(
+      'không hợp lệ',
+    );
+  });
+
+  it('không đọc được sơ đồ tổ chức: giữ được dòng cũ, không thêm được phòng ban mới', async () => {
+    const { sharing, labRoot, organization } = await organized();
+    await sharing.updateSharing(admin, labRoot.id, {
+      shares: [{ principalType: 'unit', principalId: LAB_DIVISION, role: 'viewer' }],
+    });
+    organization.degraded = true;
+    organization.nodes = [];
+    const kept = await sharing.updateSharing(admin, labRoot.id, {
+      shares: [
+        { principalType: 'unit', principalId: LAB_DIVISION, role: 'editor' },
+        { principalType: 'everyone', role: 'viewer' },
+      ],
+    });
+    expect(kept.shares.map((share) => [share.label, share.role, share.missing])).toEqual([
+      ['Mọi người', 'viewer', false],
+      ['Phòng ban', 'editor', false],
+    ]);
+    await expect(
+      sharing.updateSharing(admin, labRoot.id, {
+        shares: [{ principalType: 'unit', principalId: SALES_ROOM, role: 'viewer' }],
+      }),
+    ).rejects.toThrow('Chưa đọc được sơ đồ tổ chức');
+  });
+
+  it('dòng giữ nguyên quyền thì giữ người sửa cuối', async () => {
+    const { sharing, labRoot, shares } = await organized();
+    await sharing.updateSharing(admin, labRoot.id, {
+      shares: [{ principalType: 'unit', principalId: LAB_DIVISION, role: 'viewer' }],
+    });
+    await sharing.updateSharing(keeper, labRoot.id, {
+      shares: [
+        { principalType: 'unit', principalId: LAB_DIVISION, role: 'viewer' },
+        { principalType: 'unit', principalId: SALES_ROOM, role: 'editor' },
+      ],
+    });
+    expect(shares.map((share) => [share.principalId, share.updatedBy])).toEqual([
+      [LAB_DIVISION, 'user-admin'],
+      [SALES_ROOM, 'user-keeper'],
+    ]);
+  });
+
+  it('danh bạ chỉ cho người chia sẻ được: người còn hoạt động, phòng ban kèm đường dẫn', async () => {
+    const { service, sharing, labRoot } = await organized();
+    await expect(sharing.directory(lab)).rejects.toBeInstanceOf(SharedForbiddenError);
+    await sharing.updateSharing(admin, labRoot.id, {
+      shares: [{ principalType: 'unit', principalId: LAB_DIVISION, role: 'editor' }],
+    });
+    await service.createFolder(lab, { parentId: labRoot.id, name: 'Của tôi' });
+    const directory = await sharing.directory(lab);
+    expect(directory.people.map((person) => person.displayName)).toEqual(['Lê Kinh Doanh', 'Quản trị', 'Trần Thí Nghiệm']);
+    expect(directory.people.find((person) => person.userId === LAB_USER)).toMatchObject({
+      unitNames: ['Phòng TN điện'],
+      positionName: 'Kỹ sư thí nghiệm',
+    });
+    expect(directory.nodes.find((node) => node.id === LAB_ENGINEER)).toMatchObject({
+      kind: 'position',
+      path: 'Công ty › Khối thí nghiệm › Phòng TN điện',
+    });
+    expect(directory.degraded).toBe(false);
   });
 });
 

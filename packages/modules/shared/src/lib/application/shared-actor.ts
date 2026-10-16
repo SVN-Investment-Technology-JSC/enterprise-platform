@@ -8,9 +8,15 @@ export interface SharedActor {
   readonly displayName: string;
   /** Quản trị viên tenant: vượt mọi hàng rào của phân hệ. */
   readonly isTenantAdmin: boolean;
-  /** `shared.manage`: dựng cây thư mục gốc, chuyển thư mục, gỡ khoá hộ. */
+  /**
+   * `shared.manage` (quản trị kho): thấy cả kho dù chưa ai chia sẻ, dựng cây
+   * thư mục gốc, chuyển thư mục, gỡ khoá hộ, chia sẻ mọi thư mục.
+   */
   readonly canManage: boolean;
-  /** `shared.document.write`: tải lên, sửa thông tin, phiên bản mới. */
+  /**
+   * `shared.document.write`: tải lên, sửa thông tin, phiên bản mới — ở những
+   * thư mục người này có quyền Sửa (xem `folder-access.ts`).
+   */
   readonly canWriteDocuments: boolean;
   /**
    * `shared.document.delete`: lưu trữ, xoá tài liệu và thư mục (vào Thùng rác),

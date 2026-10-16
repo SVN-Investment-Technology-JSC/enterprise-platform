@@ -1,4 +1,4 @@
-import type { SharedFolder } from '@enterprise-platform/contracts-shared';
+import type { SharedFolder, SharedFolderRole } from '@enterprise-platform/contracts-shared';
 
 /** Một dòng của cây thư mục đã trải phẳng theo thứ tự hiển thị. */
 export interface FolderTreeRow {
@@ -8,12 +8,25 @@ export interface FolderTreeRow {
   readonly expanded: boolean;
 }
 
-/** Thư mục con trực tiếp, giữ thứ tự server đã sắp (theo tên, số tự nhiên). */
+/**
+ * Thư mục con trực tiếp, giữ thứ tự server đã sắp (theo tên, số tự nhiên).
+ *
+ * Ở gốc kho (`parentId` rỗng) có cả thư mục mà thư mục cha không nằm trong
+ * danh sách: người dùng được chia sẻ riêng thư mục con thì nó là gốc trong cây
+ * của họ.
+ */
 export function childrenOf(
   folders: readonly SharedFolder[],
   parentId: string | undefined,
 ): SharedFolder[] {
-  return folders.filter((folder) => (folder.parentId ?? undefined) === parentId);
+  if (parentId !== undefined) return folders.filter((folder) => folder.parentId === parentId);
+  const ids = new Set(folders.map((folder) => folder.id));
+  return folders.filter((folder) => isTopLevel(folder, ids));
+}
+
+/** Thư mục đứng ở gốc cây của người xem: gốc kho, hoặc thư mục cha của nó không hiện với họ. */
+export function isTopLevel(folder: SharedFolder, visibleIds: ReadonlySet<string>): boolean {
+  return !folder.parentId || !visibleIds.has(folder.parentId);
 }
 
 /** Chuỗi tổ tiên từ gốc tới thư mục (gồm cả nó). */
@@ -36,8 +49,12 @@ export function flattenTree(
 ): FolderTreeRow[] {
   const parents = new Set(folders.map((folder) => folder.parentId).filter(Boolean));
   const rows: FolderTreeRow[] = [];
+  const seen = new Set<string>();
   const walk = (parentId: string | undefined, level: number) => {
     for (const folder of childrenOf(folders, parentId)) {
+      // Dữ liệu hỏng (vòng lặp) không làm cây lặp vô tận.
+      if (seen.has(folder.id)) continue;
+      seen.add(folder.id);
       const open = expanded.has(folder.id);
       rows.push({ folder, level, hasChildren: parents.has(folder.id), expanded: open });
       if (open) walk(folder.id, level + 1);
@@ -45,6 +62,12 @@ export function flattenTree(
   };
   walk(undefined, 0);
   return rows;
+}
+
+/** Quyền của người xem ở từng thư mục, đọc từ danh sách thư mục server trả. */
+export function accessMap(folders: readonly SharedFolder[]): (folderId: string | undefined) => SharedFolderRole | undefined {
+  const roles = new Map(folders.map((folder) => [folder.id, folder.access]));
+  return (folderId) => (folderId ? roles.get(folderId) : undefined);
 }
 
 /** Thư mục và mọi thư mục con cháu — không được chọn làm chỗ chuyển tới của chính nó. */

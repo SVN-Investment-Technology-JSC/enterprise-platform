@@ -8,11 +8,22 @@ import type {
   SharedDocumentSummary,
   SharedDocumentVersion,
   SharedFolder,
+  SharedShareGrant,
   SharedTrashItem,
   StorageModuleUsage,
 } from '@enterprise-platform/contracts-shared';
+import type { AccessFolder, ShareRecord } from './folder-access.js';
 
 export const SHARED_STORE = Symbol('SHARED_STORE');
+
+/** Người dùng của tenant, để chia sẻ đích danh và hiện tên. */
+export interface TenantPerson {
+  readonly id: string;
+  readonly name: string;
+  readonly email?: string;
+  /** Tài khoản còn hoạt động; tài khoản đã khoá vẫn trả về để hiện tên trên dòng chia sẻ cũ. */
+  readonly active: boolean;
+}
 
 /** Thông tin hồ sơ khi ghi: `null` là xoá trường, `undefined` không có trong dòng ghi. */
 export interface RecordMetaInput {
@@ -72,6 +83,8 @@ export interface VersionInsert {
 
 export interface DocumentListQuery {
   readonly folderId?: string;
+  /** Chỉ tài liệu trong các thư mục này — những thư mục người gọi được vào. Bỏ trống là cả kho. */
+  readonly folderIds?: readonly string[];
   readonly search?: string;
   readonly kind?: SharedDocumentKind;
   readonly status: SharedDocumentStatus;
@@ -117,6 +130,8 @@ export interface SharedStore {
   readonly folders: {
     /** Mọi thư mục đang dùng, kèm số tài liệu và dung lượng của cả nhánh. */
     list(tenantId: string): Promise<SharedFolder[]>;
+    /** Mọi thư mục, kể cả trong Thùng rác, chỉ những cột cần để tính quyền. */
+    skeleton(tenantId: string): Promise<AccessFolder[]>;
     find(tenantId: string, folderId: string): Promise<SharedFolder | undefined>;
     create(tenantId: string, userId: string, input: FolderInsert): Promise<SharedFolder>;
     update(tenantId: string, folderId: string, input: FolderUpdate): Promise<SharedFolder>;
@@ -182,6 +197,21 @@ export interface SharedStore {
   readonly trash: {
     /** Mọi dòng Thùng rác: thư mục gốc của mỗi lượt xoá và tài liệu xoá riêng lẻ, mới xoá trước. */
     list(tenantId: string): Promise<SharedTrashItem[]>;
+  };
+
+  readonly shares: {
+    /** Mọi dòng chia sẻ của kho, kể cả dòng đã quá hạn. */
+    list(tenantId: string): Promise<ShareRecord[]>;
+    /**
+     * Thay toàn bộ chia sẻ đặt trên một thư mục bằng `grants`, một transaction.
+     * Dòng giữ nguyên quyền và thời hạn thì giữ cả người, lúc sửa cuối.
+     */
+    replace(tenantId: string, folderId: string, userId: string, grants: readonly SharedShareGrant[]): Promise<void>;
+  };
+
+  readonly people: {
+    /** Người dùng của tenant, kể cả tài khoản đã khoá. */
+    list(tenantId: string): Promise<TenantPerson[]>;
   };
 
   readonly storage: {

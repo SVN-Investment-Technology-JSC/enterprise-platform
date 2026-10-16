@@ -4,5 +4,8 @@ export * from './lib/application/shared-store.port.js';
 export * from './lib/application/platform-limits.port.js';
 export * from './lib/application/storage-quota.service.js';
 export * from './lib/application/company-document.service.js';
+export * from './lib/application/folder-access.js';
+export * from './lib/application/folder-sharing.service.js';
+export * from './lib/application/organization.port.js';
 export * from './lib/presentation/shared.controller.js';
 export * from './lib/domain/shared.error.js';

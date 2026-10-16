@@ -3,7 +3,7 @@
 import { formatBytes, type SharedFolder } from '@enterprise-platform/contracts-shared';
 import { ChevronRight, ChevronsDownUp, Folder, Library, Trash2 } from 'lucide-react';
 import { useMemo } from 'react';
-import { flattenTree } from '../library.model';
+import { flattenTree, isTopLevel } from '../library.model';
 import styles from '../shared.module.scss';
 import { anchorFromElement, anchorFromMouse, isMenuKey, type MenuAnchor } from './context-menu';
 
@@ -31,10 +31,10 @@ export function FolderTree({
   trash,
 }: FolderTreeProps) {
   const rows = useMemo(() => flattenTree(folders, expanded), [folders, expanded]);
-  const totalBytes = useMemo(
-    () => folders.filter((folder) => !folder.parentId).reduce((sum, folder) => sum + folder.totalBytes, 0),
-    [folders],
-  );
+  const totalBytes = useMemo(() => {
+    const ids = new Set(folders.map((folder) => folder.id));
+    return folders.filter((folder) => isTopLevel(folder, ids)).reduce((sum, folder) => sum + folder.totalBytes, 0);
+  }, [folders]);
 
   return (
     <aside className={`${styles.panel} ${styles.tree}`} aria-label="Cây thư mục">

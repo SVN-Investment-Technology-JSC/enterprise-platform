@@ -9,6 +9,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
   Req,
 } from '@nestjs/common';
@@ -25,8 +26,10 @@ import {
   type SharedTrashKind,
   type UpdateSharedDocumentRequest,
   type UpdateSharedFolderRequest,
+  type UpdateSharedFolderSharesRequest,
 } from '@enterprise-platform/contracts-shared';
 import { CompanyDocumentService } from '../application/company-document.service.js';
+import { FolderSharingService } from '../application/folder-sharing.service.js';
 import type { SharedActor } from '../application/shared-actor.js';
 import { StorageQuotaService } from '../application/storage-quota.service.js';
 import { SHARED_STORE, type SharedStore } from '../application/shared-store.port.js';
@@ -55,6 +58,7 @@ interface SharedRequest {
 export class SharedController {
   constructor(
     private readonly documents: CompanyDocumentService,
+    private readonly sharing: FolderSharingService,
     private readonly quota: StorageQuotaService,
     @Inject(SHARED_STORE) private readonly store: SharedStore,
   ) {}
@@ -110,6 +114,32 @@ export class SharedController {
   @Delete('folders/:id')
   deleteFolder(@Req() request: SharedRequest, @Param('id') id: string) {
     return this.execute(() => this.documents.deleteFolder(this.actor(request), id));
+  }
+
+  /* ------------------------------------------------------------ chia sẻ */
+
+  /** Chủ sở hữu, chia sẻ đặt trên thư mục và chia sẻ kế thừa từ thư mục cha. */
+  @Get('folders/:id/shares')
+  folderShares(@Req() request: SharedRequest, @Param('id') id: string) {
+    return this.execute(() => this.sharing.sharing(this.actor(request), id));
+  }
+
+  /** Thay toàn bộ chia sẻ đặt trên thư mục. */
+  @Put('folders/:id/shares')
+  updateFolderShares(
+    @Req() request: SharedRequest,
+    @Param('id') id: string,
+    @Body() body: UpdateSharedFolderSharesRequest,
+  ) {
+    return this.execute(() =>
+      this.sharing.updateSharing(this.actor(request), id, body ?? ({} as UpdateSharedFolderSharesRequest)),
+    );
+  }
+
+  /** Người dùng, phòng ban và chức danh để chọn khi chia sẻ. */
+  @Get('directory')
+  directory(@Req() request: SharedRequest) {
+    return this.execute(() => this.sharing.directory(this.actor(request)));
   }
 
   /* ----------------------------------------------------------- tài liệu */

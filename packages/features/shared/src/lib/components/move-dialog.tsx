@@ -26,6 +26,8 @@ export interface MoveDialogProps {
   readonly folders: readonly SharedFolder[];
   /** Chuyển thư mục là việc của quản trị kho; họ mới được chọn gốc kho làm chỗ đến. */
   readonly canManage: boolean;
+  /** Thư mục được chọn làm chỗ đến: có quyền ghi (chuyển tài liệu) hay quyền xoá (khôi phục). */
+  readonly allowed: (folder: SharedFolder, target: MoveTarget) => boolean;
   readonly onClose: () => void;
   /** `restored` chỉ có khi khôi phục; tên có thể đã được thêm hậu tố vì trùng. */
   readonly onDone: (restored?: SharedTrashRestoreResult) => void;
@@ -38,7 +40,7 @@ function nameOf(target: MoveTarget): string {
 }
 
 /** Chọn thư mục đích: để chuyển tài liệu, chuyển thư mục, hay khôi phục khi chỗ cũ không còn. */
-export function MoveDialog({ target, folders, canManage, onClose, onDone }: MoveDialogProps) {
+export function MoveDialog({ target, folders, canManage, allowed, onClose, onDone }: MoveDialogProps) {
   const [destination, setDestination] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string>();
@@ -52,16 +54,17 @@ export function MoveDialog({ target, folders, canManage, onClose, onDone }: Move
 
   const options = useMemo(() => {
     if (!target) return [];
+    const pick = (folder: SharedFolder) => allowed(folder, target);
     if (target.kind === 'folder') {
       // Không chuyển vào chính nó hay thư mục con của nó, và bỏ chỗ đang nằm.
       const exclude = branchIds(folders, target.folder.id);
       if (target.folder.parentId) exclude.add(target.folder.parentId);
-      const list = folderOptions(folders, exclude);
+      const list = folderOptions(folders, exclude, pick);
       return target.folder.parentId && canManage ? [{ value: ROOT, label: 'Tài liệu công ty (gốc)' }, ...list] : list;
     }
     const exclude = new Set<string>(target.kind === 'document' ? [target.document.folderId] : []);
-    return folderOptions(folders, exclude);
-  }, [target, folders, canManage]);
+    return folderOptions(folders, exclude, pick);
+  }, [target, folders, canManage, allowed]);
 
   if (!target) return null;
 
