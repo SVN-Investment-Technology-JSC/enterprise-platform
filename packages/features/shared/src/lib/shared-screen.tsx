@@ -13,7 +13,7 @@ import {
 } from '@enterprise-platform/contracts-shared';
 import { FolderOpen, FolderPlus, HardDrive, Upload } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
-import { LibraryView, type LibraryRequest } from './components/library-view';
+import { LibraryView, type LibraryAbilities, type LibraryRequest } from './components/library-view';
 import { meterTone, StorageView } from './components/storage-view';
 import {
   errorMessage,
@@ -48,6 +48,7 @@ export function SharedScreen() {
   const [error, setError] = useState<string>();
   const [crumbs, setCrumbs] = useState<readonly string[]>([]);
   const [request, setRequest] = useState<LibraryRequest>();
+  const [abilities, setAbilities] = useState<LibraryAbilities>({ createFolder: false, upload: false });
   const [railCollapsed, setRailCollapsed] = useState(false);
 
   useEffect(() => {
@@ -73,7 +74,6 @@ export function SharedScreen() {
 
   const capabilities = status?.capabilities ?? NO_RIGHTS;
   const provisioning = Boolean(status && !status.tablesReady);
-  const canWrite = capabilities.canWriteDocuments && !provisioning;
   const tone = usage ? meterTone(usage) : 'normal';
   // Thùng rác là đoạn `trash` sau `library/`; người không có quyền xoá thì coi như không có.
   const inTrash =
@@ -112,23 +112,27 @@ export function SharedScreen() {
       // Khung tự thêm nhãn trang (trừ trang đầu); ở kho chỉ cần đường dẫn thư mục.
       crumbs={view === 'library' ? crumbs : undefined}
       actions={
-        view === 'library' && canWrite && !inTrash ? (
+        view === 'library' && !provisioning && !inTrash && (abilities.createFolder || abilities.upload) ? (
           <div className={styles.headActions}>
-            <button
-              type="button"
-              className={styles.buttonGhost}
-              onClick={() => setRequest({ kind: 'folder', nonce: Date.now() })}
-            >
-              <FolderPlus size={15} /> Thư mục mới
-            </button>
-            <button
-              type="button"
-              className={styles.buttonPrimary}
-              disabled={usage?.enforcement === 'hard' && tone === 'over'}
-              onClick={() => setRequest({ kind: 'upload', nonce: Date.now() })}
-            >
-              <Upload size={15} /> Tải lên
-            </button>
+            {abilities.createFolder ? (
+              <button
+                type="button"
+                className={styles.buttonGhost}
+                onClick={() => setRequest({ kind: 'folder', nonce: Date.now() })}
+              >
+                <FolderPlus size={15} /> Thư mục mới
+              </button>
+            ) : null}
+            {abilities.upload ? (
+              <button
+                type="button"
+                className={styles.buttonPrimary}
+                disabled={usage?.enforcement === 'hard' && tone === 'over'}
+                onClick={() => setRequest({ kind: 'upload', nonce: Date.now() })}
+              >
+                <Upload size={15} /> Tải lên
+              </button>
+            ) : null}
           </div>
         ) : undefined
       }
@@ -165,6 +169,7 @@ export function SharedScreen() {
           onStorageChanged={reloadUsage}
           trash={inTrash}
           onOpenTrash={openTrash}
+          onAbilitiesChange={setAbilities}
         />
       )}
     </ModuleShell>

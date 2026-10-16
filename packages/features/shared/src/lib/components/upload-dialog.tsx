@@ -31,6 +31,8 @@ export const FILE_ACCEPT = [
 export interface UploadDialogProps {
   readonly open: boolean;
   readonly folders: readonly SharedFolder[];
+  /** Thư mục người dùng tải lên được. */
+  readonly writable: (folder: SharedFolder) => boolean;
   readonly defaultFolderId?: string;
   readonly onClose: () => void;
   /** Gọi sau mỗi lượt có ít nhất một tệp lên xong; `documentId` là tệp cuối. */
@@ -41,7 +43,7 @@ export interface UploadDialogProps {
  * Tải một hay nhiều tệp vào một thư mục. Nhiều tệp thì mỗi tệp thành một tài
  * liệu mang tên tệp; thông tin hồ sơ nhập ở đây áp cho tất cả.
  */
-export function UploadDialog({ open, folders, defaultFolderId, onClose, onUploaded }: UploadDialogProps) {
+export function UploadDialog({ open, folders, writable, defaultFolderId, onClose, onUploaded }: UploadDialogProps) {
   const [folderId, setFolderId] = useState('');
   const [files, setFiles] = useState<File[]>([]);
   const [name, setName] = useState('');
@@ -54,9 +56,12 @@ export function UploadDialog({ open, folders, defaultFolderId, onClose, onUpload
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string>();
 
+  const options = useMemo(() => folderOptions(folders, undefined, writable), [folders, writable]);
+
   useEffect(() => {
     if (!open) return;
-    setFolderId(defaultFolderId ?? '');
+    // Thư mục đang mở mà không có quyền ghi thì để người dùng tự chọn.
+    setFolderId(defaultFolderId && options.some((option) => option.value === defaultFolderId) ? defaultFolderId : '');
     setFiles([]);
     setName('');
     setDescription('');
@@ -67,9 +72,9 @@ export function UploadDialog({ open, folders, defaultFolderId, onClose, onUpload
     setProgress(undefined);
     setSubmitting(false);
     setError(undefined);
+    // Chỉ chạy khi mở hộp thoại; danh sách thư mục nạp lại giữa chừng không xoá những gì đã nhập.
   }, [open, defaultFolderId]);
 
-  const options = useMemo(() => folderOptions(folders), [folders]);
   const tooLarge = files.find((file) => file.size > SHARED_DOCUMENT_MAX_BYTES);
   const single = files.length === 1;
 

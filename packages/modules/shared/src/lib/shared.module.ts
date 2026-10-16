@@ -1,12 +1,16 @@
 import { PostgresPoolRegistry, TenantDatabaseRegistry } from '@enterprise-platform/adapter-database';
 import { Module } from '@nestjs/common';
 import { CompanyDocumentService } from './application/company-document.service.js';
+import { FolderAccessService } from './application/folder-access.js';
+import { FolderSharingService } from './application/folder-sharing.service.js';
+import { ORGANIZATION_READER, type OrganizationReader } from './application/organization.port.js';
 import {
   PLATFORM_LIMITS_READER,
   type PlatformLimitsReader,
 } from './application/platform-limits.port.js';
 import { SHARED_STORE, type SharedStore } from './application/shared-store.port.js';
 import { StorageQuotaService } from './application/storage-quota.service.js';
+import { HttpOrganizationReader } from './infrastructure/http-organization-reader.js';
 import { HttpPlatformLimits } from './infrastructure/http-platform-limits.js';
 import { PostgresSharedStore } from './infrastructure/postgres-shared-store.js';
 import { SharedController } from './presentation/shared.controller.js';
@@ -42,13 +46,36 @@ import { SharedController } from './presentation/shared.controller.js';
       inject: [SHARED_STORE, PLATFORM_LIMITS_READER],
     },
     {
-      // Tham số thứ ba để mặc định: service tự dựng `S3ObjectStorage` từ biến môi trường.
+      // Một thực thể cho cả app: bản sao 60 giây của sơ đồ tổ chức nằm trong nó.
+      provide: ORGANIZATION_READER,
+      useFactory: () => new HttpOrganizationReader(),
+    },
+    {
+      provide: FolderAccessService,
+      useFactory: (store: SharedStore, organization: OrganizationReader) =>
+        new FolderAccessService(store, organization),
+      inject: [SHARED_STORE, ORGANIZATION_READER],
+    },
+    {
+      provide: FolderSharingService,
+      useFactory: (store: SharedStore, access: FolderAccessService, organization: OrganizationReader) =>
+        new FolderSharingService(store, access, organization),
+      inject: [SHARED_STORE, FolderAccessService, ORGANIZATION_READER],
+    },
+    {
+      // Tham số cuối để mặc định: service tự dựng `S3ObjectStorage` từ biến môi trường.
       provide: CompanyDocumentService,
-      useFactory: (store: SharedStore, quota: StorageQuotaService) =>
-        new CompanyDocumentService(store, quota),
-      inject: [SHARED_STORE, StorageQuotaService],
+      useFactory: (store: SharedStore, quota: StorageQuotaService, access: FolderAccessService) =>
+        new CompanyDocumentService(store, quota, access),
+      inject: [SHARED_STORE, StorageQuotaService, FolderAccessService],
     },
   ],
-  exports: [CompanyDocumentService, StorageQuotaService, TenantDatabaseRegistry, PostgresPoolRegistry],
+  exports: [
+    CompanyDocumentService,
+    FolderSharingService,
+    StorageQuotaService,
+    TenantDatabaseRegistry,
+    PostgresPoolRegistry,
+  ],
 })
 export class SharedModule {}

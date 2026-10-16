@@ -583,6 +583,7 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
   shared: [
     { version: '0001-shared-documents', path: 'tenant/shared/0001-shared-documents.sql' },
     { version: '0002-shared-trash', path: 'tenant/shared/0002-shared-trash.sql' },
+    { version: '0003-shared-folder-shares', path: 'tenant/shared/0003-shared-folder-shares.sql' },
   ],
 };
 
