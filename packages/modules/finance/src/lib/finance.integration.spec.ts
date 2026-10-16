@@ -443,8 +443,8 @@ integration('Tài chính: phiếu thu, chi, chuyển tiền và sổ cái (Postg
       }
     }
     const a = accounts.find((account) => account.id === accountA)!;
-    // 3 phiếu thu 300.000; phiếu chi 1.300.000 + 500.000 (đã đảo nên trừ khỏi Tiền chi); chuyển 1.000.000 ra quỹ.
-    expect(a).toMatchObject({ receiptCount: 3, paymentCount: 1, transferCount: 1, totalReceipts: 900_000, totalPayments: 2_300_000, balance: 8_600_000 });
+    // 3 phiếu thu 300.000; phiếu chi 1.300.000 + 250.000 (chi tạm ứng đã sửa) + 500.000 (đã đảo nên trừ khỏi Tiền chi); chuyển 1.000.000 ra quỹ.
+    expect(a).toMatchObject({ receiptCount: 3, paymentCount: 2, transferCount: 1, totalReceipts: 900_000, totalPayments: 2_550_000, balance: 8_350_000 });
     // Chuyển tiền đến tính vào Tiền thu của tài khoản đích.
     const c = accounts.find((account) => account.id === cash)!;
     expect(c.transferCount).toBe(1);
