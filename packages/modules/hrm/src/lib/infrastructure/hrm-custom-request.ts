@@ -1,3 +1,4 @@
+import { assertQuotaOnApprove } from './hrm-request-quota.js';
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import type { PoolClient } from 'pg';
 import type {
@@ -302,6 +303,7 @@ export async function transitionCustomRequest(
   if (row.status === target) return row;
   if (row.status !== 'PENDING') throw new ConflictException('Đơn không còn chờ duyệt');
   await lockEmployee(db, tenant, row.employee_id);
+  if (target === 'APPROVED') await assertQuotaOnApprove(db, tenant, 'custom', row);
   if (row.from_at && row.to_at) {
     const fromMs = Date.parse(new Date(row.from_at).toISOString());
     const toMs = Date.parse(new Date(row.to_at).toISOString());

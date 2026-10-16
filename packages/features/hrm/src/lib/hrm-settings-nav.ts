@@ -160,6 +160,13 @@ export const SETTINGS_GROUPS: readonly SettingsGroup[] = [
         view: 'request-reasons',
       },
       {
+        id: 'request-quota',
+        label: 'Hạn mức đơn',
+        description: 'Giới hạn số đơn được duyệt mỗi tháng của một nhân viên theo từng loại đơn',
+        icon: 'rules',
+        view: 'request-quota',
+      },
+      {
         id: 'approval',
         label: 'Quy trình duyệt',
         description: 'Thiết lập quy trình phê duyệt đơn từ',

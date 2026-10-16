@@ -36,6 +36,7 @@ const TimeSettingsScreen = lazyScreen(() => import('./time-settings-screen'));
 const PayrollSettingsScreen = lazyScreen(() => import('./payroll-settings-screen'));
 const LeaveSettingsScreen = lazyScreen(() => import('./leave-settings-screen'));
 const RequestReasonsScreen = lazyScreen(() => import('./request-reasons-screen'));
+const RequestQuotaScreen = lazyScreen(() => import('./request-quota-screen'));
 const ApprovalConfigScreen = lazyScreen(() => import('./approval-config-screen'));
 const OperationsScreen = lazyScreen(() => import('./operations-screen'));
 const HrmPermissionsScreen = lazyScreen(() => import('./hrm-permissions-screen'));
@@ -67,6 +68,7 @@ const SCREENS: Record<HrmHubPath, Record<string, ComponentType>> = {
     'auto-attendance': AutoAttendanceScreen,
     payroll: PayrollSettingsScreen,
     'request-reasons': RequestReasonsScreen,
+    'request-quota': RequestQuotaScreen,
     approval: ApprovalConfigScreen,
     operations: OperationsScreen,
     permissions: HrmPermissionsScreen,

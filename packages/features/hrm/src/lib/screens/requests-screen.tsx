@@ -33,6 +33,7 @@ import {
 } from '../ui/employee-hero-card';
 import { Input } from '../ui/input';
 import { MonthStepper } from '../ui/month-stepper';
+import { RowMenu } from '../ui/row-menu';
 import { ExtraTimeRanges } from '../ui/extra-time-ranges';
 import { extraRangesProblem, rangeLabel, type ExtraRange } from '../request-ranges';
 import {
@@ -749,6 +750,8 @@ export default function RequestsPage() {
     useState('Đơn xin nghỉ phép');
   // Danh mục loại đơn cấu hình (GET /request-types) và loại tuỳ chỉnh đang mở form.
   const [requestTypes, setRequestTypes] = useState<HrmRequestType[]>([]);
+  // Đã nhận danh mục từ máy chủ: danh mục rỗng nghĩa là mọi loại đã ngừng, không được quay về 7 loại hệ thống.
+  const [requestTypesLoaded, setRequestTypesLoaded] = useState(false);
   const [selectedCustomType, setSelectedCustomType] =
     useState<HrmRequestType | null>(null);
   const [customValues, setCustomValues] = useState<Record<string, unknown>>({});
@@ -1304,7 +1307,7 @@ export default function RequestsPage() {
    * chưa tải được thì dùng 7 loại hệ thống.
    */
   // Đơn đổi ca không dùng: ca làm việc cố định, áp dụng chung toàn công ty (đơn cũ vẫn xem được ở lịch sử và duyệt).
-  const requestCatalog: CatalogCard[] = requestTypes.length
+  const requestCatalog: CatalogCard[] = requestTypesLoaded
     ? requestTypes.filter((type) => type.engine !== 'SHIFT_CHANGE').flatMap<CatalogCard>((type) => {
         if (type.engine === 'GENERIC')
           return [
@@ -1496,9 +1499,11 @@ export default function RequestsPage() {
         if (typesRes?.ok) {
           const payload = await typesRes.json();
           setRequestTypes(Array.isArray(payload?.data) ? payload.data : []);
+          setRequestTypesLoaded(Array.isArray(payload?.data));
         }
       } catch {
         setRequestTypes([]);
+        setRequestTypesLoaded(false);
       }
 
       };
@@ -2068,7 +2073,7 @@ export default function RequestsPage() {
     exportRequestHistory(filteredHistory, approverText);
     toast.success({
       title: 'Đã xuất lịch sử đơn',
-      description: `Đã tải về ${filteredHistory.length} dòng (CSV, mã hóa UTF-8).`,
+      description: `Đã tải về ${filteredHistory.length} dòng (Excel).`,
     });
   };
 
@@ -3596,15 +3601,24 @@ export default function RequestsPage() {
           >
             Tất cả tháng
           </Button>
-          <Button
-            permission="hrm.self.request"
-            size="sm"
-            className="h-9 gap-1.5 text-xs font-semibold"
-            onClick={() => handleOpenCreateForType('leave', 'Đơn xin nghỉ phép')}
-          >
-            <Plus className="size-3.5" />
-            <span>Tạo đơn mới</span>
-          </Button>
+          {canCreateRequest && (
+            <RowMenu
+              label="Chọn loại đơn để tạo"
+              buttonClassName="inline-flex h-9 items-center gap-1.5 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground hover:bg-primary/80"
+              trigger={
+                <>
+                  <Plus className="size-3.5" />
+                  <span>Tạo đơn mới</span>
+                </>
+              }
+              items={[...quickItems.map((q) => ({ key: q.key, label: q.title, onSelect: () => void q.onClick() })),
+                ...otherCatalog.map((c) => ({
+                  key: c.customType?.id ?? c.id,
+                  label: c.title,
+                  onSelect: () => void handleOpenCreateForType(c.id, c.title, c.customType),
+                }))]}
+            />
+          )}
         </div>
       </div>
 
@@ -3713,7 +3727,7 @@ export default function RequestsPage() {
                 className="h-8 gap-1.5 text-xs"
                 onClick={handleExportHistory}
                 disabled={loading || filteredHistory.length === 0}
-                title="Xuất các dòng đang hiển thị trong danh sách ra file CSV"
+                title="Xuất các dòng đang hiển thị trong danh sách ra file Excel"
               >
                 <Download className="size-3.5" />
                 <span>Xuất lịch sử đơn</span>

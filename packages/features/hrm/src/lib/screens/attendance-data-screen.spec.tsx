@@ -1,7 +1,7 @@
 /** @jest-environment jsdom */
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { hrmFetch } from '../hrm-api';
-import { downloadCsv } from '../hrm-csv';
+import { downloadXlsx } from '../hrm-xlsx';
 import { currentMonthVn, monthRange } from '../hrm-timesheet-format';
 import AttendanceDataScreen from './attendance-data-screen';
 
@@ -20,13 +20,13 @@ jest.mock('../hrm-api', () => {
   const actual = jest.requireActual('../hrm-api');
   return { ...actual, hrmFetch: jest.fn() };
 });
-jest.mock('../hrm-csv', () => {
-  const actual = jest.requireActual('../hrm-csv');
-  return { ...actual, downloadCsv: jest.fn() };
+jest.mock('../hrm-xlsx', () => {
+  const actual = jest.requireActual('../hrm-xlsx');
+  return { ...actual, downloadXlsx: jest.fn() };
 });
 
 const fetchMock = hrmFetch as jest.MockedFunction<typeof hrmFetch>;
-const downloadMock = downloadCsv as jest.MockedFunction<typeof downloadCsv>;
+const downloadMock = downloadXlsx as jest.MockedFunction<typeof downloadXlsx>;
 const range = monthRange(currentMonthVn());
 
 const attendanceRow = {
@@ -158,15 +158,16 @@ describe('AttendanceDataScreen', () => {
     expect(within(items[1]).getByText('đã hủy bởi giải trình')).toBeTruthy();
   });
 
-  it('exports the whole filtered result set as CSV', async () => {
+  it('exports the whole filtered result set as Excel', async () => {
     render(<AttendanceDataScreen />);
     await screen.findByText('Nguyễn Văn An', { exact: false });
-    fireEvent.click(screen.getByRole('button', { name: /Xuất CSV kết quả đã lọc/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Xuất Excel kết quả đã lọc/ }));
     await waitFor(() => expect(downloadMock).toHaveBeenCalledTimes(1));
-    const csv = downloadMock.mock.calls[0][1];
-    expect(csv.charCodeAt(0)).toBe(0xfeff);
-    expect(csv).toContain('NV001');
-    expect(csv).toContain('Đi muộn');
+    const rows = downloadMock.mock.calls[0][1];
+    // Mỗi giá trị một ô: dòng đầu là tiêu đề, các dòng sau là từng bản ghi.
+    expect(rows[0]).toContain('Mã nhân viên');
+    expect(rows[0]).toContain('Phút đi muộn');
+    expect(rows.slice(1).map((r: readonly unknown[]) => r[0])).toContain('NV001');
     const exportCall = fetchMock.mock.calls.map((c) => c[0] as string).filter((p) => p.startsWith('/attendance-data?')).pop() as string;
     expect(queryOf(exportCall).get('page_size')).toBe('200');
   });

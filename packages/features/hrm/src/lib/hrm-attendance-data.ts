@@ -103,8 +103,8 @@ export function buildAttendanceEventsQuery(
   }).toString();
 }
 
-export function buildAttendanceCsv(rows: readonly AttendanceDataRow[]): string {
-  return buildCsv([
+export function buildAttendanceRows(rows: readonly AttendanceDataRow[]): unknown[][] {
+  return [
     [
       'Mã nhân viên',
       'Họ tên',
@@ -133,7 +133,11 @@ export function buildAttendanceCsv(rows: readonly AttendanceDataRow[]): string {
       attendanceStatusLabel(r.status),
       r.source ?? '',
     ]),
-  ]);
+  ];
+}
+
+export function buildAttendanceCsv(rows: readonly AttendanceDataRow[]): string {
+  return buildCsv(buildAttendanceRows(rows));
 }
 
 export interface AttendanceRawEvent {
