@@ -7,7 +7,7 @@ import {
   within,
 } from '@testing-library/react';
 import { hrmFetch } from '../hrm-api';
-import { downloadCsv } from '../hrm-csv';
+import { downloadStyledXlsx } from '../hrm-xlsx';
 import LeaveBalancesScreen from './leave-balances-screen';
 
 const mockActions = new Set<string>();
@@ -27,13 +27,13 @@ jest.mock('../hrm-api', () => {
   return { ...actual, hrmFetch: jest.fn() };
 });
 
-jest.mock('../hrm-csv', () => {
-  const actual = jest.requireActual('../hrm-csv');
-  return { ...actual, downloadCsv: jest.fn() };
+jest.mock('../hrm-xlsx', () => {
+  const actual = jest.requireActual('../hrm-xlsx');
+  return { ...actual, downloadStyledXlsx: jest.fn() };
 });
 
 const fetchMock = hrmFetch as jest.MockedFunction<typeof hrmFetch>;
-const downloadMock = downloadCsv as jest.MockedFunction<typeof downloadCsv>;
+const downloadMock = downloadStyledXlsx as jest.MockedFunction<typeof downloadStyledXlsx>;
 
 // Bảng lịch sử trong Drawer dùng antd Table, cần matchMedia, ResizeObserver và getComputedStyle(elt, pseudoElt), jsdom chưa hỗ trợ.
 const nativeGetComputedStyle = window.getComputedStyle.bind(window);
@@ -493,7 +493,7 @@ describe('LeaveBalancesScreen', () => {
       ),
     ).toBeTruthy();
     expect(
-      (screen.getByRole('button', { name: /Xuất dữ liệu/ }) as HTMLButtonElement)
+      (screen.getByRole('button', { name: /Xuất Excel/ }) as HTMLButtonElement)
         .disabled,
     ).toBe(true);
   });
@@ -505,28 +505,29 @@ describe('LeaveBalancesScreen', () => {
     expect(await screen.findByText('Máy chủ lỗi')).toBeTruthy();
   });
 
-  it('Xuất dữ liệu tải CSV của danh sách đang lọc, gom theo phòng ban', async () => {
+  it('Xuất Excel tải Excel của danh sách đang lọc, gom theo phòng ban', async () => {
     mockActions.add('hrm.leave.read');
     render(<LeaveBalancesScreen />);
     await screen.findByText('Nguyễn Văn An');
-    fireEvent.click(screen.getByRole('button', { name: 'Xuất dữ liệu' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Xuất Excel' }));
 
     expect(downloadMock).toHaveBeenCalledTimes(1);
-    const [fileName, csv] = downloadMock.mock.calls[0];
+    const [fileName, sheet] = downloadMock.mock.calls[0];
     expect(fileName).toBe(`phep-nam-${year}`);
-    const lines = csv.replace(/^\uFEFF/, '').split('\r\n');
-    expect(lines[0]).toBe(
-      '"Mã NV","Họ và tên","Phòng ban","Năm","Được hưởng","Đã dùng","Chờ duyệt","Còn lại","Điều chỉnh","Ghi chú"',
-    );
-    expect(lines).toHaveLength(5);
+    expect(sheet.rows[0][0]).toBe(`QUỸ PHÉP NĂM ${year}`);
+    expect(sheet.rows[1]).toEqual([
+      'STT', 'Mã NV', 'Họ và tên', 'Phòng ban', 'Năm', 'Được hưởng', 'Đã dùng', 'Chờ duyệt', 'Còn lại', 'Điều chỉnh', 'Ghi chú',
+    ]);
+    const body = sheet.rows.slice(2);
+    expect(body).toHaveLength(4);
     // Thứ tự theo nhóm: Kế toán, Kinh doanh, Nhân sự, Chưa có phòng ban.
-    expect(lines[1]).toBe(`"NV002","Trần Thị Bình","Phòng Kế toán",${year},12,12,0,0,0,""`);
-    expect(lines[2]).toBe(`"NV001","Nguyễn Văn An","Phòng Kinh doanh",${year},14,4,1,10,0,""`);
-    expect(lines[3]).toBe(`"NV004","Phạm Thị Dung","Phòng Nhân sự",${year},"","","","","","Chưa có quỹ"`);
-    expect(lines[4]).toBe(`"NV003","Lê Văn Cường","Chưa có phòng ban",${year},12,13.5,0,-1.5,0,""`);
+    expect(body[0]).toEqual([1, 'NV002', 'Trần Thị Bình', 'Phòng Kế toán', year, 12, 12, 0, 0, 0, '']);
+    expect(body[1]).toEqual([2, 'NV001', 'Nguyễn Văn An', 'Phòng Kinh doanh', year, 14, 4, 1, 10, 0, '']);
+    expect(body[2]).toEqual([3, 'NV004', 'Phạm Thị Dung', 'Phòng Nhân sự', year, '', '', '', '', '', 'Chưa có quỹ']);
+    expect(body[3]).toEqual([4, 'NV003', 'Lê Văn Cường', 'Chưa có phòng ban', year, 12, 13.5, 0, -1.5, 0, '']);
   });
 
-  it('Xuất dữ liệu chỉ gồm kết quả đang lọc và những nhân viên đã tick chọn', async () => {
+  it('Xuất Excel chỉ gồm kết quả đang lọc và những nhân viên đã tick chọn', async () => {
     mockActions.add('hrm.leave.read');
     render(<LeaveBalancesScreen />);
     await screen.findByText('Nguyễn Văn An');
@@ -534,16 +535,17 @@ describe('LeaveBalancesScreen', () => {
     fireEvent.change(screen.getByLabelText('Tìm theo mã hoặc tên nhân viên'), {
       target: { value: 'van' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Xuất dữ liệu' }));
-    let csv = downloadMock.mock.calls[0][1];
+    fireEvent.click(screen.getByRole('button', { name: 'Xuất Excel' }));
+    const codes = (call: number) => downloadMock.mock.calls[call][1].rows.slice(2).map((r: readonly unknown[]) => r[1]);
+    let csv = codes(0);
     expect(csv).toContain('NV001');
     expect(csv).toContain('NV003');
     expect(csv).not.toContain('NV002');
     expect(csv).not.toContain('NV004');
 
     fireEvent.click(screen.getByLabelText('Chọn Lê Văn Cường'));
-    fireEvent.click(screen.getByRole('button', { name: 'Xuất dữ liệu (1)' }));
-    csv = downloadMock.mock.calls[1][1];
+    fireEvent.click(screen.getByRole('button', { name: 'Xuất Excel (1)' }));
+    csv = codes(1);
     expect(csv).toContain('NV003');
     expect(csv).not.toContain('NV001');
   });
@@ -744,6 +746,6 @@ describe('LeaveBalancesScreen', () => {
       await screen.findByText('Bạn không có quyền xem quỹ phép.'),
     ).toBeTruthy();
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(screen.queryByRole('button', { name: /Xuất dữ liệu/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Xuất Excel/ })).toBeNull();
   });
 });

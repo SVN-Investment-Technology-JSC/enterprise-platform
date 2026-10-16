@@ -2,7 +2,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { HrmAttendanceMonitor, HrmMonitorRow } from '@enterprise-platform/contracts-hrm';
 import { hrmFetch } from '../hrm-api';
-import { downloadCsv } from '../hrm-csv';
+import { downloadXlsx } from '../hrm-xlsx';
 import { todayVn } from '../attendance-monitor-model';
 import AttendanceMonitorScreen from './attendance-monitor-screen';
 
@@ -16,9 +16,9 @@ jest.mock('../hrm-api', () => {
   const actual = jest.requireActual('../hrm-api');
   return { ...actual, hrmFetch: jest.fn() };
 });
-jest.mock('../hrm-csv', () => {
-  const actual = jest.requireActual('../hrm-csv');
-  return { ...actual, downloadCsv: jest.fn() };
+jest.mock('../hrm-xlsx', () => {
+  const actual = jest.requireActual('../hrm-xlsx');
+  return { ...actual, downloadXlsx: jest.fn() };
 });
 
 const fetchMock = hrmFetch as jest.MockedFunction<typeof hrmFetch>;
@@ -158,11 +158,12 @@ describe('AttendanceMonitorScreen', () => {
     render(<AttendanceMonitorScreen />);
     await screen.findByText('Bùi Công Quyền');
     fireEvent.click(screen.getByRole('button', { name: /Xuất Excel/ }));
-    expect(downloadCsv).toHaveBeenCalledTimes(1);
-    const [name, csv] = (downloadCsv as jest.Mock).mock.calls[0] as [string, string];
-    expect(name).toBe(`giam-sat-cham-cong-${todayVn()}.csv`);
-    expect(csv).toContain('Bùi Công Quyền');
-    expect(csv).not.toContain('Hoàng Ngọc Linh');
+    expect(downloadXlsx).toHaveBeenCalledTimes(1);
+    const [name, rows] = (downloadXlsx as jest.Mock).mock.calls[0] as [string, string[][]];
+    expect(name).toBe(`giam-sat-cham-cong-${todayVn()}`);
+    const names = rows.slice(1).map((r) => r[1]);
+    expect(names).toContain('Bùi Công Quyền');
+    expect(names).not.toContain('Hoàng Ngọc Linh');
   });
 
   it('báo lỗi khi không có quyền hoặc tải thất bại; không treo ở trạng thái đang tải', async () => {

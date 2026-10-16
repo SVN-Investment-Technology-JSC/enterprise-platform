@@ -1,3 +1,4 @@
+import { assertQuotaOnApprove } from './hrm-request-quota.js';
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import type { PoolClient } from 'pg';
 import { resolveDay, workScheduleTableExists } from './hrm-shift-resolution.js';
@@ -143,6 +144,7 @@ export async function approveShiftChange(
   if (new Set(employees).size !== employees.length)
     throw new BadRequestException('Không thể đổi ca với chính mình');
   for (const employee of employees) await lockEmployee(db, tenant, employee);
+  await assertQuotaOnApprove(db, tenant, 'shift_change', change);
   const shift = await db.query(
     `SELECT id FROM hrm_schema.shift_definitions WHERE tenant_id=$1 AND id=ANY($2::uuid[]) AND status='ACTIVE'`,
     [tenant, [change.current_shift_id, change.requested_shift_id]],

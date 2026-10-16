@@ -278,11 +278,11 @@ export const BOARD_GRID_TOTALS: readonly BoardTotalColumn[] = [
   { key: 'ot', label: 'OT', value: (t) => formatMinutes(t.otMinutes) },
 ];
 
-/** Dựng CSV: mỗi nhân viên một dòng, mỗi ngày một cột (số công hoặc ký hiệu), rồi các cột tổng. */
-export function buildBoardCsv(
+/** Các dòng của bảng công: mỗi nhân viên một dòng, mỗi ngày một cột (số công hoặc ký hiệu), rồi các cột tổng. */
+export function buildBoardRows(
   board: Pick<HrmTimesheetBoard, 'calendar'>,
   employees: readonly HrmBoardEmployee[],
-): string {
+): unknown[][] {
   const dates = board.calendar.map((d) => d.date);
   const header: unknown[] = [
     'Mã NV',
@@ -298,7 +298,135 @@ export function buildBoardCsv(
     ...dates.map((date) => boardCellText(emp.days[date])),
     ...BOARD_TOTAL_COLUMNS.map((c) => c.value(emp.totals)),
   ]);
-  return buildCsv([header, ...rows]);
+  return [header, ...rows];
+}
+
+const WEEKDAY_SHORT = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
+const INFO_HEADERS = ['Mã NV', 'Họ và tên', 'Phòng ban', 'Chức danh'] as const;
+
+interface SheetTotalGroup {
+  readonly label: string;
+  readonly subs: readonly { readonly label: string; readonly value: (t: HrmBoardTotals) => number }[];
+}
+
+const hours = (minutes: number): number => Math.round((minutes / 60) * 100) / 100;
+
+/** Các nhóm cột tổng của tệp Excel: nhóm có nhiều cột con thì tiêu đề nhóm gộp ngang ở tầng trên. */
+const SHEET_TOTAL_GROUPS: readonly SheetTotalGroup[] = [
+  { label: 'Tổng công', subs: [{ label: 'Tổng công', value: (t) => t.workdayUnits }] },
+  {
+    label: 'Đi trễ',
+    subs: [
+      { label: 'Số ngày', value: (t) => t.lateDays },
+      { label: 'Số phút', value: (t) => t.lateMinutes },
+    ],
+  },
+  {
+    label: 'Về sớm',
+    subs: [
+      { label: 'Số ngày', value: (t) => t.earlyLeaveDays },
+      { label: 'Số phút', value: (t) => t.earlyLeaveMinutes },
+    ],
+  },
+  { label: 'Bất thường', subs: [{ label: 'Bất thường', value: (t) => t.abnormalDays }] },
+  { label: 'Nghỉ không phép', subs: [{ label: 'Nghỉ không phép', value: (t) => t.absentDays }] },
+  {
+    label: 'Nghỉ',
+    subs: [
+      { label: 'Phép năm', value: (t) => t.annualLeaveDays },
+      { label: 'Nghỉ có phép', value: (t) => t.paidLeaveDays },
+      { label: 'Không lương', value: (t) => t.unpaidLeaveDays },
+    ],
+  },
+  { label: 'Công tác', subs: [{ label: 'Công tác', value: (t) => t.tripDays }] },
+  { label: 'Tăng ca', subs: [{ label: 'Số giờ', value: (t) => hours(t.otMinutes) }] },
+];
+
+export interface BoardSheet {
+  /** Dòng 1 là tiêu đề, dòng 2 - 3 là tiêu đề hai tầng, từ dòng 4 là nhân viên. */
+  readonly rows: unknown[][];
+  /** Ô gộp theo toạ độ 0-based: `s` bắt đầu, `e` kết thúc. */
+  readonly merges: { s: { r: number; c: number }; e: { r: number; c: number } }[];
+  /** Số cột thông tin nhân viên (căn trái) đứng trước các cột ngày. */
+  readonly infoColumns: number;
+  /** Chỉ số cột (0-based) của các ngày nghỉ hằng tuần hoặc lễ, để tô nền khác. */
+  readonly offColumns: number[];
+  readonly dayColumns: number;
+  readonly totalColumns: number;
+}
+
+const toCell = (text: string): string | number => (/^\d+(\.\d+)?$/.test(text) ? Number(text) : text);
+
+/**
+ * Dựng bảng công để xuất Excel theo mẫu bảng chấm công: tiêu đề tháng gộp ô, tiêu đề hai tầng (thứ trên, ngày dưới),
+ * các nhóm cột tổng có cột con. Giá trị số để dạng số để cộng được trong Excel.
+ */
+export function buildBoardSheet(
+  board: Pick<HrmTimesheetBoard, 'calendar'>,
+  employees: readonly HrmBoardEmployee[],
+  month: string,
+): BoardSheet {
+  const days = board.calendar;
+  const infoColumns = INFO_HEADERS.length;
+  const totalColumns = SHEET_TOTAL_GROUPS.reduce((n, g) => n + g.subs.length, 0);
+  const width = infoColumns + days.length + totalColumns;
+  const blank = (): unknown[] => Array.from({ length: width }, () => '');
+  const [year, mm] = month.split('-');
+
+  const title = blank();
+  title[0] = `BẢNG CHẤM CÔNG THÁNG ${mm}-${year}`;
+  const top = blank();
+  const sub = blank();
+  const merges: BoardSheet['merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: width - 1 } }];
+
+  INFO_HEADERS.forEach((label, c) => {
+    top[c] = label;
+    merges.push({ s: { r: 1, c }, e: { r: 2, c } });
+  });
+  const offColumns: number[] = [];
+  days.forEach((d, i) => {
+    const c = infoColumns + i;
+    top[c] = WEEKDAY_SHORT[d.weekday] ?? '';
+    sub[c] = `${d.date.slice(8, 10)}/${d.date.slice(5, 7)}`;
+    if (d.kind !== 'WORK') offColumns.push(c);
+  });
+  let col = infoColumns + days.length;
+  for (const group of SHEET_TOTAL_GROUPS) {
+    if (group.subs.length === 1) {
+      top[col] = group.label;
+      merges.push({ s: { r: 1, c: col }, e: { r: 2, c: col } });
+    } else {
+      top[col] = group.label;
+      merges.push({ s: { r: 1, c: col }, e: { r: 1, c: col + group.subs.length - 1 } });
+      group.subs.forEach((s, i) => (sub[col + i] = s.label));
+    }
+    col += group.subs.length;
+  }
+
+  const body = employees.map((emp) => [
+    emp.employeeCode,
+    emp.employeeName,
+    emp.departmentName ?? '',
+    emp.positionName ?? '',
+    ...days.map((d) => toCell(boardCellText(emp.days[d.date]))),
+    ...SHEET_TOTAL_GROUPS.flatMap((g) => g.subs.map((s) => s.value(emp.totals))),
+  ]);
+  return {
+    rows: [title, top, sub, ...body],
+    merges,
+    infoColumns,
+    offColumns,
+    dayColumns: days.length,
+    totalColumns,
+  };
+}
+
+/** Như `buildBoardRows` nhưng dựng thành văn bản CSV. */
+export function buildBoardCsv(
+  board: Pick<HrmTimesheetBoard, 'calendar'>,
+  employees: readonly HrmBoardEmployee[],
+): string {
+  return buildCsv(buildBoardRows(board, employees));
 }
 
 const REQUEST_STATUS_LABEL: Record<HrmDayRequest['status'], string> = {

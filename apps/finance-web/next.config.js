@@ -14,6 +14,9 @@ const nextConfig = {
     optimizePackageImports: ['@enterprise-platform/feature-finance', 'antd', 'lucide-react'],
   },
   outputFileTracingRoot: path.join(__dirname, '../..'),
+  turbopack: {
+    root: path.resolve(__dirname, '../..'),
+  },
   output: process.env.NEXT_BUILD_OUTPUT === 'standalone' ? 'standalone' : undefined,
   poweredByHeader: false,
   async rewrites() {

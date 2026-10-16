@@ -1,7 +1,7 @@
 /** @jest-environment jsdom */
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { hrmFetch } from '../hrm-api';
-import { downloadCsv } from '../hrm-employee-view';
+import { downloadEmployeesXlsx } from '../hrm-employee-view';
 import EmployeesScreen from './employees-screen';
 import { toast } from '../ui/toast';
 
@@ -28,11 +28,11 @@ jest.mock('../ui/toast', () => ({
 
 jest.mock('../hrm-employee-view', () => {
   const actual = jest.requireActual('../hrm-employee-view');
-  return { ...actual, downloadCsv: jest.fn() };
+  return { ...actual, downloadEmployeesXlsx: jest.fn() };
 });
 
 const fetchMock = hrmFetch as jest.MockedFunction<typeof hrmFetch>;
-const downloadMock = downloadCsv as jest.MockedFunction<typeof downloadCsv>;
+const downloadMock = downloadEmployeesXlsx as jest.MockedFunction<typeof downloadEmployeesXlsx>;
 const toastSuccess = toast.success as jest.Mock;
 
 // antd Table cần matchMedia, ResizeObserver và getComputedStyle(elt, pseudoElt), jsdom chưa hỗ trợ.
@@ -282,10 +282,10 @@ describe('EmployeesScreen', () => {
     await screen.findByText('NV001');
     fireEvent.click(screen.getByRole('button', { name: 'Xuất Excel' }));
     await waitFor(() => expect(downloadMock).toHaveBeenCalledTimes(1));
-    const [fileName, csv] = downloadMock.mock.calls[0];
-    expect(fileName).toMatch(/^danh-sach-nhan-vien-\d{4}-\d{2}-\d{2}\.csv$/);
-    expect(csv).toContain('NV001,Nguyễn Văn An,an@example.com,Kỹ sư,Sản xuất,2024-03-01,Chính thức');
-    expect(csv).not.toMatch(/CCCD|Mã số thuế|BHXH|ngân hàng/i);
+    const [rows, labels, fileName] = downloadMock.mock.calls[0];
+    expect(fileName).toMatch(/^danh-sach-nhan-vien-\d{4}-\d{2}-\d{2}\.xlsx$/);
+    expect(rows.map((r) => r.employeeCode)).toEqual(['NV001']);
+    expect(labels[rows[0].employmentStatus]).toBe('Chính thức');
   });
 
   const person = (n: number, over: Record<string, unknown> = {}) => ({
@@ -373,9 +373,9 @@ describe('EmployeesScreen', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: 'Chọn Nhân viên 2' }));
     fireEvent.click(screen.getByRole('button', { name: /Xuất Excel \(1\)/ }));
     await waitFor(() => expect(downloadMock).toHaveBeenCalledTimes(1));
-    const csv = String(downloadMock.mock.calls[0][1]);
-    expect(csv).toContain('NV002');
-    expect(csv).not.toContain('NV001');
+    const exported = downloadMock.mock.calls[0][0].map((r) => r.employeeCode);
+    expect(exported).toContain('NV002');
+    expect(exported).not.toContain('NV001');
     fireEvent.click(screen.getByRole('checkbox', { name: 'Chọn tất cả nhân viên trong trang' }));
     expect(screen.getByRole('button', { name: /Xuất Excel \(3\)/ })).toBeTruthy();
   });
