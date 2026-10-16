@@ -287,9 +287,9 @@ export async function updateVoucher(
               tax_included=$10, tax_rate=$11, total_amount=$12, note=$13,
               alloc_type=$14, alloc_project_id=$15, alloc_project_code=$16, alloc_project_name=$17,
               alloc_work_item_id=$18, alloc_work_item_code=$19, alloc_work_item_title=$20,
-              status=$21, approval_mode=COALESCE($22, approval_mode), revision=revision+1,
-              submitted_at=CASE WHEN $21='PENDING' THEN now() ELSE submitted_at END,
-              submitted_by=CASE WHEN $21='PENDING' THEN $23 ELSE submitted_by END,
+              status=$21::text, approval_mode=COALESCE($22, approval_mode), revision=revision+1,
+              submitted_at=CASE WHEN $21::text='PENDING' THEN now() ELSE submitted_at END,
+              submitted_by=CASE WHEN $21::text='PENDING' THEN $23 ELSE submitted_by END,
               decided_at=NULL, decided_by=NULL, decided_by_name=NULL, decision_note=NULL, updated_at=now()
         WHERE tenant_id=$1 AND id=$2 RETURNING *`,
       [
