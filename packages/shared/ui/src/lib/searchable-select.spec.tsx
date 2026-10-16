@@ -153,4 +153,14 @@ describe('SearchableSelect searchInDropdown', () => {
     expect(onChange).toHaveBeenCalledWith('b');
     expect(screen.queryByRole('listbox')).toBeNull();
   });
+
+  it('ô ngoài không có kính lúp đè lên giá trị đã chọn', () => {
+    const { container, rerender } = render(<SearchableSelect options={options} value="a" />);
+    // Kiểu gõ trực tiếp vẫn có kính lúp trong ô.
+    expect(container.querySelector('.searchIcon')).not.toBeNull();
+
+    // Phải không có trong DOM: chỉ đặt `hidden` thì app không có preflight Tailwind vẫn vẽ nó (`.searchIcon` đặt `display: flex`).
+    rerender(<SearchableSelect searchInDropdown options={options} value="a" />);
+    expect(container.querySelector('.searchIcon')).toBeNull();
+  });
 });
