@@ -241,7 +241,7 @@ export default function HrmDashboardPage() {
                 <PunchCard punch={punch} data={my} />
               </div>
               <div className="md:col-span-3">
-                <LeaveCard data={my} />
+                <LeaveCard data={my} detailHref={plan.canOpenLeavePage ? '/leave' : undefined} />
               </div>
               <div className="md:col-span-6">
                 <MonthStrip data={my} />

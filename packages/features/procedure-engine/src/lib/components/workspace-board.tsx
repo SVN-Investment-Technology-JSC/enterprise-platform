@@ -35,6 +35,11 @@ import { createPortal } from 'react-dom';
 import { Check, ChevronLeft, ChevronRight, Download, FileText, Plus, Search, X } from 'lucide-react';
 import type { AssetCatalogItem, MaterialCatalogItem } from '../procedure-api';
 import {
+  INSTANCE_SOURCE_FILTER_OPTIONS,
+  matchesInstanceSource,
+  type InstanceSourceFilter,
+} from '../instance-source-filter';
+import {
   loadProjectPeople,
   loadProjectWorkItems,
   loadRelatedProjects,
@@ -353,7 +358,7 @@ export function WorkspaceBoard({
   const [viewMode, setViewMode] = useState<'list' | 'table'>('list');
   const [query, setQuery] = useState('');
   const [slaFilter, setSlaFilter] = useState<'all' | ProcedureSlaView['state']>('all');
-  const [source, setSource] = useState<'all' | 'manual' | 'maintenance_occurrence' | 'auto_from_parent'>('all');
+  const [source, setSource] = useState<InstanceSourceFilter>('all');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [selectedId, setSelectedId] = useState<string>();
@@ -543,7 +548,7 @@ export function WorkspaceBoard({
         return false;
       }
 
-      if (source !== 'all' && (instance.sourceType ?? 'manual') !== source) return false;
+      if (!matchesInstanceSource(instance.sourceType, source)) return false;
       if (slaFilter !== 'all' && evaluateInstanceSla(instance).state !== slaFilter) return false;
 
       const started = Date.parse(instance.startedAt);
@@ -1235,14 +1240,9 @@ export function WorkspaceBoard({
             className={styles.filterCombo}
             clearable={false}
             value={source}
-            options={[
-              { value: 'all', label: 'Nguồn: Tất cả' },
-              { value: 'manual', label: 'Thủ công' },
-              { value: 'maintenance_occurrence', label: 'Bảo trì' },
-              { value: 'auto_from_parent', label: 'Tự động' },
-            ]}
+            options={[...INSTANCE_SOURCE_FILTER_OPTIONS]}
             onChange={(value) => {
-              setSource((value || 'all') as typeof source);
+              setSource((value || 'all') as InstanceSourceFilter);
               setPage(1);
             }}
           />

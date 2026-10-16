@@ -351,8 +351,11 @@ export function PunchCard({ punch, data }: { punch: PunchProps; data: MyDashboar
   );
 }
 
-/** Phép năm của tôi: vòng tròn còn lại / tổng và ba dòng đã dùng, còn lại, đã đăng ký. */
-export function LeaveCard({ data }: { data: MyDashboardData }) {
+/**
+ * Phép năm của tôi: vòng tròn còn lại / tổng và ba dòng đã dùng, còn lại, đã đăng ký.
+ * `detailHref` chỉ truyền khi người dùng vào được trang đích; không có thì thẻ không hiện "Xem chi tiết".
+ */
+export function LeaveCard({ data, detailHref }: { data: MyDashboardData; detailHref?: string }) {
   const a = data.annual;
   const total = a?.total ?? 0;
   const radius = 42;
@@ -362,7 +365,7 @@ export function LeaveCard({ data }: { data: MyDashboardData }) {
   const remainLen = circ * frac(a?.remaining ?? 0);
   return (
     <section aria-label="Phép năm của tôi" className={`${CARD} p-5`}>
-      <CardTitle href="/leave">Phép năm của tôi</CardTitle>
+      <CardTitle href={detailHref}>Phép năm của tôi</CardTitle>
       <div className="flex items-center gap-5">
         <div className="relative size-[118px] shrink-0">
           <svg viewBox="0 0 100 100" className="size-full -rotate-90" role="img" aria-label="Biểu đồ phép năm">
