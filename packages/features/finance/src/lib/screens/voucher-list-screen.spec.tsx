@@ -280,7 +280,17 @@ describe('Theo dõi theo tháng', () => {
 });
 
 describe('Menu chuột phải trên danh sách', () => {
-  const NONE = { canEdit: false, canSubmit: false, canApprove: false, canReject: false, canCancel: false, canReverse: false, canDelete: false, canRetryProcedure: false };
+  const NONE = {
+    canEdit: false,
+    canSubmit: false,
+    canApprove: false,
+    canReject: false,
+    canCancel: false,
+    canReverse: false,
+    canDelete: false,
+    canRetryProcedure: false,
+    sourced: { canEditSourced: false, canPost: false, canReturnSource: false, canTakeOver: false, canRetryReversal: false },
+  };
   const voucherDetail = (over: Partial<FinanceVoucher> = {}): FinanceVoucher => ({
     ...summary({}),
     counterpartyGroupId: 'g1',
@@ -300,6 +310,7 @@ describe('Menu chuột phải trên danh sách', () => {
     events: [],
     posted: false,
     procedure: null,
+    source: null,
     permissions: { ...NONE },
     ...over,
   });
@@ -315,7 +326,7 @@ describe('Menu chuột phải trên danh sách', () => {
     });
   };
 
-  const openMenuFor = async (text = 'PT_1_10_2026') => {
+  const openMenuFor = async (text = 'PT-2610-0001') => {
     const row = await screen.findByText(text);
     fireEvent.contextMenu(row.closest('tr') as HTMLElement);
   };

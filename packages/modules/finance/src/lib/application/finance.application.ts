@@ -406,16 +406,12 @@ export class FinanceApplication {
    */
   async updateVoucher(actor: FinanceActor, id: string, input: SaveFinanceVoucherRequest): Promise<FinanceVoucher> {
     const pool = await this.database.pool(actor.tenantId);
-    const mode = (await pool.query(`SELECT approval_mode FROM finance_schema.vouchers WHERE tenant_id=$1 AND id=$2`, [actor.tenantId, id])).rows[0] as
-      | { approval_mode: string }
-      | undefined;
-    if (mode?.approval_mode === 'INHERITED') return this.updateSourced(actor, id, input);
-    const voucher = normalizeVoucherInput(input);
-    if (!canCreate(actor, voucher.kind)) throw forbidden('Bạn không có quyền lập loại phiếu này.');
-    const pool = await this.database.pool(actor.tenantId);
     const current = (await pool.query(`SELECT status, approval_mode FROM finance_schema.vouchers WHERE tenant_id=$1 AND id=$2`, [actor.tenantId, id])).rows[0] as
       | { status: string; approval_mode: string }
       | undefined;
+    if (current?.approval_mode === 'INHERITED') return this.updateSourced(actor, id, input);
+    const voucher = normalizeVoucherInput(input);
+    if (!canCreate(actor, voucher.kind)) throw forbidden('Bạn không có quyền lập loại phiếu này.');
     if (!current) throw notFound('phiếu');
     const resubmitting = current.status === 'REJECTED' || (current.status === 'PENDING' && current.approval_mode === 'DIRECT');
 

@@ -235,7 +235,7 @@ describe('Chi tiết phiếu', () => {
       expect(within(panel).getByRole('link', { name: 'PR-0012' }).getAttribute('href')).toBe('/modules/procedure#workspace/inst-12');
       expect(within(panel).getByText('Kế toán thanh toán')).toBeTruthy();
       const info = screen.getByRole('region', { name: 'Thông tin chung' });
-      expect(within(info).getAllByLabelText('Lấy từ hồ sơ').length).toBe(3); // số tiền, nội dung, người nhận
+      expect(within(info).getAllByLabelText('Lấy từ hồ sơ').length).toBe(2); // số tiền, nội dung
       expect(screen.queryByRole('button', { name: /Gửi duyệt/ })).toBeNull();
 
       fireEvent.click(screen.getByRole('button', { name: /Nhập thông tin kế toán/ }));
