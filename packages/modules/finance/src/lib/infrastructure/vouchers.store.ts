@@ -208,7 +208,9 @@ export async function addEvent(
   note?: string | null,
 ): Promise<void> {
   await db.query(
-    `INSERT INTO finance_schema.voucher_events (tenant_id, voucher_id, action, actor_id, actor_name, note) VALUES ($1,$2,$3,$4,$5,$6)`,
+    // clock_timestamp(), không phải now(): nhiều sự kiện trong cùng giao dịch (sửa rồi gửi duyệt lại) vẫn giữ đúng thứ tự.
+    `INSERT INTO finance_schema.voucher_events (tenant_id, voucher_id, action, actor_id, actor_name, note, created_at)
+     VALUES ($1,$2,$3,$4,$5,$6,clock_timestamp())`,
     [tenantId, voucherId, action, actor?.userId ?? null, actor?.displayName ?? null, note?.trim() || null],
   );
 }
