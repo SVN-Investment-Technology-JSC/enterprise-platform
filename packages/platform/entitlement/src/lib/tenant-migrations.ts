@@ -102,6 +102,7 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     { version: '0005-finance-voucher-codes', path: 'tenant/finance/0005-finance-voucher-codes.sql' },
     { version: '0006-finance-voucher-sources', path: 'tenant/finance/0006-finance-voucher-sources.sql' },
     { version: '0007-finance-source-reversal', path: 'tenant/finance/0007-finance-source-reversal.sql' },
+    { version: '0008-voucher-attachment-purpose', path: 'tenant/finance/0008-voucher-attachment-purpose.sql' },
   ],
   hrm: [
     { version: '0001-hrm', path: 'tenant/hrm/0001-hrm.sql' },

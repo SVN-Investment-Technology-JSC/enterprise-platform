@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { S3ObjectStorage } from '@enterprise-platform/adapter-storage';
-import type { FinanceVoucherAttachment } from '@enterprise-platform/contracts-finance';
+import type { FinanceAttachmentPurpose, FinanceVoucherAttachment } from '@enterprise-platform/contracts-finance';
 import type { QueryResultRow } from 'pg';
 import { canApprove, canCreate, type FinanceActor } from '../domain/finance.access.js';
 import { FinanceError, conflict, invalid, notFound } from '../domain/finance.error.js';
@@ -62,6 +62,16 @@ export const ATTACHMENT_TYPES: Readonly<Record<string, string>> = {
 export const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 export const MAX_ATTACHMENTS_PER_VOUCHER = 20;
 
+/** Ảnh dán vào ô Ghi chú: chỉ nhận ảnh, nhẹ hơn và giới hạn số lượng riêng với chứng từ đính kèm. */
+export const NOTE_IMAGE_TYPES: Readonly<Record<string, string>> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  webp: 'image/webp',
+};
+export const MAX_NOTE_IMAGE_BYTES = 5 * 1024 * 1024;
+export const MAX_NOTE_IMAGES_PER_VOUCHER = 10;
+
 export const mapAttachmentRow = (row: Row): FinanceVoucherAttachment => ({
   id: String(row.id),
   fileName: String(row.file_name),
@@ -70,6 +80,7 @@ export const mapAttachmentRow = (row: Row): FinanceVoucherAttachment => ({
   uploadedBy: optStr(row.uploaded_by),
   uploadedByName: optStr(row.uploaded_by_name),
   uploadedAt: iso(row.uploaded_at),
+  purpose: (row.purpose as FinanceAttachmentPurpose | undefined) ?? 'ATTACHMENT',
 });
 
 /** Tên tệp an toàn: bỏ đường dẫn và ký tự điều khiển, giữ tiếng Việt. */
@@ -108,24 +119,31 @@ export async function createAttachment(
   tenantId: string,
   actor: FinanceActor,
   voucherId: string,
-  input: { fileName?: unknown; contentType?: unknown; sizeBytes?: unknown },
+  input: { fileName?: unknown; contentType?: unknown; sizeBytes?: unknown; purpose?: unknown },
 ): Promise<{ id: string; uploadUrl: string; contentType: string }> {
   await editableVoucher(db, tenantId, actor, voucherId);
+  const purpose: FinanceAttachmentPurpose = input.purpose === 'NOTE_IMAGE' ? 'NOTE_IMAGE' : 'ATTACHMENT';
+  const isNoteImage = purpose === 'NOTE_IMAGE';
+  const types = isNoteImage ? NOTE_IMAGE_TYPES : ATTACHMENT_TYPES;
+  const maxBytes = isNoteImage ? MAX_NOTE_IMAGE_BYTES : MAX_ATTACHMENT_BYTES;
+  const maxCount = isNoteImage ? MAX_NOTE_IMAGES_PER_VOUCHER : MAX_ATTACHMENTS_PER_VOUCHER;
   const fileName = cleanFileName(input.fileName);
   const extension = fileName.split('.').pop()?.toLowerCase() ?? '';
   const size = Number(input.sizeBytes);
-  if (ATTACHMENT_TYPES[extension] !== input.contentType || !Number.isInteger(size) || size < 1 || size > MAX_ATTACHMENT_BYTES)
-    throw invalid('Chứng từ phải là PDF, ảnh (PNG, JPEG, WEBP), Word hoặc Excel, tối đa 10 MB.');
-  const live = (await db.query(`SELECT count(*)::int AS n FROM finance_schema.voucher_attachments WHERE voucher_id=$1 AND deleted_at IS NULL`, [voucherId])).rows[0] as Row;
-  if (num(live.n) >= MAX_ATTACHMENTS_PER_VOUCHER) throw invalid(`Mỗi phiếu đính kèm tối đa ${MAX_ATTACHMENTS_PER_VOUCHER} tệp.`);
+  if (types[extension] !== input.contentType || !Number.isInteger(size) || size < 1 || size > maxBytes)
+    throw invalid(isNoteImage ? 'Ảnh ghi chú phải là PNG, JPEG hoặc WEBP, tối đa 5 MB.' : 'Chứng từ phải là PDF, ảnh (PNG, JPEG, WEBP), Word hoặc Excel, tối đa 10 MB.');
+  const live = (
+    await db.query(`SELECT count(*)::int AS n FROM finance_schema.voucher_attachments WHERE voucher_id=$1 AND purpose=$2 AND deleted_at IS NULL`, [voucherId, purpose])
+  ).rows[0] as Row;
+  if (num(live.n) >= maxCount) throw invalid(isNoteImage ? `Ghi chú tối đa ${maxCount} ảnh.` : `Mỗi phiếu đính kèm tối đa ${maxCount} tệp.`);
 
   const id = randomUUID();
   const key = `tenants/${tenantId}/finance/${voucherId}/${id}.${extension}`;
   const uploadUrl = await storage.createUploadUrl({ key, contentType: input.contentType as string, expiresInSeconds: 300 });
   await db.query(
-    `INSERT INTO finance_schema.voucher_attachments (id, tenant_id, voucher_id, file_name, content_type, size_bytes, storage_key, uploaded_by, uploaded_by_name)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-    [id, tenantId, voucherId, fileName, input.contentType, size, key, actor.userId, actor.displayName],
+    `INSERT INTO finance_schema.voucher_attachments (id, tenant_id, voucher_id, file_name, content_type, size_bytes, storage_key, uploaded_by, uploaded_by_name, purpose)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+    [id, tenantId, voucherId, fileName, input.contentType, size, key, actor.userId, actor.displayName, purpose],
   );
   return { id, uploadUrl, contentType: input.contentType as string };
 }

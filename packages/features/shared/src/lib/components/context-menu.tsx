@@ -32,31 +32,32 @@ const MARGIN = 8;
  */
 const SCROLL_GRACE_MS = 250;
 
-const isItem = (entry: MenuEntry): entry is MenuItem => entry.kind === 'item';
+const isItem = <TAction extends string>(entry: MenuEntry<TAction>): entry is MenuItem<TAction> => entry.kind === 'item';
 
-export interface ContextMenuProps {
+export interface ContextMenuProps<TAction extends string = MenuActionId> {
   readonly anchor: MenuAnchor;
-  readonly entries: readonly MenuEntry[];
+  readonly entries: readonly MenuEntry<TAction>[];
   readonly label: string;
   readonly onClose: () => void;
-  readonly onPick: (id: MenuActionId) => void;
+  readonly onPick: (id: TAction) => void;
 }
 
 /**
- * Menu chuột phải, dựng qua portal vào `document.body` và kẹp vào khung nhìn.
+ * Menu chuột phải, dựng qua portal vào `document.body` và kẹp vào khung nhìn. Generic theo mã hành động
+ * (`TAction`) để module khác (vd. Tài chính) dựng tập hành động riêng và tái dùng nguyên component này.
  *
  * Bàn phím: ↑ ↓ Home End chọn mục, Enter hoặc Space chạy, Esc đóng và trả
  * focus về chỗ đã mở, Tab đóng. Bấm ra ngoài, cuộn, đổi cỡ cửa sổ cũng đóng.
  * Mục có `disabledReason` vẫn chọn được bằng phím để đọc lý do nhưng không chạy.
  */
-export function ContextMenu({ anchor, entries, label, onClose, onPick }: ContextMenuProps) {
+export function ContextMenu<TAction extends string = MenuActionId>({ anchor, entries, label, onClose, onPick }: ContextMenuProps<TAction>) {
   const ref = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const opener = useRef<Element | null>(null);
   const [position, setPosition] = useState<{ left: number; top: number }>();
   const [active, setActive] = useState(0);
 
-  const items = useMemo(() => entries.filter(isItem), [entries]);
+  const items = useMemo(() => entries.filter(isItem<TAction>), [entries]);
 
   // Chỉ đo được khi đã dựng; kẹp vào khung nhìn để mở sát mép dưới không bị cắt.
   useLayoutEffect(() => {
@@ -141,7 +142,7 @@ export function ContextMenu({ anchor, entries, label, onClose, onPick }: Context
     }
   };
 
-  const pick = (entry: MenuItem) => {
+  const pick = (entry: MenuItem<TAction>) => {
     if (entry.disabledReason) return;
     if (opener.current instanceof HTMLElement && opener.current.isConnected) opener.current.focus();
     onPick(entry.id);

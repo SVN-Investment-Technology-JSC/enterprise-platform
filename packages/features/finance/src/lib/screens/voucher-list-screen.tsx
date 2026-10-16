@@ -5,24 +5,28 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { ChevronLeft, ChevronRight, Download, Plus, RefreshCw, Search } from 'lucide-react';
 import { Table } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { SearchableSelect } from '@enterprise-platform/shared-ui';
+import { Popconfirm, SearchableSelect, toast } from '@enterprise-platform/shared-ui';
 import { DatePickerInput, MonthPickerInput } from '@enterprise-platform/shared-ui/date-picker';
+import { ContextMenu, anchorFromElement, anchorFromMouse, isMenuKey, type MenuAnchor, type MenuEntry } from '@enterprise-platform/feature-shared';
 import {
   FINANCE_VOUCHER_STATUSES,
   FINANCE_VOUCHER_STATUS_LABELS,
   financeAllocationLabel,
   type FinanceAccount,
+  type FinanceApprovalMode,
   type FinanceCatalogs,
+  type FinanceVoucher,
   type FinanceVoucherKind,
   type FinanceVoucherList,
   type FinanceVoucherStatus,
   type FinanceVoucherSummary,
 } from '@enterprise-platform/contracts-finance';
-import { financeErrorMessage, financeFetch, toQuery } from '../finance-api';
+import { financeDelete, financeErrorMessage, financeFetch, financePost, toQuery } from '../finance-api';
 import { buildCsv, downloadCsv } from '../finance-csv';
-import { dateVn, isMonth, money, monthLabel, monthRange, shiftMonth, todayVn, voucherCsvRows } from '../finance-format';
+import { dateVn, isMonth, money, monthLabel, monthRange, newFinanceIdempotencyKey, shiftMonth, todayVn, voucherCsvRows } from '../finance-format';
 import { FINANCE_KIND_CONFIG } from '../finance-kinds';
 import { useFinancePermissions } from '../finance-permissions';
+import { buildVoucherMenu, type FinanceMenuActionId } from '../voucher-context-menu';
 import { loadWorkspaceProjects, projectLabel, type WorkspaceProjectOption } from '../workspace-links';
 import { Button } from '../ui/button';
 import { Avatar, ErrorBanner, StatusBadge } from '../ui/form-parts';
@@ -70,6 +74,38 @@ export default function VoucherListScreen({ kind }: { kind: FinanceVoucherKind }
   const [error, setError] = useState<string | null>(null);
   const sequence = useRef(0);
 
+  // Menu chuột phải: Sửa, Duyệt, Huỷ, Xoá, Nhân bản — thao tác nhanh không cần mở từng phiếu.
+  const [menu, setMenu] = useState<{ anchor: MenuAnchor; voucherId: string; entries: MenuEntry<FinanceMenuActionId>[]; approvalMode?: FinanceApprovalMode } | null>(null);
+  const [pendingAction, setPendingAction] = useState<{ action: 'approve' | 'cancel' | 'delete'; voucherId: string; anchor: MenuAnchor; approvalMode?: FinanceApprovalMode } | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const pendingTriggerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (pendingAction) pendingTriggerRef.current?.click();
+  }, [pendingAction]);
+
+  const LOADING_MENU: MenuEntry<FinanceMenuActionId>[] = [{ kind: 'item', id: 'edit', label: 'Đang tải…', disabledReason: 'Đang tải…' }];
+
+  async function openRowMenu(row: FinanceVoucherSummary, anchor: MenuAnchor) {
+    setMenu({ anchor, voucherId: row.id, entries: LOADING_MENU });
+    try {
+      const voucher = await financeFetch<FinanceVoucher>(`/vouchers/${row.id}`);
+      setMenu((current) => (current?.voucherId === row.id ? { anchor, voucherId: row.id, entries: buildVoucherMenu(voucher, Boolean(kindCaps?.create)), approvalMode: voucher.approvalMode } : current));
+    } catch (e) {
+      setMenu(null);
+      setActionError(financeErrorMessage(e, 'Không mở được menu thao tác.'));
+    }
+  }
+
+  function pickMenuAction(action: FinanceMenuActionId) {
+    if (!menu) return;
+    const { voucherId, anchor, approvalMode } = menu;
+    setMenu(null);
+    if (action === 'edit') router.push(`${config.path}/${voucherId}/edit`);
+    else if (action === 'duplicate') router.push(`${config.path}/new?from=${voucherId}`);
+    else setPendingAction({ action, voucherId, anchor, approvalMode });
+  }
+
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(search.trim()), 300);
     return () => clearTimeout(timer);
@@ -110,6 +146,25 @@ export default function VoucherListScreen({ kind }: { kind: FinanceVoucherKind }
   useEffect(() => {
     void load();
   }, [load]);
+
+  async function runPendingAction(reason?: string) {
+    if (!pendingAction) return;
+    const { action, voucherId, approvalMode } = pendingAction;
+    try {
+      if (action === 'delete') await financeDelete(`/vouchers/${voucherId}`);
+      else if (action === 'approve')
+        await (approvalMode === 'PROCEDURE'
+          ? financePost(`/vouchers/${voucherId}/procedure-action`, { action: 'approve', idempotencyKey: newFinanceIdempotencyKey() })
+          : financePost(`/vouchers/${voucherId}/approve`, { note: undefined }));
+      else await financePost(`/vouchers/${voucherId}/cancel`, { note: reason });
+      toast.success(action === 'delete' ? 'Đã xoá phiếu' : action === 'approve' ? 'Đã duyệt và ghi sổ' : 'Đã huỷ phiếu');
+      void load();
+    } catch (e) {
+      setActionError(financeErrorMessage(e));
+    } finally {
+      setPendingAction(null);
+    }
+  }
 
   // Đổi bộ lọc thì về trang 1.
   const filter = <T,>(setter: (value: T) => void) => (value: T) => {
@@ -367,7 +422,7 @@ export default function VoucherListScreen({ kind }: { kind: FinanceVoucherKind }
           </div>
 
           <div className="p-3">
-            <ErrorBanner message={error} />
+            <ErrorBanner message={error ?? actionError} />
             <Table<FinanceVoucherSummary>
               size="small"
               rowKey="id"
@@ -388,7 +443,21 @@ export default function VoucherListScreen({ kind }: { kind: FinanceVoucherKind }
                   setPageSize(nextSize);
                 },
               }}
-              onRow={(row) => ({ onDoubleClick: () => router.push(`${config.path}/${row.id}`) })}
+              onRow={(row) => ({
+                onDoubleClick: () => router.push(`${config.path}/${row.id}`),
+                onContextMenu: (event) => {
+                  event.preventDefault();
+                  setActionError(null);
+                  void openRowMenu(row, anchorFromMouse(event));
+                },
+                tabIndex: 0,
+                onKeyDown: (event) => {
+                  if (!isMenuKey(event)) return;
+                  event.preventDefault();
+                  setActionError(null);
+                  void openRowMenu(row, anchorFromElement(event.currentTarget));
+                },
+              })}
             />
             {data ? (
               <p className="mt-1 text-right text-xs text-slate-500">
@@ -398,6 +467,42 @@ export default function VoucherListScreen({ kind }: { kind: FinanceVoucherKind }
           </div>
         </div>
       </div>
+
+      {menu ? (
+        <ContextMenu<FinanceMenuActionId>
+          anchor={menu.anchor}
+          entries={menu.entries}
+          label="Thao tác trên phiếu"
+          onClose={() => setMenu(null)}
+          onPick={pickMenuAction}
+        />
+      ) : null}
+      {pendingAction ? (
+        <Popconfirm
+          title={pendingAction.action === 'delete' ? 'Xoá phiếu?' : pendingAction.action === 'approve' ? 'Duyệt và ghi sổ phiếu này?' : 'Huỷ phiếu'}
+          description={
+            pendingAction.action === 'delete'
+              ? 'Phiếu chưa ghi sổ nên xoá được; bị xoá hẳn và không khôi phục được.'
+              : pendingAction.action === 'approve'
+                ? pendingAction.approvalMode === 'PROCEDURE'
+                  ? 'Phiếu qua quy trình: tiền được ghi sổ khi bước duyệt cuối hoàn tất.'
+                  : 'Tiền sẽ được ghi vào sổ tài khoản ngay khi duyệt.'
+                : undefined
+          }
+          reasonRequired={pendingAction.action === 'cancel' || undefined}
+          reasonLabel={pendingAction.action === 'cancel' ? 'Lý do huỷ' : undefined}
+          reasonPlaceholder={pendingAction.action === 'cancel' ? 'Nhập lý do huỷ phiếu' : undefined}
+          okText={pendingAction.action === 'delete' ? 'Xoá' : pendingAction.action === 'approve' ? 'Duyệt' : 'Huỷ phiếu'}
+          okType={pendingAction.action === 'approve' ? 'primary' : undefined}
+          onConfirm={(reason) => void runPendingAction(reason)}
+          onCancel={() => setPendingAction(null)}
+        >
+          <div
+            ref={pendingTriggerRef}
+            style={{ position: 'fixed', left: pendingAction.anchor.x, top: pendingAction.anchor.y, width: 1, height: 1, pointerEvents: 'none' }}
+          />
+        </Popconfirm>
+      ) : null}
     </div>
   );
 }

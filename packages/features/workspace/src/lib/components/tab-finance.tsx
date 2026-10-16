@@ -16,7 +16,6 @@ import {
   filterProjectVouchers,
   projectLevelMoneyRow,
   projectVoucherHref,
-  projectVoucherNet,
   actualProfit,
   type ProjectVoucherFilter,
   type ProjectVoucherList,
@@ -162,7 +161,6 @@ export function TabFinance({ projectId, initial, onChanged }: TabFinanceProps) {
                   <th>Trạng thái</th>
                   <th className={styles.numeric}>Đã thu</th>
                   <th className={styles.numeric}>Đã chi (thực tế)</th>
-                  <th className={styles.numeric}>Còn lại (thu - chi)</th>
                   <th className={styles.numeric}>Chờ duyệt (thu / chi)</th>
                 </tr>
               </thead>
@@ -174,7 +172,6 @@ export function TabFinance({ projectId, initial, onChanged }: TabFinanceProps) {
                     <td>{row.status ? WORK_ITEM_STATUS_LABELS[row.status] : ''}</td>
                     <td className={styles.numeric}>{formatVnd(row.received)}</td>
                     <td className={styles.numeric}>{formatVnd(row.paid)}</td>
-                    <td className={row.balance < 0 ? `${styles.numeric} ${styles.cellDanger}` : styles.numeric}>{formatVnd(row.balance)}</td>
                     <td className={styles.numeric}>
                       {row.pendingReceived || row.pendingPaid ? `${formatVnd(row.pendingReceived)} / ${formatVnd(row.pendingPaid)}` : '—'}
                     </td>
@@ -191,9 +188,6 @@ export function TabFinance({ projectId, initial, onChanged }: TabFinanceProps) {
                   </td>
                   <td className={styles.numeric}>
                     <strong>{formatVnd(data.totals.paid)}</strong>
-                  </td>
-                  <td className={styles.numeric}>
-                    <strong>{formatVnd(projectVoucherNet(data.totals))}</strong>
                   </td>
                   <td className={styles.numeric}>
                     {data.totals.pendingReceived || data.totals.pendingPaid
@@ -264,10 +258,12 @@ export function TabFinance({ projectId, initial, onChanged }: TabFinanceProps) {
               <thead>
                 <tr>
                   <th>Phiếu</th>
+                  <th>Loại phiếu</th>
                   <th>Ngày</th>
                   <th>Nội dung</th>
                   <th>Hạch toán</th>
-                  <th style={{ textAlign: 'right' }}>Số tiền</th>
+                  <th style={{ textAlign: 'right' }}>Tiền thu</th>
+                  <th style={{ textAlign: 'right' }}>Tiền chi</th>
                   <th>Trạng thái</th>
                   <th>Người lập</th>
                 </tr>
@@ -275,20 +271,20 @@ export function TabFinance({ projectId, initial, onChanged }: TabFinanceProps) {
               <tbody>
                 {data.items.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className={styles.muted}>
+                    <td colSpan={9} className={styles.muted}>
                       Dự án chưa có phiếu thu chi nào. Phiếu hạch toán cho dự án này ở module Tài chính sẽ hiện ở đây.
                     </td>
                   </tr>
                 ) : visibleVouchers.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className={styles.muted}>
+                    <td colSpan={9} className={styles.muted}>
                       Không có phiếu nào khớp bộ lọc.
                     </td>
                   </tr>
                 ) : null}
                 {visibleVouchers.map((item) => {
                   const tone = PROJECT_VOUCHER_STATUS_TONE[item.status];
-                  const sign = item.kind === 'PAYMENT' ? '-' : '';
+                  const amount = item.link === 'RELATED' ? <span className={styles.muted}>{formatVnd(item.totalAmount)}</span> : formatVnd(item.totalAmount);
                   return (
                     <tr key={item.id}>
                       <td>
@@ -296,10 +292,8 @@ export function TabFinance({ projectId, initial, onChanged }: TabFinanceProps) {
                           <ExternalLink size={12} aria-hidden />
                           {item.code}
                         </a>
-                        <span className={styles.muted} style={{ display: 'block' }}>
-                          {PROJECT_VOUCHER_KIND_LABELS[item.kind]}
-                        </span>
                       </td>
+                      <td>{PROJECT_VOUCHER_KIND_LABELS[item.kind]}</td>
                       <td>{formatDay(item.voucherDate)}</td>
                       <td>
                         <span className={styles.treeTitle} title={item.content}>
@@ -322,16 +316,8 @@ export function TabFinance({ projectId, initial, onChanged }: TabFinanceProps) {
                           'Cả dự án'
                         )}
                       </td>
-                      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                        {item.link === 'RELATED' ? (
-                          <span className={styles.muted}>
-                            {sign}
-                            {formatVnd(item.totalAmount)}
-                          </span>
-                        ) : (
-                          `${sign}${formatVnd(item.totalAmount)}`
-                        )}
-                      </td>
+                      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{item.kind === 'RECEIPT' ? amount : '—'}</td>
+                      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{item.kind === 'PAYMENT' ? amount : '—'}</td>
                       <td>
                         <span className={styles.pill} style={{ background: tone.bg, color: tone.fg }}>
                           {PROJECT_VOUCHER_STATUS_LABELS[item.status]}

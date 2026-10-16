@@ -6,7 +6,7 @@ import {
   formatFinanceMoney,
   type FinanceVoucherKind,
 } from '@enterprise-platform/contracts-finance';
-import type { Db } from './finance.database.js';
+import { num, optStr, type Db } from './finance.database.js';
 
 /**
  * Sự kiện thông báo của Tài chính, ghi vào outbox CÙNG giao dịch với thay đổi của phiếu: phiếu và thông báo cùng có hoặc cùng không.
@@ -24,6 +24,23 @@ export interface VoucherNotificationFacts {
   readonly totalAmount: number;
   readonly requesterUserId: string;
   readonly requesterName: string | null;
+}
+
+/**
+ * Dữ kiện của phiếu cần cho nội dung thông báo, lấy từ một dòng phiếu đã đọc (cột thô, đặt ở đây — không phải
+ * `vouchers.store.ts`/`voucher-workflow.ts` — để cả hai module đó dùng lại được mà không tạo vòng import).
+ */
+export function notificationFacts(tenantId: string, row: Record<string, unknown>): VoucherNotificationFacts {
+  return {
+    tenantId,
+    voucherId: String(row.id),
+    kind: row.kind as FinanceVoucherKind,
+    code: String(row.code),
+    content: String(row.content),
+    totalAmount: num(row.total_amount),
+    requesterUserId: String(row.created_by),
+    requesterName: optStr(row.created_by_name),
+  };
 }
 
 /** Quyền duyệt đúng loại phiếu; `finance.manage` luôn được tính vì Tài chính coi nó thoả mọi quyền Tài chính. */

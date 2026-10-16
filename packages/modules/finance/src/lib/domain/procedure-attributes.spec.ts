@@ -20,7 +20,6 @@ const facts: VoucherProcedureFacts = {
   accountName: 'Vietcombank',
   destAccountName: null,
   counterpartyGroupName: 'Nhà cung cấp',
-  counterpartyName: null,
   allocationLabel: 'CV-12 - Lắp đặt tủ điện (DA001)',
   projectLabel: 'DA001 - Trạm biến áp Đà Nẵng',
 };
@@ -57,7 +56,6 @@ describe('thuộc tính quy trình lấy từ phiếu', () => {
     expect(procedureValueFor(attr('so_tien', 'text') as never, facts)).toBeNull();
     expect(procedureValueFor(attr('noi_dung', 'number') as never, facts)).toBeNull();
     expect(procedureValueFor(attr('so_hop_dong', 'text') as never, facts)).toBeNull();
-    expect(procedureValueFor(attr('nguoi_nop_nhan', 'text') as never, facts)).toBeNull(); // phiếu không có người nộp/nhận
     expect(procedureValueFor(attr('tai_khoan_dich', 'text') as never, facts)).toBeNull();
   });
 

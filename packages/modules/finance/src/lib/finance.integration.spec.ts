@@ -49,7 +49,6 @@ integration('Tài chính: phiếu thu, chi, chuyển tiền và sổ cái (Postg
     reasonId: receiptReason,
     accountId: accountA,
     counterpartyGroupId: group,
-    counterpartyName: 'Công ty ABC',
     lines: [line('Hàng A', 2, 150_000)],
     ...over,
   });
@@ -254,7 +253,7 @@ integration('Tài chính: phiếu thu, chi, chuyển tiền và sổ cái (Postg
     expect((await app.voucher(approver, tooBig.id)).status).toBe('CANCELLED');
   });
 
-  it('từ chối cần lý do; người lập sửa phiếu bị từ chối rồi gửi lại', async () => {
+  it('từ chối cần lý do; sửa phiếu bị từ chối gửi duyệt lại ngay (không còn qua nháp)', async () => {
     const created = await app.createVoucher(accountant, receipt({ content: 'Thu lần 2' }));
     await app.submit(accountant, created.id);
     await rejects(app.reject(approver, created.id, ' '), 'FINANCE_INVALID', /lý do/);
@@ -264,11 +263,44 @@ integration('Tài chính: phiếu thu, chi, chuyển tiền và sổ cái (Postg
     expect((await app.voucher(accountant, created.id)).permissions).toMatchObject({ canEdit: true, canSubmit: true });
 
     const edited = await app.updateVoucher(accountant, created.id, receipt({ content: 'Thu lần 2 (đã bổ sung chứng từ)', revision: rejected.revision }));
-    expect(edited).toMatchObject({ status: 'DRAFT', revision: rejected.revision + 1, decisionNote: null });
+    expect(edited).toMatchObject({ status: 'PENDING', revision: rejected.revision + 1, decisionNote: null });
+    expect(edited.events.map((e) => e.action)).toEqual(['CREATED', 'SUBMITTED', 'REJECTED', 'UPDATED', 'SUBMITTED']);
     // Sửa với phiên bản cũ bị chặn.
     await rejects(app.updateVoucher(accountant, created.id, receipt({ revision: rejected.revision })), 'FINANCE_REVISION_CONFLICT');
-    await app.submit(accountant, created.id);
     expect((await app.approve(approver, created.id)).status).toBe('APPROVED');
+  });
+
+  it('sửa phiếu đang chờ duyệt trực tiếp: vẫn chờ duyệt với dữ liệu mới; thiếu điều kiện gửi duyệt thì báo lỗi và giữ nguyên', async () => {
+    const pending = await app.createVoucher(accountant, payment(200_000, { content: 'Chi tạm ứng' }));
+    await app.submit(accountant, pending.id);
+    expect((await app.voucher(accountant, pending.id)).permissions).toMatchObject({ canEdit: true, canDelete: true, canSubmit: false });
+
+    const edited = await app.updateVoucher(accountant, pending.id, payment(250_000, { content: 'Chi tạm ứng (đã sửa số tiền)', revision: pending.revision }));
+    expect(edited).toMatchObject({ status: 'PENDING', totalAmount: 250_000, content: 'Chi tạm ứng (đã sửa số tiền)' });
+    expect(await app.approve(approver, edited.id)).toMatchObject({ status: 'APPROVED' });
+
+    // Thiếu điều kiện gửi duyệt (xoá hết dòng chi tiết): báo lỗi đầy đủ, phiếu vẫn PENDING với dữ liệu cũ.
+    const pending2 = await app.createVoucher(accountant, payment(300_000, { content: 'Chi khác' }));
+    await app.submit(accountant, pending2.id);
+    await rejects(
+      app.updateVoucher(accountant, pending2.id, payment(300_000, { content: 'Chi khác', lines: [], revision: pending2.revision })),
+      'FINANCE_SUBMIT_INVALID',
+    );
+    expect((await app.voucher(accountant, pending2.id)).status).toBe('PENDING');
+    await app.cancel(accountant, session, pending2.id, 'dọn');
+  });
+
+  it('xoá phiếu đang chờ duyệt trực tiếp (chưa ghi sổ); không xoá được phiếu đã duyệt hay bị từ chối', async () => {
+    const pending = await app.createVoucher(accountant, payment(100_000, { content: 'Chi để xoá' }));
+    await app.submit(accountant, pending.id);
+    await app.deleteVoucher(accountant, pending.id);
+    await rejects(app.voucher(accountant, pending.id), 'FINANCE_NOT_FOUND');
+
+    const rejected = await app.createVoucher(accountant, payment(100_000, { content: 'Chi bị từ chối' }));
+    await app.submit(accountant, rejected.id);
+    await app.reject(approver, rejected.id, 'Sai nội dung');
+    await rejects(app.deleteVoucher(accountant, rejected.id), 'FINANCE_VOUCHER_LOCKED');
+    await app.cancel(accountant, session, rejected.id, 'dọn');
   });
 
   it('quyền xem: người chỉ có quyền lập thấy phiếu của mình, không thấy phiếu người khác và không thấy số dư', async () => {
@@ -341,11 +373,32 @@ integration('Tài chính: phiếu thu, chi, chuyển tiền và sổ cái (Postg
     await app.saveSettings(admin2, { booksLockedUntil: null });
   });
 
-  it('tài khoản đã có bút toán không đổi được số dư đầu kỳ; không ngừng dùng khi còn phiếu chờ duyệt', async () => {
+  it('tài khoản đã có bút toán vẫn đổi được số dư đầu kỳ (đồng bộ tay từ MISA); không đổi được ngày bắt đầu sử dụng hay loại tài khoản; không ngừng dùng khi còn phiếu chờ duyệt', async () => {
+    const before = await app.account(admin2, accountA);
+    // Số dư đầu kỳ đổi được dù đã có bút toán: số dư hiện tại dịch chuyển đúng bằng phần chênh lệch.
+    const changed = await app.saveAccount(admin2, accountA, {
+      code: 'VCB-01',
+      name: 'Vietcombank chính',
+      accountType: 'BANK',
+      bankName: 'Vietcombank (VCB)',
+      accountNumber: '0011000123456',
+      openingBalance: before.openingBalance + 500_000,
+    });
+    expect(changed.openingBalance).toBe(before.openingBalance + 500_000);
+    expect(await balance(accountA)).toBe((before.balance as number) + 500_000);
+    // Trả lại đúng số cũ để không ảnh hưởng các kiểm tra khác dùng accountA về sau.
+    await app.saveAccount(admin2, accountA, { code: 'VCB-01', name: 'Vietcombank chính', accountType: 'BANK', bankName: 'Vietcombank (VCB)', accountNumber: '0011000123456', openingBalance: before.openingBalance });
+    expect(await balance(accountA)).toBe(before.balance);
+
     await rejects(
-      app.saveAccount(admin2, accountA, { code: 'VCB-01', name: 'Vietcombank chính', accountType: 'BANK', bankName: 'Vietcombank (VCB)', accountNumber: '0011000123456', openingBalance: 1 }),
+      app.saveAccount(admin2, accountA, { code: 'VCB-01', name: 'Vietcombank chính', accountType: 'BANK', bankName: 'Vietcombank (VCB)', accountNumber: '0011000123456', openingDate: '2026-02-01' }),
       'FINANCE_ACCOUNT_HAS_LEDGER',
     );
+    await rejects(
+      app.saveAccount(admin2, accountA, { code: 'VCB-01', name: 'Vietcombank chính', accountType: 'CASH', accountNumber: '0011000123456' }),
+      'FINANCE_ACCOUNT_HAS_LEDGER',
+    );
+
     const pending = await app.createVoucher(accountant, receipt({ accountId: accountB }));
     await app.submit(accountant, pending.id);
     await rejects(
@@ -390,8 +443,8 @@ integration('Tài chính: phiếu thu, chi, chuyển tiền và sổ cái (Postg
       }
     }
     const a = accounts.find((account) => account.id === accountA)!;
-    // 3 phiếu thu 300.000; phiếu chi 1.300.000 + 500.000 (đã đảo nên trừ khỏi Tiền chi); chuyển 1.000.000 ra quỹ.
-    expect(a).toMatchObject({ receiptCount: 3, paymentCount: 1, transferCount: 1, totalReceipts: 900_000, totalPayments: 2_300_000, balance: 8_600_000 });
+    // 3 phiếu thu 300.000; phiếu chi 1.300.000 + 250.000 (chi tạm ứng đã sửa) + 500.000 (đã đảo nên trừ khỏi Tiền chi); chuyển 1.000.000 ra quỹ.
+    expect(a).toMatchObject({ receiptCount: 3, paymentCount: 2, transferCount: 1, totalReceipts: 900_000, totalPayments: 2_550_000, balance: 8_350_000 });
     // Chuyển tiền đến tính vào Tiền thu của tài khoản đích.
     const c = accounts.find((account) => account.id === cash)!;
     expect(c.transferCount).toBe(1);
@@ -461,6 +514,26 @@ integration('Tài chính: phiếu thu, chi, chuyển tiền và sổ cái (Postg
     const voucher = await app.createVoucher(accountant, receipt({ content: 'Phiếu nhiều tệp' }));
     for (let i = 0; i < 20; i += 1) await app.createAttachment(accountant, voucher.id, { fileName: `f${i}.pdf`, contentType: 'application/pdf', sizeBytes: 10 });
     await rejects(app.createAttachment(accountant, voucher.id, { fileName: 'f21.pdf', contentType: 'application/pdf', sizeBytes: 10 }), 'FINANCE_INVALID');
+  });
+
+  it('ảnh dán vào ghi chú: chỉ nhận ảnh, giới hạn riêng 10 ảnh, không tính vào trần đính kèm và không hiện trong danh sách đính kèm', async () => {
+    const voucher = await app.createVoucher(accountant, receipt({ content: 'Phiếu có ảnh ghi chú' }));
+    await rejects(
+      app.createAttachment(accountant, voucher.id, { fileName: 'a.pdf', contentType: 'application/pdf', sizeBytes: 10, purpose: 'NOTE_IMAGE' }),
+      'FINANCE_INVALID',
+    );
+    const created = await app.createAttachment(accountant, voucher.id, { fileName: 'a.png', contentType: 'image/png', sizeBytes: 50, purpose: 'NOTE_IMAGE' });
+    storage.upload(created.uploadUrl, 50, 'image/png');
+    await app.completeAttachment(accountant, voucher.id, created.id);
+    expect((await app.voucher(accountant, voucher.id)).attachments).toEqual([]);
+    // Vẫn còn đủ 20 suất cho đính kèm chứng từ thật vì đếm riêng theo purpose.
+    for (let i = 0; i < 20; i += 1) await app.createAttachment(accountant, voucher.id, { fileName: `f${i}.pdf`, contentType: 'application/pdf', sizeBytes: 10 });
+    await rejects(app.createAttachment(accountant, voucher.id, { fileName: 'f21.pdf', contentType: 'application/pdf', sizeBytes: 10 }), 'FINANCE_INVALID');
+    for (let i = 0; i < 9; i += 1) await app.createAttachment(accountant, voucher.id, { fileName: `n${i}.png`, contentType: 'image/png', sizeBytes: 10, purpose: 'NOTE_IMAGE' });
+    await rejects(
+      app.createAttachment(accountant, voucher.id, { fileName: 'n-vuot.png', contentType: 'image/png', sizeBytes: 10, purpose: 'NOTE_IMAGE' }),
+      'FINANCE_INVALID',
+    );
   });
 
   it('thông báo: gửi duyệt trực tiếp báo người có quyền duyệt; kết quả báo người lập; huỷ phiếu của chính mình không tự báo mình', async () => {

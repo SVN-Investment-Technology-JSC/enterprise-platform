@@ -31,9 +31,10 @@ export type MenuActionId =
   | 'restore-to'
   | 'purge';
 
-export interface MenuItem {
+/** Generic theo mã hành động để module khác (vd. Tài chính) dựng menu chuột phải riêng, tái dùng component `ContextMenu`. */
+export interface MenuItem<TAction extends string = MenuActionId> {
   readonly kind: 'item';
-  readonly id: MenuActionId;
+  readonly id: TAction;
   readonly label: string;
   readonly danger?: boolean;
   /** Có giá trị thì mục hiện mờ và không chạy; lý do hiện ở tooltip. */
@@ -44,7 +45,7 @@ export interface MenuSeparator {
   readonly kind: 'separator';
 }
 
-export type MenuEntry = MenuItem | MenuSeparator;
+export type MenuEntry<TAction extends string = MenuActionId> = MenuItem<TAction> | MenuSeparator;
 
 /** Đối tượng bị bấm chuột phải. */
 export type MenuTarget =
