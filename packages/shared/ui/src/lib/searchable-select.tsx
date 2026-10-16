@@ -405,12 +405,16 @@ export function SearchableSelect({
 
       {/* Ô Input Combobox tương tác trực tiếp (kiểu chọn thuần tuý: chỉ hiện giá trị, tìm trong danh sách) */}
       <div className={styles.inputWrapper}>
-        <span className={styles.searchIcon} hidden={searchInDropdown}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="11" cy="11" r="8" />
-            <line x1="21" y1="21" x2="16.65" y2="16.65" />
-          </svg>
-        </span>
+        {/* Kiểu chọn thuần tuý không có kính lúp ở ô ngoài. Không ẩn bằng `hidden`: `.searchIcon` đặt `display: flex`, nên
+            app không có preflight Tailwind (`[hidden] { display: none !important }`) vẫn vẽ nó đè lên giá trị đã chọn. */}
+        {searchInDropdown ? null : (
+          <span className={styles.searchIcon}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="11" cy="11" r="8" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
+          </span>
+        )}
         <input
           ref={inputRef}
           type="text"
