@@ -130,7 +130,6 @@ export function factsOf(row: Row): VoucherProcedureFacts {
     accountName: optStr(row.account_name),
     destAccountName: optStr(row.dest_account_name),
     counterpartyGroupName: optStr(row.group_name),
-    counterpartyName: optStr(row.counterparty_name),
     allocationLabel: row.alloc_type ? financeAllocationLabel(allocationLabelParts(row)) : null,
     projectLabel: row.alloc_project_id ? `${optStr(row.alloc_project_code) ?? ''} - ${optStr(row.alloc_project_name) ?? ''}` : null,
   };

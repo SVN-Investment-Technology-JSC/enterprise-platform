@@ -5,7 +5,11 @@ import { financeFetch, financePost } from '../finance-api';
 import VoucherFormScreen, { allocationProblem, buildRequest } from './voucher-form-screen';
 
 const mockPush = jest.fn();
-jest.mock('next/navigation', () => ({ useRouter: () => ({ push: mockPush, replace: jest.fn() }) }));
+let mockQuery = '';
+jest.mock('next/navigation', () => ({
+  useRouter: () => ({ push: mockPush, replace: jest.fn() }),
+  useSearchParams: () => new URLSearchParams(mockQuery),
+}));
 const mockUpload = jest.fn();
 jest.mock('../attachment-upload', () => {
   const actual = jest.requireActual('../attachment-upload');
@@ -35,6 +39,7 @@ const WORK_ITEMS = [
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockQuery = '';
   fetchMock.mockImplementation(async (path: string) => {
     if (path.startsWith('/catalogs')) return CATALOGS as never;
     if (path.startsWith('/accounts')) return [{ id: 'a1', code: 'VCB', name: 'Vietcombank', accountType: 'BANK', accountNumber: '001', isActive: true, balance: 5_000_000 }] as never;
@@ -43,7 +48,7 @@ beforeEach(() => {
     if (path === '/workspace/projects/p1/work-items') return { items: WORK_ITEMS } as never;
     throw new Error(`route lạ ${path}`);
   });
-  postMock.mockResolvedValue({ id: 'v1', code: 'NHAP_PT_2610_0005', revision: 1 } as FinanceVoucher as never);
+  postMock.mockResolvedValue({ id: 'v1', code: 'NHAP_PT_2610_0005', revision: 1, status: 'DRAFT' } as FinanceVoucher as never);
 });
 
 describe('Form tạo phiếu thu', () => {
@@ -51,7 +56,7 @@ describe('Form tạo phiếu thu', () => {
     const { container } = render(<VoucherFormScreen kind="RECEIPT" />);
     expect(await screen.findByDisplayValue('NHAP_PT_2610_0005')).toBeTruthy();
     expect(screen.getByRole('heading', { name: 'Tạo mới phiếu thu' })).toBeTruthy();
-    for (const label of ['Nội dung thu', 'Lý do thu', 'Tài khoản thu', 'Đối tượng thu', 'Người nộp tiền', 'Hạch toán nội bộ', 'Ngày thu', 'Ngày hạch toán']) {
+    for (const label of ['Nội dung thu', 'Lý do thu', 'Tài khoản thu', 'Đối tượng thu', 'Hạch toán nội bộ', 'Ngày thu', 'Ngày hạch toán']) {
       expect(screen.getAllByText(label, { exact: false }).length).toBeGreaterThan(0);
     }
     expect(container.querySelector('select')).toBeNull();
@@ -78,29 +83,19 @@ describe('Form tạo phiếu thu', () => {
     expect((screen.getByRole('button', { name: 'Xoá dòng 1' }) as HTMLButtonElement).disabled).toBe(true); // luôn còn ít nhất một dòng
   });
 
-  it('lưu nháp gửi đúng dữ liệu rồi chuyển tới trang chi tiết; lưu và gửi duyệt gọi thêm bước gửi duyệt', async () => {
+  it('gửi duyệt: lưu phiếu rồi gọi thêm bước gửi duyệt, chuyển tới trang chi tiết', async () => {
     render(<VoucherFormScreen kind="RECEIPT" />);
     await screen.findByDisplayValue('NHAP_PT_2610_0005');
     fireEvent.change(screen.getByPlaceholderText('Nội dung thu'), { target: { value: 'Thu tiền hàng đợt 1' } });
     fireEvent.change(screen.getByLabelText('Diễn giải dòng 1'), { target: { value: 'Hàng A' } });
     fireEvent.change(screen.getByLabelText('Số tiền dòng 1'), { target: { value: '120000' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Lưu nháp' }));
-    await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/receipts/v1'));
+    fireEvent.click(screen.getByRole('button', { name: 'Gửi duyệt' }));
+    await waitFor(() => expect(postMock).toHaveBeenCalledTimes(2));
     const [path, body] = postMock.mock.calls[0] as [string, Record<string, unknown>];
     expect(path).toBe('/vouchers');
     expect(body).toMatchObject({ kind: 'RECEIPT', content: 'Thu tiền hàng đợt 1', lines: [{ description: 'Hàng A', quantity: 1, unitAmount: 120000, total: 120000 }] });
-    expect(postMock).toHaveBeenCalledTimes(1);
-  });
-
-  it('lưu và gửi duyệt: lưu phiếu rồi gọi thêm bước gửi duyệt', async () => {
-    render(<VoucherFormScreen kind="RECEIPT" />);
-    await screen.findByDisplayValue('NHAP_PT_2610_0005');
-    fireEvent.change(screen.getByPlaceholderText('Nội dung thu'), { target: { value: 'Thu tiền hàng' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Lưu và gửi duyệt' }));
-    await waitFor(() => expect(postMock).toHaveBeenCalledTimes(2));
-    expect(postMock.mock.calls[0][0]).toBe('/vouchers');
     expect(postMock.mock.calls[1][0]).toBe('/vouchers/v1/submit');
-    expect(mockPush).toHaveBeenCalledWith('/receipts/v1');
+    await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/receipts/v1'));
   });
 
   it('lỗi từ máy chủ hiện trên form (kèm từng điều kiện gửi duyệt chưa đạt) và không chuyển trang', async () => {
@@ -109,11 +104,54 @@ describe('Form tạo phiếu thu', () => {
     render(<VoucherFormScreen kind="RECEIPT" />);
     await screen.findByDisplayValue('NHAP_PT_2610_0005');
     fireEvent.change(screen.getByPlaceholderText('Nội dung thu'), { target: { value: 'x' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Lưu và gửi duyệt' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Gửi duyệt' }));
     const alert = await screen.findByRole('alert');
     expect(alert.textContent).toContain('Chọn lý do thu.');
     expect(alert.textContent).toContain('Chọn tài khoản thu.');
     expect(mockPush).not.toHaveBeenCalled();
+  });
+
+  it('nhân bản (?from=id): điền sẵn dữ liệu phiếu nguồn, lấy mã mới và đặt lại ngày hôm nay, không copy tệp đính kèm', async () => {
+    mockQuery = 'from=src1';
+    fetchMock.mockImplementation(async (path: string) => {
+      if (path === '/vouchers/src1')
+        return {
+          id: 'src1',
+          kind: 'RECEIPT',
+          voucherDate: '2026-09-01',
+          postingDate: '2026-09-01',
+          content: 'Thu tiền hàng gốc',
+          reasonId: 'r1',
+          accountId: 'a1',
+          destAccountId: null,
+          counterpartyGroupId: 'g1',
+          allocation: null,
+          taxIncluded: false,
+          taxRate: 0,
+          note: '',
+          totalAmount: 500_000,
+          lines: [{ id: 'l1', lineNo: 1, description: 'Hàng gốc', quantity: 1, unitAmount: 500_000, total: 500_000 }],
+          invoices: [],
+          relatedProjects: [],
+          attachments: [{ id: 'att1', fileName: 'cu.pdf', contentType: 'application/pdf', sizeBytes: 10, uploadedBy: null, uploadedByName: null, uploadedAt: '2026-09-01T00:00:00.000Z', purpose: 'ATTACHMENT' }],
+        } as never;
+      if (path.startsWith('/catalogs')) return CATALOGS as never;
+      if (path.startsWith('/accounts')) return [{ id: 'a1', code: 'VCB', name: 'Vietcombank', accountType: 'BANK', accountNumber: '001', isActive: true, balance: 5_000_000 }] as never;
+      if (path.startsWith('/vouchers/next-code')) return { code: 'PT_9_10_2026' } as never;
+      if (path === '/workspace/projects') return { items: PROJECTS, truncated: false } as never;
+      throw new Error(`route lạ ${path}`);
+    });
+    render(<VoucherFormScreen kind="RECEIPT" />);
+    // Mã phiếu lấy mới, không phải mã (hay nội dung) hiển thị như đang sửa phiếu nguồn.
+    expect(await screen.findByDisplayValue('PT_9_10_2026')).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Tạo mới phiếu thu' })).toBeTruthy();
+    expect((screen.getByPlaceholderText('Nội dung thu') as HTMLInputElement).value).toBe('Thu tiền hàng gốc');
+    expect((screen.getByLabelText('Diễn giải dòng 1') as HTMLInputElement).value).toBe('Hàng gốc');
+    expect(screen.getByTestId('voucher-total').textContent).toBe('500.000');
+    // Ngày đặt lại hôm nay (giả lập hiện tại là 2026-10-14 ở các test khác), không giữ ngày của phiếu nguồn.
+    expect(screen.queryByDisplayValue('01/09/2026')).toBeNull();
+    // Không copy tệp đính kèm của phiếu nguồn.
+    expect(screen.queryByText('cu.pdf')).toBeNull();
   });
 });
 
@@ -134,8 +172,8 @@ describe('Hạch toán nội bộ và dự án liên quan', () => {
     await open();
     expect(screen.queryByPlaceholderText('Chọn dự án')).toBeNull();
     expect(screen.queryByPlaceholderText('Chọn công việc')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Lưu nháp' }));
-    await waitFor(() => expect(postMock).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole('button', { name: 'Gửi duyệt' }));
+    await waitFor(() => expect(postMock).toHaveBeenCalledTimes(2));
     expect((postMock.mock.calls[0][1] as Record<string, unknown>).allocation).toBeNull();
   });
 
@@ -144,8 +182,8 @@ describe('Hạch toán nội bộ và dự án liên quan', () => {
     await pick(screen.getByPlaceholderText('Không hạch toán'), /Hạch toán cho dự án/);
     expect(screen.queryByPlaceholderText('Chọn công việc')).toBeNull();
     await pick(screen.getByPlaceholderText('Chọn dự án'), /DA001/);
-    fireEvent.click(screen.getByRole('button', { name: 'Lưu nháp' }));
-    await waitFor(() => expect(postMock).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole('button', { name: 'Gửi duyệt' }));
+    await waitFor(() => expect(postMock).toHaveBeenCalledTimes(2));
     expect((postMock.mock.calls[0][1] as Record<string, unknown>).allocation).toEqual({ type: 'PROJECT', projectId: 'p1', workItemId: null });
   });
 
@@ -156,21 +194,21 @@ describe('Hạch toán nội bộ và dự án liên quan', () => {
     await pick(screen.getByPlaceholderText('Chọn dự án'), /DA001/);
     await pick(await screen.findByPlaceholderText('Chọn công việc'), /CV-2/);
     expect((screen.getByDisplayValue(/CV-2 - Đấu nối/) as HTMLInputElement).value).toContain('CV-2');
-    fireEvent.click(screen.getByRole('button', { name: 'Lưu nháp' }));
-    await waitFor(() => expect(postMock).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole('button', { name: 'Gửi duyệt' }));
+    await waitFor(() => expect(postMock).toHaveBeenCalledTimes(2));
     expect((postMock.mock.calls[0][1] as Record<string, unknown>).allocation).toEqual({ type: 'WORK_ITEM', projectId: 'p1', workItemId: 'w2' });
   });
 
   it('chọn hình thức mà thiếu dự án hoặc công việc thì chặn lưu và báo rõ, không gọi máy chủ', async () => {
     await open();
     await pick(screen.getByPlaceholderText('Không hạch toán'), /Hạch toán cho dự án/);
-    fireEvent.click(screen.getByRole('button', { name: 'Lưu nháp' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Gửi duyệt' }));
     expect((await screen.findByRole('alert')).textContent).toContain('Chọn dự án để hạch toán.');
     expect(postMock).not.toHaveBeenCalled();
 
     await pick(screen.getByPlaceholderText('Chọn dự án'), /DA001/);
     await pick(screen.getByPlaceholderText('Không hạch toán'), /Hạch toán cho công việc/);
-    fireEvent.click(screen.getByRole('button', { name: 'Lưu nháp' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Gửi duyệt' }));
     await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('Chọn công việc để hạch toán.'));
     expect(postMock).not.toHaveBeenCalled();
   });
@@ -182,8 +220,8 @@ describe('Hạch toán nội bộ và dự án liên quan', () => {
     const typeInput = screen.getByPlaceholderText('Không hạch toán');
     fireEvent.click(within(typeInput.parentElement as HTMLElement).getByRole('button', { name: 'Xoá tìm kiếm' }));
     expect(screen.queryByPlaceholderText('Chọn dự án')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Lưu nháp' }));
-    await waitFor(() => expect(postMock).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole('button', { name: 'Gửi duyệt' }));
+    await waitFor(() => expect(postMock).toHaveBeenCalledTimes(2));
     expect((postMock.mock.calls[0][1] as Record<string, unknown>).allocation).toBeNull();
   });
 
@@ -199,8 +237,8 @@ describe('Hạch toán nội bộ và dự án liên quan', () => {
     fireEvent.click(screen.getByPlaceholderText('Chọn dự án liên quan'));
     expect(screen.queryByRole('option', { name: /DA001/ })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: /Bỏ dự án liên quan DA001/ }));
-    fireEvent.click(screen.getByRole('button', { name: 'Lưu nháp' }));
-    await waitFor(() => expect(postMock).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole('button', { name: 'Gửi duyệt' }));
+    await waitFor(() => expect(postMock).toHaveBeenCalledTimes(2));
     expect((postMock.mock.calls[0][1] as Record<string, unknown>).relatedProjectIds).toEqual(['p2']);
   });
 
@@ -226,13 +264,13 @@ describe('Hạch toán nội bộ và dự án liên quan', () => {
     await pick(typeInput, /Hạch toán cho dự án/);
     // Cùng một gợi ý ở ô Dự án và ở mục Đối tượng liên quan (mục này đang thu gọn).
     expect((await screen.findAllByText(/Workspace đang không khả dụng\. Phiếu vẫn lưu được/)).length).toBeGreaterThan(0);
-    fireEvent.click(screen.getByRole('button', { name: 'Lưu nháp' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Gửi duyệt' }));
     expect((await screen.findByRole('alert')).textContent).toContain('Chọn dự án để hạch toán.');
     expect(postMock).not.toHaveBeenCalled();
 
     fireEvent.click(within(typeInput.parentElement as HTMLElement).getByRole('button', { name: 'Xoá tìm kiếm' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Lưu nháp' }));
-    await waitFor(() => expect(postMock).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole('button', { name: 'Gửi duyệt' }));
+    await waitFor(() => expect(postMock).toHaveBeenCalledTimes(2));
   });
 
   it('kiểm tra hạch toán chưa đủ thông tin', () => {
@@ -259,14 +297,14 @@ describe('Đính kèm trong form', () => {
     });
     mockUpload.mockImplementation(async (_id: string, f: File) => {
       order.push(`upload:${f.name}`);
-      return { id: `id-${f.name}`, fileName: f.name, contentType: 'application/pdf', sizeBytes: f.size, uploadedBy: 'u', uploadedByName: 'An', uploadedAt: '2026-10-14T00:00:00.000Z' };
+      return { id: `id-${f.name}`, fileName: f.name, contentType: 'application/pdf', sizeBytes: f.size, uploadedBy: 'u', uploadedByName: 'An', uploadedAt: '2026-10-14T00:00:00.000Z', purpose: 'ATTACHMENT' as const };
     });
     render(<VoucherFormScreen kind="RECEIPT" />);
     await screen.findByDisplayValue('NHAP_PT_2610_0005');
     fireEvent.change(screen.getByPlaceholderText('Nội dung thu'), { target: { value: 'Thu có chứng từ' } });
     await choose([file('hoa-don.pdf'), file('bien-ban.pdf')]);
     expect(screen.getAllByText('Sẽ tải lên khi lưu')).toHaveLength(2);
-    fireEvent.click(screen.getByRole('button', { name: 'Lưu và gửi duyệt' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Gửi duyệt' }));
     await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/receipts/v1'));
     expect(order).toEqual(['/vouchers', 'upload:hoa-don.pdf', 'upload:bien-ban.pdf', '/vouchers/v1/submit']);
   });
@@ -275,13 +313,13 @@ describe('Đính kèm trong form', () => {
     postMock.mockResolvedValue({ id: 'v1', code: 'NHAP_PT_2610_0005', revision: 1 } as never);
     mockUpload.mockImplementation(async (_id: string, f: File) => {
       if (f.name === 'loi.pdf') throw new Error('loi.pdf: không tải được tệp lên kho lưu trữ.');
-      return { id: `id-${f.name}`, fileName: f.name, contentType: 'application/pdf', sizeBytes: f.size, uploadedBy: 'u', uploadedByName: 'An', uploadedAt: '2026-10-14T00:00:00.000Z' };
+      return { id: `id-${f.name}`, fileName: f.name, contentType: 'application/pdf', sizeBytes: f.size, uploadedBy: 'u', uploadedByName: 'An', uploadedAt: '2026-10-14T00:00:00.000Z', purpose: 'ATTACHMENT' as const };
     });
     render(<VoucherFormScreen kind="RECEIPT" />);
     await screen.findByDisplayValue('NHAP_PT_2610_0005');
     fireEvent.change(screen.getByPlaceholderText('Nội dung thu'), { target: { value: 'x' } });
     await choose([file('tot.pdf'), file('loi.pdf')]);
-    fireEvent.click(screen.getByRole('button', { name: 'Lưu và gửi duyệt' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Gửi duyệt' }));
     const alert = await screen.findByRole('alert');
     expect(alert.textContent).toContain('đã được lưu nhưng 1 tệp chưa tải lên được');
     expect(alert.textContent).toContain('loi.pdf');
@@ -315,9 +353,6 @@ describe('Form phiếu tạo từ hồ sơ quy trình', () => {
     reasonId: null,
     accountId: null,
     counterpartyGroupId: null,
-    counterpartyName: 'Công ty ABC',
-    counterpartyAccountNo: null,
-    counterpartyBank: null,
     allocation: null,
     taxIncluded: false,
     taxRate: 0,
@@ -328,7 +363,7 @@ describe('Form phiếu tạo từ hồ sơ quy trình', () => {
     invoices: [],
     relatedProjects: [],
     attachments: [],
-    source: { instanceId: 'i9', instanceCode: 'PR-0009', definitionName: 'Thu tiền hợp đồng', lockedFields: ['amount', 'content', 'counterpartyName'] },
+    source: { instanceId: 'i9', instanceCode: 'PR-0009', definitionName: 'Thu tiền hợp đồng', lockedFields: ['amount', 'content'] },
     permissions: { canEdit: false, sourced: { canEditSourced: true, canPost: true, canReturnSource: true, canTakeOver: false, canRetryReversal: false } },
   } as unknown as FinanceVoucher;
 
@@ -343,13 +378,12 @@ describe('Form phiếu tạo từ hồ sơ quy trình', () => {
     render(<VoucherFormScreen kind="RECEIPT" id="v9" />);
     expect((await screen.findByRole('note')).textContent).toContain('PR-0009');
     for (const input of screen.getAllByDisplayValue('Thu tiền hợp đồng')) expect((input as HTMLInputElement).disabled).toBe(true); // nội dung và diễn giải dòng
-    expect((screen.getByDisplayValue('Công ty ABC') as HTMLInputElement).disabled).toBe(true);
     expect((screen.getByLabelText('Số tiền dòng 1') as HTMLInputElement).disabled).toBe(true);
     expect(screen.queryByRole('button', { name: /Thêm dòng/ })).toBeNull();
     expect(screen.getByText('Dòng chi tiết và số tiền lấy từ hồ sơ')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Lưu và gửi duyệt' })).toBeNull();
     expect(screen.getByRole('button', { name: 'Lưu' })).toBeTruthy();
-    expect((screen.getByLabelText('Ghi chú') as HTMLTextAreaElement).disabled).toBe(false);
+    expect(document.querySelector('.finance-note-prose')?.getAttribute('contenteditable')).toBe('true');
   });
 
   it('không được nhập (không được giao bước): báo chỉ kế toán đang được giao mới nhập được', async () => {
@@ -385,9 +419,6 @@ describe('buildRequest', () => {
     accountId: 'a1',
     destAccountId: 'a2',
     counterpartyGroupId: 'g1',
-    counterpartyName: 'ABC',
-    counterpartyAccountNo: '',
-    counterpartyBank: '',
     allocType: '' as '' | 'PROJECT' | 'WORK_ITEM',
     allocProjectId: '',
     allocWorkItemId: '',
@@ -412,7 +443,6 @@ describe('buildRequest', () => {
       taxIncluded: true,
       taxRate: 8,
       allocation: null,
-      counterpartyAccountNo: null,
       lines: [{ description: 'A', quantity: 2, unitAmount: 100, total: 200 }],
       invoices: [{ invoiceNo: 'HD1', invoiceDate: null, taxCode: null, amount: 5 }],
       relatedProjectIds: ['p2', 'p3'],

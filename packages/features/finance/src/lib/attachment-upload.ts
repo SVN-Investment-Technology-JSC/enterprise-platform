@@ -65,3 +65,38 @@ export async function openFinanceAttachment(voucherId: string, attachmentId: str
   const { url } = await financeFetch<{ fileName: string; url: string }>(`/vouchers/${voucherId}/attachments/${attachmentId}/download`);
   window.open(url, '_blank', 'noopener,noreferrer');
 }
+
+/* -------------------------- Ảnh dán vào ô Ghi chú (rich text) -------------------------- */
+
+export const MAX_NOTE_IMAGE_BYTES = 5 * 1024 * 1024;
+/** Đuôi theo loại nội dung thực của tệp dán/thả — tệp dán từ clipboard thường không có tên thật. */
+const NOTE_IMAGE_EXTENSION_BY_TYPE: Readonly<Record<string, string>> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' };
+
+export function noteImageProblem(file: Pick<File, 'type' | 'size'>): string | null {
+  if (!NOTE_IMAGE_EXTENSION_BY_TYPE[file.type]) return 'Ảnh ghi chú chỉ nhận PNG, JPEG hoặc WEBP.';
+  if (file.size <= 0) return 'Ảnh rỗng.';
+  if (file.size > MAX_NOTE_IMAGE_BYTES) return 'Ảnh vượt quá 5 MB.';
+  return null;
+}
+
+/** Tải một ảnh dán vào ô Ghi chú lên phiếu ĐÃ CÓ id; cùng luồng ký URL hai bước với tệp đính kèm nhưng đếm giới hạn riêng. */
+export async function uploadFinanceNoteImage(voucherId: string, file: File): Promise<FinanceVoucherAttachment> {
+  const problem = noteImageProblem(file);
+  if (problem) throw new Error(problem);
+  const extension = NOTE_IMAGE_EXTENSION_BY_TYPE[file.type];
+  const created = await financePost<{ id: string; uploadUrl: string; contentType: string }>(`/vouchers/${voucherId}/attachments`, {
+    fileName: file.name || `paste.${extension}`,
+    contentType: file.type,
+    sizeBytes: file.size,
+    purpose: 'NOTE_IMAGE',
+  });
+  const put = await fetch(created.uploadUrl, { method: 'PUT', headers: { 'content-type': created.contentType }, body: file });
+  if (!put.ok) throw new Error('Không tải được ảnh lên kho lưu trữ.');
+  return financePost<FinanceVoucherAttachment>(`/vouchers/${voucherId}/attachments/${created.id}/complete`);
+}
+
+/** URL tải xuống có thời hạn ngắn để hiển thị một ảnh ghi chú đã lưu (tham chiếu bằng marker, không lưu URL thật). */
+export async function financeNoteImageDownloadUrl(voucherId: string, attachmentId: string): Promise<string> {
+  const { url } = await financeFetch<{ fileName: string; url: string }>(`/vouchers/${voucherId}/attachments/${attachmentId}/download`);
+  return url;
+}

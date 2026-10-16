@@ -14,9 +14,6 @@ export interface FinanceKindConfig {
   reasonLabel: string;
   accountLabel: string;
   counterpartyLabel: string;
-  personLabel: string;
-  personAccountLabel: string;
-  personBankLabel: string;
   detailTitle: string;
   lineDescriptionPlaceholder: string;
   /** Phiếu có chi tiết dòng, lý do, đối tượng (thu/chi) hay chỉ có hai tài khoản (chuyển tiền). */
@@ -37,9 +34,6 @@ export const FINANCE_KIND_CONFIG: Readonly<Record<FinanceVoucherKind, FinanceKin
     reasonLabel: 'Lý do thu',
     accountLabel: 'Tài khoản thu',
     counterpartyLabel: 'Đối tượng thu',
-    personLabel: 'Người nộp tiền',
-    personAccountLabel: 'Số tài khoản nộp tiền',
-    personBankLabel: 'Ngân hàng nộp tiền',
     detailTitle: 'Chi tiết thu',
     lineDescriptionPlaceholder: 'Diễn giải chi tiết cho lý do thu',
     hasLines: true,
@@ -57,9 +51,6 @@ export const FINANCE_KIND_CONFIG: Readonly<Record<FinanceVoucherKind, FinanceKin
     reasonLabel: 'Lý do chi',
     accountLabel: 'Tài khoản chi',
     counterpartyLabel: 'Đối tượng chi',
-    personLabel: 'Người nhận tiền',
-    personAccountLabel: 'Số tài khoản nhận tiền',
-    personBankLabel: 'Ngân hàng nhận tiền',
     detailTitle: 'Chi tiết chi',
     lineDescriptionPlaceholder: 'Diễn giải chi tiết cho lý do chi',
     hasLines: true,
@@ -77,9 +68,6 @@ export const FINANCE_KIND_CONFIG: Readonly<Record<FinanceVoucherKind, FinanceKin
     reasonLabel: 'Lý do',
     accountLabel: 'Tài khoản nguồn',
     counterpartyLabel: '',
-    personLabel: '',
-    personAccountLabel: '',
-    personBankLabel: '',
     detailTitle: 'Thông tin chuyển tiền',
     lineDescriptionPlaceholder: '',
     hasLines: false,

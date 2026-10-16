@@ -17,13 +17,11 @@ import {
 import { formatBytes, openFinanceAttachment } from '../attachment-upload';
 import { financeDelete, financeErrorMessage, financeFetch, financePost } from '../finance-api';
 import { useFinanceCrumbs } from '../finance-crumbs';
-import { dateTimeVn, dateVn, money } from '../finance-format';
+import { dateTimeVn, dateVn, money, newFinanceIdempotencyKey } from '../finance-format';
 import { FINANCE_KIND_CONFIG } from '../finance-kinds';
 import { Button } from '../ui/button';
 import { EmptyState, ErrorBanner, StatusBadge } from '../ui/form-parts';
-
-/** Mã chống gửi trùng cho mỗi lần bấm (nếu mạng lỗi và người dùng bấm lại, Procedure chỉ nhận một lần). */
-const newKey = () => (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`);
+import { NoteView } from '../ui/note-view';
 
 const STEP_STATUS_TEXT: Record<string, string> = {
   running: 'Đang chạy',
@@ -186,14 +184,14 @@ export default function VoucherDetailScreen({ kind, id }: { kind: FinanceVoucher
   const viaProcedure = voucher?.approvalMode === 'PROCEDURE';
   const decide = (action: 'approve' | 'reject', comment: string | undefined, success: string) =>
     viaProcedure
-      ? act('procedure-action', { action, comment, idempotencyKey: newKey() }, success)
+      ? act('procedure-action', { action, comment, idempotencyKey: newFinanceIdempotencyKey() }, success)
       : act(action, { note: comment }, success);
 
   async function remove() {
     setBusy(true);
     try {
       await financeDelete(`/vouchers/${id}`);
-      toast.success('Đã xoá phiếu nháp');
+      toast.success('Đã xoá phiếu');
       router.push(config.path);
     } catch (e) {
       setError(financeErrorMessage(e));
@@ -310,7 +308,7 @@ export default function VoucherDetailScreen({ kind, id }: { kind: FinanceVoucher
             </Popconfirm>
           ) : null}
           {can.canDelete ? (
-            <Popconfirm title="Xoá phiếu nháp?" description="Phiếu nháp bị xoá hẳn và không khôi phục được." okText="Xoá" onConfirm={remove}>
+            <Popconfirm title="Xoá phiếu?" description="Phiếu chưa ghi sổ nên xoá được; bị xoá hẳn và không khôi phục được." okText="Xoá" onConfirm={remove}>
               <Button type="button" variant="ghost" disabled={busy}><Trash2 aria-hidden /> Xoá</Button>
             </Popconfirm>
           ) : null}
@@ -339,9 +337,6 @@ export default function VoucherDetailScreen({ kind, id }: { kind: FinanceVoucher
                     <Info label={config.reasonLabel}>{voucher.reasonName}</Info>
                     <Info label={config.accountLabel}>{voucher.accountName}</Info>
                     <Info label={config.counterpartyLabel}>{voucher.counterpartyGroupName}</Info>
-                    <Info label={lockedLabel(config.personLabel, source, 'counterpartyName')}>{voucher.counterpartyName}</Info>
-                    <Info label={lockedLabel(config.personAccountLabel, source, 'counterpartyAccountNo')}>{voucher.counterpartyAccountNo}</Info>
-                    <Info label={lockedLabel(config.personBankLabel, source, 'counterpartyBank')}>{voucher.counterpartyBank}</Info>
                     <Info label={lockedLabel('Hạch toán nội bộ', source, 'allocation')}>
                       {voucher.allocation ? `${FINANCE_ALLOCATION_LABELS[voucher.allocation.type]}: ${financeAllocationLabel(voucher.allocation)}` : null}
                     </Info>
@@ -447,7 +442,7 @@ export default function VoucherDetailScreen({ kind, id }: { kind: FinanceVoucher
                 {voucher.note ? (
                   <>
                     <h2 className="mb-1 text-sm font-semibold text-slate-900">Ghi chú</h2>
-                    <p className="whitespace-pre-line text-sm text-slate-700">{voucher.note}</p>
+                    <NoteView voucherId={voucher.id} html={voucher.note} />
                   </>
                 ) : null}
                 {voucher.relatedProjects.length ? (

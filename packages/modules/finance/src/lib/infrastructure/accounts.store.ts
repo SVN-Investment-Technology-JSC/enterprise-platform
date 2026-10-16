@@ -162,8 +162,8 @@ export async function saveAccount(
     if (!current) throw notFound('tài khoản');
     const hasLedger = Boolean(current.has_ledger);
     if (hasLedger) {
-      if (openingBalance !== undefined && openingBalance !== num(current.opening_balance))
-        throw conflict('FINANCE_ACCOUNT_HAS_LEDGER', 'Tài khoản đã có bút toán nên không đổi được số dư đầu kỳ.');
+      // Số dư đầu kỳ vẫn sửa được dù đã có bút toán: tài khoản do MISA quản lý song song, số đầu kỳ có thể cần nhập tay
+      // lại từ bên đó. `balanceAfter` tính động theo opening_balance hiện tại (xem accountLedger) nên không lệch lịch sử.
       if (input.openingDate !== undefined && input.openingDate !== dateOnly(current.opening_date))
         throw conflict('FINANCE_ACCOUNT_HAS_LEDGER', 'Tài khoản đã có bút toán nên không đổi được ngày bắt đầu sử dụng.');
       if (input.accountType !== current.account_type)

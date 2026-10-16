@@ -64,12 +64,11 @@ describe('normalizeVoucherInput', () => {
       destAccountId: ID(4),
       amount: 5_000_000,
       reasonId: ID(1),
-      counterpartyName: 'x',
       taxIncluded: true,
       taxRate: 10,
       lines: [{ description: 'bị bỏ', quantity: 1, unitAmount: 9, total: 9 }],
     });
-    expect(v).toMatchObject({ totalAmount: 5_000_000, reasonId: null, counterpartyName: null, taxIncluded: false, taxRate: 0 });
+    expect(v).toMatchObject({ totalAmount: 5_000_000, reasonId: null, taxIncluded: false, taxRate: 0 });
     expect(v.lines).toEqual([]);
   });
 
@@ -80,6 +79,17 @@ describe('normalizeVoucherInput', () => {
     expect(() => normalizeVoucherInput(receipt({ invoices: [{ invoiceNo: '', invoiceDate: null, taxCode: null, amount: 1 }] }))).toThrow(/số hoá đơn/);
     const ok = normalizeVoucherInput(receipt({ invoices: [{ invoiceNo: ' HD01 ', invoiceDate: '2026-10-01', taxCode: null, amount: 10 }] }));
     expect(ok.invoices[0].invoiceNo).toBe('HD01');
+  });
+
+  it('ghi chú: khử trùng HTML, chỉ giữ ảnh tham chiếu bằng marker, từ chối vượt giới hạn độ dài', () => {
+    const v = normalizeVoucherInput(
+      receipt({ note: '<p>Xin chào <strong>bạn</strong></p><script>alert(1)</script><img src="javascript:alert(1)"><img src="voucher-note-image://aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee">' }),
+    );
+    // <script> bị loại hẳn; src không hợp lệ bị tước (ảnh vỡ, không thực thi được) chứ không giữ nguyên.
+    expect(v.note).not.toContain('<script');
+    expect(v.note).not.toContain('javascript:');
+    expect(v.note).toContain('<img src="voucher-note-image://aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"');
+    expect(() => normalizeVoucherInput(receipt({ note: 'x'.repeat(20_001) }))).toThrow(/Ghi chú/);
   });
 });
 
@@ -281,6 +291,15 @@ describe('computeVoucherPermissions', () => {
 
   it('phiếu bị từ chối được chủ phiếu sửa và gửi lại', () => {
     expect(computeVoucherPermissions({ ...base, status: 'REJECTED' })).toMatchObject({ canEdit: true, canSubmit: true, canDelete: false });
+  });
+
+  it('phiếu đang chờ duyệt trực tiếp: chủ phiếu sửa và xoá được ngay (không qua nháp); qua quy trình thì không', () => {
+    const pendingDirect = { ...base, status: 'PENDING' as const };
+    expect(computeVoucherPermissions(pendingDirect)).toMatchObject({ canEdit: true, canDelete: true, canSubmit: false });
+    const pendingProcedure = { ...base, status: 'PENDING' as const, approvalMode: 'PROCEDURE' as const };
+    expect(computeVoucherPermissions(pendingProcedure)).toMatchObject({ canEdit: false, canDelete: false });
+    // Người không phải chủ phiếu thì không sửa/xoá được dù đang chờ duyệt trực tiếp.
+    expect(computeVoucherPermissions({ ...pendingDirect, actorId: 'u2', canCreate: false })).toMatchObject({ canEdit: false, canDelete: false });
   });
 });
 

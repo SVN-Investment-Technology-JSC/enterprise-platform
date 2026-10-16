@@ -47,7 +47,6 @@ const full: FinanceDashboard = {
       destAccountId: null,
       destAccountName: null,
       counterpartyGroupName: null,
-      counterpartyName: null,
       totalAmount: 250_000,
       status: 'PENDING',
       createdBy: 'u',

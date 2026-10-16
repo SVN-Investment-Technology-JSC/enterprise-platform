@@ -218,6 +218,14 @@ integration('Tài chính: duyệt phiếu qua quy trình (PostgreSQL, Procedure 
     expect(await balance()).toBe(before);
   });
 
+  it('phiếu đang chờ duyệt theo quy trình: không tự sửa hay xoá được ở đây (phải Huỷ rồi lập lại)', async () => {
+    const voucher = await submitViaProcedure(400_000);
+    expect(voucher.permissions).toMatchObject({ canEdit: false, canDelete: false });
+    await rejects(app.updateVoucher(accountant, voucher.id, payment(450_000, { revision: voucher.revision })), 'FINANCE_VOUCHER_LOCKED');
+    await rejects(app.deleteVoucher(accountant, voucher.id), 'FINANCE_VOUCHER_LOCKED');
+    await app.cancel(accountant, session, voucher.id, 'Đổi sang lập lại');
+  });
+
   it('kết quả "đã duyệt" từ sự kiện ghi sổ đúng một lần, kể cả khi sự kiện bị giao lặp', async () => {
     const before = (await balance())!;
     const voucher = await submitViaProcedure(2_000_000);
@@ -263,7 +271,7 @@ integration('Tài chính: duyệt phiếu qua quy trình (PostgreSQL, Procedure 
     expect(await balance()).toBe(before - 500_000);
   });
 
-  it('quy trình từ chối thì phiếu về "Từ chối"; người lập sửa và gửi lại tạo hồ sơ mới, sự kiện muộn của lần cũ bị bỏ qua', async () => {
+  it('quy trình từ chối thì phiếu về "Từ chối"; sửa phiếu gửi duyệt lại ngay, tạo hồ sơ mới, sự kiện muộn của lần cũ bị bỏ qua', async () => {
     const voucher = await submitViaProcedure(300_000);
     const first = await linkOf(voucher.id);
     await receiveFinanceProcedureEvent(pool, tenantId, completed(first, 'rejected'));
@@ -271,8 +279,9 @@ integration('Tài chính: duyệt phiếu qua quy trình (PostgreSQL, Procedure 
     expect(rejected).toMatchObject({ status: 'REJECTED', decisionNote: expect.stringContaining('bị từ chối') });
     expect(rejected.permissions.canEdit).toBe(true);
 
-    await app.updateVoucher(accountant, voucher.id, payment(350_000, { revision: rejected.revision }));
-    const resubmitted = await app.submit(accountant, voucher.id);
+    // Sửa xong là gửi duyệt lại ngay (không còn bước Gửi duyệt riêng): phiếu về PENDING, hồ sơ quy trình mới được tạo.
+    const resubmitted = await app.updateVoucher(accountant, voucher.id, payment(350_000, { revision: rejected.revision }));
+    expect(resubmitted).toMatchObject({ status: 'PENDING', approvalMode: 'PROCEDURE', totalAmount: 350_000 });
     const second = await linkOf(voucher.id);
     expect(second['id']).not.toBe(first['id']);
     expect(Number(second['revision'])).toBeGreaterThan(Number(first['revision']));

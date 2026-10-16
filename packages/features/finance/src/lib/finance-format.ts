@@ -3,6 +3,10 @@ import { FINANCE_VOUCHER_STATUS_LABELS, FINANCE_VOUCHER_KIND_LABELS, formatFinan
 
 export const money = (value: number | null | undefined): string => (value === null || value === undefined ? '-' : formatFinanceMoney(value));
 
+/** Mã chống gửi trùng cho một lần bấm duyệt/từ chối qua quy trình (nếu mạng lỗi và bấm lại, Procedure chỉ nhận một lần). */
+export const newFinanceIdempotencyKey = (): string =>
+  typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
+
 /** 2026-10-14 → 14/10/2026. */
 export function dateVn(value: string | null | undefined): string {
   if (!value) return '';
@@ -66,7 +70,7 @@ export function periodLabel(period: string): string {
 /** Dòng CSV của danh sách phiếu (xuất Excel đúng các dòng đang lọc). */
 export function voucherCsvRows(items: readonly FinanceVoucherSummary[]): (string | number)[][] {
   return [
-    ['Mã phiếu', 'Loại', 'Ngày', 'Ngày hạch toán', 'Nội dung', 'Lý do', 'Tài khoản', 'Tài khoản đích', 'Đối tượng', 'Người nộp/nhận', 'Số tiền', 'Trạng thái', 'Người tạo'],
+    ['Mã phiếu', 'Loại', 'Ngày', 'Ngày hạch toán', 'Nội dung', 'Lý do', 'Tài khoản', 'Tài khoản đích', 'Đối tượng', 'Số tiền', 'Trạng thái', 'Người tạo'],
     ...items.map((item) => [
       item.code,
       FINANCE_VOUCHER_KIND_LABELS[item.kind],
@@ -77,7 +81,6 @@ export function voucherCsvRows(items: readonly FinanceVoucherSummary[]): (string
       item.accountName ?? '',
       item.destAccountName ?? '',
       item.counterpartyGroupName ?? '',
-      item.counterpartyName ?? '',
       item.totalAmount,
       FINANCE_VOUCHER_STATUS_LABELS[item.status],
       item.createdByName ?? '',

@@ -1,18 +1,11 @@
 import type { FinanceVoucherKind } from '@enterprise-platform/contracts-finance';
 import { canApprove, canCreate, type FinanceActor } from '../domain/finance.access.js';
 import { conflict, forbidden, invalid, invalidMany, notFound } from '../domain/finance.error.js';
-import {
-  assertPostingDateAllowed,
-  validateForSubmit,
-  type NormalizedVoucher,
-} from '../domain/voucher.rules.js';
+import { assertPostingDateAllowed, validateForSubmit, type NormalizedVoucher } from '../domain/voucher.rules.js';
 import { loadSettings } from './catalogs.store.js';
-import {
-  notifyApprovalRequested,
-  notifyOutcome,
-  type VoucherNotificationFacts,
-} from './finance-notification-events.js';
+import { notificationFacts, notifyApprovalRequested, notifyOutcome } from './finance-notification-events.js';
 import { dateOnly, num, optStr, todayVn, type Db } from './finance.database.js';
+import { buildSubmitReferences } from './voucher-submit-check.js';
 import {
   addEvent,
   assignOfficialCode,
@@ -24,23 +17,12 @@ import {
   type VoucherRecord,
 } from './vouchers.store.js';
 
+// Nơi khác (vd. procedure-links.store.ts) vẫn import `notificationFacts` từ module này; tái xuất để không phải sửa chúng.
+export { notificationFacts };
+
 function normalizedAllocationOf(row: Row): NormalizedVoucher['allocation'] {
   const allocation = mapAllocation(row);
   return allocation ? { type: allocation.type, projectId: allocation.projectId, workItemId: allocation.workItemId } : null;
-}
-
-/** Dữ kiện của phiếu cần cho nội dung thông báo, lấy từ một dòng phiếu đã đọc. */
-export function notificationFacts(tenantId: string, row: Row): VoucherNotificationFacts {
-  return {
-    tenantId,
-    voucherId: String(row.id),
-    kind: row.kind as FinanceVoucherKind,
-    code: String(row.code),
-    content: String(row.content),
-    totalAmount: num(row.total_amount),
-    requesterUserId: String(row.created_by),
-    requesterName: optStr(row.created_by_name),
-  };
 }
 
 /** Khoá dòng phiếu không kiểm quyền xem: dành cho tiến trình hệ thống (áp kết quả quy trình). */
@@ -69,9 +51,6 @@ function recordToNormalized(record: VoucherRecord): NormalizedVoucher {
     accountId: optStr(row.account_id),
     destAccountId: optStr(row.dest_account_id),
     counterpartyGroupId: optStr(row.counterparty_group_id),
-    counterpartyName: optStr(row.counterparty_name),
-    counterpartyAccountNo: optStr(row.counterparty_account_no),
-    counterpartyBank: optStr(row.counterparty_bank),
     allocation: normalizedAllocationOf(row),
     taxIncluded: Boolean(row.tax_included),
     taxRate: num(row.tax_rate),
@@ -89,29 +68,10 @@ function recordToNormalized(record: VoucherRecord): NormalizedVoucher {
   };
 }
 
-async function accountRef(db: Db, tenantId: string, id: string | null) {
-  if (!id) return null;
-  const row = (await db.query(`SELECT name, is_active, opening_date FROM finance_schema.accounts WHERE tenant_id=$1 AND id=$2`, [tenantId, id])).rows[0] as
-    | Row
-    | undefined;
-  return row ? { name: String(row.name), isActive: Boolean(row.is_active), openingDate: dateOnly(row.opening_date) } : null;
-}
-
 /** Lý do phiếu chưa đủ điều kiện gửi duyệt / ghi sổ (rỗng = đủ), dựng lại từ phiếu đã lưu. */
 export async function submitErrors(db: Db, tenantId: string, record: VoucherRecord): Promise<string[]> {
   const voucher = recordToNormalized(record);
-  const reason = voucher.reasonId
-    ? ((await db.query(`SELECT kind, is_active FROM finance_schema.reasons WHERE tenant_id=$1 AND id=$2`, [tenantId, voucher.reasonId])).rows[0] as Row | undefined)
-    : undefined;
-  const group = voucher.counterpartyGroupId
-    ? ((await db.query(`SELECT is_active FROM finance_schema.counterparty_groups WHERE tenant_id=$1 AND id=$2`, [tenantId, voucher.counterpartyGroupId])).rows[0] as Row | undefined)
-    : undefined;
-  return validateForSubmit(voucher, {
-    account: await accountRef(db, tenantId, voucher.accountId),
-    dest: await accountRef(db, tenantId, voucher.destAccountId),
-    reason: reason ? { kind: String(reason.kind), isActive: Boolean(reason.is_active) } : null,
-    counterpartyGroup: group ? { isActive: Boolean(group.is_active) } : null,
-  });
+  return validateForSubmit(voucher, await buildSubmitReferences(db, tenantId, voucher));
 }
 
 /**
