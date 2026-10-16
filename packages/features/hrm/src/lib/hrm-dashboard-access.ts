@@ -3,6 +3,7 @@ import {
   approvalSourcesFor,
   type ApprovalSource,
 } from './hrm-approval-kinds';
+import { hubPagePermissions } from './hrm-hub-tabs';
 
 /**
  * Bàn làm việc chỉ được gọi API mà người dùng có quyền. Hàm thuần này quyết định
@@ -22,6 +23,11 @@ export type DashboardPlan = {
   timesheetPeriods: boolean;
   /** Thẻ kỳ lương: cần hrm.payroll.read. */
   payrollPeriods: boolean;
+  /**
+   * Liên kết "Xem chi tiết" ở thẻ Phép năm của tôi mở trang Phép năm (/leave). Trang đó là quỹ phép toàn công ty,
+   * vai Nhân viên không có quyền vào nên chỉ hiện liên kết khi vào được trang.
+   */
+  canOpenLeavePage: boolean;
   /** Danh sách đường dẫn API (không kèm /api/hrm/v1) sẽ được gọi khi tải trang. */
   endpoints: string[];
 };
@@ -48,6 +54,7 @@ export function dashboardPlan(actions: readonly string[]): DashboardPlan {
     overview,
     timesheetPeriods,
     payrollPeriods,
+    canOpenLeavePage: hubPagePermissions('/leave').some((action) => has.has(action)),
     endpoints,
   };
 }
