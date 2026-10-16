@@ -562,6 +562,50 @@ export interface FinanceReport {
   accounts: FinanceAccountMovement[];
 }
 
+export interface FinanceLedgerReportQuery {
+  from: string;
+  to: string;
+  /** Bỏ trống: tồn quỹ toàn công ty (chuyển tiền nội bộ không hiện vì tổng không đổi). */
+  accountId?: string;
+  /** Vị trí dòng bắt đầu (tải thêm khi cuộn). */
+  offset?: number;
+  limit?: number;
+}
+
+/** Một dòng báo cáo thu chi: một bút toán sổ cái kèm tồn quỹ sau bút toán. */
+export interface FinanceLedgerReportRow {
+  id: string;
+  voucherId: string;
+  voucherCode: string;
+  voucherKind: FinanceVoucherKind;
+  content: string;
+  createdByName: string | null;
+  createdAt: string;
+  postedDate: string;
+  accountId: string;
+  accountName: string;
+  /** Phát sinh thu (tiền vào), 0 nếu là chi. */
+  receipt: number;
+  /** Phát sinh chi (tiền ra), 0 nếu là thu. */
+  payment: number;
+  /** Tồn quỹ sau dòng này (theo ngày hạch toán rồi thứ tự ghi sổ). */
+  balanceAfter: number;
+  isReversal: boolean;
+}
+
+export interface FinanceLedgerReport {
+  from: string;
+  to: string;
+  /** Dư đầu kỳ = số dư đầu kỳ tài khoản + bút toán trước ngày bắt đầu. */
+  openingBalance: number;
+  closingBalance: number;
+  totalReceipts: number;
+  totalPayments: number;
+  total: number;
+  offset: number;
+  items: FinanceLedgerReportRow[];
+}
+
 export interface FinanceDashboard {
   today: string;
   monthFrom: string;

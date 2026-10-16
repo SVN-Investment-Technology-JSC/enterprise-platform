@@ -340,6 +340,20 @@ export class FinanceController {
     );
   }
 
+  @Get('reports/ledger')
+  ledgerReport(
+    @Req() request: FinanceRequest,
+    @Query('from') from: string,
+    @Query('to') to: string,
+    @Query('accountId') accountId?: string,
+    @Query('offset') offset?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.run(() =>
+      this.app.ledgerReport(this.actor(request), { from, to, accountId: accountId || undefined, offset: int(offset), limit: int(limit) }),
+    );
+  }
+
   private actor(request: FinanceRequest): FinanceActor {
     if (!request.financeActor) throw new HttpException({ code: 'UNAUTHORIZED', message: 'Thiếu danh tính người dùng.' }, 401);
     return request.financeActor;
