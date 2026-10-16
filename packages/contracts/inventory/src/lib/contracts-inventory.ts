@@ -808,6 +808,8 @@ export interface StocktakeLine {
   readonly note?: string;
   readonly updatedAt?: string;
   readonly audits?: readonly StocktakeLineAudit[];
+  /** Mã chứng từ của bút toán cân kho đã ghi cho dòng này lúc duyệt. */
+  readonly adjustmentTransactionCode?: string;
 }
 
 export interface StocktakeSession {

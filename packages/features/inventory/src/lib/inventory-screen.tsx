@@ -518,6 +518,9 @@ export function InventoryScreen() {
       if (movement.kind === 'issue') {
         const fullIssueNote = [
           movement.note,
+          movement.recipient
+            ? `${movement.recipient.kind === 'department' ? 'Bộ phận nhận' : 'Khách hàng'}: ${movement.recipient.name}`
+            : '',
           movement.movementDate ? `Ngày xuất: ${movement.movementDate}` : '',
         ].filter(Boolean).join(' | ');
 
