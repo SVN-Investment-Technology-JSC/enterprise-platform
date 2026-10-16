@@ -33,6 +33,7 @@ import type {
   CreateStocktakeRequest,
 } from '@enterprise-platform/contracts-inventory';
 import { authFetch } from '@enterprise-platform/shared-ui';
+import { trackingModeOf } from './material-tracking';
 
 const API = '/api/inventory/v1';
 
@@ -513,49 +514,24 @@ export async function loadLots(materialCode: string): Promise<import('@enterpris
   try {
     if (typeof window === 'undefined') return [];
     const raw = localStorage.getItem(`${LOTS_STORAGE_KEY}:${materialCode}`);
-    if (raw) return JSON.parse(raw);
-
-    // Mẫu ban đầu cho các vật tư tiêu biểu khi chưa có dữ liệu lưu
-    if (materialCode.includes('DAU') || materialCode.includes('CAP') || materialCode === 'VT-001') {
-      const defaultLots: import('@enterprise-platform/contracts-inventory').LotTracking[] = [
-        {
-          id: `lot-${materialCode}-01`,
-          materialCode,
-          lotNumber: `LOT-2026-Q1-A01`,
-          status: 'PASSED',
-          quantity: 120,
-          unit: 'Thùng / Cuộn',
-          warehouseCode: 'WH-CENTRAL',
-          manufactureDate: '2026-01-15',
-          expiryDate: '2028-01-15',
-          supplier: 'Tổng công ty Dầu khí / Cáp điện',
-          coCqNumber: 'CO-CQ-VN-2026/889',
-          note: 'Hàng nhập khẩu chính hãng, đã kiểm định chất lượng',
-          createdAt: new Date().toISOString(),
-        },
-        {
-          id: `lot-${materialCode}-02`,
-          materialCode,
-          lotNumber: `LOT-2025-Q4-B02`,
-          status: 'NEAR_EXPIRY',
-          quantity: 35,
-          unit: 'Thùng / Cuộn',
-          warehouseCode: 'WH-BACKUP',
-          manufactureDate: '2025-04-10',
-          expiryDate: '2026-10-10',
-          supplier: 'Nhà phân phối Miền Bắc',
-          coCqNumber: 'CO-CQ-VN-2025/112',
-          note: 'Cận hạn dùng dưới 60 ngày - Ưu tiên xuất theo FEFO',
-          createdAt: new Date().toISOString(),
-        },
-      ];
-      localStorage.setItem(`${LOTS_STORAGE_KEY}:${materialCode}`, JSON.stringify(defaultLots));
-      return defaultLots;
-    }
-    return [];
+    if (!raw) return [];
+    const lots = JSON.parse(raw) as import('@enterprise-platform/contracts-inventory').LotTracking[];
+    // Bản cũ tự sinh 2 lô mẫu cho mã chứa "DAU"/"CAP" và đã lưu chúng vào trình
+    // duyệt; bỏ hẳn để không lẫn vào số thật.
+    const real = lots.filter((lot) => !isSampleLot(lot));
+    if (real.length !== lots.length) await saveLots(materialCode, real);
+    return real;
   } catch {
     return [];
   }
+}
+
+/** Lô mẫu do bản cũ tự sinh: id `lot-<mã>-01|02` với đúng hai số lô mẫu. */
+export function isSampleLot(lot: Pick<import('@enterprise-platform/contracts-inventory').LotTracking, 'id' | 'materialCode' | 'lotNumber'>): boolean {
+  return (
+    (lot.id === `lot-${lot.materialCode}-01` && lot.lotNumber === 'LOT-2026-Q1-A01') ||
+    (lot.id === `lot-${lot.materialCode}-02` && lot.lotNumber === 'LOT-2025-Q4-B02')
+  );
 }
 
 export async function saveLots(
@@ -795,6 +771,28 @@ export interface MaintenanceScheduleSummary {
   readonly assetCode?: string;
 }
 
+/** Nhãn tần suất mặc định của Bảo trì; tần suất admin tự thêm thì hiện nguyên mã. */
+const MAINTENANCE_FREQUENCY_LABEL: Record<string, string> = {
+  day: 'Ngày',
+  week: 'Tuần',
+  month: 'Tháng',
+  quarter: 'Quý',
+  year: 'Năm',
+};
+const MAINTENANCE_SCHEDULE_STATUS_LABEL: Record<string, string> = {
+  draft: 'Nháp',
+  active: 'Đang chạy',
+  paused: 'Tạm dừng',
+};
+
+export function maintenanceFrequencyLabel(frequency: string): string {
+  return MAINTENANCE_FREQUENCY_LABEL[frequency] ?? frequency;
+}
+
+export function maintenanceScheduleStatusLabel(status: string): string {
+  return MAINTENANCE_SCHEDULE_STATUS_LABEL[status] ?? status;
+}
+
 export async function loadMaintenanceSchedulesForAsset(
   assetCode: string,
 ): Promise<MaintenanceScheduleSummary[] | undefined> {
@@ -864,184 +862,35 @@ export async function createMaintenanceIncidentForAsset(input: {
 const STOCKTAKES_STORAGE_KEY = 'ep:inventory:stocktakes';
 const STOCKTAKE_LINES_STORAGE_KEY = 'ep:inventory:stocktake_lines';
 
-function initMockStocktakes(warehouses: Warehouse[], _materials?: Material[], _stock?: MaterialInventory[]): StocktakeSession[] {
-  const defaultWarehouse = warehouses[0]?.code ?? 'WH-CENTRAL';
-  const defaultWhName = warehouses[0]?.name ?? 'Kho Vật tư Trung tâm';
-  const whId = warehouses[0]?.id ?? 'wh-central-id';
+/** Đợt kiểm kê mẫu do bản cũ tự sinh và đã lưu vào trình duyệt. */
+const SAMPLE_STOCKTAKE_IDS = new Set(['st-2026-00016', 'st-2026-00017', 'st-2026-00018']);
 
-  const s1: StocktakeSession = {
-    id: 'st-2026-00018',
-    code: 'KK-2026-00018',
-    title: 'Kiểm kê định kỳ Kho Trung tâm - Tháng 9/2026',
-    warehouseId: whId,
-    warehouseCode: defaultWarehouse,
-    warehouseName: defaultWhName,
-    status: 'COUNTING',
-    scopeType: 'ALL',
-    snapshotAt: new Date(Date.now() - 3600 * 1000 * 4).toISOString(),
-    leadAuditor: 'Nguyễn Văn An (Tổ trưởng)',
-    auditors: ['Trần Thị Mai', 'Phạm Quốc Bảo'],
-    note: 'Kiểm đếm toàn bộ vật tư và linh kiện tiêu hao phục vụ quyết toán quý 3.',
-    totalItems: 8,
-    countedItems: 5,
-    differenceItems: 2,
-    totalVarianceValue: -4500000,
-    createdAt: new Date(Date.now() - 3600 * 1000 * 5).toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
-
-  const s2: StocktakeSession = {
-    id: 'st-2026-00017',
-    code: 'KK-2026-00017',
-    title: 'Kiểm kê đột xuất nhóm Cáp & Thiết bị điện',
-    warehouseId: whId,
-    warehouseCode: defaultWarehouse,
-    warehouseName: defaultWhName,
-    status: 'PENDING_APPROVAL',
-    scopeType: 'CATEGORY',
-    scopeCategories: ['EQUIPMENT', 'CONSUMABLE'],
-    snapshotAt: new Date(Date.now() - 3600 * 1000 * 48).toISOString(),
-    leadAuditor: 'Trần Thị Mai',
-    auditors: ['Nguyễn Văn An'],
-    note: 'Đã hoàn tất đếm 2 vòng, phát hiện lệch 1 máy đo nhiệt do chưa làm phiếu xuất công trình.',
-    totalItems: 12,
-    countedItems: 12,
-    differenceItems: 1,
-    totalVarianceValue: -12500000,
-    createdAt: new Date(Date.now() - 3600 * 1000 * 50).toISOString(),
-    updatedAt: new Date(Date.now() - 3600 * 1000 * 2).toISOString(),
-  };
-
-  const s3: StocktakeSession = {
-    id: 'st-2026-00016',
-    code: 'KK-2026-00016',
-    title: 'Kiểm kê định kỳ Quý 2/2026',
-    warehouseId: whId,
-    warehouseCode: defaultWarehouse,
-    warehouseName: defaultWhName,
-    status: 'POSTED',
-    scopeType: 'ALL',
-    snapshotAt: new Date(Date.now() - 3600 * 1000 * 24 * 70).toISOString(),
-    leadAuditor: 'Nguyễn Văn An (Tổ trưởng)',
-    auditors: ['Lê Hoàng Nam', 'Đỗ Hải Đăng'],
-    approvedBy: 'Trần Quốc Tuấn (Phó Giám đốc Kỹ thuật)',
-    approvedAt: new Date(Date.now() - 3600 * 1000 * 24 * 68).toISOString(),
-    note: 'Đã duyệt biên bản và ghi sổ bút toán cân kho hoàn tất.',
-    totalItems: 25,
-    countedItems: 25,
-    differenceItems: 0,
-    totalVarianceValue: 0,
-    createdAt: new Date(Date.now() - 3600 * 1000 * 24 * 72).toISOString(),
-    updatedAt: new Date(Date.now() - 3600 * 1000 * 24 * 68).toISOString(),
-  };
-
-  const list = [s1, s2, s3];
-  if (typeof window !== 'undefined') {
-    localStorage.setItem(STOCKTAKES_STORAGE_KEY, JSON.stringify(list));
-  }
-  return list;
+export function isSampleStocktake(session: Pick<StocktakeSession, 'id' | 'code'>): boolean {
+  return SAMPLE_STOCKTAKE_IDS.has(session.id) && session.code === `KK-${session.id.slice(3)}`;
 }
 
-function initMockLinesForSession(session: StocktakeSession, workspace: InventoryWorkspace): StocktakeLine[] {
-  const stockRows = workspace.stock.filter((s) => s.warehouseCode === session.warehouseCode || !s.warehouseCode);
-  const materials = workspace.materials;
-  const matMap = new Map(materials.map((m) => [m.id, m]));
-
-  const lines: StocktakeLine[] = [];
-  const sampleMats = stockRows.length > 0 ? stockRows.slice(0, 10) : materials.slice(0, 8).map((m) => ({
-    materialId: m.id,
-    quantity: 50,
-    quantityReserved: 0,
-    available: 50,
-    warehouseCode: session.warehouseCode,
-    updatedAt: new Date().toISOString(),
-  }));
-
-  sampleMats.forEach((item, idx) => {
-    const mat = matMap.get(item.materialId) || {
-      id: item.materialId,
-      code: `VT-${100 + idx}`,
-      name: `Vật tư kiểm kê mẫu ${idx + 1}`,
-      unit: 'Cái',
-      purchasePrice: 250000 + idx * 50000,
-      isSerialized: idx % 3 === 0,
-    };
-
-    const sysQty = item.quantity ?? 20;
-    // Tạo giả lập một vài dòng có chênh lệch cho sinh động
-    let actualQty: number | undefined;
-    let round1: number | undefined;
-    let round2: number | undefined;
-    let reason: string | undefined;
-
-    if (session.status === 'POSTED' || session.status === 'PENDING_APPROVAL' || idx < 4) {
-      if (idx === 1) {
-        actualQty = sysQty - 2;
-        round1 = sysQty - 2;
-        round2 = sysQty - 2;
-        reason = 'Hao hụt rách vỡ trong quá trình vận chuyển bốc dỡ';
-      } else if (idx === 3) {
-        actualQty = sysQty + 1;
-        round1 = sysQty + 1;
-        reason = 'Nhập thừa từ đợt bảo trì hoàn trả chưa ghi phiếu';
-      } else {
-        actualQty = sysQty;
-        round1 = sysQty;
-      }
-    }
-
-    const diff = actualQty !== undefined ? actualQty - sysQty : 0;
-    const unitCost = (mat as any).purchasePrice ?? 350000;
-    const diffVal = diff * unitCost;
-
-    let status: StocktakeLine['status'] = 'UNCOUNTED';
-    if (actualQty !== undefined) {
-      if (diff === 0) status = 'MATCHED';
-      else if (diff > 0) status = 'SURPLUS';
-      else status = 'DEFICIT';
-    }
-
-    lines.push({
-      id: `line-${session.id}-${idx}`,
-      sessionId: session.id,
-      materialId: mat.id,
-      materialCode: mat.code,
-      materialName: mat.name,
-      unit: mat.unit || 'Cái',
-      binLocation: undefined,
-      isSerialized: mat.isSerialized,
-      isLotTracked: mat.code.includes('DAU') || mat.code.includes('CAP'),
-      systemQuantity: sysQty,
-      countRound1: round1,
-      countRound2: round2,
-      actualQuantity: actualQty,
-      difference: diff,
-      unitCost,
-      differenceValue: diffVal,
-      reason,
-      status,
-      updatedAt: new Date().toISOString(),
-      audits: round1 !== undefined ? [
-        {
-          id: `audit-${session.id}-${idx}-1`,
-          lineId: `line-${session.id}-${idx}`,
-          previousQuantity: undefined,
-          newQuantity: round1,
-          operator: session.leadAuditor || 'Thủ kho',
-          timestamp: session.snapshotAt || new Date().toISOString(),
-          reason: 'Ghi nhận kết quả đếm lần 1',
-        },
-      ] : [],
-    });
-  });
-
-  return lines;
+function readStoredStocktakes(): StocktakeSession[] {
+  if (typeof window === 'undefined') return [];
+  const raw = localStorage.getItem(STOCKTAKES_STORAGE_KEY);
+  if (!raw) return [];
+  let stored: StocktakeSession[];
+  try {
+    stored = JSON.parse(raw);
+  } catch {
+    return [];
+  }
+  const samples = stored.filter(isSampleStocktake);
+  if (samples.length === 0) return stored;
+  const real = stored.filter((session) => !isSampleStocktake(session));
+  localStorage.setItem(STOCKTAKES_STORAGE_KEY, JSON.stringify(real));
+  for (const sample of samples) localStorage.removeItem(`${STOCKTAKE_LINES_STORAGE_KEY}:${sample.id}`);
+  return real;
 }
 
 // Biến cờ kiểm tra xem server backend đã hỗ trợ API /stocktakes chưa để tránh bắn 404 đỏ lòm ra console
 let isBackendStocktakeSupported: boolean | null = null;
 
-export async function loadStocktakes(workspace?: InventoryWorkspace): Promise<StocktakeSession[]> {
+export async function loadStocktakes(_workspace?: InventoryWorkspace): Promise<StocktakeSession[]> {
   if (isBackendStocktakeSupported !== false) {
     try {
       const res = await request<StocktakeSession[]>('/stocktakes').catch(() => null);
@@ -1058,23 +907,10 @@ export async function loadStocktakes(workspace?: InventoryWorkspace): Promise<St
     }
   }
 
-  if (typeof window === 'undefined') return [];
-  const raw = localStorage.getItem(STOCKTAKES_STORAGE_KEY);
-  if (raw) {
-    try {
-      return JSON.parse(raw);
-    } catch {
-      /* ignore invalid cached json */
-    }
-  }
-
-  if (workspace) {
-    return initMockStocktakes(workspace.warehouses, workspace.materials, workspace.stock);
-  }
-  return [];
+  return readStoredStocktakes();
 }
 
-export async function loadStocktakeLines(sessionId: string, workspace?: InventoryWorkspace): Promise<StocktakeLine[]> {
+export async function loadStocktakeLines(sessionId: string, _workspace?: InventoryWorkspace): Promise<StocktakeLine[]> {
   if (isBackendStocktakeSupported) {
     try {
       const res = await request<StocktakeLine[]>(`/stocktakes/${encodeURIComponent(sessionId)}/lines`).catch(() => null);
@@ -1086,26 +922,12 @@ export async function loadStocktakeLines(sessionId: string, workspace?: Inventor
 
   if (typeof window === 'undefined') return [];
   const raw = localStorage.getItem(`${STOCKTAKE_LINES_STORAGE_KEY}:${sessionId}`);
-  if (raw) {
-    try {
-      return JSON.parse(raw);
-    } catch {
-      /* ignore invalid cached json */
-    }
+  if (!raw) return [];
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return [];
   }
-
-  // Khởi tạo mock lines nếu chưa có
-  if (workspace) {
-    const sessions = await loadStocktakes(workspace);
-    const session = sessions.find((s) => s.id === sessionId);
-    if (session) {
-      const generated = initMockLinesForSession(session, workspace);
-      localStorage.setItem(`${STOCKTAKE_LINES_STORAGE_KEY}:${sessionId}`, JSON.stringify(generated));
-      return generated;
-    }
-  }
-
-  return [];
 }
 
 export async function createStocktakeSession(
@@ -1128,7 +950,7 @@ export async function createStocktakeSession(
     status: 'DRAFT',
     scopeType: input.scopeType,
     scopeCategories: input.scopeCategories,
-    leadAuditor: input.leadAuditor || 'Thủ kho trưởng',
+    leadAuditor: input.leadAuditor || undefined,
     auditors: input.auditors || [],
     note: input.note,
     totalItems: 0,
@@ -1146,6 +968,47 @@ export async function createStocktakeSession(
   return newSession;
 }
 
+/**
+ * Ảnh chụp tồn của một kho lúc bắt đầu đếm: mỗi vật tư đang có tồn ở kho là
+ * một dòng. Đơn giá lấy từ giá mua (VND) của vật tư; chưa khai giá thì để trống
+ * để giá trị chênh lệch không tính dòng đó, không tự đặt một giá giả định.
+ */
+export function snapshotStocktakeLines(
+  sessionId: string,
+  warehouseCode: string,
+  workspace: Pick<InventoryWorkspace, 'materials' | 'stock'>,
+  now = new Date().toISOString(),
+): StocktakeLine[] {
+  const materialById = new Map(workspace.materials.map((material) => [material.id, material]));
+  return workspace.stock
+    .filter((row) => row.warehouseCode === warehouseCode)
+    .flatMap((row, index): StocktakeLine[] => {
+      const material = materialById.get(row.materialId);
+      if (!material) return [];
+      const mode = trackingModeOf(material);
+      const priced = material.purchasePrice !== undefined && material.purchasePrice !== null && (material.currency ?? 'VND') === 'VND';
+      return [
+        {
+          id: `line-${sessionId}-${index}`,
+          sessionId,
+          materialId: material.id,
+          materialCode: material.code,
+          materialName: material.name,
+          unit: material.unit || 'Cái',
+          isSerialized: mode === 'SERIAL',
+          isLotTracked: mode === 'LOT',
+          systemQuantity: row.quantity,
+          difference: 0,
+          unitCost: priced ? Number(material.purchasePrice) : undefined,
+          differenceValue: 0,
+          status: 'UNCOUNTED',
+          updatedAt: now,
+          audits: [],
+        },
+      ];
+    });
+}
+
 export async function startStocktakeCounting(
   sessionId: string,
   workspace: InventoryWorkspace,
@@ -1154,37 +1017,7 @@ export async function startStocktakeCounting(
   const session = sessions.find((s) => s.id === sessionId);
   if (!session) throw new Error('Không tìm thấy đợt kiểm kê.');
 
-  // Tạo snapshot từ số tồn hiện tại của kho
-  const stockRows = workspace.stock.filter((s) => s.warehouseCode === session.warehouseCode || !s.warehouseCode);
-  const matMap = new Map(workspace.materials.map((m) => [m.id, m]));
-
-  const lines: StocktakeLine[] = stockRows.map((item, idx) => {
-    const mat = matMap.get(item.materialId) || {
-      id: item.materialId,
-      code: `VT-${100 + idx}`,
-      name: `Vật tư ${idx + 1}`,
-      unit: 'Cái',
-      purchasePrice: 200000,
-    };
-    return {
-      id: `line-${sessionId}-${idx}`,
-      sessionId,
-      materialId: mat.id,
-      materialCode: mat.code,
-      materialName: mat.name,
-      unit: mat.unit || 'Cái',
-      binLocation: undefined,
-      isSerialized: Boolean((mat as any).isSerialized),
-      isLotTracked: mat.code.includes('DAU') || mat.code.includes('CAP'),
-      systemQuantity: item.quantity,
-      difference: 0,
-      unitCost: (mat as any).purchasePrice || 200000,
-      differenceValue: 0,
-      status: 'UNCOUNTED',
-      updatedAt: new Date().toISOString(),
-      audits: [],
-    };
-  });
+  const lines = snapshotStocktakeLines(sessionId, session.warehouseCode, workspace);
 
   const updatedSession: StocktakeSession = {
     ...session,
@@ -1280,33 +1113,62 @@ export async function submitStocktakeForApproval(sessionId: string): Promise<Sto
   return updatedSession;
 }
 
-export async function approveAndPostStocktake(
-  sessionId: string,
-  approvedBy = 'Trưởng phòng Kho vận',
-  onSubmitMovement?: (input: any) => Promise<void>,
-): Promise<StocktakeSession> {
+/** Dòng cần ghi bút toán cân kho: đã đếm, có chênh lệch, chưa ghi ở lần duyệt trước. */
+export function stocktakeLinesToPost(lines: readonly StocktakeLine[]): StocktakeLine[] {
+  return lines.filter(
+    (line) =>
+      line.actualQuantity !== undefined &&
+      line.actualQuantity !== null &&
+      line.difference !== 0 &&
+      !line.adjustmentTransactionCode,
+  );
+}
+
+/**
+ * Duyệt đợt và ghi bút toán cân kho cho từng dòng chênh lệch.
+ *
+ * Mỗi dòng ghi xong được đánh dấu mã chứng từ ngay, nên khi một dòng lỗi thì
+ * đợt vẫn ở "Chờ duyệt" và lần duyệt sau chỉ ghi nốt các dòng còn thiếu —
+ * không bao giờ báo "Đã ghi sổ" khi sổ cái chưa có đủ bút toán, cũng không ghi
+ * lặp một dòng đã ghi.
+ */
+export async function approveAndPostStocktake(sessionId: string, approvedBy?: string): Promise<StocktakeSession> {
   const sessions = await loadStocktakes();
   const session = sessions.find((s) => s.id === sessionId);
   if (!session) throw new Error('Không tìm thấy đợt kiểm kê.');
+  if (session.status !== 'PENDING_APPROVAL') throw new Error('Chỉ duyệt được đợt đang chờ duyệt.');
 
   const lines = await loadStocktakeLines(sessionId);
+  const toPost = stocktakeLinesToPost(lines);
+  const posted = new Map<string, string>();
+  const failed: string[] = [];
 
-  // Sinh các bút toán cân kho ADJUSTMENT cho các dòng chênh lệch
-  const diffLines = lines.filter((l) => l.difference !== 0 && l.actualQuantity !== undefined);
-  if (onSubmitMovement && diffLines.length > 0) {
-    for (const line of diffLines) {
-      try {
-        await onSubmitMovement({
-          kind: line.difference > 0 ? 'receipt' : 'issue',
-          materialCode: line.materialCode,
-          warehouseCode: session.warehouseCode,
-          quantity: Math.abs(line.difference),
-          note: `[Cân kho đợt ${session.code}] ${line.difference > 0 ? 'Thừa' : 'Thiếu'} ${Math.abs(line.difference)} ${line.unit}. Lý do: ${line.reason || 'Đối soát kiểm kê'}`,
-        });
-      } catch (err) {
-        console.warn('Không thể tự động post adjustment lên ledger:', err);
-      }
+  for (const line of toPost) {
+    const quantity = Math.abs(line.difference);
+    const note = `[Cân kho đợt ${session.code}] ${line.difference > 0 ? 'Thừa' : 'Thiếu'} ${quantity} ${line.unit}. Lý do: ${line.reason || 'Đối soát kiểm kê'}`;
+    try {
+      const tx =
+        line.difference > 0
+          ? await receiveStock({ warehouseCode: session.warehouseCode, materialCode: line.materialCode, quantity, note })
+          : await issueStock({ warehouseCode: session.warehouseCode, materialCode: line.materialCode, quantity, note });
+      posted.set(line.id, tx.transactionCode);
+    } catch (cause) {
+      failed.push(`${line.materialCode}: ${cause instanceof Error ? cause.message : 'không rõ lỗi'}`);
     }
+  }
+
+  if (posted.size > 0 && typeof window !== 'undefined') {
+    const marked = lines.map((line) =>
+      posted.has(line.id) ? { ...line, adjustmentTransactionCode: posted.get(line.id) } : line,
+    );
+    localStorage.setItem(`${STOCKTAKE_LINES_STORAGE_KEY}:${sessionId}`, JSON.stringify(marked));
+  }
+
+  if (failed.length > 0) {
+    throw new Error(
+      `Chưa ghi được ${failed.length}/${toPost.length} bút toán cân kho nên đợt ${session.code} vẫn chờ duyệt. ` +
+        `Xử lý lỗi rồi bấm Duyệt & Ghi sổ lại — các dòng đã ghi sẽ không ghi lặp. Lỗi: ${failed.join('; ')}`,
+    );
   }
 
   const updatedSession: StocktakeSession = {
@@ -1324,10 +1186,26 @@ export async function approveAndPostStocktake(
   return updatedSession;
 }
 
+/** Tên người đang đăng nhập, để ghi người duyệt. */
+export async function loadCurrentUserName(): Promise<string | undefined> {
+  try {
+    const response = await authFetch('/api/auth/v1/me', { cache: 'no-store' });
+    if (!response.ok) return undefined;
+    const me = (await response.json()) as { displayName?: string };
+    return me.displayName || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function cancelStocktakeSession(sessionId: string, reason?: string): Promise<StocktakeSession> {
   const sessions = await loadStocktakes();
   const session = sessions.find((s) => s.id === sessionId);
   if (!session) throw new Error('Không tìm thấy đợt kiểm kê.');
+  const lines = await loadStocktakeLines(sessionId);
+  if (lines.some((line) => line.adjustmentTransactionCode)) {
+    throw new Error('Đợt đã ghi sổ một phần nên không huỷ được. Bấm Duyệt & Ghi sổ để ghi nốt các dòng còn lại.');
+  }
 
   const updatedSession: StocktakeSession = {
     ...session,
@@ -1347,6 +1225,10 @@ export async function rejectStocktakeSession(sessionId: string, reason?: string)
   const sessions = await loadStocktakes();
   const session = sessions.find((s) => s.id === sessionId);
   if (!session) throw new Error('Không tìm thấy đợt kiểm kê.');
+  const lines = await loadStocktakeLines(sessionId);
+  if (lines.some((line) => line.adjustmentTransactionCode)) {
+    throw new Error('Đợt đã ghi sổ một phần nên không trả về đếm lại được. Bấm Duyệt & Ghi sổ để ghi nốt các dòng còn lại.');
+  }
 
   const updatedSession: StocktakeSession = {
     ...session,

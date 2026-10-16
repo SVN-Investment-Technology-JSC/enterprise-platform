@@ -18,6 +18,7 @@ import {
   rejectStocktakeSession,
   approveAndPostStocktake,
   cancelStocktakeSession,
+  loadCurrentUserName,
 } from '../inventory-api';
 import { useState, useEffect, useMemo, useRef } from 'react';
 import {
@@ -68,21 +69,27 @@ function formatDateTime(value?: string): string {
 export interface StocktakeHubProps {
   workspace: InventoryWorkspace;
   busy?: boolean;
-  onSubmitMovement: (input: any) => Promise<void>;
   onNotice?: (msg: string) => void;
+  /** Gọi sau khi ghi bút toán cân kho để màn hình nạp lại tồn. */
+  onPosted?: () => Promise<void> | void;
 }
 
 export function StocktakeHub({
   workspace,
   busy = false,
-  onSubmitMovement,
   onNotice,
+  onPosted,
 }: StocktakeHubProps) {
   const [sessions, setSessions] = useState<StocktakeSession[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<string>();
   const [lines, setLines] = useState<StocktakeLine[]>([]);
   const [loadingLines, setLoadingLines] = useState(false);
   const [dirty, setDirty] = useState(false);
+  // Mặt hàng lệch mà vật tư chưa khai giá mua: không cộng vào tổng giá trị chênh lệch.
+  const unpricedDiffCount = useMemo(
+    () => lines.filter((line) => line.difference !== 0 && line.unitCost === undefined).length,
+    [lines],
+  );
 
   // Filters Master list
   const [searchQuery, setSearchQuery] = useState('');
@@ -297,17 +304,29 @@ export function StocktakeHub({
   // Duyệt và ghi sổ
   const handleApproveAndPost = async () => {
     if (!selectedSessionId) return;
-    const updated = await approveAndPostStocktake(selectedSessionId, 'Trưởng phòng Kho vận', onSubmitMovement);
-    setSessions((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
-    if (onNotice) onNotice(`Đã duyệt & ghi sổ đợt kiểm kê ${updated.code}. Các bút toán cân kho đã được tự động sinh.`);
+    try {
+      const updated = await approveAndPostStocktake(selectedSessionId, await loadCurrentUserName());
+      setSessions((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
+      if (onNotice) onNotice(`Đã duyệt & ghi sổ đợt kiểm kê ${updated.code}. Các bút toán cân kho đã được tự động sinh.`);
+    } catch (err) {
+      alert('Lỗi: ' + (err instanceof Error ? err.message : 'Lỗi'));
+    } finally {
+      // Dòng đã ghi được đánh dấu mã chứng từ kể cả khi đợt chưa ghi đủ.
+      setLines(await loadStocktakeLines(selectedSessionId, workspace));
+      if (onPosted) await onPosted();
+    }
   };
 
   // Hủy đợt
   const handleCancelSession = async () => {
     if (!selectedSessionId) return;
-    const updated = await cancelStocktakeSession(selectedSessionId, 'Người dùng hủy thao tác');
-    setSessions((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
-    if (onNotice) onNotice(`Đã hủy đợt kiểm kê ${updated.code}.`);
+    try {
+      const updated = await cancelStocktakeSession(selectedSessionId, 'Người dùng hủy thao tác');
+      setSessions((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
+      if (onNotice) onNotice(`Đã hủy đợt kiểm kê ${updated.code}.`);
+    } catch (err) {
+      alert('Lỗi: ' + (err instanceof Error ? err.message : 'Lỗi'));
+    }
   };
 
   // Xuất file mẫu Excel kiểm kê
@@ -879,6 +898,11 @@ export function StocktakeHub({
                 >
                   {formatCurrency(selectedSession.totalVarianceValue)}
                 </div>
+                {unpricedDiffCount > 0 ? (
+                  <div style={{ fontSize: '12px', color: '#64748b' }}>
+                    Chưa tính {unpricedDiffCount} mặt hàng chưa có giá mua
+                  </div>
+                ) : null}
               </div>
             </div>
 

@@ -278,8 +278,8 @@ export function TransactionHub({
         <StocktakeHub
           workspace={workspace}
           busy={busy}
-          onSubmitMovement={onSubmitMovement}
           onNotice={onNotice}
+          onPosted={onReload}
         />
       ) : (
         /* Sổ cái Giao dịch Kho (Stock Ledger) */

@@ -15,6 +15,7 @@ import { formatNumber } from '../inventory-labels';
 import {
   loadLatestStocktakeForMaterial,
   loadMaintenanceSchedulesForAsset,
+  maintenanceFrequencyLabel,
   loadMaterialHistory,
   type InventoryLedgerRow,
   type MaintenanceScheduleSummary,
@@ -1165,14 +1166,14 @@ export function ItemCatalog({
                         {activeMaintenance?.length ? activeMaintenance.map((schedule) => (
                           <div key={schedule.id} style={{ fontSize: '13px', color: '#334155' }}>
                             <strong>{schedule.title}</strong>
-                            <span> · {schedule.frequency}</span>
+                            <span> · {maintenanceFrequencyLabel(schedule.frequency)}</span>
                             {schedule.nextDueAt ? (
                               <span> · Kỳ tiếp theo: {formatDate(schedule.nextDueAt)}</span>
                             ) : null}
                           </div>
                         )) : (
                           <span style={{ fontSize: '12px', color: '#64748b' }}>
-                            Chưa có lịch bảo trì từ API.
+                            Chưa có lịch bảo trì.
                           </span>
                         )}
                       </div>
