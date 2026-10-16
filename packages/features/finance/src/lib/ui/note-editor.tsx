@@ -26,6 +26,11 @@ export interface NoteEditorProps {
   voucherId?: string;
   disabled?: boolean;
   onProblem?: (message: string) => void;
+  /**
+   * Có truyền thì ảnh dán/thả vào ghi chú được chuyển cho nơi gọi (form phiếu đưa sang mục Đính kèm) thay vì
+   * nhúng vào nội dung ghi chú; ảnh nhúng sẵn trong ghi chú cũ vẫn hiện bình thường.
+   */
+  onPasteImages?: (files: File[]) => void;
 }
 
 /**
@@ -33,7 +38,7 @@ export interface NoteEditorProps {
  * (`voucher-note-image://<id>`), không bao giờ là URL ký sẵn (hết hạn) hay base64; `srcMap` giữ chiều
  * marker ⇄ URL hiển thị hiện tại để việc này trong suốt với người gọi (`value`/`onChange` luôn là HTML chuẩn).
  */
-export function NoteEditor({ value, onChange, voucherId, disabled, onProblem }: NoteEditorProps) {
+export function NoteEditor({ value, onChange, voucherId, disabled, onProblem, onPasteImages }: NoteEditorProps) {
   const srcMap = useRef(new Map<string, string>());
   const [uploading, setUploading] = useState(0);
 
@@ -48,14 +53,16 @@ export function NoteEditor({ value, onChange, voucherId, disabled, onProblem }: 
         const files = imageFilesOf(event.clipboardData?.files);
         if (!files.length) return false;
         event.preventDefault();
-        void insertImages(files);
+        if (onPasteImages) onPasteImages(files);
+        else void insertImages(files);
         return true;
       },
       handleDrop: (_view, event) => {
         const files = imageFilesOf(event.dataTransfer?.files);
         if (!files.length) return false;
         event.preventDefault();
-        void insertImages(files);
+        if (onPasteImages) onPasteImages(files);
+        else void insertImages(files);
         return true;
       },
     },
