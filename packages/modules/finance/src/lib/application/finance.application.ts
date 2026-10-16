@@ -19,6 +19,8 @@ import {
   type FinanceProjectVoucherList,
   type FinanceReason,
   type FinanceReport,
+  type FinanceLedgerReport,
+  type FinanceLedgerReportQuery,
   type FinanceReportQuery,
   type FinanceSettings,
   type FinanceVoucher,
@@ -96,7 +98,7 @@ import {
   startProcedureForLink,
   voucherOfLink,
 } from '../infrastructure/procedure-links.store.js';
-import { financeDashboard, financeReport } from '../infrastructure/reports.store.js';
+import { financeDashboard, financeLedgerReport, financeReport } from '../infrastructure/reports.store.js';
 import { listWorkspaceProjects, listWorkspaceWorkItems, projectFinanceAccess } from '../infrastructure/workspace-api.js';
 import { resolveWorkspaceLinks } from '../infrastructure/workspace-links.js';
 import {
@@ -740,6 +742,11 @@ export class FinanceApplication {
   async report(actor: FinanceActor, query: FinanceReportQuery): Promise<FinanceReport> {
     if (!can(actor, 'finance.report.read') && !canReadAll(actor)) throw forbidden('Bạn không có quyền xem báo cáo.');
     return financeReport(await this.database.pool(actor.tenantId), actor.tenantId, query);
+  }
+
+  async ledgerReport(actor: FinanceActor, query: FinanceLedgerReportQuery): Promise<FinanceLedgerReport> {
+    if (!can(actor, 'finance.report.read') && !canReadAll(actor)) throw forbidden('Bạn không có quyền xem báo cáo.');
+    return financeLedgerReport(await this.database.pool(actor.tenantId), actor.tenantId, query);
   }
 
   /** Dùng cho kiểm thử: danh sách loại phiếu người dùng được phép lập. */

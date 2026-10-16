@@ -427,6 +427,37 @@ integration('Tài chính: phiếu thu, chi, chuyển tiền và sổ cái (Postg
     await expect(app.report(approver, { from: today, to: '2000-01-01' })).rejects.toMatchObject({ code: 'FINANCE_INVALID' });
   });
 
+  it('báo cáo thu chi dạng sổ: dư đầu kỳ + phát sinh = tồn quỹ, cắt trang không lệch số, chuyển tiền chỉ hiện khi chọn tài khoản', async () => {
+    const all = await app.ledgerReport(approver, { from: '2026-01-01', to: today, limit: 1000 });
+    const report = await app.report(approver, { from: '2026-01-01', to: today });
+    expect(all.items.length).toBe(all.total);
+    expect(all.items.some((r) => r.voucherKind === 'TRANSFER')).toBe(false);
+    expect(all.totalReceipts).toBe(report.totals.receipts);
+    expect(all.totalPayments).toBe(report.totals.payments);
+    expect(all.closingBalance).toBe(all.openingBalance + all.totalReceipts - all.totalPayments);
+    // Tồn quỹ chạy: mỗi dòng bằng dòng trước cộng thu trừ chi; dòng cuối là tồn quỹ cuối kỳ.
+    let running = all.openingBalance;
+    for (const row of all.items) {
+      running += row.receipt - row.payment;
+      expect(row.balanceAfter).toBe(running);
+    }
+    expect(running).toBe(all.closingBalance);
+    // Cắt trang: các trang nối lại thành đúng danh sách đầy đủ, tồn quỹ không đổi.
+    const first = await app.ledgerReport(approver, { from: '2026-01-01', to: today, limit: 2 });
+    const second = await app.ledgerReport(approver, { from: '2026-01-01', to: today, limit: 2, offset: 2 });
+    expect([...first.items, ...second.items]).toEqual(all.items.slice(0, first.items.length + second.items.length));
+    expect(first.openingBalance).toBe(all.openingBalance);
+    // Chọn tài khoản: thấy cả chuyển tiền, tồn quỹ cuối bằng số dư tài khoản.
+    const one = await app.ledgerReport(approver, { from: '2026-01-01', to: today, accountId: accountA, limit: 1000 });
+    expect(one.items.every((r) => r.accountId === accountA)).toBe(true);
+    expect(one.closingBalance).toBe(await balance(accountA));
+    // Kỳ trước mọi phát sinh: không có dòng, dư đầu kỳ là số dư đầu kỳ tài khoản.
+    const empty = await app.ledgerReport(approver, { from: '2026-01-02', to: '2026-01-05', accountId: accountA });
+    expect(empty).toMatchObject({ total: 0, items: [], openingBalance: 10_000_000, closingBalance: 10_000_000 });
+    await expect(app.ledgerReport(approver, { from: today, to: '2000-01-01' })).rejects.toMatchObject({ code: 'FINANCE_INVALID' });
+    await rejects(app.ledgerReport(outsider, { from: today, to: today }), 'FINANCE_FORBIDDEN');
+  });
+
   it('danh sách tài khoản khớp với phiếu: số phiếu theo loại, tiền thu, tiền chi và tổng tiền', async () => {
     const accounts = await app.accounts(approver, false);
     for (const account of accounts) {

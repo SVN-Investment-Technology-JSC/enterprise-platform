@@ -20,6 +20,18 @@ describe('NoteEditor', () => {
     expect(onProblem).toHaveBeenCalledWith('Lưu phiếu trước khi dán ảnh vào ghi chú.');
   });
 
+  it('có onPasteImages: ảnh dán được chuyển cho nơi gọi, không báo lỗi và không chèn vào ghi chú', async () => {
+    const onProblem = jest.fn();
+    const onPasteImages = jest.fn();
+    render(<NoteEditor value="" onChange={jest.fn()} onProblem={onProblem} onPasteImages={onPasteImages} />);
+    const editable = await screen.findByText('', { selector: '.finance-note-prose' });
+    const file = new File(['x'], 'image.png', { type: 'image/png' });
+    fireEvent.paste(editable, { clipboardData: { files: [file], items: [], types: ['Files'], getData: () => '' } });
+    expect(onPasteImages).toHaveBeenCalledWith([file]);
+    expect(onProblem).not.toHaveBeenCalled();
+    expect(editable.querySelector('img')).toBeNull();
+  });
+
   it('tắt sửa khi disabled', () => {
     render(<NoteEditor value="<p>Khoá</p>" onChange={jest.fn()} disabled />);
     const editable = document.querySelector('.finance-note-prose') as HTMLElement;

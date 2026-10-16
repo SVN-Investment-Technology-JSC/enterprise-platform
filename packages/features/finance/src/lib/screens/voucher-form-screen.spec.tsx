@@ -62,6 +62,18 @@ describe('Form tạo phiếu thu', () => {
     expect(container.querySelector('select')).toBeNull();
   });
 
+  it('dán ảnh vào Ghi chú: ảnh tự chuyển sang mục Đính kèm (chờ tải lên khi lưu), ngay cả khi phiếu chưa lưu', async () => {
+    render(<VoucherFormScreen kind="RECEIPT" />);
+    await screen.findByDisplayValue('NHAP_PT_2610_0005');
+    const note = document.querySelector('.finance-note-prose') as HTMLElement;
+    const file = new File(['x'], 'image.png', { type: 'image/png' });
+    fireEvent.paste(note, { clipboardData: { files: [file], items: [], types: ['Files'], getData: () => '' } });
+    const list = await screen.findByRole('list', { name: 'Tệp đính kèm' });
+    expect(within(list).getByText(/^anh-dan-\d+-1\.png$/)).toBeTruthy();
+    expect(within(list).getByText('Sẽ tải lên khi lưu')).toBeTruthy();
+    expect(note.querySelector('img')).toBeNull();
+  });
+
   it('tổng tiền và thuế tính theo số lượng nhân số tiền của từng dòng, cập nhật khi sửa và khi xoá dòng', async () => {
     render(<VoucherFormScreen kind="RECEIPT" />);
     await screen.findByDisplayValue('NHAP_PT_2610_0005');

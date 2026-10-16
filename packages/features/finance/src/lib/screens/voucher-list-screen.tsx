@@ -196,14 +196,14 @@ export default function VoucherListScreen({ kind }: { kind: FinanceVoucherKind }
     {
       title: 'Người tạo',
       dataIndex: 'createdByName',
-      width: 96,
+      width: '6%',
       align: 'center',
       render: (name: string | null) => <Avatar name={name} />,
     },
     {
       title: config.codeLabel,
       dataIndex: 'code',
-      width: 170,
+      width: kind === 'TRANSFER' ? '14%' : '11%',
       render: (code: string, row) => (
         <a
           href={`${config.path}/${row.id}`}
@@ -219,26 +219,26 @@ export default function VoucherListScreen({ kind }: { kind: FinanceVoucherKind }
         </a>
       ),
     },
-    { title: config.dateLabel, dataIndex: 'voucherDate', width: 110, render: (value: string) => dateVn(value) },
+    { title: config.dateLabel, dataIndex: 'voucherDate', width: '8%', render: (value: string) => dateVn(value) },
     { title: config.contentLabel, dataIndex: 'content', ellipsis: true },
     kind === 'TRANSFER'
       ? {
           title: 'Từ tài khoản → Đến tài khoản',
           key: 'accounts',
-          width: 260,
+          width: '32%',
           ellipsis: true,
           render: (_: unknown, row: FinanceVoucherSummary) => `${row.accountName ?? ''} → ${row.destAccountName ?? ''}`,
         }
-      : { title: config.reasonLabel, dataIndex: 'reasonName', width: 180, ellipsis: true },
+      : { title: config.reasonLabel, dataIndex: 'reasonName', width: '10%', ellipsis: true },
     ...(kind === 'TRANSFER'
       ? []
       : [
-          { title: 'Tài khoản', dataIndex: 'accountName', width: 180, ellipsis: true },
-          { title: config.counterpartyLabel, dataIndex: 'counterpartyGroupName', width: 140, ellipsis: true },
+          { title: 'Tài khoản', dataIndex: 'accountName', width: '11%', ellipsis: true },
+          { title: config.counterpartyLabel, dataIndex: 'counterpartyGroupName', width: '8%', ellipsis: true },
           {
             title: 'Hạch toán',
             key: 'allocation',
-            width: 220,
+            width: '11%',
             ellipsis: true,
             render: (_: unknown, row: FinanceVoucherSummary) => (row.allocation ? financeAllocationLabel(row.allocation) : ''),
           },
@@ -246,11 +246,11 @@ export default function VoucherListScreen({ kind }: { kind: FinanceVoucherKind }
     {
       title: 'Số tiền',
       dataIndex: 'totalAmount',
-      width: 140,
+      width: kind === 'TRANSFER' ? '14%' : '11%',
       align: 'right',
       render: (value: number) => <span className="tabular-nums font-medium">{money(value)}</span>,
     },
-    { title: 'Trạng thái', dataIndex: 'status', width: 120, render: (value: FinanceVoucherStatus) => <StatusBadge status={value} /> },
+    { title: 'Trạng thái', dataIndex: 'status', width: '9%', render: (value: FinanceVoucherStatus) => <StatusBadge status={value} /> },
   ];
 
   const scopes: { id: Scope; label: string; visible: boolean }[] = [
@@ -429,7 +429,8 @@ export default function VoucherListScreen({ kind }: { kind: FinanceVoucherKind }
               loading={loading}
               columns={columns}
               dataSource={data?.items ?? []}
-              scroll={{ x: 1100 }}
+              // Bố cục cố định theo phần trăm: dữ liệu ít nên vừa một bề ngang bảng, không cuộn ngang.
+              tableLayout="fixed"
               locale={{ emptyText: loading ? 'Đang tải…' : `Chưa có ${config.singular} nào phù hợp.` }}
               pagination={{
                 current: page,

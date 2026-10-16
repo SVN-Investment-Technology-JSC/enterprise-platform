@@ -20,7 +20,7 @@ import {
   type FinanceVoucherKind,
   type SaveFinanceVoucherRequest,
 } from '@enterprise-platform/contracts-finance';
-import { removeFinanceAttachment, uploadFinanceAttachment } from '../attachment-upload';
+import { MAX_ATTACHMENTS, attachmentProblem, removeFinanceAttachment, uploadFinanceAttachment } from '../attachment-upload';
 import { financeErrorMessage, financeFetch, financePost, financePut, toQuery } from '../finance-api';
 import { useFinanceCrumbs } from '../finance-crumbs';
 import { money, todayVn } from '../finance-format';
@@ -409,6 +409,22 @@ export default function VoucherFormScreen({ kind, id }: { kind: FinanceVoucherKi
     }
   }
 
+  /** Ảnh dán/thả vào Ghi chú đi thẳng sang Đính kèm (tải lên khi lưu), cùng kiểm tra định dạng/dung lượng/số lượng. */
+  function addPastedImages(files: File[]) {
+    const stamp = Date.now();
+    const named = files.map((file, index) => {
+      // Ảnh dán từ clipboard thường tên "image.png" cho mọi lần: đặt tên riêng để phân biệt trong danh sách.
+      const ext = file.type.split('/')[1]?.replace('jpeg', 'jpg') || 'png';
+      return new File([file], `anh-dan-${stamp}-${index + 1}.${ext}`, { type: file.type });
+    });
+    const problems = named.map((file) => attachmentProblem(file)).filter((p): p is string => Boolean(p));
+    const valid = named.filter((file) => !attachmentProblem(file));
+    const room = MAX_ATTACHMENTS - savedFiles.length - pendingFiles.length;
+    if (valid.length > room) problems.push(`Mỗi phiếu đính kèm tối đa ${MAX_ATTACHMENTS} tệp.`);
+    setError(problems.length ? problems.join('\n') : null);
+    if (valid.length && room > 0) setPendingFiles((current) => [...current, ...valid.slice(0, room)]);
+  }
+
   async function removeSaved(file: FinanceVoucherAttachment) {
     if (!savedId) return;
     try {
@@ -664,7 +680,8 @@ export default function VoucherFormScreen({ kind, id }: { kind: FinanceVoucherKi
           </FormSection>
 
           <FormSection title="Ghi chú">
-            <NoteEditor value={form.note} onChange={(html) => set('note', html)} voucherId={savedId} disabled={saving} onProblem={setError} />
+            <NoteEditor value={form.note} onChange={(html) => set('note', html)} voucherId={savedId} disabled={saving} onProblem={setError} onPasteImages={addPastedImages} />
+            <p className="mt-1.5 text-xs text-slate-500">Dán hoặc thả ảnh vào ghi chú sẽ tự chuyển sang mục Đính kèm.</p>
           </FormSection>
 
           <FormSection title="Đối tượng liên quan" defaultOpen={form.relatedProjectIds.length > 0}>
