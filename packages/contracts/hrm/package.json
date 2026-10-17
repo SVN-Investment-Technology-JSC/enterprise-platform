@@ -20,5 +20,7 @@
       "scope:hrm"
     ]
   },
-  "dependencies": {}
+  "dependencies": {
+    "@enterprise-platform/contracts-assistant": "workspace:*"
+  }
 }
