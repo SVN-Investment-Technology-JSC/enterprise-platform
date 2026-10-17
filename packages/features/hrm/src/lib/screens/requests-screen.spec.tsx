@@ -1,5 +1,9 @@
 /** @jest-environment jsdom */
-import { fireEvent, within, render, screen, waitFor } from '@testing-library/react';
+import {
+  dispatchAssistantAction,
+  setAssistantResultSink,
+} from '@enterprise-platform/feature-module-shell';
+import { act, fireEvent, within, render, screen, waitFor } from '@testing-library/react';
 import { hrmFetch } from '../hrm-api';
 import { toast } from '../ui/toast';
 import RequestsPage from './requests-screen';
@@ -1349,5 +1353,86 @@ describe('Loại đơn cấu hình và thời gian từ ngày giờ đến ngày
     await showAllMonths();
     expect(await screen.findByText('Xin đi muộn', { selector: 'td' })).toBeTruthy();
     expect(footer()).toContain('02/11/2026 09:00 -> 02/11/2026 11:30');
+  });
+});
+
+type AssistantActionResult = Parameters<
+  NonNullable<Parameters<typeof setAssistantResultSink>[0]>
+>[0];
+
+describe('Trợ lý Savina mở form tạo đơn với bản nháp', () => {
+  let results: AssistantActionResult[] = [];
+  const ask = (key: string, requestId: string, draft: Record<string, unknown>, variant?: string) =>
+    act(() => {
+      dispatchAssistantAction({ key, requestId, draft, ...(variant ? { variant } : {}) }, 'u1');
+    });
+
+  beforeEach(() => {
+    results = [];
+    setAssistantResultSink((result) => results.push(result));
+  });
+  afterEach(() => setAssistantResultSink(undefined));
+
+  it('đơn làm thêm giờ: điền sẵn, cập nhật theo cùng yêu cầu, gửi xong báo đã lưu kèm link', async () => {
+    reasonCatalog = { OVERTIME: [catalogReason('OVERTIME', 'ot1', 'Theo yêu cầu công việc')] };
+    render(<RequestsPage />);
+    await allTypeButtons();
+    ask('hrm.ot-request.create', 'r1', {
+      fromAt: '2026-10-20T18:00',
+      toAt: '2026-10-20T21:00',
+      reasonId: 'ot1',
+    });
+    await screen.findByRole('button', { name: /Gửi duyệt đơn/, hidden: true });
+    ask('hrm.ot-request.create', 'r1', { description: 'Hoàn thiện hồ sơ nghiệm thu' });
+    await waitFor(() =>
+      expect((screen.getByLabelText(OT_DESCRIPTION_LABEL) as HTMLTextAreaElement).value).toBe(
+        'Hoàn thiện hồ sơ nghiệm thu',
+      ),
+    );
+    await waitFor(() => expect(submitButton().disabled).toBe(false));
+    fireEvent.click(submitButton());
+    await waitFor(() => expect(results).toHaveLength(1));
+    expect(results[0]).toMatchObject({
+      requestId: 'r1',
+      key: 'hrm.ot-request.create',
+      outcome: 'saved',
+      id: 'new',
+      href: '/modules/hrm/requests?request=new',
+    });
+    expect(draftBody('ot')?.payload).toMatchObject({
+      reasonId: 'ot1',
+      description: 'Hoàn thiện hồ sơ nghiệm thu',
+      fromAt: '2026-10-20T18:00',
+      toAt: '2026-10-20T21:00',
+    });
+  });
+
+  it('đóng form không gửi thì báo đã huỷ', async () => {
+    leaveTypes = [leaveType('lt-sick', 'SICK', 'Nghỉ ốm')];
+    render(<RequestsPage />);
+    await allTypeButtons();
+    ask('hrm.leave-request.create', 'r2', { leaveTypeId: 'lt-sick', fromDate: '2026-10-20' });
+    fireEvent.click(await screen.findByRole('button', { name: 'Hủy', hidden: true }));
+    await waitFor(() => expect(results).toHaveLength(1));
+    expect(results[0]).toMatchObject({ requestId: 'r2', outcome: 'cancelled' });
+  });
+
+  it('loại đơn tuỳ chỉnh: mở đúng loại theo biến thể; loại không có thì báo không thực hiện được', async () => {
+    requestTypeRows = [systemType('s1', 'LEAVE', 'LEAVE', 'Nghỉ phép'), customTypeRow()];
+    render(<RequestsPage />);
+    await allTypeButtons();
+    ask('hrm.custom-request.create', 'r3', {}, 'khong-co');
+    await waitFor(() => expect(results).toHaveLength(1));
+    expect(results[0]).toMatchObject({ requestId: 'r3', outcome: 'unavailable' });
+
+    ask('hrm.custom-request.create', 'r4', { fields: { noi_den: 'Trạm biến áp' } }, 'ct1');
+    await waitFor(() =>
+      expect((screen.getByLabelText(/Nơi đến/) as HTMLInputElement).value).toBe('Trạm biến áp'),
+    );
+    await waitFor(() => expect(submitButton().disabled).toBe(false));
+    fireEvent.click(submitButton());
+    await waitFor(() => expect(results).toHaveLength(2));
+    expect(results[1]).toMatchObject({ requestId: 'r4', outcome: 'saved', label: 'Xin đi muộn' });
+    expect(draftBody('custom')?.payload).toMatchObject({ typeId: 'ct1', fields: { noi_den: 'Trạm biến áp' } });
   });
 });

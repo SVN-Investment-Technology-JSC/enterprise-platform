@@ -147,6 +147,15 @@ import {
   waitingApproverLabel,
 } from '../procedure-progress-view';
 import { RequestThread } from '../ui/approvals/request-thread';
+import { HRM_ASSISTANT_ACTIONS } from '@enterprise-platform/contracts-hrm';
+import {
+  useAssistantAction,
+  type AssistantActionContext,
+} from '@enterprise-platform/feature-module-shell';
+import {
+  assistantRequestPatch,
+  type AssistantRequestKind,
+} from '../assistant-request-draft';
 
 /** Bản nháp đơn do máy chủ trả về khi lưu qua /request-drafts. */
 interface RequestDraft {
@@ -737,7 +746,7 @@ function UnpaidOtBadge() {
 
 export default function RequestsPage() {
   const [editingDraft, setEditingDraft] = useState<RequestDraft | null>(null);
-  const { can } = useHrmPermissions();
+  const { can, loading: permissionsLoading } = useHrmPermissions();
   const canCreateRequest = can('hrm.self.request');
   const [historyPage, setHistoryPage] = useState(1);
   const [showAllTypes, setShowAllTypes] = useState(false);
@@ -1213,6 +1222,8 @@ export default function RequestsPage() {
 
   // Requests list fetched from API
   const [requestsList, setRequestsList] = useState<RequestItem[]>([]);
+  // Danh mục của form tạo đơn (loại nghỉ, loại đơn, dự án) đã tải xong: Trợ lý mới mở form được.
+  const [masterLoaded, setMasterLoaded] = useState(false);
   const [notificationRequestId, setNotificationRequestId] = useState('');
   // Đơn vừa mở từ liên kết ?request=: bỏ một lượt tự chọn đơn đầu tiên và lật tới trang chứa đơn đó.
   const skipAutoSelect = useRef(false);
@@ -1502,7 +1513,10 @@ export default function RequestsPage() {
       }
 
       };
-      if (!opts?.listsOnly) void loadMaster().catch(() => undefined);
+      if (!opts?.listsOnly)
+        void loadMaster()
+          .catch(() => undefined)
+          .finally(() => setMasterLoaded(true));
 
       // 4. Tải mọi danh sách đơn cùng lúc, gồm cả đơn của loại tuỳ chỉnh
       const empQuery = empId ? `?employee_id=${empId}` : '';
@@ -2570,6 +2584,148 @@ export default function RequestsPage() {
     // Chỉ chạy một lần (adjustHandled) khi danh sách đơn có dữ liệu.
   }, [requestsList]);
 
+  // Trợ lý Savina mở form tạo đơn với bản nháp; người dùng xem lại rồi gửi như khi tự nhập.
+  // Phiên Trợ lý của form đang mở: báo "đã gửi" khi gửi xong, "đã huỷ" khi đóng form không gửi.
+  const assistantSession = useRef<AssistantActionContext | null>(null);
+  // Lệnh đến khi hồ sơ, quyền, danh mục chưa tải xong (vừa chuyển trang) thì chờ ở đây.
+  const assistantQueue = useRef<{
+    kind: AssistantRequestKind;
+    draft: Record<string, unknown>;
+    context: AssistantActionContext;
+  } | null>(null);
+  const [assistantTick, setAssistantTick] = useState(0);
+
+  const applyAssistantDraft = (
+    kind: AssistantRequestKind,
+    draft: Record<string, unknown>,
+    fresh: boolean,
+    customType: HrmRequestType | null,
+  ) => {
+    const patch = assistantRequestPatch(kind, draft, {
+      current: fresh ? null : { toDate, customToAt },
+      leaveTypeIds: selectableLeaveTypes.map((t) => t.id),
+      projects: workspaceProjects,
+      customType,
+    });
+    if (patch.fromDate !== undefined) setFromDate(patch.fromDate);
+    if (patch.toDate !== undefined) setToDate(patch.toDate);
+    if (kind !== 'custom') {
+      const [setStart, setEnd] =
+        kind === 'leave'
+          ? [setLeaveStartTime, setLeaveEndTime]
+          : kind === 'ot'
+            ? [setStartTime, setEndTime]
+            : [setTripStartTime, setTripEndTime];
+      // Giờ do Trợ lý điền là giờ người dùng nói: không tự điền lại theo ca.
+      if (kind === 'leave' && (patch.startTime || patch.endTime)) leaveTimesTouched.current = true;
+      if (patch.startTime) setStart(patch.startTime);
+      if (patch.endTime) setEnd(patch.endTime);
+    }
+    if (patch.reasonId !== undefined) setReasonId(patch.reasonId);
+    if (patch.description !== undefined) setDescription(patch.description);
+    if (patch.destination !== undefined) setDestination(patch.destination);
+    if (patch.tripType !== undefined) setTripType(patch.tripType);
+    if (patch.allowOt !== undefined) setAllowOt(patch.allowOt);
+    if (patch.project) {
+      setProjectId(patch.project.id);
+      setProjectCode(patch.project.code);
+      setProjectName(patch.project.name);
+    }
+    if (patch.customFromAt !== undefined) setCustomFromAt(patch.customFromAt);
+    if (patch.customToAt !== undefined) setCustomToAt(patch.customToAt);
+    const customPatch = patch.customValues;
+    if (customPatch) setCustomValues((prev) => ({ ...prev, ...customPatch }));
+  };
+
+  const runAssistantDraft = async (job: NonNullable<typeof assistantQueue.current>) => {
+    const { kind, draft, context } = job;
+    const active = assistantSession.current;
+    // Cùng yêu cầu khi form còn mở: chỉ cập nhật các ô có trong bản nháp mới.
+    if (active?.requestId === context.requestId && isCreateModalOpen) {
+      applyAssistantDraft(kind, draft, false, selectedCustomType);
+      return;
+    }
+    if (!canCreateRequest) {
+      context.report('unavailable', { message: 'Tài khoản không có quyền tạo đơn từ.' });
+      return;
+    }
+    if (!profile.id) {
+      context.report('unavailable', { message: 'Tài khoản chưa liên kết hồ sơ nhân viên.' });
+      return;
+    }
+    if (isCreateModalOpen && !active) {
+      context.report('unavailable', {
+        message: 'Người dùng đang nhập dở một đơn khác; đóng form đó rồi thử lại.',
+      });
+      return;
+    }
+    const card =
+      kind === 'custom'
+        ? requestCatalog.find((c) => c.customType && c.customType.id === context.variant)
+        : requestCatalog.find((c) => c.id === kind && !c.customType);
+    if (!card) {
+      context.report('unavailable', {
+        message:
+          kind === 'custom'
+            ? 'Không tìm thấy loại đơn này hoặc loại đơn đã ngừng sử dụng.'
+            : 'Loại đơn này đang tắt trong cấu hình của công ty.',
+      });
+      return;
+    }
+    if (active) {
+      assistantSession.current = null;
+      active.report('cancelled');
+    }
+    await handleOpenCreateForType(card.id, card.title, card.customType);
+    assistantSession.current = context;
+    applyAssistantDraft(kind, draft, true, card.customType);
+  };
+
+  const queueAssistantDraft =
+    (kind: AssistantRequestKind) =>
+    (draft: Partial<Record<string, unknown>>, context: AssistantActionContext) => {
+      const queued = assistantQueue.current;
+      if (queued?.context.requestId === context.requestId) {
+        queued.draft = { ...queued.draft, ...draft };
+      } else {
+        queued?.context.report('cancelled');
+        assistantQueue.current = { kind, draft, context };
+      }
+      setAssistantTick((tick) => tick + 1);
+    };
+  useAssistantAction(HRM_ASSISTANT_ACTIONS.createLeaveRequest.key, queueAssistantDraft('leave'));
+  useAssistantAction(HRM_ASSISTANT_ACTIONS.createOtRequest.key, queueAssistantDraft('ot'));
+  useAssistantAction(
+    HRM_ASSISTANT_ACTIONS.createBusinessTripRequest.key,
+    queueAssistantDraft('business_trip'),
+  );
+  useAssistantAction(HRM_ASSISTANT_ACTIONS.createCustomRequest.key, queueAssistantDraft('custom'));
+
+  useEffect(() => {
+    const job = assistantQueue.current;
+    // Hồ sơ không tải được (chưa liên kết nhân viên) thì không chờ danh mục: báo lại cho Trợ lý ngay.
+    if (!job || loading || permissionsLoading || (!masterLoaded && profile.id)) return;
+    assistantQueue.current = null;
+    void runAssistantDraft(job);
+    // Chỉ chạy khi có lệnh mới hoặc dữ liệu của form vừa tải xong; hàm luôn đọc state của lần render này.
+  }, [assistantTick, loading, permissionsLoading, masterLoaded, profile.id]);
+
+  // Form đóng mà không gửi (huỷ, bấm ra ngoài, lưu nháp): báo Trợ lý.
+  useEffect(() => {
+    if (isCreateModalOpen) return;
+    const session = assistantSession.current;
+    if (!session) return;
+    assistantSession.current = null;
+    session.report('cancelled');
+  }, [isCreateModalOpen]);
+
+  /** Phiên Trợ lý của form đang mở (nếu có) để báo kết quả gửi đơn; form đóng sau đó không báo "huỷ" nữa. */
+  const takeAssistantSession = () => {
+    const session = assistantSession.current;
+    assistantSession.current = null;
+    return session;
+  };
+
   // Submit đơn theo đúng bảng nghiệp vụ riêng của từng domain (Mục 6 trong PLAN)
   const handleSubmitRequest = async (saveAsDraft = false) => {
     if (!saveAsDraft) {
@@ -3216,7 +3372,27 @@ export default function RequestsPage() {
       }
 
       if (res && res.ok) {
+        const assistant = saveAsDraft ? null : takeAssistantSession();
         setIsCreateModalOpen(false);
+        if (assistant) {
+          // Thân phản hồi chưa được đọc ở đâu khác: lấy mã đơn vừa tạo để Trợ lý mở lại.
+          const created = (await res.json().catch(() => null)) as { data?: { id?: unknown } } | null;
+          const id = typeof created?.data?.id === 'string' ? created.data.id : undefined;
+          const period =
+            fromDate && toDate && toDate !== fromDate
+              ? `${formatVnDate(fromDate)} - ${formatVnDate(toDate)}`
+              : formatVnDate(fromDate);
+          assistant.report('saved', {
+            ...(id ? { id, href: `/modules/hrm/requests?request=${encodeURIComponent(id)}` } : {}),
+            label: [
+              selectedTypeTitle,
+              selectedCatalogId === 'custom' ? '' : period,
+              submittedCount > 1 ? `(${submittedCount} đơn)` : '',
+            ]
+              .filter((part) => part && part !== '----')
+              .join(' '),
+          });
+        }
         setReason('');
         setReasonId('');
         setDescription('');
@@ -3257,6 +3433,7 @@ export default function RequestsPage() {
         } | null;
         if (failure && failure.sent > 0) {
           // Các khoảng trước đã được gửi thành đơn: đóng form để không gửi trùng, báo rõ khoảng lỗi.
+          takeAssistantSession()?.report('failed', { message: errMsg });
           notifyFormError(
             `${rangeLabel(failure.index, failure.kind)} gửi không thành công`,
             `${errMsg} Đã gửi thành công ${failure.sent} khoảng trước đó; kiểm tra danh sách đơn rồi tạo lại khoảng còn lại.`,
