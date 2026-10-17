@@ -1,7 +1,14 @@
 'use client';
 
+import { ASSISTANT_MESSAGE, isAssistantFrameMessage } from '@enterprise-platform/contracts-assistant';
 import { authFetch } from '@enterprise-platform/shared-ui';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  dispatchAssistantAction,
+  readAssistantHandoff,
+  resumeAssistantAction,
+  setAssistantResultSink,
+} from './assistant-actions';
 import styles from './assistant-launcher.module.scss';
 import { ASSISTANT_MODULE_KEY } from './launcher-only-modules';
 
@@ -39,6 +46,18 @@ function loadAssistantEnabled(): Promise<boolean> {
   return assistantEnabled;
 }
 
+/** Mã người dùng của phiên, để bản nháp cất qua chuyển trang chỉ dùng lại cho đúng người đó. */
+async function loadUserId(): Promise<string | undefined> {
+  try {
+    const response = await authFetch('/api/auth/v1/me', { cache: 'no-store' });
+    if (!response.ok) return undefined;
+    const principal = (await response.json()) as { userId?: string };
+    return principal.userId;
+  } catch {
+    return undefined;
+  }
+}
+
 function currentPage(): string {
   return window.location.pathname + window.location.search + window.location.hash;
 }
@@ -61,6 +80,7 @@ export function AssistantLauncher({ className }: AssistantLauncherProps) {
   const [open, setOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
   const frameRef = useRef<HTMLIFrameElement>(null);
+  const userIdRef = useRef<string | undefined>(undefined);
 
   useEffect(() => {
     let active = true;
@@ -98,15 +118,50 @@ export function AssistantLauncher({ className }: AssistantLauncherProps) {
     };
   }, [enabled, toggle]);
 
-  // Trợ lý báo đóng (nút X trong ngăn); chỉ nhận tin từ chính khung chat cùng tên miền.
+  // Bản nháp từ trang trước (Trợ lý chuyển trang để mở form): mở lại ngăn chat và giao cho màn hình của thao tác.
+  useEffect(() => {
+    if (!enabled) return;
+    const handoff = readAssistantHandoff();
+    if (!handoff) return;
+    void loadUserId().then((userId) => {
+      userIdRef.current = userId;
+      if (!userId || userId !== handoff.userId) return;
+      setMounted(true);
+      setOpen(true);
+      resumeAssistantAction(handoff.request);
+    });
+  }, [enabled]);
+
+  useEffect(() => {
+    if (mounted && !userIdRef.current) void loadUserId().then((userId) => (userIdRef.current ??= userId));
+  }, [mounted]);
+
+  // Tin từ khung chat: đóng ngăn, sẵn sàng nhận kết quả, mở form của phân hệ. Chỉ nhận tin từ chính khung chat cùng
+  // tên miền, và chỉ khi đúng hình dạng.
   useEffect(() => {
     if (!mounted) return;
     const onMessage = (event: MessageEvent) => {
       if (event.origin !== window.location.origin || event.source !== frameRef.current?.contentWindow) return;
-      if (event.data?.type === 'savina-assistant:close') setOpen(false);
+      const message: unknown = event.data;
+      if (!isAssistantFrameMessage(message)) return;
+      if (message.type === ASSISTANT_MESSAGE.close) setOpen(false);
+      else if (message.type === ASSISTANT_MESSAGE.ready)
+        setAssistantResultSink((result) =>
+          frameRef.current?.contentWindow?.postMessage(
+            { type: ASSISTANT_MESSAGE.result, ...result },
+            window.location.origin,
+          ),
+        );
+      else if (message.type === ASSISTANT_MESSAGE.action) {
+        const { type: _type, ...request } = message;
+        dispatchAssistantAction(request, userIdRef.current);
+      }
     };
     window.addEventListener('message', onMessage);
-    return () => window.removeEventListener('message', onMessage);
+    return () => {
+      window.removeEventListener('message', onMessage);
+      setAssistantResultSink(undefined);
+    };
   }, [mounted]);
 
   // Module chuyển màn bằng hash hoặc ?view=: báo Trợ lý trang hiện tại mỗi lần mở ngăn và khi đổi trang.

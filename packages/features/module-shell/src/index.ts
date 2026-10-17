@@ -1,4 +1,5 @@
 export * from './lib/module-shell';
+export * from './lib/assistant-actions';
 export * from './lib/assistant-launcher';
 export * from './lib/launcher-only-modules';
 export * from './lib/module-shell.types';
