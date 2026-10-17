@@ -5,10 +5,11 @@ import {
 import type { IntegrationEventEnvelope } from '@enterprise-platform/contracts-integration';
 import {
   parseRealtimeEventEnvelope,
+  type AuthorizationChangedSignal,
   type ProcedureCommentSignal,
   type WorkspaceChatSignal,
 } from '@enterprise-platform/contracts-realtime';
-import { RealtimeGateway } from './realtime.gateway';
+import { RealtimeGateway, tenantRoom } from './realtime.gateway';
 import { procedureRoom } from './realtime-procedure-rooms';
 
 export class RealtimeDeliveryHandler {
@@ -79,6 +80,24 @@ export class RealtimeDeliveryHandler {
       });
       return;
     }
+    if (event.type === 'core.authorization.changed') {
+      // Trigger trong DB của công ty phát mỗi lần vai trò, quyền, người dùng đổi; báo mọi phiên của công ty tự hỏi lại
+      // quyền của chính mình (hàng phím Trợ lý, ô chuyển phân hệ).
+      const signal = authorizationChanged(event.payload);
+      await this.withActiveTenant(event.tenantId, () =>
+        this.gateway.emitRoomEvent(tenantRoom(event.tenantId), {
+          id: event.id,
+          event: 'authorization.changed',
+          version: 1,
+          tenantId: event.tenantId,
+          userId: '',
+          sequence: 1,
+          occurredAt: event.occurredAt,
+          data: signal,
+        }),
+      );
+      return;
+    }
     if (event.type === 'identity.session.revoked') {
       const payload = sessionRevocation(event.payload);
       await this.gateway.disconnectSession(payload.sessionId, {
@@ -111,6 +130,7 @@ export class RealtimeDeliveryConsumer {
           'identity.session.revoked',
           'workspace.chat.changed',
           'procedure.comment.posted',
+          'core.authorization.changed',
         ],
         prefetch: 64,
       });
@@ -205,4 +225,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function text(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
+function authorizationChanged(payload: unknown): AuthorizationChangedSignal {
+  const revision = (payload as { revision?: unknown } | null)?.revision;
+  if (typeof revision !== 'number' && typeof revision !== 'string') {
+    throw new PermanentMessageError('core.authorization.changed thiếu revision.');
+  }
+  return { revision: String(revision) };
 }

@@ -87,6 +87,11 @@ export const TENANT_CORE_MIGRATIONS: readonly TenantModuleMigration[] = [
     version: '0011-module-access-from-actions',
     path: 'tenant/core/0011-module-access-from-actions.sql',
   },
+  {
+    // Thay hàm trigger của 0005-tenant-rbac; cần outbox của tenant/0001-integration.
+    version: '0012-authorization-changed-event',
+    path: 'tenant/core/0012-authorization-changed-event.sql',
+  },
 ];
 
 export const TENANT_MODULE_MIGRATIONS: Readonly<

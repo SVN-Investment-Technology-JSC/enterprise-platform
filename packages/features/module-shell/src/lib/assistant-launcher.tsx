@@ -1,7 +1,7 @@
 'use client';
 
 import { ASSISTANT_MESSAGE, isAssistantFrameMessage } from '@enterprise-platform/contracts-assistant';
-import { authFetch } from '@enterprise-platform/shared-ui';
+import { authFetch, useRealtimeEvent } from '@enterprise-platform/shared-ui';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   dispatchAssistantAction,
@@ -81,6 +81,22 @@ export function AssistantLauncher({ className }: AssistantLauncherProps) {
   const [mounted, setMounted] = useState(false);
   const frameRef = useRef<HTMLIFrameElement>(null);
   const userIdRef = useRef<string | undefined>(undefined);
+  const refreshTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  // Quản trị đổi vai trò hay quyền trong công ty: báo khung chat lấy lại hàng phím (gộp các lần đổi liền nhau).
+  useRealtimeEvent('authorization.changed', () => {
+    if (!mounted) return;
+    clearTimeout(refreshTimer.current);
+    refreshTimer.current = setTimeout(
+      () =>
+        frameRef.current?.contentWindow?.postMessage(
+          { type: ASSISTANT_MESSAGE.refresh },
+          window.location.origin,
+        ),
+      2000,
+    );
+  });
+  useEffect(() => () => clearTimeout(refreshTimer.current), []);
 
   useEffect(() => {
     let active = true;
