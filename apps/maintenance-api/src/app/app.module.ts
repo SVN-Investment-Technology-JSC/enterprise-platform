@@ -1,4 +1,6 @@
+import { MAINTENANCE_ASSISTANT_ACTIONS } from '@enterprise-platform/contracts-maintenance';
 import { MaintenanceModule } from '@enterprise-platform/module-maintenance';
+import { assistantActionsController } from '@enterprise-platform/platform-module-access';
 import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { AppController } from './app.controller';
@@ -13,6 +15,7 @@ import { TenantOrganizationContextClient } from './tenant-organization-context.c
     AppController,
     MaintenanceIntegrationController,
     MaintenanceDataImportController,
+    assistantActionsController('maintenance', MAINTENANCE_ASSISTANT_ACTIONS),
   ],
   providers: [
     TenantOrganizationContextClient,

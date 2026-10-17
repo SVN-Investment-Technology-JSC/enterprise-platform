@@ -17,7 +17,8 @@ import {
   type TransportRange,
 } from '@enterprise-platform/shared-ui';
 import { Paperclip, Upload, X } from 'lucide-react';
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import type { IncidentFormValues } from '../assistant-incident-draft';
 import { loadFleetAvailability } from '../maintenance-api';
 import styles from './maintenance-history.module.scss';
 
@@ -37,6 +38,8 @@ export function IncidentForm({
   busy,
   onCancel,
   onSubmit,
+  initialValues,
+  initialValuesRevision = 0,
 }: {
   assets: readonly MaintenanceMatrixRow[];
   catalog: readonly MaintenanceProcedureCatalogEntry[];
@@ -44,13 +47,28 @@ export function IncidentForm({
   busy: boolean;
   onCancel: () => void;
   onSubmit: (input: CreateMaintenanceIncidentRequest, files?: File[]) => Promise<void> | void;
+  /** Bản nháp điền sẵn (Trợ lý); chỉ ô có mặt mới được điền. */
+  initialValues?: IncidentFormValues;
+  /** Tăng khi có bản nháp mới cho form đang mở: các ô có trong `initialValues` được ghi đè, ô khác giữ nguyên. */
+  initialValuesRevision?: number;
 }) {
-  const [assetCode, setAssetCode] = useState('');
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
-  const [priority, setPriority] = useState<MaintenancePriority>('High');
-  const [procedureDefinitionId, setProcedureDefinitionId] = useState('');
-  const [assigneeId, setAssigneeId] = useState('');
+  const [assetCode, setAssetCode] = useState(initialValues?.assetCode ?? '');
+  const [title, setTitle] = useState(initialValues?.title ?? '');
+  const [description, setDescription] = useState(initialValues?.description ?? '');
+  const [priority, setPriority] = useState<MaintenancePriority>(initialValues?.priority ?? 'High');
+  const [procedureDefinitionId, setProcedureDefinitionId] = useState(initialValues?.procedureDefinitionId ?? '');
+  const [assigneeId, setAssigneeId] = useState(initialValues?.assigneeId ?? '');
+  const appliedRevision = useRef(initialValuesRevision);
+  useEffect(() => {
+    if (!initialValues || appliedRevision.current === initialValuesRevision) return;
+    appliedRevision.current = initialValuesRevision;
+    if (initialValues.assetCode !== undefined) setAssetCode(initialValues.assetCode);
+    if (initialValues.title !== undefined) setTitle(initialValues.title);
+    if (initialValues.description !== undefined) setDescription(initialValues.description);
+    if (initialValues.priority !== undefined) setPriority(initialValues.priority);
+    if (initialValues.procedureDefinitionId !== undefined) setProcedureDefinitionId(initialValues.procedureDefinitionId);
+    if (initialValues.assigneeId !== undefined) setAssigneeId(initialValues.assigneeId);
+  }, [initialValues, initialValuesRevision]);
   const [attachments, setAttachments] = useState<{ file: File; name: string; size: string }[]>([]);
   const [formError, setFormError] = useState<string>();
 
