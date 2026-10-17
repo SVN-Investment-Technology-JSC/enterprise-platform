@@ -34,6 +34,19 @@ jobs:
       - name: Block dev login presets
         run: node tools/check-no-dev-login-presets.mjs
 
+      # Migration đã merge thì không sửa, xoá, đổi tên; file mới phải đăng ký. Chạy cả với PR chỉ có file .sql.
+      - name: Block edits to merged migrations
+        if: github.event_name == 'pull_request'
+        env:
+          MIGRATIONS_BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          git fetch --no-tags --depth=1 origin "$MIGRATIONS_BASE"
+          node tools/check-migrations.mjs
+
+      # .claude/skills là bản sao của .agents/skills cho Claude Code, sinh bằng tools/sync-agent-skills.mjs.
+      - name: Check agent skills mirror
+        run: node tools/sync-agent-skills.mjs --check
+
       - name: Classify changed files
         id: filter
         uses: dorny/paths-filter@v3
@@ -107,6 +120,10 @@ jobs:
 
       - name: Verify Nx workspace synchronization
         run: pnpm nx sync:check
+
+      # Không thẻ <select> gốc, không emoji (AGENTS.md). Quét mọi project, kể cả project chưa có cấu hình ESLint.
+      - name: Check UI rules
+        run: node tools/check-ui-rules.mjs
 
       - name: Restore Nx task cache
         uses: actions/cache@v4
