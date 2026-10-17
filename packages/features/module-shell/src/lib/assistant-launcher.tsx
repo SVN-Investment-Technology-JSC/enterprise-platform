@@ -3,11 +3,16 @@
 import { authFetch } from '@enterprise-platform/shared-ui';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import styles from './assistant-launcher.module.scss';
+import { ASSISTANT_MODULE_KEY } from './launcher-only-modules';
 
-/** Khóa của phân hệ Trợ lý trong danh mục phân hệ. */
-export const ASSISTANT_MODULE_KEY = 'assistant';
 /** Giao diện chat (savina-agent) mà gateway chuyển về; `embed=1` là bản gọn cho ngăn bên phải. */
 const ASSISTANT_URL = '/modules/assistant/';
+const OPEN_EVENT = 'savina-assistant:open';
+
+/** Mở ngăn Trợ lý của khung chung (ví dụ từ nút "Truy cập" ở trang Ứng dụng phân hệ). */
+export function openAssistant(): void {
+  window.dispatchEvent(new Event(OPEN_EVENT));
+}
 
 interface CatalogEntry {
   readonly key: string;
@@ -72,7 +77,7 @@ export function AssistantLauncher({ className }: AssistantLauncherProps) {
     setOpen((value) => !value);
   }, []);
 
-  // Ctrl+/ mở hoặc đóng ngăn chat.
+  // Ctrl+/ mở hoặc đóng ngăn chat; openAssistant() thì chỉ mở.
   useEffect(() => {
     if (!enabled) return;
     const onKey = (event: KeyboardEvent) => {
@@ -81,8 +86,16 @@ export function AssistantLauncher({ className }: AssistantLauncherProps) {
         toggle();
       }
     };
+    const onOpen = () => {
+      setMounted(true);
+      setOpen(true);
+    };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    window.addEventListener(OPEN_EVENT, onOpen);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener(OPEN_EVENT, onOpen);
+    };
   }, [enabled, toggle]);
 
   // Trợ lý báo đóng (nút X trong ngăn); chỉ nhận tin từ chính khung chat cùng tên miền.
