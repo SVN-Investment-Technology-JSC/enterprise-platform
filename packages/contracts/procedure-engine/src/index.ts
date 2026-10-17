@@ -5,3 +5,4 @@ export * from './lib/procedure-flow.js';
 export * from './lib/procedure-condition.js';
 export * from './lib/procedure-host-attributes.js';
 export * from './lib/procedure-finance-step.js';
+export * from './lib/assistant-actions.js';

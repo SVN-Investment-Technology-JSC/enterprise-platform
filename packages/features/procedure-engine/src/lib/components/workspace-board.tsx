@@ -33,6 +33,7 @@ import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, ChevronLeft, ChevronRight, Download, FileText, Plus, Search, X } from 'lucide-react';
+import type { StartPrefillValues } from '../assistant-start-draft';
 import type { AssetCatalogItem, MaterialCatalogItem } from '../procedure-api';
 import {
   loadProjectPeople,
@@ -289,6 +290,8 @@ export function WorkspaceBoard({
   onRefreshInstance,
   handoffTitle,
   handoff,
+  prefill,
+  onCreatingChange,
   canReverse = false,
   onReverse,
   headSlot,
@@ -343,6 +346,13 @@ export function WorkspaceBoard({
   onRefreshInstance?: (instanceId: string) => void | Promise<void>;
   handoffTitle?: string;
   handoff?: StartHandoff;
+  /**
+   * Bản nháp của Trợ lý: mở form tạo đơn và điền các ô có mặt. `revision` mới thì áp lại; `reset` xoá các ô
+   * của lần trước trước khi điền (yêu cầu mới), không có `reset` thì chỉ ghi đè ô có trong bản nháp.
+   */
+  prefill?: { readonly revision: number; readonly reset: boolean; readonly values: StartPrefillValues };
+  /** Báo form tạo đơn mở hay đóng (kể cả khi bảng bị gỡ khỏi màn). */
+  onCreatingChange?: (open: boolean) => void;
   /** Quản trị viên Quy trình: được huỷ hiệu lực hồ sơ đã hoàn thành. */
   canReverse?: boolean;
   onReverse?: (instanceId: string, input: ReverseProcedureInstanceRequest) => Promise<void>;
@@ -513,6 +523,41 @@ export function WorkspaceBoard({
       }
     }
   }, [handoffTitle, handoff, canCreateInstances]);
+
+  const appliedPrefill = useRef<number>(undefined);
+  useEffect(() => {
+    if (!prefill || !canCreateInstances || appliedPrefill.current === prefill.revision) return;
+    appliedPrefill.current = prefill.revision;
+    const { values } = prefill;
+    if (prefill.reset) {
+      setJobTitle('');
+      setSelectedCreateDefId(undefined);
+      setProjectId('');
+      setItemDescription('');
+    }
+    if (values.title !== undefined) setJobTitle(values.title);
+    if (values.definitionId !== undefined) setSelectedCreateDefId(values.definitionId);
+    if (values.projectId !== undefined) setProjectId(values.projectId);
+    if (values.description !== undefined) setItemDescription(values.description);
+    const start = splitLocalDateTime(values.startDueAt);
+    if (start) {
+      setStartDate(start.date);
+      setStartTime(start.time);
+    }
+    const end = splitLocalDateTime(values.endDueAt);
+    if (end) {
+      setEndDate(end.date);
+      setEndTime(end.time);
+    }
+    setCreating(true);
+  }, [prefill, canCreateInstances]);
+
+  const creatingListener = useRef(onCreatingChange);
+  creatingListener.current = onCreatingChange;
+  useEffect(() => {
+    creatingListener.current?.(creating);
+  }, [creating]);
+  useEffect(() => () => creatingListener.current?.(false), []);
 
   const published = definitions.filter((item) => item.status === 'published');
   const roleLabels = useMemo(() => subjectRoleLabels(organization), [organization]);
