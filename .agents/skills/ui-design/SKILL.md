@@ -1,6 +1,6 @@
 ---
 name: ui-design
-description: "Quy chuẩn thiết kế giao diện UI/UX cho Enterprise Platform. Áp dụng shadcn/ui + Tailwind CSS cho hầu hết các UI component cơ bản, cài đặt component mới bằng 'pnpm dlx shadcn@latest add <component>', và sử dụng Ant Design (antd) cho các component phức tạp như Bảng (Table/Data Grid), Tree, Cascader. Tối ưu trải nghiệm cho tỉ lệ 16:9, Dark Enterprise Theme, responsive và accessibility."
+description: "Quy chuẩn thiết kế giao diện UI/UX cho Enterprise Platform. Áp dụng shadcn/ui + Tailwind CSS cho hầu hết các UI component cơ bản, cài đặt component mới bằng 'pnpm dlx shadcn@latest add <component>', và sử dụng Ant Design (antd) cho các component phức tạp như Bảng (Table/Data Grid), Tree, Cascader. Tối ưu trải nghiệm cho tỉ lệ 16:9, khung sáng ModuleShell, responsive và accessibility."
 ---
 
 # UI/UX Design & Component Guidelines
@@ -21,10 +21,11 @@ Hệ thống tuân thủ kiến trúc phân tầng UI chuẩn:
 ### 2.1 Thành phần cơ bản & tương tác: Ưu tiên `shadcn/ui` + `Tailwind CSS`
 Sử dụng các component từ shadcn/ui cho hầu hết giao diện:
 - **Layout & Containers**: `Card`, `Sheet` (Drawer), `Dialog` (Modal), `Tabs`, `Accordion`, `Separator`, `ScrollArea`.
-- **Form Controls**: `Button`, `Input`, `Textarea`, `Select`, `Checkbox`, `RadioGroup`, `Switch`, `Slider`, `Form`.
+- **Form Controls**: `Button`, `Input`, `Textarea`, `Checkbox`, `RadioGroup`, `Switch`, `Slider`, `Form`. Ô chọn giá trị luôn là `SearchableSelect` của `@enterprise-platform/shared-ui` (mục 5.3.1), không dùng `Select` của shadcn hay thẻ `<select>`.
 - **Navigation & Feedback**: `DropdownMenu`, `NavigationMenu`, `Breadcrumb`, `Pagination`, `Tooltip`, `Popover`, `Toast`/`Sonner`, `Alert`, `Badge`, `Progress`, `Skeleton`, `Avatar`.
 
 #### Cách cài đặt component shadcn/ui khi chưa có:
+Cấu hình shadcn (`components.json`) chỉ có ở `apps/web`, nên chạy lệnh trong thư mục đó. Màn hình trong `packages/features/*` ưu tiên component có sẵn ở `@enterprise-platform/shared-ui`.
 ```bash
 pnpm dlx shadcn@latest add <component-name>
 ```
@@ -33,7 +34,6 @@ pnpm dlx shadcn@latest add <component-name>
 pnpm dlx shadcn@latest add button
 pnpm dlx shadcn@latest add dialog
 pnpm dlx shadcn@latest add dropdown-menu
-pnpm dlx shadcn@latest add select
 pnpm dlx shadcn@latest add table
 pnpm dlx shadcn@latest add sheet
 pnpm dlx shadcn@latest add tabs
@@ -72,8 +72,8 @@ Sử dụng `ConfigProvider` của antd để đồng bộ design token (màu s�
    - Tận dụng màn hình ngang 16:9 (1920×1080, 1600×900) với bố cục 2 cột (Cột trái ~40-46% Master list / Cột phải ~54-60% Detail & Action Console).
    - Vùng cuộn nội bộ độc lập (`height: calc(100vh - headerHeight)`) để tránh cuộn toàn trang.
 2. **Enterprise Color Palette**:
-   - Primary: Sapphire / Cobalt Blue (`#2563eb`, `#1d4ed8`).
-   - Dark Accent: `#09192e` - `#0d223f` cho Sidebar và Header.
+   - Nút chính: Sapphire / Cobalt Blue (`#2563eb`, `#1d4ed8`).
+   - Khung chung là ModuleShell sáng, dùng token `--ep-*` (`packages/features/module-shell`): nền `--ep-bg` `#f6f7f9`, mặt thẻ `--ep-surface` `#ffffff`, chữ `--ep-text` `#18181b`, màu nhấn vàng `--ep-accent` `#ffc90a` cho mục đang chọn và avatar, liên kết `--ep-link` `#1d4ed8`. Dùng token thay vì viết cứng mã màu khi style phần nằm trong khung.
    - Statuses: Emerald (Thành công), Crimson (Lỗi/Khẩn cấp/SLA), Amber (Chờ duyệt), Violet (Khởi tạo).
 
 ### 3.1. Quy Chuẩn Thanh Cuộn Tinh Tế & Ẩn Hiện Khi Rê Chuột (Hover-Reveal Scrollbar)
@@ -209,12 +209,10 @@ Sử dụng `ConfigProvider` của antd để đồng bộ design token (màu s�
 
 Để toàn bộ ứng dụng đạt được sự đồng nhất và tối giản từ popup đến từng chi tiết màn hình, các element còn lại được quy chuẩn như sau:
 
-### 5.1. Thanh điều hướng dọc (Rail Sidebar / Menubar)
-- **Bảng màu**: Dark Navy phong cách Enterprise (`#091426` đến `#0d2450`), viền phân cách mờ `rgba(255, 255, 255, 0.08)`.
-- **Khu vực chân Menubar (`railFoot`)**:
-  - Đặt các nút điều hướng cốt lõi: **Nút "← Trang chủ"** và **Nút icon "Đăng xuất"** trên cùng một hàng ngang (`display: flex`, `align-items: center`, `gap: 0.45rem`).
-  - **Nút Đăng xuất**: Dạng icon compact `34×34px`, border mờ đỏ cảnh báo nhẹ `rgba(239, 68, 68, 0.25)`, background `rgba(239, 68, 68, 0.08)`, chữ `#fca5a5`; khi hover chuyển sang nền đỏ mờ rõ nét và viền sáng hơn.
-  - Không đặt nút đăng xuất hay quay về trang chủ trên TopBar để tránh phân mảnh trải nghiệm.
+### 5.1. Khung chung (ModuleShell)
+- Mọi phân hệ bọc màn hình trong `ModuleShell` với `appearance="light"` (`@enterprise-platform/feature-module-shell`): thanh bên sáng, không có thanh trên. Không tự dựng sidebar, topbar hay nút đăng xuất riêng.
+- Thanh bên đã có sẵn: chuyển phân hệ, Trợ lý và Thông báo, nút Trang chủ, thông tin người dùng và Đăng xuất ở chân. Phân hệ chỉ khai báo mục điều hướng của mình.
+- Thu gọn được về dạng rail; trên màn hẹp thanh bên chuyển lên trên nội dung.
 
 ### 5.2. Bảng dữ liệu & Ma trận (Data Grid / Enterprise Table / Matrix)
 - **Header & Ô góc cố định (`th.corner`)**:
@@ -249,7 +247,7 @@ Toàn bộ các bảng danh sách dữ liệu trong hệ thống được chuẩ
    - Đặt cố định ở đáy bảng (`pagerRow` / `tableFooter`), nền xám sáng thanh nhã `#f8fafc`, viền ngăn cách trên `1px solid #e2e8f0`, `padding: 10px 14px`, `font-size: 12px`, `color: #64748b`.
    - **Bên trái (Left Info & Page Size)**:
      - Dòng thống kê: `Hiển thị [từ - đến] / [tổng số] [tên thực thể]` (VD: `Hiển thị 1–15 / 120 hồ sơ`).
-     - Dropdown chọn số lượng hiển thị ngay cạnh: `Hiển thị: [15 | 30 | 45 | 60] / trang` (select compact `padding: 2px 8px`, `border: 1px solid #cbd5e1`, `border-radius: 4px`, `font-size: 11.5px`).
+     - Ô chọn số lượng hiển thị ngay cạnh: `Hiển thị: [15 | 30 | 45 | 60] / trang` (`SearchableSelect` cỡ gọn: `padding: 2px 8px`, `border: 1px solid #cbd5e1`, `border-radius: 4px`, `font-size: 11.5px`).
    - **Bên phải (Right Pager Controls)**:
      - Nhóm nút điều hướng phân trang: `[← Trước]` (nút outline bo góc `6px`, `padding: 4px 10px`, hover viền `#2563eb`) → `[Trang hiện tại / Tổng số trang]` (VD: `1 / 8`, `font-weight: 700`, `color: #0f172a`) → `[Sau →]`.
    - **Lợi ích trải nghiệm**: Giao diện cực kỳ gọn gàng, không bị rối bởi hàng loạt số trang dài dòng, trực quan trên mọi kích thước màn hình và tối ưu hiệu năng render.
@@ -308,4 +306,4 @@ Toàn bộ các bảng danh sách dữ liệu trong hệ thống được chuẩ
 | Xem Nhật ký, Lịch sử, Trao đổi, Tệp hồ sơ | **Drawer** | Sheet (shadcn) / Drawer (antd) |
 | Tạo mới hồ sơ / Form nhập liệu | **Minimal Popup Form** | `MinimalPopupForm` (@enterprise-platform/shared-ui) |
 | Bảng ma trận ma trận RACI / Lịch bảo trì | **Matrix Data Grid** | Table Header đa tầng tích hợp bộ lọc góc `th.corner` |
-| Điều hướng & Đăng xuất hệ thống | **Menubar Rail Foot** | Cặp nút Trang chủ + Icon Đăng xuất chân sidebar |
+| Điều hướng & Đăng xuất hệ thống | **ModuleShell** | Thanh bên sáng dùng chung (`appearance="light"`) |

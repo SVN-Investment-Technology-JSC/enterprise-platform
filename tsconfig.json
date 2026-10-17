@@ -188,6 +188,9 @@
     },
     {
       "path": "./apps/shared-web"
+    },
+    {
+      "path": "./packages/contracts/assistant"
     }
   ]
 }
