@@ -72,4 +72,9 @@ describe('workspace module capabilities', () => {
     const { guard, context } = setup(['workspace.read'], '/projects');
     await expect(guard.canActivate(context)).rejects.toMatchObject({ status: 403 });
   });
+
+  it('ai vào được Workspace cũng đọc được danh mục thao tác Trợ lý', async () => {
+    const { guard, context } = setup(['workspace.read'], '/assistant/actions', 'GET');
+    await expect(guard.canActivate(context)).resolves.toBe(true);
+  });
 });
