@@ -60,7 +60,7 @@ for (const path of changed) {
     problems.push(`${path}: đã xoá hoặc đổi tên. Migration đã merge phải giữ nguyên tên và nội dung.`);
     continue;
   }
-  const before = normalize(git('show', `${base}:${path}`));
+  const before = normalize(git('cat-file', 'blob', `${base}:${path}`));
   const after = normalize(readFileSync(join(root, path), 'utf8'));
   if (before !== after)
     problems.push(
