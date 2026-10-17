@@ -16,12 +16,19 @@ import {
   type ShiftWindow,
 } from '../domain/attendance-calculation.js';
 import {
+  coveredMinutesOf,
   resolveDayOutcome,
   type CoveredInterval,
   type DayShiftBounds,
 } from '../domain/timesheet-day.js';
 import { applyScheduleDayKind } from '../domain/work-schedule.js';
-import { boardStandardWorkdays, standardWorkSetting } from '../domain/standard-workdays.js';
+import {
+  dayCapacityUnits,
+  dayWorkUnits,
+  DEFAULT_MONTH_STANDARD,
+  monthStandardSetting,
+  monthStandardWorkdays,
+} from '../domain/standard-workdays.js';
 import {
   effectiveDayKind,
   isUnassignedSunday,
@@ -340,6 +347,17 @@ export function computeBoardDay(input: BoardDayInput): HrmBoardDay {
   const anomalies = calc.anomalies
     .filter((a) => !(isToday && a === 'MISSING_OUT'))
     .filter((a) => !(future && a === 'NO_SHIFT'));
+  const tripInputs = input.tripIds.map((_, i) => {
+    const interval = input.tripIntervals?.[i] ?? null;
+    const dayStartMs = zonedMs(date, '00:00:00', timezone);
+    const dayEndMs = zonedMs(addDays(date, 1), '00:00:00', timezone);
+    return {
+      interval,
+      dayMinutes: interval
+        ? Math.max(0, Math.round((Math.min(interval.endMs, dayEndMs) - Math.max(interval.startMs, dayStartMs)) / 60000))
+        : null,
+    };
+  });
   const outcome = resolveDayOutcome({
     off,
     holiday,
@@ -359,17 +377,7 @@ export function computeBoardDay(input: BoardDayInput): HrmBoardDay {
       legacy: l.legacy,
     })),
     hasOt: input.ot.length > 0,
-    trips: input.tripIds.map((_, i) => {
-      const interval = input.tripIntervals?.[i] ?? null;
-      const dayStartMs = zonedMs(date, '00:00:00', timezone);
-      const dayEndMs = zonedMs(addDays(date, 1), '00:00:00', timezone);
-      return {
-        interval,
-        dayMinutes: interval
-          ? Math.max(0, Math.round((Math.min(interval.endMs, dayEndMs) - Math.max(interval.startMs, dayStartMs)) / 60000))
-          : null,
-      };
-    }),
+    trips: tripInputs,
   });
   const paid = outcome.paidMinutes;
   const issues = outcome.issues.map((a) => ANOMALY_NAMES[a] ?? a);
@@ -401,7 +409,8 @@ export function computeBoardDay(input: BoardDayInput): HrmBoardDay {
     ...input.tripIds.map((id, i) => ({
       kind: 'TRIP' as const,
       id,
-      minutes: null,
+      // Số phút ca mà riêng đơn công tác này bao phủ (nửa ngày công tác: nửa ca; cả ngày: cả ca).
+      minutes: window ? coveredMinutesOf(boundsOfWindow(window), scheduled, [], [tripInputs[i]]).minutes : null,
       label: input.tripLabels?.[i] ?? null,
     })),
     ...input.ot
@@ -432,7 +441,7 @@ export function computeBoardDay(input: BoardDayInput): HrmBoardDay {
     scheduledMinutes: off ? 0 : scheduled,
     workedMinutes: calc.workedMinutes,
     paidMinutes: paid,
-    workdayUnits: scheduled ? round2(paid / scheduled) : 0,
+    workdayUnits: dayWorkUnits(paid, scheduled),
     lateMinutes: outcome.lateMinutes,
     earlyLeaveMinutes: outcome.earlyMinutes,
     otMinutes,
@@ -824,7 +833,20 @@ export async function loadBoard(
 
   const allPolicies = policyRes.rows as (PolicyRow & { policy_type?: string })[];
   const policies = allPolicies.filter((p) => (p.policy_type ?? 'ATTENDANCE') === 'ATTENDANCE');
-  const payrollPolicies = allPolicies.filter((p) => p.policy_type === 'PAYROLL');
+  // Công chuẩn của bảng công theo chính sách đang hiệu lực của tháng (tách khỏi công chuẩn trong chính sách lương, chỉ dùng cho tính lương).
+  let monthStandard = DEFAULT_MONTH_STANDARD;
+  try {
+    const row = (
+      await db.query(
+        `SELECT mode, workdays FROM hrm_schema.timesheet_standard_policies
+          WHERE tenant_id = $1 AND effective_month <= $2 ORDER BY effective_month DESC LIMIT 1`,
+        [tenant, to.slice(0, 7)],
+      )
+    ).rows[0];
+    monthStandard = monthStandardSetting(row);
+  } catch {
+    monthStandard = DEFAULT_MONTH_STANDARD; // tenant chưa chạy migration 0052
+  }
   const hasScopedPolicy = policies.some(
     (p) => Array.isArray(p.config_json?.employeeIds) && (p.config_json.employeeIds as unknown[]).length,
   );
@@ -1049,20 +1071,9 @@ export async function loadBoard(
       if (list?.length && days[date] && days[date].kind !== 'NO_SCHEDULE') days[date] = { ...days[date], requests: list };
       else if (list?.length && days[date]) days[date] = { ...days[date], requests: list };
     }
-    // Công chuẩn theo chính sách lương hiệu lực cuối tháng (cùng cách chọn với lúc tính lương).
-    let payrollConfig: Record<string, unknown> | null = null;
-    try {
-      payrollConfig =
-        pickPolicyVersion(
-          payrollPolicies.filter((p) => p.effective_from <= to && (!p.effective_to || p.effective_to >= to)),
-          'PAYROLL',
-          to,
-          employeeId,
-        )?.config_json ?? null;
-    } catch {
-      payrollConfig = null;
-    }
-    const scheduledDays = Object.values(days).filter((d) => d.kind !== 'OFF' && d.scheduledMinutes > 0).length;
+    const scheduledUnits = Object.values(days)
+      .filter((d) => d.kind !== 'OFF' && d.scheduledMinutes > 0)
+      .reduce((n, d) => n + dayCapacityUnits(d.scheduledMinutes), 0);
     employees.push({
       employeeId,
       employeeCode: String(person.employee_code ?? ''),
@@ -1071,10 +1082,7 @@ export async function loadBoard(
       positionName: (person.position_name as string | null) ?? null,
       days,
       totals: sumBoardTotals(Object.values(days)),
-      standard: (() => {
-        const setting = standardWorkSetting(payrollConfig);
-        return { mode: setting.mode, workdays: boardStandardWorkdays(setting, scheduledDays) };
-      })(),
+      standard: { mode: monthStandard.mode, workdays: monthStandardWorkdays(monthStandard, scheduledUnits) },
     });
   }
   return { calendar, employees };

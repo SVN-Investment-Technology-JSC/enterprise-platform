@@ -16,6 +16,8 @@ export interface DialogProps {
   /** Khoá nút gửi khi form chưa đủ dữ liệu bắt buộc (vd lý do còn trống). */
   readonly submitDisabled?: boolean;
   readonly error?: string;
+  /** `wide` cho hộp thoại có hai cột hoặc cây chọn (khoảng 52rem). */
+  readonly size?: 'default' | 'wide';
   readonly onClose: () => void;
   readonly onSubmit: () => void;
   readonly children: ReactNode;
@@ -36,6 +38,7 @@ export function Dialog({
   submitting = false,
   submitDisabled = false,
   error,
+  size = 'default',
   onClose,
   onSubmit,
   children,
@@ -80,7 +83,7 @@ export function Dialog({
   return createPortal(
     <div className={styles.overlay} role="presentation" onMouseDown={requestClose}>
       <div
-        className={styles.dialog}
+        className={size === 'wide' ? `${styles.dialog} ${styles.dialogWide}` : styles.dialog}
         role="dialog"
         aria-modal="true"
         aria-label={title}
@@ -105,6 +108,7 @@ export function Dialog({
             onSubmit();
           }}
         >
+          <div className={styles.dialogScroll}>
           {children}
           {error ? (
             <p role="alert" className={styles.alert}>
@@ -127,6 +131,7 @@ export function Dialog({
               </button>
             </div>
           ) : null}
+          </div>
           <footer className={styles.dialogFoot}>
             {cancelLabel === null ? null : (
               <button type="button" className={styles.buttonGhost} onClick={onClose}>
@@ -162,13 +167,13 @@ export function Field({
   children: ReactNode;
 }) {
   return (
-    <label className={styles.field}>
+    <div className={styles.field}>
       <span className={styles.fieldLabel}>
         {label}
         {required ? <span className={styles.fieldRequired}> *</span> : null}
       </span>
       {children}
       {hint ? <span className={styles.fieldHint}>{hint}</span> : null}
-    </label>
+    </div>
   );
 }

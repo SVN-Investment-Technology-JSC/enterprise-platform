@@ -34,6 +34,9 @@ export interface ProcedureInstanceReversedPayload {
   readonly instanceId: string;
   readonly instanceCode: string;
   readonly workItemId?: string;
+  /** Nguồn mở hồ sơ; `workspace_standalone_task` là việc ngoài dự án. */
+  readonly sourceType?: string;
+  readonly sourceId?: string;
   readonly reason: string;
   readonly reversedBy: string;
   readonly reversedByName?: string;
@@ -56,6 +59,8 @@ export interface ProcedureLinkRequestedPayload {
     readonly description?: string;
     readonly priority?: 'low' | 'normal' | 'high' | 'urgent';
     readonly assigneeUserId?: string;
+    readonly parentId?: string;
+    readonly submitterUserId?: string;
     readonly plannedStart?: string;
     readonly plannedEnd?: string;
     readonly estimateHours?: number;
@@ -92,4 +97,45 @@ export interface WorkItemLinkedInstanceDraft {
   readonly instanceCode: string;
   readonly instanceStatus: string;
   readonly projectCode: string;
+}
+
+/* -------------------------------------------- Công việc ngoài dự án ↔ Quy trình */
+
+/** Workspace → Quy trình: việc ngoài dự án "Theo quy trình" vừa tạo, nhờ mở hồ sơ. */
+export const STANDALONE_TASK_PROCEDURE_REQUESTED = 'workspace.standalone_task.procedure_requested';
+/**
+ * Workspace → Quy trình: việc ngoài dự án (có hồ sơ đã hoàn tất) bị huỷ hiệu
+ * lực, nhờ huỷ hiệu lực hồ sơ theo.
+ */
+export const STANDALONE_TASK_REVERSED = 'workspace.standalone_task.reversed';
+/** Quy trình → Workspace: đã mở hồ sơ cho việc ngoài dự án. */
+export const PROCEDURE_STARTED_FOR_STANDALONE_TASK = 'procedure.instance.started_for_standalone_task';
+/** Quy trình → Workspace: không mở được hồ sơ cho việc ngoài dự án. */
+export const PROCEDURE_STANDALONE_TASK_START_REJECTED =
+  'procedure.instance.standalone_task_start_rejected';
+/**
+ * Quy trình → mọi bên: hồ sơ đã đóng (`status` completed | rejected | cancelled).
+ * Workspace chỉ xử lý hồ sơ có `sourceType` là việc ngoài dự án.
+ */
+export const PROCEDURE_INSTANCE_COMPLETED = 'procedure.instance.completed';
+/** `sourceType` của hồ sơ mở cho việc ngoài dự án, khớp với module Quy trình. */
+export const STANDALONE_TASK_PROCEDURE_SOURCE = 'workspace_standalone_task';
+
+export interface ProcedureStartedForStandaloneTaskPayload {
+  readonly taskId: string;
+  readonly instanceId: string;
+  readonly instanceCode: string;
+}
+
+export interface ProcedureStandaloneTaskStartRejectedPayload {
+  readonly taskId: string;
+  readonly reason: string;
+}
+
+export interface ProcedureInstanceCompletedPayload {
+  readonly instanceId: string;
+  readonly instanceCode: string;
+  readonly status: string;
+  readonly sourceType?: string;
+  readonly sourceId?: string;
 }

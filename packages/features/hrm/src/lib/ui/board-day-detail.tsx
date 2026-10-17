@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { HrmBoardDay, HrmBoardEmployee } from '@enterprise-platform/contracts-hrm';
 import { formatDateVn, formatMinutes, weekdayVn } from '../hrm-timesheet-format';
 import { hrmFetch } from '../hrm-api';
@@ -315,22 +315,28 @@ export function BoardDayContent({
   );
 }
 
-/**
- * Chi tiết một ngày công: kết quả (số công, giờ làm, trễ, sớm) ở trên cùng, rồi ca và giờ vào ra, nghỉ và tăng ca,
- * đơn từ của ngày (loại đơn, ngày giờ, lý do) và bất thường. Dùng chung cho bảng công của quản lý và Công của tôi.
- */
-export function BoardDayDrawer({
-  employee,
-  day,
-  onClose,
-  canViewAll = false,
-  month,
-  adjustable = false,
-  onAdjusted,
-}: {
-  employee: HrmBoardEmployee | null;
-  day: HrmBoardDay | null;
-  onClose: () => void;
+function DayStatusChip({ day }: { day: HrmBoardDay }) {
+  return (
+    <>
+      <span
+        data-testid="day-status"
+        className={`inline-flex items-center gap-1.5 rounded-full border border-slate-200 px-2.5 py-0.5 text-[11px] font-semibold ${boardStatusCellClass(day.status)}`}
+      >
+        <span aria-hidden="true" className={`size-1.5 rounded-full ${DAY_TONE_DOT[dayTone(day, todayIso())]}`} />
+        {boardStatusLabel(day.status)}
+      </span>
+      {day.adjusted && (
+        <span className="rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-700">
+          Đã chỉnh tay
+        </span>
+      )}
+    </>
+  );
+}
+
+interface DayPanelProps {
+  employee: HrmBoardEmployee;
+  day: HrmBoardDay;
   /** Người có quyền xem mọi nhân viên: link đơn mở ở màn Duyệt đơn; nhân viên tự xem mở ở Đơn từ của tôi. */
   canViewAll?: boolean;
   /** Tháng công (YYYY-MM), để điều chỉnh công một ngày. */
@@ -338,15 +344,16 @@ export function BoardDayDrawer({
   /** Tháng đã tính công và chưa chốt: cho phép điều chỉnh công từng ngày. */
   adjustable?: boolean;
   onAdjusted?: () => void;
-}) {
+}
+
+/** Nội dung chi tiết một ngày kèm nút điều chỉnh công; dùng trong ngăn kéo và nhúng dưới lịch tháng. */
+function DayPanelBody({ employee, day, canViewAll = false, month, adjustable = false, onAdjusted }: DayPanelProps) {
   const { can } = useHrmPermissions();
   const [adjusting, setAdjusting] = useState<HrmAction | null>(null);
-  const showAdjust = Boolean(
-    adjustable && month && employee && day && can('hrm.timesheet.adjust') && day.scheduledMinutes > 0,
-  );
+  const showAdjust = Boolean(adjustable && month && can('hrm.timesheet.adjust') && day.scheduledMinutes > 0);
 
   function openAdjust() {
-    if (!employee || !day || !month) return;
+    if (!month) return;
     setAdjusting({
       title: `Điều chỉnh công ngày ${formatDateVn(day.date)}`,
       description:
@@ -380,6 +387,72 @@ export function BoardDayDrawer({
   }
 
   return (
+    <>
+      <BoardDayContent day={day} canViewAll={canViewAll} />
+      {showAdjust && (
+        <Button type="button" variant="outline" onClick={openAdjust}>
+          Điều chỉnh công ngày này
+        </Button>
+      )}
+      {adjusting && <HrmActionDialog action={adjusting} onClose={() => setAdjusting(null)} />}
+    </>
+  );
+}
+
+/**
+ * Chi tiết một ngày công nhúng ngay dưới lịch tháng của nhân viên (không mở thêm ngăn kéo chồng lên ngăn kéo tháng):
+ * tiêu đề ngày và trạng thái, rồi cùng nội dung với ngăn kéo (ca, giờ chấm, nghỉ, tăng ca, đơn từ, bất thường).
+ */
+export function BoardDayInline({ onClose, ...panel }: DayPanelProps & { onClose: () => void }) {
+  const { day } = panel;
+  const ref = useRef<HTMLElement>(null);
+  // Chọn ngày khác thì cuộn tới khối chi tiết để thấy ngay nội dung vừa mở.
+  useEffect(() => {
+    ref.current?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
+  }, [day.date]);
+  return (
+    <section
+      ref={ref}
+      data-testid="board-day-inline"
+      aria-label={`Chi tiết ngày công ${formatDateVn(day.date)}`}
+      className="space-y-3 rounded-xl border border-blue-200 bg-white p-3 text-xs shadow-xs"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-sm font-bold text-slate-900">
+            <span>Chi tiết ngày công</span>
+            <span className="font-semibold text-slate-600">
+              {' · '}
+              {weekdayVn(day.date)}, {formatDateVn(day.date)}
+              {day.kind === 'HOLIDAY' && day.holidayName ? ` · Lễ: ${day.holidayName}` : ''}
+            </span>
+          </p>
+          <DayStatusChip day={day} />
+        </div>
+        <Button type="button" size="sm" variant="outline" className="h-7 text-xs" onClick={onClose}>
+          Đóng chi tiết
+        </Button>
+      </div>
+      <DayPanelBody {...panel} />
+    </section>
+  );
+}
+
+/**
+ * Chi tiết một ngày công: kết quả (số công, giờ làm, trễ, sớm) ở trên cùng, rồi ca và giờ vào ra, nghỉ và tăng ca,
+ * đơn từ của ngày (loại đơn, ngày giờ, lý do) và bất thường. Dùng chung cho bảng công của quản lý và Công của tôi.
+ */
+export function BoardDayDrawer({
+  employee,
+  day,
+  onClose,
+  ...panel
+}: Omit<DayPanelProps, 'employee' | 'day'> & {
+  employee: HrmBoardEmployee | null;
+  day: HrmBoardDay | null;
+  onClose: () => void;
+}) {
+  return (
     <Sheet open={!!(employee && day)} onOpenChange={(open) => !open && onClose()}>
       <SheetContent className="flex h-full max-h-screen w-full flex-col overflow-hidden bg-white p-0 sm:max-w-[600px]">
         {employee && day && (
@@ -387,21 +460,7 @@ export function BoardDayDrawer({
             <SheetHeader className="shrink-0 border-b border-slate-200 bg-white">
               <SheetTitle className="flex flex-wrap items-center gap-2">
                 <span>Chi tiết ngày công</span>
-                <span
-                  data-testid="day-status"
-                  className={`inline-flex items-center gap-1.5 rounded-full border border-slate-200 px-2.5 py-0.5 text-[11px] font-semibold ${boardStatusCellClass(day.status)}`}
-                >
-                  <span
-                    aria-hidden="true"
-                    className={`size-1.5 rounded-full ${DAY_TONE_DOT[dayTone(day, todayIso())]}`}
-                  />
-                  {boardStatusLabel(day.status)}
-                </span>
-                {day.adjusted && (
-                  <span className="rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-700">
-                    Đã chỉnh tay
-                  </span>
-                )}
+                <DayStatusChip day={day} />
               </SheetTitle>
               <SheetDescription render={<div />}>
                 <div className="flex items-center gap-2.5">
@@ -423,17 +482,10 @@ export function BoardDayDrawer({
             </SheetHeader>
 
             <div className="flex-1 space-y-3 overflow-y-auto p-5 text-xs">
-              <BoardDayContent day={day} canViewAll={canViewAll} />
-
-              {showAdjust && (
-                <Button type="button" variant="outline" onClick={openAdjust}>
-                  Điều chỉnh công ngày này
-                </Button>
-              )}
+              <DayPanelBody employee={employee} day={day} {...panel} />
             </div>
           </>
         )}
-        {adjusting && <HrmActionDialog action={adjusting} onClose={() => setAdjusting(null)} />}
       </SheetContent>
     </Sheet>
   );

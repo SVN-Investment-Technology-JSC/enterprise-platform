@@ -35,6 +35,48 @@ export const INSTANCE_REVERSAL_FAILED = 'procedure.instance.reversal_failed';
 /** HRM → Quy trình: đơn chạy qua quy trình bị huỷ hiệu lực ngay trong HRM. */
 export const HRM_REQUEST_REVERSED = 'hrm.request.reversed';
 
+/** Workspace → Quy trình: việc ngoài dự án "Theo quy trình" vừa tạo, nhờ mở hồ sơ. */
+export const STANDALONE_TASK_PROCEDURE_REQUESTED = 'workspace.standalone_task.procedure_requested';
+/** Workspace → Quy trình: việc ngoài dự án bị huỷ hiệu lực, nhờ huỷ hiệu lực hồ sơ theo. */
+export const STANDALONE_TASK_REVERSED = 'workspace.standalone_task.reversed';
+
+export interface StandaloneTaskReversedPayload {
+  readonly taskId: string;
+  readonly taskCode: string;
+  readonly instanceId: string;
+  readonly reason: string;
+  readonly reversedBy: string;
+  readonly reversedByName?: string;
+}
+
+/** Quy trình → Workspace: đã mở hồ sơ cho việc ngoài dự án. */
+export const STARTED_FOR_STANDALONE_TASK_EVENT = 'procedure.instance.started_for_standalone_task';
+/** Quy trình → Workspace: không mở được hồ sơ cho việc ngoài dự án. */
+export const STANDALONE_TASK_START_REJECTED_EVENT =
+  'procedure.instance.standalone_task_start_rejected';
+
+export interface StandaloneTaskProcedureRequestedPayload {
+  readonly taskId: string;
+  readonly taskCode: string;
+  /** Tên việc; tên hồ sơ ghép thêm mã việc. */
+  readonly title: string;
+  readonly definitionId: string;
+  readonly requestedBy: string;
+  readonly requestedByName?: string;
+  readonly requestedByIsTenantAdmin: boolean;
+}
+
+export interface StartedForStandaloneTaskPayload {
+  readonly taskId: string;
+  readonly instanceId: string;
+  readonly instanceCode: string;
+}
+
+/** Khoá chống trùng của hồ sơ mở cho một việc ngoài dự án. */
+export function standaloneTaskIdempotencyKey(taskId: string): string {
+  return `workspace-standalone-task:${taskId}`;
+}
+
 export interface HrmRequestReversedPayload {
   readonly requestKind: string;
   readonly requestId: string;
@@ -140,7 +182,10 @@ export interface WorkItemStartRejectedPayload {
 export interface WorkspaceLinkOutboxEvent {
   readonly type: string;
   readonly aggregateId: string;
-  readonly payload: WorkspaceLinkRequestedPayload | StartedForWorkItemPayload;
+  readonly payload:
+    | WorkspaceLinkRequestedPayload
+    | StartedForWorkItemPayload
+    | StartedForStandaloneTaskPayload;
 }
 
 /**
@@ -148,6 +193,7 @@ export interface WorkspaceLinkOutboxEvent {
  *
  * - Hồ sơ vừa có yêu cầu gắn dự án (`pending` mới xuất hiện) → nhờ Workspace tạo công việc.
  * - Hồ sơ mới mở cho một công việc Workspace → báo Workspace lưu liên kết.
+ * - Hồ sơ mới mở cho một việc ngoài dự án → báo Workspace lưu liên kết.
  */
 export function workspaceLinkEvents(
   before: readonly ProcedureInstance[],
@@ -175,6 +221,13 @@ export function workspaceLinkEvents(
             ? { adjustmentOfWorkItemId: link.adjustmentOfWorkItemId }
             : {}),
         },
+      });
+    }
+    if (!prior && instance.sourceType === 'workspace_standalone_task' && instance.sourceId) {
+      events.push({
+        type: STARTED_FOR_STANDALONE_TASK_EVENT,
+        aggregateId: instance.id,
+        payload: { taskId: instance.sourceId, instanceId: instance.id, instanceCode: instance.code },
       });
     }
     if (!prior && instance.sourceType === 'workspace_work_item' && instance.sourceId) {

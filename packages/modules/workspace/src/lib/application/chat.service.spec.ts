@@ -4,6 +4,7 @@ import type {
   SendChatMessageRequest,
   WorkspaceDocument,
 } from '@enterprise-platform/contracts-workspace';
+import { CHAT_PAGE_SIZE } from '@enterprise-platform/contracts-workspace';
 import { ChatService } from './chat.service.js';
 import { ProjectService } from './project.service.js';
 import type { WorkspaceActor } from './workspace.application.js';
@@ -17,8 +18,13 @@ function makeStore(options: {
   roles: Record<string, ProjectRole>;
   documents?: Partial<WorkspaceDocument>[];
   messages?: Partial<ChatMessage>[];
+  readers?: { userId: string; messageId?: string }[];
 }) {
   const sent: { attachmentDocumentId: string | null; mentions: string[] }[] = [];
+  const edits: { mentions: readonly string[]; newlyMentioned: readonly string[] }[] = [];
+  const listed: { limit: number; before?: string }[] = [];
+  const recalled: { actor: string; id: string }[] = [];
+  const marked: { channelId: string; upTo: string; announce?: boolean }[] = [];
   const store = {
     project: {
       findById: async (_tenant: string, id: string) =>
@@ -49,10 +55,43 @@ function makeStore(options: {
         sent.push({ attachmentDocumentId: input.attachmentDocumentId, mentions: input.mentions });
         return { id: 'm-new' } as ChatMessage;
       },
-      markRead: async () => undefined,
+      markRead: async (
+        _tenant: string,
+        channelId: string,
+        _user: string,
+        upTo: string,
+        options?: { announce?: boolean },
+      ) => {
+        marked.push({ channelId, upTo, announce: options?.announce });
+      },
+      listReaders: async () => options.readers ?? [{ userId: 'mate', messageId: 'm1' }],
+      findChannel: async () => ({ id: 'c1', projectId: 'p1' }),
+      findChannelById: async () => ({ id: 'c1', projectId: 'p1' }),
+      listMessages: async (_tenant: string, _channel: string, limit: number, before?: string) => {
+        listed.push({ limit, before });
+        return {
+          messages: [{ id: 'm0' }, { id: 'm1' }] as ChatMessage[],
+          hasMore: true,
+        };
+      },
+      softDeleteMessage: async (_tenant: string, actor: string, id: string) => {
+        recalled.push({ actor, id });
+        return { id, isDeleted: true } as ChatMessage;
+      },
+      editMessage: async (
+        _tenant: string,
+        _actor: string,
+        id: string,
+        _body: string,
+        mentions: readonly string[],
+        newlyMentioned: readonly string[],
+      ) => {
+        edits.push({ mentions, newlyMentioned });
+        return { id } as ChatMessage;
+      },
     },
   };
-  return { store: store as unknown as WorkspaceStore, sent };
+  return { store: store as unknown as WorkspaceStore, sent, edits, listed, marked, recalled };
 }
 
 const actorOf = (userId: string): WorkspaceActor => ({
@@ -109,6 +148,158 @@ describe('ChatService — gửi tin', () => {
     });
     expect(result.droppedMentions).toEqual(['outsider']);
     expect(sent[0]?.mentions).toEqual(['mate']);
+  });
+});
+
+describe('ChatService — phân trang luồng tin', () => {
+  const BEFORE = '11111111-1111-4111-8111-111111111111';
+
+  it('mở luồng lấy trang mới nhất, báo còn tin cũ, và trả người đã đọc', async () => {
+    const { store, listed } = makeStore({ roles: { me: 'member' } });
+    const thread = await serviceFor(store).thread(actorOf('me'), 'project', 'p1');
+    expect(thread.hasMore).toBe(true);
+    expect(listed).toEqual([{ limit: CHAT_PAGE_SIZE, before: undefined }]);
+    expect(thread.readers).toEqual([{ userId: 'mate', messageId: 'm1' }]);
+  });
+
+  it('đánh dấu đã đọc TỚI đúng tin mới nhất vừa trả về (không phải tới "bây giờ") và báo người khác', async () => {
+    const { store, marked } = makeStore({ roles: { me: 'member' } });
+    await serviceFor(store).thread(actorOf('me'), 'project', 'p1');
+    expect(marked).toEqual([{ channelId: 'c1', upTo: 'm1', announce: true }]);
+  });
+
+  it('cuộn lên xem tin cũ: chuyển mốc cho store và KHÔNG đánh dấu đã đọc', async () => {
+    const { store, listed, marked } = makeStore({ roles: { me: 'member' } });
+    const thread = await serviceFor(store).thread(actorOf('me'), 'project', 'p1', BEFORE);
+    expect(listed).toEqual([{ limit: CHAT_PAGE_SIZE, before: BEFORE }]);
+    expect(marked).toEqual([]);
+    expect(thread.readers).toBeUndefined();
+  });
+
+  it('từ chối mốc không phải id tin nhắn trước khi chạm CSDL', async () => {
+    const { store, listed } = makeStore({ roles: { me: 'member' } });
+    await expect(
+      serviceFor(store).thread(actorOf('me'), 'project', 'p1', "x'; DROP TABLE"),
+    ).rejects.toMatchObject({ code: expect.any(String) });
+    expect(listed).toEqual([]);
+  });
+
+  it('người ngoài dự án không xin được trang cũ', async () => {
+    const { store } = makeStore({ roles: {} });
+    await expect(
+      serviceFor(store).thread(actorOf('stranger'), 'project', 'p1', BEFORE),
+    ).rejects.toMatchObject({ code: 'PROJECT_FORBIDDEN' });
+  });
+});
+
+describe('ChatService — người gửi và "đang nhập"', () => {
+  it('người gửi đánh dấu đã đọc tới chính tin mình vừa gửi, không phát tín hiệu đã xem', async () => {
+    const { store, marked } = makeStore({ roles: { me: 'member' } });
+    await serviceFor(store).send(actorOf('me'), toProject);
+    expect(marked).toEqual([{ channelId: 'c1', upTo: 'm-new', announce: undefined }]);
+  });
+
+  it('người nhận "đang nhập" là thành viên dự án, trừ người hỏi', async () => {
+    const { store } = makeStore({ roles: { me: 'member', mate: 'member', viewer: 'viewer' } });
+    const result = await serviceFor(store).typingRecipients(actorOf('me'), 'project', 'p1');
+    expect([...result.userIds].sort()).toEqual(['mate', 'viewer']);
+  });
+
+  it('người đã mở luồng chat nhưng không phải thành viên (quản trị tenant) vẫn nhận "đang nhập"', async () => {
+    const { store } = makeStore({
+      roles: { me: 'member', mate: 'member' },
+      readers: [{ userId: 'admin' }, { userId: 'me' }, { userId: 'mate' }],
+    });
+    const result = await serviceFor(store).typingRecipients(actorOf('me'), 'project', 'p1');
+    expect([...result.userIds].sort()).toEqual(['admin', 'mate']);
+  });
+
+  it('viewer không có ô nhập nên không hỏi được danh sách', async () => {
+    const { store } = makeStore({ roles: { viewer: 'viewer' } });
+    await expect(
+      serviceFor(store).typingRecipients(actorOf('viewer'), 'project', 'p1'),
+    ).rejects.toMatchObject({ code: 'PROJECT_ROLE_FORBIDDEN' });
+  });
+
+  it('người ngoài dự án nhận 403, không biết ai là thành viên', async () => {
+    const { store } = makeStore({ roles: { mate: 'member' } });
+    await expect(
+      serviceFor(store).typingRecipients(actorOf('stranger'), 'project', 'p1'),
+    ).rejects.toMatchObject({ code: 'PROJECT_FORBIDDEN' });
+  });
+
+  it('loại node không hỗ trợ bị từ chối', async () => {
+    const { store } = makeStore({ roles: { me: 'member' } });
+    await expect(
+      serviceFor(store).typingRecipients(actorOf('me'), 'document', 'p1'),
+    ).rejects.toBeDefined();
+  });
+});
+
+describe('ChatService — thu hồi tin', () => {
+  const mine = (userId = 'me') => [
+    { id: 'm1', channelId: 'c1', createdBy: userId, isDeleted: false, createdAt: new Date().toISOString(), mentions: [] },
+  ];
+
+  it('người gửi thu hồi được tin của chính mình', async () => {
+    const { store, recalled } = makeStore({ roles: { me: 'member' }, messages: mine('me') });
+    await serviceFor(store).remove(actorOf('me'), 'm1');
+    expect(recalled).toEqual([{ actor: 'me', id: 'm1' }]);
+  });
+
+  it.each([
+    ['thành viên', 'member'],
+    ['quản lý dự án', 'manager'],
+    ['chủ dự án', 'owner'],
+  ] as const)('%s KHÔNG thu hồi được tin của người khác', async (_label, role) => {
+    const { store, recalled } = makeStore({
+      roles: { author: 'member', other: role },
+      messages: mine('author'),
+    });
+    await expect(serviceFor(store).remove(actorOf('other'), 'm1')).rejects.toMatchObject({
+      message: 'Chỉ người gửi mới thu hồi được tin nhắn của mình.',
+    });
+    expect(recalled).toEqual([]);
+  });
+
+  it('quản trị viên tenant cũng không thu hồi hộ được', async () => {
+    const { store, recalled } = makeStore({
+      roles: { author: 'member', admin: 'owner' },
+      messages: mine('author'),
+    });
+    const admin = { ...actorOf('admin'), isTenantAdmin: true, canManage: true };
+    await expect(serviceFor(store).remove(admin, 'm1')).rejects.toMatchObject({
+      message: 'Chỉ người gửi mới thu hồi được tin nhắn của mình.',
+    });
+    expect(recalled).toEqual([]);
+  });
+
+  it('người ngoài dự án nhận 403 trước, không biết tin có tồn tại', async () => {
+    const { store, recalled } = makeStore({ roles: { author: 'member' }, messages: mine('author') });
+    await expect(serviceFor(store).remove(actorOf('stranger'), 'm1')).rejects.toMatchObject({
+      code: 'PROJECT_FORBIDDEN',
+    });
+    expect(recalled).toEqual([]);
+  });
+});
+
+describe('ChatService — sửa tin và nhắc tên', () => {
+  const stored = (mentions: string[]) =>
+    [{ id: 'm1', channelId: 'c1', createdBy: 'me', isDeleted: false, createdAt: new Date().toISOString(), mentions }];
+
+  it('chỉ người mới được nhắc mới được báo; người đã nhắc từ đầu không bị báo lại', async () => {
+    const { store, edits } = makeStore({
+      roles: { me: 'member', mate: 'member', boss: 'member' },
+      messages: stored(['mate']),
+    });
+    await serviceFor(store).edit(actorOf('me'), 'm1', { body: 'Nhờ @mate @boss', mentions: ['mate', 'boss'] });
+    expect(edits).toEqual([{ mentions: ['mate', 'boss'], newlyMentioned: ['boss'] }]);
+  });
+
+  it('người ngoài dự án vẫn bị loại khi sửa', async () => {
+    const { store, edits } = makeStore({ roles: { me: 'member' }, messages: stored([]) });
+    await serviceFor(store).edit(actorOf('me'), 'm1', { body: 'Nhờ @x', mentions: ['outsider'] });
+    expect(edits).toEqual([{ mentions: [], newlyMentioned: [] }]);
   });
 });
 

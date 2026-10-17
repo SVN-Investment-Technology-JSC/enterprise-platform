@@ -22,8 +22,16 @@
       "dockerfile": "apps/hrm-api/Dockerfile"
     },
     {
+      "id": "finance-api",
+      "dockerfile": "apps/finance-api/Dockerfile"
+    },
+    {
       "id": "workspace-api",
       "dockerfile": "apps/workspace-api/Dockerfile"
+    },
+    {
+      "id": "shared-api",
+      "dockerfile": "apps/shared-api/Dockerfile"
     },
     {
       "id": "realtime-api",
@@ -86,8 +94,22 @@
       }
     },
     {
+      "id": "finance-web",
+      "dockerfile": "apps/finance-web/Dockerfile",
+      "runtimeCheck": {
+        "nodeModules": ["@swc/helpers/esm/_interop_require_default.js"]
+      }
+    },
+    {
       "id": "workspace-web",
       "dockerfile": "apps/workspace-web/Dockerfile",
+      "runtimeCheck": {
+        "nodeModules": ["@swc/helpers/esm/_interop_require_default.js"]
+      }
+    },
+    {
+      "id": "shared-web",
+      "dockerfile": "apps/shared-web/Dockerfile",
       "runtimeCheck": {
         "nodeModules": ["@swc/helpers/esm/_interop_require_default.js"]
       }

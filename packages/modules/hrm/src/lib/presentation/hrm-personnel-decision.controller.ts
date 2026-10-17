@@ -26,11 +26,12 @@ import {
   cancelDecision,
   createDecision,
   listDecisions,
-  listSubordinates,
+  listOpenConcurrent,
   loadAppointmentContext,
   loadDecision,
   loadReportingOverview,
   mapDecision,
+  quickAssignPosition,
   rejectDecision,
   updateDraft,
 } from '../infrastructure/hrm-personnel-decisions.js';
@@ -39,9 +40,9 @@ import { requireUuid } from '../infrastructure/hrm-validation.js';
 const meta = (req: Request) => ({ requestId: req.headers['x-request-id'] as string });
 
 /**
- * Quyết định nhân sự: bổ nhiệm, thăng chức, điều chuyển, kiêm nhiệm, miễn nhiệm
- * và đổi người quản lý trực tiếp. Chức danh ghi sang Core qua endpoint nội bộ;
- * người quản lý và lương do HRM ghi.
+ * Quyết định nhân sự: bổ nhiệm, thăng chức, điều chuyển, kiêm nhiệm, miễn nhiệm.
+ * Chức danh ghi sang Core qua endpoint nội bộ, lương do HRM ghi. Quản lý trực tiếp
+ * không do quyết định gán: lấy từ "Báo cáo cho" của chức danh trên Core, không có thì Tổng giám đốc.
  */
 @Controller('v1')
 export class HrmPersonnelDecisionController {
@@ -77,7 +78,8 @@ export class HrmPersonnelDecisionController {
   async create(@Req() req: Request, @Body() body: CreateHrmPersonnelDecisionPayload) {
     const { pool, tenantId, principal } = await this.ctx.getContext(req, 'hrm.appointment.manage');
     return {
-      data: await createDecision(pool, tenantId, principal.userId, body),
+      // Chỉ ghi lịch sử công tác; không duyệt, không áp dụng sang chức danh, quản lý hay lương.
+      data: await createDecision(pool, tenantId, principal.userId, body, true),
       meta: meta(req),
     };
   }
@@ -145,7 +147,28 @@ export class HrmPersonnelDecisionController {
     };
   }
 
-  /** Người quản lý hiện tại và lịch sử báo cáo; nhân viên xem được của chính mình. */
+  /** Kiêm nhiệm đang giữ (đã ghi nhận, chưa bãi nhiệm) để chọn thay thế hoặc bãi nhiệm. */
+  @Get('employees/:employeeId/open-concurrent')
+  @RequirePermission('hrm.appointment.read')
+  async openConcurrent(
+    @Req() req: Request,
+    @Param('employeeId') employeeId: string,
+    @Query('excludeDecisionId') excludeDecisionId?: string,
+  ) {
+    requireUuid(employeeId, 'Nhân viên');
+    const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.appointment.read');
+    return {
+      data: await listOpenConcurrent(
+        pool,
+        tenantId,
+        employeeId,
+        excludeDecisionId ? requireUuid(excludeDecisionId, 'Quyết định') : undefined,
+      ),
+      meta: meta(req),
+    };
+  }
+
+  /** Người quản lý hiện tại (Core, không có thì Tổng giám đốc); nhân viên xem được của chính mình. */
   @Get('employees/:employeeId/reporting-lines')
   @RequirePermission('hrm.self.read')
   async reportingLines(@Req() req: Request, @Param('employeeId') employeeId: string) {
@@ -154,20 +177,47 @@ export class HrmPersonnelDecisionController {
     return { data: await loadReportingOverview(pool, tenantId, employeeId), meta: meta(req) };
   }
 
-  @Get('employees/:employeeId/subordinates')
-  @RequirePermission('hrm.appointment.read')
-  async subordinates(@Req() req: Request, @Param('employeeId') employeeId: string) {
-    requireUuid(employeeId, 'Nhân viên');
-    const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.appointment.read');
-    return { data: await listSubordinates(pool, tenantId, employeeId), meta: meta(req) };
-  }
-
-  /** Hiện trạng chức danh, quản lý, lương, cấp dưới để form quyết định hiện cột "Trước". */
+  /** Hiện trạng chức danh, quản lý, lương để form quyết định hiện cột "Trước". */
   @Get('employees/:employeeId/appointment-context')
   @RequirePermission('hrm.appointment.read')
   async appointmentContext(@Req() req: Request, @Param('employeeId') employeeId: string) {
     requireUuid(employeeId, 'Nhân viên');
     const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.appointment.read');
     return { data: await loadAppointmentContext(pool, tenantId, employeeId), meta: meta(req) };
+  }
+
+  /**
+   * Gán chức danh nhanh từ Drawer "Sửa" của hồ sơ nhân sự: tạo quyết định APPOINT rồi áp dụng ngay, không
+   * cần người khác duyệt. Cần cả hai quyền quản lý và duyệt bổ nhiệm, vì thao tác này có hiệu lực tương
+   * đương một quyết định đã duyệt.
+   */
+  @Post('employees/:employeeId/quick-appoint')
+  @RequirePermission('hrm.appointment.manage')
+  async quickAppoint(
+    @Req() req: Request,
+    @Param('employeeId') employeeId: string,
+    @Body()
+    body: { toPositionNodeId?: string; reason?: string; effectiveDate?: string; mode?: string },
+  ) {
+    requireUuid(employeeId, 'Nhân viên');
+    const context = await this.ctx.getContext(req, 'hrm.appointment.manage');
+    if (!this.ctx.has(context, 'hrm.appointment.approve'))
+      throw new ForbiddenException('Cần quyền duyệt bổ nhiệm để gán chức danh trực tiếp');
+    return {
+      data: await quickAssignPosition(
+        context.pool,
+        context.tenantId,
+        context.principal.userId,
+        {
+          employeeId,
+          toPositionNodeId: String(body?.toPositionNodeId ?? ''),
+          reason: String(body?.reason ?? ''),
+          effectiveDate: body?.effectiveDate,
+          mode: body?.mode === 'CONCURRENT' ? 'CONCURRENT' : 'REPLACE',
+        },
+        { org: this.org },
+      ),
+      meta: meta(req),
+    };
   }
 }

@@ -19,6 +19,7 @@ import {
   useHashView,
   type ModuleNavItem,
 } from '@enterprise-platform/feature-module-shell';
+import { formatDate } from '@enterprise-platform/shared-ui';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ClipboardList, LayoutDashboard, Settings, Table2 } from 'lucide-react';
 import {
@@ -37,6 +38,7 @@ import {
   type MaterialCatalogItem,
   recheckStepMaterials,
   loadProcedureSettings,
+  loadProcedureInstance,
   loadProcedureWorkspace,
   loadTenantHomePath,
   publishProcedureDefinition,
@@ -77,8 +79,6 @@ const NAV: readonly ModuleNavItem<View>[] = [
 
 const VIEW_IDS = NAV.map((item) => item.id);
 
-const vietnameseDateFormatter = new Intl.DateTimeFormat('vi-VN');
-
 export function ProcedureEngineScreen() {
   const { view, sub, navigate } = useHashView<View>({ views: VIEW_IDS, fallback: 'dashboard' });
   const [workspace, setWorkspace] = useState<ProcedureWorkspace>();
@@ -100,6 +100,24 @@ export function ProcedureEngineScreen() {
   const [assetCatalog, setAssetCatalog] = useState<AssetCatalogItem[]>([]);
   /** Ô trên dòng đường dẫn; trang đặt nút thao tác của mình vào đây. */
   const [headSlot, setHeadSlot] = useState<HTMLDivElement | null>(null);
+
+  /**
+   * Làm mới ĐÚNG một hồ sơ (khi người khác có trao đổi mới) thay vì nạp lại cả workspace kèm đính kèm của
+   * mọi hồ sơ. Lỗi thì bỏ qua: đây chỉ là cập nhật tiện lợi, lần tải lại đầy đủ kế tiếp sẽ kéo về.
+   */
+  const refreshInstance = useCallback(async (instanceId: string) => {
+    try {
+      const fresh = await loadProcedureInstance(instanceId);
+      setWorkspace((current) =>
+        current && {
+          ...current,
+          instances: current.instances.map((item) => (item.id === instanceId ? fresh : item)),
+        },
+      );
+    } catch {
+      // Không còn là người tham gia, hoặc mất mạng: giữ nguyên bản đang hiện.
+    }
+  }, []);
 
   const reload = useCallback(async () => {
     try {
@@ -299,7 +317,7 @@ export function ProcedureEngineScreen() {
       const title =
         customPayload?.title?.trim() ||
         handoffTitle ||
-        `${definition.name} · ${vietnameseDateFormatter.format(new Date())}`;
+        `${definition.name} · ${formatDate(new Date())}`;
       const schedule = {
         startDueAt: customPayload?.startDueAt,
         endDueAt: customPayload?.endDueAt,
@@ -507,6 +525,7 @@ export function ProcedureEngineScreen() {
         />
       ) : view === 'workspace' ? (
         <WorkspaceBoard
+          onRefreshInstance={refreshInstance}
           headSlot={headSlot}
           initialInstanceId={sub}
           canCreateInstances={workspace.permissions.canCreateInstances}

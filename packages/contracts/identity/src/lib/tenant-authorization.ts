@@ -331,6 +331,16 @@ export const HRM_PERMISSION_ACTIONS = [
     label: 'Xem nhật ký nghiệp vụ',
   },
   {
+    key: 'hrm.fleet.read',
+    group: 'HRM · Lịch xe',
+    label: 'Xem lịch xe công ty',
+  },
+  {
+    key: 'hrm.fleet.manage',
+    group: 'HRM · Lịch xe',
+    label: 'Quản lý danh mục xe và tài xế',
+  },
+  {
     key: 'hrm.read',
     group: 'HRM · Truy cập',
     label: 'Vào HRM và xem danh mục dùng chung',
@@ -342,6 +352,69 @@ export const HRM_PERMISSION_ACTIONS = [
   },
 ] as const;
 export type HrmAction = (typeof HRM_PERMISSION_ACTIONS)[number]['key'];
+
+/**
+ * Quyền của module Tài chính. Phiếu thu, chi và chuyển tiền tách quyền lập và quyền duyệt để
+ * người lập không tự duyệt phiếu của mình (nguyên tắc hai người trong kế toán).
+ */
+export const FINANCE_PERMISSION_ACTIONS = [
+  {
+    key: 'finance.read',
+    group: 'Tài chính · Truy cập',
+    label: 'Vào Tài chính, xem toàn bộ phiếu, tài khoản và báo cáo',
+  },
+  {
+    key: 'finance.receipt.create',
+    group: 'Tài chính · Phiếu thu',
+    label: 'Lập, sửa và gửi duyệt phiếu thu của mình',
+  },
+  {
+    key: 'finance.receipt.approve',
+    group: 'Tài chính · Phiếu thu',
+    label: 'Duyệt, từ chối và huỷ phiếu thu',
+  },
+  {
+    key: 'finance.payment.create',
+    group: 'Tài chính · Phiếu chi',
+    label: 'Lập, sửa và gửi duyệt phiếu chi của mình',
+  },
+  {
+    key: 'finance.payment.approve',
+    group: 'Tài chính · Phiếu chi',
+    label: 'Duyệt, từ chối và huỷ phiếu chi',
+  },
+  {
+    key: 'finance.transfer.create',
+    group: 'Tài chính · Chuyển tiền',
+    label: 'Lập, sửa và gửi duyệt lệnh chuyển tiền của mình',
+  },
+  {
+    key: 'finance.transfer.approve',
+    group: 'Tài chính · Chuyển tiền',
+    label: 'Duyệt, từ chối và huỷ lệnh chuyển tiền',
+  },
+  {
+    key: 'finance.account.manage',
+    group: 'Tài chính · Danh mục',
+    label: 'Quản lý tài khoản ngân hàng và quỹ tiền mặt của công ty',
+  },
+  {
+    key: 'finance.report.read',
+    group: 'Tài chính · Báo cáo',
+    label: 'Xem báo cáo thu chi và dòng tiền',
+  },
+  {
+    key: 'finance.settings.manage',
+    group: 'Tài chính · Cấu hình',
+    label: 'Cấu hình danh mục lý do, quy trình duyệt và khoá sổ',
+  },
+  {
+    key: 'finance.manage',
+    group: 'Tài chính · Quản trị',
+    label: 'Toàn quyền nghiệp vụ Tài chính trong tenant',
+  },
+] as const;
+export type FinanceAction = (typeof FINANCE_PERMISSION_ACTIONS)[number]['key'];
 
 export const TENANT_PERMISSION_ACTIONS = [
   ...HRM_PERMISSION_ACTIONS,
@@ -380,6 +453,11 @@ export const TENANT_PERMISSION_ACTIONS = [
     key: 'maintenance.occurrence.manage',
     group: 'Maintenance',
     label: 'Xử lý đợt bảo trì',
+  },
+  {
+    key: 'procedure.access',
+    group: 'Procedure Engine',
+    label: 'Vào Quy trình, xem quy trình đã công bố và xử lý hồ sơ theo vai RACI',
   },
   {
     key: 'procedure.definition.manage',
@@ -427,6 +505,11 @@ export const TENANT_PERMISSION_ACTIONS = [
   { key: 'workspace.document.write', group: 'Workspace', label: 'Ghi tài liệu' },
   { key: 'workspace.document.delete', group: 'Workspace', label: 'Xoá và lưu trữ tài liệu' },
   { key: 'workspace.project.create', group: 'Workspace', label: 'Tạo dự án mới' },
+  ...FINANCE_PERMISSION_ACTIONS,
+  { key: 'shared.read', group: 'Hệ dùng chung', label: 'Xem tài liệu công ty' },
+  { key: 'shared.manage', group: 'Hệ dùng chung', label: 'Quản trị kho tài liệu công ty' },
+  { key: 'shared.document.write', group: 'Hệ dùng chung', label: 'Tải lên và sửa tài liệu công ty' },
+  { key: 'shared.document.delete', group: 'Hệ dùng chung', label: 'Lưu trữ và xoá tài liệu công ty' },
 ] as const;
 export type TenantAction = (typeof TENANT_PERMISSION_ACTIONS)[number]['key'];
 export interface TenantPermission {
@@ -448,6 +531,8 @@ export interface TenantRole {
 }
 export interface TenantAuthorization {
   roles: string[];
+  /** Tên hiển thị theo khóa vai trò (vai trò tự tạo có khóa `custom-<uuid>` nên không tự đọc được). */
+  roleNames?: Record<string, string>;
   permissions: string[];
   moduleKeys: string[];
   authorizationRevision: string;
@@ -459,19 +544,103 @@ export function hasTenantAction(
   return permissions.includes('tenant.manage') || permissions.includes(action);
 }
 
+/** Khóa vai trò hệ thống của quản trị tenant. */
+export const TENANT_ADMIN_ROLE = 'tenant-admin';
+
+export function isTenantAdmin(roles: readonly string[] | undefined): boolean {
+  return !!roles?.includes(TENANT_ADMIN_ROLE);
+}
+
+/**
+ * Action quản lý kéo theo các action con. Đây là nguồn duy nhất cho luật "manage bao hàm quyền hẹp":
+ * `expandTenantActions` (quyền hiệu lực) và `tenantActionHeld` (guard) cùng đọc bảng này.
+ * Cố ý KHÔNG gồm `workspace.document.delete`: xóa tài liệu phải được cấp đích danh.
+ */
+export const TENANT_ACTION_IMPLIES: Readonly<Record<string, readonly string[]>> = {
+  'inventory.manage': [
+    'inventory.read',
+    'inventory.transaction.write',
+    'inventory.stocktake.create',
+    'inventory.stocktake.approve',
+  ],
+  'maintenance.manage': ['maintenance.read', 'maintenance.occurrence.manage'],
+  'workspace.manage': [
+    'workspace.read',
+    'workspace.task.write',
+    'workspace.document.write',
+  ],
+  // Toàn quyền nghiệp vụ Tài chính: gồm mọi action còn lại của module.
+  'finance.manage': FINANCE_PERMISSION_ACTIONS.map((a) => a.key as string).filter(
+    (key) => key !== 'finance.manage',
+  ),
+  // Hệ dùng chung: ai ghi hay xoá tài liệu công ty cũng xem được kho. Như Workspace,
+  // `shared.manage` không kéo theo quyền xoá.
+  'shared.manage': ['shared.read', 'shared.document.write'],
+  'shared.document.write': ['shared.read'],
+  'shared.document.delete': ['shared.read'],
+};
+
+/** Người giữ `held` có `action` không, kể cả khi được bao hàm bởi một action quản lý. */
+export function tenantActionHeld(
+  held: readonly string[],
+  action: string,
+): boolean {
+  if (held.includes(action)) return true;
+  return Object.entries(TENANT_ACTION_IMPLIES).some(
+    ([manager, implied]) => held.includes(manager) && implied.includes(action),
+  );
+}
+
+/**
+ * Tiền tố action của từng module. Quyền của module = action có tiền tố đó, nên thêm action mới
+ * vào TENANT_PERMISSION_ACTIONS là đủ, không phải sửa danh sách thứ hai.
+ */
+const MODULE_ACTION_PREFIX: Readonly<Record<string, string>> = {
+  hrm: 'hrm',
+  'procedure-engine': 'procedure',
+  maintenance: 'maintenance',
+  inventory: 'inventory',
+  workspace: 'workspace',
+  finance: 'finance',
+  shared: 'shared',
+};
+/** Module nhận probe `module.access`: chỉ cần được vào module, không đòi action cụ thể. */
+const MODULES_WITH_ADMISSION_PROBE = new Set([
+  'assistant',
+  'finance',
+  'hrm',
+  'procedure-engine',
+  'workspace',
+]);
+
+/** Các permission mà một module chấp nhận trong quyết định truy cập. */
+export function tenantModulePermissions(moduleKey: string): string[] {
+  const prefix = MODULE_ACTION_PREFIX[moduleKey];
+  return [
+    ...(MODULES_WITH_ADMISSION_PROBE.has(moduleKey) ? ['module.access'] : []),
+    ...(prefix
+      ? TENANT_PERMISSION_ACTIONS.map((a) => a.key as string).filter((key) =>
+          key.startsWith(`${prefix}.`),
+        )
+      : []),
+  ];
+}
+
+/**
+ * Quyền vào module suy ra từ action: có bất kỳ action nào của module là vào được module đó.
+ * Tenant có được dùng module hay không do gói (entitlement) quyết định, kiểm ở nơi khác.
+ */
+export function tenantModulesForActions(actions: readonly string[]): string[] {
+  return Object.entries(MODULE_ACTION_PREFIX)
+    .filter(([, prefix]) => actions.some((a) => a.startsWith(`${prefix}.`)))
+    .map(([moduleKey]) => moduleKey);
+}
+
 /** Management includes operational rights, never module admission. */
 export function expandTenantActions(actions: readonly string[]): string[] {
   const effective = new Set(actions);
-  if (effective.has('inventory.manage')) {
-    effective.add('inventory.read');
-    effective.add('inventory.transaction.write');
-    effective.add('inventory.stocktake.create');
-    effective.add('inventory.stocktake.approve');
-  }
-  if (effective.has('maintenance.manage')) {
-    effective.add('maintenance.read');
-    effective.add('maintenance.occurrence.manage');
-  }
+  for (const [manager, implied] of Object.entries(TENANT_ACTION_IMPLIES))
+    if (effective.has(manager)) for (const key of implied) effective.add(key);
   if (effective.has('hrm.manage'))
     for (const item of HRM_PERMISSION_ACTIONS) effective.add(item.key);
   for (const action of [...effective]) {
@@ -488,6 +657,7 @@ export function expandTenantActions(actions: readonly string[]): string[] {
       'hrm.schedule.manage': ['hrm.schedule.read'],
       'hrm.schedule.bulk': ['hrm.schedule.manage', 'hrm.schedule.read'],
       'hrm.schedule.calendar': ['hrm.schedule.read'],
+      'hrm.fleet.manage': ['hrm.fleet.read'],
       // Quyền duyệt chỉ cho xử lý đơn thuộc phạm vi của người duyệt; KHÔNG kéo theo quyền đọc toàn tenant
       // (hrm.request.read, hrm.attendance.read, hrm.leave.read): những quyền đó phải được cấp riêng.
       'hrm.shift.approve.all': ['hrm.shift.approve'],

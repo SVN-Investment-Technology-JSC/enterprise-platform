@@ -15,7 +15,7 @@ import {
   Layers,
 } from 'lucide-react';
 import { SearchableSelect } from '@enterprise-platform/shared-ui';
-import { formatDateTime, formatNumber } from '../inventory-labels';
+import { formatDateTime, formatNoteDates, formatNumber } from '../inventory-labels';
 import type { InventoryLedgerRow } from '../inventory-api';
 import styles from '../inventory.module.scss';
 
@@ -137,7 +137,7 @@ export function MaterialHistory(props: {
       <div className={styles.historyEmptyBox}>
         <Layers size={36} strokeWidth={1.5} color="#94a3b8" />
         <span style={{ fontWeight: 600, color: '#475569' }}>Chưa có phát sinh giao dịch</span>
-        <span style={{ fontSize: '12px', color: '#94a3b8' }}>
+        <span style={{ fontSize: '13px', color: '#94a3b8' }}>
           Vật tư này chưa từng được nhập, xuất hoặc điều chỉnh kiểm kê nào trong hệ thống.
         </span>
       </div>
@@ -306,7 +306,7 @@ export function MaterialHistory(props: {
                 {/* Diễn giải chi tiết hoặc lý do giao dịch */}
                 {entry.note ? (
                   <div className={styles.historyNoteCard}>
-                    <p className={styles.historyNoteText}>{entry.note}</p>
+                    <p className={styles.historyNoteText}>{formatNoteDates(entry.note)}</p>
                   </div>
                 ) : (
                   <div className={styles.historyNoteCardEmpty}>

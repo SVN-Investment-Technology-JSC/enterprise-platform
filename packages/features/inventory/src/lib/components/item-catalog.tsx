@@ -36,7 +36,7 @@ import {
   Ban,
   Layers,
 } from 'lucide-react';
-import { Popconfirm } from '@enterprise-platform/shared-ui';
+import { Popconfirm, formatDate } from '@enterprise-platform/shared-ui';
 import styles from '../inventory.module.scss';
 
 /**
@@ -449,7 +449,7 @@ export function ItemCatalog({
                 border: '1px solid #2563eb',
                 background: '#2563eb',
                 color: '#ffffff',
-                fontSize: '13px',
+                fontSize: '14px',
                 fontWeight: 600,
                 display: 'inline-flex',
                 alignItems: 'center',
@@ -711,7 +711,7 @@ export function ItemCatalog({
                 <p
                   style={{
                     margin: '4px 0 0',
-                    fontSize: '13.5px',
+                    fontSize: '14px',
                     color: '#666666',
                     lineHeight: 1.4,
                   }}
@@ -765,13 +765,13 @@ export function ItemCatalog({
                     borderRadius: '4px',
                     border: '1px solid #e0e0e0',
                     background: '#ffffff',
-                    fontSize: '15px',
+                    fontSize: '16px',
                     color: '#333333',
                     outline: 'none',
                   }}
                   onChange={(e) => setEditDraft((d) => ({ ...d, code: e.target.value }))}
                 />
-                <span style={{ fontSize: '12px', color: '#64748b' }}>
+                <span style={{ fontSize: '13px', color: '#64748b' }}>
                   Mã định danh duy nhất của vật tư trong hệ thống.
                 </span>
               </div>
@@ -791,13 +791,13 @@ export function ItemCatalog({
                     borderRadius: '4px',
                     border: '1px solid #e0e0e0',
                     background: '#ffffff',
-                    fontSize: '15px',
+                    fontSize: '16px',
                     color: '#333333',
                     outline: 'none',
                   }}
                   onChange={(e) => setEditDraft((d) => ({ ...d, name: e.target.value }))}
                 />
-                <span style={{ fontSize: '12px', color: '#64748b' }}>
+                <span style={{ fontSize: '13px', color: '#64748b' }}>
                   Tên gọi hiển thị trên danh mục và các biểu mẫu tác nghiệp.
                 </span>
               </div>
@@ -814,7 +814,7 @@ export function ItemCatalog({
                     borderRadius: '4px',
                     border: '1px solid #e0e0e0',
                     background: '#ffffff',
-                    fontSize: '15px',
+                    fontSize: '16px',
                     color: '#333333',
                     outline: 'none',
                   }}
@@ -827,7 +827,7 @@ export function ItemCatalog({
                     </option>
                   ))}
                 </select>
-                <span style={{ fontSize: '12px', color: '#64748b' }}>
+                <span style={{ fontSize: '13px', color: '#64748b' }}>
                   Phân nhóm nghiệp vụ theo cấu hình danh mục của hệ thống.
                 </span>
               </div>
@@ -846,7 +846,7 @@ export function ItemCatalog({
                         borderRadius: '4px',
                         border: '1px solid #e0e0e0',
                         background: '#ffffff',
-                        fontSize: '14.5px',
+                        fontSize: '14px',
                         color: '#333333',
                         outline: 'none',
                       }}
@@ -874,7 +874,7 @@ export function ItemCatalog({
                         borderRadius: '4px',
                         border: '1px solid #e0e0e0',
                         background: '#ffffff',
-                        fontSize: '14.5px',
+                        fontSize: '14px',
                         color: '#333333',
                         outline: 'none',
                       }}
@@ -897,7 +897,7 @@ export function ItemCatalog({
                     border: '1px solid #bfdbfe',
                     borderRadius: '6px',
                     color: '#1e40af',
-                    fontSize: '13px',
+                    fontSize: '14px',
                     lineHeight: '1.45',
                   }}
                 >
@@ -1097,7 +1097,7 @@ export function ItemCatalog({
                   {/* Vị trí lưu trữ từ tồn kho API */}
                   <div className={styles.binCoordinateBox}>
                     <div className={styles.binCoordinateDetail}>
-                      <span style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: '#1e40af' }}>
+                      <span style={{ fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', color: '#1e40af' }}>
                         Định vị ngăn lưu trữ (Bin Location)
                       </span>
                       <div className={styles.binCoordinatePath}>
@@ -1114,7 +1114,7 @@ export function ItemCatalog({
                   <div className={styles.drawerSection}>
                     <h4 className={styles.drawerSectionTitle}>
                       <span>Tồn kho theo từng kho vật lý</span>
-                      <span style={{ fontSize: '12px', color: '#64748b', fontWeight: 400 }}>
+                      <span style={{ fontSize: '13px', color: '#64748b', fontWeight: 400 }}>
                         Tổng sở hữu: <strong>{formatNumber(onHand(activeItem) + inUse(activeItem))}</strong> {activeItem.unit ?? ''}
                       </span>
                     </h4>
@@ -1145,33 +1145,33 @@ export function ItemCatalog({
                     <h4 className={styles.drawerSectionTitle}>Tình trạng bảo quản & Dự phòng</h4>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '0.75rem' }}>
                       <div className={styles.drawerStockCard}>
-                        <span style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 600 }}>NGƯỠNG TỒN AN TOÀN (MIN/MAX)</span>
+                        <span style={{ fontSize: '12px', color: '#64748b', fontWeight: 600 }}>NGƯỠNG TỒN AN TOÀN (MIN/MAX)</span>
                         <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px' }}>
-                          <span style={{ fontSize: '15px', fontWeight: 700, color: '#0f172a' }}>
+                          <span style={{ fontSize: '16px', fontWeight: 700, color: '#0f172a' }}>
                             {activeMaterial ? formatNumber(activeMaterial.minStock) : 'Chưa có dữ liệu'} {activeItem.unit ?? ''}
                           </span>
                           {activeMaterial ? (
-                            <span style={{ fontSize: '11px', color: onHand(activeItem) < activeMaterial.minStock ? '#dc2626' : '#16a34a' }}>
+                            <span style={{ fontSize: '12px', color: onHand(activeItem) < activeMaterial.minStock ? '#dc2626' : '#16a34a' }}>
                               ({onHand(activeItem) < activeMaterial.minStock ? 'Dưới ngưỡng' : 'Đạt mức an toàn'})
                             </span>
                           ) : null}
                         </div>
-                        <span style={{ fontSize: '11px', color: '#64748b' }}>
+                        <span style={{ fontSize: '12px', color: '#64748b' }}>
                           Ngưỡng được lấy từ cấu hình vật tư và đối chiếu với tồn thực tế.
                         </span>
                       </div>
                       <div className={styles.drawerStockCard}>
-                        <span style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 600 }}>LỊCH BẢO QUẢN ĐỊNH KỲ</span>
+                        <span style={{ fontSize: '12px', color: '#64748b', fontWeight: 600 }}>LỊCH BẢO QUẢN ĐỊNH KỲ</span>
                         {activeMaintenance?.length ? activeMaintenance.map((schedule) => (
-                          <div key={schedule.id} style={{ fontSize: '12px', color: '#334155' }}>
+                          <div key={schedule.id} style={{ fontSize: '13px', color: '#334155' }}>
                             <strong>{schedule.title}</strong>
                             <span> · {schedule.frequency}</span>
                             {schedule.nextDueAt ? (
-                              <span> · Kỳ tiếp theo: {new Date(schedule.nextDueAt).toLocaleDateString('vi-VN')}</span>
+                              <span> · Kỳ tiếp theo: {formatDate(schedule.nextDueAt)}</span>
                             ) : null}
                           </div>
                         )) : (
-                          <span style={{ fontSize: '11px', color: '#64748b' }}>
+                          <span style={{ fontSize: '12px', color: '#64748b' }}>
                             Chưa có lịch bảo trì từ API.
                           </span>
                         )}
@@ -1331,14 +1331,14 @@ export function ItemCatalog({
                 </svg>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', flex: 1 }}>
-                <span style={{ fontSize: '10px', textTransform: 'uppercase', color: '#64748b', fontWeight: 700 }}>
+                <span style={{ fontSize: '12px', textTransform: 'uppercase', color: '#64748b', fontWeight: 700 }}>
                   ENTERPRISE PLATFORM · KHO
                 </span>
                 <strong style={{ fontSize: '14px', color: '#0f172a' }}>{activeItem.code}</strong>
-                <span style={{ fontSize: '11.5px', color: '#334155', fontWeight: 600, lineHeight: 1.2 }}>
+                <span style={{ fontSize: '12px', color: '#334155', fontWeight: 600, lineHeight: 1.2 }}>
                   {activeItem.name}
                 </span>
-                <span style={{ fontSize: '10.5px', color: '#2563eb', fontWeight: 600 }}>
+                <span style={{ fontSize: '12px', color: '#2563eb', fontWeight: 600 }}>
                   Vị trí: {activeItem.installedAtName
                     ? `Lắp tại: ${activeItem.installedAtName}`
                     : activeLocationIds.length > 0

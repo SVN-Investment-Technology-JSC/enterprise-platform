@@ -21,6 +21,7 @@ integration('Tenant RBAC PostgreSQL integration', () => {
   let service: TenantAuthorizationService;
   let migration: string;
   let defaultUserRoleMigration: string;
+  let moduleAccessMigration: string;
   beforeAll(async () => {
     const databaseUrl = process.env.RBAC_TEST_ADMIN_URL;
     if (!databaseUrl) throw new Error('RBAC_TEST_ADMIN_URL is required');
@@ -48,6 +49,13 @@ integration('Tenant RBAC PostgreSQL integration', () => {
       resolve(
         process.cwd(),
         '../../../migrations/tenant/core/0007-default-tenant-user-role.sql',
+      ),
+      'utf8',
+    );
+    moduleAccessMigration = await readFile(
+      resolve(
+        process.cwd(),
+        '../../../migrations/tenant/core/0011-module-access-from-actions.sql',
       ),
       'utf8',
     );
@@ -79,6 +87,7 @@ integration('Tenant RBAC PostgreSQL integration', () => {
       await pool.query(compatibility);
       await pool.query(migration);
       await pool.query(defaultUserRoleMigration);
+      await pool.query(moduleAccessMigration);
       await pool.query(compatibility); // Already-normalized DB is also a no-op.
     }
     service = new TenantAuthorizationService(async (tenant, operation) => {
@@ -104,13 +113,16 @@ integration('Tenant RBAC PostgreSQL integration', () => {
       'tenant-admin',
     );
     const access = await service.resolve('a', userId);
-    expect(access.moduleKeys).toContain('*');
+    // Không còn '*' cho người dùng thường: quyền vào Quy trình đến từ action procedure.access.
+    expect(access.moduleKeys).not.toContain('*');
+    expect(access.moduleKeys).toContain('procedure-engine');
+    expect(access.permissions).toContain('procedure.access');
     expect(access.permissions).not.toContain('tenant.manage');
   });
   it('performs permission/role CRUD, assignment, union and cache revocation', async () => {
     const p = await service.savePermission('a', adminId, {
       name: 'Readers',
-      actionKeys: ['core.users.read'],
+      actionKeys: ['core.users.read', 'procedure.access'],
     });
     const q = await service.savePermission('a', adminId, {
       name: 'Editors',
@@ -119,24 +131,23 @@ integration('Tenant RBAC PostgreSQL integration', () => {
     const r = await service.saveRole(
       'a',
       adminId,
-      {
-        name: 'Read role',
-        permissionIds: [p.id],
-        moduleKeys: ['procedure-engine'],
-      },
-      ['procedure-engine'],
+      { name: 'Read role', permissionIds: [p.id] },
     );
     const t = await service.saveRole(
       'a',
       adminId,
-      { name: 'Edit role', permissionIds: [q.id], moduleKeys: [] },
-      [],
+      { name: 'Edit role', permissionIds: [q.id] },
     );
     await service.assignRoles('a', adminId, userId, [r.id, t.id]);
+    // Vai trò tự tạo có khóa custom-<uuid>; giao diện cần tên để hiển thị.
+    const named = await service.resolve('a', userId);
+    expect(named.roleNames?.[`custom-${r.id}`]).toBe('Read role');
+    expect(named.roleNames?.[`custom-${t.id}`]).toBe('Edit role');
     const warm = await service.resolve('a', userId);
     expect(warm.permissions.sort()).toEqual([
       'core.organization.update',
       'core.users.read',
+      'procedure.access',
     ]);
     expect(
       service.allowsModule(
@@ -162,13 +173,6 @@ integration('Tenant RBAC PostgreSQL integration', () => {
     expect((await service.resolve('a', userId)).permissions).not.toContain(
       'core.users.read',
     );
-    await service.saveRole(
-      'a',
-      adminId,
-      { moduleKeys: [] },
-      ['procedure-engine'],
-      r.id,
-    );
     const revoked = await service.resolve('a', userId);
     expect(
       service.allowsModule(
@@ -185,11 +189,17 @@ integration('Tenant RBAC PostgreSQL integration', () => {
     await service.remove('a', adminId, 'permissions', p.id);
     await service.remove('a', adminId, 'permissions', q.id);
     expect((await service.resolve('a', userId)).permissions).toEqual([]);
+    // Không còn vai trò nào vẫn dùng được Trợ lý (phân hệ mở cho mọi thành viên).
+    const bare = await service.resolve('a', userId);
+    expect(bare.moduleKeys).toContain('assistant');
+    expect(service.allowsModule('a', userId, bare, 'assistant', 'module.access')).toBe(true);
+    expect(service.allowsModule('a', userId, bare, 'assistant', 'hrm.employee.read')).toBe(false);
   });
   it('does not restore revoked roles when migration is rerun', async () => {
     await required(pools.get('a')).query(migration);
     expect((await service.userRoles('a', userId)).roleIds).toEqual([]);
-    expect((await service.resolve('b', userId)).moduleKeys).toEqual(['*']);
+    // Trợ lý mở cho mọi thành viên, nên luôn có trong moduleKeys.
+    expect((await service.resolve('b', userId)).moduleKeys).toEqual(['procedure-engine', 'assistant']);
   });
   it('rejects cross-tenant role/permission IDs and rolls back the write', async () => {
     const foreign = await service.savePermission('b', adminId, {
@@ -200,8 +210,7 @@ integration('Tenant RBAC PostgreSQL integration', () => {
       service.saveRole(
         'a',
         adminId,
-        { name: 'Invalid', permissionIds: [foreign.id], moduleKeys: [] },
-        [],
+        { name: 'Invalid', permissionIds: [foreign.id] },
       ),
     ).rejects.toMatchObject({ status: 400 });
     expect(
@@ -241,7 +250,7 @@ integration('Tenant RBAC PostgreSQL integration', () => {
       service.remove('a', adminId, 'roles', admin.id),
     ).rejects.toMatchObject({ status: 409 });
     await expect(
-      service.saveRole('a', adminId, { name: 'Changed' }, [], admin.id),
+      service.saveRole('a', adminId, { name: 'Changed' }, admin.id),
     ).rejects.toMatchObject({ status: 409 });
     await service.assignRoles('a', adminId, userId, [defaultUser.id]);
     expect((await service.userRoles('a', userId)).roleIds).toEqual([
@@ -276,17 +285,19 @@ integration('Tenant RBAC PostgreSQL integration', () => {
       name: 'Module operations',
       actionKeys: ['inventory.manage', 'maintenance.read', 'procedure.instance.create'],
     });
-    const modules = ['inventory', 'maintenance', 'procedure-engine'];
-    const r = await service.saveRole('b', adminId, { name: 'Operator', permissionIds: [p.id], moduleKeys: modules }, modules);
+    const r = await service.saveRole('b', adminId, { name: 'Operator', permissionIds: [p.id] });
     await service.assignRoles('b', adminId, userId, [r.id]);
     const replica = new TenantAuthorizationService(async (tenant, operation) => operation(required(pools.get(tenant))));
     const before = await replica.resolve('b', userId);
+    // Module được vào suy từ action, không cần cấp riêng.
+    expect(before.moduleKeys).toEqual(expect.arrayContaining(['inventory', 'maintenance', 'procedure-engine']));
     expect(replica.allowsModule('b', userId, before, 'inventory', 'inventory.transaction.write')).toBe(true);
     expect(replica.allowsModule('b', userId, before, 'maintenance', 'maintenance.manage')).toBe(false);
     expect(replica.allowsModule('b', userId, before, 'procedure-engine', 'procedure.definition.manage')).toBe(false);
     await service.savePermission('b', adminId, { name: 'Module operations', actionKeys: ['inventory.read'] }, p.id);
     const after = await replica.resolve('b', userId);
     expect(after.authorizationRevision).not.toBe(before.authorizationRevision);
+    expect(after.moduleKeys).not.toContain('procedure-engine');
     expect(replica.allowsModule('b', userId, after, 'inventory', 'inventory.transaction.write')).toBe(false);
     expect(replica.allowsModule('b', userId, after, 'inventory', 'inventory.read')).toBe(true);
     expect(replica.allowsModule('b', userId, after, 'procedure-engine', 'procedure.instance.create')).toBe(false);
@@ -305,8 +316,7 @@ integration('Tenant RBAC PostgreSQL integration', () => {
     const r = await service.saveRole(
       'a',
       actor,
-      { name: 'Delegated editor', permissionIds: [p.id], moduleKeys: [] },
-      [],
+      { name: 'Delegated editor', permissionIds: [p.id] },
     );
     await service.assignRoles('a', actor, userId, [r.id]);
     const disabledAdminId = randomUUID();

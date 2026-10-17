@@ -189,7 +189,7 @@ export function StockTable({
                         {material && material.isActive === false ? (
                           <span
                             style={{
-                              fontSize: '10px',
+                              fontSize: '12px',
                               padding: '1px 5px',
                               borderRadius: '4px',
                               background: '#f1f5f9',
@@ -373,7 +373,7 @@ export function StockTable({
               alignItems: 'center',
               padding: '10px 14px',
               borderTop: '1px solid #e2e8f0',
-              fontSize: '12.5px',
+              fontSize: '13px',
               color: '#64748b',
               background: '#f8fafc',
             }}
@@ -397,7 +397,7 @@ export function StockTable({
                     padding: '2px 6px',
                     borderRadius: '4px',
                     border: '1px solid #cbd5e1',
-                    fontSize: '12px',
+                    fontSize: '13px',
                   }}
                 >
                   <option value={15}>15 / trang</option>
@@ -412,7 +412,7 @@ export function StockTable({
                 <button
                   type="button"
                   className={styles.reset}
-                  style={{ padding: '3px 8px', fontSize: '11px' }}
+                  style={{ padding: '3px 8px', fontSize: '12px' }}
                   disabled={safeCurrentPage <= 1}
                   onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
                 >
@@ -424,7 +424,7 @@ export function StockTable({
                 <button
                   type="button"
                   className={styles.reset}
-                  style={{ padding: '3px 8px', fontSize: '11px' }}
+                  style={{ padding: '3px 8px', fontSize: '12px' }}
                   disabled={safeCurrentPage >= totalPages}
                   onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
                 >

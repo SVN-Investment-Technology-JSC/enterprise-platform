@@ -2,6 +2,7 @@ export * from './lib/module-hrm.module.js';
 export * from './lib/infrastructure/hrm-context.service.js';
 export { receiveHrmProcedureResult, processHrmProcedureSync, syncEmployeeProcedureResults } from './lib/infrastructure/hrm-procedure-sync.js';
 export { receiveHrmProcedureStep } from './lib/infrastructure/hrm-procedure-progress.js';
+export { runAutoAttendance } from './lib/infrastructure/hrm-auto-attendance.js';
 export { runHrmAutomation } from './lib/infrastructure/hrm-automation.js';
 export {
   processHrmWorkflows,
@@ -13,6 +14,11 @@ export {
   HRM_WORKSPACE_EVENT_BINDINGS,
   receiveWorkspaceProjectRequestEvent,
 } from './lib/infrastructure/hrm-request-project-links.js';
+export {
+  HRM_FLEET_EVENT_BINDINGS,
+  isFleetBookingInboundEvent,
+  receiveFleetBookingEvent,
+} from './lib/infrastructure/hrm-fleet-events.js';
 export {
   receiveHrmProcedureReversal,
   receiveWorkspaceReversalRequest,

@@ -29,7 +29,7 @@ export function Field({
         ) : null}
       </span>
       {children}
-      {hint ? <span className="text-[11px] text-slate-500">{hint}</span> : null}
+      {hint ? <span className="text-[12px] text-slate-500">{hint}</span> : null}
     </div>
   );
 }
@@ -89,7 +89,7 @@ export function SectionTitle({ step, children }: { step?: number; children: Reac
   return (
     <h3 className="flex items-center gap-2 text-sm font-bold text-slate-900">
       {step ? (
-        <span className="inline-flex size-5 items-center justify-center rounded-full bg-blue-600 text-[11px] font-bold text-white">
+        <span className="inline-flex size-5 items-center justify-center rounded-full bg-blue-600 text-[12px] font-bold text-white">
           {step}
         </span>
       ) : null}

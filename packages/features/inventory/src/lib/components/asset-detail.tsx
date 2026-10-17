@@ -24,7 +24,7 @@ import styles from '../inventory.module.scss';
 import { AssetDocumentPanel } from './asset-document-panel';
 import { SparePartPanel } from './spare-part-panel';
 import { IncidentRecordDialog, type IncidentLogRecord } from './incident-record-dialog';
-import { Popconfirm } from '@enterprise-platform/shared-ui';
+import { Popconfirm, formatDate } from '@enterprise-platform/shared-ui';
 import { Folder, Link2, Printer, X } from 'lucide-react';
 
 type AssetSubTab = 'overview' | 'documents' | 'history' | 'bom' | 'maintenance-plan';
@@ -271,9 +271,9 @@ export function AssetDetail({
       const isCompleted = occ.status === 'completed';
       const isFailed = occ.status === 'failed';
       const dateStr = occ.completedAt
-        ? new Date(occ.completedAt).toLocaleDateString('vi-VN')
+        ? formatDate(occ.completedAt)
         : occ.dueAt
-        ? new Date(occ.dueAt).toLocaleDateString('vi-VN')
+        ? formatDate(occ.dueAt)
         : '—';
 
       list.push({
@@ -407,14 +407,14 @@ export function AssetDetail({
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <span className={styles.eyebrow}>{ASSET_TYPE_LABEL[asset.type]}</span>
-                <span style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
+                <span style={{ fontSize: '14px', fontWeight: 600, color: '#334155' }}>
                   Mã thiết bị: <strong style={{ color: '#2563eb' }}>{asset.code}</strong>
                 </span>
               </div>
 
               {/* Tên thiết bị */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                <label style={{ fontSize: '12.5px', fontWeight: 600, color: '#475569' }}>
+                <label style={{ fontSize: '13px', fontWeight: 600, color: '#475569' }}>
                   Tên thiết bị <span style={{ color: '#dc2626' }}>*</span>
                 </label>
                 <input
@@ -422,7 +422,7 @@ export function AssetDetail({
                   type="text"
                   value={editName}
                   style={{
-                    fontSize: '15px',
+                    fontSize: '16px',
                     fontWeight: 700,
                     color: '#0f172a',
                     padding: '6px 10px',
@@ -438,12 +438,12 @@ export function AssetDetail({
               {/* 3 cột: Trạng thái, Mức độ quan trọng, Serial */}
               <div style={{ display: 'grid', gridTemplateColumns: '1.1fr 1fr 1fr', gap: '10px' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  <label style={{ fontSize: '12px', fontWeight: 600, color: '#475569' }}>
+                  <label style={{ fontSize: '13px', fontWeight: 600, color: '#475569' }}>
                     Trạng thái vận hành
                   </label>
                   <select
                     style={{
-                      fontSize: '13px',
+                      fontSize: '14px',
                       padding: '5px 8px',
                       borderRadius: '5px',
                       border: '1px solid #cbd5e1',
@@ -463,12 +463,12 @@ export function AssetDetail({
                 </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  <label style={{ fontSize: '12px', fontWeight: 600, color: '#475569' }}>
+                  <label style={{ fontSize: '13px', fontWeight: 600, color: '#475569' }}>
                     Độ quan trọng
                   </label>
                   <select
                     style={{
-                      fontSize: '13px',
+                      fontSize: '14px',
                       padding: '5px 8px',
                       borderRadius: '5px',
                       border: '1px solid #cbd5e1',
@@ -488,14 +488,14 @@ export function AssetDetail({
                 </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  <label style={{ fontSize: '12px', fontWeight: 600, color: '#475569' }}>
+                  <label style={{ fontSize: '13px', fontWeight: 600, color: '#475569' }}>
                     Số Serial / Khung
                   </label>
                   <input
                     type="text"
                     placeholder="Tùy chọn"
                     style={{
-                      fontSize: '13px',
+                      fontSize: '14px',
                       padding: '5px 8px',
                       borderRadius: '5px',
                       border: '1px solid #cbd5e1',
@@ -514,7 +514,7 @@ export function AssetDetail({
                 <button
                   type="button"
                   className={styles.btnPrimary}
-                  style={{ padding: '6px 14px', fontSize: '13px' }}
+                  style={{ padding: '6px 14px', fontSize: '14px' }}
                   disabled={saving || busy || !editName.trim()}
                   onClick={async () => {
                     await save({
@@ -531,7 +531,7 @@ export function AssetDetail({
                 <button
                   type="button"
                   className={styles.btnSecondary}
-                  style={{ padding: '6px 12px', fontSize: '13px' }}
+                  style={{ padding: '6px 12px', fontSize: '14px' }}
                   disabled={saving || busy}
                   onClick={() => {
                     setEditName(asset.name);
@@ -567,7 +567,7 @@ export function AssetDetail({
               <h2 style={{ margin: '4px 0', fontSize: '20px', fontWeight: 800, color: '#0f172a' }}>
                 {asset.name}
               </h2>
-              <p style={{ margin: 0, fontSize: '13px', color: '#64748b' }}>
+              <p style={{ margin: 0, fontSize: '14px', color: '#64748b' }}>
                 Mã thiết bị: <strong style={{ color: '#2563eb' }}>{asset.code}</strong>
                 {asset.serialNumber ? ` · Serial: ${asset.serialNumber}` : ''}
               </p>
@@ -680,7 +680,7 @@ export function AssetDetail({
                 <button
                   type="button"
                   className={styles.btnSecondary}
-                  style={{ padding: '4px 10px', fontSize: '12px' }}
+                  style={{ padding: '4px 10px', fontSize: '13px' }}
                   onClick={openSpecs}
                 >
                   {specs.length === 0 ? '+ Khai báo' : 'Chỉnh sửa'}
@@ -809,7 +809,7 @@ export function AssetDetail({
                       padding: '8px 12px',
                       borderRadius: '6px',
                       background: '#f8fafc',
-                      fontSize: '13px',
+                      fontSize: '14px',
                     }}
                   >
                     <span style={{ color: 'var(--pe-text-secondary)', fontWeight: 500 }}>{key}</span>
@@ -831,8 +831,8 @@ export function AssetDetail({
                   
                 </div>
                 <div>
-                  <div style={{ fontSize: '13px', fontWeight: 700 }}>Mã phản hồi nhanh (QR Code)</div>
-                  <div style={{ fontSize: '12px', color: 'var(--pe-text-muted)' }}>Mã quét: {asset.qrCode ?? `QR-AMM-${asset.code}`}</div>
+                  <div style={{ fontSize: '14px', fontWeight: 700 }}>Mã phản hồi nhanh (QR Code)</div>
+                  <div style={{ fontSize: '13px', color: 'var(--pe-text-muted)' }}>Mã quét: {asset.qrCode ?? `QR-AMM-${asset.code}`}</div>
                   <span className={`${styles.statusPill} ${styles.statusPillSuccess}`} style={{ marginTop: '4px' }}>
                     Sẵn sàng quét hiện trường
                   </span>
@@ -841,12 +841,12 @@ export function AssetDetail({
 
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px' }}>
                 <div style={{ padding: '10px', background: '#f8fafc', borderRadius: '6px' }}>
-                  <span style={{ fontSize: '11px', color: 'var(--pe-text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>Nhà máy trực thuộc</span>
-                  <div style={{ fontSize: '13px', fontWeight: 700, marginTop: '2px' }}>Factory (Plant 1)</div>
+                  <span style={{ fontSize: '12px', color: 'var(--pe-text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>Nhà máy trực thuộc</span>
+                  <div style={{ fontSize: '14px', fontWeight: 700, marginTop: '2px' }}>Factory (Plant 1)</div>
                 </div>
                 <div style={{ padding: '10px', background: '#f8fafc', borderRadius: '6px' }}>
-                  <span style={{ fontSize: '11px', color: 'var(--pe-text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>Phân khu lắp đặt</span>
-                  <div style={{ fontSize: '13px', fontWeight: 700, marginTop: '2px' }}>Khu vực Turbine T1</div>
+                  <span style={{ fontSize: '12px', color: 'var(--pe-text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>Phân khu lắp đặt</span>
+                  <div style={{ fontSize: '14px', fontWeight: 700, marginTop: '2px' }}>Khu vực Turbine T1</div>
                 </div>
               </div>
             </div>
@@ -882,18 +882,18 @@ export function AssetDetail({
               <span style={{ display: 'inline-flex', alignItems: 'center' }}>
                 {hasMaintenanceModule ? <Link2 size={16} color="#166534" /> : <Folder size={16} color="#475569" />}
               </span>
-              <span style={{ fontSize: '12.5px', color: hasMaintenanceModule ? '#166534' : '#475569', fontWeight: 600 }}>
+              <span style={{ fontSize: '13px', color: hasMaintenanceModule ? '#166534' : '#475569', fontWeight: 600 }}>
                 {hasMaintenanceModule
                   ? 'Chế độ Tích hợp CMMS: Tự động đồng bộ với module Bảo trì thiết bị'
                   : 'Chế độ Độc lập (Standalone AMM): Quản lý nhật ký vận hành & sự cố nội bộ tài sản'}
               </span>
               {isSyncingHistory ? (
-                <span style={{ fontSize: '11px', color: '#64748b', fontStyle: 'italic' }}>(Đang đồng bộ…)</span>
+                <span style={{ fontSize: '12px', color: '#64748b', fontStyle: 'italic' }}>(Đang đồng bộ…)</span>
               ) : null}
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontSize: '11.5px', color: '#64748b' }}>
+              <span style={{ fontSize: '12px', color: '#64748b' }}>
                 Tổng cộng: <strong>{computedStats.totalCount}</strong> bản ghi (
                 <strong style={{ color: computedStats.incidentCount > 0 ? '#dc2626' : '#16a34a' }}>
                   {computedStats.incidentCount}
@@ -907,37 +907,37 @@ export function AssetDetail({
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: '12px' }}>
             <div style={{ padding: '14px', background: '#ffffff', borderRadius: '10px', border: '1px solid var(--pe-border-subtle)', boxShadow: 'var(--pe-shadow-sm)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: '11.5px', color: 'var(--pe-text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>Giờ chạy tích luỹ</span>
-                <span style={{ fontSize: '11px', color: 'var(--pe-text-muted)' }}>Mã số máy</span>
+                <span style={{ fontSize: '12px', color: 'var(--pe-text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>Giờ chạy tích luỹ</span>
+                <span style={{ fontSize: '12px', color: 'var(--pe-text-muted)' }}>Mã số máy</span>
               </div>
-              <div style={{ fontSize: '18px', fontWeight: 800, color: 'var(--pe-primary-600)', marginTop: '4px' }}>
+              <div style={{ fontSize: '20px', fontWeight: 800, color: 'var(--pe-primary-600)', marginTop: '4px' }}>
                 {computedStats.meterHours} giờ
               </div>
             </div>
             <div style={{ padding: '14px', background: '#ffffff', borderRadius: '10px', border: '1px solid var(--pe-border-subtle)', boxShadow: 'var(--pe-shadow-sm)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: '11.5px', color: 'var(--pe-text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>Tỷ lệ sẵn sàng</span>
-                <span style={{ fontSize: '11px', color: '#15803d', fontWeight: 600 }}>Availability</span>
+                <span style={{ fontSize: '12px', color: 'var(--pe-text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>Tỷ lệ sẵn sàng</span>
+                <span style={{ fontSize: '12px', color: '#15803d', fontWeight: 600 }}>Availability</span>
               </div>
-              <div style={{ fontSize: '18px', fontWeight: 800, color: '#15803d', marginTop: '4px' }}>
+              <div style={{ fontSize: '20px', fontWeight: 800, color: '#15803d', marginTop: '4px' }}>
                 {computedStats.availabilityRate}
               </div>
             </div>
             <div style={{ padding: '14px', background: '#ffffff', borderRadius: '10px', border: '1px solid var(--pe-border-subtle)', boxShadow: 'var(--pe-shadow-sm)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: '11.5px', color: 'var(--pe-text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>Chỉ số MTBF</span>
-                <span style={{ fontSize: '11px', color: 'var(--pe-text-muted)' }}>Giữa 2 sự cố</span>
+                <span style={{ fontSize: '12px', color: 'var(--pe-text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>Chỉ số MTBF</span>
+                <span style={{ fontSize: '12px', color: 'var(--pe-text-muted)' }}>Giữa 2 sự cố</span>
               </div>
-              <div style={{ fontSize: '18px', fontWeight: 800, color: 'var(--pe-text-primary)', marginTop: '4px' }}>
+              <div style={{ fontSize: '20px', fontWeight: 800, color: 'var(--pe-text-primary)', marginTop: '4px' }}>
                 {computedStats.mtbf}
               </div>
             </div>
             <div style={{ padding: '14px', background: '#ffffff', borderRadius: '10px', border: '1px solid var(--pe-border-subtle)', boxShadow: 'var(--pe-shadow-sm)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: '11.5px', color: 'var(--pe-text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>Chỉ số MTTR</span>
-                <span style={{ fontSize: '11px', color: 'var(--pe-text-muted)' }}>Thời gian sửa</span>
+                <span style={{ fontSize: '12px', color: 'var(--pe-text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>Chỉ số MTTR</span>
+                <span style={{ fontSize: '12px', color: 'var(--pe-text-muted)' }}>Thời gian sửa</span>
               </div>
-              <div style={{ fontSize: '18px', fontWeight: 800, color: 'var(--pe-text-primary)', marginTop: '4px' }}>
+              <div style={{ fontSize: '20px', fontWeight: 800, color: 'var(--pe-text-primary)', marginTop: '4px' }}>
                 {computedStats.mttr}
               </div>
             </div>
@@ -948,7 +948,7 @@ export function AssetDetail({
             <div className={styles.cardHead}>
               <div>
                 <h3>Nhật ký vận hành, bảo dưỡng &amp; Lịch sử sự cố</h3>
-                <p style={{ margin: '2px 0 0', fontSize: '12px', color: 'var(--pe-text-muted)' }}>
+                <p style={{ margin: '2px 0 0', fontSize: '13px', color: 'var(--pe-text-muted)' }}>
                   Theo dõi toàn bộ vòng đời vận hành, các lần đại tu, sửa chữa và thay thế vật tư phụ tùng.
                 </p>
               </div>
@@ -964,7 +964,7 @@ export function AssetDetail({
 
             <div style={{ marginTop: '16px', paddingLeft: '8px' }}>
               {mergedTimeline.length === 0 ? (
-                <div style={{ padding: '32px 0', textAlign: 'center', color: '#64748b', fontSize: '13px' }}>
+                <div style={{ padding: '32px 0', textAlign: 'center', color: '#64748b', fontSize: '14px' }}>
                   Chưa có sự kiện hoặc nhật ký vận hành nào được ghi nhận cho thiết bị này.
                 </div>
               ) : (
@@ -972,10 +972,10 @@ export function AssetDetail({
                   <div key={item.id} className={styles.timelineItem}>
                     <span className={styles.timelineDot} />
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px', flexWrap: 'wrap' }}>
-                      <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--pe-primary-600)' }}>
+                      <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--pe-primary-600)' }}>
                         {item.date}
                       </span>
-                      <strong style={{ fontSize: '13.5px' }}>{item.title}</strong>
+                      <strong style={{ fontSize: '14px' }}>{item.title}</strong>
 
                       {/* Tag phân loại sự kiện */}
                       <span
@@ -988,7 +988,7 @@ export function AssetDetail({
                             ? `${styles.statusPill} ${styles.statusPillDanger || styles.statusPillWarn}`
                             : `${styles.statusPill} ${styles.statusPillInfo}`
                         }
-                        style={{ fontSize: '11px', padding: '2px 8px' }}
+                        style={{ fontSize: '12px', padding: '2px 8px' }}
                       >
                         {item.badge}
                       </span>
@@ -996,7 +996,7 @@ export function AssetDetail({
                       {/* Tag nguồn gốc dữ liệu */}
                       <span
                         style={{
-                          fontSize: '10.5px',
+                          fontSize: '12px',
                           padding: '1px 6px',
                           borderRadius: '4px',
                           background: item.source === 'maintenance_module' ? '#eff6ff' : '#f1f5f9',
@@ -1012,7 +1012,7 @@ export function AssetDetail({
                       {item.code ? (
                         <span
                           style={{
-                            fontSize: '11px',
+                            fontSize: '12px',
                             fontWeight: 700,
                             color: '#0284c7',
                             background: '#e0f2fe',
@@ -1024,10 +1024,10 @@ export function AssetDetail({
                         </span>
                       ) : null}
                     </div>
-                    <p style={{ margin: '0 0 6px', fontSize: '12.5px', color: 'var(--pe-text-secondary)' }}>
+                    <p style={{ margin: '0 0 6px', fontSize: '13px', color: 'var(--pe-text-secondary)' }}>
                       {item.desc}
                     </p>
-                    <small style={{ color: 'var(--pe-text-muted)', fontSize: '11.5px' }}>
+                    <small style={{ color: 'var(--pe-text-muted)', fontSize: '12px' }}>
                       Người phụ trách / Thực hiện: <strong>{item.actor}</strong>
                     </small>
                   </div>
@@ -1062,7 +1062,7 @@ export function AssetDetail({
             <div className={styles.cardHead}>
               <div>
                 <h3>Kế hoạch Bảo dưỡng Phòng ngừa Định kỳ (PM Schedules)</h3>
-                <p style={{ margin: '4px 0 0', fontSize: '12.5px', color: 'var(--pe-text-muted)' }}>
+                <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--pe-text-muted)' }}>
                   Chu kỳ bảo dưỡng định kỳ và các hạng mục kiểm tra tiêu chuẩn cho thiết bị này.
                 </p>
               </div>
@@ -1074,18 +1074,18 @@ export function AssetDetail({
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                     <div>
                       <strong style={{ fontSize: '14px', color: 'var(--pe-text-primary)' }}>{plan.level}</strong>
-                      <span style={{ marginLeft: '8px', fontSize: '12px', color: 'var(--pe-primary-600)', fontWeight: 600 }}>({plan.cycle})</span>
+                      <span style={{ marginLeft: '8px', fontSize: '13px', color: 'var(--pe-primary-600)', fontWeight: 600 }}>({plan.cycle})</span>
                     </div>
-                    <span className={`${styles.statusPill} ${styles.statusPillInfo}`} style={{ fontSize: '11.5px' }}>
+                    <span className={`${styles.statusPill} ${styles.statusPillInfo}`} style={{ fontSize: '12px' }}>
                       {plan.status}
                     </span>
                   </div>
-                  <ul style={{ margin: '6px 0 10px', paddingLeft: '20px', fontSize: '12.5px', color: 'var(--pe-text-secondary)' }}>
+                  <ul style={{ margin: '6px 0 10px', paddingLeft: '20px', fontSize: '13px', color: 'var(--pe-text-secondary)' }}>
                     {plan.tasks.map((t, idx) => (
                       <li key={idx} style={{ marginBottom: '3px' }}>{t}</li>
                     ))}
                   </ul>
-                  <div style={{ fontSize: '12px', color: 'var(--pe-text-muted)' }}>
+                  <div style={{ fontSize: '13px', color: 'var(--pe-text-muted)' }}>
                     Thời gian dự kiến: <strong>{plan.duration}</strong> · Yêu cầu: <strong>2 Kỹ thuật viên</strong>
                   </div>
                 </div>
@@ -1098,7 +1098,7 @@ export function AssetDetail({
             <div className={styles.cardHead}>
               <div>
                 <h3>Đầu việc bảo trì mặc định (Procedure Task Template)</h3>
-                <p style={{ margin: '4px 0 0', fontSize: '12px', color: 'var(--pe-text-muted)' }}>
+                <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--pe-text-muted)' }}>
                   Nguồn đầu việc mặc định cho vai trò E (Thực thi) trong phân hệ Quy trình.
                 </p>
               </div>
@@ -1106,7 +1106,7 @@ export function AssetDetail({
                 <button
                   type="button"
                   className={styles.btnSecondary}
-                  style={{ padding: '4px 10px', fontSize: '12px' }}
+                  style={{ padding: '4px 10px', fontSize: '13px' }}
                   onClick={openTasks}
                 >
                   {taskTemplate.length === 0 ? '+ Khai báo' : 'Chỉnh sửa'}
@@ -1254,7 +1254,7 @@ export function AssetDetail({
                 </div>
               </div>
             ) : taskTemplate.length === 0 ? (
-              <p style={{ color: 'var(--pe-text-muted)', fontSize: '13px', margin: 0 }}>
+              <p style={{ color: 'var(--pe-text-muted)', fontSize: '14px', margin: 0 }}>
                 Chưa có đầu việc bảo trì mặc định nào được cấu hình.
               </p>
             ) : (
@@ -1269,16 +1269,16 @@ export function AssetDetail({
                       padding: '8px 12px',
                       borderRadius: '6px',
                       background: '#f8fafc',
-                      fontSize: '13px',
+                      fontSize: '14px',
                     }}
                   >
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span style={{ fontWeight: 700, color: 'var(--pe-primary-600)', fontSize: '12px' }}>
+                      <span style={{ fontWeight: 700, color: 'var(--pe-primary-600)', fontSize: '13px' }}>
                         {task.key}
                       </span>
                       <span>{task.name}</span>
                     </div>
-                    <span style={{ color: 'var(--pe-text-muted)', fontSize: '12px' }}>
+                    <span style={{ color: 'var(--pe-text-muted)', fontSize: '13px' }}>
                       {task.durationMinutes ? `${task.durationMinutes} phút` : '—'}
                     </span>
                   </div>
@@ -1324,7 +1324,7 @@ export function AssetDetail({
                 <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#0f172a' }}>
                   Tem nhãn thiết bị (Khổ 50×30mm)
                 </h3>
-                <p style={{ margin: '2px 0 0', fontSize: '12.5px', color: '#64748b' }}>
+                <p style={{ margin: '2px 0 0', fontSize: '13px', color: '#64748b' }}>
                   In tem nhãn dán thân vỏ tài sản, hỗ trợ máy quét mã vạch / di động.
                 </p>
               </div>
@@ -1388,7 +1388,7 @@ export function AssetDetail({
               <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', flex: 1, minWidth: 0 }}>
                 <span
                   style={{
-                    fontSize: '10px',
+                    fontSize: '12px',
                     textTransform: 'uppercase',
                     color: '#64748b',
                     fontWeight: 700,
@@ -1397,12 +1397,12 @@ export function AssetDetail({
                 >
                   TÀI SẢN KỸ THUẬT · EVN
                 </span>
-                <strong style={{ fontSize: '15px', color: '#0f172a', letterSpacing: '-0.2px' }}>
+                <strong style={{ fontSize: '16px', color: '#0f172a', letterSpacing: '-0.2px' }}>
                   {asset.code}
                 </strong>
                 <span
                   style={{
-                    fontSize: '12px',
+                    fontSize: '13px',
                     color: '#334155',
                     fontWeight: 600,
                     lineHeight: 1.3,
@@ -1416,11 +1416,11 @@ export function AssetDetail({
                   {asset.name}
                 </span>
                 {asset.serialNumber ? (
-                  <span style={{ fontSize: '11px', color: '#475569' }}>
+                  <span style={{ fontSize: '12px', color: '#475569' }}>
                     S/N: <code>{asset.serialNumber}</code>
                   </span>
                 ) : null}
-                <span style={{ fontSize: '11px', color: '#2563eb', fontWeight: 600 }}>
+                <span style={{ fontSize: '12px', color: '#2563eb', fontWeight: 600 }}>
                   Loại: {asset.type ?? 'Thiết bị'} · {asset.status ?? 'Sẵn sàng'}
                 </span>
               </div>

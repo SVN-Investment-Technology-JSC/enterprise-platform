@@ -20,7 +20,7 @@ import {
   type PersonnelDecisionCommand,
 } from '../hrm-personnel-decisions-api';
 import {
-  APPLY_STEP_LABELS,
+  applyStepLabels,
   DECISION_STATUSES,
   DECISION_STATUS_LABELS,
   DECISION_STATUS_TONES,
@@ -59,7 +59,7 @@ const statusOptions: SearchableSelectOption[] = DECISION_STATUSES.map((s) => ({
 
 function StatusBadge({ status }: { status: HrmPersonnelDecisionStatus }) {
   return (
-    <Badge className={`border text-[10px] font-bold ${DECISION_STATUS_TONES[status]}`}>
+    <Badge className={`border text-[12px] font-bold ${DECISION_STATUS_TONES[status]}`}>
       {DECISION_STATUS_LABELS[status]}
     </Badge>
   );
@@ -245,7 +245,7 @@ export default function PersonnelDecisionsScreen() {
       render: (_, d) => (
         <div>
           <span className="block text-xs font-semibold text-slate-900">{d.employeeName ?? '----'}</span>
-          <span className="font-mono text-[11px] text-slate-500">{d.employeeCode ?? ''}</span>
+          <span className="font-mono text-[12px] text-slate-500">{d.employeeCode ?? ''}</span>
         </div>
       ),
     },
@@ -309,15 +309,15 @@ export default function PersonnelDecisionsScreen() {
           <div
             key={key}
             data-testid={`decision-stat-${key}`}
-            className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-3.5 py-2.5"
+            className="flex items-center gap-2.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2.5"
           >
-            <span className={`flex size-10 shrink-0 items-center justify-center rounded-xl ${tone}`}>
+            <span className={`flex size-9 shrink-0 items-center justify-center rounded-xl ${tone}`}>
               <FileSignature className="size-[18px]" />
             </span>
             <div className="min-w-0">
               <p className="truncate text-xs font-semibold text-slate-600">{label}</p>
               <p className="font-mono text-xl font-bold leading-tight text-slate-900">{value}</p>
-              <p className="truncate text-[11px] text-slate-500">{note}</p>
+              <p className="truncate text-[12px] text-slate-500">{note}</p>
             </div>
           </div>
         ))}
@@ -336,6 +336,7 @@ export default function PersonnelDecisionsScreen() {
             />
           </div>
           <SearchableSelect
+            height={36}
             options={unitOptions}
             value={unitFilter}
             placeholder="Tất cả phòng ban"
@@ -343,6 +344,7 @@ export default function PersonnelDecisionsScreen() {
             onChange={setUnitFilter}
           />
           <SearchableSelect
+            height={36}
             options={typeOptions}
             value={typeFilter}
             placeholder="Tất cả loại"
@@ -350,6 +352,7 @@ export default function PersonnelDecisionsScreen() {
             onChange={(v) => setTypeFilter(v as HrmPersonnelDecisionType | '')}
           />
           <SearchableSelect
+            height={36}
             options={statusOptions}
             value={statusFilter}
             placeholder="Tất cả trạng thái"
@@ -357,6 +360,7 @@ export default function PersonnelDecisionsScreen() {
             onChange={(v) => setStatusFilter(v as HrmPersonnelDecisionStatus | '')}
           />
           <SearchableSelect
+            height={36}
             options={employees}
             value={employeeFilter}
             placeholder="Tất cả nhân viên"
@@ -440,16 +444,16 @@ export default function PersonnelDecisionsScreen() {
                     <ChevronDown className={`size-4 shrink-0 text-slate-500 transition ${isCollapsed ? '-rotate-90' : ''}`} />
                     <Building2 className="size-4 shrink-0 text-blue-600" />
                     <span className="text-sm font-bold text-slate-900">{group.unit}</span>
-                    <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-600">
+                    <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[12px] font-semibold text-slate-600">
                       {group.rows.length} quyết định
                     </span>
                     {group.open > 0 && (
-                      <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700">
+                      <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[12px] font-semibold text-amber-700">
                         {group.open} đang xử lý
                       </span>
                     )}
                     {group.applied > 0 && (
-                      <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
+                      <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[12px] font-semibold text-emerald-700">
                         {group.applied} đã áp dụng
                       </span>
                     )}
@@ -556,7 +560,7 @@ export default function PersonnelDecisionsScreen() {
               </SheetHeader>
               <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-5 text-xs">
                 <section>
-                  <h4 className="mb-1 text-[11px] font-bold uppercase text-slate-700">Lý do / căn cứ</h4>
+                  <h4 className="mb-1 text-[12px] font-bold uppercase text-slate-700">Lý do / căn cứ</h4>
                   <p className="whitespace-pre-wrap rounded-lg bg-slate-50 p-3">{detail.reason}</p>
                   {detail.rejectedReason && (
                     <p className="mt-2 rounded-lg border border-red-200 bg-red-50 p-3 text-red-700">
@@ -565,10 +569,10 @@ export default function PersonnelDecisionsScreen() {
                   )}
                 </section>
                 <section>
-                  <h4 className="mb-1 text-[11px] font-bold uppercase text-slate-700">Trước / Sau</h4>
+                  <h4 className="mb-1 text-[12px] font-bold uppercase text-slate-700">Trước / Sau</h4>
                   <table className="w-full text-left">
                     <thead>
-                      <tr className="text-[11px] uppercase text-slate-400">
+                      <tr className="text-[12px] uppercase text-slate-400">
                         <th className="w-28 pb-1" />
                         <th className="pb-1">Trước</th>
                         <th className="pb-1">Sau</th>
@@ -585,17 +589,13 @@ export default function PersonnelDecisionsScreen() {
                         before={detail.fromUnitName ?? '----'}
                         after={detail.toUnitName ?? detail.fromUnitName ?? '----'}
                       />
-                      <DetailRow
-                        label="Quản lý"
-                        before={detail.fromManagerName ?? '----'}
-                        after={
-                          detail.managerMode === 'KEEP'
-                            ? (detail.fromManagerName ?? '----')
-                            : detail.managerMode === 'CLEAR'
-                              ? 'Không có'
-                              : (detail.toManagerName ?? '----')
-                        }
-                      />
+                      {detail.managerMode !== 'KEEP' && (
+                        <DetailRow
+                          label="Quản lý (cũ)"
+                          before={detail.fromManagerName ?? '----'}
+                          after={detail.managerMode === 'CLEAR' ? 'Không có' : (detail.toManagerName ?? '----')}
+                        />
+                      )}
                       <DetailRow
                         label="Lương cơ bản"
                         before={formatMoney(detail.fromBaseSalary)}
@@ -605,30 +605,28 @@ export default function PersonnelDecisionsScreen() {
                             : formatMoney(detail.fromBaseSalary)
                         }
                       />
-                      <DetailRow
-                        label="Cấp dưới"
-                        before="----"
-                        after={
-                          detail.subordinateMode === 'REASSIGN'
-                            ? `Chuyển cho ${detail.subordinateTargetName ?? '----'}`
-                            : 'Giữ nguyên'
-                        }
-                      />
+                      {detail.subordinateMode === 'REASSIGN' && (
+                        <DetailRow
+                          label="Cấp dưới (cũ)"
+                          before="----"
+                          after={`Chuyển cho ${detail.subordinateTargetName ?? '----'}`}
+                        />
+                      )}
                     </tbody>
                   </table>
                 </section>
                 <section>
-                  <h4 className="mb-1 text-[11px] font-bold uppercase text-slate-700">
+                  <h4 className="mb-1 text-[12px] font-bold uppercase text-slate-700">
                     Tiến độ áp dụng (số lần thử: {detail.applyAttempts})
                   </h4>
                   <ul className="space-y-1">
-                    {Object.entries(APPLY_STEP_LABELS).map(([key, label]) => {
+                    {applyStepLabels(detail).map(([key, label]) => {
                       const done = detail.appliedSteps?.[key];
                       return (
                         <li key={key} className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-1.5">
                           <span>{label}</span>
                           <Badge
-                            className={`border text-[10px] ${
+                            className={`border text-[12px] ${
                               done
                                 ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
                                 : 'border-slate-200 bg-slate-50 text-slate-500'

@@ -7,6 +7,7 @@ import {
   Briefcase,
   CheckCheck,
   ChevronRight,
+  Landmark,
   LoaderCircle,
   Package,
   Search,
@@ -42,6 +43,11 @@ import {
   type NotificationSummary,
   type RealtimeEventEnvelope,
 } from './notification-client';
+import {
+  publishRealtimeEvent,
+  publishRealtimeStatus,
+  registerRealtimeSender,
+} from './realtime-bus';
 import { SearchableSelect, type SearchableSelectOption } from './searchable-select';
 import { toast } from './sonner';
 import styles from './notification-center.module.css';
@@ -235,20 +241,38 @@ export function NotificationProvider({ children, client: suppliedClient }: Notif
             if (!active) return;
             commit((current) => ({ ...current, connected: true }));
             enqueue(reconcile);
+            publishRealtimeStatus(true);
           },
           onDisconnected: () => {
-            if (active) commit((current) => ({ ...current, connected: false }));
+            if (!active) return;
+            commit((current) => ({ ...current, connected: false }));
+            publishRealtimeStatus(false);
           },
           onEvent: (event) => {
-            if (active) enqueue(() => handleRealtimeEvent(event));
+            if (!active) return;
+            // Sự kiện không thuộc chuỗi thông báo (sequence riêng) phải đi đường
+            // khác, nếu không sẽ làm lệch `lastSequence` và gây đồng bộ lại vô ích.
+            if (
+              event.event === 'workspace.chat.changed' ||
+              event.event === 'workspace.chat.typing' ||
+              event.event === 'procedure.comment.changed' ||
+              event.event === 'procedure.comment.typing'
+            ) {
+              publishRealtimeEvent(event);
+              return;
+            }
+            enqueue(() => handleRealtimeEvent(event));
           },
           onSessionRevoked: (reason) => {
             if (!active) return;
+            registerRealtimeSender(undefined);
             commit((current) => ({ ...current, connected: false }));
             // Người dùng tự đăng xuất thì không cần giải thích; chỉ báo khi phiên bị thu hồi từ phía quản trị.
             if (reason !== 'logout') toast.error('Phiên đăng nhập đã kết thúc. Vui lòng đăng nhập lại.');
           },
         });
+        // Cho các màn hình khác gửi tín hiệu tạm (ví dụ "đang nhập") qua socket này.
+        registerRealtimeSender(connection.emit?.bind(connection));
       } catch (error) {
         if (!active) return;
         commit((current) => ({
@@ -263,6 +287,12 @@ export function NotificationProvider({ children, client: suppliedClient }: Notif
     return () => {
       active = false;
       connection?.disconnect();
+      // Đóng kết nối chủ động không bắn `onDisconnected` (đã `active = false`):
+      // báo ở đây để chỉ báo trạng thái không kẹt ở "đang nối".
+      if (connection) {
+        registerRealtimeSender(undefined);
+        publishRealtimeStatus(false);
+      }
     };
   }, [client, commit, handleRealtimeEvent, loadPage, reconcile]);
 
@@ -1015,6 +1045,7 @@ const MODULE_ICONS: Readonly<Record<NotificationRecord['module'], LucideIcon>> =
   procedure: Workflow,
   workspace: Briefcase,
   hrm: Users,
+  finance: Landmark,
   inventory: Package,
   maintenance: Wrench,
 };
@@ -1025,6 +1056,7 @@ function moduleLabel(module: NotificationRecord['module']): string {
     procedure: 'Quy trình',
     workspace: 'Công việc',
     hrm: 'Nhân sự',
+    finance: 'Tài chính',
     inventory: 'Kho',
     maintenance: 'Bảo trì',
   } as const)[module];
@@ -1061,6 +1093,7 @@ const CATEGORY_LABELS: Readonly<Record<string, string>> = {
   payslip: 'Phiếu lương',
   project: 'Dự án',
   'request-status': 'Trạng thái yêu cầu',
+  'voucher-status': 'Trạng thái phiếu',
   reservation: 'Giữ chỗ vật tư',
   result: 'Kết quả',
   security: 'Bảo mật',

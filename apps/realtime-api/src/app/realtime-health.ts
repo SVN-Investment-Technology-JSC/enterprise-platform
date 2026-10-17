@@ -83,6 +83,12 @@ export class RealtimeMetrics {
     help: 'Authenticated sockets recovered after a connection interruption.',
     registers: [this.registry],
   });
+  private readonly procedureJoins = new Counter<'result'>({
+    name: 'realtime_procedure_room_joins_total',
+    help: 'Requests to join a procedure room, by result (joined, denied, error).',
+    labelNames: ['result'],
+    registers: [this.registry],
+  });
   private readonly sequenceGaps = new Counter({
     name: 'realtime_sequence_gaps_total',
     help: 'Sequence gaps detected by REST synchronization.',
@@ -120,6 +126,10 @@ export class RealtimeMetrics {
         this.deliveryLatency.observe(Math.max(0, Date.now() - occurredAtMs) / 1_000);
       }
     }
+  }
+
+  procedureJoin(result: 'joined' | 'denied' | 'error'): void {
+    this.procedureJoins.inc({ result });
   }
 
   sessionRevoked(): void {

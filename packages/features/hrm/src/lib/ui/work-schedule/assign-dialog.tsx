@@ -140,7 +140,7 @@ export function AssignDialog({
           <DialogTitle className="text-lg">{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>
           {!result ? (
-            <ol className="mt-2 flex flex-wrap items-center gap-2 text-[11px]" aria-label="Các bước">
+            <ol className="mt-2 flex flex-wrap items-center gap-2 text-[12px]" aria-label="Các bước">
               {STEP_TITLES.map((label, index) => {
                 const n = index + 1;
                 return (
@@ -221,7 +221,7 @@ export function AssignDialog({
                       />
                     </Field>
                   ) : null}
-                  <p className="text-[11px] text-slate-500">
+                  <p className="text-[12px] text-slate-500">
                     Ngoại lệ áp dụng như nhau cho mọi ngày trong khoảng đã chọn (T2 đến CN).
                   </p>
                 </div>

@@ -17,7 +17,16 @@ import {
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Popconfirm } from 'antd';
+// Tooltip chi tiết node (đang tắt, bỏ comment cùng khối JSX bên dưới để dùng lại):
+// import {
+//   Tooltip,
+//   TooltipContent,
+//   TooltipTrigger,
+// } from '@/components/ui/tooltip';
 import type { Node, NodeType } from './organization-workspace';
+
+/** Mỗi cấp thụt vào bao nhiêu px (trước đây 16px, từng giảm còn 12px; 14px để đường nối cây có chỗ mà tên vẫn rộng hơn bản cũ). */
+const INDENT_PX = 14;
 
 type TreeNode = Node & {
   children: TreeNode[];
@@ -256,7 +265,12 @@ export function OrganizationTreeOutline({
   // Recursive item rendering
   const isSearching = Boolean(searchTerm.trim());
 
-  const renderItem = (item: TreeNode) => {
+  /**
+   * `trail[k]` = node tổ tiên ở cấp k có phải anh em cuối cùng không (cấp 0..level-1); `isLast` = chính node này.
+   * Dùng để vẽ đường nối kiểu cây thư mục: nhánh dọc chạy tiếp qua các hàng khi tổ tiên còn anh em phía sau,
+   * và nhánh ngang rẽ vào đúng node.
+   */
+  const renderItem = (item: TreeNode, trail: boolean[] = [], isLast = true) => {
     // Khi đang search, luôn tự động mở mọi nhánh; khi không search thì tuân theo collapsedIds
     const isExpanded = isSearching || !collapsedIds.has(item.id);
     const isSelected = selectedNodeId === item.id;
@@ -280,117 +294,167 @@ export function OrganizationTreeOutline({
       <div key={item.id} className="select-none">
         <div
           onClick={() => onSelectNode(item.id)}
-          className={`group flex items-center justify-between gap-1.5 rounded-lg px-2 py-1.5 text-xs transition-colors cursor-pointer ${
-            isSelected
-              ? 'border-l-2 border-blue-600 bg-blue-50/90 font-semibold text-blue-950 shadow-xs'
-              : isDirectMatch
-                ? 'bg-amber-50/80 text-amber-950 font-medium hover:bg-amber-100/90'
-                : isHeadPosition
-                  ? 'bg-amber-50/40 text-slate-800 hover:bg-amber-100/50'
-                  : 'text-slate-700 hover:bg-slate-100/80'
-          }`}
-          style={{ paddingLeft: `${Math.max(8, item.level * 16 + 8)}px` }}
+          className="group relative flex items-center gap-0.5 px-2 py-1 text-xs cursor-pointer"
+          style={{ paddingLeft: `${Math.max(8, item.level * INDENT_PX + 8)}px` }}
         >
-          <div className="flex min-w-0 flex-1 items-center gap-1.5">
-            {/* Expand / Collapse arrow button */}
-            {hasChildren ? (
-              <button
-                type="button"
-                onClick={(e) => toggleExpand(item.id, e)}
-                className="grid size-4 shrink-0 place-items-center rounded text-slate-400 hover:bg-slate-200/70 hover:text-slate-700"
-              >
-                {isExpanded ? (
-                  <ChevronDown className="size-3.5" />
-                ) : (
-                  <ChevronRight className="size-3.5" />
-                )}
-              </button>
-            ) : (
-              <span className="size-4 shrink-0" />
-            )}
-
-            {/* Category Icon */}
-            <span
-              className={`grid size-5 shrink-0 place-items-center rounded border ${
-                isHeadPosition ? 'border-amber-300 bg-amber-100 text-amber-700' : visual.color
-              }`}
+          {/* Đường nối cây: nhánh dọc của các tổ tiên còn anh em phía sau, và nhánh rẽ vào node (┣ / ┗), cùng trục với mũi tên mở/thu */}
+          {item.level > 0 ? (
+            <>
+              {Array.from({ length: item.level - 1 }, (_, a) =>
+                trail[a + 1] ? null : (
+                  <span
+                    key={a}
+                    aria-hidden="true"
+                    className="pointer-events-none absolute -bottom-px -top-px w-px bg-slate-300"
+                    style={{ left: `${a * INDENT_PX + 16}px` }}
+                  />
+                ),
+              )}
+              <span
+                aria-hidden="true"
+                className={`pointer-events-none absolute -top-px w-px bg-slate-300 ${isLast ? 'h-[calc(50%+1px)]' : '-bottom-px'}`}
+                style={{ left: `${(item.level - 1) * INDENT_PX + 16}px` }}
+              />
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute top-1/2 h-px bg-slate-300"
+                style={{
+                  left: `${(item.level - 1) * INDENT_PX + 16}px`,
+                  // Node có con: rẽ tới mũi tên mở/thu; node lá: rẽ tới tận biểu tượng của node.
+                  width: `${hasChildren ? INDENT_PX - 9 : INDENT_PX + 12}px`,
+                }}
+              />
+            </>
+          ) : null}
+          {/* Expand / Collapse arrow button (nằm ngoài vùng highlight) */}
+          {hasChildren ? (
+            <button
+              type="button"
+              onClick={(e) => toggleExpand(item.id, e)}
+              className="grid size-4 shrink-0 place-items-center rounded text-slate-400 hover:bg-slate-200/70 hover:text-slate-700"
             >
-              <Icon className="size-3" />
-            </span>
+              {isExpanded ? (
+                <ChevronDown className="size-3.5" />
+              ) : (
+                <ChevronRight className="size-3.5" />
+              )}
+            </button>
+          ) : (
+            <span className="size-4 shrink-0" />
+          )}
 
-            {/* Node Name & Code (hiển thị đầy đủ tên node, kèm badge nếu khớp từ khóa) */}
-            <span
-              className="font-medium break-words leading-tight flex items-center gap-1 min-w-0"
-              title={`${item.code} · ${item.name}`}
-            >
-              <span className="truncate">{item.name}</span>
-              {isHeadPosition ? (
-                <span
-                  className="inline-flex items-center gap-0.5 rounded-full bg-amber-100/90 px-1.5 py-0.2 text-[9px] font-bold text-amber-800 border border-amber-300 shrink-0"
-                  title="Chức danh quản lý chính của đơn vị"
-                >
-                  ★ Quản lý
-                </span>
-              ) : null}
-            </span>
-          </div>
-
-          {/* Quick Action buttons on hover or selected */}
+          {/* Vùng highlight (hover / đang chọn / khớp tìm kiếm): chỉ tính từ Category Icon trở đi, không gồm phần thụt cấp, đường nối và mũi tên */}
           <div
-            className={`flex shrink-0 items-center gap-0.5 ${
-              isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
-            } transition-opacity`}
+            className={`flex min-w-0 flex-1 items-center justify-between gap-1.5 rounded-sm border-l-2 pl-0.5 pr-1.5 py-0.5 transition-colors ${isSelected
+              ? 'border-blue-600 bg-blue-50/90 font-semibold text-blue-950 shadow-xs'
+              : isDirectMatch
+                ? 'border-transparent bg-amber-50/80 text-amber-950 font-medium hover:bg-amber-100/90'
+                : isHeadPosition
+                  ? 'border-transparent bg-amber-50/40 text-slate-800 hover:bg-amber-100/50'
+                  : 'border-transparent text-slate-700 hover:bg-slate-100/80'
+              }`}
           >
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onAddChild(item);
-              }}
-              className="grid size-5.5 place-items-center rounded text-slate-500 hover:bg-blue-100 hover:text-blue-700"
-              disabled={!canCreate}
-              title="Thêm node con trực thuộc"
-            >
-              <Plus className="size-3" />
-            </button>
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onEditNode(item);
-              }}
-              className="grid size-5.5 place-items-center rounded text-slate-500 hover:bg-slate-200 hover:text-slate-800"
-              disabled={!canUpdate}
-              title="Sửa thông tin node"
-            >
-              <Pencil className="size-2.5" />
-            </button>
-            <Popconfirm
-              title="Xoá node tổ chức?"
-              description={`Bạn có chắc chắn muốn xoá node "${item.name}"? Dữ liệu lịch sử vẫn được lưu trữ.`}
-              okText="Xoá"
-              cancelText="Huỷ"
-              okButtonProps={{ danger: true }}
-              placement="left"
-              onConfirm={() => onDeleteNode(item)}
+            <div className="flex min-w-0 flex-1 items-center gap-1.5">
+              {/* Category Icon */}
+              <span
+                className={`grid size-5 shrink-0 place-items-center rounded border ${isHeadPosition ? 'border-amber-300 bg-amber-100 text-amber-700' : visual.color
+                  }`}
+              >
+                <Icon className="size-3" />
+              </span>
+
+              {/* Node Name & Code (hiển thị đầy đủ tên node, kèm badge nếu khớp từ khóa) */}
+              <span
+                className="font-medium break-words leading-tight flex items-center gap-1 min-w-0"
+                title={`${item.code} · ${item.name}`}
+              >
+                {/* Tooltip chi tiết node (đang tắt):
+              <Tooltip>
+                <TooltipTrigger render={<span className="line-clamp-2 min-w-0 break-words" />}>
+                  {item.name}
+                </TooltipTrigger>
+                <TooltipContent side="right" className="max-w-sm flex-col items-start gap-0.5 py-2">
+                  <span className="text-[14px] font-semibold leading-snug">{item.name}</span>
+                  <span className="opacity-80">Mã: {item.code}</span>
+                  {item.nodeTypeId && nodeTypes.get(item.nodeTypeId) ? (
+                    <span className="opacity-80">Loại: {nodeTypes.get(item.nodeTypeId)?.name}</span>
+                  ) : null}
+                  {parentNode ? <span className="opacity-80">Thuộc: {parentNode.name}</span> : null}
+                  {hasChildren ? <span className="opacity-80">{item.children.length} node trực thuộc</span> : null}
+                  {isHeadPosition ? <span className="opacity-80">Chức danh quản lý chính của đơn vị</span> : null}
+                </TooltipContent>
+              </Tooltip>
+              */}
+                <span className="line-clamp-2 min-w-0 break-words">{item.name}</span>
+                {isHeadPosition ? (
+                  <span
+                    className="inline-flex items-center gap-0.5 rounded-full bg-amber-100/90 px-1.5 py-0.2 text-[12px] font-bold text-amber-800 border border-amber-300 shrink-0"
+                    title="Chức danh quản lý chính của đơn vị"
+                  >
+                    ★ Quản lý
+                  </span>
+                ) : null}
+              </span>
+            </div>
+
+            {/* Quick Action buttons on hover or selected — ẩn hẳn khi không dùng để tên node có đủ chỗ */}
+            <div
+              className={`shrink-0 items-center gap-0.5 ${isSelected ? 'flex' : 'hidden group-hover:flex'
+                }`}
             >
               <button
                 type="button"
-                onClick={(e) => e.stopPropagation()}
-                className="grid size-5.5 place-items-center rounded text-slate-400 hover:bg-red-100 hover:text-red-700"
-                disabled={!canDelete}
-                title="Xoá node"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onAddChild(item);
+                }}
+                className="grid size-5.5 place-items-center rounded text-slate-500 hover:bg-blue-100 hover:text-blue-700"
+                disabled={!canCreate}
+                title="Thêm node con trực thuộc"
               >
-                <Trash2 className="size-3" />
+                <Plus className="size-3" />
               </button>
-            </Popconfirm>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onEditNode(item);
+                }}
+                className="grid size-5.5 place-items-center rounded text-slate-500 hover:bg-slate-200 hover:text-slate-800"
+                disabled={!canUpdate}
+                title="Sửa thông tin node"
+              >
+                <Pencil className="size-2.5" />
+              </button>
+              <Popconfirm
+                title="Xoá node tổ chức?"
+                description={`Bạn có chắc chắn muốn xoá node "${item.name}"? Dữ liệu lịch sử vẫn được lưu trữ.`}
+                okText="Xoá"
+                cancelText="Huỷ"
+                okButtonProps={{ danger: true }}
+                placement="left"
+                onConfirm={() => onDeleteNode(item)}
+              >
+                <button
+                  type="button"
+                  onClick={(e) => e.stopPropagation()}
+                  className="grid size-5.5 place-items-center rounded text-slate-400 hover:bg-red-100 hover:text-red-700"
+                  disabled={!canDelete}
+                  title="Xoá node"
+                >
+                  <Trash2 className="size-3" />
+                </button>
+              </Popconfirm>
+            </div>
           </div>
         </div>
 
         {/* Render child nodes */}
         {hasChildren && isExpanded ? (
           <div className="relative">
-            {item.children.map(renderItem)}
+            {item.children.map((child, index) =>
+              renderItem(child, [...trail, isLast], index === item.children.length - 1),
+            )}
           </div>
         ) : null}
       </div>
@@ -403,19 +467,19 @@ export function OrganizationTreeOutline({
     <div
       tabIndex={0}
       onKeyDown={handleKeyDown}
-      className="flex h-full min-h-0 w-full flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm focus:outline-none focus:ring-1 focus:ring-blue-400/50"
+      className="flex h-full min-h-0 w-full flex-col overflow-hidden rounded-[14px] border border-[#eef0f3] bg-white focus:outline-none focus:ring-1 focus:ring-[#ffc90a]/60"
     >
       {/* Header */}
-      <div className="flex shrink-0 items-center justify-between border-b border-slate-200 bg-white px-3.5 py-3">
+      <div className="flex shrink-0 items-center justify-between border-b border-[#eef0f3] bg-[#fafbfc] px-3.5 py-3">
         <div className="flex items-center gap-2">
-          <FolderTree className="size-4 text-blue-600" />
-          <h3 className="text-sm font-bold text-slate-900">Sơ đồ phân cấp</h3>
+          <FolderTree className="size-4 text-amber-700" />
+          <h3 className="m-0 text-[14px] font-bold text-slate-900">Sơ đồ phân cấp</h3>
         </div>
-        <div className="flex items-center gap-1 text-[11px] text-slate-500">
+        <div className="flex items-center gap-1 text-[12px] text-slate-500">
           <button
             type="button"
             onClick={allCollapsed ? expandAll : collapseAll}
-            className="rounded px-2 py-0.5 hover:bg-slate-100 text-slate-600 hover:text-slate-900 border border-slate-200 transition cursor-pointer font-medium"
+            className="rounded-md border border-[#eef0f3] bg-white px-2 py-1 text-xs text-slate-700 transition hover:bg-[#f4f6f9] cursor-pointer"
             title={allCollapsed ? 'Mở rộng toàn bộ cây' : 'Thu gọn toàn bộ cây'}
           >
             {allCollapsed ? '⊞ Mở hết' : '⊟ Thu gọn'}
@@ -424,7 +488,7 @@ export function OrganizationTreeOutline({
       </div>
 
       {/* Search Box chuẩn Modules/Inventory #assets */}
-      <div className="shrink-0 border-b border-slate-100 p-2 bg-slate-50/40">
+      <div className="shrink-0 px-3 pb-1.5 pt-2.5">
         <div className="relative flex items-center">
           <Search className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-slate-400 pointer-events-none" />
           <input
@@ -432,7 +496,7 @@ export function OrganizationTreeOutline({
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             placeholder="Tìm theo mã hoặc tên node… (Phím ↑↓ điều hướng)"
-            className="h-8 w-full rounded-md border border-slate-200 bg-white pl-8 pr-7 text-xs text-slate-800 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/15 transition-all shadow-2xs"
+            className="h-[34px] w-full rounded-lg border border-[#eef0f3] bg-[#fafbfc] pl-8 pr-7 text-xs text-slate-800 placeholder:text-slate-400 focus:border-[#ffc90a] focus:bg-white focus:outline-none transition-all"
           />
           {searchTerm ? (
             <button
@@ -446,11 +510,11 @@ export function OrganizationTreeOutline({
           ) : null}
         </div>
         {searchTerm.trim() ? (
-          <div className="mt-1.5 flex items-center justify-between px-1 text-[11px] text-slate-500">
+          <div className="mt-1.5 flex items-center justify-between px-1 text-[12px] text-slate-500">
             <span>
               Tìm thấy: <b className="text-blue-600">{matchedDirectIds.size}</b> node phù hợp
             </span>
-            <span className="text-[10px] text-slate-400">Tự động giữ mạch tổ tiên</span>
+            <span className="text-[12px] text-slate-400">Tự động giữ mạch tổ tiên</span>
           </div>
         ) : null}
       </div>
@@ -458,7 +522,7 @@ export function OrganizationTreeOutline({
       {/* Tree Content List */}
       <div className="flex-1 min-h-0 overflow-y-auto p-1.5 space-y-0.5">
         {treeData.length > 0 ? (
-          treeData.map(renderItem)
+          treeData.map((root, index) => renderItem(root, [], index === treeData.length - 1))
         ) : (
           <div className="py-8 text-center text-xs text-slate-400">
             {searchTerm.trim()
@@ -469,8 +533,8 @@ export function OrganizationTreeOutline({
       </div>
 
       {/* Footer Status */}
-      <div className="flex shrink-0 items-center justify-between border-t border-slate-100 bg-slate-50/60 px-3 py-2 text-[11px] text-slate-500">
-        <span>Tổng cộng: <b>{nodes.length}</b> node</span>
+      <div className="flex shrink-0 items-center justify-between border-t border-[#eef0f3] px-3.5 py-2.5 text-[12px] text-slate-500">
+        <span>Tổng cộng: <b className="text-[#18181b]">{nodes.length}</b> node</span>
         <span className="text-slate-400">Bấm node để xem chi tiết</span>
       </div>
     </div>

@@ -7,7 +7,7 @@ import type {
   HrmSalaryGradeStep,
   HrmJobDescriptionItem,
 } from '@enterprise-platform/contracts-hrm';
-import { Popconfirm } from '@enterprise-platform/shared-ui';
+import { Popconfirm, formatDate } from '@enterprise-platform/shared-ui';
 import { hrmFetch } from '../hrm-api';
 import { Button } from './button';
 import { HrmActionDialog, type HrmAction } from './hrm-action-dialog';
@@ -30,6 +30,7 @@ export function EmployeeLifecycleActions({
   onChanged,
   layout = 'inline',
   extraItems = [],
+  showEdit = true,
 }: {
   employee: HrmEmployeeProfile;
   onChanged: Changed;
@@ -37,6 +38,8 @@ export function EmployeeLifecycleActions({
   layout?: 'inline' | 'menu';
   /** Các mục thêm cho layout `menu` (đã tự kiểm tra quyền bằng `hidden`). */
   extraItems?: readonly RowMenuItem[];
+  /** Ẩn nút Sửa ở layout inline (dành cho Drawer đã hỗ trợ sửa trực tiếp). */
+  showEdit?: boolean;
 }) {
   const { can } = useHrmPermissions();
   const [action, setAction] = useState<HrmAction | null>(null);
@@ -47,7 +50,7 @@ export function EmployeeLifecycleActions({
     setAction({
       title: `Cập nhật hồ sơ · ${employee.employeeCode}`,
       columns: 2,
-      description: `Ngày vào làm: ${employee.joinDate}. Họ tên và email do Core quản lý, không sửa tại đây. Thay đổi hồ sơ không đổi thông tin đăng nhập ERP.`,
+      description: `Ngày vào làm: ${formatDate(employee.joinDate, '----')}. Họ tên và email do Core quản lý, không sửa tại đây. Thay đổi hồ sơ không đổi thông tin đăng nhập ERP.`,
       fields: [
         {
           key: 'dateOfBirth',
@@ -312,14 +315,16 @@ export function EmployeeLifecycleActions({
     <span className="inline-flex gap-1">
       {!inactive && (
         <>
-          <Button
-            permission="hrm.employee.manage"
-            size="sm"
-            variant="outline"
-            onClick={edit}
-          >
-            Sửa
-          </Button>
+          {showEdit && (
+            <Button
+              permission="hrm.employee.manage"
+              size="sm"
+              variant="outline"
+              onClick={edit}
+            >
+              Sửa
+            </Button>
+          )}
           <Button
             permission="hrm.employee.manage"
             size="sm"
@@ -382,7 +387,7 @@ export function CatalogRemoval({
         variant="outline"
         size="sm"
         disabled={busy}
-        className={className || 'h-6.5 text-[11px] px-2 text-rose-600 hover:bg-rose-50 border-rose-200'}
+        className={className || 'h-6.5 text-[12px] px-2 text-rose-600 hover:bg-rose-50 border-rose-200'}
       >
         Xóa
       </Button>
@@ -542,7 +547,7 @@ function CatalogStatusAction({
         permission={permission}
         size="sm"
         variant="outline"
-        className={className || 'h-6.5 text-[11px] px-2 text-slate-700 hover:bg-slate-50 border-slate-200'}
+        className={className || 'h-6.5 text-[12px] px-2 text-slate-700 hover:bg-slate-50 border-slate-200'}
       >
         {active ? 'Ngừng' : 'Kích hoạt'}
       </Button>

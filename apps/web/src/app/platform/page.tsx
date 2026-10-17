@@ -1,6 +1,6 @@
 import type { AuthenticatedPrincipal } from '@enterprise-platform/contracts-identity';
 import type { TenantSummary } from '@enterprise-platform/contracts-tenancy';
-import { SessionLogoutButton } from '@enterprise-platform/shared-ui';
+import { SessionLogoutButton, formatDate } from '@enterprise-platform/shared-ui';
 import {
   AlertTriangle,
   Building2,
@@ -29,7 +29,6 @@ import {
 } from '@/components/ui/sheet';
 import { PlatformNavigation } from '@/components/platform-navigation';
 import { cn } from '@/lib/utils';
-const vietnameseDate = new Intl.DateTimeFormat('vi-VN');
 
 function initials(name: string) {
   return name
@@ -54,7 +53,7 @@ export default async function PlatformPage() {
       cache: 'no-store',
     }),
   ]);
-  if (!meResponse.ok || !tenantsResponse.ok) redirect('/admin');
+  if (!meResponse.ok || !tenantsResponse.ok) redirect('/login/admin');
   const principal = (await meResponse.json()) as AuthenticatedPrincipal;
   if (principal.kind !== 'platform-admin')
     redirect('/dashboard');
@@ -292,7 +291,7 @@ export default async function PlatformPage() {
                           key={tenant.id}
                         >
                           <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">
-                            {vietnameseDate.format(new Date(tenant.createdAt))}
+                            {formatDate(tenant.createdAt)}
                           </td>
                           <td className="px-4 py-3">Tenant được tạo</td>
                           <td className="px-4 py-3 font-medium">
@@ -501,7 +500,7 @@ function AlertItem({
           </p>
           <Badge
             className={cn(
-              'text-[10px]',
+              'text-[12px]',
               isDanger
                 ? 'bg-red-600 text-white hover:bg-red-600'
                 : 'bg-amber-500 text-white hover:bg-amber-500',

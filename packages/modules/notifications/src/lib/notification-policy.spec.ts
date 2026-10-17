@@ -108,6 +108,44 @@ describe('NotificationPolicyRegistry', () => {
     );
   });
 
+  it('notifies the people mentioned in a procedure comment, never the author, and opens the instance', async () => {
+    const registry = new NotificationPolicyRegistry(DEFAULT_NOTIFICATION_POLICIES);
+    const resolved = await registry.resolve(
+      {
+        ...event({
+          mentionId: 'comment-1',
+          threadId: 'instance-1',
+          instanceId: 'instance-1',
+          mentionedUserIds: ['user-b', 'user-c', 'user-author'],
+          actorUserId: 'user-author',
+          excerpt: 'Đậu Bá Kiên · QT-001: Nhờ @Tài Búa xem giúp',
+          deepLink: '/procedures/instances/instance-1',
+          sourceType: 'procedure_comment',
+        }),
+        type: 'procedure.mention.created',
+        source: 'procedure-engine',
+      },
+      directory,
+    );
+
+    expect(resolved).toEqual(
+      expect.objectContaining({
+        policy: expect.objectContaining({ module: 'procedure', category: 'mention' }),
+        recipients: ['user-b', 'user-c'],
+        aggregationKey: 'procedure:mention:instance-1',
+        aggregationWindowMinutes: 15,
+        template: expect.objectContaining({
+          title: 'Bạn được nhắc đến trong hồ sơ quy trình',
+          body: 'Đậu Bá Kiên · QT-001: Nhờ @Tài Búa xem giúp',
+          // Bộ giải đường dẫn đổi dạng ngắn thành đường mở đúng hồ sơ trong module Quy trình.
+          deepLink: '/modules/procedure#workspace/instance-1',
+          sourceType: 'procedure_comment',
+          sourceId: 'comment-1',
+        }),
+      }),
+    );
+  });
+
   it('aggregates repeated low-stock alerts by material, not event source', async () => {
     const registry = new NotificationPolicyRegistry(DEFAULT_NOTIFICATION_POLICIES);
     const lowStockEvent: IntegrationEventEnvelope = {

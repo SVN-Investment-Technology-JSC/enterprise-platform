@@ -70,3 +70,11 @@
 .hostRefGroup { color: #334155; font-size: .74rem; }
 .hostRefList { margin: .2rem 0 0; padding-left: 1.1rem; color: #475569; line-height: 1.5; }
 .hostRefList code { color: #0f172a; font-size: .72rem; }
+
+.financeSection { display: grid; gap: .6rem; padding: .7rem .8rem; border: 1px solid #dbe3ed; border-radius: .55rem; background: #f8fafc; }
+.financeToggle { display: inline-flex; gap: .4rem; align-items: center; justify-self: start; font-weight: 700; cursor: pointer; }
+.mappingTable { display: grid; gap: .4rem; }
+.mappingRow { display: grid; grid-template-columns: minmax(9rem, .7fr) minmax(14rem, 1.6fr); gap: .5rem; align-items: center; font-weight: 500; }
+.mappingLabel { color: #334155; font-size: .8rem; font-weight: 700; }
+.mappingLabel em { color: #dc2626; font-style: normal; }
+@media (max-width: 640px) { .mappingRow { grid-template-columns: 1fr; } }

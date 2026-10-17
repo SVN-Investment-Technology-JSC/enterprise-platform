@@ -37,7 +37,7 @@ export function FormBlock({
         <IconTile icon={icon} tone={tone} size="sm" />
         <div className="min-w-0">
           <h3 className="text-sm font-bold text-slate-900">{title}</h3>
-          {description ? <p className="text-[11px] leading-snug text-slate-500">{description}</p> : null}
+          {description ? <p className="text-[12px] leading-snug text-slate-500">{description}</p> : null}
         </div>
       </div>
       {children}
@@ -61,7 +61,7 @@ function SwitchRow({
       <SettingsSwitch label={label} checked={checked} onChange={onChange} />
       <div className="min-w-0">
         <p className="text-xs font-semibold text-slate-800">{label}</p>
-        <p className="text-[11px] leading-snug text-slate-500">{description}</p>
+        <p className="text-[12px] leading-snug text-slate-500">{description}</p>
       </div>
     </div>
   );
@@ -120,6 +120,7 @@ export function PolicyDialog({
               <div className="grid grid-cols-1 gap-3 @lg:grid-cols-2">
                 <SettingsField label="Hiệu lực từ" required htmlFor={`${uid}-from`}>
                   <DatePickerInput
+                    height={36}
                     id={`${uid}-from`}
                     required
                     className="[&_input]:h-9"
@@ -129,6 +130,7 @@ export function PolicyDialog({
                 </SettingsField>
                 <SettingsField label="Hiệu lực đến (tùy chọn)" htmlFor={`${uid}-to`}>
                   <DatePickerInput
+                    height={36}
                     id={`${uid}-to`}
                     min={policy.effectiveFrom}
                     className="[&_input]:h-9"
@@ -153,6 +155,7 @@ export function PolicyDialog({
               {policy.scope === 'EMPLOYEES' && (
                 <div className="space-y-2">
                   <SearchableSelect
+                    height={36}
                     value=""
                     placeholder="Tìm nhân viên để thêm"
                     onChange={(id) =>
@@ -302,7 +305,7 @@ export function PolicyDialog({
                     );
                   })}
                 </div>
-                <p className="text-[11px] leading-snug text-slate-500">
+                <p className="text-[12px] leading-snug text-slate-500">
                   Tính là ngày nghỉ (OFF) khi tính công, trừ khi lịch làm việc khai báo riêng ngày đó là ngày làm.
                 </p>
               </fieldset>

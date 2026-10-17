@@ -269,7 +269,7 @@ export function Popconfirm({
         {
           ref: (node: HTMLElement | null) => {
             triggerRef.current = node;
-            const originalRef = (children as unknown as { ref?: unknown }).ref;
+            const originalRef = (children.props as { ref?: unknown }).ref;
             if (typeof originalRef === 'function') originalRef(node);
             else if (
               originalRef &&
@@ -341,7 +341,7 @@ export function Popconfirm({
                     <label
                       htmlFor={reasonId}
                       style={{
-                        fontSize: '11.5px',
+                        fontSize: '12px',
                         color: '#475569',
                         lineHeight: 1.35,
                       }}
@@ -356,7 +356,7 @@ export function Popconfirm({
                       maxLength={reasonMaxLength}
                       style={{
                         padding: '5px 8px',
-                        fontSize: '12px',
+                        fontSize: '13px',
                         border: '1px solid #cbd5e1',
                         borderRadius: '4px',
                         outline: 'none',
@@ -383,7 +383,7 @@ export function Popconfirm({
                   >
                     <div
                       style={{
-                        fontSize: '11.5px',
+                        fontSize: '12px',
                         color: '#475569',
                         lineHeight: 1.35,
                       }}
@@ -401,7 +401,7 @@ export function Popconfirm({
                       autoFocus
                       style={{
                         padding: '5px 8px',
-                        fontSize: '12px',
+                        fontSize: '13px',
                         border: '1px solid #cbd5e1',
                         borderRadius: '4px',
                         outline: 'none',

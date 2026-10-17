@@ -16,7 +16,7 @@ import {
 } from './hrm-time.js';
 import { localMinutesOfDay } from './hrm-leave-day-preview.js';
 import { requireDate } from './hrm-validation.js';
-import { assertNoRequestOverlap } from './hrm-request-overlap.js';
+import { assertNoRequestOverlap, tripBlocksOt } from './hrm-request-overlap.js';
 import {
   computeOvertimeTime,
   deriveOvertimeTime,
@@ -154,6 +154,7 @@ export async function validateOt(
   // Loại ngày nhận biết lịch phân ca (ngày nghỉ/lễ theo lịch), rồi mới tới lịch làm việc chung và ngày nghỉ hằng tuần.
   let dayKind =
     (await dayKindOf(db, tenant, body.workDate, body.employeeId)) || 'WORK';
+  let policyTimeZone = 'Asia/Ho_Chi_Minh';
   if (dayKind === 'WORK') {
     // OT phải nằm ngoài ca làm việc của chính nhân viên ngày đó.
     const attendance = await resolvePolicy(
@@ -166,6 +167,7 @@ export async function validateOt(
     const timeZone = String(
       attendance?.config_json?.timezone || 'Asia/Ho_Chi_Minh',
     );
+    policyTimeZone = timeZone;
     const shift = await shiftForDate(
       db,
       tenant,
@@ -229,30 +231,39 @@ export async function validateOt(
               .toISOString()
               .slice(0, 10)
           : body.workDate,
-    });
+    }, { timeZone: policyTimeZone });
   // Đơn công tác không cho OT chỉ chặn khi giờ OT chồng giờ công tác (xét theo giờ khi cả hai có giờ cụ thể);
   // đơn công tác cũ không có giờ chiếm cả ngày. from_at/to_at đọc qua to_jsonb để chạy được trên tenant chưa có migration 0047.
-  const blockedTrip = await db.query(
-    `SELECT id FROM hrm_schema.business_trip_requests bt
+  // Công tác nhiều ngày chỉ bận trong khoảng giờ của đơn ở từng ngày (tripBusyWindows), không tính cả đêm giữa các ngày.
+  const trips = await db.query(
+    `SELECT to_char(from_date,'YYYY-MM-DD') AS from_date, to_char(to_date,'YYYY-MM-DD') AS to_date,
+            to_jsonb(bt)->>'from_at' AS from_at, to_jsonb(bt)->>'to_at' AS to_at
+       FROM hrm_schema.business_trip_requests bt
       WHERE tenant_id=$1 AND employee_id=$2 AND status IN ('PENDING','APPROVED') AND allow_ot=false
-        AND CASE
-          WHEN $5::timestamptz IS NOT NULL AND $6::timestamptz IS NOT NULL
-               AND to_jsonb(bt)->>'from_at' IS NOT NULL AND to_jsonb(bt)->>'to_at' IS NOT NULL
-          THEN tstzrange((to_jsonb(bt)->>'from_at')::timestamptz,(to_jsonb(bt)->>'to_at')::timestamptz,'[)')
-               && tstzrange($5::timestamptz,$6::timestamptz,'[)')
-          ELSE daterange(from_date,to_date,'[]') && daterange($3::date,$3::date+CASE WHEN $4::boolean THEN 1 ELSE 0 END,'[]')
-        END
-      LIMIT 1`,
-    [
-      tenant,
-      body.employeeId,
-      body.workDate,
-      end < start && end > 0,
-      window?.fromAt ?? null,
-      window?.toAt ?? null,
-    ],
+        AND daterange(from_date,to_date,'[]') && daterange($3::date,$3::date+CASE WHEN $4::boolean THEN 1 ELSE 0 END,'[]')`,
+    [tenant, body.employeeId, body.workDate, end < start && end > 0],
   );
-  if (blockedTrip.rowCount)
+  const otWindow =
+    window?.fromAt && window?.toAt
+      ? { from: Date.parse(window.fromAt), to: Date.parse(window.toAt) }
+      : null;
+  const otToDate =
+    end < start && end > 0
+      ? new Date(Date.parse(body.workDate + 'T00:00:00Z') + 86400000).toISOString().slice(0, 10)
+      : body.workDate;
+  let blockedTrip = false;
+  for (const trip of trips.rows) {
+    const blocks = tripBlocksOt(
+      trip,
+      { fromDate: body.workDate, toDate: otToDate, from: otWindow?.from ?? NaN, to: otWindow?.to ?? NaN },
+      { timeZone: policyTimeZone },
+    );
+    if (blocks) {
+      blockedTrip = true;
+      break;
+    }
+  }
+  if (blockedTrip)
     throw new BadRequestException(
       'Đơn công tác trong thời gian này không cho phép OT',
     );

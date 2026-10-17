@@ -14,6 +14,7 @@ import { HrmAnnualLeavePolicyController } from './presentation/hrm-annual-leave-
 import { HrmRequestReasonController } from './presentation/hrm-request-reason.controller.js';
 import { HrmRequestTypeController } from './presentation/hrm-request-type.controller.js';
 import { HrmRequestTimeController } from './presentation/hrm-request-time.controller.js';
+import { HrmFleetController } from './presentation/hrm-fleet.controller.js';
 import { HrmTripAllowanceController } from './presentation/hrm-trip-allowance.controller.js';
 import { HrmCustomRequestController } from './presentation/hrm-custom-request.controller.js';
 import { HrmPayrollController } from './presentation/hrm-payroll.controller.js';
@@ -23,8 +24,11 @@ import { HrmSalaryController } from './presentation/hrm-salary.controller.js';
 import { HrmShiftController } from './presentation/hrm-shift.controller.js';
 import { HrmWorkScheduleController } from './presentation/hrm-work-schedule.controller.js';
 import { HrmTimesheetController } from './presentation/hrm-timesheet.controller.js';
+import { HrmAttendanceMonitorController } from './presentation/hrm-attendance-monitor.controller.js';
 import { HrmTimesheetBoardController } from './presentation/hrm-timesheet-board.controller.js';
 import { HrmTimeSettingsController } from './presentation/hrm-time-settings.controller.js';
+import { HrmAutoAttendanceSettingsController } from './presentation/hrm-auto-attendance-settings.controller.js';
+import { HrmTimesheetStandardController } from './presentation/hrm-timesheet-standard.controller.js';
 import { HrmPayrollSettingsController } from './presentation/hrm-payroll-settings.controller.js';
 import { HrmProfileCorrectionController } from './presentation/hrm-profile-correction.controller.js';
 import { HrmAttachmentController } from './presentation/hrm-attachment.controller.js';
@@ -60,6 +64,8 @@ import { OrgHrmBridgeConsumer } from './infrastructure/org-hrm-bridge.consumer.j
     HrmAttachmentController,
     HrmProfileDocumentController,
     HrmTimeSettingsController,
+    HrmTimesheetStandardController,
+    HrmAutoAttendanceSettingsController,
     HrmPayrollSettingsController,
     HrmProfileCorrectionController,
     HrmEmployeeController,
@@ -73,10 +79,12 @@ import { OrgHrmBridgeConsumer } from './infrastructure/org-hrm-bridge.consumer.j
     HrmRequestTypeController,
     HrmRequestTimeController,
     HrmTripAllowanceController,
+    HrmFleetController,
     HrmCustomRequestController,
     HrmRequestController,
     HrmTimesheetController,
     HrmTimesheetBoardController,
+    HrmAttendanceMonitorController,
     HrmSalaryController,
     HrmPayrollController,
     HrmDashboardController,

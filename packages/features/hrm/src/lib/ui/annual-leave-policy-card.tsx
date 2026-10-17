@@ -11,11 +11,13 @@ import {
   FileText,
   Info,
   Layers,
-  Plus,
-  Trash2,
   Users,
 } from 'lucide-react';
-import { SearchableSelect } from '@enterprise-platform/shared-ui';
+import {
+  SearchableSelect,
+  formatDate,
+  formatDateTime,
+} from '@enterprise-platform/shared-ui';
 import type {
   AnnualLeavePolicyResponse,
   HrmLeaveAccrualBasis,
@@ -25,6 +27,12 @@ import { HrmApiError, hrmFetch } from '../hrm-api';
 import { Button } from './button';
 import { Input } from './input';
 import { LeaveField, LeaveSwitch } from './leave-form-controls';
+
+/**
+ * Ẩn theo yêu cầu: chỉ còn căn cứ Ngày ký HĐLĐ chính thức. Đặt true để cho chọn lại Ngày vào làm.
+ * Chính sách cũ đang dùng Ngày vào làm vẫn hiển thị đúng giá trị của nó.
+ */
+const SHOW_JOIN_DATE_BASIS = false;
 
 const BASIS_OPTIONS: { value: HrmLeaveAccrualBasis; label: string }[] = [
   { value: 'JOIN_DATE', label: 'Ngày vào làm' },
@@ -60,8 +68,9 @@ function toForm(data: AnnualLeavePolicyResponse | null): PolicyForm {
     annualDays: String(policy?.annualDays ?? 12),
     startOffsetMonths: String(policy?.startOffsetMonths ?? 0),
     advanceAllowed: policy?.advanceAllowed ?? false,
+    // Phép thâm niên chỉ có MỘT chu kỳ lặp lại (dòng trống = không áp dụng).
     tiers: policy
-      ? policy.seniorityTiers.map((t) => ({
+      ? policy.seniorityTiers.slice(0, 1).map((t) => ({
           minYears: String(t.minYears),
           bonusDays: String(t.bonusDays),
         }))
@@ -143,7 +152,7 @@ export function buildPolicySummary(form: PolicyForm): PolicySummary {
     .sort((a, b) => a.minYears - b.minYears);
   let seniority = 'Không có';
   if (tiers.length === 1) {
-    seniority = `+${tiers[0].bonusDays} ngày mỗi năm từ đủ ${tiers[0].minYears} năm`;
+    seniority = `Mỗi ${tiers[0].minYears} năm +${tiers[0].bonusDays} ngày`;
   } else if (tiers.length > 1) {
     const shown = tiers
       .slice(0, 3)
@@ -165,11 +174,6 @@ export function buildPolicySummary(form: PolicyForm): PolicySummary {
   };
 }
 
-function dateVn(isoDate: string): string {
-  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(isoDate);
-  return match ? `${match[3]}/${match[2]}/${match[1]}` : isoDate;
-}
-
 /** Các năm có thể chọn làm mốc áp dụng chính sách (luôn từ 01/01). */
 function effectiveYearOptions() {
   const year = new Date().getFullYear();
@@ -178,11 +182,6 @@ function effectiveYearOptions() {
     label: `Từ 01/01/${y}`,
   }));
 }
-function dateTimeVn(iso: string): string {
-  const date = new Date(iso);
-  return Number.isNaN(date.getTime()) ? iso : date.toLocaleString('vi-VN');
-}
-
 /** Trạng thái hiệu lực để hiện nhãn ở tiêu đề màn hình. */
 export function policyStatus(
   data: AnnualLeavePolicyResponse | null,
@@ -445,6 +444,7 @@ export function AnnualLeavePolicyCard({
                 ) : (
                   <LeaveField label="Lý do nghỉ làm phép năm" required>
                     <SearchableSelect
+                      height={36}
                       value={form.leaveTypeId}
                       placeholder="Chọn lý do nghỉ làm phép năm"
                       disabled={!editable}
@@ -477,11 +477,18 @@ export function AnnualLeavePolicyCard({
                   hint="Mốc thời gian để bắt đầu tính và tích lũy phép năm."
                 >
                   <SearchableSelect
+                    height={36}
                     value={form.accrualBasis}
                     placeholder="Chọn căn cứ tính phép"
                     disabled={!editable}
                     clearable={false}
-                    options={BASIS_OPTIONS}
+                    options={
+                      SHOW_JOIN_DATE_BASIS || joinDate
+                        ? BASIS_OPTIONS
+                        : BASIS_OPTIONS.filter(
+                            (o) => o.value === 'CONTRACT_SIGN_DATE',
+                          )
+                    }
                     onChange={(value) =>
                       patch({
                         accrualBasis:
@@ -558,7 +565,7 @@ export function AnnualLeavePolicyCard({
                   <p className="text-xs font-semibold text-slate-800">
                     Cho ứng phép
                   </p>
-                  <p className="text-[11px] leading-snug text-slate-500">
+                  <p className="text-[12px] leading-snug text-slate-500">
                     {form.advanceAllowed
                       ? 'Được dùng trước phần phép chưa cộng, đến hết năm.'
                       : 'Chỉ được dùng số phép đã cộng đến tháng hiện tại.'}
@@ -576,116 +583,70 @@ export function AnnualLeavePolicyCard({
                 description="Cộng thêm số ngày phép theo thâm niên làm việc."
               />
               <div className="overflow-hidden rounded-lg border border-slate-200">
-                <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_56px] gap-3 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600">
-                  <span>Thâm niên từ đủ (năm)</span>
-                  <span>Phép cộng thêm / năm</span>
-                  <span className="text-center">Thao tác</span>
+                <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-3 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600">
+                  <span>Chu kỳ thâm niên (năm)</span>
+                  <span>Phép cộng thêm mỗi chu kỳ (ngày)</span>
                 </div>
-                {form.tiers.length === 0 ? (
-                  <p className="px-3 py-3 text-xs text-slate-500">
-                    Không áp dụng phép thâm niên.
-                  </p>
-                ) : null}
-                {form.tiers.map((tier, index) => (
-                  <div
-                    key={index}
-                    className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_56px] items-center gap-3 border-t border-slate-100 px-3 py-2"
-                  >
-                    <div className="relative">
-                      <Input
-                        type="number"
-                        min={1}
-                        max={60}
-                        step="1"
-                        aria-label={`Số năm mốc ${index + 1}`}
-                        className="h-9 pr-12 text-xs"
-                        disabled={!editable}
-                        value={tier.minYears}
-                        onChange={(e) =>
-                          patch({
-                            tiers: form.tiers.map((t, i) =>
-                              i === index
-                                ? { ...t, minYears: e.target.value }
-                                : t,
-                            ),
-                          })
-                        }
-                      />
-                      <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-500">
-                        năm
-                      </span>
-                    </div>
-                    <div className="relative">
-                      <Input
-                        type="number"
-                        min={0}
-                        max={100}
-                        step="0.5"
-                        aria-label={`Số ngày mốc ${index + 1}`}
-                        className="h-9 pr-14 text-xs"
-                        disabled={!editable}
-                        value={tier.bonusDays}
-                        onChange={(e) =>
-                          patch({
-                            tiers: form.tiers.map((t, i) =>
-                              i === index
-                                ? { ...t, bonusDays: e.target.value }
-                                : t,
-                            ),
-                          })
-                        }
-                      />
-                      <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-500">
-                        ngày
-                      </span>
-                    </div>
-                    <div className="flex justify-center">
-                      {canManage ? (
-                        <Button
-                          type="button"
-                          size="icon-sm"
-                          variant="destructive"
-                          aria-label={`Xóa mốc ${index + 1}`}
-                          disabled={busy}
-                          onClick={() =>
+                {(form.tiers.length ? form.tiers.slice(0, 1) : [{ minYears: '', bonusDays: '' }]).map(
+                  (tier) => (
+                    <div
+                      key="tier"
+                      className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] items-center gap-3 border-t border-slate-100 px-3 py-2"
+                    >
+                      <div className="relative">
+                        <Input
+                          type="number"
+                          min={1}
+                          max={60}
+                          step="1"
+                          aria-label="Chu kỳ thâm niên"
+                          className="h-9 pr-12 text-xs"
+                          disabled={!editable}
+                          value={tier.minYears}
+                          onChange={(e) =>
                             patch({
-                              tiers: form.tiers.filter((_, i) => i !== index),
+                              tiers: [{ ...tier, minYears: e.target.value }],
                             })
                           }
-                        >
-                          <Trash2 className="size-3.5" />
-                        </Button>
-                      ) : null}
+                        />
+                        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-500">
+                          năm
+                        </span>
+                      </div>
+                      <div className="relative">
+                        <Input
+                          type="number"
+                          min={0}
+                          max={100}
+                          step="0.5"
+                          aria-label="Phép cộng thêm mỗi chu kỳ"
+                          className="h-9 pr-14 text-xs"
+                          disabled={!editable}
+                          value={tier.bonusDays}
+                          onChange={(e) =>
+                            patch({
+                              tiers: [{ ...tier, bonusDays: e.target.value }],
+                            })
+                          }
+                        />
+                        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-500">
+                          ngày
+                        </span>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  ),
+                )}
               </div>
-              {canManage ? (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  disabled={busy || form.tiers.length >= 20}
-                  onClick={() =>
-                    patch({
-                      tiers: [...form.tiers, { minYears: '', bonusDays: '' }],
-                    })
-                  }
-                  className="h-8 text-xs"
-                >
-                  <Plus className="size-3.5" />
-                  Thêm mốc thâm niên
-                </Button>
-              ) : null}
               <p
                 role="note"
                 className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600"
               >
                 <Info className="mt-0.5 size-3.5 shrink-0 text-slate-500" />
                 <span>
-                  Đạt N năm kể từ ngày căn cứ thì được thêm M ngày phép mỗi
-                  năm. Áp dụng mốc thâm niên cao nhất đạt được; không cộng dồn
-                  các mốc.
+                  Cứ đủ mỗi chu kỳ N năm kể từ ngày căn cứ thì được cộng thêm M
+                  ngày phép mỗi năm, lặp lại theo chu kỳ (ví dụ 5 năm +1: đủ 5
+                  năm +1, đủ 10 năm +2, đủ 15 năm +3). Để trống cả hai ô nếu
+                  không áp dụng phép thâm niên.
                 </span>
               </p>
             </section>
@@ -703,9 +664,10 @@ export function AnnualLeavePolicyCard({
                   <LeaveField
                     label="Áp dụng từ năm"
                     className="@2xl:col-span-2"
-                    hint="Chính sách luôn có hiệu lực từ ngày 01/01. Để trống thì hệ thống tự chọn: lần đầu từ 01/01 năm nay; đã cộng phép rồi thì từ 01/01 năm sau để không đổi số đã ghi sổ."
+                    hint="Chính sách luôn có hiệu lực từ ngày 01/01. Để trống thì áp dụng từ 01/01 năm nay. Khi lưu, quỹ phép đã ghi sổ của năm áp dụng được tính lại theo chính sách mới."
                   >
                     <SearchableSelect
+                      height={36}
                       value={form.effectiveYear}
                       placeholder="Tự động"
                       disabled={busy}
@@ -733,7 +695,7 @@ export function AnnualLeavePolicyCard({
                     />
                     <p
                       data-testid="reason-counter"
-                      className="text-right text-[11px] text-slate-400"
+                      className="text-right text-[12px] text-slate-400"
                     >
                       {form.reason.length}/{REASON_MAX_LENGTH}
                     </p>
@@ -837,7 +799,7 @@ export function AnnualLeavePolicyCard({
                         status === 'scheduled'
                           ? 'Sẽ áp dụng từ'
                           : 'Đang áp dụng từ'
-                      } ngày ${dateVn(policy.effectiveFrom)} (cập nhật lúc ${dateTimeVn(policy.updatedAt)}).`
+                      } ngày ${formatDate(policy.effectiveFrom)} (cập nhật lúc ${formatDateTime(policy.updatedAt)}).`
                     : 'Chưa có chính sách phép năm. Nhập biểu mẫu và lưu để áp dụng.'}
                 </p>
               </div>

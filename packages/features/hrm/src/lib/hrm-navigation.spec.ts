@@ -22,17 +22,24 @@ describe('HRM navigation', () => {
     expect(getActiveHrmNavId('/modules/hrm/timekeeping')).toBe('timekeeping');
     expect(getActiveHrmNavId('/modules/hrm/employees')).toBe('people');
     expect(getActiveHrmNavId('/modules/hrm/approvals')).toBe('request_processing');
+    expect(getActiveHrmNavId('/modules/hrm/attendance-monitor')).toBe('attendance_monitor');
     expect(getActiveHrmNavId('/modules/hrm/unknown')).toBe(null);
   });
 
   it('uses the agreed groups and short labels', () => {
     const view = hrmNavigationSections.map((s) => [s.title, s.items.map((i) => `${i.label} ${i.href}`)]);
     expect(view).toEqual([
-      ['TỔNG QUAN', ['Bàn làm việc /', 'Đơn từ cần xử lý /approvals']],
+      ['TỔNG QUAN', ['Bàn làm việc /', 'Giám sát chấm công /attendance-monitor', 'Đơn từ cần xử lý /approvals']],
       ['CÁ NHÂN', ['Công của tôi /my-work', 'Đơn từ của tôi /requests', 'Hồ sơ và lương /profile']],
       [
         'QUẢN LÝ',
-        ['Nhân sự /employees', 'Bảng công /timekeeping', 'Phép năm /leave', 'Lương và chi trả /payroll'],
+        [
+          'Nhân sự /employees',
+          'Bảng công /timekeeping',
+          'Phép năm /leave',
+          'Lương và chi trả /payroll',
+          'Lịch xe /fleet',
+        ],
       ],
       ['HỆ THỐNG', ['Cấu hình /settings']],
     ]);

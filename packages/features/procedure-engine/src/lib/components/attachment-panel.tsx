@@ -4,17 +4,10 @@ import type {
   ProcedureAttachment,
   ProcedureInstance,
 } from '@enterprise-platform/contracts-procedure-engine';
+import { SearchableSelect, formatDateTime } from '@enterprise-platform/shared-ui';
 import { Download, ExternalLink, FileText } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import styles from './workspace-board.module.scss';
-
-const dateTime = new Intl.DateTimeFormat('vi-VN', {
-  hour: '2-digit',
-  minute: '2-digit',
-  day: '2-digit',
-  month: '2-digit',
-  year: 'numeric',
-});
 
 function formatSize(bytes?: number): string {
   if (!bytes) return '—';
@@ -65,20 +58,20 @@ export function AttachmentPanel({
           </p>
         </div>
 
-        <select
-          className={styles.select}
+        <SearchableSelect
+          className={styles.filterCombo}
+          clearable={false}
           value={stepFilter}
-          aria-label="Lọc theo bước"
-          onChange={(event) => setStepFilter(event.target.value)}
-        >
-          <option value="all">Tất cả giai đoạn ({mine.length})</option>
-          <option value="unassigned">Cả hồ sơ / chung</option>
-          {instance.steps.map((step) => (
-            <option key={step.id} value={step.id}>
-              {step.order}. {step.name}
-            </option>
-          ))}
-        </select>
+          options={[
+            { value: 'all', label: `Tất cả giai đoạn (${mine.length})` },
+            { value: 'unassigned', label: 'Cả hồ sơ / chung' },
+            ...instance.steps.map((step) => ({
+              value: step.id,
+              label: `${step.order}. ${step.name}`,
+            })),
+          ]}
+          onChange={(value) => setStepFilter(value || 'all')}
+        />
       </header>
 
       {visible.length === 0 ? (
@@ -106,7 +99,7 @@ export function AttachmentPanel({
                         : 'Cả hồ sơ'}
                     </span>
                     <span>·</span>
-                    <span>{dateTime.format(new Date(file.createdAt))}</span>
+                    <span>{formatDateTime(file.createdAt)}</span>
                   </span>
                 </div>
               </div>
@@ -135,7 +128,7 @@ export function AttachmentPanel({
                     </a>
                   </>
                 ) : (
-                  <span style={{ fontSize: '11.5px', color: '#94a3b8' }}>Đang xử lý link...</span>
+                  <span style={{ fontSize: '12px', color: '#94a3b8' }}>Đang xử lý link...</span>
                 )}
               </div>
             </div>

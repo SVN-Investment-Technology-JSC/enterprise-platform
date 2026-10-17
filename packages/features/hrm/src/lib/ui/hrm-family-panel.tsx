@@ -1,7 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { Table, type TableColumnsType } from 'antd';
-import { Popconfirm } from '@enterprise-platform/shared-ui';
+import { Popconfirm, formatDate } from '@enterprise-platform/shared-ui';
 import type { HrmEmployeeDependent } from '@enterprise-platform/contracts-hrm';
 import { hrmFetch } from '../hrm-api';
 import { Button } from './button';
@@ -12,10 +12,12 @@ export function HrmFamilyPanel({
   rows,
   employeeId,
   onChanged,
+  readOnly = false,
 }: {
   rows: HrmEmployeeDependent[];
   employeeId?: string;
   onChanged: (rows: HrmEmployeeDependent[]) => void;
+  readOnly?: boolean;
 }) {
   const [action, setAction] = useState<HrmAction | null>(null);
   const path = employeeId
@@ -91,47 +93,56 @@ export function HrmFamilyPanel({
   const columns: TableColumnsType<HrmEmployeeDependent> = [
     { title: 'Họ tên', dataIndex: 'fullName', width: 170 },
     { title: 'Quan hệ', dataIndex: 'relationship', width: 120 },
-    { title: 'Ngày sinh', dataIndex: 'dateOfBirth', width: 110 },
+    {
+      title: 'Ngày sinh',
+      dataIndex: 'dateOfBirth',
+      width: 110,
+      render: (v?: string | null) => formatDate(v),
+    },
     { title: 'Điện thoại', dataIndex: 'phone', width: 120 },
     { title: 'Giấy tờ', dataIndex: 'identityCardNumber', width: 140 },
     { title: 'Mã số thuế', dataIndex: 'taxCode', width: 130 },
-    {
-      title: 'Thao tác',
-      width: 145,
-      fixed: 'right',
-      render: (_, row) => (
-        <span className="inline-flex gap-1">
-          <Button
-            permission={permission}
-            variant="outline"
-            size="sm"
-            onClick={() => edit(row)}
-          >
-            Sửa
-          </Button>
-          <Popconfirm
-            title="Xóa thông tin người thân?"
-            description="Lưu lịch sử hồ sơ; đăng ký giảm trừ đã xác minh được quản lý riêng."
-            okText="Xóa"
-            onConfirm={async () => {
-              try {
-                await hrmFetch(`${path}/${row.id}`, {
-                  method: 'DELETE',
-                  body: JSON.stringify({ expectedUpdatedAt: row.updatedAt }),
-                });
-                await reload();
-              } catch (e) {
-                toast.error(e instanceof Error ? e.message : 'Không thể xóa');
-              }
-            }}
-          >
-            <Button permission={permission} variant="outline" size="sm">
-              Xóa
-            </Button>
-          </Popconfirm>
-        </span>
-      ),
-    },
+    ...(readOnly
+      ? []
+      : [
+        {
+          title: 'Thao tác',
+          width: 145,
+          fixed: 'right' as const,
+          render: (_: unknown, row: HrmEmployeeDependent) => (
+            <span className="inline-flex gap-1">
+              <Button
+                permission={permission}
+                variant="outline"
+                size="sm"
+                onClick={() => edit(row)}
+              >
+                Sửa
+              </Button>
+              <Popconfirm
+                title="Xóa thông tin người thân?"
+                description="Lưu lịch sử hồ sơ; đăng ký giảm trừ đã xác minh được quản lý riêng."
+                okText="Xóa"
+                onConfirm={async () => {
+                  try {
+                    await hrmFetch(`${path}/${row.id}`, {
+                      method: 'DELETE',
+                      body: JSON.stringify({ expectedUpdatedAt: row.updatedAt }),
+                    });
+                    await reload();
+                  } catch (e) {
+                    toast.error(e instanceof Error ? e.message : 'Không thể xóa');
+                  }
+                }}
+              >
+                <Button permission={permission} variant="outline" size="sm">
+                  Xóa
+                </Button>
+              </Popconfirm>
+            </span>
+          ),
+        },
+      ]),
   ];
   return (
     <section className="space-y-3 rounded-lg border border-slate-200 bg-white p-4">
@@ -142,9 +153,11 @@ export function HrmFamilyPanel({
             Thông tin tự khai. Giảm trừ chỉ áp dụng sau khi HR xác minh đăng ký.
           </p>
         </div>
-        <Button permission={permission} size="sm" onClick={() => edit()}>
-          Thêm người thân
-        </Button>
+        {!readOnly && (
+          <Button permission={permission} size="sm" onClick={() => edit()}>
+            Thêm người thân
+          </Button>
+        )}
       </div>
       <Table
         size="small"

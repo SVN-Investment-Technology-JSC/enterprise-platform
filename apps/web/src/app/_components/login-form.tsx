@@ -3,7 +3,6 @@
 import type { LoginPortal, LoginResponse } from '@enterprise-platform/contracts-identity';
 import {
   AlertCircle,
-  ArrowLeft,
   ArrowRight,
   CheckCircle2,
   ChevronLeft,
@@ -17,7 +16,6 @@ import {
   Quote,
   ShieldCheck,
 } from 'lucide-react';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState, type FormEvent } from 'react';
 import { SessionRecovery } from './session-recovery';
@@ -278,15 +276,6 @@ export function LoginForm({ portal, eyebrow, title, description }: LoginFormProp
             >
               {isPlatform ? 'Platform Core' : 'Tenant Portal'}
             </span>
-            <Link
-              href="/"
-              prefetch={true}
-              className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-900 transition-colors"
-              title="Quay lại màn hình chọn cổng"
-            >
-              <ArrowLeft className="size-3.5" />
-              <span className="hidden sm:inline">Chọn cổng</span>
-            </Link>
           </div>
         </div>
 
@@ -415,8 +404,8 @@ export function LoginForm({ portal, eyebrow, title, description }: LoginFormProp
               </div>
             </div>
 
-            {/* Remember Me & Forgot Password Row */}
-            <div className="flex items-center justify-between pt-0.5">
+            {/* Remember Me Row */}
+            <div className="flex items-center pt-0.5">
               <label
                 htmlFor="remember-me"
                 className="flex items-center gap-2 cursor-pointer select-none text-xs text-slate-600"
@@ -432,12 +421,6 @@ export function LoginForm({ portal, eyebrow, title, description }: LoginFormProp
                 <span>Ghi nhớ đăng nhập</span>
               </label>
 
-              <Link
-                href="/reset-password"
-                className="text-xs font-semibold text-blue-600 hover:text-blue-700 hover:underline"
-              >
-                Quên mật khẩu?
-              </Link>
             </div>
 
             {/* Error Banner */}
@@ -470,31 +453,6 @@ export function LoginForm({ portal, eyebrow, title, description }: LoginFormProp
               )}
             </button>
           </form>
-
-          {/* Quick Portal Switcher Note */}
-          <div className="mt-6 text-center text-xs text-slate-500">
-            {isPlatform ? (
-              <p>
-                Người dùng doanh nghiệp?{' '}
-                <Link
-                  href="/tenant/login"
-                  className="font-semibold text-blue-600 hover:underline hover:text-blue-700 ml-1"
-                >
-                  Vào Cổng Doanh nghiệp
-                </Link>
-              </p>
-            ) : (
-              <p>
-                Quản trị viên hệ thống?{' '}
-                <Link
-                  href="/admin"
-                  className="font-semibold text-blue-600 hover:underline hover:text-blue-700 ml-1"
-                >
-                  Vào Cổng Superadmin
-                </Link>
-              </p>
-            )}
-          </div>
         </div>
 
         {/* Bottom Footer Notice */}

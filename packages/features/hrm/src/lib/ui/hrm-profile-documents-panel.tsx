@@ -96,7 +96,7 @@ function FileThumb({ file }: { file: HrmProfileFileRef | null }) {
   }, [fileId, isImage]);
   if (!file)
     return (
-      <div className="flex h-32 items-center justify-center rounded-md border border-dashed border-slate-300 bg-slate-50 text-xs text-slate-400">
+      <div className="flex h-32 items-center justify-center rounded-md border border-dashed border-slate-300 bg-slate-50 text-[14px] text-slate-400">
         Chưa có
       </div>
     );
@@ -105,7 +105,7 @@ function FileThumb({ file }: { file: HrmProfileFileRef | null }) {
       <button
         type="button"
         onClick={() => openFile(file.id)}
-        className="flex h-32 w-full items-center justify-center gap-2 rounded-md border border-slate-200 bg-slate-50 text-xs text-blue-700"
+        className="flex h-32 w-full items-center justify-center gap-2 rounded-md border border-slate-200 bg-slate-50 text-[14px] text-blue-700"
       >
         <FileText className="size-4" />
         {file.fileName}
@@ -418,11 +418,12 @@ export function HrmProfileDocumentsPanel({
     props: { date?: boolean } = {},
   ) => (
     <div className="space-y-1.5">
-      <label className="block text-[13px] font-semibold text-slate-800">
+      <label className="block text-[15px] font-semibold text-slate-800">
         {label}
       </label>
       {props.date ? (
         <DatePickerInput
+          height={40}
           value={form[key]}
           onChange={(v) => setForm((f) => ({ ...f, [key]: v }))}
           placeholder="dd/mm/yyyy"
@@ -431,7 +432,7 @@ export function HrmProfileDocumentsPanel({
         <Input
           value={form[key]}
           onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
-          className="h-10 text-sm"
+          className="h-10 text-[15px]"
         />
       )}
     </div>
@@ -457,14 +458,15 @@ export function HrmProfileDocumentsPanel({
                 : 'Thêm bằng cấp, chứng chỉ'}
           </DialogTitle>
         </DialogHeader>
-        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-5 text-sm">
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-5 text-[15px]">
           {editing?.kind === 'qualification' && (
             <div className="grid grid-cols-1 gap-x-4 gap-y-3.5 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <label className="block text-[13px] font-semibold text-slate-800">
+                <label className="block text-[15px] font-semibold text-slate-800">
                   Loại
                 </label>
                 <SearchableSelect
+                  height={40}
                   options={qualificationOptions}
                   value={form.type}
                   onChange={(v) =>
@@ -486,10 +488,11 @@ export function HrmProfileDocumentsPanel({
           )}
           {editingDocumentType && !isPhoto && (
             <div className="space-y-1.5 sm:max-w-[50%]">
-              <label className="block text-[13px] font-semibold text-slate-800">
+              <label className="block text-[15px] font-semibold text-slate-800">
                 Ngày hết hạn CCCD
               </label>
               <DatePickerInput
+                height={40}
                 value={expiry}
                 onChange={setExpiry}
                 placeholder="dd/mm/yyyy"
@@ -497,7 +500,7 @@ export function HrmProfileDocumentsPanel({
             </div>
           )}
           <div className="space-y-1.5">
-            <label className="block text-[13px] font-semibold text-slate-800">
+            <label className="block text-[15px] font-semibold text-slate-800">
               {editingDocumentType ? 'Tệp' : 'Tệp đính kèm (không bắt buộc)'}
               <span className="ml-1 font-normal text-slate-400">
                 {isPhoto
@@ -513,7 +516,7 @@ export function HrmProfileDocumentsPanel({
                   : 'application/pdf,image/png,image/jpeg,image/webp,.jfif'
               }
               onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-              className="block w-full rounded-md border border-dashed border-slate-300 bg-slate-50 px-3 py-3 text-sm file:mr-3 file:rounded-md file:border-0 file:bg-slate-200 file:px-3 file:py-1.5 file:text-xs file:font-semibold"
+              className="block w-full rounded-md border border-dashed border-slate-300 bg-slate-50 px-3 py-3 text-[15px] file:mr-3 file:rounded-md file:border-0 file:bg-slate-200 file:px-3 file:py-1.5 file:text-[14px] file:font-semibold"
             />
           </div>
         </div>
@@ -540,13 +543,13 @@ export function HrmProfileDocumentsPanel({
       uploadLabel: string,
     ) => (
       <div className="space-y-2 rounded-lg border border-dashed border-slate-300 p-2.5">
-        <div className="text-xs font-semibold text-slate-800">
+        <div className="text-[14px] font-semibold text-slate-800">
           {title}
-          {required && <span className="ml-1 text-[10px] font-normal text-red-600">Bắt buộc</span>}
+          {required && <span className="ml-1 text-[14px] font-normal text-red-600">Bắt buộc</span>}
         </div>
         {body}
         {!readOnly && (
-          <Button permission={permission} variant="outline" size="sm" className="h-7 w-full gap-1 text-xs" onClick={onUpload}>
+          <Button permission={permission} variant="outline" size="sm" className="h-7 w-full gap-1 text-[14px]" onClick={onUpload}>
             <Upload className="size-3.5" />
             {uploadLabel}
           </Button>
@@ -556,22 +559,22 @@ export function HrmProfileDocumentsPanel({
     return (
       <section aria-label="Hồ sơ và giấy tờ" data-testid="profile-documents-card" className="rounded-xl border border-slate-200 bg-white p-4 shadow-xs">
         <div className="mb-3 flex items-center justify-between gap-2">
-          <h2 className="flex items-center gap-2 text-sm font-bold text-slate-900">
+          <h2 className="flex items-center gap-2 text-[15px] font-bold text-slate-900">
             <FileText className="size-4.5 text-blue-600" aria-hidden="true" />
             Hồ sơ & giấy tờ
           </h2>
           <button
             type="button"
             onClick={() => setManageOpen(true)}
-            className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 hover:underline"
+            className="inline-flex items-center gap-1 text-[14px] font-semibold text-blue-700 hover:underline"
           >
             Quản lý giấy tờ
             <ChevronRight className="size-3.5" />
           </button>
         </div>
-        {error && <p className="mb-2 text-xs text-red-600">{error}</p>}
+        {error && <p className="mb-2 text-[14px] text-red-600">{error}</p>}
         {missing && (
-          <div className="mb-3 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-900">
+          <div className="mb-3 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-2.5 text-[14px] text-amber-900">
             <TriangleAlert className="mt-0.5 size-4 shrink-0" />
             <span>
               Bổ sung các giấy tờ bắt buộc để hoàn thiện hồ sơ cá nhân
@@ -590,7 +593,7 @@ export function HrmProfileDocumentsPanel({
             false,
             <div className="flex h-32 flex-col items-center justify-center gap-1 rounded-md border border-slate-200 bg-slate-50 text-slate-500">
               <FileText className="size-6 text-slate-400" />
-              <span className="text-xs">{qualificationCount} tệp</span>
+              <span className="text-[14px]">{qualificationCount} tệp</span>
             </div>,
             () => openQualification(),
             'Tải lên',
@@ -615,15 +618,15 @@ export function HrmProfileDocumentsPanel({
   return (
     <section className="space-y-4 rounded-lg border border-slate-200 bg-white p-4">
       <div>
-        <h3 className="text-sm font-semibold">Ảnh và giấy tờ</h3>
-        <p className="text-xs text-slate-500">
+        <h3 className="text-[15px] font-semibold">Ảnh và giấy tờ</h3>
+        <p className="text-[14px] text-slate-500">
           CCCD là bắt buộc. Bằng cấp, chứng chỉ, hộ chiếu, giấy phép lao động là
           tùy chọn.
         </p>
       </div>
-      {error && <p className="text-xs text-red-600">{error}</p>}
+      {error && <p className="text-[14px] text-red-600">{error}</p>}
       {docs && (docs.missingRequired?.length ?? 0) > 0 && (
-        <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-900">
+        <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-2.5 text-[14px] text-amber-900">
           <TriangleAlert className="mt-0.5 size-4 shrink-0" />
           <span>
             Hồ sơ chưa đủ giấy tờ bắt buộc, còn thiếu:{' '}
@@ -640,10 +643,10 @@ export function HrmProfileDocumentsPanel({
           ] as const
         ).map(([type, ref]) => (
           <div key={type} className="space-y-2">
-            <div className="text-xs font-semibold text-slate-800">
+            <div className="text-[14px] font-semibold text-slate-800">
               {documentLabels[type]}
               {type !== 'PHOTO' && (
-                <span className="ml-1 text-[10px] font-normal text-red-600">
+                <span className="ml-1 text-[14px] font-normal text-red-600">
                   Bắt buộc
                 </span>
               )}
@@ -662,7 +665,7 @@ export function HrmProfileDocumentsPanel({
           </div>
         ))}
       </div>
-      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600">
+      <div className="flex flex-wrap items-center justify-between gap-2 text-[14px] text-slate-600">
         <div>
           Ngày hết hạn CCCD:{' '}
           <strong>
@@ -677,7 +680,7 @@ export function HrmProfileDocumentsPanel({
             permission={permission}
             variant="ghost"
             size="sm"
-            className="h-7 px-2 text-xs text-blue-600 hover:text-blue-700"
+            className="h-7 px-2 text-[14px] text-blue-600 hover:text-blue-700"
             onClick={() => openDocument('ID_CARD_FRONT')}
           >
             Cập nhật ngày hết hạn
@@ -686,7 +689,7 @@ export function HrmProfileDocumentsPanel({
       </div>
 
       <div className="flex items-center justify-between gap-2 border-t border-slate-100 pt-3">
-        <h4 className="text-xs font-bold uppercase tracking-wide text-slate-900">
+        <h4 className="text-[14px] font-bold uppercase tracking-wide text-slate-900">
           Bằng cấp và chứng chỉ
         </h4>
         {!readOnly && (

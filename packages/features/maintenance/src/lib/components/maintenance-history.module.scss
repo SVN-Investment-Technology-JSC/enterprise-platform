@@ -31,7 +31,7 @@
 .titleArea p {
   margin: 0;
   color: var(--muted);
-  font-size: 0.86rem;
+  font-size: 0.875rem;
   line-height: 1.4;
 }
 
@@ -87,7 +87,7 @@
 .searchIcon {
   position: absolute;
   left: 0.65rem;
-  font-size: 0.8rem;
+  font-size: 0.8125rem;
   color: #94a3b8;
   pointer-events: none;
 }
@@ -99,7 +99,7 @@
   border: 1px solid #cbd5e1;
   border-radius: 4px;
   font: inherit;
-  font-size: 0.84rem;
+  font-size: 0.875rem;
   color: var(--ink);
   background: #ffffff;
   outline: none;
@@ -117,7 +117,7 @@
   border: 1px solid #cbd5e1;
   border-radius: 4px;
   font: inherit;
-  font-size: 0.84rem;
+  font-size: 0.875rem;
   color: var(--ink);
   background: #ffffff;
   outline: none;
@@ -132,25 +132,25 @@
 .dateRange {
   display: flex;
   align-items: center;
-  gap: 0.25rem;
-  background: #ffffff;
-  padding: 0.22rem 0.45rem;
-  border: 1px solid #cbd5e1;
-  border-radius: 4px;
+  gap: 0.35rem;
+}
+
+.datePicker {
+  width: 8.75rem;
 }
 
 .dateRange input {
   border: none;
   background: transparent;
   font: inherit;
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   color: var(--ink);
   outline: none;
 }
 
 .dateSep {
   color: #94a3b8;
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
 }
 
 .resetBtn {
@@ -165,7 +165,7 @@
   background: #ffffff;
   color: #475569;
   font: inherit;
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   font-weight: 600;
   white-space: nowrap;
   cursor: pointer;
@@ -186,7 +186,7 @@
 
 .columnHeaderRow th {
   padding: 0.7rem 0.95rem;
-  font-size: 0.76rem;
+  font-size: 0.8125rem;
   font-weight: 700;
   color: #475569;
   text-transform: uppercase;
@@ -211,14 +211,14 @@
 
 .tableRow td {
   padding: 0.8rem 0.95rem;
-  font-size: 0.86rem;
+  font-size: 0.875rem;
   color: var(--ink);
   vertical-align: middle;
 }
 
 .assetTagMono {
   font-family: ui-monospace, SFMono-Regular, monospace;
-  font-size: 0.84rem;
+  font-size: 0.875rem;
   font-weight: 600;
   color: #334155;
   white-space: nowrap;
@@ -231,19 +231,19 @@
 }
 
 .rowTitle {
-  font-size: 0.9rem;
+  font-size: 0.875rem;
   font-weight: 600;
   color: var(--ink);
   line-height: 1.35;
 }
 
 .performerTag {
-  font-size: 0.76rem;
+  font-size: 0.8125rem;
   color: #64748b;
 }
 
 .dateCell {
-  font-size: 0.84rem;
+  font-size: 0.875rem;
   color: #334155;
   white-space: nowrap;
 }
@@ -254,7 +254,7 @@
 
 .woCode {
   font-family: ui-monospace, SFMono-Regular, monospace;
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   font-weight: 600;
   color: var(--blue);
 }
@@ -267,7 +267,7 @@
   padding: 4rem 1rem;
   text-align: center;
   color: var(--muted);
-  font-size: 0.9rem;
+  font-size: 0.875rem;
 }
 
 /* ---- Vùng 3: Footer Chân Bảng (Chuẩn hóa đồng bộ với Procedure Workspace) ---- */
@@ -280,7 +280,7 @@
   padding: 10px 14px;
   border-top: 1px solid var(--line);
   background: #f8fafc;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
 }
 
@@ -291,7 +291,7 @@
 }
 
 .totalRecords {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
 }
 
@@ -303,7 +303,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--muted);
 }
 
@@ -314,7 +314,7 @@
   background: #ffffff;
   color: var(--ink);
   font: inherit;
-  font-size: 11px;
+  font-size: 12px;
   outline: none;
   cursor: pointer;
   transition: all 0.14s ease;
@@ -345,7 +345,7 @@
   background: #ffffff;
   color: var(--ink);
   font: inherit;
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.14s ease;
@@ -369,7 +369,7 @@
   gap: 0.25rem;
   padding: 0.22rem 0.6rem;
   border-radius: 4px;
-  font-size: 0.74rem;
+  font-size: 0.75rem;
   font-weight: 700;
   white-space: nowrap;
 }
@@ -392,7 +392,7 @@
   gap: 0.35rem;
   padding: 0.22rem 0.6rem;
   border-radius: 4px;
-  font-size: 0.74rem;
+  font-size: 0.75rem;
   font-weight: 600;
   white-space: nowrap;
 }
@@ -433,7 +433,7 @@
   border-radius: 4px;
   background: #ffffff;
   font: inherit;
-  font-size: 0.85rem;
+  font-size: 0.875rem;
   font-weight: 600;
   color: var(--ink);
   cursor: pointer;
@@ -494,7 +494,7 @@
 
 .drawerTitle {
   margin: 0.45rem 0 0;
-  font-size: 1.2rem;
+  font-size: 1.25rem;
   font-weight: 700;
   letter-spacing: -0.015em;
   color: var(--ink);
@@ -548,7 +548,7 @@
 }
 
 .factLabel {
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   font-weight: 700;
   color: var(--muted);
   text-transform: uppercase;
@@ -556,14 +556,14 @@
 }
 
 .factValue {
-  font-size: 0.88rem;
+  font-size: 0.875rem;
   font-weight: 600;
   color: var(--ink);
 }
 
 .factValueMono {
   font-family: ui-monospace, SFMono-Regular, monospace;
-  font-size: 0.86rem;
+  font-size: 0.875rem;
   font-weight: 600;
   color: #1e293b;
 }
@@ -579,14 +579,14 @@
 }
 
 .boxLabel {
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   font-weight: 700;
   color: var(--muted);
 }
 
 .descriptionBox p {
   margin: 0;
-  font-size: 0.86rem;
+  font-size: 0.875rem;
   line-height: 1.5;
   color: #334155;
 }
@@ -606,7 +606,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
-  font-size: 0.78rem;
+  font-size: 0.8125rem;
   font-weight: 700;
   color: #1e40af;
 }
@@ -623,7 +623,7 @@
 
 .performerText {
   margin: 0;
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   color: #1e3a8a;
 }
 
@@ -642,20 +642,20 @@
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   font-weight: 700;
   color: #065f46;
 }
 
 .resultHead small {
   color: #047857;
-  font-size: 0.74rem;
+  font-size: 0.75rem;
   font-weight: 500;
 }
 
 .resultNote {
   margin: 0;
-  font-size: 0.86rem;
+  font-size: 0.875rem;
   color: #064e3b;
   line-height: 1.45;
 }
@@ -672,7 +672,7 @@
 
 .actionTitle {
   margin: 0;
-  font-size: 0.95rem;
+  font-size: 1rem;
   font-weight: 700;
   color: var(--ink);
 }
@@ -684,7 +684,7 @@
 }
 
 .actionLabel {
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   font-weight: 600;
   color: #334155;
 }
@@ -696,7 +696,7 @@
   border: 1px solid #cbd5e1;
   border-radius: 4px;
   font: inherit;
-  font-size: 0.88rem;
+  font-size: 0.875rem;
   color: var(--ink);
   background: #ffffff;
   outline: none;
@@ -725,7 +725,7 @@
   background: var(--blue);
   color: #ffffff !important;
   font: inherit;
-  font-size: 0.88rem;
+  font-size: 0.875rem;
   font-weight: 700;
   cursor: pointer;
   box-shadow: 0 1px 3px rgba(37, 99, 235, 0.2);
@@ -746,16 +746,29 @@
 }
 
 .actionHint {
-  font-size: 0.74rem;
+  font-size: 0.75rem;
   color: var(--muted);
   line-height: 1.35;
 }
 
 .incidentForm {
   display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  padding: 0.5rem 0 0;
+}
+
+/* Phần nhập liệu cuộn bên trong; tiêu đề popup và hàng nút ở chân luôn cố định. */
+.incidentBody {
+  display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
   gap: 1.1rem;
-  padding: 0.5rem 0 0.25rem;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 0.35rem 0.5rem 0;
 }
 
 .incidentForm label {
@@ -763,7 +776,7 @@
   flex-direction: column;
   gap: 0.35rem;
   color: #333333;
-  font-size: 0.84rem;
+  font-size: 0.875rem;
   font-weight: 600;
 }
 
@@ -775,7 +788,7 @@
   border: 1px solid #cbd5e1;
   border-radius: 4px;
   font: inherit;
-  font-size: 0.88rem;
+  font-size: 0.875rem;
   color: #333333;
   background: #ffffff;
   outline: none;
@@ -801,7 +814,7 @@
 
 .assetOk {
   color: #059669;
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   font-weight: 600;
   line-height: 1.35;
   margin: 0;
@@ -809,7 +822,7 @@
 
 .assetUnknown {
   color: #d97706;
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   font-weight: 500;
   line-height: 1.35;
   margin: 0;
@@ -820,7 +833,8 @@
   align-items: center;
   justify-content: flex-end;
   gap: 12px;
-  margin-top: 18px;
+  flex-shrink: 0;
+  margin-top: 8px;
   padding-top: 16px;
   border-top: 1px solid #e5e7eb;
 }
@@ -828,7 +842,7 @@
 .incidentCancelBtn {
   box-sizing: border-box;
   padding: 0.55rem 1.15rem;
-  font-size: 0.88rem;
+  font-size: 0.875rem;
   font-weight: 600;
   color: #4b5563;
   background-color: transparent;
@@ -856,7 +870,7 @@
   gap: 8px;
   box-sizing: border-box;
   padding: 0.55rem 1.4rem;
-  font-size: 0.88rem;
+  font-size: 0.875rem;
   font-weight: 700;
   color: #ffffff !important;
   background-color: #2563eb;
@@ -886,7 +900,7 @@
   gap: 4px;
   padding: 2px 8px;
   border-radius: 4px;
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   font-weight: 700;
   color: #b91c1c;
   background: #fef2f2;

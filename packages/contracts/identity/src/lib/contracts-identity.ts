@@ -12,6 +12,8 @@ export interface PlatformAdminPrincipal extends PrincipalBase {
 }
 
 export interface TenantUserPrincipal extends PrincipalBase {
+  /** Tên hiển thị theo khóa vai trò, để giao diện không phải in khóa `custom-<uuid>`. */
+  readonly roleNames?: Readonly<Record<string, string>>;
   readonly moduleKeys?: readonly string[];
   readonly authorizationRevision?: string;
   readonly kind: 'tenant-user';

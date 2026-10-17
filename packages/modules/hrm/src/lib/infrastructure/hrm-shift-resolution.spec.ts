@@ -109,7 +109,7 @@ describe('đơn nghỉ phép theo lịch phân ca và ngày nghỉ hằng tuần
 
   it('ngày làm việc chưa có ca trong lịch phân ca thì báo chưa phân ca', async () => {
     const db = fakeDb({ weeklyOff: [], schedule: weekdaysOnly });
-    await expect(leaveDays(db as never, 't', body(4) as never)).rejects.toThrow('Chưa phân ca ngày 2026-09-05');
+    await expect(leaveDays(db as never, 't', body(4) as never)).rejects.toThrow('Chưa phân ca ngày 05/09/2026');
   });
 
   it('lịch phân ca ghi OFF cho cuối tuần thì cuối tuần không bị trừ phép dù chính sách không có ngày nghỉ hằng tuần', async () => {

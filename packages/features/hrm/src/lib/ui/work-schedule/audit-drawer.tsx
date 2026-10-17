@@ -65,7 +65,7 @@ export function AuditEntries({
           <li key={entry.id} className="rounded-lg border border-slate-200 bg-white p-3 text-xs">
             <div className="flex items-baseline justify-between gap-2">
               <span className="font-bold text-slate-900">{auditActionLabel(entry.action)}</span>
-              <span className="text-[11px] text-slate-500">{formatDateTime(entry.createdAt)}</span>
+              <span className="text-[12px] text-slate-500">{formatDateTime(entry.createdAt)}</span>
             </div>
             <div className="mt-0.5 text-slate-600">
               {entry.employeeCode ? (
@@ -76,18 +76,18 @@ export function AuditEntries({
               ) : null}
               {entry.fromDate ? `${formatVnDate(entry.fromDate)} - ${formatVnDate(entry.toDate)}` : ''}
             </div>
-            <div className="text-[11px] text-slate-500">Người thực hiện: {entry.actorName ?? 'Không xác định'}</div>
+            <div className="text-[12px] text-slate-500">Người thực hiện: {entry.actorName ?? 'Không xác định'}</div>
             {entry.reason ? <div className="mt-1 text-slate-700">Lý do: {entry.reason}</div> : null}
             {before.length || after.length ? (
               <div className="mt-2 grid grid-cols-2 gap-2">
                 <div>
-                  <div className="text-[11px] font-semibold text-slate-500">Trước</div>
+                  <div className="text-[12px] font-semibold text-slate-500">Trước</div>
                   <ul className="mt-0.5 space-y-0.5 text-slate-700">
                     {before.length ? before.map((l, i) => <li key={i}>{l}</li>) : <li className="text-slate-400">Không có</li>}
                   </ul>
                 </div>
                 <div>
-                  <div className="text-[11px] font-semibold text-slate-500">Sau</div>
+                  <div className="text-[12px] font-semibold text-slate-500">Sau</div>
                   <ul className="mt-0.5 space-y-0.5 text-slate-700">
                     {after.length ? after.map((l, i) => <li key={i}>{l}</li>) : <li className="text-slate-400">Không có</li>}
                   </ul>

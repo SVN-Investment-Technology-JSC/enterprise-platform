@@ -178,7 +178,9 @@ describe('MyTimesheetScreen (Công của tôi)', () => {
     await screen.findByLabelText('Bảng công theo tháng');
 
     const past = screen.getByTestId(`my-cell-${d(1)}`);
-    expect(past.textContent).toContain('8.0');
+    // hệ số công của ngày (1), không phải số giờ làm (8.0)
+    expect(past.getAttribute('aria-label')).toContain('công 1');
+    expect(past.textContent).not.toContain('8.0');
     expect(past.textContent).not.toContain('HC');
     expect(past.getAttribute('data-future')).toBeNull();
 
@@ -187,45 +189,46 @@ describe('MyTimesheetScreen (Công của tôi)', () => {
     expect(future.getAttribute('data-future')).toBe('true');
 
     expect(screen.getByTestId(`my-cell-${d(6)}`).textContent).toContain('OFF');
-    // ngày vắng đã qua: không có giờ làm, hiện dấu gạch dài và ký hiệu KP
-    expect(screen.getByTestId(`my-cell-${d(2)}`).textContent).toContain('—');
+    // ngày vắng đã qua: số công 0 màu đỏ, không tô nền
+    const absentUnits = within(screen.getByTestId(`my-cell-${d(2)}`)).getByText('0');
+    expect(absentUnits.className).toContain('text-red-600');
+    expect(screen.getByTestId(`my-cell-${d(2)}`).className).not.toContain('bg-red');
   });
 
-  it('ngày chưa tới mà chưa phân ca ghi rõ Chưa có ca thay vì để trống', async () => {
+  it('ngày chưa tới mà chưa phân ca hiện dấu gạch như Bảng công, không để trống', async () => {
     const b = board();
     (b.employees[0].days as Record<string, HrmBoardDay>)[d(28)] = futureDay(d(28), { kind: 'NO_SCHEDULE', shiftCode: null, shiftName: null });
     fetchMock.mockResolvedValue({ data: b } as never);
     render(<MyTimesheetScreen />);
     await screen.findByLabelText('Bảng công theo tháng');
-    expect(screen.getByTestId(`my-cell-${d(28)}`).textContent).toContain('Chưa có ca');
+    expect(screen.getByTestId(`my-cell-${d(28)}`).textContent).toContain('-');
   });
 
-  it('đi trễ về sớm tô đỏ, ngày bình thường không đỏ', async () => {
+  it('đi trễ về sớm viền đỏ, không tô nền; ngày bình thường không đánh dấu', async () => {
     fetchMock.mockResolvedValue({ data: board() } as never);
     render(<MyTimesheetScreen />);
     await screen.findByLabelText('Bảng công theo tháng');
 
     const late = screen.getByTestId(`my-cell-${d(3)}`);
     expect(late.getAttribute('data-late')).toBe('true');
-    expect(late.className).toContain('bg-red-100');
-    expect(late.textContent).toContain('Trễ 20p');
+    expect(late.className).not.toContain('bg-red');
+    expect(late.className).toContain('border-red-400');
     expect(screen.getByTestId(`my-cell-${d(1)}`).getAttribute('data-late')).toBeNull();
   });
 
-  it('ký hiệu theo quy ước: TC tăng ca đã duyệt, P phép chờ duyệt, KP vắng không phép', async () => {
+  it('lịch và chú thích cùng định dạng Bảng công: chú thích số công, không còn ký tự đơn từ và chấm màu', async () => {
     fetchMock.mockResolvedValue({ data: board() } as never);
     render(<MyTimesheetScreen />);
     await screen.findByLabelText('Bảng công theo tháng');
 
-    const ot = within(screen.getByTestId(`my-cell-${d(4)}`)).getByTestId('request-letter-OT');
-    expect(ot.textContent).toBe('TC');
-    expect(ot.getAttribute('title')).toContain('đã duyệt');
-    const leave = within(screen.getByTestId(`my-cell-${d(20)}`)).getByTestId('request-letter-LEAVE');
-    expect(leave.textContent).toBe('P');
-    expect(leave.getAttribute('title')).toContain('chờ duyệt');
-    expect(within(screen.getByTestId(`my-cell-${d(1)}`)).queryByTestId(/request-letter/)).toBeNull();
-    // ngày vắng không có đơn nghỉ: KP
-    expect(within(screen.getByTestId(`my-cell-${d(2)}`)).getByTestId('request-letter-ABSENT').textContent).toBe('KP');
+    const legend = screen.getByLabelText('Chú thích số công');
+    expect(legend.textContent).toContain('Công chuẩn');
+    expect(legend.textContent).toContain('Ngày lễ');
+    expect(screen.queryByLabelText('Chú thích màu')).toBeNull();
+    expect(screen.queryByLabelText('Quy ước bảng công')).toBeNull();
+    expect(screen.getByTestId(`my-cell-${d(4)}`).querySelector('[data-testid^="request-letter"]')).toBeNull();
+    // đơn từ vẫn xem được ở panel chi tiết và tab Đơn từ trong tháng
+    expect(screen.getByRole('tab', { name: /Đơn từ trong tháng/ })).toBeTruthy();
   });
 
   it('bấm ngày có đơn: thấy loại đơn, ngày giờ, lý do, hệ số và trạng thái', async () => {

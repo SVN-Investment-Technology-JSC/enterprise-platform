@@ -26,6 +26,7 @@ export const HRM_HUBS = {
   ],
   '/leave': [
     { id: 'balances', label: 'Quỹ phép', permissions: ['hrm.leave.read'] },
+    { id: 'adjustments', label: 'Lịch sử điều chỉnh', permissions: ['hrm.leave.read'] },
   ],
   '/timekeeping': [
     { id: 'timesheets', label: 'Bảng công', permissions: ['hrm.timesheet.read'] },
@@ -35,11 +36,18 @@ export const HRM_HUBS = {
     { id: 'runs', label: 'Bảng lương', permissions: ['hrm.payroll.read'] },
     { id: 'advances', label: 'Ứng và thu hồi', permissions: ['hrm.advance.read'] },
   ],
+  '/fleet': [
+    { id: 'schedule', label: 'Lịch xe', permissions: ['hrm.fleet.read'] },
+    { id: 'vehicles', label: 'Danh mục xe', permissions: ['hrm.fleet.manage'] },
+    { id: 'drivers', label: 'Tài xế', permissions: ['hrm.fleet.manage'] },
+  ],
   '/settings': [
     { id: 'leave', label: 'Chính sách phép năm', permissions: ['hrm.leave.manage'] },
     { id: 'time', label: 'Công và thiết bị', permissions: ['hrm.time.configure', 'hrm.device.manage'] },
     { id: 'schedules', label: 'Phân ca', permissions: ['hrm.schedule.read'] },
     { id: 'shifts', label: 'Danh mục ca', permissions: ['hrm.shift.read', 'hrm.shift.manage'] },
+    { id: 'standard-work', label: 'Công chuẩn', permissions: ['hrm.time.configure'] },
+    { id: 'auto-attendance', label: 'Chấm công tự động', permissions: ['hrm.time.configure'] },
     { id: 'payroll', label: 'Lương', permissions: ['hrm.payroll.configure', 'hrm.salary.read', 'hrm.salary.manage'] },
     { id: 'request-reasons', label: 'Loại đơn và lý do', permissions: ['hrm.leave.manage'] },
     { id: 'approval', label: 'Duyệt đơn', permissions: ['hrm.automation.manage'] },

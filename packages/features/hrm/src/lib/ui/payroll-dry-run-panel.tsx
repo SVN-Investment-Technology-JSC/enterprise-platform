@@ -101,7 +101,7 @@ export function PayrollDryRunPanel({
         </span>
         <div className="min-w-0">
           <h3 className="text-sm font-bold text-slate-900">Tính thử (không ghi dữ liệu)</h3>
-          <p className="text-[11px] leading-snug text-slate-500">
+          <p className="text-[12px] leading-snug text-slate-500">
             Áp công thức đang soạn lên kỳ lương đã tính để kiểm tra kết quả của tối đa 3 nhân viên.
           </p>
         </div>
@@ -143,7 +143,7 @@ export function PayrollDryRunPanel({
             return (
               <span
                 key={id}
-                className="inline-flex max-w-full items-center gap-1 rounded-full border border-slate-200 bg-white py-0.5 pr-0.5 pl-2 text-[11px]"
+                className="inline-flex max-w-full items-center gap-1 rounded-full border border-slate-200 bg-white py-0.5 pr-0.5 pl-2 text-[12px]"
               >
                 <span className="truncate">{e ? `${e.employeeCode} - ${e.fullName}` : 'Nhân viên đã chọn'}</span>
                 <Button
@@ -208,7 +208,7 @@ export function PayrollDryRunPanel({
             </div>
           </dl>
           {r.warnings.map((w) => (
-            <InfoNote key={w} tone="amber" className="p-2 text-[11px]">
+            <InfoNote key={w} tone="amber" className="p-2 text-[12px]">
               {w}
             </InfoNote>
           ))}

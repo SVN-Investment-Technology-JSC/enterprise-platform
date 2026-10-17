@@ -28,7 +28,8 @@
     "@enterprise-platform/contracts-procedure-engine": "workspace:*",
     "@enterprise-platform/platform-identity": "workspace:*",
     "@nestjs/common": "^11.2.1",
-    "jose": "^6.2.9"
+    "jose": "^6.2.9",
+    "rxjs": "^7.8.0"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",

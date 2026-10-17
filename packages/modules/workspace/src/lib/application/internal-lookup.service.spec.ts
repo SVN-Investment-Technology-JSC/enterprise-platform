@@ -14,7 +14,10 @@ const service: WorkspaceActor = {
   canDeleteDocuments: false,
 };
 
+const listCalls: { userId?: string; search?: string; pageSize: number }[] = [];
+
 function makeStore() {
+  listCalls.length = 0;
   const project = {
     id: 'p1',
     code: 'DA-1',
@@ -50,10 +53,20 @@ function makeStore() {
   return {
     project: {
       findById: async (_tenant: string, id: string) => (id === 'p1' ? project : undefined),
+      list: async (_tenant: string, options: { userId?: string; search?: string; pageSize: number }) => {
+        listCalls.push(options);
+        const all = [project, { ...project, id: 'p2', code: 'DA-2', name: 'Đã huỷ', status: 'cancelled' }];
+        return { items: all.slice(0, options.pageSize), total: all.length };
+      },
       rollup: async () => [{ projectId: 'p1', totalItems: 10, closedItems: 4, overdueItems: 1 }],
     },
     workItem: {
       findById: async (_tenant: string, id: string) => (id === 'w1' ? item : undefined),
+      listByProject: async () => [
+        item,
+        { ...item, id: 'w2', code: 'CV-2', title: 'Việc con', depth: 1, status: 'todo' },
+        { ...item, id: 'w3', code: 'CV-3', title: 'Việc huỷ', status: 'cancelled' },
+      ],
     },
   } as unknown as WorkspaceStore;
 }
@@ -76,6 +89,30 @@ describe('InternalLookupService', () => {
     expect(result).not.toHaveProperty('finance');
     expect(result).not.toHaveProperty('description');
     expect(result).not.toHaveProperty('metadata');
+  });
+
+  it('danh sách dự án cho module khác: cả tenant (không lọc thành viên), bỏ dự án huỷ, chỉ nhãn', async () => {
+    const result = await new InternalLookupService(makeStore()).listProjects(service, { search: ' DA ', limit: '99999' });
+    expect(result.items).toEqual([{ id: 'p1', code: 'DA-1', name: 'Dự án một', status: 'active' }]);
+    expect(result.truncated).toBe(false);
+    // Bên gọi là dịch vụ: không có userId nên không bị hàng rào thành viên; trần trang không vượt giới hạn.
+    expect(listCalls[0]).toMatchObject({ search: 'DA', pageSize: 500 });
+    expect(listCalls[0]?.userId).toBeUndefined();
+    expect(result.items[0]).not.toHaveProperty('description');
+  });
+
+  it('danh sách dự án báo bị cắt khi vượt trần', async () => {
+    const result = await new InternalLookupService(makeStore()).listProjects(service, { limit: 1 });
+    expect(result.truncated).toBe(true);
+  });
+
+  it('công việc của dự án cho module khác: bỏ việc đã huỷ, không lộ mô tả', async () => {
+    const items = await new InternalLookupService(makeStore()).projectWorkItems(service, 'p1');
+    expect(items.map((i) => i.code)).toEqual(['CV-1', 'CV-2']);
+    expect(items[1]).toEqual({ id: 'w2', code: 'CV-2', title: 'Việc con', status: 'todo', depth: 1 });
+    await expect(new InternalLookupService(makeStore()).projectWorkItems(service, 'khong-co')).rejects.toMatchObject({
+      code: 'PROJECT_NOT_FOUND',
+    });
   });
 
   it('id không tồn tại thì 404 đúng mã', async () => {

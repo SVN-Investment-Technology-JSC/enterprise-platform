@@ -422,7 +422,7 @@ export function SalaryGradesPanel() {
                         <StatusPill tone={g.status === 'ACTIVE' ? 'green' : 'slate'}>{g.status === 'ACTIVE' ? 'Đang dùng' : 'Đã ngừng'}</StatusPill>
                       </span>
                       <span className="mt-1 block text-xs font-semibold break-words text-slate-900">{g.name}</span>
-                      {g.description && <span className="mt-0.5 line-clamp-2 block text-[11px] leading-snug text-slate-500">{g.description}</span>}
+                      {g.description && <span className="mt-0.5 line-clamp-2 block text-[12px] leading-snug text-slate-500">{g.description}</span>}
                     </button>
                     <ActionMenu
                       label={`Thao tác ngạch ${g.code}`}
@@ -494,7 +494,7 @@ export function SalaryGradesPanel() {
                 <Input id={`${uid}-no`} type="number" min={1} value={stepNo} onChange={(e) => setStepNo(e.target.value)} className="h-9 font-mono text-xs" />
               </SettingsField>
               <SettingsField label="Ngày bắt đầu hiệu lực" required>
-                <DatePickerInput value={stepFrom} onChange={(v: string) => setStepFrom(v)} />
+                <DatePickerInput height={36} value={stepFrom} onChange={(v: string) => setStepFrom(v)} />
               </SettingsField>
               <SettingsField label="Mức sàn (VND)" required htmlFor={`${uid}-min`}>
                 <Input id={`${uid}-min`} type="number" min={0} value={minSalary} onChange={(e) => setMinSalary(e.target.value)} className="h-9 font-mono text-xs" />
@@ -544,6 +544,7 @@ export function SalaryGradesPanel() {
             </SettingsField>
             <SettingsField label="Trạng thái ngạch">
               <SearchableSelect
+                height={36}
                 value={gradeStatus}
                 clearable={false}
                 onChange={(value) => setGradeStatus(value === 'INACTIVE' ? 'INACTIVE' : 'ACTIVE')}

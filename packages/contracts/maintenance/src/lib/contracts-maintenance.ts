@@ -121,6 +121,64 @@ export interface CreateMaintenanceIncidentRequest {
   readonly procedureDefinitionId?: string;
   readonly assigneeId?: string;
   readonly assigneeName?: string;
+  /** Phương tiện đi hiện trường; xe công ty được giữ chỗ trên Lịch xe của HRM. */
+  readonly transport?: MaintenanceTransportInput;
+}
+
+// ---- Phương tiện di chuyển của phiếu sự cố (xe công ty đặt trên Lịch xe của HRM) ----
+
+export type MaintenanceTransportMode = 'COMPANY_VEHICLE' | 'EXTERNAL';
+/** NONE: tự sắp xếp · REQUESTED: đã gửi HRM · CONFIRMED: HRM đã giữ xe · CONFLICT: xe đã có người đặt trước. */
+export type MaintenanceTransportStatus = 'NONE' | 'REQUESTED' | 'CONFIRMED' | 'CONFLICT';
+
+export interface MaintenanceTransportInput {
+  readonly mode: MaintenanceTransportMode;
+  /** Phương tiện ngoài: taxi hoặc xe ngoài, máy bay, xe cá nhân... */
+  readonly detail?: string | null;
+  readonly vehicleId?: string;
+  readonly driverId?: string;
+  readonly startAt?: string;
+  readonly endAt?: string;
+  readonly destination?: string | null;
+}
+
+/** `PUT occurrences/:id/transport`; `transport: null` bỏ phương tiện và trả xe. */
+export interface SetOccurrenceTransportRequest {
+  readonly transport: MaintenanceTransportInput | null;
+}
+
+export interface MaintenanceTransport {
+  readonly sourceId: string;
+  readonly mode: MaintenanceTransportMode;
+  readonly detail: string | null;
+  readonly vehicleId: string | null;
+  readonly driverId: string | null;
+  readonly startAt: string | null;
+  readonly endAt: string | null;
+  readonly destination: string | null;
+  readonly status: MaintenanceTransportStatus;
+  /** Lý do khi `CONFLICT`. */
+  readonly statusReason: string | null;
+}
+
+export interface MaintenanceFleetBusySlot {
+  readonly startAt: string;
+  readonly endAt: string;
+  readonly sourceLabel: string | null;
+}
+export interface MaintenanceFleetAvailability {
+  readonly vehicles: readonly {
+    readonly id: string;
+    readonly plateNo: string;
+    readonly name: string;
+    readonly seats: number;
+    readonly busy: readonly MaintenanceFleetBusySlot[];
+  }[];
+  readonly drivers: readonly {
+    readonly id: string;
+    readonly employeeName: string | null;
+    readonly busy: readonly MaintenanceFleetBusySlot[];
+  }[];
 }
 
 export interface CompleteMaintenanceOccurrenceRequest {

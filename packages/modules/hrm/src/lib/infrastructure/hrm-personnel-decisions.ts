@@ -1,10 +1,10 @@
 import type {
   CreateHrmPersonnelDecisionPayload,
   HrmAppointmentContext,
+  HrmCareerEvent,
+  HrmOpenConcurrentPosition,
   HrmPersonnelDecision,
-  HrmReportingLine,
   HrmReportingOverview,
-  HrmSubordinate,
   UpdateHrmPersonnelDecisionPayload,
 } from '@enterprise-platform/contracts-hrm';
 import {
@@ -19,14 +19,16 @@ import {
   type DecisionType,
   decisionShapeErrors,
   isAssigningType,
+  isRecordOnlyType,
   needsCoreAction,
   nextDecisionNumber,
-  previousDay,
   replacesPrimaryPosition,
-  wouldCreateCycle,
+  takesPositionTarget,
 } from '../domain/personnel-decision.js';
 import { loadAllowSelfApproval, SELF_APPROVAL_FORBIDDEN } from './hrm-approval-policy.js';
+
 import { lifecycleAudit } from './hrm-lifecycle.js';
+import { loadChiefFor } from './hrm-chief-fallback.js';
 import {
   type HrmOrgAppointmentPort,
   HrmOrgAppointmentError,
@@ -40,6 +42,16 @@ type Row = Record<string, any>;
 
 const TODAY_SQL = `(now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date`;
 const OPEN_STATUSES = ['DRAFT', 'APPROVED', 'APPLY_PENDING'];
+const DECISION_TITLES: Record<string, string> = {
+  APPOINT: 'Bổ nhiệm',
+  PROMOTE: 'Thăng chức',
+  TRANSFER: 'Điều chuyển',
+  CONCURRENT: 'Kiêm nhiệm',
+  DISMISS: 'Miễn nhiệm',
+  REVOKE: 'Bãi nhiệm',
+  CHANGE_MANAGER: 'Đổi quản lý trực tiếp',
+};
+
 const INACTIVE_EMPLOYMENT = ['RESIGNED', 'TERMINATED'];
 
 /** Phân công chính đang hiệu lực của một tài khoản (đọc Core, không ghi). */
@@ -101,6 +113,7 @@ export function mapDecision(row: Row): HrmPersonnelDecision {
     toSalaryType: row.to_salary_type ?? null,
     toBaseSalary: num(row.to_base_salary),
     attachmentId: row.attachment_id ?? null,
+    replacesDecisionId: row.replaces_decision_id ?? null,
     createdBy: row.created_by ?? null,
     approvedBy: row.approved_by ?? null,
     approvedAt: row.approved_at ? new Date(row.approved_at).toISOString() : null,
@@ -161,6 +174,200 @@ export async function listDecisions(
   return result.rows.map(mapDecision);
 }
 
+const CONTRACT_TITLES: Record<string, string> = {
+  PROBATION: 'Hợp đồng thử việc',
+  DEFINITE: 'Hợp đồng xác định thời hạn',
+  INDEFINITE: 'Hợp đồng không xác định thời hạn',
+  AMENDMENT: 'Phụ lục / gia hạn hợp đồng',
+};
+
+interface ChainRow {
+  id: string;
+  type: string;
+  nodeId: string | null;
+  date: string;
+  createdAt: number;
+  replacesId: string | null;
+}
+
+/**
+ * Dựng các nhánh kiêm nhiệm: mỗi Kiêm nhiệm / Bãi nhiệm trỏ về quyết định nó nối tiếp. Bãi nhiệm cũ chưa có
+ * liên kết được ghép với kiêm nhiệm cuối chuỗi cùng chức danh, hiệu lực trước nó.
+ */
+function buildLanes(rows: readonly ChainRow[]) {
+  const parent = new Map<string, string>();
+  for (const r of rows) if (r.replacesId) parent.set(r.id, r.replacesId);
+  const hasChild = new Set(parent.values());
+  const concurrent = rows.filter((r) => r.type === 'CONCURRENT');
+  for (const rv of rows.filter((r) => r.type === 'REVOKE' && !r.replacesId)) {
+    const match = concurrent
+      .filter(
+        (c) => !hasChild.has(c.id) && c.nodeId === rv.nodeId && c.date <= rv.date && c.createdAt <= rv.createdAt,
+      )
+      .sort((a, b) => b.date.localeCompare(a.date))[0];
+    if (match) {
+      parent.set(rv.id, match.id);
+      hasChild.add(match.id);
+    }
+  }
+  const laneOf = (id: string): string => {
+    let cur = id;
+    for (let i = 0; i < 200 && parent.has(cur); i++) cur = parent.get(cur) as string;
+    return cur;
+  };
+  const endedLanes = new Set(rows.filter((r) => r.type === 'REVOKE').map((r) => laneOf(r.id)));
+  return { parent, hasChild, laneOf, endedLanes };
+}
+
+const chainRowOf = (r: Row): ChainRow => ({
+  id: r.id,
+  type: r.decision_type,
+  nodeId: r.to_position_node_id ?? null,
+  date: isoDate(r.effective_date),
+  createdAt: r.created_at ? new Date(r.created_at).getTime() : 0,
+  replacesId: r.replaces_decision_id ?? null,
+});
+
+/**
+ * Lịch sử bổ nhiệm và công tác của một nhân viên: các quyết định đã ghi nhận (chỉ lưu lịch sử) cùng các mốc
+ * hợp đồng đã phát hành (dữ liệu chuẩn của HĐ). Chỉ đọc; không đụng Core hay luồng gán chức danh.
+ * Kiêm nhiệm và bãi nhiệm mang `laneId` để giao diện vẽ thành nhánh riêng, tách khỏi trục chính.
+ */
+export async function listCareerEvents(
+  db: Queryable,
+  tenantId: string,
+  employeeId: string,
+): Promise<HrmCareerEvent[]> {
+  requireUuid(employeeId, 'Nhân viên');
+  const decisions = await db.query(
+    `SELECT id, decision_no, decision_type, effective_date, reason, to_position_node_id, to_position_name,
+            to_unit_name, from_position_name, from_unit_name, replaces_decision_id, created_at
+       FROM hrm_schema.personnel_decisions
+      WHERE tenant_id = $1 AND employee_id = $2 AND status = 'RECORDED'`,
+    [tenantId, employeeId],
+  );
+  const lanes = buildLanes(decisions.rows.map(chainRowOf));
+  const contracts = await db.query(
+    `SELECT id, contract_code, contract_type, effective_from, effective_to, terminated_on, note
+       FROM hrm_schema.employment_contracts
+      WHERE tenant_id = $1 AND employee_id = $2 AND deleted_at IS NULL AND status <> 'DRAFT'`,
+    [tenantId, employeeId],
+  );
+  const events: HrmCareerEvent[] = [
+    ...decisions.rows.map((r): HrmCareerEvent => {
+      const inLane = r.decision_type === 'CONCURRENT' || r.decision_type === 'REVOKE';
+      return {
+        id: r.id,
+        source: 'DECISION',
+        kind: r.decision_type,
+        title: DECISION_TITLES[r.decision_type as string] ?? 'Quyết định nhân sự',
+        effectiveDate: isoDate(r.effective_date),
+        endDate: null,
+        positionName: r.to_position_name ?? r.from_position_name ?? null,
+        unitName: r.to_unit_name ?? r.from_unit_name ?? null,
+        reference: r.decision_no,
+        note: r.reason ?? null,
+        laneId: inLane ? lanes.laneOf(r.id) : null,
+        replacesId: inLane ? (lanes.parent.get(r.id) ?? null) : null,
+      };
+    }),
+    ...contracts.rows.map((r): HrmCareerEvent => ({
+      id: r.id,
+      source: 'CONTRACT',
+      kind: r.contract_type,
+      title: CONTRACT_TITLES[r.contract_type as string] ?? 'Hợp đồng lao động',
+      effectiveDate: isoDate(r.effective_from),
+      endDate: r.terminated_on ? isoDate(r.terminated_on) : r.effective_to ? isoDate(r.effective_to) : null,
+      positionName: null,
+      unitName: null,
+      reference: r.contract_code,
+      note: r.note ?? null,
+    })),
+  ];
+  return events.sort(
+    (a, b) => b.effectiveDate.localeCompare(a.effectiveDate) || a.source.localeCompare(b.source),
+  );
+}
+
+/**
+ * Kiêm nhiệm đang giữ của nhân viên: kiêm nhiệm cuối mỗi nhánh chưa bị bãi nhiệm. `excludeDecisionId` bỏ qua
+ * một quyết định (đang sửa) để kiêm nhiệm nó nối tiếp vẫn chọn lại được.
+ */
+export async function listOpenConcurrent(
+  db: Queryable,
+  tenantId: string,
+  employeeId: string,
+  excludeDecisionId?: string,
+): Promise<HrmOpenConcurrentPosition[]> {
+  requireUuid(employeeId, 'Nhân viên');
+  const result = await db.query(
+    `SELECT id, decision_no, decision_type, effective_date, to_position_node_id, to_position_name, to_unit_name,
+            replaces_decision_id, created_at
+       FROM hrm_schema.personnel_decisions
+      WHERE tenant_id = $1 AND employee_id = $2 AND status = 'RECORDED'
+        AND decision_type IN ('CONCURRENT','REVOKE') AND ($3::uuid IS NULL OR id <> $3)`,
+    [tenantId, employeeId, excludeDecisionId ?? null],
+  );
+  const lanes = buildLanes(result.rows.map(chainRowOf));
+  return result.rows
+    .filter(
+      (r) =>
+        r.decision_type === 'CONCURRENT' && !lanes.hasChild.has(r.id) && !lanes.endedLanes.has(lanes.laneOf(r.id)),
+    )
+    .sort((a, b) => isoDate(b.effective_date).localeCompare(isoDate(a.effective_date)))
+    .map((r) => ({
+      decisionId: r.id,
+      decisionNo: r.decision_no,
+      positionNodeId: r.to_position_node_id ?? null,
+      positionName: r.to_position_name ?? null,
+      unitName: r.to_unit_name ?? null,
+      effectiveDate: isoDate(r.effective_date),
+    }));
+}
+
+/**
+ * Kiểm tra và hoàn thiện liên kết "nối tiếp kiêm nhiệm": chỉ Kiêm nhiệm / Bãi nhiệm ghi nhận mới được nối, đích
+ * phải là kiêm nhiệm của cùng nhân viên, chưa có quyết định nối tiếp nào khác. Bãi nhiệm lấy chức danh từ đích.
+ */
+async function resolveChain(
+  db: PoolClient,
+  tenantId: string,
+  input: DecisionInput,
+  selfId: string | undefined,
+  record: boolean,
+): Promise<DecisionInput> {
+  if (!input.replacesDecisionId) return input;
+  if (!record || (input.decisionType !== 'CONCURRENT' && input.decisionType !== 'REVOKE'))
+    throw new BadRequestException('Chỉ quyết định Kiêm nhiệm hoặc Bãi nhiệm mới nối tiếp được một kiêm nhiệm.');
+  if (input.replacesDecisionId === selfId)
+    throw new BadRequestException('Quyết định không thể nối tiếp chính nó.');
+  const target = (
+    await db.query(
+      `SELECT id, employee_id, decision_type, status, effective_date, to_position_node_id
+         FROM hrm_schema.personnel_decisions WHERE tenant_id = $1 AND id = $2 FOR UPDATE`,
+      [tenantId, input.replacesDecisionId],
+    )
+  ).rows[0];
+  if (
+    !target ||
+    target.employee_id !== input.employeeId ||
+    target.decision_type !== 'CONCURRENT' ||
+    target.status !== 'RECORDED'
+  )
+    throw new BadRequestException('Kiêm nhiệm nối tiếp không hợp lệ.');
+  if (input.effectiveDate < isoDate(target.effective_date))
+    throw new BadRequestException('Ngày hiệu lực không được trước ngày của kiêm nhiệm được nối tiếp.');
+  const open = await listOpenConcurrent(db, tenantId, input.employeeId, selfId);
+  if (!open.some((o) => o.decisionId === target.id))
+    throw new ConflictException({
+      code: 'HRM_CONCURRENT_ALREADY_CHAINED',
+      message: 'Kiêm nhiệm này đã có quyết định nối tiếp hoặc đã bị bãi nhiệm.',
+    });
+  return input.decisionType === 'REVOKE'
+    ? { ...input, toPositionNodeId: target.to_position_node_id ?? input.toPositionNodeId }
+    : input;
+}
+
 // ---------------------------------------------------------------------------
 // Dữ liệu tham chiếu
 // ---------------------------------------------------------------------------
@@ -186,22 +393,6 @@ async function employeeRow(
   );
   if (!result.rows[0]) throw new NotFoundException('Không tìm thấy hồ sơ nhân viên');
   return result.rows[0] as EmployeeRow;
-}
-
-async function assertActiveEmployee(
-  db: Queryable,
-  tenantId: string,
-  employeeId: string,
-  label: string,
-): Promise<EmployeeRow> {
-  const row = await employeeRow(db, tenantId, employeeId).catch((error) => {
-    if (error instanceof NotFoundException)
-      throw new BadRequestException(`${label} không tồn tại`);
-    throw error;
-  });
-  if (INACTIVE_EMPLOYMENT.includes(row.employment_status))
-    throw new BadRequestException(`${label} đã nghỉ việc`);
-  return row;
 }
 
 async function positionInfo(
@@ -251,38 +442,8 @@ async function currentSalary(db: Queryable, tenantId: string, employeeId: string
 }
 
 // ---------------------------------------------------------------------------
-// Quan hệ báo cáo
+// Quản lý trực tiếp
 // ---------------------------------------------------------------------------
-
-/** Quan hệ quản lý trực tiếp đang mở (nhân viên → người quản lý). */
-async function openManagerMap(
-  db: Queryable,
-  tenantId: string,
-): Promise<Map<string, string>> {
-  const result = await db.query(
-    `SELECT employee_id, manager_employee_id FROM hrm_schema.employee_reporting_lines
-      WHERE tenant_id = $1 AND relation_type = 'DIRECT' AND effective_to IS NULL`,
-    [tenantId],
-  );
-  return new Map(result.rows.map((row) => [row.employee_id, row.manager_employee_id]));
-}
-
-function mapLine(row: Row): HrmReportingLine {
-  return {
-    id: row.id,
-    employeeId: row.employee_id,
-    managerEmployeeId: row.manager_employee_id,
-    managerName: row.manager_name ?? null,
-    managerCode: row.manager_code ?? null,
-    relationType: row.relation_type,
-    effectiveFrom: isoDate(row.effective_from),
-    effectiveTo: row.effective_to ? isoDate(row.effective_to) : null,
-    decisionId: row.decision_id ?? null,
-    decisionNo: row.decision_no ?? null,
-    source: row.source,
-    note: row.note ?? null,
-  };
-}
 
 export async function loadReportingOverview(
   db: Queryable,
@@ -290,26 +451,8 @@ export async function loadReportingOverview(
   employeeId: string,
 ): Promise<HrmReportingOverview> {
   requireUuid(employeeId, 'Nhân viên');
-  const result = await db.query(
-    `SELECT l.*, m.full_name AS manager_name, mp.employee_code AS manager_code, d.decision_no
-       FROM hrm_schema.employee_reporting_lines l
-       LEFT JOIN core_schema.employees m ON m.id = l.manager_employee_id
-       LEFT JOIN hrm_schema.employee_profiles mp ON mp.employee_id = l.manager_employee_id AND mp.tenant_id = l.tenant_id
-       LEFT JOIN hrm_schema.personnel_decisions d ON d.id = l.decision_id
-      WHERE l.tenant_id = $1 AND l.employee_id = $2 AND l.relation_type = 'DIRECT'
-      ORDER BY l.effective_from DESC, l.created_at DESC`,
-    [tenantId, employeeId],
-  );
-  const lines = result.rows.map(mapLine);
-  const today = await todayInVietnam(db);
-  const current =
-    lines.find(
-      (line) => line.effectiveFrom <= today && (!line.effectiveTo || line.effectiveTo >= today),
-    ) ?? null;
   const resolved = await loadDirectManagerRef(db, tenantId, employeeId);
   return {
-    current,
-    history: lines,
     manager: resolved
       ? {
           employeeId: resolved.employeeId,
@@ -317,7 +460,7 @@ export async function loadReportingOverview(
           code: resolved.code ?? null,
           title: resolved.title,
           email: resolved.email,
-          source: resolved.source ?? 'HRM_LINE',
+          source: resolved.source ?? 'CORE_POSITION',
         }
       : null,
   };
@@ -331,7 +474,7 @@ export interface HrmDirectManagerRef {
   email: string | null;
   /** Mã nhân viên của người quản lý (nếu có hồ sơ HRM). */
   code?: string | null;
-  source?: 'CORE_POSITION' | 'HRM_LINE';
+  source?: 'CORE_POSITION' | 'CHIEF_FALLBACK';
 }
 
 /** Người quản lý trực tiếp hiện tại để hiển thị trên hồ sơ (tên, chức danh, email). */
@@ -413,8 +556,8 @@ async function managerFromCorePositions(
 
 /**
  * Như `loadDirectManager` nhưng trả thêm mã nhân viên của người quản lý.
- * Nguồn chính là "Báo cáo cho" của chức danh trong sơ đồ tổ chức Core; chưa khai báo thì dùng quan hệ báo cáo
- * HRM đang hiệu lực (do quyết định nhân sự tạo).
+ * Lấy theo chuỗi "Báo cáo cho" của chức danh trong sơ đồ tổ chức Core.
+ * Nếu không có quản lý trực tiếp, trả về null để luồng duyệt chuyển sang chức danh dự phòng hoặc người có quyền duyệt toàn bộ.
  */
 export async function loadDirectManagerRef(
   db: Queryable,
@@ -423,75 +566,17 @@ export async function loadDirectManagerRef(
 ): Promise<HrmDirectManagerRef | null> {
   const fromCore = await managerFromCorePositions(db, tenantId, employeeId);
   if (fromCore) return fromCore;
-  const result = await db.query(
-    `SELECT m.id AS manager_employee_id, m.full_name, m.work_email, pos.name AS position_name, mp.employee_code
-       FROM hrm_schema.employee_reporting_lines l
-       JOIN core_schema.employees m ON m.id = l.manager_employee_id AND m.deleted_at IS NULL
-       LEFT JOIN hrm_schema.employee_profiles mp ON mp.employee_id = m.id AND mp.tenant_id = l.tenant_id
-       ${PRIMARY_POSITION_LATERAL.replace('%USER%', 'm.user_id')}
-      WHERE l.tenant_id = $1 AND l.employee_id = $2 AND l.relation_type = 'DIRECT'
-        AND l.effective_from <= ${TODAY_SQL} AND (l.effective_to IS NULL OR l.effective_to >= ${TODAY_SQL})
-      ORDER BY l.effective_from DESC LIMIT 1`,
-    [tenantId, employeeId],
-  );
-  const row = result.rows[0];
-  return row
+  const chief = await loadChiefFor(db, tenantId, employeeId).catch(() => null);
+  return chief
     ? {
-        employeeId: row.manager_employee_id,
-        name: row.full_name,
-        title: row.position_name ?? null,
-        email: row.work_email ?? null,
-        code: row.employee_code ?? null,
-        source: 'HRM_LINE',
+        employeeId: chief.employeeId,
+        name: chief.name,
+        title: chief.title,
+        email: chief.email,
+        code: chief.code,
+        source: 'CHIEF_FALLBACK',
       }
     : null;
-}
-
-/**
- * Chuỗi quản lý từ gần đến xa theo quan hệ báo cáo của HRM (tối đa `maxDepth`),
- * dừng khi hết hoặc gặp vòng lặp.
- */
-export async function resolveManagerChain(
-  db: Queryable,
-  tenantId: string,
-  employeeId: string,
-  maxDepth = 20,
-): Promise<string[]> {
-  const managerOf = await openManagerMap(db, tenantId);
-  const chain: string[] = [];
-  const seen = new Set<string>([employeeId]);
-  let cursor = managerOf.get(employeeId);
-  while (cursor && !seen.has(cursor) && chain.length < maxDepth) {
-    chain.push(cursor);
-    seen.add(cursor);
-    cursor = managerOf.get(cursor);
-  }
-  return chain;
-}
-
-export async function listSubordinates(
-  db: Queryable,
-  tenantId: string,
-  employeeId: string,
-): Promise<HrmSubordinate[]> {
-  const result = await db.query(
-    `SELECT l.employee_id, ep.employee_code, e.full_name, pos.name AS position_name, unit.name AS unit_name
-       FROM hrm_schema.employee_reporting_lines l
-       JOIN core_schema.employees e ON e.id = l.employee_id AND e.deleted_at IS NULL
-       JOIN hrm_schema.employee_profiles ep ON ep.employee_id = l.employee_id AND ep.tenant_id = l.tenant_id AND ep.deleted_at IS NULL
-       ${PRIMARY_POSITION_LATERAL.replace('%USER%', 'e.user_id')}
-      WHERE l.tenant_id = $1 AND l.manager_employee_id = $2 AND l.relation_type = 'DIRECT'
-        AND l.effective_to IS NULL AND ep.employment_status <> ALL($3::text[])
-      ORDER BY e.full_name`,
-    [tenantId, employeeId, INACTIVE_EMPLOYMENT],
-  );
-  return result.rows.map((row) => ({
-    employeeId: row.employee_id,
-    employeeCode: row.employee_code ?? null,
-    fullName: row.full_name,
-    positionName: row.position_name ?? null,
-    unitName: row.unit_name ?? null,
-  }));
 }
 
 export async function loadAppointmentContext(
@@ -501,17 +586,16 @@ export async function loadAppointmentContext(
 ): Promise<HrmAppointmentContext> {
   requireUuid(employeeId, 'Nhân viên');
   const employee = await employeeRow(db, tenantId, employeeId);
-  const [position, overview, salary, subordinates] = await Promise.all([
+  const [position, overview, salary] = await Promise.all([
     currentPosition(db, employee.user_id),
     loadReportingOverview(db, tenantId, employeeId),
     currentSalary(db, tenantId, employeeId),
-    listSubordinates(db, tenantId, employeeId),
   ]);
-  const manager = overview.current
+  const manager = overview.manager
     ? {
-        employeeId: overview.current.managerEmployeeId,
-        fullName: overview.current.managerName ?? '',
-        employeeCode: overview.current.managerCode ?? null,
+        employeeId: overview.manager.employeeId,
+        fullName: overview.manager.name,
+        employeeCode: overview.manager.code,
       }
     : null;
   return {
@@ -528,7 +612,6 @@ export async function loadAppointmentContext(
           baseSalary: Number(salary.base_salary),
         }
       : null,
-    subordinates,
     hasAccount: !!employee.user_id,
   };
 }
@@ -544,10 +627,7 @@ interface DecisionInput {
   reason: string;
   decisionNo: string | null;
   toPositionNodeId: string | null;
-  managerMode: 'KEEP' | 'SET' | 'CLEAR';
-  toManagerEmployeeId: string | null;
-  subordinateMode: 'KEEP' | 'REASSIGN';
-  subordinateTargetEmployeeId: string | null;
+  replacesDecisionId: string | null;
   salaryChanged: boolean;
   toSalaryGradeId: string | null;
   toSalaryStepId: string | null;
@@ -570,10 +650,22 @@ function oneOf<T extends string>(value: unknown, allowed: readonly T[], field: s
   return value as T;
 }
 
+/** Các trường gán quản lý trực tiếp đã bị gỡ khỏi quyết định; từ chối rõ ràng thay vì lặng lẽ bỏ qua. */
+function assertNoManagerFields(body: Record<string, unknown>) {
+  const used = (key: string) => body[key] !== undefined && body[key] !== null && body[key] !== 'KEEP';
+  if (['managerMode', 'toManagerEmployeeId', 'subordinateMode', 'subordinateTargetEmployeeId'].some(used))
+    throw new BadRequestException({
+      code: 'HRM_DECISION_MANAGER_REMOVED',
+      message:
+        'Quyết định nhân sự không còn gán quản lý trực tiếp hay chuyển cấp dưới. Đổi "Báo cáo cho" của chức danh ở Cấu trúc tổ chức.',
+    });
+}
+
 function normalizeInput(
   body: Partial<CreateHrmPersonnelDecisionPayload>,
   base?: DecisionInput,
 ): DecisionInput {
+  assertNoManagerFields(body as Record<string, unknown>);
   const pick = <K extends keyof DecisionInput>(key: K, fallback: DecisionInput[K]) =>
     (body as Record<string, unknown>)[key] === undefined
       ? (base?.[key] ?? fallback)
@@ -588,19 +680,13 @@ function normalizeInput(
     reason: requireText(pick('reason', '' as string), 'Lý do', 2000),
     decisionNo: rawNo ? requireText(rawNo, 'Số quyết định', 50) : null,
     toPositionNodeId: optionalUuid(pick('toPositionNodeId', null), 'Chức danh'),
-    managerMode: oneOf(pick('managerMode', 'KEEP'), ['KEEP', 'SET', 'CLEAR'] as const, 'Chế độ quản lý'),
-    toManagerEmployeeId: optionalUuid(pick('toManagerEmployeeId', null), 'Người quản lý'),
-    subordinateMode: oneOf(pick('subordinateMode', 'KEEP'), ['KEEP', 'REASSIGN'] as const, 'Chế độ cấp dưới'),
-    subordinateTargetEmployeeId: optionalUuid(
-      pick('subordinateTargetEmployeeId', null),
-      'Người nhận cấp dưới',
-    ),
     salaryChanged,
     toSalaryGradeId: salaryChanged ? optionalUuid(pick('toSalaryGradeId', null), 'Ngạch lương') : null,
     toSalaryStepId: salaryChanged ? optionalUuid(pick('toSalaryStepId', null), 'Bậc lương') : null,
     toSalaryType: salaryChanged ? (pick('toSalaryType', null) as 'GROSS' | 'NET' | null) : null,
     toBaseSalary: salaryChanged && rawSalary !== null && rawSalary !== undefined ? Number(rawSalary) : null,
     attachmentId: optionalUuid(pick('attachmentId', null), 'Tệp đính kèm'),
+    replacesDecisionId: optionalUuid(pick('replacesDecisionId', null), 'Kiêm nhiệm nối tiếp'),
   };
 }
 
@@ -609,6 +695,8 @@ async function prepareDecision(
   tenantId: string,
   input: DecisionInput,
   excludeDecisionId?: string,
+  /** Chế độ ghi nhận lịch sử: không áp dụng sang Core/lương nên bỏ các rào chắn của việc áp dụng. */
+  record = false,
 ) {
   const errors = decisionShapeErrors(input);
   if (errors.length)
@@ -618,20 +706,22 @@ async function prepareDecision(
   const employee = await employeeRow(db, tenantId, input.employeeId);
   if (INACTIVE_EMPLOYMENT.includes(employee.employment_status))
     throw new BadRequestException('Nhân viên đã nghỉ việc, không thể lập quyết định');
-  if (needsCoreAction(input.decisionType) && !employee.user_id)
+  if (!record && needsCoreAction(input.decisionType) && !employee.user_id)
     throw new BadRequestException({
       code: 'HRM_EMPLOYEE_NO_ACCOUNT',
       message:
         'Nhân viên chưa liên kết tài khoản nên không thể cập nhật chức danh trên sơ đồ tổ chức. Liên kết tài khoản trước.',
     });
 
-  const open = await db.query(
-    `SELECT decision_no FROM hrm_schema.personnel_decisions
-      WHERE tenant_id = $1 AND employee_id = $2 AND status = ANY($3::text[])
-        AND ($4::uuid IS NULL OR id <> $4)
-      LIMIT 1`,
-    [tenantId, input.employeeId, OPEN_STATUSES, excludeDecisionId ?? null],
-  );
+  const open = record
+    ? { rows: [] as Row[] }
+    : await db.query(
+        `SELECT decision_no FROM hrm_schema.personnel_decisions
+          WHERE tenant_id = $1 AND employee_id = $2 AND status = ANY($3::text[])
+            AND ($4::uuid IS NULL OR id <> $4)
+          LIMIT 1`,
+        [tenantId, input.employeeId, OPEN_STATUSES, excludeDecisionId ?? null],
+      );
   if (open.rows[0])
     throw new ConflictException({
       code: 'HRM_DECISION_OPEN_EXISTS',
@@ -639,27 +729,16 @@ async function prepareDecision(
     });
 
   const position = await currentPosition(db, employee.user_id);
-  if (input.decisionType === 'DISMISS' && !position)
+  if (!record && input.decisionType === 'DISMISS' && !position)
     throw new BadRequestException('Nhân viên chưa giữ chức danh nào để miễn nhiệm');
   let target: { name: string; unitName: string | null } | null = null;
-  if (isAssigningType(input.decisionType)) {
+  if (isRecordOnlyType(input.decisionType) && !record)
+    throw new BadRequestException('Bãi nhiệm chỉ ghi nhận vào lịch sử công tác.');
+  if (takesPositionTarget(input.decisionType)) {
     target = await positionInfo(db, input.toPositionNodeId as string);
-    if (position && position.nodeId === input.toPositionNodeId)
+    if (!record && isAssigningType(input.decisionType) && position && position.nodeId === input.toPositionNodeId)
       throw new BadRequestException('Nhân viên đang giữ chức danh này');
   }
-
-  const managerOf = await openManagerMap(db, tenantId);
-  if (input.managerMode === 'SET') {
-    const manager = input.toManagerEmployeeId as string;
-    await assertActiveEmployee(db, tenantId, manager, 'Người quản lý');
-    if (wouldCreateCycle(managerOf, input.employeeId, manager))
-      throw new BadRequestException({
-        code: 'HRM_REPORTING_CYCLE',
-        message: 'Người quản lý được chọn đang báo cáo (trực tiếp hoặc gián tiếp) cho nhân viên này, sẽ tạo vòng lặp báo cáo',
-      });
-  }
-  if (input.subordinateMode === 'REASSIGN')
-    await assertActiveEmployee(db, tenantId, input.subordinateTargetEmployeeId as string, 'Người nhận cấp dưới');
 
   if (input.toSalaryGradeId) {
     const grade = await db.query(
@@ -683,7 +762,7 @@ async function prepareDecision(
     fromPositionNodeId: position?.nodeId ?? null,
     fromPositionName: position?.name ?? null,
     fromUnitName: position?.unitName ?? null,
-    fromManagerEmployeeId: overview.current?.managerEmployeeId ?? null,
+    fromManagerEmployeeId: overview.manager?.employeeId ?? null,
     fromSalary: salary,
     toPositionName: target?.name ?? null,
     toUnitName: target?.unitName ?? null,
@@ -719,10 +798,13 @@ export async function createDecision(
   tenantId: string,
   actorId: string,
   body: CreateHrmPersonnelDecisionPayload,
+  /** `record`: chỉ ghi lịch sử công tác (RECORDED), không đi vào luồng duyệt/áp dụng. */
+  record = false,
 ): Promise<HrmPersonnelDecision> {
-  const input = normalizeInput(body);
+  const rawInput = normalizeInput(body);
   const id = await hrmTransaction(pool, async (db) => {
-    const prepared = await prepareDecision(db, tenantId, input);
+    const input = await resolveChain(db, tenantId, rawInput, undefined, record);
+    const prepared = await prepareDecision(db, tenantId, input, undefined, record);
     const decisionNo = input.decisionNo ?? (await nextNumber(db, tenantId, input.effectiveDate));
     const inserted = await db
       .query(
@@ -731,10 +813,9 @@ export async function createDecision(
            from_position_node_id, from_position_name, from_unit_name, from_manager_employee_id,
            from_salary_grade_id, from_salary_step_id, from_base_salary,
            to_position_node_id, to_position_name, to_unit_name,
-           manager_mode, to_manager_employee_id, subordinate_mode, subordinate_target_employee_id,
            salary_changed, to_salary_grade_id, to_salary_step_id, to_salary_type, to_base_salary,
-           attachment_id, created_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27)
+           attachment_id, created_by, status, replaces_decision_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)
          RETURNING id`,
         [
           tenantId, decisionNo, input.decisionType, input.employeeId, input.effectiveDate, input.reason,
@@ -742,9 +823,8 @@ export async function createDecision(
           prepared.fromSalary?.salary_grade_id ?? null, prepared.fromSalary?.salary_step_id ?? null,
           prepared.fromSalary?.base_salary ?? null,
           input.toPositionNodeId, prepared.toPositionName, prepared.toUnitName,
-          input.managerMode, input.toManagerEmployeeId, input.subordinateMode, input.subordinateTargetEmployeeId,
           input.salaryChanged, input.toSalaryGradeId, input.toSalaryStepId, input.toSalaryType, input.toBaseSalary,
-          input.attachmentId, actorId,
+          input.attachmentId, actorId, record ? 'RECORDED' : 'DRAFT', input.replacesDecisionId,
         ],
       )
       .catch(translateUnique);
@@ -768,16 +848,13 @@ function inputFromRow(row: Row): DecisionInput {
     reason: row.reason,
     decisionNo: row.decision_no,
     toPositionNodeId: row.to_position_node_id ?? null,
-    managerMode: row.manager_mode,
-    toManagerEmployeeId: row.to_manager_employee_id ?? null,
-    subordinateMode: row.subordinate_mode,
-    subordinateTargetEmployeeId: row.subordinate_target_employee_id ?? null,
     salaryChanged: row.salary_changed === true,
     toSalaryGradeId: row.to_salary_grade_id ?? null,
     toSalaryStepId: row.to_salary_step_id ?? null,
     toSalaryType: row.to_salary_type ?? null,
     toBaseSalary: num(row.to_base_salary),
     attachmentId: row.attachment_id ?? null,
+    replacesDecisionId: row.replaces_decision_id ?? null,
   };
 }
 
@@ -790,18 +867,25 @@ export async function updateDraft(
 ): Promise<HrmPersonnelDecision> {
   await hrmTransaction(pool, async (db) => {
     const row = await loadDecision(db, tenantId, id, true);
-    if (row.status !== 'DRAFT')
-      throw new ConflictException('Chỉ sửa được quyết định ở trạng thái nháp');
+    const record = row.status === 'RECORDED';
+    if (row.status !== 'DRAFT' && !record)
+      throw new ConflictException('Chỉ sửa được quyết định ở trạng thái nháp hoặc đã ghi nhận');
     if (Number(row.version) !== Number(body.version))
       throw new ConflictException({
         code: 'HRM_STALE_VERSION',
         message: 'Quyết định đã được người khác thay đổi. Tải lại trước khi lưu.',
       });
-    const input = normalizeInput(
-      { ...(body as Partial<CreateHrmPersonnelDecisionPayload>), decisionNo: undefined },
-      inputFromRow(row),
+    const input = await resolveChain(
+      db,
+      tenantId,
+      normalizeInput(
+        { ...(body as Partial<CreateHrmPersonnelDecisionPayload>), decisionNo: undefined },
+        inputFromRow(row),
+      ),
+      id,
+      record,
     );
-    const prepared = await prepareDecision(db, tenantId, input, id);
+    const prepared = await prepareDecision(db, tenantId, input, id, record);
     await db
       .query(
         `UPDATE hrm_schema.personnel_decisions SET
@@ -809,9 +893,8 @@ export async function updateDraft(
            from_position_node_id=$5, from_position_name=$6, from_unit_name=$7, from_manager_employee_id=$8,
            from_salary_grade_id=$9, from_salary_step_id=$10, from_base_salary=$11,
            to_position_node_id=$12, to_position_name=$13, to_unit_name=$14,
-           manager_mode=$15, to_manager_employee_id=$16, subordinate_mode=$17, subordinate_target_employee_id=$18,
-           salary_changed=$19, to_salary_grade_id=$20, to_salary_step_id=$21, to_salary_type=$22, to_base_salary=$23,
-           attachment_id=$24, version=version+1, updated_at=now()
+           salary_changed=$15, to_salary_grade_id=$16, to_salary_step_id=$17, to_salary_type=$18, to_base_salary=$19,
+           attachment_id=$20, replaces_decision_id=$21, version=version+1, updated_at=now()
          WHERE tenant_id=$1 AND id=$2`,
         [
           tenantId, id, input.effectiveDate, input.reason,
@@ -819,9 +902,8 @@ export async function updateDraft(
           prepared.fromSalary?.salary_grade_id ?? null, prepared.fromSalary?.salary_step_id ?? null,
           prepared.fromSalary?.base_salary ?? null,
           input.toPositionNodeId, prepared.toPositionName, prepared.toUnitName,
-          input.managerMode, input.toManagerEmployeeId, input.subordinateMode, input.subordinateTargetEmployeeId,
           input.salaryChanged, input.toSalaryGradeId, input.toSalaryStepId, input.toSalaryType, input.toBaseSalary,
-          input.attachmentId,
+          input.attachmentId, input.replacesDecisionId,
         ],
       )
       .catch(translateUnique);
@@ -836,6 +918,21 @@ export async function updateDraft(
 // Duyệt, từ chối, hủy
 // ---------------------------------------------------------------------------
 
+/**
+ * Quyết định cũ (lập trước khi gỡ tính năng) có thể còn bước gán quản lý hoặc chuyển cấp dưới chưa áp dụng.
+ * Không còn nơi ghi quan hệ báo cáo nên không duyệt/áp dụng tiếp, tránh báo "đã áp dụng" mà không đổi gì.
+ */
+function assertNoLegacyManagerStep(d: Row, steps: Record<string, boolean>) {
+  const pendingManager = d.manager_mode !== 'KEEP' && !steps['manager'];
+  const pendingSubordinates = d.subordinate_mode === 'REASSIGN' && !steps['subordinates'];
+  if (pendingManager || pendingSubordinates || d.decision_type === 'CHANGE_MANAGER')
+    throw new ConflictException({
+      code: 'HRM_DECISION_MANAGER_REMOVED',
+      message:
+        'Quyết định này có bước gán quản lý trực tiếp hoặc chuyển cấp dưới, tính năng đã được gỡ. Hủy quyết định và đổi "Báo cáo cho" của chức danh ở Cấu trúc tổ chức.',
+    });
+}
+
 export async function approveDecision(
   pool: Pool,
   tenantId: string,
@@ -847,6 +944,7 @@ export async function approveDecision(
     const row = await loadDecision(db, tenantId, id, true);
     if (row.status !== 'DRAFT')
       throw new ConflictException('Chỉ duyệt được quyết định ở trạng thái nháp');
+    assertNoLegacyManagerStep(row, {});
     const subject = await db.query(
       `SELECT user_id FROM core_schema.employees WHERE id = $1`,
       [row.employee_id],
@@ -868,6 +966,52 @@ export async function approveDecision(
     });
   });
   return applyDecision(pool, tenantId, id, deps);
+}
+
+/**
+ * Gán chức danh nhanh từ Drawer "Sửa" của hồ sơ nhân sự: tạo một quyết định APPOINT rồi tự áp dụng ngay bởi
+ * chính người thao tác, không qua `approveDecision` nên không bị chặn "không tự duyệt quyết định của mình"
+ * (chắn đó dành cho quyết định đầy đủ cần người khác duyệt: thăng chức, điều chuyển, miễn nhiệm qua màn
+ * Quyết định nhân sự). Vẫn đi qua mọi rào chắn của `createDecision` (đã giữ chức danh này, chưa liên kết tài
+ * khoản, đang có quyết định khác dở dang...) và vẫn gọi Core qua `HrmOrgAppointmentPort` như mọi quyết định
+ * khác — không ghi trực tiếp `core_schema`. Controller phải tự kiểm tra người gọi có cả hai quyền
+ * `hrm.appointment.manage` và `hrm.appointment.approve` trước khi gọi hàm này.
+ */
+export async function quickAssignPosition(
+  pool: Pool,
+  tenantId: string,
+  actorId: string,
+  input: {
+    employeeId: string;
+    toPositionNodeId: string;
+    reason: string;
+    effectiveDate?: string;
+    /** REPLACE (mặc định): thay chức danh chính (Bổ nhiệm). CONCURRENT: giữ chức danh cũ, thêm chức danh kiêm nhiệm. */
+    mode?: 'REPLACE' | 'CONCURRENT';
+  },
+  deps: { org: HrmOrgAppointmentPort },
+): Promise<HrmPersonnelDecision> {
+  const effectiveDate = input.effectiveDate ?? (await todayInVietnam(pool));
+  const created = await createDecision(pool, tenantId, actorId, {
+    decisionType: input.mode === 'CONCURRENT' ? 'CONCURRENT' : 'APPOINT',
+    employeeId: input.employeeId,
+    toPositionNodeId: input.toPositionNodeId,
+    effectiveDate,
+    reason: input.reason,
+  } as CreateHrmPersonnelDecisionPayload);
+  await hrmTransaction(pool, async (db) => {
+    await db.query(
+      `UPDATE hrm_schema.personnel_decisions
+          SET status='APPROVED', approved_by=$3, approved_at=now(), version=version+1, updated_at=now()
+        WHERE tenant_id=$1 AND id=$2`,
+      [tenantId, created.id, actorId],
+    );
+    await lifecycleAudit(db, tenantId, actorId, 'PERSONNEL_DECISION_SELF_APPLIED', created.id, {
+      decisionNo: created.decisionNo,
+      note: 'Gán chức danh nhanh từ hồ sơ nhân sự: tự áp dụng, không qua người duyệt khác',
+    });
+  });
+  return applyDecision(pool, tenantId, created.id, deps);
 }
 
 export async function rejectDecision(
@@ -904,8 +1048,18 @@ export async function cancelDecision(
 ): Promise<HrmPersonnelDecision> {
   await hrmTransaction(pool, async (db) => {
     const row = await loadDecision(db, tenantId, id, true);
-    if (!OPEN_STATUSES.includes(row.status))
+    if (!OPEN_STATUSES.includes(row.status) && row.status !== 'RECORDED')
       throw new ConflictException('Quyết định đã hoàn tất hoặc đã đóng, không thể hủy');
+    const successor = await db.query(
+      `SELECT decision_no FROM hrm_schema.personnel_decisions
+        WHERE tenant_id = $1 AND replaces_decision_id = $2 AND status = 'RECORDED' LIMIT 1`,
+      [tenantId, id],
+    );
+    if (successor.rows[0])
+      throw new ConflictException({
+        code: 'HRM_DECISION_HAS_SUCCESSOR',
+        message: `Quyết định đã có quyết định nối tiếp trong nhánh kiêm nhiệm (${successor.rows[0].decision_no}). Hủy quyết định đó trước.`,
+      });
     if (Object.values((row.applied_steps ?? {}) as Record<string, boolean>).some(Boolean))
       throw new ConflictException({
         code: 'HRM_DECISION_PARTIALLY_APPLIED',
@@ -944,96 +1098,6 @@ async function saveProgress(
       WHERE tenant_id = $1 AND id = $2`,
     [tenantId, id, JSON.stringify(steps), coreAssignmentId ?? null],
   );
-}
-
-/** Đóng dòng báo cáo đang mở đến hết ngày trước ngày hiệu lực. */
-async function closeLine(db: Queryable, line: Row, effectiveDate: string) {
-  if (isoDate(line.effective_from) >= effectiveDate)
-    throw new BadRequestException(
-      'Ngày hiệu lực phải sau ngày bắt đầu của quan hệ báo cáo hiện tại',
-    );
-  await db.query(
-    `UPDATE hrm_schema.employee_reporting_lines SET effective_to = $2, updated_at = now() WHERE id = $1`,
-    [line.id, previousDay(effectiveDate)],
-  );
-}
-
-async function applyManagerStep(db: PoolClient, tenantId: string, d: Row) {
-  const employeeId = d.employee_id as string;
-  const effective = isoDate(d.effective_date);
-  await lockEmployee(db, tenantId, employeeId);
-  const done = await db.query(
-    `SELECT 1 FROM hrm_schema.employee_reporting_lines WHERE decision_id = $1 AND employee_id = $2`,
-    [d.id, employeeId],
-  );
-  if (done.rowCount) return;
-  const open = (
-    await db.query(
-      `SELECT * FROM hrm_schema.employee_reporting_lines
-        WHERE tenant_id = $1 AND employee_id = $2 AND relation_type = 'DIRECT' AND effective_to IS NULL
-        FOR UPDATE`,
-      [tenantId, employeeId],
-    )
-  ).rows[0];
-  if (d.manager_mode === 'CLEAR') {
-    if (open) await closeLine(db, open, effective);
-    return;
-  }
-  const manager = d.to_manager_employee_id as string;
-  await assertActiveEmployee(db, tenantId, manager, 'Người quản lý');
-  if (open?.manager_employee_id === manager) return;
-  if (wouldCreateCycle(await openManagerMap(db, tenantId), employeeId, manager))
-    throw new BadRequestException({
-      code: 'HRM_REPORTING_CYCLE',
-      message: 'Người quản lý được chọn đang báo cáo cho nhân viên này, sẽ tạo vòng lặp báo cáo',
-    });
-  if (open) await closeLine(db, open, effective);
-  await db.query(
-    `INSERT INTO hrm_schema.employee_reporting_lines
-       (tenant_id, employee_id, manager_employee_id, effective_from, decision_id, source, note)
-     VALUES ($1,$2,$3,$4,$5,'DECISION',$6)`,
-    [tenantId, employeeId, manager, effective, d.id, `Theo ${d.decision_no}`],
-  );
-}
-
-async function applySubordinatesStep(db: PoolClient, tenantId: string, d: Row) {
-  const employeeId = d.employee_id as string;
-  const target = d.subordinate_target_employee_id as string;
-  const effective = isoDate(d.effective_date);
-  await lockEmployee(db, tenantId, employeeId);
-  await assertActiveEmployee(db, tenantId, target, 'Người nhận cấp dưới');
-  const lines = (
-    await db.query(
-      `SELECT * FROM hrm_schema.employee_reporting_lines
-        WHERE tenant_id = $1 AND manager_employee_id = $2 AND relation_type = 'DIRECT' AND effective_to IS NULL
-        ORDER BY employee_id FOR UPDATE`,
-      [tenantId, employeeId],
-    )
-  ).rows;
-  if (lines.some((line) => line.employee_id === target))
-    throw new BadRequestException('Người nhận cấp dưới đang là cấp dưới của nhân viên, hãy chọn người khác');
-  const managerOf = await openManagerMap(db, tenantId);
-  for (const line of lines) {
-    const sub = line.employee_id as string;
-    const done = await db.query(
-      `SELECT 1 FROM hrm_schema.employee_reporting_lines WHERE decision_id = $1 AND employee_id = $2`,
-      [d.id, sub],
-    );
-    if (done.rowCount) continue;
-    if (wouldCreateCycle(managerOf, sub, target))
-      throw new BadRequestException({
-        code: 'HRM_REPORTING_CYCLE',
-        message: 'Chuyển cấp dưới sang người nhận sẽ tạo vòng lặp báo cáo',
-      });
-    await closeLine(db, line, effective);
-    await db.query(
-      `INSERT INTO hrm_schema.employee_reporting_lines
-         (tenant_id, employee_id, manager_employee_id, effective_from, decision_id, source, note)
-       VALUES ($1,$2,$3,$4,$5,'DECISION',$6)`,
-      [tenantId, sub, target, effective, d.id, `Theo ${d.decision_no}`],
-    );
-    managerOf.set(sub, target);
-  }
 }
 
 /**
@@ -1088,8 +1152,7 @@ async function applySalaryStep(db: PoolClient, tenantId: string, d: Row) {
 }
 
 /**
- * Áp dụng quyết định đã duyệt: Core (chức danh) → người quản lý → cấp dưới →
- * lương. Mỗi bước ghi tiến độ vào `applied_steps` nên thử lại đi tiếp từ bước
+ * Áp dụng quyết định đã duyệt: Core (chức danh) → lương. Mỗi bước ghi tiến độ vào `applied_steps` nên thử lại đi tiếp từ bước
  * lỗi. Không ném lỗi nghiệp vụ: lỗi được lưu vào `apply_error` và quyết định
  * chuyển `APPLY_PENDING` để HR thấy và thử lại.
  */
@@ -1138,6 +1201,7 @@ async function runApply(
   );
   const type = d.decision_type as DecisionType;
   try {
+    assertNoLegacyManagerStep(d, steps);
     if (needsCoreAction(type) && !steps['core']) {
       const employee = await employeeRow(pool, tenantId, d.employee_id);
       if (!employee.user_id)
@@ -1154,20 +1218,6 @@ async function runApply(
       });
       steps['core'] = true;
       await saveProgress(pool, tenantId, id, steps, result.assignmentId);
-    }
-    if (d.manager_mode !== 'KEEP' && !steps['manager']) {
-      await hrmTransaction(pool, async (db) => {
-        await applyManagerStep(db, tenantId, d);
-        await saveProgress(db, tenantId, id, { ...steps, manager: true });
-      });
-      steps['manager'] = true;
-    }
-    if (d.subordinate_mode === 'REASSIGN' && !steps['subordinates']) {
-      await hrmTransaction(pool, async (db) => {
-        await applySubordinatesStep(db, tenantId, d);
-        await saveProgress(db, tenantId, id, { ...steps, subordinates: true });
-      });
-      steps['subordinates'] = true;
     }
     if (d.salary_changed === true && !steps['salary']) {
       await hrmTransaction(pool, async (db) => {

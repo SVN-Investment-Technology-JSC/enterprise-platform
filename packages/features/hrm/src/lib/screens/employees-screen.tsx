@@ -11,20 +11,19 @@ import type {
   HrmCorePerson,
   HrmEmployeeProfile,
 } from '@enterprise-platform/contracts-hrm';
-import { useCallback, useEffect, useState, useMemo } from 'react';
+import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
 import { EmployeeLifecycleActions, employmentLabels } from '../ui/hrm-lifecycle-actions';
 import { EmployeeDetailDialog } from '../ui/employee-detail-dialog';
-import { EmployeeAvatar, EmployeePagination, EmployeeStatCards } from '../ui/employee-list-parts';
-import type { RowMenuItem } from '../ui/row-menu';
+import { EmployeeAvatar, EmployeePagination, EmployeeStatCards, type EmployeeCardFilter } from '../ui/employee-list-parts';
 import { BulkInitializeEmployeesDialog } from '../ui/bulk-initialize-employees-dialog';
 import { PersonnelDecisionDialog } from '../ui/personnel-decision-dialog';
-import { EmployeeReportingDrawer } from '../ui/employee-reporting-drawer';
 import { HrmActionDialog, type HrmAction } from '../ui/hrm-action-dialog';
 import { hrmFetch } from '../hrm-api';
 import {
   buildEmployeesCsv,
   distinctValues,
   downloadCsv,
+  employeeCompleteness,
   employeeInitials,
   employeeStats,
   isActiveEmployee,
@@ -70,7 +69,6 @@ export default function EmployeesManagementPage() {
     useState<HrmEmployeeProfile | null>(null);
   const [isEmployeeDrawerOpen, setIsEmployeeDrawerOpen] = useState(false);
   const [decisionEmployeeId, setDecisionEmployeeId] = useState<string | null>(null);
-  const [reportingOpen, setReportingOpen] = useState(false);
 
   // Số người ở Core chưa có hồ sơ HRM (chỉ tải khi có quyền manage; lỗi thì bỏ qua)
   const [pendingCoreCount, setPendingCoreCount] = useState(0);
@@ -78,6 +76,9 @@ export default function EmployeesManagementPage() {
   // Search & Filter (Tab 1: Employees)
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
+  // Lọc theo thẻ tổng quan (đang làm việc, nghỉ việc, chờ hoàn thiện hồ sơ); 'ALL' là không lọc.
+  const [cardFilter, setCardFilter] = useState<EmployeeCardFilter>('ALL');
+  const tableRef = useRef<HTMLDivElement | null>(null);
   const [departmentFilter, setDepartmentFilter] = useState('ALL');
   const [positionFilter, setPositionFilter] = useState('ALL');
   const [page, setPage] = useState(1);
@@ -122,6 +123,27 @@ export default function EmployeesManagementPage() {
       setIsLoading(false);
     }
   }, []);
+
+  // Danh sách /employees không kèm người phụ thuộc và hợp đồng nên số trên tab luôn là 0 cho tới khi tab được mở.
+  // Mở hồ sơ thì lấy hồ sơ chi tiết, chỉ nhận hai danh sách này; lỗi thì giữ nguyên, tab tự tải khi được mở.
+  const detailEmployeeId = isEmployeeDrawerOpen ? (selectedEmployee?.employeeId ?? null) : null;
+  useEffect(() => {
+    if (!detailEmployeeId) return;
+    let cancelled = false;
+    hrmFetch<{ data: HrmEmployeeProfile }>(`/employees/${detailEmployeeId}/profile`)
+      .then(({ data }) => {
+        if (cancelled) return;
+        setSelectedEmployee((current) =>
+          current?.employeeId === detailEmployeeId
+            ? { ...current, dependents: data.dependents ?? [], contracts: data.contracts ?? [] }
+            : current,
+        );
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [detailEmployeeId]);
 
   // 4. Đếm người ở Core chưa có hồ sơ HRM (cần hrm.employee.manage)
   const canManageEmployees = can('hrm.employee.manage');
@@ -192,9 +214,14 @@ export default function EmployeesManagementPage() {
         departmentFilter === 'ALL' || (emp.department ?? '').trim() === departmentFilter;
       const matchesPosition =
         positionFilter === 'ALL' || (emp.position ?? '').trim() === positionFilter;
-      return matchesSearch && matchesStatus && matchesDepartment && matchesPosition;
+      const matchesCard =
+        cardFilter === 'ALL' ||
+        (cardFilter === 'ACTIVE' && isActiveEmployee(emp)) ||
+        (cardFilter === 'INACTIVE' && !isActiveEmployee(emp)) ||
+        (cardFilter === 'INCOMPLETE' && employeeCompleteness(emp, canSensitive) < 100);
+      return matchesSearch && matchesStatus && matchesDepartment && matchesPosition && matchesCard;
     });
-  }, [employeesList, searchTerm, statusFilter, departmentFilter, positionFilter]);
+  }, [employeesList, searchTerm, statusFilter, departmentFilter, positionFilter, cardFilter, canSensitive]);
 
   // Số liệu tổng quan đếm trên mọi hồ sơ đã tải; phân trang trên danh sách đã lọc.
   const stats = useMemo(
@@ -218,7 +245,7 @@ export default function EmployeesManagementPage() {
   // Đổi bộ lọc thì về trang đầu.
   useEffect(() => {
     setPage(1);
-  }, [searchTerm, statusFilter, departmentFilter, positionFilter]);
+  }, [searchTerm, statusFilter, departmentFilter, positionFilter, cardFilter]);
   const toggleOne = (id: string) =>
     setSelectedIds((prev) => {
       const next = new Set(prev);
@@ -270,21 +297,6 @@ export default function EmployeesManagementPage() {
     }
   };
 
-  /** Các mục thao tác thêm trong menu "..." của một dòng. */
-  const rowExtraItems = (emp: HrmEmployeeProfile): RowMenuItem[] => [
-    {
-      key: 'decision',
-      label: 'Tạo quyết định',
-      onSelect: () => setDecisionEmployeeId(emp.employeeId),
-      hidden: !can('hrm.appointment.manage'),
-    },
-    {
-      key: 'link-account',
-      label: 'Liên kết tài khoản',
-      onSelect: () => void openLinkAccount(emp),
-      hidden: Boolean(emp.userId) || !isActiveEmployee(emp) || !can('hrm.employee.link-account'),
-    },
-  ];
 
   // Xuất CSV phía trình duyệt: danh sách đang lọc, chỉ các cột không nhạy cảm đang hiển thị
   const handleExportCsv = () => {
@@ -340,7 +352,7 @@ export default function EmployeesManagementPage() {
           </p>
           <p
             data-testid="core-owned-note"
-            className="mt-0.5 text-[11px] text-slate-400"
+            className="mt-0.5 text-[12px] text-slate-400"
           >
             Họ tên, email, đơn vị và chức danh được quản lý tại Core (
             <a href="/users" className="text-blue-600 hover:underline">
@@ -413,7 +425,7 @@ export default function EmployeesManagementPage() {
                   <span>Nạp nhân sự từ Core</span>
                   <span
                     title="Số người ở Core chưa có hồ sơ HRM"
-                    className="ml-1 rounded-full bg-slate-900/10 px-1.5 py-0.5 text-[10px] font-bold"
+                    className="ml-1 rounded-full bg-slate-900/10 px-1.5 py-0.5 text-[12px] font-bold"
                   >
                     {pendingCoreCount} chờ
                   </span>
@@ -425,7 +437,16 @@ export default function EmployeesManagementPage() {
       {/* SUB-TAB 1: QUẢN LÝ NHÂN SỰ */}
       <div className="space-y-3">
           <div className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]">
-            <EmployeeStatCards stats={stats} />
+            <EmployeeStatCards
+              stats={stats}
+              active={cardFilter}
+              onSelect={(next) => {
+                // Bấm lại thẻ đang chọn thì bỏ lọc; bấm thẻ khác thì lọc danh sách rồi cuộn tới bảng nhân sự.
+                setCardFilter((current) => (current === next ? 'ALL' : next));
+                setStatusFilter('ALL');
+                tableRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+              }}
+            />
             <div className="space-y-2 rounded-xl border border-slate-200 bg-white p-3">
               <div className="relative">
                 <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
@@ -439,6 +460,7 @@ export default function EmployeesManagementPage() {
               </div>
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                 <SearchableSelect
+                  height={36}
                   options={[{ value: 'ALL', label: 'Phòng ban: Tất cả' }, ...departmentOptions]}
                   value={departmentFilter}
                   onChange={(val) => setDepartmentFilter(val || 'ALL')}
@@ -446,6 +468,7 @@ export default function EmployeesManagementPage() {
                   clearable={false}
                 />
                 <SearchableSelect
+                  height={36}
                   options={[{ value: 'ALL', label: 'Chức danh: Tất cả' }, ...positionFilterOptions]}
                   value={positionFilter}
                   onChange={(val) => setPositionFilter(val || 'ALL')}
@@ -453,6 +476,7 @@ export default function EmployeesManagementPage() {
                   clearable={false}
                 />
                 <SearchableSelect
+                  height={36}
                   options={[
                     { value: 'ALL', label: 'Trạng thái: Tất cả' },
                     { value: 'OFFICIAL', label: 'Chính thức' },
@@ -470,10 +494,10 @@ export default function EmployeesManagementPage() {
           </div>
 
           {/* Bảng nhân sự */}
-          <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+          <div ref={tableRef} className="overflow-hidden rounded-xl border border-slate-200 bg-white">
             <div className="overflow-x-auto">
               <table className="w-full border-collapse text-left text-xs">
-                <thead className="border-b border-slate-200 bg-slate-50 text-[11px] font-bold text-slate-600">
+                <thead className="border-b border-slate-200 bg-slate-50 text-[12px] font-bold text-slate-600">
                   <tr>
                     <th className="w-10 px-3 py-2.5">
                       <input
@@ -548,19 +572,39 @@ export default function EmployeesManagementPage() {
                               className="size-3.5 rounded border-slate-300"
                             />
                           </td>
-                          <td className="px-3 py-2.5 font-mono font-semibold text-slate-700">{emp.employeeCode}</td>
                           <td className="px-3 py-2.5">
-                            <span className="flex items-center gap-2.5">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedEmployee(emp);
+                                setIsEmployeeDrawerOpen(true);
+                              }}
+                              className="font-mono font-semibold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer text-left transition-colors"
+                              title="Bấm để xem chi tiết hồ sơ nhân sự"
+                            >
+                              {emp.employeeCode}
+                            </button>
+                          </td>
+                          <td className="px-3 py-2.5">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedEmployee(emp);
+                                setIsEmployeeDrawerOpen(true);
+                              }}
+                              className="group flex items-center gap-2.5 text-left cursor-pointer transition-colors"
+                              title="Bấm để xem chi tiết hồ sơ nhân sự"
+                            >
                               <EmployeeAvatar initials={employeeInitials(emp)} seed={emp.employeeCode} />
                               <span className="min-w-0">
-                                <span className="block truncate font-bold text-slate-900">
+                                <span className="block truncate font-bold text-slate-900 group-hover:text-blue-600 group-hover:underline transition-colors">
                                   {emp.fullName || 'Chưa cập nhật tên'}
                                 </span>
-                                <span className="block truncate font-mono text-[11px] font-normal text-slate-500">
+                                <span className="block truncate font-mono text-[12px] font-normal text-slate-500">
                                   {emp.email || emp.personalEmail || '----'}
                                 </span>
                               </span>
-                            </span>
+                            </button>
                           </td>
                           <td className="px-3 py-2.5 text-slate-700">{emp.department || 'Chưa phân phòng ban'}</td>
                           <td className="px-3 py-2.5 text-slate-700">{emp.position || 'Chưa phân chức danh'}</td>
@@ -569,7 +613,7 @@ export default function EmployeesManagementPage() {
                           </td>
                           <td className="px-3 py-2.5">
                             <Badge
-                              className={`border text-[10px] font-semibold ${
+                              className={`border text-[12px] font-semibold ${
                                 inactive
                                   ? 'border-rose-200 bg-rose-50 text-rose-600'
                                   : emp.employmentStatus === 'OFFICIAL'
@@ -585,25 +629,17 @@ export default function EmployeesManagementPage() {
                             </Badge>
                           </td>
                           <td className="px-3 py-2.5">
-                            <span className="flex items-center gap-1">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="h-7 border-blue-200 px-2.5 text-xs font-semibold text-blue-700 hover:bg-blue-50"
-                                onClick={() => {
-                                  setSelectedEmployee(emp);
-                                  setIsEmployeeDrawerOpen(true);
-                                }}
-                              >
-                                Xem hồ sơ
-                              </Button>
-                              <EmployeeLifecycleActions
-                                employee={emp}
-                                onChanged={fetchEmployeesFromDb}
-                                layout="menu"
-                                extraItems={rowExtraItems(emp)}
-                              />
-                            </span>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 border-blue-200 px-2.5 text-xs font-semibold text-blue-700 hover:bg-blue-50"
+                              onClick={() => {
+                                setSelectedEmployee(emp);
+                                setIsEmployeeDrawerOpen(true);
+                              }}
+                            >
+                              Xem chi tiết
+                            </Button>
                           </td>
                         </tr>
                       );
@@ -623,13 +659,21 @@ export default function EmployeesManagementPage() {
           </div>
         </div>
 
-      {/* HỒ SƠ NHÂN SỰ: hộp thoại rộng, ba khối gọn và ba tab */}
+      {/* HỒ SƠ NHÂN SỰ: ngăn kéo (drawer) trượt phải, chỉnh sửa trực tiếp trên Drawer */}
       <EmployeeDetailDialog
         employee={selectedEmployee}
         open={isEmployeeDrawerOpen}
         onOpenChange={setIsEmployeeDrawerOpen}
         canSensitive={canSensitive}
-        onOpenReporting={() => setReportingOpen(true)}
+        onEmployeeUpdated={(updated) => {
+          setSelectedEmployee(updated);
+          setEmployeesList((list) =>
+            list.map((e) =>
+              e.employeeId === updated.employeeId ? { ...e, ...updated } : e,
+            ),
+          );
+          void fetchEmployeesFromDb();
+        }}
         onDependentsChanged={(dependents) =>
           selectedEmployee && setSelectedEmployee({ ...selectedEmployee, dependents })
         }
@@ -648,7 +692,11 @@ export default function EmployeesManagementPage() {
               >
                 Tạo quyết định
               </Button>
-              <EmployeeLifecycleActions employee={selectedEmployee} onChanged={fetchEmployeesFromDb} />
+              <EmployeeLifecycleActions
+                employee={selectedEmployee}
+                onChanged={fetchEmployeesFromDb}
+                showEdit={false}
+              />
               {!selectedEmployee.userId && isActiveEmployee(selectedEmployee) && (
                 <Button
                   permission="hrm.employee.link-account"
@@ -665,12 +713,6 @@ export default function EmployeesManagementPage() {
         }
       />
 
-      <EmployeeReportingDrawer
-        employeeId={selectedEmployee?.employeeId}
-        employeeName={selectedEmployee?.fullName}
-        open={reportingOpen}
-        onOpenChange={setReportingOpen}
-      />
       <PersonnelDecisionDialog
         open={Boolean(decisionEmployeeId)}
         onOpenChange={(o) => { if (!o) setDecisionEmployeeId(null); }}

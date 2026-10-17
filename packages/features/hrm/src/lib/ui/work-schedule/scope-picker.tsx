@@ -28,13 +28,13 @@ function Chips({
   onRemove: (value: string) => void;
   empty: string;
 }) {
-  if (!items.length) return <span className="text-[11px] text-slate-400">{empty}</span>;
+  if (!items.length) return <span className="text-[12px] text-slate-400">{empty}</span>;
   return (
     <ul className="flex max-h-24 flex-wrap gap-1 overflow-auto">
       {items.map((item) => (
         <li
           key={item.value}
-          className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 py-0.5 pr-1 pl-2 text-[11px] text-blue-800"
+          className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 py-0.5 pr-1 pl-2 text-[12px] text-blue-800"
         >
           <span className="max-w-48 truncate @lg:max-w-72">{item.label}</span>
           <button
@@ -112,11 +112,11 @@ function EmployeeMultiPicker({
         )}
       </ul>
       {filtered.length > MAX_LISTED ? (
-        <span className="text-[11px] text-slate-500">
+        <span className="text-[12px] text-slate-500">
           Đang hiển thị {MAX_LISTED}/{filtered.length} kết quả; gõ thêm để thu hẹp.
         </span>
       ) : null}
-      <div className="text-[11px] font-semibold text-slate-700">Đã chọn {selected.length} nhân viên</div>
+      <div className="text-[12px] font-semibold text-slate-700">Đã chọn {selected.length} nhân viên</div>
       <Chips
         items={selected.map((id) => ({
           value: id,
@@ -191,6 +191,7 @@ export function ScopePicker({
       {value.type === 'EMPLOYEE' ? (
         <Field label="Nhân viên">
           <SearchableSelect
+            height={32}
             options={employeeOptions}
             value={value.employeeIds[0] ?? ''}
             placeholder={employeesLoading ? 'Đang tải danh sách nhân viên…' : 'Tìm theo mã hoặc tên nhân viên…'}
@@ -214,6 +215,7 @@ export function ScopePicker({
         <div className="flex flex-col gap-3">
           <Field label="Thêm đơn vị">
             <SearchableSelect
+              height={32}
               options={unitOptions.filter((o) => !value.unitIds.includes(o.value))}
               value=""
               placeholder="Tìm đơn vị theo tên hoặc mã…"
@@ -228,7 +230,7 @@ export function ScopePicker({
             empty="Chưa chọn đơn vị nào."
           />
           {openEnded ? (
-            <span className="text-[11px] text-slate-500">
+            <span className="text-[12px] text-slate-500">
               Lịch định kỳ của đơn vị tự áp dụng cho các đơn vị con.
             </span>
           ) : (
@@ -258,6 +260,7 @@ export function ScopePicker({
         <div className="flex flex-col gap-2 border-t border-slate-100 pt-3">
           <Field label="Loại trừ nhân viên (tuỳ chọn)">
             <SearchableSelect
+              height={32}
               options={employeeOptions.filter((o) => !value.excludeEmployeeIds.includes(o.value))}
               value=""
               placeholder="Tìm nhân viên cần loại trừ…"

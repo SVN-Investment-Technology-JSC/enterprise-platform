@@ -66,9 +66,9 @@ export function MoveDialog({ item, items, onClose, onMove }: MoveDialogProps) {
   return (
     <Dialog
       open={Boolean(item)}
-      title={item ? `Chuyển ${item.code}` : 'Chuyển công việc'}
+      title={item ? `Di chuyển ${item.code}` : 'Di chuyển công việc'}
       subtitle={item ? `${item.title} — cả nhánh con đi theo.` : undefined}
-      submitLabel="Chuyển"
+      submitLabel="Di chuyển"
       submitting={submitting}
       error={error}
       onClose={onClose}

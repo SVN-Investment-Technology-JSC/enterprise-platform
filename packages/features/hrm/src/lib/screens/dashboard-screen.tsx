@@ -2,11 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import type { HrmDashboardOverview } from '@enterprise-platform/contracts-hrm';
 import {
-  Banknote,
-  ChevronRight,
-  FileSpreadsheet,
   Inbox,
   Loader2,
   RefreshCw,
@@ -74,23 +70,7 @@ async function settle<T>(fn: () => Promise<T>): Promise<Section<T>> {
   }
 }
 
-type PeriodSummary = { open: number; locked: number };
-
 const FORBIDDEN_TEXT = 'Không có quyền xem';
-
-function SectionNote({ section }: { section: Section<unknown> }) {
-  if (section.status === 'forbidden') {
-    return <p className="text-xs text-slate-500">{FORBIDDEN_TEXT}</p>;
-  }
-  if (section.status === 'error') {
-    return (
-      <p role="alert" className="text-xs font-semibold text-red-700">
-        {section.message}
-      </p>
-    );
-  }
-  return null;
-}
 
 export default function HrmDashboardPage() {
   const permissions = useHrmPermissions();
@@ -105,9 +85,6 @@ export default function HrmDashboardPage() {
 
   const [context, setContext] = useState<Section<TimeContext>>(idle);
   const [counts, setCounts] = useState<Record<string, Section<number>>>({});
-  const [overview, setOverview] = useState<Section<HrmDashboardOverview>>(idle);
-  const [timesheets, setTimesheets] = useState<Section<PeriodSummary>>(idle);
-  const [payrolls, setPayrolls] = useState<Section<PeriodSummary>>(idle);
   const [loadingAll, setLoadingAll] = useState(false);
 
   const [punchBusy, setPunchBusy] = useState(false);
@@ -142,48 +119,6 @@ export default function HrmDashboardPage() {
           return res.data.filter((r) => isPendingStatus(r.status)).length;
         }).then((s) => {
           if (current()) setCounts((prev) => ({ ...prev, [source.kind]: s }));
-        }),
-      );
-    }
-    if (plan.overview) {
-      jobs.push(
-        settle(async () => {
-          const res = await hrmFetch<{ data: HrmDashboardOverview }>(
-            '/dashboard/overview',
-          );
-          return res.data;
-        }).then((s) => {
-          if (current()) setOverview(s);
-        }),
-      );
-    }
-    if (plan.timesheetPeriods) {
-      jobs.push(
-        settle(async () => {
-          const res = await hrmFetch<{ data: { status: string }[] }>(
-            '/timesheet-periods',
-          );
-          return {
-            open: res.data.filter((p) => p.status === 'OPEN').length,
-            locked: res.data.filter((p) => p.status === 'LOCKED').length,
-          };
-        }).then((s) => {
-          if (current()) setTimesheets(s);
-        }),
-      );
-    }
-    if (plan.payrollPeriods) {
-      jobs.push(
-        settle(async () => {
-          const res = await hrmFetch<{ data: { status: string }[] }>(
-            '/payroll-periods',
-          );
-          return {
-            open: res.data.filter((p) => p.status === 'OPEN').length,
-            locked: res.data.filter((p) => p.status === 'LOCKED').length,
-          };
-        }).then((s) => {
-          if (current()) setPayrolls(s);
         }),
       );
     }
@@ -260,13 +195,8 @@ export default function HrmDashboardPage() {
         : 'Không xác định';
   const hasShift = Boolean(ctx?.shift);
   const showApprovals = plan.approvals.length > 0;
-  const showRight =
-    showApprovals ||
-    plan.overview ||
-    plan.timesheetPeriods ||
-    plan.payrollPeriods;
+  const showRight = showApprovals;
   const nothingToShow = !plan.personal && !showRight;
-  const overviewData = overview.status === 'ok' ? overview.data : null;
 
   const my = useMyDashboard({ enabled: plan.personal, canSeePayslip: plan.canSeePayslip });
   const todayDay = my.employee?.days[my.today];
@@ -339,7 +269,7 @@ export default function HrmDashboardPage() {
       {showRight && (
         <div className="space-y-3 pt-2">
           <div className="flex items-center justify-between gap-2">
-            <h2 className="text-[15px] font-bold text-slate-900">Công việc quản lý</h2>
+            <h2 className="text-[16px] font-bold text-slate-900">Công việc quản lý</h2>
             <Button
               variant="outline"
               size="sm"
@@ -403,15 +333,15 @@ export default function HrmDashboardPage() {
                             {section.data}
                           </span>
                         ) : section.status === 'forbidden' ? (
-                          <span className="text-[11px] text-slate-500">
+                          <span className="text-[12px] text-slate-500">
                             {FORBIDDEN_TEXT}
                           </span>
                         ) : section.status === 'error' ? (
-                          <span className="text-[11px] text-red-700">
+                          <span className="text-[12px] text-red-700">
                             Không tải được
                           </span>
                         ) : (
-                          <span className="text-[11px] text-slate-400">...</span>
+                          <span className="text-[12px] text-slate-400">...</span>
                         )}
                       </Link>
                     );
@@ -420,140 +350,6 @@ export default function HrmDashboardPage() {
               </section>
             )}
 
-            {plan.overview && (
-              <section
-                aria-label="Chấm công hôm nay của toàn đơn vị"
-                className="rounded-xl border border-slate-200 bg-slate-50/50 p-4 space-y-3"
-              >
-                <div className="flex items-center justify-between">
-                  <h2 className="text-sm font-bold text-slate-900">
-                    Chấm công hôm nay của toàn đơn vị
-                  </h2>
-                  <Link
-                    href="/timekeeping?view=data"
-                    className="text-xs font-semibold text-blue-600 hover:underline"
-                  >
-                    Mở Dữ liệu chấm công
-                  </Link>
-                </div>
-                <SectionNote section={overview} />
-                {(overviewData?.todayDayKind === 'OFF' ||
-                  overviewData?.todayDayKind === 'HOLIDAY') && (
-                  <div
-                    role="status"
-                    className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700"
-                  >
-                    {overviewData.todayDayKind === 'HOLIDAY'
-                      ? 'Hôm nay là ngày lễ theo lịch làm việc.'
-                      : 'Hôm nay là ngày nghỉ hằng tuần theo chính sách chấm công.'}{' '}
-                    Số liệu hôm nay không tính thiếu lượt hay đi trễ cho ngày nghỉ.
-                  </div>
-                )}
-                {overviewData && (
-                  <div className="grid gap-3 sm:grid-cols-4">
-                    {[
-                      {
-                        label: 'Đã vào ca',
-                        value: overviewData.todayAttendance.checkedInCount,
-                        color: 'text-emerald-600',
-                      },
-                      {
-                        label: 'Đi trễ',
-                        value: overviewData.todayAttendance.lateCount,
-                        color: 'text-amber-600',
-                      },
-                      {
-                        label: 'Thiếu lượt chấm',
-                        value: overviewData.todayAttendance.missingPunchCount,
-                        color: 'text-rose-600',
-                      },
-                      {
-                        label: 'Đang nghỉ phép',
-                        value: overviewData.todayAttendance.onLeaveCount,
-                        color: 'text-indigo-600',
-                      },
-                    ].map((item) => (
-                      <div
-                        key={item.label}
-                        className="bg-white p-3 rounded-lg border border-slate-200"
-                      >
-                        <span className="text-[11px] text-slate-500 block">
-                          {item.label}
-                        </span>
-                        <span
-                          className={`text-xl font-bold font-mono mt-1 block ${item.color}`}
-                        >
-                          {item.value}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </section>
-            )}
-
-            {(plan.timesheetPeriods || plan.payrollPeriods) && (
-              <div className="grid gap-4 sm:grid-cols-2">
-                {plan.timesheetPeriods && (
-                  <section
-                    aria-label="Kỳ công"
-                    className="rounded-xl border border-slate-200 bg-white p-4 shadow-xs space-y-2"
-                  >
-                    <div className="flex items-center gap-2">
-                      <FileSpreadsheet className="size-4 text-blue-600" />
-                      <h2 className="text-sm font-bold text-slate-900">Kỳ công</h2>
-                    </div>
-                    <SectionNote section={timesheets} />
-                    {timesheets.status === 'ok' && (
-                      <p className="text-xs text-slate-600">
-                        <strong className="text-blue-600 font-mono">
-                          {timesheets.data.open}
-                        </strong>{' '}
-                        kỳ đang mở,{' '}
-                        <strong className="text-emerald-600 font-mono">
-                          {timesheets.data.locked}
-                        </strong>{' '}
-                        kỳ đã khóa.
-                      </p>
-                    )}
-                    <Link
-                      href="/timekeeping?view=timesheets"
-                      className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:underline"
-                    >
-                      Mở Bảng công
-                      <ChevronRight className="size-3" />
-                    </Link>
-                  </section>
-                )}
-                {plan.payrollPeriods && (
-                  <section
-                    aria-label="Kỳ lương"
-                    className="rounded-xl border border-slate-200 bg-white p-4 shadow-xs space-y-2"
-                  >
-                    <div className="flex items-center gap-2">
-                      <Banknote className="size-4 text-emerald-600" />
-                      <h2 className="text-sm font-bold text-slate-900">Kỳ lương</h2>
-                    </div>
-                    <SectionNote section={payrolls} />
-                    {payrolls.status === 'ok' && (
-                      <p className="text-xs text-slate-600">
-                        <strong className="text-amber-600 font-mono">
-                          {payrolls.data.open}
-                        </strong>{' '}
-                        kỳ lương đang mở.
-                      </p>
-                    )}
-                    <Link
-                      href="/payroll"
-                      className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 hover:underline"
-                    >
-                      Mở Bảng lương
-                      <ChevronRight className="size-3" />
-                    </Link>
-                  </section>
-                )}
-              </div>
-            )}
           </div>
         )}
           </div>

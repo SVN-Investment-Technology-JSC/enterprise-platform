@@ -8,16 +8,8 @@ import {
 import { useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { ShieldCheck, UserCheck, Layers, KeyRound } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from '@/components/ui/dialog';
 import { toast } from '@/components/ui/sonner';
+import { panelButton, SidePanel } from '../side-panel';
 import { PermissionPicker } from './permission-picker';
 import { authorizationRequest } from './authorization-client';
 
@@ -73,109 +65,102 @@ export function UserRoleEditor({
   }
 
   return (
-    <Dialog
-      open
-      onOpenChange={(open) => {
-        if (!open && !busy) onClose();
+    <SidePanel
+      ariaLabel="Gán vai trò & phân quyền"
+      icon={<UserCheck className="size-4" />}
+      title="Gán vai trò & phân quyền"
+      subtitle={
+        <>
+          Nhân sự: <b className="text-[#18181b]">{user.fullName}</b>
+        </>
+      }
+      revealKey={user.id}
+      onClose={() => {
+        if (!busy) onClose();
       }}
+      footer={
+        <>
+          <button type="button" className={panelButton.secondary} onClick={onClose} disabled={busy}>
+            Hủy
+          </button>
+          <button
+            type="submit"
+            form={`user-role-editor-${user.id}`}
+            className={panelButton.primary}
+            disabled={busy}
+          >
+            {busy ? 'Đang lưu…' : 'Lưu thay đổi'}
+          </button>
+        </>
+      }
     >
-      <DialogContent className="max-h-[92vh] max-w-2xl overflow-y-auto p-6">
-        <DialogHeader className="border-b border-slate-100 pb-4">
-          <div className="flex items-center gap-2">
-            <div className="flex size-9 items-center justify-center rounded-lg bg-blue-100 text-blue-700">
-              <UserCheck className="size-5" />
-            </div>
-            <div>
-              <DialogTitle className="text-lg font-bold text-slate-900">
-                Gán vai trò & phân quyền
-              </DialogTitle>
-              <DialogDescription className="text-xs text-slate-500">
-                Nhân sự: <span className="font-semibold text-slate-700">{user.fullName}</span>
-              </DialogDescription>
-            </div>
+      <form id={`user-role-editor-${user.id}`} onSubmit={submit}>
+        <fieldset disabled={busy} className="flex flex-col gap-3.5">
+          <PermissionPicker
+            label="Chọn vai trò áp dụng"
+            values={ids}
+            onChange={setIds}
+            options={roles.map((r) => ({
+              id: r.id,
+              label: r.name,
+              description: r.description,
+              group: r.isSystem ? 'Hệ thống' : 'Tùy chỉnh',
+            }))}
+          />
+
+          <div className="flex flex-col gap-2 rounded-[10px] border border-[#eef0f3] p-3">
+            <span className="flex items-center gap-1.5 text-[14px] font-bold text-[#18181b]">
+              <ShieldCheck className="size-3.5 text-emerald-700" />
+              Quyền hạn tổng hợp dự kiến
+            </span>
+
+            {admin ? (
+              <p className="m-0 rounded-lg bg-blue-50 px-2.5 py-2 text-blue-900">
+                <b>Quản trị viên Tenant (tenant-admin):</b> Toàn quyền Core và các module đang kích hoạt cho tenant.
+              </p>
+            ) : (
+              <>
+                <span className="flex items-center gap-1.5 text-slate-600">
+                  <Layers className="size-3.5" />
+                  Phân hệ Module truy cập:
+                </span>
+                <div className="flex flex-wrap gap-1">
+                  {modules.length > 0 ? (
+                    modules.map((m) => (
+                      <span
+                        key={m}
+                        className="rounded-md bg-[#f1f3f6] px-[7px] font-mono text-[12px] text-slate-700"
+                      >
+                        {m === '*' ? 'Tất cả module khả dụng' : m}
+                      </span>
+                    ))
+                  ) : (
+                    <i className="text-slate-400">Chưa cấp quyền module nào</i>
+                  )}
+                </div>
+                <span className="flex items-center gap-1.5 text-slate-600">
+                  <KeyRound className="size-3.5" />
+                  Hành động Core và module khả dụng ({actions.length}):
+                </span>
+                {actions.length > 0 ? (
+                  <div className="flex max-h-28 flex-wrap gap-1 overflow-y-auto pr-1">
+                    {actions.map((a) => (
+                      <span
+                        key={a}
+                        className="rounded-md border border-[#e5e7eb] px-[7px] text-[12px] text-slate-700"
+                      >
+                        {TENANT_PERMISSION_ACTIONS.find((item) => item.key === a)?.label ?? a}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <i className="text-slate-400">Không cấp quyền thao tác Core hoặc module</i>
+                )}
+              </>
+            )}
           </div>
-        </DialogHeader>
-
-        <form onSubmit={submit} className="mt-4 space-y-5">
-          <fieldset disabled={busy} className="space-y-5">
-            <PermissionPicker
-              label="Chọn vai trò áp dụng"
-              values={ids}
-              onChange={setIds}
-              options={roles.map((r) => ({
-                  id: r.id,
-                  label: r.name,
-                  description: r.description,
-                  group: r.isSystem ? 'Hệ thống' : 'Tùy chỉnh',
-                }))}
-            />
-
-            <div className="rounded-xl border border-slate-200/80 bg-slate-50/70 p-4 text-sm">
-              <div className="flex items-center gap-2 font-semibold text-slate-900">
-                <ShieldCheck className="size-4 text-blue-600" />
-                <span>Quyền hạn tổng hợp dự kiến</span>
-              </div>
-
-              {admin ? (
-                <div className="mt-2.5 rounded-lg border border-blue-200 bg-blue-50/80 p-3 text-xs text-blue-900 leading-relaxed">
-                  <span className="font-semibold">Quản trị viên Tenant (tenant-admin):</span> Toàn quyền Core và các module đang kích hoạt cho tenant.
-                </div>
-              ) : (
-                <div className="mt-3 space-y-3">
-                  <div>
-                    <span className="text-xs font-medium text-slate-500 flex items-center gap-1.5 mb-1.5">
-                      <Layers className="size-3.5" />
-                      Phân hệ Module truy cập:
-                    </span>
-                    <div className="flex flex-wrap gap-1.5">
-                      {modules.length > 0 ? (
-                        modules.map((m) => (
-                          <Badge key={m} variant="secondary" className="text-xs font-normal">
-                            {m === '*' ? 'Tất cả module khả dụng' : m}
-                          </Badge>
-                        ))
-                      ) : (
-                        <span className="text-xs text-slate-400 italic">Chưa cấp quyền module nào</span>
-                      )}
-                    </div>
-                  </div>
-
-                  <div>
-                    <span className="text-xs font-medium text-slate-500 flex items-center gap-1.5 mb-1.5">
-                      <KeyRound className="size-3.5" />
-                      Hành động Core và module khả dụng ({actions.length}):
-                    </span>
-                    {actions.length > 0 ? (
-                      <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto pr-1">
-                        {actions.map((a) => (
-                          <Badge key={a} variant="outline" className="text-xs font-normal bg-white">
-                            {TENANT_PERMISSION_ACTIONS.find((item) => item.key === a)?.label ?? a}
-                          </Badge>
-                        ))}
-                      </div>
-                    ) : (
-                      <span className="text-xs text-slate-400 italic">Không cấp quyền thao tác Core hoặc module</span>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div className="flex justify-end gap-2.5 border-t border-slate-100 pt-4">
-              <Button type="button" variant="outline" onClick={onClose} disabled={busy}>
-                Hủy
-              </Button>
-              <Button
-                type="submit"
-                disabled={busy}
-                className="bg-blue-600 text-white hover:bg-blue-700"
-              >
-                {busy ? 'Đang lưu…' : 'Lưu thay đổi'}
-              </Button>
-            </div>
-          </fieldset>
-        </form>
-      </DialogContent>
-    </Dialog>
+        </fieldset>
+      </form>
+    </SidePanel>
   );
 }

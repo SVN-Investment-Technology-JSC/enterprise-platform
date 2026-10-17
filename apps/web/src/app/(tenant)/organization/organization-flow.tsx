@@ -138,7 +138,7 @@ function OrganizationFlowNode({ data }: NodeProps<Node<FlowData>>) {
         className="organization-drag-handle flex cursor-grab items-center justify-between gap-1 pb-1.5 active:cursor-grabbing"
         title="Kéo node để điều chỉnh vị trí"
       >
-        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+        <span className="text-[12px] font-bold uppercase tracking-wider text-slate-400">
           {/* {data.type?.name ?? (isUnit ? 'Đơn vị' : 'Chức danh')} */}
           {isUnit ? 'Đơn vị' : 'Chức danh'}
         </span>
@@ -188,12 +188,12 @@ function OrganizationFlowNode({ data }: NodeProps<Node<FlowData>>) {
         {isUnit && (data.childUnitCount > 0 || data.childPersonnelCount > 0) ? (
           <div className="mt-2 flex flex-wrap justify-center gap-1">
             {data.childUnitCount > 0 ? (
-              <span className="inline-flex rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 border border-blue-100">
+              <span className="inline-flex rounded bg-blue-50 px-1.5 py-0.5 text-[12px] font-medium text-blue-700 border border-blue-100">
                 {data.childUnitCount} đơn vị
               </span>
             ) : null}
             {data.childPersonnelCount > 0 ? (
-              <span className="inline-flex rounded bg-violet-50 px-1.5 py-0.5 text-[10px] font-medium text-violet-700 border border-violet-100">
+              <span className="inline-flex rounded bg-violet-50 px-1.5 py-0.5 text-[12px] font-medium text-violet-700 border border-violet-100">
                 {data.childPersonnelCount} nhân sự
               </span>
             ) : null}
@@ -337,9 +337,12 @@ export function OrganizationFlow({
           managerName = uName;
         } else {
           // Multiple assignees
-          const primaryAssignee = posAssignees.find((a) => a.isPrimary);
-          if (primaryAssignee) {
-            const uName = userNames.get(primaryAssignee.userId) ?? 'Nhân sự';
+          // Một chức danh có thể có nhiều người cùng giữ vị trí chính.
+          const primaryAssignees = posAssignees.filter((a) => a.isPrimary);
+          if (primaryAssignees.length > 0) {
+            const uName = primaryAssignees
+              .map((a) => userNames.get(a.userId) ?? 'Nhân sự')
+              .join(', ');
             managerDisplay = `${headPosition.name} - ${uName}`;
             managerName = uName;
           } else {
@@ -412,6 +415,26 @@ export function OrganizationFlow({
     null,
   );
   const wrapperRef = useRef<HTMLDivElement>(null);
+  // Khung đổi độ rộng (kéo cột Sơ đồ phân cấp, đổi kích thước cửa sổ): giữ nguyên zoom và vị trí tương đối,
+  // chỉ dịch nội dung nửa phần chênh để luôn cân giữa khung (không để trống một bên, không bị tràn một bên).
+  const fitSettled = useRef(false);
+  useEffect(() => {
+    const el = wrapperRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    let lastWidth = el.clientWidth;
+    const observer = new ResizeObserver(() => {
+      const width = el.clientWidth;
+      const delta = width - lastWidth;
+      lastWidth = width;
+      const instance = flowInstance.current;
+      // Chờ canh vừa khung lần đầu xong (có hiệu ứng) rồi mới dịch theo độ rộng, kẻo ngắt mất hiệu ứng đó.
+      if (!instance || !delta || !fitSettled.current) return;
+      const viewport = instance.getViewport();
+      void instance.setViewport({ ...viewport, x: viewport.x + delta / 2 }, { duration: 0 });
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [nodes.length > 0]);
   const dispatch = useAppDispatch();
   const cachedLayout = useAppSelector(
     (state) => state.organizationLayouts.layouts[layoutCacheKey],
@@ -707,32 +730,32 @@ export function OrganizationFlow({
   return (
     <div ref={wrapperRef} className="relative h-full min-h-0 w-full overflow-hidden bg-white">
       {/* Canvas Floating Toolbar: Chuyển đổi hướng trục Y/X, Nút MiniMap & Nút Sắp xếp */}
-      <div className="absolute top-3 right-3 z-10 flex items-center gap-2">
+      <div className="absolute top-3 right-3 z-10 flex max-w-[calc(100%-1.5rem)] flex-wrap items-center justify-end gap-2">
         <button
           type="button"
           onClick={() => setShowMiniMap((prev) => !prev)}
-          className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold shadow-sm backdrop-blur transition-all cursor-pointer ${
+          className={`flex h-8 items-center gap-1.5 whitespace-nowrap rounded-lg border px-2.5 text-xs font-semibold text-[#18181b] backdrop-blur transition-all cursor-pointer ${
             showMiniMap
-              ? 'border-blue-300 bg-blue-50/90 text-blue-700'
-              : 'border-slate-200 bg-white/95 text-slate-700 hover:bg-slate-50 hover:border-slate-300 hover:text-blue-700'
+              ? 'border-amber-300 bg-[#fffbeb]'
+              : 'border-[#eef0f3] bg-white/95 hover:bg-[#f4f6f9]'
           }`}
           title={showMiniMap ? 'Ẩn bản đồ thu nhỏ (MiniMap)' : 'Hiện bản đồ thu nhỏ (MiniMap)'}
         >
-          <MapIcon className="size-3.5 text-blue-600" />
+          <MapIcon className="size-3.5 text-amber-700" />
           <span>Bản đồ</span>
         </button>
 
         <button
           type="button"
           onClick={handleToggleDirection}
-          className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white/95 px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm backdrop-blur hover:bg-slate-50 hover:border-slate-300 hover:text-blue-700 transition-all cursor-pointer"
+          className="flex h-8 items-center gap-1.5 whitespace-nowrap rounded-lg border border-[#eef0f3] bg-white/95 px-2.5 text-xs font-semibold text-[#18181b] backdrop-blur hover:bg-[#f4f6f9] transition-all cursor-pointer"
           title={
             layoutDirection === 'horizontal'
               ? 'Đang ở dạng Phân tầng Ngang (Trục Y) - Nhấp để chuyển sang Phân tầng Dọc (Trục X)'
               : 'Đang ở dạng Phân tầng Dọc (Trục X) - Nhấp để chuyển sang Phân tầng Ngang (Trục Y)'
           }
         >
-          <ArrowRightLeft className="size-3.5 text-blue-600" />
+          <ArrowRightLeft className="size-3.5 text-amber-700" />
           <span>
             Bố cục: {layoutDirection === 'horizontal' ? 'Trục Y (Ngang)' : 'Trục X (Dọc)'}
           </span>
@@ -741,10 +764,10 @@ export function OrganizationFlow({
         <button
           type="button"
           onClick={handleAutoLayout}
-          className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white/95 px-3 py-1.5 text-xs font-semibold text-blue-700 shadow-sm backdrop-blur hover:bg-blue-50 hover:border-blue-300 transition-all cursor-pointer"
+          className="flex h-8 items-center gap-1.5 whitespace-nowrap rounded-lg border border-[#eef0f3] bg-white/95 px-2.5 text-xs font-semibold text-[#18181b] backdrop-blur hover:bg-[#f4f6f9] transition-all cursor-pointer"
           title="Tự động căn chỉnh và sắp xếp lại các node thẳng hàng, đẹp mắt"
         >
-          <Sparkles className="size-3.5 text-blue-600" />
+          <Sparkles className="size-3.5 text-amber-700" />
           <span>Sắp xếp</span>
         </button>
       </div>
@@ -791,6 +814,9 @@ export function OrganizationFlow({
               duration: 350,
             });
           });
+          window.setTimeout(() => {
+            fitSettled.current = true;
+          }, 500);
         }}
         onNodeDragStart={handleNodeDragStart}
         onNodeDrag={handleNodeDrag}

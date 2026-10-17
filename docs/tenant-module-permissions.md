@@ -2,7 +2,7 @@
 
 ## Nguyên tắc
 
-Một người dùng chỉ được thao tác khi tenant có module đang kích hoạt, role cho phép vào module và có quyền thao tác tương ứng. Quyền của nhiều role cộng dồn; bỏ quyền ở một role không thu hồi quyền vẫn được cấp bởi role khác.
+Một người dùng chỉ được thao tác khi tenant có module đang kích hoạt và có quyền thao tác tương ứng. Quyền vào module suy ra từ action: có bất kỳ action nào của module là vào được module đó, không cấp module riêng cho role. Quyền của nhiều role cộng dồn; bỏ quyền ở một role không thu hồi quyền vẫn được cấp bởi role khác.
 
 Core quản lý danh mục action, permission và role. Module kiểm tra action ở API và áp dụng luật nghiệp vụ riêng. Với Procedure, việc sửa ma trận RACI khác với việc thực hiện một bước trong hồ sơ.
 
@@ -16,6 +16,7 @@ Core quản lý danh mục action, permission và role. Module kiểm tra action
 | Maintenance | `maintenance.read` | Đọc lịch, ma trận, hồ sơ bảo trì |
 | Maintenance | `maintenance.occurrence.manage` | Tạo sự cố, hoàn tất đợt, quản lý tệp hồ sơ; cần thêm `maintenance.read` |
 | Maintenance | `maintenance.manage` | Quản lý lịch, ma trận, chạy lịch, cấu hình; bao gồm quyền đọc và xử lý đợt |
+| Procedure | `procedure.access` | Chỉ vào module: xem quy trình đã công bố và xử lý hồ sơ theo vai RACI |
 | Procedure | `procedure.definition.manage` | Tạo/sửa định nghĩa, phân vai RACI, nhóm, cấu hình và đưa về nháp |
 | Procedure | `procedure.definition.publish` | Công bố/lưu trữ; xem được bản nháp nhưng không mặc nhiên sửa RACI |
 | Procedure | `procedure.instance.create` | Khởi tạo hồ sơ; còn phải được phân vai S ở bước đầu, trừ người có quyền override |
@@ -23,7 +24,7 @@ Core quản lý danh mục action, permission và role. Module kiểm tra action
 
 Xóa định nghĩa quy trình cần cả `procedure.definition.manage` và `procedure.instance.override`, đồng thời tuân thủ ràng buộc nghiệp vụ hiện có. Quyền override nhạy cảm, không cấp cho nhân viên thông thường. Không có action mới cho từng vai R/A/C/S/I/E: module tự xác định hành động từ phân công và trạng thái hồ sơ.
 
-Tenant admin có toàn bộ action được hỗ trợ, nhưng vẫn chịu điều kiện tenant/module đang kích hoạt. Module access đơn thuần không cấp thêm action. Riêng Procedure, người có module access có thể xem định nghĩa đã công bố và xử lý hồ sơ trong phạm vi RACI của mình mà không cần quyền thiết kế.
+Tenant admin có toàn bộ action được hỗ trợ, nhưng vẫn chịu điều kiện tenant/module đang kích hoạt. Quyền vào module không cấp thêm action. Riêng Procedure, người có `procedure.access` (hoặc bất kỳ action Procedure nào) có thể xem định nghĩa đã công bố và xử lý hồ sơ trong phạm vi RACI của mình mà không cần quyền thiết kế.
 
 ## Hướng dẫn thao tác
 
@@ -40,7 +41,7 @@ Tenant admin có toàn bộ action được hỗ trợ, nhưng vẫn chịu đi�
 1. Vào **Vai trò & phân quyền** (`/authorization`) → tab **Permission** → **Tạo permission**.
 2. Đặt tên `Khởi tạo hồ sơ quy trình`, chọn `procedure.instance.create` → **Lưu**. Nếu nhân viên chỉ xử lý hồ sơ được giao và không khởi tạo, bỏ qua permission này.
 3. Sang tab **Vai trò** → **Tạo vai trò**, đặt tên `Nhân viên quy trình`.
-4. Chọn module Quy trình/Procedure Engine và permission vừa tạo. Không chọn quyền thiết kế, công bố hoặc override → **Lưu**.
+4. Chọn permission vừa tạo (và permission chứa `procedure.access` nếu nhân viên chỉ xử lý hồ sơ được giao). Không chọn quyền thiết kế, công bố hoặc override → **Lưu**.
 5. Vào **Người dùng** (`/users`) → **Vai trò** tại người cần gán → chọn `Nhân viên quy trình` → **Lưu vai trò**. Kiểm tra và gỡ role khác đang cấp quyền rộng hơn nếu mục tiêu là hạn chế người này; không gỡ admin cuối cùng.
 6. Trong Procedure, người có quyền thiết kế phân vai RACI cho người dùng/chức danh/đơn vị tương ứng; người có quyền công bố công bố định nghĩa. Nhân viên cần vai S ở bước đầu nếu được khởi tạo.
 7. Mở cửa sổ trình duyệt riêng, đăng nhập nhân viên → vào Procedure. Không có nút thêm/sửa/công bố RACI; vẫn xem quy trình đã công bố và thực hiện hành động đúng vai ở hồ sơ.
@@ -48,7 +49,7 @@ Tenant admin có toàn bộ action được hỗ trợ, nhưng vẫn chịu đi�
 
 ### 3. Các role thường dùng
 
-| Role mẫu | Module access | Action nên chọn |
+| Role mẫu | Module (suy ra) | Action nên chọn |
 |---|---|---|
 | Nhân viên chỉ xem kho | Inventory | `inventory.read` |
 | Nhân viên nhập/xuất kho | Inventory | `inventory.read`, `inventory.transaction.write` |
@@ -58,7 +59,7 @@ Tenant admin có toàn bộ action được hỗ trợ, nhưng vẫn chịu đi�
 | Người thiết kế quy trình | Procedure Engine | `procedure.definition.manage` |
 | Người công bố quy trình | Procedure Engine | `procedure.definition.publish` |
 
-Tạo một permission gồm các action trong bảng, gắn vào role cùng module access, rồi gán role cho người dùng. Một người có thể giữ nhiều role. Không cần tạo user mới để thử phân quyền.
+Tạo một permission gồm các action trong bảng, gắn vào role, rồi gán role cho người dùng. Một người có thể giữ nhiều role. Không cần tạo user mới để thử phân quyền.
 
 ### 4. Kiểm tra thu hồi
 
@@ -70,7 +71,7 @@ Cache được dùng qua nhiều request nhưng mỗi lần xác thực đọc r
 
 ## Lưu ý triển khai và phạm vi
 
-- User cũ với `legacy-tenant-user` chỉ giữ module access, không tự nhận quyền ghi. Admin phải gán role phù hợp, đặc biệt bổ sung quyền đọc Inventory/Maintenance.
+- User cũ với `legacy-tenant-user` (nay là `tenant-user`) giữ quyền vào Quy trình qua `procedure.access`, không tự nhận quyền ghi. Admin phải gán role phù hợp, đặc biệt bổ sung quyền đọc Inventory/Maintenance.
 - Màn giao dịch Inventory có thao tác hỗn hợp: tạo mã vật tư, khai sê-ri lúc nhập và xuất lắp đặt cần `inventory.manage`. Giao diện kiểm tra trước khi ghi phiếu để tránh nhập kho xong mới phát hiện thiếu quyền khai sê-ri.
 - Capability Inventory lấy từ `GET /api/inventory/v1/capabilities`; Procedure/Maintenance lấy từ workspace. Cờ UI không thay thế kiểm tra quyền server.
 - Các phần Inventory đang dùng dữ liệu cục bộ trước đợt này (lô hàng, kiểm kê, một phần nhật ký sự cố) được giới hạn thao tác trên UI; chưa chuyển thành API/lưu trữ backend. Không xem dữ liệu cục bộ là dữ liệu đã được phân tách và bảo vệ bằng RBAC server. Việc chuyển các chức năng này sang backend là phạm vi riêng.

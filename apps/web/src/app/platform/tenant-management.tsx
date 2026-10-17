@@ -7,6 +7,7 @@ import {
   Plus,
   Search,
 } from 'lucide-react';
+import { formatDateTime, authFetch } from '@enterprise-platform/shared-ui';
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { TenantDeletionConsole, deletionApi } from './tenant-deletion-console';
@@ -49,10 +50,6 @@ function formatDate(isoDate: string): string {
   const [year, month, day] = isoDate.slice(0, 10).split('-');
   return year && month && day ? `${day}/${month}/${year}` : isoDate;
 }
-const resetExpiryFormatter = new Intl.DateTimeFormat('vi-VN', {
-  dateStyle: 'short',
-  timeStyle: 'short',
-});
 
 export function TenantManagement({ initialTenants, canDelete = false }: TenantManagementProps) {
   const [jobs, setJobs] = useState<TenantDeletionJob[]>([]);
@@ -143,7 +140,7 @@ export function TenantManagement({ initialTenants, canDelete = false }: TenantMa
     setError(undefined);
     setSuccess(undefined);
     try {
-      const response = await fetch(`/api/platform/v1/tenants/${tenant.id}`, {
+      const response = await authFetch(`/api/platform/v1/tenants/${tenant.id}`, {
         method: 'PATCH',
         credentials: 'same-origin',
         headers: {
@@ -180,7 +177,7 @@ export function TenantManagement({ initialTenants, canDelete = false }: TenantMa
     setResettingId(tenant.id);
     setError(undefined);
     try {
-      const response = await fetch(
+      const response = await authFetch(
         `/api/platform/v1/tenants/${tenant.id}/admin/password-reset-link`,
         {
           method: 'POST', credentials: 'same-origin',
@@ -453,7 +450,7 @@ export function TenantManagement({ initialTenants, canDelete = false }: TenantMa
                 Liên kết gửi cho Tenant Admin
                 <textarea className="min-h-28 w-full rounded-lg border border-slate-200 bg-slate-50 p-3 font-mono text-xs text-slate-700" readOnly value={resetLink.url} />
               </label>
-              <p className="text-sm text-muted-foreground">Hết hạn lúc: {resetExpiryFormatter.format(new Date(resetLink.expiresAt))}</p>
+              <p className="text-sm text-muted-foreground">Hết hạn lúc: {formatDateTime(resetLink.expiresAt)}</p>
               <div className="flex justify-end gap-2">
                 <Button onClick={() => setResetLink(undefined)} variant="outline">Đóng</Button>
                 <Button className="bg-[#091426] hover:bg-[#1e293b]" onClick={async () => { await navigator.clipboard.writeText(resetLink.url); setSuccess('Đã sao chép liên kết đặt lại mật khẩu.'); }}>

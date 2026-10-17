@@ -9,6 +9,7 @@ import type {
 } from '@enterprise-platform/contracts-hrm';
 import { hrmFetch } from '../hrm-api';
 import { currentMonthVn, monthRange, weekdayVn } from '../hrm-timesheet-format';
+import { BOARD_FILTERS, matchesBoardFilter, type BoardFilter } from '../ui/my-timesheet-format';
 import TimesheetsScreen from './timesheets-screen';
 
 let mockAllowed: string[] = [];
@@ -138,9 +139,36 @@ const closeState = (
   data: { month: makeBoard('OPEN', true).month, blockersForRequests: requests, blockersForLock: lock },
 });
 
+/** Nhân viên không có bất thường nào (mọi ngày bình thường), tuỳ chỉnh thêm ngày và tổng. */
+const plain = (e: HrmBoardEmployee, extra: Record<string, HrmBoardDay> = {}, over: Partial<typeof totals> = {}) => ({
+  ...e,
+  days: { ...Object.fromEntries(Object.keys(e.days).map((k) => [k, baseDay(k)])), ...extra },
+  totals: { ...totals, lateMinutes: 0, lateDays: 0, abnormalDays: 0, ...over },
+});
+
+/** Giả lập máy chủ: lọc nhanh và đếm trên TOÀN BỘ nhân viên, rồi mới phân trang theo page/page_size. */
+function serveBoard(board: HrmTimesheetBoard, path: string): HrmTimesheetBoard {
+  // Bảng dựng sẵn cho một trang (meta.total khác số dòng): trả nguyên để kiểm thử riêng phần phân trang.
+  if (board.meta.total !== board.employees.length) return board;
+  const query = new URLSearchParams(path.split('?')[1] ?? '');
+  const flag = (query.get('flag') ?? 'ALL') as BoardFilter;
+  const page = Number(query.get('page') ?? 1);
+  const pageSize = Number(query.get('page_size') ?? 50);
+  const all = board.employees;
+  const matched = all.filter((e) => matchesBoardFilter(e, flag));
+  const counts = Object.fromEntries(
+    BOARD_FILTERS.map((f) => [f.id, all.filter((e) => matchesBoardFilter(e, f.id)).length]),
+  ) as Record<BoardFilter, number>;
+  return {
+    ...board,
+    employees: matched.slice((page - 1) * pageSize, page * pageSize),
+    meta: { total: matched.length, page, pageSize, counts },
+  };
+}
+
 function mockApi(board: HrmTimesheetBoard, close = closeState()) {
   fetchMock.mockImplementation((async (path: string) => {
-    if (path.startsWith('/timesheet-board')) return { data: board };
+    if (path.startsWith('/timesheet-board')) return { data: serveBoard(board, path) };
     if (path.endsWith('/close-state')) return close;
     return { data: {} };
   }) as never);
@@ -170,7 +198,7 @@ describe('TimesheetsScreen', () => {
       const past = screen.getByTestId(`board-cell-e1-${d(2)}`);
       expect(past.querySelector('[data-testid="cell-shift-code"]')).toBeNull();
       expect(past.textContent).not.toContain('HC');
-      expect(past.querySelector('[data-testid="cell-dot"]')).not.toBeNull();
+      expect(past.querySelector('[data-testid="cell-units"]')).not.toBeNull();
       const future = screen.getByTestId(`board-cell-e1-${d(20)}`);
       expect(future.querySelector('[data-testid="cell-shift-code"]')?.textContent).toBe('HC');
     } finally {
@@ -187,10 +215,14 @@ describe('TimesheetsScreen', () => {
     // Ngày nghỉ hằng tuần để trống (tô xám), ngày đã qua hiện số công, đi trễ tô đỏ, bất thường hiện !, lễ hiện L.
     expect(screen.getByTestId(`board-cell-e1-${d(1)}`).getAttribute('data-status')).toBe('OFF');
     expect(screen.getByTestId(`board-cell-e1-${d(1)}`).textContent).toBe('OFF');
-    expect(screen.getByTestId(`board-cell-e1-${d(2)}`).querySelector('[data-testid="cell-dot"]')).not.toBeNull();
+    expect(screen.getByTestId(`board-cell-e1-${d(2)}`).querySelector('[data-testid="cell-units"]')).not.toBeNull();
     expect(screen.getByTestId(`board-cell-e1-${d(2)}`).getAttribute('data-late')).toBe('true');
-    expect(screen.getByTestId(`board-cell-e1-${d(2)}`).className).toContain('bg-red-100');
-    expect(screen.getByTestId(`board-cell-e1-${d(3)}`).textContent).toContain('!');
+    // Không tô nền ô, chỉ màu chữ của số công.
+    expect(screen.getByTestId(`board-cell-e1-${d(2)}`).className).not.toMatch(/(?:^|\s)bg-(red|orange|emerald)/);
+    // Quên chấm công: hệ số 0 màu đỏ (thay cho ký hiệu !).
+    expect(within(screen.getByTestId(`board-cell-e1-${d(3)}`)).getByTestId('cell-units').textContent).toBe('0');
+    expect(within(screen.getByTestId(`board-cell-e1-${d(3)}`)).getByTestId('cell-units').getAttribute('data-tone')).toBe('bad');
+    expect(within(screen.getByTestId(`board-cell-e1-${d(2)}`)).getByTestId('cell-units').getAttribute('data-tone')).toBe('bad');
     expect(screen.getByTestId(`board-cell-e1-${d(4)}`).getAttribute('data-status')).toBe('ANNUAL_LEAVE');
     expect(screen.getByTestId(`board-cell-e1-${d(5)}`).textContent).toContain('L');
     expect(screen.getByTestId(`board-cell-e1-${d(2)}`).getAttribute('title')).toContain('Đi trễ: 15 phút');
@@ -342,11 +374,6 @@ describe('TimesheetsScreen', () => {
   });
 
   it('bộ lọc nhanh đếm và lọc nhân viên: đi trễ, bất thường, vắng không phép, đơn chờ duyệt', async () => {
-    const plain = (e: HrmBoardEmployee, extra: Record<string, HrmBoardDay> = {}, over: Partial<typeof totals> = {}) => ({
-      ...e,
-      days: { ...Object.fromEntries(Object.keys(e.days).map((k) => [k, baseDay(k)])), ...extra },
-      totals: { ...totals, lateMinutes: 0, lateDays: 0, abnormalDays: 0, ...over },
-    });
     const quiet = plain(employee('e2', 'NV002', 'Trần Thị Bình'));
     const absent = plain(
       employee('e3', 'NV003', 'Lê Văn Cường'),
@@ -365,13 +392,41 @@ describe('TimesheetsScreen', () => {
     expect(screen.getByTestId('board-filter-ABSENT').textContent).toContain('1');
     expect(screen.getByTestId('board-filter-PENDING').textContent).toContain('1');
     fireEvent.click(screen.getByTestId('board-filter-ABSENT'));
-    expect(screen.getAllByTestId('board-row')).toHaveLength(1);
-    expect(screen.getByText('Lê Văn Cường')).toBeTruthy();
+    expect(await screen.findByText('Lê Văn Cường')).toBeTruthy();
+    await waitFor(() => expect(screen.getAllByTestId('board-row')).toHaveLength(1));
+    expect(String(fetchMock.mock.calls.at(-1)?.[0])).toContain('flag=ABSENT');
+    // số đếm không đổi khi đang lọc: vẫn tính trên toàn bộ nhân viên
+    expect(screen.getByTestId('board-filter-PENDING').textContent).toContain('1');
     fireEvent.click(screen.getByTestId('board-filter-PENDING'));
-    expect(screen.getByText('Phạm Thị Dung')).toBeTruthy();
-    expect(screen.queryByText('Lê Văn Cường')).toBeNull();
+    expect(await screen.findByText('Phạm Thị Dung')).toBeTruthy();
+    await waitFor(() => expect(screen.queryByText('Lê Văn Cường')).toBeNull());
     fireEvent.click(screen.getByTestId('board-filter-ALL'));
-    expect(screen.getAllByTestId('board-row')).toHaveLength(4);
+    await waitFor(() => expect(screen.getAllByTestId('board-row')).toHaveLength(4));
+    expect(String(fetchMock.mock.calls.at(-1)?.[0])).not.toContain('flag=');
+  });
+
+  it('lọc nhanh áp trên toàn bộ tháng, không phụ thuộc cỡ trang: người khớp ở trang sau vẫn được đếm và hiện', async () => {
+    const pending = (id: string) => [
+      { kind: 'LEAVE' as const, id, status: 'PENDING' as const, label: 'Nghỉ', minutes: 480 },
+    ];
+    // 12 nhân viên, cỡ trang mặc định 10: người có đơn chờ duyệt (NV011, NV012) nằm ở trang 2.
+    const people = Array.from({ length: 12 }, (_, i) => {
+      const code = `NV${String(i + 1).padStart(3, '0')}`;
+      const base = employee(`e${i + 1}`, code, `Nhân viên ${i + 1}`);
+      return i >= 10 ? plain(base, { [d(8)]: baseDay(d(8), { requests: pending(`p${i}`) }) }) : plain(base, {});
+    });
+    mockApi(makeBoard('OPEN', true, people));
+    render(<TimesheetsScreen />);
+    await screen.findAllByTestId('board-day-header');
+    expect(screen.getAllByTestId('board-row')).toHaveLength(10);
+    // trang 1 không có ai chờ duyệt nhưng nút vẫn đếm đủ 2 người của cả tháng
+    expect(screen.getByTestId('board-filter-PENDING').textContent).toContain('2');
+    expect(screen.getByTestId('board-filter-ALL').textContent).toContain('12');
+    fireEvent.click(screen.getByTestId('board-filter-PENDING'));
+    await waitFor(() => expect(screen.getAllByTestId('board-row')).toHaveLength(2));
+    expect(screen.getByText('Nhân viên 11')).toBeTruthy();
+    expect(screen.getByText('Nhân viên 12')).toBeTruthy();
+    expect(String(fetchMock.mock.calls.at(-1)?.[0])).toContain('page=1');
   });
 
   it('cột tổng hợp gọn: công, ngày trễ sớm, nghỉ, vắng, bất thường, tăng ca', async () => {
@@ -386,7 +441,7 @@ describe('TimesheetsScreen', () => {
     expect(within(row).getAllByRole('cell').slice(-6).map((c) => c.textContent)).toEqual(['20', '1', '1', '0', '1', '1:30']);
   });
 
-  it('bấm tên nhân viên mở bảng công cả tháng của người đó; bấm một ngày trong đó mở chi tiết ngày', async () => {
+  it('bấm tên nhân viên mở bảng công cả tháng của người đó; bấm một ngày trong đó hiện chi tiết ngày ngay bên dưới, không mở thêm ngăn kéo', async () => {
     mockApi(makeBoard('OPEN', true));
     render(<TimesheetsScreen />);
     await screen.findAllByTestId('board-day-header');
@@ -395,8 +450,13 @@ describe('TimesheetsScreen', () => {
     expect(screen.getByTestId('my-stats')).toBeTruthy();
     expect(screen.getByTestId('my-stat-late').textContent).toContain('1 ngày');
     fireEvent.click(screen.getByTestId(`my-cell-${d(2)}`));
-    expect(await screen.findByText('Chi tiết ngày công')).toBeTruthy();
-    expect(screen.getByTestId('kpi-late').textContent).toContain('15');
+    const inline = await screen.findByTestId('board-day-inline');
+    expect(within(inline).getByTestId('kpi-late').textContent).toContain('15');
+    // Chỉ còn một ngăn kéo (bảng công tháng), chi tiết ngày nằm trong đó.
+    expect(screen.getAllByRole('dialog')).toHaveLength(1);
+    expect(within(screen.getByRole('dialog')).getByTestId('board-day-inline')).toBeTruthy();
+    fireEvent.click(within(inline).getByRole('button', { name: 'Đóng chi tiết' }));
+    await waitFor(() => expect(screen.queryByTestId('board-day-inline')).toBeNull());
   });
 
   it('Drawer ngày nghỉ phép hiển thị lý do nghỉ', async () => {
@@ -458,14 +518,12 @@ describe('TimesheetsScreen: tiêu đề, chọn dòng, số dòng mỗi trang', 
     expect(screen.getByTestId('timesheets-root').className).not.toContain('fixed');
   });
 
-  it('chú thích thu gọn ở màn nhỏ: nút Chú thích mở và ẩn', async () => {
+  it('chú thích nằm ở chân bảng, luôn hiện, không còn nút Chú thích ở thanh lọc', async () => {
     mockApi(makeBoard('OPEN', true));
     render(<TimesheetsScreen />);
     await screen.findAllByTestId('board-day-header');
-    const toggle = screen.getByRole('button', { name: 'Chú thích' });
-    expect(toggle.getAttribute('aria-expanded')).toBe('false');
-    fireEvent.click(toggle);
-    expect(screen.getByRole('button', { name: 'Ẩn chú thích' }).getAttribute('aria-expanded')).toBe('true');
+    expect(screen.queryByRole('button', { name: 'Chú thích' })).toBeNull();
+    expect(screen.getByLabelText('Chú thích bảng công')).toBeTruthy();
   });
 
   it('tick nhân viên thì nút Xuất CSV ghi số người đã chọn; tick tất cả chọn cả trang', async () => {
@@ -620,7 +678,7 @@ describe('TimesheetsScreen: liên kết đơn từ, chốt công có chi tiết,
 });
 
 describe('TimesheetsScreen: mọi đơn từ dính tới ngày hiển thị ở ô công', () => {
-  it('ô có đơn có chấm xanh; drawer liệt kê cả đơn chờ duyệt và bị từ chối kèm trạng thái, link mở đơn', async () => {
+  it('ô công thuần số; drawer liệt kê cả đơn chờ duyệt và bị từ chối kèm trạng thái, link mở đơn', async () => {
     const board = makeBoard('OPEN', true);
     (board.employees[0].days as Record<string, HrmBoardDay>)[d(2)] = baseDay(d(2), {
       requests: [
@@ -633,8 +691,8 @@ describe('TimesheetsScreen: mọi đơn từ dính tới ngày hiển thị ở 
     mockApi(board);
     render(<TimesheetsScreen />);
     const cell = await screen.findByTestId(`board-cell-e1-${d(2)}`);
-    expect(within(cell).getByTestId('cell-has-requests')).toBeTruthy();
-    expect(within(screen.getByTestId(`board-cell-e1-${d(3)}`)).queryByTestId('cell-has-requests')).toBeNull();
+    // Ô công thuần số: không còn ký hiệu chữ của đơn từ; đơn từ xem trong drawer ngày.
+    expect(within(cell).queryByTestId('cell-has-requests')).toBeNull();
     fireEvent.click(cell);
     const list = await screen.findByTestId('day-sources');
     expect(list.textContent).toContain('Đơn làm thêm giờ: Theo công việc - 2 giờ đã duyệt');

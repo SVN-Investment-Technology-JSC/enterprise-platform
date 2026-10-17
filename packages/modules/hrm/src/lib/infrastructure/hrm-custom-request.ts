@@ -376,6 +376,8 @@ export function mapCustomRequest(row: Row): HrmCustomRequest {
     ...requestReasonView(row),
     fields: (row.fields ?? {}) as Record<string, unknown>,
     attachmentFileId: row.attachment_file_id ?? null,
+    transportMode: row.transport_mode ?? null,
+    transportDetail: row.transport_detail ?? null,
     status: row.status,
     submittedBy: row.submitted_by,
     approvedBy: row.approved_by ?? null,

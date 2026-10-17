@@ -8,8 +8,8 @@ export function proxy(request: NextRequest) {
   const protectedTenantRoute = ['/dashboard', '/organization', '/applications', '/users', '/authorization', '/account']
     .some((route) => pathname === route || pathname.startsWith(`${route}/`));
   if (!request.cookies.has('ep_access')) {
-    if (protectedPlatformRoute) return NextResponse.redirect(new URL('/admin', request.url));
-    if (protectedTenantRoute) return NextResponse.redirect(new URL('/', request.url));
+    if (protectedPlatformRoute) return NextResponse.redirect(new URL('/login/admin', request.url));
+    if (protectedTenantRoute) return NextResponse.redirect(new URL('/login', request.url));
   }
   return NextResponse.next();
 }

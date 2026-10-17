@@ -274,7 +274,7 @@ export function SalaryProfilesPanel() {
           permission="hrm.salary.manage"
           disabled={!employee}
           onClick={openForm}
-          className="h-9 gap-1.5 px-4 text-xs font-semibold"
+          className="h-9 gap-1.5 px-4 text-[14px] font-semibold"
         >
           <Plus className="size-4" />
           <span>Thêm hồ sơ lương</span>
@@ -284,6 +284,7 @@ export function SalaryProfilesPanel() {
     >
       <div className="max-w-md">
         <SearchableSelect
+          height={36}
           value={employee}
           onChange={(v) => setEmployee(v || '')}
           options={employees}
@@ -298,9 +299,9 @@ export function SalaryProfilesPanel() {
       )}
 
       {employee && activeProfile && (
-        <div className="grid grid-cols-2 gap-3 rounded-lg border border-blue-100 bg-blue-50/50 p-3 text-xs @3xl:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 rounded-lg border border-blue-100 bg-blue-50/50 p-3 text-[14px] @3xl:grid-cols-4">
           <div>
-            <span className="block text-[11px] text-slate-500">Mức lương hiện hành</span>
+            <span className="block text-[14px] text-slate-500">Mức lương hiện hành</span>
             <strong className="font-mono text-blue-700">
               {activeProfile.baseSalary === null ? (
                 <span title="Bạn không có quyền xem mức lương">Ẩn</span>
@@ -310,11 +311,11 @@ export function SalaryProfilesPanel() {
             </strong>
           </div>
           <div>
-            <span className="block text-[11px] text-slate-500">Loại lương</span>
+            <span className="block text-[14px] text-slate-500">Loại lương</span>
             <strong>{SALARY_TYPE_LABELS[activeProfile.salaryType] ?? activeProfile.salaryType}</strong>
           </div>
           <div className="min-w-0">
-            <span className="block text-[11px] text-slate-500">Ngạch và bậc</span>
+            <span className="block text-[14px] text-slate-500">Ngạch và bậc</span>
             <strong className="break-words">
               {activeProfile.salaryGradeId
                 ? `${gradeLabel.get(activeProfile.salaryGradeId) ?? 'Ngạch đã chọn'}${stepNo(activeProfile) ? ` / Bậc ${stepNo(activeProfile)}` : ''}`
@@ -322,14 +323,14 @@ export function SalaryProfilesPanel() {
             </strong>
           </div>
           <div>
-            <span className="block text-[11px] text-slate-500">Hiệu lực từ</span>
+            <span className="block text-[14px] text-slate-500">Hiệu lực từ</span>
             <strong>{dateVn(activeProfile.effectiveFrom)}</strong>
           </div>
         </div>
       )}
 
       {loadingRows ? (
-        <p role="status" className="flex items-center justify-center gap-2 rounded-lg border border-slate-200 p-8 text-xs text-slate-400">
+        <p role="status" className="flex items-center justify-center gap-2 rounded-lg border border-slate-200 p-8 text-[14px] text-slate-400">
           <Loader2 className="size-4 animate-spin" />
           Đang tải hồ sơ lương...
         </p>
@@ -364,10 +365,11 @@ export function SalaryProfilesPanel() {
               {employeeName ? `Nhân viên: ${employeeName}. ` : ''}Phiên bản mới có hiệu lực từ ngày chọn và kết thúc phiên bản trước.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-3 text-xs">
+          <div className="space-y-3 text-[14px]">
             <div>
               <span className="mb-1 block font-semibold text-slate-700">Ngạch lương</span>
               <SearchableSelect
+                height={36}
                 value={gradeId}
                 clearable
                 placeholder="Chọn ngạch lương..."
@@ -384,6 +386,7 @@ export function SalaryProfilesPanel() {
             <div>
               <span className="mb-1 block font-semibold text-slate-700">Bậc lương</span>
               <SearchableSelect
+                height={36}
                 value={stepId}
                 clearable
                 placeholder={gradeId ? 'Chọn bậc lương...' : 'Chọn ngạch trước'}
@@ -408,12 +411,13 @@ export function SalaryProfilesPanel() {
                   min={0}
                   value={baseSalary}
                   onChange={(e) => setBaseSalary(e.target.value)}
-                  className="mt-1 h-9 font-mono text-xs font-bold text-blue-700"
+                  className="mt-1 h-9 font-mono text-[14px] font-bold text-blue-700"
                 />
               </label>
               <div>
                 <span className="mb-1 block font-semibold text-slate-700">Loại lương</span>
                 <SearchableSelect
+                  height={36}
                   value={salaryType}
                   clearable={false}
                   options={SALARY_TYPE_OPTIONS}
@@ -423,7 +427,7 @@ export function SalaryProfilesPanel() {
             </div>
             <div>
               <span className="mb-1 block font-semibold text-slate-700">Hiệu lực từ *</span>
-              <DatePickerInput value={effectiveFrom} onChange={(v: string) => setEffectiveFrom(v)} />
+              <DatePickerInput height={36} value={effectiveFrom} onChange={(v: string) => setEffectiveFrom(v)} />
             </div>
             <label className="block font-semibold text-slate-700">
               Căn cứ thay đổi *
@@ -431,7 +435,7 @@ export function SalaryProfilesPanel() {
                 value={changeReason}
                 onChange={(e) => setChangeReason(e.target.value)}
                 placeholder="Ví dụ: Điều chỉnh sau thử việc, tăng lương định kỳ"
-                className="mt-1 h-9 text-xs"
+                className="mt-1 h-9 text-[14px]"
               />
             </label>
           </div>
@@ -441,12 +445,12 @@ export function SalaryProfilesPanel() {
             </InfoNote>
           )}
           <div className="flex flex-wrap justify-end gap-2 border-t pt-3">
-            <Button size="sm" variant="outline" className="h-9 text-xs" onClick={() => setOpen(false)} disabled={saving}>
+            <Button size="sm" variant="outline" className="h-9 text-[14px]" onClick={() => setOpen(false)} disabled={saving}>
               Hủy
             </Button>
             <Button
               size="sm"
-              className="h-9 bg-[#021E73] text-xs font-semibold text-white hover:bg-blue-900"
+              className="h-9 bg-[#021E73] text-[14px] font-semibold text-white hover:bg-blue-900"
               disabled={saving || !canManage}
               onClick={() => void submit()}
             >

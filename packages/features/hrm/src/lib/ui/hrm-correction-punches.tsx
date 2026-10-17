@@ -1,16 +1,12 @@
 'use client';
 
-import { Plus, Trash2 } from 'lucide-react';
 import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import {
+  CORRECTION_DEFAULT_TIME,
   CORRECTION_PUNCH_LABEL,
-  nextPunchKind,
-  suggestPunchRow,
   type CorrectionPunchKind,
-  type CorrectionPunchRow,
 } from '../hrm-correction-sessions';
-import { Button } from './button';
-import { DateTimeInput } from './date-time-input';
+import { TimeComboInput } from './time-combo-input';
 
 const KIND_OPTIONS = [
   { value: 'IN', label: CORRECTION_PUNCH_LABEL.IN },
@@ -18,104 +14,70 @@ const KIND_OPTIONS = [
 ];
 
 /**
- * Giải trình theo từng mốc giờ: mỗi dòng chọn rõ là giờ vào hoặc giờ ra rồi nhập ngày giờ. Quên chấm một chiều thì chỉ
- * khai báo mốc còn thiếu; giờ cùng loại đã chấm trong ngày sẽ được thay bằng giờ này, loại còn lại giữ nguyên.
+ * Giải trình công: chỉ một mốc giờ, là giờ vào hoặc giờ ra. Ngày của mốc giờ chính là "Ngày phát sinh điều chỉnh" của đơn
+ * (không hiện lại ở đây), nên không thể có hai ngày khác nhau. Giờ gợi ý lấy theo ca được gán của ngày đó. Quên chấm một chiều thì khai báo mốc còn thiếu;
+ * giờ cùng loại đã chấm trong ngày sẽ được thay bằng giờ này, loại còn lại giữ nguyên.
  */
 export function HrmCorrectionPunches({
-  rows,
+  kind,
+  time,
   onChange,
-  date,
+  defaults = CORRECTION_DEFAULT_TIME,
   disabled,
 }: {
-  rows: CorrectionPunchRow[];
-  onChange: (rows: CorrectionPunchRow[]) => void;
-  /** Ngày phát sinh điều chỉnh (YYYY-MM-DD) để gợi ý giờ khi thêm dòng. */
-  date: string;
+  kind: CorrectionPunchKind | '';
+  /** 'HH:mm' */
+  time: string;
+  onChange: (next: { kind: CorrectionPunchKind | ''; time: string }) => void;
+  /** Giờ gợi ý cho từng loại (giờ bắt đầu và kết thúc ca của ngày); thiếu ca thì dùng giờ mặc định. */
+  defaults?: Record<CorrectionPunchKind, string>;
   disabled?: boolean;
 }) {
-  const kind = nextPunchKind(rows);
-  const update = (index: number, patch: Partial<CorrectionPunchRow>) =>
-    onChange(rows.map((row, i) => (i === index ? { ...row, ...patch } : row)));
-  // Loại đã dùng ở dòng khác không chọn lại được: mỗi ngày chỉ một giờ vào và một giờ ra.
-  const optionsFor = (index: number) =>
-    KIND_OPTIONS.map((option) => ({
-      ...option,
-      disabled: rows.some((row, i) => i !== index && row.kind === option.value),
-    }));
-
+  const label = kind ? CORRECTION_PUNCH_LABEL[kind] : 'Giờ';
   return (
     <section
       data-testid="correction-punches"
-      className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3"
+      className="space-y-2"
     >
-      <div className="flex items-center justify-between gap-2">
-        <h3 className="text-sm font-semibold">Giờ chấm công cần bổ sung</h3>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="h-8 gap-1.5 text-xs"
-          disabled={disabled || !kind}
-          onClick={() => kind && onChange([...rows, suggestPunchRow(date, kind as CorrectionPunchKind)])}
-        >
-          <Plus className="size-3.5" />
-          Thêm {kind ? CORRECTION_PUNCH_LABEL[kind].toLowerCase() : 'giờ'}
-        </Button>
-      </div>
+      <h3 className="text-sm font-semibold">Giờ chấm công cần bổ sung</h3>
       <p className="text-xs text-slate-500">
-        Chọn rõ đây là giờ vào hay giờ ra rồi nhập thời điểm. Quên chấm một chiều thì chỉ cần khai báo mốc còn thiếu; giờ
-        cùng loại đã chấm trong ngày sẽ được thay bằng giờ này, loại còn lại giữ nguyên.
+        Chọn đây là giờ vào hay giờ ra rồi nhập giờ (gợi ý theo ca được gán). Mỗi đơn chỉ khai báo một mốc; quên chấm cả hai chiều
+        thì tạo hai đơn. Giờ cùng loại đã chấm trong ngày sẽ được thay bằng giờ này, loại còn lại giữ nguyên.
       </p>
-      <div className="space-y-2">
-        {rows.map((row, index) => (
-          <div
-            key={index}
-            data-testid={`correction-punch-${index + 1}`}
-            className="grid grid-cols-1 items-end gap-2 sm:grid-cols-[170px_minmax(0,1fr)_auto]"
-          >
-            <div className="space-y-1">
-              <span className="block text-xs font-semibold text-slate-700">Loại giờ</span>
-              <SearchableSelect
-                options={optionsFor(index)}
-                value={row.kind}
-                onChange={(value) => update(index, { kind: value === 'IN' || value === 'OUT' ? value : '' })}
-                placeholder="Chọn giờ vào / ra"
-                clearable={false}
-                disabled={disabled}
-              />
-            </div>
-            <div className="space-y-1">
-              <span className="block text-xs font-semibold text-slate-700">
-                {row.kind ? CORRECTION_PUNCH_LABEL[row.kind] : 'Thời điểm'} <span className="text-rose-500">*</span>
-              </span>
-              <DateTimeInput
-                aria-label={row.kind ? CORRECTION_PUNCH_LABEL[row.kind] : `Giờ chấm công ${index + 1}`}
-                value={row.at}
-                disabled={disabled}
-                onChange={(value) => update(index, { at: value })}
-              />
-            </div>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-8 gap-1 px-2 text-xs text-rose-600 hover:bg-rose-50 hover:text-rose-700"
-              aria-label={`Bỏ dòng ${index + 1}`}
-              disabled={disabled || rows.length === 1}
-              onClick={() => onChange(rows.filter((_, i) => i !== index))}
-            >
-              <Trash2 className="size-3.5" />
-              Bỏ
-            </Button>
-          </div>
-        ))}
-      </div>
-      <a
-        className="text-xs text-blue-700"
-        href="/modules/hrm/my-work"
-        target="_blank"
-        rel="noreferrer"
+      <div
+        data-testid="correction-punch-1"
+        className="grid grid-cols-1 items-end gap-2 sm:grid-cols-[170px_minmax(0,1fr)]"
       >
+        <div className="space-y-1">
+          <span className="block text-xs font-semibold text-slate-700">Loại giờ</span>
+          <SearchableSelect
+            height={32}
+            options={KIND_OPTIONS}
+            value={kind}
+            onChange={(value) => {
+              const next: CorrectionPunchKind | '' = value === 'IN' || value === 'OUT' ? value : '';
+              // Giờ còn là giờ gợi ý của loại cũ thì đổi theo gợi ý của loại mới; giờ người dùng đã sửa thì giữ nguyên.
+              const wasSuggested = !time || (kind !== '' && time === defaults[kind]);
+              onChange({ kind: next, time: next && wasSuggested ? defaults[next] : time });
+            }}
+            placeholder="Chọn giờ vào / ra"
+            clearable={false}
+            disabled={disabled}
+          />
+        </div>
+        <div className="space-y-1">
+          <span className="block text-xs font-semibold text-slate-700">
+            {label} <span className="text-rose-500">*</span>
+          </span>
+          <TimeComboInput
+            aria-label={`${label} (giờ)`}
+            value={time}
+            disabled={disabled}
+            onChange={(value) => onChange({ kind, time: value })}
+          />
+        </div>
+      </div>
+      <a className="text-xs text-blue-700" href="/modules/hrm/my-work" target="_blank" rel="noreferrer">
         Mở bảng công của tôi để đối chiếu
       </a>
     </section>

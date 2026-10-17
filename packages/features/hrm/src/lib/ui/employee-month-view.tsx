@@ -3,7 +3,7 @@
 import { useMemo } from 'react';
 import type { HrmBoardCalendarDay, HrmBoardEmployee } from '@enterprise-platform/contracts-hrm';
 import { formatDateVn } from '../hrm-timesheet-format';
-import { MyTimesheetCalendar, MyTimesheetLegend } from './my-timesheet-calendar';
+import { MonthNumberLegend, MyTimesheetCalendar } from './my-timesheet-calendar';
 import {
   monthRequests,
   myMonthStats,
@@ -23,24 +23,24 @@ const REQUEST_STATUS_TONE = {
 export function MonthStatsBar({ employee }: { employee: HrmBoardEmployee }) {
   const stats = useMemo(() => myMonthStats(employee).filter((s) => !(s.optional && s.zero)), [employee]);
   return (
-    <div aria-label="Thống kê công trong tháng" data-testid="my-stats" className="flex flex-wrap gap-1.5">
+    <div aria-label="Thống kê công trong tháng" data-testid="my-stats" className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
       {stats.map((stat, index) => (
         <div
           key={stat.key}
           data-testid={`my-stat-${stat.key}`}
-          className={`min-w-[104px] flex-1 rounded-md border bg-white px-2.5 py-1 shadow-xs ${
+          className={`min-w-0 rounded-md border bg-white px-2.5 py-1.5 shadow-xs ${
             stat.alert ? 'border-red-200 bg-red-50/60' : index === 0 ? 'border-blue-200 bg-blue-50/60' : 'border-slate-200'
           }`}
         >
-          <p className="truncate text-[9px] font-semibold uppercase tracking-wide text-slate-500">{stat.label}</p>
-          <p className="flex items-baseline gap-1">
+          <p className="text-[12px] font-semibold uppercase leading-tight tracking-wide text-slate-500">{stat.label}</p>
+          <p className="flex flex-wrap items-baseline gap-x-1">
             <span
-              className={`font-mono text-[15px] font-bold leading-tight ${stat.alert ? 'text-red-600' : 'text-slate-900'}`}
+              className={`font-mono text-[16px] font-bold leading-tight ${stat.alert ? 'text-red-600' : 'text-slate-900'}`}
             >
               {stat.value}
             </span>
             {stat.hint && (
-              <span className="truncate text-[10px] text-slate-500" title={stat.hint}>
+              <span className="text-[12px] leading-tight text-slate-500" title={stat.hint}>
                 {stat.hint}
               </span>
             )}
@@ -86,7 +86,7 @@ export function MonthRequestsPanel({
               >
                 <span
                   aria-hidden="true"
-                  className="mt-0.5 inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded bg-slate-800 px-1 text-[10px] font-bold text-white"
+                  className="mt-0.5 inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded bg-slate-800 px-1 text-[12px] font-bold text-white"
                 >
                   {REQUEST_LETTERS[request.kind].letter}
                 </span>
@@ -97,7 +97,7 @@ export function MonthRequestsPanel({
                       {request.kind !== 'CUSTOM' && request.label ? `: ${request.label}` : ''}
                     </span>
                     <span
-                      className={`shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] font-semibold ${REQUEST_STATUS_TONE[request.status]}`}
+                      className={`shrink-0 rounded-full border px-1.5 py-0.5 text-[12px] font-semibold ${REQUEST_STATUS_TONE[request.status]}`}
                     >
                       {requestStatusLabel(request.status)}
                     </span>
@@ -114,8 +114,7 @@ export function MonthRequestsPanel({
 }
 
 /**
- * Bảng công cả tháng của một nhân viên: thanh thống kê, lịch tháng gọn, chú thích và danh sách đơn từ.
- * `wide` xếp lịch và danh sách đơn cạnh nhau (trang Công của tôi); không `wide` xếp dọc (ngăn kéo xem nhân viên).
+ * Bảng công cả tháng của một nhân viên (ngăn kéo xem nhân viên): thanh thống kê, lịch tháng thuần số và chú thích số công.
  */
 export function EmployeeMonthView({
   calendar,
@@ -123,19 +122,17 @@ export function EmployeeMonthView({
   today,
   selectedDate,
   onSelectDate,
-  wide = false,
 }: {
   calendar: readonly HrmBoardCalendarDay[];
   employee: HrmBoardEmployee;
   today: string;
   selectedDate: string | null;
   onSelectDate: (date: string) => void;
-  wide?: boolean;
 }) {
   return (
     <div className="flex min-h-0 flex-col gap-2">
       <MonthStatsBar employee={employee} />
-      <div className={wide ? 'grid min-h-0 grid-cols-1 gap-2 xl:grid-cols-[minmax(0,1fr)_340px]' : 'flex flex-col gap-2'}>
+      <div className="flex flex-col gap-2">
         <div className="flex min-w-0 flex-col gap-2">
           <MyTimesheetCalendar
             calendar={calendar}
@@ -145,10 +142,9 @@ export function EmployeeMonthView({
             onSelect={onSelectDate}
           />
           <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-xs">
-            <MyTimesheetLegend />
+            <MonthNumberLegend />
           </div>
         </div>
-        <MonthRequestsPanel employee={employee} onSelectDate={onSelectDate} />
       </div>
     </div>
   );

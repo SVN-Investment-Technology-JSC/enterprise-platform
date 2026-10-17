@@ -1,13 +1,24 @@
 'use client';
 
 import {
+  ModuleSettingsView,
   ModuleShell,
   useHashView,
   type ModuleNavItem,
   type ModuleSidebarSection,
 } from '@enterprise-platform/feature-module-shell';
 import type { ProjectSummary, ProjectTypeOption } from '@enterprise-platform/contracts-workspace';
-import { BarChart3, FileText, FolderKanban, FolderPlus, ListChecks, Upload } from 'lucide-react';
+import {
+  BarChart3,
+  ClipboardList,
+  FileText,
+  FolderKanban,
+  FolderPlus,
+  ListChecks,
+  Plus,
+  Settings,
+  Upload,
+} from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   listAllProjects,
@@ -24,7 +35,9 @@ import { ProjectAvatar } from './components/project-avatar';
 import { MyWorkView } from './components/my-work-view';
 import { QuickSearch, type QuickSearchTarget } from './components/quick-search';
 import { ReportsView } from './components/reports-view';
+import { ProjectRoleSettings } from './components/project-role-settings';
 import { ProjectsView } from './components/projects-view';
+import { StandaloneTasksView } from './components/standalone-tasks-view';
 import styles from './workspace.module.scss';
 
 /**
@@ -33,7 +46,7 @@ import styles from './workspace.module.scss';
  * `projects` gộp ba màn cũ Dự án, Công việc và Lịch biểu: cột trái là cây dự
  * án, cột phải là các tab đổi theo node đang chọn.
  */
-type Tab = 'my-work' | 'projects' | 'documents' | 'reports';
+type Tab = 'my-work' | 'tasks' | 'projects' | 'documents' | 'reports' | 'settings';
 
 /**
  * Mục điều hướng. "Dự án" không có dòng riêng: các dự án nằm thẳng ở mục Dự
@@ -41,9 +54,17 @@ type Tab = 'my-work' | 'projects' | 'documents' | 'reports';
  */
 const NAV: readonly ModuleNavItem<Tab>[] = [
   { id: 'my-work', label: 'Công việc của tôi', group: 'Công việc', icon: <ListChecks size={16} /> },
+  {
+    id: 'tasks',
+    label: 'Công việc ngoài dự án',
+    group: 'Công việc',
+    icon: <ClipboardList size={16} />,
+  },
   { id: 'documents', label: 'Tài liệu', group: 'Công việc', icon: <FileText size={16} /> },
   { id: 'reports', label: 'Báo cáo', group: 'Công việc', icon: <BarChart3 size={16} /> },
   { id: 'projects', label: 'Dự án', group: 'Công việc', icon: <FolderKanban size={16} />, hidden: true },
+  // Mở bằng nút bánh răng ở góc dưới thanh bên, không có dòng riêng.
+  { id: 'settings', label: 'Cài đặt', icon: <Settings size={16} />, hidden: true },
 ];
 
 /** Số dự án hiện sẵn ở mục Dự án trên thanh bên; còn lại vào "Tất cả dự án". */
@@ -55,6 +76,10 @@ const TITLES: Record<Tab, { title: string; subtitle: string }> = {
   'my-work': {
     title: 'Công việc của tôi',
     subtitle: 'Việc được giao, lịch hôm nay và những nơi có người nhắc tên bạn.',
+  },
+  tasks: {
+    title: 'Công việc ngoài dự án',
+    subtitle: 'Giao việc cho bất kỳ ai trong tổ chức mà không cần dự án; người giao duyệt kết quả.',
   },
   projects: {
     title: 'Dự án',
@@ -68,7 +93,22 @@ const TITLES: Record<Tab, { title: string; subtitle: string }> = {
     title: 'Báo cáo',
     subtitle: 'Số liệu của bạn và của các dự án bạn tham gia.',
   },
+  settings: {
+    title: 'Cài đặt',
+    subtitle: 'Cấu hình dùng chung cho mọi dự án của Không gian làm việc.',
+  },
 };
+
+/** Các mục trong trang Cài đặt; `#settings/<id>` mở thẳng mục đó. */
+const SETTINGS_SECTIONS = [
+  {
+    id: 'project-roles',
+    label: 'Vai trò trong dự án',
+    description:
+      'Định nghĩa vai trò gán cho thành viên dự án và những gì mỗi vai được làm. Mặc định có Chủ nhiệm, Quản lý, Thành viên và Người xem.',
+    render: () => <ProjectRoleSettings />,
+  },
+] as const;
 
 export function WorkspaceScreen() {
   const { view, sub, navigate } = useHashView<Tab>({ views: VIEWS, fallback: 'my-work' });
@@ -130,6 +170,13 @@ export function WorkspaceScreen() {
   /** Bộ đếm lượt bấm "+" ở mục Dự án; trang Dự án mở hộp tạo dự án khi nó tăng. */
   const [createProjectRequest, setCreateProjectRequest] = useState(0);
   const clearCreateProjectRequest = useCallback(() => setCreateProjectRequest(0), []);
+  /** Bộ đếm lượt bấm "Giao việc" ở đầu trang Công việc ngoài dự án. */
+  const [createTaskRequest, setCreateTaskRequest] = useState(0);
+  const clearCreateTaskRequest = useCallback(() => setCreateTaskRequest(0), []);
+  const openTask = useCallback(
+    (taskId: string | undefined) => navigate('tasks', taskId),
+    [navigate],
+  );
   /** Lệnh từ hai nút đầu trang Tài liệu, chuyển xuống DocumentPanel. */
   const [documentRequest, setDocumentRequest] = useState<{
     kind: 'upload' | 'folder';
@@ -275,7 +322,9 @@ export function WorkspaceScreen() {
           const active = view === 'projects' && openProjectId === project.id;
           return {
             id: project.id,
-            label: project.name,
+            // Hiển thị theo "[Mã dự án]-[Tên dự án]" để nhận ra dự án nhanh
+            // ngay trên thanh bên, không chỉ bằng tên.
+            label: `${project.code}-${project.name}`,
             title: `${project.code} · ${project.name}`,
             leading: <ProjectAvatar id={project.id} name={project.name} />,
             trailing: `${project.progressPercent}%`,
@@ -345,11 +394,24 @@ export function WorkspaceScreen() {
       onCollapsedChange={setRailCollapsed}
       onQuickSearch={openQuickSearch}
       sidebarSections={sidebarSections}
+      settings={{
+        label: 'Cài đặt',
+        active: view === 'settings',
+        onOpen: () => navigate('settings'),
+      }}
       crumbs={view === 'projects' && openProjectInfo ? [openProjectInfo.name] : undefined}
       actions={
         view === 'projects' && !provisioning ? (
           // Trang Dự án tự đặt nút Trao đổi và "⋯" của dự án đang mở vào đây.
           <div ref={setActionsSlot} className={styles.headActions} />
+        ) : view === 'tasks' && !provisioning ? (
+          <button
+            type="button"
+            className={styles.buttonPrimary}
+            onClick={() => setCreateTaskRequest((count) => count + 1)}
+          >
+            <Plus size={15} /> Giao việc
+          </button>
         ) : view === 'documents' && canSeeDocuments && !provisioning ? (
           <>
             <button
@@ -386,7 +448,14 @@ export function WorkspaceScreen() {
       }
     >
       {view === 'my-work' && !provisioning ? (
-        <MyWorkView onOpen={openInProject} />
+        <MyWorkView onOpen={openInProject} onOpenTask={openTask} />
+      ) : view === 'tasks' && !provisioning ? (
+        <StandaloneTasksView
+          focusTaskId={sub}
+          onFocusChange={openTask}
+          createRequest={createTaskRequest}
+          onCreateHandled={clearCreateTaskRequest}
+        />
       ) : view === 'projects' && !provisioning ? (
         <ProjectsView
           canDelete={canDelete}
@@ -401,6 +470,12 @@ export function WorkspaceScreen() {
         />
       ) : view === 'reports' && !provisioning ? (
         <ReportsView />
+      ) : view === 'settings' && !provisioning ? (
+        <ModuleSettingsView
+          sections={SETTINGS_SECTIONS}
+          activeSectionId={sub}
+          onSectionChange={(id) => navigate('settings', id)}
+        />
       ) : view === 'documents' && !provisioning ? (
         // Trang Tài liệu không giới hạn theo dự án: hiện cả kho cấp đơn vị
         // lẫn tài liệu của những dự án người dùng tham gia.

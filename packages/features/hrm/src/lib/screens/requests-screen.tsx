@@ -1,12 +1,10 @@
 'use client';
 import {
-  correctionPayload,
+  CORRECTION_DEFAULT_TIME,
+  correctionPunchAt,
   correctionPunchPayload,
-  suggestPunchRow,
-  type CorrectionPunchRow,
-  type CorrectionSessionRow,
+  type CorrectionPunchKind,
 } from '../hrm-correction-sessions';
-import { HrmCorrectionSessions } from '../ui/hrm-correction-sessions';
 import { HrmCorrectionPunches } from '../ui/hrm-correction-punches';
 
 import {
@@ -42,7 +40,6 @@ import {
   QuickCreateRow,
   RequestDetailCard,
   RequestListPanel,
-  RequestStatCards,
   type QuickCreateItem,
 } from '../ui/my-requests-view';
 import {
@@ -52,7 +49,6 @@ import {
   pickSelectedId,
   QUICK_CREATE_KINDS,
   requestMonthOf,
-  requestStatCards,
   type RequestStatusFilter,
 } from '../my-requests-model';
 import { currentMonthVn } from '../hrm-timesheet-format';
@@ -60,6 +56,7 @@ import { DatePickerInput } from '../ui/date-picker-input';
 import type {
   HrmRequestTimePreview,
   HrmRequestType,
+  HrmTimesheetBoard,
 } from '@enterprise-platform/contracts-hrm';
 import { splitDateTime } from '../ui/date-time-input';
 import { RequestTimeRange } from '../ui/request-time-range';
@@ -94,10 +91,18 @@ import {
   paginate,
 } from '../request-history-view';
 import {
+  EMPTY_TRANSPORT,
   SearchableSelect,
   type SearchableSelectOption,
   Popconfirm,
+  TransportField,
+  type TransportFieldValue,
+  formatDate,
+  fromLocalInput,
+  toTransportPayload,
+  transportError,
 } from '@enterprise-platform/shared-ui';
+import { useFleetAvailability } from '../use-fleet-availability';
 import {
   DynamicAttributeForm,
   type ProcedureAttributeItem,
@@ -141,6 +146,7 @@ import {
   matchesWorkflowFilter,
   waitingApproverLabel,
 } from '../procedure-progress-view';
+import { RequestThread } from '../ui/approvals/request-thread';
 
 /** Bản nháp đơn do máy chủ trả về khi lưu qua /request-drafts. */
 interface RequestDraft {
@@ -208,7 +214,7 @@ function customRequestItem(item: Record<string, any>): RequestItem {
     typeName: String(item.typeName || 'Đơn tuỳ chỉnh'),
     category: String(item.typeName || 'Đơn tuỳ chỉnh'),
     createdAt: item.createdAt
-      ? new Date(item.createdAt).toLocaleDateString('vi-VN')
+      ? formatDate(item.createdAt)
       : '----',
     rawCreatedAt: item.createdAt,
     createdTimeMs: item.createdAt ? new Date(item.createdAt).getTime() : 0,
@@ -293,13 +299,6 @@ export interface BusinessTripSurchargeItem {
   name: string;
   amount: number;
 }
-
-export const TRIP_VEHICLE_OPTIONS: SearchableSelectOption[] = [
-  { value: 'Xe công ty', label: 'Xe công ty (xe công vụ điều động)' },
-  { value: 'Xe ngoài', label: 'Xe ngoài (xe khách, taxi, xe hợp đồng)' },
-  { value: 'Máy bay', label: 'Máy bay (chuyến bay công tác xa)' },
-  { value: 'Phương tiện cá nhân', label: 'Phương tiện cá nhân' },
-];
 
 export const TRIP_TYPE_OPTIONS: SearchableSelectOption[] = [
   { value: 'DOMESTIC', label: 'Công tác trong nước (Nội địa)' },
@@ -729,7 +728,7 @@ function UnpaidOtBadge() {
   return (
     <Badge
       variant="outline"
-      className="ml-1.5 border-amber-200 bg-amber-50 text-[10px] font-semibold text-amber-800"
+      className="ml-1.5 border-amber-200 bg-amber-50 text-[12px] font-semibold text-amber-800"
     >
       Không lương
     </Badge>
@@ -755,6 +754,9 @@ export default function RequestsPage() {
   const [customValues, setCustomValues] = useState<Record<string, unknown>>({});
   const [customFromAt, setCustomFromAt] = useState('');
   const [customToAt, setCustomToAt] = useState('');
+  // Phương tiện của loại đơn bật "Cần phương tiện"; loại đơn không nhập giờ (chỉ ngày) thì giờ dùng xe nhập riêng.
+  const [customTransport, setCustomTransport] = useState<TransportFieldValue>(EMPTY_TRANSPORT);
+  const [customTransportRange, setCustomTransportRange] = useState({ startAt: '', endAt: '' });
   // Các khoảng thời gian bổ sung của đơn nghỉ, làm thêm giờ, công tác (mỗi khoảng gửi thành một đơn).
   const [extraRanges, setExtraRanges] = useState<ExtraRange[]>([]);
   // Kết quả tính giờ của máy chủ cho khoảng thời gian đang chọn (nghỉ, làm thêm giờ, công tác).
@@ -835,7 +837,7 @@ export default function RequestsPage() {
   const [destination, setDestination] = useState('');
   const [tripAddress, setTripAddress] = useState('');
   const [tripDepartment, setTripDepartment] = useState('');
-  const [tripVehicle, setTripVehicle] = useState('Xe công ty');
+  const [tripTransport, setTripTransport] = useState<TransportFieldValue>(EMPTY_TRANSPORT);
   const [tripRequiredFinger, setTripRequiredFinger] = useState(false);
   const [tripStartTime, setTripStartTime] = useState('08:00');
   const [tripEndTime, setTripEndTime] = useState('17:30');
@@ -894,14 +896,45 @@ export default function RequestsPage() {
   const [swapWithEmployeeId, setSwapWithEmployeeId] = useState('');
 
   // Attendance correction state
-  const [correctionSessions, setCorrectionSessions] = useState<
-    CorrectionSessionRow[]
-  >([{ start: '', end: '' }]);
-  // Hai cách khai báo: từng mốc giờ vào / ra (mặc định, bổ sung giờ còn thiếu) hoặc theo phiên (thay cả ngày chấm công).
-  const [correctionMode, setCorrectionMode] = useState<'punch' | 'session'>('punch');
-  const [correctionPunches, setCorrectionPunches] = useState<CorrectionPunchRow[]>([
-    { kind: 'IN', at: '' },
-  ]);
+  // Mỗi đơn giải trình chỉ một mốc giờ vào hoặc giờ ra; ngày của mốc giờ luôn là "Ngày phát sinh điều chỉnh" (fromDate).
+  const [correctionKind, setCorrectionKind] = useState<CorrectionPunchKind | ''>('IN');
+  const [correctionTime, setCorrectionTime] = useState(CORRECTION_DEFAULT_TIME.IN);
+  // Giờ bắt đầu / kết thúc ca được gán của ngày phát sinh điều chỉnh: làm giờ gợi ý cho giờ vào / giờ ra.
+  const [correctionShift, setCorrectionShift] = useState<{ start: string | null; end: string | null }>({
+    start: null,
+    end: null,
+  });
+  const correctionDefaults = useMemo(
+    () => ({
+      IN: correctionShift.start || CORRECTION_DEFAULT_TIME.IN,
+      OUT: correctionShift.end || CORRECTION_DEFAULT_TIME.OUT,
+    }),
+    [correctionShift],
+  );
+  const prevCorrectionDefaults = useRef(correctionDefaults);
+
+  useEffect(() => {
+    if (selectedCatalogId !== 'correction' || !/^\d{4}-\d{2}-\d{2}$/.test(fromDate)) return;
+    let live = true;
+    hrmFetch<{ data: HrmTimesheetBoard }>(`/timesheet-board?${new URLSearchParams({ month: fromDate.slice(0, 7), self: '1' })}`)
+      .then((res) => {
+        if (!live) return;
+        const day = res.data.employees[0]?.days[fromDate];
+        setCorrectionShift({ start: day?.shiftStart ?? null, end: day?.shiftEnd ?? null });
+      })
+      .catch(() => live && setCorrectionShift({ start: null, end: null }));
+    return () => {
+      live = false;
+    };
+  }, [selectedCatalogId, fromDate]);
+
+  // Ca của ngày đổi thì giờ gợi ý đổi theo, trừ khi người dùng đã tự sửa giờ.
+  useEffect(() => {
+    const previous = prevCorrectionDefaults.current;
+    if (previous === correctionDefaults) return;
+    prevCorrectionDefaults.current = correctionDefaults;
+    if (correctionKind && correctionTime === previous[correctionKind]) setCorrectionTime(correctionDefaults[correctionKind]);
+  }, [correctionDefaults, correctionKind, correctionTime]);
 
   // Salary advance state
   const [requestedAmount, setRequestedAmount] = useState('5000000');
@@ -1050,6 +1083,20 @@ export default function RequestsPage() {
   const otToAt = !fromDate ? '' : dateTimeOf(toDate || fromDate, endTime);
   const tripFromAt = dateTimeOf(fromDate, tripStartTime);
   const tripToAt = dateTimeOf(toDate || fromDate, tripEndTime);
+  // Khung giờ dùng xe công ty = thời gian công tác; xe và tài xế bận trong khung này không chọn được.
+  const tripTransportRange = tripFromAt && tripToAt ? { startAt: fromLocalInput(tripFromAt), endAt: fromLocalInput(tripToAt) } : null;
+  const tripFleet = useFleetAvailability(tripTransportRange, tripTransport.mode === 'COMPANY_VEHICLE');
+  const customNeedsTransport = selectedCatalogId === 'custom' && selectedCustomType?.requiresTransport === true;
+  const customTimeIsDateTime = selectedCustomType?.timeMode === 'RANGE_DATETIME';
+  const customTransportWindow = customTimeIsDateTime
+    ? customFromAt && customToAt
+      ? { startAt: fromLocalInput(customFromAt), endAt: fromLocalInput(customToAt) }
+      : null
+    : customTransportRange;
+  const customFleet = useFleetAvailability(
+    customTransportWindow,
+    customNeedsTransport && customTransport.mode === 'COMPANY_VEHICLE',
+  );
   const applyTimeRange =
     (setStart: (t: string) => void, setEnd: (t: string) => void, touched?: () => void) =>
     (next: { fromAt: string; toAt: string }) => {
@@ -1167,6 +1214,9 @@ export default function RequestsPage() {
   // Requests list fetched from API
   const [requestsList, setRequestsList] = useState<RequestItem[]>([]);
   const [notificationRequestId, setNotificationRequestId] = useState('');
+  // Đơn vừa mở từ liên kết ?request=: bỏ một lượt tự chọn đơn đầu tiên và lật tới trang chứa đơn đó.
+  const skipAutoSelect = useRef(false);
+  const focusRequestId = useRef('');
   useEffect(() => {
     setNotificationRequestId(new URLSearchParams(window.location.search).get('request') ?? '');
   }, []);
@@ -1532,13 +1582,13 @@ export default function RequestsPage() {
             typeName: 'Đơn xin nghỉ phép',
             category: 'Nghỉ phép',
             createdAt: item.createdAt
-              ? new Date(item.createdAt).toLocaleDateString('vi-VN')
+              ? formatDate(item.createdAt)
               : '----',
             rawCreatedAt: item.createdAt,
             createdTimeMs,
             effectiveDate: item.fromAt
               ? formatRequestPeriod(item)
-              : `${item.fromDate ? new Date(item.fromDate).toLocaleDateString('vi-VN') : '----'} - ${item.toDate ? new Date(item.toDate).toLocaleDateString('vi-VN') : '----'}`,
+              : `${item.fromDate ? formatDate(item.fromDate) : '----'} - ${item.toDate ? formatDate(item.toDate) : '----'}`,
             duration: `${item.duration || 1} ngày`,
             ...requestReasonView(item),
             approver: approverFallbackLabel(
@@ -1589,13 +1639,13 @@ export default function RequestsPage() {
             typeName: `Làm thêm giờ (${item.otType || 'OT'})`,
             category: 'Làm thêm giờ',
             createdAt: item.createdAt
-              ? new Date(item.createdAt).toLocaleDateString('vi-VN')
+              ? formatDate(item.createdAt)
               : '----',
             rawCreatedAt: item.createdAt,
             createdTimeMs,
             effectiveDate: item.fromAt
               ? formatRequestPeriod(item)
-              : `${item.workDate ? new Date(item.workDate).toLocaleDateString('vi-VN') : '----'} (${item.startTime || '----'} - ${item.endTime || '----'})`,
+              : `${item.workDate ? formatDate(item.workDate) : '----'} (${item.startTime || '----'} - ${item.endTime || '----'})`,
             duration: `${plannedHrs} giờ (${item.otRateMultiplier || 1.5}x)`,
             ...requestReasonView(item),
             approver: approverFallbackLabel(
@@ -1643,13 +1693,13 @@ export default function RequestsPage() {
             typeName: `Công tác (${item.destination || '----'})`,
             category: 'Công tác',
             createdAt: item.createdAt
-              ? new Date(item.createdAt).toLocaleDateString('vi-VN')
+              ? formatDate(item.createdAt)
               : '----',
             rawCreatedAt: item.createdAt,
             createdTimeMs,
             effectiveDate: item.fromAt
               ? formatRequestPeriod(item)
-              : `${item.fromDate ? new Date(item.fromDate).toLocaleDateString('vi-VN') : '----'} - ${item.toDate ? new Date(item.toDate).toLocaleDateString('vi-VN') : '----'}`,
+              : `${item.fromDate ? formatDate(item.fromDate) : '----'} - ${item.toDate ? formatDate(item.toDate) : '----'}`,
             duration: `${item.daysCount || 1} ngày`,
             ...requestReasonView(item),
             approver: approverFallbackLabel(
@@ -1712,11 +1762,11 @@ export default function RequestsPage() {
                 : 'Đề nghị chuyển ca',
             category: 'Đổi ca',
             createdAt: item.createdAt
-              ? new Date(item.createdAt).toLocaleDateString('vi-VN')
+              ? formatDate(item.createdAt)
               : '----',
             rawCreatedAt: item.createdAt,
             createdTimeMs,
-            effectiveDate: `${item.fromDate ? new Date(item.fromDate).toLocaleDateString('vi-VN') : '----'} - ${item.toDate ? new Date(item.toDate).toLocaleDateString('vi-VN') : '----'}`,
+            effectiveDate: `${item.fromDate ? formatDate(item.fromDate) : '----'} - ${item.toDate ? formatDate(item.toDate) : '----'}`,
             duration:
               item.changeType === 'SWAP' ? 'Hoán đổi ca trực' : 'Thay đổi ca',
             ...requestReasonView(item),
@@ -1782,12 +1832,12 @@ export default function RequestsPage() {
             typeName: 'Giải trình / Bổ sung công',
             category: 'Chấm công',
             createdAt: item.createdAt
-              ? new Date(item.createdAt).toLocaleDateString('vi-VN')
+              ? formatDate(item.createdAt)
               : '----',
             rawCreatedAt: item.createdAt,
             createdTimeMs,
             effectiveDate: item.requestDate
-              ? new Date(item.requestDate).toLocaleDateString('vi-VN')
+              ? formatDate(item.requestDate)
               : '----',
             duration: `Vào: ${inTime} | Ra: ${outTime}`,
             ...requestReasonView(item),
@@ -1843,12 +1893,12 @@ export default function RequestsPage() {
             typeName: 'Đơn xin tạm ứng lương',
             category: 'Tạm ứng',
             createdAt: item.createdAt
-              ? new Date(item.createdAt).toLocaleDateString('vi-VN')
+              ? formatDate(item.createdAt)
               : '----',
             rawCreatedAt: item.createdAt,
             createdTimeMs,
             effectiveDate: item.requestDate
-              ? new Date(item.requestDate).toLocaleDateString('vi-VN')
+              ? formatDate(item.requestDate)
               : '----',
             duration: `${Number(item.requestedAmount || 0).toLocaleString('vi-VN')} đ (${item.numberOfInstallments || 1} kỳ)`,
             // Ứng lương không có danh mục lý do: nội dung nhập tự do chính là lý do.
@@ -1886,7 +1936,7 @@ export default function RequestsPage() {
             kind: 'profile_correction',
             typeName: 'Điều chỉnh hồ sơ',
             category: 'Hồ sơ',
-            createdAt: new Date(item.createdAt).toLocaleDateString('vi-VN'),
+            createdAt: formatDate(item.createdAt),
             effectiveDate: 'Theo ngày duyệt',
             duration: `${Object.keys(item.changes || {}).length} trường`,
             reason: reasonCell(item.reason),
@@ -1949,27 +1999,9 @@ export default function RequestsPage() {
   useEffect(() => {
     void loadData();
     const todayStr = new Date().toISOString().slice(0, 10);
-    setCorrectionSessions([
-      { start: todayStr + 'T08:00:00', end: todayStr + 'T17:00:00' },
-    ]);
-    setCorrectionPunches([suggestPunchRow(todayStr, 'IN')]);
     setFromDate(todayStr);
     setToDate(todayStr);
   }, []);
-
-  // Đổi "Ngày phát sinh điều chỉnh": các mốc giờ đang nằm đúng ngày cũ chuyển theo ngày mới (giữ nguyên giờ); mốc đã chọn
-  // sang ngày khác (ví dụ giờ ra của ca qua đêm) thì giữ nguyên.
-  const previousCorrectionDate = useRef('');
-  useEffect(() => {
-    const previous = previousCorrectionDate.current;
-    previousCorrectionDate.current = fromDate;
-    if (!previous || !fromDate || previous === fromDate) return;
-    setCorrectionPunches((rows) =>
-      rows.map((row) =>
-        row.at.startsWith(`${previous}T`) ? { ...row, at: `${fromDate}${row.at.slice(10)}` } : row,
-      ),
-    );
-  }, [fromDate]);
 
   // Tổng số lượng đơn đang chờ duyệt thực tế (dùng cho badge hiển thị trên Tab)
   // Bộ lọc danh sách: tháng (theo ngày tạo), từ khóa, loại đơn và bước quy trình; trạng thái lọc thêm ở bên dưới.
@@ -2013,11 +2045,6 @@ export default function RequestsPage() {
         count: baseFiltered.filter((item) => matchesStatusFilter(item, id)).length,
       })),
     [baseFiltered],
-  );
-
-  const statCards = useMemo(
-    () => requestStatCards(requestsList, listMonth ?? currentMonthVn()),
-    [requestsList, listMonth],
   );
 
   // Đổi bộ lọc thì quay về trang đầu để không đứng ở trang không còn dữ liệu.
@@ -2065,6 +2092,7 @@ export default function RequestsPage() {
       </div>
       <div className="w-48">
         <SearchableSelect
+          height={36}
           options={workflowStepOptions}
           value={waitStep}
           onChange={(val) => setWaitStep(val || '')}
@@ -2104,6 +2132,8 @@ export default function RequestsPage() {
     setCustomValues({});
     setCustomFromAt('');
     setCustomToAt('');
+    setCustomTransport(EMPTY_TRANSPORT);
+    setCustomTransportRange({ startAt: '', endAt: '' });
     setTimePreview(null);
     setSelectedTypeTitle(typeTitle);
     const todayStr = new Date().toISOString().slice(0, 10);
@@ -2137,7 +2167,7 @@ export default function RequestsPage() {
     setDestination('');
     setTripAddress('');
     setTripDepartment(rawProfile.department || profile.department || '');
-    setTripVehicle('Xe công ty');
+    setTripTransport(EMPTY_TRANSPORT);
     setTripRequiredFinger(false);
     setTripSurcharges([]);
     setAllowOt(false);
@@ -2858,6 +2888,14 @@ export default function RequestsPage() {
           return;
         }
 
+        if (!saveAsDraft) {
+          const transportProblem = transportError(tripTransport, tripTransportRange);
+          if (transportProblem) {
+            notifyFormError('Thiếu thông tin phương tiện', transportProblem);
+            return;
+          }
+        }
+
         if (!saveAsDraft && extraRanges.length) {
           const problem = extraRangesProblem('trip', { fromAt: tripFromAt, toAt: tripToAt }, extraRanges);
           if (problem) {
@@ -2897,6 +2935,13 @@ export default function RequestsPage() {
               ) + 1,
             ),
             allowOt,
+            // Mỗi khoảng thời gian của đơn giữ xe theo đúng khoảng đó.
+            transport:
+              toTransportPayload(
+                tripTransport,
+                { startAt: fromLocalInput(range.fromAt), endAt: fromLocalInput(range.toAt) },
+                destination.trim(),
+              ) ?? undefined,
             ...reasonPayload('business_trip', reasonId, description),
             attributes: {
               ...dynamicValues,
@@ -2904,7 +2949,12 @@ export default function RequestsPage() {
               tripEndTime: range.endTime,
               destinationAddress: tripAddress.trim() || undefined,
               workDepartment: tripDepartment.trim() || undefined,
-              vehicle: tripVehicle,
+              vehicle:
+                tripTransport.mode === 'COMPANY_VEHICLE'
+                  ? 'Xe công ty'
+                  : tripTransport.mode === 'EXTERNAL'
+                    ? tripTransport.detail
+                    : undefined,
               requiredFinger: tripRequiredFinger,
               surcharges: tripSurcharges.filter(
                 (s) => s.name.trim() || s.amount > 0,
@@ -2958,17 +3008,18 @@ export default function RequestsPage() {
           }),
         });
       } else if (selectedCatalogId === 'correction') {
-        let sessions: ReturnType<typeof correctionPayload> | undefined;
-        let punches: ReturnType<typeof correctionPunchPayload> | undefined;
+        let punches: ReturnType<typeof correctionPunchPayload>;
         try {
           if (!saveAsDraft && !fromDate)
             throw new Error('Vui lòng chọn ngày phát sinh điều chỉnh.');
-          if (correctionMode === 'punch') punches = correctionPunchPayload(correctionPunches);
-          else sessions = correctionPayload(correctionSessions);
+          // Ngày của mốc giờ lấy từ "Ngày phát sinh điều chỉnh" nên hai ngày luôn trùng nhau.
+          punches = correctionPunchPayload([
+            { kind: correctionKind, at: correctionPunchAt(fromDate, correctionTime) },
+          ]);
         } catch (error) {
           notifyFormError(
             'Thời gian không hợp lệ',
-            error instanceof Error ? error.message : 'Phiên vào–ra không hợp lệ.',
+            error instanceof Error ? error.message : 'Giờ chấm công không hợp lệ.',
           );
           return;
         }
@@ -2982,12 +3033,19 @@ export default function RequestsPage() {
           body: JSON.stringify({
             employeeId: profile.id,
             requestDate: fromDate,
-            ...(punches ? { punches } : { sessions }),
+            punches,
             ...reasonPayload('correction', reasonId, description),
             attributes: dynamicValues,
           }),
         });
       } else if (selectedCatalogId === 'custom' && selectedCustomType) {
+        if (!saveAsDraft && customNeedsTransport) {
+          const transportProblem = transportError(customTransport, customTransportWindow);
+          if (transportProblem) {
+            notifyFormError('Thiếu thông tin phương tiện', transportProblem);
+            return;
+          }
+        }
         let attachmentFileId = leaveAttachmentId;
         if (leaveFile && !attachmentFileId) {
           attachmentFileId = (await uploadHrmAttachment(profile.id, leaveFile)).id;
@@ -3005,6 +3063,9 @@ export default function RequestsPage() {
             typeId: selectedCustomType.id,
             fromAt: customFromAt || null,
             toAt: customToAt || null,
+            transport: customNeedsTransport
+              ? (toTransportPayload(customTransport, customTransportWindow, null) ?? undefined)
+              : undefined,
             fields: customValues,
             reasonId: reasonId || null,
             description,
@@ -3304,6 +3365,8 @@ export default function RequestsPage() {
     const request = requestsList.find((item) => item.id === notificationRequestId);
     if (!request) return;
     setNotificationRequestId('');
+    skipAutoSelect.current = true;
+    focusRequestId.current = request.id;
     // Mở đúng đơn trong thông báo: bỏ các bộ lọc có thể che đơn đó, chuyển tới tháng của đơn.
     setFilterStatus('ALL');
     setFilterKind('ALL');
@@ -3317,10 +3380,35 @@ export default function RequestsPage() {
   // Luôn có một đơn đang chọn trong danh sách đang lọc (đơn đầu tiên nếu đơn cũ không còn); bỏ qua khi ngăn kéo đang mở.
   useEffect(() => {
     if (isDetailDrawerOpen) return;
+    // Effect mở đơn từ liên kết chạy ngay trước effect này trong cùng một lượt với danh sách cũ; không để nó
+    // chọn đè lại đơn đầu tiên.
+    if (skipAutoSelect.current) {
+      skipAutoSelect.current = false;
+      return;
+    }
     const next = pickSelectedId(filteredHistory, selectedRequest?.id ?? null);
     if (next === (selectedRequest?.id ?? null)) return;
     setSelectedRequest(filteredHistory.find((item) => item.id === next) ?? null);
   }, [filteredHistory, selectedRequest?.id, isDetailDrawerOpen]);
+
+  // Lật danh sách tới trang chứa đơn vừa mở từ liên kết (sau khi bộ lọc đã được bỏ và danh sách đã lọc lại).
+  useEffect(() => {
+    const id = focusRequestId.current;
+    if (!id) return;
+    // Chờ các bộ lọc đã được bỏ, nếu không effect đặt lại trang về 1 sẽ chạy sau và đè lên.
+    if (
+      filterStatus !== 'ALL' ||
+      filterKind !== 'ALL' ||
+      searchQuery ||
+      waitAssignee ||
+      waitStep
+    )
+      return;
+    const index = filteredHistory.findIndex((item) => item.id === id);
+    if (index < 0) return;
+    focusRequestId.current = '';
+    setHistoryPage(Math.floor(index / REQUEST_HISTORY_PAGE_SIZE) + 1);
+  }, [filteredHistory, filterStatus, filterKind, searchQuery, waitAssignee, waitStep]);
 
   // Sau mỗi lần tải lại danh sách, đơn đang chọn lấy dữ liệu mới nhất của chính nó.
   useEffect(() => {
@@ -3372,7 +3460,7 @@ export default function RequestsPage() {
             <div className="font-semibold text-slate-800">
               Nhân viên khởi tạo yêu cầu
             </div>
-            <div className="text-[11px] text-slate-400">
+            <div className="text-[12px] text-slate-400">
               {selectedRequest?.createdAt}
             </div>
           </div>
@@ -3394,7 +3482,7 @@ export default function RequestsPage() {
               <div className="font-semibold text-slate-800">
                 Đồng nghiệp xác nhận đổi ca
               </div>
-              <div className="text-[11px] text-slate-500">
+              <div className="text-[12px] text-slate-500">
                 {selectedRequest.workflowStatus !== 'PENDING_PEER'
                   ? 'Đã xác nhận chéo'
                   : 'Đang chờ phản hồi'}
@@ -3423,7 +3511,7 @@ export default function RequestsPage() {
               Cấp thẩm quyền phê duyệt:{' '}
               <strong>{selectedRequest?.approver}</strong>
             </div>
-            <div className="text-[11px] text-slate-500">
+            <div className="text-[12px] text-slate-500">
               {selectedRequest?.requestStatus === 'CANCELLED'
                 ? 'Đã rút / hủy'
                 : selectedRequest?.workflowStatus === 'APPROVED'
@@ -3520,8 +3608,6 @@ export default function RequestsPage() {
         </div>
       </div>
 
-      <RequestStatCards cards={statCards} month={activeMonth} />
-
       {!canCreateRequest && (
         <div role="status" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
           Tài khoản của bạn chưa được cấp quyền tạo đơn. Bạn vẫn xem được lịch sử đơn của mình.
@@ -3558,16 +3644,16 @@ export default function RequestsPage() {
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="flex items-center justify-between gap-2">
-                      <span role="heading" aria-level={3} className="truncate text-[13px] font-bold text-slate-900">
+                      <span role="heading" aria-level={3} className="truncate text-[14px] font-bold text-slate-900">
                         {cat.title}
                       </span>
-                      <Badge variant="outline" className="shrink-0 text-[10px] font-semibold">
+                      <Badge variant="outline" className="shrink-0 text-[12px] font-semibold">
                         {cat.tag}
                       </Badge>
                     </span>
-                    <span className="mt-0.5 line-clamp-1 block text-[11px] text-slate-500">{cat.desc}</span>
+                    <span className="mt-0.5 line-clamp-1 block text-[12px] text-slate-500">{cat.desc}</span>
                     {cat.balanceLabel ? (
-                      <span className="mt-1 block truncate text-[11px] font-medium text-slate-600">
+                      <span className="mt-1 block truncate text-[12px] font-medium text-slate-600">
                         {cat.balanceLabel}
                       </span>
                     ) : null}
@@ -3661,11 +3747,10 @@ export default function RequestsPage() {
                   {profile.fullName || '----'}
                   {profile.employeeCode ? ` (${profile.employeeCode})` : ''}
                   {profile.department ? (
-                    <span className="block text-[11px] font-normal text-slate-500">{profile.department}</span>
+                    <span className="block text-[12px] font-normal text-slate-500">{profile.department}</span>
                   ) : null}
                 </DetailField>
                 <DetailField label="Ngày tạo">{detailRow.createdAt}</DetailField>
-                <DetailField label="Người duyệt">{approverText(detailRow)}</DetailField>
                 {detailAttachmentId && (
                   <DetailField label="Tệp đính kèm">
                     <button
@@ -3677,15 +3762,6 @@ export default function RequestsPage() {
                     </button>
                   </DetailField>
                 )}
-                <DetailField label="Kết quả xử lý">
-                  {['CANCELLED', 'REJECTED'].includes(detailRow.requestStatus)
-                    ? 'Không áp dụng'
-                    : detailRow.requestStatus === 'APPLIED'
-                      ? 'Đã cập nhật dữ liệu công'
-                      : detailRow.requestStatus === 'DISBURSED'
-                        ? 'Đã giải ngân'
-                        : 'Chờ áp dụng'}
-                </DetailField>
               </>
             ) : null
           }
@@ -3835,7 +3911,7 @@ export default function RequestsPage() {
             {selectedCatalogId === 'advance' && (
               <div className="p-3 bg-indigo-50/60 rounded-lg border border-indigo-200 flex items-center justify-between">
                 <div>
-                  <span className="text-slate-600 block text-[11px]">
+                  <span className="text-slate-600 block text-[12px]">
                     Số tiền tạm ứng:
                   </span>
                   <strong className="text-sm text-indigo-900 font-mono">
@@ -3843,7 +3919,7 @@ export default function RequestsPage() {
                   </strong>
                 </div>
                 <div className="text-right">
-                  <span className="text-slate-500 block text-[11px]">
+                  <span className="text-slate-500 block text-[12px]">
                     Dự kiến trừ mỗi kỳ:
                   </span>
                   <strong className="text-sm text-emerald-700 font-mono">
@@ -3894,7 +3970,7 @@ export default function RequestsPage() {
                   >
                     {showLeaveFund && (
                       <div data-testid="leave-fund" className="space-y-0.5">
-                        <span className="block text-[11px] text-slate-600">
+                        <span className="block text-[12px] text-slate-600">
                           Quỹ phép năm khả dụng
                         </span>
                         <span className="font-mono text-sm font-bold text-[#021E73]">
@@ -3903,7 +3979,7 @@ export default function RequestsPage() {
                       </div>
                     )}
                     <div className="space-y-0.5">
-                      <span className="block text-[11px] text-slate-600">
+                      <span className="block text-[12px] text-slate-600">
                         Số ngày nghỉ tính toán
                       </span>
                       <span className="flex flex-wrap items-baseline gap-1.5">
@@ -3911,20 +3987,20 @@ export default function RequestsPage() {
                           {extraRanges.length > 0 ? totalLeaveDays : leaveDuration} ngày
                         </span>
                         {extraRanges.length > 0 && (
-                          <span className="text-[11px] text-slate-500">
+                          <span className="text-[12px] text-slate-500">
                             ({[leaveDuration, ...extraRanges.map((r) => r.preview?.totalDays ?? 0)]
                               .map((d, i) => `Khoảng ${i + 1}: ${d}`)
                               .join(' • ')})
                           </span>
                         )}
                         {currentLeavePolicy.stepRule === 'PERCENT_SHIFT' && (
-                          <span className="font-mono text-[11px] font-medium text-emerald-700">
+                          <span className="font-mono text-[12px] font-medium text-emerald-700">
                             ({(parseFloat(leaveDuration) * 100).toFixed(1)}% ca •{' '}
                             {(parseFloat(leaveDuration) * 8).toFixed(1)}h)
                           </span>
                         )}
                         {currentLeavePolicy.stepRule === 'HALF_DAY_STEP' && (
-                          <span className="text-[11px] text-slate-500">
+                          <span className="text-[12px] text-slate-500">
                             {parseFloat(leaveDuration) === 0.5
                               ? '(Nửa ngày ca sáng hoặc chiều)'
                               : parseFloat(leaveDuration) === 1.0
@@ -3939,7 +4015,7 @@ export default function RequestsPage() {
                     {showLeaveFund && (
                       <>
                         <div className="space-y-0.5">
-                          <span className="block text-[11px] text-slate-600">
+                          <span className="block text-[12px] text-slate-600">
                             Sau khi xin
                           </span>
                           <span className="font-mono text-sm font-bold text-emerald-700">
@@ -3953,7 +4029,7 @@ export default function RequestsPage() {
                           </span>
                         </div>
                         <div className="space-y-0.5">
-                          <span className="block text-[11px] text-slate-600">
+                          <span className="block text-[12px] text-slate-600">
                             Phép dư dự kiến
                           </span>
                           {leaveDisplay ? (
@@ -3972,7 +4048,7 @@ export default function RequestsPage() {
                     )}
                   </div>
                   {showLeaveFund && leaveDisplay && (
-                    <p className="text-[11px] leading-relaxed text-slate-500">
+                    <p className="text-[12px] leading-relaxed text-slate-500">
                       Hiện còn {leaveDisplay.available.toFixed(2)} ngày
                       {leaveDisplay.seniority > 0
                         ? ` (gồm ${leaveDisplay.seniority} ngày thâm niên)`
@@ -3990,19 +4066,19 @@ export default function RequestsPage() {
                     </p>
                   )}
                   {showLeaveFund && leaveDisplay?.status === 'ADVANCE' && (
-                    <p className="text-[11px] font-semibold text-amber-700">
+                    <p className="text-[12px] font-semibold text-amber-700">
                       Ứng {Math.abs(leaveDisplay.after).toFixed(2)} ngày phép theo hạn mức của quỹ phép năm.
                     </p>
                   )}
                   {showLeaveFund && leaveDisplay?.status === 'INSUFFICIENT' && (
-                    <p className="text-[11px] font-semibold text-rose-600">
+                    <p className="text-[12px] font-semibold text-rose-600">
                       Vượt hạn mức được nghỉ.
                     </p>
                   )}
                 </div>
 
                 {previewBreakdown && previewBreakdown.breakdown.length > 1 && (
-                  <div className="space-y-1 rounded-lg border border-slate-200 bg-white p-2.5 text-[11px] text-slate-600">
+                  <div className="space-y-1 rounded-lg border border-slate-200 bg-white p-2.5 text-[12px] text-slate-600">
                     <strong className="block font-semibold text-slate-700">
                       Chi tiết từng ngày
                     </strong>
@@ -4042,7 +4118,7 @@ export default function RequestsPage() {
                       <strong className="block font-semibold">
                         Không đủ quỹ phép năm
                       </strong>
-                      <p className="text-[11px] leading-relaxed">{leaveFundError}</p>
+                      <p className="text-[12px] leading-relaxed">{leaveFundError}</p>
                     </div>
                   </div>
                 )}
@@ -4053,7 +4129,7 @@ export default function RequestsPage() {
                       <strong className="block font-semibold">
                         Thời gian nghỉ chưa thỏa mãn quy định
                       </strong>
-                      <p className="text-[11px] leading-relaxed">
+                      <p className="text-[12px] leading-relaxed">
                         {leaveDurationValidation.errorMessage}
                       </p>
                     </div>
@@ -4068,7 +4144,7 @@ export default function RequestsPage() {
                         Dự án liên quan (Workspace)
                       </label>
                       {projectId && (
-                        <span className="rounded bg-blue-50 px-1.5 py-0.5 font-mono text-[10px] font-medium text-blue-700">
+                        <span className="rounded bg-blue-50 px-1.5 py-0.5 font-mono text-[12px] font-medium text-blue-700">
                           Mã:{' '}
                           {workspaceProjects.find((p) => p.id === projectId)?.code ||
                             projectId}
@@ -4076,6 +4152,7 @@ export default function RequestsPage() {
                       )}
                     </div>
                     <SearchableSelect
+                      height={36}
                       options={projectOptions}
                       value={projectId}
                       onChange={(val) => {
@@ -4093,13 +4170,13 @@ export default function RequestsPage() {
                     <span className="block font-semibold text-slate-800">
                       Tệp đính kèm (không bắt buộc)
                     </span>
-                    <label className="flex min-h-[38px] cursor-pointer flex-col items-center justify-center gap-0.5 rounded-lg border border-dashed border-slate-300 bg-slate-50/60 px-3 py-2 text-center text-[11px] text-slate-500 hover:border-[#ffc90a] hover:bg-amber-50/40">
+                    <label className="flex min-h-[38px] cursor-pointer flex-col items-center justify-center gap-0.5 rounded-lg border border-dashed border-slate-300 bg-slate-50/60 px-3 py-2 text-center text-[12px] text-slate-500 hover:border-[#ffc90a] hover:bg-amber-50/40">
                       <span>
                         <Upload className="mr-1 inline size-3.5 align-text-bottom" />
                         Kéo tệp vào đây hoặc{' '}
                         <span className="font-semibold text-blue-700">chọn tệp</span>
                       </span>
-                      <span className="text-[10px] text-slate-400">
+                      <span className="text-[12px] text-slate-400">
                         Hỗ trợ: PDF, DOC, DOCX, JPG, PNG (tối đa 10MB)
                       </span>
                       <input
@@ -4120,7 +4197,7 @@ export default function RequestsPage() {
                       />
                     </label>
                     {leaveFile && !leaveAttachmentId && (
-                      <div className="flex items-center justify-between gap-2 text-[11px] text-slate-600">
+                      <div className="flex items-center justify-between gap-2 text-[12px] text-slate-600">
                         <span className="truncate" title={leaveFile.name}>
                           {leaveFile.name}
                         </span>
@@ -4220,6 +4297,7 @@ export default function RequestsPage() {
                       Lý do <span className="text-red-500">*</span>
                     </label>
                     <SearchableSelect
+                      height={36}
                       options={catalogReasons.choices.map((choice) => ({
                         value: choice.id,
                         label: choice.name,
@@ -4250,13 +4328,28 @@ export default function RequestsPage() {
                   onValuesChange={setCustomValues}
                   disabled={isSubmitting}
                 />
+                {customNeedsTransport ? (
+                  <TransportField
+                    idPrefix="custom-transport"
+                    selectHeight={36}
+                    value={customTransport}
+                    onChange={setCustomTransport}
+                    range={customTransportWindow}
+                    onRangeChange={customTimeIsDateTime ? undefined : setCustomTransportRange}
+                    availability={customFleet.availability}
+                    loading={customFleet.loading}
+                    error={customFleet.error}
+                    disabled={isSubmitting}
+                    note="Xe được giữ chỗ ngay khi gửi đơn và tự xác nhận khi đơn được duyệt; đơn bị từ chối hoặc huỷ thì xe được trả lại."
+                  />
+                ) : null}
                 <label className="block space-y-1 font-semibold">
                   Mô tả (nhập thêm chi tiết nếu cần)
                   <textarea
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
                     rows={3}
-                    className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-normal outline-none focus-visible:border-blue-600 focus-visible:ring-2 focus-visible:ring-blue-100"
+                    className="w-full rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-normal outline-none focus-visible:border-blue-600 focus-visible:ring-2 focus-visible:ring-blue-100"
                   />
                 </label>
                 <label className="block space-y-1 font-semibold">
@@ -4266,6 +4359,7 @@ export default function RequestsPage() {
                   )}
                   <Input
                     type="file"
+                    className="text-xs"
                     accept=".pdf,.png,.jpg,.jpeg"
                     onChange={(e) => {
                       setLeaveFile(e.target.files?.[0] || null);
@@ -4309,7 +4403,7 @@ export default function RequestsPage() {
                       Dự án liên quan (Workspace)
                     </label>
                     {projectId && (
-                      <span className="text-[10px] text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded font-mono font-medium">
+                      <span className="text-[12px] text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded font-mono font-medium">
                         Mã:{' '}
                         {workspaceProjects.find((p) => p.id === projectId)
                           ?.code || projectId}
@@ -4317,6 +4411,7 @@ export default function RequestsPage() {
                     )}
                   </div>
                   <SearchableSelect
+                    height={36}
                     options={projectOptions}
                     value={projectId}
                     onChange={(val) => {
@@ -4440,6 +4535,7 @@ export default function RequestsPage() {
                       Hình thức công tác *
                     </label>
                     <SearchableSelect
+                      height={36}
                       options={TRIP_TYPE_OPTIONS}
                       value={tripType}
                       onChange={(val) => setTripType(val as any)}
@@ -4476,19 +4572,17 @@ export default function RequestsPage() {
                 </div>
 
                 {/* Hàng 4: Phương tiện di chuyển (lý do công tác chọn ở khối Lý do đầu form) */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <label className="font-semibold text-slate-800 block text-xs">
-                      Phương tiện di chuyển
-                    </label>
-                    <SearchableSelect
-                      options={TRIP_VEHICLE_OPTIONS}
-                      value={tripVehicle}
-                      onChange={(val) => setTripVehicle(val)}
-                      clearable={false}
-                    />
-                  </div>
-                </div>
+                <TransportField
+                  idPrefix="trip-transport"
+                  selectHeight={36}
+                  value={tripTransport}
+                  onChange={setTripTransport}
+                  range={tripTransportRange}
+                  availability={tripFleet.availability}
+                  loading={tripFleet.loading}
+                  error={tripFleet.error}
+                  note="Xe được giữ chỗ ngay khi gửi đơn và tự xác nhận khi đơn được duyệt; đơn bị từ chối hoặc huỷ thì xe được trả lại."
+                />
 
                 {/* Các thiết lập tuỳ chọn: Cho phép OT & Chấm công GPS */}
 
@@ -4528,6 +4622,7 @@ export default function RequestsPage() {
                         >
                           <div className="flex-1">
                             <SearchableSelect
+                              height={36}
                               options={SURCHARGE_PRESET_OPTIONS}
                               value={sur.name}
                               onChange={(val) =>
@@ -4680,6 +4775,7 @@ export default function RequestsPage() {
                     Hình thức đổi ca *
                   </label>
                   <SearchableSelect
+                    height={36}
                     options={[
                       {
                         value: 'SWAP',
@@ -4702,6 +4798,7 @@ export default function RequestsPage() {
                       Ca làm việc hiện tại *
                     </label>
                     <SearchableSelect
+                      height={36}
                       options={shiftOptions}
                       value={currentShiftId}
                       onChange={(val) => setCurrentShiftId(val)}
@@ -4714,6 +4811,7 @@ export default function RequestsPage() {
                       Ca làm việc đề xuất chuyển *
                     </label>
                     <SearchableSelect
+                      height={36}
                       options={shiftOptions}
                       value={requestedShiftId}
                       onChange={(val) => setRequestedShiftId(val)}
@@ -4728,6 +4826,7 @@ export default function RequestsPage() {
                       Đồng nghiệp hoán đổi ca *
                     </label>
                     <SearchableSelect
+                      height={36}
                       options={colleagueOptions}
                       value={swapWithEmployeeId}
                       onChange={(val) => setSwapWithEmployeeId(val)}
@@ -4742,6 +4841,7 @@ export default function RequestsPage() {
                       Từ ngày áp dụng *
                     </label>
                     <DatePickerInput
+                      height={36}
                       value={fromDate}
                       onChange={(val) => setFromDate(val)}
                       placeholder="dd/mm/yyyy"
@@ -4752,6 +4852,7 @@ export default function RequestsPage() {
                       Đến ngày áp dụng *
                     </label>
                     <DatePickerInput
+                      height={36}
                       value={toDate}
                       onChange={(val) => setToDate(val)}
                       placeholder="dd/mm/yyyy"
@@ -4769,50 +4870,22 @@ export default function RequestsPage() {
                     Ngày phát sinh điều chỉnh *
                   </label>
                   <DatePickerInput
+                    height={36}
                     value={fromDate}
                     onChange={(val) => setFromDate(val)}
                     placeholder="dd/mm/yyyy"
                   />
                 </div>
-                <div className="space-y-1">
-                  <span className="block font-semibold text-slate-800">Cách khai báo</span>
-                  <div role="tablist" aria-label="Cách khai báo giải trình công" className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5 text-xs font-semibold">
-                    {(
-                      [
-                        ['punch', 'Bổ sung giờ vào / giờ ra'],
-                        ['session', 'Khai báo theo phiên vào - ra (thay cả ngày)'],
-                      ] as const
-                    ).map(([id, label]) => (
-                      <button
-                        key={id}
-                        type="button"
-                        role="tab"
-                        aria-selected={correctionMode === id}
-                        onClick={() => setCorrectionMode(id)}
-                        className={`rounded-md px-3 py-1.5 transition ${
-                          correctionMode === id
-                            ? 'bg-white text-slate-900 shadow-xs'
-                            : 'text-slate-500 hover:text-slate-800'
-                        }`}
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                {correctionMode === 'punch' ? (
-                  <HrmCorrectionPunches
-                    rows={correctionPunches}
-                    onChange={setCorrectionPunches}
-                    date={fromDate}
-                    disabled={isSubmitting}
-                  />
-                ) : (
-                  <HrmCorrectionSessions
-                    rows={correctionSessions}
-                    onChange={setCorrectionSessions}
-                  />
-                )}
+                <HrmCorrectionPunches
+                  kind={correctionKind}
+                  time={correctionTime}
+                  onChange={(next) => {
+                    setCorrectionKind(next.kind);
+                    setCorrectionTime(next.time);
+                  }}
+                  defaults={correctionDefaults}
+                  disabled={isSubmitting}
+                />
               </>
             )}
 
@@ -4825,6 +4898,7 @@ export default function RequestsPage() {
                       Ngày yêu cầu tạm ứng *
                     </label>
                     <DatePickerInput
+                      height={36}
                       value={fromDate}
                       onChange={(val) => setFromDate(val)}
                       placeholder="dd/mm/yyyy"
@@ -4848,6 +4922,7 @@ export default function RequestsPage() {
                     Số kỳ khấu trừ hoàn trả *
                   </label>
                   <SearchableSelect
+                    height={36}
                     options={[
                       {
                         value: '1',
@@ -4883,7 +4958,7 @@ export default function RequestsPage() {
                     <div className="space-y-1">
                       <label className="font-semibold text-slate-800 block text-xs">
                         Họ và tên pháp lý
-                        <span className="text-[10px] text-slate-400 font-normal ml-1">
+                        <span className="text-[12px] text-slate-400 font-normal ml-1">
                           (Hiện tại:{' '}
                           {rawProfile.fullName || profile.fullName || '----'})
                         </span>
@@ -4898,11 +4973,12 @@ export default function RequestsPage() {
                     <div className="space-y-1">
                       <label className="font-semibold text-slate-800 block text-xs">
                         Ngày sinh (date_of_birth)
-                        <span className="text-[10px] text-slate-400 font-normal ml-1">
+                        <span className="text-[12px] text-slate-400 font-normal ml-1">
                           (Hiện tại: {formatVnDate(rawProfile.dateOfBirth)})
                         </span>
                       </label>
                       <DatePickerInput
+                        height={36}
                         value={adjustDateOfBirth}
                         onChange={(val) => setAdjustDateOfBirth(val)}
                         placeholder="dd/mm/yyyy"
@@ -4915,7 +4991,7 @@ export default function RequestsPage() {
                     <div className="space-y-1">
                       <label className="font-semibold text-slate-800 block text-xs">
                         Giới tính
-                        <span className="text-[10px] text-slate-400 font-normal ml-1">
+                        <span className="text-[12px] text-slate-400 font-normal ml-1">
                           (Hiện tại:{' '}
                           {rawProfile.gender === 'FEMALE'
                             ? 'Nữ'
@@ -4926,6 +5002,7 @@ export default function RequestsPage() {
                         </span>
                       </label>
                       <SearchableSelect
+                        height={36}
                         options={[
                           { value: 'MALE', label: 'Nam' },
                           { value: 'FEMALE', label: 'Nữ' },
@@ -4939,7 +5016,7 @@ export default function RequestsPage() {
                     <div className="space-y-1">
                       <label className="font-semibold text-slate-800 block text-xs">
                         Số CCCD / CMND
-                        <span className="text-[10px] text-slate-400 font-normal ml-1">
+                        <span className="text-[12px] text-slate-400 font-normal ml-1">
                           (Hiện tại: {rawProfile.identityCardNumber || '----'})
                         </span>
                       </label>
@@ -4957,12 +5034,13 @@ export default function RequestsPage() {
                     <div className="space-y-1">
                       <label className="font-semibold text-slate-800 block text-xs">
                         Ngày cấp CCCD
-                        <span className="text-[10px] text-slate-400 font-normal ml-1">
+                        <span className="text-[12px] text-slate-400 font-normal ml-1">
                           (Hiện tại:{' '}
                           {formatVnDate(rawProfile.identityCardIssuedDate)})
                         </span>
                       </label>
                       <DatePickerInput
+                        height={36}
                         value={adjustIdentityDate}
                         onChange={(val) => setAdjustIdentityDate(val)}
                         placeholder="dd/mm/yyyy"
@@ -4971,7 +5049,7 @@ export default function RequestsPage() {
                     <div className="space-y-1">
                       <label className="font-semibold text-slate-800 block text-xs">
                         Nơi cấp CCCD
-                        <span className="text-[10px] text-slate-400 font-normal ml-1">
+                        <span className="text-[12px] text-slate-400 font-normal ml-1">
                           (Hiện tại:{' '}
                           {rawProfile.identityCardIssuedPlace || '----'})
                         </span>
@@ -4990,7 +5068,7 @@ export default function RequestsPage() {
                     <div className="space-y-1">
                       <label className="font-semibold text-slate-800 block text-xs">
                         Mã số thuế TNCN
-                        <span className="text-[10px] text-slate-400 font-normal ml-1">
+                        <span className="text-[12px] text-slate-400 font-normal ml-1">
                           (Hiện tại: {rawProfile.taxCode || '----'})
                         </span>
                       </label>
@@ -5004,7 +5082,7 @@ export default function RequestsPage() {
                     <div className="space-y-1">
                       <label className="font-semibold text-slate-800 block text-xs">
                         Mã số BHXH
-                        <span className="text-[10px] text-slate-400 font-normal ml-1">
+                        <span className="text-[12px] text-slate-400 font-normal ml-1">
                           (Hiện tại:{' '}
                           {rawProfile.socialInsuranceNumber || '----'})
                         </span>
@@ -5031,7 +5109,7 @@ export default function RequestsPage() {
                       placeholder="VD: Đã gửi bản scan 2 mặt CCCD gắn chip qua email hr@svn.vn"
                       className="text-xs"
                     />
-                    <span className="text-[11px] text-slate-500 italic block mt-0.5">
+                    <span className="text-[12px] text-slate-500 italic block mt-0.5">
                       * Ban Nhân sự sẽ căn cứ vào bản scan hoặc bản sao có chứng
                       thực để phê duyệt cập nhật vào Core.
                     </span>
@@ -5062,20 +5140,20 @@ export default function RequestsPage() {
 
             {/* THUỘC TÍNH ĐỘNG TỪ PROCEDURE ENGINE NODE S */}
             {procedureAvailable === false && (
-              <div className="p-2.5 rounded-md border border-amber-200 bg-amber-50 text-[11px] text-amber-800">
+              <div className="p-2.5 rounded-md border border-amber-200 bg-amber-50 text-[12px] text-amber-800">
                 Procedure Engine đang không khả dụng. Đơn thuộc quy trình duyệt
                 qua Procedure sẽ bị từ chối cho đến khi dịch vụ hoạt động lại.
               </div>
             )}
             {bindingState?.status === 'subtype-required' && (
-              <div className="p-2.5 rounded-md border border-blue-200 bg-blue-50 text-[11px] text-blue-800">
+              <div className="p-2.5 rounded-md border border-blue-200 bg-blue-50 text-[12px] text-blue-800">
                 {reasonedKind && !selectedReasonChoice
                   ? 'Chọn lý do để tải biểu mẫu quy trình.'
                   : bindingState.message}
               </div>
             )}
             {bindingState?.status === 'error' && (
-              <div className="p-2.5 rounded-md border border-red-200 bg-red-50 text-[11px] text-red-700 flex items-center justify-between gap-2">
+              <div className="p-2.5 rounded-md border border-red-200 bg-red-50 text-[12px] text-red-700 flex items-center justify-between gap-2">
                 <span>{bindingState.message}</span>
                 <Button
                   variant="outline"
@@ -5088,7 +5166,7 @@ export default function RequestsPage() {
               </div>
             )}
             {attributeNotice && (
-              <div className="p-2.5 rounded-md border border-amber-200 bg-amber-50 text-[11px] text-amber-800">
+              <div className="p-2.5 rounded-md border border-amber-200 bg-amber-50 text-[12px] text-amber-800">
                 {attributeNotice}
               </div>
             )}
@@ -5186,12 +5264,12 @@ export default function RequestsPage() {
                   selectedRequest?.workflowStatus === 'PENDING_PEER';
 
                 const badgeClass = isCompleted
-                  ? 'bg-emerald-100 text-emerald-800 text-[10px]'
+                  ? 'bg-emerald-100 text-emerald-800 text-[12px]'
                   : isRejected
-                    ? 'bg-rose-100 text-rose-700 text-[10px]'
+                    ? 'bg-rose-100 text-rose-700 text-[12px]'
                     : isPendingPeer
-                      ? 'bg-indigo-100 text-indigo-800 text-[10px]'
-                      : 'bg-amber-100 text-amber-800 text-[10px]';
+                      ? 'bg-indigo-100 text-indigo-800 text-[12px]'
+                      : 'bg-amber-100 text-amber-800 text-[12px]';
 
                 const label = isCompleted
                   ? selectedRequest?.statusText === 'Chờ phê duyệt' ||
@@ -5218,7 +5296,7 @@ export default function RequestsPage() {
           <div className="flex-1 min-h-0 overflow-y-auto p-6 space-y-5 text-xs">
             {/* KHỐI 2: THÔNG TIN ĐƠN (Business Information) */}
             <div className="space-y-2.5">
-              <h4 className="font-bold text-slate-800 uppercase tracking-wide text-[11px] flex items-center gap-1.5 text-blue-900">
+              <h4 className="font-bold text-slate-800 uppercase tracking-wide text-[12px] flex items-center gap-1.5 text-blue-900">
                 <FileText className="size-3.5 text-blue-600" />
                 Thông tin nghiệp vụ
               </h4>
@@ -5278,11 +5356,11 @@ export default function RequestsPage() {
 
             {/* KHỐI 3: THÔNG TIN HỖ TRỢ / ĐIỀU KIỆN */}
             <div className="space-y-2.5">
-              <h4 className="font-bold text-slate-800 uppercase tracking-wide text-[11px] flex items-center gap-1.5 text-blue-900">
+              <h4 className="font-bold text-slate-800 uppercase tracking-wide text-[12px] flex items-center gap-1.5 text-blue-900">
                 <Info className="size-3.5 text-blue-600" />
                 Thông tin hỗ trợ & Điều kiện áp dụng
               </h4>
-              <div className="bg-slate-50 rounded-lg p-3.5 border border-slate-200 text-[11px] text-slate-600 space-y-1.5">
+              <div className="bg-slate-50 rounded-lg p-3.5 border border-slate-200 text-[12px] text-slate-600 space-y-1.5">
                 {selectedRequest?.kind === 'leave' && (
                   <>
                     <div className="flex justify-between">
@@ -5403,7 +5481,7 @@ export default function RequestsPage() {
                             (selectedRequest.rawDetails as any)?.attributes
                               ?.destinationAddress,
                           ) && (
-                              <span className="text-[10px] text-slate-500 block font-normal">
+                              <span className="text-[12px] text-slate-500 block font-normal">
                                 {String(
                                   (selectedRequest.rawDetails as any)?.attributes
                                     ?.destinationAddress,
@@ -5431,19 +5509,24 @@ export default function RequestsPage() {
                       )}
 
                     {/* Phương tiện */}
-                    {Boolean(
-                      (selectedRequest.rawDetails as any)?.attributes?.vehicle,
-                    ) && (
+                    {(() => {
+                      // Phương tiện lưu thành cột của đơn (không phụ thuộc quy trình); đơn cũ chỉ có trong attributes.
+                      const details = selectedRequest.rawDetails as any;
+                      const vehicleText =
+                        details?.transportMode === 'COMPANY_VEHICLE'
+                          ? 'Xe công ty'
+                          : details?.transportMode === 'EXTERNAL'
+                            ? String(details.transportDetail ?? 'Phương tiện ngoài')
+                            : details?.attributes?.vehicle
+                              ? String(details.attributes.vehicle)
+                              : '';
+                      return vehicleText ? (
                         <div className="flex justify-between items-center">
                           <span>Phương tiện:</span>
-                          <span className="font-semibold text-slate-800">
-                            {String(
-                              (selectedRequest.rawDetails as any)?.attributes
-                                ?.vehicle,
-                            )}
-                          </span>
+                          <span className="font-semibold text-slate-800">{vehicleText}</span>
                         </div>
-                      )}
+                      ) : null;
+                    })()}
 
                     {/* Thời gian giờ đi/giờ về */}
                     {Boolean(
@@ -5493,7 +5576,7 @@ export default function RequestsPage() {
                           <span className="font-semibold text-blue-900 bg-blue-50 px-2 py-0.5 rounded border border-blue-200 text-right">
                             {label}
                             {link ? (
-                              <span className="text-[10px] text-slate-500 font-mono block">
+                              <span className="text-[12px] text-slate-500 font-mono block">
                                 {link.projectRequestCode
                                   ? `Mã đơn trong dự án: ${link.projectRequestCode}`
                                   : (PROJECT_LINK_STATUS_LABEL[link.status ?? ''] ?? link.status)}
@@ -5521,7 +5604,7 @@ export default function RequestsPage() {
                             <span className="font-semibold text-slate-700">
                               Phụ phí công tác dự trù:
                             </span>
-                            <span className="font-mono font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 text-[11px]">
+                            <span className="font-mono font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 text-[12px]">
                               {Number(
                                 (selectedRequest.rawDetails as any)?.attributes
                                   ?.totalSurcharges || 0,
@@ -5536,7 +5619,7 @@ export default function RequestsPage() {
                             ).map((s: any, idx: number) => (
                               <div
                                 key={idx}
-                                className="flex justify-between items-center text-[11px] text-slate-600"
+                                className="flex justify-between items-center text-[12px] text-slate-600"
                               >
                                 <span>• {s.name || 'Phụ phí'}</span>
                                 <span className="font-mono font-medium text-slate-800">
@@ -5552,7 +5635,7 @@ export default function RequestsPage() {
                       )}
 
                     {/* Checkbox OT & GPS */}
-                    <div className="flex flex-wrap gap-2 pt-1 border-t border-slate-200/60 text-[10px]">
+                    <div className="flex flex-wrap gap-2 pt-1 border-t border-slate-200/60 text-[12px]">
                       {Boolean(selectedRequest.rawDetails?.allow_ot) && (
                         <span className="bg-amber-50 text-amber-800 px-2 py-0.5 rounded font-medium border border-amber-200">
                           Cho phép tính làm thêm giờ (OT)
@@ -5638,7 +5721,7 @@ export default function RequestsPage() {
               )}
             {/* KHỐI 5: KẾT QUẢ XỬ LÝ (Result & Side-effects) */}
             <div className="space-y-2.5">
-              <h4 className="font-bold text-slate-800 uppercase tracking-wide text-[11px] flex items-center gap-1.5 text-blue-900">
+              <h4 className="font-bold text-slate-800 uppercase tracking-wide text-[12px] flex items-center gap-1.5 text-blue-900">
                 <FileCheck2 className="size-3.5 text-blue-600" />
                 Kết quả xử lý & Đồng bộ dữ liệu
               </h4>
@@ -5664,7 +5747,7 @@ export default function RequestsPage() {
                           : 'Chờ áp dụng'}
                   </Badge>
                 </div>
-                <div className="flex items-center justify-between text-slate-500 text-[11px]">
+                <div className="flex items-center justify-between text-slate-500 text-[12px]">
                   <span>Đồng bộ Timesheet / Payroll:</span>
                   <span className="font-mono text-slate-700">
                     {['CANCELLED', 'REJECTED'].includes(
@@ -5679,6 +5762,16 @@ export default function RequestsPage() {
                 </div>
               </div>
             </div>
+
+            {/* KHỐI 6: TRAO ĐỔI & Ý KIẾN */}
+            {selectedRequest && (
+              <div className="pt-2 border-t border-slate-200">
+                <RequestThread
+                  kind={selectedRequest.kind}
+                  requestId={selectedRequest.id}
+                />
+              </div>
+            )}
           </div>
 
           {/* FOOTER ACTIONS */}

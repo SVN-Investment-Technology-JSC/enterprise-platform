@@ -47,7 +47,7 @@ export const SCHEDULE_LEGEND: { key: string; label: string; className: string }[
 
 export function ScheduleLegend() {
   return (
-    <ul className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-600" aria-label="Chú giải màu">
+    <ul className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-slate-600" aria-label="Chú giải màu">
       {SCHEDULE_LEGEND.map((item) => (
         <li key={item.key} className="inline-flex items-center gap-1.5">
           <span className={cn('inline-block h-3.5 w-5 rounded border', item.className)} aria-hidden />
@@ -64,7 +64,7 @@ export function ScheduleLegend() {
         Ngoại lệ (viền và chấm vàng)
       </li>
       <li className="flex items-center gap-1.5">
-        <span aria-hidden className="rounded bg-fuchsia-600 px-0.5 text-[8px] font-bold text-white">P</span>
+        <span aria-hidden className="rounded bg-fuchsia-600 px-0.5 text-[12px] font-bold text-white">P</span>
         Có đơn nghỉ hoặc công tác (CT) đã duyệt; viền hồng: đang chờ duyệt
       </li>
     </ul>
@@ -108,7 +108,7 @@ const ScheduleCell = memo(function ScheduleCell({
   const content = (
     <span
       className={cn(
-        'relative flex h-8 items-center justify-center rounded border text-[11px] font-semibold',
+        'relative flex h-8 items-center justify-center rounded border text-[12px] font-semibold',
         wide ? 'min-w-20 px-2' : 'min-w-8 px-1',
         tone,
         visual.exception && 'ring-1 ring-amber-500',
@@ -121,7 +121,7 @@ const ScheduleCell = memo(function ScheduleCell({
     >
       <span className="truncate">{visual.label}</span>
       {wide && visual.kind === 'SHIFT' && day?.startTime ? (
-        <span className="ml-1 hidden text-[10px] font-normal opacity-70 xl:inline">
+        <span className="ml-1 hidden text-[12px] font-normal opacity-70 xl:inline">
           {day.startTime}
         </span>
       ) : null}
@@ -132,7 +132,7 @@ const ScheduleCell = memo(function ScheduleCell({
         <span
           aria-hidden
           className={cn(
-            'absolute -bottom-1 -left-0.5 rounded px-0.5 text-[8px] font-bold leading-tight',
+            'absolute -bottom-1 -left-0.5 rounded px-0.5 text-[12px] font-bold leading-tight',
             approved ? 'bg-fuchsia-600 text-white' : 'border border-fuchsia-400 bg-white text-fuchsia-700',
           )}
         >
@@ -232,7 +232,7 @@ export function ScheduleGridView({
               <tr>
                 <th
                   scope="col"
-                  className="sticky top-0 left-0 z-30 min-w-60 border-r border-b border-slate-200 bg-slate-50 px-3 py-2 text-left text-[11px] font-bold tracking-wide text-slate-600 uppercase"
+                  className="sticky top-0 left-0 z-30 min-w-60 border-r border-b border-slate-200 bg-slate-50 px-3 py-2 text-left text-[12px] font-bold tracking-wide text-slate-600 uppercase"
                 >
                   Nhân viên
                 </th>
@@ -245,7 +245,7 @@ export function ScheduleGridView({
                       scope="col"
                       title={holiday ? holiday.name : undefined}
                       className={cn(
-                        'sticky top-0 z-20 border-b border-slate-200 bg-slate-50 px-0.5 py-1 text-center text-[11px] font-semibold',
+                        'sticky top-0 z-20 border-b border-slate-200 bg-slate-50 px-0.5 py-1 text-center text-[12px] font-semibold',
                         wide ? 'min-w-20' : 'min-w-9',
                         weekday === 7 && 'bg-rose-50 text-rose-600',
                         weekday === 6 && 'bg-amber-50 text-amber-700',
@@ -253,7 +253,7 @@ export function ScheduleGridView({
                       )}
                     >
                       <div>{WEEKDAY_LABELS[weekday]}</div>
-                      <div className="font-mono text-[10px] font-normal">
+                      <div className="font-mono text-[12px] font-normal">
                         {date.slice(8, 10)}/{date.slice(5, 7)}
                         {holiday ? <span aria-hidden className="ml-0.5 text-rose-500">*</span> : null}
                       </div>
@@ -282,10 +282,10 @@ export function ScheduleGridView({
                         title="Xem chi tiết lịch và lịch sử của nhân viên"
                       >
                         <span className="flex items-baseline gap-2">
-                          <span className="font-mono text-[11px] font-semibold text-blue-700">{employee.code}</span>
-                          <span className="truncate text-[12px] font-semibold text-slate-900">{employee.name}</span>
+                          <span className="font-mono text-[12px] font-semibold text-blue-700">{employee.code}</span>
+                          <span className="truncate text-[13px] font-semibold text-slate-900">{employee.name}</span>
                         </span>
-                        <span className="block truncate text-[11px] text-slate-500">
+                        <span className="block truncate text-[12px] text-slate-500">
                           {employee.unitName ?? 'Chưa gán đơn vị'}
                         </span>
                       </button>

@@ -56,7 +56,7 @@ function SummaryRow({
       <IconTile icon={icon} tone={tone} size="sm" />
       <div className="min-w-0">
         <p className="text-xs text-slate-500">{label}</p>
-        <p className="break-words text-[13px] font-semibold leading-snug text-slate-900">{value}</p>
+        <p className="break-words text-[14px] font-semibold leading-snug text-slate-900">{value}</p>
       </div>
     </div>
   );
@@ -100,7 +100,7 @@ export function RulesPanel({
               chips.map((c) => (
                 <span
                   key={c}
-                  className="rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[11px] font-medium text-slate-700"
+                  className="rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[12px] font-medium text-slate-700"
                 >
                   {c}
                 </span>

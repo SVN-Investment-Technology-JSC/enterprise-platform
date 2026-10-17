@@ -1,6 +1,7 @@
 'use client';
 
 import type { StocktakeLotAllocation, StocktakeSerialAllocation } from '@enterprise-platform/contracts-inventory';
+import { formatDate } from '@enterprise-platform/shared-ui';
 import { useState } from 'react';
 import { X, Plus, Trash2, Layers, QrCode } from 'lucide-react';
 
@@ -164,7 +165,7 @@ export function StocktakeLotSerialDrawer({
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <span
                 style={{
-                  fontSize: '11px',
+                  fontSize: '12px',
                   fontWeight: 700,
                   padding: '2px 6px',
                   borderRadius: '4px',
@@ -174,11 +175,11 @@ export function StocktakeLotSerialDrawer({
               >
                 {materialCode}
               </span>
-              <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: '#0f172a' }}>
+              <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#0f172a' }}>
                 Đối soát chi tiết {isLotTracked && isSerialized ? 'Lô & Sê-ri' : isLotTracked ? 'Theo Lô hàng' : 'Cá thể Sê-ri'}
               </h3>
             </div>
-            <p style={{ margin: '3px 0 0', fontSize: '12px', color: '#64748b' }}>
+            <p style={{ margin: '3px 0 0', fontSize: '13px', color: '#64748b' }}>
               {materialName} · Sổ sách: <strong>{systemQuantity} {unit}</strong>
             </p>
           </div>
@@ -210,7 +211,7 @@ export function StocktakeLotSerialDrawer({
               onClick={() => setTab('lots')}
               style={{
                 padding: '10px 14px',
-                fontSize: '13px',
+                fontSize: '14px',
                 fontWeight: 600,
                 border: 'none',
                 borderBottom: tab === 'lots' ? '2px solid #2563eb' : '2px solid transparent',
@@ -226,7 +227,7 @@ export function StocktakeLotSerialDrawer({
               onClick={() => setTab('serials')}
               style={{
                 padding: '10px 14px',
-                fontSize: '13px',
+                fontSize: '14px',
                 fontWeight: 600,
                 border: 'none',
                 borderBottom: tab === 'serials' ? '2px solid #2563eb' : '2px solid transparent',
@@ -257,13 +258,13 @@ export function StocktakeLotSerialDrawer({
                 }}
               >
                 <div>
-                  <span style={{ fontSize: '12px', color: '#166534' }}>Tổng thực đếm các Lô:</span>
-                  <div style={{ fontSize: '18px', fontWeight: 800, color: '#15803d' }}>
+                  <span style={{ fontSize: '13px', color: '#166534' }}>Tổng thực đếm các Lô:</span>
+                  <div style={{ fontSize: '20px', fontWeight: 800, color: '#15803d' }}>
                     {totalLotActual} {unit}
                   </div>
                 </div>
                 <div style={{ textAlign: 'right' }}>
-                  <span style={{ fontSize: '12px', color: '#166534' }}>Chênh lệch sổ sách:</span>
+                  <span style={{ fontSize: '13px', color: '#166534' }}>Chênh lệch sổ sách:</span>
                   <div
                     style={{
                       fontSize: '16px',
@@ -295,7 +296,7 @@ export function StocktakeLotSerialDrawer({
                     style={{
                       flex: 2,
                       padding: '6px 10px',
-                      fontSize: '12.5px',
+                      fontSize: '13px',
                       border: '1px solid #cbd5e1',
                       borderRadius: '4px',
                     }}
@@ -308,7 +309,7 @@ export function StocktakeLotSerialDrawer({
                     style={{
                       flex: 1,
                       padding: '6px 10px',
-                      fontSize: '12.5px',
+                      fontSize: '13px',
                       border: '1px solid #cbd5e1',
                       borderRadius: '4px',
                     }}
@@ -318,7 +319,7 @@ export function StocktakeLotSerialDrawer({
                     onClick={handleAddLot}
                     style={{
                       padding: '6px 12px',
-                      fontSize: '12px',
+                      fontSize: '13px',
                       fontWeight: 600,
                       background: '#2563eb',
                       color: '#ffffff',
@@ -335,7 +336,7 @@ export function StocktakeLotSerialDrawer({
                 </div>
               ) : null}
 
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
                 <thead>
                   <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
                     <th style={{ textAlign: 'left', padding: '8px 10px' }}>Số Lô</th>
@@ -356,7 +357,7 @@ export function StocktakeLotSerialDrawer({
                             {lot.lotNumber}
                           </div>
                           {lot.expiryDate ? (
-                            <span style={{ fontSize: '10.5px', color: '#64748b' }}>HSD: {lot.expiryDate}</span>
+                            <span style={{ fontSize: '12px', color: '#64748b' }}>HSD: {formatDate(lot.expiryDate)}</span>
                           ) : null}
                         </td>
                         <td style={{ textAlign: 'center', padding: '8px', color: '#475569' }}>
@@ -379,7 +380,7 @@ export function StocktakeLotSerialDrawer({
                                 width: '70px',
                                 textAlign: 'center',
                                 padding: '4px 6px',
-                                fontSize: '12px',
+                                fontSize: '13px',
                                 border: '1px solid #cbd5e1',
                                 borderRadius: '4px',
                                 fontWeight: 700,
@@ -438,16 +439,16 @@ export function StocktakeLotSerialDrawer({
                 }}
               >
                 <div>
-                  <span style={{ fontSize: '12px', color: '#64748b' }}>Tổng sê-ri xác nhận có mặt:</span>
-                  <div style={{ fontSize: '18px', fontWeight: 800, color: '#2563eb' }}>
+                  <span style={{ fontSize: '13px', color: '#64748b' }}>Tổng sê-ri xác nhận có mặt:</span>
+                  <div style={{ fontSize: '20px', fontWeight: 800, color: '#2563eb' }}>
                     {totalFoundSerials} / {serials.length} chiếc
                   </div>
                 </div>
                 <div style={{ textAlign: 'right' }}>
-                  <span style={{ fontSize: '12px', color: '#64748b' }}>So với sổ sách:</span>
+                  <span style={{ fontSize: '13px', color: '#64748b' }}>So với sổ sách:</span>
                   <div
                     style={{
-                      fontSize: '15px',
+                      fontSize: '16px',
                       fontWeight: 700,
                       color: totalFoundSerials === systemQuantity ? '#15803d' : '#dc2626',
                     }}
@@ -479,7 +480,7 @@ export function StocktakeLotSerialDrawer({
                     style={{
                       flex: 1,
                       padding: '6px 10px',
-                      fontSize: '12.5px',
+                      fontSize: '13px',
                       border: '1px solid #cbd5e1',
                       borderRadius: '4px',
                     }}
@@ -489,7 +490,7 @@ export function StocktakeLotSerialDrawer({
                     onClick={handleAddSerial}
                     style={{
                       padding: '6px 12px',
-                      fontSize: '12px',
+                      fontSize: '13px',
                       fontWeight: 600,
                       background: '#16a34a',
                       color: '#ffffff',
@@ -521,19 +522,19 @@ export function StocktakeLotSerialDrawer({
                     }}
                   >
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '12.5px', color: '#1e293b' }}>
+                      <span style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '13px', color: '#1e293b' }}>
                         {serial.serialNumber}
                       </span>
                       {serial.status === 'EXTRA' ? (
-                        <span style={{ fontSize: '10.5px', background: '#dbeafe', color: '#1d4ed8', padding: '1px 5px', borderRadius: '4px', fontWeight: 600 }}>
+                        <span style={{ fontSize: '12px', background: '#dbeafe', color: '#1d4ed8', padding: '1px 5px', borderRadius: '4px', fontWeight: 600 }}>
                           Phát hiện thừa
                         </span>
                       ) : serial.status === 'MISSING' ? (
-                        <span style={{ fontSize: '10.5px', background: '#fee2e2', color: '#b91c1c', padding: '1px 5px', borderRadius: '4px', fontWeight: 600 }}>
+                        <span style={{ fontSize: '12px', background: '#fee2e2', color: '#b91c1c', padding: '1px 5px', borderRadius: '4px', fontWeight: 600 }}>
                           Không tìm thấy
                         </span>
                       ) : (
-                        <span style={{ fontSize: '10.5px', background: '#dcfce7', color: '#15803d', padding: '1px 5px', borderRadius: '4px', fontWeight: 600 }}>
+                        <span style={{ fontSize: '12px', background: '#dcfce7', color: '#15803d', padding: '1px 5px', borderRadius: '4px', fontWeight: 600 }}>
                           Khớp sổ sách
                         </span>
                       )}
@@ -552,7 +553,7 @@ export function StocktakeLotSerialDrawer({
                           }}
                           style={{
                             padding: '3px 8px',
-                            fontSize: '11px',
+                            fontSize: '12px',
                             borderRadius: '4px',
                             border: '1px solid #cbd5e1',
                             background: '#ffffff',
@@ -598,7 +599,7 @@ export function StocktakeLotSerialDrawer({
             onClick={onClose}
             style={{
               padding: '8px 16px',
-              fontSize: '13px',
+              fontSize: '14px',
               fontWeight: 600,
               background: 'transparent',
               border: '1px solid #cbd5e1',
@@ -615,7 +616,7 @@ export function StocktakeLotSerialDrawer({
               onClick={handleApply}
               style={{
                 padding: '8px 18px',
-                fontSize: '13px',
+                fontSize: '14px',
                 fontWeight: 700,
                 background: '#2563eb',
                 border: 'none',

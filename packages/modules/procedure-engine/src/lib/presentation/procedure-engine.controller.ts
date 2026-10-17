@@ -6,6 +6,7 @@ import type {
   CreateProcedureDelegationRequest,
   CreateProcedureInstanceRequest,
   PostProcedureCommentRequest,
+  ProcedureFinanceStepCanActRequest,
   ProcedureSettingsKey,
   RequestProcedureMaterialsRequest,
   SaveProcedureAttributeValuesRequest,
@@ -243,6 +244,41 @@ export class ProcedureEngineController {
     );
   }
 
+  /**
+   * Tài chính hỏi trước khi ghi sổ / trả hồ sơ ở bước Tài chính: người này có đang
+   * phụ trách bước không (chỉ đọc, service token).
+   */
+  @Post('internal/instances/:instanceId/steps/:stepInstanceId/can-act')
+  @HttpCode(200)
+  internalFinanceStepCanAct(
+    @Req() request: any,
+    @Param('instanceId') instanceId: string,
+    @Param('stepInstanceId') stepInstanceId: string,
+    @Body() input: ProcedureFinanceStepCanActRequest,
+  ) {
+    const tenantId = this.internalTenant(request);
+    return this.execute(() =>
+      this.procedures.canActOnFinanceStepForService(tenantId, instanceId, stepInstanceId, input),
+    );
+  }
+
+  /** HRM hỏi: trong các hồ sơ này, người dùng này đang xử lý được hồ sơ nào (tối đa 100 mã). */
+  @Post('internal/instances/actionable')
+  @HttpCode(200)
+  internalActionableInstances(
+    @Req() request: any,
+    @Body() input: { actorUserId?: string; ids?: string[] },
+  ) {
+    const tenantId = this.internalTenant(request);
+    return this.execute(async () => ({
+      instanceIds: await this.procedures.getActionableInstanceIdsForService(
+        tenantId,
+        input?.actorUserId ?? '',
+        input?.ids ?? [],
+      ),
+    }));
+  }
+
   @Post('instances/:instanceId/actions')
   @HttpCode(200)
   applyAction(
@@ -253,6 +289,18 @@ export class ProcedureEngineController {
     return this.execute(() =>
       this.procedures.applyAction(this.actor(request), instanceId, input),
     );
+  }
+
+  /** Một hồ sơ của người tham gia: để làm mới đúng hồ sơ đang mở khi có trao đổi mới. */
+  @Get('instances/:instanceId')
+  getInstance(@Req() request: ProcedureRequest, @Param('instanceId') instanceId: string) {
+    return this.execute(() => this.procedures.getInstance(this.actor(request), instanceId));
+  }
+
+  /** Dịch vụ realtime hỏi (bằng cookie của người dùng) trước khi cho vào phòng của hồ sơ. */
+  @Get('instances/:instanceId/chat-access')
+  chatAccess(@Req() request: ProcedureRequest, @Param('instanceId') instanceId: string) {
+    return this.execute(() => this.procedures.getChatAccess(this.actor(request), instanceId));
   }
 
   @Post('instances/:instanceId/comments')

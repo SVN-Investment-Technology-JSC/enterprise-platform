@@ -128,6 +128,7 @@ function HolidayForm({
           </Field>
           <Field label="Loại">
             <SearchableSelect
+              height={32}
               options={KIND_OPTIONS}
               value={kind}
               clearable={false}
@@ -135,10 +136,10 @@ function HolidayForm({
             />
           </Field>
           <Field label="Từ ngày">
-            <DatePickerInput aria-label="Từ ngày" value={fromDate} onChange={setFromDate} />
+            <DatePickerInput height={32} aria-label="Từ ngày" value={fromDate} onChange={setFromDate} />
           </Field>
           <Field label="Đến ngày">
-            <DatePickerInput aria-label="Đến ngày" value={toDate} onChange={setToDate} />
+            <DatePickerInput height={32} aria-label="Đến ngày" value={toDate} onChange={setToDate} />
           </Field>
         </div>
         <div className="flex flex-col gap-2">
@@ -182,6 +183,7 @@ function HolidayForm({
           {treatment === 'SHIFT' ? (
             <Field label="Ca bố trí trong ngày lễ">
               <SearchableSelect
+                height={32}
                 options={shiftOptions}
                 value={shiftId}
                 placeholder="Chọn ca từ danh mục ca…"
@@ -311,6 +313,7 @@ export function HolidaysManager({
               </div>
               <div className="w-52">
                 <SearchableSelect
+                  height={32}
                   options={STATUS_OPTIONS}
                   value={status}
                   clearable={false}
@@ -332,7 +335,7 @@ export function HolidaysManager({
               ) : rows ? (
                 <table className={cn('w-full border-separate border-spacing-0 text-xs', loading && 'opacity-60')}>
                   <thead>
-                    <tr className="text-left text-[11px] font-bold tracking-wide text-slate-600 uppercase">
+                    <tr className="text-left text-[12px] font-bold tracking-wide text-slate-600 uppercase">
                       {['Ngày lễ', 'Loại', 'Thời gian', 'Phạm vi', 'Xử lý', 'Trạng thái', 'Thao tác'].map((h) => (
                         <th key={h} scope="col" className="sticky top-0 border-b border-slate-200 bg-slate-50 px-3 py-2">
                           {h}
@@ -345,7 +348,7 @@ export function HolidaysManager({
                       <tr key={h.id} className="hover:bg-slate-50">
                         <td className="border-b border-slate-100 px-3 py-2">
                           <div className="font-semibold text-slate-900">{h.name}</div>
-                          {h.note ? <div className="text-[11px] text-slate-500">{h.note}</div> : null}
+                          {h.note ? <div className="text-[12px] text-slate-500">{h.note}</div> : null}
                         </td>
                         <td className="border-b border-slate-100 px-3 py-2">{HOLIDAY_KIND_LABELS[h.kind]}</td>
                         <td className="border-b border-slate-100 px-3 py-2 whitespace-nowrap">
@@ -362,7 +365,7 @@ export function HolidaysManager({
                         <td className="border-b border-slate-100 px-3 py-2">
                           <span
                             className={cn(
-                              'inline-flex rounded-full border px-2 py-0.5 text-[11px] font-medium',
+                              'inline-flex rounded-full border px-2 py-0.5 text-[12px] font-medium',
                               h.status === 'CANCELLED'
                                 ? 'border-slate-200 bg-slate-100 text-slate-500'
                                 : 'border-emerald-200 bg-emerald-50 text-emerald-700',

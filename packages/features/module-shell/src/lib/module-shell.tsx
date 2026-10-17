@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { NotificationBell, NotificationProvider } from '@enterprise-platform/shared-ui';
+import { NotificationBell, NotificationProvider, SessionKeepAlive } from '@enterprise-platform/shared-ui';
+import { AssistantLauncher } from './assistant-launcher';
 import { ModuleShellLight } from './module-shell-light';
 import type { ModuleNavItem, ModuleShellProps } from './module-shell.types';
 import { initialsOfName, useShellSession } from './use-shell-session';
@@ -91,6 +92,7 @@ function ClassicShell<TViewId extends string = string>(props: ModuleShellProps<T
 
   return (
     <NotificationProvider>
+      <SessionKeepAlive />
       <div className={`${styles.shell} ${collapsed ? styles.shellMin : ''}`}>
       <nav
         className={`${styles.rail} ${collapsed ? styles.railMin : ''}`}
@@ -289,6 +291,8 @@ function ClassicShell<TViewId extends string = string>(props: ModuleShellProps<T
 
             <NotificationBell />
 
+            <AssistantLauncher />
+
             {/* 5. User Dropdown */}
             <div style={{ position: 'relative' }} ref={userMenuRef}>
               <button
@@ -331,8 +335,8 @@ function ClassicShell<TViewId extends string = string>(props: ModuleShellProps<T
               {userMenuOpen ? (
                 <div className={`${styles.popoverDropdown} ${styles.userMenu}`}>
                   <div className={styles.userMenuHeader}>
-                    <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>Xin chào !</div>
-                    <div style={{ fontSize: '0.82rem', fontWeight: 700, color: '#0f172a' }}>{displayName}</div>
+                    <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Xin chào !</div>
+                    <div style={{ fontSize: '0.875rem', fontWeight: 700, color: '#0f172a' }}>{displayName}</div>
                   </div>
 
                   {/* Trang tài khoản nằm ở app web gốc, không đi qua basePath của module. */}

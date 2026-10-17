@@ -1,5 +1,6 @@
 import { TenantDatabaseRegistry } from '@enterprise-platform/adapter-database';
 import type { WorkspaceActor } from '@enterprise-platform/module-workspace';
+import { isTenantAdmin, tenantActionHeld } from '@enterprise-platform/contracts-identity';
 import { ModuleAccess } from '@enterprise-platform/platform-module-access';
 import { CanActivate, ExecutionContext, ForbiddenException, Injectable } from '@nestjs/common';
 import type { Request } from 'express';
@@ -71,16 +72,13 @@ export class WorkspaceAccessGuard implements CanActivate {
     }
 
     const held = decision.principal.permissions;
-    const isTenantAdmin = decision.principal.roles.includes('tenant-admin');
+    const tenantAdmin = isTenantAdmin(decision.principal.roles);
     /*
-     * Quyền xoá là ngoại lệ của luật "manage bao hàm quyền hẹp".
-     *
-     * Platform hiện cấp cùng một bộ quyền cho mọi người dùng tenant, trong đó
-     * có `workspace.manage`; nếu để `manage` bao luôn quyền xoá thì ai cũng
-     * xoá được kho tài liệu. Vì vậy quyền này chỉ đến từ hai nguồn: là quản
-     * trị tenant, hoặc được cấp đích danh `workspace.document.delete`.
+     * Xoá là ngoại lệ của luật "manage bao hàm quyền hẹp" (xem TENANT_ACTION_IMPLIES): kho tài
+     * liệu xoá không có đường lùi, nên quyền này chỉ đến từ quản trị tenant hoặc từ
+     * `workspace.document.delete` được cấp đích danh — `workspace.manage` không kéo theo nó.
      */
-    const canDeleteDocuments = isTenantAdmin || held.includes('workspace.document.delete');
+    const canDeleteDocuments = tenantAdmin || held.includes('workspace.document.delete');
     const required = requiredWorkspacePermission(request);
     if (required === 'workspace.document.delete') {
       if (!canDeleteDocuments) {
@@ -89,7 +87,7 @@ export class WorkspaceAccessGuard implements CanActivate {
           message: 'Bạn không có quyền xoá tài liệu hoặc thư mục.',
         });
       }
-    } else if (required && !held.includes(required) && !held.includes('workspace.manage')) {
+    } else if (required && !tenantActionHeld(held, required)) {
       throw new ForbiddenException({
         code: 'ACCESS_DENIED',
         message:
@@ -108,11 +106,10 @@ export class WorkspaceAccessGuard implements CanActivate {
       displayName: decision.principal.displayName,
       // `system_role` của người dùng được Platform Core nối vào roles; Procedure
       // đã dùng đúng tín hiệu này cho cờ override của nó.
-      isTenantAdmin,
-      canManage: held.includes('workspace.manage'),
-      canWriteTasks: held.includes('workspace.manage') || held.includes('workspace.task.write'),
-      canWriteDocuments:
-        held.includes('workspace.manage') || held.includes('workspace.document.write'),
+      isTenantAdmin: tenantAdmin,
+      canManage: tenantActionHeld(held, 'workspace.manage'),
+      canWriteTasks: tenantActionHeld(held, 'workspace.task.write'),
+      canWriteDocuments: tenantActionHeld(held, 'workspace.document.write'),
       canDeleteDocuments,
     };
     return true;

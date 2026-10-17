@@ -44,7 +44,7 @@ export default async function PlatformDataImportPage() {
       cache: 'no-store',
     }),
   ]);
-  if (!meResponse.ok || !tenantsResponse.ok) redirect('/admin');
+  if (!meResponse.ok || !tenantsResponse.ok) redirect('/login/admin');
   const principal = (await meResponse.json()) as AuthenticatedPrincipal;
   if (principal.kind !== 'platform-admin') {
     redirect('/dashboard');

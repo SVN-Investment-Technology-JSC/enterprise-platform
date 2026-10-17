@@ -23,13 +23,18 @@ import { PageTitle } from '../ui/page-title';
 const errorText = (error: unknown, fallback: string) =>
   error instanceof Error && error.message ? error.message : fallback;
 
-/** Tháng liền trước (YYYY-MM): mặc định khi chạy cộng phép tháng đã kết thúc. */
-function previousMonth() {
-  const date = new Date();
-  date.setDate(1);
-  date.setMonth(date.getMonth() - 1);
-  return date.toLocaleDateString('en-CA').slice(0, 7);
+/** Tháng hiện tại (YYYY-MM): phép được +1 từ ngày 01 nên chạy cộng phép tháng này được ngay (không cần chờ hết tháng). */
+function currentMonth() {
+  return new Date().toLocaleDateString('en-CA').slice(0, 7);
 }
+
+// Quy tắc cũ: chỉ cộng tháng đã kết thúc, mặc định tháng liền trước (bỏ comment để dùng lại):
+// function previousMonth() {
+//   const date = new Date();
+//   date.setDate(1);
+//   date.setMonth(date.getMonth() - 1);
+//   return date.toLocaleDateString('en-CA').slice(0, 7);
+// }
 
 /**
  * Chính sách phép năm: MỘT biểu mẫu cho cả hệ thống (cách tính phép, phép thâm niên, hiệu lực và ghi chú) kèm thẻ tóm tắt;
@@ -159,18 +164,18 @@ export default function LeaveSettingsScreen() {
       title: 'Cộng phép tháng',
       icon: <Clock className="size-4" />,
       description:
-        'Cộng phép của một tháng đã kết thúc cho mọi nhân viên đủ điều kiện.',
+        'Cộng phép của một tháng (kể cả tháng hiện tại) cho mọi nhân viên đủ điều kiện.',
       run: () =>
         setAction({
           title: 'Cộng phép tháng',
           description:
-            'Cộng phép cho một tháng đã kết thúc theo Chính sách phép năm. Lượt đã xử lý được bỏ qua nên chạy lại không bị cộng trùng.',
+            'Cộng phép cho một tháng đã bắt đầu theo Chính sách phép năm (+1 từ ngày 01 hàng tháng). Lượt đã xử lý được bỏ qua nên chạy lại không bị cộng trùng.',
           fields: [
             {
               key: 'month',
-              label: 'Tháng đã kết thúc',
+              label: 'Tháng cần cộng',
               type: 'month',
-              value: previousMonth(),
+              value: currentMonth(),
             },
           ],
           submit: (v) => runPeriodic('/leave-accruals/run', { month: v.month }),
@@ -257,7 +262,7 @@ export default function LeaveSettingsScreen() {
                   <p className="text-xs font-semibold text-slate-900">
                     {task.title}
                   </p>
-                  <p className="text-[11px] leading-snug text-slate-500">
+                  <p className="text-[12px] leading-snug text-slate-500">
                     {task.description}
                   </p>
                 </div>

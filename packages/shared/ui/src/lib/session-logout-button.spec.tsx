@@ -50,7 +50,7 @@ describe('SessionLogoutButton', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Đăng xuất khỏi hệ thống' }));
 
-    await waitFor(() => expect(onLoggedOut).toHaveBeenCalledWith('/admin'));
+    await waitFor(() => expect(onLoggedOut).toHaveBeenCalledWith('/login/admin'));
     expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/auth/v1/refresh', {
       method: 'POST',
       credentials: 'same-origin',

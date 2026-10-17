@@ -253,6 +253,27 @@ export function approverLine(preview: ApprovalRoutePreview): ApproverLine {
     };
   }
   const manager = preview.directManager;
+  const fallback = preview.fallbackPosition;
+
+  if (manager && fallback) {
+    const managerText = [manager.fullName, manager.positionName?.trim()]
+      .filter((part): part is string => Boolean(part))
+      .join(', ');
+    return {
+      method: 'Quản lý trực tiếp hoặc người dự phòng',
+      detail: `${managerText} hoặc chức danh ${fallback.positionName}`,
+      note,
+    };
+  }
+
+  if (!manager && fallback) {
+    return {
+      method: 'Người duyệt dự phòng',
+      detail: `Chức danh: ${fallback.positionName}`,
+      note,
+    };
+  }
+
   const detail = manager
     ? [manager.fullName, manager.positionName?.trim()]
         .filter((part): part is string => Boolean(part))

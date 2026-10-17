@@ -4,6 +4,9 @@ import {
   extractMentions,
   findMentionQuery,
   mentionHandles,
+  nextActiveIndex,
+  scanMentions,
+  splitByMentions,
   suggestMembers,
 } from './mention.model';
 
@@ -125,5 +128,68 @@ describe('nhắc bằng tên thật', () => {
   it('rút id từ tên gọn trong nội dung', () => {
     const handles = mentionHandles(team, nameOf);
     expect(extractMentions('Nhờ @LeVanHung xem giúp', team, handles)).toEqual(['u-hung']);
+  });
+});
+
+describe('scanMentions / splitByMentions (tô màu)', () => {
+  const people: Record<string, string> = { 'u-kien': 'Đậu Bá Kiên', 'u-tai': 'Tài Búa' };
+  const nameOf = (userId: string) => people[userId] ?? userId;
+  const team = [member('u-kien'), member('u-tai')];
+  const handles = mentionHandles(team, nameOf);
+
+  it('chỉ nhận tên gọn của thành viên thật, kèm vị trí cả dấu @', () => {
+    const text = 'Nhờ @DauBaKien và @NguoiLa xem';
+    expect(scanMentions(text, team, handles)).toEqual([{ start: 4, end: 14, userId: 'u-kien' }]);
+  });
+
+  it('dấu câu liền sau vẫn tính, chữ liền sau thì không', () => {
+    expect(scanMentions('@DauBaKien, ơi', team, handles)).toHaveLength(1);
+    expect(scanMentions('@DauBaKien.', team, handles)).toHaveLength(1);
+    expect(scanMentions('@DauBaKienXyz', team, handles)).toHaveLength(0);
+  });
+
+  it('`@` dính vào từ khác không tô màu', () => {
+    expect(scanMentions('gui a@DauBaKien', team, handles)).toEqual([]);
+  });
+
+  it('tên gọn dài thắng tên gọn là tiền tố của nó', () => {
+    const two = [member('u-mai'), member('u-mai2')];
+    const h = mentionHandles(two, () => 'Nguyễn Thị Mai');
+    const spans = scanMentions(`@${h.get('u-mai2')}`, two, h);
+    expect(spans.map((s) => s.userId)).toEqual(['u-mai2']);
+  });
+
+  it('cắt đoạn: phần thường xen kẽ phần nhắc, ghép lại đúng nguyên văn', () => {
+    const text = 'Nhờ @DauBaKien và @TaiBua xem';
+    const parts = splitByMentions(text, scanMentions(text, team, handles));
+    expect(parts.filter((p) => p.mention).map((p) => p.text)).toEqual(['@DauBaKien', '@TaiBua']);
+    expect(parts.map((p) => p.text).join('')).toBe(text);
+  });
+
+  it('không có lượt nhắc thì chỉ một đoạn thường; chuỗi rỗng thì không có đoạn', () => {
+    expect(splitByMentions('xin chào', [])).toEqual([{ text: 'xin chào', mention: false }]);
+    expect(splitByMentions('', [])).toEqual([]);
+  });
+
+  it('extractMentions và tô màu luôn khớp nhau', () => {
+    const text = '@DauBaKien, cảm ơn @TaiBua. @NguoiLa';
+    expect(extractMentions(text, team, handles)).toEqual(['u-kien', 'u-tai']);
+    expect(scanMentions(text, team, handles).map((s) => s.userId)).toEqual(['u-kien', 'u-tai']);
+  });
+});
+
+describe('nextActiveIndex (phím lên/xuống)', () => {
+  it('đi xuống và vòng về đầu', () => {
+    expect(nextActiveIndex(0, 'ArrowDown', 3)).toBe(1);
+    expect(nextActiveIndex(2, 'ArrowDown', 3)).toBe(0);
+  });
+
+  it('đi lên và vòng xuống cuối', () => {
+    expect(nextActiveIndex(1, 'ArrowUp', 3)).toBe(0);
+    expect(nextActiveIndex(0, 'ArrowUp', 3)).toBe(2);
+  });
+
+  it('danh sách rỗng thì giữ 0', () => {
+    expect(nextActiveIndex(0, 'ArrowDown', 0)).toBe(0);
   });
 });

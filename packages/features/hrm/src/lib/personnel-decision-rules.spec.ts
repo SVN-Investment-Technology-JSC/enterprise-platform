@@ -1,9 +1,10 @@
 import {
+  DECISION_TYPES,
+  applyStepLabels,
   buildDecisionPayload,
   decisionRowActions,
   emptyDecisionForm,
   isPositionChanging,
-  showsImpactTable,
   validateDecisionForm,
 } from './personnel-decision-rules';
 
@@ -17,6 +18,7 @@ describe('personnel decision rules', () => {
   it('requires a target position only for position-changing types', () => {
     expect(isPositionChanging('DISMISS')).toBe(false);
     expect(isPositionChanging('CHANGE_MANAGER')).toBe(false);
+    expect(DECISION_TYPES).not.toContain('CHANGE_MANAGER');
     expect(validateDecisionForm(base, { hasAccount: true })).toContain(
       'Chọn chức danh mới.',
     );
@@ -42,19 +44,13 @@ describe('personnel decision rules', () => {
     ).toEqual([]);
   });
 
-  it('requires salary fields when salary changes and manager when SET', () => {
+  it('requires salary fields when salary changes', () => {
     const errors = validateDecisionForm(
-      {
-        ...base,
-        decisionType: 'CHANGE_MANAGER',
-        managerMode: 'SET',
-        salaryChanged: true,
-      },
+      { ...base, decisionType: 'DISMISS', salaryChanged: true },
       { hasAccount: true },
     );
     expect(errors).toEqual(
       expect.arrayContaining([
-        'Chọn quản lý trực tiếp mới.',
         'Chọn ngạch lương.',
         'Chọn bậc lương.',
         'Nhập lương cơ bản hợp lệ.',
@@ -62,27 +58,29 @@ describe('personnel decision rules', () => {
     );
   });
 
-  it('shows the impact table only when there are subordinates', () => {
-    expect(showsImpactTable('TRANSFER', 2)).toBe(true);
-    expect(showsImpactTable('TRANSFER', 0)).toBe(false);
-    expect(showsImpactTable('CONCURRENT', 3)).toBe(false);
+  it('builds a payload without any manager or subordinate fields', () => {
+    const payload = buildDecisionPayload({
+      ...base,
+      decisionType: 'DISMISS',
+      toPositionNodeId: 'stale',
+    });
+    expect(payload.toPositionNodeId).toBeNull();
+    expect(payload.toBaseSalary).toBeNull();
+    expect(payload).not.toHaveProperty('managerMode');
+    expect(payload).not.toHaveProperty('toManagerEmployeeId');
+    expect(payload).not.toHaveProperty('subordinateMode');
+    expect(payload).not.toHaveProperty('subordinateTargetEmployeeId');
   });
 
-  it('builds a payload dropping irrelevant fields', () => {
-    const payload = buildDecisionPayload(
-      {
-        ...base,
-        decisionType: 'DISMISS',
-        toPositionNodeId: 'stale',
-        subordinateMode: 'REASSIGN',
-        subordinateTargetEmployeeId: 'e2',
-      },
-      { subordinateCount: 2 },
-    );
-    expect(payload.toPositionNodeId).toBeNull();
-    expect(payload.subordinateMode).toBe('REASSIGN');
-    expect(payload.subordinateTargetEmployeeId).toBe('e2');
-    expect(payload.toBaseSalary).toBeNull();
+  it('shows manager and subordinate apply steps only for legacy decisions', () => {
+    const keys = (d: Parameters<typeof applyStepLabels>[0]) => applyStepLabels(d).map(([k]) => k);
+    expect(keys({ managerMode: 'KEEP', subordinateMode: 'KEEP' })).toEqual(['core', 'salary']);
+    expect(keys({ managerMode: 'SET', subordinateMode: 'REASSIGN' })).toEqual([
+      'core',
+      'manager',
+      'subordinates',
+      'salary',
+    ]);
   });
 
   it('derives row actions from status and permissions', () => {

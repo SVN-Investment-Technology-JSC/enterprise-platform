@@ -40,6 +40,8 @@ function createFake() {
   const rows: TypeRow[] = [];
   const usage = new Map<string, number>();
   const reasonsSoftDeleted: string[] = [];
+  const runningLinks = new Map<string, number>();
+  const bindingsDeactivated: { kind: string; subType: string | null }[] = [];
   const audit: { action: string; entityId: string; detail: any }[] = [];
   let seq = 0;
   let clock = 0;
@@ -78,7 +80,7 @@ function createFake() {
       return result([]);
     }
     if (sql.startsWith('SELECT count(*)::int AS n FROM hrm_schema.request_reason_categories')) {
-      return result([{ n: rows.filter((r) => live(r) && r.is_system && r.tenant_id === params[0]).length }]);
+      return result([{ n: rows.filter((r) => r.is_system && r.tenant_id === params[0]).length }]);
     }
     if (sql.startsWith('INSERT INTO hrm_schema.request_reason_categories') && sql.includes('unnest(')) {
       const [tenant, codes, names, descriptions, engines, modes, sorts] = params as [
@@ -168,6 +170,13 @@ function createFake() {
       } else throw new Error(`UPDATE không nhận diện được: ${sql}`);
       return result([{ id: row.id }]);
     }
+    if (sql.startsWith("SELECT to_regclass('hrm_schema.procedure_links')")) return result([{ ok: true }]);
+    if (sql.startsWith('SELECT count(*)::int AS n FROM hrm_schema.procedure_links'))
+      return result([{ n: runningLinks.get(params[1]) ?? 0 }]);
+    if (sql.startsWith('UPDATE hrm_schema.request_procedure_bindings')) {
+      bindingsDeactivated.push({ kind: params[1], subType: params[2] });
+      return result([]);
+    }
     if (sql.startsWith('UPDATE hrm_schema.request_reasons SET deleted_at = now()')) {
       reasonsSoftDeleted.push(params[1]);
       return result([]);
@@ -177,7 +186,7 @@ function createFake() {
 
   const client = { query, release: jest.fn() };
   const pool = { connect: jest.fn(async () => client), query };
-  return { rows, usage, reasonsSoftDeleted, audit, add, pool, live: () => rows.filter(live) };
+  return { rows, usage, reasonsSoftDeleted, runningLinks, bindingsDeactivated, audit, add, pool, live: () => rows.filter(live) };
 }
 
 function build(permissions: string[] = MANAGE) {
@@ -379,34 +388,72 @@ describe('HrmRequestTypeController: sửa loại đơn', () => {
   });
 });
 
-describe('HrmRequestTypeController: xoá loại đơn', () => {
-  it('chưa có đơn: xoá mềm loại và lý do của loại, ghi audit', async () => {
+describe('HrmRequestTypeController: xoá mềm loại đơn', () => {
+  const off = async (controller: HrmRequestTypeController, id: string) => {
+    const list = await controller.listForManage(req);
+    const row = list.data.find((t) => t.id === id)!;
+    await controller.update(req, id, { expectedUpdatedAt: row.updatedAt, active: false });
+  };
+
+  it('loại tự tạo đã ngừng: xoá mềm loại và lý do, gỡ liên kết quy trình theo mã loại, ghi audit', async () => {
     const { controller, fake } = build();
     const created = await controller.create(req, { name: 'Đề xuất' });
+    await off(controller, created.data.id);
     const result = await controller.remove(req, created.data.id);
     expect(result.data).toMatchObject({ id: created.data.id, deleted: true, usageCount: 0 });
     expect(result.message).toMatch(/Đã xoá loại đơn/);
     expect(fake.reasonsSoftDeleted).toEqual(['DE_XUAT']);
+    expect(fake.bindingsDeactivated).toEqual([{ kind: 'custom', subType: 'DE_XUAT' }]);
     expect(fake.audit.map((a) => a.action)).toContain('REQUEST_TYPE_DELETED');
     await expect(controller.remove(req, created.data.id)).rejects.toBeInstanceOf(NotFoundException);
   });
 
-  it('đã có đơn: không xoá, chỉ ngừng sử dụng và nói rõ số đơn', async () => {
+  it('loại đang sử dụng thì phải ngừng trước khi xoá', async () => {
+    const { controller, fake } = build();
+    const created = await controller.create(req, { name: 'Đề xuất' });
+    await expect(controller.remove(req, created.data.id)).rejects.toBeInstanceOf(ConflictException);
+    expect(fake.reasonsSoftDeleted).toEqual([]);
+  });
+
+  it('đã có đơn vẫn xoá mềm được và giữ nguyên các đơn đã tạo', async () => {
     const { controller, fake } = build();
     const created = await controller.create(req, { name: 'Đề xuất' });
     fake.usage.set(created.data.id, 3);
+    await off(controller, created.data.id);
     const result = await controller.remove(req, created.data.id);
-    expect(result.data).toMatchObject({ deleted: false, active: false, usageCount: 3 });
-    expect(result.message).toMatch(/3 đơn/);
-    expect(fake.reasonsSoftDeleted).toEqual([]);
-    expect(fake.audit.map((a) => a.action)).toContain('REQUEST_TYPE_DEACTIVATED');
-    const row = fake.live().find((r) => r.id === created.data.id)!;
-    expect(row.active).toBe(false);
+    expect(result.data).toMatchObject({ deleted: true, usageCount: 3 });
+    expect(result.message).toMatch(/3 đơn đã tạo vẫn được giữ nguyên/);
+    expect(fake.live().some((r) => r.id === created.data.id)).toBe(false);
   });
 
-  it('loại hệ thống không xoá được', async () => {
+  it('loại hệ thống đã ngừng cũng xoá mềm được, gỡ liên kết quy trình theo kind của engine và không bị tạo lại', async () => {
+    const { controller, fake } = build();
+    const list = await controller.listForManage(req);
+    const ot = list.data.find((t) => t.code === 'OVERTIME')!;
+    await off(controller, ot.id);
+    const result = await controller.remove(req, ot.id);
+    expect(result.data).toMatchObject({ deleted: true });
+    expect(fake.bindingsDeactivated).toEqual([{ kind: 'ot', subType: null }]);
+    expect(fake.audit.find((a) => a.action === 'REQUEST_TYPE_DELETED')?.detail.system).toBe(true);
+    // Mở lại danh sách không sinh lại loại đã xoá.
+    const again = await controller.listForManage(req);
+    expect(again.data.some((t) => t.code === 'OVERTIME')).toBe(false);
+    expect(again.data).toHaveLength(SYSTEM_REQUEST_TYPES.length - 1);
+  });
+
+  it('loại hệ thống còn đơn đang chạy quy trình thì chưa xoá được', async () => {
+    const { controller, fake } = build();
+    const list = await controller.listForManage(req);
+    const advance = list.data.find((t) => t.code === 'ADVANCE')!;
+    await off(controller, advance.id);
+    fake.runningLinks.set('advance', 2);
+    await expect(controller.remove(req, advance.id)).rejects.toThrow(/2 đơn đang chạy quy trình/);
+    expect(fake.live().some((r) => r.id === advance.id)).toBe(true);
+  });
+
+  it('Nghỉ phép không ngừng được nên cũng không xoá được', async () => {
     const { controller } = build();
     const list = await controller.listForManage(req);
-    await expect(controller.remove(req, list.data[0].id)).rejects.toBeInstanceOf(ConflictException);
+    await expect(controller.remove(req, list.data.find((t) => t.code === 'LEAVE')!.id)).rejects.toBeInstanceOf(ConflictException);
   });
 });

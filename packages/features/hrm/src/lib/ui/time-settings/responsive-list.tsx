@@ -112,7 +112,7 @@ export function ResponsiveList<T>({
                     }`}
                   >
                     {c.primary ? null : (
-                      <span className={`w-[5.5rem] shrink-0 pt-px text-[11px] text-slate-500 ${s.label}`}>
+                      <span className={`w-[5.5rem] shrink-0 pt-px text-[12px] text-slate-500 ${s.label}`}>
                         {c.header}
                       </span>
                     )}

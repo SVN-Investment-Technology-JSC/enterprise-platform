@@ -356,24 +356,12 @@ describe('LeaveBalancesScreen', () => {
     expect(screen.getByText('Nguyễn Văn An')).toBeTruthy();
   });
 
-  it('bốn thẻ số liệu: tổng nhân viên, tổng quỹ phép, đã sử dụng (kèm %) và chờ duyệt', async () => {
+  it('không còn bốn thẻ số liệu tổng quan (tổng nhân viên, tổng quỹ phép, đã sử dụng, chờ duyệt)', async () => {
     mockActions.add('hrm.leave.read');
     render(<LeaveBalancesScreen />);
     await screen.findByText('Nguyễn Văn An');
-    expect(
-      screen.getByRole('group', { name: 'Tổng nhân viên' }).textContent,
-    ).toBe('Tổng nhân viên4Đang theo dõi phép năm');
-    // Được hưởng 14 + 12 + 12 (nhân viên chưa có quỹ không tính).
-    expect(
-      screen.getByRole('group', { name: 'Tổng quỹ phép' }).textContent,
-    ).toBe('Tổng quỹ phép38Tổng số ngày được hưởng');
-    // Đã dùng 4 + 12 + 13,5 = 29,5 trên 38 = 77,6%.
-    expect(
-      screen.getByRole('group', { name: 'Đã sử dụng' }).textContent,
-    ).toBe('Đã sử dụng29,577,6% tổng quỹ phép');
-    expect(
-      screen.getByRole('group', { name: 'Chờ duyệt' }).textContent,
-    ).toBe('Chờ duyệt1Trong các đơn đã nộp');
+    for (const name of ['Tổng nhân viên', 'Tổng quỹ phép', 'Đã sử dụng', 'Chờ duyệt'])
+      expect(screen.queryByRole('group', { name })).toBeNull();
   });
 
   it('tô màu Còn lại: xanh khi còn phép, cam khi hết, đỏ khi âm; tiến độ theo đã dùng/được hưởng', async () => {
@@ -504,12 +492,6 @@ describe('LeaveBalancesScreen', () => {
         new RegExp(`Chưa có dữ liệu quỹ phép năm ${year}`),
       ),
     ).toBeTruthy();
-    expect(
-      screen.getByRole('group', { name: 'Tổng nhân viên' }).textContent,
-    ).toBe('Tổng nhân viên0Đang theo dõi phép năm');
-    expect(
-      screen.getByRole('group', { name: 'Đã sử dụng' }).textContent,
-    ).toBe('Đã sử dụng00% tổng quỹ phép');
     expect(
       (screen.getByRole('button', { name: /Xuất dữ liệu/ }) as HTMLButtonElement)
         .disabled,

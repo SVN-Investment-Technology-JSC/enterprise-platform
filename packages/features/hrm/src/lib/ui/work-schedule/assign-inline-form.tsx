@@ -200,6 +200,7 @@ export function AssignInlineForm({
           <div className="grid grid-cols-1 gap-4 @2xl:grid-cols-2">
             <Field label="Ca làm việc" required hint={scheduleHint}>
               <SearchableSelect
+                height={36}
                 options={selectOptions}
                 value={scheduleValue}
                 placeholder="Chọn ca làm việc…"
@@ -211,7 +212,7 @@ export function AssignInlineForm({
             <Field label="Ngày hiệu lực" required>
               <DatePickerInput
                 aria-label="Ngày hiệu lực"
-                className="[&_input[type=text]]:h-9"
+                height={36}
                 value={draft.fromDate}
                 onChange={(fromDate) => patch({ fromDate })}
               />
@@ -230,7 +231,7 @@ export function AssignInlineForm({
               />
               <span
                 aria-hidden="true"
-                className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-[11px] text-slate-400"
+                className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-[12px] text-slate-400"
               >
                 {draft.reason.length}/{REASON_MAX}
               </span>
@@ -243,12 +244,18 @@ export function AssignInlineForm({
               aria-expanded={advancedOpen}
               aria-controls="assign-advanced"
               onClick={() => setAdvancedOpen((v) => !v)}
-              className="flex w-full cursor-pointer items-center gap-2 px-3 py-2.5 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50"
+              className="flex w-full cursor-pointer items-start gap-2 px-3 py-2.5 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50"
             >
-              {advancedOpen ? <ChevronDown className="size-4" aria-hidden /> : <ChevronRight className="size-4" aria-hidden />}
-              Tuỳ chọn nâng cao
-              <span className="font-normal text-slate-500">
-                Lịch tuần từng thứ, ngày kết thúc, cách xử lý ngày đã có lịch
+              {advancedOpen ? (
+                <ChevronDown className="mt-0.5 size-4 shrink-0" aria-hidden />
+              ) : (
+                <ChevronRight className="mt-0.5 size-4 shrink-0" aria-hidden />
+              )}
+              <span className="min-w-0 flex-1">
+                Tuỳ chọn nâng cao
+                <span className="ml-2 font-normal text-slate-500">
+                  Lịch tuần từng thứ, ngày kết thúc, cách xử lý ngày đã có lịch
+                </span>
               </span>
             </button>
             {advancedOpen ? (
@@ -296,7 +303,7 @@ export function AssignInlineForm({
                         aria-label="Đến ngày"
                         value={draft.toDate}
                         onChange={(toDate) => patch({ toDate })}
-                        className="[&_input[type=text]]:h-9"
+                        height={36}
                       />
                     </Field>
                   )}

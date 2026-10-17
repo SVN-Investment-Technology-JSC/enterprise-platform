@@ -19,6 +19,7 @@ import {
   type ProcedureGatewayDefinition,
 } from '@enterprise-platform/contracts-procedure-engine';
 import { MinimalPopupForm, Popconfirm, SearchableSelect } from '@enterprise-platform/shared-ui';
+import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { flowRowInfo } from './flow-edit';
@@ -96,11 +97,10 @@ function ValueInput({
   }
   if (attribute.type === 'date') {
     return (
-      <input
-        className={styles.input}
-        type="date"
+      <DatePickerInput
+        height={36}
         value={typeof value === 'string' ? value : ''}
-        onChange={(event) => onChange(event.target.value || undefined)}
+        onChange={(next) => onChange(next || undefined)}
       />
     );
   }

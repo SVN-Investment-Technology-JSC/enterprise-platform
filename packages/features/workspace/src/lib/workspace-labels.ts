@@ -3,7 +3,11 @@ import type {
   EventType,
   MyWorkBucket,
   ParticipantResponse,
-  ProjectRole,
+  StandaloneTask,
+  StandaloneTaskProcedureStatus,
+  StandaloneTaskRole,
+  StandaloneTaskScope,
+  SystemProjectRole,
   ProjectStatus,
   WorkItem,
   WorkItemPriority,
@@ -11,6 +15,10 @@ import type {
   WorkItemType,
   ProjectRequestStatus,
 } from '@enterprise-platform/contracts-workspace';
+import {
+  formatDate as formatSharedDate,
+  formatDateTime as formatSharedDateTime,
+} from '@enterprise-platform/shared-ui';
 
 /**
  * Nhãn tiếng Việt cho các giá trị liệt kê.
@@ -54,7 +62,7 @@ export const ITEM_TYPE_LABELS: Record<WorkItemType, string> = {
   milestone: 'Cột mốc',
 };
 
-export const ROLE_LABELS: Record<ProjectRole, string> = {
+export const ROLE_LABELS: Record<SystemProjectRole, string> = {
   owner: 'Chủ nhiệm',
   manager: 'Quản lý',
   member: 'Thành viên',
@@ -97,8 +105,7 @@ export const PRIORITY_TONE: Record<WorkItemPriority, { bg: string; fg: string }>
 /** `2026-09-21` → `21/09/2026`. Chuỗi rỗng khi không có ngày. */
 export function formatDate(value?: string | null): string {
   if (!value) return '';
-  const [year, month, day] = value.slice(0, 10).split('-');
-  return year && month && day ? `${day}/${month}/${year}` : '';
+  return formatSharedDate(value.slice(0, 10));
 }
 
 /** "2026-07-01" → "01/07": cho bảng chật, nơi năm đã rõ từ ngữ cảnh. */
@@ -108,18 +115,24 @@ export function formatShortDate(value?: string | null): string {
   return month && day ? `${day}/${month}` : '—';
 }
 
+/**
+ * Mốc thời gian (ISO, có giờ) → "21/09" theo giờ địa phương. Khác
+ * `formatShortDate`: cắt chuỗi ISO lấy ngày UTC sẽ lệch một ngày sau 17 giờ.
+ */
+export function formatShortTimestamp(value?: string | null): string {
+  if (!value) return '—';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return '—';
+  // Tự ghép "dd/MM": `toLocaleDateString('vi-VN')` chỉ ngày-tháng trả "14-10".
+  const day = String(parsed.getDate()).padStart(2, '0');
+  const month = String(parsed.getMonth() + 1).padStart(2, '0');
+  return `${day}/${month}`;
+}
+
 /** Mốc thời gian đầy đủ cho nhật ký hoạt động. */
 export function formatDateTime(value?: string | null): string {
   if (!value) return '';
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return '';
-  return parsed.toLocaleString('vi-VN', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  return formatSharedDateTime(value);
 }
 
 /**
@@ -192,3 +205,41 @@ export const PROJECT_REQUEST_STATUS_TONE: Record<ProjectRequestStatus, { bg: str
   CANCELLED: { bg: '#f3f4f6', fg: '#6b7280' },
   REVERSED: { bg: '#fff7ed', fg: '#9a3412' },
 };
+
+/** Vai của người đang xem trên một việc ngoài dự án. */
+export const STANDALONE_TASK_ROLE_LABELS: Record<StandaloneTaskRole, string> = {
+  assigner: 'Người giao',
+  assignee: 'Người phụ trách',
+  participant: 'Người cùng thực hiện',
+  follower: 'Người theo dõi',
+  viewer: 'Người liên quan (xem qua việc cha/con)',
+};
+
+/** Trạng thái hồ sơ quy trình gắn với việc ngoài dự án. */
+export const STANDALONE_TASK_PROCEDURE_STATUS_LABELS: Record<StandaloneTaskProcedureStatus, string> = {
+  pending: 'Đang mở hồ sơ',
+  started: 'Hồ sơ đang chạy',
+  start_rejected: 'Không mở được hồ sơ',
+  completed: 'Hồ sơ đã hoàn tất',
+  rejected: 'Hồ sơ bị từ chối',
+  cancelled: 'Hồ sơ đã huỷ',
+};
+
+/** Ba ngăn của trang "Công việc ngoài dự án". */
+export const STANDALONE_TASK_SCOPE_LABELS: Record<StandaloneTaskScope, string> = {
+  assigned_to_me: 'Giao cho tôi',
+  assigned_by_me: 'Tôi giao',
+  following: 'Tôi theo dõi',
+};
+
+/** Nhãn trạng thái việc ngoài dự án: việc huỷ hiệu lực vẫn là `cancelled` nhưng hiện riêng. */
+export function standaloneTaskStatusLabel(task: Pick<StandaloneTask, 'status' | 'reversal'>): string {
+  return task.reversal ? 'Đã huỷ hiệu lực' : WORK_ITEM_STATUS_LABELS[task.status];
+}
+
+/** Màu huy hiệu trạng thái việc ngoài dự án, cùng bảng với công việc dự án. */
+export function standaloneTaskStatusTone(
+  task: Pick<StandaloneTask, 'status' | 'reversal'>,
+): { bg: string; fg: string } {
+  return task.reversal ? { bg: '#fff7ed', fg: '#9a3412' } : WORK_ITEM_STATUS_TONE[task.status];
+}

@@ -1,18 +1,15 @@
 'use client';
 
-import {
-  PROJECT_ROLES,
-  type ProjectMember,
-  type ProjectRole,
-} from '@enterprise-platform/contracts-workspace';
+import type { ProjectMember, ProjectRole } from '@enterprise-platform/contracts-workspace';
 import { Trash2 } from 'lucide-react';
-import { useEffect, useState } from 'react';
-import { ROLE_LABELS } from '../workspace-labels';
+import { useEffect, useRef, useState } from 'react';
 import styles from '../workspace.module.scss';
 import { Choice } from './choice';
-import { Dialog, Field } from './dialog';
+import { Dialog } from './dialog';
+import { OrgPicker } from './org-picker';
 import { PeoplePicker } from './people-picker';
 import { useDirectory } from './use-directory';
+import { roleOptions, useProjectRoles } from './use-project-roles';
 
 export interface MembersDialogProps {
   readonly open: boolean;
@@ -28,10 +25,14 @@ interface Row {
   readonly role: ProjectRole;
 }
 
+/** Hai cách thêm người: gõ tên, hay tích đơn vị / chức danh trên cây tổ chức. */
+type AddMode = 'name' | 'org';
+
 /**
  * Thêm, gỡ, đổi vai trò thành viên dự án.
  *
- * Người mới chọn từ danh bạ cả tổ chức. Lưu một lần cả danh sách qua
+ * Người mới chọn từ danh bạ cả tổ chức — từng người theo tên, hoặc nhiều
+ * người một lần theo đơn vị và chức danh. Lưu một lần cả danh sách qua
  * `PUT /projects/:id/members` — server giữ hai quy tắc: đúng một chủ nhiệm,
  * và không gỡ người còn việc chưa đóng. Giao diện chỉ kiểm sớm quy tắc thứ
  * nhất; quy tắc thứ hai cần dữ liệu công việc nên để server trả lỗi.
@@ -44,15 +45,26 @@ export function MembersDialog({
   onSave,
 }: MembersDialogProps) {
   const directory = useDirectory();
+  const projectRoles = useProjectRoles();
   const [rows, setRows] = useState<Row[]>([]);
-  const [adding, setAdding] = useState<string[]>([]);
+  const [mode, setMode] = useState<AddMode>('name');
   const [error, setError] = useState<string>();
   const [submitting, setSubmitting] = useState(false);
 
+  // Chỉ nạp lại danh sách khi hộp thoại MỞ, không phải mỗi lần `members` đổi
+  // tham chiếu: trang cha có thể tự tải lại chi tiết dự án (poll tin chưa đọc,
+  // kéo tiến độ quy trình…) khi hộp thoại đang mở, và nếu nạp lại theo `members`
+  // thì mỗi lần như vậy sẽ xoá sạch những người vừa thêm — đúng lỗi "chọn người
+  // sau mất người trước".
+  const initialized = useRef(false);
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      initialized.current = false;
+      return;
+    }
+    if (initialized.current) return;
+    initialized.current = true;
     setRows(members.map((member) => ({ userId: member.userId, role: member.role })));
-    setAdding([]);
     setError(undefined);
     setSubmitting(false);
   }, [open, members]);
@@ -68,19 +80,26 @@ export function MembersDialog({
       }),
     );
 
+  /** Thêm người vừa chọn thành dòng mới; người đã có thì giữ nguyên vai cũ. */
+  const addPeople = (userIds: readonly string[], role: ProjectRole = 'member') => {
+    setRows((current) => {
+      const present = new Set(current.map((row) => row.userId));
+      const added = userIds
+        .filter((userId) => !present.has(userId))
+        .map((userId) => ({ userId, role }));
+      return added.length > 0 ? [...current, ...added] : current;
+    });
+  };
+
   const submit = async () => {
-    const next: Row[] = [
-      ...rows,
-      ...adding.map((userId) => ({ userId, role: 'member' as ProjectRole })),
-    ];
-    if (next.filter((row) => row.role === 'owner').length !== 1) {
+    if (rows.filter((row) => row.role === 'owner').length !== 1) {
       setError('Dự án phải có đúng một chủ nhiệm.');
       return;
     }
     setError(undefined);
     setSubmitting(true);
     try {
-      await onSave(next);
+      await onSave(rows);
       onClose();
     } catch (cause) {
       setError((cause as { message?: string })?.message ?? 'Không lưu được danh sách thành viên.');
@@ -88,17 +107,21 @@ export function MembersDialog({
     }
   };
 
+  const memberRoleOptions = roleOptions(projectRoles, false);
+
   return (
     <Dialog
       open={open}
+      size="wide"
       title="Thành viên dự án"
+      subtitle={`${rows.length} thành viên`}
       submitLabel="Lưu"
       submitting={submitting}
       error={error}
       onClose={onClose}
       onSubmit={() => void submit()}
     >
-      <ul className={styles.memberList}>
+      <ul className={`${styles.memberList} ${styles.memberListScroll}`}>
         {rows.map((row) => {
           const person = directory.find(row.userId);
           const lockedOwner = row.role === 'owner' && !canTransferOwner;
@@ -106,20 +129,27 @@ export function MembersDialog({
             <li key={row.userId}>
               <span className={styles.memberName}>
                 {directory.nameOf(row.userId)}
-                {person?.unitNames.length ? (
-                  <span className={styles.muted}> · {person.unitNames.join(', ')}</span>
+                {person?.positionName || person?.unitNames.length ? (
+                  <span className={styles.muted}>
+                    {' '}
+                    ·{' '}
+                    {[person.positionName, person.unitNames.join(', ')]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  </span>
                 ) : null}
               </span>
-              <span className={styles.memberRole}>
+              <span className={`${styles.memberRole} ${styles.memberRoleEdit}`}>
                 <Choice
                   label={`Vai trò của ${directory.nameOf(row.userId)}`}
                   value={row.role}
                   disabled={lockedOwner}
                   title={lockedOwner ? 'Chỉ chủ nhiệm mới trao được vai trò chủ nhiệm.' : undefined}
-                  options={PROJECT_ROLES.filter(
-                    (role) => role !== 'owner' || canTransferOwner || row.role === 'owner',
-                  ).map((role) => ({ value: role, label: ROLE_LABELS[role] }))}
-                  onChange={(value) => setRole(row.userId, value as ProjectRole)}
+                  options={roleOptions(
+                    projectRoles,
+                    canTransferOwner || row.role === 'owner',
+                  )}
+                  onChange={(value) => setRole(row.userId, value)}
                 />
                 <button
                   type="button"
@@ -137,17 +167,59 @@ export function MembersDialog({
         })}
       </ul>
 
-      <Field label="Thêm người" hint="Người mới vào với vai trò Thành viên; đổi vai trò sau khi lưu.">
-        <PeoplePicker
-          people={directory.people}
-          selected={adding}
-          onChange={setAdding}
-          nameOf={directory.nameOf}
-          exclude={rows.map((row) => row.userId)}
-          degraded={directory.degraded}
-          loaded={directory.loaded}
-        />
-      </Field>
+      <section className={styles.memberAdd} aria-label="Thêm người">
+        <div className={styles.memberAddHead}>
+          <span className={styles.fieldLabel}>Thêm người</span>
+          <div className={styles.segmented} role="tablist" aria-label="Cách thêm người">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mode === 'name'}
+              className={mode === 'name' ? styles.segmentActive : styles.segment}
+              onClick={() => setMode('name')}
+            >
+              Theo tên
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mode === 'org'}
+              className={mode === 'org' ? styles.segmentActive : styles.segment}
+              onClick={() => setMode('org')}
+            >
+              Theo đơn vị / chức danh
+            </button>
+          </div>
+        </div>
+
+        {mode === 'name' ? (
+          <>
+            <PeoplePicker
+              people={directory.people}
+              // Người đã thêm hiện thành dòng có ô vai trò ở trên, nên ô tìm không
+              // giữ lại "chip": chọn xong là thêm ngay rồi xoá từ khoá.
+              selected={[]}
+              onChange={(userIds) => addPeople(userIds)}
+              nameOf={directory.nameOf}
+              exclude={rows.map((row) => row.userId)}
+              degraded={directory.degraded}
+              loaded={directory.loaded}
+            />
+            <span className={styles.fieldHint}>
+              Người vừa chọn hiện thành một dòng bên trên; chọn vai trò ngay tại dòng đó.
+            </span>
+          </>
+        ) : (
+          <OrgPicker
+            nodes={directory.orgNodes}
+            people={directory.people}
+            exclude={rows.map((row) => row.userId)}
+            roleOptions={memberRoleOptions}
+            defaultRole="member"
+            onAdd={addPeople}
+          />
+        )}
+      </section>
     </Dialog>
   );
 }

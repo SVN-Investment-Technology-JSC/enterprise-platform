@@ -1,6 +1,8 @@
 import {
+  Activity,
   CalendarClock,
   CalendarDays,
+  Car,
   ClipboardCheck,
   Clock,
   FileText,
@@ -35,6 +37,7 @@ export const hrmNavigationSections: NavSection[] = [
     title: 'TỔNG QUAN',
     items: [
       { id: 'dashboard', label: 'Bàn làm việc', icon: Home, href: '/' },
+      { id: 'attendance_monitor', label: 'Giám sát chấm công', icon: Activity, href: '/attendance-monitor' },
       { id: 'request_processing', label: 'Đơn từ cần xử lý', icon: ClipboardCheck, href: '/approvals' },
     ],
   },
@@ -53,6 +56,7 @@ export const hrmNavigationSections: NavSection[] = [
       { id: 'timekeeping', label: 'Bảng công', icon: CalendarClock, href: '/timekeeping' },
       { id: 'leave', label: 'Phép năm', icon: CalendarDays, href: '/leave' },
       { id: 'payroll', label: 'Lương và chi trả', icon: TrendingUp, href: '/payroll' },
+      { id: 'fleet', label: 'Lịch xe', icon: Car, href: '/fleet' },
     ],
   },
   {

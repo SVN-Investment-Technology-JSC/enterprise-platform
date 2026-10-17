@@ -81,6 +81,7 @@ integration('HRM request draft lifecycle PostgreSQL integration', () => {
     await migrate('hrm/0018-hrm-request-reversals.sql');
     await migrate('hrm/0018-hrm-request-reversals.sql');
     await migrate('hrm/0033-leave-annual-policy.sql');
+    await migrate('hrm/0051-hrm-leave-settlements-legacy.sql');
     await migrate('hrm/0044-hrm-annual-leave-single-policy.sql');
     await migrate('hrm/0035-hrm-work-schedules.sql');
     await migrate('hrm/0036-hrm-work-schedule-rules.sql');
@@ -792,12 +793,10 @@ integration('HRM request draft lifecycle PostgreSQL integration', () => {
       }),
     ).rejects.toMatchObject({ status: 400 });
   });
-  it('returns every proposed correction session to the reviewer', async () => {
+  it('returns the proposed correction punch to the reviewer', async () => {
     const c = new HrmAttendanceController(ctx(), bridge as any);
-    const sessions = [
-      { start: '2026-08-26T01:00:00Z', end: '2026-08-26T05:00:00Z' },
-      { start: '2026-08-26T06:00:00Z', end: '2026-08-26T10:00:00Z' },
-    ];
+    // Mỗi đơn chỉ khai báo một mốc giờ vào hoặc giờ ra.
+    const punches = [{ kind: 'IN', at: '2026-08-26T01:00:00.000Z' }];
     const reason = (
       await pool.query(
         // Danh mục mặc định của tenant đã có sẵn lý do "Quên chấm công": dùng lại, chưa có thì tạo.
@@ -810,22 +809,23 @@ integration('HRM request draft lifecycle PostgreSQL integration', () => {
     const created = await c.createCorrection(req, {
       employeeId: userId,
       requestDate: '2026-08-26',
-      sessions,
+      punches,
       reasonId: reason.id,
-      description: 'Two-session correction',
+      description: 'Single-punch correction',
     });
-    expect((created.data as any).correctedSessions).toEqual(sessions);
+    expect((created.data as any).correctedPunches).toEqual(punches);
+    expect((created.data as any).correctedSessions).toEqual([]);
     // Lý do chọn từ danh mục tách khỏi mô tả: lưu reason_id, bản chụp tên và mô tả ở cột reason.
     expect(created.data).toMatchObject({
       reasonId: reason.id,
       reasonName: 'Quên chấm công',
-      description: 'Two-session correction',
+      description: 'Single-punch correction',
     });
     await expect(
       c.createCorrection(req, {
         employeeId: userId,
         requestDate: '2026-08-26',
-        sessions,
+        punches,
         reason: 'Lý do nhập tự do không còn hợp lệ',
       } as any),
     ).rejects.toMatchObject({ status: 400 });

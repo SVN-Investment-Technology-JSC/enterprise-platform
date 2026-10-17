@@ -5,16 +5,10 @@
  * chúng đứng cạnh nhau trong cùng một cột chi tiết nên lệch nhau là thấy ngay.
  */
 
-export const activityTime = new Intl.DateTimeFormat('vi-VN', {
-  hour: '2-digit',
-  minute: '2-digit',
-});
+import { formatDate, formatTime } from '@enterprise-platform/shared-ui';
 
-const activityDay = new Intl.DateTimeFormat('vi-VN', {
-  day: '2-digit',
-  month: '2-digit',
-  year: 'numeric',
-});
+/** `14:05` (24 giờ) từ chuỗi ISO. */
+export const activityTime = { format: (value: Date | string) => formatTime(value) };
 
 /**
  * Màu theo loại hành động, để quét mắt nhanh trên dòng thời gian dài.
@@ -41,5 +35,5 @@ export function dayLabel(iso: string): string {
     date.getDate() === today.getDate() &&
     date.getMonth() === today.getMonth() &&
     date.getFullYear() === today.getFullYear();
-  return sameDay ? 'Hôm nay' : activityDay.format(date);
+  return sameDay ? 'Hôm nay' : formatDate(date);
 }

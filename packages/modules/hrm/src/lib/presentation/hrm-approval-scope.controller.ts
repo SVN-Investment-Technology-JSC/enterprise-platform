@@ -15,7 +15,7 @@ export class HrmApprovalScopeController {
   @RequirePermission('hrm.read')
   @Get()
   async get(@Req() req: Request) {
-    const { tenantId, principal } = await this.ctx.getContext(req, 'hrm.read');
-    return { data: await this.approvals.scopeStatus({ tenantId, principal }) };
+    const { pool, tenantId, principal } = await this.ctx.getContext(req, 'hrm.read');
+    return { data: await this.approvals.scopeStatus({ pool, tenantId, principal }) };
   }
 }

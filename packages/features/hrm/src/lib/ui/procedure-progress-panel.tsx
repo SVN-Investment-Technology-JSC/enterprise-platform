@@ -1,6 +1,7 @@
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Check, Download, Loader2, RefreshCw, X } from 'lucide-react';
+import { formatDateTime } from '@enterprise-platform/shared-ui';
 import { hrmFetch } from '../hrm-api';
 import { Badge } from './badge';
 import { Button } from './button';
@@ -8,6 +9,7 @@ import {
   PROCEDURE_POLL_INTERVAL_MS,
   procedureSyncNotice,
   shouldPollProcedureProgress,
+  summarizeRoleTitle,
   waitingApproverLabel,
   type ProcedureProgressData,
   type ProcedureSubmittedAttribute,
@@ -85,15 +87,7 @@ export function useProcedureProgress(input: {
 
 function formatDate(value?: string) {
   if (!value) return '';
-  const d = new Date(value);
-  return Number.isNaN(d.getTime())
-    ? ''
-    : d.toLocaleString('vi-VN', {
-        hour: '2-digit',
-        minute: '2-digit',
-        day: '2-digit',
-        month: '2-digit',
-      });
+  return formatDateTime(value);
 }
 
 export interface ProcedureProgressPanelProps {
@@ -216,6 +210,7 @@ export function ProcedureProgressPanel({
               const isCompleted = st.status === 'completed';
               const isRejected = st.status === 'rejected';
               const isActive = st.status === 'active' || st.status === 'ready';
+              const roleBadge = summarizeRoleTitle(st.roleTitle);
               return (
                 <div
                   key={st.id || idx}
@@ -247,12 +242,13 @@ export function ProcedureProgressPanel({
                       >
                         {st.name}
                       </span>
-                      {st.roleTitle && (
+                      {roleBadge && (
                         <span
-                          className="text-[10px] text-slate-500 bg-white border border-slate-200 px-1.5 py-0.5 rounded font-medium"
-                          title="Người xử lý"
+                          className="max-w-[55%] truncate text-[10px] text-slate-500 bg-white border border-slate-200 px-1.5 py-0.5 rounded font-medium"
+                          title={roleBadge.full}
+                          data-testid="step-role-title"
                         >
-                          {st.roleTitle}
+                          {roleBadge.text}
                         </span>
                       )}
                     </div>

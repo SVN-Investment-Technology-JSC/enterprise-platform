@@ -1,9 +1,10 @@
 'use client';
 
 import type { ProjectSummary, ReportBundle } from '@enterprise-platform/contracts-workspace';
+import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import { Download, RefreshCw } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
-import { formatPercent, formatVnd, formatVndCompact } from '../money';
+import { formatVnd, formatVndCompact } from '../money';
 import { ExportTooLargeError, buildCsv, exportFileName } from '../report-export';
 import * as api from '../workspace-api';
 import {
@@ -120,11 +121,15 @@ export function ReportsView() {
         ) : null}
         <label className={styles.checkbox}>
           Từ ngày
-          <input type="date" value={from} onChange={(event) => setFrom(event.target.value)} />
+          <span style={{ width: 140 }}>
+            <DatePickerInput height={32} value={from} onChange={setFrom} />
+          </span>
         </label>
         <label className={styles.checkbox}>
           Đến ngày
-          <input type="date" value={to} onChange={(event) => setTo(event.target.value)} />
+          <span style={{ width: 140 }}>
+            <DatePickerInput height={32} value={to} onChange={setTo} />
+          </span>
         </label>
         <button
           type="button"
@@ -172,19 +177,10 @@ export function ReportsView() {
           <h3>Tài chính các dự án trong phạm vi</h3>
           <div className={styles.statRow}>
             <MoneyStat label="Tổng giá trị hợp đồng" value={bundle.finance.contractValue} />
-            <MoneyStat label="Tổng ngân sách" value={bundle.finance.budget} />
-            <MoneyStat label="Tổng chi phí thực tế" value={bundle.finance.actualCost} />
-            <MoneyStat label="Tổng chi phí dự kiến" value={bundle.finance.forecastCost} />
-            <MoneyStat
-              label="Tổng lợi nhuận dự kiến"
-              value={bundle.finance.profit}
-              danger={bundle.finance.profit < 0}
-            />
-            <div className={styles.stat}>
-              <span className={styles.statValue}>{formatPercent(bundle.finance.profitMargin)}</span>
-              <span className={styles.statLabel}>Biên lợi nhuận bình quân</span>
-            </div>
           </div>
+          <p className={styles.muted}>
+            Thu chi thực tế xem ở tab Tài chính của từng dự án, và báo cáo thu chi theo dự án ở module Tài chính.
+          </p>
         </section>
       ) : null}
 

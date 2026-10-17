@@ -2,15 +2,13 @@
 import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { SearchableSelect, Popconfirm } from '@enterprise-platform/shared-ui';
+import { DatePickerInput } from '../ui/date-picker-input';
 import {
-  CalendarDays,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
-  Clock,
   RefreshCw,
   Search,
-  TriangleAlert,
 } from 'lucide-react';
 import { HrmApiError, hrmFetch, hrmEmployeeOptions } from '../hrm-api';
 import {
@@ -72,24 +70,10 @@ export default function ApprovalsScreen() {
   );
 }
 
-function Kpi({ tone, icon, label, value, testId }: { tone: 'orange' | 'blue' | 'red' | 'green'; icon: React.ReactNode; label: string; value: number; testId: string }) {
-  const tile = { orange: 'bg-orange-50 text-orange-500', blue: 'bg-blue-50 text-[#2563eb]', red: 'bg-rose-50 text-rose-500', green: 'bg-emerald-50 text-emerald-600' }[tone];
-  const text = { orange: 'text-orange-500', blue: 'text-[#2563eb]', red: 'text-rose-600', green: 'text-emerald-600' }[tone];
-  return (
-    <div className={`${CARD} flex items-center gap-3 px-4 py-3.5`} data-testid={testId}>
-      <span className={`flex size-12 shrink-0 items-center justify-center rounded-xl ${tile}`}>{icon}</span>
-      <div>
-        <p className="text-[12.5px] text-slate-500">{label}</p>
-        <p className={`text-[26px] font-extrabold leading-tight ${text}`}>{value}</p>
-      </div>
-    </div>
-  );
-}
-
 function FilterBox({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="min-w-[140px] flex-1 rounded-xl border border-slate-200/80 bg-white px-3 pb-1 pt-1.5">
-      <span className="block text-[10.5px] font-medium text-slate-500">{label}</span>
+    <div className="min-w-[140px] flex-1">
+      <span className="mb-1 block text-[12px] font-semibold text-slate-500">{label}</span>
       {children}
     </div>
   );
@@ -149,12 +133,16 @@ function ApprovalsContent() {
   }, []);
   useEffect(() => {
     if (!linkedRequestId) return;
+    if (availableSources.length === 0) {
+      window.location.replace(`/modules/hrm/requests?request=${encodeURIComponent(linkedRequestId)}`);
+      return;
+    }
     const row = rows.find((item) => item.id === linkedRequestId);
     if (row) {
       setDetailKey(row.key);
       setLinkedRequestId('');
     }
-  }, [rows, linkedRequestId]);
+  }, [rows, linkedRequestId, availableSources]);
   useEffect(
     () => setLinkedId(new URLSearchParams(window.location.search).get('workflow') || ''),
     [],
@@ -373,6 +361,8 @@ function ApprovalsContent() {
     });
   }
 
+
+
   const counts = useMemo(() => approvalCounts(rows, ability), [rows, permissionKey]);
   const visible = useMemo(() => filterApprovals(rows, filter, ability), [rows, filter, permissionKey]);
   const paged = pageOf(visible, page, PAGE_SIZE);
@@ -402,7 +392,7 @@ function ApprovalsContent() {
       <div className="flex flex-wrap items-end justify-between gap-2">
         <div>
           <h1 className="text-[26px] font-extrabold leading-tight tracking-tight text-slate-900">Đơn từ cần xử lý</h1>
-          <p className="text-[13px] text-slate-500">Theo dõi và phê duyệt các yêu cầu đang chờ xử lý.</p>
+          <p className="text-[14px] text-slate-500">Theo dõi và phê duyệt các yêu cầu đang chờ xử lý.</p>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" onClick={() => void load().catch((e) => setError(e.message))} className="gap-1.5">
@@ -420,12 +410,7 @@ function ApprovalsContent() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Chỉ số xử lý đơn">
-        <Kpi tone="orange" icon={<TriangleAlert className="size-6" />} label="Chờ tôi duyệt" value={counts.mine} testId="kpi-mine" />
-        <Kpi tone="blue" icon={<Clock className="size-6" />} label="Đang xử lý" value={counts.processing} testId="kpi-processing" />
-        <Kpi tone="red" icon={<TriangleAlert className="size-6" />} label="Quá hạn" value={counts.overdue} testId="kpi-overdue" />
-        <Kpi tone="green" icon={<CheckCircle2 className="size-6" />} label="Đã xử lý tháng này" value={counts.doneThisMonth} testId="kpi-done" />
-      </div>
+
 
       {error && (
         <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-semibold text-red-700">
@@ -438,17 +423,19 @@ function ApprovalsContent() {
         </div>
       )}
 
-      <div className="flex flex-wrap items-stretch gap-2.5" aria-label="Bộ lọc">
-        <div className="flex min-w-[260px] flex-[1.6] items-center gap-2 rounded-xl border border-slate-200/80 bg-white px-3">
-          <Search className="size-4 shrink-0 text-slate-400" />
-          <input
-            aria-label="Tìm đơn"
-            placeholder="Tên nhân viên, mã đơn, lý do..."
-            value={filter.search}
-            onChange={(e) => patch({ search: e.target.value })}
-            className="h-11 w-full bg-transparent text-[13px] outline-none placeholder:text-slate-400"
-          />
-        </div>
+      <div className="flex flex-wrap items-end gap-2.5" aria-label="Bộ lọc">
+        <FilterBox label="Tìm kiếm">
+          <div className="flex h-[38px] items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 focus-within:border-blue-600 focus-within:ring-2 focus-within:ring-blue-100">
+            <Search className="size-4 shrink-0 text-slate-400" />
+            <input
+              aria-label="Tìm đơn"
+              placeholder="Tên nhân viên, mã đơn, lý do..."
+              value={filter.search}
+              onChange={(e) => patch({ search: e.target.value })}
+              className="h-full w-full bg-transparent text-[14px] outline-none placeholder:text-slate-400"
+            />
+          </div>
+        </FilterBox>
         <FilterBox label="Loại đơn">
           <SearchableSelect
             value={filter.kind}
@@ -487,18 +474,18 @@ function ApprovalsContent() {
               .map(([value, label]) => ({ value, label }))}
           />
         </FilterBox>
-        <div className="flex min-w-[250px] flex-[1.3] items-center gap-2 rounded-xl border border-slate-200/80 bg-white px-3 text-[12.5px] text-slate-600">
-          <CalendarDays className="size-4 shrink-0 text-slate-400" />
-          <input type="date" aria-label="Từ ngày" value={filter.from} onChange={(e) => patch({ from: e.target.value })} className="h-11 min-w-0 flex-1 bg-transparent outline-none" />
-          <span className="text-slate-300">–</span>
-          <input type="date" aria-label="Đến ngày" value={filter.to} onChange={(e) => patch({ to: e.target.value })} className="h-11 min-w-0 flex-1 bg-transparent outline-none" />
-        </div>
+        <FilterBox label="Từ ngày">
+          <DatePickerInput aria-label="Từ ngày" height={38} value={filter.from} max={filter.to || undefined} onChange={(v: string) => patch({ from: v })} />
+        </FilterBox>
+        <FilterBox label="Đến ngày">
+          <DatePickerInput aria-label="Đến ngày" height={38} value={filter.to} min={filter.from || undefined} onChange={(v: string) => patch({ to: v })} />
+        </FilterBox>
       </div>
 
-      <div className="grid gap-3 xl:h-[calc(100dvh-420px)] xl:min-h-[520px] xl:grid-cols-[minmax(0,1fr)_430px]">
+      <div className="grid gap-3 xl:h-[calc(100dvh-320px)] xl:min-h-[520px] xl:grid-cols-[minmax(0,1fr)_430px]">
         <section className={`${CARD} flex min-h-[420px] min-w-0 flex-col overflow-hidden`} aria-label="Danh sách đơn">
           <div className="flex shrink-0 items-center justify-between gap-2 border-b border-slate-100 px-3">
-            <div className="flex gap-1 text-[13px]" aria-label="Nhóm đơn">
+            <div className="flex gap-1 text-[14px]" aria-label="Nhóm đơn">
               {tabs.map((t) => (
                 <button
                   key={t.id}
@@ -511,6 +498,17 @@ function ApprovalsContent() {
                   {t.label} ({t.count})
                 </button>
               ))}
+              {(filter.tab === 'OVERDUE' || filter.tab === 'DONE_MONTH') && (
+                <button
+                  type="button"
+                  data-testid="tab-card-filter"
+                  onClick={() => patch({ tab: 'ALL' })}
+                  className="-mb-px border-b-2 border-[#2563eb] px-3 py-3 font-medium text-[#2563eb]"
+                  title="Bỏ lọc theo thẻ tổng quan"
+                >
+                  {filter.tab === 'OVERDUE' ? `Quá hạn (${counts.overdue})` : `Đã xử lý tháng này (${counts.doneThisMonth})`} ×
+                </button>
+              )}
             </div>
             <Popconfirm title={`Duyệt ${selected.length} đơn đã chọn?`} description="Các đơn liên kết Procedure được xử lý tại quy trình tương ứng." onConfirm={batch}>
               <Button disabled={busy || !selected.length} className="h-8 gap-1.5 border-0 bg-emerald-600 text-xs text-white hover:bg-emerald-700">
@@ -521,8 +519,8 @@ function ApprovalsContent() {
           </div>
 
           <div className="min-h-0 flex-1 overflow-auto">
-            <table className="w-full min-w-[640px] border-collapse text-[13px]" aria-label="Danh sách đơn từ">
-              <thead className="sticky top-0 z-10 bg-slate-50 text-left text-[12.5px] font-semibold text-slate-700">
+            <table className="w-full min-w-[640px] border-collapse text-[14px]" aria-label="Danh sách đơn từ">
+              <thead className="sticky top-0 z-10 bg-slate-50 text-left text-[13px] font-semibold text-slate-700">
                 <tr>
                   <th className="w-10 px-3 py-2.5">
                     <input
@@ -584,34 +582,34 @@ function ApprovalsContent() {
                         </td>
                         <td className="px-2 py-2.5">
                           <div className="flex items-center gap-2.5">
-                            <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-slate-200 text-[11.5px] font-bold text-slate-600">{initialsOf(r.employeeName)}</span>
+                            <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-slate-200 text-[12px] font-bold text-slate-600">{initialsOf(r.employeeName)}</span>
                             <div className="min-w-0">
                               <p className="truncate font-semibold text-slate-900">{r.employeeName}</p>
-                              <p className="truncate text-[11.5px] text-slate-500">{[r.employeeCode, r.department].filter(Boolean).join(' · ')}</p>
+                              <p className="truncate text-[12px] text-slate-500">{[r.employeeCode, r.department].filter(Boolean).join(' · ')}</p>
                             </div>
                           </div>
                         </td>
                         <td className="px-2 py-2.5">
-                          <span className={`inline-flex max-w-[170px] items-center truncate rounded-lg px-2.5 py-1 text-[12px] font-semibold ${kindChip(r.source.kind)}`}>{rowKindLabel(r)}</span>
+                          <span className={`inline-flex max-w-[170px] items-center truncate rounded-lg px-2.5 py-1 text-[13px] font-semibold ${kindChip(r.source.kind)}`}>{rowKindLabel(r)}</span>
                         </td>
                         <td className="px-2 py-2.5">
                           <p className="font-medium text-slate-900">{r.period || '—'}</p>
-                          {amount ? <p className="text-[11.5px] text-slate-500">{amount}</p> : null}
+                          {amount ? <p className="text-[12px] text-slate-500">{amount}</p> : null}
                         </td>
                         <td className="max-w-[200px] px-2 py-2.5">
                           <p className="truncate text-slate-800" title={r.reasonLabel}>
                             {r.reasonLabel}
-                            {isUnpaidOt(r) ? <span className="ml-1.5 rounded bg-amber-50 px-1 text-[10px] font-semibold text-amber-800">Không lương</span> : null}
+                            {isUnpaidOt(r) ? <span className="ml-1.5 rounded bg-amber-50 px-1 text-[12px] font-semibold text-amber-800">Không lương</span> : null}
                           </p>
                         </td>
                         <td className="px-2 py-2.5">
                           <span
-                            className={`inline-flex rounded-lg px-2.5 py-1 text-[12px] font-semibold ${statusTone(r.status)}`}
+                            className={`inline-flex rounded-lg px-2.5 py-1 text-[13px] font-semibold ${statusTone(r.status)}`}
                             title={r.reversalReason ? `Lý do: ${r.reversalReason}` : undefined}
                           >
                             {states[r.status] || r.status}
                           </span>
-                          {isOverdue(r) ? <span className="ml-1.5 text-[10.5px] font-semibold text-rose-600">Quá hạn</span> : null}
+                          {isOverdue(r) ? <span className="ml-1.5 text-[12px] font-semibold text-rose-600">Quá hạn</span> : null}
                         </td>
                       </tr>
                     );
@@ -621,7 +619,7 @@ function ApprovalsContent() {
             </table>
           </div>
 
-          <div className="flex shrink-0 items-center justify-between gap-2 border-t border-slate-100 px-3 py-2.5 text-[12.5px] text-slate-600">
+          <div className="flex shrink-0 items-center justify-between gap-2 border-t border-slate-100 px-3 py-2.5 text-[13px] text-slate-600">
             <span>
               Hiển thị {paged.from}–{paged.to} trên {visible.length} đơn
             </span>
@@ -629,7 +627,7 @@ function ApprovalsContent() {
               <button type="button" aria-label="Trang trước" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))} className="flex size-8 items-center justify-center rounded-lg border border-slate-200 disabled:opacity-40">
                 <ChevronLeft className="size-4" />
               </button>
-              <span className="flex size-8 items-center justify-center rounded-lg bg-amber-100 text-[12.5px] font-bold text-amber-900">{Math.min(page, paged.pages)}</span>
+              <span className="flex size-8 items-center justify-center rounded-lg bg-amber-100 text-[13px] font-bold text-amber-900">{Math.min(page, paged.pages)}</span>
               <button type="button" aria-label="Trang sau" disabled={page >= paged.pages} onClick={() => setPage((p) => Math.min(paged.pages, p + 1))} className="flex size-8 items-center justify-center rounded-lg border border-slate-200 disabled:opacity-40">
                 <ChevronRight className="size-4" />
               </button>

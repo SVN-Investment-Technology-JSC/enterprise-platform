@@ -12,72 +12,102 @@ function StatCard({
   label,
   value,
   note,
-  noteTone,
+  noteTone = '',
+  selected = false,
+  onSelect,
 }: {
+  selected?: boolean;
+  onSelect?: () => void;
   testId: string;
   icon: ReactNode;
   tone: string;
   label: string;
   value: number;
-  note: string;
-  noteTone: string;
+  note?: string;
+  noteTone?: string;
 }) {
-  return (
+  const body = (
     <div
       data-testid={testId}
-      className="flex min-w-0 items-center gap-3 rounded-xl border border-slate-200 bg-white px-3.5 py-3"
+      className={`flex min-w-0 items-center gap-3 rounded-xl border bg-white px-3.5 py-3 ${
+        selected ? 'border-blue-500 ring-2 ring-blue-200' : 'border-slate-200'
+      }`}
     >
       <span className={`flex size-11 shrink-0 items-center justify-center rounded-xl ${tone}`}>{icon}</span>
       <div className="min-w-0">
         <p className="truncate text-xs font-semibold text-slate-600">{label}</p>
         <p className="font-mono text-2xl font-bold leading-tight text-slate-900">{value}</p>
-        <p className={`truncate text-[11px] font-semibold ${noteTone}`}>{note}</p>
+        {note ? <p className={`truncate text-[12px] font-semibold ${noteTone}`}>{note}</p> : null}
       </div>
     </div>
   );
+  if (!onSelect) return body;
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      aria-pressed={selected}
+      aria-label={`Lọc danh sách: ${label}`}
+      className="block min-w-0 cursor-pointer rounded-xl text-left transition hover:ring-2 hover:ring-blue-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+    >
+      {body}
+    </button>
+  );
 }
 
-const percent = (n: number) => `${String(n).replace('.', ',')}%`;
-
 /** Bốn thẻ tổng quan: tổng nhân viên, đang làm việc, nghỉ việc, chờ hoàn thiện hồ sơ. */
-export function EmployeeStatCards({ stats }: { stats: EmployeeStats }) {
+export type EmployeeCardFilter = 'ALL' | 'ACTIVE' | 'INACTIVE' | 'INCOMPLETE';
+
+export function EmployeeStatCards({
+  stats,
+  active = 'ALL',
+  onSelect,
+}: {
+  stats: EmployeeStats;
+  /** Thẻ đang lọc danh sách (nếu có). */
+  active?: EmployeeCardFilter;
+  /** Bấm thẻ: lọc danh sách nhân sự theo nhóm của thẻ. Không truyền thì thẻ chỉ để xem. */
+  onSelect?: (filter: EmployeeCardFilter) => void;
+}) {
   return (
     <div aria-label="Tổng quan nhân sự" className="grid grid-cols-2 gap-2 xl:grid-cols-4">
       <StatCard
         testId="employee-stat-total"
+        selected={false}
+        onSelect={onSelect ? () => onSelect('ALL') : undefined}
         icon={<Users className="size-5" />}
         tone="bg-blue-50 text-blue-600"
         label="Tổng nhân sự"
         value={stats.total}
-        note={stats.joinedThisMonth > 0 ? `+${stats.joinedThisMonth} vào làm trong tháng` : 'Không có người vào mới trong tháng'}
-        noteTone={stats.joinedThisMonth > 0 ? 'text-emerald-600' : 'text-slate-400'}
+        note={stats.joinedThisMonth > 0 ? `+${stats.joinedThisMonth} vào làm trong tháng` : undefined}
+        noteTone="text-emerald-600"
       />
       <StatCard
         testId="employee-stat-active"
+        selected={active === 'ACTIVE'}
+        onSelect={onSelect ? () => onSelect('ACTIVE') : undefined}
         icon={<UserCheck className="size-5" />}
         tone="bg-emerald-50 text-emerald-600"
         label="Đang làm việc"
         value={stats.active}
-        note={percent(stats.activePercent)}
-        noteTone="text-emerald-600"
       />
       <StatCard
         testId="employee-stat-inactive"
+        selected={active === 'INACTIVE'}
+        onSelect={onSelect ? () => onSelect('INACTIVE') : undefined}
         icon={<UserX className="size-5" />}
         tone="bg-rose-50 text-rose-500"
         label="Nghỉ việc"
         value={stats.inactive}
-        note={percent(stats.inactivePercent)}
-        noteTone="text-rose-500"
       />
       <StatCard
         testId="employee-stat-incomplete"
+        selected={active === 'INCOMPLETE'}
+        onSelect={onSelect ? () => onSelect('INCOMPLETE') : undefined}
         icon={<Home className="size-5" />}
         tone="bg-amber-50 text-amber-600"
         label="Chờ hoàn thiện hồ sơ"
         value={stats.incomplete}
-        note={percent(stats.incompletePercent)}
-        noteTone="text-amber-600"
       />
     </div>
   );
@@ -169,7 +199,7 @@ export function EmployeeAvatar({ initials, seed }: { initials: string; seed: str
   return (
     <span
       aria-hidden="true"
-      className={`flex size-8 shrink-0 items-center justify-center rounded-full text-[11px] font-bold ${AVATAR_TONES[hash % AVATAR_TONES.length]}`}
+      className={`flex size-8 shrink-0 items-center justify-center rounded-full text-[12px] font-bold ${AVATAR_TONES[hash % AVATAR_TONES.length]}`}
     >
       {initials}
     </span>

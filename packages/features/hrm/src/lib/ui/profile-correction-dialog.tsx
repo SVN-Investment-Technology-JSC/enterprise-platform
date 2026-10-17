@@ -209,7 +209,7 @@ export function ProfileCorrectionDialog({
                 <div key={field} className="space-y-1">
                   <label className="font-semibold text-slate-800 block">
                     {def.label}
-                    <span className="text-[10px] text-slate-400 font-normal ml-1">
+                    <span className="text-[12px] text-slate-400 font-normal ml-1">
                       (Hiện tại: {formatProfileValue(field, current[field])})
                     </span>
                   </label>
@@ -269,7 +269,7 @@ export function ProfileCorrectionDialog({
           </div>
 
           {binding?.status === 'error' && (
-            <div className="p-2.5 rounded-md border border-red-200 bg-red-50 text-[11px] text-red-700 flex items-center justify-between gap-2">
+            <div className="p-2.5 rounded-md border border-red-200 bg-red-50 text-[12px] text-red-700 flex items-center justify-between gap-2">
               <span>{binding.message}</span>
               <Button
                 type="button"

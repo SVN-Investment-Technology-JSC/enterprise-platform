@@ -109,6 +109,15 @@ export interface ModuleShellProps<TViewId extends string = string> {
   readonly onQuickSearch?: () => void;
   /** Chỉ kiểu `light`: các mục riêng của module, vẽ dưới danh sách điều hướng. */
   readonly sidebarSections?: readonly ModuleSidebarSection[];
+  /**
+   * Chỉ kiểu `light`: có thì hiện nút Cài đặt (bánh răng) ở góc dưới bên trái
+   * thanh bên, cạnh nút Trang chủ.
+   */
+  readonly settings?: {
+    readonly label?: string;
+    readonly active?: boolean;
+    readonly onOpen: () => void;
+  };
   readonly children: ReactNode;
 }
 

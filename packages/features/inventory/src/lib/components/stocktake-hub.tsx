@@ -1,4 +1,5 @@
 'use client';
+import { formatDateTime as formatSharedDateTime } from '@enterprise-platform/shared-ui';
 import { useInventoryPermissions } from '../inventory-permissions';
 
 import type {
@@ -61,13 +62,7 @@ function formatCurrency(value?: number): string {
 
 function formatDateTime(value?: string): string {
   if (!value) return '—';
-  return new Intl.DateTimeFormat('vi-VN', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(new Date(value));
+  return formatSharedDateTime(value, '—');
 }
 
 export interface StocktakeHubProps {
@@ -421,7 +416,7 @@ export function StocktakeHub({
         <div>
           <span className={styles.eyebrow}>Đối soát &amp; Cân đối kho</span>
           <h1 style={{ margin: 0 }}>Kiểm kê kho &amp; Đối soát số sách</h1>
-          <p style={{ margin: '4px 0 0', color: '#64748b', fontSize: '13px' }}>
+          <p style={{ margin: '4px 0 0', color: '#64748b', fontSize: '14px' }}>
             Quy trình đối soát định kỳ và đột xuất toàn kho, chốt snapshot, ghi nhận chênh lệch và tự động sinh bút toán cân kho sau phê duyệt.
           </p>
         </div>
@@ -454,7 +449,7 @@ export function StocktakeHub({
                 color: '#ffffff',
                 border: 'none',
                 borderRadius: '4px',
-                fontSize: '12.5px',
+                fontSize: '13px',
                 fontWeight: 700,
                 cursor: 'pointer',
                 whiteSpace: 'nowrap',
@@ -475,7 +470,7 @@ export function StocktakeHub({
                 style={{
                   width: '100%',
                   padding: '6px 10px 6px 30px',
-                  fontSize: '12.5px',
+                  fontSize: '13px',
                   border: '1px solid #cbd5e1',
                   borderRadius: '4px',
                   outline: 'none',
@@ -546,7 +541,7 @@ export function StocktakeHub({
                       style={{
                         fontFamily: 'monospace',
                         fontWeight: 700,
-                        fontSize: '12.5px',
+                        fontSize: '13px',
                         color: isSelected ? '#1d4ed8' : '#0f172a',
                       }}
                     >
@@ -554,7 +549,7 @@ export function StocktakeHub({
                     </span>
                     <span
                       style={{
-                        fontSize: '11px',
+                        fontSize: '12px',
                         fontWeight: 600,
                         padding: '1px 6px',
                         borderRadius: '4px',
@@ -567,17 +562,17 @@ export function StocktakeHub({
                     </span>
                   </div>
 
-                  <div style={{ fontSize: '13px', fontWeight: 600, color: '#1e293b', lineHeight: 1.3 }}>
+                  <div style={{ fontSize: '14px', fontWeight: 600, color: '#1e293b', lineHeight: 1.3 }}>
                     {session.title}
                   </div>
 
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '11.5px', color: '#64748b' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '12px', color: '#64748b' }}>
                     <span>{session.warehouseCode}</span>
                     <span>{session.totalItems > 0 ? `Đếm ${session.countedItems}/${session.totalItems} mã` : 'Chưa snapshot'}</span>
                   </div>
 
                   {session.differenceItems > 0 ? (
-                    <div style={{ fontSize: '11.5px', color: '#dc2626', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <div style={{ fontSize: '12px', color: '#dc2626', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
                       <AlertTriangle size={12} /> Có {session.differenceItems} mặt hàng lệch
                     </div>
                   ) : null}
@@ -586,7 +581,7 @@ export function StocktakeHub({
             })}
 
             {filteredSessions.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '30px 10px', color: '#94a3b8', fontSize: '13px' }}>
+              <div style={{ textAlign: 'center', padding: '30px 10px', color: '#94a3b8', fontSize: '14px' }}>
                 Không tìm thấy đợt kiểm kê nào phù hợp.
               </div>
             ) : null}
@@ -610,12 +605,12 @@ export function StocktakeHub({
             >
               <div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 800, color: '#0f172a' }}>
+                  <h2 style={{ margin: 0, fontSize: '20px', fontWeight: 800, color: '#0f172a' }}>
                     {selectedSession.code}
                   </h2>
                   <span
                     style={{
-                      fontSize: '12px',
+                      fontSize: '13px',
                       fontWeight: 700,
                       padding: '2px 8px',
                       borderRadius: '999px',
@@ -626,11 +621,11 @@ export function StocktakeHub({
                   >
                     {STATUS_BADGE[selectedSession.status]?.label}
                   </span>
-                  <span style={{ fontSize: '13px', color: '#475569', fontWeight: 600 }}>
+                  <span style={{ fontSize: '14px', color: '#475569', fontWeight: 600 }}>
                     {selectedSession.warehouseName || selectedSession.warehouseCode}
                   </span>
                 </div>
-                <div style={{ margin: '4px 0 0', fontSize: '13px', color: '#64748b' }}>
+                <div style={{ margin: '4px 0 0', fontSize: '14px', color: '#64748b' }}>
                   {selectedSession.title} · Người lập: <strong>{selectedSession.leadAuditor}</strong>
                 </div>
               </div>
@@ -644,7 +639,7 @@ export function StocktakeHub({
                     onClick={handleStartCounting}
                     style={{
                       padding: '7px 14px',
-                      fontSize: '12.5px',
+                      fontSize: '13px',
                       fontWeight: 700,
                       background: '#2563eb',
                       color: '#ffffff',
@@ -667,7 +662,7 @@ export function StocktakeHub({
                     onClick={handleSaveDraft}
                     style={{
                       padding: '7px 12px',
-                      fontSize: '12.5px',
+                      fontSize: '13px',
                       fontWeight: 600,
                       background: dirty ? '#f59e0b' : '#ffffff',
                       color: dirty ? '#ffffff' : '#1e293b',
@@ -689,7 +684,7 @@ export function StocktakeHub({
                   onClick={handleExportExcel}
                   style={{
                     padding: '7px 12px',
-                    fontSize: '12.5px',
+                    fontSize: '13px',
                     fontWeight: 600,
                     background: '#ffffff',
                     color: '#0f172a',
@@ -712,7 +707,7 @@ export function StocktakeHub({
                     onClick={() => fileInputRef.current?.click()}
                     style={{
                       padding: '7px 12px',
-                      fontSize: '12.5px',
+                      fontSize: '13px',
                       fontWeight: 600,
                       background: '#ffffff',
                       color: '#0f172a',
@@ -736,7 +731,7 @@ export function StocktakeHub({
                     onClick={handleSubmitApproval}
                     style={{
                       padding: '7px 14px',
-                      fontSize: '12.5px',
+                      fontSize: '13px',
                       fontWeight: 700,
                       background: '#047857',
                       color: '#ffffff',
@@ -760,7 +755,7 @@ export function StocktakeHub({
                       onClick={handleOpenRejectDialog}
                       style={{
                         padding: '7px 12px',
-                        fontSize: '12.5px',
+                        fontSize: '13px',
                         fontWeight: 600,
                         background: '#ffffff',
                         color: '#b45309',
@@ -788,7 +783,7 @@ export function StocktakeHub({
                         type="button"
                         style={{
                           padding: '7px 14px',
-                          fontSize: '12.5px',
+                          fontSize: '13px',
                           fontWeight: 700,
                           background: '#15803d',
                           color: '#ffffff',
@@ -821,7 +816,7 @@ export function StocktakeHub({
                       type="button"
                       style={{
                         padding: '7px 10px',
-                        fontSize: '12px',
+                        fontSize: '13px',
                         fontWeight: 600,
                         background: '#ffffff',
                         color: '#dc2626',
@@ -850,22 +845,22 @@ export function StocktakeHub({
               }}
             >
               <div>
-                <span style={{ fontSize: '12px', color: '#64748b' }}>Tổng số mã kiểm kê:</span>
-                <div style={{ fontSize: '18px', fontWeight: 800, color: '#0f172a' }}>
+                <span style={{ fontSize: '13px', color: '#64748b' }}>Tổng số mã kiểm kê:</span>
+                <div style={{ fontSize: '20px', fontWeight: 800, color: '#0f172a' }}>
                   {selectedSession.totalItems} mã
                 </div>
               </div>
               <div>
-                <span style={{ fontSize: '12px', color: '#64748b' }}>Đã hoàn tất đếm:</span>
-                <div style={{ fontSize: '18px', fontWeight: 800, color: '#2563eb' }}>
+                <span style={{ fontSize: '13px', color: '#64748b' }}>Đã hoàn tất đếm:</span>
+                <div style={{ fontSize: '20px', fontWeight: 800, color: '#2563eb' }}>
                   {selectedSession.countedItems} / {selectedSession.totalItems}
                 </div>
               </div>
               <div>
-                <span style={{ fontSize: '12px', color: '#64748b' }}>Số mã phát hiện lệch:</span>
+                <span style={{ fontSize: '13px', color: '#64748b' }}>Số mã phát hiện lệch:</span>
                 <div
                   style={{
-                    fontSize: '18px',
+                    fontSize: '20px',
                     fontWeight: 800,
                     color: selectedSession.differenceItems > 0 ? '#dc2626' : '#15803d',
                   }}
@@ -874,10 +869,10 @@ export function StocktakeHub({
                 </div>
               </div>
               <div>
-                <span style={{ fontSize: '12px', color: '#64748b' }}>Tổng giá trị chênh lệch:</span>
+                <span style={{ fontSize: '13px', color: '#64748b' }}>Tổng giá trị chênh lệch:</span>
                 <div
                   style={{
-                    fontSize: '18px',
+                    fontSize: '20px',
                     fontWeight: 800,
                     color: selectedSession.totalVarianceValue === 0 ? '#15803d' : selectedSession.totalVarianceValue > 0 ? '#2563eb' : '#dc2626',
                   }}
@@ -895,7 +890,7 @@ export function StocktakeHub({
                   onClick={() => setGridFilter('all')}
                   style={{
                     padding: '5px 12px',
-                    fontSize: '12px',
+                    fontSize: '13px',
                     fontWeight: 600,
                     borderRadius: '4px',
                     border: gridFilter === 'all' ? '1px solid #2563eb' : '1px solid #cbd5e1',
@@ -911,7 +906,7 @@ export function StocktakeHub({
                   onClick={() => setGridFilter('uncounted')}
                   style={{
                     padding: '5px 12px',
-                    fontSize: '12px',
+                    fontSize: '13px',
                     fontWeight: 600,
                     borderRadius: '4px',
                     border: gridFilter === 'uncounted' ? '1px solid #2563eb' : '1px solid #cbd5e1',
@@ -927,7 +922,7 @@ export function StocktakeHub({
                   onClick={() => setGridFilter('diff')}
                   style={{
                     padding: '5px 12px',
-                    fontSize: '12px',
+                    fontSize: '13px',
                     fontWeight: 600,
                     borderRadius: '4px',
                     border: gridFilter === 'diff' ? '1px solid #dc2626' : '1px solid #cbd5e1',
@@ -943,7 +938,7 @@ export function StocktakeHub({
                   onClick={() => setGridFilter('lot_serial')}
                   style={{
                     padding: '5px 12px',
-                    fontSize: '12px',
+                    fontSize: '13px',
                     fontWeight: 600,
                     borderRadius: '4px',
                     border: gridFilter === 'lot_serial' ? '1px solid #2563eb' : '1px solid #cbd5e1',
@@ -966,7 +961,7 @@ export function StocktakeHub({
                   style={{
                     width: '100%',
                     padding: '5px 8px 5px 26px',
-                    fontSize: '12px',
+                    fontSize: '13px',
                     border: '1px solid #cbd5e1',
                     borderRadius: '4px',
                     outline: 'none',
@@ -977,7 +972,7 @@ export function StocktakeHub({
 
             {/* BẢNG KIỂM ĐẾM ĐA HÀNG HÓA (DATA GRID) */}
             <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: '6px' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12.5px' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
                 <thead>
                   <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569' }}>
                     <th style={{ textAlign: 'left', padding: '10px 12px', width: '130px' }}>Mã VT</th>
@@ -1016,7 +1011,7 @@ export function StocktakeHub({
                               <span
                                 title="Vật tư theo dõi theo Lô"
                                 style={{
-                                  fontSize: '10px',
+                                  fontSize: '12px',
                                   padding: '1px 4px',
                                   borderRadius: '3px',
                                   background: '#e0e7ff',
@@ -1031,7 +1026,7 @@ export function StocktakeHub({
                               <span
                                 title="Vật tư quản lý theo Sê-ri"
                                 style={{
-                                  fontSize: '10px',
+                                  fontSize: '12px',
                                   padding: '1px 4px',
                                   borderRadius: '3px',
                                   background: '#dcfce7',
@@ -1049,7 +1044,7 @@ export function StocktakeHub({
                         <td style={{ padding: '8px 12px' }}>
                           <div style={{ fontWeight: 600, color: '#1e293b' }}>{line.materialName}</div>
                           {line.unitCost ? (
-                            <div style={{ fontSize: '11px', color: '#64748b' }}>
+                            <div style={{ fontSize: '12px', color: '#64748b' }}>
                               Đơn giá: {formatCurrency(line.unitCost)}
                             </div>
                           ) : null}
@@ -1061,7 +1056,7 @@ export function StocktakeHub({
                         </td>
 
                         {/* Vị trí kệ */}
-                        <td style={{ padding: '8px', color: '#475569', fontSize: '12px' }}>
+                        <td style={{ padding: '8px', color: '#475569', fontSize: '13px' }}>
                           {line.binLocation || '-----'}
                         </td>
 
@@ -1107,7 +1102,7 @@ export function StocktakeHub({
                                 width: '80px',
                                 textAlign: 'center',
                                 padding: '4px 6px',
-                                fontSize: '12.5px',
+                                fontSize: '13px',
                                 fontWeight: 700,
                                 border: '1px solid #cbd5e1',
                                 borderRadius: '4px',
@@ -1136,7 +1131,7 @@ export function StocktakeHub({
                         {/* Lý do chênh lệch */}
                         <td style={{ padding: '8px 12px' }}>
                           {isReadOnly ? (
-                            <span style={{ fontSize: '12px', color: '#475569' }}>{line.reason || '—'}</span>
+                            <span style={{ fontSize: '13px', color: '#475569' }}>{line.reason || '—'}</span>
                           ) : (
                             <input
                               type="text"
@@ -1146,7 +1141,7 @@ export function StocktakeHub({
                               style={{
                                 width: '100%',
                                 padding: '4px 8px',
-                                fontSize: '12px',
+                                fontSize: '13px',
                                 border: line.difference !== 0 && !line.reason ? '1px solid #f87171' : '1px solid #cbd5e1',
                                 borderRadius: '4px',
                                 background: '#ffffff',
@@ -1164,7 +1159,7 @@ export function StocktakeHub({
                                 onClick={() => setDrawerLine(line)}
                                 style={{
                                   padding: '3px 7px',
-                                  fontSize: '11px',
+                                  fontSize: '12px',
                                   fontWeight: 600,
                                   background: '#eff6ff',
                                   color: '#1d4ed8',
@@ -1184,7 +1179,7 @@ export function StocktakeHub({
                                 onClick={() => setAuditLine(line)}
                                 style={{
                                   padding: '3px 6px',
-                                  fontSize: '11px',
+                                  fontSize: '12px',
                                   background: 'transparent',
                                   border: '1px solid #cbd5e1',
                                   borderRadius: '4px',
@@ -1322,7 +1317,7 @@ export function StocktakeHub({
                 background: '#f8fafc',
               }}
             >
-              <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700 }}>
+              <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700 }}>
                 Lịch sử kiểm đếm · {auditLine.materialCode}
               </h3>
               <button
@@ -1343,14 +1338,14 @@ export function StocktakeHub({
                       background: '#f8fafc',
                       borderRadius: '6px',
                       border: '1px solid #e2e8f0',
-                      fontSize: '12px',
+                      fontSize: '13px',
                     }}
                   >
                     <div style={{ display: 'flex', justifyContent: 'space-between', color: '#64748b' }}>
                       <span>{audit.operator}</span>
                       <span>{formatDateTime(audit.timestamp)}</span>
                     </div>
-                    <div style={{ margin: '4px 0', fontSize: '13px', fontWeight: 700, color: '#0f172a' }}>
+                    <div style={{ margin: '4px 0', fontSize: '14px', fontWeight: 700, color: '#0f172a' }}>
                       Số đếm: {audit.newQuantity} {auditLine.unit}{' '}
                       {audit.previousQuantity !== undefined ? `(Trước đó: ${audit.previousQuantity})` : '(Lần đầu)'}
                     </div>
@@ -1365,7 +1360,7 @@ export function StocktakeHub({
                 onClick={() => setAuditLine(null)}
                 style={{
                   padding: '6px 14px',
-                  fontSize: '12px',
+                  fontSize: '13px',
                   fontWeight: 600,
                   background: '#2563eb',
                   color: '#fff',
@@ -1409,9 +1404,9 @@ export function StocktakeHub({
           >
             <div style={{ padding: '16px 20px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', gap: '10px' }}>
               <AlertTriangle size={20} color="#d97706" />
-              <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: '#0f172a' }}>Xác nhận gửi trình duyệt kiểm kê</h3>
+              <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#0f172a' }}>Xác nhận gửi trình duyệt kiểm kê</h3>
             </div>
-            <div style={{ padding: '16px 20px', fontSize: '13.5px', color: '#334155', lineHeight: 1.5 }}>
+            <div style={{ padding: '16px 20px', fontSize: '14px', color: '#334155', lineHeight: 1.5 }}>
               Hiện còn{' '}
               <strong style={{ color: '#dc2626' }}>
                 {lines.filter((l) => l.actualQuantity === undefined).length} mặt hàng
@@ -1436,7 +1431,7 @@ export function StocktakeHub({
                 onClick={() => setConfirmSubmitOpen(false)}
                 style={{
                   padding: '7px 14px',
-                  fontSize: '12.5px',
+                  fontSize: '13px',
                   fontWeight: 600,
                   background: '#ffffff',
                   color: '#475569',
@@ -1452,7 +1447,7 @@ export function StocktakeHub({
                 onClick={executeSubmitApproval}
                 style={{
                   padding: '7px 16px',
-                  fontSize: '12.5px',
+                  fontSize: '13px',
                   fontWeight: 700,
                   background: '#047857',
                   color: '#ffffff',
@@ -1496,10 +1491,10 @@ export function StocktakeHub({
           >
             <div style={{ padding: '16px 20px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', gap: '10px' }}>
               <RotateCcw size={20} color="#b45309" />
-              <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: '#0f172a' }}>Yêu cầu kiểm đếm lại</h3>
+              <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#0f172a' }}>Yêu cầu kiểm đếm lại</h3>
             </div>
             <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
+              <label style={{ fontSize: '14px', fontWeight: 600, color: '#334155' }}>
                 Lý do từ chối &amp; Yêu cầu kiểm đếm lại số liệu <span style={{ color: '#dc2626' }}>*</span>
               </label>
               <textarea
@@ -1510,7 +1505,7 @@ export function StocktakeHub({
                 style={{
                   width: '100%',
                   padding: '8px 12px',
-                  fontSize: '13px',
+                  fontSize: '14px',
                   border: '1px solid #cbd5e1',
                   borderRadius: '4px',
                   outline: 'none',
@@ -1518,7 +1513,7 @@ export function StocktakeHub({
                   resize: 'vertical',
                 }}
               />
-              <span style={{ fontSize: '12px', color: '#64748b' }}>
+              <span style={{ fontSize: '13px', color: '#64748b' }}>
                 Hồ sơ đợt kiểm kê sẽ được chuyển từ <strong>Chờ duyệt</strong> trở về trạng thái <strong>Đang kiểm đếm</strong> để nhân viên sửa số liệu.
               </span>
             </div>
@@ -1537,7 +1532,7 @@ export function StocktakeHub({
                 onClick={() => setRejectDialogOpen(false)}
                 style={{
                   padding: '7px 14px',
-                  fontSize: '12.5px',
+                  fontSize: '13px',
                   fontWeight: 600,
                   background: '#ffffff',
                   color: '#475569',
@@ -1554,7 +1549,7 @@ export function StocktakeHub({
                 disabled={!rejectReasonInput.trim()}
                 style={{
                   padding: '7px 16px',
-                  fontSize: '12.5px',
+                  fontSize: '13px',
                   fontWeight: 700,
                   background: rejectReasonInput.trim() ? '#b45309' : '#94a3b8',
                   color: '#ffffff',

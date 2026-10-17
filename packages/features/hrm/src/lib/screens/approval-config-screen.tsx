@@ -20,6 +20,7 @@ import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import type {
   ApprovalRouteConfigItem,
   ApprovalRouteConfigResult,
+  ApprovalRoutePositionOption,
   HrmRequestKind,
   SetApprovalRoutePayload,
 } from '@enterprise-platform/contracts-hrm';
@@ -45,6 +46,8 @@ export interface RouteDraft {
   choice: RouteChoice;
   /** Id quy trình đã công bố; chỉ dùng khi `choice` là PROCEDURE. */
   procedureId: string;
+  /** Id chức danh duyệt dự phòng; chỉ dùng khi `choice` là DIRECT. */
+  fallbackPositionId: string;
 }
 
 interface ProcedureDefinitionOption {
@@ -93,6 +96,8 @@ export function savedRoute(item: ApprovalRouteConfigItem): RouteDraft {
     choice,
     procedureId:
       choice === 'PROCEDURE' ? (item.procedureDefinitionId ?? '') : '',
+    fallbackPositionId:
+      choice === 'DIRECT' ? (item.fallbackPositionId ?? '') : '',
   };
 }
 
@@ -104,7 +109,9 @@ export function isRouteDirty(
   const saved = savedRoute(item);
   return (
     draft.choice !== saved.choice ||
-    (draft.choice === 'PROCEDURE' && draft.procedureId !== saved.procedureId)
+    (draft.choice === 'PROCEDURE' && draft.procedureId !== saved.procedureId) ||
+    (draft.choice === 'DIRECT' &&
+      draft.fallbackPositionId !== saved.fallbackPositionId)
   );
 }
 
@@ -126,6 +133,11 @@ export function routePayload(
     ...(draft.choice === 'PROCEDURE'
       ? { procedureDefinitionId: draft.procedureId }
       : {}),
+    ...(draft.choice === 'DIRECT' && draft.fallbackPositionId
+      ? { fallbackPositionId: draft.fallbackPositionId }
+      : draft.choice === 'DIRECT' && item.fallbackPositionId
+        ? { fallbackPositionId: null }
+        : {}),
   };
 }
 
@@ -155,7 +167,11 @@ export const isGroupAutoOpen = (group: ApprovalGroup) =>
 
 /** Mô tả cách duyệt đang áp dụng của một dòng (dùng cho dòng theo cấu hình chung). */
 function describeRoute(item: ApprovalRouteConfigItem): string {
-  if (item.mode === 'DIRECT') return 'Quản lý trực tiếp';
+  if (item.mode === 'DIRECT') {
+    return item.fallbackPositionName
+      ? `Quản lý trực tiếp (dự phòng: ${item.fallbackPositionName})`
+      : 'Quản lý trực tiếp';
+  }
   return item.procedureName
     ? `Quy trình ${item.procedureName}`
     : 'Quy trình (không đọc được tên)';
@@ -181,6 +197,26 @@ function procedureOptionsOf(
   return options;
 }
 
+function positionOptionsOf(
+  item: ApprovalRouteConfigItem,
+  positions: readonly ApprovalRoutePositionOption[] | null | undefined,
+) {
+  const options = (positions ?? []).map((p) => ({
+    value: p.id,
+    label: p.code ? `${p.code} · ${p.name}` : p.name,
+  }));
+  const current = item.fallbackPositionId;
+  if (current && !options.some((o) => o.value === current)) {
+    options.unshift({
+      value: current,
+      label:
+        item.fallbackPositionName ??
+        'Chức danh đã gắn (không còn trong danh mục)',
+    });
+  }
+  return options;
+}
+
 const errorText = (e: unknown) =>
   e instanceof Error ? e.message : 'Thao tác thất bại';
 
@@ -198,6 +234,7 @@ interface RowProps {
   anySaving: boolean;
   canPickProcedure: boolean;
   definitions: readonly ProcedureDefinitionOption[] | null | undefined;
+  positions: readonly ApprovalRoutePositionOption[] | undefined;
   procedureAvailable: boolean;
   group?: {
     reasonCount: number;
@@ -210,6 +247,7 @@ interface RowProps {
   };
   onChoice: (choice: RouteChoice) => void;
   onProcedure: (id: string) => void;
+  onFallbackPosition: (id: string) => void;
   onSave: () => void;
   onReset: () => void;
 }
@@ -221,10 +259,12 @@ function RouteRow({
   anySaving,
   canPickProcedure,
   definitions,
+  positions,
   procedureAvailable,
   group,
   onChoice,
   onProcedure,
+  onFallbackPosition,
   onSave,
   onReset,
 }: RowProps) {
@@ -252,7 +292,7 @@ function RouteRow({
         <span className="block truncate text-sm font-bold text-slate-900">
           {item.label}
         </span>
-        <span className="block text-[11px] text-slate-500">
+        <span className="block text-[12px] text-slate-500">
           {group.reasonCount === 0
             ? 'Không có lý do riêng'
             : `${group.reasonCount} lý do${
@@ -268,7 +308,7 @@ function RouteRow({
       <span className="block truncate text-xs font-semibold text-slate-800">
         {item.reasonName ?? item.reasonCode}
       </span>
-      <span className="block font-mono text-[11px] text-slate-500">
+      <span className="block font-mono text-[12px] text-slate-500">
         {item.reasonCode}
       </span>
     </span>
@@ -331,7 +371,7 @@ function RouteRow({
       </div>
 
       <div className="min-w-0">
-        <span className="mb-1 block text-[11px] font-medium text-slate-500 @3xl:sr-only">
+        <span className="mb-1 block text-[12px] font-medium text-slate-500 @3xl:sr-only">
           Cách duyệt
         </span>
         <div role="group" aria-label={`Cách duyệt của ${item.label}`}>
@@ -347,8 +387,8 @@ function RouteRow({
       </div>
 
       <div className="min-w-0">
-        <span className="mb-1 block text-[11px] font-medium text-slate-500 @3xl:sr-only">
-          Quy trình
+        <span className="mb-1 block text-[12px] font-medium text-slate-500 @3xl:sr-only">
+          {shown.choice === 'DIRECT' ? 'Chức danh dự phòng' : 'Quy trình'}
         </span>
         {shown.choice === 'PROCEDURE' ? (
           <div className="space-y-1">
@@ -363,7 +403,7 @@ function RouteRow({
               />
             </div>
             {!saveable && (
-              <p className="text-[11px] font-medium text-amber-700">
+              <p className="text-[12px] font-medium text-amber-700">
                 Chọn quy trình để lưu.
               </p>
             )}
@@ -378,9 +418,26 @@ function RouteRow({
             </span>
           </p>
         ) : (
-          <p className="flex min-h-9 items-center text-xs text-slate-600">
-            Quản lý trực tiếp của người làm đơn duyệt
-          </p>
+          <div className="space-y-1">
+            <div
+              role="group"
+              aria-label={`Chức danh dự phòng của ${item.label}`}
+            >
+              <SearchableSelect
+                options={positionOptionsOf(item, positions)}
+                value={shown.fallbackPositionId}
+                clearable={true}
+                disabled={saving}
+                placeholder="Chọn chức danh dự phòng (tuỳ chọn)"
+                onChange={(value) => onFallbackPosition(value ?? '')}
+              />
+            </div>
+            <p className="text-[12px] text-slate-500">
+              {shown.fallbackPositionId
+                ? 'Quản lý trực tiếp hoặc người giữ chức danh này đều có thể duyệt.'
+                : 'Chỉ quản lý trực tiếp duyệt (chưa chọn chức danh dự phòng).'}
+            </p>
+          </div>
         )}
       </div>
 
@@ -499,15 +556,31 @@ export default function ApprovalConfigScreen() {
   }
 
   function changeChoice(item: ApprovalRouteConfigItem, choice: RouteChoice) {
+    const saved = savedRoute(item);
     setDraft(item, {
       choice,
       procedureId:
-        choice === 'PROCEDURE' ? (item.procedureDefinitionId ?? '') : '',
+        choice === 'PROCEDURE'
+          ? saved.procedureId || item.procedureDefinitionId || ''
+          : '',
+      fallbackPositionId:
+        choice === 'DIRECT'
+          ? saved.fallbackPositionId || item.fallbackPositionId || ''
+          : '',
     });
   }
 
   function changeProcedure(item: ApprovalRouteConfigItem, procedureId: string) {
-    setDraft(item, { choice: 'PROCEDURE', procedureId });
+    const current = drafts[routeKey(item)] ?? savedRoute(item);
+    setDraft(item, { ...current, choice: 'PROCEDURE', procedureId });
+  }
+
+  function changeFallbackPosition(
+    item: ApprovalRouteConfigItem,
+    fallbackPositionId: string,
+  ) {
+    const current = drafts[routeKey(item)] ?? savedRoute(item);
+    setDraft(item, { ...current, choice: 'DIRECT', fallbackPositionId });
   }
 
   function reset(item: ApprovalRouteConfigItem) {
@@ -691,7 +764,7 @@ export default function ApprovalConfigScreen() {
             >
               <span>Loại đơn / lý do</span>
               <span>Cách duyệt</span>
-              <span>Quy trình</span>
+              <span>Quy trình / Chức danh dự phòng</span>
               <span className="text-right">Thao tác</span>
             </div>
             {groups.map((group) => {
@@ -704,9 +777,12 @@ export default function ApprovalConfigScreen() {
                 anySaving: savingKey !== '',
                 canPickProcedure,
                 definitions,
+                positions: config?.positions,
                 procedureAvailable: procedureAvailable !== false,
                 onChoice: (choice: RouteChoice) => changeChoice(item, choice),
                 onProcedure: (id: string) => changeProcedure(item, id),
+                onFallbackPosition: (id: string) =>
+                  changeFallbackPosition(item, id),
                 onSave: () => void save(item),
                 onReset: () => reset(item),
               });

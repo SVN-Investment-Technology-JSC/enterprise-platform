@@ -19,7 +19,7 @@ import {
 } from '../domain/work-schedule.js';
 import { lifecycleAudit } from './hrm-lifecycle.js';
 import { workScheduleTableExists } from './hrm-shift-resolution.js';
-import { resolveRuleDays, ruleTableExists } from './hrm-work-schedule-resolve.js';
+import { autoAttendanceReady, resolveRuleDays, ruleTableExists } from './hrm-work-schedule-resolve.js';
 import { assertOpenRange, isoDate } from './hrm-time.js';
 import {
   approvedConflicts,
@@ -439,6 +439,7 @@ interface InsertRow {
   dayType: WorkDayType;
   shiftId: string | null;
   source: WorkDaySource;
+  autoAttendance?: boolean;
 }
 
 async function insertDays(
@@ -451,13 +452,18 @@ async function insertDays(
   shifts: Map<string, ShiftInfo>,
   note: string | null,
 ) {
+  const wantsAuto = rows.some((r) => r.dayType === 'SHIFT' && r.autoAttendance === true);
+  if (wantsAuto && !(await autoAttendanceReady(db, tenantId)))
+    throw new ConflictException({ code: 'HRM_AUTO_ATTENDANCE_NOT_MIGRATED', message: "Tính năng tự động chấm công cần cập nhật cơ sở dữ liệu HRM (migration 0053-hrm-schedule-auto-attendance); quản trị cần chạy migration trước khi bật." });
+  // Chưa có cờ nào thì giữ câu lệnh cũ để tenant chưa chạy migration 0053 vẫn phân ca bình thường.
+  const withAuto = wantsAuto;
   for (let i = 0; i < rows.length; i += INSERT_CHUNK) {
     const chunk = rows.slice(i, i + INSERT_CHUNK);
     await db.query(
       `INSERT INTO hrm_schema.employee_work_days
-         (tenant_id, employee_id, work_date, day_type, shift_id, source, holiday_id, batch_id, shift_snapshot, note, status, created_by)
-       SELECT $1, u.employee_id, u.work_date, u.day_type, u.shift_id, u.source, $2::uuid, $3::uuid, u.snap::jsonb, $4, 'ACTIVE', $5::uuid
-         FROM unnest($6::uuid[], $7::date[], $8::text[], $9::uuid[], $10::text[], $11::text[]) AS u(employee_id, work_date, day_type, shift_id, source, snap)`,
+         (tenant_id, employee_id, work_date, day_type, shift_id, source, holiday_id, batch_id, shift_snapshot, note, status, created_by${withAuto ? ', auto_attendance' : ''})
+       SELECT $1, u.employee_id, u.work_date, u.day_type, u.shift_id, u.source, $2::uuid, $3::uuid, u.snap::jsonb, $4, 'ACTIVE', $5::uuid${withAuto ? ', u.auto' : ''}
+         FROM unnest($6::uuid[], $7::date[], $8::text[], $9::uuid[], $10::text[], $11::text[]${withAuto ? ', $12::boolean[]' : ''}) AS u(employee_id, work_date, day_type, shift_id, source, snap${withAuto ? ', auto' : ''})`,
       [
         tenantId,
         holidayId,
@@ -470,6 +476,7 @@ async function insertDays(
         chunk.map((r) => r.shiftId),
         chunk.map((r) => r.source),
         chunk.map((r) => snapshotOf(r.shiftId ? shifts.get(r.shiftId) : undefined)),
+        ...(withAuto ? [chunk.map((r) => r.dayType === 'SHIFT' && r.autoAttendance === true)] : []),
       ],
     );
   }

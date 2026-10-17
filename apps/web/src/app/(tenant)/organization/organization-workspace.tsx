@@ -1,16 +1,10 @@
 'use client';
 import { useOrganizationPermissions } from './organization-permissions';
 
-import {
-  ArrowLeft,
-  Briefcase,
-  GitBranch,
-  Pencil,
-  Plus,
-  Save,
-  Users,
-} from 'lucide-react';
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { ArrowLeft, Pencil, Plus, Save } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { SearchableSelect, authFetch } from '@enterprise-platform/shared-ui';
+import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from '@/components/ui/sonner';
@@ -37,7 +31,9 @@ import {
 import { OrganizationFlow } from './organization-flow';
 import { OrganizationTreeTable } from './organization-tree-table';
 import { OrganizationTreeOutline } from './organization-tree-outline';
+import { useResizableWidth } from './use-resizable-width';
 import { OrganizationNodeInspector } from './organization-node-inspector';
+import { findPrimaryElsewhere } from './organization-primary-position';
 import { OrganizationAssignmentTable } from './organization-assignment-table';
 import { OrganizationPositionTable } from './organization-position-table';
 import {
@@ -54,7 +50,6 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet';
-import { PageBreadcrumb } from '@/components/ui/page-breadcrumb';
 
 export type {
   Tree,
@@ -78,9 +73,6 @@ const csrf = () =>
       .slice(1)
       .join('=') ?? '',
   );
-const field =
-  'h-9 w-full rounded-md border border-input bg-background px-3 text-sm';
-
 export function OrganizationWorkspace({
   initialSnapshot,
   loadError,
@@ -105,7 +97,7 @@ export function OrganizationWorkspace({
 
   const syncSnapshotWithServer = async () => {
     try {
-      const res = await fetch(
+      const res = await authFetch(
         '/api/platform/v1/tenant-organization/core-snapshot',
         { credentials: 'same-origin' },
       );
@@ -127,6 +119,15 @@ export function OrganizationWorkspace({
   );
   const [selectedNodeId, setSelectedNodeId] = useState<string | undefined>(undefined);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  // Cột "Sơ đồ phân cấp" kéo thả được (nhớ độ rộng; nhấp đúp thanh chia để về mặc định).
+  const outlineGridRef = useRef<HTMLDivElement>(null);
+  const outlineResize = useResizableWidth(outlineGridRef, {
+    storageKey: 'org-outline-width',
+    initial: 340,
+    min: 240,
+    max: 520,
+    cssVar: '--outline-w',
+  });
   const [editor, setEditor] = useState<Editor>();
   const [, setError] = useState(loadError);
   const [layoutSaving, setLayoutSaving] = useState(false);
@@ -155,6 +156,7 @@ export function OrganizationWorkspace({
   const isWorkspaceDetail = tab === 'tree' && treeViewMode === 'workspace';
   const tree = snapshot.trees.find((x) => x.id === treeId);
   const nodes = snapshot.nodes.filter((x) => x.treeId === treeId);
+  const selectedNode = nodes.find((x) => x.id === selectedNodeId);
   const layoutCacheKey = `organization-layout:${tenantSlug}:${treeId ?? 'none'}`;
   const cachedLayout = useAppSelector(
     (state) => state.organizationLayouts.layouts[layoutCacheKey],
@@ -186,10 +188,13 @@ export function OrganizationWorkspace({
     userId: string,
     isPrimary = false,
   ) => {
+    // Một người chỉ giữ vị trí chính ở một chức danh: nếu đã chính ở nơi khác thì bổ nhiệm kiêm nhiệm.
+    const primary =
+      isPrimary && !findPrimaryElsewhere(snapshot.assignments, userId, nodeId);
     return save('assignments', undefined, {
       nodeId,
       userId,
-      isPrimary,
+      isPrimary: primary,
       status: 'active',
     }, { silent: true });
   };
@@ -202,27 +207,33 @@ export function OrganizationWorkspace({
     assignmentId: string,
     nodeId: string,
   ) => {
-    const nodeAssignments = snapshot.assignments.filter(
-      (a) => a.nodeId === nodeId && a.status === 'active',
+    const target = snapshot.assignments.find(
+      (a) => a.id === assignmentId && a.nodeId === nodeId && a.status === 'active',
     );
-    for (const a of nodeAssignments) {
-      dispatch(
-        updateAssignment({
-          id: a.id,
-          changes: { isPrimary: a.id === assignmentId },
-        }),
+    if (!target) return;
+    // Một chức danh có thể có nhiều người giữ vị trí chính, nhưng mỗi người chỉ giữ ở một chức danh.
+    const conflict = findPrimaryElsewhere(
+      snapshot.assignments,
+      target.userId,
+      nodeId,
+      assignmentId,
+    );
+    if (conflict) {
+      const nodeName =
+        snapshot.nodes.find((n) => n.id === conflict.nodeId)?.name ?? 'chức danh khác';
+      toast.error(
+        `Nhân sự này đang giữ vị trí chính tại "${nodeName}". Hãy bỏ vị trí chính ở đó trước khi đặt ở chức danh này.`,
       );
+      return;
     }
-    const target = nodeAssignments.find((a) => a.id === assignmentId);
-    if (target) {
-      await save('assignments', target, { isPrimary: true }, { silent: true });
-    }
-    const others = nodeAssignments.filter(
-      (a) => a.id !== assignmentId && a.isPrimary,
-    );
-    for (const other of others) {
-      await save('assignments', other, { isPrimary: false }, { silent: true });
-    }
+    dispatch(updateAssignment({ id: assignmentId, changes: { isPrimary: true } }));
+    await save('assignments', target, { isPrimary: true }, { silent: true });
+  };
+  const handleUnsetPrimaryAssignment = async (assignmentId: string) => {
+    const target = snapshot.assignments.find((a) => a.id === assignmentId);
+    if (!target) return;
+    dispatch(updateAssignment({ id: assignmentId, changes: { isPrimary: false } }));
+    await save('assignments', target, { isPrimary: false }, { silent: true });
   };
   async function save(
     resource: Resource,
@@ -234,7 +245,7 @@ export function OrganizationWorkspace({
     setError(undefined);
     let res: Response;
     try {
-      res = await fetch(
+      res = await authFetch(
         `/api/platform/v1/tenant-organization/${resource}${item ? `/${item.id}` : ''}`,
         {
           method: item ? 'PATCH' : 'POST',
@@ -318,7 +329,7 @@ export function OrganizationWorkspace({
   ) {
     if (!item || !canDelete) return;
     try {
-      const res = await fetch(
+      const res = await authFetch(
         `/api/platform/v1/tenant-organization/${resource}/${item.id}`,
         {
           method: 'DELETE',
@@ -370,7 +381,7 @@ export function OrganizationWorkspace({
     setLayoutSaving(true);
     setError(undefined);
     try {
-      const response = await fetch(
+      const response = await authFetch(
         `/api/platform/v1/tenant-organization/trees/${tree.id}/layout`,
         {
           method: 'PATCH',
@@ -410,34 +421,23 @@ export function OrganizationWorkspace({
     if (item ? !canUpdate : !canCreate) return;
     setEditor({ resource, item, parentId });
   };
+  const positionCount = snapshot.nodes.filter(
+    (x) => (x.category ?? (x.nodeTypeId ? types.get(x.nodeTypeId)?.category : undefined)) === 'position',
+  ).length;
   return (
     <>
       <main
-        className={`flex flex-col h-[calc(100vh-4rem)] overflow-hidden ${isWorkspaceDetail
-          ? 'p-3 sm:p-4'
-          : 'p-4 sm:p-6'
+        className={`flex flex-col text-[14px] text-[#18181b] ${isWorkspaceDetail
+          ? 'gap-3 xl:h-[calc(100dvh-6.5rem)]'
+          : 'gap-4'
           }`}
       >
         {!isWorkspaceDetail ? (
-          <div className="shrink-0 mb-3">
-            <PageBreadcrumb
-              className="mb-1.5"
-              items={[
-                { label: 'Tenant Portal', href: '/dashboard' },
-                { label: 'Quản trị' },
-                { label: 'Sơ đồ tổ chức' },
-              ]}
-            />
-            <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
-              <div>
-                <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">
-                  Sơ đồ tổ chức
-                </h1>
-                <p className="mt-0.5 text-xs sm:text-sm text-slate-500">
-                  Quản lý cấu trúc tổ chức trực tiếp trong dữ liệu lõi của tenant.
-                </p>
-              </div>
-            </div>
+          <div>
+            <h1 className="m-0 text-[20px] font-bold tracking-[-0.3px]">Sơ đồ tổ chức</h1>
+            <p className="mt-1 text-[14px] text-slate-600">
+              Quản lý cấu trúc tổ chức trực tiếp trong dữ liệu lõi của tenant.
+            </p>
           </div>
         ) : null}
         {/* {error ? (
@@ -446,22 +446,26 @@ export function OrganizationWorkspace({
           </p>
         ) : null} */}
         {!isWorkspaceDetail ? (
-          <div className="shrink-0 mb-3 flex gap-5 border-b border-slate-200">
+          <div
+            role="tablist"
+            aria-label="Sơ đồ tổ chức"
+            className="flex flex-wrap gap-x-[22px] gap-y-1 border-b border-[#eef0f3]"
+          >
             <Tab
               active={tab === 'tree'}
-              icon={GitBranch}
+              count={snapshot.trees.length}
               label="Cây tổ chức"
               onClick={() => setTab('tree')}
             />
             <Tab
               active={tab === 'assignment'}
-              icon={Users}
+              count={snapshot.assignments.length}
               label="Bổ nhiệm"
               onClick={() => setTab('assignment')}
             />
             <Tab
               active={tab === 'position'}
-              icon={Briefcase}
+              count={positionCount}
               label="Chức danh"
               onClick={() => setTab('position')}
             />
@@ -478,39 +482,38 @@ export function OrganizationWorkspace({
               onDeleteTree={(t) => remove('trees', t)}
             />
           ) : (
-            <div className="flex flex-1 flex-col gap-3 min-h-0 overflow-hidden">
+            <div className="flex flex-1 flex-col gap-3 xl:min-h-0">
               {/* Toolbar điều hướng & thông tin sơ đồ */}
-              <div className="shrink-0 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
-                <div className="flex items-center gap-3">
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    onClick={() => setTreeViewMode('table')}
-                    className="cursor-pointer gap-1.5 text-xs font-medium text-slate-700 hover:text-slate-900"
-                  >
-                    <ArrowLeft className="size-4" />
-                  </Button>
-                  <div className="h-5 w-px bg-slate-200" />
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h2 className="text-base font-bold text-slate-900">
-                        {tree?.name ?? 'Chưa chọn sơ đồ'}
-                      </h2>
-                      {tree?.isPrimary ? (
-                        <span className="rounded border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[10px] font-bold text-blue-700">
-                          CHÍNH
-                        </span>
-                      ) : null}
-                      <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] text-slate-600">
-                        {tree?.code}
+              <div className="shrink-0 flex flex-wrap items-center gap-3 rounded-[14px] border border-[#eef0f3] bg-white px-3.5 py-3">
+                <button
+                  type="button"
+                  aria-label="Quay lại danh sách sơ đồ"
+                  title="Quay lại danh sách sơ đồ"
+                  onClick={() => setTreeViewMode('table')}
+                  className="grid size-9 shrink-0 cursor-pointer place-items-center rounded-lg border border-[#eef0f3] text-slate-700 hover:bg-[#f4f6f9]"
+                >
+                  <ArrowLeft className="size-4" />
+                </button>
+                <span aria-hidden className="hidden h-7 w-px bg-[#eef0f3] sm:block" />
+                <div className="flex min-w-0 flex-[1_1_300px] flex-col">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h1 className="m-0 text-base font-bold">
+                      {tree?.name ?? 'Chưa chọn sơ đồ'}
+                    </h1>
+                    {tree?.isPrimary ? (
+                      <span className="rounded-[5px] bg-[#fff6d6] px-1.5 text-[12px] font-extrabold tracking-[0.4px] text-[#8a6400]">
+                        CHÍNH
                       </span>
-                    </div>
-                    {tree?.description ? (
-                      <p className="line-clamp-1 text-xs text-slate-500">
-                        {tree.description}
-                      </p>
                     ) : null}
+                    <span className="rounded-[5px] bg-[#f1f3f6] px-1.5 font-mono text-[12px] text-slate-700">
+                      {tree?.code}
+                    </span>
                   </div>
+                  {tree?.description ? (
+                    <p className="m-0 truncate text-[13px] text-slate-500">
+                      {tree.description}
+                    </p>
+                  ) : null}
                 </div>
 
                 {tree ? (
@@ -534,7 +537,7 @@ export function OrganizationWorkspace({
                           : 'Chưa có thay đổi vị trí'
                       }
                       variant="outline"
-                      className="text-xs"
+                      className="h-9 border-[#eef0f3] text-[14px] font-semibold"
                     >
                       <Save className="mr-1 size-3.5" />
                       {layoutSaving ? 'Đang lưu…' : 'Lưu vị trí'}
@@ -544,7 +547,7 @@ export function OrganizationWorkspace({
                       variant="outline"
                       disabled={!canUpdate}
                       onClick={() => open('trees', tree)}
-                      className="text-xs"
+                      className="h-9 border-[#eef0f3] text-[14px] font-semibold"
                     >
                       <Pencil className="mr-1 size-3.5" />
                       Sửa sơ đồ
@@ -553,7 +556,7 @@ export function OrganizationWorkspace({
                       size="sm"
                       disabled={!canCreate}
                       onClick={() => open('nodes')}
-                      className="bg-blue-600 text-xs text-white hover:bg-blue-700"
+                      className="h-9 bg-[#ffc90a] text-[14px] font-bold text-[#18181b] hover:bg-[#ffd84d]"
                     >
                       <Plus className="mr-1 size-3.5" />
                       Thêm node
@@ -562,10 +565,15 @@ export function OrganizationWorkspace({
                 ) : null}
               </div>
 
-              {/* Bố cục 2 cột: Fit 100% viewport, Cột 1 Tree Outline, Cột 2 Canvas tối đa không gian */}
-              <div className="grid flex-1 min-h-0 grid-cols-1 gap-3 overflow-hidden xl:grid-cols-[280px_1fr] 2xl:grid-cols-[300px_1fr]">
+              {/* Bố cục 2 cột: cây phân cấp (kéo thả đổi độ rộng) | canvas. Chi tiết node mở bằng ngăn kéo từ mép phải.
+                  Màn rộng thì vừa khít khung nhìn; màn hẹp thì xếp dọc và cuộn cả trang. */}
+              <div
+                ref={outlineGridRef}
+                style={{ ['--outline-w' as string]: `${outlineResize.width}px` }}
+                className={`relative grid grid-cols-1 gap-3 xl:min-h-0 xl:flex-1 xl:grid-cols-[var(--outline-w)_minmax(0,1fr)] ${outlineResize.dragging ? 'select-none' : ''}`}
+              >
                 {/* Cột 1: Cây sơ đồ Nested Tree List / Outline */}
-                <div className="h-full min-h-0 flex flex-col overflow-hidden">
+                <div className="flex h-[360px] min-h-0 flex-col overflow-hidden xl:h-full">
                   <OrganizationTreeOutline
                     nodes={nodes}
                     nodeTypes={types}
@@ -577,8 +585,27 @@ export function OrganizationWorkspace({
                   />
                 </div>
 
+                {/* Thanh chia kéo thả giữa hai cột (chỉ từ màn xl, khi hai cột nằm ngang) */}
+                <div
+                  {...outlineResize.handleProps}
+                  aria-label="Kéo để đổi độ rộng cột Sơ đồ phân cấp (nhấp đúp để về mặc định)"
+                  title="Kéo để đổi độ rộng; nhấp đúp để về mặc định"
+                  style={{ left: 'var(--outline-w)' }}
+                  className="group absolute inset-y-0 z-10 hidden w-3 cursor-col-resize touch-none items-center justify-center outline-none xl:flex"
+                >
+                  <span
+                    aria-hidden="true"
+                    className={`h-12 w-1 rounded-full transition-colors group-hover:bg-[#ffc90a] group-focus-visible:bg-[#ffc90a] ${
+                      outlineResize.dragging ? 'bg-[#ffc90a]' : 'bg-slate-300'
+                    }`}
+                  />
+                </div>
+
                 {/* Cột 2: Canvas sơ đồ Flow toàn diện tích */}
-                <section className="h-full min-h-0 flex flex-1 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+                <section
+                  aria-label="Canvas sơ đồ"
+                  className="flex h-[560px] min-h-0 flex-col overflow-hidden rounded-[14px] border border-[#eef0f3] bg-white xl:h-full"
+                >
                   <div className="relative h-full w-full flex-1 min-h-0">
                     <OrganizationFlow
                       key={treeId}
@@ -597,7 +624,7 @@ export function OrganizationWorkspace({
                 </section>
               </div>
 
-              {/* Drawer Chi tiết Node (Trượt từ mép phải, mở rộng 1.75x = 595px) */}
+              {/* Drawer Chi tiết Node (trượt từ mép phải) */}
               <Sheet
                 open={isDrawerOpen && Boolean(selectedNodeId)}
                 onOpenChange={(openState: boolean) => {
@@ -609,6 +636,8 @@ export function OrganizationWorkspace({
               >
                 <SheetContent
                   side="right"
+                  // Ẩn nút đóng (X) mặc định: nó đè lên nhãn "Đơn vị / Chức danh" ở góc phải; vẫn đóng bằng Esc hoặc bấm ra ngoài.
+                  showCloseButton={false}
                   className="!w-[595px] !max-w-[595px] p-0 overflow-hidden border-l border-slate-200 bg-white flex flex-col"
                   style={{ width: '595px', maxWidth: '595px' }}
                 >
@@ -620,8 +649,9 @@ export function OrganizationWorkspace({
                   </SheetHeader>
                   <div className="flex-1 min-h-0 h-full overflow-hidden flex flex-col">
                     <OrganizationNodeInspector
-                      selectedNode={nodes.find((x) => x.id === selectedNodeId)}
+                      selectedNode={selectedNode}
                       nodes={nodes}
+                      allNodes={snapshot.nodes}
                       assignments={snapshot.assignments}
                       users={snapshot.users}
                       onSaveNode={handleSaveNodeDirect}
@@ -634,6 +664,7 @@ export function OrganizationWorkspace({
                       onQuickAssign={handleQuickAssign}
                       onQuickUnassign={handleQuickUnassign}
                       onSetPrimaryAssignment={handleSetPrimaryAssignment}
+                      onUnsetPrimaryAssignment={handleUnsetPrimaryAssignment}
                       onSelectNode={handleSelectNodeWithDrawer}
                     />
                   </div>
@@ -678,6 +709,7 @@ export function OrganizationWorkspace({
               trees={snapshot.trees}
               types={snapshot.nodeTypes}
               nodes={snapshot.nodes}
+              assignments={snapshot.assignments}
               users={snapshot.users}
               selectedTreeId={treeId}
               onSave={save}
@@ -695,6 +727,7 @@ function Form({
   trees,
   types,
   nodes,
+  assignments,
   users,
   selectedTreeId,
   onSave,
@@ -704,6 +737,7 @@ function Form({
   trees: Tree[];
   types: NodeType[];
   nodes: Node[];
+  assignments: Assignment[];
   users: OrganizationSnapshot['users'];
   selectedTreeId?: string;
   onSave: (
@@ -736,12 +770,60 @@ function Form({
     headPositionId: item?.headPositionId ?? '',
     nodeTypeId: item?.nodeTypeId ?? types.find((t) => t.category === defaultCategory)?.id ?? types[0]?.id ?? '',
     nodeId: item?.nodeId ?? editor.parentId ?? '',
-    userId: item?.userId ?? users[0]?.id ?? '',
+    // Bổ nhiệm mới: không tự chọn người đầu danh sách, người dùng phải chủ động tìm và chọn.
+    userId: item?.userId ?? '',
     startDate: item?.startDate ?? '',
     endDate: item?.endDate ?? '',
     note: item?.note ?? '',
   });
   const set = (k: string, v: unknown) => setData((x) => ({ ...x, [k]: v }));
+  // Chức danh chọn được khi bổ nhiệm: nhãn là tên, mô tả gồm mã và đơn vị cha để phân biệt các chức danh trùng tên.
+  const positionOptions = useMemo(() => {
+    const byId = new Map(nodes.map((n) => [n.id, n]));
+    return nodes
+      .filter(
+        (x) => types.find((t) => t.id === x.nodeTypeId)?.category === 'position',
+      )
+      .map((x) => ({
+        value: x.id,
+        label: x.name,
+        description: [x.code, x.parentId ? byId.get(x.parentId)?.name : '']
+          .filter(Boolean)
+          .join(' · '),
+      }));
+  }, [nodes, types]);
+  const userOptions = useMemo(() => {
+    const nodeNames = new Map(nodes.map((n) => [n.id, n.name]));
+    return users.map((u) => {
+      const primary = assignments.find(
+        (a) =>
+          a.userId === u.id &&
+          a.status === 'active' &&
+          a.isPrimary &&
+          a.id !== (editor.item?.id as string | undefined),
+      );
+      return {
+        value: u.id,
+        label: u.email ? `${u.fullName} (${u.email})` : u.fullName,
+        description: primary
+          ? `Đang giữ vị trí chính tại: ${nodeNames.get(primary.nodeId) ?? 'chức danh khác'}`
+          : undefined,
+      };
+    });
+  }, [users, assignments, nodes, editor.item?.id]);
+  // Một người chỉ giữ vị trí chính ở một chức danh: báo trước khi đặt "Vị trí chính" cho người đã chính ở nơi khác.
+  const primaryConflict =
+    editor.resource === 'assignments' && data.isPrimary && data.userId && data.nodeId
+      ? findPrimaryElsewhere(
+          assignments,
+          String(data.userId),
+          String(data.nodeId),
+          editor.item?.id as string | undefined,
+        )
+      : undefined;
+  const primaryConflictNodeName = primaryConflict
+    ? (nodes.find((n) => n.id === primaryConflict.nodeId)?.name ?? 'chức danh khác')
+    : undefined;
   const hasExistingRoot = useMemo(() => {
     if (editor.resource !== 'nodes') return false;
     return nodes.some(
@@ -756,6 +838,20 @@ function Form({
     if (editor.resource === 'nodes' && !data.parentId && hasExistingRoot) {
       toast.error(
         'Mỗi sơ đồ tổ chức chỉ được phép tạo 1 node gốc. Vui lòng chọn Node cha.',
+      );
+      return;
+    }
+    if (editor.resource === 'assignments' && (!data.nodeId || !data.userId)) {
+      toast.error(
+        !data.nodeId
+          ? 'Vui lòng chọn chức danh để bổ nhiệm.'
+          : 'Vui lòng chọn người dùng để bổ nhiệm.',
+      );
+      return;
+    }
+    if (primaryConflict) {
+      toast.error(
+        `Nhân sự này đang giữ vị trí chính tại "${primaryConflictNodeName}". Hãy bỏ vị trí chính ở đó trước, hoặc bỏ chọn "Vị trí chính".`,
       );
       return;
     }
@@ -808,46 +904,41 @@ function Form({
       ) : null}
       {editor.resource === 'nodes' ? (
         <>
-          <Field label="Sơ đồ">
-            <select
-              className={field}
+          <SelectField label="Sơ đồ">
+            <SearchableSelect
+              clearable={false}
               value={String(data.treeId)}
-              onChange={(e) => set('treeId', e.currentTarget.value)}
-            >
-              {trees.map((x) => (
-                <option key={x.id} value={x.id}>
-                  {x.name}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Node cha">
-            <select
-              className={field}
+              placeholder="Gõ tên sơ đồ để tìm"
+              onChange={(v) => set('treeId', v)}
+              options={trees.map((x) => ({ value: x.id, label: x.name }))}
+            />
+          </SelectField>
+          <SelectField label="Node cha">
+            <SearchableSelect
+              clearable={!hasExistingRoot}
               value={String(data.parentId)}
-              onChange={(e) => set('parentId', e.currentTarget.value)}
-            >
-              <option value="" disabled={hasExistingRoot}>
-                {hasExistingRoot
-                  ? '— Đã có node gốc (Mỗi sơ đồ chỉ có 1 node gốc) —'
-                  : 'Node gốc'}
-              </option>
-              {nodes
+              placeholder={
+                hasExistingRoot
+                  ? 'Đã có node gốc, chọn node cha để tiếp tục'
+                  : 'Node gốc (không có node cha)'
+              }
+              onChange={(v) => set('parentId', v)}
+              options={nodes
                 .filter(
                   (x) => x.id !== editor.item?.id && x.treeId === data.treeId,
                 )
-                .map((x) => (
-                  <option key={x.id} value={x.id}>
-                    {x.name}
-                  </option>
-                ))}
-            </select>
+                .map((x) => ({
+                  value: x.id,
+                  label: x.name,
+                  description: x.code,
+                }))}
+            />
             {hasExistingRoot ? (
-              <p className="mt-1 text-[11px] text-amber-600">
+              <p className="mt-1 text-[12px] text-amber-600">
                 Sơ đồ này đã có node gốc. Mỗi sơ đồ chỉ được phép tạo 1 node gốc duy nhất.
               </p>
             ) : null}
-          </Field>
+          </SelectField>
           <Field label="Phân loại Đối tượng">
             <div className="grid grid-cols-2 gap-3">
               <button
@@ -920,77 +1011,61 @@ function Form({
             />
           </Field>
           {data.category === 'unit' && editor.item ? (
-            <Field label="Chức danh quản lý (Node Position chính)">
-              <select
-                className={field}
+            <SelectField label="Chức danh quản lý (Node Position chính)">
+              <SearchableSelect
                 value={String(data.headPositionId ?? '')}
-                onChange={(e) => set('headPositionId', e.currentTarget.value || '')}
-              >
-                <option value="">-- Không có / Chưa chọn quản lý --</option>
-                {nodes
+                placeholder="Chưa chọn chức danh quản lý"
+                onChange={(v) => set('headPositionId', v || '')}
+                options={nodes
                   .filter(
                     (x) =>
                       x.parentId === editor.item?.id && x.category === 'position',
                   )
-                  .map((x) => (
-                    <option key={x.id} value={x.id}>
-                      {x.name} ({x.code})
-                    </option>
-                  ))}
-              </select>
-            </Field>
+                  .map((x) => ({
+                    value: x.id,
+                    label: x.name,
+                    description: x.code,
+                  }))}
+              />
+            </SelectField>
           ) : null}
         </>
       ) : null}
       {editor.resource === 'assignments' ? (
         <>
-          <Field label="Chức danh">
-            <select
+          <SelectField label="Chức danh" required>
+            <SearchableSelect
               required
-              className={field}
+              clearable={false}
               value={String(data.nodeId)}
-              onChange={(e) => set('nodeId', e.currentTarget.value)}
-            >
-              <option value="">Chọn chức danh</option>
-              {nodes
-                .filter(
-                  (x) =>
-                    types.find((t) => t.id === x.nodeTypeId)?.category ===
-                    'position',
-                )
-                .map((x) => (
-                  <option key={x.id} value={x.id}>
-                    {x.name}
-                  </option>
-                ))}
-            </select>
-          </Field>
-          <Field label="Người dùng">
-            <select
-              className={field}
+              placeholder="Gõ tên hoặc mã chức danh để tìm"
+              onChange={(v) => set('nodeId', v)}
+              options={positionOptions}
+            />
+          </SelectField>
+          <SelectField label="Người dùng" required>
+            <SearchableSelect
+              required
+              clearable={false}
               value={String(data.userId)}
-              onChange={(e) => set('userId', e.currentTarget.value)}
-            >
-              {users.map((x) => (
-                <option key={x.id} value={x.id}>
-                  {x.fullName}
-                </option>
-              ))}
-            </select>
-          </Field>
+              placeholder="Gõ tên hoặc email người dùng để tìm"
+              onChange={(v) => set('userId', v)}
+              options={userOptions}
+            />
+          </SelectField>
           <div className="grid grid-cols-2 gap-3">
             <Field label="Từ ngày">
-              <Input
-                type="date"
+              <DatePickerInput
+                height={32}
                 value={String(data.startDate)}
-                onChange={(e) => set('startDate', e.currentTarget.value)}
+                onChange={(value) => set('startDate', value)}
               />
             </Field>
             <Field label="Đến ngày">
-              <Input
-                type="date"
+              <DatePickerInput
+                height={32}
                 value={String(data.endDate)}
-                onChange={(e) => set('endDate', e.currentTarget.value)}
+                onChange={(value) => set('endDate', value)}
               />
             </Field>
           </div>
@@ -1006,23 +1081,29 @@ function Form({
             checked={Boolean(data.isPrimary)}
             onChange={(v) => set('isPrimary', v)}
           />
+          {primaryConflict ? (
+            <p className="rounded-md border border-amber-200 bg-amber-50/70 p-2 text-xs leading-snug text-amber-800">
+              Nhân sự này đang giữ vị trí chính tại &ldquo;{primaryConflictNodeName}&rdquo;. Mỗi người chỉ có một
+              vị trí chính; hãy bỏ vị trí chính ở chức danh đó trước, hoặc bỏ chọn ô này để bổ nhiệm kiêm nhiệm.
+            </p>
+          ) : null}
         </>
       ) : null}
-      <Field label="Trạng thái">
-        <select
-          className={field}
+      <SelectField label="Trạng thái">
+        <SearchableSelect
+          clearable={false}
           value={String(data.status)}
-          onChange={(e) => set('status', e.currentTarget.value)}
-        >
-          <option value="active">Hoạt động</option>
-          <option value="inactive">Không hoạt động</option>
-          {editor.resource === 'assignments' ? (
-            <option value="ended">Đã kết thúc</option>
-          ) : (
-            <option value="archived">Lưu trữ</option>
-          )}
-        </select>
-      </Field>
+          placeholder="Chọn trạng thái"
+          onChange={(v) => set('status', v)}
+          options={[
+            { value: 'active', label: 'Hoạt động' },
+            { value: 'inactive', label: 'Không hoạt động' },
+            editor.resource === 'assignments'
+              ? { value: 'ended', label: 'Đã kết thúc' }
+              : { value: 'archived', label: 'Lưu trữ' },
+          ]}
+        />
+      </SelectField>
       <div className="flex justify-end gap-2">
         <Button type="button" variant="outline" onClick={onCancel}>
           Hủy
@@ -1041,22 +1122,29 @@ function Form({
 
 function Tab({
   active,
-  icon: Icon,
+  count,
   label,
   onClick,
 }: {
   active: boolean;
-  icon: typeof Users;
+  count: number;
   label: string;
   onClick: () => void;
 }) {
   return (
     <button
+      type="button"
+      role="tab"
+      aria-selected={active}
       onClick={onClick}
-      className={`flex items-center gap-2 border-b-2 px-3 py-3 text-sm font-medium ${active ? 'border-blue-600 text-blue-700' : 'border-transparent text-slate-500'}`}
+      className={`-mb-px flex h-[42px] cursor-pointer items-center gap-2 border-b-2 px-0.5 text-sm font-semibold ${active ? 'border-[#ffc90a] text-[#18181b]' : 'border-transparent text-slate-500 hover:text-[#18181b]'}`}
     >
-      <Icon className="size-4" />
       {label}
+      <span
+        className={`rounded-full px-2 text-[12px] font-bold ${active ? 'bg-[#fff6d6] text-[#8a6400]' : 'bg-[#f1f3f6] text-slate-500'}`}
+      >
+        {count}
+      </span>
     </button>
   );
 }
@@ -1066,6 +1154,29 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
       <span>{label}</span>
       {children}
     </label>
+  );
+}
+/**
+ * Nhãn cho ô chọn có ô tìm kiếm. Dùng `div` thay vì `label`: danh sách chọn nằm trong `label` sẽ bị trình duyệt
+ * chuyển lần nhấp về ô nhập và đóng danh sách.
+ */
+function SelectField({
+  label,
+  required,
+  children,
+}: {
+  label: string;
+  required?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <div className="grid gap-1.5 text-sm font-medium text-slate-700">
+      <span>
+        {label}
+        {required ? <span className="ml-0.5 text-red-500">*</span> : null}
+      </span>
+      {children}
+    </div>
   );
 }
 function Check({

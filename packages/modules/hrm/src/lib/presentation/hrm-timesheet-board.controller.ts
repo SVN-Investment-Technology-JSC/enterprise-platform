@@ -1,4 +1,5 @@
 import type {
+  HrmBoardFlag,
   HrmMonthCloseState,
   HrmTimesheetBoard,
 } from '@enterprise-platform/contracts-hrm';
@@ -20,6 +21,11 @@ import { HrmContextService } from '../infrastructure/hrm-context.service.js';
 import { HrmMissingSchemaInterceptor } from '../infrastructure/hrm-missing-schema.interceptor.js';
 import { loadBoard } from '../infrastructure/hrm-timesheet-board.js';
 import {
+  boardFlagsOf,
+  emptyFlagCounts,
+  parseBoardFlag,
+} from '../infrastructure/hrm-timesheet-board-flags.js';
+import {
   adjustMonthDay,
   calculateMonth,
   closeMonth,
@@ -36,6 +42,8 @@ import { requireDate, requireUuid } from '../infrastructure/hrm-validation.js';
 
 const DEFAULT_PAGE_SIZE = 50;
 const MAX_PAGE_SIZE = 200;
+/** Số nhân viên nạp mỗi lượt khi quét cờ lọc toàn tháng, để không giữ cả công ty trong bộ nhớ. */
+const SCAN_CHUNK = 100;
 
 /** Cặp ký tự có dấu -> không dấu (cả chữ hoa và thường) để tìm kiếm tiếng Việt không dấu ngay trong SQL. */
 const ACCENTED: Record<string, string> = {
@@ -99,8 +107,18 @@ export class HrmTimesheetBoardController {
     @Query('page') pageParam?: string,
     @Query('page_size') pageSizeParam?: string,
     @Query('self') selfParam?: string,
+    @Query('flag') flagParam?: string,
   ): Promise<{ data: HrmTimesheetBoard }> {
     const range = parseMonth(monthParam);
+    let flag: HrmBoardFlag | null;
+    try {
+      flag = parseBoardFlag(flagParam);
+    } catch (e) {
+      throw new BadRequestException({
+        code: 'HRM_INVALID_INPUT',
+        message: e instanceof Error ? e.message : 'flag không hợp lệ',
+      });
+    }
     const requested = employeeParam ? requireUuid(employeeParam, 'employee_id') : undefined;
     const page = positiveInt(pageParam, 1, 100000, 'page');
     const pageSize = positiveInt(pageSizeParam, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, 'page_size');
@@ -122,45 +140,54 @@ export class HrmTimesheetBoardController {
 
     const [list, periods] = await Promise.all([
       pool.query(
-        `SELECT d.employee_id, count(*) OVER()::int AS total
+        `SELECT d.employee_id
            FROM hrm_schema.employee_directory d
            JOIN hrm_schema.employee_profiles p ON p.tenant_id=d.tenant_id AND p.employee_id=d.employee_id
           WHERE d.tenant_id=$1 AND d.deleted_at IS NULL AND d.join_date<=$3::date AND (p.inactive_from IS NULL OR p.inactive_from>$2::date)
             AND ($4::uuid IS NULL OR d.employee_id=$4::uuid)
             AND ($5::text IS NULL OR translate(coalesce(d.employee_code,'')||' '||coalesce(d.full_name,''), $6::text, $7::text) ILIKE '%'||$5::text||'%' ESCAPE '\\' OR d.employee_id::text=$8::text)
-          ORDER BY d.employee_code, d.employee_id
-          LIMIT $9 OFFSET $10`,
-        [
-          tenantId,
-          range.from,
-          range.to,
-          onlyEmployee ?? null,
-          search,
-          FROM_CHARS,
-          TO_CHARS,
-          q?.trim() ?? '',
-          pageSize,
-          (page - 1) * pageSize,
-        ],
+          ORDER BY d.employee_code, d.employee_id`,
+        [tenantId, range.from, range.to, onlyEmployee ?? null, search, FROM_CHARS, TO_CHARS, q?.trim() ?? ''],
       ),
       findMonthPeriods(pool, tenantId, range),
     ]);
     const month = monthInfoOf(range, periods);
-    const loaded = await loadBoard(pool, tenantId, {
+    const boardInput = {
       from: range.from,
       to: range.to,
-      employeeIds: list.rows.map((r) => r.employee_id as string),
       today: todayInVietnam(),
       lockedPeriodId: month.state === 'LOCKED' ? month.periodId : null,
       periodId: month.periodId,
-    });
+    };
+    const allIds = list.rows.map((r) => r.employee_id as string);
+
+    // Bộ lọc nhanh và số đếm tính trên TOÀN BỘ nhân viên khớp tìm kiếm của tháng, rồi mới phân trang;
+    // nếu chỉ lọc trong trang đang xem thì kết quả đổi theo cỡ trang.
+    const counts: Record<HrmBoardFlag | 'ALL', number> = emptyFlagCounts(allIds.length);
+    const matched: string[] = [];
+    for (let i = 0; i < allIds.length; i += SCAN_CHUNK) {
+      const chunk = allIds.slice(i, i + SCAN_CHUNK);
+      const scanned = await loadBoard(pool, tenantId, { ...boardInput, employeeIds: chunk });
+      const flagsById = new Map(scanned.employees.map((e) => [e.employeeId, boardFlagsOf(e)]));
+      for (const id of chunk) {
+        const flags = flagsById.get(id) ?? new Set<HrmBoardFlag>();
+        for (const f of flags) counts[f] += 1;
+        if (!flag || flags.has(flag)) matched.push(id);
+      }
+    }
+    const pageIds = matched.slice((page - 1) * pageSize, page * pageSize);
+    const loaded = await loadBoard(pool, tenantId, { ...boardInput, employeeIds: pageIds });
+    const order = new Map(pageIds.map((id, i) => [id, i]));
+    const employees = [...loaded.employees].sort(
+      (x, y) => (order.get(x.employeeId) ?? 0) - (order.get(y.employeeId) ?? 0),
+    );
     return {
       data: {
         month,
         canViewAll,
         calendar: loaded.calendar,
-        employees: loaded.employees,
-        meta: { total: Number(list.rows[0]?.total ?? 0), page, pageSize },
+        employees,
+        meta: { total: matched.length, page, pageSize, counts },
       },
     };
   }

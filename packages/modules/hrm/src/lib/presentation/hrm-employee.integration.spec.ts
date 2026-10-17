@@ -149,7 +149,9 @@ integration('HRM employee PostgreSQL integration', () => {
     await migrate('hrm/0019-timesheet-attachment-lifecycle.sql');
     await migrate('hrm/0031-hrm-profile-documents.sql');
     await migrate('hrm/0020-payroll-lifecycle.sql');
+    await migrate('hrm/0032-hrm-personnel-decisions.sql');
     await migrate('hrm/0033-leave-annual-policy.sql');
+    await migrate('hrm/0051-hrm-leave-settlements-legacy.sql');
     await migrate('hrm/0044-hrm-annual-leave-single-policy.sql');
     await migrate('hrm/0035-hrm-work-schedules.sql');
     await migrate('hrm/0036-hrm-work-schedule-rules.sql');
@@ -164,6 +166,7 @@ integration('HRM employee PostgreSQL integration', () => {
     await migrate('hrm/0034-hrm-request-project-links.sql');
     await migrate('hrm/0035-hrm-request-trip-links.sql');
     await migrate('hrm/0036-hrm-project-request-reversed.sql');
+    await migrate('hrm/0056-hrm-shift-soft-delete.sql');
     const ctx = {
       getContext: async () => ({ pool, tenantId, principal: { userId } }),
       getRequestContext: async () => ({
@@ -355,9 +358,8 @@ integration('HRM employee PostgreSQL integration', () => {
       requestDate: '2026-09-20',
       reasonId: correctionReason,
       description: 'Missing lunch return',
-      sessions: [
-        { start: '2026-09-20T15:00:00Z', end: '2026-09-20T23:00:00Z' },
-      ],
+      // Mỗi đơn chỉ khai báo một mốc giờ: thay toàn bộ giờ ra trong ngày bằng một giờ ra mới.
+      punches: [{ kind: 'OUT', at: '2026-09-20T23:00:00Z' }],
     });
     await expect(
       attendance.approveCorrection(req, correction.data.id),
@@ -381,7 +383,7 @@ integration('HRM employee PostgreSQL integration', () => {
       `SELECT count(*)::int AS total,count(*) FILTER (WHERE voided_by_correction_id IS NOT NULL)::int AS replaced FROM hrm_schema.attendance_events WHERE tenant_id=$1`,
       [tenantId],
     );
-    expect(events.rows[0]).toEqual({ total: 6, replaced: 4 });
+    expect(events.rows[0]).toEqual({ total: 5, replaced: 2 });
   });
   it('rejects self attendance for another employee and client-supplied timestamps', async () => {
     const ctx = {

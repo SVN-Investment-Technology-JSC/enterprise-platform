@@ -24,6 +24,17 @@ export interface LinkableProject {
 
 interface ProjectRow extends LinkableProject {
   readonly myRole?: string;
+  /** Quyền theo vai trò do tenant cấu hình; server cũ chưa trả thì dựa vào `myRole`. */
+  readonly myPermissions?: readonly string[];
+}
+
+function canSubmit(row: ProjectRow): boolean {
+  if (!row.myRole) return false;
+  if (!row.myPermissions) return SUBMITTER_ROLES.has(row.myRole);
+  return (
+    row.myPermissions.includes('project.update_all') ||
+    row.myPermissions.includes('project.update_related')
+  );
 }
 
 /**
@@ -52,7 +63,7 @@ export async function loadLinkableProjects(): Promise<LinkableProject[]> {
     return [];
   }
   return rows
-    .filter((row) => row.myRole && SUBMITTER_ROLES.has(row.myRole))
+    .filter(canSubmit)
     .filter((row) => !CLOSED_STATUSES.has(row.status))
     .map(({ id, code, name, status }) => ({ id, code, name, status }))
     .sort((left, right) => left.code.localeCompare(right.code));

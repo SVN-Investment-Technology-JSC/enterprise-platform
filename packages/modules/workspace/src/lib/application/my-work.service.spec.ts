@@ -125,6 +125,7 @@ describe('MyWorkService.summary', () => {
         },
         externalCards: async () => [],
       },
+      standaloneTask: { forMyWork: async () => [] },
     } as unknown as WorkspaceStore;
     return { store, seen };
   }
@@ -207,6 +208,7 @@ describe('MyWorkService — lịch hôm nay', () => {
         mentions: async () => [],
         externalCards: async () => [],
       },
+      standaloneTask: { forMyWork: async () => [] },
       calendar: { listExceptions: async () => exceptions },
     } as unknown as WorkspaceStore;
   }

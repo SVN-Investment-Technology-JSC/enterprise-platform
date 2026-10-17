@@ -79,6 +79,34 @@ const checks = [
     path: '/api/hrm/health/ready',
     validate: (body) => body?.status === 'ready' && body?.service === 'hrm-api',
   },
+  {
+    service: 'Finance Web',
+    path: '/modules/finance',
+  },
+  {
+    service: 'Finance API · live',
+    path: '/api/finance/health/live',
+    validate: (body) => body?.status === 'live' && body?.service === 'finance-api',
+  },
+  {
+    service: 'Finance API · ready',
+    path: '/api/finance/health/ready',
+    validate: (body) => body?.status === 'ready' && body?.service === 'finance-api',
+  },
+  {
+    service: 'Hệ dùng chung Web',
+    path: '/modules/shared',
+  },
+  {
+    service: 'Hệ dùng chung API · live',
+    path: '/api/shared/health/live',
+    validate: (body) => body?.status === 'live' && body?.service === 'shared-api',
+  },
+  {
+    service: 'Hệ dùng chung API · ready',
+    path: '/api/shared/health/ready',
+    validate: (body) => body?.status === 'ready' && body?.service === 'shared-api',
+  },
 ];
 
 async function checkService(check) {

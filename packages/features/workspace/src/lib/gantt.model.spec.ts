@@ -154,15 +154,15 @@ describe('buildGanttLayout — trục thời gian', () => {
 
   it('mức tuần chỉ đánh dấu thứ Hai', () => {
     const layout = buildGanttLayout(rowsOf(span), [], 'week', TODAY);
-    expect(layout.ticks[0]?.label).toBe('31/8');
-    expect(layout.ticks[1]?.label).toBe('7/9');
+    expect(layout.ticks[0]?.label).toBe('31/08');
+    expect(layout.ticks[1]?.label).toBe('07/09');
   });
 
   it('mức tháng chỉ đánh dấu đầu tháng', () => {
     // Khung chạy 30/08 → 02/12 (đã cộng hai ngày lề), nên có bốn mốc đầu tháng.
     const layout = buildGanttLayout(rowsOf(span), [], 'month', TODAY);
     expect(layout.ticks.map((tick) => tick.label)).toEqual([
-      '9/2026',
+      '09/2026',
       '10/2026',
       '11/2026',
       '12/2026',

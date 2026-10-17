@@ -9,6 +9,7 @@ import type {
   ProcedurePathEntry,
   ProcedureProgress,
 } from './procedure-flow.types.js';
+import type { ProcedureStepFinanceVoucher, ProcedureStepIntegration } from './procedure-finance-step.js';
 
 export const PROCEDURE_KINDS = [
   'process',
@@ -59,7 +60,15 @@ export type ProcedureSubjectType =
   | 'organization_unit'
   | 'position'
   | 'user'
-  | 'initiator_manager';
+  | 'initiator_manager'
+  /**
+   * "Toàn bộ nhân viên": mọi thành viên của tenant. Chỉ hợp lệ với vai S (ai cũng được
+   * khởi tạo hồ sơ); không trỏ vào id cụ thể nên dùng PROCEDURE_EVERYONE_SUBJECT_ID.
+   */
+  | 'everyone';
+
+/** subjectId quy ước của chủ thể `everyone` (không lưu xuống cột subject_id). */
+export const PROCEDURE_EVERYONE_SUBJECT_ID = 'everyone';
 
 /** Chủ thể cố định dùng làm dự phòng khi leo hết chuỗi quản lý mà vẫn không có ai. */
 export interface ProcedureManagerFallback {
@@ -112,6 +121,11 @@ export interface ProcedureRaciAssignment {
   eTaskConfig?: ProcedureETaskConfig;
   /** Chỉ với `initiator_manager`; bắt buộc lúc công bố. */
   managerFallback?: ProcedureManagerFallback;
+  /**
+   * Chỉ có ở assignment do hệ thống sinh khi phân giải `initiator_manager`: đây là bản của NGƯỜI DỰ PHÒNG, đi kèm
+   * assignment của quản lý trực tiếp (có id là giá trị trường này). Bị loại bỏ khi bước được phân giải lại.
+   */
+  fallbackOfAssignmentId?: string;
 }
 
 /**
@@ -167,6 +181,8 @@ export interface ProcedureStepDefinition {
   slaHours?: number;
   /** Trường dữ liệu người thực hiện bước nhập khi chạy hồ sơ. */
   attributes?: ProcedureAttributeDefinition[];
+  /** Bước tích hợp (ví dụ bước Tài chính): việc làm thật nằm ở module khác. */
+  integration?: ProcedureStepIntegration;
   assignments: ProcedureRaciAssignment[];
 }
 
@@ -265,6 +281,13 @@ export interface ProcedureInstanceStep {
   materialReservations?: string[];
   /** Chụp từ định nghĩa lúc khởi tạo. */
   attributes?: ProcedureAttributeDefinition[];
+  /**
+   * Chụp từ định nghĩa lúc khởi tạo. Bước có cấu hình này chờ module ngoài: không
+   * ai hoàn thành được bằng tay, bước đóng khi module đó báo kết quả.
+   */
+  integration?: ProcedureStepIntegration;
+  /** Tiến trình phiếu của bước Tài chính; chỉ có khi `integration.module = 'finance'`. */
+  financeVoucher?: ProcedureStepFinanceVoucher;
   /**
    * Bản gốc của các assignment động trước khi phân giải. Giữ lại để khi bước bị
    * trả về thì lần kích hoạt sau phân giải lại theo tổ chức lúc đó.
@@ -480,6 +503,8 @@ export interface CreateProcedureStepInput {
   /** Vật tư bước cần; tên và đơn vị sẽ được server điền lúc công bố. */
   materials?: ProcedureStepMaterial[];
   attributes?: ProcedureAttributeDefinition[];
+  /** Bước tích hợp; `returnToStepId` được phép ghi mã bước khi bước đích chưa có id. */
+  integration?: ProcedureStepIntegration;
   assignments: CreateProcedureRaciAssignmentInput[];
 }
 
@@ -546,7 +571,7 @@ export interface StartProcedureInstanceRequest {
   sourceId?: string;
   initiatedBy?: string;
   initiatedByName?: string;
-  /** Chỉ dịch vụ nội bộ (sourceType 'hrm_request'): xem CreateProcedureInstanceRequest. */
+  /** Chỉ dịch vụ nội bộ (sourceType 'hrm_request' hoặc 'finance_voucher'): xem CreateProcedureInstanceRequest. */
   autoCompleteInitiatorStep?: boolean;
   /**
    * Gắn hồ sơ vào một dự án Workspace: hồ sơ mở ngay, còn công việc tương ứng
@@ -765,11 +790,15 @@ export interface SetProcedureSubtasksRequest {
 
 export type ProcedureInstanceSourceType =
   | 'hrm_request'
+  /** Phiếu thu/chi/chuyển tiền của module Tài chính; sourceId là id lần gửi duyệt. */
+  | 'finance_voucher'
   | 'manual'
   | 'maintenance_occurrence'
   | 'auto_from_parent'
   /** Mở theo yêu cầu của một công việc "Theo quy trình" bên Workspace. */
-  | 'workspace_work_item';
+  | 'workspace_work_item'
+  /** Mở theo yêu cầu của một việc ngoài dự án "Theo quy trình" bên Workspace. */
+  | 'workspace_standalone_task';
 
 /**
  * Các trường của công việc sẽ được Workspace tạo khi hồ sơ gắn một dự án.
@@ -786,6 +815,10 @@ export interface ProcedureWorkspaceWorkItemDraft {
   plannedEnd?: string;
   estimateHours?: number;
   estimatedCost?: number;
+  /** Công việc cha trong dự án; bỏ trống nghĩa là đặt ở gốc dự án. */
+  parentId?: string;
+  /** Người submit đơn, chọn trong danh sách người tham gia dự án. */
+  submitterUserId?: string;
 }
 
 /**
@@ -841,7 +874,7 @@ export interface CreateProcedureInstanceRequest {
   readonly initiatedByName?: string;
   /**
    * Tự hoàn thành bước S của người khởi tạo ngay trong giao dịch tạo hồ sơ.
-   * Chỉ nhận khi `sourceType = 'hrm_request'` và gọi bằng service token. Không đủ
+   * Chỉ nhận khi `sourceType` là 'hrm_request' hoặc 'finance_voucher' và gọi bằng service token. Không đủ
    * điều kiện (bước đầu không chỉ có vai S, người khởi tạo không khớp phân công S)
    * thì bỏ qua, hồ sơ nằm ở bước đầu và kết quả có cảnh báo.
    */

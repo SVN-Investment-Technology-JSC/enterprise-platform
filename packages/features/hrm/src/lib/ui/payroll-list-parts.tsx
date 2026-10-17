@@ -89,7 +89,7 @@ function StatCard({
       <div className="min-w-0">
         <p className="truncate text-xs font-semibold text-slate-600">{label}</p>
         <p className="font-mono text-2xl font-bold leading-tight text-slate-900">{value}</p>
-        <p className="truncate text-[11px] text-slate-400">Kỳ lương</p>
+        <p className="truncate text-[12px] text-slate-400">Kỳ lương</p>
       </div>
     </div>
   );
@@ -159,7 +159,7 @@ export function PayrollProcessSteps() {
         </span>
         <div>
           <h2 className="text-sm font-bold text-slate-900">Quy trình tạo kỳ lương</h2>
-          <p className="text-[11px] text-slate-500">Thực hiện theo 3 bước đơn giản để tạo và phát hành kỳ lương.</p>
+          <p className="text-[12px] text-slate-500">Thực hiện theo 3 bước đơn giản để tạo và phát hành kỳ lương.</p>
         </div>
       </div>
       <ol className="grid min-w-0 flex-1 gap-3 md:grid-cols-3">
@@ -170,7 +170,7 @@ export function PayrollProcessSteps() {
             </span>
             <div className="min-w-0 flex-1">
               <p className="text-xs font-bold text-slate-900">{step.title}</p>
-              <p className="text-[11px] leading-snug text-slate-500">{step.description}</p>
+              <p className="text-[12px] leading-snug text-slate-500">{step.description}</p>
             </div>
             {index < STEPS.length - 1 ? (
               <ChevronRight aria-hidden="true" className="mt-1 hidden size-4 shrink-0 text-slate-400 md:block" />

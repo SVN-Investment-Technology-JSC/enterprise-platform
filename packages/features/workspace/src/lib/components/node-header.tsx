@@ -10,7 +10,6 @@ import {
   PRIORITY_TONE,
   PROJECT_STATUS_LABELS,
   PROJECT_STATUS_TONE,
-  ROLE_LABELS,
   formatDate,
   isOverdue,
   workItemStatusLabel,
@@ -20,6 +19,7 @@ import styles from '../workspace.module.scss';
 import { ProcedureActions, type ProcedureLink } from './procedure-actions';
 import type { SelectedNode } from './project-tree';
 import { useDirectory } from './use-directory';
+import { useProjectRoles } from './use-project-roles';
 import { tagColor, useTags } from './use-tags';
 
 export interface NodeHeaderProps {
@@ -70,6 +70,7 @@ export function NodeHeader({
   onStartProcedure,
 }: NodeHeaderProps) {
   const directory = useDirectory();
+  const projectRoles = useProjectRoles();
   const tags = useTags();
   const participants = selected?.participantUserIds ?? [];
   const selectedTags = (selected?.tagIds ?? []).flatMap((tagId) => tags.find(tagId) ?? []);
@@ -192,12 +193,12 @@ export function NodeHeader({
             borderRadius: 8,
             background: '#fff7ed',
             color: '#7c2d12',
-            fontSize: 12.5,
+            fontSize: 13,
             lineHeight: 1.5,
           }}
         >
           <strong style={{ color: '#9a3412' }}>Đã huỷ hiệu lực</strong>
-          <span style={{ fontSize: 11.5, color: '#9a3412', opacity: 0.85 }}>
+          <span style={{ fontSize: 12, color: '#9a3412', opacity: 0.85 }}>
             {selected.reversal.reversedByName ?? 'Quản trị viên'} ·{' '}
             {new Date(selected.reversal.reversedAt).toLocaleString('vi-VN')}
           </span>
@@ -230,7 +231,7 @@ export function NodeHeader({
         </div>
       ) : null}
       {selected?.adjustmentOfId ? (
-        <p style={{ margin: '6px 0', fontSize: 12.5, color: 'var(--muted, #64748b)' }}>
+        <p style={{ margin: '6px 0', fontSize: 13, color: 'var(--muted, #64748b)' }}>
           Công việc điều chỉnh cho{' '}
           {(() => {
             const original = items.find((item) => item.id === selected.adjustmentOfId);
@@ -255,7 +256,7 @@ export function NodeHeader({
                 ? directory.nameOf(selected.assigneeUserId)
                 : 'Chưa giao'
               : project.myRole
-                ? ROLE_LABELS[project.myRole]
+                ? projectRoles.labelOf(project.myRole)
                 : 'Quản trị viên tenant'}
           </b>
         </span>

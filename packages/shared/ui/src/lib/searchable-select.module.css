@@ -24,14 +24,16 @@
 
 .input {
   width: 100%;
-  padding: 8px 60px 8px 32px !important;
-  font-size: 13.5px !important;
+  padding: var(--ss-pad-y, 8px) 60px var(--ss-pad-y, 8px) 32px !important;
+  font-size: var(--ss-font-size, 13.5px) !important;
   border: 1px solid #cbd5e1 !important;
   border-radius: 6px !important;
   background: #ffffff !important;
   color: #0f172a !important;
   outline: none !important;
   box-sizing: border-box !important;
+  /* Giá trị dài (vd. nhãn ca) bị cắt bằng dấu … thay vì tràn sát nút xoá/mũi tên. */
+  text-overflow: ellipsis;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 
   &:focus {
@@ -42,6 +44,50 @@
   &::placeholder {
     color: #94a3b8;
   }
+}
+
+/* Kiểu chọn thuần tuý (searchInDropdown): ô chỉ hiện giá trị đã chọn, con trỏ bấm, không có dấu nháy gõ. */
+.inputSelectOnly {
+  cursor: pointer;
+  caret-color: transparent;
+  padding-left: 12px !important;
+  text-overflow: ellipsis;
+}
+
+/* Ô tìm nằm đầu danh sách xổ ra */
+.dropdownSearch {
+  position: relative;
+  padding: 6px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.dropdownSearchIcon {
+  position: absolute;
+  left: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  color: #94a3b8;
+  pointer-events: none;
+}
+
+.dropdownSearchInput {
+  width: 100%;
+  box-sizing: border-box;
+  height: 32px;
+  padding: 4px 8px 4px 28px !important;
+  font-size: 14px !important;
+  color: #0f172a !important;
+  background: #ffffff !important;
+  border: 1px solid #cbd5e1 !important;
+  border-radius: 6px !important;
+  outline: none !important;
+}
+
+.dropdownSearchInput:focus {
+  border-color: #2563eb !important;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15) !important;
 }
 
 .inputDisabled {
@@ -120,6 +166,21 @@
   animation: dropdownFadeIn 0.15s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+/* Danh sách lật lên trên dùng inline `transform: translateY(-100%)` để bám mép trên ô; animation có `transform` sẽ ghi đè nó
+   (danh sách hiện lệch rồi "nhảy" lên khi animation kết thúc, và bước hiệu chỉnh toạ độ đo sai) nên chỉ làm mờ dần. */
+.dropdownUp {
+  animation-name: dropdownFadeOnly;
+}
+
+@keyframes dropdownFadeOnly {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 @keyframes dropdownFadeIn {
   from {
     opacity: 0;
@@ -155,7 +216,7 @@
   align-items: center;
   justify-content: space-between;
   padding: 8px 12px;
-  font-size: 13.5px;
+  font-size: 14px;
   color: #334155;
   cursor: pointer;
   transition: background-color 0.1s ease;
@@ -200,7 +261,7 @@
 }
 
 .optionBadge {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
   color: #475569;
   background: #e2e8f0;
@@ -209,7 +270,7 @@
 }
 
 .optionDescription {
-  font-size: 11.5px;
+  font-size: 12px;
   color: #64748b;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -226,6 +287,6 @@
 .emptyState {
   padding: 16px 12px;
   text-align: center;
-  font-size: 13px;
+  font-size: 14px;
   color: #94a3b8;
 }

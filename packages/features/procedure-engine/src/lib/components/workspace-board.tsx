@@ -24,22 +24,26 @@ import {
   evaluateStepSla,
   type ProcedureSlaView,
 } from '@enterprise-platform/contracts-procedure-engine';
-import { MinimalPopupForm, SearchableSelect } from '@enterprise-platform/shared-ui';
+import {
+  MinimalPopupForm,
+  SearchableSelect,
+  formatDateTime as formatSharedDateTime,
+} from '@enterprise-platform/shared-ui';
+import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, ChevronDown, ChevronLeft, ChevronRight, Download, Plus, Search, X } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight, Download, FileText, Plus, Search, X } from 'lucide-react';
 import type { AssetCatalogItem, MaterialCatalogItem } from '../procedure-api';
 import {
-  loadProjectFinanceEnabled,
   loadProjectPeople,
+  loadProjectWorkItems,
   loadRelatedProjects,
   procedureNameFor,
   WORK_ITEM_PRIORITY_OPTIONS,
   WORK_ITEM_TYPE_OPTIONS,
-  formatVndInput,
-  parseVndInput,
   type ProjectPerson,
   type ProjectWorkItemInput,
+  type ProjectWorkItemOption,
   type RelatedProject,
   type WorkItemPriority,
   type WorkItemType,
@@ -52,7 +56,10 @@ import {
   progressPercent,
   timelineEntries,
 } from './instance-flow-view';
+import { chatPeopleOf } from '../chat-people';
 import { ChatPanel } from './chat-panel';
+import { FinanceVoucherCard } from './finance-voucher-card';
+import financeStyles from './finance-voucher-card.module.scss';
 import { HistoryPanel } from './history-panel';
 import { LinkedPanel } from './linked-panel';
 import { SlaBadge } from './sla-badge';
@@ -74,24 +81,6 @@ function toIsoDateTime(date: string, time: string): string | undefined {
   if (!date || !time) return undefined;
   const value = new Date(`${date}T${time}:00`);
   return Number.isNaN(value.getTime()) ? undefined : value.toISOString();
-}
-
-function formatDateForDisplay(value: string): string {
-  const [year, month, day] = value.split('-');
-  return year && month && day ? `${day}/${month}/${year}` : value;
-}
-
-function parseDisplayedDate(value: string): string | undefined {
-  const match = value.trim().match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
-  if (!match) return undefined;
-  const [, day, month, year] = match;
-  const date = new Date(Number(year), Number(month) - 1, Number(day));
-  if (
-    date.getFullYear() !== Number(year) ||
-    date.getMonth() !== Number(month) - 1 ||
-    date.getDate() !== Number(day)
-  ) return undefined;
-  return `${year}-${month}-${day}`;
 }
 
 const STATUS_LABEL: Record<ProcedureInstance['status'], string> = {
@@ -144,54 +133,8 @@ function splitLocalDateTime(iso?: string): { date: string; time: string } | unde
 
 const ROLE_ORDER: readonly ProcedureRaciRole[] = ['S', 'R', 'E', 'C', 'A', 'I'];
 
-const dateTime = new Intl.DateTimeFormat('vi-VN', {
-  hour: '2-digit',
-  minute: '2-digit',
-  day: '2-digit',
-  month: '2-digit',
-  year: 'numeric',
-});
-
 function formatDateTime(value?: string): string {
-  return value ? dateTime.format(new Date(value)) : '—';
-}
-
-function subjectNames(snapshot?: TenantOrganizationSnapshot) {
-  const label = new Map<string, string>();
-  if (!snapshot) return label;
-
-  const units = snapshot.units ?? [];
-  const positions = snapshot.positions ?? [];
-  const members = snapshot.members ?? [];
-
-  for (const unit of units) {
-    label.set(unit.id, unit.headName ? `${unit.headName} (${unit.name})` : unit.name);
-  }
-  for (const position of positions) {
-    const holders = members
-      .filter((member) => member.positionId === position.id)
-      .map((member) => member.displayName);
-    label.set(position.id, holders.length > 0 ? holders.join(', ') : position.name);
-  }
-  for (const member of members) label.set(member.userId, member.displayName);
-  return label;
-}
-
-function participantsOf(
-  instance: ProcedureInstance,
-  names: ReadonlyMap<string, string>,
-): { id: string; name: string }[] {
-  const seen = new Map<string, string>();
-  for (const step of instance.steps) {
-    for (const assignment of step.assignments) {
-      const label = names.get(assignment.subjectId) ?? assignment.subjectLabel;
-      if (label) seen.set(assignment.subjectId, label);
-    }
-  }
-  for (const subtask of instance.subtasks ?? []) {
-    if (subtask.assigneeId && subtask.assigneeName) seen.set(subtask.assigneeId, subtask.assigneeName);
-  }
-  return [...seen].map(([id, name]) => ({ id, name }));
+  return formatSharedDateTime(value, '—');
 }
 
 /**
@@ -261,103 +204,58 @@ function roleLines(step: ProcedureInstanceStep, labels: ReadonlyMap<string, Role
   });
 }
 
-/** Từ ngần này chức danh trở lên, dòng vai chỉ hiện số và nút mở danh sách. */
-const ROLE_COMPACT_FROM = 4;
-
-/** Bỏ dấu để tìm "thi nghiem" ra "Thí nghiệm". */
-function foldText(value: string): string {
-  return value
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .replace(/đ/g, 'd')
-    .replace(/Đ/g, 'D')
-    .toLowerCase();
-}
-
 /**
- * Một dòng vai trên timeline. Vai gán cho ít chức danh thì ghi thẳng tên;
- * gán cho nhiều (cả công ty) thì chỉ ghi số và mở được danh sách gom theo đơn vị,
- * để thẻ bước không thành hai cột chữ đẩy ô ý kiến ra khỏi màn hình.
+ * Một dòng vai trên timeline. Hiển thị theo NGƯỜI (ẩn chức danh): `[icon vai] -
+ * Tên người` (QT-U2). Bước submit hiện đúng người đã submit thay vì cả danh sách
+ * chức danh (QT-U3). Vai có nhiều người: hiện 1 người + badge `+N`, hover/focus
+ * mới xổ danh sách còn lại (QT-U4).
  */
-function RoleLine({ line }: { line: ReturnType<typeof roleLines>[number] }) {
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState('');
-  if (line.items.length < ROLE_COMPACT_FROM) {
+function RoleLine({
+  line,
+  submitterName,
+}: {
+  line: ReturnType<typeof roleLines>[number];
+  submitterName?: string;
+}) {
+  const people =
+    line.role === 'S' && submitterName
+      ? [submitterName]
+      : [
+          ...new Set(
+            line.items.flatMap((item) =>
+              item.holderNames && item.holderNames.length ? item.holderNames : [item.title],
+            ),
+          ),
+        ];
+
+  const roleIcon = <i className={`${styles.role} ${styles[`role${line.role}`]}`}>{line.role}</i>;
+
+  if (people.length <= 1) {
     return (
-      <span className={styles.roleTag} title={line.holders ? `Đang giữ: ${line.holders}` : undefined}>
-        <i className={`${styles.role} ${styles[`role${line.role}`]}`}>{line.role}</i>
-        <span className={styles.roleName}>{line.names}</span>
-        {line.holders ? <span className={styles.roleHolders}>· {line.holders}</span> : null}
+      <span className={styles.roleTag}>
+        {roleIcon}
+        <span className={styles.roleName}>{people[0] ?? 'Chưa phân công'}</span>
       </span>
     );
   }
 
-  const people = new Set(line.items.flatMap((item) => item.holderNames ?? []));
-  const titleCount = new Map<string, number>();
-  for (const item of line.items) titleCount.set(item.title, (titleCount.get(item.title) ?? 0) + 1);
-  const q = foldText(query.trim());
-  const groups = new Map<string, RoleSubject[]>();
-  for (const item of line.items) {
-    const unit = item.unitName ?? 'Khác';
-    const hit =
-      !q ||
-      foldText(item.title).includes(q) ||
-      foldText(unit).includes(q) ||
-      (item.holderNames ?? []).some((name) => foldText(name).includes(q));
-    if (!hit) continue;
-    const list = groups.get(unit) ?? [];
-    list.push(item);
-    groups.set(unit, list);
-  }
-  const listId = `role-list-${line.role}`;
-
+  const [first, ...rest] = people;
   return (
-    <div className={styles.roleGroup}>
-      <div className={styles.roleSummary}>
-        <i className={`${styles.role} ${styles[`role${line.role}`]}`}>{line.role}</i>
-        <span className={styles.roleCount}>
-          {line.items.length} chức danh · {people.size} người
-        </span>
-        <button
-          type="button"
-          className={styles.roleToggle}
-          aria-expanded={open}
-          aria-controls={listId}
-          onClick={() => setOpen((value) => !value)}
-        >
-          {open ? 'Thu gọn' : 'Xem danh sách'}
-          <ChevronDown size={12} aria-hidden="true" />
-        </button>
-      </div>
-      {open ? (
-        <div className={styles.roleListBox} id={listId}>
-          <div className={styles.roleListSearch}>
-            <input
-              type="search"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Tìm chức danh hoặc người…"
-              aria-label="Tìm chức danh hoặc người"
-            />
-          </div>
-          {groups.size === 0 ? (
-            <div className={styles.roleEmpty}>Không có chức danh hay người nào khớp.</div>
-          ) : (
-            [...groups].map(([unit, items]) => (
-              <div key={unit}>
-                <div className={styles.roleUnit}>{unit}</div>
-                {items.map((item, index) => (
-                  <div key={`${item.title}-${index}`} className={styles.rolePos}>
-                    <span>{(titleCount.get(item.title) ?? 0) > 1 ? `${item.title} (${unit})` : item.title}</span>
-                    <span>{item.holders}</span>
-                  </div>
-                ))}
-              </div>
-            ))
-          )}
-        </div>
-      ) : null}
-    </div>
+    <span className={`${styles.roleTag} ${styles.rolePeople}`} tabIndex={0}>
+      {roleIcon}
+      <span className={styles.roleName}>{first}</span>
+      <span className={styles.roleMoreBadge} aria-label={`Thêm ${rest.length} người`}>
+        +{rest.length}
+      </span>
+      <span className={styles.rolePopover} role="list">
+        <span className={styles.rolePopoverHead}>{people.length} người</span>
+        {people.map((name, index) => (
+          <span key={`${name}-${index}`} role="listitem" className={styles.rolePopoverItem}>
+            {name}
+          </span>
+        ))}
+      </span>
+    </span>
   );
 }
 
@@ -388,6 +286,7 @@ export function WorkspaceBoard({
   onUploadEvidence,
   onUploadFile,
   onSendComment,
+  onRefreshInstance,
   handoffTitle,
   handoff,
   canReverse = false,
@@ -440,6 +339,8 @@ export function WorkspaceBoard({
   onUploadEvidence?: (instanceId: string, subtaskId: string, file: File) => void;
   onUploadFile?: (instanceId: string, file: File) => void;
   onSendComment?: (instanceId: string, body: string, mentions: string[], replyToId?: string) => void;
+  /** Tải lại đúng một hồ sơ khi người khác có trao đổi mới (thời gian thực). */
+  onRefreshInstance?: (instanceId: string) => void | Promise<void>;
   handoffTitle?: string;
   handoff?: StartHandoff;
   /** Quản trị viên Quy trình: được huỷ hiệu lực hồ sơ đã hoàn thành. */
@@ -447,7 +348,8 @@ export function WorkspaceBoard({
   onReverse?: (instanceId: string, input: ReverseProcedureInstanceRequest) => Promise<void>;
   initialInstanceId?: string;
 }) {
-  const [filter, setFilter] = useState<Filter>('all');
+  // Mặc định mở vào "Đang xử lý" (việc cần làm), "Tất cả" đưa xuống cuối thanh tab.
+  const [filter, setFilter] = useState<Filter>('running');
   const [viewMode, setViewMode] = useState<'list' | 'table'>('list');
   const [query, setQuery] = useState('');
   const [slaFilter, setSlaFilter] = useState<'all' | ProcedureSlaView['state']>('all');
@@ -471,17 +373,11 @@ export function WorkspaceBoard({
     const d = new Date();
     return d.toISOString().split('T')[0];
   });
-  const [startDateText, setStartDateText] = useState(() =>
-    formatDateForDisplay(new Date().toISOString().split('T')[0]),
-  );
   const [endTime, setEndTime] = useState('17:00');
   const [endDate, setEndDate] = useState(() => {
     const d = new Date();
     return d.toISOString().split('T')[0];
   });
-  const [endDateText, setEndDateText] = useState(() =>
-    formatDateForDisplay(new Date().toISOString().split('T')[0]),
-  );
   const [attachQueue, setAttachQueue] = useState<File[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -490,13 +386,14 @@ export function WorkspaceBoard({
   const [relatedProjects, setRelatedProjects] = useState<RelatedProject[]>();
   const [projectId, setProjectId] = useState('');
   const [projectPeople, setProjectPeople] = useState<ProjectPerson[]>([]);
+  const [projectWorkItems, setProjectWorkItems] = useState<ProjectWorkItemOption[]>([]);
+  const [itemParentId, setItemParentId] = useState('');
+  const [itemSubmitter, setItemSubmitter] = useState('');
   const [itemDescription, setItemDescription] = useState('');
   const [itemPriority, setItemPriority] = useState<WorkItemPriority>('normal');
   const [itemAssignee, setItemAssignee] = useState('');
   const [itemHours, setItemHours] = useState('');
   const [itemType, setItemType] = useState<WorkItemType>('task');
-  const [itemCost, setItemCost] = useState('');
-  const [financeEnabled, setFinanceEnabled] = useState(false);
   const project = relatedProjects?.find((item) => item.id === projectId);
 
   useEffect(() => {
@@ -507,8 +404,9 @@ export function WorkspaceBoard({
   useEffect(() => {
     setItemAssignee('');
     setProjectPeople([]);
-    setFinanceEnabled(false);
-    setItemCost('');
+    setProjectWorkItems([]);
+    setItemParentId('');
+    setItemSubmitter('');
     if (!projectId) return;
     let cancelled = false;
     void loadProjectPeople(projectId)
@@ -516,9 +414,11 @@ export function WorkspaceBoard({
         if (!cancelled) setProjectPeople(people);
       })
       .catch(() => undefined);
-    void loadProjectFinanceEnabled(projectId).then((enabled) => {
-      if (!cancelled) setFinanceEnabled(enabled);
-    });
+    void loadProjectWorkItems(projectId)
+      .then((items) => {
+        if (!cancelled) setProjectWorkItems(items);
+      })
+      .catch(() => undefined);
     return () => {
       cancelled = true;
     };
@@ -533,7 +433,6 @@ export function WorkspaceBoard({
     setItemPriority('normal');
     setItemHours('');
     setItemType('task');
-    setItemCost('');
   }, [creating]);
 
   const assigneeOptions = useMemo(
@@ -552,6 +451,29 @@ export function WorkspaceBoard({
         })),
     [projectPeople, project, actorId, actorName],
   );
+  // "Công việc cha": mặc định "Gốc dự án" (value rỗng), rồi tới cây công việc.
+  const parentOptions = useMemo(
+    () => [
+      { value: '', label: 'Gốc dự án' },
+      ...projectWorkItems.map((item) => ({
+        value: item.id,
+        // Thụt theo độ sâu để thấy cấu trúc cây trong danh sách phẳng.
+        label: `${'— '.repeat(Math.min(item.depth, 6))}${item.code} · ${item.title}`,
+      })),
+    ],
+    [projectWorkItems],
+  );
+  const submitterOptions = useMemo(
+    () =>
+      projectPeople.map((person) => ({
+        value: person.userId,
+        label:
+          person.userId === actorId && person.displayName === person.userId && actorName
+            ? actorName
+            : person.displayName,
+      })),
+    [projectPeople, actorId, actorName],
+  );
   const hoursValue = itemHours.trim() ? Number(itemHours) : undefined;
   const isHoursInvalid = hoursValue !== undefined && !(hoursValue > 0);
   const startDueAt = useMemo(
@@ -562,8 +484,8 @@ export function WorkspaceBoard({
     () => toIsoDateTime(endDate, endTime),
     [endDate, endTime],
   );
-  const hasValidStartDate = parseDisplayedDate(startDateText) === startDate;
-  const hasValidEndDate = parseDisplayedDate(endDateText) === endDate;
+  const hasValidStartDate = Boolean(startDate);
+  const hasValidEndDate = Boolean(endDate);
   const isScheduleInvalid =
     !hasValidStartDate ||
     !hasValidEndDate ||
@@ -572,7 +494,7 @@ export function WorkspaceBoard({
     Date.parse(endDueAt) <= Date.parse(startDueAt);
   const scheduleErrorMessage =
     !hasValidStartDate || !hasValidEndDate
-      ? 'Nhập ngày theo định dạng dd/mm/yyyy.'
+      ? 'Chọn ngày bắt đầu và ngày kết thúc.'
       : 'Thời gian kết thúc phải sau thời gian bắt đầu.';
 
   useEffect(() => {
@@ -585,17 +507,14 @@ export function WorkspaceBoard({
       const end = splitLocalDateTime(handoff?.endDueAt);
       if (start && end) {
         setStartDate(start.date);
-        setStartDateText(formatDateForDisplay(start.date));
         setStartTime(start.time);
         setEndDate(end.date);
-        setEndDateText(formatDateForDisplay(end.date));
         setEndTime(end.time);
       }
     }
   }, [handoffTitle, handoff, canCreateInstances]);
 
   const published = definitions.filter((item) => item.status === 'published');
-  const names = useMemo(() => subjectNames(organization), [organization]);
   const roleLabels = useMemo(() => subjectRoleLabels(organization), [organization]);
 
   const selectedCreateDef = useMemo(() => {
@@ -655,6 +574,11 @@ export function WorkspaceBoard({
 
   const selected =
     visible.find((instance) => instance.id === selectedId) ?? paged[0] ?? visible[0];
+  // Những NGƯỜI có thể được nhắc: vai giao cho chức danh/đơn vị được mở rộng thành từng người đang giữ.
+  const chatPeople = useMemo(
+    () => (selected ? chatPeopleOf(selected, organization, actorId) : []),
+    [selected, organization, actorId],
+  );
 
   const [headerCancelOpen, setHeaderCancelOpen] = useState(false);
   const [reverseOpen, setReverseOpen] = useState(false);
@@ -819,6 +743,8 @@ export function WorkspaceBoard({
   ) : null;
 
   const entries = selected ? timelineEntries(selected) : [];
+  // Người submit thực tế của hồ sơ (vai S của bước đầu): dùng cho QT-U3.
+  const submitterName = selected?.activity.find((entry) => entry.action === 'start')?.actorName;
   const currentInTimeline = entries.some(
     (entry) => entry.kind === 'step' && entry.step.id === selected?.currentStepId,
   );
@@ -866,7 +792,8 @@ export function WorkspaceBoard({
                       plannedStart: startDate,
                       plannedEnd: endDate,
                       estimateHours: hoursValue,
-                      estimatedCost: financeEnabled ? parseVndInput(itemCost) : undefined,
+                      parentId: itemParentId || undefined,
+                      submitterUserId: itemSubmitter || undefined,
                     }
                   : undefined,
               }).then(() => setCreating(false));
@@ -943,6 +870,32 @@ export function WorkspaceBoard({
 
             {project ? (
               <>
+                <div className={styles.createTimeDateGrid}>
+                  <div className={styles.createFieldGroup}>
+                    <label className={styles.createFieldLabel}>Công việc cha</label>
+                    <SearchableSelect
+                      options={parentOptions}
+                      value={itemParentId}
+                      clearable={false}
+                      placeholder={
+                        projectWorkItems.length === 0 ? 'Gốc dự án' : 'Tìm công việc cha…'
+                      }
+                      emptyText="Dự án chưa có công việc nào"
+                      onChange={(value) => setItemParentId(value || '')}
+                    />
+                  </div>
+                  <div className={styles.createFieldGroup}>
+                    <label className={styles.createFieldLabel}>Người Submit</label>
+                    <SearchableSelect
+                      options={submitterOptions}
+                      value={itemSubmitter}
+                      placeholder="Chọn người submit"
+                      emptyText="Dự án chưa có người tham gia"
+                      onChange={setItemSubmitter}
+                    />
+                  </div>
+                </div>
+
                 <div className={styles.createFieldGroup}>
                   <label className={styles.createFieldLabel} htmlFor="create-item-description">
                     Mô tả công việc
@@ -1004,30 +957,6 @@ export function WorkspaceBoard({
                   </div>
                 </div>
 
-                {financeEnabled ? (
-                  <div className={styles.createTimeDateGrid}>
-                    <div className={styles.createFieldGroup}>
-                      <label className={styles.createFieldLabel} htmlFor="create-item-cost">
-                        Chi phí dự toán (VND)
-                      </label>
-                      <input
-                        id="create-item-cost"
-                        inputMode="decimal"
-                        className={styles.createTextInput}
-                        placeholder="Ví dụ 150.000.000"
-                        value={itemCost}
-                        onChange={(event) => setItemCost(formatVndInput(event.target.value))}
-                      />
-                    </div>
-                    <div className={styles.createFieldGroup}>
-                      <label className={styles.createFieldLabel} htmlFor="create-item-actual">
-                        Chi phí thực tế (VND)
-                      </label>
-                      {/* Chi phí thực tế ghi qua sổ chi phí ở tab Tài chính bên Workspace. */}
-                      <input id="create-item-actual" readOnly className={styles.createTextInput} value="0" />
-                    </div>
-                  </div>
-                ) : null}
 
                 <p className={styles.createFormHint}>
                   {isHoursInvalid
@@ -1053,23 +982,13 @@ export function WorkspaceBoard({
                     />
                   </div>
                   <div style={{ position: 'relative', flex: 1 }}>
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      pattern="\d{2}/\d{2}/\d{4}"
-                      className={styles.createDateInput}
-                      style={{ width: '100%' }}
-                      placeholder="dd/mm/yyyy"
-                      value={startDateText}
-                      onChange={(e) => {
-                        const nextText = e.target.value;
-                        setStartDateText(nextText);
-                        const nextStartDate = parseDisplayedDate(nextText);
-                        if (!nextStartDate) return;
+                    <DatePickerInput
+                      height={36}
+                      value={startDate}
+                      onChange={(nextStartDate) => {
                         setStartDate(nextStartDate);
-                        if (endDate < nextStartDate) {
+                        if (nextStartDate && endDate < nextStartDate) {
                           setEndDate(nextStartDate);
-                          setEndDateText(formatDateForDisplay(nextStartDate));
                         }
                       }}
                     />
@@ -1092,20 +1011,11 @@ export function WorkspaceBoard({
                     />
                   </div>
                   <div style={{ position: 'relative', flex: 1 }}>
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      pattern="\d{2}/\d{2}/\d{4}"
-                      className={styles.createDateInput}
-                      style={{ width: '100%' }}
-                      placeholder="dd/mm/yyyy"
-                      value={endDateText}
-                      onChange={(e) => {
-                        const nextText = e.target.value;
-                        setEndDateText(nextText);
-                        const nextEndDate = parseDisplayedDate(nextText);
-                        if (nextEndDate) setEndDate(nextEndDate);
-                      }}
+                    <DatePickerInput
+                      height={36}
+                      value={endDate}
+                      min={startDate || undefined}
+                      onChange={setEndDate}
                     />
                   </div>
                 </div>
@@ -1188,9 +1098,14 @@ export function WorkspaceBoard({
               Hồ sơ không mở lại: chuyển sang "Đã huỷ hiệu lực", giữ nguyên lịch sử phê duyệt.
               {selected.sourceType === 'hrm_request'
                 ? ' Đơn HRM đứng sau hồ sơ cũng bị huỷ hiệu lực (công, phép, tạm ứng được hoàn lại).'
-                : ''}
+                : selected.sourceType === 'finance_voucher'
+                  ? ' Phiếu tài chính đã ghi sổ thì không huỷ hiệu lực được: huỷ phiếu (đảo bút toán) trong Tài chính trước.'
+                  : ''}
               {selected.workspaceLink?.status === 'linked'
                 ? ` Công việc ${selected.workspaceLink.workItemCode ?? ''} của dự án ${selected.workspaceLink.projectCode} được báo để xử lý theo.`
+                : ''}
+              {selected.steps.some((step) => step.financeVoucher?.state === 'posted')
+                ? ' Phiếu của bước Tài chính đã ghi sổ sẽ được đảo bút toán vào hôm nay; bị chặn nếu sổ đã khoá hoặc tài khoản không đủ số dư.'
                 : ''}{' '}
               Bị chặn nếu kỳ công/kỳ lương đã chốt hoặc vật tư đã xuất kho.
             </p>
@@ -1259,13 +1174,13 @@ export function WorkspaceBoard({
         <div className={styles.statusTabs} role="tablist" aria-label="Lọc theo trạng thái">
           {(
             [
-              ['all', 'Tất cả', stats.total],
               ['running', 'Đang xử lý', stats.processing],
               ['urgent', 'Duyệt gấp / SLA', stats.urgent],
               ['completed', 'Hoàn thành', stats.completed],
               ['rejected', 'Từ chối', stats.rejected],
               ['cancelled', 'Đã huỷ', stats.cancelled],
               ['reversed', 'Đã huỷ hiệu lực', stats.reversed],
+              ['all', 'Tất cả', stats.total],
             ] as const
           ).map(([value, label, count]) => (
             <button
@@ -1444,12 +1359,16 @@ export function WorkspaceBoard({
                     aria-current={instance.id === selected?.id ? 'true' : undefined}
                     onClick={() => setSelectedId(instance.id)}
                   >
-                    <span className={styles.caseRowTop}>
-                      <span className={styles.code}>{instance.code}</span>
-                      <span className={styles.caseRowProc}>{instance.definitionCode}</span>
-                      <SlaBadge view={evaluateInstanceSla(instance)} />
+                    {/* QT-U6: ẩn mã hồ sơ VÀ mã quy trình ở thẻ preview (đã có đủ khi mở
+                        chi tiết); vẫn tìm được qua ô tìm kiếm. Chỉ hiện badge SLA khi có. */}
+                    {evaluateInstanceSla(instance).state !== 'none' ? (
+                      <span className={styles.caseRowTop}>
+                        <SlaBadge view={evaluateInstanceSla(instance)} />
+                      </span>
+                    ) : null}
+                    <span className={styles.caseRowTitle} title={instance.title}>
+                      {instance.title}
                     </span>
-                    <span className={styles.caseRowTitle}>{instance.title}</span>
                     <span className={styles.caseRowFoot}>
                       {instance.status === 'running' ? (
                         <span
@@ -1525,7 +1444,7 @@ export function WorkspaceBoard({
             <>
               <header className={styles.detailHead}>
                 <div className={styles.detailHeadRow}>
-                  <span className={styles.code}>{selected.code}</span>
+                  {/* QT-U6: ẩn mã Yêu cầu (id hồ sơ) để header gọn hơn. */}
                   <span className={`${styles.badge} ${styles[selected.status]}`}>
                     {STATUS_LABEL[selected.status]}
                   </span>
@@ -1577,8 +1496,10 @@ export function WorkspaceBoard({
                     </div>
                   ) : null}
 
-                  {/* Huỷ hiệu lực: hồ sơ đã hoàn thành, chỉ Quản trị viên Quy trình */}
-                  {canReverse && onReverse && selected.status === 'completed' ? (
+                  {/* Huỷ hiệu lực: hồ sơ đã hoàn thành hoặc đã từ chối, chỉ Quản trị viên Quy trình */}
+                  {canReverse &&
+                  onReverse &&
+                  (selected.status === 'completed' || selected.status === 'rejected') ? (
                     <button
                       type="button"
                       className={styles.headerCancelBtn}
@@ -1596,12 +1517,14 @@ export function WorkspaceBoard({
                 </div>
 
                 <h2 className={styles.detailTitle}>{selected.title}</h2>
+                {/* QT-U6: mã hồ sơ hiện ngay dưới tên (đã ẩn ở thẻ preview). */}
+                <div className={styles.detailCode}>{selected.code}</div>
                 {selected.reversal ? (
                   <div className={styles.reversalNote} role="note">
                     <strong className={styles.reversalTitle}>Đã huỷ hiệu lực</strong>
                     <span className={styles.reversalMeta}>
                       {selected.reversal.reversedByName ?? 'Quản trị viên'} ·{' '}
-                      {dateTime.format(new Date(selected.reversal.reversedAt))}
+                      {formatDateTime(selected.reversal.reversedAt)}
                     </span>
                     <span>
                       <b>Lý do:</b> {selected.reversal.reason}
@@ -1671,7 +1594,7 @@ export function WorkspaceBoard({
                   </div>
                   <div>
                     <dt>Nguồn</dt>
-                    <dd>{selected.sourceType === 'hrm_request' ? <a className="text-blue-600 underline" href={`/modules/hrm/approvals?workflow=${encodeURIComponent(selected.sourceId||'')}`}>Đơn HRM · Xem nội dung và chứng từ</a> : selected.sourceType === 'maintenance_occurrence' ? 'Lịch bảo trì' : 'Tạo thủ công'}</dd>
+                    <dd>{selected.sourceType === 'hrm_request' ? <a className="text-blue-600 underline" href={`/modules/hrm/approvals?workflow=${encodeURIComponent(selected.sourceId||'')}`}>Đơn HRM · Xem nội dung và chứng từ</a> : selected.sourceType === 'finance_voucher' ? <a className="text-blue-600 underline" href={`/modules/finance/open/${encodeURIComponent(selected.sourceId||'')}`}>Phiếu tài chính · Xem nội dung và chứng từ</a> : selected.sourceType === 'maintenance_occurrence' ? 'Lịch bảo trì' : 'Tạo thủ công'}</dd>
                   </div>
                   <div>
                     <dt>{selected.completedAt ? 'Hoàn tất' : 'Mở đơn'}</dt>
@@ -1807,9 +1730,19 @@ export function WorkspaceBoard({
 
                               <div className={styles.roleList}>
                                 {roleLines(step, roleLabels).map((line) => (
-                                  <RoleLine key={line.role} line={line} />
+                                  <RoleLine key={line.role} line={line} submitterName={submitterName} />
                                 ))}
                               </div>
+
+                              <FinanceVoucherCard step={step} />
+
+                              {/* QT-U1: tài liệu nộp ở chính bước này, để bước sau xem được bước trước up gì. */}
+                              <StepDocuments
+                                files={(attachments ?? []).filter(
+                                  (file) =>
+                                    file.instanceId === selected.id && file.stepInstanceId === step.id,
+                                )}
+                              />
 
                               {isCur ? actionPanel : null}
                             </div>
@@ -1834,9 +1767,12 @@ export function WorkspaceBoard({
                   <div className={styles.tabPanel}>
                     {detailTab === 'chat' ? (
                       <ChatPanel
+                        key={selected.id}
                         instance={selected}
                         busy={busy}
-                        participants={participantsOf(selected, names)}
+                        participants={chatPeople}
+                        currentUserId={actorId}
+                        onRefreshInstance={onRefreshInstance}
                         onSend={(body, mentions, replyToId) =>
                           onSendComment?.(selected.id, body, mentions, replyToId)
                         }
@@ -1911,7 +1847,7 @@ export function WorkspaceBoard({
                         background: 'rgba(37, 99, 235, 0.1)',
                         color: '#2563eb',
                         fontWeight: 700,
-                        fontSize: '11px',
+                        fontSize: '12px',
                         padding: '2px 8px',
                         borderRadius: '4px',
                       }}
@@ -1924,7 +1860,7 @@ export function WorkspaceBoard({
                     {activeStepDrawer.step.slaHours ? (
                       <span
                         style={{
-                          fontSize: '11px',
+                          fontSize: '12px',
                           color: 'var(--muted)',
                           background: '#e2e8f0',
                           padding: '2px 6px',
@@ -1935,10 +1871,10 @@ export function WorkspaceBoard({
                       </span>
                     ) : null}
                   </div>
-                  <h3 style={{ margin: '6px 0 2px', fontSize: '17px', fontWeight: 800, color: 'var(--ink)' }}>
+                  <h3 style={{ margin: '6px 0 2px', fontSize: '16px', fontWeight: 800, color: 'var(--ink)' }}>
                     {activeStepDrawer.step.name}
                   </h3>
-                  <p style={{ margin: 0, fontSize: '12px', color: 'var(--faint)' }}>
+                  <p style={{ margin: 0, fontSize: '13px', color: 'var(--faint)' }}>
                     Hồ sơ: <strong style={{ color: 'var(--ink)' }}>{selected.code}</strong> · {selected.title}
                   </p>
                 </div>
@@ -1966,7 +1902,7 @@ export function WorkspaceBoard({
                     padding: '6px 12px',
                     borderRadius: '6px',
                     border: 'none',
-                    fontSize: '12px',
+                    fontSize: '13px',
                     fontWeight: 700,
                     cursor: 'pointer',
                     background: activeStepDrawer.tab === 'execution' ? 'var(--blue)' : '#e2e8f0',
@@ -1982,7 +1918,7 @@ export function WorkspaceBoard({
                     padding: '6px 12px',
                     borderRadius: '6px',
                     border: 'none',
-                    fontSize: '12px',
+                    fontSize: '13px',
                     fontWeight: 700,
                     cursor: 'pointer',
                     background: activeStepDrawer.tab === 'chat' ? 'var(--blue)' : '#e2e8f0',
@@ -1998,7 +1934,7 @@ export function WorkspaceBoard({
                     padding: '6px 12px',
                     borderRadius: '6px',
                     border: 'none',
-                    fontSize: '12px',
+                    fontSize: '13px',
                     fontWeight: 700,
                     cursor: 'pointer',
                     background: activeStepDrawer.tab === 'files' ? 'var(--blue)' : '#e2e8f0',
@@ -2014,7 +1950,7 @@ export function WorkspaceBoard({
             <div style={{ flex: 1, overflowY: 'auto', padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
               {activeStepDrawer.tab === 'execution' ? (
                 <div>
-                  <h4 style={{ fontSize: '12px', fontWeight: 700, margin: '0 0 10px', textTransform: 'uppercase', color: 'var(--muted)' }}>
+                  <h4 style={{ fontSize: '13px', fontWeight: 700, margin: '0 0 10px', textTransform: 'uppercase', color: 'var(--muted)' }}>
                     Phân vai RCSI cho bước này
                   </h4>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '20px' }}>
@@ -2044,13 +1980,13 @@ export function WorkspaceBoard({
                               {asgn.role}
                             </i>
                             <div>
-                              <strong style={{ fontSize: '13px', color: 'var(--ink)' }}>{holderLabel}</strong>
-                              <div style={{ fontSize: '11px', color: 'var(--faint)' }}>
+                              <strong style={{ fontSize: '14px', color: 'var(--ink)' }}>{holderLabel}</strong>
+                              <div style={{ fontSize: '12px', color: 'var(--faint)' }}>
                                 Loại: {asgn.subjectType === 'user' ? 'Nhân sự' : asgn.subjectType === 'organization_unit' ? 'Đơn vị' : 'Chức vụ'}
                               </div>
                             </div>
                           </div>
-                          <span style={{ fontSize: '11.5px', fontWeight: 700, color: 'var(--blue)' }}>
+                          <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--blue)' }}>
                             {asgn.role === 'R'
                               ? 'Thực hiện chính'
                               : asgn.role === 'A'
@@ -2071,7 +2007,7 @@ export function WorkspaceBoard({
                   {/* Step Material Requirements */}
                   {activeStepDrawer.step.materials && activeStepDrawer.step.materials.length > 0 ? (
                     <div style={{ borderTop: '1px solid var(--line)', paddingTop: '16px' }}>
-                      <h4 style={{ fontSize: '12px', fontWeight: 700, margin: '0 0 10px', textTransform: 'uppercase', color: 'var(--muted)' }}>
+                      <h4 style={{ fontSize: '13px', fontWeight: 700, margin: '0 0 10px', textTransform: 'uppercase', color: 'var(--muted)' }}>
                         Vật tư / Thiết bị yêu cầu cho bước
                       </h4>
                       <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '6px' }}>
@@ -2084,7 +2020,7 @@ export function WorkspaceBoard({
                               borderRadius: '6px',
                               display: 'flex',
                               justifyContent: 'space-between',
-                              fontSize: '12.5px',
+                              fontSize: '13px',
                             }}
                           >
                             <span>{mat.materialName ?? mat.materialCode}</span>
@@ -2098,9 +2034,12 @@ export function WorkspaceBoard({
               ) : activeStepDrawer.tab === 'chat' ? (
                 <div>
                   <ChatPanel
+                    key={selected.id}
                     instance={selected}
                     busy={busy}
-                    participants={participantsOf(selected, names)}
+                    participants={chatPeople}
+                    currentUserId={actorId}
+                    onRefreshInstance={onRefreshInstance}
                     onSend={(body, mentions, replyToId) =>
                       onSendComment?.(selected.id, body, mentions, replyToId)
                     }
@@ -2124,6 +2063,42 @@ export function WorkspaceBoard({
       ) : null}
 
     </section>
+  );
+}
+
+/**
+ * QT-U1: Tài liệu đính kèm ngay dưới mỗi bước trên dòng thời gian (chỉ đọc).
+ * Nhờ vậy ở bước sau vẫn thấy được tệp các bước trước đã nộp, thay vì mọi tệp
+ * dồn hết vào mục tài liệu chung.
+ */
+function StepDocuments({ files }: { files: readonly ProcedureAttachment[] }) {
+  if (files.length === 0) return null;
+  return (
+    <div className={styles.stepDocs}>
+      <span className={styles.stepDocsLabel}>Tài liệu bước này ({files.length})</span>
+      <div className={styles.stepDocsList}>
+        {files.map((file) =>
+          file.downloadUrl ? (
+            <a
+              key={file.id}
+              href={file.downloadUrl}
+              target="_blank"
+              rel="noreferrer"
+              className={styles.stepDocChip}
+              title={file.fileName}
+            >
+              <FileText size={12} strokeWidth={2} aria-hidden />
+              <span className={styles.stepDocName}>{file.fileName}</span>
+            </a>
+          ) : (
+            <span key={file.id} className={styles.stepDocChip} title={file.fileName}>
+              <FileText size={12} strokeWidth={2} aria-hidden />
+              <span className={styles.stepDocName}>{file.fileName}</span>
+            </span>
+          ),
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -2225,6 +2200,12 @@ function ActionPanel({
   const actions = authorization?.availableActions ?? [];
   const myRoles = authorization?.myRoles ?? [];
   const canAct = actions.length > 0 || myRoles.length > 0;
+  // QT-L2: ở pha Review (R) chỉ được Phê duyệt — ẩn Trả lại / Từ chối kể cả khi
+  // server còn trả về (phòng thủ ở client; server hiện cũng không cấp cho R).
+  const stageIsReview = authorization?.currentRoleStage === 'R';
+  const effectiveActions = stageIsReview
+    ? actions.filter((action) => action !== 'return' && action !== 'reject')
+    : actions;
 
   const fixedRollback =
     current?.currentRoleStage === 'C'
@@ -2242,6 +2223,8 @@ function ActionPanel({
   const [attributeDraft, setAttributeDraft] = useState<AttributeDraft>({});
   useEffect(() => {
     setAttributeDraft({});
+    setReturnOpen(false);
+    setConfirmPrimary(null);
   }, [instance.id, instance.currentStepId]);
   const draftValues = (): Record<string, ProcedureAttributeValue> =>
     Object.fromEntries(
@@ -2266,6 +2249,10 @@ function ActionPanel({
   const [attachOpen, setAttachOpen] = useState(false);
   const [wbsOpen, setWbsOpen] = useState(false);
   const [confirmRejectOpen, setConfirmRejectOpen] = useState(false);
+  // QT-U5: với vai A, select "trả lại về bước" chỉ hiện sau khi bấm "Trả lại".
+  const [returnOpen, setReturnOpen] = useState(false);
+  // QT-L3: xác nhận bằng modal lớn, nền mờ trước khi Phê duyệt / Hoàn tất.
+  const [confirmPrimary, setConfirmPrimary] = useState<ProcedureRuntimeAction | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // WBS / E role: check if current step has an E assignment the actor can manage
@@ -2348,7 +2335,7 @@ function ActionPanel({
                   <i className={`${styles.role} ${styles.roleE}`} style={{ display: 'inline-grid', verticalAlign: 'middle', marginRight: '6px' }}>E</i>
                   Phân rã công việc (WBS)
                   {stepSubtasks.length > 0 ? (
-                    <span style={{ marginLeft: '8px', fontSize: '11px', color: 'var(--blue)', fontWeight: 600 }}>
+                    <span style={{ marginLeft: '8px', fontSize: '12px', color: 'var(--blue)', fontWeight: 600 }}>
                       ({subtasksResolved}/{stepSubtasks.length} xử lý · {Math.round(subtasksDoneWeight * 100) / 100}%)
                     </span>
                   ) : null}
@@ -2396,26 +2383,12 @@ function ActionPanel({
             }
           />
 
-          {canPickReturnStep && actions.includes('return') ? (
-            <div className={styles.returnPicker}>
-              Trả lại về bước
-              <SearchableSelect
-                options={returnTargets.map((step) => ({
-                  value: step.id,
-                  label: `${step.order} · ${step.name}`,
-                }))}
-                value={returnTo}
-                placeholder={`Bước liền trước (${returnTargets[returnTargets.length - 1]?.name ?? ''})`}
-                onChange={setReturnTo}
-              />
-            </div>
-          ) : fixedRollback && actions.includes('return') ? (
-            <p className={styles.panelHint}>
-              Bước quay về đã cấu hình sẵn:{' '}
-              <strong>
-                {instance.steps.find((step) => step.definitionStepId === fixedRollback)?.name ??
-                  'bước trước'}
-              </strong>
+          {/* QT-U5: ô "trả lại về bước" + xác nhận nằm trong pop-up nền mờ (xem cuối panel). */}
+
+          {current?.integration?.module === 'finance' && current.status === 'active' ? (
+            <p className={financeStyles.waitingNote}>
+              Bước này đóng khi kế toán ghi sổ phiếu ở module Tài chính; kế toán trả hồ sơ thì hồ sơ tự quay về bước đã cấu
+              hình. Ở đây chỉ gửi trao đổi.
             </p>
           ) : null}
 
@@ -2431,9 +2404,10 @@ function ActionPanel({
                 onChange={(event) => onComment(event.target.value)}
                 onKeyDown={(e) => {
                   if (e.ctrlKey && e.key === 'Enter') {
-                    const primaryAction = actions.find((a) => a === 'approve' || a === 'complete');
+                    const primaryAction = effectiveActions.find((a) => a === 'approve' || a === 'complete');
+                    // QT-L3: vẫn đi qua bước xác nhận modal thay vì chạy thẳng.
                     if (primaryAction && !isActionBusy(primaryAction)) {
-                      act(primaryAction, comment || undefined);
+                      setConfirmPrimary(primaryAction);
                     }
                   }
                 }}
@@ -2514,14 +2488,14 @@ function ActionPanel({
             </div>
 
             {/* Action buttons */}
-            {actions.length === 0 ? (
+            {effectiveActions.length === 0 ? (
               <p className={styles.panelHint}>
                 Chưa tới lượt bạn: bước này đang ở pha {current?.currentRoleStage ?? '—'}.
               </p>
             ) : (
               <>
                 <div className={styles.actionRow}>
-                  {actions
+                  {effectiveActions
                     .filter((action) => action !== 'approve' && action !== 'complete' && action !== 'comment' && action !== 'cancel')
                     .map((action) => {
                       if (action === 'reject') {
@@ -2552,7 +2526,7 @@ function ActionPanel({
                                   <button
                                     type="button"
                                     className={styles.ghost}
-                                    style={{ fontSize: '11px', padding: '3px 8px' }}
+                                    style={{ fontSize: '12px', padding: '3px 8px' }}
                                     onClick={() => setConfirmRejectOpen(false)}
                                   >
                                     Huỷ
@@ -2560,7 +2534,7 @@ function ActionPanel({
                                   <button
                                     type="button"
                                     className={styles.danger}
-                                    style={{ fontSize: '11px', padding: '3px 10px' }}
+                                    style={{ fontSize: '12px', padding: '3px 10px' }}
                                     onClick={() => {
                                       setConfirmRejectOpen(false);
                                       act('reject', comment || undefined);
@@ -2575,25 +2549,35 @@ function ActionPanel({
                         );
                       }
 
+                      // QT-U5: "Trả lại" chỉ mở ô chọn bước + nút xác nhận, không chạy ngay.
+                      if (action === 'return') {
+                        return (
+                          <button
+                            key={action}
+                            type="button"
+                            className={`${styles.ghost} ${returnOpen ? styles.ghostActive : ''}`}
+                            disabled={isActionBusy(action)}
+                            aria-expanded={returnOpen}
+                            onClick={() => setReturnOpen((prev) => !prev)}
+                          >
+                            {ACTION_LABEL[action]}
+                          </button>
+                        );
+                      }
+
                       return (
                         <button
                           key={action}
                           type="button"
                           className={styles.ghost}
                           disabled={isActionBusy(action)}
-                          onClick={() =>
-                            act(
-                              action,
-                              comment || undefined,
-                              action === 'return' ? returnTo || undefined : undefined,
-                            )
-                          }
+                          onClick={() => act(action, comment || undefined)}
                         >
                           {isActionBusy(action) ? 'Đang xử lý…' : ACTION_LABEL[action]}
                         </button>
                       );
                     })}
-                  {actions
+                  {effectiveActions
                     .filter((action) => action === 'approve' || action === 'complete')
                     .map((action) => (
                       <button
@@ -2601,7 +2585,8 @@ function ActionPanel({
                         type="button"
                         className={styles.primary}
                         disabled={isActionBusy(action)}
-                        onClick={() => act(action, comment || undefined)}
+                        // QT-L3: mở modal xác nhận lớn, nền mờ trước khi thực thi.
+                        onClick={() => setConfirmPrimary(action)}
                       >
                         {isActionBusy(action)
                           ? attachQueue.length > 0
@@ -2616,6 +2601,120 @@ function ActionPanel({
               </>
             )}
           </div>
+
+          {/* QT-L3: hộp thoại xác nhận giữa màn hình, nền mờ, trước Phê duyệt / Hoàn tất. */}
+          {confirmPrimary ? (
+            <MinimalPopupForm
+              isOpen={confirmPrimary !== null}
+              title={
+                confirmPrimary === 'complete'
+                  ? 'Xác nhận hoàn tất bước này?'
+                  : 'Xác nhận phê duyệt bước này?'
+              }
+              subtitle={`${instance.code} · ${instance.title}`}
+              onClose={() => setConfirmPrimary(null)}
+              maxWidth={520}
+            >
+              <div className={styles.confirmModalBody}>
+                <p className={styles.confirmModalText}>
+                  {confirmPrimary === 'complete'
+                    ? 'Bước sẽ được ghi nhận hoàn tất và hồ sơ chuyển sang bước tiếp theo. Hành động này không thể hoàn tác.'
+                    : 'Lượt phê duyệt sẽ được ghi nhận và hồ sơ chuyển tiếp theo luồng. Hành động này không thể hoàn tác.'}
+                </p>
+                {attachQueue.length > 0 ? (
+                  <p className={styles.confirmModalNote}>
+                    Kèm theo {attachQueue.length} tệp đính kèm sẽ được tải lên.
+                  </p>
+                ) : null}
+                {comment.trim() ? (
+                  <p className={styles.confirmModalNote}>Ghi chú: “{comment.trim()}”</p>
+                ) : null}
+                <div className={styles.confirmModalActions}>
+                  <button
+                    type="button"
+                    className={styles.ghost}
+                    onClick={() => setConfirmPrimary(null)}
+                  >
+                    Huỷ
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.primary}
+                    disabled={isActionBusy(confirmPrimary)}
+                    onClick={() => {
+                      const action = confirmPrimary;
+                      if (!action) return;
+                      setConfirmPrimary(null);
+                      act(action, comment || undefined);
+                    }}
+                  >
+                    {confirmPrimary === 'complete' ? 'Đồng ý hoàn tất' : 'Đồng ý phê duyệt'}
+                  </button>
+                </div>
+              </div>
+            </MinimalPopupForm>
+          ) : null}
+
+          {/* QT-U5: trả lại về bước — pop-up giữa màn hình, nền mờ (như xác nhận duyệt). */}
+          {returnOpen && effectiveActions.includes('return') ? (
+            <MinimalPopupForm
+              isOpen={returnOpen}
+              title="Xác nhận trả lại hồ sơ"
+              subtitle={`${instance.code} · ${instance.title}`}
+              onClose={() => setReturnOpen(false)}
+              maxWidth={520}
+            >
+              <div className={styles.confirmModalBody}>
+                {canPickReturnStep ? (
+                  <>
+                    <span className={styles.returnPickerLabel}>Trả lại về bước</span>
+                    <SearchableSelect
+                      options={returnTargets.map((step) => ({
+                        value: step.id,
+                        label: `${step.order} · ${step.name}`,
+                      }))}
+                      value={returnTo}
+                      placeholder={`Bước liền trước (${returnTargets[returnTargets.length - 1]?.name ?? ''})`}
+                      onChange={setReturnTo}
+                    />
+                  </>
+                ) : fixedRollback ? (
+                  <p className={styles.confirmModalText}>
+                    Bước quay về đã cấu hình sẵn:{' '}
+                    <strong>
+                      {instance.steps.find((step) => step.definitionStepId === fixedRollback)
+                        ?.name ?? 'bước trước'}
+                    </strong>
+                  </p>
+                ) : (
+                  <p className={styles.confirmModalText}>Hồ sơ sẽ trả về bước liền trước.</p>
+                )}
+                {comment.trim() ? (
+                  <p className={styles.confirmModalNote}>Ghi chú: “{comment.trim()}”</p>
+                ) : null}
+                <div className={styles.confirmModalActions}>
+                  <button
+                    type="button"
+                    className={styles.ghost}
+                    onClick={() => setReturnOpen(false)}
+                  >
+                    Huỷ
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.danger}
+                    disabled={isActionBusy('return')}
+                    onClick={() => {
+                      setReturnOpen(false);
+                      act('return', comment || undefined, returnTo || undefined);
+                    }}
+                  >
+                    {isActionBusy('return') ? 'Đang xử lý…' : 'Xác nhận trả lại'}
+                  </button>
+                </div>
+              </div>
+            </MinimalPopupForm>
+          ) : null}
         </>
       )}
     </div>
@@ -2694,12 +2793,7 @@ function MaterialStatus({
 
       {check ? (
         <small className={styles.panelHint}>
-          Kiểm lúc {new Intl.DateTimeFormat('vi-VN', {
-            hour: '2-digit',
-            minute: '2-digit',
-            day: '2-digit',
-            month: '2-digit',
-          }).format(new Date(check.checkedAt))}
+          Kiểm lúc {formatSharedDateTime(check.checkedAt)}
         </small>
       ) : null}
     </article>

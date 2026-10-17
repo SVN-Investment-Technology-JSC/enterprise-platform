@@ -4,6 +4,13 @@ import type {
   CalendarEvent,
   CalendarRangeResponse,
   ChangeWorkItemStatusRequest,
+  ChangeStandaloneTaskStatusRequest,
+  CreateStandaloneTaskRequest,
+  ReverseStandaloneTaskRequest,
+  StandaloneTaskDetail,
+  StandaloneTaskList,
+  StandaloneTaskScope,
+  UpdateStandaloneTaskRequest,
   ReverseWorkItemRequest,
   ReverseProjectRequestRequest,
   ProjectRequest,
@@ -73,6 +80,11 @@ import type {
   ProjectRequestList,
   UpdateWorkdayRulesRequest,
   WorkdayRuleSet,
+  ProjectRoleList,
+  SaveProjectRoleRequest,
+  FleetAvailabilityView,
+  SourceTransport,
+  TransportSourceType,
 } from '@enterprise-platform/contracts-workspace';
 import { authFetch } from '@enterprise-platform/shared-ui';
 
@@ -259,6 +271,13 @@ export const reverseWorkItem = (id: string, body: ReverseWorkItemRequest) =>
 export const moveWorkItem = (id: string, body: MoveWorkItemRequest) =>
   request<WorkItem>(`/work-items/${id}/move`, { method: 'POST', body: JSON.stringify(body) });
 
+/**
+ * Xoá hẳn công việc (và cả nhánh con) — chỉ chủ nhiệm dự án. Khác với "Huỷ"
+ * (đổi trạng thái sang Đã huỷ, mở lại được) ở `changeWorkItemStatus`.
+ */
+export const deleteWorkItem = (id: string) =>
+  request<void>(`/work-items/${id}`, { method: 'DELETE' });
+
 export const listDependencies = (id: string) =>
   request<{ items: WorkItemDependency[] }>(`/work-items/${id}/dependencies`, {
     cache: 'no-store',
@@ -331,8 +350,12 @@ export const listProjectDependencies = (projectId: string) =>
    ========================================================================= */
 
 /** Luồng tin của một node; node chưa ai nhắn vẫn trả luồng rỗng. */
-export const loadChatThread = (entityType: ChatEntityType, entityId: string) =>
-  request<ChatThread>(`/chat/${entityType}/${entityId}`, { cache: 'no-store' });
+/** `before` = id tin cũ nhất đang có, để lấy trang liền trước nó. */
+export const loadChatThread = (entityType: ChatEntityType, entityId: string, before?: string) =>
+  request<ChatThread>(
+    `/chat/${entityType}/${entityId}${before ? `?before=${encodeURIComponent(before)}` : ''}`,
+    { cache: 'no-store' },
+  );
 
 export const sendChatMessage = (body: SendChatMessageRequest) =>
   request<SendChatMessageResponse>('/chat/messages', {
@@ -510,6 +533,42 @@ export async function uploadToStorage(
  */
 export const loadMyWork = () => request<MyWorkSummary>('/my-work', { cache: 'no-store' });
 
+/* Công việc ngoài dự án */
+
+export const listStandaloneTasks = (scope: StandaloneTaskScope) =>
+  request<StandaloneTaskList>(`/standalone-tasks?scope=${scope}`, { cache: 'no-store' });
+
+export const getStandaloneTask = (id: string) =>
+  request<StandaloneTaskDetail>(`/standalone-tasks/${id}`, { cache: 'no-store' });
+
+export const createStandaloneTask = (body: CreateStandaloneTaskRequest) =>
+  request<StandaloneTaskDetail>('/standalone-tasks', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+
+export const updateStandaloneTask = (id: string, body: UpdateStandaloneTaskRequest) =>
+  request<StandaloneTaskDetail>(`/standalone-tasks/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+
+export const changeStandaloneTaskStatus = (id: string, body: ChangeStandaloneTaskStatusRequest) =>
+  request<StandaloneTaskDetail>(`/standalone-tasks/${id}/status`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+
+/** Huỷ hiệu lực việc ngoài dự án đã hoàn thành (người giao). */
+export const reverseStandaloneTask = (id: string, body: ReverseStandaloneTaskRequest) =>
+  request<StandaloneTaskDetail>(`/standalone-tasks/${id}/reverse`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+
+export const deleteStandaloneTask = (id: string) =>
+  request<void>(`/standalone-tasks/${id}`, { method: 'DELETE' });
+
 /**
  * Người đang đăng nhập có phải quản trị viên tenant không.
  *
@@ -629,9 +688,45 @@ export const getWorkdayRules = () =>
 export const updateWorkdayRules = (body: UpdateWorkdayRulesRequest) =>
   request<WorkdayRuleSet>('/workday-rules', { method: 'PUT', body: JSON.stringify(body) });
 
+/** Vai trò trong dự án (dùng chung toàn tenant) và quyền của từng vai. */
+export const listProjectRoles = () =>
+  request<ProjectRoleList>('/project-roles', { cache: 'no-store' });
+
+export const createProjectRole = (body: SaveProjectRoleRequest) =>
+  request<ProjectRoleList>('/project-roles', { method: 'POST', body: JSON.stringify(body) });
+
+export const updateProjectRole = (key: string, body: SaveProjectRoleRequest) =>
+  request<ProjectRoleList>(`/project-roles/${encodeURIComponent(key)}`, {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  });
+
+export const deleteProjectRole = (key: string) =>
+  request<ProjectRoleList>(`/project-roles/${encodeURIComponent(key)}`, { method: 'DELETE' });
+
 /** Tab "Đơn từ": đơn module khác gửi kèm dự án (chỉ đọc). */
 export const listProjectRequests = (projectId: string) =>
   request<ProjectRequestList>(`/projects/${projectId}/requests`, { cache: 'no-store' });
 
 export const listProjectCostEntries = (projectId: string) =>
   request<CostEntryList>(`/projects/${projectId}/cost-entries`, { cache: 'no-store' });
+
+/** Xe và tài xế còn trống (kèm khoảng bận) trong một khung giờ; dữ liệu do HRM trả lời. */
+export const getFleetAvailability = (query: {
+  from: string;
+  to: string;
+  exclude?: { sourceType: TransportSourceType; sourceId: string };
+}) => {
+  const params = new URLSearchParams({ from: query.from, to: query.to });
+  if (query.exclude) {
+    params.set('excludeSourceType', query.exclude.sourceType);
+    params.set('excludeSourceId', query.exclude.sourceId);
+  }
+  return request<{ data: FleetAvailabilityView }>(`/fleet/availability?${params}`, { cache: 'no-store' });
+};
+
+/** Phương tiện hiện có của một công việc hoặc lịch họp (`data: null` nếu chưa chọn). */
+export const getSourceTransport = (sourceType: TransportSourceType, sourceId: string) =>
+  request<{ data: SourceTransport | null }>(`/fleet/transports/${sourceType}/${sourceId}`, {
+    cache: 'no-store',
+  });

@@ -363,6 +363,7 @@ export function BulkInitializeEmployeesDialog({
                       Ngày vào làm chung <span className="text-rose-500">*</span>
                     </p>
                     <DatePickerInput
+                      height={36}
                       aria-label="Ngày vào làm chung"
                       value={joinDate}
                       onChange={setJoinDate}
@@ -373,6 +374,7 @@ export function BulkInitializeEmployeesDialog({
                       Trạng thái chung
                     </p>
                     <SearchableSelect
+                      height={36}
                       value={status}
                       onChange={(value) => setStatus(value || 'OFFICIAL')}
                       clearable={false}
@@ -459,7 +461,7 @@ export function BulkInitializeEmployeesDialog({
                                 <p className="font-semibold text-slate-800">
                                   {person.fullName}
                                 </p>
-                                <p className="text-[11px] text-slate-500">
+                                <p className="text-[12px] text-slate-500">
                                   {person.email || 'Chưa có email'}
                                 </p>
                               </td>
@@ -484,6 +486,7 @@ export function BulkInitializeEmployeesDialog({
                               </td>
                               <td className="px-3 py-1.5">
                                 <DatePickerInput
+                                  height={32}
                                   aria-label={`Ngày vào làm của ${person.fullName}`}
                                   value={dateOf(key)}
                                   disabled={!isSelected}

@@ -69,7 +69,7 @@ export function ConflictModePicker({
               {openEnded ? (RULE_MODE_LABELS[mode] ?? CONFLICT_MODE_LABELS[mode]) : CONFLICT_MODE_LABELS[mode]}
             </span>
             {compact ? null : (
-              <span className="block text-[11px] text-slate-500">
+              <span className="block text-[12px] text-slate-500">
                 {openEnded ? (RULE_MODE_HINTS[mode] ?? MODE_HINTS[mode]) : MODE_HINTS[mode]}
               </span>
             )}

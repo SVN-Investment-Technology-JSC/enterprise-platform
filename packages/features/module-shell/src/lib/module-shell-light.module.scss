@@ -81,6 +81,28 @@
     flex-basis 0.2s ease;
 }
 
+// Trong lúc kéo đổi độ rộng thì tắt hiệu ứng chuyển, để cạnh bám sát con trỏ.
+.sidebarResizing {
+  transition: none;
+}
+
+// Vạch kéo ở cạnh phải thanh bên: rộng 6px, phủ chồng nhẹ qua đường viền.
+.resizeHandle {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  bottom: 0;
+  z-index: 15;
+  width: 6px;
+  cursor: col-resize;
+  touch-action: none;
+
+  &:hover,
+  &:active {
+    background: var(--ep-accent-glow);
+  }
+}
+
 .brand {
   display: flex;
   align-items: center;
@@ -106,7 +128,7 @@
 
 .brandOrg {
   color: var(--ep-text-muted);
-  font-size: 11px;
+  font-size: 12px;
   letter-spacing: 0.4px;
 }
 
@@ -165,7 +187,7 @@
   border-radius: 50%;
   background: var(--ep-accent);
   color: #1a1a1a;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
 }
 
@@ -187,7 +209,7 @@
 .userRole {
   overflow: hidden;
   color: var(--ep-text-muted);
-  font-size: 11.5px;
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -224,7 +246,7 @@
 .switcherHead {
   padding: 6px 8px 4px;
   color: var(--ep-text-muted);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.4px;
   text-transform: uppercase;
@@ -233,7 +255,7 @@
 .switcherNote {
   padding: 8px;
   color: var(--ep-text-muted);
-  font-size: 12.5px;
+  font-size: 13px;
 }
 
 .switcherItem {
@@ -272,7 +294,7 @@
   background: var(--ep-surface-soft);
   border: 1px solid var(--ep-border-strong);
   color: var(--ep-text-sub);
-  font-size: 10.5px;
+  font-size: 12px;
   font-weight: 700;
 }
 
@@ -283,14 +305,14 @@
 }
 
 .switcherName {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
 }
 
 .switcherDesc {
   overflow: hidden;
   color: var(--ep-text-muted);
-  font-size: 11.5px;
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -300,7 +322,7 @@
   padding: 8px;
   border-top: 1px solid var(--ep-border);
   color: var(--ep-text-sub);
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 600;
   text-decoration: none;
 
@@ -327,7 +349,7 @@
   background: var(--ep-surface-soft);
   color: var(--ep-text-muted);
   font-family: inherit;
-  font-size: 13px;
+  font-size: 14px;
   cursor: pointer;
 
   &:hover,
@@ -348,7 +370,7 @@
   border-radius: 5px;
   color: var(--ep-text-muted);
   font-family: inherit;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .scroll {
@@ -366,7 +388,7 @@
 .groupHeading {
   padding: 10px 16px 4px;
   color: var(--ep-text-muted);
-  font-size: 10.5px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.6px;
   text-transform: uppercase;
@@ -384,7 +406,7 @@
   background: transparent;
   color: var(--ep-text);
   font-family: inherit;
-  font-size: 13.5px;
+  font-size: 14px;
   text-align: left;
   cursor: pointer;
 
@@ -413,7 +435,9 @@
 
 .navIcon {
   display: inline-flex;
-  width: 20px;
+  /* Nhãn module có thể dài đến 3 chữ (HRM): ô rộng ra theo nhãn, tối thiểu 20px như các biểu tượng khác. */
+  min-width: 20px;
+  flex-shrink: 0;
   justify-content: center;
   color: var(--ep-text-sub);
 }
@@ -435,7 +459,7 @@
   border-radius: 999px;
   background: #fee2e2;
   color: #991b1b;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
 }
 
@@ -454,7 +478,7 @@
   margin: 0;
   padding: 0 14px 10px;
   color: var(--ep-danger);
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .shellCollapsed {
@@ -504,7 +528,7 @@
   gap: 8px;
   min-width: 220px;
   color: var(--ep-text-muted);
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .crumbHome {
@@ -538,7 +562,7 @@
   background: none;
   color: var(--ep-text-muted);
   font-family: inherit;
-  font-size: 13px;
+  font-size: 14px;
   cursor: pointer;
 
   &:hover,
@@ -552,7 +576,7 @@
 /* Bậc giữa của breadcrumb (không bấm được), ví dụ "Dự án" trước tên dự án. */
 .crumbParent {
   color: var(--ep-text-muted);
-  font-size: 13px;
+  font-size: 14px;
   white-space: nowrap;
 }
 
@@ -610,6 +634,11 @@
     border-bottom: 1px solid var(--ep-border);
   }
 
+  // Màn hẹp: thanh bên nằm ngang nên vạch kéo dọc không còn ý nghĩa.
+  .resizeHandle {
+    display: none;
+  }
+
   .scroll {
     overflow: visible;
   }
@@ -653,7 +682,7 @@
 
 .sectionTitle {
   color: var(--ep-text-muted);
-  font-size: 10.5px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.6px;
   text-transform: uppercase;
@@ -683,14 +712,14 @@
 .sectionTrailing {
   flex: none;
   color: var(--ep-text-muted);
-  font-size: 11.5px;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
 
 .sectionEmpty {
   padding: 4px 16px 8px;
   color: var(--ep-text-muted);
-  font-size: 12.5px;
+  font-size: 13px;
 }
 
 .sectionFooter {
@@ -701,7 +730,7 @@
   background: transparent;
   color: var(--ep-text-sub);
   font-family: inherit;
-  font-size: 13px;
+  font-size: 14px;
   text-align: left;
   cursor: pointer;
 
@@ -719,30 +748,33 @@
   border-radius: 999px;
   background: var(--ep-line);
   color: var(--ep-text-sub);
-  font-size: 10.5px;
+  font-size: 12px;
   letter-spacing: 0;
 }
 
 
+// Khung bọc ô lọc (SearchableSelect) trên thanh bên: chỉ lo lề và bề rộng; ô
+// nhập tự mang kiểu riêng của mình. To hơn ô <select> nhỏ trước đây.
 .sectionFilter {
-  margin: 0 12px 6px 46px;
-  padding: 3px 6px;
-  border: 1px solid var(--ep-line);
-  border-radius: 6px;
-  background: var(--ep-surface);
-  color: var(--ep-text-sub);
-  font-family: inherit;
-  font-size: 12.5px;
+  margin: 2px 14px 10px;
+  font-size: 14px;
 }
 
 .sectionGroup {
   padding: 8px 16px 2px 46px;
   overflow: hidden;
   color: var(--ep-text-muted);
-  font-size: 10.5px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.4px;
   text-overflow: ellipsis;
   text-transform: uppercase;
   white-space: nowrap;
+}
+
+/* Nút ở chân thanh bên đang mở trang của nó (ví dụ Cài đặt). */
+.squareButtonActive {
+  border-color: var(--ep-accent-strong);
+  background: var(--ep-accent-soft);
+  color: var(--ep-text);
 }

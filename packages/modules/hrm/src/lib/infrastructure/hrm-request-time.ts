@@ -169,6 +169,8 @@ const overlapMs = (a0: number, a1: number, b0: number, b1: number) =>
  * - Đơn vị DAYS: cả ngày (quy theo `leaveDayWeight` của ca) hoặc đúng nửa ca (0.5); nghỉ một phần khác là lỗi.
  * - Đơn vị HOURS: số giờ thực tế (phút/60).
  * Ngày nghỉ, ngày lễ chỉ được ghi chú; ngày làm việc chưa phân ca là lỗi.
+ * `strict` (đơn công tác): mọi ngày làm việc trong khoảng đều phải là cả ca hoặc đúng nửa ca, kể cả ngày đầu và ngày cuối
+ * của khoảng nhiều ngày (đơn nghỉ được làm tròn về bội số 0.5 ở hai ngày này). `subject` là từ dùng trong thông báo lỗi.
  */
 export function computeRequestTime(
   days: readonly RequestShiftDay[],
@@ -176,7 +178,10 @@ export function computeRequestTime(
   toMs: number,
   timeZone: string,
   unit: 'DAYS' | 'HOURS' = 'DAYS',
+  options: { strict?: boolean; subject?: string } = {},
 ): RequestTimeResult {
+  const strict = options.strict === true;
+  const subject = options.subject ?? 'nghỉ';
   const rangeDates = new Set(calendarDatesOf(fromMs, toMs, timeZone));
   const out: HrmRequestTimeDay[] = [];
   const warnings: string[] = [];
@@ -236,13 +241,13 @@ export function computeRequestTime(
       quantity = weight;
     } else if (Math.abs(minutes - shiftMinutes / 2) <= HALF_DAY_TOLERANCE_MINUTES) {
       quantity = 0.5;
-    } else if (rangeDates.size > 1) {
+    } else if (rangeDates.size > 1 && !strict) {
       // Nghỉ nhiều ngày: ngày đầu và ngày cuối nghỉ một phần ca quy về bội số 0.5 (tối thiểu 0.5, tối đa trọng số ngày).
       quantity = Math.min(weight, Math.max(0.5, Math.round(((weight * minutes) / shiftMinutes) * 2) / 2));
     } else {
       quantity = Math.round(((weight * minutes) / shiftMinutes) * 2) / 2;
       errors.push(
-        `${day.date}: nghỉ theo ngày chỉ nhận cả ngày hoặc đúng nửa ca (${Math.round(shiftMinutes / 2)} phút); đang chọn ${minutes} phút.`,
+        `${day.date}: ${subject} theo ngày chỉ nhận cả ngày hoặc đúng nửa ca (${Math.round(shiftMinutes / 2)} phút); đang chọn ${minutes} phút.`,
       );
     }
     out.push({ date: day.date, kind: 'WORK', minutes, quantity });
@@ -315,8 +320,10 @@ export function computeOvertimeTime(
 }
 
 /**
- * Thời gian đơn CÔNG TÁC (HÀM THUẦN): tổng số giờ của khoảng từ-đến và số ngày lịch; không bắt lỗi theo ca
- * (công tác có thể rơi vào ngày nghỉ hoặc ngày chưa phân ca, bảng công quy đổi theo giờ khi tính công).
+ * Thời gian đơn CÔNG TÁC (HÀM THUẦN): tính theo ngày công tác như đơn nghỉ. Mỗi ngày làm việc trong khoảng phải là cả ca
+ * (1 ngày, tức khung ca hành chính) hoặc đúng nửa ca (0.5 ngày); khoảng khác (ví dụ 3 giờ, hoặc ngoài khung ca) là lỗi chặn gửi đơn.
+ * Ngày nghỉ hằng tuần và ngày lễ trong khoảng chỉ được ghi chú, không tính vào số ngày; ngày chưa phân ca là lỗi.
+ * `totalDays` là số ngày công tác sẽ lưu; `totalMinutes` là số phút làm việc theo ca của các ngày đó.
  */
 export function computeTripTime(
   days: readonly RequestShiftDay[],
@@ -324,18 +331,7 @@ export function computeTripTime(
   toMs: number,
   timeZone: string,
 ): RequestTimeResult {
-  const byDate = new Map(days.map((d) => [d.date, d]));
-  const out: HrmRequestTimeDay[] = [];
-  let totalMinutes = 0;
-  const dates = calendarDatesOf(fromMs, toMs, timeZone);
-  for (const date of dates) {
-    const segFrom = Math.max(fromMs, zonedMs(date, '00:00', timeZone));
-    const segTo = Math.min(toMs, zonedMs(addDays(date, 1), '00:00', timeZone));
-    const minutes = Math.max(0, Math.round((segTo - segFrom) / 60000));
-    out.push({ date, kind: byDate.get(date)?.kind ?? 'WORK', minutes, quantity: round2(minutes / 60) });
-    totalMinutes += minutes;
-  }
-  return { days: out, totalMinutes, totalDays: dates.length, warnings: [], errors: [] };
+  return computeRequestTime(days, fromMs, toMs, timeZone, 'DAYS', { strict: true, subject: 'công tác' });
 }
 
 // ---------------------------------------------------------------------------------------------------------------

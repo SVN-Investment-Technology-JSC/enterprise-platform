@@ -9,8 +9,10 @@ import {
   type DayTripInput,
 } from '../domain/timesheet-day.js';
 import { applyScheduleDayKind } from '../domain/work-schedule.js';
+import { generateAutoAttendance } from './hrm-auto-attendance.js';
 import { dayTripAllowance, loadActiveRates } from './hrm-trip-allowance.js';
 import { zonedMs } from './hrm-timesheet-board.js';
+import { dayWorkUnits } from '../domain/standard-workdays.js';
 import {
   dayContextForDate,
   effectiveDayKind,
@@ -101,6 +103,8 @@ export async function calculateTimesheet(
       );
     }
   }
+  // Ngày đã tới của lịch bật "tự động chấm công": sinh sự kiện vào/ra theo ca trước khi tính.
+  await generateAutoAttendance(db, tenant, isoDate(period.from_date), isoDate(period.to_date));
   // Mức công tác phí theo hình thức công tác (đóng băng vào dòng công khi chốt kỳ).
   const tripRates = await loadActiveRates(db, tenant);
   for (const employee of employees.rows)
@@ -361,7 +365,7 @@ export async function calculateTimesheet(
           otMinutes,
           outcome.lateMinutes,
           outcome.earlyMinutes,
-          scheduled ? Math.round((paid / scheduled) * 100) / 100 : 0,
+          dayWorkUnits(paid, scheduled),
           status,
           JSON.stringify(snapshot),
           ots.rows[0]?.id || null,

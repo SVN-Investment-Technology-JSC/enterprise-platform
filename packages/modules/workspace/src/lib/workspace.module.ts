@@ -12,8 +12,15 @@ import {
 } from './application/external-reference.port.js';
 import { ExternalReferenceService } from './application/external-reference.service.js';
 import { FinanceService } from './application/finance.service.js';
+import {
+  FLEET_AVAILABILITY_READER,
+  type FleetAvailabilityReader,
+} from './application/fleet-availability.port.js';
+import { FleetTransportService } from './application/fleet-transport.service.js';
+import { HttpFleetAvailabilityClient } from './infrastructure/http-fleet-availability.js';
 import { ProjectRequestService } from './application/project-request.service.js';
 import { WorkdayRuleService } from './application/workday-rule.service.js';
+import { ProjectRoleService } from './application/project-role.service.js';
 import { MyWorkService } from './application/my-work.service.js';
 import {
   ORGANIZATION_DIRECTORY,
@@ -21,7 +28,9 @@ import {
 } from './application/organization-directory.port.js';
 import { ProjectService } from './application/project.service.js';
 import { ReportService } from './application/report.service.js';
+import { StandaloneTaskService } from './application/standalone-task.service.js';
 import { WorkItemService } from './application/work-item.service.js';
+import { WorkItemDeletionService } from './application/work-item-deletion.service.js';
 import { HttpProcedureReversalChecker } from './infrastructure/http-procedure-reversal-check.js';
 import { WorkspaceApplication } from './application/workspace.application.js';
 import { WORKSPACE_STORE, type WorkspaceStore } from './application/workspace-store.port.js';
@@ -69,24 +78,53 @@ import { WorkspaceController } from './presentation/workspace.controller.js';
       inject: [ORGANIZATION_DIRECTORY],
     },
     {
+      // Một thực thể cho cả module: cache quyền theo vai nằm trong nó.
+      provide: ProjectRoleService,
+      useFactory: (store: WorkspaceStore) => new ProjectRoleService(store),
+      inject: [WORKSPACE_STORE],
+    },
+    {
       provide: ProjectService,
-      useFactory: (store: WorkspaceStore, directory: DirectoryService) =>
-        new ProjectService(store, directory),
-      inject: [WORKSPACE_STORE, DirectoryService],
+      useFactory: (store: WorkspaceStore, directory: DirectoryService, roles: ProjectRoleService) =>
+        new ProjectService(store, directory, roles),
+      inject: [WORKSPACE_STORE, DirectoryService, ProjectRoleService],
+    },
+    {
+      // Lịch bận của xe do HRM trả lời qua HTTP chỉ đọc; đặt xe đi bằng sự kiện.
+      provide: FLEET_AVAILABILITY_READER,
+      useFactory: () => new HttpFleetAvailabilityClient(),
+    },
+    {
+      provide: FleetTransportService,
+      useFactory: (store: WorkspaceStore, reader: FleetAvailabilityReader) =>
+        new FleetTransportService(store, reader),
+      inject: [WORKSPACE_STORE, FLEET_AVAILABILITY_READER],
     },
     {
       // Công việc cần `ProjectService` để phân giải vai trò trong dự án, nên
       // phụ thuộc này là một chiều: project không biết gì về work item.
       provide: WorkItemService,
-      useFactory: (store: WorkspaceStore, projects: ProjectService) =>
-        new WorkItemService(store, projects, new HttpProcedureReversalChecker()),
-      inject: [WORKSPACE_STORE, ProjectService],
+      useFactory: (store: WorkspaceStore, projects: ProjectService, fleet: FleetTransportService) =>
+        new WorkItemService(store, projects, new HttpProcedureReversalChecker(), fleet),
+      inject: [WORKSPACE_STORE, ProjectService, FleetTransportService],
+    },
+    {
+      // Xoá công việc tách khỏi `WorkItemService`: chỉ cần store và phân giải
+      // vai trò dự án, không kéo theo phụ thuộc kiểm quy trình.
+      provide: WorkItemDeletionService,
+      useFactory: (store: WorkspaceStore, projects: ProjectService, fleet: FleetTransportService) =>
+        new WorkItemDeletionService(store, projects, fleet),
+      inject: [WORKSPACE_STORE, ProjectService, FleetTransportService],
     },
     {
       provide: CalendarService,
-      useFactory: (store: WorkspaceStore, projects: ProjectService, directory: DirectoryService) =>
-        new CalendarService(store, projects, directory),
-      inject: [WORKSPACE_STORE, ProjectService, DirectoryService],
+      useFactory: (
+        store: WorkspaceStore,
+        projects: ProjectService,
+        directory: DirectoryService,
+        fleet: FleetTransportService,
+      ) => new CalendarService(store, projects, directory, fleet),
+      inject: [WORKSPACE_STORE, ProjectService, DirectoryService, FleetTransportService],
     },
     {
       provide: ChatService,
@@ -155,6 +193,14 @@ import { WorkspaceController } from './presentation/workspace.controller.js';
       inject: [WORKSPACE_STORE, ProjectService],
     },
     {
+      // Không nhận ProjectService: việc giao lẻ không thuộc dự án nào, quyền
+      // suy từ vai của người gọi trên chính việc đó.
+      provide: StandaloneTaskService,
+      useFactory: (store: WorkspaceStore, directory: DirectoryService) =>
+        new StandaloneTaskService(store, directory, new HttpProcedureReversalChecker()),
+      inject: [WORKSPACE_STORE, DirectoryService],
+    },
+    {
       provide: CatalogService,
       useFactory: (store: WorkspaceStore, projects: ProjectService) =>
         new CatalogService(store, projects),
@@ -175,7 +221,10 @@ import { WorkspaceController } from './presentation/workspace.controller.js';
     FinanceService,
     ProjectRequestService,
     WorkdayRuleService,
+    ProjectRoleService,
     CatalogService,
+    FleetTransportService,
+    StandaloneTaskService,
     TenantDatabaseRegistry,
     PostgresPoolRegistry,
   ],

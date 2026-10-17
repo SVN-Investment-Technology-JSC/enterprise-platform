@@ -1,15 +1,15 @@
 'use client';
 
-import {HrmFamilyPanel} from '../ui/hrm-family-panel';
-import {HrmContractPanel} from '../ui/hrm-contract-panel';
-import {HrmProfileDocumentsPanel} from '../ui/hrm-profile-documents-panel';
+import { HrmFamilyPanel } from '../ui/hrm-family-panel';
+import { HrmContractPanel } from '../ui/hrm-contract-panel';
+import { HrmProfileDocumentsPanel } from '../ui/hrm-profile-documents-panel';
 import type {
   HrmEmployeeDependent,
   HrmEmploymentContract,
+  HrmCareerEvent,
   HrmCareerHistoryItem,
 } from '@enterprise-platform/contracts-hrm';
 import {
-  Award,
   BadgeCheck,
   Briefcase,
   Building2,
@@ -28,7 +28,6 @@ import {
   Landmark,
   Layers,
   Loader2,
-  Lock,
   Mail,
   MapPin,
   Network,
@@ -44,6 +43,7 @@ import {
 import { useEffect, useState } from 'react';
 import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import { Badge } from '../ui/badge';
+import { CareerTimeline } from '../ui/career-timeline';
 import { Button } from '../ui/button';
 import { Dialog, DialogContent } from '../ui/dialog';
 import { EmployeeHeroCard } from '../ui/employee-hero-card';
@@ -96,8 +96,9 @@ export default function HrmProfilePage() {
   const [dependents, setDependents] = useState<HrmEmployeeDependent[]>([]);
   const [contracts, setContracts] = useState<HrmEmploymentContract[]>([]);
   const [employeeId, setEmployeeId] = useState('');
-  const [careerHistory, setCareerHistory] = useState<HrmCareerHistoryItem[]>([]);
+  const [, setCareerHistory] = useState<HrmCareerHistoryItem[]>([]);
   const [loadingCareer, setLoadingCareer] = useState(false);
+  const [careerEvents, setCareerEvents] = useState<HrmCareerEvent[]>([]);
 
   const [companyName, setCompanyName] = useState('');
   const [roleLabel, setRoleLabel] = useState('');
@@ -206,112 +207,112 @@ export default function HrmProfilePage() {
         const payload = await hrmFetch<{ data: any }>('/my-profile');
         const p = payload.data;
         if (p) {
-            const genderLabel =
-              p.gender === 'MALE'
-                ? 'Nam'
-                : p.gender === 'FEMALE'
-                  ? 'Nữ'
-                  : p.gender === 'OTHER'
-                    ? 'Khác'
-                    : p.gender || '';
+          const genderLabel =
+            p.gender === 'MALE'
+              ? 'Nam'
+              : p.gender === 'FEMALE'
+                ? 'Nữ'
+                : p.gender === 'OTHER'
+                  ? 'Khác'
+                  : p.gender || '';
 
-            const statusLabel =
-              p.employmentStatus === 'OFFICIAL'
-                ? 'CHÍNH THỨC (Official)'
-                : p.employmentStatus === 'PROBATION'
-                  ? 'THỬ VIỆC (Probation)'
-                  : p.employmentStatus === 'ON_LEAVE'
-                    ? 'NGHỈ PHÉP (On Leave)'
-                    : p.employmentStatus === 'RESIGNED'
-                      ? 'ĐÃ NGHỈ VIỆC (Resigned)'
-                      : p.employmentStatus === 'TERMINATED'
-                        ? 'CHẤM DỨT HĐ (Terminated)'
-                        : p.employmentStatus || '';
+          const statusLabel =
+            p.employmentStatus === 'OFFICIAL'
+              ? 'CHÍNH THỨC (Official)'
+              : p.employmentStatus === 'PROBATION'
+                ? 'THỬ VIỆC (Probation)'
+                : p.employmentStatus === 'ON_LEAVE'
+                  ? 'NGHỈ PHÉP (On Leave)'
+                  : p.employmentStatus === 'RESIGNED'
+                    ? 'ĐÃ NGHỈ VIỆC (Resigned)'
+                    : p.employmentStatus === 'TERMINATED'
+                      ? 'CHẤM DỨT HĐ (Terminated)'
+                      : p.employmentStatus || '';
 
-            setProfileMeta({
-              fullName: p.fullName || '',
-              employeeCode: p.employeeCode || '',
-              workEmail: p.email || p.personalEmail || '',
-              gender: genderLabel,
-              employmentStatus: statusLabel,
-              dateOfBirth: p.dateOfBirth ? String(p.dateOfBirth) : '',
-              identityCardNumber: p.identityCardNumber || '',
-              identityCardIssuedDate: p.identityCardIssuedDate
-                ? String(p.identityCardIssuedDate)
-                : '',
-              identityCardIssuedPlace: p.identityCardIssuedPlace || '',
-              department: p.department || '',
-              position: p.position || '',
-              division: p.division || '',
-              team: p.team || '',
-              location: p.location || '',
-              positionCode: p.positionCode || '',
-              salaryGrade: p.salaryGrade || '',
-              directManagerName: p.directManagerName || '',
-              directManagerTitle: p.directManagerTitle || '',
-              directManagerEmail: p.directManagerEmail || '',
-              joinDate: p.joinDate ? String(p.joinDate).slice(0, 10) : '',
-              officialDate: p.officialDate
-                ? String(p.officialDate).slice(0, 10)
-                : '',
-              bankAccountNumber: p.bankAccountNumber || '',
-              bankName: p.bankName || '',
-              bankBranch: p.bankBranch || '',
-              taxCode: p.taxCode || '',
-              socialInsuranceNumber: p.socialInsuranceNumber || '',
-              note: p.note || '',
-            });
+          setProfileMeta({
+            fullName: p.fullName || '',
+            employeeCode: p.employeeCode || '',
+            workEmail: p.email || p.personalEmail || '',
+            gender: genderLabel,
+            employmentStatus: statusLabel,
+            dateOfBirth: p.dateOfBirth ? String(p.dateOfBirth) : '',
+            identityCardNumber: p.identityCardNumber || '',
+            identityCardIssuedDate: p.identityCardIssuedDate
+              ? String(p.identityCardIssuedDate)
+              : '',
+            identityCardIssuedPlace: p.identityCardIssuedPlace || '',
+            department: p.department || '',
+            position: p.position || '',
+            division: p.division || '',
+            team: p.team || '',
+            location: p.location || '',
+            positionCode: p.positionCode || '',
+            salaryGrade: p.salaryGrade || '',
+            directManagerName: p.directManagerName || '',
+            directManagerTitle: p.directManagerTitle || '',
+            directManagerEmail: p.directManagerEmail || '',
+            joinDate: p.joinDate ? String(p.joinDate).slice(0, 10) : '',
+            officialDate: p.officialDate
+              ? String(p.officialDate).slice(0, 10)
+              : '',
+            bankAccountNumber: p.bankAccountNumber || '',
+            bankName: p.bankName || '',
+            bankBranch: p.bankBranch || '',
+            taxCode: p.taxCode || '',
+            socialInsuranceNumber: p.socialInsuranceNumber || '',
+            note: p.note || '',
+          });
 
-            const newIdentity = {
-              fullName: p.fullName || '',
-              dateOfBirth: p.dateOfBirth ? String(p.dateOfBirth).slice(0, 10) : '',
-              gender: p.gender || '',
-              identityCardNumber: p.identityCardNumber || '',
-              identityCardIssuedDate: p.identityCardIssuedDate
-                ? String(p.identityCardIssuedDate).slice(0, 10)
-                : '',
-              identityCardIssuedPlace: p.identityCardIssuedPlace || '',
-              nationality: p.nationality || 'Việt Nam',
-              ethnicity: p.ethnicity || 'Kinh',
-              maritalStatus: p.maritalStatus || '',
-            };
-            setSavedIdentity(newIdentity);
-            setGender(newIdentity.gender);
-            setNationality(newIdentity.nationality);
-            setEthnicity(newIdentity.ethnicity);
-            setMaritalStatus(newIdentity.maritalStatus);
+          const newIdentity = {
+            fullName: p.fullName || '',
+            dateOfBirth: p.dateOfBirth ? String(p.dateOfBirth).slice(0, 10) : '',
+            gender: p.gender || '',
+            identityCardNumber: p.identityCardNumber || '',
+            identityCardIssuedDate: p.identityCardIssuedDate
+              ? String(p.identityCardIssuedDate).slice(0, 10)
+              : '',
+            identityCardIssuedPlace: p.identityCardIssuedPlace || '',
+            nationality: p.nationality || 'Việt Nam',
+            ethnicity: p.ethnicity || 'Kinh',
+            maritalStatus: p.maritalStatus || '',
+          };
+          setSavedIdentity(newIdentity);
+          setGender(newIdentity.gender);
+          setNationality(newIdentity.nationality);
+          setEthnicity(newIdentity.ethnicity);
+          setMaritalStatus(newIdentity.maritalStatus);
 
-            const newContact = {
-              personalEmail: p.personalEmail || p.email || '',
-              phone: p.phone || '',
-              permanentAddress: p.permanentAddress || '',
-              currentAddress: p.currentAddress || '',
-            };
-            setSavedContact(newContact);
-            setPersonalEmail(newContact.personalEmail);
-            setPhone(newContact.phone);
-            setPermanentAddress(newContact.permanentAddress);
-            setCurrentAddress(newContact.currentAddress);
+          const newContact = {
+            personalEmail: p.personalEmail || p.email || '',
+            phone: p.phone || '',
+            permanentAddress: p.permanentAddress || '',
+            currentAddress: p.currentAddress || '',
+          };
+          setSavedContact(newContact);
+          setPersonalEmail(newContact.personalEmail);
+          setPhone(newContact.phone);
+          setPermanentAddress(newContact.permanentAddress);
+          setCurrentAddress(newContact.currentAddress);
 
-            const newEmergency = {
-              name: p.emergencyContactName || '',
-              relationship: p.emergencyContactRelationship || '',
-              phone: p.emergencyContactPhone || '',
-            };
-            setSavedEmergency(newEmergency);
-            setEmergencyContactName(newEmergency.name);
-            setEmergencyContactRelationship(newEmergency.relationship);
-            setEmergencyContactPhone(newEmergency.phone);
+          const newEmergency = {
+            name: p.emergencyContactName || '',
+            relationship: p.emergencyContactRelationship || '',
+            phone: p.emergencyContactPhone || '',
+          };
+          setSavedEmergency(newEmergency);
+          setEmergencyContactName(newEmergency.name);
+          setEmergencyContactRelationship(newEmergency.relationship);
+          setEmergencyContactPhone(newEmergency.phone);
 
-            setCompanyName(p.companyName || '');
-            setEmployeeId(p.employeeId || '');
-            if (p.dependents) {
-              setDependents(p.dependents);
-            }
-            if (p.contracts) {
-              setContracts(p.contracts);
-            }
+          setCompanyName(p.companyName || '');
+          setEmployeeId(p.employeeId || '');
+          if (p.dependents) {
+            setDependents(p.dependents);
           }
+          if (p.contracts) {
+            setContracts(p.contracts);
+          }
+        }
       } catch (err) {
         console.error('Không thể tải profile từ API:', err);
         setProfileLoadError(
@@ -344,6 +345,12 @@ export default function HrmProfilePage() {
     // Tải một lần khi đã có mã nhân viên (để thẻ Công tác hiện tại có chức danh, đơn vị thật) và khi mở ngăn kéo lịch sử.
     if (employeeId || historyOpen) {
       setLoadingCareer(true);
+      hrmFetch<{ data: HrmCareerEvent[] }>('/my-profile/career-events')
+        .then((payload) => setCareerEvents(payload?.data || []))
+        .catch((err) => {
+          console.error('Không thể tải lịch sử bổ nhiệm & công tác:', err);
+          setCareerEvents([]);
+        });
       hrmFetch<{ data: HrmCareerHistoryItem[] }>('/my-profile/career-history')
         .then((payload) => {
           const list: HrmCareerHistoryItem[] = payload?.data || [];
@@ -656,12 +663,6 @@ export default function HrmProfilePage() {
             icon={User}
             title="Thông tin cá nhân"
             testId="profile-personal-card"
-            badge={
-              <Badge className="gap-1 border border-blue-200 bg-blue-50 text-[10px] font-semibold text-blue-700">
-                <Lock className="size-3" />
-                Dữ liệu Core · Chỉ đọc
-              </Badge>
-            }
           >
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <ReadonlyField id="profile-full-name" label="Họ và tên" value={savedIdentity.fullName} />
@@ -679,6 +680,7 @@ export default function HrmProfilePage() {
               <div className="space-y-1">
                 <FieldLabel>Giới tính</FieldLabel>
                 <SearchableSelect
+                  height={36}
                   value={gender}
                   onChange={(val) => setGender(val)}
                   options={[
@@ -734,6 +736,7 @@ export default function HrmProfilePage() {
               <div className="space-y-1 sm:col-span-2">
                 <FieldLabel>Tình trạng hôn nhân</FieldLabel>
                 <SearchableSelect
+                  height={36}
                   value={maritalStatus}
                   onChange={(val) => setMaritalStatus(val)}
                   options={[
@@ -787,12 +790,6 @@ export default function HrmProfilePage() {
             icon={Phone}
             title="Liên hệ & người thân"
             testId="profile-contact-card"
-            badge={
-              <Badge className="gap-1 border border-emerald-200 bg-emerald-50 text-[10px] font-semibold text-emerald-700">
-                <PencilLine className="size-3" />
-                Được phép cập nhật
-              </Badge>
-            }
           >
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <IconInput id="profile-email" label="Email cá nhân" type="email" icon={Mail} value={personalEmail} placeholder="Chưa cập nhật email cá nhân" onChange={setPersonalEmail} />
@@ -812,6 +809,7 @@ export default function HrmProfilePage() {
                     Mối quan hệ<span className="ml-0.5 text-red-500">*</span>
                   </FieldLabel>
                   <SearchableSelect
+                    height={36}
                     value={emergencyContactRelationship}
                     onChange={(val) => setEmergencyContactRelationship(val)}
                     options={relationshipOptions(emergencyContactRelationship)}
@@ -829,12 +827,6 @@ export default function HrmProfilePage() {
             icon={Landmark}
             title="Thông tin ngân hàng nhận lương"
             testId="profile-bank-card"
-            badge={
-              <Badge className="gap-1 border border-slate-200 bg-slate-50 text-[10px] font-semibold text-slate-600">
-                <Lock className="size-3" />
-                Chỉ đọc
-              </Badge>
-            }
           >
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <ReadonlyField id="profile-bank-name" label="Ngân hàng" value={profileMeta.bankName} />
@@ -957,45 +949,40 @@ export default function HrmProfilePage() {
             </SheetDescription>
           </SheetHeader>
           <div className="flex-1 overflow-y-auto p-4">
-          <div className="bg-blue-50/70 border border-blue-200 rounded-xl p-4 text-xs text-slate-700 flex items-start sm:items-center gap-3 shadow-sm">
-            <Info className="size-5 text-blue-700 shrink-0" />
-            <div className="flex-1">
-              <span className="font-bold text-slate-900">
-                Thông báo quản trị:
-              </span>{' '}
-              Thông tin quá trình công tác được đồng bộ trực tiếp từ hệ thống
-              Core HRM và quản lý bởi Ban Nhân sự. Mọi thay đổi về vị trí hoặc
-              quyết định bổ nhiệm vui lòng liên hệ phòng Tổ chức - Cán bộ.
-            </div>
-            <Badge className="bg-blue-100 text-blue-800 border border-blue-200 shrink-0 hidden md:inline-flex gap-1 text-[11px]">
-              <BadgeCheck className="size-3.5" />
-              Đã xác thực
-            </Badge>
-          </div>
-
-          {/* Org & Position block - Master-Detail Spec Sheet Layout */}
-          <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-200 gap-3">
-              <div className="flex items-center gap-3">
-                <div className="size-9 rounded-lg bg-blue-50 border border-blue-200 flex items-center justify-center text-[#021E73]">
-                  <Building2 className="size-5 text-[#021E73]" />
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wide">
-                      Cơ cấu tổ chức & Vị trí công tác
-                    </h3>
-                    <Badge className="bg-blue-100 text-blue-800 text-[10px] font-bold border border-blue-200">
-                      {profileMeta.employmentStatus || 'Bổ nhiệm chính thức'}
-                    </Badge>
-                  </div>
-                  <p className="text-[11px] text-slate-500 mt-0.5">
-                    Bảng đặc tả định danh cơ cấu tổ chức, sơ đồ quản lý và thẩm
-                    quyền chức danh
-                  </p>
-                </div>
+            <div className="bg-blue-50/70 border border-blue-200 rounded-xl p-4 text-xs text-slate-700 flex items-start sm:items-center gap-3 shadow-sm">
+              <Info className="size-5 text-blue-700 shrink-0" />
+              <div className="flex-1">
+                <span className="font-bold text-slate-900">
+                  Thông báo quản trị:
+                </span>{' '}
+                Thông tin quá trình công tác được đồng bộ trực tiếp từ hệ thống
+                Core HRM và quản lý bởi Ban Nhân sự. Mọi thay đổi về vị trí hoặc
+                quyết định bổ nhiệm vui lòng liên hệ phòng Tổ chức - Cán bộ.
               </div>
-              <div className="flex items-center gap-2">
+              <Badge className="bg-blue-100 text-blue-800 border border-blue-200 shrink-0 hidden md:inline-flex gap-1 text-[11px]">
+                <BadgeCheck className="size-3.5" />
+                Đã xác thực
+              </Badge>
+            </div>
+
+            {/* Cơ cấu tổ chức và vị trí công tác: chỉ hiển thị chữ, không hiện mã nội bộ */}
+            <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200">
+                <div className="flex items-center gap-3">
+                  <div className="size-9 rounded-lg bg-blue-50 border border-blue-200 flex items-center justify-center text-[#021E73]">
+                    <Building2 className="size-5" />
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className="text-sm font-bold text-slate-900">
+                      Cơ cấu tổ chức và vị trí công tác
+                    </h3>
+                    {profileMeta.employmentStatus && (
+                      <Badge className="bg-blue-100 text-blue-800 text-[10px] font-bold border border-blue-200">
+                        {profileMeta.employmentStatus}
+                      </Badge>
+                    )}
+                  </div>
+                </div>
                 <Button
                   variant="outline"
                   size="sm"
@@ -1012,463 +999,172 @@ export default function HrmProfilePage() {
                   <ExternalLink className="size-3.5" />
                   <span>Xem trên Sơ đồ tổ chức</span>
                 </Button>
-                <Badge variant="outline" className="text-[10px] text-slate-500 gap-1 h-8 px-2.5">
-                  <Lock className="size-3" />
-                  Chỉ đọc (Read-only)
-                </Badge>
               </div>
+
+              <dl className="grid grid-cols-1 md:grid-cols-2 gap-x-8 text-sm">
+                {(
+                  [
+                    ['Công ty', companyName],
+                    ['Khối đơn vị', profileMeta.division],
+                    ['Phòng ban', profileMeta.department],
+                    ['Bộ phận / Đội nhóm', profileMeta.team],
+                    ['Địa điểm làm việc', profileMeta.location],
+                    ['Chức danh', profileMeta.position],
+                    [
+                      'Hiệu lực bổ nhiệm',
+                      profileMeta.officialDate || profileMeta.joinDate
+                        ? formatVnDate(
+                          profileMeta.officialDate || profileMeta.joinDate,
+                        )
+                        : null,
+                    ],
+                    [
+                      'Quản lý trực tiếp',
+                      profileMeta.directManagerName
+                        ? profileMeta.directManagerTitle
+                          ? `${profileMeta.directManagerName} (${profileMeta.directManagerTitle})`
+                          : profileMeta.directManagerName
+                        : null,
+                    ],
+                  ] as [string, string | null | undefined][]
+                ).map(([label, value]) => (
+                  <div
+                    key={label}
+                    className="flex items-start justify-between gap-4 py-2.5 border-b border-slate-100"
+                  >
+                    <dt className="text-slate-500 shrink-0">{label}</dt>
+                    <dd className="font-semibold text-slate-900 text-right">
+                      {value || '----'}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+              {profileMeta.note && (
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  <span className="text-slate-500">Phạm vi trách nhiệm: </span>
+                  {profileMeta.note}
+                </p>
+              )}
             </div>
 
-            {/* Sơ đồ cây phân cấp tổ chức (Hierarchy Path) */}
-            <div className="p-3 bg-slate-50/70 rounded-xl border border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs">
-              <div className="flex flex-wrap items-center gap-1.5">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mr-1 flex items-center gap-1">
-                  <Network className="size-3.5 text-slate-400" />
-                  Phân cấp quản lý:
-                </span>
-                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-white border border-slate-200 text-slate-800 font-medium text-[11px] shadow-2xs">
-                  <Building2 className="size-3.5 text-slate-400" />
-                  {companyName || '----'}
-                </span>
-                {profileMeta.division && (
-                  <>
-                    <ChevronRight className="size-3.5 text-slate-400" />
-                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-white border border-slate-200 text-slate-700 font-medium text-[11px] shadow-2xs">
-                      {profileMeta.division}
-                    </span>
-                  </>
-                )}
-                <ChevronRight className="size-3.5 text-slate-400" />
-                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-white border border-slate-200 text-[#021E73] font-semibold text-[11px] shadow-2xs">
-                  <Building2 className="size-3.5 text-[#021E73]" />
-                  {profileMeta.department || '----'}
-                </span>
-                <ChevronRight className="size-3.5 text-slate-400" />
-                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-blue-50 border border-blue-200 text-blue-800 font-bold text-[11px]">
-                  <Award className="size-3.5 text-blue-800" />
-                  {profileMeta.position || '----'}
-                </span>
-              </div>
-              <div className="flex items-center gap-1.5 text-[11px] text-slate-600 font-medium">
-                <ShieldCheck className="size-3.5 text-emerald-600" />
-                <span>
-                  Cấp bậc ngạch:{' '}
-                  <strong className="text-slate-900">
-                    {profileMeta.salaryGrade || '----'}
-                  </strong>
-                </span>
-              </div>
-            </div>
-
-            {/* Bảng đặc tả 2 cột Master-Detail */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 pt-1">
-              {/* Cột 1: Thông tin Đơn vị & Pháp nhân */}
-              <div className="border border-slate-200 rounded-xl overflow-hidden bg-white">
-                <div className="bg-slate-50 px-4 py-2.5 border-b border-slate-200 flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-800 uppercase tracking-wide flex items-center gap-1.5">
-                    <Building2 className="size-3.5 text-[#021E73]" />
-                    Cơ cấu Đơn vị & Pháp nhân
-                  </span>
-                  <span className="text-[10px] font-mono text-slate-400">
-                    ORGANIZATION_UNIT
-                  </span>
+            {/* Timeline of promotions / employment events */}
+            <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm space-y-6">
+              <div className="flex items-center justify-between pb-4 border-b border-slate-200">
+                <div className="flex items-center gap-2.5">
+                  <span className="w-1.5 h-4 bg-[#021E73] rounded-full" />
+                  <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wide">
+                    Lịch sử bổ nhiệm và công tác
+                  </h3>
                 </div>
-                <div className="divide-y divide-slate-100 text-xs">
-                  <div className="grid grid-cols-12 px-4 py-3 hover:bg-slate-50/50 transition-colors items-center">
-                    <span className="col-span-4 text-slate-500 font-medium">
-                      Công ty / Pháp nhân
-                    </span>
-                    <div className="col-span-8 space-y-0.5">
-                      <div className="font-bold text-slate-900 text-sm">
-                        {companyName || '----'}
-                      </div>
-                      <div className="text-[11px] text-slate-500">
-                        Doanh nghiệp{' '}
-                        <span className="font-mono text-[10px] text-slate-400">
-                          (core_tenants)
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-12 px-4 py-3 hover:bg-slate-50/50 transition-colors items-center">
-                    <span className="col-span-4 text-slate-500 font-medium">
-                      Khối đơn vị
-                    </span>
-                    <div className="col-span-8">
-                      <span className="font-semibold text-slate-900">
-                        {profileMeta.division || 'Khối Công nghệ & Vận hành'}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-12 px-4 py-3 hover:bg-slate-50/50 transition-colors items-center">
-                    <span className="col-span-4 text-slate-500 font-medium">
-                      Phòng ban công tác
-                    </span>
-                    <div className="col-span-8 flex items-center justify-between">
-                      <span className="font-bold text-slate-900">
-                        {profileMeta.department || '----'}
-                      </span>
-                      <span className="font-mono text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded border border-slate-200">
-                        {profileMeta.department ? 'DEP-ASSIGNED' : '----'}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-12 px-4 py-3 hover:bg-slate-50/50 transition-colors items-center">
-                    <span className="col-span-4 text-slate-500 font-medium">
-                      Bộ phận / Đội nhóm
-                    </span>
-                    <div className="col-span-8">
-                      <span className="font-medium text-slate-900">
-                        {profileMeta.team || 'Trực thuộc Phòng ban'}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-12 px-4 py-3 hover:bg-slate-50/50 transition-colors items-center">
-                    <span className="col-span-4 text-slate-500 font-medium">
-                      Địa điểm làm việc
-                    </span>
-                    <div className="col-span-8 flex items-center justify-between">
-                      <span className="text-slate-800 flex items-center gap-1">
-                        <MapPin className="size-3.5 text-slate-400" />
-                        {profileMeta.location || 'Văn phòng Trụ sở chính'}
-                      </span>
-                      <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                        On-site
-                      </span>
-                    </div>
-                  </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => window.open(employeeId ? `/organization?highlight=${employeeId}` : '/organization', '_blank')}
+                    className="h-7 text-xs px-2.5 gap-1.5 text-slate-700 hover:text-slate-900 border-slate-300 shadow-2xs"
+                    title="Mở sơ đồ tổ chức công ty"
+                  >
+                    <Network className="size-3.5 text-[#021E73]" />
+                    <span>Xem trên Sơ đồ tổ chức</span>
+                    <ExternalLink className="size-3 text-slate-400" />
+                  </Button>
+                  <Badge variant="outline" className="text-slate-500 text-[11px]">
+                    {loadingCareer
+                      ? 'Đang tải...'
+                      : careerEvents.length > 0
+                        ? `${careerEvents.length} sự kiện`
+                        : profileMeta.joinDate || profileMeta.officialDate
+                          ? 'Dữ liệu sơ bộ hồ sơ'
+                          : 'Chưa có sự kiện'}
+                  </Badge>
                 </div>
               </div>
 
-              {/* Cột 2: Thông tin Chức danh & Tuyến quản lý */}
-              <div className="border border-slate-200 rounded-xl overflow-hidden bg-white">
-                <div className="bg-slate-50 px-4 py-2.5 border-b border-slate-200 flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-800 uppercase tracking-wide flex items-center gap-1.5">
-                    <Award className="size-3.5 text-[#021E73]" />
-                    Chức danh & Thẩm quyền quản lý
-                  </span>
-                  <span className="text-[10px] font-mono text-slate-400">
-                    POSITION_HIERARCHY
-                  </span>
+              {loadingCareer ? (
+                <div className="py-10 flex flex-col items-center justify-center gap-2 text-slate-500 text-xs">
+                  <Loader2 className="size-5 animate-spin text-[#021E73]" />
+                  <span>Đang tải lịch sử bổ nhiệm và công tác...</span>
                 </div>
-                <div className="divide-y divide-slate-100 text-xs">
-                  <div className="grid grid-cols-12 px-4 py-3 hover:bg-slate-50/50 transition-colors items-center">
-                    <span className="col-span-4 text-slate-500 font-medium">
-                      Chức danh công việc
-                    </span>
-                    <div className="col-span-8 flex items-center justify-between">
-                      <div className="space-y-0.5">
-                        <div className="font-bold text-slate-900 text-sm">
-                          {profileMeta.position || '----'}
-                        </div>
-                        <div className="text-[11px] text-slate-400">
-                          {profileMeta.position ? 'Chức danh chính' : '----'}
-                        </div>
-                      </div>
-                      <Badge className="bg-[#021E73] text-white text-[10px] font-bold">
-                        {profileMeta.position ? 'ACTIVE' : '----'}
-                      </Badge>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-12 px-4 py-3 hover:bg-slate-50/50 transition-colors items-center">
-                    <span className="col-span-4 text-slate-500 font-medium">
-                      Mã vị trí & Cấp bậc
-                    </span>
-                    <div className="col-span-8 flex items-center gap-2">
-                      <span className="font-mono font-bold text-slate-800 bg-slate-100 px-2 py-0.5 rounded text-[11px] border border-slate-200">
-                        {profileMeta.positionCode || 'POS-DEFAULT'}
-                      </span>
-                      <span className="text-[11px] text-slate-600">
-                        {profileMeta.salaryGrade || 'Chuyên viên'}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-12 px-4 py-3 hover:bg-slate-50/50 transition-colors items-center">
-                    <span className="col-span-4 text-slate-500 font-medium">
-                      Quyết định bổ nhiệm
-                    </span>
-                    <div className="col-span-8 flex items-center gap-2">
-                      <span className="font-semibold text-slate-800">
-                        {profileMeta.employeeCode
-                          ? `QĐ-TNS-${profileMeta.employeeCode}`
-                          : '----'}
-                      </span>
-                      <span className="text-slate-300">•</span>
-                      <span className="text-[11px] text-slate-500">
-                        Hiệu lực:{' '}
-                        <strong className="text-slate-800">
-                          {formatVnDate(
-                            profileMeta.officialDate || profileMeta.joinDate,
-                          )}
-                        </strong>
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-12 px-4 py-3 hover:bg-slate-50/50 transition-colors items-center">
-                    <span className="col-span-4 text-slate-500 font-medium">
-                      Quản lý trực tiếp
-                    </span>
-                    <div className="col-span-8 flex items-center justify-between">
-                      <div className="flex items-center gap-2.5">
-                        <div className="size-7 rounded-full bg-slate-200 text-slate-600 text-[11px] font-bold flex items-center justify-center">
-                          {profileMeta.directManagerName
-                            ? profileMeta.directManagerName
-                                .trim()
-                                .split(/\s+/)
-                                .filter(Boolean)
-                                .slice(-2)
-                                .map((n) => n[0])
-                                .join('')
-                                .toUpperCase()
-                            : '--'}
-                        </div>
-                        <div>
-                          <div className="font-bold text-slate-900 flex items-center gap-1">
-                            <span>
-                              {profileMeta.directManagerName ||
-                                'Chưa phân công quản lý'}
-                            </span>
-                          </div>
-                          <div className="text-[10px] text-slate-500">
-                            {profileMeta.directManagerTitle || 'Trưởng bộ phận'}
-                          </div>
-                        </div>
-                      </div>
-                      <span className="text-[10px] font-semibold text-slate-600 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
-                        {profileMeta.directManagerName
-                          ? 'HEAD-ASSIGNED'
-                          : 'UNASSIGNED'}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-12 px-4 py-3 hover:bg-slate-50/50 transition-colors items-center">
-                    <span className="col-span-4 text-slate-500 font-medium">
-                      Phạm vi trách nhiệm
-                    </span>
-                    <div className="col-span-8">
-                      <p className="text-[11px] text-slate-600 leading-relaxed">
-                        {profileMeta.note || '----'}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Timeline of promotions / employment events */}
-          <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm space-y-6">
-            <div className="flex items-center justify-between pb-4 border-b border-slate-200">
-              <div className="flex items-center gap-2.5">
-                <span className="w-1.5 h-4 bg-[#021E73] rounded-full" />
-                <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wide">
-                  Lịch sử Bổ nhiệm & Công tác (Timeline)
-                </h3>
-              </div>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => window.open(employeeId ? `/organization?highlight=${employeeId}` : '/organization', '_blank')}
-                  className="h-7 text-xs px-2.5 gap-1.5 text-slate-700 hover:text-slate-900 border-slate-300 shadow-2xs"
-                  title="Mở sơ đồ tổ chức công ty"
-                >
-                  <Network className="size-3.5 text-[#021E73]" />
-                  <span>Xem trên Sơ đồ tổ chức</span>
-                  <ExternalLink className="size-3 text-slate-400" />
-                </Button>
-                <Badge variant="outline" className="text-slate-500 text-[11px]">
-                  {loadingCareer
-                    ? 'Đang tải...'
-                    : careerHistory.length > 0
-                      ? `${careerHistory.length} vị trí / quyết định`
-                      : profileMeta.joinDate || profileMeta.officialDate
-                        ? 'Dữ liệu sơ bộ hồ sơ'
-                        : 'Chưa có sự kiện'}
-                </Badge>
-              </div>
-            </div>
-
-            {loadingCareer ? (
-              <div className="py-10 flex flex-col items-center justify-center gap-2 text-slate-500 text-xs">
-                <Loader2 className="size-5 animate-spin text-[#021E73]" />
-                <span>Đang đồng bộ quá trình công tác từ sơ đồ tổ chức...</span>
-              </div>
-            ) : careerHistory.length > 0 ? (
-              <div className="relative pl-6 sm:pl-8 border-l-2 border-blue-200 space-y-6 ml-2 sm:ml-4">
-                {careerHistory.map((item) => {
-                  const isActive = item.status === 'active' && !item.endDate;
-                  return (
-                    <div key={item.assignmentId} className="relative group">
-                      {/* Timeline Dot Indicator */}
-                      <span
-                        className={`absolute -left-[31px] sm:-left-[39px] top-1 size-4 rounded-full border-2 border-white ring-2 ${
-                          isActive
-                            ? 'bg-[#021E73] ring-blue-300'
-                            : 'bg-slate-400 ring-slate-200'
-                        }`}
-                      />
-                      <div className="bg-slate-50 hover:bg-slate-50/80 transition-colors p-4 rounded-xl border border-slate-200">
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 mb-2">
+              ) : careerEvents.length > 0 ? (
+                <CareerTimeline events={careerEvents} />
+              ) : (
+                <div className="relative pl-6 sm:pl-8 border-l-2 border-blue-200 space-y-6 ml-2 sm:ml-4">
+                  {profileMeta.officialDate && (
+                    <div className="relative">
+                      <span className="absolute -left-[31px] sm:-left-[39px] top-1 size-4 rounded-full bg-[#021E73] border-2 border-white ring-2 ring-blue-200" />
+                      <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 mb-1.5">
                           <div className="flex items-center gap-2 flex-wrap">
-                            <h4 className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
-                              <Briefcase className="size-3.5 text-[#021E73]" />
-                              {item.positionName}
+                            <h4 className="text-xs font-bold text-slate-900">
+                              {profileMeta.position
+                                ? `Bổ nhiệm chính thức: ${profileMeta.position}`
+                                : 'Chuyển nhân sự chính thức'}
+                            </h4>
+                            <Badge className="bg-emerald-100 text-emerald-800 text-[10px] font-bold">
+                              Hiện tại
+                            </Badge>
+                          </div>
+                          <span className="text-xs font-semibold text-blue-700">
+                            {formatVnDate(profileMeta.officialDate)} - Nay
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-600 mb-2">
+                          Được tiếp nhận và bổ nhiệm vị trí chính thức tại tổ chức.
+                          Trạng thái lao động:{' '}
+                          <strong>{profileMeta.employmentStatus || '----'}</strong>
+                          .
+                        </p>
+                        <div className="flex flex-wrap items-center gap-4 text-[11px] text-slate-500 font-medium">
+                          <span>Phòng ban: {profileMeta.department || '----'}</span>
+                          <span>•</span>
+                          <span>Chức vụ: {profileMeta.position || '----'}</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {profileMeta.joinDate && (
+                    <div className="relative">
+                      <span className="absolute -left-[31px] sm:-left-[39px] top-1 size-4 rounded-full bg-blue-400 border-2 border-white ring-2 ring-blue-100" />
+                      <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 mb-1.5">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h4 className="text-xs font-bold text-slate-900">
+                              Gia nhập công ty (Onboarding)
                             </h4>
                             <Badge
-                              className={`text-[10px] font-bold ${
-                                isActive
-                                  ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-                                  : 'bg-slate-200 text-slate-700'
-                              }`}
+                              variant="outline"
+                              className="text-slate-600 text-[10px]"
                             >
-                              {isActive ? 'Đang đương nhiệm' : 'Đã kết thúc'}
+                              Khởi đầu
                             </Badge>
-                            {item.isPrimary ? (
-                              <Badge
-                                variant="outline"
-                                className="text-[10px] font-semibold text-blue-800 border-blue-300 bg-blue-50"
-                              >
-                                Chính thức
-                              </Badge>
-                            ) : (
-                              <Badge
-                                variant="outline"
-                                className="text-[10px] font-normal text-slate-600 border-slate-300"
-                              >
-                                Kiêm nhiệm
-                              </Badge>
-                            )}
                           </div>
-                          <div className="flex items-center gap-1 text-xs font-semibold text-blue-700 font-mono">
-                            <Calendar className="size-3 text-slate-400" />
-                            <span>
-                              {formatVnDate(item.startDate)} -{' '}
-                              {item.endDate ? formatVnDate(item.endDate) : 'Hiện tại'}
-                            </span>
-                          </div>
-                        </div>
-
-                        <div className="flex flex-wrap items-center gap-4 text-[11px] text-slate-600 font-medium">
-                          <span className="flex items-center gap-1">
-                            <Building2 className="size-3 text-slate-400" />
-                            Đơn vị: <strong>{item.unitName}</strong>
+                          <span className="text-xs font-semibold text-slate-500">
+                            {formatVnDate(profileMeta.joinDate)}
                           </span>
-                          {item.positionCode && (
-                            <>
-                              <span>•</span>
-                              <span>
-                                Mã vị trí:{' '}
-                                <code className="font-mono text-slate-700 bg-white px-1.5 py-0.5 rounded border border-slate-200">
-                                  {item.positionCode}
-                                </code>
-                              </span>
-                            </>
-                          )}
                         </div>
+                        <p className="text-xs text-slate-600 mb-2">
+                          Ngày bắt đầu làm việc tại {companyName || 'công ty'} theo quyết
+                          định tiếp nhận nhân sự.
+                        </p>
+                        <div className="flex flex-wrap items-center gap-4 text-[11px] text-slate-500 font-medium">
 
-                        {item.note && (
-                          <div className="mt-2.5 p-2 bg-white rounded-lg border border-slate-200/80 text-[11px] text-slate-600 leading-relaxed">
-                            {item.note}
-                          </div>
-                        )}
+                        </div>
                       </div>
                     </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="relative pl-6 sm:pl-8 border-l-2 border-blue-200 space-y-6 ml-2 sm:ml-4">
-                {profileMeta.officialDate && (
-                  <div className="relative">
-                    <span className="absolute -left-[31px] sm:-left-[39px] top-1 size-4 rounded-full bg-[#021E73] border-2 border-white ring-2 ring-blue-200" />
-                    <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 mb-1.5">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <h4 className="text-xs font-bold text-slate-900">
-                            {profileMeta.position
-                              ? `Bổ nhiệm chính thức: ${profileMeta.position}`
-                              : 'Chuyển nhân sự chính thức'}
-                          </h4>
-                          <Badge className="bg-emerald-100 text-emerald-800 text-[10px] font-bold">
-                            Hiện tại
-                          </Badge>
-                        </div>
-                        <span className="text-xs font-semibold text-blue-700 font-mono">
-                          {formatVnDate(profileMeta.officialDate)} - Nay
-                        </span>
-                      </div>
-                      <p className="text-xs text-slate-600 mb-2">
-                        Được tiếp nhận và bổ nhiệm vị trí chính thức tại tổ chức.
-                        Trạng thái lao động:{' '}
-                        <strong>
-                          {profileMeta.employmentStatus || 'OFFICIAL'}
-                        </strong>
-                        .
-                      </p>
-                      <div className="flex flex-wrap items-center gap-4 text-[11px] text-slate-500 font-medium">
-                        <span>Phòng ban: {profileMeta.department || '----'}</span>
-                        <span>•</span>
-                        <span>Chức vụ: {profileMeta.position || '----'}</span>
-                      </div>
+                  )}
+
+                  {!profileMeta.joinDate && !profileMeta.officialDate && (
+                    <div className="text-xs text-slate-500 italic py-2">
+                      Chưa có dữ liệu lịch sử công tác được ghi nhận trong cơ sở dữ
+                      liệu.
                     </div>
-                  </div>
-                )}
+                  )}
+                </div>
+              )}
+            </div>
 
-                {profileMeta.joinDate && (
-                  <div className="relative">
-                    <span className="absolute -left-[31px] sm:-left-[39px] top-1 size-4 rounded-full bg-blue-400 border-2 border-white ring-2 ring-blue-100" />
-                    <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 mb-1.5">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <h4 className="text-xs font-bold text-slate-900">
-                            Gia nhập công ty (Onboarding)
-                          </h4>
-                          <Badge
-                            variant="outline"
-                            className="text-slate-600 text-[10px]"
-                          >
-                            Khởi đầu
-                          </Badge>
-                        </div>
-                        <span className="text-xs font-semibold text-slate-500 font-mono">
-                          {formatVnDate(profileMeta.joinDate)}
-                        </span>
-                      </div>
-                      <p className="text-xs text-slate-600 mb-2">
-                        Ngày bắt đầu làm việc tại {companyName || 'công ty'} theo quyết
-                        định tiếp nhận nhân sự.
-                      </p>
-                      <div className="flex flex-wrap items-center gap-4 text-[11px] text-slate-500 font-medium">
-                        <span>
-                          Mã nhân viên: {profileMeta.employeeCode || '----'}
-                        </span>
-                        <span>•</span>
-                        <span>Ngày gia nhập: {formatVnDate(profileMeta.joinDate)}</span>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {!profileMeta.joinDate && !profileMeta.officialDate && (
-                  <div className="text-xs text-slate-500 italic py-2">
-                    Chưa có dữ liệu lịch sử công tác được ghi nhận trong cơ sở dữ
-                    liệu.
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-
-          {employeeId&&<HrmContractPanel employeeId={employeeId} rows={contracts} onChanged={setContracts} readOnly/>}
+            {employeeId && <HrmContractPanel employeeId={employeeId} rows={contracts} onChanged={setContracts} readOnly />}
           </div>
         </SheetContent>
       </Sheet>

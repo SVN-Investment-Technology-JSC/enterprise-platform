@@ -159,7 +159,7 @@ function SettingsNav({
                 type="button"
                 aria-expanded={open}
                 onClick={() => toggle(group.id)}
-                className="flex w-full cursor-pointer items-center justify-between rounded-md px-3 py-1 text-left text-[10px] font-bold uppercase tracking-wider text-slate-400 hover:text-slate-600"
+                className="flex w-full cursor-pointer items-center justify-between rounded-md px-3 py-1 text-left text-[12px] font-bold uppercase tracking-wider text-slate-400 hover:text-slate-600"
               >
                 {group.navLabel}
                 <ChevronDown aria-hidden="true" className={`size-3 transition-transform ${open ? '' : '-rotate-90'}`} />
@@ -272,7 +272,7 @@ function Overview({
                   <IconTile icon={ICONS[group.icon]} tone={GROUP_TONE[group.id] ?? 'slate'} />
                   <span className="min-w-0 flex-1">
                     <span className="block text-sm font-bold text-slate-900">{group.title}</span>
-                    <span className="block text-[11px] leading-snug text-slate-500">{group.description}</span>
+                    <span className="block text-[12px] leading-snug text-slate-500">{group.description}</span>
                   </span>
                   <ChevronRight aria-hidden="true" className="size-4 shrink-0 text-slate-400" />
                 </Link>
@@ -287,7 +287,7 @@ function Overview({
                         <IconTile icon={ICONS[entry.icon]} tone="slate" size="sm" />
                         <span className="min-w-0 flex-1">
                           <span className="block text-xs font-semibold text-slate-900">{entry.label}</span>
-                          <span className="block truncate text-[11px] text-slate-500">{entry.description}</span>
+                          <span className="block truncate text-[12px] text-slate-500">{entry.description}</span>
                         </span>
                         <ChevronRight aria-hidden="true" className="size-3.5 shrink-0 text-slate-400" />
                       </Link>
@@ -356,7 +356,7 @@ function CenterInner({ screens }: { screens: Record<string, ComponentType> }) {
           <div className="flex items-start justify-between gap-2 px-2 pb-3">
             <div className="min-w-0">
               <h2 className="text-base font-bold tracking-tight text-slate-900">Cấu hình HRM</h2>
-              <p className="mt-0.5 text-[11px] leading-snug text-slate-500">
+              <p className="mt-0.5 text-[12px] leading-snug text-slate-500">
                 Quản lý chính sách, danh mục và các quy trình dùng chung cho hệ thống nhân sự.
               </p>
             </div>

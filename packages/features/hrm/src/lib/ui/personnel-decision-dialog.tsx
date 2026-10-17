@@ -1,14 +1,12 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, Loader2 } from 'lucide-react';
-import { Table, type TableColumnsType } from 'antd';
+import { Info, Loader2 } from 'lucide-react';
 import type {
   HrmJobDescriptionItem,
   HrmPersonnelDecision,
   HrmPersonnelDecisionType,
   HrmSalaryGrade,
   HrmSalaryGradeStep,
-  HrmSubordinate,
 } from '@enterprise-platform/contracts-hrm';
 import {
   SearchableSelect,
@@ -19,17 +17,16 @@ import {
   createPersonnelDecision,
   updatePersonnelDecision,
   useAppointmentContext,
+  useOpenConcurrent,
 } from '../hrm-personnel-decisions-api';
 import {
   DECISION_TYPES,
   DECISION_TYPE_LABELS,
   buildDecisionPayload,
   decisionToForm,
-  defaultManagerMode,
   emptyDecisionForm,
   formatMoney,
   isPositionChanging,
-  showsImpactTable,
   showsTargetPosition,
   validateDecisionForm,
   type DecisionFormState,
@@ -43,17 +40,6 @@ const typeOptions: SearchableSelectOption[] = DECISION_TYPES.map((t) => ({
   value: t,
   label: DECISION_TYPE_LABELS[t],
 }));
-
-const managerModeOptions: SearchableSelectOption[] = [
-  { value: 'KEEP', label: 'Giữ nguyên' },
-  { value: 'SET', label: 'Gán quản lý mới' },
-  { value: 'CLEAR', label: 'Bỏ quản lý trực tiếp' },
-];
-
-const subordinateModeOptions: SearchableSelectOption[] = [
-  { value: 'KEEP', label: 'Giữ nguyên cấp dưới' },
-  { value: 'REASSIGN', label: 'Chuyển cấp dưới cho người khác' },
-];
 
 const salaryTypeOptions: SearchableSelectOption[] = [
   { value: 'GROSS', label: 'Gross' },
@@ -108,7 +94,7 @@ export interface PersonnelDecisionDialogProps {
   onOpenChange: (open: boolean) => void;
   /** Nhân viên điền sẵn khi tạo mới. */
   initialEmployeeId?: string;
-  /** Có giá trị: chỉnh sửa quyết định nháp. */
+  /** Có giá trị: chỉnh sửa quyết định đã lập. */
   decision?: HrmPersonnelDecision | null;
   onSaved?: (decision: HrmPersonnelDecision) => void;
 }
@@ -185,11 +171,18 @@ export function PersonnelDecisionDialog({
   }, [open, form.toSalaryGradeId]);
 
   const context = useAppointmentContext(open ? form.employeeId : null);
+  const openConcurrent = useOpenConcurrent(open ? form.employeeId : null, decision?.id);
+  const concurrentOptions = useMemo<SearchableSelectOption[]>(
+    () =>
+      (openConcurrent.data ?? []).map((c) => ({
+        value: c.decisionId,
+        label: c.positionName ?? '----',
+        badge: c.decisionNo,
+        description: `Kiêm nhiệm từ ${c.effectiveDate.split('-').reverse().join('/')}${c.unitName ? ` · ${c.unitName}` : ''}`,
+      })),
+    [openConcurrent.data],
+  );
   const ctx = context.data;
-  const subordinates: readonly HrmSubordinate[] = ctx?.subordinates ?? [];
-  const impact = showsImpactTable(form.decisionType, subordinates.length);
-  const noAccount =
-    Boolean(ctx) && !ctx?.hasAccount && isPositionChanging(form.decisionType);
 
   const positionOptions = useMemo<SearchableSelectOption[]>(
     () =>
@@ -218,16 +211,7 @@ export function PersonnelDecisionDialog({
         })),
     [steps],
   );
-  const managerOptions = useMemo(
-    () => employees.filter((e) => e.value !== form.employeeId),
-    [employees, form.employeeId],
-  );
-
-  const errors = validateDecisionForm(form, {
-    hasAccount: ctx ? ctx.hasAccount : undefined,
-    subordinateCount: subordinates.length,
-  });
-  const blockedByAccount = noAccount;
+  const errors = validateDecisionForm(form);
 
   function patch(p: Partial<DecisionFormState>) {
     setForm((f) => ({ ...f, ...p }));
@@ -236,8 +220,8 @@ export function PersonnelDecisionDialog({
   function changeType(t: HrmPersonnelDecisionType) {
     patch({
       decisionType: t,
-      managerMode: defaultManagerMode(t),
       toPositionNodeId: showsTargetPosition(t) ? form.toPositionNodeId : '',
+      replacesDecisionId: t === 'CONCURRENT' || t === 'REVOKE' ? form.replacesDecisionId : '',
     });
   }
 
@@ -255,14 +239,9 @@ export function PersonnelDecisionDialog({
   const targetPosition = positions.find(
     (p) => p.positionId === form.toPositionNodeId,
   );
-  const afterManager =
-    form.managerMode === 'KEEP'
-      ? (ctx?.manager?.fullName ?? '----')
-      : form.managerMode === 'CLEAR'
-        ? 'Không có'
-        : (employees.find((e) => e.value === form.toManagerEmployeeId)?.label ??
-          '----');
-  const afterPosition = showsTargetPosition(form.decisionType)
+  const afterPosition = form.decisionType === 'REVOKE'
+    ? `Bãi nhiệm: ${concurrentOptions.find((o) => o.value === form.replacesDecisionId)?.label ?? '----'}`
+    : showsTargetPosition(form.decisionType)
     ? (targetPosition?.positionName ?? '----')
     : form.decisionType === 'DISMISS'
       ? 'Miễn nhiệm'
@@ -273,9 +252,7 @@ export function PersonnelDecisionDialog({
     if (errors.length) return;
     setSubmitting(true);
     try {
-      const payload = buildDecisionPayload(form, {
-        subordinateCount: subordinates.length,
-      });
+      const payload = buildDecisionPayload(form);
       const saved =
         editing && decision
           ? await updatePersonnelDecision(decision.id, {
@@ -284,7 +261,7 @@ export function PersonnelDecisionDialog({
             })
           : await createPersonnelDecision(payload);
       toast.success(
-        editing ? 'Đã cập nhật quyết định nháp' : 'Đã tạo quyết định nháp',
+        editing ? 'Đã cập nhật quyết định' : 'Đã ghi nhận quyết định vào lịch sử công tác',
       );
       onSaved?.(saved);
       onOpenChange(false);
@@ -296,13 +273,6 @@ export function PersonnelDecisionDialog({
       setSubmitting(false);
     }
   }
-
-  const subColumns: TableColumnsType<HrmSubordinate> = [
-    { title: 'Mã NV', dataIndex: 'employeeCode', width: 100 },
-    { title: 'Họ tên', dataIndex: 'fullName' },
-    { title: 'Chức danh', dataIndex: 'positionName' },
-    { title: 'Đơn vị', dataIndex: 'unitName' },
-  ];
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -336,11 +306,65 @@ export function PersonnelDecisionDialog({
             </Field>
             <Field label="Ngày hiệu lực">
               <DatePickerInput
+                height={38}
                 value={form.effectiveDate}
                 onChange={(v) => patch({ effectiveDate: v })}
               />
             </Field>
-            {showsTargetPosition(form.decisionType) && (
+            {isPositionChanging(form.decisionType) && (
+              <Field label="Hình thức">
+                <div role="radiogroup" aria-label="Hình thức bổ nhiệm" className="grid grid-cols-2 gap-1.5">
+                  {(
+                    [
+                      ['REPLACE', 'Thay thế'],
+                      ['CONCURRENT', 'Kiêm nhiệm'],
+                    ] as const
+                  ).map(([value, title]) => {
+                    const active = (form.decisionType === 'CONCURRENT') === (value === 'CONCURRENT');
+                    return (
+                      <button
+                        key={value}
+                        type="button"
+                        role="radio"
+                        aria-checked={active}
+                        disabled={editing}
+                        onClick={() => changeType(value === 'CONCURRENT' ? 'CONCURRENT' : 'APPOINT')}
+                        className={`h-[38px] rounded-md border px-2 font-semibold transition-colors disabled:opacity-60 ${
+                          active
+                            ? 'border-blue-600 bg-blue-50 text-blue-800'
+                            : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                        }`}
+                      >
+                        {title}
+                      </button>
+                    );
+                  })}
+                </div>
+              </Field>
+            )}
+            {form.decisionType === 'REVOKE' && (
+              <Field label="Kiêm nhiệm bị bãi nhiệm">
+                <SearchableSelect
+                  options={concurrentOptions}
+                  value={form.replacesDecisionId}
+                  placeholder={openConcurrent.loading ? 'Đang tải...' : 'Chọn kiêm nhiệm đang giữ'}
+                  clearable
+                  onChange={(v) => patch({ replacesDecisionId: v })}
+                />
+              </Field>
+            )}
+            {form.decisionType === 'CONCURRENT' && (
+              <Field label="Nối tiếp kiêm nhiệm">
+                <SearchableSelect
+                  options={concurrentOptions}
+                  value={form.replacesDecisionId}
+                  placeholder="Kiêm nhiệm mới (không nối tiếp)"
+                  clearable
+                  onChange={(v) => patch({ replacesDecisionId: v })}
+                />
+              </Field>
+            )}
+            {showsTargetPosition(form.decisionType) && form.decisionType !== 'REVOKE' && (
               <Field label="Chức danh mới">
                 <SearchableSelect
                   options={positionOptions}
@@ -376,56 +400,22 @@ export function PersonnelDecisionDialog({
               {context.error}
             </div>
           )}
-          {blockedByAccount && (
-            <div
-              role="alert"
-              className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 font-semibold text-amber-800"
-            >
-              <AlertTriangle className="mt-0.5 size-4 shrink-0" />
-              <span>
-                Nhân viên chưa liên kết tài khoản nên không thể bổ nhiệm vào
-                chức danh ở Core. Hãy liên kết tài khoản tại màn hình Nhân sự
-                &amp; Chức danh trước khi tạo quyết định này.
-              </span>
-            </div>
-          )}
+          <div className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-slate-600">
+            <Info className="mt-0.5 size-4 shrink-0" />
+            <span>
+              Quyết định chỉ được ghi vào lịch sử bổ nhiệm và công tác của nhân viên. Không thay đổi chức danh,
+              đơn vị, quản lý trực tiếp hay lương hiện tại.
+            </span>
+          </div>
 
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3">
             <section className="rounded-lg border border-slate-200 p-3">
-              <h4 className="mb-2 text-[11px] font-bold uppercase text-slate-700">
-                Quản lý trực tiếp
-              </h4>
-              <div className="grid grid-cols-2 gap-3">
-                <Field label="Chế độ">
-                  <SearchableSelect
-                    options={managerModeOptions}
-                    value={form.managerMode}
-                    onChange={(v) =>
-                      patch({ managerMode: v as DecisionFormState['managerMode'] })
-                    }
-                  />
-                </Field>
-                {form.managerMode === 'SET' && (
-                  <Field label="Quản lý mới">
-                    <SearchableSelect
-                      options={managerOptions}
-                      value={form.toManagerEmployeeId}
-                      placeholder="Chọn quản lý"
-                      clearable
-                      onChange={(v) => patch({ toManagerEmployeeId: v })}
-                    />
-                  </Field>
-                )}
-              </div>
-            </section>
-
-            <section className="rounded-lg border border-slate-200 p-3">
-              <h4 className="mb-2 text-[11px] font-bold uppercase text-slate-700">
+              <h4 className="mb-2 text-[12px] font-bold uppercase text-slate-700">
                 Trước / Sau
               </h4>
               <table className="w-full text-left">
                 <thead>
-                  <tr className="text-[11px] uppercase text-slate-400">
+                  <tr className="text-[12px] uppercase text-slate-400">
                     <th className="w-24 pb-1" />
                     <th className="pb-1">Trước</th>
                     <th className="pb-1">Sau</th>
@@ -449,12 +439,6 @@ export function PersonnelDecisionDialog({
                     changed={showsTargetPosition(form.decisionType)}
                   />
                   <CompareRow
-                    label="Quản lý"
-                    before={ctx?.manager?.fullName ?? '----'}
-                    after={afterManager}
-                    changed={form.managerMode !== 'KEEP'}
-                  />
-                  <CompareRow
                     label="Lương cơ bản"
                     before={formatMoney(ctx?.salary?.baseSalary)}
                     after={
@@ -468,48 +452,6 @@ export function PersonnelDecisionDialog({
               </table>
             </section>
           </div>
-
-          {impact && (
-            <section className="space-y-3 rounded-lg border border-slate-200 p-3">
-              <h4 className="text-[11px] font-bold uppercase text-slate-700">
-                Bảng tác động ({subordinates.length} cấp dưới trực tiếp)
-              </h4>
-              <Table<HrmSubordinate>
-                size="small"
-                rowKey="employeeId"
-                pagination={false}
-                scroll={{ y: 180 }}
-                columns={subColumns}
-                dataSource={[...subordinates]}
-              />
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                <Field label="Xử lý cấp dưới">
-                  <SearchableSelect
-                    options={subordinateModeOptions}
-                    value={form.subordinateMode}
-                    onChange={(v) =>
-                      patch({
-                        subordinateMode: v as DecisionFormState['subordinateMode'],
-                      })
-                    }
-                  />
-                </Field>
-                {form.subordinateMode === 'REASSIGN' && (
-                  <Field label="Người nhận cấp dưới">
-                    <SearchableSelect
-                      options={managerOptions}
-                      value={form.subordinateTargetEmployeeId}
-                      placeholder="Chọn người nhận"
-                      clearable
-                      onChange={(v) =>
-                        patch({ subordinateTargetEmployeeId: v })
-                      }
-                    />
-                  </Field>
-                )}
-              </div>
-            </section>
-          )}
 
           <section className="space-y-3 rounded-lg border border-slate-200 p-3">
             <label className="flex items-center gap-2 text-xs font-bold text-slate-800">
@@ -589,7 +531,7 @@ export function PersonnelDecisionDialog({
           <Button
             size="sm"
             className="bg-blue-600 text-white hover:bg-blue-700"
-            disabled={submitting || blockedByAccount}
+            disabled={submitting}
             onClick={() => void submit()}
           >
             {submitting ? 'Đang lưu...' : editing ? 'Lưu thay đổi' : 'Tạo quyết định'}

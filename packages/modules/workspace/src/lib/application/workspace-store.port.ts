@@ -3,6 +3,7 @@ import type {
   ChatChannel,
   ChatEntityType,
   ChatMessage,
+  ChatReader,
   CostEntry,
   ProjectRequest,
   WorkdayRuleKind,
@@ -33,11 +34,21 @@ import type {
   ProjectMember,
   ProjectProgressRow,
   ProjectRole,
+  ProjectPermission,
   ProjectStatus,
   ProjectTypeOption,
   SavedFilter,
   SavedFilterView,
+  SourceTransport,
+  StandaloneTask,
+  StandaloneTaskAdjustmentRef,
+  StandaloneTaskExecutionType,
+  StandaloneTaskHistoryEntry,
+  StandaloneTaskRef,
+  StandaloneTaskScope,
   Tag,
+  TransportMode,
+  TransportSourceType,
   UpdateProjectFinanceRequest,
   UpdateProjectRequest,
   UpdateTagRequest,
@@ -57,6 +68,14 @@ import type {
   WorkItemLinkedInstanceDraft,
   WorkItemProcedureRequestDraft,
 } from '../domain/workspace-procedure-link.js';
+
+/** Dữ liệu để ghi một dòng "đã xoá công việc" vào nhật ký dự án khi xoá. */
+export interface WorkItemDeletionLog {
+  readonly projectId: string;
+  readonly fromStatus: WorkItemStatus;
+  readonly note: string;
+  readonly createdBy: string;
+}
 
 /**
  * Cổng dữ liệu của Workspace.
@@ -152,11 +171,55 @@ export interface ReportScopeFilter {
   readonly projectIds?: readonly string[];
 }
 
+/** Việc giao lẻ đã chuẩn hoá ở tầng ứng dụng, sẵn sàng ghi. */
+export interface StandaloneTaskWriteModel {
+  readonly title: string;
+  readonly description: string | null;
+  readonly priority: StandaloneTask['priority'];
+  readonly assigneeUserId: string;
+  readonly participantUserIds: readonly string[];
+  readonly followerUserIds: readonly string[];
+  readonly plannedStart: string | null;
+  readonly dueDate: string | null;
+}
+
+/** Thêm khi tạo: vị trí trong cây và cách thực hiện. */
+export interface StandaloneTaskCreateModel extends StandaloneTaskWriteModel {
+  readonly parentId: string | null;
+  readonly executionType: StandaloneTaskExecutionType;
+  readonly procedureDefinitionId: string | null;
+  /** Việc điều chỉnh của việc đã huỷ hiệu lực này. */
+  readonly adjustmentOfId: string | null;
+  /** Người tạo, để module Quy trình mở hồ sơ dưới danh nghĩa họ. */
+  readonly requester: {
+    readonly displayName: string;
+    readonly isTenantAdmin: boolean;
+  };
+}
+
+/** Kết quả cuối của hồ sơ quy trình, theo sự kiện `procedure.instance.completed`. */
+export type StandaloneTaskProcedureOutcome = 'completed' | 'rejected' | 'cancelled';
+
 /** Số tin chưa đọc của một node, trước khi cuộn lên nhánh cha. */
 export interface UnreadRow {
   readonly entityType: ChatEntityType;
   readonly entityId: string;
   readonly unread: number;
+}
+
+/** Lựa chọn phương tiện đã kiểm tra, sẵn sàng ghi. Xe công ty có đủ xe, tài xế và khung giờ. */
+export interface SaveSourceTransport {
+  readonly sourceType: TransportSourceType;
+  readonly sourceId: string;
+  readonly sourceLabel: string;
+  readonly requesterUserId: string;
+  readonly mode: TransportMode;
+  readonly detail?: string | null;
+  readonly vehicleId?: string;
+  readonly driverId?: string;
+  readonly startAt?: string;
+  readonly endAt?: string;
+  readonly destination?: string | null;
 }
 
 export interface WorkspaceStore {
@@ -297,6 +360,20 @@ export interface WorkspaceStore {
       depthDelta: number,
     ): Promise<WorkItem>;
     applyProgress(tenantId: string, updates: ReadonlyMap<string, number>): Promise<void>;
+    /**
+     * Xoá hẳn công việc và toàn bộ nhánh con (ràng buộc khoá ngoại `parent_id`
+     * đổ dây — phụ thuộc, người cùng làm, lịch sử, chi phí đi theo). Khác với
+     * "Huỷ" (chuyển trạng thái `cancelled`, mở lại được): đã xoá là mất hẳn.
+     *
+     * `deletionLog` (nếu có): ghi MỘT dòng vào nhật ký dự án trước khi xoá, với
+     * `work_item_id = NULL` nên không bị `ON DELETE CASCADE` cuốn theo — tab Hoạt
+     * động vẫn thấy "đã xoá công việc …".
+     */
+    remove(
+      tenantId: string,
+      workItemId: string,
+      deletionLog?: WorkItemDeletionLog,
+    ): Promise<void>;
   };
 
   readonly tag: {
@@ -603,13 +680,22 @@ export interface WorkspaceStore {
         readonly projectId: string;
       },
     ): Promise<ChatChannel>;
+    /**
+     * Một trang tin, cũ → mới. `beforeMessageId` lấy trang liền trước tin đó;
+     * vắng thì lấy trang mới nhất. `hasMore` báo còn tin cũ hơn trang này.
+     */
     listMessages(
       tenantId: string,
       channelId: string,
       limit: number,
-    ): Promise<readonly ChatMessage[]>;
+      beforeMessageId?: string,
+    ): Promise<{ readonly messages: readonly ChatMessage[]; readonly hasMore: boolean }>;
     findMessage(tenantId: string, messageId: string): Promise<ChatMessage | undefined>;
-    /** Ghi tin và cập nhật `last_message_at` của kênh trong cùng transaction. */
+    /**
+     * Ghi tin và cập nhật `last_message_at` của kênh trong cùng transaction.
+     * Cùng transaction đó ghi sự kiện outbox: nhắc tên (nếu có) và tín hiệu
+     * realtime cho các thành viên dự án khác.
+     */
     sendMessage(
       tenantId: string,
       actorUserId: string,
@@ -621,14 +707,24 @@ export interface WorkspaceStore {
         readonly attachmentDocumentId?: string | null;
       },
     ): Promise<ChatMessage>;
+    /**
+     * `newlyMentioned` là những người mới được nhắc so với bản trước: chỉ họ
+     * nhận thông báo, người đã được nhắc từ đầu không bị báo lại.
+     */
     editMessage(
       tenantId: string,
+      actorUserId: string,
       messageId: string,
       body: string,
       mentions: readonly string[],
+      newlyMentioned: readonly string[],
     ): Promise<ChatMessage>;
     /** Xoá mềm: dòng ở lại để các trả lời bên dưới không mất ngữ cảnh. */
-    softDeleteMessage(tenantId: string, messageId: string): Promise<ChatMessage>;
+    softDeleteMessage(
+      tenantId: string,
+      actorUserId: string,
+      messageId: string,
+    ): Promise<ChatMessage>;
 
     /**
      * Số tin chưa đọc của mọi node trong một dự án, trong MỘT truy vấn.
@@ -640,7 +736,24 @@ export interface WorkspaceStore {
       projectId: string,
       userId: string,
     ): Promise<readonly UnreadRow[]>;
-    markRead(tenantId: string, channelId: string, userId: string): Promise<void>;
+    /**
+     * Đánh dấu đã đọc TỚI đúng tin `upToMessageId`, không phải tới "bây giờ".
+     *
+     * Đánh dấu theo giờ máy chủ sẽ nuốt mất tin đến giữa lúc tải luồng và lúc
+     * đánh dấu: nó không nằm trong danh sách vừa hiển thị nhưng vẫn bị tính là
+     * đã đọc. Mốc chỉ tiến lên, không bao giờ lùi. `announce` ghi thêm tín hiệu
+     * `read` cho các thành viên khác (chỉ khi mốc thật sự tiến) để "đã xem" cập
+     * nhật ngay; người gửi tự đánh dấu tin của mình thì không cần báo.
+     */
+    markRead(
+      tenantId: string,
+      channelId: string,
+      userId: string,
+      upToMessageId: string,
+      options?: { readonly announce?: boolean },
+    ): Promise<void>;
+    /** Mỗi người đã đọc tới tin nào của kênh. */
+    listReaders(tenantId: string, channelId: string): Promise<readonly ChatReader[]>;
   };
 
   /**
@@ -748,6 +861,47 @@ export interface WorkspaceStore {
    * module khác. Gỡ con trỏ là xoá cứng — ngoại lệ hợp lý so với quy ước
    * không xoá cứng, vì dòng này không mang giá trị nghiệp vụ.
    */
+  /** Vai trò trong dự án do tenant định nghĩa, dùng chung mọi dự án. */
+  readonly roleDefinition: {
+    /** Mọi vai, đã sắp theo `sortOrder`, kèm số người đang giữ mỗi vai. */
+    list(tenantId: string): Promise<
+      readonly {
+        readonly key: string;
+        readonly name: string;
+        readonly permissions: readonly ProjectPermission[];
+        readonly isSystem: boolean;
+        readonly sortOrder: number;
+        readonly memberCount: number;
+      }[]
+    >;
+    create(
+      tenantId: string,
+      actorUserId: string,
+      input: { readonly key: string; readonly name: string; readonly permissions: readonly ProjectPermission[] },
+    ): Promise<void>;
+    update(
+      tenantId: string,
+      actorUserId: string,
+      key: string,
+      input: { readonly name: string; readonly permissions: readonly ProjectPermission[] },
+    ): Promise<void>;
+    remove(tenantId: string, key: string): Promise<void>;
+  };
+  /**
+   * Phương tiện di chuyển của công việc và lịch họp. Xe công ty chỉ được GIỮ ở HRM: lựa chọn và sự kiện
+   * `workspace.fleet-booking.*` được ghi trong cùng một transaction, HRM trả lời `confirmed` hoặc `conflicted`.
+   */
+  readonly fleetTransport: {
+    find(
+      tenantId: string,
+      sourceType: TransportSourceType,
+      sourceId: string,
+    ): Promise<SourceTransport | undefined>;
+    /** Ghi lựa chọn mới; không đổi gì so với bản đang giữ thì không phát lại sự kiện. */
+    save(tenantId: string, input: SaveSourceTransport): Promise<SourceTransport>;
+    /** Bỏ phương tiện của nguồn (hoặc nguồn bị huỷ, xoá); đang giữ xe thì trả xe. */
+    clear(tenantId: string, sourceType: TransportSourceType, sourceId: string): Promise<void>;
+  };
   /** Thứ tự ưu tiên tính công, dùng chung toàn tenant. */
   readonly workdayRules: {
     list(tenantId: string): Promise<
@@ -816,7 +970,10 @@ export interface WorkspaceStore {
   /** Yêu cầu Quy trình mở hồ sơ cho công việc "Theo quy trình". */
   readonly procedureRequest: {
     listByProject(tenantId: string, projectId: string): Promise<readonly WorkItemProcedureRequest[]>;
-    /** Ghi (lại) yêu cầu ở trạng thái chờ và phát sự kiện cho Quy trình, cùng transaction. */
+    /**
+     * Ghi (lại) yêu cầu ở trạng thái chờ và phát sự kiện cho Quy trình, cùng
+     * transaction. Việc đang "Thủ công" được chuyển sang "Theo quy trình".
+     */
     request(
       tenantId: string,
       actorUserId: string,
@@ -897,6 +1054,114 @@ export interface WorkspaceStore {
       filter: { readonly workItemId?: string; readonly projectId?: string },
       limit: number,
     ): Promise<readonly CostEntry[]>;
+  };
+
+  /**
+   * Công việc ngoài dự án.
+   *
+   * Store không kiểm quyền — tầng ứng dụng đã làm. Riêng `changeStatus` tự
+   * so trạng thái hiện tại với `from` trong transaction, để hai người bấm
+   * cùng lúc không đè lên nhau.
+   */
+  readonly standaloneTask: {
+    /** Việc mà `userId` giữ đúng vai trong ngăn `scope`, kèm việc cha nếu có. */
+    listForUser(
+      tenantId: string,
+      userId: string,
+      scope: StandaloneTaskScope,
+    ): Promise<readonly { readonly task: StandaloneTask; readonly parent?: StandaloneTaskRef }[]>;
+    findById(tenantId: string, taskId: string): Promise<StandaloneTask | undefined>;
+    /** Việc con trực tiếp, theo thứ tự tạo. */
+    children(tenantId: string, taskId: string): Promise<readonly StandaloneTask[]>;
+    /** Chính việc này và mọi việc con cháu. */
+    subtree(tenantId: string, taskId: string): Promise<readonly StandaloneTask[]>;
+    /** Từ việc gốc xuống việc cha trực tiếp; rỗng với việc gốc. */
+    ancestors(tenantId: string, taskId: string): Promise<readonly StandaloneTaskRef[]>;
+    /** `userId` giữ vai nào đó ở một việc bất kỳ trong cây `rootId`. */
+    isTreeMember(tenantId: string, rootId: string, userId: string): Promise<boolean>;
+    /**
+     * Tạo việc. Có `parentId` thì nối vào cây của việc cha (cùng `root_id`,
+     * sâu thêm một cấp); theo quy trình thì phát sự kiện nhờ Quy trình mở hồ sơ.
+     */
+    create(
+      tenantId: string,
+      actorUserId: string,
+      input: StandaloneTaskCreateModel,
+    ): Promise<StandaloneTask>;
+    /** Ghi đè các trường nội dung; `progressPercent` chỉ đổi khi có mặt. */
+    update(
+      tenantId: string,
+      taskId: string,
+      actorUserId: string,
+      input: Partial<StandaloneTaskWriteModel> & { readonly progressPercent?: number },
+    ): Promise<StandaloneTask>;
+    /** `undefined` khi trạng thái hiện tại đã khác `from` (có người đổi trước). */
+    changeStatus(
+      tenantId: string,
+      taskId: string,
+      actorUserId: string,
+      from: StandaloneTask['status'],
+      next: StandaloneTask['status'],
+      note: string | undefined,
+      today: string,
+    ): Promise<StandaloneTask | undefined>;
+    remove(tenantId: string, taskId: string): Promise<void>;
+    history(
+      tenantId: string,
+      taskId: string,
+      limit: number,
+    ): Promise<readonly StandaloneTaskHistoryEntry[]>;
+    /**
+     * Cho trang "Công việc của tôi": việc đang mở mà tôi thực hiện (phụ
+     * trách hoặc cùng làm), cộng việc tôi giao đang ở `review`.
+     */
+    forMyWork(tenantId: string, userId: string): Promise<readonly StandaloneTask[]>;
+
+    /**
+     * Huỷ hiệu lực: `status = 'cancelled'` kèm thông tin huỷ, ghi nhật ký, báo
+     * người liên quan. `notifyProcedure` thì nhờ Quy trình huỷ hiệu lực hồ sơ
+     * đã hoàn tất gắn với việc. Việc đã huỷ hiệu lực thì trả nguyên trạng.
+     */
+    reverse(
+      tenantId: string,
+      taskId: string,
+      input: {
+        readonly reversedBy: string;
+        readonly reversedByName?: string;
+        readonly reason: string;
+        readonly today: string;
+        readonly notifyProcedure: boolean;
+        readonly adjustmentRequested: boolean;
+      },
+    ): Promise<StandaloneTask>;
+    /** Các việc điều chỉnh của việc này (kể cả đã huỷ), cũ trước. */
+    adjustments(tenantId: string, taskId: string): Promise<readonly StandaloneTaskAdjustmentRef[]>;
+    /** Việc gắn với hồ sơ quy trình này, nếu có. */
+    findByProcedureInstance(
+      tenantId: string,
+      instanceId: string,
+    ): Promise<StandaloneTask | undefined>;
+
+    /* Đồng bộ với hồ sơ quy trình (sự kiện từ module Quy trình). */
+    markProcedureStarted(
+      tenantId: string,
+      taskId: string,
+      instanceId: string,
+      instanceCode: string,
+    ): Promise<void>;
+    markProcedureStartRejected(tenantId: string, taskId: string, reason: string): Promise<void>;
+    /**
+     * Hồ sơ đã đóng. Hoàn tất thì việc gốc tự sang Chờ duyệt, việc con tự
+     * Hoàn thành; bị từ chối hay huỷ thì chỉ ghi nhận và báo người liên quan.
+     * Gọi lại cho cùng hồ sơ không làm gì thêm.
+     */
+    applyProcedureOutcome(
+      tenantId: string,
+      instanceId: string,
+      outcome: StandaloneTaskProcedureOutcome,
+      instanceCode: string,
+      today: string,
+    ): Promise<void>;
   };
 
   readonly history: {

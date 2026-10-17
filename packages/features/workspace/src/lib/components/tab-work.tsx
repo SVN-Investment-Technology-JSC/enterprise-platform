@@ -11,14 +11,16 @@ import {
   type WorkItemStatus,
 } from '@enterprise-platform/contracts-workspace';
 import { ChevronDown, ChevronRight, CornerDownRight, Diamond, Plus, Workflow } from 'lucide-react';
-import { useEffect, useMemo, useState, type MouseEvent, type ReactNode } from 'react';
+import { memo, useEffect, useMemo, useState, type MouseEvent, type ReactNode } from 'react';
 import { buildWorkItemTree } from '../project-tree.model';
 import * as api from '../workspace-api';
 import {
   PRIORITY_LABELS,
   PRIORITY_TONE,
   WORK_ITEM_STATUS_LABELS,
+  formatDateTime,
   formatShortDate,
+  formatShortTimestamp,
   isOverdue,
   workItemStatusLabel,
   workItemStatusTone,
@@ -169,7 +171,7 @@ export interface TabWorkProps {
  * Cây công việc trước đây nằm ở cột trái; giờ chính bảng này là cây, nên
  * vùng chính không phải chia cột. Bấm một dòng để mở chi tiết công việc.
  */
-export function TabWork({
+function TabWorkImpl({
   projectId,
   items,
   dependencies,
@@ -551,6 +553,7 @@ export function TabWork({
                   <th>Trạng thái</th>
                   <th>Bắt đầu</th>
                   <th>Thời hạn</th>
+                  <th title="Ngày cập nhật trạng thái gần nhất">Trạng thái cuối</th>
                   <th>Tiến độ</th>
                   <th>Quy trình</th>
                 </tr>
@@ -558,7 +561,7 @@ export function TabWork({
               <tbody>
                 {rows.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className={styles.muted}>
+                    <td colSpan={9} className={styles.muted}>
                       {filtering
                         ? 'Không có công việc nào khớp bộ lọc.'
                         : 'Dự án chưa có công việc nào.'}
@@ -673,6 +676,16 @@ export function TabWork({
                       <td className={overdue ? styles.cellDanger : undefined}>
                         {formatShortDate(item.plannedEnd)}
                       </td>
+                      <td
+                        className={styles.muted}
+                        title={
+                          item.statusChangedAt
+                            ? `Cập nhật trạng thái lúc ${formatDateTime(item.statusChangedAt)}`
+                            : undefined
+                        }
+                      >
+                        {formatShortTimestamp(item.statusChangedAt)}
+                      </td>
                       <td>
                         {item.reversal ? (
                           // Việc huỷ hiệu lực không tính tiến độ; 100% cũ sẽ gây hiểu nhầm.
@@ -776,3 +789,10 @@ function People({
     </span>
   );
 }
+
+/**
+ * Bảng 600+ dòng rất tốn khi vẽ lại. Bọc `memo` để bật/tắt ngăn Trao đổi (hay bất kỳ
+ * state nào khác của `ProjectsView` không liên quan tới bảng) không vẽ lại cả bảng;
+ * nơi gọi phải truyền hàm ổn định (`useCallback`), nếu không `memo` không có tác dụng.
+ */
+export const TabWork = memo(TabWorkImpl);

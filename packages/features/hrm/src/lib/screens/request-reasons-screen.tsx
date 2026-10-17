@@ -11,6 +11,7 @@ import {
   ClipboardList,
   FileText,
   History,
+  Pencil,
   Plus,
   Search,
   Settings2,
@@ -473,6 +474,27 @@ export default function RequestReasonsScreen() {
     });
   }
 
+  function removeLeave(row: HrmLeaveType) {
+    return run(async () => {
+      const result = await hrmFetch<{
+        data: { id: string; deleted: boolean; active: boolean };
+        message?: string;
+      }>(`/leave-types/${row.id}`, {
+        method: 'DELETE',
+        body: JSON.stringify({ expectedUpdatedAt: row.updatedAt }),
+      });
+      setNotice({
+        tone: result.data.deleted ? 'success' : 'warning',
+        text:
+          result.message ??
+          (result.data.deleted
+            ? `Đã xóa lý do nghỉ "${row.name}".`
+            : `Lý do nghỉ "${row.name}" đã phát sinh dữ liệu nên chỉ được ngừng sử dụng.`),
+      });
+      await loadLeave();
+    });
+  }
+
   function setTypeActive(row: HrmRequestType, active: boolean) {
     return run(async () => {
       await hrmFetch(`/request-types/${row.id}`, {
@@ -496,7 +518,7 @@ export default function RequestReasonsScreen() {
           result.message ??
           (result.data.deleted
             ? `Đã xóa loại đơn "${row.name}".`
-            : `Loại đơn "${row.name}" đã có đơn nên chỉ được ngừng sử dụng.`),
+            : `Không xóa được loại đơn "${row.name}".`),
       });
       if (selectedCode === row.code && result.data.deleted) selectEntry(LEAVE_CODE);
       await Promise.all([loadTypes(), load()]);
@@ -544,7 +566,7 @@ export default function RequestReasonsScreen() {
       cell: (r) => (
         <span className="block min-w-0">
           <span className="block font-semibold text-slate-900">{r.name}</span>
-          {r.description ? <span className="block text-[11px] text-slate-500">{r.description}</span> : null}
+          {r.description ? <span className="block text-[12px] text-slate-500">{r.description}</span> : null}
         </span>
       ),
     },
@@ -553,7 +575,7 @@ export default function RequestReasonsScreen() {
       header: 'Mã',
       width: 'minmax(0,1fr)',
       cardLabel: true,
-      cell: (r) => <span className="font-mono text-[11px] text-slate-600">{r.code}</span>,
+      cell: (r) => <span className="font-mono text-[12px] text-slate-600">{r.code}</span>,
     },
     ...(kind === 'OVERTIME'
       ? [
@@ -612,11 +634,25 @@ export default function RequestReasonsScreen() {
     {
       key: 'actions',
       header: 'Thao tác',
-      width: '2.5rem',
+      width: '6.5rem',
       align: 'right',
       cardEnd: true,
       cardOrder: -1,
-      cell: (r) => <ActionMenu label={`Thao tác với lý do ${r.name}`} items={reasonActions(r)} />,
+      cell: (r) => (
+        <div className="flex items-center justify-end gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 gap-1 px-2 text-xs font-semibold text-slate-700 hover:bg-blue-50 hover:text-blue-700"
+            onClick={() => openEdit(r)}
+            title="Sửa lý do"
+          >
+            <Pencil className="size-3.5" aria-hidden />
+            <span>Sửa</span>
+          </Button>
+          <ActionMenu label={`Thao tác với lý do ${r.name}`} items={reasonActions(r)} />
+        </div>
+      ),
     },
   ];
 
@@ -636,7 +672,7 @@ export default function RequestReasonsScreen() {
       header: 'Mã',
       width: 'minmax(0,1fr)',
       cardLabel: true,
-      cell: (r) => <span className="font-mono text-[11px] text-slate-600">{r.code}</span>,
+      cell: (r) => <span className="font-mono text-[12px] text-slate-600">{r.code}</span>,
     },
     {
       key: 'paid',
@@ -682,11 +718,25 @@ export default function RequestReasonsScreen() {
     {
       key: 'actions',
       header: 'Thao tác',
-      width: '2.5rem',
+      width: '6.5rem',
       align: 'right',
       cardEnd: true,
       cardOrder: -1,
-      cell: (r) => <ActionMenu label={`Thao tác với lý do nghỉ ${r.name}`} items={leaveActions(r)} />,
+      cell: (r) => (
+        <div className="flex items-center justify-end gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 gap-1 px-2 text-xs font-semibold text-slate-700 hover:bg-blue-50 hover:text-blue-700"
+            onClick={() => setLeaveDialog({ row: r })}
+            title="Sửa lý do nghỉ"
+          >
+            <Pencil className="size-3.5" aria-hidden />
+            <span>Sửa</span>
+          </Button>
+          <ActionMenu label={`Thao tác với lý do nghỉ ${r.name}`} items={leaveActions(r)} />
+        </div>
+      ),
     },
   ];
 
@@ -731,31 +781,47 @@ export default function RequestReasonsScreen() {
     const lockedActive = r.isAnnual || r.mergedIntoId;
     return [
       { key: 'edit', label: 'Sửa', onSelect: () => setLeaveDialog({ row: r }) },
+      r.active
+        ? {
+            key: 'deactivate',
+            label: 'Ngừng',
+            hidden: Boolean(lockedActive),
+            confirm: {
+              title: `Ngừng sử dụng lý do nghỉ "${r.name}"?`,
+              description: 'Lý do ẩn khỏi danh sách chọn của đơn mới; có thể dùng lại bất cứ lúc nào. Đơn đã tạo và sổ phép hiện có được giữ nguyên.',
+              okText: 'Xác nhận',
+              cancelText: 'Quay lại',
+              okType: 'warning',
+              reason: { label: 'Ghi chú thay đổi', placeholder: 'Ví dụ: không còn áp dụng', required: true },
+              onConfirm: (note) => setLeaveActive(r, false, note),
+            },
+          }
+        : {
+            key: 'activate',
+            label: 'Dùng lại',
+            hidden: Boolean(lockedActive),
+            confirm: {
+              title: `Cho dùng lại lý do nghỉ "${r.name}"?`,
+              okText: 'Xác nhận',
+              cancelText: 'Quay lại',
+              okType: 'primary',
+              reason: { label: 'Ghi chú thay đổi', placeholder: 'Ví dụ: áp dụng lại từ tháng này', required: true },
+              onConfirm: (note) => setLeaveActive(r, true, note),
+            },
+          },
       {
-        key: 'deactivate',
-        label: 'Ngừng',
-        hidden: Boolean(lockedActive) || !r.active,
+        key: 'delete',
+        label: 'Xóa',
+        tone: 'danger',
+        hidden: Boolean(lockedActive),
         confirm: {
-          title: 'Ngừng lý do nghỉ này cho các đơn mới?',
-          description: 'Đơn đã tạo và sổ phép hiện có được giữ nguyên.',
-          okText: 'Xác nhận',
+          title: `Xóa lý do nghỉ "${r.name}"?`,
+          description:
+            'Lý do chưa phát sinh đơn sẽ được xóa khỏi danh mục. Nếu đã có đơn nghỉ hoặc số dư, hệ thống sẽ chuyển sang ngừng sử dụng.',
+          okText: 'Xóa lý do',
           cancelText: 'Quay lại',
           okType: 'danger',
-          reason: { label: 'Ghi chú thay đổi', placeholder: 'Ví dụ: không còn áp dụng', required: true },
-          onConfirm: (note) => setLeaveActive(r, false, note),
-        },
-      },
-      {
-        key: 'activate',
-        label: 'Dùng lại',
-        hidden: Boolean(lockedActive) || r.active,
-        confirm: {
-          title: 'Cho dùng lại lý do nghỉ này?',
-          okText: 'Xác nhận',
-          cancelText: 'Quay lại',
-          okType: 'primary',
-          reason: { label: 'Ghi chú thay đổi', placeholder: 'Ví dụ: áp dụng lại từ tháng này', required: true },
-          onConfirm: (note) => setLeaveActive(r, true, note),
+          onConfirm: () => removeLeave(r),
         },
       },
     ];
@@ -788,13 +854,14 @@ export default function RequestReasonsScreen() {
         key: 'delete',
         label: 'Xóa loại đơn',
         tone: 'danger',
-        hidden: t.isSystem,
+        // Chỉ xóa được loại đã ngừng sử dụng (kể cả loại hệ thống); xóa mềm nên đơn đã tạo vẫn giữ nguyên.
+        hidden: t.active,
         confirm: {
           title: `Xóa loại đơn "${t.name}"?`,
           description:
             (t.usageCount ?? 0) > 0
-              ? `Loại đơn đã có ${t.usageCount} đơn nên không xóa được; hệ thống chỉ ngừng sử dụng loại này.`
-              : 'Loại đơn và danh mục lý do của loại này biến mất. Không thể hoàn tác.',
+              ? `Loại đơn biến mất khỏi danh mục và danh sách lý do. ${t.usageCount} đơn đã tạo vẫn được giữ nguyên.`
+              : 'Loại đơn và danh mục lý do của loại này biến mất khỏi danh mục. Đơn đã tạo (nếu có) vẫn được giữ nguyên.',
           okText: 'Xóa loại đơn',
           cancelText: 'Quay lại',
           okType: 'danger',
@@ -918,16 +985,16 @@ export default function RequestReasonsScreen() {
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-sm font-semibold text-slate-900">
                         {entry.name}
-                        {entry.active ? null : <span className="ml-1.5 text-[11px] font-medium text-slate-500">(ngừng)</span>}
+                        {entry.active ? null : <span className="ml-1.5 text-[12px] font-medium text-slate-500">(ngừng)</span>}
                       </span>
                       {entry.description ? (
-                        <span className="block truncate text-[11px] text-slate-500">{entry.description}</span>
+                        <span className="block truncate text-[12px] text-slate-500">{entry.description}</span>
                       ) : null}
                     </span>
                     {count != null ? (
                       <span
                         aria-label={`${count} lý do`}
-                        className={`inline-flex min-w-6 items-center justify-center rounded-full border px-1.5 py-0.5 text-[11px] font-semibold ${
+                        className={`inline-flex min-w-6 items-center justify-center rounded-full border px-1.5 py-0.5 text-[12px] font-semibold ${
                           selected ? 'border-blue-300 bg-white text-blue-700' : 'border-slate-200 bg-white text-slate-600'
                         }`}
                       >
@@ -953,6 +1020,7 @@ export default function RequestReasonsScreen() {
           >
             <div className="mb-3 @3xl:hidden">
               <SearchableSelect
+                height={36}
                 value={current.code}
                 options={entryOptions}
                 clearable={false}
@@ -986,6 +1054,7 @@ export default function RequestReasonsScreen() {
                   </div>
                   <div className="min-w-0 flex-1 basis-40 @2xl:w-52 @2xl:flex-none">
                     <SearchableSelect
+                      height={36}
                       value={statusFilter}
                       options={STATUS_FILTERS}
                       clearable={false}

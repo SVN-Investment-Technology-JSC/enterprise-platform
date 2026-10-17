@@ -90,14 +90,15 @@ export function isSystemRequestTypeCode(code: string): boolean {
 type Queryable = Pick<PoolClient, 'query'>;
 type Row = Record<string, any>;
 
-/** Tạo 7 loại hệ thống nếu tenant chưa có (idempotent); trả số loại vừa tạo. */
+/** Tạo 7 loại hệ thống cho tenant chưa có loại hệ thống nào (idempotent); trả số loại vừa tạo. */
 export async function ensureSystemRequestTypes(db: Queryable, tenantId: string): Promise<number> {
   const present = await db.query(
     `SELECT count(*)::int AS n FROM hrm_schema.request_reason_categories
-      WHERE tenant_id = $1 AND is_system AND deleted_at IS NULL`,
+      WHERE tenant_id = $1 AND is_system`,
     [tenantId],
   );
-  if (Number(present.rows[0]?.n ?? 0) >= SYSTEM_REQUEST_TYPES.length) return 0;
+  // Tenant đã có loại hệ thống (kể cả loại quản trị đã xoá mềm) thì không tạo lại: loại đã xoá phải giữ nguyên là đã xoá.
+  if (Number(present.rows[0]?.n ?? 0) > 0) return 0;
   const inserted = await db.query(
     `INSERT INTO hrm_schema.request_reason_categories
        (tenant_id, code, name, description, engine, time_mode, is_system, sort_order)
@@ -131,6 +132,7 @@ export function mapRequestType(row: Row): HrmRequestType {
     kind: ENGINE_REQUEST_KIND[engine] ?? 'custom',
     timeMode: row.time_mode as HrmRequestTimeMode,
     requiresAttachment: row.requires_attachment === true,
+    requiresTransport: row.requires_transport === true,
     fields: Array.isArray(row.fields) ? (row.fields as HrmRequestTypeField[]) : [],
     icon: row.icon ?? null,
     isSystem: row.is_system === true,

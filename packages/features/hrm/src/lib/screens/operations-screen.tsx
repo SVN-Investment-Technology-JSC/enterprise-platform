@@ -12,7 +12,7 @@ import {
   Settings,
   Workflow as WorkflowIcon,
 } from 'lucide-react';
-import { Popconfirm } from '@enterprise-platform/shared-ui';
+import { Popconfirm, formatDateTime, formatMonth } from '@enterprise-platform/shared-ui';
 import { hrmFetch } from '../hrm-api';
 import { formatDateVn } from '../personnel-decision-rules';
 import { useHrmPermissions } from '../hrm-permissions';
@@ -190,8 +190,7 @@ function runSummary(result: unknown): RunSummary | null {
   };
 }
 
-const stamp = (value: string) =>
-  value ? new Date(value).toLocaleString('vi-VN') : '—';
+const stamp = (value: string) => formatDateTime(value, '—');
 
 /** Tóm tắt một lần chạy thành các dòng đọc được thay cho JSON. */
 function runDetails(result: unknown): string[] {
@@ -206,7 +205,7 @@ function runDetails(result: unknown): string[] {
   };
   if (r.skipped) return [SKIP_REASON[r.reason ?? ''] ?? 'Không có tác vụ nào được thực hiện.'];
   const lines = (r.months ?? []).map(
-    (m) => `Cộng phép tháng ${m.month ?? ''}: ${m.credited ?? 0} giao dịch mới, ${m.skipped ?? 0} đã có.`,
+    (m) => `Cộng phép tháng ${formatMonth(m.month, m.month ?? '')}: ${m.credited ?? 0} giao dịch mới, ${m.skipped ?? 0} đã có.`,
   );
   for (const c of r.carryovers ?? [])
     lines.push(
@@ -521,7 +520,7 @@ export default function OperationsScreen() {
             {data.settings.last_error}
           </InfoNote>
         ) : null}
-        <p className="text-[11px] leading-relaxed text-slate-500">
+        <p className="text-[12px] leading-relaxed text-slate-500">
           Hằng ngày tác vụ cộng phép theo tháng và (khi bật) chốt phép cuối năm: phép năm không chuyển sang năm sau nên phần còn lại
           được reset về 0. Chạy lại không ghi trùng.
         </p>
@@ -778,7 +777,7 @@ export default function OperationsScreen() {
       cell: (r) => (
         <div className="min-w-0">
           <span className="block truncate font-semibold text-slate-800">{r.employee_label ?? 'Nhân viên không còn'}</span>
-          {r.title ? <span className="block truncate text-[11px] text-slate-500">{r.title}</span> : null}
+          {r.title ? <span className="block truncate text-[12px] text-slate-500">{r.title}</span> : null}
         </div>
       ),
     },
@@ -797,7 +796,7 @@ export default function OperationsScreen() {
         <div className="space-y-1">
           <StatusPill tone={SYNC_STATUS[r.status]?.tone ?? 'slate'}>{SYNC_STATUS[r.status]?.label ?? r.status}</StatusPill>
           {r.status === 'CONFLICT' ? (
-            <p className="text-[11px] text-rose-700">Đối soát {r.related_instances.length} instance liên quan trước khi tiếp tục.</p>
+            <p className="text-[12px] text-rose-700">Đối soát {r.related_instances.length} instance liên quan trước khi tiếp tục.</p>
           ) : null}
         </div>
       ),
@@ -953,7 +952,7 @@ export default function OperationsScreen() {
               ) : null}
               {row.related_instances.length > 0 ? (
                 <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200 bg-white">
-                  <li className="px-3 py-1.5 text-[11px] font-bold text-slate-600">Hồ sơ Procedure liên quan</li>
+                  <li className="px-3 py-1.5 text-[12px] font-bold text-slate-600">Hồ sơ Procedure liên quan</li>
                   {row.related_instances.map((item, index) => (
                     <li
                       key={`${item.instanceId}:${item.sourceType}:${item.sourceId}`}

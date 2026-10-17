@@ -1,15 +1,13 @@
-import { render, screen } from '@testing-library/react';
-import PortalChooserPage from './page';
+import RootPage from './page';
 
-jest.mock('./_components/session-recovery', () => ({
-  SessionRecovery: () => null,
+const redirect = jest.fn();
+jest.mock('next/navigation', () => ({
+  redirect: (path: string) => redirect(path),
 }));
 
-describe('PortalChooserPage', () => {
-  it('keeps both account portal choices available', () => {
-    render(<PortalChooserPage />);
-
-    expect(screen.getByRole('link', { name: /vào cổng quản trị/i }).getAttribute('href')).toBe('/admin');
-    expect(screen.getByRole('link', { name: /vào cổng tenant/i }).getAttribute('href')).toBe('/tenant/login');
+describe('RootPage', () => {
+  it('sends visitors straight to the tenant login', () => {
+    RootPage();
+    expect(redirect).toHaveBeenCalledWith('/login');
   });
 });

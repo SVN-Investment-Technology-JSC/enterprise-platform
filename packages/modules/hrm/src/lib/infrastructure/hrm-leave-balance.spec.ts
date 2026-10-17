@@ -1,5 +1,5 @@
 import type { PoolClient } from 'pg';
-import { applyLeaveDelta } from './hrm-leave-balance';
+import { applyLeaveDelta, displayedRemainingDays, listEmployeeLeaveBalanceRows } from './hrm-leave-balance';
 import {
   areSimilarLeaveNames,
   findSimilarLeaveTypes,
@@ -132,5 +132,46 @@ describe('leave type merge', () => {
     await expect(mergeLeaveTypes(db, 'tn', 'u', 's', 's', 'r')).rejects.toThrow(
       'phải khác nhau',
     );
+  });
+});
+
+describe('listEmployeeLeaveBalanceRows', () => {
+  it('thêm dòng mặc định cho lý do phép năm chưa có dòng quỹ, không ghi DB', async () => {
+    const { db, calls } = fakeDb(() => ({
+      rows: [{ leave_type_id: 'annual', has_balance: false, accrued: 0, remaining: 0 }],
+      rowCount: 1,
+    }));
+    const rows = await listEmployeeLeaveBalanceRows(db, 'tenant-1', 'emp-1', 2026);
+    expect(rows).toEqual([{ leave_type_id: 'annual', has_balance: false, accrued: 0, remaining: 0 }]);
+    expect(calls).toHaveLength(1);
+    const sql = calls[0].sql;
+    expect(sql.trimStart().startsWith('SELECT')).toBe(true);
+    // Dòng quỹ đã có (mọi lý do) vẫn được giữ; lý do phép năm đang áp dụng luôn có một dòng dù chưa có quỹ.
+    expect(sql).toContain('LEFT JOIN hrm_schema.leave_balances');
+    expect(sql).toContain('lb.id IS NOT NULL OR (lt.is_annual AND lt.active)');
+    expect(sql).toContain('lt.deleted_at IS NULL');
+    expect(calls[0].params).toEqual(['tenant-1', 'emp-1', 2026]);
+  });
+});
+
+describe('displayedRemainingDays', () => {
+  it('có chính sách, chưa có dòng quỹ: lấy số dùng được hiện tại, không lấy định mức cả năm', () => {
+    // Đậu Bá Kiên (prod, 13/10/2026): định mức cả năm 13, đã đến hạn 10 tháng nhưng sổ chưa ghi gì.
+    const row = { projected_entitlement: 13, available: 10, remaining: 0 };
+    expect(displayedRemainingDays(row, 13, 0)).toBe(10);
+  });
+
+  it('có chính sách, đã có dòng quỹ: theo available (đã trừ đơn chờ duyệt)', () => {
+    expect(displayedRemainingDays({ projected_entitlement: 12, available: 7.5, remaining: 8 }, 12, 4)).toBe(7.5);
+  });
+
+  it('có chính sách nhưng thiếu available: định mức trừ đã dùng', () => {
+    expect(displayedRemainingDays({ projected_entitlement: 12 }, 12, 4)).toBe(8);
+  });
+
+  it('không có chính sách: số remaining ghi sổ, làm tròn 2 chữ số', () => {
+    expect(displayedRemainingDays({ remaining: '3.456' }, 0, 0)).toBe(3.46);
+    expect(displayedRemainingDays({ projected_entitlement: null, available: 9, remaining: 2 }, 0, 0)).toBe(2);
+    expect(displayedRemainingDays({}, 0, 0)).toBe(0);
   });
 });

@@ -1,0 +1,22 @@
+/*
+ * Thang cỡ chữ chung của các ứng dụng: 12 / 13 / 14 / 16 / 20 / 24px.
+ *
+ * Các class `text-[Npx]` và `font-size` trong mã đã được chuyển về đúng các cỡ này. Tại đây chỉnh nốt các tên class
+ * có sẵn của Tailwind (`text-xs` trước là 12px, `text-lg` trước là 18px) để cùng thang; `text-sm` (14px), `text-base`
+ * (16px), `text-xl` (20px) và `text-2xl` (24px) đã nằm trên thang nên giữ nguyên.
+ */
+@theme {
+  --text-xs: 0.8125rem;
+  --text-xs--line-height: 1.125rem;
+  --text-lg: 1.25rem;
+  --text-lg--line-height: 1.75rem;
+}
+
+:root {
+  --fs-caption: 12px;
+  --fs-small: 13px;
+  --fs-body: 14px;
+  --fs-title: 16px;
+  --fs-heading: 20px;
+  --fs-display: 24px;
+}

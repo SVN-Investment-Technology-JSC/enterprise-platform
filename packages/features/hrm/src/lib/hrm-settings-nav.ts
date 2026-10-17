@@ -105,6 +105,14 @@ export const SETTINGS_GROUPS: readonly SettingsGroup[] = [
         tab: 'devices',
         permissions: ['hrm.device.manage'],
       },
+      {
+        id: 'auto-attendance',
+        label: 'Chấm công tự động',
+        description: 'Bật hoặc tắt tự sinh giờ vào/ra theo ca cho từng thứ trong tuần, không cần phân ca lại',
+        icon: 'rules',
+        view: 'auto-attendance',
+        permissions: ['hrm.time.configure'],
+      },
     ],
   },
   {
@@ -127,6 +135,13 @@ export const SETTINGS_GROUPS: readonly SettingsGroup[] = [
         description: 'Quản lý danh mục ca, mẫu ca và quy tắc tính',
         icon: 'shift',
         view: 'shifts',
+      },
+      {
+        id: 'standard-work',
+        label: 'Công chuẩn',
+        description: 'Công chuẩn của bảng công theo từng tháng: động theo lịch ca hoặc cố định số ngày công',
+        icon: 'calendar',
+        view: 'standard-work',
       },
     ],
   },

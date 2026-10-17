@@ -2,7 +2,10 @@ import { randomUUID } from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
 import { inTransaction } from '@enterprise-platform/adapter-database';
 import {
+  FLEET_BOOKING_RESULT_EVENTS,
+  HRM_FLEET_BOOKING_CONFIRMED,
   createIntegrationEvent,
+  type FleetBookingResultPayload,
   type IntegrationEventEnvelope,
 } from '@enterprise-platform/contracts-integration';
 import {
@@ -40,7 +43,37 @@ export const WORKSPACE_INTEGRATION_BINDINGS = [
   HRM_PROJECT_REQUEST_UPDATED,
   HRM_REQUEST_REVERSAL_FAILED,
   PROCEDURE_INSTANCE_REVERSAL_FAILED,
+  // HRM trả lời yêu cầu đặt xe của công việc và lịch họp.
+  ...FLEET_BOOKING_RESULT_EVENTS,
 ] as const;
+
+/** Nguồn đặt xe thuộc Workspace; sự kiện trả lời của HRM cho nguồn khác (sự cố) bị bỏ qua. */
+const WORKSPACE_FLEET_SOURCES: readonly string[] = ['WORK_ITEM', 'CALENDAR_EVENT'];
+
+async function applyFleetBookingResult(
+  client: PoolClient,
+  event: IntegrationEventEnvelope,
+): Promise<void> {
+  const payload = event.payload as FleetBookingResultPayload;
+  if (!WORKSPACE_FLEET_SOURCES.includes(payload?.sourceType)) return;
+  if (!/^[0-9a-f-]{36}$/i.test(String(payload.sourceId))) return;
+  // Bảng mới do migration 0021 tạo; chưa có thì không có gì để cập nhật.
+  const ready = await client.query(`SELECT to_regclass('workspace_schema.fleet_transports') AS relation`);
+  if (!ready.rows[0]?.relation) return;
+  const confirmed = event.type === HRM_FLEET_BOOKING_CONFIRMED;
+  // Chỉ cập nhật khi người dùng vẫn đang chọn xe công ty; đã đổi sang phương tiện ngoài hay bỏ thì bỏ qua.
+  await client.query(
+    `UPDATE workspace_schema.fleet_transports
+        SET status = $3, status_reason = $4, updated_at = now()
+      WHERE source_type = $1 AND source_id = $2 AND mode = 'COMPANY_VEHICLE'`,
+    [
+      payload.sourceType,
+      payload.sourceId,
+      confirmed ? 'CONFIRMED' : 'CONFLICT',
+      confirmed ? null : String(payload.reason ?? 'Xe đã có người đặt trước.').slice(0, 1000),
+    ],
+  );
+}
 
 interface ReversalFailedPayload {
   /** Đơn từ của dự án đã gửi yêu cầu (có khi yêu cầu xuất phát từ tab Đơn từ). */
@@ -78,8 +111,22 @@ interface UpdatedPayload {
   readonly reason?: string | null;
 }
 
-/** Vai trò được gửi đơn cho dự án — cùng luật tạo việc: tối thiểu `member`. */
+/**
+ * Vai trò được gửi đơn cho dự án — cùng luật tạo việc: vai có quyền cập nhật
+ * (toàn bộ hoặc phần liên quan). Vai chưa có dòng cấu hình thì theo bốn vai
+ * hệ thống như trước.
+ */
 const SUBMITTER_ROLES = new Set(['owner', 'manager', 'member']);
+const SUBMITTER_PERMISSIONS = ['project.update_all', 'project.update_related'];
+
+function canSubmit(member: { role: string; permissions?: unknown } | undefined): boolean {
+  if (!member) return false;
+  if (member.role === 'owner') return true;
+  if (!Array.isArray(member.permissions)) return SUBMITTER_ROLES.has(member.role);
+  return SUBMITTER_PERMISSIONS.some((permission) =>
+    (member.permissions as unknown[]).includes(permission),
+  );
+}
 const CLOSED_PROJECT_STATUSES = new Set(['completed', 'cancelled']);
 
 function asStatus(value: unknown): ProjectRequestStatus | undefined {
@@ -107,6 +154,8 @@ export async function receiveWorkspaceIntegrationEvent(
       await registerRequest(client, tenantId, event.source, event.payload as SubmittedPayload);
     } else if (event.type === HRM_PROJECT_REQUEST_UPDATED) {
       await updateRequest(client, event.source, event.payload as UpdatedPayload);
+    } else if ((FLEET_BOOKING_RESULT_EVENTS as readonly string[]).includes(event.type)) {
+      await applyFleetBookingResult(client, event);
     } else if (
       event.type === HRM_REQUEST_REVERSAL_FAILED ||
       event.type === PROCEDURE_INSTANCE_REVERSAL_FAILED
@@ -173,11 +222,14 @@ async function registerRequest(
   if (CLOSED_PROJECT_STATUSES.has(project.status)) return reject('Dự án đã đóng.');
   const member = (
     await client.query(
-      `SELECT role FROM workspace_schema.project_members WHERE project_id = $1 AND user_id = $2`,
+      `SELECT m.role, d.permissions
+         FROM workspace_schema.project_members m
+         LEFT JOIN workspace_schema.project_role_definitions d ON d.key = m.role
+        WHERE m.project_id = $1 AND m.user_id = $2`,
       [project.id, payload.requesterUserId],
     )
   ).rows[0];
-  if (!member || !SUBMITTER_ROLES.has(member.role)) {
+  if (!canSubmit(member)) {
     return reject('Người gửi đơn không tham gia dự án này.');
   }
 

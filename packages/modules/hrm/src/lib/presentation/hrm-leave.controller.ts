@@ -56,7 +56,11 @@ import {
   transitionLeave,
   ensureLeaveBalance,
 } from '../infrastructure/hrm-leave-operations.js';
-import { applyLeaveDelta } from '../infrastructure/hrm-leave-balance.js';
+import {
+  applyLeaveDelta,
+  displayedRemainingDays,
+  listEmployeeLeaveBalanceRows,
+} from '../infrastructure/hrm-leave-balance.js';
 import {
   leaveBalanceAtDate,
   reconcileLeaveBalances,
@@ -235,7 +239,7 @@ export class HrmLeaveController {
     @Req() req: Request,
     @Body() body: CreateLeaveTypeRequest,
   ) {
-    const { pool, tenantId } = await this.ctx.getContext(
+    const { pool, tenantId, principal } = await this.ctx.getContext(
       req,
       'hrm.leave.manage',
     );
@@ -275,6 +279,9 @@ export class HrmLeaveController {
       ],
       )
       .catch(rethrowDuplicateLeaveCode);
+    await lifecycleAudit(pool, tenantId, principal.userId, 'LEAVE_TYPE_CREATED', res.rows[0].id, {
+      after: { id: res.rows[0].id, code: res.rows[0].code, name: res.rows[0].name },
+    });
     const existing = await pool.query(
       `SELECT id,code,name FROM hrm_schema.leave_types WHERE tenant_id=$1 AND deleted_at IS NULL AND id<>$2`,
       [tenantId, res.rows[0].id],
@@ -411,9 +418,136 @@ export class HrmLeaveController {
   async deleteLeaveType(
     @Req() req: Request,
     @Param('id') id: string,
-    @Body() body: { expectedUpdatedAt?: string; reason?: string },
+    @Body() body?: { expectedUpdatedAt?: string; reason?: string },
   ) {
-    return this.updateLeaveType(req, id, { ...body, active: false });
+    const { pool, tenantId, principal } = await this.ctx.getContext(
+      req,
+      'hrm.leave.manage',
+    );
+    requireUuid(id, 'Loại nghỉ');
+    return hrmTransaction(pool, async (db) => {
+      await lockAccrualConfiguration(db, tenantId);
+      const before = (
+        await db.query(
+          'SELECT * FROM hrm_schema.leave_types WHERE tenant_id=$1 AND id=$2 AND deleted_at IS NULL FOR UPDATE',
+          [tenantId, id],
+        )
+      ).rows[0];
+      if (!before) throw new NotFoundException('Không tìm thấy loại nghỉ');
+      if (body?.expectedUpdatedAt) {
+        assertLifecycleVersion(before, body.expectedUpdatedAt);
+      }
+      if (before.is_annual) {
+        throw new ConflictException(
+          'Không thể ngừng lý do phép năm duy nhất của hệ thống',
+        );
+      }
+
+      const hasRequests =
+        Number(
+          (
+            await db.query(
+              'SELECT id FROM hrm_schema.leave_requests WHERE tenant_id=$1 AND leave_type_id=$2 LIMIT 1',
+              [tenantId, id],
+            )
+          ).rowCount ?? 0,
+        ) > 0;
+
+      const hasBalances =
+        Number(
+          (
+            await db.query(
+              'SELECT 1 FROM hrm_schema.leave_balances WHERE tenant_id=$1 AND leave_type_id=$2 AND (remaining <> 0 OR pending <> 0 OR used <> 0 OR opening_balance <> 0 OR accrued <> 0) LIMIT 1',
+              [tenantId, id],
+            )
+          ).rowCount ?? 0,
+        ) > 0;
+
+      const inUse = hasRequests || hasBalances;
+      if (inUse) {
+        if (before.active) {
+          await db.query(
+            `UPDATE hrm_schema.leave_types SET name=COALESCE($3,name),paid=COALESCE($4,paid),requires_attachment=COALESCE($5,requires_attachment),carryover_allowed=COALESCE($6,carryover_allowed),max_carryover_days=COALESCE($7,max_carryover_days),carryover_expiry_month=COALESCE($8,carryover_expiry_month),active=$9,deduct_balance=$10,negative_limit=COALESCE($11,negative_limit),updated_at=GREATEST(clock_timestamp(),updated_at+interval '1 millisecond') WHERE tenant_id=$1 AND id=$2 RETURNING *`,
+            [
+              tenantId,
+              id,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              false,
+              false,
+              null,
+            ],
+          );
+          await db.query(
+            `INSERT INTO hrm_schema.audit_log (tenant_id, actor_id, action, entity_id, detail)
+             VALUES ($1, $2, $3, $4, $5)`,
+            [
+              tenantId,
+              principal.userId,
+              'LEAVE_TYPE_DEACTIVATED',
+              id,
+              JSON.stringify({
+                before: { id, code: before.code, name: before.name },
+                reason: body?.reason || 'Ngừng sử dụng khi xóa lý do đã phát sinh dữ liệu',
+              }),
+            ],
+          );
+        }
+        return {
+          data: { id, deleted: false, active: false, code: before.code },
+          message: `Lý do nghỉ "${before.name}" đã phát sinh dữ liệu (đơn nghỉ/sổ phép) nên chỉ được chuyển sang ngừng sử dụng.`,
+        };
+      }
+
+      await db.query(
+        `UPDATE hrm_schema.leave_types SET name=COALESCE($3,name),paid=COALESCE($4,paid),requires_attachment=COALESCE($5,requires_attachment),carryover_allowed=COALESCE($6,carryover_allowed),max_carryover_days=COALESCE($7,max_carryover_days),carryover_expiry_month=COALESCE($8,carryover_expiry_month),active=$9,deduct_balance=$10,negative_limit=COALESCE($11,negative_limit),updated_at=GREATEST(clock_timestamp(),updated_at+interval '1 millisecond') WHERE tenant_id=$1 AND id=$2 RETURNING *`,
+        [
+          tenantId,
+          id,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          false,
+          false,
+          null,
+        ],
+      );
+      await db.query(
+        `UPDATE hrm_schema.leave_types SET deleted_at=now(), active=false WHERE tenant_id=$1 AND id=$2`,
+        [tenantId, id],
+      );
+      // Cách duyệt của đơn nghỉ gắn theo mã loại: gỡ liên kết để loại mới tạo lại cùng mã không thừa hưởng cấu hình cũ.
+      await db.query(
+        `UPDATE hrm_schema.request_procedure_bindings SET is_active=false, updated_at=now(), updated_by=$3
+          WHERE tenant_id=$1 AND request_kind='leave' AND sub_type_code=$2 AND is_active`,
+        [tenantId, before.code, principal.userId],
+      );
+      await db.query(
+        `INSERT INTO hrm_schema.audit_log (tenant_id, actor_id, action, entity_id, detail)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [
+          tenantId,
+          principal.userId,
+          'LEAVE_TYPE_DELETED',
+          id,
+          JSON.stringify({
+            before: { id, code: before.code, name: before.name },
+            reason: body?.reason || 'Xóa lý do nghỉ chưa phát sinh dữ liệu',
+          }),
+        ],
+      );
+      return {
+        data: { id, deleted: true, active: false, code: before.code },
+        message: `Đã xóa lý do nghỉ "${before.name}".`,
+      };
+    });
   }
 
   // --------------------------------------------------------------------------
@@ -632,14 +766,8 @@ export class HrmLeaveController {
         const entitlement =
           Math.round((openingNum + baseDays + adjustedNum) * 100) / 100;
 
-        // Số ngày còn lại: nếu có chính sách HĐLĐ thì tính theo quỹ được hưởng trừ đã dùng hoặc available (đã tính ứng phép)
-        const remaining = hasPolicy
-          ? !row.has_balance
-            ? Math.round((entitlement - usedNum) * 100) / 100
-            : Math.round(
-                Number(row.available ?? (entitlement - usedNum)) * 100,
-              ) / 100
-          : Math.round(Number(row.remaining || 0) * 100) / 100;
+        // `entitlement` là định mức cả năm; "Còn lại" là số dùng được hiện tại, cùng số với Bàn làm việc và form xin nghỉ.
+        const remaining = displayedRemainingDays(row, entitlement, usedNum);
 
         const hasBalance = row.has_balance !== false || hasPolicy;
 
@@ -694,13 +822,31 @@ export class HrmLeaveController {
     @Query('employee_id') employeeId?: string,
     @Query('leave_type_id') leaveTypeId?: string,
     @Query('year') yearStr?: string,
+    @Query('types') typesStr?: string,
+    @Query('annual') annualStr?: string,
   ) {
     const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.leave.read');
     // Lọc theo năm của quỹ phép (balance_year); bỏ trống thì lấy mọi năm.
     const year = /^\d{4}$/.test(yearStr || '') ? Number(yearStr) : null;
+    // Lọc theo loại giao dịch (ví dụ ADJUSTMENT,REVERSAL) và chỉ phép năm (annual=1).
+    const types = (typesStr ?? '')
+      .split(',')
+      .map((t) => t.trim())
+      .filter((t) => /^[A-Z_]+$/.test(t));
+    const annualOnly = annualStr === '1';
     const res = await pool.query(
       `SELECT lt.*, ltypes.name as leave_type_name, ltypes.code as leave_type_code,
-              e.full_name as employee_name, e.employee_code, e.department_name AS department
+              e.full_name as employee_name, e.employee_code, e.department_name AS department,
+              CASE WHEN lt.actor_id IS NULL THEN NULL ELSE COALESCE(
+                (SELECT ad.employee_code||' · '||ad.full_name FROM hrm_schema.employee_directory ad
+                   WHERE ad.tenant_id = lt.tenant_id AND (ad.user_id = lt.actor_id OR ad.employee_id = lt.actor_id) LIMIT 1),
+                (SELECT COALESCE(NULLIF(u.full_name,''), u.email) FROM core_schema.users u WHERE u.id = lt.actor_id),
+                'Người dùng không còn tồn tại') END AS actor_label,
+              (SELECT u.email FROM core_schema.users u
+                WHERE u.id = lt.actor_id
+                   OR u.id = (SELECT ad.user_id FROM hrm_schema.employee_directory ad
+                               WHERE ad.tenant_id = lt.tenant_id AND ad.employee_id = lt.actor_id LIMIT 1)
+                LIMIT 1) AS actor_email
        FROM hrm_schema.leave_transactions lt
        JOIN hrm_schema.leave_types ltypes ON lt.leave_type_id = ltypes.id
        JOIN hrm_schema.employee_directory e ON lt.employee_id = e.employee_id AND e.tenant_id = lt.tenant_id
@@ -708,12 +854,17 @@ export class HrmLeaveController {
          AND ($2::uuid IS NULL OR lt.employee_id = $2)
          AND ($3::uuid IS NULL OR lt.leave_type_id = $3)
          AND ($4::int IS NULL OR lt.balance_year = $4)
+         AND (cardinality($5::text[]) = 0 OR lt.transaction_type = ANY($5::text[]))
+         AND (NOT $6::boolean OR ltypes.is_annual)
        ORDER BY lt.created_at DESC`,
-      [tenantId, employeeId || null, leaveTypeId || null, year],
+      [tenantId, employeeId || null, leaveTypeId || null, year, types, annualOnly],
     );
     return {
       data: res.rows.map((row) => ({
         ...this.mapTransaction(row),
+        actorLabel: (row.actor_label as string | null) ?? null,
+        actorEmail: (row.actor_email as string | null) ?? null,
+        triggerSource: (row.trigger_source as 'MANUAL' | 'AUTOMATION' | null) ?? null,
         leaveTypeName: row.leave_type_name as string,
         leaveTypeCode: row.leave_type_code as string,
         employeeName: row.employee_name as string,
@@ -749,6 +900,9 @@ export class HrmLeaveController {
       ? `adjust:${requireUuid(body.operationId, 'operationId')}`
       : null;
     requireText(body.reason, 'reason', 2000);
+    // Điều chỉnh phép bắt buộc gắn với tài khoản thực hiện để truy vết.
+    if (!principal.userId)
+      throw new BadRequestException('Không xác định được tài khoản thực hiện điều chỉnh');
     if (
       !Number.isInteger(year) ||
       year < 2000 ||
@@ -1101,11 +1255,8 @@ export class HrmLeaveController {
     );
     const year = parseInt(yearStr || '', 10) || new Date().getFullYear();
     const res = await hrmTransaction(pool, async (db) => {
-      const raw = await db.query(
-        `SELECT * FROM hrm_schema.leave_balances WHERE tenant_id = $1 AND employee_id = $2 AND year = $3`,
-        [tenantId, employeeId, year],
-      );
-      return { rows: await enrichLeaveBalances(db, tenantId, raw.rows) };
+      const rows = await listEmployeeLeaveBalanceRows(db, tenantId, employeeId, year);
+      return { rows: await enrichLeaveBalances(db, tenantId, rows) };
     });
     return {
       data: res.rows.map(this.mapBalance),

@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Table } from 'antd';
 import Link from 'next/link';
-import { SearchableSelect } from '@enterprise-platform/shared-ui';
+import { SearchableSelect, formatDate } from '@enterprise-platform/shared-ui';
 import {
   Search,
   FileText,
@@ -206,6 +206,7 @@ export default function AdvancesScreen() {
         </div>
         <div className="w-52">
           <SearchableSelect
+            height={36}
             value={status}
             onChange={(v) => setStatus(v || '')}
             placeholder="Tất cả trạng thái"
@@ -256,7 +257,7 @@ export default function AdvancesScreen() {
                 render: (_, r) => (
                   <div>
                     <span className="font-semibold text-slate-900 block">{r.employeeName || r.employeeId}</span>
-                    <span className="text-[11px] text-slate-500">{r.employeeCode} · {r.requestDate}</span>
+                    <span className="text-[12px] text-slate-500">{r.employeeCode} · {formatDate(r.requestDate)}</span>
                   </div>
                 ),
               },
@@ -305,7 +306,7 @@ export default function AdvancesScreen() {
                 {selectedRow?.employeeName || 'Chi tiết khoản ứng'}
               </h2>
               <p className="text-xs text-slate-500">
-                {selectedRow ? `Mã NV: ${selectedRow.employeeCode} · Ngày đề nghị: ${selectedRow.requestDate}` : 'Chọn một yêu cầu để xem chi tiết'}
+                {selectedRow ? `Mã NV: ${selectedRow.employeeCode} · Ngày đề nghị: ${formatDate(selectedRow.requestDate)}` : 'Chọn một yêu cầu để xem chi tiết'}
               </p>
             </div>
             {selectedRow && getAdvanceBadge(selectedRow.status)}
@@ -316,15 +317,15 @@ export default function AdvancesScreen() {
               {/* Financial Snapshot */}
               <div className="grid grid-cols-3 gap-2.5 bg-slate-50/80 p-3 rounded-lg border border-slate-200/80">
                 <div>
-                  <span className="text-[11px] text-slate-500 block">Được duyệt</span>
+                  <span className="text-[12px] text-slate-500 block">Được duyệt</span>
                   <span className="text-xs font-semibold text-slate-900">{money(selectedRow.approvedAmount)}</span>
                 </div>
                 <div>
-                  <span className="text-[11px] text-slate-500 block">Đã giải ngân</span>
+                  <span className="text-[12px] text-slate-500 block">Đã giải ngân</span>
                   <span className="text-xs font-semibold text-blue-700">{money(selectedRow.disbursedAmount)}</span>
                 </div>
                 <div>
-                  <span className="text-[11px] text-slate-500 block">Dư nợ còn lại</span>
+                  <span className="text-[12px] text-slate-500 block">Dư nợ còn lại</span>
                   <span className="text-xs font-bold text-amber-700">{money(selectedRow.remainingBalance)}</span>
                 </div>
               </div>
@@ -334,7 +335,7 @@ export default function AdvancesScreen() {
                 <p>
                   <strong className="text-slate-700">Lý do ứng:</strong> {selectedRow.reason || '—'}
                 </p>
-                <p className="text-[11px] text-slate-500">
+                <p className="text-[12px] text-slate-500">
                   Kế hoạch: Tối đa {selectedRow.numberOfInstallments} đợt khấu trừ.
                 </p>
               </div>
@@ -459,7 +460,7 @@ export default function AdvancesScreen() {
                               permission="hrm.advance.disburse"
                               variant="outline"
                               onClick={() => editDeduction(r)}
-                              className="h-6 text-[11px] px-2"
+                              className="h-6 text-[12px] px-2"
                             >
                               Sửa
                             </Button>
@@ -467,7 +468,7 @@ export default function AdvancesScreen() {
                               permission="hrm.advance.disburse"
                               variant="outline"
                               onClick={() => editDeduction(r, true)}
-                              className="h-6 text-[11px] px-2 text-rose-600 hover:bg-rose-50 border-rose-200"
+                              className="h-6 text-[12px] px-2 text-rose-600 hover:bg-rose-50 border-rose-200"
                             >
                               Hủy
                             </Button>

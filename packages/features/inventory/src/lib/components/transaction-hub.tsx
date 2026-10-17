@@ -1,5 +1,7 @@
 'use client';
+import { formatDateTime as formatSharedDateTime } from '@enterprise-platform/shared-ui';
 import { useInventoryPermissions } from '../inventory-permissions';
+import { formatNoteDates } from '../inventory-labels';
 
 import type {
   InventoryLedgerRow,
@@ -37,13 +39,7 @@ function formatNumber(value: number): string {
 
 function formatDateTime(value?: string): string {
   if (!value) return '—';
-  return new Intl.DateTimeFormat('vi-VN', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(new Date(value));
+  return formatSharedDateTime(value, '—');
 }
 
 export function TransactionHub({
@@ -254,7 +250,7 @@ export function TransactionHub({
         <div>
           <span className={styles.eyebrow}>Tác nghiệp kho bãi</span>
           <h1>Trung tâm Giao dịch &amp; Nhập xuất Kho</h1>
-          <p style={{ margin: '4px 0 0', color: '#64748b', fontSize: '13px' }}>
+          <p style={{ margin: '4px 0 0', color: '#64748b', fontSize: '14px' }}>
             Tra cứu toàn bộ sổ cái lịch sử giao dịch, lập phiếu xuất/nhập và thực hiện kiểm kê kho đối soát số sách.
           </p>
         </div>
@@ -290,7 +286,7 @@ export function TransactionHub({
         <section className={styles.card}>
           <div className={styles.cardHead}>
             <h2 style={{ margin: 0, fontSize: '16px' }}>Sổ cái Giao dịch Kho (Stock Ledger)</h2>
-            <span style={{ fontSize: '12px', color: '#64748b' }}>
+            <span style={{ fontSize: '13px', color: '#64748b' }}>
               {filteredLedger.length} giao dịch ghi nhận
             </span>
           </div>
@@ -360,7 +356,7 @@ export function TransactionHub({
           </div>
 
           <div style={{ overflowX: 'auto' }}>
-            <table className={styles.table} style={{ width: '100%', fontSize: '12.5px' }}>
+            <table className={styles.table} style={{ width: '100%', fontSize: '13px' }}>
               <thead>
                 <tr>
                   <th style={{ textAlign: 'left', padding: '8px' }}>Mã giao dịch</th>
@@ -387,7 +383,7 @@ export function TransactionHub({
                           style={{
                             padding: '2px 8px',
                             borderRadius: '999px',
-                            fontSize: '11px',
+                            fontSize: '12px',
                             fontWeight: 600,
                             background: isReceipt ? '#dcfce7' : '#fee2e2',
                             color: isReceipt ? '#15803d' : '#b91c1c',
@@ -402,7 +398,7 @@ export function TransactionHub({
                           {material && material.isActive === false ? (
                             <span
                               style={{
-                                fontSize: '10px',
+                                fontSize: '12px',
                                 padding: '1px 5px',
                                 borderRadius: '4px',
                                 background: '#f1f5f9',
@@ -416,7 +412,7 @@ export function TransactionHub({
                           ) : null}
                         </div>
                         {material ? (
-                          <div style={{ fontSize: '11px', color: '#64748b' }}>{material.name}</div>
+                          <div style={{ fontSize: '12px', color: '#64748b' }}>{material.name}</div>
                         ) : null}
                       </td>
                       <td style={{ padding: '8px' }}>{warehouse?.name ?? row.warehouseId}</td>
@@ -431,13 +427,13 @@ export function TransactionHub({
                         {isReceipt ? '+' : ''}
                         {formatNumber(row.quantity)} {material?.unit ?? ''}
                       </td>
-                      <td style={{ fontSize: '11.5px', color: '#64748b', padding: '8px' }}>
-                        {row.note ?? '—'}
+                      <td style={{ fontSize: '12px', color: '#64748b', padding: '8px' }}>
+                        {row.note ? formatNoteDates(row.note) : '—'}
                       </td>
                       <td
                         style={{
                           textAlign: 'right',
-                          fontSize: '11.5px',
+                          fontSize: '12px',
                           color: '#64748b',
                           padding: '8px',
                         }}
@@ -473,7 +469,7 @@ export function TransactionHub({
                 marginTop: '12px',
                 paddingTop: '8px',
                 borderTop: '1px solid #e2e8f0',
-                fontSize: '12px',
+                fontSize: '13px',
                 color: '#64748b',
               }}
             >
@@ -481,7 +477,7 @@ export function TransactionHub({
                 <span>
                   Trang <strong>{safeLedgerPage}</strong> / <strong>{totalLedgerPages}</strong> ({filteredLedger.length} giao dịch)
                 </span>
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '11.5px', color: '#64748b' }}>
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#64748b' }}>
                   <span>Hiển thị:</span>
                   <select
                     value={ledgerPageSize}
@@ -495,7 +491,7 @@ export function TransactionHub({
                       border: '1px solid #cbd5e1',
                       background: '#ffffff',
                       color: '#0f172a',
-                      fontSize: '11.5px',
+                      fontSize: '12px',
                       outline: 'none',
                       cursor: 'pointer',
                     }}
@@ -511,19 +507,19 @@ export function TransactionHub({
                 <button
                   type="button"
                   className={styles.reset}
-                  style={{ padding: '3px 8px', fontSize: '11px' }}
+                  style={{ padding: '3px 8px', fontSize: '12px' }}
                   disabled={safeLedgerPage <= 1}
                   onClick={() => setLedgerPage((prev) => Math.max(1, prev - 1))}
                 >
                   ← Trước
                 </button>
-                <span style={{ fontWeight: 600, color: '#0f172a', fontSize: '11.5px' }}>
+                <span style={{ fontWeight: 600, color: '#0f172a', fontSize: '12px' }}>
                   {safeLedgerPage} / {totalLedgerPages}
                 </span>
                 <button
                   type="button"
                   className={styles.reset}
-                  style={{ padding: '3px 8px', fontSize: '11px' }}
+                  style={{ padding: '3px 8px', fontSize: '12px' }}
                   disabled={safeLedgerPage >= totalLedgerPages}
                   onClick={() => setLedgerPage((prev) => Math.min(totalLedgerPages, prev + 1))}
                 >

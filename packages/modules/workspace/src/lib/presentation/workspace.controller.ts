@@ -24,6 +24,10 @@ import type {
   CreateFolderRequest,
   UpdateFolderRequest,
   AddFolderRefRequest,
+  ChangeStandaloneTaskStatusRequest,
+  CreateStandaloneTaskRequest,
+  ReverseStandaloneTaskRequest,
+  UpdateStandaloneTaskRequest,
   EnsureFolderPathRequest,
   CreateProjectRequest,
   CreateSavedFilterRequest,
@@ -35,6 +39,7 @@ import type {
   ReverseWorkItemRequest,
   ReverseProjectRequestRequest,
   RespondToEventRequest,
+  SaveProjectRoleRequest,
   SendChatMessageRequest,
   SetProjectMembersRequest,
   UpdateChatMessageRequest,
@@ -48,7 +53,9 @@ import type {
 } from '@enterprise-platform/contracts-workspace';
 import { WorkspaceApplication, type WorkspaceActor } from '../application/workspace.application.js';
 import { ProjectService } from '../application/project.service.js';
+import { ProjectRoleService } from '../application/project-role.service.js';
 import { WorkItemService } from '../application/work-item.service.js';
+import { WorkItemDeletionService } from '../application/work-item-deletion.service.js';
 import { CalendarService } from '../application/calendar.service.js';
 import { CatalogService } from '../application/catalog.service.js';
 import { ChatService } from '../application/chat.service.js';
@@ -56,11 +63,13 @@ import { DirectoryService } from '../application/directory.service.js';
 import { DocumentService } from '../application/document.service.js';
 import { ExternalReferenceService } from '../application/external-reference.service.js';
 import { FinanceService } from '../application/finance.service.js';
+import { FleetTransportService } from '../application/fleet-transport.service.js';
 import { ProjectRequestService } from '../application/project-request.service.js';
 import { WorkdayRuleService } from '../application/workday-rule.service.js';
 import { InternalLookupService } from '../application/internal-lookup.service.js';
 import { MyWorkService } from '../application/my-work.service.js';
 import { ReportService } from '../application/report.service.js';
+import { StandaloneTaskService } from '../application/standalone-task.service.js';
 import { WorkspaceError } from '../domain/workspace.error.js';
 
 /**
@@ -113,7 +122,45 @@ export class WorkspaceController {
     private readonly catalog: CatalogService,
     private readonly projectRequests: ProjectRequestService,
     private readonly workdayRules: WorkdayRuleService,
+    private readonly projectRoles: ProjectRoleService,
+    private readonly workItemDeletion: WorkItemDeletionService,
+    private readonly fleetTransport: FleetTransportService,
+    private readonly standaloneTasks: StandaloneTaskService,
   ) {}
+
+  /**
+   * Xe và tài xế còn trống (kèm khoảng bận) trong một khung giờ, để form công việc và lịch họp không cho chọn
+   * trùng. Dữ liệu do HRM trả lời; `excludeSource*` bỏ qua lịch của chính nguồn đang sửa.
+   */
+  @Get('fleet/availability')
+  fleetAvailability(
+    @Req() request: WorkspaceRequest,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('excludeSourceType') excludeSourceType?: string,
+    @Query('excludeSourceId') excludeSourceId?: string,
+  ) {
+    return this.execute(async () => ({
+      data: await this.fleetTransport.availability(this.actor(request), {
+        from,
+        to,
+        excludeSourceType,
+        excludeSourceId,
+      }),
+    }));
+  }
+
+  /** Phương tiện hiện có của một công việc hoặc lịch họp (`null` nếu chưa chọn). */
+  @Get('fleet/transports/:sourceType/:sourceId')
+  fleetTransportOf(
+    @Req() request: WorkspaceRequest,
+    @Param('sourceType') sourceType: string,
+    @Param('sourceId') sourceId: string,
+  ) {
+    return this.execute(async () => ({
+      data: await this.fleetTransport.find(this.actor(request), sourceType, sourceId),
+    }));
+  }
 
   /** Trạng thái cài đặt module cho tenant đang đăng nhập. */
   @Get('status')
@@ -322,6 +369,16 @@ export class WorkspaceController {
     @Body() body: MoveWorkItemRequest,
   ) {
     return this.execute(() => this.workItems.move(this.actor(request), id, body ?? {}));
+  }
+
+  /**
+   * Xoá hẳn công việc (và cả nhánh con) — chỉ chủ nhiệm dự án. Khác với "Huỷ"
+   * (đổi trạng thái `cancelled`, mở lại được) ở `PATCH .../status`.
+   */
+  @Delete('work-items/:id')
+  @HttpCode(204)
+  deleteWorkItem(@Req() request: WorkspaceRequest, @Param('id') id: string) {
+    return this.execute(() => this.workItemDeletion.delete(this.actor(request), id));
   }
 
   @Get('work-items/:id/history')
@@ -659,8 +716,29 @@ export class WorkspaceController {
     @Req() request: WorkspaceRequest,
     @Param('entityType') entityType: string,
     @Param('entityId') entityId: string,
+    @Query('before') before?: string,
   ) {
-    return this.execute(() => this.chat.thread(this.actor(request), entityType, entityId));
+    return this.execute(() =>
+      this.chat.thread(this.actor(request), entityType, entityId, before || undefined),
+    );
+  }
+
+  /**
+   * Ai cần nhận tín hiệu "đang nhập" của một node.
+   *
+   * Dịch vụ realtime gọi bằng cookie của người đang gõ để kiểm quyền và lấy danh
+   * sách; kết quả được nó lưu tạm. Dùng tiền tố riêng `chat-typing` để không bao
+   * giờ bị route `chat/:entityType/:entityId` bắt nhầm.
+   */
+  @Get('chat-typing/recipients')
+  chatTypingRecipients(
+    @Req() request: WorkspaceRequest,
+    @Query('entityType') entityType: string,
+    @Query('entityId') entityId: string,
+  ) {
+    return this.execute(() =>
+      this.chat.typingRecipients(this.actor(request), entityType ?? '', entityId ?? ''),
+    );
   }
 
   @Post('chat/messages')
@@ -728,6 +806,24 @@ export class WorkspaceController {
     return this.execute(() => this.internalLookup.workItem(this.actor(request), id));
   }
 
+  /** Danh sách dự án của tenant cho module khác cho chọn (Tài chính hạch toán thu chi); chỉ mã, tên, trạng thái. */
+  @Get('internal/projects')
+  internalProjects(
+    @Req() request: WorkspaceRequest,
+    @Query('search') search?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.execute(() => this.internalLookup.listProjects(this.actor(request), { search, limit }));
+  }
+
+  /** Công việc của một dự án cho module khác cho chọn. */
+  @Get('internal/projects/:id/work-items')
+  internalProjectWorkItems(@Req() request: WorkspaceRequest, @Param('id') id: string) {
+    return this.execute(async () => ({
+      items: await this.internalLookup.projectWorkItems(this.actor(request), id),
+    }));
+  }
+
   /** Nhãn và số liệu tiến độ của dự án cho module khác; không tài chính. */
   @Get('internal/projects/:id')
   internalProject(@Req() request: WorkspaceRequest, @Param('id') id: string) {
@@ -737,6 +833,80 @@ export class WorkspaceController {
   @Get('my-work')
   myWork(@Req() request: WorkspaceRequest) {
     return this.execute(() => this.myWorkService.summary(this.actor(request)));
+  }
+
+  /* ------------------------------------------ Công việc ngoài dự án */
+
+  /** `scope`: `assigned_to_me` (mặc định), `assigned_by_me` hoặc `following`. */
+  @Get('standalone-tasks')
+  listStandaloneTasks(@Req() request: WorkspaceRequest, @Query('scope') scope?: string) {
+    return this.execute(() => this.standaloneTasks.list(this.actor(request), scope));
+  }
+
+  @Get('standalone-tasks/:id')
+  getStandaloneTask(@Req() request: WorkspaceRequest, @Param('id') id: string) {
+    return this.execute(() => this.standaloneTasks.detail(this.actor(request), id));
+  }
+
+  @Post('standalone-tasks')
+  @HttpCode(201)
+  createStandaloneTask(
+    @Req() request: WorkspaceRequest,
+    @Body() body: CreateStandaloneTaskRequest,
+  ) {
+    return this.execute(() =>
+      this.standaloneTasks.create(
+        this.actor(request),
+        body ?? ({} as CreateStandaloneTaskRequest),
+      ),
+    );
+  }
+
+  @Patch('standalone-tasks/:id')
+  updateStandaloneTask(
+    @Req() request: WorkspaceRequest,
+    @Param('id') id: string,
+    @Body() body: UpdateStandaloneTaskRequest,
+  ) {
+    return this.execute(() => this.standaloneTasks.update(this.actor(request), id, body ?? {}));
+  }
+
+  @Patch('standalone-tasks/:id/status')
+  changeStandaloneTaskStatus(
+    @Req() request: WorkspaceRequest,
+    @Param('id') id: string,
+    @Body() body: ChangeStandaloneTaskStatusRequest,
+  ) {
+    return this.execute(() =>
+      this.standaloneTasks.changeStatus(
+        this.actor(request),
+        id,
+        body ?? ({} as ChangeStandaloneTaskStatusRequest),
+      ),
+    );
+  }
+
+  /** Huỷ hiệu lực việc đã hoàn thành (người giao). */
+  @Post('standalone-tasks/:id/reverse')
+  @HttpCode(200)
+  reverseStandaloneTask(
+    @Req() request: WorkspaceRequest,
+    @Param('id') id: string,
+    @Body() body: ReverseStandaloneTaskRequest,
+  ) {
+    return this.execute(() =>
+      this.standaloneTasks.reverse(
+        this.actor(request),
+        id,
+        body ?? ({} as ReverseStandaloneTaskRequest),
+      ),
+    );
+  }
+
+  @Delete('standalone-tasks/:id')
+  @HttpCode(204)
+  removeStandaloneTask(@Req() request: WorkspaceRequest, @Param('id') id: string) {
+    return this.execute(() => this.standaloneTasks.remove(this.actor(request), id));
   }
 
   /* ----------------------------------------------------------- Báo cáo */
@@ -896,6 +1066,31 @@ export class WorkspaceController {
     @Body() body: UpdateWorkdayRulesRequest,
   ) {
     return this.execute(() => this.workdayRules.update(this.actor(request), body));
+  }
+
+  /** Vai trò trong dự án (dùng chung toàn tenant) và quyền của từng vai. */
+  @Get('project-roles')
+  listProjectRoles(@Req() request: WorkspaceRequest) {
+    return this.execute(() => this.projectRoles.list(this.actor(request)));
+  }
+
+  @Post('project-roles')
+  createProjectRole(@Req() request: WorkspaceRequest, @Body() body: SaveProjectRoleRequest) {
+    return this.execute(() => this.projectRoles.create(this.actor(request), body));
+  }
+
+  @Put('project-roles/:key')
+  updateProjectRole(
+    @Req() request: WorkspaceRequest,
+    @Param('key') key: string,
+    @Body() body: SaveProjectRoleRequest,
+  ) {
+    return this.execute(() => this.projectRoles.update(this.actor(request), key, body));
+  }
+
+  @Delete('project-roles/:key')
+  removeProjectRole(@Req() request: WorkspaceRequest, @Param('key') key: string) {
+    return this.execute(() => this.projectRoles.remove(this.actor(request), key));
   }
 
   /** Tab "Đơn từ": đơn module khác gửi kèm dự án này. */

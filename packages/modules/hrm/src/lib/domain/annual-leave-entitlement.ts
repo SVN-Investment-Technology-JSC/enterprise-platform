@@ -10,6 +10,9 @@
  * - Thâm niên lấy mốc cao nhất đã đạt và cộng nguyên ngày (không chia 1/12): tháng
  *   đầu tiên được tính trong năm cộng tổng mốc đã đạt, mốc mới đạt giữa năm cộng
  *   thêm phần chênh vào tháng đạt mốc.
+ * - Chính sách chỉ cấu hình MỘT cặp (N năm, M ngày) và đó là chu kỳ lặp lại: đủ N năm +M,
+ *   đủ 2N năm +2M, đủ 3N năm +3M... (xem `expandSeniorityCycle`). Ví dụ 5 năm +1: đủ 10 năm
+ *   là +2, nên từ đầu năm thứ 11 nhân viên có định mức cơ bản +2 ngày (12 + 2 = 14).
  *
  * Mọi ngày là chuỗi `YYYY-MM-DD`, tính theo UTC để không lệch múi giờ.
  */
@@ -101,6 +104,26 @@ export function eligibilityStart(signDate: string, offsetMonths: number) {
   return addMonths(signDate, offsetMonths);
 }
 
+/** Thâm niên tối đa xét khi mở rộng chu kỳ. */
+const MAX_SENIORITY_YEARS = 60;
+
+/**
+ * Chính sách cấu hình đúng một mốc thì mốc đó là CHU KỲ lặp lại: (N, M) sinh ra
+ * (N, M), (2N, 2M), (3N, 3M)... đến 60 năm; mỗi mốc là tổng phép thâm niên cộng dồn tại thời điểm đó.
+ * Nhiều mốc (dữ liệu cũ) giữ nguyên như đã khai báo.
+ */
+export function expandSeniorityCycle(
+  tiers: readonly SeniorityTier[],
+): readonly SeniorityTier[] {
+  if (tiers.length !== 1) return tiers;
+  const [{ minYears, bonusDays }] = tiers;
+  if (!(minYears > 0)) return tiers;
+  const expanded: SeniorityTier[] = [];
+  for (let k = 1; k * minYears <= MAX_SENIORITY_YEARS; k++)
+    expanded.push({ minYears: k * minYears, bonusDays: round2(k * bonusDays) });
+  return expanded;
+}
+
 /**
  * Mốc thâm niên áp dụng cho một tháng: mốc cao nhất có ngày kỷ niệm sớm đủ để
  * còn ít nhất MIN_DAYS_PER_MONTH ngày trong tháng (hoặc đã đạt trước tháng).
@@ -112,7 +135,7 @@ export function seniorityTierForMonth(
   tiers: readonly SeniorityTier[],
 ): SeniorityTier | null {
   let best: SeniorityTier | null = null;
-  for (const tier of tiers) {
+  for (const tier of expandSeniorityCycle(tiers)) {
     const anniversary = addMonths(signDate, tier.minYears * 12);
     if (!countsMonth(year, month, anniversary, null)) continue;
     if (!best || tier.minYears > best.minYears) best = tier;

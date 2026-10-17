@@ -45,6 +45,23 @@ describe('WeeklyPatternEditor', () => {
     expect(screen.queryByTestId('pattern-skip-warning')).toBeNull();
   });
 
+
+  it('lối tắt lọc được ca khi gõ, cả khi ô chưa chọn lẫn khi đã chọn ca', async () => {
+    // jsdom không có scrollIntoView (danh sách gọi khi di chuyển mục đang chọn).
+    window.HTMLElement.prototype.scrollIntoView = jest.fn();
+    render(<Harness />);
+    const input = screen.getByPlaceholderText(/Chọn ca cho T2-T6/);
+    fireEvent.click(input);
+    fireEvent.change(input, { target: { value: 'hc-t7' } });
+    expect((await screen.findAllByRole('option')).map((o) => o.textContent)).toEqual([expect.stringContaining('HC sáng T7')]);
+    fireEvent.change(input, { target: { value: 'hanh chinh' } });
+    expect((await screen.findAllByRole('option')).map((o) => o.textContent)).toEqual([expect.stringContaining('Hành chính')]);
+    fireEvent.click((await screen.findAllByRole('option'))[0]);
+    // đã chọn ca T2-T6: mở lại và gõ để lọc sang ca khác
+    fireEvent.click(input);
+    fireEvent.change(input, { target: { value: 'hc-t7' } });
+    expect((await screen.findAllByRole('option')).map((o) => o.textContent)).toEqual([expect.stringContaining('HC sáng T7')]);
+  });
   it('chỉ đặt Chủ nhật nghỉ thì cảnh báo rõ T2 đến T7 sẽ không có ca', () => {
     render(<Harness initial={emptyPattern().map((r) => (r.weekday === 7 ? { ...r, dayType: 'OFF' as const } : r))} />);
     const warning = screen.getByTestId('pattern-skip-warning');

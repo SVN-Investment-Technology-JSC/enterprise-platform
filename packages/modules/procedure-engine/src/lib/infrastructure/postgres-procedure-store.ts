@@ -5,8 +5,10 @@ import { randomUUID } from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
 import { buildStepChangedPayload, instancesWithStepChange } from '../domain/procedure-progress.js';
 import type { ProcedureStore, ProcedureTenantState } from '../application/procedure-store.port.js';
+import { procedureCommentSignals } from './procedure-comment-signals.js';
 import { procedureNotificationEvents } from './procedure-notification-events.js';
 import { workspaceLinkEvents } from '../domain/procedure-workspace-link.js';
+import { financeStepEvents } from '../domain/procedure-finance-step.js';
 
 function mapSettingsEntry(row: Record<string, unknown>): ProcedureSettingsEntry<unknown> {
   return {
@@ -149,15 +151,17 @@ export class PostgresProcedureStore implements ProcedureStore {
       for (const step of definition.steps) {
         await client.query(`INSERT INTO procedure_schema.steps
           (id,version_id,step_key,step_order,name,description,linked_definition_id,config)
-          VALUES ($1,$2,$3,$4,$5,$6,$7,'{}'::jsonb)`, [step.id,versionId,step.key,step.order,step.name,
-          step.description ?? null,step.linkedDefinitionId ?? null]);
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb)`, [step.id,versionId,step.key,step.order,step.name,
+          // Bản chiếu cấu hình tích hợp để lọc bằng SQL; giá trị thật nằm trong versions.snapshot.
+          step.description ?? null,step.linkedDefinitionId ?? null,
+          JSON.stringify(step.integration ? { integration: step.integration } : {})]);
       }
       for (const step of definition.steps) for (const assignment of step.assignments) {
         await client.query(`INSERT INTO procedure_schema.raci_assignments
           (id,version_id,step_id,role_letter,subject_type,subject_id,subject_label,fixed_rollback_step_id,e_task_source,e_task_config)
           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb)`, [assignment.id,versionId,step.id,assignment.role,
           // Chủ thể động (initiator_manager) chưa có id — cột uuid không nhận chuỗi rỗng.
-          assignment.subjectType,assignment.subjectType === 'initiator_manager' ? null : assignment.subjectId,assignment.subjectLabel ?? null,assignment.fixedRollbackStepId ?? null,
+          assignment.subjectType,assignment.subjectType === 'initiator_manager' || assignment.subjectType === 'everyone' ? null : assignment.subjectId,assignment.subjectLabel ?? null,assignment.fixedRollbackStepId ?? null,
           assignment.eTaskSource ?? null,JSON.stringify(assignment.eTaskConfig ?? {})]);
       }
       await client.query('UPDATE procedure_schema.definitions SET current_version_id=$2 WHERE id=$1', [definition.id,versionId]);
@@ -303,6 +307,27 @@ export class PostgresProcedureStore implements ProcedureStore {
       await client.query(`INSERT INTO integration_schema.outbox_events
         (id,aggregate_type,aggregate_id,event_type,event_version,payload,occurred_at)
         VALUES ($1,'procedure-instance',$2,$3,$4,$5::jsonb,$6)`, [event.id,linkEvent.aggregateId,event.type,event.version,JSON.stringify(event),event.occurredAt]);
+    }
+
+    // Bước Tài chính vừa kích hoạt: nhờ Tài chính tạo/cập nhật phiếu. Cùng transaction
+    // với việc đổi bước, nên không có lần kích hoạt nào mà thiếu yêu cầu (và ngược lại).
+    for (const financeEvent of financeStepEvents(before.instances, after.instances)) {
+      const event = createIntegrationEvent({ id:randomUUID(),type:financeEvent.type,version:1,tenantId,
+        source:'procedure-engine',correlationId:financeEvent.aggregateId,payload:{ ...financeEvent.payload } });
+      await client.query(`INSERT INTO integration_schema.outbox_events
+        (id,aggregate_type,aggregate_id,event_type,event_version,payload,occurred_at)
+        VALUES ($1,'procedure-instance',$2,$3,$4,$5::jsonb,$6)`, [event.id,financeEvent.aggregateId,event.type,event.version,JSON.stringify(event),event.occurredAt]);
+    }
+
+    // Trao đổi mới trong hồ sơ: tín hiệu thời gian thực cho những người đang mở hồ sơ đó.
+    // Cùng transaction với việc ghi trao đổi nên không có tin nào mà thiếu tín hiệu (và ngược lại).
+    for (const signal of procedureCommentSignals(before.instances, after.instances)) {
+      const event = createIntegrationEvent({ id:randomUUID(),type:signal.type,version:1,tenantId,
+        source:'procedure-engine',correlationId:signal.aggregateId,payload:{ ...signal.payload } });
+      await client.query(`INSERT INTO integration_schema.outbox_events
+        (id,aggregate_type,aggregate_id,event_type,event_version,payload,occurred_at)
+        VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7)`, [event.id,signal.aggregateType,signal.aggregateId,
+          event.type,event.version,JSON.stringify(event),event.occurredAt]);
     }
 
     // Assignment and terminal-result facts come from the before/after snapshot,

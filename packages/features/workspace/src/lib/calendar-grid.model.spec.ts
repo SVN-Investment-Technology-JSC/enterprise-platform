@@ -168,8 +168,8 @@ describe('shiftAnchor', () => {
 
 describe('gridLabel', () => {
   it('nhãn tháng và nhãn tuần đọc được', () => {
-    expect(gridLabel(new Date(2026, 8, 24), 'month')).toBe('Tháng 9/2026');
-    expect(gridLabel(new Date(2026, 8, 24), 'week')).toBe('Tuần 21/09 – 27/09/2026');
+    expect(gridLabel(new Date(2026, 8, 24), 'month')).toBe('Tháng 09/2026');
+    expect(gridLabel(new Date(2026, 8, 24), 'week')).toBe('Tuần 21/09/2026 – 27/09/2026');
   });
 });
 

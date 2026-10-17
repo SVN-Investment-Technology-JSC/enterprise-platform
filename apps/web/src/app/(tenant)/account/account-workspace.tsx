@@ -15,8 +15,6 @@ import {
   UserRound,
 } from 'lucide-react';
 import { useId, useState, type FormEvent, type ReactNode } from 'react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { PageBreadcrumb } from '@/components/ui/page-breadcrumb';
 import { toast } from '@/components/ui/sonner';
 import { cn } from '@/lib/utils';
@@ -35,14 +33,15 @@ const ROLE_LABELS: Record<string, string> = {
 };
 
 const STRENGTH: Record<Exclude<PasswordStrength, 'empty'>, { label: string; bars: number; color: string; text: string }> = {
-  weak: { label: 'Yếu', bars: 1, color: 'bg-red-500', text: 'text-red-600' },
-  fair: { label: 'Trung bình', bars: 2, color: 'bg-amber-500', text: 'text-amber-600' },
-  strong: { label: 'Mạnh', bars: 3, color: 'bg-emerald-500', text: 'text-emerald-600' },
+  weak: { label: 'Yếu', bars: 1, color: 'bg-[#ef4444]', text: 'text-[#b91c1c]' },
+  fair: { label: 'Trung bình', bars: 2, color: 'bg-[#f59e0b]', text: 'text-[#b45309]' },
+  strong: { label: 'Mạnh', bars: 3, color: 'bg-[#10b981]', text: 'text-[#047857]' },
 };
 
 const EMPTY_DRAFT = { currentPassword: '', newPassword: '', confirmation: '' };
 
 export function AccountWorkspace({ principal }: { principal: AuthenticatedPrincipal }) {
+  const roleNames = principal.kind === 'tenant-user' ? principal.roleNames : undefined;
   const initials = principal.displayName
     .trim()
     .split(/\s+/)
@@ -53,48 +52,60 @@ export function AccountWorkspace({ principal }: { principal: AuthenticatedPrinci
     .toUpperCase();
 
   return (
-    <main className="flex h-[calc(100vh-4rem)] flex-col overflow-hidden p-4 sm:p-6">
-      <div className="mb-4 shrink-0">
-        <PageBreadcrumb
-          className="mb-1.5"
-          items={[
-            { label: principal.kind === 'platform-admin' ? 'Platform' : 'Tenant Portal', href: principal.kind === 'platform-admin' ? '/platform' : '/dashboard' },
-            { label: 'Tài khoản của tôi' },
-          ]}
-        />
-        <h1 className="text-2xl font-bold tracking-tight text-[#0d1c2d] sm:text-3xl">Tài khoản của tôi</h1>
-        <p className="mt-0.5 text-xs text-slate-500 sm:text-sm">
+    <div className="flex flex-col gap-4 text-[14px] text-[#18181b]">
+      <div>
+        {principal.kind === 'platform-admin' ? (
+          <PageBreadcrumb
+            className="mb-1.5"
+            items={[{ label: 'Platform', href: '/platform' }, { label: 'Tài khoản của tôi' }]}
+          />
+        ) : null}
+        <h1 className="m-0 text-[20px] font-bold tracking-[-0.3px]">Tài khoản của tôi</h1>
+        <p className="mt-1 text-[14px] text-slate-600">
           Xem thông tin tài khoản và tự đổi mật khẩu đăng nhập của bạn.
         </p>
       </div>
 
-      <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(300px,380px)_1fr]">
-        {/* Master: hồ sơ */}
-        <aside className="min-h-0 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xs">
-          <div className="flex flex-col items-center border-b border-slate-100 px-6 pb-6 pt-8 text-center">
-            <div className="relative">
-              <div className="grid size-20 place-items-center rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 text-2xl font-bold tracking-wider text-white ring-4 ring-blue-50">
+      <div className="flex flex-wrap items-start gap-4">
+        {/* Hồ sơ */}
+        <section
+          aria-label="Thông tin tài khoản"
+          className="flex min-w-0 max-w-full flex-[1_1_300px] flex-col overflow-hidden rounded-[14px] border border-[#eef0f3] bg-white"
+        >
+          <div className="relative flex flex-col items-center gap-2 overflow-hidden border-b border-[#ffc90a]/20 bg-gradient-to-br from-[#1c1c20] to-[#2a2a2f] px-5 pb-5 pt-[26px] text-center">
+            <span
+              aria-hidden="true"
+              className="absolute -right-[70px] -top-[90px] size-[220px] rounded-full bg-[radial-gradient(circle,rgba(255,201,10,.18)_0%,transparent_70%)]"
+            />
+            <span className="relative">
+              <span
+                aria-hidden="true"
+                className="grid size-20 place-items-center rounded-full bg-gradient-to-br from-[#ffc90a] to-[#d9ab00] text-[26px] font-extrabold text-[#18181b] shadow-[0_0_0_4px_rgba(255,201,10,.18)]"
+              >
                 {initials || <UserRound className="size-8" />}
-              </div>
-              <span className="absolute bottom-1 right-1 size-4 rounded-full bg-emerald-500 ring-[3px] ring-white" />
-            </div>
-            <p className="mt-4 text-lg font-bold text-slate-900">{principal.displayName}</p>
-            <p className="text-sm text-slate-500">{principal.email}</p>
-            <div className="mt-3 flex flex-wrap justify-center gap-1.5">
+              </span>
+              <span
+                aria-label="Đang trực tuyến"
+                className="absolute bottom-1 right-0.5 size-3.5 rounded-full border-[3px] border-[#232327] bg-[#10b981]"
+              />
+            </span>
+            <b className="relative text-[16px] text-white">{principal.displayName}</b>
+            <span className="relative break-all text-[14px] text-white/70">{principal.email}</span>
+            <div className="relative flex flex-wrap justify-center gap-1.5">
               {(principal.roles.length ? principal.roles : [principal.kind]).map((role) => (
                 <span
                   key={role}
-                  className="rounded-full border border-blue-100 bg-blue-50 px-2.5 py-0.5 text-[11px] font-semibold text-blue-700"
+                  className="rounded-full border border-[#ffc90a]/50 bg-[#ffc90a]/[.12] px-2.5 py-0.5 text-[13px] font-semibold text-[#ffd84d]"
                 >
-                  {ROLE_LABELS[role] ?? role}
+                  {ROLE_LABELS[role] ?? roleNames?.[role] ?? role}
                 </span>
               ))}
             </div>
           </div>
 
-          <dl className="divide-y divide-slate-100 px-6 py-2 text-sm">
+          <dl className="m-0 flex flex-col py-2">
             <ProfileRow icon={<UserRound />} label="Họ và tên" value={principal.displayName} />
-            <ProfileRow icon={<Mail />} label="Email đăng nhập" value={principal.email} />
+            <ProfileRow icon={<Mail />} label="Email đăng nhập" value={breakAfterAt(principal.email)} />
             {principal.kind === 'tenant-user' ? (
               <ProfileRow icon={<Building2 />} label="Doanh nghiệp" value={principal.tenantSlug.toUpperCase()} />
             ) : null}
@@ -105,22 +116,30 @@ export function AccountWorkspace({ principal }: { principal: AuthenticatedPrinci
             />
           </dl>
 
-          <p className="mx-6 mb-6 rounded-lg bg-slate-50 p-3 text-xs leading-relaxed text-slate-500">
+          <p className="mx-4 mb-4 mt-0 rounded-[10px] border border-[#f1f3f6] bg-[#fafbfc] px-3 py-2.5 text-[13px] text-slate-600">
             {principal.kind === 'platform-admin'
               ? 'Họ tên và email của tài khoản quản trị nền tảng được cấu hình khi khởi tạo hệ thống.'
               : 'Họ tên và email do quản trị viên doanh nghiệp quản lý. Liên hệ quản trị viên nếu cần thay đổi.'}
           </p>
-        </aside>
+        </section>
 
-        {/* Detail: bảo mật */}
-        <section className="min-h-0 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xs">
-          <div className="flex items-start gap-3 border-b border-slate-100 px-6 py-5">
-            <div className="grid size-10 shrink-0 place-items-center rounded-lg bg-blue-50 text-blue-600">
-              <KeyRound className="size-5" />
-            </div>
+        {/* Bảo mật */}
+        <section
+          aria-labelledby="account-password-title"
+          className="flex min-w-0 flex-[999_1_520px] flex-col overflow-hidden rounded-[14px] border border-[#eef0f3] bg-white"
+        >
+          <div className="flex items-start gap-3 border-b border-[#eef0f3] bg-[#fafbfc] px-5 py-4">
+            <span
+              aria-hidden="true"
+              className="grid size-9 shrink-0 place-items-center rounded-[9px] bg-[#fff6d6] text-[#8a6400]"
+            >
+              <KeyRound className="size-4" />
+            </span>
             <div>
-              <h2 className="text-base font-semibold text-slate-900">Đổi mật khẩu</h2>
-              <p className="mt-0.5 text-sm text-slate-500">
+              <h2 id="account-password-title" className="m-0 text-[16px] font-bold">
+                Đổi mật khẩu
+              </h2>
+              <p className="mt-0.5 text-[13px] text-slate-500">
                 Sau khi đổi, các phiên đăng nhập trên thiết bị khác sẽ bị đăng xuất. Phiên hiện tại được giữ lại.
               </p>
             </div>
@@ -128,18 +147,29 @@ export function AccountWorkspace({ principal }: { principal: AuthenticatedPrinci
           <ChangePasswordForm />
         </section>
       </div>
-    </main>
+    </div>
   );
 }
 
-function ProfileRow({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
+/** Cho email xuống dòng ngay sau "@" thay vì cắt giữa tên miền khi cột hẹp. */
+function breakAfterAt(email: string): ReactNode {
+  const at = email.indexOf('@');
+  if (at < 0) return email;
   return (
-    <div className="flex items-start gap-3 py-3">
-      <span className="mt-0.5 text-slate-400 [&_svg]:size-4">{icon}</span>
-      <div className="min-w-0">
-        <dt className="text-xs text-slate-500">{label}</dt>
-        <dd className="truncate font-medium text-slate-800">{value}</dd>
-      </div>
+    <>
+      {email.slice(0, at + 1)}
+      <wbr />
+      {email.slice(at + 1)}
+    </>
+  );
+}
+
+function ProfileRow({ icon, label, value }: { icon: ReactNode; label: string; value: ReactNode }) {
+  return (
+    <div className="flex items-center gap-2.5 border-t border-[#f1f3f6] px-5 py-2.5 first:border-t-0">
+      <span className="shrink-0 text-slate-500 [&_svg]:size-4">{icon}</span>
+      <dt className="shrink-0 basis-[120px] text-[13px] text-slate-500">{label}</dt>
+      <dd className="m-0 min-w-0 font-semibold [overflow-wrap:anywhere]">{value}</dd>
     </div>
   );
 }
@@ -203,8 +233,8 @@ function ChangePasswordForm() {
   }
 
   return (
-    <form className="grid gap-6 px-6 py-6 2xl:grid-cols-[minmax(0,460px)_minmax(280px,1fr)]" onSubmit={submit} noValidate>
-      <div className="max-w-xl space-y-4">
+    <form className="flex flex-wrap items-start gap-5 p-5" onSubmit={submit} noValidate>
+      <div className="flex min-w-0 max-w-[460px] flex-[1_1_300px] flex-col gap-3.5">
         <PasswordField
           label="Mật khẩu hiện tại"
           autoComplete="current-password"
@@ -212,32 +242,31 @@ function ChangePasswordForm() {
           invalid={currentInvalid}
           onChange={(value) => update('currentPassword', value)}
         />
-        <div className="space-y-2">
-          <PasswordField
-            label="Mật khẩu mới"
-            autoComplete="new-password"
-            value={draft.newPassword}
-            onChange={(value) => update('newPassword', value)}
-          />
+        <PasswordField
+          label="Mật khẩu mới"
+          autoComplete="new-password"
+          value={draft.newPassword}
+          onChange={(value) => update('newPassword', value)}
+        >
           {strength !== 'empty' ? (
-            <div className="flex items-center gap-3" aria-live="polite">
-              <div className="grid flex-1 grid-cols-3 gap-1">
+            <span className="flex items-center gap-2" aria-live="polite">
+              <span aria-hidden="true" className="grid flex-1 grid-cols-3 gap-1">
                 {[1, 2, 3].map((bar) => (
                   <span
                     key={bar}
                     className={cn(
-                      'h-1.5 rounded-full',
-                      bar <= STRENGTH[strength].bars ? STRENGTH[strength].color : 'bg-slate-200',
+                      'h-[5px] rounded-full',
+                      bar <= STRENGTH[strength].bars ? STRENGTH[strength].color : 'bg-[#e5e7eb]',
                     )}
                   />
                 ))}
-              </div>
-              <span className={cn('w-20 text-right text-xs font-semibold', STRENGTH[strength].text)}>
+              </span>
+              <span className={cn('min-w-16 text-right text-[13px] font-semibold', STRENGTH[strength].text)}>
                 {STRENGTH[strength].label}
               </span>
-            </div>
+            </span>
           ) : null}
-        </div>
+        </PasswordField>
         <PasswordField
           label="Xác nhận mật khẩu mới"
           autoComplete="new-password"
@@ -247,22 +276,30 @@ function ChangePasswordForm() {
         />
 
         {error ? (
-          <p className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800" role="alert">
+          <p className="m-0 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-[14px] text-red-800" role="alert">
             {error}
           </p>
         ) : null}
         {success ? (
-          <p className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800" role="status">
+          <p
+            className="m-0 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-[14px] text-emerald-800"
+            role="status"
+          >
             {success}
           </p>
         ) : null}
 
-        <div className="flex items-center gap-2 pt-1">
-          <Button className="bg-[#091426] px-4 hover:bg-[#1e293b]" disabled={!canSubmit} type="submit">
-            {busy ? <Loader2 className="animate-spin" /> : <KeyRound />}
+        <div className="mt-1 flex flex-wrap gap-2">
+          <button
+            className="flex h-10 cursor-pointer items-center gap-1.5 rounded-lg bg-[#18181b] px-4 text-[14px] font-semibold text-white hover:bg-[#2a2a2f] disabled:cursor-not-allowed disabled:opacity-45"
+            disabled={!canSubmit}
+            type="submit"
+          >
+            {busy ? <Loader2 className="size-3.5 animate-spin" /> : <KeyRound className="size-3.5" />}
             {busy ? 'Đang cập nhật…' : 'Cập nhật mật khẩu'}
-          </Button>
-          <Button
+          </button>
+          <button
+            className="h-10 cursor-pointer rounded-lg border border-[#eef0f3] bg-white px-4 text-[14px] font-semibold text-slate-700 hover:bg-[#fafbfc] disabled:cursor-not-allowed disabled:opacity-45"
             disabled={busy || (!draft.currentPassword && !draft.newPassword && !draft.confirmation)}
             onClick={() => {
               setDraft(EMPTY_DRAFT);
@@ -270,33 +307,38 @@ function ChangePasswordForm() {
               setCurrentInvalid(false);
             }}
             type="button"
-            variant="outline"
           >
             Nhập lại
-          </Button>
+          </button>
         </div>
       </div>
 
-      <div className="h-fit max-w-xl rounded-xl border border-slate-200 bg-slate-50/70 p-4 2xl:max-w-none">
-        <p className="text-sm font-semibold text-slate-800">Yêu cầu mật khẩu</p>
-        <ul className="mt-3 space-y-2 text-sm">
+      <div className="flex min-w-0 flex-[1_1_280px] flex-col gap-2.5 rounded-xl border border-[#f1f3f6] bg-[#fafbfc] px-4 py-3.5">
+        <p className="m-0 flex items-center gap-2 text-[12px] font-bold uppercase tracking-[0.6px] text-slate-500">
+          <span aria-hidden="true" className="h-3.5 w-[3px] rounded-sm bg-[#ffc90a]" />
+          Yêu cầu mật khẩu
+        </p>
+        <ul className="m-0 flex list-none flex-col gap-2.5 p-0">
           {rules.map((rule) => (
-            <li key={rule.id} className="flex items-center gap-2">
+            <li
+              key={rule.id}
+              className={cn('flex items-center gap-2 text-[14px]', rule.passed ? 'text-[#18181b]' : 'text-slate-600')}
+            >
               {rule.passed ? (
-                <CheckCircle2 className="size-4 shrink-0 text-emerald-500" />
+                <CheckCircle2 aria-hidden="true" className="size-4 shrink-0 text-[#059669]" />
               ) : (
-                <Circle className="size-4 shrink-0 text-slate-300" />
+                <Circle aria-hidden="true" className="size-4 shrink-0 text-[#d1d5db]" />
               )}
-              <span className={cn('min-w-0 flex-1', rule.passed ? 'text-slate-800' : 'text-slate-500')}>{rule.label}</span>
+              <span className="min-w-0 flex-1">{rule.label}</span>
               {rule.required ? null : (
-                <span className="shrink-0 whitespace-nowrap text-[10px] font-medium uppercase tracking-wide text-slate-400">
+                <span className="shrink-0 whitespace-nowrap text-[12px] font-bold uppercase tracking-[0.4px] text-[#9ca3af]">
                   Khuyến nghị
                 </span>
               )}
             </li>
           ))}
         </ul>
-        <p className="mt-4 border-t border-slate-200 pt-3 text-xs leading-relaxed text-slate-500">
+        <p className="m-0 mt-1 border-t border-[#eef0f3] pt-2.5 text-[13px] text-slate-500">
           Không dùng lại mật khẩu của dịch vụ khác. Nên dùng cụm từ dài, dễ nhớ với bạn nhưng khó đoán với người khác.
         </p>
       </div>
@@ -310,26 +352,35 @@ function PasswordField({
   value,
   invalid,
   onChange,
+  children,
 }: {
   label: string;
   autoComplete: 'current-password' | 'new-password';
   value: string;
   invalid?: boolean;
   onChange: (value: string) => void;
+  children?: ReactNode;
 }) {
   const id = useId();
   const [visible, setVisible] = useState(false);
   return (
-    <div className="grid gap-1.5">
-      <label className="text-sm font-medium text-slate-700" htmlFor={id}>
+    <div className="flex flex-col gap-[5px]">
+      <label className="text-[14px] font-semibold text-slate-700" htmlFor={id}>
         {label}
       </label>
-      <div className="relative">
-        <Input
+      <span
+        className={cn(
+          'flex h-10 items-center overflow-hidden rounded-lg border bg-white focus-within:ring-2',
+          invalid
+            ? 'border-[#fca5a5] focus-within:ring-red-100'
+            : 'border-[#e5e7eb] focus-within:border-[#ffc90a] focus-within:ring-[#ffc90a]/25',
+        )}
+      >
+        <input
           id={id}
           aria-invalid={invalid || undefined}
           autoComplete={autoComplete}
-          className="h-9 pr-10"
+          className="h-[38px] min-w-0 flex-1 border-0 bg-transparent px-3 text-[14px] text-[#18181b] outline-none [&::-ms-reveal]:hidden"
           maxLength={PASSWORD_MAX_LENGTH}
           onChange={(event) => onChange(event.currentTarget.value)}
           type={visible ? 'text' : 'password'}
@@ -337,14 +388,15 @@ function PasswordField({
         />
         <button
           type="button"
-          className="absolute right-1 top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-md text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
+          className="grid h-[38px] w-10 shrink-0 cursor-pointer place-items-center text-slate-500 transition-colors hover:text-[#18181b]"
           onClick={() => setVisible((previous) => !previous)}
           aria-label={visible ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
           title={visible ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
         >
           {visible ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
         </button>
-      </div>
+      </span>
+      {children}
     </div>
   );
 }

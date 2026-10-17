@@ -7,12 +7,12 @@ import {
   type ProjectMember,
   type UpdateWorkItemRequest,
   type WorkItem,
-  type WorkItemCost,
   type WorkItemPriority,
   type WorkItemType,
 } from '@enterprise-platform/contracts-workspace';
+import { fromLocalInput } from '@enterprise-platform/shared-ui';
+import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import { useEffect, useState } from 'react';
-import { formatVndWhileTyping, parseVndInput, toVndInput } from '../money';
 import { loadProcedureOptions, type ProcedureOption } from '../procedure-api';
 import { ITEM_TYPE_LABELS, PRIORITY_LABELS } from '../workspace-labels';
 import styles from '../workspace.module.scss';
@@ -21,6 +21,8 @@ import { Choice } from './choice';
 import { Dialog, Field } from './dialog';
 import { PeoplePicker } from './people-picker';
 import { TagPicker } from './tag-picker';
+import { TransportSection } from './transport-section';
+import { useSourceTransport } from './use-source-transport';
 
 export interface WorkItemFormProps {
   readonly open: boolean;
@@ -44,31 +46,30 @@ export interface WorkItemFormProps {
   readonly onCreate: (
     input: Omit<CreateWorkItemRequest, 'projectId'>,
     procedureDefinitionId?: string,
-    costs?: WorkItemCostInput,
   ) => Promise<void>;
-  readonly onUpdate: (input: UpdateWorkItemRequest, costs?: WorkItemCostInput) => Promise<void>;
-  /**
-   * Người dùng được nhập chi phí — chỉ `owner`, `manager` và quản trị viên.
-   * Tắt thì hai ô chi phí **không được dựng**, không phải bị vô hiệu hoá.
-   */
-  readonly financeEnabled?: boolean;
-  /** Chi phí hiện có khi sửa; lấy từ payload tài chính của dự án. */
-  readonly initialCost?: WorkItemCost;
+  readonly onUpdate: (input: UpdateWorkItemRequest) => Promise<void>;
   /** Tạo công việc điều chỉnh cho công việc đã huỷ hiệu lực: điền sẵn từ công việc gốc. */
   readonly adjustmentOf?: WorkItem;
-}
-
-/**
- * Chi phí gửi kèm khi lưu công việc.
- *
- * Nơi gọi ghi chúng qua endpoint riêng `PATCH /work-items/:id/costs` — số
- * tiền không bao giờ đi chung payload với các trường thường của công việc.
- */
-export interface WorkItemCostInput {
-  readonly estimatedCost: number | null;
+  /**
+   * Danh sách chọn "Công việc cha" khi tạo mới — mỗi mục đã thụt lề theo cấp.
+   * Ô chọn luôn hiện thêm mục "Gốc dự án" (giá trị rỗng) ở đầu. Vắng thì chỉ
+   * có mỗi "Gốc dự án".
+   */
+  readonly parentOptions?: ReadonlyArray<{ readonly id: string; readonly label: string }>;
+  /** Công việc cha chọn sẵn; rỗng nghĩa là "Gốc dự án". */
+  readonly defaultParentId?: string;
+  /**
+   * Danh sách dự án. Có thì form dựng thêm ô "Dự án" (bắt buộc) ở trên cùng —
+   * dùng cho trang "Công việc của tôi", nơi chưa có dự án đang mở.
+   */
+  readonly projectOptions?: ReadonlyArray<{ readonly id: string; readonly label: string }>;
+  /** Người dùng đổi dự án: nơi gọi nạp lại danh sách công việc cha của dự án đó. */
+  readonly onProjectChange?: (projectId: string) => void;
 }
 
 interface FormState {
+  projectId: string;
+  parentId: string;
   title: string;
   description: string;
   itemType: WorkItemType;
@@ -81,10 +82,11 @@ interface FormState {
   plannedEnd: string;
   estimateHours: string;
   procedureDefinitionId: string;
-  estimatedCost: string;
 }
 
 const EMPTY: FormState = {
+  projectId: '',
+  parentId: '',
   title: '',
   description: '',
   itemType: 'task',
@@ -97,7 +99,6 @@ const EMPTY: FormState = {
   plannedEnd: '',
   estimateHours: '',
   procedureDefinitionId: '',
-  estimatedCost: '',
 };
 
 export function WorkItemForm({
@@ -110,9 +111,11 @@ export function WorkItemForm({
   onClose,
   onCreate,
   onUpdate,
-  financeEnabled = false,
-  initialCost,
   adjustmentOf,
+  parentOptions,
+  defaultParentId,
+  projectOptions,
+  onProjectChange,
 }: WorkItemFormProps) {
   const directory = useDirectory();
   const [form, setForm] = useState<FormState>(EMPTY);
@@ -133,6 +136,8 @@ export function WorkItemForm({
     setForm(
       item
         ? {
+            projectId: '',
+            parentId: item.parentId ?? '',
             title: item.title,
             description: item.description ?? '',
             itemType: item.itemType,
@@ -145,11 +150,11 @@ export function WorkItemForm({
             plannedEnd: item.plannedEnd ?? '',
             estimateHours: item.estimateHours == null ? '' : String(item.estimateHours),
             procedureDefinitionId: '',
-            estimatedCost: toVndInput(initialCost?.estimatedCost),
           }
         : adjustmentOf
           ? {
               ...EMPTY,
+              parentId: defaultParentId ?? '',
               // Điều chỉnh làm lại phần việc cũ: giữ nội dung, người làm và lịch,
               // còn cách thực hiện để thủ công — quy trình gắn công việc gốc đã huỷ.
               title: `Điều chỉnh ${adjustmentOf.code}: ${adjustmentOf.title}`.slice(0, 200),
@@ -164,13 +169,28 @@ export function WorkItemForm({
               estimateHours:
                 adjustmentOf.estimateHours == null ? '' : String(adjustmentOf.estimateHours),
             }
-          : EMPTY,
+          : { ...EMPTY, parentId: defaultParentId ?? parent?.id ?? '' },
     );
     setError(undefined);
     setSubmitting(false);
-  }, [open, item, initialCost, adjustmentOf]);
+  }, [open, item, adjustmentOf, defaultParentId, parent?.id]);
 
   const set = (patch: Partial<FormState>) => setForm((current) => ({ ...current, ...patch }));
+
+  // Công việc chỉ có ngày dự kiến, nên khung giờ dùng xe gợi ý là 8 giờ ngày bắt đầu đến 17 giờ ngày kết thúc;
+  // người dùng chỉnh được ngay trên khối phương tiện.
+  const transport = useSourceTransport({
+    open,
+    sourceType: 'WORK_ITEM',
+    sourceId: item?.id,
+    followsSource: false,
+    defaultRange: form.plannedStart
+      ? {
+          startAt: fromLocalInput(`${form.plannedStart}T08:00`),
+          endAt: fromLocalInput(`${form.plannedEnd || form.plannedStart}T17:00`),
+        }
+      : null,
+  });
 
   // Nhóm công việc chỉ là vỏ chứa: server từ chối người phụ trách và giờ ước
   // lượng trên nó, nên ẩn hai ô đó thay vì để người dùng nhập rồi báo lỗi.
@@ -190,28 +210,12 @@ export function WorkItemForm({
         },
     );
 
-  // Chi phí chỉ có nghĩa với việc thật, không với nhóm công việc — server
-  // cũng từ chối chi phí trên `phase` vì nó sẽ bị cộng hai lần cùng việc con.
-  const showCosts = financeEnabled && !isPhase;
-
-  /**
-   * Đọc ô chi phí dự toán. Chi phí thực tế không nhập ở đây — nó ghi qua sổ
-   * chi phí (tab Tài chính) để mỗi khoản có lý do và người ghi. Chặn số âm và chuỗi không đọc được ngay ở đây để báo
-   * sớm; server vẫn kiểm lại — client chỉ là tiện lợi, không phải hàng rào.
-   */
-  const readCosts = (): WorkItemCostInput | string | undefined => {
-    if (!showCosts) return undefined;
-    const estimated = parseVndInput(form.estimatedCost);
-    if (estimated === undefined) return 'Chi phí dự toán: không đọc được số.';
-    if ((estimated ?? 0) < 0) return 'Chi phí dự toán không được là số âm.';
-    return { estimatedCost: estimated };
-  };
-
   const submit = async () => {
     setError(undefined);
-    const costs = readCosts();
-    if (typeof costs === 'string') {
-      setError(costs);
+    // Nhóm công việc không đi lại; các loại khác: xe công ty phải chọn đủ xe, tài xế và giờ.
+    const transportBlock = isPhase ? undefined : transport.payload();
+    if (!isPhase && transport.value.mode && transport.problem) {
+      setError(transport.problem);
       return;
     }
     setSubmitting(true);
@@ -232,15 +236,21 @@ export function WorkItemForm({
           plannedStart: form.plannedStart || null,
           plannedEnd: form.plannedEnd || null,
           estimateHours: isPhase ? null : (hours ?? null),
-        }, costs);
+          transport: transportBlock,
+        });
       } else {
+        if (projectOptions && !form.projectId) {
+          setError('Hãy chọn dự án cho công việc này.');
+          setSubmitting(false);
+          return;
+        }
         if (form.executionType === 'procedure' && !form.procedureDefinitionId) {
           setError('Hãy chọn quy trình sẽ mở cho công việc này.');
           setSubmitting(false);
           return;
         }
         await onCreate({
-          parentId: parent?.id,
+          parentId: form.parentId || undefined,
           title: form.title,
           description: form.description || undefined,
           itemType: form.itemType,
@@ -253,9 +263,9 @@ export function WorkItemForm({
           plannedEnd: form.plannedEnd || undefined,
           estimateHours: isPhase ? undefined : hours,
           adjustmentOfId: adjustmentOf?.id,
+          transport: transportBlock ?? undefined,
         },
         form.executionType === 'procedure' ? form.procedureDefinitionId : undefined,
-        costs,
         );
       }
       onClose();
@@ -284,6 +294,24 @@ export function WorkItemForm({
       onClose={onClose}
       onSubmit={() => void submit()}
     >
+      {!item && projectOptions ? (
+        <Field label="Dự án">
+          <Choice
+            label="Dự án"
+            value={form.projectId}
+            required
+            placeholder="Chọn dự án…"
+            options={projectOptions.map((option) => ({ value: option.id, label: option.label }))}
+            onChange={(value) => {
+              // Đổi dự án thì cây công việc cha cũng khác: về "Gốc dự án" và báo
+              // nơi gọi nạp lại danh sách công việc cha của dự án mới.
+              set({ projectId: value, parentId: '' });
+              onProjectChange?.(value);
+            }}
+          />
+        </Field>
+      ) : null}
+
       <Field label="Tên công việc">
         <input
           value={form.title}
@@ -300,6 +328,24 @@ export function WorkItemForm({
           onChange={(event) => set({ description: event.target.value })}
         />
       </Field>
+
+      {item ? null : (
+        <Field label="Công việc cha" hint="Để trống thì công việc nằm ở cấp gốc của dự án.">
+          <Choice
+            label="Công việc cha"
+            value={form.parentId}
+            placeholder="Chọn công việc cha…"
+            options={[
+              { value: '', label: 'Gốc dự án' },
+              ...(parentOptions ?? []).map((option) => ({
+                value: option.id,
+                label: option.label,
+              })),
+            ]}
+            onChange={(value) => set({ parentId: value })}
+          />
+        </Field>
+      )}
 
       <div className={styles.fieldRow}>
         {item ? null : (
@@ -422,41 +468,22 @@ export function WorkItemForm({
 
       <div className={styles.fieldRow}>
         <Field label="Bắt đầu dự kiến">
-          <input
-            type="date"
+          <DatePickerInput
+            height={38}
             value={form.plannedStart}
-            onChange={(event) => set({ plannedStart: event.target.value })}
+            onChange={(value) => set({ plannedStart: value })}
           />
         </Field>
         <Field label="Kết thúc dự kiến">
-          <input
-            type="date"
+          <DatePickerInput
+            height={38}
             value={form.plannedEnd}
-            onChange={(event) => set({ plannedEnd: event.target.value })}
+            onChange={(value) => set({ plannedEnd: value })}
           />
         </Field>
       </div>
 
-      {showCosts ? (
-        <div className={styles.fieldRow}>
-          <Field label="Chi phí dự toán (VND)">
-            <input
-              inputMode="decimal"
-              value={form.estimatedCost}
-              placeholder="Ví dụ 150.000.000"
-              // Chấm ngăn nghìn hiện ngay khi gõ; đếm số 0 bằng mắt là cách
-              // chắc chắn nhập sai một bậc.
-              onChange={(event) =>
-                set({ estimatedCost: formatVndWhileTyping(event.target.value) })
-              }
-            />
-          </Field>
-          <Field label="Chi phí thực tế (VND)" hint="Ghi từng khoản kèm lý do ở tab Tài chính.">
-            {/* Đơn vị đã nằm ở nhãn "(VND)", không lặp lại ký hiệu đ trong ô. */}
-            <input readOnly value={toVndInput(initialCost?.actualCost ?? 0)} />
-          </Field>
-        </div>
-      ) : null}
+      {isPhase ? null : <TransportSection state={transport} editableRange idPrefix="work-item-transport" />}
     </Dialog>
   );
 }

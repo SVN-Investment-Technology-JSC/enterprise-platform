@@ -1,5 +1,6 @@
 import type { ProcedureInstance } from '@enterprise-platform/contracts-procedure-engine';
 import {
+  canStartWithAssignment,
   deriveProcedureAuthorization,
   matchesByEscalation,
   matchesProcedureAssignment,
@@ -218,5 +219,69 @@ describe('gán vai ở cấp đơn vị', () => {
 
   it('người ngoài đơn vị không nhận vai S của đơn vị', () => {
     expect(matchesProcedureAssignment(sOnUnit, actorHolding(['chuc-danh-khac']))).toBe(false);
+  });
+});
+
+describe('chủ thể "Toàn bộ nhân viên"', () => {
+  const everyone = { id: 'a', role: 'S', subjectType: 'everyone', subjectId: 'everyone' } as const;
+  const actor = {
+    tenantId: 't',
+    userId: 'u',
+    membershipId: 'm',
+    displayName: 'u',
+    canDesign: false,
+    canPublish: false,
+    canCreateInstances: true,
+    isOverride: false,
+    organizationUnitIds: [],
+    positionIds: [],
+  } as const;
+
+  it('cho mọi thành viên khởi tạo (vai S)', () => {
+    expect(canStartWithAssignment(everyone, actor)).toBe(true);
+  });
+
+  it('không cấp quyền đọc/hành động trên hồ sơ của người khác', () => {
+    expect(matchesProcedureAssignment(everyone, actor)).toBe(false);
+  });
+
+  it('vai khác S không khởi tạo được qua "Toàn bộ nhân viên"', () => {
+    expect(canStartWithAssignment({ ...everyone, role: 'A' }, actor)).toBe(false);
+  });
+});
+
+describe('"Toàn bộ nhân viên" ở bước S của hồ sơ', () => {
+  const baseActor = (userId: string) =>
+    ({
+      tenantId: 't',
+      userId,
+      membershipId: userId,
+      displayName: userId,
+      canDesign: false,
+      canPublish: false,
+      canCreateInstances: false,
+      isOverride: false,
+      organizationUnitIds: [],
+      positionIds: [],
+    }) as const;
+  const withEveryone = (initiatedBy: string): ProcedureInstance => ({
+    ...instance('S'),
+    initiatedBy,
+    steps: [
+      {
+        ...instance('S').steps[0],
+        assignments: [{ id: 'a', role: 'S', subjectType: 'everyone', subjectId: 'everyone' }],
+      },
+    ],
+  });
+
+  it('người khởi tạo hoàn thành được bước S của chính mình', () => {
+    const auth = deriveProcedureAuthorization(withEveryone('user-1'), baseActor('user-1'));
+    expect(auth.availableActions).toContain('complete');
+  });
+
+  it('nhân viên khác không thao tác được trên hồ sơ của người khởi tạo', () => {
+    const auth = deriveProcedureAuthorization(withEveryone('user-1'), baseActor('user-2'));
+    expect(auth.availableActions).not.toContain('complete');
   });
 });

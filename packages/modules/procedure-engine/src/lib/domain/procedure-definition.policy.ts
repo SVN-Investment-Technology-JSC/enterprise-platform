@@ -9,6 +9,7 @@ import {
 } from '@enterprise-platform/contracts-procedure-engine';
 import { validateAttributeDefinitions } from './procedure-attributes.js';
 import { ProcedureEngineError } from './procedure-engine.error.js';
+import { FINANCE_STEP_ISSUE_PREFIX, validateStepIntegrationDraft } from './procedure-finance-step.js';
 import {
   collectFlowIssues,
   rollbackTargetsFor,
@@ -106,7 +107,17 @@ export function validateDefinitionDraft(
         );
       }
       // Chủ thể động không có id cố định; nó được phân giải lúc bước kích hoạt.
-      if (assignment.subjectType !== 'initiator_manager' && !assignment.subjectId.trim()) {
+      if (assignment.subjectType === 'everyone' && assignment.role !== 'S') {
+        throw new ProcedureEngineError(
+          'validation',
+          `Bước “${step.name}”: “Toàn bộ nhân viên” chỉ được gán vai S (người khởi tạo).`,
+        );
+      }
+      if (
+        assignment.subjectType !== 'initiator_manager' &&
+        assignment.subjectType !== 'everyone' &&
+        !assignment.subjectId.trim()
+      ) {
         throw new ProcedureEngineError(
           'validation',
           `Bước “${step.name}” có đối tượng phân công trống.`,
@@ -120,6 +131,7 @@ export function validateDefinitionDraft(
       }
     }
     validateAttributeDefinitions(step.attributes, `bước “${step.name}”`);
+    validateStepIntegrationDraft(step);
   }
   validateAttributeDefinitions(input.attributes, 'quy trình');
   validateGatewaysDraft(input.gateways);
@@ -248,7 +260,11 @@ export function inspectDefinitionForPublish(definition: ProcedureDefinition): Pr
     if (!(error instanceof ProcedureEngineError)) throw error;
     // Bản không-gateway có thể báo sai về rollback C khi luồng có nhánh; luật đó
     // đã được kiểm lại trên luồng thật ở dưới.
-    if (!error.message.startsWith('Bước quay về của vai trò C')) {
+    // Luật bước Tài chính cũng phụ thuộc luồng thật; collectFlowIssues đã kiểm trên luồng có nhánh.
+    if (
+      !error.message.startsWith('Bước quay về của vai trò C') &&
+      !error.message.startsWith(FINANCE_STEP_ISSUE_PREFIX)
+    ) {
       errors.unshift({ level: 'error', message: error.message });
     }
   }

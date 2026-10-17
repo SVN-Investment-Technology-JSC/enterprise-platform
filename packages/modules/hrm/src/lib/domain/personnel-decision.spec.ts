@@ -4,17 +4,13 @@ import {
   isAssigningType,
   needsCoreAction,
   nextDecisionNumber,
-  previousDay,
   replacesPrimaryPosition,
-  wouldCreateCycle,
 } from './personnel-decision.js';
 
 const base: DecisionShape = {
   decisionType: 'APPOINT',
   employeeId: 'emp-1',
   toPositionNodeId: 'pos-1',
-  managerMode: 'KEEP',
-  subordinateMode: 'KEEP',
   salaryChanged: false,
 };
 
@@ -26,7 +22,7 @@ describe('personnel-decision: loại quyết định', () => {
     expect(isAssigningType('CHANGE_MANAGER')).toBe(false);
   });
 
-  it('miễn nhiệm gọi Core nhưng đổi người quản lý thì không', () => {
+  it('miễn nhiệm gọi Core nhưng loại đổi người quản lý cũ thì không', () => {
     expect(needsCoreAction('DISMISS')).toBe(true);
     expect(needsCoreAction('CHANGE_MANAGER')).toBe(false);
   });
@@ -48,54 +44,10 @@ describe('personnel-decision: decisionShapeErrors', () => {
     ).toMatch(/chức danh/i);
   });
 
-  it('miễn nhiệm và đổi quản lý không được kèm chức danh mới', () => {
+  it('miễn nhiệm không được kèm chức danh mới', () => {
     expect(
       decisionShapeErrors({ ...base, decisionType: 'DISMISS' }),
     ).toContain('Loại quyết định này không đổi chức danh.');
-  });
-
-  it('đổi người quản lý phải chọn SET hoặc CLEAR và không đổi lương', () => {
-    const change: DecisionShape = {
-      ...base,
-      decisionType: 'CHANGE_MANAGER',
-      toPositionNodeId: null,
-    };
-    expect(decisionShapeErrors(change)[0]).toMatch(/người quản lý mới hoặc bỏ/);
-    expect(
-      decisionShapeErrors({ ...change, managerMode: 'CLEAR', salaryChanged: true }),
-    ).toContain('Quyết định đổi người quản lý không thay đổi lương.');
-  });
-
-  it('không tự báo cáo cho chính mình', () => {
-    expect(
-      decisionShapeErrors({
-        ...base,
-        managerMode: 'SET',
-        toManagerEmployeeId: 'emp-1',
-      }),
-    ).toContain('Nhân viên không thể là người quản lý của chính mình.');
-  });
-
-  it('SET bắt buộc có người quản lý, KEEP thì không được kèm người quản lý', () => {
-    expect(decisionShapeErrors({ ...base, managerMode: 'SET' })[0]).toMatch(
-      /người quản lý trực tiếp mới/,
-    );
-    expect(
-      decisionShapeErrors({ ...base, toManagerEmployeeId: 'emp-2' })[0],
-    ).toMatch(/gán người quản lý mới/);
-  });
-
-  it('chuyển cấp dưới cần người nhận khác nhân viên', () => {
-    expect(
-      decisionShapeErrors({ ...base, subordinateMode: 'REASSIGN' })[0],
-    ).toMatch(/người nhận cấp dưới/i);
-    expect(
-      decisionShapeErrors({
-        ...base,
-        subordinateMode: 'REASSIGN',
-        subordinateTargetEmployeeId: 'emp-1',
-      })[0],
-    ).toMatch(/khác nhân viên/);
   });
 
   it('thay đổi lương cần mức lương và loại lương hợp lệ', () => {
@@ -132,38 +84,7 @@ describe('personnel-decision: decisionShapeErrors', () => {
   });
 });
 
-describe('personnel-decision: wouldCreateCycle', () => {
-  // an -> binh -> chi -> (không ai)
-  const managerOf = new Map<string, string | null>([
-    ['an', 'binh'],
-    ['binh', 'chi'],
-    ['chi', null],
-  ]);
-
-  it('chặn tự báo cáo cho chính mình', () => {
-    expect(wouldCreateCycle(managerOf, 'an', 'an')).toBe(true);
-  });
-
-  it('chặn gán cấp trên của mình làm cấp dưới (vòng gián tiếp)', () => {
-    expect(wouldCreateCycle(managerOf, 'chi', 'an')).toBe(true);
-    expect(wouldCreateCycle(managerOf, 'binh', 'an')).toBe(true);
-  });
-
-  it('cho phép gán sang nhánh khác', () => {
-    expect(wouldCreateCycle(managerOf, 'an', 'chi')).toBe(false);
-    expect(wouldCreateCycle(managerOf, 'dung', 'an')).toBe(false);
-  });
-
-  it('không treo khi dữ liệu có sẵn vòng không liên quan', () => {
-    const broken = new Map<string, string | null>([
-      ['x', 'y'],
-      ['y', 'x'],
-    ]);
-    expect(wouldCreateCycle(broken, 'an', 'x')).toBe(false);
-  });
-});
-
-describe('personnel-decision: số quyết định và ngày', () => {
+describe('personnel-decision: số quyết định', () => {
   it('cấp số tiếp theo trong năm, bỏ qua năm khác và giá trị lạ', () => {
     expect(nextDecisionNumber(2026, [])).toBe('QDNS-2026-0001');
     expect(
@@ -174,11 +95,5 @@ describe('personnel-decision: số quyết định và ngày', () => {
         'QD-TAY-5',
       ]),
     ).toBe('QDNS-2026-0010');
-  });
-
-  it('previousDay lùi một ngày, qua cả ranh giới tháng và năm', () => {
-    expect(previousDay('2026-10-05')).toBe('2026-10-04');
-    expect(previousDay('2026-03-01')).toBe('2026-02-28');
-    expect(previousDay('2026-01-01')).toBe('2025-12-31');
   });
 });

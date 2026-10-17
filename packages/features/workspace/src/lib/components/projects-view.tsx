@@ -18,13 +18,21 @@ import type {
   UpdateWorkItemRequest,
   WorkItem,
   WorkItemDependency,
+  WorkItemStatus,
   WorkItemStatusHistoryEntry,
   WorkItemProcedureRequest,
 } from '@enterprise-platform/contracts-workspace';
-import { WORK_ITEM_STATUS_TRANSITIONS } from '@enterprise-platform/contracts-workspace';
+import {
+  DEFAULT_ROLE_PERMISSIONS,
+  PROJECT_PERMISSIONS,
+  WORK_ITEM_STATUS_TRANSITIONS,
+  type ProjectPermission,
+  type SystemProjectRole,
+} from '@enterprise-platform/contracts-workspace';
 import { CHAT_UNREAD_POLL_MS } from '@enterprise-platform/contracts-workspace';
+import { useRealtimeEvent, type WorkspaceChatSignal } from '@enterprise-platform/shared-ui';
 import { MessageSquare, MoreHorizontal, Plus } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   loadInstance,
@@ -33,11 +41,13 @@ import {
   type ProcedureInstanceView,
   type ProcedureOption,
 } from '../procedure-api';
-import { branchOf } from '../project-tree.model';
+import { sameUnread } from '../chat.model';
+import { branchOf, mergeNewProjectMembers, parentCandidateOptions } from '../project-tree.model';
 import * as api from '../workspace-api';
 import styles from '../workspace.module.scss';
 import { CancelProjectDialog } from './cancel-project-dialog';
 import { CancelWorkItemDialog } from './cancel-work-item-dialog';
+import { DeleteWorkItemDialog } from './delete-work-item-dialog';
 import { ReverseWorkItemDialog } from './reverse-work-item-dialog';
 import { ChatDrawer } from './chat-drawer';
 import { DocumentPanel } from './document-panel';
@@ -57,7 +67,7 @@ import { TabOverview } from './tab-overview';
 import { TabWork } from './tab-work';
 import { useDirectory } from './use-directory';
 import { ChildItems, WorkItemDialog } from './work-item-dialog';
-import { WorkItemForm, type WorkItemCostInput } from './work-item-form';
+import { WorkItemForm } from './work-item-form';
 import { pendingProcedureOf, type PendingProcedure } from '../procedure-pending';
 
 /**
@@ -84,7 +94,9 @@ const TAB_IDS = TABS.map((entry) => entry.id);
  */
 function readUrlNode(): { item?: string; tab: TabId } {
   const params = new URLSearchParams(window.location.search);
-  const tab = params.get('tab') as TabId | null;
+  // Đường dẫn cũ `?tab=vouchers` (tab Thu chi đã gộp vào Tài chính) mở thẳng tab Tài chính.
+  const rawTab = params.get('tab');
+  const tab = (rawTab === 'vouchers' ? 'finance' : rawTab) as TabId | null;
   return {
     item: params.get('item') ?? undefined,
     tab: tab && TAB_IDS.includes(tab) ? tab : 'work-items',
@@ -213,6 +225,7 @@ export function ProjectsView({
   const [cancelling, setCancelling] = useState<ProjectSummary>();
   /** Công việc đang chờ xác nhận huỷ, từ menu chuột phải, bảng hay Kanban. */
   const [cancellingItem, setCancellingItem] = useState<WorkItem>();
+  const [deletingItem, setDeletingItem] = useState<WorkItem>();
   const [reversingItem, setReversingItem] = useState<WorkItem>();
   const [membersOpen, setMembersOpen] = useState(false);
   const [moving, setMoving] = useState<WorkItem>();
@@ -455,7 +468,10 @@ export function ProjectsView({
 
   const refreshUnread = useCallback(async (projectId: string) => {
     try {
-      setUnread(await api.loadUnread(projectId));
+      const next = await api.loadUnread(projectId);
+      // Không gán lại khi không đổi (khỏi vẽ lại cả bảng), và nếu có đổi thì đánh dấu là cập
+      // nhật không khẩn cấp để không chặn khung hình ngay lúc ngăn Trao đổi đang trượt vào.
+      startTransition(() => setUnread((current) => (sameUnread(current, next) ? current : next)));
     } catch {
       // Chấm đỏ là phụ trợ: hỏng thì bỏ qua, không phá cả màn hình.
       setUnread(undefined);
@@ -499,14 +515,36 @@ export function ProjectsView({
       .catch(() => setProjectFolders([]));
   }, [openId, calendarToken]);
 
-  // Không có WebSocket trong repo, nên chấm đỏ cập nhật theo nhịp hỏi lại.
-  // 30 giây là đủ nhanh để không ai bỏ lỡ, và đủ thưa để không dồn tải.
+  // Chấm đỏ cập nhật ngay khi có tín hiệu realtime của dự án đang mở; nhịp hỏi
+  // lại 30 giây chỉ còn là lưới an toàn khi mất kết nối hoặc broker chậm.
   useEffect(() => {
     if (!openId) return;
     void refreshUnread(openId);
     const timer = setInterval(() => void refreshUnread(openId), CHAT_UNREAD_POLL_MS);
     return () => clearInterval(timer);
   }, [openId, refreshUnread]);
+
+  // Nhiều tín hiệu dồn trong chốc lát chỉ cần một lần hỏi lại.
+  const unreadDebounce = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const scheduleUnreadRefresh = useCallback(
+    (projectId: string) => {
+      clearTimeout(unreadDebounce.current);
+      unreadDebounce.current = setTimeout(() => void refreshUnread(projectId), 300);
+    },
+    [refreshUnread],
+  );
+  useEffect(() => () => clearTimeout(unreadDebounce.current), []);
+  useRealtimeEvent(
+    'workspace.chat.changed',
+    (event) => {
+      const signal = event.data as Partial<WorkspaceChatSignal> | undefined;
+      if (openId && signal?.projectId === openId) scheduleUnreadRefresh(openId);
+    },
+    (connected) => {
+      // Nối lại: có thể đã lỡ tín hiệu trong lúc mất kết nối.
+      if (connected && openId) scheduleUnreadRefresh(openId);
+    },
+  );
 
   /**
    * Quy trình người dùng khởi tạo được, lọc theo vai S.
@@ -648,8 +686,26 @@ export function ProjectsView({
   // `myRole` rỗng chỉ xảy ra với quản trị viên tenant: người không phải thành
   // viên và không phải quản trị đã nhận 403 ngay ở lời gọi chi tiết.
   const role = detail?.project.myRole;
-  const canWrite = role === 'owner' || role === 'manager' || role === 'member' || !role;
-  const canManage = role === 'owner' || role === 'manager' || !role;
+  // Quyền theo vai trò do tenant cấu hình. Server bản cũ chưa trả
+  // `myPermissions` thì dùng quyền mặc định của vai hệ thống.
+  const permissions = useMemo<ReadonlySet<ProjectPermission>>(() => {
+    const given =
+      detail?.project.myPermissions ??
+      (role
+        ? ((DEFAULT_ROLE_PERMISSIONS[role as SystemProjectRole] as
+            | readonly ProjectPermission[]
+            | undefined) ?? [])
+        : PROJECT_PERMISSIONS);
+    return new Set(given);
+  }, [detail?.project.myPermissions, role]);
+  const canWrite =
+    permissions.has('project.update_all') || permissions.has('project.update_related');
+  const canManage = permissions.has('project.update_all');
+  const canCancelItem = permissions.has('work_item.cancel');
+  // Xoá hẳn cần giữ vai có quyền xoá trong dự án — quản trị tenant không đi tắt.
+  const canDeleteItem = Boolean(role) && permissions.has('work_item.delete');
+  const canChangeProjectStatus = permissions.has('project.update_status');
+  const canManageMembers = permissions.has('project.manage_members');
 
   /**
    * Kéo tiến độ của hồ sơ quy trình về công việc, mỗi lần mở công việc đó.
@@ -687,11 +743,14 @@ export function ProjectsView({
   }, [selectedItem, procedureRef, detail, canWrite, openId, refreshDetail]);
   const canOwn = role === 'owner' || !role;
 
+  /**
+   * Tin chưa đọc của CHÍNH luồng chat cấp dự án. Nút Trao đổi ở đầu trang mở đúng luồng này, nên số trên
+   * nút phải mất khi mở nó; tin chưa đọc ở các công việc bên dưới đã có chấm đỏ riêng trên cây node.
+   */
+  const projectChatUnread = (openId ? unread?.byNode[openId] : undefined) ?? 0;
   /** Tin chưa đọc của node đang chọn, để đánh số lên nút Trao đổi. */
   const nodeUnread =
-    selected.kind === 'project'
-      ? (unread?.total ?? 0)
-      : (unread?.rolledUp[selected.id] ?? 0);
+    selected.kind === 'project' ? projectChatUnread : (unread?.rolledUp[selected.id] ?? 0);
 
   /* --------------------------------------------------- Menu chuột phải */
 
@@ -734,7 +793,7 @@ export function ProjectsView({
         label: 'Đánh dấu hoàn thành',
         disabled: !canWrite || (item?.status !== 'in_progress' && item?.status !== 'review'),
       },
-      { id: 'move-to', label: 'Chuyển sang nhóm khác…', disabled: !canManage },
+      { id: 'move-to', label: 'Di chuyển…', disabled: !canManage },
       { id: 'move-to-root', label: 'Đưa lên cấp gốc', disabled: !canManage || !item?.parentId },
       ...(item && pendingProcedure.has(item.id)
         ? [
@@ -755,8 +814,20 @@ export function ProjectsView({
         // Chỉ khi luật chuyển trạng thái cho phép: việc đã xong không huỷ được
         // (server từ chối) — việc xong mà sai thì dùng "Huỷ hiệu lực".
         disabled:
-          !canWrite || !item || !WORK_ITEM_STATUS_TRANSITIONS[item.status].includes('cancelled'),
+          !canWrite ||
+          !canCancelItem ||
+          !item ||
+          !WORK_ITEM_STATUS_TRANSITIONS[item.status].includes('cancelled'),
         separatorBefore: true,
+      },
+      {
+        // Xoá hẳn (cả nhánh con) — không hoàn tác, nên chỉ vai có quyền "Có
+        // thể xoá công việc" (mặc định chủ nhiệm); quản trị tenant cũng phải giữ
+        // vai đó. Khác "Huỷ công việc" ở trên (đổi trạng thái, mở lại được).
+        id: 'delete-item',
+        label: 'Xoá công việc',
+        danger: true,
+        disabled: !canDeleteItem || !item,
       },
       // Việc đã hoàn thành không mở lại; chủ nhiệm hoặc quản trị huỷ hiệu lực.
       ...(item?.status === 'done' && canOwn
@@ -839,6 +910,10 @@ export function ProjectsView({
         // Hỏi lại kèm lý do — xem CancelWorkItemDialog.
         if (item) setCancellingItem(item);
         return;
+      case 'delete-item':
+        // Xoá hẳn: hỏi lại bằng mã công việc — xem DeleteWorkItemDialog.
+        if (item) setDeletingItem(item);
+        return;
       case 'reverse-item':
         if (item) setReversingItem(item);
         return;
@@ -862,7 +937,33 @@ export function ProjectsView({
 
   /* ------------------------------------------------------------ Render */
 
-  const openItem = (item: WorkItem) => goToItem(item.id);
+  // Các hàm truyền cho bảng công việc phải ổn định giữa các lần vẽ: `TabWork` được bọc
+  // `memo`, nên chỉ khi chúng ổn định thì bật/tắt ngăn Trao đổi mới không vẽ lại cả
+  // bảng 600+ dòng (từng gây giật ~150–400ms mỗi lần bấm nút Trao đổi).
+  const openItem = useCallback((item: WorkItem) => goToItem(item.id), [goToItem]);
+  const openItemForm = useCallback(() => setItemForm({ open: true }), []);
+  const openItemMenu = useCallback(
+    (item: WorkItem, at: { x: number; y: number }) =>
+      setMenu({ ...at, node: { kind: 'work-item', id: item.id } }),
+    [],
+  );
+  const openProjectId = detail?.project.id;
+  const changeItemStatus = useCallback(
+    async (item: WorkItem, next: WorkItemStatus) => {
+      // Kéo sang cột Đã huỷ cũng phải qua bước xác nhận.
+      if (next === 'cancelled') {
+        if (!canCancelItem) {
+          setError('Vai trò của bạn trong dự án chưa có quyền huỷ công việc.');
+          return;
+        }
+        setCancellingItem(item);
+        return;
+      }
+      await api.changeWorkItemStatus(item.id, { status: next });
+      if (openProjectId) await refreshDetail(openProjectId);
+    },
+    [canCancelItem, openProjectId, refreshDetail],
+  );
 
   /** Con số nhỏ cạnh tên tab, như bản thiết kế: số công việc, số tài liệu. */
   const tabCount = (id: TabId) =>
@@ -882,8 +983,8 @@ export function ProjectsView({
                 type="button"
                 className={styles.buttonGhost}
                 aria-label={
-                  (unread?.total ?? 0) > 0
-                    ? `Trao đổi, ${unread?.total} tin chưa đọc`
+                  projectChatUnread > 0
+                    ? `Trao đổi, ${projectChatUnread} tin chưa đọc`
                     : 'Trao đổi'
                 }
                 onClick={() => {
@@ -892,8 +993,8 @@ export function ProjectsView({
                 }}
               >
                 <MessageSquare size={15} /> Trao đổi
-                {(unread?.total ?? 0) > 0 ? (
-                  <span className={styles.countBadge}>{unread?.total}</span>
+                {projectChatUnread > 0 ? (
+                  <span className={styles.countBadge}>{projectChatUnread}</span>
                 ) : null}
               </button>
               <button
@@ -955,6 +1056,13 @@ export function ProjectsView({
             members={detail.members}
             documentCount={projectDocuments.length}
             onOpenMembers={() => setMembersOpen(true)}
+            canChangeStatus={canChangeProjectStatus}
+            onChangeStatus={(status) =>
+              run(
+                () => api.updateProject(detail.project.id, { status }),
+                'Không đổi được trạng thái dự án.',
+              )
+            }
           />
 
           <div className={styles.tabBar} role="tablist" aria-label="Mục của dự án">
@@ -987,17 +1095,9 @@ export function ProjectsView({
               canWrite={canWrite}
               currentUserId={me}
               onOpen={openItem}
-              onAddRoot={() => setItemForm({ open: true })}
-              onMenu={(item, at) => setMenu({ ...at, node: { kind: 'work-item', id: item.id } })}
-              onChangeStatus={async (item, next) => {
-                // Kéo sang cột Đã huỷ cũng phải qua bước xác nhận.
-                if (next === 'cancelled') {
-                  setCancellingItem(item);
-                  return;
-                }
-                await api.changeWorkItemStatus(item.id, { status: next });
-                await refreshDetail(detail.project.id);
-              }}
+              onAddRoot={openItemForm}
+              onMenu={openItemMenu}
+              onChangeStatus={changeItemStatus}
             />
           ) : null}
           {tab === 'calendar' ? (
@@ -1114,7 +1214,7 @@ export function ProjectsView({
             externalRefs={detail.externalRefs}
             externalDegraded={detail.externalDegraded}
             procedurePending={pendingProcedure.get(selectedItem.id)}
-            canManageMembers={canManage}
+            canManageMembers={canManageMembers}
             onManageMembers={() => setMembersOpen(true)}
             dependencies={detail.dependencies}
             // Việc đã huỷ hiệu lực là hồ sơ đóng: không nối thêm phụ thuộc.
@@ -1160,7 +1260,6 @@ export function ProjectsView({
         }
         members={detail?.members ?? []}
         canWrite={canWrite}
-        canModerate={canManage}
         documents={projectDocuments}
         folders={projectFolders}
         projectId={openId}
@@ -1176,11 +1275,20 @@ export function ProjectsView({
         onClose={() => setProjectForm({ open: false })}
         // Người tạo tự thành chủ nhiệm, nên luôn được đặt giá trị hợp đồng.
         financeEnabled={projectForm.edit ? Boolean(detail?.project.finance) : true}
-        onCreate={async (input: CreateProjectRequest, contractValue) => {
+        onCreate={async (input: CreateProjectRequest, contractValue, members) => {
           const created = await api.createProject(input);
           // Số tiền đi đường riêng: endpoint tài chính có hàng rào quyền khác.
           if (contractValue !== undefined) {
             await api.updateProjectFinance(created.id, { contractValue });
+          }
+          // Thành viên cũng đi đường riêng (PUT .../members) — endpoint này thay
+          // cả danh sách và cần đúng một chủ nhiệm, nên phải gộp cùng người tạo
+          // (đã là chủ nhiệm) thay vì gửi mỗi người mới.
+          if (members && members.length > 0) {
+            const existing = await api.listMembers(created.id);
+            await api.setMembers(created.id, {
+              members: mergeNewProjectMembers(existing.items, members),
+            });
           }
           await refreshList();
           onProjectsChanged?.();
@@ -1202,42 +1310,30 @@ export function ProjectsView({
         open={itemForm.open}
         item={itemForm.edit}
         parent={itemForm.parent}
+        parentOptions={parentCandidateOptions(detail?.items ?? [])}
+        defaultParentId={itemForm.parent?.id}
         members={detail?.members ?? []}
         currentUserId={me}
         canAssignOthers={canManage}
-        // Có `project.finance` nghĩa là server đã xác nhận người dùng được
-        // xem tài chính; không có thì hai ô chi phí không được dựng.
-        financeEnabled={Boolean(detail?.project.finance)}
-        initialCost={
-          itemForm.edit
-            ? detail?.project.finance?.items.find(
-                (entry) => entry.workItemId === itemForm.edit?.id,
-              )
-            : undefined
-        }
         adjustmentOf={itemForm.adjustmentOf}
         onClose={() => setItemForm({ open: false })}
         onCreate={async (
           input: Omit<CreateWorkItemRequest, 'projectId'>,
           procedureDefinitionId?: string,
-          costs?: WorkItemCostInput,
         ) => {
           if (!detail) return;
           // Tạo công việc; chọn "Theo quy trình" thì gửi kèm quy trình — Workspace
           // ghi yêu cầu và phát sự kiện, hồ sơ do Quy trình tự mở rồi báo về.
-          const created = await api.createWorkItem({
+          await api.createWorkItem({
             ...input,
             projectId: detail.project.id,
             procedureDefinitionId,
           });
-          // Chi phí đi qua endpoint riêng, không chung payload với công việc.
-          if (costs) await api.updateWorkItemCost(created.id, costs);
           await refreshDetail(detail.project.id);
         }}
-        onUpdate={async (input: UpdateWorkItemRequest, costs?: WorkItemCostInput) => {
+        onUpdate={async (input: UpdateWorkItemRequest) => {
           if (!itemForm.edit || !detail) return;
           await api.updateWorkItem(itemForm.edit.id, input);
-          if (costs) await api.updateWorkItemCost(itemForm.edit.id, costs);
           await refreshDetail(detail.project.id);
         }}
       />
@@ -1324,6 +1420,32 @@ export function ProjectsView({
           await api.changeWorkItemStatus(item.id, { status: 'cancelled', note: note || undefined });
           setCancellingItem(undefined);
           if (openId) await refreshDetail(openId);
+        }}
+      />
+
+      <DeleteWorkItemDialog
+        item={deletingItem}
+        descendants={
+          deletingItem
+            ? branchOf(detail?.items ?? [], deletingItem.id).size - 1
+            : 0
+        }
+        onClose={() => setDeletingItem(undefined)}
+        onConfirm={async (item) => {
+          // Lỗi ném ra để hộp thoại tự hiện.
+          await api.deleteWorkItem(item.id);
+          // Đang đứng trong nhánh vừa xoá thì về lại chính dự án, kẻo trỏ vào
+          // node không còn tồn tại.
+          if (
+            selected.kind === 'work-item' &&
+            branchOf(detail?.items ?? [], item.id).has(selected.id)
+          ) {
+            setSelected({ kind: 'project' });
+          }
+          setDeletingItem(undefined);
+          if (openId) await refreshDetail(openId);
+          await refreshList();
+          onProjectsChanged?.();
         }}
       />
 

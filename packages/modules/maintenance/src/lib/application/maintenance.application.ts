@@ -6,6 +6,9 @@ import type {
   MaintenanceMatrix,
   MaintenanceMatrixAsset,
   MaintenanceMatrixRow,
+  MaintenanceFleetAvailability,
+  MaintenanceTransport,
+  MaintenanceTransportInput,
   MaintenanceWorkspace,
   SaveMaintenanceMatrixRequest,
   SaveMaintenanceMatrixResult,
@@ -25,6 +28,7 @@ import {
   normalizeMaintenanceSetting,
 } from './maintenance-settings.js';
 import type { AssetDirectory } from './asset-directory.port.js';
+import { parseTransport, type FleetTransportService } from './fleet-transport.service.js';
 import type { MaintenanceActor, MaintenanceStore } from './maintenance-store.port.js';
 
 const PRIORITIES: ReadonlySet<string> = new Set(['High', 'Normal', 'Low']);
@@ -40,7 +44,46 @@ export class MaintenanceApplication {
   constructor(
     private readonly store: MaintenanceStore,
     private readonly assets?: AssetDirectory,
+    private readonly fleet?: FleetTransportService,
   ) {}
+
+  /** Xe và tài xế còn trống (kèm khoảng bận) trong một khung giờ; dữ liệu do HRM trả lời. */
+  fleetAvailability(
+    actor: MaintenanceActor,
+    query: { from?: string; to?: string; excludeIncidentId?: string },
+  ): Promise<MaintenanceFleetAvailability> {
+    return this.requireFleet().availability(actor, query);
+  }
+
+  /** Phương tiện hiện có của một phiếu sự cố (`null` nếu chưa chọn). */
+  incidentTransport(actor: MaintenanceActor, incidentId: string): Promise<MaintenanceTransport | null> {
+    return this.requireFleet().find(actor, incidentId);
+  }
+
+  /** Đổi hoặc bỏ phương tiện của phiếu sự cố đang xử lý (`null` bỏ và trả xe). */
+  async setIncidentTransport(
+    actor: MaintenanceActor,
+    incidentId: string,
+    transport: MaintenanceTransportInput | null,
+  ): Promise<MaintenanceTransport | null> {
+    this.requireOccurrenceHandler(actor);
+    const fleet = this.requireFleet();
+    const incident = await this.store.findOccurrence(actor.tenantId, incidentId);
+    if (!incident || incident.kind !== 'incident') {
+      throw new MaintenanceError('not_found', 'Không tìm thấy phiếu sự cố.');
+    }
+    if (incident.status === 'completed') {
+      throw new MaintenanceError('conflict', 'Phiếu đã hoàn thành, không đổi phương tiện được.');
+    }
+    const parsed = transport === null ? null : parseTransport(transport);
+    await fleet.apply(actor, { id: incident.id, label: `${incident.code ?? ''} ${incident.title ?? ''}`.trim() }, parsed);
+    return fleet.find(actor, incident.id);
+  }
+
+  private requireFleet(): FleetTransportService {
+    if (!this.fleet) throw new MaintenanceError('unavailable', 'Chưa kết nối được lịch xe.');
+    return this.fleet;
+  }
 
   /**
    * Ma trận bảo trì: hàng là thiết bị (lấy từ Kho), cột là chu kỳ. Một thiết bị
@@ -345,7 +388,16 @@ export class MaintenanceApplication {
       }
     }
 
-    return this.store.createIncident(actor.tenantId, actor, { ...input, assetCode });
+    // Kiểm hình thức phương tiện trước khi lưu phiếu để lỗi nhập liệu không để lại phiếu dở dang.
+    const { transport, ...incidentInput } = input;
+    const parsedTransport = transport ? parseTransport(transport) : undefined;
+    const created = await this.store.createIncident(actor.tenantId, actor, { ...incidentInput, assetCode });
+    await this.fleet?.apply(
+      actor,
+      { id: created.id, label: `${created.code ?? ''} ${created.title ?? ''}`.trim() },
+      parsedTransport,
+    );
+    return created;
   }
 
   createSchedule(actor: MaintenanceActor, input: CreateMaintenanceScheduleRequest) {

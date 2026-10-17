@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { AlertTriangle } from 'lucide-react';
+import { formatDate } from '@enterprise-platform/shared-ui';
 import { hrmFetch } from '../hrm-api';
 import { formatLeaveNumber } from './leave-ledger-format';
 
@@ -57,7 +58,7 @@ export function LeaveSettlementPreview({
     <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs">
       <p className="font-semibold text-slate-700">
         Quyết toán phép năm đến ngày làm việc cuối
-        {data.lines[0] ? ` (${data.lines[0].lastWorkingDay})` : ''}
+        {data.lines[0] ? ` (${formatDate(data.lines[0].lastWorkingDay, data.lines[0].lastWorkingDay)})` : ''}
       </p>
       {data.blockers.map((b) => (
         <p

@@ -108,6 +108,7 @@ function FilterSelect({
   return (
     <div className="min-w-0 flex-1 basis-44 @2xl:w-52 @2xl:flex-none" aria-label={label} role="group">
       <SearchableSelect
+        height={36}
         value={value}
         options={options}
         clearable={false}
@@ -245,7 +246,7 @@ export function SitesPanel({
     {
       id: 'coords',
       header: 'Tọa độ',
-      cell: (r) => <span className="font-mono text-[11px]">{`${r.latitude}, ${r.longitude}`}</span>,
+      cell: (r) => <span className="font-mono text-[12px]">{`${r.latitude}, ${r.longitude}`}</span>,
     },
     { id: 'radius', header: 'Bán kính', cell: (r) => `${r.radius_meters} m` },
     {

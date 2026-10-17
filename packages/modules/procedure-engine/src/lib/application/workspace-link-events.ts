@@ -7,7 +7,12 @@ import {
   INSTANCE_REVERSAL_FAILED,
   HRM_REQUEST_REVERSED,
   PROJECT_REQUEST_REVERSAL_REQUESTED,
+  STANDALONE_TASK_PROCEDURE_REQUESTED,
+  STANDALONE_TASK_REVERSED,
+  STANDALONE_TASK_START_REJECTED_EVENT,
   type HrmRequestReversedPayload,
+  type StandaloneTaskProcedureRequestedPayload,
+  type StandaloneTaskReversedPayload,
   type ProjectRequestReversalRequestedPayload,
   type WorkItemReversedPayload,
   type WorkItemProcedureLinkedPayload,
@@ -25,6 +30,8 @@ export const PROCEDURE_WORKSPACE_EVENT_TYPES = [
   WORK_ITEM_REVERSED,
   PROJECT_REQUEST_REVERSAL_REQUESTED,
   HRM_REQUEST_REVERSED,
+  STANDALONE_TASK_PROCEDURE_REQUESTED,
+  STANDALONE_TASK_REVERSED,
 ] as const;
 
 /** Phát một sự kiện tích hợp qua outbox của Quy trình. */
@@ -59,6 +66,29 @@ export class ProcedureWorkspaceEvents {
           payload: { workItemId: request.workItemId, reason: outcome.reason },
         });
       }
+    } else if (type === STANDALONE_TASK_PROCEDURE_REQUESTED) {
+      const request = payload as StandaloneTaskProcedureRequestedPayload;
+      const outcome = await this.procedures.startForWorkspaceStandaloneTask(tenantId, request);
+      // Mở được thì sự kiện "đã mở" được store phát cùng transaction tạo hồ sơ.
+      if (!outcome.ok) {
+        await this.emit(tenantId, {
+          type: STANDALONE_TASK_START_REJECTED_EVENT,
+          aggregateType: 'workspace-standalone-task',
+          aggregateId: request.taskId,
+          payload: { taskId: request.taskId, reason: outcome.reason },
+        });
+      }
+    } else if (type === STANDALONE_TASK_REVERSED) {
+      // Workspace đã hỏi trước (reversal-check) nên thường huỷ được.
+      const reversed = payload as StandaloneTaskReversedPayload;
+      if (!reversed.instanceId) return;
+      await this.reverseOrReport(tenantId, reversed.instanceId, {
+        reason: `Công việc ${reversed.taskCode} bị huỷ hiệu lực: ${reversed.reason}`,
+        createAdjustment: false,
+        reversedBy: reversed.reversedBy,
+        reversedByName: reversed.reversedByName,
+        origin: { label: `công việc ${reversed.taskCode}` },
+      });
     } else if (type === WORK_ITEM_PROCEDURE_LINKED) {
       const linked = payload as WorkItemProcedureLinkedPayload;
       await this.procedures.applyWorkspaceLinkResult(tenantId, {

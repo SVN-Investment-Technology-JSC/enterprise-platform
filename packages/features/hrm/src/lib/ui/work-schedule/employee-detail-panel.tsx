@@ -64,9 +64,9 @@ export function EmployeeDetailPanel({
     >
       <div className="flex shrink-0 items-start justify-between gap-2 border-b border-slate-200 bg-slate-50 px-4 py-3">
         <div className="min-w-0">
-          <div className="font-mono text-[11px] font-semibold text-blue-700">{employee.code}</div>
+          <div className="font-mono text-[12px] font-semibold text-blue-700">{employee.code}</div>
           <div className="truncate text-sm font-bold text-slate-900">{employee.name}</div>
-          <div className="truncate text-[11px] text-slate-500">{employee.unitName ?? 'Chưa gán đơn vị'}</div>
+          <div className="truncate text-[12px] text-slate-500">{employee.unitName ?? 'Chưa gán đơn vị'}</div>
         </div>
         <Button variant="ghost" size="icon-sm" aria-label="Đóng chi tiết nhân viên" onClick={onClose}>
           <X className="size-4" aria-hidden />
@@ -97,7 +97,7 @@ export function EmployeeDetailPanel({
               {rules.map((rule) => (
                 <li key={rule.id} className="rounded border border-sky-200 bg-sky-50 px-2 py-1 text-xs text-sky-900">
                   <div className="font-semibold">{summarizeRuleDays(rule.days)}</div>
-                  <div className="text-[11px] text-sky-700">
+                  <div className="text-[12px] text-sky-700">
                     {ruleRangeText(rule.effectiveFrom, rule.effectiveTo)}
                     {rule.templateName ? ` | ${rule.templateName}` : ''}
                   </div>
@@ -123,7 +123,7 @@ export function EmployeeDetailPanel({
                 <span className="truncate font-semibold">
                   {run.dayType === 'SHIFT' ? run.shiftCode : DAY_TYPE_LABELS[run.dayType]}
                 </span>
-                <span className="text-[11px] text-slate-500">{SOURCE_LABELS[run.source]}</span>
+                <span className="text-[12px] text-slate-500">{SOURCE_LABELS[run.source]}</span>
               </li>
             ))}
           </ul>

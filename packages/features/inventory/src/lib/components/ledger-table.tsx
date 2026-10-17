@@ -1,11 +1,13 @@
 'use client';
 
 import type { Material, TransactionType } from '@enterprise-platform/contracts-inventory';
+import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import { useMemo, useState } from 'react';
 import type { InventoryLedgerRow } from '../inventory-api';
 import {
   TRANSACTION_TYPE_LABEL,
   formatDateTime,
+  formatNoteDates,
   formatNumber,
   referenceLabel,
 } from '../inventory-labels';
@@ -78,11 +80,15 @@ export function LedgerTable({
         </label>
         <label>
           Từ ngày
-          <input type="date" value={from} onChange={(event) => setFrom(event.target.value)} />
+          <div style={{ minWidth: '9.5rem' }}>
+            <DatePickerInput value={from} onChange={setFrom} height={34} />
+          </div>
         </label>
         <label>
           Đến ngày
-          <input type="date" value={to} onChange={(event) => setTo(event.target.value)} />
+          <div style={{ minWidth: '9.5rem' }}>
+            <DatePickerInput value={to} onChange={setTo} height={34} />
+          </div>
         </label>
         {filtered ? (
           <button
@@ -125,7 +131,7 @@ export function LedgerTable({
                     {materialById.get(entry.materialId)?.isActive === false ? (
                       <span
                         style={{
-                          fontSize: '10px',
+                          fontSize: '12px',
                           padding: '1px 5px',
                           borderRadius: '4px',
                           background: '#f1f5f9',
@@ -151,7 +157,7 @@ export function LedgerTable({
                 </td>
                 <td>
                   {referenceLabel(entry.referenceType)}
-                  {entry.note ? <span className={styles.sub}>{entry.note}</span> : null}
+                  {entry.note ? <span className={styles.sub}>{formatNoteDates(entry.note)}</span> : null}
                 </td>
               </tr>
             ))}

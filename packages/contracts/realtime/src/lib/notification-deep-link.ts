@@ -24,10 +24,10 @@ export function notificationDeepLink(value: string | undefined): string | undefi
       catch { return undefined; }
     }
   }
-  if (path === '/account/security') return '/tenant/login';
+  if (path === '/account/security') return '/login';
   if (path === '/settings/modules') return '/applications';
   if (['/workspace', '/inventory', '/maintenance'].includes(path)) return `/modules${path}${url.search}${url.hash}`;
-  if (/^\/modules\/(procedure|workspace|hrm|inventory|maintenance)(\/|$)/.test(path) ||
-      ['/applications', '/tenant/login'].includes(path)) return `${path}${url.search}${url.hash}`;
+  if (/^\/modules\/(procedure|workspace|hrm|finance|inventory|maintenance)(\/|$)/.test(path) ||
+      ['/applications', '/login'].includes(path)) return `${path}${url.search}${url.hash}`;
   return undefined;
 }

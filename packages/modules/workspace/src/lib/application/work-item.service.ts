@@ -20,6 +20,7 @@ import {
   type WorkItemProcedureRequest,
 } from '@enterprise-platform/contracts-workspace';
 import {
+  autoCompleteParents,
   isClosed,
   projectProgress,
   rollUpProgress,
@@ -41,8 +42,15 @@ import {
   WorkItemNotFoundError,
   WorkspaceValidationError,
 } from '../domain/workspace.error.js';
-import { hasProjectRole, requireProjectRole, type ProjectService } from './project.service.js';
+import {
+  hasProjectPermission,
+  hasProjectRole,
+  requireProjectPermission,
+  requireProjectRole,
+  type ProjectService,
+} from './project.service.js';
 import { timezoneOf, todayKey } from '../domain/tenant-time.js';
+import { parseTransport, type FleetTransportService } from './fleet-transport.service.js';
 import type { ProcedureReversalChecker } from './procedure-reversal-check.port.js';
 import type { WorkspaceActor } from './workspace.application.js';
 import type { WorkspaceStore } from './workspace-store.port.js';
@@ -65,20 +73,35 @@ export class WorkItemService {
     private readonly store: WorkspaceStore,
     private readonly projects: ProjectService,
     private readonly procedureReversal?: ProcedureReversalChecker,
+    private readonly fleet?: FleetTransportService,
   ) {}
 
   /** Toàn bộ cây WBS của một dự án, trả phẳng kèm `parentId` và `depth`. */
   async tree(actor: WorkspaceActor, projectId: string): Promise<WorkItemTree> {
-    await this.projects.access(actor, projectId);
-    const [items, procedureRequests] = await Promise.all([
+    const access = await this.projects.access(actor, projectId);
+    const [all, procedureRequests] = await Promise.all([
       this.store.workItem.listByProject(actor.tenantId, projectId),
       this.store.procedureRequest.listByProject(actor.tenantId, projectId),
     ]);
-    return { items, procedureRequests };
+    if (hasProjectPermission(access, 'project.view_all')) return { items: all, procedureRequests };
+    // Chỉ "Xem dự án liên quan": việc của mình, kèm nhánh cha (để thấy nằm ở
+    // đâu) và nhánh con (việc mình phụ trách bao trùm).
+    const items = relatedItems(all, actor.userId);
+    const visible = new Set(items.map((item) => item.id));
+    return {
+      items,
+      procedureRequests: procedureRequests.filter((request) => visible.has(request.workItemId)),
+    };
   }
 
   async detail(actor: WorkspaceActor, workItemId: string): Promise<WorkItem> {
-    const { item } = await this.load(actor, workItemId);
+    const { item, access } = await this.load(actor, workItemId);
+    if (!hasProjectPermission(access, 'project.view_all')) {
+      const all = await this.store.workItem.listByProject(actor.tenantId, item.projectId);
+      if (!relatedItems(all, actor.userId).some((node) => node.id === item.id)) {
+        throw new WorkItemNotFoundError(workItemId);
+      }
+    }
     return item;
   }
 
@@ -154,9 +177,12 @@ export class WorkItemService {
       access.project.id,
       input.adjustmentOfId,
     );
+    // Kiểm hình thức phương tiện trước khi lưu công việc để lỗi nhập liệu không để lại công việc dở dang.
+    const { transport, ...itemInput } = input;
+    const parsedTransport = transport ? parseTransport(transport) : undefined;
 
     const created = await this.store.workItem.create(actor.tenantId, actor.userId, {
-      ...input,
+      ...itemInput,
       adjustmentOfId,
       procedureDefinitionId,
       participantUserIds,
@@ -182,12 +208,21 @@ export class WorkItemService {
     });
 
     await this.recalculate(actor, access.project.id);
+    await this.fleet?.apply(
+      actor,
+      { sourceType: 'WORK_ITEM', sourceId: created.id, label: `${created.code} ${created.title}` },
+      parsedTransport,
+    );
     return created;
   }
 
   /**
-   * Gửi lại yêu cầu mở hồ sơ (Thử lại) cho công việc "Theo quy trình" chưa có
-   * hồ sơ — lần trước bị từ chối, hoặc công việc tạo trước khi có luồng sự kiện.
+   * Yêu cầu mở hồ sơ quy trình cho một công việc chưa có hồ sơ: nút "Quy
+   * trình" trên đầu công việc, hoặc Thử lại khi lần trước bị từ chối.
+   *
+   * Việc tạo ở dạng "Thủ công" cũng mở được, như trước khi chuyển sang luồng
+   * sự kiện; khi đó store chuyển nó sang "Theo quy trình" cùng transaction để
+   * cây và badge chờ theo dõi được hồ sơ.
    */
   async requestProcedure(
     actor: WorkspaceActor,
@@ -196,8 +231,12 @@ export class WorkItemService {
   ): Promise<WorkItemProcedureRequest> {
     const { item, access } = await this.load(actor, workItemId);
     requireProjectRole(access, 'member');
-    if (item.executionType !== 'procedure') {
-      throw new WorkspaceValidationError('Công việc này không chạy theo quy trình.');
+    // Cùng luật với lúc tạo: nhóm công việc chỉ là vỏ chứa, không chạy quy trình.
+    if (item.itemType === 'phase') {
+      throw new WorkspaceValidationError('Nhóm công việc không chạy theo quy trình.');
+    }
+    if (item.status === 'cancelled' || item.reversal) {
+      throw new WorkspaceValidationError('Công việc đã huỷ, không mở quy trình được.');
     }
     const refs = await this.store.externalRef.listByEntity(actor.tenantId, 'work_item', item.id);
     if (refs.some((ref) => ref.moduleKey === 'procedure-engine')) {
@@ -233,7 +272,10 @@ export class WorkItemService {
       );
     }
 
-    const patch: UpdateWorkItemRequest = { ...input };
+    const { transport, ...patchInput } = input;
+    const patch: UpdateWorkItemRequest = { ...patchInput };
+    // `undefined`: giữ nguyên · `null`: bỏ phương tiện · còn lại: kiểm hình thức trước khi lưu.
+    const parsedTransport = transport === undefined ? undefined : transport === null ? null : parseTransport(transport);
     if (input.title !== undefined) {
       Object.assign(patch, { title: requireText(input.title, 'Tên công việc', 200) });
     }
@@ -292,6 +334,11 @@ export class WorkItemService {
       actor.userId,
     );
     await this.recalculate(actor, item.projectId);
+    await this.fleet?.apply(
+      actor,
+      { sourceType: 'WORK_ITEM', sourceId: updated.id, label: `${updated.code} ${updated.title}` },
+      parsedTransport,
+    );
     return updated;
   }
 
@@ -316,6 +363,9 @@ export class WorkItemService {
     }
     // `viewer` chỉ đọc, kể cả với việc gán cho chính họ.
     requireProjectRole(access, 'member');
+    if (next === 'cancelled' && next !== item.status) {
+      requireProjectPermission(access, 'work_item.cancel');
+    }
 
     if (next === item.status) return item;
     if (item.reversal) {
@@ -378,6 +428,8 @@ export class WorkItemService {
       todayKey(timezoneOf(actor.tenantId)),
     );
     await this.recalculate(actor, item.projectId);
+    // Công việc bị huỷ thì trả xe đã giữ.
+    if (next === 'cancelled') await this.fleet?.release(actor.tenantId, 'WORK_ITEM', workItemId);
     return updated;
   }
 
@@ -712,10 +764,32 @@ export class WorkItemService {
     const changed = rollUpProgress(nodes);
     await this.store.workItem.applyProgress(actor.tenantId, changed);
 
+    // Công việc cha tự hoàn thành khi mọi việc con đã xong. Gọi thẳng store
+    // (không qua `changeStatus` của service) nên không lặp lại recalculate, và
+    // cũng không vướng hàng rào "việc con chưa đóng" — ở đây con đã xong hết.
+    const toComplete = autoCompleteParents(nodes);
+    if (toComplete.size > 0) {
+      const today = todayKey(timezoneOf(actor.tenantId));
+      for (const parentId of toComplete) {
+        await this.store.workItem.changeStatus(
+          actor.tenantId,
+          parentId,
+          actor.userId,
+          'done',
+          'Tự động hoàn thành khi mọi công việc con đã xong.',
+          today,
+        );
+      }
+    }
+
     // Dùng giá trị vừa tính, không đọc lại từ CSDL: bản ghi vừa ghi xong.
     const updated = nodes.map((node) => ({
       ...node,
-      progressPercent: changed.get(node.id) ?? node.progressPercent,
+      // Cha vừa tự hoàn thành thì tiến độ coi như 100% cho phép tính dự án.
+      status: toComplete.has(node.id) ? 'done' : node.status,
+      progressPercent: toComplete.has(node.id)
+        ? 100
+        : (changed.get(node.id) ?? node.progressPercent),
     }));
     await this.store.project.updateProgress(actor.tenantId, projectId, projectProgress(updated));
   }
@@ -724,6 +798,40 @@ export class WorkItemService {
 /** Việc của một người: họ phụ trách hoặc cùng thực hiện. */
 function isOwnItem(item: WorkItem, userId: string): boolean {
   return item.assigneeUserId === userId || (item.participantUserIds ?? []).includes(userId);
+}
+
+/**
+ * Phần cây một người "liên quan": việc họ phụ trách, cùng làm hoặc tự tạo,
+ * cộng mọi node cha và node con của những việc đó. Giữ thứ tự gốc.
+ */
+export function relatedItems(items: readonly WorkItem[], userId: string): WorkItem[] {
+  const byId = new Map(items.map((item) => [item.id, item]));
+  const children = new Map<string, WorkItem[]>();
+  for (const item of items) {
+    if (!item.parentId) continue;
+    const list = children.get(item.parentId) ?? [];
+    list.push(item);
+    children.set(item.parentId, list);
+  }
+  const keep = new Set<string>();
+  const addDescendants = (id: string) => {
+    for (const child of children.get(id) ?? []) {
+      if (keep.has(child.id)) continue;
+      keep.add(child.id);
+      addDescendants(child.id);
+    }
+  };
+  for (const item of items) {
+    if (!isOwnItem(item, userId) && item.createdBy !== userId) continue;
+    keep.add(item.id);
+    addDescendants(item.id);
+    let parent = item.parentId ? byId.get(item.parentId) : undefined;
+    while (parent && !keep.has(parent.id)) {
+      keep.add(parent.id);
+      parent = parent.parentId ? byId.get(parent.parentId) : undefined;
+    }
+  }
+  return items.filter((item) => keep.has(item.id));
 }
 
 /** Bỏ trùng, bỏ rỗng; người phụ trách đã có chỗ riêng nên không lặp lại ở đây. */

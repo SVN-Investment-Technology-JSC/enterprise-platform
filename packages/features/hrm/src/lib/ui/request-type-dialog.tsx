@@ -128,6 +128,7 @@ export function RequestTypeDialog({
   const [description, setDescription] = useState(row?.description ?? '');
   const [timeMode, setTimeMode] = useState<HrmRequestTimeMode>(row?.timeMode ?? 'RANGE_DATETIME');
   const [requiresAttachment, setRequiresAttachment] = useState(row?.requiresAttachment ?? false);
+  const [requiresTransport, setRequiresTransport] = useState(row?.requiresTransport ?? false);
   const [active, setActive] = useState(row?.active ?? true);
   const [fields, setFields] = useState<FieldRow[]>(toRows(row?.fields));
   const [busy, setBusy] = useState(false);
@@ -167,6 +168,7 @@ export function RequestTypeDialog({
           ...common,
           timeMode,
           requiresAttachment,
+          requiresTransport,
           fields: buildFieldDefinitions(fields),
         };
     setBusy(true);
@@ -284,6 +286,7 @@ export function RequestTypeDialog({
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <LeaveField label="Thời gian của đơn" required hint={modeHint}>
                     <SearchableSelect
+                      height={36}
                       value={timeMode}
                       placeholder="Chọn cách nhập thời gian"
                       disabled={busy}
@@ -301,8 +304,22 @@ export function RequestTypeDialog({
                     />
                     <div>
                       <p className="text-xs font-medium text-slate-700">Cần chứng từ</p>
-                      <p className="text-[11px] leading-snug text-slate-500">Người làm đơn phải đính kèm chứng từ.</p>
+                      <p className="text-[12px] leading-snug text-slate-500">Người làm đơn phải đính kèm chứng từ.</p>
                     </div>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3">
+                  <LeaveSwitch
+                    label="Cần phương tiện"
+                    checked={requiresTransport}
+                    disabled={busy}
+                    onChange={setRequiresTransport}
+                  />
+                  <div>
+                    <p className="text-xs font-medium text-slate-700">Cần phương tiện</p>
+                    <p className="text-[11px] leading-snug text-slate-500">
+                      Form đơn có khối chọn xe công ty hoặc phương tiện tự sắp xếp; xe công ty được giữ chỗ trên Lịch xe.
+                    </p>
                   </div>
                 </div>
 
@@ -310,7 +327,7 @@ export function RequestTypeDialog({
                   <div className="flex items-center justify-between gap-2">
                     <div>
                       <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">Trường bổ sung</h3>
-                      <p className="text-[11px] text-slate-500">
+                      <p className="text-[12px] text-slate-500">
                         Thông tin người làm đơn phải điền thêm (ví dụ Nơi nhận, Mức độ).
                       </p>
                     </div>
@@ -346,6 +363,7 @@ export function RequestTypeDialog({
                       </LeaveField>
                       <LeaveField label="Kiểu" className="sm:col-span-3">
                         <SearchableSelect
+                          height={36}
                           value={f.type}
                           placeholder="Chọn kiểu"
                           disabled={busy}
@@ -406,7 +424,7 @@ export function RequestTypeDialog({
               />
               <div>
                 <p className="text-xs font-medium text-slate-700">Đang sử dụng</p>
-                <p className="text-[11px] leading-snug text-slate-500">
+                <p className="text-[12px] leading-snug text-slate-500">
                   Tắt thì loại đơn ẩn khỏi danh sách chọn của đơn mới; đơn đã gửi không bị ảnh hưởng.
                 </p>
               </div>

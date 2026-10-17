@@ -69,7 +69,18 @@ export interface ProjectWorkItemInput {
   readonly plannedStart?: string;
   readonly plannedEnd?: string;
   readonly estimateHours?: number;
-  readonly estimatedCost?: number;
+  /** Công việc cha trong dự án; bỏ trống nghĩa là đặt ở gốc dự án. */
+  readonly parentId?: string;
+  /** Người submit đơn, chọn trong danh sách người tham gia dự án. */
+  readonly submitterUserId?: string;
+}
+
+/** Một công việc trong dự án, cho ô chọn "Công việc cha". */
+export interface ProjectWorkItemOption {
+  readonly id: string;
+  readonly code: string;
+  readonly title: string;
+  readonly depth: number;
 }
 
 interface ProjectRow {
@@ -78,6 +89,16 @@ interface ProjectRow {
   readonly name: string;
   readonly status?: string;
   readonly myRole?: string;
+  /** Quyền theo vai trò do tenant cấu hình; server cũ chưa trả thì dựa vào `myRole`. */
+  readonly myPermissions?: readonly string[];
+}
+
+function canWrite(row: ProjectRow): boolean {
+  if (!row.myPermissions) return WRITER_ROLES.has(row.myRole ?? '');
+  return (
+    row.myPermissions.includes('project.update_all') ||
+    row.myPermissions.includes('project.update_related')
+  );
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -116,33 +137,17 @@ export async function loadRelatedProjects(): Promise<RelatedProject[]> {
     return [];
   }
   return rows
-    .filter((row) => row.myRole && WRITER_ROLES.has(row.myRole))
+    .filter((row) => row.myRole && canWrite(row))
     .filter((row) => !row.status || !CLOSED_STATUSES.has(row.status))
     .map((row) => ({
       id: row.id,
       code: row.code,
       name: row.name,
-      canAssignOthers: ASSIGNER_ROLES.has(row.myRole ?? ''),
+      canAssignOthers: row.myPermissions
+        ? row.myPermissions.includes('project.update_all')
+        : ASSIGNER_ROLES.has(row.myRole ?? ''),
     }))
     .sort((left, right) => left.code.localeCompare(right.code));
-}
-
-/**
- * Người dùng có được nhập chi phí trong dự án này không.
- *
- * Workspace chỉ gửi `finance` trong chi tiết dự án (không có ở danh sách) và
- * chỉ cho người được xem tài chính — dựa vào sự có mặt của nó, như form công
- * việc bên đó, thay vì tự suy từ vai trò.
- */
-export async function loadProjectFinanceEnabled(projectId: string): Promise<boolean> {
-  try {
-    const project = await request<{ finance?: unknown }>(`/projects/${projectId}`, {
-      cache: 'no-store',
-    });
-    return Boolean(project.finance);
-  } catch {
-    return false;
-  }
 }
 
 /**
@@ -161,6 +166,30 @@ export async function loadWorkItemProjectId(workItemId: string): Promise<string 
   }
 }
 
+/**
+ * Danh sách công việc của một dự án (cây phẳng), cho ô chọn "Công việc cha".
+ * Lỗi mạng / Workspace tắt thì trả mảng rỗng: vẫn tạo được đơn, chỉ là không
+ * gắn công việc cha.
+ */
+export async function loadProjectWorkItems(projectId: string): Promise<ProjectWorkItemOption[]> {
+  try {
+    const body = await request<{
+      items?: { id: string; code: string; title: string; depth?: number; status?: string }[];
+    }>(`/projects/${projectId}/work-items`, { cache: 'no-store' });
+    return (body.items ?? [])
+      // Công việc đã đóng không nhận việc con mới.
+      .filter((item) => !item.status || !CLOSED_STATUSES.has(item.status))
+      .map((item) => ({
+        id: item.id,
+        code: item.code,
+        title: item.title,
+        depth: item.depth ?? 0,
+      }));
+  } catch {
+    return [];
+  }
+}
+
 /** Thành viên dự án kèm tên hiển thị, cho ô "Người phụ trách". */
 export async function loadProjectPeople(projectId: string): Promise<ProjectPerson[]> {
   const [members, directory] = await Promise.all([
@@ -176,18 +205,6 @@ export async function loadProjectPeople(projectId: string): Promise<ProjectPerso
     userId: member.userId,
     displayName: names.get(member.userId) ?? member.userId,
   }));
-}
-
-/** Định dạng số tiền khi gõ: chỉ giữ chữ số, chèn chấm ngăn nghìn. */
-export function formatVndInput(value: string): string {
-  const digits = value.replace(/\D/g, '').replace(/^0+(?=\d)/, '');
-  return digits.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
-}
-
-/** Đọc lại số tiền đã định dạng; rỗng nghĩa là không nhập. */
-export function parseVndInput(value: string): number | undefined {
-  const digits = value.replace(/\D/g, '');
-  return digits ? Number(digits) : undefined;
 }
 
 /**

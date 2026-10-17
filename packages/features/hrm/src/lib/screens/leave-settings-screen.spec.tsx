@@ -218,8 +218,11 @@ describe('LeaveSettingsScreen: chính sách phép năm', () => {
     expect(screen.getByTestId('policy-status').textContent).toBe('Đang áp dụng');
     expect(field(/Số ngày phép mỗi năm/).value).toBe('12');
     expect(field(/Bắt đầu cộng sau/).value).toBe('2');
-    expect(field(/Số năm mốc 1/).value).toBe('5');
-    expect(field(/Số ngày mốc 2/).value).toBe('2');
+    expect(field(/Chu kỳ thâm niên/).value).toBe('5');
+    // Chỉ một chu kỳ thâm niên: không có dòng thứ hai, không có nút thêm/xóa mốc.
+    expect(screen.queryByLabelText(/Chu kỳ thâm niên 2/)).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Thêm mốc thâm niên' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Xóa mốc/ })).toBeNull();
     expect(screen.queryByLabelText(/Số ngày chuyển tối đa/)).toBeNull();
     expect(screen.getByText(/Phép năm không chuyển sang năm sau/)).toBeTruthy();
     expect(
@@ -261,10 +264,7 @@ describe('LeaveSettingsScreen: chính sách phép năm', () => {
       annualDays: 14,
       startOffsetMonths: 2,
       advanceAllowed: true,
-      seniorityTiers: [
-        { minYears: 5, bonusDays: 1 },
-        { minYears: 10, bonusDays: 2 },
-      ],
+      seniorityTiers: [{ minYears: 5, bonusDays: 1 }],
       effectiveFrom: `${new Date().getFullYear() + 1}-01-01`,
       reason: 'Tăng phép theo quy chế mới',
       expectedUpdatedAt: policyUpdatedAt,
@@ -272,27 +272,25 @@ describe('LeaveSettingsScreen: chính sách phép năm', () => {
     expect(await screen.findByText('Đã lưu chính sách phép năm.')).toBeTruthy();
   });
 
-  it('thêm, xóa mốc thâm niên, đổi căn cứ ngày vào làm và gửi đúng nội dung', async () => {
+  it('chỉ còn căn cứ ngày ký HĐLĐ và một chu kỳ thâm niên; đổi chu kỳ gửi đúng nội dung', async () => {
     mockActions.add('hrm.leave.manage');
     renderScreen();
     await openPolicyForm();
-    await pick('Chọn căn cứ tính phép', 'Ngày vào làm');
-    expect(screen.getByText(/Căn cứ Ngày vào làm chỉ hỗ trợ/)).toBeTruthy();
+    // Căn cứ Ngày vào làm bị ẩn: danh sách chỉ có một lựa chọn.
+    fireEvent.click(screen.getByPlaceholderText('Chọn căn cứ tính phép'));
+    expect(await screen.findByRole('option', { name: 'Ngày ký HĐLĐ chính thức' })).toBeTruthy();
+    expect(screen.queryByRole('option', { name: 'Ngày vào làm' })).toBeNull();
+    fireEvent.click(screen.getByRole('option', { name: 'Ngày ký HĐLĐ chính thức' }));
     fireEvent.change(field(/Bắt đầu cộng sau/), { target: { value: '0' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Thêm mốc thâm niên' }));
-    fireEvent.change(field(/Số năm mốc 3/), { target: { value: '15' } });
-    fireEvent.change(field(/Số ngày mốc 3/), { target: { value: '3' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Xóa mốc 1' }));
-    fireEvent.change(field(/Ghi chú thay đổi/), { target: { value: 'Đổi căn cứ' } });
+    fireEvent.change(field(/Chu kỳ thâm niên/), { target: { value: '10' } });
+    fireEvent.change(field(/Phép cộng thêm mỗi chu kỳ/), { target: { value: '2' } });
+    fireEvent.change(field(/Ghi chú thay đổi/), { target: { value: 'Đổi chu kỳ' } });
     fireEvent.click(screen.getByRole('button', { name: 'Lưu thay đổi' }));
     await waitFor(() => expect(calls('PUT', '/annual-leave-policy')).toHaveLength(1));
     expect(calls('PUT', '/annual-leave-policy')[0]).toMatchObject({
-      accrualBasis: 'JOIN_DATE',
+      accrualBasis: 'CONTRACT_SIGN_DATE',
       startOffsetMonths: 0,
-      seniorityTiers: [
-        { minYears: 10, bonusDays: 2 },
-        { minYears: 15, bonusDays: 3 },
-      ],
+      seniorityTiers: [{ minYears: 10, bonusDays: 2 }],
     });
   });
 
@@ -472,18 +470,16 @@ describe('LeaveSettingsScreen: nút Lưu thay đổi ở tiêu đề và tóm t�
     const summary = within(screen.getByTestId('policy-summary'));
     expect(summary.getByText('12 ngày mỗi năm')).toBeTruthy();
     expect(summary.getByText('Theo ngày ký HĐLĐ, sau 2 tháng')).toBeTruthy();
-    expect(
-      summary.getByText('+1 ngày từ đủ 5 năm; +2 ngày từ đủ 10 năm'),
-    ).toBeTruthy();
+    expect(summary.getByText('Mỗi 5 năm +1 ngày')).toBeTruthy();
     expect(summary.getByText('Không chuyển sang năm sau')).toBeTruthy();
 
     fireEvent.change(field(/Số ngày phép mỗi năm/), { target: { value: '14' } });
     fireEvent.change(field(/Bắt đầu cộng sau/), { target: { value: '0' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Xóa mốc 2' }));
     expect(summary.getByText('14 ngày mỗi năm')).toBeTruthy();
     expect(summary.getByText('Theo ngày ký HĐLĐ')).toBeTruthy();
-    expect(summary.getByText('+1 ngày mỗi năm từ đủ 5 năm')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Xóa mốc 1' }));
+    expect(summary.getByText('Mỗi 5 năm +1 ngày')).toBeTruthy();
+    fireEvent.change(field(/Chu kỳ thâm niên/), { target: { value: '' } });
+    fireEvent.change(field(/Phép cộng thêm mỗi chu kỳ/), { target: { value: '' } });
     expect(summary.getByText('Không có')).toBeTruthy();
   });
 });

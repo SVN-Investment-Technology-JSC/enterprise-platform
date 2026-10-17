@@ -164,7 +164,7 @@ export function ReleaseFields({ flow, catalog }: { flow: ReleaseFlow; catalog: R
         <Field label="Từ ngày" required>
           <DatePickerInput
             aria-label="Từ ngày"
-            className="[&_input[type=text]]:h-9"
+            height={36}
             value={flow.fromDate}
             onChange={flow.setFromDate}
           />
@@ -172,7 +172,7 @@ export function ReleaseFields({ flow, catalog }: { flow: ReleaseFlow; catalog: R
         <Field label="Đến ngày" required>
           <DatePickerInput
             aria-label="Đến ngày"
-            className="[&_input[type=text]]:h-9"
+            height={36}
             value={flow.toDate}
             onChange={flow.setToDate}
           />
@@ -197,7 +197,7 @@ export function ReleaseFields({ flow, catalog }: { flow: ReleaseFlow; catalog: R
           />
           <span
             aria-hidden="true"
-            className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-[11px] text-slate-400"
+            className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-[12px] text-slate-400"
           >
             {flow.reason.length}/{REASON_MAX}
           </span>

@@ -94,6 +94,6 @@ export function SessionLogoutButton({
 
 function resolveLoginPath(portal: SessionPortal, explicitLoginPath?: string): string {
   if (explicitLoginPath) return explicitLoginPath;
-  if (portal === 'platform') return '/admin';
-  return '/';
+  if (portal === 'platform') return '/login/admin';
+  return '/login';
 }

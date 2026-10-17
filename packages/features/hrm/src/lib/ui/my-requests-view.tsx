@@ -2,9 +2,7 @@
 
 import type { ReactNode } from 'react';
 import {
-  ArrowDownRight,
   ArrowLeftRight,
-  ArrowUpRight,
   Briefcase,
   CalendarDays,
   ChevronLeft,
@@ -23,11 +21,9 @@ import {
   type SearchableSelectOption,
 } from '@enterprise-platform/shared-ui';
 import {
-  previousMonthLabel,
   rowStatusMeta,
   STATUS_TONE_CLASS,
   type MyRequestRow,
-  type RequestStatCard,
   type RequestStatusFilter,
   type StatusMeta,
 } from '../my-requests-model';
@@ -81,105 +77,10 @@ export function StatusPill({
 }) {
   return (
     <span
-      className={`inline-flex whitespace-nowrap rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${STATUS_TONE_CLASS[meta.tone]} ${className}`}
+      className={`inline-flex whitespace-nowrap rounded-full border px-2.5 py-0.5 text-[12px] font-semibold ${STATUS_TONE_CLASS[meta.tone]} ${className}`}
     >
       {meta.label}
     </span>
-  );
-}
-
-const STAT_TONE: Record<
-  RequestStatCard['key'],
-  { box: string; icon: LucideIcon; value: string }
-> = {
-  total: {
-    box: 'bg-blue-50 text-blue-600',
-    icon: FileText,
-    value: 'text-slate-900',
-  },
-  pending: {
-    box: 'bg-amber-50 text-amber-600',
-    icon: Clock,
-    value: 'text-amber-600',
-  },
-  approved: {
-    box: 'bg-emerald-50 text-emerald-600',
-    icon: CalendarDays,
-    value: 'text-emerald-600',
-  },
-  rejected: {
-    box: 'bg-rose-50 text-rose-600',
-    icon: FileText,
-    value: 'text-rose-600',
-  },
-};
-
-/** Bốn thẻ tổng quan của tháng: tổng đơn, chờ duyệt, đã duyệt, từ chối, kèm chênh lệch so với tháng trước. */
-export function RequestStatCards({
-  cards,
-  month,
-}: {
-  cards: readonly RequestStatCard[];
-  month: string;
-}) {
-  const previous = previousMonthLabel(month);
-  return (
-    <div
-      aria-label="Tổng quan đơn từ trong tháng"
-      data-testid="request-stats"
-      className="grid grid-cols-2 gap-2 xl:grid-cols-4"
-    >
-      {cards.map((card) => {
-        const tone = STAT_TONE[card.key];
-        const Icon = tone.icon;
-        return (
-          <div
-            key={card.key}
-            data-testid={`request-stat-${card.key}`}
-            className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-xs"
-          >
-            <span
-              className={`flex size-12 shrink-0 items-center justify-center rounded-xl ${tone.box}`}
-            >
-              <Icon className="size-5" />
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className="text-xs font-semibold text-slate-600">
-                {card.label}
-              </p>
-              <div className="flex items-end justify-between gap-2">
-                <span
-                  className={`font-mono text-3xl font-bold leading-none ${tone.value}`}
-                >
-                  {card.value}
-                </span>
-                <span className="pb-0.5 text-right text-[11px] leading-tight text-slate-500">
-                  {card.delta === 0 ? (
-                    <span className="block font-semibold text-slate-400">
-                      -
-                    </span>
-                  ) : (
-                    <span
-                      className={`flex items-center justify-end gap-0.5 font-bold ${
-                        card.delta > 0 ? 'text-emerald-600' : 'text-rose-500'
-                      }`}
-                    >
-                      {card.delta > 0 ? (
-                        <ArrowUpRight className="size-3" />
-                      ) : (
-                        <ArrowDownRight className="size-3" />
-                      )}
-                      {Math.abs(card.delta)}
-                    </span>
-                  )}
-                  So với {previous}
-                </span>
-              </div>
-            </div>
-          </div>
-        );
-      })}
-    </div>
   );
 }
 
@@ -238,11 +139,11 @@ export function QuickCreateRow({
               <span
                 role="heading"
                 aria-level={3}
-                className="block truncate text-[13px] font-bold text-slate-900"
+                className="block truncate text-[14px] font-bold text-slate-900"
               >
                 {item.title}
               </span>
-              <span className="block truncate text-[11px] text-slate-500">
+              <span className="block truncate text-[12px] text-slate-500">
                 {item.desc}
               </span>
             </span>
@@ -340,8 +241,9 @@ export function RequestListPanel({
               className="h-8 bg-white pl-8 text-xs"
             />
           </div>
-          <div className="w-44">
+          <div className="w-48">
             <SearchableSelect
+              height={32}
               options={kindOptions}
               value={kind}
               onChange={(val) => onKindChange(val || 'ALL')}
@@ -349,8 +251,9 @@ export function RequestListPanel({
               clearable={false}
             />
           </div>
-          <div className="w-44">
+          <div className="w-48">
             <SearchableSelect
+              height={32}
               options={STATUS_OPTIONS}
               value={status}
               onChange={(val) =>
@@ -405,15 +308,12 @@ export function RequestListPanel({
       </div>
 
       <div className="min-h-0 flex-1 overflow-auto">
-        <table className="w-full min-w-[760px] border-collapse text-left text-xs">
-          <thead className="bg-slate-50 text-[11px] font-bold text-slate-500">
+        <table className="w-full min-w-[560px] border-collapse text-left text-xs">
+          <thead className="bg-slate-50 text-[12px] font-bold text-slate-500">
             <tr>
               <th className="w-10 px-3 py-2.5">#</th>
               <th className="px-3 py-2.5">Mã đơn</th>
               <th className="px-3 py-2.5">Loại đơn</th>
-              <th className="px-3 py-2.5">Thời gian</th>
-              <th className="px-3 py-2.5">Số ngày/giờ</th>
-              <th className="px-3 py-2.5">Lý do</th>
               <th className="px-3 py-2.5">Trạng thái</th>
               <th className="px-3 py-2.5">Ngày tạo</th>
               <th className="w-8 px-2 py-2.5">
@@ -424,7 +324,7 @@ export function RequestListPanel({
           <tbody className="divide-y divide-slate-100 text-slate-800">
             {loading ? (
               <tr>
-                <td colSpan={9} className="p-8 text-center text-slate-400">
+                <td colSpan={6} className="p-8 text-center text-slate-400">
                   <span className="inline-flex items-center gap-2">
                     <Loader2 className="size-4 animate-spin" />
                     Đang tải danh sách đơn từ...
@@ -433,7 +333,7 @@ export function RequestListPanel({
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td colSpan={9} className="p-8 text-center text-slate-400">
+                <td colSpan={6} className="p-8 text-center text-slate-400">
                   Không tìm thấy đơn từ nào phù hợp với bộ lọc.
                 </td>
               </tr>
@@ -447,7 +347,9 @@ export function RequestListPanel({
                     aria-selected={selected}
                     onClick={() => onSelect(row.id)}
                     className={`cursor-pointer transition-colors ${
-                      selected ? 'bg-amber-50/70' : 'hover:bg-slate-50/70'
+                      selected
+                        ? 'bg-amber-100 shadow-[inset_3px_0_0_#f59e0b]'
+                        : 'hover:bg-slate-50/70'
                     }`}
                   >
                     <td className="px-3 py-2.5 text-slate-500">
@@ -461,24 +363,14 @@ export function RequestListPanel({
                         </span>
                       </span>
                     </td>
-                    <td className="px-3 py-2.5 font-medium">{row.typeName}</td>
-                    <td className="px-3 py-2.5 text-slate-600">
-                      {row.effectiveDate}
-                    </td>
-                    <td className="px-3 py-2.5 font-mono font-semibold">
-                      {row.duration}
-                    </td>
-                    <td
-                      className="max-w-[200px] px-3 py-2.5 text-slate-700"
-                      title={row.reason}
-                    >
-                      <span className="block truncate">{row.reason}</span>
+                    <td className="px-3 py-2.5 font-medium">
+                      {row.typeName}
                       {reasonExtra?.(row.id)}
                     </td>
                     <td className="px-3 py-2.5">
                       <StatusPill meta={rowStatusMeta(row)} />
                     </td>
-                    <td className="px-3 py-2.5 font-mono text-[11px] text-slate-600">
+                    <td className="px-3 py-2.5 font-mono text-[12px] text-slate-600">
                       {row.createdAt}
                     </td>
                     <td className="px-2 py-2.5 text-slate-400">

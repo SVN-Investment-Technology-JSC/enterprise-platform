@@ -3,6 +3,7 @@ import {
   resolveDashboardCards,
   type DashboardCardSize,
 } from '@enterprise-platform/feature-module-shell';
+import { formatDateTime as formatSharedDateTime } from '@enterprise-platform/shared-ui';
 import { useMemo, useState } from 'react';
 import type {
   InventoryLedgerRow,
@@ -39,13 +40,7 @@ function formatNumber(value: number): string {
 
 function formatDateTime(value: string): string {
   if (!value) return '—';
-  return new Intl.DateTimeFormat('vi-VN', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(new Date(value));
+  return formatSharedDateTime(value, '—');
 }
 
 export function InventoryDashboard({
@@ -114,7 +109,7 @@ export function InventoryDashboard({
         <div>
           <span className={styles.eyebrow}>Trung tâm Điều hành Kho &amp; Thiết bị</span>
           <h1>Tổng quan Tài sản &amp; Tồn kho</h1>
-          <p style={{ margin: '4px 0 0', color: '#64748b', fontSize: '13px' }}>
+          <p style={{ margin: '4px 0 0', color: '#64748b', fontSize: '14px' }}>
             Theo dõi tổng lượng tồn kho, cảnh báo định mức Min/Max và tiến độ luân chuyển thiết bị.
           </p>
         </div>
@@ -129,7 +124,7 @@ export function InventoryDashboard({
               className={`${styles.card} ${SIZE_CLASS[card.size]}`}
               style={{ display: 'flex', flexDirection: 'column', padding: '16px' }}
             >
-              <h2 className={styles.cardTitle} style={{ margin: '0 0 10px', fontSize: '13px', color: '#64748b', fontWeight: 600 }}>
+              <h2 className={styles.cardTitle} style={{ margin: '0 0 10px', fontSize: '14px', color: '#64748b', fontWeight: 600 }}>
                 {card.title}
               </h2>
               {card.render(dashboardData)}
@@ -147,13 +142,13 @@ export function InventoryDashboard({
             border: '1px dashed #cbd5e1',
           }}
         >
-          <p style={{ margin: '0 0 8px', color: '#64748b', fontSize: '13.5px' }}>
+          <p style={{ margin: '0 0 8px', color: '#64748b', fontSize: '14px' }}>
             Chưa có thẻ tổng quan nào được chọn hiển thị.
           </p>
           <button
             type="button"
             className={styles.reset}
-            style={{ fontSize: '12px', padding: '4px 10px' }}
+            style={{ fontSize: '13px', padding: '4px 10px' }}
             onClick={() => onNavigate('settings')}
           >
             Đi đến Cài đặt thẻ →
@@ -173,8 +168,8 @@ export function InventoryDashboard({
         {/* Left Panel: Warehouse Distribution */}
         <div className={styles.card}>
           <div className={styles.cardHead}>
-            <h3 style={{ margin: 0, fontSize: '15px' }}>Phân bổ theo Kho lưu trữ</h3>
-            <span style={{ fontSize: '12px', color: '#64748b' }}>
+            <h3 style={{ margin: 0, fontSize: '16px' }}>Phân bổ theo Kho lưu trữ</h3>
+            <span style={{ fontSize: '13px', color: '#64748b' }}>
               {workspace.warehouses.length} kho
             </span>
           </div>
@@ -197,14 +192,14 @@ export function InventoryDashboard({
                   }}
                 >
                   <div>
-                    <strong style={{ fontSize: '13px', color: '#0f172a' }}>{wh.name}</strong>
-                    <div style={{ fontSize: '11.5px', color: '#64748b' }}>Mã kho: {wh.code}</div>
+                    <strong style={{ fontSize: '14px', color: '#0f172a' }}>{wh.name}</strong>
+                    <div style={{ fontSize: '12px', color: '#64748b' }}>Mã kho: {wh.code}</div>
                   </div>
                   <div style={{ textAlign: 'right' }}>
                     <div style={{ fontWeight: 700, fontSize: '14px', color: '#2563eb' }}>
                       {formatNumber(totalItems)}
                     </div>
-                    <small style={{ fontSize: '11px', color: '#64748b' }}>
+                    <small style={{ fontSize: '12px', color: '#64748b' }}>
                       {stockInWh.length} danh mục
                     </small>
                   </div>
@@ -212,7 +207,7 @@ export function InventoryDashboard({
               );
             })}
             {workspace.warehouses.length === 0 ? (
-              <p style={{ color: '#64748b', fontSize: '12px' }}>Chưa có kho nào được thiết lập.</p>
+              <p style={{ color: '#64748b', fontSize: '13px' }}>Chưa có kho nào được thiết lập.</p>
             ) : null}
           </div>
         </div>
@@ -220,11 +215,11 @@ export function InventoryDashboard({
         {/* Right Panel: Recent Transactions */}
         <div className={styles.card} style={{ display: 'flex', flexDirection: 'column' }}>
           <div className={styles.cardHead}>
-            <h3 style={{ margin: 0, fontSize: '15px' }}>Giao dịch Kho gần đây</h3>
+            <h3 style={{ margin: 0, fontSize: '16px' }}>Giao dịch Kho gần đây</h3>
             <button
               type="button"
               className={styles.reset}
-              style={{ fontSize: '12px', padding: '4px 10px' }}
+              style={{ fontSize: '13px', padding: '4px 10px' }}
               onClick={() => onNavigate('transactions')}
             >
               Xem tất cả →
@@ -232,7 +227,7 @@ export function InventoryDashboard({
           </div>
 
           <div style={{ overflowX: 'auto', marginTop: '12px', flex: 1 }}>
-            <table className={styles.table} style={{ width: '100%', fontSize: '12.5px' }}>
+            <table className={styles.table} style={{ width: '100%', fontSize: '13px' }}>
               <thead>
                 <tr>
                   <th style={{ textAlign: 'left', padding: '8px' }}>Mã phiếu</th>
@@ -266,7 +261,7 @@ export function InventoryDashboard({
                             style={{
                               padding: '2px 8px',
                               borderRadius: '999px',
-                              fontSize: '11px',
+                              fontSize: '12px',
                               fontWeight: 600,
                               background: isReceipt ? '#dcfce7' : '#fee2e2',
                               color: isReceipt ? '#15803d' : '#b91c1c',
@@ -281,7 +276,7 @@ export function InventoryDashboard({
                             {material && material.isActive === false ? (
                               <span
                                 style={{
-                                  fontSize: '10px',
+                                  fontSize: '12px',
                                   padding: '1px 5px',
                                   borderRadius: '4px',
                                   background: '#f1f5f9',
@@ -295,7 +290,7 @@ export function InventoryDashboard({
                             ) : null}
                           </div>
                           {material ? (
-                            <div style={{ fontSize: '11px', color: '#64748b' }}>
+                            <div style={{ fontSize: '12px', color: '#64748b' }}>
                               {material.name}
                             </div>
                           ) : null}
@@ -314,7 +309,7 @@ export function InventoryDashboard({
                         <td
                           style={{
                             textAlign: 'right',
-                            fontSize: '11.5px',
+                            fontSize: '12px',
                             color: '#64748b',
                             padding: '8px',
                           }}
@@ -341,7 +336,7 @@ export function InventoryDashboard({
                 marginTop: '12px',
                 paddingTop: '8px',
                 borderTop: '1px solid #e2e8f0',
-                fontSize: '12px',
+                fontSize: '13px',
                 color: '#64748b',
               }}
             >
@@ -349,7 +344,7 @@ export function InventoryDashboard({
                 <span>
                   Trang <strong>{safeCurrentPage}</strong> / <strong>{totalPages}</strong> ({ledger.length} giao dịch)
                 </span>
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '11.5px', color: '#64748b' }}>
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#64748b' }}>
                   <span>Hiển thị:</span>
                   <select
                     value={pageSize}
@@ -363,7 +358,7 @@ export function InventoryDashboard({
                       border: '1px solid #cbd5e1',
                       background: '#ffffff',
                       color: '#0f172a',
-                      fontSize: '11.5px',
+                      fontSize: '12px',
                       outline: 'none',
                       cursor: 'pointer',
                     }}
@@ -379,19 +374,19 @@ export function InventoryDashboard({
                 <button
                   type="button"
                   className={styles.reset}
-                  style={{ padding: '3px 8px', fontSize: '11px' }}
+                  style={{ padding: '3px 8px', fontSize: '12px' }}
                   disabled={safeCurrentPage <= 1}
                   onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
                 >
                   ← Trước
                 </button>
-                <span style={{ fontWeight: 600, color: '#0f172a', fontSize: '11.5px' }}>
+                <span style={{ fontWeight: 600, color: '#0f172a', fontSize: '12px' }}>
                   {safeCurrentPage} / {totalPages}
                 </span>
                 <button
                   type="button"
                   className={styles.reset}
-                  style={{ padding: '3px 8px', fontSize: '11px' }}
+                  style={{ padding: '3px 8px', fontSize: '12px' }}
                   disabled={safeCurrentPage >= totalPages}
                   onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
                 >

@@ -4,6 +4,7 @@ import { Popconfirm, SearchableSelect } from '@enterprise-platform/shared-ui';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './dialog';
 import { Input } from './input';
 import { Button } from './button';
+import { DatePickerInput, MonthPickerInput } from './date-picker-input';
 
 export interface ActionField {
   key: string;
@@ -87,7 +88,7 @@ function MilestoneEditor({
   return (
     <div className="space-y-2 rounded-lg border border-slate-200 p-2.5">
       {rows.length === 0 && (
-        <p className="text-[11px] font-normal text-slate-500">
+        <p className="text-[12px] font-normal text-slate-500">
           Chưa có mốc. Lịch dùng cặp "mỗi N năm cộng M ngày" ở trên. Khi có mốc, tại tháng kỷ niệm chỉ cộng phần thưởng của mốc cao nhất đã đạt (không cộng dồn).
         </p>
       )}
@@ -300,6 +301,22 @@ export function HrmActionDialog({
                               [f.key]: value || '',
                             }),
                           )
+                        }
+                      />
+                    ) : f.type === 'date' ? (
+                      <DatePickerInput
+                        height={36}
+                        value={values[f.key]}
+                        onChange={(value) =>
+                          setValues({ ...values, [f.key]: value })
+                        }
+                      />
+                    ) : f.type === 'month' ? (
+                      <MonthPickerInput
+                        height={36}
+                        value={values[f.key]}
+                        onChange={(value) =>
+                          setValues({ ...values, [f.key]: value })
                         }
                       />
                     ) : (

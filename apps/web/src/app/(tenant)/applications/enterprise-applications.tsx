@@ -1,46 +1,28 @@
 'use client';
 
+import { authFetch } from '@enterprise-platform/shared-ui';
 import type {
   ModuleActivationRequestResponse,
   TenantEntitlementStatus,
   TenantModuleCatalogItem,
 } from '@enterprise-platform/contracts-tenancy';
 import {
-  Boxes,
   Check,
   CheckCircle2,
-  Clock,
   ExternalLink,
-  FileCog,
-  FolderKanban,
-  KanbanSquare,
-  Layers,
+  Loader2,
+  Package,
   PackageOpen,
   Search,
   ShieldCheck,
   Sparkles,
-  Users,
-  Workflow,
-  Wrench,
   X,
   Zap,
-  Loader2,
-  type LucideIcon,
 } from 'lucide-react';
-import { useMemo, useState } from 'react';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from '@/components/ui/sheet';
+import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { toast } from '@/components/ui/sonner';
 import { cn } from '@/lib/utils';
-import { PageBreadcrumb } from '@/components/ui/page-breadcrumb';
+import { CollapsibleGroup } from '../collapsible-group';
 
 interface ModuleExtraInfo {
   category: string;
@@ -57,6 +39,45 @@ interface ModuleExtraInfo {
 }
 
 const moduleCatalogMetadata: Record<string, ModuleExtraInfo> = {
+  assistant: {
+    category: 'Ứng dụng mở rộng',
+    tagline: 'Hỏi cách dùng bất kỳ trang nào và tra số liệu trong phạm vi quyền của người hỏi.',
+    accentColor: {
+      bg: 'bg-yellow-50/70',
+      border: 'border-yellow-200/80',
+      text: 'text-yellow-800',
+      iconBg: 'bg-yellow-100 text-yellow-800',
+    },
+    features: [
+      'Hướng dẫn thao tác theo Hướng dẫn sử dụng, kèm link mở thẳng trang ERP',
+      'Biết trang đang mở để trả lời câu hỏi "trang này dùng thế nào"',
+      'Đọc tồn kho, phiếu bảo trì, đơn từ, phép năm, công việc và hồ sơ quy trình bằng quyền của người hỏi',
+      'Mở từ nút Trợ lý ở mọi phân hệ, dùng chung phiên đăng nhập ERP',
+    ],
+    targetRoles: ['Toàn thể nhân sự'],
+    businessValue:
+      'Người dùng tự tra cách làm và số liệu của mình ngay trên ERP, giảm câu hỏi lặp lại gửi tới quản trị viên.',
+  },
+  shared: {
+    category: 'Nền tảng dùng chung',
+    tagline: 'Kho tài liệu công ty có phiên bản, thông tin hợp đồng và hạn hiệu lực, dùng chung cho mọi phòng ban.',
+    accentColor: {
+      bg: 'bg-stone-50/70',
+      border: 'border-stone-200/80',
+      text: 'text-stone-800',
+      iconBg: 'bg-stone-100 text-stone-800',
+    },
+    features: [
+      'Cây thư mục nhiều cấp theo phòng ban, năm, loại hồ sơ',
+      'Số hiệu, đối tác, ngày ký và hạn hiệu lực cho cả thư mục hợp đồng lẫn từng tài liệu',
+      'Giữ mọi phiên bản, khoá khi đang sửa, nhật ký xem và tải xuống',
+      'Độ mật Nội bộ, Hạn chế, Mật',
+      'Một hạn mức dung lượng chung cho tệp của mọi phân hệ',
+    ],
+    targetRoles: ['Văn thư, Hành chính', 'Kinh doanh', 'Ban Tổng giám đốc'],
+    businessValue:
+      'Hợp đồng, quyết định và văn bản của công ty nằm một chỗ, tìm được theo số hiệu, đối tác và hạn hiệu lực.',
+  },
   'procedure-engine': {
     category: 'Vận hành & Quy trình',
     tagline: 'Thiết kế, ban hành và tự động hóa luồng phê duyệt văn bản, tờ trình đa cấp.',
@@ -133,6 +154,25 @@ const moduleCatalogMetadata: Record<string, ModuleExtraInfo> = {
     businessValue:
       'Đảm bảo dữ liệu tồn kho chuẩn xác 99.8%, hạn chế thất thoát và tối ưu hóa vòng quay vốn lưu động cho doanh nghiệp.',
   },
+  finance: {
+    category: 'Tài chính & Quản trị',
+    tagline: 'Lập và duyệt phiếu thu, phiếu chi, lệnh chuyển tiền; theo dõi tài khoản và dòng tiền.',
+    accentColor: {
+      bg: 'bg-emerald-50/70',
+      border: 'border-emerald-200/80',
+      text: 'text-emerald-700',
+      iconBg: 'bg-emerald-100 text-emerald-700',
+    },
+    features: [
+      'Phiếu thu, phiếu chi và lệnh chuyển tiền duyệt qua quy trình, ghi sổ tài khoản khi duyệt',
+      'Danh sách tài khoản ngân hàng và quỹ tiền mặt với số dư theo sổ cái',
+      'Khoá sổ kỳ kế toán và tách người lập, người duyệt để kiểm soát chi',
+      'Báo cáo thu chi, dòng tiền theo kỳ, theo lý do và theo đơn vị',
+    ],
+    targetRoles: ['Kế toán trưởng', 'Kế toán viên', 'Giám đốc Tài chính (CFO)'],
+    businessValue:
+      'Kiểm soát dòng tiền công ty trên một nơi: mọi khoản thu chi có người lập, người duyệt và dấu vết kiểm toán.',
+  },
   accounting: {
     category: 'Tài chính & Quản trị',
     tagline: 'Hạch toán kế toán tổng hợp, theo dõi dòng tiền, công nợ và báo cáo tài chính.',
@@ -190,17 +230,6 @@ const moduleCatalogMetadata: Record<string, ModuleExtraInfo> = {
     businessValue:
       'Gia tăng mức độ gắn kết của nhân viên, tự động hóa quy trình nhân sự và tối ưu hóa hiệu suất nguồn nhân lực.',
   },
-};
-
-const moduleIcons: Record<string, LucideIcon> = {
-  accounting: FileCog,
-  dms: FolderKanban,
-  hrm: Users,
-  inventory: Boxes,
-  maintenance: Wrench,
-  'procedure-engine': Workflow,
-  workflow: Workflow,
-  workspace: KanbanSquare,
 };
 
 const statusLabel: Record<TenantEntitlementStatus, string> = {
@@ -267,15 +296,19 @@ export function EnterpriseApplications({
   const [query, setQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [selectedStatus, setSelectedStatus] = useState<'all' | 'active' | 'not-active'>('all');
-  const [selectedModule, setSelectedModule] = useState<TenantModuleCatalogItem | null>(null);
+  // Khung chi tiết mở sẵn ứng dụng đầu tiên, nằm cạnh danh sách thay cho ngăn kéo.
+  const [selectedModule, setSelectedModule] = useState<TenantModuleCatalogItem | null>(
+    () => sanitizedModules[0] ?? null,
+  );
+  // Màn hẹp: khung chi tiết rơi xuống dưới danh sách, nên bấm "Chi tiết" thì cuộn tới nó.
+  const [revealPanel, setRevealPanel] = useState(false);
+  const panelRef = useRef<HTMLElement>(null);
   const [requestingKey, setRequestingKey] = useState<string>();
   const [requestedKeys, setRequestedKeys] = useState<Set<string>>(() => new Set());
 
   // Metrics
   const totalCount = sanitizedModules.length;
   const activeCount = sanitizedModules.filter((m) => m.entitlementStatus === 'active').length;
-  const provisioningCount = sanitizedModules.filter((m) => m.entitlementStatus === 'provisioning').length;
-  const availableCount = sanitizedModules.filter((m) => m.entitlementStatus !== 'active' && m.entitlementStatus !== 'provisioning').length;
 
   // Lọc danh sách danh mục có sẵn (không bao gồm CRM)
   const availableCategories = useMemo(() => {
@@ -314,10 +347,16 @@ export function EnterpriseApplications({
     });
   }, [sanitizedModules, query, selectedCategory, selectedStatus]);
 
+  useEffect(() => {
+    if (!revealPanel) return;
+    setRevealPanel(false);
+    panelRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, [revealPanel]);
+
   async function requestActivation(module: TenantModuleCatalogItem) {
     setRequestingKey(module.key);
     try {
-      const response = await fetch(
+      const response = await authFetch(
         `/api/platform/v1/modules/${encodeURIComponent(module.key)}/activation-requests`,
         {
           method: 'POST',
@@ -339,10 +378,9 @@ export function EnterpriseApplications({
 
   function handleTriggerActivation(module: TenantModuleCatalogItem) {
     void toast.promise(requestActivation(module), {
-      loading: {
-        title: 'Đang gửi yêu cầu kích hoạt',
-        description: `Đang gửi yêu cầu kích hoạt module ${module.name} tới ban quản trị...`,
-      },
+      // Sonner hiển thị thẳng giá trị `loading` làm nội dung toast, nên ở đây chỉ
+      // nhận chuỗi; truyền object {title, description} như bước success là vỡ trang.
+      loading: `Đang gửi yêu cầu kích hoạt module ${module.name} tới ban quản trị...`,
       success: {
         title: 'Đã gửi yêu cầu thành công',
         description: `Yêu cầu kích hoạt ${module.name} đã được tiếp nhận để xử lý.`,
@@ -354,253 +392,308 @@ export function EnterpriseApplications({
     });
   }
 
+  const resetFilters = () => {
+    setQuery('');
+    setSelectedCategory('all');
+    setSelectedStatus('all');
+  };
+
+  // Nhóm theo trạng thái; danh mục thành nhãn trên từng dòng.
+  const groups = [
+    {
+      id: 'active',
+      title: 'Đang hoạt động',
+      tone: 'bg-emerald-100 text-emerald-800',
+      rows: filteredModules.filter((module) => module.entitlementStatus === 'active'),
+    },
+    {
+      id: 'inactive',
+      title: 'Chưa kích hoạt',
+      tone: 'bg-slate-100 text-slate-700',
+      rows: filteredModules.filter((module) => module.entitlementStatus !== 'active'),
+    },
+  ].filter((group) => group.rows.length > 0);
+
+  const openDetails = (module: TenantModuleCatalogItem) => {
+    setSelectedModule(module);
+    setRevealPanel(true);
+  };
+
   return (
-    <>
-      <main className="flex h-[calc(100vh-4rem)] flex-col overflow-hidden p-4 sm:p-6">
-        {/* Header & Breadcrumb */}
-        <div className="shrink-0 mb-3">
-          <PageBreadcrumb
-            className="mb-1.5"
-            items={[
-              { label: 'Tenant Portal', href: '/dashboard' },
-              { label: 'Quản trị' },
-              { label: 'Ứng dụng doanh nghiệp' },
-            ]}
-          />
-
-          <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
-            <div>
-              <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-[#0d1c2d]">
-                Ứng dụng Doanh nghiệp
-              </h1>
-              <p className="mt-0.5 text-xs sm:text-sm text-slate-500">
-                Khám phá, quản trị và khởi tạo các module phân hệ nghiệp vụ vận hành cho tổ chức của bạn.
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-xs">
-                <Sparkles className="size-3.5 text-amber-500" />
-                Gói Doanh nghiệp Enterprise
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* Top Metric Cards */}
-        <section className="shrink-0 mb-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <MetricCard
-            icon={Layers}
-            label="Tổng ứng dụng"
-            value={totalCount}
-          />
-          <MetricCard
-            accent="text-emerald-700"
-            icon={CheckCircle2}
-            label="Đang hoạt động"
-            value={activeCount}
-          />
-          <MetricCard
-            accent="text-blue-700"
-            icon={Clock}
-            label="Đang khởi tạo"
-            value={provisioningCount}
-          />
-          <MetricCard
-            accent="text-amber-700"
-            icon={Boxes}
-            label="Sẵn sàng mở rộng"
-            value={availableCount}
-          />
-        </section>
-
-        {initialError ? (
-          <p
-            className="shrink-0 mb-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800"
-            role="alert"
-          >
-            {initialError}
+    <div className="flex flex-col gap-4 text-[14px] text-[#18181b]">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div className="min-w-0 flex-[1_1_420px]">
+          <h1 className="m-0 text-[20px] font-bold tracking-[-0.3px]">Ứng dụng Doanh nghiệp</h1>
+          <p className="mt-1 text-[14px] text-slate-600">
+            Khám phá, quản trị và khởi tạo các module phân hệ nghiệp vụ vận hành cho tổ chức của bạn.
           </p>
-        ) : null}
+        </div>
+        <span className="flex items-center gap-1.5 rounded-full border border-[#ffc90a]/45 bg-[#fffbeb] px-3 py-1.5 text-[13px] font-semibold text-[#8a6400]">
+          <Sparkles className="size-3.5" aria-hidden />
+          Gói Doanh nghiệp Enterprise
+        </span>
+      </div>
 
-        {/* Main Content Area */}
-        <section className="flex flex-1 min-h-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-          {/* Toolbar */}
-          <div className="shrink-0 flex flex-col justify-between gap-3 border-b border-slate-200 bg-white p-3 sm:p-4 md:flex-row md:items-center">
-            {/* Search Input */}
-            <div className="relative w-full md:w-80">
-              <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
-              <Input
-                className="bg-slate-50 focus:bg-white pl-9 text-xs sm:text-sm"
+      {initialError ? (
+        <p
+          className="m-0 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800"
+          role="alert"
+        >
+          {initialError}
+        </p>
+      ) : null}
+
+      <div className="flex flex-wrap items-start gap-4">
+        <div className="flex min-w-0 flex-[999_1_520px] flex-col gap-3.5">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <label className="flex h-[38px] min-w-0 flex-[1_1_200px] items-center gap-2 rounded-lg border border-[#eef0f3] bg-white px-3 text-slate-500 focus-within:border-[#ffc90a]">
+              <Search className="size-4 shrink-0" aria-hidden />
+              <input
+                aria-label="Tìm ứng dụng"
+                className="min-w-0 flex-1 bg-transparent text-[14px] text-[#18181b] outline-none placeholder:text-slate-400"
                 onChange={(event) => setQuery(event.currentTarget.value)}
                 placeholder="Tìm kiếm theo tên, chức năng, danh mục..."
+                type="search"
                 value={query}
               />
+            </label>
+
+            <div
+              aria-label="Lọc theo trạng thái"
+              className="flex max-w-full gap-0.5 overflow-x-auto rounded-[9px] bg-[#f1f3f6] p-[3px]"
+              role="group"
+            >
+              {(
+                [
+                  ['all', `Tất cả (${totalCount})`],
+                  ['active', `Đang hoạt động (${activeCount})`],
+                  ['not-active', `Chưa kích hoạt (${totalCount - activeCount})`],
+                ] as const
+              ).map(([value, label]) => {
+                const pressed = selectedStatus === value;
+                return (
+                  <button
+                    aria-pressed={pressed}
+                    className={cn(
+                      'h-8 cursor-pointer whitespace-nowrap rounded-[7px] px-3 text-[13px] font-semibold',
+                      pressed
+                        ? cn('bg-white shadow-[0_1px_2px_rgba(0,0,0,.08)]', value === 'active' ? 'text-emerald-700' : 'text-[#18181b]')
+                        : 'text-slate-500 hover:text-[#18181b]',
+                    )}
+                    key={value}
+                    onClick={() => setSelectedStatus(value)}
+                    type="button"
+                  >
+                    {label}
+                  </button>
+                );
+              })}
             </div>
 
-            {/* Filters */}
-            <div className="flex flex-wrap items-center gap-2">
-              {/* Status Tabs */}
-              <div className="flex rounded-lg border border-slate-200 bg-slate-100 p-0.5 text-xs">
-                <button
-                  className={cn(
-                    'rounded-md px-2.5 py-1 font-medium transition',
-                    selectedStatus === 'all'
-                      ? 'bg-white text-slate-900 shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900',
-                  )}
-                  onClick={() => setSelectedStatus('all')}
-                  type="button"
-                >
-                  Tất cả ({sanitizedModules.length})
-                </button>
-                <button
-                  className={cn(
-                    'rounded-md px-2.5 py-1 font-medium transition',
-                    selectedStatus === 'active'
-                      ? 'bg-white text-emerald-700 shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900',
-                  )}
-                  onClick={() => setSelectedStatus('active')}
-                  type="button"
-                >
-                  Đang hoạt động ({activeCount})
-                </button>
-                <button
-                  className={cn(
-                    'rounded-md px-2.5 py-1 font-medium transition',
-                    selectedStatus === 'not-active'
-                      ? 'bg-white text-slate-900 shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900',
-                  )}
-                  onClick={() => setSelectedStatus('not-active')}
-                  type="button"
-                >
-                  Chưa kích hoạt ({totalCount - activeCount})
-                </button>
-              </div>
+            <select
+              aria-label="Danh mục"
+              className="h-[38px] rounded-lg border border-[#eef0f3] bg-white px-2.5 text-[14px] text-slate-700"
+              onChange={(event) => setSelectedCategory(event.currentTarget.value)}
+              value={selectedCategory}
+            >
+              <option value="all">Tất cả danh mục</option>
+              {availableCategories.map((cat) => (
+                <option key={cat} value={cat}>
+                  {cat}
+                </option>
+              ))}
+            </select>
 
-              {/* Category Select */}
-              <select
-                className="h-8.5 rounded-md border border-slate-200 bg-slate-50 px-2.5 text-xs font-medium text-slate-700 focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-                onChange={(event) => setSelectedCategory(event.currentTarget.value)}
-                value={selectedCategory}
+            {query || selectedCategory !== 'all' || selectedStatus !== 'all' ? (
+              <button
+                className="flex h-[38px] cursor-pointer items-center gap-1 rounded-lg px-2.5 text-[14px] font-semibold text-slate-500 hover:bg-[#f4f6f9] hover:text-[#18181b]"
+                onClick={resetFilters}
+                type="button"
               >
-                <option value="all">Tất cả danh mục</option>
-                {availableCategories.map((cat) => (
-                  <option key={cat} value={cat}>
-                    {cat}
-                  </option>
-                ))}
-              </select>
-
-              {(query || selectedCategory !== 'all' || selectedStatus !== 'all') && (
-                <Button
-                  className="h-8.5 text-xs text-slate-500 hover:text-slate-900"
-                  onClick={() => {
-                    setQuery('');
-                    setSelectedCategory('all');
-                    setSelectedStatus('all');
-                  }}
-                  size="sm"
-                  variant="ghost"
-                >
-                  <X className="mr-1 size-3.5" />
-                  Đặt lại
-                </Button>
-              )}
-            </div>
+                <X className="size-3.5" aria-hidden />
+                Đặt lại
+              </button>
+            ) : null}
           </div>
 
-          {/* Body: Internal Scrollable Grid */}
-          <div className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-5">
-            {filteredModules.length > 0 ? (
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-3">
-                {filteredModules.map((module) => {
-                  const isRequested = requestedKeys.has(module.key);
-                  const isRequesting = requestingKey === module.key;
-                  return (
-                    <ApplicationCard
+          {groups.map((group) => (
+            <CollapsibleGroup
+              count={group.rows.length}
+              icon={<Package className="size-4" />}
+              key={group.id}
+              title={group.title}
+              tone={group.tone}
+            >
+              <div className="sm:overflow-x-auto">
+                <div className="sm:min-w-[600px]">
+                  {group.rows.map((module) => (
+                    <ApplicationRow
                       canRequestActivation={canRequestActivation}
-                      isRequested={isRequested}
-                      isRequesting={isRequesting}
+                      isRequested={requestedKeys.has(module.key)}
+                      isRequesting={requestingKey === module.key}
+                      isSelected={selectedModule?.key === module.key}
                       key={module.key}
                       module={module}
                       onRequest={() => handleTriggerActivation(module)}
-                      onViewDetails={() => setSelectedModule(module)}
+                      onViewDetails={() => openDetails(module)}
                     />
-                  );
-                })}
+                  ))}
+                </div>
               </div>
-            ) : (
-              <div className="flex h-64 flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 p-8 text-center">
-                <PackageOpen className="mb-3 size-10 text-slate-300" />
-                <h3 className="text-sm font-semibold text-slate-800">
-                  Không tìm thấy ứng dụng nào phù hợp
-                </h3>
-                <p className="mt-1 max-w-sm text-xs text-slate-500">
-                  Thử thay đổi từ khóa tìm kiếm hoặc đặt lại các bộ lọc danh mục và trạng thái.
-                </p>
-                <Button
-                  className="mt-4 text-xs"
-                  onClick={() => {
-                    setQuery('');
-                    setSelectedCategory('all');
-                    setSelectedStatus('all');
-                  }}
-                  size="sm"
-                  variant="outline"
-                >
-                  Xóa bộ lọc
-                </Button>
-              </div>
-            )}
-          </div>
-        </section>
-      </main>
+            </CollapsibleGroup>
+          ))}
 
-      {/* Drawer Chi tiết ứng dụng (Right Sheet 620px) */}
-      <ModuleDetailsDrawer
-        canRequestActivation={canRequestActivation}
-        isRequested={selectedModule ? requestedKeys.has(selectedModule.key) : false}
-        isRequesting={selectedModule ? requestingKey === selectedModule.key : false}
-        module={selectedModule}
-        onClose={() => setSelectedModule(null)}
-        onRequest={() => selectedModule && handleTriggerActivation(selectedModule)}
-      />
-    </>
-  );
-}
+          {groups.length === 0 ? (
+            <div className="flex h-64 flex-col items-center justify-center rounded-[14px] border border-dashed border-slate-200 bg-white p-8 text-center">
+              <PackageOpen className="mb-3 size-10 text-slate-300" aria-hidden />
+              <h3 className="text-sm font-semibold text-slate-800">
+                Không tìm thấy ứng dụng nào phù hợp
+              </h3>
+              <p className="mt-1 max-w-sm text-xs text-slate-500">
+                Thử thay đổi từ khóa tìm kiếm hoặc đặt lại các bộ lọc danh mục và trạng thái.
+              </p>
+              <button
+                className="mt-4 h-8 cursor-pointer rounded-lg border border-[#eef0f3] bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-[#f4f6f9]"
+                onClick={resetFilters}
+                type="button"
+              >
+                Xóa bộ lọc
+              </button>
+            </div>
+          ) : null}
+        </div>
 
-function MetricCard({
-  accent,
-  icon: Icon,
-  label,
-  value,
-}: {
-  accent?: string;
-  icon: LucideIcon;
-  label: string;
-  value: number;
-}) {
-  return (
-    <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-white p-3.5 shadow-xs">
-      <div>
-        <p className="text-xs font-medium text-slate-500">{label}</p>
-        <p className={cn('mt-0.5 text-2xl font-bold tracking-tight text-[#0d1c2d]', accent)}>
-          {value}
-        </p>
-      </div>
-      <div className="grid size-9 place-items-center rounded-lg bg-slate-100 text-slate-600">
-        <Icon className="size-4.5" />
+        {selectedModule ? (
+          <ModuleDetailPanel
+            canRequestActivation={canRequestActivation}
+            isRequested={requestedKeys.has(selectedModule.key)}
+            isRequesting={requestingKey === selectedModule.key}
+            module={selectedModule}
+            onClose={() => setSelectedModule(null)}
+            onRequest={() => handleTriggerActivation(selectedModule)}
+            panelRef={panelRef}
+          />
+        ) : null}
       </div>
     </div>
   );
 }
 
-function ApplicationCard({
+const STATUS_STYLES: Record<
+  TenantEntitlementStatus,
+  { label: string; badge: string; dot: string }
+> = {
+  active: { label: 'Đang hoạt động', badge: 'bg-emerald-100 text-emerald-800', dot: 'bg-emerald-500' },
+  provisioning: { label: 'Đang khởi tạo', badge: 'bg-blue-100 text-blue-800', dot: 'bg-blue-500' },
+  failed: { label: 'Lỗi kích hoạt', badge: 'bg-red-100 text-red-700', dot: 'bg-red-500' },
+  disabled: { label: 'Tạm dừng', badge: 'bg-amber-100 text-[#8a6400]', dot: 'bg-amber-500' },
+  'not-entitled': { label: 'Khả dụng', badge: 'bg-[#f1f3f6] text-slate-700', dot: 'bg-slate-400' },
+};
+
+function ModuleTile({ module, className }: { module: TenantModuleCatalogItem; className: string }) {
+  const info = getModuleInfo(module.key, module.name, module.description);
+  return (
+    <span
+      aria-hidden
+      className={cn('grid shrink-0 place-items-center font-extrabold', info.accentColor.iconBg, className)}
+    >
+      {(module.icon || module.key.slice(0, 2)).toUpperCase()}
+    </span>
+  );
+}
+
+function StatusBadge({ status }: { status: TenantEntitlementStatus }) {
+  const style = STATUS_STYLES[status];
+  return (
+    <span
+      className={cn(
+        'flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-semibold',
+        style.badge,
+      )}
+    >
+      <span aria-hidden className={cn('size-1.5 rounded-full', style.dot)} />
+      {style.label}
+    </span>
+  );
+}
+
+/** Nút chính của một ứng dụng: mở nếu đang hoạt động, còn lại là gửi yêu cầu kích hoạt. */
+function ModuleAction({
   canRequestActivation,
   isRequested,
   isRequesting,
+  module,
+  onRequest,
+  size,
+}: {
+  canRequestActivation: boolean;
+  isRequested: boolean;
+  isRequesting: boolean;
+  module: TenantModuleCatalogItem;
+  onRequest: () => void;
+  size: 'row' | 'panel';
+}) {
+  const box = cn(
+    'whitespace-nowrap',
+    size === 'row' ? 'h-8 rounded-[7px] px-3 text-[13px]' : 'h-9 rounded-lg px-3.5 text-[14px]',
+  );
+  if (module.entitlementStatus === 'active') {
+    return (
+      <a
+        className={cn('flex items-center gap-1.5 bg-[#18181b] font-semibold text-white hover:bg-[#2a2a2f]', box)}
+        href={module.launchUrl}
+      >
+        {size === 'row' ? 'Truy cập' : 'Mở ứng dụng ngay'}
+        <ExternalLink className="size-3.5" aria-hidden />
+      </a>
+    );
+  }
+  if (module.entitlementStatus === 'provisioning') {
+    return (
+      <span className={cn('flex items-center gap-1.5 bg-blue-50 font-semibold text-blue-700', box)}>
+        <Loader2 className="size-3.5 animate-spin" aria-hidden />
+        {size === 'row' ? 'Đang khởi tạo' : 'Hệ thống đang khởi tạo...'}
+      </span>
+    );
+  }
+  return (
+    <button
+      className={cn(
+        'flex cursor-pointer items-center gap-1.5 font-bold disabled:cursor-not-allowed',
+        isRequested
+          ? 'bg-emerald-50 text-emerald-700'
+          : 'bg-[#ffc90a] text-[#18181b] hover:bg-[#ffd84d] disabled:opacity-60',
+        box,
+      )}
+      disabled={!canRequestActivation || isRequesting || isRequested}
+      onClick={onRequest}
+      type="button"
+    >
+      {isRequesting ? (
+        <Loader2 className="size-3.5 animate-spin" aria-hidden />
+      ) : isRequested ? (
+        <Check className="size-3.5" aria-hidden />
+      ) : (
+        <Sparkles className="size-3.5" aria-hidden />
+      )}
+      {size === 'row'
+        ? isRequested
+          ? 'Đã gửi yêu cầu'
+          : 'Kích hoạt'
+        : isRequested
+          ? 'Đã ghi nhận yêu cầu'
+          : canRequestActivation
+            ? 'Gửi yêu cầu kích hoạt'
+            : 'Chỉ dành cho Tenant Admin'}
+    </button>
+  );
+}
+
+function ApplicationRow({
+  canRequestActivation,
+  isRequested,
+  isRequesting,
+  isSelected,
   module,
   onRequest,
   onViewDetails,
@@ -608,378 +701,187 @@ function ApplicationCard({
   canRequestActivation: boolean;
   isRequested: boolean;
   isRequesting: boolean;
+  isSelected: boolean;
   module: TenantModuleCatalogItem;
   onRequest: () => void;
   onViewDetails: () => void;
 }) {
-  const Icon = moduleIcons[module.key.toLowerCase()] ?? Boxes;
   const info = getModuleInfo(module.key, module.name, module.description);
-  const isActive = module.entitlementStatus === 'active';
-  const isProvisioning = module.entitlementStatus === 'provisioning';
-
   return (
-    <article
+    <div
       className={cn(
-        'group flex flex-col justify-between rounded-xl border bg-white p-4.5 shadow-xs transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md',
-        isActive
-          ? 'border-slate-200/90 hover:border-emerald-300/80'
-          : 'border-slate-200/80 hover:border-slate-300',
+        // Màn hẹp: nút thao tác xuống dòng dưới tên, không phải cuộn ngang mới thấy.
+        'grid grid-cols-[40px_minmax(0,1fr)] items-center gap-x-3 gap-y-2 border-t border-[#f1f3f6] px-4 py-3 sm:grid-cols-[40px_minmax(200px,1fr)_76px_140px_200px] sm:px-5',
+        isSelected ? 'bg-[#fffbeb] shadow-[inset_3px_0_0_#ffc90a]' : 'bg-white',
       )}
     >
-      <div>
-        {/* Card Header: Icon + Badge */}
-        <div className="mb-3.5 flex items-start justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div
-              className={cn(
-                'grid size-11 place-items-center rounded-xl transition group-hover:scale-105',
-                info.accentColor.iconBg,
-              )}
-            >
-              <Icon className="size-5.5" />
-            </div>
-            <div>
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-600">
-                {info.category}
-              </span>
-              <h2 className="text-base font-bold text-slate-900 line-clamp-1 group-hover:text-blue-600 transition">
-                {module.name}
-              </h2>
-            </div>
-          </div>
-
-          <StatusBadge status={module.entitlementStatus} />
-        </div>
-
-        {/* Description */}
-        <p className="text-xs leading-relaxed text-slate-600 line-clamp-2 min-h-9">
-          {module.description || info.tagline}
-        </p>
-
-        {/* Feature Highlights Pills */}
-        <div className="mt-3.5 space-y-1.5 rounded-lg bg-slate-50/80 p-2.5 border border-slate-100">
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-600">
-            Tính năng cốt lõi:
-          </p>
-          <ul className="space-y-1 text-xs text-slate-700">
-            {info.features.slice(0, 2).map((feat, idx) => (
-              <li className="flex items-center gap-1.5" key={idx}>
-                <Check className="size-3.5 text-emerald-600 shrink-0" />
-                <span className="truncate">{feat}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      </div>
-
-      {/* Card Footer: Actions */}
-      <div className="mt-4 flex items-center justify-between gap-2 border-t border-slate-100 pt-3">
-        <div className="flex items-center gap-1.5 text-[11px] text-slate-600">
-          <span>Phiên bản</span>
-          <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] font-medium text-slate-700">
-            v{module.version}
+      <ModuleTile className="size-10 rounded-[10px] text-xs" module={module} />
+      <div className="flex min-w-0 flex-col">
+        <span className="flex min-w-0 items-center gap-2">
+          <b className="max-w-full shrink-0 truncate font-semibold">{module.name}</b>
+          <span className="min-w-0 truncate whitespace-nowrap rounded-[5px] bg-[#f1f3f6] px-[7px] text-[12px] font-semibold text-slate-600">
+            {info.category}
           </span>
-        </div>
-
-        <div className="flex items-center gap-1.5">
-          <Button
-            className="h-8 px-2.5 text-xs text-slate-600 hover:text-slate-900"
-            onClick={onViewDetails}
-            size="sm"
-            variant="ghost"
-          >
-            Chi tiết
-          </Button>
-
-          {isActive ? (
-            <a
-              className="inline-flex h-8 items-center gap-1.5 rounded-md bg-[#091426] px-3 text-xs font-semibold text-white shadow-xs transition hover:bg-[#132747]"
-              href={module.launchUrl}
-            >
-              Truy cập
-              <ExternalLink className="size-3.5" />
-            </a>
-          ) : isProvisioning ? (
-            <Button
-              className="h-8 gap-1.5 border-blue-200 bg-blue-50 text-xs text-blue-700 hover:bg-blue-50"
-              disabled
-              size="sm"
-              variant="outline"
-            >
-              <Loader2 className="size-3.5 animate-spin" />
-              Đang khởi tạo
-            </Button>
-          ) : (
-            <Button
-              className={cn(
-                'h-8 gap-1.5 text-xs font-semibold',
-                isRequested
-                  ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-50'
-                  : 'bg-blue-600 hover:bg-blue-700 text-white',
-              )}
-              disabled={!canRequestActivation || isRequesting || isRequested}
-              onClick={onRequest}
-              size="sm"
-            >
-              {isRequesting ? (
-                <Loader2 className="size-3.5 animate-spin" />
-              ) : isRequested ? (
-                <Check className="size-3.5" />
-              ) : (
-                <Sparkles className="size-3.5" />
-              )}
-              {isRequested ? 'Đã gửi yêu cầu' : 'Kích hoạt'}
-            </Button>
-          )}
-        </div>
-      </div>
-    </article>
-  );
-}
-
-function StatusBadge({ status }: { status: TenantEntitlementStatus }) {
-  if (status === 'active') {
-    return (
-      <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-50 shrink-0 gap-1.5 text-[11px] font-semibold">
-        <span className="relative flex size-1.5">
-          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-          <span className="relative inline-flex size-1.5 rounded-full bg-emerald-600" />
         </span>
-        Đang hoạt động
-      </Badge>
-    );
-  }
-
-  if (status === 'provisioning') {
-    return (
-      <Badge className="border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-50 shrink-0 gap-1.5 text-[11px] font-semibold">
-        <Loader2 className="size-3 animate-spin text-blue-600" />
-        Đang khởi tạo
-      </Badge>
-    );
-  }
-
-  if (status === 'failed') {
-    return (
-      <Badge className="border-red-200 bg-red-50 text-red-700 hover:bg-red-50 shrink-0 text-[11px] font-semibold">
-        Lỗi kích hoạt
-      </Badge>
-    );
-  }
-
-  if (status === 'disabled') {
-    return (
-      <Badge className="border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-50 shrink-0 text-[11px] font-semibold">
-        Tạm dừng
-      </Badge>
-    );
-  }
-
-  return (
-    <Badge
-      className="border-slate-200 bg-slate-100 text-slate-600 hover:bg-slate-100 shrink-0 text-[11px] font-semibold"
-      variant="outline"
-    >
-      Khả dụng
-    </Badge>
+        <span className="truncate text-[13px] text-slate-500">
+          {module.description || info.tagline}
+        </span>
+      </div>
+      <span className="hidden justify-self-start rounded-md bg-[#f1f3f6] px-[7px] py-px font-mono text-[12px] text-slate-700 sm:block">
+        v{module.version}
+      </span>
+      <span className="hidden justify-self-start sm:block">
+        <StatusBadge status={module.entitlementStatus} />
+      </span>
+      <div className="col-start-2 flex gap-1.5 sm:col-start-auto sm:justify-end">
+        <button
+          aria-pressed={isSelected}
+          className="h-8 cursor-pointer whitespace-nowrap rounded-[7px] border border-[#eef0f3] bg-white px-2.5 text-[13px] font-semibold text-slate-700 hover:bg-[#f4f6f9]"
+          onClick={onViewDetails}
+          type="button"
+        >
+          Chi tiết
+        </button>
+        <ModuleAction
+          canRequestActivation={canRequestActivation}
+          isRequested={isRequested}
+          isRequesting={isRequesting}
+          module={module}
+          onRequest={onRequest}
+          size="row"
+        />
+      </div>
+    </div>
   );
 }
 
-function ModuleDetailsDrawer({
+function PanelHeading({ children }: { children: ReactNode }) {
+  return (
+    <span className="flex items-center gap-2 text-[12px] font-semibold tracking-[0.6px] text-slate-500">
+      <span aria-hidden className="h-3.5 w-[3px] rounded-sm bg-[#ffc90a]" />
+      {children}
+    </span>
+  );
+}
+
+function ModuleDetailPanel({
   canRequestActivation,
   isRequested,
   isRequesting,
   module,
   onClose,
   onRequest,
+  panelRef,
 }: {
   canRequestActivation: boolean;
   isRequested: boolean;
   isRequesting: boolean;
-  module: TenantModuleCatalogItem | null;
+  module: TenantModuleCatalogItem;
   onClose: () => void;
   onRequest: () => void;
+  panelRef: RefObject<HTMLElement | null>;
 }) {
-  if (!module) return null;
-
-  const Icon = moduleIcons[module.key.toLowerCase()] ?? Boxes;
   const info = getModuleInfo(module.key, module.name, module.description);
-  const isActive = module.entitlementStatus === 'active';
-  const isProvisioning = module.entitlementStatus === 'provisioning';
-
   return (
-    <Sheet onOpenChange={(open) => !open && onClose()} open={Boolean(module)}>
-      <SheetContent className="flex h-full w-full flex-col overflow-hidden data-[side=right]:sm:max-w-[620px] p-0">
-        {/* Drawer Header */}
-        <SheetHeader className="shrink-0 border-b border-slate-200 bg-slate-50/70 p-5 sm:p-6">
-          <div className="flex items-start gap-4">
-            <div
-              className={cn(
-                'grid size-14 place-items-center rounded-2xl shadow-xs shrink-0',
-                info.accentColor.iconBg,
-              )}
-            >
-              <Icon className="size-7" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                  {info.category}
-                </span>
-                <span className="rounded bg-slate-200/80 px-1.5 py-0.2 font-mono text-[10px] font-medium text-slate-700">
-                  v{module.version}
-                </span>
-              </div>
-              <SheetTitle className="mt-1 text-xl font-bold text-slate-900 sm:text-2xl">
-                {module.name}
-              </SheetTitle>
-              <div className="mt-2 flex items-center gap-2">
-                <StatusBadge status={module.entitlementStatus} />
-                <span className="text-xs text-slate-400">•</span>
-                <span className="font-mono text-xs text-slate-500">
-                  Mã module: {module.key}
-                </span>
-              </div>
-            </div>
-          </div>
-          <SheetDescription className="mt-3 text-xs leading-relaxed text-slate-600 sm:text-sm">
-            {info.tagline}
-          </SheetDescription>
-        </SheetHeader>
-
-        {/* Drawer Body (Internal Scroll) */}
-        <div className="flex-1 min-h-0 overflow-y-auto p-5 sm:p-6 space-y-6">
-          {/* Lợi ích nghiệp vụ */}
-          <div className="rounded-xl border border-blue-100 bg-blue-50/50 p-4">
-            <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-blue-900">
-              <Zap className="size-4 text-blue-600" />
-              Giá trị mang lại cho doanh nghiệp
-            </div>
-            <p className="mt-2 text-xs leading-relaxed text-blue-950 sm:text-sm">
-              {info.businessValue}
-            </p>
-          </div>
-
-          {/* Danh sách tính năng */}
-          <div>
-            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-900 mb-3 flex items-center gap-1.5">
-              <CheckCircle2 className="size-4 text-emerald-600" />
-              Các phân hệ & tính năng cốt lõi
-            </h4>
-            <div className="space-y-2">
-              {info.features.map((feature, idx) => (
-                <div
-                  className="flex items-start gap-3 rounded-lg border border-slate-200 bg-white p-3 shadow-xs"
-                  key={idx}
-                >
-                  <div className="grid size-5 place-items-center rounded-full bg-emerald-100 text-emerald-700 shrink-0 mt-0.5">
-                    <Check className="size-3" />
-                  </div>
-                  <div className="text-xs sm:text-sm text-slate-800 leading-snug">
-                    {feature}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Đối tượng sử dụng */}
-          <div>
-            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-900 mb-2.5 flex items-center gap-1.5">
-              <Users className="size-4 text-slate-700" />
-              Đối tượng & vai trò áp dụng
-            </h4>
-            <div className="flex flex-wrap gap-1.5">
-              {info.targetRoles.map((role, idx) => (
-                <span
-                  className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-700"
-                  key={idx}
-                >
-                  {role}
-                </span>
-              ))}
-            </div>
-          </div>
-
-          {/* Thông tin kỹ thuật & Bảo mật */}
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-2 text-xs">
-            <div className="flex items-center justify-between py-1 border-b border-slate-200/60">
-              <span className="text-slate-500">Đường dẫn khởi chạy</span>
-              <span className="font-mono text-slate-700 truncate max-w-xs">
-                {module.launchUrl}
+    <aside
+      aria-label="Chi tiết ứng dụng"
+      className="flex max-w-full flex-[1_1_340px] scroll-mt-4 flex-col overflow-hidden rounded-[14px] border border-[#eef0f3] bg-white lg:sticky lg:top-4"
+      ref={panelRef}
+    >
+      <div className="flex flex-col gap-2.5 border-b border-[#eef0f3] bg-[#fafbfc] px-5 py-[18px]">
+        <div className="flex items-start gap-3">
+          <ModuleTile className="size-[52px] rounded-xl text-[16px]" module={module} />
+          <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+            <span className="flex items-center gap-1.5 text-[12px] font-bold tracking-[0.6px] text-slate-500">
+              {info.category.toUpperCase()}
+              <span className="rounded-[5px] border border-[#eef0f3] bg-white px-1.5 font-mono font-medium tracking-normal">
+                v{module.version}
               </span>
-            </div>
-            <div className="flex items-center justify-between py-1 border-b border-slate-200/60">
-              <span className="text-slate-500">Tiêu chuẩn bảo mật</span>
-              <span className="font-medium text-slate-700 flex items-center gap-1">
-                <ShieldCheck className="size-3.5 text-emerald-600" />
-                CSRF Protected • Multi-tenant Isolation
-              </span>
-            </div>
-            <div className="flex items-center justify-between py-1">
-              <span className="text-slate-500">Trạng thái phân bổ</span>
-              <span className="font-semibold text-slate-800">
-                {statusLabel[module.entitlementStatus]}
-              </span>
-            </div>
+            </span>
+            <h2 className="m-0 text-lg font-bold">{module.name}</h2>
           </div>
-        </div>
-
-        {/* Drawer Footer Actions */}
-        <div className="shrink-0 flex items-center justify-between gap-3 border-t border-slate-200 bg-slate-50 p-4 sm:px-6">
-          <Button
-            className="text-xs"
+          <button
+            aria-label="Đóng chi tiết"
+            className="grid size-8 shrink-0 cursor-pointer place-items-center rounded-lg border border-[#eef0f3] bg-white text-slate-600 hover:bg-[#f4f6f9]"
             onClick={onClose}
-            variant="outline"
+            type="button"
           >
-            Đóng
-          </Button>
+            <X className="size-4" aria-hidden />
+          </button>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+          <StatusBadge status={module.entitlementStatus} />
+          <span aria-hidden>•</span>
+          <span>
+            Mã module: <code className="font-mono text-slate-700">{module.key}</code>
+          </span>
+        </div>
+        <p className="m-0 text-[14px] text-slate-600">{info.tagline}</p>
+      </div>
 
-          <div className="flex items-center gap-2">
-            {isActive ? (
-              <a
-                className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-[#091426] px-4 text-xs font-semibold text-white shadow-xs transition hover:bg-[#132747]"
-                href={module.launchUrl}
-              >
-                Mở ứng dụng ngay
-                <ExternalLink className="size-4" />
-              </a>
-            ) : isProvisioning ? (
-              <Button
-                className="gap-2 border-blue-200 bg-blue-50 text-xs text-blue-700 hover:bg-blue-50"
-                disabled
-              >
-                <Loader2 className="size-4 animate-spin" />
-                Hệ thống đang khởi tạo...
-              </Button>
-            ) : (
-              <Button
-                className={cn(
-                  'gap-2 text-xs font-semibold',
-                  isRequested
-                    ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-50'
-                    : 'bg-blue-600 hover:bg-blue-700 text-white',
-                )}
-                disabled={!canRequestActivation || isRequesting || isRequested}
-                onClick={onRequest}
-              >
-                {isRequesting ? (
-                  <Loader2 className="size-4 animate-spin" />
-                ) : isRequested ? (
-                  <Check className="size-4" />
-                ) : (
-                  <Sparkles className="size-4" />
-                )}
-                {isRequested
-                  ? 'Đã ghi nhận yêu cầu'
-                  : canRequestActivation
-                    ? 'Gửi yêu cầu kích hoạt'
-                    : 'Chỉ dành cho Tenant Admin'}
-              </Button>
-            )}
+      <div className="flex flex-col gap-[18px] px-5 py-[18px]">
+        <div className="flex flex-col gap-1.5 rounded-[10px] border border-[#ffc90a]/35 bg-[#fffbeb] px-3.5 py-3">
+          <span className="flex items-center gap-1.5 text-[14px] font-bold text-[#8a6400]">
+            <Zap className="size-3.5" aria-hidden />
+            Giá trị mang lại cho doanh nghiệp
+          </span>
+          <p className="m-0 text-[14px] text-slate-700">{info.businessValue}</p>
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <PanelHeading>CÁC PHÂN HỆ &amp; TÍNH NĂNG CỐT LÕI</PanelHeading>
+          {info.features.map((feature) => (
+            <div
+              className="flex items-start gap-2 rounded-[9px] border border-[#f1f3f6] px-3 py-[9px] text-[14px]"
+              key={feature}
+            >
+              <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-600" aria-hidden />
+              <span>{feature}</span>
+            </div>
+          ))}
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <PanelHeading>ĐỐI TƯỢNG &amp; VAI TRÒ ÁP DỤNG</PanelHeading>
+          <div className="flex flex-wrap gap-1.5">
+            {info.targetRoles.map((role) => (
+              <span className="rounded-full bg-[#f1f3f6] px-2.5 py-[3px] text-[13px] text-slate-700" key={role}>
+                {role}
+              </span>
+            ))}
           </div>
         </div>
-      </SheetContent>
-    </Sheet>
+
+        <dl className="m-0 grid grid-cols-[112px_1fr] gap-x-3 gap-y-2 rounded-[10px] border border-[#f1f3f6] bg-[#fafbfc] px-3.5 py-3 text-[13px]">
+          <dt className="text-slate-500">Đường dẫn khởi chạy</dt>
+          <dd className="m-0 break-all font-mono text-slate-700">{module.launchUrl}</dd>
+          <dt className="text-slate-500">Tiêu chuẩn bảo mật</dt>
+          <dd className="m-0 flex items-center gap-1.5 text-slate-700">
+            <ShieldCheck className="size-3.5 shrink-0 text-emerald-700" aria-hidden />
+            CSRF Protected • Multi-tenant Isolation
+          </dd>
+          <dt className="text-slate-500">Trạng thái phân bổ</dt>
+          <dd className="m-0 font-semibold text-slate-700">{statusLabel[module.entitlementStatus]}</dd>
+        </dl>
+      </div>
+
+      <div className="mt-auto flex justify-between gap-2 border-t border-[#eef0f3] px-5 py-3.5">
+        <button
+          className="h-9 cursor-pointer rounded-lg border border-[#eef0f3] bg-white px-3.5 text-[14px] font-semibold text-slate-700 hover:bg-[#f4f6f9]"
+          onClick={onClose}
+          type="button"
+        >
+          Đóng
+        </button>
+        <ModuleAction
+          canRequestActivation={canRequestActivation}
+          isRequested={isRequested}
+          isRequesting={isRequesting}
+          module={module}
+          onRequest={onRequest}
+          size="panel"
+        />
+      </div>
+    </aside>
   );
 }

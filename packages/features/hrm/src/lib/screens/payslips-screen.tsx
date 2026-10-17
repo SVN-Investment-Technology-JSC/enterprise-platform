@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { Printer, Calendar, AlertTriangle, UserCheck } from 'lucide-react';
 import type { HrmPayslip } from '@enterprise-platform/contracts-hrm';
+import { formatDate } from '@enterprise-platform/shared-ui';
 import { hrmFetch } from '../hrm-api';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
@@ -119,13 +120,13 @@ export default function PayslipsScreen() {
                   >
                     <div className="flex items-center justify-between gap-1 mb-1">
                       <span className="font-semibold">{r.payslipNo}</span>
-                      <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px]">
+                      <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 text-[12px]">
                         Đã phát hành
                       </Badge>
                     </div>
-                    <span className="text-[11px] text-slate-500 flex items-center gap-1">
+                    <span className="text-[12px] text-slate-500 flex items-center gap-1">
                       <Calendar className="size-3 text-slate-400" />
-                      {new Date(r.issuedAt).toLocaleDateString('vi-VN')}
+                      {formatDate(r.issuedAt)}
                     </span>
                   </button>
                 );
@@ -162,12 +163,12 @@ export default function PayslipsScreen() {
                 {current && (
                   <div className="text-right">
                     <span className="text-xs font-bold text-slate-900 block">{current.payslipNo}</span>
-                    <span className="text-[11px] text-slate-500 block">
-                      Ngày phát hành: {new Date(current.issuedAt).toLocaleDateString('vi-VN')}
+                    <span className="text-[12px] text-slate-500 block">
+                      Ngày phát hành: {formatDate(current.issuedAt)}
                     </span>
                     {snapshot.period && (
-                      <span className="inline-block mt-1 font-mono text-[11px] px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200">
-                        Kỳ: {snapshot.period.periodCode} ({snapshot.period.fromDate} → {snapshot.period.toDate})
+                      <span className="inline-block mt-1 font-mono text-[12px] px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200">
+                        Kỳ: {snapshot.period.periodCode} ({formatDate(snapshot.period.fromDate)} → {formatDate(snapshot.period.toDate)})
                       </span>
                     )}
                   </div>
@@ -181,7 +182,7 @@ export default function PayslipsScreen() {
                     <span className="text-xs font-bold uppercase tracking-wider text-blue-900">
                       Bậc lương & Mức đóng áp dụng trong kỳ ({snapshot.salaryProfiles.length} giai đoạn)
                     </span>
-                    <span className="text-[11px] text-blue-600 font-medium">
+                    <span className="text-[12px] text-blue-600 font-medium">
                       Tự động tính phân đoạn theo ngày công thực tế (Prorated)
                     </span>
                   </div>
@@ -195,11 +196,11 @@ export default function PayslipsScreen() {
                           <div className="font-semibold text-slate-900 font-mono">
                             {Number(sp.baseSalary).toLocaleString('vi-VN')} {sp.currency} ({sp.salaryType})
                           </div>
-                          <div className="text-[11px] text-slate-500 mt-0.5">
-                            Hiệu lực: {sp.effectiveFrom} → {sp.effectiveTo || 'Hiện tại'}
+                          <div className="text-[12px] text-slate-500 mt-0.5">
+                            Hiệu lực: {formatDate(sp.effectiveFrom)} → {sp.effectiveTo ? formatDate(sp.effectiveTo) : 'Hiện tại'}
                           </div>
                         </div>
-                        <Badge className="bg-blue-50 text-blue-700 border-blue-200 text-[10px]">
+                        <Badge className="bg-blue-50 text-blue-700 border-blue-200 text-[12px]">
                           Giai đoạn #{idx + 1}
                         </Badge>
                       </div>
@@ -235,7 +236,7 @@ export default function PayslipsScreen() {
                   <span className="text-xs font-bold text-emerald-800 uppercase tracking-wider block">
                     Thực lĩnh chuyển khoản (Net)
                   </span>
-                  <span className="text-[11px] text-emerald-600">
+                  <span className="text-[12px] text-emerald-600">
                     Đã bao gồm đầy đủ các khoản giảm trừ và thuế TNCN
                   </span>
                 </div>

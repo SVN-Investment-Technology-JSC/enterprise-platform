@@ -3,11 +3,8 @@ import { BadRequestException, ForbiddenException, NotFoundException } from '@nes
 import { createIntegrationEvent } from '@enterprise-platform/contracts-integration';
 import type { HrmRequestKind } from '@enterprise-platform/contracts-hrm';
 import { HRM_APPROVAL_PERMISSIONS } from './hrm-approval-notification.js';
+import { assignedRequestIds, type Queryable } from './hrm-approval-policy.js';
 import { HRM_REQUEST_TABLES } from './hrm-procedure-links.js';
-
-interface Queryable {
-  query(text: string, values?: unknown[]): Promise<{ rows: unknown[]; rowCount?: number | null }>;
-}
 
 export const MAX_COMMENT_LENGTH = 4000;
 export const MAX_MENTIONS = 20;
@@ -128,12 +125,25 @@ export async function resolveThreadAccess(
   if (owner.userId && owner.userId === actor.userId) return 'OWNER';
   if (canReadAllRequests(actor, kind)) return 'ALL';
   if (hasApprovePermission(actor, kind) && (await inScope())) return 'APPROVER';
+  try {
+    const assigned = await assignedRequestIds(db, tenantId, kind, actor.userId);
+    if (assigned.includes(requestId)) return 'APPROVER';
+  } catch {
+    // Bỏ qua lỗi kết nối Procedure Engine hoặc fallback để tiếp tục kiểm tra mention
+  }
   const mentioned = await db.query(
     `SELECT 1 FROM hrm_schema.request_comments
       WHERE tenant_id=$1 AND request_kind=$2 AND request_id=$3 AND deleted_at IS NULL AND $4::uuid = ANY(mention_user_ids) LIMIT 1`,
     [tenantId, kind, requestId, actor.userId],
   );
   return mentioned.rows.length ? 'PARTICIPANT' : null;
+}
+
+export interface CommentAttachment {
+  readonly id: string;
+  readonly name: string;
+  readonly contentType?: string;
+  readonly sizeBytes?: number;
 }
 
 export interface CommentRow {
@@ -146,6 +156,7 @@ export interface CommentRow {
   decision: string | null;
   body: string;
   mention_user_ids: string[];
+  attachments?: CommentAttachment[];
   created_at: Date | string;
 }
 
@@ -157,7 +168,7 @@ export async function listComments(
   viewerUserId: string,
 ) {
   const res = await db.query(
-    `SELECT id, request_kind, request_id, author_user_id, author_name, kind, decision, body, mention_user_ids, created_at
+    `SELECT id, request_kind, request_id, author_user_id, author_name, kind, decision, body, mention_user_ids, attachments, created_at
        FROM hrm_schema.request_comments
       WHERE tenant_id=$1 AND request_kind=$2 AND request_id=$3 AND deleted_at IS NULL
       ORDER BY created_at, id`,
@@ -183,6 +194,7 @@ export async function listComments(
     decision: r.decision,
     body: r.body,
     mentions: (r.mention_user_ids ?? []).map((userId) => ({ userId, name: names.get(userId) ?? 'Người dùng' })),
+    attachments: Array.isArray(r.attachments) ? r.attachments : [],
     createdAt: new Date(r.created_at).toISOString(),
     mine: r.author_user_id === viewerUserId,
   }));
@@ -227,6 +239,7 @@ export interface CreateCommentInput {
   readonly mentionUserIds: readonly string[];
   readonly commentKind: 'COMMENT' | 'DECISION';
   readonly decision: string | null;
+  readonly attachments?: readonly CommentAttachment[];
 }
 
 async function insertEvent(db: Queryable, event: ReturnType<typeof createIntegrationEvent>) {
@@ -248,10 +261,11 @@ const excerpt = (text: string, max = 140) => (text.length > max ? `${text.slice(
  * Người viết không tự nhận thông báo của mình (notification-worker bỏ qua actor).
  */
 export async function createComment(db: Queryable, input: CreateCommentInput) {
+  const attachments = Array.isArray(input.attachments) ? input.attachments : [];
   const inserted = await db.query(
     `INSERT INTO hrm_schema.request_comments
-       (tenant_id, request_kind, request_id, author_user_id, author_name, kind, decision, body, mention_user_ids)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::uuid[]) RETURNING id, created_at`,
+       (tenant_id, request_kind, request_id, author_user_id, author_name, kind, decision, body, mention_user_ids, attachments)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::uuid[],$10::jsonb) RETURNING id, created_at`,
     [
       input.tenantId,
       input.kind,
@@ -262,15 +276,17 @@ export async function createComment(db: Queryable, input: CreateCommentInput) {
       input.decision,
       input.body,
       input.mentionUserIds,
+      JSON.stringify(attachments),
     ],
   );
   const created = inserted.rows[0] as { id: string; created_at: Date | string };
   const label = KIND_LABELS[input.kind];
   const who = input.actor.name || 'Một người dùng';
   const decisionText = input.decision ? DECISION_LABELS[input.decision] : undefined;
+  const fileNotice = attachments.length ? ` [Đính kèm ${attachments.length} tệp]` : '';
   const summary = decisionText
-    ? `${who} ${decisionText} đơn ${label} của ${input.owner.employeeName}: ${excerpt(input.body)}`
-    : `${who} trao đổi về đơn ${label} của ${input.owner.employeeName}: ${excerpt(input.body)}`;
+    ? `${who} ${decisionText} đơn ${label} của ${input.owner.employeeName}: ${excerpt(input.body)}${fileNotice}`
+    : `${who} trao đổi về đơn ${label} của ${input.owner.employeeName}: ${excerpt(input.body)}${fileNotice}`;
   const base = {
     tenantId: input.tenantId,
     source: 'hrm',
@@ -287,16 +303,33 @@ export async function createComment(db: Queryable, input: CreateCommentInput) {
   const requestsLink = `/modules/hrm/requests?request=${encodeURIComponent(input.requestId)}`;
 
   if (input.mentionUserIds.length) {
-    await insertEvent(
-      db,
-      createIntegrationEvent({
-        ...base,
-        id: randomUUID(),
-        type: 'hrm.request.comment.mentioned',
-        version: 1,
-        payload: { ...common, mentionedUserIds: input.mentionUserIds, deepLink: approvalsLink },
-      }),
-    );
+    const ownerMentioned = Boolean(input.owner.userId && input.mentionUserIds.includes(input.owner.userId));
+    const otherMentions = input.mentionUserIds.filter((id) => id !== input.owner.userId);
+
+    if (ownerMentioned && input.owner.userId) {
+      await insertEvent(
+        db,
+        createIntegrationEvent({
+          ...base,
+          id: randomUUID(),
+          type: 'hrm.request.comment.mentioned',
+          version: 1,
+          payload: { ...common, mentionedUserIds: [input.owner.userId], deepLink: requestsLink },
+        }),
+      );
+    }
+    if (otherMentions.length) {
+      await insertEvent(
+        db,
+        createIntegrationEvent({
+          ...base,
+          id: randomUUID(),
+          type: 'hrm.request.comment.mentioned',
+          version: 1,
+          payload: { ...common, mentionedUserIds: otherMentions, deepLink: approvalsLink },
+        }),
+      );
+    }
   }
   // Chủ đơn: báo khi người khác viết (không báo khi chính họ viết).
   if (input.owner.userId && input.owner.userId !== input.actor.userId && !input.mentionUserIds.includes(input.owner.userId)) {

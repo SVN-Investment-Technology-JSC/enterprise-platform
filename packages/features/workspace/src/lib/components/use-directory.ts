@@ -1,6 +1,10 @@
 'use client';
 
-import type { DirectoryPerson, DirectoryResponse } from '@enterprise-platform/contracts-workspace';
+import type {
+  DirectoryOrgNode,
+  DirectoryPerson,
+  DirectoryResponse,
+} from '@enterprise-platform/contracts-workspace';
 import { useEffect, useMemo, useState } from 'react';
 import * as api from '../workspace-api';
 
@@ -23,6 +27,8 @@ function loadOnce(): Promise<DirectoryResponse> {
 
 export interface DirectoryView {
   readonly people: readonly DirectoryPerson[];
+  /** Cây cơ cấu (đơn vị, chức danh) trả phẳng; rỗng khi server chưa trả. */
+  readonly orgNodes: readonly DirectoryOrgNode[];
   readonly degraded: boolean;
   /** Đã có kết quả từ server (kể cả rỗng); trước đó danh sách rỗng chưa có nghĩa gì. */
   readonly loaded: boolean;
@@ -49,6 +55,7 @@ export function useDirectory(): DirectoryView {
     const byId = new Map(people.map((person) => [person.userId, person]));
     return {
       people,
+      orgNodes: snapshot?.orgNodes ?? [],
       degraded: snapshot?.degraded ?? false,
       loaded: snapshot !== undefined,
       nameOf: (userId) => (userId ? (byId.get(userId)?.displayName ?? userId) : '—'),

@@ -58,10 +58,10 @@ export const DynamicAttributeForm: React.FC<DynamicAttributeFormProps> = ({
   return (
     <div className="space-y-3 pt-2 border-t border-slate-200">
       <div className="flex items-center justify-between">
-        <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wider">
+        <span className="text-[12px] font-bold text-slate-700 uppercase tracking-wider">
           Thông tin bổ trợ quy trình (Cấu hình động Node S)
         </span>
-        <span className="text-[10px] text-slate-500 font-medium">
+        <span className="text-[12px] text-slate-500 font-medium">
           Dùng cho điều kiện xét duyệt & rẽ nhánh
         </span>
       </div>
@@ -98,6 +98,7 @@ export const DynamicAttributeForm: React.FC<DynamicAttributeFormProps> = ({
                   {attr.name} {isRequired && <span className="text-red-500 font-bold">*</span>}
                 </label>
                 <SearchableSelect
+                  height={36}
                   options={userOptions}
                   value={typeof val === 'string' ? val : ''}
                   onChange={(next) => onChange(attr.code, next || undefined)}
@@ -150,18 +151,18 @@ export const DynamicAttributeForm: React.FC<DynamicAttributeFormProps> = ({
                     className="block w-full text-xs text-slate-600 file:mr-2 file:rounded-md file:border file:border-slate-200 file:bg-white file:px-2 file:py-1 file:text-xs"
                   />
                 ) : (
-                  <p className="text-[11px] text-slate-500">
+                  <p className="text-[12px] text-slate-500">
                     Chưa thể tải tệp ở màn hình này.
                   </p>
                 )}
                 {uploading[attr.code] && (
-                  <p className="text-[11px] text-slate-500">Đang tải tệp lên...</p>
+                  <p className="text-[12px] text-slate-500">Đang tải tệp lên...</p>
                 )}
                 {fileErrors[attr.code] && (
-                  <p className="text-[11px] text-red-600">{fileErrors[attr.code]}</p>
+                  <p className="text-[12px] text-red-600">{fileErrors[attr.code]}</p>
                 )}
                 {fileId && !uploading[attr.code] && (
-                  <div className="flex items-center justify-between text-[11px] text-slate-600">
+                  <div className="flex items-center justify-between text-[12px] text-slate-600">
                     <span>
                       Đã đính kèm: {fileNames[attr.code] || 'tệp đã tải lên'}
                     </span>
@@ -192,6 +193,7 @@ export const DynamicAttributeForm: React.FC<DynamicAttributeFormProps> = ({
                   {attr.name} {isRequired && <span className="text-red-500 font-bold">*</span>}
                 </label>
                 <SearchableSelect
+                  height={36}
                   options={options}
                   value={typeof val === 'string' ? val : ''}
                   onChange={(next) => onChange(attr.code, next || undefined)}
@@ -209,6 +211,7 @@ export const DynamicAttributeForm: React.FC<DynamicAttributeFormProps> = ({
                   {attr.name} {isRequired && <span className="text-red-500 font-bold">*</span>}
                 </label>
                 <DatePickerInput
+                  height={36}
                   value={typeof val === 'string' ? val : ''}
                   onChange={(next) => onChange(attr.code, next || undefined)}
                   placeholder="dd/mm/yyyy"

@@ -4,26 +4,33 @@ import type { createPostgresPool } from '@enterprise-platform/adapter-database';
 describe('Tenant authorization cache', () => {
   let revision: string;
   let active: boolean;
-  let modules: string[];
+  let roles: string[];
   let actions: string[];
   let clock: number;
   let query: jest.Mock;
   let service: TenantAuthorizationService;
+  const allows = (
+    access: Awaited<ReturnType<TenantAuthorizationService['resolve']>>,
+    module: string,
+    permission: string,
+  ) => service.allowsModule('tenant-a', 'user', access, module, permission);
   beforeEach(() => {
     revision = '1';
     active = true;
-    modules = ['procedure-engine'];
+    roles = ['custom-role'];
     actions = ['core.users.read', 'tenant.manage'];
     clock = 0;
     query = jest.fn(async (sql: string) => {
       if (sql.includes('s.revision'))
-        return { rows: active ? [{ revision }] : [] };
+        return {
+          rows: active
+            ? [{ revision, id: 'user', email: 'u@x.vn', fullName: 'User', systemRole: 'tenant-user' }]
+            : [],
+        };
       if (sql.includes('SELECT r.key'))
-        return { rows: [{ key: 'custom-role' }] };
+        return { rows: roles.map((key) => ({ key })) };
       if (sql.includes('pa.action_key'))
         return { rows: actions.map((key) => ({ key })) };
-      if (sql.includes('rm.module_key'))
-        return { rows: modules.map((key) => ({ key })) };
       throw new Error(sql);
     });
     service = new TenantAuthorizationService(
@@ -37,108 +44,47 @@ describe('Tenant authorization cache', () => {
   it('reuses computed permissions but checks the DB fence on every hit', async () => {
     const first = await service.resolve('tenant-a', 'user');
     expect(first.permissions).toEqual(['core.users.read']);
-    expect(query).toHaveBeenCalledTimes(4);
+    expect(query).toHaveBeenCalledTimes(3);
     expect(await service.resolve('tenant-a', 'user')).toEqual(first);
-    expect(query).toHaveBeenCalledTimes(5);
+    expect(query).toHaveBeenCalledTimes(4);
   });
-  it('separates HRM module admission, calculation, finalization and payment and revokes immediately', async () => {
-    modules = ['hrm'];
+  it('separates HRM admission, calculation, finalization and payment and revokes immediately', async () => {
     actions = ['hrm.payroll.calculate'];
     const access = await service.resolve('tenant-a', 'user');
-    expect(
-      service.allowsModule(
-        'tenant-a',
-        'user',
-        access,
-        'hrm',
-        'hrm.payroll.calculate',
-      ),
-    ).toBe(true);
-    expect(
-      service.allowsModule(
-        'tenant-a',
-        'user',
-        access,
-        'hrm',
-        'hrm.payroll.read',
-      ),
-    ).toBe(true);
-    expect(
-      service.allowsModule(
-        'tenant-a',
-        'user',
-        access,
-        'hrm',
-        'hrm.payroll.finalize',
-      ),
-    ).toBe(false);
-    expect(
-      service.allowsModule(
-        'tenant-a',
-        'user',
-        access,
-        'hrm',
-        'hrm.payroll.pay',
-      ),
-    ).toBe(false);
-    expect(
-      service.allowsModule(
-        'tenant-a',
-        'user',
-        access,
-        'hrm',
-        'hrm.employee.read',
-      ),
-    ).toBe(false);
+    expect(access.moduleKeys).toContain('hrm');
+    expect(allows(access, 'hrm', 'hrm.payroll.calculate')).toBe(true);
+    expect(allows(access, 'hrm', 'hrm.payroll.read')).toBe(true);
+    expect(allows(access, 'hrm', 'hrm.payroll.finalize')).toBe(false);
+    expect(allows(access, 'hrm', 'hrm.payroll.pay')).toBe(false);
+    expect(allows(access, 'hrm', 'hrm.employee.read')).toBe(false);
     revision = '2';
     actions = ['hrm.self.read'];
     const revoked = await service.resolve('tenant-a', 'user');
-    expect(
-      service.allowsModule(
-        'tenant-a',
-        'user',
-        revoked,
-        'hrm',
-        'hrm.payroll.calculate',
-      ),
-    ).toBe(false);
+    expect(allows(revoked, 'hrm', 'hrm.payroll.calculate')).toBe(false);
     revision = '3';
-    modules = [];
-    actions = ['hrm.manage'];
-    const noModule = await service.resolve('tenant-a', 'user');
-    expect(
-      service.allowsModule(
-        'tenant-a',
-        'user',
-        noModule,
-        'hrm',
-        'hrm.payroll.pay',
-      ),
-    ).toBe(false);
+    actions = ['core.users.read'];
+    const noHrm = await service.resolve('tenant-a', 'user');
+    expect(noHrm.moduleKeys).not.toContain('hrm');
+    expect(allows(noHrm, 'hrm', 'hrm.payroll.pay')).toBe(false);
+    expect(allows(noHrm, 'hrm', 'module.access')).toBe(false);
   });
   it('invalidates on revision change, including changes from another replica', async () => {
+    actions = ['procedure.access'];
     const first = await service.resolve('tenant-a', 'user');
-    expect(
-      service.allowsModule(
-        'tenant-a',
-        'user',
-        first,
-        'procedure-engine',
-        'module.access',
-      ),
-    ).toBe(true);
-    modules = [];
+    expect(allows(first, 'procedure-engine', 'module.access')).toBe(true);
+    actions = [];
     revision = '2';
     const next = await service.resolve('tenant-a', 'user');
-    expect(
-      service.allowsModule(
-        'tenant-a',
-        'user',
-        next,
-        'procedure-engine',
-        'module.access',
-      ),
-    ).toBe(false);
+    expect(allows(next, 'procedure-engine', 'module.access')).toBe(false);
+  });
+  it('returns the user profile from the same fence query, on hit and miss', async () => {
+    const miss = await service.resolveWithUser('tenant-a', 'user');
+    expect(miss.user).toEqual({ id: 'user', email: 'u@x.vn', fullName: 'User', systemRole: 'tenant-user' });
+    expect(query).toHaveBeenCalledTimes(3);
+    const hit = await service.resolveWithUser('tenant-a', 'user');
+    expect(hit.user).toEqual(miss.user);
+    expect(hit.access).toEqual(miss.access);
+    expect(query).toHaveBeenCalledTimes(4);
   });
   it('rejects disabled users even with a warm allow cache', async () => {
     await service.resolve('tenant-a', 'user');
@@ -150,10 +96,10 @@ describe('Tenant authorization cache', () => {
   it('isolates cache keys by tenant and refreshes after TTL', async () => {
     await service.resolve('tenant-a', 'user');
     await service.resolve('tenant-b', 'user');
-    expect(query).toHaveBeenCalledTimes(8);
+    expect(query).toHaveBeenCalledTimes(6);
     clock = 30_001;
     await service.resolve('tenant-a', 'user');
-    expect(query).toHaveBeenCalledTimes(12);
+    expect(query).toHaveBeenCalledTimes(9);
   });
   it('does not leak mutable cached arrays to callers', async () => {
     const access = await service.resolve('tenant-a', 'user');
@@ -169,56 +115,32 @@ describe('Tenant authorization cache', () => {
       'DB unavailable',
     );
   });
-  it('rejects arbitrary actions even with wildcard module access', async () => {
-    modules = ['*'];
+  it('rejects arbitrary actions even for the tenant admin', async () => {
+    roles = ['tenant-admin'];
     const access = await service.resolve('tenant-a', 'user');
-    expect(
-      service.allowsModule(
-        'tenant-a',
-        'user',
-        access,
-        'procedure-engine',
-        'platform.manage',
-      ),
-    ).toBe(false);
-    expect(
-      service.allowsModule(
-        'tenant-a',
-        'user',
-        access,
-        'unknown',
-        'module.access',
-      ),
-    ).toBe(false);
+    expect(access.moduleKeys).toContain('*');
+    expect(allows(access, 'procedure-engine', 'platform.manage')).toBe(false);
+    expect(allows(access, 'unknown', 'module.access')).toBe(false);
   });
   it('validates IDs before database access', () => {
     expect(() => uuid('not-a-uuid')).toThrow();
   });
 
-  it('does not turn module admission into action grants', async () => {
-    modules = ['*'];
+  it('grants module admission only, not other actions, to a user with procedure.access', async () => {
+    actions = ['procedure.access'];
     const access = await service.resolve('tenant-a', 'user');
-    expect(
-      service.allowsModule(
-        'tenant-a',
-        'user',
-        access,
-        'procedure-engine',
-        'module.access',
-      ),
-    ).toBe(true);
+    expect(access.moduleKeys).toEqual(expect.arrayContaining(['procedure-engine']));
+    expect(allows(access, 'procedure-engine', 'module.access')).toBe(true);
     for (const [module, permission] of [
       ['inventory', 'inventory.read'],
       ['inventory', 'inventory.manage'],
       ['maintenance', 'maintenance.occurrence.manage'],
       ['procedure-engine', 'procedure.definition.manage'],
     ])
-      expect(
-        service.allowsModule('tenant-a', 'user', access, module, permission),
-      ).toBe(false);
+      expect(allows(access, module, permission)).toBe(false);
   });
 
-  it('requires BOTH module admission and the correct action namespace', async () => {
+  it('derives module admission from actions in the same namespace', async () => {
     actions = [
       'inventory.manage',
       'maintenance.manage',
@@ -233,77 +155,28 @@ describe('Tenant authorization cache', () => {
         'maintenance.occurrence.manage',
       ]),
     );
+    expect(access.moduleKeys).toEqual(
+      expect.arrayContaining(['inventory', 'maintenance', 'procedure-engine']),
+    );
+    expect(access.moduleKeys).not.toContain('hrm');
+    expect(allows(access, 'inventory', 'inventory.manage')).toBe(true);
+    expect(allows(access, 'procedure-engine', 'inventory.manage')).toBe(false);
+    expect(allows(access, 'procedure-engine', 'procedure.instance.create')).toBe(
+      true,
+    );
     expect(
-      service.allowsModule(
-        'tenant-a',
-        'user',
-        access,
-        'inventory',
-        'inventory.manage',
-      ),
-    ).toBe(false);
-    expect(
-      service.allowsModule(
-        'tenant-a',
-        'user',
-        access,
-        'procedure-engine',
-        'inventory.manage',
-      ),
-    ).toBe(false);
-    expect(
-      service.allowsModule(
-        'tenant-a',
-        'user',
-        access,
-        'procedure-engine',
-        'procedure.instance.create',
-      ),
-    ).toBe(true);
-    expect(
-      service.allowsModule(
-        'tenant-a',
-        'user',
-        access,
-        'procedure-engine',
-        'procedure.definition.manage',
-      ),
+      allows(access, 'procedure-engine', 'procedure.definition.manage'),
     ).toBe(false);
   });
 
   it('revokes a cached module action after a permission revision changes', async () => {
-    modules = ['inventory'];
     actions = ['inventory.read', 'inventory.transaction.write'];
     const first = await service.resolve('tenant-a', 'user');
-    expect(
-      service.allowsModule(
-        'tenant-a',
-        'user',
-        first,
-        'inventory',
-        'inventory.transaction.write',
-      ),
-    ).toBe(true);
+    expect(allows(first, 'inventory', 'inventory.transaction.write')).toBe(true);
     actions = ['inventory.read'];
     revision = '2';
     const next = await service.resolve('tenant-a', 'user');
-    expect(
-      service.allowsModule(
-        'tenant-a',
-        'user',
-        next,
-        'inventory',
-        'inventory.transaction.write',
-      ),
-    ).toBe(false);
-    expect(
-      service.allowsModule(
-        'tenant-a',
-        'user',
-        next,
-        'inventory',
-        'inventory.read',
-      ),
-    ).toBe(true);
+    expect(allows(next, 'inventory', 'inventory.transaction.write')).toBe(false);
+    expect(allows(next, 'inventory', 'inventory.read')).toBe(true);
   });
 });

@@ -6,7 +6,7 @@ import type {
   DataImportPreviewResponse,
 } from '@enterprise-platform/contracts-data-import';
 import type { TenantSummary } from '@enterprise-platform/contracts-tenancy';
-import { Popconfirm } from '@enterprise-platform/shared-ui';
+import { Popconfirm, authFetch } from '@enterprise-platform/shared-ui';
 import {
   AlertCircle,
   CheckCircle2,
@@ -111,7 +111,7 @@ export function DataImportWorkspace({ tenants }: DataImportWorkspaceProps) {
     setBusy('preview');
     setResult(undefined);
     try {
-      const response = await fetch('/api/platform/v1/data-import/preview', {
+      const response = await authFetch('/api/platform/v1/data-import/preview', {
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'x-csrf-token': csrfToken() },
@@ -150,7 +150,7 @@ export function DataImportWorkspace({ tenants }: DataImportWorkspaceProps) {
     if (!preview?.valid) return;
     setBusy('execute');
     try {
-      const response = await fetch('/api/platform/v1/data-import/execute', {
+      const response = await authFetch('/api/platform/v1/data-import/execute', {
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'x-csrf-token': csrfToken() },

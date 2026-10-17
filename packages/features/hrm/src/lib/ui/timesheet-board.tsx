@@ -1,20 +1,17 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import type { HrmTimesheetBoard } from '@enterprise-platform/contracts-hrm';
 import { isMonthKey, shiftMonth, todayVn } from '../hrm-timesheet-format';
 import { Button } from './button';
-import { BoardDayDrawer } from './board-day-detail';
+import { BoardDayInline } from './board-day-detail';
 import { BoardGrid } from './board-grid';
 import { EmployeeMonthView } from './employee-month-view';
+import { MonthNumberLegend } from './my-timesheet-calendar';
 import { Input } from './input';
 import {
   BOARD_FILTERS,
-  BOX_TONE_CLASS,
-  matchesBoardFilter,
-  REQUEST_DOT_CLASS,
-  REQUEST_LETTERS,
   type BoardFilter,
 } from './my-timesheet-format';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from './sheet';
@@ -60,53 +57,15 @@ export function BoardMonthPicker({
   );
 }
 
-/** Chú thích một dòng cho lưới bảng công: chấm màu, ô ký hiệu và chấm màu đơn từ. */
+/** Chú thích số công của lưới bảng công (cùng quy ước với lịch tháng của một nhân viên) và ký hiệu ngày nghỉ. */
 export function BoardLegend() {
-  const box = (text: string, cls: string) => (
-    <span aria-hidden="true" className={`inline-flex h-[18px] min-w-[18px] items-center justify-center rounded px-1 text-[9px] font-bold ${cls}`}>
-      {text}
-    </span>
-  );
-  const dot = (cls: string) => <span aria-hidden="true" className={`inline-block size-2.5 rounded-full ${cls}`} />;
   return (
-    <ul
-      aria-label="Chú thích bảng công"
-      className="flex flex-wrap items-center gap-x-3.5 gap-y-1 text-[11px] text-slate-600"
-    >
-      <li className="flex items-center gap-1.5">
-        {dot('bg-emerald-500')}Đủ công
-      </li>
-      <li className="flex items-center gap-1.5">
-        {dot('bg-orange-500')}Đi trễ, về sớm
-      </li>
-      <li className="flex items-center gap-1.5">
-        {box('P', BOX_TONE_CLASS.leave)}Nghỉ phép
-      </li>
-      <li className="flex items-center gap-1.5">
-        {box('KP', BOX_TONE_CLASS.absent)}Nghỉ không phép
-      </li>
-      <li className="flex items-center gap-1.5">
-        {box('CT', BOX_TONE_CLASS.trip)}Công tác
-      </li>
-      <li className="flex items-center gap-1.5">
-        {box('!', BOX_TONE_CLASS.abnormal)}Bất thường
-      </li>
-      <li className="flex items-center gap-1.5">
-        {box('OFF', 'bg-slate-100 text-slate-500')}Ngày nghỉ
-      </li>
-      <li className="flex items-center gap-1.5">
-        {box('L', 'bg-rose-50 text-rose-500')}Ngày lễ
-      </li>
-      <li className="flex items-center gap-1.5 border-l border-slate-200 pl-3">
-        Chấm nhỏ đơn từ:
-        {(['LEAVE', 'TRIP', 'OT', 'CORRECTION'] as const).map((kind) => (
-          <span key={kind} className="flex items-center gap-0.5">
-            <span aria-hidden="true" className={`inline-block size-1.5 rounded-full ${REQUEST_DOT_CLASS[kind]}`} />
-            {REQUEST_LETTERS[kind].letter}
-          </span>
-        ))}
-      </li>
-    </ul>
+    <div aria-label="Chú thích bảng công" className="flex flex-wrap items-center gap-1.5">
+      <MonthNumberLegend />
+      <span className="flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 py-0.5 text-[12px] text-slate-600">
+        <span className="min-w-6 text-center text-[12px] font-semibold text-slate-400">OFF</span>Ngày nghỉ
+      </span>
+    </div>
   );
 }
 
@@ -123,8 +82,13 @@ export function TimesheetBoard({
   onSelectedChange,
   footer,
   fullscreen = false,
+  filter,
+  onFilterChange,
 }: {
   board: HrmTimesheetBoard;
+  /** Bộ lọc nhanh đang áp. Do màn hình giữ và gửi lên máy chủ để lọc trên toàn bộ tháng rồi mới phân trang. */
+  filter: BoardFilter;
+  onFilterChange: (filter: BoardFilter) => void;
   /** Nhân viên được tick ở cột đầu (dùng để xuất đúng người đã chọn). */
   selectedIds?: ReadonlySet<string>;
   onSelectedChange?: (ids: Set<string>) => void;
@@ -141,41 +105,44 @@ export function TimesheetBoard({
   const [selected, setSelected] = useState<{ employeeId: string; date: string } | null>(null);
   const [monthOf, setMonthOf] = useState<string | null>(null);
   const [monthDate, setMonthDate] = useState<string | null>(null);
-  const [filter, setFilter] = useState<BoardFilter>('ALL');
-  const [legendOpen, setLegendOpen] = useState(false);
   const today = todayVn();
+
+  /** Bấm một ô ngày: mở ngăn kéo bảng công tháng của người đó, chọn ngày và hiện chi tiết ngày ngay dưới lịch. */
+  const openMonth = useCallback((employeeId: string, date: string) => {
+    setMonthOf(employeeId);
+    setMonthDate(date);
+    setSelected({ employeeId, date });
+  }, []);
 
   useEffect(() => {
     if (!focus) return;
     if (board.employees.some((e) => e.employeeId === focus.employeeId)) {
-      setSelected(focus);
+      openMonth(focus.employeeId, focus.date);
       onFocusHandled?.();
     }
-  }, [focus, board.employees, onFocusHandled]);
+  }, [focus, board.employees, onFocusHandled, openMonth]);
 
-  const counts = useMemo(
-    () =>
-      Object.fromEntries(
-        BOARD_FILTERS.map((f) => [f.id, board.employees.filter((e) => matchesBoardFilter(e, f.id)).length]),
-      ) as Record<BoardFilter, number>,
-    [board.employees],
-  );
-  const visible = useMemo(
-    () => board.employees.filter((e) => matchesBoardFilter(e, filter)),
-    [board.employees, filter],
-  );
+  // Số đếm và danh sách đều do máy chủ tính trên toàn bộ nhân viên của tháng, không đổi theo cỡ trang.
+  const counts = board.meta.counts;
+  const visible = board.employees;
 
-  const selectedEmployee = selected
-    ? (board.employees.find((e) => e.employeeId === selected.employeeId) ?? null)
-    : null;
-  const selectedDay =
-    selected && selectedEmployee ? (selectedEmployee.days[selected.date] ?? null) : null;
   const monthEmployee = monthOf ? (board.employees.find((e) => e.employeeId === monthOf) ?? null) : null;
+  const inlineDay =
+    monthOf && selected?.employeeId === monthOf ? (monthEmployee?.days[selected.date] ?? null) : null;
   // Công chuẩn hiển thị ở đầu lưới khi mọi nhân viên có cùng công chuẩn.
   const standardValues = new Set(
     board.employees.map((e) => e.standard?.workdays).filter((v): v is number => v != null),
   );
   const standardWorkdays = standardValues.size === 1 ? [...standardValues][0] : undefined;
+  // Chú thích nằm ở chân bảng, ngay trên thanh phân trang.
+  const gridFooter = (
+    <>
+      <div className="border-t border-slate-200 bg-white px-3 py-2">
+        <BoardLegend />
+      </div>
+      {footer}
+    </>
+  );
 
   return (
     <div className={`flex flex-col gap-2 ${fullscreen ? 'min-h-0 flex-1' : ''}`}>
@@ -196,8 +163,8 @@ export function TimesheetBoard({
                 type="button"
                 aria-pressed={active}
                 data-testid={`board-filter-${f.id}`}
-                title={f.id === 'ALL' ? 'Tổng số nhân viên của bộ lọc tìm kiếm' : 'Số nhân viên khớp trong trang đang xem'}
-                onClick={() => setFilter(f.id)}
+                title={f.id === 'ALL' ? 'Tổng số nhân viên của bộ lọc tìm kiếm' : 'Số nhân viên khớp trong cả tháng'}
+                onClick={() => onFilterChange(f.id)}
                 className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition ${
                   active
                     ? 'border-blue-300 bg-blue-50 text-blue-700'
@@ -207,29 +174,18 @@ export function TimesheetBoard({
                 {dotClass[f.id] && <span aria-hidden="true" className={`inline-block size-2 rounded-full ${dotClass[f.id]}`} />}
                 {f.label}
                 <span className={active ? 'text-blue-600' : 'text-slate-400'}>
-                  ({f.id === 'ALL' ? Math.max(board.meta.total, counts.ALL) : counts[f.id]})
+                  ({counts ? counts[f.id] : f.id === 'ALL' ? board.meta.total : '-'})
                 </span>
               </button>
             );
           })}
         </div>
-        <button
-          type="button"
-          aria-expanded={legendOpen}
-          onClick={() => setLegendOpen((v) => !v)}
-          className="inline-flex items-center gap-1 text-xs font-semibold text-slate-500 hover:text-blue-700 2xl:hidden"
-        >
-          {legendOpen ? 'Ẩn chú thích' : 'Chú thích'}
-        </button>
-        <div className={`${legendOpen ? 'block' : 'hidden'} w-full 2xl:block 2xl:w-auto`}>
-          <BoardLegend />
-        </div>
       </div>
 
       {visible.length === 0 ? (
         <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-          <p className="p-6 text-center text-xs text-slate-500">Không có nhân viên nào khớp bộ lọc trong trang này.</p>
-          {footer}
+          <p className="p-6 text-center text-xs text-slate-500">Không có nhân viên nào khớp bộ lọc này.</p>
+          {gridFooter}
         </div>
       ) : (
         <BoardGrid
@@ -260,22 +216,12 @@ export function TimesheetBoard({
                 }
               : undefined
           }
-          onSelectDay={(employeeId, date) => setSelected({ employeeId, date })}
-          onSelectEmployee={board.canViewAll ? setMonthOf : undefined}
-          footer={footer}
+          onSelectDay={openMonth}
+          onSelectEmployee={board.canViewAll ? (id) => { setMonthOf(id); setMonthDate(null); setSelected(null); } : undefined}
+          footer={gridFooter}
           fullHeight={fullscreen}
         />
       )}
-
-      <BoardDayDrawer
-        employee={selectedEmployee}
-        day={selectedDay}
-        onClose={() => setSelected(null)}
-        canViewAll={board.canViewAll}
-        month={board.month.month}
-        adjustable={board.canViewAll && board.month.state !== 'LOCKED' && Boolean(board.month.calculatedAt)}
-        onAdjusted={onChanged}
-      />
 
       <Sheet
         open={Boolean(monthEmployee)}
@@ -283,6 +229,7 @@ export function TimesheetBoard({
           if (!open) {
             setMonthOf(null);
             setMonthDate(null);
+            setSelected(null);
           }
         }}
       >
@@ -298,7 +245,7 @@ export function TimesheetBoard({
                   {monthEmployee.departmentName ? ` · ${monthEmployee.departmentName}` : ''}
                 </SheetDescription>
               </SheetHeader>
-              <div className="flex-1 overflow-y-auto p-4">
+              <div className="flex-1 space-y-3 overflow-y-auto p-4">
                 <EmployeeMonthView
                   calendar={board.calendar}
                   employee={monthEmployee}
@@ -309,6 +256,20 @@ export function TimesheetBoard({
                     setSelected({ employeeId: monthEmployee.employeeId, date });
                   }}
                 />
+                {inlineDay && (
+                  <BoardDayInline
+                    employee={monthEmployee}
+                    day={inlineDay}
+                    canViewAll={board.canViewAll}
+                    month={board.month.month}
+                    adjustable={board.canViewAll && board.month.state !== 'LOCKED' && Boolean(board.month.calculatedAt)}
+                    onAdjusted={onChanged}
+                    onClose={() => {
+                      setSelected(null);
+                      setMonthDate(null);
+                    }}
+                  />
+                )}
               </div>
             </>
           )}

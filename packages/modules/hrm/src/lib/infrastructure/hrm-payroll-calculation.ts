@@ -4,8 +4,8 @@ import {
   evaluatePayroll,
   type PayrollComponent,
 } from '../domain/payroll-formula.js';
-import { isoDate, resolvePolicy } from './hrm-time.js';
-import { resolveStandardWork, standardWorkSetting } from '../domain/standard-workdays.js';
+import { displayDate, isoDate, resolvePolicy } from './hrm-time.js';
+import { dayCapacityUnits, resolveStandardWork, standardWorkSetting } from '../domain/standard-workdays.js';
 
 const vnd = (n: number) =>
   `${new Intl.NumberFormat('vi-VN').format(Math.round(n))} VND`;
@@ -198,6 +198,7 @@ export async function calculatePayroll(
     const standard = resolveStandardWork(standardWorkSetting(config), {
       scheduledMinutes: scheduled,
       scheduledDays: rows.rows.filter((r) => Number(r.scheduled_minutes) > 0).length,
+      scheduledUnits: rows.rows.reduce((n, r) => n + dayCapacityUnits(Number(r.scheduled_minutes)), 0),
       partialPeriod,
       periodStandardMinutes: periodStandard,
     });
@@ -216,7 +217,7 @@ export async function calculatePayroll(
         );
       if (profiles.length !== 1)
         throw new BadRequestException(
-          `Hồ sơ lương bị thiếu/trùng cho nhân viên ${employeeId}, ngày ${date}`,
+          `Hồ sơ lương bị thiếu/trùng cho nhân viên ${employeeId}, ngày ${displayDate(date)}`,
         );
       if (profiles[0].currency !== 'VND')
         throw new BadRequestException(

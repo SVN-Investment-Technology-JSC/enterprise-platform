@@ -1,30 +1,19 @@
 import type { AuthenticatedPrincipal } from '@enterprise-platform/contracts-identity';
 import {
-  ArrowRight,
-  ArrowUpRight,
-  Boxes,
   Building2,
-  CheckCircle2,
   ChevronRight,
-  ClipboardList,
   GitBranch,
-  KanbanSquare,
-  PackageCheck,
-  ShieldAlert,
+  GitFork,
+  Network,
+  Package,
   Users,
   Wrench,
-  Workflow,
 } from 'lucide-react';
 import { cookies } from 'next/headers';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
-import {
-  InventorySummaryChart,
-  MaintenanceSummaryChart,
-  ProcedureSummaryCharts,
-} from './snapshot-charts';
+import type { ReactNode } from 'react';
+import { CollapsibleGroup } from '../collapsible-group';
 import { RefreshOnFocus } from './refresh-on-focus';
 
 type Module = {
@@ -100,40 +89,30 @@ type Material = {
   isActive: boolean;
 };
 type MaterialInventory = { materialId: string; available: number };
-const MODULE_THEMES: Record<
-  string,
-  {
-    icon: typeof Users;
-    badgeBg: string;
-    borderHover: string;
-  }
-> = {
-  hrm: {
-    icon: Users,
-    badgeBg: 'bg-blue-50 text-blue-600 border-blue-200/60',
-    borderHover: 'hover:border-blue-300',
-  },
-  inventory: {
-    icon: PackageCheck,
-    badgeBg: 'bg-emerald-50 text-emerald-600 border-emerald-200/60',
-    borderHover: 'hover:border-emerald-300',
-  },
-  maintenance: {
-    icon: Wrench,
-    badgeBg: 'bg-amber-50 text-amber-600 border-amber-200/60',
-    borderHover: 'hover:border-amber-300',
-  },
-  'procedure-engine': {
-    icon: Workflow,
-    badgeBg: 'bg-purple-50 text-purple-600 border-purple-200/60',
-    borderHover: 'hover:border-purple-300',
-  },
-  workspace: {
-    icon: KanbanSquare,
-    badgeBg: 'bg-indigo-50 text-indigo-600 border-indigo-200/60',
-    borderHover: 'hover:border-indigo-300',
-  },
+
+/** Số dòng mỗi nhóm việc; còn nữa thì có link mở module để xem đủ. */
+const GROUP_ROWS = 5;
+
+const PRIORITY_LABELS: Record<string, { label: string; dot: string }> = {
+  High: { label: 'Cao', dot: 'bg-red-500 shadow-[0_0_0_4px_rgba(239,68,68,.12)]' },
+  Normal: { label: 'Bình thường', dot: 'bg-amber-500 shadow-[0_0_0_4px_rgba(245,158,11,.12)]' },
+  Low: { label: 'Thấp', dot: 'bg-sky-400 shadow-[0_0_0_4px_rgba(56,189,248,.12)]' },
 };
+
+const VN_DATE = new Intl.DateTimeFormat('vi-VN', {
+  day: '2-digit',
+  month: '2-digit',
+  year: 'numeric',
+  timeZone: 'Asia/Ho_Chi_Minh',
+});
+const VN_WEEKDAY_DATE = new Intl.DateTimeFormat('vi-VN', {
+  weekday: 'long',
+  day: '2-digit',
+  month: '2-digit',
+  year: 'numeric',
+  timeZone: 'Asia/Ho_Chi_Minh',
+});
+
 async function read<T>(url: string, cookie: string): Promise<T | undefined> {
   try {
     const res = await fetch(url, { headers: { cookie }, cache: 'no-store' });
@@ -141,6 +120,24 @@ async function read<T>(url: string, cookie: string): Promise<T | undefined> {
   } catch {
     return undefined;
   }
+}
+
+/** Chữ viết tắt giống khối người dùng trên thanh bên: chữ đầu của họ và tên. */
+function initialsOf(name: string): string {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return 'EP';
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+  return `${words[0].charAt(0)}${words[words.length - 1].charAt(0)}`.toUpperCase();
+}
+
+/** Ghép các vế bằng dấu phẩy, vế cuối nối bằng "và". */
+function joinClauses(parts: ReactNode[]): ReactNode {
+  return parts.map((part, index) => (
+    <span key={index}>
+      {index === 0 ? null : index === parts.length - 1 ? ' và ' : ', '}
+      {part}
+    </span>
+  ));
 }
 
 export default async function TenantPortalPage() {
@@ -165,17 +162,6 @@ export default async function TenantPortalPage() {
   ),
     manager = principal.permissions.includes('tenant.manage');
   const has = (key: string) => modules.some((item) => item.key === key);
-  const priorityOrder = ['hrm', 'inventory', 'maintenance', 'procedure-engine', 'workspace'];
-  const featuredModules = [...modules]
-    .sort((a, b) => {
-      const idxA = priorityOrder.indexOf(a.key);
-      const idxB = priorityOrder.indexOf(b.key);
-      if (idxA !== -1 && idxB !== -1) return idxA - idxB;
-      if (idxA !== -1) return -1;
-      if (idxB !== -1) return 1;
-      return 0;
-    })
-    .slice(0, 3);
   const inventoryApi =
     process.env.INVENTORY_API_BASE_URL ?? 'http://localhost:3336';
   const [users, procedure, maintenance, warehouses, materials] =
@@ -239,60 +225,30 @@ export default async function TenantPortalPage() {
   const incidents = (maintenance?.occurrences ?? []).filter(
     (item) => item.kind === 'incident' && item.status !== 'completed',
   );
-  const procedureStatus = procedure
-    ? [
-      ['running', 'Đang chạy', '#2563eb'],
-      ['completed', 'Hoàn thành', '#10b981'],
-      ['rejected', 'Từ chối', '#f59e0b'],
-      ['cancelled', 'Đã huỷ', '#94a3b8'],
-    ].map(([status, label, color]) => ({
-      label,
-      color,
-      value: (procedure.instances ?? []).filter(
-        (item) => item.status === status,
-      ).length,
-    }))
-    : undefined;
-  const procedureStages = procedure
-    ? [
-      ['S', 'Khởi tạo', '#8b5cf6'],
-      ['R', 'Xem xét', '#2563eb'],
-      ['E', 'Thực hiện', '#f97316'],
-      ['C', 'Kiểm soát', '#a855f7'],
-      ['A', 'Phê duyệt', '#eab308'],
-    ].map(([stage, label, color]) => ({
-      label,
-      color,
-      value: (procedure.instances ?? []).filter((instance) => {
-        const currentStep = instance.steps?.find(
-          (step) => step.id === instance.currentStepId,
-        );
-        return (
-          instance.status === 'running' && currentStep?.currentRoleStage === stage
-        );
-      }).length,
-    }))
-    : undefined;
-  const maintenancePriority = maintenance
-    ? [
-      ['High', 'Cao', '#ef4444'],
-      ['Normal', 'Bình thường', '#f59e0b'],
-      ['Low', 'Thấp', '#38bdf8'],
-    ].map(([priority, label, color]) => ({
-      label,
-      color,
-      value: incidents.filter((item) => item.priority === priority).length,
-    }))
-    : undefined;
+  const runningInstances = (procedure?.instances ?? []).filter(
+    (item) => item.status === 'running',
+  );
+  const procedureStages = [
+    ['S', 'Khởi tạo', '#1e3a8a'],
+    ['R', 'Xem xét', '#2563eb'],
+    ['E', 'Thực hiện', '#60a5fa'],
+    ['C', 'Kiểm soát', '#93c5fd'],
+    ['A', 'Phê duyệt', '#c7d2fe'],
+  ].map(([stage, label, color]) => ({
+    label,
+    color,
+    value: runningInstances.filter((instance) => {
+      const currentStep = instance.steps?.find(
+        (step) => step.id === instance.currentStepId,
+      );
+      return currentStep?.currentRoleStage === stage;
+    }).length,
+  }));
   const stockHealth = materials
     ? [
+      { label: 'Cần bổ sung', color: '#ef4444', value: lowStock.length },
       {
-        label: 'Cần bổ sung',
-        color: '#ef4444',
-        value: lowStock.length,
-      },
-      {
-        label: 'Đủ tồn',
+        label: 'đủ tồn',
         color: '#10b981',
         value: materials.filter(
           (item) =>
@@ -302,58 +258,18 @@ export default async function TenantPortalPage() {
         ).length,
       },
       {
-        label: 'Chưa đặt ngưỡng',
-        color: '#94a3b8',
-        value: materials.filter(
-          (item) => item.isActive && item.minStock <= 0,
-        ).length,
+        label: 'chưa đặt ngưỡng',
+        color: '#d1d5db',
+        value: materials.filter((item) => item.isActive && item.minStock <= 0)
+          .length,
       },
     ]
     : undefined;
-  const attention = [
-    ...actionable.map((item) => {
-      const currentStep = item.steps?.find(
-        (step) => step.id === item.currentStepId,
-      );
-      return {
-        ...item,
-        type: 'Quy trình',
-        href: '/modules/procedure',
-        state: 'Cần xử lý',
-        details: [
-          item.code,
-          item.definitionName,
-          currentStep ? `Bước: ${currentStep.name}` : undefined,
-          item.assetCode ? `Thiết bị: ${item.assetCode}` : undefined,
-          item.managerName ? `Phụ trách: ${item.managerName}` : undefined,
-        ].filter(Boolean) as string[],
-      };
-    }),
-    ...incidents.map((item) => ({
-      ...item,
-      type: 'Bảo trì',
-      href: '/modules/maintenance',
-      state: 'Sự cố mở',
-      details: [
-        item.code,
-        item.assetName ?? `Thiết bị: ${item.assetCode}`,
-        `Ưu tiên: ${item.priority}`,
-        item.assigneeName ? `Phụ trách: ${item.assigneeName}` : undefined,
-      ].filter(Boolean) as string[],
-    })),
-    ...lowStock.map((item) => ({
-      id: item.id,
-      title: item.name,
-      type: 'Kho vật tư',
-      href: '/modules/inventory',
-      state: `Dưới mức tối thiểu (${availableByMaterial.get(item.id) ?? 0}/${item.minStock})`,
-      details: [
-        item.code,
-        `Tồn khả dụng: ${availableByMaterial.get(item.id) ?? 0}`,
-        `Mức tối thiểu: ${item.minStock}`,
-      ],
-    })),
-  ];
+  const nextRound = (maintenance?.occurrences ?? [])
+    .filter((item) => item.kind !== 'incident' && item.status !== 'completed')
+    .map((item) => new Date(item.dueAt))
+    .filter((date) => !Number.isNaN(date.getTime()))
+    .sort((a, b) => a.getTime() - b.getTime())[0];
   const activeUsers = users?.users.filter(
     (item) => item.status === 'active',
   ).length;
@@ -371,548 +287,614 @@ export default async function TenantPortalPage() {
       ? directChildren
       : treeNodes.filter((node) => node.id !== rootNode?.id);
   const displayBranches = topBranches.slice(0, 3);
+  const displayName = principal.displayName || 'Quản trị viên';
+
+  const workClauses: ReactNode[] = [
+    ...(procedure
+      ? [<><Strong>{actionable.length} hồ sơ</Strong> quy trình chờ bạn thao tác</>]
+      : []),
+    ...(maintenance
+      ? [<><Strong>{incidents.length} sự cố</Strong> bảo trì đang mở</>]
+      : []),
+    ...(materials
+      ? [<><Strong>{lowStock.length} vật tư</Strong> dưới mức tối thiểu</>]
+      : []),
+  ];
+
+  const ops: {
+    key: string;
+    name: string;
+    abbr: string;
+    tint: string;
+    href: string;
+    facts: { value: string | number; label: string }[];
+    bar?: { value: number; color: string }[];
+    caption?: string;
+  }[] = [
+    ...(procedure
+      ? [{
+        key: 'procedure',
+        name: 'Quy trình',
+        abbr: 'PE',
+        tint: 'bg-violet-100 text-violet-700',
+        href: '/modules/procedure',
+        facts: [
+          {
+            value: (procedure.definitions ?? []).filter((item) => item.status === 'published').length,
+            label: 'quy trình đã công bố',
+          },
+          { value: runningInstances.length, label: 'hồ sơ đang chạy' },
+        ],
+        bar: procedureStages,
+        caption: procedureStages.some((stage) => stage.value > 0)
+          ? `Đang ở bước: ${procedureStages
+            .filter((stage) => stage.value > 0)
+            .map((stage) => `${stage.label} ${stage.value}`)
+            .join(' · ')}`
+          : 'Chưa có hồ sơ nào đang chạy',
+      }]
+      : []),
+    ...(maintenance
+      ? [{
+        key: 'maintenance',
+        name: 'Bảo trì',
+        abbr: 'MT',
+        tint: 'bg-amber-100 text-amber-700',
+        href: '/modules/maintenance',
+        facts: [
+          { value: maintenance.metrics?.activeSchedules ?? '—', label: 'lịch đang chạy' },
+          { value: maintenance.metrics?.upcomingOccurrences ?? '—', label: 'sắp đến hạn' },
+        ],
+        caption: nextRound ? `Đợt gần nhất: ${VN_DATE.format(nextRound)}` : undefined,
+      }]
+      : []),
+    ...(materials && stockHealth
+      ? [{
+        key: 'inventory',
+        name: 'Kho vật tư',
+        abbr: 'IV',
+        tint: 'bg-blue-100 text-blue-800',
+        href: '/modules/inventory',
+        facts: [
+          { value: warehouses?.filter((item) => item.isActive).length ?? '—', label: 'kho hoạt động' },
+          { value: materials.filter((item) => item.isActive).length, label: 'mã vật tư' },
+        ],
+        bar: stockHealth,
+        caption: stockHealth
+          .slice(1)
+          .map((item) => `${item.value} ${item.label}`)
+          .join(' · '),
+      }]
+      : []),
+  ];
+
   return (
-    <main className="p-4 sm:p-6 lg:p-8">
+    <div className="flex flex-col gap-4 text-[14px] text-[#18181b]">
       <RefreshOnFocus />
-      <header className="mb-6">
-        <p className="text-sm font-medium text-slate-500">
-          Tenant Portal · {principal.tenantSlug}
-        </p>
-        <h1 className="mt-1 text-3xl font-bold tracking-tight text-slate-950 sm:text-4xl">
-          Tổng quan doanh nghiệp
-        </h1>
-        <p className="mt-2 text-sm text-slate-600">
-          Theo dõi vận hành từ các ứng dụng doanh nghiệp đang hoạt động.
-        </p>
-      </header>
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-8">
-        <section className="rounded-md border border-blue-300/40 bg-gradient-to-r from-blue-100 via-white to-sky-100 p-5 shadow-[0_1px_2px_rgba(15,23,42,0.03)] sm:col-span-2 xl:col-span-4">
-          <div className="flex h-full flex-col justify-between gap-5">
-            <div className="flex items-center gap-4">
-              <div>
-                <p className="text-sm text-slate-500">Xin chào</p>
-                <h2 className="text-xl font-bold text-slate-950">
-                  {principal.displayName || 'Quản trị viên'}
-                </h2>
-                <p className="text-sm text-slate-600">
-                  Chúc bạn một ngày làm việc hiệu quả.
-                </p>
-              </div>
+
+      <section
+        aria-label="Lời chào và tóm tắt"
+        className="relative mb-2 flex flex-wrap items-center gap-7 overflow-hidden rounded-2xl border border-[#ffc90a]/20 bg-gradient-to-br from-[#1c1c20] to-[#2a2a2f] px-6 py-6 sm:px-8 sm:py-7"
+      >
+        <span
+          aria-hidden
+          className="pointer-events-none absolute -right-24 -top-36 size-[360px] rounded-full bg-[radial-gradient(circle,rgba(255,201,10,.18)_0%,transparent_70%)]"
+        />
+        <div aria-hidden className="relative grid size-24 shrink-0 place-items-center">
+          <span className="absolute -inset-3.5 rounded-full bg-[radial-gradient(circle,rgba(255,201,10,.25)_0%,transparent_65%)]" />
+          <span className="relative grid size-[84px] place-items-center rounded-full bg-gradient-to-br from-[#ffc90a] to-[#d9ab00] text-[28px] font-extrabold text-[#18181b]">
+            {initialsOf(displayName)}
+          </span>
+        </div>
+        <div className="relative flex min-w-0 flex-[1_1_360px] flex-col gap-1.5">
+          <span className="text-[12px] font-semibold tracking-[1.2px] text-[#ffc90a]">
+            TENANT PORTAL · {principal.tenantSlug.toUpperCase()}
+          </span>
+          <h1 className="m-0 text-[26px] font-bold leading-[1.3] tracking-[-0.3px] text-white">
+            Xin chào, <span className="text-[#ffc90a]">{displayName}</span>
+          </h1>
+          <p className="m-0 text-[14px] leading-relaxed text-white/80">
+            {workClauses.length > 0 ? <>Hôm nay có {joinClauses(workClauses)}. </> : null}
+            {activeUsers !== undefined ? (
+              <>
+                Doanh nghiệp có <Strong>{activeUsers} người dùng</Strong> hoạt động trên{' '}
+                <Strong>{modules.length} ứng dụng</Strong>.
+              </>
+            ) : (
+              <>
+                Doanh nghiệp đang dùng <Strong>{modules.length} ứng dụng</Strong>.
+              </>
+            )}
+          </p>
+          {manager ? (
+            <div className="mt-2 flex flex-wrap gap-2">
+              <QuickLink href="/users" icon={<Users className="size-4" />}>
+                Quản lý người dùng
+              </QuickLink>
+              <QuickLink href="/organization" icon={<Building2 className="size-4" />}>
+                Thiết lập tổ chức
+              </QuickLink>
+              <QuickLink href="/applications" icon={<Package className="size-4" />} accent>
+                Quản lý ứng dụng
+              </QuickLink>
             </div>
-            {manager ? (
-              <div className="flex flex-wrap gap-2">
-                <Quick href="/users" icon={Users} label="Quản lý người dùng" />
-                <Quick
-                  href="/organization"
-                  icon={Building2}
-                  label="Thiết lập tổ chức"
-                />
-                <Quick
-                  href="/applications"
-                  icon={Boxes}
-                  label="Quản lý ứng dụng"
-                />
-              </div>
-            ) : null}
+          ) : null}
+        </div>
+      </section>
+
+      {procedure ? (
+        <CollapsibleGroup
+          title="Hồ sơ cần bạn xử lý"
+          count={actionable.length}
+          tone="bg-violet-100 text-violet-700"
+          icon={<GitFork className="size-4" />}
+        >
+          {actionable.length > 0 ? (
+            <GroupTable
+              columns="22px minmax(220px,1fr) 170px 150px 190px 100px"
+              headings={['HỒ SƠ', 'MÃ HỒ SƠ', 'QUY TRÌNH', 'BƯỚC HIỆN TẠI', 'TRẠNG THÁI']}
+              footer={
+                actionable.length > GROUP_ROWS ? (
+                  <a href="/modules/procedure#workspace" className="font-semibold text-blue-700 hover:text-blue-800">
+                    Xem đủ {actionable.length} hồ sơ trong Quy trình
+                  </a>
+                ) : undefined
+              }
+            >
+              {actionable.slice(0, GROUP_ROWS).map((item) => {
+                const currentStep = item.steps?.find((step) => step.id === item.currentStepId);
+                return (
+                  <GroupRow
+                    key={item.id}
+                    columns="22px minmax(220px,1fr) 170px 150px 190px 100px"
+                    href={`/modules/procedure#workspace/${encodeURIComponent(item.id)}`}
+                  >
+                    <Dot className="bg-amber-500 shadow-[0_0_0_4px_rgba(245,158,11,.12)]" />
+                    <Cell strong title={item.title}>{item.title}</Cell>
+                    <Cell muted title={item.code}>{item.code}</Cell>
+                    <Cell small>
+                      {item.definitionName ? (
+                        <span className="rounded-md bg-violet-50 px-2 py-0.5 text-violet-800">
+                          {item.definitionName}
+                        </span>
+                      ) : '—'}
+                    </Cell>
+                    <Cell small title={currentStep?.name}>{currentStep?.name ?? '—'}</Cell>
+                    <span>
+                      <Pill className="bg-[#fff6d6] text-[#8a6400]">Cần xử lý</Pill>
+                    </span>
+                  </GroupRow>
+                );
+              })}
+            </GroupTable>
+          ) : (
+            <Empty>Không có hồ sơ nào chờ bạn thao tác.</Empty>
+          )}
+        </CollapsibleGroup>
+      ) : null}
+
+      {maintenance ? (
+        <CollapsibleGroup
+          title="Sự cố bảo trì đang mở"
+          count={incidents.length}
+          tone="bg-amber-100 text-amber-700"
+          icon={<Wrench className="size-4" />}
+        >
+          {incidents.length > 0 ? (
+            <GroupTable
+              columns="22px minmax(220px,1fr) 150px 190px 120px 110px"
+              headings={['SỰ CỐ', 'MÃ', 'THIẾT BỊ', 'ƯU TIÊN', 'TRẠNG THÁI']}
+              footer={
+                incidents.length > GROUP_ROWS ? (
+                  <a href="/modules/maintenance#history" className="font-semibold text-blue-700 hover:text-blue-800">
+                    Xem đủ {incidents.length} sự cố trong Bảo trì
+                  </a>
+                ) : undefined
+              }
+            >
+              {incidents.slice(0, GROUP_ROWS).map((item) => {
+                const priority = PRIORITY_LABELS[item.priority];
+                return (
+                  <GroupRow
+                    key={item.id}
+                    columns="22px minmax(220px,1fr) 150px 190px 120px 110px"
+                    href={`/modules/maintenance#history/${encodeURIComponent(item.id)}`}
+                  >
+                    <Dot className={priority?.dot ?? 'bg-amber-500'} />
+                    <Cell strong title={item.title}>{item.title}</Cell>
+                    <Cell muted>{item.code ?? '—'}</Cell>
+                    <Cell small title={item.assetName ?? item.assetCode}>
+                      {item.assetName ?? item.assetCode}
+                    </Cell>
+                    <Cell small>{priority?.label ?? item.priority}</Cell>
+                    <span>
+                      <Pill className="bg-red-100 text-red-700">Sự cố mở</Pill>
+                    </span>
+                  </GroupRow>
+                );
+              })}
+            </GroupTable>
+          ) : (
+            <Empty>Không có sự cố nào đang mở.</Empty>
+          )}
+        </CollapsibleGroup>
+      ) : null}
+
+      {materials ? (
+        <CollapsibleGroup
+          title="Vật tư dưới mức tối thiểu"
+          count={lowStock.length}
+          tone="bg-blue-100 text-blue-800"
+          icon={<Package className="size-4" />}
+        >
+          {lowStock.length > 0 ? (
+            <GroupTable
+              columns="22px minmax(220px,1fr) 170px 340px 190px"
+              headings={['VẬT TƯ', 'MÃ VẬT TƯ', 'TỒN KHẢ DỤNG / MỨC TỐI THIỂU', 'TRẠNG THÁI']}
+              footer={
+                lowStock.length > GROUP_ROWS ? (
+                  <a href="/modules/inventory#stock" className="font-semibold text-blue-700 hover:text-blue-800">
+                    Xem đủ {lowStock.length} vật tư trong Kho
+                  </a>
+                ) : undefined
+              }
+            >
+              {lowStock.slice(0, GROUP_ROWS).map((item) => {
+                const available = availableByMaterial.get(item.id) ?? 0;
+                const ratio = Math.max(0, Math.min(1, available / item.minStock));
+                return (
+                  <GroupRow
+                    key={item.id}
+                    columns="22px minmax(220px,1fr) 170px 340px 190px"
+                    href={`/modules/inventory#stock/${encodeURIComponent(item.id)}`}
+                  >
+                    <Dot className="bg-red-500 shadow-[0_0_0_4px_rgba(239,68,68,.12)]" />
+                    <Cell strong title={item.name}>{item.name}</Cell>
+                    <Cell muted>{item.code}</Cell>
+                    <span className="flex items-center gap-2.5 text-[13px] text-slate-700">
+                      <span aria-hidden className="h-1.5 w-[120px] shrink-0 overflow-hidden rounded-full bg-[#f1f3f6]">
+                        <span className="block h-full bg-red-500" style={{ width: `${ratio * 100}%` }} />
+                      </span>
+                      Tồn khả dụng: {available} · Mức tối thiểu: {item.minStock}
+                    </span>
+                    <span>
+                      <Pill className="bg-red-100 text-red-700">
+                        Dưới mức tối thiểu ({available}/{item.minStock})
+                      </Pill>
+                    </span>
+                  </GroupRow>
+                );
+              })}
+            </GroupTable>
+          ) : (
+            <Empty>Không có vật tư nào dưới mức tối thiểu.</Empty>
+          )}
+        </CollapsibleGroup>
+      ) : null}
+
+      {ops.length > 0 ? (
+        <section
+          aria-labelledby="ops-title"
+          className="mt-2 overflow-hidden rounded-[14px] border border-[#eef0f3] bg-white"
+        >
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 bg-[#fafbfc] px-5 py-3">
+            <h2 id="ops-title" className="m-0 flex-1 text-[16px] font-bold">
+              Tình hình vận hành
+            </h2>
+            <span className="rounded-md border border-[#eef0f3] bg-white px-2.5 py-0.5 text-[13px] font-medium text-slate-500">
+              {VN_WEEKDAY_DATE.format(new Date())}
+            </span>
+          </div>
+          <div className="overflow-x-auto">
+            <div className="min-w-[680px]">
+              {ops.map((row) => {
+                const total = row.bar?.reduce((sum, item) => sum + item.value, 0) ?? 0;
+                return (
+                  <div
+                    key={row.key}
+                    className="grid grid-cols-[28px_110px_minmax(220px,1fr)_200px_84px] items-center gap-x-3.5 border-t border-[#f1f3f6] px-5 py-[11px] text-[14px]"
+                  >
+                    <span aria-hidden className={`grid size-7 place-items-center rounded-[7px] text-[12px] font-extrabold ${row.tint}`}>
+                      {row.abbr}
+                    </span>
+                    <b className="font-semibold">{row.name}</b>
+                    <span className="flex flex-wrap gap-x-4 gap-y-0.5 text-slate-600">
+                      {row.facts.map((fact) => (
+                        <span key={fact.label} className="flex items-center gap-1.5 whitespace-nowrap">
+                          <b className="text-[#18181b] tabular-nums">{fact.value}</b>
+                          {fact.label}
+                        </span>
+                      ))}
+                    </span>
+                    <span className="flex flex-col gap-1">
+                      {row.bar ? (
+                        <span aria-hidden className="flex h-1.5 overflow-hidden rounded-full bg-[#f1f3f6]">
+                          {total > 0
+                            ? row.bar.map((segment) => (
+                              <span
+                                key={segment.color}
+                                style={{
+                                  width: `${(segment.value / total) * 100}%`,
+                                  background: segment.color,
+                                }}
+                              />
+                            ))
+                            : null}
+                        </span>
+                      ) : null}
+                      {row.caption ? (
+                        <span className="text-[12px] text-slate-500">{row.caption}</span>
+                      ) : null}
+                    </span>
+                    <a
+                      href={row.href}
+                      className="justify-self-end text-[13px] font-semibold text-blue-700 hover:text-blue-800"
+                    >
+                      Mở module
+                    </a>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </section>
-        <Metric
-          icon={Users}
-          label="Người dùng hoạt động"
-          value={activeUsers ?? '—'}
-          note={
-            activeUsers === undefined
-              ? 'Chỉ Tenant Admin được xem'
-              : 'Tài khoản đang hoạt động'
-          }
-        />
-        <Metric
-          icon={Boxes}
-          label="Ứng dụng đang bật"
-          value={modules.length}
-          note="Theo entitlement hiện tại"
-        />
-        <Metric
-          icon={ClipboardList}
-          label="Hồ sơ chờ xử lý"
-          value={actionable.length}
-          note="Quy trình cần bạn thao tác"
-          tone="amber"
-        />
-        <Metric
-          icon={ShieldAlert}
-          label="Sự cố đang xử lý"
-          value={maintenance?.metrics?.openIncidents ?? '—'}
-          note={maintenance ? 'Sự cố chưa đóng' : 'Không truy cập được Bảo trì'}
-          tone="red"
-        />
-      </section>
-      <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,0.6fr)_minmax(0,0.4fr)]">
-        <div className="space-y-5">
-          <section className="overflow-hidden rounded-md border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
-            <div className="flex items-center justify-between border-b border-slate-100/50 px-5 py-4">
-              <div className="flex items-center gap-2.5">
-                <div>
-                  <h2 className="text-lg font-bold text-slate-950">
-                    Điểm cần chú ý
-                  </h2>
-                  <p className="text-sm text-slate-500">
-                    Các việc thực tế cần mở module để xử lý.
-                  </p>
-                </div>
-                {attention.length > 0 ? (
-                  <span className="rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-semibold text-amber-700 border border-amber-200/60">
-                    {attention.length}
-                  </span>
-                ) : null}
-              </div>
-              <ShieldAlert className="size-5 text-amber-500" />
-            </div>
-            {attention.length ? (
-              <div className="h-[370px] overflow-y-auto divide-y divide-slate-100/50">
-                {attention.map((item) => (
-                  <a
-                    key={`${item.type}-${item.id}`}
-                    href={item.href}
-                    className="flex items-center gap-3 px-5 py-3.5 hover:bg-slate-50 transition-colors"
-                  >
-                    <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-slate-100 text-slate-600">
-                      <ArrowRight className="size-4" />
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <b className="block truncate text-sm font-semibold text-slate-800">
-                        {item.title}
-                      </b>
-                      <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-500">
-                        <small className="font-medium text-slate-600">
-                          {item.type}
-                        </small>
-                        {item.details.map((detail) => (
-                          <small
-                            key={detail}
-                            className="max-w-48 truncate rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-600"
-                            title={detail}
-                          >
-                            {detail}
-                          </small>
-                        ))}
-                      </span>
-                    </span>
-                    <span className="shrink-0 rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700">
-                      {item.state}
-                    </span>
-                  </a>
-                ))}
-              </div>
-            ) : (
-              <div className="flex h-[360px] flex-col items-center justify-center p-6 text-center text-slate-500">
-                <CheckCircle2 className="mb-2 size-8 text-emerald-500" />
-                <p className="text-base font-semibold text-slate-800">
-                  Không có việc cần chú ý
-                </p>
-                <p className="mt-1 max-w-sm text-sm text-slate-500">
-                  Tất cả quy trình và công việc từ các module bạn truy cập đều đang ổn định.
-                </p>
-              </div>
-            )}
-          </section>
-          <div className="grid items-stretch gap-5 lg:grid-cols-2">
-            <section className="flex flex-col justify-between rounded-md border border-slate-200 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
-              <div>
-                <div className="mb-4 flex items-start justify-between gap-3">
-                  <div>
-                    <h2 className="text-lg font-bold tracking-tight text-slate-950">
-                      Ứng dụng doanh nghiệp
-                    </h2>
-                    <p className="text-xs text-slate-500 mt-0.5">
-                      Truy cập nhanh các phân hệ nghiệp vụ chính.
-                    </p>
-                  </div>
-                  <Link
-                    href="/applications"
-                    className="group inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-blue-700 hover:text-blue-800 hover:underline"
-                  >
-                    <span>Xem tất cả ({modules.length})</span>
-                    <ChevronRight className="size-3.5 transition-transform group-hover:translate-x-0.5" />
-                  </Link>
-                </div>
+      ) : null}
 
-                {featuredModules.length > 0 ? (
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    {featuredModules.map((module) => (
-                      <ModuleCard key={module.key} module={module} />
-                    ))}
-                  </div>
-                ) : (
-                  <div className="flex h-36 flex-col items-center justify-center rounded-lg border border-dashed border-slate-200 bg-slate-50/40 p-4 text-center">
-                    <Boxes className="size-6 text-slate-300" />
-                    <p className="mt-1 text-xs text-slate-500">Chưa có ứng dụng nào được kích hoạt</p>
-                  </div>
-                )}
-              </div>
-            </section>
-            <section className="rounded-md border border-slate-200 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <h2 className="text-xl font-bold text-slate-950">
-                    Sơ đồ tổ chức
-                  </h2>
-                  <p className="text-sm text-slate-500">
-                    Quy mô tổ chức hiện tại.
-                  </p>
-                </div>
-                <Link
-                  href="/organization"
-                  className="group inline-flex shrink-0 items-center gap-1 text-sm font-semibold text-blue-700 hover:text-blue-800 hover:underline"
-                >
-                  <span>Xem chi tiết</span>
-                  <ChevronRight className="size-4 transition-transform group-hover:translate-x-0.5" />
-                </Link>
-              </div>
-
-              <div className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,0.3fr)_minmax(0,0.7fr)]">
-                {/* 3 Metric Pills (Cột trái 30%, xếp hàng dọc) */}
-                <div className="flex flex-col justify-between gap-2">
-                  <div className="flex items-center gap-2 rounded-lg border border-slate-100 bg-slate-50/80 p-2 sm:gap-2.5 sm:px-2.5">
-                    <span className="grid size-7 shrink-0 place-items-center rounded-md border border-blue-100/70 bg-blue-50 text-blue-600">
-                      <GitBranch className="size-3.5" />
-                    </span>
-                    <div className="min-w-0">
-                      <p className="truncate text-[11px] font-medium text-slate-500">
-                        Sơ đồ
-                      </p>
-                      <p className="mt-0.5 text-base font-bold leading-none text-slate-950">
-                        {organization?.trees.length ?? '—'}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 rounded-lg border border-slate-100 bg-slate-50/80 p-2 sm:gap-2.5 sm:px-2.5">
-                    <span className="grid size-7 shrink-0 place-items-center rounded-md border border-indigo-100/70 bg-indigo-50 text-indigo-600">
-                      <Building2 className="size-3.5" />
-                    </span>
-                    <div className="min-w-0">
-                      <p className="truncate text-[11px] font-medium text-slate-500">
-                        Node tổ chức
-                      </p>
-                      <p className="mt-0.5 text-base font-bold leading-none text-slate-950">
-                        {organization?.nodes.length ?? '—'}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 rounded-lg border border-slate-100 bg-slate-50/80 p-2 sm:gap-2.5 sm:px-2.5">
-                    <span className="grid size-7 shrink-0 place-items-center rounded-md border border-emerald-100/70 bg-emerald-50 text-emerald-600">
-                      <Users className="size-3.5" />
-                    </span>
-                    <div className="min-w-0">
-                      <p className="truncate text-[11px] font-medium text-slate-500">
-                        Bổ nhiệm
-                      </p>
-                      <p className="mt-0.5 text-base font-bold leading-none text-slate-950">
-                        {organization?.assignments.length ?? '—'}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Tree Diagram Preview (Cột phải 70%) */}
-                {organizationTree && rootNode ? (
-                  <div className="relative flex flex-col justify-between rounded-lg border border-slate-200/70 bg-slate-50/40 p-2.5 sm:p-3">
-                    <div className="mb-2 flex items-center justify-between gap-2 border-b border-slate-200/50 pb-1.5">
-                      <div className="flex min-w-0 items-center gap-1.5">
-                        <span className="size-1.5 shrink-0 rounded-full bg-blue-600" />
-                        <span
-                          className="truncate text-xs font-semibold text-slate-800"
-                          title={organizationTree.name}
-                        >
-                          {organizationTree.name}
-                        </span>
-                      </div>
-                      <span className="shrink-0 rounded border border-blue-100/70 bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-700">
-                        Cây chính
-                      </span>
-                    </div>
-
-                    <div className="my-auto flex flex-col items-center">
-                      {/* Root node */}
-                      <div
-                        className="inline-flex max-w-[95%] items-center gap-1.5 rounded-md border border-blue-200/80 bg-white px-3 py-1.5 shadow-[0_1px_2px_rgba(37,99,235,0.06)]"
-                        title={`${rootNode.code} · ${rootNode.name}`}
-                      >
-                        <Building2 className="size-3.5 shrink-0 text-blue-600" />
-                        <span className="truncate text-xs font-semibold text-slate-900">
-                          {rootNode.name}
-                        </span>
-                      </div>
-
-                      {displayBranches.length > 0 ? (
-                        <div className="w-full">
-                          {/* Stem from root */}
-                          <div className="mx-auto h-2 w-px bg-slate-300" />
-
-                          {/* Crossbar */}
-                          {displayBranches.length > 1 ? (
-                            <div
-                              className="mx-auto h-px bg-slate-300"
-                              style={{
-                                width:
-                                  displayBranches.length === 2
-                                    ? '50%'
-                                    : '66.6%',
-                              }}
-                            />
-                          ) : null}
-
-                          {/* Branches */}
-                          <div
-                            className={`grid gap-2 pt-2 ${displayBranches.length === 1
-                              ? 'mx-auto max-w-[220px] grid-cols-1'
-                              : displayBranches.length === 2
-                                ? 'grid-cols-2'
-                                : 'grid-cols-3'
-                              }`}
-                          >
-                            {displayBranches.map((child) => (
-                              <div
-                                key={child.id}
-                                className="relative flex flex-col items-center"
-                              >
-                                {displayBranches.length > 1 ? (
-                                  <div className="absolute -top-2 h-2 w-px bg-slate-300" />
-                                ) : null}
-                                <div
-                                  className="w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-center shadow-xs transition-colors hover:border-blue-300 hover:bg-blue-50/20"
-                                  title={`${child.code} · ${child.name}`}
-                                >
-                                  <p className="truncate text-[11px] font-medium text-slate-700">
-                                    {child.name}
-                                  </p>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      ) : null}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="grid min-h-24 place-items-center rounded-lg border border-dashed border-slate-200 bg-slate-50/40 p-4 text-center">
-                    <Building2 className="size-6 text-slate-300" />
-                    <p className="mt-1 text-xs text-slate-500">
-                      Chưa thiết lập sơ đồ tổ chức
-                    </p>
-                  </div>
-                )}
-              </div>
-            </section>
-          </div>
-        </div>
-        <aside className="flex h-full flex-col gap-4">
-          <Summary
-            fill
-            icon={Workflow}
-            title="Quy trình"
-            href="/modules/procedure"
-            rows={[
-              'Đang chạy',
-              (procedure?.instances ?? []).filter(
-                (item) => item.status === 'running',
-              ).length,
-              'Chờ xử lý',
-              actionable.length,
-              'Đã công bố',
-              (procedure?.definitions ?? []).filter(
-                (item) => item.status === 'published',
-              ).length,
-            ]}
-            chart={
-              <ProcedureSummaryCharts
-                status={procedureStatus}
-                stages={procedureStages}
-              />
-            }
-          />
-          <Summary
-            fill
-            icon={Wrench}
-            title="Bảo trì"
-            href="/modules/maintenance"
-            rows={[
-              'Lịch đang chạy',
-              maintenance?.metrics?.activeSchedules ?? '—',
-              'Sắp đến hạn',
-              maintenance?.metrics?.upcomingOccurrences ?? '—',
-              'Sự cố mở',
-              maintenance?.metrics?.openIncidents ?? '—',
-            ]}
-            chart={<MaintenanceSummaryChart data={maintenancePriority} />}
-          />
-          <Summary
-            fill
-            icon={PackageCheck}
-            title="Kho vật tư"
-            href="/modules/inventory"
-            rows={[
-              'Kho hoạt động',
-              warehouses?.filter((item) => item.isActive).length ?? '—',
-              'Mã vật tư',
-              materials?.filter((item) => item.isActive).length ?? '—',
-              'Sắp thiếu',
-              materials ? lowStock.length : '—',
-            ]}
-            chart={<InventorySummaryChart data={stockHealth} />}
-          />
-        </aside>
-      </div>
-    </main>
-  );
-}
-function Quick({
-  href,
-  icon: Icon,
-  label,
-}: {
-  href: string;
-  icon: typeof Users;
-  label: string;
-}) {
-  return (
-    <Button
-      nativeButton={false}
-      render={<Link href={href} />}
-      className="h-10 bg-blue-600 px-4 text-sm text-white hover:bg-blue-700"
-      size="lg"
-    >
-      <Icon className="size-5" />
-      {label}
-    </Button>
-  );
-}
-function Metric({
-  icon: Icon,
-  label,
-  value,
-  note,
-  tone = 'blue',
-}: {
-  icon: typeof Users;
-  label: string;
-  value: string | number;
-  note: string;
-  tone?: 'blue' | 'amber' | 'red';
-}) {
-  const colors = {
-    blue: 'bg-blue-50 text-blue-700',
-    amber: 'bg-amber-50 text-amber-700',
-    red: 'bg-red-50 text-red-700',
-  };
-  return (
-    <Card className="rounded-md border-slate-200 py-0 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
-      <CardContent className="p-5">
-        <div className="flex justify-between gap-2">
-          <p className="text-sm font-medium text-slate-500">{label}</p>
-          <span
-            className={`grid size-9 shrink-0 place-items-center rounded-xl ${colors[tone]}`}
-          >
-            <Icon className="size-4" />
-          </span>
-        </div>
-        <p className="mt-2 text-3xl font-bold text-slate-950">{value}</p>
-        <p className="mt-1 text-xs text-slate-500">{note}</p>
-      </CardContent>
-    </Card>
-  );
-}
-function Summary({
-  fill = false,
-  icon: Icon,
-  title,
-  href,
-  rows,
-  chart,
-}: {
-  fill?: boolean;
-  icon: typeof Workflow;
-  title: string;
-  href: string;
-  rows: (string | number)[];
-  chart?: React.ReactNode;
-}) {
-  return (
-    <Card
-      className={`rounded-md border-slate-200 bg-white py-0 shadow-[0_1px_2px_rgba(15,23,42,0.03)] ${fill ? 'flex-1' : ''}`}
-    >
-      <CardContent
-        className={`p-5 ${fill ? 'flex h-full flex-col gap-4 sm:flex-row sm:items-stretch' : ''}`}
+      <section
+        aria-labelledby="org-title"
+        className="flex flex-col gap-3 rounded-[14px] border border-[#eef0f3] bg-white px-4 py-3.5"
       >
-        <div className="min-w-0 flex-1 sm:w-[40%] sm:flex-none sm:flex sm:flex-col">
-          <div className="flex justify-between items-center gap-3">
-            <h3 className="text-xl font-bold text-slate-900">{title}</h3>
-            <a
-              href={href}
-              className="shrink-0 text-sm font-semibold text-blue-700 hover:underline"
-            >
-              Mở module
-            </a>
-          </div>
-          <dl className="my-8 grid grid-cols-3 gap-2">
-            {[0, 2, 4].map((i) => (
-              <div key={String(rows[i])}>
-                <dt className="text-md text-slate-500">{rows[i]}</dt>
-                <dd className="mt-1 text-xl font-bold text-slate-900">
-                  {rows[i + 1]}
-                </dd>
-              </div>
-            ))}
-          </dl>
+        <div className="flex items-center gap-2.5">
+          <span aria-hidden className="grid size-7 shrink-0 place-items-center rounded-[7px] bg-slate-100 text-slate-700">
+            <GitBranch className="size-3.5" />
+          </span>
+          <h2 id="org-title" className="m-0 flex-1 text-[14px] font-semibold">
+            Sơ đồ tổ chức
+          </h2>
+          <Link
+            href="/organization"
+            className="flex items-center gap-0.5 text-[13px] font-semibold text-blue-700 hover:text-blue-800"
+          >
+            Xem chi tiết
+            <ChevronRight className="size-3.5" aria-hidden />
+          </Link>
         </div>
-        {chart ? (
-          <div className="flex min-w-0 shrink-0 items-center border-t border-slate-100 pt-3 sm:w-[65%] sm:border-t-0 sm:border-l sm:pl-4 sm:pt-0">
-            {chart}
+        <div className="flex flex-wrap items-stretch gap-3">
+          <div className="flex max-w-[240px] flex-[1_1_180px] flex-col justify-between gap-1.5">
+            <OrgMetric
+              icon={<GitBranch className="size-[13px]" />}
+              tone="bg-blue-50 text-blue-700"
+              label="Sơ đồ"
+              value={organization?.trees.length ?? '—'}
+            />
+            <OrgMetric
+              icon={<Building2 className="size-[13px]" />}
+              tone="bg-indigo-50 text-indigo-700"
+              label="Node tổ chức"
+              value={organization?.nodes.length ?? '—'}
+            />
+            <OrgMetric
+              icon={<Users className="size-[13px]" />}
+              tone="bg-emerald-50 text-emerald-700"
+              label="Bổ nhiệm"
+              value={organization?.assignments.length ?? '—'}
+            />
           </div>
-        ) : null}
-      </CardContent>
-    </Card>
+
+          {organizationTree && rootNode ? (
+            <Link
+              href="/organization"
+              aria-label={`Mở ${organizationTree.name}`}
+              className="flex min-w-0 flex-[999_1_420px] flex-col gap-2.5 rounded-[10px] border border-[#eef0f3] bg-[#fcfcfd] bg-[radial-gradient(#e5e7eb_1px,transparent_1px)] bg-[length:18px_18px] px-3.5 pb-3.5 pt-2.5 text-[#18181b]"
+            >
+              <span className="flex items-center gap-2 border-b border-[#eef0f3] pb-2">
+                <span aria-hidden className="size-1.5 rounded-full bg-[#ffc90a]" />
+                <span className="min-w-0 flex-1 truncate text-[13px] font-semibold">
+                  {organizationTree.name}
+                </span>
+                <span className="rounded-[5px] bg-[#fff6d6] px-1.5 text-[12px] font-bold text-[#8a6400]">
+                  Cây chính
+                </span>
+              </span>
+              <span className="flex flex-col items-center">
+                <span
+                  className="flex max-w-[95%] items-center gap-1.5 rounded-lg border border-slate-200 border-t-[3px] border-t-red-500 bg-white px-3 py-1.5 shadow-[0_1px_2px_rgba(16,24,40,.06)]"
+                  title={`${rootNode.code} · ${rootNode.name}`}
+                >
+                  <Building2 className="size-3.5 shrink-0 text-red-600" aria-hidden />
+                  <span className="truncate text-[13px] font-bold">{rootNode.name}</span>
+                </span>
+                {displayBranches.length > 0 ? (
+                  <>
+                    <span aria-hidden className="h-2.5 w-px bg-slate-300" />
+                    {displayBranches.length > 1 ? (
+                      <span
+                        aria-hidden
+                        className="h-px bg-slate-300"
+                        style={{ width: displayBranches.length === 2 ? '50%' : '66.6%' }}
+                      />
+                    ) : null}
+                    <span
+                      className={`grid w-full gap-2 pt-2.5 ${displayBranches.length === 1
+                        ? 'mx-auto max-w-[220px] grid-cols-1'
+                        : displayBranches.length === 2
+                          ? 'grid-cols-2'
+                          : 'grid-cols-3'
+                        }`}
+                    >
+                      {displayBranches.map((child) => (
+                        <span key={child.id} className="relative flex flex-col items-center">
+                          {displayBranches.length > 1 ? (
+                            <span aria-hidden className="absolute -top-2.5 h-2.5 w-px bg-slate-300" />
+                          ) : null}
+                          <span
+                            className="flex w-full flex-col items-center rounded-lg border border-slate-200 border-t-[3px] border-t-sky-500 bg-white px-2 py-[7px] text-center"
+                            title={`${child.code} · ${child.name}`}
+                          >
+                            <span className="max-w-full truncate text-[13px] font-semibold">
+                              {child.name}
+                            </span>
+                          </span>
+                        </span>
+                      ))}
+                    </span>
+                  </>
+                ) : null}
+              </span>
+            </Link>
+          ) : (
+            <div className="grid min-h-24 flex-[999_1_420px] place-items-center rounded-[10px] border border-dashed border-slate-200 bg-slate-50/40 p-4 text-center">
+              <span className="flex flex-col items-center gap-1 text-xs text-slate-500">
+                <Network className="size-6 text-slate-300" aria-hidden />
+                Chưa thiết lập sơ đồ tổ chức
+              </span>
+            </div>
+          )}
+        </div>
+      </section>
+    </div>
   );
 }
-function ModuleCard({ module }: { module: Module }) {
-  const theme = MODULE_THEMES[module.key] ?? {
-    icon: Boxes,
-    badgeBg: 'bg-slate-100 text-slate-600 border-slate-200',
-    borderHover: 'hover:border-slate-300',
-  };
-  const Icon = theme.icon;
 
+function Strong({ children }: { children: ReactNode }) {
+  return <b className="font-semibold text-[#ffd84d]">{children}</b>;
+}
+
+function QuickLink({
+  href,
+  icon,
+  accent = false,
+  children,
+}: {
+  href: string;
+  icon: ReactNode;
+  accent?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <Link
+      href={href}
+      className={`flex h-[34px] items-center gap-1.5 rounded-lg border px-3 text-[14px] font-semibold ${accent
+        ? 'border-[#ffc90a]/50 bg-[#ffc90a]/12 text-[#ffd84d] hover:bg-[#ffc90a]/20'
+        : 'border-white/20 bg-white/5 text-white hover:bg-white/10'
+        }`}
+    >
+      {icon}
+      {children}
+    </Link>
+  );
+}
+
+function GroupTable({
+  columns,
+  headings,
+  footer,
+  children,
+}: {
+  columns: string;
+  headings: string[];
+  footer?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <div className="overflow-x-auto">
+      <div className="min-w-[760px] py-1">
+        <div
+          className="grid items-center gap-x-3 px-5 py-2 text-[12px] font-semibold tracking-[0.4px] text-slate-500"
+          style={{ gridTemplateColumns: columns }}
+        >
+          <span />
+          {headings.map((heading) => (
+            <span key={heading}>{heading}</span>
+          ))}
+        </div>
+        {children}
+        {footer ? (
+          <div className="border-t border-[#f1f3f6] px-5 py-2.5 text-[14px]">{footer}</div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function GroupRow({
+  columns,
+  href,
+  children,
+}: {
+  columns: string;
+  href: string;
+  children: ReactNode;
+}) {
   return (
     <a
-      href={module.launchUrl}
-      className={`group relative flex flex-col justify-between rounded-md border border-slate-200/90 bg-white p-3.5 shadow-xs transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ${theme.borderHover} hover:bg-slate-50/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500`}
+      href={href}
+      className="grid items-center gap-x-3 border-t border-[#f1f3f6] px-5 py-[11px] text-[14px] text-[#18181b] hover:bg-[#f4f6f9]"
+      style={{ gridTemplateColumns: columns }}
     >
-      <div>
-        <div className="flex items-center justify-between">
-          <span
-            className={`grid size-9 place-items-center rounded-xl border ${theme.badgeBg} transition-transform group-hover:scale-105`}
-          >
-            <Icon className="size-4.5" />
-          </span>
-          <span className="text-slate-400 group-hover:text-blue-600 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-all">
-            <ArrowUpRight className="size-3.5" />
-          </span>
-        </div>
-
-        <h3 className="mt-3 text-xs sm:text-sm font-bold text-slate-900 group-hover:text-blue-600 transition-colors line-clamp-1">
-          {module.name}
-        </h3>
-
-        <p className="mt-1 text-xs text-slate-500 line-clamp-2 leading-relaxed">
-          {module.description}
-        </p>
-      </div>
-
-      <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-2 text-[11px] font-semibold text-blue-600 group-hover:text-blue-700">
-        <span>Truy cập</span>
-        <ArrowRight className="size-3 transition-transform group-hover:translate-x-0.5" />
-      </div>
+      {children}
     </a>
   );
 }
 
+function Cell({
+  strong = false,
+  muted = false,
+  small = false,
+  title,
+  children,
+}: {
+  strong?: boolean;
+  muted?: boolean;
+  small?: boolean;
+  title?: string;
+  children: ReactNode;
+}) {
+  return (
+    <span
+      title={title}
+      className={`truncate ${strong ? 'font-medium' : ''} ${muted ? 'text-[13px] tabular-nums text-slate-600' : ''
+        } ${small ? 'text-[13px] text-slate-700' : ''}`}
+    >
+      {children}
+    </span>
+  );
+}
+
+function Dot({ className }: { className: string }) {
+  return <span aria-hidden className={`size-2.5 rounded-full ${className}`} />;
+}
+
+function Pill({ className, children }: { className: string; children: ReactNode }) {
+  return (
+    <span className={`whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-semibold ${className}`}>
+      {children}
+    </span>
+  );
+}
+
+function Empty({ children }: { children: ReactNode }) {
+  return <p className="m-0 px-5 py-[18px] text-center text-[14px] text-slate-500">{children}</p>;
+}
+
+function OrgMetric({
+  icon,
+  tone,
+  label,
+  value,
+}: {
+  icon: ReactNode;
+  tone: string;
+  label: string;
+  value: string | number;
+}) {
+  return (
+    <div className="flex items-center gap-2.5 rounded-[9px] bg-[#fafbfc] px-2.5 py-[7px]">
+      <span aria-hidden className={`grid size-[26px] shrink-0 place-items-center rounded-[7px] ${tone}`}>
+        {icon}
+      </span>
+      <span className="flex-1 text-[12px] text-slate-500">{label}</span>
+      <b className="text-base tabular-nums">{value}</b>
+    </div>
+  );
+}

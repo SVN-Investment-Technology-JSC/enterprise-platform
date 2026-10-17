@@ -91,6 +91,7 @@ export function GenericRequestForm({
               Từ ngày <span className="text-rose-500">*</span>
             </span>
             <DatePickerInput
+              height={36}
               value={fromAt}
               disabled={disabled}
               aria-label="Từ ngày"
@@ -102,6 +103,7 @@ export function GenericRequestForm({
               Đến ngày <span className="text-rose-500">*</span>
             </span>
             <DatePickerInput
+              height={36}
               value={toAt}
               disabled={disabled}
               aria-label="Đến ngày"
@@ -116,6 +118,7 @@ export function GenericRequestForm({
             Ngày <span className="text-rose-500">*</span>
           </span>
           <DatePickerInput
+            height={36}
             value={fromAt}
             disabled={disabled}
             aria-label="Ngày"
@@ -150,10 +153,11 @@ export function GenericRequestForm({
                   disabled={disabled}
                   rows={3}
                   onChange={(e) => setValue(field.key, e.target.value)}
-                  className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs outline-none focus-visible:border-blue-600 focus-visible:ring-2 focus-visible:ring-blue-100"
+                  className="w-full rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs outline-none focus-visible:border-blue-600 focus-visible:ring-2 focus-visible:ring-blue-100"
                 />
               ) : field.type === 'select' ? (
                 <SearchableSelect
+                  height={36}
                   options={(field.options ?? []).map((o) => ({ value: o, label: o }))}
                   value={String(values[field.key] ?? '')}
                   onChange={(value) => setValue(field.key, value)}
@@ -162,6 +166,7 @@ export function GenericRequestForm({
                 />
               ) : field.type === 'date' ? (
                 <DatePickerInput
+                  height={36}
                   value={String(values[field.key] ?? '')}
                   disabled={disabled}
                   onChange={(value) => setValue(field.key, value)}

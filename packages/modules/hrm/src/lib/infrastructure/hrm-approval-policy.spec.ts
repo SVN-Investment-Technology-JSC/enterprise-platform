@@ -20,6 +20,8 @@ function fakeDeps(options: {
   allowSelf?: boolean;
   subordinates?: string[];
   missing?: boolean;
+  fallbackPositionId?: string | null;
+  actorHoldsPosition?: boolean;
 }): HrmApprovalDeps {
   const orgScope: HrmOrgScopePort = {
     subordinateUserIds: async () => new Set(options.subordinates ?? []),
@@ -41,6 +43,26 @@ function fakeDeps(options: {
             rows: options.link ? [{ '?column?': 1 }] : [],
             rowCount: options.link ? 1 : 0,
           };
+        if (sql.includes('organization_node_assignments')) {
+          return {
+            rows: options.actorHoldsPosition ? [{ '?column?': 1 }] : [],
+            rowCount: options.actorHoldsPosition ? 1 : 0,
+          };
+        }
+        if (sql.includes('request_procedure_bindings')) {
+          return {
+            rows: options.fallbackPositionId
+              ? [
+                  {
+                    sub_type_code: null,
+                    mode: 'DIRECT',
+                    fallback_position_id: options.fallbackPositionId,
+                  },
+                ]
+              : [],
+            rowCount: options.fallbackPositionId ? 1 : 0,
+          };
+        }
         if (options.missing) return { rows: [], rowCount: 0 };
         return {
           rows: [
@@ -141,6 +163,58 @@ describe('assertCanDecide', () => {
       ),
     ).resolves.toBeUndefined();
   });
+
+  it('người giữ chức danh duyệt dự phòng được duyệt đơn dù không thuộc cấp dưới', async () => {
+    await expect(
+      assertCanDecide(
+        manager,
+        { id: 'r1' },
+        'leave',
+        fakeDeps({
+          subordinates: ['someone-else'],
+          fallbackPositionId: 'pos-fallback',
+          actorHoldsPosition: true,
+        }),
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  it('người không thuộc cấp dưới và không giữ chức danh dự phòng bị 403 APPROVAL_OUT_OF_SCOPE', async () => {
+    await expect(
+      assertCanDecide(
+        manager,
+        { id: 'r1' },
+        'leave',
+        fakeDeps({
+          subordinates: ['someone-else'],
+          fallbackPositionId: 'pos-fallback',
+          actorHoldsPosition: false,
+        }),
+      ),
+    ).rejects.toMatchObject({
+      response: { code: APPROVAL_OUT_OF_SCOPE },
+      status: 403,
+    });
+  });
+
+  it('không có chức danh dự phòng và không phải cấp dưới: bị chặn 403 kể cả không có quản lý trực tiếp', async () => {
+    await expect(
+      assertCanDecide(
+        manager,
+        { id: 'r1' },
+        'leave',
+        fakeDeps({
+          subordinates: [],
+          fallbackPositionId: null,
+          actorHoldsPosition: false,
+        }),
+      ),
+    ).rejects.toMatchObject({
+      response: { code: APPROVAL_OUT_OF_SCOPE },
+      status: 403,
+    });
+  });
+
 
   it('quyền approve.all duyệt toàn tenant dù khác đơn vị', async () => {
     await expect(

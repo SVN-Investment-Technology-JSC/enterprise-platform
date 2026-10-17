@@ -54,7 +54,7 @@ export function DateTimeInput({
           required={required}
           withSeconds
           aria-label={ariaLabel ? `${ariaLabel} (giờ)` : undefined}
-          className="h-8 text-xs font-mono"
+          className="h-9 text-xs font-mono"
           onChange={(t) => emit(date, t)}
         />
       ) : (

@@ -82,11 +82,28 @@ export const TENANT_CORE_MIGRATIONS: readonly TenantModuleMigration[] = [
     version: '0008-notifications',
     path: 'tenant/core/0008-notifications.sql',
   },
+  {
+    // Phải chạy sau các migration RBAC (0005-tenant-rbac, 0007-default-tenant-user-role).
+    version: '0011-module-access-from-actions',
+    path: 'tenant/core/0011-module-access-from-actions.sql',
+  },
 ];
 
 export const TENANT_MODULE_MIGRATIONS: Readonly<
   Record<string, readonly TenantModuleMigration[]>
 > = {
+  // Trợ lý (savina-agent) không có bảng trong DB tenant; migration rỗng để bật phân hệ được.
+  assistant: [{ version: '0001-assistant', path: 'tenant/assistant/0001-assistant.sql' }],
+  finance: [
+    { version: '0001-finance', path: 'tenant/finance/0001-finance.sql' },
+    { version: '0002-finance-approval', path: 'tenant/finance/0002-finance-approval.sql' },
+    { version: '0003-finance-attachments', path: 'tenant/finance/0003-finance-attachments.sql' },
+    { version: '0004-finance-workspace-links', path: 'tenant/finance/0004-finance-workspace-links.sql' },
+    { version: '0005-finance-voucher-codes', path: 'tenant/finance/0005-finance-voucher-codes.sql' },
+    { version: '0006-finance-voucher-sources', path: 'tenant/finance/0006-finance-voucher-sources.sql' },
+    { version: '0007-finance-source-reversal', path: 'tenant/finance/0007-finance-source-reversal.sql' },
+    { version: '0008-voucher-attachment-purpose', path: 'tenant/finance/0008-voucher-attachment-purpose.sql' },
+  ],
   hrm: [
     { version: '0001-hrm', path: 'tenant/hrm/0001-hrm.sql' },
     {
@@ -297,6 +314,59 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       path: 'tenant/hrm/0050-hrm-request-comments.sql',
     },
     {
+      version: '0051-hrm-leave-settlements-legacy',
+      path: 'tenant/hrm/0051-hrm-leave-settlements-legacy.sql',
+    },
+    {
+      version: '0052-hrm-timesheet-standard-policies',
+      path: 'tenant/hrm/0052-hrm-timesheet-standard-policies.sql',
+    },
+    {
+      version: '0053-hrm-schedule-auto-attendance',
+      path: 'tenant/hrm/0053-hrm-schedule-auto-attendance.sql',
+    },
+    {
+      version: '0054-hrm-direct-fallback-position',
+      path: 'tenant/hrm/0054-hrm-direct-fallback-position.sql',
+    },
+    {
+      version: '0055-hrm-auto-attendance-settings',
+      path: 'tenant/hrm/0055-hrm-auto-attendance-settings.sql',
+    },
+    { version: '0056-hrm-fleet', path: 'tenant/hrm/0056-hrm-fleet.sql' },
+    {
+      version: '0056-hrm-shift-soft-delete',
+      path: 'tenant/hrm/0056-hrm-shift-soft-delete.sql',
+    },
+    {
+      version: '0057-hrm-leave-type-code-partial-unique',
+      path: 'tenant/hrm/0057-hrm-leave-type-code-partial-unique.sql',
+    },
+    {
+      version: '0058-hrm-system-request-type-legacy-code',
+      path: 'tenant/hrm/0058-hrm-system-request-type-legacy-code.sql',
+    },
+    {
+      version: '0059-hrm-request-comment-attachments',
+      path: 'tenant/hrm/0059-hrm-request-comment-attachments.sql',
+    },
+    {
+      version: '0060-hrm-personnel-decision-recorded',
+      path: 'tenant/hrm/0060-hrm-personnel-decision-recorded.sql',
+    },
+    {
+      version: '0061-hrm-personnel-decision-revoke',
+      path: 'tenant/hrm/0061-hrm-personnel-decision-revoke.sql',
+    },
+    {
+      version: '0062-hrm-personnel-decision-chain',
+      path: 'tenant/hrm/0062-hrm-personnel-decision-chain.sql',
+    },
+    {
+      version: '0063-hrm-leave-adjustment-actor-required',
+      path: 'tenant/hrm/0063-hrm-leave-adjustment-actor-required.sql',
+    },
+    {
       version: '0021-notification-outbox-v1',
       path: 'tenant/hrm/0021-notification-outbox-v1.sql',
     },
@@ -315,6 +385,10 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     {
       version: '0036-hrm-project-request-reversed',
       path: 'tenant/hrm/0036-hrm-project-request-reversed.sql',
+    },
+    {
+      version: '0052-leave-transaction-trigger-source',
+      path: 'tenant/hrm/0052-leave-transaction-trigger-source.sql',
     },
   ],
   inventory: [
@@ -401,6 +475,10 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       version: '0013-instance-reversal',
       path: 'tenant/procedure/0013-instance-reversal.sql',
     },
+    {
+      version: '0014-everyone-subject',
+      path: 'tenant/procedure/0014-everyone-subject.sql',
+    },
   ],
   maintenance: [
     {
@@ -426,6 +504,10 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     {
       version: '0006-occurrence-attachments',
       path: 'tenant/maintenance/0006-occurrence-attachments.sql',
+    },
+    {
+      version: '0007-maintenance-fleet-transport',
+      path: 'tenant/maintenance/0007-maintenance-fleet-transport.sql',
     },
   ],
   workspace: [
@@ -480,6 +562,28 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       version: '0018-workspace-project-request-reversal',
       path: 'tenant/workspace/0018-workspace-project-request-reversal.sql',
     },
+    {
+      version: '0019-workspace-status-history-deletion-log',
+      path: 'tenant/workspace/0019-workspace-status-history-deletion-log.sql',
+    },
+    {
+      version: '0020-workspace-project-role-definitions',
+      path: 'tenant/workspace/0020-workspace-project-role-definitions.sql',
+    },
+    {
+      version: '0021-workspace-standalone-tasks',
+      path: 'tenant/workspace/0021-workspace-standalone-tasks.sql',
+    },
+    {
+      version: '0022-workspace-fleet-transport',
+      path: 'tenant/workspace/0022-workspace-fleet-transport.sql',
+    },
+  ],
+  // Hệ dùng chung: phần đầu là Tài liệu công ty (kho tách khỏi tài liệu dự án).
+  shared: [
+    { version: '0001-shared-documents', path: 'tenant/shared/0001-shared-documents.sql' },
+    { version: '0002-shared-trash', path: 'tenant/shared/0002-shared-trash.sql' },
+    { version: '0003-shared-folder-shares', path: 'tenant/shared/0003-shared-folder-shares.sql' },
   ],
 };
 

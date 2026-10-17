@@ -114,3 +114,50 @@ export async function pendingReservedDays(
   );
   return Number(result.rows[0]?.days ?? 0);
 }
+
+/**
+ * Quỹ phép của một nhân viên trong một năm: mọi dòng đã có trong sổ, cộng một dòng mặc định toàn 0 cho mỗi lý do
+ * phép năm đang áp dụng mà nhân viên chưa có dòng quỹ năm đó (chưa chốt cộng phép lần nào). Dòng mặc định không ghi
+ * DB; `enrichLeaveBalances` bổ sung phần quỹ dự kiến theo HĐLĐ nên form đơn nghỉ vẫn thấy phép được hưởng.
+ */
+export async function listEmployeeLeaveBalanceRows(
+  db: PoolClient,
+  tenant: string,
+  employee: string,
+  year: number,
+) {
+  const result = await db.query(
+    `SELECT COALESCE(lb.id::text, '') AS id, lt.tenant_id, $2::uuid AS employee_id, lt.id AS leave_type_id, $3::int AS year,
+            COALESCE(lb.opening_balance, 0) AS opening_balance, COALESCE(lb.accrued, 0) AS accrued,
+            COALESCE(lb.used, 0) AS used, COALESCE(lb.pending, 0) AS pending,
+            COALESCE(lb.adjusted, 0) AS adjusted, COALESCE(lb.remaining, 0) AS remaining,
+            COALESCE(lb.seniority_days, 0) AS seniority_days, COALESCE(lb.carryover_remaining, 0) AS carryover_remaining,
+            lb.carryover_expiry_date, COALESCE(lb.max_negative_allowed, 2.0) AS max_negative_allowed,
+            COALESCE(lb.created_at, now()) AS created_at, COALESCE(lb.updated_at, now()) AS updated_at,
+            (lb.id IS NOT NULL) AS has_balance
+       FROM hrm_schema.leave_types lt
+       LEFT JOIN hrm_schema.leave_balances lb ON lb.tenant_id = lt.tenant_id AND lb.employee_id = $2::uuid
+         AND lb.leave_type_id = lt.id AND lb.year = $3::int
+      WHERE lt.tenant_id = $1 AND lt.deleted_at IS NULL
+        AND (lb.id IS NOT NULL OR (lt.is_annual AND lt.active))
+      ORDER BY lt.name`,
+    [tenant, employee, year],
+  );
+  return result.rows;
+}
+
+/**
+ * Số ngày phép "Còn lại" hiển thị trong danh sách quỹ phép của HR.
+ * Có chính sách HĐLĐ: số dùng được hiện tại (`available` = phần đã ghi sổ + phần đến hạn chưa ghi - đơn chờ duyệt), kể cả
+ * nhân viên chưa có dòng quỹ của năm, để khớp với Bàn làm việc và form xin nghỉ. Không lấy định mức cả năm trừ đã dùng.
+ * Không có chính sách: số `remaining` ghi sổ.
+ */
+export function displayedRemainingDays(
+  row: { projected_entitlement?: unknown; available?: unknown; remaining?: unknown },
+  entitlement: number,
+  used: number,
+): number {
+  const hasPolicy = row.projected_entitlement != null;
+  const value = hasPolicy ? Number(row.available ?? entitlement - used) : Number(row.remaining || 0);
+  return Math.round(value * 100) / 100;
+}

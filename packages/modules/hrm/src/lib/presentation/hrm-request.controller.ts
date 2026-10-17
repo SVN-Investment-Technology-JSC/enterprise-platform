@@ -1,3 +1,4 @@
+import type { PoolClient } from 'pg';
 import { attachProcedureLinkInfo } from '../infrastructure/hrm-procedure-link-info.js';
 import {
   attachRequestProjectLinks,
@@ -9,8 +10,9 @@ import { workflowProgressFilter } from '../infrastructure/hrm-workflow-filter.js
 import { syncEmployeeProcedureResults } from '../infrastructure/hrm-procedure-sync.js';
 import {
   calendarDatesOf,
-  resolveRequestRange,
+  resolveRequestTime,
 } from '../infrastructure/hrm-request-time.js';
+import { saveRequestTransport } from '../infrastructure/hrm-fleet.js';
 import { assertNoRequestOverlap } from '../infrastructure/hrm-request-overlap.js';
 import {
   resolveDraftSubmission,
@@ -338,19 +340,23 @@ export class HrmRequestController {
       body,
     );
     body = submission.body;
-    // Thời gian công tác: "từ ngày giờ đến ngày giờ" (server suy ra khoảng ngày và số ngày lịch) hoặc cách cũ.
+    // Thời gian công tác: "từ ngày giờ đến ngày giờ"; server tính số ngày công tác theo ca (cả ca hoặc nửa ca mỗi ngày,
+    // ngày nghỉ và ngày lễ không tính) và chặn khoảng sai khung ca; hoặc cách cũ (ngày và số ngày do client gửi).
     let tripAt: { fromAt: string; toAt: string } | null = null;
     let tripFrom: string;
     let tripTo: string;
     let tripDays: number | undefined;
     if (body.fromAt !== undefined || body.toAt !== undefined) {
-      const { timezone, fromMs, toMs } = await resolveRequestRange(
-        pool,
+      const { timezone, fromMs, toMs, result } = await resolveRequestTime(
+        pool as unknown as PoolClient,
         tenantId,
         employeeId,
         body.fromAt,
         body.toAt,
+        'DAYS',
+        'TRIP',
       );
+      if (result.errors.length) throw new BadRequestException(result.errors.join(' '));
       const dates = calendarDatesOf(fromMs, toMs, timezone);
       tripAt = {
         fromAt: new Date(fromMs).toISOString(),
@@ -358,7 +364,7 @@ export class HrmRequestController {
       };
       tripFrom = dates[0];
       tripTo = dates[dates.length - 1];
-      tripDays = dates.length;
+      tripDays = result.totalDays;
     } else {
       tripFrom = requireDate(body.fromDate, 'fromDate');
       tripTo = requireDate(body.toDate, 'toDate');
@@ -483,7 +489,25 @@ export class HrmRequestController {
       RETURNING *`,
               params,
             );
-        return inserted.rows[0];
+        const tripRow = inserted.rows[0];
+        const transport = await saveRequestTransport(
+          db,
+          tenantId,
+          {
+            table: 'business_trip_requests',
+            sourceType: 'BUSINESS_TRIP',
+            requestId: String(tripRow.id),
+            requesterEmployeeId: employeeId,
+            sourceLabel: `Đơn công tác: ${body.destination}`,
+            destination: body.destination,
+            purpose: description,
+            defaultRange: tripAt
+              ? { startAt: tripAt.fromAt, endAt: tripAt.toAt }
+              : null,
+          },
+          body.transport,
+        );
+        return { ...tripRow, ...transport };
       },
     );
 
@@ -1159,6 +1183,8 @@ export class HrmRequestController {
       daysCount: Number(row.days_count),
       allowOt: Boolean(row.allow_ot),
       perDiemPolicyId: row.per_diem_policy_id as string | null,
+      transportMode: (row.transport_mode ?? null) as HrmBusinessTripRequest['transportMode'],
+      transportDetail: (row.transport_detail ?? null) as string | null,
       ...requestReasonView(row),
       status: row.status as any,
       workflowInstanceId: row.workflow_instance_id as string | null,

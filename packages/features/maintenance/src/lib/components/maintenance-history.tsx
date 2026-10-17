@@ -8,6 +8,8 @@ import type {
   MaintenanceOccurrenceStatus,
   OccurrenceAttachment,
 } from '@enterprise-platform/contracts-maintenance';
+import { formatDate, formatDateTime } from '@enterprise-platform/shared-ui';
+import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import { Download, Paperclip, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import {
@@ -37,11 +39,6 @@ const STATUS_LABEL: Record<MaintenanceOccurrenceStatus, string> = {
   failed: 'Thất bại',
   blocked: 'Bị chặn',
 };
-
-const dateOnly = new Intl.DateTimeFormat('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' });
-const dateTime = new Intl.DateTimeFormat('vi-VN', {
-  hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric',
-});
 
 export function MaintenanceHistory({
   page,
@@ -191,23 +188,25 @@ export function MaintenanceHistory({
                     </select>
 
                     <div className={styles.dateRange}>
-                      <input
-                        type="date"
-                        title="Từ ngày"
-                        value={filter.from?.slice(0, 10) ?? ''}
-                        onChange={(event) =>
-                          onFilter({ ...filter, from: event.target.value || undefined, cursor: undefined })
-                        }
-                      />
+                      <div className={styles.datePicker}>
+                        <DatePickerInput
+                          placeholder="Từ ngày"
+                          value={filter.from?.slice(0, 10) ?? ''}
+                          onChange={(value) =>
+                            onFilter({ ...filter, from: value || undefined, cursor: undefined })
+                          }
+                        />
+                      </div>
                       <span className={styles.dateSep}>→</span>
-                      <input
-                        type="date"
-                        title="Đến ngày"
-                        value={filter.to?.slice(0, 10) ?? ''}
-                        onChange={(event) =>
-                          onFilter({ ...filter, to: event.target.value || undefined, cursor: undefined })
-                        }
-                      />
+                      <div className={styles.datePicker}>
+                        <DatePickerInput
+                          placeholder="Đến ngày"
+                          value={filter.to?.slice(0, 10) ?? ''}
+                          onChange={(value) =>
+                            onFilter({ ...filter, to: value || undefined, cursor: undefined })
+                          }
+                        />
+                      </div>
                     </div>
 
                     <button
@@ -273,7 +272,7 @@ export function MaintenanceHistory({
                         </div>
                       </td>
                       <td className={styles.dateCell}>
-                        {dateOnly.format(new Date(item.dueAt))}
+                        {formatDate(item.dueAt)}
                       </td>
                       <td>
                         <span className={`${styles.statusBadge} ${styles[`st_${item.status}`]}`}>
@@ -393,7 +392,7 @@ export function MaintenanceHistory({
                 </div>
                 <div className={styles.factItem}>
                   <span className={styles.factLabel}>Ngày đến hạn</span>
-                  <span className={styles.factValue}>{dateTime.format(new Date(selected.dueAt))}</span>
+                  <span className={styles.factValue}>{formatDateTime(selected.dueAt)}</span>
                 </div>
                 <div className={styles.factItem}>
                   <span className={styles.factLabel}>Mức độ ưu tiên</span>
@@ -452,17 +451,17 @@ export function MaintenanceHistory({
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <span style={{ fontSize: '13px', fontWeight: 600, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span style={{ fontSize: '14px', fontWeight: 600, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '6px' }}>
                     <Paperclip size={15} color="#475569" />
                     Tài liệu & Tệp đính kèm ({loadedAttachments.length})
                   </span>
                   {loadingAttachments ? (
-                    <span style={{ fontSize: '11.5px', color: '#64748b' }}>Đang tải…</span>
+                    <span style={{ fontSize: '12px', color: '#64748b' }}>Đang tải…</span>
                   ) : null}
                 </div>
 
                 {loadedAttachments.length === 0 && !loadingAttachments ? (
-                  <span style={{ fontSize: '12px', color: '#94a3b8', fontStyle: 'italic' }}>
+                  <span style={{ fontSize: '13px', color: '#94a3b8', fontStyle: 'italic' }}>
                     Chưa có tài liệu hay ảnh hiện trường nào được đính kèm.
                   </span>
                 ) : null}
@@ -478,7 +477,7 @@ export function MaintenanceHistory({
                       borderRadius: '5px',
                       background: '#ffffff',
                       border: '1px solid #cbd5e1',
-                      fontSize: '12.5px',
+                      fontSize: '13px',
                     }}
                   >
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', overflow: 'hidden' }}>
@@ -494,8 +493,8 @@ export function MaintenanceHistory({
                           </small>
                         ) : null}
                       </div>
-                      <span style={{ fontSize: '11px', color: '#94a3b8' }}>
-                        {dateOnly.format(new Date(att.createdAt))}
+                      <span style={{ fontSize: '12px', color: '#94a3b8' }}>
+                        {formatDate(att.createdAt)}
                         {att.uploadedBy ? ` · ${att.uploadedBy}` : ''}
                         {att.note ? ` · ${att.note}` : ''}
                       </span>
@@ -514,7 +513,7 @@ export function MaintenanceHistory({
                           border: '1px solid #cbd5e1',
                           background: '#ffffff',
                           color: '#2563eb',
-                          fontSize: '11.5px',
+                          fontSize: '12px',
                           fontWeight: 600,
                           cursor: 'pointer',
                         }}
@@ -550,7 +549,7 @@ export function MaintenanceHistory({
                   <div className={styles.resultHead}>
                     <span>Kết quả thực hiện</span>
                     <small>
-                      Hoàn tất: {dateTime.format(new Date(selected.completedAt))}
+                      Hoàn tất: {formatDateTime(selected.completedAt)}
                       {selected.completedByName ? ` · ${selected.completedByName}` : ''}
                     </small>
                   </div>
@@ -604,7 +603,7 @@ export function MaintenanceHistory({
                             border: '1px solid #cbd5e1',
                             background: '#ffffff',
                             color: '#1e293b',
-                            fontSize: '12.5px',
+                            fontSize: '13px',
                             fontWeight: 600,
                             cursor: 'pointer',
                             boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
@@ -659,7 +658,7 @@ export function MaintenanceHistory({
                             event.target.value = '';
                           }}
                         />
-                        <span style={{ fontSize: '11.5px', color: '#64748b' }}>
+                        <span style={{ fontSize: '12px', color: '#64748b' }}>
                           (PDF, Word, Excel, JPG, PNG, MP4 - Tối đa 25MB)
                         </span>
                       </div>
@@ -679,7 +678,7 @@ export function MaintenanceHistory({
                                 borderRadius: '4px',
                                 background: '#ffffff',
                                 border: '1px solid #e2e8f0',
-                                fontSize: '12px',
+                                fontSize: '13px',
                               }}
                             >
                               <div style={{ display: 'flex', alignItems: 'center', gap: '6px', overflow: 'hidden' }}>
@@ -696,7 +695,7 @@ export function MaintenanceHistory({
                                   color: '#ef4444',
                                   cursor: 'pointer',
                                   padding: '2px 4px',
-                                  fontSize: '11px',
+                                  fontSize: '12px',
                                   fontWeight: 600,
                                 }}
                                 onClick={() => setPendingFiles((prev) => prev.filter((_, i) => i !== idx))}

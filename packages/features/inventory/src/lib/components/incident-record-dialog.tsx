@@ -106,7 +106,7 @@ export function IncidentRecordDialog({
               <h2
                 style={{
                   margin: 0,
-                  fontSize: '18px',
+                  fontSize: '20px',
                   fontWeight: 700,
                   color: '#0f172a',
                 }}
@@ -117,7 +117,7 @@ export function IncidentRecordDialog({
             <p
               style={{
                 margin: '4px 0 0',
-                fontSize: '13px',
+                fontSize: '14px',
                 color: '#64748b',
               }}
             >
@@ -154,7 +154,7 @@ export function IncidentRecordDialog({
             <label
               style={{
                 display: 'block',
-                fontSize: '13px',
+                fontSize: '14px',
                 fontWeight: 600,
                 color: '#334155',
                 marginBottom: '6px',
@@ -180,7 +180,7 @@ export function IncidentRecordDialog({
                     style={{
                       padding: '8px 4px',
                       borderRadius: '6px',
-                      fontSize: '12px',
+                      fontSize: '13px',
                       fontWeight: isSelected ? 700 : 500,
                       textAlign: 'center',
                       border: isSelected ? `2px solid ${lvl.color}` : `1px solid ${lvl.border}`,
@@ -203,7 +203,7 @@ export function IncidentRecordDialog({
               <label
                 style={{
                   display: 'block',
-                  fontSize: '13px',
+                  fontSize: '14px',
                   fontWeight: 600,
                   color: '#334155',
                   marginBottom: '6px',
@@ -233,7 +233,7 @@ export function IncidentRecordDialog({
               <label
                 style={{
                   display: 'block',
-                  fontSize: '13px',
+                  fontSize: '14px',
                   fontWeight: 600,
                   color: '#334155',
                   marginBottom: '6px',
@@ -251,7 +251,7 @@ export function IncidentRecordDialog({
                   padding: '8px 10px',
                   borderRadius: '6px',
                   border: '1px solid #cbd5e1',
-                  fontSize: '13px',
+                  fontSize: '14px',
                   boxSizing: 'border-box',
                 }}
               />
@@ -263,7 +263,7 @@ export function IncidentRecordDialog({
             <label
               style={{
                 display: 'block',
-                fontSize: '13px',
+                fontSize: '14px',
                 fontWeight: 600,
                 color: '#334155',
                 marginBottom: '6px',
@@ -282,7 +282,7 @@ export function IncidentRecordDialog({
                 padding: '8px 10px',
                 borderRadius: '6px',
                 border: '1px solid #cbd5e1',
-                fontSize: '13px',
+                fontSize: '14px',
                 boxSizing: 'border-box',
               }}
             />
@@ -293,7 +293,7 @@ export function IncidentRecordDialog({
             <label
               style={{
                 display: 'block',
-                fontSize: '13px',
+                fontSize: '14px',
                 fontWeight: 600,
                 color: '#334155',
                 marginBottom: '6px',
@@ -312,7 +312,7 @@ export function IncidentRecordDialog({
                 padding: '8px 10px',
                 borderRadius: '6px',
                 border: '1px solid #cbd5e1',
-                fontSize: '13px',
+                fontSize: '14px',
                 resize: 'vertical',
                 boxSizing: 'border-box',
                 fontFamily: 'inherit',
@@ -322,7 +322,7 @@ export function IncidentRecordDialog({
 
           {/* Checkbox đồng bộ sang module Bảo trì nếu có */}
           <div style={{ padding: '10px 12px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12.5px', color: '#334155', cursor: 'pointer', margin: 0 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: '#334155', cursor: 'pointer', margin: 0 }}>
               <input
                 type="checkbox"
                 checked={syncToMaintenance}
@@ -356,7 +356,7 @@ export function IncidentRecordDialog({
                 border: '1px solid #cbd5e1',
                 background: '#ffffff',
                 color: '#475569',
-                fontSize: '13.5px',
+                fontSize: '14px',
                 fontWeight: 600,
                 cursor: 'pointer',
               }}
@@ -372,7 +372,7 @@ export function IncidentRecordDialog({
                 border: 'none',
                 background: !isFormValid ? '#93c5fd' : '#2563eb',
                 color: '#ffffff',
-                fontSize: '13.5px',
+                fontSize: '14px',
                 fontWeight: 600,
                 cursor: !isFormValid ? 'not-allowed' : 'pointer',
                 transition: 'background 0.15s ease',

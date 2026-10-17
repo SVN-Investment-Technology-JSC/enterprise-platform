@@ -14,8 +14,13 @@ import type {
   ProcedureValidationReport,
   UpdateProcedureDefinitionRequest,
 } from '@enterprise-platform/contracts-procedure-engine';
-import { buildFlowIndex, dominatorStepIds } from '@enterprise-platform/contracts-procedure-engine';
+import {
+  buildFlowIndex,
+  dominatorStepIds,
+  PROCEDURE_FINANCE_VOUCHER_KIND_LABELS,
+} from '@enterprise-platform/contracts-procedure-engine';
 import { AttributeEditor } from './rcsi/attribute-editor';
+import { BulkAssignDialog } from './rcsi/bulk-assign-dialog';
 import { DynamicApproverEditor } from './rcsi/dynamic-approver-editor';
 import {
   addGateway,
@@ -37,6 +42,7 @@ import flowStyles from './rcsi/flow-editors.module.scss';
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import {
+  buildEveryoneNode,
   buildHeaderTree,
   flattenColumns,
   getAvailableTrees,
@@ -62,7 +68,6 @@ import {
   Network,
   Plus,
   Search,
-  Settings2,
   ShieldCheck,
   SquarePen,
   Users,
@@ -79,6 +84,12 @@ const ROLE_LABEL: Record<ProcedureRaciRole, string> = {
 };
 
 const ROLE_ORDER: readonly ProcedureRaciRole[] = ['S', 'R', 'E', 'C', 'A', 'I'];
+
+/**
+ * Màu nhánh cho cây luồng bên trái (QT-U11), khớp đúng dải màu dải màu viền nhánh
+ * đang dùng trong scss (`branchStepRow[data-branch='n']`). Nhánh thứ i dùng màu i.
+ */
+const BRANCH_COLORS: readonly string[] = ['#60a5fa', '#34d399', '#f59e0b', '#a78bfa', '#f472b6', '#94a3b8'];
 
 /** Số quy trình tối đa mỗi trang của ma trận. */
 const DEFINITIONS_PER_PAGE = 10;
@@ -145,6 +156,7 @@ function toStepInput(step: ProcedureStepDefinition): CreateProcedureStepInput {
     // mất trường đó mỗi lần người dùng bấm một ô RACI.
     materials: step.materials?.map((item) => ({ ...item })),
     attributes: step.attributes?.map((item) => ({ ...item })),
+    integration: step.integration ? structuredClone(step.integration) : undefined,
     assignments: step.assignments.map((item) => ({
       role: item.role,
       subjectType: item.subjectType,
@@ -449,7 +461,11 @@ export function RcsiBoard({
 
   const tree = useMemo(() => {
     const baseTree = mode === 'full' ? fullTree : pruneEmpty(fullTree, relevantSubjects);
-    return markTreeBoundaries(filterColumnsByText(baseTree, positionQuery));
+    // Cột "Toàn bộ nhân viên" luôn nằm đầu, ngoài ranh giới giữa các sơ đồ tổ chức.
+    return [
+      ...filterColumnsByText([buildEveryoneNode()], positionQuery),
+      ...markTreeBoundaries(filterColumnsByText(baseTree, positionQuery)),
+    ];
   }, [fullTree, mode, relevantSubjects, positionQuery]);
   const columns = useMemo(() => flattenColumns(tree), [tree]);
   const depth = useMemo(() => treeDepth(tree), [tree]);
@@ -573,6 +589,7 @@ export function RcsiBoard({
   const [attributeTarget, setAttributeTarget] = useState<{ definitionId: string; stepId: string | null }>();
   const [gatewayTarget, setGatewayTarget] = useState<{ definitionId: string; gatewayId: string }>();
   const [dynamicTarget, setDynamicTarget] = useState<{ definitionId: string; stepId: string }>();
+  const [bulkTarget, setBulkTarget] = useState<{ definitionId: string; stepId: string }>();
   const [report, setReport] = useState<{ definitionId: string; report: ProcedureValidationReport }>();
 
   const applyFlow = (definition: ProcedureDefinition, change: FlowChange) => {
@@ -632,12 +649,52 @@ export function RcsiBoard({
     setDynamicTarget(undefined);
   };
 
+  /** Gán (hoặc xoá) một vai cho nhiều cột chức danh của một bước trong MỘT lần ghi. */
+  const saveBulkAssign = (
+    definition: ProcedureDefinition,
+    stepId: string,
+    role: ProcedureRaciRole | undefined,
+    picked: readonly MatrixColumn[],
+  ) => {
+    if (!onUpdateDefinition || picked.length === 0) return;
+    onUpdateDefinition(
+      definition.id,
+      definition.steps.map((step) => {
+        const input = toStepInput(step);
+        if (step.id !== stepId) return input;
+        const kept = input.assignments.filter(
+          (item) => !picked.some((column) => isAssignedToColumn(item, column)),
+        );
+        return {
+          ...input,
+          assignments: role
+            ? [
+                ...kept,
+                ...picked.map((column) => ({
+                  role,
+                  subjectType: column.subjectType,
+                  subjectId: column.subjectId,
+                  subjectLabel: column.label,
+                })),
+              ]
+            : kept,
+        };
+      }),
+    );
+    setBulkTarget(undefined);
+  };
+
   /** Lưu Dialog Cấu hình bước: SLA + nối tiếp + đổi nhánh trong MỘT lần ghi. */
   const saveStepConfig = (definition: ProcedureDefinition, stepId: string, change: StepConfigChange) => {
     if (!onUpdateDefinition) return;
     const withStep = (step: ProcedureStepDefinition): CreateProcedureStepInput =>
       step.id === stepId
-        ? { ...toStepInput(step), slaHours: change.slaHours, linkedDefinitionId: change.linkedDefinitionId }
+        ? {
+            ...toStepInput(step),
+            slaHours: change.slaHours,
+            linkedDefinitionId: change.linkedDefinitionId,
+            integration: change.integration,
+          }
         : toStepInput(step);
     if (change.branch !== undefined) {
       applyFlow(definition, moveStepToBranch(definition, stepId, change.branch, withStep));
@@ -1077,6 +1134,7 @@ export function RcsiBoard({
                   onEditGateway={(gatewayId) => setGatewayTarget({ definitionId: definition.id, gatewayId })}
                   onConfigureStep={(stepId) => setStepConfigTarget({ definitionId: definition.id, stepId })}
                   onEditDynamicApprover={(stepId) => setDynamicTarget({ definitionId: definition.id, stepId })}
+                  onBulkAssign={(stepId) => setBulkTarget({ definitionId: definition.id, stepId })}
                   onRevise={
                     editable && onReviseDefinition
                       ? () => onReviseDefinition(definition.id)
@@ -1266,6 +1324,31 @@ export function RcsiBoard({
             organization={organization}
             onClose={() => setDynamicTarget(undefined)}
             onSave={(next) => saveDynamicApprover(definition, step.id, next)}
+          />
+        );
+      })()}
+
+      {(() => {
+        const definition = definitions.find((item) => item.id === bulkTarget?.definitionId);
+        const step = definition?.steps.find((item) => item.id === bulkTarget?.stepId);
+        if (!definition || !step) return null;
+        // Mọi chức danh (kể cả khi ma trận đang thu gọn) để gán được cả chức danh chưa tham gia quy trình.
+        const positionColumns = flattenColumns(fullTree).filter(
+          (column) => column.subjectType === 'position',
+        );
+        const currentRoles = new Map<string, ProcedureRaciRole>();
+        for (const column of positionColumns) {
+          const assigned = step.assignments.find((item) => isAssignedToColumn(item, column));
+          if (assigned) currentRoles.set(column.key, assigned.role);
+        }
+        return (
+          <BulkAssignDialog
+            stepName={step.name}
+            columns={positionColumns}
+            currentRoles={currentRoles}
+            organization={organization}
+            onClose={() => setBulkTarget(undefined)}
+            onApply={(role, picked) => saveBulkAssign(definition, step.id, role, picked)}
           />
         );
       })()}
@@ -1635,6 +1718,166 @@ function renderHeaderLevel(
  * Hàng cuối mỗi nhánh: ô nhập tên để thêm bước vào đúng nhánh đó. Nhánh rỗng
  * luôn có hàng này (cả khi chỉ xem) để thấy nhánh đó đi thẳng tới điểm hợp.
  */
+/**
+ * Cột cây luồng bên trái mỗi hàng bước (QT-U11) — giống cây commit.
+ *
+ * Lớp phủ tuyệt đối cao bằng CẢ HÀNG (top:0 → bottom:0) nằm trong ô master cố
+ * định bên trái, nên trục chính và lane nhánh vẽ bằng các phần tử dọc full-height
+ * luôn thẳng trục (x cố định) và nối liền giữa các hàng dù hàng cao thấp khác
+ * nhau. Trục chính là đường dọc xám luôn có ở mọi hàng; lane nhánh là đường màu
+ * (nét liền cho bước, nét đứt cho hàng "thêm bước"); chỉ hàng điểm rẽ nhánh và
+ * hàng điểm hợp mới vẽ đường cong tách/gộp.
+ */
+function FlowGutter({
+  variant,
+  color,
+  isJoin = false,
+  joinColor,
+}: {
+  variant: 'trunk' | 'branch' | 'gateway' | 'branchAdd';
+  color?: string;
+  isJoin?: boolean;
+  /** Màu đường cong gộp ở hàng điểm hợp — lấy theo nhánh cuối ngay phía trên. */
+  joinColor?: string;
+}) {
+  const mainX = 9;
+  const branchX = 19;
+  const branchColor = color ?? BRANCH_COLORS[0];
+  const showMergeCurve = variant === 'trunk' && isJoin;
+  return (
+    <div className={styles.flowGutter} aria-hidden="true">
+      {/* Trục chính: đường dọc xám full-height ở mọi hàng → liền mạch khi cuộn. */}
+      <span className={styles.flowTrunkLine} />
+      {/* Lane nhánh full-height: nét liền cho bước, nét đứt cho hàng thêm bước. */}
+      {variant === 'branch' ? (
+        <span className={styles.flowBranchLine} style={{ background: branchColor }} />
+      ) : null}
+      {variant === 'branchAdd' ? (
+        <span className={styles.flowBranchLineDashed} style={{ borderColor: branchColor }} />
+      ) : null}
+      {/* Đường cong chỉ ở hàng điểm rẽ nhánh (tách) và hàng điểm hợp (gộp). */}
+      {variant === 'gateway' || showMergeCurve ? (
+        <svg className={styles.flowSvg} viewBox="0 0 28 100" preserveAspectRatio="none">
+          {variant === 'gateway' ? (
+            <path
+              d={`M${mainX} 50 C ${mainX} 78 ${branchX} 72 ${branchX} 100`}
+              fill="none"
+              stroke={branchColor}
+              strokeWidth="2.5"
+              vectorEffect="non-scaling-stroke"
+            />
+          ) : (
+            <path
+              d={`M${branchX} 0 C ${branchX} 28 ${mainX} 22 ${mainX} 50`}
+              fill="none"
+              stroke={joinColor ?? branchColor}
+              strokeWidth="2.5"
+              vectorEffect="non-scaling-stroke"
+            />
+          )}
+        </svg>
+      ) : null}
+      {variant === 'gateway' ? (
+        <span className={styles.flowDiamond} style={{ left: mainX }} />
+      ) : variant === 'branch' ? (
+        <span className={styles.flowNode} style={{ left: branchX, background: branchColor, borderColor: branchColor }} />
+      ) : variant === 'branchAdd' ? null : (
+        <span className={styles.flowNodeMain} style={{ left: mainX }} />
+      )}
+    </div>
+  );
+}
+
+interface StepMenuAction {
+  readonly id: string;
+  readonly label: string;
+  readonly danger?: boolean;
+  readonly disabled?: boolean;
+  readonly separatorBefore?: boolean;
+}
+
+/**
+ * Menu chuột phải cho thao tác của một bước (QT-U13).
+ *
+ * Định vị tuyệt đối theo con trỏ rồi kẹp vào khung nhìn, đóng khi bấm ra ngoài
+ * hoặc Escape — cùng khuôn mẫu ContextMenu của Workspace.
+ */
+function StepContextMenu({
+  x,
+  y,
+  actions,
+  onClose,
+  onPick,
+}: {
+  x: number;
+  y: number;
+  actions: readonly StepMenuAction[];
+  onClose: () => void;
+  onPick: (actionId: string) => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [position, setPosition] = useState({ left: x, top: y });
+
+  useEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    const box = element.getBoundingClientRect();
+    setPosition({
+      left: Math.min(x, window.innerWidth - box.width - 8),
+      top: Math.min(y, window.innerHeight - box.height - 8),
+    });
+  }, [x, y]);
+
+  useEffect(() => {
+    const dismiss = (event: MouseEvent) => {
+      if (!ref.current?.contains(event.target as Node)) onClose();
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    document.addEventListener('mousedown', dismiss, true);
+    document.addEventListener('keydown', onKey);
+    window.addEventListener('resize', onClose);
+    return () => {
+      document.removeEventListener('mousedown', dismiss, true);
+      document.removeEventListener('keydown', onKey);
+      window.removeEventListener('resize', onClose);
+    };
+  }, [onClose]);
+
+  if (actions.length === 0) return null;
+  if (typeof document === 'undefined') return null;
+
+  return createPortal(
+    <div
+      ref={ref}
+      role="menu"
+      className={styles.contextMenu}
+      style={{ left: position.left, top: position.top }}
+    >
+      {actions.map((action) => (
+        <button
+          key={action.id}
+          type="button"
+          role="menuitem"
+          disabled={action.disabled}
+          className={[
+            styles.contextItem,
+            action.danger ? styles.contextItemDanger : '',
+            action.separatorBefore ? styles.contextItemSeparated : '',
+          ]
+            .filter(Boolean)
+            .join(' ')}
+          onClick={() => onPick(action.id)}
+        >
+          {action.label}
+        </button>
+      ))}
+    </div>,
+    document.body,
+  );
+}
+
 function BranchAddRow({
   letter,
   branchIndex,
@@ -1654,16 +1897,21 @@ function BranchAddRow({
   busy: boolean;
   onAdd?: (name: string) => void;
 }) {
+  // QT-U15: ô nhập "thêm bước vào nhánh" chỉ hiện sau khi bấm dấu cộng.
+  const [revealed, setRevealed] = useState(false);
   return (
     <tr className={`${styles.branchStepRow} ${styles.branchAddRow}`} data-branch={branchIndex % 6}>
       <td className={styles.masterCell}>
+        {/* QT-U11: nhánh (kể cả nhánh rỗng) nối liền trong cây luồng. */}
+        <FlowGutter variant="branchAdd" color={BRANCH_COLORS[branchIndex % 6]} />
+       <div className={styles.stepLane}>
         <div className={styles.branchAddInner}>
-          {empty ? (
-            <span className={styles.branchChip} title={`Nhánh ${letter}: “${label}”`}>
-              {letter} · {label}
-            </span>
-          ) : null}
+          {/* QT-U12: chỉ còn nhãn nhánh tối giản. */}
+          <span className={styles.branchChip} title={`Nhánh ${letter}: “${label}”`}>
+            {letter}
+          </span>
           {onAdd ? (
+            revealed ? (
             <form
               className={styles.addStepForm}
               onSubmit={(event) => {
@@ -1672,6 +1920,7 @@ function BranchAddRow({
                 const name = input?.value.trim() || `Bước ${letter}${nextNumber}`;
                 onAdd(name);
                 if (input) input.value = '';
+                setRevealed(false);
               }}
             >
               <span className={styles.addStepNumberBadge}>+{letter}{nextNumber}</span>
@@ -1684,16 +1933,42 @@ function BranchAddRow({
                     : `Thêm bước ${letter}${nextNumber} vào nhánh “${label}”…`
                 }
                 autoComplete="off"
+                autoFocus
                 disabled={busy}
+                onKeyDown={(event) => {
+                  if (event.key === 'Escape') setRevealed(false);
+                }}
               />
               <button type="submit" className={styles.addStepButton} disabled={busy} title={`Thêm bước vào nhánh ${letter}`}>
                 <Plus size={12} aria-hidden="true" /> Thêm vào nhánh
               </button>
+              <button
+                type="button"
+                className={styles.addStepCancel}
+                onClick={() => setRevealed(false)}
+                aria-label="Huỷ thêm bước"
+                title="Huỷ"
+              >
+                ×
+              </button>
             </form>
+            ) : (
+              <button
+                type="button"
+                className={styles.addStepReveal}
+                disabled={busy}
+                onClick={() => setRevealed(true)}
+                title={`Thêm bước vào nhánh ${letter}`}
+              >
+                <span className={styles.addStepNumberBadge}>+{letter}{nextNumber}</span>
+                Thêm vào nhánh
+              </button>
+            )
           ) : (
             <span className={styles.branchEmptyNote}>Không có bước — đi thẳng tới bước hợp nhánh</span>
           )}
         </div>
+       </div>
       </td>
       {columns.length === 0 ? (
         <td className={styles.addStepEmptyCell} />
@@ -1739,6 +2014,9 @@ function GatewayRow({
   return (
     <tr className={styles.gatewayRow}>
       <td className={styles.masterCell}>
+        {/* QT-U11: điểm rẽ nhánh tách khỏi trục chính sang nhánh. */}
+        <FlowGutter variant="gateway" color={BRANCH_COLORS[0]} />
+       <div className={styles.stepLane}>
         <div className={styles.gatewayInner}>
           <span className={styles.gatewayDiamond} aria-hidden="true" />
           <div className={styles.gatewayText}>
@@ -1753,6 +2031,7 @@ function GatewayRow({
             </button>
           ) : null}
         </div>
+       </div>
       </td>
       <td className={styles.gatewayFill} colSpan={columnSpan} />
     </tr>
@@ -1783,6 +2062,7 @@ function DefinitionRows({
   onEditGateway,
   onConfigureStep,
   onEditDynamicApprover,
+  onBulkAssign,
   onAddBranchStep,
 }: {
   /** stepId = null: thuộc tính cấp quy trình. */
@@ -1793,6 +2073,8 @@ function DefinitionRows({
   /** Mở Dialog cấu hình bước (SLA, nối tiếp, nhánh, thuộc tính). */
   onConfigureStep?: (stepId: string) => void;
   onEditDynamicApprover?: (stepId: string) => void;
+  /** Mở hộp thoại gán một vai cho nhiều chức danh của bước. */
+  onBulkAssign?: (stepId: string) => void;
   definition: ProcedureDefinition;
   columns: readonly MatrixColumn[];
   open: boolean;
@@ -1820,6 +2102,10 @@ function DefinitionRows({
     arrowLeft: number;
     placement: 'top' | 'bottom';
   } | null>(null);
+  /** QT-U13: menu chuột phải cho các thao tác của một bước. */
+  const [stepMenu, setStepMenu] = useState<{ x: number; y: number; stepId: string } | null>(null);
+  /** QT-U15: ô nhập "thêm bước trên trục chính" chỉ hiện sau khi bấm dấu cộng. */
+  const [trunkAddOpen, setTrunkAddOpen] = useState(false);
   const stepKeyById = new Map(definition.steps.map((step) => [step.id, step.key]));
   const flow = useMemo(() => flowRowInfo(definition), [definition]);
   const letters = useMemo(() => branchLetters(definition), [definition]);
@@ -1875,34 +2161,11 @@ function DefinitionRows({
   };
 
   /**
-   * Nhãn gộp cho một tập phân công: “R, C[B2], I”. C kèm mã bước quay về.
-   */
-  const labelRoles = (assignments: readonly ProcedureRaciAssignment[]) => {
-    const parts: string[] = [];
-    for (const role of ROLE_ORDER) {
-      const match = assignments.find((item) => item.role === role);
-      if (!match) continue;
-      const rollback = match.fixedRollbackStepId
-        ? stepKeyById.get(match.fixedRollbackStepId)
-        : undefined;
-      parts.push(rollback ? `${role}[${rollback}]` : role);
-    }
-    return parts;
-  };
-
-  /**
    * Phân công thuộc về một cột chức danh.
    * Tự động ánh xạ phân công cũ ở cấp đơn vị sang chức danh Quản lý nếu có.
    */
   const ownedBy = (column: MatrixColumn, assignments: readonly ProcedureRaciAssignment[]) => {
     return assignments.filter((item) => isAssignedToColumn(item, column));
-  };
-
-  /** Dòng tổng hợp: gom vai trò của mọi bước theo từng cột. */
-  const summary = (column: MatrixColumn) => {
-    const all = definition.steps.flatMap((step) => step.assignments);
-    const list = ownedBy(column, all);
-    return labelRoles(list);
   };
 
   return (
@@ -1946,7 +2209,9 @@ function DefinitionRows({
               </span>
 
               <div className={styles.rowTools}>
-                {onEditAttributes && (editable || definition.attributes?.length) ? (
+                {/* QT-U8: Nhóm & "Thuộc tính QT" chỉ hiện khi quy trình đã sổ bước để chỉnh sửa,
+                    thu nhỏ thì ẩn khỏi dòng tên quy trình. */}
+                {open && onEditAttributes && (editable || definition.attributes?.length) ? (
                   <button
                     type="button"
                     className={styles.flowToolBtn}
@@ -1957,7 +2222,7 @@ function DefinitionRows({
                     Thuộc tính QT{definition.attributes?.length ? ` (${definition.attributes.length})` : ''}
                   </button>
                 ) : null}
-                {onChangeGroup && groups && groups.length > 0 ? (
+                {open && onChangeGroup && groups && groups.length > 0 ? (
                   <select
                     className={styles.groupPicker}
                     value={definition.category ?? ''}
@@ -2097,18 +2362,15 @@ function DefinitionRows({
             <span className={styles.emptyColumnsText}>–</span>
           </td>
         ) : (
-          columns.map((column) => {
-            const roles = summary(column);
-            return (
-              <td
-                key={column.key}
-                className={`${styles.summaryCell} ${column.isTreeBoundary ? styles.treeBoundaryCell : ''
-                  }`}
-              >
-                {roles.length > 0 ? <span className={styles.summaryPill}>{roles.join(', ')}</span> : '–'}
-              </td>
-            );
-          })
+          /* QT-U7: giao diện tổng quan để trống phần preview vai trò cho đỡ rối;
+             vai trò chi tiết chỉ hiện khi sổ các bước. */
+          columns.map((column) => (
+            <td
+              key={column.key}
+              className={`${styles.summaryCell} ${column.isTreeBoundary ? styles.treeBoundaryCell : ''
+                }`}
+            />
+          ))
         )}
       </tr>
 
@@ -2116,7 +2378,6 @@ function DefinitionRows({
         ? orderedSteps.map((step) => {
           const info = flow.get(step.id);
           const gatewayAfter = info?.gatewayAfter;
-          const isTrunk = !info?.branch;
           const dynamic = step.assignments.find((item) => item.subjectType === 'initiator_manager');
           return (
           <Fragment key={step.id}>
@@ -2125,15 +2386,30 @@ function DefinitionRows({
             data-branch={info?.branch ? info.branch.branchIndex % 6 : undefined}
           >
             <td className={styles.masterCell}>
+              {/* QT-U11: cây luồng bên trái mô phỏng cây commit (nhánh tách ra, sáng lên, gộp về trục chính). */}
+              <FlowGutter
+                variant={info?.branch ? 'branch' : 'trunk'}
+                isJoin={!info?.branch && Boolean(info?.joinOf.length)}
+                color={info?.branch ? BRANCH_COLORS[info.branch.branchIndex % 6] : undefined}
+                joinColor={
+                  info?.joinOf.length
+                    ? BRANCH_COLORS[(info.joinOf[0].branches.length - 1) % 6]
+                    : undefined
+                }
+              />
+             <div
+               className={styles.stepLane}
+               title="Chuột phải để mở menu thao tác của bước"
+               onContextMenu={(event) => {
+                 event.preventDefault();
+                 setStepMenu({ x: event.clientX, y: event.clientY, stepId: step.id });
+               }}
+             >
               <div className={styles.stickyInner}>
+                {/* QT-U12: chỉ còn nhãn nhánh tối giản (A, B); cây luồng đã thể hiện tách/gộp. */}
                 {info?.branch ? (
                   <span className={styles.branchChip} title={`Nhánh ${info.branch.letter}: “${info.branch.branch.label}”`}>
-                    {info.branch.letter} · {info.branch.branch.label}
-                  </span>
-                ) : null}
-                {info?.joinOf.length ? (
-                  <span className={styles.joinChip} title="Các nhánh hợp về bước này">
-                    Hợp nhánh
+                    {info.branch.letter}
                   </span>
                 ) : null}
                 <span className={styles.stepOrderBadge}>{info?.label ?? step.order}</span>
@@ -2161,8 +2437,9 @@ function DefinitionRows({
                   </span>
                 )}
 
+                {/* QT-U13: các nút thao tác (Cấu hình, Gán nhiều, QL trực tiếp, Rẽ nhánh, Xoá bước)
+                    chuyển vào menu chuột phải; ở đây chỉ còn tóm tắt chỉ đọc. */}
                 <div className={styles.stepControls}>
-                  {/* Tóm tắt chỉ đọc; sửa trong Dialog "Cấu hình" để hàng bước gọn. */}
                   {step.slaHours ? <span className={styles.slaTag}>SLA {step.slaHours}h</span> : null}
                   {step.attributes?.length ? (
                     <span className={styles.attrTag}>{step.attributes.length} thuộc tính</span>
@@ -2170,57 +2447,17 @@ function DefinitionRows({
                   {step.materials?.length ? (
                     <span className={styles.materialTag}>{step.materials.length} vật tư</span>
                   ) : null}
-
-                  {onConfigureStep ? (
-                    <button
-                      type="button"
-                      className={styles.flowToolBtn}
-                      disabled={busy}
-                      title="SLA, quy trình nối tiếp, nhánh và thuộc tính của bước"
-                      onClick={() => onConfigureStep(step.id)}
-                    >
-                      <Settings2 size={12} aria-hidden="true" /> {editable ? 'Cấu hình' : 'Xem cấu hình'}
-                    </button>
+                  {dynamic ? (
+                    <span className={styles.attrTag}>{dynamic.role}: QL trực tiếp</span>
                   ) : null}
-
-                  {onEditDynamicApprover && (editable || dynamic) ? (
-                    <button
-                      type="button"
-                      className={`${styles.flowToolBtn} ${dynamic ? styles.flowToolOn : ''}`}
-                      disabled={busy || !editable}
-                      title="Gán vai cho quản lý trực tiếp của người khởi tạo"
-                      onClick={() => onEditDynamicApprover(step.id)}
-                    >
-                      {dynamic ? `${dynamic.role}: QL trực tiếp` : 'QL trực tiếp'}
-                    </button>
-                  ) : null}
-
-                  {editable && isTrunk && !gatewayAfter && onAddGateway ? (
-                    <button
-                      type="button"
-                      className={styles.flowToolBtn}
-                      disabled={busy}
-                      title="Thêm điểm rẽ nhánh ngay sau bước này"
-                      onClick={() => onAddGateway(step.id)}
-                    >
-                      + Rẽ nhánh
-                    </button>
-                  ) : null}
-
-                  {editable ? (
-                    <button
-                      type="button"
-                      className={styles.stepRemove}
-                      onClick={() => onRemoveStep(step.id)}
-                      disabled={busy}
-                      aria-label={`Xoá bước ${step.name}`}
-                      title="Xoá bước này"
-                    >
-                      ×
-                    </button>
+                  {step.integration?.module === 'finance' ? (
+                    <span className={styles.attrTag} title="Bước Tài chính: kế toán ghi sổ phiếu thì bước mới đóng">
+                      Tài chính: {PROCEDURE_FINANCE_VOUCHER_KIND_LABELS[step.integration.voucherKind]}
+                    </span>
                   ) : null}
                 </div>
               </div>
+             </div>
               {step.linkedDefinitionId ? (
                 <span
                   className={styles.linkCorner}
@@ -2300,45 +2537,72 @@ function DefinitionRows({
         })
         : null}
 
-      {/* DIRECT INLINE ADD STEP ROW */}
+      {/* DIRECT INLINE ADD STEP ROW (QT-U15: ô nhập tên chỉ hiện sau khi bấm dấu cộng) */}
       {open && editable ? (
         <tr key="direct-add-step" className={styles.addStepRow}>
           <td className={styles.masterCell}>
             <div className={styles.addStepInner}>
-              <form
-                className={styles.addStepForm}
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  const form = event.currentTarget;
-                  const input = form.elements.namedItem('directStepName') as HTMLInputElement;
-                  const val = input?.value?.trim();
-                  onAddStep(val || undefined);
-                  if (input) input.value = '';
-                }}
-              >
-                <span className={styles.addStepNumberBadge}>
-                  +{trunkCount + 1}
-                </span>
-                <input
-                  name="directStepName"
-                  className={styles.addStepInput}
-                  placeholder={
-                    definition.gateways?.length
-                      ? `Nhập tên bước ${trunkCount + 1} trên trục chính, sau các nhánh (Enter để thêm)…`
-                      : `Nhập tên bước ${trunkCount + 1} (Enter để thêm vào bảng)…`
-                  }
-                  autoComplete="off"
-                  disabled={busy}
-                />
-                <button
-                  type="submit"
-                  className={styles.addStepButton}
-                  disabled={busy}
-                  title="Thêm bước trực tiếp vào bảng"
+              {trunkAddOpen ? (
+                <form
+                  className={styles.addStepForm}
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    const form = event.currentTarget;
+                    const input = form.elements.namedItem('directStepName') as HTMLInputElement;
+                    const val = input?.value?.trim();
+                    onAddStep(val || undefined);
+                    if (input) input.value = '';
+                    setTrunkAddOpen(false);
+                  }}
                 >
-                  <span aria-hidden="true">+</span> Thêm bước
+                  <span className={styles.addStepNumberBadge}>
+                    +{trunkCount + 1}
+                  </span>
+                  <input
+                    name="directStepName"
+                    className={styles.addStepInput}
+                    placeholder={
+                      definition.gateways?.length
+                        ? `Nhập tên bước ${trunkCount + 1} trên trục chính, sau các nhánh (Enter để thêm)…`
+                        : `Nhập tên bước ${trunkCount + 1} (Enter để thêm vào bảng)…`
+                    }
+                    autoComplete="off"
+                    autoFocus
+                    disabled={busy}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Escape') setTrunkAddOpen(false);
+                    }}
+                  />
+                  <button
+                    type="submit"
+                    className={styles.addStepButton}
+                    disabled={busy}
+                    title="Thêm bước trực tiếp vào bảng"
+                  >
+                    <span aria-hidden="true">+</span> Thêm bước
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.addStepCancel}
+                    onClick={() => setTrunkAddOpen(false)}
+                    aria-label="Huỷ thêm bước"
+                    title="Huỷ"
+                  >
+                    ×
+                  </button>
+                </form>
+              ) : (
+                <button
+                  type="button"
+                  className={styles.addStepReveal}
+                  disabled={busy}
+                  onClick={() => setTrunkAddOpen(true)}
+                  title="Thêm bước trên trục chính"
+                >
+                  <span className={styles.addStepNumberBadge}>+{trunkCount + 1}</span>
+                  Thêm bước
                 </button>
-              </form>
+              )}
             </div>
           </td>
           {columns.length === 0 ? (
@@ -2354,6 +2618,54 @@ function DefinitionRows({
           )}
         </tr>
       ) : null}
+
+      {/* QT-U13: menu chuột phải cho các thao tác của bước. */}
+      {stepMenu
+        ? (() => {
+            const step = definition.steps.find((item) => item.id === stepMenu.stepId);
+            if (!step) return null;
+            const info = flow.get(step.id);
+            const dynamic = step.assignments.find((item) => item.subjectType === 'initiator_manager');
+            const isTrunk = !info?.branch;
+            const gatewayAfter = info?.gatewayAfter;
+            const actions: StepMenuAction[] = [];
+            if (onConfigureStep) {
+              actions.push({ id: 'configure', label: editable ? 'Cấu hình bước' : 'Xem cấu hình' });
+            }
+            if (editable && onBulkAssign) {
+              actions.push({ id: 'bulk', label: 'Gán nhiều chức danh' });
+            }
+            if (onEditDynamicApprover && (editable || dynamic)) {
+              actions.push({
+                id: 'dynamic',
+                label: dynamic ? `Quản lý trực tiếp (${dynamic.role})` : 'Quản lý trực tiếp',
+                disabled: !editable,
+              });
+            }
+            if (editable && isTrunk && !gatewayAfter && onAddGateway) {
+              actions.push({ id: 'gateway', label: 'Thêm rẽ nhánh' });
+            }
+            if (editable) {
+              actions.push({ id: 'remove', label: 'Xoá bước', danger: true, separatorBefore: true });
+            }
+            return (
+              <StepContextMenu
+                x={stepMenu.x}
+                y={stepMenu.y}
+                actions={actions}
+                onClose={() => setStepMenu(null)}
+                onPick={(actionId) => {
+                  setStepMenu(null);
+                  if (actionId === 'configure') onConfigureStep?.(step.id);
+                  else if (actionId === 'bulk') onBulkAssign?.(step.id);
+                  else if (actionId === 'dynamic') onEditDynamicApprover?.(step.id);
+                  else if (actionId === 'gateway') onAddGateway?.(step.id);
+                  else if (actionId === 'remove') onRemoveStep(step.id);
+                }}
+              />
+            );
+          })()
+        : null}
     </>
   );
 }
@@ -2410,6 +2722,8 @@ function RolePopover({
   // là "Quản lý" thì không được gắn quyền E. Chặn ngay tại nút thay vì để người dùng
   // gán rồi mới báo lỗi lúc công bố.
   const eDisabled = target.column.subjectType === 'position' && !target.column.isHead;
+  // "Toàn bộ nhân viên" chỉ dùng cho vai S: các vai còn lại cần người chịu trách nhiệm cụ thể.
+  const everyoneOnlyS = target.column.subjectType === 'everyone';
 
   const apply = (role: ProcedureRaciRole) => {
     if (role === 'C' && priorSteps.length > 0 && !rollback) {
@@ -2490,9 +2804,11 @@ function RolePopover({
               type="button"
               className={`${styles.roleChoice} ${styles[`role${role}`]} ${current?.role === role ? styles.roleChoiceActive : ''
                 }`}
-              disabled={busy || (role === 'C' && cTakenElsewhere) || (role === 'E' && eDisabled)}
+              disabled={busy || (everyoneOnlyS && role !== 'S') || (role === 'C' && cTakenElsewhere) || (role === 'E' && eDisabled)}
               title={
-                role === 'C' && cTakenElsewhere
+                everyoneOnlyS && role !== 'S'
+                  ? '“Toàn bộ nhân viên” chỉ được gán vai S (khởi tạo).'
+                  : role === 'C' && cTakenElsewhere
                   ? 'Bước này đã có vai trò C ở cột khác.'
                   : role === 'E' && eDisabled
                     ? 'Vai trò E (Thực thi) chỉ được gán cho chức danh Quản lý.'
@@ -2521,11 +2837,14 @@ function RolePopover({
               disabled={busy}
               onChange={setRollback}
             />
-            {pendingRole === 'C' ? (
-              <button type="button" className={styles.confirm} onClick={() => apply('C')}>
-                Lưu vai trò C
-              </button>
-            ) : null}
+            <button
+              type="button"
+              className={styles.confirm}
+              disabled={busy}
+              onClick={() => apply('C')}
+            >
+              {pendingRole === 'C' ? 'Lưu vai trò C' : 'Cập nhật bước quay về'}
+            </button>
           </div>
         ) : null}
 
