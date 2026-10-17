@@ -45,6 +45,39 @@ export interface AssistantActionDefinition<TRequest = unknown> {
   /** Trang có popup của thao tác, ví dụ `/modules/workspace#calendar`. */
   readonly page: string;
   readonly draft: AssistantDraft<TRequest>;
+  /**
+   * Thao tác có nhiều biến thể theo cấu hình của công ty (loại đơn tuỳ chỉnh, quy trình đã phát hành): Trợ lý gọi
+   * `lookup` bằng phiên của người hỏi để liệt kê biến thể và gửi mã biến thể đã chọn trong `variant`.
+   */
+  readonly variants?: { readonly describe: string; readonly lookup: string };
+}
+
+/** Một thao tác như Trợ lý nhận qua `GET /api/<phân hệ>/v1/assistant/actions` (đã lọc theo quyền người gọi). */
+export interface AssistantCatalogItem {
+  readonly key: string;
+  readonly module: string;
+  readonly title: string;
+  readonly hints: readonly string[];
+  readonly page: string;
+  readonly draft: Readonly<Record<string, { readonly describe: string; readonly lookup?: string }>>;
+  readonly variants?: { readonly describe: string; readonly lookup: string };
+}
+
+export function toCatalogItem(action: AssistantAction): AssistantCatalogItem {
+  const draft: Record<string, { describe: string; lookup?: string }> = {};
+  for (const [field, spec] of Object.entries(action.draft) as [string, AssistantDraftField | undefined][]) {
+    if (spec === undefined) continue;
+    draft[field] = typeof spec === 'string' ? { describe: spec } : { ...spec };
+  }
+  return {
+    key: action.key,
+    module: action.module,
+    title: action.title,
+    hints: action.hints ?? [],
+    page: action.page,
+    draft,
+    ...(action.variants ? { variants: action.variants } : {}),
+  };
 }
 
 /** Thao tác đã gắn phân hệ, do `defineAssistantActions` trả về. */
@@ -133,6 +166,14 @@ export function assistantActionProblems(catalog: AssistantActionCatalog): string
           `${where}: lookup của ô "${field}" phải là /api/... và không dùng route nội bộ.`,
         );
     }
+    const variants = action.variants;
+    if (
+      variants &&
+      (!variants.describe.trim() ||
+        !variants.lookup.startsWith('/api/') ||
+        variants.lookup.includes('/internal/'))
+    )
+      problems.push(`${where}: variants cần mô tả và lookup /api/... không dùng route nội bộ.`);
   }
   return problems;
 }

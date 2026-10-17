@@ -1890,6 +1890,9 @@ importers:
 
   packages/platform/module-access:
     dependencies:
+      '@enterprise-platform/contracts-assistant':
+        specifier: workspace:*
+        version: link:../../contracts/assistant
       '@enterprise-platform/contracts-identity':
         specifier: workspace:*
         version: link:../../contracts/identity

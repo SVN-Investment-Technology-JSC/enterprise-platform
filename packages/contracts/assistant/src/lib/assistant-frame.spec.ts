@@ -56,3 +56,14 @@ describe('isAssistantFrameMessage', () => {
     ).toBe(false);
   });
 });
+
+describe('isAssistantFrameMessage cho action có trang và biến thể', () => {
+  it('nhận trang tương đối, từ chối trang sang tên miền khác', () => {
+    const base = { type: ASSISTANT_MESSAGE.action, key: 'hrm.custom-request.create', requestId: 'r', draft: {} };
+    expect(isAssistantFrameMessage({ ...base, page: '/modules/hrm/requests', variant: 't1' })).toBe(true);
+    expect(isAssistantFrameMessage({ ...base, page: '//evil.example/x' })).toBe(false);
+    expect(isAssistantFrameMessage({ ...base, page: 'https://evil.example' })).toBe(false);
+    expect(isAssistantFrameMessage({ ...base, variant: 3 })).toBe(false);
+    expect(isAssistantFrameMessage({ type: ASSISTANT_MESSAGE.refresh })).toBe(true);
+  });
+});

@@ -19,7 +19,7 @@
     "name": "contracts-assistant",
     "tags": [
       "type:contract",
-      "scope:assistant"
+      "scope:shared"
     ]
   },
   "dependencies": {

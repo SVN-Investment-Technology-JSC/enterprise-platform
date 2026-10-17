@@ -2,6 +2,7 @@ import {
   assistantActionProblems,
   defineAssistantActions,
   draftOf,
+  toCatalogItem,
 } from './assistant-actions.js';
 
 interface CreateMeetingRequest {
@@ -142,6 +143,51 @@ describe('assistantActionProblems', () => {
       'workspace/broken: page "modules/workspace" phải là đường dẫn bắt đầu bằng "/".',
       'workspace/broken: ô "title" thiếu mô tả.',
       'workspace/broken: lookup của ô "attendeeUserIds" phải là /api/... và không dùng route nội bộ.',
+    ]);
+  });
+});
+
+describe('toCatalogItem', () => {
+  it('đổi khai báo thành dạng Trợ lý đọc, kèm biến thể', () => {
+    const [item] = Object.values(
+      defineAssistantActions('hrm', {
+        custom: {
+          key: 'hrm.custom-request.create',
+          title: 'Tạo đơn theo loại của công ty',
+          permission: 'hrm.self.request',
+          page: '/modules/hrm/requests',
+          draft: { description: 'Nội dung đơn', approverId: { describe: 'Người duyệt', lookup: '/api/hrm/v1/x' } },
+          variants: { describe: 'Loại đơn tuỳ chỉnh', lookup: '/api/hrm/v1/request-types' },
+        },
+      }),
+    ).map(toCatalogItem);
+    expect(item).toEqual({
+      key: 'hrm.custom-request.create',
+      module: 'hrm',
+      title: 'Tạo đơn theo loại của công ty',
+      hints: [],
+      page: '/modules/hrm/requests',
+      draft: {
+        description: { describe: 'Nội dung đơn' },
+        approverId: { describe: 'Người duyệt', lookup: '/api/hrm/v1/x' },
+      },
+      variants: { describe: 'Loại đơn tuỳ chỉnh', lookup: '/api/hrm/v1/request-types' },
+    });
+  });
+
+  it('báo biến thể dùng route nội bộ', () => {
+    const actions = defineAssistantActions('hrm', {
+      custom: {
+        key: 'hrm.custom-request.create',
+        title: 'Tạo đơn',
+        permission: 'hrm.self.request',
+        page: '/modules/hrm/requests',
+        draft: {},
+        variants: { describe: 'Loại đơn', lookup: '/api/hrm/v1/internal/types' },
+      },
+    });
+    expect(assistantActionProblems(actions)).toEqual([
+      'hrm/custom: variants cần mô tả và lookup /api/... không dùng route nội bộ.',
     ]);
   });
 });

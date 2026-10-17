@@ -16,6 +16,8 @@ export const ASSISTANT_MESSAGE = {
   action: 'savina-assistant:action',
   /** Khung ERP trả kết quả của thao tác. */
   result: 'savina-assistant:result',
+  /** Khung ERP báo quyền trong công ty vừa đổi: khung chat lấy lại danh sách phím tắt. */
+  refresh: 'savina-assistant:refresh',
 } as const;
 
 export type AssistantMessageType =
@@ -26,8 +28,15 @@ export interface AssistantActionRequest {
   readonly key: string;
   /** Do Trợ lý sinh, để ghép kết quả trả về với yêu cầu. */
   readonly requestId: string;
-  /** Giá trị điền sẵn theo tên trường của request; popup vẫn kiểm lại như khi người dùng tự nhập. */
+  /**
+   * Giá trị điền sẵn theo tên trường của request; popup vẫn kiểm lại như khi người dùng tự nhập. Gửi lại cùng
+   * `requestId` khi form đang mở thì chỉ cập nhật các ô có trong bản nháp.
+   */
   readonly draft: Readonly<Record<string, unknown>>;
+  /** Trang có form, để khung ERP chuyển tới khi màn hình hiện tại không có thao tác này. */
+  readonly page?: string;
+  /** Mã biến thể (loại đơn tuỳ chỉnh, quy trình) khi thao tác khai `variants`. */
+  readonly variant?: string;
 }
 
 /**
@@ -55,6 +64,7 @@ export type AssistantFrameMessage =
   | { readonly type: typeof ASSISTANT_MESSAGE.page; readonly page: string }
   | { readonly type: typeof ASSISTANT_MESSAGE.ready }
   | { readonly type: typeof ASSISTANT_MESSAGE.close }
+  | { readonly type: typeof ASSISTANT_MESSAGE.refresh }
   | ({ readonly type: typeof ASSISTANT_MESSAGE.action } & AssistantActionRequest)
   | ({ readonly type: typeof ASSISTANT_MESSAGE.result } & AssistantActionResult);
 
@@ -76,12 +86,16 @@ export function isAssistantFrameMessage(value: unknown): value is AssistantFrame
       return typeof value['page'] === 'string';
     case ASSISTANT_MESSAGE.ready:
     case ASSISTANT_MESSAGE.close:
+    case ASSISTANT_MESSAGE.refresh:
       return true;
     case ASSISTANT_MESSAGE.action:
       return (
         typeof value['key'] === 'string' &&
         typeof value['requestId'] === 'string' &&
-        isRecord(value['draft'])
+        isRecord(value['draft']) &&
+        optionalString(value['variant']) &&
+        (value['page'] === undefined ||
+          (typeof value['page'] === 'string' && value['page'].startsWith('/') && !value['page'].startsWith('//')))
       );
     case ASSISTANT_MESSAGE.result:
       return (
