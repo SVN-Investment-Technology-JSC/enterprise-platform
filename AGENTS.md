@@ -24,8 +24,9 @@
 
 # Quy tắc chung cho người và trợ lý AI viết code ERP
 
-File này áp dụng cho mọi công cụ (Codex, Claude Code, Cursor, Antigravity, Copilot...); Claude Code đọc nó qua
-`CLAUDE.md`. Hướng dẫn chi tiết theo loại việc nằm trong `.agents/skills/`; `.claude/skills/` là bản sao sinh tự động.
+File này áp dụng cho mọi công cụ (Codex, Claude Code, Antigravity, Gemini...); Claude Code đọc nó qua `CLAUDE.md`,
+Antigravity và Gemini qua `GEMINI.md`. Hướng dẫn chi tiết theo loại việc nằm trong `.agents/skills/`; `.claude/skills/` là bản
+sao sinh tự động.
 
 ## Hệ thống
 
