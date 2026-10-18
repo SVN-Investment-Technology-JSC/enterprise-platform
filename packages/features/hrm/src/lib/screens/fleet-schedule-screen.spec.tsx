@@ -88,7 +88,7 @@ describe('FleetScheduleScreen (lịch xe)', () => {
   it('hỏi lịch theo khung thời gian đang xem; đổi sang 30 ngày thì hỏi lại', async () => {
     render(<FleetScheduleScreen />);
     await screen.findByText('51A-111.11');
-    const bookingCalls = () => fetchMock.mock.calls.map((c) => String(c[0])).filter((p) => p.startsWith('/fleet/bookings'));
+    const bookingCalls = () => fetchMock.mock.calls.map((c: unknown[]) => String(c[0])).filter((p: string) => p.startsWith('/fleet/bookings'));
     expect(bookingCalls()).toHaveLength(1);
     fireEvent.click(screen.getByRole('button', { name: '30 ngày' }));
     await waitFor(() => expect(bookingCalls()).toHaveLength(2));
