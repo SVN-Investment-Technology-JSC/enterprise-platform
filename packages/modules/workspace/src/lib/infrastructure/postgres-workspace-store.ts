@@ -245,7 +245,7 @@ function mapCustomerSummary(row: Row): CustomerSummary {
 }
 
 const CONTRACT_COLUMNS = `id, customer_id, code, name, status, value, signed_date, note,
-       created_by, created_at, updated_at`;
+       project_id, created_by, created_at, updated_at`;
 
 function mapContract(row: Row): Contract {
   return {
@@ -257,6 +257,7 @@ function mapContract(row: Row): Contract {
     value: optNum(row.value),
     signedDate: day(row.signed_date),
     note: opt(row.note),
+    projectId: opt(row.project_id),
     createdBy: str(row.created_by),
     createdAt: iso(row.created_at),
     updatedAt: iso(row.updated_at),
@@ -1024,8 +1025,8 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
         () =>
           pool.query<Row>(
             `INSERT INTO workspace_schema.contracts
-               (customer_id, code, name, status, value, signed_date, note, created_by)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+               (customer_id, code, name, status, value, signed_date, note, project_id, created_by)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
              RETURNING ${CONTRACT_COLUMNS}`,
             [
               input.customerId,
@@ -1035,6 +1036,7 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
               input.value,
               input.signedDate,
               input.note,
+              input.projectId,
               actorUserId,
             ],
           ),
@@ -1047,7 +1049,14 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
       const pool = await this.poolFor(tenantId);
       const { clause, values } = buildSet(
         input as Record<string, unknown>,
-        { name: 'name', status: 'status', value: 'value', signedDate: 'signed_date', note: 'note' },
+        {
+          name: 'name',
+          status: 'status',
+          value: 'value',
+          signedDate: 'signed_date',
+          note: 'note',
+          projectId: 'project_id',
+        },
         1,
       );
       if (!clause) {

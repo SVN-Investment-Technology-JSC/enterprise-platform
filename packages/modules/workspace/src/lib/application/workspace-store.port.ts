@@ -204,6 +204,7 @@ export interface ContractWriteModel {
   readonly value: number | null;
   readonly signedDate: string | null;
   readonly note: string | null;
+  readonly projectId: string | null;
 }
 
 /** Sửa hợp đồng: mã và khách hàng chủ quản không đổi, nên không có mặt. */
@@ -213,6 +214,7 @@ export interface ContractUpdateModel {
   readonly value?: number | null;
   readonly signedDate?: string | null;
   readonly note?: string | null;
+  readonly projectId?: string | null;
 }
 
 /** Việc giao lẻ đã chuẩn hoá ở tầng ứng dụng, sẵn sàng ghi. */

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { Contract, Customer } from '@enterprise-platform/contracts-workspace';
+import type { Contract, Customer, Project } from '@enterprise-platform/contracts-workspace';
 import { ContractService } from './contract.service.js';
 import type { WorkspaceActor } from './workspace.application.js';
 import type { ContractWriteModel, WorkspaceStore } from './workspace-store.port.js';
@@ -32,10 +32,17 @@ function makeStore() {
     ],
   ]);
   const contracts = new Map<string, Contract>();
+  const projectId = randomUUID();
+  const projects = new Map<string, Project>([
+    [projectId, { id: projectId, code: 'DA01', name: 'Dự án A' } as Project],
+  ]);
 
   const store = {
     customer: {
       findById: async (_tenant: string, id: string) => customers.get(id),
+    },
+    project: {
+      findById: async (_tenant: string, id: string) => projects.get(id),
     },
     contract: {
       listByCustomer: async (_tenant: string, id: string) =>
@@ -53,6 +60,7 @@ function makeStore() {
           value: input.value ?? undefined,
           signedDate: input.signedDate ?? undefined,
           note: input.note ?? undefined,
+          projectId: input.projectId ?? undefined,
           createdBy: actorUserId,
           createdAt: '2026-10-18T00:00:00.000Z',
           updatedAt: '2026-10-18T00:00:00.000Z',
@@ -76,7 +84,7 @@ function makeStore() {
     },
   } as unknown as WorkspaceStore;
 
-  return { store, customerId, customers, contracts };
+  return { store, customerId, customers, contracts, projectId };
 }
 
 describe('ContractService.create', () => {
@@ -121,6 +129,26 @@ describe('ContractService.create', () => {
       service.create(actor, { customerId, code: 'HD02', name: 'A', value: -5 }),
     ).rejects.toThrow(/không âm/);
   });
+
+  it('gắn dự án khi tạo', async () => {
+    const { store, customerId, projectId } = makeStore();
+    const service = new ContractService(store);
+    const contract = await service.create(actor, {
+      customerId,
+      code: 'HD03',
+      name: 'A',
+      projectId,
+    });
+    expect(contract.projectId).toBe(projectId);
+  });
+
+  it('dự án không tồn tại bị từ chối', async () => {
+    const { store, customerId } = makeStore();
+    const service = new ContractService(store);
+    await expect(
+      service.create(actor, { customerId, code: 'HD04', name: 'A', projectId: randomUUID() }),
+    ).rejects.toMatchObject({ statusCode: 404 });
+  });
 });
 
 describe('ContractService.update', () => {
@@ -147,6 +175,24 @@ describe('ContractService.update', () => {
     await expect(service.update(actor, randomUUID(), { name: 'X' })).rejects.toMatchObject({
       statusCode: 404,
     });
+  });
+
+  it('gắn rồi gỡ liên kết dự án bằng null', async () => {
+    const { store, customerId, projectId } = makeStore();
+    const service = new ContractService(store);
+    const created = await service.create(actor, { customerId, code: 'HD01', name: 'A', projectId });
+    expect(created.projectId).toBe(projectId);
+    const updated = await service.update(actor, created.id, { projectId: null });
+    expect(updated.projectId ?? null).toBeNull();
+  });
+
+  it('gắn dự án không tồn tại bị từ chối', async () => {
+    const { store, customerId } = makeStore();
+    const service = new ContractService(store);
+    const created = await service.create(actor, { customerId, code: 'HD01', name: 'A' });
+    await expect(
+      service.update(actor, created.id, { projectId: randomUUID() }),
+    ).rejects.toMatchObject({ statusCode: 404 });
   });
 });
 

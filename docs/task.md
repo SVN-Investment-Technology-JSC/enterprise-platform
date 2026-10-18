@@ -10,7 +10,9 @@
 | 1 | Khách hàng/Hợp đồng + tab "Khách hàng" | ✅ Xong | ✅ | ✅ |
 | 2 | Trang DS dự án: nhóm/lọc/đóng hồ sơ/gắn KH + Khách hàng theo ngữ cảnh | ✅ Xong | ✅ | ✅ |
 | 3 | Group công việc + thêm thành viên ngoài dự án | ✅ Xong | ✅ | ✅ |
-| 4 | Tài liệu khách hàng (nội bộ/khách hàng + chuột phải + hiển thị + tìm nhanh) | ✅ Xong (browser 1 phần) | ✅ | ◐ thiếu MinIO |
+| 4 | Tài liệu khách hàng (nội bộ/khách hàng + chuột phải + hiển thị + tìm nhanh) | ✅ Xong | ✅ | ✅ |
+| 5 | Hợp đồng gắn dự án (projectId) + click sang dự án gốc | ✅ Xong | ✅ | ✅ |
+| 6 | Điều hướng: trang Dự án mặc định hiện danh sách; breadcrumb "Dự án" về danh sách | ☐ Chưa làm | ☐ | ☐ |
 
 ---
 
@@ -60,9 +62,25 @@
   - FE: `workspace-api.ts` (`setDocumentAudience`, `listDocuments({audience})`), `workspace-labels.ts` (DOCUMENT_AUDIENCE_LABELS), `document-panel.tsx` (chuột phải đổi loại + badge "Khách hàng"), `customers-view.tsx` (prop `scopeProjectId` + mục "Tài liệu khách hàng"), `workspace-screen.tsx` (truyền scopeProjectId), `quick-search.tsx` (nhóm "Tài liệu khách hàng"), `workspace.module.scss`
 - Ghi chú: ĐÃ HOÃN "hợp đồng hiện tên+link dự án" (cần quyết mô hình contract↔dự án). Migration 0024 đã áp vào tenant svn.
 - Kết quả test API: `nx test module-workspace` 405 pass (+5 test audience); typecheck pass; lint feature-workspace 0 error; `tsc --build workspace-web` exit 0.
-- Kết quả test browser: 1 PHẦN — trang Khách hàng scoped (DA-UI-TEST) hiện mục "TÀI LIỆU KHÁCH HÀNG" với empty state hướng dẫn chuột phải; không lỗi. Luồng đầy đủ (upload → chuột phải đổi khách hàng → hiện ở trang Khách hàng → tìm nhanh) CHƯA test được vì MinIO (storage) không chạy — image quay.io pull lỗi 401. Cần test lại khi có storage.
+- Kết quả test browser: PASS ĐẦY ĐỦ (sau khi fix MinIO). Upload tài liệu vào dự án (PUT lên MinIO = 200); đổi audience=customer; trang Khách hàng của dự án DA-UI-TEST hiện mục "TÀI LIỆU KHÁCH HÀNG" (Proposal dịch vụ 2026 + bao-cao-cong-tac-EVN... + nút tải); tìm nhanh "proposal" ra nhóm "TÀI LIỆU KHÁCH HÀNG"; chuột phải đổi loại (user đã thử trên file CSV) OK.
+- Fix MinIO: ảnh `quay.io/minio/*` bị khoá public (401) + ảnh cũ bị prune → chạy lại bằng `bitnamilegacy/minio` (container `ep-minio-dev`, cổng 9010/9011, bucket `enterprise-platform`, creds platform/platform-development-secret). Lưu ý thêm: upload bắt buộc phải có thư mục trước.
+
+### COMMIT 5 — Hợp đồng gắn dự án
+- Ngày: 2026-10-19
+- Phạm vi: thêm `projectId` cho hợp đồng; form hợp đồng chọn dự án (SearchableSelect); bảng hợp đồng hiện tên dự án dạng link, click sang dự án gốc.
+- File thay đổi: contracts (`Contract.projectId` + Create/Update), migration `0025-workspace-contract-project.sql`, `workspace-store.port.ts` + `postgres-workspace-store.ts` (project_id), `contract.service.ts`(+spec, `resolveProjectId` verify project tồn tại), `customers-view.tsx` (prop `onOpenProject`, cột Dự án link, form chọn dự án), `workspace-screen.tsx` (truyền `onOpenProject=openProject`), `workspace-api.ts` (`listAllProjects`).
+- Ghi chú: migration 0025 đã áp vào svn. ON DELETE SET NULL.
+- Kết quả test API: `nx test module-workspace` 409 pass (+ test contract projectId); typecheck pass; lint 0 error; `tsc --build` exit 0.
+- Kết quả test browser: PASS — form hợp đồng có SearchableSelect "Dự án" (lọc "DA-UI"); tạo HD-DA-001 gắn DA-UI-TEST; bảng hiện cột "DỰ ÁN" link "Dự án kiểm thử giao diện"; click link → mở dự án DA-UI-TEST (detail).
 
 ---
+
+### COMMIT 6 — Điều hướng trang Dự án
+- Ngày: _(sau Commit 5)_
+- Phạm vi: (1) nhấn mục nav "Dự án" / vào khu Dự án mặc định hiển thị DANH SÁCH toàn bộ dự án (xoá `?project=`), không nhảy vào dự án cũ; (2) breadcrumb "Dự án" là link quay về danh sách.
+- File thay đổi:
+- Ghi chú:
+- Kết quả test:
 
 ## Quyết định / vướng mắc phát sinh
 - _(ghi khi có)_

@@ -9,6 +9,7 @@ import {
   ContractCodeConflictError,
   ContractNotFoundError,
   CustomerNotFoundError,
+  ProjectNotFoundError,
   WorkspaceValidationError,
 } from '../domain/workspace.error.js';
 import type { WorkspaceActor } from './workspace.application.js';
@@ -60,6 +61,7 @@ export class ContractService {
       value: optionalValue(input.value),
       signedDate: optionalDate(input.signedDate, 'Ngày ký'),
       note: optionalText(input.note),
+      projectId: await this.resolveProjectId(actor, input.projectId),
     };
     return this.store.contract.create(actor.tenantId, actor.userId, model);
   }
@@ -79,8 +81,26 @@ export class ContractService {
     if (body.value !== undefined) patch.value = optionalValue(body.value);
     if (body.signedDate !== undefined) patch.signedDate = optionalDate(body.signedDate, 'Ngày ký');
     if (body.note !== undefined) patch.note = optionalText(body.note);
+    if (body.projectId !== undefined) {
+      patch.projectId = await this.resolveProjectId(actor, body.projectId);
+    }
 
     return this.store.contract.update(actor.tenantId, contractId, patch);
+  }
+
+  /**
+   * Chuẩn hoá con trỏ dự án của hợp đồng: rỗng/`null` thì gỡ liên kết; có thì
+   * phải là một dự án đang tồn tại người gọi thấy được.
+   */
+  private async resolveProjectId(
+    actor: WorkspaceActor,
+    value: unknown,
+  ): Promise<string | null> {
+    if (value == null || value === '') return null;
+    const projectId = requireUuid(value, 'Dự án');
+    const project = await this.store.project.findById(actor.tenantId, projectId);
+    if (!project) throw new ProjectNotFoundError(projectId);
+    return projectId;
   }
 
   async remove(actor: WorkspaceActor, contractId: string): Promise<void> {

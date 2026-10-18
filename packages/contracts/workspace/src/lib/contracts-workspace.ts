@@ -356,6 +356,8 @@ export interface Contract {
   readonly value?: number;
   readonly signedDate?: string;
   readonly note?: string;
+  /** Dự án gắn với hợp đồng (tuỳ chọn). */
+  readonly projectId?: string;
   readonly createdBy: string;
   readonly createdAt: string;
   readonly updatedAt: string;
@@ -369,6 +371,8 @@ export interface CreateContractRequest {
   readonly value?: number;
   readonly signedDate?: string;
   readonly note?: string;
+  /** Dự án gắn với hợp đồng (tuỳ chọn). */
+  readonly projectId?: string;
 }
 
 /** Mã hợp đồng và khách hàng chủ quản không đổi sau khi tạo. */
@@ -378,6 +382,8 @@ export interface UpdateContractRequest {
   readonly value?: number | null;
   readonly signedDate?: string | null;
   readonly note?: string | null;
+  /** `null` gỡ liên kết dự án khỏi hợp đồng. */
+  readonly projectId?: string | null;
 }
 
 /* =========================================================================

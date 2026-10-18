@@ -9,6 +9,7 @@ import {
   type Customer,
   type CustomerSummary,
   type DocumentSummary,
+  type ProjectSummary,
   type UpdateContractRequest,
   type UpdateCustomerRequest,
 } from '@enterprise-platform/contracts-workspace';
@@ -49,12 +50,15 @@ export interface CustomersViewProps {
    * hàng" của chính dự án đó bên cạnh hợp đồng.
    */
   readonly scopeProjectId?: string;
+  /** Mở chi tiết một dự án (khi bấm liên kết dự án của hợp đồng). */
+  readonly onOpenProject?: (projectId: string) => void;
 }
 
 export function CustomersView({
   scoped = false,
   scopeCustomerId,
   scopeProjectId,
+  onOpenProject,
 }: CustomersViewProps = {}) {
   const [customers, setCustomers] = useState<readonly CustomerSummary[]>([]);
   const [listLoaded, setListLoaded] = useState(false);
@@ -68,6 +72,8 @@ export function CustomersView({
   const [error, setError] = useState<string>();
   /** Tài liệu khách hàng của dự án đang mở (chỉ chế độ scoped). */
   const [customerDocs, setCustomerDocs] = useState<readonly DocumentSummary[]>([]);
+  /** Dự án để chọn trong form hợp đồng và tra tên hiện trong bảng. */
+  const [projects, setProjects] = useState<readonly ProjectSummary[]>([]);
 
   const [customerForm, setCustomerForm] = useState<{ open: boolean; edit?: Customer }>({
     open: false,
@@ -134,6 +140,24 @@ export function CustomersView({
       alive = false;
     };
   }, [scoped, scopeProjectId]);
+
+  // Danh sách dự án: nạp một lần để làm ô chọn trong form và tra tên trong bảng.
+  useEffect(() => {
+    let alive = true;
+    api
+      .listAllProjects()
+      .then((items) => alive && setProjects(items))
+      .catch(() => alive && setProjects([]));
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const projectNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const project of projects) map.set(project.id, project.name);
+    return map;
+  }, [projects]);
 
   const openDocument = useCallback(async (documentId: string) => {
     try {
@@ -374,6 +398,7 @@ export function CustomersView({
                       <tr>
                         <th>Mã</th>
                         <th>Tên hợp đồng</th>
+                        <th>Dự án</th>
                         <th>Trạng thái</th>
                         <th className={styles.numeric}>Giá trị</th>
                         <th>Ngày ký</th>
@@ -385,6 +410,20 @@ export function CustomersView({
                         <tr key={contract.id}>
                           <td className={styles.cellNowrap}>{contract.code}</td>
                           <td className={styles.contractName}>{contract.name}</td>
+                          <td>
+                            {contract.projectId ? (
+                              <button
+                                type="button"
+                                className={styles.linkButton}
+                                title="Mở dự án"
+                                onClick={() => onOpenProject?.(contract.projectId as string)}
+                              >
+                                {projectNameById.get(contract.projectId) ?? 'Dự án'}
+                              </button>
+                            ) : (
+                              <span className={styles.muted}>—</span>
+                            )}
+                          </td>
                           <td>
                             <ContractStatusBadge status={contract.status} />
                           </td>
@@ -492,6 +531,7 @@ export function CustomersView({
         open={contractForm.open}
         contract={contractForm.edit}
         customerId={detail?.customer.id ?? ''}
+        projects={projects}
         onClose={() => setContractForm({ open: false })}
         onCreate={handleCreateContract}
         onUpdate={(body) =>
@@ -609,6 +649,8 @@ interface ContractFormDialogProps {
   readonly contract?: Contract;
   /** Khách hàng chủ quản khi tạo hợp đồng mới. */
   readonly customerId: string;
+  /** Dự án để chọn (tuỳ chọn) gắn vào hợp đồng. */
+  readonly projects: readonly ProjectSummary[];
   readonly onClose: () => void;
   readonly onCreate: (body: CreateContractRequest) => Promise<void>;
   readonly onUpdate: (body: UpdateContractRequest) => Promise<void>;
@@ -622,6 +664,8 @@ interface ContractFormState {
   value: string;
   signedDate: string;
   note: string;
+  /** Dự án gắn với hợp đồng; rỗng nghĩa là không gắn. */
+  projectId: string;
 }
 
 const emptyContractForm = (): ContractFormState => ({
@@ -631,12 +675,14 @@ const emptyContractForm = (): ContractFormState => ({
   value: '',
   signedDate: '',
   note: '',
+  projectId: '',
 });
 
 function ContractFormDialog({
   open,
   contract,
   customerId,
+  projects,
   onClose,
   onCreate,
   onUpdate,
@@ -656,6 +702,7 @@ function ContractFormDialog({
             value: toVndInput(contract.value),
             signedDate: contract.signedDate?.slice(0, 10) ?? '',
             note: contract.note ?? '',
+            projectId: contract.projectId ?? '',
           }
         : emptyContractForm(),
     );
@@ -690,6 +737,8 @@ function ContractFormDialog({
           value: parsed,
           signedDate: form.signedDate || null,
           note: form.note.trim() || null,
+          // `null` gỡ liên kết dự án; có id thì gắn lại.
+          projectId: form.projectId || null,
         });
       } else {
         await onCreate({
@@ -700,6 +749,7 @@ function ContractFormDialog({
           value: parsed ?? undefined,
           signedDate: form.signedDate || undefined,
           note: form.note.trim() || undefined,
+          projectId: form.projectId || undefined,
         });
       }
       onClose();
@@ -763,13 +813,28 @@ function ContractFormDialog({
         </Field>
       </div>
 
-      <Field label="Ngày ký">
-        <DatePickerInput
-          height={38}
-          value={form.signedDate}
-          onChange={(value) => set({ signedDate: value })}
-        />
-      </Field>
+      <div className={styles.fieldRow}>
+        <Field label="Ngày ký">
+          <DatePickerInput
+            height={38}
+            value={form.signedDate}
+            onChange={(value) => set({ signedDate: value })}
+          />
+        </Field>
+        <Field label="Dự án" hint="Bỏ trống nếu chưa gắn.">
+          <SearchableSelect
+            clearable
+            placeholder="Chọn dự án"
+            options={projects.map((project) => ({
+              value: project.id,
+              label: project.name,
+              description: project.code,
+            }))}
+            value={form.projectId}
+            onChange={(value) => set({ projectId: value })}
+          />
+        </Field>
+      </div>
 
       <Field label="Ghi chú">
         <textarea

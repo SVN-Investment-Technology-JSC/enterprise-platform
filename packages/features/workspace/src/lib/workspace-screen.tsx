@@ -558,9 +558,10 @@ export function WorkspaceScreen() {
               scoped
               scopeCustomerId={openProjectInfo?.customerId}
               scopeProjectId={urlProjectId}
+              onOpenProject={openProject}
             />
           ) : (
-            <CustomersView />
+            <CustomersView onOpenProject={openProject} />
           )}
         </>
       ) : view === 'reports' && !provisioning ? (
