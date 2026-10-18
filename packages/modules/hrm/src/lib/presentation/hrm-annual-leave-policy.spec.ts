@@ -908,7 +908,8 @@ describe('GET /leave-balances (quỹ phép = danh sách nhân viên)', () => {
       carryoverRemaining: 2,
       carryoverExpiryDate: '2026-03-31',
       used: 4,
-      pending: 1,
+      // Cột chờ duyệt lấy từ đơn PENDING đang giữ quỹ, không còn lấy sổ cái cũ.
+      pending: 0,
       remaining: 8,
       hasBalance: true,
     });
