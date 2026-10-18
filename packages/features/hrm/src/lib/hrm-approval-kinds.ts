@@ -113,7 +113,14 @@ export function isPendingStatus(status: string | undefined | null): boolean {
 }
 
 /** Đường dẫn danh sách quy trình (Procedure Engine); nằm ngoài basePath của HRM nên dùng thẻ a thường. */
-export const PROCEDURE_INSTANCES_PATH = '/modules/procedure-engine/instances';
+export const PROCEDURE_INSTANCES_PATH = '/modules/procedure#workspace';
+
+/** Đường dẫn tới một hồ sơ quy trình cụ thể (hoặc danh sách nếu chưa có instanceId). */
+export function procedureInstanceHref(instanceId?: string | null): string {
+  return instanceId
+    ? `/modules/procedure#workspace/${encodeURIComponent(instanceId)}`
+    : PROCEDURE_INSTANCES_PATH;
+}
 
 /** Các loại đơn người dùng được phép tải, theo tập quyền hiện có. */
 export function approvalSourcesFor(

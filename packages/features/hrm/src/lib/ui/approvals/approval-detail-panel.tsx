@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { Popconfirm } from '@enterprise-platform/shared-ui';
 import { hrmFetch } from '../../hrm-api';
-import { PROCEDURE_INSTANCES_PATH } from '../../hrm-approval-kinds';
+import { procedureInstanceHref } from '../../hrm-approval-kinds';
 import {
   isTerminalProcedureStatus,
   procedureFieldsOf,
@@ -119,13 +119,20 @@ export function ApprovalDetailPanel(props: ApprovalDetailPanelProps) {
   const extra = Object.entries(detailFields).filter(([k]) => row[k] !== undefined && row[k] !== null);
   const terminal = isTerminalProcedureStatus(progress?.status);
   const hasNote = note.trim().length > 0;
+  const instanceId = f.instanceId ?? row.link?.instance_id;
+  const procedureHref = procedureInstanceHref(instanceId);
 
   return (
     <aside aria-label="Chi tiết đơn" className="flex h-full min-h-0 flex-col rounded-2xl border border-slate-200/70 bg-white">
       <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-4 py-3">
         <h2 className="text-[16px] font-bold text-slate-900">Chi tiết đơn</h2>
-        {row.link ? (
-          <a href={PROCEDURE_INSTANCES_PATH} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[13px] font-semibold text-[#2563eb] hover:underline">
+        {row.link || f.instanceId ? (
+          <a
+            href={procedureHref}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 text-[13px] font-semibold text-[#2563eb] hover:underline"
+          >
             <Workflow className="size-3.5" />
             Xem quy trình
           </a>

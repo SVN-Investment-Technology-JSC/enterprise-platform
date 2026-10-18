@@ -270,6 +270,9 @@ export function HrmActionDialog({
                     </div>
                   </Fragment>
                 );
+              const isCustomControl = Boolean(
+                f.options || f.optionsFor || f.type === 'date' || f.type === 'month',
+              );
               return (
                 <Fragment key={f.key}>
                   {f.section &&
@@ -278,48 +281,64 @@ export function HrmActionDialog({
                         {f.section}
                       </h3>
                     )}
-                  <label
-                    className={`block space-y-1 text-xs font-medium text-slate-700 ${getColSpanClass(f.colSpan, action.columns)}`}
-                  >
-                    <span>
-                      {f.label}
-                      {isRequired && (
-                        <span className="text-red-500 font-bold ml-1" aria-hidden="true">
-                          *
-                        </span>
+                  {isCustomControl ? (
+                    <div
+                      className={`block space-y-1 text-xs font-medium text-slate-700 ${getColSpanClass(f.colSpan, action.columns)}`}
+                      role="group"
+                      aria-label={f.label}
+                    >
+                      <span className="block">
+                        {f.label}
+                        {isRequired && (
+                          <span className="text-red-500 font-bold ml-1" aria-hidden="true">
+                            *
+                          </span>
+                        )}
+                      </span>
+                      {f.options || f.optionsFor ? (
+                        <SearchableSelect
+                          value={values[f.key]}
+                          options={f.optionsFor ? f.optionsFor(values) : f.options ?? []}
+                          clearable={!isRequired}
+                          onChange={(value) =>
+                            setValues(
+                              reconcileDependentValues(action.fields, {
+                                ...values,
+                                [f.key]: value || '',
+                              }),
+                            )
+                          }
+                        />
+                      ) : f.type === 'date' ? (
+                        <DatePickerInput
+                          height={36}
+                          value={values[f.key]}
+                          onChange={(value) =>
+                            setValues({ ...values, [f.key]: value })
+                          }
+                        />
+                      ) : (
+                        <MonthPickerInput
+                          height={36}
+                          value={values[f.key]}
+                          onChange={(value) =>
+                            setValues({ ...values, [f.key]: value })
+                          }
+                        />
                       )}
-                    </span>
-                    {f.options || f.optionsFor ? (
-                      <SearchableSelect
-                        value={values[f.key]}
-                        options={f.optionsFor ? f.optionsFor(values) : f.options ?? []}
-                        clearable={!isRequired}
-                        onChange={(value) =>
-                          setValues(
-                            reconcileDependentValues(action.fields, {
-                              ...values,
-                              [f.key]: value || '',
-                            }),
-                          )
-                        }
-                      />
-                    ) : f.type === 'date' ? (
-                      <DatePickerInput
-                        height={36}
-                        value={values[f.key]}
-                        onChange={(value) =>
-                          setValues({ ...values, [f.key]: value })
-                        }
-                      />
-                    ) : f.type === 'month' ? (
-                      <MonthPickerInput
-                        height={36}
-                        value={values[f.key]}
-                        onChange={(value) =>
-                          setValues({ ...values, [f.key]: value })
-                        }
-                      />
-                    ) : (
+                    </div>
+                  ) : (
+                    <label
+                      className={`block space-y-1 text-xs font-medium text-slate-700 ${getColSpanClass(f.colSpan, action.columns)}`}
+                    >
+                      <span>
+                        {f.label}
+                        {isRequired && (
+                          <span className="text-red-500 font-bold ml-1" aria-hidden="true">
+                            *
+                          </span>
+                        )}
+                      </span>
                       <Input
                         type={f.type || 'text'}
                         required={isRequired}
@@ -332,8 +351,8 @@ export function HrmActionDialog({
                           setValues({ ...values, [f.key]: e.target.value })
                         }
                       />
-                    )}
-                  </label>
+                    </label>
+                  )}
                 </Fragment>
               );
             })}
