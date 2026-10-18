@@ -12,6 +12,11 @@ export interface PeoplePickerProps {
   readonly nameOf: (userId: string) => string;
   /** Không cho chọn — ví dụ chính người tổ chức, hay người đã là thành viên. */
   readonly exclude?: readonly string[];
+  /**
+   * Nhãn gắn cạnh tên một người — trả về chuỗi để hiện (vd "Ngoài dự án") hoặc
+   * `undefined` để bỏ qua. Dùng cho cả gợi ý tìm và chip đã chọn.
+   */
+  readonly tagFor?: (userId: string) => string | undefined;
   readonly disabled?: boolean;
   readonly placeholder?: string;
   /** Danh bạ không đọc được: hiện câu giải thích thay cho ô tìm. */
@@ -53,6 +58,7 @@ export function PeoplePicker({
   onChange,
   nameOf,
   exclude = [],
+  tagFor,
   disabled = false,
   placeholder = 'Tìm theo tên, email hoặc đơn vị',
   degraded = false,
@@ -112,6 +118,9 @@ export function PeoplePicker({
           {selected.map((userId) => (
             <li key={userId} className={styles.chip}>
               {nameOf(userId)}
+              {tagFor?.(userId) ? (
+                <span className={styles.outsideTag}>{tagFor(userId)}</span>
+              ) : null}
               {disabled ? null : (
                 <button
                   type="button"
@@ -158,6 +167,9 @@ export function PeoplePicker({
                     onClick={() => add(person.userId)}
                   >
                     <strong>{person.displayName}</strong>
+                    {tagFor?.(person.userId) ? (
+                      <span className={styles.outsideTag}>{tagFor(person.userId)}</span>
+                    ) : null}
                     {person.unitNames.length > 0 || person.email ? (
                       <span className={styles.muted}>
                         {' '}

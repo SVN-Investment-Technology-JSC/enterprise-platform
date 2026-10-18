@@ -847,6 +847,33 @@
   background: var(--ep-accent-soft) !important;
 }
 
+// Nút thu/mở nhóm dự án trong bảng "Công việc của tôi".
+.groupToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+
+  svg {
+    color: var(--ep-text-sub);
+  }
+
+  &:hover {
+    color: var(--ep-link);
+  }
+}
+
+// Việc chưa thực hiện (todo): dải màu nhạt ở mép trái để nổi trong nhóm.
+.rowPending td:first-child {
+  box-shadow: inset 3px 0 0 var(--ep-accent);
+}
+
 .cellTitle,
 .cellTitleButton {
   display: inline-flex;
@@ -1956,6 +1983,19 @@
       background: rgb(217 171 0 / 25%);
     }
   }
+}
+
+// Nhãn "Ngoài dự án" cạnh tên người chưa thuộc dự án, trong gợi ý và chip.
+.outsideTag {
+  margin-left: 6px;
+  padding: 0 6px;
+  border: 1px solid rgb(217 171 0 / 45%);
+  border-radius: 999px;
+  background: var(--ep-accent-soft);
+  color: #5c4500;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 .responseGroup {

@@ -4,6 +4,7 @@ import {
   WORK_ITEM_PRIORITIES,
   WORK_ITEM_TYPES,
   type CreateWorkItemRequest,
+  type DirectoryPerson,
   type ProjectMember,
   type UpdateWorkItemRequest,
   type WorkItem,
@@ -12,7 +13,7 @@ import {
 } from '@enterprise-platform/contracts-workspace';
 import { fromLocalInput } from '@enterprise-platform/shared-ui';
 import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { loadProcedureOptions, type ProcedureOption } from '../procedure-api';
 import { ITEM_TYPE_LABELS, PRIORITY_LABELS } from '../workspace-labels';
 import styles from '../workspace.module.scss';
@@ -46,6 +47,12 @@ export interface WorkItemFormProps {
   readonly onCreate: (
     input: Omit<CreateWorkItemRequest, 'projectId'>,
     procedureDefinitionId?: string,
+    /**
+     * Người được giao/cùng làm nhưng chưa thuộc dự án. Nơi gọi thêm họ vào dự
+     * án (vai 'member') trước khi tạo công việc, để server chấp nhận người phụ
+     * trách/cùng làm.
+     */
+    addMemberUserIds?: string[],
   ) => Promise<void>;
   readonly onUpdate: (input: UpdateWorkItemRequest) => Promise<void>;
   /** Tạo công việc điều chỉnh cho công việc đã huỷ hiệu lực: điền sẵn từ công việc gốc. */
@@ -122,6 +129,8 @@ export function WorkItemForm({
   const [error, setError] = useState<string>();
   const [submitting, setSubmitting] = useState(false);
   const [procedures, setProcedures] = useState<readonly ProcedureOption[]>();
+  /** Đang hỏi xác nhận thêm người ngoài dự án vào dự án trước khi tạo việc. */
+  const [confirmOutside, setConfirmOutside] = useState(false);
 
   // Chỉ hỏi module Quy trình khi người dùng thật sự chọn "Theo quy trình",
   // và chỉ một lần mỗi lần mở form.
@@ -173,6 +182,7 @@ export function WorkItemForm({
     );
     setError(undefined);
     setSubmitting(false);
+    setConfirmOutside(false);
   }, [open, item, adjustmentOf, defaultParentId, parent?.id]);
 
   const set = (patch: Partial<FormState>) => setForm((current) => ({ ...current, ...patch }));
@@ -210,22 +220,81 @@ export function WorkItemForm({
         },
     );
 
+  // Tạo mới thì tìm người trong toàn bộ danh bạ công ty, không bó trong thành
+  // viên dự án — người ngoài dự án sẽ được gắn nhãn và thêm vào dự án sau khi
+  // người tạo xác nhận. Sửa việc vẫn chỉ chọn trong thành viên dự án.
+  const isCreate = !item;
+  const memberIds = useMemo(() => new Set(members.map((member) => member.userId)), [members]);
+
+  /** Nguồn người cho ô "Người thực hiện cùng". */
+  const participantPeople =
+    !isCreate || directory.people.length === 0
+      ? memberPeople
+      : canAssignOthers
+        ? directory.people
+        : directory.people.filter((person) => person.userId === currentUserId);
+
+  /** Lựa chọn cho ô "Người phụ trách". */
+  const assigneeOptions = isCreate
+    ? (directory.people.length > 0
+        ? (canAssignOthers
+            ? directory.people
+            : directory.people.filter((person) => person.userId === currentUserId)
+          ).map((person) => person.userId)
+        : members
+            .filter((member) => canAssignOthers || member.userId === currentUserId)
+            .map((member) => member.userId)
+      ).map((userId) => ({
+        value: userId,
+        label: memberIds.has(userId)
+          ? directory.nameOf(userId)
+          : `${directory.nameOf(userId)} · Ngoài dự án`,
+      }))
+    : members
+        .filter(
+          (member) =>
+            canAssignOthers ||
+            member.userId === currentUserId ||
+            // Giữ người đang phụ trách để ô chọn không tự đổi giá trị.
+            member.userId === item?.assigneeUserId,
+        )
+        .map((member) => ({ value: member.userId, label: directory.nameOf(member.userId) }));
+
+  /** Người được chọn (phụ trách + cùng làm) nhưng chưa thuộc dự án. */
+  const outsidePeople = useMemo<DirectoryPerson[]>(() => {
+    if (!isCreate || isPhase) return [];
+    const ids = new Set<string>();
+    if (form.assigneeUserId) ids.add(form.assigneeUserId);
+    for (const userId of form.participantUserIds) ids.add(userId);
+    return [...ids]
+      .filter((userId) => !memberIds.has(userId))
+      .map(
+        (userId) =>
+          directory.find(userId) ?? {
+            userId,
+            displayName: directory.nameOf(userId),
+            unitNames: [],
+            orgNodeIds: [],
+          },
+      );
+  }, [isCreate, isPhase, form.assigneeUserId, form.participantUserIds, memberIds, directory]);
+
   const submit = async () => {
     setError(undefined);
     // Nhóm công việc không đi lại; các loại khác: xe công ty phải chọn đủ xe, tài xế và giờ.
-    const transportBlock = isPhase ? undefined : transport.payload();
     if (!isPhase && transport.value.mode && transport.problem) {
       setError(transport.problem);
       return;
     }
-    setSubmitting(true);
-    try {
+    if (item) {
+      const transportBlock = isPhase ? undefined : transport.payload();
       const hours = form.estimateHours.trim() ? Number(form.estimateHours) : undefined;
       // Người phụ trách đã có ô riêng, không lặp lại trong người thực hiện cùng.
       const participants = form.participantUserIds.filter(
         (userId) => userId !== form.assigneeUserId,
       );
-      if (item) {
+      setSubmitting(true);
+      try {
         await onUpdate({
           title: form.title,
           description: form.description || undefined,
@@ -238,18 +307,41 @@ export function WorkItemForm({
           estimateHours: isPhase ? null : (hours ?? null),
           transport: transportBlock,
         });
-      } else {
-        if (projectOptions && !form.projectId) {
-          setError('Hãy chọn dự án cho công việc này.');
-          setSubmitting(false);
-          return;
-        }
-        if (form.executionType === 'procedure' && !form.procedureDefinitionId) {
-          setError('Hãy chọn quy trình sẽ mở cho công việc này.');
-          setSubmitting(false);
-          return;
-        }
-        await onCreate({
+        onClose();
+      } catch (cause) {
+        setError((cause as { message?: string })?.message ?? 'Không lưu được công việc.');
+        setSubmitting(false);
+      }
+      return;
+    }
+
+    if (projectOptions && !form.projectId) {
+      setError('Hãy chọn dự án cho công việc này.');
+      return;
+    }
+    if (form.executionType === 'procedure' && !form.procedureDefinitionId) {
+      setError('Hãy chọn quy trình sẽ mở cho công việc này.');
+      return;
+    }
+    // Có người ngoài dự án: hỏi xác nhận trước khi thêm họ vào dự án.
+    if (outsidePeople.length > 0 && !confirmOutside) {
+      setConfirmOutside(true);
+      return;
+    }
+    await runCreate(outsidePeople.map((person) => person.userId));
+  };
+
+  const runCreate = async (addMemberUserIds: string[]) => {
+    setConfirmOutside(false);
+    setError(undefined);
+    const transportBlock = isPhase ? undefined : transport.payload();
+    const hours = form.estimateHours.trim() ? Number(form.estimateHours) : undefined;
+    // Người phụ trách đã có ô riêng, không lặp lại trong người thực hiện cùng.
+    const participants = form.participantUserIds.filter((userId) => userId !== form.assigneeUserId);
+    setSubmitting(true);
+    try {
+      await onCreate(
+        {
           parentId: form.parentId || undefined,
           title: form.title,
           description: form.description || undefined,
@@ -266,8 +358,8 @@ export function WorkItemForm({
           transport: transportBlock ?? undefined,
         },
         form.executionType === 'procedure' ? form.procedureDefinitionId : undefined,
-        );
-      }
+        addMemberUserIds.length > 0 ? addMemberUserIds : undefined,
+      );
       onClose();
     } catch (cause) {
       setError((cause as { message?: string })?.message ?? 'Không lưu được công việc.');
@@ -276,6 +368,7 @@ export function WorkItemForm({
   };
 
   return (
+    <>
     <Dialog
       open={open}
       title={item ? `Sửa ${item.code}` : adjustmentOf ? 'Công việc điều chỉnh' : 'Công việc mới'}
@@ -421,18 +514,7 @@ export function WorkItemForm({
               label="Người phụ trách"
               value={form.assigneeUserId}
               emptyOption="Chưa giao"
-              options={members
-                .filter(
-                  (member) =>
-                    canAssignOthers ||
-                    member.userId === currentUserId ||
-                    // Giữ người đang phụ trách để ô chọn không tự đổi giá trị.
-                    member.userId === item?.assigneeUserId,
-                )
-                .map((member) => ({
-                  value: member.userId,
-                  label: directory.nameOf(member.userId),
-                }))}
+              options={assigneeOptions}
               onChange={(value) => set({ assigneeUserId: value })}
             />
           </Field>
@@ -451,11 +533,14 @@ export function WorkItemForm({
       {isPhase ? null : (
         <Field label="Người thực hiện cùng">
           <PeoplePicker
-            people={memberPeople}
+            people={participantPeople}
             selected={form.participantUserIds}
             exclude={form.assigneeUserId ? [form.assigneeUserId] : []}
             nameOf={directory.nameOf}
-            placeholder="Tìm thành viên dự án"
+            tagFor={
+              isCreate ? (userId) => (memberIds.has(userId) ? undefined : 'Ngoài dự án') : undefined
+            }
+            placeholder={isCreate ? 'Tìm người trong công ty' : 'Tìm thành viên dự án'}
             loaded={directory.loaded}
             onChange={(participantUserIds) => set({ participantUserIds })}
           />
@@ -485,5 +570,26 @@ export function WorkItemForm({
 
       {isPhase ? null : <TransportSection state={transport} editableRange idPrefix="work-item-transport" />}
     </Dialog>
+
+    {/* Chọn người ngoài dự án: xác nhận trước khi thêm họ vào dự án rồi mới tạo việc. */}
+    <Dialog
+      open={confirmOutside}
+      title="Thêm thành viên vào dự án"
+      subtitle="Những người sau sẽ được thêm vào dự án:"
+      submitLabel="Xác nhận"
+      submitting={submitting}
+      onClose={() => setConfirmOutside(false)}
+      onSubmit={() => void runCreate(outsidePeople.map((person) => person.userId))}
+    >
+      <ul className={styles.memberList}>
+        {outsidePeople.map((person) => (
+          <li key={person.userId}>
+            <span className={styles.memberName}>{person.displayName}</span>
+            <span className={styles.memberRole}>{person.positionName ?? 'Chưa có chức danh'}</span>
+          </li>
+        ))}
+      </ul>
+    </Dialog>
+    </>
   );
 }

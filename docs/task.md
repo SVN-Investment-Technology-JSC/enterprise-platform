@@ -9,7 +9,7 @@
 |---|---|---|---|---|
 | 1 | Khách hàng/Hợp đồng + tab "Khách hàng" | ✅ Xong | ✅ | ✅ |
 | 2 | Trang DS dự án: nhóm/lọc/đóng hồ sơ/gắn KH + Khách hàng theo ngữ cảnh | ✅ Xong | ✅ | ✅ |
-| 3 | Group công việc + thêm thành viên ngoài dự án | ☐ Chưa làm | ☐ | ☐ |
+| 3 | Group công việc + thêm thành viên ngoài dự án | ✅ Xong | ✅ | ✅ |
 | 4 | Tài liệu khách hàng (nội bộ/khách hàng + chuột phải + hiển thị + tìm nhanh) | ☐ Chưa làm | ☐ | ☐ |
 
 ---
@@ -39,11 +39,16 @@
 - Kết quả test browser: PASS (live stack) — danh sách group theo loại; đóng hồ sơ DGHB bị chặn đúng ("còn công việc chưa hoàn thành"); tạo DA-UI-TEST gắn KH-UI-002 (SearchableSelect gõ không dấu "Điện lực"); liên kết dự án↔KH lưu ("1 dự án"); tab Khách hàng trong dự án chỉ hiện KH đó; trang chủ hiện tất cả KH; Chuyển nhóm DA-UI-TEST sang "Dịch vụ thí nghiệm" OK; hàng hợp đồng cao hơn. Dữ liệu test còn trong svn (DA-UI-TEST, KH-UI-002, KH-TEST-001/HD-TEST-001).
 
 ### COMMIT 3 — Group công việc + thành viên ngoài dự án
-- Ngày: _(chưa bắt đầu)_
+- Ngày: 2026-10-18
 - File thay đổi:
-- Ghi chú:
-- Kết quả test API:
-- Kết quả test browser:
+  - `components/my-work-view.tsx` (E: group "Công việc của tôi" theo dự án, header thu/mở + đếm "chưa thực hiện")
+  - `components/work-item-form.tsx` (G: create mode tìm người toàn công ty cho người phụ trách + người thực hiện cùng; tag "Ngoài dự án"; popup xác nhận tên+chức danh; truyền `addMemberUserIds`)
+  - `components/people-picker.tsx` (prop `tagFor` render tag "Ngoài dự án")
+  - `components/projects-view.tsx` (onCreate nhận `addMemberUserIds` → setMembers merge role 'member' trước khi createWorkItem)
+  - `workspace.module.scss` (.groupToggle/.rowPending/.outsideTag)
+- Ghi chú: không đổi backend (merge thành viên client-side qua `mergeNewProjectMembers` + `setMembers`). "Người thực hiện cùng" có thể trong hoặc ngoài dự án.
+- Kết quả test API: lint feature-workspace 0 error; `tsc --build workspace-web` exit 0.
+- Kết quả test browser: PASS (live) — E: "Công việc của tôi" group theo dự án (EVN/ADG, header đếm "chưa thực hiện", dòng chưa làm có vạch nhấn). G: trong DA-UI-TEST (1 thành viên), ô Người phụ trách tìm "toán" ra "Kế toán Hai/Một (test) · Ngoài dự án"; chọn Kế toán Hai → submit → popup "Thêm thành viên vào dự án" hiện tên + chức danh (Kế toán thanh toán) → Xác nhận → công việc tạo, giao cho Kế toán Hai, dự án thành 2 thành viên (tự thêm). (Lưu ý: danh bạ dùng cache module-level `use-directory.ts`; trong phiên dev có thể cần reload nếu nạp lúc chưa sẵn token — không ảnh hưởng deploy thật.)
 
 ### COMMIT 4 — Tài liệu khách hàng
 - Ngày: _(chưa bắt đầu)_

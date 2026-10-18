@@ -1320,8 +1320,20 @@ export function ProjectsView({
         onCreate={async (
           input: Omit<CreateWorkItemRequest, 'projectId'>,
           procedureDefinitionId?: string,
+          addMemberUserIds?: string[],
         ) => {
           if (!detail) return;
+          // Thêm người ngoài dự án vào dự án trước, để server chấp nhận họ làm
+          // người phụ trách / cùng làm khi tạo công việc.
+          if (addMemberUserIds && addMemberUserIds.length > 0) {
+            const existing = await api.listMembers(detail.project.id);
+            await api.setMembers(detail.project.id, {
+              members: mergeNewProjectMembers(
+                existing.items,
+                addMemberUserIds.map((userId) => ({ userId, role: 'member' })),
+              ),
+            });
+          }
           // Tạo công việc; chọn "Theo quy trình" thì gửi kèm quy trình — Workspace
           // ghi yêu cầu và phát sự kiện, hồ sơ do Quy trình tự mở rồi báo về.
           await api.createWorkItem({
