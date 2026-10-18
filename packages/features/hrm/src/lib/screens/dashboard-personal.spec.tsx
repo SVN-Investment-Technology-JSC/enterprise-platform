@@ -4,9 +4,11 @@ import type { HrmBoardDay, HrmTimesheetBoard } from '@enterprise-platform/contra
 import { hrmFetch } from '../hrm-api';
 import HrmDashboardPage from './dashboard-screen';
 
+const SELF_ACTIONS = ['hrm.self.read', 'hrm.self.attendance', 'hrm.self.payslip'];
+let mockActions: string[] = SELF_ACTIONS;
 jest.mock('../hrm-permissions', () => ({
   useHrmPermissions: () => {
-    const actions = ['hrm.self.read', 'hrm.self.attendance', 'hrm.self.payslip'];
+    const actions = mockActions;
     return {
       actions,
       loading: false,
@@ -137,6 +139,7 @@ beforeAll(() => {
 });
 afterAll(() => jest.useRealTimers());
 beforeEach(() => {
+  mockActions = SELF_ACTIONS;
   fetchMock.mockReset();
   respond();
 });
@@ -173,6 +176,20 @@ describe('Bàn làm việc cá nhân', () => {
     await waitFor(() => expect(within(card).getAllByText('12 / 15').length).toBeGreaterThan(0));
     expect(within(card).getByText('3 ngày')).toBeTruthy();
     expect(within(card).getByRole('link', { name: 'Đăng ký nghỉ phép' }).getAttribute('href')).toBe('/requests?create=leave');
+  });
+
+  it('phép năm của tôi: nhân viên không có quyền xem quỹ phép thì không có liên kết Xem chi tiết tới /leave', async () => {
+    render(<HrmDashboardPage />);
+    const card = await screen.findByLabelText('Phép năm của tôi');
+    await waitFor(() => expect(within(card).getAllByText('12 / 15').length).toBeGreaterThan(0));
+    expect(within(card).queryByRole('link', { name: 'Xem chi tiết' })).toBeNull();
+  });
+
+  it('phép năm của tôi: có quyền xem quỹ phép thì Xem chi tiết mở trang Phép năm', async () => {
+    mockActions = [...SELF_ACTIONS, 'hrm.leave.read'];
+    render(<HrmDashboardPage />);
+    const card = await screen.findByLabelText('Phép năm của tôi');
+    expect(within(card).getByRole('link', { name: 'Xem chi tiết' }).getAttribute('href')).toBe('/leave');
   });
 
   it('thẻ Đơn của tôi có danh sách đơn đang xử lý sổ xuống khi bấm; các thẻ trạng thái hôm nay, phép năm, bảng công không bấm được', async () => {

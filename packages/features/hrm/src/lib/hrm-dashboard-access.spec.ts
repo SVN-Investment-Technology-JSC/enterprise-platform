@@ -19,6 +19,16 @@ describe('dashboardPlan', () => {
     expect(plan.endpoints).toEqual(['/my-attendance-context']);
   });
 
+  it('lien ket Xem chi tiet o the Phep nam cua toi chi co khi vao duoc trang /leave', () => {
+    // Vai mau "HRM - Nhan vien" chi co quyen hrm.self.*: trang /leave can hrm.leave.read.
+    expect(
+      dashboardPlan(['hrm.self.read', 'hrm.self.profile.write', 'hrm.self.attendance', 'hrm.self.request', 'hrm.self.payslip'])
+        .canOpenLeavePage,
+    ).toBe(false);
+    expect(dashboardPlan(['hrm.self.read', 'hrm.leave.approve']).canOpenLeavePage).toBe(false);
+    expect(dashboardPlan(['hrm.self.read', 'hrm.leave.read']).canOpenLeavePage).toBe(true);
+  });
+
   it('khong co hrm.self.read thi khong co vung ca nhan', () => {
     const plan = dashboardPlan(['hrm.dashboard.read']);
     expect(plan.personal).toBe(false);
