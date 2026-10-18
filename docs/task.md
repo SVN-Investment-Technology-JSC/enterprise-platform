@@ -10,7 +10,7 @@
 | 1 | Khách hàng/Hợp đồng + tab "Khách hàng" | ✅ Xong | ✅ | ✅ |
 | 2 | Trang DS dự án: nhóm/lọc/đóng hồ sơ/gắn KH + Khách hàng theo ngữ cảnh | ✅ Xong | ✅ | ✅ |
 | 3 | Group công việc + thêm thành viên ngoài dự án | ✅ Xong | ✅ | ✅ |
-| 4 | Tài liệu khách hàng (nội bộ/khách hàng + chuột phải + hiển thị + tìm nhanh) | ☐ Chưa làm | ☐ | ☐ |
+| 4 | Tài liệu khách hàng (nội bộ/khách hàng + chuột phải + hiển thị + tìm nhanh) | ✅ Xong (browser 1 phần) | ✅ | ◐ thiếu MinIO |
 
 ---
 
@@ -51,12 +51,16 @@
 - Kết quả test browser: PASS (live) — E: "Công việc của tôi" group theo dự án (EVN/ADG, header đếm "chưa thực hiện", dòng chưa làm có vạch nhấn). G: trong DA-UI-TEST (1 thành viên), ô Người phụ trách tìm "toán" ra "Kế toán Hai/Một (test) · Ngoài dự án"; chọn Kế toán Hai → submit → popup "Thêm thành viên vào dự án" hiện tên + chức danh (Kế toán thanh toán) → Xác nhận → công việc tạo, giao cho Kế toán Hai, dự án thành 2 thành viên (tự thêm). (Lưu ý: danh bạ dùng cache module-level `use-directory.ts`; trong phiên dev có thể cần reload nếu nạp lúc chưa sẵn token — không ảnh hưởng deploy thật.)
 
 ### COMMIT 4 — Tài liệu khách hàng
-- Ngày: _(chưa bắt đầu)_
+- Ngày: 2026-10-18
 - Phạm vi: trường `audience` nội bộ/khách hàng (mặc định nội bộ); chuột phải đổi loại trên tài liệu dự án; tài liệu khách hàng hiện ở trang "Khách hàng" của dự án; tìm nhanh tài liệu khách hàng.
 - File thay đổi:
-- Ghi chú:
-- Kết quả test API:
-- Kết quả test browser:
+  - contracts: `DOCUMENT_AUDIENCES`, `DocumentAudience`, `WorkspaceDocument.audience`, `UpdateDocumentAudienceRequest`
+  - migration: `migrations/tenant/workspace/0024-workspace-document-audience.sql` (cột `documents.audience` + partial index)
+  - BE: `workspace-store.port.ts` (audience filter + `setAudience`), `postgres-workspace-store.ts` (map + filter + setAudience), `document.service.ts`(+spec, `setAudience` quyền requireWriteAccess), `workspace.controller.ts` (`PATCH /documents/:id/audience` + query `audience`)
+  - FE: `workspace-api.ts` (`setDocumentAudience`, `listDocuments({audience})`), `workspace-labels.ts` (DOCUMENT_AUDIENCE_LABELS), `document-panel.tsx` (chuột phải đổi loại + badge "Khách hàng"), `customers-view.tsx` (prop `scopeProjectId` + mục "Tài liệu khách hàng"), `workspace-screen.tsx` (truyền scopeProjectId), `quick-search.tsx` (nhóm "Tài liệu khách hàng"), `workspace.module.scss`
+- Ghi chú: ĐÃ HOÃN "hợp đồng hiện tên+link dự án" (cần quyết mô hình contract↔dự án). Migration 0024 đã áp vào tenant svn.
+- Kết quả test API: `nx test module-workspace` 405 pass (+5 test audience); typecheck pass; lint feature-workspace 0 error; `tsc --build workspace-web` exit 0.
+- Kết quả test browser: 1 PHẦN — trang Khách hàng scoped (DA-UI-TEST) hiện mục "TÀI LIỆU KHÁCH HÀNG" với empty state hướng dẫn chuột phải; không lỗi. Luồng đầy đủ (upload → chuột phải đổi khách hàng → hiện ở trang Khách hàng → tìm nhanh) CHƯA test được vì MinIO (storage) không chạy — image quay.io pull lỗi 401. Cần test lại khi có storage.
 
 ---
 

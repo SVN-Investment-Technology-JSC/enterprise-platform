@@ -47,6 +47,7 @@ import type {
   SendChatMessageRequest,
   SetProjectMembersRequest,
   UpdateChatMessageRequest,
+  UpdateDocumentAudienceRequest,
   UpdateEventRequest,
   UpdateProjectFinanceRequest,
   UpdateProjectRequest,
@@ -570,6 +571,7 @@ export class WorkspaceController {
     @Query('projectId') projectId?: string,
     @Query('folderId') folderId?: string,
     @Query('status') status?: string,
+    @Query('audience') audience?: string,
     @Query('search') search?: string,
     @Query('linkedType') linkedType?: string,
     @Query('linkedId') linkedId?: string,
@@ -579,6 +581,7 @@ export class WorkspaceController {
         projectId,
         folderId,
         status,
+        audience,
         search,
         linkedType,
         linkedId,
@@ -659,6 +662,16 @@ export class WorkspaceController {
   @Post('documents/:id/unlock')
   unlockDocument(@Req() request: WorkspaceRequest, @Param('id') id: string) {
     return this.execute(() => this.documents.unlock(this.actor(request), id));
+  }
+
+  /** Đổi phân loại nội bộ/khách hàng của tài liệu. */
+  @Patch('documents/:id/audience')
+  setDocumentAudience(
+    @Req() request: WorkspaceRequest,
+    @Param('id') id: string,
+    @Body() body: UpdateDocumentAudienceRequest,
+  ) {
+    return this.execute(() => this.documents.setAudience(this.actor(request), id, body?.audience));
   }
 
   /** Lưu trữ: chuyển `status = archived`, không xoá dòng và không xoá tệp. */

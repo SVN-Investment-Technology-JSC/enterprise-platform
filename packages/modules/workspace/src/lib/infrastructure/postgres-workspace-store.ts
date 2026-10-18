@@ -26,6 +26,7 @@ import type {
   CreateWorkItemRequest,
   DependencyType,
   DocumentAccessAction,
+  DocumentAudience,
   DocumentFolder,
   DocumentFolderRef,
   DocumentLink,
@@ -429,7 +430,7 @@ function mapFolder(row: Row): DocumentFolder {
 }
 
 const DOCUMENT_COLUMNS = `id, folder_id, project_id, name, description, current_version_id,
-       status, locked_by_user_id, locked_at, created_by, created_at, updated_at`;
+       status, audience, locked_by_user_id, locked_at, created_by, created_at, updated_at`;
 
 function mapDocument(row: Row): WorkspaceDocument {
   return {
@@ -440,6 +441,9 @@ function mapDocument(row: Row): WorkspaceDocument {
     description: opt(row.description),
     currentVersionId: opt(row.current_version_id),
     status: str(row.status) as DocumentStatus,
+    // Tài liệu cũ không có cột thì đọc ra `internal`; cột có DEFAULT nên mặc
+    // định này gần như chỉ dùng cho dữ liệu giả trong test.
+    audience: (opt(row.audience) ?? 'internal') as DocumentAudience,
     lockedByUserId: opt(row.locked_by_user_id),
     lockedAt: row.locked_at == null ? undefined : iso(row.locked_at),
     createdBy: str(row.created_by),
@@ -2250,6 +2254,7 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
         projectId?: string;
         folderId?: string;
         status?: DocumentStatus;
+        audience?: DocumentAudience;
         search?: string;
         linkedTo?: { entityType: DocumentLinkEntityType; entityId: string };
       },
@@ -2279,6 +2284,10 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
       if (options.status) {
         values.push(options.status);
         where.push(`d.status = $${values.length}`);
+      }
+      if (options.audience) {
+        values.push(options.audience);
+        where.push(`d.audience = $${values.length}`);
       }
       if (options.search) {
         values.push(`%${options.search.trim()}%`);
@@ -2559,6 +2568,20 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
           WHERE id = $1
           RETURNING ${DOCUMENT_COLUMNS}`,
         [documentId, userId],
+      );
+      const row = result.rows[0];
+      if (!row) throw new DocumentNotFoundError(documentId);
+      return mapDocument(row);
+    },
+
+    setAudience: async (tenantId: string, documentId: string, audience: DocumentAudience) => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `UPDATE workspace_schema.documents
+            SET audience = $2, updated_at = now()
+          WHERE id = $1
+          RETURNING ${DOCUMENT_COLUMNS}`,
+        [documentId, audience],
       );
       const row = result.rows[0];
       if (!row) throw new DocumentNotFoundError(documentId);

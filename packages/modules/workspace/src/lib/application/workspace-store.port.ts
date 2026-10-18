@@ -17,6 +17,7 @@ import type {
   CreateWorkItemRequest,
   DependencyType,
   DocumentAccessAction,
+  DocumentAudience,
   DocumentFolder,
   DocumentFolderRef,
   DocumentLink,
@@ -593,6 +594,8 @@ export interface WorkspaceStore {
         readonly projectId?: string;
         readonly folderId?: string;
         readonly status?: DocumentStatus;
+        /** Lọc theo phân loại nội bộ/khách hàng; vắng là lấy cả hai. */
+        readonly audience?: DocumentAudience;
         readonly search?: string;
         /** Chỉ tài liệu đã gắn vào thực thể này. */
         readonly linkedTo?: {
@@ -666,6 +669,13 @@ export interface WorkspaceStore {
       tenantId: string,
       documentId: string,
       userId: string | null,
+    ): Promise<WorkspaceDocument>;
+
+    /** Đổi phân loại nội bộ/khách hàng của một tài liệu. */
+    setAudience(
+      tenantId: string,
+      documentId: string,
+      audience: DocumentAudience,
     ): Promise<WorkspaceDocument>;
 
     listLinks(tenantId: string, documentId: string): Promise<readonly DocumentLink[]>;

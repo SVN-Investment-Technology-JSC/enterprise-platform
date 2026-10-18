@@ -8,12 +8,13 @@ import {
   type CreateCustomerRequest,
   type Customer,
   type CustomerSummary,
+  type DocumentSummary,
   type UpdateContractRequest,
   type UpdateCustomerRequest,
 } from '@enterprise-platform/contracts-workspace';
 import { Popconfirm, SearchableSelect } from '@enterprise-platform/shared-ui';
 import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
-import { Pencil, Plus, RefreshCw, Search, Trash2 } from 'lucide-react';
+import { Download, FileText, Pencil, Plus, RefreshCw, Search, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { formatVnd, formatVndWhileTyping, parseVndInput, toVndInput } from '../money';
 import * as api from '../workspace-api';
@@ -43,9 +44,18 @@ export interface CustomersViewProps {
   readonly scoped?: boolean;
   /** Khách hàng chủ quản của dự án đang mở; rỗng nghĩa là dự án chưa gắn khách hàng. */
   readonly scopeCustomerId?: string;
+  /**
+   * Dự án đang mở (chỉ ở chế độ scoped). Có thì hiện thêm mục "Tài liệu khách
+   * hàng" của chính dự án đó bên cạnh hợp đồng.
+   */
+  readonly scopeProjectId?: string;
 }
 
-export function CustomersView({ scoped = false, scopeCustomerId }: CustomersViewProps = {}) {
+export function CustomersView({
+  scoped = false,
+  scopeCustomerId,
+  scopeProjectId,
+}: CustomersViewProps = {}) {
   const [customers, setCustomers] = useState<readonly CustomerSummary[]>([]);
   const [listLoaded, setListLoaded] = useState(false);
   const [search, setSearch] = useState('');
@@ -56,6 +66,8 @@ export function CustomersView({ scoped = false, scopeCustomerId }: CustomersView
   }>();
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [error, setError] = useState<string>();
+  /** Tài liệu khách hàng của dự án đang mở (chỉ chế độ scoped). */
+  const [customerDocs, setCustomerDocs] = useState<readonly DocumentSummary[]>([]);
 
   const [customerForm, setCustomerForm] = useState<{ open: boolean; edit?: Customer }>({
     open: false,
@@ -105,6 +117,33 @@ export function CustomersView({ scoped = false, scopeCustomerId }: CustomersView
   useEffect(() => {
     if (scoped && scopeCustomerId) void openCustomer(scopeCustomerId);
   }, [scoped, scopeCustomerId, openCustomer]);
+
+  // Tài liệu khách hàng của dự án đang mở. Chỉ lấy ở chế độ scoped — trang
+  // Khách hàng đầy đủ không gắn với một dự án nào.
+  useEffect(() => {
+    if (!scoped || !scopeProjectId) {
+      setCustomerDocs([]);
+      return;
+    }
+    let alive = true;
+    api
+      .listDocuments({ projectId: scopeProjectId, audience: 'customer' })
+      .then((page) => alive && setCustomerDocs(page.items))
+      .catch(() => alive && setCustomerDocs([]));
+    return () => {
+      alive = false;
+    };
+  }, [scoped, scopeProjectId]);
+
+  const openDocument = useCallback(async (documentId: string) => {
+    try {
+      const ticket = await api.getDownloadTicket(documentId);
+      // URL đã ký tự mang quyền; mở tab mới thay vì điều hướng trang hiện tại.
+      window.open(ticket.downloadUrl, '_blank', 'noopener');
+    } catch (cause) {
+      setError(messageOf(cause, 'Không mở được tài liệu.'));
+    }
+  }, []);
 
   const selectedSummary = useMemo(
     () => customers.find((customer) => customer.id === selectedId),
@@ -390,6 +429,45 @@ export function CustomersView({ scoped = false, scopeCustomerId }: CustomersView
                 </div>
               </div>
             )}
+
+            {scoped && scopeProjectId ? (
+              <>
+                <div className={styles.panelHeadRow}>
+                  <h3 className={styles.subHeading}>Tài liệu khách hàng</h3>
+                </div>
+                {customerDocs.length === 0 ? (
+                  <p className={styles.emptyRow}>
+                    Dự án này chưa có tài liệu khách hàng nào. Bấm chuột phải một tài liệu trong tab
+                    Tài liệu để đổi sang khách hàng.
+                  </p>
+                ) : (
+                  <ul className={styles.customerDocList}>
+                    {customerDocs.map((document) => (
+                      <li key={document.id} className={styles.customerDocRow}>
+                        <button
+                          type="button"
+                          className={styles.customerDocName}
+                          title={document.name}
+                          onClick={() => void openDocument(document.id)}
+                        >
+                          <FileText size={15} aria-hidden />
+                          <span className={styles.customerDocText}>{document.name}</span>
+                        </button>
+                        <button
+                          type="button"
+                          className={styles.iconButton}
+                          aria-label={`Tải xuống ${document.name}`}
+                          title="Tải xuống"
+                          onClick={() => void openDocument(document.id)}
+                        >
+                          <Download size={15} />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </>
+            ) : null}
           </div>
         ) : (
           <div className={styles.emptyState}>

@@ -930,6 +930,16 @@ export type DocumentStatus = (typeof DOCUMENT_STATUSES)[number];
 export const DOCUMENT_LINK_ENTITY_TYPES = ['project', 'work_item', 'calendar_event'] as const;
 export type DocumentLinkEntityType = (typeof DOCUMENT_LINK_ENTITY_TYPES)[number];
 
+/**
+ * Tài liệu là **nội bộ** hay dành cho **khách hàng**.
+ *
+ * `internal` là mặc định — tài liệu cũ đọc ra đều là nội bộ. `customer` là hồ
+ * sơ hướng ra ngoài (đề xuất, hợp đồng…): hiện trên trang Khách hàng của dự án
+ * và tìm nhanh ra được. Chuyển qua lại bằng chuột phải trên tài liệu.
+ */
+export const DOCUMENT_AUDIENCES = ['internal', 'customer'] as const;
+export type DocumentAudience = (typeof DOCUMENT_AUDIENCES)[number];
+
 export const DOCUMENT_ACCESS_ACTIONS = [
   'view',
   'download',
@@ -1021,6 +1031,13 @@ export interface WorkspaceDocument {
   readonly description?: string;
   readonly currentVersionId?: string;
   readonly status: DocumentStatus;
+  /**
+   * Nội bộ (mặc định) hay dành cho khách hàng.
+   *
+   * Server luôn trả về giá trị này; tài liệu tạo trước khi có cột đọc ra là
+   * `internal`.
+   */
+  readonly audience: DocumentAudience;
   readonly lockedByUserId?: string;
   readonly lockedAt?: string;
   readonly createdBy: string;
@@ -1163,6 +1180,11 @@ export interface CompleteUploadRequest {
 export interface LinkDocumentRequest {
   readonly entityType: DocumentLinkEntityType;
   readonly entityId: string;
+}
+
+/** Đổi phân loại nội bộ/khách hàng của một tài liệu. */
+export interface UpdateDocumentAudienceRequest {
+  readonly audience: DocumentAudience;
 }
 
 /**

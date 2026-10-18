@@ -302,7 +302,8 @@
 }
 
 .badgeLocked,
-.badgeWarn {
+.badgeWarn,
+.badgeCustomer {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -311,6 +312,11 @@
   font-size: 11px;
   font-weight: 600;
   white-space: nowrap;
+}
+
+.badgeCustomer {
+  background: rgb(59 130 246 / 15%);
+  color: #1d4ed8;
 }
 
 .badgeLocked {
@@ -823,6 +829,53 @@
   min-width: 16rem;
   font-weight: 500;
   line-height: 1.4;
+}
+
+// Danh sách tài liệu khách hàng trên trang Khách hàng của dự án.
+.customerDocList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.customerDocRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: var(--ep-radius-sm);
+
+  &:hover {
+    background: var(--ep-surface-soft);
+  }
+}
+
+.customerDocName {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ep-accent-strong, #1d4ed8);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+
+  &:hover {
+    text-decoration: underline;
+  }
+}
+
+.customerDocText {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .groupRow th {

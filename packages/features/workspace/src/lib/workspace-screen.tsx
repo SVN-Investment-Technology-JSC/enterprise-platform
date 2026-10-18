@@ -554,7 +554,11 @@ export function WorkspaceScreen() {
             )
           ) : urlProjectId ? (
             // Trong một dự án: tab Khách hàng chỉ hiện khách hàng của dự án đó.
-            <CustomersView scoped scopeCustomerId={openProjectInfo?.customerId} />
+            <CustomersView
+              scoped
+              scopeCustomerId={openProjectInfo?.customerId}
+              scopeProjectId={urlProjectId}
+            />
           ) : (
             <CustomersView />
           )}

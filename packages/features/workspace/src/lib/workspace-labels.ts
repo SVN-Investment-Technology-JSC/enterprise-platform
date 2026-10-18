@@ -1,6 +1,7 @@
 import type {
   ContractStatus,
   DependencyType,
+  DocumentAudience,
   EventType,
   MyWorkBucket,
   ParticipantResponse,
@@ -34,6 +35,12 @@ export const PROJECT_STATUS_LABELS: Record<ProjectStatus, string> = {
   on_hold: 'Tạm dừng',
   completed: 'Hoàn thành',
   cancelled: 'Đã huỷ',
+};
+
+/** Nhãn tiếng Việt của phân loại tài liệu nội bộ/khách hàng. */
+export const DOCUMENT_AUDIENCE_LABELS: Record<DocumentAudience, string> = {
+  internal: 'Nội bộ',
+  customer: 'Khách hàng',
 };
 
 /** Nhãn tiếng Việt của trạng thái hợp đồng. */

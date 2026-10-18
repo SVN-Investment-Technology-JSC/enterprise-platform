@@ -39,6 +39,7 @@ import type {
   CreateTagRequest,
   CreateVersionRequest,
   CreateWorkItemRequest,
+  DocumentAudience,
   DocumentDetail,
   DocumentFolder,
   DocumentFolderRef,
@@ -479,6 +480,7 @@ export const listDocuments = (params: {
   projectId?: string;
   folderId?: string;
   status?: string;
+  audience?: DocumentAudience;
   search?: string;
   linkedType?: string;
   linkedId?: string;
@@ -532,6 +534,13 @@ export const unlockDocument = (id: string) =>
 
 export const archiveDocument = (id: string) =>
   request<WorkspaceDocument>(`/documents/${id}`, { method: 'DELETE' });
+
+/** Đổi phân loại nội bộ/khách hàng của tài liệu. */
+export const setDocumentAudience = (id: string, audience: DocumentAudience) =>
+  request<WorkspaceDocument>(`/documents/${id}/audience`, {
+    method: 'PATCH',
+    body: JSON.stringify({ audience }),
+  });
 
 export const linkDocument = (id: string, body: LinkDocumentRequest) =>
   request<DocumentLink>(`/documents/${id}/links`, { method: 'POST', body: JSON.stringify(body) });
