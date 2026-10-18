@@ -12,7 +12,7 @@
 | 3 | Group công việc + thêm thành viên ngoài dự án | ✅ Xong | ✅ | ✅ |
 | 4 | Tài liệu khách hàng (nội bộ/khách hàng + chuột phải + hiển thị + tìm nhanh) | ✅ Xong | ✅ | ✅ |
 | 5 | Hợp đồng gắn dự án (projectId) + click sang dự án gốc | ✅ Xong | ✅ | ✅ |
-| 6 | Điều hướng: trang Dự án mặc định hiện danh sách; breadcrumb "Dự án" về danh sách | ☐ Chưa làm | ☐ | ☐ |
+| 6 | Điều hướng: trang Dự án mặc định hiện danh sách; breadcrumb "Dự án" về danh sách | ✅ Xong | ✅ | ✅ |
 
 ---
 
@@ -76,11 +76,13 @@
 ---
 
 ### COMMIT 6 — Điều hướng trang Dự án
-- Ngày: _(sau Commit 5)_
-- Phạm vi: (1) nhấn mục nav "Dự án" / vào khu Dự án mặc định hiển thị DANH SÁCH toàn bộ dự án (xoá `?project=`), không nhảy vào dự án cũ; (2) breadcrumb "Dự án" là link quay về danh sách.
+- Ngày: 2026-10-19
+- Phạm vi: (1) nhấn mục nav "Dự án" mặc định hiển thị DANH SÁCH toàn bộ dự án (xoá `?project=`), không nhảy vào dự án cũ; (2) breadcrumb "Dự án" là link quay về danh sách.
 - File thay đổi:
-- Ghi chú:
-- Kết quả test:
+  - `packages/features/module-shell/src/lib/module-shell-light.tsx` (crumb của view hiện tại bấm được → `onViewChange(view)`; crumbs đổi sang mảng `{label,onClick?}`)
+  - `packages/features/workspace/src/lib/workspace-screen.tsx` (`openProjectList` xoá `?project`; `handleViewChange` bọc `onViewChange` để view 'projects' luôn về danh sách)
+- Ghi chú: `props.crumbs` API (readonly string[]) giữ nguyên → không ảnh hưởng module khác; crumb view giờ là shortcut về view đó.
+- Kết quả test: lint feature-module-shell + feature-workspace pass; `tsc --build workspace-web` exit 0. Browser: trong dự án, bấm nav "Dự án" → `#projects` (danh sách); bấm breadcrumb "Dự án" → `#projects` (danh sách); xoá `?project` đúng.
 
 ## Quyết định / vướng mắc phát sinh
 - _(ghi khi có)_

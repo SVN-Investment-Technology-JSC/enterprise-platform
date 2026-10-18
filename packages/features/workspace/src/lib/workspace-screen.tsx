@@ -151,6 +151,27 @@ export function WorkspaceScreen() {
     (projectId: string) => openInProject(projectId, `project/${projectId}`),
     [openInProject],
   );
+  /** Về trang Dự án: bỏ dự án đang chọn trên đường dẫn để hiện danh sách toàn bộ. */
+  const openProjectList = useCallback(() => {
+    const url = new URL(window.location.href);
+    url.searchParams.delete('project');
+    url.searchParams.delete('item');
+    url.searchParams.delete('tab');
+    url.hash = 'projects';
+    window.history.pushState(null, '', url);
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+  }, []);
+  /**
+   * Điều hướng từ thanh bên và breadcrumb: vào khu "Dự án" luôn mở trang danh
+   * sách (không giữ lại dự án đang xem); các trang khác giữ nguyên.
+   */
+  const handleViewChange = useCallback(
+    (next: Tab) => {
+      if (next === 'projects') openProjectList();
+      else navigate(next);
+    },
+    [navigate, openProjectList],
+  );
   const [error, setError] = useState<string>();
   const [quickOpen, setQuickOpen] = useState(false);
   /** Mục Dự án trên thanh bên: vài dự án đầu (hay tất cả, khi đã bung) và tổng số. */
@@ -436,7 +457,7 @@ export function WorkspaceScreen() {
       title="Không gian làm việc"
       nav={nav}
       view={view}
-      onViewChange={navigate}
+      onViewChange={handleViewChange}
       homeHref={homePath}
       collapsible
       collapsed={railCollapsed}
