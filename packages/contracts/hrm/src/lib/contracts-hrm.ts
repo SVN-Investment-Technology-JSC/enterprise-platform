@@ -1246,6 +1246,8 @@ export interface HrmLeaveBalance {
   readonly entitlement?: number;
   /** Phần chuyển từ năm trước (= `openingBalance`); đã nằm trong `entitlement`. Chỉ có trong `GET /leave-balances`. */
   readonly carryover?: number;
+  /** Số ngày phép đã tích luỹ đến thời điểm hiện tại theo chính sách (không tính ứng trước). */
+  readonly entitledToDate?: number | null;
   readonly createdAt: string;
   readonly updatedAt: string;
 }
@@ -1388,6 +1390,8 @@ export interface HrmLeaveTransaction {
   readonly employeeName?: string;
   readonly employeeCode?: string;
   readonly department?: string | null;
+  /** Khóa phân biệt thao tác hoặc khóa idempotency (ví dụ: reverse-adjustment:<id>). */
+  readonly operationKey?: string | null;
   readonly createdAt: string;
 }
 
