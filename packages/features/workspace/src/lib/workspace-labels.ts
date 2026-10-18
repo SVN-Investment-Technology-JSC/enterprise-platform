@@ -1,4 +1,5 @@
 import type {
+  ContractStatus,
   DependencyType,
   EventType,
   MyWorkBucket,
@@ -33,6 +34,22 @@ export const PROJECT_STATUS_LABELS: Record<ProjectStatus, string> = {
   on_hold: 'Tạm dừng',
   completed: 'Hoàn thành',
   cancelled: 'Đã huỷ',
+};
+
+/** Nhãn tiếng Việt của trạng thái hợp đồng. */
+export const CONTRACT_STATUS_LABELS: Record<ContractStatus, string> = {
+  draft: 'Nháp',
+  active: 'Đang hiệu lực',
+  completed: 'Hoàn thành',
+  cancelled: 'Đã huỷ',
+};
+
+/** Màu huy hiệu trạng thái hợp đồng, cùng bảng màu với trạng thái dự án. */
+export const CONTRACT_STATUS_TONE: Record<ContractStatus, { bg: string; fg: string }> = {
+  draft: { bg: 'rgb(156 163 175 / 18%)', fg: '#4b5563' },
+  active: { bg: 'rgb(59 130 246 / 15%)', fg: '#1d4ed8' },
+  completed: { bg: 'rgb(16 185 129 / 15%)', fg: '#047857' },
+  cancelled: { bg: '#f3f4f6', fg: '#6b7280' },
 };
 
 export const WORK_ITEM_STATUS_LABELS: Record<WorkItemStatus, string> = {

@@ -18,9 +18,16 @@ import type {
   ChatMessage,
   ChatThread,
   CompleteUploadRequest,
+  Contract,
   CostEntry,
   CostEntryList,
+  CreateContractRequest,
   CreateCostEntryRequest,
+  CreateCustomerRequest,
+  Customer,
+  CustomerSummary,
+  UpdateContractRequest,
+  UpdateCustomerRequest,
   CreateDocumentRequest,
   CreateDocumentResponse,
   CreateEventRequest,
@@ -291,6 +298,48 @@ export const addDependency = (id: string, body: AddDependencyRequest) =>
 
 export const removeDependency = (id: string, dependencyId: string) =>
   request<void>(`/work-items/${id}/dependencies/${dependencyId}`, { method: 'DELETE' });
+
+/* =========================================================================
+   KHÁCH HÀNG & HỢP ĐỒNG
+
+   Khách hàng là chủ quản của dự án; mỗi khách hàng có nhiều hợp đồng. Dự án
+   trỏ tới khách hàng qua `customerId` (xem `createProject`/`updateProject` —
+   trường này đã nằm trong kiểu yêu cầu nên tự đi theo thân gửi lên).
+   ========================================================================= */
+
+/** Danh sách khách hàng; `query` lọc theo mã hoặc tên. */
+export const listCustomers = (query?: string) => {
+  const suffix = query ? `?query=${encodeURIComponent(query)}` : '';
+  return request<CustomerSummary[]>(`/customers${suffix}`, { cache: 'no-store' });
+};
+
+/** Một khách hàng kèm toàn bộ hợp đồng của họ. */
+export const getCustomer = (id: string) =>
+  request<{ customer: Customer; contracts: Contract[] }>(`/customers/${id}`, {
+    cache: 'no-store',
+  });
+
+export const createCustomer = (body: CreateCustomerRequest) =>
+  request<Customer>('/customers', { method: 'POST', body: JSON.stringify(body) });
+
+export const updateCustomer = (id: string, body: UpdateCustomerRequest) =>
+  request<Customer>(`/customers/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+
+/** Chỉ xoá được khi khách hàng chưa có hợp đồng và dự án; server từ chối nếu còn. */
+export const deleteCustomer = (id: string) =>
+  request<void>(`/customers/${id}`, { method: 'DELETE' });
+
+export const listCustomerContracts = (id: string) =>
+  request<Contract[]>(`/customers/${id}/contracts`, { cache: 'no-store' });
+
+export const createContract = (body: CreateContractRequest) =>
+  request<Contract>('/contracts', { method: 'POST', body: JSON.stringify(body) });
+
+export const updateContract = (id: string, body: UpdateContractRequest) =>
+  request<Contract>(`/contracts/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+
+export const deleteContract = (id: string) =>
+  request<void>(`/contracts/${id}`, { method: 'DELETE' });
 
 /* =========================================================================
    LỊCH BIỂU (P2)

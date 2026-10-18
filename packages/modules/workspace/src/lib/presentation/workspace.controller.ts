@@ -28,6 +28,10 @@ import type {
   CreateStandaloneTaskRequest,
   ReverseStandaloneTaskRequest,
   UpdateStandaloneTaskRequest,
+  CreateCustomerRequest,
+  UpdateCustomerRequest,
+  CreateContractRequest,
+  UpdateContractRequest,
   EnsureFolderPathRequest,
   CreateProjectRequest,
   CreateSavedFilterRequest,
@@ -59,6 +63,8 @@ import { WorkItemDeletionService } from '../application/work-item-deletion.servi
 import { CalendarService } from '../application/calendar.service.js';
 import { CatalogService } from '../application/catalog.service.js';
 import { ChatService } from '../application/chat.service.js';
+import { ContractService } from '../application/contract.service.js';
+import { CustomerService } from '../application/customer.service.js';
 import { DirectoryService } from '../application/directory.service.js';
 import { DocumentService } from '../application/document.service.js';
 import { ExternalReferenceService } from '../application/external-reference.service.js';
@@ -126,6 +132,8 @@ export class WorkspaceController {
     private readonly workItemDeletion: WorkItemDeletionService,
     private readonly fleetTransport: FleetTransportService,
     private readonly standaloneTasks: StandaloneTaskService,
+    private readonly customers: CustomerService,
+    private readonly contracts: ContractService,
   ) {}
 
   /**
@@ -907,6 +915,69 @@ export class WorkspaceController {
   @HttpCode(204)
   removeStandaloneTask(@Req() request: WorkspaceRequest, @Param('id') id: string) {
     return this.execute(() => this.standaloneTasks.remove(this.actor(request), id));
+  }
+
+  /* ------------------------------------------------ Khách hàng & Hợp đồng */
+
+  @Get('customers')
+  listCustomers(@Req() request: WorkspaceRequest, @Query('query') query?: string) {
+    return this.execute(() => this.customers.list(this.actor(request), { search: query }));
+  }
+
+  @Get('customers/:id')
+  getCustomer(@Req() request: WorkspaceRequest, @Param('id') id: string) {
+    return this.execute(() => this.customers.detail(this.actor(request), id));
+  }
+
+  @Post('customers')
+  @HttpCode(201)
+  createCustomer(@Req() request: WorkspaceRequest, @Body() body: CreateCustomerRequest) {
+    return this.execute(() =>
+      this.customers.create(this.actor(request), body ?? ({} as CreateCustomerRequest)),
+    );
+  }
+
+  @Patch('customers/:id')
+  updateCustomer(
+    @Req() request: WorkspaceRequest,
+    @Param('id') id: string,
+    @Body() body: UpdateCustomerRequest,
+  ) {
+    return this.execute(() => this.customers.update(this.actor(request), id, body ?? {}));
+  }
+
+  @Delete('customers/:id')
+  @HttpCode(204)
+  removeCustomer(@Req() request: WorkspaceRequest, @Param('id') id: string) {
+    return this.execute(() => this.customers.remove(this.actor(request), id));
+  }
+
+  @Get('customers/:id/contracts')
+  listCustomerContracts(@Req() request: WorkspaceRequest, @Param('id') id: string) {
+    return this.execute(() => this.contracts.listByCustomer(this.actor(request), id));
+  }
+
+  @Post('contracts')
+  @HttpCode(201)
+  createContract(@Req() request: WorkspaceRequest, @Body() body: CreateContractRequest) {
+    return this.execute(() =>
+      this.contracts.create(this.actor(request), body ?? ({} as CreateContractRequest)),
+    );
+  }
+
+  @Patch('contracts/:id')
+  updateContract(
+    @Req() request: WorkspaceRequest,
+    @Param('id') id: string,
+    @Body() body: UpdateContractRequest,
+  ) {
+    return this.execute(() => this.contracts.update(this.actor(request), id, body ?? {}));
+  }
+
+  @Delete('contracts/:id')
+  @HttpCode(204)
+  removeContract(@Req() request: WorkspaceRequest, @Param('id') id: string) {
+    return this.execute(() => this.contracts.remove(this.actor(request), id));
   }
 
   /* ----------------------------------------------------------- Báo cáo */

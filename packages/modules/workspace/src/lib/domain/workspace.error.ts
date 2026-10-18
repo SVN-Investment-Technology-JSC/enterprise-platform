@@ -319,6 +319,38 @@ export class StandaloneTaskNotFoundError extends WorkspaceError {
   }
 }
 
+/** Khách hàng không tồn tại. */
+export class CustomerNotFoundError extends WorkspaceError {
+  constructor() {
+    super('CUSTOMER_NOT_FOUND', 'Khách hàng không tồn tại.', 404);
+    Object.setPrototypeOf(this, CustomerNotFoundError.prototype);
+  }
+}
+
+/** Mã khách hàng đã tồn tại. Mã là định danh người dùng đọc, phải duy nhất. */
+export class CustomerCodeConflictError extends WorkspaceError {
+  constructor(code: string) {
+    super('CUSTOMER_CODE_CONFLICT', `Mã khách hàng ${code} đã được sử dụng.`, 409);
+    Object.setPrototypeOf(this, CustomerCodeConflictError.prototype);
+  }
+}
+
+/** Hợp đồng không tồn tại. */
+export class ContractNotFoundError extends WorkspaceError {
+  constructor() {
+    super('CONTRACT_NOT_FOUND', 'Hợp đồng không tồn tại.', 404);
+    Object.setPrototypeOf(this, ContractNotFoundError.prototype);
+  }
+}
+
+/** Mã hợp đồng đã tồn tại. Mã là định danh người dùng đọc, phải duy nhất. */
+export class ContractCodeConflictError extends WorkspaceError {
+  constructor(code: string) {
+    super('CONTRACT_CODE_CONFLICT', `Mã hợp đồng ${code} đã được sử dụng.`, 409);
+    Object.setPrototypeOf(this, ContractCodeConflictError.prototype);
+  }
+}
+
 /** Người gọi có liên quan tới việc nhưng vai của họ không làm được thao tác này. */
 export class StandaloneTaskForbiddenError extends WorkspaceError {
   constructor(message: string) {

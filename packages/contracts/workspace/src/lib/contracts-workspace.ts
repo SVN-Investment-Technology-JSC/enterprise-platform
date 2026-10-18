@@ -223,7 +223,10 @@ export interface Project {
   readonly status: ProjectStatus;
   readonly ownerUserId: string;
   readonly orgUnitId?: string;
+  /** Con trỏ cũ (chữ tự do) tới mã khách hàng. Giữ lại để tương thích ngược. */
   readonly customerRef?: string;
+  /** Khách hàng chủ quản của dự án (thực thể trong Workspace). */
+  readonly customerId?: string;
   /** Loại dự án, chữ tự do (Dịch vụ thí nghiệm, Bảo trì…); dùng để lọc và nhóm. */
   readonly projectType?: string;
   readonly startDate?: string;
@@ -272,6 +275,8 @@ export interface CreateProjectRequest {
   readonly description?: string;
   readonly orgUnitId?: string;
   readonly customerRef?: string;
+  /** Khách hàng chủ quản (tuỳ chọn). */
+  readonly customerId?: string;
   readonly projectType?: string;
   readonly startDate?: string;
   readonly endDate?: string;
@@ -285,6 +290,8 @@ export interface UpdateProjectRequest {
   readonly ownerUserId?: string;
   readonly orgUnitId?: string;
   readonly customerRef?: string;
+  /** `null` gỡ khách hàng khỏi dự án. */
+  readonly customerId?: string | null;
   /** `null` gỡ loại khỏi dự án. */
   readonly projectType?: string | null;
   readonly startDate?: string | null;
@@ -299,6 +306,78 @@ export interface ProjectTypeOption {
 
 export interface SetProjectMembersRequest {
   readonly members: readonly { readonly userId: string; readonly role: ProjectRole }[];
+}
+
+/* =========================================================================
+   KHÁCH HÀNG & HỢP ĐỒNG
+
+   Khách hàng là chủ quản của dự án. Mỗi khách hàng có nhiều hợp đồng. Dự án
+   trỏ tới khách hàng qua `customerId` (xem phần DỰ ÁN ở trên).
+   ========================================================================= */
+
+export interface Customer {
+  readonly id: string;
+  readonly code: string;
+  readonly name: string;
+  readonly note?: string;
+  readonly createdBy: string;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+/** Dòng danh sách khách hàng, kèm vài số liệu tổng hợp để khỏi gọi thêm API. */
+export interface CustomerSummary extends Customer {
+  readonly contractCount: number;
+  readonly projectCount: number;
+}
+
+export interface CreateCustomerRequest {
+  readonly code: string;
+  readonly name: string;
+  readonly note?: string;
+}
+
+/** Mã khách hàng không đổi sau khi tạo. */
+export interface UpdateCustomerRequest {
+  readonly name?: string;
+  readonly note?: string | null;
+}
+
+export const CONTRACT_STATUSES = ['draft', 'active', 'completed', 'cancelled'] as const;
+export type ContractStatus = (typeof CONTRACT_STATUSES)[number];
+
+export interface Contract {
+  readonly id: string;
+  readonly customerId: string;
+  readonly code: string;
+  readonly name: string;
+  readonly status: ContractStatus;
+  /** Giá trị hợp đồng (VND). */
+  readonly value?: number;
+  readonly signedDate?: string;
+  readonly note?: string;
+  readonly createdBy: string;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+export interface CreateContractRequest {
+  readonly customerId: string;
+  readonly code: string;
+  readonly name: string;
+  readonly status?: ContractStatus;
+  readonly value?: number;
+  readonly signedDate?: string;
+  readonly note?: string;
+}
+
+/** Mã hợp đồng và khách hàng chủ quản không đổi sau khi tạo. */
+export interface UpdateContractRequest {
+  readonly name?: string;
+  readonly status?: ContractStatus;
+  readonly value?: number | null;
+  readonly signedDate?: string | null;
+  readonly note?: string | null;
 }
 
 /* =========================================================================

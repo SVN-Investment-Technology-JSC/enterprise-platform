@@ -4,7 +4,11 @@ import type {
   ChatEntityType,
   ChatMessage,
   ChatReader,
+  Contract,
+  ContractStatus,
   CostEntry,
+  Customer,
+  CustomerSummary,
   ProjectRequest,
   WorkdayRuleKind,
   CreateProjectRequest,
@@ -169,6 +173,45 @@ export interface ReportScopeFilter {
   readonly userId: string;
   /** Người gọi tự giới hạn vào vài dự án; rỗng nghĩa là cả phạm vi. */
   readonly projectIds?: readonly string[];
+}
+
+/** Khách hàng đã chuẩn hoá ở tầng ứng dụng, sẵn sàng ghi. */
+export interface CustomerWriteModel {
+  readonly code: string;
+  readonly name: string;
+  readonly note: string | null;
+}
+
+/** Sửa khách hàng: mã không đổi, nên không có mặt. */
+export interface CustomerUpdateModel {
+  readonly name?: string;
+  readonly note?: string | null;
+}
+
+/** Số thực thể phụ thuộc vào một khách hàng; dùng để chặn xoá. */
+export interface CustomerDependents {
+  readonly contractCount: number;
+  readonly projectCount: number;
+}
+
+/** Hợp đồng đã chuẩn hoá ở tầng ứng dụng, sẵn sàng ghi. */
+export interface ContractWriteModel {
+  readonly customerId: string;
+  readonly code: string;
+  readonly name: string;
+  readonly status: ContractStatus;
+  readonly value: number | null;
+  readonly signedDate: string | null;
+  readonly note: string | null;
+}
+
+/** Sửa hợp đồng: mã và khách hàng chủ quản không đổi, nên không có mặt. */
+export interface ContractUpdateModel {
+  readonly name?: string;
+  readonly status?: ContractStatus;
+  readonly value?: number | null;
+  readonly signedDate?: string | null;
+  readonly note?: string | null;
 }
 
 /** Việc giao lẻ đã chuẩn hoá ở tầng ứng dụng, sẵn sàng ghi. */
@@ -1162,6 +1205,54 @@ export interface WorkspaceStore {
       instanceCode: string,
       today: string,
     ): Promise<void>;
+  };
+
+  /**
+   * Khách hàng chủ quản của dự án.
+   *
+   * Store không kiểm quyền — tầng ứng dụng đã làm. Mã khách hàng duy nhất
+   * trong tenant (UNIQUE trên cột `code`); hai request cùng mã thì người thua
+   * nhận lỗi trùng mã.
+   */
+  readonly customer: {
+    /** Danh sách khách hàng kèm số hợp đồng và số dự án, mới nhất trước. */
+    list(
+      tenantId: string,
+      query?: { readonly search?: string },
+    ): Promise<readonly CustomerSummary[]>;
+    findById(tenantId: string, customerId: string): Promise<Customer | undefined>;
+    findByCode(tenantId: string, code: string): Promise<Customer | undefined>;
+    create(
+      tenantId: string,
+      actorUserId: string,
+      input: CustomerWriteModel,
+    ): Promise<Customer>;
+    update(
+      tenantId: string,
+      customerId: string,
+      input: CustomerUpdateModel,
+    ): Promise<Customer>;
+    remove(tenantId: string, customerId: string): Promise<void>;
+    /** Số hợp đồng và dự án đang trỏ tới khách hàng; dùng để chặn xoá. */
+    dependents(tenantId: string, customerId: string): Promise<CustomerDependents>;
+  };
+
+  /** Hợp đồng của khách hàng. Mã hợp đồng duy nhất trong tenant. */
+  readonly contract: {
+    listByCustomer(tenantId: string, customerId: string): Promise<readonly Contract[]>;
+    findById(tenantId: string, contractId: string): Promise<Contract | undefined>;
+    findByCode(tenantId: string, code: string): Promise<Contract | undefined>;
+    create(
+      tenantId: string,
+      actorUserId: string,
+      input: ContractWriteModel,
+    ): Promise<Contract>;
+    update(
+      tenantId: string,
+      contractId: string,
+      input: ContractUpdateModel,
+    ): Promise<Contract>;
+    remove(tenantId: string, contractId: string): Promise<void>;
   };
 
   readonly history: {
