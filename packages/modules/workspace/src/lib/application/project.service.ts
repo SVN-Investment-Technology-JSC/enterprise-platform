@@ -20,6 +20,7 @@ import {
 import {
   ProjectCodeConflictError,
   ProjectForbiddenError,
+  ProjectHasOpenWorkItemsError,
   ProjectNotFoundError,
   ProjectPermissionForbiddenError,
   ProjectRoleForbiddenError,
@@ -276,6 +277,13 @@ export class ProjectService {
     }
     if (input.status !== undefined && !parseStatus(input.status)) {
       throw new WorkspaceValidationError(`Trạng thái dự án "${input.status}" không hợp lệ.`);
+    }
+    // Đóng hồ sơ (chốt sổ) là bước một chiều: chặn khi dự án còn công việc chưa
+    // đóng, kẻo tiến độ và báo cáo không còn khớp thực tế. Chỉ kiểm khi đang
+    // CHUYỂN sang `completed` — sửa dự án đã hoàn thành (vd đổi mô tả) không kích.
+    if (input.status === 'completed' && access.project.status !== 'completed') {
+      const openItems = await this.store.workItem.openItemCount(actor.tenantId, projectId);
+      if (openItems > 0) throw new ProjectHasOpenWorkItemsError();
     }
     // Đổi chủ nhiệm là thay người chịu trách nhiệm cuối cùng: chỉ chủ nhiệm
     // hiện tại hoặc quản trị viên tenant được làm.

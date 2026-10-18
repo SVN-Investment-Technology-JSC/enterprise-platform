@@ -804,6 +804,27 @@
   }
 }
 
+// Bảng hợp đồng: hàng cao hơn, tên hợp đồng cho phép xuống 2 dòng.
+.contractTable {
+  td {
+    height: auto;
+    min-height: 60px;
+    padding-top: 12px;
+    padding-bottom: 12px;
+    vertical-align: top;
+  }
+}
+
+.contractName {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  min-width: 16rem;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
 .groupRow th {
   height: 40px;
   background: var(--ep-surface-soft);
@@ -1806,6 +1827,18 @@
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
   gap: 14px;
+}
+
+/* Khối tạo nhanh (vd khách hàng mới) lồng trong một trường của form. */
+.inlineCreate {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 10px;
+  border: 1px dashed var(--ep-border-strong);
+  border-radius: var(--ep-radius-md);
+  background: var(--ep-surface-soft);
 }
 
 .dateInputWrapper {
@@ -4848,6 +4881,56 @@
   gap: 16px;
   height: calc(100vh - 140px);
   min-height: 480px;
+}
+
+/* Khách hàng theo ngữ cảnh dự án: một cột, chi tiết khách hàng chiếm trọn. */
+.scopePane {
+  display: flex;
+  height: calc(100vh - 140px);
+  min-height: 480px;
+  min-width: 0;
+
+  > section {
+    flex: 1;
+    min-width: 0;
+  }
+}
+
+/* Trang danh sách dự án: thanh công cụ + bộ lọc cố định, bảng cuộn riêng. */
+.listPage {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: calc(100vh - 140px);
+  min-height: 480px;
+  min-width: 0;
+}
+
+.listToolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.listToolbarSpacer {
+  flex: 1;
+}
+
+.listScroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid var(--ep-border);
+  border-radius: var(--ep-radius-lg);
+  background: var(--ep-surface);
+
+  // Tiêu đề bám đầu khi cuộn dọc, để luôn thấy tên cột ở bảng dài.
+  .table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+  }
 }
 
 .taskListPane,

@@ -344,6 +344,8 @@ export interface WorkspaceStore {
     progressRows(tenantId: string, projectId: string): Promise<readonly WorkItemProgressRow[]>;
     /** Số việc con chưa đóng; dùng để chặn đóng node cha còn dở dang. */
     openChildCount(tenantId: string, workItemId: string): Promise<number>;
+    /** Số công việc chưa đóng của cả dự án; dùng để chặn đóng hồ sơ dự án còn việc dở. */
+    openItemCount(tenantId: string, projectId: string): Promise<number>;
     /**
      * Tạo công việc. Mã `CVxxx` do store sinh BÊN TRONG transaction, sau khi
      * khoá theo dự án — sinh ở ngoài rồi truyền vào thì hai người tạo việc cùng

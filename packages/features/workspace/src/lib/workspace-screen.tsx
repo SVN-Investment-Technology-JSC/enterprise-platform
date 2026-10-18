@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  getProject,
   listAllProjects,
   listProjects,
   listProjectTypes,
@@ -38,6 +39,7 @@ import { QuickSearch, type QuickSearchTarget } from './components/quick-search';
 import { ReportsView } from './components/reports-view';
 import { ProjectRoleSettings } from './components/project-role-settings';
 import { ProjectsView } from './components/projects-view';
+import { ProjectsListView } from './components/projects-list-view';
 import { CustomersView } from './components/customers-view';
 import { StandaloneTasksView } from './components/standalone-tasks-view';
 import styles from './workspace.module.scss';
@@ -170,6 +172,44 @@ export function WorkspaceScreen() {
     },
     [],
   );
+  /**
+   * Dự án ghi trên đường dẫn (`?project=`). Đây là nguồn quyết định hiện trang
+   * danh sách dự án hay trang chi tiết: chưa có thì hiện danh sách, có thì mở
+   * chi tiết (và tab Khách hàng thu về đúng khách hàng của dự án đó).
+   */
+  const [urlProjectId, setUrlProjectId] = useState<string>();
+  useEffect(() => {
+    const sync = () => {
+      const next = new URLSearchParams(window.location.search).get('project') ?? undefined;
+      setUrlProjectId(next);
+      // Không còn dự án trên đường dẫn (về trang danh sách): bỏ tô sáng dòng dự
+      // án trên thanh bên. Khi mở một dự án, ProjectsView sẽ gán lại kèm tóm tắt.
+      if (!next) setOpenProjectId(undefined);
+    };
+    sync();
+    window.addEventListener('hashchange', sync);
+    window.addEventListener('popstate', sync);
+    return () => {
+      window.removeEventListener('hashchange', sync);
+      window.removeEventListener('popstate', sync);
+    };
+  }, []);
+
+  // Vào thẳng tab Khách hàng của một dự án (link sâu) mà trang Dự án chưa từng
+  // mở: nạp bản tóm tắt dự án để biết khách hàng chủ quản mà thu hẹp theo.
+  useEffect(() => {
+    if (view !== 'customers' || !urlProjectId) return;
+    if (openProjectInfo?.id === urlProjectId) return;
+    let active = true;
+    void getProject(urlProjectId)
+      .then((project) => {
+        if (active) setOpenProjectInfo(project);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [view, urlProjectId, openProjectInfo]);
   /** Chỗ nút ở đầu trang, nơi trang Dự án đặt nút Trao đổi và "⋯" của dự án. */
   const [actionsSlot, setActionsSlot] = useState<HTMLDivElement | null>(null);
   /** Bấm lại dự án đang mở: trang Dự án đóng hộp chi tiết, về tab Công việc. */
@@ -408,7 +448,9 @@ export function WorkspaceScreen() {
         active: view === 'settings',
         onOpen: () => navigate('settings'),
       }}
-      crumbs={view === 'projects' && openProjectInfo ? [openProjectInfo.name] : undefined}
+      crumbs={
+        view === 'projects' && urlProjectId && openProjectInfo ? [openProjectInfo.name] : undefined
+      }
       actions={
         view === 'projects' && !provisioning ? (
           // Trang Dự án tự đặt nút Trao đổi và "⋯" của dự án đang mở vào đây.
@@ -490,17 +532,29 @@ export function WorkspaceScreen() {
             </button>
           </div>
           {view === 'projects' ? (
-            <ProjectsView
-              canDelete={canDelete}
-              notificationTarget={sub}
-              onOpenProjectChange={onOpenProjectChange}
-              onOpenProject={openProject}
-              actionsSlot={actionsSlot}
-              onProjectsChanged={reloadSidebarProjects}
-              focusProjectRequest={focusProjectRequest}
-              createProjectRequest={createProjectRequest}
-              onCreateProjectHandled={clearCreateProjectRequest}
-            />
+            urlProjectId ? (
+              <ProjectsView
+                canDelete={canDelete}
+                notificationTarget={sub}
+                onOpenProjectChange={onOpenProjectChange}
+                onOpenProject={openProject}
+                actionsSlot={actionsSlot}
+                onProjectsChanged={reloadSidebarProjects}
+                focusProjectRequest={focusProjectRequest}
+                createProjectRequest={createProjectRequest}
+                onCreateProjectHandled={clearCreateProjectRequest}
+              />
+            ) : (
+              <ProjectsListView
+                onOpenProject={openProject}
+                createProjectRequest={createProjectRequest}
+                onCreateProjectHandled={clearCreateProjectRequest}
+                onProjectsChanged={reloadSidebarProjects}
+              />
+            )
+          ) : urlProjectId ? (
+            // Trong một dự án: tab Khách hàng chỉ hiện khách hàng của dự án đó.
+            <CustomersView scoped scopeCustomerId={openProjectInfo?.customerId} />
           ) : (
             <CustomersView />
           )}

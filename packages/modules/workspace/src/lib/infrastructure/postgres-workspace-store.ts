@@ -1207,6 +1207,16 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
       return num(result.rows[0]?.open_children);
     },
 
+    openItemCount: async (tenantId: string, projectId: string) => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<{ open_items: string }>(
+        `SELECT COUNT(*)::text AS open_items FROM workspace_schema.work_items
+          WHERE project_id = $1 AND status NOT IN ('done','cancelled')`,
+        [projectId],
+      );
+      return num(result.rows[0]?.open_items);
+    },
+
     create: async (
       tenantId: string,
       actorUserId: string,

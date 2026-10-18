@@ -150,6 +150,24 @@ export class ChildIncompleteError extends WorkspaceError {
   }
 }
 
+/**
+ * Không thể đóng hồ sơ dự án khi còn công việc chưa hoàn thành.
+ *
+ * Đóng hồ sơ (chuyển dự án sang `completed`) là chốt sổ: còn công việc đang mở
+ * mà đóng thì tiến độ và báo cáo không còn phản ánh thực tế. Hoàn thành hoặc
+ * huỷ các công việc đó trước.
+ */
+export class ProjectHasOpenWorkItemsError extends WorkspaceError {
+  constructor() {
+    super(
+      'PROJECT_HAS_OPEN_WORK_ITEMS',
+      'Không thể đóng hồ sơ: dự án còn công việc chưa hoàn thành.',
+      409,
+    );
+    Object.setPrototypeOf(this, ProjectHasOpenWorkItemsError.prototype);
+  }
+}
+
 /** Công việc tiền nhiệm kiểu FS chưa hoàn thành. */
 export class DependencyBlockedError extends WorkspaceError {
   constructor(predecessorCode: string) {

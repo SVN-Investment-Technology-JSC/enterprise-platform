@@ -34,7 +34,18 @@ function ContractStatusBadge({ status }: { status: ContractStatus }) {
   );
 }
 
-export function CustomersView() {
+export interface CustomersViewProps {
+  /**
+   * Bật chế độ "ngữ cảnh dự án": chỉ hiện đúng một khách hàng (của dự án đang
+   * mở), không có danh sách trái và không có nút "Thêm khách hàng". Vắng prop
+   * này là trang Khách hàng đầy đủ như cũ.
+   */
+  readonly scoped?: boolean;
+  /** Khách hàng chủ quản của dự án đang mở; rỗng nghĩa là dự án chưa gắn khách hàng. */
+  readonly scopeCustomerId?: string;
+}
+
+export function CustomersView({ scoped = false, scopeCustomerId }: CustomersViewProps = {}) {
   const [customers, setCustomers] = useState<readonly CustomerSummary[]>([]);
   const [listLoaded, setListLoaded] = useState(false);
   const [search, setSearch] = useState('');
@@ -89,6 +100,11 @@ export function CustomersView() {
   const refreshDetail = useCallback(async () => {
     if (selectedId) await openCustomer(selectedId);
   }, [selectedId, openCustomer]);
+
+  // Ngữ cảnh dự án: mở thẳng khách hàng của dự án đang xem, không qua danh sách.
+  useEffect(() => {
+    if (scoped && scopeCustomerId) void openCustomer(scopeCustomerId);
+  }, [scoped, scopeCustomerId, openCustomer]);
 
   const selectedSummary = useMemo(
     () => customers.find((customer) => customer.id === selectedId),
@@ -167,7 +183,8 @@ export function CustomersView() {
   /* ------------------------------------------------------------- Render */
 
   return (
-    <div className={styles.taskSplit}>
+    <div className={scoped ? styles.scopePane : styles.taskSplit}>
+      {scoped ? null : (
       <section className={styles.taskListPane} aria-label="Danh sách khách hàng">
         <div className={styles.taskListHead}>
           <button
@@ -237,11 +254,16 @@ export function CustomersView() {
         ) : null}
         {!listLoaded ? <p className={styles.emptyRow}>Đang tải…</p> : null}
       </section>
+      )}
 
       <section className={styles.taskDetailPane} aria-label="Chi tiết khách hàng">
         {!selectedId ? (
           <div className={styles.emptyState}>
-            <p>Chọn một khách hàng để xem chi tiết và hợp đồng.</p>
+            <p>
+              {scoped
+                ? 'Dự án này chưa gắn khách hàng.'
+                : 'Chọn một khách hàng để xem chi tiết và hợp đồng.'}
+            </p>
           </div>
         ) : loadingDetail && !detail ? (
           <p className={styles.muted}>Đang tải khách hàng…</p>
@@ -308,7 +330,7 @@ export function CustomersView() {
             ) : (
               <div className={styles.tableCard}>
                 <div className={styles.tableScroll}>
-                  <table className={styles.table}>
+                  <table className={`${styles.table} ${styles.contractTable}`}>
                     <thead>
                       <tr>
                         <th>Mã</th>
@@ -323,7 +345,7 @@ export function CustomersView() {
                       {detail.contracts.map((contract) => (
                         <tr key={contract.id}>
                           <td className={styles.cellNowrap}>{contract.code}</td>
-                          <td className={styles.cellTitle}>{contract.name}</td>
+                          <td className={styles.contractName}>{contract.name}</td>
                           <td>
                             <ContractStatusBadge status={contract.status} />
                           </td>

@@ -16,7 +16,9 @@ Nâng cấp module Workspace để:
 - **Nhóm dự án = Loại dự án (`projectType`)**. "Chuyển nhóm" = đổi `projectType`.
 - **"Thuộc hợp đồng" = thuộc khách hàng nào.** Dự án liên kết tới **Khách hàng**; Hợp đồng thuộc Khách hàng.
 - Khu "Dự án" có **2 tab**: "Dự án" (danh sách dự án) và "Khách hàng" (danh sách KH + HĐ của KH).
+- **Ngữ cảnh tab "Khách hàng"**: ở **trang chủ Dự án** (chưa chọn dự án) hiện **tất cả** khách hàng; khi **đã vào 1 dự án** thì chỉ hiện **khách hàng của dự án đó** (kèm hợp đồng, và tài liệu khách hàng của dự án — xem Commit 4).
 - Form tạo dự án: trường **Khách hàng** = `SearchableSelect` (lọc tức thì); không có thì **tạo mới (cả mã + tên)**.
+- **Tài liệu** có 2 loại: **nội bộ** (mặc định) và **khách hàng** (vd proposal, hợp đồng). Tài liệu khách hàng hiển thị ở **trang "Khách hàng" của dự án**; đổi nội bộ ↔ khách hàng bằng **chuột phải** trên tài liệu; tài liệu khách hàng **tìm nhanh** được (như công việc/dự án).
 - Mục thêm thành viên khi tạo công việc: tìm người **toàn công ty**, người chưa thuộc dự án gắn tag **"Ngoài dự án"**; khi người tạo vẫn thêm → **popup xác nhận hiện tên + chức danh**, xác nhận xong người đó **tham gia dự án luôn**. Menu tìm tên **không hiện chức danh**.
 
 ## 3. Hiện trạng code (điểm neo)
@@ -92,6 +94,10 @@ feat: trang danh sách dự án với nhóm, lọc, đóng hồ sơ và gắn kh
 - **D — ràng buộc logic đóng hồ sơ:** trong `project.service.ts`, chặn chuyển `completed` nếu còn work-item chưa `done`/`cancelled` (hoặc còn đơn/đề nghị treo) → trả lỗi nghiệp vụ rõ ràng.
 - `updateProject` hỗ trợ đổi `projectType`, `status`, `customerId`.
 
+**Scoped Khách hàng (ngữ cảnh)**
+- `CustomersView` nhận prop `scopeCustomerId?`: khi vào 1 dự án → chỉ hiện khách hàng của dự án (chi tiết + hợp đồng), không có master list/"Thêm khách hàng"; chưa gắn KH → trạng thái rỗng. Trang chủ (chưa chọn dự án) → toàn bộ KH như cũ.
+- `workspace-screen.tsx`: `view==='projects'` → `ProjectsListView` khi chưa mở dự án, `ProjectsView` khi đã mở; `view==='customers'` → scoped theo `openProjectInfo.customerId` khi đang trong dự án.
+
 **Unit test (trước khi qua commit 3)**
 - API: `updateProject` đổi loại/khách hàng/trạng thái; **ràng buộc đóng hồ sơ** (có cv chưa xong → báo lỗi; xong hết → cho đóng); `createProject` kèm `customerId`; tạo khách hàng inline.
 - Browser: danh sách + group theo loại, lọc trạng thái, chuyển nhóm, Popconfirm đóng hồ sơ (cả case bị chặn), tạo dự án chọn/tạo mới khách hàng.
@@ -118,10 +124,38 @@ feat: nhóm công việc theo dự án và thêm thành viên ngoài dự án
 
 ---
 
+### COMMIT 4 — Tài liệu khách hàng
+
+**Commit message:**
+```
+feat: phân loại tài liệu nội bộ/khách hàng và hiển thị trên trang khách hàng
+```
+
+**Backend**
+- Thêm trường loại tài liệu `audience: 'internal' | 'customer'` (mặc định `internal`) vào `WorkspaceDocument` (contracts) + migration cột `documents.audience` + store/service.
+- Endpoint đổi loại tài liệu (PATCH audience). Lọc tài liệu theo `audience` + theo dự án/khách hàng; cho phép quick-search trả tài liệu (đã có `listDocuments({search})`, bổ sung lọc/gắn nhãn khách hàng).
+- **Files:** `contracts-workspace.ts` (`WorkspaceDocument.audience`, `DOCUMENT_AUDIENCES`), migration `migrations/tenant/workspace/00xx-workspace-document-audience.sql`, `workspace-store.port.ts`, `postgres-workspace-store.ts`, `document.service.ts`(+spec), `workspace.controller.ts`.
+
+**Frontend**
+- **Chuột phải đổi loại:** trong `components/document-panel.tsx` (đã có `ContextMenu`/`ContextAction`), thêm hành động "Đổi sang tài liệu khách hàng" / "Đổi về nội bộ" trên tài liệu đã upload trong dự án.
+- **Hiển thị trên trang Khách hàng của dự án:** `CustomersView` khi scoped theo dự án hiện thêm mục **Tài liệu khách hàng** (các tài liệu `audience='customer'` của dự án) bên cạnh hợp đồng.
+- **Hợp đồng có nguồn từ dự án:** nếu một hợp đồng/tài liệu khách hàng gắn với dự án thì hàng hợp đồng hiện thêm **tên dự án** dưới dạng **link sang dự án** (cần liên kết contract/tài liệu ↔ dự án; bổ sung `projectId` cho contract hoặc map qua tài liệu).
+- **Quick-search:** `components/quick-search.tsx` cho tìm nhanh tài liệu khách hàng (nhãn/nhóm "Tài liệu khách hàng") tương tự công việc/dự án.
+- **Files:** `document-panel.tsx`, `customers-view.tsx`, `quick-search.tsx`, `workspace-api.ts`.
+
+**Tinh chỉnh giao diện bảng Hợp đồng (áp sớm, vùng Commit 2):** hàng hợp đồng **cao hơn**, cột **Tên hợp đồng cho phép xuống 2 dòng** (không cắt 1 dòng). Sửa ở `customers-view.tsx` + scss.
+
+**Unit test**
+- API: đổi `audience`, lọc tài liệu khách hàng theo dự án, quick-search trả tài liệu khách hàng.
+- Browser: upload tài liệu → chuột phải đổi sang khách hàng → thấy ở trang Khách hàng của dự án; tìm nhanh ra tài liệu khách hàng.
+
+---
+
 ## 6. Phụ thuộc & thứ tự
 
-- Commit 1 là nền (entity + API) → Commit 2 (F cần `customerId`, tab "Dự án") → Commit 3 (E có thể group theo khách hàng nhờ commit 1).
-- Rủi ro lớn nhất: migration Khách hàng/Hợp đồng + chuyển `customerRef` (text) sang `customerId` (FK) — cần kế hoạch backfill/giữ song song.
+- Commit 1 (nền: entity + API) → Commit 2 (F cần `customerId`; trang danh sách + Khách hàng theo ngữ cảnh) → Commit 3 (E group theo khách hàng nhờ commit 1) → Commit 4 (Tài liệu khách hàng, cần trang Khách hàng theo ngữ cảnh của Commit 2).
+- Commit 1 đã xong (đã commit `a734dbc5`): entity + API + tab Khách hàng, đã test API + browser.
+- Rủi ro lớn nhất: migration Khách hàng/Hợp đồng + chuyển `customerRef` (text) sang `customerId` (FK) — giữ song song, không backfill tự động.
 
 ## 7. Lệnh test tham khảo
 
