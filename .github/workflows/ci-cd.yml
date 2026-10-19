@@ -66,6 +66,7 @@ jobs:
               - 'tsconfig*.json'
               - 'tools/deployment/services.json'
               - 'tools/deployment/ci-matrix.mjs'
+              - 'tools/deployment/publish-plan.mjs'
               - 'infrastructure/docker/**'
               - 'infrastructure/nginx/**'
 
@@ -173,11 +174,18 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: read
+      # Read the image tags in GHCR to decide which services need a new build.
+      packages: read
     outputs:
-      # Every service: used to publish images from main and dev/release.
+      # Every service.
       matrix: ${{ steps.matrix.outputs.matrix }}
       # Pull requests only build the services whose Nx project is affected.
       verify_matrix: ${{ steps.verify-matrix.outputs.matrix }}
+      # Pushes build the services that changed since their production image...
+      publish_matrix: ${{ steps.publish-plan.outputs.publish_matrix }}
+      # ...and only re-tag the production image of the others.
+      retag: ${{ steps.publish-plan.outputs.retag }}
+      retag_count: ${{ steps.publish-plan.outputs.retag_count }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -188,21 +196,21 @@ jobs:
         id: matrix
         run: echo "matrix=$(node tools/deployment/ci-matrix.mjs)" >> "$GITHUB_OUTPUT"
 
+      - name: Test publish planner
+        run: node --test tools/deployment/publish-plan.spec.mjs
+
       - name: Set up pnpm
-        if: github.event_name == 'pull_request'
         uses: pnpm/action-setup@v4
         with:
           version: ${{ env.PNPM_VERSION }}
 
       - name: Set up Node.js
-        if: github.event_name == 'pull_request'
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
 
       - name: Install dependencies
-        if: github.event_name == 'pull_request'
         run: pnpm install --frozen-lockfile
 
       - name: Select services to verify
@@ -219,6 +227,26 @@ jobs:
             matrix=$(node tools/deployment/ci-matrix.mjs)
           fi
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
+      # Services whose code is unchanged since their production image keep that
+      # image: it only gets a new <service>-sha-<commit> tag so a rollback to
+      # any commit still finds every service. Falls back to building all.
+      - name: Plan image publishing
+        id: publish-plan
+        if: github.event_name != 'pull_request'
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GHCR_OWNER: ${{ github.repository_owner }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          plan=$(node tools/deployment/publish-plan.mjs)
+          echo "Plan: $plan"
+          {
+            echo "publish_matrix=$(INCLUDE_SERVICES="$(jq -c .build <<<"$plan")" node tools/deployment/ci-matrix.mjs)"
+            echo "retag=$(jq -c .retag <<<"$plan")"
+            echo "retag_count=$(jq '.retag | length' <<<"$plan")"
+          } >> "$GITHUB_OUTPUT"
 
   validate-deployment:
     name: Validate deployment configuration
@@ -269,7 +297,7 @@ jobs:
       packages: write
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.prepare-services.outputs.matrix) }}
+      matrix: ${{ fromJSON(needs.prepare-services.outputs.publish_matrix) }}
     steps:
       - uses: actions/checkout@v4
 
@@ -298,6 +326,50 @@ jobs:
             org.opencontainers.image.revision=${{ github.sha }}
           cache-from: type=gha,scope=${{ matrix.service }}
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+
+  retag-unchanged:
+    name: Tag unchanged service images
+    needs: [detect-changes, validate, prepare-services, validate-deployment]
+    if: >-
+      always() &&
+      github.event_name != 'pull_request' &&
+      (github.ref_name == 'main' || github.ref_name == 'dev/release') &&
+      needs.detect-changes.outputs.image_inputs == 'true' &&
+      needs.validate.result == 'success' &&
+      needs.prepare-services.result == 'success' &&
+      needs.validate-deployment.result == 'success' &&
+      needs.prepare-services.outputs.retag_count != '0'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE_REPOSITORY: ghcr.io/svn-investment-technology-jsc/enterprise-platform
+      RETAG: ${{ needs.prepare-services.outputs.retag }}
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Points the new sha tag at the exact digest the plan resolved, not at the
+      # mutable -production tag, so a concurrent publish cannot be tagged by mistake.
+      - name: Add the commit tag to each unchanged image
+        shell: bash
+        run: |
+          jq -c '.[]' <<<"$RETAG" | while read -r item; do
+            service=$(jq -r .service <<<"$item")
+            digest=$(jq -r .digest <<<"$item")
+            echo "$service: ${digest}"
+            docker buildx imagetools create \
+              --tag "$IMAGE_REPOSITORY:${service}-sha-${{ github.sha }}" \
+              "$IMAGE_REPOSITORY@${digest}"
+          done
 
   # Image builds do not depend on lint, type-check or test results, so they run
   # alongside validate. pr-validation-complete still requires both to succeed.
