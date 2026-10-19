@@ -116,7 +116,7 @@ describe('HrmDashboardPage', () => {
     );
     expect(screen.queryByRole('link', { name: /Tạm ứng/ })).toBeNull();
     const procedure = screen.getByRole('link', { name: /Theo dõi quy trình/ });
-    expect(procedure.getAttribute('href')).toBe('/modules/procedure-engine/instances');
+    expect(procedure.getAttribute('href')).toBe('/modules/procedure#workspace');
   });
 
   it('403 khong hien so 0 gia', async () => {

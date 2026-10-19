@@ -12,10 +12,14 @@ import type {
   SharedDocumentStatus,
   SharedDocumentVersion,
   SharedFolder,
+  SharedFolderRole,
+  SharedPrincipalType,
+  SharedShareGrant,
   SharedTrashItem,
   StorageModuleUsage,
 } from '@enterprise-platform/contracts-shared';
 import type { Pool, PoolClient } from 'pg';
+import type { AccessFolder, ShareRecord } from '../application/folder-access.js';
 import type {
   BranchRestoreTarget,
   DocumentInsert,
@@ -26,6 +30,7 @@ import type {
   FolderUpdate,
   PurgeResult,
   SharedStore,
+  TenantPerson,
   TrashedFolder,
   VersionInsert,
 } from '../application/shared-store.port.js';
@@ -228,6 +233,24 @@ export class PostgresSharedStore implements SharedStore {
             WHERE f.is_active`,
         );
         return result.rows.map(mapFolder);
+      }),
+
+    skeleton: (tenantId: string) =>
+      this.run(tenantId, async (pool): Promise<AccessFolder[]> => {
+        const result = await pool.query<{
+          id: string;
+          parent_id: string | null;
+          name: string;
+          created_by: string;
+          is_active: boolean;
+        }>(`SELECT id, parent_id, name, created_by, is_active FROM shared_schema.folders`);
+        return result.rows.map((row) => ({
+          id: row.id,
+          parentId: row.parent_id ?? undefined,
+          name: row.name,
+          createdBy: row.created_by,
+          isActive: row.is_active,
+        }));
       }),
 
     find: (tenantId: string, folderId: string) =>
@@ -501,6 +524,10 @@ export class PostgresSharedStore implements SharedStore {
         if (query.folderId) {
           values.push(query.folderId);
           where.push(`d.folder_id = $${values.length}`);
+        }
+        if (query.folderIds) {
+          values.push([...query.folderIds]);
+          where.push(`d.folder_id = ANY($${values.length}::uuid[])`);
         }
         if (query.kind) {
           values.push(query.kind);
@@ -953,6 +980,7 @@ export class PostgresSharedStore implements SharedStore {
               id: row.id,
               name: row.name,
               location: paths.get(row.folder_id) ?? '',
+              folderId: row.folder_id,
               locationAvailable: row.location_available,
               documentCount: 1,
               folderCount: 0,
@@ -970,6 +998,89 @@ export class PostgresSharedStore implements SharedStore {
           ),
         ];
         return items.sort((left, right) => right.deletedAt.localeCompare(left.deletedAt));
+      }),
+  };
+
+  readonly shares = {
+    list: (tenantId: string) =>
+      this.run(tenantId, async (pool): Promise<ShareRecord[]> => {
+        const result = await pool.query<{
+          folder_id: string;
+          principal_type: SharedPrincipalType;
+          principal_id: string | null;
+          role: SharedFolderRole;
+          expires_on: string | null;
+          updated_by: string;
+          updated_at: Date;
+        }>(
+          `SELECT folder_id, principal_type, principal_id, role, expires_on::text AS expires_on,
+                  updated_by, updated_at
+             FROM shared_schema.folder_shares
+            ORDER BY created_at, id`,
+        );
+        return result.rows.map((row) => ({
+          folderId: row.folder_id,
+          principalType: row.principal_type,
+          principalId: row.principal_id ?? undefined,
+          role: row.role,
+          expiresOn: row.expires_on ?? undefined,
+          updatedBy: row.updated_by,
+          updatedAt: row.updated_at.toISOString(),
+        }));
+      }),
+
+    replace: (tenantId: string, folderId: string, userId: string, grants: readonly SharedShareGrant[]) =>
+      this.run(tenantId, (pool) =>
+        inTransaction(pool, async (client) => {
+          const incoming = JSON.stringify(
+            grants.map((grant) => ({
+              type: grant.principalType,
+              id: grant.principalId ?? null,
+              role: grant.role,
+              expires_on: grant.expiresOn ?? null,
+            })),
+          );
+          // Dòng không còn trong danh sách mới thì bỏ.
+          await client.query(
+            `DELETE FROM shared_schema.folder_shares s
+              WHERE s.folder_id = $1
+                AND NOT EXISTS (
+                  SELECT 1 FROM jsonb_to_recordset($2::jsonb) AS i(type text, id uuid, role text, expires_on date)
+                   WHERE i.type = s.principal_type AND i.id IS NOT DISTINCT FROM s.principal_id
+                )`,
+            [folderId, incoming],
+          );
+          // Dòng mới thì thêm; dòng cũ chỉ ghi lại khi quyền hay thời hạn đổi, để
+          // "người sửa cuối" vẫn đúng với những dòng giữ nguyên.
+          await client.query(
+            `INSERT INTO shared_schema.folder_shares AS s
+                    (folder_id, principal_type, principal_id, role, expires_on, created_by, updated_by)
+             SELECT $1, i.type, i.id, i.role, i.expires_on, $3, $3
+               FROM jsonb_to_recordset($2::jsonb) AS i(type text, id uuid, role text, expires_on date)
+             ON CONFLICT (folder_id, principal_type, (COALESCE(principal_id, '00000000-0000-0000-0000-000000000000'::uuid)))
+             DO UPDATE SET role = EXCLUDED.role, expires_on = EXCLUDED.expires_on,
+                           updated_by = EXCLUDED.updated_by, updated_at = now()
+              WHERE s.role IS DISTINCT FROM EXCLUDED.role
+                 OR s.expires_on IS DISTINCT FROM EXCLUDED.expires_on`,
+            [folderId, incoming, userId],
+          );
+        }),
+      ),
+  };
+
+  readonly people = {
+    list: (tenantId: string) =>
+      this.run(tenantId, async (pool): Promise<TenantPerson[]> => {
+        const result = await pool.query<{ id: string; full_name: string; email: string | null; active: boolean }>(
+          `SELECT id, full_name, email, (status = 'active' AND is_active) AS active
+             FROM core_schema.users`,
+        );
+        return result.rows.map((row) => ({
+          id: row.id,
+          name: row.full_name,
+          email: row.email ?? undefined,
+          active: row.active,
+        }));
       }),
   };
 

@@ -3,16 +3,19 @@
 import {
   PROJECT_STATUSES,
   type CreateProjectRequest,
+  type CustomerSummary,
   type Project,
   type ProjectRole,
   type ProjectSummary,
   type ProjectTypeOption,
   type UpdateProjectRequest,
 } from '@enterprise-platform/contracts-workspace';
+import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
+import { Plus, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { formatVndWhileTyping, parseVndInput, toVndInput } from '../money';
-import { listProjectTypes } from '../workspace-api';
+import { createCustomer, listCustomers, listProjectTypes } from '../workspace-api';
 import { PROJECT_STATUS_LABELS } from '../workspace-labels';
 import styles from '../workspace.module.scss';
 import { Choice } from './choice';
@@ -54,7 +57,8 @@ interface FormState {
   name: string;
   description: string;
   status: string;
-  customerRef: string;
+  /** Khách hàng chủ quản (thực thể Workspace); rỗng nghĩa là chưa gắn. */
+  customerId: string;
   projectType: string;
   startDate: string;
   endDate: string;
@@ -83,7 +87,7 @@ const emptyForm = (): FormState => ({
   name: '',
   description: '',
   status: 'planning',
-  customerRef: '',
+  customerId: '',
   projectType: '',
   startDate: today(),
   endDate: today(),
@@ -105,6 +109,13 @@ export function ProjectForm({
   const [submitting, setSubmitting] = useState(false);
   /** Loại đã dùng trong tenant, gợi ý khi gõ để không sinh "Bảo trì" lẫn "bảo trì ". */
   const [types, setTypes] = useState<readonly ProjectTypeOption[]>([]);
+  /** Khách hàng để chọn làm chủ quản của dự án. */
+  const [customers, setCustomers] = useState<readonly CustomerSummary[]>([]);
+  /** Mở phần tạo nhanh khách hàng mới ngay trong hộp dự án. */
+  const [addCustomer, setAddCustomer] = useState(false);
+  const [newCustomer, setNewCustomer] = useState({ code: '', name: '' });
+  const [customerError, setCustomerError] = useState<string>();
+  const [savingCustomer, setSavingCustomer] = useState(false);
   /** "Thêm người" lúc tạo: bật mục rồi chọn người, mỗi người đặt vai trò riêng. */
   const [addPeople, setAddPeople] = useState(false);
   const [newMembers, setNewMembers] = useState<Array<{ userId: string; role: ProjectRole }>>([]);
@@ -114,6 +125,9 @@ export function ProjectForm({
     listProjectTypes()
       .then((result) => setTypes(result.items))
       .catch(() => setTypes([]));
+    listCustomers()
+      .then((items) => setCustomers(items))
+      .catch(() => setCustomers([]));
   }, [open]);
 
   // Nạp lại mỗi lần mở, nếu không hộp thoại sẽ còn giữ giá trị của lần trước.
@@ -126,7 +140,7 @@ export function ProjectForm({
             name: project.name,
             description: project.description ?? '',
             status: project.status,
-            customerRef: project.customerRef ?? '',
+            customerId: project.customerId ?? '',
             projectType: project.projectType ?? '',
             startDate: project.startDate ?? '',
             endDate: project.endDate ?? '',
@@ -138,9 +152,40 @@ export function ProjectForm({
     setSubmitting(false);
     setAddPeople(false);
     setNewMembers([]);
+    setAddCustomer(false);
+    setNewCustomer({ code: '', name: '' });
+    setCustomerError(undefined);
+    setSavingCustomer(false);
   }, [open, project]);
 
   const set = (patch: Partial<FormState>) => setForm((current) => ({ ...current, ...patch }));
+
+  /** Tạo nhanh một khách hàng rồi chọn luôn làm chủ quản của dự án. */
+  const saveNewCustomer = async () => {
+    const code = newCustomer.code.trim().toUpperCase();
+    const name = newCustomer.name.trim();
+    if (!code || !name) {
+      setCustomerError('Nhập cả mã và tên khách hàng.');
+      return;
+    }
+    setCustomerError(undefined);
+    setSavingCustomer(true);
+    try {
+      const created = await createCustomer({ code, name });
+      // Đưa vào danh sách ngay để SearchableSelect có nhãn hiển thị.
+      setCustomers((current) => [
+        { ...created, contractCount: 0, projectCount: 0 },
+        ...current,
+      ]);
+      set({ customerId: created.id });
+      setAddCustomer(false);
+      setNewCustomer({ code: '', name: '' });
+    } catch (cause) {
+      setCustomerError((cause as { message?: string })?.message ?? 'Không tạo được khách hàng.');
+    } finally {
+      setSavingCustomer(false);
+    }
+  };
 
   const submit = async () => {
     setError(undefined);
@@ -172,7 +217,8 @@ export function ProjectForm({
           name: form.name,
           description: form.description || undefined,
           status: form.status as Project['status'],
-          customerRef: form.customerRef || undefined,
+          // `null` gỡ khách hàng khỏi dự án khi người dùng xoá lựa chọn.
+          customerId: form.customerId || null,
           projectType: form.projectType.trim() || null,
           // `null` xoá ngày đã đặt; `undefined` sẽ bị hiểu là "không đụng tới".
           startDate: form.startDate || null,
@@ -184,7 +230,7 @@ export function ProjectForm({
           code: form.code,
           name: form.name,
           description: form.description || undefined,
-          customerRef: form.customerRef || undefined,
+          customerId: form.customerId || undefined,
           projectType: form.projectType.trim() || undefined,
           startDate: form.startDate || undefined,
           endDate: form.endDate || undefined,
@@ -270,49 +316,128 @@ export function ProjectForm({
         </datalist>
       </Field>
 
-      <div className={styles.fieldRow}>
-        <Field label="Mã khách hàng">
-          <input
-            value={form.customerRef}
-            maxLength={160}
-            onChange={(event) => set({ customerRef: event.target.value })}
-          />
-        </Field>
-        {/*
-          Giá trị hợp đồng nhập ngay lúc lập dự án: đó là con số mọi báo cáo
-          lợi nhuận dựa vào, và bắt người dùng tạo xong rồi mới mở tab Tài
-          chính để điền là thừa một bước. Ô chỉ hiện với người được xem tài
-          chính — server cũng chỉ nhận lệnh ghi từ chủ nhiệm và quản lý.
-        */}
-        {financeEnabled ? (
-          <Field
-            label="Giá trị hợp đồng (VND)"
-            hint="Bỏ trống nếu chưa ký hợp đồng."
+      <Field label="Khách hàng" hint="Khách hàng chủ quản của dự án. Bỏ trống nếu chưa gắn.">
+        <SearchableSelect
+          options={customers.map((customer) => ({
+            value: customer.id,
+            label: `${customer.code} · ${customer.name}`,
+          }))}
+          value={form.customerId}
+          placeholder="Chọn khách hàng (gõ mã hoặc tên để lọc)…"
+          emptyText="Chưa có khách hàng nào khớp."
+          clearable
+          onChange={(value) => set({ customerId: value })}
+        />
+        {addCustomer ? (
+          // Tạo nhanh khách hàng ngay trong hộp dự án, khỏi rời form rồi quay lại.
+          <div className={styles.inlineCreate}>
+            <div className={styles.fieldRow}>
+              <input
+                value={newCustomer.code}
+                placeholder="Mã khách hàng"
+                maxLength={32}
+                aria-label="Mã khách hàng mới"
+                onChange={(event) =>
+                  setNewCustomer((current) => ({
+                    ...current,
+                    code: event.target.value.toUpperCase(),
+                  }))
+                }
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    void saveNewCustomer();
+                  }
+                }}
+              />
+              <input
+                value={newCustomer.name}
+                placeholder="Tên khách hàng"
+                maxLength={180}
+                aria-label="Tên khách hàng mới"
+                onChange={(event) =>
+                  setNewCustomer((current) => ({ ...current, name: event.target.value }))
+                }
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    void saveNewCustomer();
+                  }
+                }}
+              />
+            </div>
+            {customerError ? (
+              <p role="alert" className={styles.alert}>
+                {customerError}
+              </p>
+            ) : null}
+            <div className={styles.rowActions}>
+              <button
+                type="button"
+                className={styles.buttonSmall}
+                disabled={savingCustomer}
+                onClick={() => void saveNewCustomer()}
+              >
+                {savingCustomer ? 'Đang lưu…' : 'Lưu khách hàng'}
+              </button>
+              <button
+                type="button"
+                className={styles.buttonGhost}
+                onClick={() => {
+                  setAddCustomer(false);
+                  setCustomerError(undefined);
+                }}
+              >
+                <X size={14} /> Huỷ
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button
+            type="button"
+            className={styles.linkButton}
+            onClick={() => setAddCustomer(true)}
           >
-            <input
-              inputMode="decimal"
-              value={form.contractValue}
-              placeholder="Ví dụ 2.500.000.000"
-              onChange={(event) =>
-                set({ contractValue: formatVndWhileTyping(event.target.value) })
-              }
-            />
-          </Field>
-        ) : null}
-        {project ? (
-          <Field label="Trạng thái">
-            <Choice
-              label="Trạng thái"
-              value={form.status}
-              options={PROJECT_STATUSES.map((status) => ({
-                value: status,
-                label: PROJECT_STATUS_LABELS[status],
-              }))}
-              onChange={(value) => set({ status: value })}
-            />
-          </Field>
-        ) : null}
-      </div>
+            <Plus size={13} /> Tạo khách hàng mới
+          </button>
+        )}
+      </Field>
+
+      {/*
+        Giá trị hợp đồng nhập ngay lúc lập dự án: đó là con số mọi báo cáo
+        lợi nhuận dựa vào, và bắt người dùng tạo xong rồi mới mở tab Tài
+        chính để điền là thừa một bước. Ô chỉ hiện với người được xem tài
+        chính — server cũng chỉ nhận lệnh ghi từ chủ nhiệm và quản lý.
+      */}
+      {financeEnabled || project ? (
+        <div className={styles.fieldRow}>
+          {financeEnabled ? (
+            <Field label="Giá trị hợp đồng (VND)" hint="Bỏ trống nếu chưa ký hợp đồng.">
+              <input
+                inputMode="decimal"
+                value={form.contractValue}
+                placeholder="Ví dụ 2.500.000.000"
+                onChange={(event) =>
+                  set({ contractValue: formatVndWhileTyping(event.target.value) })
+                }
+              />
+            </Field>
+          ) : null}
+          {project ? (
+            <Field label="Trạng thái">
+              <Choice
+                label="Trạng thái"
+                value={form.status}
+                options={PROJECT_STATUSES.map((status) => ({
+                  value: status,
+                  label: PROJECT_STATUS_LABELS[status],
+                }))}
+                onChange={(value) => set({ status: value })}
+              />
+            </Field>
+          ) : null}
+        </div>
+      ) : null}
 
       {/*
         Thêm người ngay lúc lập dự án: người tạo luôn là chủ nhiệm. Mỗi người

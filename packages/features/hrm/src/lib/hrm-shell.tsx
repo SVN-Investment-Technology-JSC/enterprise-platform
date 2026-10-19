@@ -20,7 +20,12 @@ import { HrmCrumbsProvider } from './hrm-crumbs';
 
 const COLLAPSED_KEY = 'hrm_sidebar_collapsed';
 
+/** Trang form nhúng trong card của khung chat Trợ lý (`assistantFormPath` của contracts-assistant). */
+const ASSISTANT_FORM_PATH = '/assistant/form';
+
 export function HrmShell({ children }: { children: ReactNode }) {
+  // Trang form nhúng chỉ có form: không thanh bên, breadcrumb hay Trợ lý lồng trong card; vẫn có quyền HRM và giao diện antd.
+  const embedded = normalizeHrmPath(usePathname()) === ASSISTANT_FORM_PATH;
   return (
     <HrmPermissionsProvider>
       <ConfigProvider
@@ -34,7 +39,7 @@ export function HrmShell({ children }: { children: ReactNode }) {
           },
         }}
       >
-        <HrmShellContent>{children}</HrmShellContent>
+        {embedded ? children : <HrmShellContent>{children}</HrmShellContent>}
       </ConfigProvider>
     </HrmPermissionsProvider>
   );

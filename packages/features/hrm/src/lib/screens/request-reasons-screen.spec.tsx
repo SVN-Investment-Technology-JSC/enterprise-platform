@@ -277,13 +277,13 @@ beforeEach(() => {
 
 /** Chọn một mục của SearchableSelect nằm trong ô có nhãn `label` của hộp thoại. */
 async function choose(dialog: HTMLElement, label: RegExp, option: string) {
-  const field = within(dialog).getByText(label).closest('label') as HTMLElement;
+  const field = within(dialog).getByText(label).closest('label, [role="group"]') as HTMLElement;
   fireEvent.click(within(field).getByRole('textbox'));
   fireEvent.click(await screen.findByRole('option', { name: option }));
 }
 
 function typeInto(dialog: HTMLElement, label: RegExp, value: string) {
-  const field = within(dialog).getByText(label).closest('label') as HTMLElement;
+  const field = within(dialog).getByText(label).closest('label, [role="group"]') as HTMLElement;
   fireEvent.change(field.querySelector('input') as HTMLInputElement, {
     target: { value },
   });

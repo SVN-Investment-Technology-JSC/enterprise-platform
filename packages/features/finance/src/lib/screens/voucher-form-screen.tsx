@@ -1,13 +1,12 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Lock, Plus, Trash2, X } from 'lucide-react';
 import { SearchableSelect, toast } from '@enterprise-platform/shared-ui';
 import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import {
   FINANCE_ALLOCATION_LABELS,
-  FINANCE_BANKS,
   financeIncludedTax,
   financeLineTotal,
   financeLinesTotal,
@@ -21,7 +20,7 @@ import {
   type FinanceVoucherKind,
   type SaveFinanceVoucherRequest,
 } from '@enterprise-platform/contracts-finance';
-import { removeFinanceAttachment, uploadFinanceAttachment } from '../attachment-upload';
+import { MAX_ATTACHMENTS, attachmentProblem, removeFinanceAttachment, uploadFinanceAttachment } from '../attachment-upload';
 import { financeErrorMessage, financeFetch, financePost, financePut, toQuery } from '../finance-api';
 import { useFinanceCrumbs } from '../finance-crumbs';
 import { money, todayVn } from '../finance-format';
@@ -40,6 +39,7 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { AttachmentsField } from '../ui/attachments-field';
 import { ErrorBanner, Field, FormSection, MoneyInput } from '../ui/form-parts';
+import { NoteEditor } from '../ui/note-editor';
 
 interface LineState {
   key: number;
@@ -62,9 +62,6 @@ interface FormState {
   accountId: string;
   destAccountId: string;
   counterpartyGroupId: string;
-  counterpartyName: string;
-  counterpartyAccountNo: string;
-  counterpartyBank: string;
   /** Hình thức hạch toán nội bộ; rỗng: không hạch toán. */
   allocType: '' | FinanceAllocationType;
   allocProjectId: string;
@@ -93,9 +90,6 @@ function emptyState(): FormState {
     accountId: '',
     destAccountId: '',
     counterpartyGroupId: '',
-    counterpartyName: '',
-    counterpartyAccountNo: '',
-    counterpartyBank: '',
     allocType: '',
     allocProjectId: '',
     allocWorkItemId: '',
@@ -118,9 +112,6 @@ function fromVoucher(voucher: FinanceVoucher): FormState {
     accountId: voucher.accountId ?? '',
     destAccountId: voucher.destAccountId ?? '',
     counterpartyGroupId: voucher.counterpartyGroupId ?? '',
-    counterpartyName: voucher.counterpartyName ?? '',
-    counterpartyAccountNo: voucher.counterpartyAccountNo ?? '',
-    counterpartyBank: voucher.counterpartyBank ?? '',
     allocType: voucher.allocation?.type ?? '',
     allocProjectId: voucher.allocation?.projectId ?? '',
     allocWorkItemId: voucher.allocation?.workItemId ?? '',
@@ -167,9 +158,6 @@ export function buildRequest(kind: FinanceVoucherKind, form: FormState, revision
     ...base,
     reasonId: form.reasonId || null,
     counterpartyGroupId: form.counterpartyGroupId || null,
-    counterpartyName: form.counterpartyName || null,
-    counterpartyAccountNo: form.counterpartyAccountNo || null,
-    counterpartyBank: form.counterpartyBank || null,
     allocation:
       form.allocType && form.allocProjectId
         ? { type: form.allocType, projectId: form.allocProjectId, workItemId: form.allocType === 'WORK_ITEM' ? form.allocWorkItemId || null : null }
@@ -191,6 +179,8 @@ export function buildRequest(kind: FinanceVoucherKind, form: FormState, revision
 export default function VoucherFormScreen({ kind, id }: { kind: FinanceVoucherKind; id?: string }) {
   const config = FINANCE_KIND_CONFIG[kind];
   const router = useRouter();
+  /** Nhân bản: tạo mới điền sẵn dữ liệu từ phiếu nguồn (`?from=<id>`), chỉ áp dụng khi đang tạo mới (không có `id`). */
+  const fromId = useSearchParams().get('from');
   const [form, setForm] = useState<FormState>(emptyState);
   const [catalogs, setCatalogs] = useState<FinanceCatalogs | null>(null);
   const [accounts, setAccounts] = useState<FinanceAccount[]>([]);
@@ -228,6 +218,15 @@ export default function VoucherFormScreen({ kind, id }: { kind: FinanceVoucherKi
         if (!active) return;
         setCatalogs(loadedCatalogs);
         setAccounts(loadedAccounts);
+        const applyStoredLinks = (voucher: FinanceVoucher) => {
+          const stored = new Map<string, WorkspaceProjectOption>();
+          for (const project of voucher.relatedProjects) stored.set(project.projectId, { id: project.projectId, code: project.projectCode, name: project.projectName, status: '' });
+          if (voucher.allocation)
+            stored.set(voucher.allocation.projectId, { id: voucher.allocation.projectId, code: voucher.allocation.projectCode, name: voucher.allocation.projectName, status: '' });
+          setStoredProjects([...stored.values()]);
+          if (voucher.allocation?.workItemId)
+            setStoredWorkItem({ id: voucher.allocation.workItemId, code: voucher.allocation.workItemCode ?? '', title: voucher.allocation.workItemTitle ?? '', status: '', depth: 0 });
+        };
         if (id) {
           const voucher = await financeFetch<FinanceVoucher>(`/vouchers/${id}`);
           if (!active) return;
@@ -237,16 +236,18 @@ export default function VoucherFormScreen({ kind, id }: { kind: FinanceVoucherKi
           setLocked(!voucher.permissions.canEdit && !voucher.permissions.sourced.canEditSourced);
           setSource(voucher.approvalMode === 'INHERITED' ? voucher.source : null);
           setSavedFiles(voucher.attachments);
-          const stored = new Map<string, WorkspaceProjectOption>();
-          for (const project of voucher.relatedProjects) stored.set(project.projectId, { id: project.projectId, code: project.projectCode, name: project.projectName, status: '' });
-          if (voucher.allocation)
-            stored.set(voucher.allocation.projectId, { id: voucher.allocation.projectId, code: voucher.allocation.projectCode, name: voucher.allocation.projectName, status: '' });
-          setStoredProjects([...stored.values()]);
-          if (voucher.allocation?.workItemId)
-            setStoredWorkItem({ id: voucher.allocation.workItemId, code: voucher.allocation.workItemCode ?? '', title: voucher.allocation.workItemTitle ?? '', status: '', depth: 0 });
+          applyStoredLinks(voucher);
         } else {
           const next = await financeFetch<{ code: string }>(`/vouchers/next-code${toQuery({ kind, date: todayVn() })}`);
           if (active) setCode(next.code);
+          if (fromId) {
+            // Nhân bản: điền sẵn dữ liệu phiếu nguồn, trừ ngày (đặt lại hôm nay) và tệp đính kèm (không copy).
+            const source = await financeFetch<FinanceVoucher>(`/vouchers/${fromId}`);
+            if (!active) return;
+            const today = todayVn();
+            setForm({ ...fromVoucher(source), voucherDate: today, postingDate: today });
+            applyStoredLinks(source);
+          }
         }
       } catch (e) {
         if (active) setError(financeErrorMessage(e, 'Không tải được dữ liệu.'));
@@ -257,7 +258,7 @@ export default function VoucherFormScreen({ kind, id }: { kind: FinanceVoucherKi
     return () => {
       active = false;
     };
-  }, [id, kind]);
+  }, [id, kind, fromId]);
 
   useEffect(() => {
     let active = true;
@@ -353,16 +354,16 @@ export default function VoucherFormScreen({ kind, id }: { kind: FinanceVoucherKi
         })),
     [accounts],
   );
-  const bankOptions = useMemo(() => FINANCE_BANKS.map((bank) => ({ value: bank, label: bank })), []);
-
   const total = config.hasLines ? financeLinesTotal(form.lines) : form.amount;
   const includedTax = form.taxIncluded ? financeIncludedTax(total, form.taxRate) : 0;
 
   /**
-   * Lưu phiếu, tải các tệp đang chờ, rồi (nếu yêu cầu) gửi duyệt. Tệp phải lên TRƯỚC khi gửi duyệt vì phiếu đã gửi duyệt
-   * không còn nhận tệp. Tải tệp lỗi thì dừng tại form (phiếu đã lưu, tệp lỗi còn trong danh sách để thử lại) và không gửi duyệt.
+   * Lưu phiếu, tải các tệp đang chờ, rồi gửi duyệt nếu phiếu chưa sang trạng thái chờ duyệt. Tệp phải lên TRƯỚC khi gửi
+   * duyệt vì phiếu đã gửi duyệt không còn nhận tệp. Tải tệp lỗi thì dừng tại form (phiếu đã lưu, tệp lỗi còn trong danh
+   * sách để thử lại) và không gửi duyệt. Sửa phiếu đang chờ duyệt (trực tiếp) hoặc bị từ chối thì máy chủ đã tự chuyển
+   * thẳng về chờ duyệt trong lần lưu (PUT) nên không cần gọi thêm — chỉ phiếu còn ở dạng nháp mới cần gọi gửi duyệt riêng.
    */
-  async function save(andSubmit: boolean) {
+  async function save() {
     const problem = config.hasLines ? allocationProblem(form) : null;
     if (problem) {
       setError(problem);
@@ -394,11 +395,11 @@ export default function VoucherFormScreen({ kind, id }: { kind: FinanceVoucherKi
         return;
       }
 
-      if (andSubmit) {
-        await financePost<FinanceVoucher>(`/vouchers/${saved.id}/submit`);
-        toast.success(`Đã gửi duyệt ${saved.code}`);
-      } else {
+      if (source) {
         toast.success(`Đã lưu ${saved.code}`);
+      } else {
+        if (saved.status !== 'PENDING') await financePost<FinanceVoucher>(`/vouchers/${saved.id}/submit`);
+        toast.success(`Đã gửi duyệt ${saved.code}`);
       }
       router.push(`${config.path}/${saved.id}`);
     } catch (e) {
@@ -406,6 +407,22 @@ export default function VoucherFormScreen({ kind, id }: { kind: FinanceVoucherKi
     } finally {
       setSaving(false);
     }
+  }
+
+  /** Ảnh dán/thả vào Ghi chú đi thẳng sang Đính kèm (tải lên khi lưu), cùng kiểm tra định dạng/dung lượng/số lượng. */
+  function addPastedImages(files: File[]) {
+    const stamp = Date.now();
+    const named = files.map((file, index) => {
+      // Ảnh dán từ clipboard thường tên "image.png" cho mọi lần: đặt tên riêng để phân biệt trong danh sách.
+      const ext = file.type.split('/')[1]?.replace('jpeg', 'jpg') || 'png';
+      return new File([file], `anh-dan-${stamp}-${index + 1}.${ext}`, { type: file.type });
+    });
+    const problems = named.map((file) => attachmentProblem(file)).filter((p): p is string => Boolean(p));
+    const valid = named.filter((file) => !attachmentProblem(file));
+    const room = MAX_ATTACHMENTS - savedFiles.length - pendingFiles.length;
+    if (valid.length > room) problems.push(`Mỗi phiếu đính kèm tối đa ${MAX_ATTACHMENTS} tệp.`);
+    setError(problems.length ? problems.join('\n') : null);
+    if (valid.length && room > 0) setPendingFiles((current) => [...current, ...valid.slice(0, room)]);
   }
 
   async function removeSaved(file: FinanceVoucherAttachment) {
@@ -474,21 +491,6 @@ export default function VoucherFormScreen({ kind, id }: { kind: FinanceVoucherKi
                   </Field>
                   <Field label={config.counterpartyLabel} required>
                     {(fieldId) => <SearchableSelect name={fieldId} options={groupOptions} value={form.counterpartyGroupId} onChange={(v) => set('counterpartyGroupId', v)} placeholder={`Chọn ${config.counterpartyLabel.toLowerCase()}`} clearable height={32} />}
-                  </Field>
-                  <Field label={config.personLabel} locked={fromSource('counterpartyName')}>
-                    {(fieldId) => (
-                      <Input id={fieldId} value={form.counterpartyName} disabled={fromSource('counterpartyName')} maxLength={255} onChange={(e) => set('counterpartyName', e.target.value)} />
-                    )}
-                  </Field>
-                  <Field label={config.personAccountLabel} locked={fromSource('counterpartyAccountNo')}>
-                    {(fieldId) => (
-                      <Input id={fieldId} value={form.counterpartyAccountNo} disabled={fromSource('counterpartyAccountNo')} maxLength={60} onChange={(e) => set('counterpartyAccountNo', e.target.value)} />
-                    )}
-                  </Field>
-                  <Field label={config.personBankLabel} locked={fromSource('counterpartyBank')}>
-                    {(fieldId) => (
-                      <SearchableSelect name={fieldId} options={bankOptions} value={form.counterpartyBank} disabled={fromSource('counterpartyBank')} onChange={(v) => set('counterpartyBank', v)} placeholder="Chọn ngân hàng" clearable height={32} />
-                    )}
                   </Field>
                   <Field
                     label="Hạch toán nội bộ"
@@ -678,15 +680,8 @@ export default function VoucherFormScreen({ kind, id }: { kind: FinanceVoucherKi
           </FormSection>
 
           <FormSection title="Ghi chú">
-            <textarea
-              aria-label="Ghi chú"
-              value={form.note}
-              onChange={(e) => set('note', e.target.value)}
-              rows={3}
-              maxLength={4000}
-              placeholder="Nhập ghi chú"
-              className="w-full rounded-lg border border-slate-200 bg-white p-2.5 text-sm outline-none focus-visible:border-accent-strong focus-visible:ring-2 focus-visible:ring-accent-soft"
-            />
+            <NoteEditor value={form.note} onChange={(html) => set('note', html)} voucherId={savedId} disabled={saving} onProblem={setError} onPasteImages={addPastedImages} />
+            <p className="mt-1.5 text-xs text-slate-500">Dán hoặc thả ảnh vào ghi chú sẽ tự chuyển sang mục Đính kèm.</p>
           </FormSection>
 
           <FormSection title="Đối tượng liên quan" defaultOpen={form.relatedProjectIds.length > 0}>
@@ -729,10 +724,7 @@ export default function VoucherFormScreen({ kind, id }: { kind: FinanceVoucherKi
       </div>
 
       <footer className="flex items-center gap-2 border-t border-slate-200 bg-white px-5 py-3">
-        <Button type="button" disabled={saving} onClick={() => void save(false)}>{source ? 'Lưu' : 'Lưu nháp'}</Button>
-        {source ? null : (
-          <Button type="button" variant="secondary" disabled={saving} onClick={() => void save(true)}>Lưu và gửi duyệt</Button>
-        )}
+        <Button type="button" disabled={saving} onClick={() => void save()}>{source ? 'Lưu' : 'Gửi duyệt'}</Button>
         <Button type="button" variant="outline" disabled={saving} onClick={() => router.push(config.path)}>Hủy bỏ</Button>
       </footer>
     </div>

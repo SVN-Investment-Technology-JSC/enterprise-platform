@@ -19,6 +19,8 @@ import {
   type FinanceProjectVoucherList,
   type FinanceReason,
   type FinanceReport,
+  type FinanceLedgerReport,
+  type FinanceLedgerReportQuery,
   type FinanceReportQuery,
   type FinanceSettings,
   type FinanceVoucher,
@@ -96,7 +98,7 @@ import {
   startProcedureForLink,
   voucherOfLink,
 } from '../infrastructure/procedure-links.store.js';
-import { financeDashboard, financeReport } from '../infrastructure/reports.store.js';
+import { financeDashboard, financeLedgerReport, financeReport } from '../infrastructure/reports.store.js';
 import { listWorkspaceProjects, listWorkspaceWorkItems, projectFinanceAccess } from '../infrastructure/workspace-api.js';
 import { resolveWorkspaceLinks } from '../infrastructure/workspace-links.js';
 import {
@@ -370,8 +372,6 @@ export class FinanceApplication {
     return {
       ...summary,
       counterpartyGroupId: optStr(row.counterparty_group_id),
-      counterpartyAccountNo: optStr(row.counterparty_account_no),
-      counterpartyBank: optStr(row.counterparty_bank),
       taxIncluded: Boolean(row.tax_included),
       taxRate: num(row.tax_rate),
       taxAmount: taxAmountOf(row),
@@ -401,17 +401,44 @@ export class FinanceApplication {
     return this.voucher(actor, id);
   }
 
+  /**
+   * Sửa phiếu. Nháp thì lưu lỏng như trước. Bị từ chối hoặc đang chờ duyệt trực tiếp thì coi như gửi duyệt lại ngay
+   * (không còn bước "Lưu nháp" riêng): tính lại chế độ duyệt (DIRECT/PROCEDURE) NGOÀI giao dịch giống hệt `submit()`,
+   * vì việc đó có thể cần hỏi Procedure Engine qua mạng, rồi tạo liên kết quy trình trong cùng giao dịch nếu cần.
+   */
   async updateVoucher(actor: FinanceActor, id: string, input: SaveFinanceVoucherRequest): Promise<FinanceVoucher> {
     const pool = await this.database.pool(actor.tenantId);
-    const mode = (await pool.query(`SELECT approval_mode FROM finance_schema.vouchers WHERE tenant_id=$1 AND id=$2`, [actor.tenantId, id])).rows[0] as
-      | { approval_mode: string }
+    const current = (await pool.query(`SELECT status, approval_mode FROM finance_schema.vouchers WHERE tenant_id=$1 AND id=$2`, [actor.tenantId, id])).rows[0] as
+      | { status: string; approval_mode: string }
       | undefined;
-    if (mode?.approval_mode === 'INHERITED') return this.updateSourced(actor, id, input);
+    if (current?.approval_mode === 'INHERITED') return this.updateSourced(actor, id, input);
     const voucher = normalizeVoucherInput(input);
     if (!canCreate(actor, voucher.kind)) throw forbidden('Bạn không có quyền lập loại phiếu này.');
-    const stored = await loadStoredLinks(await this.database.pool(actor.tenantId), actor.tenantId, id);
+    if (!current) throw notFound('phiếu');
+    const resubmitting = current.status === 'REJECTED' || (current.status === 'PENDING' && current.approval_mode === 'DIRECT');
+
+    const stored = await loadStoredLinks(pool, actor.tenantId, id);
     const links = await resolveWorkspaceLinks(actor.tenantId, voucher, stored);
-    await this.database.transaction(actor.tenantId, (db) => updateVoucher(db, actor.tenantId, actor, id, voucher, input.revision, links));
+
+    if (!resubmitting) {
+      await this.database.transaction(actor.tenantId, (db) => updateVoucher(db, actor.tenantId, actor, id, voucher, input.revision, links, null));
+      return this.voucher(actor, id);
+    }
+
+    const binding = await bindingFor(pool, actor.tenantId, voucher.kind);
+    let definition: Awaited<ReturnType<typeof fetchPublishedProcedureDefinition>> | null = null;
+    if (binding.mode === 'PROCEDURE' && binding.procedureDefinitionId) {
+      if (!(await this.procedureAvailable(actor.tenantId))) throw procedureUnavailable();
+      definition = await fetchPublishedProcedureDefinition(actor.tenantId, binding.procedureDefinitionId);
+    }
+    const linkId = await this.database.transaction(actor.tenantId, async (db) => {
+      const row = await updateVoucher(db, actor.tenantId, actor, id, voucher, input.revision, links, definition ? 'PROCEDURE' : 'DIRECT');
+      return definition ? createProcedureLink(db, actor.tenantId, row, definition, actor.userId) : null;
+    });
+    if (linkId) {
+      const link = await startProcedureForLink(pool, actor.tenantId, linkId);
+      if (link.instanceId) await reconcileLink(pool, actor.tenantId, linkId).catch(() => undefined);
+    }
     return this.voucher(actor, id);
   }
 
@@ -600,7 +627,7 @@ export class FinanceApplication {
   /* ------------------------------- Đính kèm ------------------------------- */
 
   /** Bước 1: tạo bản ghi và URL ký sẵn để trình duyệt tải thẳng lên kho; tệp chưa hiện trên phiếu cho tới khi xác nhận. */
-  async createAttachment(actor: FinanceActor, voucherId: string, input: { fileName?: unknown; contentType?: unknown; sizeBytes?: unknown }) {
+  async createAttachment(actor: FinanceActor, voucherId: string, input: { fileName?: unknown; contentType?: unknown; sizeBytes?: unknown; purpose?: unknown }) {
     this.capabilities(actor);
     return this.database.transaction(actor.tenantId, (db) => createAttachment(db, this.storage, actor.tenantId, actor, voucherId, input));
   }
@@ -715,6 +742,11 @@ export class FinanceApplication {
   async report(actor: FinanceActor, query: FinanceReportQuery): Promise<FinanceReport> {
     if (!can(actor, 'finance.report.read') && !canReadAll(actor)) throw forbidden('Bạn không có quyền xem báo cáo.');
     return financeReport(await this.database.pool(actor.tenantId), actor.tenantId, query);
+  }
+
+  async ledgerReport(actor: FinanceActor, query: FinanceLedgerReportQuery): Promise<FinanceLedgerReport> {
+    if (!can(actor, 'finance.report.read') && !canReadAll(actor)) throw forbidden('Bạn không có quyền xem báo cáo.');
+    return financeLedgerReport(await this.database.pool(actor.tenantId), actor.tenantId, query);
   }
 
   /** Dùng cho kiểm thử: danh sách loại phiếu người dùng được phép lập. */

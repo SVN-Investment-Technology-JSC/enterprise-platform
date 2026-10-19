@@ -16,11 +16,13 @@ export interface FolderDialogProps {
   readonly folders: readonly SharedFolder[];
   /** Chỉ người quản trị kho mới tạo thư mục gốc và chuyển thư mục. */
   readonly canManage: boolean;
+  /** Thư mục người dùng tạo được thư mục con bên trong (quyền ghi). */
+  readonly writable: (folder: SharedFolder) => boolean;
   readonly onClose: () => void;
   readonly onSaved: (folder: SharedFolder) => void;
 }
 
-export function FolderDialog({ target, folders, canManage, onClose, onSaved }: FolderDialogProps) {
+export function FolderDialog({ target, folders, canManage, writable, onClose, onSaved }: FolderDialogProps) {
   const editing = target?.folder;
   const [name, setName] = useState('');
   const [parent, setParent] = useState('');
@@ -41,9 +43,10 @@ export function FolderDialog({ target, folders, canManage, onClose, onSaved }: F
 
   const parentOptions = useMemo(() => {
     const exclude = editing ? branchIds(folders, editing.id) : new Set<string>();
-    const options = folderOptions(folders, exclude);
+    // Tạo mới: chỉ những thư mục có quyền ghi. Sửa: chỗ đặt chỉ quản trị kho đổi, giữ cả cây để hiện đúng chỗ cũ.
+    const options = folderOptions(folders, exclude, editing ? undefined : writable);
     return canManage ? [{ value: ROOT, label: 'Tài liệu công ty (gốc)' }, ...options] : options;
-  }, [folders, editing, canManage]);
+  }, [folders, editing, canManage, writable]);
 
   const submit = async () => {
     setSubmitting(true);

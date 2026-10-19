@@ -9,11 +9,14 @@ import {
   type SharedDocumentDetail,
   type SharedDocumentQuery,
   type SharedDocumentSummary,
+  type SharedDirectory,
   type SharedDocumentVersion,
   type SharedDownloadMode,
   type SharedDownloadTicket,
   type SharedFolder,
   type SharedFolderDeleteResult,
+  type SharedFolderSharing,
+  type SharedShareGrant,
   type SharedStatus,
   type SharedTrashItem,
   type SharedTrashRestoreResult,
@@ -95,6 +98,18 @@ export const updateFolder = (id: string, body: UpdateSharedFolderRequest) =>
 /** Chuyển cả nhánh vào Thùng rác; trả số thư mục con và tài liệu đã chuyển theo. */
 export const deleteFolder = (id: string) =>
   request<SharedFolderDeleteResult>(`/folders/${id}`, { method: 'DELETE' });
+
+/* ------------------------------------------------------------ chia sẻ */
+
+export const loadFolderSharing = (id: string) =>
+  request<SharedFolderSharing>(`/folders/${id}/shares`, { cache: 'no-store' });
+
+/** Thay toàn bộ chia sẻ đặt trên thư mục. */
+export const saveFolderSharing = (id: string, shares: readonly SharedShareGrant[]) =>
+  request<SharedFolderSharing>(`/folders/${id}/shares`, { method: 'PUT', body: JSON.stringify({ shares }) });
+
+/** Người dùng, phòng ban, chức danh để chọn khi chia sẻ. */
+export const loadDirectory = () => request<SharedDirectory>('/directory', { cache: 'no-store' });
 
 /* ----------------------------------------------------------- tài liệu */
 

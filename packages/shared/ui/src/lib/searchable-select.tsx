@@ -316,14 +316,19 @@ export function SearchableSelect({
   }, [activeIndex]);
 
   const handleSelect = (optionValue: string) => {
+    const chosen = options.find((opt) => opt.value === optionValue);
+    if (chosen) {
+      selectedOptionLabelRef.current = chosen.label;
+    }
     onChange?.(optionValue);
     setIsOpen(false);
-    const chosen = options.find((opt) => opt.value === optionValue);
     setQuery(chosen ? chosen.label : '');
   };
 
   const handleClear = (e: React.MouseEvent) => {
+    e.preventDefault();
     e.stopPropagation();
+    selectedOptionLabelRef.current = '';
     onChange?.('');
     setQuery('');
     setIsOpen(false);
@@ -405,12 +410,16 @@ export function SearchableSelect({
 
       {/* Ô Input Combobox tương tác trực tiếp (kiểu chọn thuần tuý: chỉ hiện giá trị, tìm trong danh sách) */}
       <div className={styles.inputWrapper}>
-        <span className={styles.searchIcon} hidden={searchInDropdown}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="11" cy="11" r="8" />
-            <line x1="21" y1="21" x2="16.65" y2="16.65" />
-          </svg>
-        </span>
+        {/* Kiểu chọn thuần tuý không có kính lúp ở ô ngoài. Không ẩn bằng `hidden`: `.searchIcon` đặt `display: flex`, nên
+            app không có preflight Tailwind (`[hidden] { display: none !important }`) vẫn vẽ nó đè lên giá trị đã chọn. */}
+        {searchInDropdown ? null : (
+          <span className={styles.searchIcon}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="11" cy="11" r="8" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
+          </span>
+        )}
         <input
           ref={inputRef}
           type="text"
@@ -454,7 +463,9 @@ export function SearchableSelect({
             className={styles.toggleButton}
             tabIndex={-1}
             disabled={disabled}
-            onClick={() => {
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
               if (!disabled) {
                 setIsOpen((prev) => !prev);
                 if (!isOpen && !searchInDropdown) inputRef.current?.focus();
@@ -523,7 +534,12 @@ export function SearchableSelect({
                     className={`${styles.optionItem} ${isSelected ? styles.optionSelected : ''} ${
                       isActive ? styles.optionActive : ''
                     } ${opt.disabled ? styles.optionDisabled : ''}`}
+                    onMouseDown={(e) => {
+                      // Ngăn mất focus của ô nhập và ngăn trình duyệt kích hoạt lại form control nếu nằm trong thẻ <label>
+                      e.preventDefault();
+                    }}
                     onClick={(e) => {
+                      e.preventDefault();
                       e.stopPropagation();
                       if (!opt.disabled) handleSelect(opt.value);
                     }}

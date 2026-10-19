@@ -2,6 +2,7 @@
 
 import type { AuthenticatedPrincipal } from '@enterprise-platform/contracts-identity';
 import {
+  isLauncherOnlyModule,
   ModuleShell,
   type ModuleNavItem,
   type ModuleSidebarSection,
@@ -93,7 +94,12 @@ export function TenantShell({
         if (!response.ok) return;
         const payload = (await response.json()) as { modules: CatalogModule[] };
         if (active) {
-          setModules(payload.modules.filter((item) => item.entitlementStatus === 'active'));
+          // Trợ lý mở bằng nút cạnh chuông Thông báo, không nằm trong danh sách ứng dụng.
+          setModules(
+            payload.modules.filter(
+              (item) => item.entitlementStatus === 'active' && !isLauncherOnlyModule(item.key),
+            ),
+          );
         }
       })
       .catch(() => {

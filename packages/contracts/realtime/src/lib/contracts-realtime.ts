@@ -10,9 +10,18 @@ export const REALTIME_SERVER_EVENTS = [
   'workspace.chat.typing',
   'procedure.comment.changed',
   'procedure.comment.typing',
+  'authorization.changed',
 ] as const;
 
 export type RealtimeServerEvent = (typeof REALTIME_SERVER_EVENTS)[number];
+
+/**
+ * Vai trò, quyền hay người dùng của công ty vừa đổi (sự kiện `core.authorization.changed`), gửi cho mọi phiên của
+ * công ty. Không mang quyền của ai: trình duyệt nhận thì tự hỏi lại ERP quyền của chính người đang đăng nhập.
+ */
+export interface AuthorizationChangedSignal {
+  readonly revision: string;
+}
 
 /**
  * Tín hiệu "luồng chat có thay đổi" gửi tới từng thành viên dự án.

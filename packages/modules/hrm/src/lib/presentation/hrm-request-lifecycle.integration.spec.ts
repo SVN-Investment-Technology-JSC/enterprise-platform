@@ -793,6 +793,94 @@ integration('HRM request draft lifecycle PostgreSQL integration', () => {
       }),
     ).rejects.toMatchObject({ status: 400 });
   });
+  it('rejects reversing a credit when pending leave requests would exceed the remaining balance', async () => {
+    const c = new HrmLeaveController(ctx(), bridge as any);
+    const type = (
+      await c.createLeaveType(req, {
+        code: 'ADJUST-PENDING-GUARD',
+        name: 'Pending guard leave',
+      } as any)
+    ).data;
+    await pool.query(
+      `INSERT INTO hrm_schema.leave_balances (tenant_id,employee_id,leave_type_id,year,accrued,remaining)
+       VALUES ($1,$2,$3,2026,6,6)`,
+      [tenantId, userId, type.id],
+    );
+    const pending = (
+      await pool.query(
+        `INSERT INTO hrm_schema.leave_requests
+           (tenant_id,employee_id,leave_type_id,from_date,to_date,duration,reason,status,balance_reserved)
+         VALUES ($1,$2,$3,'2026-10-20','2026-10-23',4,'Pending reservation','PENDING',true)
+         RETURNING id`,
+        [tenantId, userId, type.id],
+      )
+    ).rows[0];
+    await pool.query(
+      `INSERT INTO hrm_schema.leave_request_days (request_id,tenant_id,work_date,quantity,paid_minutes)
+       VALUES ($1,$2,'2026-10-20',1,480),($1,$2,'2026-10-21',1,480),
+              ($1,$2,'2026-10-22',1,480),($1,$2,'2026-10-23',1,480)`,
+      [pending.id, tenantId],
+    );
+    const credit = (
+      await c.adjustLeaveBalance(req, {
+        employeeId: userId,
+        leaveTypeId: type.id,
+        year: 2026,
+        daysAdjusted: 3,
+        reason: 'Temporary credit',
+        operationId: randomUUID(),
+      })
+    ).data;
+    await c.adjustLeaveBalance(req, {
+      employeeId: userId,
+      leaveTypeId: type.id,
+      year: 2026,
+      daysAdjusted: -3,
+      reason: 'Temporary debit',
+      operationId: randomUUID(),
+    });
+
+    await expect(
+      (c as any).reverseLeaveAdjustment(req, credit.id, {
+        reason: 'Would consume reserved leave',
+      }),
+    ).rejects.toMatchObject({ status: 409 });
+  });
+  it('reports pending leave requests in the entitlement preview when the ledger pending balance is zero', async () => {
+    const c = new HrmLeaveController(ctx(), bridge as any);
+    const type = (
+      await c.createLeaveType(req, {
+        code: 'PREVIEW-PENDING',
+        name: 'Preview pending leave',
+      } as any)
+    ).data;
+    await pool.query(
+      `INSERT INTO hrm_schema.leave_balances (tenant_id,employee_id,leave_type_id,year,accrued,remaining,pending)
+       VALUES ($1,$2,$3,2026,4,4,0)`,
+      [tenantId, userId, type.id],
+    );
+    const pending = (
+      await pool.query(
+        `INSERT INTO hrm_schema.leave_requests
+           (tenant_id,employee_id,leave_type_id,from_date,to_date,duration,reason,status,balance_reserved)
+         VALUES ($1,$2,$3,'2026-11-03','2026-11-04',2,'Preview reservation','PENDING',true)
+         RETURNING id`,
+        [tenantId, userId, type.id],
+      )
+    ).rows[0];
+    await pool.query(
+      `INSERT INTO hrm_schema.leave_request_days (request_id,tenant_id,work_date,quantity,paid_minutes)
+       VALUES ($1,$2,'2026-11-03',1,480),($1,$2,'2026-11-04',1,480)`,
+      [pending.id, tenantId],
+    );
+
+    const preview = await c.previewEntitlements(req, type.id, '2026', userId);
+    expect(preview.data).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ employeeId: userId, pending: 2 }),
+      ]),
+    );
+  });
   it('returns the proposed correction punch to the reviewer', async () => {
     const c = new HrmAttendanceController(ctx(), bridge as any);
     // Mỗi đơn chỉ khai báo một mốc giờ vào hoặc giờ ra.

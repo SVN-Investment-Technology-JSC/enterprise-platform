@@ -153,17 +153,23 @@ export function QuickSearch({ open, onClose, onPick }: QuickSearchProps) {
         target: { kind: 'project', projectId: project.id },
       }),
     );
-    const documentRows = documents.map(
-      (document): ResultRow => ({
-        key: `document:${document.id}`,
-        group: 'Tài liệu',
-        icon: <FileText size={15} />,
-        label: document.name,
-        hint: document.currentVersion ? `v${document.currentVersion.versionNo}` : undefined,
-        target: { kind: 'document', documentId: document.id },
-      }),
-    );
-    return [...pages, ...mine, ...projectRows, ...documentRows];
+    // Tài liệu khách hàng tách thành nhóm riêng, đặt trước tài liệu nội bộ, để
+    // tìm nhanh ra hồ sơ hướng ra ngoài giống như công việc hay dự án.
+    const documentRow = (document: DocumentSummary): ResultRow => ({
+      key: `document:${document.id}`,
+      group: document.audience === 'customer' ? 'Tài liệu khách hàng' : 'Tài liệu',
+      icon: <FileText size={15} />,
+      label: document.name,
+      hint: document.currentVersion ? `v${document.currentVersion.versionNo}` : undefined,
+      target: { kind: 'document', documentId: document.id },
+    });
+    const customerDocs = documents
+      .filter((document) => document.audience === 'customer')
+      .map(documentRow);
+    const internalDocs = documents
+      .filter((document) => document.audience !== 'customer')
+      .map(documentRow);
+    return [...pages, ...mine, ...projectRows, ...customerDocs, ...internalDocs];
   }, [term, myItems, projects, documents]);
 
   useEffect(() => {

@@ -33,9 +33,11 @@
     "@enterprise-platform/contracts-workspace": "workspace:*",
     "@nestjs/common": "^11.2.1",
     "pg": "^8.23.0",
+    "sanitize-html": "^2.18.1",
     "tslib": "^2.3.0"
   },
   "devDependencies": {
-    "@types/pg": "^8.21.0"
+    "@types/pg": "^8.21.0",
+    "@types/sanitize-html": "^2.16.2"
   }
 }

@@ -18,10 +18,13 @@
   "include": ["src/**/*.ts"],
   "references": [
     {
+      "path": "../../contracts/tenancy/tsconfig.lib.json"
+    },
+    {
       "path": "../../contracts/identity/tsconfig.lib.json"
     },
     {
-      "path": "../../contracts/tenancy/tsconfig.lib.json"
+      "path": "../../contracts/assistant/tsconfig.lib.json"
     }
   ],
   "exclude": [

@@ -12,7 +12,7 @@ import { SearchableSelect, toast } from '@enterprise-platform/shared-ui';
 import { Search } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { buildMenu, rightsOf, type MenuActionId, type MenuEntry, type MenuTarget } from '../context-menu.model';
-import { ancestry, branchIds, childrenOf, expiryTone } from '../library.model';
+import { accessMap, ancestry, branchIds, childrenOf, expiryTone } from '../library.model';
 import * as api from '../shared-api';
 import styles from '../shared.module.scss';
 import { ConfirmDialog, type ConfirmRequest } from './confirm-dialog';
@@ -26,6 +26,7 @@ import { MoveDialog, type MoveTarget } from './move-dialog';
 import { Preview, type PreviewTarget } from './preview';
 import { QuickEditDialog, type QuickEditField, type QuickEditTarget } from './quick-edit-dialog';
 import { KIND_OPTIONS } from './record-fields';
+import { ShareDialog } from './share-dialog';
 import { TrashPanel } from './trash-panel';
 import { UploadDialog } from './upload-dialog';
 import { VersionDialog } from './version-dialog';
@@ -55,6 +56,14 @@ export interface LibraryRequest {
   readonly nonce: number;
 }
 
+/** Hai nút đầu trang hiện được không, theo quyền ở thư mục đang mở. */
+export interface LibraryAbilities {
+  /** Tạo thư mục trong thư mục đang mở; ở gốc kho là tạo thư mục gốc. */
+  readonly createFolder: boolean;
+  /** Có ít nhất một thư mục tải lên được. */
+  readonly upload: boolean;
+}
+
 export interface LibraryViewProps {
   readonly capabilities: SharedCapabilities;
   readonly currentUserId: string;
@@ -69,6 +78,8 @@ export interface LibraryViewProps {
   /** Đang xem Thùng rác (đoạn hash `library/trash`): bảng và khung chi tiết nhường chỗ cho Thùng rác. */
   readonly trash: boolean;
   readonly onOpenTrash: () => void;
+  /** Báo lên đầu trang nút nào hiện được, mỗi khi cây thư mục hay thư mục đang mở đổi. */
+  readonly onAbilitiesChange: (abilities: LibraryAbilities) => void;
 }
 
 export function LibraryView({
@@ -81,6 +92,7 @@ export function LibraryView({
   onStorageChanged,
   trash,
   onOpenTrash,
+  onAbilitiesChange,
 }: LibraryViewProps) {
   const [folders, setFolders] = useState<SharedFolder[]>([]);
   const [foldersLoaded, setFoldersLoaded] = useState(false);
@@ -107,11 +119,28 @@ export function LibraryView({
   const [quickEdit, setQuickEdit] = useState<QuickEditTarget>();
   const [moveTarget, setMoveTarget] = useState<MoveTarget>();
   const [confirm, setConfirm] = useState<ConfirmRequest>();
+  const [shareTarget, setShareTarget] = useState<SharedFolder>();
   /** Thư mục mà hộp thoại Tải lên mở sẵn khi chọn từ menu; rỗng là thư mục đang xem. */
   const [uploadFolderId, setUploadFolderId] = useState<string>();
   const menuId = useRef(0);
 
   const current = folderId ? folders.find((folder) => folder.id === folderId) : undefined;
+
+  // Quyền theo thư mục: server trả `access` trên từng thư mục người dùng được vào.
+  const roleOf = useMemo(() => accessMap(folders), [folders]);
+  const rightsIn = useCallback(
+    (targetFolderId: string | undefined) => rightsOf(capabilities, roleOf(targetFolderId)),
+    [capabilities, roleOf],
+  );
+  const writable = useCallback((folder: SharedFolder) => rightsOf(capabilities, folder.access).write, [capabilities]);
+  const canUploadSomewhere = useMemo(() => folders.some(writable), [folders, writable]);
+
+  useEffect(() => {
+    onAbilitiesChange({
+      createFolder: current ? rightsOf(capabilities, current.access).write : capabilities.canManage,
+      upload: canUploadSomewhere,
+    });
+  }, [current, capabilities, canUploadSomewhere, onAbilitiesChange]);
   const folderIdRef = useRef(folderId);
   folderIdRef.current = folderId;
   /** Dòng cần chọn sau khi mở xong thư mục `folderId` (vd tài liệu vừa tải lên, dòng vừa "đến vị trí"). */
@@ -328,7 +357,8 @@ export function LibraryView({
       .catch((cause) => toast.error(api.errorMessage(cause, 'Không tải xuống được.')));
 
   const label = current ? `Nội dung thư mục ${current.name}` : 'Tài liệu công ty';
-  const canOpenTrash = rightsOf(capabilities).remove;
+  // Thùng rác theo quyền xoá của phân hệ; server chỉ trả mục ở thư mục người dùng có quyền Sửa.
+  const canOpenTrash = capabilities.canDeleteDocuments || capabilities.isTenantAdmin;
 
   /* ------------------------------------------------- xoá, nhân bản, đến vị trí */
 
@@ -441,7 +471,7 @@ export function LibraryView({
 
   /** Dựng menu rồi mở; trả `false` khi người dùng không có thao tác nào để hiện. */
   const openMenu = (target: MenuTarget, anchor: MenuAnchor, listFlat = flat): boolean => {
-    const entries = buildMenu(target, { capabilities, currentUserId, flat: listFlat });
+    const entries = buildMenu(target, { capabilities, currentUserId, flat: listFlat, roleOf, canUploadSomewhere });
     if (!entries.some((entry) => entry.kind === 'item')) return false;
     menuId.current += 1;
     setMenu({ id: menuId.current, anchor, entries, target });
@@ -512,8 +542,14 @@ export function LibraryView({
       case 'upload':
         setUploadFolderId(folder.id);
         return setUploadOpen(true);
+      case 'share':
+        return setShareTarget(folder);
       case 'locate':
-        return locate(folder.parentId, { type: 'folder', id: folder.id });
+        // Thư mục cha không hiện với người dùng thì thư mục này đứng ở gốc cây của họ.
+        return locate(folder.parentId && roleOf(folder.parentId) ? folder.parentId : undefined, {
+          type: 'folder',
+          id: folder.id,
+        });
       case 'edit-description':
         return editFolder('description', folder);
       case 'rename':
@@ -604,6 +640,7 @@ export function LibraryView({
           <TrashPanel
             folders={folders}
             capabilities={capabilities}
+            restorable={(folder) => rightsOf(capabilities, folder.access).remove}
             query={query}
             onChanged={() => {
               refresh();
@@ -628,9 +665,10 @@ export function LibraryView({
               <FolderDetail
                 folder={selectedFolder}
                 documents={folderDocuments}
-                capabilities={capabilities}
+                rights={rightsOf(capabilities, selectedFolder.access)}
                 onOpen={() => onOpenFolder(selectedFolder.id)}
                 onEdit={() => setFolderTarget({ folder: selectedFolder })}
+                onShare={() => setShareTarget(selectedFolder)}
                 onRemove={async () => {
                   try {
                     await removeFolder(selectedFolder);
@@ -643,7 +681,7 @@ export function LibraryView({
             ) : detail && selection?.type === 'document' && detail.id === selection.id ? (
               <DocumentDetail
                 document={detail}
-                capabilities={capabilities}
+                rights={rightsIn(detail.folderId)}
                 currentUserId={currentUserId}
                 busy={busy}
                 onPreview={(versionId) => setPreview({ documentId: detail.id, versionId, title: detail.name })}
@@ -671,6 +709,7 @@ export function LibraryView({
         target={folderTarget}
         folders={folders}
         canManage={capabilities.canManage}
+        writable={writable}
         onClose={() => setFolderTarget(undefined)}
         onSaved={(folder) => {
           toast.success(folderTarget?.folder ? 'Đã lưu thư mục.' : 'Đã tạo thư mục.');
@@ -690,6 +729,7 @@ export function LibraryView({
       <UploadDialog
         open={uploadOpen}
         folders={folders}
+        writable={writable}
         defaultFolderId={uploadFolderId ?? folderId}
         onClose={() => {
           setUploadOpen(false);
@@ -732,9 +772,18 @@ export function LibraryView({
         target={moveTarget}
         folders={folders}
         canManage={capabilities.canManage}
+        allowed={writable}
         onClose={() => setMoveTarget(undefined)}
         onDone={() => {
           toast.success(moveTarget?.kind === 'folder' ? 'Đã chuyển thư mục.' : 'Đã chuyển tài liệu.');
+          refresh();
+        }}
+      />
+      <ShareDialog
+        folder={shareTarget}
+        onClose={() => setShareTarget(undefined)}
+        onSaved={() => {
+          toast.success('Đã cập nhật chia sẻ.');
           refresh();
         }}
       />

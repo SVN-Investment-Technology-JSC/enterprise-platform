@@ -39,6 +39,11 @@ export function userRoom(tenantId: string, userId: string): string {
   return `tenant:${tenantId}:user:${userId}`;
 }
 
+/** Mọi phiên của một công ty; chỉ dùng cho tín hiệu không mang dữ liệu riêng của ai. */
+export function tenantRoom(tenantId: string): string {
+  return `tenant:${tenantId}`;
+}
+
 export function sessionRoom(sessionId: string): string {
   return `session:${sessionId}`;
 }
@@ -152,6 +157,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       if (!client.connected) return;
       await client.join(userRoom(principal.tenantId, principal.userId));
       await client.join(sessionRoom(principal.sessionId));
+      await client.join(tenantRoom(principal.tenantId));
       if (!client.connected) return;
       client.data.principal = principal;
       this.authenticatedSockets.add(client.id);

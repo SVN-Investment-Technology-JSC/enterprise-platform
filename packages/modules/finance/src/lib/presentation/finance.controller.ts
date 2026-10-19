@@ -273,7 +273,7 @@ export class FinanceController {
 
   /* Đính kèm chứng từ */
   @Post('vouchers/:id/attachments')
-  createAttachment(@Req() request: FinanceRequest, @Param('id') id: string, @Body() body: { fileName?: string; contentType?: string; sizeBytes?: number }) {
+  createAttachment(@Req() request: FinanceRequest, @Param('id') id: string, @Body() body: { fileName?: string; contentType?: string; sizeBytes?: number; purpose?: string }) {
     return this.run(() => this.app.createAttachment(this.actor(request), id, body ?? {}));
   }
   @Post('vouchers/:id/attachments/:attachmentId/complete')
@@ -337,6 +337,20 @@ export class FinanceController {
   ) {
     return this.run(() =>
       this.app.report(this.actor(request), { from, to, accountId: accountId || undefined, projectId: projectId || undefined }),
+    );
+  }
+
+  @Get('reports/ledger')
+  ledgerReport(
+    @Req() request: FinanceRequest,
+    @Query('from') from: string,
+    @Query('to') to: string,
+    @Query('accountId') accountId?: string,
+    @Query('offset') offset?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.run(() =>
+      this.app.ledgerReport(this.actor(request), { from, to, accountId: accountId || undefined, offset: int(offset), limit: int(limit) }),
     );
   }
 

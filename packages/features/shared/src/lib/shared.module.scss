@@ -917,6 +917,130 @@
   overflow: hidden;
 }
 
+.dialogWide {
+  width: min(58rem, 100%);
+}
+
+/* Hộp thoại chia sẻ: bảng đối tượng · quyền · thời hạn như 1Office. */
+.shareTable {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--ep-border);
+  border-radius: var(--ep-radius-md);
+}
+
+.shareRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 9.5rem 19rem 2rem;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 6px 12px;
+  border-top: 1px solid var(--ep-border);
+
+  &:first-child {
+    border-top: 0;
+  }
+
+  @media (width <= 720px) {
+    grid-template-columns: minmax(0, 1fr) 2rem;
+
+    > :nth-child(2),
+    > :nth-child(3) {
+      grid-column: 1;
+    }
+  }
+}
+
+.shareHead {
+  min-height: 36px;
+  background: var(--ep-surface-soft);
+  color: var(--ep-text-sub);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+
+  @media (width <= 720px) {
+    display: none;
+  }
+}
+
+.shareInherited {
+  background: var(--ep-surface-soft);
+}
+
+.shareSubject {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.shareIcon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  background: var(--ep-hover);
+  color: var(--ep-text-sub);
+}
+
+.shareName {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+
+  > span {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+  }
+
+  strong {
+    @include ellipsis;
+
+    font-weight: 600;
+  }
+
+  small {
+    @include ellipsis;
+
+    color: var(--ep-text-sub);
+    font-size: 12px;
+  }
+}
+
+.shareFixed {
+  color: var(--ep-text-sub);
+  font-size: 13px;
+}
+
+.shareCell {
+  min-width: 0;
+}
+
+.shareExpiry {
+  display: grid;
+  grid-template-columns: 9.5rem minmax(0, 1fr);
+  gap: 6px;
+
+  @media (width <= 720px) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  input[type='date'] {
+    @include input-base;
+
+    height: 36px;
+    min-width: 0;
+  }
+}
+
 .dialogHead {
   display: flex;
   align-items: flex-start;

@@ -72,10 +72,16 @@ integration('Kho tài liệu công ty: xoá, Thùng rác, khôi phục (PostgreS
     await admin.query(`CREATE DATABASE "${databaseName}"`);
     url.pathname = '/' + databaseName;
     pool = createPostgresPool(url.toString()) as unknown as Pool;
-    // Bảng người dùng của migration lõi; kho chỉ đọc tên người tạo, người xoá từ đây.
+    // Bảng người dùng của migration lõi; kho chỉ đọc tên, thư điện tử và trạng thái từ đây.
     await pool.query(`CREATE SCHEMA core_schema;
-      CREATE TABLE core_schema.users (id UUID PRIMARY KEY, full_name TEXT NOT NULL)`);
-    await pool.query(`INSERT INTO core_schema.users (id, full_name) VALUES ($1, 'An'), ($2, 'Bình')`, [alice, bob]);
+      CREATE TABLE core_schema.users (
+        id UUID PRIMARY KEY, full_name TEXT NOT NULL, email TEXT,
+        status TEXT NOT NULL DEFAULT 'active', is_active BOOLEAN NOT NULL DEFAULT true)`);
+    await pool.query(
+      `INSERT INTO core_schema.users (id, full_name, email, status) VALUES
+         ($1, 'An', 'an@savina.vn', 'active'), ($2, 'Bình', NULL, 'disabled')`,
+      [alice, bob],
+    );
     for (const file of (await readdir(MIGRATIONS)).filter((name) => name.endsWith('.sql')).sort()) {
       await pool.query(await readFile(resolve(MIGRATIONS, file), 'utf8'));
     }
@@ -95,7 +101,7 @@ integration('Kho tài liệu công ty: xoá, Thùng rác, khôi phục (PostgreS
     }
   }, 60_000);
 
-  it('migration 0002 chạy lại được mà không lỗi', async () => {
+  it('migration mới nhất chạy lại được mà không lỗi', async () => {
     const file = (await readdir(MIGRATIONS)).filter((name) => name.endsWith('.sql')).sort().at(-1)!;
     await expect(pool.query(await readFile(resolve(MIGRATIONS, file), 'utf8'))).resolves.toBeDefined();
   });
@@ -460,6 +466,125 @@ integration('Kho tài liệu công ty: xoá, Thùng rác, khôi phục (PostgreS
       await document(root, 'Mật của tôi', { createdBy: alice, confidentiality: 'confidential' });
       await expect(store.documents.countHiddenFrom(TENANT, [root.id], { userId: alice, canSeeRestricted: true })).resolves.toBe(1);
       await expect(store.documents.countHiddenFrom(TENANT, [root.id], { userId: alice, canSeeRestricted: false })).resolves.toBe(2);
+    });
+  });
+
+  describe('chia sẻ thư mục', () => {
+    const unit = randomUUID();
+    const position = randomUUID();
+    // Các dòng ghi trong cùng một câu lệnh có cùng `created_at`: so theo thứ tự đối tượng.
+    const order = ['everyone', 'unit', 'position', 'user'];
+    const rows = async (folderId: string) =>
+      (await store.shares.list(TENANT))
+        .filter((share) => share.folderId === folderId)
+        .sort((left, right) => order.indexOf(left.principalType) - order.indexOf(right.principalType))
+        .map((share) => [share.principalType, share.principalId ?? null, share.role, share.expiresOn ?? null]);
+
+    it('thay cả danh sách: thêm, đổi quyền, bỏ dòng; "mọi người" không có id', async () => {
+      const root = await folder('Chia sẻ');
+      await store.shares.replace(TENANT, root.id, alice, [
+        { principalType: 'everyone', role: 'viewer' },
+        { principalType: 'unit', principalId: unit, role: 'editor', expiresOn: '2026-12-31' },
+        { principalType: 'user', principalId: bob, role: 'manager' },
+      ]);
+      expect(await rows(root.id)).toEqual([
+        ['everyone', null, 'viewer', null],
+        ['unit', unit, 'editor', '2026-12-31'],
+        ['user', bob, 'manager', null],
+      ]);
+
+      await store.shares.replace(TENANT, root.id, bob, [
+        { principalType: 'unit', principalId: unit, role: 'manager' },
+        { principalType: 'position', principalId: position, role: 'viewer' },
+      ]);
+      expect(await rows(root.id)).toEqual([
+        ['unit', unit, 'manager', null],
+        ['position', position, 'viewer', null],
+      ]);
+
+      await store.shares.replace(TENANT, root.id, bob, []);
+      expect(await rows(root.id)).toEqual([]);
+    });
+
+    it('dòng giữ nguyên quyền và thời hạn thì giữ người sửa cuối', async () => {
+      const root = await folder('Người sửa cuối');
+      await store.shares.replace(TENANT, root.id, alice, [
+        { principalType: 'unit', principalId: unit, role: 'viewer' },
+        { principalType: 'everyone', role: 'viewer' },
+      ]);
+      await store.shares.replace(TENANT, root.id, bob, [
+        { principalType: 'unit', principalId: unit, role: 'viewer' },
+        { principalType: 'everyone', role: 'editor' },
+      ]);
+      const byType = new Map(
+        (await store.shares.list(TENANT))
+          .filter((share) => share.folderId === root.id)
+          .map((share) => [share.principalType, share.updatedBy]),
+      );
+      expect(byType.get('unit')).toBe(alice);
+      expect(byType.get('everyone')).toBe(bob);
+    });
+
+    it('ràng buộc của bảng: "mọi người" không mang id, mỗi đối tượng một dòng, quyền đúng danh mục', async () => {
+      const root = await folder('Ràng buộc');
+      const insert = (type: string, id: string | null, role = 'viewer') =>
+        pool.query(
+          `INSERT INTO shared_schema.folder_shares (folder_id, principal_type, principal_id, role, created_by, updated_by)
+           VALUES ($1, $2, $3, $4, $5, $5)`,
+          [root.id, type, id, role, alice],
+        );
+      await expect(insert('everyone', unit)).rejects.toMatchObject({ code: '23514' });
+      await expect(insert('unit', null)).rejects.toMatchObject({ code: '23514' });
+      await expect(insert('unit', unit, 'owner')).rejects.toMatchObject({ code: '23514' });
+      await insert('everyone', null);
+      await expect(insert('everyone', null, 'editor')).rejects.toMatchObject({ code: '23505' });
+      await insert('unit', unit);
+      await expect(insert('unit', unit, 'manager')).rejects.toMatchObject({ code: '23505' });
+    });
+
+    it('thư mục vào Thùng rác vẫn giữ chia sẻ; xoá vĩnh viễn thì mất theo', async () => {
+      const root = await folder('Giữ chia sẻ');
+      const child = await folder('Con', root);
+      await store.shares.replace(TENANT, child.id, alice, [{ principalType: 'unit', principalId: unit, role: 'editor' }]);
+      await store.folders.trash(TENANT, root.id, alice);
+      expect(await rows(child.id)).toHaveLength(1);
+      const skeleton = await store.folders.skeleton(TENANT);
+      expect(skeleton.find((item) => item.id === child.id)).toEqual({
+        id: child.id,
+        parentId: root.id,
+        name: 'Con',
+        createdBy: alice,
+        isActive: false,
+      });
+      await store.folders.purgeBranch(TENANT, root.id, alice);
+      expect(await rows(child.id)).toEqual([]);
+    });
+
+    it('lọc tài liệu theo danh sách thư mục được vào', async () => {
+      const left = await folder('Trái');
+      const right = await folder('Phải');
+      await document(left, 'Tài liệu trái');
+      await document(right, 'Tài liệu phải');
+      const names = async (folderIds: string[]) =>
+        (await store.documents.list(TENANT, { folderIds, status: 'active', search: 'Tài liệu', limit: 100 })).map(
+          (doc) => doc.name,
+        );
+      expect(await names([left.id])).toEqual(['Tài liệu trái']);
+      expect(await names([])).toEqual([]);
+    });
+
+    it('Thùng rác ghi thư mục chứa tài liệu; danh sách người dùng kèm trạng thái', async () => {
+      const root = await folder('Thư mục chứa');
+      const { document: doc } = await document(root, 'Bỏ');
+      await store.documents.trash(TENANT, doc.id, alice);
+      expect((await store.trash.list(TENANT)).find((entry) => entry.id === doc.id)?.folderId).toBe(root.id);
+      const people = await store.people.list(TENANT);
+      expect(people).toEqual(
+        expect.arrayContaining([
+          { id: alice, name: 'An', email: 'an@savina.vn', active: true },
+          { id: bob, name: 'Bình', email: undefined, active: false },
+        ]),
+      );
     });
   });
 });

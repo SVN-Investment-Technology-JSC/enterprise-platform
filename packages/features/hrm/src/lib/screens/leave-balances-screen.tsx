@@ -7,11 +7,13 @@ import {
   useState,
 } from 'react';
 import Link from 'next/link';
+import { Popover } from '@base-ui/react/popover';
 import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import {
   AlertTriangle,
   ChevronDown,
   ChevronRight,
+  CircleHelp,
   Download,
   RefreshCw,
   Search,
@@ -22,6 +24,7 @@ import { hrmFetch } from '../hrm-api';
 import { downloadStyledXlsx } from '../hrm-xlsx';
 import { employeeInitials, normalizeSearchText } from '../hrm-employee-view';
 import { useHrmPermissions } from '../hrm-permissions';
+import { cn } from '../utils';
 import { Badge } from '../ui/badge';
 import { Button, buttonVariants } from '../ui/button';
 import { EmployeeAvatar } from '../ui/employee-list-parts';
@@ -31,6 +34,7 @@ import { LeaveBalanceHistoryDrawer } from '../ui/leave-balance-history-drawer';
 import { formatLeaveNumber } from '../ui/leave-ledger-format';
 import { PageTitle } from '../ui/page-title';
 import { RowMenu, type RowMenuItem } from '../ui/row-menu';
+import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 
 type Row = HrmLeaveBalanceListItem;
 
@@ -84,7 +88,7 @@ function AdjustedText({ value }: { value: number }) {
   return <span className="text-slate-500">0</span>;
 }
 
-/** Còn lại < 0 là vượt quỹ (đỏ), = 0 là đã hết phép (cam); còn phép thì nền xanh nhạt. */
+/** Có thể dùng < 0 là vượt quỹ (đỏ), = 0 là đã hết phép (cam); còn phép thì nền xanh nhạt. */
 function RemainingCell({ row }: { row: Row }) {
   if (hasNoBalance(row))
     return (
@@ -99,8 +103,26 @@ function RemainingCell({ row }: { row: Row }) {
   const value = row.remaining;
   const chip =
     'inline-block min-w-9 rounded-md px-2 py-0.5 text-center font-semibold';
-  if (value < 0)
-    return (
+  const accrued = row.entitledToDate ?? row.accrued;
+  const advance = row.advanceAllowed
+    ? Math.max(
+        0,
+        (row.projectedEntitlement ?? row.entitlement) - accrued,
+      )
+    : 0;
+
+  const tooltipText =
+    accrued !== undefined
+      ? `Đã tích luỹ đến nay: ${formatLeaveNumber(accrued)} ngày${
+          advance > 0
+            ? ` · Cho ứng trước tối đa: ${formatLeaveNumber(advance)} ngày`
+            : ''
+        }`
+      : undefined;
+
+  let badgeNode: React.ReactNode;
+  if (value < 0) {
+    badgeNode = (
       <span
         className={`${chip} bg-red-50 text-red-700`}
         title="Đã dùng vượt quỹ phép"
@@ -108,16 +130,129 @@ function RemainingCell({ row }: { row: Row }) {
         {formatLeaveNumber(value)}
       </span>
     );
-  if (value === 0)
-    return (
-      <span className={`${chip} bg-amber-50 text-amber-700`} title="Đã hết phép">
+  } else if (value === 0) {
+    badgeNode = (
+      <span
+        className={`${chip} bg-amber-50 text-amber-700`}
+        title="Đã hết phép"
+      >
         {formatLeaveNumber(value)}
       </span>
     );
+  } else {
+    badgeNode = (
+      <span
+        className={`${chip} bg-emerald-50 text-emerald-700`}
+        title={tooltipText}
+      >
+        {formatLeaveNumber(value)}
+      </span>
+    );
+  }
+
   return (
-    <span className={`${chip} bg-emerald-50 text-emerald-700`}>
-      {formatLeaveNumber(value)}
-    </span>
+    <div>
+      {badgeNode}
+      {advance > 0 && (
+        <span
+          className="block truncate text-[11px] font-normal text-blue-600"
+          title={`Bao gồm hạn mức ứng trước tối đa ${formatLeaveNumber(advance)} ngày theo chính sách`}
+        >
+          (ứng +{formatLeaveNumber(advance)})
+        </span>
+      )}
+    </div>
+  );
+}
+
+type BalanceState = {
+  readonly label: string;
+  readonly className: string;
+  readonly title: string;
+};
+
+const todayIso = () => new Date().toISOString().slice(0, 10);
+
+/** Trạng thái ưu tiên lý do cần lưu ý nhất, rồi mới đến tình trạng số dư. */
+function getBalanceState(row: Row): BalanceState {
+  if (hasNoBalance(row))
+    return {
+      label: 'Chưa có quỹ',
+      className: 'border-slate-200 bg-slate-50 text-slate-600',
+      title: 'Chưa có dòng quỹ phép cho năm này.',
+    };
+  if (row.signDate === null)
+    return {
+      label: 'Chưa có HĐLĐ',
+      className: 'border-amber-200 bg-amber-50 text-amber-700',
+      title: 'Chưa có HĐLĐ chính thức đã ký nên chưa phát sinh phép năm.',
+    };
+  if (row.eligibleFrom && row.eligibleFrom > todayIso())
+    return {
+      label: 'Chưa đến ngày hưởng',
+      className: 'border-amber-200 bg-amber-50 text-amber-700',
+      title: `Bắt đầu hưởng phép từ ${dateVn(row.eligibleFrom)}.`,
+    };
+  if (row.remaining < 0)
+    return {
+      label: 'Vượt quỹ',
+      className: 'border-red-200 bg-red-50 text-red-700',
+      title: 'Số ngày đã dùng và đang chờ duyệt vượt quá quỹ có thể dùng.',
+    };
+  if (row.remaining === 0)
+    return {
+      label: 'Đã hết phép',
+      className: 'border-amber-200 bg-amber-50 text-amber-700',
+      title: 'Không còn ngày phép có thể dùng.',
+    };
+
+  const accrued = row.entitledToDate ?? row.accrued;
+  const usedAndPending = Number(row.used || 0) + Number(row.pending || 0);
+
+  if (row.advanceAllowed && usedAndPending > accrued && row.remaining > 0) {
+    return {
+      label: 'Đang ứng phép',
+      className: 'border-blue-200 bg-blue-50 text-blue-700',
+      title:
+        'Đã dùng vượt mức tích luỹ thực tế, đang sử dụng phần phép ứng trước của các tháng sau.',
+    };
+  }
+
+  if (row.advanceAllowed) {
+    return {
+      label: 'Còn phép',
+      className: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+      title:
+        'Còn phép tích luỹ bình thường và được quyền ứng trước ngày phép của các tháng tới.',
+    };
+  }
+
+  return {
+    label: 'Còn phép',
+    className: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+    title: 'Còn ngày phép có thể dùng theo chính sách hiện hành.',
+  };
+}
+
+function BalanceStateCell({ row }: { row: Row }) {
+  const state = getBalanceState(row);
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Badge
+            variant="outline"
+            className={cn('cursor-help', state.className)}
+            // title={state.title}
+          />
+        }
+      >
+        {state.label}
+      </TooltipTrigger>
+      <TooltipContent side="top">
+        {state.title}
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -149,52 +284,36 @@ function SignDateNote({ row }: { row: Row }) {
   );
 }
 
-/** Phép thâm niên cả năm (đã gồm trong Được hưởng); chú thích mốc năm làm việc đã đạt. */
-function SeniorityCell({ row }: { row: Row }) {
-  if (hasNoBalance(row) && !row.seniorityDays) return DASH;
-  const days = Number(row.seniorityDays || 0);
-  if (days <= 0) return <span className="text-slate-400">0</span>;
+function ColumnHeader({
+  label,
+  help,
+  className,
+}: {
+  readonly label: string;
+  readonly help: string;
+  readonly className?: string;
+}) {
   return (
-    <span
-      className="font-semibold text-violet-700"
-      title={
-        row.seniorityTierYears
-          ? `Mốc thâm niên ${row.seniorityTierYears} năm`
-          : 'Phép thâm niên'
-      }
-    >
-      +{formatLeaveNumber(days)}
-    </span>
-  );
-}
-
-/** Thanh tiến độ: đã dùng / được hưởng (tối đa 100%); màu theo còn lại, đồng bộ với ô Còn lại. */
-function ProgressCell({ row }: { row: Row }) {
-  if (hasNoBalance(row)) return <span className="text-slate-400">—</span>;
-  const entitlement = Number(row.entitlement || 0);
-  const used = Number(row.used || 0);
-  const ratio = entitlement > 0 ? used / entitlement : used > 0 ? 1 : 0;
-  const pct = Math.round(Math.min(Math.max(ratio, 0), 1) * 100);
-  const tone =
-    row.remaining < 0
-      ? 'bg-red-500'
-      : row.remaining === 0
-        ? 'bg-amber-400'
-        : 'bg-emerald-500';
-  return (
-    <div
-      role="progressbar"
-      aria-label={`Đã dùng ${formatLeaveNumber(used)} trên ${formatLeaveNumber(entitlement)} ngày`}
-      aria-valuemin={0}
-      aria-valuemax={100}
-      aria-valuenow={pct}
-      className="h-2 w-full min-w-24 overflow-hidden rounded-full bg-slate-100"
-    >
-      <div
-        className={`h-full rounded-full ${tone}`}
-        style={{ width: `${pct}%` }}
-      />
-    </div>
+    <th className={className}>
+      <span className="inline-flex items-center gap-1">
+        {label}
+        <Popover.Root>
+          <Popover.Trigger
+            aria-label={`Giải thích ${label}`}
+            className="inline-flex size-3.5 cursor-pointer items-center justify-center rounded-full text-amber-500/80 outline-none transition-colors hover:text-amber-600 data-pressed:text-amber-600 focus-visible:ring-2 focus-visible:ring-amber-400"
+          >
+            <CircleHelp aria-hidden="true" className="size-3.5" />
+          </Popover.Trigger>
+          <Popover.Portal>
+            <Popover.Positioner side="top" sideOffset={8} className="z-[100]">
+              <Popover.Popup className="relative z-[100] max-w-72 rounded-md border border-slate-200 bg-slate-900 px-2.5 py-2 text-left text-xs font-normal leading-5 text-white shadow-xl outline-none">
+                {help}
+              </Popover.Popup>
+            </Popover.Positioner>
+          </Popover.Portal>
+        </Popover.Root>
+      </span>
+    </th>
   );
 }
 
@@ -229,7 +348,7 @@ function groupByDepartment(rows: readonly Row[]): DepartmentGroup[] {
 }
 
 const TH = 'px-3 py-2.5 text-[12px] font-bold text-slate-600';
-const COLUMN_COUNT = 11;
+const COLUMN_COUNT = 10;
 const DASH = <span className="text-slate-400">—</span>;
 
 /**
@@ -407,12 +526,12 @@ export default function LeaveBalancesScreen() {
       'Họ và tên',
       'Phòng ban',
       'Năm',
-      'Được hưởng',
+      'Tổng quỹ năm',
       'Đã dùng',
       'Chờ duyệt',
-      'Còn lại',
+      'Có thể dùng',
       'Điều chỉnh',
-      'Ghi chú',
+      'Trạng thái quỹ',
     ];
     const title: unknown[] = header.map(() => '');
     title[0] = `QUỸ PHÉP NĂM ${year}`;
@@ -433,7 +552,7 @@ export default function LeaveBalancesScreen() {
             num(r, r.pending),
             num(r, r.remaining),
             num(r, r.adjusted),
-            hasNoBalance(r) ? 'Chưa có quỹ' : '',
+            getBalanceState(r).label,
           ]),
         ],
         merges: [{ s: { r: 0, c: 0 }, e: { r: 0, c: header.length - 1 } }],
@@ -575,18 +694,36 @@ export default function LeaveBalancesScreen() {
                       </th>
                       <th className={TH}>Tên nhân viên</th>
                       <th className={TH}>Mã NV</th>
-                      <th className={`${TH} text-right`}>Được hưởng</th>
-                      <th
+                      <ColumnHeader
                         className={`${TH} text-right`}
-                        title="Phép thâm niên cả năm theo mốc năm làm việc tính từ ngày ký HĐLĐ; đã nằm trong cột Được hưởng"
-                      >
-                        Thâm niên
-                      </th>
-                      <th className={`${TH} text-right`}>Đã dùng</th>
-                      <th className={`${TH} text-right`}>Chờ duyệt</th>
-                      <th className={`${TH} text-right`}>Còn lại</th>
-                      <th className={`${TH} text-right`}>Điều chỉnh</th>
-                      <th className={`${TH} w-40`}>Tiến độ</th>
+                        label="Tổng quỹ năm"
+                        help="Tổng quyền lợi trong năm: phép chuyển năm (nếu có), định mức theo chính sách, phép thâm niên và điều chỉnh."
+                      />
+                      <ColumnHeader
+                        className={`${TH} text-right`}
+                        label="Đã dùng"
+                        help="Số ngày của các đơn đã được duyệt và đã trừ quỹ."
+                      />
+                      <ColumnHeader
+                        className={`${TH} text-right`}
+                        label="Chờ duyệt"
+                        help="Số ngày của mọi đơn đang chờ duyệt; số này đã được trừ khi xác định Có thể dùng."
+                      />
+                      <ColumnHeader
+                        className={`${TH} text-right`}
+                        label="Có thể dùng"
+                        help="Số ngày có thể tạo đơn ngay: quỹ đã ghi sổ cộng phần quyền lợi có thể dùng theo chính sách (kể cả ứng phép nếu được cấu hình), trừ đơn chờ duyệt."
+                      />
+                      <ColumnHeader
+                        className={`${TH} text-right`}
+                        label="Điều chỉnh"
+                        help="Tổng bút toán cộng hoặc trừ thủ công trong năm; số này đã nằm trong Tổng quỹ năm."
+                      />
+                      <ColumnHeader
+                        className={TH}
+                        label="Trạng thái quỹ"
+                        help="Cho biết quỹ còn dùng được, đã hết hoặc vượt quỹ, chưa đủ điều kiện, hay chính sách cho ứng phép."
+                      />
                       <th className={`${TH} w-16 text-center`}>Thao tác</th>
                     </tr>
                   </thead>
@@ -636,11 +773,6 @@ export default function LeaveBalancesScreen() {
                             </td>
                             <td className="px-3 py-2 text-right">
                               {formatLeaveNumber(
-                                sumOf(group.rows, (r) => r.seniorityDays),
-                              )}
-                            </td>
-                            <td className="px-3 py-2 text-right">
-                              {formatLeaveNumber(
                                 sumOf(group.rows, (r) => r.used),
                               )}
                             </td>
@@ -651,11 +783,10 @@ export default function LeaveBalancesScreen() {
                             </td>
                             <td className="px-3 py-2 text-right">
                               <span
-                                className={`inline-block min-w-9 rounded-md px-2 py-0.5 text-center ${
-                                  remaining < 0
-                                    ? 'bg-red-50 text-red-700'
-                                    : 'bg-emerald-50 text-emerald-700'
-                                }`}
+                                className={`inline-block min-w-9 rounded-md px-2 py-0.5 text-center ${remaining < 0
+                                  ? 'bg-red-50 text-red-700'
+                                  : 'bg-emerald-50 text-emerald-700'
+                                  }`}
                               >
                                 {formatLeaveNumber(remaining)}
                               </span>
@@ -671,82 +802,79 @@ export default function LeaveBalancesScreen() {
                           ...(isCollapsed
                             ? []
                             : group.rows.map((r) => {
-                                const none = hasNoBalance(r);
-                                return (
-                                  <tr
-                                    key={r.employeeId}
-                                    data-testid={`leave-row-${r.employeeId}`}
-                                    className="border-t border-slate-100 transition-colors hover:bg-slate-50/80"
-                                  >
-                                    <td className="px-3 py-2">
-                                      <input
-                                        type="checkbox"
-                                        aria-label={`Chọn ${r.employeeName}`}
-                                        checked={selectedIds.has(r.employeeId)}
-                                        onChange={() => toggleOne(r.employeeId)}
-                                        className="size-3.5 rounded border-slate-300"
+                              const none = hasNoBalance(r);
+                              return (
+                                <tr
+                                  key={r.employeeId}
+                                  data-testid={`leave-row-${r.employeeId}`}
+                                  className="border-t border-slate-100 transition-colors hover:bg-slate-50/80"
+                                >
+                                  <td className="px-3 py-2">
+                                    <input
+                                      type="checkbox"
+                                      aria-label={`Chọn ${r.employeeName}`}
+                                      checked={selectedIds.has(r.employeeId)}
+                                      onChange={() => toggleOne(r.employeeId)}
+                                      className="size-3.5 rounded border-slate-300"
+                                    />
+                                  </td>
+                                  <td className="px-3 py-2">
+                                    <span className="flex items-center gap-2.5">
+                                      <EmployeeAvatar
+                                        initials={employeeInitials({
+                                          fullName: r.employeeName,
+                                          employeeCode: r.employeeCode,
+                                        })}
+                                        seed={r.employeeCode}
                                       />
-                                    </td>
-                                    <td className="px-3 py-2">
-                                      <span className="flex items-center gap-2.5">
-                                        <EmployeeAvatar
-                                          initials={employeeInitials({
-                                            fullName: r.employeeName,
-                                            employeeCode: r.employeeCode,
-                                          })}
-                                          seed={r.employeeCode}
-                                        />
-                                        <span className="min-w-0">
-                                          <span className="block truncate font-semibold text-slate-900">
-                                            {r.employeeName}
-                                          </span>
-                                          <SignDateNote row={r} />
+                                      <span className="min-w-0">
+                                        <span className="block truncate font-semibold text-slate-900">
+                                          {r.employeeName}
                                         </span>
+                                        <SignDateNote row={r} />
                                       </span>
-                                    </td>
-                                    <td className="px-3 py-2 font-mono text-slate-600">
-                                      {r.employeeCode}
-                                    </td>
-                                    <td className="px-3 py-2 text-right">
-                                      {none
-                                        ? DASH
-                                        : formatLeaveNumber(r.entitlement)}
-                                    </td>
-                                    <td className="px-3 py-2 text-right">
-                                      <SeniorityCell row={r} />
-                                    </td>
-                                    <td className="px-3 py-2 text-right">
-                                      {none ? DASH : formatLeaveNumber(r.used)}
-                                    </td>
-                                    <td className="px-3 py-2 text-right">
-                                      {none
-                                        ? DASH
-                                        : formatLeaveNumber(r.pending)}
-                                    </td>
-                                    <td className="px-3 py-2 text-right">
-                                      <RemainingCell row={r} />
-                                    </td>
-                                    <td className="px-3 py-2 text-right">
-                                      {none ? (
-                                        DASH
-                                      ) : (
-                                        <AdjustedText
-                                          value={Number(r.adjusted || 0)}
-                                        />
-                                      )}
-                                    </td>
-                                    <td className="px-3 py-2">
-                                      <ProgressCell row={r} />
-                                    </td>
-                                    <td className="px-3 py-2 text-center">
-                                      <RowMenu
-                                        label={`Thao tác ${r.employeeName}`}
-                                        items={rowMenuItems(r)}
+                                    </span>
+                                  </td>
+                                  <td className="px-3 py-2 font-mono text-slate-600">
+                                    {r.employeeCode}
+                                  </td>
+                                  <td className="px-3 py-2 text-right">
+                                    {none
+                                      ? DASH
+                                      : formatLeaveNumber(r.entitlement)}
+                                  </td>
+                                  <td className="px-3 py-2 text-right">
+                                    {none ? DASH : formatLeaveNumber(r.used)}
+                                  </td>
+                                  <td className="px-3 py-2 text-right">
+                                    {none
+                                      ? DASH
+                                      : formatLeaveNumber(r.pending)}
+                                  </td>
+                                  <td className="px-3 py-2 text-right">
+                                    <RemainingCell row={r} />
+                                  </td>
+                                  <td className="px-3 py-2 text-right">
+                                    {none ? (
+                                      DASH
+                                    ) : (
+                                      <AdjustedText
+                                        value={Number(r.adjusted || 0)}
                                       />
-                                    </td>
-                                  </tr>
-                                );
-                              })),
+                                    )}
+                                  </td>
+                                  <td className="px-3 py-2">
+                                    <BalanceStateCell row={r} />
+                                  </td>
+                                  <td className="px-3 py-2 text-center">
+                                    <RowMenu
+                                      label={`Thao tác ${r.employeeName}`}
+                                      items={rowMenuItems(r)}
+                                    />
+                                  </td>
+                                </tr>
+                              );
+                            })),
                         ];
                       })
                     )}

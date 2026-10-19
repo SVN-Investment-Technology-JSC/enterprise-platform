@@ -4,6 +4,7 @@ import type {
   TenantRole,
 } from '@enterprise-platform/contracts-identity';
 import type { TenantModuleCatalogItem } from '@enterprise-platform/contracts-tenancy';
+import { isLauncherOnlyModule } from '@enterprise-platform/feature-module-shell';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
@@ -93,7 +94,8 @@ export default async function AuthorizationPage() {
         users={users}
         initialRoles={roles.roles}
         initialPermissions={permissions.permissions}
-        modules={modules.modules}
+        // Trợ lý mở cho mọi thành viên, không có quyền để gán theo vai trò.
+        modules={modules.modules.filter((m) => !isLauncherOnlyModule(m.key))}
       />
     );
   } catch {

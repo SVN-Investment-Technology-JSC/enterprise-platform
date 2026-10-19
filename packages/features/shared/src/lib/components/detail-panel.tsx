@@ -4,9 +4,9 @@ import {
   formatBytes,
   SHARED_CONFIDENTIALITY_LABELS,
   SHARED_DOCUMENT_KIND_LABELS,
+  SHARED_FOLDER_ROLE_LABELS,
   SHARED_PREVIEWABLE_CONTENT_TYPES,
   type SharedAccessAction,
-  type SharedCapabilities,
   type SharedDocumentDetail,
   type SharedDocumentSummary,
   type SharedFolder,
@@ -14,6 +14,7 @@ import {
 import { Popconfirm } from '@enterprise-platform/shared-ui';
 import { Download } from 'lucide-react';
 import type { ReactNode } from 'react';
+import type { FolderRights } from '../context-menu.model';
 import { expiryTone, fileBadge, formatDate, formatDateTime } from '../library.model';
 import styles from '../shared.module.scss';
 
@@ -51,9 +52,11 @@ function ExpiryBadge({ value }: { readonly value?: string }) {
 export interface FolderDetailProps {
   readonly folder: SharedFolder;
   readonly documents: readonly SharedDocumentSummary[];
-  readonly capabilities: SharedCapabilities;
+  /** Quyền của người dùng ở thư mục này. */
+  readonly rights: FolderRights;
   readonly onOpen: () => void;
   readonly onEdit: () => void;
+  readonly onShare: () => void;
   readonly onRemove: () => Promise<void>;
   readonly onSelectDocument: (documentId: string) => void;
 }
@@ -61,15 +64,15 @@ export interface FolderDetailProps {
 export function FolderDetail({
   folder,
   documents,
-  capabilities,
+  rights,
   onOpen,
   onEdit,
+  onShare,
   onRemove,
   onSelectDocument,
 }: FolderDetailProps) {
   // Thư mục gốc là khung của kho: chỉ quản trị kho xoá, như chỉ họ dựng.
-  const canDelete =
-    (capabilities.canDeleteDocuments || capabilities.isTenantAdmin) && (Boolean(folder.parentId) || capabilities.canManage);
+  const canDelete = rights.remove && (Boolean(folder.parentId) || rights.manage);
   return (
     <aside className={`${styles.panel} ${styles.detail}`} aria-label={`Chi tiết thư mục ${folder.name}`}>
       <div className={styles.detailHead}>
@@ -87,6 +90,7 @@ export function FolderDetail({
           {folder.effectiveTo ? <Fact label="Hiệu lực đến">{formatDate(folder.effectiveTo)}</Fact> : null}
           <Fact label="Tài liệu">{folder.totalDocumentCount.toLocaleString('vi-VN')}</Fact>
           <Fact label="Dung lượng">{formatBytes(folder.totalBytes)}</Fact>
+          {folder.access ? <Fact label="Quyền của bạn">{SHARED_FOLDER_ROLE_LABELS[folder.access]}</Fact> : null}
           {folder.note ? <Fact label="Ghi chú" wide>{folder.note}</Fact> : null}
         </dl>
       </div>
@@ -122,7 +126,12 @@ export function FolderDetail({
         <button type="button" className={styles.buttonPrimary} onClick={onOpen}>
           Mở thư mục
         </button>
-        {capabilities.canWriteDocuments ? (
+        {rights.share ? (
+          <button type="button" className={styles.buttonGhost} onClick={onShare}>
+            Chia sẻ
+          </button>
+        ) : null}
+        {rights.write ? (
           <button type="button" className={styles.buttonGhost} onClick={onEdit}>
             Sửa thông tin
           </button>
@@ -148,7 +157,8 @@ export function FolderDetail({
 
 export interface DocumentDetailProps {
   readonly document: SharedDocumentDetail;
-  readonly capabilities: SharedCapabilities;
+  /** Quyền của người dùng ở thư mục chứa tài liệu. */
+  readonly rights: FolderRights;
   readonly currentUserId: string;
   readonly busy: boolean;
   readonly onPreview: (versionId?: string) => void;
@@ -164,7 +174,7 @@ export interface DocumentDetailProps {
 
 export function DocumentDetail({
   document,
-  capabilities,
+  rights,
   currentUserId,
   busy,
   onPreview,
@@ -180,10 +190,9 @@ export function DocumentDetail({
   const current = document.currentVersion;
   const active = document.status === 'active';
   const lockedByOther = Boolean(document.lockedByUserId && document.lockedByUserId !== currentUserId);
-  const canEdit = capabilities.canWriteDocuments && active && !lockedByOther;
-  const canUnlock =
-    Boolean(document.lockedByUserId) && (!lockedByOther || capabilities.canManage);
-  const canArchive = capabilities.canDeleteDocuments || capabilities.isTenantAdmin;
+  const canEdit = rights.write && active && !lockedByOther;
+  const canUnlock = Boolean(document.lockedByUserId) && (!lockedByOther || rights.unlockOthers);
+  const canArchive = rights.remove;
   const uploaded = current?.sizeBytes !== undefined;
   const previewable = uploaded && SHARED_PREVIEWABLE_CONTENT_TYPES.includes(current?.contentType ?? '');
 
@@ -303,7 +312,7 @@ export function DocumentDetail({
             </button>
           </>
         ) : null}
-        {capabilities.canWriteDocuments && active && !document.lockedByUserId ? (
+        {rights.write && active && !document.lockedByUserId ? (
           <button type="button" className={styles.buttonGhost} disabled={busy} onClick={onLock}>
             Khoá
           </button>

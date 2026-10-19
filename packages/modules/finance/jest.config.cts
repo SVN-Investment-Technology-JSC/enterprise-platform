@@ -15,6 +15,9 @@ module.exports = {
   transform: {
     '^.+\\.[tj]s$': ['@swc/jest', swcJestConfig],
   },
+  // sanitize-html -> htmlparser2 and its dom* / entities dependencies ship ESM-only ("type": "module");
+  // transform them like our own source instead of leaving pnpm's default node_modules ignore rule skip them.
+  transformIgnorePatterns: ['node_modules/\\.pnpm/(?!(htmlparser2|entities|domhandler|domutils|domelementtype|dom-serializer)@)'],
   moduleFileExtensions: ['ts', 'js', 'html'],
   coverageDirectory: 'test-output/jest/coverage',
 };

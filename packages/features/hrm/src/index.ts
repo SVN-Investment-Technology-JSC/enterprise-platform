@@ -14,6 +14,7 @@ export {
   default as RequestsScreen,
   default as RequestsPage,
 } from './lib/screens/requests-screen';
+export { HrmAssistantFormPage } from './lib/screens/assistant-form-screen';
 export {
   default as ApprovalsScreen,
   default as ApprovalsPage,

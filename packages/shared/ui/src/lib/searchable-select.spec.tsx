@@ -153,4 +153,35 @@ describe('SearchableSelect searchInDropdown', () => {
     expect(onChange).toHaveBeenCalledWith('b');
     expect(screen.queryByRole('listbox')).toBeNull();
   });
+
+  it('ô ngoài không có kính lúp đè lên giá trị đã chọn', () => {
+    const { container, rerender } = render(<SearchableSelect options={options} value="a" />);
+    // Kiểu gõ trực tiếp vẫn có kính lúp trong ô.
+    expect(container.querySelector('.searchIcon')).not.toBeNull();
+
+    // Phải không có trong DOM: chỉ đặt `hidden` thì app không có preflight Tailwind vẫn vẽ nó (`.searchIcon` đặt `display: flex`).
+    rerender(<SearchableSelect searchInDropdown options={options} value="a" />);
+    expect(container.querySelector('.searchIcon')).toBeNull();
+  });
+
+  it('đóng dropdown và không bị mở lại khi được bọc trong thẻ <label>', () => {
+    const onChange = jest.fn();
+    render(
+      <label>
+        <span>Loại hợp đồng</span>
+        <SearchableSelect options={options} value="a" onChange={onChange} />
+      </label>,
+    );
+    const trigger = screen.getByDisplayValue('Alpha') as HTMLInputElement;
+    fireEvent.click(trigger);
+    expect(screen.queryByRole('listbox')).not.toBeNull();
+
+    const optionBeta = screen.getByRole('option', { name: /Beta/i });
+    fireEvent.mouseDown(optionBeta);
+    fireEvent.click(optionBeta);
+
+    expect(onChange).toHaveBeenCalledWith('b');
+    expect(screen.queryByRole('listbox')).toBeNull();
+  });
 });
+

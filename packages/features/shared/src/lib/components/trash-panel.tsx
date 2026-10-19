@@ -38,6 +38,8 @@ function contentsOf(item: SharedTrashItem): string {
 export interface TrashPanelProps {
   readonly folders: readonly SharedFolder[];
   readonly capabilities: SharedCapabilities;
+  /** Thư mục khôi phục vào được (quyền xoá ở đó), khi chỗ cũ không còn. */
+  readonly restorable: (folder: SharedFolder) => boolean;
   /** Ô tìm trên thanh công cụ của kho. */
   readonly query: string;
   /** Gọi khi Thùng rác đổi: khôi phục đưa thư mục về cây, xoá vĩnh viễn trả dung lượng cho kho. */
@@ -45,7 +47,7 @@ export interface TrashPanelProps {
 }
 
 /** Thùng rác của kho: tài liệu và thư mục đã xoá, khôi phục hay xoá vĩnh viễn. */
-export function TrashPanel({ folders, capabilities, query, onChanged }: TrashPanelProps) {
+export function TrashPanel({ folders, capabilities, restorable, query, onChanged }: TrashPanelProps) {
   const [items, setItems] = useState<SharedTrashItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>();
@@ -148,7 +150,10 @@ export function TrashPanel({ folders, capabilities, query, onChanged }: TrashPan
 
   const openMenu = (item: SharedTrashItem, anchor: MenuAnchor) => {
     setSelected(keyOf(item));
-    const entries = buildMenu({ kind: 'trash', item }, { capabilities, currentUserId: '', flat: false });
+    const entries = buildMenu(
+      { kind: 'trash', item },
+      { capabilities, currentUserId: '', flat: false, roleOf: () => undefined, canUploadSomewhere: false },
+    );
     if (!entries.some((entry) => entry.kind === 'item')) return;
     menuId.current += 1;
     setMenu({ id: menuId.current, anchor, entries, item });
@@ -281,6 +286,7 @@ export function TrashPanel({ folders, capabilities, query, onChanged }: TrashPan
         target={moveTarget}
         folders={folders}
         canManage={capabilities.canManage}
+        allowed={restorable}
         onClose={() => setMoveTarget(undefined)}
         onDone={(restored) => {
           if (restored) toast.success(`Đã khôi phục “${restored.name}”.`);

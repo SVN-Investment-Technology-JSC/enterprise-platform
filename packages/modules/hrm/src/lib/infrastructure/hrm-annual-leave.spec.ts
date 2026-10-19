@@ -115,6 +115,7 @@ describe('usableFrom (phần quỹ được dùng)', () => {
       projected: null,
       projectedSeniority: 0,
       advanceAllowed: false,
+      entitledToDate: null,
     });
   });
 });

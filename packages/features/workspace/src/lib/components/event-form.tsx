@@ -15,6 +15,7 @@ import {
 } from '@enterprise-platform/contracts-workspace';
 import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import { useEffect, useMemo, useState } from 'react';
+import type { EventPrefill, FormPrefill } from '../assistant-drafts';
 import { EVENT_TYPE_LABELS } from '../workspace-labels';
 import styles from '../workspace.module.scss';
 import { Choice } from './choice';
@@ -38,6 +39,10 @@ export interface EventFormProps {
    * server cũng chặn người ngoài dự án. Vắng là sự kiện cá nhân, mời cả tổ chức.
    */
   readonly memberUserIds?: readonly string[];
+  /** Giá trị ban đầu khi tạo mới (bản nháp của Trợ lý); `seq` mới thì gộp vào form đang mở. */
+  readonly prefill?: FormPrefill<EventPrefill>;
+  /** Tên dự án của sự kiện khi form mở ngoài trang dự án. */
+  readonly projectLabel?: string;
   readonly loadDetail: (eventId: string) => Promise<EventMutationResponse>;
   readonly onClose: () => void;
   readonly onCreate: (input: Omit<CreateEventRequest, 'projectId'>) => Promise<SchedulingWarning[]>;
@@ -136,6 +141,8 @@ export function EventForm({
   currentUserId,
   isTenantAdmin = false,
   memberUserIds,
+  prefill,
+  projectLabel,
   loadDetail,
   onClose,
   onCreate,
@@ -206,6 +213,12 @@ export function EventForm({
       alive = false;
     };
   }, [open, occurrence, defaultDate, currentUserId, loadDetail]);
+
+  // Chạy sau bước dựng form ở trên: chỉ gộp các ô có trong bản nháp, ô người dùng đã sửa mà bản nháp không nhắc thì giữ.
+  useEffect(() => {
+    if (!open || occurrence || !prefill) return;
+    setForm((current) => ({ ...current, ...prefill.values }));
+  }, [open, occurrence, prefill]);
 
   const set = (patch: Partial<FormState>) => setForm((current) => ({ ...current, ...patch }));
 
@@ -315,6 +328,8 @@ export function EventForm({
       subtitle={
         !canEdit
           ? `Người tổ chức: ${directory.nameOf(organizerId)}`
+          : !occurrence && projectLabel
+            ? `Dự án ${projectLabel}`
           : occurrence?.isRecurring
             ? 'Sự kiện này lặp lại. Hãy chọn phạm vi tác động bên dưới.'
             : memberUserIds

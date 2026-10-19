@@ -1,8 +1,8 @@
 /** @jest-environment jsdom */
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import type { FinanceCapabilities, FinanceVoucherList, FinanceVoucherSummary } from '@enterprise-platform/contracts-finance';
+import type { FinanceCapabilities, FinanceVoucher, FinanceVoucherList, FinanceVoucherSummary } from '@enterprise-platform/contracts-finance';
 import { installAntdEnv } from '../../test-support/antd-env';
-import { financeFetch } from '../finance-api';
+import { financeDelete, financeFetch, financePost } from '../finance-api';
 import { monthLabel, monthRange, shiftMonth, todayVn } from '../finance-format';
 import VoucherListScreen, { initialMonth } from './voucher-list-screen';
 
@@ -14,7 +14,7 @@ jest.mock('next/navigation', () => ({
 let mockQuery = '';
 jest.mock('../finance-api', () => {
   const actual = jest.requireActual('../finance-api');
-  return { ...actual, financeFetch: jest.fn() };
+  return { ...actual, financeFetch: jest.fn(), financePost: jest.fn(), financeDelete: jest.fn() };
 });
 let mockCapabilities: Partial<FinanceCapabilities> = {};
 jest.mock('../finance-permissions', () => ({
@@ -29,6 +29,8 @@ jest.mock('../finance-csv', () => {
 installAntdEnv();
 
 const fetchMock = financeFetch as jest.MockedFunction<typeof financeFetch>;
+const postMock = financePost as jest.MockedFunction<typeof financePost>;
+const deleteMock = financeDelete as jest.MockedFunction<typeof financeDelete>;
 
 const summary = (over: Partial<FinanceVoucherSummary>): FinanceVoucherSummary => ({
   id: 'v1',
@@ -44,7 +46,6 @@ const summary = (over: Partial<FinanceVoucherSummary>): FinanceVoucherSummary =>
   destAccountId: null,
   destAccountName: null,
   counterpartyGroupName: 'Khách hàng',
-  counterpartyName: 'Công ty ABC',
   totalAmount: 300_000,
   status: 'APPROVED',
   createdBy: 'u1',
@@ -275,6 +276,124 @@ describe('Theo dõi theo tháng', () => {
     expect(within(card('pending')).getByText('250.000')).toBeTruthy();
     expect(within(card('open')).getByText('2 phiếu')).toBeTruthy();
     expect(within(card('open')).getByText('15.000')).toBeTruthy();
+  });
+});
+
+describe('Menu chuột phải trên danh sách', () => {
+  const NONE = {
+    canEdit: false,
+    canSubmit: false,
+    canApprove: false,
+    canReject: false,
+    canCancel: false,
+    canReverse: false,
+    canDelete: false,
+    canRetryProcedure: false,
+    sourced: { canEditSourced: false, canPost: false, canReturnSource: false, canTakeOver: false, canRetryReversal: false },
+  };
+  const voucherDetail = (over: Partial<FinanceVoucher> = {}): FinanceVoucher => ({
+    ...summary({}),
+    counterpartyGroupId: 'g1',
+    allocation: null,
+    taxIncluded: false,
+    taxRate: 0,
+    taxAmount: 0,
+    note: null,
+    decisionNote: null,
+    decidedBy: null,
+    decidedByName: null,
+    revision: 1,
+    lines: [],
+    invoices: [],
+    relatedProjects: [],
+    attachments: [],
+    events: [],
+    posted: false,
+    procedure: null,
+    source: null,
+    permissions: { ...NONE },
+    ...over,
+  });
+
+  const withVoucherDetail = (detail: FinanceVoucher) => {
+    fetchMock.mockImplementation(async (path: string) => {
+      if (path === `/vouchers/${detail.id}`) return detail as never;
+      if (path.startsWith('/accounts')) return [{ id: 'a1', name: 'Vietcombank' }] as never;
+      if (path.startsWith('/catalogs')) return { reasons: [], counterpartyGroups: [] } as never;
+      if (path.startsWith('/workspace/projects')) return { items: [], truncated: false } as never;
+      if (path.startsWith('/vouchers')) return list([summary({})], { APPROVED: 1 }) as never;
+      throw new Error(`route lạ ${path}`);
+    });
+  };
+
+  const openMenuFor = async (text = 'PT-2610-0001') => {
+    const row = await screen.findByText(text);
+    fireEvent.contextMenu(row.closest('tr') as HTMLElement);
+  };
+
+  it('chỉ hiện đúng mục theo permissions của phiếu; Sửa điều hướng tới trang sửa', async () => {
+    withVoucherDetail(voucherDetail({ permissions: { ...NONE, canEdit: true, canDelete: true } }));
+    render(<VoucherListScreen kind="RECEIPT" />);
+    await openMenuFor();
+    expect(await screen.findByRole('menuitem', { name: 'Sửa' })).toBeTruthy();
+    expect(await screen.findByRole('menuitem', { name: 'Xoá' })).toBeTruthy();
+    expect(screen.queryByRole('menuitem', { name: 'Duyệt' })).toBeNull();
+    expect(screen.queryByRole('menuitem', { name: 'Huỷ' })).toBeNull();
+    // Nhân bản luôn hiện khi có quyền lập loại phiếu này (mockCapabilities.receipt.create = true).
+    expect(screen.getByRole('menuitem', { name: 'Nhân bản' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Sửa' }));
+    expect(mockPush).toHaveBeenCalledWith('/receipts/v1/edit');
+  });
+
+  it('Nhân bản điều hướng tới form tạo mới kèm ?from=id', async () => {
+    withVoucherDetail(voucherDetail());
+    render(<VoucherListScreen kind="RECEIPT" />);
+    await openMenuFor();
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Nhân bản' }));
+    expect(mockPush).toHaveBeenCalledWith('/receipts/new?from=v1');
+  });
+
+  it('Xoá: xác nhận rồi gọi xoá phiếu và tải lại danh sách', async () => {
+    withVoucherDetail(voucherDetail({ permissions: { ...NONE, canDelete: true } }));
+    deleteMock.mockResolvedValue(undefined as never);
+    render(<VoucherListScreen kind="RECEIPT" />);
+    await openMenuFor();
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Xoá' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Xoá' }));
+    await waitFor(() => expect(deleteMock).toHaveBeenCalledWith('/vouchers/v1'));
+  });
+
+  it('Huỷ: bắt buộc nhập lý do mới xác nhận được', async () => {
+    withVoucherDetail(voucherDetail({ permissions: { ...NONE, canCancel: true } }));
+    postMock.mockResolvedValue({} as never);
+    render(<VoucherListScreen kind="RECEIPT" />);
+    await openMenuFor();
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Huỷ' }));
+    const confirmBtn = (await screen.findByRole('button', { name: 'Huỷ phiếu' })) as HTMLButtonElement;
+    expect(confirmBtn.disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText(/Lý do huỷ/), { target: { value: 'Nhập nhầm' } });
+    fireEvent.click(confirmBtn);
+    await waitFor(() => expect(postMock).toHaveBeenCalledWith('/vouchers/v1/cancel', { note: 'Nhập nhầm' }));
+  });
+
+  it('Duyệt: gọi approve khi trực tiếp, procedure-action khi qua quy trình', async () => {
+    withVoucherDetail(voucherDetail({ permissions: { ...NONE, canApprove: true }, approvalMode: 'DIRECT' }));
+    postMock.mockResolvedValue({} as never);
+    render(<VoucherListScreen kind="RECEIPT" />);
+    await openMenuFor();
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Duyệt' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Duyệt' }));
+    await waitFor(() => expect(postMock).toHaveBeenCalledWith('/vouchers/v1/approve', { note: undefined }));
+  });
+
+  it('Duyệt qua quy trình: gọi procedure-action thay vì approve', async () => {
+    withVoucherDetail(voucherDetail({ permissions: { ...NONE, canApprove: true }, approvalMode: 'PROCEDURE' }));
+    postMock.mockResolvedValue({} as never);
+    render(<VoucherListScreen kind="RECEIPT" />);
+    await openMenuFor();
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Duyệt' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Duyệt' }));
+    await waitFor(() => expect(postMock.mock.calls.some(([path]) => path === '/vouchers/v1/procedure-action')).toBe(true));
   });
 });
 

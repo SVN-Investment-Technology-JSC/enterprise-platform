@@ -4,6 +4,9 @@ import {
   type FinanceBreakdownRow,
   type FinanceCashflowPoint,
   type FinanceDashboard,
+  type FinanceLedgerReport,
+  type FinanceLedgerReportQuery,
+  type FinanceVoucherKind,
   type FinanceReport,
   type FinanceReportQuery,
 } from '@enterprise-platform/contracts-finance';
@@ -13,7 +16,7 @@ import { invalid } from '../domain/finance.error.js';
 import { isValidDate } from '../domain/voucher.rules.js';
 import { listAccounts } from './accounts.store.js';
 import { mapSummary, VOUCHER_SELECT } from './vouchers.store.js';
-import { num, todayVn, type Db } from './finance.database.js';
+import { dateOnly, iso, num, optStr, todayVn, type Db } from './finance.database.js';
 
 type Row = QueryResultRow & Record<string, unknown>;
 
@@ -165,6 +168,97 @@ export async function financeReport(db: Db, tenantId: string, query: FinanceRepo
     receiptsByProject: await byProject('RECEIPT'),
     paymentsByProject: await byProject('PAYMENT'),
     accounts,
+  };
+}
+
+/** Số dòng tối đa mỗi lần trả về (xuất Excel/"Hiện tất cả" tải nhiều dòng một lượt). */
+export const LEDGER_REPORT_MAX_LIMIT = 5000;
+
+/**
+ * Báo cáo thu chi dạng sổ: mỗi bút toán sổ cái là một dòng, có tồn quỹ chạy sau từng dòng (xếp theo ngày hạch toán rồi
+ * thứ tự ghi sổ). Tồn quỹ tính trên toàn kỳ rồi mới cắt trang, nên tải thêm dòng không làm lệch số.
+ * Không chọn tài khoản: tính trên toàn công ty và bỏ qua chuyển tiền nội bộ (hai chiều triệt tiêu nhau).
+ */
+export async function financeLedgerReport(db: Db, tenantId: string, query: FinanceLedgerReportQuery): Promise<FinanceLedgerReport> {
+  if (!isValidDate(query.from) || !isValidDate(query.to)) throw invalid('Khoảng thời gian không hợp lệ.');
+  if (query.to < query.from) throw invalid('Đến ngày phải sau hoặc bằng từ ngày.');
+  if (spanDays(query.from, query.to) > 3660) throw invalid('Khoảng thời gian tối đa 10 năm.');
+  const limit = Math.min(Math.max(Math.trunc(query.limit ?? 60), 1), LEDGER_REPORT_MAX_LIMIT);
+  const offset = Math.max(Math.trunc(query.offset ?? 0), 0);
+  // PostgreSQL từ chối tham số truyền thừa, nên mỗi truy vấn chỉ nhận đúng các tham số nó dùng; $4 luôn là tài khoản.
+  const scope = `
+    l.tenant_id = $1
+    AND ($4::uuid IS NULL OR l.account_id = $4::uuid)
+    AND ($4::uuid IS NOT NULL OR v.kind <> 'TRANSFER')`;
+  const joined = `FROM finance_schema.ledger_entries l JOIN finance_schema.vouchers v ON v.id = l.voucher_id`;
+  const base = [tenantId, query.from, query.to, query.accountId ?? null];
+
+  const accountOpening = (
+    await db.query(
+      `SELECT COALESCE(SUM(opening_balance), 0) AS n FROM finance_schema.accounts WHERE tenant_id = $1 AND ($2::uuid IS NULL OR id = $2::uuid)`,
+      [tenantId, query.accountId ?? null],
+    )
+  ).rows[0] as Row;
+  const before = (
+    await db.query(`SELECT COALESCE(SUM(l.amount), 0) AS n ${joined} WHERE ${scope} AND l.posted_date < $2::date AND $3::date IS NOT NULL`, base)
+  ).rows[0] as Row;
+  const openingBalance = roundMoney(num(accountOpening.n) + num(before.n));
+
+  const totals = (
+    await db.query(
+      `SELECT count(*) AS n,
+              COALESCE(SUM(l.amount) FILTER (WHERE v.kind = 'RECEIPT' OR (v.kind = 'TRANSFER' AND l.amount > 0)), 0) AS receipts,
+              COALESCE(-SUM(l.amount) FILTER (WHERE v.kind = 'PAYMENT' OR (v.kind = 'TRANSFER' AND l.amount < 0)), 0) AS payments
+         ${joined} WHERE ${scope} AND l.posted_date BETWEEN $2::date AND $3::date`,
+      base,
+    )
+  ).rows[0] as Row;
+  const totalReceipts = roundMoney(num(totals.receipts));
+  const totalPayments = roundMoney(num(totals.payments));
+
+  const rows = (
+    await db.query(
+      `SELECT * FROM (
+         SELECT l.id, l.seq, l.voucher_id, l.account_id, l.posted_date, l.amount, l.is_reversal, v.code AS voucher_code, v.kind AS voucher_kind,
+                v.content, v.created_by_name, v.created_at, a.name AS account_name,
+                $5::numeric + SUM(l.amount) OVER (ORDER BY l.posted_date, l.seq) AS balance_after
+           ${joined} JOIN finance_schema.accounts a ON a.id = l.account_id
+          WHERE ${scope} AND l.posted_date BETWEEN $2::date AND $3::date
+       ) x ORDER BY x.posted_date, x.seq LIMIT $6 OFFSET $7`,
+      [...base, openingBalance, limit, offset],
+    )
+  ).rows as Row[];
+
+  return {
+    from: query.from,
+    to: query.to,
+    openingBalance,
+    closingBalance: roundMoney(openingBalance + totalReceipts - totalPayments),
+    totalReceipts,
+    totalPayments,
+    total: num(totals.n),
+    offset,
+    items: rows.map((row) => {
+      const amount = num(row.amount);
+      // Cùng cách tính với báo cáo tổng hợp: bút toán đảo của phiếu chi nằm ở cột chi (số âm), không thành khoản thu.
+      const isIn = row.voucher_kind === 'RECEIPT' || (row.voucher_kind === 'TRANSFER' && amount > 0);
+      return {
+        id: String(row.id),
+        voucherId: String(row.voucher_id),
+        voucherCode: String(row.voucher_code),
+        voucherKind: row.voucher_kind as FinanceVoucherKind,
+        content: String(row.content),
+        createdByName: optStr(row.created_by_name),
+        createdAt: iso(row.created_at),
+        postedDate: dateOnly(row.posted_date),
+        accountId: String(row.account_id),
+        accountName: String(row.account_name),
+        receipt: isIn ? roundMoney(amount) : 0,
+        payment: isIn ? 0 : roundMoney(-amount),
+        balanceAfter: roundMoney(num(row.balance_after)),
+        isReversal: Boolean(row.is_reversal),
+      };
+    }),
   };
 }
 

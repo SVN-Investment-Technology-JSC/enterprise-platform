@@ -50,4 +50,8 @@ describe('maintenance module capabilities', () => {
     await expect(guard.canActivate(context)).resolves.toBe(true);
     expect(request.maintenanceActor).toMatchObject({ canManage: false, canHandleOccurrences: false });
   });
+  it('lets anyone who can read Maintenance list the assistant actions', async () => {
+    const { guard, context } = setup(['maintenance.read'], '/assistant/actions', 'GET');
+    await expect(guard.canActivate(context)).resolves.toBe(true);
+  });
 });

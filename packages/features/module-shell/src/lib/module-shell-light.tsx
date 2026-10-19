@@ -51,9 +51,16 @@ export function ModuleShellLight<TViewId extends string = string>(
     props.tenantSlug ||
     (principal?.kind === 'tenant-user' ? principal.tenantSlug : undefined) ||
     'savina';
-  const crumbs = [
-    ...(activeItem && activeItem.id !== firstItem?.id ? [activeItem.label] : []),
-    ...(props.crumbs ?? []),
+  /**
+   * Bậc giữa mang nhãn của trang đang mở (ví dụ "Dự án") bấm được để quay về
+   * trang mặc định của trang đó — hữu ích khi đang xem chi tiết một mục và muốn
+   * về danh sách. Các bậc do `props.crumbs` cung cấp là văn bản tĩnh.
+   */
+  const crumbs: readonly { readonly label: string; readonly onClick?: () => void }[] = [
+    ...(activeItem && activeItem.id !== firstItem?.id
+      ? [{ label: activeItem.label, onClick: () => props.onViewChange(activeItem.id) }]
+      : []),
+    ...(props.crumbs ?? []).map((label) => ({ label })),
   ];
   const { onQuickSearch } = props;
 
@@ -331,17 +338,21 @@ export function ModuleShellLight<TViewId extends string = string>(
                   {props.title}
                 </span>
               )}
-              {crumbs.map((label, index) => (
-                <span key={`${index}-${label}`} className={styles.crumbItem}>
+              {crumbs.map((crumb, index) => (
+                <span key={`${index}-${crumb.label}`} className={styles.crumbItem}>
                   <span className={styles.crumbSep} aria-hidden>
                     ›
                   </span>
                   {index === crumbs.length - 1 ? (
                     <span className={styles.crumbCurrent} aria-current="page">
-                      {label}
+                      {crumb.label}
                     </span>
+                  ) : crumb.onClick ? (
+                    <button type="button" className={styles.crumbLink} onClick={crumb.onClick}>
+                      {crumb.label}
+                    </button>
                   ) : (
-                    <span className={styles.crumbParent}>{label}</span>
+                    <span className={styles.crumbParent}>{crumb.label}</span>
                   )}
                 </span>
               ))}

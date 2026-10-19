@@ -130,7 +130,6 @@ integration('Tài chính: phiếu tạo từ bước Tài chính của quy trìn
     reasonId,
     accountId,
     counterpartyGroupId: groupId,
-    counterpartyName: 'Client cố sửa người nhận',
     lines: [{ description: 'Client cố sửa dòng', quantity: 1, unitAmount: 1, total: 1 }],
     ...over,
   });
@@ -193,7 +192,6 @@ integration('Tài chính: phiếu tạo từ bước Tài chính của quy trìn
       code: expect.stringMatching(/^NHAP_PC_\d{4}_\d{4}$/),
       totalAmount: 2_500_000,
       content: 'Thanh toán tiền in ấn',
-      counterpartyName: 'Công ty In Nhanh',
       createdBy: requester.userId,
       sourceCode: payload.instanceCode,
       allocation: { type: 'PROJECT', projectId: PROJECT.id, projectCode: 'DA001' },
@@ -264,7 +262,6 @@ integration('Tài chính: phiếu tạo từ bước Tài chính của quy trìn
     const saved = await app.updateVoucher(cashierA, id, accountantInput({ revision: (await app.voucher(cashierA, id)).revision }));
     expect(saved).toMatchObject({
       content: 'Thanh toán tiền in ấn',
-      counterpartyName: 'Công ty In Nhanh',
       totalAmount: 2_500_000,
       accountId,
       reasonId,
@@ -341,7 +338,7 @@ integration('Tài chính: phiếu tạo từ bước Tài chính của quy trìn
     const again = { ...payload, activation: 2, stepInstanceId: randomUUID(), values: { ...payload.values, amount: 3_000_000, counterpartyAccountNo: '999' } };
     expect(await receiveFinanceProcedureEvent(pool, tenantId, event(again))).toBe('updated');
     const updated = await app.voucher(cashierA, id);
-    expect(updated).toMatchObject({ totalAmount: 3_000_000, counterpartyAccountNo: '999', accountId, reasonId, status: 'DRAFT' });
+    expect(updated).toMatchObject({ totalAmount: 3_000_000, accountId, reasonId, status: 'DRAFT' });
     expect(updated.source).toMatchObject({ status: 'OPEN', activation: 2, handlingBy: null });
     expect(updated.lines.map((line) => line.total)).toEqual([3_000_000]);
     expect(Number((await pool.query(`SELECT count(*) FROM finance_schema.voucher_sources WHERE instance_id=$1`, [payload.instanceId])).rows[0].count)).toBe(1);

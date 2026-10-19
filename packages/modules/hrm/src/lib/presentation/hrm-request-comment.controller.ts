@@ -1,12 +1,11 @@
-import { Body, Controller, Get, Post, Query, Req } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query, Req, UseInterceptors } from '@nestjs/common';
 import type { Request } from 'express';
+import { HrmMissingSchemaInterceptor } from '../infrastructure/hrm-missing-schema.interceptor.js';
 import { RequirePermission } from '../infrastructure/hrm-access.guard.js';
 import { HrmApprovalPolicyService } from '../infrastructure/hrm-approval-policy.js';
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
 import {
   assertCanWrite,
-  assertThreadOpen,
-  isThreadClosed,
   createComment,
   listComments,
   loadRequestOwner,
@@ -25,6 +24,7 @@ const DECISIONS = ['APPROVE', 'REJECT', 'RETURN', 'COMPLETE'];
  * Trao đổi và ý kiến phê duyệt trên đơn từ (mọi loại đơn). Ai được đọc và viết do `resolveThreadAccess` quyết định:
  * chủ đơn, người xem được mọi đơn, người duyệt trong phạm vi cấp dưới, và người đã được nhắc tên trong luồng.
  */
+@UseInterceptors(HrmMissingSchemaInterceptor)
 @Controller('v1')
 export class HrmRequestCommentController {
   constructor(

@@ -193,14 +193,30 @@ export async function listComments(
   requestId: string,
   viewerUserId: string,
 ) {
-  const res = await db.query(
-    `SELECT id, request_kind, request_id, author_user_id, author_name, kind, decision, body, mention_user_ids, attachments, created_at
-       FROM hrm_schema.request_comments
-      WHERE tenant_id=$1 AND request_kind=$2 AND request_id=$3 AND deleted_at IS NULL
-      ORDER BY created_at, id`,
-    [tenantId, kind, requestId],
-  );
-  const rows = res.rows as CommentRow[];
+  let rows: CommentRow[];
+  try {
+    const res = await db.query(
+      `SELECT id, request_kind, request_id, author_user_id, author_name, kind, decision, body, mention_user_ids, attachments, created_at
+         FROM hrm_schema.request_comments
+        WHERE tenant_id=$1 AND request_kind=$2 AND request_id=$3 AND deleted_at IS NULL
+        ORDER BY created_at, id`,
+      [tenantId, kind, requestId],
+    );
+    rows = res.rows as CommentRow[];
+  } catch (err) {
+    if ((err as { code?: string })?.code === '42703') {
+      const res = await db.query(
+        `SELECT id, request_kind, request_id, author_user_id, author_name, kind, decision, body, mention_user_ids, created_at
+           FROM hrm_schema.request_comments
+          WHERE tenant_id=$1 AND request_kind=$2 AND request_id=$3 AND deleted_at IS NULL
+          ORDER BY created_at, id`,
+        [tenantId, kind, requestId],
+      );
+      rows = res.rows as CommentRow[];
+    } else {
+      throw err;
+    }
+  }
   const ids = [...new Set(rows.flatMap((r) => r.mention_user_ids ?? []))];
   const names = new Map<string, string>();
   if (ids.length) {

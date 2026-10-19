@@ -28,6 +28,9 @@
     },
     {
       "path": "../../contracts/identity/tsconfig.lib.json"
+    },
+    {
+      "path": "../../contracts/assistant/tsconfig.lib.json"
     }
   ]
 }

@@ -48,13 +48,18 @@ export function recordPayload(draft: RecordDraft): SharedRecordMeta {
   };
 }
 
-/** Ô chọn thư mục, nhãn là cả đường dẫn để phân biệt thư mục trùng tên. */
+/**
+ * Ô chọn thư mục, nhãn là cả đường dẫn để phân biệt thư mục trùng tên.
+ * `allowed` lọc chỗ được chọn (vd. thư mục người dùng có quyền ghi); đường dẫn
+ * vẫn dựng trên cả cây người dùng thấy.
+ */
 export function folderOptions(
   folders: readonly SharedFolder[],
   exclude: ReadonlySet<string> = new Set(),
+  allowed: (folder: SharedFolder) => boolean = () => true,
 ): SearchableSelectOption[] {
   return folders
-    .filter((folder) => !exclude.has(folder.id))
+    .filter((folder) => !exclude.has(folder.id) && allowed(folder))
     .map((folder) => ({ value: folder.id, label: folderLabel(folders, folder.id) }));
 }
 

@@ -15,6 +15,8 @@ export interface DialogProps {
   readonly submitDisabled?: boolean;
   /** Nút xác nhận mang kiểu nguy hiểm: xoá, xoá vĩnh viễn. */
   readonly danger?: boolean;
+  /** Hộp thoại rộng cho nội dung dạng bảng (chia sẻ). */
+  readonly wide?: boolean;
   readonly error?: string;
   readonly onClose: () => void;
   readonly onSubmit: () => void;
@@ -35,6 +37,7 @@ export function Dialog({
   submitting = false,
   submitDisabled = false,
   danger = false,
+  wide = false,
   error,
   onClose,
   onSubmit,
@@ -74,7 +77,7 @@ export function Dialog({
   return createPortal(
     <div className={styles.overlay} role="presentation" onMouseDown={requestClose}>
       <div
-        className={styles.dialog}
+        className={wide ? `${styles.dialog} ${styles.dialogWide}` : styles.dialog}
         role="dialog"
         aria-modal="true"
         aria-label={title}

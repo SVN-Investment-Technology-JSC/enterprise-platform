@@ -87,6 +87,11 @@ export const TENANT_CORE_MIGRATIONS: readonly TenantModuleMigration[] = [
     version: '0011-module-access-from-actions',
     path: 'tenant/core/0011-module-access-from-actions.sql',
   },
+  {
+    // Thay hàm trigger của 0005-tenant-rbac; cần outbox của tenant/0001-integration.
+    version: '0012-authorization-changed-event',
+    path: 'tenant/core/0012-authorization-changed-event.sql',
+  },
 ];
 
 export const TENANT_MODULE_MIGRATIONS: Readonly<
@@ -102,6 +107,7 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     { version: '0005-finance-voucher-codes', path: 'tenant/finance/0005-finance-voucher-codes.sql' },
     { version: '0006-finance-voucher-sources', path: 'tenant/finance/0006-finance-voucher-sources.sql' },
     { version: '0007-finance-source-reversal', path: 'tenant/finance/0007-finance-source-reversal.sql' },
+    { version: '0008-voucher-attachment-purpose', path: 'tenant/finance/0008-voucher-attachment-purpose.sql' },
   ],
   hrm: [
     { version: '0001-hrm', path: 'tenant/hrm/0001-hrm.sql' },
@@ -585,11 +591,24 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       version: '0022-workspace-fleet-transport',
       path: 'tenant/workspace/0022-workspace-fleet-transport.sql',
     },
+    {
+      version: '0023-workspace-customers-contracts',
+      path: 'tenant/workspace/0023-workspace-customers-contracts.sql',
+    },
+    {
+      version: '0024-workspace-document-audience',
+      path: 'tenant/workspace/0024-workspace-document-audience.sql',
+    },
+    {
+      version: '0025-workspace-contract-project',
+      path: 'tenant/workspace/0025-workspace-contract-project.sql',
+    },
   ],
   // Hệ dùng chung: phần đầu là Tài liệu công ty (kho tách khỏi tài liệu dự án).
   shared: [
     { version: '0001-shared-documents', path: 'tenant/shared/0001-shared-documents.sql' },
     { version: '0002-shared-trash', path: 'tenant/shared/0002-shared-trash.sql' },
+    { version: '0003-shared-folder-shares', path: 'tenant/shared/0003-shared-folder-shares.sql' },
   ],
 };
 

@@ -1,4 +1,9 @@
-import type { ProjectMember, ProjectRole } from '@enterprise-platform/contracts-workspace';
+import type {
+  ProjectMember,
+  ProjectRole,
+  ProjectStatus,
+  UpdateProjectRequest,
+} from '@enterprise-platform/contracts-workspace';
 import { DirectoryService } from './directory.service.js';
 import { ProjectService } from './project.service.js';
 import type { WorkspaceActor } from './workspace.application.js';
@@ -105,5 +110,84 @@ describe('ProjectService.setMembers — đối chiếu danh bạ tổ chức', (
       ],
     });
     expect(saved).toHaveLength(1);
+  });
+});
+
+/**
+ * Store giả cho nhánh cập nhật dự án. Người gọi là chủ nhiệm (`owner`), nên qua
+ * được mọi kiểm quyền; ta chỉ quan tâm quy tắc nghiệp vụ của `update`.
+ */
+function makeUpdateStore(options: { openItems?: number; status?: ProjectStatus } = {}) {
+  const updated: UpdateProjectRequest[] = [];
+  const store = {
+    project: {
+      findById: async () =>
+        ({ id: 'p1', status: options.status ?? 'active' }) as never,
+      update: async (
+        _tenant: string,
+        _project: string,
+        patch: UpdateProjectRequest,
+      ) => {
+        updated.push(patch);
+        return { id: 'p1', ...patch } as never;
+      },
+    },
+    member: {
+      roleOf: async () => 'owner' as ProjectRole,
+    },
+    workItem: {
+      openItemCount: async () => options.openItems ?? 0,
+    },
+  } as unknown as WorkspaceStore;
+  return { store, updated };
+}
+
+describe('ProjectService.update — đổi loại/khách hàng/trạng thái', () => {
+  it('đổi loại dự án: gửi xuống store (đã chuẩn hoá)', async () => {
+    const { store, updated } = makeUpdateStore();
+    const service = new ProjectService(store);
+    await service.update(owner, 'p1', { projectType: '  Bảo trì  ' });
+    expect(updated).toHaveLength(1);
+    expect(updated[0]).toMatchObject({ projectType: 'Bảo trì' });
+  });
+
+  it('gắn khách hàng: gửi customerId xuống store', async () => {
+    const { store, updated } = makeUpdateStore();
+    const service = new ProjectService(store);
+    await service.update(owner, 'p1', { customerId: 'kh-1' });
+    expect(updated[0]).toMatchObject({ customerId: 'kh-1' });
+  });
+
+  it('đổi trạng thái sang Đang chạy: cho qua', async () => {
+    const { store, updated } = makeUpdateStore();
+    const service = new ProjectService(store);
+    await service.update(owner, 'p1', { status: 'active' });
+    expect(updated[0]).toMatchObject({ status: 'active' });
+  });
+});
+
+describe('ProjectService.update — ràng buộc đóng hồ sơ', () => {
+  it('còn công việc chưa đóng: chặn, không ghi', async () => {
+    const { store, updated } = makeUpdateStore({ openItems: 2 });
+    const service = new ProjectService(store);
+    await expect(service.update(owner, 'p1', { status: 'completed' })).rejects.toMatchObject({
+      code: 'PROJECT_HAS_OPEN_WORK_ITEMS',
+    });
+    expect(updated).toHaveLength(0);
+  });
+
+  it('mọi việc đã đóng: cho đóng hồ sơ', async () => {
+    const { store, updated } = makeUpdateStore({ openItems: 0 });
+    const service = new ProjectService(store);
+    await service.update(owner, 'p1', { status: 'completed' });
+    expect(updated).toHaveLength(1);
+    expect(updated[0]).toMatchObject({ status: 'completed' });
+  });
+
+  it('dự án đã hoàn thành rồi: sửa trường khác không bị chặn', async () => {
+    const { store, updated } = makeUpdateStore({ openItems: 5, status: 'completed' });
+    const service = new ProjectService(store);
+    await service.update(owner, 'p1', { status: 'completed', description: 'Chốt sổ' });
+    expect(updated).toHaveLength(1);
   });
 });

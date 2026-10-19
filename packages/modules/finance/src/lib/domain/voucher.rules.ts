@@ -1,6 +1,7 @@
 import {
   type FinanceApprovalMode,
   FINANCE_MAX_AMOUNT,
+  FINANCE_NOTE_MAX_LENGTH,
   FINANCE_VOUCHER_KINDS,
   financeLineTotal,
   roundMoney,
@@ -12,6 +13,7 @@ import {
   type SaveFinanceVoucherRequest,
 } from '@enterprise-platform/contracts-finance';
 import { invalid } from './finance.error.js';
+import { sanitizeVoucherNote } from './note-sanitize.js';
 
 export interface NormalizedLine {
   lineNo: number;
@@ -30,9 +32,13 @@ export interface NormalizedVoucher {
   accountId: string | null;
   destAccountId: string | null;
   counterpartyGroupId: string | null;
-  counterpartyName: string | null;
-  counterpartyAccountNo: string | null;
-  counterpartyBank: string | null;
+  /**
+   * Người/tài khoản/ngân hàng nhận tiền: không còn nhập tay trên form thường, chỉ còn dùng cho phiếu tạo từ hồ sơ
+   * quy trình (giá trị hồ sơ gửi lên, bị khoá sửa) — xem `voucher-sources.store.ts`.
+   */
+  counterpartyName?: string | null;
+  counterpartyAccountNo?: string | null;
+  counterpartyBank?: string | null;
   /** Hạch toán nội bộ cho dự án/công việc; mã và tên lấy từ Workspace khi lưu (xem `resolveWorkspaceLinks`). */
   allocation: { type: FinanceAllocationInput['type']; projectId: string; workItemId: string | null } | null;
   taxIncluded: boolean;
@@ -158,6 +164,8 @@ export function normalizeVoucherInput(input: SaveFinanceVoucherRequest): Normali
   const destAccountId = isTransfer ? uuidOrNull(input.destAccountId, 'Tài khoản đích') : null;
   if (accountId && destAccountId && accountId === destAccountId) throw invalid('Tài khoản nguồn và tài khoản đích phải khác nhau.');
 
+  const rawNote = text(input.note, FINANCE_NOTE_MAX_LENGTH, 'Ghi chú');
+
   return {
     kind,
     voucherDate: input.voucherDate,
@@ -168,13 +176,10 @@ export function normalizeVoucherInput(input: SaveFinanceVoucherRequest): Normali
     accountId,
     destAccountId,
     counterpartyGroupId: isTransfer ? null : uuidOrNull(input.counterpartyGroupId, 'Đối tượng'),
-    counterpartyName: isTransfer ? null : text(input.counterpartyName, 255, 'Người nộp/nhận tiền'),
-    counterpartyAccountNo: isTransfer ? null : text(input.counterpartyAccountNo, 60, 'Số tài khoản'),
-    counterpartyBank: isTransfer ? null : text(input.counterpartyBank, 120, 'Ngân hàng'),
     allocation,
     taxIncluded: isTransfer ? false : input.taxIncluded === true,
     taxRate: isTransfer || input.taxIncluded !== true ? 0 : taxRate,
-    note: text(input.note, 4000, 'Ghi chú'),
+    note: rawNote ? sanitizeVoucherNote(rawNote) : rawNote,
     totalAmount,
     lines,
     invoices,
@@ -276,20 +281,23 @@ export function computeVoucherPermissions(input: PermissionInput): FinanceVouche
     };
   const mine = input.createdBy === input.actorId;
   const owner = mine && input.canCreate;
-  const editable = input.status === 'DRAFT' || input.status === 'REJECTED';
   const pending = input.status === 'PENDING';
+  // Nháp/bị từ chối sửa được như trước; phiếu đang chờ duyệt TRỰC TIẾP cũng sửa được (gửi duyệt lại ngay, không qua
+  // nháp) — phiếu đang chờ duyệt THEO QUY TRÌNH thì không, vì Procedure Engine đã nhận snapshot số liệu lúc gửi.
+  const editableDraftLike = input.status === 'DRAFT' || input.status === 'REJECTED';
+  const editablePending = pending && input.approvalMode === 'DIRECT';
   const directDecision =
     pending && input.approvalMode === 'DIRECT' && input.canApprove && (!mine || input.allowSelfApproval);
   const procedureDecision = pending && input.approvalMode === 'PROCEDURE' && input.procedureCanAct === true;
   const decide = directDecision || procedureDecision;
   return {
-    canEdit: editable && owner,
-    canSubmit: editable && owner,
+    canEdit: (editableDraftLike || editablePending) && owner,
+    canSubmit: editableDraftLike && owner,
     canApprove: decide,
     canReject: decide,
-    canCancel: (editable || pending) && (owner || (input.canApprove && input.status !== 'DRAFT')),
+    canCancel: (editableDraftLike || pending) && (owner || (input.canApprove && input.status !== 'DRAFT')),
     canReverse: input.status === 'APPROVED' && input.canApprove,
-    canDelete: input.status === 'DRAFT' && owner,
+    canDelete: (input.status === 'DRAFT' || editablePending) && owner,
     // Nơi gọi (có thông tin liên kết quy trình) bật cờ này sau khi tính.
     canRetryProcedure: false,
     sourced,

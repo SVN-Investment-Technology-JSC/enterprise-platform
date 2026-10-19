@@ -2,6 +2,7 @@ import type {
   SharedCapabilities,
   SharedDocumentSummary,
   SharedFolder,
+  SharedFolderRole,
   SharedTrashItem,
 } from '@enterprise-platform/contracts-shared';
 import { buildMenu, rightsOf, type MenuContext, type MenuEntry, type MenuTarget } from './context-menu.model';
@@ -23,12 +24,17 @@ const MANAGER = caps({ canWriteDocuments: true, canManage: true });
 const KEEPER = caps({ canWriteDocuments: true, canManage: true, canDeleteDocuments: true });
 const ADMIN = caps({ isTenantAdmin: true, canWriteDocuments: true, canManage: true, canDeleteDocuments: true });
 
+/** Mặc định mọi thư mục người dùng có quyền Sửa: các ca cũ chỉ còn xét quyền phân hệ. */
 const context = (capabilities: SharedCapabilities, overrides: Partial<MenuContext> = {}): MenuContext => ({
   capabilities,
   currentUserId: ME,
   flat: false,
+  roleOf: () => 'editor',
+  canUploadSomewhere: true,
   ...overrides,
 });
+
+const role = (value: SharedFolderRole | undefined): Partial<MenuContext> => ({ roleOf: () => value });
 
 const document = (overrides: Partial<SharedDocumentSummary> = {}): SharedDocumentSummary => ({
   id: 'doc-1',
@@ -97,11 +103,27 @@ const build = (target: MenuTarget, capabilities: SharedCapabilities, overrides: 
 
 describe('rightsOf', () => {
   it('xoá cần quyền xoá hoặc quản trị tenant; xoá vĩnh viễn cần cả quản trị kho', () => {
-    expect(rightsOf(READER)).toEqual({ write: false, manage: false, remove: false, purge: false });
-    expect(rightsOf(DELETER)).toMatchObject({ write: true, remove: true, purge: false });
-    expect(rightsOf(MANAGER)).toMatchObject({ manage: true, remove: false, purge: false });
-    expect(rightsOf(KEEPER)).toMatchObject({ remove: true, purge: true });
-    expect(rightsOf(ADMIN)).toMatchObject({ remove: true, purge: true });
+    expect(rightsOf(READER, 'editor')).toEqual({
+      write: false,
+      manage: false,
+      remove: false,
+      purge: false,
+      share: false,
+      unlockOthers: false,
+    });
+    expect(rightsOf(DELETER, 'editor')).toMatchObject({ write: true, remove: true, purge: false });
+    expect(rightsOf(MANAGER, 'editor')).toMatchObject({ manage: true, remove: false, purge: false });
+    expect(rightsOf(KEEPER, 'editor')).toMatchObject({ remove: true, purge: true });
+    expect(rightsOf(ADMIN, 'editor')).toMatchObject({ remove: true, purge: true });
+  });
+
+  it('ghi và xoá cần cả quyền Sửa ở thư mục; chia sẻ cần quyền Quản lý kèm quyền ghi', () => {
+    expect(rightsOf(DELETER, 'viewer')).toMatchObject({ write: false, remove: false, share: false });
+    expect(rightsOf(DELETER, undefined)).toMatchObject({ write: false, remove: false });
+    expect(rightsOf(DELETER, 'manager')).toMatchObject({ write: true, remove: true, share: true, unlockOthers: true });
+    expect(rightsOf(READER, 'manager')).toMatchObject({ write: false, share: false, unlockOthers: true });
+    // Quản trị kho làm được ở mọi thư mục, kể cả thư mục chưa ai chia sẻ cho họ.
+    expect(rightsOf(MANAGER, undefined)).toMatchObject({ write: true, share: true, unlockOthers: true });
   });
 });
 
@@ -204,6 +226,33 @@ describe('menu thư mục', () => {
   it('trong kết quả tìm kiếm có "Đến vị trí thư mục"', () => {
     expect(shape(build({ kind: 'folder', folder: folder() }, WRITER, { flat: true }))).toContain('Đến vị trí thư mục');
   });
+
+  it('quyền Xem ở thư mục chỉ còn Mở; quyền Quản lý thêm Chia sẻ thành một nhóm riêng', () => {
+    expect(shape(build({ kind: 'folder', folder: folder() }, DELETER, role('viewer')))).toBe('Mở');
+    expect(shape(build({ kind: 'folder', folder: folder() }, WRITER, role('manager')))).toBe(
+      'Mở · | · Tạo thư mục · Tải file lên · | · Chia sẻ · | · Cập nhật mô tả · Thay đổi tên · Thông tin hồ sơ',
+    );
+    expect(entry(build({ kind: 'folder', folder: folder() }, WRITER, role('editor')), 'share')).toBeUndefined();
+    expect(entry(build({ kind: 'folder', folder: folder() }, READER, role('manager')), 'share')).toBeUndefined();
+    expect(entry(build({ kind: 'folder', folder: folder() }, MANAGER, role(undefined)), 'share')).toBeDefined();
+  });
+
+  it('thư mục không có trong danh sách quyền thì dùng `access` server gửi kèm', () => {
+    const owned = folder({ access: 'manager' });
+    expect(entry(build({ kind: 'folder', folder: owned }, WRITER, role(undefined)), 'share')).toBeDefined();
+  });
+});
+
+describe('menu theo quyền ở thư mục chứa tài liệu', () => {
+  it('quyền Xem: chỉ xem và tải, dù có quyền ghi và xoá của phân hệ', () => {
+    expect(shape(build({ kind: 'document', document: document() }, DELETER, role('viewer')))).toBe('Xem · Tải xuống');
+  });
+
+  it('người quản lý thư mục mở được khoá của người khác', () => {
+    const locked = document({ lockedByUserId: 'user-other' });
+    expect(entry(build({ kind: 'document', document: locked }, DELETER, role('editor')), 'unlock')).toBeUndefined();
+    expect(entry(build({ kind: 'document', document: locked }, DELETER, role('manager')), 'unlock')).toBeDefined();
+  });
 });
 
 describe('menu chỗ trống', () => {
@@ -217,6 +266,10 @@ describe('menu chỗ trống', () => {
     expect(shape(build({ kind: 'blank' }, MANAGER))).toBe('Tạo thư mục · Tải file lên');
     expect(shape(build({ kind: 'blank' }, WRITER))).toBe('Tải file lên');
     expect(build({ kind: 'blank' }, READER)).toEqual([]);
+  });
+
+  it('ở gốc kho: không có thư mục nào ghi được thì không có Tải file lên', () => {
+    expect(build({ kind: 'blank' }, WRITER, { canUploadSomewhere: false })).toEqual([]);
   });
 });
 

@@ -145,9 +145,15 @@ export interface SharedFolder extends SharedRecordMeta {
   readonly totalDocumentCount: number;
   /** Dung lượng các phiên bản của cả nhánh, byte. */
   readonly totalBytes: number;
+  /** Người tạo thư mục, cũng là chủ sở hữu: có quyền Quản lý trên cả nhánh. */
   readonly createdBy: string;
   readonly createdAt: string;
   readonly updatedAt: string;
+  /**
+   * Quyền của người đang xem trên thư mục này, đã tính kế thừa từ thư mục cha.
+   * Quản trị kho luôn là `manager`. Ghi và xoá còn cần quyền của phân hệ.
+   */
+  readonly access?: SharedFolderRole;
 }
 
 export interface SharedDocumentVersion {
@@ -245,6 +251,8 @@ export interface SharedTrashItem {
   readonly name: string;
   /** Đường dẫn của thư mục chứa nó trước khi xoá; rỗng là thư mục gốc. */
   readonly location: string;
+  /** Tài liệu: thư mục chứa nó trước khi xoá. */
+  readonly folderId?: string;
   /** Thư mục chứa nó còn dùng được, khôi phục tại chỗ được. */
   readonly locationAvailable: boolean;
   /** Thư mục: số tài liệu đi theo. Tài liệu: luôn là 1. */
@@ -287,6 +295,123 @@ export interface SharedFolderDeleteResult {
 export interface EmptySharedTrashResult {
   readonly purged: number;
   readonly failed: number;
+}
+
+/* ------------------------------------------------------------- chia sẻ */
+
+/**
+ * Quyền trên một thư mục, áp xuống mọi thư mục con:
+ *
+ * - Xem: thấy thư mục, mở và tải tài liệu "Nội bộ";
+ * - Sửa: thêm tải lên, sửa, tạo thư mục con, xoá; thấy tài liệu "Hạn chế";
+ * - Quản lý: thêm chia sẻ thư mục; thấy tài liệu "Mật".
+ *
+ * Quyền phân hệ vẫn là trần: "Sửa" chỉ cho ghi khi người đó có
+ * `shared.document.write`, chỉ cho xoá khi có `shared.document.delete`.
+ */
+export const SHARED_FOLDER_ROLES = ['viewer', 'editor', 'manager'] as const;
+export type SharedFolderRole = (typeof SHARED_FOLDER_ROLES)[number];
+
+export const SHARED_FOLDER_ROLE_LABELS: Readonly<Record<SharedFolderRole, string>> = {
+  viewer: 'Xem',
+  editor: 'Sửa',
+  manager: 'Quản lý',
+};
+
+/** `role` có bằng hoặc cao hơn `minimum` không; không có quyền thì không. */
+export function roleAtLeast(role: SharedFolderRole | undefined, minimum: SharedFolderRole): boolean {
+  return role !== undefined && SHARED_FOLDER_ROLES.indexOf(role) >= SHARED_FOLDER_ROLES.indexOf(minimum);
+}
+
+/**
+ * Đối tượng được chia sẻ. Phòng ban và chức danh là node của sơ đồ tổ chức:
+ * chia cho một phòng ban là chia cho mọi người thuộc phòng đó và các đơn vị
+ * bên dưới; chia cho chức danh là chia cho người đang giữ chức danh đó.
+ */
+export const SHARED_PRINCIPAL_TYPES = ['everyone', 'unit', 'position', 'user'] as const;
+export type SharedPrincipalType = (typeof SHARED_PRINCIPAL_TYPES)[number];
+
+export const SHARED_PRINCIPAL_TYPE_LABELS: Readonly<Record<SharedPrincipalType, string>> = {
+  everyone: 'Mọi người',
+  unit: 'Phòng ban',
+  position: 'Chức danh',
+  user: 'Nhân sự',
+};
+
+/** Một thư mục giữ tối đa từng này dòng chia sẻ. */
+export const SHARED_MAX_SHARES_PER_FOLDER = 100;
+
+/** Một dòng chia sẻ khi ghi. */
+export interface SharedShareGrant {
+  readonly principalType: SharedPrincipalType;
+  /** Id người dùng hay id node sơ đồ tổ chức; bỏ trống với `everyone`. */
+  readonly principalId?: string;
+  readonly role: SharedFolderRole;
+  /** Còn hiệu lực tới hết ngày này, `YYYY-MM-DD`; bỏ trống là không thời hạn. */
+  readonly expiresOn?: string;
+}
+
+export interface SharedFolderShare extends SharedShareGrant {
+  /** Tên người, tên phòng ban hay chức danh. */
+  readonly label: string;
+  /** Đường dẫn trong sơ đồ tổ chức ("Công ty › Khối thí nghiệm"), hoặc phòng ban của người. */
+  readonly detail?: string;
+  /** Đối tượng không còn trong sơ đồ tổ chức hay danh sách người dùng. */
+  readonly missing: boolean;
+  /** Quá thời hạn: dòng còn đó nhưng không còn cho quyền. */
+  readonly expired: boolean;
+  readonly updatedAt?: string;
+  readonly updatedByName?: string;
+}
+
+/** Quyền đến từ một thư mục cha: chia sẻ của nó, hoặc chủ sở hữu của nó. */
+export interface SharedInheritedShare extends SharedFolderShare {
+  readonly fromFolderId: string;
+  readonly fromFolderName: string;
+  /** Chủ sở hữu thư mục cha (quyền Quản lý), không phải một dòng chia sẻ. */
+  readonly owner?: boolean;
+}
+
+/** Ai được vào một thư mục và bằng quyền gì. */
+export interface SharedFolderSharing {
+  readonly folderId: string;
+  readonly folderName: string;
+  readonly owner: { readonly userId: string; readonly name?: string };
+  /** Chia sẻ đặt ngay trên thư mục này, sửa được. */
+  readonly shares: readonly SharedFolderShare[];
+  /** Chia sẻ từ các thư mục cha, chỉ đọc ở đây. */
+  readonly inherited: readonly SharedInheritedShare[];
+}
+
+/** Thay toàn bộ chia sẻ đặt trên thư mục. */
+export interface UpdateSharedFolderSharesRequest {
+  readonly shares: readonly SharedShareGrant[];
+}
+
+/** Người trong danh bạ của hộp thoại chia sẻ. */
+export interface SharedDirectoryPerson {
+  readonly userId: string;
+  readonly displayName: string;
+  readonly email?: string;
+  readonly unitNames: readonly string[];
+  readonly positionName?: string;
+}
+
+/** Một phòng ban hay chức danh của sơ đồ tổ chức. */
+export interface SharedDirectoryNode {
+  readonly id: string;
+  readonly name: string;
+  readonly kind: 'unit' | 'position';
+  readonly parentId?: string;
+  /** "Công ty › Khối thí nghiệm" — tên các node cha, không gồm chính nó. */
+  readonly path: string;
+}
+
+export interface SharedDirectory {
+  readonly people: readonly SharedDirectoryPerson[];
+  readonly nodes: readonly SharedDirectoryNode[];
+  /** Không đọc được sơ đồ tổ chức: chỉ chia sẻ được cho từng người hoặc mọi người. */
+  readonly degraded: boolean;
 }
 
 /* --------------------------------------------------------------- yêu cầu */

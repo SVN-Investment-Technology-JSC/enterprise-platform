@@ -3,6 +3,8 @@ import { Module } from '@nestjs/common';
 import { CalendarService } from './application/calendar.service.js';
 import { CatalogService } from './application/catalog.service.js';
 import { ChatService } from './application/chat.service.js';
+import { ContractService } from './application/contract.service.js';
+import { CustomerService } from './application/customer.service.js';
 import { DirectoryService } from './application/directory.service.js';
 import { DocumentService } from './application/document.service.js';
 import { InternalLookupService } from './application/internal-lookup.service.js';
@@ -206,6 +208,17 @@ import { WorkspaceController } from './presentation/workspace.controller.js';
         new CatalogService(store, projects),
       inject: [WORKSPACE_STORE, ProjectService],
     },
+    {
+      // Danh mục khách hàng không thuộc dự án nào: chỉ cần store.
+      provide: CustomerService,
+      useFactory: (store: WorkspaceStore) => new CustomerService(store),
+      inject: [WORKSPACE_STORE],
+    },
+    {
+      provide: ContractService,
+      useFactory: (store: WorkspaceStore) => new ContractService(store),
+      inject: [WORKSPACE_STORE],
+    },
   ],
   exports: [
     WorkspaceApplication,
@@ -223,6 +236,8 @@ import { WorkspaceController } from './presentation/workspace.controller.js';
     WorkdayRuleService,
     ProjectRoleService,
     CatalogService,
+    CustomerService,
+    ContractService,
     FleetTransportService,
     StandaloneTaskService,
     TenantDatabaseRegistry,

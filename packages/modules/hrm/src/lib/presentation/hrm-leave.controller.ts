@@ -60,6 +60,7 @@ import {
   applyLeaveDelta,
   displayedRemainingDays,
   listEmployeeLeaveBalanceRows,
+  pendingReservedDays,
 } from '../infrastructure/hrm-leave-balance.js';
 import {
   leaveBalanceAtDate,
@@ -84,6 +85,7 @@ import { HrmContextService } from '../infrastructure/hrm-context.service.js';
 import {
   employeeEntitlement,
   enrichLeaveBalances,
+  unpostedUsableEntitlement,
 } from '../infrastructure/hrm-annual-leave.js';
 import {
   computeLeaveSettlement,
@@ -952,11 +954,30 @@ export class HrmLeaveController {
         body.leaveTypeId,
         year,
       );
+      // Kiểm tra theo đúng số "Còn lại" đang hiển thị: số dư ghi sổ + phần đến hạn/ứng chưa ghi sổ - đơn chờ duyệt.
+      // Nếu chỉ xét số dư ghi sổ thì không thể trừ phần ứng phép (số dư ghi sổ tụt xuống âm rồi tự về 0 khi cộng phép tháng).
+      const usable = await unpostedUsableEntitlement(
+        db,
+        tenantId,
+        body.employeeId,
+        body.leaveTypeId,
+        year,
+        Number(balance.accrued),
+        isoDate((await db.query('SELECT CURRENT_DATE AS today')).rows[0].today),
+      );
+      const reserved = await pendingReservedDays(
+        db,
+        tenantId,
+        body.employeeId,
+        body.leaveTypeId,
+        year,
+      );
       if (
         Number(balance.remaining) +
+          usable.extra +
           body.daysAdjusted -
-          Number(balance.pending) <
-        -Number(type.rows[0].negative_limit)
+          reserved <
+        -Number(type.rows[0].negative_limit) - 0.005
       )
         throw new BadRequestException('Điều chỉnh vượt hạn mức âm phép');
       const updated = {
@@ -1034,9 +1055,25 @@ export class HrmLeaveController {
         tx.balance_year,
       );
       const delta = -Number(tx.days_changed);
+      const usable = await unpostedUsableEntitlement(
+        db,
+        tenantId,
+        tx.employee_id,
+        tx.leave_type_id,
+        tx.balance_year,
+        Number(balance.accrued),
+        isoDate((await db.query('SELECT CURRENT_DATE AS today')).rows[0].today),
+      );
+      const reserved = await pendingReservedDays(
+        db,
+        tenantId,
+        tx.employee_id,
+        tx.leave_type_id,
+        tx.balance_year,
+      );
       if (
-        Number(balance.remaining) + delta - Number(balance.pending) <
-        -Number(type.negative_limit)
+        Number(balance.remaining) + usable.extra + delta - reserved <
+        -Number(type.negative_limit) - 0.005
       )
         throw new ConflictException(
           'Quỹ đã dùng hoặc giữ chỗ; đảo điều chỉnh sẽ vượt hạn mức âm phép.',
@@ -1107,6 +1144,27 @@ export class HrmLeaveController {
           : year > currentYear
             ? 0
             : Number(today.slice(5, 7));
+      const pendingReserved = await db.query(
+        `SELECT r.employee_id,COALESCE(sum(d.quantity),0)::float AS days
+           FROM hrm_schema.leave_request_days d
+           JOIN hrm_schema.leave_requests r ON r.id=d.request_id AND r.tenant_id=d.tenant_id
+          WHERE r.tenant_id=$1 AND r.leave_type_id=$2 AND r.status='PENDING'
+            AND extract(year FROM d.work_date)::int=$3
+            AND r.employee_id = ANY($4::uuid[])
+          GROUP BY r.employee_id`,
+        [
+          tenantId,
+          leaveTypeId,
+          year,
+          employees.rows.map((employee) => employee.employee_id),
+        ],
+      );
+      const pendingByEmployee = new Map(
+        pendingReserved.rows.map((row) => [
+          String(row.employee_id),
+          Number(row.days),
+        ]),
+      );
       const rows = [];
       for (const employee of employees.rows) {
         const ent = await employeeEntitlement(
@@ -1143,7 +1201,7 @@ export class HrmLeaveController {
           accruedInLedger: accrued,
           remaining,
           used: Number(balance?.used ?? 0),
-          pending: Number(balance?.pending ?? 0),
+          pending: pendingByEmployee.get(String(employee.employee_id)) ?? 0,
           excessIfTerminated: Math.max(
             0,
             Math.round(-ifTerminated * 100) / 100,
@@ -1733,7 +1791,7 @@ export class HrmLeaveController {
       openingBalance: Number(row.opening_balance),
       accrued: Number(row.accrued),
       used: Number(row.used),
-      pending: Number(row.pending),
+      pending: Number(row.pending_reserved ?? row.pending),
       adjusted: Number(row.adjusted),
       remaining: Number(row.remaining),
       seniorityDays: Number(row.seniority_days || 0),
@@ -1751,6 +1809,10 @@ export class HrmLeaveController {
           ? Number(row.remaining)
           : Number(row.available),
       advanceAllowed: Boolean(row.advance_allowed),
+      entitledToDate:
+        row.entitled_to_date == null
+          ? null
+          : Number(row.entitled_to_date),
       projectedSeniority: Number(row.projected_seniority || 0),
       signDate: row.sign_date ? String(row.sign_date) : null,
       eligibleFrom: row.eligible_from ? String(row.eligible_from) : null,
@@ -1773,6 +1835,7 @@ export class HrmLeaveController {
       accrualScheduleId: row.accrual_schedule_id as string | null,
       note: row.note as string | null,
       balanceYear: row.balance_year == null ? null : Number(row.balance_year),
+      operationKey: (row.operation_key as string | null) ?? null,
       createdAt: String(row.created_at),
     };
   }

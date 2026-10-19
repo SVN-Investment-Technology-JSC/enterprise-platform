@@ -259,6 +259,9 @@ export interface FinanceAllocationInput {
   workItemId?: string | null;
 }
 
+/** Chứng từ đính kèm thủ công (ATTACHMENT) hay ảnh dán trực tiếp vào ô Ghi chú (NOTE_IMAGE); hai loại dùng chung kho nhưng đếm giới hạn riêng. */
+export type FinanceAttachmentPurpose = 'ATTACHMENT' | 'NOTE_IMAGE';
+
 export interface FinanceVoucherAttachment {
   id: string;
   fileName: string;
@@ -267,7 +270,14 @@ export interface FinanceVoucherAttachment {
   uploadedBy: string | null;
   uploadedByName: string | null;
   uploadedAt: string;
+  purpose: FinanceAttachmentPurpose;
 }
+
+/** Ghi chú lưu HTML (rich text); ảnh dán vào được tham chiếu bằng marker ổn định, không nhúng base64. */
+export const FINANCE_NOTE_MAX_LENGTH = 20_000;
+export const financeNoteImageMarker = (attachmentId: string): string => `voucher-note-image://${attachmentId}`;
+const NOTE_IMAGE_MARKER_PATTERN = /^voucher-note-image:\/\/([0-9a-f-]{36})$/i;
+export const financeNoteImageIdOf = (src: string): string | null => NOTE_IMAGE_MARKER_PATTERN.exec(src)?.[1] ?? null;
 
 export type FinanceVoucherEventAction =
   | 'CREATED'
@@ -316,7 +326,6 @@ export interface FinanceVoucherSummary {
   destAccountId: string | null;
   destAccountName: string | null;
   counterpartyGroupName: string | null;
-  counterpartyName: string | null;
   totalAmount: number;
   status: FinanceVoucherStatus;
   createdBy: string;
@@ -342,8 +351,6 @@ export interface FinanceVoucherSummary {
 
 export interface FinanceVoucher extends FinanceVoucherSummary {
   counterpartyGroupId: string | null;
-  counterpartyAccountNo: string | null;
-  counterpartyBank: string | null;
   /** Hạch toán nội bộ (null: chưa hạch toán). Lệnh chuyển tiền không có. */
   allocation: FinanceAllocation | null;
   taxIncluded: boolean;
@@ -395,9 +402,6 @@ export interface SaveFinanceVoucherRequest {
   accountId?: string | null;
   destAccountId?: string | null;
   counterpartyGroupId?: string | null;
-  counterpartyName?: string | null;
-  counterpartyAccountNo?: string | null;
-  counterpartyBank?: string | null;
   /** Hạch toán nội bộ cho dự án/công việc (phiếu thu/chi). */
   allocation?: FinanceAllocationInput | null;
   taxIncluded?: boolean;
@@ -556,6 +560,50 @@ export interface FinanceReport {
   receiptsByProject: FinanceBreakdownRow[];
   paymentsByProject: FinanceBreakdownRow[];
   accounts: FinanceAccountMovement[];
+}
+
+export interface FinanceLedgerReportQuery {
+  from: string;
+  to: string;
+  /** Bỏ trống: tồn quỹ toàn công ty (chuyển tiền nội bộ không hiện vì tổng không đổi). */
+  accountId?: string;
+  /** Vị trí dòng bắt đầu (tải thêm khi cuộn). */
+  offset?: number;
+  limit?: number;
+}
+
+/** Một dòng báo cáo thu chi: một bút toán sổ cái kèm tồn quỹ sau bút toán. */
+export interface FinanceLedgerReportRow {
+  id: string;
+  voucherId: string;
+  voucherCode: string;
+  voucherKind: FinanceVoucherKind;
+  content: string;
+  createdByName: string | null;
+  createdAt: string;
+  postedDate: string;
+  accountId: string;
+  accountName: string;
+  /** Phát sinh thu (tiền vào), 0 nếu là chi. */
+  receipt: number;
+  /** Phát sinh chi (tiền ra), 0 nếu là thu. */
+  payment: number;
+  /** Tồn quỹ sau dòng này (theo ngày hạch toán rồi thứ tự ghi sổ). */
+  balanceAfter: number;
+  isReversal: boolean;
+}
+
+export interface FinanceLedgerReport {
+  from: string;
+  to: string;
+  /** Dư đầu kỳ = số dư đầu kỳ tài khoản + bút toán trước ngày bắt đầu. */
+  openingBalance: number;
+  closingBalance: number;
+  totalReceipts: number;
+  totalPayments: number;
+  total: number;
+  offset: number;
+  items: FinanceLedgerReportRow[];
 }
 
 export interface FinanceDashboard {

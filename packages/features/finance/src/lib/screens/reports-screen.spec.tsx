@@ -1,6 +1,6 @@
 /** @jest-environment jsdom */
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import type { FinanceReport } from '@enterprise-platform/contracts-finance';
+import type { FinanceLedgerReport, FinanceLedgerReportRow, FinanceReport } from '@enterprise-platform/contracts-finance';
 import { financeFetch } from '../finance-api';
 import { periodPresets, todayVn } from '../finance-format';
 import ReportsScreen from './reports-screen';
@@ -39,12 +39,52 @@ const report: FinanceReport = {
   accounts: [{ accountId: 'a1', accountName: 'Vietcombank', openingBalance: 10_000_000, receipts: 3_000_000, payments: 1_200_000, transfersIn: 0, transfersOut: 500_000, closingBalance: 11_300_000 }],
 };
 
+const ledgerRow = (n: number, over: Partial<FinanceLedgerReportRow> = {}): FinanceLedgerReportRow => ({
+  id: `l${n}`,
+  voucherId: `v${n}`,
+  voucherCode: `PT-2610-${String(n).padStart(4, '0')}`,
+  voucherKind: 'RECEIPT',
+  content: `Thu tiền lần ${n}`,
+  createdByName: 'Nguyễn Văn Tý',
+  createdAt: '2026-10-14T03:00:00.000Z',
+  postedDate: '2026-10-14',
+  accountId: 'a1',
+  accountName: 'Vietcombank',
+  receipt: 1_000_000,
+  payment: 0,
+  balanceAfter: 5_000_000 + n * 1_000_000,
+  isReversal: false,
+  ...over,
+});
+const ledgerPage = (offset: number, count: number, total: number): FinanceLedgerReport => ({
+  from: '2026-10-01',
+  to: '2026-10-31',
+  openingBalance: 5_000_000,
+  closingBalance: 5_000_000 + total * 1_000_000,
+  totalReceipts: total * 1_000_000,
+  totalPayments: 0,
+  total,
+  offset,
+  items: Array.from({ length: count }, (_, i) => ledgerRow(offset + i + 1)),
+});
+const ledgerPaths = () => fetchMock.mock.calls.map(([p]) => String(p)).filter((p) => p.startsWith('/reports/ledger'));
+
+function renderAnalysis() {
+  render(<ReportsScreen />);
+  fireEvent.click(screen.getByRole('tab', { name: 'Phân tích' }));
+}
+
 beforeEach(() => {
   jest.clearAllMocks();
   fetchMock.mockImplementation(async (path: string) => {
     if (path.startsWith('/accounts')) return [{ id: 'a1', name: 'Vietcombank' }] as never;
     if (path.startsWith('/workspace/projects')) return { items: [{ id: 'p1', code: 'DA001', name: 'Trạm biến áp Đà Nẵng', status: 'active' }], truncated: false } as never;
     if (path.startsWith('/reports/summary')) return report as never;
+    if (path.startsWith('/reports/ledger')) {
+      const offset = Number(new URLSearchParams(path.split('?')[1]).get('offset') ?? 0);
+      const limit = Number(new URLSearchParams(path.split('?')[1]).get('limit') ?? 60);
+      return ledgerPage(offset, Math.min(limit, 111 - offset), 111) as never;
+    }
     throw new Error(`route lạ ${path}`);
   });
 });
@@ -53,7 +93,7 @@ const summaryPaths = () => fetchMock.mock.calls.map(([p]) => String(p)).filter((
 
 describe('Báo cáo thu chi', () => {
   it('mặc định xem tháng này; hiện tổng thu, tổng chi, chênh lệch, số phiếu và các bảng phân tích', async () => {
-    render(<ReportsScreen />);
+    renderAnalysis();
     const month = periodPresets(todayVn())[0];
     await waitFor(() => expect(summaryPaths()[0]).toContain(`from=${month.from}&to=${month.to}`));
     expect(await screen.findByText('Chênh lệch thu - chi')).toBeTruthy();
@@ -68,7 +108,7 @@ describe('Báo cáo thu chi', () => {
   });
 
   it('chọn nhanh khoảng thời gian gửi đúng từ ngày đến ngày và đánh dấu mục đang chọn', async () => {
-    render(<ReportsScreen />);
+    renderAnalysis();
     await screen.findByText('Chênh lệch thu - chi');
     const year = periodPresets(todayVn()).find((p) => p.id === 'year');
     fireEvent.click(screen.getByRole('button', { name: 'Năm nay' }));
@@ -77,7 +117,7 @@ describe('Báo cáo thu chi', () => {
   });
 
   it('xuất Excel gồm tổng quan, dòng tiền, các bảng phân tích và biến động tài khoản', async () => {
-    render(<ReportsScreen />);
+    renderAnalysis();
     await screen.findByText('Chênh lệch thu - chi');
     fireEvent.click(screen.getByRole('button', { name: /Xuất Excel/ }));
     expect(mockDownload).toHaveBeenCalledTimes(1);
@@ -87,7 +127,7 @@ describe('Báo cáo thu chi', () => {
   });
 
   it('bảng theo dự án và lọc báo cáo theo một dự án', async () => {
-    render(<ReportsScreen />);
+    renderAnalysis();
     await screen.findByText('Chênh lệch thu - chi');
     const spend = screen.getByRole('region', { name: 'Chi theo dự án' });
     expect(within(spend).getByText('DA001 - Trạm biến áp Đà Nẵng')).toBeTruthy();
@@ -106,7 +146,7 @@ describe('Báo cáo thu chi', () => {
       if (path.startsWith('/reports/summary')) return report as never;
       throw new Error(`route lạ ${path}`);
     });
-    render(<ReportsScreen />);
+    renderAnalysis();
     expect(await screen.findByText('Chênh lệch thu - chi')).toBeTruthy();
     expect(screen.queryByPlaceholderText('Mọi dự án')).toBeNull();
   });
@@ -116,8 +156,59 @@ describe('Báo cáo thu chi', () => {
       if (path.startsWith('/reports/summary')) throw new Error('Bạn không có quyền xem báo cáo.');
       return [] as never;
     });
-    render(<ReportsScreen />);
+    renderAnalysis();
     expect((await screen.findByRole('alert')).textContent).toContain('Bạn không có quyền xem báo cáo.');
     expect((screen.getByRole('button', { name: /Xuất Excel/ }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('mặc định là sổ thu chi: tiêu đề theo kỳ, dòng Dư đầu kỳ, tồn quỹ chạy và đủ cột', async () => {
+    render(<ReportsScreen />);
+    const month = periodPresets(todayVn())[0];
+    const ledger = await screen.findByRole('region', { name: 'Báo cáo thu chi dạng sổ' });
+    await waitFor(() => expect(ledgerPaths()[0]).toContain(`from=${month.from}&to=${month.to}&offset=0&limit=60`));
+    expect(within(ledger).getByRole('heading').textContent).toMatch(/^Báo cáo thu chi từ \d{2}\/\d{2}\/\d{4} đến \d{2}\/\d{2}\/\d{4}$/);
+    for (const name of ['STT', 'Nội dung', 'Mã chứng từ', 'Người tạo', 'Ngày tạo', 'Ngày hạch toán', 'Tài khoản', 'Phát sinh thu', 'Phát sinh chi', 'Tồn quỹ'])
+      expect(within(ledger).getByRole('columnheader', { name })).toBeTruthy();
+    const rows = within(ledger).getAllByRole('row');
+    expect(within(rows[1]).getByText('Dư đầu kỳ')).toBeTruthy();
+    expect(within(rows[1]).getByText('5.000.000')).toBeTruthy();
+    expect(within(rows[2]).getByText('PT-2610-0001')).toBeTruthy();
+    expect(within(rows[2]).getByText('6.000.000')).toBeTruthy(); // tồn quỹ sau dòng đầu
+    expect(within(rows[2]).getAllByText('14/10/2026')).toHaveLength(2); // ngày tạo và ngày hạch toán
+  });
+
+  it('chỉ tải 60 dòng đầu; "Hiện tất cả" tải nốt phần còn lại và hiện dòng cộng phát sinh', async () => {
+    render(<ReportsScreen />);
+    expect((await screen.findByText(/Đang hiện 60\/111 dòng, kéo xuống để tải thêm/)).textContent).toBeTruthy();
+    expect(screen.queryByText('Cộng phát sinh')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Hiện tất cả' }));
+    expect(await screen.findByText('Đã hiện tất cả 111 dòng.')).toBeTruthy();
+    expect(ledgerPaths().some((p) => p.includes('offset=60&limit=51'))).toBe(true);
+    expect(screen.getByText('Cộng phát sinh')).toBeTruthy();
+    expect(screen.getByText('PT-2610-0111')).toBeTruthy();
+  });
+
+  it('lọc theo tài khoản gửi accountId; Export tải đủ dòng gồm dư đầu kỳ và cộng phát sinh', async () => {
+    render(<ReportsScreen />);
+    await screen.findByText('PT-2610-0001');
+    fireEvent.click(screen.getByPlaceholderText('Mọi tài khoản'));
+    fireEvent.click(await screen.findByRole('option', { name: 'Vietcombank' }));
+    await waitFor(() => expect(ledgerPaths().some((p) => p.includes('accountId=a1'))).toBe(true));
+    await screen.findByText('PT-2610-0001');
+    fireEvent.click(screen.getByRole('button', { name: /Export/ }));
+    await waitFor(() => expect(mockDownload).toHaveBeenCalledTimes(1));
+    const csv = String(mockDownload.mock.calls[0][1]);
+    for (const text of ['Dư đầu kỳ', 'Cộng phát sinh', 'PT-2610-0111', 'Tồn quỹ']) expect(csv).toContain(text);
+    expect(ledgerPaths().some((p) => p.includes('limit=5000'))).toBe(true);
+  });
+
+  it('kỳ không có phát sinh vẫn hiện dư đầu kỳ và báo không có dòng', async () => {
+    fetchMock.mockImplementation(async (path: string) => {
+      if (path.startsWith('/reports/ledger')) return { ...ledgerPage(0, 0, 0), items: [] } as never;
+      return [] as never;
+    });
+    render(<ReportsScreen />);
+    expect(await screen.findByText('Không có phát sinh trong kỳ.')).toBeTruthy();
+    expect(screen.getByText('Dư đầu kỳ')).toBeTruthy();
   });
 });
