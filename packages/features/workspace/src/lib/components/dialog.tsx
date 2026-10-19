@@ -1,5 +1,6 @@
 'use client';
 
+import { useAssistantEmbed } from '@enterprise-platform/feature-module-shell';
 import { X } from 'lucide-react';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
@@ -28,6 +29,10 @@ export interface DialogProps {
  *
  * Dựng qua portal vào `document.body`: form nằm trong cột cây có `overflow`
  * riêng, nếu render tại chỗ thì lớp phủ bị cắt theo cột đó.
+ *
+ * Trong trang form nhúng của card Trợ lý (`useAssistantEmbed`), form nằm ngay
+ * tại chỗ, rộng hết card và cao theo nội dung: không portal, không lớp phủ,
+ * không đóng ngầm bằng Esc hay nút X. Nút Huỷ ở chân form vẫn đóng như cũ.
  */
 export function Dialog({
   open,
@@ -43,6 +48,7 @@ export function Dialog({
   onSubmit,
   children,
 }: DialogProps) {
+  const embedded = useAssistantEmbed();
   const [mounted, setMounted] = useState(false);
   /** Người dùng đã gõ hoặc chọn gì đó trong form kể từ lúc mở. */
   const [dirty, setDirty] = useState(false);
@@ -68,7 +74,8 @@ export function Dialog({
   }, [dirty, onClose]);
 
   useEffect(() => {
-    if (!open) return;
+    // Form trong card không phải hộp thoại nổi: Esc không đóng nó.
+    if (!open || embedded) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
       if (confirmDiscard) setConfirmDiscard(false);
@@ -76,9 +83,83 @@ export function Dialog({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [open, confirmDiscard, requestClose]);
+  }, [open, embedded, confirmDiscard, requestClose]);
 
   if (!open || !mounted) return null;
+
+  const head = (
+    <header className={styles.dialogHead}>
+      <div>
+        <h3>{title}</h3>
+        {subtitle ? <p>{subtitle}</p> : null}
+      </div>
+      {embedded ? null : (
+        <button type="button" aria-label="Đóng" onClick={requestClose}>
+          <X size={16} />
+        </button>
+      )}
+    </header>
+  );
+
+  const form = (
+    <form
+      className={styles.dialogBody}
+      onChangeCapture={() => setDirty(true)}
+      onSubmit={(event) => {
+        event.preventDefault();
+        onSubmit();
+      }}
+    >
+      <div className={styles.dialogScroll}>
+        {children}
+        {error ? (
+          <p role="alert" className={styles.alert}>
+            {error}
+          </p>
+        ) : null}
+        {confirmDiscard ? (
+          <div className={styles.discardBar} role="alert">
+            <span>Bạn có thay đổi chưa lưu. Đóng lại sẽ mất những gì vừa nhập.</span>
+            <button
+              type="button"
+              className={styles.buttonGhost}
+              autoFocus
+              onClick={() => setConfirmDiscard(false)}
+            >
+              Tiếp tục sửa
+            </button>
+            <button type="button" className={styles.buttonDanger} onClick={onClose}>
+              Bỏ thay đổi
+            </button>
+          </div>
+        ) : null}
+      </div>
+      <footer className={styles.dialogFoot}>
+        {cancelLabel === null ? null : (
+          <button type="button" className={styles.buttonGhost} onClick={onClose}>
+            {cancelLabel}
+          </button>
+        )}
+        <button
+          type="submit"
+          className={styles.buttonPrimary}
+          disabled={submitting || submitDisabled}
+        >
+          {submitting ? 'Đang lưu…' : submitLabel}
+        </button>
+      </footer>
+    </form>
+  );
+
+  // Card của Trợ lý: form nằm ngay trong trang form nhúng, card co giãn theo chiều cao của nó.
+  if (embedded) {
+    return (
+      <section className={styles.dialogInline} aria-label={title}>
+        {head}
+        {form}
+      </section>
+    );
+  }
 
   return createPortal(
     <div className={styles.overlay} role="presentation" onMouseDown={requestClose}>
@@ -90,63 +171,8 @@ export function Dialog({
         // Chặn nổi bọt để cú bấm bên trong hộp thoại không đóng nó lại.
         onMouseDown={(event) => event.stopPropagation()}
       >
-        <header className={styles.dialogHead}>
-          <div>
-            <h3>{title}</h3>
-            {subtitle ? <p>{subtitle}</p> : null}
-          </div>
-          <button type="button" aria-label="Đóng" onClick={requestClose}>
-            <X size={16} />
-          </button>
-        </header>
-
-        <form
-          className={styles.dialogBody}
-          onChangeCapture={() => setDirty(true)}
-          onSubmit={(event) => {
-            event.preventDefault();
-            onSubmit();
-          }}
-        >
-          <div className={styles.dialogScroll}>
-          {children}
-          {error ? (
-            <p role="alert" className={styles.alert}>
-              {error}
-            </p>
-          ) : null}
-          {confirmDiscard ? (
-            <div className={styles.discardBar} role="alert">
-              <span>Bạn có thay đổi chưa lưu. Đóng lại sẽ mất những gì vừa nhập.</span>
-              <button
-                type="button"
-                className={styles.buttonGhost}
-                autoFocus
-                onClick={() => setConfirmDiscard(false)}
-              >
-                Tiếp tục sửa
-              </button>
-              <button type="button" className={styles.buttonDanger} onClick={onClose}>
-                Bỏ thay đổi
-              </button>
-            </div>
-          ) : null}
-          </div>
-          <footer className={styles.dialogFoot}>
-            {cancelLabel === null ? null : (
-              <button type="button" className={styles.buttonGhost} onClick={onClose}>
-                {cancelLabel}
-              </button>
-            )}
-            <button
-              type="submit"
-              className={styles.buttonPrimary}
-              disabled={submitting || submitDisabled}
-            >
-              {submitting ? 'Đang lưu…' : submitLabel}
-            </button>
-          </footer>
-        </form>
+        {head}
+        {form}
       </div>
     </div>,
     document.body,

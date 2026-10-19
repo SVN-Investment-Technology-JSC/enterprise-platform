@@ -1,4 +1,5 @@
 import {
+  assistantUnavailableReason,
   eventDraftToForm,
   standaloneTaskDraftToForm,
   workItemDraftToForm,
@@ -136,6 +137,40 @@ describe('standaloneTaskDraftToForm', () => {
     expect(standaloneTaskDraftToForm({}, { defaultAssigneeUserId: 'me' })).toEqual({
       assigneeUserId: 'me',
     });
+  });
+});
+
+describe('assistantUnavailableReason', () => {
+  const capabilities = {
+    isTenantAdmin: false,
+    canManage: false,
+    canWriteTasks: true,
+    canWriteDocuments: false,
+    canDeleteDocuments: false,
+  };
+  const status = { tenantId: 't1', schemaExists: true, tablesReady: true, capabilities };
+
+  it('mở form khi có quyền ghi, hoặc chưa biết trạng thái', () => {
+    expect(assistantUnavailableReason(status)).toBeUndefined();
+    expect(assistantUnavailableReason(undefined)).toBeUndefined();
+    // Server bản cũ chưa trả quyền: không tự chặn.
+    expect(assistantUnavailableReason({ ...status, capabilities: undefined })).toBeUndefined();
+    expect(
+      assistantUnavailableReason({
+        ...status,
+        capabilities: { ...capabilities, canWriteTasks: false, isTenantAdmin: true },
+      }),
+    ).toBeUndefined();
+  });
+
+  it('báo lý do khi dữ liệu đang khởi tạo hoặc thiếu quyền ghi', () => {
+    expect(assistantUnavailableReason({ ...status, tablesReady: false })).toMatch(/khởi tạo/);
+    expect(
+      assistantUnavailableReason({
+        ...status,
+        capabilities: { ...capabilities, canWriteTasks: false },
+      }),
+    ).toMatch(/không có quyền/);
   });
 });
 

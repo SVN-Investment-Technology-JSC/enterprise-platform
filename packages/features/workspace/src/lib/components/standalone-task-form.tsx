@@ -8,6 +8,7 @@ import {
   type StandaloneTaskRef,
   type WorkItemPriority,
 } from '@enterprise-platform/contracts-workspace';
+import { useAssistantEmbed } from '@enterprise-platform/feature-module-shell';
 import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import { useEffect, useMemo, useState } from 'react';
 import type { FormPrefill, StandaloneTaskPrefill } from '../assistant-drafts';
@@ -96,6 +97,7 @@ export function StandaloneTaskForm({
   prefill,
 }: StandaloneTaskFormProps) {
   const directory = useDirectory();
+  const embedded = useAssistantEmbed();
   const [form, setForm] = useState<FormState>(() => initialState(task, adjustmentOf));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string>();
@@ -236,7 +238,8 @@ export function StandaloneTaskForm({
         <input
           value={form.title}
           maxLength={200}
-          autoFocus
+          // Card của Trợ lý hiện ra khi người dùng còn đang gõ trong khung chat: không giành con trỏ khỏi ô chat.
+          autoFocus={!embedded}
           placeholder="Ví dụ: Soạn báo giá cho khách hàng A"
           onChange={(event) => set({ title: event.target.value })}
         />

@@ -35,8 +35,6 @@ export interface WorkspaceAssistantFormsProps {
   readonly currentUserId: string;
   /** Có giá trị khi người dùng chưa tạo được gì ở Workspace (thiếu quyền ghi, dữ liệu đang khởi tạo). */
   readonly unavailableMessage?: string;
-  /** Đã lưu một bản ghi: màn hình đang mở nạp lại dữ liệu. */
-  readonly onSaved: () => void;
 }
 
 function draftProjectId(draft: Partial<Record<string, unknown>>): string | undefined {
@@ -47,17 +45,18 @@ function draftProjectId(draft: Partial<Record<string, unknown>>): string | undef
 
 /**
  * Form tạo của Workspace mà Trợ lý Savina mở với bản nháp: cuộc họp hoặc sự kiện, công việc trong dự án, việc ngoài dự
- * án. Dựng ở gốc màn hình nên chạy được từ mọi trang của phân hệ; form và API là của chính phân hệ, người dùng xem lại
- * rồi bấm lưu như khi tự nhập.
+ * án. Dựng trong trang form nhúng của card Trợ lý (`WorkspaceAssistantFormPage`), nên form hiện ngay trong card; form và
+ * API là của chính phân hệ, người dùng xem lại rồi bấm lưu như khi tự nhập.
  */
 export function WorkspaceAssistantForms({
   currentUserId,
   unavailableMessage,
-  onSaved,
 }: WorkspaceAssistantFormsProps) {
   const [session, setSessionState] = useState<Session>();
   /** Bản đang mở, đọc được ngay trong lúc xử lý lệnh; `saved` không đi qua state để form không bị gộp lại bản nháp. */
   const sessionRef = useRef<(Session & { saved?: boolean }) | undefined>(undefined);
+  /** Lệnh đã lưu hoặc đã đóng: đã báo kết quả, bản nháp gửi lại sau đó không mở lại form. */
+  const finished = useRef(new Set<string>());
   const setSession = useCallback((next: Session | undefined) => {
     sessionRef.current = next;
     setSessionState(next);
@@ -71,6 +70,8 @@ export function WorkspaceAssistantForms({
   const [projectList, setProjectList] = useState<readonly ProjectSummary[]>([]);
 
   const openWith = (kind: Kind) => (draft: Partial<Record<string, unknown>>, context: AssistantActionContext) => {
+    // Đã lưu (form có thể còn hiện cảnh báo trùng lịch) hoặc đã đóng: không sửa tiếp, không mở lại.
+    if (finished.current.has(context.requestId)) return;
     if (unavailableMessage) {
       context.report('unavailable', { message: unavailableMessage });
       return;
@@ -78,14 +79,15 @@ export function WorkspaceAssistantForms({
     const current = sessionRef.current;
     const nextProjectId = kind === 'standalone-task' ? undefined : draftProjectId(draft);
     if (current && current.kind === kind && current.context.requestId === context.requestId) {
-      // Đã lưu rồi thì không sửa tiếp form đang hiện cảnh báo.
-      if (current.saved) return;
       setSession({ ...current, draft, seq: current.seq + 1 });
       if (nextProjectId) setProjectId(nextProjectId);
       return;
     }
     // Lệnh mới thay form Trợ lý đang mở: form cũ coi như đóng mà không lưu.
-    if (current && !current.saved) current.context.report('cancelled');
+    if (current) {
+      finished.current.add(current.context.requestId);
+      if (!current.saved) current.context.report('cancelled');
+    }
     setSession({ kind, context, draft, seq: 1 });
     setProjectId(nextProjectId);
   };
@@ -191,13 +193,16 @@ export function WorkspaceAssistantForms({
     const current = sessionRef.current;
     if (!current) return;
     sessionRef.current = { ...current, saved: true };
+    finished.current.add(current.context.requestId);
     current.context.report('saved', detail);
-    onSaved();
   };
 
   const close = () => {
     const current = sessionRef.current;
-    if (current && !current.saved) current.context.report('cancelled');
+    if (current) {
+      finished.current.add(current.context.requestId);
+      if (!current.saved) current.context.report('cancelled');
+    }
     setSession(undefined);
     setProjectId(undefined);
   };

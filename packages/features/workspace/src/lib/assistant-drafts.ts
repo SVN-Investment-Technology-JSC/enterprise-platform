@@ -9,6 +9,7 @@ import {
   type WorkItemPriority,
   type WorkItemType,
 } from '@enterprise-platform/contracts-workspace';
+import type { WorkspaceStatus } from './workspace-api';
 
 /**
  * Đổi bản nháp của Trợ lý (theo tên trường của request API) thành giá trị ô của form tạo sẵn có.
@@ -204,6 +205,24 @@ export function standaloneTaskDraftToForm(
   const dueDate = dateValue(draft.dueDate);
   if (dueDate) values.dueDate = dueDate;
   return values;
+}
+
+/**
+ * Lý do người dùng chưa tạo được gì ở Workspace, báo về card Trợ lý thay vì mở form: dữ liệu của tenant đang khởi
+ * tạo, hoặc thiếu quyền ghi dự án và công việc. Chưa biết trạng thái thì không chặn, server vẫn kiểm khi lưu.
+ */
+export function assistantUnavailableReason(
+  status: WorkspaceStatus | undefined,
+): string | undefined {
+  if (!status) return undefined;
+  if (!status.tablesReady) {
+    return 'Dữ liệu Không gian làm việc đang được khởi tạo, chưa tạo được bản ghi.';
+  }
+  const capabilities = status.capabilities;
+  if (capabilities && !capabilities.canWriteTasks && !capabilities.isTenantAdmin) {
+    return 'Bạn không có quyền ghi dự án và công việc.';
+  }
+  return undefined;
 }
 
 /** Đường dẫn trong ERP mở bản ghi vừa tạo, cùng dạng với link trong thông báo. */

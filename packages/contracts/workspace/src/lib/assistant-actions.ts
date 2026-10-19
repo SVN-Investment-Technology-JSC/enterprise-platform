@@ -11,8 +11,9 @@ const PEOPLE_LOOKUP = '/api/workspace/v1/directory';
 const PROJECTS_LOOKUP = '/api/workspace/v1/projects';
 
 /**
- * Thao tác Trợ lý của Không gian làm việc. Màn hình gốc của phân hệ mở đúng form tạo sẵn có với bản nháp; mọi ô tạo đều
- * cần quyền `workspace.task.write`, như guard của API (`POST` ngoài tài liệu).
+ * Thao tác Trợ lý của Không gian làm việc. Trang form nhúng của phân hệ (`/modules/workspace/assistant/form`, trong card
+ * của khung chat) mở đúng form tạo sẵn có với bản nháp; mọi ô tạo đều cần quyền `workspace.task.write`, như guard của
+ * API (`POST` ngoài tài liệu).
  */
 export const WORKSPACE_ASSISTANT_ACTIONS = defineAssistantActions('workspace', {
   createEvent: {

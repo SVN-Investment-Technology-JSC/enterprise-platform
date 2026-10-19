@@ -30,7 +30,6 @@ import {
   loadWorkspaceStatus,
   type WorkspaceStatus,
 } from './workspace-api';
-import { WorkspaceAssistantForms } from './components/assistant-forms';
 import { DocumentPanel } from './components/document-panel';
 import { ProjectAvatar } from './components/project-avatar';
 import { MyWorkView } from './components/my-work-view';
@@ -184,9 +183,6 @@ export function WorkspaceScreen() {
     nonce: number;
   }>();
   const openQuickSearch = useCallback(() => setQuickOpen(true), []);
-  /** Tăng mỗi lần lưu xong một form Trợ lý mở: trang Công việc của tôi và Công việc ngoài dự án nạp lại. */
-  const [assistantSaves, setAssistantSaves] = useState(0);
-  const onAssistantSaved = useCallback(() => setAssistantSaves((count) => count + 1), []);
 
   const onQuickPick = (target: QuickSearchTarget) => {
     if (target.kind === 'page') navigate(target.view);
@@ -260,13 +256,6 @@ export function WorkspaceScreen() {
   // Tenant đã bật module nhưng migration chưa tạo bảng: nói rõ đang chờ, thay
   // vì để người dùng nhìn màn hình trống và tưởng hỏng.
   const provisioning = status && !status.tablesReady;
-  const assistantUnavailable = provisioning
-    ? 'Dữ liệu Không gian làm việc đang được khởi tạo, chưa tạo được bản ghi.'
-    : status?.capabilities &&
-        !status.capabilities.canWriteTasks &&
-        !status.capabilities.isTenantAdmin
-      ? 'Bạn không có quyền ghi dự án và công việc.'
-      : undefined;
 
   /**
    * Trang Tài liệu tổng quan gom kho của **mọi** dự án, nên chỉ mở cho người
@@ -459,10 +448,9 @@ export function WorkspaceScreen() {
       }
     >
       {view === 'my-work' && !provisioning ? (
-        <MyWorkView key={assistantSaves} onOpen={openInProject} onOpenTask={openTask} />
+        <MyWorkView onOpen={openInProject} onOpenTask={openTask} />
       ) : view === 'tasks' && !provisioning ? (
         <StandaloneTasksView
-          key={assistantSaves}
           focusTaskId={sub}
           onFocusChange={openTask}
           createRequest={createTaskRequest}
@@ -505,12 +493,6 @@ export function WorkspaceScreen() {
         </section>
       )}
       <QuickSearch open={quickOpen} onClose={() => setQuickOpen(false)} onPick={onQuickPick} />
-      {/* Luôn dựng, không theo trang: Trợ lý mở form tạo của Workspace từ bất kỳ trang nào của phân hệ. */}
-      <WorkspaceAssistantForms
-        currentUserId={me}
-        unavailableMessage={assistantUnavailable}
-        onSaved={onAssistantSaved}
-      />
     </ModuleShell>
   );
 }
