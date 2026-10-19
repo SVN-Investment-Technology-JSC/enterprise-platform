@@ -224,6 +224,17 @@ export async function loadOrganizationUnitNames(): Promise<ReadonlyMap<string, s
   }
 }
 
+/**
+ * Mã các thao tác Trợ lý mà người đang đăng nhập làm được: server lọc danh mục theo đúng khoá quyền của từng thao
+ * tác, như danh sách khung chat nhận. Trang form nhúng dùng để biết có mở form hay báo không có quyền.
+ */
+export async function loadAssistantActionKeys(): Promise<ReadonlySet<string>> {
+  const catalog = await request<{ actions?: readonly { key: string }[] }>('/assistant/actions', {
+    cache: 'no-store',
+  });
+  return new Set((catalog.actions ?? []).map((action) => action.key));
+}
+
 export async function loadTenantHomePath(): Promise<string> {
   try {
     const response = await authFetch('/api/auth/v1/me');

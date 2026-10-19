@@ -1,7 +1,13 @@
 /** @jest-environment jsdom */
-import { fireEvent, within, render, screen, waitFor } from '@testing-library/react';
+import {
+  deliverAssistantAction,
+  hasAssistantAction,
+  setAssistantResultSink,
+} from '@enterprise-platform/feature-module-shell';
+import { act, fireEvent, within, render, screen, waitFor } from '@testing-library/react';
 import { hrmFetch } from '../hrm-api';
 import { toast } from '../ui/toast';
+import { HrmAssistantFormPage } from './assistant-form-screen';
 import RequestsPage from './requests-screen';
 
 const mockActions = new Set<string>(['hrm.self.request']);
@@ -1349,5 +1355,159 @@ describe('Loại đơn cấu hình và thời gian từ ngày giờ đến ngày
     await showAllMonths();
     expect(await screen.findByText('Xin đi muộn', { selector: 'td' })).toBeTruthy();
     expect(footer()).toContain('02/11/2026 09:00 -> 02/11/2026 11:30');
+  });
+});
+
+type AssistantActionResult = Parameters<
+  NonNullable<Parameters<typeof setAssistantResultSink>[0]>
+>[0];
+
+const ASSISTANT_KEYS = [
+  'hrm.leave-request.create',
+  'hrm.ot-request.create',
+  'hrm.business-trip-request.create',
+  'hrm.custom-request.create',
+];
+
+describe('Trợ lý Savina: form tạo đơn trong card của khung chat (trang form nhúng)', () => {
+  let results: AssistantActionResult[] = [];
+  /** Card gửi bản nháp cho trang form nhúng (AssistantFormHost giao cho thao tác đã đăng ký). */
+  const ask = (key: string, requestId: string, draft: Record<string, unknown>, variant?: string) =>
+    act(() => {
+      deliverAssistantAction({ key, requestId, draft, ...(variant ? { variant } : {}) });
+    });
+
+  beforeEach(() => {
+    results = [];
+    setAssistantResultSink((result) => results.push(result));
+  });
+  afterEach(() => setAssistantResultSink(undefined));
+
+  it('trang Đơn từ không còn nhận thao tác của Trợ lý', async () => {
+    render(<RequestsPage />);
+    await allTypeButtons();
+    for (const key of ASSISTANT_KEYS) expect(hasAssistantAction(key)).toBe(false);
+  });
+
+  it('đơn làm thêm giờ: form hiện ngay tại chỗ, điền sẵn, sửa tiếp cùng yêu cầu, gửi xong báo đã lưu kèm link', async () => {
+    reasonCatalog = { OVERTIME: [catalogReason('OVERTIME', 'ot1', 'Theo yêu cầu công việc')] };
+    render(<HrmAssistantFormPage />);
+    for (const key of ASSISTANT_KEYS) expect(hasAssistantAction(key)).toBe(true);
+    // Bản nháp đến khi hồ sơ và danh mục chưa tải xong: form mở khi dữ liệu sẵn sàng.
+    ask('hrm.ot-request.create', 'r1', {
+      fromAt: '2026-10-20T18:00',
+      toAt: '2026-10-20T21:00',
+      reasonId: 'ot1',
+    });
+    await screen.findByRole('button', { name: /Gửi duyệt đơn/ });
+    // Chính form của trang Đơn từ, dựng ngay trong card: không có hộp thoại.
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.getByRole('heading', { name: 'Đơn làm thêm giờ (OT)' })).toBeTruthy();
+    expect((screen.getByLabelText('Từ ngày giờ làm thêm (giờ)') as HTMLInputElement).value).toBe('18:00');
+
+    ask('hrm.ot-request.create', 'r1', { description: 'Hoàn thiện hồ sơ nghiệm thu' });
+    await waitFor(() =>
+      expect((screen.getByLabelText(OT_DESCRIPTION_LABEL) as HTMLTextAreaElement).value).toBe(
+        'Hoàn thiện hồ sơ nghiệm thu',
+      ),
+    );
+    // Lần sửa tiếp chỉ đổi ô có trong bản nháp mới.
+    expect((screen.getByLabelText('Đến ngày giờ làm thêm (giờ)') as HTMLInputElement).value).toBe('21:00');
+    await waitFor(() => expect(submitButton().disabled).toBe(false));
+    fireEvent.click(submitButton());
+    await waitFor(() => expect(results).toHaveLength(1));
+    expect(results[0]).toMatchObject({
+      requestId: 'r1',
+      key: 'hrm.ot-request.create',
+      outcome: 'saved',
+      id: 'new',
+      href: '/modules/hrm/requests?request=new',
+      label: 'Đơn làm thêm giờ (OT) 20/10/2026',
+    });
+    expect(draftBody('ot')?.payload).toMatchObject({
+      employeeId: 'e1',
+      reasonId: 'ot1',
+      description: 'Hoàn thiện hồ sơ nghiệm thu',
+      fromAt: '2026-10-20T18:00',
+      toAt: '2026-10-20T21:00',
+    });
+  });
+
+  it('bấm Hủy thì báo đã huỷ', async () => {
+    leaveTypes = [leaveType('lt-sick', 'SICK', 'Nghỉ ốm')];
+    render(<HrmAssistantFormPage />);
+    ask('hrm.leave-request.create', 'r2', { leaveTypeId: 'lt-sick', fromDate: '2026-10-20' });
+    fireEvent.click(await screen.findByRole('button', { name: 'Hủy' }));
+    await waitFor(() => expect(results).toHaveLength(1));
+    expect(results[0]).toMatchObject({ requestId: 'r2', outcome: 'cancelled' });
+  });
+
+  it('lỗi khi gửi: form vẫn mở, hiện lỗi ngay trên nút gửi, chưa báo kết quả', async () => {
+    reasonCatalog = { OVERTIME: [catalogReason('OVERTIME', 'ot1', 'Theo yêu cầu công việc')] };
+    otFailFrom = 1;
+    render(<HrmAssistantFormPage />);
+    ask('hrm.ot-request.create', 'r5', {
+      fromAt: '2026-10-20T18:00',
+      toAt: '2026-10-20T21:00',
+      reasonId: 'ot1',
+      description: 'Chạy tiến độ',
+    });
+    await waitFor(() => expect(submitButton().disabled).toBe(false));
+    fireEvent.click(submitButton());
+    const error = await screen.findByText('Trùng đơn đã có');
+    expect(screen.getByText('Khoảng làm thêm 1 gửi không thành công')).toBeTruthy();
+    // Card cao theo nội dung: lỗi nằm sau các ô nhập, sát nút gửi vừa bấm.
+    const description = screen.getByLabelText(OT_DESCRIPTION_LABEL);
+    expect(description.compareDocumentPosition(error) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(error.compareDocumentPosition(submitButton()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(results).toHaveLength(0);
+  });
+
+  it('loại đơn tuỳ chỉnh: mở đúng loại theo biến thể, điền trường riêng rồi gửi', async () => {
+    requestTypeRows = [systemType('s1', 'LEAVE', 'LEAVE', 'Nghỉ phép'), customTypeRow()];
+    render(<HrmAssistantFormPage />);
+    ask('hrm.custom-request.create', 'r4', { fields: { noi_den: 'Trạm biến áp' } }, 'ct1');
+    await waitFor(() =>
+      expect((screen.getByLabelText(/Nơi đến/) as HTMLInputElement).value).toBe('Trạm biến áp'),
+    );
+    expect(screen.getByRole('heading', { name: 'Xin đi muộn' })).toBeTruthy();
+    await waitFor(() => expect(submitButton().disabled).toBe(false));
+    fireEvent.click(submitButton());
+    await waitFor(() => expect(results).toHaveLength(1));
+    expect(results[0]).toMatchObject({ requestId: 'r4', outcome: 'saved', label: 'Xin đi muộn' });
+    expect(draftBody('custom')?.payload).toMatchObject({ typeId: 'ct1', fields: { noi_den: 'Trạm biến áp' } });
+  });
+
+  it('không mở được form: loại đơn không có, không có quyền tạo đơn, chưa liên kết nhân viên', async () => {
+    requestTypeRows = [systemType('s1', 'LEAVE', 'LEAVE', 'Nghỉ phép'), customTypeRow()];
+    const { unmount } = render(<HrmAssistantFormPage />);
+    ask('hrm.custom-request.create', 'r3', {}, 'khong-co');
+    await waitFor(() => expect(results).toHaveLength(1));
+    expect(results[0]).toMatchObject({
+      requestId: 'r3',
+      outcome: 'unavailable',
+      message: 'Không tìm thấy loại đơn này hoặc loại đơn đã ngừng sử dụng.',
+    });
+    unmount();
+
+    mockActions.clear();
+    const second = render(<HrmAssistantFormPage />);
+    ask('hrm.leave-request.create', 'r6', { fromDate: '2026-10-20' });
+    await waitFor(() => expect(results).toHaveLength(2));
+    expect(results[1]).toMatchObject({ outcome: 'unavailable', message: 'Tài khoản không có quyền tạo đơn từ.' });
+    second.unmount();
+
+    mockActions.add('hrm.self.request');
+    const realFetch = global.fetch;
+    global.fetch = jest.fn((input: RequestInfo | URL, init?: RequestInit) =>
+      String(input).includes('/my-profile') ? respond({ data: { fullName: 'Khách' } }) : realFetch(input, init),
+    ) as never;
+    render(<HrmAssistantFormPage />);
+    ask('hrm.ot-request.create', 'r7', {});
+    await waitFor(() => expect(results).toHaveLength(3));
+    expect(results[2]).toMatchObject({
+      outcome: 'unavailable',
+      message: 'Tài khoản chưa liên kết hồ sơ nhân viên.',
+    });
   });
 });

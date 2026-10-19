@@ -8,8 +8,10 @@ import {
   type StandaloneTaskRef,
   type WorkItemPriority,
 } from '@enterprise-platform/contracts-workspace';
+import { useAssistantEmbed } from '@enterprise-platform/feature-module-shell';
 import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import { useEffect, useMemo, useState } from 'react';
+import type { FormPrefill, StandaloneTaskPrefill } from '../assistant-drafts';
 import { loadStartableProceduresOrUnavailable, type ProcedureOption } from '../procedure-api';
 import * as api from '../workspace-api';
 import { PRIORITY_LABELS } from '../workspace-labels';
@@ -30,6 +32,8 @@ export interface StandaloneTaskFormProps {
   readonly onClose: () => void;
   /** Ném lỗi ra để hộp thoại hiện ngay thông điệp của server. */
   readonly onSubmit: (input: CreateStandaloneTaskRequest) => Promise<void>;
+  /** Giá trị ban đầu khi giao việc mới (bản nháp của Trợ lý); `seq` mới thì gộp vào form đang mở. */
+  readonly prefill?: FormPrefill<StandaloneTaskPrefill>;
 }
 
 interface FormState {
@@ -90,8 +94,10 @@ export function StandaloneTaskForm({
   adjustmentOf,
   onClose,
   onSubmit,
+  prefill,
 }: StandaloneTaskFormProps) {
   const directory = useDirectory();
+  const embedded = useAssistantEmbed();
   const [form, setForm] = useState<FormState>(() => initialState(task, adjustmentOf));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string>();
@@ -106,6 +112,23 @@ export function StandaloneTaskForm({
     setForm(initialState(task, adjustmentOf));
     setError(undefined);
   }, [open, task, adjustmentOf]);
+
+  // Chạy sau bước dựng form ở trên: chỉ gộp các ô có trong bản nháp, ô người dùng đã sửa mà bản nháp không nhắc thì giữ.
+  useEffect(() => {
+    if (!open || task || !prefill) return;
+    setForm((current) => {
+      const next = { ...current, ...prefill.values };
+      // Một người chỉ giữ một vai, như khi chọn trên form.
+      const participantUserIds = next.participantUserIds.filter((id) => id !== next.assigneeUserId);
+      return {
+        ...next,
+        participantUserIds,
+        followerUserIds: next.followerUserIds.filter(
+          (id) => id !== next.assigneeUserId && !participantUserIds.includes(id),
+        ),
+      };
+    });
+  }, [open, task, prefill]);
 
   // Hồ sơ mở dưới danh nghĩa người giao việc, nên chỉ đưa ra quy trình họ có vai S.
   useEffect(() => {
@@ -215,7 +238,8 @@ export function StandaloneTaskForm({
         <input
           value={form.title}
           maxLength={200}
-          autoFocus
+          // Card của Trợ lý hiện ra khi người dùng còn đang gõ trong khung chat: không giành con trỏ khỏi ô chat.
+          autoFocus={!embedded}
           placeholder="Ví dụ: Soạn báo giá cho khách hàng A"
           onChange={(event) => set({ title: event.target.value })}
         />

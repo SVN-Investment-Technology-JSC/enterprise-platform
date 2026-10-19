@@ -63,7 +63,8 @@ import {
 import { GroupCatalogEditor, type GroupCatalogValue } from './group-catalog-editor';
 import { OrganizationBoard } from './organization-board';
 import { RcsiBoard } from './rcsi-board';
-import { WorkspaceBoard, type StartHandoff } from './workspace-board';
+import type { StartHandoff } from './start-instance-form';
+import { WorkspaceBoard } from './workspace-board';
 import styles from './procedure-engine.module.scss';
 
 type View = 'dashboard' | 'workspace' | 'raci' | 'org-chart' | 'settings';

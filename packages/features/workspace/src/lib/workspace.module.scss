@@ -1864,6 +1864,50 @@
   }
 }
 
+/*
+ * Form trong card của Trợ lý (trang form nhúng): nằm ngay trong trang, rộng hết card, cao theo nội dung để card co
+ * giãn theo, không cuộn riêng. Trang không có vỏ ModuleShell nên tự khai bộ biến `--ep-*` như `.overlay`.
+ */
+.dialogInline {
+  @include ep-tokens;
+
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+  background: var(--ep-surface);
+  color: var(--ep-text);
+  font-family: var(--ep-font);
+  font-size: 14px;
+  line-height: 1.5;
+
+  .dialogHead {
+    padding: 0 0 10px;
+  }
+
+  .dialogScroll {
+    padding: 14px 0;
+    overflow: visible;
+  }
+
+  .dialogFoot {
+    padding: 12px 0 0;
+  }
+
+  /* Gợi ý của ô chọn người, chọn nhãn nằm ngay dưới ô tìm, đẩy phần dưới xuống để card cao thêm. Để nổi (absolute)
+     thì danh sách bám khối chứa ngoài cùng và rơi lên trên mép trang, không thấy được. */
+  .peoplePicker .mentionList {
+    position: static;
+  }
+
+  /* Card hẹp: ngày và khoảng giờ xếp dọc để hai ô giờ không bị bóp. */
+  @media (width <= 420px) {
+    .fieldRowDateTime {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+}
+
 .field {
   display: flex;
   flex-direction: column;

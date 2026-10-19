@@ -1,4 +1,5 @@
 export * from './lib/workspace-screen';
+export * from './lib/assistant-form-page';
 export * from './lib/workspace-api';
 export * from './lib/workspace-labels';
 export * from './lib/project-tree.model';

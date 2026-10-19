@@ -14,6 +14,7 @@ import {
 import { fromLocalInput } from '@enterprise-platform/shared-ui';
 import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import { useEffect, useMemo, useState } from 'react';
+import type { FormPrefill, WorkItemPrefill } from '../assistant-drafts';
 import { loadProcedureOptions, type ProcedureOption } from '../procedure-api';
 import { ITEM_TYPE_LABELS, PRIORITY_LABELS } from '../workspace-labels';
 import styles from '../workspace.module.scss';
@@ -72,6 +73,8 @@ export interface WorkItemFormProps {
   readonly projectOptions?: ReadonlyArray<{ readonly id: string; readonly label: string }>;
   /** Người dùng đổi dự án: nơi gọi nạp lại danh sách công việc cha của dự án đó. */
   readonly onProjectChange?: (projectId: string) => void;
+  /** Giá trị ban đầu khi tạo mới (bản nháp của Trợ lý); `seq` mới thì gộp vào form đang mở. */
+  readonly prefill?: FormPrefill<WorkItemPrefill>;
 }
 
 interface FormState {
@@ -123,6 +126,7 @@ export function WorkItemForm({
   defaultParentId,
   projectOptions,
   onProjectChange,
+  prefill,
 }: WorkItemFormProps) {
   const directory = useDirectory();
   const [form, setForm] = useState<FormState>(EMPTY);
@@ -184,6 +188,19 @@ export function WorkItemForm({
     setSubmitting(false);
     setConfirmOutside(false);
   }, [open, item, adjustmentOf, defaultParentId, parent?.id]);
+
+  // Chạy sau bước dựng form ở trên: chỉ gộp các ô có trong bản nháp, ô người dùng đã sửa mà bản nháp không nhắc thì giữ.
+  useEffect(() => {
+    if (!open || item || !prefill) return;
+    setForm((current) => ({
+      ...current,
+      ...prefill.values,
+      // Đổi dự án thì công việc cha của dự án cũ không còn đúng.
+      ...(prefill.values.projectId && prefill.values.projectId !== current.projectId
+        ? { parentId: '' }
+        : {}),
+    }));
+  }, [open, item, prefill]);
 
   const set = (patch: Partial<FormState>) => setForm((current) => ({ ...current, ...patch }));
 

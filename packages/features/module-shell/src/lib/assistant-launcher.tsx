@@ -1,13 +1,19 @@
 'use client';
 
-import { authFetch } from '@enterprise-platform/shared-ui';
+import { ASSISTANT_MESSAGE, isAssistantFrameMessage } from '@enterprise-platform/contracts-assistant';
+import { authFetch, useRealtimeEvent } from '@enterprise-platform/shared-ui';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import styles from './assistant-launcher.module.scss';
+import { ASSISTANT_MODULE_KEY } from './launcher-only-modules';
 
-/** Khóa của phân hệ Trợ lý trong danh mục phân hệ. */
-export const ASSISTANT_MODULE_KEY = 'assistant';
 /** Giao diện chat (savina-agent) mà gateway chuyển về; `embed=1` là bản gọn cho ngăn bên phải. */
 const ASSISTANT_URL = '/modules/assistant/';
+const OPEN_EVENT = 'savina-assistant:open';
+
+/** Mở ngăn Trợ lý của khung chung (ví dụ từ nút "Truy cập" ở trang Ứng dụng phân hệ). */
+export function openAssistant(): void {
+  window.dispatchEvent(new Event(OPEN_EVENT));
+}
 
 interface CatalogEntry {
   readonly key: string;
@@ -49,13 +55,30 @@ export interface AssistantLauncherProps {
  * Chỉ hiện khi tenant đã bật phân hệ Trợ lý. Ngăn chat là trang của savina-agent nhúng cùng
  * tên miền (`/modules/assistant/?embed=1`), nên dùng luôn phiên đăng nhập ERP. Trang đang mở
  * được gửi kèm để Trợ lý trả lời đúng ngữ cảnh "trang này". Ngăn chỉ tạo khi mở lần đầu và
- * giữ lại khi đóng, để không mất cuộc trò chuyện.
+ * giữ lại khi đóng, để không mất cuộc trò chuyện. Form Trợ lý mở nằm trong card của khung chat
+ * (trang form nhúng của phân hệ), nên khung này không chuyển trang hay mở popup thay Trợ lý.
  */
 export function AssistantLauncher({ className }: AssistantLauncherProps) {
   const [enabled, setEnabled] = useState(false);
   const [open, setOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
   const frameRef = useRef<HTMLIFrameElement>(null);
+  const refreshTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  // Quản trị đổi vai trò hay quyền trong công ty: báo khung chat lấy lại hàng phím (gộp các lần đổi liền nhau).
+  useRealtimeEvent('authorization.changed', () => {
+    if (!mounted) return;
+    clearTimeout(refreshTimer.current);
+    refreshTimer.current = setTimeout(
+      () =>
+        frameRef.current?.contentWindow?.postMessage(
+          { type: ASSISTANT_MESSAGE.refresh },
+          window.location.origin,
+        ),
+      2000,
+    );
+  });
+  useEffect(() => () => clearTimeout(refreshTimer.current), []);
 
   useEffect(() => {
     let active = true;
@@ -72,7 +95,7 @@ export function AssistantLauncher({ className }: AssistantLauncherProps) {
     setOpen((value) => !value);
   }, []);
 
-  // Ctrl+/ mở hoặc đóng ngăn chat.
+  // Ctrl+/ mở hoặc đóng ngăn chat; openAssistant() thì chỉ mở.
   useEffect(() => {
     if (!enabled) return;
     const onKey = (event: KeyboardEvent) => {
@@ -81,16 +104,26 @@ export function AssistantLauncher({ className }: AssistantLauncherProps) {
         toggle();
       }
     };
+    const onOpen = () => {
+      setMounted(true);
+      setOpen(true);
+    };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    window.addEventListener(OPEN_EVENT, onOpen);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener(OPEN_EVENT, onOpen);
+    };
   }, [enabled, toggle]);
 
-  // Trợ lý báo đóng (nút X trong ngăn); chỉ nhận tin từ chính khung chat cùng tên miền.
+  // Tin từ khung chat: xin đóng ngăn. Chỉ nhận tin từ chính khung chat cùng tên miền, và chỉ khi đúng hình dạng.
   useEffect(() => {
     if (!mounted) return;
     const onMessage = (event: MessageEvent) => {
       if (event.origin !== window.location.origin || event.source !== frameRef.current?.contentWindow) return;
-      if (event.data?.type === 'savina-assistant:close') setOpen(false);
+      const message: unknown = event.data;
+      if (!isAssistantFrameMessage(message)) return;
+      if (message.type === ASSISTANT_MESSAGE.close) setOpen(false);
     };
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);

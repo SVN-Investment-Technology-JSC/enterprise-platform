@@ -83,6 +83,7 @@ const NOTIFICATION_EVENTS = [
   'workspace.chat.typing',
   'procedure.comment.changed',
   'procedure.comment.typing',
+  'authorization.changed',
 ] as const;
 
 export class BrowserNotificationClient implements NotificationClient {
