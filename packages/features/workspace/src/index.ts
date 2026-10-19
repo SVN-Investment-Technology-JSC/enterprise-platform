@@ -4,6 +4,7 @@ export * from './lib/workspace-labels';
 export * from './lib/project-tree.model';
 export * from './lib/calendar-grid.model';
 export * from './lib/components/projects-view';
+export * from './lib/components/customers-view';
 export * from './lib/components/project-tree';
 export * from './lib/gantt.model';
 export * from './lib/mention.model';

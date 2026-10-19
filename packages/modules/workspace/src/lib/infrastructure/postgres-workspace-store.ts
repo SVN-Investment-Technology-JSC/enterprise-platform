@@ -12,7 +12,11 @@ import type {
   ChatEntityType,
   ChatMessage,
   ChatReader,
+  Contract,
+  ContractStatus,
   CostEntry,
+  Customer,
+  CustomerSummary,
   ProjectRequest,
   ProjectRequestStatus,
   WorkdayRuleKind,
@@ -22,6 +26,7 @@ import type {
   CreateWorkItemRequest,
   DependencyType,
   DocumentAccessAction,
+  DocumentAudience,
   DocumentFolder,
   DocumentFolderRef,
   DocumentLink,
@@ -90,6 +95,10 @@ import {
 } from '../domain/workspace-procedure-link.js';
 import {
   ChatMessageNotFoundError,
+  ContractCodeConflictError,
+  ContractNotFoundError,
+  CustomerCodeConflictError,
+  CustomerNotFoundError,
   DocumentNotFoundError,
   EventNotFoundError,
   FolderNotFoundError,
@@ -101,6 +110,11 @@ import {
   WorkspaceValidationError,
 } from '../domain/workspace.error.js';
 import type {
+  ContractUpdateModel,
+  ContractWriteModel,
+  CustomerDependents,
+  CustomerUpdateModel,
+  CustomerWriteModel,
   EventException,
   EventWriteModel,
   MyWorkAssignedRow,
@@ -183,7 +197,7 @@ function mapProjectRequest(row: Row): ProjectRequest {
 }
 
 const PROJECT_COLUMNS = `id, code, name, description, status, owner_user_id, org_unit_id,
-       customer_ref, project_type, start_date, end_date, progress_percent, metadata,
+       customer_ref, customer_id, project_type, start_date, end_date, progress_percent, metadata,
        created_by, created_at, updated_at`;
 
 function mapProject(row: Row): Project {
@@ -196,11 +210,54 @@ function mapProject(row: Row): Project {
     ownerUserId: str(row.owner_user_id),
     orgUnitId: opt(row.org_unit_id),
     customerRef: opt(row.customer_ref),
+    customerId: opt(row.customer_id),
     projectType: opt(row.project_type),
     startDate: day(row.start_date),
     endDate: day(row.end_date),
     progressPercent: num(row.progress_percent),
     metadata: (row.metadata ?? {}) as Record<string, unknown>,
+    createdBy: str(row.created_by),
+    createdAt: iso(row.created_at),
+    updatedAt: iso(row.updated_at),
+  };
+}
+
+const CUSTOMER_COLUMNS = `id, code, name, note, created_by, created_at, updated_at`;
+
+function mapCustomer(row: Row): Customer {
+  return {
+    id: str(row.id),
+    code: str(row.code),
+    name: str(row.name),
+    note: opt(row.note),
+    createdBy: str(row.created_by),
+    createdAt: iso(row.created_at),
+    updatedAt: iso(row.updated_at),
+  };
+}
+
+function mapCustomerSummary(row: Row): CustomerSummary {
+  return {
+    ...mapCustomer(row),
+    contractCount: num(row.contract_count),
+    projectCount: num(row.project_count),
+  };
+}
+
+const CONTRACT_COLUMNS = `id, customer_id, code, name, status, value, signed_date, note,
+       project_id, created_by, created_at, updated_at`;
+
+function mapContract(row: Row): Contract {
+  return {
+    id: str(row.id),
+    customerId: str(row.customer_id),
+    code: str(row.code),
+    name: str(row.name),
+    status: str(row.status) as ContractStatus,
+    value: optNum(row.value),
+    signedDate: day(row.signed_date),
+    note: opt(row.note),
+    projectId: opt(row.project_id),
     createdBy: str(row.created_by),
     createdAt: iso(row.created_at),
     updatedAt: iso(row.updated_at),
@@ -374,7 +431,7 @@ function mapFolder(row: Row): DocumentFolder {
 }
 
 const DOCUMENT_COLUMNS = `id, folder_id, project_id, name, description, current_version_id,
-       status, locked_by_user_id, locked_at, created_by, created_at, updated_at`;
+       status, audience, locked_by_user_id, locked_at, created_by, created_at, updated_at`;
 
 function mapDocument(row: Row): WorkspaceDocument {
   return {
@@ -385,6 +442,9 @@ function mapDocument(row: Row): WorkspaceDocument {
     description: opt(row.description),
     currentVersionId: opt(row.current_version_id),
     status: str(row.status) as DocumentStatus,
+    // Tài liệu cũ không có cột thì đọc ra `internal`; cột có DEFAULT nên mặc
+    // định này gần như chỉ dùng cho dữ liệu giả trong test.
+    audience: (opt(row.audience) ?? 'internal') as DocumentAudience,
     lockedByUserId: opt(row.locked_by_user_id),
     lockedAt: row.locked_at == null ? undefined : iso(row.locked_at),
     createdBy: str(row.created_by),
@@ -698,9 +758,9 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
           () =>
             client.query<Row>(
               `INSERT INTO workspace_schema.projects
-                 (code, name, description, org_unit_id, customer_ref, start_date, end_date,
-                  owner_user_id, created_by, project_type)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9)
+                 (code, name, description, org_unit_id, customer_ref, customer_id,
+                  start_date, end_date, owner_user_id, created_by, project_type)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9, $10)
                RETURNING ${PROJECT_COLUMNS}`,
               [
                 input.code,
@@ -708,6 +768,7 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
                 input.description ?? null,
                 input.orgUnitId ?? null,
                 input.customerRef ?? null,
+                input.customerId ?? null,
                 input.startDate ?? null,
                 input.endDate ?? null,
                 actorUserId,
@@ -753,6 +814,7 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
           ownerUserId: 'owner_user_id',
           orgUnitId: 'org_unit_id',
           customerRef: 'customer_ref',
+          customerId: 'customer_id',
           projectType: 'project_type',
           startDate: 'start_date',
           endDate: 'end_date',
@@ -813,6 +875,210 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
           WHERE id = $1 AND progress_percent <> $2`,
         [projectId, percent],
       );
+    },
+  };
+
+  readonly customer = {
+    list: async (
+      tenantId: string,
+      query?: { search?: string },
+    ): Promise<CustomerSummary[]> => {
+      const pool = await this.poolFor(tenantId);
+      const values: unknown[] = [];
+      let clause = '';
+      if (query?.search) {
+        values.push(`%${query.search.trim()}%`);
+        clause = `WHERE (c.code ILIKE $1 OR c.name ILIKE $1)`;
+      }
+      const result = await pool.query<Row>(
+        `SELECT c.id, c.code, c.name, c.note, c.created_by, c.created_at, c.updated_at,
+                (SELECT COUNT(*) FROM workspace_schema.contracts ct
+                  WHERE ct.customer_id = c.id)::text AS contract_count,
+                (SELECT COUNT(*) FROM workspace_schema.projects p
+                  WHERE p.customer_id = c.id)::text AS project_count
+           FROM workspace_schema.customers c
+           ${clause}
+          ORDER BY c.created_at DESC`,
+        values,
+      );
+      return result.rows.map(mapCustomerSummary);
+    },
+
+    findById: async (tenantId: string, customerId: string) => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `SELECT ${CUSTOMER_COLUMNS} FROM workspace_schema.customers WHERE id = $1`,
+        [customerId],
+      );
+      const row = result.rows[0];
+      return row ? mapCustomer(row) : undefined;
+    },
+
+    findByCode: async (tenantId: string, code: string) => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `SELECT ${CUSTOMER_COLUMNS} FROM workspace_schema.customers WHERE code = $1`,
+        [code],
+      );
+      const row = result.rows[0];
+      return row ? mapCustomer(row) : undefined;
+    },
+
+    create: async (tenantId: string, actorUserId: string, input: CustomerWriteModel) => {
+      const pool = await this.poolFor(tenantId);
+      // Kiểm tra trước ở tầng ứng dụng; UNIQUE là chốt chặn khi hai request
+      // cùng mã vào đúng lúc, người thua nhận 409.
+      const result = await onUniqueViolation(
+        () =>
+          pool.query<Row>(
+            `INSERT INTO workspace_schema.customers (code, name, note, created_by)
+             VALUES ($1, $2, $3, $4)
+             RETURNING ${CUSTOMER_COLUMNS}`,
+            [input.code, input.name, input.note, actorUserId],
+          ),
+        () => new CustomerCodeConflictError(input.code),
+      );
+      return mapCustomer(result.rows[0] as Row);
+    },
+
+    update: async (tenantId: string, customerId: string, input: CustomerUpdateModel) => {
+      const pool = await this.poolFor(tenantId);
+      const { clause, values } = buildSet(
+        input as Record<string, unknown>,
+        { name: 'name', note: 'note' },
+        1,
+      );
+      if (!clause) {
+        const current = await this.customer.findById(tenantId, customerId);
+        if (!current) throw new CustomerNotFoundError();
+        return current;
+      }
+      const result = await pool.query<Row>(
+        `UPDATE workspace_schema.customers
+            SET ${clause}, updated_at = now()
+          WHERE id = $${values.length + 1}
+          RETURNING ${CUSTOMER_COLUMNS}`,
+        [...values, customerId],
+      );
+      const row = result.rows[0];
+      if (!row) throw new CustomerNotFoundError();
+      return mapCustomer(row);
+    },
+
+    remove: async (tenantId: string, customerId: string) => {
+      const pool = await this.poolFor(tenantId);
+      await pool.query(`DELETE FROM workspace_schema.customers WHERE id = $1`, [customerId]);
+    },
+
+    dependents: async (tenantId: string, customerId: string): Promise<CustomerDependents> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `SELECT (SELECT COUNT(*) FROM workspace_schema.contracts
+                  WHERE customer_id = $1)::text AS contract_count,
+                (SELECT COUNT(*) FROM workspace_schema.projects
+                  WHERE customer_id = $1)::text AS project_count`,
+        [customerId],
+      );
+      const row = result.rows[0];
+      return {
+        contractCount: num(row?.contract_count),
+        projectCount: num(row?.project_count),
+      };
+    },
+  };
+
+  readonly contract = {
+    listByCustomer: async (tenantId: string, customerId: string): Promise<Contract[]> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `SELECT ${CONTRACT_COLUMNS} FROM workspace_schema.contracts
+          WHERE customer_id = $1
+          ORDER BY created_at DESC`,
+        [customerId],
+      );
+      return result.rows.map(mapContract);
+    },
+
+    findById: async (tenantId: string, contractId: string) => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `SELECT ${CONTRACT_COLUMNS} FROM workspace_schema.contracts WHERE id = $1`,
+        [contractId],
+      );
+      const row = result.rows[0];
+      return row ? mapContract(row) : undefined;
+    },
+
+    findByCode: async (tenantId: string, code: string) => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `SELECT ${CONTRACT_COLUMNS} FROM workspace_schema.contracts WHERE code = $1`,
+        [code],
+      );
+      const row = result.rows[0];
+      return row ? mapContract(row) : undefined;
+    },
+
+    create: async (tenantId: string, actorUserId: string, input: ContractWriteModel) => {
+      const pool = await this.poolFor(tenantId);
+      const result = await onUniqueViolation(
+        () =>
+          pool.query<Row>(
+            `INSERT INTO workspace_schema.contracts
+               (customer_id, code, name, status, value, signed_date, note, project_id, created_by)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+             RETURNING ${CONTRACT_COLUMNS}`,
+            [
+              input.customerId,
+              input.code,
+              input.name,
+              input.status,
+              input.value,
+              input.signedDate,
+              input.note,
+              input.projectId,
+              actorUserId,
+            ],
+          ),
+        () => new ContractCodeConflictError(input.code),
+      );
+      return mapContract(result.rows[0] as Row);
+    },
+
+    update: async (tenantId: string, contractId: string, input: ContractUpdateModel) => {
+      const pool = await this.poolFor(tenantId);
+      const { clause, values } = buildSet(
+        input as Record<string, unknown>,
+        {
+          name: 'name',
+          status: 'status',
+          value: 'value',
+          signedDate: 'signed_date',
+          note: 'note',
+          projectId: 'project_id',
+        },
+        1,
+      );
+      if (!clause) {
+        const current = await this.contract.findById(tenantId, contractId);
+        if (!current) throw new ContractNotFoundError();
+        return current;
+      }
+      const result = await pool.query<Row>(
+        `UPDATE workspace_schema.contracts
+            SET ${clause}, updated_at = now()
+          WHERE id = $${values.length + 1}
+          RETURNING ${CONTRACT_COLUMNS}`,
+        [...values, contractId],
+      );
+      const row = result.rows[0];
+      if (!row) throw new ContractNotFoundError();
+      return mapContract(row);
+    },
+
+    remove: async (tenantId: string, contractId: string) => {
+      const pool = await this.poolFor(tenantId);
+      await pool.query(`DELETE FROM workspace_schema.contracts WHERE id = $1`, [contractId]);
     },
   };
 
@@ -952,6 +1218,16 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
         [workItemId],
       );
       return num(result.rows[0]?.open_children);
+    },
+
+    openItemCount: async (tenantId: string, projectId: string) => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<{ open_items: string }>(
+        `SELECT COUNT(*)::text AS open_items FROM workspace_schema.work_items
+          WHERE project_id = $1 AND status NOT IN ('done','cancelled')`,
+        [projectId],
+      );
+      return num(result.rows[0]?.open_items);
     },
 
     create: async (
@@ -1987,6 +2263,7 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
         projectId?: string;
         folderId?: string;
         status?: DocumentStatus;
+        audience?: DocumentAudience;
         search?: string;
         linkedTo?: { entityType: DocumentLinkEntityType; entityId: string };
       },
@@ -2016,6 +2293,10 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
       if (options.status) {
         values.push(options.status);
         where.push(`d.status = $${values.length}`);
+      }
+      if (options.audience) {
+        values.push(options.audience);
+        where.push(`d.audience = $${values.length}`);
       }
       if (options.search) {
         values.push(`%${options.search.trim()}%`);
@@ -2296,6 +2577,20 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
           WHERE id = $1
           RETURNING ${DOCUMENT_COLUMNS}`,
         [documentId, userId],
+      );
+      const row = result.rows[0];
+      if (!row) throw new DocumentNotFoundError(documentId);
+      return mapDocument(row);
+    },
+
+    setAudience: async (tenantId: string, documentId: string, audience: DocumentAudience) => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `UPDATE workspace_schema.documents
+            SET audience = $2, updated_at = now()
+          WHERE id = $1
+          RETURNING ${DOCUMENT_COLUMNS}`,
+        [documentId, audience],
       );
       const row = result.rows[0];
       if (!row) throw new DocumentNotFoundError(documentId);

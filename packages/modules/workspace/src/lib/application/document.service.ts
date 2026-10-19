@@ -1,6 +1,7 @@
 import { S3ObjectStorage, type ObjectStoragePort } from '@enterprise-platform/adapter-storage';
 import {
   ALLOWED_DOCUMENT_CONTENT_TYPES,
+  DOCUMENT_AUDIENCES,
   DOCUMENT_LINK_ENTITY_TYPES,
   DOCUMENT_MAX_BYTES,
   DOCUMENT_STATUSES,
@@ -8,6 +9,7 @@ import {
   PRESIGNED_URL_TTL_SECONDS,
   PREVIEWABLE_DOCUMENT_CONTENT_TYPES,
   type AddFolderRefRequest,
+  type DocumentAudience,
   type CreateDocumentRequest,
   type CreateDocumentResponse,
   type CreateFolderRequest,
@@ -317,6 +319,7 @@ export class DocumentService {
       projectId?: string;
       folderId?: string;
       status?: string;
+      audience?: string;
       search?: string;
       linkedType?: string;
       linkedId?: string;
@@ -336,6 +339,7 @@ export class DocumentService {
       projectId: query.projectId,
       folderId: query.folderId,
       status: parseStatus(query.status) ?? 'active',
+      audience: parseAudience(query.audience),
       search: query.search?.trim() || undefined,
       linkedTo,
     });
@@ -601,6 +605,26 @@ export class DocumentService {
       action: 'unlock',
     });
     return this.store.document.setLock(actor.tenantId, documentId, null);
+  }
+
+  /**
+   * Đổi phân loại nội bộ/khách hàng.
+   *
+   * Cùng hàng rào với việc sửa hay chuyển một tài liệu trong dự án: thành viên
+   * dự án (trừ người chỉ xem), hoặc quản trị Workspace với tài liệu dùng chung.
+   */
+  async setAudience(
+    actor: WorkspaceActor,
+    documentId: string,
+    audience: unknown,
+  ): Promise<WorkspaceDocument> {
+    const document = await this.loadVisible(actor, documentId);
+    await this.requireWriteAccess(actor, document.projectId);
+    const next = parseAudience(audience);
+    if (!next) {
+      throw new WorkspaceValidationError('Phân loại tài liệu phải là "internal" hoặc "customer".');
+    }
+    return this.store.document.setAudience(actor.tenantId, documentId, next);
   }
 
   /**
@@ -870,6 +894,14 @@ function parseStatus(value: unknown): DocumentStatus | undefined {
   const text = String(value);
   return (DOCUMENT_STATUSES as readonly string[]).includes(text)
     ? (text as DocumentStatus)
+    : undefined;
+}
+
+function parseAudience(value: unknown): DocumentAudience | undefined {
+  if (!value) return undefined;
+  const text = String(value);
+  return (DOCUMENT_AUDIENCES as readonly string[]).includes(text)
+    ? (text as DocumentAudience)
     : undefined;
 }
 

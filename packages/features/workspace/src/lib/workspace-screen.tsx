@@ -18,9 +18,11 @@ import {
   Plus,
   Settings,
   Upload,
+  Users,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  getProject,
   listAllProjects,
   listProjects,
   listProjectTypes,
@@ -37,6 +39,8 @@ import { QuickSearch, type QuickSearchTarget } from './components/quick-search';
 import { ReportsView } from './components/reports-view';
 import { ProjectRoleSettings } from './components/project-role-settings';
 import { ProjectsView } from './components/projects-view';
+import { ProjectsListView } from './components/projects-list-view';
+import { CustomersView } from './components/customers-view';
 import { StandaloneTasksView } from './components/standalone-tasks-view';
 import styles from './workspace.module.scss';
 
@@ -46,11 +50,12 @@ import styles from './workspace.module.scss';
  * `projects` gộp ba màn cũ Dự án, Công việc và Lịch biểu: cột trái là cây dự
  * án, cột phải là các tab đổi theo node đang chọn.
  */
-type Tab = 'my-work' | 'tasks' | 'projects' | 'documents' | 'reports' | 'settings';
+type Tab = 'my-work' | 'tasks' | 'projects' | 'customers' | 'documents' | 'reports' | 'settings';
 
 /**
- * Mục điều hướng. "Dự án" không có dòng riêng: các dự án nằm thẳng ở mục Dự
- * án bên dưới, và dòng "Tất cả dự án" mở danh mục đầy đủ (trang `projects`).
+ * Mục điều hướng. "Dự án" có dòng riêng mở khu vực Dự án (dải hai tab Dự án /
+ * Khách hàng ở đầu trang); các dự án cũng nằm thẳng ở mục Dự án bên dưới, và
+ * dòng "Tất cả dự án" mở danh mục đầy đủ (trang `projects`).
  */
 const NAV: readonly ModuleNavItem<Tab>[] = [
   { id: 'my-work', label: 'Công việc của tôi', group: 'Công việc', icon: <ListChecks size={16} /> },
@@ -60,9 +65,11 @@ const NAV: readonly ModuleNavItem<Tab>[] = [
     group: 'Công việc',
     icon: <ClipboardList size={16} />,
   },
+  { id: 'projects', label: 'Dự án', group: 'Công việc', icon: <FolderKanban size={16} /> },
   { id: 'documents', label: 'Tài liệu', group: 'Công việc', icon: <FileText size={16} /> },
   { id: 'reports', label: 'Báo cáo', group: 'Công việc', icon: <BarChart3 size={16} /> },
-  { id: 'projects', label: 'Dự án', group: 'Công việc', icon: <FolderKanban size={16} />, hidden: true },
+  // Tab "Khách hàng" nằm trong khu vực Dự án (dải hai tab ở đầu trang), không có dòng riêng.
+  { id: 'customers', label: 'Khách hàng', group: 'Công việc', icon: <Users size={16} />, hidden: true },
   // Mở bằng nút bánh răng ở góc dưới thanh bên, không có dòng riêng.
   { id: 'settings', label: 'Cài đặt', icon: <Settings size={16} />, hidden: true },
 ];
@@ -84,6 +91,10 @@ const TITLES: Record<Tab, { title: string; subtitle: string }> = {
   projects: {
     title: 'Dự án',
     subtitle: 'Cây dự án nhiều cấp, công việc, tiến độ và lịch biểu của từng hạng mục.',
+  },
+  customers: {
+    title: 'Khách hàng',
+    subtitle: 'Khách hàng chủ quản của dự án và các hợp đồng của từng khách hàng.',
   },
   documents: {
     title: 'Tài liệu',
@@ -140,6 +151,27 @@ export function WorkspaceScreen() {
     (projectId: string) => openInProject(projectId, `project/${projectId}`),
     [openInProject],
   );
+  /** Về trang Dự án: bỏ dự án đang chọn trên đường dẫn để hiện danh sách toàn bộ. */
+  const openProjectList = useCallback(() => {
+    const url = new URL(window.location.href);
+    url.searchParams.delete('project');
+    url.searchParams.delete('item');
+    url.searchParams.delete('tab');
+    url.hash = 'projects';
+    window.history.pushState(null, '', url);
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+  }, []);
+  /**
+   * Điều hướng từ thanh bên và breadcrumb: vào khu "Dự án" luôn mở trang danh
+   * sách (không giữ lại dự án đang xem); các trang khác giữ nguyên.
+   */
+  const handleViewChange = useCallback(
+    (next: Tab) => {
+      if (next === 'projects') openProjectList();
+      else navigate(next);
+    },
+    [navigate, openProjectList],
+  );
   const [error, setError] = useState<string>();
   const [quickOpen, setQuickOpen] = useState(false);
   /** Mục Dự án trên thanh bên: vài dự án đầu (hay tất cả, khi đã bung) và tổng số. */
@@ -161,6 +193,44 @@ export function WorkspaceScreen() {
     },
     [],
   );
+  /**
+   * Dự án ghi trên đường dẫn (`?project=`). Đây là nguồn quyết định hiện trang
+   * danh sách dự án hay trang chi tiết: chưa có thì hiện danh sách, có thì mở
+   * chi tiết (và tab Khách hàng thu về đúng khách hàng của dự án đó).
+   */
+  const [urlProjectId, setUrlProjectId] = useState<string>();
+  useEffect(() => {
+    const sync = () => {
+      const next = new URLSearchParams(window.location.search).get('project') ?? undefined;
+      setUrlProjectId(next);
+      // Không còn dự án trên đường dẫn (về trang danh sách): bỏ tô sáng dòng dự
+      // án trên thanh bên. Khi mở một dự án, ProjectsView sẽ gán lại kèm tóm tắt.
+      if (!next) setOpenProjectId(undefined);
+    };
+    sync();
+    window.addEventListener('hashchange', sync);
+    window.addEventListener('popstate', sync);
+    return () => {
+      window.removeEventListener('hashchange', sync);
+      window.removeEventListener('popstate', sync);
+    };
+  }, []);
+
+  // Vào thẳng tab Khách hàng của một dự án (link sâu) mà trang Dự án chưa từng
+  // mở: nạp bản tóm tắt dự án để biết khách hàng chủ quản mà thu hẹp theo.
+  useEffect(() => {
+    if (view !== 'customers' || !urlProjectId) return;
+    if (openProjectInfo?.id === urlProjectId) return;
+    let active = true;
+    void getProject(urlProjectId)
+      .then((project) => {
+        if (active) setOpenProjectInfo(project);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [view, urlProjectId, openProjectInfo]);
   /** Chỗ nút ở đầu trang, nơi trang Dự án đặt nút Trao đổi và "⋯" của dự án. */
   const [actionsSlot, setActionsSlot] = useState<HTMLDivElement | null>(null);
   /** Bấm lại dự án đang mở: trang Dự án đóng hộp chi tiết, về tab Công việc. */
@@ -387,7 +457,7 @@ export function WorkspaceScreen() {
       title="Không gian làm việc"
       nav={nav}
       view={view}
-      onViewChange={navigate}
+      onViewChange={handleViewChange}
       homeHref={homePath}
       collapsible
       collapsed={railCollapsed}
@@ -399,7 +469,9 @@ export function WorkspaceScreen() {
         active: view === 'settings',
         onOpen: () => navigate('settings'),
       }}
-      crumbs={view === 'projects' && openProjectInfo ? [openProjectInfo.name] : undefined}
+      crumbs={
+        view === 'projects' && urlProjectId && openProjectInfo ? [openProjectInfo.name] : undefined
+      }
       actions={
         view === 'projects' && !provisioning ? (
           // Trang Dự án tự đặt nút Trao đổi và "⋯" của dự án đang mở vào đây.
@@ -456,18 +528,63 @@ export function WorkspaceScreen() {
           createRequest={createTaskRequest}
           onCreateHandled={clearCreateTaskRequest}
         />
-      ) : view === 'projects' && !provisioning ? (
-        <ProjectsView
-          canDelete={canDelete}
-          notificationTarget={sub}
-          onOpenProjectChange={onOpenProjectChange}
-          onOpenProject={openProject}
-          actionsSlot={actionsSlot}
-          onProjectsChanged={reloadSidebarProjects}
-          focusProjectRequest={focusProjectRequest}
-          createProjectRequest={createProjectRequest}
-          onCreateProjectHandled={clearCreateProjectRequest}
-        />
+      ) : (view === 'projects' || view === 'customers') && !provisioning ? (
+        <>
+          {/* Dải hai tab ở đầu khu vực Dự án: "Dự án" giữ nguyên hành vi cũ,
+              "Khách hàng" mở danh mục khách hàng và hợp đồng. */}
+          <div className={styles.tabBar} role="tablist" aria-label="Khu vực Dự án">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={view === 'projects'}
+              className={view === 'projects' ? styles.tabActive : styles.tab}
+              onClick={() => navigate('projects')}
+            >
+              Dự án
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={view === 'customers'}
+              className={view === 'customers' ? styles.tabActive : styles.tab}
+              onClick={() => navigate('customers')}
+            >
+              Khách hàng
+            </button>
+          </div>
+          {view === 'projects' ? (
+            urlProjectId ? (
+              <ProjectsView
+                canDelete={canDelete}
+                notificationTarget={sub}
+                onOpenProjectChange={onOpenProjectChange}
+                onOpenProject={openProject}
+                actionsSlot={actionsSlot}
+                onProjectsChanged={reloadSidebarProjects}
+                focusProjectRequest={focusProjectRequest}
+                createProjectRequest={createProjectRequest}
+                onCreateProjectHandled={clearCreateProjectRequest}
+              />
+            ) : (
+              <ProjectsListView
+                onOpenProject={openProject}
+                createProjectRequest={createProjectRequest}
+                onCreateProjectHandled={clearCreateProjectRequest}
+                onProjectsChanged={reloadSidebarProjects}
+              />
+            )
+          ) : urlProjectId ? (
+            // Trong một dự án: tab Khách hàng chỉ hiện khách hàng của dự án đó.
+            <CustomersView
+              scoped
+              scopeCustomerId={openProjectInfo?.customerId}
+              scopeProjectId={urlProjectId}
+              onOpenProject={openProject}
+            />
+          ) : (
+            <CustomersView onOpenProject={openProject} />
+          )}
+        </>
       ) : view === 'reports' && !provisioning ? (
         <ReportsView />
       ) : view === 'settings' && !provisioning ? (
