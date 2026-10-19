@@ -2,6 +2,7 @@ import {
   assistantActionProblems,
   defineAssistantActions,
   draftOf,
+  assistantFormPath,
   toCatalogItem,
 } from './assistant-actions.js';
 
@@ -140,7 +141,7 @@ describe('assistantActionProblems', () => {
     });
     expect(assistantActionProblems(actions)).toEqual([
       'workspace/broken: thiếu title.',
-      'workspace/broken: page "modules/workspace" phải là đường dẫn bắt đầu bằng "/".',
+      'workspace/broken: page "modules/workspace" phải là trang của phân hệ (/modules/<phân hệ>...).',
       'workspace/broken: ô "title" thiếu mô tả.',
       'workspace/broken: lookup của ô "attendeeUserIds" phải là /api/... và không dùng route nội bộ.',
     ]);
@@ -167,12 +168,19 @@ describe('toCatalogItem', () => {
       title: 'Tạo đơn theo loại của công ty',
       hints: [],
       page: '/modules/hrm/requests',
+      form: '/modules/hrm/assistant/form',
       draft: {
         description: { describe: 'Nội dung đơn' },
         approverId: { describe: 'Người duyệt', lookup: '/api/hrm/v1/x' },
       },
       variants: { describe: 'Loại đơn tuỳ chỉnh', lookup: '/api/hrm/v1/request-types' },
     });
+  });
+
+  it('đường form nhúng theo phân hệ của trang', () => {
+    expect(assistantFormPath('/modules/workspace#my-work')).toBe('/modules/workspace/assistant/form');
+    expect(assistantFormPath('/modules/procedure?view=x')).toBe('/modules/procedure/assistant/form');
+    expect(() => assistantFormPath('/users')).toThrow();
   });
 
   it('báo biến thể dùng route nội bộ', () => {

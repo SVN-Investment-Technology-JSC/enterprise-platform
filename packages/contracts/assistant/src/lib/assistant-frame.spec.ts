@@ -24,6 +24,16 @@ describe('isAssistantFrameMessage', () => {
     ).toBe(true);
   });
 
+  it('nhận tin của trang form nhúng trong card', () => {
+    expect(isAssistantFrameMessage({ type: ASSISTANT_MESSAGE.formReady, requestId: 'r1' })).toBe(true);
+    expect(isAssistantFrameMessage({ type: ASSISTANT_MESSAGE.formSize, requestId: 'r1', height: 420 })).toBe(true);
+    expect(isAssistantFrameMessage({ type: ASSISTANT_MESSAGE.formReady })).toBe(false);
+    expect(isAssistantFrameMessage({ type: ASSISTANT_MESSAGE.formSize, requestId: 'r1', height: -1 })).toBe(false);
+    expect(
+      isAssistantFrameMessage({ type: ASSISTANT_MESSAGE.formSize, requestId: 'r1', height: Number.NaN }),
+    ).toBe(false);
+  });
+
   it('bỏ qua tin nhắn lạ hoặc thiếu trường', () => {
     expect(isAssistantFrameMessage(null)).toBe(false);
     expect(isAssistantFrameMessage('savina-assistant:ready')).toBe(false);

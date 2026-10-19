@@ -1,9 +1,13 @@
 /**
- * Tin nhắn `postMessage` giữa khung ERP (ModuleShell) và khung chat Trợ lý nhúng trong iframe.
+ * Tin nhắn `postMessage` giữa khung ERP (ModuleShell), khung chat Trợ lý (iframe) và trang form nhúng trong card của
+ * khung chat (iframe lồng, cùng tên miền ERP).
  *
- * Luồng một thao tác: Trợ lý gửi `action` kèm bản nháp → khung ERP tìm phân hệ đã đăng ký thao tác đó và mở popup
- * của phân hệ với dữ liệu điền sẵn → người dùng lưu hoặc đóng → khung ERP trả `result` để Trợ lý báo lại.
- * Bên nhận luôn kiểm `event.origin` trước khi đọc, và chỉ tin tin nhắn qua `isAssistantFrameMessage`.
+ * Luồng một thao tác: khung chat đặt card chứa trang form nhúng của phân hệ (`assistantFormPath`) → trang báo
+ * `formReady` → khung chat gửi `action` kèm bản nháp → trang mở chính form của phân hệ ngay trong card, điền sẵn →
+ * người dùng lưu hoặc đóng → trang trả `result`; `formSize` báo chiều cao để card co giãn. Gửi lại `action` cùng
+ * `requestId` thì form đang mở chỉ cập nhật các ô có trong bản nháp. Trang ERP phía sau không chuyển trang.
+ * Bên nhận luôn kiểm `event.origin` (và `event.source`) trước khi đọc, và chỉ tin tin nhắn qua
+ * `isAssistantFrameMessage`.
  */
 export const ASSISTANT_MESSAGE = {
   /** Khung ERP báo trang đang mở (đường dẫn kèm query và hash). */
@@ -12,12 +16,16 @@ export const ASSISTANT_MESSAGE = {
   ready: 'savina-assistant:ready',
   /** Khung chat xin đóng ngăn Trợ lý. */
   close: 'savina-assistant:close',
-  /** Trợ lý xin mở popup của một thao tác. */
+  /** Khung chat gửi bản nháp cho trang form nhúng trong card (lần đầu, và mỗi lần sửa tiếp). */
   action: 'savina-assistant:action',
-  /** Khung ERP trả kết quả của thao tác. */
+  /** Trang form nhúng trả kết quả của thao tác. */
   result: 'savina-assistant:result',
   /** Khung ERP báo quyền trong công ty vừa đổi: khung chat lấy lại danh sách phím tắt. */
   refresh: 'savina-assistant:refresh',
+  /** Trang form nhúng trong card đã sẵn sàng nhận bản nháp (`action`). */
+  formReady: 'savina-assistant:form-ready',
+  /** Trang form nhúng báo chiều cao nội dung để card co giãn theo. */
+  formSize: 'savina-assistant:form-size',
 } as const;
 
 export type AssistantMessageType =
@@ -33,7 +41,7 @@ export interface AssistantActionRequest {
    * `requestId` khi form đang mở thì chỉ cập nhật các ô có trong bản nháp.
    */
   readonly draft: Readonly<Record<string, unknown>>;
-  /** Trang có form, để khung ERP chuyển tới khi màn hình hiện tại không có thao tác này. */
+  /** Trang đầy đủ của phân hệ có form này, để mở xem khi cần (khung chat không chuyển trang ERP). */
   readonly page?: string;
   /** Mã biến thể (loại đơn tuỳ chỉnh, quy trình) khi thao tác khai `variants`. */
   readonly variant?: string;
@@ -42,7 +50,7 @@ export interface AssistantActionRequest {
 /**
  * - `saved`: người dùng đã lưu.
  * - `cancelled`: người dùng đóng popup.
- * - `unavailable`: trang hiện tại không có thao tác này, hoặc người dùng không có quyền.
+ * - `unavailable`: phân hệ không có thao tác này lúc này (chưa sẵn sàng, hoặc người dùng không có quyền).
  * - `failed`: lưu lỗi; `message` là câu đọc được cho người dùng.
  */
 export type AssistantActionOutcome = 'saved' | 'cancelled' | 'unavailable' | 'failed';
@@ -65,6 +73,8 @@ export type AssistantFrameMessage =
   | { readonly type: typeof ASSISTANT_MESSAGE.ready }
   | { readonly type: typeof ASSISTANT_MESSAGE.close }
   | { readonly type: typeof ASSISTANT_MESSAGE.refresh }
+  | { readonly type: typeof ASSISTANT_MESSAGE.formReady; readonly requestId: string }
+  | { readonly type: typeof ASSISTANT_MESSAGE.formSize; readonly requestId: string; readonly height: number }
   | ({ readonly type: typeof ASSISTANT_MESSAGE.action } & AssistantActionRequest)
   | ({ readonly type: typeof ASSISTANT_MESSAGE.result } & AssistantActionResult);
 
@@ -88,6 +98,15 @@ export function isAssistantFrameMessage(value: unknown): value is AssistantFrame
     case ASSISTANT_MESSAGE.close:
     case ASSISTANT_MESSAGE.refresh:
       return true;
+    case ASSISTANT_MESSAGE.formReady:
+      return typeof value['requestId'] === 'string';
+    case ASSISTANT_MESSAGE.formSize:
+      return (
+        typeof value['requestId'] === 'string' &&
+        typeof value['height'] === 'number' &&
+        Number.isFinite(value['height']) &&
+        value['height'] >= 0
+      );
     case ASSISTANT_MESSAGE.action:
       return (
         typeof value['key'] === 'string' &&

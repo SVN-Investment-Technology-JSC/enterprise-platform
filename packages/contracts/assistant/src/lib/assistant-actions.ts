@@ -59,8 +59,23 @@ export interface AssistantCatalogItem {
   readonly title: string;
   readonly hints: readonly string[];
   readonly page: string;
+  /** Trang form nhúng của phân hệ mà khung chat đặt trong card (xem `assistantFormPath`). */
+  readonly form: string;
   readonly draft: Readonly<Record<string, { readonly describe: string; readonly lookup?: string }>>;
   readonly variants?: { readonly describe: string; readonly lookup: string };
+}
+
+const MODULE_BASE = /^\/modules\/[a-z][a-z-]*/;
+
+/**
+ * Trang form nhúng của phân hệ chứa `page`: `/modules/<phân hệ>/assistant/form`. Khung chat đặt trang này trong card
+ * (`?key=<thao tác>&rid=<requestId>`), gửi bản nháp qua `postMessage`; trang dựng `AssistantFormHost` của ModuleShell
+ * quanh chính form của phân hệ. Mỗi web phân hệ có đúng một route này cho mọi thao tác của nó.
+ */
+export function assistantFormPath(page: string): string {
+  const base = MODULE_BASE.exec(page)?.[0];
+  if (!base) throw new Error(`page "${page}" không thuộc trang /modules/<phân hệ>.`);
+  return `${base}/assistant/form`;
 }
 
 export function toCatalogItem(action: AssistantAction): AssistantCatalogItem {
@@ -75,6 +90,7 @@ export function toCatalogItem(action: AssistantAction): AssistantCatalogItem {
     title: action.title,
     hints: action.hints ?? [],
     page: action.page,
+    form: assistantFormPath(action.page),
     draft,
     ...(action.variants ? { variants: action.variants } : {}),
   };
@@ -147,8 +163,8 @@ export function assistantActionProblems(catalog: AssistantActionCatalog): string
         `${where}: quyền "${action.permission}" không thuộc phân hệ "${action.module}".`,
       );
     if (!action.title.trim()) problems.push(`${where}: thiếu title.`);
-    if (!action.page.startsWith('/'))
-      problems.push(`${where}: page "${action.page}" phải là đường dẫn bắt đầu bằng "/".`);
+    if (!MODULE_BASE.test(action.page))
+      problems.push(`${where}: page "${action.page}" phải là trang của phân hệ (/modules/<phân hệ>...).`);
 
     for (const [field, spec] of Object.entries(action.draft) as [
       string,
