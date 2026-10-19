@@ -39,6 +39,13 @@ const affectedProjects =
     ? undefined
     : new Set(JSON.parse(process.env.AFFECTED_PROJECTS));
 
+// When INCLUDE_SERVICES is set (a JSON array of service ids), only those
+// services are returned. Used by the publish job to build what changed.
+const includeServices =
+  process.env.INCLUDE_SERVICES === undefined
+    ? undefined
+    : new Set(JSON.parse(process.env.INCLUDE_SERVICES));
+
 const serviceIds = new Set();
 const services = [];
 
@@ -89,6 +96,7 @@ for (const service of manifest.services) {
   }
 
   serviceIds.add(id);
+  if (includeServices !== undefined && !includeServices.has(id)) continue;
   if (
     affectedProjects !== undefined &&
     dockerfile.startsWith('apps/') &&
