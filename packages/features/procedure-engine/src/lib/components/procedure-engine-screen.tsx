@@ -10,20 +10,17 @@ import type {
   ProcedureWorkspace,
   ReverseProcedureInstanceRequest,
 } from '@enterprise-platform/contracts-procedure-engine';
-import { PROCEDURE_ASSISTANT_ACTIONS } from '@enterprise-platform/contracts-procedure-engine';
 import type { TenantOrganizationContext } from '@enterprise-platform/contracts-organization';
 import {
   DashboardCardPicker,
   DashboardView,
   ModuleSettingsView,
   ModuleShell,
-  useAssistantAction,
   useHashView,
-  type AssistantActionContext,
   type ModuleNavItem,
 } from '@enterprise-platform/feature-module-shell';
 import { formatDate } from '@enterprise-platform/shared-ui';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ClipboardList, LayoutDashboard, Settings, Table2 } from 'lucide-react';
 import {
   applyProcedureAction,
@@ -57,7 +54,6 @@ import {
   reverseProcedureInstance,
   startProcedureInstance,
 } from '../procedure-api';
-import { startDraftToPrefill, type StartPrefillValues } from '../assistant-start-draft';
 import { loadOrganization } from '../organization-api';
 import { loadWorkItemProjectId, type ProjectWorkItemInput } from '../workspace-api';
 import {
@@ -67,7 +63,8 @@ import {
 import { GroupCatalogEditor, type GroupCatalogValue } from './group-catalog-editor';
 import { OrganizationBoard } from './organization-board';
 import { RcsiBoard } from './rcsi-board';
-import { WorkspaceBoard, type StartHandoff } from './workspace-board';
+import type { StartHandoff } from './start-instance-form';
+import { WorkspaceBoard } from './workspace-board';
 import styles from './procedure-engine.module.scss';
 
 type View = 'dashboard' | 'workspace' | 'raci' | 'org-chart' | 'settings';
@@ -279,67 +276,6 @@ export function ProcedureEngineScreen() {
     } else open();
   }, [adjustFromId, workspace]);
 
-  /**
-   * Trợ lý mở form tạo đơn với bản nháp; quy trình đến qua `variant`. Chờ danh sách quy trình nạp xong mới mở.
-   * `opened`: form tạo đơn đang mở cho yêu cầu này, để đóng form thì báo "cancelled".
-   */
-  const [startPrefill, setStartPrefill] = useState<{
-    readonly revision: number;
-    readonly reset: boolean;
-    readonly values: StartPrefillValues;
-  }>();
-  const [assistantQueue, setAssistantQueue] = useState<
-    readonly { readonly draft: Readonly<Record<string, unknown>>; readonly context: AssistantActionContext }[]
-  >([]);
-  const assistantRequest = useRef<{ readonly context: AssistantActionContext; opened: boolean }>(undefined);
-  const prefillRevision = useRef(0);
-  const createFormOpen = useRef(false);
-
-  useAssistantAction(PROCEDURE_ASSISTANT_ACTIONS.startInstance.key, (draft, context) =>
-    setAssistantQueue((queue) => [...queue, { draft, context }]),
-  );
-  useEffect(() => {
-    if (assistantQueue.length === 0 || !workspace) return;
-    setAssistantQueue([]);
-    let opened = false;
-    for (const { draft, context } of assistantQueue) {
-      if (!workspace.permissions.canCreateInstances) {
-        context.report('unavailable', { message: 'Bạn không có quyền tạo đơn theo quy trình.' });
-        continue;
-      }
-      const published = workspace.definitions.filter((item) => item.status === 'published');
-      if (published.length === 0) {
-        context.report('unavailable', { message: 'Chưa có quy trình nào được công bố.' });
-        continue;
-      }
-      const values = startDraftToPrefill(draft, context.variant, published.map((item) => item.id));
-      // Cùng yêu cầu khi form đang mở: chỉ ghi đè các ô có trong bản nháp mới.
-      const same = assistantRequest.current?.context.requestId === context.requestId;
-      if (!same) {
-        assistantRequest.current?.context.report('cancelled');
-        assistantRequest.current = { context, opened: createFormOpen.current };
-      }
-      prefillRevision.current += 1;
-      setStartPrefill({ revision: prefillRevision.current, reset: !same, values });
-      opened = true;
-    }
-    if (opened) navigate('workspace');
-  }, [assistantQueue, workspace, navigate]);
-
-  const onCreatingChange = useCallback((open: boolean) => {
-    createFormOpen.current = open;
-    const request = assistantRequest.current;
-    if (!request) return;
-    if (open) {
-      request.opened = true;
-      return;
-    }
-    if (!request.opened) return;
-    request.context.report('cancelled');
-    assistantRequest.current = undefined;
-    setStartPrefill(undefined);
-  }, []);
-
   const reverse = async (instanceId: string, input: ReverseProcedureInstanceRequest) => {
     const reversed = await reverseProcedureInstance(instanceId, input);
     setNotice(
@@ -377,18 +313,8 @@ export function ProcedureEngineScreen() {
       /** Gắn dự án: đơn này là một công việc mới của dự án bên Workspace. */
       workItem?: ProjectWorkItemInput & { readonly projectCode: string };
     },
-  ) => {
-    let created: ProcedureInstance | undefined;
-    let failure: string | undefined;
-    const track = (opening: Promise<ProcedureInstance>) =>
-      opening.then(
-        (instance) => (created = instance),
-        (cause: unknown) => {
-          failure = cause instanceof Error ? cause.message : undefined;
-          throw cause;
-        },
-      );
-    return perform(`start:${definition.id}`, async () => {
+  ) =>
+    perform(`start:${definition.id}`, async () => {
       const title =
         customPayload?.title?.trim() ||
         handoffTitle ||
@@ -406,7 +332,7 @@ export function ProcedureEngineScreen() {
         adjustment?.instance.definitionId === definition.id ? adjustment.instance.id : undefined;
       const workItem = customPayload?.workItem;
       if (!workItem) {
-        await track(startProcedureInstance(definition.id, { title, ...schedule, adjustmentOfInstanceId }));
+        await startProcedureInstance(definition.id, { title, ...schedule, adjustmentOfInstanceId });
         return;
       }
 
@@ -414,12 +340,12 @@ export function ProcedureEngineScreen() {
       // Workspace nhận sự kiện, tự kiểm quyền và tạo công việc, rồi báo mã
       // công việc về để tên hồ sơ thành `EVN-CV013-…`.
       const { projectCode, projectId, ...draft } = workItem;
-      const instance = await track(startProcedureInstance(definition.id, {
+      const instance = await startProcedureInstance(definition.id, {
         title,
         ...schedule,
         workspaceLink: { projectId, projectCode, workItem: draft },
         adjustmentOfInstanceId,
-      }));
+      });
       setNotice(
         `Đã mở hồ sơ ${instance.code}. Workspace đang tạo công việc trong dự án ${projectCode}; ` +
           'tên hồ sơ sẽ gắn mã công việc sau ít giây.',
@@ -427,19 +353,7 @@ export function ProcedureEngineScreen() {
     }, { reloadInBackground: true }).then(() => {
       setHandoffTitle(undefined);
       setAdjustment(undefined);
-      const request = assistantRequest.current;
-      if (!request) return;
-      if (created)
-        request.context.report('saved', {
-          id: created.id,
-          label: `${created.code} · ${created.title}`,
-          href: `/modules/procedure#workspace/${encodeURIComponent(created.id)}`,
-        });
-      else request.context.report('failed', { message: failure ?? 'Không mở được hồ sơ.' });
-      assistantRequest.current = undefined;
-      setStartPrefill(undefined);
     });
-  };
 
   const action = (
     instanceId: string,
@@ -620,8 +534,6 @@ export function ProcedureEngineScreen() {
           groups={activeGroups}
           handoffTitle={handoffTitle}
           handoff={adjustment?.handoff}
-          prefill={startPrefill}
-          onCreatingChange={onCreatingChange}
           canReverse={workspace.permissions.canOverrideActions}
           onReverse={reverse}
           materialCatalog={materialCatalog}
