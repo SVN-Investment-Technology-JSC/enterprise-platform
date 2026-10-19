@@ -1,3 +1,4 @@
+import { assertQuotaOnApprove } from './hrm-request-quota.js';
 import { applyLeaveDelta, ensureLeaveBalance } from './hrm-leave-balance.js';
 import {
   reserveCarryover,
@@ -325,6 +326,7 @@ export async function transitionLeave(
   )
     throw new ConflictException('Trạng thái đơn không cho phép thao tác này');
   await lockEmployee(db, tenant, leave.employee_id);
+  if (target === 'APPROVED') await assertQuotaOnApprove(db, tenant, 'leave', leave);
   await assertOpenRange(db, tenant, isoDate(leave.from_date), isoDate(leave.to_date));
   const allocations = await db.query(
     `SELECT extract(year FROM work_date)::int AS year,sum(quantity)::numeric AS amount FROM hrm_schema.leave_request_days WHERE request_id=$1 AND tenant_id=$2 GROUP BY 1`,

@@ -2,6 +2,8 @@ export interface Punch {
   id: string;
   kind: 'IN' | 'OUT';
   at: string;
+  /** Sự kiện do chấm công tự động sinh (không phải người chấm thật). */
+  auto?: boolean;
 }
 export interface ShiftWindow {
   start: string;

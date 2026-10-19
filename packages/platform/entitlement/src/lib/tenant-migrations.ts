@@ -372,6 +372,14 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       path: 'tenant/hrm/0063-hrm-leave-adjustment-actor-required.sql',
     },
     {
+      version: '0064-hrm-request-quota-settings',
+      path: 'tenant/hrm/0064-hrm-request-quota-settings.sql',
+    },
+    {
+      version: '0065-hrm-attendance-source-auto',
+      path: 'tenant/hrm/0065-hrm-attendance-source-auto.sql',
+    },
+    {
       version: '0021-notification-outbox-v1',
       path: 'tenant/hrm/0021-notification-outbox-v1.sql',
     },

@@ -70,9 +70,9 @@ export default function ApprovalsScreen() {
   );
 }
 
-function FilterBox({ label, children }: { label: string; children: React.ReactNode }) {
+function FilterBox({ label, children, className = "min-w-[140px] flex-1" }: { label: string; children: React.ReactNode; className?: string }) {
   return (
-    <div className="min-w-[140px] flex-1">
+    <div className={className}>
       <span className="mb-1 block text-[12px] font-semibold text-slate-500">{label}</span>
       {children}
     </div>
@@ -363,7 +363,10 @@ function ApprovalsContent() {
 
 
 
-  const counts = useMemo(() => approvalCounts(rows, ability), [rows, permissionKey]);
+  const counts = useMemo(
+    () => approvalCounts(filterApprovals(rows, { ...filter, tab: 'ALL' }, ability), ability),
+    [rows, filter, permissionKey],
+  );
   const visible = useMemo(() => filterApprovals(rows, filter, ability), [rows, filter, permissionKey]);
   const paged = pageOf(visible, page, PAGE_SIZE);
   const departments = useMemo(() => [...new Set(rows.map((r) => r.department).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'vi')), [rows]);
@@ -424,12 +427,12 @@ function ApprovalsContent() {
       )}
 
       <div className="flex flex-wrap items-end gap-2.5" aria-label="Bộ lọc">
-        <FilterBox label="Tìm kiếm">
+        <FilterBox label="Tìm kiếm" className="min-w-[280px] flex-[2]">
           <div className="flex h-[38px] items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 focus-within:border-blue-600 focus-within:ring-2 focus-within:ring-blue-100">
             <Search className="size-4 shrink-0 text-slate-400" />
             <input
               aria-label="Tìm đơn"
-              placeholder="Tên nhân viên, mã đơn, lý do..."
+              placeholder="Tên nhân viên, mã đơn"
               value={filter.search}
               onChange={(e) => patch({ search: e.target.value })}
               className="h-full w-full bg-transparent text-[14px] outline-none placeholder:text-slate-400"

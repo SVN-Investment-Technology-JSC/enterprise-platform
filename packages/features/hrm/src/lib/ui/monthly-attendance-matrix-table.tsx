@@ -16,7 +16,7 @@ import {
   SearchableSelect,
   type SearchableSelectOption,
 } from '@enterprise-platform/shared-ui';
-import { buildCsv, downloadCsv } from '../hrm-csv';
+import { downloadXlsx } from '../hrm-xlsx';
 import { formatMinutes } from '../hrm-timesheet-format';
 import { Button } from './button';
 import {
@@ -377,10 +377,7 @@ export function MonthlyAttendanceMatrixTable({
         ? ['Giờ công', 'Số công']
         : ['Giờ ghi nhận', 'Ngày có log'],
     });
-    downloadCsv(
-      `bang-cong-ma-tran_${currentMonthValue}`,
-      buildCsv(rows),
-    );
+    downloadXlsx(`bang-cong-ma-tran_${currentMonthValue}`, rows, 'Bang cong ma tran');
   };
 
   const formattedMonthRangeTitle = useMemo(() => {
@@ -430,11 +427,11 @@ export function MonthlyAttendanceMatrixTable({
               size="sm"
               className="text-xs h-8 gap-1.5 border-slate-300 hover:bg-slate-50"
               disabled={filteredEmployees.length === 0}
-              title="Xuất CSV đúng dữ liệu ma trận đang hiển thị (theo bộ lọc hiện tại)"
+              title="Xuất Excel đúng dữ liệu ma trận đang hiển thị (theo bộ lọc hiện tại)"
               onClick={exportCsv}
             >
               <Download className="size-3.5 text-emerald-700" />
-              <span>Xuất CSV</span>
+              <span>Xuất Excel</span>
             </Button>
           </div>
         </div>

@@ -279,6 +279,23 @@ export class ProcedureEngineController {
     }));
   }
 
+  /** HRM hỏi: người dùng này tham gia hồ sơ nào (để mở luồng trao đổi của đơn cho cả người chưa/đã xử lý bước của mình). */
+  @Post('internal/instances/participating')
+  @HttpCode(200)
+  internalParticipatingInstances(
+    @Req() request: any,
+    @Body() input: { actorUserId?: string; ids?: string[] },
+  ) {
+    const tenantId = this.internalTenant(request);
+    return this.execute(async () => ({
+      instanceIds: await this.procedures.getParticipatingInstanceIdsForService(
+        tenantId,
+        input?.actorUserId ?? '',
+        input?.ids ?? [],
+      ),
+    }));
+  }
+
   @Post('instances/:instanceId/actions')
   @HttpCode(200)
   applyAction(

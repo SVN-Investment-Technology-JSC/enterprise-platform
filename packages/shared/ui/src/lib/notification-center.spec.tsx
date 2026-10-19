@@ -554,6 +554,7 @@ describe('categoryLabel', () => {
     expect(categoryLabel('assignment')).toBe('Giao việc');
     expect(categoryLabel('low-stock')).toBe('Tồn kho thấp');
     expect(categoryLabel('calendar-reminder')).toBe('Nhắc lịch');
+    expect(categoryLabel('request-comment')).toBe('Trao đổi đơn từ');
     expect(categoryLabel('new-category')).toBe('new-category');
   });
 });

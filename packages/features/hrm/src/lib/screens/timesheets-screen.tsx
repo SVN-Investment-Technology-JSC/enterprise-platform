@@ -6,7 +6,7 @@ import type {
   HrmTimesheetBoard,
 } from '@enterprise-platform/contracts-hrm';
 import { hrmFetch } from '../hrm-api';
-import { downloadCsv } from '../hrm-csv';
+import { downloadStyledXlsx } from '../hrm-xlsx';
 import { currentMonthVn, isMonthKey } from '../hrm-timesheet-format';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
@@ -25,7 +25,7 @@ import { PageTitle } from '../ui/page-title';
 import { BoardPagination } from '../ui/board-pagination';
 import {
   anomalyLabel,
-  buildBoardCsv,
+  buildBoardSheet,
   monthStateLabel,
   monthStateTimestamp,
 } from '../ui/timesheet-board-format';
@@ -338,7 +338,7 @@ export default function TimesheetsScreen() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  const exportCsv = useCallback(async () => {
+  const exportExcel = useCallback(async () => {
     if (!board) return;
     setExporting(true);
     try {
@@ -363,7 +363,7 @@ export default function TimesheetsScreen() {
         }
       }
       const chosen = selectedIds.size > 0 ? all.filter((e) => selectedIds.has(e.employeeId)) : all;
-      downloadCsv(`bang-cong-${month}`, buildBoardCsv(board, chosen));
+      downloadStyledXlsx(`bang-cong-${month}`, buildBoardSheet(board, chosen, month), `Bang cong ${month}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Không xuất được bảng công.');
     } finally {
@@ -501,10 +501,10 @@ export default function TimesheetsScreen() {
               variant="outline"
               disabled={!board?.employees.length || exporting}
               title={selectedIds.size > 0 ? `Xuất ${selectedIds.size} nhân viên đã chọn` : 'Xuất cả danh sách đang lọc'}
-              onClick={() => void exportCsv()}
+              onClick={() => void exportExcel()}
             >
               <Download className="size-3.5" />
-              <span>Xuất CSV{selectedIds.size > 0 ? ` (${selectedIds.size})` : ''}</span>
+              <span>Xuất Excel{selectedIds.size > 0 ? ` (${selectedIds.size})` : ''}</span>
             </Button>
           </div>
         )}

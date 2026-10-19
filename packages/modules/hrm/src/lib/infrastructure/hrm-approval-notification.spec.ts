@@ -58,7 +58,7 @@ describe('notifyApproversOfDirectRequest', () => {
       requestKind: 'leave',
       employeeId: 'employee-1',
       actorUserId: 'user-b',
-    });
+    }, async () => []);
 
     expect(query).toHaveBeenCalledTimes(2);
     const [insertSql, values] = query.mock.calls[1] as unknown as [string, unknown[]];
@@ -77,8 +77,26 @@ describe('notifyApproversOfDirectRequest', () => {
       requestKind: 'ot',
       employeeId: 'missing',
       actorUserId: 'user-c',
-    });
+    }, async () => []);
 
     expect(JSON.parse(String((query.mock.calls[1] as unknown as [string, unknown[]])[1][4])).payload.summary).toContain('một nhân viên');
+  });
+
+  it('sends the event straight to the assigned approvers, excluding the submitter', async () => {
+    const query = jest.fn(async () => ({ rows: [] }));
+    const resolve = jest.fn(async () => ['manager-1', 'backup-1', 'user-d']);
+
+    await notifyApproversOfDirectRequest({ query }, {
+      tenantId: TENANT,
+      requestId: 'request-3',
+      requestKind: 'ot',
+      employeeId: 'employee-3',
+      actorUserId: 'user-d',
+    }, resolve);
+
+    expect(resolve).toHaveBeenCalledWith(expect.anything(), TENANT, 'ot', 'request-3', 'employee-3');
+    const payload = JSON.parse(String((query.mock.calls[1] as unknown as [string, unknown[]])[1][4])).payload;
+    expect(payload.recipientUserIds).toEqual(['manager-1', 'backup-1']);
+    expect(payload.approvalPermissions).toEqual(['hrm.ot.approve', 'hrm.manage']);
   });
 });

@@ -31,7 +31,7 @@ const sameDays = (a: readonly number[], b: readonly number[]) =>
 
 /**
  * Chấm công tự động: bật/tắt và chọn các thứ áp dụng, độc lập với phân ca. Ngày làm việc có ca rơi vào thứ đã chọn thì
- * tới khi ca kết thúc, hệ thống tự sinh giờ vào/ra đúng giờ ca cho người chưa chấm công. Không cần phân ca lại.
+ * ngay từ đầu ngày, hệ thống tự sinh giờ vào/ra đúng giờ ca, không chờ ca kết thúc. Không cần phân ca lại.
  */
 export default function AutoAttendanceScreen() {
   const [saved, setSaved] = useState<HrmAutoAttendanceSettings | null>(null);
@@ -99,9 +99,9 @@ export default function AutoAttendanceScreen() {
       />
 
       <InfoNote>
-        Với những ngày làm việc có ca nằm trong các thứ được chọn, khi ca kết thúc hệ thống tự ghi giờ vào và giờ ra đúng
-        giờ bắt đầu, kết thúc ca cho nhân viên chưa chấm công. Không áp dụng cho ngày đã có chấm công, ngày có đơn nghỉ hoặc
-        công tác đã duyệt, và kỳ công đã khóa. Cấu hình chỉ có hiệu lực từ ngày bật trở đi, không đổi dữ liệu đã qua.
+        Với những ngày làm việc có ca nằm trong các thứ được chọn, hệ thống ghi ngay giờ vào và giờ ra đúng giờ bắt đầu,
+        kết thúc ca cho nhân viên, không chờ ca kết thúc. Đơn nghỉ hoặc công tác được duyệt sau đó sẽ chèn lên phần chấm
+        công tự động khi tính công. Không áp dụng cho ngày không có lịch phân ca và kỳ công đã khóa. Cấu hình chỉ có hiệu lực từ ngày bật trở đi, không đổi dữ liệu đã qua.
       </InfoNote>
 
       {error ? (

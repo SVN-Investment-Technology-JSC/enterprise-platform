@@ -55,6 +55,7 @@ import {
   InfoCell,
   initialsOf,
   ProfileCard,
+  FieldLegend,
   ReadonlyField,
   relationshipOptions,
   seniorityText,
@@ -663,14 +664,29 @@ export default function HrmProfilePage() {
             icon={User}
             title="Thông tin cá nhân"
             testId="profile-personal-card"
+            action={
+              <Button
+                type="button"
+                permission="hrm.self.request"
+                variant="outline"
+                size="sm"
+                className="h-8 gap-1 text-xs font-semibold text-blue-700"
+                onClick={() => setCorrectionFields(allFields)}
+              >
+                <PencilLine className="size-3.5" />
+                Đề nghị đính chính
+              </Button>
+            }
           >
+            <FieldLegend />
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <ReadonlyField id="profile-full-name" label="Họ và tên" value={savedIdentity.fullName} />
-              <ReadonlyField id="profile-employee-code" label="Mã nhân viên" value={profileMeta.employeeCode} mono />
+              <ReadonlyField id="profile-full-name" label="Họ và tên" value={savedIdentity.fullName} hint="Do Core HRM quản lý" />
+              <ReadonlyField id="profile-employee-code" label="Mã nhân viên" value={profileMeta.employeeCode} mono hint="Do hệ thống cấp" />
               <ReadonlyField
                 id="profile-date-of-birth"
                 label="Ngày sinh"
                 icon={Calendar}
+                hint="Đổi qua đơn đính chính"
                 value={
                   savedIdentity.dateOfBirth
                     ? formatProfileValue('dateOfBirth', savedIdentity.dateOfBirth)
@@ -693,11 +709,12 @@ export default function HrmProfilePage() {
                   clearable
                 />
               </div>
-              <ReadonlyField id="profile-id-number" label="Số CCCD / CMND" icon={CreditCard} mono value={savedIdentity.identityCardNumber} />
+              <ReadonlyField id="profile-id-number" label="Số CCCD / CMND" icon={CreditCard} mono value={savedIdentity.identityCardNumber} hint="Đổi qua đơn đính chính" />
               <ReadonlyField
                 id="profile-id-issued-date"
                 label="Ngày cấp"
                 icon={Calendar}
+                hint="Đổi qua đơn đính chính"
                 value={
                   savedIdentity.identityCardIssuedDate
                     ? formatProfileValue('identityCardIssuedDate', savedIdentity.identityCardIssuedDate)
@@ -705,7 +722,7 @@ export default function HrmProfilePage() {
                 }
               />
               <div className="sm:col-span-2">
-                <ReadonlyField id="profile-id-issued-place" label="Nơi cấp" icon={MapPin} value={savedIdentity.identityCardIssuedPlace} />
+                <ReadonlyField id="profile-id-issued-place" label="Nơi cấp" icon={MapPin} value={savedIdentity.identityCardIssuedPlace} hint="Đổi qua đơn đính chính" />
               </div>
               <div className="space-y-1">
                 <label htmlFor="profile-nationality" className="block text-[11px] font-semibold text-slate-600">
@@ -750,27 +767,6 @@ export default function HrmProfilePage() {
                   clearable
                 />
               </div>
-            </div>
-            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-blue-100 bg-blue-50/60 p-3 text-xs text-slate-600">
-              <span className="flex items-start gap-2">
-                <Info className="mt-0.5 size-4 shrink-0 text-blue-600" />
-                <span>
-                  Thông tin định danh được quản lý từ hệ thống Core HRM. Họ tên do
-                  Core quản lý; ngày sinh và CCCD đổi qua đơn đính chính.
-                </span>
-              </span>
-              <Button
-                type="button"
-                permission="hrm.self.request"
-                variant="ghost"
-                size="sm"
-                className="h-8 gap-1 text-xs font-semibold text-blue-700 hover:bg-blue-100/60"
-                onClick={() => setCorrectionFields(allFields)}
-              >
-                <PencilLine className="size-3.5" />
-                Đề nghị chỉnh sửa thông tin Core
-                <ChevronRight className="size-3.5" />
-              </Button>
             </div>
           </ProfileCard>
 

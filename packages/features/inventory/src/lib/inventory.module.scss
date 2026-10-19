@@ -34,7 +34,8 @@
 }
 
 .actionPrimary { color: #fff; background: #2563eb; }
-.actionPrimary:hover { background: #1d4ed8; }
+.actionPrimary:hover:not(:disabled) { background: #1d4ed8; }
+.action:disabled { opacity: 0.5; cursor: not-allowed; }
 .actionGhost { border-color: #dbe3ed; color: #182538; background: #fff; }
 .actionGhost:hover { background: #e9eef8; }
 

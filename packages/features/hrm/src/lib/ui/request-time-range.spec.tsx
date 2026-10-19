@@ -82,7 +82,7 @@ describe('RequestTimeRange', () => {
     expect(screen.getByText(/16:00 - 17:00 ngày 12\/10 trùng ca làm việc/)).toBeTruthy();
   });
 
-  it('đơn công tác: gửi kind=trip, thẻ tổng hiển thị Số ngày công tác (không hiện số giờ)', async () => {
+  it('đơn công tác: gửi kind=trip và không hiện thẻ tính toán', async () => {
     fetchMock.mockResolvedValue({
       data: preview({ totalMinutes: 720, totalHours: 12, totalDays: 1.5, errors: [], warnings: [] }),
     } as never);
@@ -96,9 +96,10 @@ describe('RequestTimeRange', () => {
       />,
     );
     await settle();
-    await waitFor(() => expect(screen.getByTestId('time-total').textContent).toBe('Số ngày công tác: 1,5 ngày'));
-    expect(screen.getByTestId('time-total').textContent).not.toContain('giờ');
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     expect(String(fetchMock.mock.calls[0][0])).toContain('kind=trip');
+    expect(screen.queryByTestId('time-total')).toBeNull();
+    expect(screen.queryByRole('status')).toBeNull();
   });
 
   it('đơn công tác sai khung ca: hiện lỗi của máy chủ, báo lên form cha để chặn gửi', async () => {

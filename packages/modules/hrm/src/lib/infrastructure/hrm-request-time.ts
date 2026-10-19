@@ -233,7 +233,8 @@ export function computeRequestTime(
       }
       continue;
     }
-    const weight = leaveDayWeight(shiftMinutes);
+    // Đơn công tác (strict): đi cả ca là 1 ngày công tác dù ca ngắn (thứ Bảy nửa ngày vẫn là 1 ngày); phép thì quy theo ca.
+    const weight = strict ? 1 : leaveDayWeight(shiftMinutes);
     let quantity: number;
     if (unit === 'HOURS') {
       quantity = round2(minutes / 60);

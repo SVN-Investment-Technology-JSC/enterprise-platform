@@ -118,6 +118,11 @@ const text = (value: unknown): string | null => (typeof value === 'string' && va
 
 /** Đọc Core và HRM; dòng không đúng hình dạng bị bỏ qua để lỗi dữ liệu không làm hỏng luồng duyệt. */
 export async function loadOrgFacts(db: Queryable, tenantId: string): Promise<OrgFacts> {
+  const tableCheck = await db.query(
+    `SELECT to_regclass('core_schema.organization_nodes') IS NOT NULL AND to_regclass('core_schema.organization_node_assignments') IS NOT NULL AS ready`,
+  );
+  if (tableCheck.rows[0]?.ready !== true) return { positions: [], holders: [], employees: [] };
+
   const column = await db.query(
     `SELECT 1 FROM information_schema.columns
       WHERE table_schema = 'core_schema' AND table_name = 'organization_nodes' AND column_name = 'reports_to_position_id'`,

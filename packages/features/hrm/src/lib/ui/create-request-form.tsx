@@ -73,6 +73,10 @@ import {
   type BindingLoadState,
 } from '../request-form-attributes';
 import { MAX_ATTRIBUTE_FILE_BYTES, uploadHrmAttachment } from '../hrm-attachment-upload';
+
+/** 'YYYY-MM-DDTHH:mm' -> 'DD/MM HH:mm' cho bảng tách từng khoản của đơn nghỉ nhiều khoảng. */
+const shortRangeTime = (value: string): string =>
+  `${value.slice(8, 10)}/${value.slice(5, 7)} ${value.slice(11, 16)}`;
 import {
   choiceFromLeaveType,
   descriptionMandatoryFor,
@@ -2055,18 +2059,16 @@ export function CreateRequestForm({
                     </span>
                     {extraRanges.length > 0 && (
                       <span className="text-[12px] text-slate-500">
-                        ({[leaveDuration, ...extraRanges.map((r) => r.preview?.totalDays ?? 0)]
-                          .map((d, i) => `Khoảng ${i + 1}: ${d}`)
-                          .join(' • ')})
+                        ({extraRanges.length + 1} khoảng)
                       </span>
                     )}
-                    {currentLeavePolicy.stepRule === 'PERCENT_SHIFT' && (
+                    {extraRanges.length === 0 && currentLeavePolicy.stepRule === 'PERCENT_SHIFT' && (
                       <span className="font-mono text-[12px] font-medium text-emerald-700">
                         ({(parseFloat(leaveDuration) * 100).toFixed(1)}% ca •{' '}
                         {(parseFloat(leaveDuration) * 8).toFixed(1)}h)
                       </span>
                     )}
-                    {currentLeavePolicy.stepRule === 'HALF_DAY_STEP' && (
+                    {extraRanges.length === 0 && currentLeavePolicy.stepRule === 'HALF_DAY_STEP' && (
                       <span className="text-[12px] text-slate-500">
                         {parseFloat(leaveDuration) === 0.5
                           ? '(Nửa ngày ca sáng hoặc chiều)'
@@ -2143,6 +2145,70 @@ export function CreateRequestForm({
                 </p>
               )}
             </div>
+
+            {extraRanges.length > 0 && (
+              <div
+                data-testid="leave-range-breakdown"
+                className="overflow-hidden rounded-md border border-blue-200 bg-white"
+              >
+                <table className="w-full text-[12px]">
+                  <thead>
+                    <tr className="bg-blue-50 text-left text-slate-600">
+                      <th className="px-2.5 py-1.5 font-semibold">Khoản</th>
+                      <th className="px-2.5 py-1.5 font-semibold">Thời gian</th>
+                      <th className="px-2.5 py-1.5 text-right font-semibold">Số ngày</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {[
+                      {
+                        id: 'main',
+                        fromAt: leaveFromAt,
+                        toAt: leaveToAt,
+                        days: parseFloat(leaveDuration) || 0,
+                        pending: false,
+                        error: null as string | null,
+                      },
+                      ...extraRanges.map((r) => ({
+                        id: r.id,
+                        fromAt: r.fromAt,
+                        toAt: r.toAt,
+                        days: r.preview?.totalDays ?? 0,
+                        pending: !r.preview,
+                        error: r.preview?.errors[0] ?? null,
+                      })),
+                    ].map((row, i) => (
+                      <tr key={row.id} data-testid={`leave-range-row-${i + 1}`}>
+                        <td className="whitespace-nowrap px-2.5 py-1.5 font-medium text-slate-800">
+                          {rangeLabel(i, 'leave')}
+                        </td>
+                        <td className="px-2.5 py-1.5 text-slate-600">
+                          {row.fromAt && row.toAt
+                            ? `${shortRangeTime(row.fromAt)} - ${shortRangeTime(row.toAt)}`
+                            : 'Chưa chọn thời gian'}
+                          {row.error && (
+                            <span className="block text-rose-600">{row.error}</span>
+                          )}
+                        </td>
+                        <td className="whitespace-nowrap px-2.5 py-1.5 text-right font-mono font-bold text-[#021E73]">
+                          {row.pending ? '...' : `${row.days} ngày`}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="bg-blue-50/60">
+                      <td className="px-2.5 py-1.5 font-semibold text-slate-800" colSpan={2}>
+                        Tổng cộng
+                      </td>
+                      <td className="px-2.5 py-1.5 text-right font-mono font-bold text-[#021E73]">
+                        {totalLeaveDays} ngày
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )}
 
             {previewBreakdown && previewBreakdown.breakdown.length > 1 && (
               <div className="space-y-1 rounded-lg border border-slate-200 bg-white p-2.5 text-[12px] text-slate-600">

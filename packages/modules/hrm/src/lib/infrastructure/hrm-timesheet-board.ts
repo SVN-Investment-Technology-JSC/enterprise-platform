@@ -377,6 +377,7 @@ export function computeBoardDay(input: BoardDayInput): HrmBoardDay {
       legacy: l.legacy,
     })),
     hasOt: input.ot.length > 0,
+    autoOnly: input.events.length > 0 && input.events.every((e) => e.auto),
     trips: tripInputs,
   });
   const paid = outcome.paidMinutes;
@@ -683,7 +684,7 @@ export async function loadBoard(
     ids.length && !locked ? resolveRuleDays(db, tenant, ids, from, to) : Promise.resolve([] as RuleDay[]),
     ids.length && !locked
       ? db.query(
-          `SELECT id, employee_id, to_char(work_date,'YYYY-MM-DD') AS work_date, event_kind, occurred_at
+          `SELECT id, employee_id, to_char(work_date,'YYYY-MM-DD') AS work_date, event_kind, occurred_at, source
              FROM hrm_schema.attendance_events
             WHERE tenant_id=$1 AND employee_id = ANY($2::uuid[]) AND work_date BETWEEN $3::date AND $4::date AND voided_by_correction_id IS NULL
             ORDER BY occurred_at, id`,
@@ -903,6 +904,7 @@ export async function loadBoard(
       id: r.id,
       kind: r.event_kind,
       at: new Date(String(r.occurred_at)).toISOString(),
+      auto: r.source === 'AUTO',
     });
     eventsByDay.set(k, list);
   }

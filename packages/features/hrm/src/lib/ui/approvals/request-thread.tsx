@@ -71,6 +71,7 @@ export function RequestThread({ kind, requestId, refreshKey = 0 }: { kind: strin
   const [comments, setComments] = useState<HrmRequestComment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [closed, setClosed] = useState(false);
   const [text, setText] = useState('');
   const [mentions, setMentions] = useState<HrmMentionCandidate[]>([]);
   const [busy, setBusy] = useState(false);
@@ -89,10 +90,11 @@ export function RequestThread({ kind, requestId, refreshKey = 0 }: { kind: strin
     async (quiet = false) => {
       if (!quiet) setLoading(true);
       try {
-        const res = await hrmFetch<{ data: HrmRequestComment[] }>(
+        const res = await hrmFetch<{ data: HrmRequestComment[]; closed?: boolean }>(
           `/request-comments?${new URLSearchParams({ kind, requestId })}`,
         );
         setComments(res.data);
+        setClosed(res.closed === true);
         setError('');
       } catch (e) {
         setError(e instanceof HrmApiError && e.status === 403 ? 'Bạn không có quyền xem trao đổi của đơn này.' : e instanceof Error ? e.message : 'Không tải được trao đổi.');
@@ -227,7 +229,7 @@ export function RequestThread({ kind, requestId, refreshKey = 0 }: { kind: strin
           <Loader2 className="size-3.5 animate-spin" /> Đang tải…
         </p>
       ) : comments.length === 0 ? (
-        <p className="rounded-lg bg-slate-50 px-3 py-3 text-center text-xs text-slate-500">Chưa có trao đổi nào. Gõ @ để nhắc tên người cần xem đơn này.</p>
+        <p className="rounded-lg bg-slate-50 px-3 py-3 text-center text-xs text-slate-500">{closed ? 'Chưa có trao đổi nào.' : 'Chưa có trao đổi nào. Gõ @ để nhắc tên người cần xem đơn này.'}</p>
       ) : (
         <ul className="max-h-[280px] space-y-2.5 overflow-y-auto pr-1" data-testid="thread-list">
           {comments.map((c) => {
@@ -314,6 +316,11 @@ export function RequestThread({ kind, requestId, refreshKey = 0 }: { kind: strin
         </div>
       ) : null}
 
+      {closed ? (
+        <p className="rounded-lg bg-slate-50 px-3 py-2 text-center text-xs text-slate-500">
+          Đơn đã huỷ, rút hoặc hoàn tất xử lý nên không thể trao đổi thêm.
+        </p>
+      ) : (
       <div className="relative">
         <input
           ref={fileInputRef}
@@ -404,7 +411,8 @@ export function RequestThread({ kind, requestId, refreshKey = 0 }: { kind: strin
           </ul>
         ) : null}
       </div>
-      {activeMentions.length > 0 ? (
+      )}
+      {!closed && activeMentions.length > 0 ? (
         <p className="text-[12px] text-slate-500">Sẽ thông báo cho: {activeMentions.map((m) => m.name).join(', ')}</p>
       ) : null}
     </section>

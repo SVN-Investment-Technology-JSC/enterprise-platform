@@ -11,7 +11,7 @@ import type {
   HrmCorePerson,
   HrmEmployeeProfile,
 } from '@enterprise-platform/contracts-hrm';
-import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
+import { useCallback, useEffect, useState, useMemo } from 'react';
 import { EmployeeLifecycleActions, employmentLabels } from '../ui/hrm-lifecycle-actions';
 import { EmployeeDetailDialog } from '../ui/employee-detail-dialog';
 import { EmployeeAvatar, EmployeePagination, EmployeeStatCards, type EmployeeCardFilter } from '../ui/employee-list-parts';
@@ -20,9 +20,8 @@ import { PersonnelDecisionDialog } from '../ui/personnel-decision-dialog';
 import { HrmActionDialog, type HrmAction } from '../ui/hrm-action-dialog';
 import { hrmFetch } from '../hrm-api';
 import {
-  buildEmployeesCsv,
+  downloadEmployeesXlsx,
   distinctValues,
-  downloadCsv,
   employeeCompleteness,
   employeeInitials,
   employeeStats,
@@ -78,7 +77,6 @@ export default function EmployeesManagementPage() {
   const [statusFilter, setStatusFilter] = useState('ALL');
   // Lọc theo thẻ tổng quan (đang làm việc, nghỉ việc, chờ hoàn thiện hồ sơ); 'ALL' là không lọc.
   const [cardFilter, setCardFilter] = useState<EmployeeCardFilter>('ALL');
-  const tableRef = useRef<HTMLDivElement | null>(null);
   const [departmentFilter, setDepartmentFilter] = useState('ALL');
   const [positionFilter, setPositionFilter] = useState('ALL');
   const [page, setPage] = useState(1);
@@ -298,7 +296,7 @@ export default function EmployeesManagementPage() {
   };
 
 
-  // Xuất CSV phía trình duyệt: danh sách đang lọc, chỉ các cột không nhạy cảm đang hiển thị
+  // Xuất Excel phía trình duyệt: danh sách đang lọc, chỉ các cột không nhạy cảm đang hiển thị
   const handleExportCsv = () => {
     try {
       // Có tick chọn thì xuất đúng những người đã chọn (còn trong danh sách đang lọc); không thì xuất cả danh sách đang lọc.
@@ -306,15 +304,15 @@ export default function EmployeesManagementPage() {
         selectedIds.size > 0
           ? filteredEmployees.filter((e) => selectedIds.has(e.employeeId))
           : filteredEmployees;
-      const csv = buildEmployeesCsv(rows, employmentLabels);
-      downloadCsv(
-        `danh-sach-nhan-vien-${new Date().toISOString().slice(0, 10)}.csv`,
-        csv,
+      downloadEmployeesXlsx(
+        rows,
+        employmentLabels,
+        `danh-sach-nhan-vien-${new Date().toISOString().slice(0, 10)}.xlsx`,
       );
       toast.success(`Đã xuất ${rows.length} nhân viên`);
     } catch (err) {
       toast.error(
-        err instanceof Error ? err.message : 'Không xuất được tệp CSV',
+        err instanceof Error ? err.message : 'Không xuất được tệp Excel',
       );
     }
   };
@@ -441,10 +439,12 @@ export default function EmployeesManagementPage() {
               stats={stats}
               active={cardFilter}
               onSelect={(next) => {
-                // Bấm lại thẻ đang chọn thì bỏ lọc; bấm thẻ khác thì lọc danh sách rồi cuộn tới bảng nhân sự.
+                // Thẻ và bộ lọc không kết hợp: bấm thẻ thì xóa mọi bộ lọc khác; bấm lại thẻ đang chọn thì bỏ lọc. Không cuộn trang.
                 setCardFilter((current) => (current === next ? 'ALL' : next));
+                setSearchTerm('');
                 setStatusFilter('ALL');
-                tableRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+                setDepartmentFilter('ALL');
+                setPositionFilter('ALL');
               }}
             />
             <div className="space-y-2 rounded-xl border border-slate-200 bg-white p-3">
@@ -455,7 +455,10 @@ export default function EmployeesManagementPage() {
                   placeholder="Tìm theo tên, mã NV, phòng ban, chức danh..."
                   className="h-9 border-slate-200 pl-9 text-xs"
                   value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
+                  onChange={(e) => {
+                    setSearchTerm(e.target.value);
+                    setCardFilter('ALL');
+                  }}
                 />
               </div>
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
@@ -463,7 +466,10 @@ export default function EmployeesManagementPage() {
                   height={36}
                   options={[{ value: 'ALL', label: 'Phòng ban: Tất cả' }, ...departmentOptions]}
                   value={departmentFilter}
-                  onChange={(val) => setDepartmentFilter(val || 'ALL')}
+                  onChange={(val) => {
+                    setDepartmentFilter(val || 'ALL');
+                    setCardFilter('ALL');
+                  }}
                   placeholder="Phòng ban"
                   clearable={false}
                 />
@@ -471,7 +477,10 @@ export default function EmployeesManagementPage() {
                   height={36}
                   options={[{ value: 'ALL', label: 'Chức danh: Tất cả' }, ...positionFilterOptions]}
                   value={positionFilter}
-                  onChange={(val) => setPositionFilter(val || 'ALL')}
+                  onChange={(val) => {
+                    setPositionFilter(val || 'ALL');
+                    setCardFilter('ALL');
+                  }}
                   placeholder="Chức danh"
                   clearable={false}
                 />
@@ -486,7 +495,10 @@ export default function EmployeesManagementPage() {
                     { value: 'TERMINATED', label: 'Chấm dứt hợp đồng' },
                   ]}
                   value={statusFilter}
-                  onChange={(val) => setStatusFilter((val || 'ALL') as typeof statusFilter)}
+                  onChange={(val) => {
+                    setStatusFilter((val || 'ALL') as typeof statusFilter);
+                    setCardFilter('ALL');
+                  }}
                   clearable={false}
                 />
               </div>
@@ -494,7 +506,7 @@ export default function EmployeesManagementPage() {
           </div>
 
           {/* Bảng nhân sự */}
-          <div ref={tableRef} className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+          <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
             <div className="overflow-x-auto">
               <table className="w-full border-collapse text-left text-xs">
                 <thead className="border-b border-slate-200 bg-slate-50 text-[12px] font-bold text-slate-600">

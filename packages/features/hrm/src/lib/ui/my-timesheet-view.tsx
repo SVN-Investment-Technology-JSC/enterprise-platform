@@ -150,7 +150,8 @@ export function MyKpiStrip({
       openKpi
         ? myKpiDays(employee, openKpi).map(({ date, value }) => ({
             id: date,
-            title: `${weekdayVn(date)}, ${formatDateVn(date)}`,
+            title: weekdayVn(date),
+            subtitle: formatDateVn(date),
             trailing: value,
             onSelect: onSelectDate
               ? () => {
@@ -246,7 +247,7 @@ export function MyKpiStrip({
       className="space-y-1.5"
     >
       <div ref={stripRef} className="grid grid-cols-2 gap-2 md:grid-cols-3 2xl:grid-cols-6">
-        {cards.map((spec) => {
+        {cards.map((spec, index) => {
           const clickable = MY_KPI_KEYS.includes(spec.key as MyKpiKey);
           const open = clickable && openKpi === spec.key;
           return (
@@ -263,6 +264,8 @@ export function MyKpiStrip({
                   title={`${MY_KPI_TITLE[spec.key as MyKpiKey]} (${kpiItems.length})`}
                   items={kpiItems}
                   emptyText="Không có ngày nào trong tháng này."
+                  align={index >= 3 ? 'right' : 'left'}
+                  onClose={() => setOpenKpi(null)}
                 />
               )}
             </div>

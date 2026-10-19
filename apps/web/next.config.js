@@ -20,6 +20,9 @@ const nextConfig = {
   output:
     process.env.NEXT_BUILD_OUTPUT === 'standalone' ? 'standalone' : undefined,
   outputFileTracingRoot: path.join(__dirname, '../..'),
+  turbopack: {
+    root: path.resolve(__dirname, '../..'),
+  },
   poweredByHeader: false,
   typedRoutes: true,
   async rewrites() {
