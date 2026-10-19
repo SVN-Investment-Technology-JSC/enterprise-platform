@@ -1533,9 +1533,11 @@ export class HrmLeaveController {
     target: 'APPROVED' | 'REJECTED' | 'CANCELLED',
     reason?: string,
   ) {
-    const { pool, tenantId, principal } = await this.ctx.getContext(
+    const { pool, tenantId, principal } = await this.ctx.approverContext(
       req,
       'hrm.leave.approve',
+      'leave',
+      id,
     );
     await this.approvals.assertCanDecide(
       { pool, tenantId, principal },

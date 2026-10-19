@@ -155,6 +155,63 @@ describe('hrm approval requests', () => {
     expect(resolved?.template.deepLink).toBe('/modules/hrm/approvals?request=request-1');
   });
 
+  it('also notifies the assigned manager and backup who hold no approval permission, once each', async () => {
+    const resolved = await registry.resolve(
+      event('hrm.approval.requested', {
+        requestId: 'request-1',
+        approvalPermissions: ['hrm.leave.approve', 'hrm.manage'],
+        recipientUserIds: ['manager-1', 'backup-1', 'approver-1'],
+        summary: 'Đơn nghỉ phép của Nguyễn Văn A đang chờ bạn phê duyệt.',
+        actorUserId: 'requester',
+      }),
+      directory({ usersWithPermission: jest.fn(async () => ['approver-1', 'requester']) }),
+    );
+    expect([...(resolved?.recipients ?? [])].sort()).toEqual(['approver-1', 'backup-1', 'manager-1']);
+  });
+
+  it('also notifies the assigned approvers when the requester replies on the thread', async () => {
+    const resolved = await registry.resolve(
+      event('hrm.request.comment.to-approvers', {
+        requestId: 'request-1',
+        commentId: 'comment-1',
+        approvalPermissions: ['hrm.leave.approve', 'hrm.manage'],
+        recipientUserIds: ['backup-1'],
+        actorUserId: 'requester',
+      }),
+      directory({ usersWithPermission: jest.fn(async () => []) }),
+    );
+    expect([...(resolved?.recipients ?? [])]).toEqual(['backup-1']);
+  });
+
+  it('also notifies the assigned manager and backup even when they hold no approval permission', async () => {
+    const usersWithPermission = jest.fn(async () => ['hr-manager']);
+    const resolved = await registry.resolve(
+      event('hrm.approval.requested', {
+        requestId: 'request-1',
+        approvalPermissions: ['hrm.leave.approve', 'hrm.manage'],
+        recipientUserIds: ['direct-manager', 'backup', 'requester'],
+        summary: 'Đơn nghỉ phép của Nguyễn Văn A đang chờ bạn phê duyệt.',
+        actorUserId: 'requester',
+      }),
+      directory({ usersWithPermission }),
+    );
+    expect([...(resolved?.recipients ?? [])].sort()).toEqual(['backup', 'direct-manager', 'hr-manager']);
+  });
+
+  it('notifies the assigned approvers when the requester replies in the thread', async () => {
+    const resolved = await registry.resolve(
+      event('hrm.request.comment.to-approvers', {
+        requestId: 'request-1',
+        commentId: 'comment-1',
+        approvalPermissions: ['hrm.ot.approve', 'hrm.manage'],
+        recipientUserIds: ['backup'],
+        actorUserId: 'requester',
+      }),
+      directory({ usersWithPermission: jest.fn(async () => []) }),
+    );
+    expect(resolved?.recipients).toEqual(['backup']);
+  });
+
   it('notifies again when the same request is resubmitted', async () => {
     const make = (eventId: string) =>
       registry.resolve(

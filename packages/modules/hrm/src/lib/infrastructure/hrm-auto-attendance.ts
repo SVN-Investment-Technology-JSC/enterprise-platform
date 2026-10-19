@@ -102,8 +102,9 @@ async function candidatesOf(
 
 /**
  * Sinh sự kiện chấm công vào/ra đúng giờ bắt đầu/kết thúc ca cho các ngày thuộc cấu hình "Chấm công tự động".
- * Chỉ sinh khi ca đã kết thúc, ngày chưa có sự kiện chấm công nào (kể cả đã bị hủy bởi giải trình thì vẫn coi là có
- * xử lý tay), không có đơn nghỉ/công tác đã duyệt trong ngày và kỳ công chưa khóa. Chạy lặp lại không tạo trùng.
+ * Sinh ngay từ đầu ngày (không chờ ca kết thúc, không phụ thuộc ngày đã có sự kiện chấm công khác hay đơn nghỉ/công tác),
+ * miễn là ngày có ca trong lịch và kỳ công chưa khóa. Đơn nghỉ/công tác đã duyệt chèn lên phần tự động khi tính công
+ * (xem `autoOnly` trong resolveDayOutcome). Chạy lặp lại không tạo trùng (khóa theo nhân viên và ngày).
  */
 export async function generateAutoAttendance(
   db: PoolClient,
@@ -130,26 +131,13 @@ export async function generateAutoAttendance(
   let generated = 0;
   for (const { employeeId, date } of candidates) {
     if (isLocked(date)) continue;
-    const existing = await db.query(
-      `SELECT 1 FROM hrm_schema.attendance_events WHERE tenant_id=$1 AND employee_id=$2 AND work_date=$3::date LIMIT 1`,
-      [tenant, employeeId, date],
-    );
-    if (existing.rowCount) continue;
-    const covered = await db.query(
-      `SELECT 1 FROM hrm_schema.leave_request_days d JOIN hrm_schema.leave_requests r ON r.id=d.request_id AND r.tenant_id=d.tenant_id WHERE r.tenant_id=$1 AND r.employee_id=$2 AND r.status='APPROVED' AND d.work_date=$3::date
-       UNION ALL
-       SELECT 1 FROM hrm_schema.business_trip_requests WHERE tenant_id=$1 AND employee_id=$2 AND status='APPROVED' AND $3::date BETWEEN from_date AND to_date
-       LIMIT 1`,
-      [tenant, employeeId, date],
-    );
-    if (covered.rowCount) continue;
     const policy = await resolvePolicy(db, tenant, 'ATTENDANCE', date, employeeId);
     const timezone = String(policy?.config_json.timezone || 'Asia/Ho_Chi_Minh');
     const { shift } = await dayContextForDate(db, tenant, employeeId, date, timezone);
     if (!shift) continue;
     const startMs = Date.parse(shift.window.start);
     const endMs = Date.parse(shift.window.end);
-    if (!(endMs > startMs) || endMs > now.getTime()) continue;
+    if (!(endMs > startMs)) continue;
     const evidence = JSON.stringify({
       auto: true,
       shiftId: shift.id,

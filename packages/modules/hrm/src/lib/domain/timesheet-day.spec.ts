@@ -211,3 +211,60 @@ describe('coveredMinutesOf', () => {
     expect(r.minutes).toBe(240);
   });
 });
+
+describe('coveredMinutesOf: công tác ngày ca ngắn (thứ Bảy 08:00-12:00)', () => {
+  const saturday: DayShiftBounds = { ...shift, endMs: at(12), breakStartMs: null, breakEndMs: null };
+  const trip = (from: number, to: number) => [
+    { interval: { startMs: at(from), endMs: at(to) }, dayMinutes: (to - from) * 60 },
+  ];
+
+  it('đơn phủ trọn ca sáng thứ Bảy là cả ngày công tác (không còn 0.5)', () => {
+    const r = coveredMinutesOf(saturday, 240, [], trip(8, 12));
+    expect(r).toMatchObject({ minutes: 240, wholeDay: true });
+  });
+
+  it('đơn chỉ một nửa ca thứ Bảy vẫn là nửa ngày', () => {
+    const r = coveredMinutesOf(saturday, 240, [], trip(8, 10));
+    expect(r).toMatchObject({ minutes: 120, wholeDay: false });
+  });
+
+  it('ca 8 giờ: đơn 4 giờ buổi sáng vẫn là nửa ngày như cũ', () => {
+    const r = coveredMinutesOf(shift, 480, [], trip(8, 12));
+    expect(r).toMatchObject({ minutes: 240, wholeDay: false });
+  });
+});
+
+describe('resolveDayOutcome: đơn nghỉ/công tác chèn lên chấm công tự động', () => {
+  const auto = (over: Partial<DayOutcomeInput> = {}) => base({ autoOnly: true, workedMinutes: 480, ...over });
+  const allDay = { startMs: at(8), endMs: at(17) };
+  const morning = { startMs: at(8), endMs: at(12) };
+
+  it('không có đơn: giữ nguyên công tự động', () => {
+    expect(resolveDayOutcome(auto()).paidMinutes).toBe(480);
+  });
+
+  it('nghỉ cả ngày không lương chèn lên: không còn công tự động', () => {
+    const r = resolveDayOutcome(auto({ leaves: [{ days: 1, paidMinutes: 0, interval: allDay }] }));
+    expect(r).toMatchObject({ paidMinutes: 0, fullyCovered: true });
+  });
+
+  it('nghỉ cả ngày có lương: đủ công, không cộng hai lần', () => {
+    const r = resolveDayOutcome(auto({ leaves: [{ days: 1, paidMinutes: 480, interval: allDay }] }));
+    expect(r.paidMinutes).toBe(480);
+  });
+
+  it('nghỉ nửa ngày: nửa nghỉ cộng nửa chấm tự động; nghỉ không lương chỉ còn nửa tự động', () => {
+    expect(resolveDayOutcome(auto({ leaves: [{ days: 0.5, paidMinutes: 240, interval: morning }] })).paidMinutes).toBe(480);
+    expect(resolveDayOutcome(auto({ leaves: [{ days: 0.5, paidMinutes: 0, interval: morning }] })).paidMinutes).toBe(240);
+  });
+
+  it('công tác cả ngày: đủ công; công tác nửa ngày cộng nửa chấm tự động', () => {
+    expect(resolveDayOutcome(auto({ trips: [{ interval: null }] })).paidMinutes).toBe(480);
+    expect(resolveDayOutcome(auto({ trips: [{ interval: morning, dayMinutes: 240 }] })).paidMinutes).toBe(480);
+  });
+
+  it('chấm công thật (không phải tự động) giữ cách tính cũ, tối đa bằng ca', () => {
+    const r = resolveDayOutcome(base({ leaves: [{ days: 1, paidMinutes: 0, interval: allDay }] }));
+    expect(r.paidMinutes).toBe(480);
+  });
+});

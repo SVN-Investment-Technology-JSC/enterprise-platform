@@ -3124,6 +3124,8 @@ export interface HrmCommentMention {
 /** `GET /request-comments?kind=&requestId=`. */
 export interface HrmRequestCommentsResponse {
   readonly data: readonly HrmRequestComment[];
+  /** Đơn đã huỷ/rút hoặc hoàn tất xử lý: chỉ đọc, không viết thêm. */
+  readonly closed?: boolean;
 }
 
 /** `POST /request-comments`: bình luận, hoặc ý kiến sau khi đã quyết định (kind = DECISION). */

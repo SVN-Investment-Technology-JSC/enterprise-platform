@@ -72,15 +72,30 @@ describe('generateAutoAttendance', () => {
     expect(time.recalculateAttendance).toHaveBeenCalledWith(db, 't', E1, SAT, 'Asia/Ho_Chi_Minh', 'AUTO');
   });
 
-  it('không sinh khi ca chưa kết thúc', async () => {
+  it('sinh ngay khi ca chưa kết thúc, không chờ hết ca', async () => {
     const { db, inserts } = fakeDb();
-    const early = new Date('2026-10-10T03:00:00.000Z'); // 10:00 VN
-    await expect(generateAutoAttendance(db, 't', SAT, SAT, early)).resolves.toEqual({ generated: 0 });
-    expect(inserts).toHaveLength(0);
+    const early = new Date('2026-10-10T03:00:00.000Z'); // 10:00 VN, ca 07:30-11:30 đang diễn ra
+    await expect(generateAutoAttendance(db, 't', SAT, SAT, early)).resolves.toEqual({ generated: 1 });
+    expect(inserts).toHaveLength(1);
+    const start = new Date('2026-10-10T00:05:00.000Z'); // 07:05 VN, trước giờ vào ca
+    const beforeShift = fakeDb();
+    await expect(generateAutoAttendance(beforeShift.db, 't', SAT, SAT, start)).resolves.toEqual({ generated: 1 });
   });
 
-  it('không ghi đè khi đã có chấm công thật, có đơn nghỉ/công tác hoặc kỳ công đã khóa', async () => {
-    for (const opts of [{ events: 1 }, { leave: 1 }, { locked: true }]) {
+  it('vẫn sinh khi ngày đã có sự kiện chấm công khác (không còn kiểm tra sự kiện có sẵn)', async () => {
+    const { db, inserts } = fakeDb({ events: 1 });
+    await expect(generateAutoAttendance(db, 't', SAT, SAT, NOW)).resolves.toEqual({ generated: 1 });
+    expect(inserts).toHaveLength(1);
+  });
+
+  it('vẫn sinh khi ngày có đơn nghỉ/công tác đã duyệt (đơn chèn lên phần tự động khi tính công)', async () => {
+    const { db, inserts } = fakeDb({ leave: 1 });
+    await expect(generateAutoAttendance(db, 't', SAT, SAT, NOW)).resolves.toEqual({ generated: 1 });
+    expect(inserts).toHaveLength(1);
+  });
+
+  it('không sinh khi kỳ công đã khóa', async () => {
+    for (const opts of [{ locked: true }]) {
       const { db, inserts } = fakeDb(opts);
       await expect(generateAutoAttendance(db, 't', SAT, SAT, NOW)).resolves.toEqual({ generated: 0 });
       expect(inserts).toHaveLength(0);

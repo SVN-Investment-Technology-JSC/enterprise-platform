@@ -1,6 +1,7 @@
 /** @jest-environment jsdom */
 import { fireEvent, within, render, screen, waitFor } from '@testing-library/react';
 import { hrmFetch } from '../hrm-api';
+import { downloadXlsx } from '../hrm-xlsx';
 import { toast } from '../ui/toast';
 import RequestsPage from './requests-screen';
 
@@ -21,7 +22,13 @@ jest.mock('../hrm-api', () => {
   return { ...actual, hrmFetch: jest.fn() };
 });
 
+jest.mock('../hrm-xlsx', () => {
+  const actual = jest.requireActual('../hrm-xlsx');
+  return { ...actual, downloadXlsx: jest.fn() };
+});
+
 const hrmFetchMock = hrmFetch as jest.MockedFunction<typeof hrmFetch>;
+const downloadMock = downloadXlsx as jest.MockedFunction<typeof downloadXlsx>;
 
 interface FetchCall {
   url: string;
@@ -98,7 +105,7 @@ beforeEach(() => {
   reasonCatalog = {};
   approvalRoute = null;
   hrmPaths = [];
-  requestTypeRows = [];
+  requestTypeRows = defaultRequestTypes();
   customRows = [];
   timePreviewResult = null;
   timePreviewFn = null;
@@ -356,22 +363,16 @@ describe('Đơn từ của tôi', () => {
     await waitFor(() => expect(footer()).toContain('Hiển thị 1-20 trên 25 đơn'));
   });
 
-  it('xuất lịch sử đơn tạo file CSV thật từ các dòng đang lọc', async () => {
+  it('xuất lịch sử đơn tạo file Excel từ các dòng đang lọc', async () => {
     await openHistory(3);
     await waitFor(() => expect(screen.getAllByRole('button', { name: /^Chi tiết đơn / })).toHaveLength(3));
-    const clicked: string[] = [];
-    const anchorClick = jest
-      .spyOn(HTMLAnchorElement.prototype, 'click')
-      .mockImplementation(function (this: HTMLAnchorElement) {
-        clicked.push(this.download);
-      });
+    downloadMock.mockClear();
     fireEvent.click(screen.getByRole('button', { name: /Xuất lịch sử đơn/ }));
-    expect(URL.createObjectURL).toHaveBeenCalledTimes(1);
-    const blob = (URL.createObjectURL as jest.Mock).mock.calls[0][0] as Blob;
-    expect(blob.type).toContain('text/csv');
-    expect(blob.size).toBeGreaterThan(100);
-    expect(clicked[0]).toMatch(/^lich-su-don-tu-\d{4}-\d{2}-\d{2}\.csv$/);
-    anchorClick.mockRestore();
+    expect(downloadMock).toHaveBeenCalledTimes(1);
+    const [fileName, rows] = downloadMock.mock.calls[0];
+    expect(fileName).toMatch(/^lich-su-don-tu-\d{4}-\d{2}-\d{2}$/);
+    // Một dòng tiêu đề và ba dòng đơn đang lọc.
+    expect(rows).toHaveLength(4);
   });
 });
 
@@ -1032,6 +1033,16 @@ const systemType = (id: string, code: string, engine: string, name: string) => (
   createdAt: '2026-01-01T00:00:00.000Z',
   updatedAt: '2026-01-01T00:00:00.000Z',
 });
+
+/** Danh mục mặc định của máy chủ: đủ loại hệ thống đang bật (danh mục rỗng nghĩa là mọi loại đã ngừng). */
+const defaultRequestTypes = () => [
+  systemType('d1', 'LEAVE', 'LEAVE', 'Đơn xin nghỉ phép'),
+  systemType('d2', 'OVERTIME', 'OVERTIME', 'Đơn làm thêm giờ (OT)'),
+  systemType('d3', 'BUSINESS_TRIP', 'BUSINESS_TRIP', 'Đơn đi công tác'),
+  systemType('d4', 'ATTENDANCE_CORRECTION', 'ATTENDANCE_CORRECTION', 'Đơn giải trình / Bổ sung công'),
+  systemType('d5', 'ADVANCE', 'ADVANCE', 'Đơn tạm ứng lương'),
+  systemType('d6', 'PROFILE_CORRECTION', 'PROFILE_CORRECTION', 'Đơn đính chính hồ sơ'),
+];
 const customTypeRow = (over: Record<string, unknown> = {}) => ({
   ...systemType('ct1', 'DI_MUON', 'GENERIC', 'Xin đi muộn'),
   kind: 'custom',
@@ -1270,7 +1281,11 @@ describe('Loại đơn cấu hình và thời gian từ ngày giờ đến ngày
     await within(extra).findByText(/8 giờ/);
     // Hai khoảng, tổng 2 ngày vượt quỹ 1,5 ngày.
     expect((await screen.findByTestId('leave-fund-error')).textContent).toContain('vượt quỹ phép năm khả dụng');
-    expect(screen.getByTestId('leave-info').textContent).toContain('Khoảng 1: 1.0');
+    const breakdown = screen.getByTestId('leave-range-breakdown');
+    expect(within(breakdown).getByTestId('leave-range-row-1').textContent).toContain('Khoảng nghỉ 1');
+    expect(within(breakdown).getByTestId('leave-range-row-2').textContent).toContain('1 ngày');
+    expect(breakdown.textContent).toContain('Tổng cộng');
+    expect(breakdown.textContent).toContain('2 ngày');
     expect(submitButton().disabled).toBe(true);
     fireEvent.click(within(extra).getByRole('button', { name: /Xoá khoảng nghỉ 2/i }));
     await waitFor(() => expect(screen.queryByTestId('leave-fund-error')).toBeNull());

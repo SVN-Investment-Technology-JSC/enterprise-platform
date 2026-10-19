@@ -1951,6 +1951,25 @@ export class ProcedureEngineApplication {
       .map((item) => item.id);
   }
 
+  /** HRM hỏi: người dùng này tham gia (khởi tạo, được giao ở bất kỳ bước nào, được uỷ quyền) hồ sơ nào trong các mã này. */
+  async getParticipatingInstanceIdsForService(
+    tenantId: string,
+    actorUserId: string,
+    instanceIds: readonly string[],
+  ): Promise<string[]> {
+    const ids = [...new Set((instanceIds ?? []).filter((id) => typeof id === 'string' && id.trim()))];
+    if (!actorUserId?.trim()) return [];
+    if (ids.length > 100) throw new ProcedureEngineError('validation', 'Tối đa 100 mã hồ sơ mỗi lần.');
+    if (!ids.length || !this.initiatorActors) return [];
+    const actor = await this.initiatorActors.resolve(tenantId, actorUserId.trim());
+    if (!actor) return [];
+    const wanted = new Set(ids);
+    const state = await this.store.read(tenantId);
+    return state.instances
+      .filter((item) => wanted.has(item.id) && isProcedureParticipant(item, actor))
+      .map((item) => item.id);
+  }
+
   /** Đối soát: trạng thái và bước hiện tại của tối đa 100 hồ sơ; id không tồn tại bị bỏ qua. */
   async getInstanceStatusesForService(
     tenantId: string,

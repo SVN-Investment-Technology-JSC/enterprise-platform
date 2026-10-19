@@ -33,6 +33,8 @@ export type NotificationRecipientRule =
       /** Người giữ BẤT KỲ quyền nào trong danh sách khoá quyền ghi ở payload (quyền phụ thuộc loại đối tượng). */
       readonly kind: 'permissions-in-payload';
       readonly field: string;
+      /** Người dùng ghi thẳng trong payload, nhận thêm dù không giữ quyền nào (vd. người dự phòng). */
+      readonly userFields?: readonly string[];
     }
   | {
       /** Người dùng ghi thẳng trong payload cộng người được giải ra từ các vai (đơn vị, chức danh) của bước. */
@@ -147,7 +149,11 @@ async function resolveCandidates(
   if (rule.kind === 'permission') return directory.usersWithPermission(rule.permission);
   if (rule.kind === 'permissions-in-payload') {
     const permissions = recipientValues(payload[rule.field]);
-    return (await Promise.all(permissions.map((permission) => directory.usersWithPermission(permission)))).flat();
+    const direct = (rule.userFields ?? []).flatMap((field) => recipientValues(payload[field]));
+    return [
+      ...direct,
+      ...(await Promise.all(permissions.map((permission) => directory.usersWithPermission(permission)))).flat(),
+    ];
   }
   if (rule.kind === 'payload') return rule.fields.flatMap((field) => recipientValues(payload[field]));
   const direct = rule.userFields.flatMap((field) => recipientValues(payload[field]));

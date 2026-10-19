@@ -4,6 +4,7 @@ import type {
   HrmAction,
 } from '@enterprise-platform/contracts-identity';
 import { PlatformIdentityService } from '@enterprise-platform/platform-identity';
+import type { HrmRequestKind } from '@enterprise-platform/contracts-hrm';
 import { approvalKindOfPermissions, assignedRequestIds } from './hrm-approval-policy.js';
 import {
   ForbiddenException,
@@ -206,6 +207,34 @@ export class HrmContextService {
     if (requestedEmployeeId && requestedEmployeeId !== own.employeeId)
       throw new ForbiddenException('Chỉ được xem dữ liệu của bản thân');
     return { ...context, employeeId: own.employeeId };
+  }
+
+  /**
+   * Ngữ cảnh cho thao tác xử lý một đơn cụ thể (duyệt, từ chối, huỷ). Người có quyền duyệt loại đơn vào như thường;
+   * người không có quyền nhưng đang được giao đúng đơn này (người giữ chức danh dự phòng của đơn duyệt trực tiếp,
+   * hoặc người được Procedure giao) vẫn vào được, khớp với danh sách chờ duyệt của họ. Phạm vi và quy tắc tự duyệt do
+   * `assertCanDecide` kiểm tra tiếp.
+   */
+  async approverContext(
+    request: Request,
+    permission: HrmAction,
+    kind: HrmRequestKind,
+    requestId: string,
+  ) {
+    try {
+      return await this.getContext(request, permission);
+    } catch (error) {
+      if (!(error instanceof ForbiddenException)) throw error;
+      const context = await this.getContext(request, 'hrm.read');
+      const assigned = await assignedRequestIds(
+        context.pool,
+        context.tenantId,
+        kind,
+        context.principal.userId,
+      );
+      if (assigned.includes(requestId)) return context;
+      throw error;
+    }
   }
 
   async getContext(

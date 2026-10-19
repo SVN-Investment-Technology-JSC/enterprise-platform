@@ -409,3 +409,123 @@ describe('computeTripTime (đơn công tác)', () => {
     expect(r.errors.join(' ')).toContain('Chưa phân ca ngày 2026-10-18');
   });
 });
+
+describe('computeRequestTime: đơn vắt qua 2 tháng', () => {
+  // 29/10/2026 (thứ Năm) đến 03/11/2026 (thứ Ba): T7 31/10 và CN 01/11 nghỉ.
+  const crossMonth = [
+    workDay('2026-10-29'),
+    workDay('2026-10-30'),
+    off('2026-10-31'),
+    off('2026-11-01'),
+    workDay('2026-11-02'),
+    workDay('2026-11-03'),
+  ];
+  const byMonth = (r: ReturnType<typeof compute>, prefix: string) =>
+    r.days.filter((d) => d.date.startsWith(prefix)).reduce((n, d) => n + d.quantity, 0);
+
+  it('một đơn duy nhất: tính đủ ngày hai tháng, bỏ ngày nghỉ hằng tuần, có cảnh báo từng ngày nghỉ', () => {
+    const r = compute(crossMonth, ['2026-10-29', '08:00'], ['2026-11-03', '17:00']);
+    expect(r.errors).toEqual([]);
+    expect(r.totalDays).toBe(4);
+    expect(r.totalMinutes).toBe(4 * 480);
+    expect(r.days.map((d) => d.date)).toEqual([
+      '2026-10-29',
+      '2026-10-30',
+      '2026-10-31',
+      '2026-11-01',
+      '2026-11-02',
+      '2026-11-03',
+    ]);
+    expect(byMonth(r, '2026-10')).toBe(2);
+    expect(byMonth(r, '2026-11')).toBe(2);
+    expect(r.warnings).toHaveLength(2);
+  });
+
+  it('ngày cuối tháng nghỉ chiều và ngày đầu tháng sau nghỉ sáng: 0.5 + 0.5 chia đúng theo tháng', () => {
+    const days = [workDay('2026-10-30'), off('2026-10-31'), off('2026-11-01'), workDay('2026-11-02')];
+    const r = compute(days, ['2026-10-30', '13:00'], ['2026-11-02', '12:00']);
+    expect(r.errors).toEqual([]);
+    expect(byMonth(r, '2026-10')).toBe(0.5);
+    expect(byMonth(r, '2026-11')).toBe(0.5);
+    expect(r.totalDays).toBe(1);
+  });
+
+  it('kết thúc đúng 00:00 ngày đầu tháng sau thì không tính ngày của tháng sau', () => {
+    const r = compute(crossMonth, ['2026-10-30', '08:00'], ['2026-11-01', '00:00']);
+    expect(r.errors).toEqual([]);
+    expect(r.days.map((d) => d.date)).toEqual(['2026-10-30', '2026-10-31']);
+    expect(byMonth(r, '2026-11')).toBe(0);
+    expect(r.totalDays).toBe(1);
+  });
+
+  it('ngày của tháng sau chưa phân ca: lỗi chặn, chỉ rõ ngày thiếu ca', () => {
+    const days = [workDay('2026-10-30'), off('2026-10-31'), off('2026-11-01'), noShift('2026-11-02')];
+    const r = compute(days, ['2026-10-30', '08:00'], ['2026-11-02', '17:00']);
+    expect(r.errors).toEqual(['Chưa phân ca ngày 2026-11-02; không thể xác định số giờ.']);
+  });
+
+  it('vắt qua năm (31/12 sang 02/01): ngày của mỗi năm giữ nguyên ngày để quỹ phép trừ đúng năm', () => {
+    const days = [workDay('2026-12-31'), workDay('2027-01-01'), workDay('2027-01-02')];
+    const r = compute(days, ['2026-12-31', '08:00'], ['2027-01-02', '17:00']);
+    expect(r.errors).toEqual([]);
+    expect(byMonth(r, '2026-12')).toBe(1);
+    expect(byMonth(r, '2027-01')).toBe(2);
+    expect(r.totalDays).toBe(3);
+  });
+
+  it('đơn công tác vắt 2 tháng: ngày đầu tháng sau chỉ nhận cả ca hoặc nửa ca', () => {
+    const days = [workDay('2026-10-30'), off('2026-10-31'), off('2026-11-01'), workDay('2026-11-02')];
+    const bad = computeTripTime(days, at('2026-10-30', '08:00'), at('2026-11-02', '10:00'), TZ);
+    expect(bad.errors[0]).toContain('công tác theo ngày chỉ nhận cả ngày hoặc đúng nửa ca');
+    const ok = computeTripTime(days, at('2026-10-30', '08:00'), at('2026-11-02', '12:00'), TZ);
+    expect(ok.errors).toEqual([]);
+    expect(ok.totalDays).toBe(1.5);
+  });
+
+  it('đơn làm thêm giờ qua nửa đêm cuối tháng được tách theo ngày lịch của hai tháng', () => {
+    const r = computeOvertimeTime(
+      [off('2026-10-31'), off('2026-11-01')],
+      at('2026-10-31', '22:00'),
+      at('2026-11-01', '02:00'),
+      TZ,
+    );
+    expect(r.errors).toEqual([]);
+    expect(r.days.map((d) => [d.date, d.minutes])).toEqual([
+      ['2026-10-31', 120],
+      ['2026-11-01', 120],
+    ]);
+  });
+});
+
+describe('computeTripTime: thứ Bảy ca ngắn', () => {
+  // Thứ Bảy 17/10/2026 làm 08:00-12:00 (240 phút, không nghỉ trưa).
+  const saturday: RequestShiftDay = {
+    date: '2026-10-17',
+    kind: 'WORK',
+    startMs: at('2026-10-17', '08:00'),
+    endMs: at('2026-10-17', '12:00'),
+    breakStartMs: null,
+    breakEndMs: null,
+    shiftMinutes: 240,
+  };
+
+  it('đi cả ca thứ Bảy là 1 ngày công tác (đơn nghỉ vẫn quy 0.5)', () => {
+    const trip = computeTripTime([saturday], at('2026-10-17', '08:00'), at('2026-10-17', '12:00'), TZ);
+    expect(trip.errors).toEqual([]);
+    expect(trip.days[0]).toMatchObject({ minutes: 240, quantity: 1 });
+    expect(trip.totalDays).toBe(1);
+    const leave = computeRequestTime([saturday], at('2026-10-17', '08:00'), at('2026-10-17', '12:00'), TZ);
+    expect(leave.totalDays).toBe(0.5);
+  });
+
+  it('thứ Sáu đến thứ Bảy: 1 + 1 = 2 ngày công tác', () => {
+    const r = computeTripTime(
+      [workDay('2026-10-16'), saturday],
+      at('2026-10-16', '08:00'),
+      at('2026-10-17', '12:00'),
+      TZ,
+    );
+    expect(r.errors).toEqual([]);
+    expect(r.totalDays).toBe(2);
+  });
+});
