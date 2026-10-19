@@ -43,15 +43,20 @@ function report(request: AssistantActionRequest, outcome: AssistantActionOutcome
   else queued.push(result);
 }
 
-function contextFor(request: AssistantActionRequest): AssistantActionContext {
-  let done = false;
+/** Trạng thái báo cáo của một lần mở form (một requestId), dùng chung cho mọi bản nháp gửi tiếp. */
+interface ReportState {
+  done: boolean;
+}
+
+function contextFor(request: AssistantActionRequest, state: ReportState): AssistantActionContext {
   return {
     requestId: request.requestId,
+    // Biến thể theo bản nháp mới nhất: Trợ lý có thể đổi loại đơn, quy trình ở lần sửa tiếp.
     ...(request.variant ? { variant: request.variant } : {}),
     report: (outcome, detail) => {
       // Mỗi lần mở form chỉ báo một kết quả; cập nhật bản nháp sau đó không mở lại báo cáo.
-      if (done) return;
-      done = true;
+      if (state.done) return;
+      state.done = true;
       report(request, outcome, detail);
     },
   };
@@ -96,14 +101,14 @@ export function useAssistantAction<TDraft = Record<string, unknown>>(
   const ref = useRef(open);
   ref.current = open;
   useEffect(() => {
-    const contexts = new Map<string, AssistantActionContext>();
+    const states = new Map<string, ReportState>();
     const handler: Handler = (request) => {
-      let context = contexts.get(request.requestId);
-      if (!context) {
-        context = contextFor(request);
-        contexts.set(request.requestId, context);
+      let state = states.get(request.requestId);
+      if (!state) {
+        state = { done: false };
+        states.set(request.requestId, state);
       }
-      ref.current(request.draft as Partial<TDraft>, context);
+      ref.current(request.draft as Partial<TDraft>, contextFor(request, state));
     };
     handlers.set(key, handler);
     if (pending?.key === key) {

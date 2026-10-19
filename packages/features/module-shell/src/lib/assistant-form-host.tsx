@@ -82,16 +82,18 @@ export function AssistantFormHost({ children }: AssistantFormHostProps) {
     };
     window.addEventListener('message', onMessage);
 
-    let frame = 0;
+    // Gộp các lần đổi liền nhau bằng hẹn giờ ngắn, không dùng requestAnimationFrame: ngăn chat đang ẩn (form nạp xong
+    // khi người dùng đã đóng ngăn) thì rAF dừng hẳn, card sẽ kẹt ở chiều cao cũ.
+    let timer: ReturnType<typeof setTimeout> | undefined;
     let last = -1;
     const measure = () => {
-      cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
         const height = contentHeight(root);
         if (height === last) return;
         last = height;
         post({ type: ASSISTANT_MESSAGE.formSize, requestId, height });
-      });
+      }, 16);
     };
     const resize = new ResizeObserver(measure);
     resize.observe(root);
@@ -105,7 +107,7 @@ export function AssistantFormHost({ children }: AssistantFormHostProps) {
       window.removeEventListener('message', onMessage);
       resize.disconnect();
       mutations.disconnect();
-      cancelAnimationFrame(frame);
+      clearTimeout(timer);
       clearTimeout(unhandled);
       setAssistantResultSink(undefined);
     };
