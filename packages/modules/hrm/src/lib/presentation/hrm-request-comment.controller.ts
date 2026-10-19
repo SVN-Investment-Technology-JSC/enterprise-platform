@@ -6,7 +6,9 @@ import { HrmApprovalPolicyService } from '../infrastructure/hrm-approval-policy.
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
 import {
   assertCanWrite,
+  assertThreadOpen,
   createComment,
+  isThreadClosed,
   listComments,
   loadRequestOwner,
   normalizeRequestKind,
