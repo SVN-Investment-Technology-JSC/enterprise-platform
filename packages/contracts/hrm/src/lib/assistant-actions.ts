@@ -9,15 +9,18 @@ import type {
   CreateOtRequestPayload,
 } from './contracts-hrm.js';
 
-/** Trang Đơn từ của tôi: popup tạo đơn của cả bốn thao tác nằm ở đây. */
+/**
+ * Trang Đơn từ của tôi, nơi có form tạo đơn của cả bốn thao tác. Card Trợ lý dựng chính form đó ở trang form nhúng
+ * `assistantFormPath(REQUESTS_PAGE)` = `/modules/hrm/assistant/form` của hrm-web.
+ */
 const REQUESTS_PAGE = '/modules/hrm/requests';
 
 const DESCRIPTION =
   'Mô tả thêm, văn bản tự do ngắn (tối đa 2000 ký tự). Bắt buộc khi lý do đã chọn yêu cầu mô tả.';
 
 /**
- * Thao tác Trợ lý của HRM: mở popup tạo đơn của trang Đơn từ với bản nháp điền sẵn; người dùng xem lại và gửi như khi
- * tự nhập. Người nộp đơn luôn là chính người hỏi (`employeeId` không nằm trong bản nháp).
+ * Thao tác Trợ lý của HRM: mở form tạo đơn của trang Đơn từ ngay trong card của khung chat, bản nháp điền sẵn; người
+ * dùng xem lại và gửi như khi tự nhập. Người nộp đơn luôn là chính người hỏi (`employeeId` không nằm trong bản nháp).
  */
 export const HRM_ASSISTANT_ACTIONS = defineAssistantActions('hrm', {
   createLeaveRequest: {
