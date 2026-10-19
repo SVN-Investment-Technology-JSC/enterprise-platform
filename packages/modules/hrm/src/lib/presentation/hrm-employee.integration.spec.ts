@@ -166,6 +166,7 @@ integration('HRM employee PostgreSQL integration', () => {
     await migrate('hrm/0034-hrm-request-project-links.sql');
     await migrate('hrm/0035-hrm-request-trip-links.sql');
     await migrate('hrm/0036-hrm-project-request-reversed.sql');
+    await migrate('hrm/0054-hrm-direct-fallback-position.sql');
     await migrate('hrm/0056-hrm-shift-soft-delete.sql');
     const ctx = {
       getContext: async () => ({ pool, tenantId, principal: { userId } }),
@@ -173,6 +174,12 @@ integration('HRM employee PostgreSQL integration', () => {
         pool,
         tenantId,
         principal: { userId },
+      }),
+      approverContext: async () => ({
+        pool,
+        tenantId,
+        principal: { userId },
+        employeeId: userId,
       }),
       has: () => true,
     };

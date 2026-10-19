@@ -74,6 +74,17 @@ integration('Đơn từ theo từ ngày giờ đến ngày giờ và loại đơ
         principal: who,
       }),
       getContext: async () => ({ pool, tenantId, principal: who }),
+      approverContext: async (
+        _req: Request,
+        _permission: string,
+        _kind: string,
+        _id: string,
+      ) => ({
+        pool,
+        tenantId,
+        principal: who,
+        employeeId,
+      }),
       resolveEmployee: async () => ({ employeeId }),
       procedureAvailable: async () => false,
     }) as any;

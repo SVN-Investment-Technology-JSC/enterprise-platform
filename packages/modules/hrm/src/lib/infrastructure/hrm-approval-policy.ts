@@ -406,6 +406,12 @@ export async function resolveDirectFallbackPosition(
     subTypeCode = row?.code ?? null;
   }
 
+  const colCheck = await db.query(
+    `SELECT 1 FROM information_schema.columns
+      WHERE table_schema = 'hrm_schema' AND table_name = 'request_procedure_bindings' AND column_name = 'fallback_position_id'`,
+  );
+  if (!colCheck.rows?.length) return null;
+
   const bindings = (
     await db.query(
       `SELECT sub_type_code, mode, fallback_position_id
