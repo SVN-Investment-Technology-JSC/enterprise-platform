@@ -316,14 +316,19 @@ export function SearchableSelect({
   }, [activeIndex]);
 
   const handleSelect = (optionValue: string) => {
+    const chosen = options.find((opt) => opt.value === optionValue);
+    if (chosen) {
+      selectedOptionLabelRef.current = chosen.label;
+    }
     onChange?.(optionValue);
     setIsOpen(false);
-    const chosen = options.find((opt) => opt.value === optionValue);
     setQuery(chosen ? chosen.label : '');
   };
 
   const handleClear = (e: React.MouseEvent) => {
+    e.preventDefault();
     e.stopPropagation();
+    selectedOptionLabelRef.current = '';
     onChange?.('');
     setQuery('');
     setIsOpen(false);
@@ -458,7 +463,9 @@ export function SearchableSelect({
             className={styles.toggleButton}
             tabIndex={-1}
             disabled={disabled}
-            onClick={() => {
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
               if (!disabled) {
                 setIsOpen((prev) => !prev);
                 if (!isOpen && !searchInDropdown) inputRef.current?.focus();
@@ -527,7 +534,12 @@ export function SearchableSelect({
                     className={`${styles.optionItem} ${isSelected ? styles.optionSelected : ''} ${
                       isActive ? styles.optionActive : ''
                     } ${opt.disabled ? styles.optionDisabled : ''}`}
+                    onMouseDown={(e) => {
+                      // Ngăn mất focus của ô nhập và ngăn trình duyệt kích hoạt lại form control nếu nằm trong thẻ <label>
+                      e.preventDefault();
+                    }}
                     onClick={(e) => {
+                      e.preventDefault();
                       e.stopPropagation();
                       if (!opt.disabled) handleSelect(opt.value);
                     }}

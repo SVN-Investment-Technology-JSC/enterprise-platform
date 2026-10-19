@@ -271,11 +271,11 @@ describe('ApprovalsScreen: chi tiết đơn', () => {
     mockActions = ['hrm.leave.approve'];
     setup({
       lists: { 'leave-requests': [leave] },
-      workflows: [{ id: 'w1', request_kind: 'LEAVE', request_id: 'l1', instance_code: 'PE-001', status: 'COMPLETED', last_error: '' }],
+      workflows: [{ id: 'w1', request_kind: 'LEAVE', request_id: 'l1', instance_id: 'inst-001', instance_code: 'PE-001', status: 'COMPLETED', last_error: '' }],
     });
     render(<ApprovalsScreen />);
     const panel = await openRow('l1');
-    expect(within(panel).getByRole('link', { name: /Xem quy trình/ }).getAttribute('href')).toBe('/modules/procedure-engine/instances');
+    expect(within(panel).getByRole('link', { name: /Xem quy trình/ }).getAttribute('href')).toBe('/modules/procedure#workspace/inst-001');
     expect(within(panel).queryByRole('button', { name: /Phê duyệt/ })).toBeNull();
   });
 
