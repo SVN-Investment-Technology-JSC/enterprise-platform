@@ -14,6 +14,11 @@
       "import": "./src/date-picker.ts",
       "default": "./src/date-picker.ts"
     },
+    "./type-scale.css": {
+      "style": "./src/lib/type-scale.css",
+      "import": "./src/lib/type-scale.css",
+      "default": "./src/lib/type-scale.css"
+    },
     "./package.json": "./package.json"
   },
   "nx": {

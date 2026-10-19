@@ -48,7 +48,7 @@ import {
   type MonitorKpi,
   type MonitorTone,
 } from '../attendance-monitor-model';
-import { buildCsv, downloadCsv } from '../hrm-csv';
+import { downloadXlsx } from '../hrm-xlsx';
 import { Button } from '../ui/button';
 import { DatePickerInput } from '../ui/date-picker-input';
 import { PageTitle } from '../ui/page-title';
@@ -200,7 +200,7 @@ export default function AttendanceMonitorScreen() {
         ? kpiRows(rows, kpi).map((row) => ({
           id: row.employeeId,
           title: row.employeeName,
-          subtitle: [row.departmentName, row.shiftName].filter(Boolean).join(' · ') || row.employeeCode,
+          subtitle: row.departmentName || row.employeeCode,
           trailing: statusText(row),
           onSelect: () => {
             setKpi(null);
@@ -211,7 +211,7 @@ export default function AttendanceMonitorScreen() {
     [kpi, rows],
   );
   const exportCsv = () =>
-    downloadCsv(`giam-sat-cham-cong-${date}.csv`, buildCsv(monitorCsvRows(attention)));
+    downloadXlsx(`giam-sat-cham-cong-${date}`, monitorCsvRows(attention), 'Giam sat cham cong');
 
   const statusOptions = (Object.keys(MONITOR_STATUS) as HrmMonitorStatus[])
     .filter((s) => MONITOR_TABS[0].statuses.includes(s))
@@ -333,7 +333,7 @@ export default function AttendanceMonitorScreen() {
         />
       </section>
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_520px]">
         <section className={`${CARD} p-4`} aria-label="Danh sách cần theo dõi">
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div>
@@ -496,16 +496,16 @@ export default function AttendanceMonitorScreen() {
             {requests.length === 0 ? (
               <p className="mt-4 text-sm text-slate-500">Không có đơn từ nào liên quan tới ngày này.</p>
             ) : (
-              <ul className="mt-3 divide-y divide-slate-100">
-                {requests.slice(0, 6).map((request) => (
+              <ul className="mt-3 max-h-[440px] divide-y divide-slate-100 overflow-y-auto pr-1">
+                {requests.map((request) => (
                   <li key={request.key} className="flex items-center justify-between gap-3 py-2.5">
                     <div className="flex min-w-0 items-center gap-2.5">
                       <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[12px] font-bold text-slate-600">
                         {initialsOf(request.employeeName)}
                       </span>
                       <div className="min-w-0">
-                        <p className="truncate text-[14px] font-semibold text-slate-900">{request.employeeName}</p>
-                        <p className="truncate text-[12px] text-slate-500">{request.departmentName || '----'}</p>
+                        <p className="text-[14px] font-semibold text-slate-900">{request.employeeName}</p>
+                        <p className="text-[12px] text-slate-500">{request.departmentName || '----'}</p>
                       </div>
                     </div>
                     <div className="flex shrink-0 flex-col items-end gap-1">
@@ -516,9 +516,6 @@ export default function AttendanceMonitorScreen() {
                 ))}
               </ul>
             )}
-            {requests.length > 6 ? (
-              <p className="mt-2 text-xs text-slate-500">và {requests.length - 6} đơn khác</p>
-            ) : null}
           </section>
 
           <section className={`${CARD} p-4`} aria-label="Tình hình theo phòng ban">
@@ -527,15 +524,15 @@ export default function AttendanceMonitorScreen() {
               <p className="mt-4 text-sm text-slate-500">Chưa có dữ liệu phòng ban cho ngày này.</p>
             ) : (
               <div className="mt-3">
-                <div className="grid grid-cols-[minmax(0,1fr)_120px_52px] gap-2 text-[12px] font-semibold text-slate-500">
+                <div className="grid grid-cols-[minmax(0,1fr)_170px_52px] gap-2 text-[12px] font-semibold text-slate-500">
                   <span>Phòng ban</span>
                   <span>Đã vào ca / Tổng</span>
                   <span className="text-right">Tỷ lệ</span>
                 </div>
-                <ul className="mt-1 divide-y divide-slate-100">
-                  {departments.slice(0, 8).map((dept) => (
-                    <li key={dept.name} className="grid grid-cols-[minmax(0,1fr)_120px_52px] items-center gap-2 py-2 text-[13px]">
-                      <span className="truncate text-slate-800" title={dept.name}>{dept.name}</span>
+                <ul className="mt-1 max-h-[440px] divide-y divide-slate-100 overflow-y-auto pr-1">
+                  {departments.map((dept) => (
+                    <li key={dept.name} className="grid grid-cols-[minmax(0,1fr)_170px_52px] items-center gap-2 py-2 text-[13px]">
+                      <span className="break-words text-slate-800" title={dept.name}>{dept.name}</span>
                       <span className="flex items-center gap-2">
                         <span className="h-2 flex-1 overflow-hidden rounded-full bg-slate-100">
                           <span

@@ -87,6 +87,11 @@ export const TENANT_CORE_MIGRATIONS: readonly TenantModuleMigration[] = [
     version: '0011-module-access-from-actions',
     path: 'tenant/core/0011-module-access-from-actions.sql',
   },
+  {
+    // Thay hàm trigger của 0005-tenant-rbac; cần outbox của tenant/0001-integration.
+    version: '0012-authorization-changed-event',
+    path: 'tenant/core/0012-authorization-changed-event.sql',
+  },
 ];
 
 export const TENANT_MODULE_MIGRATIONS: Readonly<
@@ -367,6 +372,14 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       path: 'tenant/hrm/0063-hrm-leave-adjustment-actor-required.sql',
     },
     {
+      version: '0064-hrm-request-quota-settings',
+      path: 'tenant/hrm/0064-hrm-request-quota-settings.sql',
+    },
+    {
+      version: '0065-hrm-attendance-source-auto',
+      path: 'tenant/hrm/0065-hrm-attendance-source-auto.sql',
+    },
+    {
       version: '0021-notification-outbox-v1',
       path: 'tenant/hrm/0021-notification-outbox-v1.sql',
     },
@@ -577,6 +590,18 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     {
       version: '0022-workspace-fleet-transport',
       path: 'tenant/workspace/0022-workspace-fleet-transport.sql',
+    },
+    {
+      version: '0023-workspace-customers-contracts',
+      path: 'tenant/workspace/0023-workspace-customers-contracts.sql',
+    },
+    {
+      version: '0024-workspace-document-audience',
+      path: 'tenant/workspace/0024-workspace-document-audience.sql',
+    },
+    {
+      version: '0025-workspace-contract-project',
+      path: 'tenant/workspace/0025-workspace-contract-project.sql',
     },
   ],
   // Hệ dùng chung: phần đầu là Tài liệu công ty (kho tách khỏi tài liệu dự án).

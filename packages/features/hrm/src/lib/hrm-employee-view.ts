@@ -1,4 +1,5 @@
 import type { HrmEmployeeProfile } from '@enterprise-platform/contracts-hrm';
+import * as XLSX from 'xlsx';
 
 /** Nhãn hiển thị khi API ẩn trường nhạy cảm (CCCD, MST, BHXH, tài khoản ngân hàng). */
 export const SENSITIVE_HIDDEN_LABEL = 'Ẩn';
@@ -106,6 +107,45 @@ export function buildEmployeesCsv(
     ),
   ];
   return lines.join('\r\n');
+}
+
+const dmy = (value: unknown): string => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(value ?? ''));
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : '';
+};
+
+/**
+ * Xuất danh sách nhân sự ra tệp Excel (.xlsx): mỗi nhân viên một dòng, mỗi thông tin một cột có tiêu đề và độ rộng riêng
+ * (CSV dễ bị Excel dồn vào một cột khi máy dùng dấu phân cách khác dấu phẩy). Cột và nhãn trạng thái dùng chung với bảng.
+ */
+export function downloadEmployeesXlsx(
+  rows: readonly HrmEmployeeProfile[],
+  statusLabels: Record<string, string>,
+  fileName: string,
+): void {
+  const header = ['STT', ...EMPLOYEE_CSV_HEADERS];
+  const body = rows.map((emp, index) => [
+    index + 1,
+    emp.employeeCode ?? '',
+    emp.fullName ?? '',
+    emp.email || emp.personalEmail || '',
+    emp.position ?? '',
+    emp.department ?? '',
+    dmy(emp.joinDate),
+    statusLabels[emp.employmentStatus] ?? emp.employmentStatus ?? '',
+  ]);
+  const ws = XLSX.utils.aoa_to_sheet([header, ...body]);
+  const all = [header, ...body];
+  ws['!cols'] = header.map((_, col) => ({
+    wch: Math.min(
+      45,
+      Math.max(...all.map((row) => String(row[col] ?? '').length), 6) + 2,
+    ),
+  }));
+  ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: body.length, c: header.length - 1 } }) };
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Danh sach nhan vien');
+  XLSX.writeFile(wb, fileName);
 }
 
 /** Tải tệp CSV ở phía trình duyệt (UTF-8 có BOM để Excel đọc đúng tiếng Việt). */

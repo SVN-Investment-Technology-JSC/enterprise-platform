@@ -23,6 +23,7 @@
     ]
   },
   "dependencies": {
+    "@enterprise-platform/contracts-assistant": "workspace:*",
     "tslib": "^2.3.0"
   }
 }

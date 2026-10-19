@@ -1,3 +1,4 @@
+import { assertQuotaOnApprove } from './hrm-request-quota.js';
 import {
   BadRequestException,
   ConflictException,
@@ -418,6 +419,7 @@ export async function approveOvertime(
   if (ot.status !== 'PENDING')
     throw new ConflictException('Đơn OT không còn chờ duyệt');
   await lockEmployee(db, tenant, ot.employee_id);
+  await assertQuotaOnApprove(db, tenant, 'ot', ot);
   const rule = await validateOt(
     db,
     tenant,

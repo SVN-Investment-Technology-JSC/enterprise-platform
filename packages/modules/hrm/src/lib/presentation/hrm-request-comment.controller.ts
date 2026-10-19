@@ -1,11 +1,14 @@
-import { Body, Controller, Get, Post, Query, Req } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query, Req, UseInterceptors } from '@nestjs/common';
 import type { Request } from 'express';
+import { HrmMissingSchemaInterceptor } from '../infrastructure/hrm-missing-schema.interceptor.js';
 import { RequirePermission } from '../infrastructure/hrm-access.guard.js';
 import { HrmApprovalPolicyService } from '../infrastructure/hrm-approval-policy.js';
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
 import {
   assertCanWrite,
+  assertThreadOpen,
   createComment,
+  isThreadClosed,
   listComments,
   loadRequestOwner,
   normalizeRequestKind,
@@ -23,6 +26,7 @@ const DECISIONS = ['APPROVE', 'REJECT', 'RETURN', 'COMPLETE'];
  * Trao đổi và ý kiến phê duyệt trên đơn từ (mọi loại đơn). Ai được đọc và viết do `resolveThreadAccess` quyết định:
  * chủ đơn, người xem được mọi đơn, người duyệt trong phạm vi cấp dưới, và người đã được nhắc tên trong luồng.
  */
+@UseInterceptors(HrmMissingSchemaInterceptor)
 @Controller('v1')
 export class HrmRequestCommentController {
   constructor(
@@ -54,7 +58,10 @@ export class HrmRequestCommentController {
   @Get('request-comments')
   async list(@Req() req: Request, @Query('kind') kind?: string, @Query('requestId') requestId?: string) {
     const c = await this.access(req, kind, requestId);
-    return { data: await listComments(c.pool, c.tenantId, c.kind, c.requestId, c.principal.userId) };
+    return {
+      data: await listComments(c.pool, c.tenantId, c.kind, c.requestId, c.principal.userId),
+      closed: isThreadClosed(c.owner.status),
+    };
   }
 
   @RequirePermission('hrm.self.read')
@@ -86,6 +93,7 @@ export class HrmRequestCommentController {
     // Ý kiến kèm quyết định chỉ do người có quyền xử lý đơn ghi, không phải người tham gia thường.
     if (commentKind === 'DECISION' && (!decision || !DECISIONS.includes(decision) || c.access === 'PARTICIPANT'))
       assertCanWrite(null);
+    assertThreadOpen(c.owner.status, commentKind);
     const me = await this.ctx.resolveEmployee(c.pool, c.tenantId, c.principal.userId).catch(() => null);
     const created = await hrmTransaction(c.pool, async (db) => {
       const mentions = await validMentions(db, c.tenantId, c.principal.userId, body?.mentionUserIds);

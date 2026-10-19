@@ -145,13 +145,14 @@ export async function calculateTimesheet(
           ? 'OFF'
           : scheduledKind;
       const events = await db.query(
-        `SELECT id,event_kind,occurred_at FROM hrm_schema.attendance_events WHERE tenant_id=$1 AND employee_id=$2 AND work_date=$3 AND voided_by_correction_id IS NULL ORDER BY occurred_at,id`,
+        `SELECT id,event_kind,occurred_at,source FROM hrm_schema.attendance_events WHERE tenant_id=$1 AND employee_id=$2 AND work_date=$3 AND voided_by_correction_id IS NULL ORDER BY occurred_at,id`,
         [tenant, employee.employee_id, day.date],
       );
       const punches = events.rows.map((e) => ({
         id: e.id,
         kind: e.event_kind,
         at: isoTime(e.occurred_at)!,
+        auto: e.source === 'AUTO',
       }));
       // Cửa sổ ca lỗi không làm hỏng cả kỳ: ngày đó thành bất thường INVALID_SHIFT để xử lý riêng.
       let invalidShift = false;
@@ -250,6 +251,7 @@ export async function calculateTimesheet(
         leaves: leaveInputs,
         trips: tripInputs,
         hasOt: ots.rows.length > 0,
+        autoOnly: punches.length > 0 && punches.every((p) => p.auto),
       });
       const leaveMinutes = leaves.rows.reduce(
         (sum, r) => sum + Number(r.paid_minutes),

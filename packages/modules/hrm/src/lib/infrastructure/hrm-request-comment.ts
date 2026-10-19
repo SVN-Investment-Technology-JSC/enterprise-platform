@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { createIntegrationEvent } from '@enterprise-platform/contracts-integration';
 import type { HrmRequestKind } from '@enterprise-platform/contracts-hrm';
 import { HRM_APPROVAL_PERMISSIONS } from './hrm-approval-notification.js';
-import { assignedRequestIds, type Queryable } from './hrm-approval-policy.js';
+import { assignedRequestIds, participatesInProcedureOfRequest, type Queryable } from './hrm-approval-policy.js';
 import { HRM_REQUEST_TABLES } from './hrm-procedure-links.js';
+import { directApproverUserIds } from './hrm-direct-approvers.js';
 
 export const MAX_COMMENT_LENGTH = 4000;
 export const MAX_MENTIONS = 20;
@@ -65,6 +66,29 @@ export interface RequestOwner {
   readonly employeeId: string;
   readonly employeeName: string;
   readonly userId: string | null;
+  /** Trạng thái hiện tại của đơn; thiếu thì coi như đơn còn mở. */
+  readonly status?: string;
+}
+
+/** Đơn đã huỷ/rút: luồng trao đổi đóng hẳn. */
+const THREAD_CLOSED = new Set(['CANCELLED']);
+/** Đơn đã có kết quả cuối: chỉ còn ý kiến kèm quyết định (ghi ngay sau khi duyệt), không trao đổi thêm. */
+const THREAD_FINALIZED = new Set(['APPROVED', 'REJECTED', 'DISBURSED', 'REPAID']);
+
+/** Luồng trao đổi chỉ đọc khi đơn đã huỷ/rút hoặc đã hoàn tất xử lý. */
+export function isThreadClosed(status: string | undefined): boolean {
+  return status !== undefined && (THREAD_CLOSED.has(status) || THREAD_FINALIZED.has(status));
+}
+
+export function assertThreadOpen(status: string | undefined, commentKind: 'COMMENT' | 'DECISION'): void {
+  if (status === undefined) return;
+  if (THREAD_CLOSED.has(status) || (THREAD_FINALIZED.has(status) && commentKind !== 'DECISION'))
+    throw new ConflictException({
+      code: 'HRM_COMMENT_CLOSED',
+      message: THREAD_CLOSED.has(status)
+        ? 'Đơn đã huỷ hoặc rút nên không thể trao đổi thêm.'
+        : 'Đơn đã hoàn tất xử lý nên không thể trao đổi thêm.',
+    });
 }
 
 /** Chủ đơn: nhân viên của đơn và tài khoản đăng nhập của họ. */
@@ -76,16 +100,16 @@ export async function loadRequestOwner(
 ): Promise<RequestOwner> {
   const table = HRM_REQUEST_TABLES[kind];
   const found = await db.query(
-    `SELECT r.employee_id, e.user_id, e.full_name
+    `SELECT r.employee_id, r.status, e.user_id, e.full_name
        FROM hrm_schema.${table} r
        JOIN core_schema.employees e ON e.tenant_id = r.tenant_id AND e.id = r.employee_id
       WHERE r.tenant_id = $1 AND r.id = $2`,
     [tenantId, requestId],
   );
-  const row = found.rows[0] as { employee_id: string; user_id: string | null; full_name: string } | undefined;
+  const row = found.rows[0] as { employee_id: string; status?: string; user_id: string | null; full_name: string } | undefined;
   if (!row)
     throw new NotFoundException({ code: 'HRM_REQUEST_NOT_FOUND', message: 'Không tìm thấy đơn.' });
-  return { employeeId: row.employee_id, employeeName: row.full_name, userId: row.user_id };
+  return { employeeId: row.employee_id, employeeName: row.full_name, userId: row.user_id, ...(row.status ? { status: row.status } : {}) };
 }
 
 /** Quyền xem toàn bộ đơn của tenant (không giới hạn phạm vi cấp dưới). */
@@ -131,6 +155,8 @@ export async function resolveThreadAccess(
   } catch {
     // Bỏ qua lỗi kết nối Procedure Engine hoặc fallback để tiếp tục kiểm tra mention
   }
+  // Người đã/sắp xử lý hoặc được uỷ quyền trong quy trình của đơn (chưa tới lượt) vẫn cùng trao đổi.
+  if (await participatesInProcedureOfRequest(db, tenantId, kind, requestId, actor.userId)) return 'PARTICIPANT';
   const mentioned = await db.query(
     `SELECT 1 FROM hrm_schema.request_comments
       WHERE tenant_id=$1 AND request_kind=$2 AND request_id=$3 AND deleted_at IS NULL AND $4::uuid = ANY(mention_user_ids) LIMIT 1`,
@@ -167,14 +193,30 @@ export async function listComments(
   requestId: string,
   viewerUserId: string,
 ) {
-  const res = await db.query(
-    `SELECT id, request_kind, request_id, author_user_id, author_name, kind, decision, body, mention_user_ids, attachments, created_at
-       FROM hrm_schema.request_comments
-      WHERE tenant_id=$1 AND request_kind=$2 AND request_id=$3 AND deleted_at IS NULL
-      ORDER BY created_at, id`,
-    [tenantId, kind, requestId],
-  );
-  const rows = res.rows as CommentRow[];
+  let rows: CommentRow[];
+  try {
+    const res = await db.query(
+      `SELECT id, request_kind, request_id, author_user_id, author_name, kind, decision, body, mention_user_ids, attachments, created_at
+         FROM hrm_schema.request_comments
+        WHERE tenant_id=$1 AND request_kind=$2 AND request_id=$3 AND deleted_at IS NULL
+        ORDER BY created_at, id`,
+      [tenantId, kind, requestId],
+    );
+    rows = res.rows as CommentRow[];
+  } catch (err) {
+    if ((err as { code?: string })?.code === '42703') {
+      const res = await db.query(
+        `SELECT id, request_kind, request_id, author_user_id, author_name, kind, decision, body, mention_user_ids, created_at
+           FROM hrm_schema.request_comments
+          WHERE tenant_id=$1 AND request_kind=$2 AND request_id=$3 AND deleted_at IS NULL
+          ORDER BY created_at, id`,
+        [tenantId, kind, requestId],
+      );
+      rows = res.rows as CommentRow[];
+    } else {
+      throw err;
+    }
+  }
   const ids = [...new Set(rows.flatMap((r) => r.mention_user_ids ?? []))];
   const names = new Map<string, string>();
   if (ids.length) {
@@ -346,6 +388,8 @@ export async function createComment(db: Queryable, input: CreateCommentInput) {
   }
   // Người duyệt: báo khi chủ đơn trả lời để người duyệt thấy phản hồi.
   if (input.owner.userId && input.owner.userId === input.actor.userId) {
+    // Quản lý trực tiếp và người dự phòng có thể không giữ quyền duyệt HRM nên được báo thẳng, không chỉ theo quyền.
+    const assigned = await directApproverUserIds(db, input.tenantId, input.kind, input.requestId, input.owner.employeeId);
     await insertEvent(
       db,
       createIntegrationEvent({
@@ -356,6 +400,7 @@ export async function createComment(db: Queryable, input: CreateCommentInput) {
         payload: {
           ...common,
           approvalPermissions: [HRM_APPROVAL_PERMISSIONS[input.kind], 'hrm.manage'],
+          recipientUserIds: assigned.filter((userId) => userId !== input.actor.userId),
           deepLink: approvalsLink,
         },
       }),

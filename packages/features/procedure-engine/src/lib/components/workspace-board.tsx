@@ -29,25 +29,10 @@ import {
   SearchableSelect,
   formatDateTime as formatSharedDateTime,
 } from '@enterprise-platform/shared-ui';
-import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, ChevronLeft, ChevronRight, Download, FileText, Plus, Search, X } from 'lucide-react';
 import type { AssetCatalogItem, MaterialCatalogItem } from '../procedure-api';
-import {
-  loadProjectPeople,
-  loadProjectWorkItems,
-  loadRelatedProjects,
-  procedureNameFor,
-  WORK_ITEM_PRIORITY_OPTIONS,
-  WORK_ITEM_TYPE_OPTIONS,
-  type ProjectPerson,
-  type ProjectWorkItemInput,
-  type ProjectWorkItemOption,
-  type RelatedProject,
-  type WorkItemPriority,
-  type WorkItemType,
-} from '../workspace-api';
 import { AttachmentPanel } from './attachment-panel';
 import { AttributeForm, attributeSlots, type AttributeDraft } from './attribute-form';
 import {
@@ -63,25 +48,11 @@ import financeStyles from './finance-voucher-card.module.scss';
 import { HistoryPanel } from './history-panel';
 import { LinkedPanel } from './linked-panel';
 import { SlaBadge } from './sla-badge';
+import { StartInstanceForm, type StartHandoff, type StartProcedureInput } from './start-instance-form';
 import { SubtaskPanel } from './subtask-panel';
 import styles from './workspace-board.module.scss';
 
 type Filter = 'all' | 'urgent' | ProcedureInstance['status'];
-
-interface StartProcedureInput {
-  title: string;
-  startDueAt: string;
-  endDueAt: string;
-  isHourlyScheduling: boolean;
-  /** Gắn dự án: đơn này là một công việc mới của dự án bên Workspace. */
-  workItem?: ProjectWorkItemInput & { readonly projectCode: string };
-}
-
-function toIsoDateTime(date: string, time: string): string | undefined {
-  if (!date || !time) return undefined;
-  const value = new Date(`${date}T${time}:00`);
-  return Number.isNaN(value.getTime()) ? undefined : value.toISOString();
-}
 
 const STATUS_LABEL: Record<ProcedureInstance['status'], string> = {
   running: 'Đang xử lý',
@@ -109,27 +80,6 @@ const ACTION_LABEL: Record<ProcedureRuntimeAction, string> = {
   cancel: 'Huỷ hồ sơ',
   comment: 'Ghi nhận trao đổi',
 };
-
-/** Nội dung điền sẵn vào form tạo đơn khi module/hồ sơ khác chuyển sang. */
-export interface StartHandoff {
-  readonly definitionId?: string;
-  readonly startDueAt?: string;
-  readonly endDueAt?: string;
-  readonly projectId?: string;
-  /** Dòng giải thích hiện trên form, ví dụ "Hồ sơ điều chỉnh cho QT-001". */
-  readonly note?: string;
-}
-
-function splitLocalDateTime(iso?: string): { date: string; time: string } | undefined {
-  if (!iso) return undefined;
-  const value = new Date(iso);
-  if (Number.isNaN(value.getTime())) return undefined;
-  const pad = (part: number) => String(part).padStart(2, '0');
-  return {
-    date: `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}`,
-    time: `${pad(value.getHours())}:${pad(value.getMinutes())}`,
-  };
-}
 
 const ROLE_ORDER: readonly ProcedureRaciRole[] = ['S', 'R', 'E', 'C', 'A', 'I'];
 
@@ -366,169 +316,16 @@ export function WorkspaceBoard({
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(15);
   const [creating, setCreating] = useState(false);
-  const [selectedCreateDefId, setSelectedCreateDefId] = useState<string>();
-  const [jobTitle, setJobTitle] = useState('');
-  const [startTime, setStartTime] = useState('07:30');
-  const [startDate, setStartDate] = useState(() => {
-    const d = new Date();
-    return d.toISOString().split('T')[0];
-  });
-  const [endTime, setEndTime] = useState('17:00');
-  const [endDate, setEndDate] = useState(() => {
-    const d = new Date();
-    return d.toISOString().split('T')[0];
-  });
   const [attachQueue, setAttachQueue] = useState<File[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Dự án liên quan: chọn một dự án Workspace thì đơn này thành công việc mới
-  // của dự án đó, kèm các trường của form tạo công việc bên Workspace.
-  const [relatedProjects, setRelatedProjects] = useState<RelatedProject[]>();
-  const [projectId, setProjectId] = useState('');
-  const [projectPeople, setProjectPeople] = useState<ProjectPerson[]>([]);
-  const [projectWorkItems, setProjectWorkItems] = useState<ProjectWorkItemOption[]>([]);
-  const [itemParentId, setItemParentId] = useState('');
-  const [itemSubmitter, setItemSubmitter] = useState('');
-  const [itemDescription, setItemDescription] = useState('');
-  const [itemPriority, setItemPriority] = useState<WorkItemPriority>('normal');
-  const [itemAssignee, setItemAssignee] = useState('');
-  const [itemHours, setItemHours] = useState('');
-  const [itemType, setItemType] = useState<WorkItemType>('task');
-  const project = relatedProjects?.find((item) => item.id === projectId);
-
+  // Nội dung do module hoặc hồ sơ khác chuyển sang: mở form tạo đơn, form tự điền theo `handoff`.
   useEffect(() => {
-    if (!creating || relatedProjects) return;
-    void loadRelatedProjects().then(setRelatedProjects);
-  }, [creating, relatedProjects]);
-
-  useEffect(() => {
-    setItemAssignee('');
-    setProjectPeople([]);
-    setProjectWorkItems([]);
-    setItemParentId('');
-    setItemSubmitter('');
-    if (!projectId) return;
-    let cancelled = false;
-    void loadProjectPeople(projectId)
-      .then((people) => {
-        if (!cancelled) setProjectPeople(people);
-      })
-      .catch(() => undefined);
-    void loadProjectWorkItems(projectId)
-      .then((items) => {
-        if (!cancelled) setProjectWorkItems(items);
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, [projectId]);
-
-  // Đóng form thì bỏ lựa chọn dự án, lần mở sau nạp lại danh sách cho tươi.
-  useEffect(() => {
-    if (creating) return;
-    setRelatedProjects(undefined);
-    setProjectId('');
-    setItemDescription('');
-    setItemPriority('normal');
-    setItemHours('');
-    setItemType('task');
-  }, [creating]);
-
-  const assigneeOptions = useMemo(
-    () =>
-      projectPeople
-        // `member` chỉ tự nhận việc cho mình; giao người khác cần `manager`.
-        .filter((person) => project?.canAssignOthers || person.userId === actorId)
-        .map((person) => ({
-          value: person.userId,
-          // Danh bạ thiếu tên (tenant chưa có cơ cấu) thì ít nhất chính mình
-          // vẫn hiện bằng tên, không phải id.
-          label:
-            person.userId === actorId && person.displayName === person.userId && actorName
-              ? actorName
-              : person.displayName,
-        })),
-    [projectPeople, project, actorId, actorName],
-  );
-  // "Công việc cha": mặc định "Gốc dự án" (value rỗng), rồi tới cây công việc.
-  const parentOptions = useMemo(
-    () => [
-      { value: '', label: 'Gốc dự án' },
-      ...projectWorkItems.map((item) => ({
-        value: item.id,
-        // Thụt theo độ sâu để thấy cấu trúc cây trong danh sách phẳng.
-        label: `${'— '.repeat(Math.min(item.depth, 6))}${item.code} · ${item.title}`,
-      })),
-    ],
-    [projectWorkItems],
-  );
-  const submitterOptions = useMemo(
-    () =>
-      projectPeople.map((person) => ({
-        value: person.userId,
-        label:
-          person.userId === actorId && person.displayName === person.userId && actorName
-            ? actorName
-            : person.displayName,
-      })),
-    [projectPeople, actorId, actorName],
-  );
-  const hoursValue = itemHours.trim() ? Number(itemHours) : undefined;
-  const isHoursInvalid = hoursValue !== undefined && !(hoursValue > 0);
-  const startDueAt = useMemo(
-    () => toIsoDateTime(startDate, startTime),
-    [startDate, startTime],
-  );
-  const endDueAt = useMemo(
-    () => toIsoDateTime(endDate, endTime),
-    [endDate, endTime],
-  );
-  const hasValidStartDate = Boolean(startDate);
-  const hasValidEndDate = Boolean(endDate);
-  const isScheduleInvalid =
-    !hasValidStartDate ||
-    !hasValidEndDate ||
-    !startDueAt ||
-    !endDueAt ||
-    Date.parse(endDueAt) <= Date.parse(startDueAt);
-  const scheduleErrorMessage =
-    !hasValidStartDate || !hasValidEndDate
-      ? 'Chọn ngày bắt đầu và ngày kết thúc.'
-      : 'Thời gian kết thúc phải sau thời gian bắt đầu.';
-
-  useEffect(() => {
-    if (handoffTitle && canCreateInstances) {
-      setCreating(true);
-      setJobTitle(handoffTitle);
-      if (handoff?.definitionId) setSelectedCreateDefId(handoff.definitionId);
-      if (handoff?.projectId) setProjectId(handoff.projectId);
-      const start = splitLocalDateTime(handoff?.startDueAt);
-      const end = splitLocalDateTime(handoff?.endDueAt);
-      if (start && end) {
-        setStartDate(start.date);
-        setStartTime(start.time);
-        setEndDate(end.date);
-        setEndTime(end.time);
-      }
-    }
+    if (handoffTitle && canCreateInstances) setCreating(true);
   }, [handoffTitle, handoff, canCreateInstances]);
 
   const published = definitions.filter((item) => item.status === 'published');
   const roleLabels = useMemo(() => subjectRoleLabels(organization), [organization]);
-
-  const selectedCreateDef = useMemo(() => {
-    return published.find((d) => d.id === selectedCreateDefId);
-  }, [published, selectedCreateDefId]);
-
-  const procedureSelectOptions = useMemo(() => {
-    return published.map((def) => ({
-      value: def.id,
-      label: `${def.name} (${def.code})`,
-      description: def.description || `Mã quy trình: ${def.code}`,
-      badge: def.code,
-    }));
-  }, [published]);
 
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -755,317 +552,21 @@ export function WorkspaceBoard({
     <section className={styles.workspace}>
       {headSlot ? createPortal(headActions, headSlot) : <div className={styles.topBar}>{headActions}</div>}
 
-      {creating && canCreateInstances ? (
-        <MinimalPopupForm
-          isOpen={creating}
-          title="Tạo Đơn / Yêu cầu Mới"
-          subtitle="Khởi tạo phiếu công việc / yêu cầu xử lý theo quy trình vận hành"
+      {canCreateInstances ? (
+        <StartInstanceForm
+          open={creating}
           onClose={() => setCreating(false)}
-          maxWidth={640}
-        >
-          <form
-            className={styles.createFormBody}
-            onSubmit={(event) => {
-              event.preventDefault();
-              if (
-                !selectedCreateDef ||
-                !jobTitle.trim() ||
-                !startDueAt ||
-                !endDueAt ||
-                isScheduleInvalid
-              ) return;
-              if (project && isHoursInvalid) return;
-              void onStart(selectedCreateDef, {
-                title: jobTitle,
-                startDueAt,
-                endDueAt,
-                isHourlyScheduling: true,
-                workItem: project
-                  ? {
-                      projectId: project.id,
-                      projectCode: project.code,
-                      itemType,
-                      description: itemDescription.trim() || undefined,
-                      priority: itemPriority,
-                      assigneeUserId: itemAssignee || undefined,
-                      // Lịch dự kiến của công việc theo đúng lịch của đơn.
-                      plannedStart: startDate,
-                      plannedEnd: endDate,
-                      estimateHours: hoursValue,
-                      parentId: itemParentId || undefined,
-                      submitterUserId: itemSubmitter || undefined,
-                    }
-                  : undefined,
-              }).then(() => setCreating(false));
-            }}
-          >
-            {handoff?.note ? (
-              <p className={styles.reversalNote}>{handoff.note}</p>
-            ) : null}
-
-            {/* Tên công việc * */}
-            <div className={styles.createFieldGroup}>
-              <label className={styles.createFieldLabel} htmlFor="create-request-title">
-                Tên công việc <span className={styles.createRequiredStar}>*</span>
-              </label>
-              <input
-                id="create-request-title"
-                type="text"
-                className={styles.createTextInput}
-                placeholder="Tiêu đề hồ sơ"
-                value={jobTitle}
-                onChange={(e) => setJobTitle(e.target.value)}
-                autoFocus
-              />
-            </div>
-
-            {/* Áp dụng quy trình * */}
-            <div className={styles.createFieldGroup}>
-              <label className={styles.createFieldLabel}>
-                Áp dụng quy trình <span className={styles.createRequiredStar}>*</span>
-              </label>
-              <SearchableSelect
-                options={procedureSelectOptions}
-                value={selectedCreateDef?.id ?? ''}
-                placeholder="Tìm mã hoặc tên quy trình áp dụng…"
-                clearable
-                onChange={(val) => {
-                  if (!val) {
-                    setSelectedCreateDefId(undefined);
-                    return;
-                  }
-                  const found = published.find((d) => d.id === val);
-                  if (found) {
-                    setSelectedCreateDefId(found.id);
-                    if (!jobTitle.trim()) {
-                      setJobTitle(found.name);
-                    }
-                  }
-                }}
-              />
-            </div>
-
-            {/* Dự án liên quan */}
-            <div className={styles.createFieldGroup}>
-              <label className={styles.createFieldLabel}>Dự án liên quan</label>
-              <SearchableSelect
-                options={(relatedProjects ?? []).map((item) => ({
-                  value: item.id,
-                  label: `${item.code} - ${item.name}`,
-                }))}
-                value={projectId}
-                placeholder={
-                  relatedProjects === undefined ? 'Đang tải danh sách dự án…' : 'Không gắn dự án'
-                }
-                emptyText="Bạn chưa tham gia dự án nào bên Workspace"
-                clearable
-                onChange={setProjectId}
-              />
-              <p className={styles.createFormHint}>
-                {project
-                  ? `Tạo kèm công việc “${jobTitle.trim() || 'Tên công việc'}” trong dự án ${project.code}. Tên hồ sơ sẽ là “${procedureNameFor(project.code, 'CVxxx', jobTitle.trim() || 'Tên công việc')}”, với CVxxx là mã công việc tự sinh.`
-                  : 'Chọn dự án để đơn này trở thành một công việc mới trong dự án đó.'}
-              </p>
-            </div>
-
-            {project ? (
-              <>
-                <div className={styles.createTimeDateGrid}>
-                  <div className={styles.createFieldGroup}>
-                    <label className={styles.createFieldLabel}>Công việc cha</label>
-                    <SearchableSelect
-                      options={parentOptions}
-                      value={itemParentId}
-                      clearable={false}
-                      placeholder={
-                        projectWorkItems.length === 0 ? 'Gốc dự án' : 'Tìm công việc cha…'
-                      }
-                      emptyText="Dự án chưa có công việc nào"
-                      onChange={(value) => setItemParentId(value || '')}
-                    />
-                  </div>
-                  <div className={styles.createFieldGroup}>
-                    <label className={styles.createFieldLabel}>Người Submit</label>
-                    <SearchableSelect
-                      options={submitterOptions}
-                      value={itemSubmitter}
-                      placeholder="Chọn người submit"
-                      emptyText="Dự án chưa có người tham gia"
-                      onChange={setItemSubmitter}
-                    />
-                  </div>
-                </div>
-
-                <div className={styles.createFieldGroup}>
-                  <label className={styles.createFieldLabel} htmlFor="create-item-description">
-                    Mô tả công việc
-                  </label>
-                  <textarea
-                    id="create-item-description"
-                    className={styles.createTextInput}
-                    rows={3}
-                    value={itemDescription}
-                    onChange={(event) => setItemDescription(event.target.value)}
-                  />
-                </div>
-
-                <div className={styles.createTimeDateGrid}>
-                  <div className={styles.createFieldGroup}>
-                    <label className={styles.createFieldLabel}>Loại</label>
-                    <SearchableSelect
-                      options={WORK_ITEM_TYPE_OPTIONS}
-                      value={itemType}
-                      clearable={false}
-                      onChange={(value) => setItemType((value || 'task') as WorkItemType)}
-                    />
-                  </div>
-                  <div className={styles.createFieldGroup}>
-                    <label className={styles.createFieldLabel}>Độ ưu tiên</label>
-                    <SearchableSelect
-                      options={WORK_ITEM_PRIORITY_OPTIONS}
-                      value={itemPriority}
-                      clearable={false}
-                      onChange={(value) => setItemPriority((value || 'normal') as WorkItemPriority)}
-                    />
-                  </div>
-                </div>
-
-                <div className={styles.createTimeDateGrid}>
-                  <div className={styles.createFieldGroup}>
-                    <label className={styles.createFieldLabel}>Người phụ trách</label>
-                    <SearchableSelect
-                      options={assigneeOptions}
-                      value={itemAssignee}
-                      placeholder="Chưa giao"
-                      emptyText="Không có thành viên phù hợp"
-                      onChange={setItemAssignee}
-                    />
-                  </div>
-                  <div className={styles.createFieldGroup}>
-                    <label className={styles.createFieldLabel} htmlFor="create-item-hours">
-                      Giờ ước lượng
-                    </label>
-                    <input
-                      id="create-item-hours"
-                      type="number"
-                      min={0}
-                      step="0.5"
-                      className={styles.createTextInput}
-                      value={itemHours}
-                      onChange={(event) => setItemHours(event.target.value)}
-                    />
-                  </div>
-                </div>
-
-
-                <p className={styles.createFormHint}>
-                  {isHoursInvalid
-                    ? 'Giờ ước lượng phải lớn hơn 0.'
-                    : 'Cách thực hiện: Theo quy trình. Bắt đầu và kết thúc dự kiến của công việc lấy theo thời gian của đơn bên dưới.'}
-                </p>
-              </>
-            ) : null}
-
-            {/* Bắt đầu & Kết thúc Grid */}
-            <div className={styles.createTimeDateGrid}>
-              {/* Bắt đầu */}
-              <div className={styles.createFieldGroup}>
-                <label className={styles.createFieldLabel}>Thời gian Bắt đầu</label>
-                <div className={styles.createTimeDateInputRow}>
-                  <div style={{ position: 'relative', width: '100px' }}>
-                    <input
-                      type="time"
-                      className={styles.createTimeInput}
-                      style={{ width: '100%' }}
-                      value={startTime}
-                      onChange={(e) => setStartTime(e.target.value)}
-                    />
-                  </div>
-                  <div style={{ position: 'relative', flex: 1 }}>
-                    <DatePickerInput
-                      height={36}
-                      value={startDate}
-                      onChange={(nextStartDate) => {
-                        setStartDate(nextStartDate);
-                        if (nextStartDate && endDate < nextStartDate) {
-                          setEndDate(nextStartDate);
-                        }
-                      }}
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Kết thúc */}
-              <div className={styles.createFieldGroup}>
-                <label className={styles.createFieldLabel}>Thời gian Kết thúc</label>
-                <div className={styles.createTimeDateInputRow}>
-                  <div style={{ position: 'relative', width: '100px' }}>
-                    <input
-                      type="time"
-                      className={styles.createTimeInput}
-                      style={{ width: '100%' }}
-                      value={endTime}
-                      min={endDate === startDate ? startTime : undefined}
-                      onChange={(e) => setEndTime(e.target.value)}
-                    />
-                  </div>
-                  <div style={{ position: 'relative', flex: 1 }}>
-                    <DatePickerInput
-                      height={36}
-                      value={endDate}
-                      min={startDate || undefined}
-                      onChange={setEndDate}
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {isScheduleInvalid ? (
-              <p className={styles.createScheduleError} role="alert">
-                {scheduleErrorMessage}
-              </p>
-            ) : null}
-
-            {/* Hint trạng thái quy trình */}
-            <p className={styles.createFormHint} aria-live="polite">
-              {selectedCreateDef ? (
-                <>
-                  Quy trình được chọn: <strong style={{ color: '#0f172a' }}>{selectedCreateDef.name}</strong> ({selectedCreateDef.code})
-                </>
-              ) : (
-                'Vui lòng chọn quy trình để kích hoạt khởi tạo đơn'
-              )}
-            </p>
-
-            {/* Footer with Đóng and Tạo đơn buttons */}
-            <div className={styles.createFormActions}>
-              <button
-                type="button"
-                className={styles.createCancelBtn}
-                onClick={() => setCreating(false)}
-              >
-                Đóng
-              </button>
-              <button
-                type="submit"
-                className={styles.createSubmitBtn}
-                disabled={
-                  !selectedCreateDef ||
-                  !jobTitle.trim() ||
-                  isScheduleInvalid ||
-                  (Boolean(project) && isHoursInvalid) ||
-                  (selectedCreateDef && busy === `start:${selectedCreateDef.id}`)
-                }
-              >
-                {selectedCreateDef && busy === `start:${selectedCreateDef.id}`
-                  ? 'Đang tạo…'
-                  : 'Tạo đơn'}
-              </button>
-            </div>
-          </form>
-        </MinimalPopupForm>
+          definitions={published}
+          busy={busy}
+          // Gửi xong thì đóng form; lỗi (nếu có) hiện ở băng thông báo của màn.
+          onStart={(definition, input) =>
+            onStart(definition, input).then(() => setCreating(false))
+          }
+          actorId={actorId}
+          actorName={actorName}
+          handoffTitle={handoffTitle}
+          handoff={handoff}
+        />
       ) : null}
 
       {reverseOpen && selected && onReverse ? (

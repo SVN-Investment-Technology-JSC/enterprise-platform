@@ -2,7 +2,7 @@ import {
   computeLeaveFromPreview,
   selectableLeaveTypesOf,
   type LeaveDayPreviewItem,
-} from './requests-screen';
+} from '../request-form-model';
 
 const work = (date: string, over: Partial<LeaveDayPreviewItem> = {}): LeaveDayPreviewItem => ({
   date,

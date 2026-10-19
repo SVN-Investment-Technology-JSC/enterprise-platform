@@ -612,9 +612,11 @@ export class HrmAttendanceController {
 
   @Post('attendance-corrections/:id/approve')
   async approveCorrection(@Req() req: Request, @Param('id') id: string) {
-    const { pool, tenantId, principal } = await this.ctx.getContext(
+    const { pool, tenantId, principal } = await this.ctx.approverContext(
       req,
       'hrm.attendance.approve',
+      'correction',
+      id,
     );
     await this.approvals.assertCanDecide(
       { pool, tenantId, principal },
@@ -635,9 +637,11 @@ export class HrmAttendanceController {
     @Param('id') id: string,
     @Body('reason') reason?: string,
   ) {
-    const { pool, tenantId, principal } = await this.ctx.getContext(
+    const { pool, tenantId, principal } = await this.ctx.approverContext(
       req,
       'hrm.attendance.approve',
+      'correction',
+      id,
     );
     await this.approvals.assertCanDecide(
       { pool, tenantId, principal },

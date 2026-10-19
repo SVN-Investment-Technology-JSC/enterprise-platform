@@ -1,7 +1,7 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import type { LucideIcon } from 'lucide-react';
+import { Lock, PencilLine, type LucideIcon } from 'lucide-react';
 import { Input } from './input';
 
 /** Thẻ của màn Hồ sơ của tôi: icon, tiêu đề, nhãn bên phải và nội dung. */
@@ -50,12 +50,15 @@ export function ReadonlyField({
   value,
   icon: Icon,
   mono = false,
+  hint,
 }: {
   id: string;
   label: string;
   value: string;
   icon?: LucideIcon;
   mono?: boolean;
+  /** Lý do ô không sửa được hoặc cách đổi, hiện dưới ô. */
+  hint?: string;
 }) {
   return (
     <div className="space-y-1">
@@ -74,9 +77,39 @@ export function ReadonlyField({
           type="text"
           readOnly
           value={value}
-          className={`h-9 bg-slate-50 text-[14px] ${Icon ? 'pl-9' : ''} ${mono ? 'font-mono' : ''}`}
+          aria-describedby={hint ? `${id}-hint` : undefined}
+          className={`h-9 cursor-not-allowed border-slate-200 bg-slate-100 pr-9 text-[14px] text-slate-600 ${Icon ? 'pl-9' : ''} ${mono ? 'font-mono' : ''}`}
+        />
+        <Lock
+          className="pointer-events-none absolute right-3 top-1/2 size-3.5 -translate-y-1/2 text-slate-400"
+          aria-hidden="true"
         />
       </div>
+      {hint ? (
+        <p id={`${id}-hint`} className="text-[12px] text-slate-500">
+          {hint}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+/** Chú giải ô nhập được và ô chỉ xem, đặt ở đầu thẻ có cả hai loại ô. */
+export function FieldLegend() {
+  return (
+    <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-slate-600" aria-label="Chú giải ô thông tin">
+      <span className="inline-flex items-center gap-1.5">
+        <span className="inline-flex size-5 items-center justify-center rounded border border-slate-300 bg-white">
+          <PencilLine className="size-3 text-blue-600" aria-hidden="true" />
+        </span>
+        Ô nền trắng: bạn tự nhập
+      </span>
+      <span className="inline-flex items-center gap-1.5">
+        <span className="inline-flex size-5 items-center justify-center rounded border border-slate-200 bg-slate-100">
+          <Lock className="size-3 text-slate-400" aria-hidden="true" />
+        </span>
+        Ô nền xám có khóa: chỉ xem, không nhập
+      </span>
     </div>
   );
 }

@@ -73,6 +73,7 @@
     "@enterprise-platform/adapter-database": "workspace:*",
     "@enterprise-platform/contracts-identity": "workspace:*",
     "@enterprise-platform/contracts-tenancy": "workspace:*",
+    "@enterprise-platform/contracts-workspace": "workspace:*",
     "@enterprise-platform/module-workspace": "workspace:*",
     "@enterprise-platform/platform-module-access": "workspace:*",
     "@nestjs/common": "^11.0.0",

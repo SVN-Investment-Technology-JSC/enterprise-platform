@@ -1,5 +1,5 @@
 @import 'tailwindcss';
-@import '../../../../packages/shared/ui/src/lib/type-scale.css';
+@import '@enterprise-platform/shared-ui/type-scale.css';
 @source '../../../../packages/features/hrm';
 @source '../../../../packages/shared/ui';
 

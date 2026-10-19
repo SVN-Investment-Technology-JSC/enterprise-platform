@@ -8,6 +8,7 @@ import {
   RealtimeSessionRevalidator,
   userRoom,
   sessionRoom,
+  tenantRoom,
 } from './realtime.gateway';
 import { RealtimeDeliveryHandler } from './realtime-delivery';
 
@@ -77,6 +78,7 @@ describe('RealtimeGateway', () => {
     expect(client.join.mock.calls.map(([room]) => room)).toEqual([
       userRoom('tenant-a', 'user-a'),
       sessionRoom('session-a'),
+      tenantRoom('tenant-a'),
     ]);
     expect(client.data).toMatchObject({ principal });
     expect(gateway.server.local.to).toHaveBeenCalledWith(client.id);
@@ -538,6 +540,40 @@ describe('RealtimeDeliveryHandler', () => {
       tenantId: 'tenant-a',
       userId: 'user-a',
       reason: 'logout',
+    });
+  });
+
+  describe('core.authorization.changed', () => {
+    const changed = (payload: Record<string, unknown>): IntegrationEventEnvelope => ({
+      id: '10000000-0000-4000-8000-000000000005',
+      type: 'core.authorization.changed',
+      version: 1,
+      occurredAt: '2026-10-18T00:00:00.000Z',
+      tenantId: 'tenant-a',
+      source: 'tenant-core',
+      correlationId: '10000000-0000-4000-8000-000000000005',
+      payload,
+    });
+
+    it('báo mọi phiên của công ty, chỉ kèm số hiệu quyền', async () => {
+      const gateway = { emitRoomEvent: jest.fn() };
+      const handler = new RealtimeDeliveryHandler(gateway as never, async (_id, operation) => operation());
+      await handler.handle(changed({ revision: 7 }));
+      expect(gateway.emitRoomEvent).toHaveBeenCalledWith('tenant:tenant-a', {
+        id: '10000000-0000-4000-8000-000000000005',
+        event: 'authorization.changed',
+        version: 1,
+        tenantId: 'tenant-a',
+        userId: '',
+        sequence: 1,
+        occurredAt: '2026-10-18T00:00:00.000Z',
+        data: { revision: '7' },
+      });
+    });
+
+    it('thiếu revision là lỗi vĩnh viễn, không thử lại mãi', async () => {
+      const handler = new RealtimeDeliveryHandler({ emitRoomEvent: jest.fn() } as never, async (_id, operation) => operation());
+      await expect(handler.handle(changed({}))).rejects.toBeInstanceOf(PermanentMessageError);
     });
   });
 

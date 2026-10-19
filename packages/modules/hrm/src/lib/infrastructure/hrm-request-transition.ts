@@ -1,3 +1,4 @@
+import { assertQuotaOnApprove } from './hrm-request-quota.js';
 import { transitionCustomRequest } from './hrm-custom-request.js';
 import {
   BadRequestException,
@@ -48,6 +49,7 @@ export async function approveAttendanceCorrection(
     throw new BadRequestException('Đơn không còn chờ duyệt');
   const date = isoDate(correction.request_date);
   await lockEmployee(db, tenantId, correction.employee_id);
+  await assertQuotaOnApprove(db, tenantId, 'correction', correction);
   await assertOpenDate(db, tenantId, date);
   // Đơn theo từng mốc giờ vào / ra: chỉ thay các giờ cùng loại trong ngày, giữ loại còn lại (không xoá cả ngày).
   const punches = isPunchList(correction.corrected_sessions)
@@ -158,6 +160,7 @@ export async function approveBusinessTrip(
   if (trip.status !== 'PENDING')
     throw new BadRequestException('Trạng thái đơn không cho phép thao tác');
   await lockEmployee(db, tenantId, trip.employee_id);
+  await assertQuotaOnApprove(db, tenantId, 'business_trip', trip);
   await assertOpenRange(db, tenantId, isoDate(trip.from_date), isoDate(trip.to_date));
   return db.query(
     `UPDATE hrm_schema.business_trip_requests SET status='APPROVED',approved_by=$3,approved_at=now(),updated_at=now() WHERE tenant_id=$1 AND id=$2 RETURNING *`,
@@ -194,6 +197,7 @@ export async function approveProfileCorrection(
   if (correction.status !== 'PENDING')
     throw new ConflictException('Đơn không còn chờ duyệt');
   await lockEmployee(db, tenantId, correction.employee_id);
+  await assertQuotaOnApprove(db, tenantId, 'profile_correction', correction);
   const profile = await db.query(
     `SELECT * FROM hrm_schema.employee_directory WHERE tenant_id=$1 AND employee_id=$2`,
     [tenantId, correction.employee_id],
@@ -278,6 +282,7 @@ export async function approveSalaryAdvance(
       'Đơn không còn chờ duyệt hoặc số tiền vượt đề nghị',
     );
   await lockEmployee(db, tenantId, row.employee_id);
+  await assertQuotaOnApprove(db, tenantId, 'advance', row);
   return (
     await db.query(
       `UPDATE hrm_schema.salary_advance_requests SET status='APPROVED',approved_amount=COALESCE($4,requested_amount),approved_by=$3,approved_at=now(),updated_at=now() WHERE tenant_id=$1 AND id=$2 RETURNING *`,

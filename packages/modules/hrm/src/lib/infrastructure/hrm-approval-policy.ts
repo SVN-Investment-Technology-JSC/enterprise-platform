@@ -10,7 +10,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import type { PoolClient } from 'pg';
-import { fetchActionableProcedureInstanceIds } from './hrm-procedure-api.js';
+import { fetchActionableProcedureInstanceIds, fetchParticipatingProcedureInstanceIds } from './hrm-procedure-api.js';
 import { HRM_REQUEST_TABLES } from './hrm-procedure-links.js';
 import { chiefFallbackUserIds } from './hrm-chief-fallback.js';
 
@@ -309,6 +309,34 @@ export async function procedureActionableRequestIds(
 }
 
 /**
+ * Người dùng có tham gia quy trình của đúng đơn này (người khởi tạo, người được giao ở bất kỳ bước nào kể cả bước đã
+ * qua hoặc chưa tới, người được uỷ quyền) hay không. Khác `procedureActionableRequestIds`: không đòi hỏi đang tới lượt xử lý.
+ * Procedure không trả lời thì coi như không tham gia.
+ */
+export async function participatesInProcedureOfRequest(
+  db: Queryable,
+  tenantId: string,
+  kind: HrmRequestKind,
+  requestId: string,
+  userId: string,
+): Promise<boolean> {
+  const link = (
+    await db.query(
+      `SELECT instance_id FROM hrm_schema.procedure_links
+        WHERE tenant_id = $1 AND request_kind = $2 AND request_id = $3 AND instance_id IS NOT NULL
+        ORDER BY revision DESC LIMIT 1`,
+      [tenantId, kind, requestId],
+    )
+  ).rows[0] as { instance_id: string } | undefined;
+  if (!link) return false;
+  try {
+    return (await fetchParticipatingProcedureInstanceIds(tenantId, userId, [link.instance_id])).includes(link.instance_id);
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Kiểm tra xem người dùng có đang giữ chức danh cụ thể hay không (theo bổ nhiệm hiện tại).
  */
 export async function actorHoldsPosition(
@@ -377,6 +405,12 @@ export async function resolveDirectFallbackPosition(
     ).rows[0];
     subTypeCode = row?.code ?? null;
   }
+
+  const colCheck = await db.query(
+    `SELECT 1 FROM information_schema.columns
+      WHERE table_schema = 'hrm_schema' AND table_name = 'request_procedure_bindings' AND column_name = 'fallback_position_id'`,
+  );
+  if (!colCheck.rows?.length) return null;
 
   const bindings = (
     await db.query(

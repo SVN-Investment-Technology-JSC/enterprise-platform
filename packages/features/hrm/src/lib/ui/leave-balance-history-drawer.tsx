@@ -1,5 +1,5 @@
 'use client';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Table, type TableColumnsType } from 'antd';
 import { Popconfirm, formatDate } from '@enterprise-platform/shared-ui';
 import { Undo2 } from 'lucide-react';
@@ -29,18 +29,6 @@ function signedDays(value: number): string {
   return value > 0 ? `+${text}` : text;
 }
 
-function Stat({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
-      <span className="block text-[12px] font-semibold text-slate-500">
-        {label}
-      </span>
-      <strong className="text-sm text-slate-900">
-        {formatLeaveNumber(value)}
-      </strong>
-    </div>
-  );
-}
 
 /**
  * Drawer lịch sử quỹ phép năm của MỘT nhân viên trong MỘT năm: các giao dịch cộng, dùng, điều chỉnh.
@@ -107,6 +95,25 @@ export function LeaveBalanceHistoryDrawer({
     }
   };
 
+  const reversedAdjustmentMap = useMemo(() => {
+    const map = new Map<string, HrmLeaveTransaction>();
+    for (const r of rows) {
+      if (r.transactionType === 'REVERSAL') {
+        let originalId = '';
+        if (r.operationKey && r.operationKey.startsWith('reverse-adjustment:')) {
+          originalId = r.operationKey.slice('reverse-adjustment:'.length);
+        } else if (r.note) {
+          const match = r.note.match(/Đảo\s+([0-9a-f-]{36})/i);
+          if (match) originalId = match[1];
+        }
+        if (originalId) {
+          map.set(originalId, r);
+        }
+      }
+    }
+    return map;
+  }, [rows]);
+
   const columns: TableColumnsType<HrmLeaveTransaction> = [
     {
       title: 'Ngày',
@@ -139,7 +146,12 @@ export function LeaveBalanceHistoryDrawer({
     {
       title: 'Ghi chú',
       dataIndex: 'note',
-      render: (v: string | null | undefined) => v || '',
+      width: 260,
+      render: (v: string | null | undefined) => (
+        <span className="block whitespace-normal break-words text-slate-700">
+          {v || '—'}
+        </span>
+      ),
     },
     {
       title: 'Người thực hiện',
@@ -165,9 +177,22 @@ export function LeaveBalanceHistoryDrawer({
       ? [
           {
             title: 'Thao tác',
-            width: 130,
-            render: (_: unknown, tx: HrmLeaveTransaction) =>
-              tx.transactionType === 'ADJUSTMENT' ? (
+            width: 140,
+            render: (_: unknown, tx: HrmLeaveTransaction) => {
+              if (tx.transactionType !== 'ADJUSTMENT') return null;
+              const reversalTx = reversedAdjustmentMap.get(tx.id);
+              if (reversalTx) {
+                return (
+                  <Badge
+                    variant="outline"
+                    className="border-amber-200 bg-amber-50 text-[11px] font-medium text-amber-700"
+                    title={`Đã ghi bút toán đối ứng ngày ${formatDate(reversalTx.createdAt, reversalTx.createdAt)}${reversalTx.note ? `: ${reversalTx.note}` : ''}`}
+                  >
+                    Đã đảo điều chỉnh
+                  </Badge>
+                );
+              }
+              return (
                 <Popconfirm
                   title="Đảo điều chỉnh này?"
                   description={`Ghi bút toán đối ứng ${signedDays(-tx.daysChanged)} ngày; giao dịch gốc được giữ nguyên.`}
@@ -183,11 +208,15 @@ export function LeaveBalanceHistoryDrawer({
                     Đảo điều chỉnh
                   </Button>
                 </Popconfirm>
-              ) : null,
+              );
+            },
           },
         ]
       : []),
   ];
+
+  const hasPolicyInfo =
+    balance.entitledToDate != null || balance.advanceAllowed;
 
   return (
     <Sheet
@@ -196,7 +225,7 @@ export function LeaveBalanceHistoryDrawer({
         if (!open) onClose();
       }}
     >
-      <SheetContent className="w-full max-w-[680px] p-0">
+      <SheetContent className="w-full max-w-[720px] p-0">
         <SheetHeader className="shrink-0 border-b border-slate-200 bg-slate-50/80 p-5">
           <SheetTitle className="text-base font-bold">
             Lịch sử quỹ phép
@@ -205,12 +234,104 @@ export function LeaveBalanceHistoryDrawer({
             {balance.employeeCode} - {balance.employeeName}, quỹ phép năm {year}
           </SheetDescription>
         </SheetHeader>
-        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-5 text-xs">
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-            <Stat label="Được hưởng" value={balance.entitlement} />
-            <Stat label="Đã dùng" value={balance.used} />
-            <Stat label="Chờ duyệt" value={balance.pending} />
-            <Stat label="Còn lại" value={balance.remaining} />
+        <div className="min-h-0 flex-1 space-y-3.5 overflow-y-auto p-5 text-xs">
+          {/* Khu vực tổng quan: Thông tin chính sách (bên trái) và 4 chỉ số quỹ gom trong 1 card (bên phải) */}
+          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-12">
+            {hasPolicyInfo && (
+              <div className="flex flex-col justify-between rounded-xl border border-slate-200 bg-slate-50/80 p-3 sm:col-span-5">
+                <span className="block text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                  Thông tin theo chính sách
+                </span>
+                <div className="mt-2 space-y-1.5 text-xs">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-slate-600">Đã tích luỹ đến nay:</span>
+                    <strong className="font-semibold text-slate-900">
+                      {formatLeaveNumber(
+                        balance.entitledToDate ?? balance.accrued,
+                      )}{' '}
+                      ngày
+                    </strong>
+                  </div>
+                  {balance.advanceAllowed ? (
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-blue-700">
+                        Quyền ứng phép còn lại:
+                      </span>
+                      <strong className="font-semibold text-blue-900">
+                        {formatLeaveNumber(
+                          Math.max(
+                            0,
+                            (balance.projectedEntitlement ??
+                              balance.entitlement) -
+                              (balance.entitledToDate ?? balance.accrued),
+                          ),
+                        )}{' '}
+                        ngày
+                      </strong>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-slate-500">
+                        Chính sách ứng phép:
+                      </span>
+                      <span className="font-medium text-slate-500">
+                        Không cho ứng
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* 4 chỉ số quỹ gom thành 1 card duy nhất */}
+            <div
+              className={`flex flex-col justify-center rounded-xl border border-slate-200 bg-white p-3 shadow-2xs ${
+                hasPolicyInfo ? 'sm:col-span-7' : 'sm:col-span-12'
+              }`}
+            >
+              <div className="grid grid-cols-4 divide-x divide-slate-100 text-center">
+                <div className="px-1.5">
+                  <span className="block text-[11px] font-medium text-slate-500">
+                    Tổng quỹ năm
+                  </span>
+                  <strong className="mt-1 block text-sm font-bold text-slate-900 sm:text-base">
+                    {formatLeaveNumber(balance.entitlement)}
+                  </strong>
+                </div>
+                <div className="px-1.5">
+                  <span className="block text-[11px] font-medium text-slate-500">
+                    Đã dùng
+                  </span>
+                  <strong className="mt-1 block text-sm font-bold text-slate-900 sm:text-base">
+                    {formatLeaveNumber(balance.used)}
+                  </strong>
+                </div>
+                <div className="px-1.5">
+                  <span className="block text-[11px] font-medium text-slate-500">
+                    Chờ duyệt
+                  </span>
+                  <strong className="mt-1 block text-sm font-bold text-slate-900 sm:text-base">
+                    {formatLeaveNumber(balance.pending)}
+                  </strong>
+                </div>
+                <div className="px-1.5">
+                  <span className="block text-[11px] font-medium text-slate-500">
+                    Có thể dùng
+                  </span>
+                  <strong
+                    className={`mt-1 block text-sm font-bold sm:text-base ${
+                      balance.remaining < 0
+                        ? 'text-red-600'
+                        : balance.remaining === 0
+                          ? 'text-amber-600'
+                          : 'text-emerald-600'
+                    }`}
+                  >
+                    {formatLeaveNumber(balance.remaining)}
+                  </strong>
+                </div>
+              </div>
+            </div>
           </div>
           {error && (
             <p

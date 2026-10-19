@@ -145,6 +145,34 @@ export async function fetchActionableProcedureInstanceIds(
   return Array.isArray(body?.instanceIds) ? body.instanceIds.filter((id): id is string => typeof id === 'string') : [];
 }
 
+/**
+ * Trong các hồ sơ `instanceIds` (tối đa 100 mỗi lần), những hồ sơ mà người dùng này tham gia ở bất kỳ vai nào
+ * (người khởi tạo, được giao ở bước đã qua / đang chờ / sắp tới, được uỷ quyền). Dùng để mở luồng trao đổi của đơn.
+ */
+export async function fetchParticipatingProcedureInstanceIds(
+  tenantId: string,
+  actorUserId: string,
+  instanceIds: readonly string[],
+): Promise<string[]> {
+  if (!instanceIds.length || !actorUserId) return [];
+  const headers = serviceHeaders(tenantId);
+  let response: Response;
+  try {
+    response = await procedureFetch(`${baseUrl()}/v1/internal/instances/participating`, {
+      method: 'POST',
+      headers: { ...headers, 'content-type': 'application/json' },
+      redirect: 'error',
+      signal: AbortSignal.timeout(8000),
+      body: JSON.stringify({ actorUserId, ids: instanceIds.slice(0, 100) }),
+    });
+  } catch {
+    throw procedureUnavailable();
+  }
+  if (!response.ok) throw procedureUnavailable();
+  const body = (await response.json()) as { instanceIds?: unknown };
+  return Array.isArray(body?.instanceIds) ? body.instanceIds.filter((id): id is string => typeof id === 'string') : [];
+}
+
 /** true khi Procedure trả lời và entitlement của tenant còn hiệu lực (guard của Procedure kiểm tra). */
 export async function isProcedureReachable(tenantId: string): Promise<boolean> {
   try {

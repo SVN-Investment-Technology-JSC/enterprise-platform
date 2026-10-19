@@ -286,6 +286,8 @@ export interface UsableEntitlement {
   readonly projected: number | null;
   readonly projectedSeniority: number;
   readonly advanceAllowed: boolean;
+  /** Số ngày phép đã tích luỹ đến thời điểm hiện tại theo chính sách (không tính ứng trước). */
+  readonly entitledToDate: number | null;
 }
 
 /**
@@ -301,7 +303,13 @@ export function usableFrom(
   today: string,
 ): UsableEntitlement {
   if (!ent.hasPolicy)
-    return { extra: 0, projected: null, projectedSeniority: 0, advanceAllowed: false };
+    return {
+      extra: 0,
+      projected: null,
+      projectedSeniority: 0,
+      advanceAllowed: false,
+      entitledToDate: null,
+    };
   const currentYear = Number(today.slice(0, 4)),
     currentMonth = Number(today.slice(5, 7));
   const through = ent.advanceAllowed
@@ -316,11 +324,17 @@ export function usableFrom(
     .reduce((n, m) => n + m.base + m.seniority, 0);
   const projected = ent.months.reduce((n, m) => n + m.base + m.seniority, 0);
   const projectedSeniority = ent.months.reduce((n, m) => n + m.seniority, 0);
+  const accruedLimit =
+    year < currentYear ? 12 : year > currentYear ? 0 : currentMonth;
+  const entitledToDate = ent.months
+    .filter((m) => m.month <= accruedLimit)
+    .reduce((n, m) => n + m.base + m.seniority, 0);
   return {
     extra: Math.max(0, round2(usable - accruedInLedger)),
     projected: round2(projected),
     projectedSeniority: round2(projectedSeniority),
     advanceAllowed: ent.advanceAllowed,
+    entitledToDate: round2(entitledToDate),
   };
 }
 
@@ -356,7 +370,7 @@ export async function loadPendingReserved(
        FROM hrm_schema.leave_request_days d
        JOIN hrm_schema.leave_requests r ON r.id=d.request_id AND r.tenant_id=d.tenant_id
       WHERE r.tenant_id=$1 AND r.employee_id = ANY($2::uuid[]) AND r.leave_type_id = ANY($3::uuid[])
-        AND r.status='PENDING' AND r.balance_reserved
+        AND r.status='PENDING'
         AND extract(year FROM d.work_date)::int = ANY($4::int[])
       GROUP BY r.employee_id,r.leave_type_id,extract(year FROM d.work_date)::int`,
     [tenant, employeeIds, leaveTypeIds, years],
@@ -370,7 +384,11 @@ export interface EnrichedLeaveBalance {
   readonly projected_entitlement: number | null;
   readonly projected_seniority: number;
   readonly available: number;
+  /** Ngày phép của đơn đang chờ duyệt (từ leave_requests); `leave_balances.pending` không còn được ghi khi gửi đơn. */
+  readonly pending_reserved: number;
   readonly advance_allowed: boolean;
+  /** Số ngày phép đã tích luỹ đến nay theo chính sách (không tính ứng phép). */
+  readonly entitled_to_date: number | null;
   /** Ngày ký HĐLĐ chính thức đầu tiên (căn cứ tính phép); null khi chưa có. */
   readonly sign_date: string | null;
   /** Ngày bắt đầu hưởng phép = ngày ký HĐ + số tháng bắt đầu của chính sách. */
@@ -426,10 +444,12 @@ export async function enrichLeaveBalances<T extends Record<string, any>>(
       projected_entitlement: usable.projected,
       projected_seniority: usable.projectedSeniority,
       advance_allowed: usable.advanceAllowed,
+      entitled_to_date: usable.entitledToDate,
       sign_date: ent.signDate,
       eligible_from: ent.startDate,
       seniority_tier_years: Math.max(0, ...ent.months.map((m) => m.tierYears)),
       available: round2(Number(row.remaining) + usable.extra - reserved),
+      pending_reserved: reserved,
     };
   });
 }

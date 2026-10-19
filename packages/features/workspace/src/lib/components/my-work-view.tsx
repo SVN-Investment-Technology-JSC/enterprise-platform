@@ -5,6 +5,7 @@ import {
   type CreateProjectRequest,
   type CreateWorkItemRequest,
   type MyWorkEvent,
+  type MyWorkItem,
   type MyWorkSummary,
   type ParticipantResponse,
   type ProjectMember,
@@ -17,6 +18,8 @@ import { formatTime } from '@enterprise-platform/shared-ui';
 import {
   AtSign,
   CalendarClock,
+  ChevronDown,
+  ChevronRight,
   ClipboardList,
   ExternalLink,
   Plus,
@@ -34,8 +37,6 @@ import {
 import * as api from '../workspace-api';
 import { mergeNewProjectMembers } from '../project-tree.model';
 import {
-  MY_WORK_BUCKET_LABELS,
-  MY_WORK_BUCKET_TONE,
   PRIORITY_LABELS,
   PRIORITY_TONE,
   WORK_ITEM_STATUS_LABELS,
@@ -90,6 +91,8 @@ export function MyWorkView({ onOpen, onOpenTask }: MyWorkViewProps = {}) {
   const [statusFilter, setStatusFilter] = useState('');
   const [priorityFilter, setPriorityFilter] = useState('');
   const [projectFilter, setProjectFilter] = useState('');
+  /** Các nhóm dự án đang thu gọn trong bảng công việc. */
+  const [collapsedProjects, setCollapsedProjects] = useState<ReadonlySet<string>>(new Set());
 
   // Nút "Tạo mới" ở góc trên phải: hai hộp thoại tạo dự án / tạo công việc.
   const [me, setMe] = useState('');
@@ -216,6 +219,45 @@ export function MyWorkView({ onOpen, onOpenTask }: MyWorkViewProps = {}) {
     [allItems, statusFilter, priorityFilter, projectFilter],
   );
   const hasFilter = Boolean(statusFilter || priorityFilter || projectFilter);
+
+  // Gom việc theo dự án: mỗi dự án là một nhóm, việc chưa đặt hạn/quá hạn xếp
+  // theo thứ tự "hạn" để việc gấp nổi lên đầu nhóm. Dự án có việc quá hạn đẩy
+  // lên trước để người dùng thấy ngay.
+  const projectGroups = useMemo(() => {
+    const groups = new Map<
+      string,
+      { projectId: string; projectCode: string; projectName: string; rows: MyWorkItem[] }
+    >();
+    for (const entry of items) {
+      const key = entry.item.projectId;
+      const group = groups.get(key);
+      if (group) group.rows.push(entry);
+      else
+        groups.set(key, {
+          projectId: key,
+          projectCode: entry.projectCode,
+          projectName: entry.projectName,
+          rows: [entry],
+        });
+    }
+    const bucketRank = (entry: MyWorkItem) => MY_WORK_BUCKETS.indexOf(entry.bucket);
+    const list = [...groups.values()];
+    for (const group of list) group.rows.sort((a, b) => bucketRank(a) - bucketRank(b));
+    list.sort((a, b) => {
+      const aOverdue = a.rows.some((entry) => entry.bucket === 'overdue') ? 0 : 1;
+      const bOverdue = b.rows.some((entry) => entry.bucket === 'overdue') ? 0 : 1;
+      return aOverdue - bOverdue || a.projectCode.localeCompare(b.projectCode, 'vi');
+    });
+    return list;
+  }, [items]);
+
+  const toggleProject = (projectId: string) =>
+    setCollapsedProjects((current) => {
+      const next = new Set(current);
+      if (next.has(projectId)) next.delete(projectId);
+      else next.add(projectId);
+      return next;
+    });
 
   return (
     <div className={styles.tabBody}>
@@ -348,92 +390,110 @@ export function MyWorkView({ onOpen, onOpenTask }: MyWorkViewProps = {}) {
               </tr>
             </thead>
             <tbody>
-              {MY_WORK_BUCKETS.map((bucket) => {
-                const rows = items.filter((entry) => entry.bucket === bucket);
-                if (rows.length === 0) return null;
+              {projectGroups.map((group) => {
+                const collapsed = collapsedProjects.has(group.projectId);
+                const todoCount = group.rows.filter((entry) => entry.item.status === 'todo').length;
                 return (
-                  <Fragment key={bucket}>
+                  <Fragment key={group.projectId}>
                     <tr className={styles.groupRow}>
                       <th colSpan={6} scope="colgroup">
-                        <span
-                          className={styles.groupDot}
-                          style={{ background: MY_WORK_BUCKET_TONE[bucket] }}
-                          aria-hidden
-                        />
-                        {MY_WORK_BUCKET_LABELS[bucket]}
-                        <span className={styles.countPill}>{rows.length}</span>
+                        <button
+                          type="button"
+                          className={styles.groupToggle}
+                          aria-expanded={!collapsed}
+                          onClick={() => toggleProject(group.projectId)}
+                        >
+                          {collapsed ? (
+                            <ChevronRight size={14} aria-hidden />
+                          ) : (
+                            <ChevronDown size={14} aria-hidden />
+                          )}
+                          <span className={styles.treeCode}>{group.projectCode}</span>
+                          {group.projectName}
+                        </button>
+                        <span className={styles.countPill}>{group.rows.length}</span>
+                        {todoCount > 0 ? (
+                          <span className={styles.muted}> · {todoCount} chưa thực hiện</span>
+                        ) : null}
                       </th>
                     </tr>
-                    {rows.map((entry) => {
-                      const status = workItemStatusTone(entry.item);
-                      const priority = PRIORITY_TONE[entry.item.priority];
-                      return (
-                        <tr key={entry.item.id}>
-                          <td>
-                            <button
-                              type="button"
-                              className={styles.cellTitleButton}
-                              onClick={() =>
-                                onOpen?.(entry.item.projectId, `work-item/${entry.item.id}`)
-                              }
-                            >
-                              <span className={styles.treeCode}>{entry.item.code}</span>
-                              {entry.item.title}
-                            </button>
-                          </td>
-                          <td className={styles.cellSub} title={entry.projectName}>
-                            {entry.projectCode}
-                          </td>
-                          <td>
-                            <span
-                              className={styles.pill}
-                              style={{
-                                background: priority.bg,
-                                color: priority.fg,
-                              }}
-                            >
-                              {PRIORITY_LABELS[entry.item.priority]}
-                            </span>
-                          </td>
-                          <td>
-                            <span
-                              className={styles.pill}
-                              style={{
-                                background: status.bg,
-                                color: status.fg,
-                              }}
-                            >
-                              {workItemStatusLabel(entry.item)}
-                            </span>
-                          </td>
-                          <td className={bucket === 'overdue' ? styles.cellDanger : undefined}>
-                            {formatDate(entry.item.plannedEnd) || '—'}
-                          </td>
-                          <td>
-                            {entry.item.status === 'todo' ? (
-                              <button
-                                type="button"
-                                className={styles.buttonSmall}
-                                onClick={() => void advance(entry.item.id, 'in_progress')}
+                    {collapsed
+                      ? null
+                      : group.rows.map((entry) => {
+                          const status = workItemStatusTone(entry.item);
+                          const priority = PRIORITY_TONE[entry.item.priority];
+                          const isTodo = entry.item.status === 'todo';
+                          return (
+                            <tr key={entry.item.id} className={isTodo ? styles.rowPending : undefined}>
+                              <td>
+                                <button
+                                  type="button"
+                                  className={styles.cellTitleButton}
+                                  onClick={() =>
+                                    onOpen?.(entry.item.projectId, `work-item/${entry.item.id}`)
+                                  }
+                                >
+                                  <span className={styles.treeCode}>{entry.item.code}</span>
+                                  {entry.item.title}
+                                </button>
+                              </td>
+                              <td className={styles.cellSub} title={entry.projectName}>
+                                {entry.projectCode}
+                              </td>
+                              <td>
+                                <span
+                                  className={styles.pill}
+                                  style={{
+                                    background: priority.bg,
+                                    color: priority.fg,
+                                  }}
+                                >
+                                  {PRIORITY_LABELS[entry.item.priority]}
+                                </span>
+                              </td>
+                              <td>
+                                <span
+                                  className={styles.pill}
+                                  style={{
+                                    background: status.bg,
+                                    color: status.fg,
+                                  }}
+                                >
+                                  {workItemStatusLabel(entry.item)}
+                                </span>
+                              </td>
+                              <td
+                                className={
+                                  entry.bucket === 'overdue' ? styles.cellDanger : undefined
+                                }
                               >
-                                Bắt đầu làm
-                              </button>
-                            ) : entry.item.status === 'in_progress' ||
-                              entry.item.status === 'review' ? (
-                              <button
-                                type="button"
-                                className={styles.buttonSmall}
-                                onClick={() => void advance(entry.item.id, 'done')}
-                              >
-                                Hoàn thành
-                              </button>
-                            ) : (
-                              <span className={styles.muted}>—</span>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
+                                {formatDate(entry.item.plannedEnd) || '—'}
+                              </td>
+                              <td>
+                                {entry.item.status === 'todo' ? (
+                                  <button
+                                    type="button"
+                                    className={styles.buttonSmall}
+                                    onClick={() => void advance(entry.item.id, 'in_progress')}
+                                  >
+                                    Bắt đầu làm
+                                  </button>
+                                ) : entry.item.status === 'in_progress' ||
+                                  entry.item.status === 'review' ? (
+                                  <button
+                                    type="button"
+                                    className={styles.buttonSmall}
+                                    onClick={() => void advance(entry.item.id, 'done')}
+                                  >
+                                    Hoàn thành
+                                  </button>
+                                ) : (
+                                  <span className={styles.muted}>—</span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
                   </Fragment>
                 );
               })}
@@ -613,8 +673,24 @@ export function MyWorkView({ onOpen, onOpenTask }: MyWorkViewProps = {}) {
         onCreate={async (
           input: Omit<CreateWorkItemRequest, 'projectId'>,
           procedureDefinitionId?: string,
+          addMemberUserIds?: string[],
         ) => {
           if (!selectedProjectId) throw new Error('Hãy chọn dự án cho công việc.');
+          // Thêm người ngoài dự án vào dự án trước, để server chấp nhận họ làm
+          // người phụ trách / cùng làm khi tạo công việc.
+          if (addMemberUserIds && addMemberUserIds.length > 0) {
+            const existing = await api.listMembers(selectedProjectId);
+            await api.setMembers(selectedProjectId, {
+              members: mergeNewProjectMembers(
+                existing.items,
+                addMemberUserIds.map((userId) => ({ userId, role: 'member' })),
+              ),
+            });
+            await api
+              .listMembers(selectedProjectId)
+              .then((result) => setMembers(result.items))
+              .catch(() => undefined);
+          }
           await api.createWorkItem({
             ...input,
             projectId: selectedProjectId,

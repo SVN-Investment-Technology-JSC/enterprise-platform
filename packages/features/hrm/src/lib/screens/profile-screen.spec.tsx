@@ -90,7 +90,7 @@ async function renderLoaded() {
 }
 
 describe('Hồ sơ của tôi', () => {
-  it('họ tên (do Core quản lý), ngày sinh, CCCD, ngày cấp, nơi cấp chỉ đọc và có nút đề nghị chỉnh sửa thông tin Core', async () => {
+  it('họ tên (do Core quản lý), ngày sinh, CCCD, ngày cấp, nơi cấp chỉ đọc và có nút đề nghị đính chính', async () => {
     await renderLoaded();
     expect(screen.getByRole('heading', { name: 'Hồ sơ của tôi' })).toBeTruthy();
     for (const [label, value] of [
@@ -104,14 +104,14 @@ describe('Hồ sơ của tôi', () => {
       expect(input.readOnly).toBe(true);
       expect(input.value).toBe(value);
     }
-    expect(screen.getByRole('button', { name: /Đề nghị chỉnh sửa thông tin Core/ })).toBeTruthy();
-    expect(screen.getByText(/Họ tên do Core quản lý/)).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Đề nghị đính chính' })).toBeTruthy();
+    expect(screen.getByText(/Do Core HRM quản lý/)).toBeTruthy();
     expect(screen.queryByText(/Đổi tài khoản nhận lương/)).toBeNull();
   });
 
   it('dialog đính chính gửi đúng trường, giá trị cũ và mới tới /profile-corrections', async () => {
     await renderLoaded();
-    fireEvent.click(screen.getByRole('button', { name: /Đề nghị chỉnh sửa thông tin Core/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Đề nghị đính chính' }));
     const dialog = await screen.findByRole('dialog', { name: 'Đề nghị đính chính hồ sơ' });
     expect(dialog).toBeTruthy();
     expect(screen.queryByLabelText('Họ và tên đề xuất')).toBeNull();
@@ -134,7 +134,7 @@ describe('Hồ sơ của tôi', () => {
 
   it('dialog đính chính không gửi khi chưa đổi giá trị nào', async () => {
     await renderLoaded();
-    fireEvent.click(screen.getByRole('button', { name: /Đề nghị chỉnh sửa thông tin Core/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Đề nghị đính chính' }));
     await screen.findByRole('dialog', { name: 'Đề nghị đính chính hồ sơ' });
     fireEvent.change(screen.getByLabelText(/Lý do đính chính/), {
       target: { value: 'Kiểm tra' },

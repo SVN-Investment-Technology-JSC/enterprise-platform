@@ -150,6 +150,24 @@ export class ChildIncompleteError extends WorkspaceError {
   }
 }
 
+/**
+ * Không thể đóng hồ sơ dự án khi còn công việc chưa hoàn thành.
+ *
+ * Đóng hồ sơ (chuyển dự án sang `completed`) là chốt sổ: còn công việc đang mở
+ * mà đóng thì tiến độ và báo cáo không còn phản ánh thực tế. Hoàn thành hoặc
+ * huỷ các công việc đó trước.
+ */
+export class ProjectHasOpenWorkItemsError extends WorkspaceError {
+  constructor() {
+    super(
+      'PROJECT_HAS_OPEN_WORK_ITEMS',
+      'Không thể đóng hồ sơ: dự án còn công việc chưa hoàn thành.',
+      409,
+    );
+    Object.setPrototypeOf(this, ProjectHasOpenWorkItemsError.prototype);
+  }
+}
+
 /** Công việc tiền nhiệm kiểu FS chưa hoàn thành. */
 export class DependencyBlockedError extends WorkspaceError {
   constructor(predecessorCode: string) {
@@ -316,6 +334,38 @@ export class StandaloneTaskNotFoundError extends WorkspaceError {
       404,
     );
     Object.setPrototypeOf(this, StandaloneTaskNotFoundError.prototype);
+  }
+}
+
+/** Khách hàng không tồn tại. */
+export class CustomerNotFoundError extends WorkspaceError {
+  constructor() {
+    super('CUSTOMER_NOT_FOUND', 'Khách hàng không tồn tại.', 404);
+    Object.setPrototypeOf(this, CustomerNotFoundError.prototype);
+  }
+}
+
+/** Mã khách hàng đã tồn tại. Mã là định danh người dùng đọc, phải duy nhất. */
+export class CustomerCodeConflictError extends WorkspaceError {
+  constructor(code: string) {
+    super('CUSTOMER_CODE_CONFLICT', `Mã khách hàng ${code} đã được sử dụng.`, 409);
+    Object.setPrototypeOf(this, CustomerCodeConflictError.prototype);
+  }
+}
+
+/** Hợp đồng không tồn tại. */
+export class ContractNotFoundError extends WorkspaceError {
+  constructor() {
+    super('CONTRACT_NOT_FOUND', 'Hợp đồng không tồn tại.', 404);
+    Object.setPrototypeOf(this, ContractNotFoundError.prototype);
+  }
+}
+
+/** Mã hợp đồng đã tồn tại. Mã là định danh người dùng đọc, phải duy nhất. */
+export class ContractCodeConflictError extends WorkspaceError {
+  constructor(code: string) {
+    super('CONTRACT_CODE_CONFLICT', `Mã hợp đồng ${code} đã được sử dụng.`, 409);
+    Object.setPrototypeOf(this, ContractCodeConflictError.prototype);
   }
 }
 

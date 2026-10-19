@@ -7,7 +7,7 @@ import {
   within,
 } from '@testing-library/react';
 import { hrmFetch } from '../hrm-api';
-import { downloadCsv } from '../hrm-csv';
+import { downloadStyledXlsx } from '../hrm-xlsx';
 import LeaveBalancesScreen from './leave-balances-screen';
 
 const mockActions = new Set<string>();
@@ -27,13 +27,13 @@ jest.mock('../hrm-api', () => {
   return { ...actual, hrmFetch: jest.fn() };
 });
 
-jest.mock('../hrm-csv', () => {
-  const actual = jest.requireActual('../hrm-csv');
-  return { ...actual, downloadCsv: jest.fn() };
+jest.mock('../hrm-xlsx', () => {
+  const actual = jest.requireActual('../hrm-xlsx');
+  return { ...actual, downloadStyledXlsx: jest.fn() };
 });
 
 const fetchMock = hrmFetch as jest.MockedFunction<typeof hrmFetch>;
-const downloadMock = downloadCsv as jest.MockedFunction<typeof downloadCsv>;
+const downloadMock = downloadStyledXlsx as jest.MockedFunction<typeof downloadStyledXlsx>;
 
 // Bảng lịch sử trong Drawer dùng antd Table, cần matchMedia, ResizeObserver và getComputedStyle(elt, pseudoElt), jsdom chưa hỗ trợ.
 const nativeGetComputedStyle = window.getComputedStyle.bind(window);
@@ -191,7 +191,7 @@ beforeEach(() => {
 });
 
 describe('LeaveBalancesScreen', () => {
-  it('hiển thị phép thâm niên và ngày ký HĐLĐ (căn cứ tính phép) của từng nhân viên', async () => {
+  it('giữ ngày ký HĐLĐ làm căn cứ tính phép; phép thâm niên được giải thích trong tổng quỹ năm', async () => {
     mockActions.add('hrm.leave.read');
     route([
       balance({ seniorityDays: 2, seniorityTierYears: 10, signDate: '2016-07-10', eligibleFrom: '2016-07-10' }),
@@ -206,12 +206,16 @@ describe('LeaveBalancesScreen', () => {
     ]);
     render(<LeaveBalancesScreen />);
     await screen.findByText('Nguyễn Văn An');
-    expect(screen.getAllByRole('columnheader').map((h) => h.textContent)).toContain('Thâm niên');
+    expect(screen.getAllByRole('columnheader').map((h) => h.textContent)).toContain('Tổng quỹ năm');
+    expect(
+      screen.getByRole('button', { name: 'Giải thích Tổng quỹ năm' }),
+    ).toBeTruthy();
     const first = screen.getByTestId('leave-row-e1');
-    expect(within(first).getByText('+2').getAttribute('title')).toBe('Mốc thâm niên 10 năm');
     expect(within(first).getByText('Ký HĐLĐ 10/07/2016')).toBeTruthy();
     // Chưa có HĐLĐ chính thức: nói rõ vì sao chưa có phép.
-    expect(within(screen.getByTestId('leave-row-e2')).getByText('Chưa có HĐLĐ')).toBeTruthy();
+    expect(
+      within(screen.getByTestId('leave-row-e2')).getAllByText('Chưa có HĐLĐ'),
+    ).toHaveLength(2);
   });
 
   it('hiển thị tiêu đề, mô tả và bảng quỹ phép năm đủ các cột, không còn phân trang', async () => {
@@ -230,17 +234,29 @@ describe('LeaveBalancesScreen', () => {
     for (const title of [
       'Tên nhân viên',
       'Mã NV',
-      'Được hưởng',
+      'Tổng quỹ năm',
       'Đã dùng',
       'Chờ duyệt',
-      'Còn lại',
+      'Có thể dùng',
       'Điều chỉnh',
-      'Tiến độ',
+      'Trạng thái quỹ',
       'Thao tác',
     ])
       expect(headers).toContain(title);
     expect(headers).not.toContain('Chuyển từ năm trước');
-    expect(headers).not.toContain('Phép thâm niên');
+    expect(headers).not.toContain('Thâm niên');
+    expect(headers).not.toContain('Tiến độ');
+    for (const name of [
+      'Tổng quỹ năm',
+      'Đã dùng',
+      'Chờ duyệt',
+      'Có thể dùng',
+      'Điều chỉnh',
+      'Trạng thái quỹ',
+    ])
+      expect(
+        screen.getByRole('button', { name: `Giải thích ${name}` }),
+      ).toBeTruthy();
     expect(screen.getByText('NV001')).toBeTruthy();
     expect(screen.getByText('Trần Thị Bình')).toBeTruthy();
     expect(screen.getByText('Lê Văn Cường')).toBeTruthy();
@@ -262,6 +278,25 @@ describe('LeaveBalancesScreen', () => {
     expect(screen.queryByRole('tab')).toBeNull();
     expect(screen.queryByText('Quyết toán nghỉ việc')).toBeNull();
     expect(screen.queryByText(/Giao dịch \(mọi năm\)/)).toBeNull();
+  });
+
+  it('chỉ mở chú thích cột khi bấm dấu hỏi màu vàng, hiển thị nổi trên bảng', async () => {
+    mockActions.add('hrm.leave.read');
+    render(<LeaveBalancesScreen />);
+    await screen.findByText('Nguyễn Văn An');
+
+    const help = screen.getByRole('button', {
+      name: 'Giải thích Có thể dùng',
+    });
+    expect(help.className).toContain('cursor-pointer');
+    expect(help.className).toContain('text-amber-500');
+    expect(
+      screen.queryByText(/Số ngày có thể tạo đơn ngay:/),
+    ).toBeNull();
+
+    fireEvent.click(help);
+    const popup = await screen.findByText(/Số ngày có thể tạo đơn ngay:/);
+    expect(popup.className).toContain('z-[100]');
   });
 
   it('gom theo phòng ban, nhóm chưa có phòng ban đứng cuối, dòng nhóm có số nhân viên và tổng', async () => {
@@ -311,13 +346,13 @@ describe('LeaveBalancesScreen', () => {
       'Phòng Kinh doanh2',
       'Chưa có phòng ban1',
     ]);
-    // Phòng Kinh doanh: được hưởng 14+10, đã dùng 4+2, chờ 1+3, còn lại 10+5, điều chỉnh +2-1 = +1.
+    // Phòng Kinh doanh: tổng quỹ 14+10, đã dùng 4+2, chờ 1+3, có thể dùng 10+5, điều chỉnh +2-1 = +1.
     const kd = groupRow('Phòng Kinh doanh');
     expect(
       within(kd)
         .getAllByRole('cell')
         .map((c) => c.textContent),
-    ).toEqual(['Phòng Kinh doanh2', '24', '0', '6', '4', '15', '+1', '-', '']);
+    ).toEqual(['Phòng Kinh doanh2', '24', '6', '4', '15', '+1', '-', '']);
     // Nhân viên đứng dưới đúng nhóm, xếp theo tên.
     const order = [
       ...document.querySelectorAll(
@@ -364,7 +399,7 @@ describe('LeaveBalancesScreen', () => {
       expect(screen.queryByRole('group', { name })).toBeNull();
   });
 
-  it('tô màu Còn lại: xanh khi còn phép, cam khi hết, đỏ khi âm; tiến độ theo đã dùng/được hưởng', async () => {
+  it('tô màu Có thể dùng: xanh khi còn phép, cam khi hết, đỏ khi âm; trạng thái quỹ diễn giải tình trạng', async () => {
     mockActions.add('hrm.leave.read');
     render(<LeaveBalancesScreen />);
     await screen.findByText('Nguyễn Văn An');
@@ -380,26 +415,60 @@ describe('LeaveBalancesScreen', () => {
     expect(ok.className).toContain('text-emerald-700');
     expect(ok.className).not.toContain('text-red-700');
     expect(ok.className).not.toContain('text-amber-700');
+    expect(within(firstRow).getByText('Còn phép')).toBeTruthy();
+    expect(
+      within(screen.getByTestId('leave-row-e2')).getByText('Đã hết phép'),
+    ).toBeTruthy();
+    expect(
+      within(screen.getByTestId('leave-row-e3')).getByText('Vượt quỹ'),
+    ).toBeTruthy();
+    expect(
+      within(screen.getByTestId('leave-row-e4')).getAllByText('Chưa có quỹ'),
+    ).toHaveLength(2);
+    expect(screen.queryByRole('progressbar')).toBeNull();
+  });
 
-    // 4/14 = 29%, 12/12 = 100%, 13,5/12 vượt quỹ vẫn tối đa 100%; nhân viên chưa có quỹ không có thanh.
-    const bars = screen.getAllByRole('progressbar');
-    expect(bars).toHaveLength(3);
-    expect(
-      within(firstRow).getByRole('progressbar').getAttribute('aria-valuenow'),
-    ).toBe('29');
-    expect(
-      within(screen.getByTestId('leave-row-e2'))
-        .getByRole('progressbar')
-        .getAttribute('aria-valuenow'),
-    ).toBe('100');
-    expect(
-      within(screen.getByTestId('leave-row-e3'))
-        .getByRole('progressbar')
-        .getAttribute('aria-valuenow'),
-    ).toBe('100');
-    expect(
-      within(screen.getByTestId('leave-row-e4')).queryByRole('progressbar'),
-    ).toBeNull();
+  it('phân biệt chính xác giữa Còn phép và Đang ứng phép theo Phương án A', async () => {
+    mockActions.add('hrm.leave.read');
+    route([
+      // Nhân viên 1: advanceAllowed = true, nhưng đã dùng (2) <= tích luỹ (3) -> Còn phép
+      balance({
+        id: 'b1',
+        employeeId: 'e1',
+        employeeCode: 'NV001',
+        employeeName: 'Nguyễn Văn An',
+        entitledToDate: 3,
+        accrued: 3,
+        entitlement: 12,
+        used: 2,
+        pending: 0,
+        remaining: 10,
+        advanceAllowed: true,
+      }),
+      // Nhân viên 2: advanceAllowed = true, đã dùng (5) > tích luỹ (3) -> Đang ứng phép
+      balance({
+        id: 'b2',
+        employeeId: 'e2',
+        employeeCode: 'NV002',
+        employeeName: 'Trần Thị Bình',
+        entitledToDate: 3,
+        accrued: 3,
+        entitlement: 12,
+        used: 4,
+        pending: 1,
+        remaining: 7,
+        advanceAllowed: true,
+      }),
+    ]);
+
+    render(<LeaveBalancesScreen />);
+    await screen.findByText('Nguyễn Văn An');
+
+    const row1 = screen.getByTestId('leave-row-e1');
+    expect(within(row1).getByText('Còn phép')).toBeTruthy();
+
+    const row2 = screen.getByTestId('leave-row-e2');
+    expect(within(row2).getByText('Đang ứng phép')).toBeTruthy();
   });
 
   it('đổi năm tải lại đúng tham số year và annual_only=1', async () => {
@@ -493,7 +562,7 @@ describe('LeaveBalancesScreen', () => {
       ),
     ).toBeTruthy();
     expect(
-      (screen.getByRole('button', { name: /Xuất dữ liệu/ }) as HTMLButtonElement)
+      (screen.getByRole('button', { name: /Xuất Excel/ }) as HTMLButtonElement)
         .disabled,
     ).toBe(true);
   });
@@ -505,28 +574,29 @@ describe('LeaveBalancesScreen', () => {
     expect(await screen.findByText('Máy chủ lỗi')).toBeTruthy();
   });
 
-  it('Xuất dữ liệu tải CSV của danh sách đang lọc, gom theo phòng ban', async () => {
+  it('Xuất Excel tải Excel của danh sách đang lọc, gom theo phòng ban', async () => {
     mockActions.add('hrm.leave.read');
     render(<LeaveBalancesScreen />);
     await screen.findByText('Nguyễn Văn An');
-    fireEvent.click(screen.getByRole('button', { name: 'Xuất dữ liệu' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Xuất Excel' }));
 
     expect(downloadMock).toHaveBeenCalledTimes(1);
-    const [fileName, csv] = downloadMock.mock.calls[0];
+    const [fileName, sheet] = downloadMock.mock.calls[0];
     expect(fileName).toBe(`phep-nam-${year}`);
-    const lines = csv.replace(/^\uFEFF/, '').split('\r\n');
-    expect(lines[0]).toBe(
-      '"Mã NV","Họ và tên","Phòng ban","Năm","Được hưởng","Đã dùng","Chờ duyệt","Còn lại","Điều chỉnh","Ghi chú"',
-    );
-    expect(lines).toHaveLength(5);
+    expect(sheet.rows[0][0]).toBe(`QUỸ PHÉP NĂM ${year}`);
+    expect(sheet.rows[1]).toEqual([
+      'STT', 'Mã NV', 'Họ và tên', 'Phòng ban', 'Năm', 'Tổng quỹ năm', 'Đã dùng', 'Chờ duyệt', 'Có thể dùng', 'Điều chỉnh', 'Trạng thái quỹ',
+    ]);
+    const body = sheet.rows.slice(2);
+    expect(body).toHaveLength(4);
     // Thứ tự theo nhóm: Kế toán, Kinh doanh, Nhân sự, Chưa có phòng ban.
-    expect(lines[1]).toBe(`"NV002","Trần Thị Bình","Phòng Kế toán",${year},12,12,0,0,0,""`);
-    expect(lines[2]).toBe(`"NV001","Nguyễn Văn An","Phòng Kinh doanh",${year},14,4,1,10,0,""`);
-    expect(lines[3]).toBe(`"NV004","Phạm Thị Dung","Phòng Nhân sự",${year},"","","","","","Chưa có quỹ"`);
-    expect(lines[4]).toBe(`"NV003","Lê Văn Cường","Chưa có phòng ban",${year},12,13.5,0,-1.5,0,""`);
+    expect(body[0]).toEqual([1, 'NV002', 'Trần Thị Bình', 'Phòng Kế toán', year, 12, 12, 0, 0, 0, 'Đã hết phép']);
+    expect(body[1]).toEqual([2, 'NV001', 'Nguyễn Văn An', 'Phòng Kinh doanh', year, 14, 4, 1, 10, 0, 'Còn phép']);
+    expect(body[2]).toEqual([3, 'NV004', 'Phạm Thị Dung', 'Phòng Nhân sự', year, '', '', '', '', '', 'Chưa có quỹ']);
+    expect(body[3]).toEqual([4, 'NV003', 'Lê Văn Cường', 'Chưa có phòng ban', year, 12, 13.5, 0, -1.5, 0, 'Vượt quỹ']);
   });
 
-  it('Xuất dữ liệu chỉ gồm kết quả đang lọc và những nhân viên đã tick chọn', async () => {
+  it('Xuất Excel chỉ gồm kết quả đang lọc và những nhân viên đã tick chọn', async () => {
     mockActions.add('hrm.leave.read');
     render(<LeaveBalancesScreen />);
     await screen.findByText('Nguyễn Văn An');
@@ -534,16 +604,17 @@ describe('LeaveBalancesScreen', () => {
     fireEvent.change(screen.getByLabelText('Tìm theo mã hoặc tên nhân viên'), {
       target: { value: 'van' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Xuất dữ liệu' }));
-    let csv = downloadMock.mock.calls[0][1];
+    fireEvent.click(screen.getByRole('button', { name: 'Xuất Excel' }));
+    const codes = (call: number) => downloadMock.mock.calls[call][1].rows.slice(2).map((r: readonly unknown[]) => r[1]);
+    let csv = codes(0);
     expect(csv).toContain('NV001');
     expect(csv).toContain('NV003');
     expect(csv).not.toContain('NV002');
     expect(csv).not.toContain('NV004');
 
     fireEvent.click(screen.getByLabelText('Chọn Lê Văn Cường'));
-    fireEvent.click(screen.getByRole('button', { name: 'Xuất dữ liệu (1)' }));
-    csv = downloadMock.mock.calls[1][1];
+    fireEvent.click(screen.getByRole('button', { name: 'Xuất Excel (1)' }));
+    csv = codes(1);
     expect(csv).toContain('NV003');
     expect(csv).not.toContain('NV001');
   });
@@ -608,6 +679,57 @@ describe('LeaveBalancesScreen', () => {
     await waitFor(() => expect(callsTo('/leave-balances')).toHaveLength(2));
   });
 
+  it('Drawer nhận diện giao dịch điều chỉnh đã đảo và hiển thị nhãn Đã đảo điều chỉnh thay vì nút bấm', async () => {
+    mockActions.add('hrm.leave.read');
+    mockActions.add('hrm.leave.manage');
+    route();
+    fetchMock.mockImplementation((async (path: string) => {
+      if (path.startsWith('/leave-balances')) return { data: balances };
+      if (path.startsWith('/leave-transactions')) {
+        return {
+          data: [
+            {
+              id: 'rev1',
+              tenantId: 't',
+              employeeId: 'e1',
+              leaveTypeId: 'lt1',
+              transactionType: 'REVERSAL',
+              daysChanged: -1,
+              balanceAfter: 11,
+              note: 'Đảo tx1: Nhập nhầm',
+              operationKey: 'reverse-adjustment:tx1',
+              balanceYear: year,
+              createdAt: '2026-02-15T05:00:00.000Z',
+            },
+            {
+              id: 'tx1',
+              tenantId: 't',
+              employeeId: 'e1',
+              leaveTypeId: 'lt1',
+              transactionType: 'ADJUSTMENT',
+              daysChanged: 1,
+              balanceAfter: 12,
+              note: 'Bù phép',
+              balanceYear: year,
+              createdAt: '2026-02-10T05:00:00.000Z',
+            },
+          ],
+        };
+      }
+      throw new Error(`unexpected ${path}`);
+    }) as never);
+
+    render(<LeaveBalancesScreen />);
+    await screen.findByText('Nguyễn Văn An');
+    pickRowAction('Nguyễn Văn An', 'Xem lịch sử');
+    const drawer = await screen.findByRole('dialog');
+    await within(drawer).findByText('Bù phép');
+
+    // Không còn nút Đảo điều chỉnh vì tx1 đã có bút toán đảo rev1
+    expect(within(drawer).queryByRole('button', { name: 'Đảo điều chỉnh' })).toBeNull();
+    expect(within(drawer).getByText('Đã đảo điều chỉnh')).toBeTruthy();
+  });
+
   it('có hrm.leave.manage: Điều chỉnh quỹ phép gọi POST /leave-adjustments đúng payload rồi tải lại bảng', async () => {
     mockActions.add('hrm.leave.read');
     mockActions.add('hrm.leave.manage');
@@ -670,7 +792,7 @@ describe('LeaveBalancesScreen', () => {
     render(<LeaveBalancesScreen />);
     await screen.findByText('Phạm Thị Dung');
     const row = screen.getByTestId('leave-row-e4');
-    expect(within(row).getByText('Chưa có quỹ')).toBeTruthy();
+    expect(within(row).getAllByText('Chưa có quỹ')).toHaveLength(2);
     expect(within(row).getAllByText('—').length).toBeGreaterThanOrEqual(3);
     // Không cảnh báo "hết phép" cho dòng chưa có quỹ.
     expect(within(row).queryByTitle('Đã hết phép')).toBeNull();
@@ -744,6 +866,6 @@ describe('LeaveBalancesScreen', () => {
       await screen.findByText('Bạn không có quyền xem quỹ phép.'),
     ).toBeTruthy();
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(screen.queryByRole('button', { name: /Xuất dữ liệu/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Xuất Excel/ })).toBeNull();
   });
 });

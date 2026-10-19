@@ -727,10 +727,25 @@ export function MovementForm({
     return alerts;
   }, [outbound, reservations, items, workspace.materials, workOrders]);
 
+  const submitBlockReason = permissionError
+    ? undefined
+    : !warehouseCode
+      ? 'Chưa chọn kho.'
+      : kind === 'transfer' && (!toWarehouseCode || toWarehouseCode === warehouseCode)
+        ? 'Chưa chọn kho đích khác kho nguồn.'
+        : !note.trim()
+          ? 'Cần nhập "Lý do thực hiện / Số hoá đơn / Số lệnh" ở phần đầu phiếu.'
+          : hasAnyOverdraw
+            ? 'Có dòng xuất vượt số lượng tồn.'
+            : hasInvalidLotAllocation
+              ? 'Có dòng chưa khai báo hoặc phân bổ đủ lô.'
+              : hasInvalidSerialSelection
+                ? 'Có dòng chưa chọn đủ số sê-ri.'
+                : undefined;
+
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (items.length === 0 || busy || hasAnyOverdraw || hasInvalidLotAllocation || hasInvalidSerialSelection || !warehouseCode) return;
-    if (kind === 'transfer' && (!toWarehouseCode || toWarehouseCode === warehouseCode)) return;
+    if (items.length === 0 || busy || submitBlockReason || permissionError) return;
 
     const firstItem = items[0];
 
@@ -1770,7 +1785,7 @@ export function MovementForm({
       ) : null}
 
       {/* Footer Actions của Phiếu */}
-      {permissionError ? <p role="alert" className={styles.alert}>{permissionError}</p> : null}
+      {permissionError || submitBlockReason ? <p role="alert" className={styles.alert}>{permissionError ?? submitBlockReason}</p> : null}
       <div
         className={isDialog ? styles.modalFoot : styles.editActions}
         style={

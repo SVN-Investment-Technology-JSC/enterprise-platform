@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { HrmScheduleRule } from '@enterprise-platform/contracts-hrm';
 import {
   Popconfirm,
@@ -122,25 +122,39 @@ export function RulesManager({
 }) {
   const [status, setStatus] = useState('ACTIVE');
   const [scopeType, setScopeType] = useState('ALL');
-  const [rows, setRows] = useState<HrmScheduleRule[] | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [{ rows, loading, error }, setDataState] = useState<{
+    rows: HrmScheduleRule[] | null;
+    loading: boolean;
+    error: string;
+  }>({
+    rows: null,
+    loading: false,
+    error: '',
+  });
   const [ending, setEnding] = useState<HrmScheduleRule | null>(null);
 
+  const isMountedRef = useRef(true);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
   const load = useCallback(async () => {
-    setLoading(true);
-    setError('');
+    setDataState((prev) => ({ ...prev, loading: true, error: '' }));
     try {
       const res = await fetchRules({
         status: status === 'ALL' ? undefined : (status as 'ACTIVE' | 'CANCELLED'),
         scopeType: scopeType === 'ALL' ? undefined : (scopeType as 'EMPLOYEE' | 'UNIT' | 'COMPANY'),
       });
-      setRows(res.data);
+      if (isMountedRef.current) {
+        setDataState({ rows: res.data, loading: false, error: '' });
+      }
     } catch (e) {
-      setRows(null);
-      setError(classifyScheduleError(e).message);
-    } finally {
-      setLoading(false);
+      if (isMountedRef.current) {
+        setDataState({ rows: null, loading: false, error: classifyScheduleError(e).message });
+      }
     }
   }, [status, scopeType]);
 
@@ -158,7 +172,9 @@ export function RulesManager({
       onChanged();
       await load();
     } catch (e) {
-      setError(classifyScheduleError(e).message);
+      if (isMountedRef.current) {
+        setDataState((prev) => ({ ...prev, error: classifyScheduleError(e).message }));
+      }
     }
   }
 

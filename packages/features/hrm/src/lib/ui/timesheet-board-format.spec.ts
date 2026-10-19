@@ -8,6 +8,7 @@ import {
   boardDayTooltip,
   boardStatusLabel,
   buildBoardCsv,
+  buildBoardSheet,
   formatDateTimeVn,
   formatUnits,
   leaveDescription,
@@ -135,5 +136,40 @@ describe('timesheet-board-format', () => {
     expect(lines[0]).toContain('"01/09/2026","02/09/2026"');
     expect(lines[1].startsWith('"NV001","An","Sản xuất","OFF","1",')).toBe(true);
     expect(lines[1]).toContain('"1:30"');
+  });
+
+  it('buildBoardSheet: tiêu đề tháng, tiêu đề hai tầng (thứ trên, ngày dưới), nhóm cột tổng gộp ô, giá trị số để dạng số', () => {
+    const day = (date: string, status: HrmBoardDay['status'], units: number) =>
+      ({ date, status, workdayUnits: units, lateMinutes: 0, earlyLeaveMinutes: 0, otMinutes: 0, anomalies: [] }) as unknown as HrmBoardDay;
+    const emp = {
+      employeeId: 'e1', employeeCode: 'NV001', employeeName: 'An', departmentName: 'Sản xuất', positionName: 'Kỹ sư',
+      days: { '2026-09-02': day('2026-09-02', 'PRESENT', 1) },
+      totals: {
+        workdayUnits: 1, workedMinutes: 480, paidMinutes: 480, lateMinutes: 12, earlyLeaveMinutes: 0, otMinutes: 90,
+        lateDays: 1, earlyLeaveDays: 0, abnormalDays: 0, absentDays: 0, annualLeaveDays: 0, paidLeaveDays: 0,
+        unpaidLeaveDays: 0, tripDays: 0, offDays: 1, holidayDays: 0,
+      },
+    } as unknown as HrmBoardEmployee;
+    const sheet = buildBoardSheet(
+      {
+        calendar: [
+          { date: '2026-09-01', weekday: 1, kind: 'OFF', holidayName: null },
+          { date: '2026-09-02', weekday: 2, kind: 'WORK', holidayName: null },
+        ],
+      },
+      [emp],
+      '2026-09',
+    );
+    expect(sheet.rows[0][0]).toBe('BẢNG CHẤM CÔNG THÁNG 09-2026');
+    expect(sheet.rows[1].slice(0, 6)).toEqual(['Mã NV', 'Họ và tên', 'Phòng ban', 'Chức danh', 'T2', 'T3']);
+    expect(sheet.rows[2].slice(4, 6)).toEqual(['01/09', '02/09']);
+    expect(sheet.rows[3].slice(0, 5)).toEqual(['NV001', 'An', 'Sản xuất', 'Kỹ sư', expect.anything()]);
+    expect(sheet.rows[3][5]).toBe(1);
+    expect(sheet.offColumns).toEqual([4]);
+    // Nhóm "Đi trễ" có hai cột con (Số ngày, Số phút) nên gộp ngang ở tầng trên.
+    const lateCol = sheet.rows[1].indexOf('Đi trễ');
+    expect(sheet.merges).toContainEqual({ s: { r: 1, c: lateCol }, e: { r: 1, c: lateCol + 1 } });
+    expect(sheet.rows[3].slice(lateCol, lateCol + 2)).toEqual([1, 12]);
+    expect(sheet.rows.every((row) => row.length === sheet.rows[0].length)).toBe(true);
   });
 });

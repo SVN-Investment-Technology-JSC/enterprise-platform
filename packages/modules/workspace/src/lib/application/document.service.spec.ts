@@ -379,6 +379,67 @@ describe('DocumentService — tải xuống và xem trước', () => {
   });
 });
 
+describe('DocumentService — phân loại nội bộ/khách hàng', () => {
+  /** Store giả: `doc1` thuộc dự án p1; ghi lại lời gọi setAudience và list. */
+  function setup(roles: Record<string, ProjectRole> = { p1: 'member' }) {
+    const audienceCalls: { id: string; audience: string }[] = [];
+    const listOptions: unknown[] = [];
+    const store = {
+      project: { findById: async (_t: string, id: string) => (id === 'p1' ? { id } : undefined) },
+      member: { roleOf: async (_t: string, projectId: string) => roles[projectId] },
+      document: {
+        findById: async (_t: string, id: string) =>
+          id === 'doc1'
+            ? ({ id: 'doc1', projectId: 'p1', folderId: 'f1', audience: 'internal' } as WorkspaceDocument)
+            : undefined,
+        setAudience: async (_t: string, id: string, audience: string) => {
+          audienceCalls.push({ id, audience });
+          return { id, projectId: 'p1', audience } as unknown as WorkspaceDocument;
+        },
+        list: async (_t: string, options: unknown) => {
+          listOptions.push(options);
+          return [] as DocumentSummary[];
+        },
+      },
+    } as unknown as WorkspaceStore;
+    return { service: serviceFor(store), audienceCalls, listOptions };
+  }
+
+  it('thành viên đổi được tài liệu dự án sang khách hàng', async () => {
+    const { service, audienceCalls } = setup();
+    await service.setAudience(me, 'doc1', 'customer');
+    expect(audienceCalls).toEqual([{ id: 'doc1', audience: 'customer' }]);
+  });
+
+  it('người chỉ xem không đổi được phân loại', async () => {
+    const { service, audienceCalls } = setup({ p1: 'viewer' });
+    await expect(service.setAudience(me, 'doc1', 'customer')).rejects.toMatchObject({
+      code: 'PROJECT_ROLE_FORBIDDEN',
+    });
+    expect(audienceCalls).toHaveLength(0);
+  });
+
+  it('phân loại không hợp lệ bị từ chối 400', async () => {
+    const { service, audienceCalls } = setup();
+    await expect(service.setAudience(me, 'doc1', 'public')).rejects.toMatchObject({
+      code: 'VALIDATION',
+    });
+    expect(audienceCalls).toHaveLength(0);
+  });
+
+  it('lọc danh sách theo phân loại khách hàng được chuyển xuống store', async () => {
+    const { service, listOptions } = setup();
+    await service.list(me, { projectId: 'p1', audience: 'customer' });
+    expect(listOptions[0]).toMatchObject({ audience: 'customer' });
+  });
+
+  it('phân loại không hợp lệ trong bộ lọc bị bỏ qua, không rơi xuống store', async () => {
+    const { service, listOptions } = setup();
+    await service.list(me, { projectId: 'p1', audience: 'nonsense' });
+    expect(listOptions[0]).toMatchObject({ audience: undefined });
+  });
+});
+
 describe('DocumentService — cột "Gắn với" trên danh sách', () => {
   it('bỏ mã công việc thuộc dự án người xem không tham gia', async () => {
     const summary = {

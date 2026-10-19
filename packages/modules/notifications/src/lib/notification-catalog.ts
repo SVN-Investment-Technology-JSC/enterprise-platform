@@ -424,7 +424,8 @@ export const DEFAULT_NOTIFICATION_POLICIES: readonly NotificationPolicy[] = [
     category: 'approval',
     priority: 'actionable',
     // Người duyệt đổi theo loại đơn (hrm.leave.approve, hrm.ot.approve…), nên quyền đi cùng sự kiện.
-    recipients: { kind: 'permissions-in-payload', field: 'approvalPermissions' },
+    // Cộng thêm quản lý trực tiếp và người dự phòng được giao đơn (có thể không giữ quyền duyệt HRM).
+    recipients: { kind: 'permissions-in-payload', field: 'approvalPermissions', userFields: ['recipientUserIds'] },
     actorField: 'actorUserId',
     template: ({ payload, event }) => ({
       title: 'Có yêu cầu cần phê duyệt',
@@ -472,7 +473,7 @@ export const DEFAULT_NOTIFICATION_POLICIES: readonly NotificationPolicy[] = [
     module: 'hrm',
     category: 'request-comment',
     priority: 'actionable',
-    recipients: { kind: 'permissions-in-payload', field: 'approvalPermissions' },
+    recipients: { kind: 'permissions-in-payload', field: 'approvalPermissions', userFields: ['recipientUserIds'] },
     actorField: 'actorUserId',
     template: ({ payload }) => ({
       title: 'Người gửi đã phản hồi trên đơn chờ duyệt',

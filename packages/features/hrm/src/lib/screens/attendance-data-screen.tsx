@@ -10,7 +10,7 @@ import {
   ATTENDANCE_PAGE_SIZE,
   ATTENDANCE_STATUS_OPTIONS,
   attendanceStatusLabel,
-  buildAttendanceCsv,
+  buildAttendanceRows,
   buildAttendanceEventsQuery,
   buildAttendanceQuery,
   eventKindLabel,
@@ -20,7 +20,7 @@ import {
   type AttendanceFilters,
   type AttendanceRawEvent,
 } from '../hrm-attendance-data';
-import { downloadCsv } from '../hrm-csv';
+import { downloadXlsx } from '../hrm-xlsx';
 import {
   currentMonthVn,
   formatDateVn,
@@ -254,9 +254,10 @@ export default function AttendanceDataScreen() {
         if (chunk.length < pageSize) break;
       }
       const limited = collected.slice(0, ATTENDANCE_EXPORT_MAX_ROWS);
-      downloadCsv(
+      downloadXlsx(
         `du-lieu-cham-cong_${applied.from}_${applied.to}`,
-        buildAttendanceCsv(limited),
+        buildAttendanceRows(limited),
+        'Du lieu cham cong',
       );
       if (total > limited.length) {
         toast.warning({
@@ -266,7 +267,7 @@ export default function AttendanceDataScreen() {
       }
     } catch (e: unknown) {
       toast.error({
-        title: 'Không xuất được CSV',
+        title: 'Không xuất được Excel',
         description: e instanceof Error ? e.message : undefined,
       });
     } finally {
@@ -336,7 +337,7 @@ export default function AttendanceDataScreen() {
           title={`Xuất toàn bộ kết quả đã lọc (tối đa ${ATTENDANCE_EXPORT_MAX_ROWS.toLocaleString('vi-VN')} dòng), không chỉ trang đang xem`}
         >
           {exporting ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
-          <span>Xuất CSV kết quả đã lọc</span>
+          <span>Xuất Excel kết quả đã lọc</span>
         </Button>
         {rangeError && (
           <p role="alert" className="basis-full text-xs font-semibold text-red-600">

@@ -163,4 +163,25 @@ describe('SearchableSelect searchInDropdown', () => {
     rerender(<SearchableSelect searchInDropdown options={options} value="a" />);
     expect(container.querySelector('.searchIcon')).toBeNull();
   });
+
+  it('đóng dropdown và không bị mở lại khi được bọc trong thẻ <label>', () => {
+    const onChange = jest.fn();
+    render(
+      <label>
+        <span>Loại hợp đồng</span>
+        <SearchableSelect options={options} value="a" onChange={onChange} />
+      </label>,
+    );
+    const trigger = screen.getByDisplayValue('Alpha') as HTMLInputElement;
+    fireEvent.click(trigger);
+    expect(screen.queryByRole('listbox')).not.toBeNull();
+
+    const optionBeta = screen.getByRole('option', { name: /Beta/i });
+    fireEvent.mouseDown(optionBeta);
+    fireEvent.click(optionBeta);
+
+    expect(onChange).toHaveBeenCalledWith('b');
+    expect(screen.queryByRole('listbox')).toBeNull();
+  });
 });
+

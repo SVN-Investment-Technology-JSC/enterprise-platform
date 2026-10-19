@@ -37,12 +37,12 @@ import {
   hrmEmployeeOptions,
   type ScheduleFilters,
 } from '../hrm-work-schedule-api';
+import { downloadXlsx } from '../hrm-xlsx';
 import {
   NOT_MIGRATED_NOTICE,
   addDays,
-  buildScheduleCsv,
+  buildScheduleCsvRows,
   classifyScheduleError,
-  downloadCsvText,
   endOfMonth,
   formatRangeLabel,
   formatVnDate,
@@ -329,7 +329,7 @@ export default function WorkScheduleScreen() {
         toast.info('Không có dữ liệu phân ca để xuất trong phạm vi đã chọn.');
         return;
       }
-      downloadCsvText(`phan-ca_${range.from}_${range.to}.csv`, buildScheduleCsv(res.data));
+      downloadXlsx(`phan-ca_${range.from}_${range.to}`, buildScheduleCsvRows(res.data), 'Phan ca');
       toast.success(`Đã xuất ${res.data.length} dòng lịch.`);
     } catch (e) {
       toast.error(classifyScheduleError(e).message);
