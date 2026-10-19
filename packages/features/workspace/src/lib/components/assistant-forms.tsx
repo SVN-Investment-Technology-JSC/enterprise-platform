@@ -16,6 +16,7 @@ import {
   workItemDraftToForm,
   workspaceHref,
 } from '../assistant-drafts';
+import { mergeNewProjectMembers } from '../project-tree.model';
 import * as api from '../workspace-api';
 import { EventForm } from './event-form';
 import { StandaloneTaskForm } from './standalone-task-form';
@@ -245,8 +246,23 @@ export function WorkspaceAssistantForms({
         parentOptions={parentOptions}
         prefill={workItemPrefill}
         onClose={close}
-        onCreate={async (input, procedureDefinitionId) => {
+        onCreate={async (input, procedureDefinitionId, addMemberUserIds) => {
           if (!projectId) throw new Error('Hãy chọn dự án cho công việc.');
+          // Như màn hình chính: người ngoài dự án (đã xác nhận trên form) được thêm vào dự án trước, để server nhận
+          // họ làm người phụ trách / cùng làm.
+          if (addMemberUserIds && addMemberUserIds.length > 0) {
+            const existing = await api.listMembers(projectId);
+            await api.setMembers(projectId, {
+              members: mergeNewProjectMembers(
+                existing.items,
+                addMemberUserIds.map((userId) => ({ userId, role: 'member' })),
+              ),
+            });
+            await api
+              .listMembers(projectId)
+              .then((result) => setMembers(result.items))
+              .catch(() => undefined);
+          }
           const created = await api.createWorkItem({ ...input, projectId, procedureDefinitionId });
           markSaved({
             id: created.id,

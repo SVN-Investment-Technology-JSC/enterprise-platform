@@ -583,6 +583,18 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       version: '0022-workspace-fleet-transport',
       path: 'tenant/workspace/0022-workspace-fleet-transport.sql',
     },
+    {
+      version: '0023-workspace-customers-contracts',
+      path: 'tenant/workspace/0023-workspace-customers-contracts.sql',
+    },
+    {
+      version: '0024-workspace-document-audience',
+      path: 'tenant/workspace/0024-workspace-document-audience.sql',
+    },
+    {
+      version: '0025-workspace-contract-project',
+      path: 'tenant/workspace/0025-workspace-contract-project.sql',
+    },
   ],
   // Hệ dùng chung: phần đầu là Tài liệu công ty (kho tách khỏi tài liệu dự án).
   shared: [

@@ -110,6 +110,8 @@ export function DocumentPanel({
   const [folderParent, setFolderParent] = useState<string>();
   /** Menu chuột phải trên cây thư mục. */
   const [folderMenu, setFolderMenu] = useState<{ folder: DocumentFolder; x: number; y: number }>();
+  /** Menu chuột phải trên một tài liệu đã tải lên. */
+  const [docMenu, setDocMenu] = useState<{ document: DocumentSummary; x: number; y: number }>();
   /** Thư mục đang đổi tên, chuyển chỗ hay xoá. */
   const [folderEdit, setFolderEdit] = useState<FolderEdit>();
   /** Hộp thoại "Thêm vào thư mục…" của tài liệu đang mở. */
@@ -1198,6 +1200,15 @@ export function DocumentPanel({
                 <tr
                   key={document.id}
                   className={selected?.id === document.id ? styles.rowSelected : undefined}
+                  onContextMenu={
+                    canWrite
+                      ? (event) => {
+                          event.preventDefault();
+                          setFolderMenu(undefined);
+                          setDocMenu({ document, x: event.clientX, y: event.clientY });
+                        }
+                      : undefined
+                  }
                 >
                   <td>
                     <button
@@ -1224,6 +1235,14 @@ export function DocumentPanel({
                           title={`Đang khoá để sửa bởi ${directory.nameOf(document.lockedByUserId)}`}
                         >
                           <Lock size={11} /> {shortName(directory.nameOf(document.lockedByUserId))}
+                        </span>
+                      ) : null}
+                      {document.audience === 'customer' ? (
+                        <span
+                          className={styles.badgeCustomer}
+                          title="Tài liệu khách hàng — hiện trên trang Khách hàng của dự án"
+                        >
+                          Khách hàng
                         </span>
                       ) : null}
                     </button>
@@ -1395,6 +1414,26 @@ export function DocumentPanel({
               setFolderOpen(true);
             } else {
               setFolderEdit({ mode: actionId as FolderEdit['mode'], folder: target });
+            }
+          }}
+        />
+      ) : null}
+
+      {docMenu ? (
+        <ContextMenu
+          x={docMenu.x}
+          y={docMenu.y}
+          actions={documentActions(docMenu.document)}
+          onClose={() => setDocMenu(undefined)}
+          onPick={(actionId) => {
+            const target = docMenu.document;
+            setDocMenu(undefined);
+            if (actionId === 'audience') {
+              const next = target.audience === 'customer' ? 'internal' : 'customer';
+              void act(
+                () => api.setDocumentAudience(target.id, next),
+                'Không đổi được phân loại tài liệu.',
+              );
             }
           }}
         />
@@ -1827,6 +1866,19 @@ function folderActions(folder: DocumentFolder, itemsInside: number): readonly Co
       danger: true,
       disabled: itemsInside > 0,
       separatorBefore: true,
+    },
+  ];
+}
+
+/** Các mục của menu chuột phải trên một tài liệu đã tải lên. */
+function documentActions(document: DocumentSummary): readonly ContextAction[] {
+  return [
+    {
+      id: 'audience',
+      label:
+        document.audience === 'customer'
+          ? 'Đổi về nội bộ'
+          : 'Đổi sang tài liệu khách hàng',
     },
   ];
 }

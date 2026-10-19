@@ -302,7 +302,8 @@
 }
 
 .badgeLocked,
-.badgeWarn {
+.badgeWarn,
+.badgeCustomer {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -311,6 +312,11 @@
   font-size: 11px;
   font-weight: 600;
   white-space: nowrap;
+}
+
+.badgeCustomer {
+  background: rgb(59 130 246 / 15%);
+  color: #1d4ed8;
 }
 
 .badgeLocked {
@@ -804,6 +810,74 @@
   }
 }
 
+// Bảng hợp đồng: hàng cao hơn, tên hợp đồng cho phép xuống 2 dòng.
+.contractTable {
+  td {
+    height: auto;
+    min-height: 60px;
+    padding-top: 12px;
+    padding-bottom: 12px;
+    vertical-align: top;
+  }
+}
+
+.contractName {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  min-width: 16rem;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+// Danh sách tài liệu khách hàng trên trang Khách hàng của dự án.
+.customerDocList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.customerDocRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: var(--ep-radius-sm);
+
+  &:hover {
+    background: var(--ep-surface-soft);
+  }
+}
+
+.customerDocName {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ep-accent-strong, #1d4ed8);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+
+  &:hover {
+    text-decoration: underline;
+  }
+}
+
+.customerDocText {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 .groupRow th {
   height: 40px;
   background: var(--ep-surface-soft);
@@ -824,6 +898,33 @@
 
 .rowSelected td {
   background: var(--ep-accent-soft) !important;
+}
+
+// Nút thu/mở nhóm dự án trong bảng "Công việc của tôi".
+.groupToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+
+  svg {
+    color: var(--ep-text-sub);
+  }
+
+  &:hover {
+    color: var(--ep-link);
+  }
+}
+
+// Việc chưa thực hiện (todo): dải màu nhạt ở mép trái để nổi trong nhóm.
+.rowPending td:first-child {
+  box-shadow: inset 3px 0 0 var(--ep-accent);
 }
 
 .cellTitle,
@@ -1852,6 +1953,18 @@
   gap: 14px;
 }
 
+/* Khối tạo nhanh (vd khách hàng mới) lồng trong một trường của form. */
+.inlineCreate {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 10px;
+  border: 1px dashed var(--ep-border-strong);
+  border-radius: var(--ep-radius-md);
+  background: var(--ep-surface-soft);
+}
+
 .dateInputWrapper {
   position: relative;
   display: flex;
@@ -1967,6 +2080,19 @@
       background: rgb(217 171 0 / 25%);
     }
   }
+}
+
+// Nhãn "Ngoài dự án" cạnh tên người chưa thuộc dự án, trong gợi ý và chip.
+.outsideTag {
+  margin-left: 6px;
+  padding: 0 6px;
+  border: 1px solid rgb(217 171 0 / 45%);
+  border-radius: 999px;
+  background: var(--ep-accent-soft);
+  color: #5c4500;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 .responseGroup {
@@ -4892,6 +5018,56 @@
   gap: 16px;
   height: calc(100vh - 140px);
   min-height: 480px;
+}
+
+/* Khách hàng theo ngữ cảnh dự án: một cột, chi tiết khách hàng chiếm trọn. */
+.scopePane {
+  display: flex;
+  height: calc(100vh - 140px);
+  min-height: 480px;
+  min-width: 0;
+
+  > section {
+    flex: 1;
+    min-width: 0;
+  }
+}
+
+/* Trang danh sách dự án: thanh công cụ + bộ lọc cố định, bảng cuộn riêng. */
+.listPage {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: calc(100vh - 140px);
+  min-height: 480px;
+  min-width: 0;
+}
+
+.listToolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.listToolbarSpacer {
+  flex: 1;
+}
+
+.listScroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid var(--ep-border);
+  border-radius: var(--ep-radius-lg);
+  background: var(--ep-surface);
+
+  // Tiêu đề bám đầu khi cuộn dọc, để luôn thấy tên cột ở bảng dài.
+  .table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+  }
 }
 
 .taskListPane,
