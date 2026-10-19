@@ -85,4 +85,4 @@
 - Kết quả test: lint feature-module-shell + feature-workspace pass; `tsc --build workspace-web` exit 0. Browser: trong dự án, bấm nav "Dự án" → `#projects` (danh sách); bấm breadcrumb "Dự án" → `#projects` (danh sách); xoá `?project` đúng.
 
 ## Quyết định / vướng mắc phát sinh
-- _(ghi khi có)_
+- CI PR (bước integration không cache) fail ở `platform-entitlement` / `tenant-migrations.spec.ts`: migration 0023/0024/0025 chưa đăng ký trong registry nguồn-sự-thật. Đã sửa: đăng ký 3 migration workspace trong `packages/platform/entitlement/src/lib/tenant-migrations.ts`. (Agent tạo file migration nhưng không đăng ký; registry này mới là nơi migrator áp cho tenant mới.)
