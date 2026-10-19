@@ -150,13 +150,19 @@ jobs:
             echo 'base=' >> "$GITHUB_OUTPUT"
           fi
 
+      # The build of an app is not repeated here: the Docker image of every app
+      # runs that same build (verify-containers on pull requests, publish on
+      # push). Library builds still run, as dependencies of tests and directly.
       - name: Lint, type-check, test, and build affected projects
         shell: bash
         run: |
+          apps=$(node -p "require('./tools/deployment/services.json').services.filter((s) => s.dockerfile.startsWith('apps/')).map((s) => s.id).join(',')")
           if [[ -n '${{ steps.nx-range.outputs.base }}' ]]; then
-            pnpm nx affected -t lint typecheck test build --base='${{ steps.nx-range.outputs.base }}' --head=HEAD --parallel="$NX_PARALLEL" --nxBail
+            pnpm nx affected -t lint typecheck test --base='${{ steps.nx-range.outputs.base }}' --head=HEAD --parallel="$NX_PARALLEL" --nxBail
+            pnpm nx affected -t build --exclude="$apps" --base='${{ steps.nx-range.outputs.base }}' --head=HEAD --parallel="$NX_PARALLEL" --nxBail
           else
-            pnpm nx run-many -t lint typecheck test build --parallel="$NX_PARALLEL" --nxBail
+            pnpm nx run-many -t lint typecheck test --parallel="$NX_PARALLEL" --nxBail
+            pnpm nx run-many -t build --exclude="$apps" --parallel="$NX_PARALLEL" --nxBail
           fi
 
       - name: Verify notification database, broker, and recovery integrations without cache
