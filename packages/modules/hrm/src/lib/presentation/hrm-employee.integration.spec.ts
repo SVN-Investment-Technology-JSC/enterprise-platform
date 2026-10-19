@@ -63,6 +63,7 @@ const asApprover = (base: unknown): HrmContextService => {
   const source = base as {
     getContext: (...args: unknown[]) => Promise<Record<string, unknown>>;
     getRequestContext?: (...args: unknown[]) => Promise<Record<string, unknown>>;
+    approverContext?: (...args: unknown[]) => Promise<Record<string, unknown>>;
   };
   const swap =
     (read: (...args: unknown[]) => Promise<Record<string, unknown>>) =>
@@ -70,12 +71,14 @@ const asApprover = (base: unknown): HrmContextService => {
       ...(await read(...args)),
       principal: approverPrincipal,
     });
+  const approverBase = source.approverContext ?? source.getContext;
   return {
     ...source,
     getContext: swap(source.getContext.bind(source)),
     ...(source.getRequestContext
       ? { getRequestContext: swap(source.getRequestContext.bind(source)) }
       : {}),
+    approverContext: swap(approverBase.bind(source)),
   } as unknown as HrmContextService;
 };
 
@@ -341,6 +344,12 @@ integration('HRM employee PostgreSQL integration', () => {
       getContext: async () => ({ pool, tenantId, principal: { userId } }),
       resolveEmployee: async () => ({ employeeId: userId }),
       getRequestContext: async () => ({
+        pool,
+        tenantId,
+        principal: { userId },
+        employeeId: userId,
+      }),
+      approverContext: async () => ({
         pool,
         tenantId,
         principal: { userId },
@@ -623,6 +632,12 @@ integration('HRM employee PostgreSQL integration', () => {
         getContext: async () => ({ pool, tenantId: t, principal: { userId } }),
         resolveEmployee: async () => ({ employeeId: e }),
         getRequestContext: async () => ({
+          pool,
+          tenantId: t,
+          principal: { userId },
+          employeeId: e,
+        }),
+        approverContext: async () => ({
           pool,
           tenantId: t,
           principal: { userId },
