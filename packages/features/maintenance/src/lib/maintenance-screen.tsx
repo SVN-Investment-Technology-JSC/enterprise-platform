@@ -12,15 +12,12 @@ import type {
   MaintenanceSettingsSnapshot,
   MaintenanceWorkspace,
 } from '@enterprise-platform/contracts-maintenance';
-import { MAINTENANCE_ASSISTANT_ACTIONS } from '@enterprise-platform/contracts-maintenance';
 import {
   DashboardCardPicker,
   DashboardView,
   ModuleSettingsView,
   ModuleShell,
-  useAssistantAction,
   useHashView,
-  type AssistantActionContext,
   type ModuleNavItem,
 } from '@enterprise-platform/feature-module-shell';
 import {
@@ -30,8 +27,7 @@ import {
 } from '@enterprise-platform/shared-ui';
 import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import { RotateCcw, Search } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
-import { incidentDraftToFormValues, type IncidentFormValues } from './assistant-incident-draft';
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { AssetTaskPanel } from './components/asset-task-panel';
 import { IncidentForm } from './components/incident-form';
 import { FrequencyCatalogEditor } from './components/frequency-catalog-editor';
@@ -173,18 +169,6 @@ export function MaintenanceScreen() {
   }, [view, sub]);
   const [members, setMembers] = useState<readonly { userId: string; displayName: string }[]>([]);
   const [incidentOpen, setIncidentOpen] = useState(false);
-  /** Bản nháp Trợ lý của form sự cố; `revision` tăng khi cùng yêu cầu gửi thêm ô cho form đang mở. */
-  const [incidentPrefill, setIncidentPrefill] = useState<{
-    readonly requestId: string;
-    readonly revision: number;
-    readonly values: IncidentFormValues;
-  }>();
-  /** Yêu cầu Trợ lý chờ dữ liệu bảo trì nạp xong. */
-  const [assistantQueue, setAssistantQueue] = useState<
-    readonly { readonly draft: Readonly<Record<string, unknown>>; readonly context: AssistantActionContext }[]
-  >([]);
-  /** Yêu cầu Trợ lý đang giữ form sự cố, để báo lại khi lưu hoặc đóng. */
-  const assistantRequest = useRef<AssistantActionContext>(undefined);
   const [performers, setPerformers] = useState<ReadonlyMap<string, string[]>>(new Map());
   const [settings, setSettings] = useState<MaintenanceSettingsSnapshot>();
   const [cardDraft, setCardDraft] = useState<readonly string[]>([]);
@@ -212,49 +196,6 @@ export function MaintenanceScreen() {
     void loadOrganizationUnitNames().then(setUnitNames);
     void loadTenantMembers().then(setMembers);
   }, [reload]);
-
-  // Trợ lý mở form "Tạo sự cố" với bản nháp. Chờ danh mục thiết bị và quyền nạp xong mới mở, vì form cần chúng.
-  useAssistantAction(MAINTENANCE_ASSISTANT_ACTIONS.createIncident.key, (draft, context) =>
-    setAssistantQueue((queue) => [...queue, { draft, context }]),
-  );
-  useEffect(() => {
-    if (assistantQueue.length === 0 || !workspace || !matrix) return;
-    setAssistantQueue([]);
-    let opened = false;
-    for (const { draft, context } of assistantQueue) {
-      if (!workspace.permissions.canManageOccurrences) {
-        context.report('unavailable', { message: 'Bạn không có quyền tạo sự cố bảo trì.' });
-        continue;
-      }
-      const values = incidentDraftToFormValues(draft, {
-        assetCodes: matrix.rows.map((row) => row.asset.code),
-        procedureDefinitionIds: workspace.procedureCatalog.map((entry) => entry.definitionId),
-        memberIds: members.map((member) => member.userId),
-      });
-      if (assistantRequest.current?.requestId === context.requestId) {
-        // Cùng yêu cầu khi form đang mở: chỉ ghi đè các ô có trong bản nháp mới.
-        setIncidentPrefill((current) => ({
-          requestId: context.requestId,
-          revision: (current?.revision ?? 0) + 1,
-          values,
-        }));
-      } else {
-        assistantRequest.current?.report('cancelled');
-        assistantRequest.current = context;
-        setIncidentPrefill({ requestId: context.requestId, revision: 0, values });
-      }
-      setIncidentOpen(true);
-      opened = true;
-    }
-    if (opened) navigate('occurrences');
-  }, [assistantQueue, workspace, matrix, members, navigate]);
-
-  const closeIncidentForm = () => {
-    setIncidentOpen(false);
-    assistantRequest.current?.report('cancelled');
-    assistantRequest.current = undefined;
-    setIncidentPrefill(undefined);
-  };
 
   /**
    * Cấu hình chỉ nạp khi thật sự cần: dashboard cần biết thẻ nào bật, màn cài
@@ -467,19 +408,12 @@ export function MaintenanceScreen() {
     setBusy(true);
     try {
       const created = await createMaintenanceIncident(input);
-      assistantRequest.current?.report('saved', {
-        id: created.id,
-        label: created.code ? `${created.code} · ${created.title}` : created.title,
-        href: `/modules/maintenance#history/${encodeURIComponent(created.id)}`,
-      });
-      assistantRequest.current = undefined;
       if (files && files.length > 0) {
         await Promise.all(
           files.map((file) => uploadOccurrenceAttachment(created.id, file)),
         );
       }
       setIncidentOpen(false);
-      setIncidentPrefill(undefined);
       setError(undefined);
       await reload();
       navigate('history');
@@ -679,15 +613,12 @@ export function MaintenanceScreen() {
 
       {incidentOpen && workspace && matrix ? (
         <IncidentForm
-          key={incidentPrefill?.requestId ?? 'manual'}
           assets={matrix.rows}
           catalog={workspace.procedureCatalog}
           members={members}
           busy={busy}
-          onCancel={closeIncidentForm}
+          onCancel={() => setIncidentOpen(false)}
           onSubmit={submitIncident}
-          initialValues={incidentPrefill?.values}
-          initialValuesRevision={incidentPrefill?.revision}
         />
       ) : null}
 

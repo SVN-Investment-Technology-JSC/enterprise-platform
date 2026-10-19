@@ -6,6 +6,7 @@ import type {
   MaintenancePriority,
   MaintenanceProcedureCatalogEntry,
 } from '@enterprise-platform/contracts-maintenance';
+import { useAssistantEmbed } from '@enterprise-platform/feature-module-shell';
 import {
   EMPTY_TRANSPORT,
   MinimalPopupForm,
@@ -17,7 +18,7 @@ import {
   type TransportRange,
 } from '@enterprise-platform/shared-ui';
 import { Paperclip, Upload, X } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import type { IncidentFormValues } from '../assistant-incident-draft';
 import { loadFleetAvailability } from '../maintenance-api';
 import styles from './maintenance-history.module.scss';
@@ -31,6 +32,43 @@ const PRIORITY_OPTIONS = [
   { value: 'Low', label: 'Thấp' },
 ];
 
+const FORM_TITLE = 'Tạo sự cố bảo trì';
+
+/**
+ * Khung của form: popup trên màn Bảo trì; trong card Trợ lý (`useAssistantEmbed`) thì hiện ngay tại chỗ, hết bề ngang
+ * card, không lớp phủ.
+ */
+function IncidentFrame({
+  embedded,
+  onClose,
+  children,
+}: {
+  embedded: boolean;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  if (embedded) {
+    return (
+      <section className={styles.incidentInline} aria-labelledby="incident-form-title">
+        <h2 id="incident-form-title" className={styles.incidentInlineTitle}>
+          {FORM_TITLE}
+        </h2>
+        {children}
+      </section>
+    );
+  }
+  return (
+    <MinimalPopupForm
+      isOpen
+      title={FORM_TITLE}
+      subtitle="Ghi nhận hỏng hóc đột xuất và tạo phiếu xử lý ngay khi cần."
+      onClose={onClose}
+    >
+      {children}
+    </MinimalPopupForm>
+  );
+}
+
 export function IncidentForm({
   assets,
   catalog,
@@ -40,6 +78,7 @@ export function IncidentForm({
   onSubmit,
   initialValues,
   initialValuesRevision = 0,
+  error,
 }: {
   assets: readonly MaintenanceMatrixRow[];
   catalog: readonly MaintenanceProcedureCatalogEntry[];
@@ -51,7 +90,11 @@ export function IncidentForm({
   initialValues?: IncidentFormValues;
   /** Tăng khi có bản nháp mới cho form đang mở: các ô có trong `initialValues` được ghi đè, ô khác giữ nguyên. */
   initialValuesRevision?: number;
+  /** Lỗi khi lưu (trang form nhúng của Trợ lý), hiện ngay trên hàng nút. */
+  error?: string;
 }) {
+  // Trong card Trợ lý: bỏ các dòng gợi ý để card gọn, chỉ giữ nhãn, giá trị và lỗi.
+  const embedded = useAssistantEmbed();
   const [assetCode, setAssetCode] = useState(initialValues?.assetCode ?? '');
   const [title, setTitle] = useState(initialValues?.title ?? '');
   const [description, setDescription] = useState(initialValues?.description ?? '');
@@ -174,17 +217,14 @@ export function IncidentForm({
   };
 
   return (
-    <MinimalPopupForm
-      isOpen
-      title="Tạo sự cố bảo trì"
-      subtitle="Ghi nhận hỏng hóc đột xuất và tạo phiếu xử lý ngay khi cần."
-      onClose={onCancel}
-    >
+    <IncidentFrame embedded={embedded} onClose={onCancel}>
       <form className={styles.incidentForm} onSubmit={submit} noValidate>
         <div className={styles.incidentBody}>
-        <div>
-          <span className={styles.dangerBadge}>Phát sinh ngoài kế hoạch</span>
-        </div>
+        {embedded ? null : (
+          <div>
+            <span className={styles.dangerBadge}>Phát sinh ngoài kế hoạch</span>
+          </div>
+        )}
 
         {formError ? (
           <p style={{ color: '#dc2626', fontSize: '14px', margin: 0 }}>{formError}</p>
@@ -207,7 +247,7 @@ export function IncidentForm({
               <p className={asset ? styles.assetOk : styles.assetUnknown}>
                 {asset ? asset.asset.name : 'Mã thiết bị chưa có trong danh mục'}
               </p>
-            ) : (
+            ) : embedded ? null : (
               <p className={styles.assetUnknown}>Gõ mã hoặc tên để chọn nhanh thiết bị</p>
             )}
           </div>
@@ -333,9 +373,11 @@ export function IncidentForm({
                   event.target.value = '';
                 }}
               />
-              <span style={{ fontSize: '12px', color: '#64748b' }}>
-                (Ảnh chụp hiện trường, biên bản, video ngắn - Tối đa 25MB)
-              </span>
+              {embedded ? null : (
+                <span style={{ fontSize: '12px', color: '#64748b' }}>
+                  (Ảnh chụp hiện trường, biên bản, video ngắn - Tối đa 25MB)
+                </span>
+              )}
             </div>
 
             {/* Danh sách tệp đã thêm */}
@@ -427,7 +469,11 @@ export function IncidentForm({
           loading={availabilityLoading}
           error={needsAvailability ? availabilityError : null}
           disabled={busy}
-          note="Xe được giữ trên Lịch xe của HRM ngay khi tạo sự cố; nếu xe vừa có người đặt trước, phiếu báo lại để chọn xe khác."
+          note={
+            embedded
+              ? undefined
+              : 'Xe được giữ trên Lịch xe của HRM ngay khi tạo sự cố; nếu xe vừa có người đặt trước, phiếu báo lại để chọn xe khác.'
+          }
         />
         {transport.mode === 'COMPANY_VEHICLE' ? (
           <div className={styles.formField}>
@@ -443,6 +489,12 @@ export function IncidentForm({
         ) : null}
 
         </div>
+
+        {error ? (
+          <p role="alert" className={styles.incidentSaveError}>
+            {error}
+          </p>
+        ) : null}
 
         <div className={styles.incidentActions}>
           <button
@@ -462,6 +514,6 @@ export function IncidentForm({
           </button>
         </div>
       </form>
-    </MinimalPopupForm>
+    </IncidentFrame>
   );
 }

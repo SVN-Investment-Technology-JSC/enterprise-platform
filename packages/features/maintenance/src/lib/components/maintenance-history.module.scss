@@ -926,3 +926,34 @@
     justify-content: center;
   }
 }
+
+/* Lỗi khi lưu (trang form nhúng của Trợ lý): ngay trên hàng nút, chỗ người dùng vừa bấm. */
+.incidentSaveError {
+  margin: 8px 0 0;
+  color: #dc2626;
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+/* Form trong card Trợ lý: nằm ngay trong trang, rộng hết card, cao theo nội dung để card co giãn, không cuộn riêng. */
+.incidentInline {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  min-width: 0;
+
+  .incidentBody {
+    overflow: visible;
+    padding-right: 0;
+  }
+}
+
+.incidentInlineTitle {
+  margin: 0;
+  color: #18181b;
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1.35;
+}
