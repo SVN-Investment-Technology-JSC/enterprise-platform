@@ -7,8 +7,10 @@ import {
   Download,
   FileJson,
   FilePen,
+  Images,
   LayoutGrid,
   List,
+  ListFilter,
   Plus,
   Search,
   SearchX,
@@ -21,6 +23,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } f
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
+import { Panel, RAISED, RAISED_PRIMARY } from '../components/panel';
 import { ExportDialog } from '../export/export-dialog';
 import { isPresetId, useBrandSettings, useIconLibrary } from '../store';
 import { errorMessage } from '../store/brand-api';
@@ -97,6 +100,7 @@ const NOTICE_STYLE: Record<NoticeTone, string> = {
 };
 
 const SKELETON_COUNT = 12;
+const GRID = 'grid grid-cols-[repeat(auto-fill,minmax(9.5rem,1fr))] gap-3';
 
 export function IconLibraryPage() {
   const library = useIconLibrary();
@@ -187,6 +191,8 @@ export function IconLibraryPage() {
       }),
   };
 
+  const resetFilters = () => setView((current) => ({ ...DEFAULT_VIEW, sort: current.sort }));
+
   const exportCurrent = () => setExportDocs(picked.length > 0 ? picked : [...library.docs]);
 
   const backup = () => {
@@ -247,11 +253,11 @@ export function IconLibraryPage() {
     .filter(Boolean)
     .join(' ');
 
-  const actionBtn = 'rounded-md px-2.5';
+  const actionBtn = cn(RAISED, 'px-2.5');
   const total = library.docs.length;
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-5">
       <header className="flex flex-wrap items-center gap-x-4 gap-y-3">
         <div className="flex min-w-0 flex-1 items-baseline gap-3">
           <h1 className="text-2xl font-bold tracking-tight text-slate-900">Thư viện icon</h1>
@@ -259,7 +265,7 @@ export function IconLibraryPage() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Link
-            className={cn(buttonVariants(), 'rounded-md bg-blue-600 px-3 text-white hover:bg-blue-700')}
+            className={cn(buttonVariants(), RAISED_PRIMARY)}
             href={asRoute(editorPath(NEW_ICON_ID))}
           >
             <Plus aria-hidden className="size-4" />
@@ -338,12 +344,20 @@ export function IconLibraryPage() {
         </p>
       ) : null}
 
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-y border-slate-200 py-2.5">
+      <div
+        aria-label="Bộ lọc"
+        className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-md border border-slate-200 bg-slate-50 px-4 py-3 shadow-sm"
+        role="search"
+      >
+        <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600">
+          <ListFilter aria-hidden className="size-4 text-blue-600" />
+          Bộ lọc
+        </span>
         <div className="relative w-full min-w-48 sm:w-64">
           <Search aria-hidden className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
           <Input
             aria-label="Tìm icon"
-            className="h-8 rounded-md pl-8 pr-8 text-sm"
+            className="h-8 rounded-md border-slate-300 bg-white pl-8 pr-8 text-sm shadow-[0_1px_2px_rgba(15,23,42,0.06)]"
             onChange={(event) => patchView({ query: event.target.value })}
             placeholder="Tìm theo tên, mô tả, nhãn"
             type="search"
@@ -397,10 +411,10 @@ export function IconLibraryPage() {
               value={view.sort}
             />
           </div>
-          <div aria-label="Kiểu hiển thị" className="flex rounded-md border border-slate-200 p-0.5" role="group">
+          <div aria-label="Kiểu hiển thị" className="flex rounded-md border border-slate-300 bg-white p-0.5 shadow-[0_1px_2px_rgba(15,23,42,0.06)]" role="group">
             <IconButton
               aria-pressed={mode === 'grid'}
-              className={cn('size-7', mode === 'grid' && 'bg-slate-100 text-slate-900')}
+              className={cn('size-7', mode === 'grid' && 'bg-blue-50 text-blue-700')}
               label="Dạng lưới"
               onClick={() => changeMode('grid')}
             >
@@ -408,7 +422,7 @@ export function IconLibraryPage() {
             </IconButton>
             <IconButton
               aria-pressed={mode === 'list'}
-              className={cn('size-7', mode === 'list' && 'bg-slate-100 text-slate-900')}
+              className={cn('size-7', mode === 'list' && 'bg-blue-50 text-blue-700')}
               label="Dạng danh sách"
               onClick={() => changeMode('list')}
             >
@@ -419,7 +433,7 @@ export function IconLibraryPage() {
       </div>
 
       {picked.length > 0 ? (
-        <div className="flex flex-wrap items-center gap-2 rounded-md bg-blue-50 px-3 py-1.5 text-sm" data-testid="bulk-bar">
+        <div className="flex flex-wrap items-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-1.5 text-sm shadow-sm" data-testid="bulk-bar">
           <span className="font-medium text-blue-900">Đã chọn {picked.length}</span>
           <span aria-hidden className="h-4 w-px bg-blue-200" />
           <Button className="rounded-md" onClick={() => setExportDocs(picked)} size="sm" variant="ghost">
@@ -453,84 +467,95 @@ export function IconLibraryPage() {
         </div>
       ) : null}
 
-      {!library.ready ? (
-        <ul aria-busy="true" aria-label="Đang tải thư viện" className="grid grid-cols-[repeat(auto-fill,minmax(9.5rem,1fr))] gap-3">
-          {Array.from({ length: SKELETON_COUNT }, (_, index) => (
-            <li className="animate-pulse rounded-md p-2" key={index}>
-              <div className="aspect-square rounded bg-slate-100" />
-              <div className="mt-2 h-3.5 w-3/4 rounded bg-slate-100" />
-              <div className="mt-2 h-3 w-1/2 rounded bg-slate-100" />
-            </li>
-          ))}
-        </ul>
-      ) : visible.length === 0 ? (
-        <div className="flex flex-col items-center gap-3 py-16 text-center text-slate-500" data-testid="empty-state">
-          <SearchX aria-hidden className="size-9 text-slate-300" />
-          <p className="text-sm">{filtered ? 'Không có icon phù hợp.' : 'Thư viện chưa có icon.'}</p>
-          {filtered ? (
-            <Button className="rounded-md" onClick={() => setView((current) => ({ ...DEFAULT_VIEW, sort: current.sort }))} size="sm" variant="outline">
-              Xoá bộ lọc
-            </Button>
-          ) : (
-            <Link
-              className={cn(buttonVariants({ size: 'sm' }), 'rounded-md bg-blue-600 text-white hover:bg-blue-700')}
-              href={asRoute(editorPath(NEW_ICON_ID))}
-            >
-              <Plus aria-hidden />
-              Tạo icon mới
-            </Link>
-          )}
-        </div>
-      ) : (
-        <>
-          <div className="flex items-center gap-3 text-xs text-slate-500">
-            {mode === 'grid' ? (
-              <SelectBox
-                checked={picked.length === visible.length}
-                indeterminate={picked.length > 0}
-                label="Chọn tất cả icon đang hiện"
-                onChange={toggleAll}
-              />
-            ) : null}
-            <span className="tabular-nums">{filtered ? `${visible.length} / ${total} icon` : `${visible.length} icon`}</span>
+      <Panel
+        actions={
+          library.ready && visible.length > 0 ? (
+            <>
+              {mode === 'grid' ? (
+                <label className="flex cursor-pointer items-center gap-2 text-xs text-slate-600">
+                  <SelectBox
+                    checked={picked.length === visible.length}
+                    indeterminate={picked.length > 0}
+                    label="Chọn tất cả icon đang hiện"
+                    onChange={toggleAll}
+                  />
+                  <span className="hidden sm:inline">Chọn tất cả</span>
+                </label>
+              ) : null}
+              {filtered ? (
+                <button
+                  className="text-xs font-medium text-blue-600 hover:text-blue-700 hover:underline"
+                  onClick={resetFilters}
+                  type="button"
+                >
+                  Xoá bộ lọc
+                </button>
+              ) : null}
+              <span className="rounded-full bg-white px-2.5 py-0.5 text-xs font-medium tabular-nums text-slate-600 ring-1 ring-inset ring-slate-200">
+                {filtered ? `${visible.length} / ${total} icon` : `${visible.length} icon`}
+              </span>
+            </>
+          ) : null
+        }
+        flush={mode === 'list' && library.ready && visible.length > 0}
+        hint="Bấm vào icon để mở trình thiết kế"
+        icon={Images}
+        id="icons-title"
+        title="Icon"
+      >
+        {!library.ready ? (
+          <ul aria-busy="true" aria-label="Đang tải thư viện" className={GRID}>
+            {Array.from({ length: SKELETON_COUNT }, (_, index) => (
+              <li className="animate-pulse rounded-md border border-slate-100 p-2" key={index}>
+                <div className="aspect-square rounded bg-slate-100" />
+                <div className="mt-2 h-3.5 w-3/4 rounded bg-slate-100" />
+                <div className="mt-2 h-3 w-1/2 rounded bg-slate-100" />
+              </li>
+            ))}
+          </ul>
+        ) : visible.length === 0 ? (
+          <div className="flex flex-col items-center gap-3 py-12 text-center text-slate-500" data-testid="empty-state">
+            <span className="grid size-14 place-items-center rounded-full bg-slate-100 ring-1 ring-inset ring-slate-200">
+              <SearchX aria-hidden className="size-7 text-slate-400" />
+            </span>
+            <p className="text-sm">{filtered ? 'Không có icon phù hợp.' : 'Thư viện chưa có icon.'}</p>
             {filtered ? (
-              <button
-                className="font-medium text-blue-600 hover:text-blue-700 hover:underline"
-                onClick={() => setView((current) => ({ ...DEFAULT_VIEW, sort: current.sort }))}
-                type="button"
-              >
+              <Button className={RAISED} onClick={resetFilters} size="sm" variant="outline">
                 Xoá bộ lọc
-              </button>
-            ) : null}
+              </Button>
+            ) : (
+              <Link className={cn(buttonVariants({ size: 'sm' }), RAISED_PRIMARY)} href={asRoute(editorPath(NEW_ICON_ID))}>
+                <Plus aria-hidden />
+                Tạo icon mới
+              </Link>
+            )}
           </div>
-
-          {mode === 'grid' ? (
-            <ul className="grid grid-cols-[repeat(auto-fill,minmax(9.5rem,1fr))] gap-3" data-testid="icon-grid">
-              {visible.map((doc) => (
-                <IconTile
-                  doc={doc}
-                  key={doc.id}
-                  onSelect={(checked) => toggle(doc.id, checked)}
-                  palette={palette}
-                  preset={isPresetId(doc.id)}
-                  selected={selected.has(doc.id)}
-                  {...handlers}
-                />
-              ))}
-            </ul>
-          ) : (
-            <IconList
-              docs={visible}
-              isPreset={isPresetId}
-              onSelect={toggle}
-              onSelectAll={toggleAll}
-              palette={palette}
-              selected={selected}
-              {...handlers}
-            />
-          )}
-        </>
-      )}
+        ) : mode === 'grid' ? (
+          <ul className={GRID} data-testid="icon-grid">
+            {visible.map((doc) => (
+              <IconTile
+                doc={doc}
+                key={doc.id}
+                onSelect={(checked) => toggle(doc.id, checked)}
+                palette={palette}
+                preset={isPresetId(doc.id)}
+                selected={selected.has(doc.id)}
+                {...handlers}
+              />
+            ))}
+          </ul>
+        ) : (
+          <IconList
+            docs={visible}
+            isPreset={isPresetId}
+            onSelect={toggle}
+            onSelectAll={toggleAll}
+            palette={palette}
+            selected={selected}
+            {...handlers}
+          />
+        )}
+      </Panel>
 
       <ExportDialog docs={exportDocs ?? []} onClose={() => setExportDocs(null)} open={exportDocs !== null} palette={palette} />
     </div>

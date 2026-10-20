@@ -130,7 +130,8 @@ describe('remoteStore: rơi về chế độ cục bộ', () => {
     ['404 chưa có API', httpError(404, 'Máy chủ chưa có API lưu icon.'), 'Máy chủ chưa có API lưu icon.'],
     ['500', httpError(500, 'Máy chủ đang gặp sự cố. Thử lại sau.'), 'Máy chủ đang gặp sự cố. Thử lại sau.'],
     ['mất mạng', networkError(), 'Không kết nối được máy chủ. Kiểm tra mạng rồi thử lại.'],
-    ['403 không có quyền', httpError(403, 'Chỉ quản trị Platform được dùng chức năng này.'), 'Không có quyền dùng kho icon trên máy chủ.'],
+    ['403 không có quyền', httpError(403, 'Chỉ quản trị Platform được dùng chức năng này.'), 'Tài khoản này không có quyền dùng kho icon trên máy chủ.'],
+    ['401 hết phiên đăng nhập', httpError(401, 'Vui lòng đăng nhập để tiếp tục.'), 'Phiên đăng nhập đã hết hạn. Hãy đăng nhập lại để dùng kho icon trên máy chủ.'],
   ])('lần thử đầu gặp %s thì dùng localStorage và nêu lý do', async (_name, error, reason) => {
     mockServer.failWith('GET icons', error);
 

@@ -285,7 +285,8 @@ async function loadAllSpecs(): Promise<void> {
 
 function reasonFor(error: unknown): string {
   if (api.isBrandApiError(error)) {
-    if (error.isAuthError) return 'Không có quyền dùng kho icon trên máy chủ.';
+    if (error.statusCode === 401) return 'Phiên đăng nhập đã hết hạn. Hãy đăng nhập lại để dùng kho icon trên máy chủ.';
+    if (error.statusCode === 403) return 'Tài khoản này không có quyền dùng kho icon trên máy chủ.';
     if (error.statusCode === 404) return 'Máy chủ chưa có API lưu icon.';
     return error.message;
   }

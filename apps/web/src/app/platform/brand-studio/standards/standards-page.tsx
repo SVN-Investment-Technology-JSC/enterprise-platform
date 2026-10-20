@@ -1,10 +1,11 @@
 'use client';
 
 import { Popconfirm } from '@enterprise-platform/shared-ui';
-import { Download, Palette, RotateCcw, Ruler, Sparkles, Upload, X, type LucideIcon } from 'lucide-react';
-import { useRef, useState, type ChangeEvent, type ReactNode } from 'react';
+import { Download, Palette, RotateCcw, Ruler, Sparkles, Upload, X } from 'lucide-react';
+import { useRef, useState, type ChangeEvent } from 'react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { Panel, RAISED } from '../components/panel';
 import { downloadTextFile, readFileText } from '../library/file-download';
 import { IconButton } from '../library/library-ui';
 import { useBrandSettings, useIconLibrary } from '../store';
@@ -16,42 +17,6 @@ import { parseSettings, serializeSettings, settingsFileName } from './settings-i
 interface Notice {
   readonly tone: 'ok' | 'error';
   readonly text: string;
-}
-
-/** Nút nổi nhẹ: viền, bóng mỏng và nhích lên khi rê chuột. */
-const RAISED =
-  'rounded-md border-slate-300 bg-white text-slate-700 shadow-[0_1px_2px_rgba(15,23,42,0.08)] transition-all hover:-translate-y-px hover:bg-white hover:shadow-md active:translate-y-0 active:shadow-sm';
-
-/** Một khối lớn của trang: có tiêu đề, mô tả ngắn và nền riêng để tách rõ với các khối khác. */
-function Panel({
-  id,
-  icon: Icon,
-  title,
-  hint,
-  children,
-}: {
-  id: string;
-  icon: LucideIcon;
-  title: string;
-  hint: string;
-  children: ReactNode;
-}) {
-  return (
-    <section aria-labelledby={id} className="min-w-0 overflow-hidden rounded-md border border-slate-200 bg-white shadow-sm">
-      <header className="flex items-center gap-3 border-b border-slate-200 bg-slate-50 px-5 py-3.5">
-        <span className="grid size-8 shrink-0 place-items-center rounded-md bg-blue-50 text-blue-600 ring-1 ring-inset ring-blue-100">
-          <Icon aria-hidden className="size-4" />
-        </span>
-        <div className="min-w-0">
-          <h2 className="text-sm font-semibold text-slate-900" id={id}>
-            {title}
-          </h2>
-          <p className="text-xs text-slate-500">{hint}</p>
-        </div>
-      </header>
-      <div className="px-5 py-4">{children}</div>
-    </section>
-  );
 }
 
 export function StandardsPage() {

@@ -29,8 +29,8 @@ export function IconTile({
   return (
     <li
       className={cn(
-        'group relative rounded-md ring-1 transition-shadow',
-        selected ? 'bg-blue-50/40 ring-blue-500' : 'ring-transparent hover:ring-slate-200',
+        'group relative rounded-md border bg-white shadow-[0_1px_2px_rgba(15,23,42,0.06)] transition-all hover:-translate-y-px hover:shadow-md',
+        selected ? 'border-blue-500 bg-blue-50/40 ring-1 ring-blue-500' : 'border-slate-200 hover:border-blue-300',
       )}
       data-testid="icon-tile"
     >
@@ -64,7 +64,7 @@ export function IconTile({
 
       <IconActions
         {...handlers}
-        className="absolute right-3 top-3 rounded bg-white/95 p-0.5 opacity-0 shadow-sm transition-opacity focus-within:opacity-100 group-hover:opacity-100 pointer-coarse:opacity-100"
+        className="absolute right-3 top-3 rounded-md border border-slate-200 bg-white p-0.5 opacity-0 shadow-sm transition-opacity focus-within:opacity-100 group-hover:opacity-100 pointer-coarse:opacity-100"
         doc={doc}
         preset={preset}
       />
