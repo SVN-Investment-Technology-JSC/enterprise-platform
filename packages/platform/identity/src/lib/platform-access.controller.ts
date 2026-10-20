@@ -558,6 +558,18 @@ export class PlatformAccessController {
     return this.identity.authorization.assignRoles(p.tenantId, p.userId, id, input.roleIds);
   }
 
+  @Get('v1/tenant-users/:id/permission-grants')
+  async userPermissionGrants(@Req() request: Request, @Param('id') id: string) {
+    const p = await this.tenantManager(request);
+    return this.identity.authorization.userPermissionGrants(p.tenantId, id);
+  }
+
+  @Put('v1/tenant-users/:id/permission-grants')
+  async setUserPermissionGrants(@Req() request: Request, @Param('id') id: string, @Body() input: { actionKeys?: unknown }) {
+    const p = await this.tenantManager(request); this.requireCsrf(request);
+    return this.identity.authorization.setUserPermissionGrants(p.tenantId, p.userId, id, input?.actionKeys);
+  }
+
   private async principal(request: Request): Promise<AuthenticatedPrincipal> {
     const bearer = request.headers.authorization;
     const token = bearer?.startsWith('Bearer ')

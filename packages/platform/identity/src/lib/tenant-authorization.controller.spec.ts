@@ -23,6 +23,8 @@ describe('Tenant authorization API gates', () => {
       assignRoles: jest.Mock;
       savePermission: jest.Mock;
       listRoles: jest.Mock;
+      userPermissionGrants: jest.Mock;
+      setUserPermissionGrants: jest.Mock;
     };
   };
   let controller: PlatformAccessController;
@@ -57,6 +59,8 @@ describe('Tenant authorization API gates', () => {
         assignRoles: jest.fn(),
         savePermission: jest.fn(),
         listRoles: jest.fn(),
+        userPermissionGrants: jest.fn(),
+        setUserPermissionGrants: jest.fn(async () => ({ actionKeys: [], grants: [] })),
       },
     };
     controller = new PlatformAccessController(
@@ -81,6 +85,22 @@ describe('Tenant authorization API gates', () => {
     await expect(
       controller.setUserRoles(request, 'victim', { roleIds: [] }),
     ).rejects.toMatchObject({ status: 403 });
+  });
+  it('reserves user permission grants for the built-in admin and enforces CSRF', async () => {
+    principal = { ...principal, permissions: ['tenant.manage', 'core.users.update'] };
+    await expect(controller.userPermissionGrants(request, 'victim')).rejects.toMatchObject({ status: 403 });
+    await expect(
+      controller.setUserPermissionGrants(request, 'victim', { actionKeys: ['core.users.read'] }),
+    ).rejects.toMatchObject({ status: 403 });
+    principal = { ...principal, roles: ['tenant-admin'] };
+    await expect(
+      controller.setUserPermissionGrants({ ...request, headers: {} } as Request, 'u1', { actionKeys: [] }),
+    ).rejects.toMatchObject({ status: 403 });
+    expect(identity.authorization.setUserPermissionGrants).not.toHaveBeenCalled();
+    await controller.setUserPermissionGrants(request, 'u1', { actionKeys: ['core.users.read'] });
+    expect(identity.authorization.setUserPermissionGrants).toHaveBeenCalledWith('tenant-a', 'user', 'u1', ['core.users.read']);
+    await controller.userPermissionGrants(request, 'u1');
+    expect(identity.authorization.userPermissionGrants).toHaveBeenCalledWith('tenant-a', 'u1');
   });
   it('enforces CSRF on authorization writes', async () => {
     principal = { ...principal, roles: ['tenant-admin'] };

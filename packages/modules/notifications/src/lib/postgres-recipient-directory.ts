@@ -22,15 +22,27 @@ export class PostgresRecipientDirectory implements RecipientDirectory {
     const result = await this.pool.query<{ id: string }>(
       `SELECT DISTINCT users.id
          FROM core_schema.users users
-         JOIN core_schema.user_roles user_roles ON user_roles.user_id = users.id
-         JOIN core_schema.roles roles ON roles.id = user_roles.role_id
-         LEFT JOIN core_schema.role_permissions role_permissions
-           ON role_permissions.role_id = roles.id
-         LEFT JOIN core_schema.permission_actions permission_actions
-           ON permission_actions.permission_id = role_permissions.permission_id
         WHERE users.status = 'active'
           AND users.is_active = true
-          AND (roles.key = 'tenant-admin' OR permission_actions.action_key = $1)`,
+          AND (
+            EXISTS (
+              SELECT 1
+                FROM core_schema.user_roles user_roles
+                JOIN core_schema.roles roles ON roles.id = user_roles.role_id
+                LEFT JOIN core_schema.role_permissions role_permissions
+                  ON role_permissions.role_id = roles.id
+                LEFT JOIN core_schema.permission_actions permission_actions
+                  ON permission_actions.permission_id = role_permissions.permission_id
+               WHERE user_roles.user_id = users.id
+                 AND (roles.key = 'tenant-admin' OR permission_actions.action_key = $1)
+            )
+            OR EXISTS (
+              SELECT 1
+                FROM core_schema.user_permission_grants grants
+               WHERE grants.user_id = users.id
+                 AND grants.action_key = $1
+            )
+          )`,
       [permission],
     );
     return result.rows.map((row) => row.id);

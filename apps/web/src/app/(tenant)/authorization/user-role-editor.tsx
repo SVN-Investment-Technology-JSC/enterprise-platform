@@ -4,17 +4,21 @@ import {
   TENANT_PERMISSION_ACTIONS,
   type TenantPermission,
   type TenantRole,
+  type TenantUserPermissionGrants,
 } from '@enterprise-platform/contracts-identity';
-import { useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
-import { ShieldCheck, UserCheck, Layers, KeyRound } from 'lucide-react';
+import { ShieldCheck, UserCheck, Layers, KeyRound, Plus } from 'lucide-react';
+import { Popconfirm } from '@enterprise-platform/shared-ui';
 import { toast } from '@/components/ui/sonner';
 import { panelButton, SidePanel } from '../side-panel';
 import { PermissionPicker } from './permission-picker';
 import { authorizationRequest } from './authorization-client';
+import { overlappingGrants, buildRoleSources, sameIds } from './permission-grants-model';
+import { actionLabelOf, UserPermissionGrantsDialog } from './user-permission-grants-dialog';
 
 interface UserRoleEditorProps {
-  readonly user: { id: string; fullName: string; roleIds?: string[] };
+  readonly user: { id: string; fullName: string; roleIds?: string[]; directActionKeys?: string[] };
   readonly roles: TenantRole[];
   readonly permissions: TenantPermission[];
   readonly onClose: () => void;
@@ -30,7 +34,30 @@ export function UserRoleEditor({
 }: UserRoleEditorProps) {
   const [ids, setIds] = useState(user.roleIds ?? []);
   const [busy, setBusy] = useState(false);
+  const [grants, setGrants] = useState<TenantUserPermissionGrants>({
+    actionKeys: user.directActionKeys ?? [],
+    grants: [],
+  });
+  const [grantsOpen, setGrantsOpen] = useState(false);
+  const [grantBusy, setGrantBusy] = useState(false);
   const router = useRouter();
+
+  // Nạp quyền bổ sung hiện có để khối "Bổ sung ngoài vai trò" hiện ngay khi mở editor.
+  useEffect(() => {
+    let cancelled = false;
+    authorizationRequest<TenantUserPermissionGrants>(
+      `tenant-users/${user.id}/permission-grants`,
+    )
+      .then((data) => {
+        if (!cancelled) setGrants(data);
+      })
+      .catch(() => {
+        // Giữ danh sách rút gọn từ danh sách người dùng; hộp thoại sẽ báo lỗi khi mở.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user.id]);
 
   const selected = roles.filter((r) => ids.includes(r.id));
   const admin = selected.some((r) => r.key === 'tenant-admin');
@@ -42,6 +69,36 @@ export function UserRoleEditor({
     ),
   ];
   const modules = [...new Set(selected.flatMap((r) => r.moduleKeys))];
+  const sources = buildRoleSources(selected, permissions);
+  const overlap = new Set(overlappingGrants(grants.actionKeys, sources));
+  const rolesDirty = !sameIds(ids, user.roleIds ?? []);
+  const onLoaded = useCallback((data: TenantUserPermissionGrants) => setGrants(data), []);
+
+  async function applyGrants(data: TenantUserPermissionGrants) {
+    setGrants(data);
+    try {
+      await onSaved();
+    } catch {
+      // Quyền đã lưu; chỉ làm mới danh sách người dùng bên ngoài thất bại.
+    }
+  }
+  async function removeGrant(actionKey: string) {
+    if (grantBusy) return;
+    setGrantBusy(true);
+    try {
+      const data = await authorizationRequest<TenantUserPermissionGrants>(
+        `tenant-users/${user.id}/permission-grants`,
+        'PUT',
+        { actionKeys: grants.actionKeys.filter((k) => k !== actionKey) },
+      );
+      await applyGrants(data);
+      toast.success(`Đã gỡ quyền bổ sung "${actionLabelOf(actionKey)}".`);
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : 'Không thể gỡ quyền bổ sung.');
+    } finally {
+      setGrantBusy(false);
+    }
+  }
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -158,9 +215,84 @@ export function UserRoleEditor({
                 )}
               </>
             )}
+
+            {grants.actionKeys.length > 0 ? (
+              <div
+                data-testid="granted-block"
+                className="flex flex-col gap-1.5 rounded-lg border border-orange-300 bg-orange-50 p-2.5"
+              >
+                <span className="flex items-center gap-1.5 font-semibold text-orange-900">
+                  <KeyRound className="size-3.5" />
+                  Bổ sung ngoài vai trò ({grants.actionKeys.length})
+                </span>
+                <div className="flex flex-wrap gap-1">
+                  {grants.actionKeys.map((key) => (
+                    <span
+                      key={key}
+                      data-testid={`granted-chip-${key}`}
+                      className="flex items-center gap-1 rounded-md border border-orange-300 bg-white py-px pr-0.5 pl-[7px] text-[12px] text-orange-900"
+                    >
+                      {actionLabelOf(key)}
+                      {overlap.has(key) ? (
+                        <span className="rounded bg-orange-100 px-1 text-[11px] font-semibold">
+                          Trùng với vai trò
+                        </span>
+                      ) : null}
+                      <Popconfirm
+                        title="Gỡ quyền bổ sung?"
+                        description={`Nhân sự "${user.fullName}" sẽ không còn quyền "${actionLabelOf(key)}" từ phần bổ sung này.`}
+                        okText="Gỡ"
+                        cancelText="Hủy"
+                        okType="danger"
+                        onConfirm={() => void removeGrant(key)}
+                      >
+                        <button
+                          type="button"
+                          data-testid={`remove-grant-${key}`}
+                          aria-label={`Gỡ quyền bổ sung ${actionLabelOf(key)}`}
+                          disabled={grantBusy}
+                          className="grid size-5 cursor-pointer place-items-center rounded text-orange-800 hover:bg-orange-100 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          ✕
+                        </button>
+                      </Popconfirm>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            <button
+              type="button"
+              data-testid="open-permission-grants"
+              disabled={admin || busy}
+              onClick={() => setGrantsOpen(true)}
+              className="flex h-[34px] w-fit cursor-pointer items-center gap-1.5 rounded-[7px] border border-[#e5e7eb] bg-white px-2.5 text-[13px] font-semibold text-slate-700 hover:bg-[#f4f6f9] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <Plus className="size-3.5" />
+              Bổ sung quyền hạn ngoài vai trò
+            </button>
+            {admin ? (
+              <span className="text-[12px] text-slate-500">
+                Nhân sự này đã có toàn quyền (tenant-admin) nên không cần bổ sung quyền.
+              </span>
+            ) : null}
           </div>
         </fieldset>
       </form>
+
+      <UserPermissionGrantsDialog
+        open={grantsOpen}
+        onOpenChange={setGrantsOpen}
+        userId={user.id}
+        userName={user.fullName}
+        roles={roles}
+        permissions={permissions}
+        selectedRoles={selected}
+        rolesDirty={rolesDirty}
+        onLoaded={onLoaded}
+        onSaved={(data) => void applyGrants(data)}
+      />
     </SidePanel>
   );
 }

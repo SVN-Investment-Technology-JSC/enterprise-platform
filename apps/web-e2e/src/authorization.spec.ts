@@ -95,6 +95,28 @@ test('creates permission and role, assigns the role, edits, unassigns and delete
   await expect(page.getByText('Chưa có dữ liệu phù hợp.')).toBeVisible();
 });
 
+test('grants and removes extra permission actions outside the role', async ({
+  page,
+}) => {
+  await page.goto('/users');
+  await page.getByRole('button', { name: 'Vai trò', exact: true }).click();
+  await page.getByTestId('open-permission-grants').click();
+  const grants = page.getByTestId('permission-grants-dialog');
+  await expect(grants).toBeVisible();
+  await grants.getByTestId('grant-action-core.users.read').check();
+  await grants.getByTestId('save-permission-grants').click();
+  await expect(grants).toBeHidden();
+  // Chip nằm trong khối "Bổ sung ngoài vai trò" của popup vai trò.
+  const chip = page.getByTestId('granted-chip-core.users.read');
+  await expect(page.getByText('Bổ sung ngoài vai trò')).toBeVisible();
+  await expect(chip).toBeVisible();
+  await expect(page.locator('[data-testid^="user-extra-grants-"]').first()).toContainText('+1 quyền bổ sung');
+  await page.getByTestId('remove-grant-core.users.read').click();
+  await page.getByRole('button', { name: 'Gỡ', exact: true }).last().click();
+  await expect(chip).toHaveCount(0);
+  await expect(page.locator('[data-testid^="user-extra-grants-"]')).toHaveCount(0);
+});
+
 test('read-only user cannot see management controls or access authorization page', async ({
   context,
   page,

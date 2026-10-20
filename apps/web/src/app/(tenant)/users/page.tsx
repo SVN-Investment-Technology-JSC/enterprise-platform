@@ -34,6 +34,8 @@ export default async function TenantUsersPage() {
 
 export interface TenantCoreUser {
   roleIds?: string[];
+  /** Khóa action được cấp thẳng cho người dùng, ngoài vai trò. */
+  directActionKeys?: string[];
   roles?: { id: string; name: string }[];
   id: string;
   username: string | null;

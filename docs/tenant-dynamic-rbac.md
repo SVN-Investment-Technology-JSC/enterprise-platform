@@ -2,7 +2,7 @@
 
 ## Phạm vi
 
-- Tenant admin quản lý role, permission và gán nhiều role cho một người dùng.
+- Tenant admin quản lý role, permission và gán nhiều role cho một người dùng; có thể bổ sung riêng cho một người dùng một số action ngoài vai trò (quyền bổ sung).
 - Permission là nhóm hành động Core/module được backend hỗ trợ; không phải mã quyền tùy ý do client khai báo.
 - Danh mục action nằm ở `TENANT_PERMISSION_ACTIONS` (contracts-identity): Core (`core.users`, `core.organization`) và các module HRM, Inventory, Maintenance, Procedure, Workspace.
 - Quyền vào module **suy ra từ action**: role có bất kỳ action nào của module thì vào được module đó. Tenant có được dùng module hay không do gói (entitlement) quyết định, không cấp lại cho từng role. Role không còn bước chọn module.
@@ -13,6 +13,7 @@
 
 ```text
 User ── user_roles ── Role ── role_permissions ── Permission ── actionKeys
+  └── user_permission_grants ── actionKeys (quyền bổ sung, ngoài vai trò)
 
 Request → kiểm tra session/tenant → lấy revision hiện tại
         → cache quyền theo tenant + user + revision
@@ -22,7 +23,9 @@ Request → kiểm tra session/tenant → lấy revision hiện tại
 
 Hướng dẫn áp dụng và danh mục quyền module: [Phân quyền Inventory, Maintenance, Procedure](./tenant-module-permissions.md).
 
-Quyền hiệu lực là hợp các role, không có deny. Người dùng mới chưa có role thì không có quyền Core/module. Chỉ role hệ thống `tenant-admin` được quản trị phân quyền; không thể tự tạo permission `tenant.manage`, `platform.manage` hoặc wildcard.
+Quyền hiệu lực là hợp quyền từ các role và quyền bổ sung của user, rồi mở rộng theo `TENANT_ACTION_IMPLIES`; không có deny. Người dùng mới chưa có role thì không có quyền Core/module. Chỉ role hệ thống `tenant-admin` được quản trị phân quyền; không thể tự tạo permission `tenant.manage`, `platform.manage` hoặc wildcard.
+
+Quyền bổ sung (`core_schema.user_permission_grants`, migration `0013`): chỉ nhận action nằm trong `TENANT_PERMISSION_ACTIONS` (từ chối `tenant.manage`, wildcard hoặc khóa lạ); không cấp cho user có role `tenant-admin`. Đổi/gỡ role không làm mất quyền bổ sung. Nếu role sau này cũng có action đó, giao diện báo "Trùng với vai trò". Mỗi lần thay ghi audit `user.permissions.replace` (actionKeys trước/sau), trigger tăng revision nên cache quyền bị vô hiệu và sự kiện `core.authorization.changed` được phát. Người nhận thông báo theo quyền (`usersWithPermission`) tính cả quyền bổ sung.
 
 Role hệ thống không được sửa/xóa. Role còn người dùng hoặc permission còn role sử dụng phải gỡ liên kết trước khi xóa. Không cho phép thu hồi/vô hiệu hóa admin đang hoạt động cuối cùng; các thao tác ghi phân quyền và tài khoản được tuần tự hóa trong transaction của từng tenant. Người chỉ có quyền sửa user không được sửa tài khoản có role admin, kể cả admin đang bị vô hiệu hóa.
 
@@ -48,21 +51,23 @@ Tiền tố: `/api/platform/v1`. Các API phân quyền dưới đây chỉ dàn
 | `/tenant-roles` | GET, POST | Danh sách hoặc tạo `{ name, description, permissionIds }`. `moduleKeys` trả về chỉ để hiển thị (suy từ action); client gửi `moduleKeys` sẽ bị bỏ qua |
 | `/tenant-roles/:id` | GET, PATCH, DELETE | Chi tiết, cập nhật, xóa role |
 | `/tenant-users/:id/roles` | GET, PUT | Xem/thay toàn bộ `{ roleIds }`; mảng rỗng thu hồi toàn bộ role |
+| `/tenant-users/:id/permission-grants` | GET | `{ actionKeys, grants: [{ actionKey, grantedBy, grantedAt }] }` |
+| `/tenant-users/:id/permission-grants` | PUT | Thay toàn bộ quyền bổ sung `{ actionKeys }` (CSRF); trả cùng dạng như GET |
 
-API user và organization hiện có kiểm tra action tương ứng. Không gán role bằng trường `systemRole` trong API tạo/sửa user của portal. API gán role membership cũ bị chặn để tránh tồn tại đường cập nhật khác.
+Danh sách user (`coreUsers`) trả thêm `directActionKeys`. API user và organization hiện có kiểm tra action tương ứng. Không gán role bằng trường `systemRole` trong API tạo/sửa user của portal. API gán role membership cũ bị chặn để tránh tồn tại đường cập nhật khác.
 
 Lỗi chính: `400` dữ liệu không hợp lệ; `401` phiên/user không hoạt động; `403` thiếu quyền/CSRF; `404` không tìm thấy trong tenant; `409` trùng tên, còn liên kết, role hệ thống hoặc mất admin cuối cùng.
 
 ## Giao diện
 
 - `/authorization`: danh sách–chi tiết, tab Vai trò/Permission, tìm kiếm, lọc, phân trang, popup tạo/sửa và xác nhận xóa tại nút.
-- `/users`: popup gán nhiều role, xem quyền tổng hợp; CRUD user hiển thị theo quyền được cấp.
+- `/users`: popup gán nhiều role, xem quyền tổng hợp; nút "Bổ sung quyền hạn ngoài vai trò" mở popup chọn action (chip trong khối "Bổ sung ngoài vai trò", gỡ bằng nút ✕, báo "Trùng với vai trò" khi trùng) và huy hiệu quyền bổ sung ở bảng; CRUD user hiển thị theo quyền được cấp.
 - Menu, trang organization và các thao tác liên quan kiểm tra quyền hiển thị; backend vẫn là nơi quyết định cho phép.
 - Giữ component, màu và bố cục hiện tại của hệ thống; áp dụng SearchableSelect, Dialog và Popconfirm theo skill UI. Tham chiếu Stitch qua MCP, không thay đổi dự án Stitch.
 
 ## Cập nhật DB và chạy thử
 
-Luồng migration: `0005-tenant-rbac-legacy-compat.sql` → `0005-tenant-rbac.sql` → ... → `0011-module-access-from-actions.sql` trong `migrations/tenant/core`. `0011` cấp action `procedure.access` (qua permission hệ thống "Truy cập Quy trình (hệ thống)") cho role đang có module Quy trình hoặc `*` để giữ nguyên quyền hiện có; chỉ chạy một lần. Bảng `role_modules` được giữ để đối chiếu nhưng mã nguồn không còn đọc/ghi. Không thay đổi checksum của migration RBAC gốc.
+Luồng migration: `0005-tenant-rbac-legacy-compat.sql` → `0005-tenant-rbac.sql` → ... → `0011-module-access-from-actions.sql` → ... → `0013-user-permission-grants.sql` trong `migrations/tenant/core`. `0013` thêm bảng `user_permission_grants` và trigger tăng revision. `0011` cấp action `procedure.access` (qua permission hệ thống "Truy cập Quy trình (hệ thống)") cho role đang có module Quy trình hoặc `*` để giữ nguyên quyền hiện có; chỉ chạy một lần. Bảng `role_modules` được giữ để đối chiếu nhưng mã nguồn không còn đọc/ghi. Không thay đổi checksum của migration RBAC gốc.
 
 1. Sao lưu DB và xác nhận `.env`/biến môi trường trỏ đúng môi trường cần triển khai.
 2. Chạy từ thư mục gốc: `pnpm nx run migrator:rbac-migrate`.
@@ -93,6 +98,6 @@ pnpm nx run web-e2e:e2e-rbac
 
 Để chạy integration test DB, đặt `RBAC_TEST_ADMIN_URL` tới PostgreSQL local dành cho kiểm thử có quyền tạo DB, rồi chạy `pnpm nx run platform-identity:test --skipNxCache`. Test tự tạo/xóa DB tên `rbac_test_<uuid>`; không sửa DB tenant hiện có. Không đưa mật khẩu thật vào tài liệu hoặc commit.
 
-Các tình huống bao phủ: CRUD/gán/thu hồi, hợp quyền, cache và revision, phân tách tenant, chống nâng quyền, liên kết đang dùng, chạy lại migration và đồng thời thu hồi admin cuối cùng. Test giao diện chạy Chromium với API fixture riêng: tạo permission → role → gán user → sửa → thu hồi/xóa; user chỉ đọc và bố cục mobile. Đây là kiểm thử UI với fixture, không thay thế UAT toàn hệ thống bằng phiên đăng nhập thật và API/DB thật.
+Các tình huống bao phủ: CRUD/gán/thu hồi, hợp quyền (role + quyền bổ sung), cache và revision, phân tách tenant, chống nâng quyền, liên kết đang dùng, chạy lại migration và đồng thời thu hồi admin cuối cùng. Test giao diện chạy Chromium với API fixture riêng: tạo permission → role → gán user → sửa → thu hồi/xóa; user chỉ đọc, bổ sung rồi gỡ quyền ngoài vai trò (fixture hai endpoint `permission-grants`) và bố cục mobile. Đây là kiểm thử UI với fixture, không thay thế UAT toàn hệ thống bằng phiên đăng nhập thật và API/DB thật.
 
 Kết quả kiểm tra mã nguồn: 43 test identity (có PostgreSQL integration, thêm 4 test nâng cấp schema cũ), 5 test data-import, 2 test API, 15 test web và 3 test Chromium qua. Test nâng cấp tái hiện lỗi `42703`, giữ 45 liên kết gán role, kiểm tra CRUD sau nâng cấp, chạy lại an toàn, ánh xạ Core và từ chối dữ liệu chưa hỗ trợ. Build API/web/migrator và typecheck qua; lint không có lỗi, còn 2 cảnh báo từ code có sẵn. React Doctor không có lỗi, còn 13 cảnh báo về độ phức tạp component/tra cứu mảng; chưa mở rộng thành đợt refactor ngoài phạm vi chức năng.

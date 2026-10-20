@@ -680,6 +680,7 @@ export class PlatformIdentityService implements OnModuleDestroy {
             `SELECT id, username, full_name AS "fullName", email, system_role AS "systemRole",
                 ARRAY(SELECT role_id::text FROM core_schema.user_roles WHERE user_id=core_schema.users.id) AS "roleIds",
                 coalesce((SELECT jsonb_agg(jsonb_build_object('id',r.id,'name',r.name)) FROM core_schema.user_roles ur JOIN core_schema.roles r ON r.id=ur.role_id WHERE ur.user_id=core_schema.users.id),'[]'::jsonb) AS roles,
+                ARRAY(SELECT action_key FROM core_schema.user_permission_grants WHERE user_id=core_schema.users.id ORDER BY action_key) AS "directActionKeys",
                 status, is_active AS "isActive", created_at AS "createdAt", updated_at AS "updatedAt"
            FROM core_schema.users ORDER BY created_at DESC`,
           )

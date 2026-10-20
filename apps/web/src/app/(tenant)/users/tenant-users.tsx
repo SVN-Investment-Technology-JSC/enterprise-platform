@@ -388,6 +388,15 @@ export function TenantUsers({
                           {!user.roles?.length && (
                             <span className="text-xs text-slate-400">Chưa gán vai trò</span>
                           )}
+                          {(user.directActionKeys?.length ?? 0) > 0 && (
+                            <span
+                              data-testid={`user-extra-grants-${user.id}`}
+                              title="Quyền được cấp thêm ngoài vai trò"
+                              className="rounded-md border border-orange-300 bg-orange-50 px-2 py-px text-xs font-semibold text-orange-800"
+                            >
+                              +{user.directActionKeys?.length} quyền bổ sung
+                            </span>
+                          )}
                         </div>
                         <div className="flex justify-end gap-1.5">
                           {hasTenantAction(permissions, 'core.organization.read') && (

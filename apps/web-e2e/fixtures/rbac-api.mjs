@@ -27,9 +27,22 @@ const users = [
     isActive: true,
     roleIds: [],
     roles: [],
+    directActionKeys: [],
     createdAt: new Date().toISOString(),
   },
 ];
+// Quyền bổ sung theo user: memberId -> [{ actionKey, grantedBy, grantedAt }].
+const grantsByUser = new Map();
+const grantableActions = new Set([
+  'core.users.read',
+  'core.users.create',
+  'core.users.update',
+  'core.users.delete',
+  'core.organization.read',
+  'core.organization.create',
+  'core.organization.update',
+  'core.organization.delete',
+]);
 function sync() {
   for (const r of roles)
     r.userIds = users.filter((u) => u.roleIds.includes(r.id)).map((u) => u.id);
@@ -91,6 +104,36 @@ createServer(async (req, res) => {
       sync();
     }
     return send({ roleIds: user.roleIds });
+  }
+  const grantsRoute = url.pathname.match(
+    /\/tenant-users\/([^/]+)\/permission-grants$/,
+  );
+  if (grantsRoute) {
+    const user = users.find((u) => u.id === grantsRoute[1]);
+    if (!user) return send({ message: 'Không tìm thấy người dùng.' }, 404);
+    if (req.method === 'PUT') {
+      const keys = body.actionKeys;
+      if (
+        !Array.isArray(keys) ||
+        keys.some((k) => typeof k !== 'string' || !grantableActions.has(k))
+      )
+        return send({ message: 'Action quyền không hợp lệ.' }, 400);
+      const previous = grantsByUser.get(user.id) ?? [];
+      grantsByUser.set(
+        user.id,
+        [...new Set(keys)].map(
+          (actionKey) =>
+            previous.find((g) => g.actionKey === actionKey) ?? {
+              actionKey,
+              grantedBy: 'admin',
+              grantedAt: new Date().toISOString(),
+            },
+        ),
+      );
+      user.directActionKeys = [...new Set(keys)];
+    }
+    const grants = grantsByUser.get(user.id) ?? [];
+    return send({ actionKeys: grants.map((g) => g.actionKey), grants });
   }
   const match = url.pathname.match(
     /\/tenant-(roles|permissions)(?:\/([^/]+))?$/,
