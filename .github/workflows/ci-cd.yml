@@ -164,6 +164,9 @@ jobs:
             pnpm nx run-many -t lint typecheck test build --parallel="$NX_PARALLEL" --nxBail
           fi
 
+      # Only the suites that need the database, broker or Redis run here, and always
+      # uncached. The unit tests of these projects run, with the cache, in the step
+      # above whenever the project is affected, so running them again only costs time.
       - name: Verify notification database, broker, and recovery integrations without cache
         env:
           NOTIFICATIONS_TEST_ADMIN_URL: postgresql://notification_test:notification_test@localhost:5432/postgres
@@ -172,7 +175,7 @@ jobs:
           SHARED_TEST_ADMIN_URL: postgresql://notification_test:notification_test@localhost:5432/postgres
           RABBITMQ_TEST_URL: amqp://notification_test:notification_test@localhost:5672
           REALTIME_TEST_REDIS_URL: redis://localhost:6379
-        run: pnpm nx run-many -t test -p contracts-realtime module-notifications adapter-events realtime-api notification-worker platform-entitlement module-hrm module-finance module-shared --runInBand --detectOpenHandles --skipNxCache --skipRemoteCache --parallel=1
+        run: pnpm nx run-many -t test -p contracts-realtime module-notifications adapter-events realtime-api notification-worker platform-entitlement module-hrm module-finance module-shared --runInBand --detectOpenHandles --skipNxCache --skipRemoteCache --parallel=1 --testPathPatterns='\.integration\.spec\.ts$|hrm-notification-migration\.spec\.ts$'
 
   prepare-services:
     name: Create deployment matrix
