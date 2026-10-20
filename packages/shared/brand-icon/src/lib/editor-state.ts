@@ -10,8 +10,8 @@ import {
   visualBounds,
   type AlignMode,
   type Matrix,
-} from './geometry.js';
-import { LIMITS } from './validate.js';
+} from './geometry';
+import { LIMITS } from './validate';
 import {
   newId,
   type Geometry,
@@ -23,7 +23,7 @@ import {
   type Point,
   type Rect,
   type Subpath,
-} from './model.js';
+} from './model';
 
 export const HISTORY_LIMIT = 100;
 

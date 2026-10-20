@@ -1,4 +1,4 @@
-import type { Point, Rect } from './model.js';
+import type { Point, Rect } from './model';
 
 /** Làm tròn tới bội gần nhất của `step`; bỏ nhiễu dấu phẩy động (0,1 x 3 ra 0,3 chứ không phải 0,30000000000000004) và không trả -0. */
 export const snapToStep = (value: number, step: number): number => {

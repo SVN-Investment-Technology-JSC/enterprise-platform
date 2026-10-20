@@ -1,7 +1,7 @@
-import { IDENTITY, multiply, rotation, scaling, translation, transformGeometry, type Matrix } from './geometry.js';
-import { normalizeHex } from './palette.js';
-import { MAX_PATH_DATA_LENGTH, parsePathData } from './path-data.js';
-import { LIMITS, normalizeShape } from './validate.js';
+import { IDENTITY, multiply, rotation, scaling, translation, transformGeometry, type Matrix } from './geometry';
+import { normalizeHex } from './palette';
+import { MAX_PATH_DATA_LENGTH, parsePathData } from './path-data';
+import { LIMITS, normalizeShape } from './validate';
 import {
   DEFAULT_SIZE,
   DEFAULT_SHAPE_STYLE,
@@ -13,7 +13,7 @@ import {
   type LineCap,
   type LineJoin,
   type Paint,
-} from './model.js';
+} from './model';
 
 export interface SvgImportResult {
   readonly shapes: IconShape[];

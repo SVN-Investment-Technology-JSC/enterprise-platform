@@ -3,9 +3,9 @@ import {
   BRAND_ICON_ID_PATTERN,
   BRAND_ICON_STATUSES,
   BRAND_SVG_MODES,
-} from './api-types.js';
-import { createDocument } from './model.js';
-import { normalizeDocument } from './validate.js';
+} from './api-types';
+import { createDocument } from './model';
+import { normalizeDocument } from './validate';
 
 describe('BRAND_ICON_ID_PATTERN', () => {
   it.each([

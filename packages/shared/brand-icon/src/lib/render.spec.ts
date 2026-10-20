@@ -1,8 +1,8 @@
 import ts from 'typescript';
-import { createPresetDocuments } from './legacy.js';
-import { createDocument, createShape, type IconDocument, type IconShape } from './model.js';
-import { DEFAULT_PALETTE, brandPaint, type BrandPalette } from './palette.js';
-import { parsePathData } from './path-data.js';
+import { createPresetDocuments } from './legacy';
+import { createDocument, createShape, type IconDocument, type IconShape } from './model';
+import { DEFAULT_PALETTE, brandPaint, type BrandPalette } from './palette';
+import { parsePathData } from './path-data';
 import {
   buildIconModel,
   generateIconIndex,
@@ -14,7 +14,7 @@ import {
   toComponentName,
   type IconSvgModel,
   type SvgNode,
-} from './render.js';
+} from './render';
 
 const HEX = /#[0-9a-fA-F]{3,8}\b/;
 
@@ -367,7 +367,7 @@ describe('tên và mã định danh', () => {
 
   it('generateIconIndex: mỗi icon một dòng export trỏ đúng file', () => {
     const index = generateIconIndex([doc([], { name: 'Chuông báo' }), doc([], { name: 'Hộp thư' })]);
-    expect(index).toBe("export { ChuongBaoIcon } from './chuong-bao.js';\nexport { HopThuIcon } from './hop-thu.js';\n");
+    expect(index).toBe("export { ChuongBaoIcon } from './chuong-bao';\nexport { HopThuIcon } from './hop-thu';\n");
     expect(generateIconIndex([])).toBe('\n');
   });
 

@@ -1,8 +1,8 @@
-import { LEGACY_PRESETS } from './legacy-data.js';
-import { createPresetDocuments } from './legacy.js';
-import { createDocument, createShape, type IconDocument, type IconShape } from './model.js';
-import { parsePathData } from './path-data.js';
-import { LIMITS, normalizeDocument, normalizeLibrary, normalizeShape, parseLibraryJson } from './validate.js';
+import { LEGACY_PRESETS } from './legacy-data';
+import { createPresetDocuments } from './legacy';
+import { createDocument, createShape, type IconDocument, type IconShape } from './model';
+import { parsePathData } from './path-data';
+import { LIMITS, normalizeDocument, normalizeLibrary, normalizeShape, parseLibraryJson } from './validate';
 
 const rectShape = (overrides: Record<string, unknown> = {}) => ({
   id: 'shape-1',

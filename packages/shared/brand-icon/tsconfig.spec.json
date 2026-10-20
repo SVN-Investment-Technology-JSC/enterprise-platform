@@ -3,6 +3,8 @@
   "compilerOptions": {
     "outDir": "./out-tsc/jest",
     "lib": ["es2022", "DOM"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
     "types": ["jest", "node"],
     "forceConsistentCasingInFileNames": true
   },

@@ -1,8 +1,8 @@
-import { buildExportBundle, FAVICON_RASTER_SIZES, withWhiteBackground, type ExportBundle, type ExportFile } from './bundle.js';
-import { createDocument, createShape, type IconDocument } from './model.js';
-import { DEFAULT_PALETTE } from './palette.js';
-import { parseLibraryJson } from './validate.js';
-import { createZip } from './zip.js';
+import { buildExportBundle, FAVICON_RASTER_SIZES, withWhiteBackground, type ExportBundle, type ExportFile } from './bundle';
+import { createDocument, createShape, type IconDocument } from './model';
+import { DEFAULT_PALETTE } from './palette';
+import { parseLibraryJson } from './validate';
+import { createZip } from './zip';
 
 const SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 
@@ -78,8 +78,8 @@ describe('buildExportBundle: tsx', () => {
     expect(paths(bundle)).toEqual(['react/nha-kho.tsx', 'react/hoa-don.tsx', 'react/index.ts']);
     expect(text(fileOf(bundle, 'react/nha-kho.tsx'))).toContain('export function NhaKhoIcon(');
     const index = text(fileOf(bundle, 'react/index.ts'));
-    expect(index).toContain("export { NhaKhoIcon } from './nha-kho.js';");
-    expect(index).toContain("export { HoaDonIcon } from './hoa-don.js';");
+    expect(index).toContain("export { NhaKhoIcon } from './nha-kho';");
+    expect(index).toContain("export { HoaDonIcon } from './hoa-don';");
   });
 });
 

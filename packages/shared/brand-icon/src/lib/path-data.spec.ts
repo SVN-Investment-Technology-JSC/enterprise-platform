@@ -1,6 +1,6 @@
-import { geometryBounds } from './geometry.js';
-import { GLYPH_LIBRARY, LEGACY_PRESETS } from './legacy-data.js';
-import type { PathGeometry, Point } from './model.js';
+import { geometryBounds } from './geometry';
+import { GLYPH_LIBRARY, LEGACY_PRESETS } from './legacy-data';
+import type { PathGeometry, Point } from './model';
 import {
   MAX_PATH_DATA_LENGTH,
   formatNumber,
@@ -8,7 +8,7 @@ import {
   parsePathData,
   pathToData,
   subpathToData,
-} from './path-data.js';
+} from './path-data';
 
 const nodesOf = (data: string, sub = 0) => parsePathData(data).subpaths[sub].nodes;
 const close = (actual: number, expected: number, digits = 6) => expect(actual).toBeCloseTo(expected, digits);

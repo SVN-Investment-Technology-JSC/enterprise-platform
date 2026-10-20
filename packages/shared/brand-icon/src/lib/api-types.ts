@@ -2,9 +2,9 @@
  * Kiểu và hằng số dùng chung giữa giao diện web và API lưu trữ icon thương hiệu
  * (`/api/platform/v1/brand`). Chỉ có kiểu và hằng số, không có logic.
  */
-import type { BrandRules } from './compliance.js';
-import type { IconCategory, IconDocument } from './model.js';
-import type { BrandPalette } from './palette.js';
+import type { BrandRules } from './compliance';
+import type { IconCategory, IconDocument } from './model';
+import type { BrandPalette } from './palette';
 
 /** Đường dẫn gốc của API; đã gồm tiền tố `api` của Platform API. */
 export const BRAND_API_BASE = '/api/platform/v1/brand';

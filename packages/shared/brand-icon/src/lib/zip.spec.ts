@@ -1,4 +1,4 @@
-import { createZip, crc32, normalizeZipPath } from './zip.js';
+import { createZip, crc32, normalizeZipPath } from './zip';
 
 interface ReadEntry {
   name: string;

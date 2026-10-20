@@ -1,7 +1,7 @@
-import { isPng, createIco } from './ico.js';
-import { normalizeHex, type BrandPalette, type ColorMode, DEFAULT_PALETTE } from './palette.js';
-import type { IconDocument } from './model.js';
-import { generateIconIndex, generateReactComponent, generateSprite, generateSvg, slugify, toComponentName } from './render.js';
+import { isPng, createIco } from './ico';
+import { normalizeHex, type BrandPalette, type ColorMode, DEFAULT_PALETTE } from './palette';
+import type { IconDocument } from './model';
+import { generateIconIndex, generateReactComponent, generateSprite, generateSvg, slugify, toComponentName } from './render';
 
 /** Các nhóm tệp có thể xuất. */
 export type ExportFormat = 'svg' | 'tsx' | 'sprite' | 'json' | 'favicon';

@@ -1,8 +1,8 @@
-import { scaling, transformGeometry } from './geometry.js';
-import { LEGACY_PRESETS, type LegacyContainerShape, type LegacyIconSpec } from './legacy-data.js';
-import { createShape, newId, type Geometry, type IconDocument, type IconShape } from './model.js';
-import { brandPaint } from './palette.js';
-import { isValidPathData, parsePathData } from './path-data.js';
+import { scaling, transformGeometry } from './geometry';
+import { LEGACY_PRESETS, type LegacyContainerShape, type LegacyIconSpec } from './legacy-data';
+import { createShape, newId, type Geometry, type IconDocument, type IconShape } from './model';
+import { brandPaint } from './palette';
+import { isValidPathData, parsePathData } from './path-data';
 
 export type FrameKind = Exclude<LegacyContainerShape, 'none'>;
 

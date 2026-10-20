@@ -1,4 +1,4 @@
-import type { Paint } from './model.js';
+import type { Paint } from './model';
 
 export interface PaletteToken {
   /** Khoá ổn định dùng trong icon, ví dụ `sapphire`; icon lưu `brand:<key>`. */

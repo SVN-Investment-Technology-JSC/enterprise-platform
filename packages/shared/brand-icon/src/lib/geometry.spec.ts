@@ -34,15 +34,15 @@ import {
   unionRects,
   visualBounds,
   type Matrix,
-} from './geometry.js';
+} from './geometry';
 import {
   createShape,
   type EllipseGeometry,
   type PathGeometry,
   type Point,
   type RectGeometry,
-} from './model.js';
-import { parsePathData } from './path-data.js';
+} from './model';
+import { parsePathData } from './path-data';
 
 const close = (actual: number, expected: number, digits = 6) => expect(actual).toBeCloseTo(expected, digits);
 const pointClose = (actual: Point | undefined, expected: Point, digits = 6) => {

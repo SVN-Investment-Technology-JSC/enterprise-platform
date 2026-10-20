@@ -1,5 +1,5 @@
-import { documentFromLegacySpec } from './legacy.js';
-import type { LegacyIconSpec } from './legacy-data.js';
+import { documentFromLegacySpec } from './legacy';
+import type { LegacyIconSpec } from './legacy-data';
 import {
   CATEGORIES,
   newId,
@@ -13,8 +13,8 @@ import {
   type PathNode,
   type Point,
   type Subpath,
-} from './model.js';
-import { HEX_PATTERN, normalizeHex } from './palette.js';
+} from './model';
+import { HEX_PATTERN, normalizeHex } from './palette';
 
 export const LIMITS = {
   maxShapes: 200,

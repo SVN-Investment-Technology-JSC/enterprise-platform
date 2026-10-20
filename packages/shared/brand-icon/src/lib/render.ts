@@ -1,7 +1,7 @@
-import { formatNumber, pathToData } from './path-data.js';
-import { geometryToPath } from './geometry.js';
-import { DEFAULT_PALETTE, resolvePaint, type BrandPalette, type ColorMode } from './palette.js';
-import { isPaintNone, type IconDocument, type IconShape } from './model.js';
+import { formatNumber, pathToData } from './path-data';
+import { geometryToPath } from './geometry';
+import { DEFAULT_PALETTE, resolvePaint, type BrandPalette, type ColorMode } from './palette';
+import { isPaintNone, type IconDocument, type IconShape } from './model';
 
 export interface SvgNode {
   tag: 'path' | 'rect' | 'ellipse' | 'circle' | 'g' | 'symbol';
@@ -227,6 +227,6 @@ export function generateSprite(docs: readonly IconDocument[], options: RenderOpt
 export function generateIconIndex(docs: readonly IconDocument[]): string {
   const names = docs.map((doc) => toComponentName(doc.name));
   const files = docs.map((doc) => slugify(doc.name));
-  const lines = names.map((name, index) => `export { ${name} } from './${files[index]}.js';`);
+  const lines = names.map((name, index) => `export { ${name} } from './${files[index]}';`);
   return `${lines.join('\n')}\n`;
 }

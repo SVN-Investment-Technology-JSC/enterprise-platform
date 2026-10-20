@@ -1,4 +1,4 @@
-import { roundTo, type PathGeometry, type PathNode, type Point, type Subpath } from './model.js';
+import { roundTo, type PathGeometry, type PathNode, type Point, type Subpath } from './model';
 
 const EPSILON = 1e-6;
 const NUMBER = /\s*,?\s*([-+]?(?:\d*\.\d+|\d+\.?)(?:[eE][-+]?\d+)?)/y;

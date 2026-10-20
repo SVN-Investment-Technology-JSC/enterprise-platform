@@ -2,18 +2,18 @@
  * Kiểm thử ngẫu nhiên có hạt giống cố định: sinh nhiều đầu vào rồi kiểm tra các tính chất bất biến
  * (cung đúng elip, lệnh tương đối = tuyệt đối, undo về đúng ban đầu, bước chuẩn hoá không bao giờ ném lỗi...).
  */
-import { normalizeRules } from './compliance.js';
+import { normalizeRules } from './compliance';
 import {
   createEditorState,
   editorReducer,
   type EditorAction,
   type EditorState,
-} from './editor-state.js';
-import { geometryBounds, insertNode, scaling, translation } from './geometry.js';
-import { createDocument, createShape, type IconShape, type PathGeometry, type Point } from './model.js';
-import { normalizePalette } from './palette.js';
-import { parsePathData, pathToData } from './path-data.js';
-import { normalizeDocument, normalizeLibrary, normalizeShape } from './validate.js';
+} from './editor-state';
+import { geometryBounds, insertNode, scaling, translation } from './geometry';
+import { createDocument, createShape, type IconShape, type PathGeometry, type Point } from './model';
+import { normalizePalette } from './palette';
+import { parsePathData, pathToData } from './path-data';
+import { normalizeDocument, normalizeLibrary, normalizeShape } from './validate';
 
 /** Bộ sinh số ngẫu nhiên mulberry32, cố định theo hạt giống để lỗi tái hiện được. */
 function random(seed: number) {

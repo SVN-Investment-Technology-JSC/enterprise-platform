@@ -1,4 +1,4 @@
-import { snapMovingRect, snapPointToStep, snapToStep, type SnapOptions } from './snap.js';
+import { snapMovingRect, snapPointToStep, snapToStep, type SnapOptions } from './snap';
 
 const rect = (x: number, y: number, width = 4, height = 4) => ({ x, y, width, height });
 const grid: SnapOptions = { step: 0.5, threshold: 0.3, objects: false };

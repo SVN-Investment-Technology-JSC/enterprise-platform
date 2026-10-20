@@ -1,5 +1,5 @@
-import { flattenGeometry, geometryBounds, hitTestShape, visualBounds } from './geometry.js';
-import { GLYPH_LIBRARY, LEGACY_PRESETS, type LegacyIconSpec } from './legacy-data.js';
+import { flattenGeometry, geometryBounds, hitTestShape, visualBounds } from './geometry';
+import { GLYPH_LIBRARY, LEGACY_PRESETS, type LegacyIconSpec } from './legacy-data';
 import {
   FRAME_KINDS,
   FRAME_LABELS,
@@ -10,9 +10,9 @@ import {
   frameGeometry,
   frameInset,
   type FrameKind,
-} from './legacy.js';
-import { createShape, type EllipseGeometry, type IconDocument, type PathGeometry, type RectGeometry } from './model.js';
-import { isValidPathData, parsePathData } from './path-data.js';
+} from './legacy';
+import { createShape, type EllipseGeometry, type IconDocument, type PathGeometry, type RectGeometry } from './model';
+import { isValidPathData, parsePathData } from './path-data';
 
 const TIMESTAMP = '2026-10-16T00:00:00.000Z';
 const spec = (overrides: Partial<LegacyIconSpec> = {}): LegacyIconSpec => ({ ...LEGACY_PRESETS[2], ...overrides });

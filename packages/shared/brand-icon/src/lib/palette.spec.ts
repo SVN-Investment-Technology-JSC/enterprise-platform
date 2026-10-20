@@ -10,7 +10,7 @@ import {
   resolveBrandHex,
   resolvePaint,
   type BrandPalette,
-} from './palette.js';
+} from './palette';
 
 const custom: BrandPalette = { tokens: [{ key: 'primary', label: 'Chính', hex: '#112233' }] };
 

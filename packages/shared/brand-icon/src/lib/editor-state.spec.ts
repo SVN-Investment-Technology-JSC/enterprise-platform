@@ -6,8 +6,8 @@ import {
   selectionCenter,
   type EditorAction,
   type EditorState,
-} from './editor-state.js';
-import { scaling, translation } from './geometry.js';
+} from './editor-state';
+import { scaling, translation } from './geometry';
 import {
   createDocument,
   createShape,
@@ -16,8 +16,8 @@ import {
   type IconShape,
   type PathGeometry,
   type RectGeometry,
-} from './model.js';
-import { parsePathData } from './path-data.js';
+} from './model';
+import { parsePathData } from './path-data';
 
 /** Hình chữ nhật chỉ tô (không nét) với mã cố định để dễ viết kỳ vọng. */
 const box = (id: string, x: number, y: number, width = 4, height = 4, overrides: Partial<IconShape> = {}): IconShape => ({

@@ -1,6 +1,6 @@
-import { geometryBounds, visualBounds } from './geometry.js';
-import { brandKeyOf, normalizeHex, type BrandPalette } from './palette.js';
-import { isPaintNone, type Geometry, type IconDocument, type IconShape } from './model.js';
+import { geometryBounds, visualBounds } from './geometry';
+import { brandKeyOf, normalizeHex, type BrandPalette } from './palette';
+import { isPaintNone, type Geometry, type IconDocument, type IconShape } from './model';
 
 export interface BrandRules {
   /** Độ dày nét được phép (đơn vị lưới). */

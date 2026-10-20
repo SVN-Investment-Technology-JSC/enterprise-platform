@@ -4,11 +4,11 @@ import {
   normalizeRules,
   type BrandRules,
   type ComplianceIssue,
-} from './compliance.js';
-import { createPresetDocuments } from './legacy.js';
-import { createDocument, createShape, type Geometry, type IconDocument, type IconShape } from './model.js';
-import { DEFAULT_PALETTE } from './palette.js';
-import { parsePathData } from './path-data.js';
+} from './compliance';
+import { createPresetDocuments } from './legacy';
+import { createDocument, createShape, type Geometry, type IconDocument, type IconShape } from './model';
+import { DEFAULT_PALETTE } from './palette';
+import { parsePathData } from './path-data';
 
 const stroke = (geometry: Geometry, overrides: Partial<IconShape> = {}) =>
   createShape(geometry, { stroke: 'brand:sapphire', strokeWidth: 1.75, ...overrides });

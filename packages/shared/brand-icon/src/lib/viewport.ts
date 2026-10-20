@@ -1,4 +1,4 @@
-import type { Point } from './model.js';
+import type { Point } from './model';
 
 /** Khung nhìn của canvas: `zoom` là số pixel màn hình trên một đơn vị lưới; `panX/panY` là vị trí gốc lưới trên màn hình. */
 export interface Viewport {

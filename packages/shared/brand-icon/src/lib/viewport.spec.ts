@@ -1,4 +1,4 @@
-import { MAX_ZOOM, MIN_ZOOM, clampZoom, docToScreen, fitViewport, screenToDoc, zoomAt, type Viewport } from './viewport.js';
+import { MAX_ZOOM, MIN_ZOOM, clampZoom, docToScreen, fitViewport, screenToDoc, zoomAt, type Viewport } from './viewport';
 
 const view: Viewport = { zoom: 20, panX: 100, panY: 50 };
 

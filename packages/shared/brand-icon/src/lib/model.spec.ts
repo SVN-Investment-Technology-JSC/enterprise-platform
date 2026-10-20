@@ -13,7 +13,7 @@ import {
   newId,
   roundTo,
   type Geometry,
-} from './model.js';
+} from './model';
 
 describe('newId', () => {
   it('có tiền tố, ký tự hợp lệ, và không trùng trong 5000 lần gọi', () => {

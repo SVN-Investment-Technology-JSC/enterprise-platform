@@ -9,7 +9,7 @@ import {
   type Rect,
   type RectGeometry,
   type Subpath,
-} from './model.js';
+} from './model';
 
 /** Ma trận biến đổi affine [a, b, c, d, e, f]: x' = a*x + c*y + e, y' = b*x + d*y + f. */
 export type Matrix = readonly [number, number, number, number, number, number];

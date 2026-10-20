@@ -1,13 +1,13 @@
 /**
  * @jest-environment jsdom
  */
-import { applyMatrix, geometryBounds } from './geometry.js';
-import { createPresetDocuments } from './legacy.js';
-import type { EllipseGeometry, PathGeometry, RectGeometry } from './model.js';
-import { pathToData } from './path-data.js';
-import { generateSvg } from './render.js';
-import { importSvg, looksLikeSvgMarkup, parseTransform } from './svg-import.js';
-import { normalizeShape } from './validate.js';
+import { applyMatrix, geometryBounds } from './geometry';
+import { createPresetDocuments } from './legacy';
+import type { EllipseGeometry, PathGeometry, RectGeometry } from './model';
+import { pathToData } from './path-data';
+import { generateSvg } from './render';
+import { importSvg, looksLikeSvgMarkup, parseTransform } from './svg-import';
+import { normalizeShape } from './validate';
 
 const close = (actual: number, expected: number, digits = 6) => expect(actual).toBeCloseTo(expected, digits);
 
