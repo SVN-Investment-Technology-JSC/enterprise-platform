@@ -1,6 +1,11 @@
 import type { Point, Rect } from './model.js';
 
-export const snapToStep = (value: number, step: number): number => (step > 0 ? Math.round(value / step) * step : value);
+/** Làm tròn tới bội gần nhất của `step`; bỏ nhiễu dấu phẩy động (0,1 x 3 ra 0,3 chứ không phải 0,30000000000000004) và không trả -0. */
+export const snapToStep = (value: number, step: number): number => {
+  if (!(step > 0)) return value;
+  const snapped = Math.round((Math.round(value / step) * step) * 1e9) / 1e9;
+  return snapped === 0 ? 0 : snapped;
+};
 
 export const snapPointToStep = (point: Point, step: number): Point => ({
   x: snapToStep(point.x, step),

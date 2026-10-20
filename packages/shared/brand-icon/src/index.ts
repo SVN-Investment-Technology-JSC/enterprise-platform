@@ -11,3 +11,7 @@ export * from './lib/compliance.js';
 export * from './lib/snap.js';
 export * from './lib/viewport.js';
 export * from './lib/editor-state.js';
+export * from './lib/zip.js';
+export * from './lib/ico.js';
+export * from './lib/bundle.js';
+export * from './lib/api-types.js';

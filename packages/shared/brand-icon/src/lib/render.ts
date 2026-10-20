@@ -151,7 +151,7 @@ ${body}
 export function toComponentName(name: string): string {
   const ascii = name
     .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
+    .replace(/[\u0300-\u036f]/g, '')
     .replace(/đ/g, 'd')
     .replace(/Đ/g, 'D');
   const words = ascii
@@ -168,11 +168,11 @@ export function toComponentName(name: string): string {
 export function slugify(name: string): string {
   const ascii = name
     .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
+    .replace(/[\u0300-\u036f]/g, '')
     .replace(/đ/g, 'd')
     .replace(/Đ/g, 'D')
     .toLowerCase();
-  return ascii.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 64) || 'icon';
+  return ascii.replace(/[^a-z0-9]+/g, '-').slice(0, 64).replace(/^-+|-+$/g, '') || 'icon';
 }
 
 /** Component React sẵn sàng đặt vào `@enterprise-platform/shared-ui`. */

@@ -1,6 +1,7 @@
 import { IDENTITY, multiply, rotation, scaling, translation, transformGeometry, type Matrix } from './geometry.js';
 import { normalizeHex } from './palette.js';
 import { MAX_PATH_DATA_LENGTH, parsePathData } from './path-data.js';
+import { LIMITS, normalizeShape } from './validate.js';
 import {
   DEFAULT_SIZE,
   DEFAULT_SHAPE_STYLE,
@@ -28,7 +29,7 @@ export interface SvgImportOptions {
   readonly strokeWidth?: number;
 }
 
-const MAX_SHAPES = 200;
+const MAX_SHAPES = LIMITS.maxShapes;
 const SKIPPED = new Set(['defs', 'clippath', 'mask', 'symbol', 'pattern', 'title', 'desc', 'metadata', 'style', 'script', 'lineargradient', 'radialgradient', 'filter', 'marker']);
 const UNSUPPORTED = new Set(['text', 'image', 'use', 'foreignobject']);
 
@@ -120,16 +121,28 @@ function parsePaint(value: string, warnings: string[]): Paint {
     warnings.push('SVG dùng màu chuyển sắc hoặc hoa văn; Studio thay bằng một màu đơn.');
     return 'currentColor';
   }
-  const rgb = text.match(/^rgba?\(\s*(\d+)[\s,]+(\d+)[\s,]+(\d+)/);
+  const rgb = text.match(/^rgba?\(\s*([\d.]+%?)[\s,]+([\d.]+%?)[\s,]+([\d.]+%?)/);
   if (rgb) {
-    const hex = `#${[rgb[1], rgb[2], rgb[3]].map((part) => Math.min(255, Number(part)).toString(16).padStart(2, '0')).join('')}`;
+    const channel = (part: string) => {
+      const value = part.endsWith('%') ? (parseFloat(part) * 255) / 100 : parseFloat(part);
+      return Math.min(255, Math.max(0, Math.round(Number.isFinite(value) ? value : 0)));
+    };
+    const hex = `#${[rgb[1], rgb[2], rgb[3]].map((part) => channel(part).toString(16).padStart(2, '0')).join('')}`;
     return hex === '#000000' ? 'currentColor' : hex;
   }
-  const hex = normalizeHex(text);
+  // #rgba và #rrggbbaa: bỏ kênh trong suốt, giữ màu
+  const withAlpha = text.match(/^#(?:([0-9a-f]{3})[0-9a-f]|([0-9a-f]{6})[0-9a-f]{2})$/);
+  const hex = normalizeHex(withAlpha ? `#${withAlpha[1] ?? withAlpha[2]}` : text);
   if (hex) return hex === '#000000' ? 'currentColor' : hex;
   if (NAMED_COLORS[text]) return NAMED_COLORS[text];
   warnings.push(`Không nhận ra màu "${value}", dùng màu theo ngữ cảnh.`);
   return 'currentColor';
+}
+
+/** Phần tử bị ẩn bằng `display="none"` (thuộc tính hoặc style) không được nhập, cùng toàn bộ phần tử con. */
+function isHidden(element: Element): boolean {
+  if (element.getAttribute('display')?.trim().toLowerCase() === 'none') return true;
+  return /(?:^|;)\s*display\s*:\s*none\b/i.test(element.getAttribute('style') ?? '');
 }
 
 function readStyle(element: Element, parent: Style, warnings: string[]): Style {
@@ -149,11 +162,12 @@ function readStyle(element: Element, parent: Style, warnings: string[]): Style {
   const style: Style = { ...parent, opacity: 1 };
   // `opacity` không kế thừa nhưng nhân dồn qua các nhóm
   style.opacity = parent.opacity * clamp01(numberOf(values.get('opacity'), 1));
+  // `inherit` giữ nguyên màu của phần tử cha (khác `currentColor`, vốn là màu chữ)
   const fill = values.get('fill');
-  if (fill !== undefined) style.fill = parsePaint(fill, warnings);
+  if (fill !== undefined && fill.trim().toLowerCase() !== 'inherit') style.fill = parsePaint(fill, warnings);
   const stroke = values.get('stroke');
-  if (stroke !== undefined) style.stroke = parsePaint(stroke, warnings);
-  style.strokeWidth = numberOf(values.get('stroke-width'), parent.strokeWidth);
+  if (stroke !== undefined && stroke.trim().toLowerCase() !== 'inherit') style.stroke = parsePaint(stroke, warnings);
+  style.strokeWidth = Math.max(0, numberOf(values.get('stroke-width'), parent.strokeWidth));
   const cap = values.get('stroke-linecap');
   if (cap === 'round' || cap === 'butt' || cap === 'square') style.linecap = cap;
   const join = values.get('stroke-linejoin');
@@ -234,14 +248,21 @@ export function importSvg(markup: string, options: SvgImportOptions = {}): SvgIm
   const shapes: IconShape[] = [];
   const strokeWidths: number[] = [];
   let unsupportedSeen = false;
+  let oversizedSeen = false;
+  let truncated = false;
 
   const box = (root.getAttribute('viewBox') ?? '')
     .trim()
     .split(/[\s,]+/)
     .map(Number);
   const hasBox = box.length === 4 && box.every(Number.isFinite) && box[2] > 0 && box[3] > 0;
-  const viewWidth = hasBox ? box[2] : numberOf(root.getAttribute('width'), size);
-  const viewHeight = hasBox ? box[3] : numberOf(root.getAttribute('height'), size);
+  // width/height kiểu phần trăm không cho biết cỡ thật nên coi như không có
+  const dimension = (name: string) => {
+    const raw = root.getAttribute(name);
+    return raw !== null && raw.trim().endsWith('%') ? size : numberOf(raw, size);
+  };
+  const viewWidth = hasBox ? box[2] : dimension('width');
+  const viewHeight = hasBox ? box[3] : dimension('height');
   const fit = size / Math.max(viewWidth, viewHeight, 1e-6);
   const base: Matrix = hasBox
     ? [fit, 0, 0, fit, (size - viewWidth * fit) / 2 - box[0] * fit, (size - viewHeight * fit) / 2 - box[1] * fit]
@@ -249,13 +270,14 @@ export function importSvg(markup: string, options: SvgImportOptions = {}): SvgIm
   if (Math.abs(fit - 1) > 1e-6) warnings.push(`Đã co SVG gốc ${roundTo(viewWidth, 2)}x${roundTo(viewHeight, 2)} về lưới ${size}x${size}.`);
 
   const visit = (element: Element, matrix: Matrix, parentStyle: Style) => {
-    if (shapes.length >= MAX_SHAPES) return;
+    if (truncated) return;
     const tag = element.localName.toLowerCase();
     if (SKIPPED.has(tag)) return;
     if (UNSUPPORTED.has(tag)) {
       unsupportedSeen = true;
       return;
     }
+    if (isHidden(element)) return;
     const style = readStyle(element, parentStyle, warnings);
     const own = multiply(matrix, parseTransform(element.getAttribute('transform')));
 
@@ -267,30 +289,42 @@ export function importSvg(markup: string, options: SvgImportOptions = {}): SvgIm
     const geometry = elementGeometry(element, warnings);
     if (!geometry) return;
     const scale = Math.sqrt(Math.abs(own[0] * own[3] - own[1] * own[2]));
-    const hasStroke = style.stroke !== 'none';
+    // nét dày 0 là không có nét (nếu giữ lại, bước chuẩn hoá sẽ nâng lên độ dày tối thiểu và làm hiện nét)
+    const hasStroke = style.stroke !== 'none' && style.strokeWidth * scale > 1e-6;
     const hasFill = style.fill !== 'none';
     if (!hasStroke && !hasFill) return;
 
     const strokeWidth = options.strokeWidth ?? roundTo(style.strokeWidth * scale, 3);
-    if (hasStroke) strokeWidths.push(strokeWidth);
     const label = element.getAttribute('id');
-    shapes.push(
-      createShape(transformGeometry(geometry, own), {
-        ...(label ? { name: label.slice(0, 40) } : {}),
-        fill: style.fill,
-        fillOpacity: style.fillOpacity,
-        stroke: style.stroke,
-        strokeWidth: hasStroke ? strokeWidth : DEFAULT_SHAPE_STYLE.strokeWidth,
-        opacity: roundTo(style.opacity * (hasFill ? 1 : style.strokeOpacity), 3),
-        linecap: style.linecap,
-        linejoin: style.linejoin,
-        fillRule: style.fillRule,
-      }),
-    );
+    const candidate = createShape(transformGeometry(geometry, own), {
+      ...(label ? { name: label.slice(0, 40) } : {}),
+      fill: style.fill,
+      fillOpacity: style.fillOpacity,
+      stroke: hasStroke ? style.stroke : 'none',
+      strokeWidth: hasStroke ? strokeWidth : DEFAULT_SHAPE_STYLE.strokeWidth,
+      opacity: roundTo(style.opacity * (hasFill ? 1 : style.strokeOpacity), 3),
+      linecap: style.linecap,
+      linejoin: style.linejoin,
+      fillRule: style.fillRule,
+    });
+    // Hình phải qua được bước chuẩn hoá của thư viện (toạ độ trong ±1000, tối đa 64 đường con và 2000 điểm neo);
+    // nếu không, khi lưu rồi nạp lại cả icon sẽ bị từ chối và mất sạch.
+    const shape = normalizeShape(candidate);
+    if (!shape) {
+      oversizedSeen = true;
+      return;
+    }
+    if (shapes.length >= MAX_SHAPES) {
+      truncated = true;
+      return;
+    }
+    if (hasStroke) strokeWidths.push(shape.strokeWidth);
+    shapes.push(shape);
   };
 
   visit(root, base, BASE_STYLE);
-  if (shapes.length >= MAX_SHAPES) warnings.push(`Chỉ nhập ${MAX_SHAPES} hình đầu tiên.`);
+  if (truncated) warnings.push(`Chỉ nhập ${MAX_SHAPES} hình đầu tiên.`);
+  if (oversizedSeen) warnings.push('Có hình quá lớn hoặc quá phức tạp (vượt giới hạn toạ độ hay số điểm) nên bị bỏ qua.');
   if (unsupportedSeen) warnings.push('SVG có chữ, ảnh hoặc phần tử <use>, các phần này không được nhập.');
   if (shapes.length === 0) throw new Error('Không tìm thấy hình nào (path, rect, circle, line...) trong SVG.');
 

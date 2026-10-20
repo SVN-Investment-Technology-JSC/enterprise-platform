@@ -39,7 +39,9 @@ function arcToCubics(
 ): Array<{ c1: Point; c2: Point; to: Point; line?: true }> {
   let rx = Math.abs(rxIn);
   let ry = Math.abs(ryIn);
-  if (rx < EPSILON || ry < EPSILON || near(from, to)) return [{ c1: from, c2: to, to, line: true }];
+  // Theo SVG: điểm cuối trùng điểm đầu thì bỏ cung; bán kính 0 thì thành đoạn thẳng.
+  if (near(from, to)) return [];
+  if (rx < EPSILON || ry < EPSILON) return [{ c1: from, c2: to, to, line: true }];
 
   const phi = (rotationDeg * Math.PI) / 180;
   const cosPhi = Math.cos(phi);

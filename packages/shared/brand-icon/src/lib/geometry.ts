@@ -350,6 +350,20 @@ function windingNumber(point: Point, polygon: readonly Point[]): number {
   return winding;
 }
 
+/** Số lần tia ngang từ `point` cắt đa giác; dùng cho quy tắc evenodd (chẵn lẻ), khác số vòng quấn của nonzero. */
+function crossingCount(point: Point, polygon: readonly Point[]): number {
+  let count = 0;
+  for (let index = 0; index < polygon.length; index += 1) {
+    const a = polygon[index];
+    const b = polygon[(index + 1) % polygon.length];
+    if (a.y <= point.y !== b.y <= point.y) {
+      const x = a.x + ((point.y - a.y) / (b.y - a.y)) * (b.x - a.x);
+      if (point.x < x) count += 1;
+    }
+  }
+  return count;
+}
+
 export function hitTestShape(shape: IconShape, point: Point, tolerance: number): boolean {
   const lines = flattenGeometry(shape.geometry);
   const strokeVisible = !isPaintNone(shape.stroke);
@@ -368,9 +382,9 @@ export function hitTestShape(shape: IconShape, point: Point, tolerance: number):
 
   if (fillVisible) {
     if (shape.fillRule === 'evenodd') {
-      let inside = false;
-      for (const line of lines) if (windingNumber(point, line.points) !== 0 && line.points.length > 2) inside = !inside;
-      return inside;
+      let crossings = 0;
+      for (const line of lines) if (line.points.length > 2) crossings += crossingCount(point, line.points);
+      return crossings % 2 === 1;
     }
     let total = 0;
     for (const line of lines) if (line.points.length > 2) total += windingNumber(point, line.points);
@@ -513,14 +527,26 @@ function splitCubic(p0: Point, p1: Point, p2: Point, p3: Point, t: number) {
   return { a, d, f, e, c };
 }
 
-/** Chèn điểm neo vào đoạn `segment` (đoạn thứ n nối node n với node n+1) tại tham số `t`, giữ nguyên hình dạng. */
+/** Dựng điểm neo, bỏ tay cầm trùng điểm neo (tay cầm suy biến không có tác dụng và làm nút bị coi là "trơn"). */
+function buildNode(x: number, y: number, hin: Point | undefined, hout: Point | undefined): PathNode {
+  const useful = (handle: Point | undefined): handle is Point =>
+    handle !== undefined && (Math.abs(handle.x - x) > EPS || Math.abs(handle.y - y) > EPS);
+  return { x, y, ...(useful(hin) ? { hin } : {}), ...(useful(hout) ? { hout } : {}) };
+}
+
+/**
+ * Chèn điểm neo vào đoạn `segment` (đoạn thứ n nối node n với node n+1; với đường kín, đoạn cuối nối node cuối về node đầu)
+ * tại tham số `t`, giữ nguyên hình dạng. Chỉ số đoạn không tồn tại thì trả về nguyên đường.
+ */
 export function insertNode(path: PathGeometry, sub: number, segment: number, t: number): PathGeometry {
   const subpath = path.subpaths[sub];
   if (!subpath) return path;
+  const count = subpath.nodes.length;
+  const lastSegment = subpath.closed ? count - 1 : count - 2;
+  if (count < 2 || !Number.isInteger(segment) || segment < 0 || segment > lastSegment) return path;
   const from = subpath.nodes[segment];
-  const toIndex = (segment + 1) % subpath.nodes.length;
+  const toIndex = (segment + 1) % count;
   const to = subpath.nodes[toIndex];
-  if (!from || !to) return path;
 
   let inserted: PathNode;
   let nextFrom: PathNode = from;
@@ -528,9 +554,9 @@ export function insertNode(path: PathGeometry, sub: number, segment: number, t: 
   if (from.hout || to.hin) {
     const [p0, p1, p2, p3] = segmentPoints(from, to);
     const { a, d, f, e, c } = splitCubic(p0, p1, p2, p3, t);
-    inserted = { x: f.x, y: f.y, hin: d, hout: e };
-    nextFrom = { ...from, hout: a };
-    nextTo = { ...to, hin: c };
+    inserted = buildNode(f.x, f.y, d, e);
+    nextFrom = buildNode(from.x, from.y, from.hin, a);
+    nextTo = buildNode(to.x, to.y, c, to.hout);
   } else {
     inserted = { x: from.x + (to.x - from.x) * t, y: from.y + (to.y - from.y) * t };
   }

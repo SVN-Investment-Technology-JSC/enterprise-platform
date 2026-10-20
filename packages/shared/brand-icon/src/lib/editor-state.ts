@@ -11,6 +11,7 @@ import {
   type AlignMode,
   type Matrix,
 } from './geometry.js';
+import { LIMITS } from './validate.js';
 import {
   newId,
   type Geometry,
@@ -19,6 +20,7 @@ import {
   type IconShape,
   type IconStatus,
   type PathGeometry,
+  type Point,
   type Rect,
   type Subpath,
 } from './model.js';
@@ -136,10 +138,18 @@ function reorder(shapes: readonly IconShape[], ids: ReadonlySet<string>, mode: R
   return result;
 }
 
+/** Bỏ các độ dịch bằng 0 (sai số dưới 1e-9) để thao tác không làm đổi gì thì không tạo bước hoàn tác. */
+function movingOffsets(offsets: ReadonlyMap<string, Point>): Map<string, Point> {
+  return new Map([...offsets].filter(([, offset]) => Math.abs(offset.x) > 1e-9 || Math.abs(offset.y) > 1e-9));
+}
+
 function combinePaths(doc: IconDocument, ids: readonly string[]): { doc: IconDocument; selection: string[] } | null {
   const targets = editable(doc, ids);
   if (targets.length < 2) return null;
   const subpaths: Subpath[] = targets.flatMap((shape) => [...geometryToPath(shape.geometry).subpaths]);
+  const nodeCount = subpaths.reduce((sum, sub) => sum + sub.nodes.length, 0);
+  // Đường gộp vượt giới hạn của thư viện sẽ làm cả icon bị từ chối khi nạp lại.
+  if (subpaths.length > LIMITS.maxSubpaths || nodeCount > LIMITS.maxNodes) return null;
   const first = targets[0];
   const merged: IconShape = { ...first, name: 'Đường gộp', geometry: { type: 'path', subpaths } };
   const drop = new Set(targets.map((shape) => shape.id));
@@ -157,6 +167,10 @@ function separatePath(doc: IconDocument, ids: readonly string[]): { doc: IconDoc
       .map((shape) => shape.id),
   );
   if (targets.size === 0) return null;
+  const extra = editable(doc, ids)
+    .filter((shape) => targets.has(shape.id))
+    .reduce((sum, shape) => sum + geometryToPath(shape.geometry).subpaths.length - 1, 0);
+  if (doc.shapes.length + extra > LIMITS.maxShapes) return null;
   const selection: string[] = [];
   const shapes = doc.shapes.flatMap((shape) => {
     if (!targets.has(shape.id)) return [shape];
@@ -232,7 +246,8 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
     case 'gestureStart':
       if (state.gesture) return state;
       // Chụp trạng thái trước khi kéo; nếu cuối cùng không đổi gì thì `gestureEnd` bỏ bước này.
-      return { ...state, gesture: true, past: [...state.past, doc].slice(-HISTORY_LIMIT), future: [] };
+      // Chưa xoá `future`: một cú bấm không làm đổi gì không được phép làm mất các bước làm lại; `commit` sẽ xoá khi có thay đổi thật.
+      return { ...state, gesture: true, past: [...state.past, doc].slice(-HISTORY_LIMIT) };
 
     case 'gestureEnd': {
       if (!state.gesture) return state;
@@ -243,20 +258,29 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
 
     case 'setMeta': {
       const patch = action.patch;
-      const next = { ...doc, ...patch, tags: patch.tags ?? doc.tags };
-      return commit(state, next);
+      const changes: MetaPatch = {};
+      if (patch.name !== undefined && patch.name !== doc.name) changes.name = patch.name;
+      if (patch.description !== undefined && patch.description !== doc.description) changes.description = patch.description;
+      if (patch.category !== undefined && patch.category !== doc.category) changes.category = patch.category;
+      if (patch.status !== undefined && patch.status !== doc.status) changes.status = patch.status;
+      if (patch.tags !== undefined && !sameList(patch.tags, doc.tags)) changes.tags = patch.tags;
+      if (Object.keys(changes).length === 0) return state;
+      return commit(state, { ...doc, ...changes });
     }
 
     case 'setSize': {
+      if (!Number.isFinite(action.size)) return state;
       const size = Math.round(Math.min(128, Math.max(8, action.size)));
       if (size === doc.size) return state;
       return commit(state, action.scale ? scaleDocument(doc, size) : { ...doc, size });
     }
 
     case 'addShapes': {
-      if (action.shapes.length === 0) return state;
-      const next = withShapes(doc, [...doc.shapes, ...action.shapes]);
-      return commit(state, next, action.select === false ? state.selection : action.shapes.map((shape) => shape.id));
+      // Quá giới hạn lớp của thư viện thì icon sẽ bị từ chối khi nạp lại, nên chỉ nhận phần còn chỗ.
+      const added = action.shapes.slice(0, Math.max(0, LIMITS.maxShapes - doc.shapes.length));
+      if (added.length === 0) return state;
+      const next = withShapes(doc, [...doc.shapes, ...added]);
+      return commit(state, next, action.select === false ? state.selection : added.map((shape) => shape.id));
     }
 
     case 'replaceShapes': {
@@ -299,7 +323,9 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
 
     case 'duplicate': {
       const offset = action.offset ?? 1;
-      const sources = doc.shapes.filter((shape) => action.ids.includes(shape.id));
+      const sources = doc.shapes
+        .filter((shape) => action.ids.includes(shape.id))
+        .slice(0, Math.max(0, LIMITS.maxShapes - doc.shapes.length));
       if (sources.length === 0) return state;
       const copies = sources.map((shape) => ({
         ...transformShape(shape, translation(offset, offset)),
@@ -334,14 +360,15 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
       const reference: Rect | null =
         action.to === 'canvas' ? { x: 0, y: 0, width: doc.size, height: doc.size } : unionRects(items.map((item) => item.bounds));
       if (!reference || (action.to === 'selection' && targets.length < 2)) return state;
-      const offsets = alignOffsets(items, action.mode, reference);
+      const offsets = movingOffsets(alignOffsets(items, action.mode, reference));
+      if (offsets.size === 0) return state;
       return commit(
         state,
         withShapes(
           doc,
           doc.shapes.map((shape) => {
             const offset = offsets.get(shape.id);
-            return offset && (offset.x !== 0 || offset.y !== 0) ? transformShape(shape, translation(offset.x, offset.y)) : shape;
+            return offset ? transformShape(shape, translation(offset.x, offset.y)) : shape;
           }),
         ),
       );
@@ -349,9 +376,11 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
 
     case 'distribute': {
       const targets = editable(doc, action.ids);
-      const offsets = distributeOffsets(
-        targets.map((shape) => ({ id: shape.id, bounds: visualBounds(shape) })),
-        action.axis,
+      const offsets = movingOffsets(
+        distributeOffsets(
+          targets.map((shape) => ({ id: shape.id, bounds: visualBounds(shape) })),
+          action.axis,
+        ),
       );
       if (offsets.size === 0) return state;
       return commit(
