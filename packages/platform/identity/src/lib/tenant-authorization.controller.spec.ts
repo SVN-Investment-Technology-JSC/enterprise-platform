@@ -15,6 +15,7 @@ describe('Tenant authorization API gates', () => {
   let identity: {
     verifyAccessToken: jest.Mock;
     coreUsers: jest.Mock;
+    coreUser: jest.Mock;
     createCoreUser: jest.Mock;
     mutateCoreOrganization: jest.Mock;
     tenantModuleCatalog: jest.Mock;
@@ -23,6 +24,9 @@ describe('Tenant authorization API gates', () => {
       assignRoles: jest.Mock;
       savePermission: jest.Mock;
       listRoles: jest.Mock;
+      userPermissionGrants: jest.Mock;
+      userAuthorizationHistory: jest.Mock;
+      setUserPermissionGrants: jest.Mock;
     };
   };
   let controller: PlatformAccessController;
@@ -43,6 +47,7 @@ describe('Tenant authorization API gates', () => {
     identity = {
       verifyAccessToken: jest.fn(async () => principal),
       coreUsers: jest.fn(async () => []),
+      coreUser: jest.fn(async () => ({ id: 'u1' })),
       createCoreUser: jest.fn(),
       mutateCoreOrganization: jest.fn(),
       tenantModuleCatalog: jest.fn(async () => [
@@ -57,6 +62,9 @@ describe('Tenant authorization API gates', () => {
         assignRoles: jest.fn(),
         savePermission: jest.fn(),
         listRoles: jest.fn(),
+        userPermissionGrants: jest.fn(),
+        userAuthorizationHistory: jest.fn(async () => []),
+        setUserPermissionGrants: jest.fn(async () => ({ actionKeys: [], grants: [] })),
       },
     };
     controller = new PlatformAccessController(
@@ -81,6 +89,37 @@ describe('Tenant authorization API gates', () => {
     await expect(
       controller.setUserRoles(request, 'victim', { roleIds: [] }),
     ).rejects.toMatchObject({ status: 403 });
+  });
+  it('reserves user permission grants for the built-in admin and enforces CSRF', async () => {
+    principal = { ...principal, permissions: ['tenant.manage', 'core.users.update'] };
+    await expect(controller.userPermissionGrants(request, 'victim')).rejects.toMatchObject({ status: 403 });
+    await expect(
+      controller.setUserPermissionGrants(request, 'victim', { actionKeys: ['core.users.read'] }),
+    ).rejects.toMatchObject({ status: 403 });
+    principal = { ...principal, roles: ['tenant-admin'] };
+    await expect(
+      controller.setUserPermissionGrants({ ...request, headers: {} } as Request, 'u1', { actionKeys: [] }),
+    ).rejects.toMatchObject({ status: 403 });
+    expect(identity.authorization.setUserPermissionGrants).not.toHaveBeenCalled();
+    await controller.setUserPermissionGrants(request, 'u1', { actionKeys: ['core.users.read'] });
+    expect(identity.authorization.setUserPermissionGrants).toHaveBeenCalledWith('tenant-a', 'user', 'u1', ['core.users.read']);
+    await controller.userPermissionGrants(request, 'u1');
+    expect(identity.authorization.userPermissionGrants).toHaveBeenCalledWith('tenant-a', 'u1');
+  });
+  it('đọc chi tiết người dùng theo tenant của người gọi và cần core.users.read', async () => {
+    expect(await controller.coreUser(request, 'u1')).toEqual({ user: { id: 'u1' } });
+    expect(identity.coreUser).toHaveBeenCalledWith('tenant-a', 'u1');
+    principal = { ...principal, permissions: ['core.users.create'] };
+    await expect(controller.coreUser(request, 'u1')).rejects.toMatchObject({ status: 403 });
+  });
+  it('chỉ quản trị tenant được xem lịch sử phân quyền của người dùng', async () => {
+    principal = { ...principal, permissions: ['tenant.manage', 'core.users.read'] };
+    await expect(controller.userAuthorizationHistory(request, 'u1')).rejects.toMatchObject({ status: 403 });
+    expect(identity.authorization.userAuthorizationHistory).not.toHaveBeenCalled();
+    principal = { ...principal, roles: ['tenant-admin'] };
+    identity.authorization.userAuthorizationHistory.mockResolvedValueOnce([{ id: 'e1' }]);
+    expect(await controller.userAuthorizationHistory(request, 'u1')).toEqual({ entries: [{ id: 'e1' }] });
+    expect(identity.authorization.userAuthorizationHistory).toHaveBeenCalledWith('tenant-a', 'u1');
   });
   it('enforces CSRF on authorization writes', async () => {
     principal = { ...principal, roles: ['tenant-admin'] };

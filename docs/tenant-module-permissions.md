@@ -2,7 +2,7 @@
 
 ## Nguyên tắc
 
-Một người dùng chỉ được thao tác khi tenant có module đang kích hoạt và có quyền thao tác tương ứng. Quyền vào module suy ra từ action: có bất kỳ action nào của module là vào được module đó, không cấp module riêng cho role. Quyền của nhiều role cộng dồn; bỏ quyền ở một role không thu hồi quyền vẫn được cấp bởi role khác.
+Một người dùng chỉ được thao tác khi tenant có module đang kích hoạt và có quyền thao tác tương ứng. Quyền vào module suy ra từ action: có bất kỳ action nào của module là vào được module đó, không cấp module riêng cho role. Quyền của nhiều role cộng dồn; bỏ quyền ở một role không thu hồi quyền vẫn được cấp bởi role khác. Admin cũng có thể bổ sung action riêng cho một người dùng ngoài vai trò (quyền bổ sung, cộng dồn với quyền từ role và không mất khi đổi role); xem [Phân quyền động](./tenant-dynamic-rbac.md).
 
 Core quản lý danh mục action, permission và role. Module kiểm tra action ở API và áp dụng luật nghiệp vụ riêng. Với Procedure, việc sửa ma trận RACI khác với việc thực hiện một bước trong hồ sơ.
 
