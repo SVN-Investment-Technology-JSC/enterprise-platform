@@ -194,6 +194,9 @@
     },
     {
       "path": "./packages/shared/brand-icon"
+    },
+    {
+      "path": "./packages/platform/brand"
     }
   ]
 }

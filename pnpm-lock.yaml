@@ -225,6 +225,9 @@ importers:
       '@enterprise-platform/contracts-tenancy':
         specifier: workspace:*
         version: link:../../packages/contracts/tenancy
+      '@enterprise-platform/platform-brand':
+        specifier: workspace:*
+        version: link:../../packages/platform/brand
       '@enterprise-platform/platform-data-import':
         specifier: workspace:*
         version: link:../../packages/platform/data-import
@@ -1853,6 +1856,31 @@ importers:
       '@types/pg':
         specifier: ^8.21.0
         version: 8.21.0
+
+  packages/platform/brand:
+    dependencies:
+      '@enterprise-platform/adapter-database':
+        specifier: workspace:*
+        version: link:../../adapters/database
+      '@enterprise-platform/adapter-storage':
+        specifier: workspace:*
+        version: link:../../adapters/storage
+      '@enterprise-platform/contracts-identity':
+        specifier: workspace:*
+        version: link:../../contracts/identity
+      '@enterprise-platform/platform-identity':
+        specifier: workspace:*
+        version: link:../identity
+      '@enterprise-platform/shared-brand-icon':
+        specifier: workspace:*
+        version: link:../../shared/brand-icon
+      '@nestjs/common':
+        specifier: ^11.2.1
+        version: 11.2.1(reflect-metadata@0.2.2)(rxjs@7.8.1)
+    devDependencies:
+      '@types/express':
+        specifier: ^5.0.6
+        version: 5.0.6
 
   packages/platform/data-import:
     dependencies:

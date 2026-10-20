@@ -1,0 +1,54 @@
+{
+  "name": "@enterprise-platform/platform-brand",
+  "version": "0.0.1",
+  "private": true,
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./package.json": "./package.json"
+  },
+  "nx": {
+    "name": "platform-brand",
+    "targets": {
+      "test": {
+        "inputs": [
+          "default",
+          "^production",
+          "{workspaceRoot}/jest.preset.js",
+          "{workspaceRoot}/migrations/platform/0010-brand-icon-storage.sql",
+          {
+            "env": "BRAND_TEST_DATABASE_URL"
+          },
+          {
+            "externalDependencies": [
+              "jest",
+              "@nx/jest",
+              "ts-jest",
+              "@swc/jest"
+            ]
+          }
+        ]
+      }
+    },
+    "tags": [
+      "type:platform",
+      "scope:brand"
+    ]
+  },
+  "dependencies": {
+    "@enterprise-platform/adapter-database": "workspace:*",
+    "@enterprise-platform/adapter-storage": "workspace:*",
+    "@enterprise-platform/contracts-identity": "workspace:*",
+    "@enterprise-platform/platform-identity": "workspace:*",
+    "@enterprise-platform/shared-brand-icon": "workspace:*",
+    "@nestjs/common": "^11.2.1"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6"
+  }
+}
