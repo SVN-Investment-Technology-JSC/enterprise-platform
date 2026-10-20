@@ -331,7 +331,7 @@ jobs:
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
           cache-from: type=gha,scope=${{ matrix.service }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,ignore-error=true,scope=${{ matrix.service }}
 
   retag-unchanged:
     name: Tag unchanged service images
@@ -407,7 +407,7 @@ jobs:
           tags: enterprise-platform-ci/${{ matrix.service }}:verify
           platforms: linux/amd64
           cache-from: type=gha,scope=${{ matrix.service }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,ignore-error=true,scope=${{ matrix.service }}
 
       - name: Verify declared Node runtime dependencies
         if: matrix.runtimeCheck != null
