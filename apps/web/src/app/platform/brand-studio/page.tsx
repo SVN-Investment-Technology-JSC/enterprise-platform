@@ -1,6 +1,6 @@
 import type { AuthenticatedPrincipal } from '@enterprise-platform/contracts-identity';
 import { SessionLogoutButton } from '@enterprise-platform/shared-ui';
-import { Menu } from 'lucide-react';
+import { Menu, Sparkles } from 'lucide-react';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { TopNavHeaderActions } from '@/components/top-nav-header-actions';
@@ -50,12 +50,12 @@ export default async function PlatformBrandStudioPage() {
   const displayName = principal?.displayName ?? 'Admin';
 
   return (
-    <div className="min-h-screen bg-[#071322] text-slate-100">
+    <div className="min-h-screen bg-[#f8f9ff] text-slate-900">
       {/* Sidebar trái */}
       <aside className="fixed inset-y-0 left-0 z-20 hidden w-60 flex-col bg-[#091426] px-2 py-4 text-slate-200 lg:flex">
         <div className="mb-7 flex items-center gap-2 px-2">
           <div className="grid size-8 place-items-center rounded-md bg-blue-600 text-white font-bold text-sm">
-            S
+            <Sparkles className="size-4" />
           </div>
           <div>
             <p className="text-sm font-semibold text-white">SVNDTS Platform</p>
@@ -70,13 +70,13 @@ export default async function PlatformBrandStudioPage() {
 
       {/* Vùng nội dung chính */}
       <div className="lg:pl-60">
-        <header className="sticky top-0 z-10 flex h-16 items-center justify-between border-b border-slate-800 bg-[#091426]/90 px-4 backdrop-blur lg:px-8">
+        <header className="sticky top-0 z-10 flex h-16 items-center justify-between border-b border-slate-200 bg-white/90 px-4 backdrop-blur lg:px-8">
           <Sheet>
             <SheetTrigger
               render={
                 <Button
                   aria-label="Mở điều hướng"
-                  className="lg:hidden text-slate-300"
+                  className="lg:hidden text-slate-700"
                   size="icon"
                   variant="ghost"
                 />
@@ -103,7 +103,7 @@ export default async function PlatformBrandStudioPage() {
 
         <main className="p-4 sm:p-6 lg:p-8">
           <PageBreadcrumb
-            className="mb-5 text-slate-400"
+            className="mb-5 text-slate-500"
             items={[
               { label: 'Quản trị hệ thống', href: '/platform' },
               { label: 'Thương hiệu SVNDTS (Brand Studio)' },
@@ -111,6 +111,15 @@ export default async function PlatformBrandStudioPage() {
           />
 
           <div className="space-y-6">
+            <div className="flex flex-col gap-1">
+              <h1 className="text-2xl font-bold tracking-tight text-slate-900">
+                SVNDTS Brand Icon Studio
+              </h1>
+              <p className="text-sm text-slate-500">
+                Thiết kế, tùy biến và chuẩn hoá bộ nhận diện thương hiệu độc quyền cho nền tảng SVNDTS và các phân hệ doanh nghiệp.
+              </p>
+            </div>
+
             <BrandStudioConsole />
           </div>
         </main>
