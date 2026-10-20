@@ -1,22 +1,16 @@
-export type DetailTab = 'overview' | 'access' | 'profile' | 'history';
+export type DetailTab = 'overview' | 'access' | 'history';
 
 export const TAB_LABELS: Record<DetailTab, string> = {
   overview: 'Tổng quan',
   access: 'Vai trò và quyền',
-  profile: 'Hồ sơ nhân sự',
   history: 'Lịch sử quyền',
 };
 
 /** Tab người xem được thấy: vai trò, quyền và lịch sử chỉ dành cho quản trị tenant. */
-export function availableTabs(opts: {
-  isAdmin: boolean;
-  canReadOrganization: boolean;
-}): DetailTab[] {
+export function availableTabs(opts: { isAdmin: boolean }): DetailTab[] {
   return [
     'overview',
-    ...(opts.isAdmin ? (['access'] as const) : []),
-    ...(opts.canReadOrganization ? (['profile'] as const) : []),
-    ...(opts.isAdmin ? (['history'] as const) : []),
+    ...(opts.isAdmin ? (['access', 'history'] as const) : []),
   ];
 }
 

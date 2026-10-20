@@ -10,6 +10,7 @@ import {
 } from '../tenant-user-email';
 import type { TenantCoreUser } from '../user-types';
 import { StatusBadge, UserCard } from '../user-ui';
+import { EmployeeProfileContent } from '../employee-profile-panel';
 import { formatDateTime } from './history-model';
 
 const FIELD =
@@ -29,10 +30,12 @@ export function OverviewTab({
   user,
   tenantSlug,
   canEdit,
+  canReadOrganization,
 }: {
   readonly user: TenantCoreUser;
   readonly tenantSlug: string;
   readonly canEdit: boolean;
+  readonly canReadOrganization: boolean;
 }) {
   const [updateUser, { isLoading: saving }] = useUpdateUserMutation();
   const nameId = useId();
@@ -173,6 +176,35 @@ export function OverviewTab({
           </form>
         </UserCard>
 
+        {canReadOrganization ? (
+          <UserCard aria-label="Hồ sơ nhân sự" className="p-4 sm:p-5">
+            <h2 className={`${TITLE} mb-3.5`}>Hồ sơ nhân sự</h2>
+            <EmployeeProfileContent user={user} />
+          </UserCard>
+        ) : null}
+      </div>
+
+      <div className="flex min-w-0 flex-col gap-4">
+        <UserCard aria-label="Thông tin phụ" className="p-4 sm:p-5">
+          <h2 className={`${TITLE} mb-3.5`}>Thông tin phụ</h2>
+          <dl className="m-0 flex flex-col gap-3 text-[13px]">
+            <Row label="Mã người dùng">
+              <span className="break-all font-mono text-[12px]">{user.id}</span>
+            </Row>
+            {user.username ? (
+              <Row label="Tên đăng nhập">{user.username}</Row>
+            ) : null}
+            <Row label="Loại tài khoản">
+              {user.systemRole === 'tenant-admin'
+                ? 'Quản trị viên tenant'
+                : 'Người dùng'}
+            </Row>
+            <Row label="Ngày tạo">{formatDateTime(user.createdAt)}</Row>
+            <Row label="Cập nhật gần nhất">
+              {formatDateTime(user.updatedAt)}
+            </Row>
+          </dl>
+        </UserCard>
         {canEdit ? (
           <UserCard aria-label="Đặt lại mật khẩu" className="p-4 sm:p-5">
             <h2 className={`${TITLE} mb-1`}>Đặt lại mật khẩu</h2>
@@ -211,25 +243,6 @@ export function OverviewTab({
           </UserCard>
         ) : null}
       </div>
-
-      <UserCard aria-label="Thông tin phụ" className="p-4 sm:p-5">
-        <h2 className={`${TITLE} mb-3.5`}>Thông tin phụ</h2>
-        <dl className="m-0 flex flex-col gap-3 text-[13px]">
-          <Row label="Mã người dùng">
-            <span className="break-all font-mono text-[12px]">{user.id}</span>
-          </Row>
-          {user.username ? (
-            <Row label="Tên đăng nhập">{user.username}</Row>
-          ) : null}
-          <Row label="Loại tài khoản">
-            {user.systemRole === 'tenant-admin'
-              ? 'Quản trị viên tenant'
-              : 'Người dùng'}
-          </Row>
-          <Row label="Ngày tạo">{formatDateTime(user.createdAt)}</Row>
-          <Row label="Cập nhật gần nhất">{formatDateTime(user.updatedAt)}</Row>
-        </dl>
-      </UserCard>
     </div>
   );
 }

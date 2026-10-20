@@ -16,7 +16,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { toast } from '@/components/ui/sonner';
-import { useGetUserGrantsQuery, useSetUserGrantsMutation } from '@/store/tenant-api';
+import { useGetUserGrantsQuery, useGetUsersQuery, useSetUserGrantsMutation } from '@/store/tenant-api';
 import { searchText } from './authorization-client';
 import {
   actionLock,
@@ -65,7 +65,7 @@ export function UserPermissionGrantsDialog({ open, onOpenChange, ...rest }: User
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         data-testid="permission-grants-dialog"
-        className="flex max-h-[88vh] max-w-2xl flex-col gap-0 overflow-hidden p-0"
+        className="flex max-h-[88vh] max-w-2xl flex-col gap-0 overflow-hidden rounded-[10px] p-0"
       >
         <GrantsBody {...rest} onClose={() => onOpenChange(false)} />
       </DialogContent>
@@ -85,6 +85,9 @@ function GrantsBody({
   // Dữ liệu đã có trong bộ nhớ đệm thì hiện ngay; chỉ gọi API khi chưa có hoặc đã bị làm mới.
   const { data: loaded, error, refetch } = useGetUserGrantsQuery(userId);
   const [saveGrants, { isLoading: saving }] = useSetUserGrantsMutation();
+  // Danh sách người dùng (đã có trong bộ nhớ đệm) để đổi mã người cấp thành tên.
+  const { data: users } = useGetUsersQuery();
+  const nameById = useMemo(() => new Map((users ?? []).map((u) => [u.id, u.fullName])), [users]);
   // Bản nháp chỉ tồn tại sau khi người dùng bấm chọn; trước đó lấy theo dữ liệu đã lưu.
   const [edited, setEdited] = useState<ReadonlySet<string>>();
   const draft: ReadonlySet<string> = edited ?? new Set(loaded?.actionKeys ?? []);
@@ -125,7 +128,7 @@ function GrantsBody({
     return (
       <li key={action.key}>
         <label
-          className={`flex items-start gap-2.5 rounded-md px-2.5 py-1.5 ${
+          className={`flex items-start gap-2.5 rounded-[5px] px-2.5 py-1.5 ${
             disabled ? 'cursor-not-allowed opacity-70' : 'cursor-pointer hover:bg-[#f4f6f9]'
           } ${checked && !lock ? 'bg-orange-50' : ''}`}
         >
@@ -145,14 +148,13 @@ function GrantsBody({
               ) : null}
               {checked && lock ? <span className={GRANT_BADGE}>Trùng với vai trò</span> : null}
             </span>
-            <span className="font-mono text-[11px] text-slate-500">{action.key}</span>
             {lock ? (
               <span className="text-[12px] text-slate-600">{describeLock(lock, actionLabelOf)}</span>
             ) : null}
             {info && checked ? (
               <span className="text-[12px] text-orange-800">
                 Cấp
-                {info.grantedBy ? ` bởi ${info.grantedBy}` : ''}
+                {info.grantedBy && nameById.has(info.grantedBy) ? ` bởi ${nameById.get(info.grantedBy)}` : ''}
                 {info.grantedAt ? ` ngày ${new Date(info.grantedAt).toLocaleDateString('vi-VN')}` : ''}
               </span>
             ) : null}
@@ -222,7 +224,7 @@ function GrantsBody({
                   const expanded = q ? true : openRoles.has(role.id);
                   const picked = actionKeys.filter((k) => draft.has(k)).length;
                   return (
-                    <div key={role.id} className="overflow-hidden rounded-[10px] border border-[#eef0f3]">
+                    <div key={role.id} className="overflow-hidden rounded-md border border-[#eef0f3]">
                       <button
                         type="button"
                         data-testid={`grant-role-${role.id}`}
@@ -258,7 +260,7 @@ function GrantsBody({
                 <p className="m-0 text-slate-500">Không có quyền phù hợp.</p>
               ) : (
                 visibleGroups.map((g) => (
-                  <div key={g.group} className="rounded-[10px] border border-[#eef0f3]">
+                  <div key={g.group} className="rounded-md border border-[#eef0f3]">
                     <div className="border-b border-[#eef0f3] bg-[#fafbfc] px-3 py-1.5 text-[12px] font-bold tracking-[0.3px] text-slate-600">
                       {g.group}
                     </div>

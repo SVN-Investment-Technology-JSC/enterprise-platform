@@ -12,7 +12,6 @@ import {
 import {
   ArrowLeft,
   History,
-  Network,
   ShieldCheck,
   Trash2,
   UserRound,
@@ -31,7 +30,6 @@ import {
 } from '@/store/tenant-api';
 import { UserAccessEditor } from '../../authorization/user-role-editor';
 import { errorMessage } from '../../authorization/user-permission-grants-dialog';
-import { EmployeeProfileContent } from '../employee-profile-panel';
 import type { TenantCoreUser } from '../user-types';
 import {
   ExtraGrantsBadge,
@@ -60,7 +58,6 @@ const BTN_DANGER = `${BTN} border border-red-200 bg-white text-red-700 hover:bg-
 const TAB_ICONS: Record<DetailTab, typeof UserRound> = {
   overview: UserRound,
   access: ShieldCheck,
-  profile: Network,
   history: History,
 };
 
@@ -167,10 +164,7 @@ function DetailContent({
   const [updateUser, { isLoading: updating }] = useUpdateUserMutation();
   const [deleteUser, { isLoading: deleting }] = useDeleteUserMutation();
 
-  const tabs = availableTabs({
-    isAdmin,
-    canReadOrganization: hasTenantAction(permissions, 'core.organization.read'),
-  });
+  const tabs = availableTabs({ isAdmin });
   const [tab, setTab] = useState<DetailTab>(() =>
     resolveTab(searchParams.get('tab'), tabs),
   );
@@ -396,17 +390,13 @@ function DetailContent({
                 user={user}
                 tenantSlug={tenantSlug}
                 canEdit={canUpdate}
+                canReadOrganization={hasTenantAction(
+                  permissions,
+                  'core.organization.read',
+                )}
               />
             ) : null}
             {id === 'access' ? <UserAccessEditor user={user} /> : null}
-            {id === 'profile' ? (
-              <UserCard aria-label="Hồ sơ nhân sự" className="p-4 sm:p-5">
-                <h2 className="m-0 mb-3.5 text-[15px] font-bold">
-                  Hồ sơ nhân sự
-                </h2>
-                <EmployeeProfileContent user={user} />
-              </UserCard>
-            ) : null}
             {id === 'history' ? <HistoryTab userId={user.id} /> : null}
           </div>
         ))}

@@ -2,7 +2,7 @@
 
 import { TENANT_PERMISSION_ACTIONS } from '@enterprise-platform/contracts-identity';
 import { useState } from 'react';
-import { ShieldCheck, Layers, KeyRound, Plus } from 'lucide-react';
+import { ShieldCheck, Layers, KeyRound } from 'lucide-react';
 import { Popconfirm } from '@enterprise-platform/shared-ui';
 import { toast } from '@/components/ui/sonner';
 import {
@@ -31,6 +31,8 @@ const BTN =
   'inline-flex h-9 cursor-pointer items-center justify-center gap-1.5 rounded-md px-3.5 text-[14px] font-semibold disabled:cursor-not-allowed disabled:opacity-60';
 const BTN_PRIMARY = `${BTN} bg-[#ffc90a] font-bold text-[#18181b] hover:bg-[#ffd84d]`;
 const BTN_SECONDARY = `${BTN} border border-[#e5e7eb] bg-white text-slate-700 hover:bg-[#f4f6f9]`;
+// Nút bổ sung quyền khác màu nút lưu (vàng) và nút phụ (trắng) để dễ nhận ra.
+const BTN_GRANT = `${BTN} h-8 border border-blue-200 bg-blue-50 text-blue-800 hover:bg-blue-100`;
 const TITLE =
   'm-0 flex items-center gap-1.5 text-[15px] font-bold text-[#18181b]';
 
@@ -176,10 +178,22 @@ export function UserAccessEditor({ user }: { readonly user: AccessUser }) {
         aria-label="Quyền hạn tổng hợp"
         className="flex flex-col gap-3 p-4 sm:p-5"
       >
-        <h2 className={TITLE}>
-          <ShieldCheck className="size-4 text-emerald-700" aria-hidden />
-          Quyền hạn tổng hợp{dirty ? ' (dự kiến)' : ''}
-        </h2>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className={TITLE}>
+            <ShieldCheck className="size-4 text-emerald-700" aria-hidden />
+            Quyền hạn tổng hợp{dirty ? ' (dự kiến)' : ''}
+          </h2>
+          <button
+            type="button"
+            data-testid="open-permission-grants"
+            aria-label="Bổ sung quyền hạn"
+            disabled={summary.admin || savingRoles}
+            onClick={() => setGrantsOpen(true)}
+            className={BTN_GRANT}
+          >
+            Bổ sung quyền hạn
+          </button>
+        </div>
 
         {summary.admin ? (
           <p className="m-0 rounded-md bg-blue-50 px-3 py-2 text-[13px] text-blue-900">
@@ -282,17 +296,6 @@ export function UserAccessEditor({ user }: { readonly user: AccessUser }) {
           </div>
         ) : null}
 
-        <button
-          type="button"
-          data-testid="open-permission-grants"
-          aria-label="Bổ sung quyền hạn ngoài vai trò"
-          disabled={summary.admin || savingRoles}
-          onClick={() => setGrantsOpen(true)}
-          className={`${BTN_SECONDARY} w-fit`}
-        >
-          <Plus className="size-3.5" aria-hidden />
-          Bổ sung quyền hạn ngoài vai trò
-        </button>
         {summary.admin ? (
           <span className="text-[12px] text-slate-500">
             Nhân sự này đã có toàn quyền (tenant-admin) nên không cần bổ sung
