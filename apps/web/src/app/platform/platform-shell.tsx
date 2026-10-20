@@ -39,14 +39,16 @@ interface PlatformPage {
   readonly group: string;
   readonly icon: LucideIcon;
   readonly disabled?: boolean;
+  /** Menu cha thu gọn được chứa mục này trên thanh bên. */
+  readonly parent?: string;
 }
 
 const PAGES: readonly PlatformPage[] = [
   { id: 'dashboard', label: 'Bảng điều khiển', href: '/platform', group: 'Tổng quan & Quản trị', icon: LayoutDashboard },
   { id: 'tenants', label: 'Khách hàng (Tenants)', href: '/platform/tenants', group: 'Tổng quan & Quản trị', icon: Users },
   { id: 'plans', label: 'Gói dịch vụ & Hạn mức', href: '/platform/plans', group: 'Tổng quan & Quản trị', icon: Layers },
-  { id: 'brand-studio', label: 'Thư viện icon', href: '/platform/brand-studio', group: 'Thương hiệu & Thiết kế', icon: Sparkles },
-  { id: 'brand-standards', label: 'Bảng màu & quy chuẩn', href: '/platform/brand-studio/standards', group: 'Thương hiệu & Thiết kế', icon: Palette },
+  { id: 'brand-studio', label: 'Thư viện icon', href: '/platform/brand-studio', group: 'Thương hiệu & Thiết kế', parent: 'Thương hiệu & Thiết kế', icon: Sparkles },
+  { id: 'brand-standards', label: 'Bảng màu & quy chuẩn', href: '/platform/brand-studio/standards', group: 'Thương hiệu & Thiết kế', parent: 'Thương hiệu & Thiết kế', icon: Palette },
   { id: 'data-import', label: 'Nhập dữ liệu', href: '/platform/data-import', group: 'Dữ liệu & Tích hợp', icon: FileUp },
   { id: 'services', label: 'Dịch vụ hệ thống', href: '#', group: 'Hạ tầng & Hệ thống', icon: ServerCog, disabled: true },
   { id: 'billing', label: 'Hóa đơn & Thanh toán', href: '#', group: 'Hạ tầng & Hệ thống', icon: ReceiptText, disabled: true },
@@ -93,7 +95,9 @@ export function PlatformShell({
       return {
         id: page.id,
         label: page.label,
-        group: page.group,
+        group: page.parent ? undefined : page.group,
+        parent: page.parent,
+        parentIcon: page.parent ? <Sparkles size={16} aria-hidden /> : undefined,
         icon: <Icon size={16} aria-hidden className={page.disabled ? 'opacity-40 text-slate-400' : undefined} />,
         badge: page.disabled ? 'Sắp ra mắt' : undefined,
       };
