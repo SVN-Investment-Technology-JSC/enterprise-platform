@@ -10,6 +10,7 @@ import {
   FileUp,
   LayoutDashboard,
   Layers,
+  Palette,
   ReceiptText,
   ServerCog,
   Sparkles,
@@ -25,6 +26,7 @@ export type PlatformView =
   | 'tenants'
   | 'plans'
   | 'brand-studio'
+  | 'brand-standards'
   | 'data-import'
   | 'services'
   | 'billing'
@@ -43,7 +45,8 @@ const PAGES: readonly PlatformPage[] = [
   { id: 'dashboard', label: 'Bảng điều khiển', href: '/platform', group: 'Tổng quan & Quản trị', icon: LayoutDashboard },
   { id: 'tenants', label: 'Khách hàng (Tenants)', href: '/platform/tenants', group: 'Tổng quan & Quản trị', icon: Users },
   { id: 'plans', label: 'Gói dịch vụ & Hạn mức', href: '/platform/plans', group: 'Tổng quan & Quản trị', icon: Layers },
-  { id: 'brand-studio', label: 'Thương hiệu SVNDTS', href: '/platform/brand-studio', group: 'Thương hiệu & Thiết kế', icon: Sparkles },
+  { id: 'brand-studio', label: 'Thư viện icon', href: '/platform/brand-studio', group: 'Thương hiệu & Thiết kế', icon: Sparkles },
+  { id: 'brand-standards', label: 'Bảng màu & quy chuẩn', href: '/platform/brand-studio/standards', group: 'Thương hiệu & Thiết kế', icon: Palette },
   { id: 'data-import', label: 'Nhập dữ liệu', href: '/platform/data-import', group: 'Dữ liệu & Tích hợp', icon: FileUp },
   { id: 'services', label: 'Dịch vụ hệ thống', href: '#', group: 'Hạ tầng & Hệ thống', icon: ServerCog, disabled: true },
   { id: 'billing', label: 'Hóa đơn & Thanh toán', href: '#', group: 'Hạ tầng & Hệ thống', icon: ReceiptText, disabled: true },
@@ -75,6 +78,8 @@ export function PlatformShell({
   }, []);
 
   const view: PlatformView = useMemo(() => {
+    // Trang trình thiết kế (/platform/brand-studio/editor/...) thuộc về mục Thư viện icon.
+    if (pathname.startsWith('/platform/brand-studio/standards')) return 'brand-standards';
     if (pathname.startsWith('/platform/brand-studio')) return 'brand-studio';
     if (pathname.startsWith('/platform/tenants')) return 'tenants';
     if (pathname.startsWith('/platform/data-import')) return 'data-import';

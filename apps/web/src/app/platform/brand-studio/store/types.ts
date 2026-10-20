@@ -12,7 +12,11 @@ export interface IconLibrary {
   get(id: string): IconDocument | undefined;
   /** Tạo mới hoặc ghi đè theo `doc.id`; tự cập nhật `updatedAt`; trả về bản đã lưu. */
   save(doc: IconDocument): Promise<IconDocument>;
+  /** Ghi nhiều icon trong một lần lưu (đổi trạng thái hàng loạt...); tự cập nhật `updatedAt` từng icon. */
+  saveMany(docs: readonly IconDocument[]): Promise<void>;
   remove(id: string): Promise<void>;
+  /** Xoá nhiều icon trong một lần lưu; icon mẫu được giữ lại. Trả về số icon đã xoá. */
+  removeMany(ids: readonly string[]): Promise<number>;
   /** Nhân bản thành icon nháp mới (tên thêm " (bản sao)"). */
   duplicate(id: string): Promise<IconDocument | null>;
   /** Gộp icon nạp từ tệp: trùng mã thì được đổi mã mới. Trả về số icon đã thêm. */

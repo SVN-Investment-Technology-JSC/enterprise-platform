@@ -75,6 +75,7 @@ function loadDocs(): IconDocument[] {
 
 let snapshot: LocalSnapshot = SERVER_SNAPSHOT;
 let initialized = false;
+let listening = false;
 const listeners = new Set<() => void>();
 
 function emit(next: Partial<LocalSnapshot>) {
@@ -92,10 +93,14 @@ function ensureInitialized() {
     rules: normalizeRules(readJson(STORAGE_KEYS.rules)),
     error: null,
   };
+  if (listening) return;
+  listening = true;
   window.addEventListener('storage', (event) => {
-    if (event.key === STORAGE_KEYS.docs) emit({ docs: loadDocs() });
-    if (event.key === STORAGE_KEYS.palette) emit({ palette: normalizePalette(readJson(STORAGE_KEYS.palette)) });
-    if (event.key === STORAGE_KEYS.rules) emit({ rules: normalizeRules(readJson(STORAGE_KEYS.rules)) });
+    // `key === null`: tab khác xoá sạch localStorage, nạp lại cả ba phần.
+    const all = event.key === null;
+    if (all || event.key === STORAGE_KEYS.docs) emit({ docs: loadDocs() });
+    if (all || event.key === STORAGE_KEYS.palette) emit({ palette: normalizePalette(readJson(STORAGE_KEYS.palette)) });
+    if (all || event.key === STORAGE_KEYS.rules) emit({ rules: normalizeRules(readJson(STORAGE_KEYS.rules)) });
   });
 }
 
