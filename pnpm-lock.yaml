@@ -1020,6 +1020,9 @@ importers:
       '@enterprise-platform/feature-module-shell':
         specifier: workspace:*
         version: link:../../packages/features/module-shell
+      '@enterprise-platform/shared-brand-icon':
+        specifier: workspace:*
+        version: link:../../packages/shared/brand-icon
       '@enterprise-platform/shared-ui':
         specifier: workspace:*
         version: link:../../packages/shared/ui
@@ -1968,6 +1971,8 @@ importers:
       amqplib:
         specifier: ^2.0.1
         version: 2.0.1
+
+  packages/shared/brand-icon: {}
 
   packages/shared/kernel: {}
 
