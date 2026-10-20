@@ -92,6 +92,11 @@ export const TENANT_CORE_MIGRATIONS: readonly TenantModuleMigration[] = [
     version: '0012-authorization-changed-event',
     path: 'tenant/core/0012-authorization-changed-event.sql',
   },
+  {
+    // Dùng hàm trigger của 0012-authorization-changed-event.
+    version: '0013-user-permission-grants',
+    path: 'tenant/core/0013-user-permission-grants.sql',
+  },
 ];
 
 export const TENANT_MODULE_MIGRATIONS: Readonly<

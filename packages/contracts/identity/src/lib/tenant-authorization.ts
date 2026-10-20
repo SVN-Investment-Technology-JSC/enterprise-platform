@@ -529,6 +529,16 @@ export interface TenantRole {
   moduleKeys: string[];
   userIds: string[];
 }
+/** Quyền hạn gán thẳng cho người dùng, ngoài vai trò. */
+export interface TenantUserPermissionGrant {
+  actionKey: string;
+  grantedBy: string | null;
+  grantedAt: string;
+}
+export interface TenantUserPermissionGrants {
+  actionKeys: string[];
+  grants: TenantUserPermissionGrant[];
+}
 export interface TenantAuthorization {
   roles: string[];
   /** Tên hiển thị theo khóa vai trò (vai trò tự tạo có khóa `custom-<uuid>` nên không tự đọc được). */
