@@ -189,7 +189,7 @@ export function PaletteEditor({
         })}
       </ul>
 
-      <form className="mt-3 flex flex-wrap items-center gap-2" onSubmit={submitNew}>
+      <form className="mt-4 flex flex-wrap items-center gap-2 rounded-md border border-dashed border-slate-300 bg-slate-50/70 p-3" onSubmit={submitNew}>
         <input
           aria-label="Chọn màu mới"
           className={SWATCH}
@@ -213,7 +213,10 @@ export function PaletteEditor({
           spellCheck={false}
           value={newHex}
         />
-        <Button className="rounded-md bg-blue-600 text-white hover:bg-blue-700" type="submit">
+        <Button
+          className="rounded-md bg-blue-600 text-white shadow-md shadow-blue-600/25 transition-all hover:-translate-y-px hover:bg-blue-700 hover:shadow-lg hover:shadow-blue-600/30 active:translate-y-0"
+          type="submit"
+        >
           <Plus aria-hidden className="size-4" />
           Thêm màu
         </Button>

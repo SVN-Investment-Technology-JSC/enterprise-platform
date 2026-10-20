@@ -112,6 +112,16 @@ describe('addToken', () => {
     expect(addToken(full, { label: 'Thừa', hex: '#123456' })).toEqual({ ok: false, error: expect.stringContaining('Tối đa') });
   });
 
+  it('từ chối màu trùng mã hex với màu đã có, không phân biệt hoa thường hay dạng rút gọn', () => {
+    const first = palette.tokens[0];
+    const upper = first.hex.toUpperCase();
+    expect(addToken(palette, { label: 'Bản sao', hex: upper })).toEqual({
+      ok: false,
+      error: expect.stringContaining(first.label),
+    });
+    expect(addToken(palette, { label: 'Khác tên', hex: first.hex })).toMatchObject({ ok: false });
+  });
+
   it('kết quả luôn qua được normalizePalette mà không mất màu nào', () => {
     const next = ok(addToken(palette, { label: 'Tím than', hex: '#312e81' }));
     expect(normalizePalette(next).tokens).toEqual(next.tokens);
@@ -119,6 +129,15 @@ describe('addToken', () => {
 });
 
 describe('updateHex', () => {
+  it('từ chối đổi sang mã hex của màu khác nhưng cho giữ nguyên mã của chính nó', () => {
+    const other = palette.tokens[0];
+    expect(updateHex(palette, palette.tokens[1].key, other.hex.toUpperCase())).toEqual({
+      ok: false,
+      error: expect.stringContaining(other.label),
+    });
+    expect(updateHex(palette, other.key, other.hex.toUpperCase())).toMatchObject({ ok: true });
+  });
+
   it('đổi mã hex, giữ khoá và tên', () => {
     const next = ok(updateHex(palette, 'do', '#AA0000'));
     expect(next.tokens[1]).toEqual({ key: 'do', label: 'Đỏ', hex: '#aa0000' });

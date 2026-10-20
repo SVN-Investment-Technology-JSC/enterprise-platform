@@ -50,12 +50,22 @@ export function tokenUsage(docs: readonly IconDocument[]): ReadonlyMap<string, n
   return usage;
 }
 
+/** Màu đã có cùng mã hex (bỏ qua màu `exceptKey`); mã hex phải đã chuẩn hoá. */
+function sameHex(palette: BrandPalette, hex: string, exceptKey?: string): PaletteToken | undefined {
+  return palette.tokens.find((token) => token.key !== exceptKey && token.hex.toLowerCase() === hex);
+}
+
+const duplicateMessage = (hex: string, existing: PaletteToken) =>
+  `Màu ${hex.toUpperCase()} đã có trong bảng ("${existing.label}").`;
+
 const cleanLabel = (label: string) => label.trim().slice(0, LABEL_MAX);
 
 export function addToken(palette: BrandPalette, input: { label: string; hex: string }): PaletteEdit {
   const hex = normalizeHex(input.hex);
   if (!hex) return fail('Mã màu không hợp lệ (ví dụ #2563eb).');
   if (palette.tokens.length >= MAX_TOKENS) return fail(`Tối đa ${MAX_TOKENS} màu.`);
+  const twin = sameHex(palette, hex);
+  if (twin) return fail(duplicateMessage(hex, twin));
   const typed = cleanLabel(input.label);
   const key = uniqueKey(keyFromLabel(typed), new Set(palette.tokens.map((token) => token.key)));
   return done([...palette.tokens, { key, label: typed || hex, hex }]);
@@ -64,6 +74,8 @@ export function addToken(palette: BrandPalette, input: { label: string; hex: str
 export function updateHex(palette: BrandPalette, key: string, value: string): PaletteEdit {
   const hex = normalizeHex(value);
   if (!hex) return fail('Mã màu không hợp lệ (ví dụ #2563eb).');
+  const twin = sameHex(palette, hex, key);
+  if (twin) return fail(duplicateMessage(hex, twin));
   return done(palette.tokens.map((token) => (token.key === key ? { ...token, hex } : token)));
 }
 
