@@ -47,7 +47,7 @@ describe('StandardsPage: hiển thị', () => {
     expect(screen.getByRole('switch', { name: 'Bắt buộc dùng màu trong bảng' }).getAttribute('aria-checked')).toBe('true');
   });
 
-  it('có ghi chú bảng màu chính thức đang chờ chốt', () => {
+  it('không hiện ghi chú về bảng màu tạm', () => {
     render(<StandardsPage />);
     expect(screen.queryByText(/chờ ban lãnh đạo chốt/)).toBeNull();
   });
