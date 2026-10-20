@@ -539,6 +539,19 @@ export interface TenantUserPermissionGrants {
   actionKeys: string[];
   grants: TenantUserPermissionGrant[];
 }
+/** Một dòng nhật ký đổi vai trò hoặc quyền bổ sung của người dùng. */
+export interface TenantAuthorizationAuditEntry {
+  id: string;
+  /** `user.roles.replace` hoặc `user.permissions.replace`. */
+  operation: string;
+  actorId: string;
+  /** Null khi người thao tác đã bị xoá. */
+  actorName: string | null;
+  createdAt: string;
+  /** Trạng thái trước và sau, nguyên trạng jsonb: `{ roleIds }` hoặc `{ actionKeys }`. */
+  before: unknown;
+  after: unknown;
+}
 export interface TenantAuthorization {
   roles: string[];
   /** Tên hiển thị theo khóa vai trò (vai trò tự tạo có khóa `custom-<uuid>` nên không tự đọc được). */

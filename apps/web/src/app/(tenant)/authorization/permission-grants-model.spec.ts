@@ -9,6 +9,7 @@ import {
   overlappingGrants,
   roleActionKeys,
   sameIds,
+  summarizeRoles,
   toggleGrant,
   type GrantableAction,
 } from './permission-grants-model';
@@ -121,5 +122,24 @@ describe('permission grants model', () => {
   it('so sánh danh sách vai trò không kể thứ tự', () => {
     expect(sameIds(['a', 'b'], ['b', 'a'])).toBe(true);
     expect(sameIds(['a'], ['a', 'b'])).toBe(false);
+  });
+});
+
+describe('summarizeRoles', () => {
+  const withModules = (r: ReturnType<typeof role>, moduleKeys: string[]) => ({ ...r, moduleKeys });
+
+  it('gộp module và action không trùng từ các vai trò đang chọn', () => {
+    const summary = summarizeRoles(
+      [withModules(roles[1], ['workspace']), withModules(roles[2], ['workspace', 'shared'])],
+      permissions,
+    );
+    expect(summary.admin).toBe(false);
+    expect(summary.moduleKeys).toEqual(['workspace', 'shared']);
+    expect(summary.actionKeys).toEqual(['workspace.read', 'shared.read']);
+  });
+
+  it('nhận ra tenant-admin và chưa chọn vai trò thì rỗng', () => {
+    expect(summarizeRoles([withModules(roles[3], ['*'])], permissions).admin).toBe(true);
+    expect(summarizeRoles([], permissions)).toEqual({ admin: false, moduleKeys: [], actionKeys: [] });
   });
 });

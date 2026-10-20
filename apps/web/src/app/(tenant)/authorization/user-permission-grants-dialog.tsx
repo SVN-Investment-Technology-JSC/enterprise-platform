@@ -5,9 +5,8 @@ import {
   type TenantRole,
   type TenantPermission,
   type TenantUserPermissionGrant,
-  type TenantUserPermissionGrants,
 } from '@enterprise-platform/contracts-identity';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight, Search } from 'lucide-react';
 import {
   Dialog,
@@ -17,8 +16,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { toast } from '@/components/ui/sonner';
-import { panelButton } from '../side-panel';
-import { authorizationRequest, searchText } from './authorization-client';
+import { useGetUserGrantsQuery, useSetUserGrantsMutation } from '@/store/tenant-api';
+import { searchText } from './authorization-client';
 import {
   actionLock,
   buildRoleSections,
@@ -31,6 +30,11 @@ import {
   type ActionLock,
   type GrantableAction,
 } from './permission-grants-model';
+
+export function errorMessage(cause: unknown, fallback: string) {
+  const message = (cause as { message?: unknown } | null)?.message;
+  return typeof message === 'string' && message ? message : fallback;
+}
 
 export const actionLabelOf = (key: string) =>
   TENANT_PERMISSION_ACTIONS.find((a) => a.key === key)?.label ?? key;
@@ -49,11 +53,12 @@ interface UserPermissionGrantsDialogProps {
   readonly selectedRoles: TenantRole[];
   /** Vai trò đang chọn khác bản đã lưu. */
   readonly rolesDirty: boolean;
-  /** Gọi sau khi nạp xong để editor cập nhật hiển thị (phải ổn định giữa các lần render). */
-  readonly onLoaded: (grants: TenantUserPermissionGrants) => void;
-  /** Gọi sau khi lưu thành công. */
-  readonly onSaved: (grants: TenantUserPermissionGrants) => void;
 }
+
+const BTN =
+  'h-9 cursor-pointer rounded-md px-3.5 text-[14px] font-semibold disabled:cursor-not-allowed disabled:opacity-60';
+const BTN_SECONDARY = `${BTN} border border-[#e5e7eb] bg-white text-slate-700 hover:bg-[#f4f6f9]`;
+const BTN_PRIMARY = `${BTN} bg-[#ffc90a] font-bold text-[#18181b] hover:bg-[#ffd84d]`;
 
 export function UserPermissionGrantsDialog({ open, onOpenChange, ...rest }: UserPermissionGrantsDialogProps) {
   return (
@@ -75,34 +80,17 @@ function GrantsBody({
   permissions,
   selectedRoles,
   rolesDirty,
-  onLoaded,
-  onSaved,
   onClose,
 }: Omit<UserPermissionGrantsDialogProps, 'open' | 'onOpenChange'> & { onClose: () => void }) {
-  const [loaded, setLoaded] = useState<TenantUserPermissionGrants>();
-  const [loadError, setLoadError] = useState('');
-  const [draft, setDraft] = useState<ReadonlySet<string>>(new Set());
-  const [saving, setSaving] = useState(false);
+  // Dữ liệu đã có trong bộ nhớ đệm thì hiện ngay; chỉ gọi API khi chưa có hoặc đã bị làm mới.
+  const { data: loaded, error, refetch } = useGetUserGrantsQuery(userId);
+  const [saveGrants, { isLoading: saving }] = useSetUserGrantsMutation();
+  // Bản nháp chỉ tồn tại sau khi người dùng bấm chọn; trước đó lấy theo dữ liệu đã lưu.
+  const [edited, setEdited] = useState<ReadonlySet<string>>();
+  const draft: ReadonlySet<string> = edited ?? new Set(loaded?.actionKeys ?? []);
+  const loadError = loaded ? '' : error?.message ?? '';
   const [query, setQuery] = useState('');
   const [openRoles, setOpenRoles] = useState<ReadonlySet<string>>(new Set());
-
-  useEffect(() => {
-    let cancelled = false;
-    authorizationRequest<TenantUserPermissionGrants>(`tenant-users/${userId}/permission-grants`)
-      .then((data) => {
-        if (cancelled) return;
-        setLoaded(data);
-        setDraft(new Set(data.actionKeys));
-        onLoaded(data);
-      })
-      .catch((cause: unknown) => {
-        if (cancelled) return;
-        setLoadError(cause instanceof Error ? cause.message : 'Không thể tải quyền bổ sung.');
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [userId, onLoaded]);
 
   const sources = useMemo(() => buildRoleSources(selectedRoles, permissions), [selectedRoles, permissions]);
   const sections = useMemo(() => buildRoleSections(roles, permissions), [roles, permissions]);
@@ -119,20 +107,12 @@ function GrantsBody({
 
   async function save() {
     if (saving || !loaded || !diff.changed) return;
-    setSaving(true);
     try {
-      const result = await authorizationRequest<TenantUserPermissionGrants>(
-        `tenant-users/${userId}/permission-grants`,
-        'PUT',
-        { actionKeys: [...draft] },
-      );
-      onSaved(result);
+      await saveGrants({ id: userId, actionKeys: [...draft] }).unwrap();
       toast.success(`Đã cập nhật quyền bổ sung cho nhân sự "${userName}".`);
       onClose();
     } catch (cause) {
-      toast.error(cause instanceof Error ? cause.message : 'Không thể lưu quyền bổ sung.');
-    } finally {
-      setSaving(false);
+      toast.error(errorMessage(cause, 'Không thể lưu quyền bổ sung.'));
     }
   }
 
@@ -145,7 +125,7 @@ function GrantsBody({
     return (
       <li key={action.key}>
         <label
-          className={`flex items-start gap-2.5 rounded-lg px-2.5 py-1.5 ${
+          className={`flex items-start gap-2.5 rounded-md px-2.5 py-1.5 ${
             disabled ? 'cursor-not-allowed opacity-70' : 'cursor-pointer hover:bg-[#f4f6f9]'
           } ${checked && !lock ? 'bg-orange-50' : ''}`}
         >
@@ -155,7 +135,7 @@ function GrantsBody({
             className="mt-0.5 size-4 shrink-0 accent-[#ea580c]"
             checked={checked}
             disabled={disabled}
-            onChange={() => setDraft((cur) => toggleGrant(cur, action.key))}
+            onChange={() => setEdited(toggleGrant(draft, action.key))}
           />
           <span className="flex min-w-0 flex-1 flex-col">
             <span className="flex flex-wrap items-center gap-1.5">
@@ -198,7 +178,7 @@ function GrantsBody({
           Nhân sự: <b className="text-[#18181b]">{userName}</b>. Quyền bổ sung được cộng thêm vào quyền từ vai trò.
         </DialogDescription>
         <div className="mt-2 flex flex-wrap items-center gap-2.5">
-          <label className="flex h-9 min-w-0 flex-[1_1_240px] items-center gap-2 rounded-lg border border-[#e5e7eb] bg-white px-2.5 text-slate-500 focus-within:border-[#2563eb]">
+          <label className="flex h-9 min-w-0 flex-[1_1_240px] items-center gap-2 rounded-md border border-[#e5e7eb] bg-white px-2.5 text-slate-500 focus-within:border-[#2563eb]">
             <Search className="size-4 shrink-0" aria-hidden />
             <input
               type="search"
@@ -214,7 +194,7 @@ function GrantsBody({
           </span>
         </div>
         {rolesDirty ? (
-          <p className="m-0 mt-1 rounded-lg bg-amber-50 px-2.5 py-1.5 text-[12px] text-amber-900">
+          <p className="m-0 mt-1 rounded-md bg-amber-50 px-2.5 py-1.5 text-[12px] text-amber-900">
             Vai trò đang chọn chưa được lưu. Danh sách &quot;đã có từ vai trò&quot; tính theo vai trò đang chọn, khác với
             bản đã lưu; quyền bổ sung ở đây vẫn lưu độc lập.
           </p>
@@ -223,9 +203,12 @@ function GrantsBody({
 
       <div className="min-h-0 flex-1 overflow-y-auto px-6 py-3 text-[13px]">
         {loadError ? (
-          <p role="alert" className="m-0 rounded-lg border border-red-200 bg-red-50 p-3 text-red-700">
-            {loadError}
-          </p>
+          <div role="alert" className="flex flex-wrap items-center gap-3 rounded-md border border-red-200 bg-red-50 p-3 text-red-700">
+            <span className="min-w-0 flex-1">{loadError}</span>
+            <button type="button" className={BTN_SECONDARY} onClick={() => void refetch()}>
+              Thử lại
+            </button>
+          </div>
         ) : !loaded ? (
           <p className="m-0 p-3 text-slate-500">Đang tải quyền bổ sung…</p>
         ) : (
@@ -289,13 +272,13 @@ function GrantsBody({
       </div>
 
       <div className="flex shrink-0 justify-end gap-3 border-t border-[#e5e7eb] px-6 py-4">
-        <button type="button" className={panelButton.secondary} onClick={onClose} disabled={saving}>
+        <button type="button" className={BTN_SECONDARY} onClick={onClose} disabled={saving}>
           Hủy
         </button>
         <button
           type="button"
           data-testid="save-permission-grants"
-          className={panelButton.primary}
+          className={BTN_PRIMARY}
           disabled={saving || !loaded || !diff.changed}
           onClick={() => void save()}
         >

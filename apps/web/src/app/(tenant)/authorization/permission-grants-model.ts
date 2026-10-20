@@ -180,3 +180,22 @@ export function sameIds(a: readonly string[], b: readonly string[]): boolean {
   const setB = new Set(b);
   return setA.size === setB.size && [...setA].every((x) => setB.has(x));
 }
+
+export interface RoleSummary {
+  /** Có vai trò tenant-admin: toàn quyền, không cần liệt kê. */
+  readonly admin: boolean;
+  readonly moduleKeys: string[];
+  readonly actionKeys: string[];
+}
+
+/** Quyền hạn tổng hợp từ các vai trò đang chọn: module truy cập và action (không trùng, giữ thứ tự gặp). */
+export function summarizeRoles(
+  selectedRoles: readonly (RoleLike & { moduleKeys: readonly string[] })[],
+  permissions: readonly PermissionLike[],
+): RoleSummary {
+  return {
+    admin: selectedRoles.some((r) => r.key === 'tenant-admin'),
+    moduleKeys: [...new Set(selectedRoles.flatMap((r) => r.moduleKeys))],
+    actionKeys: [...new Set(selectedRoles.flatMap((r) => roleHeldKeys(r, permissions)))],
+  };
+}

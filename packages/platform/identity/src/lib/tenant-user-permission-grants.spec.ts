@@ -14,7 +14,8 @@ function fakeDatabase() {
     admins: new Set([ADMIN, OTHER_ADMIN]),
     roleActions: new Map<string, string[]>(),
     grants: new Map<string, Map<string, { by: string; at: string }>>(),
-    audit: [] as { operation: string; subject: string; before: unknown; after: unknown }[],
+    audit: [] as { operation: string; subject: string; before: unknown; after: unknown; actor?: string; at?: string }[],
+    names: new Map<string, string>([[ADMIN, 'Quản trị A']]),
     clock: 0,
   };
   const userGrants = (id: string) => {
@@ -75,9 +76,32 @@ function fakeDatabase() {
       state.revision += 1;
       return { rows: [], rowCount: 1 };
     }
+    if (text.includes('FROM core_schema.authorization_audit a')) {
+      const rows = state.audit
+        .filter((e) => e.subject === params[0] && ['user.roles.replace', 'user.permissions.replace'].includes(e.operation))
+        .sort((x, y) => ((x.at ?? '') < (y.at ?? '') ? 1 : -1))
+        .slice(0, 100)
+        .map((e, i) => ({
+          id: `e${i}`,
+          operation: e.operation,
+          actorId: e.actor,
+          actorName: state.names.get(e.actor as string) ?? null,
+          createdAt: new Date(e.at as string),
+          before: e.before,
+          after: e.after,
+        }));
+      return { rows, rowCount: rows.length };
+    }
     if (text.startsWith('INSERT INTO core_schema.authorization_audit')) {
-      const [, , operation, subject, before, after] = params as string[];
-      state.audit.push({ operation, subject, before: JSON.parse(before), after: JSON.parse(after) });
+      const [, actor, operation, subject, before, after] = params as string[];
+      state.audit.push({
+        operation,
+        subject,
+        before: JSON.parse(before),
+        after: JSON.parse(after),
+        actor,
+        at: `2026-02-01T00:00:${String(++state.clock).padStart(2, '0')}.000Z`,
+      });
       return { rows: [], rowCount: 1 };
     }
     throw new Error(`Unexpected SQL: ${text}`);
@@ -158,7 +182,7 @@ describe('Quyền bổ sung gán thẳng cho người dùng', () => {
     const { state, service } = fakeDatabase();
     await service.setUserPermissionGrants('t', ADMIN, USER, ['core.users.read']);
     await service.setUserPermissionGrants('t', ADMIN, USER, ['core.users.update']);
-    expect(state.audit).toEqual([
+    expect(state.audit.map(({ operation, subject, before, after }) => ({ operation, subject, before, after }))).toEqual([
       { operation: 'user.permissions.replace', subject: USER, before: { actionKeys: [] }, after: { actionKeys: ['core.users.read'] } },
       { operation: 'user.permissions.replace', subject: USER, before: { actionKeys: ['core.users.read'] }, after: { actionKeys: ['core.users.update'] } },
     ]);
@@ -174,5 +198,46 @@ describe('Quyền bổ sung gán thẳng cho người dùng', () => {
       service.mutate('t', USER, async () => 'ok', 'core.users.delete'),
     ).rejects.toMatchObject({ status: 403 });
     await expect(service.mutate('t', USER, async () => 'ok')).rejects.toMatchObject({ status: 403 });
+  });
+
+  it('lịch sử phân quyền: mới nhất trước, lọc theo operation, tên người thao tác null khi đã xoá', async () => {
+    const { state, service } = fakeDatabase();
+    await service.setUserPermissionGrants('t', ADMIN, USER, ['core.users.read']);
+    state.audit.push({ operation: 'user.roles.replace', subject: USER, before: { roleIds: [] }, after: { roleIds: ['r1'] }, actor: ADMIN, at: '2026-02-02T00:00:00.000Z' });
+    state.audit.push({ operation: 'role.save', subject: USER, before: {}, after: {}, actor: ADMIN, at: '2026-02-03T00:00:00.000Z' });
+    state.audit.push({ operation: 'user.permissions.replace', subject: USER, before: { actionKeys: ['core.users.read'] }, after: { actionKeys: [] }, actor: OTHER_ADMIN, at: '2026-02-04T00:00:00.000Z' });
+    state.audit.push({ operation: 'user.roles.replace', subject: OTHER_ADMIN, before: {}, after: {}, actor: ADMIN, at: '2026-02-05T00:00:00.000Z' });
+    const entries = await service.userAuthorizationHistory('t', USER);
+    expect(entries.map((e) => e.operation)).toEqual([
+      'user.permissions.replace',
+      'user.roles.replace',
+      'user.permissions.replace',
+    ]);
+    expect(entries[0]).toMatchObject({
+      actorId: OTHER_ADMIN,
+      actorName: null,
+      before: { actionKeys: ['core.users.read'] },
+      after: { actionKeys: [] },
+      createdAt: '2026-02-04T00:00:00.000Z',
+    });
+    expect(entries[2]).toMatchObject({ actorId: ADMIN, actorName: 'Quản trị A' });
+  });
+
+  it('lịch sử phân quyền: tối đa 100 dòng, 404 user lạ, 400 id sai', async () => {
+    const { state, service } = fakeDatabase();
+    for (let i = 0; i < 120; i += 1)
+      state.audit.push({
+        operation: 'user.roles.replace',
+        subject: USER,
+        before: { roleIds: [] },
+        after: { roleIds: [] },
+        actor: ADMIN,
+        at: new Date(Date.UTC(2026, 3, 1, 0, 0, i)).toISOString(),
+      });
+    const entries = await service.userAuthorizationHistory('t', USER);
+    expect(entries).toHaveLength(100);
+    expect(entries[0].createdAt).toBe(new Date(Date.UTC(2026, 3, 1, 0, 0, 119)).toISOString());
+    await expect(service.userAuthorizationHistory('t', MISSING)).rejects.toMatchObject({ status: 404 });
+    await expect(service.userAuthorizationHistory('t', 'khong-phai-uuid')).rejects.toMatchObject({ status: 400 });
   });
 });

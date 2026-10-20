@@ -384,6 +384,27 @@ integration('Tenant RBAC PostgreSQL integration', () => {
     );
     expect(audit.rowCount).toBeGreaterThanOrEqual(3);
   });
+  it('đọc lịch sử phân quyền của người dùng: mới nhất trước, có tên người thao tác', async () => {
+    const actor = (await service.resolve('a', adminId)).roles.includes('tenant-admin') ? adminId : secondAdmin;
+    await service.assignRoles('a', actor, userId, []);
+    await service.setUserPermissionGrants('a', actor, userId, ['core.users.read']);
+    const entries = await service.userAuthorizationHistory('a', userId);
+    expect(entries.length).toBeGreaterThanOrEqual(2);
+    expect(entries.length).toBeLessThanOrEqual(100);
+    expect(entries[0]).toMatchObject({
+      operation: 'user.permissions.replace',
+      actorId: actor,
+      after: { actionKeys: ['core.users.read'] },
+    });
+    expect(typeof entries[0].actorName).toBe('string');
+    expect(typeof entries[0].createdAt).toBe('string');
+    const times = entries.map((e) => Date.parse(e.createdAt));
+    expect(times).toEqual([...times].sort((x, y) => y - x));
+    expect(entries.every((e) => ['user.roles.replace', 'user.permissions.replace'].includes(e.operation))).toBe(true);
+    expect(JSON.stringify(entries)).not.toContain('password');
+    await expect(service.userAuthorizationHistory('a', randomUUID())).rejects.toMatchObject({ status: 404 });
+    await service.setUserPermissionGrants('a', actor, userId, []);
+  });
   it('records before/after authorization changes without secrets', async () => {
     const audit = await required(pools.get('a')).query(
       'SELECT operation,before_data,after_data FROM core_schema.authorization_audit',

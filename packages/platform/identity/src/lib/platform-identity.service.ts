@@ -671,21 +671,38 @@ export class PlatformIdentityService implements OnModuleDestroy {
     };
   }
 
+  /** Câu SELECT dùng chung cho danh sách và chi tiết người dùng; hình dạng một dòng là hợp đồng với giao diện. */
+  private static readonly CORE_USER_SELECT = `SELECT id, username, full_name AS "fullName", email, system_role AS "systemRole",
+                ARRAY(SELECT role_id::text FROM core_schema.user_roles WHERE user_id=core_schema.users.id) AS "roleIds",
+                coalesce((SELECT jsonb_agg(jsonb_build_object('id',r.id,'name',r.name)) FROM core_schema.user_roles ur JOIN core_schema.roles r ON r.id=ur.role_id WHERE ur.user_id=core_schema.users.id),'[]'::jsonb) AS roles,
+                ARRAY(SELECT action_key FROM core_schema.user_permission_grants WHERE user_id=core_schema.users.id ORDER BY action_key) AS "directActionKeys",
+                status, is_active AS "isActive", created_at AS "createdAt", updated_at AS "updatedAt"
+           FROM core_schema.users`;
+
   async coreUsers(tenantId: string): Promise<unknown[]> {
     return this.withTenantCoreDatabase(
       tenantId,
       async (pool) =>
         (
           await pool.query(
-            `SELECT id, username, full_name AS "fullName", email, system_role AS "systemRole",
-                ARRAY(SELECT role_id::text FROM core_schema.user_roles WHERE user_id=core_schema.users.id) AS "roleIds",
-                coalesce((SELECT jsonb_agg(jsonb_build_object('id',r.id,'name',r.name)) FROM core_schema.user_roles ur JOIN core_schema.roles r ON r.id=ur.role_id WHERE ur.user_id=core_schema.users.id),'[]'::jsonb) AS roles,
-                ARRAY(SELECT action_key FROM core_schema.user_permission_grants WHERE user_id=core_schema.users.id ORDER BY action_key) AS "directActionKeys",
-                status, is_active AS "isActive", created_at AS "createdAt", updated_at AS "updatedAt"
-           FROM core_schema.users ORDER BY created_at DESC`,
+            `${PlatformIdentityService.CORE_USER_SELECT} ORDER BY created_at DESC`,
           )
         ).rows,
     );
+  }
+
+  async coreUser(tenantId: string, userId: string): Promise<unknown> {
+    uuid(userId);
+    return this.withTenantCoreDatabase(tenantId, async (pool) => {
+      const row = (
+        await pool.query(
+          `${PlatformIdentityService.CORE_USER_SELECT} WHERE id=$1`,
+          [userId],
+        )
+      ).rows[0];
+      if (!row) throw new NotFoundException('Không tìm thấy người dùng.');
+      return row;
+    });
   }
 
   async coreOrganizationSnapshot(tenantId: string): Promise<unknown> {

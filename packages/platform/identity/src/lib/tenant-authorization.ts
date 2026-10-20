@@ -12,6 +12,7 @@ import {
   tenantModulePermissions,
   tenantModulesForActions,
   type TenantAuthorization,
+  type TenantAuthorizationAuditEntry,
   type TenantPermission,
   type TenantRole,
   type TenantUserPermissionGrants,
@@ -280,6 +281,49 @@ export class TenantAuthorizationService {
       )
         throw new NotFoundException();
       return this.readGrants(pool, userId);
+    });
+  }
+
+  /** Lịch sử đổi vai trò và quyền bổ sung của một người dùng: tối đa 100 dòng, mới nhất trước. */
+  async userAuthorizationHistory(
+    tenantId: string,
+    userId: string,
+  ): Promise<TenantAuthorizationAuditEntry[]> {
+    uuid(userId);
+    return this.database(tenantId, async (pool) => {
+      if (
+        !(
+          await pool.query('SELECT 1 FROM core_schema.users WHERE id=$1', [
+            userId,
+          ])
+        ).rowCount
+      )
+        throw new NotFoundException('Không tìm thấy người dùng.');
+      const rows = (
+        await pool.query<{
+          id: string;
+          operation: string;
+          actorId: string;
+          actorName: string | null;
+          createdAt: Date | string;
+          before: unknown;
+          after: unknown;
+        }>(
+          `SELECT a.id, a.operation, a.actor_id::text AS "actorId", u.full_name AS "actorName",
+                  a.created_at AS "createdAt", a.before_data AS before, a.after_data AS after
+           FROM core_schema.authorization_audit a
+           LEFT JOIN core_schema.users u ON u.id=a.actor_id
+           WHERE a.subject_id=$1 AND a.operation IN ('user.roles.replace','user.permissions.replace')
+           ORDER BY a.created_at DESC, a.id DESC
+           LIMIT 100`,
+          [userId],
+        )
+      ).rows;
+      return rows.map((r) => ({
+        ...r,
+        createdAt:
+          r.createdAt instanceof Date ? r.createdAt.toISOString() : r.createdAt,
+      }));
     });
   }
 

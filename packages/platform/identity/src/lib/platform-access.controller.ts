@@ -283,6 +283,12 @@ export class PlatformAccessController {
     return { users: await this.identity.coreUsers(principal.tenantId) };
   }
 
+  @Get('v1/tenant-users/:id')
+  async coreUser(@Req() request: Request, @Param('id') id: string) {
+    const principal = await this.tenantAction(request, 'core.users.read');
+    return { user: await this.identity.coreUser(principal.tenantId, id) };
+  }
+
   @Post('v1/tenant-users')
   async createCoreUser(
     @Req() request: Request,
@@ -562,6 +568,12 @@ export class PlatformAccessController {
   async userPermissionGrants(@Req() request: Request, @Param('id') id: string) {
     const p = await this.tenantManager(request);
     return this.identity.authorization.userPermissionGrants(p.tenantId, id);
+  }
+
+  @Get('v1/tenant-users/:id/authorization-history')
+  async userAuthorizationHistory(@Req() request: Request, @Param('id') id: string) {
+    const p = await this.tenantManager(request);
+    return { entries: await this.identity.authorization.userAuthorizationHistory(p.tenantId, id) };
   }
 
   @Put('v1/tenant-users/:id/permission-grants')

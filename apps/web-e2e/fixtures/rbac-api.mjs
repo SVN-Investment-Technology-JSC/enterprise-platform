@@ -33,6 +33,21 @@ const users = [
 ];
 // Quyền bổ sung theo user: memberId -> [{ actionKey, grantedBy, grantedAt }].
 const grantsByUser = new Map();
+// Lịch sử thay đổi quyền theo user, mới nhất ở cuối (API trả đảo ngược).
+const historyByUser = new Map();
+function record(userId, operation, before, after) {
+  const list = historyByUser.get(userId) ?? [];
+  list.push({
+    id: 'h' + (list.length + 1),
+    operation,
+    actorId: 'admin',
+    actorName: 'Demo',
+    createdAt: new Date().toISOString(),
+    before,
+    after,
+  });
+  historyByUser.set(userId, list);
+}
 const grantableActions = new Set([
   'core.users.read',
   'core.users.create',
@@ -89,17 +104,32 @@ createServer(async (req, res) => {
     });
   if (url.pathname === '/api/platform/v1/tenant-users' && req.method === 'GET')
     return send({ users });
+  const detail = url.pathname.match(/\/tenant-users\/([^/]+)$/);
+  if (detail && req.method === 'GET') {
+    const user = users.find((u) => u.id === detail[1]);
+    return user
+      ? send({ user })
+      : send({ message: 'Không tìm thấy người dùng.' }, 404);
+  }
   if (viewer) return send({ message: 'Không có quyền.' }, 403);
   if (req.method !== 'GET' && req.headers['x-csrf-token'] !== 'test-csrf')
     return send({ message: 'CSRF_INVALID' }, 403);
   let raw = '';
   for await (const chunk of req) raw += chunk;
   const body = raw ? JSON.parse(raw) : {};
+  const historyRoute = url.pathname.match(
+    /\/tenant-users\/([^/]+)\/authorization-history$/,
+  );
+  if (historyRoute)
+    return send({
+      entries: [...(historyByUser.get(historyRoute[1]) ?? [])].reverse(),
+    });
   const assignment = url.pathname.match(/\/tenant-users\/([^/]+)\/roles$/);
   if (assignment) {
     const user = users.find((u) => u.id === assignment[1]);
     if (!user) return send({}, 404);
     if (req.method === 'PUT') {
+      record(user.id, 'user.roles.replace', { roleIds: user.roleIds }, { roleIds: body.roleIds });
       user.roleIds = body.roleIds;
       sync();
     }
@@ -129,6 +159,12 @@ createServer(async (req, res) => {
               grantedAt: new Date().toISOString(),
             },
         ),
+      );
+      record(
+        user.id,
+        'user.permissions.replace',
+        { actionKeys: previous.map((g) => g.actionKey) },
+        { actionKeys: [...new Set(keys)] },
       );
       user.directActionKeys = [...new Set(keys)];
     }

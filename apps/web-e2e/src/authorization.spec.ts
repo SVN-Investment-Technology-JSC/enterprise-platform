@@ -99,22 +99,36 @@ test('grants and removes extra permission actions outside the role', async ({
   page,
 }) => {
   await page.goto('/users');
-  await page.getByRole('button', { name: 'Vai trò', exact: true }).click();
+  // Bấm vào người dùng trong danh sách để sang trang chi tiết.
+  await page.getByRole('link', { name: 'Nguyễn Văn Minh' }).click();
+  await expect(page).toHaveURL(/\/users\/[^/]+/);
+  await page.getByRole('tab', { name: 'Vai trò và quyền' }).click();
+  await expect(page).toHaveURL(/tab=access/);
   await page.getByTestId('open-permission-grants').click();
   const grants = page.getByTestId('permission-grants-dialog');
   await expect(grants).toBeVisible();
   await grants.getByTestId('grant-action-core.users.read').check();
   await grants.getByTestId('save-permission-grants').click();
   await expect(grants).toBeHidden();
-  // Chip nằm trong khối "Bổ sung ngoài vai trò" của popup vai trò.
   const chip = page.getByTestId('granted-chip-core.users.read');
-  await expect(page.getByText('Bổ sung ngoài vai trò')).toBeVisible();
+  await expect(page.getByTestId('granted-block')).toBeVisible();
   await expect(chip).toBeVisible();
-  await expect(page.locator('[data-testid^="user-extra-grants-"]').first()).toContainText('+1 quyền bổ sung');
+  // Lịch sử ghi lại việc cấp quyền.
+  await page.getByRole('tab', { name: 'Lịch sử quyền' }).click();
+  await expect(page.getByTestId('history-item').first()).toContainText(
+    'Xem người dùng',
+  );
+  // Quay lại danh sách: huy hiệu quyền bổ sung hiện ở dòng người dùng.
+  await page.getByRole('link', { name: 'Về danh sách người dùng' }).click();
+  await expect(
+    page.locator('[data-testid^="user-extra-grants-"]').first(),
+  ).toContainText('+1 quyền bổ sung');
+  // Gỡ quyền ở trang chi tiết.
+  await page.getByRole('link', { name: 'Nguyễn Văn Minh' }).click();
+  await page.getByRole('tab', { name: 'Vai trò và quyền' }).click();
   await page.getByTestId('remove-grant-core.users.read').click();
   await page.getByRole('button', { name: 'Gỡ', exact: true }).last().click();
   await expect(chip).toHaveCount(0);
-  await expect(page.locator('[data-testid^="user-extra-grants-"]')).toHaveCount(0);
 });
 
 test('read-only user cannot see management controls or access authorization page', async ({
