@@ -19,7 +19,13 @@ import {
   UserX,
 } from 'lucide-react';
 import { hasTenantAction } from '@enterprise-platform/contracts-identity';
-import { Popconfirm } from '@enterprise-platform/shared-ui';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { toast } from '@/components/ui/sonner';
 import { useAppSelector } from '@/store/organization-layout-store';
 import {
@@ -163,6 +169,7 @@ function DetailContent({
   const searchParams = useSearchParams();
   const [updateUser, { isLoading: updating }] = useUpdateUserMutation();
   const [deleteUser, { isLoading: deleting }] = useDeleteUserMutation();
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   const tabs = availableTabs({ isAdmin });
   const [tab, setTab] = useState<DetailTab>(() =>
@@ -221,6 +228,7 @@ function DetailContent({
       toast.success(`Đã xóa người dùng "${user.fullName}".`);
       onDeleted();
     } catch (cause) {
+      setConfirmingDelete(false);
       toast.error(errorMessage(cause, 'Không thể xóa người dùng.'));
     }
   }
@@ -315,29 +323,59 @@ function DetailContent({
               </button>
             ) : null}
             {canDelete ? (
-              <Popconfirm
-                title="Xóa người dùng?"
-                description={`Xóa tài khoản ${user.fullName} và thu hồi phiên đăng nhập. Không hoàn tác được.`}
-                okText="Xóa"
-                cancelText="Hủy"
-                okType="danger"
-                loading={deleting}
-                onConfirm={() => remove()}
+              <button
+                type="button"
+                aria-label={`Xóa người dùng ${user.fullName}`}
+                className={BTN_DANGER}
+                disabled={deleting}
+                onClick={() => setConfirmingDelete(true)}
               >
-                <button
-                  type="button"
-                  aria-label={`Xóa người dùng ${user.fullName}`}
-                  className={BTN_DANGER}
-                  disabled={deleting}
-                >
-                  <Trash2 className="size-4" aria-hidden />
-                  Xóa người dùng
-                </button>
-              </Popconfirm>
+                <Trash2 className="size-4" aria-hidden />
+                Xóa người dùng
+              </button>
             ) : null}
           </div>
         ) : null}
       </UserCard>
+
+      <Dialog
+        open={confirmingDelete}
+        onOpenChange={(next) => {
+          if (!deleting) setConfirmingDelete(next);
+        }}
+      >
+        <DialogContent
+          data-testid="delete-user-dialog"
+          className="max-w-md rounded-[10px] p-6"
+        >
+          <DialogHeader>
+            <DialogTitle>Xóa người dùng?</DialogTitle>
+            <DialogDescription>
+              Xóa tài khoản <b className="text-[#18181b]">{user.fullName}</b> và
+              thu hồi phiên đăng nhập. Không hoàn tác được.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="mt-2 flex flex-wrap justify-end gap-2">
+            <button
+              type="button"
+              className={BTN_SECONDARY}
+              disabled={deleting}
+              onClick={() => setConfirmingDelete(false)}
+            >
+              Hủy
+            </button>
+            <button
+              type="button"
+              data-testid="confirm-delete-user"
+              className={`${BTN} bg-red-600 text-white hover:bg-red-700`}
+              disabled={deleting}
+              onClick={() => void remove()}
+            >
+              {deleting ? 'Đang xóa…' : 'Xóa người dùng'}
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <div className="flex min-w-0 flex-col gap-4">
         <div
