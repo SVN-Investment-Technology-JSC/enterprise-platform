@@ -8,6 +8,7 @@ import {
   Crosshair,
   Download,
   Grid3x3,
+  Link2,
   LoaderCircle,
   Magnet,
   Palette,
@@ -22,6 +23,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { asRoute, LIBRARY_PATH } from '../library/routes';
+import type { ServerIconInfo } from '../store';
 import { IconButton, VerticalRule } from './editor-controls';
 import type { DisplayMode } from './tool';
 
@@ -32,6 +34,10 @@ export interface EditorTopbarProps {
   /** Icon chưa từng được lưu vào thư viện. */
   readonly isNew: boolean;
   readonly saving: boolean;
+  /** Phiên bản trên máy chủ; null khi icon lưu cục bộ hoặc chưa có trên máy chủ. */
+  readonly serverInfo?: ServerIconInfo | null;
+  /** Đang gửi yêu cầu phát hành. */
+  readonly publishing?: boolean;
   readonly canUndo: boolean;
   readonly canRedo: boolean;
   readonly zoomPercent: number;
@@ -51,6 +57,10 @@ export interface EditorTopbarProps {
   readonly onDisplayModeChange: (mode: DisplayMode) => void;
   readonly onExport: () => void;
   readonly onSave: () => void;
+  /** Phát hành phiên bản đã lưu mới nhất (chỉ hiện khi icon có trên máy chủ). */
+  readonly onPublish?: () => void;
+  /** Chép đường dẫn SVG công khai (chỉ hiện khi icon đã phát hành). */
+  readonly onCopyLink?: () => void;
 }
 
 const NAME_MAX = 80;
@@ -86,15 +96,27 @@ function NameField({ name, onCommit }: { name: string; onCommit: (name: string) 
   );
 }
 
-function StatusChips({ doc, unsaved }: { doc: IconDocument; unsaved: boolean }) {
-  const published = doc.status === 'published';
+const CHIP = 'rounded px-1.5 py-0.5 text-[11px] font-medium';
+
+/**
+ * Trạng thái của icon. Icon có trên máy chủ thì hiện phiên bản đã lưu và phiên bản đang phát hành (lấy từ máy chủ,
+ * không lấy từ tài liệu đang sửa); còn lại hiện nháp hoặc đã phát hành theo tài liệu.
+ */
+function StatusChips({ doc, unsaved, info }: { doc: IconDocument; unsaved: boolean; info: ServerIconInfo | null }) {
+  const published = info ? info.publishedVersion !== null : doc.status === 'published';
+  let label = published ? 'Đã phát hành' : 'Nháp';
+  if (info && info.publishedVersion !== null) label = `Đã phát hành v${info.publishedVersion}`;
   return (
-    <div className="flex items-center gap-1.5">
-      <span
-        className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${published ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}
-      >
-        {published ? 'Đã phát hành' : 'Nháp'}
+    <div className="flex flex-wrap items-center gap-1.5">
+      {info ? (
+        <span className={`${CHIP} bg-slate-100 text-slate-600 tabular-nums`} title="Phiên bản đã lưu trên máy chủ">
+          v{info.version}
+        </span>
+      ) : null}
+      <span className={`${CHIP} ${published ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>
+        {label}
       </span>
+      {info?.hasUnpublishedChanges ? <span className={`${CHIP} bg-amber-50 text-amber-700`}>Có thay đổi chưa phát hành</span> : null}
       {unsaved ? (
         <span className="flex items-center gap-1 text-[11px] font-medium text-amber-700">
           <span aria-hidden="true" className="size-1.5 rounded-full bg-amber-500" />
@@ -139,12 +161,15 @@ function BackButton({ dirty }: { dirty: boolean }) {
 export function EditorTopbar(props: EditorTopbarProps) {
   const { doc, dirty, isNew, saving } = props;
   const unsaved = dirty || isNew;
+  const info = props.serverInfo ?? null;
+  // Chỉ phát hành được bản đã lưu: còn thay đổi chưa lưu thì phải lưu trước.
+  const canPublish = info !== null && !unsaved && (info.publishedVersion === null || info.hasUnpublishedChanges) && props.onPublish !== undefined;
 
   return (
     <div className="flex min-h-12 flex-wrap items-center gap-x-1 gap-y-1 border-b border-slate-200 bg-white px-2 py-1">
       <BackButton dirty={dirty} />
       <NameField name={doc.name} onCommit={props.onRename} />
-      <StatusChips doc={doc} unsaved={unsaved} />
+      <StatusChips doc={doc} info={info} unsaved={unsaved} />
 
       <div className="ml-auto flex flex-wrap items-center gap-0.5">
         <IconButton disabled={!props.canUndo} label="Hoàn tác" onClick={props.onUndo} shortcut="Ctrl+Z">
@@ -196,6 +221,23 @@ export function EditorTopbar(props: EditorTopbarProps) {
         </IconButton>
         <VerticalRule />
 
+        {info?.publicSvgUrl && props.onCopyLink ? (
+          <IconButton label="Chép đường dẫn SVG công khai" onClick={props.onCopyLink}>
+            <Link2 className="size-4" />
+          </IconButton>
+        ) : null}
+        {canPublish ? (
+          <button
+            className="inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-sm font-medium text-emerald-700 transition-colors outline-none hover:bg-emerald-50 focus-visible:ring-2 focus-visible:ring-blue-500/60 disabled:pointer-events-none disabled:opacity-50"
+            disabled={props.publishing}
+            onClick={props.onPublish}
+            title="Phát hành phiên bản đã lưu mới nhất"
+            type="button"
+          >
+            {props.publishing ? <LoaderCircle className="size-4 animate-spin" /> : null}
+            Phát hành
+          </button>
+        ) : null}
         <button
           className="inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-sm font-medium text-slate-700 transition-colors outline-none hover:bg-slate-100 focus-visible:ring-2 focus-visible:ring-blue-500/60"
           onClick={props.onExport}

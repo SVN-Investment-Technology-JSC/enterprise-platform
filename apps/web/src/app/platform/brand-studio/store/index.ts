@@ -1,112 +1,121 @@
 'use client';
 
 import {
+  DEFAULT_PALETTE,
+  DEFAULT_RULES,
   createDocument,
-  createPresetDocuments,
   normalizePalette,
   normalizeRules,
   type IconDocument,
 } from '@enterprise-platform/shared-brand-icon';
 import { useMemo, useSyncExternalStore } from 'react';
-import { freshId, isPresetId, localStore } from './local-store';
+import { findLocalOnly } from './doc-utils';
+import { localLibraryOps } from './local-library';
+import { freshId, localStore, type LocalSnapshot } from './local-store';
+import {
+  duplicateOnServer,
+  importToServer,
+  publishOnServer,
+  removeFromServer,
+  removeManyFromServer,
+  resetPresetOnServer,
+  saveManyToServer,
+  saveToServer,
+  serverInfoOf,
+  syncLocalToServer,
+} from './remote-library';
+import { remoteStore, type RemoteSnapshot } from './remote-store';
 import type { BrandSettings, IconLibrary } from './types';
 
 export { isPresetId } from './local-store';
-export type { BrandSettings, IconLibrary } from './types';
+export type { BrandSettings, IconLibrary, ServerIconInfo, StoreMode, SyncResult } from './types';
 
-/** Danh sách mới nhất trong kho. Các thao tác đọc ở đây thay vì danh sách lúc render để gọi liên tiếp không ghi đè nhau. */
-const latestDocs = (): readonly IconDocument[] => localStore.getSnapshot().docs;
-
-/** Thư viện icon dùng chung giữa các trang (kho singleton, đồng bộ giữa các tab). */
-export function useIconLibrary(): IconLibrary {
-  const snap = useSyncExternalStore(localStore.subscribe, localStore.getSnapshot, localStore.getServerSnapshot);
-
-  return useMemo<IconLibrary>(() => {
+function buildLibrary(local: LocalSnapshot, remote: RemoteSnapshot): IconLibrary {
+  if (remote.mode === 'server') {
     return {
-      ready: snap.ready,
-      docs: snap.docs,
-      error: snap.error,
-      get: (id) => snap.docs.find((doc) => doc.id === id),
-      save: async (doc) => {
-        const docs = latestDocs();
-        const saved: IconDocument = { ...doc, updatedAt: new Date().toISOString() };
-        const exists = docs.some((item) => item.id === saved.id);
-        localStore.setDocs(exists ? docs.map((item) => (item.id === saved.id ? saved : item)) : [...docs, saved]);
-        return saved;
-      },
-      saveMany: async (incoming) => {
-        if (incoming.length === 0) return;
-        const docs = latestDocs();
-        const now = new Date().toISOString();
-        const changes = new Map(incoming.map((doc) => [doc.id, { ...doc, updatedAt: now }]));
-        const known = new Set(docs.map((doc) => doc.id));
-        const added = [...changes.values()].filter((doc) => !known.has(doc.id));
-        localStore.setDocs([...docs.map((doc) => changes.get(doc.id) ?? doc), ...added]);
-      },
-      remove: async (id) => {
-        if (isPresetId(id)) return;
-        localStore.setDocs(latestDocs().filter((doc) => doc.id !== id));
-      },
-      removeMany: async (ids) => {
-        const doomed = new Set(ids.filter((id) => !isPresetId(id)));
-        const docs = latestDocs();
-        const kept = docs.filter((doc) => !doomed.has(doc.id));
-        if (kept.length === docs.length) return 0;
-        localStore.setDocs(kept);
-        return docs.length - kept.length;
-      },
-      duplicate: async (id) => {
-        const docs = latestDocs();
-        const source = docs.find((doc) => doc.id === id);
-        if (!source) return null;
-        const now = new Date().toISOString();
-        const copy: IconDocument = {
-          ...source,
-          id: freshId(),
-          name: `${source.name} (bản sao)`.slice(0, 80),
-          category: source.category === 'brand' || source.category === 'module' ? 'custom' : source.category,
-          status: 'draft',
-          createdAt: now,
-          updatedAt: now,
-        };
-        localStore.setDocs([...docs, copy]);
-        return copy;
-      },
-      importDocs: async (incoming) => {
-        const docs = latestDocs();
-        const taken = new Set(docs.map((doc) => doc.id));
-        const added: IconDocument[] = [];
-        for (const doc of incoming) {
-          const next = taken.has(doc.id) ? { ...doc, id: freshId() } : doc;
-          taken.add(next.id);
-          added.push(next);
-        }
-        if (added.length > 0) localStore.setDocs([...docs, ...added]);
-        return added.length;
-      },
-      resetPreset: async (id) => {
-        const preset = createPresetDocuments().find((item) => item.id === id);
-        if (!preset) return;
-        localStore.setDocs(latestDocs().map((doc) => (doc.id === id ? preset : doc)));
-      },
+      ready: remote.ready,
+      docs: remote.docs,
+      error: remote.error,
+      mode: 'server',
+      modeReason: null,
+      localOnlyCount: findLocalOnly(local.docs, remote.summaries).length,
+      loading: remote.loading,
+      get: (id) => remote.docsById.get(id),
+      serverInfo: (id) => serverInfoOf(remote.summaries, id),
+      save: saveToServer,
+      saveMany: saveManyToServer,
+      remove: removeFromServer,
+      removeMany: removeManyFromServer,
+      duplicate: duplicateOnServer,
+      importDocs: importToServer,
+      resetPreset: resetPresetOnServer,
+      publish: publishOnServer,
+      syncLocalToServer,
+      reloadFromServer: (id) => (id === undefined ? remoteStore.reload() : remoteStore.reloadIcon(id)),
     };
-  }, [snap]);
+  }
+
+  // Đang kiểm tra kết nối: chưa biết nên hiện bản nào, giữ khung chờ thay vì hiện bản cục bộ rồi đổi sang bản máy chủ.
+  const checking = remote.mode === 'checking';
+  return {
+    ready: !checking && local.ready,
+    docs: checking ? [] : local.docs,
+    error: checking ? null : local.error,
+    mode: remote.mode,
+    modeReason: remote.localReason,
+    localOnlyCount: 0,
+    loading: remote.loading,
+    get: (id) => (checking ? undefined : local.docs.find((doc) => doc.id === id)),
+    serverInfo: () => null,
+    ...localLibraryOps,
+    syncLocalToServer: async () => ({ pushed: 0, failed: 0 }),
+    reloadFromServer: () => remoteStore.reload(),
+  };
+}
+
+function buildSettings(local: LocalSnapshot, remote: RemoteSnapshot): BrandSettings {
+  if (remote.mode === 'local') {
+    return {
+      ready: local.ready,
+      palette: local.palette,
+      rules: local.rules,
+      mode: 'local',
+      saving: false,
+      error: null,
+      setPalette: (palette) => localStore.setPalette(normalizePalette(palette)),
+      setRules: (rules) => localStore.setRules(normalizeRules(rules)),
+      reset: () => localStore.resetSettings(),
+    };
+  }
+  const { standards } = remote;
+  return {
+    ready: standards !== null,
+    palette: standards?.palette ?? DEFAULT_PALETTE,
+    rules: standards?.rules ?? DEFAULT_RULES,
+    mode: remote.mode,
+    saving: remote.standardsSaving,
+    error: remote.standardsError,
+    setPalette: (palette) => remoteStore.setStandards({ palette: normalizePalette(palette) }),
+    setRules: (rules) => remoteStore.setStandards({ rules: normalizeRules(rules) }),
+    reset: () => remoteStore.setStandards({ palette: DEFAULT_PALETTE, rules: DEFAULT_RULES }, true),
+  };
+}
+
+/**
+ * Thư viện icon dùng chung giữa các trang (kho singleton). Máy chủ là nguồn sự thật khi gọi được API; chưa gọi được
+ * (chưa có API, mất mạng, không có quyền) thì lưu tạm trong trình duyệt (localStorage, đồng bộ giữa các tab).
+ */
+export function useIconLibrary(): IconLibrary {
+  const local = useSyncExternalStore(localStore.subscribe, localStore.getSnapshot, localStore.getServerSnapshot);
+  const remote = useSyncExternalStore(remoteStore.subscribe, remoteStore.getSnapshot, remoteStore.getServerSnapshot);
+  return useMemo(() => buildLibrary(local, remote), [local, remote]);
 }
 
 /** Bảng màu và quy chuẩn thương hiệu. Dữ liệu đưa vào luôn được chuẩn hoá trước khi lưu. */
 export function useBrandSettings(): BrandSettings {
-  const snap = useSyncExternalStore(localStore.subscribe, localStore.getSnapshot, localStore.getServerSnapshot);
-  return useMemo<BrandSettings>(
-    () => ({
-      ready: snap.ready,
-      palette: snap.palette,
-      rules: snap.rules,
-      setPalette: (palette) => localStore.setPalette(normalizePalette(palette)),
-      setRules: (rules) => localStore.setRules(normalizeRules(rules)),
-      reset: () => localStore.resetSettings(),
-    }),
-    [snap],
-  );
+  const local = useSyncExternalStore(localStore.subscribe, localStore.getSnapshot, localStore.getServerSnapshot);
+  const remote = useSyncExternalStore(remoteStore.subscribe, remoteStore.getSnapshot, remoteStore.getServerSnapshot);
+  return useMemo(() => buildSettings(local, remote), [local, remote]);
 }
 
 /** Icon trống để bắt đầu vẽ; chưa nằm trong thư viện cho tới khi lưu. */

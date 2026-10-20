@@ -21,7 +21,7 @@ describe('PlatformNavigation', () => {
       <PlatformNavigation active="brand-studio" />,
     );
 
-    const brandLink = getByRole('link', { name: 'Thương hiệu SVNDTS' });
+    const brandLink = getByRole('link', { name: 'Thư viện icon' });
     expect(brandLink.getAttribute('href')).toBe('/platform/brand-studio');
     expect(brandLink.getAttribute('aria-current')).toBe('page');
   });

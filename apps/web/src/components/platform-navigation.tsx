@@ -43,7 +43,7 @@ const primaryNavigation: readonly PrimaryNavItem[] = [
   },
   {
     key: 'brand-studio',
-    label: 'Thương hiệu SVNDTS',
+    label: 'Thư viện icon',
     icon: Sparkles,
     href: '/platform/brand-studio',
   },

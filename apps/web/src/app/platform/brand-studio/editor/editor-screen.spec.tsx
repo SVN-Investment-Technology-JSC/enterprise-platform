@@ -1,5 +1,9 @@
 import { createDocument, createShape, type IconDocument } from '@enterprise-platform/shared-brand-icon';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { toast } from '@enterprise-platform/shared-ui';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { copyText } from '../export/download';
+import { BrandApiError } from '../store/brand-api';
+import type { ServerIconInfo } from '../store';
 import { EditorScreen } from './editor-screen';
 
 const mockReplace = jest.fn();
@@ -9,16 +13,36 @@ jest.mock('next/navigation', () => ({
   useRouter: () => ({ replace: mockReplace, push: mockPush }),
 }));
 
+jest.mock('@enterprise-platform/shared-ui', () => ({
+  ...jest.requireActual('@enterprise-platform/shared-ui'),
+  toast: { error: jest.fn(), success: jest.fn() },
+}));
+
+jest.mock('../export/download', () => ({
+  ...jest.requireActual('../export/download'),
+  copyText: jest.fn(async () => true),
+}));
+
 const mockLibrary = {
   ready: true,
   docs: [] as IconDocument[],
   error: null,
+  mode: 'local' as 'local' | 'server',
+  modeReason: null,
+  localOnlyCount: 0,
+  loading: false,
   get: (id: string) => mockLibrary.docs.find((doc) => doc.id === id),
+  serverInfo: jest.fn((_id: string): ServerIconInfo | null => null),
   save: jest.fn(async (doc: IconDocument) => doc),
+  saveMany: jest.fn(),
   remove: jest.fn(),
+  removeMany: jest.fn(),
   duplicate: jest.fn(),
   importDocs: jest.fn(),
   resetPreset: jest.fn(),
+  publish: jest.fn(),
+  syncLocalToServer: jest.fn(),
+  reloadFromServer: jest.fn(async (_id?: string) => undefined),
 };
 
 const mockSettings = {
@@ -66,6 +90,14 @@ beforeEach(() => {
   mockLibrary.docs = [sample()];
   mockLibrary.save.mockClear();
   mockLibrary.save.mockImplementation(async (doc: IconDocument) => doc);
+  mockLibrary.serverInfo.mockReset();
+  mockLibrary.serverInfo.mockReturnValue(null);
+  mockLibrary.publish.mockReset();
+  mockLibrary.reloadFromServer.mockReset();
+  mockLibrary.reloadFromServer.mockResolvedValue(undefined);
+  jest.mocked(toast.error).mockClear();
+  jest.mocked(toast.success).mockClear();
+  jest.mocked(copyText).mockClear();
   mockSettings.ready = true;
   window.localStorage.clear();
 });
@@ -278,5 +310,216 @@ describe('EditorScreen', () => {
     window.localStorage.setItem('svndts-brand-editor-prefs-v1', '{không phải json');
     render(<EditorScreen iconId="icon-1" />);
     await waitFor(() => expect(screen.getByRole('button', { name: 'Hiện lưới' }).getAttribute('aria-pressed')).toBe('true'));
+  });
+});
+
+const INFO: ServerIconInfo = {
+  version: 3,
+  publishedVersion: 2,
+  hasUnpublishedChanges: true,
+  svgUrl: '/api/platform/v1/brand/icons/icon-1/svg?v=3&mode=brand',
+  publicSvgUrl: '/api/platform/v1/brand/icons/icon-1/svg?v=2&mode=brand',
+};
+
+const conflictError = (currentVersion = 4) =>
+  new BrandApiError({
+    statusCode: 409,
+    code: 'BRAND_ICON_VERSION_CONFLICT',
+    message: 'Icon đã có phiên bản mới hơn do người khác lưu.',
+    currentVersion,
+  });
+
+function editName(value: string) {
+  fireEvent.change(nameInput(), { target: { value } });
+  fireEvent.blur(nameInput());
+}
+
+describe('EditorScreen: icon lưu trên máy chủ', () => {
+  beforeEach(() => {
+    mockLibrary.mode = 'server';
+  });
+
+  afterEach(() => {
+    mockLibrary.mode = 'local';
+  });
+
+  it('thanh trên hiện phiên bản đã lưu, bản đang phát hành và cảnh báo có thay đổi chưa phát hành', () => {
+    mockLibrary.serverInfo.mockReturnValue(INFO);
+    render(<EditorScreen iconId="icon-1" />);
+
+    expect(screen.getByText('v3')).toBeTruthy();
+    expect(screen.getByText('Đã phát hành v2')).toBeTruthy();
+    expect(screen.getByText('Có thay đổi chưa phát hành')).toBeTruthy();
+    expect(screen.queryByText('Nháp')).toBeNull();
+  });
+
+  it('icon chưa phát hành trên máy chủ thì hiện Nháp, không có nút chép đường dẫn', () => {
+    mockLibrary.serverInfo.mockReturnValue({ ...INFO, publishedVersion: null, hasUnpublishedChanges: false, publicSvgUrl: null });
+    render(<EditorScreen iconId="icon-1" />);
+
+    expect(screen.getByText('v3')).toBeTruthy();
+    expect(screen.getByText('Nháp')).toBeTruthy();
+    expect(screen.queryByText('Có thay đổi chưa phát hành')).toBeNull();
+    expect(screen.queryByRole('button', { name: /Chép đường dẫn SVG/ })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Phát hành' })).toBeTruthy();
+  });
+
+  it('không có thông tin máy chủ (lưu cục bộ) thì giữ chip cũ và không có nút phát hành', () => {
+    render(<EditorScreen iconId="icon-1" />);
+
+    expect(screen.getByText('Nháp')).toBeTruthy();
+    expect(screen.queryByText('v3')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Phát hành' })).toBeNull();
+  });
+
+  it('nút chép đường dẫn công khai chép địa chỉ đầy đủ của bản đang phát hành', async () => {
+    mockLibrary.serverInfo.mockReturnValue(INFO);
+    render(<EditorScreen iconId="icon-1" />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Chép đường dẫn SVG công khai' }));
+
+    await waitFor(() => expect(copyText).toHaveBeenCalledWith(`${window.location.origin}/api/platform/v1/brand/icons/icon-1/svg?v=2&mode=brand`));
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Đã chép đường dẫn SVG.'));
+  });
+
+  it('chỉ phát hành được bản đã lưu: đang có thay đổi chưa lưu thì ẩn nút Phát hành', () => {
+    mockLibrary.serverInfo.mockReturnValue(INFO);
+    render(<EditorScreen iconId="icon-1" />);
+    expect(screen.getByRole('button', { name: 'Phát hành' })).toBeTruthy();
+
+    editName('Tên mới');
+
+    expect(screen.queryByRole('button', { name: 'Phát hành' })).toBeNull();
+  });
+
+  it('bấm Phát hành gọi library.publish với icon đang mở và báo thành công', async () => {
+    mockLibrary.serverInfo.mockReturnValue(INFO);
+    mockLibrary.publish.mockResolvedValue({ ...sample(), status: 'published' });
+    render(<EditorScreen iconId="icon-1" />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Phát hành' }));
+
+    await waitFor(() => expect(mockLibrary.publish).toHaveBeenCalledWith('icon-1'));
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Đã phát hành.'));
+    expect(saveButton().disabled).toBe(true);
+  });
+
+  it('phát hành lỗi thì hiện thông điệp của máy chủ', async () => {
+    mockLibrary.serverInfo.mockReturnValue(INFO);
+    mockLibrary.publish.mockRejectedValue(
+      new BrandApiError({ statusCode: 422, code: 'BRAND_ICON_NOT_PUBLISHABLE', message: 'Icon chưa đạt điều kiện phát hành: chưa có hình.' }),
+    );
+    render(<EditorScreen iconId="icon-1" />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Phát hành' }));
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Icon chưa đạt điều kiện phát hành: chưa có hình.'));
+  });
+
+  it('lưu lỗi (không phải xung đột) hiện đúng thông điệp tiếng Việt của máy chủ và giữ trạng thái chưa lưu', async () => {
+    mockLibrary.save.mockRejectedValueOnce(
+      new BrandApiError({ statusCode: 503, code: 'BRAND_STORAGE_UNAVAILABLE', message: 'Kho lưu trữ icon tạm thời không khả dụng. Vui lòng thử lại sau.' }),
+    );
+    render(<EditorScreen iconId="icon-1" />);
+    editName('Tên mới');
+
+    fireEvent.click(saveButton());
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Kho lưu trữ icon tạm thời không khả dụng. Vui lòng thử lại sau.'));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.getByText('Chưa lưu')).toBeTruthy();
+  });
+
+  it('người dùng không đụng tới trạng thái thì lưu nội dung không gỡ phát hành icon mà người khác vừa phát hành', async () => {
+    render(<EditorScreen iconId="icon-1" />);
+    mockLibrary.docs = [{ ...sample(), status: 'published' }];
+
+    editName('Tên mới');
+    fireEvent.click(saveButton());
+
+    await waitFor(() => expect(mockLibrary.save).toHaveBeenCalledTimes(1));
+    expect(mockLibrary.save.mock.calls[0][0]).toMatchObject({ id: 'icon-1', name: 'Tên mới', status: 'published' });
+  });
+});
+
+describe('EditorScreen: xung đột phiên bản (409)', () => {
+  const conflictDialog = () => screen.getByRole('dialog');
+
+  async function openConflict() {
+    mockLibrary.save.mockRejectedValueOnce(conflictError(4));
+    render(<EditorScreen iconId="icon-1" />);
+    editName('Bản của tôi');
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(screen.getByRole('dialog')).toBeTruthy());
+  }
+
+  it('hiện hộp thông báo với hai lựa chọn, kèm phiên bản trên máy chủ, và không ghi đè gì', async () => {
+    await openConflict();
+
+    expect(within(conflictDialog()).getByText('Icon đã có bản mới hơn')).toBeTruthy();
+    expect(within(conflictDialog()).getByText('Máy chủ đang giữ phiên bản 4')).toBeTruthy();
+    expect(within(conflictDialog()).getByRole('button', { name: /Tải bản mới nhất/ })).toBeTruthy();
+    expect(within(conflictDialog()).getByRole('button', { name: /Giữ bản của tôi/ })).toBeTruthy();
+    expect(mockLibrary.save).toHaveBeenCalledTimes(1);
+    expect(toast.error).not.toHaveBeenCalled();
+    expect(screen.getByText('Chưa lưu')).toBeTruthy();
+  });
+
+  it('"Tải bản mới nhất" nạp lại icon từ máy chủ, bỏ thay đổi đang sửa và đóng hộp', async () => {
+    mockLibrary.reloadFromServer.mockImplementation(async () => {
+      mockLibrary.docs = [{ ...sample(), name: 'Bản mới nhất trên máy chủ' }];
+    });
+    await openConflict();
+    expect(nameInput().value).toBe('Bản của tôi');
+
+    fireEvent.click(within(conflictDialog()).getByRole('button', { name: /Tải bản mới nhất/ }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(mockLibrary.reloadFromServer).toHaveBeenCalledWith('icon-1');
+    expect(nameInput().value).toBe('Bản mới nhất trên máy chủ');
+    expect(screen.queryByText('Chưa lưu')).toBeNull();
+    expect(saveButton().disabled).toBe(true);
+    expect(mockLibrary.save).toHaveBeenCalledTimes(1);
+  });
+
+  it('"Tải bản mới nhất" lỗi thì giữ hộp và bản đang sửa, hiện lỗi', async () => {
+    mockLibrary.reloadFromServer.mockRejectedValueOnce(
+      new BrandApiError({ statusCode: 0, code: 'NETWORK_ERROR', message: 'Không kết nối được máy chủ. Kiểm tra mạng rồi thử lại.' }),
+    );
+    await openConflict();
+
+    fireEvent.click(within(conflictDialog()).getByRole('button', { name: /Tải bản mới nhất/ }));
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Không kết nối được máy chủ. Kiểm tra mạng rồi thử lại.'));
+    expect(screen.getByRole('dialog')).toBeTruthy();
+    expect(nameInput().value).toBe('Bản của tôi');
+  });
+
+  it('"Giữ bản của tôi" lưu bản đang sửa thành icon mới (mã khác, nháp) rồi chuyển sang icon đó', async () => {
+    await openConflict();
+
+    fireEvent.click(within(conflictDialog()).getByRole('button', { name: /Giữ bản của tôi/ }));
+
+    await waitFor(() => expect(mockLibrary.save).toHaveBeenCalledTimes(2));
+    const copy = mockLibrary.save.mock.calls[1][0];
+    expect(copy.id).not.toBe('icon-1');
+    expect(copy.name).toBe('Bản của tôi (bản của tôi)');
+    expect(copy.status).toBe('draft');
+    expect(copy.shapes).toHaveLength(1);
+    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith(`/platform/brand-studio/editor/${copy.id}`));
+    expect(toast.success).toHaveBeenCalledWith('Đã lưu thành icon mới "Bản của tôi (bản của tôi)".');
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('đóng hộp mà chưa chọn thì icon vẫn chưa lưu, bấm Lưu lại mở hộp lần nữa', async () => {
+    await openConflict();
+    mockLibrary.save.mockRejectedValueOnce(conflictError(5));
+
+    fireEvent.click(within(conflictDialog()).getByRole('button', { name: 'Đóng' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.getByText('Chưa lưu')).toBeTruthy();
+
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(screen.getByText('Máy chủ đang giữ phiên bản 5')).toBeTruthy());
   });
 });

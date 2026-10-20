@@ -168,6 +168,57 @@ describe('useIconLibrary', () => {
   });
 });
 
+describe('useIconLibrary: chế độ cục bộ (không có API)', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    localStore.reloadForTest();
+  });
+
+  it('báo đang ở chế độ cục bộ, sẵn sàng ngay và không có thông tin máy chủ', () => {
+    const { result } = mount();
+    const { library } = result.current;
+
+    expect(library.mode).toBe('local');
+    expect(library.ready).toBe(true);
+    expect(library.modeReason).not.toBeNull();
+    expect(library.localOnlyCount).toBe(0);
+    expect(library.serverInfo(presetIds[0])).toBeNull();
+    expect(result.current.settings.mode).toBe('local');
+    expect(result.current.settings.error).toBeNull();
+  });
+
+  it('publish đặt trạng thái Phát hành cho icon; icon không có thì trả null', async () => {
+    const { result } = mount();
+    await act(async () => {
+      await result.current.library.save(createDocument({ id: 'p-1', name: 'Nháp', status: 'draft' }));
+    });
+
+    let published: IconDocument | null = null;
+    await act(async () => {
+      published = await result.current.library.publish('p-1');
+    });
+    expect((published as IconDocument | null)?.status).toBe('published');
+    expect(result.current.library.get('p-1')?.status).toBe('published');
+
+    let missing: IconDocument | null | 'chua-chay' = 'chua-chay';
+    await act(async () => {
+      missing = await result.current.library.publish('khong-co');
+    });
+    expect(missing).toBeNull();
+  });
+
+  it('đồng bộ không làm gì và nạp lại từ máy chủ (thử kết nối) không ném lỗi khi vẫn chưa có máy chủ', async () => {
+    const { result } = mount();
+
+    await expect(result.current.library.syncLocalToServer()).resolves.toEqual({ pushed: 0, failed: 0 });
+    await act(async () => {
+      await result.current.library.reloadFromServer();
+    });
+
+    expect(result.current.library.mode).toBe('local');
+  });
+});
+
 describe('useBrandSettings', () => {
   beforeEach(() => {
     window.localStorage.clear();

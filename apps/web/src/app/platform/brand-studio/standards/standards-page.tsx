@@ -53,7 +53,10 @@ export function StandardsPage() {
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-wrap items-center gap-x-4 gap-y-3">
-        <h1 className="min-w-0 flex-1 text-2xl font-bold tracking-tight text-slate-900">Bảng màu & quy chuẩn</h1>
+        <div className="flex min-w-0 flex-1 items-baseline gap-3">
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900">Bảng màu & quy chuẩn</h1>
+          {settings.saving ? <span className="text-xs text-slate-500">Đang lưu lên máy chủ</span> : null}
+        </div>
         <div className="flex flex-wrap items-center gap-2">
           <Button
             className="rounded-md"
@@ -119,7 +122,13 @@ export function StandardsPage() {
         </p>
       ) : null}
 
-      {!settings.ready ? (
+      {settings.error ? (
+        <p className="border-l-2 border-red-500 bg-red-50/60 py-1.5 pl-3 text-sm text-red-800" role="alert">
+          {settings.error}
+        </p>
+      ) : null}
+
+      {!settings.ready || !library.ready ? (
         <div aria-busy="true" aria-label="Đang tải cài đặt" className="grid animate-pulse gap-3">
           <div className="h-6 w-48 rounded bg-slate-100" />
           <div className="h-48 rounded bg-slate-100" />

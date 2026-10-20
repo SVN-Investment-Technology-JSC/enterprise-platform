@@ -23,6 +23,7 @@ import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { ExportDialog } from '../export/export-dialog';
 import { isPresetId, useBrandSettings, useIconLibrary } from '../store';
+import { errorMessage } from '../store/brand-api';
 import { IconList } from './icon-list';
 import { IconTile } from './icon-tile';
 import {
@@ -52,6 +53,7 @@ import {
 import { FilterChip, IconButton, SelectBox } from './library-ui';
 import { downloadTextFile, readFileText } from './file-download';
 import { NEW_ICON_ID, asRoute, editorPath } from './routes';
+import { SyncBanner } from './sync-banner';
 
 const PREFS_KEY = 'svndts-brand-library-prefs-v1';
 const SORT_OPTIONS = (Object.keys(SORT_LABELS) as SortKey[]).map((value) => ({ value, label: SORT_LABELS[value] }));
@@ -153,21 +155,36 @@ export function IconLibraryPage() {
       return next;
     });
 
+  /** Thao tác có thể lỗi (ghi lên máy chủ): lỗi hiện thành thông báo thay vì bị bỏ qua. */
+  const attempt = async (task: () => Promise<void>) => {
+    try {
+      await task();
+    } catch (error) {
+      say('error', errorMessage(error));
+    }
+  };
+
+  // Trên máy chủ "xoá" là lưu trữ: dữ liệu vẫn còn, chỉ không hiện trong thư viện.
+  const archiving = library.mode === 'server';
+
   const handlers = {
-    onDuplicate: async (doc: IconDocument) => {
-      const copy = await library.duplicate(doc.id);
-      if (copy) say('ok', `Đã nhân bản thành "${copy.name}".`);
-    },
+    onDuplicate: (doc: IconDocument) =>
+      attempt(async () => {
+        const copy = await library.duplicate(doc.id);
+        if (copy) say('ok', `Đã nhân bản thành "${copy.name}".`);
+      }),
     onExport: (doc: IconDocument) => setExportDocs([doc]),
-    onRemove: async (doc: IconDocument) => {
-      await library.remove(doc.id);
-      toggle(doc.id, false);
-      say('ok', `Đã xoá "${doc.name}".`);
-    },
-    onReset: async (doc: IconDocument) => {
-      await library.resetPreset(doc.id);
-      say('ok', `Đã đặt lại "${doc.name}" về bản gốc.`);
-    },
+    onRemove: (doc: IconDocument) =>
+      attempt(async () => {
+        await library.remove(doc.id);
+        toggle(doc.id, false);
+        say('ok', archiving ? `Đã lưu trữ "${doc.name}".` : `Đã xoá "${doc.name}".`);
+      }),
+    onReset: (doc: IconDocument) =>
+      attempt(async () => {
+        await library.resetPreset(doc.id);
+        say('ok', `Đã đặt lại "${doc.name}" về bản gốc.`);
+      }),
   };
 
   const exportCurrent = () => setExportDocs(picked.length > 0 ? picked : [...library.docs]);
@@ -197,26 +214,38 @@ export function IconLibraryPage() {
       if (plan.fresh.length > 0) await library.importDocs(plan.fresh);
       const result = describeImport({ ...report, failures: [...unreadable, ...report.failures] }, plan);
       say(result.tone, result.text, result.details);
+    } catch (error) {
+      say('error', errorMessage(error));
     } finally {
       setImporting(false);
     }
   };
 
-  const setStatusForPicked = async (status: IconStatus) => {
-    const changed = picked.filter((doc) => doc.status !== status).map((doc) => ({ ...doc, status }));
-    if (changed.length === 0) {
-      say('ok', `Các icon đã chọn đều đang ở trạng thái "${STATUS_LABELS[status]}".`);
-      return;
-    }
-    await library.saveMany(changed);
-    say('ok', `Đã chuyển ${changed.length} icon sang "${STATUS_LABELS[status]}".`);
-  };
+  const setStatusForPicked = (status: IconStatus) =>
+    attempt(async () => {
+      const changed = picked.filter((doc) => doc.status !== status).map((doc) => ({ ...doc, status }));
+      if (changed.length === 0) {
+        say('ok', `Các icon đã chọn đều đang ở trạng thái "${STATUS_LABELS[status]}".`);
+        return;
+      }
+      await library.saveMany(changed);
+      say('ok', `Đã chuyển ${changed.length} icon sang "${STATUS_LABELS[status]}".`);
+    });
 
-  const removePicked = async () => {
-    const removed = await library.removeMany(picked.map((doc) => doc.id));
-    setSelected(new Set());
-    say('ok', pickedPresets > 0 ? `Đã xoá ${removed} icon, giữ lại ${pickedPresets} icon mẫu.` : `Đã xoá ${removed} icon.`);
-  };
+  const removePicked = () =>
+    attempt(async () => {
+      const removed = await library.removeMany(picked.map((doc) => doc.id));
+      setSelected(new Set());
+      const verb = archiving ? 'lưu trữ' : 'xoá';
+      say('ok', pickedPresets > 0 ? `Đã ${verb} ${removed} icon, giữ lại ${pickedPresets} icon mẫu.` : `Đã ${verb} ${removed} icon.`);
+    });
+
+  const removeDescription = [
+    archiving ? 'Icon không còn hiện trong thư viện, dữ liệu vẫn được giữ trên máy chủ.' : 'Không thể hoàn tác.',
+    pickedPresets > 0 ? `${pickedPresets} icon mẫu sẽ được giữ lại.` : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
 
   const actionBtn = 'rounded-md px-2.5';
   const total = library.docs.length;
@@ -279,6 +308,8 @@ export function IconLibraryPage() {
           />
         </div>
       </header>
+
+      <SyncBanner library={library} />
 
       {notice ? (
         <div
@@ -405,15 +436,15 @@ export function IconLibraryPage() {
           </Button>
           <Popconfirm
             cancelText="Hủy"
-            description={pickedPresets > 0 ? `Không thể hoàn tác. ${pickedPresets} icon mẫu sẽ được giữ lại.` : 'Không thể hoàn tác.'}
-            okText="Xoá"
+            description={removeDescription}
+            okText={archiving ? 'Lưu trữ' : 'Xoá'}
             onConfirm={removePicked}
             placement="bottom-start"
-            title={`Xoá ${picked.length} icon đã chọn?`}
+            title={`${archiving ? 'Lưu trữ' : 'Xoá'} ${picked.length} icon đã chọn?`}
           >
             <Button className="rounded-md text-red-600 hover:bg-red-50 hover:text-red-700" size="sm" variant="ghost">
               <Trash2 aria-hidden />
-              Xoá
+              {archiving ? 'Lưu trữ' : 'Xoá'}
             </Button>
           </Popconfirm>
           <IconButton className="ml-auto" label="Bỏ chọn" onClick={() => setSelected(new Set())}>

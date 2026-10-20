@@ -14,14 +14,37 @@ export interface EditorKeyboardOptions {
 }
 
 const TEXT_TAGS = new Set(['INPUT', 'TEXTAREA', 'SELECT']);
-const OWN_KEYS_SELECTOR =
+const BUTTON_SELECTOR = 'button,[role="button"]';
+const WIDGET_SELECTOR =
   '[role="dialog"],[role="alertdialog"],[role="listbox"],[role="menu"],[role="combobox"],[role="slider"],[role="spinbutton"],[role="textbox"]';
+const OWN_KEYS_SELECTOR = `${WIDGET_SELECTOR},${BUTTON_SELECTOR}`;
 
-/** Đang gõ chữ hoặc đang thao tác trong một thành phần tự xử lý phím (hộp thoại, danh sách chọn...). */
+/**
+ * Đang gõ chữ hoặc đang thao tác trong một thành phần tự xử lý phím (hộp thoại, danh sách chọn, nút...).
+ * Nút tự xử lý Space và Enter (bấm nút), nên phím Space không được bắt để kéo nền khi nút đang có tiêu điểm.
+ */
 export function isTypingTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   if (TEXT_TAGS.has(target.tagName) || target.isContentEditable) return true;
   return target.closest(OWN_KEYS_SELECTOR) !== null;
+}
+
+/** Nút (hoặc phần tử đóng vai nút) không nằm trong thành phần nào khác tự xử lý phím. */
+function isPlainButtonTarget(target: EventTarget | null): boolean {
+  return (
+    target instanceof HTMLElement &&
+    target.closest(BUTTON_SELECTOR) !== null &&
+    target.closest(WIDGET_SELECTOR) === null
+  );
+}
+
+/**
+ * Nút chỉ giữ riêng Space và Enter; mọi phím khác (Ctrl+Z, V, R, Delete...) vẫn là phím tắt của trình thiết kế,
+ * để bấm một nút trên thanh công cụ xong không làm mất phím tắt.
+ */
+function ownsKey(target: EventTarget | null, key: string): boolean {
+  if (!isTypingTarget(target)) return false;
+  return !isPlainButtonTarget(target) || key === ' ' || key === 'Enter';
 }
 
 /**
@@ -40,7 +63,7 @@ export function useEditorKeyboard(options: EditorKeyboardOptions): void {
       if (!current.enabled || event.isComposing || event.defaultPrevented) return;
       const ctrl = event.ctrlKey || event.metaKey;
 
-      if (isTypingTarget(event.target)) {
+      if (ownsKey(event.target, event.key)) {
         if (ctrl && !event.altKey && event.key.toLowerCase() === 's' && event.target instanceof HTMLElement && !event.target.closest('[role="dialog"],[role="alertdialog"]')) {
           event.preventDefault();
           event.target.blur();

@@ -9,6 +9,7 @@ import {
   FileUp,
   Layers,
   Lock,
+  Palette,
   ShieldCheck,
   Sparkles,
   Plus,
@@ -257,7 +258,7 @@ export default async function PlatformPage() {
             className="inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-sm font-semibold text-slate-700 ring-1 ring-inset ring-slate-300 transition-colors hover:bg-slate-100"
           >
             <Sparkles className="size-3.5 text-indigo-600" />
-            Brand Studio
+            Thư viện icon
           </Link>
           <Link
             href="/platform/tenants"
@@ -569,7 +570,8 @@ export default async function PlatformPage() {
                   { href: '/platform/tenants', label: 'Quản lý tổ chức', icon: ArrowUpRight },
                   { href: '/platform/plans', label: 'Gói dịch vụ và hạn mức', icon: Layers },
                   { href: '/platform/data-import', label: 'Nhập dữ liệu', icon: FileUp },
-                  { href: '/platform/brand-studio', label: 'Thương hiệu SVNDTS', icon: Sparkles },
+                  { href: '/platform/brand-studio', label: 'Thư viện icon', icon: Sparkles },
+                  { href: '/platform/brand-studio/standards', label: 'Bảng màu & quy chuẩn', icon: Palette },
                 ] as const
               ).map((link) => (
                 <li key={link.href}>

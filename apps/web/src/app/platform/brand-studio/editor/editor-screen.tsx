@@ -15,7 +15,11 @@ import { useRouter } from 'next/navigation';
 import { useDeferredValue, useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from 'react';
 import { ExportDialog } from '../export/export-dialog';
 import { LIBRARY_PATH, NEW_ICON_ID, asRoute, editorPath } from '../library/routes';
+import { copyText } from '../export/download';
 import { newBlankIcon, useBrandSettings, useIconLibrary, type IconLibrary } from '../store';
+import { errorMessage, isBrandApiError } from '../store/brand-api';
+import { makeCopy } from '../store/doc-utils';
+import { ConflictDialog } from './conflict-dialog';
 import { EditorCanvas } from './editor-canvas';
 import { EditorToolbar } from './editor-toolbar';
 import { EditorTopbar } from './editor-topbar';
@@ -118,9 +122,11 @@ interface EditorWorkspaceProps {
   readonly library: IconLibrary;
   readonly palette: BrandPalette;
   readonly rules: BrandRules;
+  /** Đã nạp lại bản mới nhất từ máy chủ: màn hình ngoài dựng lại trình thiết kế từ bản đó. */
+  readonly onReloaded: () => void;
 }
 
-function EditorWorkspace({ initialDoc, routeIsNew, library, palette, rules }: EditorWorkspaceProps) {
+function EditorWorkspace({ initialDoc, routeIsNew, library, palette, rules, onReloaded }: EditorWorkspaceProps) {
   const router = useRouter();
   const [state, dispatch] = useReducer(editorReducer, initialDoc, createEditorState);
   const [tool, setTool] = useState<EditorTool>('select');
@@ -128,16 +134,22 @@ function EditorWorkspace({ initialDoc, routeIsNew, library, palette, rules }: Ed
   const viewport = useCanvasViewport(state.doc.size);
   const [exportOpen, setExportOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const [conflict, setConflict] = useState<{ readonly currentVersion: number | null } | null>(null);
+  const [resolving, setResolving] = useState(false);
 
   const stateRef = useRef(state);
   const libraryRef = useRef(library);
   const savingRef = useRef(false);
+  /** Trạng thái (nháp/phát hành) của icon lúc mở hoặc lúc lưu gần nhất: để biết người dùng có chủ ý đổi trạng thái hay không. */
+  const baseStatusRef = useRef(initialDoc.status);
   useEffect(() => {
     stateRef.current = state;
     libraryRef.current = library;
   });
 
   const isNew = !library.docs.some((item) => item.id === state.doc.id);
+  const info = library.serverInfo(state.doc.id);
 
   const save = async () => {
     const current = stateRef.current;
@@ -146,14 +158,73 @@ function EditorWorkspace({ initialDoc, routeIsNew, library, palette, rules }: Ed
     savingRef.current = true;
     setSaving(true);
     try {
-      const saved = await stored.save(current.doc);
+      // Người dùng không đụng tới trạng thái thì giữ trạng thái mới nhất trong kho, để lưu nội dung không vô tình
+      // gỡ phát hành một icon mà người khác vừa phát hành.
+      const latest = stored.get(current.doc.id);
+      const untouched = latest !== undefined && current.doc.status === baseStatusRef.current;
+      const saved = await stored.save(untouched ? { ...current.doc, status: latest.status } : current.doc);
+      baseStatusRef.current = saved.status;
+      if (saved.status !== current.doc.status) dispatch({ type: 'setMeta', patch: { status: saved.status } });
       dispatch({ type: 'markSaved' });
       if (routeIsNew) router.replace(asRoute(editorPath(saved.id)));
-    } catch {
-      toast.error('Không lưu được icon. Thử lại sau.');
+    } catch (error) {
+      if (isBrandApiError(error) && error.isVersionConflict) setConflict({ currentVersion: error.currentVersion ?? null });
+      else toast.error(errorMessage(error, 'Không lưu được icon. Thử lại sau.'));
     } finally {
       savingRef.current = false;
       setSaving(false);
+    }
+  };
+
+  const publish = async () => {
+    if (publishing) return;
+    setPublishing(true);
+    try {
+      const published = await libraryRef.current.publish(stateRef.current.doc.id);
+      if (published) {
+        baseStatusRef.current = published.status;
+        if (stateRef.current.doc.status !== published.status) dispatch({ type: 'setMeta', patch: { status: published.status } });
+        dispatch({ type: 'markSaved' });
+        toast.success('Đã phát hành.');
+      }
+    } catch (error) {
+      toast.error(errorMessage(error, 'Không phát hành được icon. Thử lại sau.'));
+    } finally {
+      setPublishing(false);
+    }
+  };
+
+  const copyPublicLink = async () => {
+    if (!info?.publicSvgUrl) return;
+    const copied = await copyText(new URL(info.publicSvgUrl, window.location.origin).toString());
+    if (copied) toast.success('Đã chép đường dẫn SVG.');
+    else toast.error('Không chép được đường dẫn.');
+  };
+
+  const reloadLatest = async () => {
+    setResolving(true);
+    try {
+      await libraryRef.current.reloadFromServer(stateRef.current.doc.id);
+      setConflict(null);
+      onReloaded();
+    } catch (error) {
+      toast.error(errorMessage(error, 'Không tải được bản mới nhất.'));
+    } finally {
+      setResolving(false);
+    }
+  };
+
+  const keepMine = async () => {
+    setResolving(true);
+    try {
+      const saved = await libraryRef.current.save(makeCopy(stateRef.current.doc, 'bản của tôi'));
+      setConflict(null);
+      toast.success(`Đã lưu thành icon mới "${saved.name}".`);
+      router.replace(asRoute(editorPath(saved.id)));
+    } catch (error) {
+      toast.error(errorMessage(error, 'Không lưu được icon. Thử lại sau.'));
+    } finally {
+      setResolving(false);
     }
   };
 
@@ -189,6 +260,8 @@ function EditorWorkspace({ initialDoc, routeIsNew, library, palette, rules }: Ed
         onFit={viewport.fit}
         onRedo={() => dispatch({ type: 'redo' })}
         onRename={(name) => dispatch({ type: 'setMeta', patch: { name } })}
+        onCopyLink={() => void copyPublicLink()}
+        onPublish={() => void publish()}
         onSave={() => void save()}
         onShowGridChange={(showGrid) => updatePrefs({ showGrid })}
         onSnapGridChange={(snapGrid) => updatePrefs({ snapGrid })}
@@ -196,7 +269,9 @@ function EditorWorkspace({ initialDoc, routeIsNew, library, palette, rules }: Ed
         onUndo={() => dispatch({ type: 'undo' })}
         onZoomIn={() => viewport.zoomBy(ZOOM_IN_FACTOR)}
         onZoomOut={() => viewport.zoomBy(ZOOM_OUT_FACTOR)}
+        publishing={publishing}
         saving={saving}
+        serverInfo={info}
         showGrid={prefs.showGrid}
         snapGrid={prefs.snapGrid}
         snapObjects={prefs.snapObjects}
@@ -257,6 +332,14 @@ function EditorWorkspace({ initialDoc, routeIsNew, library, palette, rules }: Ed
       </div>
 
       <ExportDialog docs={exportDocs} onClose={() => setExportOpen(false)} open={exportOpen} palette={palette} />
+      <ConflictDialog
+        busy={resolving}
+        currentVersion={conflict?.currentVersion ?? null}
+        onClose={() => setConflict(null)}
+        onKeepMine={() => void keepMine()}
+        onReload={() => void reloadLatest()}
+        open={conflict !== null}
+      />
     </div>
   );
 }
@@ -269,6 +352,7 @@ export function EditorScreen({ iconId }: { iconId: string }) {
   const library = useIconLibrary();
   const settings = useBrandSettings();
   const blank = useRef<IconDocument | null>(null);
+  const [reloadToken, setReloadToken] = useState(0);
   if (iconId !== NEW_ICON_ID) blank.current = null;
   else if (blank.current === null) blank.current = newBlankIcon();
 
@@ -278,9 +362,10 @@ export function EditorScreen({ iconId }: { iconId: string }) {
 
   return (
     <EditorWorkspace
-      key={doc.id}
+      key={`${doc.id}:${reloadToken}`}
       initialDoc={doc}
       library={library}
+      onReloaded={() => setReloadToken((token) => token + 1)}
       palette={settings.palette}
       routeIsNew={iconId === NEW_ICON_ID}
       rules={settings.rules}
