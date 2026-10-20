@@ -36,6 +36,7 @@ interface PlatformPage {
   readonly href: string;
   readonly group: string;
   readonly icon: LucideIcon;
+  readonly disabled?: boolean;
 }
 
 const PAGES: readonly PlatformPage[] = [
@@ -44,9 +45,9 @@ const PAGES: readonly PlatformPage[] = [
   { id: 'plans', label: 'Gói dịch vụ & Hạn mức', href: '/platform/plans', group: 'Tổng quan & Quản trị', icon: Layers },
   { id: 'brand-studio', label: 'Thương hiệu SVNDTS', href: '/platform/brand-studio', group: 'Thương hiệu & Thiết kế', icon: Sparkles },
   { id: 'data-import', label: 'Nhập dữ liệu', href: '/platform/data-import', group: 'Dữ liệu & Tích hợp', icon: FileUp },
-  { id: 'services', label: 'Dịch vụ hệ thống', href: '#', group: 'Hạ tầng & Hệ thống', icon: ServerCog },
-  { id: 'billing', label: 'Hóa đơn & Thanh toán', href: '#', group: 'Hạ tầng & Hệ thống', icon: ReceiptText },
-  { id: 'reports', label: 'Báo cáo nền tảng', href: '#', group: 'Hạ tầng & Hệ thống', icon: BarChart3 },
+  { id: 'services', label: 'Dịch vụ hệ thống', href: '#', group: 'Hạ tầng & Hệ thống', icon: ServerCog, disabled: true },
+  { id: 'billing', label: 'Hóa đơn & Thanh toán', href: '#', group: 'Hạ tầng & Hệ thống', icon: ReceiptText, disabled: true },
+  { id: 'reports', label: 'Báo cáo nền tảng', href: '#', group: 'Hạ tầng & Hệ thống', icon: BarChart3, disabled: true },
 ];
 
 const COLLAPSED_KEY = 'ep_platform_sidebar_collapsed';
@@ -88,13 +89,14 @@ export function PlatformShell({
         id: page.id,
         label: page.label,
         group: page.group,
-        icon: <Icon size={16} aria-hidden />,
+        icon: <Icon size={16} aria-hidden className={page.disabled ? 'opacity-40 text-slate-400' : undefined} />,
+        badge: page.disabled ? 'Sắp ra mắt' : undefined,
       };
     });
   }, []);
 
   const searchEntries: QuickSearchEntry[] = useMemo(() => {
-    return PAGES.filter((p) => p.href !== '#').map((page) => ({
+    return PAGES.filter((p) => !p.disabled && p.href !== '#').map((page) => ({
       id: `page:${page.id}`,
       group: page.group,
       label: page.label,
@@ -123,7 +125,12 @@ export function PlatformShell({
       onQuickSearch={() => setSearchOpen(true)}
       onViewChange={(next) => {
         const page = PAGES.find((item) => item.id === next);
-        if (page && page.href !== '#') router.push(page.href as never);
+        if (page?.disabled) {
+          return; // Menu bị vô hiệu hóa, không thực hiện chuyển hướng
+        }
+        if (page && page.href !== '#') {
+          router.push(page.href as never);
+        }
       }}
       subtitle="Quản trị nền tảng SVNDTS"
       title="Platform Superadmin"

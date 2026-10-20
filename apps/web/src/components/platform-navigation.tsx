@@ -20,7 +20,15 @@ type PlatformNavigationKey = 'dashboard' | 'tenants' | 'data-import' | 'plans' |
 
 const settingsMenuStateKey = 'platform-navigation-settings-open';
 
-const primaryNavigation = [
+interface PrimaryNavItem {
+  key: string;
+  label: string;
+  icon: typeof LayoutDashboard;
+  href: string;
+  disabled?: boolean;
+}
+
+const primaryNavigation: readonly PrimaryNavItem[] = [
   {
     key: 'dashboard',
     label: 'Bảng điều khiển',
@@ -39,9 +47,9 @@ const primaryNavigation = [
     icon: Sparkles,
     href: '/platform/brand-studio',
   },
-  { key: 'services', label: 'Dịch vụ', icon: ServerCog, href: '#' },
-  { key: 'billing', label: 'Hóa đơn', icon: ReceiptText, href: '#' },
-  { key: 'reports', label: 'Báo cáo', icon: BarChart3, href: '#' },
+  { key: 'services', label: 'Dịch vụ', icon: ServerCog, href: '#', disabled: true },
+  { key: 'billing', label: 'Hóa đơn', icon: ReceiptText, href: '#', disabled: true },
+  { key: 'reports', label: 'Báo cáo', icon: BarChart3, href: '#', disabled: true },
 ] as const;
 
 export function PlatformNavigation({
@@ -80,7 +88,25 @@ export function PlatformNavigation({
       aria-label="Điều hướng platform"
       className={cn('space-y-1', mobile && 'px-4')}
     >
-      {primaryNavigation.map(({ key, label, icon: Icon, href }) => {
+      {primaryNavigation.map(({ key, label, icon: Icon, href, disabled }) => {
+        if (disabled) {
+          return (
+            <div
+              className="flex cursor-not-allowed items-center justify-between rounded-md px-3 py-2 text-sm text-slate-500 opacity-60"
+              key={key}
+              title="Tính năng đang được phát triển"
+            >
+              <div className="flex items-center gap-3">
+                <Icon className="size-4" />
+                <span>{label}</span>
+              </div>
+              <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-400">
+                Sắp ra mắt
+              </span>
+            </div>
+          );
+        }
+
         const itemActive = currentActive === key;
         return (
           <Link
