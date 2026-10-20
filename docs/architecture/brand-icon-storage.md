@@ -143,3 +143,14 @@ DB không bao giờ trỏ tới object chưa ghi.
 - Test: `pnpm nx test platform-brand` (kho và DB giả). Test với Postgres thật tự bỏ qua trừ khi đặt
   `BRAND_TEST_DATABASE_URL` (database trống dùng riêng cho test):
   `BRAND_TEST_DATABASE_URL=postgresql://user:pass@127.0.0.1:5432/brand_test pnpm nx test platform-brand`.
+
+## Giao diện web (`apps/web/src/app/platform/brand-studio/store`)
+
+- Kho từ xa (`remote-store.ts`) nạp danh sách rồi spec từng icon (đồng thời tối đa 6, cache bất biến theo `id` và
+  `version`), và dùng `brand-api.ts` để gọi API. Lưu icon: `POST` khi chưa có trên máy chủ, `PUT` với `baseVersion` khi đã có;
+  đổi `status` thì gọi `publish`/`unpublish`; xoá là lưu trữ. Gặp `BRAND_ICON_VERSION_CONFLICT` thì hiện hộp thoại chọn
+  "Tải bản mới nhất" hoặc "Giữ bản của tôi" (lưu thành icon mới), không ghi đè.
+- Chế độ cục bộ: lần thử kết nối đầu gặp 404, 5xx, mất mạng hoặc 401/403 thì rơi về `localStorage` và thư viện báo
+  "đang lưu tạm trong trình duyệt". Icon chỉ có ở trình duyệt được đẩy lên bằng nút "Đồng bộ lên máy chủ".
+- Bảng màu và quy chuẩn gửi lên sau 700ms ngừng sửa (có `baseVersion`); xung đột thì nạp lại bản mới.
+- Ảnh icon công khai: `/api/platform/v1/brand/icons/<id>/svg?v=<phiên bản>&mode=brand|mono`.

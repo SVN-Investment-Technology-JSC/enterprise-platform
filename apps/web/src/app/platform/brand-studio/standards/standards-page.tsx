@@ -1,7 +1,7 @@
 'use client';
 
 import { Popconfirm } from '@enterprise-platform/shared-ui';
-import { Download, Info, RotateCcw, Upload, X } from 'lucide-react';
+import { Download, RotateCcw, Upload, X } from 'lucide-react';
 import { useRef, useState, type ChangeEvent } from 'react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -140,10 +140,6 @@ export function StandardsPage() {
               <h2 className={SECTION_TITLE} id="palette-title">
                 Bảng màu thương hiệu
               </h2>
-              <p className="mt-2 flex items-start gap-1.5 text-xs text-amber-700">
-                <Info aria-hidden className="mt-px size-3.5 shrink-0" />
-                Bảng màu hiện là bản tạm, chờ ban lãnh đạo chốt bảng màu chính thức.
-              </p>
             </div>
             <PaletteEditor docs={library.docs} onChange={settings.setPalette} palette={settings.palette} />
             <PalettePreview docs={library.docs} palette={settings.palette} />

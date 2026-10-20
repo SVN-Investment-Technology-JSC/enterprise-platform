@@ -67,7 +67,7 @@ export function IconActions({
       ) : (
         <Popconfirm
           cancelText="Hủy"
-          description="Không thể hoàn tác."
+          description="Icon sẽ được gỡ khỏi thư viện."
           okText="Xoá"
           onConfirm={() => onRemove(doc)}
           placement={placement}

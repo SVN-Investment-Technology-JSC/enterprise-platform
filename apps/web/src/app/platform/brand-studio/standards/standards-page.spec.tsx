@@ -49,7 +49,7 @@ describe('StandardsPage: hiển thị', () => {
 
   it('có ghi chú bảng màu chính thức đang chờ chốt', () => {
     render(<StandardsPage />);
-    expect(screen.getByText(/chờ ban lãnh đạo chốt/)).toBeTruthy();
+    expect(screen.queryByText(/chờ ban lãnh đạo chốt/)).toBeNull();
   });
 
   it('cho biết màu nào đang được icon dùng và màu nào chưa', () => {
