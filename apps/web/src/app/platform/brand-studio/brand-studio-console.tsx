@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
   Check,
   Circle,
@@ -24,7 +24,6 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Popconfirm } from '@enterprise-platform/shared-ui';
 import {
   BRAND_COLORS,
@@ -33,14 +32,20 @@ import {
   type BrandColorKey,
   type ContainerFill,
   type ContainerShape,
+  type ExportColorMode,
   type StructuredIconSpec,
 } from './brand-icon.types';
 import {
   downloadSvgFile,
   generateCleanSvg,
   generateReactComponent,
-  getContainerPath,
+  isValidPathData,
+  resolveGlyphScale,
 } from './brand-icon-generator';
+import { mergeWithPresets, normalizeIconList, parseIconLibrary } from './brand-icon-library';
+import { BrandIconSvg } from './brand-icon-svg';
+import { looksLikeSvgMarkup, svgMarkupToPathData } from './brand-icon-svg-import';
+import { NewIconDialog } from './new-icon-dialog';
 
 const SHAPE_OPTIONS: { id: ContainerShape; label: string; icon: typeof Square }[] = [
   { id: 'squircle', label: 'Squircle bo góc', icon: Square },
@@ -62,19 +67,25 @@ export function BrandStudioConsole() {
   const [copiedType, setCopiedType] = useState<'svg' | 'tsx' | null>(null);
   const [activeInspectorTab, setActiveInspectorTab] = useState<'style' | 'glyph' | 'custom-path'>('style');
   const [isCreatingNew, setIsCreatingNew] = useState<boolean>(false);
-  const [newIconName, setNewIconName] = useState<string>('');
-  const [newIconDesc, setNewIconDesc] = useState<string>('');
+  const [colorMode, setColorMode] = useState<ExportColorMode>('currentColor');
+  const [libraryMessage, setLibraryMessage] = useState<string | null>(null);
+  const [pathImportNote, setPathImportNote] = useState<{
+    field: 'glyphPath' | 'secondaryPath';
+    tone: 'ok' | 'error';
+    messages: string[];
+  } | null>(null);
 
   // Tải danh sách icon từ LocalStorage khi khởi tạo
   useEffect(() => {
     try {
       const saved = window.localStorage.getItem(LOCAL_STORAGE_KEY);
       if (saved) {
-        const parsed = JSON.parse(saved) as StructuredIconSpec[];
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          setIconsList(parsed);
-          setSelectedIconId(parsed[0].id);
-          setIconSpec({ ...parsed[0] });
+        const { icons } = normalizeIconList(JSON.parse(saved));
+        if (icons.length > 0) {
+          const merged = mergeWithPresets(icons);
+          setIconsList(merged);
+          setSelectedIconId(merged[0].id);
+          setIconSpec({ ...merged[0] });
         }
       }
     } catch {
@@ -113,14 +124,13 @@ export function BrandStudioConsole() {
     }
   };
 
-  const handleCreateNewIcon = () => {
-    if (!newIconName.trim()) return;
+  const handleCreateNewIcon = ({ name, description }: { name: string; description: string }) => {
     const newId = `custom-${Date.now()}`;
     const newSpec: StructuredIconSpec = {
       id: newId,
-      name: newIconName.trim(),
+      name,
       category: 'custom',
-      description: newIconDesc.trim() || 'Icon tùy biến mới cho hệ thống SVNDTS',
+      description: description || 'Icon tùy biến mới cho hệ thống SVNDTS',
       viewBoxSize: 24,
       containerShape: 'squircle',
       containerFill: 'none',
@@ -137,8 +147,6 @@ export function BrandStudioConsole() {
     setSelectedIconId(newId);
     setIconSpec(newSpec);
     setIsCreatingNew(false);
-    setNewIconName('');
-    setNewIconDesc('');
   };
 
   const handleDeleteCustomIcon = (idToDelete: string) => {
@@ -165,25 +173,74 @@ export function BrandStudioConsole() {
     const reader = new FileReader();
     reader.onload = (event) => {
       try {
-        const parsed = JSON.parse(event.target?.result as string);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          saveToStorage(parsed);
-          setSelectedIconId(parsed[0].id);
-          setIconSpec({ ...parsed[0] });
+        const { icons, skipped } = parseIconLibrary(String(event.target?.result ?? ''));
+        if (icons.length === 0) {
+          setLibraryMessage('File không có icon hợp lệ nào, thư viện hiện tại được giữ nguyên.');
+          return;
         }
-      } catch {
-        alert('File JSON không hợp lệ.');
+        const merged = mergeWithPresets(icons);
+        saveToStorage(merged);
+        setSelectedIconId(merged[0].id);
+        setIconSpec({ ...merged[0] });
+        setLibraryMessage(
+          skipped > 0
+            ? `Đã nạp ${icons.length} icon, bỏ qua ${skipped} mục sai định dạng hoặc trùng mã.`
+            : `Đã nạp ${icons.length} icon.`,
+        );
+      } catch (error) {
+        setLibraryMessage(error instanceof Error ? error.message : 'Không đọc được file.');
       }
     };
     reader.readAsText(file);
     e.target.value = '';
   };
 
-  const colorDef = BRAND_COLORS[iconSpec.colorTone] ?? BRAND_COLORS.sapphire;
-  const containerPath = getContainerPath(iconSpec.containerShape, iconSpec.viewBoxSize, iconSpec.cornerRadius);
+  // Dán nguyên mã SVG (vd. "Copy SVG" từ Lucide) thì tự chuyển thành chuỗi path thay vì dán thô vào ô
+  const handlePathPaste = (field: 'glyphPath' | 'secondaryPath', event: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const text = event.clipboardData.getData('text');
+    if (!looksLikeSvgMarkup(text)) {
+      setPathImportNote(null);
+      return;
+    }
+    event.preventDefault();
+    try {
+      const result = svgMarkupToPathData(text);
+      handleUpdateCurrentSpec({ [field]: result.path });
+      setPathImportNote({
+        field,
+        tone: 'ok',
+        messages: [`Đã chuyển ${result.elementCount} hình nét từ SVG thành một chuỗi path.`, ...result.warnings],
+      });
+    } catch (error) {
+      setPathImportNote({
+        field,
+        tone: 'error',
+        messages: [error instanceof Error ? error.message : 'Không đọc được mã SVG.'],
+      });
+    }
+  };
 
-  const cleanSvgCode = useMemo(() => generateCleanSvg(iconSpec), [iconSpec]);
-  const reactTsxCode = useMemo(() => generateReactComponent(iconSpec), [iconSpec]);
+  const renderPathImportNote = (field: 'glyphPath' | 'secondaryPath') =>
+    pathImportNote && pathImportNote.field === field ? (
+      <ul
+        className={`space-y-0.5 text-[11px] ${pathImportNote.tone === 'ok' ? 'text-emerald-700' : 'text-red-600'}`}
+        role={pathImportNote.tone === 'ok' ? 'status' : 'alert'}
+      >
+        {pathImportNote.messages.map((message, index) => (
+          <li className={index > 0 ? 'text-amber-700' : undefined} key={message}>
+            {message}
+          </li>
+        ))}
+      </ul>
+    ) : null;
+
+  const colorDef = BRAND_COLORS[iconSpec.colorTone] ?? BRAND_COLORS.sapphire;
+  const glyphScale = resolveGlyphScale(iconSpec);
+  const glyphPathValid = isValidPathData(iconSpec.glyphPath);
+  const secondaryPathValid = isValidPathData(iconSpec.secondaryPath);
+
+  const cleanSvgCode = useMemo(() => generateCleanSvg(iconSpec, { colorMode }), [iconSpec, colorMode]);
+  const reactTsxCode = useMemo(() => generateReactComponent(iconSpec, { colorMode }), [iconSpec, colorMode]);
 
   const handleCopyCode = async (type: 'svg' | 'tsx') => {
     const textToCopy = type === 'svg' ? cleanSvgCode : reactTsxCode;
@@ -200,65 +257,56 @@ export function BrandStudioConsole() {
 
   return (
     <div className="flex flex-col gap-5">
-      {/* Thanh tiêu đề thao tác nhanh - Giao diện sáng chuẩn Enterprise */}
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200/80 bg-white px-5 py-4 shadow-xs">
-        <div className="flex items-center gap-3">
-          <div className="flex size-11 items-center justify-center rounded-lg border border-blue-200 bg-blue-50 text-blue-600">
-            <Sparkles className="size-5" />
+      {/* Tiêu đề trang và thao tác nhanh nằm cùng một hàng, ngăn cách bằng đường kẻ nhẹ */}
+      <header className="flex flex-col gap-4 lg:flex-row lg:items-center lg:gap-6">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900">SVNDTS Brand Icon Studio</h1>
+            <Badge className="border-blue-200 bg-blue-50 font-medium text-blue-700" variant="outline">
+              Lưới 24x24 Chuẩn Hóa
+            </Badge>
           </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h2 className="text-base font-semibold text-slate-900">SVNDTS Structured SVG Studio</h2>
-              <Badge className="border-blue-200 bg-blue-50 font-medium text-blue-700" variant="outline">
-                Lưới 24x24 Chuẩn Hóa
-              </Badge>
-            </div>
-            <p className="text-xs text-slate-500">
-              Công cụ tạo mới, tùy biến và chuẩn hoá bộ nhận diện thương hiệu độc quyền cho nền tảng SVNDTS
-            </p>
-          </div>
+          <p className="mt-1 text-sm text-slate-500">
+            Thiết kế, tùy biến và chuẩn hoá bộ nhận diện thương hiệu độc quyền cho nền tảng SVNDTS và các phân hệ doanh
+            nghiệp.
+          </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Nút Tạo Icon Mới */}
+        <div aria-hidden="true" className="hidden h-10 w-px shrink-0 bg-slate-200 lg:block" />
+
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
           <Button
-            className="border-blue-600 bg-blue-600 text-white hover:bg-blue-700 shadow-xs"
+            className="rounded border-blue-600 bg-blue-600 px-3 text-white shadow-xs hover:bg-blue-700"
             onClick={() => setIsCreatingNew(true)}
-            size="sm"
           >
-            <Plus className="mr-1.5 size-3.5" />
-            Tạo Icon Mới
+            <Plus className="size-4" />
+            Tạo icon mới
           </Button>
 
-          {/* Xuất / Nhập JSON Library */}
           <Button
-            className="border-slate-200 bg-white text-slate-700 hover:bg-slate-50 hover:text-slate-900 shadow-xs"
+            className="rounded border-slate-200 bg-white px-3 text-slate-700 shadow-xs hover:bg-slate-50 hover:text-slate-900"
             onClick={handleExportJsonLibrary}
-            size="sm"
             variant="outline"
           >
-            <FileJson className="mr-1.5 size-3.5" />
+            <FileJson className="size-4" />
             Sao lưu JSON
           </Button>
 
-          <label className="inline-flex cursor-pointer items-center justify-center rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-xs hover:bg-slate-50 hover:text-slate-900">
-            <Upload className="mr-1.5 size-3.5" />
+          <label className="inline-flex h-8 cursor-pointer items-center justify-center gap-1.5 rounded border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 shadow-xs transition-colors hover:bg-slate-50 hover:text-slate-900">
+            <Upload className="size-4" />
             <span>Nạp JSON</span>
             <input accept=".json" className="hidden" onChange={handleImportJsonLibrary} type="file" />
           </label>
 
-          {/* Tải SVG */}
           <Button
-            className="border-slate-200 bg-white text-blue-700 hover:bg-blue-50 hover:text-blue-800 shadow-xs"
+            className="rounded border-slate-200 bg-white px-3 text-blue-700 shadow-xs hover:bg-blue-50 hover:text-blue-800"
             onClick={handleDownload}
-            size="sm"
             variant="outline"
           >
-            <Download className="mr-1.5 size-3.5" />
+            <Download className="size-4" />
             Tải SVG
           </Button>
 
-          {/* Đặt lại nếu là preset */}
           {!iconSpec.isCustom ? (
             <Popconfirm
               cancelText="Hủy"
@@ -267,8 +315,8 @@ export function BrandStudioConsole() {
               onConfirm={handleResetToPreset}
               title="Đặt lại thông số gốc?"
             >
-              <Button className="border-slate-200 text-slate-600 hover:bg-slate-100 hover:text-slate-900" size="sm" variant="ghost">
-                <RotateCcw className="mr-1.5 size-3.5" />
+              <Button className="rounded px-3 text-slate-600 hover:bg-slate-100 hover:text-slate-900" variant="ghost">
+                <RotateCcw className="size-4" />
                 Đặt lại
               </Button>
             </Popconfirm>
@@ -280,163 +328,104 @@ export function BrandStudioConsole() {
               onConfirm={() => handleDeleteCustomIcon(iconSpec.id)}
               title="Xóa icon tùy biến?"
             >
-              <Button className="border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700" size="sm" variant="ghost">
-                <Trash2 className="mr-1.5 size-3.5" />
+              <Button className="rounded px-3 text-red-600 hover:bg-red-50 hover:text-red-700" variant="ghost">
+                <Trash2 className="size-4" />
                 Xóa icon
               </Button>
             </Popconfirm>
           )}
         </div>
-      </div>
+      </header>
 
-      {/* Form Tạo Mới Icon (Hiển thị khi bấm Tạo Icon Mới) */}
-      {isCreatingNew ? (
-        <Card className="border-blue-200 bg-blue-50/50 shadow-xs">
-          <CardHeader className="border-b border-blue-100 px-4 py-3">
-            <CardTitle className="text-sm font-semibold text-blue-950">
-              Khởi tạo Biểu tượng Mới vào Hệ sinh thái SVNDTS
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3 p-4">
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-slate-700">Tên biểu tượng (VD: Đơn hàng, Quản lý xe, Hợp đồng...):</label>
-                <input
-                  className="w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-900 shadow-xs focus:border-blue-500 focus:outline-none"
-                  onChange={(e) => setNewIconName(e.target.value)}
-                  placeholder="Nhập tên icon..."
-                  value={newIconName}
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-slate-700">Mô tả mục đích sử dụng:</label>
-                <input
-                  className="w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-900 shadow-xs focus:border-blue-500 focus:outline-none"
-                  onChange={(e) => setNewIconDesc(e.target.value)}
-                  placeholder="Nhập mô tả ngắn gọn..."
-                  value={newIconDesc}
-                />
-              </div>
-            </div>
-            <div className="flex justify-end gap-2 pt-1">
-              <Button onClick={() => setIsCreatingNew(false)} size="sm" variant="ghost">
-                Hủy bỏ
-              </Button>
-              <Button
-                className="bg-blue-600 text-white hover:bg-blue-700"
-                disabled={!newIconName.trim()}
-                onClick={handleCreateNewIcon}
-                size="sm"
-              >
-                Xác nhận tạo
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+      {libraryMessage ? (
+        <div
+          className="flex items-center justify-between gap-3 rounded border border-blue-200 bg-blue-50 px-4 py-2 text-xs text-blue-900"
+          role="status"
+        >
+          <span>{libraryMessage}</span>
+          <button
+            className="shrink-0 font-semibold text-blue-700 hover:underline"
+            onClick={() => setLibraryMessage(null)}
+            type="button"
+          >
+            Đóng
+          </button>
+        </div>
       ) : null}
 
-      {/* Bố cục 16:9 Master-Detail 3 Cột - Theme Sáng */}
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-12">
-        {/* CỘT 1: MASTER (3 cột / 12) - Danh mục Biểu tượng */}
-        <div className="space-y-4 lg:col-span-3">
-          <Card className="border-slate-200/90 bg-white shadow-xs">
-            <CardHeader className="border-b border-slate-100 bg-slate-50/70 px-4 py-3">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-xs font-semibold uppercase tracking-wider text-slate-600">
-                  Danh mục Biểu tượng
-                </CardTitle>
-                <Badge className="bg-slate-200/80 font-medium text-[10px] text-slate-700" variant="secondary">
-                  {iconsList.length} Icon
-                </Badge>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-2 p-2.5">
-              <div className="max-h-[calc(100vh-290px)] space-y-1.5 overflow-y-auto pr-1">
-                {iconsList.map((preset) => {
-                  const isSelected = preset.id === selectedIconId;
-                  const presetColor = BRAND_COLORS[preset.colorTone] ?? BRAND_COLORS.sapphire;
-                  return (
-                    <button
-                      className={`flex w-full items-center gap-3 rounded-lg border p-2.5 text-left transition-all ${
-                        isSelected
-                          ? 'border-blue-600 bg-blue-50/90 text-blue-950 shadow-xs ring-1 ring-blue-500/20'
-                          : 'border-slate-200/80 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50'
-                      }`}
-                      key={preset.id}
-                      onClick={() => handleSelectIcon(preset)}
-                      type="button"
+      <NewIconDialog
+        isOpen={isCreatingNew}
+        onClose={() => setIsCreatingNew(false)}
+        onCreate={handleCreateNewIcon}
+      />
+
+      {/* Bố cục 3 cột phẳng: chỉ kẻ đường dọc giữa các cột, không dùng thẻ bao ngoài */}
+      <div className="grid grid-cols-1 gap-y-10 lg:grid-cols-12 lg:gap-y-0 lg:divide-x lg:divide-slate-200">
+        {/* CỘT 1: Danh mục biểu tượng */}
+        <section className="min-w-0 lg:col-span-3 lg:pr-6">
+          <PanelTitle aside={`${iconsList.length} icon`} title="Danh mục biểu tượng" />
+          <ul className="mt-1 max-h-[calc(100vh-260px)] divide-y divide-slate-200/70 overflow-y-auto pr-1">
+            {iconsList.map((preset) => {
+              const isSelected = preset.id === selectedIconId;
+              const presetColor = BRAND_COLORS[preset.colorTone] ?? BRAND_COLORS.sapphire;
+              return (
+                <li key={preset.id}>
+                  <button
+                    className={`flex w-full items-center gap-3 border-l-2 px-2.5 py-2.5 text-left transition-colors ${
+                      isSelected
+                        ? 'border-blue-600 bg-blue-50/80'
+                        : 'border-transparent hover:bg-slate-100/70'
+                    }`}
+                    onClick={() => handleSelectIcon(preset)}
+                    type="button"
+                  >
+                    <span
+                      className="flex size-9 shrink-0 items-center justify-center rounded"
+                      style={{ backgroundColor: presetColor.bgSoft }}
                     >
-                      <div
-                        className="flex size-9 shrink-0 items-center justify-center rounded-md border"
-                        style={{
-                          borderColor: presetColor.border,
-                          backgroundColor: presetColor.bgSoft,
-                        }}
-                      >
-                        <svg
-                          className="size-5"
-                          fill="none"
-                          stroke={presetColor.primary}
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={preset.strokeWidth}
-                          viewBox={`0 0 ${preset.viewBoxSize} ${preset.viewBoxSize}`}
-                        >
-                          {preset.containerShape !== 'none' ? (
-                            <path d={getContainerPath(preset.containerShape, preset.viewBoxSize, preset.cornerRadius)} />
-                          ) : null}
-                          <path d={preset.glyphPath} />
-                        </svg>
-                      </div>
+                      <BrandIconSvg className="size-5" colorMode="brand" spec={preset} />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center justify-between gap-1">
+                        <span className="truncate text-xs font-semibold text-slate-900">{preset.name}</span>
+                        {preset.isCustom ? (
+                          <span className="shrink-0 rounded bg-amber-100 px-1 text-[9px] font-medium text-amber-800">
+                            Tùy biến
+                          </span>
+                        ) : (
+                          <span className="shrink-0 text-[10px] text-slate-400">{preset.category}</span>
+                        )}
+                      </span>
+                      <span className="line-clamp-1 text-[11px] text-slate-500">{preset.description}</span>
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
 
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center justify-between gap-1">
-                          <p className="truncate text-xs font-semibold text-slate-900">{preset.name}</p>
-                          {preset.isCustom ? (
-                            <span className="shrink-0 rounded bg-amber-100 px-1 py-0.2 text-[9px] font-medium text-amber-800">
-                              Tùy biến
-                            </span>
-                          ) : (
-                            <span className="shrink-0 text-[10px] text-slate-400">{preset.category}</span>
-                          )}
-                        </div>
-                        <p className="line-clamp-1 text-[11px] text-slate-500">{preset.description}</p>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* CỘT 2: DETAIL CANVAS & INSPECTOR (5 cột / 12) - Thiết kế Trực quan */}
-        <div className="space-y-4 lg:col-span-5">
-          {/* Canvas vẽ SVG tương tác */}
-          <Card className="border-slate-200/90 bg-white shadow-xs">
-            <CardHeader className="border-b border-slate-100 bg-slate-50/70 px-4 py-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Palette className="size-4 text-blue-600" />
-                  <CardTitle className="text-sm font-semibold text-slate-900">
-                    {iconSpec.name}
-                  </CardTitle>
-                </div>
+        {/* CỘT 2: Canvas và bảng tuỳ biến */}
+        <div className="min-w-0 space-y-8 lg:col-span-5 lg:px-6">
+          <section>
+            <PanelTitle
+              aside={
                 <Button
-                  className="size-7 p-0 text-slate-500 hover:bg-slate-200/60 hover:text-slate-900"
+                  className="size-7 rounded p-0 text-slate-500 hover:bg-slate-200/60 hover:text-slate-900"
                   onClick={() => setShowGrid(!showGrid)}
                   size="sm"
-                  title="Bật/Tắt Lưới Pixel"
+                  title="Bật/Tắt lưới pixel"
                   variant="ghost"
                 >
                   <Grid className={`size-4 ${showGrid ? 'text-blue-600' : 'text-slate-400'}`} />
                 </Button>
-              </div>
-            </CardHeader>
-            <CardContent className="flex flex-col items-center justify-center p-6">
-              {/* Vùng Canvas SVG phóng to 240x240 - Nền sáng */}
-              <div className="relative flex size-60 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 p-4 shadow-inner">
-                {/* Lưới tọa độ 24x24 */}
+              }
+              icon={Palette}
+              title={iconSpec.name}
+            />
+            <div className="mt-4 flex flex-col items-center">
+              {/* Vùng canvas là mặt làm việc của công cụ nên giữ khung */}
+              <div className="relative flex size-60 items-center justify-center rounded-md border border-slate-200 bg-white p-4">
                 {showGrid ? (
                   <svg
                     className="pointer-events-none absolute inset-0 size-full stroke-slate-300/60"
@@ -452,126 +441,53 @@ export function BrandStudioConsole() {
                   </svg>
                 ) : null}
 
-                {/* SVG Render chính */}
-                <svg
-                  className="relative z-10 size-44 drop-shadow-sm transition-all"
-                  fill="none"
-                  viewBox={`0 0 ${iconSpec.viewBoxSize} ${iconSpec.viewBoxSize}`}
-                >
-                  {iconSpec.containerFill === 'gradient' ? (
-                    <defs>
-                      <linearGradient id="canvas-gradient-light" x1="0%" x2="100%" y1="0%" y2="100%">
-                        <stop offset="0%" stopColor={colorDef.primary} stopOpacity="0.25" />
-                        <stop offset="100%" stopColor={colorDef.secondary} stopOpacity="0.05" />
-                      </linearGradient>
-                    </defs>
-                  ) : null}
-
-                  {/* Khung chứa */}
-                  {containerPath ? (
-                    <path
-                      d={containerPath}
-                      fill={
-                        iconSpec.containerFill === 'solid'
-                          ? colorDef.bgSoft
-                          : iconSpec.containerFill === 'gradient'
-                          ? 'url(#canvas-gradient-light)'
-                          : 'none'
-                      }
-                      stroke={colorDef.primary}
-                      strokeLinejoin="round"
-                      strokeWidth={iconSpec.strokeWidth}
-                    />
-                  ) : null}
-
-                  {/* Nét vẽ lõi */}
-                  <path
-                    d={iconSpec.glyphPath}
-                    stroke={colorDef.primary}
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={iconSpec.strokeWidth}
-                  />
-
-                  {/* Nét phụ nếu có */}
-                  {iconSpec.secondaryPath ? (
-                    <path
-                      d={iconSpec.secondaryPath}
-                      opacity="0.6"
-                      stroke={colorDef.border}
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={iconSpec.strokeWidth}
-                    />
-                  ) : null}
-
-                  {/* Điểm nhấn thương hiệu */}
-                  {iconSpec.accentDot ? (
-                    <circle cx={iconSpec.viewBoxSize - 3.5} cy="3.5" fill={colorDef.primary} r="1.5" />
-                  ) : null}
-                </svg>
+                {/* SVG Render chính: dùng chung cây phần tử với bộ xuất mã */}
+                <BrandIconSvg
+                  className="relative z-10 size-44 transition-all"
+                  colorMode={colorMode}
+                  spec={iconSpec}
+                />
               </div>
 
-              <div className="mt-3 flex items-center gap-3 text-xs text-slate-500">
+              <div className="mt-3 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-xs text-slate-500">
                 <span>Lưới chuẩn: <strong>24x24 px</strong></span>
                 <span>•</span>
                 <span>Nét: <strong>{iconSpec.strokeWidth}px</strong></span>
                 <span>•</span>
                 <span>Bo góc: <strong>{iconSpec.cornerRadius}px</strong></span>
+                <span>•</span>
+                <span>Hình lõi: <strong>{Math.round(glyphScale * 100)}%</strong></span>
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          </section>
 
-          {/* Bảng điều khiển tham số (Inspector) - Chia 3 Tab: Style / Thư viện Nét / Tùy biến Path */}
-          <Card className="border-slate-200/90 bg-white shadow-xs">
-            <CardHeader className="border-b border-slate-100 bg-slate-50/70 px-4 py-2.5">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Sliders className="size-4 text-blue-600" />
-                  <CardTitle className="text-xs font-semibold uppercase tracking-wider text-slate-600">
-                    Bảng Tùy Biến
-                  </CardTitle>
-                </div>
+          {/* Bảng tuỳ biến: thanh tab gạch chân thay cho thẻ có tiêu đề */}
+          <section>
+            <div className="flex items-center gap-1 border-b border-slate-200">
+              <Sliders className="mr-1 size-4 text-blue-600" />
+              {(
+                [
+                  { id: 'style', label: 'Kiểu dáng & Màu' },
+                  { id: 'glyph', label: 'Thư viện Nét' },
+                  { id: 'custom-path', label: 'Nhập Mã SVG Path' },
+                ] as const
+              ).map((tab) => (
+                <button
+                  className={`-mb-px border-b-2 px-2.5 py-2 text-xs font-semibold transition-colors ${
+                    activeInspectorTab === tab.id
+                      ? 'border-blue-600 text-blue-700'
+                      : 'border-transparent text-slate-500 hover:text-slate-900'
+                  }`}
+                  key={tab.id}
+                  onClick={() => setActiveInspectorTab(tab.id)}
+                  type="button"
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
 
-                <div className="flex rounded-md border border-slate-200 bg-slate-100 p-0.5">
-                  <button
-                    className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
-                      activeInspectorTab === 'style'
-                        ? 'bg-white text-blue-700 shadow-xs'
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                    onClick={() => setActiveInspectorTab('style')}
-                    type="button"
-                  >
-                    Kiểu dáng & Màu
-                  </button>
-                  <button
-                    className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
-                      activeInspectorTab === 'glyph'
-                        ? 'bg-white text-blue-700 shadow-xs'
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                    onClick={() => setActiveInspectorTab('glyph')}
-                    type="button"
-                  >
-                    Thư viện Nét
-                  </button>
-                  <button
-                    className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
-                      activeInspectorTab === 'custom-path'
-                        ? 'bg-white text-blue-700 shadow-xs'
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                    onClick={() => setActiveInspectorTab('custom-path')}
-                    type="button"
-                  >
-                    Nhập Mã SVG Path
-                  </button>
-                </div>
-              </div>
-            </CardHeader>
-
-            <CardContent className="space-y-4 p-4 text-xs">
+            <div className="space-y-4 pt-4 text-xs">
               {/* TAB 1: STYLE & COLOR */}
               {activeInspectorTab === 'style' ? (
                 <div className="space-y-4">
@@ -583,9 +499,9 @@ export function BrandStudioConsole() {
                         const isShapeSelected = iconSpec.containerShape === id;
                         return (
                           <button
-                            className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-2 text-xs font-medium transition-all ${
+                            className={`flex items-center gap-1.5 rounded border px-2.5 py-2 text-xs font-medium transition-all ${
                               isShapeSelected
-                                ? 'border-blue-600 bg-blue-50 text-blue-800 shadow-xs ring-1 ring-blue-500/20'
+                                ? 'border-blue-600 bg-blue-50 text-blue-800'
                                 : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50'
                             }`}
                             key={id}
@@ -613,9 +529,9 @@ export function BrandStudioConsole() {
                         };
                         return (
                           <button
-                            className={`rounded-lg border px-2.5 py-2 text-center text-xs font-medium transition-all ${
+                            className={`rounded border px-2.5 py-2 text-center text-xs font-medium transition-all ${
                               isFillSelected
-                                ? 'border-blue-600 bg-blue-50 text-blue-800 shadow-xs ring-1 ring-blue-500/20'
+                                ? 'border-blue-600 bg-blue-50 text-blue-800'
                                 : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50'
                             }`}
                             key={fill}
@@ -640,7 +556,7 @@ export function BrandStudioConsole() {
                           <button
                             className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-all ${
                               isColorSelected
-                                ? 'border-slate-900 bg-slate-900 text-white shadow-xs'
+                                ? 'border-slate-900 bg-slate-900 text-white'
                                 : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50'
                             }`}
                             key={colorKey}
@@ -688,6 +604,36 @@ export function BrandStudioConsole() {
                         value={iconSpec.cornerRadius}
                       />
                     </div>
+
+                    <div className="col-span-2 space-y-1.5">
+                      <div className="flex justify-between text-slate-700">
+                        <span className="font-medium">
+                          Tỷ lệ hình lõi trong khung:
+                          {iconSpec.glyphScale === undefined ? <span className="ml-1 text-slate-400">(tự động)</span> : null}
+                        </span>
+                        <span className="flex items-center gap-2">
+                          <strong className="text-blue-600">{Math.round(glyphScale * 100)}%</strong>
+                          {iconSpec.glyphScale !== undefined ? (
+                            <button
+                              className="font-medium text-blue-700 hover:underline"
+                              onClick={() => handleUpdateCurrentSpec({ glyphScale: undefined })}
+                              type="button"
+                            >
+                              Tự động
+                            </button>
+                          ) : null}
+                        </span>
+                      </div>
+                      <input
+                        className="w-full accent-blue-600"
+                        max="1.1"
+                        min="0.5"
+                        onChange={(e) => handleUpdateCurrentSpec({ glyphScale: parseFloat(e.target.value) })}
+                        step="0.05"
+                        type="range"
+                        value={glyphScale}
+                      />
+                    </div>
                   </div>
                 </div>
               ) : null}
@@ -703,9 +649,9 @@ export function BrandStudioConsole() {
                       const isGlyphActive = iconSpec.glyphPath === g.path;
                       return (
                         <button
-                          className={`flex items-center gap-2.5 rounded-lg border p-2 text-left transition-all ${
+                          className={`flex items-center gap-2.5 rounded border p-2 text-left transition-all ${
                             isGlyphActive
-                              ? 'border-blue-600 bg-blue-50 text-blue-900 shadow-xs ring-1 ring-blue-500/20'
+                              ? 'border-blue-600 bg-blue-50 text-blue-900'
                               : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50'
                           }`}
                           key={g.id}
@@ -737,120 +683,88 @@ export function BrandStudioConsole() {
               {/* TAB 3: CUSTOM SVG PATH (Dán mã SVG vẽ từ bên ngoài) */}
               {activeInspectorTab === 'custom-path' ? (
                 <div className="space-y-3">
-                  <div className="rounded-md border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-900">
-                    <strong>Hỗ trợ tùy biến không giới hạn:</strong> Bạn có thể vẽ icon từ GodSVG, Figma, Illustrator hoặc sao chép từ bất kỳ thư viện icon nào, sau đó dán chuỗi thuộc tính <code>d="..."</code> vào ô bên dưới.
+                  <div className="rounded border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-900">
+                    <strong>Dán thẳng mã SVG:</strong> với Lucide, Figma, GodSVG hay bất kỳ thư viện icon nào, bấm &quot;Copy SVG&quot; rồi dán nguyên đoạn <code>&lt;svg&gt;...&lt;/svg&gt;</code> vào ô bên dưới, Studio tự gộp các hình (path, circle, rect, line...) thành một chuỗi path. Bạn vẫn có thể dán riêng chuỗi <code>d=&quot;...&quot;</code>.
                   </div>
 
                   <div className="space-y-1">
                     <label className="font-semibold text-slate-700">Chuỗi tọa độ nét chính (Main Glyph Path `d`):</label>
                     <textarea
-                      className="w-full rounded-md border border-slate-300 bg-white p-2 font-mono text-[11px] text-slate-800 shadow-xs focus:border-blue-500 focus:outline-none"
-                      onChange={(e) => handleUpdateCurrentSpec({ glyphPath: e.target.value })}
+                      className="w-full rounded border border-slate-300 bg-white p-2 font-mono text-[11px] text-slate-800 focus:border-blue-500 focus:outline-none"
+                      onChange={(e) => {
+                        setPathImportNote(null);
+                        handleUpdateCurrentSpec({ glyphPath: e.target.value });
+                      }}
+                      onPaste={(e) => handlePathPaste('glyphPath', e)}
                       rows={4}
                       value={iconSpec.glyphPath}
                     />
+                    {renderPathImportNote('glyphPath')}
+                    {!glyphPathValid ? (
+                      <p className="text-[11px] text-red-600" role="alert">
+                        Chuỗi path không hợp lệ (phải bắt đầu bằng M và chỉ gồm lệnh, số, dấu cách, dấu phẩy). Nét này chưa được hiển thị hay xuất ra.
+                      </p>
+                    ) : null}
                   </div>
 
                   <div className="space-y-1">
                     <label className="font-semibold text-slate-700">Chuỗi tọa độ nét phụ (Secondary Path `d` - Tùy chọn):</label>
                     <textarea
-                      className="w-full rounded-md border border-slate-300 bg-white p-2 font-mono text-[11px] text-slate-800 shadow-xs focus:border-blue-500 focus:outline-none"
-                      onChange={(e) => handleUpdateCurrentSpec({ secondaryPath: e.target.value })}
+                      className="w-full rounded border border-slate-300 bg-white p-2 font-mono text-[11px] text-slate-800 focus:border-blue-500 focus:outline-none"
+                      onChange={(e) => {
+                        setPathImportNote(null);
+                        handleUpdateCurrentSpec({ secondaryPath: e.target.value });
+                      }}
+                      onPaste={(e) => handlePathPaste('secondaryPath', e)}
                       placeholder="Nhập nét phụ mờ (nếu có)..."
                       rows={2}
                       value={iconSpec.secondaryPath ?? ''}
                     />
+                    {renderPathImportNote('secondaryPath')}
+                    {!secondaryPathValid ? (
+                      <p className="text-[11px] text-red-600" role="alert">
+                        Chuỗi path không hợp lệ. Nét phụ chưa được hiển thị hay xuất ra.
+                      </p>
+                    ) : null}
                   </div>
                 </div>
               ) : null}
-            </CardContent>
-          </Card>
+            </div>
+          </section>
         </div>
 
-        {/* CỘT 3: PREVIEW ĐA NGỮ CẢNH & EXPORT CODE (4 cột / 12) */}
-        <div className="space-y-4 lg:col-span-4">
-          {/* Xem trước thực tế (Live Mockup) */}
-          <Card className="border-slate-200/90 bg-white shadow-xs">
-            <CardHeader className="border-b border-slate-100 bg-slate-50/70 px-4 py-3">
-              <div className="flex items-center gap-2">
-                <Eye className="size-4 text-blue-600" />
-                <CardTitle className="text-xs font-semibold uppercase tracking-wider text-slate-600">
-                  Xem Trước Thực Tế (Live Preview)
-                </CardTitle>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-3 p-4">
-              {/* Ngữ cảnh 1: Tab Favicon Trình Duyệt */}
+        {/* CỘT 3: Xem trước và xuất mã */}
+        <div className="min-w-0 space-y-8 lg:col-span-4 lg:pl-6">
+          <section>
+            <PanelTitle icon={Eye} title="Xem trước thực tế (Live Preview)" />
+            <div className="mt-4 space-y-4">
+              {/* Các khung nhỏ dưới đây mô phỏng giao diện thật nên giữ viền */}
               <div className="space-y-1">
-                <span className="text-[11px] font-medium text-slate-500">1. Tab Trình Duyệt (Favicon 16px):</span>
-                <div className="flex items-center gap-2 rounded-t-lg border border-slate-200 bg-slate-100 px-3 py-1.5 text-xs text-slate-700">
-                  <div
-                    className="flex size-4 shrink-0 items-center justify-center rounded"
-                    style={{ backgroundColor: colorDef.bgSoft }}
-                  >
-                    <svg
-                      className="size-3.5"
-                      fill="none"
-                      stroke={colorDef.primary}
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth="2"
-                      viewBox={`0 0 ${iconSpec.viewBoxSize} ${iconSpec.viewBoxSize}`}
-                    >
-                      <path d={iconSpec.glyphPath} />
-                    </svg>
-                  </div>
+                <span className="text-[11px] font-medium text-slate-500">1. Tab trình duyệt (Favicon 16px):</span>
+                <div className="flex items-center gap-2 rounded-t-md border border-slate-200 bg-slate-100 px-3 py-1.5 text-xs text-slate-700">
+                  <BrandIconSvg className="size-4 shrink-0" colorMode="brand" spec={iconSpec} />
                   <span className="truncate font-medium text-slate-800">SVNDTS Enterprise Platform</span>
                   <span className="ml-auto text-slate-400">✕</span>
                 </div>
               </div>
 
-              {/* Ngữ cảnh 2: Thanh Sidebar Navigation (Khung tối chuẩn của Platform) */}
               <div className="space-y-1">
-                <span className="text-[11px] font-medium text-slate-500">2. Mục Điều Hướng Thanh Bên (Sidebar 20px):</span>
-                <div className="flex items-center gap-3 rounded-md bg-[#091426] px-3 py-2 text-xs text-slate-200 shadow-xs">
-                  <div className="flex size-5 shrink-0 items-center justify-center">
-                    <svg
-                      className="size-4"
-                      fill="none"
-                      stroke={colorDef.primary}
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={iconSpec.strokeWidth}
-                      viewBox={`0 0 ${iconSpec.viewBoxSize} ${iconSpec.viewBoxSize}`}
-                    >
-                      {containerPath ? <path d={containerPath} /> : null}
-                      <path d={iconSpec.glyphPath} />
-                    </svg>
-                  </div>
-                  <span className="font-medium text-white">{iconSpec.name}</span>
-                  <span className="ml-auto rounded bg-blue-600/40 px-1.5 py-0.5 text-[10px] text-blue-200">Kích hoạt</span>
+                <span className="text-[11px] font-medium text-slate-500">2. Mục điều hướng thanh bên sáng (Sidebar 20px):</span>
+                <div className="flex items-center gap-3 rounded border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700">
+                  <BrandIconSvg className="size-5 shrink-0" colorMode="brand" spec={iconSpec} />
+                  <span className="font-medium text-slate-900">{iconSpec.name}</span>
+                  <span className="ml-auto rounded bg-blue-50 px-1.5 py-0.5 text-[10px] text-blue-700">Kích hoạt</span>
                 </div>
               </div>
 
-              {/* Ngữ cảnh 3: Thẻ Phân Hệ (Module Card 32px) */}
               <div className="space-y-1">
-                <span className="text-[11px] font-medium text-slate-500">3. Thẻ Phân Hệ Bảng Điều Khiển (Module Card):</span>
-                <div className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white p-3 shadow-xs">
+                <span className="text-[11px] font-medium text-slate-500">3. Thẻ phân hệ bảng điều khiển (Module Card):</span>
+                <div className="flex items-center gap-3 rounded-md border border-slate-200 bg-white p-3">
                   <div
-                    className="flex size-10 shrink-0 items-center justify-center rounded-lg border"
-                    style={{
-                      borderColor: colorDef.border,
-                      backgroundColor: colorDef.bgSoft,
-                    }}
+                    className="flex size-10 shrink-0 items-center justify-center rounded"
+                    style={{ backgroundColor: colorDef.bgSoft }}
                   >
-                    <svg
-                      className="size-6"
-                      fill="none"
-                      stroke={colorDef.primary}
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={iconSpec.strokeWidth}
-                      viewBox={`0 0 ${iconSpec.viewBoxSize} ${iconSpec.viewBoxSize}`}
-                    >
-                      {containerPath ? <path d={containerPath} /> : null}
-                      <path d={iconSpec.glyphPath} />
-                    </svg>
+                    <BrandIconSvg className="size-6" colorMode="brand" spec={iconSpec} />
                   </div>
                   <div className="min-w-0">
                     <h4 className="text-xs font-semibold text-slate-900">{iconSpec.name}</h4>
@@ -858,72 +772,106 @@ export function BrandStudioConsole() {
                   </div>
                 </div>
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          </section>
 
-          {/* Hộp Xuất Mã Nguồn (Export Engine) */}
-          <Card className="border-slate-200/90 bg-white shadow-xs">
-            <CardHeader className="border-b border-slate-100 bg-slate-50/70 px-4 py-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Code2 className="size-4 text-blue-600" />
-                  <CardTitle className="text-xs font-semibold uppercase tracking-wider text-slate-600">
-                    Bộ Xuất Mã Sạch
-                  </CardTitle>
+          <section>
+            <PanelTitle
+              aside={
+                <div className="flex rounded border border-slate-200 bg-slate-100 p-0.5">
+                  {(
+                    [
+                      { id: 'svg', label: 'Clean SVG' },
+                      { id: 'tsx', label: 'React TSX' },
+                    ] as const
+                  ).map((tab) => (
+                    <button
+                      className={`rounded-sm px-2 py-0.5 text-[11px] font-medium transition-colors ${
+                        activeCodeTab === tab.id ? 'bg-blue-600 text-white' : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                      key={tab.id}
+                      onClick={() => setActiveCodeTab(tab.id)}
+                      type="button"
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
                 </div>
-
-                <div className="flex rounded-md border border-slate-200 bg-slate-100 p-0.5">
-                  <button
-                    className={`rounded px-2 py-0.5 text-[11px] font-medium transition-colors ${
-                      activeCodeTab === 'svg' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                    onClick={() => setActiveCodeTab('svg')}
-                    type="button"
-                  >
-                    Clean SVG
-                  </button>
-                  <button
-                    className={`rounded px-2 py-0.5 text-[11px] font-medium transition-colors ${
-                      activeCodeTab === 'tsx' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                    onClick={() => setActiveCodeTab('tsx')}
-                    type="button"
-                  >
-                    React TSX
-                  </button>
+              }
+              icon={Code2}
+              title="Bộ xuất mã sạch"
+            />
+            <div className="mt-4 space-y-3">
+              <div className="space-y-1.5">
+                <span className="text-[11px] font-medium text-slate-500">Màu khi xuất:</span>
+                <div className="grid grid-cols-2 gap-2">
+                  {(
+                    [
+                      { id: 'currentColor', label: 'Theo ngữ cảnh', hint: 'currentColor, đổi theo chữ xung quanh' },
+                      { id: 'brand', label: 'Cố định màu SVNDTS', hint: 'Ghi cứng mã màu, cho file độc lập' },
+                    ] as const
+                  ).map((option) => (
+                    <button
+                      className={`rounded border px-2.5 py-1.5 text-left transition-colors ${
+                        colorMode === option.id
+                          ? 'border-blue-600 bg-blue-50 text-blue-900'
+                          : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50'
+                      }`}
+                      key={option.id}
+                      onClick={() => setColorMode(option.id)}
+                      type="button"
+                    >
+                      <span className="block text-xs font-semibold">{option.label}</span>
+                      <span className="block text-[10px] text-slate-500">{option.hint}</span>
+                    </button>
+                  ))}
                 </div>
               </div>
-            </CardHeader>
-            <CardContent className="space-y-3 p-4">
-              <div className="relative">
-                <pre className="max-h-48 overflow-x-auto rounded-lg border border-slate-800 bg-[#091426] p-3 font-mono text-[11px] leading-relaxed text-slate-200">
-                  {activeCodeTab === 'svg' ? cleanSvgCode : reactTsxCode}
-                </pre>
-              </div>
 
-              <div className="flex items-center gap-2">
-                <Button
-                  className="w-full bg-blue-600 text-white hover:bg-blue-700 shadow-xs"
-                  onClick={() => handleCopyCode(activeCodeTab)}
-                  size="sm"
-                >
-                  {copiedType === activeCodeTab ? (
-                    <>
-                      <Check className="mr-1.5 size-3.5 text-emerald-300" />
-                      Đã sao chép!
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="mr-1.5 size-3.5" />
-                      Sao chép {activeCodeTab === 'svg' ? 'Mã SVG' : 'Component TSX'}
-                    </>
-                  )}
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
+              <pre className="max-h-48 overflow-auto rounded-md bg-[#091426] p-3 font-mono text-[11px] leading-relaxed text-slate-200">
+                {activeCodeTab === 'svg' ? cleanSvgCode : reactTsxCode}
+              </pre>
+
+              <Button
+                className="w-full rounded bg-blue-600 text-white hover:bg-blue-700"
+                onClick={() => handleCopyCode(activeCodeTab)}
+              >
+                {copiedType === activeCodeTab ? (
+                  <>
+                    <Check className="size-4 text-emerald-300" />
+                    Đã sao chép!
+                  </>
+                ) : (
+                  <>
+                    <Copy className="size-4" />
+                    Sao chép {activeCodeTab === 'svg' ? 'mã SVG' : 'component TSX'}
+                  </>
+                )}
+              </Button>
+            </div>
+          </section>
         </div>
       </div>
+    </div>
+  );
+}
+
+function PanelTitle({
+  title,
+  icon: Icon,
+  aside,
+}: {
+  title: string;
+  icon?: typeof Palette;
+  aside?: ReactNode;
+}) {
+  return (
+    <div className="flex min-h-8 items-center justify-between gap-2 border-b border-slate-200 pb-2">
+      <div className="flex min-w-0 items-center gap-2">
+        {Icon ? <Icon className="size-4 shrink-0 text-blue-600" /> : null}
+        <h2 className="truncate text-xs font-semibold uppercase tracking-wider text-slate-600">{title}</h2>
+      </div>
+      {typeof aside === 'string' ? <span className="shrink-0 text-[11px] text-slate-500">{aside}</span> : aside}
     </div>
   );
 }

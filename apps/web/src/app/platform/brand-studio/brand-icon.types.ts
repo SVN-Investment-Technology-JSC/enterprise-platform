@@ -2,6 +2,12 @@ export type ContainerShape = 'none' | 'squircle' | 'shield' | 'hexagon' | 'circl
 export type ContainerFill = 'none' | 'solid' | 'gradient';
 export type BrandColorKey = 'sapphire' | 'navy' | 'emerald' | 'amber' | 'crimson' | 'violet' | 'slate';
 
+/**
+ * `currentColor`: icon nhận màu từ chữ xung quanh (đổi theo giao diện, trạng thái).
+ * `brand`: ghi cứng màu thương hiệu, dùng cho file độc lập như favicon.
+ */
+export type ExportColorMode = 'currentColor' | 'brand';
+
 export interface BrandColorDefinition {
   name: string;
   primary: string;
@@ -76,6 +82,8 @@ export interface StructuredIconSpec {
   accentDot: boolean;
   glyphPath: string;
   secondaryPath?: string;
+  /** Tỷ lệ co hình lõi quanh tâm; bỏ trống thì tự chọn theo khung chứa. */
+  glyphScale?: number;
   isCustom?: boolean;
 }
 
