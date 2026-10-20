@@ -3,7 +3,6 @@ import type { TenantSummary } from '@enterprise-platform/contracts-tenancy';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { TenantManagement } from '../tenant-management';
-import { PageBreadcrumb } from '@/components/ui/page-breadcrumb';
 
 export default async function PlatformTenantsPage() {
   const cookieHeader = (await cookies()).toString();
@@ -29,13 +28,6 @@ export default async function PlatformTenantsPage() {
 
   return (
     <>
-      <PageBreadcrumb
-        className="mb-5"
-        items={[
-          { label: 'Quản trị hệ thống', href: '/platform' },
-          { label: 'Quản lý Tenant' },
-        ]}
-      />
       <TenantManagement
         canDelete={principal.permissions?.includes('platform.tenants.delete') ?? false}
         initialTenants={tenants}

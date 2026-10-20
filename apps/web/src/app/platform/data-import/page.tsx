@@ -3,7 +3,6 @@ import type { TenantSummary } from '@enterprise-platform/contracts-tenancy';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { DataImportWorkspace } from './data-import-workspace';
-import { PageBreadcrumb } from '@/components/ui/page-breadcrumb';
 
 export default async function PlatformDataImportPage() {
   const cookieHeader = (await cookies()).toString();
@@ -29,13 +28,6 @@ export default async function PlatformDataImportPage() {
 
   return (
     <>
-      <PageBreadcrumb
-        className="mb-5"
-        items={[
-          { label: 'Quản trị hệ thống', href: '/platform' },
-          { label: 'Data Import' },
-        ]}
-      />
       <DataImportWorkspace tenants={tenants} />
     </>
   );

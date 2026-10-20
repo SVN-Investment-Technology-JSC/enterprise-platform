@@ -1,7 +1,6 @@
 import type { PlanSummary } from '@enterprise-platform/contracts-tenancy';
 import { cookies } from 'next/headers';
 import { PlansManagement } from './plans-management';
-import { PageBreadcrumb } from '@/components/ui/page-breadcrumb';
 
 const DEFAULT_PLANS: PlanSummary[] = [
   {
@@ -56,13 +55,6 @@ export default async function PlatformPlansPage() {
 
   return (
     <>
-      <PageBreadcrumb
-        className="mb-5"
-        items={[
-          { label: 'Quản trị hệ thống', href: '/platform' },
-          { label: 'Gói dịch vụ & Hạn mức' },
-        ]}
-      />
       <div className="space-y-6">
         <div className="flex flex-col gap-1">
           <h1 className="text-2xl font-bold tracking-tight text-slate-900">
