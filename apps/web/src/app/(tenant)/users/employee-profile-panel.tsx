@@ -7,6 +7,7 @@ import type {
 import { SearchableSelect, authFetch } from '@enterprise-platform/shared-ui';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { TenantCoreUser } from './user-types';
+import { CARD_CLASS } from './user-ui';
 
 function csrfToken() {
   const value = document.cookie
@@ -144,11 +145,11 @@ export function EmployeeProfileContent({
   };
 
   return (
-    <div className="grid gap-3">
+    <div className="grid gap-4">
       {error ? (
         <div
           role="alert"
-          className="flex flex-wrap items-center gap-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700"
+          className={`${CARD_CLASS} flex flex-wrap items-center gap-3 border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700`}
         >
           <span className="min-w-0 flex-1">{error}</span>
           <button
@@ -162,10 +163,12 @@ export function EmployeeProfileContent({
         </div>
       ) : null}
       {!snapshot && !error ? (
-        <p className="text-sm text-slate-500">Đang tải…</p>
+        <p className={`${CARD_CLASS} m-0 px-4 py-3 text-sm text-slate-500`}>
+          Đang tải…
+        </p>
       ) : null}
       {snapshot && held.length === 0 ? (
-        <p className="rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-600">
+        <p className={`${CARD_CLASS} m-0 px-4 py-3 text-sm text-slate-600`}>
           Người này chưa được bổ nhiệm vào chức danh nào trong Sơ đồ tổ chức.
         </p>
       ) : null}
@@ -189,7 +192,7 @@ export function EmployeeProfileContent({
         return (
           <section
             key={member.assignmentId ?? member.positionId}
-            className="grid gap-2.5 rounded-[10px] border border-[#eef0f3] px-3.5 py-3"
+            className={`${CARD_CLASS} grid gap-3 p-4 sm:p-5`}
           >
             <header className="flex items-start justify-between gap-2">
               <div>

@@ -176,12 +176,7 @@ export function OverviewTab({
           </form>
         </UserCard>
 
-        {canReadOrganization ? (
-          <UserCard aria-label="Hồ sơ nhân sự" className="p-4 sm:p-5">
-            <h2 className={`${TITLE} mb-3.5`}>Hồ sơ nhân sự</h2>
-            <EmployeeProfileContent user={user} />
-          </UserCard>
-        ) : null}
+        {canReadOrganization ? <EmployeeProfileContent user={user} /> : null}
       </div>
 
       <div className="flex min-w-0 flex-col gap-4">
