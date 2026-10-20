@@ -54,13 +54,13 @@ export function PlatformNavigation({
   const pathname = usePathname();
   const currentActive: PlatformNavigationKey =
     active ??
-    (pathname.startsWith('/platform/brand-studio')
+    (pathname?.startsWith('/platform/brand-studio')
       ? 'brand-studio'
-      : pathname.startsWith('/platform/tenants')
+      : pathname?.startsWith('/platform/tenants')
       ? 'tenants'
-      : pathname.startsWith('/platform/data-import')
+      : pathname?.startsWith('/platform/data-import')
       ? 'data-import'
-      : pathname.startsWith('/platform/plans')
+      : pathname?.startsWith('/platform/plans')
       ? 'plans'
       : 'dashboard');
 
