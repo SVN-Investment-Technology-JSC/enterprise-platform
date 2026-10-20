@@ -158,6 +158,24 @@ describe('resolveDayOutcome', () => {
     ).toEqual(['MISSING_OUT']);
   });
 
+  it('số công của ngày công tác thứ Bảy ca sáng theo đăng ký của phiếu: cả ca là 1, nửa ca là 0,5', () => {
+    const saturday: DayShiftBounds = { ...shift, endMs: at(12), breakStartMs: null, breakEndMs: null };
+    const run = (trips: DayOutcomeInput['trips']) =>
+      resolveDayOutcome(
+        base({ shift: saturday, scheduledMinutes: 240, workedMinutes: 0, firstInMs: null, lastOutMs: null, trips }),
+      );
+    // Phiếu phủ trọn ca sáng 4 giờ: cả ngày công tác, số công 1 dù sức chứa của ca là 0,5.
+    expect(run([{ interval: { startMs: at(8), endMs: at(12) }, dayMinutes: 240 }])).toMatchObject({
+      paidMinutes: 240,
+      workdayUnits: 1,
+    });
+    // Phiếu chỉ nửa ca sáng: 0,5 công.
+    expect(run([{ interval: { startMs: at(8), endMs: at(10) }, dayMinutes: 120 }]).workdayUnits).toBe(0.5);
+    // Ngày không công tác giữ cách tính theo sức chứa của ca.
+    expect(run([]).workdayUnits).toBe(0);
+    expect(resolveDayOutcome(base({ shift: saturday, scheduledMinutes: 240, workedMinutes: 240 })).workdayUnits).toBe(0.5);
+  });
+
   it('ngày có công tác hoặc tăng ca đã duyệt: không tính đi trễ về sớm', () => {
     // Công tác buổi sáng, vào chiều 13:00 (công tác nửa ngày): không bị tính trễ.
     const trip = resolveDayOutcome(
@@ -231,6 +249,16 @@ describe('coveredMinutesOf: công tác ngày ca ngắn (thứ Bảy 08:00-12:00)
   it('ca 8 giờ: đơn 4 giờ buổi sáng vẫn là nửa ngày như cũ', () => {
     const r = coveredMinutesOf(shift, 480, [], trip(8, 12));
     expect(r).toMatchObject({ minutes: 240, wholeDay: false });
+  });
+
+  it('ca 8 giờ: hai đơn nửa ngày sáng và chiều cùng ngày là một ngày công tác trọn vẹn', () => {
+    const r = coveredMinutesOf(shift, 480, [], [...trip(8, 12), ...trip(13, 17)]);
+    expect(r).toMatchObject({ minutes: 480, wholeDay: true });
+  });
+
+  it('ca 8 giờ: hai đơn ngắn (2 giờ) ở hai buổi không chồng nhau cũng đủ cả ngày; một đơn ngắn thì vẫn nửa ngày', () => {
+    expect(coveredMinutesOf(shift, 480, [], [...trip(8, 10), ...trip(14, 16)])).toMatchObject({ minutes: 480, wholeDay: true });
+    expect(coveredMinutesOf(shift, 480, [], trip(8, 10))).toMatchObject({ minutes: 240, wholeDay: false });
   });
 });
 

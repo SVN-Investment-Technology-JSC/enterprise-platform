@@ -16,7 +16,7 @@ import {
   StatusPill,
   kitPanelProps,
 } from '../ui/settings-kit';
-import { CalendarPanel, DevicesPanel, SitesPanel } from '../ui/time-settings/list-panels';
+import { DevicesPanel, SitesPanel } from '../ui/time-settings/list-panels';
 import { PolicyDialog } from '../ui/time-settings/policy-dialog';
 import { RulesPanel } from '../ui/time-settings/rules-panel';
 import { SiteDialog, type SiteFormState } from '../ui/time-settings/site-dialog';
@@ -238,7 +238,6 @@ export default function TimeSettingsScreen() {
       requireGps: policy.requireGps,
       maxGpsAccuracyMeters: policy.maxGpsAccuracyMeters,
       requireDevice: policy.requireDevice,
-      weeklyOffDays: policy.weeklyOffDays,
       allowedIps: policy.allowedIps
         .split(',')
         .map((s) => s.trim())
@@ -351,11 +350,6 @@ export default function TimeSettingsScreen() {
           {urlReady && activeTab === 'rules' ? (
             <div {...panelProps('rules')}>
               <RulesPanel versions={data.versions} onCreate={openPolicyDialog} />
-            </div>
-          ) : null}
-          {urlReady && activeTab === 'calendar' ? (
-            <div {...panelProps('calendar')}>
-              <CalendarPanel rows={data.calendar} holidayStatus={data.holidayStatus} />
             </div>
           ) : null}
           {urlReady && activeTab === 'sites' ? (

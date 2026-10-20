@@ -79,15 +79,6 @@ export const SETTINGS_GROUPS: readonly SettingsGroup[] = [
         permissions: ['hrm.time.configure'],
       },
       {
-        id: 'time-calendar',
-        label: 'Lịch làm / OFF / Lễ',
-        description: 'Quản lý lịch làm việc, ngày nghỉ, ngày lễ',
-        icon: 'calendar',
-        view: 'time',
-        tab: 'calendar',
-        permissions: ['hrm.time.configure'],
-      },
-      {
         id: 'time-sites',
         label: 'Địa điểm GPS',
         description: 'Quản lý địa điểm làm việc theo GPS',

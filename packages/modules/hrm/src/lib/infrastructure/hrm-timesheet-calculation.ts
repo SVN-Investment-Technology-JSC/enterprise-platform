@@ -12,7 +12,6 @@ import { applyScheduleDayKind } from '../domain/work-schedule.js';
 import { generateAutoAttendance } from './hrm-auto-attendance.js';
 import { dayTripAllowance, loadActiveRates } from './hrm-trip-allowance.js';
 import { zonedMs } from './hrm-timesheet-board.js';
-import { dayWorkUnits } from '../domain/standard-workdays.js';
 import {
   dayContextForDate,
   effectiveDayKind,
@@ -132,9 +131,9 @@ export async function calculateTimesheet(
         timezone,
       );
       const shift = dayContext.shift;
-      // Lịch phân ca tường minh (nghỉ / lễ / làm bù) thắng ngày nghỉ hằng tuần của chính sách.
+      // Lịch phân ca của nhân viên (nghỉ / lễ / làm bù) quyết định ngày nghỉ; không còn ngày nghỉ hằng tuần dự phòng.
       const scheduledKind = applyScheduleDayKind(
-        effectiveDayKind(day.date, day.day_kind, policy?.config_json),
+        effectiveDayKind(day.day_kind),
         dayContext.scheduleDayType,
       );
       // Chủ nhật chưa phân ca là ngày trống (cùng quy tắc với bảng công xem trực tiếp và đơn nghỉ).
@@ -367,7 +366,7 @@ export async function calculateTimesheet(
           otMinutes,
           outcome.lateMinutes,
           outcome.earlyMinutes,
-          dayWorkUnits(paid, scheduled),
+          outcome.workdayUnits,
           status,
           JSON.stringify(snapshot),
           ots.rows[0]?.id || null,

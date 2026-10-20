@@ -13,7 +13,6 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from '../input';
 import { IconTile, InfoNote, RadioCards, SettingsField, SettingsSwitch, type KitTone } from '../settings-kit';
 import {
-  WEEKDAY_OPTIONS,
   type EmployeeOption,
   type PolicyFormState,
 } from './time-settings-model';
@@ -262,8 +261,8 @@ export function PolicyDialog({
             <FormBlock
               icon={Clock}
               tone="violet"
-              title="Thời gian & ngày nghỉ"
-              description="Múi giờ tính công và ngày nghỉ cố định hằng tuần."
+              title="Múi giờ"
+              description="Múi giờ dùng để xác định ngày chấm công. Ngày nghỉ hằng tuần khai báo ở Phân ca."
             >
               <SettingsField label="Múi giờ" required htmlFor={`${uid}-tz`}>
                 <Input
@@ -274,41 +273,6 @@ export function PolicyDialog({
                   onChange={(e) => patch({ timezone: e.target.value })}
                 />
               </SettingsField>
-              <fieldset className="space-y-1.5">
-                <legend className="text-xs font-medium text-slate-700">Ngày nghỉ hằng tuần</legend>
-                <div className="flex flex-wrap gap-2">
-                  {WEEKDAY_OPTIONS.map((d) => {
-                    const checked = policy.weeklyOffDays.includes(d.value);
-                    return (
-                      <label
-                        key={d.value}
-                        className={`flex h-9 min-w-14 cursor-pointer select-none items-center justify-center rounded-lg border px-3 text-xs font-semibold focus-within:ring-2 focus-within:ring-slate-300 ${
-                          checked
-                            ? 'border-blue-600 bg-blue-50 text-blue-700'
-                            : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
-                        }`}
-                      >
-                        <input
-                          type="checkbox"
-                          className="sr-only"
-                          checked={checked}
-                          onChange={(e) =>
-                            patch({
-                              weeklyOffDays: e.target.checked
-                                ? [...policy.weeklyOffDays, d.value]
-                                : policy.weeklyOffDays.filter((x) => x !== d.value),
-                            })
-                          }
-                        />
-                        {d.label}
-                      </label>
-                    );
-                  })}
-                </div>
-                <p className="text-[12px] leading-snug text-slate-500">
-                  Tính là ngày nghỉ (OFF) khi tính công, trừ khi lịch làm việc khai báo riêng ngày đó là ngày làm.
-                </p>
-              </fieldset>
             </FormBlock>
 
             <FormBlock

@@ -3,6 +3,7 @@
  * lúc tính công để chốt (calculateTimesheet). Hàm thuần: không đọc DB. Hai đường chỉ khác nhau ở cách NẠP dữ liệu,
  * còn số phút, trạng thái bất thường và số công đều do đây quyết định nên bảng và số chốt khớp theo cấu trúc.
  */
+import { dayWorkUnits } from './standard-workdays.js';
 
 /** Khoảng thời gian [startMs, endMs) mà đơn nghỉ hoặc công tác đã duyệt bao phủ (đơn có từ ngày giờ đến ngày giờ). */
 export interface CoveredInterval {
@@ -71,6 +72,8 @@ export interface DayOutcome {
   earlyMinutes: number;
   /** Nghỉ/công tác đã bao phủ toàn bộ ca: lỗi chấm công chỉ còn là ghi chú. */
   fullyCovered: boolean;
+  /** Số công của ngày: theo phút được trả lương, nhưng ngày công tác lấy theo đăng ký của phiếu (cả ngày 1, nửa ngày 0,5). */
+  workdayUnits: number;
 }
 
 const MINUTE = 60000;
@@ -118,6 +121,7 @@ export function coveredMinutesOf(
   const leaveIntervals: CoveredInterval[] = [];
   let wholeDay = false;
   let halfTrip = false;
+  const halfTripIntervals: CoveredInterval[] = [];
   for (const t of trips) {
     if (!t.interval) {
       wholeDay = true;
@@ -131,9 +135,13 @@ export function coveredMinutesOf(
       shift !== null &&
       scheduledMinutes > 0 &&
       workMinutesIn(shift, t.interval.startMs, t.interval.endMs) >= scheduledMinutes - 1;
-    if (minutes <= HALF_DAY_TRIP_MINUTES && !coversWholeShift) halfTrip = true;
-    else wholeDay = true;
+    if (minutes <= HALF_DAY_TRIP_MINUTES && !coversWholeShift) {
+      halfTrip = true;
+      halfTripIntervals.push(t.interval);
+    } else wholeDay = true;
   }
+  // Hai đơn công tác nửa ngày không chồng nhau trong cùng một ngày (sáng và chiều) là một ngày công tác trọn vẹn.
+  if (mergeIntervals(halfTripIntervals).length >= 2) wholeDay = true;
   let fallback = 0;
   for (const l of leaves) {
     if (l.interval) {
@@ -225,8 +233,18 @@ export function resolveDayOutcome(input: DayOutcomeInput): DayOutcome {
   if (legacy) kept.push('LEGACY_LEAVE_REQUIRES_REVIEW');
   if (hasLeave && hasTrip) kept.push('LEAVE_TRIP_OVERLAP');
 
+  // Công tác tính theo đăng ký của phiếu, không theo sức chứa của ca: thứ Bảy ca sáng 4 giờ có phiếu cả ngày vẫn là 1 công,
+  // phiếu nửa ngày là 0,5 công.
+  let workdayUnits = dayWorkUnits(paid, scheduled);
+  if (hasTrip && !off && !holiday && scheduled > 0) {
+    const trip = coveredMinutesOf(input.shift, scheduled, [], input.trips);
+    const tripUnits = trip.wholeDay ? 1 : trip.minutes > 0 ? 0.5 : 0;
+    workdayUnits = Math.max(workdayUnits, tripUnits);
+  }
+
   return {
     paidMinutes: paid,
+    workdayUnits,
     issues: kept,
     coveredMinutes: covered.minutes,
     lateMinutes: late,

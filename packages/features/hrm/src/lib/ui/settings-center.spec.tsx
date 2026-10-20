@@ -85,7 +85,7 @@ describe('SettingsCenter', () => {
     expect(screen.getByRole('heading', { name: 'Trung tâm cấu hình HRM' })).toBeTruthy();
     for (const id of ['leave', 'time', 'schedule', 'request', 'payroll', 'system'])
       expect(screen.getByTestId(`settings-group-${id}`)).toBeTruthy();
-    expect(screen.getByTestId('settings-count').textContent).toContain('12 mục cấu hình');
+    expect(screen.getByTestId('settings-count').textContent).toContain('11 mục cấu hình');
     expect(screen.getByRole('link', { name: /Lịch sử thay đổi/ }).getAttribute('href')).toBe('/settings?view=operations&tab=audit');
     expect(within(screen.getByTestId('settings-group-time')).getByRole('link', { name: /Địa điểm GPS/ }).getAttribute('href')).toBe(
       '/settings?view=time&tab=sites',
@@ -146,7 +146,7 @@ describe('SettingsCenter', () => {
     fireEvent.change(screen.getByLabelText('Tìm nhanh cấu hình'), { target: { value: 'luong' } });
     expect(screen.getByTestId('settings-group-payroll')).toBeTruthy();
     expect(screen.queryByTestId('settings-group-time')).toBeNull();
-    expect(screen.getByTestId('settings-count').textContent).toContain('12 mục cấu hình');
+    expect(screen.getByTestId('settings-count').textContent).toContain('11 mục cấu hình');
   });
   it('thu gọn và mở lại từng nhóm trong thanh bên; nhóm chứa mục đang mở không thu gọn được', () => {
     mockView = 'time';

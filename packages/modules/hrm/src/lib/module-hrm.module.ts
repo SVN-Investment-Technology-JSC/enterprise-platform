@@ -28,6 +28,7 @@ import { HrmAttendanceMonitorController } from './presentation/hrm-attendance-mo
 import { HrmTimesheetBoardController } from './presentation/hrm-timesheet-board.controller.js';
 import { HrmTimeSettingsController } from './presentation/hrm-time-settings.controller.js';
 import { HrmRequestQuotaSettingsController } from './presentation/hrm-request-quota-settings.controller.js';
+import { HrmAutoAttendanceEmployeesController } from './presentation/hrm-auto-attendance-employees.controller.js';
 import { HrmAutoAttendanceSettingsController } from './presentation/hrm-auto-attendance-settings.controller.js';
 import { HrmTimesheetStandardController } from './presentation/hrm-timesheet-standard.controller.js';
 import { HrmPayrollSettingsController } from './presentation/hrm-payroll-settings.controller.js';
@@ -67,6 +68,7 @@ import { OrgHrmBridgeConsumer } from './infrastructure/org-hrm-bridge.consumer.j
     HrmTimeSettingsController,
     HrmTimesheetStandardController,
     HrmAutoAttendanceSettingsController,
+    HrmAutoAttendanceEmployeesController,
     HrmRequestQuotaSettingsController,
     HrmPayrollSettingsController,
     HrmProfileCorrectionController,

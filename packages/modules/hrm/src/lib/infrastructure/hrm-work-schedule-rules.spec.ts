@@ -385,7 +385,7 @@ describe('lịch định kỳ được tính vào loại ngày (đơn nghỉ ph�
           return { rows };
         }
         if (sql.includes('hrm_schema.timesheet_periods')) return { rows: [] };
-        if (sql.includes('FROM hrm_schema.policy_versions')) return { rows: [{ id: 'p', config_json: { weeklyOffDays: [] } }] };
+        if (sql.includes('FROM hrm_schema.policy_versions')) return { rows: [{ id: 'p', config_json: {} }] };
         return { rows: [], rowCount: 0 };
       }),
     } as never;

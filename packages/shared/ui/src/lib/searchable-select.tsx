@@ -382,6 +382,8 @@ export function SearchableSelect({
     }
   };
 
+  const hasClear = Boolean(clearable && (query || value) && !disabled);
+
   return (
     <div
       ref={containerRef}
@@ -423,11 +425,11 @@ export function SearchableSelect({
         <input
           ref={inputRef}
           type="text"
-          className={`${styles.input} ${searchInDropdown ? styles.inputSelectOnly : ''} ${disabled ? styles.inputDisabled : ''}`}
+          className={`${styles.input} ${searchInDropdown ? styles.inputSelectOnly : ''} ${hasClear ? styles.inputHasClear : ''} ${disabled ? styles.inputDisabled : ''}`}
           style={height ? { height } : undefined}
           readOnly={searchInDropdown}
           placeholder={isOpen && !searchInDropdown ? (searchPlaceholder ?? placeholder) : placeholder}
-          title={!isOpen && query ? query : undefined}
+          title={!isOpen ? (query || placeholder || undefined) : undefined}
           value={query}
           disabled={disabled}
           onClick={() => {
@@ -443,7 +445,7 @@ export function SearchableSelect({
         />
 
         <div className={styles.actions}>
-          {clearable && (query || value) && !disabled ? (
+          {hasClear ? (
             <button
               type="button"
               className={styles.clearButton}

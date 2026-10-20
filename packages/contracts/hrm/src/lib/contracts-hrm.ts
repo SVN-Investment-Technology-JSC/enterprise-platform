@@ -176,7 +176,6 @@ export interface HrmEmployeeDependent {
   readonly dateOfBirth?: string | null;
   readonly phone?: string | null;
   readonly identityCardNumber?: string | null;
-  readonly taxCode?: string | null;
   readonly isDependent: boolean;
   readonly dependentFrom?: string | null;
   readonly dependentTo?: string | null;
@@ -191,7 +190,6 @@ export interface CreateEmployeeDependentRequest {
   readonly dateOfBirth?: string | null;
   readonly phone?: string | null;
   readonly identityCardNumber?: string | null;
-  readonly taxCode?: string | null;
   readonly isDependent?: boolean;
   readonly dependentFrom?: string | null;
   readonly dependentTo?: string | null;
@@ -205,7 +203,6 @@ export interface UpdateEmployeeDependentRequest {
   readonly dateOfBirth?: string | null;
   readonly phone?: string | null;
   readonly identityCardNumber?: string | null;
-  readonly taxCode?: string | null;
   readonly isDependent?: boolean;
   readonly dependentFrom?: string | null;
   readonly dependentTo?: string | null;
@@ -2918,6 +2915,40 @@ export interface HrmAutoAttendanceSettings {
   readonly enabledFrom: string | null;
   readonly ready: boolean;
   readonly updatedAt: string | null;
+}
+
+/**
+ * Cấu hình chấm công tự động của một nhân viên (migration 0066): `weekdays` null là mọi ngày có ca,
+ * `toDate` null là chưa kết thúc; `removedAt` khác null là dòng lịch sử đã gỡ.
+ */
+export interface HrmAutoAttendanceEmployee {
+  readonly id: string;
+  readonly employeeId: string;
+  readonly employeeCode: string | null;
+  readonly fullName: string | null;
+  readonly weekdays: readonly number[] | null;
+  readonly fromDate: string;
+  readonly toDate: string | null;
+  readonly reason: string;
+  readonly createdAt: string | null;
+  readonly updatedAt: string | null;
+  readonly removedAt: string | null;
+}
+
+export interface HrmAutoAttendanceEmployeesResponse {
+  readonly data: {
+    readonly active: readonly HrmAutoAttendanceEmployee[];
+    readonly history: readonly HrmAutoAttendanceEmployee[];
+  };
+  readonly ready: boolean;
+}
+
+export interface SaveAutoAttendanceEmployeeRequest {
+  readonly employeeId: string;
+  readonly weekdays?: readonly number[] | null;
+  readonly fromDate?: string;
+  readonly toDate?: string | null;
+  readonly reason: string;
 }
 
 /**

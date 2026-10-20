@@ -1873,7 +1873,6 @@ export class HrmEmployeeController {
       dateOfBirth: this.toDateString(row.date_of_birth),
       phone: row.phone as string | null,
       identityCardNumber: row.identity_card_number as string | null,
-      taxCode: row.tax_code as string | null,
       isDependent: Boolean(row.is_dependent),
       dependentFrom: this.toDateString(row.dependent_from),
       dependentTo: this.toDateString(row.dependent_to),

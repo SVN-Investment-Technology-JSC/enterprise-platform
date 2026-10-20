@@ -30,24 +30,9 @@ export function displayDate(value: unknown): string {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
   return match ? `${match[3]}/${match[2]}/${match[1]}` : iso;
 }
-/** Weekly day-off days (0=Sunday..6=Saturday) configured on the ATTENDANCE policy. */
-export function weeklyOffDaysOf(
-  config: Record<string, unknown> | null | undefined,
-): number[] {
-  const raw = config?.weeklyOffDays;
-  return Array.isArray(raw)
-    ? raw.filter((d): d is number => Number.isInteger(d) && d >= 0 && d <= 6)
-    : [];
-}
-/** Explicit work_calendar entries win; otherwise the weekly day-off applies. */
-export function effectiveDayKind(
-  date: string,
-  calendarKind: string | null | undefined,
-  config: Record<string, unknown> | null | undefined,
-): string | null {
-  if (calendarKind) return calendarKind;
-  const weekday = new Date(`${date}T00:00:00Z`).getUTCDay();
-  return weeklyOffDaysOf(config).includes(weekday) ? 'OFF' : null;
+/** Loại ngày của lịch công ty (work_calendar); null = không có dòng lịch. Ngày nghỉ hằng tuần do lịch phân ca quyết định. */
+export function effectiveDayKind(calendarKind: string | null | undefined): string | null {
+  return calendarKind || null;
 }
 /**
  * Chủ nhật chưa được phân ca (và không có lịch riêng) là ngày trống: không bị coi là ngày làm việc thiếu ca.
@@ -64,7 +49,7 @@ export function isUnassignedSunday(
     new Date(`${date}T00:00:00Z`).getUTCDay() === 0
   );
 }
-/** Loại ngày hiệu lực (work_calendar > ngày nghỉ hằng tuần của chính sách); null = ngày làm việc thường. */
+/** Loại ngày hiệu lực (work_calendar, rồi lịch phân ca của nhân viên); null = ngày làm việc thường. */
 export async function dayKindOf(
   db: Pick<PoolClient, 'query'>,
   tenantId: string,
@@ -75,15 +60,7 @@ export async function dayKindOf(
     `SELECT day_kind FROM hrm_schema.work_calendar WHERE tenant_id=$1 AND work_date=$2::date`,
     [tenantId, date],
   );
-  let config: Record<string, unknown> | undefined;
-  try {
-    config = (
-      await resolvePolicy(db as PoolClient, tenantId, 'ATTENDANCE', date, employeeId)
-    )?.config_json;
-  } catch {
-    config = undefined; // chính sách xung đột: không suy luận ngày nghỉ hằng tuần
-  }
-  const base = effectiveDayKind(date, calendar.rows[0]?.day_kind, config);
+  const base = effectiveDayKind(calendar.rows[0]?.day_kind);
   if (!employeeId) return base;
   return applyScheduleDayKind(base, await scheduleDayTypeOf(db, tenantId, employeeId, date));
 }

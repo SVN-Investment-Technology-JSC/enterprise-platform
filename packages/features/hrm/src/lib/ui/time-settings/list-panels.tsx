@@ -1,36 +1,26 @@
 'use client';
 /**
- * Ba mục dạng danh sách của "Chấm công & thiết bị": Lịch làm / OFF / Lễ, Địa điểm GPS, Thiết bị.
+ * Hai mục dạng danh sách của "Chấm công & thiết bị": Địa điểm GPS, Thiết bị.
  * Mỗi mục là một thẻ gồm thanh công cụ gọn (ô tìm, lọc, nút thêm) và danh sách co giãn theo khung chứa. Chỉ lo giao diện:
  * mọi thao tác ghi nằm ở màn hình cha và được truyền vào bằng hàm.
  */
 import { useMemo, useState, type ReactNode } from 'react';
-import Link from 'next/link';
-import { CalendarDays, MapPin, Plus, Search, Smartphone } from 'lucide-react';
+import { MapPin, Plus, Search, Smartphone } from 'lucide-react';
 import { Popconfirm, SearchableSelect } from '@enterprise-platform/shared-ui';
-import { formatDateVn } from '../../personnel-decision-rules';
 import { Button } from '../button';
 import { Input } from '../input';
 import { RowMenu } from '../row-menu';
 import { EmptyPanel, InfoNote, StatusPill, type PillTone } from '../settings-kit';
 import { Pager, ResponsiveList, usePaged, type ListColumn } from './responsive-list';
 import {
-  DAY_KIND_LABELS,
   DEVICE_STATUS_LABELS,
-  filterCalendar,
   filterDevices,
   filterSites,
-  type CalendarRow,
   type DeviceRow,
   type Settings,
   type SiteRow,
 } from './time-settings-model';
 
-const DAY_KIND_TONE: Record<string, PillTone> = {
-  WORK: 'slate',
-  OFF: 'amber',
-  HOLIDAY: 'red',
-};
 const DEVICE_TONE: Record<string, PillTone> = {
   PENDING: 'amber',
   ACTIVE: 'green',
@@ -114,106 +104,6 @@ function FilterSelect({
         clearable={false}
         onChange={(next) => onChange(next || options[0].value)}
       />
-    </div>
-  );
-}
-
-const CALENDAR_COLUMNS: ListColumn<CalendarRow>[] = [
-  {
-    id: 'date',
-    header: 'Ngày',
-    primary: true,
-    cell: (r) => <span className="text-sm font-semibold text-slate-900 @2xl:text-xs">{formatDateVn(r.work_date)}</span>,
-  },
-  { id: 'name', header: 'Tên', cell: (r) => r.name },
-  {
-    id: 'kind',
-    header: 'Loại',
-    cell: (r) => (
-      <StatusPill tone={DAY_KIND_TONE[r.day_kind] ?? 'slate'}>
-        {DAY_KIND_LABELS[r.day_kind] ?? r.day_kind}
-      </StatusPill>
-    ),
-  },
-  { id: 'paid', header: 'Hưởng lương', cell: (r) => (r.paid ? 'Có' : 'Không') },
-];
-
-/** Lịch ngày làm / OFF / lễ: chỉ đọc (quản lý tại Phân ca), có tìm kiếm và lọc theo loại ngày. */
-export function CalendarPanel({
-  rows,
-  holidayStatus,
-}: {
-  rows: Settings['calendar'];
-  holidayStatus?: Settings['holidayStatus'];
-}) {
-  const [search, setSearch] = useState('');
-  const [kind, setKind] = useState('ALL');
-  const filtered = useMemo(() => filterCalendar(rows, search, kind), [rows, search, kind]);
-  const paged = usePaged(filtered, 20);
-  return (
-    <div className="space-y-3">
-      {holidayStatus?.warning ? (
-        <InfoNote tone="amber" role="alert">
-          {holidayStatus.warning}
-        </InfoNote>
-      ) : null}
-      <InfoNote tone="blue">
-        <span>Lịch lễ/Tết và ngày nghỉ được quản lý tại </span>
-        <Link
-          href="/settings?view=schedules"
-          className="font-semibold text-blue-700 underline underline-offset-2 hover:text-blue-900"
-        >
-          Phân ca
-        </Link>
-        <span>. Danh sách dưới đây chỉ để tham khảo.</span>
-      </InfoNote>
-      <ListCard
-        title="Lịch ngày làm / OFF / lễ"
-        description={`${rows.length} ngày đã khai báo`}
-        toolbar={
-          <>
-            <SearchBox
-              value={search}
-              onChange={setSearch}
-              placeholder="Tìm theo ngày, tên hoặc loại ngày"
-              label="Tìm lịch làm việc"
-            />
-            <FilterSelect
-              label="Lọc theo loại ngày"
-              value={kind}
-              onChange={(next) => {
-                setKind(next);
-                paged.setPage(1);
-              }}
-              options={[
-                { value: 'ALL', label: 'Tất cả loại ngày' },
-                ...Object.entries(DAY_KIND_LABELS).map(([value, label]) => ({ value, label })),
-              ]}
-            />
-          </>
-        }
-      >
-        {rows.length === 0 ? (
-          <EmptyPanel
-            icon={CalendarDays}
-            title="Chưa có ngày nào trong lịch"
-            description="Ngày làm, ngày OFF và ngày lễ được khai báo tại Phân ca."
-          />
-        ) : filtered.length === 0 ? (
-          <EmptyPanel icon={Search} title="Không có ngày nào khớp" description="Thử đổi từ khóa hoặc bộ lọc." />
-        ) : (
-          <>
-            <ResponsiveList
-              label="Lịch làm việc"
-              rows={paged.pageRows}
-              rowKey={(r) => r.id}
-              columns={CALENDAR_COLUMNS}
-              gridClass="@2xl:grid-cols-[7rem_minmax(0,1fr)_8rem_7rem]"
-            />
-            <Pager paged={paged} sizeChanger />
-          </>
-        )}
-      </ListCard>
     </div>
   );
 }

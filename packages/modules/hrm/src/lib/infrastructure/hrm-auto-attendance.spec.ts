@@ -16,6 +16,13 @@ const E1 = '00000000-0000-4000-8000-0000000000e1';
 const SAT = '2026-10-10';
 const window = { start: '2026-10-10T00:30:00.000Z', end: '2026-10-10T04:30:00.000Z' };
 
+interface PersonalRule {
+  employee_id: string;
+  weekdays: number[] | null;
+  from_date: string;
+  to_date: string | null;
+}
+
 interface Settings {
   enabled: boolean;
   weekdays: number[];
@@ -25,11 +32,23 @@ interface Settings {
 const SATURDAY_ON: Settings = { enabled: true, weekdays: [6], enabled_from: '2026-10-01' };
 
 function fakeDb(
-  opts: { events?: number; leave?: number; locked?: boolean; rows?: object[]; migrated?: boolean; settings?: Settings | null } = {},
+  opts: {
+    events?: number;
+    leave?: number;
+    locked?: boolean;
+    rows?: object[];
+    migrated?: boolean;
+    settings?: Settings | null;
+    personal?: PersonalRule[];
+  } = {},
 ) {
   const inserts: { sql: string; params: unknown[] }[] = [];
   const query = jest.fn(async (sql: string, params: unknown[] = []) => {
     if (sql.includes('to_regclass')) return { rows: [{ ok: opts.migrated !== false }], rowCount: 1 };
+    if (sql.includes('FROM hrm_schema.auto_attendance_employees')) {
+      const rows = opts.personal ?? [];
+      return { rows, rowCount: rows.length };
+    }
     if (sql.includes('FROM hrm_schema.auto_attendance_settings')) {
       const settings = opts.settings === undefined ? SATURDAY_ON : opts.settings;
       return { rows: settings ? [settings] : [], rowCount: settings ? 1 : 0 };
@@ -125,6 +144,68 @@ describe('generateAutoAttendance', () => {
     const { db, inserts } = fakeDb({ settings: { ...SATURDAY_ON, weekdays: [1] } });
     await expect(generateAutoAttendance(db, 't', SAT, SAT, NOW)).resolves.toEqual({ generated: 0 });
     expect(inserts).toHaveLength(0);
+  });
+
+  describe('cấu hình theo nhân viên', () => {
+    const OFF = { ...SATURDAY_ON, enabled: false };
+    const rule = (over: Partial<PersonalRule> = {}): PersonalRule => ({
+      employee_id: E1,
+      weekdays: null,
+      from_date: '2026-10-01',
+      to_date: null,
+      ...over,
+    });
+
+    it('vẫn sinh cho nhân viên được chọn khi cấu hình chung của đơn vị đang tắt', async () => {
+      const { db, inserts } = fakeDb({ settings: OFF, personal: [rule()] });
+      await expect(generateAutoAttendance(db, 't', SAT, SAT, NOW)).resolves.toEqual({ generated: 1 });
+      expect(inserts[0].params).toEqual(expect.arrayContaining([E1, SAT, 'AUTO']));
+    });
+
+    it('chỉ truy vấn lịch của nhân viên được chọn khi cấu hình chung tắt', async () => {
+      const { db } = fakeDb({ settings: OFF, personal: [rule()] });
+      await generateAutoAttendance(db, 't', SAT, SAT, NOW);
+      const scoped = (db.query as jest.Mock).mock.calls.find(([sql]) => String(sql).includes('FROM hrm_schema.employee_work_days'));
+      expect(scoped?.[1][3]).toEqual([E1]);
+    });
+
+    it('không sinh khi ngoài khoảng hiệu lực hoặc sai thứ đã chọn', async () => {
+      for (const personal of [
+        [rule({ from_date: '2026-10-11' })],
+        [rule({ to_date: '2026-10-09' })],
+        [rule({ weekdays: [1] })],
+      ]) {
+        const { db, inserts } = fakeDb({ settings: OFF, personal });
+        await expect(generateAutoAttendance(db, 't', SAT, SAT, NOW)).resolves.toEqual({ generated: 0 });
+        expect(inserts).toHaveLength(0);
+      }
+    });
+
+    it('đúng thứ đã chọn thì sinh; kỳ công đã khóa thì bỏ qua', async () => {
+      const ok = fakeDb({ settings: OFF, personal: [rule({ weekdays: [6] })] });
+      await expect(generateAutoAttendance(ok.db, 't', SAT, SAT, NOW)).resolves.toEqual({ generated: 1 });
+      const locked = fakeDb({ settings: OFF, personal: [rule()], locked: true });
+      await expect(generateAutoAttendance(locked.db, 't', SAT, SAT, NOW)).resolves.toEqual({ generated: 0 });
+    });
+
+    it('nhân viên vừa thuộc cấu hình chung vừa có cấu hình riêng chỉ sinh một lần', async () => {
+      const { db, inserts } = fakeDb({ personal: [rule()] });
+      await expect(generateAutoAttendance(db, 't', SAT, SAT, NOW)).resolves.toEqual({ generated: 1 });
+      expect(inserts).toHaveLength(1);
+    });
+
+    it('tenant chưa chạy migration 0066 thì chỉ theo cấu hình chung', async () => {
+      const { db } = fakeDb({ personal: [rule()] });
+      const original = (db.query as jest.Mock).getMockImplementation() as (sql: string, params?: unknown[]) => Promise<unknown>;
+      (db.query as jest.Mock).mockImplementation(async (sql: string, params?: unknown[]) =>
+        sql.includes("to_regclass('hrm_schema.auto_attendance_employees')")
+          ? { rows: [{ ok: false }], rowCount: 1 }
+          : original(sql, params),
+      );
+      await expect(generateAutoAttendance(db, 't', SAT, SAT, NOW)).resolves.toEqual({ generated: 1 });
+      const touched = (db.query as jest.Mock).mock.calls.some(([sql]) => String(sql).includes('FROM hrm_schema.auto_attendance_employees'));
+      expect(touched).toBe(false);
+    });
   });
 
   it('không sinh cho ngày trước ngày bật (bật không đổi dữ liệu đã qua)', async () => {

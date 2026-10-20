@@ -1,5 +1,5 @@
 /** @jest-environment jsdom */
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { hrmFetch } from '../hrm-api';
 import TimeSettingsScreen from './time-settings-screen';
 
@@ -83,39 +83,15 @@ beforeEach(() => {
   window.history.replaceState(null, '', '/?tab=calendar');
 });
 
-describe('TimeSettingsScreen tab Lịch', () => {
-  it('chỉ đọc: có biểu ngữ liên kết sang Phân ca và không có nút thêm, sửa, xóa', async () => {
+describe('TimeSettingsScreen tab', () => {
+  it('không còn tab Lịch làm / OFF / Lễ (quản lý ở Phân ca); đường dẫn cũ ?tab=calendar rơi về Quy định chấm công', async () => {
     render(<TimeSettingsScreen />);
-    expect(await screen.findByText('Quốc khánh')).toBeTruthy();
-    const panel = document.getElementById(
-      'time-settings-panel-calendar',
-    ) as HTMLElement;
-    expect(panel.hidden).toBe(false);
-    expect(
-      within(panel)
-        .getAllByRole('note')
-        .some((n) =>
-          (n.textContent ?? '').includes(
-            'Lịch lễ/Tết và ngày nghỉ được quản lý tại Phân ca',
-          ),
-        ),
-    ).toBe(true);
-    const link = within(panel).getByRole('link', { name: 'Phân ca' });
-    expect(link.getAttribute('href')).toBe('/settings?view=schedules');
-    for (const name of [
-      'Cấu hình ngày',
-      'Nạp lịch nghỉ lễ theo năm',
-      'Nhân bản từ năm trước',
-      'Sửa',
-      'Xóa',
-    ]) {
-      expect(within(panel).queryByRole('button', { name })).toBeNull();
-    }
-    // Tab quy định chấm công vẫn giữ nguyên nút cấu hình.
-    fireEvent.click(screen.getByRole('tab', { name: 'Quy định chấm công' }));
     expect(
       (await screen.findAllByRole('button', { name: 'Tạo phiên bản mới' }))
         .length,
     ).toBeGreaterThan(0);
+    expect(screen.queryByRole('tab', { name: 'Lịch làm / OFF / Lễ' })).toBeNull();
+    expect(document.getElementById('time-settings-panel-calendar')).toBeNull();
+    expect(new URLSearchParams(window.location.search).get('tab')).toBe('rules');
   });
 });

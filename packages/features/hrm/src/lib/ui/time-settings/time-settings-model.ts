@@ -60,29 +60,12 @@ export const DEVICE_STATUS_LABELS: Record<string, string> = {
   REVOKED: 'Đã thu hồi',
 };
 
-export const WEEKDAY_OPTIONS = [
-  { value: 1, label: 'Thứ 2' },
-  { value: 2, label: 'Thứ 3' },
-  { value: 3, label: 'Thứ 4' },
-  { value: 4, label: 'Thứ 5' },
-  { value: 5, label: 'Thứ 6' },
-  { value: 6, label: 'Thứ 7' },
-  { value: 0, label: 'Chủ nhật' },
-];
-
 /** Đọc cấu hình chấp nhận cả khóa camelCase lẫn snake_case (dữ liệu seed). */
 export const configFlag = (
   c: Record<string, unknown>,
   camel: string,
   snake: string,
 ) => Boolean(c[camel] ?? c[snake]);
-
-export function weeklyOffLabel(days: unknown): string {
-  if (!Array.isArray(days) || !days.length) return 'Chưa cấu hình';
-  return WEEKDAY_OPTIONS.filter((d) => days.includes(d.value))
-    .map((d) => d.label)
-    .join(', ');
-}
 
 export const versionEmployees = (v: PolicyVersion) =>
   Array.isArray(v.config_json.employeeIds)
@@ -164,7 +147,6 @@ export interface RuleSummary {
   ip: string;
   gps: string;
   device: string;
-  weeklyOff: string;
   scope: string;
   range: string;
 }
@@ -189,7 +171,6 @@ export function summarizeVersion(v: PolicyVersion): RuleSummary {
     device: configFlag(c, 'requireDevice', 'require_device')
       ? 'Một trình duyệt đã duyệt cho mỗi nhân viên'
       : 'Không yêu cầu',
-    weeklyOff: weeklyOffLabel(c.weeklyOffDays),
     scope: versionScopeLabel(v),
     range: versionRangeLabel(v),
   };
@@ -208,11 +189,10 @@ export function conditionChips(v: PolicyVersion): string[] {
   return out;
 }
 
-export type TimeSettingsTab = 'rules' | 'calendar' | 'sites' | 'devices';
+export type TimeSettingsTab = 'rules' | 'sites' | 'devices';
 
 export const TIME_SETTINGS_TABS = [
   { id: 'rules', label: 'Quy định chấm công', permission: 'time' },
-  { id: 'calendar', label: 'Lịch làm / OFF / Lễ', permission: 'time' },
   { id: 'sites', label: 'Địa điểm GPS', permission: 'time' },
   { id: 'devices', label: 'Thiết bị', permission: 'device' },
 ] as const;
@@ -228,12 +208,6 @@ export const SECTION_META: Record<
     historyPrefixes: ['POLICY_VERSION_PUBLISHED'],
     historyDescription:
       'Các phiên bản chính sách đã ban hành (gồm cả nhóm chính sách khác dùng chung cơ chế phiên bản), mới nhất ở trên.',
-  },
-  calendar: {
-    title: 'Lịch làm / OFF / Lễ',
-    description: 'Quản lý lịch làm việc, ngày nghỉ, ngày lễ',
-    historyPrefixes: ['CALENDAR_', 'HOLIDAY_'],
-    historyDescription: 'Thay đổi lịch làm việc và lịch nghỉ lễ, mới nhất ở trên.',
   },
   sites: {
     title: 'Địa điểm GPS',
@@ -314,7 +288,6 @@ export interface PolicyFormState {
   requireGps: boolean;
   maxGpsAccuracyMeters: number;
   requireDevice: boolean;
-  weeklyOffDays: number[];
 }
 
 /** Giá trị ban đầu khi mở hộp thoại tạo phiên bản (giữ nguyên mặc định cũ). */
@@ -330,7 +303,6 @@ export const emptyPolicyForm = (): PolicyFormState => ({
   requireGps: false,
   maxGpsAccuracyMeters: 100,
   requireDevice: false,
-  weeklyOffDays: [0],
 });
 
 /** Phiên bản nào sẽ bị kết thúc / chặn khi ban hành khoảng hiệu lực mới (giống kiểm tra của máy chủ). */

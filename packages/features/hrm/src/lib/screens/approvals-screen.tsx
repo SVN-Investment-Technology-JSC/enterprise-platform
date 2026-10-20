@@ -87,7 +87,7 @@ function ApprovalsContent() {
   const [rows, setRows] = useState<Row[]>([]),
     [error, setError] = useState(''),
     [panelError, setPanelError] = useState(''),
-    [filter, setFilter] = useState<ApprovalFilter>({ tab: 'ALL', kind: kindFromQuery, department: '', status: '', search: '', from: '', to: '' }),
+    [filter, setFilter] = useState<ApprovalFilter>({ tab: 'ALL', kind: kindFromQuery, department: '', status: 'PENDING', search: '', from: '', to: '' }),
     [currentStep, setCurrentStep] = useState(''),
     [page, setPage] = useState(1),
     [detailKey, setDetailKey] = useState(''),
@@ -195,7 +195,9 @@ function ApprovalsContent() {
         setStepOptions((prev) => [...new Set([...prev, ...seenSteps])].sort((a, b) => a.localeCompare(b, 'vi')));
       return lists
         .flatMap((list, i) =>
-          list.map((r): Row => {
+          // Đơn nhân viên đã rút/hủy không cần người quản lý xử lý: ẩn khỏi bảng (dữ liệu vẫn giữ, chỉ không hiển thị ở đây).
+          // Đơn đã duyệt rồi bị huỷ hiệu lực cũng mang trạng thái CANCELLED nhưng là việc của người quản lý nên vẫn hiện.
+          list.filter((r) => r.status !== 'CANCELLED' || reversedReasons.has(r.id)).map((r): Row => {
             const employeeId = r.employeeId || r.employee_id || '';
             const person = people.get(employeeId);
             return {
@@ -363,8 +365,9 @@ function ApprovalsContent() {
 
 
 
+  // Số trên các tab không phụ thuộc bộ lọc Trạng thái (mặc định "Chờ duyệt"), nếu không "Tất cả" đổi số khi bỏ lọc đó.
   const counts = useMemo(
-    () => approvalCounts(filterApprovals(rows, { ...filter, tab: 'ALL' }, ability), ability),
+    () => approvalCounts(filterApprovals(rows, { ...filter, tab: 'ALL', status: '' }, ability), ability),
     [rows, filter, permissionKey],
   );
   const visible = useMemo(() => filterApprovals(rows, filter, ability), [rows, filter, permissionKey]);
@@ -473,7 +476,7 @@ function ApprovalsContent() {
             clearable
             placeholder="Tất cả"
             options={Object.entries(states)
-              .filter(([v]) => v !== 'PEER_CONFIRMED')
+              .filter(([v]) => v !== 'PEER_CONFIRMED' && v !== 'CANCELLED')
               .map(([value, label]) => ({ value, label }))}
           />
         </FilterBox>
@@ -495,7 +498,8 @@ function ApprovalsContent() {
                   type="button"
                   aria-pressed={filter.tab === t.id}
                   data-testid={`tab-${t.id}`}
-                  onClick={() => patch({ tab: t.id })}
+                  // Mặc định lọc "Chờ duyệt"; tab Tất cả và Đã xử lý bỏ lọc đó, nếu không số trên tab không khớp danh sách.
+                  onClick={() => patch({ tab: t.id, ...((t.id === 'DONE' || t.id === 'ALL') && filter.status === 'PENDING' ? { status: '' } : {}) })}
                   className={`-mb-px border-b-2 px-3 py-3 font-medium transition-colors ${filter.tab === t.id ? 'border-[#2563eb] text-[#2563eb]' : 'border-transparent text-slate-600 hover:text-slate-900'}`}
                 >
                   {t.label} ({t.count})

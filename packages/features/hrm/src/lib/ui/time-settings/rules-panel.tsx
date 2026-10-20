@@ -7,7 +7,6 @@
 import type { ReactNode } from 'react';
 import {
   CalendarDays,
-  CalendarOff,
   Globe,
   History,
   MapPin,
@@ -176,7 +175,6 @@ export function RulesPanel({
               <SummaryRow icon={MapPin} tone="green" label="Kiểm soát GPS" value={summary.gps} />
               <SummaryRow icon={Smartphone} tone="violet" label="Thiết bị chấm công" value={summary.device} />
               <SummaryRow icon={Globe} tone="blue" label="Múi giờ" value={summary.timezone} />
-              <SummaryRow icon={CalendarOff} tone="orange" label="Ngày nghỉ hằng tuần" value={summary.weeklyOff} />
             </>
           ) : (
             <EmptyPanel

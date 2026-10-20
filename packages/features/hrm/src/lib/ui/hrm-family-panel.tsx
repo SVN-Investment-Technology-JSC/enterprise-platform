@@ -4,6 +4,7 @@ import { Table, type TableColumnsType } from 'antd';
 import { Popconfirm, formatDate } from '@enterprise-platform/shared-ui';
 import type { HrmEmployeeDependent } from '@enterprise-platform/contracts-hrm';
 import { hrmFetch } from '../hrm-api';
+import { STAGED_NOTICE, type HrmStageChange } from './hrm-staged-change';
 import { Button } from './button';
 import { HrmActionDialog, type HrmAction } from './hrm-action-dialog';
 import { toast } from './toast';
@@ -13,11 +14,14 @@ export function HrmFamilyPanel({
   employeeId,
   onChanged,
   readOnly = false,
+  onStage,
 }: {
   rows: HrmEmployeeDependent[];
   employeeId?: string;
   onChanged: (rows: HrmEmployeeDependent[]) => void;
   readOnly?: boolean;
+  /** Có truyền: thao tác chỉ được xếp hàng, chưa gọi API cho tới khi xác nhận lưu. */
+  onStage?: HrmStageChange;
 }) {
   const [action, setAction] = useState<HrmAction | null>(null);
   const path = employeeId
@@ -59,15 +63,9 @@ export function HrmFamilyPanel({
         },
         {
           key: 'identityCardNumber',
-          label: 'Số giấy tờ định danh',
+          label: 'Số CCCD',
           optional: true,
           value: row?.identityCardNumber || '',
-        },
-        {
-          key: 'taxCode',
-          label: 'Mã số thuế',
-          optional: true,
-          value: row?.taxCode || '',
         },
         {
           key: 'note',
@@ -77,15 +75,26 @@ export function HrmFamilyPanel({
         },
       ],
       submit: async (values) => {
-        await hrmFetch(row ? `${path}/${row.id}` : path, {
-          method: row ? 'PATCH' : 'POST',
-          body: JSON.stringify({
-            ...Object.fromEntries(
-              Object.entries(values).map(([k, v]) => [k, v.trim() || null]),
-            ),
-            ...(row ? { expectedUpdatedAt: row.updatedAt } : {}),
-          }),
-        });
+        const run = async () => {
+          await hrmFetch(row ? `${path}/${row.id}` : path, {
+            method: row ? 'PATCH' : 'POST',
+            body: JSON.stringify({
+              ...Object.fromEntries(
+                Object.entries(values).map(([k, v]) => [k, v.trim() || null]),
+              ),
+              ...(row ? { expectedUpdatedAt: row.updatedAt } : {}),
+            }),
+          });
+        };
+        if (onStage) {
+          onStage({
+            label: `${row ? 'Cập nhật' : 'Thêm'} người thân: ${values['fullName']?.trim()}`,
+            run,
+          });
+          toast.success(STAGED_NOTICE);
+          return;
+        }
+        await run();
         await reload();
         toast.success('Đã lưu hồ sơ người thân');
       },
@@ -100,8 +109,7 @@ export function HrmFamilyPanel({
       render: (v?: string | null) => formatDate(v),
     },
     { title: 'Điện thoại', dataIndex: 'phone', width: 120 },
-    { title: 'Giấy tờ', dataIndex: 'identityCardNumber', width: 140 },
-    { title: 'Mã số thuế', dataIndex: 'taxCode', width: 130 },
+    { title: 'CCCD', dataIndex: 'identityCardNumber', width: 140 },
     ...(readOnly
       ? []
       : [
@@ -125,10 +133,18 @@ export function HrmFamilyPanel({
                 okText="Xóa"
                 onConfirm={async () => {
                   try {
-                    await hrmFetch(`${path}/${row.id}`, {
-                      method: 'DELETE',
-                      body: JSON.stringify({ expectedUpdatedAt: row.updatedAt }),
-                    });
+                    const run = async () => {
+                      await hrmFetch(`${path}/${row.id}`, {
+                        method: 'DELETE',
+                        body: JSON.stringify({ expectedUpdatedAt: row.updatedAt }),
+                      });
+                    };
+                    if (onStage) {
+                      onStage({ label: `Xóa người thân: ${row.fullName}`, run });
+                      toast.success(STAGED_NOTICE);
+                      return;
+                    }
+                    await run();
                     await reload();
                   } catch (e) {
                     toast.error(e instanceof Error ? e.message : 'Không thể xóa');

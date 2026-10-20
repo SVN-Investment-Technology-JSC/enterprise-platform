@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { HrmAutoAttendanceSettings } from '@enterprise-platform/contracts-hrm';
 import { hrmFetch } from '../hrm-api';
 import { formatDateVn } from '../hrm-timesheet-format';
+import { AutoAttendanceEmployeesPanel } from '../ui/auto-attendance-employees-panel';
 import { Button } from '../ui/button';
 import { PageTitle } from '../ui/page-title';
 import { InfoNote } from '../ui/settings-kit';
@@ -165,6 +166,8 @@ export default function AutoAttendanceScreen() {
           {invalid && dirty ? <span className="text-xs text-rose-600">{invalid}</span> : null}
         </div>
       </section>
+
+      <AutoAttendanceEmployeesPanel />
     </div>
   );
 }

@@ -119,9 +119,33 @@ describe('ApprovalsScreen: tải dữ liệu', () => {
       reversals: [{ requestId: 'l1', reason: 'Nhập nhầm ngày' }],
     });
     render(<ApprovalsScreen />);
+    // Đơn đã xử lý nằm ngoài bộ lọc "Chờ duyệt" mặc định: sang tab Đã xử lý để xem.
+    fireEvent.click(await screen.findByTestId('tab-DONE'));
     const badge = await screen.findByText('Đã hủy hiệu lực');
     expect(badge.getAttribute('title')).toBe('Lý do: Nhập nhầm ngày');
     expect(screen.queryByText('Đã rút / hủy')).toBeNull();
+  });
+
+  it('đơn nhân viên đã rút/hủy không hiện trong bảng và không có trong bộ lọc trạng thái', async () => {
+    mockActions = ['hrm.leave.approve'];
+    setup({
+      lists: { 'leave-requests': [leave, { ...leave, id: 'l9', status: 'CANCELLED' }] },
+    });
+    render(<ApprovalsScreen />);
+    await screen.findByTestId('approval-row-l1');
+    fireEvent.click(screen.getByTestId('tab-ALL'));
+    expect(screen.queryByTestId('approval-row-l9')).toBeNull();
+    expect(screen.queryByText('Đã rút / hủy')).toBeNull();
+  });
+
+  it('mặc định lọc theo đơn chờ duyệt', async () => {
+    mockActions = ['hrm.leave.approve'];
+    setup({
+      lists: { 'leave-requests': [leave, { ...leave, id: 'l2', status: 'APPROVED' }] },
+    });
+    render(<ApprovalsScreen />);
+    await screen.findByTestId('approval-row-l1');
+    expect(screen.queryByTestId('approval-row-l2')).toBeNull();
   });
 
   it('?type= chọn sẵn bộ lọc loại đơn; không có thì hiện mọi loại', async () => {
@@ -196,11 +220,15 @@ describe('ApprovalsScreen: danh sách', () => {
     expect(screen.queryByTestId('kpi-processing')).toBeNull();
     expect(screen.queryByTestId('kpi-overdue')).toBeNull();
     expect(screen.queryByTestId('kpi-done')).toBeNull();
+    // Mặc định lọc "Chờ duyệt" chỉ áp cho danh sách; số trên tab không đổi khi bỏ lọc đó.
     expect(screen.getByTestId('tab-ALL').textContent).toBe('Tất cả (4)');
     expect(screen.getByTestId('tab-MINE').textContent).toBe('Chờ tôi duyệt (1)');
     expect(screen.getByTestId('tab-PROCESSING').textContent).toBe('Đang xử lý (1)');
     expect(screen.getByTestId('tab-DONE').textContent).toBe('Đã xử lý (2)');
+    // Sang tab Đã xử lý thì bỏ lọc "Chờ duyệt".
     fireEvent.click(screen.getByTestId('tab-DONE'));
+    expect(await screen.findByTestId('approval-row-l2')).toBeTruthy();
+    expect(screen.getByTestId('tab-DONE').textContent).toBe('Đã xử lý (2)');
     expect(screen.queryByTestId('approval-row-l1')).toBeNull();
     expect(screen.getByTestId('approval-row-l2')).toBeTruthy();
     expect(screen.getByTestId('approval-row-l3')).toBeTruthy();

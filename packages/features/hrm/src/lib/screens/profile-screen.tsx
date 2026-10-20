@@ -31,7 +31,6 @@ import {
   Mail,
   MapPin,
   Network,
-  PencilLine,
   Phone,
   RotateCcw,
   Save,
@@ -63,15 +62,12 @@ import {
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '../ui/sheet';
 import { toast } from '../ui/toast';
 import { hrmFetch, platformAuthApiUrl } from '../hrm-api';
-import { ProfileCorrectionDialog } from '../ui/profile-correction-dialog';
 import {
-  PROFILE_CORRECTION_GROUPS,
   changedValues,
   formatProfileValue,
   identityPatchBody,
   profileFieldLabels,
   protectedFieldsFromError,
-  type ProfileCorrectionField,
 } from '../profile-correction-model';
 
 function formatVnDate(val?: string | null): string {
@@ -157,15 +153,6 @@ export default function HrmProfilePage() {
   const [savingIdentity, setSavingIdentity] = useState(false);
   // Lỗi tải hồ sơ (vd HRM_PROFILE_NOT_INITIALIZED: có ở Core nhưng chưa khởi tạo hồ sơ HRM): hiển thị message của API.
   const [profileLoadError, setProfileLoadError] = useState('');
-  // Dialog đề nghị đính chính: danh sách trường đang mở (null = đóng).
-  const [correctionFields, setCorrectionFields] = useState<
-    ProfileCorrectionField[] | null
-  >(null);
-  // Các trường máy chủ yêu cầu đính chính khi lưu trực tiếp bị từ chối.
-  const [approvalRequiredFields, setApprovalRequiredFields] = useState<
-    ProfileCorrectionField[] | null
-  >(null);
-
   // Form states for editable contact info
   const [savedContact, setSavedContact] = useState({
     personalEmail: '',
@@ -438,7 +425,6 @@ export default function HrmProfilePage() {
   const reportSaveError = (e: unknown, fallback: string, title: string) => {
     const protectedFields = protectedFieldsFromError(e);
     if (protectedFields) {
-      setApprovalRequiredFields(protectedFields);
       toast.add({
         title: 'Cần gửi đơn đính chính',
         description: `${profileFieldLabels(protectedFields).join(', ') || 'Thông tin định danh'} không sửa trực tiếp được.`,
@@ -545,8 +531,6 @@ export default function HrmProfilePage() {
     }
   };
 
-  const allFields = PROFILE_CORRECTION_GROUPS.flatMap((g) => g.fields);
-
   return (
     <div className="mx-auto max-w-[1600px] space-y-3">
       {profileLoadError && (
@@ -626,37 +610,6 @@ export default function HrmProfilePage() {
         }}
       />
 
-      {approvalRequiredFields && (
-        <div
-          role="alert"
-          className="space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900"
-        >
-          <p>
-            Không lưu trực tiếp được:{' '}
-            <strong>
-              {profileFieldLabels(approvalRequiredFields).join(', ') ||
-                'thông tin định danh'}
-            </strong>
-            . Ngày sinh và CCCD phải gửi đơn đính chính để được duyệt.
-          </p>
-          <Button
-            type="button"
-            permission="hrm.self.request"
-            size="sm"
-            variant="outline"
-            className="h-7 text-xs"
-            onClick={() => {
-              setCorrectionFields(
-                approvalRequiredFields.length ? approvalRequiredFields : allFields,
-              );
-              setApprovalRequiredFields(null);
-            }}
-          >
-            Gửi đề nghị đính chính
-          </Button>
-        </div>
-      )}
-
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
         {/* Cột trái */}
         <div className="space-y-3">
@@ -664,19 +617,6 @@ export default function HrmProfilePage() {
             icon={User}
             title="Thông tin cá nhân"
             testId="profile-personal-card"
-            action={
-              <Button
-                type="button"
-                permission="hrm.self.request"
-                variant="outline"
-                size="sm"
-                className="h-8 gap-1 text-xs font-semibold text-blue-700"
-                onClick={() => setCorrectionFields(allFields)}
-              >
-                <PencilLine className="size-3.5" />
-                Đề nghị đính chính
-              </Button>
-            }
           >
             <FieldLegend />
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -1456,21 +1396,6 @@ export default function HrmProfilePage() {
           </div>
         </DialogContent>
       </Dialog>
-
-      <ProfileCorrectionDialog
-        open={correctionFields !== null}
-        onOpenChange={(open) => {
-          if (!open) setCorrectionFields(null);
-        }}
-        fields={correctionFields ?? []}
-        employeeId={employeeId}
-        current={{
-          dateOfBirth: savedIdentity.dateOfBirth,
-          identityCardNumber: savedIdentity.identityCardNumber,
-          identityCardIssuedDate: savedIdentity.identityCardIssuedDate,
-          identityCardIssuedPlace: savedIdentity.identityCardIssuedPlace,
-        }}
-      />
     </div>
   );
 }
