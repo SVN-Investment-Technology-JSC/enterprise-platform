@@ -118,6 +118,9 @@ export interface ModuleShellProps<TViewId extends string = string> {
     readonly active?: boolean;
     readonly onOpen: () => void;
   };
+  /** Chỉ kiểu `light`: ẩn nút chuyển phân hệ trên đầu thanh bên (dùng cho Platform Superadmin). */
+  readonly hideModuleSwitcher?: boolean;
+  /** Chỉ kiểu `light`: ẩn nút Trang chủ ở chân thanh bên và breadcrumb (dùng cho Platform Superadmin). */
+  readonly hideHomeButton?: boolean;
   readonly children: ReactNode;
 }
-

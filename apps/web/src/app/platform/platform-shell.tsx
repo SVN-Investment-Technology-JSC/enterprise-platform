@@ -111,6 +111,8 @@ export function PlatformShell({
       appearance="light"
       collapsed={collapsed}
       collapsible
+      hideHomeButton
+      hideModuleSwitcher
       homeHref="/platform"
       moduleKey="platform"
       nav={nav}

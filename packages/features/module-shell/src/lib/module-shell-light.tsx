@@ -163,7 +163,7 @@ export function ModuleShellLight<TViewId extends string = string>(
                 <span className={styles.brandTitle}>{props.title}</span>
               </div>
             )}
-            {collapsed ? null : <ModuleSwitcher moduleKey={props.moduleKey} homeHref={homeHref} />}
+            {collapsed || props.hideModuleSwitcher ? null : <ModuleSwitcher moduleKey={props.moduleKey} homeHref={homeHref} />}
           </div>
 
           <div className={styles.user}>
@@ -228,17 +228,19 @@ export function ModuleShellLight<TViewId extends string = string>(
           </div>
 
           <div className={styles.foot}>
-            <a
-              className={styles.squareButton}
-              href={homeHref}
-              title="Trang chủ"
-              aria-label="Trang chủ"
-            >
-              <svg viewBox="0 0 24 24" className={styles.icon} aria-hidden>
-                <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-                <path d="M9 22V12h6v10" />
-              </svg>
-            </a>
+            {!props.hideHomeButton ? (
+              <a
+                className={styles.squareButton}
+                href={homeHref}
+                title="Trang chủ"
+                aria-label="Trang chủ"
+              >
+                <svg viewBox="0 0 24 24" className={styles.icon} aria-hidden>
+                  <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+                  <path d="M9 22V12h6v10" />
+                </svg>
+              </a>
+            ) : null}
             {props.collapsible ? (
               <button
                 type="button"
@@ -311,20 +313,24 @@ export function ModuleShellLight<TViewId extends string = string>(
         <main className={styles.main}>
           <div className={styles.head}>
             <nav className={styles.breadcrumb} aria-label="Đường dẫn">
-              <a
-                className={styles.crumbHome}
-                href={homeHref}
-                aria-label="Trang chủ"
-                title="Trang chủ"
-              >
-                <svg viewBox="0 0 24 24" className={styles.icon} aria-hidden>
-                  <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-                  <path d="M9 22V12h6v10" />
-                </svg>
-              </a>
-              <span className={styles.crumbSep} aria-hidden>
-                ›
-              </span>
+              {homeHref && !props.hideHomeButton ? (
+                <>
+                  <a
+                    className={styles.crumbHome}
+                    href={homeHref}
+                    aria-label="Trang chủ"
+                    title="Trang chủ"
+                  >
+                    <svg viewBox="0 0 24 24" className={styles.icon} aria-hidden>
+                      <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+                      <path d="M9 22V12h6v10" />
+                    </svg>
+                  </a>
+                  <span className={styles.crumbSep} aria-hidden>
+                    ›
+                  </span>
+                </>
+              ) : null}
               {crumbs.length > 0 && firstItem ? (
                 <button
                   type="button"
