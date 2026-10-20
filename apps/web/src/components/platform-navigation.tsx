@@ -8,13 +8,14 @@ import {
   ReceiptText,
   ServerCog,
   Settings,
+  Sparkles,
   Users,
 } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
 
-type PlatformNavigationKey = 'dashboard' | 'tenants' | 'data-import' | 'plans';
+type PlatformNavigationKey = 'dashboard' | 'tenants' | 'data-import' | 'plans' | 'brand-studio';
 
 const settingsMenuStateKey = 'platform-navigation-settings-open';
 
@@ -30,6 +31,12 @@ const primaryNavigation = [
     label: 'Khách hàng',
     icon: Users,
     href: '/platform/tenants',
+  },
+  {
+    key: 'brand-studio',
+    label: 'Thương hiệu SVNDTS',
+    icon: Sparkles,
+    href: '/platform/brand-studio',
   },
   { key: 'services', label: 'Dịch vụ', icon: ServerCog, href: '#' },
   { key: 'billing', label: 'Hóa đơn', icon: ReceiptText, href: '#' },

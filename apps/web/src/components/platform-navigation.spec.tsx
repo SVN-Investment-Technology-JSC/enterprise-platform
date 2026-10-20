@@ -15,4 +15,14 @@ describe('PlatformNavigation', () => {
     expect(importLink.getAttribute('href')).toBe('/platform/data-import');
     expect(importLink.getAttribute('aria-current')).toBe('page');
   });
+
+  it('renders Brand Studio navigation item in primary navigation', () => {
+    const { getByRole } = render(
+      <PlatformNavigation active="brand-studio" />,
+    );
+
+    const brandLink = getByRole('link', { name: 'Thương hiệu SVNDTS' });
+    expect(brandLink.getAttribute('href')).toBe('/platform/brand-studio');
+    expect(brandLink.getAttribute('aria-current')).toBe('page');
+  });
 });
