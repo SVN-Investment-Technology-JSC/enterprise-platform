@@ -12,6 +12,7 @@ import {
   Users,
 } from 'lucide-react';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
 
@@ -47,10 +48,23 @@ export function PlatformNavigation({
   active,
   mobile = false,
 }: {
-  active: PlatformNavigationKey;
+  active?: PlatformNavigationKey;
   mobile?: boolean;
 }) {
-  const settingsActive = active === 'data-import';
+  const pathname = usePathname();
+  const currentActive: PlatformNavigationKey =
+    active ??
+    (pathname.startsWith('/platform/brand-studio')
+      ? 'brand-studio'
+      : pathname.startsWith('/platform/tenants')
+      ? 'tenants'
+      : pathname.startsWith('/platform/data-import')
+      ? 'data-import'
+      : pathname.startsWith('/platform/plans')
+      ? 'plans'
+      : 'dashboard');
+
+  const settingsActive = currentActive === 'data-import';
   const [settingsOpen, setSettingsOpen] = useState(settingsActive);
 
   useEffect(() => {
@@ -67,7 +81,7 @@ export function PlatformNavigation({
       className={cn('space-y-1', mobile && 'px-4')}
     >
       {primaryNavigation.map(({ key, label, icon: Icon, href }) => {
-        const itemActive = active === key;
+        const itemActive = currentActive === key;
         return (
           <Link
             aria-current={itemActive ? 'page' : undefined}

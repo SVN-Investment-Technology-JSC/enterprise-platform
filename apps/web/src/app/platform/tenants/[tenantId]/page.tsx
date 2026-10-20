@@ -1,35 +1,9 @@
 import type { AuthenticatedPrincipal } from '@enterprise-platform/contracts-identity';
 import type { TenantEntitlementOverview } from '@enterprise-platform/contracts-tenancy';
-import { SessionLogoutButton } from '@enterprise-platform/shared-ui';
-import {
-  Building2,
-  Menu,
-} from 'lucide-react';
 import { cookies } from 'next/headers';
 import { notFound, redirect } from 'next/navigation';
-import { TopNavHeaderActions } from '@/components/top-nav-header-actions';
-import { Button } from '@/components/ui/button';
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from '@/components/ui/sheet';
-import { PlatformNavigation } from '@/components/platform-navigation';
 import { TenantEntitlements } from './tenant-entitlements';
 import { PageBreadcrumb } from '@/components/ui/page-breadcrumb';
-
-function initials(name: string) {
-  return name
-    .split(' ')
-    .filter(Boolean)
-    .slice(-2)
-    .map((part) => part[0])
-    .join('')
-    .toUpperCase();
-}
 
 export default async function TenantEntitlementsPage({
   params,
@@ -46,8 +20,9 @@ export default async function TenantEntitlementsPage({
   if (!meResponse.ok) redirect('/login/admin');
 
   const principal = (await meResponse.json()) as AuthenticatedPrincipal;
-  if (principal.kind !== 'platform-admin')
+  if (principal.kind !== 'platform-admin') {
     redirect('/dashboard');
+  }
 
   const overviewResponse = await fetch(
     `${api}/api/platform/v1/tenants/${encodeURIComponent(tenantId)}/modules`,
@@ -62,82 +37,30 @@ export default async function TenantEntitlementsPage({
     ...rawOverview,
     modules: rawOverview.modules.filter((m) => m.key.toLowerCase() !== 'crm'),
   };
-  const displayName = principal.displayName || 'Admin User';
 
   return (
-    <div className="min-h-screen bg-[#f8f9ff] text-slate-900">
-      <aside className="fixed inset-y-0 left-0 z-20 hidden w-60 flex-col bg-[#091426] px-2 py-4 text-slate-200 lg:flex">
-        <div className="mb-7 flex items-center gap-2 px-2">
-          <div className="grid size-8 place-items-center rounded-md bg-white text-[#091426]">
-            <Building2 className="size-4" />
-          </div>
-          <div>
-            <p className="text-sm font-semibold text-white">SaaS Platform</p>
-            <p className="text-xs text-slate-400">Quản trị hệ thống</p>
-          </div>
-        </div>
-        <PlatformNavigation active="tenants" />
-        <div className="mt-auto border-t border-slate-800 px-2 pt-4">
-          <SessionLogoutButton portal="platform" tone="dark" />
-        </div>
-      </aside>
+    <>
+      <PageBreadcrumb
+        className="mb-5"
+        items={[
+          { label: 'Quản trị hệ thống', href: '/platform' },
+          { label: 'Khách hàng', href: '/platform/tenants' },
+          { label: overview.tenant.name },
+          { label: 'Modules' },
+        ]}
+      />
 
-      <div className="lg:pl-60">
-        <header className="sticky top-0 z-10 flex h-16 items-center justify-between border-b bg-white/90 px-4 backdrop-blur lg:px-8">
-          <Sheet>
-            <SheetTrigger
-              render={
-                <Button
-                  aria-label="Mở điều hướng"
-                  className="lg:hidden"
-                  size="icon"
-                  variant="ghost"
-                />
-              }
-            >
-              <Menu />
-            </SheetTrigger>
-            <SheetContent className="w-72 bg-[#091426] text-white" side="left">
-              <SheetHeader>
-                <SheetTitle className="text-white">SaaS Platform</SheetTitle>
-                <SheetDescription className="text-slate-400">
-                  Quản trị hệ thống
-                </SheetDescription>
-              </SheetHeader>
-              <PlatformNavigation active="tenants" mobile />
-            </SheetContent>
-          </Sheet>
-          <TopNavHeaderActions
-            displayName={displayName}
-            role="Platform Admin"
-            avatarText={initials(displayName)}
-          />
-        </header>
-
-        <main className="p-4 sm:p-6 lg:p-8">
-          <PageBreadcrumb
-            className="mb-5"
-            items={[
-              { label: 'Quản trị hệ thống', href: '/platform' },
-              { label: 'Khách hàng', href: '/platform/tenants' },
-              { label: overview.tenant.name },
-              { label: 'Modules' },
-            ]}
-          />
-
-          <div className="mb-7">
-            <h1 className="text-3xl font-bold tracking-tight text-slate-950 sm:text-4xl">
-              Modules của {overview.tenant.name}
-            </h1>
-            <p className="mt-2 text-sm text-muted-foreground">
-              Quản lý module và entitlement được cấp cho tenant. Provisioning
-              chỉ chạy migration thuộc schema của module được chọn.
-            </p>
-          </div>
-
-          <TenantEntitlements initialOverview={overview} />
-        </main>
+      <div className="mb-7">
+        <h1 className="text-3xl font-bold tracking-tight text-slate-950 sm:text-4xl">
+          Modules của {overview.tenant.name}
+        </h1>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Quản lý module và entitlement được cấp cho tenant. Provisioning
+          chỉ chạy migration thuộc schema của module được chọn.
+        </p>
       </div>
-    </div>
+
+      <TenantEntitlements initialOverview={overview} />
+    </>
   );
 }
