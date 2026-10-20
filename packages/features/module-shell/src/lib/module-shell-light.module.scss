@@ -417,6 +417,34 @@
   }
 }
 
+.navParent {
+  font-weight: 600;
+}
+
+.navParentActive .navIcon {
+  color: var(--ep-text);
+}
+
+.navChevron {
+  flex-shrink: 0;
+  color: var(--ep-text-muted);
+  transition: transform 0.15s ease;
+}
+
+.navChevronOpen {
+  transform: rotate(90deg);
+}
+
+.navChild {
+  min-height: 36px;
+  padding-left: 46px;
+  font-size: 13.5px;
+}
+
+.navChild .navIcon {
+  display: none;
+}
+
 .navItemActive {
   background: var(--ep-hover);
   font-weight: 600;

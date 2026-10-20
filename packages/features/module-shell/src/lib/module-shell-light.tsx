@@ -9,6 +9,7 @@ import {
   useState,
   type CSSProperties,
   type PointerEvent as ReactPointerEvent,
+  type ReactNode,
 } from 'react';
 import type {
   ModuleNavItem,
@@ -43,6 +44,8 @@ export function ModuleShellLight<TViewId extends string = string>(
   const firstItem = visible[0];
   const { principal, loggingOut, logoutError, logout } = useShellSession();
   const collapsed = Boolean(props.collapsible && props.collapsed);
+  // Menu cha mặc định mở; người dùng thu lại thì nhớ trong phiên.
+  const [closedParents, setClosedParents] = useState<ReadonlySet<string>>(new Set());
   const homeHref = props.homeHref || '/applications';
   const displayName = props.actor || principal?.displayName || 'Thành viên';
   const isTenantAdmin =
@@ -163,7 +166,7 @@ export function ModuleShellLight<TViewId extends string = string>(
                 <span className={styles.brandTitle}>{props.title}</span>
               </div>
             )}
-            {collapsed ? null : <ModuleSwitcher moduleKey={props.moduleKey} homeHref={homeHref} />}
+            {collapsed || props.hideModuleSwitcher ? null : <ModuleSwitcher moduleKey={props.moduleKey} homeHref={homeHref} />}
           </div>
 
           <div className={styles.user}>
@@ -207,20 +210,49 @@ export function ModuleShellLight<TViewId extends string = string>(
 
           <div className={styles.scroll}>
             <div className={styles.navList}>
-              {visible.map((item, index) => (
-                <NavEntry
-                  key={item.id}
-                  item={item}
-                  active={item.id === props.view}
-                  groupHeading={
-                    !collapsed &&
-                    item.group !== undefined &&
-                    item.group !== visible[index - 1]?.group
-                  }
-                  collapsed={collapsed}
-                  onSelect={() => props.onViewChange(item.id)}
-                />
-              ))}
+              {visible.map((item, index) => {
+                const previous = visible[index - 1];
+                const parent = item.parent;
+                const startsParent = parent !== undefined && parent !== previous?.parent;
+                const parentOpen = parent !== undefined && (collapsed || !closedParents.has(parent));
+                const groupMembers = parent === undefined ? [] : visible.filter((entry) => entry.parent === parent);
+                const containsActive = groupMembers.some((entry) => entry.id === props.view);
+                if (parent !== undefined && !parentOpen && !startsParent) return null;
+                return (
+                  <Fragment key={item.id}>
+                    {startsParent && !collapsed ? (
+                      <NavParent
+                        active={containsActive}
+                        icon={item.parentIcon ?? item.icon}
+                        label={parent}
+                        onToggle={() =>
+                          setClosedParents((current) => {
+                            const next = new Set(current);
+                            if (next.has(parent)) next.delete(parent);
+                            else next.add(parent);
+                            return next;
+                          })
+                        }
+                        open={parentOpen}
+                      />
+                    ) : null}
+                    {parent !== undefined && !parentOpen ? null : (
+                      <NavEntry
+                        item={item}
+                        active={item.id === props.view}
+                        child={parent !== undefined && !collapsed}
+                        groupHeading={
+                          !collapsed &&
+                          item.group !== undefined &&
+                          item.group !== previous?.group
+                        }
+                        collapsed={collapsed}
+                        onSelect={() => props.onViewChange(item.id)}
+                      />
+                    )}
+                  </Fragment>
+                );
+              })}
             </div>
             {(props.sidebarSections ?? []).map((section) => (
               <SidebarSection key={section.id} section={section} collapsed={collapsed} />
@@ -228,17 +260,19 @@ export function ModuleShellLight<TViewId extends string = string>(
           </div>
 
           <div className={styles.foot}>
-            <a
-              className={styles.squareButton}
-              href={homeHref}
-              title="Trang chủ"
-              aria-label="Trang chủ"
-            >
-              <svg viewBox="0 0 24 24" className={styles.icon} aria-hidden>
-                <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-                <path d="M9 22V12h6v10" />
-              </svg>
-            </a>
+            {!props.hideHomeButton ? (
+              <a
+                className={styles.squareButton}
+                href={homeHref}
+                title="Trang chủ"
+                aria-label="Trang chủ"
+              >
+                <svg viewBox="0 0 24 24" className={styles.icon} aria-hidden>
+                  <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+                  <path d="M9 22V12h6v10" />
+                </svg>
+              </a>
+            ) : null}
             {props.collapsible ? (
               <button
                 type="button"
@@ -311,20 +345,24 @@ export function ModuleShellLight<TViewId extends string = string>(
         <main className={styles.main}>
           <div className={styles.head}>
             <nav className={styles.breadcrumb} aria-label="Đường dẫn">
-              <a
-                className={styles.crumbHome}
-                href={homeHref}
-                aria-label="Trang chủ"
-                title="Trang chủ"
-              >
-                <svg viewBox="0 0 24 24" className={styles.icon} aria-hidden>
-                  <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-                  <path d="M9 22V12h6v10" />
-                </svg>
-              </a>
-              <span className={styles.crumbSep} aria-hidden>
-                ›
-              </span>
+              {homeHref && !props.hideHomeButton ? (
+                <>
+                  <a
+                    className={styles.crumbHome}
+                    href={homeHref}
+                    aria-label="Trang chủ"
+                    title="Trang chủ"
+                  >
+                    <svg viewBox="0 0 24 24" className={styles.icon} aria-hidden>
+                      <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+                      <path d="M9 22V12h6v10" />
+                    </svg>
+                  </a>
+                  <span className={styles.crumbSep} aria-hidden>
+                    ›
+                  </span>
+                </>
+              ) : null}
               {crumbs.length > 0 && firstItem ? (
                 <button
                   type="button"
@@ -450,9 +488,38 @@ function SidebarSection(props: { section: ModuleSidebarSection; collapsed: boole
   );
 }
 
+function NavParent(props: { label: string; icon?: ReactNode; active: boolean; open: boolean; onToggle: () => void }) {
+  return (
+    <button
+      aria-expanded={props.open}
+      className={props.active ? `${styles.navItem} ${styles.navParent} ${styles.navParentActive}` : `${styles.navItem} ${styles.navParent}`}
+      onClick={props.onToggle}
+      type="button"
+    >
+      {props.icon ? <span className={styles.navIcon}>{props.icon}</span> : null}
+      <span className={styles.navLabel}>{props.label}</span>
+      <svg
+        aria-hidden="true"
+        className={props.open ? `${styles.navChevron} ${styles.navChevronOpen}` : styles.navChevron}
+        fill="none"
+        height="14"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="2"
+        viewBox="0 0 24 24"
+        width="14"
+      >
+        <path d="m9 18 6-6-6-6" />
+      </svg>
+    </button>
+  );
+}
+
 function NavEntry<TViewId extends string>(props: {
   item: ModuleNavItem<TViewId>;
   active: boolean;
+  child?: boolean;
   groupHeading: boolean;
   collapsed: boolean;
   onSelect: () => void;
@@ -463,7 +530,9 @@ function NavEntry<TViewId extends string>(props: {
       {props.groupHeading ? <span className={styles.groupHeading}>{item.group}</span> : null}
       <button
         type="button"
-        className={props.active ? `${styles.navItem} ${styles.navItemActive}` : styles.navItem}
+        className={[styles.navItem, props.active ? styles.navItemActive : '', props.child ? styles.navChild : '']
+          .filter(Boolean)
+          .join(' ')}
         aria-current={props.active ? 'page' : undefined}
         title={props.collapsed ? item.label : undefined}
         aria-label={props.collapsed ? item.label : undefined}
