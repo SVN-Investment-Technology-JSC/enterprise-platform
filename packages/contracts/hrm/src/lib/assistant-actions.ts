@@ -15,8 +15,20 @@ import type {
  */
 const REQUESTS_PAGE = '/modules/hrm/requests';
 
+/**
+ * Ô Mô tả của form: chữ tự do, tách khỏi ô Lý do (danh mục). Lời người dùng về lý do hay chi tiết của đơn nằm ở đây,
+ * kể cả khi đã chọn được một lý do trong danh mục.
+ */
 const DESCRIPTION =
-  'Mô tả thêm, văn bản tự do ngắn (tối đa 2000 ký tự). Bắt buộc khi lý do đã chọn yêu cầu mô tả.';
+  'Mô tả (chữ tự do, tối đa 2000 ký tự): lý do, hoàn cảnh hay chi tiết người dùng nói, ghi gần nguyên lời họ; vẫn ghi khi đã chọn được lý do trong danh mục. Bắt buộc khi lý do đã chọn yêu cầu mô tả.';
+
+/** Làm thêm giờ và công tác: form luôn bắt buộc Mô tả là nội dung công việc (`descriptionMandatoryFor` của HRM). */
+function workDescription(work: string) {
+  return {
+    describe: `Mô tả (chữ tự do, tối đa 2000 ký tự): ${work} theo lời người dùng, ghi gần nguyên lời họ. Người dùng chưa nói thì bỏ trống để họ tự nhập.`,
+    required: true,
+  } as const;
+}
 
 /**
  * Thao tác Trợ lý của HRM: mở form tạo đơn của trang Đơn từ ngay trong card của khung chat, bản nháp điền sẵn; người
@@ -32,7 +44,7 @@ export const HRM_ASSISTANT_ACTIONS = defineAssistantActions('hrm', {
     draft: draftOf<CreateLeaveRequestPayload>({
       leaveTypeId: {
         describe:
-          'Lý do nghỉ (loại nghỉ): id của loại có tên khớp lời người dùng (phép năm, nghỉ ốm, việc riêng...). Không rõ thì bỏ trống để người dùng chọn.',
+          'Ô Lý do của form, chọn trong danh mục loại nghỉ: id của loại có tên khớp lời người dùng. Không có loại khớp thì bỏ trống để người dùng chọn; lời người dùng về lý do vẫn ghi vào description.',
         lookup: '/api/hrm/v1/leave-types?active=true',
         required: true,
       },
@@ -62,7 +74,7 @@ export const HRM_ASSISTANT_ACTIONS = defineAssistantActions('hrm', {
         lookup: '/api/hrm/v1/request-reasons?kind=OVERTIME&active=true',
         required: true,
       },
-      description: DESCRIPTION,
+      description: workDescription('nội dung công việc làm thêm'),
     }),
   },
   createBusinessTripRequest: {
@@ -92,7 +104,7 @@ export const HRM_ASSISTANT_ACTIONS = defineAssistantActions('hrm', {
         lookup: '/api/hrm/v1/request-reasons?kind=BUSINESS_TRIP&active=true',
         required: true,
       },
-      description: DESCRIPTION,
+      description: workDescription('nội dung công việc của chuyến công tác'),
     }),
   },
   createCustomRequest: {
