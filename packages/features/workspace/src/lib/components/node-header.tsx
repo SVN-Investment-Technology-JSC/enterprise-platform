@@ -184,11 +184,9 @@ export function NodeHeader({
             <Plus size={14} /> Thêm công việc con
           </button>
           {quickAction ? (
-            <div className={styles.nodeQuickAction}>
-              <button type="button" className={styles.buttonSmall} onClick={quickAction.onClick}>
-                {quickAction.label}
-              </button>
-            </div>
+            <button type="button" className={styles.buttonGhost} onClick={quickAction.onClick}>
+              {quickAction.label}
+            </button>
           ) : null}
         </div>
       </div>
