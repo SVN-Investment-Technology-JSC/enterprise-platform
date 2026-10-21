@@ -199,7 +199,7 @@ function mapProjectRequest(row: Row): ProjectRequest {
 
 const PROJECT_COLUMNS = `id, code, name, description, status, owner_user_id, org_unit_id,
        customer_ref, customer_id, project_type, start_date, end_date, progress_percent, metadata,
-       created_by, created_at, updated_at`;
+       created_by, created_at, updated_at, archived_at`;
 
 function mapProject(row: Row): Project {
   return {
@@ -213,6 +213,7 @@ function mapProject(row: Row): Project {
     customerRef: opt(row.customer_ref),
     customerId: opt(row.customer_id),
     projectType: opt(row.project_type),
+    archivedAt: row.archived_at ? iso(row.archived_at) : undefined,
     startDate: day(row.start_date),
     endDate: day(row.end_date),
     progressPercent: num(row.progress_percent),
@@ -632,12 +633,15 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
         search?: string;
         status?: ProjectStatus;
         projectType?: string;
+        archived?: 'only' | 'exclude';
         page: number;
         pageSize: number;
       },
     ) => {
       const pool = await this.poolFor(tenantId);
       const where: string[] = [];
+      if (options.archived === 'only') where.push('p.archived_at IS NOT NULL');
+      if (options.archived === 'exclude') where.push('p.archived_at IS NULL');
       const values: unknown[] = [];
 
       // userId rỗng = quản trị viên tenant: bỏ hàng rào thành viên.
@@ -857,6 +861,18 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
             RETURNING ${PROJECT_COLUMNS}`,
           [...values, projectId],
         );
+        if (input.status !== undefined) {
+          // Hoàn thành thì tự lưu trữ (giữ mốc cũ nếu đã lưu trữ); trạng thái khác thì không lưu trữ.
+          // Câu riêng vì trong SET, cột `status` vẫn là giá trị trước khi cập nhật.
+          const archived = await client.query<Row>(
+            `UPDATE workspace_schema.projects
+                SET archived_at = CASE WHEN status = 'completed' THEN COALESCE(archived_at, now()) END
+              WHERE id = $1
+              RETURNING ${PROJECT_COLUMNS}`,
+            [projectId],
+          );
+          result.rows[0] = archived.rows[0] as Row;
+        }
         if (input.tagIds !== undefined) {
           await replaceEntityTags(
             client,
@@ -2670,22 +2686,6 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
       return mapLink(result.rows[0] as Row);
     },
 
-    removeLink: async (tenantId: string, linkId: string) => {
-      const pool = await this.poolFor(tenantId);
-      await pool.query(`DELETE FROM workspace_schema.document_links WHERE id = $1`, [linkId]);
-    },
-
-    listFolderRefs: async (tenantId: string, documentId: string) => {
-      const pool = await this.poolFor(tenantId);
-      const result = await pool.query<Row>(
-        `SELECT ${qualified(FOLDER_REF_COLUMNS, 'r')}
-           FROM workspace_schema.document_folder_refs r
-           JOIN workspace_schema.document_folders f ON f.id = r.folder_id
-          WHERE r.document_id = $1 AND f.is_active
-          ORDER BY r.created_at`,
-        [documentId],
-      );
-      return result.rows.map(mapFolderRef);
     findByStorageKey: async (tenantId: string, storageKey: string) => {
       const pool = await this.poolFor(tenantId);
       const result = await pool.query<Row>(
@@ -2777,6 +2777,22 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
       });
     },
 
+    removeLink: async (tenantId: string, linkId: string) => {
+      const pool = await this.poolFor(tenantId);
+      await pool.query(`DELETE FROM workspace_schema.document_links WHERE id = $1`, [linkId]);
+    },
+
+    listFolderRefs: async (tenantId: string, documentId: string) => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `SELECT ${qualified(FOLDER_REF_COLUMNS, 'r')}
+           FROM workspace_schema.document_folder_refs r
+           JOIN workspace_schema.document_folders f ON f.id = r.folder_id
+          WHERE r.document_id = $1 AND f.is_active
+          ORDER BY r.created_at`,
+        [documentId],
+      );
+      return result.rows.map(mapFolderRef);
     },
 
     addFolderRef: async (
@@ -3836,6 +3852,8 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
     findByExternalId: async (tenantId: string, moduleKey: ExternalModuleKey, externalId: string) => {
       const pool = await this.poolFor(tenantId);
       const result = await pool.query<Row>(
+        // Mới nhất trước: lúc đổi công việc liên kết có một quãng hồ sơ trỏ cả công việc cũ lẫn mới
+        // (công việc cũ chưa xoá); liên kết mới mới là liên kết đúng.
         `SELECT ${EXTERNAL_REF_COLUMNS} FROM workspace_schema.external_references
           WHERE module_key = $1 AND external_id = $2
           ORDER BY created_at DESC LIMIT 1`,
@@ -3852,8 +3870,6 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
       if (updates.length === 0) return;
       const pool = await this.poolFor(tenantId);
       // Một câu cho cả lô bằng `unnest`, không phải N câu riêng lẻ.
-        // Mới nhất trước: lúc đổi công việc liên kết có một quãng hồ sơ trỏ cả công việc cũ lẫn mới
-        // (công việc cũ chưa xoá); liên kết mới mới là liên kết đúng.
       await pool.query(
         `UPDATE workspace_schema.external_references AS r
             SET cached_label  = COALESCE(v.label, r.cached_label),

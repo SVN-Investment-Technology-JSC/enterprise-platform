@@ -53,6 +53,10 @@ export interface ModuleSidebarSection {
   readonly title: string;
   /** Số nhỏ cạnh tiêu đề, ví dụ tổng số dự án. */
   readonly count?: number;
+  /** Bấm vào tiêu đề mục (kèm số đếm) để mở trang tương ứng, ví dụ trang danh sách dự án. */
+  readonly onTitleClick?: () => void;
+  /** Trang mà tiêu đề mục mở đang được xem: tô đậm tiêu đề. */
+  readonly titleActive?: boolean;
   readonly action?: {
     readonly label: string;
     readonly icon?: ReactNode;

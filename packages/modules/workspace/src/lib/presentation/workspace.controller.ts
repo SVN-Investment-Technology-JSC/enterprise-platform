@@ -190,10 +190,25 @@ export class WorkspaceController {
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
     @Query('projectType') projectType?: string,
+    @Query('archived') archived?: string,
   ) {
     return this.execute(() =>
-      this.projects.list(this.actor(request), { search, status, projectType, page, pageSize }),
+      this.projects.list(this.actor(request), {
+        search,
+        status,
+        projectType,
+        archived,
+        page,
+        pageSize,
+      }),
     );
+  }
+
+  /** Mở lưu trữ dự án đã hoàn thành: dự án về "Đang chạy" để thêm công việc. */
+  @Post('projects/:id/unarchive')
+  @HttpCode(200)
+  unarchiveProject(@Req() request: WorkspaceRequest, @Param('id') id: string) {
+    return this.execute(() => this.projects.unarchive(this.actor(request), id));
   }
 
   /** Nhóm dự án trong danh mục, kèm số dự án — để lọc và chọn khi nhập. */

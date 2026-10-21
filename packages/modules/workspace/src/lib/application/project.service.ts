@@ -167,6 +167,8 @@ export class ProjectService {
       readonly search?: string;
       readonly status?: string;
       readonly projectType?: string;
+      /** `only` | `exclude`; giá trị khác hoặc vắng là mọi dự án. */
+      readonly archived?: string;
       readonly page?: number | string;
       readonly pageSize?: number | string;
     },
@@ -183,6 +185,8 @@ export class ProjectService {
       search: query.search?.trim() || undefined,
       status: parseStatus(query.status),
       projectType: query.projectType?.trim() || undefined,
+      archived:
+        query.archived === 'only' || query.archived === 'exclude' ? query.archived : undefined,
       page,
       pageSize,
     });
@@ -326,6 +330,19 @@ export class ProjectService {
       throw new WorkspaceValidationError('Có nhãn không tồn tại hoặc đã ngừng dùng.');
     }
     return ids;
+  }
+
+  /**
+   * Mở lưu trữ: dự án đã hoàn thành về lại "Đang chạy" để thêm công việc; dấu lưu trữ tự bỏ theo trạng
+   * thái. Cùng quyền với đổi trạng thái dự án.
+   */
+  async unarchive(actor: WorkspaceActor, projectId: string): Promise<Project> {
+    const access = await this.access(actor, projectId);
+    requireProjectPermission(access, 'project.update_status');
+    if (!access.project.archivedAt) {
+      throw new WorkspaceValidationError('Dự án này không nằm trong lưu trữ.');
+    }
+    return this.store.project.update(actor.tenantId, projectId, { status: 'active' }, actor.userId);
   }
 
   /** Huỷ dự án: chuyển trạng thái, không xoá dòng. Lịch sử phải giữ lại. */

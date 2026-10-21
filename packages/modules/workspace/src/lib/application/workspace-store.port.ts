@@ -288,6 +288,8 @@ export interface WorkspaceStore {
         readonly search?: string;
         readonly status?: ProjectStatus;
         readonly projectType?: string;
+        /** `only`: chỉ dự án lưu trữ; `exclude`: bỏ dự án lưu trữ; vắng: mọi dự án. */
+        readonly archived?: 'only' | 'exclude';
         readonly page: number;
         readonly pageSize: number;
       },
@@ -700,8 +702,6 @@ export interface WorkspaceStore {
     ): Promise<DocumentLink>;
     removeLink(tenantId: string, linkId: string): Promise<void>;
 
-    /** Các thư mục tham chiếu tới tài liệu, ngoài thư mục gốc. */
-    listFolderRefs(tenantId: string, documentId: string): Promise<readonly DocumentFolderRef[]>;
     /** Tài liệu có một phiên bản trỏ tới tệp này; dùng chống trùng khi nhận tệp từ module khác. */
     findByStorageKey(tenantId: string, storageKey: string): Promise<{ readonly documentId: string } | undefined>;
     /**
@@ -725,6 +725,8 @@ export interface WorkspaceStore {
       },
     ): Promise<void>;
 
+    /** Các thư mục tham chiếu tới tài liệu, ngoài thư mục gốc. */
+    listFolderRefs(tenantId: string, documentId: string): Promise<readonly DocumentFolderRef[]>;
     /** Thêm tham chiếu; đã có thì trả lại dòng cũ chứ không báo trùng. */
     addFolderRef(
       tenantId: string,

@@ -1482,6 +1482,13 @@
   margin-left: auto;
 }
 
+/* Nút nhanh "Bắt đầu làm" / "Hoàn thành" cho người thực hiện: hàng riêng, nằm ngay dưới hàng nút. */
+.nodeQuickAction {
+  display: flex;
+  flex-basis: 100%;
+  justify-content: flex-end;
+}
+
 .nodeMeta {
   display: flex;
   flex-wrap: wrap;

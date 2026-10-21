@@ -787,12 +787,6 @@ export function ProjectsView({
         disabled: !canWrite || Boolean(item?.reversal),
         separatorBefore: true,
       },
-      { id: 'start', label: 'Bắt đầu làm', disabled: !canWrite || item?.status !== 'todo' },
-      {
-        id: 'complete',
-        label: 'Đánh dấu hoàn thành',
-        disabled: !canWrite || (item?.status !== 'in_progress' && item?.status !== 'review'),
-      },
       { id: 'move-to', label: 'Di chuyển…', disabled: !canManage },
       { id: 'move-to-root', label: 'Đưa lên cấp gốc', disabled: !canManage || !item?.parentId },
       ...(item && pendingProcedure.has(item.id)
@@ -853,6 +847,24 @@ export function ProjectsView({
     } catch (cause) {
       setError(message(cause, fallback));
     }
+  };
+
+  /**
+   * Nút nhanh trên đầu trang công việc cho người thực hiện (phụ trách hoặc cùng làm): bắt đầu khi chưa
+   * làm, hoàn thành khi đang làm / chờ duyệt. Việc đã huỷ hiệu lực hay không phải của mình thì không hiện.
+   */
+  const quickActionFor = (item: WorkItem) => {
+    const performer =
+      item.assigneeUserId === me || (item.participantUserIds ?? []).includes(me);
+    if (!performer || item.reversal || item.itemType === 'phase') return undefined;
+    const target = { kind: 'work-item' as const, id: item.id };
+    if (item.status === 'todo') {
+      return { label: 'Bắt đầu làm', onClick: () => onAction('start', target) };
+    }
+    if (item.status === 'in_progress' || item.status === 'review') {
+      return { label: 'Hoàn thành', onClick: () => onAction('complete', target) };
+    }
+    return undefined;
   };
 
   const onAction = (actionId: string, node: SelectedNode) => {
@@ -1182,6 +1194,7 @@ export function ProjectsView({
             unread={nodeUnread}
             onOpenChat={() => setChatOpen(true)}
             onMore={(at) => setMenu({ ...at, node: selected })}
+            quickAction={quickActionFor(selectedItem)}
             startableProcedures={startableProcedures}
             procedureLink={
               procedureRef

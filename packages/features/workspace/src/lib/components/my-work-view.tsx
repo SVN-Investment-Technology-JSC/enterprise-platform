@@ -512,13 +512,13 @@ export function MyWorkView({ onOpen, onOpenTask }: MyWorkViewProps = {}) {
       </section>
 
       {summary?.standaloneTasks.length ? (
-        <section className={styles.tableCard} aria-label="Công việc ngoài dự án">
+        <section className={styles.tableCard} aria-label="Công việc khác">
           <div className={styles.tableScroll}>
             <table className={styles.table}>
               <thead>
                 <tr>
                   <th>
-                    <ClipboardList size={14} aria-hidden /> Công việc ngoài dự án
+                    <ClipboardList size={14} aria-hidden /> Công việc khác
                   </th>
                   <th>Người giao</th>
                   <th>Ưu tiên</th>

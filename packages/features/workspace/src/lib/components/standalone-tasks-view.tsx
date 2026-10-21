@@ -222,7 +222,7 @@ export function StandaloneTasksView({
 
   return (
     <div className={styles.taskSplit}>
-      <section className={styles.taskListPane} aria-label="Danh sách công việc ngoài dự án">
+      <section className={styles.taskListPane} aria-label="Danh sách công việc khác">
         <div className={styles.taskListHead}>
           <div className={styles.segmented} role="tablist" aria-label="Nhóm công việc">
             {STANDALONE_TASK_SCOPES.map((value) => (
@@ -385,7 +385,7 @@ function scopeOfRole(role: StandaloneTaskRole): StandaloneTaskScope {
 function emptyText(scope: StandaloneTaskScope): string {
   if (scope === 'assigned_by_me') return 'Bạn chưa giao việc nào. Bấm "Giao việc" để bắt đầu.';
   if (scope === 'following') return 'Bạn chưa theo dõi việc nào.';
-  return 'Chưa ai giao việc ngoài dự án cho bạn.';
+  return 'Chưa ai giao công việc khác cho bạn.';
 }
 
 /** Bỏ dấu để gõ "bao gia" vẫn ra "Báo giá". */

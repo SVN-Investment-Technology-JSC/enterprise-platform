@@ -55,19 +55,25 @@ import styles from './workspace.module.scss';
 type Tab = 'my-work' | 'tasks' | 'projects' | 'customers' | 'documents' | 'reports' | 'settings';
 
 /**
- * Mục điều hướng. "Dự án" có dòng riêng mở khu vực Dự án (dải hai tab Dự án /
- * Khách hàng ở đầu trang); các dự án cũng nằm thẳng ở mục Dự án bên dưới, và
- * dòng "Tất cả dự án" mở danh mục đầy đủ (trang `projects`).
+ * Mục điều hướng. Trang Dự án (dải hai tab Dự án / Khách hàng ở đầu trang) không có dòng riêng: bấm
+ * tiêu đề "DỰ ÁN" của mục dự án bên dưới để mở; các dự án nằm thẳng trong mục đó.
  */
 const NAV: readonly ModuleNavItem<Tab>[] = [
   { id: 'my-work', label: 'Công việc của tôi', group: 'Công việc', icon: <ListChecks size={16} /> },
   {
     id: 'tasks',
-    label: 'Công việc ngoài dự án',
+    label: 'Công việc khác',
     group: 'Công việc',
     icon: <ClipboardList size={16} />,
   },
-  { id: 'projects', label: 'Dự án', group: 'Công việc', icon: <FolderKanban size={16} /> },
+  // Mở bằng tiêu đề "DỰ ÁN" của mục dự án trên thanh bên, không có dòng riêng.
+  {
+    id: 'projects',
+    label: 'Dự án',
+    group: 'Công việc',
+    icon: <FolderKanban size={16} />,
+    hidden: true,
+  },
   { id: 'documents', label: 'Tài liệu', group: 'Công việc', icon: <FileText size={16} /> },
   { id: 'reports', label: 'Báo cáo', group: 'Công việc', icon: <BarChart3 size={16} /> },
   // Tab "Khách hàng" nằm trong khu vực Dự án (dải hai tab ở đầu trang), không có dòng riêng.
@@ -87,7 +93,7 @@ const TITLES: Record<Tab, { title: string; subtitle: string }> = {
     subtitle: 'Việc được giao, lịch hôm nay và những nơi có người nhắc tên bạn.',
   },
   tasks: {
-    title: 'Công việc ngoài dự án',
+    title: 'Công việc khác',
     subtitle: 'Giao việc cho bất kỳ ai trong tổ chức mà không cần dự án; người giao duyệt kết quả.',
   },
   projects: {
@@ -279,7 +285,8 @@ export function WorkspaceScreen() {
   };
 
   const reloadSidebarProjects = useCallback(() => {
-    const filter = { projectType: projectType || undefined };
+    // Dự án lưu trữ (đã hoàn thành) không hiện trên thanh bên; xem ở tab Lưu trữ của trang Dự án.
+    const filter = { projectType: projectType || undefined, archived: 'exclude' as const };
     const load = showAllProjects
       ? listAllProjects(20, filter).then((items) => ({ items, total: items.length }))
       : listProjects({ ...filter, pageSize: SIDEBAR_PROJECTS });
@@ -397,6 +404,8 @@ export function WorkspaceScreen() {
         id: 'projects',
         title: 'Dự án',
         count: projectTotal,
+        onTitleClick: openProjectList,
+        titleActive: view === 'projects' && !openProjectId,
         action: {
           label: 'Tạo dự án',
           onClick: () => {
@@ -457,6 +466,7 @@ export function WorkspaceScreen() {
       projectType,
       projectTypes,
       groupByType,
+      openProjectList,
     ],
   );
 

@@ -234,6 +234,11 @@ export interface Project {
   readonly projectType?: string;
   /** Nhãn của dự án (dùng chung danh mục nhãn với công việc); để lọc. */
   readonly tagIds?: readonly string[];
+  /**
+   * Thời điểm dự án được lưu trữ: tự gán khi dự án chuyển sang hoàn thành, xoá khi "Mở lưu trữ" (dự án về
+   * đang chạy). Dự án lưu trữ không hiện ở danh sách dự án đang làm và thanh bên.
+   */
+  readonly archivedAt?: string;
   readonly startDate?: string;
   readonly endDate?: string;
   /** Giá trị dẫn xuất từ các công việc lá; không nhận giá trị nhập tay. */

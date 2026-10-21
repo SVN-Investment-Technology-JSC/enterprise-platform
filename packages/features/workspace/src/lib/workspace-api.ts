@@ -171,6 +171,8 @@ export const listProjects = (params: {
   search?: string;
   status?: string;
   projectType?: string;
+  /** `exclude`: bỏ dự án lưu trữ; `only`: chỉ dự án lưu trữ; vắng: mọi dự án. */
+  archived?: 'exclude' | 'only';
   page?: number;
   pageSize?: number;
 } = {}) => {
@@ -194,7 +196,7 @@ export const PROJECT_PAGE_SIZE = 60;
  */
 export async function listAllProjects(
   maxPages = 20,
-  filter: { projectType?: string } = {},
+  filter: { projectType?: string; archived?: 'exclude' | 'only' } = {},
 ): Promise<ProjectSummary[]> {
   const items: ProjectSummary[] = [];
   for (let page = 1; page <= maxPages; page += 1) {
@@ -204,6 +206,10 @@ export async function listAllProjects(
   }
   return items;
 }
+
+/** Mở lưu trữ dự án đã hoàn thành: dự án về "Đang chạy" để thêm công việc. */
+export const unarchiveProject = (id: string) =>
+  request<ProjectSummary>(`/projects/${id}/unarchive`, { method: 'POST' });
 
 /** Loại dự án đang dùng, kèm số dự án mỗi loại. */
 export const listProjectTypes = () =>

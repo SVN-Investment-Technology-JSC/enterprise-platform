@@ -76,6 +76,11 @@ export function ProjectsListView({
   const [types, setTypes] = useState<readonly ProjectTypeOption[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string>();
+  const [notice, setNotice] = useState<string>();
+  /** Dự án đang làm, hay danh sách lưu trữ (dự án đã hoàn thành tự vào lưu trữ). */
+  const [scope, setScope] = useState<'active' | 'archived'>('active');
+  /** Số dự án trong lưu trữ, hiện trên nút chuyển sang danh sách lưu trữ. */
+  const [archivedTotal, setArchivedTotal] = useState<number>();
 
   const [statusFilter, setStatusFilter] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
@@ -105,12 +110,14 @@ export function ProjectsListView({
 
   const reload = useCallback(async () => {
     try {
-      const [items, customerList, typeList] = await Promise.all([
-        api.listAllProjects(),
+      const [items, archived, customerList, typeList] = await Promise.all([
+        api.listAllProjects(20, { archived: scope === 'archived' ? 'only' : 'exclude' }),
+        api.listProjects({ archived: 'only', pageSize: 1 }),
         api.listCustomers(),
         api.listProjectTypes(),
       ]);
       setProjects(items);
+      setArchivedTotal(archived.total);
       setCustomers(customerList);
       setTypes(typeList.items);
       setError(undefined);
@@ -119,7 +126,7 @@ export function ProjectsListView({
     } finally {
       setLoaded(true);
     }
-  }, []);
+  }, [scope]);
 
   useEffect(() => {
     void reload();
@@ -191,11 +198,28 @@ export function ProjectsListView({
       try {
         await api.updateProject(projectId, { status: 'completed' });
         setError(undefined);
+        setNotice('Đã đóng hồ sơ; dự án đã chuyển vào Lưu trữ.');
         await reload();
         onProjectsChanged?.();
       } catch (cause) {
         // Server chặn khi dự án còn công việc chưa đóng: nói rõ cho người dùng.
         setError(messageOf(cause, 'Không đóng được hồ sơ dự án.'));
+      }
+    },
+    [reload, onProjectsChanged],
+  );
+
+  /** Mở lưu trữ: dự án về "Đang chạy", rời danh sách lưu trữ để thêm công việc. */
+  const unarchive = useCallback(
+    async (projectId: string) => {
+      try {
+        const project = await api.unarchiveProject(projectId);
+        setError(undefined);
+        setNotice(`Đã mở lưu trữ ${project.code}; dự án về lại danh sách đang làm.`);
+        await reload();
+        onProjectsChanged?.();
+      } catch (cause) {
+        setError(messageOf(cause, 'Không mở được lưu trữ dự án.'));
       }
     },
     [reload, onProjectsChanged],
@@ -285,6 +309,34 @@ export function ProjectsListView({
   return (
     <div className={styles.listPage}>
       <div className={styles.summaryLine}>
+        <div className={styles.segmented} role="tablist" aria-label="Danh sách dự án">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={scope === 'active'}
+            className={scope === 'active' ? styles.segmentActive : styles.segment}
+            onClick={() => {
+              setScope('active');
+              setSelected(new Set());
+              setNotice(undefined);
+            }}
+          >
+            Đang làm
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={scope === 'archived'}
+            className={scope === 'archived' ? styles.segmentActive : styles.segment}
+            onClick={() => {
+              setScope('archived');
+              setSelected(new Set());
+              setNotice(undefined);
+            }}
+          >
+            Lưu trữ{archivedTotal !== undefined ? ` (${archivedTotal})` : ''}
+          </button>
+        </div>
         <span>
           <b>{loaded ? visible.length : '—'}</b> dự án
         </span>
@@ -385,6 +437,10 @@ export function ProjectsListView({
         <p role="alert" className={styles.alert}>
           {error}
         </p>
+      ) : notice ? (
+        <p role="status" className={styles.notice}>
+          {notice}
+        </p>
       ) : null}
 
       <div className={styles.listScroll}>
@@ -423,13 +479,18 @@ export function ProjectsListView({
                 onMenu={openMenu}
                 onOpen={onOpenProject}
                 onClose={closeProject}
+                onUnarchive={unarchive}
               />
             ))}
           </tbody>
         </table>
         {loaded && visible.length === 0 ? (
           <p className={styles.emptyRow}>
-            {projects.length === 0 ? 'Chưa có dự án nào.' : 'Không có dự án nào khớp bộ lọc.'}
+            {projects.length > 0
+              ? 'Không có dự án nào khớp bộ lọc.'
+              : scope === 'archived'
+                ? 'Chưa có dự án nào trong lưu trữ. Dự án hoàn thành sẽ tự vào đây.'
+                : 'Chưa có dự án nào.'}
           </p>
         ) : null}
         {!loaded ? <p className={styles.emptyRow}>Đang tải…</p> : null}
@@ -510,6 +571,7 @@ function GroupRows({
   onMenu,
   onOpen,
   onClose,
+  onUnarchive,
 }: {
   type: string;
   rows: readonly ProjectSummary[];
@@ -522,6 +584,8 @@ function GroupRows({
   onMenu: (id: string, at: { x: number; y: number }) => void;
   onOpen: (id: string) => void;
   onClose: (id: string) => void;
+  /** Mở lưu trữ (chỉ dòng của dự án đang lưu trữ). */
+  onUnarchive: (id: string) => void;
 }) {
   const activeCount = rows.filter((project) => project.status === 'active').length;
   return (
@@ -599,10 +663,23 @@ function GroupRows({
             <td className={styles.numeric}>{project.progressPercent}%</td>
             <td>
               <div className={styles.rowActions}>
-                {closable ? (
+                {project.archivedAt ? (
+                  <Popconfirm
+                    title="Mở lưu trữ dự án?"
+                    description="Dự án về lại trạng thái Đang chạy để thêm công việc; khi đóng hồ sơ lần nữa sẽ tự vào lưu trữ."
+                    okText="Mở lưu trữ"
+                    cancelText="Đóng"
+                    placement="bottom-end"
+                    onConfirm={() => onUnarchive(project.id)}
+                  >
+                    <button type="button" className={styles.buttonSmall}>
+                      Mở lưu trữ
+                    </button>
+                  </Popconfirm>
+                ) : closable ? (
                   <Popconfirm
                     title="Đóng hồ sơ dự án?"
-                    description="Dự án chuyển sang Hoàn thành. Chỉ đóng được khi mọi công việc đã hoàn thành hoặc đã huỷ."
+                    description="Dự án chuyển sang Hoàn thành và tự vào Lưu trữ. Chỉ đóng được khi mọi công việc đã hoàn thành hoặc đã huỷ."
                     okText="Đóng hồ sơ"
                     cancelText="Đóng"
                     okType="warning"
