@@ -28,7 +28,7 @@ export const WORKSPACE_ASSISTANT_ACTIONS = defineAssistantActions('workspace', {
           'Mã dự án nếu người dùng nói sự kiện thuộc một dự án. Bỏ trống khi là lịch cá nhân, không thuộc dự án.',
         lookup: PROJECTS_LOOKUP,
       },
-      title: 'Tiêu đề ngắn, ví dụ "Họp giao ban tuần".',
+      title: { describe: 'Tiêu đề ngắn, ví dụ "Họp giao ban tuần".', required: true },
       description: 'Nội dung, chương trình, tài liệu cần chuẩn bị. Bỏ trống nếu người dùng không nói.',
       location: 'Địa điểm hoặc link họp trực tuyến. Bỏ trống nếu người dùng không nói.',
       eventType: 'Một trong: meeting (họp, mặc định), activity (sinh hoạt), other (khác).',
@@ -52,10 +52,11 @@ export const WORKSPACE_ASSISTANT_ACTIONS = defineAssistantActions('workspace', {
     page: '/modules/workspace#my-work',
     draft: draftOf<CreateWorkItemRequest>({
       projectId: {
-        describe: 'Mã dự án chứa công việc, bắt buộc. Tra theo tên hoặc mã dự án người dùng nói.',
+        describe: 'Mã dự án chứa công việc. Tra theo tên hoặc mã dự án người dùng nói.',
         lookup: PROJECTS_LOOKUP,
+        required: true,
       },
-      title: 'Tên công việc ngắn gọn.',
+      title: { describe: 'Tên công việc ngắn gọn.', required: true },
       description: 'Yêu cầu, kết quả cần nộp. Bỏ trống nếu người dùng không nói.',
       itemType: 'Một trong: task (công việc, mặc định), milestone (mốc), phase (nhóm công việc).',
       priority: 'Một trong: low, normal (mặc định), high, urgent.',
@@ -80,7 +81,7 @@ export const WORKSPACE_ASSISTANT_ACTIONS = defineAssistantActions('workspace', {
     permission: 'workspace.task.write',
     page: '/modules/workspace#tasks',
     draft: draftOf<CreateStandaloneTaskRequest>({
-      title: 'Tên công việc ngắn gọn.',
+      title: { describe: 'Tên công việc ngắn gọn.', required: true },
       description: 'Yêu cầu, kết quả cần nộp. Bỏ trống nếu người dùng không nói.',
       priority: 'Một trong: low, normal (mặc định), high, urgent.',
       assigneeUserId: {

@@ -34,6 +34,7 @@ export const HRM_ASSISTANT_ACTIONS = defineAssistantActions('hrm', {
         describe:
           'Lý do nghỉ (loại nghỉ): id của loại có tên khớp lời người dùng (phép năm, nghỉ ốm, việc riêng...). Không rõ thì bỏ trống để người dùng chọn.',
         lookup: '/api/hrm/v1/leave-types?active=true',
+        required: true,
       },
       fromDate:
         'Nghỉ cả ngày: ngày bắt đầu YYYY-MM-DD. Form tự lấy giờ theo ca của người dùng và máy chủ tự tính số ngày.',
@@ -59,6 +60,7 @@ export const HRM_ASSISTANT_ACTIONS = defineAssistantActions('hrm', {
         describe:
           'Lý do làm thêm: id trong danh mục lý do làm thêm giờ của công ty (có lương hoặc không lương). Không rõ thì bỏ trống.',
         lookup: '/api/hrm/v1/request-reasons?kind=OVERTIME&active=true',
+        required: true,
       },
       description: DESCRIPTION,
     }),
@@ -70,7 +72,7 @@ export const HRM_ASSISTANT_ACTIONS = defineAssistantActions('hrm', {
     permission: 'hrm.self.request',
     page: REQUESTS_PAGE,
     draft: draftOf<CreateBusinessTripRequestPayload>({
-      destination: 'Nơi đến công tác: đơn vị, tỉnh thành hoặc nước. Bắt buộc.',
+      destination: { describe: 'Nơi đến công tác: đơn vị, tỉnh thành hoặc nước.', required: true },
       businessTripType:
         'Loại công tác: DOMESTIC (trong nước, mặc định), OVERSEAS (nước ngoài), INTERSITE (nội bộ giữa các chi nhánh của công ty).',
       fromDate: 'Ngày đi YYYY-MM-DD. Giờ mặc định 08:00.',
@@ -88,6 +90,7 @@ export const HRM_ASSISTANT_ACTIONS = defineAssistantActions('hrm', {
         describe:
           'Lý do công tác: id trong danh mục lý do công tác của công ty. Không rõ thì bỏ trống.',
         lookup: '/api/hrm/v1/request-reasons?kind=BUSINESS_TRIP&active=true',
+        required: true,
       },
       description: DESCRIPTION,
     }),
