@@ -104,7 +104,7 @@ export function BoardGrid({
     <div
       data-testid="board-grid-frame"
       className={`flex min-h-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white ${
-        fullHeight ? 'flex-1' : 'max-h-[max(480px,calc(100dvh-15rem))] min-h-[360px]'
+        fullHeight ? 'flex-1' : 'h-[max(480px,calc(100dvh-15rem))]'
       }`}
     >
       <div className="min-h-0 flex-1 overflow-auto">

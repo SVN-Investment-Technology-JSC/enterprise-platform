@@ -8,6 +8,8 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '
 export interface KpiListItem {
   readonly id: string;
   readonly title: ReactNode;
+  /** Nội dung đầu dòng (ô ngày, avatar). */
+  readonly leading?: ReactNode;
   readonly subtitle?: ReactNode;
   /** Nội dung bên phải dòng (trạng thái, số liệu). */
   readonly trailing?: ReactNode;
@@ -59,40 +61,63 @@ export function KpiDropdownList({
   title,
   emptyText = 'Không có dữ liệu.',
   testId = 'kpi-dropdown-list',
+  align = 'left',
+  onClose,
 }: {
   items: readonly KpiListItem[];
   title: string;
   emptyText?: string;
   testId?: string;
+  /** Neo mép trái hoặc phải của thẻ; thẻ ở nửa phải màn hình nên neo phải để không tràn khỏi trang. */
+  align?: 'left' | 'right';
+  onClose?: () => void;
 }) {
   return (
-    <ul
+    <div
       data-testid={testId}
+      role="region"
       aria-label={title}
-      className="absolute inset-x-0 top-full z-30 mt-1 max-h-72 overflow-y-auto rounded-xl border border-slate-200 bg-white py-1 shadow-lg"
+      className={`absolute top-full z-30 mt-2 w-[340px] max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl ring-1 ring-slate-900/5 ${
+        align === 'right' ? 'right-0' : 'left-0'
+      }`}
     >
-      {items.length === 0 ? (
-        <li className="px-4 py-3 text-xs text-slate-500">{emptyText}</li>
-      ) : (
-        items.map((item) => (
-          <li key={item.id}>
-            {item.onSelect ? (
-              <button
-                type="button"
-                onClick={item.onSelect}
-                className="flex w-full items-center gap-2 px-4 py-2 text-left hover:bg-slate-50"
-              >
-                <KpiItemBody item={item} />
-              </button>
-            ) : (
-              <div className="flex items-center gap-2 px-4 py-2">
-                <KpiItemBody item={item} />
-              </div>
-            )}
-          </li>
-        ))
-      )}
-    </ul>
+      <div className="flex items-center justify-between gap-2 border-b border-slate-100 bg-slate-50/80 px-4 py-2.5">
+        <p className="text-[13px] font-bold text-slate-900">{title}</p>
+        {onClose ? (
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Đóng danh sách"
+            className="rounded-md px-2 py-0.5 text-[12px] font-semibold text-slate-500 hover:bg-slate-200/70"
+          >
+            Đóng
+          </button>
+        ) : null}
+      </div>
+      <ul className="max-h-80 divide-y divide-slate-100 overflow-y-auto">
+        {items.length === 0 ? (
+          <li className="px-4 py-4 text-center text-xs text-slate-500">{emptyText}</li>
+        ) : (
+          items.map((item) => (
+            <li key={item.id}>
+              {item.onSelect ? (
+                <button
+                  type="button"
+                  onClick={item.onSelect}
+                  className="flex w-full items-center gap-3 px-4 py-2.5 text-left transition hover:bg-blue-50/60"
+                >
+                  <KpiItemBody item={item} />
+                </button>
+              ) : (
+                <div className="flex items-center gap-3 px-4 py-2.5">
+                  <KpiItemBody item={item} />
+                </div>
+              )}
+            </li>
+          ))
+        )}
+      </ul>
+    </div>
   );
 }
 
@@ -185,11 +210,16 @@ export function KpiListSheet({
 function KpiItemBody({ item }: { item: KpiListItem }) {
   return (
     <>
+      {item.leading ? <span className="shrink-0">{item.leading}</span> : null}
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm font-semibold text-slate-900">{item.title}</span>
         {item.subtitle ? <span className="block truncate text-xs text-slate-500">{item.subtitle}</span> : null}
       </span>
-      {item.trailing ? <span className="shrink-0 text-xs text-slate-600">{item.trailing}</span> : null}
+      {item.trailing ? (
+        <span className="shrink-0 rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-700">
+          {item.trailing}
+        </span>
+      ) : null}
     </>
   );
 }

@@ -1,4 +1,5 @@
-import { buildCsv, downloadCsv } from './hrm-csv';
+import { buildCsv } from './hrm-csv';
+import { downloadXlsx } from './hrm-xlsx';
 
 /** Số dòng mỗi trang của lịch sử đơn từ. */
 export const REQUEST_HISTORY_PAGE_SIZE = 20;
@@ -54,13 +55,13 @@ export const REQUEST_HISTORY_CSV_HEADER = [
   'Kết quả hậu xử lý',
 ] as const;
 
-/** Dựng nội dung CSV (UTF-8 có BOM, ô bắt đầu bằng = + - @ được vô hiệu hóa công thức). */
-export function buildRequestHistoryCsv<T extends RequestHistoryRow>(
+/** Dựng các dòng bảng lịch sử đơn: dòng đầu là tiêu đề, mỗi đơn một dòng. */
+export function buildRequestHistoryRows<T extends RequestHistoryRow>(
   rows: readonly T[],
   approverOf: (row: T) => string = (row) => row.approver,
-): string {
-  return buildCsv([
-    REQUEST_HISTORY_CSV_HEADER,
+): unknown[][] {
+  return [
+    [...REQUEST_HISTORY_CSV_HEADER],
     ...rows.map((row) => [
       row.code,
       row.typeName,
@@ -74,7 +75,15 @@ export function buildRequestHistoryCsv<T extends RequestHistoryRow>(
       workflowStatusLabel(row),
       postProcessLabel(row),
     ]),
-  ]);
+  ];
+}
+
+/** Dựng nội dung CSV (UTF-8 có BOM, ô bắt đầu bằng = + - @ được vô hiệu hóa công thức). */
+export function buildRequestHistoryCsv<T extends RequestHistoryRow>(
+  rows: readonly T[],
+  approverOf: (row: T) => string = (row) => row.approver,
+): string {
+  return buildCsv(buildRequestHistoryRows(rows, approverOf));
 }
 
 export function exportRequestHistory<T extends RequestHistoryRow>(
@@ -82,9 +91,10 @@ export function exportRequestHistory<T extends RequestHistoryRow>(
   approverOf?: (row: T) => string,
   now: Date = new Date(),
 ): void {
-  downloadCsv(
+  downloadXlsx(
     `lich-su-don-tu-${now.toISOString().slice(0, 10)}`,
-    buildRequestHistoryCsv(rows, approverOf),
+    buildRequestHistoryRows(rows, approverOf),
+    'Lich su don tu',
   );
 }
 

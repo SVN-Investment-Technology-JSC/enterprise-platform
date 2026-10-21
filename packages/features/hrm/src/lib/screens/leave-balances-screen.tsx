@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 import type { HrmLeaveBalanceListItem } from '@enterprise-platform/contracts-hrm';
 import { hrmFetch } from '../hrm-api';
-import { buildCsv, downloadCsv } from '../hrm-csv';
+import { downloadStyledXlsx } from '../hrm-xlsx';
 import { employeeInitials, normalizeSearchText } from '../hrm-employee-view';
 import { useHrmPermissions } from '../hrm-permissions';
 import { cn } from '../utils';
@@ -520,33 +520,48 @@ export default function LeaveBalancesScreen() {
     );
     const num = (r: Row, value: number | undefined) =>
       hasNoBalance(r) ? '' : Number(value || 0);
-    const csv = buildCsv([
-      [
-        'Mã NV',
-        'Họ và tên',
-        'Phòng ban',
-        'Năm',
-        'Tổng quỹ năm',
-        'Đã dùng',
-        'Chờ duyệt',
-        'Có thể dùng',
-        'Điều chỉnh',
-        'Trạng thái quỹ',
-      ],
-      ...ordered.map(({ department, row: r }) => [
-        r.employeeCode,
-        r.employeeName,
-        department,
-        r.year,
-        num(r, r.entitlement),
-        num(r, r.used),
-        num(r, r.pending),
-        num(r, r.remaining),
-        num(r, r.adjusted),
-        getBalanceState(r).label,
-      ]),
-    ]);
-    downloadCsv(`phep-nam-${year}`, csv);
+    const header = [
+      'STT',
+      'Mã NV',
+      'Họ và tên',
+      'Phòng ban',
+      'Năm',
+      'Tổng quỹ năm',
+      'Đã dùng',
+      'Chờ duyệt',
+      'Có thể dùng',
+      'Điều chỉnh',
+      'Trạng thái quỹ',
+    ];
+    const title: unknown[] = header.map(() => '');
+    title[0] = `QUỸ PHÉP NĂM ${year}`;
+    downloadStyledXlsx(
+      `phep-nam-${year}`,
+      {
+        rows: [
+          title,
+          header,
+          ...ordered.map(({ department, row: r }, index) => [
+            index + 1,
+            r.employeeCode,
+            r.employeeName,
+            department,
+            r.year,
+            num(r, r.entitlement),
+            num(r, r.used),
+            num(r, r.pending),
+            num(r, r.remaining),
+            num(r, r.adjusted),
+            getBalanceState(r).label,
+          ]),
+        ],
+        merges: [{ s: { r: 0, c: 0 }, e: { r: 0, c: header.length - 1 } }],
+        infoColumns: 4,
+        offColumns: [],
+        headerRows: 2,
+      },
+      `Phep nam ${year}`,
+    );
   };
 
   const emptyText = busy
@@ -591,7 +606,7 @@ export default function LeaveBalancesScreen() {
               onClick={handleExport}
             >
               <Download className="size-3.5" />
-              Xuất dữ liệu{selectedInView > 0 ? ` (${selectedInView})` : ''}
+              Xuất Excel{selectedInView > 0 ? ` (${selectedInView})` : ''}
             </Button>
           </div>
         )}

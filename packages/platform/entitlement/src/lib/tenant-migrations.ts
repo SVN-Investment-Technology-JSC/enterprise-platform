@@ -92,6 +92,11 @@ export const TENANT_CORE_MIGRATIONS: readonly TenantModuleMigration[] = [
     version: '0012-authorization-changed-event',
     path: 'tenant/core/0012-authorization-changed-event.sql',
   },
+  {
+    // Dùng hàm trigger của 0012-authorization-changed-event.
+    version: '0013-user-permission-grants',
+    path: 'tenant/core/0013-user-permission-grants.sql',
+  },
 ];
 
 export const TENANT_MODULE_MIGRATIONS: Readonly<
@@ -370,6 +375,14 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     {
       version: '0063-hrm-leave-adjustment-actor-required',
       path: 'tenant/hrm/0063-hrm-leave-adjustment-actor-required.sql',
+    },
+    {
+      version: '0064-hrm-request-quota-settings',
+      path: 'tenant/hrm/0064-hrm-request-quota-settings.sql',
+    },
+    {
+      version: '0065-hrm-attendance-source-auto',
+      path: 'tenant/hrm/0065-hrm-attendance-source-auto.sql',
     },
     {
       version: '0021-notification-outbox-v1',

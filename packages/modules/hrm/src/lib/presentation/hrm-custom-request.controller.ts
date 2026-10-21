@@ -182,7 +182,7 @@ export class HrmCustomRequestController {
 
   @Post('custom-requests/:id/approve')
   async approve(@Req() req: Request, @Param('id') id: string) {
-    const { pool, tenantId, principal } = await this.ctx.getContext(req, 'hrm.custom.approve');
+    const { pool, tenantId, principal } = await this.ctx.approverContext(req, 'hrm.custom.approve', 'custom', id);
     requireUuid(id, 'Đơn');
     await this.approvals.assertCanDecide({ pool, tenantId, principal }, id, 'custom', 'approve');
     const row = await hrmTransaction(pool, (db) =>
@@ -193,7 +193,7 @@ export class HrmCustomRequestController {
 
   @Post('custom-requests/:id/reject')
   async reject(@Req() req: Request, @Param('id') id: string, @Body('reason') reason: string) {
-    const { pool, tenantId, principal } = await this.ctx.getContext(req, 'hrm.custom.approve');
+    const { pool, tenantId, principal } = await this.ctx.approverContext(req, 'hrm.custom.approve', 'custom', id);
     requireUuid(id, 'Đơn');
     await this.approvals.assertCanDecide({ pool, tenantId, principal }, id, 'custom', 'reject');
     const text = requireText(reason, 'Lý do từ chối', 2000);

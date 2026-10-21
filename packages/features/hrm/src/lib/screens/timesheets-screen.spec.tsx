@@ -279,7 +279,7 @@ describe('TimesheetsScreen', () => {
     await screen.findAllByTestId('board-day-header');
     expect(screen.queryByRole('button', { name: /Chốt đơn từ/ })).toBeNull();
     expect(screen.queryByRole('button', { name: /Chốt công/ })).toBeNull();
-    expect(screen.queryByRole('button', { name: /Xuất CSV/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Xuất Excel/ })).toBeNull();
   });
 
   it('Dialog chốt đơn từ hiển thị việc còn vướng và khóa xác nhận', async () => {
@@ -506,7 +506,7 @@ describe('TimesheetsScreen: tiêu đề, chọn dòng, số dòng mỗi trang', 
     await screen.findAllByTestId('board-day-header');
     const root = screen.getByTestId('timesheets-root');
     expect(root.className).not.toContain('fixed');
-    expect(screen.getByTestId('board-grid-frame').className).toContain('max-h-');
+    expect(screen.getByTestId('board-grid-frame').className).toContain('h-[max(480px');
     fireEvent.click(screen.getByRole('button', { name: 'Xem toàn màn hình' }));
     expect(screen.getByTestId('timesheets-root').className).toContain('fixed inset-0');
     expect(screen.getByTestId('board-grid-frame').className).toContain('flex-1');
@@ -526,20 +526,20 @@ describe('TimesheetsScreen: tiêu đề, chọn dòng, số dòng mỗi trang', 
     expect(screen.getByLabelText('Chú thích bảng công')).toBeTruthy();
   });
 
-  it('tick nhân viên thì nút Xuất CSV ghi số người đã chọn; tick tất cả chọn cả trang', async () => {
+  it('tick nhân viên thì nút Xuất Excel ghi số người đã chọn; tick tất cả chọn cả trang', async () => {
     mockApi(makeBoard('OPEN', true));
     render(<TimesheetsScreen />);
     await screen.findAllByTestId('board-day-header');
-    expect(screen.getByRole('button', { name: /Xuất CSV$/ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Xuất Excel$/ })).toBeTruthy();
     fireEvent.click(screen.getByRole('checkbox', { name: 'Chọn Nguyễn Văn An' }));
-    expect(screen.getByRole('button', { name: /Xuất CSV \(1\)/ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Xuất Excel \(1\)/ })).toBeTruthy();
     fireEvent.click(screen.getByRole('checkbox', { name: 'Chọn Nguyễn Văn An' }));
-    expect(screen.getByRole('button', { name: /Xuất CSV$/ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Xuất Excel$/ })).toBeTruthy();
     const rows = screen.getAllByTestId('board-row').length;
     fireEvent.click(screen.getByRole('checkbox', { name: 'Chọn tất cả nhân viên trong trang' }));
-    expect(screen.getByRole('button', { name: `Xuất CSV (${rows})` })).toBeTruthy();
+    expect(screen.getByRole('button', { name: `Xuất Excel (${rows})` })).toBeTruthy();
     fireEvent.click(screen.getByRole('checkbox', { name: 'Chọn tất cả nhân viên trong trang' }));
-    expect(screen.getByRole('button', { name: /Xuất CSV$/ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Xuất Excel$/ })).toBeTruthy();
   });
 
   it('đổi số nhân viên mỗi trang gọi lại với page_size mới và về trang 1', async () => {

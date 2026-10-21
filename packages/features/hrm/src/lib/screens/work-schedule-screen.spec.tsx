@@ -115,7 +115,9 @@ function renderCalendar() {
 /** Mở menu Công cụ ở đầu trang rồi chọn một mục. */
 async function openTool(name: string) {
   fireEvent.click(await screen.findByRole('button', { name: 'Công cụ phân ca' }));
-  fireEvent.click(await screen.findByRole('menuitem', { name }));
+  await act(async () => {
+    fireEvent.click(await screen.findByRole('menuitem', { name }));
+  });
 }
 
 /** Mở phần Tuỳ chọn nâng cao của biểu mẫu Phân ca. */

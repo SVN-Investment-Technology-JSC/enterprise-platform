@@ -18,6 +18,7 @@ import {
 } from '../ui/employee-hero-card';
 import { Input } from '../ui/input';
 import { MonthStepper } from '../ui/month-stepper';
+import { RowMenu } from '../ui/row-menu';
 import {
   DetailField,
   QuickCreateRow,
@@ -1020,7 +1021,7 @@ export default function RequestsPage() {
     exportRequestHistory(filteredHistory, approverText);
     toast.success({
       title: 'Đã xuất lịch sử đơn',
-      description: `Đã tải về ${filteredHistory.length} dòng (CSV, mã hóa UTF-8).`,
+      description: `Đã tải về ${filteredHistory.length} dòng (Excel).`,
     });
   };
 
@@ -1446,15 +1447,26 @@ export default function RequestsPage() {
           >
             Tất cả tháng
           </Button>
-          <Button
-            permission="hrm.self.request"
-            size="sm"
-            className="h-9 gap-1.5 text-xs font-semibold"
-            onClick={() => handleOpenCreateForType('leave', 'Đơn xin nghỉ phép')}
-          >
-            <Plus className="size-3.5" />
-            <span>Tạo đơn mới</span>
-          </Button>
+          {canCreateRequest && (
+            <RowMenu
+              label="Chọn loại đơn để tạo"
+              buttonClassName="inline-flex h-9 items-center gap-1.5 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground hover:bg-primary/80"
+              trigger={
+                <>
+                  <Plus className="size-3.5" />
+                  <span>Tạo đơn mới</span>
+                </>
+              }
+              items={[
+                ...quickItems.map((q) => ({ key: q.key, label: q.title, onSelect: () => void q.onClick() })),
+                ...otherCatalog.map((c) => ({
+                  key: c.customType?.id ?? c.id,
+                  label: c.title,
+                  onSelect: () => void handleOpenCreateForType(c.id, c.title, c.customType),
+                })),
+              ]}
+            />
+          )}
         </div>
       </div>
 
@@ -1563,7 +1575,7 @@ export default function RequestsPage() {
                 className="h-8 gap-1.5 text-xs"
                 onClick={handleExportHistory}
                 disabled={loading || filteredHistory.length === 0}
-                title="Xuất các dòng đang hiển thị trong danh sách ra file CSV"
+                title="Xuất các dòng đang hiển thị trong danh sách ra file Excel"
               >
                 <Download className="size-3.5" />
                 <span>Xuất lịch sử đơn</span>

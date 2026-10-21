@@ -141,6 +141,7 @@ describe('request reasons and approval configuration tabs', () => {
       ['auto-attendance', 'Chấm công tự động'],
       ['payroll', 'Lương'],
       ['request-reasons', 'Loại đơn và lý do'],
+      ['request-quota', 'Hạn mức đơn'],
       ['approval', 'Duyệt đơn'],
       ['operations', 'Vận hành và tích hợp'],
       ['permissions', 'Quyền và vai trò'],

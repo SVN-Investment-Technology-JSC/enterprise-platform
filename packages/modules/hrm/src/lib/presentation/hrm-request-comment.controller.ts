@@ -6,7 +6,9 @@ import { HrmApprovalPolicyService } from '../infrastructure/hrm-approval-policy.
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
 import {
   assertCanWrite,
+  assertThreadOpen,
   createComment,
+  isThreadClosed,
   listComments,
   loadRequestOwner,
   normalizeRequestKind,
@@ -56,7 +58,10 @@ export class HrmRequestCommentController {
   @Get('request-comments')
   async list(@Req() req: Request, @Query('kind') kind?: string, @Query('requestId') requestId?: string) {
     const c = await this.access(req, kind, requestId);
-    return { data: await listComments(c.pool, c.tenantId, c.kind, c.requestId, c.principal.userId) };
+    return {
+      data: await listComments(c.pool, c.tenantId, c.kind, c.requestId, c.principal.userId),
+      closed: isThreadClosed(c.owner.status),
+    };
   }
 
   @RequirePermission('hrm.self.read')
@@ -88,6 +93,7 @@ export class HrmRequestCommentController {
     // Ý kiến kèm quyết định chỉ do người có quyền xử lý đơn ghi, không phải người tham gia thường.
     if (commentKind === 'DECISION' && (!decision || !DECISIONS.includes(decision) || c.access === 'PARTICIPANT'))
       assertCanWrite(null);
+    assertThreadOpen(c.owner.status, commentKind);
     const me = await this.ctx.resolveEmployee(c.pool, c.tenantId, c.principal.userId).catch(() => null);
     const created = await hrmTransaction(c.pool, async (db) => {
       const mentions = await validMentions(db, c.tenantId, c.principal.userId, body?.mentionUserIds);

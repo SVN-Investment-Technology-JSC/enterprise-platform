@@ -30,6 +30,22 @@ if (
   fail('"imageRepository" must be a lowercase OCI image repository name.');
 }
 
+// When AFFECTED_PROJECTS is set (a JSON array of Nx project names), services
+// that are built from an Nx app (apps/<id>/Dockerfile) are kept only if that
+// app is affected. Services without an Nx project, such as the gateway, are
+// always kept.
+const affectedProjects =
+  process.env.AFFECTED_PROJECTS === undefined
+    ? undefined
+    : new Set(JSON.parse(process.env.AFFECTED_PROJECTS));
+
+// When INCLUDE_SERVICES is set (a JSON array of service ids), only those
+// services are returned. Used by the publish job to build what changed.
+const includeServices =
+  process.env.INCLUDE_SERVICES === undefined
+    ? undefined
+    : new Set(JSON.parse(process.env.INCLUDE_SERVICES));
+
 const serviceIds = new Set();
 const services = [];
 
@@ -80,6 +96,14 @@ for (const service of manifest.services) {
   }
 
   serviceIds.add(id);
+  if (includeServices !== undefined && !includeServices.has(id)) continue;
+  if (
+    affectedProjects !== undefined &&
+    dockerfile.startsWith('apps/') &&
+    !affectedProjects.has(id)
+  ) {
+    continue;
+  }
   services.push({
     service: id,
     dockerfile,

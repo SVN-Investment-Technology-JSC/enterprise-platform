@@ -54,6 +54,12 @@
       "path": "../../packages/shared/ui"
     },
     {
+      "path": "../../packages/shared/brand-icon"
+    },
+    {
+      "path": "../../packages/features/module-shell"
+    },
+    {
       "path": "../../packages/contracts/tenancy"
     },
     {
@@ -64,9 +70,6 @@
     },
     {
       "path": "../../packages/contracts/data-import"
-    },
-    {
-      "path": "../../packages/features/module-shell"
     }
   ]
 }

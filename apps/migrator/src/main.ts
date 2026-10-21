@@ -39,6 +39,7 @@ async function main() {
     await migrate(platform, 'platform-core', '0006-tenant-deletion', 'platform/0006-tenant-deletion.sql');
     await migrate(platform, 'platform-core', '0007-remove-crm', 'platform/0007-remove-crm.sql');
     await migrate(platform, 'platform-core', '0009-tenant-storage-quota', 'platform/0009-tenant-storage-quota.sql');
+    await migrate(platform, 'platform-core', '0010-brand-icon-storage', 'platform/0010-brand-icon-storage.sql');
     await removeCrmTenantSchemas(platform);
     await migrateTenantCoreSchemas(platform);
     await processProvisioningJobs(platform);

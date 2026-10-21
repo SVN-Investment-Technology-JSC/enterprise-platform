@@ -57,6 +57,8 @@ export interface DayOutcomeInput {
   trips: readonly DayTripInput[];
   /** Ngày có đơn tăng ca đã duyệt: không tính đi trễ / về sớm (giờ tăng ca tính theo số giờ của đơn). */
   hasOt?: boolean;
+  /** Mọi sự kiện chấm công của ngày đều do chấm công tự động sinh: đơn nghỉ/công tác đã duyệt chèn lên phần tự động. */
+  autoOnly?: boolean;
 }
 
 export interface DayOutcome {
@@ -124,7 +126,12 @@ export function coveredMinutesOf(
     const minutes = t.dayMinutes ?? Math.round((t.interval.endMs - t.interval.startMs) / MINUTE);
     if (minutes <= 0) continue;
     intervals.push(t.interval);
-    if (minutes <= HALF_DAY_TRIP_MINUTES) halfTrip = true;
+    // Ca ngắn (thứ Bảy nửa ngày): đơn phủ trọn ca của ngày là cả ngày công tác, dù chỉ 4 giờ trở xuống.
+    const coversWholeShift =
+      shift !== null &&
+      scheduledMinutes > 0 &&
+      workMinutesIn(shift, t.interval.startMs, t.interval.endMs) >= scheduledMinutes - 1;
+    if (minutes <= HALF_DAY_TRIP_MINUTES && !coversWholeShift) halfTrip = true;
     else wholeDay = true;
   }
   let fallback = 0;
@@ -158,13 +165,17 @@ export function resolveDayOutcome(input: DayOutcomeInput): DayOutcome {
     ? coveredMinutesOf(input.shift, scheduled, [], input.trips).minutes
     : 0;
 
+  // Chấm công tự động chỉ giữ phần ca chưa được nghỉ/công tác bao phủ: nghỉ không lương hay công tác chèn lên giờ tự động.
+  const workedMinutes = input.autoOnly
+    ? Math.min(input.workedMinutes, Math.max(0, scheduled - covered.minutes))
+    : input.workedMinutes;
   let paid = off
     ? 0
     : holiday
       ? input.holidayPaid
         ? scheduled
         : 0
-      : Math.min(scheduled, input.workedMinutes + leavePaid + tripMinutes);
+      : Math.min(scheduled, workedMinutes + leavePaid + tripMinutes);
   if (!Number.isFinite(paid)) paid = 0;
 
   const fullyCovered = !off && !holiday && scheduled > 0 && covered.minutes >= scheduled;

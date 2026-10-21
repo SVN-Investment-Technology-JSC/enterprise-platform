@@ -129,23 +129,23 @@ export function RequestTimeRange({
           {previewError}
         </p>
       )}
-      {preview && (
+      {/* Công tác: không hiện thẻ tính toán; chỉ giữ lỗi chặn gửi đơn để người dùng biết cần sửa gì. */}
+      {kind === 'trip' &&
+        preview?.errors.map((text) => (
+          <p key={text} role="alert" className="text-xs font-semibold text-rose-600">
+            {text}
+          </p>
+        ))}
+      {preview && kind !== 'trip' && (
         <div
           role="status"
           className="space-y-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700"
         >
-          {kind === 'trip' ? (
-            // Công tác tính theo ngày: chỉ hiện số ngày công tác (cả ca hoặc nửa ca mỗi ngày), không hiện số giờ.
-            <p className="font-semibold text-slate-900" data-testid="time-total">
-              Số ngày công tác: {formatDays(preview.totalDays)} ngày
-            </p>
-          ) : (
-            <p className="font-semibold text-slate-900" data-testid="time-total">
-              {kind !== 'leave' ? 'Tổng thời gian: ' : ''}
-              {formatHours(preview.totalMinutes)} giờ
-              {preview.totalDays > 0 ? ` (${formatDays(preview.totalDays)} ngày công)` : ''}
-            </p>
-          )}
+          <p className="font-semibold text-slate-900" data-testid="time-total">
+            {kind !== 'leave' ? 'Tổng thời gian: ' : ''}
+            {formatHours(preview.totalMinutes)} giờ
+            {preview.totalDays > 0 ? ` (${formatDays(preview.totalDays)} ngày công)` : ''}
+          </p>
           {preview.errors.map((text) => (
             <p key={text} className="font-semibold text-rose-600">
               {text}

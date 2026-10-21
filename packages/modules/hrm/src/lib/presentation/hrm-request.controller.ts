@@ -247,9 +247,11 @@ export class HrmRequestController {
 
   @Post('ot-requests/:id/approve')
   async approveOtRequest(@Req() req: Request, @Param('id') id: string) {
-    const { pool, tenantId, principal } = await this.ctx.getContext(
+    const { pool, tenantId, principal } = await this.ctx.approverContext(
       req,
       'hrm.ot.approve',
+      'ot',
+      id,
     );
     await this.approvals.assertCanDecide(
       { pool, tenantId, principal },
@@ -273,9 +275,11 @@ export class HrmRequestController {
     @Param('id') id: string,
     @Body('reason') reason: string,
   ) {
-    const { pool, tenantId, principal } = await this.ctx.getContext(
+    const { pool, tenantId, principal } = await this.ctx.approverContext(
       req,
       'hrm.ot.approve',
+      'ot',
+      id,
     );
     await this.approvals.assertCanDecide(
       { pool, tenantId, principal },
@@ -608,9 +612,11 @@ export class HrmRequestController {
 
   @Post('business-trip-requests/:id/approve')
   async approveBusinessTrip(@Req() req: Request, @Param('id') id: string) {
-    const { pool, tenantId, principal } = await this.ctx.getContext(
+    const { pool, tenantId, principal } = await this.ctx.approverContext(
       req,
       'hrm.trip.approve',
+      'business_trip',
+      id,
     );
     await this.approvals.assertCanDecide(
       { pool, tenantId, principal },
@@ -629,9 +635,11 @@ export class HrmRequestController {
 
   @Post('business-trip-requests/:id/reject')
   async rejectBusinessTrip(@Req() req: Request, @Param('id') id: string) {
-    const { pool, tenantId, principal } = await this.ctx.getContext(
+    const { pool, tenantId, principal } = await this.ctx.approverContext(
       req,
       'hrm.trip.approve',
+      'business_trip',
+      id,
     );
     await this.approvals.assertCanDecide(
       { pool, tenantId, principal },
@@ -664,9 +672,11 @@ export class HrmRequestController {
 
   @Post('business-trip-requests/:id/cancel')
   async cancelBusinessTrip(@Req() req: Request, @Param('id') id: string) {
-    const { pool, tenantId, principal } = await this.ctx.getContext(
+    const { pool, tenantId, principal } = await this.ctx.approverContext(
       req,
       'hrm.trip.approve',
+      'business_trip',
+      id,
     );
     await this.approvals.assertCanDecide(
       { pool, tenantId, principal },
@@ -972,9 +982,11 @@ export class HrmRequestController {
 
   @Post('shift-change-requests/:id/approve')
   async approveShiftChange(@Req() req: Request, @Param('id') id: string) {
-    const { pool, tenantId, principal } = await this.ctx.getContext(
+    const { pool, tenantId, principal } = await this.ctx.approverContext(
       req,
       'hrm.shift.approve',
+      'shift_change',
+      id,
     );
     await this.approvals.assertCanDecide(
       { pool, tenantId, principal },
@@ -998,9 +1010,11 @@ export class HrmRequestController {
     @Param('id') id: string,
     @Body('reason') reason: string,
   ) {
-    const { pool, tenantId, principal } = await this.ctx.getContext(
+    const { pool, tenantId, principal } = await this.ctx.approverContext(
       req,
       'hrm.shift.approve',
+      'shift_change',
+      id,
     );
     await this.approvals.assertCanDecide(
       { pool, tenantId, principal },

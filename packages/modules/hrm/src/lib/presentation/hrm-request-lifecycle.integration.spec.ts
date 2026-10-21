@@ -96,6 +96,7 @@ integration('HRM request draft lifecycle PostgreSQL integration', () => {
     await migrate('hrm/0034-hrm-request-project-links.sql');
     await migrate('hrm/0035-hrm-request-trip-links.sql');
     await migrate('hrm/0036-hrm-project-request-reversed.sql');
+    await migrate('hrm/0054-hrm-direct-fallback-position.sql');
   }, 30_000);
   afterAll(async () => {
     await pool?.end();
@@ -121,6 +122,17 @@ integration('HRM request draft lifecycle PostgreSQL integration', () => {
         principal,
       }),
       getContext: async () => ({ pool, tenantId, principal }),
+      approverContext: async (
+        _req: Request,
+        _permission: string,
+        _kind: string,
+        _id: string,
+      ) => ({
+        pool,
+        tenantId,
+        principal,
+        employeeId: userId,
+      }),
     }) as any;
   const approvals = testApprovalPolicy();
 

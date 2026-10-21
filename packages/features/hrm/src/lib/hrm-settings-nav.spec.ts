@@ -23,7 +23,7 @@ describe('hrm-settings-nav', () => {
     const leave = SETTINGS_GROUPS.find((g) => g.id === 'leave');
     const request = SETTINGS_GROUPS.find((g) => g.id === 'request');
     expect(leave?.entries.map((e) => e.id)).toEqual(['leave-policy']);
-    expect(request?.entries.map((e) => e.id)).toEqual(['request-reasons', 'approval']);
+    expect(request?.entries.map((e) => e.id)).toEqual(['request-reasons', 'request-quota', 'approval']);
   });
 
   it('gom theo chức năng: nghỉ phép, chấm công, lịch làm việc, đơn từ, lương, hệ thống', () => {

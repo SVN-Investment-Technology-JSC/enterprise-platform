@@ -735,9 +735,11 @@ export class HrmSalaryController {
     @Param('id') id: string,
     @Body('approvedAmount') amount?: number,
   ) {
-    const { pool, tenantId, principal } = await this.ctx.getContext(
+    const { pool, tenantId, principal } = await this.ctx.approverContext(
       req,
       'hrm.advance.approve',
+      'advance',
+      id,
     );
     await this.approvals.assertCanDecide(
       { pool, tenantId, principal },
@@ -756,9 +758,11 @@ export class HrmSalaryController {
     @Param('id') id: string,
     @Body('reason') reason: string,
   ) {
-    const { pool, tenantId, principal } = await this.ctx.getContext(
+    const { pool, tenantId, principal } = await this.ctx.approverContext(
       req,
       'hrm.advance.approve',
+      'advance',
+      id,
     );
     await this.approvals.assertCanDecide(
       { pool, tenantId, principal },

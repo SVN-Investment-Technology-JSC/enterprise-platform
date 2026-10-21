@@ -43,6 +43,9 @@
       "path": "../../packages/platform/data-import/tsconfig.lib.json"
     },
     {
+      "path": "../../packages/platform/brand/tsconfig.lib.json"
+    },
+    {
       "path": "../../packages/contracts/tenancy/tsconfig.lib.json"
     },
     {

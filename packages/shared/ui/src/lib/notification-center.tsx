@@ -1093,6 +1093,7 @@ const CATEGORY_LABELS: Readonly<Record<string, string>> = {
   mention: 'Được nhắc đến',
   payslip: 'Phiếu lương',
   project: 'Dự án',
+  'request-comment': 'Trao đổi đơn từ',
   'request-status': 'Trạng thái yêu cầu',
   'voucher-status': 'Trạng thái phiếu',
   reservation: 'Giữ chỗ vật tư',

@@ -6,6 +6,7 @@ describe('Tenant authorization cache', () => {
   let active: boolean;
   let roles: string[];
   let actions: string[];
+  let grants: string[];
   let clock: number;
   let query: jest.Mock;
   let service: TenantAuthorizationService;
@@ -19,6 +20,7 @@ describe('Tenant authorization cache', () => {
     active = true;
     roles = ['custom-role'];
     actions = ['core.users.read', 'tenant.manage'];
+    grants = [];
     clock = 0;
     query = jest.fn(async (sql: string) => {
       if (sql.includes('s.revision'))
@@ -30,7 +32,7 @@ describe('Tenant authorization cache', () => {
       if (sql.includes('SELECT r.key'))
         return { rows: roles.map((key) => ({ key })) };
       if (sql.includes('pa.action_key'))
-        return { rows: actions.map((key) => ({ key })) };
+        return { rows: [...new Set([...actions, ...grants])].map((key) => ({ key })) };
       throw new Error(sql);
     });
     service = new TenantAuthorizationService(
@@ -121,6 +123,21 @@ describe('Tenant authorization cache', () => {
     expect(access.moduleKeys).toContain('*');
     expect(allows(access, 'procedure-engine', 'platform.manage')).toBe(false);
     expect(allows(access, 'unknown', 'module.access')).toBe(false);
+  });
+  it('unions direct grants with role actions and drops unknown keys', async () => {
+    actions = ['core.users.read'];
+    grants = ['inventory.manage', 'tenant.manage', 'bogus.key'];
+    const access = await service.resolve('tenant-a', 'user');
+    expect(access.permissions).toEqual(
+      expect.arrayContaining(['core.users.read', 'inventory.manage', 'inventory.read']),
+    );
+    expect(access.permissions).not.toContain('tenant.manage');
+    expect(access.permissions).not.toContain('bogus.key');
+    expect(access.moduleKeys).toContain('inventory');
+    expect(query.mock.calls.some(([sql]) => String(sql).includes('user_permission_grants'))).toBe(true);
+    grants = [];
+    revision = '2';
+    expect((await service.resolve('tenant-a', 'user')).permissions).not.toContain('inventory.manage');
   });
   it('validates IDs before database access', () => {
     expect(() => uuid('not-a-uuid')).toThrow();

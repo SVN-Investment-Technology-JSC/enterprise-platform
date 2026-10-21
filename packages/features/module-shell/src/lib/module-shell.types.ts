@@ -13,6 +13,13 @@ export interface ModuleNavItem<TViewId extends string = string> {
   readonly badge?: string | number;
   /** Tiêu đề nhóm; các mục liền nhau cùng `group` được gom lại dưới một tiêu đề. */
   readonly group?: string;
+  /**
+   * Menu cha thu gọn được (chỉ kiểu `light`): các mục liền nhau cùng `parent` hiện thành menu con dưới một dòng cha;
+   * dòng cha tự mở khi có mục con đang chọn.
+   */
+  readonly parent?: string;
+  /** Biểu tượng của dòng cha; lấy từ mục con đầu tiên của nhóm. */
+  readonly parentIcon?: ReactNode;
   /** Module tự quyết định ẩn hiện; shell chỉ lọc chứ không xét quyền. */
   readonly hidden?: boolean;
 }
@@ -118,6 +125,9 @@ export interface ModuleShellProps<TViewId extends string = string> {
     readonly active?: boolean;
     readonly onOpen: () => void;
   };
+  /** Chỉ kiểu `light`: ẩn nút chuyển phân hệ trên đầu thanh bên (dùng cho Platform Superadmin). */
+  readonly hideModuleSwitcher?: boolean;
+  /** Chỉ kiểu `light`: ẩn nút Trang chủ ở chân thanh bên và breadcrumb (dùng cho Platform Superadmin). */
+  readonly hideHomeButton?: boolean;
   readonly children: ReactNode;
 }
-

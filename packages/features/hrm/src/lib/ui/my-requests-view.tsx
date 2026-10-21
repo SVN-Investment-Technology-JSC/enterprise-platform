@@ -460,12 +460,14 @@ export function RequestDetailCard({
   status,
   fields,
   workflow,
+  thread,
   actions,
 }: {
   row: MyRequestRow | null;
   status: StatusMeta | null;
   fields: ReactNode;
   workflow: ReactNode;
+  thread?: ReactNode;
   actions: ReactNode;
 }) {
   return (
@@ -506,6 +508,7 @@ export function RequestDetailCard({
               </h3>
               {workflow}
             </div>
+            {thread ? <div className="border-t border-slate-100 pt-3">{thread}</div> : null}
           </div>
           <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 p-3">
             {actions}

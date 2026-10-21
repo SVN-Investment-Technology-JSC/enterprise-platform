@@ -2920,6 +2920,31 @@ export interface HrmAutoAttendanceSettings {
   readonly updatedAt: string | null;
 }
 
+/**
+ * Hạn mức số đơn ĐÃ DUYỆT mỗi tháng của một nhân viên theo từng loại đơn. `monthlyLimit` null là không giới hạn.
+ * `ready` false khi tenant chưa chạy migration 0064.
+ */
+export interface HrmRequestQuotaItem {
+  readonly typeCode: string;
+  readonly typeName: string;
+  readonly active: boolean;
+  readonly monthlyLimit: number | null;
+}
+
+export interface HrmRequestQuotaSettings {
+  readonly ready: boolean;
+  readonly items: readonly HrmRequestQuotaItem[];
+}
+
+/** Hạn mức và số đơn đã duyệt tháng này của người đang đăng nhập, chỉ gồm loại đơn có đặt hạn mức. */
+export interface HrmMyRequestQuota {
+  readonly typeCode: string;
+  readonly limit: number;
+  readonly used: number;
+  readonly remaining: number;
+}
+
+
 export interface HrmBoardEmployee {
   readonly employeeId: string;
   readonly employeeCode: string;
@@ -3104,6 +3129,8 @@ export interface HrmCommentMention {
 /** `GET /request-comments?kind=&requestId=`. */
 export interface HrmRequestCommentsResponse {
   readonly data: readonly HrmRequestComment[];
+  /** Đơn đã huỷ/rút hoặc hoàn tất xử lý: chỉ đọc, không viết thêm. */
+  readonly closed?: boolean;
 }
 
 /** `POST /request-comments`: bình luận, hoặc ý kiến sau khi đã quyết định (kind = DECISION). */

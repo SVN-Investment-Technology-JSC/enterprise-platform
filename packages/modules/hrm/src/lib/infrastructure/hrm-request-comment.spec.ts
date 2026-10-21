@@ -1,4 +1,9 @@
-import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
+jest.mock('./hrm-approval-policy', () => ({
+  ...jest.requireActual('./hrm-approval-policy'),
+  participatesInProcedureOfRequest: jest.fn(async () => false),
+}));
+import { participatesInProcedureOfRequest } from './hrm-approval-policy';
 import {
   assertCanWrite,
   canReadAllRequests,
@@ -11,6 +16,8 @@ import {
   validateCommentBody,
   validMentions,
   type RequestOwner,
+  assertThreadOpen,
+  isThreadClosed,
 } from './hrm-request-comment';
 
 const TENANT = 'tenant-1';
@@ -84,6 +91,11 @@ describe('quyền xem và viết trong luồng trao đổi', () => {
     const stranger = await resolve({ userId: PEER, permissions: [] }, false, false);
     expect(stranger).toBeNull();
     expect(() => assertCanWrite(stranger)).toThrow(ForbiddenException);
+  });
+
+  it('người tham gia quy trình của đơn (chưa tới lượt) được vào luồng như người tham gia', async () => {
+    (participatesInProcedureOfRequest as jest.Mock).mockResolvedValueOnce(true);
+    expect(await resolve({ userId: PEER, permissions: [] }, false, false)).toBe('PARTICIPANT');
   });
 
   it('hàm quyền thuần', () => {
@@ -207,5 +219,28 @@ describe('searchMentionCandidates', () => {
     expect((await searchMentionCandidates(db, TENANT, 'NV011', OWNER_USER)).map((c) => c.userId)).toEqual([BOSS]);
     expect(await searchMentionCandidates(db, TENANT, '', OWNER_USER)).toHaveLength(2);
     expect(await searchMentionCandidates(db, TENANT, 'khongco', OWNER_USER)).toEqual([]);
+  });
+});
+
+describe('luồng trao đổi theo trạng thái đơn', () => {
+  it('đơn đang xử lý hoặc chưa biết trạng thái thì còn mở', () => {
+    for (const status of ['PENDING', 'PEER_CONFIRMED', undefined]) {
+      expect(isThreadClosed(status)).toBe(false);
+      expect(() => assertThreadOpen(status, 'COMMENT')).not.toThrow();
+    }
+  });
+
+  it('đơn đã huỷ/rút khoá cả bình luận lẫn ý kiến quyết định', () => {
+    expect(isThreadClosed('CANCELLED')).toBe(true);
+    expect(() => assertThreadOpen('CANCELLED', 'COMMENT')).toThrow(ConflictException);
+    expect(() => assertThreadOpen('CANCELLED', 'DECISION')).toThrow(ConflictException);
+  });
+
+  it('đơn đã hoàn tất chỉ còn nhận ý kiến kèm quyết định', () => {
+    for (const status of ['APPROVED', 'REJECTED', 'DISBURSED', 'REPAID']) {
+      expect(isThreadClosed(status)).toBe(true);
+      expect(() => assertThreadOpen(status, 'COMMENT')).toThrow(ConflictException);
+      expect(() => assertThreadOpen(status, 'DECISION')).not.toThrow();
+    }
   });
 });
