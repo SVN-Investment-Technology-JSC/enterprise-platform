@@ -1,6 +1,7 @@
 export * from './lib/module-shell';
 export * from './lib/assistant-actions';
 export * from './lib/assistant-form-host';
+export * from './lib/assistant-saved';
 export * from './lib/assistant-launcher';
 export * from './lib/launcher-only-modules';
 export * from './lib/module-shell.types';

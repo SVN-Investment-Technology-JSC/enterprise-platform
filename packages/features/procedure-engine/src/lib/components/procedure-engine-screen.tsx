@@ -10,12 +10,14 @@ import type {
   ProcedureWorkspace,
   ReverseProcedureInstanceRequest,
 } from '@enterprise-platform/contracts-procedure-engine';
+import { PROCEDURE_ASSISTANT_ACTIONS } from '@enterprise-platform/contracts-procedure-engine';
 import type { TenantOrganizationContext } from '@enterprise-platform/contracts-organization';
 import {
   DashboardCardPicker,
   DashboardView,
   ModuleSettingsView,
   ModuleShell,
+  useAssistantSaved,
   useHashView,
   type ModuleNavItem,
 } from '@enterprise-platform/feature-module-shell';
@@ -79,6 +81,7 @@ const NAV: readonly ModuleNavItem<View>[] = [
 ];
 
 const VIEW_IDS = NAV.map((item) => item.id);
+const START_ACTION_KEYS = [PROCEDURE_ASSISTANT_ACTIONS.startInstance.key];
 
 export function ProcedureEngineScreen() {
   const { view, sub, navigate } = useHashView<View>({ views: VIEW_IDS, fallback: 'dashboard' });
@@ -153,6 +156,9 @@ export function ProcedureEngineScreen() {
     void reload();
     void loadTenantHomePath().then(setHomePath);
   }, [reload]);
+
+  // Card Trợ lý vừa khởi tạo hồ sơ: tải lại danh sách hồ sơ như khi tự khởi tạo.
+  useAssistantSaved(START_ACTION_KEYS, () => void reload());
 
   /**
    * Cấu hình chỉ nạp khi thật sự cần: dashboard cần biết thẻ nào bật, màn cài

@@ -50,7 +50,12 @@ export async function loadBoard(month: string): Promise<HrmTimesheetBoard | null
  * Dữ liệu cá nhân cho Bàn làm việc, tải song song và độc lập: một phần lỗi hoặc không có quyền thì chỉ phần đó trống.
  * Bảng công tháng cho cả thống kê, lịch tháng và đơn từ nên chỉ một lần gọi.
  */
-export function useMyDashboard(options: { enabled: boolean; canSeePayslip: boolean }): MyDashboardData {
+export function useMyDashboard(options: {
+  enabled: boolean;
+  canSeePayslip: boolean;
+  /** Đổi giá trị để tải lại (ví dụ card Trợ lý vừa gửi đơn); dữ liệu cũ giữ nguyên tới khi có dữ liệu mới. */
+  reloadKey?: number;
+}): MyDashboardData {
   const today = todayVn();
   const monthKey = today.slice(0, 7);
   const [state, setState] = useState(EMPTY);
@@ -106,7 +111,7 @@ export function useMyDashboard(options: { enabled: boolean; canSeePayslip: boole
     return () => {
       live = false;
     };
-  }, [today, monthKey, options.enabled, options.canSeePayslip]);
+  }, [today, monthKey, options.enabled, options.canSeePayslip, options.reloadKey]);
 
   return { ...state, today, monthKey };
 }

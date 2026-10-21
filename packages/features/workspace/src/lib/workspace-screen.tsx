@@ -1,13 +1,19 @@
 'use client';
 
 import {
+  assistantActionKeys,
   ModuleSettingsView,
   ModuleShell,
+  useAssistantSaved,
   useHashView,
   type ModuleNavItem,
   type ModuleSidebarSection,
 } from '@enterprise-platform/feature-module-shell';
-import type { ProjectSummary, ProjectTypeOption } from '@enterprise-platform/contracts-workspace';
+import {
+  WORKSPACE_ASSISTANT_ACTIONS,
+  type ProjectSummary,
+  type ProjectTypeOption,
+} from '@enterprise-platform/contracts-workspace';
 import {
   BarChart3,
   ClipboardList,
@@ -76,6 +82,7 @@ const NAV: readonly ModuleNavItem<Tab>[] = [
 
 /** Số dự án hiện sẵn ở mục Dự án trên thanh bên; còn lại vào "Tất cả dự án". */
 const SIDEBAR_PROJECTS = 5;
+const WORKSPACE_ACTION_KEYS = assistantActionKeys(WORKSPACE_ASSISTANT_ACTIONS);
 
 const VIEWS = NAV.map((item) => item.id);
 
@@ -300,12 +307,14 @@ export function WorkspaceScreen() {
     }
   }, [openProjectId, reloadSidebarProjects]);
 
-  // Con số nhắc việc: đổi khi rời trang Công việc của tôi hay quay lại.
-  useEffect(() => {
+  // Con số nhắc việc: đổi khi rời trang Công việc của tôi hay quay lại, và khi card Trợ lý vừa tạo việc.
+  const refreshAttention = useCallback(() => {
     loadMyWork()
       .then((summary) => setAttention(summary.counters.overdueItems + summary.counters.dueToday))
       .catch(() => undefined);
-  }, [view]);
+  }, []);
+  useEffect(() => refreshAttention(), [view, refreshAttention]);
+  useAssistantSaved(WORKSPACE_ACTION_KEYS, refreshAttention);
 
   useEffect(() => {
     void loadTenantHomePath().then(setHomePath);

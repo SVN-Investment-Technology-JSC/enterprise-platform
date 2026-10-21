@@ -13,7 +13,9 @@ import {
   type ProjectSummary,
   type WorkItemPriority,
   type WorkItemStatus,
+  WORKSPACE_ASSISTANT_ACTIONS,
 } from '@enterprise-platform/contracts-workspace';
+import { assistantActionKeys, useAssistantSaved } from '@enterprise-platform/feature-module-shell';
 import { formatTime } from '@enterprise-platform/shared-ui';
 import {
   AtSign,
@@ -60,6 +62,8 @@ const INVITATION_RESPONSES: readonly {
   { value: 'tentative', label: 'Có thể' },
   { value: 'declined', label: 'Từ chối' },
 ];
+
+const WORKSPACE_ACTION_KEYS = assistantActionKeys(WORKSPACE_ASSISTANT_ACTIONS);
 
 /**
  * Trang "Công việc của tôi".
@@ -123,6 +127,9 @@ export function MyWorkView({ onOpen, onOpenTask }: MyWorkViewProps = {}) {
     void api.loadIsTenantAdmin().then(setIsTenantAdmin);
     void api.loadCurrentUserId().then(setMe);
   }, [reload]);
+
+  // Card Trợ lý vừa tạo cuộc họp, công việc hay việc ngoài dự án: cả ba đều hiện ở trang này.
+  useAssistantSaved(WORKSPACE_ACTION_KEYS, () => void reload());
 
   /** Nạp danh sách dự án cho ô chọn "Dự án" khi mở form Công việc mới. */
   const openNewWorkItem = useCallback(() => {
