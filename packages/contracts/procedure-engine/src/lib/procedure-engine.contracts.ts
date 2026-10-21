@@ -238,6 +238,25 @@ export interface ProcedureInstanceReversal {
   adjustmentRequested: boolean;
 }
 
+export interface ProcedureInstanceDeletion {
+  deletedAt: string;
+  deletedBy: string;
+  deletedByName?: string;
+  reason: string;
+}
+
+export interface DeleteProcedureInstanceRequest {
+  reason: string;
+}
+
+/** Đổi công việc liên kết: tạo công việc mới trong dự án (và công việc cha) đã chọn, bỏ công việc cũ. */
+export interface RelinkProcedureWorkspaceRequest {
+  projectId: string;
+  projectCode: string;
+  /** Công việc cha trong dự án mới; bỏ trống là gốc dự án. */
+  parentId?: string;
+}
+
 export type ProcedureInstanceStepStatus =
   | 'pending'
   | 'active'
@@ -317,7 +336,7 @@ export interface ProcedureMaterialOrder {
 
 export interface ProcedureActivity {
   id: string;
-  action: ProcedureRuntimeAction | 'start' | 'publish' | 'reverse';
+  action: ProcedureRuntimeAction | 'start' | 'publish' | 'reverse' | 'delete' | 'relink';
   actorId: string;
   actorName: string;
   summary: string;
@@ -399,6 +418,15 @@ export interface ProcedureRuntimeAuthorization {
   editableAttributeKeys?: string[];
   /** Id bước (step instance) trên đường đã đi mà người này được chọn để trả về. */
   returnTargetStepIds?: string[];
+  /**
+   * Được xoá đơn (chỉ khi đơn chưa hoàn thành): người giữ vai A ở bất kỳ bước nào (kể cả được uỷ quyền
+   * vai A), quản trị can thiệp hồ sơ, hoặc người submit khi chưa có nút C/A nào pass.
+   */
+  canDelete?: boolean;
+  /** Được đổi công việc liên kết trong dự án Workspace; cùng người được xoá đơn. */
+  canRelinkWorkspace?: boolean;
+  /** Được bổ sung tài liệu: người tham gia đơn trừ người chỉ có vai I (người xem). */
+  canSupplement?: boolean;
 }
 
 export interface PostProcedureCommentRequest {
@@ -427,6 +455,8 @@ export interface ProcedureInstance {
   sourceId?: string;
   /** Liên kết với một công việc trong dự án Workspace, nếu hồ sơ được mở kèm dự án. */
   workspaceLink?: ProcedureWorkspaceLink;
+  /** Người tạo đơn hộ cho người khởi tạo (`initiatedBy`); vắng là người khởi tạo tự tạo. */
+  createdOnBehalfBy?: { userId: string; name: string };
   /** Thiết bị hồ sơ gắn vào; đầu việc của vai E được nạp theo thiết bị này. */
   assetCode?: string;
   /** Thời gian bắt đầu và kết thúc theo kế hoạch (Thông tin chung) */
@@ -441,6 +471,11 @@ export interface ProcedureInstance {
   completedAt?: string;
   /** Có khi hồ sơ bị huỷ hiệu lực (`status = 'reversed'`). */
   reversal?: ProcedureInstanceReversal;
+  /**
+   * Có khi đơn đã bị xoá (xoá mềm). Đơn bị ẩn khỏi mọi màn hình và lời gọi của module khác; dữ liệu
+   * và lịch sử xử lý vẫn giữ để tra cứu.
+   */
+  deletion?: ProcedureInstanceDeletion;
   /** Hồ sơ này là hồ sơ điều chỉnh của một hồ sơ đã bị huỷ hiệu lực. */
   adjustmentOf?: { instanceId: string; instanceCode: string };
   steps: ProcedureInstanceStep[];
@@ -571,6 +606,12 @@ export interface StartProcedureInstanceRequest {
   sourceId?: string;
   initiatedBy?: string;
   initiatedByName?: string;
+  /**
+   * Người submit: người nộp đơn, phải giữ vai S của quy trình. Vắng hoặc trùng người gọi là tự nộp; khác
+   * người gọi là tạo đơn hộ — người submit thành người khởi tạo của hồ sơ, người gọi không cần vai S.
+   */
+  submitterUserId?: string;
+  submitterName?: string;
   /** Chỉ dịch vụ nội bộ (sourceType 'hrm_request' hoặc 'finance_voucher'): xem CreateProcedureInstanceRequest. */
   autoCompleteInitiatorStep?: boolean;
   /**
@@ -650,6 +691,11 @@ export interface ProcedureAttachment {
   readonly uploadedBy: string;
   readonly createdAt: string;
   readonly downloadUrl?: string;
+  /**
+   * Nguồn của tệp, để hiện thẻ: tải lên ở một bước (`stepInstanceId` cho biết bước nào), bổ sung ngoài
+   * bước, hay do hệ thống sinh (bảng kê…).
+   */
+  readonly origin?: 'step' | 'supplement' | 'system';
 }
 
 /**
@@ -680,6 +726,11 @@ export interface CreateProcedureAttachmentRequest {
   readonly sizeBytes?: number;
   readonly stepInstanceId?: string;
   readonly subtaskId?: string;
+  /**
+   * Tài liệu bổ sung: không gắn vào bước đang chạy, hiện thẻ "Bổ sung". Người tham gia đơn (trừ người
+   * chỉ có vai I) bổ sung được kể cả khi không có phần việc ở bước hiện tại.
+   */
+  readonly supplement?: boolean;
 }
 
 export interface CreateProcedureAttachmentResponse {
@@ -817,8 +868,6 @@ export interface ProcedureWorkspaceWorkItemDraft {
   estimatedCost?: number;
   /** Công việc cha trong dự án; bỏ trống nghĩa là đặt ở gốc dự án. */
   parentId?: string;
-  /** Người submit đơn, chọn trong danh sách người tham gia dự án. */
-  submitterUserId?: string;
 }
 
 /**
@@ -845,6 +894,13 @@ export interface ProcedureWorkspaceLink {
   resolvedAt?: string;
   /** Hồ sơ điều chỉnh: công việc mới là công việc điều chỉnh của công việc đã huỷ hiệu lực này. */
   adjustmentOfWorkItemId?: string;
+  /**
+   * Đang đổi công việc liên kết: công việc cũ sẽ bị Workspace xoá sau khi tạo công việc mới (tài liệu
+   * chuyển sang công việc mới). Vắng là liên kết lần đầu.
+   */
+  replacesWorkItemId?: string;
+  /** Liên kết trước khi đổi; Workspace từ chối thì khôi phục lại đúng liên kết này. */
+  previous?: Omit<ProcedureWorkspaceLink, 'previous'>;
 }
 
 /**

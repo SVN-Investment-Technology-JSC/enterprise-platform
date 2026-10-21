@@ -702,6 +702,29 @@ export interface WorkspaceStore {
 
     /** Các thư mục tham chiếu tới tài liệu, ngoài thư mục gốc. */
     listFolderRefs(tenantId: string, documentId: string): Promise<readonly DocumentFolderRef[]>;
+    /** Tài liệu có một phiên bản trỏ tới tệp này; dùng chống trùng khi nhận tệp từ module khác. */
+    findByStorageKey(tenantId: string, storageKey: string): Promise<{ readonly documentId: string } | undefined>;
+    /**
+     * Tài liệu thuộc về một công việc: gắn với công việc (document_links) hoặc nằm trong thư mục riêng
+     * của công việc (`folderId`). Chỉ tài liệu còn hiệu lực.
+     */
+    idsForWorkItem(tenantId: string, workItemId: string, folderId?: string): Promise<readonly string[]>;
+    /**
+     * Chuyển tài liệu sang công việc khác: thư mục và dự án mới, liên kết trỏ sang công việc mới. Trùng tên
+     * trong thư mục đích thì thêm hậu tố " (2)", " (3)"… Một transaction.
+     */
+    moveToWorkItem(
+      tenantId: string,
+      input: {
+        readonly documentIds: readonly string[];
+        readonly fromWorkItemId: string;
+        readonly toWorkItemId: string;
+        readonly toProjectId: string;
+        readonly toFolderId: string;
+        readonly actorUserId: string;
+      },
+    ): Promise<void>;
+
     /** Thêm tham chiếu; đã có thì trả lại dòng cũ chứ không báo trùng. */
     addFolderRef(
       tenantId: string,

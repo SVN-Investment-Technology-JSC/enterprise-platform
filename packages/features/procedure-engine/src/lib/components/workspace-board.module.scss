@@ -4869,3 +4869,66 @@ a.stepDocChip:hover {
   font-size: 13px;
   line-height: 1.4;
 }
+
+/* Thẻ nguồn của tệp đính kèm: "Bước N", "Bổ sung" hay "Hệ thống". */
+.fileOriginTag {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 8px;
+  padding: 0 7px;
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  background: #f8fafc;
+  color: #475569;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  vertical-align: middle;
+}
+
+.fileOriginTagSupplement {
+  border-color: rgb(217 171 0 / 45%);
+  background: #fff8db;
+  color: #5c4500;
+}
+
+/* Ô "Người submit": thẻ trong dự án (xanh dương) / ngoài dự án (vàng). */
+.submitterOption {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.submitterOptionRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.submitterOptionHint {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.submitterTagIn,
+.submitterTagOut {
+  padding: 1px 6px;
+  border: 1px solid;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.submitterTagIn {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.submitterTagOut {
+  border-color: rgb(217 171 0 / 45%);
+  background: #fff8db;
+  color: #5c4500;
+}

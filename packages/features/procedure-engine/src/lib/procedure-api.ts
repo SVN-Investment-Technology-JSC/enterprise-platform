@@ -1,5 +1,7 @@
 import type {
   ReverseProcedureInstanceRequest,
+  DeleteProcedureInstanceRequest,
+  RelinkProcedureWorkspaceRequest,
   ApplyProcedureActionRequest,
   CreateProcedureDefinitionRequest,
   CreateProcedureAttachmentRequest,
@@ -207,6 +209,9 @@ export function startProcedureInstance(
         workspaceLink?: StartProcedureInstanceRequest['workspaceLink'];
         /** Hồ sơ điều chỉnh của một hồ sơ đã huỷ hiệu lực. */
         adjustmentOfInstanceId?: string;
+        /** Người submit (giữ vai S); khác người đang đăng nhập là tạo đơn hộ. */
+        submitterUserId?: string;
+        submitterName?: string;
       },
 ): Promise<ProcedureInstance> {
   const payload =
@@ -402,10 +407,34 @@ export function postProcedureComment(
   });
 }
 
+/** Xoá đơn (xoá mềm, bắt buộc lý do): người giữ vai A của đơn hoặc quản trị. */
+export async function deleteProcedureInstance(instanceId: string, reason: string): Promise<void> {
+  await request<void>(`/instances/${instanceId}/delete`, {
+    method: 'POST',
+    body: JSON.stringify({ reason } satisfies DeleteProcedureInstanceRequest),
+  });
+}
+
+/** Đổi công việc liên kết sang dự án / công việc cha khác; Workspace xử lý bất đồng bộ. */
+export function relinkProcedureWorkspace(
+  instanceId: string,
+  input: RelinkProcedureWorkspaceRequest,
+): Promise<ProcedureInstance> {
+  return request<ProcedureInstance>(`/instances/${instanceId}/workspace-relink`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+/**
+ * Tải tệp đính kèm: tạo dòng, PUT thẳng lên kho, rồi báo server đã xong để tệp của đơn gắn dự án được
+ * đưa sang tài liệu dự án. `supplement` là tài liệu bổ sung (không gắn bước, thẻ "Bổ sung").
+ */
 export async function uploadProcedureAttachment(
   instanceId: string,
   file: File,
   subtaskId?: string,
+  supplement?: boolean,
 ): Promise<ProcedureAttachment> {
   const created = await request<CreateProcedureAttachmentResponse>(
     `/instances/${instanceId}/attachments`,
@@ -416,6 +445,7 @@ export async function uploadProcedureAttachment(
         contentType: file.type || 'application/octet-stream',
         sizeBytes: file.size,
         subtaskId,
+        ...(supplement ? { supplement: true } : {}),
       } satisfies CreateProcedureAttachmentRequest),
     },
   );
@@ -428,7 +458,10 @@ export async function uploadProcedureAttachment(
   if (!upload.ok) {
     throw new Error(`Tải tệp lên thất bại (HTTP ${upload.status}).`);
   }
-  return created.attachment;
+  return request<ProcedureAttachment>(
+    `/instances/${instanceId}/attachments/${created.attachment.id}/complete`,
+    { method: 'POST' },
+  );
 }
 
 /** Trang chủ doanh nghiệp của người đang đăng nhập, cho nút quay lại. */

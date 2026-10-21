@@ -179,12 +179,113 @@ export function isProcedureParticipant(
   instance: ProcedureInstance,
   actor: ProcedureActor,
 ): boolean {
+  // Đơn đã xoá biến mất với mọi người, kể cả quản trị: đây là cửa chung của mọi lần đọc đơn.
+  if (instance.deletion) return false;
   if (actor.isOverride) return true;
   if (instance.initiatedBy === actor.userId) return true;
   if (
     instance.steps.some((step) =>
       step.assignments.some(
         (assignment) => assignment.role !== 'S' && matchesProcedureAssignment(assignment, actor),
+      ),
+    )
+  ) {
+    return true;
+  }
+  if ((instance.delegations ?? []).some((item) => item.delegatedTo === actor.userId)) return true;
+  return (instance.subtasks ?? []).some((subtask) => subtask.assigneeId === actor.userId);
+}
+
+/**
+ * Người này giữ `role` ở BẤT KỲ bước nào của đơn — trực tiếp qua phân công (chức danh, đơn vị qua
+ * trưởng đơn vị, leo thang) hoặc được uỷ quyền vai đó. Khác `myRoles` (chỉ bước hiện tại): quyền gắn
+ * với cả đơn như xoá đơn, đổi công việc liên kết.
+ *
+ * Phân công "quản lý của người khởi tạo" chỉ thành chức danh cụ thể khi bước đó đã tới, nên trước đó
+ * chưa khớp ai.
+ */
+export function holdsProcedureRole(
+  instance: ProcedureInstance,
+  actor: ProcedureActor,
+  role: ProcedureRaciRole,
+): boolean {
+  if (
+    instance.steps.some((step) =>
+      step.assignments.some(
+        (assignment) => assignment.role === role && matchesProcedureAssignment(assignment, actor),
+      ),
+    )
+  ) {
+    return true;
+  }
+  return (instance.delegations ?? []).some(
+    (delegation) => delegation.delegatedTo === actor.userId && delegation.roles.includes(role),
+  );
+}
+
+/** Trạng thái còn xoá được đơn: chưa hoàn thành. Đơn đã hoàn thành dùng "Huỷ hiệu lực". */
+const DELETABLE_STATUSES: readonly ProcedureInstance['status'][] = ['running', 'cancelled', 'rejected'];
+
+/** Đơn còn được bổ sung tài liệu: đang chạy, hoặc đã hoàn thành (bổ sung chứng từ sau). */
+const SUPPLEMENTABLE_STATUSES: readonly ProcedureInstance['status'][] = ['running', 'completed'];
+
+/** Công việc Workspace đang gắn với đơn; rỗng khi đơn không gắn dự án hoặc liên kết chưa xong. */
+export function linkedWorkItemId(instance: ProcedureInstance): string | undefined {
+  if (instance.workspaceLink?.status === 'linked') return instance.workspaceLink.workItemId;
+  if (instance.sourceType === 'workspace_work_item') return instance.sourceId;
+  return undefined;
+}
+
+/**
+ * Đơn đã có lượt duyệt ở nút C hoặc nút A (hành động "approve", kể cả quản trị duyệt thay). Tính cả lượt
+ * duyệt đã bị trả về sau đó: chỉ cần một nút C/A đã pass là đơn không còn là bản nháp của người submit.
+ */
+export function hasProcedureApproval(instance: ProcedureInstance): boolean {
+  return instance.activity.some((entry) => entry.action === 'approve');
+}
+
+/**
+ * Xoá đơn, khi đơn chưa hoàn thành và chưa bị xoá:
+ *  - người giữ vai A của đơn, hoặc quản trị — lúc nào cũng được;
+ *  - người submit (người khởi tạo) — chỉ trước khi nút C hay nút A đầu tiên pass.
+ */
+export function canDeleteProcedureInstance(instance: ProcedureInstance, actor: ProcedureActor): boolean {
+  if (instance.deletion || !DELETABLE_STATUSES.includes(instance.status)) return false;
+  if (actor.isOverride || holdsProcedureRole(instance, actor, 'A')) return true;
+  return instance.initiatedBy === actor.userId && !hasProcedureApproval(instance);
+}
+
+/**
+ * Đổi công việc liên kết: cùng người được xoá đơn; đơn phải đang gắn một công việc (không đang chờ
+ * Workspace trả lời) và chưa bị huỷ hiệu lực.
+ */
+export function canRelinkProcedureWorkspace(
+  instance: ProcedureInstance,
+  actor: ProcedureActor,
+): boolean {
+  if (instance.deletion || instance.status === 'reversed') return false;
+  if (instance.workspaceLink?.status === 'pending' || !linkedWorkItemId(instance)) return false;
+  return actor.isOverride || holdsProcedureRole(instance, actor, 'A');
+}
+
+/**
+ * Bổ sung tài liệu: người tham gia đơn trừ người xem. "Người xem" là người chỉ có mặt nhờ vai I (hoặc
+ * chỉ thuộc tập được phép khởi tạo S); ai có vai khác, là người khởi tạo, được uỷ quyền, được giao đầu
+ * việc hay là quản trị thì bổ sung được.
+ */
+export function canSupplementProcedureInstance(
+  instance: ProcedureInstance,
+  actor: ProcedureActor,
+): boolean {
+  if (instance.deletion || !SUPPLEMENTABLE_STATUSES.includes(instance.status)) return false;
+  if (actor.isOverride || instance.initiatedBy === actor.userId) return true;
+  if (
+    instance.steps.some((step) =>
+      step.assignments.some(
+        (assignment) =>
+          assignment.role !== 'S' &&
+          assignment.role !== 'I' &&
+          matchesProcedureAssignment(assignment, actor),
       ),
     )
   ) {
@@ -308,6 +409,9 @@ export function deriveProcedureAuthorization(
     editableAttributeKeys:
       actions.has('complete') || actions.has('approve') ? editableAttributeKeys(instance) : [],
     returnTargetStepIds: actions.has('return') ? returnTargets : [],
+    canDelete: canDeleteProcedureInstance(instance, actor),
+    canRelinkWorkspace: canRelinkProcedureWorkspace(instance, actor),
+    canSupplement: canSupplementProcedureInstance(instance, actor),
   };
 }
 

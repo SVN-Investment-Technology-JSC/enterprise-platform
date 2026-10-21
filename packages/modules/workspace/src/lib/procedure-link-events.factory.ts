@@ -1,5 +1,7 @@
 import { PostgresPoolRegistry, TenantDatabaseRegistry } from '@enterprise-platform/adapter-database';
 import { DirectoryService } from './application/directory.service.js';
+import { DocumentService } from './application/document.service.js';
+import { WorkItemDeletionService } from './application/work-item-deletion.service.js';
 import { FinanceService } from './application/finance.service.js';
 import { WorkspaceProcedureEvents } from './application/procedure-link-events.js';
 import { ProjectService } from './application/project.service.js';
@@ -29,6 +31,9 @@ export function createWorkspaceProcedureEvents(
     store,
     new WorkItemService(store, projects),
     new FinanceService(store, projects),
+    new DocumentService(store, projects),
+    new WorkItemDeletionService(store, projects),
+    projects,
   );
   return {
     ready: async (tenantId) => {

@@ -60,7 +60,6 @@ export interface ProcedureLinkRequestedPayload {
     readonly priority?: 'low' | 'normal' | 'high' | 'urgent';
     readonly assigneeUserId?: string;
     readonly parentId?: string;
-    readonly submitterUserId?: string;
     readonly plannedStart?: string;
     readonly plannedEnd?: string;
     readonly estimateHours?: number;
@@ -68,6 +67,48 @@ export interface ProcedureLinkRequestedPayload {
   };
   /** Hồ sơ điều chỉnh: công việc mới nối về công việc đã huỷ hiệu lực này. */
   readonly adjustmentOfWorkItemId?: string;
+  /** Người submit của đơn tạo hộ; chưa thuộc dự án thì được thêm vào (quyền của người yêu cầu). */
+  readonly submitterUserId?: string;
+}
+
+/**
+ * Quy trình → Workspace: đổi công việc liên kết của hồ sơ. Tạo công việc mới ở dự án / công việc cha đã
+ * chọn, chuyển tài liệu của công việc cũ sang, xoá công việc cũ, rồi trả `procedure_linked`.
+ */
+export const PROCEDURE_WORKSPACE_RELINK_REQUESTED = 'procedure.instance.workspace_relink_requested';
+
+export interface ProcedureRelinkRequestedPayload extends ProcedureLinkRequestedPayload {
+  /** Công việc đang gắn hồ sơ; bị xoá sau khi tài liệu đã chuyển sang công việc mới. */
+  readonly replacesWorkItemId: string;
+}
+
+/** Quy trình → Workspace: hồ sơ bị xoá (xoá mềm); xoá công việc liên kết. */
+export const PROCEDURE_INSTANCE_DELETED = 'procedure.instance.deleted';
+
+export interface ProcedureInstanceDeletedPayload {
+  readonly instanceId: string;
+  readonly instanceCode: string;
+  readonly workItemId?: string;
+  readonly reason: string;
+  readonly deletedBy: string;
+  readonly deletedByName?: string;
+}
+
+/** Quy trình → Workspace: hồ sơ gắn dự án có tệp mới tải lên xong; đưa vào thư mục công việc. */
+export const PROCEDURE_ATTACHMENT_ADDED = 'procedure.instance.attachment_added';
+
+export interface ProcedureAttachmentAddedPayload {
+  readonly instanceId: string;
+  readonly instanceCode: string;
+  readonly attachmentId: string;
+  /** Khoá tệp trong kho, dùng lại nguyên vẹn (không tải lên lần nữa). */
+  readonly objectKey: string;
+  readonly fileName: string;
+  readonly contentType: string;
+  readonly sizeBytes: number;
+  readonly uploadedBy: string;
+  /** "Bước 2", "Bổ sung"… */
+  readonly originLabel: string;
 }
 
 export interface ProcedureStartedForWorkItemPayload {

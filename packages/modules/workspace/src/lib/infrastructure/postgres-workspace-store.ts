@@ -2686,6 +2686,97 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
         [documentId],
       );
       return result.rows.map(mapFolderRef);
+    findByStorageKey: async (tenantId: string, storageKey: string) => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `SELECT document_id FROM workspace_schema.document_versions WHERE storage_key = $1 LIMIT 1`,
+        [storageKey],
+      );
+      const row = result.rows[0];
+      return row ? { documentId: str(row.document_id) } : undefined;
+    },
+
+    idsForWorkItem: async (tenantId: string, workItemId: string, folderId?: string) => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `SELECT d.id FROM workspace_schema.documents d
+          WHERE d.status <> 'archived'
+            AND (d.folder_id = $2::uuid
+                 OR EXISTS (SELECT 1 FROM workspace_schema.document_links l
+                             WHERE l.document_id = d.id AND l.entity_type = 'work_item'
+                               AND l.entity_id = $1))`,
+        [workItemId, folderId ?? null],
+      );
+      return result.rows.map((row) => str(row.id));
+    },
+
+    moveToWorkItem: async (
+      tenantId: string,
+      input: {
+        readonly documentIds: readonly string[];
+        readonly fromWorkItemId: string;
+        readonly toWorkItemId: string;
+        readonly toProjectId: string;
+        readonly toFolderId: string;
+        readonly actorUserId: string;
+      },
+    ) => {
+      if (input.documentIds.length === 0) return;
+      const pool = await this.poolFor(tenantId);
+      await inTransaction(pool, async (client) => {
+        for (const documentId of input.documentIds) {
+          const current = await client.query<Row>(
+            `SELECT name FROM workspace_schema.documents WHERE id = $1 FOR UPDATE`,
+            [documentId],
+          );
+          const name = current.rows[0] ? str(current.rows[0].name) : undefined;
+          if (name === undefined) continue;
+          // Tên trùng trong thư mục đích: thêm hậu tố, tách phần đuôi tệp để giữ ".pdf"…
+          const dot = name.lastIndexOf('.');
+          const stem = dot > 0 ? name.slice(0, dot) : name;
+          const ext = dot > 0 ? name.slice(dot) : '';
+          let candidate = name;
+          for (let attempt = 2; ; attempt++) {
+            const clash = await client.query(
+              `SELECT 1 FROM workspace_schema.documents
+                WHERE folder_id = $1 AND name = $2 AND id <> $3`,
+              [input.toFolderId, candidate, documentId],
+            );
+            if (clash.rowCount === 0) break;
+            candidate = `${stem} (${attempt})${ext}`;
+          }
+          await client.query(
+            `UPDATE workspace_schema.documents
+                SET folder_id = $2, project_id = $3, name = $4, updated_at = now()
+              WHERE id = $1`,
+            [documentId, input.toFolderId, input.toProjectId, candidate],
+          );
+        }
+        // Liên kết công việc: bỏ liên kết trùng (nếu tài liệu đã gắn cả hai) rồi trỏ phần còn lại sang
+        // công việc mới; tài liệu chỉ nằm trong thư mục cũ thì gắn mới.
+        await client.query(
+          `DELETE FROM workspace_schema.document_links
+            WHERE entity_type = 'work_item' AND entity_id = $1
+              AND document_id = ANY($3::uuid[])
+              AND EXISTS (SELECT 1 FROM workspace_schema.document_links n
+                           WHERE n.document_id = document_links.document_id
+                             AND n.entity_type = 'work_item' AND n.entity_id = $2)`,
+          [input.fromWorkItemId, input.toWorkItemId, [...input.documentIds]],
+        );
+        await client.query(
+          `UPDATE workspace_schema.document_links SET entity_id = $2, updated_at = now()
+            WHERE entity_type = 'work_item' AND entity_id = $1 AND document_id = ANY($3::uuid[])`,
+          [input.fromWorkItemId, input.toWorkItemId, [...input.documentIds]],
+        );
+        await client.query(
+          `INSERT INTO workspace_schema.document_links (document_id, entity_type, entity_id, created_by)
+           SELECT unnest($1::uuid[]), 'work_item', $2, $3
+           ON CONFLICT (document_id, entity_type, entity_id) DO NOTHING`,
+          [[...input.documentIds], input.toWorkItemId, input.actorUserId],
+        );
+      });
+    },
+
     },
 
     addFolderRef: async (
@@ -3747,7 +3838,7 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
       const result = await pool.query<Row>(
         `SELECT ${EXTERNAL_REF_COLUMNS} FROM workspace_schema.external_references
           WHERE module_key = $1 AND external_id = $2
-          ORDER BY created_at LIMIT 1`,
+          ORDER BY created_at DESC LIMIT 1`,
         [moduleKey, externalId],
       );
       const row = result.rows[0];
@@ -3761,6 +3852,8 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
       if (updates.length === 0) return;
       const pool = await this.poolFor(tenantId);
       // Một câu cho cả lô bằng `unnest`, không phải N câu riêng lẻ.
+        // Mới nhất trước: lúc đổi công việc liên kết có một quãng hồ sơ trỏ cả công việc cũ lẫn mới
+        // (công việc cũ chưa xoá); liên kết mới mới là liên kết đúng.
       await pool.query(
         `UPDATE workspace_schema.external_references AS r
             SET cached_label  = COALESCE(v.label, r.cached_label),

@@ -52,6 +52,8 @@ export interface RelatedProject {
   readonly name: string;
   /** Được giao việc cho người khác, không chỉ cho chính mình. */
   readonly canAssignOthers: boolean;
+  /** Được thêm thành viên vào dự án (vd người submit của đơn tạo hộ chưa thuộc dự án). */
+  readonly canManageMembers: boolean;
 }
 
 export interface ProjectPerson {
@@ -71,8 +73,6 @@ export interface ProjectWorkItemInput {
   readonly estimateHours?: number;
   /** Công việc cha trong dự án; bỏ trống nghĩa là đặt ở gốc dự án. */
   readonly parentId?: string;
-  /** Người submit đơn, chọn trong danh sách người tham gia dự án. */
-  readonly submitterUserId?: string;
 }
 
 /** Một công việc trong dự án, cho ô chọn "Công việc cha". */
@@ -145,6 +145,9 @@ export async function loadRelatedProjects(): Promise<RelatedProject[]> {
       name: row.name,
       canAssignOthers: row.myPermissions
         ? row.myPermissions.includes('project.update_all')
+        : ASSIGNER_ROLES.has(row.myRole ?? ''),
+      canManageMembers: row.myPermissions
+        ? row.myPermissions.includes('project.manage_members')
         : ASSIGNER_ROLES.has(row.myRole ?? ''),
     }))
     .sort((left, right) => left.code.localeCompare(right.code));

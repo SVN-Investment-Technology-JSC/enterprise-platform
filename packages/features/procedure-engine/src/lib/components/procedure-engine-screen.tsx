@@ -9,6 +9,7 @@ import type {
   ProcedureSettingsSnapshot,
   ProcedureWorkspace,
   ReverseProcedureInstanceRequest,
+  RelinkProcedureWorkspaceRequest,
 } from '@enterprise-platform/contracts-procedure-engine';
 import type { TenantOrganizationContext } from '@enterprise-platform/contracts-organization';
 import {
@@ -47,6 +48,8 @@ import {
   saveProcedureSetting,
   setProcedureSubtasks,
   uploadProcedureAttachment,
+  deleteProcedureInstance,
+  relinkProcedureWorkspace,
   setProcedureDefinitionCategory,
   updateProcedureDefinition,
   validateProcedureDefinition,
@@ -288,6 +291,21 @@ export function ProcedureEngineScreen() {
     await reload();
   };
 
+  const removeInstance = async (instanceId: string, reason: string) => {
+    const code = workspace?.instances.find((instance) => instance.id === instanceId)?.code ?? '';
+    await deleteProcedureInstance(instanceId, reason);
+    setNotice(`Đã xoá đơn ${code}.`);
+    await reload();
+  };
+
+  const relinkWorkspace = async (instanceId: string, input: RelinkProcedureWorkspaceRequest) => {
+    const pending = await relinkProcedureWorkspace(instanceId, input);
+    setNotice(
+      `Đã gửi yêu cầu đổi công việc liên kết của ${pending.code} sang dự án ${input.projectCode}; Workspace đang xử lý.`,
+    );
+    await reload();
+  };
+
   // Hồ sơ gắn dự án chờ Workspace tạo công việc qua sự kiện (vài giây): nạp lại
   // định kỳ tới khi có kết quả, để tên hồ sơ có mã công việc mà không cần F5.
   const hasPendingWorkspaceLink = Boolean(
@@ -312,6 +330,9 @@ export function ProcedureEngineScreen() {
       observerNames?: string[];
       /** Gắn dự án: đơn này là một công việc mới của dự án bên Workspace. */
       workItem?: ProjectWorkItemInput & { readonly projectCode: string };
+      /** Người submit (giữ vai S); khác người đang đăng nhập là tạo đơn hộ. */
+      submitterUserId?: string;
+      submitterName?: string;
     },
   ) =>
     perform(`start:${definition.id}`, async () => {
@@ -327,6 +348,8 @@ export function ProcedureEngineScreen() {
         managerName: customPayload?.managerName,
         observerIds: customPayload?.observerIds,
         observerNames: customPayload?.observerNames,
+        submitterUserId: customPayload?.submitterUserId,
+        submitterName: customPayload?.submitterName,
       };
       const adjustmentOfInstanceId =
         adjustment?.instance.definitionId === definition.id ? adjustment.instance.id : undefined;
@@ -536,6 +559,13 @@ export function ProcedureEngineScreen() {
           handoff={adjustment?.handoff}
           canReverse={workspace.permissions.canOverrideActions}
           onReverse={reverse}
+          onDeleteInstance={removeInstance}
+          onRelinkWorkspace={relinkWorkspace}
+          onSupplementFile={(instanceId, file) =>
+            perform(`supplement:${instanceId}`, async () => {
+              await uploadProcedureAttachment(instanceId, file, undefined, true);
+            })
+          }
           materialCatalog={materialCatalog}
           assetCatalog={assetCatalog}
           onPickAsset={(instanceId, assetCode) =>
