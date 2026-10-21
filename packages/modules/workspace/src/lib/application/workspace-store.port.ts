@@ -39,6 +39,7 @@ import type {
   ProjectMember,
   ProjectProgressRow,
   ProjectRole,
+  ProjectGroup,
   ProjectPermission,
   ProjectStatus,
   ProjectTypeOption,
@@ -291,7 +292,7 @@ export interface WorkspaceStore {
         readonly pageSize: number;
       },
     ): Promise<{ readonly items: readonly Project[]; readonly total: number }>;
-    /** Các loại dự án đang dùng, kèm số dự án; `userId` rỗng = cả tenant. */
+    /** Mọi nhóm trong danh mục, kèm số dự án người gọi thấy được; `userId` rỗng = cả tenant. */
     types(tenantId: string, userId?: string): Promise<readonly ProjectTypeOption[]>;
     findById(tenantId: string, projectId: string): Promise<Project | undefined>;
     findByCode(tenantId: string, code: string): Promise<Project | undefined>;
@@ -301,7 +302,7 @@ export interface WorkspaceStore {
       projectIds: readonly string[],
       today: string,
     ): Promise<readonly ProjectRollup[]>;
-    /** Tạo dự án và ghi người tạo làm `owner` trong cùng một transaction. */
+    /** Tạo dự án (kèm nhãn) và ghi người tạo làm `owner` trong cùng một transaction. */
     create(
       tenantId: string,
       actorUserId: string,
@@ -349,6 +350,11 @@ export interface WorkspaceStore {
     openChildCount(tenantId: string, workItemId: string): Promise<number>;
     /** Số công việc chưa đóng của cả dự án; dùng để chặn đóng hồ sơ dự án còn việc dở. */
     openItemCount(tenantId: string, projectId: string): Promise<number>;
+    /**
+     * Tên công việc đã dùng, mới nhất trước, không trùng; `userId` rỗng = cả tenant, có thì chỉ việc người đó
+     * tạo hoặc được giao. Dùng để gợi ý khi gõ tên công việc mới.
+     */
+    recentTitles(tenantId: string, userId: string | undefined, limit: number): Promise<readonly string[]>;
     /**
      * Tạo công việc. Mã `CVxxx` do store sinh BÊN TRONG transaction, sau khi
      * khoá theo dự án — sinh ở ngoài rồi truyền vào thì hai người tạo việc cùng
@@ -429,6 +435,8 @@ export interface WorkspaceStore {
     findByIds(tenantId: string, ids: readonly string[]): Promise<readonly Tag[]>;
     create(tenantId: string, actorUserId: string, input: CreateTagRequest): Promise<Tag>;
     update(tenantId: string, tagId: string, input: UpdateTagRequest): Promise<Tag | undefined>;
+    /** Xoá hẳn nhãn; nhãn tự gỡ khỏi mọi công việc và dự án (khoá ngoại ON DELETE CASCADE). */
+    remove(tenantId: string, tagId: string): Promise<boolean>;
   };
 
   readonly savedFilter: {
@@ -943,6 +951,19 @@ export interface WorkspaceStore {
       input: { readonly name: string; readonly permissions: readonly ProjectPermission[] },
     ): Promise<void>;
     remove(tenantId: string, key: string): Promise<void>;
+  };
+  /**
+   * Danh mục nhóm dự án. Dự án trỏ tới nhóm bằng tên (`projects.project_type`), nên đổi tên hay xoá nhóm
+   * phải sửa luôn các dự án thuộc nhóm trong cùng transaction.
+   */
+  readonly projectGroup: {
+    /** Mọi nhóm, sắp theo `sortOrder` rồi tên, kèm số dự án của cả tenant. */
+    list(tenantId: string): Promise<readonly ProjectGroup[]>;
+    create(tenantId: string, actorUserId: string, name: string): Promise<void>;
+    /** Đổi tên nhóm và tên nhóm trên mọi dự án thuộc nhóm. */
+    rename(tenantId: string, actorUserId: string, id: string, name: string): Promise<void>;
+    /** Xoá nhóm; dự án thuộc nhóm về "Chưa phân loại". */
+    remove(tenantId: string, id: string): Promise<void>;
   };
   /**
    * Phương tiện di chuyển của công việc và lịch họp. Xe công ty chỉ được GIỮ ở HRM: lựa chọn và sự kiện

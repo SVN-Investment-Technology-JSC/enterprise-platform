@@ -48,7 +48,7 @@ export function ProjectHeader({
   const tone = PROJECT_STATUS_TONE[project.status];
   const facts = [
     `ID: ${project.code}`,
-    ...(project.projectType ? [`Loại: ${project.projectType}`] : []),
+    ...(project.projectType ? [`Nhóm: ${project.projectType}`] : []),
     `${project.totalItems} công việc`,
     `${members.length} thành viên`,
     `${documentCount} tài liệu`,

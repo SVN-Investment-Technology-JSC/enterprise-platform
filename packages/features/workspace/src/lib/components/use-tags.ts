@@ -1,6 +1,6 @@
 'use client';
 
-import type { Tag } from '@enterprise-platform/contracts-workspace';
+import type { Tag, UpdateTagRequest } from '@enterprise-platform/contracts-workspace';
 import { useEffect, useMemo, useState } from 'react';
 import * as api from '../workspace-api';
 
@@ -47,6 +47,8 @@ export interface TagsView {
   readonly loaded: boolean;
   readonly find: (tagId: string) => Tag | undefined;
   readonly create: (name: string) => Promise<Tag>;
+  readonly update: (tagId: string, patch: UpdateTagRequest) => Promise<Tag>;
+  readonly remove: (tagId: string) => Promise<void>;
 }
 
 export function useTags(): TagsView {
@@ -71,6 +73,15 @@ export function useTags(): TagsView {
         const tag = await api.createTag({ name });
         publish([...(cache ?? []).filter((entry) => entry.id !== tag.id), tag]);
         return tag;
+      },
+      update: async (tagId, patch) => {
+        const tag = await api.updateTag(tagId, patch);
+        publish((cache ?? []).map((entry) => (entry.id === tag.id ? tag : entry)));
+        return tag;
+      },
+      remove: async (tagId) => {
+        await api.removeTag(tagId);
+        publish((cache ?? []).filter((entry) => entry.id !== tagId));
       },
     };
   }, [tags]);

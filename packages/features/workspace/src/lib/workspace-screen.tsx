@@ -37,7 +37,9 @@ import { ProjectAvatar } from './components/project-avatar';
 import { MyWorkView } from './components/my-work-view';
 import { QuickSearch, type QuickSearchTarget } from './components/quick-search';
 import { ReportsView } from './components/reports-view';
+import { ProjectGroupSettings } from './components/project-group-settings';
 import { ProjectRoleSettings } from './components/project-role-settings';
+import { TagSettings } from './components/tag-settings';
 import { ProjectsView } from './components/projects-view';
 import { ProjectsListView } from './components/projects-list-view';
 import { CustomersView } from './components/customers-view';
@@ -119,6 +121,20 @@ const SETTINGS_SECTIONS = [
       'Định nghĩa vai trò gán cho thành viên dự án và những gì mỗi vai được làm. Mặc định có Chủ nhiệm, Quản lý, Thành viên và Người xem.',
     render: () => <ProjectRoleSettings />,
   },
+  {
+    id: 'project-groups',
+    label: 'Nhóm dự án',
+    description:
+      'Danh mục nhóm để phân loại dự án, chọn khi tạo dự án và lọc trên trang Dự án. Đổi tên nhóm thì các dự án của nhóm đổi theo.',
+    render: () => <ProjectGroupSettings />,
+  },
+  {
+    id: 'tags',
+    label: 'Nhãn',
+    description:
+      'Danh mục nhãn dùng chung cho công việc và dự án. Sửa tên, màu, ẩn nhãn không còn dùng hoặc xoá hẳn.',
+    render: () => <TagSettings />,
+  },
 ] as const;
 
 export function WorkspaceScreen() {
@@ -179,7 +195,7 @@ export function WorkspaceScreen() {
   const [projectTotal, setProjectTotal] = useState(0);
   /** "Tất cả dự án" bung toàn bộ dự án ngay trên thanh bên; bấm lần nữa thì thu lại. */
   const [showAllProjects, setShowAllProjects] = useState(false);
-  /** Lọc thanh bên theo loại dự án; rỗng là mọi loại. */
+  /** Lọc thanh bên theo nhóm dự án; rỗng là mọi nhóm. */
   const [projectType, setProjectType] = useState('');
   const [projectTypes, setProjectTypes] = useState<readonly ProjectTypeOption[]>([]);
   /** Dự án đang mở ở trang Dự án, để tô sáng dòng tương ứng. */
@@ -407,10 +423,10 @@ export function WorkspaceScreen() {
         filter:
           projectTypes.length > 0
             ? {
-                label: 'Lọc dự án theo loại',
+                label: 'Lọc dự án theo nhóm',
                 value: projectType,
                 options: [
-                  { value: '', label: 'Mọi loại dự án' },
+                  { value: '', label: 'Mọi nhóm dự án' },
                   ...projectTypes.map((type) => ({
                     value: type.name,
                     label: `${type.name} (${type.count})`,
@@ -419,7 +435,7 @@ export function WorkspaceScreen() {
                 onChange: setProjectType,
               }
             : undefined,
-        emptyText: projectType ? 'Không có dự án loại này.' : 'Chưa có dự án nào.',
+        emptyText: projectType ? 'Không có dự án thuộc nhóm này.' : 'Chưa có dự án nào.',
         // Chỉ có dòng này khi còn dự án chưa hiện, hay khi đang bung để thu lại.
         footer:
           showAllProjects || projectTotal > SIDEBAR_PROJECTS

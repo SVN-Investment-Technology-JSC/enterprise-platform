@@ -30,6 +30,8 @@ export interface ChoiceProps {
   readonly required?: boolean;
   readonly title?: string;
   readonly className?: string;
+  /** Chiều cao ô (px); mặc định của `SearchableSelect` là 38. */
+  readonly height?: number;
 }
 
 export function Choice({
@@ -43,6 +45,7 @@ export function Choice({
   required,
   title,
   className,
+  height,
 }: ChoiceProps) {
   const all = emptyOption === undefined ? options : [{ value: '', label: emptyOption }, ...options];
   const box = useRef<HTMLDivElement>(null);
@@ -64,6 +67,7 @@ export function Choice({
         disabled={disabled}
         required={required}
         className={className}
+        height={height}
         clearable={emptyOption !== undefined}
         placeholder={placeholder ?? emptyOption ?? `Chọn ${label.toLowerCase()}…`}
         // Chọn xong thì bỏ focus khỏi ô nhập. Danh sách đã tự đóng, nhưng ô

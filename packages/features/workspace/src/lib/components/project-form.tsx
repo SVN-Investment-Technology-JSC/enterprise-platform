@@ -21,6 +21,7 @@ import styles from '../workspace.module.scss';
 import { Choice } from './choice';
 import { Dialog, Field } from './dialog';
 import { PeoplePicker } from './people-picker';
+import { TagPicker } from './tag-picker';
 import { useDirectory } from './use-directory';
 import { roleOptions, useProjectRoles } from './use-project-roles';
 
@@ -60,6 +61,7 @@ interface FormState {
   /** Khách hàng chủ quản (thực thể Workspace); rỗng nghĩa là chưa gắn. */
   customerId: string;
   projectType: string;
+  tagIds: string[];
   startDate: string;
   endDate: string;
   /** Chuỗi người dùng gõ, có dấu chấm ngăn nghìn; đọc bằng `parseVndInput`. */
@@ -89,6 +91,7 @@ const emptyForm = (): FormState => ({
   status: 'planning',
   customerId: '',
   projectType: '',
+  tagIds: [],
   startDate: today(),
   endDate: today(),
   contractValue: '',
@@ -107,7 +110,7 @@ export function ProjectForm({
   const [form, setForm] = useState<FormState>(emptyForm());
   const [error, setError] = useState<string>();
   const [submitting, setSubmitting] = useState(false);
-  /** Loại đã dùng trong tenant, gợi ý khi gõ để không sinh "Bảo trì" lẫn "bảo trì ". */
+  /** Nhóm dự án trong danh mục (quản trị sửa ở Cài đặt). */
   const [types, setTypes] = useState<readonly ProjectTypeOption[]>([]);
   /** Khách hàng để chọn làm chủ quản của dự án. */
   const [customers, setCustomers] = useState<readonly CustomerSummary[]>([]);
@@ -142,6 +145,7 @@ export function ProjectForm({
             status: project.status,
             customerId: project.customerId ?? '',
             projectType: project.projectType ?? '',
+            tagIds: [...(project.tagIds ?? [])],
             startDate: project.startDate ?? '',
             endDate: project.endDate ?? '',
             contractValue: toVndInput(project.finance?.contractValue),
@@ -219,7 +223,8 @@ export function ProjectForm({
           status: form.status as Project['status'],
           // `null` gỡ khách hàng khỏi dự án khi người dùng xoá lựa chọn.
           customerId: form.customerId || null,
-          projectType: form.projectType.trim() || null,
+          projectType: form.projectType || null,
+          tagIds: form.tagIds,
           // `null` xoá ngày đã đặt; `undefined` sẽ bị hiểu là "không đụng tới".
           startDate: form.startDate || null,
           endDate: form.endDate || null,
@@ -231,7 +236,8 @@ export function ProjectForm({
           name: form.name,
           description: form.description || undefined,
           customerId: form.customerId || undefined,
-          projectType: form.projectType.trim() || undefined,
+          projectType: form.projectType || undefined,
+          tagIds: form.tagIds,
           startDate: form.startDate || undefined,
           endDate: form.endDate || undefined,
         }, contractValue, members);
@@ -301,19 +307,24 @@ export function ProjectForm({
         </Field>
       </div>
 
-      <Field label="Loại dự án" hint="Chọn loại đã có hoặc gõ loại mới.">
-        <input
+      <Field label="Nhóm dự án" hint="Thêm hoặc sửa nhóm ở Cài đặt > Nhóm dự án.">
+        <Choice
+          label="Nhóm dự án"
           value={form.projectType}
-          maxLength={80}
-          list="workspace-project-types"
-          placeholder="Ví dụ: Dịch vụ thí nghiệm"
-          onChange={(event) => set({ projectType: event.target.value })}
+          emptyOption="Chưa phân loại"
+          options={[
+            ...types.map((type) => ({ value: type.name, label: type.name })),
+            // Nhóm đang gắn mà danh mục chưa tải xong vẫn hiện đúng tên.
+            ...(form.projectType && !types.some((type) => type.name === form.projectType)
+              ? [{ value: form.projectType, label: form.projectType }]
+              : []),
+          ]}
+          onChange={(value) => set({ projectType: value })}
         />
-        <datalist id="workspace-project-types">
-          {types.map((type) => (
-            <option key={type.name} value={type.name} />
-          ))}
-        </datalist>
+      </Field>
+
+      <Field label="Nhãn" hint="Gắn nhiều nhãn để lọc dự án trên trang Dự án.">
+        <TagPicker selected={form.tagIds} onChange={(tagIds) => set({ tagIds })} />
       </Field>
 
       <Field label="Khách hàng" hint="Khách hàng chủ quản của dự án. Bỏ trống nếu chưa gắn.">

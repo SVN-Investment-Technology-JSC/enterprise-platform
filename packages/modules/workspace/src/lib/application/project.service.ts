@@ -28,6 +28,7 @@ import {
 } from '../domain/workspace.error.js';
 import { timezoneOf, todayKey } from '../domain/tenant-time.js';
 import type { DirectoryService } from './directory.service.js';
+import type { ProjectGroupService } from './project-group.service.js';
 import type { ProjectRoleService } from './project-role.service.js';
 import type { WorkspaceActor } from './workspace.application.js';
 import type { WorkspaceStore } from './workspace-store.port.js';
@@ -36,6 +37,7 @@ const DEFAULT_PAGE_SIZE = 30;
 const MAX_PAGE_SIZE = 60;
 
 const CODE_PATTERN = /^[A-Z0-9][A-Z0-9-]{1,31}$/;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * Ngữ cảnh truy cập một dự án: vai trò thật trong dự án, kèm cờ override của
@@ -135,6 +137,8 @@ export class ProjectService {
     private readonly directory?: DirectoryService,
     /** Để trống thì dùng quyền mặc định của bốn vai hệ thống (test). */
     private readonly roles?: ProjectRoleService,
+    /** Danh mục nhóm dự án. Để trống thì nhận tên nhóm tự do (test). */
+    private readonly groups?: ProjectGroupService,
   ) {}
 
   /**
@@ -205,7 +209,7 @@ export class ProjectService {
     };
   }
 
-  /** Loại dự án đang dùng trong phạm vi người gọi thấy, kèm số dự án mỗi loại. */
+  /** Nhóm dự án trong danh mục, kèm số dự án người gọi thấy được mỗi nhóm. */
   async types(actor: WorkspaceActor): Promise<readonly ProjectTypeOption[]> {
     return this.store.project.types(
       actor.tenantId,
@@ -251,7 +255,8 @@ export class ProjectService {
       ...input,
       code,
       name,
-      projectType: cleanType(input.projectType) ?? undefined,
+      projectType: (await this.resolveGroup(actor, input.projectType)) ?? undefined,
+      tagIds: await this.requireActiveTags(actor, input.tagIds),
     });
   }
 
@@ -273,7 +278,10 @@ export class ProjectService {
       Object.assign(patch, { name: requireText(input.name, 'Tên dự án', 180) });
     }
     if (input.projectType !== undefined) {
-      Object.assign(patch, { projectType: cleanType(input.projectType) });
+      Object.assign(patch, { projectType: await this.resolveGroup(actor, input.projectType) });
+    }
+    if (input.tagIds !== undefined) {
+      Object.assign(patch, { tagIds: await this.requireActiveTags(actor, input.tagIds) });
     }
     if (input.status !== undefined && !parseStatus(input.status)) {
       throw new WorkspaceValidationError(`Trạng thái dự án "${input.status}" không hợp lệ.`);
@@ -295,6 +303,29 @@ export class ProjectService {
     );
 
     return this.store.project.update(actor.tenantId, projectId, patch, actor.userId);
+  }
+
+  /** Nhóm của dự án phải có trong danh mục; `null` là gỡ khỏi nhóm. */
+  private async resolveGroup(actor: WorkspaceActor, value: unknown): Promise<string | null> {
+    return this.groups ? this.groups.resolve(actor.tenantId, value) : cleanType(value);
+  }
+
+  /** Chỉ gắn được nhãn đang dùng; id lạ hay nhãn đã ẩn bị từ chối. */
+  private async requireActiveTags(
+    actor: WorkspaceActor,
+    tagIds: readonly string[] | undefined,
+  ): Promise<string[]> {
+    const ids = [...new Set((tagIds ?? []).map(String))];
+    if (ids.length === 0) return [];
+    if (ids.some((id) => !UUID.test(id))) {
+      throw new WorkspaceValidationError('Có nhãn không tồn tại hoặc đã ngừng dùng.');
+    }
+    const tags = await this.store.tag.findByIds(actor.tenantId, ids);
+    const active = new Set(tags.filter((tag) => tag.isActive).map((tag) => tag.id));
+    if (ids.some((id) => !active.has(id))) {
+      throw new WorkspaceValidationError('Có nhãn không tồn tại hoặc đã ngừng dùng.');
+    }
+    return ids;
   }
 
   /** Huỷ dự án: chuyển trạng thái, không xoá dòng. Lịch sử phải giữ lại. */
@@ -424,7 +455,7 @@ function cleanType(value: unknown): string | null {
   const text = String(value ?? '').trim().replace(/\s+/g, ' ');
   if (!text) return null;
   if (text.length > 80) {
-    throw new WorkspaceValidationError('Loại dự án không được dài quá 80 ký tự.');
+    throw new WorkspaceValidationError('Nhóm dự án không được dài quá 80 ký tự.');
   }
   return text;
 }

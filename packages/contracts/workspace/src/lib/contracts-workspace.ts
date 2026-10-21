@@ -227,8 +227,13 @@ export interface Project {
   readonly customerRef?: string;
   /** Khách hàng chủ quản của dự án (thực thể trong Workspace). */
   readonly customerId?: string;
-  /** Loại dự án, chữ tự do (Dịch vụ thí nghiệm, Bảo trì…); dùng để lọc và nhóm. */
+  /**
+   * Nhóm dự án (trước gọi là loại dự án): tên một nhóm trong danh mục
+   * `ProjectGroup`; dùng để lọc và gom nhóm.
+   */
   readonly projectType?: string;
+  /** Nhãn của dự án (dùng chung danh mục nhãn với công việc); để lọc. */
+  readonly tagIds?: readonly string[];
   readonly startDate?: string;
   readonly endDate?: string;
   /** Giá trị dẫn xuất từ các công việc lá; không nhận giá trị nhập tay. */
@@ -277,7 +282,9 @@ export interface CreateProjectRequest {
   readonly customerRef?: string;
   /** Khách hàng chủ quản (tuỳ chọn). */
   readonly customerId?: string;
+  /** Tên một nhóm dự án có trong danh mục. */
   readonly projectType?: string;
+  readonly tagIds?: readonly string[];
   readonly startDate?: string;
   readonly endDate?: string;
 }
@@ -292,16 +299,37 @@ export interface UpdateProjectRequest {
   readonly customerRef?: string;
   /** `null` gỡ khách hàng khỏi dự án. */
   readonly customerId?: string | null;
-  /** `null` gỡ loại khỏi dự án. */
+  /** `null` gỡ dự án khỏi nhóm. */
   readonly projectType?: string | null;
+  /** Thay toàn bộ nhãn của dự án. */
+  readonly tagIds?: readonly string[];
   readonly startDate?: string | null;
   readonly endDate?: string | null;
 }
 
-/** Một loại dự án đang dùng, kèm số dự án người gọi thấy được thuộc loại đó. */
+/** Một nhóm dự án trong danh mục, kèm số dự án người gọi thấy được thuộc nhóm đó. */
 export interface ProjectTypeOption {
   readonly name: string;
   readonly count: number;
+}
+
+/** Nhóm dự án trong danh mục do tenant tự quản ở Cài đặt. */
+export interface ProjectGroup {
+  readonly id: string;
+  readonly name: string;
+  readonly sortOrder: number;
+  /** Số dự án thuộc nhóm, tính trên cả tenant. */
+  readonly projectCount: number;
+}
+
+export interface ProjectGroupList {
+  readonly items: readonly ProjectGroup[];
+  /** Người gọi được thêm, sửa, xoá nhóm (quản trị tenant). */
+  readonly canEdit: boolean;
+}
+
+export interface SaveProjectGroupRequest {
+  readonly name: string;
 }
 
 export interface SetProjectMembersRequest {

@@ -608,6 +608,10 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       version: '0025-workspace-contract-project',
       path: 'tenant/workspace/0025-workspace-contract-project.sql',
     },
+    {
+      version: '0026-workspace-project-groups',
+      path: 'tenant/workspace/0026-workspace-project-groups.sql',
+    },
   ],
   // Hệ dùng chung: phần đầu là Tài liệu công ty (kho tách khỏi tài liệu dự án).
   shared: [

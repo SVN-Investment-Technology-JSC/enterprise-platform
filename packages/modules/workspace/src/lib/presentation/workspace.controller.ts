@@ -43,6 +43,7 @@ import type {
   ReverseWorkItemRequest,
   ReverseProjectRequestRequest,
   RespondToEventRequest,
+  SaveProjectGroupRequest,
   SaveProjectRoleRequest,
   SendChatMessageRequest,
   SetProjectMembersRequest,
@@ -58,6 +59,7 @@ import type {
 } from '@enterprise-platform/contracts-workspace';
 import { WorkspaceApplication, type WorkspaceActor } from '../application/workspace.application.js';
 import { ProjectService } from '../application/project.service.js';
+import { ProjectGroupService } from '../application/project-group.service.js';
 import { ProjectRoleService } from '../application/project-role.service.js';
 import { WorkItemService } from '../application/work-item.service.js';
 import { WorkItemDeletionService } from '../application/work-item-deletion.service.js';
@@ -130,6 +132,7 @@ export class WorkspaceController {
     private readonly projectRequests: ProjectRequestService,
     private readonly workdayRules: WorkdayRuleService,
     private readonly projectRoles: ProjectRoleService,
+    private readonly projectGroups: ProjectGroupService,
     private readonly workItemDeletion: WorkItemDeletionService,
     private readonly fleetTransport: FleetTransportService,
     private readonly standaloneTasks: StandaloneTaskService,
@@ -193,7 +196,7 @@ export class WorkspaceController {
     );
   }
 
-  /** Loại dự án đang dùng, kèm số dự án — để lọc và gợi ý khi nhập. */
+  /** Nhóm dự án trong danh mục, kèm số dự án — để lọc và chọn khi nhập. */
   @Get('project-types')
   listProjectTypes(@Req() request: WorkspaceRequest) {
     return this.execute(async () => ({ items: await this.projects.types(this.actor(request)) }));
@@ -212,6 +215,12 @@ export class WorkspaceController {
     return this.execute(() =>
       this.catalog.createTag(this.actor(request), body ?? ({} as CreateTagRequest)),
     );
+  }
+
+  @Delete('tags/:id')
+  @HttpCode(204)
+  removeTag(@Req() request: WorkspaceRequest, @Param('id') id: string) {
+    return this.execute(() => this.catalog.removeTag(this.actor(request), id));
   }
 
   @Patch('tags/:id')
@@ -320,6 +329,14 @@ export class WorkspaceController {
   }
 
   /* ----------------------------------------------------------- Công việc */
+
+  /** Tên công việc đã dùng, gợi ý khi gõ tên công việc mới. */
+  @Get('work-item-titles')
+  recentWorkItemTitles(@Req() request: WorkspaceRequest) {
+    return this.execute(async () => ({
+      items: await this.workItems.recentTitles(this.actor(request)),
+    }));
+  }
 
   @Post('work-items')
   @HttpCode(201)
@@ -1175,6 +1192,31 @@ export class WorkspaceController {
   @Delete('project-roles/:key')
   removeProjectRole(@Req() request: WorkspaceRequest, @Param('key') key: string) {
     return this.execute(() => this.projectRoles.remove(this.actor(request), key));
+  }
+
+  /** Danh mục nhóm dự án (dùng chung toàn tenant); quản trị thêm, đổi tên, xoá ở Cài đặt. */
+  @Get('project-groups')
+  listProjectGroups(@Req() request: WorkspaceRequest) {
+    return this.execute(() => this.projectGroups.list(this.actor(request)));
+  }
+
+  @Post('project-groups')
+  createProjectGroup(@Req() request: WorkspaceRequest, @Body() body: SaveProjectGroupRequest) {
+    return this.execute(() => this.projectGroups.create(this.actor(request), body));
+  }
+
+  @Put('project-groups/:id')
+  renameProjectGroup(
+    @Req() request: WorkspaceRequest,
+    @Param('id') id: string,
+    @Body() body: SaveProjectGroupRequest,
+  ) {
+    return this.execute(() => this.projectGroups.rename(this.actor(request), id, body));
+  }
+
+  @Delete('project-groups/:id')
+  removeProjectGroup(@Req() request: WorkspaceRequest, @Param('id') id: string) {
+    return this.execute(() => this.projectGroups.remove(this.actor(request), id));
   }
 
   /** Tab "Đơn từ": đơn module khác gửi kèm dự án này. */

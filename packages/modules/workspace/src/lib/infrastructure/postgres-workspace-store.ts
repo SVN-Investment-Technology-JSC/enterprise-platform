@@ -47,6 +47,7 @@ import type {
   ProjectMember,
   ProjectProgressRow,
   ProjectRole,
+  ProjectGroup,
   ProjectPermission,
   ProjectStatus,
   SavedFilter,
@@ -674,22 +675,27 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
           LIMIT $${values.length + 1} OFFSET $${values.length + 2}`,
         [...values, limit, offset],
       );
-      return { items: rows.rows.map(mapProject), total: Number(totalResult.rows[0]?.total ?? 0) };
+      return {
+        items: await withProjectTags(pool, rows.rows.map(mapProject)),
+        total: Number(totalResult.rows[0]?.total ?? 0),
+      };
     },
 
     types: async (tenantId: string, userId?: string) => {
       const pool = await this.poolFor(tenantId);
-      // Đếm trên đúng những dự án người gọi thấy được: quản trị viên tenant
-      // (userId rỗng) thấy hết, người khác chỉ dự án mình là thành viên.
+      // Lấy từ danh mục nhóm, kể cả nhóm chưa có dự án. Đếm trên đúng những dự
+      // án người gọi thấy được: quản trị viên tenant (userId rỗng) thấy hết,
+      // người khác chỉ dự án mình là thành viên.
       const result = await pool.query<Row>(
-        `SELECT p.project_type AS name, COUNT(*)::text AS count
-           FROM workspace_schema.projects p
-          WHERE p.project_type IS NOT NULL
+        `SELECT g.name, COUNT(p.id)::text AS count
+           FROM workspace_schema.project_groups g
+           LEFT JOIN workspace_schema.projects p
+             ON p.project_type = g.name
             AND ($1::uuid IS NULL OR EXISTS (
                   SELECT 1 FROM workspace_schema.project_members m
                    WHERE m.project_id = p.id AND m.user_id = $1::uuid))
-          GROUP BY p.project_type
-          ORDER BY p.project_type`,
+          GROUP BY g.id, g.name, g.sort_order
+          ORDER BY g.sort_order, lower(g.name)`,
         [userId ?? null],
       );
       return result.rows.map((row) => ({ name: str(row.name), count: num(row.count) }));
@@ -702,7 +708,7 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
         [projectId],
       );
       const row = result.rows[0];
-      return row ? mapProject(row) : undefined;
+      return row ? (await withProjectTags(pool, [mapProject(row)]))[0] : undefined;
     },
 
     findByCode: async (tenantId: string, code: string) => {
@@ -777,12 +783,14 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
             ),
           () => new ProjectCodeConflictError(String(input.code)),
         );
-        const project = mapProject(created.rows[0] as Row);
+        const inserted = mapProject(created.rows[0] as Row);
         await client.query(
           `INSERT INTO workspace_schema.project_members (project_id, user_id, role, created_by)
            VALUES ($1, $2, 'owner', $2)`,
-          [project.id, actorUserId],
+          [inserted.id, actorUserId],
         );
+        await replaceEntityTags(client, 'project', inserted.id, input.tagIds ?? [], actorUserId);
+        const project: Project = { ...inserted, tagIds: [...new Set(input.tagIds ?? [])] };
         await writeOutbox(client, tenantId, {
           type: 'workspace.project.created',
           aggregateType: 'workspace-project',
@@ -824,7 +832,12 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
       if (!clause) {
         const current = await this.project.findById(tenantId, projectId);
         if (!current) throw new ProjectNotFoundError(projectId);
-        return current;
+        if (input.tagIds === undefined) return current;
+        const tagIds = input.tagIds;
+        await inTransaction(pool, (client) =>
+          replaceEntityTags(client, 'project', projectId, tagIds, actorUserId ?? current.ownerUserId),
+        );
+        return (await this.project.findById(tenantId, projectId)) ?? current;
       }
       // Transaction vì sự kiện `completed` phải ghi cùng lúc với đổi trạng
       // thái: ghi sau là một cửa sổ mà trạng thái đã đổi nhưng không ai được
@@ -844,7 +857,16 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
             RETURNING ${PROJECT_COLUMNS}`,
           [...values, projectId],
         );
-        const project = mapProject(result.rows[0] as Row);
+        if (input.tagIds !== undefined) {
+          await replaceEntityTags(
+            client,
+            'project',
+            projectId,
+            input.tagIds,
+            actorUserId ?? str(result.rows[0]?.owner_user_id),
+          );
+        }
+        const [project] = await withProjectTags(client, [mapProject(result.rows[0] as Row)]);
 
         // Chỉ phát khi thật sự CHUYỂN sang completed; lưu lại một dự án đã
         // hoàn thành không được sinh sự kiện lần thứ hai.
@@ -1228,6 +1250,20 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
         [projectId],
       );
       return num(result.rows[0]?.open_items);
+    },
+
+    recentTitles: async (tenantId: string, userId: string | undefined, limit: number) => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `SELECT w.title
+           FROM workspace_schema.work_items w
+          WHERE ($1::uuid IS NULL OR w.created_by = $1::uuid OR w.assignee_user_id = $1::uuid)
+          GROUP BY w.title
+          ORDER BY max(w.created_at) DESC
+          LIMIT $2`,
+        [userId ?? null, limit],
+      );
+      return result.rows.map((row) => str(row.title));
     },
 
     create: async (
@@ -1719,6 +1755,11 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
         () => new NameConflictError(`Nhãn "${String(input.name)}" đã có.`),
       );
       return result.rows[0] ? mapTag(result.rows[0]) : undefined;
+    },
+    remove: async (tenantId: string, tagId: string): Promise<boolean> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query(`DELETE FROM workspace_schema.tags WHERE id = $1`, [tagId]);
+      return (result.rowCount ?? 0) > 0;
     },
   };
 
@@ -3470,6 +3511,71 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
     },
   };
 
+  readonly projectGroup = {
+    list: async (tenantId: string): Promise<ProjectGroup[]> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `SELECT g.id, g.name, g.sort_order,
+                (SELECT COUNT(*) FROM workspace_schema.projects p WHERE p.project_type = g.name)::int
+                  AS project_count
+           FROM workspace_schema.project_groups g
+          ORDER BY g.sort_order, lower(g.name)`,
+      );
+      return result.rows.map((row) => ({
+        id: str(row.id),
+        name: str(row.name),
+        sortOrder: num(row.sort_order),
+        projectCount: num(row.project_count),
+      }));
+    },
+    create: async (tenantId: string, actorUserId: string, name: string): Promise<void> => {
+      const pool = await this.poolFor(tenantId);
+      await pool.query(
+        `INSERT INTO workspace_schema.project_groups (name, created_by, updated_by)
+         VALUES ($1, $2, $2)`,
+        [name, actorUserId],
+      );
+    },
+    rename: async (tenantId: string, actorUserId: string, id: string, name: string): Promise<void> => {
+      const pool = await this.poolFor(tenantId);
+      await inTransaction(pool, async (client) => {
+        const before = await client.query<Row>(
+          `SELECT name FROM workspace_schema.project_groups WHERE id = $1 FOR UPDATE`,
+          [id],
+        );
+        const previous = before.rows[0] ? str(before.rows[0].name) : undefined;
+        if (previous === undefined || previous === name) return;
+        await client.query(
+          `UPDATE workspace_schema.project_groups
+              SET name = $2, updated_by = $3, updated_at = now()
+            WHERE id = $1`,
+          [id, name, actorUserId],
+        );
+        await client.query(
+          `UPDATE workspace_schema.projects SET project_type = $2, updated_at = now()
+            WHERE project_type = $1`,
+          [previous, name],
+        );
+      });
+    },
+    remove: async (tenantId: string, id: string): Promise<void> => {
+      const pool = await this.poolFor(tenantId);
+      await inTransaction(pool, async (client) => {
+        const removed = await client.query<Row>(
+          `DELETE FROM workspace_schema.project_groups WHERE id = $1 RETURNING name`,
+          [id],
+        );
+        const name = removed.rows[0] ? str(removed.rows[0].name) : undefined;
+        if (name === undefined) return;
+        await client.query(
+          `UPDATE workspace_schema.projects SET project_type = NULL, updated_at = now()
+            WHERE project_type = $1`,
+          [name],
+        );
+      });
+    },
+  };
+
   readonly workdayRules = {
     list: async (tenantId: string) => {
       const pool = await this.poolFor(tenantId);
@@ -4919,17 +5025,47 @@ async function replaceTags(
   tagIds: readonly string[],
   actorUserId: string,
 ): Promise<void> {
+  await replaceEntityTags(db, 'work_item', workItemId, tagIds, actorUserId);
+}
+
+/** Thay toàn bộ nhãn của một đối tượng (việc, dự án). */
+async function replaceEntityTags(
+  db: Queryable,
+  entityType: 'work_item' | 'project',
+  entityId: string,
+  tagIds: readonly string[],
+  actorUserId: string,
+): Promise<void> {
   await db.query(
-    `DELETE FROM workspace_schema.entity_tags WHERE entity_type = 'work_item' AND entity_id = $1`,
-    [workItemId],
+    `DELETE FROM workspace_schema.entity_tags WHERE entity_type = $1 AND entity_id = $2`,
+    [entityType, entityId],
   );
   if (tagIds.length === 0) return;
   await db.query(
     `INSERT INTO workspace_schema.entity_tags (tag_id, entity_type, entity_id, created_by)
-     SELECT unnest($2::uuid[]), 'work_item', $1, $3
+     SELECT unnest($3::uuid[]), $1, $2, $4
      ON CONFLICT DO NOTHING`,
-    [workItemId, [...new Set(tagIds)], actorUserId],
+    [entityType, entityId, [...new Set(tagIds)], actorUserId],
   );
+}
+
+/** Gắn nhãn (còn dùng) vào các dự án vừa đọc: một truy vấn cho cả lô. */
+async function withProjectTags(db: Queryable, projects: Project[]): Promise<Project[]> {
+  if (projects.length === 0) return projects;
+  const result = await db.query<Row>(
+    `SELECT et.entity_id, et.tag_id FROM workspace_schema.entity_tags et
+       JOIN workspace_schema.tags t ON t.id = et.tag_id AND t.is_active
+      WHERE et.entity_type = 'project' AND et.entity_id = ANY($1::uuid[])
+      ORDER BY lower(t.name)`,
+    [projects.map((project) => project.id)],
+  );
+  const byProject = new Map<string, string[]>();
+  for (const row of result.rows) {
+    const list = byProject.get(str(row.entity_id)) ?? [];
+    list.push(str(row.tag_id));
+    byProject.set(str(row.entity_id), list);
+  }
+  return projects.map((project) => ({ ...project, tagIds: byProject.get(project.id) ?? [] }));
 }
 
 /* =========================================================================

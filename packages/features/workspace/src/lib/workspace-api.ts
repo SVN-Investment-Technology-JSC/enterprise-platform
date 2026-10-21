@@ -37,6 +37,7 @@ import type {
   CreateProjectRequest,
   CreateSavedFilterRequest,
   CreateTagRequest,
+  UpdateTagRequest,
   CreateVersionRequest,
   CreateWorkItemRequest,
   DocumentAudience,
@@ -90,6 +91,8 @@ import type {
   WorkdayRuleSet,
   ProjectRoleList,
   SaveProjectRoleRequest,
+  ProjectGroupList,
+  SaveProjectGroupRequest,
   FleetAvailabilityView,
   SourceTransport,
   TransportSourceType,
@@ -211,6 +214,17 @@ export const listTags = () => request<{ items: Tag[] }>('/tags', { cache: 'no-st
 
 export const createTag = (body: CreateTagRequest) =>
   request<Tag>('/tags', { method: 'POST', body: JSON.stringify(body) });
+
+/** Đổi tên, màu hay ẩn nhãn; chỉ quản trị viên. */
+export const updateTag = (id: string, body: UpdateTagRequest) =>
+  request<Tag>(`/tags/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+
+/** Xoá hẳn nhãn, gỡ khỏi mọi công việc và dự án; chỉ quản trị viên. */
+export const removeTag = (id: string) => request<void>(`/tags/${id}`, { method: 'DELETE' });
+
+/** Tên công việc đã dùng (mới nhất trước), gợi ý khi gõ tên công việc mới. */
+export const listWorkItemTitles = () =>
+  request<{ items: string[] }>('/work-item-titles', { cache: 'no-store' });
 
 /** Mẫu lọc của tôi, cộng mẫu được chia sẻ trong dự án `projectId`. */
 export const listSavedFilters = (view: SavedFilterView, projectId?: string) => {
@@ -761,6 +775,22 @@ export const updateProjectRole = (key: string, body: SaveProjectRoleRequest) =>
 
 export const deleteProjectRole = (key: string) =>
   request<ProjectRoleList>(`/project-roles/${encodeURIComponent(key)}`, { method: 'DELETE' });
+
+/** Danh mục nhóm dự án (dùng chung toàn tenant). */
+export const listProjectGroups = () =>
+  request<ProjectGroupList>('/project-groups', { cache: 'no-store' });
+
+export const createProjectGroup = (body: SaveProjectGroupRequest) =>
+  request<ProjectGroupList>('/project-groups', { method: 'POST', body: JSON.stringify(body) });
+
+export const renameProjectGroup = (id: string, body: SaveProjectGroupRequest) =>
+  request<ProjectGroupList>(`/project-groups/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  });
+
+export const deleteProjectGroup = (id: string) =>
+  request<ProjectGroupList>(`/project-groups/${encodeURIComponent(id)}`, { method: 'DELETE' });
 
 /** Tab "Đơn từ": đơn module khác gửi kèm dự án (chỉ đọc). */
 export const listProjectRequests = (projectId: string) =>

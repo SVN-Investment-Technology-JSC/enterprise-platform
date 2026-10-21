@@ -17,8 +17,11 @@ export interface DialogProps {
   /** Khoá nút gửi khi form chưa đủ dữ liệu bắt buộc (vd lý do còn trống). */
   readonly submitDisabled?: boolean;
   readonly error?: string;
-  /** `wide` cho hộp thoại có hai cột hoặc cây chọn (khoảng 52rem). */
-  readonly size?: 'default' | 'wide';
+  /**
+   * `wide` cho hộp thoại có hai cột hoặc cây chọn (khoảng 52rem); `extraWide` cho bảng nhập nhiều dòng
+   * (khoảng 68rem).
+   */
+  readonly size?: 'default' | 'wide' | 'extraWide';
   readonly onClose: () => void;
   readonly onSubmit: () => void;
   readonly children: ReactNode;
@@ -164,7 +167,13 @@ export function Dialog({
   return createPortal(
     <div className={styles.overlay} role="presentation" onMouseDown={requestClose}>
       <div
-        className={size === 'wide' ? `${styles.dialog} ${styles.dialogWide}` : styles.dialog}
+        className={
+          size === 'wide'
+            ? `${styles.dialog} ${styles.dialogWide}`
+            : size === 'extraWide'
+              ? `${styles.dialog} ${styles.dialogExtraWide}`
+              : styles.dialog
+        }
         role="dialog"
         aria-modal="true"
         aria-label={title}
