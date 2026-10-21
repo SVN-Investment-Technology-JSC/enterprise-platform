@@ -12,7 +12,9 @@ import {
  */
 
 /**
- * Một ô Trợ lý được điền sẵn. Dạng chuỗi là mô tả ngắn cho mô hình ngôn ngữ; dạng đầy đủ thêm nguồn tra mã.
+ * Một ô Trợ lý được điền sẵn. Dạng chuỗi là quy tắc điền ô cho mô hình ngôn ngữ; dạng đầy đủ thêm nguồn tra mã và
+ * cờ bắt buộc. Trợ lý chỉ nhận tên ô, cờ bắt buộc và quy tắc này rồi tự quyết điền gì: quy tắc riêng của phân hệ viết
+ * ở đây, không viết vào prompt của Trợ lý.
  */
 export type AssistantDraftField =
   | string
@@ -23,7 +25,16 @@ export type AssistantDraftField =
        * của người hỏi, nên chỉ thấy đúng những gì người đó được thấy. Phải là `/api/...`, không dùng route nội bộ.
        */
       readonly lookup?: string;
+      /** Form không lưu được khi thiếu ô này và không tự có giá trị mặc định (như kiểm tra của chính form). */
+      readonly required?: boolean;
     };
+
+/** Một ô như Trợ lý nhận trong danh mục. */
+export interface AssistantCatalogField {
+  readonly describe: string;
+  readonly lookup?: string;
+  readonly required?: boolean;
+}
 
 /** Các ô của request mà Trợ lý được điền. Khoá là tên trường có thật của request gửi lên API. */
 export type AssistantDraft<TRequest> = {
@@ -61,7 +72,7 @@ export interface AssistantCatalogItem {
   readonly page: string;
   /** Trang form nhúng của phân hệ mà khung chat đặt trong card (xem `assistantFormPath`). */
   readonly form: string;
-  readonly draft: Readonly<Record<string, { readonly describe: string; readonly lookup?: string }>>;
+  readonly draft: Readonly<Record<string, AssistantCatalogField>>;
   readonly variants?: { readonly describe: string; readonly lookup: string };
 }
 
@@ -79,7 +90,7 @@ export function assistantFormPath(page: string): string {
 }
 
 export function toCatalogItem(action: AssistantAction): AssistantCatalogItem {
-  const draft: Record<string, { describe: string; lookup?: string }> = {};
+  const draft: Record<string, AssistantCatalogField> = {};
   for (const [field, spec] of Object.entries(action.draft) as [string, AssistantDraftField | undefined][]) {
     if (spec === undefined) continue;
     draft[field] = typeof spec === 'string' ? { describe: spec } : { ...spec };

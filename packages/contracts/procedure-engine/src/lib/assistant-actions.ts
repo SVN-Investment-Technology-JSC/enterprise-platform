@@ -28,7 +28,7 @@ export const PROCEDURE_ASSISTANT_ACTIONS = defineAssistantActions('procedure-eng
       lookup: '/api/procedure/v1/workspace',
     },
     draft: draftOf<ProcedureStartAssistantDraft>({
-      title: 'Tên công việc (tiêu đề hồ sơ)',
+      title: { describe: 'Tên công việc (tiêu đề hồ sơ)', required: true },
       startDueAt: 'Thời gian bắt đầu dự kiến, ISO 8601 kèm múi giờ',
       endDueAt: 'Thời gian kết thúc dự kiến, ISO 8601 kèm múi giờ, sau thời gian bắt đầu',
       projectId: {
