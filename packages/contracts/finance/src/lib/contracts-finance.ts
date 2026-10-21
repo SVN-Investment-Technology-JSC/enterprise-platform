@@ -326,6 +326,8 @@ export interface FinanceVoucherSummary {
   destAccountId: string | null;
   destAccountName: string | null;
   counterpartyGroupName: string | null;
+  /** Người nộp tiền (phiếu thu) / người nhận tiền (phiếu chi); chữ tự do, không bắt buộc. */
+  counterpartyName: string | null;
   totalAmount: number;
   status: FinanceVoucherStatus;
   createdBy: string;
@@ -351,6 +353,8 @@ export interface FinanceVoucherSummary {
 
 export interface FinanceVoucher extends FinanceVoucherSummary {
   counterpartyGroupId: string | null;
+  counterpartyAccountNo: string | null;
+  counterpartyBank: string | null;
   /** Hạch toán nội bộ (null: chưa hạch toán). Lệnh chuyển tiền không có. */
   allocation: FinanceAllocation | null;
   taxIncluded: boolean;
@@ -402,6 +406,10 @@ export interface SaveFinanceVoucherRequest {
   accountId?: string | null;
   destAccountId?: string | null;
   counterpartyGroupId?: string | null;
+  /** Người nộp/nhận tiền, số tài khoản, ngân hàng: chữ tự do, không bắt buộc. */
+  counterpartyName?: string | null;
+  counterpartyAccountNo?: string | null;
+  counterpartyBank?: string | null;
   /** Hạch toán nội bộ cho dự án/công việc (phiếu thu/chi). */
   allocation?: FinanceAllocationInput | null;
   taxIncluded?: boolean;
@@ -456,6 +464,29 @@ export interface FinanceVoucherList extends FinancePage<FinanceVoucherSummary> {
 
 export interface FinanceDecisionRequest {
   note?: string;
+}
+
+/** Cột hiển thị của một danh sách phiếu theo từng người dùng; `columns: null` là dùng bộ cột mặc định. */
+export interface FinanceListColumns {
+  listKey: FinanceVoucherKind;
+  columns: string[] | null;
+}
+export interface SaveFinanceListColumnsRequest {
+  columns: string[] | null;
+}
+
+/** Số phiếu tối đa mỗi lần duyệt hàng loạt. */
+export const FINANCE_BULK_APPROVE_MAX = 100;
+
+export interface FinanceBulkApproveRequest {
+  ids: string[];
+  note?: string;
+}
+
+/** Duyệt hàng loạt: mỗi phiếu ghi sổ trong giao dịch riêng, phiếu lỗi không làm hỏng các phiếu khác. */
+export interface FinanceBulkApproveResult {
+  approved: { id: string; code: string }[];
+  failed: { id: string; code: string | null; message: string }[];
 }
 
 /* --------------------------- Quy trình duyệt --------------------------- */
