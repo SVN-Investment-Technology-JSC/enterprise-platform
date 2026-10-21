@@ -144,6 +144,13 @@ describe('Trang form nhúng của Trợ lý', () => {
     expect(screen.queryByRole('region', { name: 'Giao việc' })).toBeNull();
   });
 
+  it('đánh dấu cả trang để lịch antd co theo bề ngang card; rời trang thì bỏ', () => {
+    open();
+    expect(document.documentElement.classList.contains('embedded')).toBe(true);
+    cleanup();
+    expect(document.documentElement.classList.contains('embedded')).toBe(false);
+  });
+
   it('bản nháp sửa tiếp chỉ đổi ô có trong đó, giữ ô người dùng đã sửa', async () => {
     open();
     sendDraft({ title: 'Soạn báo giá' });
