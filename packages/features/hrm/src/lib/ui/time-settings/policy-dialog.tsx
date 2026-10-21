@@ -248,14 +248,6 @@ export function PolicyDialog({
                   onChange={(e) => patch({ maxGpsAccuracyMeters: Number(e.target.value) })}
                 />
               </SettingsField>
-              <div className="border-t border-slate-100 pt-3">
-                <SwitchRow
-                  label="Một trình duyệt chấm công đã duyệt cho mỗi nhân viên"
-                  description="Chỉ thiết bị đã được duyệt mới chấm công được."
-                  checked={policy.requireDevice}
-                  onChange={(requireDevice) => patch({ requireDevice })}
-                />
-              </div>
             </FormBlock>
 
             <FormBlock

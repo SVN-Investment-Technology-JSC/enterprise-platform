@@ -50,7 +50,7 @@ export function isRejectedRow(
   return row.workflowStatus === 'REJECTED';
 }
 
-/** Đơn có thuộc nhóm trạng thái lọc không (đã rút/hủy chỉ có ở bộ lọc riêng và ở "Tất cả"). */
+/** Đơn có thuộc nhóm trạng thái lọc không. Màn hình đơn từ đã ẩn đơn rút/hủy trước khi gọi hàm này. */
 export function matchesStatusFilter(
   row: Pick<MyRequestRow, 'workflowStatus' | 'requestStatus'>,
   filter: RequestStatusFilter,

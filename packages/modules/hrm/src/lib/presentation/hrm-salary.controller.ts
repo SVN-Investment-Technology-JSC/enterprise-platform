@@ -51,6 +51,7 @@ import {
   requireText,
   requireUuid,
 } from '../infrastructure/hrm-validation.js';
+import { RequirePermission } from '../infrastructure/hrm-access.guard.js';
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
 import { HrmProcedureBridgeService } from '../infrastructure/hrm-procedure-bridge.service.js';
 
@@ -729,6 +730,7 @@ export class HrmSalaryController {
     };
   }
 
+  @RequirePermission('hrm.advance.approve')
   @Post('salary-advance-requests/:id/approve')
   async approveAdvance(
     @Req() req: Request,

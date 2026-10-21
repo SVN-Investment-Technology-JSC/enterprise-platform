@@ -40,6 +40,7 @@
     "@enterprise-platform/contracts-identity": "workspace:*",
     "@enterprise-platform/contracts-organization": "workspace:*",
     "@enterprise-platform/contracts-tenancy": "workspace:*",
+    "@enterprise-platform/feature-hrm": "workspace:*",
     "@enterprise-platform/feature-module-shell": "workspace:*",
     "@enterprise-platform/shared-ui": "workspace:*",
     "@reduxjs/toolkit": "^2.12.0",

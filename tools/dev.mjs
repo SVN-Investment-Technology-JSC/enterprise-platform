@@ -1,21 +1,30 @@
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { dirname, join, resolve } from 'node:path';
+import { delimiter, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const require = createRequire(import.meta.url);
 const nxCli = join(dirname(require.resolve('nx/package.json')), 'dist/bin/nx.js');
 
-// Keep development builds from allocating a plugin worker pool per service.
+const pnpmModules = join(dirname(fileURLToPath(import.meta.url)), '..', 'node_modules', '.pnpm', 'node_modules');
+
+// pnpm đặt sẵn NODE_PATH trỏ tới node_modules/.pnpm/node_modules khi chạy script. Chạy trực tiếp bằng node (ví dụ
+// tools/dev-core-hrm-pe.mjs) thì không có, nên các dịch vụ build bằng esbuild và để pg ở ngoài (worker) thoát với
+// "Cannot find module 'pg'". Bổ sung ở đây để chạy bằng pnpm hay node đều như nhau.
+export function developmentEnv(env = process.env) {
+  const paths = (env.NODE_PATH ?? '').split(delimiter).filter(Boolean);
+  if (!paths.includes(pnpmModules)) paths.push(pnpmModules);
+  return {
+    ...env,
+    NODE_PATH: paths.join(delimiter),
+    // Keep development builds from allocating a plugin worker pool per service.
+    NX_ISOLATE_PLUGINS: 'false',
+    NX_DAEMON: 'false',
+  };
+}
+
 function runNx(args) {
-  return spawnSync(process.execPath, [nxCli, ...args], {
-    stdio: 'inherit',
-    env: {
-      ...process.env,
-      NX_ISOLATE_PLUGINS: 'false',
-      NX_DAEMON: 'false',
-    },
-  });
+  return spawnSync(process.execPath, [nxCli, ...args], { stdio: 'inherit', env: developmentEnv() });
 }
 
 export function runDevelopment(args, runner = runNx) {

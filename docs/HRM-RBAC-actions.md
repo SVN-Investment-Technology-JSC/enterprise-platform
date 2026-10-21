@@ -27,7 +27,6 @@ Tenant cần entitlement HRM hoạt động; tài khoản cần quyền truy c�
 | HRM · Ca và công | `hrm.attendance.import` | Nhập sự kiện từ máy chấm công |
 | HRM · Ca và công | `hrm.attendance.approve` | Duyệt và xử lý giải trình công |
 | HRM · Ca và công | `hrm.time.configure` | Cấu hình công, IP, GPS, lịch nghỉ |
-| HRM · Ca và công | `hrm.device.manage` | Duyệt và thu hồi trình duyệt chấm công |
 | HRM · Phép và đơn | `hrm.leave.read` | Xem quỹ phép và sổ phép toàn tenant |
 | HRM · Phép và đơn | `hrm.leave.manage` | Cấu hình, tích, chuyển và điều chỉnh quỹ phép |
 | HRM · Phép và đơn | `hrm.request.read` | Xem đơn nghiệp vụ toàn tenant |

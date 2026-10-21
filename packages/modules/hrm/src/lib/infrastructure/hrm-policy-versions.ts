@@ -122,7 +122,6 @@ const aliases: Record<string, string> = {
   allowed_ips: 'allowedIps',
   require_gps: 'requireGps',
   max_gps_accuracy_meters: 'maxGpsAccuracyMeters',
-  require_device: 'requireDevice',
   employee_ids: 'employeeIds',
 };
 export function readPolicyConfig(

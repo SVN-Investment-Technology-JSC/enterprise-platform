@@ -71,8 +71,6 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   HOLIDAY_YEAR_IMPORTED: 'Nạp lịch nghỉ lễ',
   SITE_UPDATED: 'Cập nhật địa điểm chấm công',
   SITE_DEACTIVATED: 'Ngừng địa điểm chấm công',
-  ATTENDANCE_DEVICE_APPROVED: 'Duyệt thiết bị chấm công',
-  ATTENDANCE_DEVICE_REVOKED: 'Thu hồi thiết bị chấm công',
   approve: 'Duyệt thiết bị chấm công',
   revoke: 'Thu hồi thiết bị chấm công',
   POLICY_VERSION_PUBLISHED: 'Ban hành phiên bản chính sách',
@@ -189,7 +187,6 @@ const ENTITY_SOURCES: [string, string, string][] = [
   ['Phân ca', 'hrm_schema.shift_assignments x', `${emp('x.employee_id')}||' · từ '||${vn('x.effective_from')}`],
   ['Lịch làm việc', 'hrm_schema.work_calendar x', `${vn('x.work_date')}||' · '||x.name`],
   ['Địa điểm chấm công', 'hrm_schema.attendance_sites x', `x.name`],
-  ['Thiết bị chấm công', 'hrm_schema.attendance_devices x', `x.name||COALESCE(' · '||${emp('x.employee_id')},'')`],
   ['Phiên bản chính sách', 'hrm_schema.policy_versions x JOIN hrm_schema.policies po ON po.id=x.policy_id', `po.name||' · v'||x.version_no`],
 ];
 
@@ -249,7 +246,6 @@ const ACTION_ENTITY_KIND: [string, string][] = [
   ['QUALIFICATION_', 'Bằng cấp / chứng chỉ'],
   ['ATTACHMENT_', 'Tệp đính kèm'],
   ['EMPLOYEE_', 'Nhân viên'],
-  ['ATTENDANCE_DEVICE_', 'Thiết bị chấm công'],
   ['MOCK_', 'Dữ liệu mẫu'],
   ['DEV_MOCK_', 'Dữ liệu mẫu'],
 ];

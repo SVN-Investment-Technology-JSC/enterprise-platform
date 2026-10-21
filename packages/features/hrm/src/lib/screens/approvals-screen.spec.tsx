@@ -119,7 +119,7 @@ describe('ApprovalsScreen: tải dữ liệu', () => {
       reversals: [{ requestId: 'l1', reason: 'Nhập nhầm ngày' }],
     });
     render(<ApprovalsScreen />);
-    // Đơn đã xử lý nằm ngoài bộ lọc "Chờ duyệt" mặc định: sang tab Đã xử lý để xem.
+    // Đơn đã xử lý nằm ngoài tab "Chờ tôi duyệt" mặc định: sang tab Đã xử lý để xem.
     fireEvent.click(await screen.findByTestId('tab-DONE'));
     const badge = await screen.findByText('Đã hủy hiệu lực');
     expect(badge.getAttribute('title')).toBe('Lý do: Nhập nhầm ngày');
@@ -138,14 +138,18 @@ describe('ApprovalsScreen: tải dữ liệu', () => {
     expect(screen.queryByText('Đã rút / hủy')).toBeNull();
   });
 
-  it('mặc định lọc theo đơn chờ duyệt', async () => {
+  it('mặc định mở tab "Chờ tôi duyệt", không đặt bộ lọc trạng thái', async () => {
     mockActions = ['hrm.leave.approve'];
     setup({
       lists: { 'leave-requests': [leave, { ...leave, id: 'l2', status: 'APPROVED' }] },
     });
     render(<ApprovalsScreen />);
     await screen.findByTestId('approval-row-l1');
+    expect(screen.getByTestId('tab-MINE').getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByTestId('tab-ALL').getAttribute('aria-pressed')).toBe('false');
     expect(screen.queryByTestId('approval-row-l2')).toBeNull();
+    fireEvent.click(screen.getByTestId('tab-ALL'));
+    expect(await screen.findByTestId('approval-row-l2')).toBeTruthy();
   });
 
   it('?type= chọn sẵn bộ lọc loại đơn; không có thì hiện mọi loại', async () => {
@@ -220,12 +224,12 @@ describe('ApprovalsScreen: danh sách', () => {
     expect(screen.queryByTestId('kpi-processing')).toBeNull();
     expect(screen.queryByTestId('kpi-overdue')).toBeNull();
     expect(screen.queryByTestId('kpi-done')).toBeNull();
-    // Mặc định lọc "Chờ duyệt" chỉ áp cho danh sách; số trên tab không đổi khi bỏ lọc đó.
+    // Số trên tab tính trên toàn bộ đơn, không phụ thuộc tab đang mở.
     expect(screen.getByTestId('tab-ALL').textContent).toBe('Tất cả (4)');
     expect(screen.getByTestId('tab-MINE').textContent).toBe('Chờ tôi duyệt (1)');
     expect(screen.getByTestId('tab-PROCESSING').textContent).toBe('Đang xử lý (1)');
     expect(screen.getByTestId('tab-DONE').textContent).toBe('Đã xử lý (2)');
-    // Sang tab Đã xử lý thì bỏ lọc "Chờ duyệt".
+    // Sang tab Đã xử lý.
     fireEvent.click(screen.getByTestId('tab-DONE'));
     expect(await screen.findByTestId('approval-row-l2')).toBeTruthy();
     expect(screen.getByTestId('tab-DONE').textContent).toBe('Đã xử lý (2)');
@@ -302,6 +306,8 @@ describe('ApprovalsScreen: chi tiết đơn', () => {
       workflows: [{ id: 'w1', request_kind: 'LEAVE', request_id: 'l1', instance_id: 'inst-001', instance_code: 'PE-001', status: 'COMPLETED', last_error: '' }],
     });
     render(<ApprovalsScreen />);
+    // Quy trình đã hoàn tất nên đơn không còn thuộc tab "Chờ tôi duyệt" mặc định.
+    fireEvent.click(await screen.findByTestId('tab-ALL'));
     const panel = await openRow('l1');
     expect(within(panel).getByRole('link', { name: /Xem quy trình/ }).getAttribute('href')).toBe('/modules/procedure#workspace/inst-001');
     expect(within(panel).queryByRole('button', { name: /Phê duyệt/ })).toBeNull();

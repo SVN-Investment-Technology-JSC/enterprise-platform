@@ -74,6 +74,7 @@ import {
   requireText,
   requireUuid,
 } from '../infrastructure/hrm-validation.js';
+import { RequirePermission } from '../infrastructure/hrm-access.guard.js';
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
 import { HrmProcedureBridgeService } from '../infrastructure/hrm-procedure-bridge.service.js';
 
@@ -1053,6 +1054,7 @@ export class HrmRequestController {
   // Dynamic Procedure Progress & Real-time Reverse Sync
   // --------------------------------------------------------------------------
 
+  @RequirePermission('hrm.read')
   @Post('requests/:kind/:id/actions')
   async procedureAction(
     @Req() req: Request,

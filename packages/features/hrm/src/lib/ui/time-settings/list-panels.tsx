@@ -1,31 +1,22 @@
 'use client';
 /**
- * Hai mục dạng danh sách của "Chấm công & thiết bị": Địa điểm GPS, Thiết bị.
+ * Mục dạng danh sách của "Chấm công": Địa điểm GPS.
  * Mỗi mục là một thẻ gồm thanh công cụ gọn (ô tìm, lọc, nút thêm) và danh sách co giãn theo khung chứa. Chỉ lo giao diện:
  * mọi thao tác ghi nằm ở màn hình cha và được truyền vào bằng hàm.
  */
 import { useMemo, useState, type ReactNode } from 'react';
-import { MapPin, Plus, Search, Smartphone } from 'lucide-react';
-import { Popconfirm, SearchableSelect } from '@enterprise-platform/shared-ui';
+import { MapPin, Plus, Search } from 'lucide-react';
+import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import { Button } from '../button';
 import { Input } from '../input';
 import { RowMenu } from '../row-menu';
-import { EmptyPanel, InfoNote, StatusPill, type PillTone } from '../settings-kit';
+import { EmptyPanel, StatusPill } from '../settings-kit';
 import { Pager, ResponsiveList, usePaged, type ListColumn } from './responsive-list';
 import {
-  DEVICE_STATUS_LABELS,
-  filterDevices,
   filterSites,
-  type DeviceRow,
   type Settings,
   type SiteRow,
 } from './time-settings-model';
-
-const DEVICE_TONE: Record<string, PillTone> = {
-  PENDING: 'amber',
-  ACTIVE: 'green',
-  REVOKED: 'slate',
-};
 
 function ListCard({
   title,
@@ -220,127 +211,5 @@ export function SitesPanel({
         </>
       )}
     </ListCard>
-  );
-}
-
-/** Thiết bị chấm công đã đăng ký: duyệt (thu hồi thiết bị cũ của nhân viên) và thu hồi, xác nhận tại chỗ bằng Popconfirm. */
-export function DevicesPanel({
-  rows,
-  busy,
-  onApprove,
-  onRevoke,
-}: {
-  rows: Settings['devices'];
-  busy: boolean;
-  onApprove: (device: DeviceRow) => void | Promise<void>;
-  onRevoke: (device: DeviceRow) => void | Promise<void>;
-}) {
-  const [search, setSearch] = useState('');
-  const [status, setStatus] = useState('ALL');
-  const filtered = useMemo(() => filterDevices(rows, search, status), [rows, search, status]);
-  const paged = usePaged(filtered, 10);
-  const columns: ListColumn<DeviceRow>[] = [
-    {
-      id: 'employee',
-      header: 'Nhân viên',
-      primary: true,
-      cell: (r) => <span className="text-sm font-semibold text-slate-900 @2xl:text-xs">{r.full_name}</span>,
-    },
-    { id: 'device', header: 'Thiết bị', cell: (r) => r.name },
-    {
-      id: 'status',
-      header: 'Trạng thái',
-      cell: (r) => (
-        <StatusPill tone={DEVICE_TONE[r.status] ?? 'slate'}>
-          {DEVICE_STATUS_LABELS[r.status] ?? r.status}
-        </StatusPill>
-      ),
-    },
-    {
-      id: 'actions',
-      header: 'Thao tác',
-      actions: 'inline',
-      cell: (device) => (
-        <>
-          {device.status === 'PENDING' && (
-            <Popconfirm
-              title="Duyệt thiết bị mới và thu hồi thiết bị cũ?"
-              onConfirm={() => onApprove(device)}
-            >
-              <Button permission="hrm.device.manage" size="sm" disabled={busy} className="h-9 px-3 @2xl:h-8">
-                Duyệt
-              </Button>
-            </Popconfirm>
-          )}
-          {device.status !== 'REVOKED' && (
-            <Popconfirm title="Thu hồi thiết bị chấm công?" onConfirm={() => onRevoke(device)}>
-              <Button
-                permission="hrm.device.manage"
-                size="sm"
-                variant="outline"
-                disabled={busy}
-                className="h-9 px-3 @2xl:h-8"
-              >
-                Thu hồi
-              </Button>
-            </Popconfirm>
-          )}
-        </>
-      ),
-    },
-  ];
-  return (
-    <div className="space-y-3">
-      <InfoNote tone="slate">
-        Duyệt thiết bị mới sẽ thu hồi thiết bị đang hoạt động của nhân viên; định danh gắn với trình duyệt đã đăng ký.
-      </InfoNote>
-      <ListCard
-        title="Thiết bị đăng ký"
-        description={`${rows.length} thiết bị`}
-        toolbar={
-          <>
-            <SearchBox
-              value={search}
-              onChange={setSearch}
-              placeholder="Tìm theo nhân viên, thiết bị hoặc trạng thái"
-              label="Tìm thiết bị chấm công"
-            />
-            <FilterSelect
-              label="Lọc theo trạng thái"
-              value={status}
-              onChange={(next) => {
-                setStatus(next);
-                paged.setPage(1);
-              }}
-              options={[
-                { value: 'ALL', label: 'Tất cả trạng thái' },
-                ...Object.entries(DEVICE_STATUS_LABELS).map(([value, label]) => ({ value, label })),
-              ]}
-            />
-          </>
-        }
-      >
-        {rows.length === 0 ? (
-          <EmptyPanel
-            icon={Smartphone}
-            title="Chưa có thiết bị nào đăng ký"
-            description="Thiết bị xuất hiện ở đây khi nhân viên đăng ký trình duyệt chấm công."
-          />
-        ) : filtered.length === 0 ? (
-          <EmptyPanel icon={Search} title="Không có thiết bị nào khớp" description="Thử đổi từ khóa hoặc bộ lọc." />
-        ) : (
-          <>
-            <ResponsiveList
-              label="Thiết bị chấm công"
-              rows={paged.pageRows}
-              rowKey={(r) => r.id}
-              columns={columns}
-              gridClass="@2xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_7rem_12rem]"
-            />
-            <Pager paged={paged} sizeChanger />
-          </>
-        )}
-      </ListCard>
-    </div>
   );
 }

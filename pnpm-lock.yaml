@@ -1017,6 +1017,9 @@ importers:
       '@enterprise-platform/contracts-tenancy':
         specifier: workspace:*
         version: link:../../packages/contracts/tenancy
+      '@enterprise-platform/feature-hrm':
+        specifier: workspace:*
+        version: link:../../packages/features/hrm
       '@enterprise-platform/feature-module-shell':
         specifier: workspace:*
         version: link:../../packages/features/module-shell

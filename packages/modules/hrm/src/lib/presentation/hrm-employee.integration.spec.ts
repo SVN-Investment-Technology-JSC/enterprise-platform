@@ -39,7 +39,6 @@ import { HrmPayrollSettingsController } from './hrm-payroll-settings.controller'
 import { approveShiftChange } from '../infrastructure/hrm-shift-change';
 import { accrueMonth } from '../infrastructure/hrm-leave-accrual';
 import { timeContext } from '../infrastructure/hrm-time';
-import { deviceTokenHash } from '../infrastructure/hrm-attendance-ingest';
 import type { HrmContextService } from '../infrastructure/hrm-context.service';
 import { HrmProcedureBridgeService } from '../infrastructure/hrm-procedure-bridge.service';
 import { testApprovalPolicy } from '../infrastructure/hrm-test-support';
@@ -1800,7 +1799,7 @@ integration('HRM employee PostgreSQL integration', () => {
       ).rows[0].n,
     ).toBe(1);
   });
-  it('enforces IP, GPS and one approved device, including revocation', async () => {
+  it('enforces IP and GPS', async () => {
     const { t, e, settings } = await fixture();
     await settings.policy(req, {
       effectiveFrom: '2025-01-01',
@@ -1810,7 +1809,6 @@ integration('HRM employee PostgreSQL integration', () => {
       allowedIps: ['10.0.0.10'],
       requireGps: true,
       maxGpsAccuracyMeters: 50,
-      requireDevice: true,
     });
     await settings.site(req, {
       name: 'Office',
@@ -1818,15 +1816,8 @@ integration('HRM employee PostgreSQL integration', () => {
       longitude: 106,
       radiusMeters: 100,
     });
-    const token = 'a'.repeat(64),
-      otherToken = 'b'.repeat(64);
-    const devices = await pool.query(
-      `INSERT INTO hrm_schema.attendance_devices(tenant_id,employee_id,name,token_hash) VALUES($1,$2,'First',$3),($1,$2,'Second',$4) RETURNING id`,
-      [t, e, deviceTokenHash(token), deviceTokenHash(otherToken)],
-    );
-    await settings.deviceAction(req, devices.rows[0].id, 'approve');
     const request = {
-      headers: { cookie: `ep_hrm_device=${token}` },
+      headers: {},
       socket: { remoteAddress: '10.0.0.10' },
     } as unknown as Request;
     const input = {
@@ -1855,32 +1846,6 @@ integration('HRM employee PostgreSQL integration', () => {
       ),
     ).rejects.toThrow('bán kính');
     await ingestEvent(pool as unknown as Pool, t, userId, input, request);
-    await settings.deviceAction(req, devices.rows[1].id, 'approve');
-    await expect(
-      ingestEvent(
-        pool as unknown as Pool,
-        t,
-        userId,
-        {
-          ...input,
-          kind: 'OUT',
-          externalEventId: randomUUID(),
-          occurredAt: '2025-03-03T09:00:00Z',
-        },
-        request,
-      ),
-    ).rejects.toThrow('Thiết bị');
-    await expect(
-      settings.deviceAction(req, devices.rows[0].id, 'approve'),
-    ).rejects.toThrow('thu hồi');
-    expect(
-      (
-        await pool.query(
-          `SELECT count(*)::int AS n FROM hrm_schema.attendance_devices WHERE tenant_id=$1 AND status='ACTIVE'`,
-          [t],
-        )
-      ).rows[0].n,
-    ).toBe(1);
   });
   it('resolves a policy at local midnight and protects locked schedules', async () => {
     const { t, e, ctx, shifts, settings, day } = await fixture();
@@ -1892,7 +1857,6 @@ integration('HRM employee PostgreSQL integration', () => {
       allowedIps: [],
       requireGps: false,
       maxGpsAccuracyMeters: 50,
-      requireDevice: false,
     });
     const context = await hrmTransaction(pool as unknown as Pool, (db) =>
       timeContext(db, t, e, '2025-02-28T18:00:00Z'),
@@ -1921,7 +1885,6 @@ integration('HRM employee PostgreSQL integration', () => {
         allowedIps: [],
         requireGps: false,
         maxGpsAccuracyMeters: 50,
-        requireDevice: false,
       }),
     ).rejects.toThrow('đã khóa');
   });

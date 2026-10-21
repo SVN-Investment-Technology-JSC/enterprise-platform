@@ -132,6 +132,7 @@ export class HrmAttendanceController {
         timezone: context.timezone,
         shift: context.shift,
         requireGps: context.policy?.config_json.requireGps === true,
+        maxGpsAccuracyMeters: Number(context.policy?.config_json.maxGpsAccuracyMeters) || 100,
       },
     };
   }
@@ -304,7 +305,7 @@ export class HrmAttendanceController {
     const where = `a.tenant_id=$1 AND ($2::uuid IS NULL OR a.employee_id=$2) AND a.work_date BETWEEN $3::date AND $4::date`;
     const [events, count] = await Promise.all([
       pool.query(
-        `SELECT a.id,a.employee_id,e.employee_code,e.full_name,to_char(a.work_date,'YYYY-MM-DD') AS work_date,a.occurred_at,a.event_kind,a.source,a.device_id,a.evidence,a.voided_by_correction_id
+        `SELECT a.id,a.employee_id,e.employee_code,e.full_name,to_char(a.work_date,'YYYY-MM-DD') AS work_date,a.occurred_at,a.event_kind,a.source,a.evidence,a.voided_by_correction_id
         FROM hrm_schema.attendance_events a LEFT JOIN hrm_schema.employee_directory e ON e.tenant_id=a.tenant_id AND e.employee_id=a.employee_id
         WHERE ${where} ORDER BY a.occurred_at DESC,a.id DESC LIMIT $5 OFFSET $6`,
         [...params, size, (page - 1) * size],

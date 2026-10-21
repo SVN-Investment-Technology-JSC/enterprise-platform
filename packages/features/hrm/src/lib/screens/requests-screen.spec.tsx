@@ -369,6 +369,25 @@ describe('Đơn từ của tôi', () => {
     await waitFor(() => expect(footer()).toContain('Hiển thị 1-20 trên 25 đơn'));
   });
 
+  it('mặc định chỉ hiện đơn chờ duyệt; sang tab Tất cả thì hiện cả đơn đã duyệt', async () => {
+    leaveRows = [leaveRow(0), { ...leaveRow(1), status: 'APPROVED' }];
+    render(<RequestsPage />);
+    await showAllMonths();
+    await waitFor(() => expect(screen.getAllByRole('button', { name: /^Chi tiết đơn / })).toHaveLength(1));
+    expect(screen.getByRole('tab', { name: /^Chờ duyệt \(1\)/ }).getAttribute('aria-selected')).toBe('true');
+    fireEvent.click(screen.getByRole('tab', { name: /^Tất cả \(2\)/ }));
+    await waitFor(() => expect(screen.getAllByRole('button', { name: /^Chi tiết đơn / })).toHaveLength(2));
+  });
+
+  it('đơn đã rút/hủy không hiện trong bảng và không tính vào số đơn', async () => {
+    leaveRows = [leaveRow(0), { ...leaveRow(1), status: 'CANCELLED' }, leaveRow(2)];
+    render(<RequestsPage />);
+    await showAllMonths();
+    await waitFor(() => expect(screen.getAllByRole('button', { name: /^Chi tiết đơn / })).toHaveLength(2));
+    expect(footer()).toContain('Hiển thị 1-2 trên 2 đơn');
+    expect(screen.queryByText('Đã rút / hủy')).toBeNull();
+  });
+
   it('xuất lịch sử đơn tạo file Excel từ các dòng đang lọc', async () => {
     await openHistory(3);
     await waitFor(() => expect(screen.getAllByRole('button', { name: /^Chi tiết đơn / })).toHaveLength(3));

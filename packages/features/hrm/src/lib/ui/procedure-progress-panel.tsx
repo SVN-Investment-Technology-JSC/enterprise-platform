@@ -104,6 +104,8 @@ export interface ProcedureProgressPanelProps {
   /** Nội dung hiển thị khi đơn chưa có quy trình (không có instance). */
   emptyFallback?: React.ReactNode;
   showActivity?: boolean;
+  /** Hộp "Đang chờ [người] duyệt - [bước]" phía trên danh sách bước; mặc định hiện. */
+  showWaitingLabel?: boolean;
 }
 
 /** Khối tiến độ quy trình dùng chung cho chi tiết đơn nhân viên và màn Duyệt đơn. */
@@ -118,6 +120,7 @@ export function ProcedureProgressPanel({
   hasInstance = true,
   emptyFallback,
   showActivity = true,
+  showWaitingLabel = true,
 }: ProcedureProgressPanelProps) {
   const notice = procedureSyncNotice(
     progress?.syncStatus ?? syncStatus,
@@ -166,7 +169,7 @@ export function ProcedureProgressPanel({
         </div>
       )}
 
-      {waiting && (
+      {showWaitingLabel && waiting && (
         <div className="rounded-lg border border-blue-200 bg-white p-2.5 text-xs font-semibold text-blue-900">
           {waiting}
         </div>

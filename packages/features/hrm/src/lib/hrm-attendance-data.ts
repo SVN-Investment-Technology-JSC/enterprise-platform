@@ -148,7 +148,6 @@ export interface AttendanceRawEvent {
   occurred_at: string;
   event_kind: string;
   source: string | null;
-  device_id: string | null;
   evidence: {
     ip?: string;
     siteSnapshot?: { name?: string };

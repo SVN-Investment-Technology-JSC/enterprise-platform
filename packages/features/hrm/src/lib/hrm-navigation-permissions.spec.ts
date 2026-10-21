@@ -134,7 +134,7 @@ describe('request reasons and approval configuration tabs', () => {
   it('keeps the settings tabs in the agreed order with the new labels', () => {
     expect(HRM_HUBS['/settings'].map((t) => [t.id, t.label])).toEqual([
       ['leave', 'Chính sách phép năm'],
-      ['time', 'Công và thiết bị'],
+      ['time', 'Chấm công'],
       ['schedules', 'Phân ca'],
       ['shifts', 'Danh mục ca'],
       ['standard-work', 'Công chuẩn'],

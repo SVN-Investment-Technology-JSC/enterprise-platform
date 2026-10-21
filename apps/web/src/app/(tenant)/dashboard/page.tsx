@@ -15,6 +15,7 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { CollapsibleGroup } from '../collapsible-group';
+import { HrmQuickWorkSection } from './hrm-quick-work';
 import { RefreshOnFocus } from './refresh-on-focus';
 
 type Module = {
@@ -422,6 +423,8 @@ export default async function TenantPortalPage() {
           ) : null}
         </div>
       </section>
+
+      {has('hrm') ? <HrmQuickWorkSection /> : null}
 
       {procedure ? (
         <CollapsibleGroup

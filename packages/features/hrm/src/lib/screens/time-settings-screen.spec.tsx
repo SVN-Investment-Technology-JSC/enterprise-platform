@@ -50,7 +50,6 @@ afterAll(() => {
 beforeEach(() => {
   mockActions.clear();
   mockActions.add('hrm.time.configure');
-  mockActions.add('hrm.device.manage');
   fetchMock.mockReset();
   fetchMock.mockImplementation((async (path: string) => {
     if (path === '/time-settings')
@@ -67,7 +66,6 @@ beforeEach(() => {
             },
           ],
           sites: [],
-          devices: [],
           versions: [],
           holidayStatus: {
             year: 2026,

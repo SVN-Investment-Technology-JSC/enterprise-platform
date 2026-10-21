@@ -11,7 +11,6 @@ export type SettingsIcon =
   | 'rules'
   | 'calendar'
   | 'gps'
-  | 'device'
   | 'schedule'
   | 'shift'
   | 'request'
@@ -65,8 +64,8 @@ export const SETTINGS_GROUPS: readonly SettingsGroup[] = [
   {
     id: 'time',
     navLabel: 'Chấm công',
-    title: 'Chấm công & thiết bị',
-    description: 'GPS, IP, thiết bị, quy tắc vào/ra và lịch ngày làm / OFF / lễ.',
+    title: 'Chấm công',
+    description: 'GPS, IP, quy tắc vào/ra và chấm công tự động.',
     icon: 'rules',
     entries: [
       {
@@ -86,15 +85,6 @@ export const SETTINGS_GROUPS: readonly SettingsGroup[] = [
         view: 'time',
         tab: 'sites',
         permissions: ['hrm.time.configure'],
-      },
-      {
-        id: 'time-devices',
-        label: 'Thiết bị',
-        description: 'Quản lý thiết bị chấm công, máy chấm, app',
-        icon: 'device',
-        view: 'time',
-        tab: 'devices',
-        permissions: ['hrm.device.manage'],
       },
       {
         id: 'auto-attendance',

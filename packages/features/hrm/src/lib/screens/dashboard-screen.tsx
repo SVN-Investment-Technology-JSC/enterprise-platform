@@ -16,6 +16,7 @@ import {
   PROCEDURE_INSTANCES_PATH,
 } from '../hrm-approval-kinds';
 import { dashboardPlan, formatShiftWindow } from '../hrm-dashboard-access';
+import { acquirePosition } from '../hrm-geolocation';
 import { useHrmPermissions } from '../hrm-permissions';
 import { Button } from '../ui/button';
 import {
@@ -38,6 +39,7 @@ type TimeContext = {
   workDate: string;
   timezone: string;
   requireGps: boolean;
+  maxGpsAccuracyMeters?: number;
   shift: {
     window: {
       start: string;
@@ -143,21 +145,13 @@ export default function HrmDashboardPage() {
       const ctx = context.status === 'ok' ? context.data : null;
       let position: Record<string, number> = {};
       if (ctx?.requireGps) {
-        if (!navigator.geolocation) {
-          throw new Error('Trình duyệt không hỗ trợ định vị GPS.');
-        }
-        const gps = await new Promise<GeolocationPosition>((resolve, reject) =>
-          navigator.geolocation.getCurrentPosition(
-            resolve,
-            () => reject(new Error('Không lấy được GPS. Hãy cấp quyền vị trí.')),
-            { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 },
-          ),
-        );
-        position = {
-          latitude: gps.coords.latitude,
-          longitude: gps.coords.longitude,
-          accuracy: gps.coords.accuracy,
-        };
+        setPunchMessage('Đang xác định vị trí…');
+        const gps = await acquirePosition({
+          maxAccuracy: ctx.maxGpsAccuracyMeters ?? 100,
+          onProgress: (fix) => setPunchMessage(`Đang xác định vị trí… hiện ±${Math.round(fix.accuracy)} m`),
+        });
+        position = { latitude: gps.latitude, longitude: gps.longitude, accuracy: gps.accuracy };
+        setPunchMessage('');
       }
       eventKey.current ||= crypto.randomUUID();
       await hrmFetch(`/attendance/${kind}`, {

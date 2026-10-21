@@ -25,7 +25,7 @@ import {
 } from './hrm-leave-schedule.js';
 import { recomputeAnnualLeaveYear } from './hrm-annual-leave-recompute.js';
 import { isoDate } from './hrm-time.js';
-import { requireDate, requireText, requireUuid } from './hrm-validation.js';
+import { requireDate, requireUuid } from './hrm-validation.js';
 
 /**
  * Phép năm chỉ có MỘT cấu hình: mỗi tenant có đúng một lý do nghỉ `is_annual`, một chính sách
@@ -38,6 +38,8 @@ export const ANNUAL_ONLY_MESSAGE = 'Chỉ cấu hình phép năm tại Chính s�
 
 const DEFAULT_CARRYOVER_EXPIRY_MONTH = 3;
 const MAX_DAYS = 366;
+/** Chính sách phép năm không nhập lý do: nhật ký kiểm toán và lịch cộng phép dùng ghi chú cố định này. */
+const POLICY_CHANGE_NOTE = 'Cập nhật chính sách phép năm';
 
 const round2 = (value: number) => Math.round(value * 100) / 100;
 
@@ -75,7 +77,6 @@ export interface AnnualLeavePolicyInput {
   /** Phép năm không chuyển sang năm sau: luôn là 0. */
   readonly maxCarryoverDays: number;
   readonly carryoverExpiryMonth?: number;
-  readonly reason: string;
   readonly expectedUpdatedAt?: string;
 }
 
@@ -107,7 +108,6 @@ export function validateAnnualLeavePolicyInput(
 ): AnnualLeavePolicyInput {
   if (!body || typeof body !== 'object')
     invalid('Cần gửi nội dung chính sách phép năm');
-  const reason = requireText(body.reason, 'Lý do thay đổi', 1000);
   const leaveTypeId =
     body.leaveTypeId === undefined || body.leaveTypeId === null
       ? undefined
@@ -179,7 +179,6 @@ export function validateAnnualLeavePolicyInput(
     effectiveFrom: body.effectiveFrom,
     maxCarryoverDays: 0,
     carryoverExpiryMonth: body.carryoverExpiryMonth,
-    reason,
     expectedUpdatedAt: body.expectedUpdatedAt,
   };
 }
@@ -500,7 +499,7 @@ export async function saveAnnualLeavePolicy(
         ? (input.effectiveFrom ?? editStart(current, schedules[1]))
         : wantFrom,
       expectedUpdatedAt: timestamp(current.updated_at),
-      reason: input.reason,
+      reason: POLICY_CHANGE_NOTE,
       allowAccruedYear: true,
     };
     saved = await mutateAccrualSchedule(
@@ -522,7 +521,7 @@ export async function saveAnnualLeavePolicy(
 
   const closed = existing
     ? []
-    : await closeOtherAccrualSchedules(db, tenant, actor, type.id, input.reason);
+    : await closeOtherAccrualSchedules(db, tenant, actor, type.id, POLICY_CHANGE_NOTE);
   // Tính lại quỹ phép đã ghi sổ của các năm từ năm áp dụng đến năm nay theo chính sách mới.
   const recomputed = [];
   for (
@@ -552,7 +551,7 @@ export async function saveAnnualLeavePolicy(
     closedOtherSchedules: closed.length,
     closedSchedules: closed,
     recomputed,
-    reason: input.reason,
+    reason: POLICY_CHANGE_NOTE,
   });
   return { mode, closedOtherSchedules: closed.length };
 }

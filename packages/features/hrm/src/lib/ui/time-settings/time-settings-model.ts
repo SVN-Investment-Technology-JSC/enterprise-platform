@@ -1,5 +1,5 @@
 /**
- * Mô hình dữ liệu và hàm thuần cho nhóm màn "Chấm công & thiết bị" (quy định, lịch làm/OFF/lễ, địa điểm GPS, thiết bị).
+ * Mô hình dữ liệu và hàm thuần cho nhóm màn "Chấm công" (quy định chấm công, địa điểm GPS).
  * Không chứa giao diện; tách ra để màn hình gọn và dễ kiểm thử.
  */
 import { formatDateVn } from '../../personnel-decision-rules';
@@ -22,7 +22,6 @@ export type Settings = {
     active: boolean;
     updated_at: string;
   }[];
-  devices: { id: string; full_name: string; name: string; status: string }[];
   versions: {
     id: string;
     version_no: number;
@@ -43,7 +42,6 @@ export type Settings = {
 };
 export type CalendarRow = Settings['calendar'][number];
 export type SiteRow = Settings['sites'][number];
-export type DeviceRow = Settings['devices'][number];
 export type PolicyVersion = Settings['versions'][number];
 export type EmployeeOption = { value: string; label: string };
 
@@ -53,11 +51,6 @@ export const DAY_KIND_LABELS: Record<string, string> = {
   WORK: 'Làm việc',
   OFF: 'Nghỉ (OFF)',
   HOLIDAY: 'Lễ / Tết',
-};
-export const DEVICE_STATUS_LABELS: Record<string, string> = {
-  PENDING: 'Chờ duyệt',
-  ACTIVE: 'Đang dùng',
-  REVOKED: 'Đã thu hồi',
 };
 
 /** Đọc cấu hình chấp nhận cả khóa camelCase lẫn snake_case (dữ liệu seed). */
@@ -146,7 +139,6 @@ export interface RuleSummary {
   timezone: string;
   ip: string;
   gps: string;
-  device: string;
   scope: string;
   range: string;
 }
@@ -168,9 +160,6 @@ export function summarizeVersion(v: PolicyVersion): RuleSummary {
         ? `Bắt buộc, dung sai ${tolerance} m`
         : 'Bắt buộc'
       : 'Không yêu cầu',
-    device: configFlag(c, 'requireDevice', 'require_device')
-      ? 'Một trình duyệt đã duyệt cho mỗi nhân viên'
-      : 'Không yêu cầu',
     scope: versionScopeLabel(v),
     range: versionRangeLabel(v),
   };
@@ -185,16 +174,14 @@ export function conditionChips(v: PolicyVersion): string[] {
     const t = gpsTolerance(c);
     out.push(t !== null ? `GPS ${t} m` : 'GPS');
   }
-  if (configFlag(c, 'requireDevice', 'require_device')) out.push('Thiết bị');
   return out;
 }
 
-export type TimeSettingsTab = 'rules' | 'sites' | 'devices';
+export type TimeSettingsTab = 'rules' | 'sites';
 
 export const TIME_SETTINGS_TABS = [
   { id: 'rules', label: 'Quy định chấm công', permission: 'time' },
   { id: 'sites', label: 'Địa điểm GPS', permission: 'time' },
-  { id: 'devices', label: 'Thiết bị', permission: 'device' },
 ] as const;
 
 /** Tiêu đề, mô tả và tiền tố mã hành động nhật ký của từng mục (mỗi mục là một trang độc lập). */
@@ -214,12 +201,6 @@ export const SECTION_META: Record<
     description: 'Quản lý địa điểm làm việc theo GPS',
     historyPrefixes: ['SITE_'],
     historyDescription: 'Thay đổi địa điểm chấm công, mới nhất ở trên.',
-  },
-  devices: {
-    title: 'Thiết bị',
-    description: 'Quản lý thiết bị chấm công, máy chấm, app',
-    historyPrefixes: ['ATTENDANCE_DEVICE_'],
-    historyDescription: 'Duyệt và thu hồi thiết bị chấm công, mới nhất ở trên.',
   },
 };
 
@@ -259,23 +240,6 @@ export function filterSites(
   });
 }
 
-export function filterDevices(
-  rows: readonly DeviceRow[],
-  search: string,
-  status: string,
-): DeviceRow[] {
-  const query = fold(search.trim());
-  return rows.filter((row) => {
-    if (status !== 'ALL' && row.status !== status) return false;
-    if (!query) return true;
-    return [
-      row.full_name,
-      row.name,
-      DEVICE_STATUS_LABELS[row.status] ?? row.status,
-    ].some((value) => fold(value).includes(query));
-  });
-}
-
 export interface PolicyFormState {
   effectiveFrom: string;
   effectiveTo: string;
@@ -287,7 +251,6 @@ export interface PolicyFormState {
   allowedIps: string;
   requireGps: boolean;
   maxGpsAccuracyMeters: number;
-  requireDevice: boolean;
 }
 
 /** Giá trị ban đầu khi mở hộp thoại tạo phiên bản (giữ nguyên mặc định cũ). */
@@ -302,7 +265,6 @@ export const emptyPolicyForm = (): PolicyFormState => ({
   allowedIps: '',
   requireGps: false,
   maxGpsAccuracyMeters: 100,
-  requireDevice: false,
 });
 
 /** Phiên bản nào sẽ bị kết thúc / chặn khi ban hành khoảng hiệu lực mới (giống kiểm tra của máy chủ). */

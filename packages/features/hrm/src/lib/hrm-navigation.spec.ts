@@ -87,8 +87,8 @@ describe('HRM navigation', () => {
   });
 
   it('does not show an unauthorized tab from a deep link', () => {
-    expect(resolveTimeSettingsTab('unknown', ['devices'])).toBe('devices');
-    expect(resolveTimeSettingsTab('rules', ['devices'])).toBe('devices');
+    expect(resolveTimeSettingsTab('unknown', ['sites'])).toBe('sites');
+    expect(resolveTimeSettingsTab('rules', ['sites'])).toBe('sites');
     expect(resolveTimeSettingsTab('sites', ['rules', 'sites'])).toBe('sites');
     expect(resolveTimeSettingsTab('rules', [])).toBe('');
 

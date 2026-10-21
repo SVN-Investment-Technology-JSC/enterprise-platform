@@ -77,7 +77,7 @@ export const HRM_ROLE_TEMPLATES: readonly HrmRoleTemplate[] = [
   {
     key: 'timekeeper',
     name: 'HRM - Chấm công viên',
-    description: 'Điều phối ca, thiết bị, chấm công, phép và bảng công.',
+    description: 'Điều phối ca, chấm công, phép và bảng công.',
     actions: [
       ...SELF_ACTIONS,
       'hrm.shift.read',
@@ -87,7 +87,6 @@ export const HRM_ROLE_TEMPLATES: readonly HrmRoleTemplate[] = [
       'hrm.schedule.bulk',
       'hrm.schedule.calendar',
       'hrm.time.configure',
-      'hrm.device.manage',
       'hrm.attendance.read',
       'hrm.attendance.import',
       'hrm.attendance.approve',

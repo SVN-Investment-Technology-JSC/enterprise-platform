@@ -701,7 +701,6 @@ export interface IngestAttendanceRequest {
   readonly employeeId: string;
   readonly occurredAt: string;
   readonly source: HrmAttendanceSource;
-  readonly deviceId?: string;
   readonly externalEventId?: string;
 }
 
@@ -1152,7 +1151,7 @@ export interface AnnualLeavePolicy {
   readonly startOffsetMonths: number;
   /** Cho ứng phép: được dùng trước phần chưa cộng tới hết năm. */
   readonly advanceAllowed: boolean;
-  /** Ngày có hiệu lực (đầu tháng) của phiên bản chính sách mới nhất; có thể ở tương lai. */
+  /** Ngày có hiệu lực (01/01) của phiên bản chính sách mới nhất; có thể ở tương lai. */
   readonly effectiveFrom: string;
   /** Cứ đạt `minYears` năm thì có `bonusDays` ngày thâm niên (lấy mốc cao nhất đã đạt). */
   readonly seniorityTiers: readonly HrmLeaveSeniorityTier[];
@@ -1190,16 +1189,14 @@ export interface SaveAnnualLeavePolicyRequest {
   readonly advanceAllowed: boolean;
   readonly seniorityTiers: readonly HrmLeaveSeniorityTier[];
   /**
-   * Đầu tháng (YYYY-MM-01). Bỏ trống: lần đầu = ngày 1/1 năm nay; đã có lịch = ngày 1 của tháng sau tháng đã cộng phép
-   * (nếu lịch mới nhất chưa cộng phép lần nào thì sửa tại chỗ, giữ nguyên ngày hiệu lực).
+   * Đầu năm (YYYY-01-01). Bỏ trống: lần đầu = ngày 1/1 năm nay; đã có lịch = áp dụng từ 1/1 năm nay
+   * (lịch bắt đầu từ năm áp dụng trở đi thì sửa tại chỗ).
    */
   readonly effectiveFrom?: string;
   /** Số ngày tối đa chuyển sang năm sau; phép năm không chuyển nên luôn là 0 (có thể bỏ trống). */
   readonly maxCarryoverDays?: number;
   /** Tháng hết hạn dùng phép chuyển (1-12); bỏ trống giữ giá trị hiện có (mặc định 3). */
   readonly carryoverExpiryMonth?: number;
-  /** Lý do thay đổi, ghi vào nhật ký kiểm toán. */
-  readonly reason: string;
   /** `policy.updatedAt` vừa tải (nên gửi); khi có gửi mà không khớp phiên bản hiện tại thì trả 409. */
   readonly expectedUpdatedAt?: string;
 }
