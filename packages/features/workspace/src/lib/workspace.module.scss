@@ -1894,12 +1894,6 @@
     padding: 12px 0 0;
   }
 
-  /* Gợi ý của ô chọn người, chọn nhãn nằm ngay dưới ô tìm, đẩy phần dưới xuống để card cao thêm. Để nổi (absolute)
-     thì danh sách bám khối chứa ngoài cùng và rơi lên trên mép trang, không thấy được. */
-  .peoplePicker .mentionList {
-    position: static;
-  }
-
   /* Card hẹp: ngày và khoảng giờ xếp dọc để hai ô giờ không bị bóp. */
   @media (width <= 420px) {
     .fieldRowDateTime {
@@ -2042,6 +2036,13 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
+
+  /* Gợi ý của ô chọn người, chọn nhãn nằm ngay dưới ô tìm, trong luồng của form. `.mentionList` gốc nổi lên trên ô
+     nhập của khung chat (neo vào `.chatComposer`); trong popup không có khối neo nên nó bám lớp phủ toàn màn hình và
+     rơi lên trên mép trang, không thấy được. */
+  .mentionList {
+    position: static;
+  }
 }
 
 .chipList {
