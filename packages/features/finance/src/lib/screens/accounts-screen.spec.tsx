@@ -117,7 +117,7 @@ describe('Danh sách tài khoản', () => {
     await waitFor(() => expect(financePost).toHaveBeenCalledTimes(1));
     const [path, body] = financePost.mock.calls[0] as [string, Record<string, unknown>];
     expect(path).toBe('/accounts');
-    expect(body).toMatchObject({ code: 'ACB-01', name: 'ACB chính', accountType: 'BANK', accountNumber: '123456', openingBalance: 5_000_000, allowNegative: false, isActive: true });
+    expect(body).toMatchObject({ code: 'ACB-01', name: 'ACB chính', accountType: 'BANK', accountNumber: '123456', openingBalance: 5_000_000, allowNegative: true, isActive: true }); // mặc định cho phép âm
   });
 
   it('tài khoản đã có bút toán: khoá số dư đầu kỳ và ngày bắt đầu, không gửi hai trường đó', async () => {

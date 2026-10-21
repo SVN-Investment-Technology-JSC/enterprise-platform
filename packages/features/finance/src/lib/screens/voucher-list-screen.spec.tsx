@@ -2,7 +2,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { FinanceCapabilities, FinanceVoucher, FinanceVoucherList, FinanceVoucherSummary } from '@enterprise-platform/contracts-finance';
 import { installAntdEnv } from '../../test-support/antd-env';
-import { financeDelete, financeFetch, financePost } from '../finance-api';
+import { financeDelete, financeFetch, financePost, financePut } from '../finance-api';
 import { monthLabel, monthRange, shiftMonth, todayVn } from '../finance-format';
 import VoucherListScreen, { initialMonth } from './voucher-list-screen';
 
@@ -14,7 +14,7 @@ jest.mock('next/navigation', () => ({
 let mockQuery = '';
 jest.mock('../finance-api', () => {
   const actual = jest.requireActual('../finance-api');
-  return { ...actual, financeFetch: jest.fn(), financePost: jest.fn(), financeDelete: jest.fn() };
+  return { ...actual, financeFetch: jest.fn(), financePost: jest.fn(), financePut: jest.fn(), financeDelete: jest.fn() };
 });
 let mockCapabilities: Partial<FinanceCapabilities> = {};
 jest.mock('../finance-permissions', () => ({
@@ -46,6 +46,7 @@ const summary = (over: Partial<FinanceVoucherSummary>): FinanceVoucherSummary =>
   destAccountId: null,
   destAccountName: null,
   counterpartyGroupName: 'Khách hàng',
+  counterpartyName: null,
   totalAmount: 300_000,
   status: 'APPROVED',
   createdBy: 'u1',
@@ -294,6 +295,8 @@ describe('Menu chuột phải trên danh sách', () => {
   const voucherDetail = (over: Partial<FinanceVoucher> = {}): FinanceVoucher => ({
     ...summary({}),
     counterpartyGroupId: 'g1',
+    counterpartyAccountNo: null,
+    counterpartyBank: null,
     allocation: null,
     taxIncluded: false,
     taxRate: 0,
@@ -394,6 +397,74 @@ describe('Menu chuột phải trên danh sách', () => {
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Duyệt' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Duyệt' }));
     await waitFor(() => expect(postMock.mock.calls.some(([path]) => path === '/vouchers/v1/procedure-action')).toBe(true));
+  });
+});
+
+describe('Duyệt hàng loạt và cột hiển thị', () => {
+  const putMock = financePut as jest.MockedFunction<typeof financePut>;
+  const pendingList = () =>
+    list(
+      [
+        summary({ id: 'p1', code: 'NHAP_PC_2610_0001', kind: 'PAYMENT', status: 'PENDING', officialCode: null }),
+        summary({ id: 'p2', code: 'NHAP_PC_2610_0002', kind: 'PAYMENT', status: 'PENDING', officialCode: null }),
+        summary({ id: 'p3', code: 'NHAP_PC_2610_0003', kind: 'PAYMENT', status: 'PENDING', approvalMode: 'PROCEDURE', officialCode: null }),
+        summary({ id: 'p4', code: 'PC-2610-0004', kind: 'PAYMENT', status: 'APPROVED' }),
+      ],
+      { PENDING: 3, APPROVED: 1 },
+    );
+
+  beforeEach(() => {
+    putMock.mockResolvedValue({} as never);
+    fetchMock.mockImplementation(async (path: string) => {
+      if (path.startsWith('/preferences/list-columns/PAYMENT')) return { listKey: 'PAYMENT', columns: null } as never;
+      if (path.startsWith('/vouchers')) return pendingList() as never;
+      return [] as never;
+    });
+  });
+
+  it('chỉ chọn được phiếu chờ duyệt trực tiếp; duyệt các phiếu đã chọn một lượt và báo phiếu lỗi', async () => {
+    postMock.mockResolvedValue({ approved: [{ id: 'p1', code: 'PC-2610-0010' }], failed: [{ id: 'p2', code: 'NHAP_PC_2610_0002', message: 'Không được tự duyệt phiếu do mình lập.' }] } as never);
+    render(<VoucherListScreen kind="PAYMENT" />);
+    await screen.findByText('NHAP_PC_2610_0001');
+    expect((screen.getByLabelText('Chọn phiếu NHAP_PC_2610_0003') as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByLabelText('Chọn phiếu PC-2610-0004') as HTMLInputElement).disabled).toBe(true);
+    fireEvent.click(screen.getByLabelText('Chọn phiếu NHAP_PC_2610_0001'));
+    fireEvent.click(screen.getByLabelText('Chọn phiếu NHAP_PC_2610_0002'));
+    const bar = screen.getByRole('region', { name: 'Duyệt hàng loạt' });
+    expect(within(bar).getByText('Đã chọn 2 phiếu chờ duyệt')).toBeTruthy();
+    fireEvent.click(within(bar).getByRole('button', { name: /Duyệt 2 phiếu/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Duyệt' }));
+    await waitFor(() => expect(postMock).toHaveBeenCalledWith('/vouchers/bulk-approve', { ids: ['p1', 'p2'] }));
+    expect((await screen.findByRole('alert')).textContent).toContain('NHAP_PC_2610_0002: Không được tự duyệt phiếu do mình lập.');
+  });
+
+  it('không có quyền duyệt thì không có ô chọn', async () => {
+    mockCapabilities = { receipt: { create: true, approve: false }, payment: { create: true, approve: false }, transfer: { create: false, approve: false } };
+    render(<VoucherListScreen kind="PAYMENT" />);
+    await screen.findByText('NHAP_PC_2610_0001');
+    expect(screen.queryByLabelText('Chọn phiếu NHAP_PC_2610_0001')).toBeNull();
+  });
+
+  it('cột đã lưu của người dùng: chỉ dự án và số tiền (kèm mã phiếu); bật thêm cột thì lưu lại', async () => {
+    fetchMock.mockImplementation(async (path: string) => {
+      if (path.startsWith('/preferences/list-columns/PAYMENT')) return { listKey: 'PAYMENT', columns: ['project', 'amount'] } as never;
+      if (path.startsWith('/vouchers')) return pendingList() as never;
+      return [] as never;
+    });
+    render(<VoucherListScreen kind="PAYMENT" />);
+    await screen.findByText('NHAP_PC_2610_0001');
+    await waitFor(() => expect(screen.queryByRole('columnheader', { name: 'Lý do chi' })).toBeNull());
+    expect(screen.getByRole('columnheader', { name: 'Dự án' })).toBeTruthy();
+    expect(screen.getByRole('columnheader', { name: 'Số tiền' })).toBeTruthy();
+    expect(screen.getByRole('columnheader', { name: 'Mã phiếu chi' })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Chọn cột hiển thị' }));
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Người nhận tiền' }));
+    await waitFor(() => expect(putMock).toHaveBeenCalledWith('/preferences/list-columns/PAYMENT', { columns: ['code', 'person', 'project', 'amount'] }));
+    expect(screen.getByRole('columnheader', { name: 'Người nhận tiền' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Về mặc định' }));
+    await waitFor(() => expect(putMock).toHaveBeenLastCalledWith('/preferences/list-columns/PAYMENT', { columns: null }));
+    expect(screen.getByRole('columnheader', { name: 'Lý do chi' })).toBeTruthy();
   });
 });
 

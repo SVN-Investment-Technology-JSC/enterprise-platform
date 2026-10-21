@@ -12,6 +12,8 @@ import {
   Req,
 } from '@nestjs/common';
 import type {
+  FinanceBulkApproveRequest,
+  SaveFinanceListColumnsRequest,
   FinanceDecisionRequest,
   FinancePostSourcedRequest,
   FinanceProcedureActionRequest,
@@ -217,6 +219,21 @@ export class FinanceController {
   @HttpCode(200)
   submit(@Req() request: FinanceRequest, @Param('id') id: string) {
     return this.run(() => this.app.submit(this.actor(request), id));
+  }
+  /* Cột hiển thị riêng của người dùng */
+  @Get('preferences/list-columns/:listKey')
+  listColumns(@Req() request: FinanceRequest, @Param('listKey') listKey: string) {
+    return this.run(() => this.app.listColumns(this.actor(request), listKey));
+  }
+  @Put('preferences/list-columns/:listKey')
+  saveListColumns(@Req() request: FinanceRequest, @Param('listKey') listKey: string, @Body() body: SaveFinanceListColumnsRequest) {
+    return this.run(() => this.app.saveListColumns(this.actor(request), listKey, body?.columns === undefined ? undefined : body.columns));
+  }
+
+  @Post('vouchers/bulk-approve')
+  @HttpCode(200)
+  bulkApprove(@Req() request: FinanceRequest, @Body() body: FinanceBulkApproveRequest) {
+    return this.run(() => this.app.bulkApprove(this.actor(request), body));
   }
   @Post('vouchers/:id/approve')
   @HttpCode(200)

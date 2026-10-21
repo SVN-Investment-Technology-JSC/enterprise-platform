@@ -112,6 +112,8 @@ integration('Tài chính: phiếu thu, chi, chuyển tiền và sổ cái (Postg
         accountNumber: '0011000123456',
         openingBalance: 10_000_000,
         openingDate: '2026-01-01',
+        // Tài khoản mới mặc định cho phép âm; các kiểm thử chặn số dư dùng tài khoản tắt hẳn việc này.
+        allowNegative: false,
       })
     ).id;
     accountB = (
@@ -122,9 +124,10 @@ integration('Tài chính: phiếu thu, chi, chuyển tiền và sổ cái (Postg
         bankName: 'Techcombank (TCB)',
         accountNumber: '19031234567890',
         openingDate: '2026-01-01',
+        allowNegative: false,
       })
     ).id;
-    cash = (await app.saveAccount(admin2, null, { code: 'QUY-TM', name: 'Quỹ tiền mặt', accountType: 'CASH', openingDate: '2026-01-01' })).id;
+    cash = (await app.saveAccount(admin2, null, { code: 'QUY-TM', name: 'Quỹ tiền mặt', accountType: 'CASH', openingDate: '2026-01-01', allowNegative: false })).id;
     receiptReason = (await app.saveReason(admin2, null, { kind: 'RECEIPT', code: 'THU_HANG', name: 'Thu tiền hàng' })).id;
     paymentReason = (await app.saveReason(admin2, null, { kind: 'PAYMENT', code: 'VPP', name: 'Văn phòng phẩm' })).id;
     const catalogs = await app.catalogs(admin2, false);
@@ -689,7 +692,7 @@ integration('Tài chính: phiếu thu, chi, chuyển tiền và sổ cái (Postg
 
   it('mã chính thức: cấp lúc ghi sổ theo kỳ của ngày hạch toán, liền mạch khi ghi sổ lỗi; mã nháp giữ nguyên khi đổi ngày', async () => {
     const fund = (
-      await app.saveAccount(admin2, null, { code: 'QUY-MA', name: 'Quỹ kiểm thử mã', accountType: 'CASH', openingBalance: 100_000, openingDate: '2026-01-01' })
+      await app.saveAccount(admin2, null, { code: 'QUY-MA', name: 'Quỹ kiểm thử mã', accountType: 'CASH', openingBalance: 100_000, openingDate: '2026-01-01', allowNegative: false })
     ).id;
     const period = financePeriodOf(today);
     const sequence = (code: string) => Number(code.split('-')[2]);
@@ -721,5 +724,76 @@ integration('Tài chính: phiếu thu, chi, chuyển tiền và sổ cái (Postg
     const old = await app.approve(approver, draft.id);
     expect(old.code).toMatch(new RegExp(`^PC-${financePeriodOf(lastMonth)}-\\d{4}$`));
     expect(old.draftCode).toBe(draft.code);
+  });
+
+  it('tài khoản mới mặc định cho phép âm: duyệt được phiếu chi vượt số dư thay vì bị chặn', async () => {
+    const fund = (await app.saveAccount(admin2, null, { code: 'QUY-AM', name: 'Quỹ cho phép âm', accountType: 'CASH', openingDate: '2026-01-01' })).id;
+    expect((await app.account(approver, fund)).allowNegative).toBe(true);
+    const paid = await post(payment(700_000, { accountId: fund, content: 'Chi vượt số dư' }));
+    expect(paid.status).toBe('APPROVED');
+    expect(await balance(fund)).toBe(-700_000);
+  });
+
+  it('người nộp/nhận tiền, số tài khoản, ngân hàng: chữ tự do, không bắt buộc, lưu và sửa được', async () => {
+    const plain = await app.createVoucher(accountant, payment(10_000));
+    expect(plain).toMatchObject({ counterpartyName: null, counterpartyAccountNo: null, counterpartyBank: null });
+    await app.submit(accountant, plain.id);
+    const filled = await app.createVoucher(
+      accountant,
+      payment(20_000, { counterpartyName: 'Nguyễn Văn A', counterpartyAccountNo: '0123 456 789', counterpartyBank: 'Ngân hàng tự gõ' }),
+    );
+    expect(filled).toMatchObject({ counterpartyName: 'Nguyễn Văn A', counterpartyAccountNo: '0123 456 789', counterpartyBank: 'Ngân hàng tự gõ' });
+    const edited = await app.updateVoucher(accountant, filled.id, {
+      ...payment(20_000, { counterpartyName: 'Trần Thị B', counterpartyAccountNo: null, counterpartyBank: null }),
+      revision: filled.revision,
+    });
+    expect(edited).toMatchObject({ counterpartyName: 'Trần Thị B', counterpartyAccountNo: null, counterpartyBank: null });
+    expect((await app.listVouchers(approver, { kind: 'PAYMENT', search: 'Trần Thị B' })).items.map((v) => v.id)).toEqual([filled.id]);
+    await app.cancel(accountant, session, plain.id, 'Dọn kiểm thử');
+    await app.deleteVoucher(accountant, filled.id);
+  });
+
+  it('duyệt hàng loạt: duyệt được phiếu nào thì ghi sổ phiếu đó, phiếu không duyệt được trả về kèm lý do', async () => {
+    const before = await balance(accountA);
+    const a = await app.createVoucher(accountant, receipt({ content: 'Thu loạt 1', lines: [line('A', 1, 100_000)] }));
+    const b = await app.createVoucher(accountant, receipt({ content: 'Thu loạt 2', lines: [line('B', 1, 200_000)] }));
+    await app.submit(accountant, a.id);
+    await app.submit(accountant, b.id);
+    // Phiếu do chính người duyệt lập: không được tự duyệt; phiếu nháp: không ở trạng thái chờ duyệt.
+    const own = await app.createVoucher(maker, receipt({ content: 'Tự lập', lines: [line('C', 1, 5_000)] }));
+    await app.submit(maker, own.id);
+    const draft = await app.createVoucher(accountant, receipt({ content: 'Còn nháp', lines: [line('D', 1, 5_000)] }));
+
+    const result = await app.bulkApprove(maker, { ids: [a.id, b.id, own.id, draft.id] });
+    expect(result.approved.map((r) => r.id)).toEqual([a.id, b.id]);
+    expect(result.approved.every((r) => /^PT-/.test(r.code))).toBe(true);
+    expect(result.failed.map((r) => r.id)).toEqual([own.id, draft.id]);
+    expect(result.failed[0].message).toMatch(/tự duyệt/);
+    expect(await balance(accountA)).toBe(before! + 300_000);
+    expect((await app.voucher(approver, a.id)).status).toBe('APPROVED');
+
+    // Không có quyền duyệt: không ghi sổ phiếu nào.
+    const denied = await app.bulkApprove(outsider, { ids: [own.id] });
+    expect(denied.approved).toEqual([]);
+    expect(denied.failed[0].message).toMatch(/không tìm thấy|không có quyền/i);
+    await rejects(app.bulkApprove(maker, { ids: [] }), 'FINANCE_INVALID');
+    await rejects(app.bulkApprove(maker, { ids: ['khong-phai-uuid'] }), 'FINANCE_INVALID');
+    await app.cancel(maker, session, own.id, 'Dọn kiểm thử');
+    await app.deleteVoucher(accountant, draft.id);
+  });
+
+  it('cột hiển thị danh sách phiếu: mỗi người một bộ riêng theo loại phiếu, xoá thì về mặc định', async () => {
+    expect(await app.listColumns(accountant, 'PAYMENT')).toEqual({ listKey: 'PAYMENT', columns: null });
+    await app.saveListColumns(accountant, 'PAYMENT', ['code', 'project', 'amount', 'amount']);
+    await app.saveListColumns(approver, 'PAYMENT', ['code', 'date', 'content', 'reason', 'account', 'amount', 'status']);
+    expect((await app.listColumns(accountant, 'PAYMENT')).columns).toEqual(['code', 'project', 'amount']);
+    expect((await app.listColumns(approver, 'PAYMENT')).columns).toHaveLength(7);
+    // Loại phiếu khác giữ cấu hình riêng.
+    expect((await app.listColumns(accountant, 'RECEIPT')).columns).toBeNull();
+    await app.saveListColumns(accountant, 'PAYMENT', null);
+    expect((await app.listColumns(accountant, 'PAYMENT')).columns).toBeNull();
+    await rejects(app.saveListColumns(accountant, 'PAYMENT', ['Có dấu cách']), 'FINANCE_INVALID');
+    await rejects(app.saveListColumns(accountant, 'PAYMENT', 'code'), 'FINANCE_INVALID');
+    await rejects(app.listColumns(accountant, 'KHAC'), 'FINANCE_INVALID');
   });
 });
