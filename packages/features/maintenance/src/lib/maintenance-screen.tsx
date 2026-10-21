@@ -12,11 +12,13 @@ import type {
   MaintenanceSettingsSnapshot,
   MaintenanceWorkspace,
 } from '@enterprise-platform/contracts-maintenance';
+import { MAINTENANCE_ASSISTANT_ACTIONS } from '@enterprise-platform/contracts-maintenance';
 import {
   DashboardCardPicker,
   DashboardView,
   ModuleSettingsView,
   ModuleShell,
+  useAssistantSaved,
   useHashView,
   type ModuleNavItem,
 } from '@enterprise-platform/feature-module-shell';
@@ -81,6 +83,7 @@ const NAV: readonly ModuleNavItem<View>[] = [
 ];
 
 const VIEW_IDS = NAV.map((item) => item.id);
+const INCIDENT_ACTION_KEYS = [MAINTENANCE_ASSISTANT_ACTIONS.createIncident.key];
 
 /** Nhãn dự phòng khi chưa đọc được danh mục tần suất từ cấu hình module. */
 const FALLBACK_FREQUENCY_LABEL: Record<string, string> = {
@@ -400,6 +403,12 @@ export function MaintenanceScreen() {
     // nạp sẵn ở mọi màn cho một cột phụ.
     void loadPerformersByInstanceCode().then(setPerformers);
   }, [view, historyFilter, loadHistory]);
+
+  // Card Trợ lý vừa tạo phiếu sự cố: tải lại như khi tự tạo, kể cả Lịch sử nếu đang xem, giữ nguyên bộ lọc.
+  useAssistantSaved(INCIDENT_ACTION_KEYS, () => {
+    void reload();
+    if (view === 'history') void loadHistory(historyFilter);
+  });
 
   const submitIncident = async (
     input: CreateMaintenanceIncidentRequest,

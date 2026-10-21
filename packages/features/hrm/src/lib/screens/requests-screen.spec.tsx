@@ -1525,4 +1525,74 @@ describe('Trợ lý Savina: form tạo đơn trong card của khung chat (trang 
       message: 'Tài khoản chưa liên kết hồ sơ nhân viên.',
     });
   });
+
+  describe('trang Đơn từ phía sau khung chat', () => {
+    /** jsdom chưa có BroadcastChannel: bản giả giao tin ngay cho mọi kênh cùng tên khác kênh gửi, như trình duyệt. */
+    class FakeBroadcastChannel {
+      static readonly open = new Set<FakeBroadcastChannel>();
+      onmessage: ((event: MessageEvent) => void) | null = null;
+      constructor(readonly name: string) {
+        FakeBroadcastChannel.open.add(this);
+      }
+      postMessage(data: unknown) {
+        for (const channel of FakeBroadcastChannel.open)
+          if (channel !== this && channel.name === this.name)
+            channel.onmessage?.(new MessageEvent('message', { data }));
+      }
+      close() {
+        FakeBroadcastChannel.open.delete(this);
+      }
+    }
+
+    beforeAll(() => {
+      Object.defineProperty(globalThis, 'BroadcastChannel', {
+        configurable: true,
+        writable: true,
+        value: FakeBroadcastChannel,
+      });
+    });
+    afterAll(() => {
+      delete (globalThis as { BroadcastChannel?: unknown }).BroadcastChannel;
+    });
+
+    it('gửi đơn trong card xong thì tự tải lại danh sách', async () => {
+      reasonCatalog = { OVERTIME: [catalogReason('OVERTIME', 'ot1', 'Theo yêu cầu công việc')] };
+      render(<RequestsPage />);
+      await showAllMonths();
+      const created = 'bbbbbbbb-0000-0000-0000-000000000009';
+      expect(screen.queryByTestId(`request-row-${created}`)).toBeNull();
+      // Đơn sẽ có trên máy chủ sau khi card gửi; trang chỉ thấy nếu tự tải lại.
+      otRows = [
+        {
+          id: created,
+          status: 'PENDING',
+          createdAt: '2026-10-19T01:00:00.000Z',
+          workDate: '2026-10-20',
+          startTime: '18:00',
+          endTime: '21:00',
+          plannedMinutes: 180,
+          otType: 'WEEKDAY',
+          otRateMultiplier: 1.5,
+          paid: true,
+          reasonId: 'ot1',
+          reasonName: 'Theo yêu cầu công việc',
+          description: 'Hoàn thiện hồ sơ nghiệm thu',
+          reason: 'Hoàn thiện hồ sơ nghiệm thu',
+        },
+      ];
+
+      render(<HrmAssistantFormPage />);
+      ask('hrm.ot-request.create', 'r9', {
+        fromAt: '2026-10-20T18:00',
+        toAt: '2026-10-20T21:00',
+        reasonId: 'ot1',
+        description: 'Hoàn thiện hồ sơ nghiệm thu',
+      });
+      await waitFor(() => expect(submitButton().disabled).toBe(false));
+      fireEvent.click(submitButton());
+      await waitFor(() => expect(results).toHaveLength(1));
+
+      expect(await screen.findByTestId(`request-row-${created}`)).toBeTruthy();
+    });
+  });
 });

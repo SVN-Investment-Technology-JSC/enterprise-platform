@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
+import { HRM_ASSISTANT_ACTIONS } from '@enterprise-platform/contracts-hrm';
+import { assistantActionKeys, useAssistantSaved } from '@enterprise-platform/feature-module-shell';
 import {
   Inbox,
   Loader2,
@@ -71,6 +73,7 @@ async function settle<T>(fn: () => Promise<T>): Promise<Section<T>> {
 }
 
 const FORBIDDEN_TEXT = 'Không có quyền xem';
+const HRM_ACTION_KEYS = assistantActionKeys(HRM_ASSISTANT_ACTIONS);
 
 export default function HrmDashboardPage() {
   const permissions = useHrmPermissions();
@@ -198,7 +201,14 @@ export default function HrmDashboardPage() {
   const showRight = showApprovals;
   const nothingToShow = !plan.personal && !showRight;
 
-  const my = useMyDashboard({ enabled: plan.personal, canSeePayslip: plan.canSeePayslip });
+  // Card Trợ lý vừa gửi đơn: tải lại phần cá nhân (đơn của tôi, quỹ phép) như khi tự gửi.
+  const [assistantRevision, setAssistantRevision] = useState(0);
+  useAssistantSaved(HRM_ACTION_KEYS, () => setAssistantRevision((value) => value + 1));
+  const my = useMyDashboard({
+    enabled: plan.personal,
+    canSeePayslip: plan.canSeePayslip,
+    reloadKey: assistantRevision,
+  });
   const todayDay = my.employee?.days[my.today];
   const punch: PunchProps = {
     workDate: ctx?.workDate || my.today,
