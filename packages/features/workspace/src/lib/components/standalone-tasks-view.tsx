@@ -13,7 +13,7 @@ import {
   type StandaloneTaskScope,
   type WorkItemStatus,
 } from '@enterprise-platform/contracts-workspace';
-import { Popconfirm } from '@enterprise-platform/shared-ui';
+import { Popconfirm, returnPathFor } from '@enterprise-platform/shared-ui';
 import {
   ChevronRight,
   ExternalLink,
@@ -542,21 +542,32 @@ function TaskDetail({
     setError(undefined);
   }, [task.id, task.progressPercent]);
 
-  const run = async (operation: () => Promise<StandaloneTaskDetail | void>) => {
+  const run = async (operation: () => Promise<StandaloneTaskDetail | void>): Promise<void> => {
+    await attempt(operation);
+  };
+
+  /** Như `run`, kèm kết quả: thao tác thành công hay không. */
+  const attempt = async (operation: () => Promise<StandaloneTaskDetail | void>): Promise<boolean> => {
     setBusy(true);
     setError(undefined);
     try {
       const next = await operation();
       if (next) onChanged(next);
+      return true;
     } catch (cause) {
       setError((cause as { message?: string })?.message ?? 'Không thực hiện được thao tác.');
+      return false;
     } finally {
       setBusy(false);
     }
   };
 
   const move = (status: WorkItemStatus, note?: string) =>
-    run(() => api.changeStandaloneTaskStatus(task.id, { status, note }));
+    attempt(() => api.changeStandaloneTaskStatus(task.id, { status, note })).then((done) => {
+      // Mở việc từ trang chủ (`?returnTo=`): nộp kết quả hay duyệt xong thì tự quay về.
+      const back = done && (status === 'done' || status === 'review') ? returnPathFor(task.id) : undefined;
+      if (back) window.location.assign(back);
+    });
 
   /** Lần trả lại gần nhất, để người thực hiện thấy ngay cần sửa gì. */
   const lastReturn =

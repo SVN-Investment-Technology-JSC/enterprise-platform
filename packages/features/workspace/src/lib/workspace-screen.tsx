@@ -20,6 +20,7 @@ import {
   Upload,
   Users,
 } from 'lucide-react';
+import { initialReturnTarget, type ReturnTarget } from '@enterprise-platform/shared-ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   getProject,
@@ -196,6 +197,9 @@ export function WorkspaceScreen() {
   );
   const [error, setError] = useState<string>();
   const [quickOpen, setQuickOpen] = useState(false);
+  /** Mở từ trang khác kèm `?returnTo=`: hiện dải "xử lý xong sẽ tự quay về". Đọc sau khi gắn để khớp SSR. */
+  const [returnTarget, setReturnTarget] = useState<ReturnTarget>();
+  useEffect(() => setReturnTarget(initialReturnTarget()), []);
   /** Mục Dự án trên thanh bên: vài dự án đầu (hay tất cả, khi đã bung) và tổng số. */
   const [sidebarProjects, setSidebarProjects] = useState<readonly ProjectSummary[]>([]);
   const [projectTotal, setProjectTotal] = useState(0);
@@ -531,6 +535,12 @@ export function WorkspaceScreen() {
       }
       banner={
         <>
+          {returnTarget ? (
+            <p className={styles.notice} role="status">
+              Mở từ Trang chủ · xử lý xong việc này sẽ tự quay về.{' '}
+              <a href={returnTarget.path}>Về Trang chủ</a>
+            </p>
+          ) : null}
           {error ? (
             <p role="alert" className={styles.alert}>
               {error}

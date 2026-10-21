@@ -30,7 +30,11 @@ import {
   type SystemProjectRole,
 } from '@enterprise-platform/contracts-workspace';
 import { CHAT_UNREAD_POLL_MS } from '@enterprise-platform/contracts-workspace';
-import { useRealtimeEvent, type WorkspaceChatSignal } from '@enterprise-platform/shared-ui';
+import {
+  returnPathFor,
+  useRealtimeEvent,
+  type WorkspaceChatSignal,
+} from '@enterprise-platform/shared-ui';
 import { MessageSquare, MoreHorizontal, Plus } from 'lucide-react';
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -837,15 +841,22 @@ export function ProjectsView({
     ];
   };
 
-  const run = async (operation: () => Promise<unknown>, fallback: string) => {
+  const run = async (operation: () => Promise<unknown>, fallback: string): Promise<void> => {
+    await attempt(operation, fallback);
+  };
+
+  /** Như `run`, kèm kết quả: thao tác thành công hay không. */
+  const attempt = async (operation: () => Promise<unknown>, fallback: string): Promise<boolean> => {
     try {
       await operation();
       if (openId) await refreshDetail(openId);
       await refreshList();
       onProjectsChanged?.();
       setError(undefined);
+      return true;
     } catch (cause) {
       setError(message(cause, fallback));
+      return false;
     }
   };
 
@@ -862,7 +873,18 @@ export function ProjectsView({
       return { label: 'Bắt đầu làm', onClick: () => onAction('start', target) };
     }
     if (item.status === 'in_progress' || item.status === 'review') {
-      return { label: 'Hoàn thành', onClick: () => onAction('complete', target) };
+      return {
+        label: 'Hoàn thành',
+        onClick: () =>
+          void attempt(
+            () => api.changeWorkItemStatus(item.id, { status: 'done' }),
+            'Không đổi được trạng thái.',
+          ).then((done) => {
+            // Mở công việc từ trang chủ (`?returnTo=`): hoàn thành xong thì tự quay về.
+            const back = done ? returnPathFor(item.id) : undefined;
+            if (back) window.location.assign(back);
+          }),
+      };
     }
     return undefined;
   };

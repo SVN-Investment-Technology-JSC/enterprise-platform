@@ -20,7 +20,12 @@ import {
   useHashView,
   type ModuleNavItem,
 } from '@enterprise-platform/feature-module-shell';
-import { formatDate } from '@enterprise-platform/shared-ui';
+import {
+  formatDate,
+  initialReturnTarget,
+  returnPathFor,
+  type ReturnTarget,
+} from '@enterprise-platform/shared-ui';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ClipboardList, LayoutDashboard, Settings, Table2 } from 'lucide-react';
 import {
@@ -182,7 +187,8 @@ export function ProcedureEngineScreen() {
       .catch(() => setSettings(undefined));
   }, [view, settings]);
 
-  const perform = useCallback(
+  /** Chạy một thao tác (báo bận, lỗi, nạp lại) và trả về thao tác có thành công không. */
+  const attempt = useCallback(
     async (
       key: string,
       operation: () => Promise<unknown>,
@@ -200,15 +206,27 @@ export function ProcedureEngineScreen() {
         await operation();
         if (options?.reloadInBackground) void reload();
         else await reload();
+        return true;
       } catch (cause) {
         setError(
           cause instanceof Error ? cause.message : 'Thao tác không thành công.',
         );
+        return false;
       } finally {
         setBusy(undefined);
       }
     },
     [reload],
+  );
+  const perform = useCallback(
+    async (
+      key: string,
+      operation: () => Promise<unknown>,
+      options?: { readonly reloadInBackground?: boolean },
+    ): Promise<void> => {
+      await attempt(key, operation, options);
+    },
+    [attempt],
   );
 
   /**
@@ -385,9 +403,17 @@ export function ProcedureEngineScreen() {
     returnToStepId?: string,
     attributeValues?: Record<string, ProcedureAttributeValue>,
   ) =>
-    perform(`${nextAction}:${instanceId}`, () =>
+    attempt(`${nextAction}:${instanceId}`, () =>
       applyProcedureAction(instanceId, nextAction, comment, returnToStepId, attributeValues),
-    );
+    ).then((done) => {
+      // Mở hồ sơ từ trang chủ (`?returnTo=`): xử lý xong đúng hồ sơ đó thì tự quay về. Trao đổi không tính.
+      const back = done && nextAction !== 'comment' ? returnPathFor(instanceId) : undefined;
+      if (back) window.location.assign(back);
+    });
+
+  /** Mở từ trang khác kèm `?returnTo=`: hiện dải "xử lý xong sẽ tự quay về". Đọc sau khi gắn để khớp SSR. */
+  const [returnTarget, setReturnTarget] = useState<ReturnTarget>();
+  useEffect(() => setReturnTarget(initialReturnTarget()), []);
 
   const saveCards = async () => {
     if (!settings) return;
@@ -476,7 +502,14 @@ export function ProcedureEngineScreen() {
       actor={workspace?.actor.name}
       actions={<div ref={setHeadSlot} className={styles.headSlot} />}
       banner={
-        error ? (
+        <>
+        {returnTarget ? (
+          <div className={styles.notice} role="status">
+            <span>Mở từ Trang chủ · xử lý xong hồ sơ này sẽ tự quay về.</span>
+            <a href={returnTarget.path}>Về Trang chủ</a>
+          </div>
+        ) : null}
+        {error ? (
           <div className={styles.error} role="alert">
             <strong>Không thể hoàn tất yêu cầu</strong>
             <span>{error}</span>
@@ -491,7 +524,8 @@ export function ProcedureEngineScreen() {
               Đóng
             </button>
           </div>
-        ) : null
+        ) : null}
+        </>
       }
     >
       {!workspace ? (
