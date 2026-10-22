@@ -3,7 +3,6 @@ import {
   ConflictException,
   ForbiddenException,
 } from '@nestjs/common';
-import { createHash } from 'node:crypto';
 import { isIP } from 'node:net';
 import type { Request } from 'express';
 import type { Pool } from 'pg';
@@ -27,13 +26,6 @@ export interface AttendanceEventInput {
   latitude?: number;
   longitude?: number;
   accuracy?: number;
-}
-export const deviceTokenHash = (token: string) =>
-  createHash('sha256').update(token).digest('hex');
-export function requestDeviceToken(req: Request) {
-  return /(?:^|;\s*)ep_hrm_device=([a-f0-9]{64})(?:;|$)/.exec(
-    req.headers.cookie || '',
-  )?.[1];
 }
 export async function ingestEvent(
   pool: Pool,
@@ -101,7 +93,6 @@ export async function ingestEvent(
     }
     await assertOpenDate(db, tenantId, context.date);
     const config = context.policy?.config_json || {};
-    let deviceId: string | null = null;
     const evidence: Record<string, unknown> = {
       policyVersionId: context.policy?.id || null,
       timezone: context.timezone,
@@ -150,21 +141,31 @@ export async function ingestEvent(
           accuracy > Number(config.maxGpsAccuracyMeters || 100)
         )
           throw new BadRequestException(
-            'Cần vị trí GPS có độ chính xác phù hợp',
+            typeof accuracy === 'number' && Number.isFinite(accuracy) && accuracy > 0
+              ? `Cần vị trí GPS có độ chính xác phù hợp (hiện ±${Math.round(accuracy)} m, cho phép tối đa ${Number(config.maxGpsAccuracyMeters || 100)} m)`
+              : 'Cần vị trí GPS có độ chính xác phù hợp',
           );
         const sites = await db.query(
           `SELECT * FROM hrm_schema.attendance_sites WHERE tenant_id=$1 AND active=true`,
           [tenantId],
         );
-        const site = sites.rows.find(
-          (s) =>
-            distanceMeters(
-              { latitude, longitude },
-              { latitude: Number(s.latitude), longitude: Number(s.longitude) },
-            ) <= Number(s.radius_meters),
-        );
-        if (!site)
-          throw new ForbiddenException('Vị trí ngoài bán kính chấm công');
+        const distanceTo = (s: { latitude: unknown; longitude: unknown }) =>
+          distanceMeters(
+            { latitude, longitude },
+            { latitude: Number(s.latitude), longitude: Number(s.longitude) },
+          );
+        const site = sites.rows.find((s) => distanceTo(s) <= Number(s.radius_meters));
+        if (!site) {
+          // Báo khoảng cách tới địa điểm gần nhất để người chấm công biết cần đi gần thêm hay vị trí đo bị lệch.
+          const nearest = sites.rows
+            .map((s) => ({ s, d: distanceTo(s) }))
+            .sort((a, b) => a.d - b.d)[0];
+          throw new ForbiddenException(
+            nearest
+              ? `Vị trí ngoài bán kính chấm công: cách "${nearest.s.name}" khoảng ${Math.round(nearest.d)} m (cho phép ${Number(nearest.s.radius_meters)} m), sai số vị trí ±${Math.round(accuracy)} m`
+              : 'Vị trí ngoài bán kính chấm công: chưa có địa điểm chấm công nào đang hoạt động',
+          );
+        }
         Object.assign(evidence, {
           latitude,
           longitude,
@@ -172,20 +173,6 @@ export async function ingestEvent(
           siteId: site.id,
           siteSnapshot: { name: site.name, latitude: site.latitude, longitude: site.longitude, radiusMeters: site.radius_meters },
         });
-      }
-      if (config.requireDevice === true) {
-        const token = requestDeviceToken(selfRequest);
-        const device = token
-          ? await db.query(
-              `SELECT id FROM hrm_schema.attendance_devices WHERE tenant_id=$1 AND employee_id=$2 AND token_hash=$3 AND status='ACTIVE'`,
-              [tenantId, input.employeeId, deviceTokenHash(token)],
-            )
-          : null;
-        if (!device?.rows[0])
-          throw new ForbiddenException(
-            'Thiết bị chưa được phê duyệt cho nhân viên này',
-          );
-        deviceId = device.rows[0].id;
       }
       const last = await db.query(
         `SELECT event_kind FROM hrm_schema.attendance_events WHERE tenant_id=$1 AND employee_id=$2 AND work_date=$3 AND voided_by_correction_id IS NULL ORDER BY occurred_at DESC,id DESC LIMIT 1`,
@@ -200,8 +187,8 @@ export async function ingestEvent(
         );
     }
     await db.query(
-      `INSERT INTO hrm_schema.attendance_events (tenant_id,employee_id,work_date,event_kind,occurred_at,source,external_event_id,device_id,evidence,created_by)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+      `INSERT INTO hrm_schema.attendance_events (tenant_id,employee_id,work_date,event_kind,occurred_at,source,external_event_id,evidence,created_by)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
       [
         tenantId,
         input.employeeId,
@@ -210,7 +197,6 @@ export async function ingestEvent(
         input.occurredAt,
         input.source,
         input.externalEventId,
-        deviceId,
         JSON.stringify(evidence),
         actorId,
       ],

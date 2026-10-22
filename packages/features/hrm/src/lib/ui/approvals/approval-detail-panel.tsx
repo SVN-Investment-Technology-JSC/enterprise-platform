@@ -118,7 +118,6 @@ export function ApprovalDetailPanel(props: ApprovalDetailPanelProps) {
   const code = `#${row.id.slice(-8).toUpperCase()}`;
   const extra = Object.entries(detailFields).filter(([k]) => row[k] !== undefined && row[k] !== null);
   const terminal = isTerminalProcedureStatus(progress?.status);
-  const hasNote = note.trim().length > 0;
   const instanceId = f.instanceId ?? row.link?.instance_id;
   const procedureHref = procedureInstanceHref(instanceId);
 
@@ -292,20 +291,27 @@ export function ApprovalDetailPanel(props: ApprovalDetailPanelProps) {
               maxLength={2000}
               value={note}
               onChange={(e) => setNote(e.target.value)}
-              placeholder="Ý kiến xử lý (bắt buộc khi từ chối, tuỳ chọn khi phê duyệt)"
+              placeholder="Ý kiến xử lý (tuỳ chọn)"
               className="w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-[13px] outline-none focus:border-[#d9ab00] focus:ring-2 focus:ring-[#d9ab00]/30"
             />
             <div className="grid grid-cols-2 gap-2">
-              <Button
-                variant="outline"
-                disabled={props.busy || !hasNote}
-                title={hasNote ? undefined : 'Nhập ý kiến để từ chối'}
-                onClick={() => void props.onReject(note.trim())}
-                className="h-10 gap-1.5 border-rose-300 text-[14px] font-semibold text-rose-600 hover:bg-rose-50"
+              <Popconfirm
+                title="Từ chối đơn này?"
+                description="Đơn sẽ chuyển sang trạng thái từ chối và người tạo đơn được thông báo."
+                okText="Từ chối"
+                cancelText="Quay lại"
+                okType="danger"
+                onConfirm={() => props.onReject(note.trim())}
               >
-                <X className="size-4" />
-                Từ chối
-              </Button>
+                <Button
+                  variant="outline"
+                  disabled={props.busy}
+                  className="h-10 w-full gap-1.5 border-rose-300 text-[14px] font-semibold text-rose-600 hover:bg-rose-50"
+                >
+                  <X className="size-4" />
+                  Từ chối
+                </Button>
+              </Popconfirm>
               <Popconfirm
                 title="Phê duyệt đơn này?"
                 description="Hành động này sẽ áp dụng các thay đổi vào hồ sơ công, phép, lương tương ứng."

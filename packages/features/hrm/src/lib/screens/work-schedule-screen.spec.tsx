@@ -120,11 +120,13 @@ async function openTool(name: string) {
   });
 }
 
-/** Mở phần Tuỳ chọn nâng cao của biểu mẫu Phân ca. */
-function openAdvanced() {
-  const toggle = screen.getByRole('button', { name: /Tuỳ chọn nâng cao/ });
-  if (toggle.getAttribute('aria-expanded') !== 'true') fireEvent.click(toggle);
+/** Hộp thoại tổng quan: đánh dấu đã xem lại để mở nút Lưu. */
+async function confirmOverview() {
+  const dialog = await screen.findByRole('dialog', { name: 'Tổng quan phân ca' });
+  const check = within(dialog).getByRole('checkbox', { name: /đồng ý áp dụng/ });
+  if (!(check as HTMLInputElement).checked) fireEvent.click(check);
 }
+
 
 /**
  * Điền biểu mẫu Phân ca trong trang tới lúc bấm "Xác nhận phân ca" (xem trước): chọn nhân viên và mẫu lịch đã lưu.
@@ -132,9 +134,9 @@ function openAdvanced() {
  */
 async function walkToPreview(fixedRange = false) {
   await pickOption(/Tìm theo mã hoặc tên nhân viên/, /NV001/);
-  await pickOption(/Chọn ca làm việc/, /Mẫu lịch tuần: Hành chính T2-T6/);
+  await pickOption(/Chọn cách thiết lập ca/, /Dùng mẫu lịch đã lưu/);
+  await pickOption(/Tìm mẫu lịch theo tên/, /Hành chính T2-T6/);
   if (fixedRange) {
-    openAdvanced();
     fireEvent.click(await screen.findByRole('checkbox', { name: /Không có ngày kết thúc/ }));
   }
   await act(async () => {
@@ -220,6 +222,7 @@ describe('WorkScheduleScreen', () => {
     expect(applyCalls).toHaveLength(0);
 
     resolvePreview({ data: preview });
+    await confirmOverview();
     await waitFor(() => expect((screen.getByRole('button', { name: 'Lưu phân ca' }) as HTMLButtonElement).disabled).toBe(false));
     expect(screen.getByLabelText('Tóm tắt xem trước')).toBeTruthy();
 
@@ -250,6 +253,7 @@ describe('WorkScheduleScreen', () => {
     });
     render(<WorkScheduleScreen />);
     await walkToPreview(true);
+    await confirmOverview();
     await waitFor(() => expect((screen.getByRole('button', { name: 'Lưu phân ca' }) as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(screen.getByRole('button', { name: 'Lưu phân ca' }));
 
@@ -259,7 +263,7 @@ describe('WorkScheduleScreen', () => {
     expect(within(table).getByText(/\(Mẫu\)/)).toBeTruthy();
     expect((screen.getByRole('button', { name: 'Lưu phân ca' }) as HTMLButtonElement).disabled).toBe(true);
     // Người dùng có thể chọn cách xử lý khác và hệ thống xem trước lại.
-    expect(screen.getByRole('radio', { name: 'Bỏ qua ngày đã có lịch' })).toBeTruthy();
+    expect(screen.getByRole('radio', { name: /^Bỏ qua ngày đã có lịch/ })).toBeTruthy();
   });
 
   it('requires an explicit confirmation when the preview asks for it', async () => {
@@ -278,7 +282,7 @@ describe('WorkScheduleScreen', () => {
     expect(await screen.findByText('Ghi đè 5 ngày đã có lịch')).toBeTruthy();
     const save = screen.getByRole('button', { name: 'Lưu phân ca' }) as HTMLButtonElement;
     expect(save.disabled).toBe(true);
-    fireEvent.click(screen.getByRole('checkbox', { name: /đồng ý áp dụng/ }));
+    await confirmOverview();
     await waitFor(() => expect(save.disabled).toBe(false));
     fireEvent.click(save);
     await screen.findByTestId('assign-result');
@@ -289,9 +293,10 @@ describe('WorkScheduleScreen', () => {
     grant('hrm.schedule.read', 'hrm.schedule.manage');
     const { unmount } = render(<WorkScheduleScreen />);
     await screen.findByText('Thông tin phân ca');
-    // Chỉ một nhân viên: không có thẻ chọn phạm vi nào khác.
+    // Chỉ một nhân viên: ô chọn đối tượng bị khóa, không có lựa chọn nào khác.
     expect(screen.queryByRole('radio', { name: /Toàn bộ nhân viên/ })).toBeNull();
     expect(screen.queryByRole('radio', { name: /Nhiều nhân viên/ })).toBeNull();
+    expect((screen.getByPlaceholderText('Chọn đối tượng áp dụng…') as HTMLInputElement).disabled).toBe(true);
     fireEvent.click(screen.getByRole('button', { name: 'Công cụ phân ca' }));
     expect(await screen.findByRole('menuitem', { name: 'Mẫu lịch tuần' })).toBeTruthy();
     for (const name of ['Sao chép lịch', 'Thiết lập ngoại lệ', 'Lịch lễ/Tết'])
@@ -300,9 +305,51 @@ describe('WorkScheduleScreen', () => {
 
     grant('hrm.schedule.read', 'hrm.schedule.manage', 'hrm.schedule.bulk');
     render(<WorkScheduleScreen />);
-    expect(await screen.findByRole('radio', { name: /Toàn bộ nhân viên/ })).toBeTruthy();
-    expect(screen.getByRole('radio', { name: /Theo đơn vị/ })).toBeTruthy();
-    expect(screen.getByRole('radio', { name: /Nhiều nhân viên/ })).toBeTruthy();
+    fireEvent.click(await screen.findByPlaceholderText('Chọn đối tượng áp dụng…'));
+    expect(await screen.findByRole('option', { name: /Toàn bộ nhân viên/ })).toBeTruthy();
+    expect(screen.getByRole('option', { name: /Theo đơn vị/ })).toBeTruthy();
+    expect(screen.getByRole('option', { name: /Nhiều nhân viên/ })).toBeTruthy();
+  });
+
+  it('chọn đối tượng bằng ô chọn: mỗi đối tượng hiện các phần tử tương ứng', async () => {
+    grant('hrm.schedule.read', 'hrm.schedule.manage', 'hrm.schedule.bulk');
+    render(<WorkScheduleScreen />);
+    // Mặc định: một nhân viên.
+    expect(await screen.findByPlaceholderText(/Tìm theo mã hoặc tên nhân viên/)).toBeTruthy();
+    await pickOption(/Chọn đối tượng áp dụng/, /Theo đơn vị/);
+    expect(await screen.findByText('Thêm đơn vị')).toBeTruthy();
+    expect(screen.getByText(/tự áp dụng cho các đơn vị con/)).toBeTruthy();
+    expect(screen.queryByPlaceholderText(/gõ tiếng Việt/)).toBeNull();
+    await pickOption(/Chọn đối tượng áp dụng/, /Nhiều nhân viên/);
+    expect(await screen.findByLabelText('Tìm nhân viên theo mã hoặc tên')).toBeTruthy();
+    await pickOption(/Chọn đối tượng áp dụng/, /Toàn bộ nhân viên/);
+    expect(await screen.findByText(/Thao tác này tác động tới tất cả nhân viên/)).toBeTruthy();
+  });
+
+  it('hộp thoại tổng quan: chỉ lưu được sau khi đánh dấu đã xem lại', async () => {
+    const applyCalls: unknown[] = [];
+    route({
+      '/work-schedules': (_p, init) => {
+        applyCalls.push(JSON.parse(String(init?.body)));
+        return { data: { batchId: 'b3', summary: preview.summary, employeeCount: 1, appliedDays: 20 } };
+      },
+    });
+    render(<WorkScheduleScreen />);
+    await walkToPreview(true);
+    const dialog = await screen.findByRole('dialog', { name: 'Tổng quan phân ca' });
+    expect(within(dialog).getByTestId('assign-overview').textContent).toContain('NV001');
+    // Thẻ "Khi ngày đã có lịch khác" luôn có trong hộp thoại.
+    expect(within(dialog).getByText('Khi ngày đã có lịch khác')).toBeTruthy();
+    const save = within(dialog).getByRole('button', { name: 'Lưu phân ca' }) as HTMLButtonElement;
+    await waitFor(() => expect(within(dialog).getByLabelText('Tóm tắt xem trước')).toBeTruthy());
+    expect(save.disabled).toBe(true);
+
+    expect(within(dialog).queryByLabelText(/Gõ xác nhận/)).toBeNull();
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: /đồng ý áp dụng/ }));
+    await waitFor(() => expect(save.disabled).toBe(false));
+    fireEvent.click(save);
+    expect(await screen.findByTestId('assign-result')).toBeTruthy();
+    expect(applyCalls).toHaveLength(1);
   });
 
   it('shows only read-only controls to a user with hrm.schedule.read', async () => {
@@ -358,8 +405,6 @@ describe('WorkScheduleScreen open-ended recurring schedules', () => {
   it('turns the no-end-date switch on by default, hides Đến ngày and explains it', async () => {
     render(<WorkScheduleScreen />);
     await pickOption(/Tìm theo mã hoặc tên nhân viên/, /NV001/);
-    await pickOption(/Chọn ca làm việc/, /Mẫu lịch tuần: Hành chính T2-T6/);
-    openAdvanced();
     const toggle = (await screen.findByRole('checkbox', { name: /Không có ngày kết thúc/ })) as HTMLInputElement;
     expect(toggle.checked).toBe(true);
     expect(screen.queryByLabelText('Đến ngày')).toBeNull();
@@ -410,6 +455,7 @@ describe('WorkScheduleScreen open-ended recurring schedules', () => {
     expect(within(changes).getByText('Hành chính cũ')).toBeTruthy();
     expect(within(changes).getByText(/Kết thúc sớm/)).toBeTruthy();
     expect(within(changes).getByText(/Không kết thúc/)).toBeTruthy();
+    await confirmOverview();
     await waitFor(() => expect((screen.getByRole('button', { name: 'Lưu phân ca' }) as HTMLButtonElement).disabled).toBe(false));
 
     fireEvent.click(screen.getByRole('button', { name: 'Lưu phân ca' }));
@@ -422,7 +468,7 @@ describe('WorkScheduleScreen open-ended recurring schedules', () => {
     expect(applyBodies[0]).not.toHaveProperty('toDate');
   });
 
-  it('lịch tự cấu hình: chọn ca ở ô chính (T2-T6) và chỉnh thứ bảy, chủ nhật ở Tuỳ chọn nâng cao thì request mang đủ lịch tuần', async () => {
+  it('lịch tự cấu hình: chọn ca bằng lối tắt T2-T6 và chỉnh thứ bảy, chủ nhật trong Tuỳ chọn nâng cao thì request mang đủ lịch tuần', async () => {
     const previewBodies: Record<string, unknown>[] = [];
     const applyBodies: Record<string, unknown>[] = [];
     route({
@@ -437,9 +483,8 @@ describe('WorkScheduleScreen open-ended recurring schedules', () => {
     });
     render(<WorkScheduleScreen />);
     await pickOption(/Tìm theo mã hoặc tên nhân viên/, /NV001/);
-    // Ô chính: một ca cho Thứ hai đến Thứ sáu.
-    await pickOption(/Chọn ca làm việc/, /^HC - Hành chính/);
-    openAdvanced();
+    // Ca làm việc nằm trong Tuỳ chọn nâng cao: lối tắt một ca cho Thứ hai đến Thứ sáu.
+    await pickOption(/Chọn ca cho T2-T6/, /^HC - Hành chính/);
     await pickOption(/Chọn ca làm việc thứ bảy/, /Nửa ngày/);
     fireEvent.click(screen.getByRole('button', { name: 'Chủ nhật nghỉ' }));
     fireEvent.click(screen.getByRole('button', { name: 'Xác nhận phân ca' }));
@@ -450,6 +495,7 @@ describe('WorkScheduleScreen open-ended recurring schedules', () => {
     expect(pattern.map((r) => r.dayType)).toEqual(['SHIFT', 'SHIFT', 'SHIFT', 'SHIFT', 'SHIFT', 'SHIFT', 'OFF']);
     expect(pattern.slice(0, 5).every((r) => r.shiftId === 's-hc')).toBe(true);
     expect(pattern[5].shiftId).toBe('s-half');
+    await confirmOverview();
     await waitFor(() => expect((screen.getByRole('button', { name: 'Lưu phân ca' }) as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(screen.getByRole('button', { name: 'Lưu phân ca' }));
     await screen.findByTestId('assign-result');
@@ -476,9 +522,10 @@ describe('WorkScheduleScreen open-ended recurring schedules', () => {
     // Lịch định kỳ không có ghi đè tất cả.
     expect(screen.queryByRole('radio', { name: /Ghi đè tất cả/ })).toBeNull();
 
-    fireEvent.click(screen.getByRole('radio', { name: 'Bỏ qua phạm vi đã có lịch định kỳ' }));
+    fireEvent.click(screen.getByRole('radio', { name: /^Bỏ qua phạm vi đã có lịch định kỳ/ }));
     await waitFor(() => expect(previewBodies).toHaveLength(2));
     expect(previewBodies[1]).toMatchObject({ conflictMode: 'SKIP_EXISTING' });
+    await confirmOverview();
     await waitFor(() => expect((screen.getByRole('button', { name: 'Lưu phân ca' }) as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(screen.getByRole('button', { name: 'Lưu phân ca' }));
     await screen.findByTestId('assign-result');
@@ -498,12 +545,13 @@ describe('WorkScheduleScreen open-ended recurring schedules', () => {
     });
     render(<WorkScheduleScreen />);
     await walkToPreview();
+    await confirmOverview();
     await waitFor(() => expect((screen.getByRole('button', { name: 'Lưu phân ca' }) as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(screen.getByRole('button', { name: 'Lưu phân ca' }));
     expect(await screen.findByText('Có phạm vi đã có lịch định kỳ còn hiệu lực')).toBeTruthy();
     expect(screen.getAllByTestId('rule-changes').length).toBeGreaterThan(0);
     expect((screen.getByRole('button', { name: 'Lưu phân ca' }) as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByRole('radio', { name: 'Ghi đè theo thời gian: lịch mới thay lịch định kỳ và lịch từng ngày cũ' })).toBeTruthy();
+    expect(screen.getByRole('radio', { name: /^Ghi đè theo thời gian: lịch mới thay lịch định kỳ/ })).toBeTruthy();
   });
 
   it('requires the explicit confirmation for an open-ended schedule when asked', async () => {
@@ -522,7 +570,7 @@ describe('WorkScheduleScreen open-ended recurring schedules', () => {
     expect(await screen.findByText('Kết thúc sớm 1 lịch định kỳ đang có')).toBeTruthy();
     const save = screen.getByRole('button', { name: 'Lưu phân ca' }) as HTMLButtonElement;
     expect(save.disabled).toBe(true);
-    fireEvent.click(screen.getByRole('checkbox', { name: /đồng ý áp dụng/ }));
+    await confirmOverview();
     await waitFor(() => expect(save.disabled).toBe(false));
     fireEvent.click(save);
     await screen.findByTestId('assign-result');
@@ -711,7 +759,8 @@ describe('HRM_SCHEDULE_RULES_NOT_MIGRATED stays a local error', () => {
     expect(notice.textContent).toContain('thiếu migration 0036');
     expect(notice.textContent).toContain('Bỏ chọn Không có ngày kết thúc');
     expect(screen.queryByText('Chưa khởi tạo dữ liệu phân ca')).toBeNull();
-    expect(screen.getByRole('tablist', { name: 'Chế độ phân ca' })).toBeTruthy();
+    // Nền phía sau hộp thoại bị ẩn khỏi cây truy cập nên truy vấn kèm hidden.
+    expect(screen.getByRole('tablist', { name: 'Chế độ phân ca', hidden: true })).toBeTruthy();
 
     fireEvent.click(within(notice).getByRole('button', { name: 'Phân ca theo khoảng ngày' }));
     const toggle = (await screen.findByRole('checkbox', { name: /Không có ngày kết thúc/ })) as HTMLInputElement;
@@ -780,7 +829,7 @@ describe('WorkScheduleScreen: tab Phân ca | Nhả ca | Lịch làm việc, lị
     expect(screen.queryByText('Thông tin phân ca')).toBeNull();
   });
 
-  it('Nhả ca: xem phạm vi ảnh hưởng (dry-run) rồi mới xác nhận nhả bằng Popconfirm, gửi đúng /work-schedules/cancel', async () => {
+  it('Nhả ca: hộp thoại tổng quan xem phạm vi ảnh hưởng (dry-run) rồi tick xác nhận mới nhả, gửi đúng /work-schedules/cancel', async () => {
     const bodies: Record<string, unknown>[] = [];
     route({
       '/work-schedules/cancel': (_p, init) => {
@@ -792,20 +841,23 @@ describe('WorkScheduleScreen: tab Phân ca | Nhả ca | Lịch làm việc, lị
     setTab('release');
     render(<WorkScheduleScreen />);
     await screen.findByText('Thông tin nhả ca');
-    // Chưa xem phạm vi thì chưa nhả được.
-    expect((screen.getByRole('button', { name: 'Xác nhận nhả ca' }) as HTMLButtonElement).disabled).toBe(true);
-    // Chưa chọn nhân viên: báo lỗi, chưa gọi API.
-    fireEvent.click(screen.getByRole('button', { name: 'Xem phạm vi ảnh hưởng' }));
+    // Chưa chọn nhân viên: báo lỗi, chưa gọi API, chưa mở hộp thoại.
+    fireEvent.click(screen.getByRole('button', { name: 'Xác nhận nhả ca' }));
     expect(bodies).toHaveLength(0);
+    expect(screen.queryByRole('dialog')).toBeNull();
     await pickOption(/Tìm theo mã hoặc tên nhân viên/, /NV001/);
-    fireEvent.click(screen.getByRole('button', { name: 'Xem phạm vi ảnh hưởng' }));
-    expect(await screen.findByText('Phạm vi ảnh hưởng')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Xác nhận nhả ca' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Tổng quan nhả ca' });
+    expect(await within(dialog).findByText('Phạm vi ảnh hưởng')).toBeTruthy();
     expect(bodies).toHaveLength(1);
     expect(bodies[0]).toMatchObject({ dryRun: true, scope: { type: 'EMPLOYEE', employeeIds: ['e1'] } });
 
-    await waitFor(() => expect((screen.getByRole('button', { name: 'Xác nhận nhả ca' }) as HTMLButtonElement).disabled).toBe(false));
-    fireEvent.click(screen.getByRole('button', { name: 'Xác nhận nhả ca' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Nhả ca' }));
+    // Chỉ cần tick xác nhận (không có ô gõ) là nhả được.
+    const release = within(dialog).getByRole('button', { name: 'Nhả ca' }) as HTMLButtonElement;
+    expect(release.disabled).toBe(true);
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: /đồng ý nhả ca/ }));
+    await waitFor(() => expect(release.disabled).toBe(false));
+    fireEvent.click(release);
     await waitFor(() => expect(bodies).toHaveLength(2));
     expect(bodies[1]).toMatchObject({ confirm: true, dryRun: false });
     expect(await screen.findByText('Đã nhả 7 ngày lịch của 1 nhân viên.')).toBeTruthy();

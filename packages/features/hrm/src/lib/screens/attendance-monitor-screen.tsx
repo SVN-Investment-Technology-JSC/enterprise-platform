@@ -116,10 +116,18 @@ function Kpi({
   );
 }
 
-function FilterBox({ label, children }: { label: string; children: React.ReactNode }) {
+function FilterBox({
+  label,
+  children,
+  className = 'min-w-[170px] flex-1',
+}: {
+  label: string;
+  children: React.ReactNode;
+  className?: string;
+}) {
   return (
-    <div className="min-w-[150px] flex-1 rounded-xl border border-slate-200/80 bg-white px-3 pb-1 pt-1.5">
-      <span className="block text-[12px] font-medium text-slate-500">{label}</span>
+    <div className={className}>
+      <span className="mb-1 block text-[12px] font-semibold text-slate-500">{label}</span>
       {children}
     </div>
   );
@@ -232,6 +240,7 @@ export default function AttendanceMonitorScreen() {
               <DatePickerInput
                 aria-label="Ngày giám sát"
                 value={date}
+                height={36}
                 onChange={(v) => {
                   if (v) {
                     setDate(v);
@@ -240,8 +249,9 @@ export default function AttendanceMonitorScreen() {
                 }}
               />
             </div>
-            <div className="w-[200px]">
+            <div className="w-[240px]">
               <SearchableSelect
+                height={36}
                 value={shift}
                 onChange={(v) => {
                   setShift(v || '');
@@ -348,19 +358,22 @@ export default function AttendanceMonitorScreen() {
             </Button>
           </div>
 
-          <div className="mt-3 flex flex-wrap gap-2">
-            <label className="flex min-w-[220px] flex-[2] items-center gap-2 rounded-xl border border-slate-200/80 bg-white px-3 text-sm">
-              <Search className="size-4 shrink-0 text-slate-400" />
-              <input
-                aria-label="Tìm nhân viên"
-                value={filter.search}
-                onChange={(e) => patch({ search: e.target.value })}
-                placeholder="Tìm tên hoặc mã nhân viên..."
-                className="h-10 w-full bg-transparent outline-none placeholder:text-slate-400"
-              />
-            </label>
-            <FilterBox label="Phòng ban">
+          <div className="mt-3 flex flex-wrap items-end gap-2.5">
+            <FilterBox label="Tìm kiếm" className="min-w-[220px] flex-[2]">
+              <label className="flex h-[38px] items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 text-sm focus-within:border-blue-600 focus-within:ring-2 focus-within:ring-blue-500/15">
+                <Search className="size-4 shrink-0 text-slate-400" />
+                <input
+                  aria-label="Tìm nhân viên"
+                  value={filter.search}
+                  onChange={(e) => patch({ search: e.target.value })}
+                  placeholder="Tìm tên hoặc mã nhân viên..."
+                  className="h-full w-full bg-transparent text-[13.5px] outline-none placeholder:text-slate-400"
+                />
+              </label>
+            </FilterBox>
+            <FilterBox label="Phòng ban" className="min-w-[180px] flex-1">
               <SearchableSelect
+                height={38}
                 value={filter.department}
                 onChange={(v) => patch({ department: v || '' })}
                 clearable
@@ -368,8 +381,9 @@ export default function AttendanceMonitorScreen() {
                 options={departmentOptions(rows)}
               />
             </FilterBox>
-            <FilterBox label="Trạng thái">
+            <FilterBox label="Trạng thái" className="min-w-[180px] flex-1">
               <SearchableSelect
+                height={38}
                 value={filter.status}
                 onChange={(v) => patch({ status: (v || '') as MonitorFilter['status'] })}
                 clearable
@@ -469,8 +483,11 @@ export default function AttendanceMonitorScreen() {
               <Button variant="outline" size="icon-sm" aria-label="Trang sau" disabled={current >= pages} onClick={() => setPage(current + 1)}>
                 <ChevronRight className="size-4" />
               </Button>
-              <div className="w-[110px]">
+              <div className="w-[125px]">
                 <SearchableSelect
+                  height={32}
+                  searchInDropdown
+                  clearable={false}
                   value={String(pageSize)}
                   onChange={(v) => {
                     setPageSize(Number(v) || 5);

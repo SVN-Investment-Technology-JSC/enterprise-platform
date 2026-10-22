@@ -386,6 +386,18 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       path: 'tenant/hrm/0065-hrm-attendance-source-auto.sql',
     },
     {
+      version: '0066-hrm-auto-attendance-employees',
+      path: 'tenant/hrm/0066-hrm-auto-attendance-employees.sql',
+    },
+    {
+      version: '0067-hrm-backfill-calendar-holidays',
+      path: 'tenant/hrm/0067-hrm-backfill-calendar-holidays.sql',
+    },
+    {
+      version: '0068-hrm-drop-attendance-devices',
+      path: 'tenant/hrm/0068-hrm-drop-attendance-devices.sql',
+    },
+    {
       version: '0021-notification-outbox-v1',
       path: 'tenant/hrm/0021-notification-outbox-v1.sql',
     },

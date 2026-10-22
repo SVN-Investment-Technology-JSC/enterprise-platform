@@ -22,7 +22,8 @@ const settings = (over: object = {}) => ({
 });
 
 function mockApi(initial: object) {
-  fetchMock.mockImplementation((async (_path: string, init?: RequestInit) => {
+  fetchMock.mockImplementation((async (path: string, init?: RequestInit) => {
+    if (path.startsWith('/auto-attendance-employees')) return { data: { active: [], history: [] }, ready: true };
     if (init?.method === 'PUT') {
       const body = JSON.parse(String(init.body));
       return { data: settings({ ...body, enabledFrom: body.enabled ? '2026-10-15' : null }) };
@@ -31,7 +32,9 @@ function mockApi(initial: object) {
   }) as never);
 }
 
-const day = (name: string) => screen.getByRole('checkbox', { name }) as HTMLInputElement;
+/** Ô chọn thứ của cấu hình chung (khối "Theo nhân viên" cũng có các ô thứ riêng). */
+const day = (name: string) =>
+  within(screen.getByRole('list', { name: 'Các thứ áp dụng' })).getByRole('checkbox', { name }) as HTMLInputElement;
 
 beforeEach(() => {
   fetchMock.mockReset();
@@ -64,7 +67,9 @@ describe('AutoAttendanceScreen', () => {
     fireEvent.click(day('T7'));
     fireEvent.click(screen.getByRole('button', { name: 'Lưu cấu hình' }));
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Đã bật chấm công tự động'));
-    const put = fetchMock.mock.calls.find((call) => (call[1] as RequestInit | undefined)?.method === 'PUT');
+    const put = fetchMock.mock.calls.find(
+      (call) => call[0] === '/auto-attendance-settings' && (call[1] as RequestInit | undefined)?.method === 'PUT',
+    );
     expect(JSON.parse(String((put?.[1] as RequestInit).body))).toEqual({ enabled: true, weekdays: [6] });
     expect(await screen.findByTestId('auto-attendance-since')).toBeTruthy();
   });
@@ -76,7 +81,11 @@ describe('AutoAttendanceScreen', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: 'Bật chấm công tự động' }));
     fireEvent.click(screen.getByRole('button', { name: 'Lưu cấu hình' }));
     expect(toast.error).toHaveBeenCalled();
-    expect(fetchMock.mock.calls.some((call) => (call[1] as RequestInit | undefined)?.method === 'PUT')).toBe(false);
+    expect(
+      fetchMock.mock.calls.some(
+        (call) => call[0] === '/auto-attendance-settings' && (call[1] as RequestInit | undefined)?.method === 'PUT',
+      ),
+    ).toBe(false);
   });
 
   it('đang bật: hiện ngày bắt đầu áp dụng và tắt được mà không cần chọn thứ', async () => {

@@ -33,7 +33,7 @@ import {
 import { loadActiveCustomType } from '../infrastructure/hrm-request-types.js';
 import { submitHrmRequest } from '../infrastructure/hrm-submission.js';
 import { hrmTransaction } from '../infrastructure/hrm-transaction.js';
-import { requireText, requireUuid } from '../infrastructure/hrm-validation.js';
+import { optionalText, requireUuid } from '../infrastructure/hrm-validation.js';
 import { workflowProgressFilter } from '../infrastructure/hrm-workflow-filter.js';
 
 /**
@@ -196,7 +196,7 @@ export class HrmCustomRequestController {
     const { pool, tenantId, principal } = await this.ctx.approverContext(req, 'hrm.custom.approve', 'custom', id);
     requireUuid(id, 'Đơn');
     await this.approvals.assertCanDecide({ pool, tenantId, principal }, id, 'custom', 'reject');
-    const text = requireText(reason, 'Lý do từ chối', 2000);
+    const text = optionalText(reason, 'Lý do từ chối', 2000) ?? undefined;
     const row = await hrmTransaction(pool, (db) =>
       transitionCustomRequest(db, tenantId, principal.userId, id, 'REJECTED', text),
     );

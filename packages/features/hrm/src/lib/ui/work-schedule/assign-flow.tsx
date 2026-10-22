@@ -191,6 +191,8 @@ export function AssignPreviewSection({
   selectedTemplate,
   canCalendar,
   onUseFixedRange,
+  hideConflictMode = false,
+  hideConfirm = false,
 }: {
   flow: AssignFlow;
   shifts: readonly HrmShiftDefinition[];
@@ -198,6 +200,9 @@ export function AssignPreviewSection({
   canCalendar: boolean;
   /** Bấm "Phân ca theo khoảng ngày" khi chưa có bảng lịch định kỳ: bỏ "không có ngày kết thúc" và quay lại bước nhập thời gian. */
   onUseFixedRange: () => void;
+  /** Cách xử lý ngày đã có lịch và khối xác nhận do nơi gọi tự hiển thị (hộp thoại xác nhận của biểu mẫu trong trang). */
+  hideConflictMode?: boolean;
+  hideConfirm?: boolean;
 }) {
   const { draft, previewData, problem } = flow;
   return (
@@ -276,7 +281,7 @@ export function AssignPreviewSection({
           <PreviewPanel preview={previewData} />
         )
       ) : null}
-      {flow.conflictSeen ? (
+      {flow.conflictSeen && !hideConflictMode ? (
         <div className="flex flex-col gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3">
           <div className="text-xs font-semibold text-amber-800">
             {flow.openEnded
@@ -295,7 +300,7 @@ export function AssignPreviewSection({
       {previewData && !flow.hasConflicts && !flow.locked && flow.writable === 0 ? (
         <Notice tone="info">Không có ngày nào cần ghi (lịch hiện có đã trùng hoặc bị bỏ qua).</Notice>
       ) : null}
-      {previewData && flow.needsConfirm ? (
+      {previewData && flow.needsConfirm && !hideConfirm ? (
         <div className="flex flex-col gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3">
           <div className="text-xs font-semibold text-amber-800">Cần xác nhận trước khi lưu</div>
           <ul className="list-disc pl-5 text-xs text-amber-800">

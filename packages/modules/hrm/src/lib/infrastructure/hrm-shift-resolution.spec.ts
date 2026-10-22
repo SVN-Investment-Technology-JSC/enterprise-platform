@@ -6,7 +6,6 @@ import { shiftForDate } from './hrm-time.js';
 function fakeDb(opts: {
   /** Dòng lịch phân ca theo ngày (lấy theo params[2]); trả về day_type + cột ca. */
   schedule?: (date: string) => Record<string, unknown> | undefined;
-  weeklyOff?: number[];
   calendar?: Record<string, string>;
   scheduleTable?: boolean;
 }) {
@@ -26,7 +25,7 @@ function fakeDb(opts: {
       }
       if (sql.includes('hrm_schema.timesheet_periods')) return { rows: [] };
       if (sql.includes('FROM hrm_schema.policy_versions'))
-        return { rows: [{ id: 'p', config_json: { weeklyOffDays: opts.weeklyOff ?? [] } }] };
+        return { rows: [{ id: 'p', config_json: {} }] };
       if (sql.includes('to_regclass') && sql.includes('employee_work_days')) return { rows: [{ ready: opts.scheduleTable ?? true }] };
       if (sql.includes('to_regclass')) return { rows: [{ ready: false }] }; // chưa có bảng lịch định kỳ
       if (sql.includes('FROM hrm_schema.employee_work_days')) {
@@ -83,7 +82,7 @@ describe('tra ca chỉ từ chức năng Phân ca làm việc', () => {
   });
 });
 
-describe('đơn nghỉ phép theo lịch phân ca và ngày nghỉ hằng tuần', () => {
+describe('đơn nghỉ phép theo lịch phân ca', () => {
   const body = (duration: number) => ({
     employeeId: '11111111-1111-4111-8111-111111111111',
     leaveTypeId: '22222222-2222-4222-8222-222222222222',
@@ -96,35 +95,36 @@ describe('đơn nghỉ phép theo lịch phân ca và ngày nghỉ hằng tuần
   /** Lịch hành chính: chỉ phủ T2-T6, cuối tuần chưa có dòng lịch. */
   const weekdaysOnly = (date: string) => (isWeekend(date) ? undefined : shiftRow());
 
-  it('không tính Thứ Bảy/Chủ nhật khi chính sách đặt là ngày nghỉ hằng tuần', async () => {
-    const db = fakeDb({ weeklyOff: [6, 0], schedule: weekdaysOnly });
+  /** Lịch phân ca ghi OFF cho cuối tuần, T2-T6 có ca. */
+  const weekdaysWithWeekendOff = (date: string) => (isWeekend(date) ? { day_type: 'OFF', id: null } : shiftRow());
+
+  it('không tính Thứ Bảy/Chủ nhật khi lịch phân ca ghi OFF cho cuối tuần', async () => {
+    const db = fakeDb({ schedule: weekdaysWithWeekendOff });
     const { days } = await leaveDays(db as never, 't', body(2) as never);
     expect(days.map((d) => d.date)).toEqual(['2026-09-04', '2026-09-07']);
   });
 
   it('báo số ngày làm việc khi khoảng nghỉ vắt qua cuối tuần', async () => {
-    const db = fakeDb({ weeklyOff: [6, 0], schedule: weekdaysOnly });
+    const db = fakeDb({ schedule: weekdaysWithWeekendOff });
     await expect(leaveDays(db as never, 't', body(4) as never)).rejects.toThrow(/là 2 ngày/);
   });
 
   it('ngày làm việc chưa có ca trong lịch phân ca thì báo chưa phân ca', async () => {
-    const db = fakeDb({ weeklyOff: [], schedule: weekdaysOnly });
+    const db = fakeDb({ schedule: weekdaysOnly });
     await expect(leaveDays(db as never, 't', body(4) as never)).rejects.toThrow('Chưa phân ca ngày 05/09/2026');
   });
 
-  it('lịch phân ca ghi OFF cho cuối tuần thì cuối tuần không bị trừ phép dù chính sách không có ngày nghỉ hằng tuần', async () => {
+  it('lịch phân ca ghi OFF cho cuối tuần thì cuối tuần không bị trừ phép', async () => {
     const db = fakeDb({
-      weeklyOff: [],
       schedule: (date) => (isWeekend(date) ? { day_type: 'OFF', id: null } : shiftRow()),
     });
     const { days } = await leaveDays(db as never, 't', body(2) as never);
     expect(days.map((d) => d.date)).toEqual(['2026-09-04', '2026-09-07']);
   });
 
-  it('lịch phân ca có ca vào Thứ Bảy thì Thứ Bảy là ngày làm việc dù chính sách đặt nghỉ', async () => {
+  it('lịch phân ca có ca vào Thứ Bảy thì Thứ Bảy là ngày làm việc (làm bù)', async () => {
     const db = fakeDb({
-      weeklyOff: [6, 0],
-      schedule: (date) => (date === '2026-09-05' ? shiftRow({ name: 'ca T7' }) : weekdaysOnly(date)),
+      schedule: (date) => (date === '2026-09-05' ? shiftRow({ name: 'ca T7' }) : weekdaysWithWeekendOff(date)),
     });
     const { days } = await leaveDays(db as never, 't', body(3) as never);
     expect(days.map((d) => d.date)).toEqual(['2026-09-04', '2026-09-05', '2026-09-07']);
@@ -132,8 +132,7 @@ describe('đơn nghỉ phép theo lịch phân ca và ngày nghỉ hằng tuần
 
   it('lịch phân ca ghi OFF một ngày thường thì ngày đó không bị trừ phép', async () => {
     const db = fakeDb({
-      weeklyOff: [6, 0],
-      schedule: (date) => (date === '2026-09-07' ? { day_type: 'OFF', id: null } : weekdaysOnly(date)),
+      schedule: (date) => (date === '2026-09-07' ? { day_type: 'OFF', id: null } : weekdaysWithWeekendOff(date)),
     });
     const { days } = await leaveDays(db as never, 't', body(1) as never);
     expect(days.map((d) => d.date)).toEqual(['2026-09-04']);

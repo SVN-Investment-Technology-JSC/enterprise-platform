@@ -119,9 +119,37 @@ describe('ApprovalsScreen: tải dữ liệu', () => {
       reversals: [{ requestId: 'l1', reason: 'Nhập nhầm ngày' }],
     });
     render(<ApprovalsScreen />);
+    // Đơn đã xử lý nằm ngoài tab "Chờ tôi duyệt" mặc định: sang tab Đã xử lý để xem.
+    fireEvent.click(await screen.findByTestId('tab-DONE'));
     const badge = await screen.findByText('Đã hủy hiệu lực');
     expect(badge.getAttribute('title')).toBe('Lý do: Nhập nhầm ngày');
     expect(screen.queryByText('Đã rút / hủy')).toBeNull();
+  });
+
+  it('đơn nhân viên đã rút/hủy không hiện trong bảng và không có trong bộ lọc trạng thái', async () => {
+    mockActions = ['hrm.leave.approve'];
+    setup({
+      lists: { 'leave-requests': [leave, { ...leave, id: 'l9', status: 'CANCELLED' }] },
+    });
+    render(<ApprovalsScreen />);
+    await screen.findByTestId('approval-row-l1');
+    fireEvent.click(screen.getByTestId('tab-ALL'));
+    expect(screen.queryByTestId('approval-row-l9')).toBeNull();
+    expect(screen.queryByText('Đã rút / hủy')).toBeNull();
+  });
+
+  it('mặc định mở tab "Chờ tôi duyệt", không đặt bộ lọc trạng thái', async () => {
+    mockActions = ['hrm.leave.approve'];
+    setup({
+      lists: { 'leave-requests': [leave, { ...leave, id: 'l2', status: 'APPROVED' }] },
+    });
+    render(<ApprovalsScreen />);
+    await screen.findByTestId('approval-row-l1');
+    expect(screen.getByTestId('tab-MINE').getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByTestId('tab-ALL').getAttribute('aria-pressed')).toBe('false');
+    expect(screen.queryByTestId('approval-row-l2')).toBeNull();
+    fireEvent.click(screen.getByTestId('tab-ALL'));
+    expect(await screen.findByTestId('approval-row-l2')).toBeTruthy();
   });
 
   it('?type= chọn sẵn bộ lọc loại đơn; không có thì hiện mọi loại', async () => {
@@ -196,11 +224,15 @@ describe('ApprovalsScreen: danh sách', () => {
     expect(screen.queryByTestId('kpi-processing')).toBeNull();
     expect(screen.queryByTestId('kpi-overdue')).toBeNull();
     expect(screen.queryByTestId('kpi-done')).toBeNull();
+    // Số trên tab tính trên toàn bộ đơn, không phụ thuộc tab đang mở.
     expect(screen.getByTestId('tab-ALL').textContent).toBe('Tất cả (4)');
     expect(screen.getByTestId('tab-MINE').textContent).toBe('Chờ tôi duyệt (1)');
     expect(screen.getByTestId('tab-PROCESSING').textContent).toBe('Đang xử lý (1)');
     expect(screen.getByTestId('tab-DONE').textContent).toBe('Đã xử lý (2)');
+    // Sang tab Đã xử lý.
     fireEvent.click(screen.getByTestId('tab-DONE'));
+    expect(await screen.findByTestId('approval-row-l2')).toBeTruthy();
+    expect(screen.getByTestId('tab-DONE').textContent).toBe('Đã xử lý (2)');
     expect(screen.queryByTestId('approval-row-l1')).toBeNull();
     expect(screen.getByTestId('approval-row-l2')).toBeTruthy();
     expect(screen.getByTestId('approval-row-l3')).toBeTruthy();
@@ -274,6 +306,8 @@ describe('ApprovalsScreen: chi tiết đơn', () => {
       workflows: [{ id: 'w1', request_kind: 'LEAVE', request_id: 'l1', instance_id: 'inst-001', instance_code: 'PE-001', status: 'COMPLETED', last_error: '' }],
     });
     render(<ApprovalsScreen />);
+    // Quy trình đã hoàn tất nên đơn không còn thuộc tab "Chờ tôi duyệt" mặc định.
+    fireEvent.click(await screen.findByTestId('tab-ALL'));
     const panel = await openRow('l1');
     expect(within(panel).getByRole('link', { name: /Xem quy trình/ }).getAttribute('href')).toBe('/modules/procedure#workspace/inst-001');
     expect(within(panel).queryByRole('button', { name: /Phê duyệt/ })).toBeNull();
@@ -323,16 +357,29 @@ describe('ApprovalsScreen: ý kiến khi duyệt và từ chối', () => {
     expect(posts('/request-comments')).toHaveLength(0);
   });
 
-  it('từ chối bắt buộc có ý kiến; ý kiến là lý do từ chối và cũng được ghi vào luồng trao đổi', async () => {
+  it('từ chối không bắt buộc ý kiến và luôn qua popup xác nhận', async () => {
     mockActions = ['hrm.leave.approve'];
     setup({ lists: { 'leave-requests': [leave] } });
     render(<ApprovalsScreen />);
     const panel = await openRow('l1');
-    const reject = within(panel).getByRole('button', { name: /Từ chối/ }) as HTMLButtonElement;
-    expect(reject.disabled).toBe(true);
+    fireEvent.click(within(panel).getByRole('button', { name: /Từ chối/ }));
+    expect(posts('/leave-requests/l1/reject')).toHaveLength(0);
+    const confirms = await screen.findAllByRole('button', { name: 'Từ chối' });
+    fireEvent.click(confirms[confirms.length - 1]);
+    await waitFor(() => expect(posts('/leave-requests/l1/reject')).toHaveLength(1));
+    expect(JSON.parse(String((posts('/leave-requests/l1/reject')[0][1] as RequestInit).body))).toEqual({ reason: '' });
+    expect(posts('/request-comments')).toHaveLength(0);
+  });
+
+  it('từ chối kèm ý kiến: ý kiến là lý do từ chối và cũng được ghi vào luồng trao đổi', async () => {
+    mockActions = ['hrm.leave.approve'];
+    setup({ lists: { 'leave-requests': [leave] } });
+    render(<ApprovalsScreen />);
+    const panel = await openRow('l1');
     fireEvent.change(within(panel).getByLabelText('Ý kiến xử lý'), { target: { value: 'Trùng đợt cao điểm' } });
-    expect(reject.disabled).toBe(false);
-    fireEvent.click(reject);
+    fireEvent.click(within(panel).getByRole('button', { name: /Từ chối/ }));
+    const confirms = await screen.findAllByRole('button', { name: 'Từ chối' });
+    fireEvent.click(confirms[confirms.length - 1]);
     await waitFor(() => expect(posts('/leave-requests/l1/reject')).toHaveLength(1));
     expect(JSON.parse(String((posts('/leave-requests/l1/reject')[0][1] as RequestInit).body))).toEqual({ reason: 'Trùng đợt cao điểm' });
     await waitFor(() => expect(posts('/request-comments')).toHaveLength(1));

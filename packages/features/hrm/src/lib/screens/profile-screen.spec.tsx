@@ -90,7 +90,7 @@ async function renderLoaded() {
 }
 
 describe('Hồ sơ của tôi', () => {
-  it('họ tên (do Core quản lý), ngày sinh, CCCD, ngày cấp, nơi cấp chỉ đọc và có nút đề nghị đính chính', async () => {
+  it('họ tên (do Core quản lý), ngày sinh, CCCD, ngày cấp, nơi cấp chỉ đọc và không có nút đề nghị đính chính', async () => {
     await renderLoaded();
     expect(screen.getByRole('heading', { name: 'Hồ sơ của tôi' })).toBeTruthy();
     for (const [label, value] of [
@@ -104,44 +104,9 @@ describe('Hồ sơ của tôi', () => {
       expect(input.readOnly).toBe(true);
       expect(input.value).toBe(value);
     }
-    expect(screen.getByRole('button', { name: 'Đề nghị đính chính' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Đề nghị đính chính' })).toBeNull();
     expect(screen.getByText(/Do Core HRM quản lý/)).toBeTruthy();
     expect(screen.queryByText(/Đổi tài khoản nhận lương/)).toBeNull();
-  });
-
-  it('dialog đính chính gửi đúng trường, giá trị cũ và mới tới /profile-corrections', async () => {
-    await renderLoaded();
-    fireEvent.click(screen.getByRole('button', { name: 'Đề nghị đính chính' }));
-    const dialog = await screen.findByRole('dialog', { name: 'Đề nghị đính chính hồ sơ' });
-    expect(dialog).toBeTruthy();
-    expect(screen.queryByLabelText('Họ và tên đề xuất')).toBeNull();
-    fireEvent.change(screen.getByLabelText('Ngày sinh đề xuất'), {
-      target: { value: '21/06/1990' },
-    });
-    fireEvent.change(screen.getByLabelText(/Lý do đính chính/), {
-      target: { value: 'Sai chính tả theo giấy khai sinh' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: 'Gửi đề nghị' }));
-    await waitFor(() => expect(postBodies).toHaveLength(1));
-    expect(postBodies[0].path).toBe('/profile-corrections');
-    expect(postBodies[0].body.changes).toEqual({ dateOfBirth: '1990-06-21' });
-    expect(Object.keys(postBodies[0].body.changes as object)).not.toContain('fullName');
-    expect(postBodies[0].body.attributes).toEqual({});
-    const reason = String(postBodies[0].body.reason);
-    expect(reason).toContain('Ngày sinh: "20/05/1990" -> "21/06/1990"');
-    expect(reason).toContain('Lý do điều chỉnh: Sai chính tả theo giấy khai sinh');
-  });
-
-  it('dialog đính chính không gửi khi chưa đổi giá trị nào', async () => {
-    await renderLoaded();
-    fireEvent.click(screen.getByRole('button', { name: 'Đề nghị đính chính' }));
-    await screen.findByRole('dialog', { name: 'Đề nghị đính chính hồ sơ' });
-    fireEvent.change(screen.getByLabelText(/Lý do đính chính/), {
-      target: { value: 'Kiểm tra' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: 'Gửi đề nghị' }));
-    expect((await screen.findByRole('alert')).textContent).toContain('chưa nhập giá trị đề xuất');
-    expect(postBodies).toHaveLength(0);
   });
 
   it('PATCH /my-profile chỉ gửi trường liên lạc đã đổi, không gửi trường định danh', async () => {
@@ -163,7 +128,7 @@ describe('Hồ sơ của tôi', () => {
     }
   });
 
-  it('hiển thị lỗi HRM_PROFILE_CHANGE_REQUIRES_APPROVAL với danh sách trường và nút đính chính', async () => {
+  it('báo lỗi HRM_PROFILE_CHANGE_REQUIRES_APPROVAL bằng thông báo, không hiện khung gọi form đính chính', async () => {
     patchError = new HrmApiError(
       'Cần gửi đơn đính chính',
       400,
@@ -175,13 +140,12 @@ describe('Hồ sơ của tôi', () => {
       target: { value: '0977777777' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Lưu thay đổi' }));
-    const alert = await screen.findByRole('alert');
-    expect(alert.textContent).toContain('Ngày sinh, Số CCCD / CMND');
-    fireEvent.click(screen.getByRole('button', { name: 'Gửi đề nghị đính chính' }));
-    await screen.findByRole('dialog', { name: 'Đề nghị đính chính hồ sơ' });
-    expect(screen.queryByLabelText('Họ và tên đề xuất')).toBeNull();
-    expect(screen.getByLabelText('Ngày sinh đề xuất')).toBeTruthy();
-    expect(screen.getByLabelText('Số CCCD / CMND đề xuất')).toBeTruthy();
+    await waitFor(() =>
+      expect(
+        hrmFetchMock.mock.calls.filter(([, init]) => init?.method === 'PATCH'),
+      ).toHaveLength(1),
+    );
+    expect(screen.queryByRole('button', { name: 'Đề nghị đính chính' })).toBeNull();
   });
 
   it('hiển thị message của API khi hồ sơ HRM chưa được khởi tạo (HRM_PROFILE_NOT_INITIALIZED)', async () => {

@@ -1,4 +1,62 @@
-import { appliesOnDate, parseAutoAttendanceInput, weekdayOfDate } from './auto-attendance-settings';
+import {
+  appliesOnDate,
+  appliesToEmployeeOnDate,
+  parseAutoAttendanceEmployeeInput,
+  parseAutoAttendanceInput,
+  weekdayOfDate,
+} from './auto-attendance-settings';
+
+describe('parseAutoAttendanceEmployeeInput', () => {
+  const TODAY = '2026-10-19';
+  const E = '00000000-0000-4000-8000-0000000000e1';
+
+  it('chuẩn hóa: mặc định từ hôm nay, thứ rỗng là mọi ngày, bỏ trùng và sắp tăng dần', () => {
+    expect(parseAutoAttendanceEmployeeInput({ employeeId: E, reason: '  Không chấm vân tay ', weekdays: [] }, TODAY)).toEqual({
+      value: { employeeId: E, weekdays: null, fromDate: TODAY, toDate: null, reason: 'Không chấm vân tay' },
+    });
+    expect(
+      parseAutoAttendanceEmployeeInput(
+        { employeeId: E, reason: 'x', weekdays: [6, 1, 6], fromDate: '2026-10-20', toDate: '2026-10-30' },
+        TODAY,
+      ),
+    ).toEqual({ value: { employeeId: E, weekdays: [1, 6], fromDate: '2026-10-20', toDate: '2026-10-30', reason: 'x' } });
+  });
+
+  it('báo lỗi khi thiếu nhân viên, thiếu lý do, ngày hoặc thứ không hợp lệ', () => {
+    const bad = (body: object) => parseAutoAttendanceEmployeeInput(body, TODAY);
+    expect(bad({ reason: 'x' })).toEqual({ error: expect.stringContaining('nhân viên') });
+    expect(bad({ employeeId: E, reason: '  ' })).toEqual({ error: expect.stringContaining('lý do') });
+    expect(bad({ employeeId: E, reason: 'x', fromDate: '10/10/2026' })).toEqual({ error: expect.stringContaining('bắt đầu') });
+    expect(bad({ employeeId: E, reason: 'x', fromDate: '2026-10-20', toDate: '2026-10-19' })).toEqual({
+      error: expect.stringContaining('kết thúc'),
+    });
+    expect(bad({ employeeId: E, reason: 'x', weekdays: [7] })).toEqual({ error: expect.stringContaining('Thứ') });
+    expect(bad({ employeeId: E, reason: 'x'.repeat(501) })).toEqual({ error: expect.stringContaining('500') });
+  });
+});
+
+describe('appliesToEmployeeOnDate', () => {
+  const rule = {
+    employeeId: 'e',
+    weekdays: null as number[] | null,
+    fromDate: '2026-10-05',
+    toDate: '2026-10-12' as string | null,
+  };
+
+  it('chỉ áp dụng trong khoảng hiệu lực, kể cả hai đầu', () => {
+    expect(appliesToEmployeeOnDate(rule, '2026-10-04')).toBe(false);
+    expect(appliesToEmployeeOnDate(rule, '2026-10-05')).toBe(true);
+    expect(appliesToEmployeeOnDate(rule, '2026-10-12')).toBe(true);
+    expect(appliesToEmployeeOnDate(rule, '2026-10-13')).toBe(false);
+    expect(appliesToEmployeeOnDate({ ...rule, toDate: null }, '2027-01-01')).toBe(true);
+  });
+
+  it('có chọn thứ thì chỉ đúng thứ đó; không chọn là mọi ngày', () => {
+    expect(appliesToEmployeeOnDate({ ...rule, weekdays: [6] }, '2026-10-10')).toBe(true);
+    expect(appliesToEmployeeOnDate({ ...rule, weekdays: [6] }, '2026-10-09')).toBe(false);
+    expect(appliesToEmployeeOnDate({ ...rule, weekdays: [] }, '2026-10-09')).toBe(true);
+  });
+});
 
 describe('parseAutoAttendanceInput', () => {
   it('chuẩn hóa thứ: bỏ trùng và sắp tăng dần', () => {

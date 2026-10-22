@@ -30,7 +30,7 @@ export function ProcedureActionBar({ busy, onAction }: ProcedureActionBarProps) 
     <div className="flex flex-col gap-2 w-full" data-testid="procedure-action-bar">
       <Input
         aria-label="Ý kiến / Lý do xử lý"
-        placeholder="Ý kiến xử lý (bắt buộc khi từ chối hoặc trả lại)"
+        placeholder="Ý kiến xử lý (bắt buộc khi trả lại)"
         value={reason}
         onChange={(e) => setReason(e.target.value)}
         disabled={busy}
@@ -41,14 +41,14 @@ export function ProcedureActionBar({ busy, onAction }: ProcedureActionBarProps) 
           description="Quy trình sẽ kết thúc với kết quả từ chối."
           okText="Từ chối"
           cancelText="Quay lại"
-          disabled={busy || !hasReason}
+          okType="danger"
+          disabled={busy}
           onConfirm={() => run('REJECT')}
         >
           <Button
             variant="outline"
             size="sm"
-            disabled={busy || !hasReason}
-            title={hasReason ? undefined : 'Nhập lý do để từ chối'}
+            disabled={busy}
             className="text-xs h-8 text-rose-700 border-rose-200 hover:bg-rose-50 font-medium"
           >
             Từ chối

@@ -38,6 +38,7 @@ import {
 import { HrmContractPanel } from './hrm-contract-panel';
 import { HrmFamilyPanel } from './hrm-family-panel';
 import { HrmProfileDocumentsPanel } from './hrm-profile-documents-panel';
+import type { HrmStagedChange } from './hrm-staged-change';
 import {
   SearchableSelect,
   type SearchableSelectOption,
@@ -330,6 +331,16 @@ export function EmployeeDetailDialog({
   const [tab, setTab] = useState<DetailTab>('documents');
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  // Thay đổi ở các tab Giấy tờ / Người phụ thuộc / Hợp đồng: chỉ ghi lên server khi bấm "Lưu thay đổi".
+  const [staged, setStaged] = useState<HrmStagedChange[]>([]);
+  const [panelsKey, setPanelsKey] = useState(0);
+  const stageFor =
+    (tabId: NonNullable<HrmStagedChange['tab']>) =>
+    (change: HrmStagedChange) =>
+      setStaged((prev) => [...prev, { ...change, tab: tabId }]);
+  const stagedContractCodes = staged.flatMap((c) =>
+    c.contractCode ? [c.contractCode] : [],
+  );
   const [editForm, setEditForm] = useState<EmployeeEditForm>(() =>
     toEditState(employee),
   );
@@ -364,6 +375,7 @@ export function EmployeeDetailDialog({
   useEffect(() => {
     setEditForm(toEditState(employee));
     setPositionReason('');
+    setStaged([]);
     setIsEditing(false);
   }, [empId, open]);
 
@@ -390,6 +402,7 @@ export function EmployeeDetailDialog({
     setEditForm(toEditState(employee));
     setPositionNodeId(currentPositionNodeId);
     setPositionReason('');
+    setStaged([]);
     setIsEditing(true);
   };
 
@@ -397,6 +410,7 @@ export function EmployeeDetailDialog({
     setEditForm(toEditState(employee));
     setPositionNodeId(currentPositionNodeId);
     setPositionReason('');
+    setStaged([]);
     setIsEditing(false);
   };
 
@@ -420,6 +434,20 @@ export function EmployeeDetailDialog({
         })),
     [positions],
   );
+
+  // Nạp lại dữ liệu các tab sau khi áp thay đổi chờ lưu.
+  const reloadTabs = async () => {
+    if (!employee) return;
+    try {
+      const res = await hrmFetch<{
+        data: NonNullable<HrmEmployeeProfile['dependents']>;
+      }>(`/employees/${employee.employeeId}/dependents`);
+      onDependentsChanged(res.data);
+    } catch {
+      // Tab Người phụ thuộc giữ dữ liệu cũ; lần mở lại sẽ nạp mới.
+    }
+    setPanelsKey((k) => k + 1);
+  };
 
   const handleSaveEdit = async () => {
     if (!employee) return;
@@ -483,6 +511,37 @@ export function EmployeeDetailDialog({
           if (onEmployeeUpdated) onEmployeeUpdated(latest);
           return; // giữ chế độ sửa để thử lại riêng phần chức danh
         }
+      }
+
+      // Áp các thay đổi ở tab theo thứ tự đã làm; lỗi thì giữ phần còn lại để thử lại.
+      if (staged.length > 0) {
+        let applied = 0;
+        try {
+          for (const change of staged) {
+            await change.run();
+            applied += 1;
+          }
+        } catch (err) {
+          const message =
+            err instanceof Error ? err.message : 'Không áp dụng được';
+          const failed = staged[applied];
+          toast.error({
+            title: `Đã lưu hồ sơ, nhưng chưa áp dụng được: ${failed.label}`,
+            description: message,
+          });
+          // Giữ lại mục lỗi (kèm lý do) cùng các mục chưa chạy, đưa người dùng về tab có lỗi.
+          setStaged(
+            staged
+              .slice(applied)
+              .map((c, i) => (i === 0 ? { ...c, error: message } : c)),
+          );
+          if (failed.tab) setTab(failed.tab);
+          if (applied > 0) await reloadTabs();
+          if (onEmployeeUpdated) onEmployeeUpdated(latest);
+          return;
+        }
+        setStaged([]);
+        await reloadTabs();
       }
 
       toast.success(
@@ -1195,11 +1254,53 @@ export function EmployeeDetailDialog({
                   ))}
                 </div>
                 <div className="p-3.5" data-testid={`employee-tab-${tab}`}>
+                  {staged.length > 0 && (
+                    <div
+                      className={`mb-3 rounded-lg border p-3 text-[14px] ${
+                        staged.some((c) => c.error)
+                          ? 'border-rose-300 bg-rose-50 text-rose-900'
+                          : 'border-amber-300 bg-amber-50 text-amber-900'
+                      }`}
+                      data-testid="employee-staged-changes"
+                    >
+                      <p className="font-semibold">
+                        {staged.length} thay đổi chờ lưu (chưa ghi vào hồ sơ)
+                      </p>
+                      <ul className="mt-1 list-disc space-y-0.5 pl-5">
+                        {staged.map((change, index) => (
+                          <li key={index} className="flex items-center justify-between gap-2">
+                            <span>
+                              {change.label}
+                              {change.error && (
+                                <span
+                                  role="alert"
+                                  className="block font-semibold text-rose-700"
+                                >
+                                  Lỗi: {change.error}. Bấm "Bỏ" rồi thêm lại với thông tin đúng.
+                                </span>
+                              )}
+                            </span>
+                            <button
+                              type="button"
+                              className="shrink-0 text-[14px] font-semibold text-amber-800 underline"
+                              onClick={() =>
+                                setStaged((prev) => prev.filter((_, i) => i !== index))
+                              }
+                            >
+                              Bỏ
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                   {tab === 'documents' && (
                     <HrmProfileDocumentsPanel
+                      key={`documents-${panelsKey}`}
                       employeeId={employee.employeeId}
                       mode="hr"
                       readOnly={!isEditing}
+                      onStage={stageFor('documents')}
                     />
                   )}
                   {tab === 'family' && (
@@ -1208,14 +1309,18 @@ export function EmployeeDetailDialog({
                       rows={dependents}
                       onChanged={onDependentsChanged}
                       readOnly={!isEditing}
+                      onStage={stageFor('family')}
                     />
                   )}
                   {tab === 'contracts' && (
                     <HrmContractPanel
+                      key={`contracts-${panelsKey}`}
                       employeeId={employee.employeeId}
                       rows={contracts}
                       onChanged={onContractsChanged}
                       readOnly={!isEditing}
+                      onStage={stageFor('contracts')}
+                      stagedCodes={stagedContractCodes}
                     />
                   )}
                 </div>

@@ -56,7 +56,7 @@ function input(over: Partial<BoardDayInput> = {}): BoardDayInput {
     calendarKind: null,
     calendarPaid: false,
     calendarName: null,
-    policyConfig: { timezone: TZ, weeklyOffDays: [0] },
+    policyConfig: { timezone: TZ },
     scheduleDayType: 'SHIFT',
     scheduleHolidayPaid: null,
     scheduleHolidayName: null,
@@ -349,7 +349,7 @@ function legacyStatus(status: string): string {
 
 async function savedPath(s: Scenario) {
   const date = s.date ?? MON;
-  const config = { timezone: TZ, weeklyOffDays: [0] };
+  const config = { timezone: TZ };
   (resolvePolicy as jest.Mock).mockResolvedValue({ id: 'pol', config_json: config });
   (dayContextForDate as jest.Mock).mockResolvedValue({
     shift: s.noShift
@@ -531,7 +531,7 @@ function fakePool(employeeCount: number, opts: { locked?: boolean } = {}) {
       if (sql.includes('FROM hrm_schema.work_calendar'))
         return rows([{ date: '2026-09-02', day_kind: 'HOLIDAY', name: 'Quốc khánh', paid: true }]);
       if (sql.includes('FROM hrm_schema.policy_versions'))
-        return rows([{ id: 'pol', config_json: { timezone: TZ, weeklyOffDays: [0, 6] }, version_no: 1, effective_from: '2020-01-01', effective_to: null, policy_code: 'ATT' }]);
+        return rows([{ id: 'pol', config_json: { timezone: TZ }, version_no: 1, effective_from: '2020-01-01', effective_to: null, policy_code: 'ATT' }]);
       if (sql.includes('FROM hrm_schema.employee_work_days w')) return rows([]);
       if (sql.includes('WITH RECURSIVE')) {
         const [, emps, from, to] = params as [string, string[], string, string];
@@ -580,14 +580,15 @@ describe('loadBoard: nạp theo lô', () => {
     const board = await loadBoard(pool as never, 'tenant-shape', { ...month, employeeIds: ids });
     expect(board.calendar).toHaveLength(30);
     expect(board.calendar[1]).toMatchObject({ date: '2026-09-02', kind: 'HOLIDAY', holidayName: 'Quốc khánh' });
-    expect(board.calendar[5]).toMatchObject({ date: '2026-09-06', weekday: 0, kind: 'OFF' });
+    expect(board.calendar[5]).toMatchObject({ date: '2026-09-06', weekday: 0, kind: 'WORK' }); // ngày nghỉ hằng tuần do lịch phân ca quyết định, lịch chung không tự đánh dấu OFF
     expect(board.employees).toHaveLength(3);
     for (const e of board.employees) expect(Object.keys(e.days)).toHaveLength(30);
     const e2 = board.employees[1];
     expect(e2.days['2026-09-01']).toMatchObject({ status: 'PRESENT', workdayUnits: 1, checkIn: '08:00', shiftCode: 'HC' });
     expect(e2.days['2026-09-02']).toMatchObject({ status: 'HOLIDAY', holidayName: 'Quốc khánh' });
     expect(e2.days['2026-09-03']).toMatchObject({ status: 'ABSENT' });
-    expect(e2.days['2026-09-05']).toMatchObject({ status: 'OFF' });
+    // Thứ Bảy chưa có lịch phân ca: không còn tự thành OFF theo chính sách, hiện là ô "chưa có lịch" để HR gắn lịch.
+    expect(e2.days['2026-09-05']).toMatchObject({ status: 'NO_SCHEDULE' });
     // nhân viên vào làm giữa tháng 10: tháng 9 chưa có lịch
     expect(board.employees[0].days['2026-09-03']).toMatchObject({ status: 'NO_SCHEDULE' });
     expect(e2.totals.workdayUnits).toBeGreaterThan(0);

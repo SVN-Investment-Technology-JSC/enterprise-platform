@@ -7,14 +7,12 @@
 import type { ReactNode } from 'react';
 import {
   CalendarDays,
-  CalendarOff,
   Globe,
   History,
   MapPin,
   Network,
   Plus,
   ShieldCheck,
-  Smartphone,
   type LucideIcon,
 } from 'lucide-react';
 import { Button } from '../button';
@@ -135,7 +133,7 @@ export function RulesPanel({
           <EmptyPanel
             icon={ShieldCheck}
             title="Chưa có phiên bản quy định"
-            description="Chưa cấu hình điều kiện IP, GPS hoặc thiết bị."
+            description="Chưa cấu hình điều kiện IP hoặc GPS."
             action={
               <Button permission="hrm.time.configure" onClick={onCreate} className="h-9 gap-1.5 px-4 text-xs font-semibold">
                 <Plus className="size-4" />
@@ -174,9 +172,7 @@ export function RulesPanel({
               <SummaryRow icon={CalendarDays} tone="blue" label="Phạm vi & hiệu lực" value={`${summary.scope} · ${summary.range}`} />
               <SummaryRow icon={Network} tone="amber" label="Kiểm soát IP" value={summary.ip} />
               <SummaryRow icon={MapPin} tone="green" label="Kiểm soát GPS" value={summary.gps} />
-              <SummaryRow icon={Smartphone} tone="violet" label="Thiết bị chấm công" value={summary.device} />
               <SummaryRow icon={Globe} tone="blue" label="Múi giờ" value={summary.timezone} />
-              <SummaryRow icon={CalendarOff} tone="orange" label="Ngày nghỉ hằng tuần" value={summary.weeklyOff} />
             </>
           ) : (
             <EmptyPanel

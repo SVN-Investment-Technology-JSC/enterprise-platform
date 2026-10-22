@@ -1,41 +1,22 @@
 'use client';
 /**
- * Ba mục dạng danh sách của "Chấm công & thiết bị": Lịch làm / OFF / Lễ, Địa điểm GPS, Thiết bị.
+ * Mục dạng danh sách của "Chấm công": Địa điểm GPS.
  * Mỗi mục là một thẻ gồm thanh công cụ gọn (ô tìm, lọc, nút thêm) và danh sách co giãn theo khung chứa. Chỉ lo giao diện:
  * mọi thao tác ghi nằm ở màn hình cha và được truyền vào bằng hàm.
  */
 import { useMemo, useState, type ReactNode } from 'react';
-import Link from 'next/link';
-import { CalendarDays, MapPin, Plus, Search, Smartphone } from 'lucide-react';
-import { Popconfirm, SearchableSelect } from '@enterprise-platform/shared-ui';
-import { formatDateVn } from '../../personnel-decision-rules';
+import { MapPin, Plus, Search } from 'lucide-react';
+import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import { Button } from '../button';
 import { Input } from '../input';
 import { RowMenu } from '../row-menu';
-import { EmptyPanel, InfoNote, StatusPill, type PillTone } from '../settings-kit';
+import { EmptyPanel, StatusPill } from '../settings-kit';
 import { Pager, ResponsiveList, usePaged, type ListColumn } from './responsive-list';
 import {
-  DAY_KIND_LABELS,
-  DEVICE_STATUS_LABELS,
-  filterCalendar,
-  filterDevices,
   filterSites,
-  type CalendarRow,
-  type DeviceRow,
   type Settings,
   type SiteRow,
 } from './time-settings-model';
-
-const DAY_KIND_TONE: Record<string, PillTone> = {
-  WORK: 'slate',
-  OFF: 'amber',
-  HOLIDAY: 'red',
-};
-const DEVICE_TONE: Record<string, PillTone> = {
-  PENDING: 'amber',
-  ACTIVE: 'green',
-  REVOKED: 'slate',
-};
 
 function ListCard({
   title,
@@ -114,106 +95,6 @@ function FilterSelect({
         clearable={false}
         onChange={(next) => onChange(next || options[0].value)}
       />
-    </div>
-  );
-}
-
-const CALENDAR_COLUMNS: ListColumn<CalendarRow>[] = [
-  {
-    id: 'date',
-    header: 'Ngày',
-    primary: true,
-    cell: (r) => <span className="text-sm font-semibold text-slate-900 @2xl:text-xs">{formatDateVn(r.work_date)}</span>,
-  },
-  { id: 'name', header: 'Tên', cell: (r) => r.name },
-  {
-    id: 'kind',
-    header: 'Loại',
-    cell: (r) => (
-      <StatusPill tone={DAY_KIND_TONE[r.day_kind] ?? 'slate'}>
-        {DAY_KIND_LABELS[r.day_kind] ?? r.day_kind}
-      </StatusPill>
-    ),
-  },
-  { id: 'paid', header: 'Hưởng lương', cell: (r) => (r.paid ? 'Có' : 'Không') },
-];
-
-/** Lịch ngày làm / OFF / lễ: chỉ đọc (quản lý tại Phân ca), có tìm kiếm và lọc theo loại ngày. */
-export function CalendarPanel({
-  rows,
-  holidayStatus,
-}: {
-  rows: Settings['calendar'];
-  holidayStatus?: Settings['holidayStatus'];
-}) {
-  const [search, setSearch] = useState('');
-  const [kind, setKind] = useState('ALL');
-  const filtered = useMemo(() => filterCalendar(rows, search, kind), [rows, search, kind]);
-  const paged = usePaged(filtered, 20);
-  return (
-    <div className="space-y-3">
-      {holidayStatus?.warning ? (
-        <InfoNote tone="amber" role="alert">
-          {holidayStatus.warning}
-        </InfoNote>
-      ) : null}
-      <InfoNote tone="blue">
-        <span>Lịch lễ/Tết và ngày nghỉ được quản lý tại </span>
-        <Link
-          href="/settings?view=schedules"
-          className="font-semibold text-blue-700 underline underline-offset-2 hover:text-blue-900"
-        >
-          Phân ca
-        </Link>
-        <span>. Danh sách dưới đây chỉ để tham khảo.</span>
-      </InfoNote>
-      <ListCard
-        title="Lịch ngày làm / OFF / lễ"
-        description={`${rows.length} ngày đã khai báo`}
-        toolbar={
-          <>
-            <SearchBox
-              value={search}
-              onChange={setSearch}
-              placeholder="Tìm theo ngày, tên hoặc loại ngày"
-              label="Tìm lịch làm việc"
-            />
-            <FilterSelect
-              label="Lọc theo loại ngày"
-              value={kind}
-              onChange={(next) => {
-                setKind(next);
-                paged.setPage(1);
-              }}
-              options={[
-                { value: 'ALL', label: 'Tất cả loại ngày' },
-                ...Object.entries(DAY_KIND_LABELS).map(([value, label]) => ({ value, label })),
-              ]}
-            />
-          </>
-        }
-      >
-        {rows.length === 0 ? (
-          <EmptyPanel
-            icon={CalendarDays}
-            title="Chưa có ngày nào trong lịch"
-            description="Ngày làm, ngày OFF và ngày lễ được khai báo tại Phân ca."
-          />
-        ) : filtered.length === 0 ? (
-          <EmptyPanel icon={Search} title="Không có ngày nào khớp" description="Thử đổi từ khóa hoặc bộ lọc." />
-        ) : (
-          <>
-            <ResponsiveList
-              label="Lịch làm việc"
-              rows={paged.pageRows}
-              rowKey={(r) => r.id}
-              columns={CALENDAR_COLUMNS}
-              gridClass="@2xl:grid-cols-[7rem_minmax(0,1fr)_8rem_7rem]"
-            />
-            <Pager paged={paged} sizeChanger />
-          </>
-        )}
-      </ListCard>
     </div>
   );
 }
@@ -330,127 +211,5 @@ export function SitesPanel({
         </>
       )}
     </ListCard>
-  );
-}
-
-/** Thiết bị chấm công đã đăng ký: duyệt (thu hồi thiết bị cũ của nhân viên) và thu hồi, xác nhận tại chỗ bằng Popconfirm. */
-export function DevicesPanel({
-  rows,
-  busy,
-  onApprove,
-  onRevoke,
-}: {
-  rows: Settings['devices'];
-  busy: boolean;
-  onApprove: (device: DeviceRow) => void | Promise<void>;
-  onRevoke: (device: DeviceRow) => void | Promise<void>;
-}) {
-  const [search, setSearch] = useState('');
-  const [status, setStatus] = useState('ALL');
-  const filtered = useMemo(() => filterDevices(rows, search, status), [rows, search, status]);
-  const paged = usePaged(filtered, 10);
-  const columns: ListColumn<DeviceRow>[] = [
-    {
-      id: 'employee',
-      header: 'Nhân viên',
-      primary: true,
-      cell: (r) => <span className="text-sm font-semibold text-slate-900 @2xl:text-xs">{r.full_name}</span>,
-    },
-    { id: 'device', header: 'Thiết bị', cell: (r) => r.name },
-    {
-      id: 'status',
-      header: 'Trạng thái',
-      cell: (r) => (
-        <StatusPill tone={DEVICE_TONE[r.status] ?? 'slate'}>
-          {DEVICE_STATUS_LABELS[r.status] ?? r.status}
-        </StatusPill>
-      ),
-    },
-    {
-      id: 'actions',
-      header: 'Thao tác',
-      actions: 'inline',
-      cell: (device) => (
-        <>
-          {device.status === 'PENDING' && (
-            <Popconfirm
-              title="Duyệt thiết bị mới và thu hồi thiết bị cũ?"
-              onConfirm={() => onApprove(device)}
-            >
-              <Button permission="hrm.device.manage" size="sm" disabled={busy} className="h-9 px-3 @2xl:h-8">
-                Duyệt
-              </Button>
-            </Popconfirm>
-          )}
-          {device.status !== 'REVOKED' && (
-            <Popconfirm title="Thu hồi thiết bị chấm công?" onConfirm={() => onRevoke(device)}>
-              <Button
-                permission="hrm.device.manage"
-                size="sm"
-                variant="outline"
-                disabled={busy}
-                className="h-9 px-3 @2xl:h-8"
-              >
-                Thu hồi
-              </Button>
-            </Popconfirm>
-          )}
-        </>
-      ),
-    },
-  ];
-  return (
-    <div className="space-y-3">
-      <InfoNote tone="slate">
-        Duyệt thiết bị mới sẽ thu hồi thiết bị đang hoạt động của nhân viên; định danh gắn với trình duyệt đã đăng ký.
-      </InfoNote>
-      <ListCard
-        title="Thiết bị đăng ký"
-        description={`${rows.length} thiết bị`}
-        toolbar={
-          <>
-            <SearchBox
-              value={search}
-              onChange={setSearch}
-              placeholder="Tìm theo nhân viên, thiết bị hoặc trạng thái"
-              label="Tìm thiết bị chấm công"
-            />
-            <FilterSelect
-              label="Lọc theo trạng thái"
-              value={status}
-              onChange={(next) => {
-                setStatus(next);
-                paged.setPage(1);
-              }}
-              options={[
-                { value: 'ALL', label: 'Tất cả trạng thái' },
-                ...Object.entries(DEVICE_STATUS_LABELS).map(([value, label]) => ({ value, label })),
-              ]}
-            />
-          </>
-        }
-      >
-        {rows.length === 0 ? (
-          <EmptyPanel
-            icon={Smartphone}
-            title="Chưa có thiết bị nào đăng ký"
-            description="Thiết bị xuất hiện ở đây khi nhân viên đăng ký trình duyệt chấm công."
-          />
-        ) : filtered.length === 0 ? (
-          <EmptyPanel icon={Search} title="Không có thiết bị nào khớp" description="Thử đổi từ khóa hoặc bộ lọc." />
-        ) : (
-          <>
-            <ResponsiveList
-              label="Thiết bị chấm công"
-              rows={paged.pageRows}
-              rowKey={(r) => r.id}
-              columns={columns}
-              gridClass="@2xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_7rem_12rem]"
-            />
-            <Pager paged={paged} sizeChanger />
-          </>
-        )}
-      </ListCard>
-    </div>
   );
 }

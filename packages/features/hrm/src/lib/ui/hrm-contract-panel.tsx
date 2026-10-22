@@ -5,6 +5,7 @@ import { Table } from 'antd';
 import { Popconfirm } from '@enterprise-platform/shared-ui';
 import type { HrmEmploymentContract } from '@enterprise-platform/contracts-hrm';
 import { hrmFetch } from '../hrm-api';
+import { STAGED_NOTICE, type HrmStageChange } from './hrm-staged-change';
 import { Button } from './button';
 import {
   HrmActionDialog,
@@ -115,11 +116,17 @@ export function HrmContractPanel({
   rows,
   onChanged,
   readOnly = false,
+  onStage,
+  stagedCodes = [],
 }: {
   employeeId: string;
   rows: HrmEmploymentContract[];
   onChanged: (rows: HrmEmploymentContract[]) => void;
   readOnly?: boolean;
+  /** Có truyền: thao tác chỉ được xếp hàng, chưa gọi API cho tới khi xác nhận lưu. */
+  onStage?: HrmStageChange;
+  /** Số hợp đồng đã xếp hàng chờ lưu (kiểm trùng cùng với danh sách hiện có). */
+  stagedCodes?: string[];
 }) {
   const [action, setAction] = useState<HrmAction | null>(null);
   const [loading, setLoading] = useState(false);
@@ -154,10 +161,38 @@ export function HrmContractPanel({
     void refresh();
   }, [refresh]);
 
-  const command = async (path: string, method: string, body: unknown) => {
-    await hrmFetch(path, { method, body: JSON.stringify(body) });
+  const command = async (
+    path: string,
+    method: string,
+    body: unknown,
+    label = 'Cập nhật hợp đồng',
+    contractCode?: string,
+  ) => {
+    const run = async () => {
+      await hrmFetch(path, { method, body: JSON.stringify(body) });
+    };
+    if (onStage) {
+      onStage({ label, run, contractCode });
+      return;
+    }
+    await run();
     await refresh();
   };
+  // Báo trùng ngay trong hộp thoại thay vì chờ máy chủ từ chối lúc lưu.
+  const assertCodeFree = (code: string, selfId?: string) => {
+    const normalized = code.trim().toLowerCase();
+    if (!normalized) return;
+    const clash =
+      contracts.some(
+        (c) => c.id !== selfId && c.contractCode.trim().toLowerCase() === normalized,
+      ) || stagedCodes.some((c) => c.trim().toLowerCase() === normalized);
+    if (clash)
+      throw new Error(
+        `Số hợp đồng "${code.trim()}" đã tồn tại. Nhập số khác để tiếp tục.`,
+      );
+  };
+  const done = (message: string) =>
+    toast.success(onStage ? STAGED_NOTICE : message);
 
   const createContract = (row?: HrmEmploymentContract) =>
     setAction({
@@ -165,6 +200,7 @@ export function HrmContractPanel({
       columns: 2,
       fields: fields(row),
       submit: async (v) => {
+        assertCodeFree(v['contractCode'] ?? '', row?.id);
         await command(
           row ? `/contracts/${row.id}` : `/employees/${employeeId}/contracts`,
           row ? 'PATCH' : 'POST',
@@ -173,8 +209,10 @@ export function HrmContractPanel({
             status: 'ACTIVE',
             ...(row ? { expectedUpdatedAt: row.updatedAt } : {}),
           },
+          `${row ? 'Cập nhật' : 'Thêm'} hợp đồng ${v['contractCode']?.trim()}`,
+          v['contractCode']?.trim(),
         );
-        toast.success(row ? 'Đã cập nhật hợp đồng' : 'Đã tạo hợp đồng lao động mới');
+        done(row ? 'Đã cập nhật hợp đồng' : 'Đã tạo hợp đồng lao động mới');
       },
     });
 
@@ -228,12 +266,19 @@ export function HrmContractPanel({
         },
       ],
       submit: async (v) => {
-        await command(`/contracts/${row.id}/amendments`, 'POST', {
-          ...payload(v),
-          contractType: 'AMENDMENT',
-          expectedUpdatedAt: row.updatedAt,
-        });
-        toast.success('Đã tạo phụ lục hợp đồng thành công');
+        assertCodeFree(v['contractCode'] ?? '');
+        await command(
+          `/contracts/${row.id}/amendments`,
+          'POST',
+          {
+            ...payload(v),
+            contractType: 'AMENDMENT',
+            expectedUpdatedAt: row.updatedAt,
+          },
+          `Lập phụ lục ${v['contractCode']?.trim()}`,
+          v['contractCode']?.trim(),
+        );
+        done('Đã tạo phụ lục hợp đồng thành công');
       },
     });
 
@@ -251,7 +296,7 @@ export function HrmContractPanel({
           ...v,
           expectedUpdatedAt: row.updatedAt,
         });
-        toast.success('Đã ghi nhận chấm dứt hợp đồng');
+        done('Đã ghi nhận chấm dứt hợp đồng');
       },
     });
 
@@ -449,8 +494,9 @@ export function HrmContractPanel({
                                   `/contracts/${r.id}/activate`,
                                   'POST',
                                   { expectedUpdatedAt: r.updatedAt },
+                                  `Ban hành hợp đồng ${r.contractCode}`,
                                 );
-                                toast.success('Đã ban hành hợp đồng thành công');
+                                done('Đã ban hành hợp đồng thành công');
                               } catch (e) {
                                 toast.error(
                                   e instanceof Error ? e.message : 'Không thể ban hành',
@@ -471,10 +517,13 @@ export function HrmContractPanel({
                             okText="Xóa"
                             onConfirm={async () => {
                               try {
-                                await command(`/contracts/${r.id}`, 'DELETE', {
-                                  expectedUpdatedAt: r.updatedAt,
-                                });
-                                toast.success('Đã xóa hợp đồng nháp');
+                                await command(
+                                  `/contracts/${r.id}`,
+                                  'DELETE',
+                                  { expectedUpdatedAt: r.updatedAt },
+                                  `Xóa hợp đồng nháp ${r.contractCode}`,
+                                );
+                                done('Đã xóa hợp đồng nháp');
                               } catch (e) {
                                 toast.error(
                                   e instanceof Error ? e.message : 'Không thể xóa',

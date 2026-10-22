@@ -57,7 +57,6 @@ const screens = {
 const ADMIN = [
   'hrm.leave.manage',
   'hrm.time.configure',
-  'hrm.device.manage',
   'hrm.schedule.read',
   'hrm.shift.read',
   'hrm.payroll.configure',
@@ -85,7 +84,7 @@ describe('SettingsCenter', () => {
     expect(screen.getByRole('heading', { name: 'Trung tâm cấu hình HRM' })).toBeTruthy();
     for (const id of ['leave', 'time', 'schedule', 'request', 'payroll', 'system'])
       expect(screen.getByTestId(`settings-group-${id}`)).toBeTruthy();
-    expect(screen.getByTestId('settings-count').textContent).toContain('12 mục cấu hình');
+    expect(screen.getByTestId('settings-count').textContent).toContain('10 mục cấu hình');
     expect(screen.getByRole('link', { name: /Lịch sử thay đổi/ }).getAttribute('href')).toBe('/settings?view=operations&tab=audit');
     expect(within(screen.getByTestId('settings-group-time')).getByRole('link', { name: /Địa điểm GPS/ }).getAttribute('href')).toBe(
       '/settings?view=time&tab=sites',
@@ -111,14 +110,13 @@ describe('SettingsCenter', () => {
     expect(screen.getByRole('link', { name: 'Chính sách phép năm' }).getAttribute('aria-current')).toBe('page');
   });
 
-  it('ẩn mục không có quyền: chỉ quyền thiết bị thì chỉ còn mục Thiết bị trong nhóm chấm công', () => {
-    mockActions = ['hrm.device.manage'];
+  it('ẩn mục không có quyền: chỉ quyền cấu hình công thì chỉ còn các mục chấm công', () => {
+    mockActions = ['hrm.time.configure'];
     render(<SettingsCenter screens={screens} />);
     const nav = screen.getByRole('navigation', { name: 'Mục cấu hình' });
-    expect(within(nav).getByRole('link', { name: 'Thiết bị' })).toBeTruthy();
-    expect(within(nav).queryByRole('link', { name: 'Quy định chấm công' })).toBeNull();
+    expect(within(nav).getByRole('link', { name: 'Quy định chấm công' })).toBeTruthy();
+    expect(within(nav).queryByRole('link', { name: 'Thiết bị' })).toBeNull();
     expect(within(nav).queryByRole('link', { name: 'Lương & OT' })).toBeNull();
-    expect(screen.getByTestId('settings-count').textContent).toContain('1 mục cấu hình');
     expect(screen.queryByTestId('settings-group-payroll')).toBeNull();
     expect(screen.queryByRole('link', { name: /Lịch sử thay đổi/ })).toBeNull();
   });
@@ -146,7 +144,7 @@ describe('SettingsCenter', () => {
     fireEvent.change(screen.getByLabelText('Tìm nhanh cấu hình'), { target: { value: 'luong' } });
     expect(screen.getByTestId('settings-group-payroll')).toBeTruthy();
     expect(screen.queryByTestId('settings-group-time')).toBeNull();
-    expect(screen.getByTestId('settings-count').textContent).toContain('12 mục cấu hình');
+    expect(screen.getByTestId('settings-count').textContent).toContain('10 mục cấu hình');
   });
   it('thu gọn và mở lại từng nhóm trong thanh bên; nhóm chứa mục đang mở không thu gọn được', () => {
     mockView = 'time';

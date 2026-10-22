@@ -52,7 +52,6 @@ const events = [
     occurred_at: `${range.from}T10:00:00Z`,
     event_kind: 'OUT',
     source: 'WEB',
-    device_id: null,
     evidence: {},
     voided_by_correction_id: 'c1',
   },
@@ -62,7 +61,6 @@ const events = [
     occurred_at: `${range.from}T01:05:00Z`,
     event_kind: 'IN',
     source: 'WEB',
-    device_id: 'dev-77',
     evidence: { ip: '10.1.1.9', siteSnapshot: { name: 'Trụ sở chính' }, latitude: 10.5, longitude: 106.7 },
     voided_by_correction_id: null,
   },
@@ -154,7 +152,6 @@ describe('AttendanceDataScreen', () => {
     expect(within(items[0]).getByText('10.1.1.9')).toBeTruthy();
     expect(within(items[0]).getByText('Trụ sở chính')).toBeTruthy();
     expect(within(items[0]).getByText('10.5, 106.7')).toBeTruthy();
-    expect(within(items[0]).getByText('dev-77')).toBeTruthy();
     expect(within(items[1]).getByText('đã hủy bởi giải trình')).toBeTruthy();
   });
 

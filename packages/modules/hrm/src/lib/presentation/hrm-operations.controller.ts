@@ -1,5 +1,8 @@
 import { workflowProgressFilter } from '../infrastructure/hrm-workflow-filter.js';
-import { procedureProgressSchemaReady } from '../infrastructure/hrm-procedure-progress.js';
+import {
+  hasApprovalProgressed,
+  procedureProgressSchemaReady,
+} from '../infrastructure/hrm-procedure-progress.js';
 import {
   resolveShiftRow,
 } from '../infrastructure/hrm-shift-resolution.js';
@@ -45,6 +48,7 @@ import {
 import { initialProcedureAttributes } from '../infrastructure/hrm-procedure-bridge.service.js';
 import { loadSubtypeCatalog } from '../infrastructure/hrm-subtype-catalog.js';
 import {
+  fetchProcedureProgress,
   fetchPublishedProcedureDefinition,
   procedureUnavailable,
 } from '../infrastructure/hrm-procedure-api.js';
@@ -260,6 +264,15 @@ export class HrmOperationsController {
       return { data: { withdrawn: true } };
     });
     if ('link' in outcome) {
+      // Kiểm tra ngoài giao dịch DB vì phải gọi API nội bộ của Procedure.
+      const progress = await fetchProcedureProgress(
+        tenantId,
+        outcome.link.instance_id,
+      );
+      if (hasApprovalProgressed(progress))
+        throw new ConflictException(
+          'Đơn đã được duyệt qua ít nhất một bước nên không thể rút. Liên hệ người duyệt nếu cần xử lý lại.',
+        );
       const link = await this.bridge.applyAction(
         req,
         {

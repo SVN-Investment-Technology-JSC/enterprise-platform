@@ -284,7 +284,7 @@ export default function RequestsPage() {
   const [waitStep, setWaitStep] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [filterKind, setFilterKind] = useState<string>('ALL');
-  const [filterStatus, setFilterStatus] = useState<RequestStatusFilter>('ALL');
+  const [filterStatus, setFilterStatus] = useState<RequestStatusFilter>('PENDING');
   /** Tháng đang xem (theo ngày tạo đơn); null là mọi tháng. */
   const [listMonth, setListMonth] = useState<string | null>(() => currentMonthVn());
 
@@ -968,6 +968,8 @@ export default function RequestsPage() {
   const baseFiltered = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     return requestsList.filter((item) => {
+      // Đơn đã rút/hủy không cần theo dõi tiếp: ẩn khỏi bảng và số trên tab (dữ liệu vẫn giữ), giống trang duyệt đơn.
+      if (item.requestStatus === 'CANCELLED') return false;
       if (!inMonth(item, listMonth)) return false;
       const matchSearch =
         !q ||
@@ -1644,6 +1646,7 @@ export default function RequestsPage() {
               lastError={selectedProcedure.lastError}
               fallbackStepName={selectedProcedure.currentStepName}
               fallbackAssigneeName={selectedProcedure.currentAssigneeName}
+              showWaitingLabel={false}
               emptyFallback={workflowFallback}
             />
           }
@@ -2189,6 +2192,7 @@ export default function RequestsPage() {
               lastError={selectedProcedure.lastError}
               fallbackStepName={selectedProcedure.currentStepName}
               fallbackAssigneeName={selectedProcedure.currentAssigneeName}
+              showWaitingLabel={false}
               emptyFallback={
                 workflowFallback
               }
