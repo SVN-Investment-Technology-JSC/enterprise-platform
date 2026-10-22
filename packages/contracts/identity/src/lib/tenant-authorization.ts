@@ -500,6 +500,11 @@ export const TENANT_PERMISSION_ACTIONS = [
   { key: 'workspace.document.write', group: 'Workspace', label: 'Ghi tài liệu' },
   { key: 'workspace.document.delete', group: 'Workspace', label: 'Xoá và lưu trữ tài liệu' },
   { key: 'workspace.project.create', group: 'Workspace', label: 'Tạo dự án mới' },
+  {
+    key: 'workspace.project.admin',
+    group: 'Workspace',
+    label: 'Xem và thao tác toàn bộ dự án',
+  },
   ...FINANCE_PERMISSION_ACTIONS,
   { key: 'shared.read', group: 'Hệ dùng chung', label: 'Xem tài liệu công ty' },
   { key: 'shared.manage', group: 'Hệ dùng chung', label: 'Quản trị kho tài liệu công ty' },
@@ -591,6 +596,9 @@ export const TENANT_ACTION_IMPLIES: Readonly<Record<string, readonly string[]>> 
     'workspace.task.write',
     'workspace.document.write',
   ],
+  // Xem và thao tác mọi dự án (kể cả dự án mình không là thành viên): cần xem được module và ghi
+  // công việc. Cố ý không gồm quyền tài liệu, `workspace.project.create` hay `workspace.manage`.
+  'workspace.project.admin': ['workspace.read', 'workspace.task.write'],
   // Toàn quyền nghiệp vụ Tài chính: gồm mọi action còn lại của module.
   'finance.manage': FINANCE_PERMISSION_ACTIONS.map((a) => a.key as string).filter(
     (key) => key !== 'finance.manage',

@@ -47,6 +47,7 @@ import {
   hasProjectRole,
   requireProjectPermission,
   requireProjectRole,
+  seesAllProjects,
   type ProjectService,
 } from './project.service.js';
 import { timezoneOf, todayKey } from '../domain/tenant-time.js';
@@ -86,7 +87,7 @@ export class WorkItemService {
   async recentTitles(actor: WorkspaceActor): Promise<readonly string[]> {
     return this.store.workItem.recentTitles(
       actor.tenantId,
-      actor.isTenantAdmin ? undefined : actor.userId,
+      seesAllProjects(actor) ? undefined : actor.userId,
       RECENT_TITLE_LIMIT,
     );
   }
