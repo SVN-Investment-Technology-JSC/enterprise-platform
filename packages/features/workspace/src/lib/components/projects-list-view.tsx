@@ -202,9 +202,10 @@ export function ProjectsListView({
   const closeProject = useCallback(
     async (projectId: string) => {
       try {
-        await api.updateProject(projectId, { status: 'completed' });
+        // Đóng hồ sơ chỉ đưa vào Lưu trữ, không đổi trạng thái dự án.
+        await api.archiveProject(projectId);
         setError(undefined);
-        setNotice('Đã đóng hồ sơ; dự án đã chuyển vào Lưu trữ.');
+        setNotice('Đã đóng hồ sơ; dự án đã chuyển vào Lưu trữ, trạng thái giữ nguyên.');
         await reload();
         onProjectsChanged?.();
       } catch (cause) {
@@ -676,7 +677,7 @@ function GroupRows({
                 {project.archivedAt ? (
                   <Confirm
                     title="Bạn có chắc chắn muốn mở lưu trữ dự án này?"
-                    description="Dự án về lại trạng thái Đang chạy để thêm công việc; khi đóng hồ sơ lần nữa sẽ tự vào lưu trữ."
+                    description="Dự án về lại danh sách đang làm để thêm công việc. Dự án đang Hoàn thành thì chuyển về Đang chạy; trạng thái khác giữ nguyên."
                     okText="Mở lưu trữ"
                     onConfirm={() => onUnarchive(project.id)}
                   >
@@ -687,7 +688,7 @@ function GroupRows({
                 ) : closable ? (
                   <Confirm
                     title="Bạn có chắc chắn muốn đóng hồ sơ dự án này?"
-                    description="Dự án chuyển sang Hoàn thành và tự vào Lưu trữ. Chỉ đóng được khi mọi công việc đã hoàn thành hoặc đã huỷ."
+                    description="Dự án vào Lưu trữ, trạng thái giữ nguyên. Đóng được cả khi còn công việc chưa xong; mở lại bằng Mở lưu trữ."
                     okText="Đóng hồ sơ"
                     okType="warning"
                     onConfirm={() => onClose(project.id)}

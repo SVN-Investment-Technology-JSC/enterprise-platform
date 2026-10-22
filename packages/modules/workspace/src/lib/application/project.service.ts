@@ -1,4 +1,5 @@
 import {
+  CLOSED_WORK_ITEM_STATUSES,
   DEFAULT_ROLE_PERMISSIONS,
   PROJECT_CODE_PATTERN,
   PROJECT_PERMISSION_LABELS,
@@ -8,15 +9,18 @@ import {
   type CreateProjectRequest,
   type Paged,
   type Project,
+  type ProjectArchiveSettings,
   type ProjectMember,
   type ProjectPermission,
   type ProjectRole,
   type ProjectStatus,
   type ProjectSummary,
   type ProjectTypeOption,
+  type SaveProjectArchiveSettingsRequest,
   type SetProjectMembersRequest,
   type SystemProjectRole,
   type UpdateProjectRequest,
+  type WorkItemStatus,
 } from '@enterprise-platform/contracts-workspace';
 import {
   ProjectCodeConflictError,
@@ -38,6 +42,8 @@ import type { WorkspaceStore } from './workspace-store.port.js';
 const DEFAULT_PAGE_SIZE = 30;
 const MAX_PAGE_SIZE = 60;
 
+/** Khoá của tuỳ chọn "tự đóng hồ sơ" trong `workspace_settings`. Mặc định tắt. */
+const AUTO_ARCHIVE_KEY = 'project_auto_archive';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
@@ -376,13 +382,81 @@ export class ProjectService {
    * Mở lưu trữ: dự án đã hoàn thành về lại "Đang chạy" để thêm công việc; dấu lưu trữ tự bỏ theo trạng
    * thái. Cùng quyền với đổi trạng thái dự án.
    */
+  /**
+   * Đóng hồ sơ thủ công: đưa dự án vào Lưu trữ, GIỮ NGUYÊN trạng thái. Đóng được cả khi còn công việc chưa xong —
+   * người có quyền tự quyết; tự đóng khi mọi việc đã xong là tuỳ chọn riêng ở Cài đặt (`autoArchiveIfDone`).
+   */
+  async archive(actor: WorkspaceActor, projectId: string): Promise<Project> {
+    const access = await this.access(actor, projectId);
+    requireProjectPermission(access, 'project.update_status');
+    if (access.project.archivedAt) {
+      throw new WorkspaceValidationError('Dự án này đã nằm trong lưu trữ.');
+    }
+    return this.store.project.setArchived(actor.tenantId, projectId, true);
+  }
+
+  /** Cài đặt đóng hồ sơ: ai cũng đọc được, quản trị (canManage hoặc quản trị tenant) sửa. */
+  async archiveSettings(actor: WorkspaceActor): Promise<ProjectArchiveSettings> {
+    return {
+      autoArchive: await this.autoArchiveEnabled(actor.tenantId),
+      canEdit: actor.canManage || actor.isTenantAdmin,
+    };
+  }
+
+  async saveArchiveSettings(
+    actor: WorkspaceActor,
+    input: SaveProjectArchiveSettingsRequest,
+  ): Promise<ProjectArchiveSettings> {
+    if (!(actor.canManage || actor.isTenantAdmin)) throw new ProjectForbiddenError();
+    if (typeof input?.autoArchive !== 'boolean') {
+      throw new WorkspaceValidationError('Chọn Có hoặc Không cho "Tự đóng hồ sơ".');
+    }
+    await this.store.settings.set(
+      actor.tenantId,
+      AUTO_ARCHIVE_KEY,
+      { enabled: input.autoArchive },
+      actor.userId,
+    );
+    return this.archiveSettings(actor);
+  }
+
+  /**
+   * Tự đóng hồ sơ khi mọi công việc của dự án đã hoàn thành hoặc đã huỷ, nếu tenant bật tuỳ chọn này. Gọi sau mỗi
+   * lần tính lại tiến độ, với trạng thái hiện tại của mọi công việc. Dự án chưa có công việc, đã lưu trữ hay đã
+   * huỷ thì không đụng tới; trạng thái dự án giữ nguyên.
+   */
+  async autoArchiveIfDone(
+    tenantId: string,
+    projectId: string,
+    statuses: readonly string[],
+  ): Promise<void> {
+    if (statuses.length === 0) return;
+    if (statuses.some((status) => !CLOSED_WORK_ITEM_STATUSES.includes(status as WorkItemStatus))) return;
+    if (!(await this.autoArchiveEnabled(tenantId))) return;
+    const project = await this.store.project.findById(tenantId, projectId);
+    if (!project || project.archivedAt || project.status === 'cancelled') return;
+    await this.store.project.setArchived(tenantId, projectId, true);
+  }
+
+  private async autoArchiveEnabled(tenantId: string): Promise<boolean> {
+    const value = (await this.store.settings.get(tenantId, AUTO_ARCHIVE_KEY)) as { enabled?: unknown } | undefined;
+    return value?.enabled === true;
+  }
+
+  /**
+   * Mở lưu trữ: dự án về danh sách đang làm. Dự án đã Hoàn thành thì về "Đang chạy" để thêm công việc; dự án
+   * đóng hồ sơ thủ công thì giữ nguyên trạng thái của nó.
+   */
   async unarchive(actor: WorkspaceActor, projectId: string): Promise<Project> {
     const access = await this.access(actor, projectId);
     requireProjectPermission(access, 'project.update_status');
     if (!access.project.archivedAt) {
       throw new WorkspaceValidationError('Dự án này không nằm trong lưu trữ.');
     }
-    return this.store.project.update(actor.tenantId, projectId, { status: 'active' }, actor.userId);
+    if (access.project.status === 'completed') {
+      return this.store.project.update(actor.tenantId, projectId, { status: 'active' }, actor.userId);
+    }
+    return this.store.project.setArchived(actor.tenantId, projectId, false);
   }
 
   /** Huỷ dự án: chuyển trạng thái, không xoá dòng. Lịch sử phải giữ lại. */

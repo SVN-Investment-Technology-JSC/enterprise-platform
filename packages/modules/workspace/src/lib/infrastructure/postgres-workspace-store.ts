@@ -942,6 +942,21 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
       });
     },
 
+    setArchived: async (tenantId: string, projectId: string, archived: boolean): Promise<Project> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `UPDATE workspace_schema.projects
+            SET archived_at = CASE WHEN $2::boolean THEN COALESCE(archived_at, now()) END,
+                updated_at = now()
+          WHERE id = $1
+          RETURNING ${PROJECT_COLUMNS}`,
+        [projectId, archived],
+      );
+      if (!result.rows[0]) throw new ProjectNotFoundError(projectId);
+      const [project] = await withProjectTags(pool, [mapProject(result.rows[0])]);
+      return project as Project;
+    },
+
     updateProgress: async (tenantId: string, projectId: string, percent: number) => {
       const pool = await this.poolFor(tenantId);
       await pool.query(

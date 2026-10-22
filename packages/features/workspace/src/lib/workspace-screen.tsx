@@ -40,6 +40,7 @@ import { QuickSearch, type QuickSearchTarget } from './components/quick-search';
 import { ReportsView } from './components/reports-view';
 import { ProjectGroupSettings } from './components/project-group-settings';
 import { ProjectCodeSettings } from './components/project-code-settings';
+import { ProjectArchiveSettings } from './components/project-archive-settings';
 import { ProjectRoleSettings } from './components/project-role-settings';
 import { TagSettings } from './components/tag-settings';
 import { ProjectsView } from './components/projects-view';
@@ -134,6 +135,13 @@ const SETTINGS_SECTIONS = [
     description:
       'Quy tắc sinh mã cho dự án mới, ví dụ DA_{NHOM}_{SO:4} → DA_DVTN_0001 hoặc DA_{NAM}_{SO:3} → DA_2026_001. Mã do hệ thống cấp khi tạo dự án.',
     render: () => <ProjectCodeSettings />,
+  },
+  {
+    id: 'project-archive',
+    label: 'Đóng hồ sơ dự án',
+    description:
+      'Tự đóng hồ sơ (đưa vào Lưu trữ) khi mọi công việc của dự án đã hoàn thành hoặc đã huỷ. Đóng hồ sơ thủ công luôn dùng được.',
+    render: () => <ProjectArchiveSettings />,
   },
   {
     id: 'tags',

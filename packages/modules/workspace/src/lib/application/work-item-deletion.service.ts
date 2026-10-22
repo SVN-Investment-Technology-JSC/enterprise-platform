@@ -112,5 +112,11 @@ export class WorkItemDeletionService {
       progressPercent: changed.get(node.id) ?? node.progressPercent,
     }));
     await this.store.project.updateProgress(tenantId, projectId, projectProgress(updated));
+    // Xoá việc cuối còn mở cũng làm mọi việc còn lại đã xong: tự đóng hồ sơ nếu tenant bật tuỳ chọn.
+    await this.projects.autoArchiveIfDone(
+      tenantId,
+      projectId,
+      updated.map((node) => node.status),
+    );
   }
 }

@@ -347,6 +347,17 @@ export interface SaveProjectGroupRequest {
   readonly code?: string;
 }
 
+/** Cài đặt đóng hồ sơ dự án (Cài đặt > Đóng hồ sơ dự án). */
+export interface ProjectArchiveSettings {
+  /** Tự đóng hồ sơ (đưa vào Lưu trữ) khi mọi công việc của dự án đã hoàn thành hoặc đã huỷ. */
+  readonly autoArchive: boolean;
+  readonly canEdit: boolean;
+}
+
+export interface SaveProjectArchiveSettingsRequest {
+  readonly autoArchive: boolean;
+}
+
 export interface SetProjectMembersRequest {
   readonly members: readonly { readonly userId: string; readonly role: ProjectRole }[];
 }

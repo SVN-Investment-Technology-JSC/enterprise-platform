@@ -6367,3 +6367,21 @@ button.kpiCard {
     outline: none;
   }
 }
+
+/* Nhóm lựa chọn Có / Không ở trang Cài đặt. */
+.choiceGroup {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 20px;
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--ep-border);
+  border-radius: var(--ep-radius);
+
+  legend {
+    padding: 0 4px;
+    font-size: 13px;
+    font-weight: 600;
+  }
+}

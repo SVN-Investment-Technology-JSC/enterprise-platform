@@ -43,6 +43,7 @@ import type {
   ReverseWorkItemRequest,
   ReverseProjectRequestRequest,
   RespondToEventRequest,
+  SaveProjectArchiveSettingsRequest,
   SaveProjectCodeRuleRequest,
   SaveProjectGroupRequest,
   SaveProjectRoleRequest,
@@ -207,7 +208,27 @@ export class WorkspaceController {
     );
   }
 
-  /** Mở lưu trữ dự án đã hoàn thành: dự án về "Đang chạy" để thêm công việc. */
+  /** Cài đặt đóng hồ sơ (Cài đặt > Đóng hồ sơ dự án): tự đóng khi mọi công việc đã xong. */
+  @Get('project-archive-settings')
+  projectArchiveSettings(@Req() request: WorkspaceRequest) {
+    return this.execute(() => this.projects.archiveSettings(this.actor(request)));
+  }
+
+  @Put('project-archive-settings')
+  saveProjectArchiveSettings(
+    @Req() request: WorkspaceRequest,
+    @Body() body: SaveProjectArchiveSettingsRequest,
+  ) {
+    return this.execute(() => this.projects.saveArchiveSettings(this.actor(request), body));
+  }
+
+  /** Đóng hồ sơ thủ công: vào Lưu trữ, giữ nguyên trạng thái. */
+  @Post('projects/:id/archive')
+  archiveProject(@Req() request: WorkspaceRequest, @Param('id') id: string) {
+    return this.execute(() => this.projects.archive(this.actor(request), id));
+  }
+
+  /** Mở lưu trữ: dự án về danh sách đang làm; dự án đã Hoàn thành thì về "Đang chạy". */
   @Post('projects/:id/unarchive')
   @HttpCode(200)
   unarchiveProject(@Req() request: WorkspaceRequest, @Param('id') id: string) {

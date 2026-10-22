@@ -61,6 +61,7 @@ import type {
   ProjectFinance,
   ProjectMember,
   ProjectSummary,
+  ProjectArchiveSettings,
   ProjectCodePreview,
   ProjectCodeSettings,
   ProjectTypeOption,
@@ -96,6 +97,7 @@ import type {
   ProjectRoleList,
   SaveProjectRoleRequest,
   ProjectGroupList,
+  SaveProjectArchiveSettingsRequest,
   SaveProjectCodeRuleRequest,
   SaveProjectGroupRequest,
   FleetAvailabilityView,
@@ -212,7 +214,18 @@ export async function listAllProjects(
   return items;
 }
 
-/** Mở lưu trữ dự án đã hoàn thành: dự án về "Đang chạy" để thêm công việc. */
+/** Cài đặt đóng hồ sơ: tự đóng khi mọi công việc đã xong (Có / Không). */
+export const loadProjectArchiveSettings = () =>
+  request<ProjectArchiveSettings>('/project-archive-settings', { cache: 'no-store' });
+
+export const saveProjectArchiveSettings = (body: SaveProjectArchiveSettingsRequest) =>
+  request<ProjectArchiveSettings>('/project-archive-settings', { method: 'PUT', body: JSON.stringify(body) });
+
+/** Đóng hồ sơ thủ công: dự án vào Lưu trữ, giữ nguyên trạng thái. */
+export const archiveProject = (id: string) =>
+  request<ProjectSummary>(`/projects/${id}/archive`, { method: 'POST' });
+
+/** Mở lưu trữ: dự án về danh sách đang làm; dự án đã Hoàn thành thì về "Đang chạy". */
 export const unarchiveProject = (id: string) =>
   request<ProjectSummary>(`/projects/${id}/unarchive`, { method: 'POST' });
 

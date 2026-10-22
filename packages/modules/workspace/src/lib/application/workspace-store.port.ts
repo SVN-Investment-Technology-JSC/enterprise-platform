@@ -372,6 +372,8 @@ export interface WorkspaceStore {
       actorUserId?: string,
     ): Promise<Project>;
     updateProgress(tenantId: string, projectId: string, percent: number): Promise<void>;
+    /** Đưa dự án vào / ra khỏi Lưu trữ mà không đổi trạng thái (đóng hồ sơ thủ công, mở lưu trữ). */
+    setArchived(tenantId: string, projectId: string, archived: boolean): Promise<Project>;
   };
 
   readonly member: {

@@ -807,6 +807,12 @@ export class WorkItemService {
         : (changed.get(node.id) ?? node.progressPercent),
     }));
     await this.store.project.updateProgress(actor.tenantId, projectId, projectProgress(updated));
+    // Mọi việc đã xong hoặc đã huỷ: tự đóng hồ sơ nếu tenant bật tuỳ chọn ở Cài đặt.
+    await this.projects.autoArchiveIfDone(
+      actor.tenantId,
+      projectId,
+      updated.map((node) => node.status),
+    );
   }
 }
 
