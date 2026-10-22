@@ -16,6 +16,17 @@ describe('notification routes', () => {
   it.each(['https://attacker.test', '//attacker.test', '/\\attacker.test', '/platform', '/unknown-module', 'javascript:alert(1)'])('rejects links outside the notification route allow-list: %s', (value) => {
     expect(notificationDeepLink(value)).toBeUndefined();
   });
+  it.each([
+    '/modules/social/posts/p1',
+    '/modules/social/posts/p1/comments/c1',
+    '/modules/social/groups/g1/requests',
+    // Thông báo tạo trước khi đổi sang đường dẫn vẫn mang liên kết hash cũ và vẫn phải hợp lệ.
+    '/modules/social#posts/p1',
+    '/modules/social#posts/p1/comment/c1',
+    '/modules/social#groups/g1',
+  ])('keeps the social route %s as is', (value) => {
+    expect(notificationDeepLink(value)).toBe(value);
+  });
   it('keeps an allowed module route with its query and fragment', () => {
     expect(notificationDeepLink('/modules/workspace?project=p#projects/work-item/t')).toBe('/modules/workspace?project=p#projects/work-item/t');
   });

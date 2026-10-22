@@ -89,6 +89,12 @@ export class RealtimeMetrics {
     labelNames: ['result'],
     registers: [this.registry],
   });
+  private readonly socialJoins = new Counter<'result'>({
+    name: 'realtime_social_room_joins_total',
+    help: 'Requests to join a social group room, by result (joined, denied, error).',
+    labelNames: ['result'],
+    registers: [this.registry],
+  });
   private readonly sequenceGaps = new Counter({
     name: 'realtime_sequence_gaps_total',
     help: 'Sequence gaps detected by REST synchronization.',
@@ -130,6 +136,10 @@ export class RealtimeMetrics {
 
   procedureJoin(result: 'joined' | 'denied' | 'error'): void {
     this.procedureJoins.inc({ result });
+  }
+
+  socialJoin(result: 'joined' | 'denied' | 'error'): void {
+    this.socialJoins.inc({ result });
   }
 
   sessionRevoked(): void {

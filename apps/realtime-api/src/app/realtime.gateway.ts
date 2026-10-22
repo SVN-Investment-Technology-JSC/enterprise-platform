@@ -14,6 +14,7 @@ import {
 import type { Server, Socket } from 'socket.io';
 import { RealtimeChatTyping } from './realtime-chat-typing';
 import { RealtimeProcedureRooms } from './realtime-procedure-rooms';
+import { RealtimeSocialRooms } from './realtime-social-rooms';
 import type { RealtimeAuthClient } from './realtime-runtime';
 import { REALTIME_AUTH_CLIENT } from './realtime-tokens';
 import { RealtimeMetrics } from './realtime-health';
@@ -142,6 +143,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     private readonly metrics: RealtimeMetrics = new RealtimeMetrics(),
     @Optional() private readonly typing?: RealtimeChatTyping,
     @Optional() private readonly rooms?: RealtimeProcedureRooms,
+    @Optional() private readonly socialRooms?: RealtimeSocialRooms,
   ) {}
 
   async handleConnection(client: Socket): Promise<void> {
@@ -245,6 +247,46 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     }
   }
 
+  /**
+   * Xin vào phòng tín hiệu của một nhóm Mạng nội bộ (khi người dùng mở nhóm). Payload `{ groupId }`.
+   * social-api kiểm tư cách thành viên bằng cookie của chính người đó; trả `{ ok }` làm xác nhận.
+   */
+  @SubscribeMessage('social.subscribe')
+  async handleSocialSubscribe(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() body: unknown,
+  ): Promise<{ ok: boolean }> {
+    const principal = client.data.principal as TenantUserPrincipal | undefined;
+    if (!principal || !this.socialRooms || !this.authenticatedSockets.has(client.id)) return { ok: false };
+    try {
+      const ok = await this.socialRooms.subscribe(
+        principal,
+        client,
+        headerText(client.handshake.headers.cookie),
+        body,
+      );
+      this.metrics.socialJoin(ok ? 'joined' : 'denied');
+      return { ok };
+    } catch {
+      this.metrics.socialJoin('error');
+      return { ok: false };
+    }
+  }
+
+  @SubscribeMessage('social.unsubscribe')
+  async handleSocialUnsubscribe(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() body: unknown,
+  ): Promise<void> {
+    const principal = client.data.principal as TenantUserPrincipal | undefined;
+    if (!principal || !this.socialRooms || !this.authenticatedSockets.has(client.id)) return;
+    try {
+      await this.socialRooms.unsubscribe(principal, client, body);
+    } catch {
+      // Best-effort: phòng tự dọn khi socket đóng.
+    }
+  }
+
   /** "Đang nhập" trong hồ sơ: chỉ socket đã vào phòng của hồ sơ đó; không gửi ngược lại cho chính socket đó. */
   @SubscribeMessage('procedure.typing')
   async handleProcedureTyping(
@@ -278,6 +320,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
 
   handleDisconnect(client: Socket): void {
     this.rooms?.forget(client.id);
+    this.socialRooms?.forget(client.id);
     this.typing?.forget(client.id);
     this.revalidator.unwatch(client);
     if (this.authenticatedSockets.delete(client.id)) {
