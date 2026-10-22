@@ -73,9 +73,11 @@
   flex-shrink: 0;
   align-items: center;
   gap: 8px;
-  width: 260px;
-  height: 32px;
-  padding: 0 8px 0 10px;
+  /* Rộng bằng cột phải và cao bằng thanh GooeyNav ngay cạnh. */
+  width: var(--social-rail-w);
+  align-self: stretch;
+  min-height: 42px;
+  padding: 0 12px 0 14px;
   border: 1px solid var(--ep-border-strong);
   border-radius: 999px;
   background: var(--ep-surface);
@@ -422,11 +424,14 @@
   gap: 8px;
   padding: 7px 10px 6px;
   border-bottom: 1px solid var(--ep-border);
+  /* Nền xám trung tính (cùng màu hover của GooeyNav) để tiêu đề ô tách khỏi nội dung; bo góc trên khớp khung ô. */
+  border-radius: calc(var(--ep-radius-lg) - 1px) calc(var(--ep-radius-lg) - 1px) 0 0;
+  background: rgb(24 24 27 / 6%);
 
   h2 {
     flex: 1;
     margin: 0;
-    color: var(--ep-text-muted);
+    color: var(--ep-text-sub);
     font-size: 12px;
     font-weight: 700;
     letter-spacing: 0.4px;
