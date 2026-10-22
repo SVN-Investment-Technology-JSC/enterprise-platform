@@ -1041,3 +1041,73 @@ article.postCompact {
   color: var(--ep-text-muted, #6b7280);
   font-size: 12.5px;
 }
+/* ----------------------------------------------------- người được nhắc tên */
+
+.authorLine {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 4px;
+}
+
+.mentionInline {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 4px;
+  font-size: 13.5px;
+  color: var(--ep-text-sub, #4b5563);
+}
+
+.mentionPrefix {
+  color: var(--ep-text-muted, #6b7280);
+  font-weight: 400;
+}
+
+.mentionLink {
+  color: var(--ep-text, #18181b);
+  font-weight: 600;
+  text-decoration: none;
+
+  &:hover {
+    color: var(--ep-link, #1d4ed8);
+    text-decoration: underline;
+  }
+}
+
+.mentionAllBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: var(--ep-radius-sm, 6px);
+  background: var(--ep-accent-glow, rgb(255 201 10 / 20%));
+  color: var(--ep-accent-text, #8a6400);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.mentionMoreBtn {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ep-link, #1d4ed8);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+
+  &:hover {
+    text-decoration: underline;
+  }
+}
+
+.mentionAllBanner {
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  border-radius: var(--ep-radius, 8px);
+  background: var(--ep-surface-soft, #fafbfc);
+  border: 1px solid var(--ep-border, #e5e7eb);
+  color: var(--ep-text, #18181b);
+  font-size: 13px;
+}
+

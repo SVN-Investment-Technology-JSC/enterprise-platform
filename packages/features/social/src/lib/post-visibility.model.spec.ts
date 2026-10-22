@@ -7,6 +7,7 @@ import {
   lockedToCompanyReason,
   sameIds,
   summarizeAudience,
+  summarizeMentions,
   toggleById,
   validateVisibility,
   visibilityBadgeLabel,
@@ -152,5 +153,38 @@ describe('editVersionLabel', () => {
   it('bản 1 là bản gốc', () => {
     expect(editVersionLabel(1)).toBe('Bản gốc');
     expect(editVersionLabel(3)).toBe('Bản 3');
+  });
+});
+
+describe('summarizeMentions', () => {
+  const u1 = { id: 'u1', name: 'Nguyễn Văn An' };
+  const u2 = { id: 'u2', name: 'Trần Thị Bình' };
+  const u3 = { id: 'u3', name: 'Lê Văn Cường' };
+
+  it('trả undefined khi không có nhắc ai', () => {
+    expect(summarizeMentions([])).toBeUndefined();
+    expect(summarizeMentions(undefined, false)).toBeUndefined();
+  });
+
+  it('xử lý @Tất cả', () => {
+    expect(summarizeMentions([], true)).toEqual({ summary: '@Tất cả', remaining: 0 });
+  });
+
+  it('tóm tắt 1 người', () => {
+    expect(summarizeMentions([u1])).toEqual({ summary: 'Nguyễn Văn An', remaining: 0 });
+  });
+
+  it('tóm tắt 2 người', () => {
+    expect(summarizeMentions([u1, u2])).toEqual({
+      summary: 'Nguyễn Văn An và Trần Thị Bình',
+      remaining: 0,
+    });
+  });
+
+  it('tóm tắt > 2 người kèm số người còn lại', () => {
+    expect(summarizeMentions([u1, u2, u3])).toEqual({
+      summary: 'Nguyễn Văn An và 2 người khác',
+      remaining: 2,
+    });
   });
 });

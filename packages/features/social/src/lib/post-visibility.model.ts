@@ -175,3 +175,26 @@ export function buildPostMenu(
 /** Nhãn một bản trong lịch sử: bản 1 là bản gốc. */
 export const editVersionLabel = (version: number): string =>
   version <= 1 ? 'Bản gốc' : `Bản ${version}`;
+
+/* -------------------------------------------------------- người được nhắc */
+
+export function summarizeMentions(
+  mentions?: readonly SocialUserRef[],
+  mentionsAll?: boolean,
+): { readonly summary: string; readonly remaining: number } | undefined {
+  const items = mentions ?? [];
+  if (mentionsAll && items.length === 0) {
+    return { summary: '@Tất cả', remaining: 0 };
+  }
+  if (items.length === 0) return undefined;
+  if (items.length === 1) {
+    return { summary: items[0].name, remaining: 0 };
+  }
+  if (items.length === 2) {
+    return { summary: `${items[0].name} và ${items[1].name}`, remaining: 0 };
+  }
+  return {
+    summary: `${items[0].name} và ${items.length - 1} người khác`,
+    remaining: items.length - 1,
+  };
+}

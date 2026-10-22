@@ -9,6 +9,7 @@ import {
   type SocialPost,
   type SocialReactionType,
   type SocialReactor,
+  type SocialUserRef,
 } from '@enterprise-platform/contracts-social';
 import {
   Bookmark,
@@ -333,6 +334,121 @@ function ReactorsDialog({
   );
 }
 
+
+function MentionsDialog({
+  mentions,
+  mentionsAll,
+  onClose,
+}: {
+  readonly mentions?: readonly SocialUserRef[];
+  readonly mentionsAll?: boolean;
+  readonly onClose: () => void;
+}) {
+  const items = mentions ?? [];
+  return (
+    <Dialog open title="Người được nhắc đến" onClose={onClose}>
+      {mentionsAll ? (
+        <div className={extras.mentionAllBanner}>
+          <strong>@Tất cả</strong>: Bài viết nhắc đến toàn bộ thành viên trong công ty.
+        </div>
+      ) : null}
+      {items.length === 0 && !mentionsAll ? (
+        <p className={styles.muted}>Không có người được nhắc đến.</p>
+      ) : null}
+      {items.length > 0 ? (
+        <ul className={styles.reactorList}>
+          {items.map((user) => (
+            <li key={user.id} className={styles.reactor}>
+              <Avatar user={user} size={32} />
+              <span className={styles.suggestText}>
+                <SocialLink
+                  to={{ name: 'profile', userId: user.id }}
+                  className={styles.suggestName}
+                  onClick={onClose}
+                >
+                  {user.name}
+                </SocialLink>
+                {userSubtitle(user) ? (
+                  <span className={styles.suggestMeta}>{userSubtitle(user)}</span>
+                ) : null}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </Dialog>
+  );
+}
+
+function PostMentions({
+  mentions,
+  mentionsAll,
+  onOpenMentions,
+}: {
+  readonly mentions?: readonly SocialUserRef[];
+  readonly mentionsAll?: boolean;
+  readonly onOpenMentions: () => void;
+}) {
+  const items = mentions ?? [];
+  const hasMentionsAll = Boolean(mentionsAll);
+  if (!hasMentionsAll && items.length === 0) return null;
+
+  return (
+    <span className={extras.mentionInline}>
+      <span className={extras.mentionPrefix}> cùng với </span>
+      {hasMentionsAll ? (
+        <>
+          <span className={extras.mentionAllBadge} title="Tất cả thành viên trong công ty">
+            @Tất cả
+          </span>
+          {items.length > 0 ? <span className={extras.mentionPrefix}>, </span> : null}
+        </>
+      ) : null}
+      {items.length === 1 ? (
+        <SocialLink
+          to={{ name: 'profile', userId: items[0].id }}
+          className={extras.mentionLink}
+        >
+          {items[0].name}
+        </SocialLink>
+      ) : items.length === 2 ? (
+        <>
+          <SocialLink
+            to={{ name: 'profile', userId: items[0].id }}
+            className={extras.mentionLink}
+          >
+            {items[0].name}
+          </SocialLink>
+          <span className={extras.mentionPrefix}> và </span>
+          <SocialLink
+            to={{ name: 'profile', userId: items[1].id }}
+            className={extras.mentionLink}
+          >
+            {items[1].name}
+          </SocialLink>
+        </>
+      ) : items.length > 2 ? (
+        <>
+          <SocialLink
+            to={{ name: 'profile', userId: items[0].id }}
+            className={extras.mentionLink}
+          >
+            {items[0].name}
+          </SocialLink>
+          <span className={extras.mentionPrefix}> và </span>
+          <button
+            type="button"
+            className={extras.mentionMoreBtn}
+            onClick={onOpenMentions}
+          >
+            {items.length - 1} người khác
+          </button>
+        </>
+      ) : null}
+    </span>
+  );
+}
+
 /* ------------------------------------------------------------------ thẻ bài */
 
 export interface PostCardProps {
@@ -366,6 +482,7 @@ export function PostCard({
   const [historyOpen, setHistoryOpen] = useState(false);
   const [commentsOpen, setCommentsOpen] = useState(defaultCommentsOpen);
   const [reactorsOpen, setReactorsOpen] = useState(false);
+  const [mentionsOpen, setMentionsOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [deleteError, setDeleteError] = useState<string>();
@@ -472,12 +589,19 @@ export function PostCard({
       <header className={styles.postHead}>
         <Avatar user={post.author} size={38} />
         <div className={styles.postWho}>
-          <SocialLink
-            to={{ name: 'profile', userId: post.author.id }}
-            className={`${styles.postAuthor} ${extras.authorLink}`}
-          >
-            {post.author.name}
-          </SocialLink>
+          <div className={extras.authorLine}>
+            <SocialLink
+              to={{ name: 'profile', userId: post.author.id }}
+              className={`${styles.postAuthor} ${extras.authorLink}`}
+            >
+              {post.author.name}
+            </SocialLink>
+            <PostMentions
+              mentions={post.mentions}
+              mentionsAll={post.mentionsAll}
+              onOpenMentions={() => setMentionsOpen(true)}
+            />
+          </div>
           <span className={extras.metaLine}>
             {userSubtitle(post.author) ? (
               <span className={extras.metaRole}>
@@ -720,6 +844,13 @@ export function PostCard({
         <ReactorsDialog
           postId={post.id}
           onClose={() => setReactorsOpen(false)}
+        />
+      ) : null}
+      {mentionsOpen ? (
+        <MentionsDialog
+          mentions={post.mentions}
+          mentionsAll={post.mentionsAll}
+          onClose={() => setMentionsOpen(false)}
         />
       ) : null}
       <ConfirmDialog
