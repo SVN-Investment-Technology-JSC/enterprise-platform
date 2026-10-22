@@ -332,6 +332,18 @@ export function collectFlowIssues(definition: ProcedureDefinition): ProcedureVal
           });
           continue;
         }
+        const entryKeys = rule.attribute.scope === 'process' ? attribute.entryStepKeys ?? [] : [];
+        if (
+          entryKeys.length &&
+          !definition.steps.some((step) => entryKeys.includes(step.key) && allowedSteps.has(step.id))
+        ) {
+          errors.push({
+            level: 'error',
+            message: `Nhánh “${branch.label}” dùng thuộc tính “${attribute.name}” nhưng không bước nhập nào của thuộc tính này chắc chắn đã đi qua trước điểm rẽ nhánh.`,
+            ...where,
+          });
+          continue;
+        }
         if (!PROCEDURE_OPERATORS_BY_TYPE[attribute.type].includes(rule.operator)) {
           errors.push({
             level: 'error',

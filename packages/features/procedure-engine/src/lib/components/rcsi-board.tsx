@@ -1260,10 +1260,20 @@ export function RcsiBoard({
             subtitle={
               step
                 ? 'Người thực hiện bước nhập các trường này khi chạy hồ sơ. Điểm rẽ nhánh đặt sau bước dùng chúng làm điều kiện.'
-                : 'Dùng chung cho mọi bước, nhập lúc mở hồ sơ hoặc trong bước đầu.'
+                : 'Dùng chung cho cả hồ sơ. Chọn bước nhập cho từng thuộc tính; không chọn thì nhập được ở mọi bước.'
             }
             attributes={step ? step.attributes : definition.attributes}
             usedCodes={usedAttributeCodes(definition, attributeTarget.stepId)}
+            entrySteps={
+              step
+                ? undefined
+                : [...definition.steps]
+                    .sort((left, right) => left.order - right.order)
+                    .map((item) => ({ key: item.key, label: `${item.order}. ${item.name}` }))
+            }
+            linkedProcessAttributes={
+              step ? (definition.attributes ?? []).filter((item) => item.entryStepKeys?.includes(step.key)) : undefined
+            }
             onClose={() => setAttributeTarget(undefined)}
             onSave={(next) => saveAttributes(definition, attributeTarget.stepId, next)}
           />
@@ -2216,7 +2226,7 @@ function DefinitionRows({
                     type="button"
                     className={styles.flowToolBtn}
                     disabled={busy || !editable}
-                    title="Thuộc tính dùng chung cho mọi bước của quy trình"
+                    title="Thuộc tính dùng chung của quy trình; chọn bước nhập cho từng thuộc tính"
                     onClick={() => onEditAttributes(null)}
                   >
                     Thuộc tính QT{definition.attributes?.length ? ` (${definition.attributes.length})` : ''}

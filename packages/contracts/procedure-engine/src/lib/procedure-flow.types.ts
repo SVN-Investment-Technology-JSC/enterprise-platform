@@ -51,6 +51,17 @@ export interface ProcedureAttributeDefinition {
   readonly required: boolean;
   /** Chỉ dùng với kiểu 'select'. */
   readonly options?: readonly ProcedureAttributeOption[];
+  /**
+   * Chỉ với thuộc tính cấp quy trình: mã các bước được nhập giá trị. Bỏ trống thì
+   * nhập được ở mọi bước như trước. Lưu mã bước chứ không lưu id vì bước mới chỉ
+   * có id sau khi lưu — cùng cách điểm rẽ nhánh tham chiếu bước lúc soạn.
+   */
+  readonly entryStepKeys?: readonly string[];
+}
+
+/** Thuộc tính cấp quy trình có nhập được ở bước mang mã `stepKey` không. */
+export function isAttributeEnterableAt(definition: ProcedureAttributeDefinition, stepKey: string): boolean {
+  return !definition.entryStepKeys?.length || definition.entryStepKeys.includes(stepKey);
 }
 
 /** Trỏ tới một thuộc tính: của quy trình, hoặc của một bước cụ thể (theo id bước định nghĩa). */

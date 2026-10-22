@@ -15,6 +15,7 @@ import {
   selectGatewayBranch,
   sequentialNextStepId,
   branchEntryStepId,
+  isAttributeEnterableAt,
   type ProcedureAssignmentResolution,
   type ProcedureAttributeDefinition,
   type ProcedureAttributeLookup,
@@ -139,8 +140,9 @@ function consumedProcessCodes(instance: ProcedureInstance): Set<string> {
  * Khoá thuộc tính được nhập lúc này, với người ĐANG giữ pha hiện tại.
  *
  * - Thuộc tính của bước hiện tại: nhập được suốt khi bước còn mở (chờ chốt Q11).
- * - Thuộc tính cấp quy trình: nhập được cho tới khi một điểm rẽ nhánh đã dùng nó
- *   để quyết định — đổi sau đó thì nhật ký quyết định không còn khớp dữ liệu.
+ * - Thuộc tính cấp quy trình: nhập được ở các bước người thiết kế chọn (không chọn
+ *   thì mọi bước), cho tới khi một điểm rẽ nhánh đã dùng nó để quyết định — đổi
+ *   sau đó thì nhật ký quyết định không còn khớp dữ liệu.
  */
 export function editableAttributeKeys(instance: ProcedureInstance): string[] {
   if (instance.status !== 'running') return [];
@@ -149,7 +151,9 @@ export function editableAttributeKeys(instance: ProcedureInstance): string[] {
   const consumed = consumedProcessCodes(instance);
   const keys: string[] = [];
   for (const definition of instance.flow?.attributes ?? []) {
-    if (!consumed.has(definition.code)) keys.push(attributeValueKey({ scope: 'process', code: definition.code }));
+    if (!consumed.has(definition.code) && isAttributeEnterableAt(definition, current.key)) {
+      keys.push(attributeValueKey({ scope: 'process', code: definition.code }));
+    }
   }
   for (const definition of current.attributes ?? []) {
     keys.push(attributeValueKey({ scope: 'step', stepId: current.definitionStepId, code: definition.code }));
