@@ -22,6 +22,7 @@ import { FleetTransportService } from './application/fleet-transport.service.js'
 import { HttpFleetAvailabilityClient } from './infrastructure/http-fleet-availability.js';
 import { ProjectRequestService } from './application/project-request.service.js';
 import { WorkdayRuleService } from './application/workday-rule.service.js';
+import { ProjectCodeService } from './application/project-code.service.js';
 import { ProjectGroupService } from './application/project-group.service.js';
 import { ProjectRoleService } from './application/project-role.service.js';
 import { MyWorkService } from './application/my-work.service.js';
@@ -92,14 +93,26 @@ import { WorkspaceController } from './presentation/workspace.controller.js';
       inject: [WORKSPACE_STORE],
     },
     {
+      provide: ProjectCodeService,
+      useFactory: (store: WorkspaceStore) => new ProjectCodeService(store),
+      inject: [WORKSPACE_STORE],
+    },
+    {
       provide: ProjectService,
       useFactory: (
         store: WorkspaceStore,
         directory: DirectoryService,
         roles: ProjectRoleService,
         groups: ProjectGroupService,
-      ) => new ProjectService(store, directory, roles, groups),
-      inject: [WORKSPACE_STORE, DirectoryService, ProjectRoleService, ProjectGroupService],
+        codes: ProjectCodeService,
+      ) => new ProjectService(store, directory, roles, groups, codes),
+      inject: [
+        WORKSPACE_STORE,
+        DirectoryService,
+        ProjectRoleService,
+        ProjectGroupService,
+        ProjectCodeService,
+      ],
     },
     {
       // Lịch bận của xe do HRM trả lời qua HTTP chỉ đọc; đặt xe đi bằng sự kiện.
@@ -246,6 +259,7 @@ import { WorkspaceController } from './presentation/workspace.controller.js';
     WorkdayRuleService,
     ProjectRoleService,
     ProjectGroupService,
+    ProjectCodeService,
     CatalogService,
     CustomerService,
     ContractService,

@@ -47,7 +47,7 @@ describe('ProjectGroupService — danh mục nhóm dự án', () => {
     const { store, calls } = makeStore(groups());
     const service = new ProjectGroupService(store);
     await service.create(admin, { name: '  Bảo   trì ' });
-    expect(calls).toEqual([{ op: 'create', args: ['t1', 'admin', 'Bảo trì'] }]);
+    expect(calls).toEqual([{ op: 'create', args: ['t1', 'admin', 'Bảo trì', null] }]);
     await expect(service.create(admin, { name: 'dịch vụ THÍ nghiệm' })).rejects.toThrow(
       'Đã có nhóm dự án tên',
     );
@@ -63,6 +63,24 @@ describe('ProjectGroupService — danh mục nhóm dự án', () => {
       'Đã có nhóm dự án tên',
     );
     await expect(service.rename(admin, 'gx', { name: 'Mới' })).rejects.toMatchObject({ statusCode: 404 });
+  });
+
+  it('mã viết tắt: in hoa, chỉ chữ và số, không trùng nhóm khác; sửa không gửi mã thì giữ mã cũ', async () => {
+    const list: ProjectGroup[] = [
+      { id: 'g1', name: 'Dịch vụ thí nghiệm', sortOrder: 100, code: 'DVTN', projectCount: 0 },
+      { id: 'g2', name: 'Kiểm định', sortOrder: 100, projectCount: 0 },
+    ];
+    const { store, calls } = makeStore(list);
+    const service = new ProjectGroupService(store);
+    await service.create(admin, { name: 'Bảo trì', code: ' bt ' });
+    expect(calls[0]).toEqual({ op: 'create', args: ['t1', 'admin', 'Bảo trì', 'BT'] });
+    await expect(service.create(admin, { name: 'Khác', code: 'dvtn' })).rejects.toThrow('đã dùng cho nhóm');
+    await expect(service.create(admin, { name: 'Khác', code: 'KĐ-1' })).rejects.toThrow('chỉ gồm chữ in hoa');
+
+    await service.rename(admin, 'g2', { name: 'Kiểm định' });
+    expect(calls[1]?.args[4]).toBeUndefined();
+    await service.rename(admin, 'g1', { name: 'Dịch vụ thí nghiệm', code: '' });
+    expect(calls[2]?.args[4]).toBeNull();
   });
 
   it('nhóm của dự án phải có trong danh mục và lấy đúng cách viết trong danh mục', async () => {

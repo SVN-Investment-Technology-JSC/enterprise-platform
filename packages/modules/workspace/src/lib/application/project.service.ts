@@ -1,5 +1,6 @@
 import {
   DEFAULT_ROLE_PERMISSIONS,
+  PROJECT_CODE_PATTERN,
   PROJECT_PERMISSION_LABELS,
   PROJECT_PERMISSIONS,
   PROJECT_ROLES,
@@ -28,6 +29,7 @@ import {
 } from '../domain/workspace.error.js';
 import { timezoneOf, todayKey } from '../domain/tenant-time.js';
 import type { DirectoryService } from './directory.service.js';
+import type { ProjectCodeService } from './project-code.service.js';
 import type { ProjectGroupService } from './project-group.service.js';
 import type { ProjectRoleService } from './project-role.service.js';
 import type { WorkspaceActor } from './workspace.application.js';
@@ -36,7 +38,6 @@ import type { WorkspaceStore } from './workspace-store.port.js';
 const DEFAULT_PAGE_SIZE = 30;
 const MAX_PAGE_SIZE = 60;
 
-const CODE_PATTERN = /^[A-Z0-9][A-Z0-9-]{1,31}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
@@ -139,6 +140,8 @@ export class ProjectService {
     private readonly roles?: ProjectRoleService,
     /** Danh mục nhóm dự án. Để trống thì nhận tên nhóm tự do (test). */
     private readonly groups?: ProjectGroupService,
+    /** Quy tắc sinh mã dự án. Để trống thì dùng mã người gọi gửi lên (test). */
+    private readonly codes?: ProjectCodeService,
   ) {}
 
   /**
@@ -239,17 +242,35 @@ export class ProjectService {
   }
 
   async create(actor: WorkspaceActor, input: CreateProjectRequest): Promise<Project> {
+    const name = requireText(input.name, 'Tên dự án', 180);
+    assertDateOrder(input.startDate, input.endDate);
+    const projectType = (await this.resolveGroup(actor, input.projectType)) ?? undefined;
+    const orgUnitId = (await this.requireOrgUnit(actor, input.orgUnitId)) ?? undefined;
+    const tagIds = await this.requireActiveTags(actor, input.tagIds);
+
+    // Mã do server sinh theo quy tắc ở Cài đặt; mã người gọi gửi lên bị bỏ qua. Số được cấp trong transaction tạo
+    // dự án (xem store), nên không cần kiểm trùng trước.
+    if (this.codes) {
+      const codeParts = await this.codes.partsFor(actor.tenantId, projectType);
+      return this.store.project.create(actor.tenantId, actor.userId, {
+        ...input,
+        code: undefined,
+        codeParts,
+        name,
+        projectType,
+        orgUnitId,
+        tagIds,
+      });
+    }
+
     const code = String(input.code ?? '')
       .trim()
       .toUpperCase();
-    if (!CODE_PATTERN.test(code)) {
+    if (!PROJECT_CODE_PATTERN.test(code)) {
       throw new WorkspaceValidationError(
-        'Mã dự án chỉ gồm chữ in hoa, số và dấu gạch ngang, dài 2 đến 32 ký tự.',
+        'Mã dự án chỉ gồm chữ in hoa, số, gạch ngang và gạch dưới, dài 2 đến 32 ký tự.',
       );
     }
-    const name = requireText(input.name, 'Tên dự án', 180);
-    assertDateOrder(input.startDate, input.endDate);
-
     // Kiểm tra trước để trả mã lỗi rõ ràng; UNIQUE trên cột `code` vẫn là chốt
     // chặn thật khi hai request vào cùng lúc.
     const existing = await this.store.project.findByCode(actor.tenantId, code);
@@ -259,8 +280,9 @@ export class ProjectService {
       ...input,
       code,
       name,
-      projectType: (await this.resolveGroup(actor, input.projectType)) ?? undefined,
-      tagIds: await this.requireActiveTags(actor, input.tagIds),
+      projectType,
+      orgUnitId,
+      tagIds,
     });
   }
 
@@ -283,6 +305,9 @@ export class ProjectService {
     }
     if (input.projectType !== undefined) {
       Object.assign(patch, { projectType: await this.resolveGroup(actor, input.projectType) });
+    }
+    if (input.orgUnitId !== undefined) {
+      Object.assign(patch, { orgUnitId: await this.requireOrgUnit(actor, input.orgUnitId) });
     }
     if (input.tagIds !== undefined) {
       Object.assign(patch, { tagIds: await this.requireActiveTags(actor, input.tagIds) });
@@ -307,6 +332,21 @@ export class ProjectService {
     );
 
     return this.store.project.update(actor.tenantId, projectId, patch, actor.userId);
+  }
+
+  /**
+   * Phòng ban phụ trách phải là một đơn vị trên cây tổ chức (không phải chức danh). Rỗng là bỏ. Danh bạ không đọc
+   * được thì không chặn.
+   */
+  private async requireOrgUnit(actor: WorkspaceActor, value: unknown): Promise<string | null> {
+    const id = String(value ?? '').trim();
+    if (!id) return null;
+    if (!UUID.test(id)) throw new WorkspaceValidationError('Phòng ban phụ trách không hợp lệ.');
+    const known = await this.directory?.isOrgUnit(actor.tenantId, id);
+    if (known === false) {
+      throw new WorkspaceValidationError('Phòng ban phụ trách không có trong cây tổ chức.');
+    }
+    return id;
   }
 
   /** Nhóm của dự án phải có trong danh mục; `null` là gỡ khỏi nhóm. */

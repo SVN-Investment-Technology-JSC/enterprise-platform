@@ -61,6 +61,8 @@ import type {
   ProjectFinance,
   ProjectMember,
   ProjectSummary,
+  ProjectCodePreview,
+  ProjectCodeSettings,
   ProjectTypeOption,
   RecurrenceScope,
   ReportBundle,
@@ -94,6 +96,7 @@ import type {
   ProjectRoleList,
   SaveProjectRoleRequest,
   ProjectGroupList,
+  SaveProjectCodeRuleRequest,
   SaveProjectGroupRequest,
   FleetAvailabilityView,
   SourceTransport,
@@ -820,6 +823,20 @@ export const deleteProjectRole = (key: string) =>
 /** Danh mục nhóm dự án (dùng chung toàn tenant). */
 export const listProjectGroups = () =>
   request<ProjectGroupList>('/project-groups', { cache: 'no-store' });
+
+/** Quy tắc sinh mã dự án (Cài đặt > Mã dự án). */
+export const loadProjectCodeRule = () =>
+  request<ProjectCodeSettings>('/project-code-rule', { cache: 'no-store' });
+
+export const saveProjectCodeRule = (body: SaveProjectCodeRuleRequest) =>
+  request<ProjectCodeSettings>('/project-code-rule', { method: 'PUT', body: JSON.stringify(body) });
+
+/** Mã dự kiến của dự án sắp tạo trong nhóm `projectType`; số thật được cấp khi lưu. */
+export const previewProjectCode = (projectType?: string) =>
+  request<ProjectCodePreview>(
+    `/project-code-preview${projectType ? `?projectType=${encodeURIComponent(projectType)}` : ''}`,
+    { cache: 'no-store' },
+  );
 
 export const createProjectGroup = (body: SaveProjectGroupRequest) =>
   request<ProjectGroupList>('/project-groups', { method: 'POST', body: JSON.stringify(body) });

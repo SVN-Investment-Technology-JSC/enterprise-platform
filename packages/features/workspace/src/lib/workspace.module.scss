@@ -6067,3 +6067,58 @@ button.kpiCard {
     border-radius: 999px;
   }
 }
+
+/* ------------------------------------------------------------ Cài đặt mã dự án */
+
+.codeTokens {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.codeTokenHelp {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--ep-text-sub);
+  font-size: 12.5px;
+
+  code {
+    color: var(--ep-text);
+    font-weight: 600;
+  }
+}
+
+.codeExamples {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--ep-border);
+  border-radius: var(--ep-radius);
+  background: var(--ep-hover);
+  font-size: 13px;
+
+  ul {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  li {
+    display: flex;
+    gap: 12px;
+    justify-content: space-between;
+  }
+
+  code {
+    font-weight: 700;
+  }
+
+  em {
+    color: #92400e;
+    font-style: normal;
+  }
+}
