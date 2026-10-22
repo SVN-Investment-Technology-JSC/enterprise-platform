@@ -1274,7 +1274,8 @@ integration('HRM employee PostgreSQL integration', () => {
       );
     try {
       await operations.withdraw(req, 'leave', request.id);
-      expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body)).action).toBe(
+      const actionCall = fetchMock.mock.calls.find((call) => call[1]?.body);
+      expect(JSON.parse(String(actionCall?.[1]?.body)).action).toBe(
         'cancel',
       );
       expect(
