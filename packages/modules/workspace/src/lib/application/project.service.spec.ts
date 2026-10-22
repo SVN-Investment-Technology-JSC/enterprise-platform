@@ -191,3 +191,42 @@ describe('ProjectService.update — ràng buộc đóng hồ sơ', () => {
     expect(updated).toHaveLength(1);
   });
 });
+
+describe('ProjectService.unarchive — mở lưu trữ dự án đã hoàn thành', () => {
+  function archiveStore(archivedAt?: string) {
+    const updates: UpdateProjectRequest[] = [];
+    const store = {
+      project: {
+        findById: async () => ({ id: 'p1', status: 'completed', archivedAt }) as never,
+        update: async (_t: string, _id: string, input: UpdateProjectRequest) => {
+          updates.push(input);
+          return { id: 'p1', status: input.status } as never;
+        },
+      },
+      member: {
+        roleOf: async (_t: string, _p: string, userId: string) =>
+          userId === 'owner' ? 'owner' : userId === 'viewer' ? 'viewer' : undefined,
+      },
+    } as unknown as WorkspaceStore;
+    return { store, updates };
+  }
+
+  it('chủ nhiệm mở lưu trữ: dự án về đang chạy', async () => {
+    const { store, updates } = archiveStore('2026-10-20T00:00:00.000Z');
+    await new ProjectService(store).unarchive(owner, 'p1');
+    expect(updates).toEqual([{ status: 'active' }]);
+  });
+
+  it('người xem không mở được; dự án chưa lưu trữ thì báo lỗi', async () => {
+    const archived = archiveStore('2026-10-20T00:00:00.000Z');
+    await expect(
+      new ProjectService(archived.store).unarchive({ ...owner, userId: 'viewer' }, 'p1'),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    expect(archived.updates).toEqual([]);
+
+    const live = archiveStore(undefined);
+    await expect(new ProjectService(live.store).unarchive(owner, 'p1')).rejects.toThrow(
+      'không nằm trong lưu trữ',
+    );
+  });
+});

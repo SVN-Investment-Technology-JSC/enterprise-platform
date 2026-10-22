@@ -23,12 +23,17 @@ import {
   type PostProcedureCommentRequest,
   type ProcedureInstanceSourceType,
   type ReverseProcedureInstanceRequest,
+  type DeleteProcedureInstanceRequest,
+  type RelinkProcedureWorkspaceRequest,
   type StartProcedureInstanceRequest,
   type UpdateProcedureDefinitionRequest,
 } from '@enterprise-platform/contracts-procedure-engine';
 import {
+  canDeleteProcedureInstance,
+  canRelinkProcedureWorkspace,
   deriveProcedureAuthorization,
   evaluateFinanceStepActor,
+  linkedWorkItemId,
   isProcedureParticipant,
   canStartWithAssignment,
   matchesProcedureAssignment,
@@ -1017,38 +1022,173 @@ export class ProcedureEngineApplication {
    * đi mua hàng về thường không phải người giữ vai trò của bước.
    */
   /**
-   * Xoá hẳn một hồ sơ.
+   * Xoá đơn (xoá mềm).
    *
-   * Chỉ tài khoản có quyền override — đây là thao tác dọn dẹp, không phải nghiệp
-   * vụ: hồ sơ chạy sai thì huỷ (`cancel`) để giữ vết, xoá là dành cho dữ liệu
-   * rác. Nhả giữ chỗ và xoá đính kèm trước, nếu không kho kẹt hàng ảo và FK của
-   * `attachments` vỡ lúc commit.
+   * Người giữ vai A ở bất kỳ bước nào của đơn (kể cả được uỷ quyền vai A) hoặc quản trị can thiệp hồ
+   * sơ; chỉ đơn chưa hoàn thành — đơn đã hoàn thành dùng "Huỷ hiệu lực" để không lệch chứng từ đã phát
+   * sinh. Đơn đang chạy được huỷ trước trong cùng transaction, nên HRM, Tài chính, việc ngoài dự án dọn
+   * theo đúng luồng huỷ sẵn có; rồi đơn được đánh dấu `deletion` và biến mất khỏi mọi màn hình. Diff
+   * trạng thái phát `procedure.instance.deleted` để Workspace xoá công việc liên kết.
+   *
+   * Không xoá dòng nào: lịch sử xử lý, tệp và lý do xoá vẫn nằm trong DB để tra cứu.
    */
-  async deleteInstance(actor: ProcedureActor, instanceId: string): Promise<void> {
-    if (!actor.isOverride) {
-      throw new ProcedureEngineError('forbidden', 'Chỉ quản trị mới xoá được hồ sơ.');
+  async deleteInstance(
+    actor: ProcedureActor,
+    instanceId: string,
+    input?: DeleteProcedureInstanceRequest,
+  ): Promise<void> {
+    const reason = input?.reason?.trim() ?? '';
+    if (reason.length < 3) {
+      throw new ProcedureEngineError('validation', 'Cần ghi lý do xoá đơn (ít nhất 3 ký tự).');
     }
-    const state = await this.store.read(actor.tenantId);
-    const instance = state.instances.find((candidate) => candidate.id === instanceId);
-    if (!instance) throw new ProcedureEngineError('not_found', 'Không tìm thấy hồ sơ.');
-
-    await this.releaseReservations(
-      actor.tenantId,
-      instance.steps.flatMap((step) => step.materialReservations ?? []),
-    );
-    if (this.attachments?.deleteForInstance) {
-      await this.attachments.deleteForInstance(actor.tenantId, instanceId);
+    if (reason.length > 1000) {
+      throw new ProcedureEngineError('validation', 'Lý do xoá đơn tối đa 1000 ký tự.');
     }
+    const snapshot = (await this.store.read(actor.tenantId)).instances;
+    const target = snapshot.find((candidate) => candidate.id === instanceId);
+    if (!target || !isProcedureParticipant(target, actor)) {
+      throw new ProcedureEngineError('not_found', 'Không tìm thấy hồ sơ.');
+    }
+    this.assertDeletable(snapshot, target, actor);
 
-    await this.store.transaction(actor.tenantId, (draft) => {
-      draft.instances = draft.instances.filter((candidate) => candidate.id !== instanceId);
-      // Bỏ luôn khoá idempotency trỏ vào hồ sơ đã xoá, để khoá cũ không "hồi sinh"
-      // một hồ sơ không còn tồn tại ở lần gọi lặp.
-      for (const [key, value] of Object.entries(draft.idempotency)) {
-        if (value === instanceId) delete draft.idempotency[key];
+    let held: string[] = [];
+    await this.store.transaction(actor.tenantId, (state) => {
+      const instance = state.instances.find((candidate) => candidate.id === instanceId);
+      if (!instance || instance.deletion) throw new ProcedureEngineError('not_found', 'Không tìm thấy hồ sơ.');
+      // Kiểm lại trong transaction: trạng thái hay hồ sơ xin vật tư có thể vừa đổi.
+      this.assertDeletable(state.instances, instance, actor);
+      const now = this.clock.now().toISOString();
+      if (instance.status === 'running') {
+        held = instance.steps.flatMap((step) => step.materialReservations ?? []);
+        instance.status = 'cancelled';
+        instance.completedAt = now;
+        const current = instance.steps.find((step) => step.id === instance.currentStepId);
+        if (current && current.status !== 'completed') {
+          current.status = 'cancelled';
+          current.completedAt = now;
+        }
       }
-      return draft.instances[0] ?? ({ id: instanceId } as ProcedureInstance);
+      instance.deletion = {
+        deletedAt: now,
+        deletedBy: actor.userId,
+        deletedByName: actor.displayName,
+        reason,
+      };
+      instance.activity.unshift({
+        id: this.ids.next(),
+        action: 'delete',
+        actorId: actor.userId,
+        actorName: actor.displayName,
+        summary: 'Đã xoá đơn.',
+        comment: reason,
+        createdAt: now,
+      });
+      return instance;
     });
+    // Nhả giữ chỗ vật tư SAU khi commit: nhả trước mà transaction hỏng thì kho mất chỗ giữ của một đơn
+    // vẫn đang chạy.
+    if (held.length > 0) await this.releaseReservations(actor.tenantId, held);
+  }
+
+  private assertDeletable(
+    instances: readonly ProcedureInstance[],
+    target: ProcedureInstance,
+    actor: ProcedureActor,
+  ): void {
+    if (target.status === 'completed' || target.status === 'reversed') {
+      throw new ProcedureEngineError(
+        'conflict',
+        'Đơn đã hoàn thành không xoá được; dùng "Huỷ hiệu lực" nếu cần hoàn tác.',
+      );
+    }
+    if (!canDeleteProcedureInstance(target, actor)) {
+      throw new ProcedureEngineError(
+        'forbidden',
+        target.initiatedBy === actor.userId
+          ? 'Đơn đã được tham vấn hoặc duyệt (nút C/A), người submit không xoá được nữa; nhờ người phê duyệt (vai A) hoặc quản trị.'
+          : 'Chỉ người phê duyệt (vai A), người submit (khi đơn chưa qua nút C/A) hoặc quản trị mới xoá được đơn.',
+      );
+    }
+    const children = instances.filter(
+      (candidate) =>
+        candidate.sourceType === 'auto_from_parent' &&
+        candidate.sourceId === target.id &&
+        !candidate.deletion &&
+        (candidate.status === 'running' || candidate.status === 'completed'),
+    );
+    if (children.length > 0) {
+      throw new ProcedureEngineError(
+        'conflict',
+        `Không xoá được: còn hồ sơ xin vật tư ${children
+          .map((child) => child.code)
+          .join(', ')} đang chạy hoặc đã xuất kho.`,
+      );
+    }
+  }
+
+  /**
+   * Đổi công việc liên kết của đơn sang dự án / công việc cha khác.
+   *
+   * Quy trình chỉ ghi yêu cầu (liên kết về `pending`, nhớ công việc cũ và liên kết cũ) rồi phát
+   * `procedure.instance.workspace_relink_requested`. Workspace tự kiểm quyền, tạo công việc mới, chuyển
+   * tài liệu, xoá công việc cũ trong một transaction rồi trả `procedure_linked`; từ chối thì liên kết cũ
+   * được khôi phục nguyên vẹn (`applyWorkspaceLinkResult`).
+   */
+  async relinkWorkspace(
+    actor: ProcedureActor,
+    instanceId: string,
+    input: RelinkProcedureWorkspaceRequest,
+  ): Promise<ProcedureInstance> {
+    const projectId = input?.projectId?.trim() ?? '';
+    const projectCode = input?.projectCode?.trim() ?? '';
+    if (!projectId || !projectCode) {
+      throw new ProcedureEngineError('validation', 'Hãy chọn dự án mới cho công việc liên kết.');
+    }
+    const parentId = input.parentId?.trim() || undefined;
+    const instance = await this.store.transaction(actor.tenantId, (state) => {
+      const target = state.instances.find((candidate) => candidate.id === instanceId);
+      if (!target || !isProcedureParticipant(target, actor)) {
+        throw new ProcedureEngineError('not_found', 'Không tìm thấy hồ sơ.');
+      }
+      if (!canRelinkProcedureWorkspace(target, actor)) {
+        throw new ProcedureEngineError(
+          'forbidden',
+          target.workspaceLink?.status === 'pending'
+            ? 'Đơn đang chờ Workspace xử lý liên kết; thử lại sau ít giây.'
+            : 'Chỉ người phê duyệt (vai A) của đơn hoặc quản trị mới đổi được công việc liên kết.',
+        );
+      }
+      const oldWorkItemId = linkedWorkItemId(target) as string;
+      if (parentId && parentId === oldWorkItemId) {
+        throw new ProcedureEngineError('validation', 'Công việc cha không được là chính công việc đang liên kết.');
+      }
+      const now = this.clock.now().toISOString();
+      // Chỉ giữ một tầng: liên kết cũ không mang theo "liên kết trước nó".
+      const previous = target.workspaceLink ? { ...target.workspaceLink } : undefined;
+      if (previous) delete previous.previous;
+      target.workspaceLink = {
+        status: 'pending',
+        projectId,
+        projectCode,
+        baseTitle: target.workspaceLink?.baseTitle ?? target.title,
+        workItem: { ...(target.workspaceLink?.workItem ?? {}), parentId },
+        requestedBy: actor.userId,
+        requestedByIsTenantAdmin: actor.isOverride,
+        requestedAt: now,
+        replacesWorkItemId: oldWorkItemId,
+        ...(previous ? { previous } : {}),
+      };
+      target.activity.unshift({
+        id: this.ids.next(),
+        action: 'relink',
+        actorId: actor.userId,
+        actorName: actor.displayName,
+        summary: `Đã yêu cầu đổi công việc liên kết sang dự án ${projectCode}.`,
+        createdAt: now,
+      });
+      return target;
+    });
+    return this.withAuthorization(instance, actor);
   }
 
   /**
@@ -1101,7 +1241,7 @@ export class ProcedureEngineApplication {
   }> {
     const snapshot = (await this.store.read(tenantId)).instances;
     const target = snapshot.find((candidate) => candidate.id === instanceId);
-    if (!target) return { allowed: false, reason: 'Không tìm thấy hồ sơ quy trình.' };
+    if (!target || target.deletion) return { allowed: false, reason: 'Không tìm thấy hồ sơ quy trình.' };
     const approverUserIds = [
       ...new Set(
         target.activity
@@ -1592,12 +1732,43 @@ export class ProcedureEngineApplication {
     const firstStepMaterials = startDefinition?.steps.find(
       (step) => step.id === firstDefinitionStepId,
     )?.materials;
-    const initiatedBy = actor.userId === PROCEDURE_SYSTEM_ACTOR_ID && input.initiatedBy
-      ? input.initiatedBy : actor.userId;
+    // Tạo đơn hộ: người submit (giữ vai S) thành người khởi tạo; người gọi chỉ là người tạo hộ.
+    const submitterId = input.submitterUserId?.trim();
+    const onBehalfOf =
+      submitterId && submitterId !== actor.userId && actor.userId !== PROCEDURE_SYSTEM_ACTOR_ID
+        ? submitterId
+        : undefined;
+    let submitter: ProcedureActor | undefined;
+    if (onBehalfOf) {
+      if (!actor.canCreateInstances && !actor.isOverride) {
+        throw new ProcedureEngineError('forbidden', 'Bạn chưa được quyền tạo đơn.');
+      }
+      try {
+        // Tên lấy từ sơ đồ tổ chức, không tin tên trình duyệt gửi lên.
+        submitter = (await this.initiatorActors?.resolve(actor.tenantId, onBehalfOf)) ?? undefined;
+      } catch (error) {
+        throw new ProcedureEngineError(
+          'conflict',
+          `Không tra được sơ đồ tổ chức để kiểm người submit (${
+            error instanceof Error ? error.message : 'lỗi không rõ'
+          }); thử lại sau.`,
+        );
+      }
+      if (!submitter) {
+        throw new ProcedureEngineError(
+          'validation',
+          'Không tìm thấy người submit trong sơ đồ tổ chức.',
+        );
+      }
+    }
+    const initiatedBy =
+      onBehalfOf ??
+      (actor.userId === PROCEDURE_SYSTEM_ACTOR_ID && input.initiatedBy ? input.initiatedBy : actor.userId);
     const startManagers = await this.loadManagers(
       actor.tenantId,
       initiatedBy,
-      input.initiatorPositionId && actor.positionIds.includes(input.initiatorPositionId)
+      // Tạo hộ: dùng chức danh chính của người submit, không dùng chức danh của người tạo hộ.
+      !onBehalfOf && input.initiatorPositionId && actor.positionIds.includes(input.initiatorPositionId)
         ? input.initiatorPositionId
         : undefined,
       !!startDefinition?.steps.some((step) =>
@@ -1689,13 +1860,19 @@ export class ProcedureEngineApplication {
       if (input.expectedDefinitionSnapshot && canonicalSnapshot(input.expectedDefinitionSnapshot)!==canonicalSnapshot(definition)) {
         throw new ProcedureEngineError('conflict', 'Định nghĩa quy trình đã thay đổi từ lúc gửi đơn; cần đối soát cấu hình trước khi khởi tạo.');
       }
-      const canSubmit = definition.steps.some((step) =>
-        step.assignments.some((assignment) => canStartWithAssignment(assignment, actor)),
-      );
+      // Vai S: tự nộp thì người tạo phải có. Tạo hộ thì người tạo HOẶC người submit có là đủ — thư ký có
+      // vai S nộp hộ cho bất kỳ ai trong tenant, hoặc người không có vai S nộp hộ cho người có vai S.
+      const holdsStart = (who: ProcedureActor) =>
+        definition.steps.some((step) =>
+          step.assignments.some((assignment) => canStartWithAssignment(assignment, who)),
+        );
+      const canSubmit = holdsStart(actor) || (submitter ? holdsStart(submitter) : false);
       if (!actor.isOverride && !canSubmit) {
         throw new ProcedureEngineError(
           'forbidden',
-          'Bạn chưa được phân vai S để khởi tạo quy trình này.',
+          submitter
+            ? `Cả bạn và ${submitter.displayName} đều chưa được phân vai S để khởi tạo quy trình này.`
+            : 'Bạn chưa được phân vai S để khởi tạo quy trình này.',
         );
       }
 
@@ -1709,7 +1886,7 @@ export class ProcedureEngineApplication {
       const instance = this.buildInstance(definition, now, {
         title: input.title.trim(),
         initiatedBy,
-        initiatedByName: input.initiatedByName || actor.displayName,
+        initiatedByName: submitter?.displayName || input.initiatedByName || actor.displayName,
         sourceType: input.sourceType,
         sourceId: input.sourceId,
         assetCode,
@@ -1728,6 +1905,28 @@ export class ProcedureEngineApplication {
       // Values and the instance commit together. The next action sees the
       // submitted values; no bridge may patch runtime snapshots after creation.
       this.applyAttributeValues(instance, {...actor,userId:initiatedBy}, input.attributeValues, now);
+      if (submitter && onBehalfOf) {
+        // Người tạo hộ điền và hoàn tất bước đầu thay người submit: uỷ quyền vai S cho đúng bước đó,
+        // nhờ vậy họ cũng có mặt trong hồ sơ để theo dõi.
+        instance.createdOnBehalfBy = { userId: actor.userId, name: actor.displayName };
+        instance.delegations = [
+          ...(instance.delegations ?? []),
+          {
+            id: this.ids.next(),
+            ...(instance.currentStepId ? { stepInstanceId: instance.currentStepId } : {}),
+            delegatedBy: onBehalfOf,
+            delegatedByName: submitter.displayName,
+            delegatedTo: actor.userId,
+            roles: ['S'],
+            reason: 'Tạo đơn hộ',
+            createdAt: now,
+          },
+        ];
+        // Ghi vào chính dòng khởi tạo (không thêm dòng "start" thứ hai): nơi đọc nhật ký coi dòng đó là
+        // lúc mở đơn và người mở đơn.
+        const opened = instance.activity.find((entry) => entry.action === 'start');
+        if (opened) opened.summary = `${opened.summary} (do ${actor.displayName} tạo đơn hộ)`;
+      }
       if (workspaceLink) {
         // Chỉ ghi yêu cầu vào hồ sơ; sự kiện gửi sang Workspace được phát cùng
         // transaction này (xem appendEvents của store).
@@ -1737,7 +1936,8 @@ export class ProcedureEngineApplication {
           projectCode: workspaceLink.projectCode,
           baseTitle: instance.title,
           workItem: workspaceLink.workItem ?? {},
-          requestedBy: initiatedBy,
+          // Người chọn dự án (người tạo, kể cả khi tạo hộ) là người Workspace kiểm quyền thành viên.
+          requestedBy: onBehalfOf ? actor.userId : initiatedBy,
           requestedByIsTenantAdmin: actor.isOverride,
           requestedAt: now,
         };
@@ -1905,7 +2105,7 @@ export class ProcedureEngineApplication {
   ): Promise<ProcedureInstanceProgress> {
     const state = await this.store.read(tenantId);
     const instance = state.instances.find((item) => item.id === instanceId);
-    if (!instance) {
+    if (!instance || instance.deletion) {
       throw new ProcedureEngineError('not_found', 'Không tìm thấy hồ sơ quy trình.');
     }
     const progress = buildInstanceProgress(instance);
@@ -1942,7 +2142,7 @@ export class ProcedureEngineApplication {
     const wanted = new Set(ids);
     const state = await this.store.read(tenantId);
     return state.instances
-      .filter((item) => wanted.has(item.id) && item.status === 'running')
+      .filter((item) => wanted.has(item.id) && item.status === 'running' && !item.deletion)
       .filter((item) =>
         deriveProcedureAuthorization(item, actor).availableActions.some((action) =>
           ['complete', 'approve', 'reject', 'return'].includes(action),
@@ -1982,7 +2182,7 @@ export class ProcedureEngineApplication {
     const wanted = new Set(ids);
     const state = await this.store.read(tenantId);
     return state.instances
-      .filter((item) => wanted.has(item.id))
+      .filter((item) => wanted.has(item.id) && !item.deletion)
       .map(buildInstanceStatusEntry);
   }
 
@@ -3530,8 +3730,11 @@ export class ProcedureEngineApplication {
       if (!instance || !link) return;
       if ('linked' in result) {
         if (link.status === 'linked' && link.workItemId === result.linked.workItemId) return;
+        const settled = { ...link };
+        delete settled.previous;
+        delete settled.replacesWorkItemId;
         instance.workspaceLink = {
-          ...link,
+          ...settled,
           status: 'linked',
           workItemId: result.linked.workItemId,
           workItemCode: result.linked.workItemCode,
@@ -3546,6 +3749,20 @@ export class ProcedureEngineApplication {
         return;
       }
       if (link.status === 'linked') return;
+      if (link.replacesWorkItemId) {
+        // Đổi công việc liên kết bị từ chối: giữ nguyên liên kết cũ, ghi lý do vào nhật ký.
+        instance.workspaceLink = link.previous;
+        instance.activity.unshift({
+          id: this.ids.next(),
+          action: 'relink',
+          actorId: link.requestedBy,
+          actorName: 'Workspace',
+          summary: 'Không đổi được công việc liên kết; giữ nguyên liên kết cũ.',
+          comment: result.rejected,
+          createdAt: now,
+        });
+        return;
+      }
       instance.workspaceLink = { ...link, status: 'rejected', error: result.rejected, resolvedAt: now };
     });
   }

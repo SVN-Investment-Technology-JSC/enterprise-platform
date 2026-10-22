@@ -40,6 +40,11 @@ export interface NodeHeaderProps {
    * trên cây. Dòng dự án nằm ở thanh bên nên đây là chỗ mở menu của dự án.
    */
   readonly onMore?: (anchor: { x: number; y: number }) => void;
+  /**
+   * Thao tác nhanh cho người thực hiện công việc (người phụ trách hoặc cùng làm): "Bắt đầu làm" khi
+   * chưa làm, "Hoàn thành" khi đang làm / chờ duyệt. Vắng là không hiện.
+   */
+  readonly quickAction?: { readonly label: string; readonly onClick: () => void };
   readonly startableProcedures: readonly ProcedureOption[];
   readonly procedureLink?: ProcedureLink;
   /** Vắng khi đang đứng ở dự án: chỉ công việc mới gắn được hồ sơ quy trình. */
@@ -65,6 +70,7 @@ export function NodeHeader({
   unread,
   onOpenChat,
   onMore,
+  quickAction,
   startableProcedures,
   procedureLink,
   onStartProcedure,
@@ -177,6 +183,11 @@ export function NodeHeader({
           >
             <Plus size={14} /> Thêm công việc con
           </button>
+          {quickAction ? (
+            <button type="button" className={styles.buttonGhost} onClick={quickAction.onClick}>
+              {quickAction.label}
+            </button>
+          ) : null}
         </div>
       </div>
 

@@ -413,12 +413,30 @@ function SidebarSection(props: { section: ModuleSidebarSection; collapsed: boole
     <div className={styles.section}>
       {collapsed ? null : (
         <div className={styles.sectionHead}>
-          <span className={styles.sectionTitle}>
-            {section.title}
-            {section.count !== undefined ? (
-              <span className={styles.sectionCount}>{section.count}</span>
-            ) : null}
-          </span>
+          {section.onTitleClick ? (
+            <button
+              type="button"
+              className={
+                section.titleActive
+                  ? `${styles.sectionTitle} ${styles.sectionTitleButton} ${styles.sectionTitleActive}`
+                  : `${styles.sectionTitle} ${styles.sectionTitleButton}`
+              }
+              aria-current={section.titleActive ? 'page' : undefined}
+              onClick={section.onTitleClick}
+            >
+              {section.title}
+              {section.count !== undefined ? (
+                <span className={styles.sectionCount}>{section.count}</span>
+              ) : null}
+            </button>
+          ) : (
+            <span className={styles.sectionTitle}>
+              {section.title}
+              {section.count !== undefined ? (
+                <span className={styles.sectionCount}>{section.count}</span>
+              ) : null}
+            </span>
+          )}
           {section.action ? (
             <button
               type="button"

@@ -9,7 +9,6 @@ import {
   type WorkItem,
   type WorkItemDependency,
 } from '@enterprise-platform/contracts-workspace';
-import { Popconfirm } from '@enterprise-platform/shared-ui';
 import { CalendarClock, MapPin, UserRound } from 'lucide-react';
 import { useState } from 'react';
 import {
@@ -24,6 +23,7 @@ import { useDirectory } from './use-directory';
 import { useProjectRoles } from './use-project-roles';
 import { useTransportSummary, type TransportSummary } from './use-transport-summary';
 import type { PendingProcedure } from '../procedure-pending';
+import { Confirm } from './confirm-box';
 
 export interface TabOverviewProps {
   readonly project: ProjectSummary;
@@ -161,8 +161,8 @@ export function TabOverview({
                   {canUnlinkRefs && onUnlinkRef ? (
                     <>
                       {' · '}
-                      <Popconfirm
-                        title="Gỡ liên kết hồ sơ này?"
+                      <Confirm
+                        title="Bạn có chắc chắn muốn gỡ liên kết hồ sơ này?"
                         description="Chỉ bỏ con trỏ ở Workspace. Hồ sơ bên module gốc vẫn giữ nguyên."
                         okText="Gỡ liên kết"
                         okType="danger"
@@ -171,7 +171,7 @@ export function TabOverview({
                         <button type="button" className={styles.linkButton}>
                           Gỡ liên kết
                         </button>
-                      </Popconfirm>
+                      </Confirm>
                     </>
                   ) : null}
                 </span>

@@ -1,18 +1,73 @@
-import { MAX_EXPORT_ROWS, type OverdueRow, type ReportBundle } from '@enterprise-platform/contracts-workspace';
+import { type OverdueRow, type ReportBundle } from '@enterprise-platform/contracts-workspace';
 import {
-  ExportTooLargeError,
-  buildCsv,
+  REPORT_SECTIONS,
   buildExportHeader,
   buildExportSheets,
   countExportRows,
-  escapeCsvCell,
   exportFileName,
+  signed,
+  textBar,
 } from './report-export';
 
 function bundle(overrides: Partial<ReportBundle> = {}): ReportBundle {
   return {
     scope: { level: 'managed', projectCount: 2, canSeeFinance: true },
     mine: { openItems: 3, overdueItems: 1, completedInPeriod: 5 },
+    kpis: {
+      createdItems: 6,
+      completedItems: 4,
+      completedOnTime: 3,
+      completedLate: 1,
+      openItems: 10,
+      overdueItems: 2,
+      completedHours: 12,
+    },
+    previous: {
+      createdItems: 8,
+      completedItems: 2,
+      completedOnTime: 2,
+      completedLate: 0,
+      from: '2026-09-14T00:00:00.000Z',
+      to: '2026-09-20T23:59:59.000Z',
+    },
+    trend: {
+      granularity: 'day',
+      buckets: [
+        { start: '2026-09-21', created: 2, completed: 1, missedDeadline: 0 },
+        { start: '2026-09-22', created: 4, completed: 3, missedDeadline: 1 },
+      ],
+    },
+    statusBreakdown: [
+      { key: 'todo', count: 6 },
+      { key: 'done', count: 4 },
+    ],
+    priorityBreakdown: [{ key: 'high', count: 3 }],
+    performance: [
+      {
+        userId: 'u1',
+        completedItems: 4,
+        completedOnTime: 3,
+        completedLate: 1,
+        averageDaysLate: 2,
+        completedHours: 12,
+        openItems: 6,
+        overdueItems: 1,
+      },
+    ],
+    byGroup: [
+      {
+        key: '',
+        label: '',
+        projectCount: 2,
+        totalItems: 14,
+        closedItems: 4,
+        openItems: 10,
+        overdueItems: 2,
+        completedInPeriod: 4,
+        progressPercent: 30,
+      },
+    ],
+    byTag: [],
     projectProgress: [
       {
         projectId: 'p1',
@@ -50,37 +105,80 @@ const overdueRow = (index: number): OverdueRow => ({
   status: 'todo',
 });
 
+const sheetNames = (sheets: ReturnType<typeof buildExportSheets>) => sheets.map((sheet) => sheet.name);
+
 describe('buildExportSheets', () => {
-  it('dựng đúng ba bảng theo thứ tự', () => {
-    expect(buildExportSheets(bundle()).map((sheet) => sheet.title)).toEqual([
+  it('mặc định đủ các phần theo thứ tự trên trang, Tổng quan đứng đầu', () => {
+    expect(sheetNames(buildExportSheets(bundle()))).toEqual([
+      'Tổng quan',
+      'Xu hướng',
+      'Hiệu suất theo người',
+      'Theo nhóm dự án',
+      'Theo nhãn',
       'Tiến độ dự án',
       'Tải công việc',
       'Công việc quá hạn',
     ]);
   });
 
-  it('số cột của dòng khớp số cột tiêu đề', () => {
-    for (const sheet of buildExportSheets(bundle())) {
-      for (const row of sheet.rows) {
-        expect(row).toHaveLength(sheet.headers.length);
+  it('chỉ xuất những phần được chọn, vẫn giữ thứ tự trên trang', () => {
+    const sheets = buildExportSheets(bundle(), undefined, ['overdue', 'dashboard']);
+    expect(sheetNames(sheets)).toEqual(['Tổng quan', 'Công việc quá hạn']);
+  });
+
+  it('tên trang tính không quá 31 ký tự', () => {
+    for (const section of REPORT_SECTIONS) {
+      for (const sheet of buildExportSheets(bundle(), undefined, [section.id])) {
+        expect(sheet.name.length).toBeLessThanOrEqual(31);
       }
     }
   });
 
+  it('số cột của dòng khớp số cột tiêu đề ở mọi bảng', () => {
+    for (const sheet of buildExportSheets(bundle({ overdue: [overdueRow(1)] }))) {
+      for (const table of sheet.tables) {
+        for (const row of table.rows) expect(row).toHaveLength(table.headers.length);
+      }
+    }
+  });
+
+  it('dashboard có chỉ số kỳ này, kỳ trước và chênh lệch; tỉ lệ đúng hạn tính sẵn', () => {
+    const [dashboard] = buildExportSheets(bundle(), undefined, ['dashboard']);
+    const kpis = dashboard?.tables[0];
+    expect(kpis?.rows[0]).toEqual(['Việc tạo mới', 6, 8, '-2']);
+    expect(kpis?.rows[1]).toEqual(['Việc hoàn thành', 4, 2, '+2']);
+    expect(kpis?.rows.find((row) => row[0] === 'Tỉ lệ đúng hạn')).toEqual(['Tỉ lệ đúng hạn', '75%', '100%', '']);
+    // Dòng giới thiệu ghi phạm vi, kỳ và bộ lọc.
+    expect(dashboard?.intro?.join(' ')).toContain('Kỳ báo cáo');
+  });
+
+  it('trạng thái hiện tên tiếng Việt kèm thanh biểu đồ', () => {
+    const [dashboard] = buildExportSheets(bundle(), undefined, ['dashboard']);
+    const status = dashboard?.tables[1];
+    expect(status?.rows[0]?.[0]).toBe('Chưa làm');
+    expect(status?.rows[0]?.[3]).toBe('■'.repeat(20));
+  });
+
+  it('nhóm khoá rỗng hiện là "Chưa phân nhóm"', () => {
+    const [groups] = buildExportSheets(bundle(), undefined, ['groups']);
+    expect(groups?.tables[0]?.rows[0]?.[0]).toBe('Chưa phân nhóm');
+  });
+
   it('người phụ trách rỗng thành ô trống, không phải chữ undefined', () => {
-    const sheets = buildExportSheets(bundle({ overdue: [overdueRow(1)] }));
-    const row = sheets[2]?.rows[0];
-    expect(row?.[3]).toBe('');
+    const [overdue] = buildExportSheets(bundle({ overdue: [overdueRow(1)] }), undefined, ['overdue']);
+    expect(overdue?.tables[0]?.rows[0]?.[3]).toBe('');
   });
 });
 
 describe('buildExportHeader', () => {
-  it('ghi kèm phạm vi, kỳ báo cáo và thời điểm xuất', () => {
-    const header = buildExportHeader(bundle());
+  it('ghi kèm phạm vi, kỳ báo cáo, bộ lọc và thời điểm xuất', () => {
+    const header = buildExportHeader(bundle(), ['Nhóm Điện']);
     expect(header[0]).toContain('xuất lúc');
     expect(header[1]).toContain('Các dự án tôi phụ trách');
     expect(header[1]).toContain('2 dự án');
     expect(header[2]).toContain('Asia/Ho_Chi_Minh');
+    expect(header[3]).toContain('So với kỳ trước');
+    expect(header[4]).toBe('Bộ lọc: Nhóm Điện');
   });
 
   it('nhãn phạm vi đổi theo vai trò', () => {
@@ -92,65 +190,33 @@ describe('buildExportHeader', () => {
   });
 });
 
-describe('escapeCsvCell', () => {
-  it('bọc ngoặc kép và nhân đôi dấu nháy bên trong', () => {
-    expect(escapeCsvCell('Dự án "A"')).toBe('"Dự án ""A"""');
-  });
-
-  it('chặn chèn công thức bằng cách thêm dấu nháy đơn ở đầu', () => {
-    // Không có bước này, Excel sẽ chạy ô đó như một công thức.
-    expect(escapeCsvCell('=1+1')).toBe(`"'=1+1"`);
-    expect(escapeCsvCell('+84901234567')).toBe(`"'+84901234567"`);
-    expect(escapeCsvCell('-5')).toBe(`"'-5"`);
-    expect(escapeCsvCell('@SUM(A1)')).toBe(`"'@SUM(A1)"`);
-  });
-
-  it('chuỗi bình thường không bị thêm gì', () => {
-    expect(escapeCsvCell('DA-1')).toBe('"DA-1"');
-  });
-
-  it('dấu phẩy và xuống dòng nằm gọn trong ngoặc kép', () => {
-    expect(escapeCsvCell('a,b')).toBe('"a,b"');
+describe('countExportRows', () => {
+  it('cộng dòng của mọi bảng trên mọi trang tính', () => {
+    const sheets = buildExportSheets(bundle({ overdue: [overdueRow(1), overdueRow(2)] }), undefined, [
+      'overdue',
+      'workload',
+    ]);
+    expect(countExportRows(sheets)).toBe(3);
   });
 });
 
-describe('buildCsv', () => {
-  it('có đủ ba tiêu đề bảng và dòng dữ liệu', () => {
-    const csv = buildCsv(bundle());
-    expect(csv).toContain('"Tiến độ dự án"');
-    expect(csv).toContain('"Tải công việc"');
-    expect(csv).toContain('"DA-1"');
+describe('textBar và signed', () => {
+  it('thanh dài theo tỉ lệ, giá trị dương nhỏ vẫn có ít nhất một ô', () => {
+    expect(textBar(10, 10, 5)).toBe('■■■■■');
+    expect(textBar(1, 100, 5)).toBe('■');
+    expect(textBar(0, 10)).toBe('');
   });
 
-  it('dùng CRLF để Excel xuống dòng đúng', () => {
-    expect(buildCsv(bundle())).toContain('\r\n');
-  });
-
-  it('vượt trần số dòng thì chặn và nói rõ phải thu hẹp bộ lọc', () => {
-    const rows = Array.from({ length: MAX_EXPORT_ROWS + 1 }, (_entry, index) =>
-      overdueRow(index),
-    );
-    expect(() => buildCsv(bundle({ overdue: rows }))).toThrow(ExportTooLargeError);
-    try {
-      buildCsv(bundle({ overdue: rows }));
-    } catch (error) {
-      expect((error as Error).message).toContain('thu hẹp');
-    }
-  });
-
-  it('đúng bằng trần thì vẫn xuất được', () => {
-    // Trần là giới hạn trên bao gồm, không phải loại trừ.
-    const rows = Array.from({ length: MAX_EXPORT_ROWS - 2 }, (_entry, index) =>
-      overdueRow(index),
-    );
-    expect(countExportRows(buildExportSheets(bundle({ overdue: rows })))).toBe(MAX_EXPORT_ROWS);
-    expect(() => buildCsv(bundle({ overdue: rows }))).not.toThrow();
+  it('chênh lệch có dấu', () => {
+    expect(signed(3)).toBe('+3');
+    expect(signed(-2)).toBe('-2');
+    expect(signed(0)).toBe('0');
   });
 });
 
 describe('exportFileName', () => {
   it('kèm mốc thời gian nên nhiều lần xuất không đè nhau', () => {
-    expect(exportFileName(bundle())).toBe('bao-cao-workspace-2026-09-24-03-00-00.csv');
+    expect(exportFileName(bundle())).toBe('bao-cao-workspace-2026-09-24-03-00-00.xlsx');
   });
 });
 
@@ -164,39 +230,37 @@ describe('xuất kèm tài chính', () => {
     profit: -500_000_000,
     profitMargin: -5,
   };
-  // Tệp xuất chỉ còn số dự án và giá trị hợp đồng; thu chi thực tế thuộc module Tài chính.
-  const negativeContract = { ...finance, contractValue: -500_000_000 };
 
-  it('không có trường finance thì không có bảng, không có cảnh báo', () => {
-    const sheets = buildExportSheets(bundle());
-    expect(sheets.map((sheet) => sheet.title)).not.toContain('Tài chính tổng hợp (VND)');
+  it('không có trường finance thì không có trang tài chính, không có cảnh báo', () => {
+    expect(sheetNames(buildExportSheets(bundle()))).not.toContain('Tài chính');
     expect(buildExportHeader(bundle()).join(' ')).not.toContain('CẢNH BÁO');
   });
 
-  it('có finance thì thêm bảng cuối và dòng cảnh báo ở đầu tệp', () => {
+  it('có finance thì thêm trang cuối và dòng cảnh báo ở đầu tệp', () => {
     const withFinance = bundle({ finance });
     const sheets = buildExportSheets(withFinance);
     const last = sheets[sheets.length - 1];
-    expect(last?.title).toBe('Tài chính tổng hợp (VND)');
-    expect(last?.rows[0]).toHaveLength(last?.headers.length ?? 0);
-    expect(last?.headers).toEqual(['Số dự án', 'Giá trị hợp đồng']);
+    expect(last?.name).toBe('Tài chính');
+    expect(last?.tables[0]?.headers).toEqual(['Số dự án', 'Giá trị hợp đồng']);
     expect(buildExportHeader(withFinance).join(' ')).toContain('CẢNH BÁO');
   });
 
-  it('số âm thật giữ là số, không bị thêm nháy đơn', () => {
-    const csv = buildCsv(bundle({ finance: negativeContract }));
-    expect(csv).toContain('"-500000000"');
-    expect(csv).not.toContain(`"'-500000000"`);
+  it('bỏ chọn phần tài chính thì không xuất số tiền', () => {
+    const sheets = buildExportSheets(bundle({ finance }), undefined, ['dashboard', 'progress']);
+    expect(sheetNames(sheets)).not.toContain('Tài chính');
   });
 });
 
 describe('tên người trong bản xuất', () => {
   it('dùng tên từ danh bạ thay cho userId', () => {
+    const nameOf = (userId: string) => (userId === 'u1' ? 'Nguyễn Văn A' : userId);
     const sheets = buildExportSheets(
       bundle({ overdue: [{ ...overdueRow(1), assigneeUserId: 'u1' }] }),
-      (userId) => (userId === 'u1' ? 'Nguyễn Văn A' : userId),
+      nameOf,
+      ['performance', 'workload', 'overdue'],
     );
-    expect(sheets[1]?.rows[0]?.[0]).toBe('Nguyễn Văn A');
-    expect(sheets[2]?.rows[0]?.[3]).toBe('Nguyễn Văn A');
+    expect(sheets[0]?.tables[0]?.rows[0]?.[0]).toBe('Nguyễn Văn A');
+    expect(sheets[1]?.tables[0]?.rows[0]?.[0]).toBe('Nguyễn Văn A');
+    expect(sheets[2]?.tables[0]?.rows[0]?.[3]).toBe('Nguyễn Văn A');
   });
 });

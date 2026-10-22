@@ -2,7 +2,8 @@
 
 import type { WorkItem } from '@enterprise-platform/contracts-workspace';
 import { useEffect, useState } from 'react';
-import { Dialog, Field } from './dialog';
+import { ConfirmBox } from './confirm-box';
+import { Field } from './dialog';
 
 export interface ReverseWorkItemDialogProps {
   readonly item?: WorkItem;
@@ -57,17 +58,15 @@ export function ReverseWorkItemDialog({
   };
 
   return (
-    <Dialog
+    <ConfirmBox
       open={Boolean(item)}
-      title="Huỷ hiệu lực công việc?"
-      subtitle={item ? `${item.code} · ${item.title}` : undefined}
-      submitLabel="Huỷ hiệu lực"
-      cancelLabel="Đóng"
-      submitting={submitting}
-      submitDisabled={reason.trim().length < 3}
+      title={item ? `Bạn có chắc chắn muốn huỷ hiệu lực ${item.code} · ${item.title}?` : ''}
+      confirmLabel="Huỷ hiệu lực"
+      busy={submitting}
+      confirmDisabled={reason.trim().length < 3}
       error={error}
-      onClose={onClose}
-      onSubmit={() => void submit()}
+      onConfirm={() => void submit()}
+      onCancel={onClose}
     >
       <Field
         label="Lý do huỷ hiệu lực"
@@ -122,6 +121,6 @@ export function ReverseWorkItemDialog({
           </span>
         </span>
       </label>
-    </Dialog>
+    </ConfirmBox>
   );
 }

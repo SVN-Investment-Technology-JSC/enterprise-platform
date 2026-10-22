@@ -1,4 +1,5 @@
-import { PostgresPoolRegistry, TenantDatabaseRegistry } from '@enterprise-platform/adapter-database';
+import { PostgresPoolRegistry, TenantDatabaseRegistry, inTransaction } from '@enterprise-platform/adapter-database';
+import { createIntegrationEvent } from '@enterprise-platform/contracts-integration';
 import { S3ObjectStorage, TENANT_UPLOAD_URL_TTL_SECONDS, type ObjectStoragePort } from '@enterprise-platform/adapter-storage';
 import {
   PROCEDURE_ATTACHMENT_MAX_BYTES,
@@ -9,14 +10,19 @@ import {
   type ProcedureAttachment,
   type ProcedureInstance,
 } from '@enterprise-platform/contracts-procedure-engine';
-import type { Pool } from 'pg';
+import type { Pool, PoolClient } from 'pg';
 import { randomUUID } from 'node:crypto';
 import { ProcedureEngineError } from '../domain/procedure-engine.error.js';
 import {
+  canSupplementProcedureInstance,
   deriveProcedureAuthorization,
   isProcedureParticipant,
   type ProcedureActor,
 } from '../domain/procedure-authorization.js';
+import {
+  ATTACHMENT_ADDED_EVENT,
+  type AttachmentAddedPayload,
+} from '../domain/procedure-workspace-link.js';
 
 interface AttachmentRow {
   id:string;instance_id:string;step_instance_id:string|null;subtask_id:string|null;object_key:string;
@@ -47,7 +53,8 @@ export class ProcedureAttachmentService {
     const result = await pool.query<{ snapshot: ProcedureInstance }>(
       `SELECT snapshot FROM procedure_schema.instances WHERE id = $1`, [instanceId]);
     const instance = result.rows[0]?.snapshot;
-    if (!instance) throw new ProcedureEngineError('not_found', 'Không tìm thấy hồ sơ.');
+    // Đơn đã xoá (xoá mềm) coi như không tồn tại: không đọc, không đính kèm thêm.
+    if (!instance || instance.deletion) throw new ProcedureEngineError('not_found', 'Không tìm thấy hồ sơ.');
     return instance;
   }
 
@@ -75,21 +82,35 @@ export class ProcedureAttachmentService {
     const pool=await this.pools.forTenant(this.references.require(actor.tenantId));
 
     const instance = await this.loadInstance(pool, instanceId);
-    const authorization = deriveProcedureAuthorization(instance, actor);
-    if (!authorization.canManageSubtasks && authorization.availableActions.length === 0) {
-      throw new ProcedureEngineError('forbidden',
-        'Chỉ người đang có phần việc ở bước hiện tại mới đính kèm được tài liệu.');
-    }
+    let stepInstanceId: string | null;
+    if (input.supplement) {
+      // Bổ sung: mọi người tham gia đơn trừ người chỉ có vai I; không gắn vào bước nào nên hiện thẻ
+      // "Bổ sung" thay vì "Bước N".
+      if (input.subtaskId) {
+        throw new ProcedureEngineError('validation', 'Tài liệu bổ sung không gắn vào đầu việc.');
+      }
+      if (!canSupplementProcedureInstance(instance, actor)) {
+        throw new ProcedureEngineError('forbidden',
+          'Chỉ người tham gia xử lý đơn mới bổ sung được tài liệu (người xem thì không).');
+      }
+      stepInstanceId = null;
+    } else {
+      const authorization = deriveProcedureAuthorization(instance, actor);
+      if (!authorization.canManageSubtasks && authorization.availableActions.length === 0) {
+        throw new ProcedureEngineError('forbidden',
+          'Chỉ người đang có phần việc ở bước hiện tại mới đính kèm được tài liệu.');
+      }
 
-    // Bước được đóng dấu ở server. Tin stepInstanceId của client thì ai cũng gắn
-    // được tệp vào bước bất kỳ, kể cả bước của hồ sơ khác.
-    const subtask = input.subtaskId
-      ? (instance.subtasks ?? []).find((item) => item.id === input.subtaskId)
-      : undefined;
-    if (input.subtaskId && !subtask) {
-      throw new ProcedureEngineError('not_found', 'Không tìm thấy đầu việc để đính kèm.');
+      // Bước được đóng dấu ở server. Tin stepInstanceId của client thì ai cũng gắn
+      // được tệp vào bước bất kỳ, kể cả bước của hồ sơ khác.
+      const subtask = input.subtaskId
+        ? (instance.subtasks ?? []).find((item) => item.id === input.subtaskId)
+        : undefined;
+      if (input.subtaskId && !subtask) {
+        throw new ProcedureEngineError('not_found', 'Không tìm thấy đầu việc để đính kèm.');
+      }
+      stepInstanceId = subtask?.stepInstanceId ?? instance.currentStepId ?? null;
     }
-    const stepInstanceId = subtask?.stepInstanceId ?? instance.currentStepId ?? null;
 
     const id=randomUUID();
     const safeName=input.fileName.trim().replace(/[^a-zA-Z0-9._-]+/g,'-');
@@ -158,7 +179,70 @@ export class ProcedureAttachmentService {
       await pool.query(`DELETE FROM procedure_schema.attachments WHERE id=$1`, [id]);
       throw new ProcedureEngineError('conflict', 'Không tải được bảng kê lên kho tệp.');
     }
+    const instance = await this.loadInstance(pool, instanceId);
+    await inTransaction(pool, (client) => this.emitAdded(client, tenantId, instance, row));
     return this.map(row);
+  }
+
+  /**
+   * Trình duyệt báo đã PUT xong tệp lên kho. Chỉ từ lúc này tệp mới có thật, nên sự kiện sang Workspace
+   * phát ở đây chứ không phát lúc tạo dòng (lúc đó tệp có thể không bao giờ tới).
+   *
+   * Gọi lặp an toàn: Workspace chống trùng theo khoá tệp.
+   */
+  async complete(actor: ProcedureActor, instanceId: string, attachmentId: string): Promise<ProcedureAttachment> {
+    const pool = await this.pools.forTenant(this.references.require(actor.tenantId));
+    const instance = await this.loadInstance(pool, instanceId);
+    const result = await pool.query<AttachmentRow>(
+      `SELECT * FROM procedure_schema.attachments WHERE id=$1 AND instance_id=$2`, [attachmentId, instanceId]);
+    const row = result.rows[0];
+    // Chỉ người đã tải tệp lên mới báo xong được tệp đó.
+    if (!row || row.uploaded_by !== actor.userId) {
+      throw new ProcedureEngineError('not_found', 'Không tìm thấy tệp đính kèm.');
+    }
+    await inTransaction(pool, (client) => this.emitAdded(client, actor.tenantId, instance, row));
+    return this.map(row);
+  }
+
+  /**
+   * Đơn gắn dự án Workspace (đã gắn, đang chờ gắn, hay mở từ công việc) thì báo Workspace có tệp mới để
+   * đưa vào thư mục công việc của dự án. Đơn không gắn dự án thì không phát gì.
+   */
+  private async emitAdded(
+    client: PoolClient,
+    tenantId: string,
+    instance: ProcedureInstance,
+    row: AttachmentRow,
+  ): Promise<void> {
+    if (!instance.workspaceLink && instance.sourceType !== 'workspace_work_item') return;
+    // Workspace đã từ chối gắn dự án: không có công việc nào để nhận tệp.
+    if (instance.workspaceLink?.status === 'rejected') return;
+    const payload: AttachmentAddedPayload = {
+      instanceId: instance.id,
+      instanceCode: instance.code,
+      attachmentId: row.id,
+      objectKey: row.object_key,
+      fileName: row.file_name,
+      contentType: row.content_type,
+      sizeBytes: row.size_bytes ? Number(row.size_bytes) : 0,
+      uploadedBy: row.uploaded_by,
+      originLabel: attachmentOriginLabel(instance, row),
+    };
+    const event = createIntegrationEvent({
+      id: randomUUID(),
+      type: ATTACHMENT_ADDED_EVENT,
+      version: 1,
+      tenantId,
+      source: 'procedure-engine',
+      correlationId: instance.id,
+      payload: { ...payload },
+    });
+    await client.query(
+      `INSERT INTO integration_schema.outbox_events
+        (id,aggregate_type,aggregate_id,event_type,event_version,payload,occurred_at)
+        VALUES ($1,'procedure-instance',$2,$3,$4,$5::jsonb,$6)`,
+      [event.id, instance.id, event.type, event.version, JSON.stringify(event), event.occurredAt],
+    );
   }
 
   async deleteForInstance(tenantId: string, instanceId: string): Promise<number> {
@@ -194,5 +278,23 @@ export class ProcedureAttachmentService {
     return Number(result.rows[0]?.count ?? 0);
   }
 
-  private map(row:AttachmentRow):ProcedureAttachment{return {id:row.id,instanceId:row.instance_id,stepInstanceId:row.step_instance_id??undefined,subtaskId:row.subtask_id??undefined,fileName:row.file_name,contentType:row.content_type,sizeBytes:row.size_bytes?Number(row.size_bytes):undefined,uploadedBy:row.uploaded_by,createdAt:row.created_at.toISOString()}}
+  private map(row:AttachmentRow):ProcedureAttachment{return {id:row.id,instanceId:row.instance_id,stepInstanceId:row.step_instance_id??undefined,subtaskId:row.subtask_id??undefined,fileName:row.file_name,contentType:row.content_type,sizeBytes:row.size_bytes?Number(row.size_bytes):undefined,uploadedBy:row.uploaded_by,createdAt:row.created_at.toISOString(),origin:attachmentOrigin(row)}}
+}
+
+/** Tệp không gắn bước: do hệ thống sinh (bảng kê) hay người tham gia bổ sung. */
+function attachmentOrigin(row: Pick<AttachmentRow, 'step_instance_id' | 'uploaded_by'>): 'step' | 'supplement' | 'system' {
+  if (row.step_instance_id) return 'step';
+  return row.uploaded_by === PROCEDURE_SYSTEM_ACTOR_ID ? 'system' : 'supplement';
+}
+
+/** Thẻ nguồn của tệp: "Bước N" (số thứ tự bước như màn hình hiện), "Bổ sung" hoặc "Hệ thống". */
+export function attachmentOriginLabel(
+  instance: Pick<ProcedureInstance, 'steps'>,
+  row: Pick<AttachmentRow, 'step_instance_id' | 'uploaded_by'>,
+): string {
+  const origin = attachmentOrigin(row);
+  if (origin === 'system') return 'Hệ thống';
+  if (origin === 'supplement') return 'Bổ sung';
+  const step = instance.steps.find((candidate) => candidate.id === row.step_instance_id);
+  return step ? `Bước ${step.order}` : 'Bước';
 }

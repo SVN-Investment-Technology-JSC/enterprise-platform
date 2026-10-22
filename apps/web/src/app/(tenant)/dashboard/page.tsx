@@ -1,15 +1,6 @@
 import type { AuthenticatedPrincipal } from '@enterprise-platform/contracts-identity';
 import { isLauncherOnlyModule } from '@enterprise-platform/feature-module-shell';
-import {
-  Building2,
-  ChevronRight,
-  GitBranch,
-  GitFork,
-  Network,
-  Package,
-  Users,
-  Wrench,
-} from 'lucide-react';
+import { Building2, GitFork, ListChecks, Package, Users, Wrench } from 'lucide-react';
 import { cookies } from 'next/headers';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
@@ -60,26 +51,28 @@ type Maintenance = {
   }[];
 };
 type UserPayload = { users: { status: string }[] };
-type OrganizationNode = {
-  id: string;
-  treeId: string;
-  parentId?: string;
-  nodeTypeId?: string;
-  name: string;
-  code: string;
-  sortOrder?: number;
-};
-type Organization = {
-  trees: { id: string; name: string; code: string }[];
-  nodeTypes: { id: string; name: string }[];
-  nodes: OrganizationNode[];
-  assignments: {
-    nodeId: string;
-    userId: string;
-    isPrimary: boolean;
-    status: string;
+/** Phần của `GET /api/workspace/v1/my-work` mà trang chủ dùng. */
+type WorkspaceWork = {
+  items?: {
+    item: {
+      id: string;
+      projectId: string;
+      code: string;
+      title: string;
+      status: string;
+      priority: string;
+      plannedEnd?: string;
+    };
+    bucket: string;
+    projectCode: string;
+    projectName: string;
   }[];
-  users: { id: string; fullName: string }[];
+  standaloneTasks?: {
+    task: { id: string; code: string; title: string; status: string; priority: string; dueDate?: string };
+    bucket: string;
+    myRole: string;
+    awaitingMyApproval: boolean;
+  }[];
 };
 type Warehouse = { code: string; isActive: boolean };
 type Material = {
@@ -93,6 +86,36 @@ type MaterialInventory = { materialId: string; available: number };
 
 /** Số dòng mỗi nhóm việc; còn nữa thì có link mở module để xem đủ. */
 const GROUP_ROWS = 5;
+
+/**
+ * Link từ trang chủ vào một việc cần xử lý mang theo `returnTo`: xử lý xong (duyệt, hoàn thành…) module
+ * tự quay về trang chủ.
+ */
+const RETURN_HOME = `returnTo=${encodeURIComponent('/dashboard')}`;
+
+/** Thứ tự nhóm hạn của "Công việc cần xử lý": quá hạn lên đầu. */
+const BUCKET_ORDER = ['overdue', 'today', 'this_week', 'later', 'no_due'];
+
+const WORK_PRIORITY: Record<string, { label: string; dot: string }> = {
+  urgent: { label: 'Khẩn', dot: 'bg-red-600 shadow-[0_0_0_4px_rgba(220,38,38,.12)]' },
+  high: { label: 'Cao', dot: 'bg-red-500 shadow-[0_0_0_4px_rgba(239,68,68,.12)]' },
+  normal: { label: 'Bình thường', dot: 'bg-amber-500 shadow-[0_0_0_4px_rgba(245,158,11,.12)]' },
+  low: { label: 'Thấp', dot: 'bg-sky-400 shadow-[0_0_0_4px_rgba(56,189,248,.12)]' },
+};
+
+const WORK_STATUS: Record<string, { label: string; className: string }> = {
+  todo: { label: 'Chưa làm', className: 'bg-slate-100 text-slate-700' },
+  in_progress: { label: 'Đang làm', className: 'bg-blue-50 text-blue-700' },
+  review: { label: 'Chờ duyệt', className: 'bg-[#fff6d6] text-[#8a6400]' },
+};
+
+const BUCKET_LABEL: Record<string, string> = {
+  overdue: 'Quá hạn',
+  today: 'Hôm nay',
+  this_week: 'Tuần này',
+  later: 'Sau này',
+  no_due: 'Chưa có hạn',
+};
 
 const PRIORITY_LABELS: Record<string, { label: string; dot: string }> = {
   High: { label: 'Cao', dot: 'bg-red-500 shadow-[0_0_0_4px_rgba(239,68,68,.12)]' },
@@ -144,16 +167,12 @@ function joinClauses(parts: ReactNode[]): ReactNode {
 export default async function TenantPortalPage() {
   const cookie = (await cookies()).toString(),
     api = process.env.API_BASE_URL ?? 'http://localhost:3333';
-  const [me, modulesRes, organization] = await Promise.all([
+  const [me, modulesRes] = await Promise.all([
     fetch(`${api}/api/auth/v1/me`, { headers: { cookie }, cache: 'no-store' }),
     fetch(`${api}/api/platform/v1/modules`, {
       headers: { cookie },
       cache: 'no-store',
     }),
-    read<Organization>(
-      `${api}/api/platform/v1/tenant-organization/core-snapshot`,
-      cookie,
-    ),
   ]);
   if (!me.ok || !modulesRes.ok) redirect('/');
   const principal = (await me.json()) as AuthenticatedPrincipal;
@@ -165,7 +184,7 @@ export default async function TenantPortalPage() {
   const has = (key: string) => modules.some((item) => item.key === key);
   const inventoryApi =
     process.env.INVENTORY_API_BASE_URL ?? 'http://localhost:3336';
-  const [users, procedure, maintenance, warehouses, materials] =
+  const [users, procedure, maintenance, warehouses, materials, workspace] =
     await Promise.all([
       manager
         ? read<UserPayload>(`${api}/api/platform/v1/tenant-users`, cookie)
@@ -190,6 +209,12 @@ export default async function TenantPortalPage() {
         : Promise.resolve(undefined),
       has('inventory')
         ? read<Material[]>(`${inventoryApi}/api/inventory/v1/materials`, cookie)
+        : Promise.resolve(undefined),
+      has('workspace')
+        ? read<WorkspaceWork>(
+          `${process.env.WORKSPACE_API_BASE_URL ?? 'http://localhost:3337'}/api/workspace/v1/my-work`,
+          cookie,
+        )
         : Promise.resolve(undefined),
     ]);
   const stocks = warehouses
@@ -223,6 +248,36 @@ export default async function TenantPortalPage() {
         (action) => action !== 'comment',
       ),
   );
+  // Công việc của tôi bên Workspace: việc dự án đang mở được giao cho tôi, cộng "Công việc khác" tôi làm
+  // hoặc đang chờ tôi duyệt. Quá hạn lên đầu.
+  const bucketRank = (bucket: string) => {
+    const index = BUCKET_ORDER.indexOf(bucket);
+    return index < 0 ? BUCKET_ORDER.length : index;
+  };
+  const workToDo = [
+    ...(workspace?.items ?? []).map((entry) => ({
+      key: `item-${entry.item.id}`,
+      code: entry.item.code,
+      title: entry.item.title,
+      where: entry.projectCode,
+      whereTitle: entry.projectName,
+      priority: entry.item.priority,
+      status: entry.item.status,
+      bucket: entry.bucket,
+      href: `/modules/workspace?project=${encodeURIComponent(entry.item.projectId)}&${RETURN_HOME}#projects/work-item/${encodeURIComponent(entry.item.id)}`,
+    })),
+    ...(workspace?.standaloneTasks ?? []).map((entry) => ({
+      key: `task-${entry.task.id}`,
+      code: entry.task.code,
+      title: entry.task.title,
+      where: 'Công việc khác',
+      whereTitle: entry.awaitingMyApproval ? 'Chờ bạn duyệt' : 'Công việc khác',
+      priority: entry.task.priority,
+      status: entry.awaitingMyApproval ? 'review' : entry.task.status,
+      bucket: entry.bucket,
+      href: `/modules/workspace?${RETURN_HOME}#tasks/${encodeURIComponent(entry.task.id)}`,
+    })),
+  ].sort((left, right) => bucketRank(left.bucket) - bucketRank(right.bucket));
   const incidents = (maintenance?.occurrences ?? []).filter(
     (item) => item.kind === 'incident' && item.status !== 'completed',
   );
@@ -274,25 +329,14 @@ export default async function TenantPortalPage() {
   const activeUsers = users?.users.filter(
     (item) => item.status === 'active',
   ).length;
-  const organizationTree = organization?.trees[0];
-  const treeNodes = organizationTree
-    ? (organization?.nodes.filter((node) => node.treeId === organizationTree.id) ?? [])
-    : [];
-  const rootNode =
-    treeNodes.find((node) => !node.parentId) ?? treeNodes[0];
-  const directChildren = rootNode
-    ? treeNodes.filter((node) => node.parentId === rootNode.id)
-    : [];
-  const topBranches =
-    directChildren.length > 0
-      ? directChildren
-      : treeNodes.filter((node) => node.id !== rootNode?.id);
-  const displayBranches = topBranches.slice(0, 3);
   const displayName = principal.displayName || 'Quản trị viên';
 
   const workClauses: ReactNode[] = [
     ...(procedure
       ? [<><Strong>{actionable.length} hồ sơ</Strong> quy trình chờ bạn thao tác</>]
+      : []),
+    ...(workspace
+      ? [<><Strong>{workToDo.length} công việc</Strong> cần xử lý</>]
       : []),
     ...(maintenance
       ? [<><Strong>{incidents.length} sự cố</Strong> bảo trì đang mở</>]
@@ -448,7 +492,7 @@ export default async function TenantPortalPage() {
                   <GroupRow
                     key={item.id}
                     columns="22px minmax(220px,1fr) 170px 150px 190px 100px"
-                    href={`/modules/procedure#workspace/${encodeURIComponent(item.id)}`}
+                    href={`/modules/procedure?${RETURN_HOME}#workspace/${encodeURIComponent(item.id)}`}
                   >
                     <Dot className="bg-amber-500 shadow-[0_0_0_4px_rgba(245,158,11,.12)]" />
                     <Cell strong title={item.title}>{item.title}</Cell>
@@ -470,6 +514,61 @@ export default async function TenantPortalPage() {
             </GroupTable>
           ) : (
             <Empty>Không có hồ sơ nào chờ bạn thao tác.</Empty>
+          )}
+        </CollapsibleGroup>
+      ) : null}
+
+      {workspace ? (
+        <CollapsibleGroup
+          title="Công việc cần xử lý"
+          count={workToDo.length}
+          tone="bg-amber-100 text-amber-800"
+          icon={<ListChecks className="size-4" />}
+        >
+          {workToDo.length > 0 ? (
+            <GroupTable
+              columns="22px minmax(220px,1fr) 150px 130px 120px 110px"
+              headings={['CÔNG VIỆC', 'DỰ ÁN', 'ƯU TIÊN', 'HẠN', 'TRẠNG THÁI']}
+              footer={
+                workToDo.length > GROUP_ROWS ? (
+                  <a href="/modules/workspace#my-work" className="font-semibold text-blue-700 hover:text-blue-800">
+                    Xem đủ {workToDo.length} công việc trong Workspace
+                  </a>
+                ) : undefined
+              }
+            >
+              {workToDo.slice(0, GROUP_ROWS).map((work) => {
+                const priority = WORK_PRIORITY[work.priority];
+                const status = WORK_STATUS[work.status];
+                return (
+                  <GroupRow
+                    key={work.key}
+                    columns="22px minmax(220px,1fr) 150px 130px 120px 110px"
+                    href={work.href}
+                  >
+                    <Dot className={priority?.dot ?? 'bg-amber-500'} />
+                    <Cell strong title={`${work.code} · ${work.title}`}>
+                      <span className="mr-1.5 font-normal text-slate-500">{work.code}</span>
+                      {work.title}
+                    </Cell>
+                    <Cell muted title={work.whereTitle}>{work.where}</Cell>
+                    <Cell small>{priority?.label ?? work.priority}</Cell>
+                    <Cell small>
+                      <span className={work.bucket === 'overdue' ? 'font-semibold text-red-600' : undefined}>
+                        {BUCKET_LABEL[work.bucket] ?? '—'}
+                      </span>
+                    </Cell>
+                    <span>
+                      <Pill className={status?.className ?? 'bg-slate-100 text-slate-700'}>
+                        {status?.label ?? work.status}
+                      </Pill>
+                    </span>
+                  </GroupRow>
+                );
+              })}
+            </GroupTable>
+          ) : (
+            <Empty>Không có công việc nào cần bạn xử lý.</Empty>
           )}
         </CollapsibleGroup>
       ) : null}
@@ -640,119 +739,6 @@ export default async function TenantPortalPage() {
           </div>
         </section>
       ) : null}
-
-      <section
-        aria-labelledby="org-title"
-        className="flex flex-col gap-3 rounded-[14px] border border-[#eef0f3] bg-white px-4 py-3.5"
-      >
-        <div className="flex items-center gap-2.5">
-          <span aria-hidden className="grid size-7 shrink-0 place-items-center rounded-[7px] bg-slate-100 text-slate-700">
-            <GitBranch className="size-3.5" />
-          </span>
-          <h2 id="org-title" className="m-0 flex-1 text-[14px] font-semibold">
-            Sơ đồ tổ chức
-          </h2>
-          <Link
-            href="/organization"
-            className="flex items-center gap-0.5 text-[13px] font-semibold text-blue-700 hover:text-blue-800"
-          >
-            Xem chi tiết
-            <ChevronRight className="size-3.5" aria-hidden />
-          </Link>
-        </div>
-        <div className="flex flex-wrap items-stretch gap-3">
-          <div className="flex max-w-[240px] flex-[1_1_180px] flex-col justify-between gap-1.5">
-            <OrgMetric
-              icon={<GitBranch className="size-[13px]" />}
-              tone="bg-blue-50 text-blue-700"
-              label="Sơ đồ"
-              value={organization?.trees.length ?? '—'}
-            />
-            <OrgMetric
-              icon={<Building2 className="size-[13px]" />}
-              tone="bg-indigo-50 text-indigo-700"
-              label="Node tổ chức"
-              value={organization?.nodes.length ?? '—'}
-            />
-            <OrgMetric
-              icon={<Users className="size-[13px]" />}
-              tone="bg-emerald-50 text-emerald-700"
-              label="Bổ nhiệm"
-              value={organization?.assignments.length ?? '—'}
-            />
-          </div>
-
-          {organizationTree && rootNode ? (
-            <Link
-              href="/organization"
-              aria-label={`Mở ${organizationTree.name}`}
-              className="flex min-w-0 flex-[999_1_420px] flex-col gap-2.5 rounded-[10px] border border-[#eef0f3] bg-[#fcfcfd] bg-[radial-gradient(#e5e7eb_1px,transparent_1px)] bg-[length:18px_18px] px-3.5 pb-3.5 pt-2.5 text-[#18181b]"
-            >
-              <span className="flex items-center gap-2 border-b border-[#eef0f3] pb-2">
-                <span aria-hidden className="size-1.5 rounded-full bg-[#ffc90a]" />
-                <span className="min-w-0 flex-1 truncate text-[13px] font-semibold">
-                  {organizationTree.name}
-                </span>
-                <span className="rounded-[5px] bg-[#fff6d6] px-1.5 text-[12px] font-bold text-[#8a6400]">
-                  Cây chính
-                </span>
-              </span>
-              <span className="flex flex-col items-center">
-                <span
-                  className="flex max-w-[95%] items-center gap-1.5 rounded-lg border border-slate-200 border-t-[3px] border-t-red-500 bg-white px-3 py-1.5 shadow-[0_1px_2px_rgba(16,24,40,.06)]"
-                  title={`${rootNode.code} · ${rootNode.name}`}
-                >
-                  <Building2 className="size-3.5 shrink-0 text-red-600" aria-hidden />
-                  <span className="truncate text-[13px] font-bold">{rootNode.name}</span>
-                </span>
-                {displayBranches.length > 0 ? (
-                  <>
-                    <span aria-hidden className="h-2.5 w-px bg-slate-300" />
-                    {displayBranches.length > 1 ? (
-                      <span
-                        aria-hidden
-                        className="h-px bg-slate-300"
-                        style={{ width: displayBranches.length === 2 ? '50%' : '66.6%' }}
-                      />
-                    ) : null}
-                    <span
-                      className={`grid w-full gap-2 pt-2.5 ${displayBranches.length === 1
-                        ? 'mx-auto max-w-[220px] grid-cols-1'
-                        : displayBranches.length === 2
-                          ? 'grid-cols-2'
-                          : 'grid-cols-3'
-                        }`}
-                    >
-                      {displayBranches.map((child) => (
-                        <span key={child.id} className="relative flex flex-col items-center">
-                          {displayBranches.length > 1 ? (
-                            <span aria-hidden className="absolute -top-2.5 h-2.5 w-px bg-slate-300" />
-                          ) : null}
-                          <span
-                            className="flex w-full flex-col items-center rounded-lg border border-slate-200 border-t-[3px] border-t-sky-500 bg-white px-2 py-[7px] text-center"
-                            title={`${child.code} · ${child.name}`}
-                          >
-                            <span className="max-w-full truncate text-[13px] font-semibold">
-                              {child.name}
-                            </span>
-                          </span>
-                        </span>
-                      ))}
-                    </span>
-                  </>
-                ) : null}
-              </span>
-            </Link>
-          ) : (
-            <div className="grid min-h-24 flex-[999_1_420px] place-items-center rounded-[10px] border border-dashed border-slate-200 bg-slate-50/40 p-4 text-center">
-              <span className="flex flex-col items-center gap-1 text-xs text-slate-500">
-                <Network className="size-6 text-slate-300" aria-hidden />
-                Chưa thiết lập sơ đồ tổ chức
-              </span>
-            </div>
-          )}
-        </div>
-      </section>
     </div>
   );
 }
@@ -876,26 +862,4 @@ function Pill({ className, children }: { className: string; children: ReactNode 
 
 function Empty({ children }: { children: ReactNode }) {
   return <p className="m-0 px-5 py-[18px] text-center text-[14px] text-slate-500">{children}</p>;
-}
-
-function OrgMetric({
-  icon,
-  tone,
-  label,
-  value,
-}: {
-  icon: ReactNode;
-  tone: string;
-  label: string;
-  value: string | number;
-}) {
-  return (
-    <div className="flex items-center gap-2.5 rounded-[9px] bg-[#fafbfc] px-2.5 py-[7px]">
-      <span aria-hidden className={`grid size-[26px] shrink-0 place-items-center rounded-[7px] ${tone}`}>
-        {icon}
-      </span>
-      <span className="flex-1 text-[12px] text-slate-500">{label}</span>
-      <b className="text-base tabular-nums">{value}</b>
-    </div>
-  );
 }

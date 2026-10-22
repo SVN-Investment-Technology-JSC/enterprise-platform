@@ -5,6 +5,7 @@ import { X } from 'lucide-react';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import styles from '../workspace.module.scss';
+import { ConfirmBox } from './confirm-box';
 
 export interface DialogProps {
   readonly open: boolean;
@@ -17,8 +18,11 @@ export interface DialogProps {
   /** Khoá nút gửi khi form chưa đủ dữ liệu bắt buộc (vd lý do còn trống). */
   readonly submitDisabled?: boolean;
   readonly error?: string;
-  /** `wide` cho hộp thoại có hai cột hoặc cây chọn (khoảng 52rem). */
-  readonly size?: 'default' | 'wide';
+  /**
+   * `wide` cho hộp thoại có hai cột hoặc cây chọn (khoảng 52rem); `extraWide` cho bảng nhập nhiều dòng
+   * (khoảng 68rem).
+   */
+  readonly size?: 'default' | 'wide' | 'extraWide';
   readonly onClose: () => void;
   readonly onSubmit: () => void;
   readonly children: ReactNode;
@@ -117,22 +121,6 @@ export function Dialog({
             {error}
           </p>
         ) : null}
-        {confirmDiscard ? (
-          <div className={styles.discardBar} role="alert">
-            <span>Bạn có thay đổi chưa lưu. Đóng lại sẽ mất những gì vừa nhập.</span>
-            <button
-              type="button"
-              className={styles.buttonGhost}
-              autoFocus
-              onClick={() => setConfirmDiscard(false)}
-            >
-              Tiếp tục sửa
-            </button>
-            <button type="button" className={styles.buttonDanger} onClick={onClose}>
-              Bỏ thay đổi
-            </button>
-          </div>
-        ) : null}
       </div>
       <footer className={styles.dialogFoot}>
         {cancelLabel === null ? null : (
@@ -148,6 +136,14 @@ export function Dialog({
           {submitting ? 'Đang lưu…' : submitLabel}
         </button>
       </footer>
+      <ConfirmBox
+        open={confirmDiscard}
+        title="Bạn có chắc chắn muốn đóng?"
+        message="Những gì vừa nhập chưa được lưu sẽ mất."
+        confirmLabel="Bỏ thay đổi"
+        onConfirm={onClose}
+        onCancel={() => setConfirmDiscard(false)}
+      />
     </form>
   );
 
@@ -164,7 +160,13 @@ export function Dialog({
   return createPortal(
     <div className={styles.overlay} role="presentation" onMouseDown={requestClose}>
       <div
-        className={size === 'wide' ? `${styles.dialog} ${styles.dialogWide}` : styles.dialog}
+        className={
+          size === 'wide'
+            ? `${styles.dialog} ${styles.dialogWide}`
+            : size === 'extraWide'
+              ? `${styles.dialog} ${styles.dialogExtraWide}`
+              : styles.dialog
+        }
         role="dialog"
         aria-modal="true"
         aria-label={title}

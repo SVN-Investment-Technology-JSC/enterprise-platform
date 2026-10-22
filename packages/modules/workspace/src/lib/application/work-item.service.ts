@@ -68,6 +68,9 @@ const STATUS_LABELS: Record<WorkItemStatus, string> = {
   cancelled: 'Đã huỷ',
 };
 
+/** Số tên gợi ý tối đa gửi xuống; giao diện lọc tiếp theo chữ gõ. */
+const RECENT_TITLE_LIMIT = 300;
+
 export class WorkItemService {
   constructor(
     private readonly store: WorkspaceStore,
@@ -75,6 +78,18 @@ export class WorkItemService {
     private readonly procedureReversal?: ProcedureReversalChecker,
     private readonly fleet?: FleetTransportService,
   ) {}
+
+  /**
+   * Tên công việc đã dùng để gợi ý khi gõ tên mới, mới nhất trước. Quản trị viên tenant thấy cả tenant;
+   * người khác chỉ thấy việc mình tạo hoặc được giao, không lộ tên việc ngoài phạm vi được xem.
+   */
+  async recentTitles(actor: WorkspaceActor): Promise<readonly string[]> {
+    return this.store.workItem.recentTitles(
+      actor.tenantId,
+      actor.isTenantAdmin ? undefined : actor.userId,
+      RECENT_TITLE_LIMIT,
+    );
+  }
 
   /** Toàn bộ cây WBS của một dự án, trả phẳng kèm `parentId` và `depth`. */
   async tree(actor: WorkspaceActor, projectId: string): Promise<WorkItemTree> {

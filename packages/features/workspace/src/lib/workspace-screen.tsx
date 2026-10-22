@@ -26,6 +26,7 @@ import {
   Upload,
   Users,
 } from 'lucide-react';
+import { initialReturnTarget, type ReturnTarget } from '@enterprise-platform/shared-ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   getProject,
@@ -43,7 +44,9 @@ import { ProjectAvatar } from './components/project-avatar';
 import { MyWorkView } from './components/my-work-view';
 import { QuickSearch, type QuickSearchTarget } from './components/quick-search';
 import { ReportsView } from './components/reports-view';
+import { ProjectGroupSettings } from './components/project-group-settings';
 import { ProjectRoleSettings } from './components/project-role-settings';
+import { TagSettings } from './components/tag-settings';
 import { ProjectsView } from './components/projects-view';
 import { ProjectsListView } from './components/projects-list-view';
 import { CustomersView } from './components/customers-view';
@@ -59,19 +62,25 @@ import styles from './workspace.module.scss';
 type Tab = 'my-work' | 'tasks' | 'projects' | 'customers' | 'documents' | 'reports' | 'settings';
 
 /**
- * Mục điều hướng. "Dự án" có dòng riêng mở khu vực Dự án (dải hai tab Dự án /
- * Khách hàng ở đầu trang); các dự án cũng nằm thẳng ở mục Dự án bên dưới, và
- * dòng "Tất cả dự án" mở danh mục đầy đủ (trang `projects`).
+ * Mục điều hướng. Trang Dự án (dải hai tab Dự án / Khách hàng ở đầu trang) không có dòng riêng: bấm
+ * tiêu đề "DỰ ÁN" của mục dự án bên dưới để mở; các dự án nằm thẳng trong mục đó.
  */
 const NAV: readonly ModuleNavItem<Tab>[] = [
   { id: 'my-work', label: 'Công việc của tôi', group: 'Công việc', icon: <ListChecks size={16} /> },
   {
     id: 'tasks',
-    label: 'Công việc ngoài dự án',
+    label: 'Công việc khác',
     group: 'Công việc',
     icon: <ClipboardList size={16} />,
   },
-  { id: 'projects', label: 'Dự án', group: 'Công việc', icon: <FolderKanban size={16} /> },
+  // Mở bằng tiêu đề "DỰ ÁN" của mục dự án trên thanh bên, không có dòng riêng.
+  {
+    id: 'projects',
+    label: 'Dự án',
+    group: 'Công việc',
+    icon: <FolderKanban size={16} />,
+    hidden: true,
+  },
   { id: 'documents', label: 'Tài liệu', group: 'Công việc', icon: <FileText size={16} /> },
   { id: 'reports', label: 'Báo cáo', group: 'Công việc', icon: <BarChart3 size={16} /> },
   // Tab "Khách hàng" nằm trong khu vực Dự án (dải hai tab ở đầu trang), không có dòng riêng.
@@ -92,7 +101,7 @@ const TITLES: Record<Tab, { title: string; subtitle: string }> = {
     subtitle: 'Việc được giao, lịch hôm nay và những nơi có người nhắc tên bạn.',
   },
   tasks: {
-    title: 'Công việc ngoài dự án',
+    title: 'Công việc khác',
     subtitle: 'Giao việc cho bất kỳ ai trong tổ chức mà không cần dự án; người giao duyệt kết quả.',
   },
   projects: {
@@ -125,6 +134,20 @@ const SETTINGS_SECTIONS = [
     description:
       'Định nghĩa vai trò gán cho thành viên dự án và những gì mỗi vai được làm. Mặc định có Chủ nhiệm, Quản lý, Thành viên và Người xem.',
     render: () => <ProjectRoleSettings />,
+  },
+  {
+    id: 'project-groups',
+    label: 'Nhóm dự án',
+    description:
+      'Danh mục nhóm để phân loại dự án, chọn khi tạo dự án và lọc trên trang Dự án. Đổi tên nhóm thì các dự án của nhóm đổi theo.',
+    render: () => <ProjectGroupSettings />,
+  },
+  {
+    id: 'tags',
+    label: 'Nhãn',
+    description:
+      'Danh mục nhãn dùng chung cho công việc và dự án. Sửa tên, màu, ẩn nhãn không còn dùng hoặc xoá hẳn.',
+    render: () => <TagSettings />,
   },
 ] as const;
 
@@ -181,12 +204,15 @@ export function WorkspaceScreen() {
   );
   const [error, setError] = useState<string>();
   const [quickOpen, setQuickOpen] = useState(false);
+  /** Mở từ trang khác kèm `?returnTo=`: hiện dải "xử lý xong sẽ tự quay về". Đọc sau khi gắn để khớp SSR. */
+  const [returnTarget, setReturnTarget] = useState<ReturnTarget>();
+  useEffect(() => setReturnTarget(initialReturnTarget()), []);
   /** Mục Dự án trên thanh bên: vài dự án đầu (hay tất cả, khi đã bung) và tổng số. */
   const [sidebarProjects, setSidebarProjects] = useState<readonly ProjectSummary[]>([]);
   const [projectTotal, setProjectTotal] = useState(0);
   /** "Tất cả dự án" bung toàn bộ dự án ngay trên thanh bên; bấm lần nữa thì thu lại. */
   const [showAllProjects, setShowAllProjects] = useState(false);
-  /** Lọc thanh bên theo loại dự án; rỗng là mọi loại. */
+  /** Lọc thanh bên theo nhóm dự án; rỗng là mọi nhóm. */
   const [projectType, setProjectType] = useState('');
   const [projectTypes, setProjectTypes] = useState<readonly ProjectTypeOption[]>([]);
   /** Dự án đang mở ở trang Dự án, để tô sáng dòng tương ứng. */
@@ -270,7 +296,8 @@ export function WorkspaceScreen() {
   };
 
   const reloadSidebarProjects = useCallback(() => {
-    const filter = { projectType: projectType || undefined };
+    // Dự án lưu trữ (đã hoàn thành) không hiện trên thanh bên; xem ở tab Lưu trữ của trang Dự án.
+    const filter = { projectType: projectType || undefined, archived: 'exclude' as const };
     const load = showAllProjects
       ? listAllProjects(20, filter).then((items) => ({ items, total: items.length }))
       : listProjects({ ...filter, pageSize: SIDEBAR_PROJECTS });
@@ -390,6 +417,8 @@ export function WorkspaceScreen() {
         id: 'projects',
         title: 'Dự án',
         count: projectTotal,
+        onTitleClick: openProjectList,
+        titleActive: view === 'projects' && !openProjectId,
         action: {
           label: 'Tạo dự án',
           onClick: () => {
@@ -416,10 +445,10 @@ export function WorkspaceScreen() {
         filter:
           projectTypes.length > 0
             ? {
-                label: 'Lọc dự án theo loại',
+                label: 'Lọc dự án theo nhóm',
                 value: projectType,
                 options: [
-                  { value: '', label: 'Mọi loại dự án' },
+                  { value: '', label: 'Mọi nhóm dự án' },
                   ...projectTypes.map((type) => ({
                     value: type.name,
                     label: `${type.name} (${type.count})`,
@@ -428,7 +457,7 @@ export function WorkspaceScreen() {
                 onChange: setProjectType,
               }
             : undefined,
-        emptyText: projectType ? 'Không có dự án loại này.' : 'Chưa có dự án nào.',
+        emptyText: projectType ? 'Không có dự án thuộc nhóm này.' : 'Chưa có dự án nào.',
         // Chỉ có dòng này khi còn dự án chưa hiện, hay khi đang bung để thu lại.
         footer:
           showAllProjects || projectTotal > SIDEBAR_PROJECTS
@@ -450,6 +479,7 @@ export function WorkspaceScreen() {
       projectType,
       projectTypes,
       groupByType,
+      openProjectList,
     ],
   );
 
@@ -514,6 +544,12 @@ export function WorkspaceScreen() {
       }
       banner={
         <>
+          {returnTarget ? (
+            <p className={styles.notice} role="status">
+              Mở từ Trang chủ · xử lý xong việc này sẽ tự quay về.{' '}
+              <a href={returnTarget.path}>Về Trang chủ</a>
+            </p>
+          ) : null}
           {error ? (
             <p role="alert" className={styles.alert}>
               {error}
@@ -595,7 +631,7 @@ export function WorkspaceScreen() {
           )}
         </>
       ) : view === 'reports' && !provisioning ? (
-        <ReportsView />
+        <ReportsView onOpenItem={(projectId, workItemId) => openInProject(projectId, `work-item/${workItemId}`)} />
       ) : view === 'settings' && !provisioning ? (
         <ModuleSettingsView
           sections={SETTINGS_SECTIONS}

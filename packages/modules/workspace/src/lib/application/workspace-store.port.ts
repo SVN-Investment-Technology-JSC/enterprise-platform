@@ -37,8 +37,18 @@ import type {
   ParticipantResponse,
   Project,
   ProjectMember,
+  PerformanceRow,
   ProjectProgressRow,
+  ReportCount,
+  ReportGranularity,
+  ReportGroupRow,
+  ReportItemKind,
+  ReportItemList,
+  ReportKpis,
+  ReportPreviousKpis,
+  ReportTrendBucket,
   ProjectRole,
+  ProjectGroup,
   ProjectPermission,
   ProjectStatus,
   ProjectTypeOption,
@@ -174,6 +184,45 @@ export interface ReportScopeFilter {
   readonly userId: string;
   /** Người gọi tự giới hạn vào vài dự án; rỗng nghĩa là cả phạm vi. */
   readonly projectIds?: readonly string[];
+  /** Chỉ dự án thuộc các nhóm này (tên nhóm; chuỗi rỗng là "Chưa phân nhóm"). */
+  readonly groups?: readonly string[];
+  /** Chỉ dự án gắn ít nhất một trong các nhãn này. */
+  readonly tagIds?: readonly string[];
+}
+
+/**
+ * Tham số chung của các truy vấn phân tích báo cáo. Ngày là `YYYY-MM-DD` theo múi giờ tenant; `timezone` dùng để
+ * đổi `created_at` (timestamptz) về ngày địa phương.
+ */
+export interface ReportAnalyticsQuery {
+  readonly projectIds: readonly string[];
+  readonly timezone: string;
+  readonly fromDay: string;
+  readonly toDay: string;
+  readonly previousFromDay: string;
+  readonly previousToDay: string;
+  readonly today: string;
+  readonly granularity: ReportGranularity;
+  /** Chỉ việc người này phụ trách hoặc cùng làm (bộ lọc người, hoặc mức `self`). */
+  readonly userId?: string;
+}
+
+/** Danh sách việc khi bấm một con số trên báo cáo. */
+export interface ReportItemsQuery {
+  readonly projectIds: readonly string[];
+  readonly timezone: string;
+  readonly kind: ReportItemKind;
+  readonly fromDay: string;
+  readonly toDay: string;
+  readonly today: string;
+  readonly weekEnd: string;
+  /** Việc người này phụ trách hoặc cùng làm. */
+  readonly userId?: string;
+  /** Chỉ việc người này phụ trách (bấm từ bảng theo người). */
+  readonly assigneeUserId?: string;
+  readonly status?: string;
+  readonly priority?: string;
+  readonly limit: number;
 }
 
 /** Khách hàng đã chuẩn hoá ở tầng ứng dụng, sẵn sàng ghi. */
@@ -287,11 +336,13 @@ export interface WorkspaceStore {
         readonly search?: string;
         readonly status?: ProjectStatus;
         readonly projectType?: string;
+        /** `only`: chỉ dự án lưu trữ; `exclude`: bỏ dự án lưu trữ; vắng: mọi dự án. */
+        readonly archived?: 'only' | 'exclude';
         readonly page: number;
         readonly pageSize: number;
       },
     ): Promise<{ readonly items: readonly Project[]; readonly total: number }>;
-    /** Các loại dự án đang dùng, kèm số dự án; `userId` rỗng = cả tenant. */
+    /** Mọi nhóm trong danh mục, kèm số dự án người gọi thấy được; `userId` rỗng = cả tenant. */
     types(tenantId: string, userId?: string): Promise<readonly ProjectTypeOption[]>;
     findById(tenantId: string, projectId: string): Promise<Project | undefined>;
     findByCode(tenantId: string, code: string): Promise<Project | undefined>;
@@ -301,7 +352,7 @@ export interface WorkspaceStore {
       projectIds: readonly string[],
       today: string,
     ): Promise<readonly ProjectRollup[]>;
-    /** Tạo dự án và ghi người tạo làm `owner` trong cùng một transaction. */
+    /** Tạo dự án (kèm nhãn) và ghi người tạo làm `owner` trong cùng một transaction. */
     create(
       tenantId: string,
       actorUserId: string,
@@ -349,6 +400,11 @@ export interface WorkspaceStore {
     openChildCount(tenantId: string, workItemId: string): Promise<number>;
     /** Số công việc chưa đóng của cả dự án; dùng để chặn đóng hồ sơ dự án còn việc dở. */
     openItemCount(tenantId: string, projectId: string): Promise<number>;
+    /**
+     * Tên công việc đã dùng, mới nhất trước, không trùng; `userId` rỗng = cả tenant, có thì chỉ việc người đó
+     * tạo hoặc được giao. Dùng để gợi ý khi gõ tên công việc mới.
+     */
+    recentTitles(tenantId: string, userId: string | undefined, limit: number): Promise<readonly string[]>;
     /**
      * Tạo công việc. Mã `CVxxx` do store sinh BÊN TRONG transaction, sau khi
      * khoá theo dự án — sinh ở ngoài rồi truyền vào thì hai người tạo việc cùng
@@ -429,6 +485,8 @@ export interface WorkspaceStore {
     findByIds(tenantId: string, ids: readonly string[]): Promise<readonly Tag[]>;
     create(tenantId: string, actorUserId: string, input: CreateTagRequest): Promise<Tag>;
     update(tenantId: string, tagId: string, input: UpdateTagRequest): Promise<Tag | undefined>;
+    /** Xoá hẳn nhãn; nhãn tự gỡ khỏi mọi công việc và dự án (khoá ngoại ON DELETE CASCADE). */
+    remove(tenantId: string, tagId: string): Promise<boolean>;
   };
 
   readonly savedFilter: {
@@ -692,6 +750,29 @@ export interface WorkspaceStore {
     ): Promise<DocumentLink>;
     removeLink(tenantId: string, linkId: string): Promise<void>;
 
+    /** Tài liệu có một phiên bản trỏ tới tệp này; dùng chống trùng khi nhận tệp từ module khác. */
+    findByStorageKey(tenantId: string, storageKey: string): Promise<{ readonly documentId: string } | undefined>;
+    /**
+     * Tài liệu thuộc về một công việc: gắn với công việc (document_links) hoặc nằm trong thư mục riêng
+     * của công việc (`folderId`). Chỉ tài liệu còn hiệu lực.
+     */
+    idsForWorkItem(tenantId: string, workItemId: string, folderId?: string): Promise<readonly string[]>;
+    /**
+     * Chuyển tài liệu sang công việc khác: thư mục và dự án mới, liên kết trỏ sang công việc mới. Trùng tên
+     * trong thư mục đích thì thêm hậu tố " (2)", " (3)"… Một transaction.
+     */
+    moveToWorkItem(
+      tenantId: string,
+      input: {
+        readonly documentIds: readonly string[];
+        readonly fromWorkItemId: string;
+        readonly toWorkItemId: string;
+        readonly toProjectId: string;
+        readonly toFolderId: string;
+        readonly actorUserId: string;
+      },
+    ): Promise<void>;
+
     /** Các thư mục tham chiếu tới tài liệu, ngoài thư mục gốc. */
     listFolderRefs(tenantId: string, documentId: string): Promise<readonly DocumentFolderRef[]>;
     /** Thêm tham chiếu; đã có thì trả lại dòng cũ chứ không báo trùng. */
@@ -909,6 +990,25 @@ export interface WorkspaceStore {
       onlySelfUserId: string | undefined,
       limit: number,
     ): Promise<readonly OverdueRow[]>;
+    /** Chỉ số kỳ này và kỳ trước, xu hướng, phân bố trạng thái / ưu tiên. */
+    analytics(
+      tenantId: string,
+      query: ReportAnalyticsQuery,
+    ): Promise<{
+      readonly kpis: ReportKpis;
+      readonly previous: Omit<ReportPreviousKpis, 'from' | 'to'>;
+      readonly trend: readonly ReportTrendBucket[];
+      readonly statusBreakdown: readonly ReportCount[];
+      readonly priorityBreakdown: readonly ReportCount[];
+    }>;
+    /** Hiệu suất theo người phụ trách; `userId` có giá trị thì chỉ dòng của người đó. */
+    performance(tenantId: string, query: ReportAnalyticsQuery): Promise<readonly PerformanceRow[]>;
+    /** Gom theo nhóm dự án và theo nhãn dự án. */
+    groups(
+      tenantId: string,
+      query: ReportAnalyticsQuery,
+    ): Promise<{ readonly byGroup: readonly ReportGroupRow[]; readonly byTag: readonly ReportGroupRow[] }>;
+    items(tenantId: string, query: ReportItemsQuery): Promise<ReportItemList>;
   };
 
   /**
@@ -943,6 +1043,19 @@ export interface WorkspaceStore {
       input: { readonly name: string; readonly permissions: readonly ProjectPermission[] },
     ): Promise<void>;
     remove(tenantId: string, key: string): Promise<void>;
+  };
+  /**
+   * Danh mục nhóm dự án. Dự án trỏ tới nhóm bằng tên (`projects.project_type`), nên đổi tên hay xoá nhóm
+   * phải sửa luôn các dự án thuộc nhóm trong cùng transaction.
+   */
+  readonly projectGroup: {
+    /** Mọi nhóm, sắp theo `sortOrder` rồi tên, kèm số dự án của cả tenant. */
+    list(tenantId: string): Promise<readonly ProjectGroup[]>;
+    create(tenantId: string, actorUserId: string, name: string): Promise<void>;
+    /** Đổi tên nhóm và tên nhóm trên mọi dự án thuộc nhóm. */
+    rename(tenantId: string, actorUserId: string, id: string, name: string): Promise<void>;
+    /** Xoá nhóm; dự án thuộc nhóm về "Chưa phân loại". */
+    remove(tenantId: string, id: string): Promise<void>;
   };
   /**
    * Phương tiện di chuyển của công việc và lịch họp. Xe công ty chỉ được GIỮ ở HRM: lựa chọn và sự kiện

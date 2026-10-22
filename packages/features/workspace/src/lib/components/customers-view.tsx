@@ -13,7 +13,7 @@ import {
   type UpdateContractRequest,
   type UpdateCustomerRequest,
 } from '@enterprise-platform/contracts-workspace';
-import { Popconfirm, SearchableSelect } from '@enterprise-platform/shared-ui';
+import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import { Download, FileText, Pencil, Plus, RefreshCw, Search, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -22,6 +22,8 @@ import * as api from '../workspace-api';
 import { CONTRACT_STATUS_LABELS, CONTRACT_STATUS_TONE, formatDate } from '../workspace-labels';
 import styles from '../workspace.module.scss';
 import { Dialog, Field } from './dialog';
+import { upperCaseKeepingCaret } from './upper-case-input';
+import { Confirm } from './confirm-box';
 
 const messageOf = (cause: unknown, fallback: string): string =>
   (cause as { message?: string })?.message ?? fallback;
@@ -358,18 +360,17 @@ export function CustomersView({
                 >
                   <Pencil size={15} /> Sửa
                 </button>
-                <Popconfirm
-                  title="Xoá khách hàng?"
+                <Confirm
+                  title="Bạn có chắc chắn muốn xoá khách hàng này?"
                   description="Chỉ xoá được khi khách hàng chưa có hợp đồng và dự án nào."
                   okText="Xoá"
                   okType="danger"
-                  placement="bottom-end"
                   onConfirm={() => handleDeleteCustomer(detail.customer.id)}
                 >
                   <button type="button" className={styles.buttonDanger}>
                     <Trash2 size={15} /> Xoá
                   </button>
-                </Popconfirm>
+                </Confirm>
               </div>
             </header>
 
@@ -442,12 +443,11 @@ export function CustomersView({
                               >
                                 <Pencil size={15} />
                               </button>
-                              <Popconfirm
-                                title="Xoá hợp đồng?"
+                              <Confirm
+                                title="Bạn có chắc chắn muốn xoá hợp đồng này?"
                                 description="Hợp đồng bị xoá hẳn, không hoàn tác được."
                                 okText="Xoá"
                                 okType="danger"
-                                placement="bottom-end"
                                 onConfirm={() => handleDeleteContract(contract.id)}
                               >
                                 <button
@@ -458,7 +458,7 @@ export function CustomersView({
                                 >
                                   <Trash2 size={15} />
                                 </button>
-                              </Popconfirm>
+                              </Confirm>
                             </div>
                           </td>
                         </tr>
@@ -616,7 +616,7 @@ function CustomerFormDialog({
             value={form.code}
             required
             maxLength={32}
-            onChange={(event) => set({ code: event.target.value.toUpperCase() })}
+            onChange={(event) => set({ code: upperCaseKeepingCaret(event) })}
           />
         </Field>
       )}
@@ -778,7 +778,7 @@ function ContractFormDialog({
             value={form.code}
             required
             maxLength={32}
-            onChange={(event) => set({ code: event.target.value.toUpperCase() })}
+            onChange={(event) => set({ code: upperCaseKeepingCaret(event) })}
           />
         </Field>
       )}

@@ -31,7 +31,11 @@ import {
 } from '@enterprise-platform/contracts-workspace';
 import { CHAT_UNREAD_POLL_MS, WORKSPACE_ASSISTANT_ACTIONS } from '@enterprise-platform/contracts-workspace';
 import { useAssistantSaved } from '@enterprise-platform/feature-module-shell';
-import { useRealtimeEvent, type WorkspaceChatSignal } from '@enterprise-platform/shared-ui';
+import {
+  returnPathFor,
+  useRealtimeEvent,
+  type WorkspaceChatSignal,
+} from '@enterprise-platform/shared-ui';
 import { MessageSquare, MoreHorizontal, Plus } from 'lucide-react';
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -798,12 +802,6 @@ export function ProjectsView({
         disabled: !canWrite || Boolean(item?.reversal),
         separatorBefore: true,
       },
-      { id: 'start', label: 'Bắt đầu làm', disabled: !canWrite || item?.status !== 'todo' },
-      {
-        id: 'complete',
-        label: 'Đánh dấu hoàn thành',
-        disabled: !canWrite || (item?.status !== 'in_progress' && item?.status !== 'review'),
-      },
       { id: 'move-to', label: 'Di chuyển…', disabled: !canManage },
       { id: 'move-to-root', label: 'Đưa lên cấp gốc', disabled: !canManage || !item?.parentId },
       ...(item && pendingProcedure.has(item.id)
@@ -854,16 +852,52 @@ export function ProjectsView({
     ];
   };
 
-  const run = async (operation: () => Promise<unknown>, fallback: string) => {
+  const run = async (operation: () => Promise<unknown>, fallback: string): Promise<void> => {
+    await attempt(operation, fallback);
+  };
+
+  /** Như `run`, kèm kết quả: thao tác thành công hay không. */
+  const attempt = async (operation: () => Promise<unknown>, fallback: string): Promise<boolean> => {
     try {
       await operation();
       if (openId) await refreshDetail(openId);
       await refreshList();
       onProjectsChanged?.();
       setError(undefined);
+      return true;
     } catch (cause) {
       setError(message(cause, fallback));
+      return false;
     }
+  };
+
+  /**
+   * Nút nhanh trên đầu trang công việc cho người thực hiện (phụ trách hoặc cùng làm): bắt đầu khi chưa
+   * làm, hoàn thành khi đang làm / chờ duyệt. Việc đã huỷ hiệu lực hay không phải của mình thì không hiện.
+   */
+  const quickActionFor = (item: WorkItem) => {
+    const performer =
+      item.assigneeUserId === me || (item.participantUserIds ?? []).includes(me);
+    if (!performer || item.reversal || item.itemType === 'phase') return undefined;
+    const target = { kind: 'work-item' as const, id: item.id };
+    if (item.status === 'todo') {
+      return { label: 'Bắt đầu làm', onClick: () => onAction('start', target) };
+    }
+    if (item.status === 'in_progress' || item.status === 'review') {
+      return {
+        label: 'Hoàn thành',
+        onClick: () =>
+          void attempt(
+            () => api.changeWorkItemStatus(item.id, { status: 'done' }),
+            'Không đổi được trạng thái.',
+          ).then((done) => {
+            // Mở công việc từ trang chủ (`?returnTo=`): hoàn thành xong thì tự quay về.
+            const back = done ? returnPathFor(item.id) : undefined;
+            if (back) window.location.assign(back);
+          }),
+      };
+    }
+    return undefined;
   };
 
   const onAction = (actionId: string, node: SelectedNode) => {
@@ -922,7 +956,7 @@ export function ProjectsView({
         if (item) setCancellingItem(item);
         return;
       case 'delete-item':
-        // Xoá hẳn: hỏi lại bằng mã công việc — xem DeleteWorkItemDialog.
+        // Xoá hẳn: hỏi lại trước — xem DeleteWorkItemDialog.
         if (item) setDeletingItem(item);
         return;
       case 'reverse-item':
@@ -938,7 +972,7 @@ export function ProjectsView({
         if (item) void run(() => api.moveWorkItem(item.id, { parentId: null }), 'Không di chuyển được công việc.');
         return;
       case 'cancel-project':
-        // Hỏi lại bằng mã dự án trước khi huỷ — xem CancelProjectDialog.
+        // Hỏi lại trước khi huỷ — xem CancelProjectDialog.
         if (detail) setCancelling(detail.project);
         return;
       default:
@@ -1193,6 +1227,7 @@ export function ProjectsView({
             unread={nodeUnread}
             onOpenChat={() => setChatOpen(true)}
             onMore={(at) => setMenu({ ...at, node: selected })}
+            quickAction={quickActionFor(selectedItem)}
             startableProcedures={startableProcedures}
             procedureLink={
               procedureRef
@@ -1354,8 +1389,18 @@ export function ProjectsView({
           });
           await refreshDetail(detail.project.id);
         }}
-        onUpdate={async (input: UpdateWorkItemRequest) => {
+        onUpdate={async (input: UpdateWorkItemRequest, addMemberUserIds?: string[]) => {
           if (!itemForm.edit || !detail) return;
+          // Người phụ trách mới ngoài dự án: thêm vào dự án trước, như khi tạo công việc.
+          if (addMemberUserIds && addMemberUserIds.length > 0) {
+            const existing = await api.listMembers(detail.project.id);
+            await api.setMembers(detail.project.id, {
+              members: mergeNewProjectMembers(
+                existing.items,
+                addMemberUserIds.map((userId) => ({ userId, role: 'member' })),
+              ),
+            });
+          }
           await api.updateWorkItem(itemForm.edit.id, input);
           await refreshDetail(detail.project.id);
         }}

@@ -1833,6 +1833,13 @@
   overscroll-behavior: contain;
 }
 
+/* Gợi ý của ô chọn người, chọn nhãn trong hộp thoại nằm ngay dưới ô tìm. Kiểu gốc `.mentionList` nổi (absolute) lên
+   trên ô, dành cho khung chat; trong hộp thoại nó bám khối chứa ngoài cùng, rơi ra ngoài vùng cuộn và bị cắt mất, nên
+   gõ tên không thấy ai để chọn. */
+.dialogScroll .mentionList {
+  position: static;
+}
+
 .dialogFoot {
   display: flex;
   flex-shrink: 0;
@@ -1843,25 +1850,80 @@
   background: var(--ep-surface);
 }
 
-.discardBar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 12px;
-  border: 1px solid rgb(217 171 0 / 45%);
-  border-radius: var(--ep-radius-md);
-  background: var(--ep-accent-soft);
-  color: #5c4500;
-  font-size: 13px;
+/* Hộp xác nhận chung (ConfirmBox): giữa màn hình, nằm trên cả hộp thoại đang mở. */
+.confirmOverlay {
+  @include ep-tokens;
 
-  span {
-    flex: 1 1 14rem;
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgb(10 12 18 / 45%);
+  color: var(--ep-text);
+  font-family: var(--ep-font);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.confirmBox {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(28rem, 100%);
+  padding: 20px 22px 18px;
+  border-radius: var(--ep-radius-xl);
+  background: var(--ep-surface);
+  box-shadow: var(--ep-shadow-dialog);
+
+  h3 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 700;
   }
+}
+
+.confirmMessage {
+  color: var(--ep-text-sub);
+  font-size: 13px;
+}
+
+.confirmField {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 600;
+
+  textarea {
+    font-weight: 400;
+  }
+}
+
+.confirmActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 6px;
 
   .buttonDanger {
-    align-self: center;
+    align-self: auto;
+    border-color: #dc2626;
+    background: #dc2626;
+    color: #fff;
+
+    &:hover:not(:disabled) {
+      border-color: #b91c1c;
+      background: #b91c1c;
+    }
   }
+}
+
+.buttonPrimary.confirmWarning {
+  border-color: #d97706;
+  background: #f59e0b;
 }
 
 /*
@@ -2081,6 +2143,112 @@
       background: rgb(217 171 0 / 25%);
     }
   }
+}
+
+// Ô "Người phụ trách": tên, thẻ trong dự án (xanh) / ngoài dự án (vàng), chức danh — như ô "Người submit".
+.assigneeOption {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.assigneeOptionRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.assigneeOptionHint {
+  color: var(--ep-text-sub);
+  font-size: 12px;
+}
+
+.assigneeTagIn,
+.assigneeTagOut {
+  padding: 1px 6px;
+  border: 1px solid;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.assigneeTagIn {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.assigneeTagOut {
+  border-color: rgb(217 171 0 / 45%);
+  background: #fff8db;
+  color: #5c4500;
+}
+
+// Ô chọn nhiều người theo dự án (ProjectPeoplePicker): danh sách mở ngay dưới ô tìm, không nổi lên trên hộp thoại.
+.groupPickerList {
+  max-height: 260px;
+  margin: 0;
+  padding: 4px;
+  overflow-y: auto;
+  border: 1px solid var(--ep-border);
+  border-radius: var(--ep-radius);
+  background: var(--ep-surface);
+  list-style: none;
+
+  button {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    width: 100%;
+    padding: 6px 8px;
+    border: 0;
+    border-radius: var(--ep-radius-sm);
+    background: transparent;
+    color: var(--ep-text);
+    text-align: left;
+    cursor: pointer;
+  }
+}
+
+.groupPickerList button.groupPickerActive {
+  background: var(--ep-hover);
+}
+
+.groupPickerList button.groupPickerToggle {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 4px;
+  border-top: 1px solid var(--ep-border);
+  border-radius: 0;
+  color: #2563eb;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.groupPickerFilters {
+  display: flex;
+  gap: 6px;
+  padding: 4px 8px 6px;
+
+  input {
+    flex: 1.3;
+    min-width: 0;
+    height: 30px;
+    font-size: 12.5px;
+  }
+
+  input:first-child {
+    flex: 0.7;
+  }
+}
+
+.groupPickerEmpty {
+  padding: 6px 8px;
+  color: var(--ep-text-sub);
+  font-size: 12.5px;
 }
 
 // Nhãn "Ngoài dự án" cạnh tên người chưa thuộc dự án, trong gợi ý và chip.
@@ -4211,6 +4379,11 @@
   width: 11rem;
 }
 
+/* Ô lọc của trang Dự án: tên loại dự án và khách hàng dài, 11rem cắt mất chữ. */
+.filterFieldWide {
+  width: 15rem;
+}
+
 .filterLabel {
   color: var(--ep-text-muted);
   font-size: 10.5px;
@@ -4948,6 +5121,267 @@
   }
 }
 
+/* Ô tên công việc kèm gợi ý tên đã dùng: danh sách nổi ngay dưới ô, không đẩy các dòng phía dưới. */
+.titleInput {
+  position: relative;
+  min-width: 0;
+
+  input {
+    @include input-base;
+
+    width: 100%;
+  }
+}
+
+.titleSuggestions {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  left: 0;
+  z-index: 20;
+  max-height: 16rem;
+  margin: 0;
+  padding: 4px;
+  overflow-y: auto;
+  border: 1px solid var(--ep-border);
+  border-radius: var(--ep-radius);
+  background: var(--ep-surface);
+  box-shadow: var(--ep-shadow-pop);
+  list-style: none;
+
+  button {
+    display: block;
+    width: 100%;
+    min-height: 32px;
+    padding: 0 8px;
+    overflow: hidden;
+    border: 0;
+    border-radius: var(--ep-radius-sm);
+    background: transparent;
+    color: var(--ep-text);
+    font-family: inherit;
+    font-size: 13px;
+    text-align: left;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+
+  .mentionActive {
+    background: var(--ep-hover);
+  }
+}
+
+/* Form "Công việc mới" tạo được nhiều việc, mỗi việc đủ mọi trường của riêng nó: một khối gọn (ô cao 32px). */
+.dialogExtraWide {
+  width: min(76rem, 100%);
+}
+
+.draftList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  // Co theo bề rộng khung chứa, không theo màn hình: form còn được nhúng trong thẻ hẹp của Trợ lý.
+  container-type: inline-size;
+}
+
+.draftItem {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  gap: 10px;
+  padding: 10px 10px 10px 8px;
+  border: 1px solid var(--ep-border);
+  border-radius: var(--ep-radius-md);
+  background: var(--ep-surface);
+
+  &:focus-within {
+    border-color: var(--ep-border-strong);
+    box-shadow: var(--ep-shadow-pop);
+  }
+}
+
+.draftIndex {
+  padding-top: 20px;
+  color: var(--ep-text-muted);
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.draftBody {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.draftLineMain {
+  display: grid;
+  grid-template-columns: minmax(14rem, 1fr) 13rem 9rem 9rem 4.5rem;
+  gap: 8px;
+}
+
+.draftLine {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+
+  > .draftField {
+    flex: 1 1 12rem;
+  }
+
+  > .draftFieldGrow {
+    flex-basis: 100%;
+  }
+}
+
+.draftField {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+
+  > span:first-child {
+    color: var(--ep-text-muted);
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+  }
+
+  input,
+  textarea {
+    @include input-base;
+
+    min-height: 32px;
+    padding: 0 8px;
+    background: var(--ep-surface-soft);
+    font-size: 13px;
+  }
+
+  input:not([type='checkbox']):not([type='radio']) {
+    height: 32px;
+  }
+
+  textarea {
+    padding-top: 6px;
+    padding-bottom: 6px;
+    resize: vertical;
+  }
+
+  :global(.ant-picker) input,
+  :global(.ant-picker) input:focus {
+    min-height: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+    outline: none;
+  }
+
+  .titleInput input {
+    min-height: 32px;
+    height: 32px;
+  }
+
+  .chip,
+  .tagChip {
+    font-size: 12px;
+  }
+}
+
+.draftNone {
+  display: flex;
+  align-items: center;
+  min-height: 32px;
+  color: var(--ep-text-muted);
+  font-size: 12px;
+}
+
+.draftTransport {
+  padding: 8px 10px;
+  border: 1px dashed var(--ep-border-strong);
+  border-radius: var(--ep-radius-md);
+  background: var(--ep-surface-soft);
+}
+
+.draftActions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 18px;
+
+  .iconButton {
+    width: 26px;
+    height: 26px;
+  }
+}
+
+.iconButtonActive {
+  border-color: var(--ep-accent-strong);
+  background: var(--ep-accent-soft);
+}
+
+.draftFoot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+@container (width <= 900px) {
+  .draftLineMain {
+    grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+
+    > :first-child {
+      grid-column: 1 / -1;
+    }
+  }
+}
+
+/* Cài đặt Nhãn: chọn màu nhanh, ô "Tự động" để hệ thống chọn theo tên. */
+.tagColorPicker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.tagColorAuto,
+.tagColorAutoActive {
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--ep-border);
+  border-radius: 999px;
+  background: var(--ep-surface);
+  color: var(--ep-text-sub);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.tagColorAutoActive {
+  border-color: var(--ep-text);
+  color: var(--ep-text);
+  font-weight: 600;
+}
+
+.tagSwatch,
+.tagSwatchActive {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 2px solid var(--ep-surface);
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px var(--ep-border);
+  cursor: pointer;
+}
+
+.tagSwatchActive {
+  box-shadow: 0 0 0 2px var(--ep-text);
+}
+
 .roleActions {
   display: inline-flex;
   justify-content: flex-end;
@@ -5300,4 +5734,336 @@
   align-items: center;
   gap: 8px;
   font-size: 12.5px;
+}
+
+/* ------------------------------------------------------------ Báo cáo (dashboard) */
+
+.reportPeriod {
+  display: inline-flex;
+  overflow: hidden;
+  border: 1px solid var(--ep-border);
+  border-radius: var(--ep-radius);
+
+  button {
+    padding: 6px 12px;
+    border: 0;
+    border-right: 1px solid var(--ep-border);
+    background: var(--ep-surface);
+    color: var(--ep-text);
+    font-size: 13px;
+    cursor: pointer;
+
+    &:last-child {
+      border-right: 0;
+    }
+
+    &:hover {
+      background: var(--ep-hover);
+    }
+  }
+}
+
+.reportPeriod button.reportPeriodActive {
+  background: #2563eb;
+  color: #fff;
+  font-weight: 600;
+}
+
+.reportBarSpacer {
+  flex: 1;
+}
+
+.reportFilters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px;
+}
+
+.kpiGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 12px;
+}
+
+.kpiCard {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--ep-border);
+  border-radius: var(--ep-radius-lg);
+  background: var(--ep-surface);
+  color: var(--ep-text);
+  font: inherit;
+  text-align: left;
+}
+
+button.kpiCard {
+  cursor: pointer;
+
+  &:hover {
+    border-color: #93c5fd;
+    box-shadow: 0 1px 4px rgb(37 99 235 / 12%);
+  }
+}
+
+.kpiCardDanger {
+  border-color: #fecaca;
+  background: #fef2f2;
+}
+
+.kpiDeltaGood,
+.kpiDeltaBad,
+.kpiDeltaFlat {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.kpiDeltaGood {
+  color: #047857;
+}
+
+.kpiDeltaBad {
+  color: #b91c1c;
+}
+
+.kpiDeltaFlat {
+  color: var(--ep-text-sub);
+}
+
+.kpiHint {
+  color: var(--ep-text-sub);
+  font-size: 12px;
+}
+
+.reportGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr);
+  gap: 14px;
+}
+
+.reportGridEven {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+  gap: 14px;
+}
+
+@media (width <= 960px) {
+  .reportGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.reportNote {
+  margin-left: auto;
+  color: var(--ep-text-sub);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.reportSubhead {
+  margin: 14px 0 6px;
+  font-size: 13px;
+}
+
+.reportSwatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 6px;
+  border-radius: 3px;
+  vertical-align: middle;
+}
+
+.reportNumber,
+.reportNumberDanger {
+  padding: 0 2px;
+  border: 0;
+  background: transparent;
+  color: var(--ep-link);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  cursor: pointer;
+
+  &:hover {
+    text-decoration: underline;
+  }
+}
+
+.reportNumberDanger {
+  color: #b91c1c;
+}
+
+.reportExportList {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 8px 16px;
+  margin-top: 10px;
+}
+
+.reportChart {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.reportLegend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  color: var(--ep-text-sub);
+  font-size: 12px;
+
+  i {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    margin-right: 4px;
+    border-radius: 2px;
+    vertical-align: middle;
+  }
+}
+
+.reportTrend {
+  position: relative;
+  height: 180px;
+  padding-left: 28px;
+  border-bottom: 1px solid var(--ep-border);
+
+  svg {
+    width: 100%;
+    height: 100%;
+  }
+}
+
+.reportAxisMax {
+  position: absolute;
+  top: -2px;
+  left: 0;
+  color: var(--ep-text-sub);
+  font-size: 11px;
+}
+
+.reportAxis {
+  display: flex;
+  padding-left: 28px;
+  color: var(--ep-text-sub);
+  font-size: 11px;
+
+  span {
+    overflow: hidden;
+    text-align: center;
+    white-space: nowrap;
+  }
+}
+
+.reportBarClickable {
+  cursor: pointer;
+
+  &:hover {
+    opacity: 0.75;
+  }
+}
+
+.reportDonut {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+
+  svg {
+    width: 132px;
+    height: 132px;
+    flex: none;
+  }
+}
+
+.reportDonutValue {
+  fill: var(--ep-text);
+  font-size: 8px;
+  font-weight: 700;
+}
+
+.reportDonutLabel {
+  fill: var(--ep-text-sub);
+  font-size: 3.5px;
+}
+
+.reportLegendList,
+.reportBarList {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 160px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+
+  button {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 4px 6px;
+    border: 0;
+    border-radius: var(--ep-radius-sm);
+    background: transparent;
+    color: var(--ep-text);
+    font: inherit;
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+
+    &:hover:not(:disabled) {
+      background: var(--ep-hover);
+    }
+
+    &:disabled {
+      cursor: default;
+    }
+  }
+
+  i {
+    width: 10px;
+    height: 10px;
+    flex: none;
+    border-radius: 2px;
+  }
+
+  span:first-of-type {
+    flex: 1;
+  }
+
+  strong {
+    font-variant-numeric: tabular-nums;
+  }
+
+  em {
+    width: 40px;
+    color: var(--ep-text-sub);
+    font-size: 12px;
+    font-style: normal;
+    text-align: right;
+  }
+}
+
+.reportBarList button > span:first-of-type {
+  flex: 0 0 90px;
+}
+
+.reportBarTrack {
+  flex: 1;
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #f1f5f9;
+
+  span {
+    display: block;
+    height: 100%;
+    border-radius: 999px;
+  }
 }
