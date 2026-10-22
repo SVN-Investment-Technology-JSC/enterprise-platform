@@ -140,6 +140,7 @@
     "@enterprise-platform/module-finance": "workspace:*",
     "@enterprise-platform/module-hrm": "workspace:*",
     "@enterprise-platform/module-procedure-engine": "workspace:*",
+    "@enterprise-platform/module-social": "workspace:*",
     "@enterprise-platform/module-workspace": "workspace:*",
     "@enterprise-platform/platform-entitlement": "workspace:*",
     "@enterprise-platform/platform-tenancy": "workspace:*",
