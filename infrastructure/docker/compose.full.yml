@@ -340,6 +340,34 @@ services:
     init: true
     restart: unless-stopped
 
+  social-api:
+    build:
+      context: ../..
+      dockerfile: apps/social-api/Dockerfile
+    environment:
+      <<: [*database-environment, *platform-access-environment]
+      PORT: '3343'
+      # Mạng nội bộ hỏi HRM ngày sinh và ngày vào công ty của nhân sự (chỉ đọc).
+      HRM_API_URL: http://hrm-api:3339/api/hrm
+      # Như workspace-api: server gọi kho qua mạng Docker, URL ký sẵn mang host
+      # mà trình duyệt mở được.
+      S3_INTERNAL_ENDPOINT: http://minio:9000
+      S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-http://localhost:9010}
+      S3_ENDPOINT: http://minio:9000
+      S3_REGION: us-east-1
+      S3_BUCKET: enterprise-platform
+      S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-platform}
+      S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+    depends_on:
+      api:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+      minio-init:
+        condition: service_completed_successfully
+    init: true
+    restart: unless-stopped
+
   realtime-api:
     build:
       context: ../..
@@ -351,6 +379,8 @@ services:
       WORKSPACE_INTERNAL_URL: http://workspace-api:3337
       # Phòng thời gian thực của trao đổi quy trình: kiểm quyền vào phòng bằng cookie của người dùng.
       PROCEDURE_INTERNAL_URL: http://procedure-api:3334
+      # Phòng theo nhóm Mạng nội bộ: kiểm tư cách thành viên bằng cookie của người dùng.
+      SOCIAL_INTERNAL_URL: http://social-api:3343
       # Cả hai service mở DB của từng tenant (thông báo nằm trong tenant DB), nên cần mẫu URL này như các API khác.
       TENANT_DATABASE_URL_TEMPLATE: postgresql://tenant:${TENANT_DB_PASSWORD:-tenant_local_2026}@tenant-db:5432/{databaseName}
       RABBITMQ_URL: amqp://platform:${RABBITMQ_PASSWORD:-rabbit_local_2026}@rabbitmq:5672
@@ -531,6 +561,16 @@ services:
     init: true
     restart: unless-stopped
 
+  social-web:
+    build:
+      context: ../..
+      dockerfile: apps/social-web/Dockerfile
+    depends_on:
+      social-api:
+        condition: service_healthy
+    init: true
+    restart: unless-stopped
+
   gateway:
     image: nginx:1.29-alpine
     ports:
@@ -543,6 +583,7 @@ services:
       # thì khi Workspace sập người dùng nhận 404 thay vì trang bảo trì.
       - ../nginx/workspace-maintenance.html:/usr/share/nginx/html/workspace-maintenance.html:ro
       - ../nginx/shared-maintenance.html:/usr/share/nginx/html/shared-maintenance.html:ro
+      - ../nginx/social-maintenance.html:/usr/share/nginx/html/social-maintenance.html:ro
     depends_on:
       web:
         condition: service_healthy

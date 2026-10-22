@@ -107,6 +107,20 @@ const checks = [
     path: '/api/shared/health/ready',
     validate: (body) => body?.status === 'ready' && body?.service === 'shared-api',
   },
+  {
+    service: 'Mạng nội bộ Web',
+    path: '/modules/social',
+  },
+  {
+    service: 'Mạng nội bộ API · live',
+    path: '/api/social/health/live',
+    validate: (body) => body?.status === 'live' && body?.service === 'social-api',
+  },
+  {
+    service: 'Mạng nội bộ API · ready',
+    path: '/api/social/health/ready',
+    validate: (body) => body?.status === 'ready' && body?.service === 'social-api',
+  },
 ];
 
 async function checkService(check) {
