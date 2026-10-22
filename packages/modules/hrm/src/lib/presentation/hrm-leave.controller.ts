@@ -75,6 +75,7 @@ import { isoDate, lockEmployee } from '../infrastructure/hrm-time.js';
 import {
   requireDate,
   requireUuid,
+  optionalText,
   requireText,
 } from '../infrastructure/hrm-validation.js';
 import {
@@ -1540,7 +1541,7 @@ export class HrmLeaveController {
       req,
       id,
       'REJECTED',
-      requireText(reason, 'reason', 2000),
+      optionalText(reason, 'reason', 2000) ?? undefined,
     );
   }
   @Post('leave-requests/:id/cancel')

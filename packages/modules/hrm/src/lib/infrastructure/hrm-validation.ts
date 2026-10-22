@@ -33,6 +33,22 @@ export function requireText(
   return value.trim();
 }
 
+/** Văn bản không bắt buộc: trả về null khi bỏ trống; vẫn từ chối khi vượt độ dài tối đa. */
+export function optionalText(
+  value: unknown,
+  field: string,
+  maxLength = 255,
+): string | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'string' || value.trim().length > maxLength) {
+    throw new BadRequestException({
+      code: 'HRM_INVALID_INPUT',
+      message: `${field}: tối đa ${maxLength} ký tự`,
+    });
+  }
+  return value.trim() || null;
+}
+
 export function requireDate(value: unknown, field: string): string {
   if (
     typeof value !== 'string' ||

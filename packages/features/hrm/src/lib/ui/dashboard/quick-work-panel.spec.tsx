@@ -95,19 +95,31 @@ describe('HrmQuickWork', () => {
     await waitFor(() => expect(fetchMock.mock.calls.filter((c) => (c[0] as string).startsWith('/leave-requests?')).length).toBeGreaterThanOrEqual(2));
   });
 
-  it('từ chối mở ngăn chi tiết và bắt buộc ghi lý do', async () => {
+  it('từ chối tại thẻ: hỏi xác nhận rồi từ chối ngay, không cần lý do', async () => {
     mockActions = ['hrm.leave.approve'];
     setup();
     render(<HrmQuickWork />);
     const list = await screen.findByRole('list', { name: 'Đơn chờ bạn duyệt' });
     fireEvent.click(within(list).getByRole('button', { name: 'Từ chối' }));
+    expect(posts('/leave-requests/l1/reject')).toHaveLength(0);
+    const confirms = await screen.findAllByRole('button', { name: 'Từ chối' });
+    fireEvent.click(confirms[confirms.length - 1]);
+    await waitFor(() => expect(posts('/leave-requests/l1/reject')).toHaveLength(1));
+    expect(JSON.parse(String((posts('/leave-requests/l1/reject')[0][1] as RequestInit).body))).toEqual({ reason: '' });
+  });
+
+  it('từ chối trong ngăn chi tiết: có popup xác nhận và gửi kèm ý kiến nếu có', async () => {
+    mockActions = ['hrm.leave.approve'];
+    setup();
+    render(<HrmQuickWork />);
+    const list = await screen.findByRole('list', { name: 'Đơn chờ bạn duyệt' });
+    fireEvent.click(within(list).getByRole('button', { name: /Xem chi tiết đơn/ }));
     const drawer = await screen.findByRole('dialog');
     expect(within(drawer).getByText('Duyệt đơn')).toBeTruthy();
-    const reject = within(drawer).getByRole('button', { name: /Từ chối/ }) as HTMLButtonElement;
-    expect(reject.disabled).toBe(true);
     fireEvent.change(within(drawer).getByPlaceholderText(/Ý kiến xử lý/), { target: { value: 'Trùng lịch dự án' } });
-    await waitFor(() => expect(reject.disabled).toBe(false));
-    fireEvent.click(reject);
+    fireEvent.click(within(drawer).getByRole('button', { name: /Từ chối/ }));
+    const confirms = await screen.findAllByRole('button', { name: 'Từ chối' });
+    fireEvent.click(confirms[confirms.length - 1]);
     await waitFor(() => expect(posts('/leave-requests/l1/reject')).toHaveLength(1));
     expect(JSON.parse(String((posts('/leave-requests/l1/reject')[0][1] as RequestInit).body))).toEqual({ reason: 'Trùng lịch dự án' });
   });

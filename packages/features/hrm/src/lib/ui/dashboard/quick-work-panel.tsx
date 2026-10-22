@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Clock, Loader2, LogIn, LogOut, RefreshCw, X } from 'lucide-react';
+import { Popconfirm } from '@enterprise-platform/shared-ui';
 import { hrmFetch } from '../../hrm-api';
 import { acquirePosition } from '../../hrm-geolocation';
 import { isPendingStatus } from '../../hrm-approval-kinds';
@@ -227,7 +228,9 @@ function QuickApprovals({ sources, className }: { sources: ReturnType<typeof das
   }
   const approveQuick = (r: Row) =>
     run(r, () => (procedureActionable(r) ? procedureApprovalAction(r, 'APPROVE', '') : decideApproval(r, 'approve', '')), false);
-  const approveFromPanel = (r: Row, note: string) =>
+  const rejectQuick = (r: Row) =>
+    run(r, () => (procedureActionable(r) ? procedureApprovalAction(r, 'REJECT', '') : decideApproval(r, 'reject', '')), false);
+  const approveFromPanel =(r: Row, note: string) =>
     run(r, () => (procedureActionable(r) ? procedureApprovalAction(r, 'APPROVE', note) : decideApproval(r, 'approve', note)), true);
   const rejectFromPanel = (r: Row, note: string) =>
     run(r, () => (procedureActionable(r) ? procedureApprovalAction(r, 'REJECT', note) : decideApproval(r, 'reject', note)), true);
@@ -285,10 +288,20 @@ function QuickApprovals({ sources, className }: { sources: ReturnType<typeof das
                   {busyKey === r.key ? <Loader2 className="size-3.5 animate-spin" /> : <CheckCircle2 className="size-3.5" />}
                   Duyệt
                 </Button>
-                <Button size="sm" variant="outline" disabled={busyKey === r.key} onClick={() => setDetailKey(r.key)} className="h-8 gap-1 px-3 text-xs text-rose-700">
-                  <X className="size-3.5" />
-                  Từ chối
-                </Button>
+                <Popconfirm
+                  title="Từ chối đơn này?"
+                  description={`Đơn của ${r.employeeName} sẽ chuyển sang trạng thái từ chối.`}
+                  okText="Từ chối"
+                  cancelText="Quay lại"
+                  okType="danger"
+                  disabled={busyKey === r.key}
+                  onConfirm={() => rejectQuick(r).catch(() => undefined)}
+                >
+                  <Button size="sm" variant="outline" disabled={busyKey === r.key} className="h-8 gap-1 px-3 text-xs text-rose-700">
+                    <X className="size-3.5" />
+                    Từ chối
+                  </Button>
+                </Popconfirm>
               </div>
             </li>
           ))}
@@ -303,7 +316,7 @@ function QuickApprovals({ sources, className }: { sources: ReturnType<typeof das
           <SheetHeader className="flex shrink-0 flex-row items-start justify-between gap-3 border-b border-slate-200 bg-slate-50/80 p-5">
             <div className="min-w-0">
               <SheetTitle>Duyệt đơn</SheetTitle>
-              <SheetDescription>Xem thông tin, trao đổi và phê duyệt hoặc từ chối (ghi lý do).</SheetDescription>
+              <SheetDescription>Xem thông tin, trao đổi và phê duyệt hoặc từ chối.</SheetDescription>
             </div>
             <SheetClose render={<Button variant="ghost" size="icon-sm" aria-label="Đóng" />}>
               <X className="size-4" />

@@ -38,7 +38,7 @@ import { parseCorrectionPunches } from '../domain/correction-punches.js';
 import type { Request } from 'express';
 import { randomUUID } from 'node:crypto';
 import { hrmTransaction } from '../infrastructure/hrm-transaction.js';
-import { requireDate, requireText, requireUuid } from '../infrastructure/hrm-validation.js';
+import { optionalText, requireDate, requireUuid } from '../infrastructure/hrm-validation.js';
 import { ingestEvent } from '../infrastructure/hrm-attendance-ingest.js';
 import {
   assertOpenDate,
@@ -660,7 +660,7 @@ export class HrmAttendanceController {
           tenantId,
           id,
           principal.userId,
-          requireText(reason, 'Lý do từ chối', 2000),
+          optionalText(reason, 'Lý do từ chối', 2000),
         ],
       ),
     );

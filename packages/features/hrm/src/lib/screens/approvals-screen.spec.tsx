@@ -357,16 +357,29 @@ describe('ApprovalsScreen: ý kiến khi duyệt và từ chối', () => {
     expect(posts('/request-comments')).toHaveLength(0);
   });
 
-  it('từ chối bắt buộc có ý kiến; ý kiến là lý do từ chối và cũng được ghi vào luồng trao đổi', async () => {
+  it('từ chối không bắt buộc ý kiến và luôn qua popup xác nhận', async () => {
     mockActions = ['hrm.leave.approve'];
     setup({ lists: { 'leave-requests': [leave] } });
     render(<ApprovalsScreen />);
     const panel = await openRow('l1');
-    const reject = within(panel).getByRole('button', { name: /Từ chối/ }) as HTMLButtonElement;
-    expect(reject.disabled).toBe(true);
+    fireEvent.click(within(panel).getByRole('button', { name: /Từ chối/ }));
+    expect(posts('/leave-requests/l1/reject')).toHaveLength(0);
+    const confirms = await screen.findAllByRole('button', { name: 'Từ chối' });
+    fireEvent.click(confirms[confirms.length - 1]);
+    await waitFor(() => expect(posts('/leave-requests/l1/reject')).toHaveLength(1));
+    expect(JSON.parse(String((posts('/leave-requests/l1/reject')[0][1] as RequestInit).body))).toEqual({ reason: '' });
+    expect(posts('/request-comments')).toHaveLength(0);
+  });
+
+  it('từ chối kèm ý kiến: ý kiến là lý do từ chối và cũng được ghi vào luồng trao đổi', async () => {
+    mockActions = ['hrm.leave.approve'];
+    setup({ lists: { 'leave-requests': [leave] } });
+    render(<ApprovalsScreen />);
+    const panel = await openRow('l1');
     fireEvent.change(within(panel).getByLabelText('Ý kiến xử lý'), { target: { value: 'Trùng đợt cao điểm' } });
-    expect(reject.disabled).toBe(false);
-    fireEvent.click(reject);
+    fireEvent.click(within(panel).getByRole('button', { name: /Từ chối/ }));
+    const confirms = await screen.findAllByRole('button', { name: 'Từ chối' });
+    fireEvent.click(confirms[confirms.length - 1]);
     await waitFor(() => expect(posts('/leave-requests/l1/reject')).toHaveLength(1));
     expect(JSON.parse(String((posts('/leave-requests/l1/reject')[0][1] as RequestInit).body))).toEqual({ reason: 'Trùng đợt cao điểm' });
     await waitFor(() => expect(posts('/request-comments')).toHaveLength(1));
