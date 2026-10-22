@@ -667,7 +667,7 @@ integration('Đơn từ theo từ ngày giờ đến ngày giờ và loại đơ
       );
     });
 
-    it('duyệt trực tiếp: người nộp không tự duyệt được; người có quyền duyệt được, từ chối cần lý do', async () => {
+    it('duyệt trực tiếp: người nộp không tự duyệt được; người có quyền duyệt được, từ chối không bắt buộc lý do', async () => {
       const created = await custom().create(req, { employeeId, typeId: noneType.id, description: 'Đề xuất 2' } as any);
       await expect(custom(principal).approve(req, created.data.id)).rejects.toMatchObject({ status: 403 });
       const approved = await custom(approver).approve(req, created.data.id);
@@ -679,8 +679,11 @@ integration('Đơn từ theo từ ngày giờ đến ngày giờ và loại đơ
       });
 
       const other = await custom().create(req, { employeeId, typeId: noneType.id, description: 'Đề xuất 3' } as any);
-      await expect(custom(approver).reject(req, other.data.id, '  ')).rejects.toMatchObject({ status: 400 });
-      const rejected = await custom(approver).reject(req, other.data.id, 'Chưa phù hợp');
+      const rejectedWithoutReason = await custom(approver).reject(req, other.data.id, '  ');
+      expect(rejectedWithoutReason.data).toMatchObject({ status: 'REJECTED', rejectionReason: null });
+
+      const otherWithReason = await custom().create(req, { employeeId, typeId: noneType.id, description: 'Đề xuất 4' } as any);
+      const rejected = await custom(approver).reject(req, otherWithReason.data.id, 'Chưa phù hợp');
       expect(rejected.data).toMatchObject({ status: 'REJECTED', rejectionReason: 'Chưa phù hợp' });
     });
 
