@@ -22,6 +22,16 @@ export class DirectoryService {
    * Một cuộc họp không nên hỏng chỉ vì Tenant Core chậm vài giây — người lạ
    * lọt vào danh sách mời cũng không thấy được gì ngoài chính sự kiện đó.
    */
+  /**
+   * Đơn vị (phòng ban) có trong cây tổ chức không. Trả `undefined` khi danh bạ không đọc được: không biết thì không
+   * chặn.
+   */
+  async isOrgUnit(tenantId: string, orgUnitId: string): Promise<boolean | undefined> {
+    const snapshot = await this.directory.list(tenantId);
+    if (snapshot.degraded || !snapshot.orgNodes) return undefined;
+    return snapshot.orgNodes.some((node) => node.id === orgUnitId && node.kind === 'unit');
+  }
+
   async unknownUserIds(
     tenantId: string,
     userIds: readonly string[],

@@ -48,6 +48,7 @@ import type {
   ProjectMember,
   ProjectProgressRow,
   ProjectRole,
+  ProjectCodeParts,
   ProjectGroup,
   ProjectPermission,
   ProjectStatus,
@@ -80,6 +81,8 @@ import type {
 } from '@enterprise-platform/contracts-workspace';
 import {
   CLOSED_WORK_ITEM_STATUSES,
+  formatProjectCode,
+  nextProjectCodeNumber,
   STANDALONE_TASK_SYSTEM_ACTOR_ID,
   WORKSPACE_PROJECT_REQUEST_REVERSAL_REQUESTED,
 } from '@enterprise-platform/contracts-workspace';
@@ -764,11 +767,29 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
       }));
     },
 
-    create: async (tenantId: string, actorUserId: string, input: CreateProjectRequest) => {
+    create: async (
+      tenantId: string,
+      actorUserId: string,
+      input: CreateProjectRequest & { readonly codeParts?: ProjectCodeParts },
+    ) => {
       const pool = await this.poolFor(tenantId);
       // Dự án và dòng owner phải cùng một transaction: một dự án không có
       // owner thì không ai sửa hay huỷ được nó nữa.
       return inTransaction(pool, async (client) => {
+        let code = String(input.code ?? '');
+        if (input.codeParts) {
+          // Cấp số dưới khoá theo phần đầu mã (khoá tự nhả khi transaction kết thúc): hai người tạo cùng lúc
+          // xếp hàng ở đây, người sau đọc thấy mã người trước vừa ghi.
+          const parts = input.codeParts;
+          await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [
+            `workspace.project-code:${parts.prefix}|${parts.suffix}`,
+          ]);
+          const existing = await client.query<Row>(
+            `SELECT code FROM workspace_schema.projects WHERE code LIKE $1`,
+            [`${escapeLike(parts.prefix)}%${escapeLike(parts.suffix)}`],
+          );
+          code = formatProjectCode(parts, nextProjectCodeNumber(parts, existing.rows.map((row) => str(row.code))));
+        }
         // Hai request cùng mã đều qua được bước kiểm ở tầng ứng dụng; khi đó
         // chính UNIQUE chặn lại và người thua nhận 409 như bình thường.
         const created = await onUniqueViolation(
@@ -780,7 +801,7 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9, $10)
                RETURNING ${PROJECT_COLUMNS}`,
               [
-                input.code,
+                code,
                 input.name,
                 input.description ?? null,
                 input.orgUnitId ?? null,
@@ -792,7 +813,7 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
                 input.projectType ?? null,
               ],
             ),
-          () => new ProjectCodeConflictError(String(input.code)),
+          () => new ProjectCodeConflictError(code),
         );
         const inserted = mapProject(created.rows[0] as Row);
         await client.query(
@@ -817,6 +838,15 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
       });
     },
 
+
+    codesMatching: async (tenantId: string, parts: ProjectCodeParts): Promise<string[]> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `SELECT code FROM workspace_schema.projects WHERE code LIKE $1`,
+        [`${escapeLike(parts.prefix)}%${escapeLike(parts.suffix)}`],
+      );
+      return result.rows.map((row) => str(row.code));
+    },
     update: async (
       tenantId: string,
       projectId: string,
@@ -910,6 +940,21 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
         }
         return project;
       });
+    },
+
+    setArchived: async (tenantId: string, projectId: string, archived: boolean): Promise<Project> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `UPDATE workspace_schema.projects
+            SET archived_at = CASE WHEN $2::boolean THEN COALESCE(archived_at, now()) END,
+                updated_at = now()
+          WHERE id = $1
+          RETURNING ${PROJECT_COLUMNS}`,
+        [projectId, archived],
+      );
+      if (!result.rows[0]) throw new ProjectNotFoundError(projectId);
+      const [project] = await withProjectTags(pool, [mapProject(result.rows[0])]);
+      return project as Project;
     },
 
     updateProgress: async (tenantId: string, projectId: string, percent: number) => {
@@ -3959,7 +4004,7 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
     list: async (tenantId: string): Promise<ProjectGroup[]> => {
       const pool = await this.poolFor(tenantId);
       const result = await pool.query<Row>(
-        `SELECT g.id, g.name, g.sort_order,
+        `SELECT g.id, g.name, g.sort_order, g.code,
                 (SELECT COUNT(*) FROM workspace_schema.projects p WHERE p.project_type = g.name)::int
                   AS project_count
            FROM workspace_schema.project_groups g
@@ -3969,18 +4014,25 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
         id: str(row.id),
         name: str(row.name),
         sortOrder: num(row.sort_order),
+        ...(row.code ? { code: str(row.code) } : {}),
         projectCount: num(row.project_count),
       }));
     },
-    create: async (tenantId: string, actorUserId: string, name: string): Promise<void> => {
+    create: async (tenantId: string, actorUserId: string, name: string, code: string | null): Promise<void> => {
       const pool = await this.poolFor(tenantId);
       await pool.query(
-        `INSERT INTO workspace_schema.project_groups (name, created_by, updated_by)
-         VALUES ($1, $2, $2)`,
-        [name, actorUserId],
+        `INSERT INTO workspace_schema.project_groups (name, code, created_by, updated_by)
+         VALUES ($1, $2, $3, $3)`,
+        [name, code, actorUserId],
       );
     },
-    rename: async (tenantId: string, actorUserId: string, id: string, name: string): Promise<void> => {
+    rename: async (
+      tenantId: string,
+      actorUserId: string,
+      id: string,
+      name: string,
+      code?: string | null,
+    ): Promise<void> => {
       const pool = await this.poolFor(tenantId);
       await inTransaction(pool, async (client) => {
         const before = await client.query<Row>(
@@ -3988,7 +4040,16 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
           [id],
         );
         const previous = before.rows[0] ? str(before.rows[0].name) : undefined;
-        if (previous === undefined || previous === name) return;
+        if (previous === undefined) return;
+        if (code !== undefined) {
+          await client.query(
+            `UPDATE workspace_schema.project_groups
+                SET code = $2, updated_by = $3, updated_at = now()
+              WHERE id = $1`,
+            [id, code, actorUserId],
+          );
+        }
+        if (previous === name) return;
         await client.query(
           `UPDATE workspace_schema.project_groups
               SET name = $2, updated_by = $3, updated_at = now()
@@ -4017,6 +4078,26 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
           [name],
         );
       });
+    },
+  };
+
+  readonly settings = {
+    get: async (tenantId: string, key: string): Promise<unknown> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `SELECT value FROM workspace_schema.workspace_settings WHERE key = $1`,
+        [key],
+      );
+      return result.rows[0]?.value;
+    },
+    set: async (tenantId: string, key: string, value: unknown, actorUserId: string): Promise<void> => {
+      const pool = await this.poolFor(tenantId);
+      await pool.query(
+        `INSERT INTO workspace_schema.workspace_settings (key, value, updated_by, updated_at)
+         VALUES ($1, $2::jsonb, $3, now())
+         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = now()`,
+        [key, JSON.stringify(value), actorUserId],
+      );
     },
   };
 
@@ -5375,6 +5456,11 @@ async function projectMemberIds(
  * Việc "của" một người (`param` là tham số SQL chứa userId): họ phụ trách,
  * hoặc là một trong những người cùng thực hiện. Bảng công việc phải có alias `w`.
  */
+/** Thoát ký tự đặc biệt của LIKE (`%`, `_`, `\`): mã dự án có thể chứa gạch dưới. */
+function escapeLike(value: string): string {
+  return value.replace(/[\\%_]/g, (char) => `\\${char}`);
+}
+
 /**
  * Điều kiện chung của các truy vấn phân tích báo cáo: việc thuộc các dự án trong phạm vi, và (nếu lọc người) việc
  * người đó phụ trách hoặc cùng làm. Mỗi truy vấn gọi một lần để có danh sách tham số riêng.

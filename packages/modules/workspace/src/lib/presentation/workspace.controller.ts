@@ -43,6 +43,8 @@ import type {
   ReverseWorkItemRequest,
   ReverseProjectRequestRequest,
   RespondToEventRequest,
+  SaveProjectArchiveSettingsRequest,
+  SaveProjectCodeRuleRequest,
   SaveProjectGroupRequest,
   SaveProjectRoleRequest,
   SendChatMessageRequest,
@@ -59,6 +61,7 @@ import type {
 } from '@enterprise-platform/contracts-workspace';
 import { WorkspaceApplication, type WorkspaceActor } from '../application/workspace.application.js';
 import { ProjectService } from '../application/project.service.js';
+import { ProjectCodeService } from '../application/project-code.service.js';
 import { ProjectGroupService } from '../application/project-group.service.js';
 import { ProjectRoleService } from '../application/project-role.service.js';
 import { WorkItemService } from '../application/work-item.service.js';
@@ -133,6 +136,7 @@ export class WorkspaceController {
     private readonly workdayRules: WorkdayRuleService,
     private readonly projectRoles: ProjectRoleService,
     private readonly projectGroups: ProjectGroupService,
+    private readonly projectCodes: ProjectCodeService,
     private readonly workItemDeletion: WorkItemDeletionService,
     private readonly fleetTransport: FleetTransportService,
     private readonly standaloneTasks: StandaloneTaskService,
@@ -204,7 +208,27 @@ export class WorkspaceController {
     );
   }
 
-  /** Mở lưu trữ dự án đã hoàn thành: dự án về "Đang chạy" để thêm công việc. */
+  /** Cài đặt đóng hồ sơ (Cài đặt > Đóng hồ sơ dự án): tự đóng khi mọi công việc đã xong. */
+  @Get('project-archive-settings')
+  projectArchiveSettings(@Req() request: WorkspaceRequest) {
+    return this.execute(() => this.projects.archiveSettings(this.actor(request)));
+  }
+
+  @Put('project-archive-settings')
+  saveProjectArchiveSettings(
+    @Req() request: WorkspaceRequest,
+    @Body() body: SaveProjectArchiveSettingsRequest,
+  ) {
+    return this.execute(() => this.projects.saveArchiveSettings(this.actor(request), body));
+  }
+
+  /** Đóng hồ sơ thủ công: vào Lưu trữ, giữ nguyên trạng thái. */
+  @Post('projects/:id/archive')
+  archiveProject(@Req() request: WorkspaceRequest, @Param('id') id: string) {
+    return this.execute(() => this.projects.archive(this.actor(request), id));
+  }
+
+  /** Mở lưu trữ: dự án về danh sách đang làm; dự án đã Hoàn thành thì về "Đang chạy". */
   @Post('projects/:id/unarchive')
   @HttpCode(200)
   unarchiveProject(@Req() request: WorkspaceRequest, @Param('id') id: string) {
@@ -1244,6 +1268,23 @@ export class WorkspaceController {
   @Delete('project-roles/:key')
   removeProjectRole(@Req() request: WorkspaceRequest, @Param('key') key: string) {
     return this.execute(() => this.projectRoles.remove(this.actor(request), key));
+  }
+
+  /** Quy tắc sinh mã dự án (Cài đặt > Mã dự án): ai cũng đọc được, quản trị sửa. */
+  @Get('project-code-rule')
+  projectCodeRule(@Req() request: WorkspaceRequest) {
+    return this.execute(() => this.projectCodes.settings(this.actor(request)));
+  }
+
+  @Put('project-code-rule')
+  saveProjectCodeRule(@Req() request: WorkspaceRequest, @Body() body: SaveProjectCodeRuleRequest) {
+    return this.execute(() => this.projectCodes.saveRule(this.actor(request), body));
+  }
+
+  /** Mã dự kiến của dự án sắp tạo trong nhóm `projectType`; số thật được cấp khi lưu. */
+  @Get('project-code-preview')
+  projectCodePreview(@Req() request: WorkspaceRequest, @Query('projectType') projectType?: string) {
+    return this.execute(() => this.projectCodes.preview(this.actor(request), projectType));
   }
 
   /** Danh mục nhóm dự án (dùng chung toàn tenant); quản trị thêm, đổi tên, xoá ở Cài đặt. */

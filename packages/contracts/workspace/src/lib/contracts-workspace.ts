@@ -280,9 +280,14 @@ export interface ProjectMember {
 }
 
 export interface CreateProjectRequest {
-  readonly code: string;
+  /**
+   * Bỏ qua: mã dự án do server sinh theo quy tắc ở Cài đặt (xem `project-code.ts`). Giữ trường để client cũ gửi
+   * lên không bị lỗi.
+   */
+  readonly code?: string;
   readonly name: string;
   readonly description?: string;
+  /** Phòng ban phụ trách: một đơn vị trên cây tổ chức, không liên quan tới thành viên dự án. */
   readonly orgUnitId?: string;
   readonly customerRef?: string;
   /** Khách hàng chủ quản (tuỳ chọn). */
@@ -300,7 +305,8 @@ export interface UpdateProjectRequest {
   readonly description?: string;
   readonly status?: ProjectStatus;
   readonly ownerUserId?: string;
-  readonly orgUnitId?: string;
+  /** Phòng ban phụ trách (đơn vị trên cây tổ chức); `null` là bỏ. */
+  readonly orgUnitId?: string | null;
   readonly customerRef?: string;
   /** `null` gỡ khách hàng khỏi dự án. */
   readonly customerId?: string | null;
@@ -323,6 +329,8 @@ export interface ProjectGroup {
   readonly id: string;
   readonly name: string;
   readonly sortOrder: number;
+  /** Mã viết tắt, dùng cho token `{NHOM}` của quy tắc mã dự án. */
+  readonly code?: string;
   /** Số dự án thuộc nhóm, tính trên cả tenant. */
   readonly projectCount: number;
 }
@@ -335,6 +343,19 @@ export interface ProjectGroupList {
 
 export interface SaveProjectGroupRequest {
   readonly name: string;
+  /** Mã viết tắt; rỗng là bỏ mã. Bỏ trống trường thì giữ mã cũ khi sửa. */
+  readonly code?: string;
+}
+
+/** Cài đặt đóng hồ sơ dự án (Cài đặt > Đóng hồ sơ dự án). */
+export interface ProjectArchiveSettings {
+  /** Tự đóng hồ sơ (đưa vào Lưu trữ) khi mọi công việc của dự án đã hoàn thành hoặc đã huỷ. */
+  readonly autoArchive: boolean;
+  readonly canEdit: boolean;
+}
+
+export interface SaveProjectArchiveSettingsRequest {
+  readonly autoArchive: boolean;
 }
 
 export interface SetProjectMembersRequest {
