@@ -13,8 +13,9 @@ export const MAINTENANCE_ASSISTANT_ACTIONS = defineAssistantActions('maintenance
       assetCode: {
         describe: 'Mã thiết bị gặp sự cố (rows[].asset.code; tên ở rows[].asset.name)',
         lookup: '/api/maintenance/v1/matrix',
+        required: true,
       },
-      title: 'Tiêu đề ngắn của sự cố',
+      title: { describe: 'Tiêu đề ngắn của sự cố', required: true },
       description: 'Mô tả hiện tượng, thời điểm phát hiện',
       priority: 'Mức ưu tiên: High (Cao), Normal (Thường) hoặc Low (Thấp)',
       procedureDefinitionId: {

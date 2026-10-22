@@ -1,8 +1,13 @@
 import { Inject, Injectable } from '@nestjs/common';
+import type { QueryResultRow } from 'pg';
 import {
+  FINANCE_BULK_APPROVE_MAX,
   FINANCE_STEP_VOUCHER_KINDS,
   FINANCE_VOUCHER_KINDS,
   type FinanceAccount,
+  type FinanceBulkApproveRequest,
+  type FinanceBulkApproveResult,
+  type FinanceListColumns,
   type FinanceInstanceReversalCheck,
   type FinanceIntegrationCapabilities,
   type FinanceVoucherSource,
@@ -99,6 +104,7 @@ import {
   voucherOfLink,
 } from '../infrastructure/procedure-links.store.js';
 import { financeDashboard, financeLedgerReport, financeReport } from '../infrastructure/reports.store.js';
+import { loadListColumns, saveListColumns } from '../infrastructure/user-preferences.store.js';
 import { listWorkspaceProjects, listWorkspaceWorkItems, projectFinanceAccess } from '../infrastructure/workspace-api.js';
 import { resolveWorkspaceLinks } from '../infrastructure/workspace-links.js';
 import {
@@ -144,6 +150,9 @@ type Pg = Parameters<typeof loadVoucherRecord>[0];
 
 /** Procedure dùng được cho tenant: nhớ kết quả ngắn để mỗi lần tải màn hình không phải gọi mạng. */
 const AVAILABILITY_TTL_MS = 10_000;
+
+type BulkRow = QueryResultRow & { id?: unknown; code?: unknown };
+const BULK_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 @Injectable()
 export class FinanceApplication {
@@ -372,6 +381,8 @@ export class FinanceApplication {
     return {
       ...summary,
       counterpartyGroupId: optStr(row.counterparty_group_id),
+      counterpartyAccountNo: optStr(row.counterparty_account_no),
+      counterpartyBank: optStr(row.counterparty_bank),
       taxIncluded: Boolean(row.tax_included),
       taxRate: num(row.tax_rate),
       taxAmount: taxAmountOf(row),
@@ -483,6 +494,52 @@ export class FinanceApplication {
     this.capabilities(actor);
     await this.database.transaction(actor.tenantId, (db) => approveVoucher(db, actor.tenantId, actor, id, note));
     return this.voucher(actor, id);
+  }
+
+  /**
+   * Duyệt nhiều phiếu chờ duyệt trực tiếp một lượt. Từng phiếu chạy đúng luật của duyệt một phiếu (quyền, tự duyệt,
+   * khoá sổ, số dư...) trong giao dịch riêng, lần lượt theo thứ tự gửi lên; phiếu không duyệt được trả về kèm lý do.
+   */
+  async bulkApprove(actor: FinanceActor, input: FinanceBulkApproveRequest): Promise<FinanceBulkApproveResult> {
+    this.capabilities(actor);
+    const ids = [...new Set(Array.isArray(input?.ids) ? input.ids.filter((id): id is string => typeof id === 'string') : [])];
+    if (!ids.length) throw invalid('Chọn ít nhất một phiếu để duyệt.');
+    if (ids.length > FINANCE_BULK_APPROVE_MAX) throw invalid(`Mỗi lần duyệt tối đa ${FINANCE_BULK_APPROVE_MAX} phiếu.`);
+    if (ids.some((id) => !BULK_UUID.test(id))) throw invalid('Mã phiếu không hợp lệ.');
+    const pool = await this.database.pool(actor.tenantId);
+    const codes = new Map(
+      ((await pool.query(`SELECT id, code FROM finance_schema.vouchers WHERE tenant_id=$1 AND id = ANY($2::uuid[])`, [actor.tenantId, ids])).rows as BulkRow[]).map(
+        (row) => [String(row.id), String(row.code)],
+      ),
+    );
+    const result: FinanceBulkApproveResult = { approved: [], failed: [] };
+    for (const id of ids) {
+      try {
+        await this.database.transaction(actor.tenantId, (db) => approveVoucher(db, actor.tenantId, actor, id, input.note));
+        const code = (
+          (await pool.query(`SELECT code FROM finance_schema.vouchers WHERE tenant_id=$1 AND id=$2`, [actor.tenantId, id])).rows[0] as BulkRow | undefined
+        )?.code;
+        result.approved.push({ id, code: String(code ?? codes.get(id) ?? '') });
+      } catch (error) {
+        result.failed.push({
+          id,
+          code: codes.get(id) ?? null,
+          message: error instanceof FinanceError ? error.message : 'Không duyệt được phiếu này.',
+        });
+      }
+    }
+    return result;
+  }
+
+  /** Cột hiển thị riêng của người dùng cho danh sách phiếu (mỗi người một bộ, theo từng loại phiếu). */
+  async listColumns(actor: FinanceActor, listKey: string): Promise<FinanceListColumns> {
+    this.capabilities(actor);
+    return loadListColumns(await this.database.pool(actor.tenantId), actor.tenantId, actor.userId, listKey);
+  }
+
+  async saveListColumns(actor: FinanceActor, listKey: string, columns: unknown): Promise<FinanceListColumns> {
+    this.capabilities(actor);
+    return saveListColumns(await this.database.pool(actor.tenantId), actor.tenantId, actor.userId, listKey, columns);
   }
 
   async reject(actor: FinanceActor, id: string, note?: string): Promise<FinanceVoucher> {

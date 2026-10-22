@@ -1,6 +1,7 @@
 import {
   assistantActionProblems,
   assistantFormPath,
+  toCatalogItem,
 } from '@enterprise-platform/contracts-assistant';
 import { HRM_ASSISTANT_ACTIONS } from './assistant-actions.js';
 
@@ -18,6 +19,23 @@ describe('HRM_ASSISTANT_ACTIONS', () => {
       expect(action.permission).toBe('hrm.self.request');
       expect(Object.keys(action.draft)).not.toContain('employeeId');
     }
+  });
+
+  it('ô bắt buộc khớp kiểm tra của form tạo đơn', () => {
+    const required = (action: Parameters<typeof toCatalogItem>[0]) =>
+      Object.entries(toCatalogItem(action).draft)
+        .filter(([, field]) => field.required)
+        .map(([name]) => name)
+        .sort();
+    expect(required(HRM_ASSISTANT_ACTIONS.createLeaveRequest)).toEqual(['leaveTypeId']);
+    // Làm thêm giờ và công tác luôn bắt buộc Mô tả (descriptionMandatoryFor của HRM).
+    expect(required(HRM_ASSISTANT_ACTIONS.createOtRequest)).toEqual(['description', 'reasonId']);
+    expect(required(HRM_ASSISTANT_ACTIONS.createBusinessTripRequest)).toEqual([
+      'description',
+      'destination',
+      'reasonId',
+    ]);
+    expect(required(HRM_ASSISTANT_ACTIONS.createCustomRequest)).toEqual([]);
   });
 
   it('đơn tuỳ chỉnh chọn loại đơn qua biến thể', () => {

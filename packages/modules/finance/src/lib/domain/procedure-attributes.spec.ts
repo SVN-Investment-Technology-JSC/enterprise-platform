@@ -20,6 +20,7 @@ const facts: VoucherProcedureFacts = {
   accountName: 'Vietcombank',
   destAccountName: null,
   counterpartyGroupName: 'Nhà cung cấp',
+  counterpartyName: null,
   allocationLabel: 'CV-12 - Lắp đặt tủ điện (DA001)',
   projectLabel: 'DA001 - Trạm biến áp Đà Nẵng',
 };

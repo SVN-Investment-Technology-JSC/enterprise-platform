@@ -2,9 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { ChevronLeft, ChevronRight, Download, Plus, RefreshCw, Search } from 'lucide-react';
+import { CheckCheck, ChevronLeft, ChevronRight, Download, Plus, RefreshCw, Search } from 'lucide-react';
 import { Table } from 'antd';
-import type { ColumnsType } from 'antd/es/table';
+import type { ColumnType } from 'antd/es/table';
 import { Popconfirm, SearchableSelect, toast } from '@enterprise-platform/shared-ui';
 import { DatePickerInput, MonthPickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import { ContextMenu, anchorFromElement, anchorFromMouse, isMenuKey, type MenuAnchor, type MenuEntry } from '@enterprise-platform/feature-shared';
@@ -14,6 +14,8 @@ import {
   financeAllocationLabel,
   type FinanceAccount,
   type FinanceApprovalMode,
+  type FinanceBulkApproveResult,
+  type FinanceListColumns,
   type FinanceCatalogs,
   type FinanceVoucher,
   type FinanceVoucherKind,
@@ -21,14 +23,16 @@ import {
   type FinanceVoucherStatus,
   type FinanceVoucherSummary,
 } from '@enterprise-platform/contracts-finance';
-import { financeDelete, financeErrorMessage, financeFetch, financePost, toQuery } from '../finance-api';
+import { financeDelete, financeErrorMessage, financeFetch, financePost, financePut, toQuery } from '../finance-api';
 import { buildCsv, downloadCsv } from '../finance-csv';
 import { dateVn, isMonth, money, monthLabel, monthRange, newFinanceIdempotencyKey, shiftMonth, todayVn, voucherCsvRows } from '../finance-format';
 import { FINANCE_KIND_CONFIG } from '../finance-kinds';
 import { useFinancePermissions } from '../finance-permissions';
 import { buildVoucherMenu, type FinanceMenuActionId } from '../voucher-context-menu';
+import { visibleVoucherColumns, voucherColumnCatalog, voucherColumnWidths, type VoucherColumnKey } from '../voucher-list-columns';
 import { loadWorkspaceProjects, projectLabel, type WorkspaceProjectOption } from '../workspace-links';
 import { Button } from '../ui/button';
+import { ColumnPicker } from '../ui/column-picker';
 import { Avatar, ErrorBanner, StatusBadge } from '../ui/form-parts';
 import { cn } from '../utils';
 
@@ -79,6 +83,28 @@ export default function VoucherListScreen({ kind }: { kind: FinanceVoucherKind }
   const [pendingAction, setPendingAction] = useState<{ action: 'approve' | 'cancel' | 'delete'; voucherId: string; anchor: MenuAnchor; approvalMode?: FinanceApprovalMode } | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const pendingTriggerRef = useRef<HTMLDivElement>(null);
+
+  // Duyệt hàng loạt: chỉ phiếu đang chờ duyệt trực tiếp mới chọn được (phiếu qua quy trình duyệt trong quy trình).
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [bulkBusy, setBulkBusy] = useState(false);
+
+  // Cột hiển thị riêng của người dùng; null = bộ mặc định. Chưa tải xong thì dùng mặc định, không chặn danh sách.
+  const [savedColumns, setSavedColumns] = useState<string[] | null>(null);
+  useEffect(() => {
+    let active = true;
+    void financeFetch<FinanceListColumns>(`/preferences/list-columns/${kind}`)
+      .then((result) => active && setSavedColumns(result.columns))
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [kind]);
+  function changeColumns(next: string[] | null) {
+    setSavedColumns(next);
+    void financePut<FinanceListColumns>(`/preferences/list-columns/${kind}`, { columns: next }).catch((e) =>
+      setActionError(financeErrorMessage(e, 'Không lưu được cột hiển thị.')),
+    );
+  }
 
   useEffect(() => {
     if (pendingAction) pendingTriggerRef.current?.click();
@@ -135,6 +161,7 @@ export default function VoucherListScreen({ kind }: { kind: FinanceVoucherKind }
       );
       if (mine !== sequence.current) return;
       setData(result);
+      setSelectedIds((current) => current.filter((id) => result.items.some((item) => item.id === id)));
       setError(null);
     } catch (e) {
       if (mine === sequence.current) setError(financeErrorMessage(e, 'Không tải được danh sách.'));
@@ -166,6 +193,26 @@ export default function VoucherListScreen({ kind }: { kind: FinanceVoucherKind }
     }
   }
 
+  async function bulkApprove() {
+    if (!selectedIds.length) return;
+    setBulkBusy(true);
+    setActionError(null);
+    try {
+      const result = await financePost<FinanceBulkApproveResult>('/vouchers/bulk-approve', { ids: selectedIds });
+      if (result.approved.length) toast.success(`Đã duyệt và ghi sổ ${result.approved.length} phiếu`);
+      if (result.failed.length)
+        setActionError(
+          `${result.failed.length} phiếu chưa duyệt được:\n${result.failed.map((item) => `${item.code ?? item.id}: ${item.message}`).join('\n')}`,
+        );
+      setSelectedIds(result.failed.map((item) => item.id));
+      void load();
+    } catch (e) {
+      setActionError(financeErrorMessage(e, 'Không duyệt được các phiếu đã chọn.'));
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
   // Đổi bộ lọc thì về trang 1.
   const filter = <T,>(setter: (value: T) => void) => (value: T) => {
     setter(value);
@@ -192,18 +239,13 @@ export default function VoucherListScreen({ kind }: { kind: FinanceVoucherKind }
       ]
     : [];
 
-  const columns: ColumnsType<FinanceVoucherSummary> = [
-    {
-      title: 'Người tạo',
-      dataIndex: 'createdByName',
-      width: '6%',
-      align: 'center',
-      render: (name: string | null) => <Avatar name={name} />,
-    },
-    {
-      title: config.codeLabel,
+  const columnCatalog = voucherColumnCatalog(kind, config);
+  const shownColumns = visibleVoucherColumns(columnCatalog, savedColumns);
+  const widths = voucherColumnWidths(shownColumns);
+  const renderers: Record<VoucherColumnKey, ColumnType<FinanceVoucherSummary>> = {
+    creator: { dataIndex: 'createdByName', align: 'center', render: (name: string | null) => <Avatar name={name} /> },
+    code: {
       dataIndex: 'code',
-      width: kind === 'TRANSFER' ? '14%' : '11%',
       render: (code: string, row) => (
         <a
           href={`${config.path}/${row.id}`}
@@ -219,39 +261,26 @@ export default function VoucherListScreen({ kind }: { kind: FinanceVoucherKind }
         </a>
       ),
     },
-    { title: config.dateLabel, dataIndex: 'voucherDate', width: '8%', render: (value: string) => dateVn(value) },
-    { title: config.contentLabel, dataIndex: 'content', ellipsis: true },
-    kind === 'TRANSFER'
-      ? {
-          title: 'Từ tài khoản → Đến tài khoản',
-          key: 'accounts',
-          width: '32%',
-          ellipsis: true,
-          render: (_: unknown, row: FinanceVoucherSummary) => `${row.accountName ?? ''} → ${row.destAccountName ?? ''}`,
-        }
-      : { title: config.reasonLabel, dataIndex: 'reasonName', width: '10%', ellipsis: true },
-    ...(kind === 'TRANSFER'
-      ? []
-      : [
-          { title: 'Tài khoản', dataIndex: 'accountName', width: '11%', ellipsis: true },
-          { title: config.counterpartyLabel, dataIndex: 'counterpartyGroupName', width: '8%', ellipsis: true },
-          {
-            title: 'Hạch toán',
-            key: 'allocation',
-            width: '11%',
-            ellipsis: true,
-            render: (_: unknown, row: FinanceVoucherSummary) => (row.allocation ? financeAllocationLabel(row.allocation) : ''),
-          },
-        ]),
-    {
-      title: 'Số tiền',
-      dataIndex: 'totalAmount',
-      width: kind === 'TRANSFER' ? '14%' : '11%',
-      align: 'right',
-      render: (value: number) => <span className="tabular-nums font-medium">{money(value)}</span>,
-    },
-    { title: 'Trạng thái', dataIndex: 'status', width: '9%', render: (value: FinanceVoucherStatus) => <StatusBadge status={value} /> },
-  ];
+    date: { dataIndex: 'voucherDate', render: (value: string) => dateVn(value) },
+    content: { dataIndex: 'content', ellipsis: true },
+    accounts: { ellipsis: true, render: (_: unknown, row) => `${row.accountName ?? ''} → ${row.destAccountName ?? ''}` },
+    reason: { dataIndex: 'reasonName', ellipsis: true },
+    account: { dataIndex: 'accountName', ellipsis: true },
+    counterparty: { dataIndex: 'counterpartyGroupName', ellipsis: true },
+    person: { dataIndex: 'counterpartyName', ellipsis: true },
+    allocation: { ellipsis: true, render: (_: unknown, row) => (row.allocation ? financeAllocationLabel(row.allocation) : '') },
+    project: { ellipsis: true, render: (_: unknown, row) => (row.allocation ? `${row.allocation.projectCode} - ${row.allocation.projectName}` : '') },
+    amount: { dataIndex: 'totalAmount', align: 'right', render: (value: number) => <span className="tabular-nums font-medium">{money(value)}</span> },
+    status: { dataIndex: 'status', render: (value: FinanceVoucherStatus) => <StatusBadge status={value} /> },
+  };
+  const columns: ColumnType<FinanceVoucherSummary>[] = shownColumns.map((column) => ({
+    ...renderers[column.key],
+    key: column.key,
+    title: column.label,
+    width: widths[column.key],
+  }));
+  const canBulkApprove = Boolean(kindCaps?.approve);
+  const selectable = (row: FinanceVoucherSummary) => row.status === 'PENDING' && row.approvalMode === 'DIRECT';
 
   const scopes: { id: Scope; label: string; visible: boolean }[] = [
     { id: 'all', label: 'Tất cả phiếu', visible: true },
@@ -279,6 +308,12 @@ export default function VoucherListScreen({ kind }: { kind: FinanceVoucherKind }
           >
             <Download aria-hidden /> Xuất Excel
           </Button>
+          <ColumnPicker
+            catalog={columnCatalog}
+            visible={new Set(shownColumns.map((column) => column.key))}
+            onChange={changeColumns}
+            onReset={() => changeColumns(null)}
+          />
           {kindCaps?.create ? (
             <Button type="button" onClick={() => router.push(`${config.path}/new`)}>
               <Plus aria-hidden /> Tạo mới
@@ -423,12 +458,45 @@ export default function VoucherListScreen({ kind }: { kind: FinanceVoucherKind }
 
           <div className="p-3">
             <ErrorBanner message={error ?? actionError} />
+            {canBulkApprove && selectedIds.length ? (
+              <div role="region" aria-label="Duyệt hàng loạt" className="mb-2 flex flex-wrap items-center gap-3 rounded-lg border border-slate-200 bg-accent-soft px-3 py-2 text-sm">
+                <span className="font-medium text-slate-800">Đã chọn {selectedIds.length} phiếu chờ duyệt</span>
+                <Popconfirm
+                  title={`Duyệt và ghi sổ ${selectedIds.length} phiếu?`}
+                  description="Tiền được ghi vào sổ tài khoản ngay; phiếu nào không duyệt được sẽ báo lý do, các phiếu khác vẫn được duyệt."
+                  okText="Duyệt"
+                  okType="primary"
+                  onConfirm={() => void bulkApprove()}
+                >
+                  <Button type="button" size="sm" disabled={bulkBusy}>
+                    <CheckCheck aria-hidden /> Duyệt {selectedIds.length} phiếu
+                  </Button>
+                </Popconfirm>
+                <button type="button" onClick={() => setSelectedIds([])} className="text-xs font-medium text-link hover:underline">
+                  Bỏ chọn
+                </button>
+              </div>
+            ) : null}
             <Table<FinanceVoucherSummary>
               size="small"
               rowKey="id"
               loading={loading}
               columns={columns}
               dataSource={data?.items ?? []}
+              rowSelection={
+                canBulkApprove
+                  ? {
+                      columnWidth: 36,
+                      selectedRowKeys: selectedIds,
+                      onChange: (keys) => setSelectedIds(keys.map(String)),
+                      getCheckboxProps: (row) => ({
+                        disabled: !selectable(row),
+                        title: selectable(row) ? undefined : 'Chỉ chọn được phiếu đang chờ duyệt trực tiếp',
+                        'aria-label': `Chọn phiếu ${row.code}`,
+                      }),
+                    }
+                  : undefined
+              }
               // Bố cục cố định theo phần trăm: dữ liệu ít nên vừa một bề ngang bảng, không cuộn ngang.
               tableLayout="fixed"
               locale={{ emptyText: loading ? 'Đang tải…' : `Chưa có ${config.singular} nào phù hợp.` }}

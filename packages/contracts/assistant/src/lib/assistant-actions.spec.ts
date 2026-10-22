@@ -157,7 +157,10 @@ describe('toCatalogItem', () => {
           title: 'Tạo đơn theo loại của công ty',
           permission: 'hrm.self.request',
           page: '/modules/hrm/requests',
-          draft: { description: 'Nội dung đơn', approverId: { describe: 'Người duyệt', lookup: '/api/hrm/v1/x' } },
+          draft: {
+            description: 'Nội dung đơn',
+            approverId: { describe: 'Người duyệt', lookup: '/api/hrm/v1/x', required: true },
+          },
           variants: { describe: 'Loại đơn tuỳ chỉnh', lookup: '/api/hrm/v1/request-types' },
         },
       }),
@@ -171,7 +174,7 @@ describe('toCatalogItem', () => {
       form: '/modules/hrm/assistant/form',
       draft: {
         description: { describe: 'Nội dung đơn' },
-        approverId: { describe: 'Người duyệt', lookup: '/api/hrm/v1/x' },
+        approverId: { describe: 'Người duyệt', lookup: '/api/hrm/v1/x', required: true },
       },
       variants: { describe: 'Loại đơn tuỳ chỉnh', lookup: '/api/hrm/v1/request-types' },
     });

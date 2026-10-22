@@ -69,6 +69,7 @@ export function mapSummary(row: Row): FinanceVoucherSummary {
     destAccountId: optStr(row.dest_account_id),
     destAccountName: optStr(row.dest_account_name),
     counterpartyGroupName: optStr(row.group_name),
+    counterpartyName: optStr(row.counterparty_name),
     totalAmount: num(row.total_amount),
     status: row.status as FinanceVoucherStatus,
     createdBy: String(row.created_by),
@@ -292,6 +293,7 @@ export async function updateVoucher(
               status=$21::text, approval_mode=COALESCE($22, approval_mode), revision=revision+1,
               submitted_at=CASE WHEN $21::text='PENDING' THEN now() ELSE submitted_at END,
               submitted_by=CASE WHEN $21::text='PENDING' THEN $23 ELSE submitted_by END,
+              counterparty_name=$24, counterparty_account_no=$25, counterparty_bank=$26,
               decided_at=NULL, decided_by=NULL, decided_by_name=NULL, decision_note=NULL, updated_at=now()
         WHERE tenant_id=$1 AND id=$2 RETURNING *`,
       [
@@ -301,6 +303,7 @@ export async function updateVoucher(
         resubmitting ? 'PENDING' : 'DRAFT',
         resubmitMode,
         actor.userId,
+        v.counterpartyName ?? null, v.counterpartyAccountNo ?? null, v.counterpartyBank ?? null,
       ],
     )
   ).rows[0] as Row;

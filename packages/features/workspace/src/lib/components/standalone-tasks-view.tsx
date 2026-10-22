@@ -12,7 +12,9 @@ import {
   type StandaloneTaskRole,
   type StandaloneTaskScope,
   type WorkItemStatus,
+  WORKSPACE_ASSISTANT_ACTIONS,
 } from '@enterprise-platform/contracts-workspace';
+import { useAssistantSaved } from '@enterprise-platform/feature-module-shell';
 import { returnPathFor } from '@enterprise-platform/shared-ui';
 import {
   ChevronRight,
@@ -50,6 +52,7 @@ import { useDirectory, type DirectoryView } from './use-directory';
 import { Confirm } from './confirm-box';
 
 const CLOSED: readonly WorkItemStatus[] = ['done', 'cancelled'];
+const STANDALONE_TASK_ACTION_KEYS = [WORKSPACE_ASSISTANT_ACTIONS.createStandaloneTask.key];
 
 /** Bộ lọc trạng thái: mặc định chỉ việc đang mở. */
 const STATUS_FILTERS = [
@@ -126,6 +129,9 @@ export function StandaloneTasksView({
   useEffect(() => {
     void reloadList();
   }, [reloadList]);
+
+  // Card Trợ lý vừa giao việc ngoài dự án: tải lại ngăn đang xem.
+  useAssistantSaved(STANDALONE_TASK_ACTION_KEYS, () => void reloadList());
 
   /** Ids đang có ở cột trái, để biết việc vừa mở (từ link thông báo) có nằm trong ngăn hiện tại không. */
   const listedIds = useRef(new Set<string>());

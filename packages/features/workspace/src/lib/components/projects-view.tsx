@@ -29,7 +29,8 @@ import {
   type ProjectPermission,
   type SystemProjectRole,
 } from '@enterprise-platform/contracts-workspace';
-import { CHAT_UNREAD_POLL_MS } from '@enterprise-platform/contracts-workspace';
+import { CHAT_UNREAD_POLL_MS, WORKSPACE_ASSISTANT_ACTIONS } from '@enterprise-platform/contracts-workspace';
+import { useAssistantSaved } from '@enterprise-platform/feature-module-shell';
 import {
   returnPathFor,
   useRealtimeEvent,
@@ -90,6 +91,10 @@ const TABS: readonly { id: TabId; label: string }[] = [
 ];
 
 const TAB_IDS = TABS.map((entry) => entry.id);
+const PROJECT_ACTION_KEYS = [
+  WORKSPACE_ASSISTANT_ACTIONS.createWorkItem.key,
+  WORKSPACE_ASSISTANT_ACTIONS.createEvent.key,
+];
 
 /**
  * Công việc đang mở (`?item=`) và tab (`?tab=`) nằm trên đường dẫn: tải lại
@@ -501,6 +506,12 @@ export function ProjectsView({
     }
     void refreshDetail(openId);
   }, [openId, refreshDetail]);
+
+  // Card Trợ lý vừa tạo cuộc họp hay công việc: tải lại lịch, hoặc cây công việc của dự án đang mở.
+  useAssistantSaved(PROJECT_ACTION_KEYS, (record) => {
+    if (record.key === WORKSPACE_ASSISTANT_ACTIONS.createEvent.key) setCalendarToken((token) => token + 1);
+    else if (openId) void refreshDetail(openId);
+  });
 
   // Danh sách tài liệu của dự án, để Drawer chat đính kèm được. Chỉ CHỌN từ
   // những gì đã có trong dự án — không tải tệp mới lên từ khung chat.
