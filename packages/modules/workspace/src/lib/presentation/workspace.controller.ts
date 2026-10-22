@@ -1040,9 +1040,46 @@ export class WorkspaceController {
     @Query('from') from?: string,
     @Query('to') to?: string,
     @Query('projectIds') projectIds?: string,
+    @Query('groups') groups?: string,
+    @Query('tagIds') tagIds?: string,
+    @Query('userId') userId?: string,
   ) {
     return this.execute(() =>
-      this.reportService.bundle(this.actor(request), { from, to, projectIds }),
+      this.reportService.bundle(this.actor(request), { from, to, projectIds, groups, tagIds, userId }),
+    );
+  }
+
+  /**
+   * Danh sách việc đứng sau một con số trên báo cáo. Cùng phạm vi và bộ lọc với `GET reports`; `kind` chọn loại
+   * danh sách, `assigneeUserId` / `status` / `priority` là điều kiện của ô được bấm.
+   */
+  @Get('reports/items')
+  reportItems(
+    @Req() request: WorkspaceRequest,
+    @Query('kind') kind?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('projectIds') projectIds?: string,
+    @Query('groups') groups?: string,
+    @Query('tagIds') tagIds?: string,
+    @Query('userId') userId?: string,
+    @Query('assigneeUserId') assigneeUserId?: string,
+    @Query('status') status?: string,
+    @Query('priority') priority?: string,
+  ) {
+    return this.execute(() =>
+      this.reportService.items(this.actor(request), {
+        kind,
+        from,
+        to,
+        projectIds,
+        groups,
+        tagIds,
+        userId,
+        assigneeUserId,
+        status,
+        priority,
+      }),
     );
   }
 

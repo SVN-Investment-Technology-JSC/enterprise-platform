@@ -43,6 +43,7 @@ import type {
   MyWorkMention,
   OverdueRow,
   ParticipantResponse,
+  PerformanceRow,
   Project,
   ProjectMember,
   ProjectProgressRow,
@@ -50,6 +51,9 @@ import type {
   ProjectGroup,
   ProjectPermission,
   ProjectStatus,
+  ReportGroupRow,
+  ReportItemKind,
+  ReportItemList,
   SavedFilter,
   SavedFilterView,
   StandaloneTask,
@@ -67,6 +71,7 @@ import type {
   WorkItem,
   WorkItemCost,
   WorkItemDependency,
+  WorkItemPriority,
   WorkItemStatus,
   WorkItemStatusHistoryEntry,
   WorkloadRow,
@@ -121,6 +126,8 @@ import type {
   MyWorkAssignedRow,
   ParticipantBusySlot,
   ProjectRollup,
+  ReportAnalyticsQuery,
+  ReportItemsQuery,
   ReportScopeFilter,
   StandaloneTaskCreateModel,
   StandaloneTaskProcedureOutcome,
@@ -3296,6 +3303,17 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
         values.push(scope.projectIds);
         where.push(`p.id = ANY($${values.length}::uuid[])`);
       }
+      if (scope.groups && scope.groups.length > 0) {
+        values.push(scope.groups);
+        where.push(`COALESCE(trim(p.project_type), '') = ANY($${values.length}::text[])`);
+      }
+      if (scope.tagIds && scope.tagIds.length > 0) {
+        values.push(scope.tagIds);
+        where.push(`EXISTS (SELECT 1 FROM workspace_schema.entity_tags et
+                             WHERE et.entity_type = 'project'
+                               AND et.entity_id = p.id
+                               AND et.tag_id = ANY($${values.length}::uuid[]))`);
+      }
 
       const result = await pool.query<{ id: string }>(
         `SELECT p.id FROM workspace_schema.projects p
@@ -3469,6 +3487,325 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
         daysLate: num(row.days_late),
         status: str(row.status) as WorkItemStatus,
       }));
+    },
+
+    analytics: async (tenantId: string, query: ReportAnalyticsQuery) => {
+      const empty = {
+        kpis: {
+          createdItems: 0,
+          completedItems: 0,
+          completedOnTime: 0,
+          completedLate: 0,
+          openItems: 0,
+          overdueItems: 0,
+          completedHours: 0,
+        },
+        previous: { createdItems: 0, completedItems: 0, completedOnTime: 0, completedLate: 0 },
+      };
+      if (query.projectIds.length === 0) {
+        return { ...empty, trend: [], statusBreakdown: [], priorityBreakdown: [] };
+      }
+      const pool = await this.poolFor(tenantId);
+      const done = `w.status = 'done'`;
+      const onTime = `(w.planned_end IS NULL OR w.actual_end <= w.planned_end)`;
+      const late = `(w.planned_end IS NOT NULL AND w.actual_end > w.planned_end)`;
+      const open = `w.status NOT IN ('done','cancelled')`;
+
+      // Chỉ số kỳ này và kỳ trước trong một lượt quét: cùng một tập việc, chỉ khác điều kiện ngày.
+      // Mỗi truy vấn dựng danh sách tham số riêng: Postgres từ chối tham số thừa không dùng tới.
+      const kpiQuery = (() => {
+        const { values, where, at } = reportParams(query);
+        const created = `(w.created_at AT TIME ZONE ${at(query.timezone)})::date`;
+        const from = at(query.fromDay);
+        const to = at(query.toDay);
+        const prevFrom = at(query.previousFromDay);
+        const prevTo = at(query.previousToDay);
+        const today = at(query.today);
+        return pool.query<Row>(
+          `SELECT
+             COUNT(*) FILTER (WHERE ${created} BETWEEN ${from}::date AND ${to}::date)::text AS created,
+             COUNT(*) FILTER (WHERE ${done} AND w.actual_end BETWEEN ${from}::date AND ${to}::date)::text
+               AS completed,
+             COUNT(*) FILTER (WHERE ${done} AND w.actual_end BETWEEN ${from}::date AND ${to}::date
+                                AND ${onTime})::text AS on_time,
+             COUNT(*) FILTER (WHERE ${done} AND w.actual_end BETWEEN ${from}::date AND ${to}::date
+                                AND ${late})::text AS late,
+             COALESCE(SUM(w.estimate_hours) FILTER (
+               WHERE ${done} AND w.actual_end BETWEEN ${from}::date AND ${to}::date), 0)::text AS completed_hours,
+             COUNT(*) FILTER (WHERE ${open})::text AS open_items,
+             COUNT(*) FILTER (WHERE ${open} AND w.planned_end < ${today}::date)::text AS overdue_items,
+             COUNT(*) FILTER (WHERE ${created} BETWEEN ${prevFrom}::date AND ${prevTo}::date)::text AS prev_created,
+             COUNT(*) FILTER (WHERE ${done} AND w.actual_end BETWEEN ${prevFrom}::date AND ${prevTo}::date)::text
+               AS prev_completed,
+             COUNT(*) FILTER (WHERE ${done} AND w.actual_end BETWEEN ${prevFrom}::date AND ${prevTo}::date
+                                AND ${onTime})::text AS prev_on_time,
+             COUNT(*) FILTER (WHERE ${done} AND w.actual_end BETWEEN ${prevFrom}::date AND ${prevTo}::date
+                                AND ${late})::text AS prev_late
+            FROM workspace_schema.work_items w
+           WHERE ${where.join(' AND ')}`,
+          values,
+        );
+      })();
+
+      // Xu hướng: mỗi sự kiện (tạo, xong, lỡ hạn) rơi vào cột của ngày nó xảy ra; cột trống vẫn có mặt nhờ
+      // generate_series, để biểu đồ không bị co lại ở những quãng không có việc.
+      const trendQuery = (() => {
+        const { values, where, at } = reportParams(query);
+        const created = `(w.created_at AT TIME ZONE ${at(query.timezone)})::date`;
+        const from = at(query.fromDay);
+        const to = at(query.toDay);
+        const today = at(query.today);
+        const granularity = at(query.granularity);
+        const bucket = (day: string) => `date_trunc(${granularity}, (${day})::timestamp)::date`;
+        const scoped = where.join(' AND ');
+        return pool.query<Row>(
+          `WITH ev AS (
+             SELECT ${bucket(created)} AS b, 1 AS c, 0 AS d, 0 AS m
+               FROM workspace_schema.work_items w
+              WHERE ${scoped} AND ${created} BETWEEN ${from}::date AND ${to}::date
+             UNION ALL
+             SELECT ${bucket('w.actual_end')}, 0, 1, 0
+               FROM workspace_schema.work_items w
+              WHERE ${scoped} AND ${done} AND w.actual_end BETWEEN ${from}::date AND ${to}::date
+             UNION ALL
+             SELECT ${bucket('w.planned_end')}, 0, 0, 1
+               FROM workspace_schema.work_items w
+              WHERE ${scoped}
+                AND w.planned_end BETWEEN ${from}::date AND LEAST(${to}::date, ${today}::date - 1)
+                AND (${open} OR (${done} AND ${late}))
+           )
+           SELECT to_char(g, 'YYYY-MM-DD') AS start,
+                  COALESCE(SUM(ev.c), 0)::text AS created,
+                  COALESCE(SUM(ev.d), 0)::text AS completed,
+                  COALESCE(SUM(ev.m), 0)::text AS missed
+             FROM generate_series(date_trunc(${granularity}, ${from}::date::timestamp),
+                                  ${to}::date::timestamp,
+                                  ('1 ' || ${granularity})::interval) g
+             LEFT JOIN ev ON ev.b = g::date
+            GROUP BY g
+            ORDER BY g`,
+          values,
+        );
+      })();
+
+      const breakdown = (column: 'status' | 'priority', onlyOpen: boolean) => {
+        const { values, where } = reportParams(query);
+        return pool.query<Row>(
+          `SELECT w.${column} AS key, COUNT(*)::text AS count
+             FROM workspace_schema.work_items w
+            WHERE ${where.join(' AND ')} ${onlyOpen ? `AND ${open}` : ''}
+            GROUP BY w.${column}`,
+          values,
+        );
+      };
+      const statusQuery = breakdown('status', false);
+      // Độ ưu tiên chỉ có ý nghĩa với việc còn mở.
+      const priorityQuery = breakdown('priority', true);
+
+      const [kpi, trend, status, priority] = await Promise.all([
+        kpiQuery,
+        trendQuery,
+        statusQuery,
+        priorityQuery,
+      ]);
+      const row = kpi.rows[0] ?? {};
+      return {
+        kpis: {
+          createdItems: num(row.created),
+          completedItems: num(row.completed),
+          completedOnTime: num(row.on_time),
+          completedLate: num(row.late),
+          openItems: num(row.open_items),
+          overdueItems: num(row.overdue_items),
+          completedHours: num(row.completed_hours),
+        },
+        previous: {
+          createdItems: num(row.prev_created),
+          completedItems: num(row.prev_completed),
+          completedOnTime: num(row.prev_on_time),
+          completedLate: num(row.prev_late),
+        },
+        trend: trend.rows.map((entry) => ({
+          start: str(entry.start),
+          created: num(entry.created),
+          completed: num(entry.completed),
+          missedDeadline: num(entry.missed),
+        })),
+        statusBreakdown: status.rows.map((entry) => ({ key: str(entry.key), count: num(entry.count) })),
+        priorityBreakdown: priority.rows.map((entry) => ({ key: str(entry.key), count: num(entry.count) })),
+      };
+    },
+
+    performance: async (tenantId: string, query: ReportAnalyticsQuery): Promise<PerformanceRow[]> => {
+      if (query.projectIds.length === 0) return [];
+      const pool = await this.poolFor(tenantId);
+      // Hiệu suất tính theo người phụ trách (không tính người cùng làm), để mỗi việc chỉ thuộc về một người.
+      const values: unknown[] = [query.projectIds, query.fromDay, query.toDay, query.today];
+      let selfClause = '';
+      if (query.userId) {
+        values.push(query.userId);
+        selfClause = `AND w.assignee_user_id = $${values.length}`;
+      }
+      const completed = `w.status = 'done' AND w.actual_end BETWEEN $2::date AND $3::date`;
+      const late = `w.planned_end IS NOT NULL AND w.actual_end > w.planned_end`;
+      const open = `w.status NOT IN ('done','cancelled')`;
+      const result = await pool.query<Row>(
+        `SELECT w.assignee_user_id,
+                COUNT(*) FILTER (WHERE ${completed})::text AS completed,
+                COUNT(*) FILTER (WHERE ${completed} AND NOT (${late}))::text AS on_time,
+                COUNT(*) FILTER (WHERE ${completed} AND ${late})::text AS late,
+                COALESCE(ROUND(AVG(w.actual_end - w.planned_end) FILTER (WHERE ${completed} AND ${late}), 1), 0)::text
+                  AS average_days_late,
+                COALESCE(SUM(w.estimate_hours) FILTER (WHERE ${completed}), 0)::text AS completed_hours,
+                COUNT(*) FILTER (WHERE ${open})::text AS open_items,
+                COUNT(*) FILTER (WHERE ${open} AND w.planned_end < $4::date)::text AS overdue_items
+           FROM workspace_schema.work_items w
+          WHERE w.project_id = ANY($1::uuid[])
+            AND w.assignee_user_id IS NOT NULL
+            ${selfClause}
+          GROUP BY w.assignee_user_id
+         HAVING COUNT(*) FILTER (WHERE ${completed}) > 0 OR COUNT(*) FILTER (WHERE ${open}) > 0
+          ORDER BY COUNT(*) FILTER (WHERE ${completed}) DESC, COUNT(*) FILTER (WHERE ${open}) DESC`,
+        values,
+      );
+      return result.rows.map((row) => ({
+        userId: str(row.assignee_user_id),
+        completedItems: num(row.completed),
+        completedOnTime: num(row.on_time),
+        completedLate: num(row.late),
+        averageDaysLate: num(row.average_days_late),
+        completedHours: num(row.completed_hours),
+        openItems: num(row.open_items),
+        overdueItems: num(row.overdue_items),
+      }));
+    },
+
+    groups: async (tenantId: string, query: ReportAnalyticsQuery) => {
+      if (query.projectIds.length === 0) return { byGroup: [], byTag: [] };
+      const pool = await this.poolFor(tenantId);
+      const values: unknown[] = [query.projectIds, query.fromDay, query.toDay, query.today];
+      // Bộ lọc người đặt trong điều kiện JOIN: dự án không có việc của người đó vẫn được đếm là một dự án.
+      let personClause = '';
+      if (query.userId) {
+        values.push(query.userId);
+        personClause = `AND ${mine(`$${values.length}`)}`;
+      }
+      // Số liệu theo từng dự án trước, rồi mới gom: trung bình tiến độ là trung bình của các dự án, không bị
+      // dự án nhiều việc kéo lệch.
+      const perProject = `
+        SELECT p.id, COALESCE(trim(p.project_type), '') AS grp, p.progress_percent,
+               COUNT(w.id) AS total,
+               COUNT(w.id) FILTER (WHERE w.status IN ('done','cancelled')) AS closed,
+               COUNT(w.id) FILTER (WHERE w.status NOT IN ('done','cancelled')) AS open,
+               COUNT(w.id) FILTER (WHERE w.status NOT IN ('done','cancelled')
+                                     AND w.planned_end < $4::date) AS overdue,
+               COUNT(w.id) FILTER (WHERE w.status = 'done'
+                                     AND w.actual_end BETWEEN $2::date AND $3::date) AS completed
+          FROM workspace_schema.projects p
+          LEFT JOIN workspace_schema.work_items w ON w.project_id = p.id ${personClause}
+         WHERE p.id = ANY($1::uuid[])
+         GROUP BY p.id`;
+      const totals = `COUNT(*)::text AS project_count,
+                      SUM(per.total)::text AS total_items,
+                      SUM(per.closed)::text AS closed_items,
+                      SUM(per.open)::text AS open_items,
+                      SUM(per.overdue)::text AS overdue_items,
+                      SUM(per.completed)::text AS completed_items,
+                      ROUND(AVG(per.progress_percent))::text AS progress_percent`;
+      const [groups, tags] = await Promise.all([
+        pool.query<Row>(
+          `WITH per AS (${perProject})
+           SELECT per.grp AS key, ${totals}
+             FROM per
+             LEFT JOIN workspace_schema.project_groups g ON lower(g.name) = lower(per.grp)
+            GROUP BY per.grp
+            ORDER BY (per.grp = ''), MIN(g.sort_order), per.grp`,
+          values,
+        ),
+        pool.query<Row>(
+          `WITH per AS (${perProject})
+           SELECT t.id AS key, t.name AS label, t.color, ${totals}
+             FROM per
+             JOIN workspace_schema.entity_tags et ON et.entity_type = 'project' AND et.entity_id = per.id
+             JOIN workspace_schema.tags t ON t.id = et.tag_id
+            GROUP BY t.id, t.name, t.color
+            ORDER BY COUNT(*) DESC, t.name`,
+          values,
+        ),
+      ]);
+      const toRow = (row: Row): ReportGroupRow => ({
+        key: str(row.key),
+        label: str(row.label ?? row.key),
+        ...(row.color ? { color: str(row.color) } : {}),
+        projectCount: num(row.project_count),
+        totalItems: num(row.total_items),
+        closedItems: num(row.closed_items),
+        openItems: num(row.open_items),
+        overdueItems: num(row.overdue_items),
+        completedInPeriod: num(row.completed_items),
+        progressPercent: num(row.progress_percent),
+      });
+      return { byGroup: groups.rows.map(toRow), byTag: tags.rows.map(toRow) };
+    },
+
+    items: async (tenantId: string, query: ReportItemsQuery): Promise<ReportItemList> => {
+      if (query.projectIds.length === 0) return { items: [], truncated: false };
+      const pool = await this.poolFor(tenantId);
+      const { values, where, at } = reportParams(query);
+      // Chỉ thêm tham số mà loại danh sách đang chọn thật sự dùng: Postgres từ chối tham số thừa.
+      const open = `w.status NOT IN ('done','cancelled')`;
+      const late = `(w.planned_end IS NOT NULL AND w.actual_end > w.planned_end)`;
+      const completed = () =>
+        `w.status = 'done' AND w.actual_end BETWEEN ${at(query.fromDay)}::date AND ${at(query.toDay)}::date`;
+      const byKind: Record<ReportItemKind, () => string> = {
+        all: () => 'TRUE',
+        open: () => open,
+        overdue: () => `${open} AND w.planned_end < ${at(query.today)}::date`,
+        dueThisWeek: () =>
+          `${open} AND w.planned_end BETWEEN ${at(query.today)}::date AND ${at(query.weekEnd)}::date`,
+        created: () =>
+          `(w.created_at AT TIME ZONE ${at(query.timezone)})::date
+             BETWEEN ${at(query.fromDay)}::date AND ${at(query.toDay)}::date`,
+        completed,
+        completedOnTime: () => `${completed()} AND NOT ${late}`,
+        completedLate: () => `${completed()} AND ${late}`,
+        missedDeadline: () =>
+          `w.planned_end BETWEEN ${at(query.fromDay)}::date
+                             AND LEAST(${at(query.toDay)}::date, ${at(query.today)}::date - 1)
+           AND (${open} OR (w.status = 'done' AND ${late}))`,
+      };
+      where.push(byKind[query.kind]());
+      if (query.assigneeUserId) where.push(`w.assignee_user_id = ${at(query.assigneeUserId)}`);
+      if (query.status) where.push(`w.status = ${at(query.status)}`);
+      if (query.priority) where.push(`w.priority = ${at(query.priority)}`);
+      const limit = at(query.limit + 1);
+
+      const result = await pool.query<Row>(
+        `SELECT w.id, w.project_id, p.code AS project_code, w.code, w.title, w.assignee_user_id,
+                w.status, w.priority, w.planned_end, w.actual_end
+           FROM workspace_schema.work_items w
+           JOIN workspace_schema.projects p ON p.id = w.project_id
+          WHERE ${where.join(' AND ')}
+          ORDER BY w.planned_end NULLS LAST, p.code, w.code
+          LIMIT ${limit}`,
+        values,
+      );
+      const rows = result.rows.slice(0, query.limit);
+      return {
+        truncated: result.rows.length > query.limit,
+        items: rows.map((row) => ({
+          workItemId: str(row.id),
+          projectId: str(row.project_id),
+          projectCode: str(row.project_code),
+          code: str(row.code),
+          title: str(row.title),
+          assigneeUserId: opt(row.assignee_user_id),
+          status: str(row.status) as WorkItemStatus,
+          priority: str(row.priority) as WorkItemPriority,
+          plannedEnd: day(row.planned_end),
+          actualEnd: day(row.actual_end),
+        })),
+      };
     },
   };
 
@@ -5038,6 +5375,26 @@ async function projectMemberIds(
  * Việc "của" một người (`param` là tham số SQL chứa userId): họ phụ trách,
  * hoặc là một trong những người cùng thực hiện. Bảng công việc phải có alias `w`.
  */
+/**
+ * Điều kiện chung của các truy vấn phân tích báo cáo: việc thuộc các dự án trong phạm vi, và (nếu lọc người) việc
+ * người đó phụ trách hoặc cùng làm. Mỗi truy vấn gọi một lần để có danh sách tham số riêng.
+ */
+function reportParams(query: { readonly projectIds: readonly string[]; readonly userId?: string }): {
+  values: unknown[];
+  where: string[];
+  /** Thêm một tham số, trả chỗ giữ `$n` của nó. */
+  at: (value: unknown) => string;
+} {
+  const values: unknown[] = [query.projectIds];
+  const where = ['w.project_id = ANY($1::uuid[])'];
+  const at = (value: unknown) => {
+    values.push(value);
+    return `$${values.length}`;
+  };
+  if (query.userId) where.push(mine(at(query.userId)));
+  return { values, where, at };
+}
+
 function mine(param: string): string {
   return `(w.assignee_user_id = ${param} OR EXISTS (
             SELECT 1 FROM workspace_schema.work_item_participants wp

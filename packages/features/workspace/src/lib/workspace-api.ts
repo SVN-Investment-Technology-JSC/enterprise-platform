@@ -64,6 +64,8 @@ import type {
   ProjectTypeOption,
   RecurrenceScope,
   ReportBundle,
+  ReportItemKind,
+  ReportItemList,
   RespondToEventRequest,
   SavedFilter,
   SavedFilterView,
@@ -679,17 +681,50 @@ export async function loadIsTenantAdmin(): Promise<boolean> {
  * `projectIds` chỉ **thu hẹp** phạm vi mà server đã suy từ vai trò, không mở
  * rộng nó. Lọc một dự án không tham gia sẽ nhận `403`.
  */
-export const loadReports = (params: {
+/** Tham số chung của báo cáo: kỳ và các bộ lọc. */
+export interface ReportParams {
   from?: string;
   to?: string;
   projectIds?: readonly string[];
-} = {}) => {
+  /** Tên nhóm dự án; `REPORT_NO_GROUP` là "Chưa phân nhóm". */
+  groups?: readonly string[];
+  tagIds?: readonly string[];
+  /** Người phụ trách hoặc cùng làm. */
+  userId?: string;
+}
+
+const reportQuery = (params: ReportParams) => {
   const query = new URLSearchParams();
   if (params.from) query.set('from', params.from);
   if (params.to) query.set('to', params.to);
   if (params.projectIds?.length) query.set('projectIds', params.projectIds.join(','));
+  if (params.groups?.length) query.set('groups', params.groups.join(','));
+  if (params.tagIds?.length) query.set('tagIds', params.tagIds.join(','));
+  if (params.userId) query.set('userId', params.userId);
+  return query;
+};
+
+export const loadReports = (params: ReportParams = {}) => {
+  const query = reportQuery(params);
   const suffix = query.toString() ? `?${query}` : '';
   return request<ReportBundle>(`/reports${suffix}`, { cache: 'no-store' });
+};
+
+/** Danh sách việc đứng sau một con số trên báo cáo. */
+export const loadReportItems = (
+  params: ReportParams & {
+    kind: ReportItemKind;
+    assigneeUserId?: string;
+    status?: string;
+    priority?: string;
+  },
+) => {
+  const query = reportQuery(params);
+  query.set('kind', params.kind);
+  if (params.assigneeUserId) query.set('assigneeUserId', params.assigneeUserId);
+  if (params.status) query.set('status', params.status);
+  if (params.priority) query.set('priority', params.priority);
+  return request<ReportItemList>(`/reports/items?${query}`, { cache: 'no-store' });
 };
 
 /* =========================================================================

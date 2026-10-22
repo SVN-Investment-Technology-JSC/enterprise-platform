@@ -37,7 +37,16 @@ import type {
   ParticipantResponse,
   Project,
   ProjectMember,
+  PerformanceRow,
   ProjectProgressRow,
+  ReportCount,
+  ReportGranularity,
+  ReportGroupRow,
+  ReportItemKind,
+  ReportItemList,
+  ReportKpis,
+  ReportPreviousKpis,
+  ReportTrendBucket,
   ProjectRole,
   ProjectGroup,
   ProjectPermission,
@@ -175,6 +184,45 @@ export interface ReportScopeFilter {
   readonly userId: string;
   /** Người gọi tự giới hạn vào vài dự án; rỗng nghĩa là cả phạm vi. */
   readonly projectIds?: readonly string[];
+  /** Chỉ dự án thuộc các nhóm này (tên nhóm; chuỗi rỗng là "Chưa phân nhóm"). */
+  readonly groups?: readonly string[];
+  /** Chỉ dự án gắn ít nhất một trong các nhãn này. */
+  readonly tagIds?: readonly string[];
+}
+
+/**
+ * Tham số chung của các truy vấn phân tích báo cáo. Ngày là `YYYY-MM-DD` theo múi giờ tenant; `timezone` dùng để
+ * đổi `created_at` (timestamptz) về ngày địa phương.
+ */
+export interface ReportAnalyticsQuery {
+  readonly projectIds: readonly string[];
+  readonly timezone: string;
+  readonly fromDay: string;
+  readonly toDay: string;
+  readonly previousFromDay: string;
+  readonly previousToDay: string;
+  readonly today: string;
+  readonly granularity: ReportGranularity;
+  /** Chỉ việc người này phụ trách hoặc cùng làm (bộ lọc người, hoặc mức `self`). */
+  readonly userId?: string;
+}
+
+/** Danh sách việc khi bấm một con số trên báo cáo. */
+export interface ReportItemsQuery {
+  readonly projectIds: readonly string[];
+  readonly timezone: string;
+  readonly kind: ReportItemKind;
+  readonly fromDay: string;
+  readonly toDay: string;
+  readonly today: string;
+  readonly weekEnd: string;
+  /** Việc người này phụ trách hoặc cùng làm. */
+  readonly userId?: string;
+  /** Chỉ việc người này phụ trách (bấm từ bảng theo người). */
+  readonly assigneeUserId?: string;
+  readonly status?: string;
+  readonly priority?: string;
+  readonly limit: number;
 }
 
 /** Khách hàng đã chuẩn hoá ở tầng ứng dụng, sẵn sàng ghi. */
@@ -942,6 +990,25 @@ export interface WorkspaceStore {
       onlySelfUserId: string | undefined,
       limit: number,
     ): Promise<readonly OverdueRow[]>;
+    /** Chỉ số kỳ này và kỳ trước, xu hướng, phân bố trạng thái / ưu tiên. */
+    analytics(
+      tenantId: string,
+      query: ReportAnalyticsQuery,
+    ): Promise<{
+      readonly kpis: ReportKpis;
+      readonly previous: Omit<ReportPreviousKpis, 'from' | 'to'>;
+      readonly trend: readonly ReportTrendBucket[];
+      readonly statusBreakdown: readonly ReportCount[];
+      readonly priorityBreakdown: readonly ReportCount[];
+    }>;
+    /** Hiệu suất theo người phụ trách; `userId` có giá trị thì chỉ dòng của người đó. */
+    performance(tenantId: string, query: ReportAnalyticsQuery): Promise<readonly PerformanceRow[]>;
+    /** Gom theo nhóm dự án và theo nhãn dự án. */
+    groups(
+      tenantId: string,
+      query: ReportAnalyticsQuery,
+    ): Promise<{ readonly byGroup: readonly ReportGroupRow[]; readonly byTag: readonly ReportGroupRow[] }>;
+    items(tenantId: string, query: ReportItemsQuery): Promise<ReportItemList>;
   };
 
   /**

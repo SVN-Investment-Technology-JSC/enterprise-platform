@@ -1418,9 +1418,148 @@ export interface ReportScope {
   readonly canSeeFinance: boolean;
 }
 
+/**
+ * Chỉ số chính của kỳ báo cáo, trong phạm vi và bộ lọc đang chọn.
+ *
+ * "Hoàn thành trong kỳ" tính theo ngày đóng thực tế (`actualEnd`) rơi vào kỳ; đúng hạn là xong không muộn hơn
+ * `plannedEnd` (việc không đặt hạn tính là đúng hạn). `openItems` và `overdueItems` là ảnh chụp tại hôm nay, không
+ * phụ thuộc kỳ.
+ */
+export interface ReportKpis {
+  readonly createdItems: number;
+  readonly completedItems: number;
+  readonly completedOnTime: number;
+  readonly completedLate: number;
+  readonly openItems: number;
+  readonly overdueItems: number;
+  /** Tổng giờ ước lượng của việc hoàn thành trong kỳ. */
+  readonly completedHours: number;
+}
+
+/** Cùng các chỉ số ấy ở kỳ liền trước, dài bằng kỳ đang xem, để so tăng / giảm. */
+export interface ReportPreviousKpis {
+  readonly createdItems: number;
+  readonly completedItems: number;
+  readonly completedOnTime: number;
+  readonly completedLate: number;
+  readonly from: string;
+  readonly to: string;
+}
+
+/** Độ mịn của biểu đồ xu hướng: theo ngày khi kỳ ngắn, theo tuần / tháng khi kỳ dài. */
+export type ReportGranularity = 'day' | 'week' | 'month';
+
+/** Một cột của biểu đồ xu hướng. */
+export interface ReportTrendBucket {
+  /** Ngày đầu của cột, `YYYY-MM-DD` theo múi giờ tenant. */
+  readonly start: string;
+  readonly created: number;
+  readonly completed: number;
+  /** Việc có hạn rơi vào cột mà không xong đúng hạn (đã trễ, hoặc xong muộn). */
+  readonly missedDeadline: number;
+}
+
+export interface ReportTrend {
+  readonly granularity: ReportGranularity;
+  readonly buckets: readonly ReportTrendBucket[];
+}
+
+/** Số việc theo một khoá (trạng thái, độ ưu tiên). */
+export interface ReportCount {
+  readonly key: string;
+  readonly count: number;
+}
+
+/** Hiệu suất của một người phụ trách trong kỳ. */
+export interface PerformanceRow {
+  readonly userId: string;
+  readonly completedItems: number;
+  readonly completedOnTime: number;
+  readonly completedLate: number;
+  /** Số ngày trễ trung bình của các việc xong muộn; 0 khi không có. */
+  readonly averageDaysLate: number;
+  readonly completedHours: number;
+  readonly openItems: number;
+  readonly overdueItems: number;
+}
+
+/** Một dòng gom theo nhóm dự án hoặc theo nhãn dự án. */
+export interface ReportGroupRow {
+  /** Tên nhóm, hoặc id nhãn. Rỗng là "Chưa phân nhóm". */
+  readonly key: string;
+  readonly label: string;
+  readonly color?: string;
+  readonly projectCount: number;
+  readonly totalItems: number;
+  readonly closedItems: number;
+  readonly openItems: number;
+  readonly overdueItems: number;
+  readonly completedInPeriod: number;
+  /** Trung bình tiến độ các dự án trong nhóm. */
+  readonly progressPercent: number;
+}
+
+/**
+ * Bộ lọc báo cáo, ngoài kỳ và dự án. Nhóm và nhãn **thu hẹp** danh sách dự án trong phạm vi; người là người phụ
+ * trách hoặc cùng làm. Mức `self` luôn bị kẹp về chính người gọi, bộ lọc người không mở rộng được.
+ */
+export interface ReportFilters {
+  readonly projectIds?: readonly string[];
+  readonly groups?: readonly string[];
+  readonly tagIds?: readonly string[];
+  readonly userId?: string;
+}
+
+/** Giá trị lọc nhóm cho dự án chưa thuộc nhóm nào (dòng có `key` rỗng của `byGroup`). */
+export const REPORT_NO_GROUP = '__none__';
+
+/** Loại danh sách mở ra khi bấm một con số trên báo cáo. */
+export const REPORT_ITEM_KINDS = [
+  'all',
+  'open',
+  'overdue',
+  'dueThisWeek',
+  'created',
+  'completed',
+  'completedOnTime',
+  'completedLate',
+  'missedDeadline',
+] as const;
+export type ReportItemKind = (typeof REPORT_ITEM_KINDS)[number];
+
+/** Một việc trong danh sách chi tiết. */
+export interface ReportItemRow {
+  readonly workItemId: string;
+  readonly projectId: string;
+  readonly projectCode: string;
+  readonly code: string;
+  readonly title: string;
+  readonly assigneeUserId?: string;
+  readonly status: WorkItemStatus;
+  readonly priority: WorkItemPriority;
+  readonly plannedEnd?: string;
+  readonly actualEnd?: string;
+}
+
+export interface ReportItemList {
+  readonly items: readonly ReportItemRow[];
+  /** Danh sách bị cắt ở trần số dòng. */
+  readonly truncated: boolean;
+}
+
 export interface ReportBundle {
   readonly scope: ReportScope;
   readonly mine: MyReportBlock;
+  readonly kpis: ReportKpis;
+  readonly previous: ReportPreviousKpis;
+  readonly trend: ReportTrend;
+  readonly statusBreakdown: readonly ReportCount[];
+  readonly priorityBreakdown: readonly ReportCount[];
+  readonly performance: readonly PerformanceRow[];
+  readonly byGroup: readonly ReportGroupRow[];
+  readonly byTag: readonly ReportGroupRow[];
+  /** Bộ lọc người đang áp (đã kẹp theo phạm vi). */
+  readonly userId?: string;
   readonly projectProgress: readonly ProjectProgressRow[];
   readonly workload: readonly WorkloadRow[];
   readonly overdue: readonly OverdueRow[];

@@ -622,7 +622,7 @@ export function WorkspaceScreen() {
           )}
         </>
       ) : view === 'reports' && !provisioning ? (
-        <ReportsView />
+        <ReportsView onOpenItem={(projectId, workItemId) => openInProject(projectId, `work-item/${workItemId}`)} />
       ) : view === 'settings' && !provisioning ? (
         <ModuleSettingsView
           sections={SETTINGS_SECTIONS}

@@ -5573,3 +5573,335 @@
   gap: 8px;
   font-size: 12.5px;
 }
+
+/* ------------------------------------------------------------ Báo cáo (dashboard) */
+
+.reportPeriod {
+  display: inline-flex;
+  overflow: hidden;
+  border: 1px solid var(--ep-border);
+  border-radius: var(--ep-radius);
+
+  button {
+    padding: 6px 12px;
+    border: 0;
+    border-right: 1px solid var(--ep-border);
+    background: var(--ep-surface);
+    color: var(--ep-text);
+    font-size: 13px;
+    cursor: pointer;
+
+    &:last-child {
+      border-right: 0;
+    }
+
+    &:hover {
+      background: var(--ep-hover);
+    }
+  }
+}
+
+.reportPeriod button.reportPeriodActive {
+  background: #2563eb;
+  color: #fff;
+  font-weight: 600;
+}
+
+.reportBarSpacer {
+  flex: 1;
+}
+
+.reportFilters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px;
+}
+
+.kpiGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 12px;
+}
+
+.kpiCard {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--ep-border);
+  border-radius: var(--ep-radius-lg);
+  background: var(--ep-surface);
+  color: var(--ep-text);
+  font: inherit;
+  text-align: left;
+}
+
+button.kpiCard {
+  cursor: pointer;
+
+  &:hover {
+    border-color: #93c5fd;
+    box-shadow: 0 1px 4px rgb(37 99 235 / 12%);
+  }
+}
+
+.kpiCardDanger {
+  border-color: #fecaca;
+  background: #fef2f2;
+}
+
+.kpiDeltaGood,
+.kpiDeltaBad,
+.kpiDeltaFlat {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.kpiDeltaGood {
+  color: #047857;
+}
+
+.kpiDeltaBad {
+  color: #b91c1c;
+}
+
+.kpiDeltaFlat {
+  color: var(--ep-text-sub);
+}
+
+.kpiHint {
+  color: var(--ep-text-sub);
+  font-size: 12px;
+}
+
+.reportGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr);
+  gap: 14px;
+}
+
+.reportGridEven {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+  gap: 14px;
+}
+
+@media (width <= 960px) {
+  .reportGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.reportNote {
+  margin-left: auto;
+  color: var(--ep-text-sub);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.reportSubhead {
+  margin: 14px 0 6px;
+  font-size: 13px;
+}
+
+.reportSwatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 6px;
+  border-radius: 3px;
+  vertical-align: middle;
+}
+
+.reportNumber,
+.reportNumberDanger {
+  padding: 0 2px;
+  border: 0;
+  background: transparent;
+  color: var(--ep-link);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  cursor: pointer;
+
+  &:hover {
+    text-decoration: underline;
+  }
+}
+
+.reportNumberDanger {
+  color: #b91c1c;
+}
+
+.reportExportList {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 8px 16px;
+  margin-top: 10px;
+}
+
+.reportChart {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.reportLegend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  color: var(--ep-text-sub);
+  font-size: 12px;
+
+  i {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    margin-right: 4px;
+    border-radius: 2px;
+    vertical-align: middle;
+  }
+}
+
+.reportTrend {
+  position: relative;
+  height: 180px;
+  padding-left: 28px;
+  border-bottom: 1px solid var(--ep-border);
+
+  svg {
+    width: 100%;
+    height: 100%;
+  }
+}
+
+.reportAxisMax {
+  position: absolute;
+  top: -2px;
+  left: 0;
+  color: var(--ep-text-sub);
+  font-size: 11px;
+}
+
+.reportAxis {
+  display: flex;
+  padding-left: 28px;
+  color: var(--ep-text-sub);
+  font-size: 11px;
+
+  span {
+    overflow: hidden;
+    text-align: center;
+    white-space: nowrap;
+  }
+}
+
+.reportBarClickable {
+  cursor: pointer;
+
+  &:hover {
+    opacity: 0.75;
+  }
+}
+
+.reportDonut {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+
+  svg {
+    width: 132px;
+    height: 132px;
+    flex: none;
+  }
+}
+
+.reportDonutValue {
+  fill: var(--ep-text);
+  font-size: 8px;
+  font-weight: 700;
+}
+
+.reportDonutLabel {
+  fill: var(--ep-text-sub);
+  font-size: 3.5px;
+}
+
+.reportLegendList,
+.reportBarList {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 160px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+
+  button {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 4px 6px;
+    border: 0;
+    border-radius: var(--ep-radius-sm);
+    background: transparent;
+    color: var(--ep-text);
+    font: inherit;
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+
+    &:hover:not(:disabled) {
+      background: var(--ep-hover);
+    }
+
+    &:disabled {
+      cursor: default;
+    }
+  }
+
+  i {
+    width: 10px;
+    height: 10px;
+    flex: none;
+    border-radius: 2px;
+  }
+
+  span:first-of-type {
+    flex: 1;
+  }
+
+  strong {
+    font-variant-numeric: tabular-nums;
+  }
+
+  em {
+    width: 40px;
+    color: var(--ep-text-sub);
+    font-size: 12px;
+    font-style: normal;
+    text-align: right;
+  }
+}
+
+.reportBarList button > span:first-of-type {
+  flex: 0 0 90px;
+}
+
+.reportBarTrack {
+  flex: 1;
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #f1f5f9;
+
+  span {
+    display: block;
+    height: 100%;
+    border-radius: 999px;
+  }
+}
