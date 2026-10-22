@@ -28,8 +28,8 @@ export interface SocialSession {
   readonly topics: readonly SocialTopic[];
   /** Mở hộp thoại soạn bài; truyền bài để sửa, hoặc `groupId` để chọn sẵn nhóm làm nơi đăng. */
   readonly openComposer: (post?: SocialPost, options?: SocialComposerOptions) => void;
-  /** Hiện thông báo lỗi/nhắc nhẹ trên đầu màn hình. */
-  readonly notify: (message: string) => void;
+  /** Hiện toast thông báo; mặc định là thành công, `'error'` cho lỗi. */
+  readonly notify: (message: string, tone?: 'success' | 'error') => void;
   /** Lọc theo chuyên mục (chuyển sang `/feed/<id>`). */
   readonly openTopic: (topicId: string) => void;
   readonly saved?: SocialSavedPost;

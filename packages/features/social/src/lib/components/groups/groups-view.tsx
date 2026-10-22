@@ -3,6 +3,7 @@
 import { SOCIAL_GROUP_PAGE_SIZE, type SocialGroupSummary } from '@enterprise-platform/contracts-social';
 import { Check, Clock, Link2, LogOut, Pin, Plus, Search, Star, Users } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { toast } from '@enterprise-platform/shared-ui';
 import { errorMessage } from '../../social-api';
 import { useSocialSession } from '../../social-context';
 import { navigateSocial, SocialLink } from '../../social-navigation';
@@ -116,7 +117,6 @@ export function GroupsView() {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string>();
-  const [notice, setNotice] = useState<string>();
   const [joiningId, setJoiningId] = useState<string>();
   const [creating, setCreating] = useState(false);
   const [leaving, setLeaving] = useState<SocialGroupSummary>();
@@ -173,43 +173,40 @@ export function GroupsView() {
 
   const join = async (group: SocialGroupSummary) => {
     setJoiningId(group.id);
-    setNotice(undefined);
     setError(undefined);
     try {
       const response = await joinGroup(group.id);
-      setNotice(
+      toast.success(
         response.result === 'joined'
           ? `Bạn đã tham gia nhóm "${group.name}".`
           : `Đã gửi yêu cầu tham gia nhóm "${group.name}". Quản trị viên sẽ xem và duyệt.`,
       );
       setGroups((current) => current.map((item) => (item.id === group.id ? { ...item, ...response.group } : item)));
     } catch (cause) {
-      setError(errorMessage(cause, 'Không tham gia được nhóm.'));
+      toast.error(errorMessage(cause, 'Không tham gia được nhóm.'));
     } finally {
       setJoiningId(undefined);
     }
   };
 
   const priority = async (group: SocialGroupSummary) => {
-    setNotice(undefined);
     setError(undefined);
     try {
       const state = await setGroupPriority(group.id, !group.myPriorityAt);
-      setNotice(state.pinned ? `Đã đưa "${group.name}" lên trên.` : `Đã bỏ ưu tiên "${group.name}".`);
+      toast.success(state.pinned ? `Đã đưa "${group.name}" lên trên.` : `Đã bỏ ưu tiên "${group.name}".`);
       await load();
     } catch (cause) {
-      setError(errorMessage(cause, 'Không đổi được ưu tiên của nhóm.'));
+      toast.error(errorMessage(cause, 'Không đổi được ưu tiên của nhóm.'));
     }
   };
 
   const copy = async (group: SocialGroupSummary) => {
-    setNotice(undefined);
     setError(undefined);
     try {
       await navigator.clipboard.writeText(`${window.location.origin}${socialHref(groupRoute(group))}`);
-      setNotice('Đã sao chép liên kết nhóm.');
+      toast.success('Đã sao chép liên kết nhóm.');
     } catch {
-      setError('Không sao chép được liên kết.');
+      toast.error('Không sao chép được liên kết.');
     }
   };
 
@@ -220,9 +217,8 @@ export function GroupsView() {
     try {
       await leaveGroup(leaving.id);
       setGroups((current) => current.filter((item) => item.id !== leaving.id));
-      setNotice(`Bạn đã rời nhóm "${leaving.name}".`);
       setLeaving(undefined);
-      session?.notify(`Bạn đã rời nhóm "${leaving.name}".`);
+      toast.success(`Bạn đã rời nhóm "${leaving.name}".`);
     } catch (cause) {
       setLeaveError(errorMessage(cause, 'Không rời được nhóm.'));
     } finally {
@@ -266,11 +262,6 @@ export function GroupsView() {
         </label>
       ) : null}
 
-      {notice ? (
-        <p className={s.notice} role="status">
-          {notice}
-        </p>
-      ) : null}
       {error ? (
         <p role="alert" className={base.alert}>
           <span>{error}</span>

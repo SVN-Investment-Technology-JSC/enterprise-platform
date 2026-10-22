@@ -137,21 +137,11 @@
   }
 }
 
-.notice,
 .noticeMuted {
   margin: 0;
   padding: 7px 12px;
   border-radius: var(--ep-radius);
   font-size: 12.5px;
-}
-
-.notice {
-  border: 1px solid #a7f3d0;
-  background: #ecfdf5;
-  color: var(--ep-success);
-}
-
-.noticeMuted {
   border: 1px solid var(--ep-border);
   background: var(--ep-surface-soft);
   color: var(--ep-text-muted);

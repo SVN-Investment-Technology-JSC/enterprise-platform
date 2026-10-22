@@ -8,7 +8,7 @@ import {
   type SocialGroupRole,
   type SocialUserRef,
 } from '@enterprise-platform/contracts-social';
-import { SearchableSelect } from '@enterprise-platform/shared-ui';
+import { SearchableSelect, toast } from '@enterprise-platform/shared-ui';
 import { RefreshCw, Search, UserMinus, UserPlus } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { errorMessage } from '../../social-api';
@@ -168,7 +168,6 @@ export function GroupMembersPanel({
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string>();
-  const [notice, setNotice] = useState<string>();
   const [text, setText] = useState('');
   const [query, setQuery] = useState('');
   const [role, setRole] = useState('');
@@ -235,7 +234,6 @@ export function GroupMembersPanel({
     if (next === member.role) return;
     setChangingId(member.user.id);
     setError(undefined);
-    setNotice(undefined);
     try {
       await setGroupMemberRole(group.id, member.user.id, next);
       setMembers((current) =>
@@ -243,7 +241,7 @@ export function GroupMembersPanel({
       );
       onChanged();
     } catch (cause) {
-      setError(errorMessage(cause, 'Không đổi được vai trò.'));
+      toast.error(errorMessage(cause, 'Không đổi được vai trò.'));
     } finally {
       setChangingId(undefined);
     }
@@ -299,11 +297,6 @@ export function GroupMembersPanel({
         </div>
       </header>
 
-      {notice ? (
-        <p className={s.notice} role="status">
-          {notice}
-        </p>
-      ) : null}
       {error ? (
         <p role="alert" className={base.alert}>
           <span>{error}</span>
@@ -379,7 +372,7 @@ export function GroupMembersPanel({
         onClose={() => setAdding(false)}
         onAdded={(count) => {
           setAdding(false);
-          setNotice(count > 0 ? `Đã thêm ${count} thành viên.` : 'Những người này đã ở trong nhóm.');
+          toast.success(count > 0 ? `Đã thêm ${count} thành viên.` : 'Những người này đã ở trong nhóm.');
           void load();
           onChanged();
         }}
@@ -390,7 +383,7 @@ export function GroupMembersPanel({
         onClose={() => setSyncing(false)}
         onDone={(message) => {
           setSyncing(false);
-          setNotice(message);
+          toast.success(message);
           void load();
           onChanged();
         }}

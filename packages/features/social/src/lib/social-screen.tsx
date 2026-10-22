@@ -2,8 +2,8 @@
 
 import type { SocialInboxCounts, SocialMe, SocialPost, SocialTopic } from '@enterprise-platform/contracts-social';
 import { ModuleShell, type ModuleNavItem } from '@enterprise-platform/feature-module-shell';
-import { NotificationBell } from '@enterprise-platform/shared-ui';
-import { BarChart3, Image as ImageIcon, Megaphone, Newspaper, Pencil, X } from 'lucide-react';
+import { NotificationBell, toast } from '@enterprise-platform/shared-ui';
+import { BarChart3, Image as ImageIcon, Megaphone, Newspaper, Pencil } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BirthdayView } from './components/birthday/birthday-view';
 import { ComposerDialog } from './components/composer-dialog';
@@ -72,7 +72,10 @@ export function SocialScreen() {
   const [meError, setMeError] = useState<string>();
   const [topics, setTopics] = useState<readonly SocialTopic[]>([]);
   const [counts, setCounts] = useState<SocialInboxCounts>();
-  const [notice, setNotice] = useState<string>();
+  const notify = useCallback((message: string, tone: 'success' | 'error' = 'success') => {
+    if (tone === 'error') toast.error(message);
+    else toast.success(message);
+  }, []);
   const [info, setInfo] = useState<string>();
   const [composer, setComposer] = useState<ComposerState>();
   const [saved, setSaved] = useState<SocialSavedPost>();
@@ -178,7 +181,7 @@ export function SocialScreen() {
   };
 
   const session = useMemo<SocialSession | undefined>(
-    () => (me ? { me, topics, openComposer, notify: setNotice, openTopic, saved } : undefined),
+    () => (me ? { me, topics, openComposer, notify, openTopic, saved } : undefined),
     [me, topics, openComposer, openTopic, saved],
   );
 
@@ -269,7 +272,7 @@ export function SocialScreen() {
                       closeFocus();
                     }}
                     onOpenTopic={openTopic}
-                    onError={setNotice}
+                    onError={(message) => notify(message, 'error')}
                   />
                 ) : (
                   <div className={styles.skeleton} aria-busy="true" />
@@ -308,14 +311,9 @@ export function SocialScreen() {
       actions={<NotificationBell />}
       crumbs={currentTopic ? [currentTopic.name] : undefined}
       banner={
-        meError || notice ? (
+        meError ? (
           <p role="alert" className={styles.alert}>
-            <span>{meError ?? notice}</span>
-            {notice && !meError ? (
-              <button type="button" className={styles.iconButton} aria-label="Đóng thông báo" onClick={() => setNotice(undefined)}>
-                <X size={14} />
-              </button>
-            ) : null}
+            <span>{meError}</span>
           </p>
         ) : undefined
       }

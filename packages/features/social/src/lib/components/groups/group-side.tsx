@@ -63,7 +63,7 @@ function OtherGroups({ currentId }: { readonly currentId: string }) {
       setItems((current) => current?.filter((item) => item.id !== group.id));
       session?.notify(`Bạn đã tham gia nhóm "${group.name}".`);
     } catch (cause) {
-      session?.notify(errorMessage(cause, 'Không tham gia được nhóm.'));
+      session?.notify(errorMessage(cause, 'Không tham gia được nhóm.'), 'error');
     } finally {
       setBusyId(undefined);
     }

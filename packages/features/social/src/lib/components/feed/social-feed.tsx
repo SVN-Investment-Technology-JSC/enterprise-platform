@@ -222,7 +222,7 @@ export function SocialFeed({ scope = {}, emptyText, excludePostId }: SocialFeedP
           onEdit={(target) => session?.openComposer(target)}
           onDeleted={(id) => setPosts((list) => list.filter((item) => item.id !== id))}
           onOpenTopic={(topicId) => session?.openTopic(topicId)}
-          onError={(message) => (notify ? notify(message) : setOwnNotice(message))}
+          onError={(message) => (notify ? notify(message, 'error') : setOwnNotice(message))}
         />
       ))}
       <div ref={sentinel} className={styles.sentinel} />

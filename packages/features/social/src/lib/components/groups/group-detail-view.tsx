@@ -7,6 +7,7 @@ import {
 } from '@enterprise-platform/contracts-social';
 import { ArrowLeft, Flag, Link2, ListChecks, LogOut, Pencil, Star, Tag, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { toast } from '@enterprise-platform/shared-ui';
 import { errorMessage } from '../../social-api';
 import { navigateSocial, SocialLink, useSocialRoute } from '../../social-navigation';
 import { useSocialGroupRoom } from '../../social-realtime';
@@ -46,8 +47,6 @@ export function GroupDetailView({ groupId }: { readonly groupId: string }) {
   const [topicId, setTopicId] = useState<string>();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>();
-  const [actionError, setActionError] = useState<string>();
-  const [notice, setNotice] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [dialogError, setDialogError] = useState<string>();
   const [editing, setEditing] = useState(false);
@@ -95,8 +94,6 @@ export function GroupDetailView({ groupId }: { readonly groupId: string }) {
     setGroup(undefined);
     setTopics([]);
     setTopicId(undefined);
-    setNotice(undefined);
-    setActionError(undefined);
     void load();
   }, [load]);
 
@@ -121,14 +118,13 @@ export function GroupDetailView({ groupId }: { readonly groupId: string }) {
   const join = async (message?: string) => {
     if (!group) return;
     setBusy(true);
-    setActionError(undefined);
     setDialogError(undefined);
     try {
       const response = await joinGroup(group.id, message ? { message } : {});
       apply(response.group);
       setRequesting(false);
       setRequestMessage('');
-      setNotice(
+      toast.success(
         response.result === 'joined'
           ? 'Bạn đã tham gia nhóm.'
           : 'Đã gửi yêu cầu tham gia. Quản trị viên sẽ xem và duyệt.',
@@ -136,7 +132,7 @@ export function GroupDetailView({ groupId }: { readonly groupId: string }) {
     } catch (cause) {
       const text = errorMessage(cause, 'Không gửi được yêu cầu tham gia.');
       if (requesting) setDialogError(text);
-      else setActionError(text);
+      else toast.error(text);
     } finally {
       setBusy(false);
     }
@@ -145,13 +141,12 @@ export function GroupDetailView({ groupId }: { readonly groupId: string }) {
   const cancelRequest = async () => {
     if (!group) return;
     setBusy(true);
-    setActionError(undefined);
     try {
       await cancelJoinRequest(group.id);
-      setNotice('Đã huỷ yêu cầu tham gia.');
+      toast.success('Đã huỷ yêu cầu tham gia.');
       await load(true);
     } catch (cause) {
-      setActionError(errorMessage(cause, 'Không huỷ được yêu cầu.'));
+      toast.error(errorMessage(cause, 'Không huỷ được yêu cầu.'));
     } finally {
       setBusy(false);
     }
@@ -164,7 +159,7 @@ export function GroupDetailView({ groupId }: { readonly groupId: string }) {
     try {
       await leaveGroup(group.id);
       setLeaving(false);
-      setNotice('Bạn đã rời nhóm.');
+      toast.success('Bạn đã rời nhóm.');
       await load(true);
       setMembersKey((key) => key + 1);
     } catch (cause) {
@@ -189,25 +184,23 @@ export function GroupDetailView({ groupId }: { readonly groupId: string }) {
 
   const togglePriority = async () => {
     if (!group) return;
-    setActionError(undefined);
     try {
       const state = await setGroupPriority(group.id, !group.myPriorityAt);
       setGroup((current) => (current ? { ...current, myPriorityAt: state.pinned ? (state.pinnedAt ?? new Date().toISOString()) : undefined } : current));
-      setNotice(state.pinned ? 'Đã đưa nhóm lên trên danh sách của bạn.' : 'Đã bỏ ưu tiên nhóm.');
+      toast.success(state.pinned ? 'Đã đưa nhóm lên trên danh sách của bạn.' : 'Đã bỏ ưu tiên nhóm.');
     } catch (cause) {
-      setActionError(errorMessage(cause, 'Không đổi được ưu tiên của nhóm.'));
+      toast.error(errorMessage(cause, 'Không đổi được ưu tiên của nhóm.'));
     }
   };
 
   const copyLink = async () => {
     if (!group) return;
-    setActionError(undefined);
     try {
       const url = `${window.location.origin}${socialHref({ name: 'group', groupId: group.id })}`;
       await navigator.clipboard.writeText(url);
-      setNotice('Đã sao chép liên kết nhóm.');
+      toast.success('Đã sao chép liên kết nhóm.');
     } catch {
-      setActionError('Không sao chép được liên kết. Hãy sao chép từ thanh địa chỉ.');
+      toast.error('Không sao chép được liên kết. Hãy sao chép từ thanh địa chỉ.');
     }
   };
 
@@ -354,14 +347,9 @@ export function GroupDetailView({ groupId }: { readonly groupId: string }) {
         onInfo={() => setInfo(true)}
       />
 
-      {notice ? (
-        <p className={s.notice} role="status">
-          {notice}
-        </p>
-      ) : null}
-      {actionError || error ? (
+      {error ? (
         <p role="alert" className={base.alert}>
-          <span>{actionError ?? error}</span>
+          <span>{error}</span>
         </p>
       ) : null}
 
@@ -420,7 +408,7 @@ export function GroupDetailView({ groupId }: { readonly groupId: string }) {
         onSaved={(next) => {
           setEditing(false);
           apply(next);
-          setNotice('Đã cập nhật nhóm.');
+          toast.success('Đã cập nhật nhóm.');
         }}
       />
 
@@ -433,7 +421,7 @@ export function GroupDetailView({ groupId }: { readonly groupId: string }) {
         onClose={() => setAdding(false)}
         onAdded={(count) => {
           setAdding(false);
-          setNotice(count > 0 ? `Đã thêm ${count} thành viên.` : 'Những người này đã ở trong nhóm.');
+          toast.success(count > 0 ? `Đã thêm ${count} thành viên.` : 'Những người này đã ở trong nhóm.');
           refresh();
         }}
       />
@@ -455,7 +443,7 @@ export function GroupDetailView({ groupId }: { readonly groupId: string }) {
         onClose={() => setReporting(false)}
         onDone={() => {
           setReporting(false);
-          setNotice('Đã gửi báo cáo tới quản trị nhóm.');
+          toast.success('Đã gửi báo cáo tới quản trị nhóm.');
         }}
       />
 
