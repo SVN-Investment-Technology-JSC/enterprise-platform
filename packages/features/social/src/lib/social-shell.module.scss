@@ -45,52 +45,14 @@
   }
 }
 
-.pills {
+/* Khung của thanh thẻ GooeyNav: để tràn hiển thị, vì lớp vẽ keo và hạt lớn hơn khung. */
+.gooeyWrap {
   display: flex;
   flex: 1;
-  gap: 4px;
   min-width: 0;
-  overflow-x: auto;
-  scrollbar-width: none;
-
-  &::-webkit-scrollbar {
-    display: none;
-  }
 
   @media (width <= 760px) {
     flex-basis: 100%;
-  }
-}
-
-.pill {
-  display: inline-flex;
-  flex-shrink: 0;
-  align-items: center;
-  gap: 6px;
-  height: 32px;
-  padding: 0 12px;
-  border: 1px solid var(--ep-border-strong);
-  border-radius: 999px;
-  background: var(--ep-surface);
-  color: var(--ep-text-sub);
-  font-size: 13px;
-  font-weight: 600;
-  text-decoration: none;
-  white-space: nowrap;
-
-  &:hover {
-    background: var(--ep-hover);
-    color: var(--ep-text);
-  }
-
-  &:focus-visible {
-    @include focus-ring;
-  }
-
-  &[aria-current='page'] {
-    border-color: var(--ep-accent-strong);
-    background: var(--ep-accent-soft);
-    color: var(--ep-text);
   }
 }
 
