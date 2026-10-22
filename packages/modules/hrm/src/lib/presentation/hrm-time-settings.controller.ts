@@ -11,10 +11,8 @@ import {
   Post,
   Query,
   Req,
-  Res,
 } from '@nestjs/common';
-import type { Request, Response } from 'express';
-import { randomBytes } from 'node:crypto';
+import type { Request } from 'express';
 import { validIpRule } from '../infrastructure/hrm-network.js';
 import {
   assertLifecycleVersion,
@@ -30,14 +28,7 @@ import {
 import { HOLIDAY_TEMPLATE_LABEL } from '../domain/holiday-templates.js';
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
 import { hrmTransaction } from '../infrastructure/hrm-transaction.js';
-import {
-  deviceTokenHash,
-  requestDeviceToken,
-} from '../infrastructure/hrm-attendance-ingest.js';
-import {
-  assertOpenDate,
-  lockEmployee,
-} from '../infrastructure/hrm-time.js';
+import { assertOpenDate } from '../infrastructure/hrm-time.js';
 import {
   requireDate,
   requireText,
@@ -50,24 +41,18 @@ export class HrmTimeSettingsController {
 
   @Get()
   async get(@Req() req: Request) {
-    const context = await this.ctx.getContext(req, 'hrm.read');
+    await this.ctx.getContext(req, 'hrm.read');
     const { pool, tenantId } = await this.ctx.getContext(
       req,
-      this.ctx.has(context, 'hrm.time.configure')
-        ? 'hrm.time.configure'
-        : 'hrm.device.manage',
+      'hrm.time.configure',
     );
-    const [calendar, sites, devices, versions] = await Promise.all([
+    const [calendar, sites, versions] = await Promise.all([
       pool.query(
         `SELECT * FROM hrm_schema.work_calendar WHERE tenant_id=$1 ORDER BY work_date DESC LIMIT 730`,
         [tenantId],
       ),
       pool.query(
         `SELECT * FROM hrm_schema.attendance_sites WHERE tenant_id=$1 ORDER BY name`,
-        [tenantId],
-      ),
-      pool.query(
-        `SELECT d.id,d.employee_id,e.full_name,d.name,d.status,d.created_at FROM hrm_schema.attendance_devices d JOIN hrm_schema.employee_directory e ON e.tenant_id=d.tenant_id AND e.employee_id=d.employee_id WHERE d.tenant_id=$1 ORDER BY d.created_at DESC`,
         [tenantId],
       ),
       pool.query(
@@ -102,7 +87,6 @@ export class HrmTimeSettingsController {
           work_date: isoDate(row.work_date),
         })),
         sites: sites.rows,
-        devices: devices.rows,
         versions: versions.rows.map((row) => ({
           ...row,
           effective_from: isoDate(row.effective_from),
@@ -126,8 +110,6 @@ export class HrmTimeSettingsController {
       allowedIps: string[];
       requireGps: boolean;
       maxGpsAccuracyMeters: number;
-      requireDevice: boolean;
-      weeklyOffDays?: number[];
     },
   ) {
     const { pool, tenantId, principal } = await this.ctx.getContext(
@@ -160,17 +142,7 @@ export class HrmTimeSettingsController {
       body.maxGpsAccuracyMeters > 1000
     )
       throw new BadRequestException('Dung sai GPS phải từ 1 đến 1000 m');
-    if (
-      body.weeklyOffDays !== undefined &&
-      (!Array.isArray(body.weeklyOffDays) ||
-        body.weeklyOffDays.some(
-          (d) => !Number.isInteger(d) || d < 0 || d > 6,
-        ))
-    )
-      throw new BadRequestException(
-        'Ngày nghỉ hằng tuần không hợp lệ (0 = Chủ nhật ... 6 = Thứ 7)',
-      );
-    for (const flag of [body.requireIp, body.requireGps, body.requireDevice])
+    for (const flag of [body.requireIp, body.requireGps])
       if (typeof flag !== 'boolean')
         throw new BadRequestException('Thiếu điều kiện kiểm soát chấm công');
     return hrmTransaction(pool, async (db) => {
@@ -189,10 +161,6 @@ export class HrmTimeSettingsController {
           allowedIps: body.allowedIps,
           requireGps: body.requireGps,
           maxGpsAccuracyMeters: body.maxGpsAccuracyMeters,
-          requireDevice: body.requireDevice,
-          ...(body.weeklyOffDays !== undefined
-            ? { weeklyOffDays: [...new Set(body.weeklyOffDays)].sort() }
-            : {}),
         },
       });
       const row = result.version;
@@ -566,105 +534,6 @@ export class HrmTimeSettingsController {
         { before: row, after: result.rows[0], reason: body.reason },
       );
       return { data: result.rows[0] };
-    });
-  }
-
-  @Post('devices/register')
-  async register(
-    @Req() req: Request,
-    @Res({ passthrough: true }) res: Response,
-    @Body() body: { name: string },
-  ) {
-    const { pool, tenantId, principal } = await this.ctx.getContext(
-      req,
-      'hrm.self.attendance',
-    );
-    const { employeeId } = await this.ctx.resolveEmployee(
-      pool,
-      tenantId,
-      principal.userId,
-    );
-    requireText(body.name, 'name', 180);
-    const token = requestDeviceToken(req) || randomBytes(32).toString('hex');
-    const result = await hrmTransaction(pool, async (db) => {
-      await lockEmployee(db, tenantId, employeeId);
-      const prior = await db.query(
-        `SELECT id,status FROM hrm_schema.attendance_devices WHERE tenant_id=$1 AND employee_id=$2 AND token_hash=$3 AND status<>'REVOKED'`,
-        [tenantId, employeeId, deviceTokenHash(token)],
-      );
-      if (prior.rows[0]) return prior.rows[0];
-      const inserted = await db.query(
-        `INSERT INTO hrm_schema.attendance_devices (tenant_id,employee_id,token_hash,name) VALUES ($1,$2,$3,$4) RETURNING id,status`,
-        [tenantId, employeeId, deviceTokenHash(token), body.name],
-      );
-      return inserted.rows[0];
-    });
-    res.cookie('ep_hrm_device', token, {
-      httpOnly: true,
-      sameSite: 'strict',
-      secure: process.env.NODE_ENV === 'production',
-      path: '/api/hrm',
-      maxAge: 365 * 86400000,
-    });
-    return { data: result };
-  }
-
-  @Post('devices/:id/:action')
-  async deviceAction(
-    @Req() req: Request,
-    @Param('id') id: string,
-    @Param('action') action: string,
-  ) {
-    const { pool, tenantId, principal } = await this.ctx.getContext(
-      req,
-      'hrm.device.manage',
-    );
-    requireUuid(id, 'id');
-    if (!['approve', 'revoke'].includes(action))
-      throw new BadRequestException('Thao tác không hợp lệ');
-    return hrmTransaction(pool, async (db) => {
-      const device = await db.query(
-        `SELECT employee_id,status FROM hrm_schema.attendance_devices WHERE tenant_id=$1 AND id=$2`,
-        [tenantId, id],
-      );
-      if (!device.rows[0])
-        throw new NotFoundException('Không tìm thấy thiết bị');
-      await lockEmployee(db, tenantId, device.rows[0].employee_id);
-      const latest = await db.query(
-        `SELECT status FROM hrm_schema.attendance_devices WHERE tenant_id=$1 AND id=$2 FOR UPDATE`,
-        [tenantId, id],
-      );
-      if (action === 'approve') {
-        if (latest.rows[0].status === 'REVOKED')
-          throw new BadRequestException('Thiết bị đã thu hồi phải đăng ký lại');
-        await db.query(
-          `UPDATE hrm_schema.attendance_devices SET status='REVOKED' WHERE tenant_id=$1 AND employee_id=$2 AND status='ACTIVE' AND id<>$3`,
-          [tenantId, device.rows[0].employee_id, id],
-        );
-      }
-      await db.query(
-        `UPDATE hrm_schema.attendance_devices SET status=$3,approved_by=$4,approved_at=now() WHERE tenant_id=$1 AND id=$2`,
-        [
-          tenantId,
-          id,
-          action === 'approve' ? 'ACTIVE' : 'REVOKED',
-          principal.userId,
-        ],
-      );
-      await db.query(
-        `INSERT INTO hrm_schema.audit_log (tenant_id,actor_id,action,entity_type,entity_id,detail) VALUES ($1,$2,$3,'ATTENDANCE_DEVICE',$4,'{}')`,
-        [
-          tenantId,
-          principal.userId,
-          action === 'approve'
-            ? 'ATTENDANCE_DEVICE_APPROVED'
-            : 'ATTENDANCE_DEVICE_REVOKED',
-          id,
-        ],
-      );
-      return {
-        data: { id, status: action === 'approve' ? 'ACTIVE' : 'REVOKED' },
-      };
     });
   }
 }

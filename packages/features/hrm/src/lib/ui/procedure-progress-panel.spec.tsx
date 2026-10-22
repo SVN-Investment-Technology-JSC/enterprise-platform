@@ -36,6 +36,12 @@ describe('ProcedureProgressPanel', () => {
     expect(screen.getByText(/SLA: 8h/)).toBeTruthy();
   });
 
+  it('showWaitingLabel=false ẩn hộp "Đang chờ ... duyệt" nhưng vẫn hiện các bước', () => {
+    render(<ProcedureProgressPanel progress={data()} loading={false} showWaitingLabel={false} />);
+    expect(screen.queryByText(/Đang chờ .* duyệt/)).toBeNull();
+    expect(screen.getByText('PE-001')).toBeTruthy();
+  });
+
   it('báo đang khởi tạo và đồng bộ lỗi', () => {
     const { rerender } = render(
       <ProcedureProgressPanel

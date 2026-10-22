@@ -131,11 +131,6 @@ export const HRM_PERMISSION_ACTIONS = [
     label: 'Cấu hình công, IP, GPS, lịch nghỉ',
   },
   {
-    key: 'hrm.device.manage',
-    group: 'HRM · Ca và công',
-    label: 'Duyệt và thu hồi trình duyệt chấm công',
-  },
-  {
     key: 'hrm.leave.read',
     group: 'HRM · Phép và đơn',
     label: 'Xem quỹ phép và sổ phép toàn tenant',

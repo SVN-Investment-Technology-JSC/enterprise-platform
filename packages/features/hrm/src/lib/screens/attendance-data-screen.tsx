@@ -154,8 +154,6 @@ function EventsDrawer({
                       <dl className="mt-2 grid grid-cols-[110px_1fr] gap-x-3 gap-y-1">
                         <dt className="text-slate-500">Nguồn</dt>
                         <dd>{event.source || '—'}</dd>
-                        <dt className="text-slate-500">Thiết bị</dt>
-                        <dd className="break-all">{event.device_id || '—'}</dd>
                         <dt className="text-slate-500">Địa chỉ IP</dt>
                         <dd>{evidence.ip ?? '—'}</dd>
                         <dt className="text-slate-500">Địa điểm</dt>

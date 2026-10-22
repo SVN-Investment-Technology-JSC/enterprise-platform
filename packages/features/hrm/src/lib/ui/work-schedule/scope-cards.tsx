@@ -2,9 +2,10 @@
 
 import { Building2, User, Users, UsersRound } from 'lucide-react';
 import type { HrmOrgUnitOption } from '@enterprise-platform/contracts-hrm';
-import type { SearchableSelectOption } from '@enterprise-platform/shared-ui';
+import { SearchableSelect, type SearchableSelectOption } from '@enterprise-platform/shared-ui';
 import type { ScopeDraft } from '../../hrm-work-schedule-model';
 import { InfoNote, RadioCards, type RadioCardOption } from '../settings-kit';
+import { Field } from './common';
 import { ScopePicker } from './scope-picker';
 
 const SCOPE_CARDS: Record<ScopeDraft['type'], Omit<RadioCardOption<ScopeDraft['type']>, 'value'>> = {
@@ -93,6 +94,71 @@ export function ScopeCards({
         units={units}
         openEnded={openEnded}
         hideTypeSwitch={allowedTypes.length > 1}
+      />
+    </div>
+  );
+}
+
+/**
+ * Chọn đối tượng áp dụng bằng ô chọn: tuỳ đối tượng mà phần chọn thêm (nhân viên, đơn vị, loại trừ) xuất hiện bên dưới.
+ * Dùng cho biểu mẫu Phân ca trong trang.
+ */
+export function ScopeSelect({
+  value,
+  onChange,
+  allowedTypes,
+  employeeOptions,
+  employeesLoading,
+  employeesError,
+  units,
+  openEnded = false,
+  label = 'Đối tượng áp dụng',
+}: {
+  value: ScopeDraft;
+  onChange: (next: ScopeDraft) => void;
+  allowedTypes: ScopeDraft['type'][];
+  employeeOptions: readonly SearchableSelectOption[];
+  employeesLoading: boolean;
+  employeesError: string;
+  units: readonly HrmOrgUnitOption[];
+  openEnded?: boolean;
+  label?: string;
+}) {
+  const options: SearchableSelectOption[] = allowedTypes.map((type) => ({
+    value: type,
+    label: SCOPE_CARDS[type].title,
+  }));
+  const loaded = !employeesLoading && !employeesError && employeeOptions.length > 0;
+  const companyCount = employeeOptions.length - (openEnded ? 0 : value.excludeEmployeeIds.length);
+  return (
+    <div className="flex min-w-0 flex-col gap-3">
+      <Field label={label} required hint={SCOPE_CARDS[value.type].description}>
+        <SearchableSelect
+          height={36}
+          options={options}
+          value={value.type}
+          placeholder="Chọn đối tượng áp dụng…"
+          emptyText="Không có đối tượng phù hợp"
+          onChange={(type) => type && onChange({ ...value, type: type as ScopeDraft['type'] })}
+          clearable={false}
+          disabled={allowedTypes.length < 2}
+        />
+      </Field>
+      {value.type === 'COMPANY' && loaded ? (
+        <InfoNote tone="slate" icon={Users} role="status">
+          Áp dụng cho <strong className="text-slate-900">{Math.max(0, companyCount)}</strong> nhân viên đang làm việc
+        </InfoNote>
+      ) : null}
+      <ScopePicker
+        value={value}
+        onChange={onChange}
+        allowedTypes={allowedTypes}
+        employeeOptions={employeeOptions}
+        employeesLoading={employeesLoading}
+        employeesError={employeesError}
+        units={units}
+        openEnded={openEnded}
+        hideTypeSwitch
       />
     </div>
   );

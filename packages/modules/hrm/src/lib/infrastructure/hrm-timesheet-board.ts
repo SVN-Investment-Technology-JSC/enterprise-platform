@@ -24,7 +24,6 @@ import {
 import { applyScheduleDayKind } from '../domain/work-schedule.js';
 import {
   dayCapacityUnits,
-  dayWorkUnits,
   DEFAULT_MONTH_STANDARD,
   monthStandardSetting,
   monthStandardWorkdays,
@@ -302,7 +301,7 @@ export function computeBoardDay(input: BoardDayInput): HrmBoardDay {
   if (!input.employed) return emptyDay(date, 'NO_SCHEDULE', 'NO_SCHEDULE');
 
   const scheduledKind = applyScheduleDayKind(
-    effectiveDayKind(date, input.calendarKind, input.policyConfig),
+    effectiveDayKind(input.calendarKind),
     input.scheduleDayType,
   );
   // Chủ nhật chưa phân ca là ngày trống (cùng quy tắc với calculateTimesheet).
@@ -442,7 +441,7 @@ export function computeBoardDay(input: BoardDayInput): HrmBoardDay {
     scheduledMinutes: off ? 0 : scheduled,
     workedMinutes: calc.workedMinutes,
     paidMinutes: paid,
-    workdayUnits: dayWorkUnits(paid, scheduled),
+    workdayUnits: outcome.workdayUnits,
     lateMinutes: outcome.lateMinutes,
     earlyLeaveMinutes: outcome.earlyMinutes,
     otMinutes,
@@ -990,7 +989,7 @@ export async function loadBoard(
   // --- Lịch chung của công ty ---
   const calendar: HrmBoardCalendarDay[] = dates.map((date) => {
     const cal = calendarByDate.get(date);
-    const kind = effectiveDayKind(date, cal?.day_kind as string | undefined, policyConfigOf(undefined, date));
+    const kind = effectiveDayKind(cal?.day_kind as string | undefined);
     const normalized = kind === 'OFF' || kind === 'HOLIDAY' ? kind : 'WORK';
     return {
       date,

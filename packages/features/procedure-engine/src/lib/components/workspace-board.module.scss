@@ -972,6 +972,23 @@
 }
 
 /* Bước đang chạy: thẻ nổi bật, chứa luôn phần xử lý của người đang xem. */
+.timelineBodyClickable {
+  margin: -6px -8px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+
+  &:hover {
+    background: #f1f5f9;
+  }
+
+  &:focus-visible {
+    outline: 2px solid #2563eb;
+    outline-offset: 1px;
+  }
+}
+
 .timelineItemCurrent > .timelineBody {
   padding: 10px 14px 12px;
   border: 1px solid rgba(217, 171, 0, 0.45);

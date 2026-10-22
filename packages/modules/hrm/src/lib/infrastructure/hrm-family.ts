@@ -19,7 +19,6 @@ const columns: Record<string, string> = {
   dateOfBirth: 'date_of_birth',
   phone: 'phone',
   identityCardNumber: 'identity_card_number',
-  taxCode: 'tax_code',
   isDependent: 'is_dependent',
   dependentFrom: 'dependent_from',
   dependentTo: 'dependent_to',

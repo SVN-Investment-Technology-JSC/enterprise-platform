@@ -71,9 +71,11 @@ import {
 } from '../infrastructure/hrm-time.js';
 import {
   requireDate,
+  optionalText,
   requireText,
   requireUuid,
 } from '../infrastructure/hrm-validation.js';
+import { RequirePermission } from '../infrastructure/hrm-access.guard.js';
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
 import { HrmProcedureBridgeService } from '../infrastructure/hrm-procedure-bridge.service.js';
 
@@ -287,7 +289,7 @@ export class HrmRequestController {
       'ot',
       'reject',
     );
-    requireText(reason, 'Lý do từ chối', 2000);
+    const note = optionalText(reason, 'Lý do từ chối', 2000);
     const res = await hrmTransaction(pool, async (db) => {
       const result = await db.query(
         `UPDATE hrm_schema.ot_requests SET
@@ -298,7 +300,7 @@ export class HrmRequestController {
       if (result.rowCount)
         await db.query(
           `INSERT INTO hrm_schema.audit_log(tenant_id,actor_id,action,entity_type,entity_id,detail) VALUES($1,$2,'REQUEST_REJECT','OT',$3,$4)`,
-          [tenantId, principal.userId, id, JSON.stringify({ reason })],
+          [tenantId, principal.userId, id, JSON.stringify({ reason: note })],
         );
       return result;
     });
@@ -1022,7 +1024,7 @@ export class HrmRequestController {
       'shift_change',
       'reject',
     );
-    requireText(reason, 'Lý do từ chối', 2000);
+    const note = optionalText(reason, 'Lý do từ chối', 2000);
     const res = await hrmTransaction(pool, async (db) => {
       const result = await db.query(
         `UPDATE hrm_schema.shift_change_requests SET
@@ -1033,7 +1035,7 @@ export class HrmRequestController {
       if (result.rowCount)
         await db.query(
           `INSERT INTO hrm_schema.audit_log(tenant_id,actor_id,action,entity_type,entity_id,detail) VALUES($1,$2,'REQUEST_REJECT','SHIFT_CHANGE',$3,$4)`,
-          [tenantId, principal.userId, id, JSON.stringify({ reason })],
+          [tenantId, principal.userId, id, JSON.stringify({ reason: note })],
         );
       return result;
     });
@@ -1053,6 +1055,7 @@ export class HrmRequestController {
   // Dynamic Procedure Progress & Real-time Reverse Sync
   // --------------------------------------------------------------------------
 
+  @RequirePermission('hrm.read')
   @Post('requests/:kind/:id/actions')
   async procedureAction(
     @Req() req: Request,

@@ -39,8 +39,6 @@ const BASIS_OPTIONS: { value: HrmLeaveAccrualBasis; label: string }[] = [
   { value: 'CONTRACT_SIGN_DATE', label: 'Ngày ký HĐLĐ chính thức' },
 ];
 
-const REASON_MAX_LENGTH = 1000;
-
 interface TierRow {
   minYears: string;
   bonusDays: string;
@@ -55,8 +53,6 @@ export interface PolicyForm {
   tiers: TierRow[];
   /** Năm áp dụng (luôn từ 01/01) hoặc rỗng để hệ thống tự chọn. */
   effectiveYear: string;
-  /** Ghi chú thay đổi (nhật ký kiểm toán), khác với lý do nghỉ và mô tả đơn. */
-  reason: string;
 }
 
 /** Giá trị ban đầu của biểu mẫu: chính sách hiện hành, hoặc mặc định khi chưa cấu hình. */
@@ -76,7 +72,6 @@ function toForm(data: AnnualLeavePolicyResponse | null): PolicyForm {
         }))
       : [{ minYears: '5', bonusDays: '1' }],
     effectiveYear: '',
-    reason: '',
   };
 }
 
@@ -109,8 +104,6 @@ export function buildPolicyRequest(
     tiers.push({ minYears, bonusDays });
   }
   tiers.sort((a, b) => a.minYears - b.minYears);
-  const reason = form.reason.trim();
-  if (!reason) return { error: 'Cần nhập Ghi chú thay đổi' };
   const request: SaveAnnualLeavePolicyRequest = {
     ...(data.leaveType ? {} : { leaveTypeId: form.leaveTypeId }),
     accrualBasis: form.accrualBasis,
@@ -119,7 +112,6 @@ export function buildPolicyRequest(
     advanceAllowed: form.advanceAllowed,
     seniorityTiers: tiers,
     ...(form.effectiveYear ? { effectiveFrom: `${form.effectiveYear}-01-01` } : {}),
-    reason,
     ...(data.policy ? { expectedUpdatedAt: data.policy.updatedAt } : {}),
   };
   return { request };
@@ -657,13 +649,12 @@ export function AnnualLeavePolicyCard({
                   id={`${uid}-effect`}
                   icon={<FileText className="size-5" />}
                   tone="violet"
-                  title="Hiệu lực & ghi chú"
-                  description="Thiết lập thời gian áp dụng và ghi chú thay đổi chính sách."
+                  title="Hiệu lực"
+                  description="Thiết lập thời gian áp dụng chính sách."
                 />
-                <div className="grid grid-cols-1 gap-4 @2xl:grid-cols-5">
+                <div className="grid grid-cols-1 gap-4">
                   <LeaveField
                     label="Áp dụng từ năm"
-                    className="@2xl:col-span-2"
                     hint="Chính sách luôn có hiệu lực từ ngày 01/01. Để trống thì áp dụng từ 01/01 năm nay. Khi lưu, quỹ phép đã ghi sổ của năm áp dụng được tính lại theo chính sách mới."
                   >
                     <SearchableSelect
@@ -676,29 +667,6 @@ export function AnnualLeavePolicyCard({
                         patch({ effectiveYear: value ?? '' })
                       }
                     />
-                  </LeaveField>
-                  <LeaveField
-                    label="Ghi chú thay đổi"
-                    required
-                    htmlFor={`${uid}-reason`}
-                    className="@2xl:col-span-3"
-                    hint="Ghi rõ nội dung thay đổi để dễ theo dõi (lưu vào nhật ký kiểm toán)."
-                  >
-                    <Input
-                      id={`${uid}-reason`}
-                      maxLength={REASON_MAX_LENGTH}
-                      className="h-9 text-xs"
-                      placeholder="Ví dụ: Tăng phép năm lên 14 ngày theo quy chế mới"
-                      disabled={busy}
-                      value={form.reason}
-                      onChange={(e) => patch({ reason: e.target.value })}
-                    />
-                    <p
-                      data-testid="reason-counter"
-                      className="text-right text-[12px] text-slate-400"
-                    >
-                      {form.reason.length}/{REASON_MAX_LENGTH}
-                    </p>
                   </LeaveField>
                 </div>
               </section>

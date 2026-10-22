@@ -50,6 +50,23 @@ export async function procedureProgressSchemaReady(db: Db): Promise<boolean> {
   return schemaReady;
 }
 
+/**
+ * Đơn chạy quy trình nhiều bước đã được duyệt xong ít nhất một bước sau bước khởi tạo thì người gửi không được rút nữa.
+ * Bước đầu (người gửi) luôn tự qua khi tạo đơn nên không tính; quy trình một bước duyệt hoặc chưa ai duyệt vẫn rút được.
+ */
+export function hasApprovalProgressed(
+  progress: {
+    status?: string;
+    steps?: readonly { order: number; status: string }[];
+  } | null,
+): boolean {
+  if (!progress || progress.status !== 'running') return false;
+  const [, ...approvalSteps] = [...(progress.steps ?? [])].sort(
+    (a, b) => a.order - b.order,
+  );
+  return approvalSteps.some((step) => step.status === 'completed');
+}
+
 function clip(value: string | null | undefined, max: number): string | null {
   const text = value?.trim();
   return text ? text.slice(0, max) : null;

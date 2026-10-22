@@ -114,10 +114,9 @@ export async function leaveDays(
       day.date,
       body.employeeId,
     );
-    // Ngày nghỉ hằng tuần (chính sách chấm công) không bị trừ phép; work_calendar nếu có thì ưu tiên.
-    // Lịch phân ca tường minh của nhân viên (nghỉ / lễ / làm bù) thắng cả hai.
+    // Ngày nghỉ do lịch phân ca của nhân viên (nghỉ / lễ / làm bù) quyết định; work_calendar chỉ cho ngày lễ chung.
     const dayKind = applyScheduleDayKind(
-      effectiveDayKind(day.date, day.day_kind, policy?.config_json),
+      effectiveDayKind(day.day_kind),
       await scheduleDayTypeOf(db, tenant, body.employeeId, day.date),
     );
     if (dayKind === 'OFF' || dayKind === 'HOLIDAY') continue;

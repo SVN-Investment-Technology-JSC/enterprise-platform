@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { runDevelopment } from './dev.mjs';
+import { delimiter, join } from 'node:path';
+import { developmentEnv, runDevelopment } from './dev.mjs';
 
 const stack = ['run-many', '-t', 'dev', 'serve', '--projects=web,api,worker'];
 
@@ -35,4 +36,12 @@ test('keeps single-project commands focused on that project', () => {
   const calls = [];
   runDevelopment(['serve', 'worker'], (args) => { calls.push(args); return { status: 0 }; });
   assert.deepEqual(calls, [['serve', 'worker']]);
+});
+
+test('adds the pnpm module directory to NODE_PATH once, keeping existing entries', () => {
+  const first = developmentEnv({ NODE_PATH: 'x' }).NODE_PATH.split(delimiter);
+  assert.equal(first[0], 'x');
+  assert.ok(first[1].endsWith(join('.pnpm', 'node_modules')));
+  const again = developmentEnv({ NODE_PATH: first.join(delimiter) }).NODE_PATH.split(delimiter);
+  assert.deepEqual(again, first);
 });

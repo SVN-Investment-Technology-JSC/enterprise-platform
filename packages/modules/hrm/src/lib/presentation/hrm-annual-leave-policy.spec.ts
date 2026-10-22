@@ -361,7 +361,6 @@ const body = (extra: Row = {}) => ({
   startOffsetMonths: 2,
   advanceAllowed: true,
   seniorityTiers: [{ minYears: 5, bonusDays: 1 }],
-  reason: 'Áp dụng chính sách 2026',
   ...extra,
 });
 
@@ -453,7 +452,6 @@ describe('PUT /annual-leave-policy: kiểm tra đầu vào', () => {
     expect(calls).toEqual([]);
   };
   it('từ chối số liệu sai trước khi mở giao dịch', async () => {
-    await bad({ reason: '  ' });
     await bad({ accrualBasis: 'OTHER' });
     await bad({ annualDays: -1 });
     await bad({ annualDays: 400 });
@@ -533,7 +531,7 @@ describe('PUT /annual-leave-policy: lần đầu chọn lý do phép năm', () =
     expect(world.audits[0]).toMatchObject({
       action: 'ANNUAL_LEAVE_POLICY_SAVED',
       entity_id: SICK,
-      detail: { mode: 'create', designated: true, reason: 'Áp dụng chính sách 2026' },
+      detail: { mode: 'create', designated: true, reason: 'Cập nhật chính sách phép năm' },
     });
   });
 

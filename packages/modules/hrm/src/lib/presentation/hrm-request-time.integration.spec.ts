@@ -667,7 +667,7 @@ integration('Đơn từ theo từ ngày giờ đến ngày giờ và loại đơ
       );
     });
 
-    it('duyệt trực tiếp: người nộp không tự duyệt được; người có quyền duyệt được, từ chối cần lý do', async () => {
+    it('duyệt trực tiếp: người nộp không tự duyệt được; người có quyền duyệt được, từ chối không bắt buộc lý do', async () => {
       const created = await custom().create(req, { employeeId, typeId: noneType.id, description: 'Đề xuất 2' } as any);
       await expect(custom(principal).approve(req, created.data.id)).rejects.toMatchObject({ status: 403 });
       const approved = await custom(approver).approve(req, created.data.id);
@@ -679,8 +679,11 @@ integration('Đơn từ theo từ ngày giờ đến ngày giờ và loại đơ
       });
 
       const other = await custom().create(req, { employeeId, typeId: noneType.id, description: 'Đề xuất 3' } as any);
-      await expect(custom(approver).reject(req, other.data.id, '  ')).rejects.toMatchObject({ status: 400 });
-      const rejected = await custom(approver).reject(req, other.data.id, 'Chưa phù hợp');
+      const rejectedWithoutReason = await custom(approver).reject(req, other.data.id, '  ');
+      expect(rejectedWithoutReason.data).toMatchObject({ status: 'REJECTED', rejectionReason: null });
+
+      const otherWithReason = await custom().create(req, { employeeId, typeId: noneType.id, description: 'Đề xuất 4' } as any);
+      const rejected = await custom(approver).reject(req, otherWithReason.data.id, 'Chưa phù hợp');
       expect(rejected.data).toMatchObject({ status: 'REJECTED', rejectionReason: 'Chưa phù hợp' });
     });
 
@@ -704,8 +707,13 @@ integration('Đơn từ theo từ ngày giờ đến ngày giờ và loại đơ
 
     it('danh sách lọc theo loại và trạng thái; đơn chờ duyệt có giờ trong tháng được đếm để chặn chốt công', async () => {
       const list = await custom(approver).list(req, undefined, noneType.id, 'REJECTED');
-      expect(list.data).toHaveLength(1);
-      expect(list.data[0]).toMatchObject({ typeId: noneType.id, status: 'REJECTED' });
+      expect(list.data).toHaveLength(2);
+      expect(list.data).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ typeId: noneType.id, status: 'REJECTED', rejectionReason: null }),
+          expect.objectContaining({ typeId: noneType.id, status: 'REJECTED', rejectionReason: 'Chưa phù hợp' }),
+        ]),
+      );
       // Đơn chờ duyệt lúc 09:00 ngày 02/11/2026 được đếm ở tháng 11, không đếm ở tháng 12.
       expect(await pendingCustomRequestCount(pool as any, tenantId, '2026-11-01', '2026-11-30')).toBeGreaterThan(0);
       expect(await pendingCustomRequestCount(pool as any, tenantId, '2026-12-01', '2026-12-31')).toBe(0);

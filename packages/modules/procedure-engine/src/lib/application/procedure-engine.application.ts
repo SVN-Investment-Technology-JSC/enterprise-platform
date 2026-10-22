@@ -27,6 +27,7 @@ import {
   type RelinkProcedureWorkspaceRequest,
   type StartProcedureInstanceRequest,
   type UpdateProcedureDefinitionRequest,
+  isAttributeEnterableAt,
 } from '@enterprise-platform/contracts-procedure-engine';
 import {
   canDeleteProcedureInstance,
@@ -601,10 +602,15 @@ export class ProcedureEngineApplication {
               subjectLabel: assignment.subjectLabel?.trim() || undefined,
             })),
           })),
-        attributes: normalizeAttributeDefinitions(input.attributes, () => this.ids.next()),
+        attributes: undefined,
         createdAt: now,
         updatedAt: now,
       };
+      definition.attributes = normalizeAttributeDefinitions(
+        input.attributes,
+        () => this.ids.next(),
+        new Set(definition.steps.map((step) => step.key)),
+      );
       // Bước vừa có id, nên đổi tham chiếu bằng mã bước trong gateway sang id.
       definition.gateways = this.normalizeGateways(input.gateways, definition);
       normalizeStepIntegrations(definition.steps);
@@ -731,9 +737,12 @@ export class ProcedureEngineApplication {
       normalizeStepIntegrations(definition.steps);
       // Bỏ trống = giữ nguyên: client cũ không gửi hai trường này thì cũng không
       // được làm mất cấu hình rẽ nhánh mỗi lần sửa một ô RCSI.
-      if (input.attributes !== undefined) {
-        definition.attributes = normalizeAttributeDefinitions(input.attributes, () => this.ids.next());
-      }
+      // Luôn chuẩn hoá lại (kể cả khi giữ nguyên) để bỏ mã bước nhập của bước vừa xoá.
+      definition.attributes = normalizeAttributeDefinitions(
+        input.attributes !== undefined ? input.attributes : definition.attributes,
+        () => this.ids.next(),
+        new Set(definition.steps.map((step) => step.key)),
+      );
       if (input.gateways !== undefined) {
         definition.gateways = this.normalizeGateways(input.gateways, definition);
       } else if (definition.gateways?.length) {
@@ -2060,11 +2069,19 @@ export class ProcedureEngineApplication {
   ): Record<string, ProcedureAttributeValueRecord> | undefined {
     const entries = Object.entries(values ?? {});
     if (!entries.length) return undefined;
+    const firstStepId = firstFlowStepId(buildFlowIndex(definition.steps, definition.gateways));
+    const firstStepKey = definition.steps.find((step) => step.id === firstStepId)?.key ?? '';
     const records: Record<string, ProcedureAttributeValueRecord> = {};
     for (const [code, raw] of entries) {
       const attribute = (definition.attributes ?? []).find((item) => item.code === code);
       if (!attribute) {
         throw new ProcedureEngineError('validation', `Quy trình không có thuộc tính “${code}”.`);
+      }
+      if (!isAttributeEnterableAt(attribute, firstStepKey)) {
+        throw new ProcedureEngineError(
+          'validation',
+          `“${attribute.name}” không nhập ở bước đầu nên không nhập được lúc mở hồ sơ.`,
+        );
       }
       const value = normalizeAttributeValue(attribute, raw);
       if (value) {
@@ -3576,13 +3593,16 @@ export class ProcedureEngineApplication {
         instance.flow?.gateways,
       ),
     ) === step.definitionStepId;
-    if (isFirst) {
-      missing.push(
-        ...missingRequiredAttributes(instance.flow?.attributes, (definition) =>
-          valueOf(attributeValueKey({ scope: 'process', code: definition.code })),
-        ),
-      );
-    }
+    // Thuộc tính cấp quy trình có chọn bước nhập thì kiểm khi rời bước nhập của nó;
+    // không chọn thì kiểm khi rời bước đầu như trước.
+    const dueHere = (instance.flow?.attributes ?? []).filter((definition) =>
+      definition.entryStepKeys?.length ? definition.entryStepKeys.includes(step.key) : isFirst,
+    );
+    missing.push(
+      ...missingRequiredAttributes(dueHere, (definition) =>
+        valueOf(attributeValueKey({ scope: 'process', code: definition.code })),
+      ),
+    );
     if (missing.length) {
       throw new ProcedureEngineError(
         'validation',

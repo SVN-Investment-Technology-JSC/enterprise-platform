@@ -2,6 +2,8 @@ import type { Pool, PoolClient } from 'pg';
 import {
   EMPTY_AUTO_ATTENDANCE,
   appliesOnDate,
+  appliesToEmployeeOnDate,
+  type AutoAttendanceEmployeeRule,
   type AutoAttendanceSettings,
 } from '../domain/auto-attendance-settings.js';
 import { hrmTransaction } from './hrm-transaction.js';
@@ -51,32 +53,61 @@ export async function loadAutoAttendanceSettings(db: Queryable, tenant: string):
   };
 }
 
+/** Bảng cấu hình theo nhân viên (migration 0066) đã có chưa; chưa có thì chỉ chạy theo cấu hình chung của tenant. */
+export async function autoAttendanceEmployeesReady(db: Queryable): Promise<boolean> {
+  const res = await db.query(`SELECT to_regclass('hrm_schema.auto_attendance_employees') IS NOT NULL AS ok`);
+  return res.rows[0]?.ok === true;
+}
+
+/** Các cấu hình theo nhân viên còn hiệu lực (chưa gỡ) và giao với khoảng ngày đang xét. */
+export async function loadAutoAttendanceEmployeeRules(
+  db: Queryable,
+  tenant: string,
+  from: string,
+  to: string,
+): Promise<AutoAttendanceEmployeeRule[]> {
+  const res = await db.query(
+    `SELECT employee_id, weekdays, to_char(from_date,'YYYY-MM-DD') AS from_date, to_char(to_date,'YYYY-MM-DD') AS to_date
+       FROM hrm_schema.auto_attendance_employees
+      WHERE tenant_id=$1 AND removed_at IS NULL AND from_date<=$3::date AND (to_date IS NULL OR to_date>=$2::date)`,
+    [tenant, from, to],
+  );
+  return res.rows.map((r) => ({
+    employeeId: r.employee_id as string,
+    weekdays: r.weekdays ? (r.weekdays as (number | string)[]).map(Number) : null,
+    fromDate: r.from_date as string,
+    toDate: (r.to_date as string | null) ?? null,
+  }));
+}
+
 /**
- * Ngày làm việc có ca (lịch từng ngày trước, rồi lịch định kỳ khi ngày đó không có lịch từng ngày) rơi vào thứ đã chọn
- * trong cấu hình chấm công tự động. Không phụ thuộc cờ trên phân ca nên bật/tắt không cần phân ca lại.
+ * Ngày làm việc có ca (lịch từng ngày trước, rồi lịch định kỳ khi ngày đó không có lịch từng ngày) mà `applies` chọn:
+ * rơi vào thứ của cấu hình chung của tenant hoặc thuộc cấu hình riêng của nhân viên. `onlyEmployees` giới hạn phạm vi
+ * khi tenant không bật cấu hình chung. Không phụ thuộc cờ trên phân ca nên bật/tắt không cần phân ca lại.
  */
 async function candidatesOf(
   db: PoolClient,
   tenant: string,
   from: string,
   to: string,
-  settings: AutoAttendanceSettings,
+  applies: (employeeId: string, date: string) => boolean,
+  onlyEmployees: string[] | null,
 ): Promise<Candidate[]> {
-  const start = settings.enabledFrom && settings.enabledFrom > from ? settings.enabledFrom : from;
-  if (start > to) return [];
+  if (from > to) return [];
   const explicit = await db.query(
     `SELECT w.employee_id, to_char(w.work_date,'YYYY-MM-DD') AS date, w.day_type
        FROM hrm_schema.employee_work_days w
        JOIN hrm_schema.employee_profiles p ON p.tenant_id=w.tenant_id AND p.employee_id=w.employee_id AND p.deleted_at IS NULL
       WHERE w.tenant_id=$1 AND w.status='ACTIVE' AND w.work_date BETWEEN $2::date AND $3::date
-        AND w.work_date>=p.join_date AND (p.inactive_from IS NULL OR w.work_date<p.inactive_from)`,
-    [tenant, start, to],
+        AND w.work_date>=p.join_date AND (p.inactive_from IS NULL OR w.work_date<p.inactive_from)
+        AND ($4::uuid[] IS NULL OR w.employee_id = ANY($4::uuid[]))`,
+    [tenant, from, to, onlyEmployees],
   );
   const taken = new Set<string>();
   const out: Candidate[] = [];
   for (const r of explicit.rows) {
     taken.add(`${r.employee_id}:${r.date}`);
-    if (r.day_type === 'SHIFT' && appliesOnDate(settings, r.date)) out.push({ employeeId: r.employee_id, date: r.date });
+    if (r.day_type === 'SHIFT' && applies(r.employee_id, r.date)) out.push({ employeeId: r.employee_id, date: r.date });
   }
   const hasRule = await db.query(
     `SELECT EXISTS(SELECT 1 FROM hrm_schema.work_schedule_rules WHERE tenant_id=$1 AND status='ACTIVE') AS ok`,
@@ -84,18 +115,19 @@ async function candidatesOf(
   );
   if (hasRule.rows[0]?.ok !== true) return out;
   const employees = await db.query(
-    `SELECT employee_id FROM hrm_schema.employee_profiles WHERE tenant_id=$1 AND deleted_at IS NULL AND join_date<=$2::date`,
-    [tenant, to],
+    `SELECT employee_id FROM hrm_schema.employee_profiles
+      WHERE tenant_id=$1 AND deleted_at IS NULL AND join_date<=$2::date AND ($3::uuid[] IS NULL OR employee_id = ANY($3::uuid[]))`,
+    [tenant, to, onlyEmployees],
   );
   const ruleDays = await resolveRuleDays(
     db,
     tenant,
     employees.rows.map((r) => r.employee_id as string),
-    start,
+    from,
     to,
   );
   for (const d of ruleDays)
-    if (d.dayType === 'SHIFT' && !taken.has(`${d.employeeId}:${d.date}`) && appliesOnDate(settings, d.date))
+    if (d.dayType === 'SHIFT' && !taken.has(`${d.employeeId}:${d.date}`) && applies(d.employeeId, d.date))
       out.push({ employeeId: d.employeeId, date: d.date });
   return out;
 }
@@ -116,11 +148,21 @@ export async function generateAutoAttendance(
   const today = vnDate(now.getTime());
   const upper = to < today ? to : today;
   if (from > upper) return { generated: 0 };
-  // Tenant chưa chạy migration 0055 hoặc chưa bật thì bỏ qua, không làm hỏng tính công.
-  if (!(await autoAttendanceSettingsReady(db, tenant))) return { generated: 0 };
-  const settings = await loadAutoAttendanceSettings(db, tenant);
-  if (!settings.enabled || settings.weekdays.length === 0) return { generated: 0 };
-  const candidates = await candidatesOf(db, tenant, from, upper, settings);
+  // Tenant chưa chạy migration 0055/0066 hoặc chưa bật gì thì bỏ qua, không làm hỏng tính công.
+  const settings = (await autoAttendanceSettingsReady(db, tenant))
+    ? await loadAutoAttendanceSettings(db, tenant)
+    : { ...EMPTY_AUTO_ATTENDANCE };
+  const tenantOn = settings.enabled && settings.weekdays.length > 0;
+  const rules = (await autoAttendanceEmployeesReady(db))
+    ? await loadAutoAttendanceEmployeeRules(db, tenant, from, upper)
+    : [];
+  if (!tenantOn && rules.length === 0) return { generated: 0 };
+  const rulesOf = new Map<string, AutoAttendanceEmployeeRule[]>();
+  for (const rule of rules) rulesOf.set(rule.employeeId, [...(rulesOf.get(rule.employeeId) ?? []), rule]);
+  const applies = (employeeId: string, date: string) =>
+    (tenantOn && appliesOnDate(settings, date)) ||
+    (rulesOf.get(employeeId) ?? []).some((rule) => appliesToEmployeeOnDate(rule, date));
+  const candidates = await candidatesOf(db, tenant, from, upper, applies, tenantOn ? null : [...rulesOf.keys()]);
   if (!candidates.length) return { generated: 0 };
   const locked = await db.query(
     `SELECT to_char(from_date,'YYYY-MM-DD') AS from_date, to_char(to_date,'YYYY-MM-DD') AS to_date FROM hrm_schema.timesheet_periods WHERE tenant_id=$1 AND status='LOCKED' AND to_date>=$2::date AND from_date<=$3::date`,

@@ -24,7 +24,7 @@
 
 .input {
   width: 100%;
-  padding: var(--ss-pad-y, 8px) 60px var(--ss-pad-y, 8px) 32px !important;
+  padding: var(--ss-pad-y, 8px) var(--ss-pad-r, 32px) var(--ss-pad-y, 8px) var(--ss-pad-l, 32px) !important;
   font-size: var(--ss-font-size, 13.5px) !important;
   border: 1px solid #cbd5e1 !important;
   border-radius: 6px !important;
@@ -46,11 +46,16 @@
   }
 }
 
+/* Khi có nút xoá (clearable và đã có giá trị), thêm khoảng đệm bên phải để chữ không đè lên cả 2 nút. */
+.inputHasClear {
+  padding-right: var(--ss-pad-r, 54px) !important;
+}
+
 /* Kiểu chọn thuần tuý (searchInDropdown): ô chỉ hiện giá trị đã chọn, con trỏ bấm, không có dấu nháy gõ. */
 .inputSelectOnly {
   cursor: pointer;
   caret-color: transparent;
-  padding-left: 12px !important;
+  padding-left: var(--ss-pad-l, 12px) !important;
   text-overflow: ellipsis;
 }
 

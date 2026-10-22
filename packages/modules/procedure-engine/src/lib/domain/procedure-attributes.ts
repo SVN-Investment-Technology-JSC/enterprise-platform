@@ -83,26 +83,40 @@ export function validateAttributeDefinitions(
   }
 }
 
-/** Chuẩn hoá định nghĩa trước khi lưu: cắt khoảng trắng, bỏ `options` ở kiểu không dùng. */
+/**
+ * Chuẩn hoá định nghĩa trước khi lưu: cắt khoảng trắng, bỏ `options` ở kiểu không dùng.
+ *
+ * `stepKeys` chỉ truyền với thuộc tính cấp quy trình: giữ `entryStepKeys` trỏ tới
+ * bước còn tồn tại, bỏ mã của bước vừa xoá. Thuộc tính của bước không có trường này.
+ */
 export function normalizeAttributeDefinitions(
   attributes: readonly ProcedureAttributeDefinition[] | undefined,
   nextId: () => string,
+  stepKeys?: ReadonlySet<string>,
 ): ProcedureAttributeDefinition[] | undefined {
   if (!attributes?.length) return undefined;
-  return attributes.map((attribute) => ({
-    id: attribute.id?.trim() || nextId(),
-    code: attribute.code.trim(),
-    name: attribute.name.trim(),
-    type: attribute.type,
-    required: attribute.required === true,
-    options:
-      attribute.type === 'select'
-        ? attribute.options?.map((option) => ({
-            code: option.code.trim(),
-            label: option.label.trim(),
-          }))
-        : undefined,
-  }));
+  return attributes.map((attribute) => {
+    const entryStepKeys = stepKeys
+      ? [...new Set((attribute.entryStepKeys ?? []).map((key) => key.trim().toUpperCase()))].filter((key) =>
+          stepKeys.has(key),
+        )
+      : [];
+    return {
+      id: attribute.id?.trim() || nextId(),
+      code: attribute.code.trim(),
+      name: attribute.name.trim(),
+      type: attribute.type,
+      required: attribute.required === true,
+      options:
+        attribute.type === 'select'
+          ? attribute.options?.map((option) => ({
+              code: option.code.trim(),
+              label: option.label.trim(),
+            }))
+          : undefined,
+      ...(entryStepKeys.length ? { entryStepKeys } : {}),
+    };
+  });
 }
 
 /**

@@ -177,6 +177,28 @@
   padding: 14px 14px 10px;
 }
 
+.userLink {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  margin: -4px;
+  padding: 4px;
+  border-radius: 10px;
+  color: inherit;
+  text-decoration: none;
+
+  &:hover {
+    background: var(--ep-hover);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--ep-accent);
+    outline-offset: 1px;
+  }
+}
+
 .avatar {
   display: inline-flex;
   flex-shrink: 0;
@@ -515,6 +537,10 @@
     justify-content: center;
     padding-right: 0;
     padding-left: 0;
+  }
+
+  .userLink {
+    flex: 0 0 auto;
   }
 
   .navItem {

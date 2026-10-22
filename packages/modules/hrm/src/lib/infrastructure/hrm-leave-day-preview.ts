@@ -76,7 +76,7 @@ export async function previewLeaveDays(
       breakEndMinutes: null,
     };
     const kind = applyScheduleDayKind(
-      effectiveDayKind(day.date, day.day_kind, policy?.config_json),
+      effectiveDayKind(day.day_kind),
       await scheduleDayTypeOf(db, tenant, employeeId, day.date),
     );
     if (kind === 'OFF' || kind === 'HOLIDAY') {

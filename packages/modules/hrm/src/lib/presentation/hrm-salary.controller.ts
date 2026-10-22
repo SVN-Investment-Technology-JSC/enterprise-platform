@@ -48,9 +48,11 @@ import { hrmTransaction } from '../infrastructure/hrm-transaction.js';
 import { lockEmployee, isoDate } from '../infrastructure/hrm-time.js';
 import {
   requireDate,
+  optionalText,
   requireText,
   requireUuid,
 } from '../infrastructure/hrm-validation.js';
+import { RequirePermission } from '../infrastructure/hrm-access.guard.js';
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
 import { HrmProcedureBridgeService } from '../infrastructure/hrm-procedure-bridge.service.js';
 
@@ -729,6 +731,7 @@ export class HrmSalaryController {
     };
   }
 
+  @RequirePermission('hrm.advance.approve')
   @Post('salary-advance-requests/:id/approve')
   async approveAdvance(
     @Req() req: Request,
@@ -770,7 +773,7 @@ export class HrmSalaryController {
       'advance',
       'reject',
     );
-    requireText(reason, 'reason', 2000);
+    optionalText(reason, 'reason', 2000);
     const result = await pool.query(
       `UPDATE hrm_schema.salary_advance_requests SET status='REJECTED',approved_by=$3,approved_at=now() WHERE tenant_id=$1 AND id=$2 AND status='PENDING' RETURNING *`,
       [tenantId, id, principal.userId],

@@ -199,7 +199,6 @@ integration('HRM time lifecycle PostgreSQL integration', () => {
       allowedIps: ['10.20.0.0/16', '2001:db8::/32'],
       requireGps: false,
       maxGpsAccuracyMeters: 100,
-      requireDevice: false,
     });
     const site = (
       await c.site(req, {
@@ -361,7 +360,6 @@ integration('HRM time lifecycle PostgreSQL integration', () => {
       allowedIps: ['10.20.0.0/16'],
       requireGps: true,
       maxGpsAccuracyMeters: 50,
-      requireDevice: false,
     });
     const site = (
       await settings.site(req, {

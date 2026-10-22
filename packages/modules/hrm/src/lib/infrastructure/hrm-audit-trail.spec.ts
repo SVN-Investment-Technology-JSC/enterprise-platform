@@ -3,9 +3,6 @@ import { auditActionLabel, auditFallback } from './hrm-audit-trail';
 describe('audit trail labels', () => {
   it('uses Vietnamese labels and readable fallbacks for unknown actions', () => {
     expect(auditActionLabel('LEAVE_SUBMITTED')).toBe('Gửi đơn nghỉ');
-    expect(auditActionLabel('ATTENDANCE_DEVICE_APPROVED')).toBe(
-      'Duyệt thiết bị chấm công',
-    );
     expect(auditActionLabel('BENEFIT_PLAN_CREATED')).toBe('Tạo benefit plan');
     expect(auditActionLabel('SOMETHING_ODD')).toBe('something odd');
   });

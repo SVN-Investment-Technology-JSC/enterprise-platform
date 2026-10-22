@@ -3,6 +3,7 @@
 @import 'tw-animate-css';
 @import 'shadcn/tailwind.css';
 @import '@xyflow/react/dist/style.css';
+@source '../../../../packages/features/hrm';
 
 @custom-variant dark (&:is(.dark *));
 

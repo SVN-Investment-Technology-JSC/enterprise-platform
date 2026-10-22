@@ -16,7 +16,7 @@ import {
   StatusPill,
   kitPanelProps,
 } from '../ui/settings-kit';
-import { CalendarPanel, DevicesPanel, SitesPanel } from '../ui/time-settings/list-panels';
+import { SitesPanel } from '../ui/time-settings/list-panels';
 import { PolicyDialog } from '../ui/time-settings/policy-dialog';
 import { RulesPanel } from '../ui/time-settings/rules-panel';
 import { SiteDialog, type SiteFormState } from '../ui/time-settings/site-dialog';
@@ -33,7 +33,7 @@ import {
   type TimeSettingsTab,
 } from '../ui/time-settings/time-settings-model';
 
-export { DAY_KIND_LABELS, DEVICE_STATUS_LABELS } from '../ui/time-settings/time-settings-model';
+export { DAY_KIND_LABELS } from '../ui/time-settings/time-settings-model';
 
 const emptySite = (): SiteFormState => ({
   name: '',
@@ -43,7 +43,7 @@ const emptySite = (): SiteFormState => ({
 });
 
 /**
- * Nhóm "Chấm công & thiết bị": bốn mục độc lập (Quy định chấm công, Lịch làm / OFF / Lễ, Địa điểm GPS, Thiết bị) chọn bằng
+ * Nhóm "Chấm công": hai mục độc lập (Quy định chấm công, Địa điểm GPS) chọn bằng
  * `?tab=`. Trong Trung tâm cấu hình mỗi mục là một trang riêng (thanh bên đã có sẵn các mục nên không vẽ thanh tab);
  * ngoài trung tâm có thanh tab ngang cuộn được.
  */
@@ -51,11 +51,7 @@ export default function TimeSettingsScreen() {
   const { can } = useHrmPermissions();
   // Trong trung tâm cấu hình, các tab con đã nằm ở thanh bên nên không vẽ thanh tab riêng.
   const embedded = useSettingsEmbedded();
-  const allowedTabs = TIME_SETTINGS_TABS.filter((tab) =>
-    tab.permission === 'time'
-      ? can('hrm.time.configure')
-      : can('hrm.device.manage'),
-  );
+  const allowedTabs = can('hrm.time.configure') ? TIME_SETTINGS_TABS : [];
   const allowedTabIds = allowedTabs.map((tab) => tab.id);
   const [requestedTab, setRequestedTab] = useState<string | null>(null);
   const [urlReady, setUrlReady] = useState(false);
@@ -90,7 +86,6 @@ export default function TimeSettingsScreen() {
   const [data, setData] = useState<Settings>({
     calendar: [],
     sites: [],
-    devices: [],
     versions: [],
   });
   const [error, setError] = useState('');
@@ -237,8 +232,6 @@ export default function TimeSettingsScreen() {
       requireIp: policy.requireIp,
       requireGps: policy.requireGps,
       maxGpsAccuracyMeters: policy.maxGpsAccuracyMeters,
-      requireDevice: policy.requireDevice,
-      weeklyOffDays: policy.weeklyOffDays,
       allowedIps: policy.allowedIps
         .split(',')
         .map((s) => s.trim())
@@ -248,7 +241,6 @@ export default function TimeSettingsScreen() {
 
   const meta = activeTab ? SECTION_META[activeTab] : null;
   const currentVersion = pickCurrentVersion(data.versions, today());
-  const pendingDevices = data.devices.filter((d) => d.status === 'PENDING').length;
   const activeSites = data.sites.filter((s) => s.active).length;
 
   const historyButton = can('hrm.audit.read') ? (
@@ -270,8 +262,6 @@ export default function TimeSettingsScreen() {
       ) : data.versions.length ? (
         <StatusPill tone="amber">Chưa có quy định áp dụng</StatusPill>
       ) : null
-    ) : activeTab === 'devices' && pendingDevices > 0 ? (
-      <StatusPill tone="amber">{`${pendingDevices} chờ duyệt`}</StatusPill>
     ) : activeTab === 'sites' && data.sites.length > 0 ? (
       <StatusPill tone="green">{`${activeSites} đang dùng`}</StatusPill>
     ) : null;
@@ -332,7 +322,7 @@ export default function TimeSettingsScreen() {
               tabs={allowedTabs.map((tab) => ({ id: tab.id, label: tab.label }))}
               active={activeTab}
               onChange={(id) => selectTab(id as TimeSettingsTab)}
-              ariaLabel="Cấu hình công và thiết bị"
+              ariaLabel="Cấu hình chấm công"
               idPrefix="time-settings"
             />
           )}
@@ -353,11 +343,6 @@ export default function TimeSettingsScreen() {
               <RulesPanel versions={data.versions} onCreate={openPolicyDialog} />
             </div>
           ) : null}
-          {urlReady && activeTab === 'calendar' ? (
-            <div {...panelProps('calendar')}>
-              <CalendarPanel rows={data.calendar} holidayStatus={data.holidayStatus} />
-            </div>
-          ) : null}
           {urlReady && activeTab === 'sites' ? (
             <div {...panelProps('sites')}>
               <SitesPanel
@@ -366,28 +351,6 @@ export default function TimeSettingsScreen() {
                 onAdd={openSiteDialog}
                 onEdit={editSite}
                 onStop={remove}
-              />
-            </div>
-          ) : null}
-          {urlReady && activeTab === 'devices' ? (
-            <div {...panelProps('devices')}>
-              <DevicesPanel
-                rows={data.devices}
-                busy={busy}
-                onApprove={(device) =>
-                  save(
-                    `/time-settings/devices/${device.id}/approve`,
-                    {},
-                    'Đã duyệt thiết bị.',
-                  )
-                }
-                onRevoke={(device) =>
-                  save(
-                    `/time-settings/devices/${device.id}/revoke`,
-                    {},
-                    'Đã thu hồi thiết bị.',
-                  )
-                }
               />
             </div>
           ) : null}

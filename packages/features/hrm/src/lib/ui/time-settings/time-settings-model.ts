@@ -1,5 +1,5 @@
 /**
- * Mô hình dữ liệu và hàm thuần cho nhóm màn "Chấm công & thiết bị" (quy định, lịch làm/OFF/lễ, địa điểm GPS, thiết bị).
+ * Mô hình dữ liệu và hàm thuần cho nhóm màn "Chấm công" (quy định chấm công, địa điểm GPS).
  * Không chứa giao diện; tách ra để màn hình gọn và dễ kiểm thử.
  */
 import { formatDateVn } from '../../personnel-decision-rules';
@@ -22,7 +22,6 @@ export type Settings = {
     active: boolean;
     updated_at: string;
   }[];
-  devices: { id: string; full_name: string; name: string; status: string }[];
   versions: {
     id: string;
     version_no: number;
@@ -43,7 +42,6 @@ export type Settings = {
 };
 export type CalendarRow = Settings['calendar'][number];
 export type SiteRow = Settings['sites'][number];
-export type DeviceRow = Settings['devices'][number];
 export type PolicyVersion = Settings['versions'][number];
 export type EmployeeOption = { value: string; label: string };
 
@@ -54,21 +52,6 @@ export const DAY_KIND_LABELS: Record<string, string> = {
   OFF: 'Nghỉ (OFF)',
   HOLIDAY: 'Lễ / Tết',
 };
-export const DEVICE_STATUS_LABELS: Record<string, string> = {
-  PENDING: 'Chờ duyệt',
-  ACTIVE: 'Đang dùng',
-  REVOKED: 'Đã thu hồi',
-};
-
-export const WEEKDAY_OPTIONS = [
-  { value: 1, label: 'Thứ 2' },
-  { value: 2, label: 'Thứ 3' },
-  { value: 3, label: 'Thứ 4' },
-  { value: 4, label: 'Thứ 5' },
-  { value: 5, label: 'Thứ 6' },
-  { value: 6, label: 'Thứ 7' },
-  { value: 0, label: 'Chủ nhật' },
-];
 
 /** Đọc cấu hình chấp nhận cả khóa camelCase lẫn snake_case (dữ liệu seed). */
 export const configFlag = (
@@ -76,13 +59,6 @@ export const configFlag = (
   camel: string,
   snake: string,
 ) => Boolean(c[camel] ?? c[snake]);
-
-export function weeklyOffLabel(days: unknown): string {
-  if (!Array.isArray(days) || !days.length) return 'Chưa cấu hình';
-  return WEEKDAY_OPTIONS.filter((d) => days.includes(d.value))
-    .map((d) => d.label)
-    .join(', ');
-}
 
 export const versionEmployees = (v: PolicyVersion) =>
   Array.isArray(v.config_json.employeeIds)
@@ -163,8 +139,6 @@ export interface RuleSummary {
   timezone: string;
   ip: string;
   gps: string;
-  device: string;
-  weeklyOff: string;
   scope: string;
   range: string;
 }
@@ -186,10 +160,6 @@ export function summarizeVersion(v: PolicyVersion): RuleSummary {
         ? `Bắt buộc, dung sai ${tolerance} m`
         : 'Bắt buộc'
       : 'Không yêu cầu',
-    device: configFlag(c, 'requireDevice', 'require_device')
-      ? 'Một trình duyệt đã duyệt cho mỗi nhân viên'
-      : 'Không yêu cầu',
-    weeklyOff: weeklyOffLabel(c.weeklyOffDays),
     scope: versionScopeLabel(v),
     range: versionRangeLabel(v),
   };
@@ -204,17 +174,14 @@ export function conditionChips(v: PolicyVersion): string[] {
     const t = gpsTolerance(c);
     out.push(t !== null ? `GPS ${t} m` : 'GPS');
   }
-  if (configFlag(c, 'requireDevice', 'require_device')) out.push('Thiết bị');
   return out;
 }
 
-export type TimeSettingsTab = 'rules' | 'calendar' | 'sites' | 'devices';
+export type TimeSettingsTab = 'rules' | 'sites';
 
 export const TIME_SETTINGS_TABS = [
   { id: 'rules', label: 'Quy định chấm công', permission: 'time' },
-  { id: 'calendar', label: 'Lịch làm / OFF / Lễ', permission: 'time' },
   { id: 'sites', label: 'Địa điểm GPS', permission: 'time' },
-  { id: 'devices', label: 'Thiết bị', permission: 'device' },
 ] as const;
 
 /** Tiêu đề, mô tả và tiền tố mã hành động nhật ký của từng mục (mỗi mục là một trang độc lập). */
@@ -229,23 +196,11 @@ export const SECTION_META: Record<
     historyDescription:
       'Các phiên bản chính sách đã ban hành (gồm cả nhóm chính sách khác dùng chung cơ chế phiên bản), mới nhất ở trên.',
   },
-  calendar: {
-    title: 'Lịch làm / OFF / Lễ',
-    description: 'Quản lý lịch làm việc, ngày nghỉ, ngày lễ',
-    historyPrefixes: ['CALENDAR_', 'HOLIDAY_'],
-    historyDescription: 'Thay đổi lịch làm việc và lịch nghỉ lễ, mới nhất ở trên.',
-  },
   sites: {
     title: 'Địa điểm GPS',
     description: 'Quản lý địa điểm làm việc theo GPS',
     historyPrefixes: ['SITE_'],
     historyDescription: 'Thay đổi địa điểm chấm công, mới nhất ở trên.',
-  },
-  devices: {
-    title: 'Thiết bị',
-    description: 'Quản lý thiết bị chấm công, máy chấm, app',
-    historyPrefixes: ['ATTENDANCE_DEVICE_'],
-    historyDescription: 'Duyệt và thu hồi thiết bị chấm công, mới nhất ở trên.',
   },
 };
 
@@ -285,23 +240,6 @@ export function filterSites(
   });
 }
 
-export function filterDevices(
-  rows: readonly DeviceRow[],
-  search: string,
-  status: string,
-): DeviceRow[] {
-  const query = fold(search.trim());
-  return rows.filter((row) => {
-    if (status !== 'ALL' && row.status !== status) return false;
-    if (!query) return true;
-    return [
-      row.full_name,
-      row.name,
-      DEVICE_STATUS_LABELS[row.status] ?? row.status,
-    ].some((value) => fold(value).includes(query));
-  });
-}
-
 export interface PolicyFormState {
   effectiveFrom: string;
   effectiveTo: string;
@@ -313,8 +251,6 @@ export interface PolicyFormState {
   allowedIps: string;
   requireGps: boolean;
   maxGpsAccuracyMeters: number;
-  requireDevice: boolean;
-  weeklyOffDays: number[];
 }
 
 /** Giá trị ban đầu khi mở hộp thoại tạo phiên bản (giữ nguyên mặc định cũ). */
@@ -329,8 +265,6 @@ export const emptyPolicyForm = (): PolicyFormState => ({
   allowedIps: '',
   requireGps: false,
   maxGpsAccuracyMeters: 100,
-  requireDevice: false,
-  weeklyOffDays: [0],
 });
 
 /** Phiên bản nào sẽ bị kết thúc / chặn khi ban hành khoảng hiệu lực mới (giống kiểm tra của máy chủ). */

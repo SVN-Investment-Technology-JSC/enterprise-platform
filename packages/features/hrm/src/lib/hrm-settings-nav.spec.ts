@@ -43,7 +43,7 @@ describe('hrm-settings-nav', () => {
     expect(filterSettingsEntries(ALL_SETTINGS_ENTRIES, 'phan ca').map((e) => e.id)).toContain('schedules');
     expect(filterSettingsEntries(ALL_SETTINGS_ENTRIES, 'LUONG').map((e) => e.id)).toContain('payroll');
     expect(filterSettingsEntries(ALL_SETTINGS_ENTRIES, 'cham cong').map((e) => e.id)).toEqual(
-      expect.arrayContaining(['time-rules', 'time-devices']),
+      expect.arrayContaining(['time-rules', 'time-sites']),
     );
     expect(filterSettingsEntries(ALL_SETTINGS_ENTRIES, '  ')).toHaveLength(ALL_SETTINGS_ENTRIES.length);
     expect(filterSettingsEntries(ALL_SETTINGS_ENTRIES, 'khong co gi nhu the')).toEqual([]);

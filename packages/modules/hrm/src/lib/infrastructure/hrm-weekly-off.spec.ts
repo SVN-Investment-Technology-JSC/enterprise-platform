@@ -1,21 +1,14 @@
-import { effectiveDayKind, weeklyOffDaysOf } from './hrm-time.js';
+import { effectiveDayKind } from './hrm-time.js';
 
-describe('weekly day-off policy', () => {
-  const cfg = { weeklyOffDays: [6, 0] };
-
-  it('treats configured weekdays without calendar entry as OFF', () => {
-    expect(effectiveDayKind('2026-09-05', null, cfg)).toBe('OFF'); // Saturday
-    expect(effectiveDayKind('2026-09-06', undefined, cfg)).toBe('OFF'); // Sunday
-    expect(effectiveDayKind('2026-09-07', null, cfg)).toBeNull(); // Monday
+describe('loại ngày của lịch công ty', () => {
+  it('lấy loại ngày từ work_calendar khi có dòng lịch', () => {
+    expect(effectiveDayKind('WORK')).toBe('WORK');
+    expect(effectiveDayKind('HOLIDAY')).toBe('HOLIDAY');
+    expect(effectiveDayKind('OFF')).toBe('OFF');
   });
 
-  it('lets explicit calendar entries override the weekly day-off', () => {
-    expect(effectiveDayKind('2026-09-05', 'WORK', cfg)).toBe('WORK');
-    expect(effectiveDayKind('2026-09-02', 'HOLIDAY', cfg)).toBe('HOLIDAY');
-  });
-
-  it('keeps legacy behaviour when nothing is configured', () => {
-    expect(effectiveDayKind('2026-09-05', null, {})).toBeNull();
-    expect(weeklyOffDaysOf({ weeklyOffDays: [9, 'x', 3] })).toEqual([3]);
+  it('không có dòng lịch thì không suy ra ngày nghỉ hằng tuần (do lịch phân ca quyết định)', () => {
+    expect(effectiveDayKind(null)).toBeNull();
+    expect(effectiveDayKind(undefined)).toBeNull();
   });
 });

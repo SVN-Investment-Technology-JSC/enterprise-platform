@@ -31,7 +31,7 @@ import type { Request } from 'express';
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
 import { hrmTransaction } from '../infrastructure/hrm-transaction.js';
 import { lockEmployee } from '../infrastructure/hrm-time.js';
-import { requireDate, requireText } from '../infrastructure/hrm-validation.js';
+import { optionalText, requireDate, requireText } from '../infrastructure/hrm-validation.js';
 
 @Controller('v1/profile-corrections')
 export class HrmProfileCorrectionController {
@@ -249,10 +249,10 @@ export class HrmProfileCorrectionController {
       'profile_correction',
       'reject',
     );
-    requireText(reason, 'reason', 2000);
+    const note = optionalText(reason, 'reason', 2000);
     const result = await pool.query(
       `UPDATE hrm_schema.profile_corrections SET status='REJECTED',approved_by=$3,rejection_reason=$4,approved_at=now() WHERE tenant_id=$1 AND id=$2 AND status='PENDING' RETURNING *`,
-      [tenantId, id, principal.userId, reason],
+      [tenantId, id, principal.userId, note],
     );
     if (!result.rowCount)
       throw new ConflictException('Đơn không còn chờ duyệt');

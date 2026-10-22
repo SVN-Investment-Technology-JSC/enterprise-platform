@@ -213,7 +213,7 @@ describe('LeaveSettingsScreen: chính sách phép năm', () => {
       screen.getByRole('heading', { name: 'Chính sách phép năm', level: 1 }),
     ).toBeTruthy();
     await openPolicyForm();
-    for (const name of ['Cách tính phép', 'Phép thâm niên', 'Hiệu lực & ghi chú', 'Tóm tắt chính sách', 'Lưu ý khi thay đổi'])
+    for (const name of ['Cách tính phép', 'Phép thâm niên', 'Hiệu lực', 'Tóm tắt chính sách', 'Lưu ý khi thay đổi'])
       expect(screen.getByRole('heading', { name })).toBeTruthy();
     expect(screen.getByTestId('policy-status').textContent).toBe('Đang áp dụng');
     expect(field(/Số ngày phép mỗi năm/).value).toBe('12');
@@ -254,9 +254,6 @@ describe('LeaveSettingsScreen: chính sách phép năm', () => {
     await openPolicyForm();
     fireEvent.change(field(/Số ngày phép mỗi năm/), { target: { value: '14' } });
     await pick('Tự động', `Từ 01/01/${new Date().getFullYear() + 1}`);
-    fireEvent.change(field(/Ghi chú thay đổi/), {
-      target: { value: 'Tăng phép theo quy chế mới' },
-    });
     fireEvent.click(screen.getByRole('button', { name: 'Lưu thay đổi' }));
     await waitFor(() => expect(calls('PUT', '/annual-leave-policy')).toHaveLength(1));
     expect(calls('PUT', '/annual-leave-policy')[0]).toEqual({
@@ -266,7 +263,6 @@ describe('LeaveSettingsScreen: chính sách phép năm', () => {
       advanceAllowed: true,
       seniorityTiers: [{ minYears: 5, bonusDays: 1 }],
       effectiveFrom: `${new Date().getFullYear() + 1}-01-01`,
-      reason: 'Tăng phép theo quy chế mới',
       expectedUpdatedAt: policyUpdatedAt,
     });
     expect(await screen.findByText('Đã lưu chính sách phép năm.')).toBeTruthy();
@@ -284,7 +280,6 @@ describe('LeaveSettingsScreen: chính sách phép năm', () => {
     fireEvent.change(field(/Bắt đầu cộng sau/), { target: { value: '0' } });
     fireEvent.change(field(/Chu kỳ thâm niên/), { target: { value: '10' } });
     fireEvent.change(field(/Phép cộng thêm mỗi chu kỳ/), { target: { value: '2' } });
-    fireEvent.change(field(/Ghi chú thay đổi/), { target: { value: 'Đổi chu kỳ' } });
     fireEvent.click(screen.getByRole('button', { name: 'Lưu thay đổi' }));
     await waitFor(() => expect(calls('PUT', '/annual-leave-policy')).toHaveLength(1));
     expect(calls('PUT', '/annual-leave-policy')[0]).toMatchObject({
@@ -294,20 +289,6 @@ describe('LeaveSettingsScreen: chính sách phép năm', () => {
     });
   });
 
-  it('thiếu Ghi chú thay đổi thì báo lỗi và không gọi PUT', async () => {
-    mockActions.add('hrm.leave.manage');
-    renderScreen();
-    await openPolicyForm();
-    // Chưa có thay đổi thì nút Lưu thay đổi bị vô hiệu.
-    expect(
-      (screen.getByRole('button', { name: 'Lưu thay đổi' }) as HTMLButtonElement).disabled,
-    ).toBe(true);
-    fireEvent.change(field(/Số ngày phép mỗi năm/), { target: { value: '13' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Lưu thay đổi' }));
-    expect(await screen.findByText('Cần nhập Ghi chú thay đổi')).toBeTruthy();
-    expect(calls('PUT', '/annual-leave-policy')).toHaveLength(0);
-  });
-
   it('hiển thị nguyên văn lỗi của server và cho tải lại khi dữ liệu đã bị người khác đổi', async () => {
     mockActions.add('hrm.leave.manage');
     const message =
@@ -315,7 +296,7 @@ describe('LeaveSettingsScreen: chính sách phép năm', () => {
     setApi({ putError: new HrmApiError(message, 409, 'HRM_STALE_VERSION') });
     renderScreen();
     await openPolicyForm();
-    fireEvent.change(field(/Ghi chú thay đổi/), { target: { value: 'Sửa' } });
+    fireEvent.change(field(/Số ngày phép mỗi năm/), { target: { value: '13' } });
     fireEvent.click(screen.getByRole('button', { name: 'Lưu thay đổi' }));
     expect(await screen.findByText(message)).toBeTruthy();
     const before = calls('GET', '/annual-leave-policy').length;
@@ -334,7 +315,6 @@ describe('LeaveSettingsScreen: chính sách phép năm', () => {
     renderScreen();
     await openPolicyForm();
     await pick('Chọn lý do nghỉ làm phép năm', /NGHI_PHEP/);
-    fireEvent.change(field(/Ghi chú thay đổi/), { target: { value: 'Khởi tạo' } });
     fireEvent.click(screen.getByRole('button', { name: 'Lưu thay đổi' }));
     expect(
       await screen.findByText(
@@ -355,7 +335,8 @@ describe('LeaveSettingsScreen: chính sách phép năm', () => {
       screen.getByText(/Chưa có chính sách phép năm\. Nhập biểu mẫu và lưu/),
     ).toBeTruthy();
     // Chưa chọn lý do: báo lỗi, không gọi PUT.
-    fireEvent.change(field(/Ghi chú thay đổi/), { target: { value: 'Khởi tạo' } });
+    fireEvent.change(field(/Số ngày phép mỗi năm/), { target: { value: '13' } });
+    fireEvent.change(field(/Số ngày phép mỗi năm/), { target: { value: '13' } });
     fireEvent.click(screen.getByRole('button', { name: 'Lưu thay đổi' }));
     expect(
       await screen.findByText('Cần chọn lý do nghỉ dùng làm phép năm'),
@@ -369,11 +350,10 @@ describe('LeaveSettingsScreen: chính sách phép năm', () => {
     expect(body).toEqual({
       leaveTypeId: 'lt2',
       accrualBasis: 'CONTRACT_SIGN_DATE',
-      annualDays: 12,
+      annualDays: 13,
       startOffsetMonths: 0,
       advanceAllowed: false,
       seniorityTiers: [{ minYears: 5, bonusDays: 1 }],
-      reason: 'Khởi tạo',
     });
     expect('expectedUpdatedAt' in body).toBe(false);
   });
@@ -429,7 +409,6 @@ describe('LeaveSettingsScreen: tác vụ định kỳ và quyền', () => {
     expect(field(/Số ngày phép mỗi năm/).disabled).toBe(true);
     expect(screen.getByText('Chỉ xem')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Lưu thay đổi' })).toBeNull();
-    expect(screen.queryByLabelText(/Ghi chú thay đổi/)).toBeNull();
     expect(screen.queryByRole('button', { name: 'Cộng phép tháng' })).toBeNull();
     expect(calls('PUT', '/annual-leave-policy')).toHaveLength(0);
   });
@@ -451,13 +430,10 @@ describe('LeaveSettingsScreen: nút Lưu thay đổi ở tiêu đề và tóm t�
     expect(save.disabled).toBe(true);
     fireEvent.change(field(/Số ngày phép mỗi năm/), { target: { value: '15' } });
     expect(save.disabled).toBe(false);
-    fireEvent.change(field(/Ghi chú thay đổi/), { target: { value: 'Quy chế mới' } });
-    expect(screen.getByTestId('reason-counter').textContent).toBe('11/1000');
     fireEvent.click(save);
     await waitFor(() => expect(calls('PUT', '/annual-leave-policy')).toHaveLength(1));
     expect(calls('PUT', '/annual-leave-policy')[0]).toMatchObject({
       annualDays: 15,
-      reason: 'Quy chế mới',
       expectedUpdatedAt: policyUpdatedAt,
     });
     expect(await screen.findByText('Đã lưu chính sách phép năm.')).toBeTruthy();

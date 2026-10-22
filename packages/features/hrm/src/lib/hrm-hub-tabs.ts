@@ -43,7 +43,7 @@ export const HRM_HUBS = {
   ],
   '/settings': [
     { id: 'leave', label: 'Chính sách phép năm', permissions: ['hrm.leave.manage'] },
-    { id: 'time', label: 'Công và thiết bị', permissions: ['hrm.time.configure', 'hrm.device.manage'] },
+    { id: 'time', label: 'Chấm công', permissions: ['hrm.time.configure'] },
     { id: 'schedules', label: 'Phân ca', permissions: ['hrm.schedule.read'] },
     { id: 'shifts', label: 'Danh mục ca', permissions: ['hrm.shift.read', 'hrm.shift.manage'] },
     { id: 'standard-work', label: 'Công chuẩn', permissions: ['hrm.time.configure'] },

@@ -19,6 +19,7 @@ import { DatePickerInput } from './date-picker-input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './dialog';
 import { Input } from './input';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from './sheet';
+import { STAGED_NOTICE, type HrmStageChange } from './hrm-staged-change';
 import { toast } from './toast';
 
 const documentLabels: Record<HrmProfileDocumentType, string> = {
@@ -167,6 +168,7 @@ export function HrmProfileDocumentsPanel({
   readOnly,
   identityCardNumber,
   variant = 'full',
+  onStage,
 }: {
   employeeId: string;
   mode: 'hr' | 'self';
@@ -174,6 +176,8 @@ export function HrmProfileDocumentsPanel({
   identityCardNumber?: string;
   /** `compact`: thẻ gọn của Hồ sơ của tôi (CCCD mặt trước, mặt sau, bằng cấp); "Quản lý giấy tờ" mở đầy đủ trong ngăn kéo. */
   variant?: 'full' | 'compact';
+  /** Có truyền: thao tác (kể cả tải tệp) chỉ được xếp hàng, chưa gọi API cho tới khi xác nhận lưu. */
+  onStage?: HrmStageChange;
 }) {
   const [manageOpen, setManageOpen] = useState(false);
   const [docs, setDocs] = useState<HrmProfileDocuments | null>(null);
@@ -241,18 +245,27 @@ export function HrmProfileDocumentsPanel({
 
   /** Cập nhật trực tiếp giấy tờ & bằng cấp vào hồ sơ. */
   async function submit(
-    documentChanges: HrmProfileDocumentChange[],
+    label: string,
+    buildChanges: () => Promise<HrmProfileDocumentChange[]>,
     identityCardExpiryDate?: string,
   ) {
-    await hrmFetch(`/employees/${employeeId}/profile-documents`, {
-      method: 'POST',
-      body: JSON.stringify({
-        documentChanges,
-        ...(identityCardExpiryDate !== undefined
-          ? { identityCardExpiryDate: identityCardExpiryDate || null }
-          : {}),
-      }),
-    });
+    const run = async () => {
+      await hrmFetch(`/employees/${employeeId}/profile-documents`, {
+        method: 'POST',
+        body: JSON.stringify({
+          documentChanges: await buildChanges(),
+          ...(identityCardExpiryDate !== undefined
+            ? { identityCardExpiryDate: identityCardExpiryDate || null }
+            : {}),
+        }),
+      });
+    };
+    if (onStage) {
+      onStage({ label, run });
+      toast.success(STAGED_NOTICE);
+      return;
+    }
+    await run();
     toast.success('Đã cập nhật giấy tờ');
     await load();
   }
@@ -266,50 +279,66 @@ export function HrmProfileDocumentsPanel({
         const expiryChanged =
           isId && expiry !== (docs?.identityCardExpiryDate ?? '');
         if (!file && !expiryChanged) throw new Error('Chọn tệp để tải lên');
-        const changes: HrmProfileDocumentChange[] = [];
-        if (file) {
-          const up = await uploadHrmAttachment(
-            employeeId,
-            file,
-            editing.documentType,
-          );
-          changes.push({
-            op: 'SET_DOCUMENT',
-            documentType: editing.documentType,
-            attachmentId: up.id,
-          });
-        }
-        await submit(changes, expiryChanged ? expiry : undefined);
+        const { documentType } = editing;
+        await submit(
+          `Cập nhật ${documentLabels[documentType]}`,
+          async () => {
+            const changes: HrmProfileDocumentChange[] = [];
+            if (file) {
+              const up = await uploadHrmAttachment(
+                employeeId,
+                file,
+                documentType,
+              );
+              changes.push({
+                op: 'SET_DOCUMENT',
+                documentType,
+                attachmentId: up.id,
+              });
+            }
+            return changes;
+          },
+          expiryChanged ? expiry : undefined,
+        );
       } else {
         if (!form.name.trim()) throw new Error('Nhập tên bằng cấp, chứng chỉ');
-        let attachmentId = editing.row?.attachment?.id ?? null;
-        if (file)
-          attachmentId = (
-            await uploadHrmAttachment(employeeId, file, 'QUALIFICATION')
-          ).id;
-        const q = {
-          type: form.type as HrmQualificationType,
-          name: form.name.trim(),
-          level: form.level.trim() || null,
-          major: form.major.trim() || null,
-          institution: form.institution.trim() || null,
-          certificateNumber: form.certificateNumber.trim() || null,
-          issuedDate: form.issuedDate || null,
-          effectiveFrom: form.effectiveFrom || null,
-          expiryDate: form.expiryDate || null,
-          grade: form.grade.trim() || null,
-          note: form.note.trim() || null,
-          attachmentId,
+        const existingRow = editing.row;
+        const buildQualification = async () => {
+          let attachmentId = existingRow?.attachment?.id ?? null;
+          if (file)
+            attachmentId = (
+              await uploadHrmAttachment(employeeId, file, 'QUALIFICATION')
+            ).id;
+          return {
+            type: form.type as HrmQualificationType,
+            name: form.name.trim(),
+            level: form.level.trim() || null,
+            major: form.major.trim() || null,
+            institution: form.institution.trim() || null,
+            certificateNumber: form.certificateNumber.trim() || null,
+            issuedDate: form.issuedDate || null,
+            effectiveFrom: form.effectiveFrom || null,
+            expiryDate: form.expiryDate || null,
+            grade: form.grade.trim() || null,
+            note: form.note.trim() || null,
+            attachmentId,
+          };
         };
-        await submit([
-          editing.row
-            ? {
-                op: 'UPDATE_QUALIFICATION',
-                id: editing.row.id,
-                qualification: q,
-              }
-            : { op: 'ADD_QUALIFICATION', qualification: q },
-        ]);
+        await submit(
+          `${existingRow ? 'Cập nhật' : 'Thêm'} bằng cấp, chứng chỉ: ${form.name.trim()}`,
+          async () => {
+            const q = await buildQualification();
+            return [
+              existingRow
+                ? {
+                    op: 'UPDATE_QUALIFICATION' as const,
+                    id: existingRow.id,
+                    qualification: q,
+                  }
+                : { op: 'ADD_QUALIFICATION' as const, qualification: q },
+            ];
+          },
+        );
       }
       close();
     } catch (e) {
@@ -321,12 +350,20 @@ export function HrmProfileDocumentsPanel({
 
   async function remove(row: HrmQualification) {
     try {
-      await hrmFetch(`/employees/${employeeId}/profile-documents`, {
-        method: 'POST',
-        body: JSON.stringify({
-          documentChanges: [{ op: 'REMOVE_QUALIFICATION', id: row.id }],
-        }),
-      });
+      const run = async () => {
+        await hrmFetch(`/employees/${employeeId}/profile-documents`, {
+          method: 'POST',
+          body: JSON.stringify({
+            documentChanges: [{ op: 'REMOVE_QUALIFICATION', id: row.id }],
+          }),
+        });
+      };
+      if (onStage) {
+        onStage({ label: `Gỡ bằng cấp, chứng chỉ: ${row.name}`, run });
+        toast.success(STAGED_NOTICE);
+        return;
+      }
+      await run();
       toast.success('Đã gỡ khỏi hồ sơ');
       await load();
     } catch (e) {
@@ -607,7 +644,7 @@ export function HrmProfileDocumentsPanel({
               <SheetDescription>Ảnh thẻ, CCCD, bằng cấp, chứng chỉ và các giấy tờ khác của hồ sơ.</SheetDescription>
             </SheetHeader>
             <div className="flex-1 overflow-y-auto p-4">
-              <HrmProfileDocumentsPanel employeeId={employeeId} mode={mode} readOnly={readOnly} identityCardNumber={identityCardNumber} />
+              <HrmProfileDocumentsPanel employeeId={employeeId} mode={mode} readOnly={readOnly} identityCardNumber={identityCardNumber} onStage={onStage} />
             </div>
           </SheetContent>
         </Sheet>
