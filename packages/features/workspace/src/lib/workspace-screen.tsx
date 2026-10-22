@@ -7,12 +7,10 @@ import {
   useAssistantSaved,
   useHashView,
   type ModuleNavItem,
-  type ModuleSidebarSection,
 } from '@enterprise-platform/feature-module-shell';
 import {
   WORKSPACE_ASSISTANT_ACTIONS,
   type ProjectSummary,
-  type ProjectTypeOption,
 } from '@enterprise-platform/contracts-workspace';
 import {
   BarChart3,
@@ -27,12 +25,9 @@ import {
   Users,
 } from 'lucide-react';
 import { initialReturnTarget, type ReturnTarget } from '@enterprise-platform/shared-ui';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   getProject,
-  listAllProjects,
-  listProjects,
-  listProjectTypes,
   loadMyWork,
   loadCurrentUserId,
   loadTenantHomePath,
@@ -40,7 +35,6 @@ import {
   type WorkspaceStatus,
 } from './workspace-api';
 import { DocumentPanel } from './components/document-panel';
-import { ProjectAvatar } from './components/project-avatar';
 import { MyWorkView } from './components/my-work-view';
 import { QuickSearch, type QuickSearchTarget } from './components/quick-search';
 import { ReportsView } from './components/reports-view';
@@ -74,14 +68,7 @@ const NAV: readonly ModuleNavItem<Tab>[] = [
     group: 'Công việc',
     icon: <ClipboardList size={16} />,
   },
-  // Mở bằng tiêu đề "DỰ ÁN" của mục dự án trên thanh bên, không có dòng riêng.
-  {
-    id: 'projects',
-    label: 'Dự án',
-    group: 'Công việc',
-    icon: <FolderKanban size={16} />,
-    hidden: true,
-  },
+  { id: 'projects', label: 'Dự án', group: 'Công việc', icon: <FolderKanban size={16} /> },
   { id: 'documents', label: 'Tài liệu', group: 'Công việc', icon: <FileText size={16} /> },
   { id: 'reports', label: 'Báo cáo', group: 'Công việc', icon: <BarChart3 size={16} /> },
   // Tab "Khách hàng" nằm trong khu vực Dự án (dải hai tab ở đầu trang), không có dòng riêng.
@@ -90,8 +77,6 @@ const NAV: readonly ModuleNavItem<Tab>[] = [
   { id: 'settings', label: 'Cài đặt', icon: <Settings size={16} />, hidden: true },
 ];
 
-/** Số dự án hiện sẵn ở mục Dự án trên thanh bên; còn lại vào "Tất cả dự án". */
-const SIDEBAR_PROJECTS = 5;
 const WORKSPACE_ACTION_KEYS = assistantActionKeys(WORKSPACE_ASSISTANT_ACTIONS);
 
 const VIEWS = NAV.map((item) => item.id);
@@ -215,21 +200,10 @@ export function WorkspaceScreen() {
   /** Mở từ trang khác kèm `?returnTo=`: hiện dải "xử lý xong sẽ tự quay về". Đọc sau khi gắn để khớp SSR. */
   const [returnTarget, setReturnTarget] = useState<ReturnTarget>();
   useEffect(() => setReturnTarget(initialReturnTarget()), []);
-  /** Mục Dự án trên thanh bên: vài dự án đầu (hay tất cả, khi đã bung) và tổng số. */
-  const [sidebarProjects, setSidebarProjects] = useState<readonly ProjectSummary[]>([]);
-  const [projectTotal, setProjectTotal] = useState(0);
-  /** "Tất cả dự án" bung toàn bộ dự án ngay trên thanh bên; bấm lần nữa thì thu lại. */
-  const [showAllProjects, setShowAllProjects] = useState(false);
-  /** Lọc thanh bên theo nhóm dự án; rỗng là mọi nhóm. */
-  const [projectType, setProjectType] = useState('');
-  const [projectTypes, setProjectTypes] = useState<readonly ProjectTypeOption[]>([]);
-  /** Dự án đang mở ở trang Dự án, để tô sáng dòng tương ứng. */
-  const [openProjectId, setOpenProjectId] = useState<string>();
-  /** Bản tóm tắt của dự án đang mở, để giữ dòng của nó dù không nằm trong vài dự án đầu. */
+  /** Bản tóm tắt của dự án đang mở: tên trên breadcrumb, khách hàng chủ quản cho tab Khách hàng. */
   const [openProjectInfo, setOpenProjectInfo] = useState<ProjectSummary>();
   const onOpenProjectChange = useCallback(
-    (projectId: string | undefined, project?: ProjectSummary) => {
-      setOpenProjectId(projectId);
+    (_projectId: string | undefined, project?: ProjectSummary) => {
       if (project) setOpenProjectInfo(project);
     },
     [],
@@ -244,9 +218,6 @@ export function WorkspaceScreen() {
     const sync = () => {
       const next = new URLSearchParams(window.location.search).get('project') ?? undefined;
       setUrlProjectId(next);
-      // Không còn dự án trên đường dẫn (về trang danh sách): bỏ tô sáng dòng dự
-      // án trên thanh bên. Khi mở một dự án, ProjectsView sẽ gán lại kèm tóm tắt.
-      if (!next) setOpenProjectId(undefined);
     };
     sync();
     window.addEventListener('hashchange', sync);
@@ -274,13 +245,8 @@ export function WorkspaceScreen() {
   }, [view, urlProjectId, openProjectInfo]);
   /** Chỗ nút ở đầu trang, nơi trang Dự án đặt nút Trao đổi và "⋯" của dự án. */
   const [actionsSlot, setActionsSlot] = useState<HTMLDivElement | null>(null);
-  /** Bấm lại dự án đang mở: trang Dự án đóng hộp chi tiết, về tab Công việc. */
-  const [focusProjectRequest, setFocusProjectRequest] = useState(0);
   /** Việc quá hạn và đến hạn hôm nay: con số cạnh "Công việc của tôi". */
   const [attention, setAttention] = useState(0);
-  /** Bộ đếm lượt bấm "+" ở mục Dự án; trang Dự án mở hộp tạo dự án khi nó tăng. */
-  const [createProjectRequest, setCreateProjectRequest] = useState(0);
-  const clearCreateProjectRequest = useCallback(() => setCreateProjectRequest(0), []);
   /** Bộ đếm lượt bấm "Giao việc" ở đầu trang Công việc ngoài dự án. */
   const [createTaskRequest, setCreateTaskRequest] = useState(0);
   const clearCreateTaskRequest = useCallback(() => setCreateTaskRequest(0), []);
@@ -303,44 +269,6 @@ export function WorkspaceScreen() {
     } else navigate('documents', target.documentId);
   };
 
-  const reloadSidebarProjects = useCallback(() => {
-    // Dự án lưu trữ (đã hoàn thành) không hiện trên thanh bên; xem ở tab Lưu trữ của trang Dự án.
-    const filter = { projectType: projectType || undefined, archived: 'exclude' as const };
-    const load = showAllProjects
-      ? listAllProjects(20, filter).then((items) => ({ items, total: items.length }))
-      : listProjects({ ...filter, pageSize: SIDEBAR_PROJECTS });
-    load
-      .then((page) => {
-        setSidebarProjects(page.items);
-        // Khi đã bung, tổng là số vừa nạp; giữ tổng cũ nếu nó lớn hơn (danh
-        // sách gom qua từng trang có trần số trang).
-        setProjectTotal((current) =>
-          showAllProjects ? Math.max(current, page.total) : page.total,
-        );
-      })
-      .catch(() => undefined);
-    listProjectTypes()
-      .then((result) => setProjectTypes(result.items))
-      .catch(() => undefined);
-  }, [showAllProjects, projectType]);
-
-  useEffect(() => {
-    reloadSidebarProjects();
-  }, [reloadSidebarProjects]);
-
-  // Mở một dự án chưa có trên thanh bên (thường là vừa tạo) thì nạp lại một
-  // lần cho đúng tổng số. Chỉ chạy khi đổi dự án: nạp lại mà dự án vẫn nằm
-  // ngoài vài dự án đầu thì không được nạp tiếp thành vòng lặp.
-  const sidebarProjectsRef = useRef(sidebarProjects);
-  sidebarProjectsRef.current = sidebarProjects;
-  useEffect(() => {
-    if (
-      openProjectId &&
-      !sidebarProjectsRef.current.some((project) => project.id === openProjectId)
-    ) {
-      reloadSidebarProjects();
-    }
-  }, [openProjectId, reloadSidebarProjects]);
 
   // Con số nhắc việc: đổi khi rời trang Công việc của tôi hay quay lại, và khi card Trợ lý vừa tạo việc.
   const refreshAttention = useCallback(() => {
@@ -387,109 +315,6 @@ export function WorkspaceScreen() {
     item.id === 'my-work' && attention > 0 ? { ...item, badge: attention } : item,
   );
 
-  /**
-   * Dòng dự án trên thanh bên: vài dự án đầu, cộng dự án đang mở nếu nó nằm
-   * ngoài số đó, để luôn thấy mình đang ở dự án nào.
-   */
-  const sidebarItems = useMemo(() => {
-    // Đang lọc theo loại thì không chen dự án đang mở thuộc loại khác vào.
-    const open =
-      view === 'projects' &&
-      openProjectInfo?.id === openProjectId &&
-      (!projectType || openProjectInfo?.projectType === projectType)
-        ? openProjectInfo
-        : undefined;
-    const list =
-      !open || sidebarProjects.some((project) => project.id === open.id)
-        ? sidebarProjects
-        : [open, ...sidebarProjects];
-    // Bung "Tất cả dự án" mà chưa lọc loại: xếp theo loại để thanh bên chia nhóm.
-    if (!showAllProjects || projectType || projectTypes.length === 0) return list;
-    return [...list].sort((a, b) =>
-      (a.projectType ?? '\uffff').localeCompare(b.projectType ?? '\uffff', 'vi'),
-    );
-  }, [
-    sidebarProjects,
-    openProjectInfo,
-    openProjectId,
-    view,
-    showAllProjects,
-    projectType,
-    projectTypes,
-  ]);
-  const groupByType = showAllProjects && !projectType && projectTypes.length > 0;
-
-  const sidebarSections = useMemo<readonly ModuleSidebarSection[]>(
-    () => [
-      {
-        id: 'projects',
-        title: 'Dự án',
-        count: projectTotal,
-        onTitleClick: openProjectList,
-        titleActive: view === 'projects' && !openProjectId,
-        action: {
-          label: 'Tạo dự án',
-          onClick: () => {
-            navigate('projects');
-            setCreateProjectRequest((count) => count + 1);
-          },
-        },
-        items: sidebarItems.map((project) => {
-          const active = view === 'projects' && openProjectId === project.id;
-          return {
-            id: project.id,
-            // Hiển thị theo "[Mã dự án]-[Tên dự án]" để nhận ra dự án nhanh
-            // ngay trên thanh bên, không chỉ bằng tên.
-            label: `${project.code}-${project.name}`,
-            title: `${project.code} · ${project.name}`,
-            leading: <ProjectAvatar id={project.id} name={project.name} />,
-            trailing: `${project.progressPercent}%`,
-            group: groupByType ? (project.projectType ?? 'Chưa phân loại') : undefined,
-            active,
-            onSelect: () =>
-              active ? setFocusProjectRequest((count) => count + 1) : openProject(project.id),
-          };
-        }),
-        filter:
-          projectTypes.length > 0
-            ? {
-                label: 'Lọc dự án theo nhóm',
-                value: projectType,
-                options: [
-                  { value: '', label: 'Mọi nhóm dự án' },
-                  ...projectTypes.map((type) => ({
-                    value: type.name,
-                    label: `${type.name} (${type.count})`,
-                  })),
-                ],
-                onChange: setProjectType,
-              }
-            : undefined,
-        emptyText: projectType ? 'Không có dự án thuộc nhóm này.' : 'Chưa có dự án nào.',
-        // Chỉ có dòng này khi còn dự án chưa hiện, hay khi đang bung để thu lại.
-        footer:
-          showAllProjects || projectTotal > SIDEBAR_PROJECTS
-            ? {
-                label: showAllProjects ? 'Thu gọn' : `Tất cả dự án (${projectTotal})`,
-                onClick: () => setShowAllProjects((current) => !current),
-              }
-            : undefined,
-      },
-    ],
-    [
-      sidebarItems,
-      projectTotal,
-      showAllProjects,
-      view,
-      openProjectId,
-      navigate,
-      openProject,
-      projectType,
-      projectTypes,
-      groupByType,
-      openProjectList,
-    ],
-  );
 
   /** Xoá tài liệu và thư mục: mặc định chỉ quản trị tenant. */
   const canDelete = Boolean(status?.capabilities?.canDeleteDocuments);
@@ -510,7 +335,6 @@ export function WorkspaceScreen() {
       collapsed={railCollapsed}
       onCollapsedChange={setRailCollapsed}
       onQuickSearch={openQuickSearch}
-      sidebarSections={sidebarSections}
       settings={{
         label: 'Cài đặt',
         active: view === 'settings',
@@ -613,17 +437,10 @@ export function WorkspaceScreen() {
                 onOpenProjectChange={onOpenProjectChange}
                 onOpenProject={openProject}
                 actionsSlot={actionsSlot}
-                onProjectsChanged={reloadSidebarProjects}
-                focusProjectRequest={focusProjectRequest}
-                createProjectRequest={createProjectRequest}
-                onCreateProjectHandled={clearCreateProjectRequest}
               />
             ) : (
               <ProjectsListView
                 onOpenProject={openProject}
-                createProjectRequest={createProjectRequest}
-                onCreateProjectHandled={clearCreateProjectRequest}
-                onProjectsChanged={reloadSidebarProjects}
               />
             )
           ) : urlProjectId ? (
