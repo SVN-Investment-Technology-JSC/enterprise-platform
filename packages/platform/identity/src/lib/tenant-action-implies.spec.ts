@@ -59,7 +59,7 @@ describe('tenantModulePermissions', () => {
   });
 
   it('module có cổng vào thì nhận module.access', () => {
-    for (const module of ['assistant', 'hrm', 'procedure-engine', 'workspace'])
+    for (const module of ['assistant', 'hrm', 'procedure-engine', 'social', 'workspace'])
       expect(tenantModulePermissions(module)).toContain('module.access');
     expect(tenantModulePermissions('assistant')).toEqual(['module.access']);
   });

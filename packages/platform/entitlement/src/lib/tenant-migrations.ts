@@ -640,6 +640,16 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     { version: '0002-shared-trash', path: 'tenant/shared/0002-shared-trash.sql' },
     { version: '0003-shared-folder-shares', path: 'tenant/shared/0003-shared-folder-shares.sql' },
   ],
+  // Mạng nội bộ: bảng tin công ty.
+  social: [
+    { version: '0001-social-feed', path: 'tenant/social/0001-social-feed.sql' },
+    { version: '0002-social-groups', path: 'tenant/social/0002-social-groups.sql' },
+    { version: '0003-social-post-p2', path: 'tenant/social/0003-social-post-p2.sql' },
+    {
+      version: '0004-social-visibility-groups-v2',
+      path: 'tenant/social/0004-social-visibility-groups-v2.sql',
+    },
+  ],
 };
 
 /**

@@ -29,6 +29,7 @@ const MODULE_DIRECTORIES: Readonly<Record<string, string>> = {
   'procedure-engine': 'tenant/procedure',
   maintenance: 'tenant/maintenance',
   shared: 'tenant/shared',
+  social: 'tenant/social',
   workspace: 'tenant/workspace',
 };
 
