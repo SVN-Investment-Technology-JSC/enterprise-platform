@@ -3,6 +3,7 @@ import type { Request } from 'express';
 import { HrmPublicRoute } from '../infrastructure/hrm-access.guard.js';
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
 import { findAvailability } from '../infrastructure/hrm-fleet.js';
+import { listProfileFacts, parseProfileFactsFilter } from '../infrastructure/hrm-people-facts.js';
 import { requireUuid } from '../infrastructure/hrm-validation.js';
 import {
   checkLinkedReversal,
@@ -41,6 +42,22 @@ export class HrmInternalController {
         ? { sourceType: excludeSourceType as never, sourceId: requireUuid(excludeSourceId, 'excludeSourceId') }
         : undefined;
     return { data: await findAvailability(pool, tenantId, from, to, exclude) };
+  }
+
+  /**
+   * Mạng nội bộ hỏi ngày sinh và ngày vào công ty của nhân sự đang làm việc (chỉ đọc). Lọc tuỳ chọn
+   * bằng `userIds` (cách nhau bởi dấu phẩy) và `month` (1-12).
+   */
+  @HrmPublicRoute()
+  @Get('people/profile-facts')
+  async profileFacts(
+    @Req() req: Request,
+    @Query('userIds') userIds?: string,
+    @Query('month') month?: string,
+  ) {
+    const filter = parseProfileFactsFilter(userIds, month);
+    const { pool, tenantId } = await this.ctx.serviceContext(req);
+    return { data: await listProfileFacts(pool, tenantId, filter) };
   }
 
   /** Workspace hỏi trước khi gửi yêu cầu huỷ hiệu lực đơn từ của dự án. */

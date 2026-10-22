@@ -24,6 +24,28 @@ export type NotificationRecipientRule =
   | {
       readonly kind: 'payload';
       readonly fields: readonly string[];
+      /** Người ghi ở các trường này bị loại khỏi danh sách (vd. đã nhận thông báo nhắc tên cho cùng nội dung). */
+      readonly excludeFields?: readonly string[];
+    }
+  | {
+      /** Mọi người dùng đang hoạt động của tenant; `when` sai thì không báo cho ai. */
+      readonly kind: 'all-active-users';
+      readonly when?: (payload: Readonly<Record<string, unknown>>) => boolean;
+      readonly excludeFields?: readonly string[];
+    }
+  | {
+      /**
+       * Chọn cách tính người nhận theo payload (vd. bài nhóm báo thành viên, bài Tường công ty báo mọi người).
+       * `select` trả về luật con, hoặc `undefined` nếu không báo cho ai. `excludeFields` áp cho kết quả cuối.
+       */
+      readonly kind: 'conditional';
+      readonly select: (payload: Readonly<Record<string, unknown>>) => NotificationRecipientRule | undefined;
+      readonly excludeFields?: readonly string[];
+    }
+  | {
+      /** Hợp người nhận của nhiều luật con (vd. admin nhóm trong payload cộng mọi moderator). */
+      readonly kind: 'union';
+      readonly rules: readonly NotificationRecipientRule[];
     }
   | {
       readonly kind: 'permission';
@@ -63,6 +85,8 @@ export interface NotificationPolicy {
 export interface RecipientDirectory {
   usersWithPermission(permission: string): Promise<readonly string[]>;
   activeUsers(userIds: readonly string[]): Promise<readonly string[]>;
+  /** Mọi người dùng đang hoạt động của tenant (thông báo toàn công ty). */
+  allActiveUsers?(): Promise<readonly string[]>;
   /** Giải các vai gán cho đơn vị/chức danh thành người dùng cụ thể (cần sơ đồ tổ chức). */
   usersForProcedureAssignments?(
     assignments: readonly ProcedureAssignmentRef[],
@@ -118,7 +142,12 @@ export class NotificationPolicyRegistry {
     const context = { event: event as IntegrationEventEnvelope<Record<string, unknown>>, payload };
     const candidates = await resolveCandidates(policy.recipients, payload, directory);
     const actor = policy.actorField ? optionalString(payload[policy.actorField]) : undefined;
-    const unique = [...new Set(candidates)].filter((userId) => userId !== actor);
+    const excluded = new Set(
+      'excludeFields' in policy.recipients
+        ? (policy.recipients.excludeFields ?? []).flatMap((field) => recipientValues(payload[field]))
+        : [],
+    );
+    const unique = [...new Set(candidates)].filter((userId) => userId !== actor && !excluded.has(userId));
     const recipients = await directory.activeUsers(unique);
     const rendered = policy.template(context);
     const deepLink = notificationDeepLink(rendered.deepLink);
@@ -146,6 +175,18 @@ async function resolveCandidates(
   payload: Readonly<Record<string, unknown>>,
   directory: RecipientDirectory,
 ): Promise<readonly string[]> {
+  if (rule.kind === 'conditional') {
+    const selected = rule.select(payload);
+    return selected ? resolveCandidates(selected, payload, directory) : [];
+  }
+  if (rule.kind === 'union') {
+    return (await Promise.all(rule.rules.map((sub) => resolveCandidates(sub, payload, directory)))).flat();
+  }
+  if (rule.kind === 'all-active-users') {
+    if (rule.when && !rule.when(payload)) return [];
+    if (!directory.allActiveUsers) throw new TypeError('Recipient directory cannot list all active users.');
+    return directory.allActiveUsers();
+  }
   if (rule.kind === 'permission') return directory.usersWithPermission(rule.permission);
   if (rule.kind === 'permissions-in-payload') {
     const permissions = recipientValues(payload[rule.field]);

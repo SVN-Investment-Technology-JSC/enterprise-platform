@@ -164,6 +164,51 @@ describe('RealtimeGateway', () => {
     });
   });
 
+  describe('social group rooms', () => {
+    function gatewayWithSocial(socialRooms: Record<string, jest.Mock>) {
+      return new RealtimeGateway(
+        { authenticate: jest.fn().mockResolvedValue(principal) },
+        new RealtimeOriginPolicy(['https://erp.example.test']),
+        { watch: jest.fn(), unwatch: jest.fn() } as never,
+        undefined,
+        undefined,
+        undefined,
+        socialRooms as never,
+      );
+    }
+
+    it('social.subscribe forwards principal, cookie and payload and acknowledges ok', async () => {
+      const subscribe = jest.fn().mockResolvedValue(true);
+      const gateway = gatewayWithSocial({ subscribe, forget: jest.fn() });
+      const client = socket();
+      await gateway.handleConnection(client);
+      await expect(gateway.handleSocialSubscribe(client, { groupId: 'g1' })).resolves.toEqual({ ok: true });
+      expect(subscribe).toHaveBeenCalledWith(principal, client, 'ep_access=signed', { groupId: 'g1' });
+    });
+
+    it('social.subscribe is refused for an unauthenticated socket and on failure', async () => {
+      const subscribe = jest.fn().mockRejectedValue(new Error('boom'));
+      const gateway = gatewayWithSocial({ subscribe, forget: jest.fn() });
+      await expect(gateway.handleSocialSubscribe(socket(), { groupId: 'g1' })).resolves.toEqual({ ok: false });
+      expect(subscribe).not.toHaveBeenCalled();
+      const client = socket();
+      await gateway.handleConnection(client);
+      await expect(gateway.handleSocialSubscribe(client, { groupId: 'g1' })).resolves.toEqual({ ok: false });
+    });
+
+    it('social.unsubscribe leaves for an authenticated socket and the room state is dropped on disconnect', async () => {
+      const unsubscribe = jest.fn().mockResolvedValue(undefined);
+      const forget = jest.fn();
+      const gateway = gatewayWithSocial({ unsubscribe, forget });
+      const client = socket();
+      await gateway.handleConnection(client);
+      await gateway.handleSocialUnsubscribe(client, { groupId: 'g1' });
+      expect(unsubscribe).toHaveBeenCalledWith(principal, client, { groupId: 'g1' });
+      gateway.handleDisconnect(client);
+      expect(forget).toHaveBeenCalledWith(client.id);
+    });
+  });
+
   describe('procedure rooms', () => {
     const INSTANCE = 'instance-1';
 

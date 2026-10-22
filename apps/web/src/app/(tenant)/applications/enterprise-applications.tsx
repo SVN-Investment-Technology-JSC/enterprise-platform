@@ -79,6 +79,25 @@ const moduleCatalogMetadata: Record<string, ModuleExtraInfo> = {
     businessValue:
       'Hợp đồng, quyết định và văn bản của công ty nằm một chỗ, tìm được theo số hiệu, đối tác và hạn hiệu lực.',
   },
+  social: {
+    category: 'Nền tảng dùng chung',
+    tagline: 'Mạng nội bộ của công ty: bảng tin, thông báo và trao đổi giữa các phòng ban.',
+    accentColor: {
+      bg: 'bg-rose-50/70',
+      border: 'border-rose-200/80',
+      text: 'text-rose-700',
+      iconBg: 'bg-rose-100 text-rose-700',
+    },
+    features: [
+      'Bảng tin công ty với bài viết, thông báo và chuyên mục',
+      'Ghim bài quan trọng, đính kèm ảnh và tệp',
+      'Phản ứng, bình luận lồng hai cấp và nhắc tên đồng nghiệp',
+      'Kiểm duyệt bài viết và bình luận theo quyền',
+    ],
+    targetRoles: ['Toàn thể nhân sự', 'Truyền thông nội bộ', 'Ban Tổng giám đốc'],
+    businessValue:
+      'Tin tức và thông báo của công ty đến đúng người ngay trên ERP, thay cho tin nhắn rời rạc qua nhiều kênh.',
+  },
   'procedure-engine': {
     category: 'Vận hành & Quy trình',
     tagline: 'Thiết kế, ban hành và tự động hóa luồng phê duyệt văn bản, tờ trình đa cấp.',

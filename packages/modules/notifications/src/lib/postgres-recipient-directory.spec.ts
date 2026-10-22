@@ -16,3 +16,14 @@ describe('PostgresRecipientDirectory.usersWithPermission', () => {
     expect(sql).toContain('users.is_active = true');
   });
 });
+
+describe('PostgresRecipientDirectory.allActiveUsers', () => {
+  it('lists only active users', async () => {
+    const query = jest.fn(async () => ({ rows: [{ id: 'u1' }, { id: 'u2' }] }));
+    const directory = new PostgresRecipientDirectory({ query } as unknown as Pool);
+    await expect(directory.allActiveUsers()).resolves.toEqual(['u1', 'u2']);
+    const [sql] = query.mock.calls[0] as unknown as [string];
+    expect(sql).toContain("status = 'active'");
+    expect(sql).toContain('is_active = true');
+  });
+});

@@ -1000,6 +1000,104 @@ importers:
         specifier: ^19.0.0
         version: 19.2.8(react@19.2.8)
 
+  apps/social-api:
+    dependencies:
+      '@enterprise-platform/adapter-database':
+        specifier: workspace:*
+        version: link:../../packages/adapters/database
+      '@enterprise-platform/contracts-identity':
+        specifier: workspace:*
+        version: link:../../packages/contracts/identity
+      '@enterprise-platform/contracts-social':
+        specifier: workspace:*
+        version: link:../../packages/contracts/social
+      '@enterprise-platform/contracts-tenancy':
+        specifier: workspace:*
+        version: link:../../packages/contracts/tenancy
+      '@enterprise-platform/module-social':
+        specifier: workspace:*
+        version: link:../../packages/modules/social
+      '@enterprise-platform/platform-module-access':
+        specifier: workspace:*
+        version: link:../../packages/platform/module-access
+      '@nestjs/common':
+        specifier: ^11.0.0
+        version: 11.2.1(reflect-metadata@0.2.2)(rxjs@7.8.1)
+      '@nestjs/core':
+        specifier: ^11.0.0
+        version: 11.2.1(@nestjs/common@11.2.1(reflect-metadata@0.2.2)(rxjs@7.8.1))(@nestjs/platform-express@11.2.1)(@nestjs/websockets@11.2.7)(reflect-metadata@0.2.2)(rxjs@7.8.1)
+      '@nestjs/platform-express':
+        specifier: ^11.0.0
+        version: 11.2.1(@nestjs/common@11.2.1(reflect-metadata@0.2.2)(rxjs@7.8.1))(@nestjs/core@11.2.1)
+      cookie-parser:
+        specifier: ^1.4.7
+        version: 1.4.7
+      jose:
+        specifier: ^6.2.9
+        version: 6.2.9
+      pg:
+        specifier: ^8.23.0
+        version: 8.23.0
+      reflect-metadata:
+        specifier: ^0.2.0
+        version: 0.2.2
+      rxjs:
+        specifier: ^7.8.0
+        version: 7.8.1
+      tslib:
+        specifier: ^2.3.0
+        version: 2.8.1
+    devDependencies:
+      '@nestjs/testing':
+        specifier: ^11.0.0
+        version: 11.2.1(@nestjs/common@11.2.1(reflect-metadata@0.2.2)(rxjs@7.8.1))(@nestjs/core@11.2.1)(@nestjs/platform-express@11.2.1)
+      '@types/cookie-parser':
+        specifier: ^1.4.10
+        version: 1.4.10(@types/express@5.0.6)
+      '@types/express':
+        specifier: ^5.0.6
+        version: 5.0.6
+
+  apps/social-web:
+    dependencies:
+      '@base-ui/react':
+        specifier: ^1.7.0
+        version: 1.7.0(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      '@enterprise-platform/feature-social':
+        specifier: workspace:*
+        version: link:../../packages/features/social
+      '@enterprise-platform/shared-ui':
+        specifier: workspace:*
+        version: link:../../packages/shared/ui
+      '@swc/helpers':
+        specifier: 0.5.23
+        version: 0.5.23
+      class-variance-authority:
+        specifier: ^0.7.1
+        version: 0.7.1
+      clsx:
+        specifier: ^2.1.1
+        version: 2.1.1
+      next:
+        specifier: ~16.3.1
+        version: 16.3.1(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(@playwright/test@1.62.1)(@types/node@22.20.1)(babel-plugin-macros@3.1.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.102.0)
+      react:
+        specifier: ^19.0.0
+        version: 19.2.8
+      react-dom:
+        specifier: ^19.0.0
+        version: 19.2.8(react@19.2.8)
+      tailwind-merge:
+        specifier: ^3.6.0
+        version: 3.6.0
+    devDependencies:
+      '@tailwindcss/postcss':
+        specifier: ^4.3.3
+        version: 4.3.3
+      tailwindcss:
+        specifier: ^4.3.3
+        version: 4.3.3
+
   apps/web:
     dependencies:
       '@ant-design/icons':
@@ -1137,6 +1235,9 @@ importers:
       '@enterprise-platform/module-procedure-engine':
         specifier: workspace:*
         version: link:../../packages/modules/procedure-engine
+      '@enterprise-platform/module-social':
+        specifier: workspace:*
+        version: link:../../packages/modules/social
       '@enterprise-platform/module-workspace':
         specifier: workspace:*
         version: link:../../packages/modules/workspace
@@ -1384,6 +1485,12 @@ importers:
         specifier: ^2.3.0
         version: 2.8.1
 
+  packages/contracts/social:
+    dependencies:
+      tslib:
+        specifier: ^2.3.0
+        version: 2.8.1
+
   packages/contracts/tenancy:
     dependencies:
       tslib:
@@ -1603,6 +1710,36 @@ importers:
         specifier: ^19.2.8
         version: 19.2.8
 
+  packages/features/social:
+    dependencies:
+      '@base-ui/react':
+        specifier: ^1.7.0
+        version: 1.7.0(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      '@enterprise-platform/contracts-social':
+        specifier: workspace:*
+        version: link:../../contracts/social
+      '@enterprise-platform/feature-module-shell':
+        specifier: workspace:*
+        version: link:../module-shell
+      '@enterprise-platform/shared-ui':
+        specifier: workspace:*
+        version: link:../../shared/ui
+      class-variance-authority:
+        specifier: ^0.7.1
+        version: 0.7.1
+      clsx:
+        specifier: ^2.1.1
+        version: 2.1.1
+      lucide-react:
+        specifier: ^1.31.0
+        version: 1.31.0(react@19.2.8)
+      react:
+        specifier: ^19.2.8
+        version: 19.2.8
+      tailwind-merge:
+        specifier: ^3.6.0
+        version: 3.6.0
+
   packages/features/workspace:
     dependencies:
       '@enterprise-platform/contracts-workspace':
@@ -1821,6 +1958,31 @@ importers:
       '@enterprise-platform/contracts-shared':
         specifier: workspace:*
         version: link:../../contracts/shared
+      '@nestjs/common':
+        specifier: ^11.2.1
+        version: 11.2.1(reflect-metadata@0.2.2)(rxjs@7.8.1)
+      pg:
+        specifier: ^8.23.0
+        version: 8.23.0
+      tslib:
+        specifier: ^2.3.0
+        version: 2.8.1
+    devDependencies:
+      '@types/pg':
+        specifier: ^8.21.0
+        version: 8.21.0
+
+  packages/modules/social:
+    dependencies:
+      '@enterprise-platform/adapter-database':
+        specifier: workspace:*
+        version: link:../../adapters/database
+      '@enterprise-platform/adapter-storage':
+        specifier: workspace:*
+        version: link:../../adapters/storage
+      '@enterprise-platform/contracts-social':
+        specifier: workspace:*
+        version: link:../../contracts/social
       '@nestjs/common':
         specifier: ^11.2.1
         version: 11.2.1(reflect-metadata@0.2.2)(rxjs@7.8.1)
@@ -16068,7 +16230,7 @@ snapshots:
       jiti: 2.7.0
       lightningcss: 1.32.0
       magic-string: 0.30.21
-      source-map-js: 1.2.1
+      source-map-js: 1.2.2
       tailwindcss: 4.3.3
 
   '@tailwindcss/oxide-android-arm64@4.3.3':
@@ -17982,17 +18144,17 @@ snapshots:
   css-tree@2.2.1:
     dependencies:
       mdn-data: 2.0.28
-      source-map-js: 1.2.1
+      source-map-js: 1.2.2
 
   css-tree@2.3.1:
     dependencies:
       mdn-data: 2.0.30
-      source-map-js: 1.2.1
+      source-map-js: 1.2.2
 
   css-tree@3.2.1:
     dependencies:
       mdn-data: 2.27.1
-      source-map-js: 1.2.1
+      source-map-js: 1.2.2
 
   css-what@6.2.2: {}
 
@@ -21859,9 +22021,9 @@ snapshots:
 
   postcss@8.5.23:
     dependencies:
-      nanoid: 3.3.18
+      nanoid: 3.3.20
       picocolors: 1.1.1
-      source-map-js: 1.2.1
+      source-map-js: 1.2.2
 
   postcss@8.5.26:
     dependencies:
@@ -22439,7 +22601,7 @@ snapshots:
     dependencies:
       chokidar: 5.0.0
       immutable: 5.1.9
-      source-map-js: 1.2.1
+      source-map-js: 1.2.2
     optionalDependencies:
       '@parcel/watcher': 2.6.0
     optional: true
@@ -23530,7 +23692,7 @@ snapshots:
     dependencies:
       lightningcss: 1.33.0
       picomatch: 4.0.5
-      postcss: 8.5.26
+      postcss: 8.5.30
       rolldown: 1.2.4
       tinyglobby: 0.2.17
     optionalDependencies:

@@ -34,6 +34,10 @@
       "dockerfile": "apps/shared-api/Dockerfile"
     },
     {
+      "id": "social-api",
+      "dockerfile": "apps/social-api/Dockerfile"
+    },
+    {
       "id": "realtime-api",
       "dockerfile": "apps/realtime-api/Dockerfile",
       "runtimeCheck": {
@@ -110,6 +114,13 @@
     {
       "id": "shared-web",
       "dockerfile": "apps/shared-web/Dockerfile",
+      "runtimeCheck": {
+        "nodeModules": ["@swc/helpers/esm/_interop_require_default.js"]
+      }
+    },
+    {
+      "id": "social-web",
+      "dockerfile": "apps/social-web/Dockerfile",
       "runtimeCheck": {
         "nodeModules": ["@swc/helpers/esm/_interop_require_default.js"]
       }

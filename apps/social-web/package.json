@@ -1,0 +1,43 @@
+{
+  "name": "@enterprise-platform/social-web",
+  "version": "0.0.1",
+  "private": true,
+  "nx": {
+    "name": "social-web",
+    "targets": {
+      "build": {
+        "dependsOn": [
+          "typecheck",
+          "^typecheck"
+        ]
+      },
+      "dev": {
+        "options": {
+          "env": {
+            "PORT": "3011"
+          }
+        }
+      }
+    },
+    "tags": [
+      "type:app",
+      "scope:social"
+    ]
+  },
+  "dependencies": {
+    "@base-ui/react": "^1.7.0",
+    "@enterprise-platform/feature-social": "workspace:*",
+    "@enterprise-platform/shared-ui": "workspace:*",
+    "@swc/helpers": "0.5.23",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "next": "~16.3.1",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "tailwind-merge": "^3.6.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.3",
+    "tailwindcss": "^4.3.3"
+  }
+}

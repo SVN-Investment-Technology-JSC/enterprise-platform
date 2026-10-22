@@ -4,7 +4,11 @@ import {
 } from '@enterprise-platform/adapter-events';
 import type { IntegrationEventEnvelope } from '@enterprise-platform/contracts-integration';
 import {
+  SOCIAL_FEED_SOURCE_EVENT_TYPES,
+  isSocialFeedSourceEvent,
   parseRealtimeEventEnvelope,
+  socialFeedDeliveryFromEvent,
+  socialGroupRoom,
   type AuthorizationChangedSignal,
   type ProcedureCommentSignal,
   type WorkspaceChatSignal,
@@ -80,6 +84,29 @@ export class RealtimeDeliveryHandler {
       });
       return;
     }
+    if (isSocialFeedSourceEvent(event.type)) {
+      const delivery = socialFeedDeliveryFromEvent(event.type, event.payload);
+      if (!delivery) throw new PermanentMessageError(`Social feed payload is incomplete for ${event.type}.`);
+      // Bài Tường công ty: mọi phiên của công ty. Bài nhóm: chỉ phòng của nhóm (thành viên mới vào được),
+      // nên nhóm riêng tư không lộ cho người ngoài. Tín hiệu chỉ mang id; người nhận gọi lại API có kiểm quyền.
+      const room =
+        delivery.audience.kind === 'group'
+          ? socialGroupRoom(event.tenantId, delivery.audience.groupId)
+          : tenantRoom(event.tenantId);
+      await this.withActiveTenant(event.tenantId, () =>
+        this.gateway.emitRoomEvent(room, {
+          id: event.id,
+          event: 'social.feed.changed',
+          version: 1,
+          tenantId: event.tenantId,
+          userId: delivery.signal.actorUserId,
+          sequence: 1,
+          occurredAt: event.occurredAt,
+          data: delivery.signal,
+        }),
+      );
+      return;
+    }
     if (event.type === 'core.authorization.changed') {
       // Trigger trong DB của công ty phát mỗi lần vai trò, quyền, người dùng đổi; báo mọi phiên của công ty tự hỏi lại
       // quyền của chính mình (hàng phím Trợ lý, ô chuyển phân hệ).
@@ -131,6 +158,7 @@ export class RealtimeDeliveryConsumer {
           'workspace.chat.changed',
           'procedure.comment.posted',
           'core.authorization.changed',
+          ...SOCIAL_FEED_SOURCE_EVENT_TYPES,
         ],
         prefetch: 64,
       });

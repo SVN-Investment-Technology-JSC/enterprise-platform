@@ -18,6 +18,16 @@ export class PostgresRecipientDirectory implements RecipientDirectory {
     return userIds.filter((userId) => active.has(userId));
   }
 
+  async allActiveUsers(): Promise<readonly string[]> {
+    const result = await this.pool.query<{ id: string }>(
+      `SELECT id
+         FROM core_schema.users
+        WHERE status = 'active'
+          AND is_active = true`,
+    );
+    return result.rows.map((row) => row.id);
+  }
+
   async usersWithPermission(permission: string): Promise<readonly string[]> {
     const result = await this.pool.query<{ id: string }>(
       `SELECT DISTINCT users.id

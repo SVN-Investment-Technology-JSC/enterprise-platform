@@ -11,6 +11,7 @@ export const REALTIME_SERVER_EVENTS = [
   'procedure.comment.changed',
   'procedure.comment.typing',
   'authorization.changed',
+  'social.feed.changed',
 ] as const;
 
 export type RealtimeServerEvent = (typeof REALTIME_SERVER_EVENTS)[number];
@@ -118,7 +119,8 @@ export type NotificationModule =
   | 'hrm'
   | 'finance'
   | 'inventory'
-  | 'maintenance';
+  | 'maintenance'
+  | 'social';
 
 export interface NotificationRecord {
   readonly id: string;

@@ -666,6 +666,39 @@
   padding: 16px 32px 40px;
 }
 
+// Bản gọn: lề ngoài nhỏ hơn để nội dung dày hơn.
+.shellCompact {
+  .head {
+    padding: 8px 16px 0;
+  }
+
+  .banner {
+    padding: 8px 16px 0;
+  }
+
+  .body {
+    padding: 6px 16px 16px;
+  }
+}
+
+// Khung nội dung có giới hạn (`contentMaxWidth`): đầu trang, banner và nội dung cùng bề rộng, canh giữa.
+.mainBounded {
+  --shell-pad-x: 32px;
+
+  .head,
+  .banner,
+  .body {
+    box-sizing: border-box;
+    width: 100%;
+    max-width: calc(var(--shell-content-max) + 2 * var(--shell-pad-x));
+    margin-inline: auto;
+  }
+}
+
+.shellCompact .mainBounded {
+  --shell-pad-x: 16px;
+}
+
 @media (width <= 760px) {
   // Màn hẹp: thanh bên nằm trên nội dung, cả khung cuộn chung một lượt thay
   // vì để thanh bên chiếm chỗ cố định phía trên vùng cuộn.

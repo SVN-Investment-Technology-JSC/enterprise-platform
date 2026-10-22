@@ -66,6 +66,12 @@ import {
   WORKSPACE_INTEGRATION_BINDINGS,
   WORKSPACE_INTEGRATION_QUEUE,
 } from '@enterprise-platform/module-workspace';
+import {
+  createSocialActivityEvents,
+  createSocialJobs,
+  SOCIAL_INTEGRATION_BINDINGS,
+  SOCIAL_INTEGRATION_QUEUE,
+} from '@enterprise-platform/module-social';
 import type { Pool } from 'pg';
 
 try {
@@ -142,6 +148,11 @@ const workspaceConsumer = new RabbitMqConsumer(
     bindings: [...WORKSPACE_PROCEDURE_EVENT_TYPES, ...WORKSPACE_INTEGRATION_BINDINGS],
   },
 );
+// Bài tự sinh của Mạng nội bộ (chúc mừng sinh nhật, kỷ niệm...) nghe sự kiện của phân hệ khác.
+const socialConsumer = new RabbitMqConsumer(
+  process.env.RABBITMQ_URL ?? 'amqp://platform:platform@localhost:5672',
+  { queue: SOCIAL_INTEGRATION_QUEUE, bindings: [...SOCIAL_INTEGRATION_BINDINGS] },
+);
 const procedureConsumer = new RabbitMqConsumer(
   process.env.RABBITMQ_URL ?? 'amqp://platform:platform@localhost:5672',
   // Sự kiện của Workspace và kết quả bước Tài chính (finance.voucher.*) chung một hàng đợi, một consumer.
@@ -150,6 +161,8 @@ const procedureConsumer = new RabbitMqConsumer(
 const moduleDatabases = new TenantDatabaseRegistry();
 const workspaceProcedureEvents = createWorkspaceProcedureEvents(moduleDatabases, tenantPools);
 const procedureWorkspaceEvents = createProcedureWorkspaceEvents(moduleDatabases, tenantPools);
+const socialActivityEvents = createSocialActivityEvents(moduleDatabases, tenantPools);
+const socialJobs = createSocialJobs(moduleDatabases, tenantPools);
 
 async function moduleEnabled(tenantId: string, moduleKey: string) {
   return Boolean(
@@ -208,6 +221,16 @@ void workspaceConsumer
   .catch((error) =>
     console.error(
       'Workspace consumer requires restart:',
+      error instanceof Error ? error.message : 'Connection failed',
+    ),
+  );
+void socialConsumer
+  .start((event) =>
+    handleLinkEvent(event, { moduleKey: 'social', queue: SOCIAL_INTEGRATION_QUEUE }, socialActivityEvents),
+  )
+  .catch((error) =>
+    console.error(
+      'Social consumer requires restart:',
       error instanceof Error ? error.message : 'Connection failed',
     ),
   );
@@ -497,7 +520,39 @@ async function processFinanceJobs(database: TenantDatabaseReference) {
   await processFinanceProcedureSync(pool, database.tenantId);
 }
 
-/** Một lần withActiveTenant (khóa SHARED) cho mỗi tenant mỗi tick: outbox rồi HRM jobs và Finance jobs, tuần tự. */
+const SOCIAL_SCHEDULE_INTERVAL_MS = 60_000;
+const SOCIAL_CLEANUP_INTERVAL_MS = 60 * 60_000;
+const socialLastRun = new Map<string, { schedule: number; cleanup: number }>();
+
+/**
+ * Việc định kỳ của Mạng nội bộ, chạy trong withActiveTenant (khóa SHARED) của tick: đăng bài hẹn giờ
+ * đến hạn mỗi 60 giây và dọn tệp mồ côi mỗi giờ, cho từng tenant đã bật phân hệ social.
+ * Mốc chạy giữ trong bộ nhớ: khởi động lại worker thì chạy lại ngay (an toàn vì cả hai việc đều idempotent).
+ */
+async function processSocialJobs(database: TenantDatabaseReference) {
+  const tenantId = database.tenantId;
+  const now = Date.now();
+  const last = socialLastRun.get(tenantId) ?? { schedule: 0, cleanup: 0 };
+  const dueSchedule = now - last.schedule >= SOCIAL_SCHEDULE_INTERVAL_MS;
+  const dueCleanup = now - last.cleanup >= SOCIAL_CLEANUP_INTERVAL_MS;
+  if (!dueSchedule && !dueCleanup) return;
+  if (!(await moduleEnabled(tenantId, 'social'))) return;
+  moduleDatabases.register(database);
+  if (!(await socialJobs.ready(tenantId))) return;
+  // Đặt mốc trước khi chạy để một lần lỗi không làm tick 1 giây gọi lại liên tục.
+  socialLastRun.set(tenantId, {
+    schedule: dueSchedule ? now : last.schedule,
+    cleanup: dueCleanup ? now : last.cleanup,
+  });
+  if (dueSchedule) {
+    const result = await socialJobs.publishDueScheduled(tenantId);
+    for (const failure of result.failures)
+      console.error(`[social] Tenant ${tenantId}: không đăng được bài hẹn giờ ${failure.postId}: ${failure.message}`);
+  }
+  if (dueCleanup) await socialJobs.cleanupOrphans(tenantId);
+}
+
+/** Một lần withActiveTenant (khóa SHARED) cho mỗi tenant mỗi tick: outbox rồi HRM, Finance và Social jobs, tuần tự. */
 async function processTenantTick(
   database: TenantDatabaseReference,
 ): Promise<void> {
@@ -506,7 +561,7 @@ async function processTenantTick(
     database.tenantId,
     async () => {
       const errors: unknown[] = [];
-      for (const step of [flushTenantOutbox, processHrmJobs, processFinanceJobs]) {
+      for (const step of [flushTenantOutbox, processHrmJobs, processFinanceJobs, processSocialJobs]) {
         try {
           await step(database);
         } catch (error) {
@@ -672,6 +727,7 @@ async function shutdown() {
     hrmConsumer.close(),
     financeConsumer.close(),
     workspaceConsumer.close(),
+    socialConsumer.close(),
     procedureConsumer.close(),
     tenantPools.closeAll(),
     platformPool.end(),

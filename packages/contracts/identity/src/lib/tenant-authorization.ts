@@ -505,6 +505,10 @@ export const TENANT_PERMISSION_ACTIONS = [
   { key: 'shared.manage', group: 'Hệ dùng chung', label: 'Quản trị kho tài liệu công ty' },
   { key: 'shared.document.write', group: 'Hệ dùng chung', label: 'Tải lên và sửa tài liệu công ty' },
   { key: 'shared.document.delete', group: 'Hệ dùng chung', label: 'Lưu trữ và xoá tài liệu công ty' },
+  { key: 'social.read', group: 'Mạng nội bộ', label: 'Xem bảng tin và bài viết' },
+  { key: 'social.post.write', group: 'Mạng nội bộ', label: 'Đăng bài, bình luận và phản ứng' },
+  { key: 'social.post.moderate', group: 'Mạng nội bộ', label: 'Kiểm duyệt bài viết và bình luận' },
+  { key: 'social.manage', group: 'Mạng nội bộ', label: 'Quản lý chuyên mục' },
 ] as const;
 export type TenantAction = (typeof TENANT_PERMISSION_ACTIONS)[number]['key'];
 export interface TenantPermission {
@@ -596,6 +600,10 @@ export const TENANT_ACTION_IMPLIES: Readonly<Record<string, readonly string[]>> 
   'shared.manage': ['shared.read', 'shared.document.write'],
   'shared.document.write': ['shared.read'],
   'shared.document.delete': ['shared.read'],
+  // Mạng nội bộ: đăng bài hay kiểm duyệt cũng xem được bảng tin; kiểm duyệt gồm quyền đăng.
+  'social.manage': ['social.read', 'social.post.write', 'social.post.moderate'],
+  'social.post.moderate': ['social.read', 'social.post.write'],
+  'social.post.write': ['social.read'],
 };
 
 /** Người giữ `held` có `action` không, kể cả khi được bao hàm bởi một action quản lý. */
@@ -621,6 +629,7 @@ const MODULE_ACTION_PREFIX: Readonly<Record<string, string>> = {
   workspace: 'workspace',
   finance: 'finance',
   shared: 'shared',
+  social: 'social',
 };
 /** Module nhận probe `module.access`: chỉ cần được vào module, không đòi action cụ thể. */
 const MODULES_WITH_ADMISSION_PROBE = new Set([
@@ -628,6 +637,7 @@ const MODULES_WITH_ADMISSION_PROBE = new Set([
   'finance',
   'hrm',
   'procedure-engine',
+  'social',
   'workspace',
 ]);
 

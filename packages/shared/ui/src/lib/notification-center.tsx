@@ -18,6 +18,7 @@ import {
   Wifi,
   WifiOff,
   Workflow,
+  Newspaper,
   Wrench,
   X,
   type LucideIcon,
@@ -1049,6 +1050,7 @@ const MODULE_ICONS: Readonly<Record<NotificationRecord['module'], LucideIcon>> =
   finance: Landmark,
   inventory: Package,
   maintenance: Wrench,
+  social: Newspaper,
 };
 
 function moduleLabel(module: NotificationRecord['module']): string {
@@ -1060,6 +1062,7 @@ function moduleLabel(module: NotificationRecord['module']): string {
     finance: 'Tài chính',
     inventory: 'Kho',
     maintenance: 'Bảo trì',
+    social: 'Mạng nội bộ',
   } as const)[module];
 }
 

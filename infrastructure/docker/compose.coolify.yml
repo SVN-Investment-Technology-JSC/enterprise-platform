@@ -331,6 +331,30 @@ services:
     init: true
     restart: unless-stopped
 
+  social-api:
+    <<: *production-image
+    image: ghcr.io/svn-investment-technology-jsc/enterprise-platform:social-api-${IMAGE_TAG:-production}
+    environment:
+      <<: [*database-environment, *platform-access-environment]
+      PORT: '3343'
+      # Mạng nội bộ hỏi HRM ngày sinh và ngày vào công ty của nhân sự (chỉ đọc).
+      HRM_API_URL: http://hrm-api:3339/api/hrm
+      # Ảnh và tệp đính kèm bài viết dùng presigned URL qua MinIO như Workspace.
+      S3_ENDPOINT: http://minio:9000
+      S3_REGION: us-east-1
+      S3_BUCKET: enterprise-platform
+      S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:?}
+      S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?}
+    depends_on:
+      api:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+      minio-init:
+        condition: service_completed_successfully
+    init: true
+    restart: unless-stopped
+
   realtime-api:
     <<: *production-image
     image: ghcr.io/svn-investment-technology-jsc/enterprise-platform:realtime-api-${IMAGE_TAG:-production}
@@ -341,6 +365,8 @@ services:
       WORKSPACE_INTERNAL_URL: http://workspace-api:3337
       # Phòng thời gian thực của trao đổi quy trình: kiểm quyền vào phòng bằng cookie của người dùng.
       PROCEDURE_INTERNAL_URL: http://procedure-api:3334
+      # Phòng theo nhóm Mạng nội bộ: kiểm tư cách thành viên bằng cookie của người dùng.
+      SOCIAL_INTERNAL_URL: http://social-api:3343
       # Cả hai service mở DB của từng tenant (thông báo nằm trong tenant DB), nên cần mẫu URL này như các API khác.
       TENANT_DATABASE_URL_TEMPLATE: postgresql://tenant:${TENANT_DB_PASSWORD:?}@tenant-db:5432/{databaseName}
       RABBITMQ_URL: amqp://platform:${RABBITMQ_PASSWORD:?}@rabbitmq:5672
@@ -487,6 +513,15 @@ services:
     image: ghcr.io/svn-investment-technology-jsc/enterprise-platform:shared-web-${IMAGE_TAG:-production}
     depends_on:
       shared-api:
+        condition: service_healthy
+    init: true
+    restart: unless-stopped
+
+  social-web:
+    <<: *production-image
+    image: ghcr.io/svn-investment-technology-jsc/enterprise-platform:social-web-${IMAGE_TAG:-production}
+    depends_on:
+      social-api:
         condition: service_healthy
     init: true
     restart: unless-stopped

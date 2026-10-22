@@ -1,0 +1,481 @@
+// Giao diện trang cá nhân, tìm kiếm và sinh nhật của Mạng nội bộ.
+// Màu và bo góc dùng biến `--ep-*` của khung sáng (khai ở vỏ trang trong `social.module.scss`).
+
+@mixin ellipsis {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card {
+  border: 1px solid var(--ep-border);
+  border-radius: var(--ep-radius-lg);
+  background: var(--ep-surface);
+}
+
+.state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 32px 18px;
+  color: var(--ep-text-muted);
+  font-size: 13.5px;
+  text-align: center;
+
+  p {
+    margin: 0;
+  }
+}
+
+.stateTitle {
+  color: var(--ep-text);
+  font-size: 14.5px;
+  font-weight: 700;
+}
+
+.retry {
+  min-height: 32px;
+  padding: 0 14px;
+  border: 1px solid var(--ep-border-strong);
+  border-radius: var(--ep-radius);
+  background: var(--ep-surface);
+  color: var(--ep-text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+
+  &:hover {
+    background: var(--ep-hover);
+  }
+
+  &:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--ep-accent-glow);
+  }
+}
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--ep-border);
+}
+
+.tab {
+  position: relative;
+  min-height: 38px;
+  padding: 0 14px;
+  border: 0;
+  background: transparent;
+  color: var(--ep-text-muted);
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+
+  &:hover {
+    color: var(--ep-text);
+  }
+
+  &:focus-visible {
+    outline: none;
+    border-radius: var(--ep-radius-sm);
+    box-shadow: 0 0 0 3px var(--ep-accent-glow);
+  }
+
+  &[aria-selected='true'] {
+    color: var(--ep-text);
+
+    &::after {
+      content: '';
+      position: absolute;
+      right: 10px;
+      bottom: -1px;
+      left: 10px;
+      height: 2px;
+      border-radius: 2px;
+      background: var(--ep-accent-strong);
+    }
+  }
+}
+
+.tabCount {
+  margin-left: 6px;
+  color: var(--ep-text-faint);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* ============================================================ trang cá nhân */
+
+.profile {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.profileHead {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 18px;
+}
+
+.profileIdentity {
+  min-width: 0;
+  flex: 1;
+
+  h1 {
+    margin: 0;
+    font-size: 19px;
+    line-height: 1.25;
+    overflow-wrap: anywhere;
+  }
+}
+
+.profileRole {
+  margin: 2px 0 0;
+  color: var(--ep-text-sub);
+  font-size: 13.5px;
+}
+
+.profileFacts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 6px 0 0;
+  padding: 0;
+  color: var(--ep-text-muted);
+  font-size: 12.5px;
+  list-style: none;
+}
+
+.profileBody {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 260px;
+  align-items: start;
+  gap: 14px;
+
+  @media (width <= 900px) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.profileMain {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.quick {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px;
+  background: var(--ep-surface);
+
+  h2 {
+    margin: 0 0 6px;
+    color: var(--ep-text-muted);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+  }
+}
+
+.quickLink {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 10px;
+  border-radius: var(--ep-radius);
+  color: var(--ep-link);
+  font-size: 13.5px;
+  font-weight: 600;
+  text-decoration: none;
+
+  &:hover {
+    background: var(--ep-hover);
+  }
+
+  &:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--ep-accent-glow);
+  }
+}
+
+.quickNote {
+  margin: 0;
+  padding: 4px 10px;
+  color: var(--ep-text-muted);
+  font-size: 12.5px;
+}
+
+.about {
+  padding: 4px 18px 8px;
+}
+
+.aboutRow {
+  display: grid;
+  grid-template-columns: 140px minmax(0, 1fr);
+  gap: 12px;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--ep-line);
+  font-size: 13.5px;
+
+  &:last-child {
+    border-bottom: 0;
+  }
+
+  dt {
+    color: var(--ep-text-muted);
+  }
+
+  dd {
+    margin: 0;
+    color: var(--ep-text);
+    overflow-wrap: anywhere;
+  }
+
+  @media (width <= 520px) {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
+}
+
+/* ================================================================= tìm kiếm */
+
+.search {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.searchHead {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+
+  h1 {
+    margin: 0;
+    font-size: 17px;
+    overflow-wrap: anywhere;
+  }
+}
+
+.filters {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  padding: 12px;
+
+  @media (width <= 900px) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  @media (width <= 520px) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.filterField {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.filterLabel {
+  color: var(--ep-text-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.filterReset {
+  grid-column: 1 / -1;
+  justify-self: start;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ep-link);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+
+  &:hover {
+    text-decoration: underline;
+  }
+}
+
+.section {
+  overflow: hidden;
+}
+
+.sectionHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px 8px;
+  border-bottom: 1px solid var(--ep-border);
+
+  h2 {
+    flex: 1;
+    margin: 0;
+    color: var(--ep-text-muted);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+  }
+}
+
+.sectionMore {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ep-link);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+
+  &:hover {
+    text-decoration: underline;
+  }
+}
+
+.results {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+
+  > li + li {
+    border-top: 1px solid var(--ep-line);
+  }
+}
+
+.result {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  color: inherit;
+  text-decoration: none;
+
+  &:hover {
+    background: var(--ep-hover);
+  }
+
+  &:focus-visible {
+    outline: none;
+    background: var(--ep-hover);
+    box-shadow: inset 0 0 0 2px var(--ep-accent-glow);
+  }
+}
+
+.resultBody {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.resultTitle {
+  color: var(--ep-text);
+  font-size: 14px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.resultSnippet {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  color: var(--ep-text-sub);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.resultMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  color: var(--ep-text-muted);
+  font-size: 12px;
+}
+
+.resultSub {
+  @include ellipsis;
+
+  color: var(--ep-text-muted);
+  font-size: 12.5px;
+}
+
+.mark {
+  padding: 0 1px;
+  border-radius: 2px;
+  background: var(--ep-accent-glow);
+  color: inherit;
+}
+
+.groupSwatch {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--ep-radius-md);
+  background: var(--ep-accent);
+  color: #1a1a1a;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.more {
+  display: flex;
+  justify-content: center;
+  padding: 10px;
+  border-top: 1px solid var(--ep-line);
+}
+
+.skeletons {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+}
+
+.skeleton {
+  height: 54px;
+  border-radius: var(--ep-radius);
+  background: linear-gradient(90deg, var(--ep-hover) 25%, var(--ep-line) 50%, var(--ep-hover) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s linear infinite;
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 200% 0;
+  }
+
+  to {
+    background-position: -200% 0;
+  }
+}

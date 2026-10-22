@@ -7,6 +7,7 @@ import { Module } from '@nestjs/common';
 import { createClient } from 'redis';
 import { HttpTypingRecipientsClient, RealtimeChatTyping } from './realtime-chat-typing';
 import { HttpProcedureAccessClient, RealtimeProcedureRooms } from './realtime-procedure-rooms';
+import { HttpSocialGroupAccessClient, RealtimeSocialRooms } from './realtime-social-rooms';
 import { RealtimeDeliveryConsumer, RealtimeDeliveryHandler } from './realtime-delivery';
 import { RealtimeGateway, RealtimeOriginPolicy, RealtimeSessionRevalidator } from './realtime.gateway';
 import { RealtimeHealthController } from './realtime-health.controller';
@@ -117,6 +118,17 @@ function allowedOrigins(): readonly string[] {
             process.env.PROCEDURE_INTERNAL_URL ?? 'http://localhost:3334',
           ),
           featureFlag(process.env.REALTIME_PROCEDURE_ROOMS_ENABLED, true),
+        ),
+    },
+    {
+      // Phòng theo nhóm Mạng nội bộ: kiểm tư cách thành viên bằng cookie của người dùng.
+      provide: RealtimeSocialRooms,
+      useFactory: () =>
+        new RealtimeSocialRooms(
+          new HttpSocialGroupAccessClient(
+            process.env.SOCIAL_INTERNAL_URL ?? 'http://localhost:3343',
+          ),
+          featureFlag(process.env.REALTIME_SOCIAL_ROOMS_ENABLED, true),
         ),
     },
     {
