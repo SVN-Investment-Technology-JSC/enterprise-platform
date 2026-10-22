@@ -9,6 +9,8 @@ import {
 } from '@enterprise-platform/contracts-procedure-engine';
 import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
+import { useLayoutEffect, useRef, useState } from 'react';
+import { formatGroupedInput } from './grouped-number';
 import styles from './attribute-form.module.scss';
 
 export type AttributeDraft = Record<string, ProcedureAttributeValue | null>;
@@ -43,6 +45,51 @@ function parseNumber(text: string): number | undefined {
   return Number.isFinite(value) ? value : undefined;
 }
 
+/**
+ * Ô số tự chèn dấu chấm ngăn nghìn ngay khi gõ, để số tiền lớn như 1.000.000.000
+ * không bị đọc nhầm. Giá trị chỉ gửi lên khi rời ô, như trước.
+ */
+function GroupedNumberInput({
+  initial,
+  disabled,
+  onCommit,
+}: {
+  initial: number | undefined;
+  disabled?: boolean;
+  onCommit: (value: number | undefined) => void;
+}) {
+  const ref = useRef<HTMLInputElement>(null);
+  const caret = useRef<number | null>(null);
+  const [text, setText] = useState(() => (initial === undefined ? '' : numberFormat.format(initial)));
+
+  // React đưa con trỏ về cuối khi chuỗi hiển thị đổi; đặt lại về chỗ đã tính.
+  useLayoutEffect(() => {
+    const input = ref.current;
+    if (input && caret.current !== null && document.activeElement === input) {
+      input.setSelectionRange(caret.current, caret.current);
+    }
+    caret.current = null;
+  });
+
+  return (
+    <input
+      ref={ref}
+      className={styles.input}
+      inputMode="decimal"
+      autoComplete="off"
+      value={text}
+      disabled={disabled}
+      onChange={(event) => {
+        const input = event.target;
+        const next = formatGroupedInput(input.value, input.selectionStart ?? input.value.length);
+        caret.current = next.caret;
+        setText(next.text);
+      }}
+      onBlur={() => onCommit(parseNumber(text))}
+    />
+  );
+}
+
 function FieldInput({
   definition,
   value,
@@ -74,17 +121,14 @@ function FieldInput({
       const current = value && (value.type === 'number' || value.type === 'money' || value.type === 'percent') ? value.value : undefined;
       return (
         <div className={styles.numberBox}>
-          <input
-            className={styles.input}
-            inputMode="decimal"
-            // Hiển thị có phân tách nghìn để 1.000.000.000 không bị đọc nhầm thành 100 triệu.
-            defaultValue={current === undefined ? '' : numberFormat.format(current)}
+          <GroupedNumberInput
+            // Giá trị đổi từ ngoài (lưu nháp, tải lại hồ sơ) thì dựng lại ô với chuỗi mới.
             key={current === undefined ? 'empty' : String(current)}
+            initial={current}
             disabled={disabled}
-            onBlur={(event) => {
-              const parsed = parseNumber(event.target.value);
-              onChange(parsed === undefined ? null : { type: definition.type as 'number' | 'money' | 'percent', value: parsed });
-            }}
+            onCommit={(parsed) =>
+              onChange(parsed === undefined ? null : { type: definition.type as 'number' | 'money' | 'percent', value: parsed })
+            }
           />
           {definition.type === 'money' ? <span className={styles.unit}>đ</span> : null}
           {definition.type === 'percent' ? <span className={styles.unit}>%</span> : null}
