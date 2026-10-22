@@ -34,6 +34,12 @@ import {
   type ReportPeriodPreset,
 } from '../report-period';
 import { downloadReportXlsx } from '../report-xlsx';
+import {
+  EMPTY_PROJECT_FILTER,
+  activeConditionCount,
+  matchProjectFilter,
+  type ProjectFilter,
+} from '../project-filter.model';
 import * as api from '../workspace-api';
 import {
   PRIORITY_LABELS,
@@ -49,6 +55,7 @@ import { Dialog } from './dialog';
 import { Pager, usePaged } from './pager';
 import { BarList, DonutChart, TREND_SERIES, TrendChart, type TrendSeriesKey } from './report-charts';
 import { ReportItemsDialog, type ReportDrill } from './report-items-dialog';
+import { ProjectFilterButton } from './project-filter-panel';
 import { useDirectory } from './use-directory';
 
 /** Màu từng trạng thái trên biểu đồ vành khuyên: cùng sắc với huy hiệu trạng thái nhưng đậm, dễ phân biệt. */
@@ -89,6 +96,8 @@ export function ReportsView({ onOpenItem }: ReportsViewProps = {}) {
   const [preset, setPreset] = useState<ReportPeriodPreset>('week');
   const [custom, setCustom] = useState(() => presetRange('week'));
   const [projectId, setProjectId] = useState('');
+  /** Bộ lọc dự án nhiều điều kiện (nút "Lọc sâu"), cùng kiểu với trang Dự án. */
+  const [projectFilter, setProjectFilter] = useState<ProjectFilter>(EMPTY_PROJECT_FILTER);
   const [group, setGroup] = useState('');
   const [tagId, setTagId] = useState('');
   const [userId, setUserId] = useState('');
@@ -102,21 +111,40 @@ export function ReportsView({ onOpenItem }: ReportsViewProps = {}) {
   const [exportOpen, setExportOpen] = useState(false);
 
   const range = preset === 'custom' ? custom : presetRange(preset);
+  const filtering = activeConditionCount(projectFilter) > 0;
+  /**
+   * Dự án báo cáo xét tới: chọn một dự án thì chỉ dự án đó; có bộ lọc thì giao với các dự án khớp bộ lọc.
+   * `undefined` là cả phạm vi; mảng rỗng là bộ lọc không khớp dự án nào.
+   */
+  const scopedProjectIds = useMemo(() => {
+    if (!filtering) return projectId ? [projectId] : undefined;
+    const context = { today: new Date(), orgNodes: directory.orgNodes };
+    return projects
+      .filter((project) => (!projectId || project.id === projectId) && matchProjectFilter(project, projectFilter, context))
+      .map((project) => project.id);
+  }, [filtering, projectId, projects, projectFilter, directory.orgNodes]);
+  const noProjectMatch = scopedProjectIds !== undefined && scopedProjectIds.length === 0;
   /** Kỳ và bộ lọc đang chọn, dùng chung cho báo cáo và danh sách chi tiết. */
   const params = useMemo<api.ReportParams>(
     () => ({
       // Ngày tính theo giờ máy người dùng, đầu ngày tới cuối ngày.
       from: range.from ? new Date(`${range.from}T00:00:00`).toISOString() : undefined,
       to: range.to ? new Date(`${range.to}T23:59:59`).toISOString() : undefined,
-      projectIds: projectId ? [projectId] : undefined,
+      projectIds: scopedProjectIds,
       groups: group ? [group] : undefined,
       tagIds: tagId ? [tagId] : undefined,
       userId: userId || undefined,
     }),
-    [range.from, range.to, projectId, group, tagId, userId],
+    [range.from, range.to, scopedProjectIds, group, tagId, userId],
   );
 
   const reload = useCallback(async () => {
+    // Bộ lọc không khớp dự án nào: gửi danh sách rỗng sẽ bị hiểu là "cả phạm vi", nên không tải.
+    if (noProjectMatch) {
+      setBundle(undefined);
+      setError(undefined);
+      return;
+    }
     setLoading(true);
     try {
       setBundle(await api.loadReports(params));
@@ -127,7 +155,7 @@ export function ReportsView({ onOpenItem }: ReportsViewProps = {}) {
     } finally {
       setLoading(false);
     }
-  }, [params]);
+  }, [params, noProjectMatch]);
 
   useEffect(() => {
     void reload();
@@ -172,8 +200,13 @@ export function ReportsView({ onOpenItem }: ReportsViewProps = {}) {
     const tag = tags.find((entry) => entry.id === tagId);
     if (tag) notes.push(`Nhãn ${tag.name}`);
     if (userId) notes.push(`Người ${directory.nameOf(userId)}`);
+    if (filtering) {
+      notes.push(
+        `Lọc sâu dự án: ${activeConditionCount(projectFilter)} điều kiện, ${scopedProjectIds?.length ?? 0} dự án khớp`,
+      );
+    }
     return notes;
-  }, [projects, projectId, group, tags, tagId, userId, directory]);
+  }, [projects, projectId, group, tags, tagId, userId, directory, filtering, projectFilter, scopedProjectIds]);
 
   const runExport = (sections: readonly ReportSectionId[]) => {
     if (!bundle) return;
@@ -405,6 +438,10 @@ export function ReportsView({ onOpenItem }: ReportsViewProps = {}) {
             onChange={setUserId}
           />
         )}
+        {/* Nút "Lọc sâu" cuối thanh lọc, sát mép phải như trang Dự án. */}
+        <div className={styles.filterBarEnd}>
+          <ProjectFilterButton filter={projectFilter} onChange={setProjectFilter} />
+        </div>
       </div>
 
       {error ? (
@@ -418,8 +455,15 @@ export function ReportsView({ onOpenItem }: ReportsViewProps = {}) {
         </p>
       ) : null}
 
+      {noProjectMatch ? (
+        <p role="status" className={styles.notice}>
+          Không có dự án nào khớp bộ lọc sâu. Sửa hoặc xoá điều kiện để xem báo cáo.
+        </p>
+      ) : null}
+
       {bundle ? (
         <p className={styles.muted}>
+          {filtering ? `Lọc theo ${scopedProjectIds?.length ?? 0} dự án khớp lọc sâu · ` : ''}
           {bundle.scope.level === 'tenant'
             ? 'Toàn bộ tenant'
             : bundle.scope.level === 'managed'

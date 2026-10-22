@@ -13,6 +13,7 @@ import {
 } from '@enterprise-platform/contracts-workspace';
 import { ChevronDown, ChevronRight, FolderInput, Plus, RefreshCw } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { EMPTY_PROJECT_FILTER, matchProjectFilter, type ProjectFilter } from '../project-filter.model';
 import { mergeNewProjectMembers } from '../project-tree.model';
 import * as api from '../workspace-api';
 import { PROJECT_STATUS_LABELS, PROJECT_STATUS_TONE } from '../workspace-labels';
@@ -24,6 +25,8 @@ import { ContextMenu } from './project-tree';
 import { TagPicker } from './tag-picker';
 import { tagColor, useTags } from './use-tags';
 import { Confirm } from './confirm-box';
+import { ProjectFilterButton } from './project-filter-panel';
+import { useDirectory } from './use-directory';
 
 const messageOf = (cause: unknown, fallback: string): string =>
   (cause as { message?: string })?.message ?? fallback;
@@ -86,6 +89,9 @@ export function ProjectsListView({
   const [typeFilter, setTypeFilter] = useState('');
   const [tagFilter, setTagFilter] = useState('');
   const [customerFilter, setCustomerFilter] = useState('');
+  /** Bộ lọc nhiều điều kiện từ nút "Lọc sâu"; chạy chồng lên các ô lọc nhanh. */
+  const [projectFilter, setProjectFilter] = useState<ProjectFilter>(EMPTY_PROJECT_FILTER);
+  const directory = useDirectory();
   const hasFilter = Boolean(statusFilter || typeFilter || tagFilter || customerFilter);
   const tags = useTags();
 
@@ -153,9 +159,9 @@ export function ProjectsListView({
         if (typeFilter && (project.projectType ?? '') !== typeFilter) return false;
         if (tagFilter && !(project.tagIds ?? []).includes(tagFilter)) return false;
         if (customerFilter && (project.customerId ?? '') !== customerFilter) return false;
-        return true;
+        return matchProjectFilter(project, projectFilter, { today: new Date(), orgNodes: directory.orgNodes });
       }),
-    [projects, statusFilter, typeFilter, tagFilter, customerFilter],
+    [projects, statusFilter, typeFilter, tagFilter, customerFilter, projectFilter, directory.orgNodes],
   );
 
   /** Gom dòng theo nhóm dự án; dự án chưa có nhóm rơi vào "Chưa phân loại". */
@@ -431,6 +437,10 @@ export function ProjectsListView({
             Xoá lọc
           </button>
         ) : null}
+        {/* Nút "Lọc sâu" sát mép phải thanh lọc, đáy thẳng hàng với các ô chọn. */}
+        <div className={styles.filterBarEnd}>
+          <ProjectFilterButton filter={projectFilter} onChange={setProjectFilter} />
+        </div>
       </div>
 
       {error ? (
