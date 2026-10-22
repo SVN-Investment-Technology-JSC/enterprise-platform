@@ -10,16 +10,18 @@ import {
   Users,
   ShieldCheck,
   Settings2,
+  Layers,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
@@ -303,127 +305,102 @@ export function PlansManagement({ initialPlans }: PlansManagementProps) {
 
       {/* Dialog Flow A2: Tạo gói dịch vụ */}
       <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
-        <DialogContent className="max-w-2xl bg-white text-slate-900 border-slate-200">
-          <DialogHeader>
-            <DialogTitle className="text-lg font-bold text-slate-900">
-              Tạo mới gói dịch vụ (Service Plan)
-            </DialogTitle>
-            <DialogDescription className="text-slate-500 text-sm">
-              Định nghĩa mã gói, phân hệ cấp phép và chính sách hạn mức tài nguyên (Quota Policy).
+        <DialogContent className="max-h-[calc(100vh-2rem)] overflow-hidden p-0 sm:max-w-2xl" showCloseButton={!isSubmitting}>
+          <DialogHeader className="border-b px-6 pt-6 pb-5">
+            <DialogTitle>Tạo gói dịch vụ mới</DialogTitle>
+            <DialogDescription>
+              Định nghĩa mã gói, phân hệ cấp phép và hạn mức tài nguyên cho tenant.
             </DialogDescription>
           </DialogHeader>
 
-          <form onSubmit={handleCreatePlan} className="space-y-4 pt-2">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-3">
-                <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                  Thông tin cơ bản
-                </h4>
-                <div>
-                  <label className="text-xs font-medium text-slate-700 block mb-1">
-                    Mã gói (Key) *
-                  </label>
-                  <Input
-                    placeholder="e.g. professional"
-                    value={newKey}
-                    onChange={(e) => setNewKey(e.target.value)}
-                    required
-                    className="bg-slate-50 border-slate-200 text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-slate-700 block mb-1">
-                    Tên hiển thị *
-                  </label>
-                  <Input
-                    placeholder="e.g. Gói Chuyên Nghiệp"
-                    value={newName}
-                    onChange={(e) => setNewName(e.target.value)}
-                    required
-                    className="bg-slate-50 border-slate-200 text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-slate-700 block mb-1">
-                    Mô tả gói dịch vụ
-                  </label>
-                  <Input
-                    placeholder="Mô tả phạm vi áp dụng..."
-                    value={newDesc}
-                    onChange={(e) => setNewDesc(e.target.value)}
-                    className="bg-slate-50 border-slate-200 text-sm"
-                  />
-                </div>
-              </div>
+          <form className="flex min-h-0 flex-1 flex-col" onSubmit={handleCreatePlan}>
+            <div className="min-h-0 flex-1 space-y-8 overflow-y-auto px-6 py-6">
+              <PlanFormSection icon={PackageCheck} title="Thông tin cơ bản" description="Mã gói dùng để định danh và không nên thay đổi sau khi cấp cho tenant.">
+                <PlanField label="Mã gói">
+                  <Input autoFocus placeholder="professional" value={newKey} onChange={(e) => setNewKey(e.target.value)} required />
+                </PlanField>
+                <PlanField label="Tên hiển thị">
+                  <Input placeholder="Gói Chuyên Nghiệp" value={newName} onChange={(e) => setNewName(e.target.value)} required />
+                </PlanField>
+                <PlanField label="Mô tả" className="sm:col-span-2">
+                  <Textarea placeholder="Phạm vi áp dụng của gói" value={newDesc} onChange={(e) => setNewDesc(e.target.value)} rows={2} />
+                </PlanField>
+              </PlanFormSection>
 
-              <div className="space-y-3">
-                <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                  Phân hệ cấp phép (Modules)
-                </h4>
-                <div className="space-y-2 border border-slate-200 p-3 rounded-md bg-slate-50">
-                  {[
-                    { key: 'procedure-engine', label: 'Procedure Engine (Quy trình)' },
-                    { key: 'maintenance', label: 'Maintenance (Bảo trì)' },
-                    { key: 'inventory', label: 'Inventory (Kho & Tài sản)' },
-                  ].map((m) => (
-                    <label key={m.key} className="flex items-center gap-2 text-sm text-slate-800 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={selectedModules.includes(m.key)}
-                        onChange={() => toggleModule(m.key)}
-                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                      />
-                      {m.label}
-                    </label>
-                  ))}
+              <PlanFormSection icon={Layers} title="Phân hệ cấp phép" description="Tenant dùng gói này chỉ truy cập được các phân hệ được chọn.">
+                <div className="grid gap-2 sm:col-span-2 sm:grid-cols-3">
+                  {PLAN_MODULE_OPTIONS.map((m) => {
+                    const checked = selectedModules.includes(m.key);
+                    return (
+                      <label
+                        key={m.key}
+                        className={cn(
+                          'flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-3 text-sm transition-colors',
+                          checked ? 'border-[#091426] bg-slate-50' : 'border-slate-200 hover:bg-slate-50',
+                        )}
+                      >
+                        <input className="mt-0.5 size-4 accent-[#091426]" type="checkbox" checked={checked} onChange={() => toggleModule(m.key)} />
+                        <span>
+                          <span className="block font-medium text-slate-900">{m.label}</span>
+                          <span className="block text-xs text-muted-foreground">{m.hint}</span>
+                        </span>
+                      </label>
+                    );
+                  })}
                 </div>
+              </PlanFormSection>
 
-                <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500 pt-2">
-                  Hạn mức Quota
-                </h4>
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="text-xs text-slate-600 block mb-1">Người dùng</label>
-                    <Input
-                      type="number"
-                      value={limitUsers}
-                      onChange={(e) => setLimitUsers(e.target.value)}
-                      className="bg-slate-50 border-slate-200 text-sm"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs text-slate-600 block mb-1">Quy trình</label>
-                    <Input
-                      type="number"
-                      value={limitProcedures}
-                      onChange={(e) => setLimitProcedures(e.target.value)}
-                      className="bg-slate-50 border-slate-200 text-sm"
-                    />
-                  </div>
-                </div>
-              </div>
+              <PlanFormSection icon={ShieldCheck} title="Hạn mức tài nguyên" description="Hệ thống chặn ngay khi tenant chạm ngưỡng (hard limit).">
+                <PlanField label="Số người dùng tối đa">
+                  <Input type="number" min={1} value={limitUsers} onChange={(e) => setLimitUsers(e.target.value)} />
+                </PlanField>
+                <PlanField label="Số quy trình tối đa">
+                  <Input type="number" min={1} value={limitProcedures} onChange={(e) => setLimitProcedures(e.target.value)} />
+                </PlanField>
+              </PlanFormSection>
             </div>
 
-            <DialogFooter className="pt-4 border-t border-slate-100">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setCreateDialogOpen(false)}
-                className="border-slate-200 text-slate-700"
-              >
-                Huỷ bỏ
+            <footer className="flex items-center justify-end gap-2 border-t bg-slate-50 px-6 py-4">
+              <Button type="button" variant="ghost" disabled={isSubmitting} onClick={() => setCreateDialogOpen(false)}>
+                Hủy
               </Button>
-              <Button
-                type="submit"
-                disabled={isSubmitting}
-                className="bg-blue-600 hover:bg-blue-700 text-white"
-              >
-                {isSubmitting ? 'Đang lưu...' : 'Lưu gói dịch vụ'}
+              <Button type="submit" className="bg-[#091426] hover:bg-[#1e293b]" disabled={isSubmitting}>
+                {isSubmitting ? 'Đang lưu…' : 'Lưu gói dịch vụ'}
               </Button>
-            </DialogFooter>
+            </footer>
           </form>
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+const PLAN_MODULE_OPTIONS = [
+  { key: 'procedure-engine', label: 'Quy trình', hint: 'Procedure Engine' },
+  { key: 'maintenance', label: 'Bảo trì', hint: 'Maintenance' },
+  { key: 'inventory', label: 'Kho & Tài sản', hint: 'Inventory' },
+] as const;
+
+function PlanFormSection({ description, icon: Icon, title, children }: { description: string; icon: typeof PackageCheck; title: string; children: React.ReactNode }) {
+  return (
+    <section>
+      <div className="mb-4">
+        <div className="flex items-center gap-2">
+          <Icon className="size-4 text-[#091426]" />
+          <h2 className="font-semibold text-slate-900">{title}</h2>
+        </div>
+        <p className="mt-1 text-sm text-muted-foreground">{description}</p>
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2">{children}</div>
+    </section>
+  );
+}
+
+function PlanField({ label, className, children }: { label: string; className?: string; children: React.ReactNode }) {
+  return (
+    <label className={cn('grid gap-1.5 text-sm font-medium text-slate-700', className)}>
+      <span>{label}</span>
+      {children}
+    </label>
   );
 }

@@ -18,6 +18,7 @@ import {
   Landmark,
   LoaderCircle,
   MoreVertical,
+  Newspaper,
   PackageCheck,
   Search,
   Settings2,
@@ -81,6 +82,7 @@ const MODULE_ICONS: Record<string, LucideIcon> = {
   maintenance: Wrench,
   'procedure-engine': Workflow,
   shared: FolderArchive,
+  social: Newspaper,
   workspace: KanbanSquare,
 };
 

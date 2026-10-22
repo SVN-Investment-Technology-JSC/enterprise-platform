@@ -1,0 +1,292 @@
+// Trang Sinh nhật và widget cột phải. Màu, bo góc lấy từ biến `--ep-*` của khung sáng ModuleShell.
+
+@mixin ellipsis {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+
+  h1 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 700;
+  }
+}
+
+.search {
+  width: 240px;
+  max-width: 100%;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--ep-border-strong);
+  border-radius: var(--ep-radius);
+  background: var(--ep-surface);
+  color: var(--ep-text);
+  font: inherit;
+  font-size: 13px;
+
+  &:focus-visible {
+    outline: 2px solid var(--ep-accent-strong);
+    outline-offset: -1px;
+  }
+}
+
+.month {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.monthLabel {
+  margin: 0;
+  color: var(--ep-text-muted);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--ep-border);
+  border-radius: var(--ep-radius-lg);
+  background: var(--ep-surface);
+  color: inherit;
+  text-decoration: none;
+
+  &:hover {
+    background: var(--ep-hover);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--ep-accent-strong);
+    outline-offset: -2px;
+  }
+
+  &[data-today='true'] {
+    border-color: var(--ep-accent-strong);
+    background: var(--ep-hover);
+    box-shadow: inset 3px 0 0 var(--ep-accent-strong);
+  }
+}
+
+.text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.3;
+}
+
+.name {
+  @include ellipsis;
+
+  color: var(--ep-text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.unit {
+  @include ellipsis;
+
+  color: var(--ep-text-faint);
+  font-size: 11.5px;
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 6px;
+  color: var(--ep-text-muted);
+  font-size: 11.5px;
+
+  svg {
+    flex: none;
+  }
+}
+
+.metaItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.todayTag {
+  padding: 0 6px;
+  border-radius: 9px;
+  background: var(--ep-accent);
+  color: #1a1a1a;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 16px;
+}
+
+.state {
+  margin: 0;
+  padding: 16px 8px;
+  color: var(--ep-text-muted);
+  font-size: 13px;
+  text-align: center;
+}
+
+.error {
+  color: var(--ep-danger);
+}
+
+.skeleton {
+  height: 44px;
+  border-radius: var(--ep-radius-lg);
+  background: linear-gradient(90deg, #f1f3f6 25%, #f8f9fb 50%, #f1f3f6 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 200% 0;
+  }
+
+  to {
+    background-position: -200% 0;
+  }
+}
+
+/* ------------------------------------------------------------ widget */
+
+.widget {
+  overflow: hidden;
+  border: 1px solid var(--ep-border);
+  border-radius: var(--ep-radius-lg);
+  background: var(--ep-surface);
+}
+
+.widgetHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px 6px;
+
+  h2 {
+    flex: 1;
+    margin: 0;
+    color: var(--ep-text-muted);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+  }
+}
+
+.todayList {
+  margin: 0;
+  padding: 0 0 4px;
+  list-style: none;
+}
+
+.todayItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  color: inherit;
+  text-decoration: none;
+
+  &:hover {
+    background: var(--ep-hover);
+  }
+
+  &:focus-visible {
+    outline: none;
+    background: var(--ep-hover);
+    box-shadow: inset 0 0 0 2px var(--ep-accent-glow);
+  }
+}
+
+.moreRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-top: 1px solid var(--ep-border);
+  color: var(--ep-text-sub);
+  font-size: 12.5px;
+  text-decoration: none;
+
+  &:hover {
+    background: var(--ep-hover);
+  }
+
+  &:focus-visible {
+    outline: none;
+    background: var(--ep-hover);
+    box-shadow: inset 0 0 0 2px var(--ep-accent-glow);
+  }
+
+  > span:first-child {
+    flex: 1;
+    font-weight: 600;
+  }
+
+  svg {
+    flex: none;
+    color: var(--ep-text-muted);
+  }
+}
+
+.stack {
+  display: flex;
+  align-items: center;
+
+  > * + * {
+    margin-left: -8px;
+  }
+
+  > * {
+    box-shadow: 0 0 0 2px var(--ep-surface);
+  }
+}
+
+.stackMore {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--ep-hover);
+  color: var(--ep-text-sub);
+  font-size: 11px;
+  font-weight: 700;
+}

@@ -152,9 +152,16 @@ export function ModuleShellLight<TViewId extends string = string>(
     <NotificationProvider>
       <SessionKeepAlive />
       <div
-        className={collapsed ? `${styles.shell} ${styles.shellCollapsed}` : styles.shell}
+        className={[
+          styles.shell,
+          collapsed ? styles.shellCollapsed : '',
+          props.compact ? styles.shellCompact : '',
+        ]
+          .filter(Boolean)
+          .join(' ')}
         style={shellStyle}
       >
+        {props.hideNavigation ? null : (
         <nav
           className={resizing ? `${styles.sidebar} ${styles.sidebarResizing}` : styles.sidebar}
           aria-label={`Điều hướng ${props.title}`}
@@ -344,8 +351,16 @@ export function ModuleShellLight<TViewId extends string = string>(
             />
           )}
         </nav>
+        )}
 
-        <main className={styles.main}>
+        <main
+          className={props.contentMaxWidth ? `${styles.main} ${styles.mainBounded}` : styles.main}
+          style={
+            props.contentMaxWidth
+              ? ({ '--shell-content-max': `${props.contentMaxWidth}px` } as CSSProperties)
+              : undefined
+          }
+        >
           <div className={styles.head}>
             <nav className={styles.breadcrumb} aria-label="Đường dẫn">
               {homeHref && !props.hideHomeButton ? (

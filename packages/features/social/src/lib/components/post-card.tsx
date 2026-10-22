@@ -1,0 +1,737 @@
+'use client';
+
+import {
+  SOCIAL_ACTIVITY_LABELS,
+  SOCIAL_REACTION_LABELS,
+  SOCIAL_REACTION_TYPES,
+  type SocialAttachment,
+  type SocialMe,
+  type SocialPost,
+  type SocialReactionType,
+  type SocialReactor,
+} from '@enterprise-platform/contracts-social';
+import {
+  Bookmark,
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  File as FileIcon,
+  MessageSquare,
+  MessageSquareOff,
+  ThumbsUp,
+  X,
+} from 'lucide-react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react';
+import { createPortal } from 'react-dom';
+import {
+  deletePost,
+  errorMessage,
+  loadReactors,
+  pinPost,
+  setReaction,
+  updatePost,
+} from '../social-api';
+import {
+  formatBytes,
+  formatFullTime,
+  formatRelativeTime,
+} from '../social.model';
+import { isPublished } from '../post-extras.model';
+import extras from '../post-extras.module.scss';
+import {
+  buildPostMenu,
+  type PostMenuAction,
+} from '../post-visibility.model';
+import { SocialLink } from '../social-navigation';
+import { setBookmark } from '../social-posts-api';
+import styles from '../social.module.scss';
+import { CommentSection } from './comment-section';
+import { PostPoll } from './poll/post-poll';
+import { PostEditHistoryDialog } from './post-edit-history-dialog';
+import { PostMenu } from './post-menu';
+import {
+  GroupTag,
+  PostStatusBadges,
+  VisibilityBadge,
+} from './post-status-badge';
+import { ReadConfirmationBlock } from './read-confirmation';
+import {
+  Avatar,
+  ConfirmDialog,
+  Dialog,
+  REACTION_ICONS,
+  userSubtitle,
+} from './ui';
+
+/** Chiều cao tối đa của nội dung khi chưa bấm "Xem thêm" (px). */
+const CLAMP_HEIGHT = 168;
+
+/* ------------------------------------------------------------ nội dung HTML */
+
+function ClampedHtml({ html }: { readonly html: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [overflowing, setOverflowing] = useState(false);
+
+  useLayoutEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    // Liên kết trong bài luôn mở sang thẻ mới.
+    for (const anchor of Array.from(element.querySelectorAll('a'))) {
+      anchor.setAttribute('target', '_blank');
+      anchor.setAttribute('rel', 'noopener noreferrer');
+    }
+    setOverflowing(element.scrollHeight > CLAMP_HEIGHT + 6);
+  }, [html]);
+
+  return (
+    <div>
+      <div
+        ref={ref}
+        className={`${styles.richBody} ${styles.postBody}`}
+        style={expanded ? undefined : { maxHeight: CLAMP_HEIGHT }}
+        data-clamped={!expanded && overflowing}
+        // HTML đã được server làm sạch (hợp đồng `SocialPost.bodyHtml`).
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
+      {overflowing ? (
+        <button
+          type="button"
+          className={styles.linkButton}
+          onClick={() => setExpanded((value) => !value)}
+        >
+          {expanded ? 'Thu gọn' : 'Xem thêm'}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+/* ----------------------------------------------------------- ảnh và tệp */
+
+function ImageViewer({
+  images,
+  index,
+  onIndex,
+  onClose,
+}: {
+  readonly images: readonly SocialAttachment[];
+  readonly index: number;
+  readonly onIndex: (next: number) => void;
+  readonly onClose: () => void;
+}) {
+  const current = images[index];
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+      if (event.key === 'ArrowLeft')
+        onIndex((index - 1 + images.length) % images.length);
+      if (event.key === 'ArrowRight') onIndex((index + 1) % images.length);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [index, images.length, onIndex, onClose]);
+
+  if (!current) return null;
+  return createPortal(
+    <div
+      className={styles.viewer}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Xem ảnh"
+      onMouseDown={onClose}
+    >
+      <button
+        type="button"
+        className={styles.viewerClose}
+        aria-label="Đóng"
+        onClick={onClose}
+      >
+        <X size={20} />
+      </button>
+      {images.length > 1 ? (
+        <button
+          type="button"
+          className={`${styles.viewerNav} ${styles.viewerPrev}`}
+          aria-label="Ảnh trước"
+          onMouseDown={(event) => event.stopPropagation()}
+          onClick={() => onIndex((index - 1 + images.length) % images.length)}
+        >
+          <ChevronLeft size={24} />
+        </button>
+      ) : null}
+      {current.url ? (
+        <img
+          className={styles.viewerImage}
+          src={current.url}
+          alt={current.fileName}
+          onMouseDown={(event) => event.stopPropagation()}
+        />
+      ) : null}
+      {images.length > 1 ? (
+        <button
+          type="button"
+          className={`${styles.viewerNav} ${styles.viewerNext}`}
+          aria-label="Ảnh sau"
+          onMouseDown={(event) => event.stopPropagation()}
+          onClick={() => onIndex((index + 1) % images.length)}
+        >
+          <ChevronRight size={24} />
+        </button>
+      ) : null}
+    </div>,
+    document.body,
+  );
+}
+
+function ImageGrid({
+  images,
+}: {
+  readonly images: readonly SocialAttachment[];
+}) {
+  const [viewing, setViewing] = useState<number>();
+  const shown = images.slice(0, 4);
+  const hidden = images.length - shown.length;
+  return (
+    <>
+      <div className={styles.imageGrid} data-count={shown.length}>
+        {shown.map((image, index) => (
+          <button
+            key={image.id}
+            type="button"
+            className={styles.imageCell}
+            aria-label={`Xem ảnh ${image.fileName}`}
+            onClick={() => setViewing(index)}
+          >
+            {image.url ? (
+              <img src={image.url} alt={image.fileName} loading="lazy" />
+            ) : null}
+            {hidden > 0 && index === shown.length - 1 ? (
+              <span className={styles.imageMore}>+{hidden}</span>
+            ) : null}
+          </button>
+        ))}
+      </div>
+      {viewing !== undefined ? (
+        <ImageViewer
+          images={images}
+          index={viewing}
+          onIndex={setViewing}
+          onClose={() => setViewing(undefined)}
+        />
+      ) : null}
+    </>
+  );
+}
+
+function FileList({ files }: { readonly files: readonly SocialAttachment[] }) {
+  return (
+    <ul className={styles.fileList}>
+      {files.map((file) => {
+        const content = (
+          <>
+            <FileIcon size={16} />
+            <span className={styles.fileName}>{file.fileName}</span>
+            <span className={styles.fileSize}>
+              {formatBytes(file.sizeBytes)}
+            </span>
+            {file.url ? <Download size={14} /> : null}
+          </>
+        );
+        return (
+          <li key={file.id}>
+            {file.url ? (
+              <a
+                className={styles.fileItem}
+                href={file.url}
+                download={file.fileName}
+                rel="noopener noreferrer"
+              >
+                {content}
+              </a>
+            ) : (
+              <span className={styles.fileItem}>{content}</span>
+            )}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+/* -------------------------------------------------------------- phản ứng */
+
+function ReactorsDialog({
+  postId,
+  onClose,
+}: {
+  readonly postId: string;
+  readonly onClose: () => void;
+}) {
+  const [items, setItems] = useState<readonly SocialReactor[]>();
+  const [error, setError] = useState<string>();
+
+  useEffect(() => {
+    loadReactors(postId)
+      .then(setItems)
+      .catch((cause) =>
+        setError(
+          errorMessage(cause, 'Không tải được danh sách người phản ứng.'),
+        ),
+      );
+  }, [postId]);
+
+  return (
+    <Dialog
+      open
+      title="Người đã bày tỏ phản ứng"
+      error={error}
+      onClose={onClose}
+    >
+      {!items && !error ? <p className={styles.muted}>Đang tải…</p> : null}
+      {items && items.length === 0 ? (
+        <p className={styles.muted}>Chưa có phản ứng nào.</p>
+      ) : null}
+      {items && items.length > 0 ? (
+        <ul className={styles.reactorList}>
+          {items.map((item) => {
+            const Icon = REACTION_ICONS[item.type];
+            return (
+              <li
+                key={`${item.user.id}-${item.type}`}
+                className={styles.reactor}
+              >
+                <Avatar user={item.user} size={32} />
+                <span className={styles.suggestText}>
+                  <span className={styles.suggestName}>{item.user.name}</span>
+                  {userSubtitle(item.user) ? (
+                    <span className={styles.suggestMeta}>
+                      {userSubtitle(item.user)}
+                    </span>
+                  ) : null}
+                </span>
+                <span
+                  className={styles.reactorType}
+                  data-type={item.type}
+                  title={SOCIAL_REACTION_LABELS[item.type]}
+                >
+                  <Icon size={14} />
+                  {SOCIAL_REACTION_LABELS[item.type]}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+    </Dialog>
+  );
+}
+
+/* ------------------------------------------------------------------ thẻ bài */
+
+export interface PostCardProps {
+  readonly post: SocialPost;
+  readonly me: SocialMe;
+  readonly onChange: (post: SocialPost) => void;
+  readonly onEdit: (post: SocialPost) => void;
+  readonly onDeleted: (postId: string) => void;
+  readonly onOpenTopic: (topicId: string) => void;
+  /** Báo lỗi thao tác nhanh (ghim, phản ứng) cho màn hình hiện thông báo. */
+  readonly onError: (message: string) => void;
+  /** Mở sẵn luồng bình luận (liên kết từ thông báo). */
+  readonly defaultCommentsOpen?: boolean;
+  readonly focusCommentId?: string;
+  /** Đang ở trang chính bài này: ẩn mục "Xem chi tiết" trong menu. */
+  readonly isDetailPage?: boolean;
+}
+
+export function PostCard({
+  post,
+  me,
+  onChange,
+  onEdit,
+  onDeleted,
+  onOpenTopic,
+  onError,
+  defaultCommentsOpen = false,
+  focusCommentId,
+  isDetailPage = false,
+}: PostCardProps) {
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [commentsOpen, setCommentsOpen] = useState(defaultCommentsOpen);
+  const [reactorsOpen, setReactorsOpen] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState<string>();
+
+  const { capabilities } = post;
+  const canReact = me.permissions.includes('social.post.write');
+  const published = isPublished(post);
+  const activity = post.activity;
+  const menuItems = buildPostMenu(post).filter((item) => !(isDetailPage && item.action === 'detail'));
+  const commentsDisabled = Boolean(post.commentsDisabled);
+  const images = post.attachments.filter((item) => item.isImage);
+  const files = post.attachments.filter((item) => !item.isImage);
+
+  const react = useCallback(
+    async (type: SocialReactionType | null) => {
+      try {
+        const summary = await setReaction(post.id, type);
+        onChange({ ...post, ...summary });
+      } catch (cause) {
+        onError(errorMessage(cause, 'Không gửi được phản ứng.'));
+      }
+    },
+    [post, onChange, onError],
+  );
+
+  const toggleBookmark = async () => {
+    const next = !post.bookmarked;
+    try {
+      const state = await setBookmark(post.id, next);
+      onChange({ ...post, bookmarked: state.bookmarked });
+    } catch (cause) {
+      onError(
+        errorMessage(
+          cause,
+          next ? 'Không lưu được bài.' : 'Không bỏ lưu được bài.',
+        ),
+      );
+    }
+  };
+
+  const togglePin = async () => {
+    try {
+      onChange(await pinPost(post.id, !post.pinned));
+    } catch (cause) {
+      onError(
+        errorMessage(
+          cause,
+          post.pinned ? 'Không bỏ ghim được bài.' : 'Không ghim được bài.',
+        ),
+      );
+    }
+  };
+
+  const toggleComments = async () => {
+    try {
+      onChange(await updatePost(post.id, { commentsDisabled: !commentsDisabled }));
+    } catch (cause) {
+      onError(
+        errorMessage(
+          cause,
+          commentsDisabled
+            ? 'Không bật được bình luận.'
+            : 'Không tắt được bình luận.',
+        ),
+      );
+    }
+  };
+
+  const onMenuAction = (action: Exclude<PostMenuAction, 'detail'>) => {
+    if (action === 'pin') void togglePin();
+    else if (action === 'toggleComments') void toggleComments();
+    else if (action === 'history') setHistoryOpen(true);
+    else if (action === 'edit') onEdit(post);
+    else setConfirming(true);
+  };
+
+  const remove = async () => {
+    setBusy(true);
+    setDeleteError(undefined);
+    try {
+      await deletePost(post.id);
+      setConfirming(false);
+      onDeleted(post.id);
+    } catch (cause) {
+      setDeleteError(errorMessage(cause, 'Không xoá được bài viết.'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const reactionTypes = SOCIAL_REACTION_TYPES.filter(
+    (type) => (post.reactionCounts[type] ?? 0) > 0,
+  ).sort(
+    (a, b) => (post.reactionCounts[b] ?? 0) - (post.reactionCounts[a] ?? 0),
+  );
+  const MyIcon = post.myReaction ? REACTION_ICONS[post.myReaction] : ThumbsUp;
+
+  return (
+    <article
+      className={`${styles.post} ${extras.postCompact}`}
+      data-pinned={post.pinned}
+      data-status={post.status ?? 'published'}
+    >
+      <header className={styles.postHead}>
+        <Avatar user={post.author} size={38} />
+        <div className={styles.postWho}>
+          <SocialLink
+            to={{ name: 'profile', userId: post.author.id }}
+            className={`${styles.postAuthor} ${extras.authorLink}`}
+          >
+            {post.author.name}
+          </SocialLink>
+          <span className={extras.metaLine}>
+            {userSubtitle(post.author) ? (
+              <span className={extras.metaRole}>
+                {userSubtitle(post.author)}
+              </span>
+            ) : null}
+            <time
+              dateTime={post.publishedAt}
+              title={formatFullTime(post.publishedAt)}
+            >
+              {formatRelativeTime(post.publishedAt)}
+            </time>
+            {post.editedAt ? (
+              <span title={formatFullTime(post.editedAt)}>Đã chỉnh sửa</span>
+            ) : null}
+            <VisibilityBadge post={post} />
+          </span>
+        </div>
+        <div className={styles.postBadges}>
+          <PostStatusBadges post={post} />
+        </div>
+        <PostMenu
+          postId={post.id}
+          items={menuItems}
+          pinned={post.pinned}
+          commentsDisabled={commentsDisabled}
+          onAction={onMenuAction}
+        />
+      </header>
+
+      {post.group ? <GroupTag group={post.group} /> : null}
+      {post.topic ? (
+        <button
+          type="button"
+          className={styles.topicTag}
+          onClick={() => onOpenTopic(post.topic?.id ?? '')}
+        >
+          {post.topic.name}
+        </button>
+      ) : null}
+      {post.status === 'rejected' && post.rejectReason ? (
+        <div className={extras.rejectNote} role="note">
+          <strong>Lý do từ chối</strong>
+          <p>{post.rejectReason}</p>
+        </div>
+      ) : null}
+      {post.status === 'pending' ? (
+        <p className={extras.stateNote}>
+          Bài đang chờ kiểm duyệt viên xem xét. Sau khi được duyệt, bài sẽ hiện
+          trên bảng tin.
+        </p>
+      ) : null}
+      {activity ? (
+        <div className={extras.activity}>
+          <span className={extras.activityText}>
+            <span>
+              <strong>{post.author.name}</strong>{' '}
+              {SOCIAL_ACTIVITY_LABELS[activity.type] ?? 'có hoạt động mới'}
+            </span>
+          </span>
+          {activity.type === 'avatar.updated' && post.author.avatarUrl ? (
+            <img
+              className={extras.activityPreview}
+              src={post.author.avatarUrl}
+              alt=""
+            />
+          ) : null}
+        </div>
+      ) : (
+        <>
+          {post.title ? (
+            <h3 className={styles.postTitle}>{post.title}</h3>
+          ) : null}
+          {post.bodyHtml ? <ClampedHtml html={post.bodyHtml} /> : null}
+        </>
+      )}
+
+      {images.length > 0 ? <ImageGrid images={images} /> : null}
+      {files.length > 0 ? <FileList files={files} /> : null}
+      {post.poll ? (
+        <PostPoll
+          postId={post.id}
+          poll={post.poll}
+          readOnly={!published}
+          canClose={Boolean(capabilities.canClosePoll)}
+          onChange={(poll) => onChange({ ...post, poll })}
+          onError={onError}
+        />
+      ) : null}
+      {post.readConfirmation ? (
+        <ReadConfirmationBlock
+          post={post}
+          summary={post.readConfirmation}
+          published={published}
+          onChange={(readConfirmation) =>
+            onChange({ ...post, readConfirmation })
+          }
+          onError={onError}
+        />
+      ) : null}
+
+      {published && (post.reactionTotal > 0 || post.commentCount > 0) ? (
+        <div className={styles.postStats}>
+          {post.reactionTotal > 0 ? (
+            <button
+              type="button"
+              className={styles.reactionSummary}
+              onClick={() => setReactorsOpen(true)}
+            >
+              <span className={styles.reactionIcons}>
+                {reactionTypes.map((type) => {
+                  const Icon = REACTION_ICONS[type];
+                  return (
+                    <span
+                      key={type}
+                      className={styles.reactionDot}
+                      data-type={type}
+                    >
+                      <Icon size={11} />
+                    </span>
+                  );
+                })}
+              </span>
+              {post.reactionTotal.toLocaleString('vi-VN')}
+            </button>
+          ) : (
+            <span />
+          )}
+          {post.commentCount > 0 ? (
+            <button
+              type="button"
+              className={styles.linkButton}
+              onClick={() => setCommentsOpen((value) => !value)}
+            >
+              {post.commentCount.toLocaleString('vi-VN')} bình luận
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+
+      {published ? (
+        <div className={styles.postActions}>
+          <div className={styles.reactWrap}>
+            <button
+              type="button"
+              className={styles.actionButton}
+              data-active={Boolean(post.myReaction)}
+              data-type={post.myReaction}
+              disabled={!canReact}
+              onClick={() => void react(post.myReaction ? null : 'like')}
+            >
+              <MyIcon size={16} />
+              {post.myReaction
+                ? SOCIAL_REACTION_LABELS[post.myReaction]
+                : 'Thích'}
+            </button>
+            {canReact ? (
+              <div
+                className={styles.reactPicker}
+                role="group"
+                aria-label="Chọn phản ứng"
+              >
+                {SOCIAL_REACTION_TYPES.map((type) => {
+                  const Icon = REACTION_ICONS[type];
+                  return (
+                    <button
+                      key={type}
+                      type="button"
+                      className={styles.reactOption}
+                      data-type={type}
+                      data-selected={post.myReaction === type}
+                      title={SOCIAL_REACTION_LABELS[type]}
+                      aria-label={SOCIAL_REACTION_LABELS[type]}
+                      onClick={() =>
+                        void react(post.myReaction === type ? null : type)
+                      }
+                    >
+                      <Icon size={18} />
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
+          </div>
+          <button
+            type="button"
+            className={styles.actionButton}
+            data-active={commentsOpen}
+            aria-expanded={commentsOpen}
+            disabled={commentsDisabled && post.commentCount === 0}
+            title={commentsDisabled ? 'Bình luận đã bị tắt' : undefined}
+            onClick={() => setCommentsOpen((value) => !value)}
+          >
+            {commentsDisabled ? (
+              <MessageSquareOff size={16} />
+            ) : (
+              <MessageSquare size={16} />
+            )}{' '}
+            Bình luận
+          </button>
+          <button
+            type="button"
+            className={`${styles.actionButton} ${post.bookmarked ? extras.bookmarkActive : ''}`}
+            data-active={Boolean(post.bookmarked)}
+            aria-pressed={Boolean(post.bookmarked)}
+            onClick={() => void toggleBookmark()}
+          >
+            <Bookmark
+              size={16}
+              fill={post.bookmarked ? 'currentColor' : 'none'}
+            />
+            {post.bookmarked ? 'Đã lưu' : 'Lưu bài'}
+          </button>
+        </div>
+      ) : null}
+
+      {published && commentsOpen ? (
+        <CommentSection
+          postId={post.id}
+          me={me}
+          canComment={capabilities.canComment && !commentsDisabled}
+          commentsDisabled={commentsDisabled}
+          focusCommentId={focusCommentId}
+          onCountChange={(delta) =>
+            onChange({
+              ...post,
+              commentCount: Math.max(0, post.commentCount + delta),
+            })
+          }
+        />
+      ) : null}
+
+      {historyOpen ? (
+        <PostEditHistoryDialog
+          postId={post.id}
+          onClose={() => setHistoryOpen(false)}
+        />
+      ) : null}
+      {reactorsOpen ? (
+        <ReactorsDialog
+          postId={post.id}
+          onClose={() => setReactorsOpen(false)}
+        />
+      ) : null}
+      <ConfirmDialog
+        open={confirming}
+        title="Xoá bài viết"
+        message="Bài viết cùng bình luận và phản ứng sẽ bị xoá. Bạn có chắc chắn?"
+        confirmLabel="Xoá bài"
+        busy={busy}
+        error={deleteError}
+        onConfirm={() => void remove()}
+        onClose={() => setConfirming(false)}
+      />
+    </article>
+  );
+}
