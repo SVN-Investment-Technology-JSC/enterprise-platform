@@ -707,8 +707,13 @@ integration('Đơn từ theo từ ngày giờ đến ngày giờ và loại đơ
 
     it('danh sách lọc theo loại và trạng thái; đơn chờ duyệt có giờ trong tháng được đếm để chặn chốt công', async () => {
       const list = await custom(approver).list(req, undefined, noneType.id, 'REJECTED');
-      expect(list.data).toHaveLength(1);
-      expect(list.data[0]).toMatchObject({ typeId: noneType.id, status: 'REJECTED' });
+      expect(list.data).toHaveLength(2);
+      expect(list.data).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ typeId: noneType.id, status: 'REJECTED', rejectionReason: null }),
+          expect.objectContaining({ typeId: noneType.id, status: 'REJECTED', rejectionReason: 'Chưa phù hợp' }),
+        ]),
+      );
       // Đơn chờ duyệt lúc 09:00 ngày 02/11/2026 được đếm ở tháng 11, không đếm ở tháng 12.
       expect(await pendingCustomRequestCount(pool as any, tenantId, '2026-11-01', '2026-11-30')).toBeGreaterThan(0);
       expect(await pendingCustomRequestCount(pool as any, tenantId, '2026-12-01', '2026-12-31')).toBe(0);
