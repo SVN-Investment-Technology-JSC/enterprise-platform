@@ -1267,6 +1267,8 @@ integration('HRM employee PostgreSQL integration', () => {
       new HrmProcedureBridgeService(ctx),
       testApprovalPolicy(),
     );
+    const tokenBefore = process.env.INTERNAL_SERVICE_TOKEN;
+    process.env.INTERNAL_SERVICE_TOKEN = 'test-only';
     const fetchMock = jest
       .spyOn(globalThis, 'fetch')
       .mockResolvedValue(
@@ -1322,6 +1324,8 @@ integration('HRM employee PostgreSQL integration', () => {
       ).toBe('REJECTED');
     } finally {
       fetchMock.mockRestore();
+      if (tokenBefore === undefined) delete process.env.INTERNAL_SERVICE_TOKEN;
+      else process.env.INTERNAL_SERVICE_TOKEN = tokenBefore;
     }
   });
   it('retains early callbacks until the start correlation is confirmed', async () => {
