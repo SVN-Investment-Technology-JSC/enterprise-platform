@@ -10,23 +10,30 @@ import {
   type WorkItemPriority,
   type WorkItemType,
 } from '@enterprise-platform/contracts-workspace';
-import { fromLocalInput } from '@enterprise-platform/shared-ui';
+import { fromLocalInput, type SearchableSelectOption } from '@enterprise-platform/shared-ui';
 import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import { Plus } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { FormPrefill, WorkItemPrefill } from '../assistant-drafts';
 import { loadProcedureOptions, type ProcedureOption } from '../procedure-api';
 import { PRIORITY_LABELS } from '../workspace-labels';
 import styles from '../workspace.module.scss';
 import { useDirectory } from './use-directory';
 import { Choice } from './choice';
+import { ConfirmBox } from './confirm-box';
 import { Dialog, Field } from './dialog';
-import { PeoplePicker } from './people-picker';
+import { ProjectPeoplePicker } from './project-people-picker';
 import { TagPicker } from './tag-picker';
 import { TitleInput, useRecentTitles } from './title-input';
 import { TransportSection } from './transport-section';
 import { useSourceTransport, type SourceTransportState } from './use-source-transport';
-import { draftRow, WorkItemDraftEditor, type DraftFields, type DraftRow } from './work-item-draft';
+import {
+  draftRow,
+  WorkItemDraftEditor,
+  type AssigneeChoices,
+  type DraftFields,
+  type DraftRow,
+} from './work-item-draft';
 
 export interface WorkItemFormProps {
   readonly open: boolean;
@@ -57,7 +64,8 @@ export interface WorkItemFormProps {
      */
     addMemberUserIds?: string[],
   ) => Promise<void>;
-  readonly onUpdate: (input: UpdateWorkItemRequest) => Promise<void>;
+  /** `addMemberUserIds`: người phụ trách mới chưa thuộc dự án; nơi gọi thêm họ vào dự án trước khi lưu. */
+  readonly onUpdate: (input: UpdateWorkItemRequest, addMemberUserIds?: string[]) => Promise<void>;
   /** Tạo công việc điều chỉnh cho công việc đã huỷ hiệu lực: điền sẵn từ công việc gốc. */
   readonly adjustmentOf?: WorkItem;
   /**
@@ -314,51 +322,87 @@ export function WorkItemForm({
         },
     );
 
-  // Tạo mới thì tìm người trong toàn bộ danh bạ công ty, không bó trong thành
-  // viên dự án — người ngoài dự án sẽ được gắn nhãn và thêm vào dự án sau khi
-  // người tạo xác nhận. Sửa việc vẫn chỉ chọn trong thành viên dự án.
+  // Tạo hay sửa đều tìm người trong toàn bộ danh bạ công ty, không bó trong
+  // thành viên dự án — người ngoài dự án được gắn nhãn và thêm vào dự án sau
+  // khi người dùng xác nhận.
   const isCreate = !item;
   const memberIds = useMemo(() => new Set(members.map((member) => member.userId)), [members]);
 
   /** Nguồn người cho ô "Người thực hiện cùng". */
   const participantPeople =
-    !isCreate || directory.people.length === 0
+    directory.people.length === 0
       ? memberPeople
       : canAssignOthers
         ? directory.people
         : directory.people.filter((person) => person.userId === currentUserId);
 
-  /** Lựa chọn cho ô "Người phụ trách". */
-  const assigneeOptions = isCreate
-    ? (directory.people.length > 0
+  /**
+   * Lựa chọn cho ô "Người phụ trách" — giống ô "Người submit" bên Quy trình: cả tạo lẫn sửa đều chọn trong
+   * toàn bộ danh bạ công ty. Thành viên dự án đứng đầu; người ngoài dự án gập sau nút "Ngoài dự án", hiện kèm
+   * chức danh / bộ phận, và được thêm vào dự án khi lưu.
+   */
+  const assigneeChoices = useMemo(() => {
+    const ids =
+      directory.people.length > 0
         ? (canAssignOthers
             ? directory.people
             : directory.people.filter((person) => person.userId === currentUserId)
           ).map((person) => person.userId)
         : members
             .filter((member) => canAssignOthers || member.userId === currentUserId)
-            .map((member) => member.userId)
-      ).map((userId) => ({
+            .map((member) => member.userId);
+    // Giữ người đang phụ trách để ô chọn không tự đổi giá trị.
+    if (item?.assigneeUserId && !ids.includes(item.assigneeUserId)) ids.push(item.assigneeUserId);
+    const all: SearchableSelectOption[] = ids.map((userId) => {
+      const person = directory.find(userId);
+      return {
         value: userId,
-        label: memberIds.has(userId)
-          ? directory.nameOf(userId)
-          : `${directory.nameOf(userId)} · Ngoài dự án`,
-      }))
-    : members
-        .filter(
-          (member) =>
-            canAssignOthers ||
-            member.userId === currentUserId ||
-            // Giữ người đang phụ trách để ô chọn không tự đổi giá trị.
-            member.userId === item?.assigneeUserId,
-        )
-        .map((member) => ({ value: member.userId, label: directory.nameOf(member.userId) }));
+        label: directory.nameOf(userId),
+        description:
+          [person?.positionName, person?.unitNames.join(', ')].filter(Boolean).join(' · ') || undefined,
+      };
+    });
+    const outside = all.filter((option) => !memberIds.has(option.value));
+    return {
+      options: all.filter((option) => memberIds.has(option.value)),
+      extra:
+        outside.length > 0
+          ? {
+              label: 'Ngoài dự án',
+              options: outside,
+              filters: { label: 'Tên', description: 'Chức danh / bộ phận' },
+            }
+          : undefined,
+    };
+  }, [directory, canAssignOthers, currentUserId, members, memberIds, item?.assigneeUserId]);
+
+  /** Dòng của ô "Người phụ trách": tên, thẻ trong dự án (xanh) / ngoài dự án (vàng), chức danh. */
+  const renderAssignee = (option: SearchableSelectOption): ReactNode =>
+    option.value ? (
+      <span className={styles.assigneeOption}>
+        <span className={styles.assigneeOptionRow}>
+          <span>{option.label}</span>
+          <span className={memberIds.has(option.value) ? styles.assigneeTagIn : styles.assigneeTagOut}>
+            {memberIds.has(option.value) ? 'Trong dự án' : 'Ngoài dự án'}
+          </span>
+        </span>
+        {option.description ? (
+          <span className={styles.assigneeOptionHint}>{option.description}</span>
+        ) : null}
+      </span>
+    ) : (
+      option.label
+    );
 
   /** Người được chọn (phụ trách + cùng làm) nhưng chưa thuộc dự án. */
   const outsidePeople = useMemo<DirectoryPerson[]>(() => {
-    if (!isCreate) return [];
     const ids = new Set<string>();
-    for (const row of rows) {
+    if (!isCreate) {
+      if (form.itemType !== 'phase') {
+        if (form.assigneeUserId) ids.add(form.assigneeUserId);
+        for (const userId of form.participantUserIds) ids.add(userId);
+      }
+    } else for (const row of rows) {
       // Nhóm công việc không có người làm.
       if (!row.title.trim() || row.itemType === 'phase') continue;
       if (row.assigneeUserId) ids.add(row.assigneeUserId);
@@ -375,25 +419,22 @@ export function WorkItemForm({
             orgNodeIds: [],
           },
       );
-  }, [isCreate, rows, memberIds, directory]);
+  }, [isCreate, form.assigneeUserId, form.participantUserIds, form.itemType, rows, memberIds, directory]);
 
-  const submit = async () => {
+  /** Lưu khi sửa; `addMemberUserIds` là người phụ trách mới chưa thuộc dự án, đã được xác nhận thêm. */
+  const runUpdate = async (addMemberUserIds: string[]) => {
+    setConfirmOutside(false);
     setError(undefined);
-    if (item) {
-      // Nhóm công việc không đi lại; các loại khác: xe công ty phải chọn đủ xe, tài xế và giờ.
-      if (!isPhase && transport.value.mode && transport.problem) {
-        setError(transport.problem);
-        return;
-      }
-      const transportBlock = isPhase ? undefined : transport.payload();
-      const hours = form.estimateHours.trim() ? Number(form.estimateHours) : undefined;
-      // Người phụ trách đã có ô riêng, không lặp lại trong người thực hiện cùng.
-      const participants = form.participantUserIds.filter(
-        (userId) => userId !== form.assigneeUserId,
-      );
-      setSubmitting(true);
-      try {
-        await onUpdate({
+    const transportBlock = isPhase ? undefined : transport.payload();
+    const hours = form.estimateHours.trim() ? Number(form.estimateHours) : undefined;
+    // Người phụ trách đã có ô riêng, không lặp lại trong người thực hiện cùng.
+    const participants = form.participantUserIds.filter(
+      (userId) => userId !== form.assigneeUserId,
+    );
+    setSubmitting(true);
+    try {
+      await onUpdate(
+        {
           title: form.title,
           description: form.description || undefined,
           priority: form.priority,
@@ -404,12 +445,30 @@ export function WorkItemForm({
           plannedEnd: form.plannedEnd || null,
           estimateHours: isPhase ? null : (hours ?? null),
           transport: transportBlock,
-        });
-        onClose();
-      } catch (cause) {
-        setError((cause as { message?: string })?.message ?? 'Không lưu được công việc.');
-        setSubmitting(false);
+        },
+        addMemberUserIds.length > 0 ? addMemberUserIds : undefined,
+      );
+      onClose();
+    } catch (cause) {
+      setError((cause as { message?: string })?.message ?? 'Không lưu được công việc.');
+      setSubmitting(false);
+    }
+  };
+
+  const submit = async () => {
+    setError(undefined);
+    if (item) {
+      // Nhóm công việc không đi lại; các loại khác: xe công ty phải chọn đủ xe, tài xế và giờ.
+      if (!isPhase && transport.value.mode && transport.problem) {
+        setError(transport.problem);
+        return;
       }
+      // Người phụ trách mới chưa thuộc dự án: hỏi xác nhận trước khi thêm họ vào dự án.
+      if (outsidePeople.length > 0 && !confirmOutside) {
+        setConfirmOutside(true);
+        return;
+      }
+      await runUpdate(outsidePeople.map((person) => person.userId));
       return;
     }
 
@@ -534,8 +593,10 @@ export function WorkItemForm({
           set={set}
           isPhase={isPhase}
           titleHistory={titleHistory}
-          assigneeOptions={assigneeOptions}
+          assigneeChoices={assigneeChoices}
+          renderAssignee={renderAssignee}
           participantPeople={participantPeople}
+          memberIds={memberIds}
           nameOf={directory.nameOf}
           directoryLoaded={directory.loaded}
           transport={transport}
@@ -577,11 +638,12 @@ export function WorkItemForm({
                 onPasteLines={(lines) => pasteLines(row.key, lines)}
                 onTransport={registerTransport}
                 history={titleHistory}
-                assigneeOptions={assigneeOptions}
+                assigneeChoices={assigneeChoices}
+                renderAssignee={renderAssignee}
                 participantPeople={participantPeople}
                 nameOf={directory.nameOf}
                 directoryLoaded={directory.loaded}
-                outsideTag={(userId) => (memberIds.has(userId) ? undefined : 'Ngoài dự án')}
+                memberIds={memberIds}
                 parentOptions={(parentOptions ?? []).map((option) => ({
                   value: option.id,
                   label: option.label,
@@ -604,15 +666,23 @@ export function WorkItemForm({
       )}
     </Dialog>
 
-    {/* Chọn người ngoài dự án: xác nhận trước khi thêm họ vào dự án rồi mới tạo việc. */}
-    <Dialog
+    {/* Chọn người ngoài dự án: xác nhận trước khi thêm họ vào dự án rồi mới tạo / lưu việc. */}
+    <ConfirmBox
       open={confirmOutside}
-      title="Thêm thành viên vào dự án"
-      subtitle="Những người sau sẽ được thêm vào dự án:"
-      submitLabel="Xác nhận"
-      submitting={submitting}
-      onClose={() => setConfirmOutside(false)}
-      onSubmit={() => void runCreate(outsidePeople.map((person) => person.userId))}
+      title={
+        outsidePeople.length > 1
+          ? `Bạn có chắc chắn muốn thêm ${outsidePeople.length} người này vào dự án?`
+          : 'Bạn có chắc chắn muốn thêm người này vào dự án?'
+      }
+      message="Họ chưa thuộc dự án; sẽ được thêm với vai Thành viên rồi mới lưu công việc."
+      confirmLabel="Thêm và lưu"
+      tone="primary"
+      busy={submitting}
+      onConfirm={() => {
+        const ids = outsidePeople.map((person) => person.userId);
+        void (item ? runUpdate(ids) : runCreate(ids));
+      }}
+      onCancel={() => setConfirmOutside(false)}
     >
       <ul className={styles.memberList}>
         {outsidePeople.map((person) => (
@@ -622,7 +692,7 @@ export function WorkItemForm({
           </li>
         ))}
       </ul>
-    </Dialog>
+    </ConfirmBox>
     </>
   );
 }
@@ -633,8 +703,10 @@ function EditFields({
   set,
   isPhase,
   titleHistory,
-  assigneeOptions,
+  assigneeChoices,
+  renderAssignee,
   participantPeople,
+  memberIds,
   nameOf,
   directoryLoaded,
   transport,
@@ -643,8 +715,10 @@ function EditFields({
   readonly set: (patch: Partial<FormState>) => void;
   readonly isPhase: boolean;
   readonly titleHistory: readonly string[];
-  readonly assigneeOptions: ReadonlyArray<{ value: string; label: string }>;
+  readonly assigneeChoices: AssigneeChoices;
+  readonly renderAssignee: (option: SearchableSelectOption) => ReactNode;
   readonly participantPeople: readonly DirectoryPerson[];
+  readonly memberIds: ReadonlySet<string>;
   readonly nameOf: (userId: string) => string;
   readonly directoryLoaded: boolean;
   readonly transport: SourceTransportState;
@@ -682,7 +756,9 @@ function EditFields({
               label="Người phụ trách"
               value={form.assigneeUserId}
               emptyOption="Chưa giao"
-              options={assigneeOptions}
+              options={assigneeChoices.options}
+              extra={assigneeChoices.extra}
+              renderOption={renderAssignee}
               onChange={(value) => set({ assigneeUserId: value })}
             />
           </Field>
@@ -700,12 +776,12 @@ function EditFields({
 
       {isPhase ? null : (
         <Field label="Người thực hiện cùng">
-          <PeoplePicker
+          <ProjectPeoplePicker
             people={participantPeople}
+            memberIds={memberIds}
             selected={form.participantUserIds}
             exclude={form.assigneeUserId ? [form.assigneeUserId] : []}
             nameOf={nameOf}
-            placeholder="Tìm thành viên dự án"
             loaded={directoryLoaded}
             onChange={(participantUserIds) => set({ participantUserIds })}
           />

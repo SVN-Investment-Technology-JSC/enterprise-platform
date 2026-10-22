@@ -5,6 +5,7 @@ import { X } from 'lucide-react';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import styles from '../workspace.module.scss';
+import { ConfirmBox } from './confirm-box';
 
 export interface DialogProps {
   readonly open: boolean;
@@ -120,22 +121,6 @@ export function Dialog({
             {error}
           </p>
         ) : null}
-        {confirmDiscard ? (
-          <div className={styles.discardBar} role="alert">
-            <span>Bạn có thay đổi chưa lưu. Đóng lại sẽ mất những gì vừa nhập.</span>
-            <button
-              type="button"
-              className={styles.buttonGhost}
-              autoFocus
-              onClick={() => setConfirmDiscard(false)}
-            >
-              Tiếp tục sửa
-            </button>
-            <button type="button" className={styles.buttonDanger} onClick={onClose}>
-              Bỏ thay đổi
-            </button>
-          </div>
-        ) : null}
       </div>
       <footer className={styles.dialogFoot}>
         {cancelLabel === null ? null : (
@@ -151,6 +136,14 @@ export function Dialog({
           {submitting ? 'Đang lưu…' : submitLabel}
         </button>
       </footer>
+      <ConfirmBox
+        open={confirmDiscard}
+        title="Bạn có chắc chắn muốn đóng?"
+        message="Những gì vừa nhập chưa được lưu sẽ mất."
+        confirmLabel="Bỏ thay đổi"
+        onConfirm={onClose}
+        onCancel={() => setConfirmDiscard(false)}
+      />
     </form>
   );
 

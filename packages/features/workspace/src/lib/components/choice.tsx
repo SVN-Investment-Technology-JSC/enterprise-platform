@@ -2,9 +2,10 @@
 
 import {
   SearchableSelect,
+  type SearchableSelectExtra,
   type SearchableSelectOption,
 } from '@enterprise-platform/shared-ui';
-import { useRef } from 'react';
+import { useRef, type ReactNode } from 'react';
 
 /**
  * Ô chọn duy nhất của Workspace.
@@ -32,6 +33,10 @@ export interface ChoiceProps {
   readonly className?: string;
   /** Chiều cao ô (px); mặc định của `SearchableSelect` là 38. */
   readonly height?: number;
+  /** Vẽ riêng một dòng trong danh sách (vd thêm thẻ); vắng thì chỉ hiện nhãn. */
+  readonly renderOption?: (option: SearchableSelectOption) => ReactNode;
+  /** Nhóm phụ gập sau một nút, xếp sau danh sách chính (vd "Ngoài dự án"). */
+  readonly extra?: SearchableSelectExtra;
 }
 
 export function Choice({
@@ -46,6 +51,8 @@ export function Choice({
   title,
   className,
   height,
+  renderOption,
+  extra,
 }: ChoiceProps) {
   const all = emptyOption === undefined ? options : [{ value: '', label: emptyOption }, ...options];
   const box = useRef<HTMLDivElement>(null);
@@ -59,7 +66,11 @@ export function Choice({
       aria-label={label}
       data-choice={label}
       // Ô hẹp thì nhãn dài bị cắt; rê chuột luôn đọc được đủ.
-      title={title ?? all.find((option) => option.value === value)?.label}
+      title={
+        title ??
+        (all.find((option) => option.value === value) ?? extra?.options.find((option) => option.value === value))
+          ?.label
+      }
     >
       <SearchableSelect
         options={all}
@@ -68,6 +79,7 @@ export function Choice({
         required={required}
         className={className}
         height={height}
+        extra={extra}
         clearable={emptyOption !== undefined}
         placeholder={placeholder ?? emptyOption ?? `Chọn ${label.toLowerCase()}…`}
         // Chọn xong thì bỏ focus khỏi ô nhập. Danh sách đã tự đóng, nhưng ô
@@ -82,7 +94,9 @@ export function Choice({
         }}
         // `data-value` để kịch bản kiểm thử chọn được đúng mục theo id, việc mà
         // `<option value=…>` trước đây làm sẵn. Người dùng không thấy gì khác.
-        renderOption={(option) => <span data-value={option.value}>{option.label}</span>}
+        renderOption={(option) => (
+          <span data-value={option.value}>{renderOption ? renderOption(option) : option.label}</span>
+        )}
       />
     </div>
   );

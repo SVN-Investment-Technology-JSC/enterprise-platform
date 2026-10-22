@@ -7,15 +7,19 @@ import {
   type WorkItemPriority,
   type WorkItemType,
 } from '@enterprise-platform/contracts-workspace';
-import { fromLocalInput } from '@enterprise-platform/shared-ui';
+import {
+  fromLocalInput,
+  type SearchableSelectExtra,
+  type SearchableSelectOption,
+} from '@enterprise-platform/shared-ui';
 import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import { Copy, Truck, X } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import type { ProcedureOption } from '../procedure-api';
 import { ITEM_TYPE_LABELS, PRIORITY_LABELS } from '../workspace-labels';
 import styles from '../workspace.module.scss';
 import { Choice } from './choice';
-import { PeoplePicker } from './people-picker';
+import { ProjectPeoplePicker } from './project-people-picker';
 import { TagPicker } from './tag-picker';
 import { TitleInput } from './title-input';
 import { TransportSection } from './transport-section';
@@ -86,15 +90,23 @@ export interface WorkItemDraftEditorProps {
   /** Báo khối phương tiện của dòng cho form, để kiểm và lấy payload khi gửi. */
   readonly onTransport: (key: number, state: SourceTransportState | undefined) => void;
   readonly history: readonly string[];
-  readonly assigneeOptions: ReadonlyArray<{ value: string; label: string }>;
+  readonly assigneeChoices: AssigneeChoices;
+  /** Dòng của ô "Người phụ trách": tên kèm thẻ trong / ngoài dự án. */
+  readonly renderAssignee: (option: SearchableSelectOption) => ReactNode;
   readonly participantPeople: readonly DirectoryPerson[];
   readonly nameOf: (userId: string) => string;
   readonly directoryLoaded: boolean;
-  /** Nhãn "Ngoài dự án" cho người chưa thuộc dự án. */
-  readonly outsideTag: (userId: string) => string | undefined;
+  /** Thành viên dự án: đứng đầu ô "Người thực hiện cùng", người còn lại gập sau nút "Ngoài dự án". */
+  readonly memberIds: ReadonlySet<string>;
   readonly parentOptions: ReadonlyArray<{ value: string; label: string }>;
   /** `undefined` là đang tải danh sách quy trình. */
   readonly procedures: readonly ProcedureOption[] | undefined;
+}
+
+/** Lựa chọn của ô "Người phụ trách": thành viên dự án, rồi nhóm "Ngoài dự án" gập sau một nút. */
+export interface AssigneeChoices {
+  readonly options: readonly SearchableSelectOption[];
+  readonly extra?: SearchableSelectExtra;
 }
 
 /**
@@ -113,11 +125,12 @@ export function WorkItemDraftEditor({
   onPasteLines,
   onTransport,
   history,
-  assigneeOptions,
+  assigneeChoices,
+  renderAssignee,
   participantPeople,
   nameOf,
   directoryLoaded,
-  outsideTag,
+  memberIds,
   parentOptions,
   procedures,
 }: WorkItemDraftEditorProps) {
@@ -171,7 +184,9 @@ export function WorkItemDraftEditor({
                 value={row.assigneeUserId}
                 height={COMPACT}
                 emptyOption="Chưa giao"
-                options={assigneeOptions}
+                options={assigneeChoices.options}
+                extra={assigneeChoices.extra}
+                renderOption={renderAssignee}
                 onChange={(value) => onChange({ assigneeUserId: value })}
               />
             )}
@@ -287,13 +302,12 @@ export function WorkItemDraftEditor({
           {isPhase ? null : (
             <div className={styles.draftField}>
               <span>Người thực hiện cùng</span>
-              <PeoplePicker
+              <ProjectPeoplePicker
                 people={participantPeople}
+                memberIds={memberIds}
                 selected={row.participantUserIds}
                 exclude={row.assigneeUserId ? [row.assigneeUserId] : []}
                 nameOf={nameOf}
-                tagFor={outsideTag}
-                placeholder="Tìm người trong công ty"
                 loaded={directoryLoaded}
                 onChange={(participantUserIds) => onChange({ participantUserIds })}
               />

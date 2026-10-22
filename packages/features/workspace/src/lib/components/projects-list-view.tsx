@@ -11,7 +11,6 @@ import {
   type Tag,
   type UpdateProjectRequest,
 } from '@enterprise-platform/contracts-workspace';
-import { Popconfirm } from '@enterprise-platform/shared-ui';
 import { ChevronDown, ChevronRight, FolderInput, Plus, RefreshCw } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { mergeNewProjectMembers } from '../project-tree.model';
@@ -24,6 +23,7 @@ import { ProjectForm } from './project-form';
 import { ContextMenu } from './project-tree';
 import { TagPicker } from './tag-picker';
 import { tagColor, useTags } from './use-tags';
+import { Confirm } from './confirm-box';
 
 const messageOf = (cause: unknown, fallback: string): string =>
   (cause as { message?: string })?.message ?? fallback;
@@ -62,7 +62,7 @@ export interface ProjectsListViewProps {
  * lọc (trạng thái, nhóm, nhãn, khách hàng), rồi MỘT bảng gom theo nhóm
  * dự án — nhóm thu gọn được, cuộn dọc độc lập. Chọn nhiều dòng để chuyển nhóm;
  * chuột phải trên một dòng (hay trên các dòng đang chọn) để chuyển nhóm, gắn
- * nhãn; đóng hồ sơ từng dự án qua Popconfirm. Mở một dự án thì trang cha chuyển sang
+ * nhãn; đóng hồ sơ từng dự án qua hộp xác nhận. Mở một dự án thì trang cha chuyển sang
  * ProjectsView chi tiết.
  */
 export function ProjectsListView({
@@ -664,32 +664,28 @@ function GroupRows({
             <td>
               <div className={styles.rowActions}>
                 {project.archivedAt ? (
-                  <Popconfirm
-                    title="Mở lưu trữ dự án?"
+                  <Confirm
+                    title="Bạn có chắc chắn muốn mở lưu trữ dự án này?"
                     description="Dự án về lại trạng thái Đang chạy để thêm công việc; khi đóng hồ sơ lần nữa sẽ tự vào lưu trữ."
                     okText="Mở lưu trữ"
-                    cancelText="Đóng"
-                    placement="bottom-end"
                     onConfirm={() => onUnarchive(project.id)}
                   >
                     <button type="button" className={styles.buttonSmall}>
                       Mở lưu trữ
                     </button>
-                  </Popconfirm>
+                  </Confirm>
                 ) : closable ? (
-                  <Popconfirm
-                    title="Đóng hồ sơ dự án?"
+                  <Confirm
+                    title="Bạn có chắc chắn muốn đóng hồ sơ dự án này?"
                     description="Dự án chuyển sang Hoàn thành và tự vào Lưu trữ. Chỉ đóng được khi mọi công việc đã hoàn thành hoặc đã huỷ."
                     okText="Đóng hồ sơ"
-                    cancelText="Đóng"
                     okType="warning"
-                    placement="bottom-end"
                     onConfirm={() => onClose(project.id)}
                   >
                     <button type="button" className={styles.buttonSmall}>
                       Đóng hồ sơ
                     </button>
-                  </Popconfirm>
+                  </Confirm>
                 ) : null}
               </div>
             </td>

@@ -24,6 +24,7 @@ import { PeoplePicker } from './people-picker';
 import { TagPicker } from './tag-picker';
 import { useDirectory } from './use-directory';
 import { roleOptions, useProjectRoles } from './use-project-roles';
+import { upperCaseKeepingCaret } from './upper-case-input';
 
 export interface ProjectFormProps {
   readonly open: boolean;
@@ -268,7 +269,7 @@ export function ProjectForm({
             value={form.code}
             required
             maxLength={32}
-            onChange={(event) => set({ code: event.target.value.toUpperCase() })}
+            onChange={(event) => set({ code: upperCaseKeepingCaret(event) })}
           />
         </Field>
       )}
@@ -348,12 +349,10 @@ export function ProjectForm({
                 placeholder="Mã khách hàng"
                 maxLength={32}
                 aria-label="Mã khách hàng mới"
-                onChange={(event) =>
-                  setNewCustomer((current) => ({
-                    ...current,
-                    code: event.target.value.toUpperCase(),
-                  }))
-                }
+                onChange={(event) => {
+                  const code = upperCaseKeepingCaret(event);
+                  setNewCustomer((current) => ({ ...current, code }));
+                }}
                 onKeyDown={(event) => {
                   if (event.key === 'Enter') {
                     event.preventDefault();

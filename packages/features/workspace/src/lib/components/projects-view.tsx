@@ -945,7 +945,7 @@ export function ProjectsView({
         if (item) setCancellingItem(item);
         return;
       case 'delete-item':
-        // Xoá hẳn: hỏi lại bằng mã công việc — xem DeleteWorkItemDialog.
+        // Xoá hẳn: hỏi lại trước — xem DeleteWorkItemDialog.
         if (item) setDeletingItem(item);
         return;
       case 'reverse-item':
@@ -961,7 +961,7 @@ export function ProjectsView({
         if (item) void run(() => api.moveWorkItem(item.id, { parentId: null }), 'Không di chuyển được công việc.');
         return;
       case 'cancel-project':
-        // Hỏi lại bằng mã dự án trước khi huỷ — xem CancelProjectDialog.
+        // Hỏi lại trước khi huỷ — xem CancelProjectDialog.
         if (detail) setCancelling(detail.project);
         return;
       default:
@@ -1378,8 +1378,18 @@ export function ProjectsView({
           });
           await refreshDetail(detail.project.id);
         }}
-        onUpdate={async (input: UpdateWorkItemRequest) => {
+        onUpdate={async (input: UpdateWorkItemRequest, addMemberUserIds?: string[]) => {
           if (!itemForm.edit || !detail) return;
+          // Người phụ trách mới ngoài dự án: thêm vào dự án trước, như khi tạo công việc.
+          if (addMemberUserIds && addMemberUserIds.length > 0) {
+            const existing = await api.listMembers(detail.project.id);
+            await api.setMembers(detail.project.id, {
+              members: mergeNewProjectMembers(
+                existing.items,
+                addMemberUserIds.map((userId) => ({ userId, role: 'member' })),
+              ),
+            });
+          }
           await api.updateWorkItem(itemForm.edit.id, input);
           await refreshDetail(detail.project.id);
         }}

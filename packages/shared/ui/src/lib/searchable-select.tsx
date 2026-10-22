@@ -41,6 +41,22 @@ export interface SearchableSelectProps {
   readonly clearable?: boolean;
   readonly onChange?: (value: string) => void;
   readonly renderOption?: (option: SearchableSelectOption, isSelected: boolean) => ReactNode;
+  /**
+   * Nhóm phụ, xếp sau danh sách chính và gập lại sau một nút (vd "Ngoài dự án"): bấm nút thì mở nhóm, gõ tìm thì
+   * tìm cả trong nhóm. Đang chọn một mục của nhóm thì nhóm mở sẵn.
+   */
+  readonly extra?: SearchableSelectExtra;
+}
+
+/** Nhóm phụ của `SearchableSelect`. */
+export interface SearchableSelectExtra {
+  readonly label: string;
+  readonly options: readonly SearchableSelectOption[];
+  /**
+   * Có thì nhóm mở ra kèm hai ô lọc riêng: theo nhãn (vd tên người) và theo mô tả (vd chức danh / bộ phận); giá
+   * trị là chữ gợi ý của từng ô.
+   */
+  readonly filters?: { readonly label: string; readonly description: string };
 }
 
 /** Danh sách không hẹp hơn mức này, để nhãn dài vẫn đọc được trong ô hẹp. */
@@ -154,8 +170,13 @@ export function SearchableSelect({
   clearable = true,
   onChange,
   renderOption,
+  extra,
 }: SearchableSelectProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const [extraOpen, setExtraOpen] = useState(false);
+  // Hai ô lọc riêng của nhóm phụ: theo nhãn và theo mô tả.
+  const [extraLabelQuery, setExtraLabelQuery] = useState('');
+  const [extraDescriptionQuery, setExtraDescriptionQuery] = useState('');
   const [query, setQuery] = useState('');
   const [activeIndex, setActiveIndex] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -164,13 +185,19 @@ export function SearchableSelect({
   // Từ khoá gõ trong ô tìm của danh sách (chỉ dùng khi searchInDropdown).
   const [dropdownQuery, setDropdownQuery] = useState('');
   const listRef = useRef<HTMLUListElement>(null);
+  const extraToggleRef = useRef<HTMLLIElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [placement, setPlacement] = useState<ReturnType<typeof dropdownPlacement>>();
   const correctionsRef = useRef(0);
   const id = useId();
 
-  const selectedOption = options.find((opt) => opt.value === value);
+  const extraOptions = extra?.options;
+  const selectedOption =
+    options.find((opt) => opt.value === value) ?? extraOptions?.find((opt) => opt.value === value);
   const selectedOptionLabelRef = useRef('');
+  // Đang chọn một mục của nhóm phụ: mở danh sách thì nhóm mở sẵn. Đọc qua ref vì chỉ cần lúc vừa mở.
+  const selectedInExtraRef = useRef(false);
+  selectedInExtraRef.current = Boolean(value && extraOptions?.some((opt) => opt.value === value));
   selectedOptionLabelRef.current = selectedOption ? selectedOption.label : '';
 
   // Đồng bộ giá trị hiển thị trên ô input khi đã chọn hoặc khi prop value đổi
@@ -180,20 +207,50 @@ export function SearchableSelect({
     }
   }, [value, selectedOption, isOpen]);
 
-  // Lọc theo từ khóa tìm kiếm (hỗ trợ tiếng Việt không dấu)
-  const filteredOptions = useMemo(() => {
+  // Lọc theo từ khóa tìm kiếm (hỗ trợ tiếng Việt không dấu). Mục của nhóm phụ đứng sau mục chính, chỉ hiện khi nhóm
+  // đang mở hoặc đang gõ tìm; `mainCount` là số mục chính, để chèn nút của nhóm phụ đúng chỗ.
+  const { filteredOptions, mainCount, extraMatches, extraTotal } = useMemo(() => {
     const keyword = searchInDropdown ? dropdownQuery : query;
-    if (!keyword.trim() || (!searchInDropdown && selectedOption && query === selectedOption.label)) {
-      return options;
-    }
+    const searching = Boolean(
+      keyword.trim() && (searchInDropdown || !selectedOption || query !== selectedOption.label),
+    );
     const q = removeVietnameseTones(keyword.trim());
-    return options.filter((opt) => {
-      const labelMatch = removeVietnameseTones(opt.label).includes(q);
-      const valueMatch = removeVietnameseTones(opt.value).includes(q);
-      const descMatch = opt.description ? removeVietnameseTones(opt.description).includes(q) : false;
-      return labelMatch || valueMatch || descMatch;
-    });
-  }, [options, query, dropdownQuery, searchInDropdown, selectedOption]);
+    const matches = (list: readonly SearchableSelectOption[]) =>
+      searching
+        ? list.filter((opt) => {
+            const labelMatch = removeVietnameseTones(opt.label).includes(q);
+            const valueMatch = removeVietnameseTones(opt.value).includes(q);
+            const descMatch = opt.description ? removeVietnameseTones(opt.description).includes(q) : false;
+            return labelMatch || valueMatch || descMatch;
+          })
+        : list;
+    const main = matches(options);
+    const searched = extraOptions ? matches(extraOptions) : [];
+    const byLabel = removeVietnameseTones(extraLabelQuery.trim());
+    const byDescription = removeVietnameseTones(extraDescriptionQuery.trim());
+    const rest = searched.filter(
+      (opt) =>
+        (!byLabel || removeVietnameseTones(opt.label).includes(byLabel)) &&
+        (!byDescription || removeVietnameseTones(opt.description ?? '').includes(byDescription)),
+    );
+    return {
+      filteredOptions: extraOpen || searching ? [...main, ...rest] : main,
+      mainCount: main.length,
+      extraMatches: rest.length,
+      // Số mục của nhóm trước hai ô lọc riêng: lọc ra rỗng thì nút và ô lọc vẫn còn để sửa lại.
+      extraTotal: searched.length,
+    };
+  }, [
+    options,
+    extraOptions,
+    extraOpen,
+    extraLabelQuery,
+    extraDescriptionQuery,
+    query,
+    dropdownQuery,
+    searchInDropdown,
+    selectedOption,
+  ]);
 
   // Đóng dropdown khi click ngoài (hỗ trợ cả mousedown và click ở pha capture để không bị dialog chặn)
   useEffect(() => {
@@ -242,6 +299,9 @@ export function SearchableSelect({
     if (isOpen) {
       setActiveIndex(-1);
       setDropdownQuery('');
+      setExtraOpen(selectedInExtraRef.current);
+      setExtraLabelQuery('');
+      setExtraDescriptionQuery('');
       const timer = setTimeout(() => {
         if (searchInDropdown) {
           // Kiểu chọn thuần tuý: đưa con trỏ vào ô tìm trong danh sách, ô ngoài giữ nguyên giá trị đã chọn.
@@ -305,6 +365,14 @@ export function SearchableSelect({
     }
   }, [isOpen, placement]);
 
+  // Mở nhóm phụ: cuộn danh sách để nút của nhóm lên đầu, ô lọc và các mục của nhóm hiện ngay bên dưới.
+  useEffect(() => {
+    const list = listRef.current;
+    const toggle = extraToggleRef.current;
+    if (!extraOpen || !list || !toggle) return;
+    list.scrollTop += toggle.getBoundingClientRect().top - list.getBoundingClientRect().top;
+  }, [extraOpen]);
+
   // Cuộn đến phần tử đang active bằng phím mũi tên
   useEffect(() => {
     if (activeIndex >= 0 && listRef.current) {
@@ -316,7 +384,9 @@ export function SearchableSelect({
   }, [activeIndex]);
 
   const handleSelect = (optionValue: string) => {
-    const chosen = options.find((opt) => opt.value === optionValue);
+    const chosen =
+      options.find((opt) => opt.value === optionValue) ??
+      extraOptions?.find((opt) => opt.value === optionValue);
     if (chosen) {
       selectedOptionLabelRef.current = chosen.label;
     }
@@ -381,6 +451,86 @@ export function SearchableSelect({
       }
     }
   };
+
+  const renderItem = (opt: SearchableSelectOption, index: number) => {
+    const isSelected = opt.value === value;
+    const isActive = index === activeIndex;
+    return (
+      <li
+        key={opt.value}
+        role="option"
+        aria-selected={isSelected}
+        aria-disabled={opt.disabled}
+        className={`${styles.optionItem} ${isSelected ? styles.optionSelected : ''} ${
+          isActive ? styles.optionActive : ''
+        } ${opt.disabled ? styles.optionDisabled : ''}`}
+        onMouseDown={(e) => {
+          // Ngăn mất focus của ô nhập và ngăn trình duyệt kích hoạt lại form control nếu nằm trong thẻ <label>
+          e.preventDefault();
+        }}
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (!opt.disabled) handleSelect(opt.value);
+        }}
+        onMouseEnter={() => setActiveIndex(index)}
+      >
+        {renderOption ? (
+          renderOption(opt, isSelected)
+        ) : (
+          <div className={styles.optionContent}>
+            <div className={styles.optionLabelRow}>
+              <span className={styles.optionText}>{opt.label}</span>
+              {opt.badge ? (
+                <span className={styles.optionBadge}>{opt.badge}</span>
+              ) : null}
+            </div>
+            {opt.description ? (
+              <span className={styles.optionDescription}>{opt.description}</span>
+            ) : null}
+          </div>
+        )}
+        {isSelected ? (
+          <span className={styles.checkIcon}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#2563eb" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+          </span>
+        ) : null}
+      </li>
+    );
+  };
+
+  // Ô lọc của nhóm phụ: phím mũi tên / Enter / Esc như ô chính; Tab chỉ chuyển giữa hai ô, không đóng danh sách.
+  const extraFilterKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Tab') return;
+    handleKeyDown(e);
+  };
+
+  // Nút mở / gập nhóm phụ, nằm giữa mục chính và mục của nhóm. Không phải một mục chọn (không có `optionItem`),
+  // nên phím mũi tên đi thẳng từ mục chính sang mục của nhóm.
+  const extraToggle = extra ? (
+    <li
+      ref={extraToggleRef}
+      role="presentation"
+      className={styles.extraToggle}
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setExtraOpen((prev) => !prev);
+      }}
+    >
+      <span>
+        {extra.label} ({extraTotal})
+      </span>
+      <span className={`${styles.chevron} ${extraOpen ? styles.chevronOpen : ''}`}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
+      </span>
+    </li>
+  ) : null;
 
   return (
     <div
@@ -518,59 +668,46 @@ export function SearchableSelect({
             className={styles.optionsList}
             style={{ maxHeight: placement.listMaxHeight }}
           >
-            {filteredOptions.length === 0 ? (
+            {filteredOptions.length === 0 && !(extra && extraTotal > 0) ? (
               <li className={styles.emptyState}>{emptyText}</li>
             ) : (
-              filteredOptions.map((opt, index) => {
-                const isSelected = opt.value === value;
-                const isActive = index === activeIndex;
-
-                return (
-                  <li
-                    key={opt.value}
-                    role="option"
-                    aria-selected={isSelected}
-                    aria-disabled={opt.disabled}
-                    className={`${styles.optionItem} ${isSelected ? styles.optionSelected : ''} ${
-                      isActive ? styles.optionActive : ''
-                    } ${opt.disabled ? styles.optionDisabled : ''}`}
-                    onMouseDown={(e) => {
-                      // Ngăn mất focus của ô nhập và ngăn trình duyệt kích hoạt lại form control nếu nằm trong thẻ <label>
-                      e.preventDefault();
-                    }}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      if (!opt.disabled) handleSelect(opt.value);
-                    }}
-                    onMouseEnter={() => setActiveIndex(index)}
-                  >
-                    {renderOption ? (
-                      renderOption(opt, isSelected)
-                    ) : (
-                      <div className={styles.optionContent}>
-                        <div className={styles.optionLabelRow}>
-                          <span className={styles.optionText}>{opt.label}</span>
-                          {opt.badge ? (
-                            <span className={styles.optionBadge}>{opt.badge}</span>
-                          ) : null}
-                        </div>
-                        {opt.description ? (
-                          <span className={styles.optionDescription}>{opt.description}</span>
-                        ) : null}
-                      </div>
-                    )}
-                    {isSelected ? (
-                      <span className={styles.checkIcon}>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#2563eb" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                          <polyline points="20 6 9 17 4 12" />
-                        </svg>
-                      </span>
-                    ) : null}
-                  </li>
-                );
-              })
+              filteredOptions.slice(0, mainCount).map(renderItem)
             )}
+            {extra && extraTotal > 0 ? extraToggle : null}
+            {extra && extraOpen && extra.filters && extraTotal > 0 ? (
+              <li role="presentation" className={styles.extraFilters}>
+                <input
+                  type="text"
+                  className={styles.extraFilterInput}
+                  aria-label={extra.filters.label}
+                  placeholder={extra.filters.label}
+                  value={extraLabelQuery}
+                  onChange={(e) => {
+                    setExtraLabelQuery(e.target.value);
+                    setActiveIndex(-1);
+                  }}
+                  onKeyDown={extraFilterKeyDown}
+                />
+                <input
+                  type="text"
+                  className={styles.extraFilterInput}
+                  aria-label={extra.filters.description}
+                  placeholder={extra.filters.description}
+                  value={extraDescriptionQuery}
+                  onChange={(e) => {
+                    setExtraDescriptionQuery(e.target.value);
+                    setActiveIndex(-1);
+                  }}
+                  onKeyDown={extraFilterKeyDown}
+                />
+              </li>
+            ) : null}
+            {extra && filteredOptions.length > mainCount
+              ? filteredOptions.slice(mainCount).map((opt, offset) => renderItem(opt, mainCount + offset))
+              : null}
+            {extra && extraOpen && extraTotal > 0 && extraMatches === 0 ? (
+              <li className={styles.emptyState}>{emptyText}</li>
+            ) : null}
           </ul>
         </div>
       ) : null}

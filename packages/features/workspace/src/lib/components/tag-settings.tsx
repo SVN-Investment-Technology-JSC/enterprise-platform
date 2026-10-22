@@ -1,13 +1,13 @@
 'use client';
 
 import type { Tag } from '@enterprise-platform/contracts-workspace';
-import { Popconfirm } from '@enterprise-platform/shared-ui';
 import { Eye, EyeOff, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import * as api from '../workspace-api';
 import styles from '../workspace.module.scss';
 import { Dialog, Field } from './dialog';
 import { tagColor, useTags } from './use-tags';
+import { Confirm } from './confirm-box';
 
 /** Màu chọn nhanh cho nhãn; rỗng là để hệ thống tự chọn theo tên. */
 const TAG_COLORS = ['#2563eb', '#0d9488', '#7c3aed', '#db2777', '#d97706', '#16a34a', '#dc2626', '#475569'];
@@ -109,8 +109,8 @@ export function TagSettings() {
                         >
                           {tag.isActive ? <EyeOff size={13} /> : <Eye size={13} />}
                         </button>
-                        <Popconfirm
-                          title={`Xoá nhãn "${tag.name}"?`}
+                        <Confirm
+                          title={`Bạn có chắc chắn muốn xoá nhãn "${tag.name}"?`}
                           description="Nhãn bị gỡ khỏi mọi công việc và dự án đang gắn, không hoàn tác được."
                           okText="Xoá"
                           okType="danger"
@@ -124,7 +124,7 @@ export function TagSettings() {
                           >
                             <Trash2 size={13} />
                           </button>
-                        </Popconfirm>
+                        </Confirm>
                       </span>
                     ) : null}
                   </td>

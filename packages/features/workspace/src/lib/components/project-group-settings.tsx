@@ -1,12 +1,12 @@
 'use client';
 
 import type { ProjectGroup, ProjectGroupList } from '@enterprise-platform/contracts-workspace';
-import { Popconfirm } from '@enterprise-platform/shared-ui';
 import { Pencil, Plus, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import * as api from '../workspace-api';
 import styles from '../workspace.module.scss';
 import { Dialog, Field } from './dialog';
+import { Confirm } from './confirm-box';
 
 /**
  * Cài đặt "Nhóm dự án": danh mục nhóm dùng chung cho mọi dự án, để chọn khi tạo
@@ -99,8 +99,8 @@ export function ProjectGroupSettings() {
                         >
                           <Pencil size={13} />
                         </button>
-                        <Popconfirm
-                          title={`Xoá nhóm "${group.name}"?`}
+                        <Confirm
+                          title={`Bạn có chắc chắn muốn xoá nhóm "${group.name}"?`}
                           description={
                             group.projectCount > 0
                               ? `${group.projectCount} dự án của nhóm sẽ về "Chưa phân loại".`
@@ -118,7 +118,7 @@ export function ProjectGroupSettings() {
                           >
                             <Trash2 size={13} />
                           </button>
-                        </Popconfirm>
+                        </Confirm>
                       </span>
                     ) : null}
                   </td>

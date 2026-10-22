@@ -313,15 +313,30 @@ export function StartInstanceForm({
     () => new Set(projectPeople.map((person) => person.userId)),
     [projectPeople],
   );
-  const submitterOptions = useMemo(
-    () =>
-      submitters.map((person) => ({
-        value: person.userId,
-        label: person.userId === actorId ? `${person.name} (tôi)` : person.name,
-        description: person.hint,
-      })),
-    [submitters, actorId],
-  );
+  /**
+   * Có dự án: thành viên dự án đứng đầu, người ngoài dự án gập sau nút "Ngoài dự án" (kèm chức danh / bộ phận).
+   * Chưa chọn dự án, hoặc chưa tải xong thành viên: mọi người một danh sách.
+   */
+  const submitterChoices = useMemo(() => {
+    const all = submitters.map((person) => ({
+      value: person.userId,
+      label: person.userId === actorId ? `${person.name} (tôi)` : person.name,
+      description: person.hint,
+    }));
+    if (!projectId || projectMemberIds.size === 0) return { options: all, extra: undefined };
+    const outside = all.filter((option) => !projectMemberIds.has(option.value));
+    return {
+      options: all.filter((option) => projectMemberIds.has(option.value)),
+      extra:
+        outside.length > 0
+          ? {
+              label: 'Ngoài dự án',
+              options: outside,
+              filters: { label: 'Tên', description: 'Chức danh / bộ phận' },
+            }
+          : undefined,
+    };
+  }, [submitters, actorId, projectId, projectMemberIds]);
   /** Dòng của ô "Người submit": tên, thẻ trong / ngoài dự án (xanh / vàng), chức danh. */
   const renderSubmitter = (option: { value: string; label: string; description?: string }) => {
     const inside = projectMemberIds.has(option.value);
@@ -368,7 +383,8 @@ export function StartInstanceForm({
     <div className={styles.createFieldGroup}>
       <label className={styles.createFieldLabel}>Người submit</label>
       <SearchableSelect
-        options={submitterOptions}
+        options={submitterChoices.options}
+        extra={submitterChoices.extra}
         value={submitter}
         renderOption={renderSubmitter}
         placeholder="Chọn người submit"

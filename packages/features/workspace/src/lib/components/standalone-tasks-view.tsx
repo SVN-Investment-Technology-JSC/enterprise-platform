@@ -13,7 +13,7 @@ import {
   type StandaloneTaskScope,
   type WorkItemStatus,
 } from '@enterprise-platform/contracts-workspace';
-import { Popconfirm, returnPathFor } from '@enterprise-platform/shared-ui';
+import { returnPathFor } from '@enterprise-platform/shared-ui';
 import {
   ChevronRight,
   ExternalLink,
@@ -47,6 +47,7 @@ import { Choice } from './choice';
 import { ReverseStandaloneTaskDialog } from './reverse-standalone-task-dialog';
 import { StandaloneTaskForm } from './standalone-task-form';
 import { useDirectory, type DirectoryView } from './use-directory';
+import { Confirm } from './confirm-box';
 
 const CLOSED: readonly WorkItemStatus[] = ['done', 'cancelled'];
 
@@ -628,8 +629,8 @@ function TaskDetail({
             </button>
           ) : null}
           {isAssigner && !task.reversal && (task.status === 'todo' || task.status === 'cancelled') ? (
-            <Popconfirm
-              title="Xoá công việc?"
+            <Confirm
+              title="Bạn có chắc chắn muốn xoá công việc này?"
               description={
                 task.childCount > 0
                   ? `Công việc cùng ${task.childCount} việc con và nhật ký bị xoá hẳn, không hoàn tác được.`
@@ -637,7 +638,6 @@ function TaskDetail({
               }
               okText="Xoá"
               okType="danger"
-              placement="bottom-end"
               onConfirm={() =>
                 run(async () => {
                   await api.deleteStandaloneTask(task.id);
@@ -648,7 +648,7 @@ function TaskDetail({
               <button type="button" className={styles.iconButton} aria-label="Xoá" title="Xoá">
                 <Trash2 size={15} />
               </button>
-            </Popconfirm>
+            </Confirm>
           ) : null}
         </div>
       </header>
@@ -660,16 +660,15 @@ function TaskDetail({
           const returning = isAssigner && task.status === 'review' && next === 'in_progress';
           if (returning || next === 'cancelled') {
             return (
-              <Popconfirm
+              <Confirm
                 key={next}
-                title={returning ? 'Trả lại công việc?' : 'Huỷ công việc?'}
+                title={returning ? 'Bạn có chắc chắn muốn trả lại công việc?' : 'Bạn có chắc chắn muốn huỷ công việc?'}
                 description={
                   returning
                     ? 'Công việc quay về Đang làm; người thực hiện nhận thông báo kèm lý do.'
                     : 'Công việc chuyển sang Đã huỷ; mở lại được sau.'
                 }
                 okText={returning ? 'Trả lại' : 'Huỷ việc'}
-                cancelText="Đóng"
                 okType={returning ? 'warning' : 'danger'}
                 reasonRequired
                 reasonLabel={returning ? 'Lý do trả lại' : 'Lý do huỷ'}
@@ -683,7 +682,7 @@ function TaskDetail({
                 >
                   {label}
                 </button>
-              </Popconfirm>
+              </Confirm>
             );
           }
           const primary = next === 'done' || next === 'review';

@@ -2,7 +2,8 @@
 
 import type { ProjectRequest } from '@enterprise-platform/contracts-workspace';
 import { useEffect, useState } from 'react';
-import { Dialog, Field } from './dialog';
+import { ConfirmBox } from './confirm-box';
+import { Field } from './dialog';
 
 export interface ReverseProjectRequestDialogProps {
   readonly request?: ProjectRequest;
@@ -54,17 +55,15 @@ export function ReverseProjectRequestDialog({
   };
 
   return (
-    <Dialog
+    <ConfirmBox
       open={Boolean(request)}
-      title="Huỷ hiệu lực đơn từ?"
-      subtitle={request ? `${request.code} · ${request.requestTypeLabel}` : undefined}
-      submitLabel="Huỷ hiệu lực"
-      cancelLabel="Đóng"
-      submitting={submitting}
-      submitDisabled={reason.trim().length < 3}
+      title={request ? `Bạn có chắc chắn muốn huỷ hiệu lực đơn ${request.code} · ${request.requestTypeLabel}?` : ''}
+      confirmLabel="Huỷ hiệu lực"
+      busy={submitting}
+      confirmDisabled={reason.trim().length < 3}
       error={error}
-      onClose={onClose}
-      onSubmit={() => void submit()}
+      onConfirm={() => void submit()}
+      onCancel={onClose}
     >
       <Field
         label="Lý do huỷ hiệu lực"
@@ -96,6 +95,6 @@ export function ReverseProjectRequestDialog({
           </span>
         </span>
       </label>
-    </Dialog>
+    </ConfirmBox>
   );
 }

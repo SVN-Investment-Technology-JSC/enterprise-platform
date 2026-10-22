@@ -3,7 +3,8 @@
 import type { StandaloneTask } from '@enterprise-platform/contracts-workspace';
 import { useEffect, useState } from 'react';
 import styles from '../workspace.module.scss';
-import { Dialog, Field } from './dialog';
+import { ConfirmBox } from './confirm-box';
+import { Field } from './dialog';
 
 export interface ReverseStandaloneTaskDialogProps {
   readonly task?: StandaloneTask;
@@ -15,7 +16,7 @@ export interface ReverseStandaloneTaskDialogProps {
 /**
  * Xác nhận huỷ hiệu lực việc ngoài dự án đã hoàn thành.
  *
- * Dùng hộp thoại thay cho Popconfirm vì có thêm lựa chọn lập công việc điều
+ * Dùng hộp thoại thay cho `Confirm` vì có thêm lựa chọn lập công việc điều
  * chỉnh — cùng cách làm với công việc dự án (`ReverseWorkItemDialog`).
  */
 export function ReverseStandaloneTaskDialog({ task, onClose, onConfirm }: ReverseStandaloneTaskDialogProps) {
@@ -50,17 +51,15 @@ export function ReverseStandaloneTaskDialog({ task, onClose, onConfirm }: Revers
   const instanceCode = task?.procedure?.status === 'completed' ? task.procedure.instanceCode : undefined;
 
   return (
-    <Dialog
+    <ConfirmBox
       open={Boolean(task)}
-      title="Huỷ hiệu lực công việc?"
-      subtitle={task ? `${task.code} · ${task.title}` : undefined}
-      submitLabel="Huỷ hiệu lực"
-      cancelLabel="Đóng"
-      submitting={submitting}
-      submitDisabled={reason.trim().length < 3}
+      title={task ? `Bạn có chắc chắn muốn huỷ hiệu lực ${task.code} · ${task.title}?` : ''}
+      confirmLabel="Huỷ hiệu lực"
+      busy={submitting}
+      confirmDisabled={reason.trim().length < 3}
       error={error}
-      onClose={onClose}
-      onSubmit={() => void submit()}
+      onConfirm={() => void submit()}
+      onCancel={onClose}
     >
       <Field
         label="Lý do huỷ hiệu lực"
@@ -90,6 +89,6 @@ export function ReverseStandaloneTaskDialog({ task, onClose, onConfirm }: Revers
           </span>
         </span>
       </label>
-    </Dialog>
+    </ConfirmBox>
   );
 }

@@ -11,7 +11,6 @@ import {
   type ProjectSummary,
   type WorkItem,
 } from '@enterprise-platform/contracts-workspace';
-import { Popconfirm } from '@enterprise-platform/shared-ui';
 import {
   Download,
   Eye,
@@ -43,6 +42,7 @@ import {
   topLabel,
 } from './folder-tree';
 import { useDirectory } from './use-directory';
+import { Confirm, ConfirmBox } from './confirm-box';
 
 export interface DocumentPanelProps {
   /** Rỗng nghĩa là trang Tài liệu chung: cả tài liệu dự án lẫn cấp đơn vị. */
@@ -700,8 +700,8 @@ export function DocumentPanel({
                   {placeOf(ref.folderId)}
                 </button>
                 {canWrite ? (
-                  <Popconfirm
-                    title="Gỡ khỏi thư mục này?"
+                  <Confirm
+                    title="Bạn có chắc chắn muốn gỡ tài liệu khỏi thư mục này?"
                     description="Tài liệu vẫn ở thư mục gốc; chỉ không hiện ở thư mục này nữa."
                     okText="Gỡ"
                     okType="danger"
@@ -715,7 +715,7 @@ export function DocumentPanel({
                     <button type="button" className={styles.linkButton}>
                       Gỡ
                     </button>
-                  </Popconfirm>
+                  </Confirm>
                 ) : null}
               </li>
             ))}
@@ -739,8 +739,8 @@ export function DocumentPanel({
               >
                 {linkLabel(link.entityType, link.entityId, workItemById)}
                 {canWrite ? (
-                  <Popconfirm
-                    title="Gỡ liên kết này?"
+                  <Confirm
+                    title="Bạn có chắc chắn muốn gỡ liên kết này?"
                     description="Tài liệu vẫn còn trong kho; chỉ bỏ liên kết với nơi này."
                     okText="Gỡ"
                     okType="danger"
@@ -751,7 +751,7 @@ export function DocumentPanel({
                     <button type="button" aria-label="Gỡ liên kết" title="Gỡ liên kết">
                       <X size={12} />
                     </button>
-                  </Popconfirm>
+                  </Confirm>
                 ) : null}
               </span>
             ))}
@@ -870,18 +870,17 @@ export function DocumentPanel({
           {/* Gõ lại tên để xác nhận: tài liệu lưu trữ biến khỏi mọi danh sách
               đang dùng. Chỉ người có quyền xoá mới thấy nút này. */}
           {canWrite && canDelete ? (
-            <Popconfirm
-              title={`Lưu trữ ${selected.name}?`}
+            <Confirm
+              title={`Bạn có chắc chắn muốn lưu trữ ${selected.name}?`}
               description="Tài liệu sẽ được đưa vào lưu trữ. Tệp gốc vẫn được giữ trên kho lưu trữ."
               okText="Lưu trữ"
               okType="danger"
-              confirmInput={{ requiredText: selected.name, label: 'Gõ lại tên tài liệu' }}
               onConfirm={() => act(() => api.archiveDocument(selected.id), 'Không lưu trữ được.')}
             >
               <button type="button" className={styles.dangerLink}>
                 Lưu trữ tài liệu
               </button>
-            </Popconfirm>
+            </Confirm>
           ) : null}
         </aside>
   ) : null;
@@ -1167,8 +1166,8 @@ export function DocumentPanel({
                           <Trash2 size={14} />
                         </button>
                       ) : (folder.projectId ? canWrite : canDelete) ? (
-                        <Popconfirm
-                          title={`Xoá thư mục "${folder.name}"?`}
+                        <Confirm
+                          title={`Bạn có chắc chắn muốn xoá thư mục "${folder.name}"?`}
                           description="Chỉ xoá được thư mục rỗng. Thư mục biến khỏi cây, tài liệu đã lưu trữ vẫn tra ngược được."
                           okText="Xoá thư mục"
                           okType="danger"
@@ -1184,7 +1183,7 @@ export function DocumentPanel({
                           >
                             <Trash2 size={14} />
                           </button>
-                        </Popconfirm>
+                        </Confirm>
                       ) : null}
                     </td>
                   </tr>
@@ -1962,13 +1961,27 @@ function FolderEditDialog({
     }
   };
 
+  if (mode === 'delete') {
+    return (
+      <ConfirmBox
+        open
+        title={`Bạn có chắc chắn muốn xoá thư mục ${pathOf(folder.id)}?`}
+        message="Thư mục biến khỏi cây. Chỉ xoá được thư mục rỗng; tài liệu chỉ được tham chiếu vào đây vẫn còn nguyên ở thư mục gốc của chúng."
+        confirmLabel="Xoá thư mục"
+        busy={submitting}
+        error={error}
+        onConfirm={() => void submit()}
+        onCancel={onClose}
+      />
+    );
+  }
+
   return (
     <Dialog
       open
-      title={mode === 'rename' ? 'Đổi tên thư mục' : mode === 'move' ? 'Chuyển thư mục' : 'Xoá thư mục?'}
+      title={mode === 'rename' ? 'Đổi tên thư mục' : 'Chuyển thư mục'}
       subtitle={pathOf(folder.id)}
-      submitLabel={mode === 'rename' ? 'Lưu' : mode === 'move' ? 'Chuyển' : 'Xoá thư mục'}
-      cancelLabel={mode === 'delete' ? 'Giữ lại' : undefined}
+      submitLabel={mode === 'rename' ? 'Lưu' : 'Chuyển'}
       submitting={submitting}
       error={error}
       onClose={onClose}
@@ -1983,7 +1996,7 @@ function FolderEditDialog({
             onChange={(event) => setName(event.target.value)}
           />
         </Field>
-      ) : mode === 'move' ? (
+      ) : (
         <Field label="Chuyển vào" hint="Cả các thư mục con đi theo. Cây tối đa 5 cấp.">
           <Choice
             label="Chuyển vào"
@@ -1993,11 +2006,6 @@ function FolderEditDialog({
             onChange={setParentId}
           />
         </Field>
-      ) : (
-        <p className={styles.muted}>
-          Thư mục biến khỏi cây. Chỉ xoá được thư mục rỗng; tài liệu chỉ được tham chiếu vào đây
-          vẫn còn nguyên ở thư mục gốc của chúng.
-        </p>
       )}
     </Dialog>
   );
