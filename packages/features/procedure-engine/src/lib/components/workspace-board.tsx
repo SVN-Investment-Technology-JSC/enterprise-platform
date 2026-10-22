@@ -30,7 +30,14 @@ import {
   SearchableSelect,
   formatDateTime as formatSharedDateTime,
 } from '@enterprise-platform/shared-ui';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
+} from 'react';
 import { createPortal } from 'react-dom';
 import { Check, ChevronLeft, ChevronRight, Download, FileText, Plus, Search, X } from 'lucide-react';
 import type { AssetCatalogItem, MaterialCatalogItem } from '../procedure-api';
@@ -51,6 +58,7 @@ import { HistoryPanel } from './history-panel';
 import { LinkedPanel } from './linked-panel';
 import { SlaBadge } from './sla-badge';
 import { StartInstanceForm, type StartHandoff, type StartProcedureInput } from './start-instance-form';
+import { StepDetailDialog } from './step-detail-dialog';
 import { SubtaskPanel } from './subtask-panel';
 import styles from './workspace-board.module.scss';
 
@@ -322,6 +330,8 @@ export function WorkspaceBoard({
   // Trao đổi, tệp và nhật ký mở thành tab ngay trong khung chi tiết.
   const [detailTab, setDetailTab] = useState<'flow' | 'chat' | 'files' | 'history'>('flow');
   const [activeStepDrawer, setActiveStepDrawer] = useState<{ step: ProcedureInstanceStep; tab: 'execution' | 'chat' | 'files' } | null>(null);
+  // Bước đã đi qua đang mở popup xem lại; lưu id để popup theo dữ liệu mới nhất của hồ sơ.
+  const [detailStepId, setDetailStepId] = useState<string | null>(null);
   const [comment, setComment] = useState('');
   const [dateSort, setDateSort] = useState<'newest' | 'oldest'>('newest');
   const [page, setPage] = useState(1);
@@ -555,6 +565,7 @@ export function WorkspaceBoard({
   const entries = selected ? timelineEntries(selected) : [];
   // Người submit thực tế của hồ sơ (vai S của bước đầu): dùng cho QT-U3.
   const submitterName = selected?.activity.find((entry) => entry.action === 'start')?.actorName;
+  const detailStep = selected?.steps.find((step) => step.id === detailStepId);
   const currentInTimeline = entries.some(
     (entry) => entry.kind === 'step' && entry.step.id === selected?.currentStepId,
   );
@@ -1243,6 +1254,13 @@ export function WorkspaceBoard({
                         const isDone = step.status === 'completed';
                         const isRejected = step.status === 'rejected';
 
+                        // Bước đã đi qua bấm được để xem lại ai làm, lúc nào, đã nhập gì.
+                        const canReview = !isCur && (isDone || isRejected);
+                        const openReview = (event: ReactMouseEvent | ReactKeyboardEvent) => {
+                          if ((event.target as HTMLElement).closest('a, button, input, textarea')) return;
+                          setDetailStepId(step.id);
+                        };
+
                         const nodeClass = isDone
                           ? styles.nodeCompleted
                           : isRejected
@@ -1267,7 +1285,23 @@ export function WorkspaceBoard({
                                 step.order
                               )}
                             </span>
-                            <div className={styles.timelineBody}>
+                            <div
+                              className={`${styles.timelineBody} ${canReview ? styles.timelineBodyClickable : ''}`}
+                              {...(canReview
+                                ? {
+                                    role: 'button',
+                                    tabIndex: 0,
+                                    title: 'Xem chi tiết bước',
+                                    onClick: openReview,
+                                    onKeyDown: (event: ReactKeyboardEvent) => {
+                                      if (event.key === 'Enter' || event.key === ' ') {
+                                        event.preventDefault();
+                                        openReview(event);
+                                      }
+                                    },
+                                  }
+                                : {})}
+                            >
                               <div className={styles.timelineHead}>
                                 <span className={styles.timelineOrder}>
                                   Bước {step.order}
@@ -1354,6 +1388,28 @@ export function WorkspaceBoard({
           )}
         </section>
       </div>
+
+      {selected && detailStep ? (
+        <StepDetailDialog
+          instance={selected}
+          step={detailStep}
+          statusLabel={STEP_STATUS_LABEL[detailStep.status] ?? detailStep.status}
+          roles={roleLines(detailStep, roleLabels).map((line) => (
+            <RoleLine key={line.role} line={line} submitterName={submitterName} />
+          ))}
+          extra={
+            <>
+              <FinanceVoucherCard step={detailStep} />
+              <StepDocuments
+                files={(attachments ?? []).filter(
+                  (file) => file.instanceId === selected.id && file.stepInstanceId === detailStep.id,
+                )}
+              />
+            </>
+          }
+          onClose={() => setDetailStepId(null)}
+        />
+      ) : null}
 
       {/* ========================================================================= */}
       {/* 4. SLIDE-OVER NODE WORKSPACE DRAWER (3 AXES: XỬ LÝ · TRAO ĐỔI · TỆP)       */}
