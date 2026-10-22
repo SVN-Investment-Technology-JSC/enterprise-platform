@@ -59,6 +59,7 @@ import { LinkedPanel } from './linked-panel';
 import { SlaBadge } from './sla-badge';
 import { StartInstanceForm, type StartHandoff, type StartProcedureInput } from './start-instance-form';
 import { StepDetailDialog } from './step-detail-dialog';
+import { stepCommentPrompt } from './comment-prompt';
 import { SubtaskPanel } from './subtask-panel';
 import styles from './workspace-board.module.scss';
 
@@ -1890,12 +1891,11 @@ function ActionPanel({
     .filter((s) => s.status === 'completed')
     .reduce((sum, s) => sum + s.weight, 0);
 
-  // Role-adaptive textarea label
-  const textareaLabel = myRoles.includes('R')
-    ? 'Mô tả kết quả thực hiện'
-    : myRoles.includes('C')
-      ? 'Ý kiến chuyên môn / thẩm định'
-      : 'Ghi chú phản hồi / lý do từ chối';
+  const commentCopy = stepCommentPrompt(
+    authorization?.currentRoleStage,
+    myRoles,
+    Boolean(authorization?.isOverride),
+  );
 
   // Pure "I" (Informed) role check — read-only notice
   const isRoleI = myRoles.length === 1 && myRoles[0] === 'I' && actions.length === 0;
@@ -2011,10 +2011,10 @@ function ActionPanel({
           <div className={styles.actionDock}>
             {/* 2. Textarea (Adaptable by RACIE role) */}
             <label className={styles.commentField}>
-              <span className={styles.commentLabel}>{textareaLabel}</span>
+              <span className={styles.commentLabel}>{commentCopy.label}</span>
               <textarea
                 rows={2}
-                placeholder="Nhập nhận xét hoặc phương án điều chỉnh…"
+                placeholder={commentCopy.placeholder}
                 value={comment}
                 onChange={(event) => onComment(event.target.value)}
                 onKeyDown={(e) => {
