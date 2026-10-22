@@ -19,10 +19,14 @@
     ]
   },
   "dependencies": {
+    "@base-ui/react": "^1.7.0",
     "@enterprise-platform/contracts-social": "workspace:*",
     "@enterprise-platform/feature-module-shell": "workspace:*",
     "@enterprise-platform/shared-ui": "workspace:*",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
     "lucide-react": "^1.31.0",
-    "react": "^19.2.8"
+    "react": "^19.2.8",
+    "tailwind-merge": "^3.6.0"
   }
 }

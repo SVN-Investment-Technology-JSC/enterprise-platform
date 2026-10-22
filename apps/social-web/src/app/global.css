@@ -1,3 +1,25 @@
+/*
+ * Tailwind chỉ nạp theme và utilities (không preflight) để các component shadcn dùng được
+ * mà không làm đổi style SCSS sẵn có của Mạng nội bộ.
+ */
+@layer theme, base, components, utilities;
+@import 'tailwindcss/theme.css' layer(theme);
+@import 'tailwindcss/utilities.css' layer(utilities);
+@source '../../../../packages/features/social';
+
+@theme {
+  --color-border: #e2e8f0;
+  --color-ring: #d9ab00;
+  --color-primary: #ffc90a;
+  --color-primary-foreground: #1a1a1a;
+  --color-secondary: #f1f5f9;
+  --color-secondary-foreground: #0f172a;
+  --color-muted: #f8fafc;
+  --color-muted-foreground: #64748b;
+  --color-foreground: #0f172a;
+  --color-destructive: #ef4444;
+}
+
 html {
   -webkit-text-size-adjust: 100%;
   font-family:

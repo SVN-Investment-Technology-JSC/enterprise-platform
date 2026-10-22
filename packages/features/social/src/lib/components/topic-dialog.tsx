@@ -1,9 +1,16 @@
 'use client';
 
-import { SOCIAL_TOPIC_NAME_MAX, type SocialTopic } from '@enterprise-platform/contracts-social';
+import {
+  SOCIAL_TOPIC_NAME_MAX,
+  type SocialTopic,
+} from '@enterprise-platform/contracts-social';
+import { Check, Pencil, Plus, X } from 'lucide-react';
 import { useState } from 'react';
 import { createTopic, errorMessage, updateTopic } from '../social-api';
 import styles from '../social.module.scss';
+import { Button } from '../ui/button';
+import { Input } from '../ui/input';
+import { Switch } from '../ui/switch';
 import { Dialog } from './ui';
 
 function TopicRow({
@@ -15,6 +22,7 @@ function TopicRow({
   readonly onSaved: () => void;
   readonly onError: (message: string | undefined) => void;
 }) {
+  const [editing, setEditing] = useState(false);
   const [name, setName] = useState(topic.name);
   const [busy, setBusy] = useState(false);
 
@@ -24,50 +32,112 @@ function TopicRow({
     try {
       await updateTopic(topic.id, patch);
       onSaved();
+      return true;
     } catch (cause) {
       onError(errorMessage(cause, 'Không lưu được chuyên mục.'));
-      setName(topic.name);
+      return false;
     } finally {
       setBusy(false);
     }
   };
 
-  const commitName = () => {
+  const startEdit = () => {
+    setName(topic.name);
+    setEditing(true);
+  };
+
+  const cancelEdit = () => {
+    setName(topic.name);
+    setEditing(false);
+  };
+
+  const commitName = async () => {
     const next = name.trim();
-    if (!next) {
-      setName(topic.name);
+    if (!next || next === topic.name) {
+      cancelEdit();
       return;
     }
-    if (next !== topic.name) void save({ name: next });
+    if (await save({ name: next })) setEditing(false);
   };
 
   return (
-    <li className={styles.topicRow}>
-      <input
-        className={styles.input}
-        value={name}
-        maxLength={SOCIAL_TOPIC_NAME_MAX}
-        aria-label={`Tên chuyên mục ${topic.name}`}
-        disabled={busy}
-        onChange={(event) => setName(event.target.value)}
-        onBlur={commitName}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter') {
-            event.preventDefault();
-            commitName();
-          }
-        }}
-      />
-      <span className={styles.topicCount}>{topic.postCount.toLocaleString('vi-VN')} bài</span>
-      <label className={styles.check}>
-        <input
-          type="checkbox"
-          checked={topic.isActive}
-          disabled={busy}
-          onChange={(event) => void save({ isActive: event.target.checked })}
-        />
-        <span>Đang dùng</span>
-      </label>
+    <li className="flex min-h-12 items-center gap-3 rounded-lg px-3 py-1.5 hover:bg-slate-50">
+      {editing ? (
+        <>
+          <Input
+            className="h-10 text-base"
+            autoFocus
+            value={name}
+            maxLength={SOCIAL_TOPIC_NAME_MAX}
+            aria-label={`Tên chuyên mục ${topic.name}`}
+            disabled={busy}
+            onChange={(event) => setName(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                void commitName();
+              } else if (event.key === 'Escape') {
+                event.stopPropagation();
+                cancelEdit();
+              }
+            }}
+          />
+          <Button
+            size="icon-lg"
+            aria-label="Lưu tên chuyên mục"
+            disabled={busy || name.trim().length === 0}
+            onClick={() => void commitName()}
+          >
+            <Check className="size-5" />
+          </Button>
+          <Button
+            size="icon-lg"
+            variant="outline"
+            aria-label="Huỷ sửa"
+            disabled={busy}
+            onClick={cancelEdit}
+          >
+            <X className="size-5" />
+          </Button>
+        </>
+      ) : (
+        <>
+          <span
+            className={
+              topic.isActive
+                ? 'min-w-0 flex-1 truncate text-base font-medium text-slate-900'
+                : 'min-w-0 flex-1 truncate text-base font-medium text-slate-400'
+            }
+            title={topic.name}
+          >
+            {topic.name}
+          </span>
+          <span className="text-sm whitespace-nowrap text-slate-500 tabular-nums">
+            {topic.postCount.toLocaleString('vi-VN')} bài
+          </span>
+          <Button
+            size="icon-lg"
+            variant="ghost"
+            aria-label={`Sửa tên chuyên mục ${topic.name}`}
+            title="Sửa tên"
+            disabled={busy}
+            onClick={startEdit}
+          >
+            <Pencil className="size-5" />
+          </Button>
+          <Switch
+            checked={topic.isActive}
+            disabled={busy}
+            aria-label={`${topic.isActive ? 'Tắt' : 'Bật'} chuyên mục ${topic.name}`}
+            title={
+              topic.isActive
+                ? 'Đang dùng — bấm để tắt'
+                : 'Đang tắt — bấm để bật'
+            }
+            onCheckedChange={(checked) => void save({ isActive: checked })}
+          />
+        </>
+      )}
     </li>
   );
 }
@@ -104,9 +174,13 @@ export function TopicDialog({
 
   return (
     <Dialog open title="Quản lý chuyên mục" error={error} onClose={onClose}>
-      <div className={styles.topicAdd}>
-        <input
-          className={styles.input}
+      <p className={styles.muted} style={{ fontSize: 14 }}>
+        Bật hoặc tắt bằng công tắc bên phải. Chuyên mục đang tắt không hiện khi
+        đăng bài mới.
+      </p>
+      <div className="flex gap-3">
+        <Input
+          className="h-10 text-base"
           value={name}
           maxLength={SOCIAL_TOPIC_NAME_MAX}
           placeholder="Tên chuyên mục mới"
@@ -120,19 +194,19 @@ export function TopicDialog({
             }
           }}
         />
-        <button
-          type="button"
-          className={styles.buttonPrimary}
+        <Button
+          className="h-10 px-4 text-base"
           disabled={adding || name.trim().length === 0}
           onClick={() => void add()}
         >
-          + Thêm
-        </button>
+          <Plus className="size-5" />
+          Thêm
+        </Button>
       </div>
       {topics.length === 0 ? (
         <p className={styles.muted}>Chưa có chuyên mục nào.</p>
       ) : (
-        <ul className={styles.topicRows}>
+        <ul className="m-0 flex list-none flex-col gap-1 p-0">
           {topics.map((topic) => (
             <TopicRow
               key={`${topic.id}-${topic.name}-${topic.isActive}`}
