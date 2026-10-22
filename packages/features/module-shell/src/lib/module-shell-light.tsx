@@ -47,6 +47,7 @@ export function ModuleShellLight<TViewId extends string = string>(
   // Menu cha mặc định mở; người dùng thu lại thì nhớ trong phiên.
   const [closedParents, setClosedParents] = useState<ReadonlySet<string>>(new Set());
   const homeHref = props.homeHref || '/applications';
+  const dashboardHref = props.dashboardHref || '/dashboard';
   const displayName = props.actor || principal?.displayName || 'Thành viên';
   const isTenantAdmin =
     principal?.systemRole === 'tenant-admin' || (principal?.roles ?? []).includes('tenant-admin');
@@ -170,17 +171,19 @@ export function ModuleShellLight<TViewId extends string = string>(
           </div>
 
           <div className={styles.user}>
-            <span className={styles.avatar} aria-hidden>
-              {initialsOfName(displayName)}
-            </span>
-            {collapsed ? null : (
-              <span className={styles.userText}>
-                <span className={styles.userName}>{displayName}</span>
-                <span className={styles.userRole}>
-                  {isTenantAdmin ? 'Quản trị viên' : 'Thành viên'} · {tenantSlug.toUpperCase()}
-                </span>
+            <a className={styles.userLink} href={dashboardHref} title="Về Bảng điều khiển">
+              <span className={styles.avatar} aria-hidden>
+                {initialsOfName(displayName)}
               </span>
-            )}
+              {collapsed ? null : (
+                <span className={styles.userText}>
+                  <span className={styles.userName}>{displayName}</span>
+                  <span className={styles.userRole}>
+                    {isTenantAdmin ? 'Quản trị viên' : 'Thành viên'} · {tenantSlug.toUpperCase()}
+                  </span>
+                </span>
+              )}
+            </a>
             {collapsed ? null : <NotificationBell className={styles.bell} />}
             {collapsed ? null : <AssistantLauncher className={styles.bell} />}
           </div>
