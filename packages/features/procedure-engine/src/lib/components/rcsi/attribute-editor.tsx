@@ -7,7 +7,7 @@ import {
   type ProcedureAttributeType,
 } from '@enterprise-platform/contracts-procedure-engine';
 import { MinimalPopupForm, Popconfirm, SearchableSelect } from '@enterprise-platform/shared-ui';
-import { Plus, Trash2 } from 'lucide-react';
+import { Plus, Trash2, X } from 'lucide-react';
 import { useState } from 'react';
 import { HostAttributeBadge, HostAttributeReference } from './host-attribute-hint';
 import styles from './flow-editors.module.scss';
@@ -36,6 +36,8 @@ interface Row {
   optionsText: string;
   /** Mã đã tồn tại thì khoá: điều kiện rẽ nhánh đang tham chiếu bằng mã này. */
   locked: boolean;
+  /** Chỉ với thuộc tính quy trình: mã bước được nhập; rỗng = mọi bước. */
+  entryStepKeys: string[];
 }
 
 function toRows(attributes: readonly ProcedureAttributeDefinition[] | undefined): Row[] {
@@ -47,6 +49,7 @@ function toRows(attributes: readonly ProcedureAttributeDefinition[] | undefined)
     required: attribute.required,
     optionsText: (attribute.options ?? []).map((option) => option.label).join('\n'),
     locked: true,
+    entryStepKeys: [...(attribute.entryStepKeys ?? [])],
   }));
 }
 
@@ -68,6 +71,7 @@ function fromRows(rows: readonly Row[]): ProcedureAttributeDefinition[] {
       type: row.type,
       required: row.required,
       options: row.type === 'select' ? options : undefined,
+      entryStepKeys: row.entryStepKeys.length ? row.entryStepKeys : undefined,
     };
   });
 }
@@ -83,6 +87,8 @@ export function AttributeEditor({
   subtitle,
   attributes,
   usedCodes,
+  entrySteps,
+  linkedProcessAttributes,
   onClose,
   onSave,
 }: {
@@ -91,6 +97,10 @@ export function AttributeEditor({
   attributes: readonly ProcedureAttributeDefinition[] | undefined;
   /** Mã đang được điều kiện rẽ nhánh dùng — cảnh báo trước khi xoá. */
   usedCodes: ReadonlySet<string>;
+  /** Chỉ với thuộc tính quy trình: các bước để chọn bước nhập của từng thuộc tính. */
+  entrySteps?: readonly { key: string; label: string }[];
+  /** Chỉ với thuộc tính bước: thuộc tính quy trình đã chọn nhập ở bước này, để thấy đủ ô người làm bước sẽ nhập. */
+  linkedProcessAttributes?: readonly ProcedureAttributeDefinition[];
   onClose: () => void;
   onSave: (next: ProcedureAttributeDefinition[]) => void;
 }) {
@@ -117,13 +127,20 @@ export function AttributeEditor({
   };
 
   return (
-    <MinimalPopupForm isOpen title={title} subtitle={subtitle} maxWidth="860px" onClose={onClose}>
+    <MinimalPopupForm
+      isOpen
+      title={title}
+      subtitle={subtitle}
+      maxWidth={entrySteps?.length ? '1240px' : '860px'}
+      onClose={onClose}
+    >
       <div className={styles.editor}>
-        <div className={styles.attributeTable}>
+        <div className={`${styles.attributeTable} ${entrySteps?.length ? styles.withEntrySteps : ''}`}>
           <div className={styles.attributeHead}>
             <span>Tên thuộc tính</span>
             <span>Mã</span>
             <span>Kiểu dữ liệu</span>
+            {entrySteps?.length ? <span>Nhập ở bước</span> : null}
             <span>Bắt buộc</span>
             <span />
           </div>
@@ -153,6 +170,41 @@ export function AttributeEditor({
                 clearable={false}
                 onChange={(next) => update(index, { type: next as ProcedureAttributeType })}
               />
+              {entrySteps?.length ? (
+                <div className={styles.entrySteps}>
+                  {row.entryStepKeys.map((key) => (
+                    <span key={key} className={styles.entryChip}>
+                      {entrySteps.find((step) => step.key === key)?.label ?? key}
+                      <button
+                        type="button"
+                        className={styles.entryChipRemove}
+                        aria-label="Bỏ bước này"
+                        onClick={() => update(index, { entryStepKeys: row.entryStepKeys.filter((item) => item !== key) })}
+                      >
+                        <X size={12} aria-hidden="true" />
+                      </button>
+                    </span>
+                  ))}
+                  {row.entryStepKeys.length < entrySteps.length ? (
+                    <SearchableSelect
+                      className={styles.entryStepSelect}
+                      options={entrySteps
+                        .filter((step) => !row.entryStepKeys.includes(step.key))
+                        .map((step) => ({ value: step.key, label: step.label }))}
+                      value=""
+                      placeholder={row.entryStepKeys.length ? 'Thêm bước…' : 'Mọi bước'}
+                      onChange={(key) => {
+                        if (!key) return;
+                        // Giữ thứ tự bước như trên quy trình, không theo thứ tự bấm chọn.
+                        const chosen = new Set([...row.entryStepKeys, key]);
+                        update(index, {
+                          entryStepKeys: entrySteps.map((step) => step.key).filter((item) => chosen.has(item)),
+                        });
+                      }}
+                    />
+                  ) : null}
+                </div>
+              ) : null}
               <label className={styles.checkbox}>
                 <input type="checkbox" checked={row.required} onChange={(event) => update(index, { required: event.target.checked })} />
                 Bắt buộc
@@ -192,6 +244,15 @@ export function AttributeEditor({
           {rows.length === 0 ? <p className={styles.hint}>Chưa có thuộc tính nào.</p> : null}
         </div>
 
+        {linkedProcessAttributes?.length ? (
+          <div className={styles.linkedAttributes}>
+            <strong>Thuộc tính quy trình nhập ở bước này</strong>
+            <span className={styles.hint}>
+              {linkedProcessAttributes.map((attribute) => attribute.name).join(', ')}. Chọn bước nhập ở “Thuộc tính QT”.
+            </span>
+          </div>
+        ) : null}
+
         <HostAttributeReference />
 
 
@@ -201,7 +262,16 @@ export function AttributeEditor({
           onClick={() =>
             setRows([
               ...rows,
-              { id: '', code: `tt_${rows.length + 1}`, name: '', type: 'text', required: false, optionsText: '', locked: false },
+              {
+                id: '',
+                code: `tt_${rows.length + 1}`,
+                name: '',
+                type: 'text',
+                required: false,
+                optionsText: '',
+                locked: false,
+                entryStepKeys: [],
+              },
             ])
           }
         >
