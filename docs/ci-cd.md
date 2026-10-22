@@ -2,11 +2,11 @@
 
 Pipeline trong [`.github/workflows/ci-cd.yml`](../.github/workflows/ci-cd.yml) có hai phần tách biệt:
 
-1. Pull request vào `main` hoặc `dev/release`: workflow luôn validate hai Compose file và deployment manifest. Khi thay đổi chạm vào source/Dockerfile/manifest ảnh hưởng image, CI kiểm tra `nx sync:check`, sau đó Nx chạy `lint`, `typecheck`, `test` và `build` tuần tự cho các project bị ảnh hưởng để ổn định RAM của GitHub runner; sau đó GitHub Actions build đầy đủ 13 Docker image với `push: false`. Lỗi Dockerfile hoặc production packaging sẽ chặn merge. Workflow checkout toàn bộ lịch sử Git để Nx tính đúng phạm vi thay đổi.
-2. Push vào `main` hoặc `dev/release`: chỉ khi thay đổi chạm vào input image, sau quality gate GitHub Actions mới build/push 13 image Linux/amd64 vào một GHCR package `enterprise-platform`. Mỗi service có tag bất biến `<service>-sha-<commit>` và tag deploy `<service>-production`. Thay đổi chỉ ở Docker Compose hoặc docs không build/push image; sau merge chỉ cần Deploy/Redeploy thủ công trong Coolify để lấy Compose mới.
+1. Pull request vào `main` hoặc `dev/release`: workflow luôn validate hai Compose file và deployment manifest. Khi thay đổi chạm vào source/Dockerfile/manifest ảnh hưởng image, CI kiểm tra `nx sync:check`, sau đó Nx chạy `lint`, `typecheck`, `test` cho các project bị ảnh hưởng và `build` cho các thư viện bị ảnh hưởng (build của từng app không chạy lại ở đây vì Dockerfile của app đó đã build chính nó) (2 task song song, giới hạn heap Node để ổn định RAM của GitHub runner). Song song với đó, GitHub Actions build thử với `push: false` các Docker image của app bị ảnh hưởng (gateway luôn được build); không cần chờ lint/test xong. Lỗi Dockerfile hoặc production packaging sẽ chặn merge. Workflow checkout toàn bộ lịch sử Git để Nx tính đúng phạm vi thay đổi.
+2. Push vào `main` hoặc `dev/release`: chỉ khi thay đổi chạm vào input image, sau quality gate GitHub Actions mới build/push image Linux/amd64 vào một GHCR package `enterprise-platform`. Mỗi service có tag `<service>-sha-<commit>` và tag deploy `<service>-production`. Chỉ service có code đổi so với image `-production` hiện tại mới được build lại; service không đổi được gắn thêm tag `<service>-sha-<commit>` vào đúng image đang chạy (`docker buildx imagetools create`, không build), nên mọi commit đã publish đều có đủ tag cho tất cả service và rollback bằng `IMAGE_TAG=sha-<commit>` vẫn chạy. Mốc so sánh của từng service là tag sha mới nhất của image `-production` nằm trong lịch sử của commit đang build (không phải push trước đó), nên một lần publish lỗi giữa chừng sẽ được bù ở lần sau. Không đọc được GHCR, hoặc thiếu image/tag, thì build lại service đó. Thay đổi chỉ ở Docker Compose hoặc docs không build/push image; sau merge chỉ cần Deploy/Redeploy thủ công trong Coolify để lấy Compose mới.
 3. GitHub Actions **không tự gọi Coolify**. Khi muốn cập nhật VPS, mở Coolify và bấm Deploy/Redeploy cho stack production.
 
-Input image gồm `apps/**`, `packages/**`, các lockfile/workspace config, deployment manifest và `infrastructure/nginx/**`. Chỉ thay đổi `infrastructure/docker/compose*.yml`, docs hoặc cấu hình Coolify không thuộc nhóm này sẽ bỏ qua Nx và 13 Docker build jobs; hai Compose file vẫn luôn được kiểm tra cú pháp bằng `docker compose config`.
+Input image gồm `apps/**`, `packages/**`, các lockfile/workspace config, deployment manifest và `infrastructure/nginx/**`. Chỉ thay đổi `infrastructure/docker/compose*.yml`, docs hoặc cấu hình Coolify không thuộc nhóm này sẽ bỏ qua Nx và các Docker build jobs; hai Compose file vẫn luôn được kiểm tra cú pháp bằng `docker compose config`.
 
 Image gateway được build từ `infrastructure/nginx/Dockerfile`; nó đóng gói Nginx config và maintenance pages nên VPS không cần bind-mount source repository.
 
@@ -26,7 +26,7 @@ Script sẽ từ chối service trùng id, image repository sai quy ước hoặ
 
 ## 1. Chuẩn bị GitHub Container Registry
 
-Sau lần workflow đầu tiên publish thành công, vào GitHub organization **SVN-Investment-Technology-JSC** > Packages để kiểm tra một package private duy nhất: `enterprise-platform`. Package có 26 tag cho 13 service: mỗi service có một tag `*-production` và một tag `*-sha-<commit>`.
+Sau lần workflow đầu tiên publish thành công, vào GitHub organization **SVN-Investment-Technology-JSC** > Packages để kiểm tra một package private duy nhất: `enterprise-platform`. Mỗi service có một tag `*-production` và các tag `*-sha-<commit>` (một tag cho mỗi commit đã publish; service không đổi dùng chung image với các commit trước).
 
 Ví dụ:
 

@@ -12,8 +12,10 @@ import {
   type StandaloneTaskRole,
   type StandaloneTaskScope,
   type WorkItemStatus,
+  WORKSPACE_ASSISTANT_ACTIONS,
 } from '@enterprise-platform/contracts-workspace';
-import { Popconfirm } from '@enterprise-platform/shared-ui';
+import { useAssistantSaved } from '@enterprise-platform/feature-module-shell';
+import { returnPathFor } from '@enterprise-platform/shared-ui';
 import {
   ChevronRight,
   ExternalLink,
@@ -47,8 +49,10 @@ import { Choice } from './choice';
 import { ReverseStandaloneTaskDialog } from './reverse-standalone-task-dialog';
 import { StandaloneTaskForm } from './standalone-task-form';
 import { useDirectory, type DirectoryView } from './use-directory';
+import { Confirm } from './confirm-box';
 
 const CLOSED: readonly WorkItemStatus[] = ['done', 'cancelled'];
+const STANDALONE_TASK_ACTION_KEYS = [WORKSPACE_ASSISTANT_ACTIONS.createStandaloneTask.key];
 
 /** Bộ lọc trạng thái: mặc định chỉ việc đang mở. */
 const STATUS_FILTERS = [
@@ -125,6 +129,9 @@ export function StandaloneTasksView({
   useEffect(() => {
     void reloadList();
   }, [reloadList]);
+
+  // Card Trợ lý vừa giao việc ngoài dự án: tải lại ngăn đang xem.
+  useAssistantSaved(STANDALONE_TASK_ACTION_KEYS, () => void reloadList());
 
   /** Ids đang có ở cột trái, để biết việc vừa mở (từ link thông báo) có nằm trong ngăn hiện tại không. */
   const listedIds = useRef(new Set<string>());
@@ -222,7 +229,7 @@ export function StandaloneTasksView({
 
   return (
     <div className={styles.taskSplit}>
-      <section className={styles.taskListPane} aria-label="Danh sách công việc ngoài dự án">
+      <section className={styles.taskListPane} aria-label="Danh sách công việc khác">
         <div className={styles.taskListHead}>
           <div className={styles.segmented} role="tablist" aria-label="Nhóm công việc">
             {STANDALONE_TASK_SCOPES.map((value) => (
@@ -385,7 +392,7 @@ function scopeOfRole(role: StandaloneTaskRole): StandaloneTaskScope {
 function emptyText(scope: StandaloneTaskScope): string {
   if (scope === 'assigned_by_me') return 'Bạn chưa giao việc nào. Bấm "Giao việc" để bắt đầu.';
   if (scope === 'following') return 'Bạn chưa theo dõi việc nào.';
-  return 'Chưa ai giao việc ngoài dự án cho bạn.';
+  return 'Chưa ai giao công việc khác cho bạn.';
 }
 
 /** Bỏ dấu để gõ "bao gia" vẫn ra "Báo giá". */
@@ -542,21 +549,32 @@ function TaskDetail({
     setError(undefined);
   }, [task.id, task.progressPercent]);
 
-  const run = async (operation: () => Promise<StandaloneTaskDetail | void>) => {
+  const run = async (operation: () => Promise<StandaloneTaskDetail | void>): Promise<void> => {
+    await attempt(operation);
+  };
+
+  /** Như `run`, kèm kết quả: thao tác thành công hay không. */
+  const attempt = async (operation: () => Promise<StandaloneTaskDetail | void>): Promise<boolean> => {
     setBusy(true);
     setError(undefined);
     try {
       const next = await operation();
       if (next) onChanged(next);
+      return true;
     } catch (cause) {
       setError((cause as { message?: string })?.message ?? 'Không thực hiện được thao tác.');
+      return false;
     } finally {
       setBusy(false);
     }
   };
 
   const move = (status: WorkItemStatus, note?: string) =>
-    run(() => api.changeStandaloneTaskStatus(task.id, { status, note }));
+    attempt(() => api.changeStandaloneTaskStatus(task.id, { status, note })).then((done) => {
+      // Mở việc từ trang chủ (`?returnTo=`): nộp kết quả hay duyệt xong thì tự quay về.
+      const back = done && (status === 'done' || status === 'review') ? returnPathFor(task.id) : undefined;
+      if (back) window.location.assign(back);
+    });
 
   /** Lần trả lại gần nhất, để người thực hiện thấy ngay cần sửa gì. */
   const lastReturn =
@@ -617,8 +635,8 @@ function TaskDetail({
             </button>
           ) : null}
           {isAssigner && !task.reversal && (task.status === 'todo' || task.status === 'cancelled') ? (
-            <Popconfirm
-              title="Xoá công việc?"
+            <Confirm
+              title="Bạn có chắc chắn muốn xoá công việc này?"
               description={
                 task.childCount > 0
                   ? `Công việc cùng ${task.childCount} việc con và nhật ký bị xoá hẳn, không hoàn tác được.`
@@ -626,7 +644,6 @@ function TaskDetail({
               }
               okText="Xoá"
               okType="danger"
-              placement="bottom-end"
               onConfirm={() =>
                 run(async () => {
                   await api.deleteStandaloneTask(task.id);
@@ -637,7 +654,7 @@ function TaskDetail({
               <button type="button" className={styles.iconButton} aria-label="Xoá" title="Xoá">
                 <Trash2 size={15} />
               </button>
-            </Popconfirm>
+            </Confirm>
           ) : null}
         </div>
       </header>
@@ -649,16 +666,15 @@ function TaskDetail({
           const returning = isAssigner && task.status === 'review' && next === 'in_progress';
           if (returning || next === 'cancelled') {
             return (
-              <Popconfirm
+              <Confirm
                 key={next}
-                title={returning ? 'Trả lại công việc?' : 'Huỷ công việc?'}
+                title={returning ? 'Bạn có chắc chắn muốn trả lại công việc?' : 'Bạn có chắc chắn muốn huỷ công việc?'}
                 description={
                   returning
                     ? 'Công việc quay về Đang làm; người thực hiện nhận thông báo kèm lý do.'
                     : 'Công việc chuyển sang Đã huỷ; mở lại được sau.'
                 }
                 okText={returning ? 'Trả lại' : 'Huỷ việc'}
-                cancelText="Đóng"
                 okType={returning ? 'warning' : 'danger'}
                 reasonRequired
                 reasonLabel={returning ? 'Lý do trả lại' : 'Lý do huỷ'}
@@ -672,7 +688,7 @@ function TaskDetail({
                 >
                   {label}
                 </button>
-              </Popconfirm>
+              </Confirm>
             );
           }
           const primary = next === 'done' || next === 'review';

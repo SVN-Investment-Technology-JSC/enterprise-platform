@@ -4,6 +4,7 @@ import {
   type PayloadAction,
 } from '@reduxjs/toolkit';
 import { useDispatch, useSelector } from 'react-redux';
+import { tenantApi } from './tenant-api';
 
 export type FlowPosition = { x: number; y: number };
 export type FlowPositions = Record<string, FlowPosition>;
@@ -295,7 +296,9 @@ export function makeStore() {
     reducer: {
       organizationLayouts: organizationLayouts.reducer,
       organizationData: organizationData.reducer,
+      [tenantApi.reducerPath]: tenantApi.reducer,
     },
+    middleware: (getDefault) => getDefault().concat(tenantApi.middleware),
   });
 }
 

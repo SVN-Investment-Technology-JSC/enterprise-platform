@@ -1,12 +1,19 @@
 import { ReportService } from './report.service.js';
 import type { WorkspaceActor } from './workspace.application.js';
-import type { ReportScopeFilter, WorkspaceStore } from './workspace-store.port.js';
+import type {
+  ReportAnalyticsQuery,
+  ReportItemsQuery,
+  ReportScopeFilter,
+  WorkspaceStore,
+} from './workspace-store.port.js';
 
 interface Seen {
   scopeCalls: ReportScopeFilter[];
   financeCalls: number;
   workloadSelf: (string | undefined)[];
   overdueSelf: (string | undefined)[];
+  analytics: ReportAnalyticsQuery[];
+  items: ReportItemsQuery[];
 }
 
 /**
@@ -16,7 +23,14 @@ interface Seen {
  * truyền xuống SQL** — đó là chỗ quyết định ai thấy số liệu của ai.
  */
 function makeStore(options: { managedProjects?: string[]; scopedProjects?: string[] } = {}) {
-  const seen: Seen = { scopeCalls: [], financeCalls: 0, workloadSelf: [], overdueSelf: [] };
+  const seen: Seen = {
+    scopeCalls: [],
+    financeCalls: 0,
+    workloadSelf: [],
+    overdueSelf: [],
+    analytics: [],
+    items: [],
+  };
   const store = {
     report: {
       scopedProjectIds: async (_tenant: string, scope: ReportScopeFilter) => {
@@ -46,6 +60,30 @@ function makeStore(options: { managedProjects?: string[]; scopedProjects?: strin
       ) => {
         seen.overdueSelf.push(selfUserId);
         return [];
+      },
+      analytics: async (_tenant: string, query: ReportAnalyticsQuery) => {
+        seen.analytics.push(query);
+        return {
+          kpis: {
+            createdItems: 0,
+            completedItems: 0,
+            completedOnTime: 0,
+            completedLate: 0,
+            openItems: 0,
+            overdueItems: 0,
+            completedHours: 0,
+          },
+          previous: { createdItems: 0, completedItems: 0, completedOnTime: 0, completedLate: 0 },
+          trend: [],
+          statusBreakdown: [],
+          priorityBreakdown: [],
+        };
+      },
+      performance: async () => [],
+      groups: async () => ({ byGroup: [], byTag: [] }),
+      items: async (_tenant: string, query: ReportItemsQuery) => {
+        seen.items.push(query);
+        return { items: [], truncated: false };
       },
     },
     finance: {
@@ -205,5 +243,71 @@ describe('ReportService — khối tài chính', () => {
       profit: 5_400_000_000,
       profitMargin: 21.2,
     });
+  });
+});
+
+describe('ReportService — bộ lọc người, nhóm, nhãn', () => {
+  it('mức self luôn kẹp về chính mình, bỏ qua bộ lọc người khác', async () => {
+    const { store, seen } = makeStore({ managedProjects: [] });
+    await new ReportService(store).bundle(actor('u-member'), { userId: 'u-khac' });
+    expect(seen.analytics[0]?.userId).toBe('u-member');
+    expect(seen.workloadSelf).toEqual(['u-member']);
+  });
+
+  it('mức managed lọc theo người được chọn, áp cả cho hai bảng chi tiết', async () => {
+    const { store, seen } = makeStore({ managedProjects: ['p1'] });
+    const bundle = await new ReportService(store).bundle(actor('u-mgr'), { userId: 'u-nv' });
+    expect(seen.analytics[0]?.userId).toBe('u-nv');
+    expect(seen.overdueSelf).toEqual(['u-nv']);
+    expect(bundle.userId).toBe('u-nv');
+  });
+
+  it('nhóm và nhãn thu hẹp danh sách dự án đã qua phạm vi; "Chưa phân nhóm" thành chuỗi rỗng', async () => {
+    const { store, seen } = makeStore({ managedProjects: ['p1'] });
+    await new ReportService(store).bundle(actor('u-mgr'), { groups: 'Điện,__none__', tagIds: 't1' });
+    const narrowed = seen.scopeCalls.at(-1);
+    expect(narrowed).toMatchObject({ projectIds: ['p1'], groups: ['Điện', ''], tagIds: ['t1'] });
+  });
+
+  it('kỳ trước dài bằng kỳ đang xem; kỳ một tuần thì biểu đồ theo ngày', async () => {
+    const { store, seen } = makeStore({ managedProjects: ['p1'] });
+    const bundle = await new ReportService(store).bundle(actor('u-mgr'), {
+      from: '2026-10-18T17:00:00Z',
+      to: '2026-10-25T16:59:59Z',
+    });
+    expect(seen.analytics[0]).toMatchObject({
+      fromDay: '2026-10-19',
+      toDay: '2026-10-25',
+      previousFromDay: '2026-10-12',
+      previousToDay: '2026-10-18',
+      granularity: 'day',
+    });
+    expect(bundle.trend.granularity).toBe('day');
+  });
+});
+
+describe('ReportService — danh sách chi tiết', () => {
+  it('loại danh sách lạ bị từ chối', async () => {
+    const { store } = makeStore({ managedProjects: ['p1'] });
+    await expect(
+      new ReportService(store).items(actor('u-mgr'), { kind: 'xoa-het' }),
+    ).rejects.toMatchObject({ code: 'VALIDATION' });
+  });
+
+  it('mức self không xem được việc người khác dù bấm từ bảng theo người', async () => {
+    const { store, seen } = makeStore({ managedProjects: [] });
+    await new ReportService(store).items(actor('u-member'), { kind: 'overdue', assigneeUserId: 'u-khac' });
+    expect(seen.items[0]).toMatchObject({ kind: 'overdue', userId: 'u-member' });
+    expect(seen.items[0]?.assigneeUserId).toBeUndefined();
+  });
+
+  it('mức managed truyền đủ điều kiện của ô được bấm', async () => {
+    const { store, seen } = makeStore({ managedProjects: ['p1'] });
+    await new ReportService(store).items(actor('u-mgr'), {
+      kind: 'open',
+      assigneeUserId: 'u-nv',
+      priority: 'high',
+    });
+    expect(seen.items[0]).toMatchObject({ kind: 'open', assigneeUserId: 'u-nv', priority: 'high', limit: 500 });
   });
 });

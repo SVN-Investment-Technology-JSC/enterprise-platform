@@ -62,6 +62,9 @@ interface FormState {
   accountId: string;
   destAccountId: string;
   counterpartyGroupId: string;
+  counterpartyName: string;
+  counterpartyAccountNo: string;
+  counterpartyBank: string;
   /** Hình thức hạch toán nội bộ; rỗng: không hạch toán. */
   allocType: '' | FinanceAllocationType;
   allocProjectId: string;
@@ -90,6 +93,9 @@ function emptyState(): FormState {
     accountId: '',
     destAccountId: '',
     counterpartyGroupId: '',
+    counterpartyName: '',
+    counterpartyAccountNo: '',
+    counterpartyBank: '',
     allocType: '',
     allocProjectId: '',
     allocWorkItemId: '',
@@ -112,6 +118,9 @@ function fromVoucher(voucher: FinanceVoucher): FormState {
     accountId: voucher.accountId ?? '',
     destAccountId: voucher.destAccountId ?? '',
     counterpartyGroupId: voucher.counterpartyGroupId ?? '',
+    counterpartyName: voucher.counterpartyName ?? '',
+    counterpartyAccountNo: voucher.counterpartyAccountNo ?? '',
+    counterpartyBank: voucher.counterpartyBank ?? '',
     allocType: voucher.allocation?.type ?? '',
     allocProjectId: voucher.allocation?.projectId ?? '',
     allocWorkItemId: voucher.allocation?.workItemId ?? '',
@@ -158,6 +167,9 @@ export function buildRequest(kind: FinanceVoucherKind, form: FormState, revision
     ...base,
     reasonId: form.reasonId || null,
     counterpartyGroupId: form.counterpartyGroupId || null,
+    counterpartyName: form.counterpartyName.trim() || null,
+    counterpartyAccountNo: form.counterpartyAccountNo.trim() || null,
+    counterpartyBank: form.counterpartyBank.trim() || null,
     allocation:
       form.allocType && form.allocProjectId
         ? { type: form.allocType, projectId: form.allocProjectId, workItemId: form.allocType === 'WORK_ITEM' ? form.allocWorkItemId || null : null }
@@ -491,6 +503,21 @@ export default function VoucherFormScreen({ kind, id }: { kind: FinanceVoucherKi
                   </Field>
                   <Field label={config.counterpartyLabel} required>
                     {(fieldId) => <SearchableSelect name={fieldId} options={groupOptions} value={form.counterpartyGroupId} onChange={(v) => set('counterpartyGroupId', v)} placeholder={`Chọn ${config.counterpartyLabel.toLowerCase()}`} clearable height={32} />}
+                  </Field>
+                  <Field label={config.personLabel} locked={fromSource('counterpartyName')}>
+                    {(fieldId) => (
+                      <Input id={fieldId} value={form.counterpartyName} disabled={fromSource('counterpartyName')} maxLength={255} onChange={(e) => set('counterpartyName', e.target.value)} />
+                    )}
+                  </Field>
+                  <Field label={config.personAccountLabel} locked={fromSource('counterpartyAccountNo')}>
+                    {(fieldId) => (
+                      <Input id={fieldId} value={form.counterpartyAccountNo} disabled={fromSource('counterpartyAccountNo')} maxLength={60} onChange={(e) => set('counterpartyAccountNo', e.target.value)} />
+                    )}
+                  </Field>
+                  <Field label={config.personBankLabel} locked={fromSource('counterpartyBank')}>
+                    {(fieldId) => (
+                      <Input id={fieldId} value={form.counterpartyBank} disabled={fromSource('counterpartyBank')} maxLength={120} onChange={(e) => set('counterpartyBank', e.target.value)} />
+                    )}
                   </Field>
                   <Field
                     label="Hạch toán nội bộ"

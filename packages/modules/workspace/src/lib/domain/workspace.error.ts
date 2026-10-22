@@ -105,6 +105,13 @@ export class ProjectRoleNotFoundError extends WorkspaceError {
   }
 }
 
+export class ProjectGroupNotFoundError extends WorkspaceError {
+  constructor(id: string) {
+    super('PROJECT_GROUP_NOT_FOUND', `Không tìm thấy nhóm dự án "${id}".`, 404);
+    Object.setPrototypeOf(this, ProjectGroupNotFoundError.prototype);
+  }
+}
+
 /** `member` chỉ được đổi trạng thái công việc của chính mình. */
 export class WorkItemAssigneeOnlyError extends WorkspaceError {
   constructor() {

@@ -22,6 +22,7 @@ integration('Tenant RBAC PostgreSQL integration', () => {
   let migration: string;
   let defaultUserRoleMigration: string;
   let moduleAccessMigration: string;
+  let userGrantsMigration: string;
   beforeAll(async () => {
     const databaseUrl = process.env.RBAC_TEST_ADMIN_URL;
     if (!databaseUrl) throw new Error('RBAC_TEST_ADMIN_URL is required');
@@ -59,6 +60,13 @@ integration('Tenant RBAC PostgreSQL integration', () => {
       ),
       'utf8',
     );
+    userGrantsMigration = await readFile(
+      resolve(
+        process.cwd(),
+        '../../../migrations/tenant/core/0013-user-permission-grants.sql',
+      ),
+      'utf8',
+    );
     const compatibility = await readFile(
       resolve(
         process.cwd(),
@@ -88,6 +96,7 @@ integration('Tenant RBAC PostgreSQL integration', () => {
       await pool.query(migration);
       await pool.query(defaultUserRoleMigration);
       await pool.query(moduleAccessMigration);
+      await pool.query(userGrantsMigration);
       await pool.query(compatibility); // Already-normalized DB is also a no-op.
     }
     service = new TenantAuthorizationService(async (tenant, operation) => {
@@ -336,6 +345,65 @@ integration('Tenant RBAC PostgreSQL integration', () => {
         'core.users.update',
       ),
     ).rejects.toMatchObject({ status: 403 });
+  });
+  it('grants extra actions directly to a user: union, revision fence, delegation, audit', async () => {
+    // Test trước chỉ để lại một quản trị viên; lấy đúng người đó làm người thao tác.
+    const actor = (await service.resolve('a', adminId)).roles.includes('tenant-admin') ? adminId : secondAdmin;
+    // Bỏ vai trò do test trước gán để thấy rõ quyền chỉ đến từ phần bổ sung.
+    await service.assignRoles('a', actor, userId, []);
+    const replica = new TenantAuthorizationService(async (tenant, operation) => operation(required(pools.get(tenant))));
+    const before = await replica.resolve('a', userId);
+    expect(before.permissions).not.toContain('core.users.update');
+    await expect(
+      service.setUserPermissionGrants('a', userId, userId, ['core.users.update']),
+    ).rejects.toMatchObject({ status: 403 });
+    for (const bad of [['tenant.manage'], ['*'], ['unknown.action']])
+      await expect(
+        service.setUserPermissionGrants('a', actor, userId, bad),
+      ).rejects.toMatchObject({ status: 400 });
+    await expect(
+      service.setUserPermissionGrants('a', actor, actor, ['core.users.read']),
+    ).rejects.toMatchObject({ status: 409 });
+    const first = await service.setUserPermissionGrants('a', actor, userId, ['core.users.update', 'core.users.read']);
+    expect(first.actionKeys).toEqual(['core.users.read', 'core.users.update']);
+    const after = await replica.resolve('a', userId);
+    expect(after.authorizationRevision).not.toBe(before.authorizationRevision);
+    expect(after.permissions).toEqual(expect.arrayContaining(['core.users.read', 'core.users.update']));
+    // Có quyền bổ sung core.users.update thì qua được mutate dù không có vai trò nào.
+    await expect(service.mutate('a', userId, async () => 'ok', 'core.users.update')).resolves.toBe('ok');
+    // Khoá không đổi giữ nguyên granted_at/granted_by.
+    const second = await service.setUserPermissionGrants('a', actor, userId, ['core.users.update']);
+    expect(second.grants[0]).toEqual(first.grants.find((g) => g.actionKey === 'core.users.update'));
+    expect((await service.userPermissionGrants('a', userId)).actionKeys).toEqual(['core.users.update']);
+    await service.setUserPermissionGrants('a', actor, userId, []);
+    expect((await replica.resolve('a', userId)).permissions).not.toContain('core.users.update');
+    await expect(service.mutate('a', userId, async () => 'ok', 'core.users.update')).rejects.toMatchObject({ status: 403 });
+    const audit = await required(pools.get('a')).query(
+      "SELECT after_data FROM core_schema.authorization_audit WHERE operation='user.permissions.replace' AND subject_id=$1 ORDER BY created_at",
+      [userId],
+    );
+    expect(audit.rowCount).toBeGreaterThanOrEqual(3);
+  });
+  it('đọc lịch sử phân quyền của người dùng: mới nhất trước, có tên người thao tác', async () => {
+    const actor = (await service.resolve('a', adminId)).roles.includes('tenant-admin') ? adminId : secondAdmin;
+    await service.assignRoles('a', actor, userId, []);
+    await service.setUserPermissionGrants('a', actor, userId, ['core.users.read']);
+    const entries = await service.userAuthorizationHistory('a', userId);
+    expect(entries.length).toBeGreaterThanOrEqual(2);
+    expect(entries.length).toBeLessThanOrEqual(100);
+    expect(entries[0]).toMatchObject({
+      operation: 'user.permissions.replace',
+      actorId: actor,
+      after: { actionKeys: ['core.users.read'] },
+    });
+    expect(typeof entries[0].actorName).toBe('string');
+    expect(typeof entries[0].createdAt).toBe('string');
+    const times = entries.map((e) => Date.parse(e.createdAt));
+    expect(times).toEqual([...times].sort((x, y) => y - x));
+    expect(entries.every((e) => ['user.roles.replace', 'user.permissions.replace'].includes(e.operation))).toBe(true);
+    expect(JSON.stringify(entries)).not.toContain('password');
+    await expect(service.userAuthorizationHistory('a', randomUUID())).rejects.toMatchObject({ status: 404 });
+    await service.setUserPermissionGrants('a', actor, userId, []);
   });
   it('records before/after authorization changes without secrets', async () => {
     const audit = await required(pools.get('a')).query(

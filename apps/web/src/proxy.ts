@@ -2,10 +2,8 @@ import { NextResponse, type NextRequest } from 'next/server';
 
 export function proxy(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
-  const protectedPlatformRoute = pathname === '/platform'
-    || pathname.startsWith('/platform/tenants')
-    || pathname.startsWith('/platform/data-import');
-  const protectedTenantRoute = ['/dashboard', '/organization', '/applications', '/users', '/authorization', '/account']
+  const protectedPlatformRoute = pathname === '/platform' || pathname.startsWith('/platform/');
+  const protectedTenantRoute = ['/dashboard', '/organization', '/applications', '/users', '/authorization', '/account', '/roles']
     .some((route) => pathname === route || pathname.startsWith(`${route}/`));
   if (!request.cookies.has('ep_access')) {
     if (protectedPlatformRoute) return NextResponse.redirect(new URL('/login/admin', request.url));
@@ -15,5 +13,5 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/platform', '/platform/tenants/:path*', '/platform/data-import/:path*', '/dashboard/:path*', '/organization/:path*', '/applications/:path*', '/users/:path*', '/authorization/:path*', '/account/:path*'],
+  matcher: ['/platform', '/platform/:path*', '/dashboard/:path*', '/organization/:path*', '/applications/:path*', '/users/:path*', '/authorization/:path*', '/account/:path*', '/roles/:path*'],
 };

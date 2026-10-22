@@ -10,6 +10,8 @@ import {
   XCircle,
 } from 'lucide-react';
 import { useEffect, useRef, useState, useMemo } from 'react';
+import { HRM_ASSISTANT_ACTIONS } from '@enterprise-platform/contracts-hrm';
+import { assistantActionKeys, useAssistantSaved } from '@enterprise-platform/feature-module-shell';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import { Dialog, DialogContent } from '../ui/dialog';
@@ -205,6 +207,8 @@ function UnpaidOtBadge() {
     </Badge>
   );
 }
+
+const HRM_ACTION_KEYS = assistantActionKeys(HRM_ASSISTANT_ACTIONS);
 
 export default function RequestsPage() {
   const { can } = useHrmPermissions();
@@ -955,6 +959,9 @@ export default function RequestsPage() {
   useEffect(() => {
     void loadData();
   }, []);
+
+  // Card Trợ lý trong khung chat vừa gửi đơn: tải lại danh sách như khi tự gửi, giữ nguyên bộ lọc đang chọn.
+  useAssistantSaved(HRM_ACTION_KEYS, () => void loadData({ listsOnly: true }));
 
   // Tổng số lượng đơn đang chờ duyệt thực tế (dùng cho badge hiển thị trên Tab)
   // Bộ lọc danh sách: tháng (theo ngày tạo), từ khóa, loại đơn và bước quy trình; trạng thái lọc thêm ở bên dưới.

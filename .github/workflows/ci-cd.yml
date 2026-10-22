@@ -9,14 +9,18 @@ on:
 
 concurrency:
   group: enterprise-platform-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
+  # A newer push to a PR supersedes the older run. Runs on main and dev/release
+  # are never cancelled so every publish completes.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   NODE_VERSION: '24.11.0'
   PNPM_VERSION: '10.33.1'
-  # The affected graph can include most of the workspace. Running tasks
-  # sequentially avoids GitHub-hosted runner process termination during ESLint.
-  NX_PARALLEL: '1'
+  # The affected graph can include most of the workspace. Run a small number of
+  # tasks at once and give each Node process a bounded heap so ESLint is not
+  # terminated by the hosted runner running out of memory.
+  NX_PARALLEL: '2'
+  NODE_OPTIONS: '--max-old-space-size=3072'
 
 jobs:
   detect-changes:
@@ -62,6 +66,7 @@ jobs:
               - 'tsconfig*.json'
               - 'tools/deployment/services.json'
               - 'tools/deployment/ci-matrix.mjs'
+              - 'tools/deployment/publish-plan.mjs'
               - 'infrastructure/docker/**'
               - 'infrastructure/nginx/**'
 
@@ -72,6 +77,11 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: read
+    env:
+      # Nx Cloud remote cache. Read-write token, so only pull requests from
+      # people who can already push to this private repo may use it. Pull
+      # requests that do not receive secrets (Dependabot) run without it.
+      NX_CLOUD_ACCESS_TOKEN: ${{ secrets.NX_CLOUD_ACCESS_TOKEN }}
     services:
       notification-postgres:
         image: postgres:17-alpine
@@ -145,15 +155,24 @@ jobs:
             echo 'base=' >> "$GITHUB_OUTPUT"
           fi
 
+      # The build of an app is not repeated here: the Docker image of every app
+      # runs that same build (verify-containers on pull requests, publish on
+      # push). Library builds still run, as dependencies of tests and directly.
       - name: Lint, type-check, test, and build affected projects
         shell: bash
         run: |
+          apps=$(node -p "require('./tools/deployment/services.json').services.filter((s) => s.dockerfile.startsWith('apps/')).map((s) => s.id).join(',')")
           if [[ -n '${{ steps.nx-range.outputs.base }}' ]]; then
-            pnpm nx affected -t lint typecheck test build --base='${{ steps.nx-range.outputs.base }}' --head=HEAD --parallel="$NX_PARALLEL" --nxBail
+            pnpm nx affected -t lint typecheck test --base='${{ steps.nx-range.outputs.base }}' --head=HEAD --parallel="$NX_PARALLEL" --nxBail
+            pnpm nx affected -t build --exclude="$apps" --base='${{ steps.nx-range.outputs.base }}' --head=HEAD --parallel="$NX_PARALLEL" --nxBail
           else
-            pnpm nx run-many -t lint typecheck test build --parallel="$NX_PARALLEL" --nxBail
+            pnpm nx run-many -t lint typecheck test --parallel="$NX_PARALLEL" --nxBail
+            pnpm nx run-many -t build --exclude="$apps" --parallel="$NX_PARALLEL" --nxBail
           fi
 
+      # Only the suites that need the database, broker or Redis run here, and always
+      # uncached. The unit tests of these projects run, with the cache, in the step
+      # above whenever the project is affected, so running them again only costs time.
       - name: Verify notification database, broker, and recovery integrations without cache
         env:
           NOTIFICATIONS_TEST_ADMIN_URL: postgresql://notification_test:notification_test@localhost:5432/postgres
@@ -162,21 +181,86 @@ jobs:
           SHARED_TEST_ADMIN_URL: postgresql://notification_test:notification_test@localhost:5432/postgres
           RABBITMQ_TEST_URL: amqp://notification_test:notification_test@localhost:5672
           REALTIME_TEST_REDIS_URL: redis://localhost:6379
-        run: pnpm nx run-many -t test -p contracts-realtime module-notifications adapter-events realtime-api notification-worker platform-entitlement module-hrm module-finance module-shared --runInBand --detectOpenHandles --skipNxCache --parallel=1
+        run: pnpm nx run-many -t test -p contracts-realtime module-notifications adapter-events realtime-api notification-worker platform-entitlement module-hrm module-finance module-shared --runInBand --detectOpenHandles --skipNxCache --skipRemoteCache --parallel=1 --testPathPatterns='\.integration\.spec\.ts$|hrm-notification-migration\.spec\.ts$'
 
   prepare-services:
     name: Create deployment matrix
     runs-on: ubuntu-24.04
     permissions:
       contents: read
+      # Read the image tags in GHCR to decide which services need a new build.
+      packages: read
     outputs:
+      # Every service.
       matrix: ${{ steps.matrix.outputs.matrix }}
+      # Pull requests only build the services whose Nx project is affected.
+      verify_matrix: ${{ steps.verify-matrix.outputs.matrix }}
+      # Pushes build the services that changed since their production image...
+      publish_matrix: ${{ steps.publish-plan.outputs.publish_matrix }}
+      # ...and only re-tag the production image of the others.
+      retag: ${{ steps.publish-plan.outputs.retag }}
+      retag_count: ${{ steps.publish-plan.outputs.retag_count }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history so Nx can diff against the PR base commit.
+          fetch-depth: 0
 
       - name: Validate deployment manifest and create matrix
         id: matrix
         run: echo "matrix=$(node tools/deployment/ci-matrix.mjs)" >> "$GITHUB_OUTPUT"
+
+      - name: Test publish planner
+        run: node --test tools/deployment/publish-plan.spec.mjs
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Select services to verify
+        id: verify-matrix
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [[ '${{ github.event_name }}' == 'pull_request' ]]; then
+            affected=$(pnpm exec nx show projects --affected --base="$BASE_SHA" --head=HEAD --json)
+            echo "Affected projects: $affected"
+            matrix=$(AFFECTED_PROJECTS="$affected" node tools/deployment/ci-matrix.mjs)
+          else
+            matrix=$(node tools/deployment/ci-matrix.mjs)
+          fi
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
+      # Services whose code is unchanged since their production image keep that
+      # image: it only gets a new <service>-sha-<commit> tag so a rollback to
+      # any commit still finds every service. Falls back to building all.
+      - name: Plan image publishing
+        id: publish-plan
+        if: github.event_name != 'pull_request'
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GHCR_OWNER: ${{ github.repository_owner }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          plan=$(node tools/deployment/publish-plan.mjs)
+          echo "Plan: $plan"
+          {
+            echo "publish_matrix=$(INCLUDE_SERVICES="$(jq -c .build <<<"$plan")" node tools/deployment/ci-matrix.mjs)"
+            echo "retag=$(jq -c .retag <<<"$plan")"
+            echo "retag_count=$(jq '.retag | length' <<<"$plan")"
+          } >> "$GITHUB_OUTPUT"
 
   validate-deployment:
     name: Validate deployment configuration
@@ -227,7 +311,7 @@ jobs:
       packages: write
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.prepare-services.outputs.matrix) }}
+      matrix: ${{ fromJSON(needs.prepare-services.outputs.publish_matrix) }}
     steps:
       - uses: actions/checkout@v4
 
@@ -255,24 +339,66 @@ jobs:
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
           cache-from: type=gha,scope=${{ matrix.service }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,ignore-error=true,scope=${{ matrix.service }}
 
-  verify-containers:
-    name: Verify container ${{ matrix.service }}
+  retag-unchanged:
+    name: Tag unchanged service images
     needs: [detect-changes, validate, prepare-services, validate-deployment]
     if: >-
       always() &&
-      github.event_name == 'pull_request' &&
+      github.event_name != 'pull_request' &&
+      (github.ref_name == 'main' || github.ref_name == 'dev/release') &&
       needs.detect-changes.outputs.image_inputs == 'true' &&
       needs.validate.result == 'success' &&
       needs.prepare-services.result == 'success' &&
-      needs.validate-deployment.result == 'success'
+      needs.validate-deployment.result == 'success' &&
+      needs.prepare-services.outputs.retag_count != '0'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE_REPOSITORY: ghcr.io/svn-investment-technology-jsc/enterprise-platform
+      RETAG: ${{ needs.prepare-services.outputs.retag }}
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Points the new sha tag at the exact digest the plan resolved, not at the
+      # mutable -production tag, so a concurrent publish cannot be tagged by mistake.
+      - name: Add the commit tag to each unchanged image
+        shell: bash
+        run: |
+          jq -c '.[]' <<<"$RETAG" | while read -r item; do
+            service=$(jq -r .service <<<"$item")
+            digest=$(jq -r .digest <<<"$item")
+            echo "$service: ${digest}"
+            docker buildx imagetools create \
+              --tag "$IMAGE_REPOSITORY:${service}-sha-${{ github.sha }}" \
+              "$IMAGE_REPOSITORY@${digest}"
+          done
+
+  # Image builds do not depend on lint, type-check or test results, so they run
+  # alongside validate. pr-validation-complete still requires both to succeed.
+  verify-containers:
+    name: Verify container ${{ matrix.service }}
+    needs: [detect-changes, prepare-services]
+    if: >-
+      github.event_name == 'pull_request' &&
+      needs.detect-changes.outputs.image_inputs == 'true'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.prepare-services.outputs.matrix) }}
+      matrix: ${{ fromJSON(needs.prepare-services.outputs.verify_matrix) }}
     steps:
       - uses: actions/checkout@v4
 
@@ -289,7 +415,7 @@ jobs:
           tags: enterprise-platform-ci/${{ matrix.service }}:verify
           platforms: linux/amd64
           cache-from: type=gha,scope=${{ matrix.service }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,ignore-error=true,scope=${{ matrix.service }}
 
       - name: Verify declared Node runtime dependencies
         if: matrix.runtimeCheck != null

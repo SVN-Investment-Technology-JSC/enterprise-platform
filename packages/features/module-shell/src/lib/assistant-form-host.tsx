@@ -49,6 +49,13 @@ export interface AssistantFormHostProps {
 export function AssistantFormHost({ children }: AssistantFormHostProps) {
   const rootRef = useRef<HTMLDivElement>(null);
 
+  // Popup của form (lịch antd...) gắn thẳng vào `body`, ngoài khung này: đánh dấu cả trang để CSS thu chúng cho vừa card.
+  useEffect(() => {
+    const html = document.documentElement;
+    html.classList.add(styles.embedded);
+    return () => html.classList.remove(styles.embedded);
+  }, []);
+
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const requestId = params.get('rid') ?? '';

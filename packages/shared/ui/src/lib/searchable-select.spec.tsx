@@ -185,3 +185,62 @@ describe('SearchableSelect searchInDropdown', () => {
   });
 });
 
+
+describe('SearchableSelect nhóm phụ (extra)', () => {
+  const extra = { label: 'Ngoài dự án', options: [{ value: 'c', label: 'Chi', description: 'Kế toán' }] };
+
+  it('mục chính đứng đầu, nhóm phụ gập sau nút; bấm nút mới hiện và chọn được', () => {
+    const onChange = jest.fn();
+    render(<SearchableSelect options={options} extra={extra} onChange={onChange} />);
+    fireEvent.click(screen.getByRole('textbox'));
+    expect(screen.getAllByRole('option').map((item) => item.textContent)).toEqual(['Alpha', 'Beta']);
+
+    fireEvent.click(screen.getByText('Ngoài dự án (1)'));
+    expect(screen.getAllByRole('option')).toHaveLength(3);
+    fireEvent.click(screen.getByText('Chi'));
+    expect(onChange).toHaveBeenCalledWith('c');
+  });
+
+  it('gõ tìm thì tìm cả trong nhóm phụ; đang chọn mục của nhóm thì nhóm mở sẵn', () => {
+    const { unmount } = render(<SearchableSelect options={options} extra={extra} />);
+    const input = screen.getByRole('textbox');
+    fireEvent.click(input);
+    fireEvent.change(input, { target: { value: 'ke toan' } });
+    expect(screen.getAllByRole('option').map((item) => item.textContent)).toEqual(['ChiKế toán']);
+    unmount();
+
+    render(<SearchableSelect options={options} extra={extra} value="c" />);
+    expect(screen.getByRole('textbox')).toHaveProperty('value', 'Chi');
+    fireEvent.click(screen.getByRole('textbox'));
+    expect(screen.getAllByRole('option')).toHaveLength(3);
+  });
+});
+
+describe('SearchableSelect ô lọc riêng của nhóm phụ', () => {
+  const extra = {
+    label: 'Ngoài dự án',
+    filters: { label: 'Tên', description: 'Chức danh / bộ phận' },
+    options: [
+      { value: 'c', label: 'Chi', description: 'Kế toán · Phòng Tài chính' },
+      { value: 'd', label: 'Dũng', description: 'Kỹ sư · Phòng Kỹ thuật' },
+      { value: 'e', label: 'Em', description: 'Kế toán · Phòng Kỹ thuật' },
+    ],
+  };
+
+  it('lọc theo tên và theo chức danh / bộ phận, kết hợp được; lọc ra rỗng vẫn còn ô để sửa', () => {
+    render(<SearchableSelect options={options} extra={extra} />);
+    fireEvent.click(screen.getByRole('textbox'));
+    fireEvent.click(screen.getByText('Ngoài dự án (3)'));
+    const names = () => screen.getAllByRole('option').map((item) => item.textContent);
+
+    fireEvent.change(screen.getByLabelText('Chức danh / bộ phận'), { target: { value: 'ky thuat' } });
+    expect(names()).toEqual(['Alpha', 'Beta', 'DũngKỹ sư · Phòng Kỹ thuật', 'EmKế toán · Phòng Kỹ thuật']);
+
+    fireEvent.change(screen.getByLabelText('Tên'), { target: { value: 'em' } });
+    expect(names()).toEqual(['Alpha', 'Beta', 'EmKế toán · Phòng Kỹ thuật']);
+
+    fireEvent.change(screen.getByLabelText('Tên'), { target: { value: 'zzz' } });
+    expect(names()).toEqual(['Alpha', 'Beta']);
+    expect(screen.getByLabelText('Tên')).toBeTruthy();
+  });
+});

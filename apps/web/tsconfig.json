@@ -54,6 +54,9 @@
       "path": "../../packages/shared/ui"
     },
     {
+      "path": "../../packages/shared/brand-icon"
+    },
+    {
       "path": "../../packages/features/module-shell"
     },
     {

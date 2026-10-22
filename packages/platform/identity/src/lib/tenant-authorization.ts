@@ -12,8 +12,10 @@ import {
   tenantModulePermissions,
   tenantModulesForActions,
   type TenantAuthorization,
+  type TenantAuthorizationAuditEntry,
   type TenantPermission,
   type TenantRole,
+  type TenantUserPermissionGrants,
 } from '@enterprise-platform/contracts-identity';
 import {
   BadRequestException,
@@ -160,9 +162,11 @@ export class TenantAuthorizationService {
         ? ['tenant.manage', ...actionKeys]
         : (
             await pool.query<{ key: string }>(
-              `SELECT DISTINCT pa.action_key AS key FROM core_schema.user_roles ur
+              `SELECT pa.action_key AS key FROM core_schema.user_roles ur
          JOIN core_schema.role_permissions rp ON rp.role_id=ur.role_id
-         JOIN core_schema.permission_actions pa ON pa.permission_id=rp.permission_id WHERE ur.user_id=$1`,
+         JOIN core_schema.permission_actions pa ON pa.permission_id=rp.permission_id WHERE ur.user_id=$1
+         UNION
+         SELECT g.action_key AS key FROM core_schema.user_permission_grants g WHERE g.user_id=$1`,
               [userId],
             )
           ).rows
@@ -262,6 +266,90 @@ export class TenantAuthorizationService {
     });
   }
 
+  async userPermissionGrants(
+    tenantId: string,
+    userId: string,
+  ): Promise<TenantUserPermissionGrants> {
+    uuid(userId);
+    return this.database(tenantId, async (pool) => {
+      if (
+        !(
+          await pool.query('SELECT 1 FROM core_schema.users WHERE id=$1', [
+            userId,
+          ])
+        ).rowCount
+      )
+        throw new NotFoundException();
+      return this.readGrants(pool, userId);
+    });
+  }
+
+  /** Lịch sử đổi vai trò và quyền bổ sung của một người dùng: tối đa 100 dòng, mới nhất trước. */
+  async userAuthorizationHistory(
+    tenantId: string,
+    userId: string,
+  ): Promise<TenantAuthorizationAuditEntry[]> {
+    uuid(userId);
+    return this.database(tenantId, async (pool) => {
+      if (
+        !(
+          await pool.query('SELECT 1 FROM core_schema.users WHERE id=$1', [
+            userId,
+          ])
+        ).rowCount
+      )
+        throw new NotFoundException('Không tìm thấy người dùng.');
+      const rows = (
+        await pool.query<{
+          id: string;
+          operation: string;
+          actorId: string;
+          actorName: string | null;
+          createdAt: Date | string;
+          before: unknown;
+          after: unknown;
+        }>(
+          `SELECT a.id, a.operation, a.actor_id::text AS "actorId", u.full_name AS "actorName",
+                  a.created_at AS "createdAt", a.before_data AS before, a.after_data AS after
+           FROM core_schema.authorization_audit a
+           LEFT JOIN core_schema.users u ON u.id=a.actor_id
+           WHERE a.subject_id=$1 AND a.operation IN ('user.roles.replace','user.permissions.replace')
+           ORDER BY a.created_at DESC, a.id DESC
+           LIMIT 100`,
+          [userId],
+        )
+      ).rows;
+      return rows.map((r) => ({
+        ...r,
+        createdAt:
+          r.createdAt instanceof Date ? r.createdAt.toISOString() : r.createdAt,
+      }));
+    });
+  }
+
+  private async readGrants(
+    db: Pick<PostgresClient, 'query'>,
+    userId: string,
+  ): Promise<TenantUserPermissionGrants> {
+    const grants = (
+      await db.query<{
+        actionKey: string;
+        grantedBy: string | null;
+        grantedAt: Date | string;
+      }>(
+        `SELECT action_key AS "actionKey", granted_by::text AS "grantedBy", granted_at AS "grantedAt"
+         FROM core_schema.user_permission_grants WHERE user_id=$1 ORDER BY action_key`,
+        [userId],
+      )
+    ).rows.map((r) => ({
+      actionKey: r.actionKey,
+      grantedBy: r.grantedBy,
+      grantedAt:
+        r.grantedAt instanceof Date ? r.grantedAt.toISOString() : r.grantedAt,
+    }));
+    return { actionKeys: grants.map((g) => g.actionKey), grants };
+  }
+
   /** Serializes all authorization and user-account writes in this tenant. */
   async mutate<T>(
     tenantId: string,
@@ -281,11 +369,14 @@ export class TenantAuthorizationService {
               !requiredAction ||
               !(
                 await client.query(
-                  `SELECT 1 FROM core_schema.user_roles ur
-            JOIN core_schema.users u ON u.id=ur.user_id AND u.status='active' AND u.is_active=true
-            JOIN core_schema.role_permissions rp ON rp.role_id=ur.role_id
-            JOIN core_schema.permission_actions pa ON pa.permission_id=rp.permission_id
-            WHERE ur.user_id=$1 AND pa.action_key=$2`,
+                  `SELECT 1 FROM core_schema.users u
+            WHERE u.id=$1 AND u.status='active' AND u.is_active=true AND (
+              EXISTS (SELECT 1 FROM core_schema.user_roles ur
+                JOIN core_schema.role_permissions rp ON rp.role_id=ur.role_id
+                JOIN core_schema.permission_actions pa ON pa.permission_id=rp.permission_id
+                WHERE ur.user_id=u.id AND pa.action_key=$2)
+              OR EXISTS (SELECT 1 FROM core_schema.user_permission_grants g
+                WHERE g.user_id=u.id AND g.action_key=$2))`,
                   [actorId, requiredAction],
                 )
               ).rowCount
@@ -615,6 +706,73 @@ export class TenantAuthorizationService {
         { roleIds: ids },
       );
       return { roleIds: ids };
+    });
+  }
+  /**
+   * Thay toàn bộ quyền bổ sung gán thẳng cho người dùng (ngoài vai trò). Chỉ quản trị tenant
+   * (mutate không truyền requiredAction). Khoá không đổi giữ nguyên granted_by/granted_at.
+   */
+  async setUserPermissionGrants(
+    tenantId: string,
+    actor: string,
+    userId: string,
+    keys: unknown,
+  ): Promise<TenantUserPermissionGrants> {
+    uuid(userId);
+    const wanted = strings(keys);
+    if (wanted.some((k) => !actionKeys.has(k)))
+      throw new BadRequestException(
+        'Danh sách quyền chứa hành động không hợp lệ.',
+      );
+    return this.mutate(tenantId, actor, async (client) => {
+      if (
+        !(
+          await client.query('SELECT id FROM core_schema.users WHERE id=$1', [
+            userId,
+          ])
+        ).rowCount
+      )
+        throw new NotFoundException();
+      if (
+        (
+          await client.query(
+            `SELECT 1 FROM core_schema.user_roles ur JOIN core_schema.roles r ON r.id=ur.role_id
+             WHERE ur.user_id=$1 AND r.key='tenant-admin'`,
+            [userId],
+          )
+        ).rowCount
+      )
+        throw new ConflictException(
+          'Quản trị tenant đã có toàn quyền, không cần cấp quyền bổ sung.',
+        );
+      const before = (
+        await client.query<{ action_key: string }>(
+          'SELECT action_key FROM core_schema.user_permission_grants WHERE user_id=$1 ORDER BY action_key',
+          [userId],
+        )
+      ).rows.map((r) => r.action_key);
+      const next = [...wanted].sort();
+      const removed = before.filter((k) => !wanted.includes(k));
+      const added = next.filter((k) => !before.includes(k));
+      if (removed.length)
+        await client.query(
+          'DELETE FROM core_schema.user_permission_grants WHERE user_id=$1 AND action_key = ANY($2::text[])',
+          [userId, removed],
+        );
+      for (const key of added)
+        await client.query(
+          'INSERT INTO core_schema.user_permission_grants(user_id,action_key,granted_by) VALUES ($1,$2,$3)',
+          [userId, key, actor],
+        );
+      await this.audit(
+        client,
+        actor,
+        'user.permissions.replace',
+        userId,
+        { actionKeys: before },
+        { actionKeys: next },
+      );
+      return this.readGrants(client, userId);
     });
   }
   /**

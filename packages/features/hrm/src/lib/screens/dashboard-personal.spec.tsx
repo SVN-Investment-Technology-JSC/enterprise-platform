@@ -1,6 +1,7 @@
 /** @jest-environment jsdom */
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { HrmBoardDay, HrmTimesheetBoard } from '@enterprise-platform/contracts-hrm';
+import { announceAssistantSaved } from '@enterprise-platform/feature-module-shell';
 import { hrmFetch } from '../hrm-api';
 import HrmDashboardPage from './dashboard-screen';
 
@@ -22,6 +23,25 @@ jest.mock('../hrm-api', () => {
   return { ...actual, hrmFetch: jest.fn() };
 });
 const fetchMock = hrmFetch as jest.MockedFunction<typeof hrmFetch>;
+
+/** Bảng công có thêm đơn vừa gửi từ card Trợ lý. */
+let secondPendingRequest = false;
+
+/** jsdom chưa có BroadcastChannel: bản giả giao tin ngay cho mọi kênh cùng tên khác kênh gửi, như trình duyệt. */
+class FakeBroadcastChannel {
+  static readonly open = new Set<FakeBroadcastChannel>();
+  onmessage: ((event: MessageEvent) => void) | null = null;
+  constructor(readonly name: string) {
+    FakeBroadcastChannel.open.add(this);
+  }
+  postMessage(data: unknown) {
+    for (const channel of FakeBroadcastChannel.open)
+      if (channel !== this && channel.name === this.name) channel.onmessage?.(new MessageEvent('message', { data }));
+  }
+  close() {
+    FakeBroadcastChannel.open.delete(this);
+  }
+}
 
 const d = (n: number) => `2026-10-${String(n).padStart(2, '0')}`;
 const day = (date: string, over: Partial<HrmBoardDay> = {}): HrmBoardDay => ({
@@ -70,6 +90,12 @@ function board(): HrmTimesheetBoard {
       { kind: 'LEAVE', id: 'l1', status: 'PENDING', label: 'Nghỉ phép năm', minutes: 480, fromAt: '2026-10-05T23:00:00.000Z', toAt: '2026-10-06T10:00:00.000Z', createdAt: '2026-10-11T00:00:00.000Z' },
     ],
   });
+  if (secondPendingRequest)
+    days[d(7)] = day(d(7), {
+      requests: [
+        { kind: 'LEAVE', id: 'l2', status: 'PENDING', label: 'Nghỉ ốm', minutes: 480, fromAt: '2026-10-06T23:00:00.000Z', toAt: '2026-10-07T10:00:00.000Z', createdAt: '2026-10-10T01:20:00.000Z' },
+      ],
+    });
   // Hôm nay (thứ Bảy 10/10 theo mốc giả): chưa vào ca nhưng có ca.
   days[d(10)] = day(d(10), { kind: 'WORK', status: 'FUTURE', checkIn: null, checkOut: null, workdayUnits: 0 });
   return {
@@ -137,8 +163,35 @@ beforeAll(() => {
 });
 afterAll(() => jest.useRealTimers());
 beforeEach(() => {
+  secondPendingRequest = false;
   fetchMock.mockReset();
   respond();
+});
+
+describe('Card Trợ lý trong khung chat gửi đơn', () => {
+  beforeAll(() => {
+    Object.defineProperty(globalThis, 'BroadcastChannel', { configurable: true, writable: true, value: FakeBroadcastChannel });
+  });
+  afterAll(() => {
+    delete (globalThis as { BroadcastChannel?: unknown }).BroadcastChannel;
+  });
+
+  it('Bàn làm việc tải lại phần cá nhân khi card gửi đơn HRM; thao tác của phân hệ khác thì không', async () => {
+    render(<HrmDashboardPage />);
+    await waitFor(() => expect(within(screen.getByTestId('kpi-requests')).getByText('1 đang xử lý')).toBeTruthy());
+    const boardLoads = () => fetchMock.mock.calls.filter(([path]) => String(path).startsWith('/timesheet-board')).length;
+    const before = boardLoads();
+
+    act(() => announceAssistantSaved({ requestId: 'w1', key: 'workspace.event.create', outcome: 'saved' }));
+    expect(boardLoads()).toBe(before);
+
+    secondPendingRequest = true;
+    act(() =>
+      announceAssistantSaved({ requestId: 'r1', key: 'hrm.leave-request.create', outcome: 'saved', id: 'l2' }),
+    );
+    await waitFor(() => expect(within(screen.getByTestId('kpi-requests')).getByText('2 đang xử lý')).toBeTruthy());
+    expect(boardLoads()).toBe(before + 1);
+  });
 });
 
 describe('Bàn làm việc cá nhân', () => {

@@ -289,6 +289,50 @@
   flex-shrink: 0;
 }
 
+.extraToggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 4px;
+  padding: 8px 12px;
+  border-top: 1px solid #e2e8f0;
+  color: #2563eb;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.extraToggle:hover {
+  background: #f1f5f9;
+}
+
+.extraFilters {
+  display: flex;
+  gap: 6px;
+  padding: 6px 12px 8px;
+}
+
+.extraFilterInput {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 12.5px;
+  color: #334155;
+  background: #fff;
+}
+
+.extraFilterInput:first-child {
+  flex: 0.7;
+}
+
+.extraFilterInput:focus {
+  border-color: #2563eb;
+  outline: none;
+}
+
 .emptyState {
   padding: 16px 12px;
   text-align: center;

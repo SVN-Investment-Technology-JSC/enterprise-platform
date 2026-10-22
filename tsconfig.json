@@ -191,6 +191,12 @@
     },
     {
       "path": "./packages/contracts/assistant"
+    },
+    {
+      "path": "./packages/shared/brand-icon"
+    },
+    {
+      "path": "./packages/platform/brand"
     }
   ]
 }

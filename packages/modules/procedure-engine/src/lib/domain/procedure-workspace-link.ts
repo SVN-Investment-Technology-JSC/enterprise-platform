@@ -16,6 +16,19 @@ export const WORKSPACE_LINK_REQUESTED_EVENT = 'procedure.instance.workspace_link
 export const STARTED_FOR_WORK_ITEM_EVENT = 'procedure.instance.started_for_work_item';
 /** Quy trình → Workspace: không mở được hồ sơ cho công việc (thiếu quyền, quy trình đổi…). */
 export const WORK_ITEM_START_REJECTED_EVENT = 'procedure.instance.work_item_start_rejected';
+/**
+ * Quy trình → Workspace: đổi công việc liên kết của hồ sơ. Workspace tạo công việc mới ở dự án / công
+ * việc cha đã chọn, chuyển tài liệu của công việc cũ sang, xoá công việc cũ, rồi trả `procedure_linked`
+ * (hoặc `procedure_link_rejected`, khi đó Quy trình giữ nguyên liên kết cũ).
+ */
+export const WORKSPACE_RELINK_REQUESTED_EVENT = 'procedure.instance.workspace_relink_requested';
+/** Quy trình → Workspace: hồ sơ bị xoá (xoá mềm); Workspace xoá công việc liên kết. */
+export const INSTANCE_DELETED_EVENT = 'procedure.instance.deleted';
+/**
+ * Quy trình → Workspace: hồ sơ gắn dự án vừa có tệp đính kèm tải lên xong. Workspace tạo tài liệu trỏ
+ * cùng tệp trong thư mục công việc của dự án.
+ */
+export const ATTACHMENT_ADDED_EVENT = 'procedure.instance.attachment_added';
 
 /** Workspace → Quy trình: công việc "Theo quy trình" vừa tạo, nhờ Quy trình mở hồ sơ. */
 export const WORK_ITEM_PROCEDURE_REQUESTED = 'workspace.work_item.procedure_requested';
@@ -121,6 +134,40 @@ export interface WorkspaceLinkRequestedPayload {
   readonly workItem: ProcedureWorkspaceWorkItemDraft;
   /** Hồ sơ điều chỉnh: công việc mới nối về công việc đã huỷ hiệu lực này. */
   readonly adjustmentOfWorkItemId?: string;
+  /**
+   * Người submit khi đơn được tạo hộ (khác người yêu cầu). Chưa thuộc dự án thì Workspace thêm vào dự án,
+   * dưới quyền của người yêu cầu.
+   */
+  readonly submitterUserId?: string;
+}
+
+export interface WorkspaceRelinkRequestedPayload extends WorkspaceLinkRequestedPayload {
+  /** Công việc đang gắn hồ sơ; Workspace xoá nó sau khi đã chuyển tài liệu sang công việc mới. */
+  readonly replacesWorkItemId: string;
+}
+
+export interface InstanceDeletedPayload {
+  readonly instanceId: string;
+  readonly instanceCode: string;
+  /** Công việc Workspace đang gắn hồ sơ; vắng khi chưa gắn xong. Workspace vẫn tra theo `instanceId`. */
+  readonly workItemId?: string;
+  readonly reason: string;
+  readonly deletedBy: string;
+  readonly deletedByName?: string;
+}
+
+export interface AttachmentAddedPayload {
+  readonly instanceId: string;
+  readonly instanceCode: string;
+  readonly attachmentId: string;
+  /** Khoá tệp trong kho; Workspace dùng lại, không tải lên lần nữa. */
+  readonly objectKey: string;
+  readonly fileName: string;
+  readonly contentType: string;
+  readonly sizeBytes: number;
+  readonly uploadedBy: string;
+  /** Nguồn hiển thị của tệp: "Bước 2", "Bổ sung"… */
+  readonly originLabel: string;
 }
 
 export interface WorkItemProcedureRequestedPayload {
@@ -184,6 +231,8 @@ export interface WorkspaceLinkOutboxEvent {
   readonly aggregateId: string;
   readonly payload:
     | WorkspaceLinkRequestedPayload
+    | WorkspaceRelinkRequestedPayload
+    | InstanceDeletedPayload
     | StartedForWorkItemPayload
     | StartedForStandaloneTaskPayload;
 }
@@ -204,11 +253,31 @@ export function workspaceLinkEvents(
   for (const instance of after) {
     const prior = previous.get(instance.id);
     const link = instance.workspaceLink;
-    if (link?.status === 'pending' && prior?.workspaceLink?.status !== 'pending') {
+    if (instance.deletion && !prior?.deletion && (link || instance.sourceType === 'workspace_work_item')) {
+      const workItemId =
+        link?.status === 'linked'
+          ? link.workItemId
+          : link?.replacesWorkItemId ??
+            (instance.sourceType === 'workspace_work_item' ? instance.sourceId : undefined);
       events.push({
-        type: WORKSPACE_LINK_REQUESTED_EVENT,
+        type: INSTANCE_DELETED_EVENT,
         aggregateId: instance.id,
         payload: {
+          instanceId: instance.id,
+          instanceCode: instance.code,
+          ...(workItemId ? { workItemId } : {}),
+          reason: instance.deletion.reason,
+          deletedBy: instance.deletion.deletedBy,
+          ...(instance.deletion.deletedByName ? { deletedByName: instance.deletion.deletedByName } : {}),
+        },
+      });
+    }
+    if (link?.status === 'pending' && prior?.workspaceLink?.status !== 'pending') {
+      events.push({
+        type: link.replacesWorkItemId ? WORKSPACE_RELINK_REQUESTED_EVENT : WORKSPACE_LINK_REQUESTED_EVENT,
+        aggregateId: instance.id,
+        payload: {
+          ...(link.replacesWorkItemId ? { replacesWorkItemId: link.replacesWorkItemId } : {}),
           instanceId: instance.id,
           instanceCode: instance.code,
           instanceStatus: instance.status,
@@ -219,6 +288,9 @@ export function workspaceLinkEvents(
           workItem: link.workItem,
           ...(link.adjustmentOfWorkItemId
             ? { adjustmentOfWorkItemId: link.adjustmentOfWorkItemId }
+            : {}),
+          ...(instance.initiatedBy !== link.requestedBy && !link.replacesWorkItemId
+            ? { submitterUserId: instance.initiatedBy }
             : {}),
         },
       });

@@ -92,6 +92,11 @@ export const TENANT_CORE_MIGRATIONS: readonly TenantModuleMigration[] = [
     version: '0012-authorization-changed-event',
     path: 'tenant/core/0012-authorization-changed-event.sql',
   },
+  {
+    // Dùng hàm trigger của 0012-authorization-changed-event.
+    version: '0013-user-permission-grants',
+    path: 'tenant/core/0013-user-permission-grants.sql',
+  },
 ];
 
 export const TENANT_MODULE_MIGRATIONS: Readonly<
@@ -108,6 +113,7 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     { version: '0006-finance-voucher-sources', path: 'tenant/finance/0006-finance-voucher-sources.sql' },
     { version: '0007-finance-source-reversal', path: 'tenant/finance/0007-finance-source-reversal.sql' },
     { version: '0008-voucher-attachment-purpose', path: 'tenant/finance/0008-voucher-attachment-purpose.sql' },
+    { version: '0009-finance-negative-balance-user-columns', path: 'tenant/finance/0009-finance-negative-balance-user-columns.sql' },
   ],
   hrm: [
     { version: '0001-hrm', path: 'tenant/hrm/0001-hrm.sql' },
@@ -614,6 +620,14 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     {
       version: '0025-workspace-contract-project',
       path: 'tenant/workspace/0025-workspace-contract-project.sql',
+    },
+    {
+      version: '0026-workspace-project-groups',
+      path: 'tenant/workspace/0026-workspace-project-groups.sql',
+    },
+    {
+      version: '0027-workspace-project-archive',
+      path: 'tenant/workspace/0027-workspace-project-archive.sql',
     },
   ],
   // Hệ dùng chung: phần đầu là Tài liệu công ty (kho tách khỏi tài liệu dự án).

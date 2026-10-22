@@ -7,7 +7,6 @@ import {
   type ProjectRoleDefinition,
   type ProjectRoleList,
 } from '@enterprise-platform/contracts-workspace';
-import { Popconfirm } from '@enterprise-platform/shared-ui';
 import { Lock, Pencil, Plus, Trash2, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import * as api from '../workspace-api';
@@ -15,6 +14,7 @@ import styles from '../workspace.module.scss';
 import { Choice } from './choice';
 import { Dialog, Field } from './dialog';
 import { publishProjectRoles } from './use-project-roles';
+import { Confirm } from './confirm-box';
 
 /**
  * Cài đặt "Vai trò trong dự án": danh sách vai dùng chung cho mọi dự án, mỗi
@@ -128,8 +128,8 @@ export function ProjectRoleSettings() {
                           <Pencil size={13} />
                         </button>
                         {role.isSystem ? null : (
-                          <Popconfirm
-                            title={`Xoá vai trò "${role.name}"?`}
+                          <Confirm
+                            title={`Bạn có chắc chắn muốn xoá vai trò "${role.name}"?`}
                             description={
                               role.memberCount > 0
                                 ? `Đang có ${role.memberCount} thành viên giữ vai này; hãy đổi vai của họ trước.`
@@ -153,7 +153,7 @@ export function ProjectRoleSettings() {
                             >
                               <Trash2 size={13} />
                             </button>
-                          </Popconfirm>
+                          </Confirm>
                         )}
                       </span>
                     ) : null}

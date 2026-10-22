@@ -160,7 +160,7 @@ integration('Tài chính: duyệt phiếu qua quy trình (PostgreSQL, Procedure 
     for (const file of (await readdir(directory)).filter((name) => name.endsWith('.sql')).sort()) await pool.query(await readFile(resolve(directory, file), 'utf8'));
     app = new FinanceApplication(new TestFinanceDatabase(pool), new FakeFinanceStorage());
 
-    accountId = (await app.saveAccount(manager, null, { code: 'VCB', name: 'Vietcombank', accountType: 'BANK', bankName: 'Vietcombank (VCB)', accountNumber: '0011', openingBalance: 10_000_000, openingDate: '2026-01-01' })).id;
+    accountId = (await app.saveAccount(manager, null, { code: 'VCB', name: 'Vietcombank', accountType: 'BANK', bankName: 'Vietcombank (VCB)', accountNumber: '0011', openingBalance: 10_000_000, openingDate: '2026-01-01', allowNegative: false })).id;
     reasonId = (await app.saveReason(manager, null, { kind: 'PAYMENT', code: 'VPP', name: 'Văn phòng phẩm' })).id;
     groupId = (await app.catalogs(manager, false)).counterpartyGroups[0].id;
     pe.definition = definitionWith([attribute('so_tien', 'money', true), attribute('noi_dung', 'text', false)]);

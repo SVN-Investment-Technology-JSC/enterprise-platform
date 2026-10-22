@@ -52,7 +52,7 @@ const blank = (): AccountForm => ({
   branch: '',
   openingBalance: 0,
   openingDate: todayVn(),
-  allowNegative: false,
+  allowNegative: true,
   isActive: true,
   note: '',
 });

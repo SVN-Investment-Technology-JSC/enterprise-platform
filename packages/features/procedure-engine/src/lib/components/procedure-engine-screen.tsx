@@ -9,17 +9,25 @@ import type {
   ProcedureSettingsSnapshot,
   ProcedureWorkspace,
   ReverseProcedureInstanceRequest,
+  RelinkProcedureWorkspaceRequest,
 } from '@enterprise-platform/contracts-procedure-engine';
+import { PROCEDURE_ASSISTANT_ACTIONS } from '@enterprise-platform/contracts-procedure-engine';
 import type { TenantOrganizationContext } from '@enterprise-platform/contracts-organization';
 import {
   DashboardCardPicker,
   DashboardView,
   ModuleSettingsView,
   ModuleShell,
+  useAssistantSaved,
   useHashView,
   type ModuleNavItem,
 } from '@enterprise-platform/feature-module-shell';
-import { formatDate } from '@enterprise-platform/shared-ui';
+import {
+  formatDate,
+  initialReturnTarget,
+  returnPathFor,
+  type ReturnTarget,
+} from '@enterprise-platform/shared-ui';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ClipboardList, LayoutDashboard, Settings, Table2 } from 'lucide-react';
 import {
@@ -47,6 +55,8 @@ import {
   saveProcedureSetting,
   setProcedureSubtasks,
   uploadProcedureAttachment,
+  deleteProcedureInstance,
+  relinkProcedureWorkspace,
   setProcedureDefinitionCategory,
   updateProcedureDefinition,
   validateProcedureDefinition,
@@ -79,6 +89,7 @@ const NAV: readonly ModuleNavItem<View>[] = [
 ];
 
 const VIEW_IDS = NAV.map((item) => item.id);
+const START_ACTION_KEYS = [PROCEDURE_ASSISTANT_ACTIONS.startInstance.key];
 
 export function ProcedureEngineScreen() {
   const { view, sub, navigate } = useHashView<View>({ views: VIEW_IDS, fallback: 'dashboard' });
@@ -154,6 +165,9 @@ export function ProcedureEngineScreen() {
     void loadTenantHomePath().then(setHomePath);
   }, [reload]);
 
+  // Card Trợ lý vừa khởi tạo hồ sơ: tải lại danh sách hồ sơ như khi tự khởi tạo.
+  useAssistantSaved(START_ACTION_KEYS, () => void reload());
+
   /**
    * Cấu hình chỉ nạp khi thật sự cần: dashboard cần biết thẻ nào bật, màn cài
    * đặt cần cả bản gốc để so sánh thay đổi.
@@ -179,7 +193,8 @@ export function ProcedureEngineScreen() {
       .catch(() => setSettings(undefined));
   }, [view, settings]);
 
-  const perform = useCallback(
+  /** Chạy một thao tác (báo bận, lỗi, nạp lại) và trả về thao tác có thành công không. */
+  const attempt = useCallback(
     async (
       key: string,
       operation: () => Promise<unknown>,
@@ -197,15 +212,27 @@ export function ProcedureEngineScreen() {
         await operation();
         if (options?.reloadInBackground) void reload();
         else await reload();
+        return true;
       } catch (cause) {
         setError(
           cause instanceof Error ? cause.message : 'Thao tác không thành công.',
         );
+        return false;
       } finally {
         setBusy(undefined);
       }
     },
     [reload],
+  );
+  const perform = useCallback(
+    async (
+      key: string,
+      operation: () => Promise<unknown>,
+      options?: { readonly reloadInBackground?: boolean },
+    ): Promise<void> => {
+      await attempt(key, operation, options);
+    },
+    [attempt],
   );
 
   /**
@@ -288,6 +315,21 @@ export function ProcedureEngineScreen() {
     await reload();
   };
 
+  const removeInstance = async (instanceId: string, reason: string) => {
+    const code = workspace?.instances.find((instance) => instance.id === instanceId)?.code ?? '';
+    await deleteProcedureInstance(instanceId, reason);
+    setNotice(`Đã xoá đơn ${code}.`);
+    await reload();
+  };
+
+  const relinkWorkspace = async (instanceId: string, input: RelinkProcedureWorkspaceRequest) => {
+    const pending = await relinkProcedureWorkspace(instanceId, input);
+    setNotice(
+      `Đã gửi yêu cầu đổi công việc liên kết của ${pending.code} sang dự án ${input.projectCode}; Workspace đang xử lý.`,
+    );
+    await reload();
+  };
+
   // Hồ sơ gắn dự án chờ Workspace tạo công việc qua sự kiện (vài giây): nạp lại
   // định kỳ tới khi có kết quả, để tên hồ sơ có mã công việc mà không cần F5.
   const hasPendingWorkspaceLink = Boolean(
@@ -312,6 +354,9 @@ export function ProcedureEngineScreen() {
       observerNames?: string[];
       /** Gắn dự án: đơn này là một công việc mới của dự án bên Workspace. */
       workItem?: ProjectWorkItemInput & { readonly projectCode: string };
+      /** Người submit (giữ vai S); khác người đang đăng nhập là tạo đơn hộ. */
+      submitterUserId?: string;
+      submitterName?: string;
     },
   ) =>
     perform(`start:${definition.id}`, async () => {
@@ -327,6 +372,8 @@ export function ProcedureEngineScreen() {
         managerName: customPayload?.managerName,
         observerIds: customPayload?.observerIds,
         observerNames: customPayload?.observerNames,
+        submitterUserId: customPayload?.submitterUserId,
+        submitterName: customPayload?.submitterName,
       };
       const adjustmentOfInstanceId =
         adjustment?.instance.definitionId === definition.id ? adjustment.instance.id : undefined;
@@ -362,9 +409,17 @@ export function ProcedureEngineScreen() {
     returnToStepId?: string,
     attributeValues?: Record<string, ProcedureAttributeValue>,
   ) =>
-    perform(`${nextAction}:${instanceId}`, () =>
+    attempt(`${nextAction}:${instanceId}`, () =>
       applyProcedureAction(instanceId, nextAction, comment, returnToStepId, attributeValues),
-    );
+    ).then((done) => {
+      // Mở hồ sơ từ trang chủ (`?returnTo=`): xử lý xong đúng hồ sơ đó thì tự quay về. Trao đổi không tính.
+      const back = done && nextAction !== 'comment' ? returnPathFor(instanceId) : undefined;
+      if (back) window.location.assign(back);
+    });
+
+  /** Mở từ trang khác kèm `?returnTo=`: hiện dải "xử lý xong sẽ tự quay về". Đọc sau khi gắn để khớp SSR. */
+  const [returnTarget, setReturnTarget] = useState<ReturnTarget>();
+  useEffect(() => setReturnTarget(initialReturnTarget()), []);
 
   const saveCards = async () => {
     if (!settings) return;
@@ -453,7 +508,14 @@ export function ProcedureEngineScreen() {
       actor={workspace?.actor.name}
       actions={<div ref={setHeadSlot} className={styles.headSlot} />}
       banner={
-        error ? (
+        <>
+        {returnTarget ? (
+          <div className={styles.notice} role="status">
+            <span>Mở từ Trang chủ · xử lý xong hồ sơ này sẽ tự quay về.</span>
+            <a href={returnTarget.path}>Về Trang chủ</a>
+          </div>
+        ) : null}
+        {error ? (
           <div className={styles.error} role="alert">
             <strong>Không thể hoàn tất yêu cầu</strong>
             <span>{error}</span>
@@ -468,7 +530,8 @@ export function ProcedureEngineScreen() {
               Đóng
             </button>
           </div>
-        ) : null
+        ) : null}
+        </>
       }
     >
       {!workspace ? (
@@ -536,6 +599,13 @@ export function ProcedureEngineScreen() {
           handoff={adjustment?.handoff}
           canReverse={workspace.permissions.canOverrideActions}
           onReverse={reverse}
+          onDeleteInstance={removeInstance}
+          onRelinkWorkspace={relinkWorkspace}
+          onSupplementFile={(instanceId, file) =>
+            perform(`supplement:${instanceId}`, async () => {
+              await uploadProcedureAttachment(instanceId, file, undefined, true);
+            })
+          }
           materialCatalog={materialCatalog}
           assetCatalog={assetCatalog}
           onPickAsset={(instanceId, assetCode) =>

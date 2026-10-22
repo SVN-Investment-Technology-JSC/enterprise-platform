@@ -6,6 +6,7 @@ import type {
   AssistantActionResult,
 } from '@enterprise-platform/contracts-assistant';
 import { useEffect, useRef } from 'react';
+import { announceAssistantSaved } from './assistant-saved';
 
 /**
  * Sổ đăng ký thao tác Trợ lý của trang form nhúng.
@@ -39,6 +40,8 @@ const queued: AssistantActionResult[] = [];
 
 function report(request: AssistantActionRequest, outcome: AssistantActionOutcome, detail = {}): void {
   const result: AssistantActionResult = { requestId: request.requestId, key: request.key, outcome, ...detail };
+  // Trang phân hệ phía sau tự tải lại, không phải chờ khung chat chuyển lời.
+  if (outcome === 'saved') announceAssistantSaved(result);
   if (sink) sink(result);
   else queued.push(result);
 }

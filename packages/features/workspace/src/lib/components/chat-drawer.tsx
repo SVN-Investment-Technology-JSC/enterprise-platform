@@ -12,7 +12,6 @@ import {
   type ProjectMember,
 } from '@enterprise-platform/contracts-workspace';
 import {
-  Popconfirm,
   sendRealtime,
   useRealtimeEvent,
   useRealtimeStatus,
@@ -64,6 +63,7 @@ import styles from '../workspace.module.scss';
 import { Choice } from './choice';
 import { UploadDialog } from './document-panel';
 import { useDirectory } from './use-directory';
+import { Confirm } from './confirm-box';
 
 export interface ChatDrawerProps {
   readonly open: boolean;
@@ -932,8 +932,8 @@ function BubbleImpl({
           ) : null}
           {/* Chỉ người gửi mới thu hồi được tin của chính mình, kể cả quản lý hay chủ dự án. */}
           {mine ? (
-            <Popconfirm
-              title="Thu hồi tin nhắn này?"
+            <Confirm
+              title="Bạn có chắc chắn muốn thu hồi tin nhắn này?"
               description="Mọi người trong luồng sẽ chỉ thấy dòng “Tin nhắn đã được thu hồi”."
               okText="Thu hồi"
               okType="danger"
@@ -942,7 +942,7 @@ function BubbleImpl({
               <button type="button" className={styles.chatActionDanger}>
                 <Trash2 size={12} /> Thu hồi
               </button>
-            </Popconfirm>
+            </Confirm>
           ) : null}
         </p>
       ) : null}

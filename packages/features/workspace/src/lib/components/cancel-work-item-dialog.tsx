@@ -2,7 +2,8 @@
 
 import type { WorkItem } from '@enterprise-platform/contracts-workspace';
 import { useEffect, useState } from 'react';
-import { Dialog, Field } from './dialog';
+import styles from '../workspace.module.scss';
+import { ConfirmBox } from './confirm-box';
 
 export interface CancelWorkItemDialogProps {
   readonly item?: WorkItem;
@@ -48,34 +49,29 @@ export function CancelWorkItemDialog({
   };
 
   return (
-    <Dialog
+    <ConfirmBox
       open={Boolean(item)}
-      title="Huỷ công việc?"
-      subtitle={item ? `${item.code} · ${item.title}` : undefined}
-      submitLabel="Huỷ công việc"
-      // "Huỷ" ở đây dễ hiểu nhầm là xác nhận huỷ công việc.
-      cancelLabel="Đóng"
-      submitting={submitting}
+      title={item ? `Bạn có chắc chắn muốn huỷ ${item.code} · ${item.title}?` : ''}
+      message={
+        openChildren > 0
+          ? `Nhánh này còn ${openChildren} việc con đang mở. Công việc chuyển sang Đã huỷ và rời khỏi danh sách đang làm; mở lại được từ trạng thái Đã huỷ.`
+          : 'Công việc chuyển sang Đã huỷ và rời khỏi danh sách đang làm; mở lại được từ trạng thái Đã huỷ.'
+      }
+      confirmLabel="Huỷ công việc"
+      busy={submitting}
       error={error}
-      onClose={onClose}
-      onSubmit={() => void submit()}
+      onConfirm={() => void submit()}
+      onCancel={onClose}
     >
-      <Field
-        label="Lý do huỷ"
-        hint={
-          openChildren > 0
-            ? `Nhánh này còn ${openChildren} việc con đang mở. Công việc chuyển sang Đã huỷ và rời khỏi danh sách đang làm; mở lại được từ trạng thái Đã huỷ.`
-            : 'Công việc chuyển sang Đã huỷ và rời khỏi danh sách đang làm; mở lại được từ trạng thái Đã huỷ.'
-        }
-      >
+      <label className={styles.confirmField}>
+        <span>Lý do huỷ</span>
         <textarea
           rows={3}
           value={note}
-          autoFocus
           placeholder="Ghi lý do để người khác hiểu vì sao việc bị huỷ (không bắt buộc)"
           onChange={(event) => setNote(event.target.value)}
         />
-      </Field>
-    </Dialog>
+      </label>
+    </ConfirmBox>
   );
 }

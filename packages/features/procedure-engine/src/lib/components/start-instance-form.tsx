@@ -1,5 +1,6 @@
 'use client';
 
+import type { TenantOrganizationSnapshot } from '@enterprise-platform/contracts-organization';
 import type { ProcedureDefinition } from '@enterprise-platform/contracts-procedure-engine';
 import { useAssistantEmbed } from '@enterprise-platform/feature-module-shell';
 import { MinimalPopupForm, SearchableSelect } from '@enterprise-platform/shared-ui';
@@ -20,6 +21,7 @@ import {
   type WorkItemPriority,
   type WorkItemType,
 } from '../workspace-api';
+import { submitterOptionsOf } from '../submitter-options';
 import styles from './workspace-board.module.scss';
 
 export interface StartProcedureInput {
@@ -29,6 +31,9 @@ export interface StartProcedureInput {
   isHourlyScheduling: boolean;
   /** Gắn dự án: đơn này là một công việc mới của dự án bên Workspace. */
   workItem?: ProjectWorkItemInput & { readonly projectCode: string };
+  /** Người submit (giữ vai S). Khác người đang tạo là tạo đơn hộ. */
+  submitterUserId?: string;
+  submitterName?: string;
 }
 
 /** Nội dung điền sẵn vào form tạo đơn khi module/hồ sơ khác chuyển sang. */
@@ -113,6 +118,8 @@ export interface StartInstanceFormProps {
   ) => Promise<void> | void;
   readonly actorId?: string;
   readonly actorName?: string;
+  /** Sơ đồ tổ chức, để gợi ý người submit (người giữ vai S của quy trình). */
+  readonly organization?: TenantOrganizationSnapshot;
   /** Tên hồ sơ do module hoặc hồ sơ khác chuyển sang; có thì điền form theo `handoff`. */
   readonly handoffTitle?: string;
   readonly handoff?: StartHandoff;
@@ -131,6 +138,7 @@ export function StartInstanceForm({
   onStart,
   actorId,
   actorName,
+  organization,
   handoffTitle,
   handoff,
   prefill,
@@ -158,7 +166,8 @@ export function StartInstanceForm({
   const [projectPeople, setProjectPeople] = useState<ProjectPerson[]>([]);
   const [projectWorkItems, setProjectWorkItems] = useState<ProjectWorkItemOption[]>([]);
   const [itemParentId, setItemParentId] = useState('');
-  const [itemSubmitter, setItemSubmitter] = useState('');
+  /** Người submit; mặc định là chính người tạo đơn, chọn người khác là tạo đơn hộ. */
+  const [submitter, setSubmitter] = useState(actorId ?? '');
   const [itemDescription, setItemDescription] = useState('');
   const [itemPriority, setItemPriority] = useState<WorkItemPriority>('normal');
   const [itemAssignee, setItemAssignee] = useState('');
@@ -176,7 +185,6 @@ export function StartInstanceForm({
     setProjectPeople([]);
     setProjectWorkItems([]);
     setItemParentId('');
-    setItemSubmitter('');
     if (!projectId) return;
     let cancelled = false;
     void loadProjectPeople(projectId)
@@ -233,17 +241,7 @@ export function StartInstanceForm({
     ],
     [projectWorkItems],
   );
-  const submitterOptions = useMemo(
-    () =>
-      projectPeople.map((person) => ({
-        value: person.userId,
-        label:
-          person.userId === actorId && person.displayName === person.userId && actorName
-            ? actorName
-            : person.displayName,
-      })),
-    [projectPeople, actorId, actorName],
-  );
+
   const hoursValue = itemHours.trim() ? Number(itemHours) : undefined;
   const isHoursInvalid = hoursValue !== undefined && !(hoursValue > 0);
   const startDueAt = useMemo(() => toIsoDateTime(startDate, startTime), [startDate, startTime]);
@@ -305,6 +303,67 @@ export function StartInstanceForm({
     return definitions.find((d) => d.id === selectedCreateDefId);
   }, [definitions, selectedCreateDefId]);
 
+  // Mọi người trong tenant; người tạo đứng đầu (mặc định hai người là một).
+  const submitters = useMemo(
+    () => submitterOptionsOf(organization, { id: actorId, name: actorName }),
+    [organization, actorId, actorName],
+  );
+  /** Thành viên dự án đang chọn, để gắn thẻ "Trong dự án" / "Ngoài dự án". */
+  const projectMemberIds = useMemo(
+    () => new Set(projectPeople.map((person) => person.userId)),
+    [projectPeople],
+  );
+  /**
+   * Có dự án: thành viên dự án đứng đầu, người ngoài dự án gập sau nút "Ngoài dự án" (kèm chức danh / bộ phận).
+   * Chưa chọn dự án, hoặc chưa tải xong thành viên: mọi người một danh sách.
+   */
+  const submitterChoices = useMemo(() => {
+    const all = submitters.map((person) => ({
+      value: person.userId,
+      label: person.userId === actorId ? `${person.name} (tôi)` : person.name,
+      description: person.hint,
+    }));
+    if (!projectId || projectMemberIds.size === 0) return { options: all, extra: undefined };
+    const outside = all.filter((option) => !projectMemberIds.has(option.value));
+    return {
+      options: all.filter((option) => projectMemberIds.has(option.value)),
+      extra:
+        outside.length > 0
+          ? {
+              label: 'Ngoài dự án',
+              options: outside,
+              filters: { label: 'Tên', description: 'Chức danh / bộ phận' },
+            }
+          : undefined,
+    };
+  }, [submitters, actorId, projectId, projectMemberIds]);
+  /** Dòng của ô "Người submit": tên, thẻ trong / ngoài dự án (xanh / vàng), chức danh. */
+  const renderSubmitter = (option: { value: string; label: string; description?: string }) => {
+    const inside = projectMemberIds.has(option.value);
+    return (
+      <span className={styles.submitterOption}>
+        <span className={styles.submitterOptionRow}>
+          <span>{option.label}</span>
+          {projectId ? (
+            <span className={inside ? styles.submitterTagIn : styles.submitterTagOut}>
+              {inside ? 'Trong dự án' : 'Ngoài dự án'}
+            </span>
+          ) : null}
+        </span>
+        {option.description ? (
+          <span className={styles.submitterOptionHint}>{option.description}</span>
+        ) : null}
+      </span>
+    );
+  };
+  const onBehalf = Boolean(submitter && actorId && submitter !== actorId);
+  /** Người submit chưa thuộc dự án đang chọn: sẽ được thêm vào dự án khi tạo đơn. */
+  const submitterOutsideProject = Boolean(
+    project && submitter && projectPeople.length > 0 && !projectMemberIds.has(submitter),
+  );
+  /** Thêm người vào dự án cần quyền quản lý thành viên của dự án đó. */
+  const cannotAddSubmitter = submitterOutsideProject && !project?.canManageMembers;
+
   const procedureSelectOptions = useMemo(() => {
     return definitions.map((def) => ({
       value: def.id,
@@ -318,11 +377,39 @@ export function StartInstanceForm({
 
   const starting = Boolean(selectedCreateDef) && busy === `start:${selectedCreateDef?.id}`;
 
+  // Người submit: mặc định chính người tạo; chọn người khác là tạo đơn hộ. Đặt sau phần dự án, nên chỉ
+  // cần báo khi người được chọn chưa thuộc dự án.
+  const submitterField = (
+    <div className={styles.createFieldGroup}>
+      <label className={styles.createFieldLabel}>Người submit</label>
+      <SearchableSelect
+        options={submitterChoices.options}
+        extra={submitterChoices.extra}
+        value={submitter}
+        renderOption={renderSubmitter}
+        placeholder="Chọn người submit"
+        emptyText="Không tìm thấy người trong tenant"
+        onChange={(value) => setSubmitter(value || actorId || '')}
+      />
+      {cannotAddSubmitter ? (
+        <p className={styles.createScheduleError} role="alert">
+          Người này chưa thuộc dự án {project?.code} và bạn không có quyền thêm thành viên vào dự án đó.
+          Chọn người trong dự án, hoặc nhờ chủ nhiệm thêm họ vào dự án trước.
+        </p>
+      ) : submitterOutsideProject ? (
+        <p className={styles.createFormHint}>
+          Người này chưa thuộc dự án {project?.code}; sẽ được thêm vào dự án (vai Thành viên) khi tạo đơn.
+        </p>
+      ) : null}
+    </div>
+  );
+
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!selectedCreateDef || !jobTitle.trim() || !startDueAt || !endDueAt || isScheduleInvalid)
       return;
     if (project && isHoursInvalid) return;
+    if (cannotAddSubmitter) return;
     void onStart(selectedCreateDef, {
       title: jobTitle,
       startDueAt,
@@ -341,9 +428,14 @@ export function StartInstanceForm({
             plannedEnd: endDate,
             estimateHours: hoursValue,
             parentId: itemParentId || undefined,
-            submitterUserId: itemSubmitter || undefined,
           }
         : undefined,
+      ...(onBehalf
+        ? {
+            submitterUserId: submitter,
+            submitterName: submitters.find((person) => person.userId === submitter)?.name,
+          }
+        : {}),
     });
   };
 
@@ -434,16 +526,7 @@ export function StartInstanceForm({
                   onChange={(value) => setItemParentId(value || '')}
                 />
               </div>
-              <div className={styles.createFieldGroup}>
-                <label className={styles.createFieldLabel}>Người Submit</label>
-                <SearchableSelect
-                  options={submitterOptions}
-                  value={itemSubmitter}
-                  placeholder="Chọn người submit"
-                  emptyText="Dự án chưa có người tham gia"
-                  onChange={setItemSubmitter}
-                />
-              </div>
+
             </div>
 
             <div className={styles.createFieldGroup}>
@@ -458,6 +541,8 @@ export function StartInstanceForm({
                 onChange={(event) => setItemDescription(event.target.value)}
               />
             </div>
+
+            {submitterField}
 
             <div className={styles.createTimeDateGrid}>
               <div className={styles.createFieldGroup}>
@@ -515,7 +600,9 @@ export function StartInstanceForm({
               </p>
             )}
           </>
-        ) : null}
+        ) : (
+          submitterField
+        )}
 
         {/* Bắt đầu & Kết thúc Grid */}
         <div className={styles.createTimeDateGrid}>
@@ -613,6 +700,7 @@ export function StartInstanceForm({
               !jobTitle.trim() ||
               isScheduleInvalid ||
               (Boolean(project) && isHoursInvalid) ||
+              cannotAddSubmitter ||
               starting
             }
           >

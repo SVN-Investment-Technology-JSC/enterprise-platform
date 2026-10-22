@@ -48,6 +48,46 @@ export interface ObjectStorageCopy {
   readonly to: string;
 }
 
+export interface ObjectStorageReadOptions {
+  /** Từ chối (không tải về) khi object lớn hơn mức này, để một khoá bất thường không làm đầy bộ nhớ. */
+  readonly maxBytes?: number;
+}
+
+export interface ObjectStorageContent {
+  readonly body: Uint8Array;
+  readonly contentType: string;
+  readonly sizeBytes: number;
+}
+
+/** Khoá không có trong kho (S3 `NoSuchKey`/`NotFound`). */
+export class ObjectNotFoundError extends Error {
+  constructor(readonly key: string) {
+    super(`Object not found: ${key}`);
+    this.name = 'ObjectNotFoundError';
+  }
+}
+
+/** Object lớn hơn `maxBytes` mà người gọi cho phép. */
+export class ObjectTooLargeError extends Error {
+  constructor(
+    readonly key: string,
+    readonly sizeBytes: number,
+    readonly maxBytes: number,
+  ) {
+    super(`Object ${key} is ${sizeBytes} bytes, above the ${maxBytes} byte limit`);
+    this.name = 'ObjectTooLargeError';
+  }
+}
+
+/**
+ * Đọc nội dung object phía máy chủ qua địa chỉ nội bộ. Tách khỏi các cổng khác
+ * để module chỉ cần ghi hay chỉ cần ký URL không phải khai thêm hàm này.
+ */
+export interface ObjectStorageReadPort {
+  /** Ném `ObjectNotFoundError` khi khoá không có, `ObjectTooLargeError` khi quá `maxBytes`. */
+  getObject(key: string, options?: ObjectStorageReadOptions): Promise<ObjectStorageContent>;
+}
+
 /**
  * Thao tác phía máy chủ trên đối tượng đã có: sao chép và xoá. Tách khỏi
  * `ObjectStoragePort` để các module chỉ cần ký URL không phải khai thêm hai
@@ -80,7 +120,7 @@ export interface S3ObjectStorageOptions {
   readonly forcePathStyle?: boolean;
 }
 
-export class S3ObjectStorage implements ObjectStorageManagementPort {
+export class S3ObjectStorage implements ObjectStorageManagementPort, ObjectStorageReadPort {
   private readonly internalClient: S3Client;
   private readonly publicClient: S3Client;
 
@@ -177,6 +217,35 @@ export class S3ObjectStorage implements ObjectStorageManagementPort {
       for (const error of result.Errors ?? []) if (error.Key) failed.push(error.Key);
     }
     return { failed };
+  }
+
+  async getObject(key: string, options: ObjectStorageReadOptions = {}): Promise<ObjectStorageContent> {
+    try {
+      const result = await this.internalClient.send(
+        new GetObjectCommand({ Bucket: this.options.bucket, Key: key }),
+        { abortSignal: AbortSignal.timeout(TENANT_STORAGE_WRITE_TIMEOUT_SECONDS * 1000) },
+      );
+      const declared = result.ContentLength ?? 0;
+      if (options.maxBytes !== undefined && declared > options.maxBytes) {
+        // Không đọc thân phản hồi; huỷ luồng để giải phóng kết nối.
+        (result.Body as { destroy?: () => void } | undefined)?.destroy?.();
+        throw new ObjectTooLargeError(key, declared, options.maxBytes);
+      }
+      const body = result.Body ? await result.Body.transformToByteArray() : new Uint8Array();
+      if (options.maxBytes !== undefined && body.byteLength > options.maxBytes) {
+        throw new ObjectTooLargeError(key, body.byteLength, options.maxBytes);
+      }
+      return {
+        body,
+        contentType: result.ContentType ?? 'application/octet-stream',
+        sizeBytes: body.byteLength,
+      };
+    } catch (error) {
+      const name = (error as { name?: string }).name;
+      const status = (error as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode;
+      if (name === 'NoSuchKey' || name === 'NotFound' || status === 404) throw new ObjectNotFoundError(key);
+      throw error;
+    }
   }
 
   async objectMetadata(key: string): Promise<{sizeBytes: number; contentType: string}> {

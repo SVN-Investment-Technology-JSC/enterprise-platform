@@ -50,6 +50,14 @@ export class CatalogService {
     return updated;
   }
 
+  /** Xoá hẳn nhãn: gỡ khỏi mọi công việc và dự án của tenant, nên chỉ quản trị viên. */
+  async removeTag(actor: WorkspaceActor, tagId: string): Promise<void> {
+    if (!actor.isTenantAdmin) throw new ProjectForbiddenError();
+    if (!UUID.test(tagId) || !(await this.store.tag.remove(actor.tenantId, tagId))) {
+      throw new WorkspaceValidationError('Nhãn không tồn tại.');
+    }
+  }
+
   async savedFilters(
     actor: WorkspaceActor,
     query: { readonly view?: string; readonly projectId?: string },

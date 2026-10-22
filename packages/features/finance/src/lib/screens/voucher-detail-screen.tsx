@@ -337,6 +337,9 @@ export default function VoucherDetailScreen({ kind, id }: { kind: FinanceVoucher
                     <Info label={config.reasonLabel}>{voucher.reasonName}</Info>
                     <Info label={config.accountLabel}>{voucher.accountName}</Info>
                     <Info label={config.counterpartyLabel}>{voucher.counterpartyGroupName}</Info>
+                    <Info label={lockedLabel(config.personLabel, source, 'counterpartyName')}>{voucher.counterpartyName}</Info>
+                    <Info label={lockedLabel(config.personAccountLabel, source, 'counterpartyAccountNo')}>{voucher.counterpartyAccountNo}</Info>
+                    <Info label={lockedLabel(config.personBankLabel, source, 'counterpartyBank')}>{voucher.counterpartyBank}</Info>
                     <Info label={lockedLabel('Hạch toán nội bộ', source, 'allocation')}>
                       {voucher.allocation ? `${FINANCE_ALLOCATION_LABELS[voucher.allocation.type]}: ${financeAllocationLabel(voucher.allocation)}` : null}
                     </Info>

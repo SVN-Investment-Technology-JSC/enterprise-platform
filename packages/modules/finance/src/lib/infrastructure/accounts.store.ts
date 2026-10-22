@@ -145,7 +145,7 @@ export async function saveAccount(
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,COALESCE($10::date, CURRENT_DATE),$11,$12,$13,$14) RETURNING id`,
           [
             tenantId, values.code, values.name, values.type, values.bankName, values.accountNumber, values.accountHolder, values.branch,
-            openingBalance ?? 0, input.openingDate ?? null, input.allowNegative === true, input.isActive !== false, values.note, actorId,
+            openingBalance ?? 0, input.openingDate ?? null, input.allowNegative !== false, input.isActive !== false, values.note, actorId,
           ],
         )
       ).rows[0] as Row;

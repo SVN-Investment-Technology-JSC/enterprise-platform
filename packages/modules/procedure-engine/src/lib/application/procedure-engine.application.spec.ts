@@ -126,7 +126,9 @@ describe('ProcedureEngineApplication', () => {
     const started = await application.startInstance(employee, { definitionId: draft.id, title: 'Test', idempotencyKey: 'allowed' });
     expect(started.status).toBe('running');
     expect((await application.getWorkspace(employee)).permissions).toEqual({ canManageDefinitions: false, canPublishDefinitions: false, canCreateInstances: true, canOverrideActions: false });
-    await expect(application.deleteInstance(employee, started.id)).rejects.toMatchObject({ code: 'forbidden' });
+    // Không cần quyền quản trị: người giữ vai A của đơn (ở đây chính là nhân viên này) được xoá đơn.
+    // Người không giữ vai A bị chặn: xem procedure-instance-deletion.spec.ts.
+    await application.deleteInstance(employee, started.id, { reason: 'Nhập nhầm' });
   });
 
   it('chỉ lưu trữ khi mọi hồ sơ của quy trình đã kết thúc', async () => {

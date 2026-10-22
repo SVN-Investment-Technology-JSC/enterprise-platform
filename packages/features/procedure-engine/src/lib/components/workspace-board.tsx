@@ -12,6 +12,7 @@ import type {
   ProcedureDefinition,
   ProcedureInstance,
   ReverseProcedureInstanceRequest,
+  RelinkProcedureWorkspaceRequest,
   ProcedureInstanceStep,
   ProcedureRaciRole,
   ProcedureRuntimeAction,
@@ -34,6 +35,7 @@ import { createPortal } from 'react-dom';
 import { Check, ChevronLeft, ChevronRight, Download, FileText, Plus, Search, X } from 'lucide-react';
 import type { AssetCatalogItem, MaterialCatalogItem } from '../procedure-api';
 import { AttachmentPanel } from './attachment-panel';
+import { DeleteInstanceDialog, RelinkWorkspaceDialog } from './instance-admin-dialogs';
 import { AttributeForm, attributeSlots, type AttributeDraft } from './attribute-form';
 import {
   instanceProgress,
@@ -241,6 +243,9 @@ export function WorkspaceBoard({
   handoff,
   canReverse = false,
   onReverse,
+  onDeleteInstance,
+  onRelinkWorkspace,
+  onSupplementFile,
   headSlot,
 }: {
   /**
@@ -296,6 +301,12 @@ export function WorkspaceBoard({
   /** Quản trị viên Quy trình: được huỷ hiệu lực hồ sơ đã hoàn thành. */
   canReverse?: boolean;
   onReverse?: (instanceId: string, input: ReverseProcedureInstanceRequest) => Promise<void>;
+  /** Xoá đơn (xoá mềm); nút hiện theo `authorization.canDelete` của từng hồ sơ. */
+  onDeleteInstance?: (instanceId: string, reason: string) => Promise<void>;
+  /** Đổi công việc liên kết; nút hiện theo `authorization.canRelinkWorkspace`. */
+  onRelinkWorkspace?: (instanceId: string, input: RelinkProcedureWorkspaceRequest) => Promise<void>;
+  /** Bổ sung tài liệu ngoài bước; nút hiện theo `authorization.canSupplement`. */
+  onSupplementFile?: (instanceId: string, file: File) => void;
   initialInstanceId?: string;
 }) {
   // Mặc định mở vào "Đang xử lý" (việc cần làm), "Tất cả" đưa xuống cuối thanh tab.
@@ -379,6 +390,8 @@ export function WorkspaceBoard({
 
   const [headerCancelOpen, setHeaderCancelOpen] = useState(false);
   const [reverseOpen, setReverseOpen] = useState(false);
+  /** Hộp "Xoá đơn" / "Đổi công việc liên kết" đang mở cho hồ sơ đang chọn. */
+  const [adminDialog, setAdminDialog] = useState<'delete' | 'relink'>();
   const [reverseReason, setReverseReason] = useState('');
   const [reverseAdjust, setReverseAdjust] = useState(true);
   const [reverseError, setReverseError] = useState<string>();
@@ -564,8 +577,24 @@ export function WorkspaceBoard({
           }
           actorId={actorId}
           actorName={actorName}
+          organization={organization}
           handoffTitle={handoffTitle}
           handoff={handoff}
+        />
+      ) : null}
+
+      {adminDialog === 'delete' && selected && onDeleteInstance ? (
+        <DeleteInstanceDialog
+          instance={selected}
+          onClose={() => setAdminDialog(undefined)}
+          onDelete={onDeleteInstance}
+        />
+      ) : null}
+      {adminDialog === 'relink' && selected && onRelinkWorkspace ? (
+        <RelinkWorkspaceDialog
+          instance={selected}
+          onClose={() => setAdminDialog(undefined)}
+          onRelink={onRelinkWorkspace}
         />
       ) : null}
 
@@ -1015,6 +1044,26 @@ export function WorkspaceBoard({
                       Huỷ hiệu lực
                     </button>
                   ) : null}
+
+                  {/* Đổi công việc liên kết / Xoá đơn: người giữ vai A của đơn hoặc quản trị. */}
+                  {onRelinkWorkspace && selected.authorization?.canRelinkWorkspace ? (
+                    <button
+                      type="button"
+                      className={styles.headerCancelBtn}
+                      onClick={() => setAdminDialog('relink')}
+                    >
+                      Đổi công việc liên kết
+                    </button>
+                  ) : null}
+                  {onDeleteInstance && selected.authorization?.canDelete ? (
+                    <button
+                      type="button"
+                      className={styles.headerCancelBtn}
+                      onClick={() => setAdminDialog('delete')}
+                    >
+                      Xoá đơn
+                    </button>
+                  ) : null}
                 </div>
 
                 <h2 className={styles.detailTitle}>{selected.title}</h2>
@@ -1085,7 +1134,10 @@ export function WorkspaceBoard({
                 <dl className={styles.metaLine}>
                   <div>
                     <dt>Khởi tạo</dt>
-                    <dd>{selected.activity.find((entry) => entry.action === 'start')?.actorName ?? '—'}</dd>
+                    <dd>
+                      {selected.activity.find((entry) => entry.action === 'start')?.actorName ?? '—'}
+                      {selected.createdOnBehalfBy ? ` (do ${selected.createdOnBehalfBy.name} tạo hộ)` : ''}
+                    </dd>
                   </div>
                   <div>
                     <dt>Quy trình</dt>
@@ -1284,6 +1336,9 @@ export function WorkspaceBoard({
                         attachments={attachments ?? []}
                         busy={busy}
                         onUpload={(file) => onUploadFile?.(selected.id, file)}
+                        onSupplement={
+                          onSupplementFile ? (file) => onSupplementFile(selected.id, file) : undefined
+                        }
                       />
                     ) : (
                       <HistoryPanel instance={selected} />
@@ -1555,6 +1610,9 @@ export function WorkspaceBoard({
                     )}
                     busy={busy}
                     onUpload={(file) => onUploadFile?.(selected.id, file)}
+                    onSupplement={
+                      onSupplementFile ? (file) => onSupplementFile(selected.id, file) : undefined
+                    }
                   />
                 </div>
               )}

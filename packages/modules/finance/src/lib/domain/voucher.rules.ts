@@ -32,10 +32,7 @@ export interface NormalizedVoucher {
   accountId: string | null;
   destAccountId: string | null;
   counterpartyGroupId: string | null;
-  /**
-   * Người/tài khoản/ngân hàng nhận tiền: không còn nhập tay trên form thường, chỉ còn dùng cho phiếu tạo từ hồ sơ
-   * quy trình (giá trị hồ sơ gửi lên, bị khoá sửa) — xem `voucher-sources.store.ts`.
-   */
+  /** Người nộp/nhận tiền, số tài khoản, ngân hàng: chữ tự do, không bắt buộc (phiếu chuyển tiền không có). */
   counterpartyName?: string | null;
   counterpartyAccountNo?: string | null;
   counterpartyBank?: string | null;
@@ -176,6 +173,9 @@ export function normalizeVoucherInput(input: SaveFinanceVoucherRequest): Normali
     accountId,
     destAccountId,
     counterpartyGroupId: isTransfer ? null : uuidOrNull(input.counterpartyGroupId, 'Đối tượng'),
+    counterpartyName: isTransfer ? null : text(input.counterpartyName, 255, 'Người nộp/nhận tiền'),
+    counterpartyAccountNo: isTransfer ? null : text(input.counterpartyAccountNo, 60, 'Số tài khoản'),
+    counterpartyBank: isTransfer ? null : text(input.counterpartyBank, 120, 'Ngân hàng'),
     allocation,
     taxIncluded: isTransfer ? false : input.taxIncluded === true,
     taxRate: isTransfer || input.taxIncluded !== true ? 0 : taxRate,

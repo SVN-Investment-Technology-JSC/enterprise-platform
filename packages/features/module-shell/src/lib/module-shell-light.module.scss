@@ -417,6 +417,34 @@
   }
 }
 
+.navParent {
+  font-weight: 600;
+}
+
+.navParentActive .navIcon {
+  color: var(--ep-text);
+}
+
+.navChevron {
+  flex-shrink: 0;
+  color: var(--ep-text-muted);
+  transition: transform 0.15s ease;
+}
+
+.navChevronOpen {
+  transform: rotate(90deg);
+}
+
+.navChild {
+  min-height: 36px;
+  padding-left: 46px;
+  font-size: 13.5px;
+}
+
+.navChild .navIcon {
+  display: none;
+}
+
 .navItemActive {
   background: var(--ep-hover);
   font-weight: 600;
@@ -686,6 +714,32 @@
   font-weight: 700;
   letter-spacing: 0.6px;
   text-transform: uppercase;
+}
+
+.sectionTitleButton {
+  display: inline-flex;
+  align-items: center;
+  margin: -2px -6px;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  font-family: inherit;
+  cursor: pointer;
+
+  &:hover {
+    background: var(--ep-hover, rgb(15 23 42 / 6%));
+    color: var(--ep-text);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--ep-accent-strong, #d9ab00);
+    outline-offset: 1px;
+  }
+}
+
+.sectionTitleActive {
+  color: var(--ep-text);
 }
 
 .sectionAction {

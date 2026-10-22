@@ -1,6 +1,8 @@
 import type {
   ApplyProcedureActionRequest,
   ReverseProcedureInstanceRequest,
+  DeleteProcedureInstanceRequest,
+  RelinkProcedureWorkspaceRequest,
   CreateProcedureAttachmentRequest,
   CreateProcedureDefinitionRequest,
   CreateProcedureDelegationRequest,
@@ -357,11 +359,33 @@ export class ProcedureEngineController {
     );
   }
 
-  /** Dọn dữ liệu rác. Huỷ (`cancel`) mới là thao tác nghiệp vụ; xoá là xoá hẳn. */
-  @Delete('instances/:instanceId')
+  /**
+   * Xoá đơn (xoá mềm): người giữ vai A của đơn hoặc quản trị, đơn chưa hoàn thành, bắt buộc lý do.
+   * Dùng POST thay vì DELETE để mang lý do trong body.
+   */
+  @Post('instances/:instanceId/delete')
   @HttpCode(204)
-  deleteInstance(@Req() request: ProcedureRequest, @Param('instanceId') instanceId: string) {
-    return this.execute(() => this.procedures.deleteInstance(this.actor(request), instanceId));
+  deleteInstance(
+    @Req() request: ProcedureRequest,
+    @Param('instanceId') instanceId: string,
+    @Body() input: DeleteProcedureInstanceRequest,
+  ) {
+    return this.execute(() =>
+      this.procedures.deleteInstance(this.actor(request), instanceId, input),
+    );
+  }
+
+  /** Đổi công việc liên kết của đơn sang dự án / công việc cha khác (Workspace xử lý bất đồng bộ). */
+  @Post('instances/:instanceId/workspace-relink')
+  @HttpCode(200)
+  relinkWorkspace(
+    @Req() request: ProcedureRequest,
+    @Param('instanceId') instanceId: string,
+    @Body() input: RelinkProcedureWorkspaceRequest,
+  ) {
+    return this.execute(() =>
+      this.procedures.relinkWorkspace(this.actor(request), instanceId, input),
+    );
   }
 
   @Delete('definitions/:definitionId')
@@ -454,6 +478,19 @@ export class ProcedureEngineController {
   ) {
     return this.execute(() => this.attachments.create(this.actor(request), instanceId, input));
   }
+  /** Trình duyệt báo đã tải tệp lên xong; đơn gắn dự án thì tệp được đưa sang tài liệu dự án. */
+  @Post('instances/:instanceId/attachments/:attachmentId/complete')
+  @HttpCode(200)
+  completeAttachment(
+    @Req() request: ProcedureRequest,
+    @Param('instanceId') instanceId: string,
+    @Param('attachmentId') attachmentId: string,
+  ) {
+    return this.execute(() =>
+      this.attachments.complete(this.actor(request), instanceId, attachmentId),
+    );
+  }
+
 
   private internalTenant(request: any): string {
     const tenantId = request.headers['x-tenant-id'] as string;

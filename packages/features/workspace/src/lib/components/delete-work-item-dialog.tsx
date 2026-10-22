@@ -2,7 +2,7 @@
 
 import type { WorkItem } from '@enterprise-platform/contracts-workspace';
 import { useEffect, useState } from 'react';
-import { Dialog, Field } from './dialog';
+import { ConfirmBox } from './confirm-box';
 
 export interface DeleteWorkItemDialogProps {
   readonly item?: WorkItem;
@@ -16,9 +16,8 @@ export interface DeleteWorkItemDialogProps {
 /**
  * Xác nhận xoá hẳn một công việc.
  *
- * Khác với "Huỷ" (chuyển sang Đã huỷ, mở lại được), xoá là mất hẳn công việc
- * cùng toàn bộ nhánh con — nên bắt gõ đúng mã công việc trước khi cho xoá,
- * giống cách huỷ dự án.
+ * Khác với "Huỷ" (chuyển sang Đã huỷ, mở lại được), xoá là mất hẳn công việc cùng toàn bộ nhánh con — câu hỏi nói
+ * rõ mã, tên và số việc con sẽ mất theo.
  */
 export function DeleteWorkItemDialog({
   item,
@@ -26,19 +25,13 @@ export function DeleteWorkItemDialog({
   onClose,
   onConfirm,
 }: DeleteWorkItemDialogProps) {
-  const [confirmCode, setConfirmCode] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string>();
 
-  useEffect(() => {
-    setConfirmCode('');
-    setError(undefined);
-  }, [item?.id]);
-
-  const matches = Boolean(item) && confirmCode.trim().toUpperCase() === item?.code.toUpperCase();
+  useEffect(() => setError(undefined), [item?.id]);
 
   const submit = async () => {
-    if (!item || !matches) return;
+    if (!item) return;
     setSubmitting(true);
     setError(undefined);
     try {
@@ -51,33 +44,19 @@ export function DeleteWorkItemDialog({
   };
 
   return (
-    <Dialog
+    <ConfirmBox
       open={Boolean(item)}
-      title="Xoá công việc?"
-      subtitle={item ? `${item.code} · ${item.title}` : undefined}
-      submitLabel="Xoá công việc"
-      cancelLabel="Đóng"
-      submitting={submitting}
-      submitDisabled={!matches}
+      title={item ? `Bạn có chắc chắn muốn xoá ${item.code} · ${item.title}?` : ''}
+      message={
+        descendants > 0
+          ? `Công việc cùng ${descendants} việc con trong nhánh bị xoá hẳn, không hoàn tác được. Nếu chỉ muốn dừng việc, hãy dùng "Huỷ công việc".`
+          : 'Công việc bị xoá hẳn, không hoàn tác được. Nếu chỉ muốn dừng việc, hãy dùng "Huỷ công việc".'
+      }
+      confirmLabel="Xoá"
+      busy={submitting}
       error={error}
-      onClose={onClose}
-      onSubmit={() => void submit()}
-    >
-      <Field
-        label={`Gõ lại mã "${item?.code ?? ''}" để xác nhận`}
-        hint={
-          descendants > 0
-            ? `Xoá hẳn công việc này cùng ${descendants} việc con trong nhánh. Không hoàn tác được — nếu chỉ muốn dừng việc, hãy dùng "Huỷ công việc".`
-            : 'Xoá hẳn công việc này. Không hoàn tác được — nếu chỉ muốn dừng việc, hãy dùng "Huỷ công việc".'
-        }
-      >
-        <input
-          value={confirmCode}
-          autoFocus
-          placeholder={item?.code}
-          onChange={(event) => setConfirmCode(event.target.value)}
-        />
-      </Field>
-    </Dialog>
+      onConfirm={() => void submit()}
+      onCancel={onClose}
+    />
   );
 }

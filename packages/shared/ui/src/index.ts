@@ -11,3 +11,4 @@ export * from './lib/notification-client';
 export * from './lib/notification-center';
 export * from './lib/realtime-bus';
 export * from './lib/date-format';
+export * from './lib/return-to';

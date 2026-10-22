@@ -27,9 +27,37 @@ const users = [
     isActive: true,
     roleIds: [],
     roles: [],
+    directActionKeys: [],
     createdAt: new Date().toISOString(),
   },
 ];
+// Quyền bổ sung theo user: memberId -> [{ actionKey, grantedBy, grantedAt }].
+const grantsByUser = new Map();
+// Lịch sử thay đổi quyền theo user, mới nhất ở cuối (API trả đảo ngược).
+const historyByUser = new Map();
+function record(userId, operation, before, after) {
+  const list = historyByUser.get(userId) ?? [];
+  list.push({
+    id: 'h' + (list.length + 1),
+    operation,
+    actorId: 'admin',
+    actorName: 'Demo',
+    createdAt: new Date().toISOString(),
+    before,
+    after,
+  });
+  historyByUser.set(userId, list);
+}
+const grantableActions = new Set([
+  'core.users.read',
+  'core.users.create',
+  'core.users.update',
+  'core.users.delete',
+  'core.organization.read',
+  'core.organization.create',
+  'core.organization.update',
+  'core.organization.delete',
+]);
 function sync() {
   for (const r of roles)
     r.userIds = users.filter((u) => u.roleIds.includes(r.id)).map((u) => u.id);
@@ -76,21 +104,72 @@ createServer(async (req, res) => {
     });
   if (url.pathname === '/api/platform/v1/tenant-users' && req.method === 'GET')
     return send({ users });
+  const detail = url.pathname.match(/\/tenant-users\/([^/]+)$/);
+  if (detail && req.method === 'GET') {
+    const user = users.find((u) => u.id === detail[1]);
+    return user
+      ? send({ user })
+      : send({ message: 'Không tìm thấy người dùng.' }, 404);
+  }
   if (viewer) return send({ message: 'Không có quyền.' }, 403);
   if (req.method !== 'GET' && req.headers['x-csrf-token'] !== 'test-csrf')
     return send({ message: 'CSRF_INVALID' }, 403);
   let raw = '';
   for await (const chunk of req) raw += chunk;
   const body = raw ? JSON.parse(raw) : {};
+  const historyRoute = url.pathname.match(
+    /\/tenant-users\/([^/]+)\/authorization-history$/,
+  );
+  if (historyRoute)
+    return send({
+      entries: [...(historyByUser.get(historyRoute[1]) ?? [])].reverse(),
+    });
   const assignment = url.pathname.match(/\/tenant-users\/([^/]+)\/roles$/);
   if (assignment) {
     const user = users.find((u) => u.id === assignment[1]);
     if (!user) return send({}, 404);
     if (req.method === 'PUT') {
+      record(user.id, 'user.roles.replace', { roleIds: user.roleIds }, { roleIds: body.roleIds });
       user.roleIds = body.roleIds;
       sync();
     }
     return send({ roleIds: user.roleIds });
+  }
+  const grantsRoute = url.pathname.match(
+    /\/tenant-users\/([^/]+)\/permission-grants$/,
+  );
+  if (grantsRoute) {
+    const user = users.find((u) => u.id === grantsRoute[1]);
+    if (!user) return send({ message: 'Không tìm thấy người dùng.' }, 404);
+    if (req.method === 'PUT') {
+      const keys = body.actionKeys;
+      if (
+        !Array.isArray(keys) ||
+        keys.some((k) => typeof k !== 'string' || !grantableActions.has(k))
+      )
+        return send({ message: 'Action quyền không hợp lệ.' }, 400);
+      const previous = grantsByUser.get(user.id) ?? [];
+      grantsByUser.set(
+        user.id,
+        [...new Set(keys)].map(
+          (actionKey) =>
+            previous.find((g) => g.actionKey === actionKey) ?? {
+              actionKey,
+              grantedBy: 'admin',
+              grantedAt: new Date().toISOString(),
+            },
+        ),
+      );
+      record(
+        user.id,
+        'user.permissions.replace',
+        { actionKeys: previous.map((g) => g.actionKey) },
+        { actionKeys: [...new Set(keys)] },
+      );
+      user.directActionKeys = [...new Set(keys)];
+    }
+    const grants = grantsByUser.get(user.id) ?? [];
+    return send({ actionKeys: grants.map((g) => g.actionKey), grants });
   }
   const match = url.pathname.match(
     /\/tenant-(roles|permissions)(?:\/([^/]+))?$/,

@@ -37,6 +37,7 @@ import type {
   CreateProjectRequest,
   CreateSavedFilterRequest,
   CreateTagRequest,
+  UpdateTagRequest,
   CreateVersionRequest,
   CreateWorkItemRequest,
   DocumentAudience,
@@ -63,6 +64,8 @@ import type {
   ProjectTypeOption,
   RecurrenceScope,
   ReportBundle,
+  ReportItemKind,
+  ReportItemList,
   RespondToEventRequest,
   SavedFilter,
   SavedFilterView,
@@ -90,6 +93,8 @@ import type {
   WorkdayRuleSet,
   ProjectRoleList,
   SaveProjectRoleRequest,
+  ProjectGroupList,
+  SaveProjectGroupRequest,
   FleetAvailabilityView,
   SourceTransport,
   TransportSourceType,
@@ -168,6 +173,8 @@ export const listProjects = (params: {
   search?: string;
   status?: string;
   projectType?: string;
+  /** `exclude`: bỏ dự án lưu trữ; `only`: chỉ dự án lưu trữ; vắng: mọi dự án. */
+  archived?: 'exclude' | 'only';
   page?: number;
   pageSize?: number;
 } = {}) => {
@@ -191,7 +198,7 @@ export const PROJECT_PAGE_SIZE = 60;
  */
 export async function listAllProjects(
   maxPages = 20,
-  filter: { projectType?: string } = {},
+  filter: { projectType?: string; archived?: 'exclude' | 'only' } = {},
 ): Promise<ProjectSummary[]> {
   const items: ProjectSummary[] = [];
   for (let page = 1; page <= maxPages; page += 1) {
@@ -202,6 +209,10 @@ export async function listAllProjects(
   return items;
 }
 
+/** Mở lưu trữ dự án đã hoàn thành: dự án về "Đang chạy" để thêm công việc. */
+export const unarchiveProject = (id: string) =>
+  request<ProjectSummary>(`/projects/${id}/unarchive`, { method: 'POST' });
+
 /** Loại dự án đang dùng, kèm số dự án mỗi loại. */
 export const listProjectTypes = () =>
   request<{ items: ProjectTypeOption[] }>('/project-types', { cache: 'no-store' });
@@ -211,6 +222,17 @@ export const listTags = () => request<{ items: Tag[] }>('/tags', { cache: 'no-st
 
 export const createTag = (body: CreateTagRequest) =>
   request<Tag>('/tags', { method: 'POST', body: JSON.stringify(body) });
+
+/** Đổi tên, màu hay ẩn nhãn; chỉ quản trị viên. */
+export const updateTag = (id: string, body: UpdateTagRequest) =>
+  request<Tag>(`/tags/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+
+/** Xoá hẳn nhãn, gỡ khỏi mọi công việc và dự án; chỉ quản trị viên. */
+export const removeTag = (id: string) => request<void>(`/tags/${id}`, { method: 'DELETE' });
+
+/** Tên công việc đã dùng (mới nhất trước), gợi ý khi gõ tên công việc mới. */
+export const listWorkItemTitles = () =>
+  request<{ items: string[] }>('/work-item-titles', { cache: 'no-store' });
 
 /** Mẫu lọc của tôi, cộng mẫu được chia sẻ trong dự án `projectId`. */
 export const listSavedFilters = (view: SavedFilterView, projectId?: string) => {
@@ -659,17 +681,50 @@ export async function loadIsTenantAdmin(): Promise<boolean> {
  * `projectIds` chỉ **thu hẹp** phạm vi mà server đã suy từ vai trò, không mở
  * rộng nó. Lọc một dự án không tham gia sẽ nhận `403`.
  */
-export const loadReports = (params: {
+/** Tham số chung của báo cáo: kỳ và các bộ lọc. */
+export interface ReportParams {
   from?: string;
   to?: string;
   projectIds?: readonly string[];
-} = {}) => {
+  /** Tên nhóm dự án; `REPORT_NO_GROUP` là "Chưa phân nhóm". */
+  groups?: readonly string[];
+  tagIds?: readonly string[];
+  /** Người phụ trách hoặc cùng làm. */
+  userId?: string;
+}
+
+const reportQuery = (params: ReportParams) => {
   const query = new URLSearchParams();
   if (params.from) query.set('from', params.from);
   if (params.to) query.set('to', params.to);
   if (params.projectIds?.length) query.set('projectIds', params.projectIds.join(','));
+  if (params.groups?.length) query.set('groups', params.groups.join(','));
+  if (params.tagIds?.length) query.set('tagIds', params.tagIds.join(','));
+  if (params.userId) query.set('userId', params.userId);
+  return query;
+};
+
+export const loadReports = (params: ReportParams = {}) => {
+  const query = reportQuery(params);
   const suffix = query.toString() ? `?${query}` : '';
   return request<ReportBundle>(`/reports${suffix}`, { cache: 'no-store' });
+};
+
+/** Danh sách việc đứng sau một con số trên báo cáo. */
+export const loadReportItems = (
+  params: ReportParams & {
+    kind: ReportItemKind;
+    assigneeUserId?: string;
+    status?: string;
+    priority?: string;
+  },
+) => {
+  const query = reportQuery(params);
+  query.set('kind', params.kind);
+  if (params.assigneeUserId) query.set('assigneeUserId', params.assigneeUserId);
+  if (params.status) query.set('status', params.status);
+  if (params.priority) query.set('priority', params.priority);
+  return request<ReportItemList>(`/reports/items?${query}`, { cache: 'no-store' });
 };
 
 /* =========================================================================
@@ -761,6 +816,22 @@ export const updateProjectRole = (key: string, body: SaveProjectRoleRequest) =>
 
 export const deleteProjectRole = (key: string) =>
   request<ProjectRoleList>(`/project-roles/${encodeURIComponent(key)}`, { method: 'DELETE' });
+
+/** Danh mục nhóm dự án (dùng chung toàn tenant). */
+export const listProjectGroups = () =>
+  request<ProjectGroupList>('/project-groups', { cache: 'no-store' });
+
+export const createProjectGroup = (body: SaveProjectGroupRequest) =>
+  request<ProjectGroupList>('/project-groups', { method: 'POST', body: JSON.stringify(body) });
+
+export const renameProjectGroup = (id: string, body: SaveProjectGroupRequest) =>
+  request<ProjectGroupList>(`/project-groups/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  });
+
+export const deleteProjectGroup = (id: string) =>
+  request<ProjectGroupList>(`/project-groups/${encodeURIComponent(id)}`, { method: 'DELETE' });
 
 /** Tab "Đơn từ": đơn module khác gửi kèm dự án (chỉ đọc). */
 export const listProjectRequests = (projectId: string) =>
