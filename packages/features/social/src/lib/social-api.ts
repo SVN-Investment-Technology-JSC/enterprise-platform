@@ -117,6 +117,12 @@ export const pinPost = (id: string, pinned: boolean) =>
 export const setReaction = (postId: string, type: SocialReactionType | null) =>
   request<SocialReactionSummary>(`/posts/${encodeURIComponent(postId)}/reaction`, json('PUT', { type }));
 
+export const reactToComment = (commentId: string, type: SocialReactionType | null) =>
+  request<SocialReactionSummary>(`/comments/${encodeURIComponent(commentId)}/reaction`, json('PUT', { type }));
+
+export const loadCommentReactors = async (commentId: string): Promise<readonly SocialReactor[]> =>
+  (await request<{ readonly items: readonly SocialReactor[] }>(`/comments/${encodeURIComponent(commentId)}/reactions`, { cache: 'no-store' })).items;
+
 export const loadReactors = async (postId: string): Promise<readonly SocialReactor[]> =>
   (await request<{ readonly items: readonly SocialReactor[] }>(`/posts/${encodeURIComponent(postId)}/reactions`, { cache: 'no-store' })).items;
 

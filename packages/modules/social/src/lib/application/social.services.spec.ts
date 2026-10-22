@@ -11,6 +11,7 @@ import type { AttachmentStorage } from './attachment-storage.port.js';
 import type { OrganizationDirectory } from './organization-directory.port.js';
 import type { SocialActor } from './social-actor.js';
 import { SocialAttachmentService } from './social-attachment.service.js';
+import type { SocialCommentReactionStore } from './social-comment-reaction-store.port.js';
 import { SocialCommentService } from './social-comment.service.js';
 import { SocialMeService } from './social-me.service.js';
 import { SocialPostService } from './social-post.service.js';
@@ -20,6 +21,7 @@ import type {
   CommentRow,
   FeedFilter,
   PostRow,
+  ReactionSummaryRow,
   SocialOutboxEvent,
   SocialStore,
   TopicRow,
@@ -360,6 +362,37 @@ class FakeStorage implements AttachmentStorage {
   }
 }
 
+class FakeCommentReactions implements SocialCommentReactionStore {
+  private readonly rows = new Map<string, Map<string, SocialReactionType>>();
+  async set(_tenantId: string, commentId: string, userId: string, type: SocialReactionType) {
+    this.rows.set(commentId, (this.rows.get(commentId) ?? new Map()).set(userId, type));
+  }
+  async remove(_tenantId: string, commentId: string, userId: string) {
+    this.rows.get(commentId)?.delete(userId);
+  }
+  async list(_tenantId: string, commentId: string) {
+    return [...(this.rows.get(commentId) ?? [])].map(([userId, type]) => ({
+      userId,
+      type,
+      reactedAt: new Date().toISOString(),
+    }));
+  }
+  async summaries(_tenantId: string, commentIds: readonly string[], viewerId: string) {
+    const result = new Map<string, ReactionSummaryRow>();
+    for (const id of commentIds) {
+      const counts: Partial<Record<SocialReactionType, number>> = {};
+      for (const type of this.rows.get(id)?.values() ?? []) counts[type] = (counts[type] ?? 0) + 1;
+      const mine = this.rows.get(id)?.get(viewerId);
+      result.set(id, {
+        counts,
+        total: Object.values(counts).reduce((sum, value) => sum + (value ?? 0), 0),
+        ...(mine ? { mine } : {}),
+      });
+    }
+    return result;
+  }
+}
+
 function setup() {
   const store = new FakeStore();
   const directory = new FakeDirectory();
@@ -369,7 +402,7 @@ function setup() {
     storage,
     posts: new SocialPostService(store, directory, storage),
     reactions: new SocialReactionService(store, directory),
-    comments: new SocialCommentService(store, directory),
+    comments: new SocialCommentService(store, directory, undefined, undefined, new FakeCommentReactions()),
     topics: new SocialTopicService(store),
     attachments: new SocialAttachmentService(store, storage),
     me: new SocialMeService(directory),
@@ -632,6 +665,60 @@ describe('bình luận', () => {
     const post = await posts.create(alice, { bodyHtml: '<p>x</p>' });
     await expectCode(comments.create(readOnly, post.id, { body: 'x' }), 'FORBIDDEN');
     await expectCode(comments.create(bob, post.id, { body: '   ' }), 'VALIDATION');
+  });
+});
+
+describe('phản ứng trên bình luận', () => {
+  it('đặt, đổi và bỏ phản ứng; số đếm và phản ứng của tôi hiện trong danh sách', async () => {
+    const { posts, comments } = setup();
+    const post = await posts.create(alice, { bodyHtml: '<p>x</p>' });
+    const root = await comments.create(bob, post.id, { body: 'gốc' });
+    expect(root.reactionTotal).toBe(0);
+
+    expect(await comments.react(alice, root.id, { type: 'like' })).toEqual({
+      reactionCounts: { like: 1 },
+      reactionTotal: 1,
+      myReaction: 'like',
+    });
+    const other = await comments.react(bob, root.id, { type: 'love' });
+    expect(other.reactionTotal).toBe(2);
+
+    // Đặt lại là đổi loại, không cộng thêm.
+    const changed = await comments.react(alice, root.id, { type: 'love' });
+    expect(changed.reactionCounts).toEqual({ love: 2 });
+
+    const listed = (await comments.list(alice, post.id)).items[0];
+    expect([listed?.reactionTotal, listed?.myReaction]).toEqual([2, 'love']);
+
+    const cleared = await comments.react(alice, root.id, { type: null });
+    expect([cleared.reactionTotal, cleared.myReaction]).toEqual([1, undefined]);
+  });
+
+  it('liệt kê người đã phản ứng kèm loại', async () => {
+    const { posts, comments } = setup();
+    const post = await posts.create(alice, { bodyHtml: '<p>x</p>' });
+    const root = await comments.create(bob, post.id, { body: 'gốc' });
+    await comments.react(alice, root.id, { type: 'like' });
+    await comments.react(bob, root.id, { type: 'celebrate' });
+    const { items } = await comments.reactors(alice, root.id);
+    expect(items.map((item) => [item.user.id, item.type]).sort()).toEqual(
+      [
+        [ALICE, 'like'],
+        [BOB, 'celebrate'],
+      ].sort(),
+    );
+    await comments.remove(bob, root.id);
+    await expectCode(comments.reactors(alice, root.id), 'COMMENT_NOT_FOUND');
+  });
+
+  it('từ chối loại không hợp lệ, người chỉ đọc và bình luận đã xoá', async () => {
+    const { posts, comments } = setup();
+    const post = await posts.create(alice, { bodyHtml: '<p>x</p>' });
+    const root = await comments.create(bob, post.id, { body: 'gốc' });
+    await expectCode(comments.react(alice, root.id, { type: 'wow' as never }), 'VALIDATION');
+    await expectCode(comments.react(readOnly, root.id, { type: 'like' }), 'FORBIDDEN');
+    await comments.remove(bob, root.id);
+    await expectCode(comments.react(alice, root.id, { type: 'like' }), 'COMMENT_NOT_FOUND');
   });
 });
 

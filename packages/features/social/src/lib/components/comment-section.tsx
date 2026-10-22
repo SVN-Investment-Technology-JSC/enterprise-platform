@@ -2,18 +2,23 @@
 
 import {
   SOCIAL_COMMENT_MAX,
+  SOCIAL_REACTION_LABELS,
+  SOCIAL_REACTION_TYPES,
   type SocialComment,
   type SocialMe,
+  type SocialReactionType,
   type SocialUserRef,
 } from '@enterprise-platform/contracts-social';
-import { AtSign, SendHorizontal } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { AtSign, PenLine, SendHorizontal } from 'lucide-react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import extras from '../post-extras.module.scss';
 import {
   createComment,
   deleteComment,
   errorMessage,
+  loadCommentReactors,
   loadComments,
+  reactToComment,
   updateComment,
 } from '../social-api';
 import {
@@ -28,7 +33,11 @@ import {
 } from '../social.model';
 import styles from '../social.module.scss';
 import { PeopleList, usePeopleSearch } from './people-picker';
-import { Avatar, ConfirmDialog, userSubtitle } from './ui';
+import { ReactorsDialog } from './reactors-dialog';
+import { Avatar, ConfirmDialog, REACTION_ICONS, userSubtitle } from './ui';
+
+/** Mã tác giả của bài đang xem: để gắn nhãn "Tác giả" cho bình luận của chính họ. */
+const PostAuthorContext = createContext<string | undefined>(undefined);
 
 /* ------------------------------------------------------------- ô nhập */
 
@@ -217,9 +226,29 @@ function CommentRow({ comment, canComment, onReply, onChanged, onRemoved, highli
     if (highlight) rowRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
   }, [highlight]);
   const [editing, setEditing] = useState(false);
+  const [reactorsOpen, setReactorsOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
+  const postAuthorId = useContext(PostAuthorContext);
+  const isPostAuthor = postAuthorId !== undefined && comment.author.id === postAuthorId;
+
+  const react = async (type: SocialReactionType | null) => {
+    try {
+      const summary = await reactToComment(comment.id, type);
+      onChanged({
+        ...comment,
+        reactionCounts: summary.reactionCounts,
+        reactionTotal: summary.reactionTotal,
+        myReaction: summary.myReaction,
+      });
+    } catch (cause) {
+      setError(errorMessage(cause, 'Không lưu được phản ứng.'));
+    }
+  };
+  const reactionTypes = SOCIAL_REACTION_TYPES.filter((type) => (comment.reactionCounts[type] ?? 0) > 0).sort(
+    (a, b) => (comment.reactionCounts[b] ?? 0) - (comment.reactionCounts[a] ?? 0),
+  );
 
   const decoded = editing ? decodeMentions(comment.body, comment.mentions) : undefined;
 
@@ -268,26 +297,102 @@ function CommentRow({ comment, canComment, onReply, onChanged, onRemoved, highli
           />
         ) : (
           <>
-            <div className={styles.commentBubble}>
-              <span className={styles.commentAuthor} title={userSubtitle(comment.author) || undefined}>
-                {comment.author.name}
-              </span>
-              <p className={styles.commentBody}>
-                {parseCommentBody(comment.body, comment.mentions).map((part, index) =>
-                  part.type === 'mention' ? (
-                    <span key={`${part.userId}-${index}`} className={styles.mention}>
-                      @{part.name}
+            <div className={styles.commentBubbleWrap} data-has-reactions={comment.reactionTotal > 0}>
+              <div className={styles.commentBubble}>
+                <div className={styles.commentHead}>
+                  <span className={styles.commentAuthor} title={userSubtitle(comment.author) || undefined}>
+                    {comment.author.name}
+                  </span>
+                  <time
+                    className={styles.commentTime}
+                    dateTime={comment.createdAt}
+                    title={formatFullTime(comment.createdAt)}
+                  >
+                    {formatRelativeTime(comment.createdAt)}
+                  </time>
+                  {isPostAuthor ? (
+                    <span className={styles.commentAuthorBadge} title="Người đăng bài viết này">
+                      <PenLine size={11} aria-hidden="true" />
+                      Tác giả
                     </span>
-                  ) : (
-                    <span key={index}>{part.text}</span>
-                  ),
-                )}
-              </p>
+                  ) : null}
+                </div>
+                <p className={styles.commentBody}>
+                  {parseCommentBody(comment.body, comment.mentions).map((part, index) =>
+                    part.type === 'mention' ? (
+                      <span key={`${part.userId}-${index}`} className={styles.mention}>
+                        @{part.name}
+                      </span>
+                    ) : (
+                      <span key={index}>{part.text}</span>
+                    ),
+                  )}
+                </p>
+              </div>
+              {comment.reactionTotal > 0 ? (
+                <button
+                  type="button"
+                  className={styles.commentReactions}
+                  aria-label="Xem người đã bày tỏ phản ứng"
+                  onClick={() => setReactorsOpen(true)}
+                  title={reactionTypes
+                    .map((type) => `${SOCIAL_REACTION_LABELS[type]}: ${comment.reactionCounts[type]}`)
+                    .join(', ')}
+                >
+                  <span className={styles.reactionIcons}>
+                    {reactionTypes.map((type) => {
+                      const Icon = REACTION_ICONS[type];
+                      return (
+                        <span key={type} className={styles.reactionDotSmall} data-type={type}>
+                          <Icon size={9} />
+                        </span>
+                      );
+                    })}
+                  </span>
+                  {comment.reactionTotal > 1 ? comment.reactionTotal.toLocaleString('vi-VN') : null}
+                </button>
+              ) : null}
             </div>
             <div className={styles.commentMeta}>
-              <time dateTime={comment.createdAt} title={formatFullTime(comment.createdAt)}>
-                {formatRelativeTime(comment.createdAt)}
-              </time>
+              {canComment ? (
+                <span className={styles.commentReactWrap}>
+                  <button
+                    type="button"
+                    className={styles.commentReactButton}
+                    data-active={Boolean(comment.myReaction)}
+                    data-type={comment.myReaction}
+                    onClick={(event) => {
+                      event.currentTarget.blur();
+                      void react(comment.myReaction ? null : 'like');
+                    }}
+                  >
+                    {comment.myReaction ? SOCIAL_REACTION_LABELS[comment.myReaction] : 'Thích'}
+                  </button>
+                  <span className={styles.reactPicker} role="group" aria-label="Chọn phản ứng">
+                    {SOCIAL_REACTION_TYPES.map((type) => {
+                      const Icon = REACTION_ICONS[type];
+                      return (
+                        <button
+                          key={type}
+                          type="button"
+                          className={styles.reactOption}
+                          data-type={type}
+                          data-selected={comment.myReaction === type}
+                          title={SOCIAL_REACTION_LABELS[type]}
+                          aria-label={SOCIAL_REACTION_LABELS[type]}
+                          onClick={(event) => {
+                            // Bỏ focus để bảng chọn đóng lại (nó mở theo :hover và :focus-within).
+                            event.currentTarget.blur();
+                            void react(comment.myReaction === type ? null : type);
+                          }}
+                        >
+                          <Icon size={18} />
+                        </button>
+                      );
+                    })}
+                  </span>
+                </span>
+              ) : null}
               {comment.editedAt ? <span title={formatFullTime(comment.editedAt)}>Đã sửa</span> : null}
               {canComment ? (
                 <button type="button" className={styles.linkButton} onClick={() => onReply(comment)}>
@@ -308,6 +413,9 @@ function CommentRow({ comment, canComment, onReply, onChanged, onRemoved, highli
           </>
         )}
       </div>
+      {reactorsOpen ? (
+        <ReactorsDialog load={() => loadCommentReactors(comment.id)} onClose={() => setReactorsOpen(false)} />
+      ) : null}
       <ConfirmDialog
         open={confirming}
         title="Xoá bình luận"
@@ -469,6 +577,8 @@ function RootComment({ postId, comment, canComment, onChanged, onRemoved, onCoun
 
 export interface CommentSectionProps {
   readonly postId: string;
+  /** Người đăng bài: bình luận của họ được gắn nhãn "Tác giả". */
+  readonly postAuthorId?: string;
   readonly me: SocialMe;
   readonly canComment: boolean;
   /** Bài đã tắt bình luận: ẩn ô nhập, hiện ghi chú; bình luận cũ vẫn đọc được. */
@@ -480,7 +590,7 @@ export interface CommentSectionProps {
 }
 
 /** Luồng bình luận hai cấp của một bài: tải khi mở, phân trang bằng con trỏ. */
-export function CommentSection({ postId, me, canComment, commentsDisabled = false, onCountChange, focusCommentId }: CommentSectionProps) {
+export function CommentSection({ postId, postAuthorId, me, canComment, commentsDisabled = false, onCountChange, focusCommentId }: CommentSectionProps) {
   const [items, setItems] = useState<readonly SocialComment[]>([]);
   const [cursor, setCursor] = useState<string>();
   const [loading, setLoading] = useState(true);
@@ -517,6 +627,7 @@ export function CommentSection({ postId, me, canComment, commentsDisabled = fals
   }, [focusCommentId, loading, cursor, items, fetchPage]);
 
   return (
+    <PostAuthorContext.Provider value={postAuthorId}>
     <section className={styles.comments} aria-label="Bình luận">
       {commentsDisabled ? (
         <p className={extras.commentsOff} role="note">
@@ -576,5 +687,6 @@ export function CommentSection({ postId, me, canComment, commentsDisabled = fals
         </button>
       ) : null}
     </section>
+    </PostAuthorContext.Provider>
   );
 }

@@ -8,7 +8,6 @@ import {
   type SocialMe,
   type SocialPost,
   type SocialReactionType,
-  type SocialReactor,
   type SocialUserRef,
 } from '@enterprise-platform/contracts-social';
 import {
@@ -55,6 +54,7 @@ import styles from '../social.module.scss';
 import { CommentSection } from './comment-section';
 import { PostPoll } from './poll/post-poll';
 import { PostEditHistoryDialog } from './post-edit-history-dialog';
+import { ReactorsDialog } from './reactors-dialog';
 import { PostMenu } from './post-menu';
 import {
   GroupTag,
@@ -267,73 +267,6 @@ function FileList({ files }: { readonly files: readonly SocialAttachment[] }) {
 }
 
 /* -------------------------------------------------------------- phản ứng */
-
-function ReactorsDialog({
-  postId,
-  onClose,
-}: {
-  readonly postId: string;
-  readonly onClose: () => void;
-}) {
-  const [items, setItems] = useState<readonly SocialReactor[]>();
-  const [error, setError] = useState<string>();
-
-  useEffect(() => {
-    loadReactors(postId)
-      .then(setItems)
-      .catch((cause) =>
-        setError(
-          errorMessage(cause, 'Không tải được danh sách người phản ứng.'),
-        ),
-      );
-  }, [postId]);
-
-  return (
-    <Dialog
-      open
-      title="Người đã bày tỏ phản ứng"
-      error={error}
-      onClose={onClose}
-    >
-      {!items && !error ? <p className={styles.muted}>Đang tải…</p> : null}
-      {items && items.length === 0 ? (
-        <p className={styles.muted}>Chưa có phản ứng nào.</p>
-      ) : null}
-      {items && items.length > 0 ? (
-        <ul className={styles.reactorList}>
-          {items.map((item) => {
-            const Icon = REACTION_ICONS[item.type];
-            return (
-              <li
-                key={`${item.user.id}-${item.type}`}
-                className={styles.reactor}
-              >
-                <Avatar user={item.user} size={32} />
-                <span className={styles.suggestText}>
-                  <span className={styles.suggestName}>{item.user.name}</span>
-                  {userSubtitle(item.user) ? (
-                    <span className={styles.suggestMeta}>
-                      {userSubtitle(item.user)}
-                    </span>
-                  ) : null}
-                </span>
-                <span
-                  className={styles.reactorType}
-                  data-type={item.type}
-                  title={SOCIAL_REACTION_LABELS[item.type]}
-                >
-                  <Icon size={14} />
-                  {SOCIAL_REACTION_LABELS[item.type]}
-                </span>
-              </li>
-            );
-          })}
-        </ul>
-      ) : null}
-    </Dialog>
-  );
-}
-
 
 function MentionsDialog({
   mentions,
@@ -821,6 +754,7 @@ export function PostCard({
       {published && commentsOpen ? (
         <CommentSection
           postId={post.id}
+          postAuthorId={post.author.id}
           me={me}
           canComment={capabilities.canComment && !commentsDisabled}
           commentsDisabled={commentsDisabled}
@@ -842,7 +776,7 @@ export function PostCard({
       ) : null}
       {reactorsOpen ? (
         <ReactorsDialog
-          postId={post.id}
+          load={() => loadReactors(post.id)}
           onClose={() => setReactorsOpen(false)}
         />
       ) : null}

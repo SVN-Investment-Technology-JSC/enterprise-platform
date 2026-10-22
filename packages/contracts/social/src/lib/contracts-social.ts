@@ -316,6 +316,9 @@ export interface SocialComment {
   readonly editedAt?: string;
   readonly deleted: boolean;
   readonly replyCount: number;
+  readonly reactionCounts: Readonly<Partial<Record<SocialReactionType, number>>>;
+  readonly reactionTotal: number;
+  readonly myReaction?: SocialReactionType;
   readonly capabilities: { readonly canEdit: boolean; readonly canDelete: boolean };
 }
 

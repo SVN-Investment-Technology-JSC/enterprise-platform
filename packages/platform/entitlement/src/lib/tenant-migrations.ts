@@ -649,6 +649,7 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       version: '0004-social-visibility-groups-v2',
       path: 'tenant/social/0004-social-visibility-groups-v2.sql',
     },
+    { version: '0005-social-comment-reactions', path: 'tenant/social/0005-social-comment-reactions.sql' },
   ],
 };
 

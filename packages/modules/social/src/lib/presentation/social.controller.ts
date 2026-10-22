@@ -116,6 +116,16 @@ export class SocialController {
     );
   }
 
+  @Put('comments/:id/reaction')
+  reactToComment(@Req() request: SocialRequest, @Param('id') id: string, @Body() body: SetSocialReactionRequest) {
+    return this.execute(() => this.comments.react(this.actor(request), id, body));
+  }
+
+  @Get('comments/:id/reactions')
+  commentReactors(@Req() request: SocialRequest, @Param('id') id: string) {
+    return this.execute(() => this.comments.reactors(this.actor(request), id));
+  }
+
   @Delete('comments/:id')
   @HttpCode(204)
   async removeComment(@Req() request: SocialRequest, @Param('id') id: string): Promise<void> {

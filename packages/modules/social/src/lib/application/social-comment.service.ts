@@ -1,11 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import type {
   CreateSocialCommentRequest,
+  SetSocialReactionRequest,
   SocialComment,
   SocialCommentPage,
+  SocialReactionSummary,
+  SocialReactor,
   UpdateSocialCommentRequest,
 } from '@enterprise-platform/contracts-social';
-import { mayCommentOnPost, mayEditContent, mayRead } from '../domain/social-principal.js';
+import { mayCommentOnPost, mayEditContent, mayRead, mayWrite } from '../domain/social-principal.js';
 import {
   assertReplyTarget,
   decodeCursor,
@@ -15,6 +18,7 @@ import {
   normalizeCommentBody,
   normalizeLimit,
   normalizeMentionIds,
+  normalizeReactionType,
   requireUuid,
   toIso,
 } from '../domain/social-rules.js';
@@ -22,12 +26,15 @@ import {
   SocialCommentNotFoundError,
   SocialForbiddenError,
   SocialPostNotFoundError,
+  SocialValidationError,
 } from '../domain/social.error.js';
 import { SocialCommentsDisabledError } from '../domain/social-visibility.error.js';
 import type { OrganizationDirectory } from './organization-directory.port.js';
 import { canViewPostInScope, type PostVisibilitySubject } from './ports/post-visibility.port.js';
 import type { ViewerScopePort } from './ports/viewer-scope.port.js';
 import type { SocialActor } from './social-actor.js';
+import type { SocialCommentReactionStore } from './social-comment-reaction-store.port.js';
+import { SOCIAL_MAX_REACTORS } from './social-reaction.service.js';
 import type { SocialPostAccess } from './social-post-access.js';
 import type { CommentRow, SocialOutboxEvent, SocialStore } from './social-store.port.js';
 import { authorNameOf, commentCreatedEvent, knownUserIds, lookupUsers, mentionEvents } from './social-views.js';
@@ -53,6 +60,8 @@ export class SocialCommentService {
      * chỉ người trong danh sách chia sẻ trực tiếp được coi là thấy (an toàn: không báo nhầm).
      */
     private readonly viewerScopes?: Pick<ViewerScopePort, 'scopesOf'>,
+    /** Phản ứng trên bình luận. Thiếu thì bình luận không có phản ứng (số đếm luôn 0). */
+    private readonly reactions?: SocialCommentReactionStore,
   ) {}
 
   /**
@@ -175,6 +184,49 @@ export class SocialCommentService {
     return (await this.hydrate(actor, [await this.requireComment(actor, commentId)]))[0];
   }
 
+  /** Đặt, đổi hoặc bỏ (`type: null`) phản ứng của người dùng trên một bình luận chưa xoá. */
+  async react(actor: SocialActor, commentId: string, request: SetSocialReactionRequest): Promise<SocialReactionSummary> {
+    if (!mayWrite(actor)) throw new SocialForbiddenError('Bạn không có quyền bày tỏ phản ứng.');
+    if (!request || !('type' in request)) throw new SocialValidationError('Thiếu loại phản ứng.');
+    const type = normalizeReactionType(request.type);
+    if (!this.reactions) throw new SocialValidationError('Chưa bật phản ứng trên bình luận.');
+    const row = await this.requireComment(actor, commentId);
+    if (row.deleted) throw new SocialCommentNotFoundError();
+    // Bài phải đã đăng (bài chờ duyệt, hẹn giờ, bị từ chối không nhận phản ứng).
+    if (this.access) await this.access.requirePublished(actor, row.postId);
+
+    if (type === null) await this.reactions.remove(actor.tenantId, commentId, actor.userId);
+    else await this.reactions.set(actor.tenantId, commentId, actor.userId, type);
+
+    const summary = (await this.reactions.summaries(actor.tenantId, [commentId], actor.userId)).get(commentId);
+    return {
+      reactionCounts: summary?.counts ?? {},
+      reactionTotal: summary?.total ?? 0,
+      ...(summary?.mine ? { myReaction: summary.mine } : {}),
+    };
+  }
+
+  /** Người đã bày tỏ phản ứng trên một bình luận (mới nhất trước), cho người xem được bài. */
+  async reactors(actor: SocialActor, commentId: string): Promise<{ items: SocialReactor[] }> {
+    this.assertRead(actor);
+    if (!this.reactions) return { items: [] };
+    const row = await this.requireComment(actor, commentId);
+    if (row.deleted) throw new SocialCommentNotFoundError();
+    const rows = await this.reactions.list(actor.tenantId, commentId, SOCIAL_MAX_REACTORS);
+    const userOf = await lookupUsers(
+      this.directory,
+      actor.tenantId,
+      rows.map((item) => item.userId),
+    );
+    return {
+      items: rows.map((item) => ({
+        user: userOf(item.userId),
+        type: item.type,
+        reactedAt: new Date(item.reactedAt).toISOString(),
+      })),
+    };
+  }
+
   async remove(actor: SocialActor, commentId: string): Promise<void> {
     this.assertRead(actor);
     const row = await this.requireComment(actor, commentId);
@@ -245,6 +297,13 @@ export class SocialCommentService {
       for (const id of mentions.get(row.id) ?? []) userIds.add(id);
     }
     const userOf = await lookupUsers(this.directory, actor.tenantId, userIds);
+    const reactions = this.reactions
+      ? await this.reactions.summaries(
+          actor.tenantId,
+          rows.filter((row) => !row.deleted).map((row) => row.id),
+          actor.userId,
+        )
+      : undefined;
 
     return rows.map(
       (row): SocialComment => ({
@@ -259,6 +318,9 @@ export class SocialCommentService {
         ...(row.editedAt ? { editedAt: toIso(row.editedAt) } : {}),
         deleted: row.deleted,
         replyCount: row.replyCount,
+        reactionCounts: reactions?.get(row.id)?.counts ?? {},
+        reactionTotal: reactions?.get(row.id)?.total ?? 0,
+        ...(reactions?.get(row.id)?.mine ? { myReaction: reactions.get(row.id)?.mine } : {}),
         capabilities: {
           canEdit: !row.deleted && mayEditContent(actor, row.authorId),
           canDelete: !row.deleted && mayEditContent(actor, row.authorId),

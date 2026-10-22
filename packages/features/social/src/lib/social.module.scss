@@ -753,11 +753,94 @@
   white-space: nowrap;
 }
 
-.reactorList {
+/* Thẻ lọc theo loại phản ứng: chỉ biểu tượng và số, giống Facebook. */
+.reactorTabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--ep-border);
+}
+
+.reactorTab {
+  --reaction: #1d4ed8;
+
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--ep-radius);
+  background: transparent;
+  color: var(--ep-text-sub);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+
+  &[data-type='love'] {
+    --reaction: #dc2626;
+  }
+
+  &[data-type='celebrate'] {
+    --reaction: #d97706;
+  }
+
+  &[data-type='insightful'] {
+    --reaction: #a16207;
+  }
+
+  &[data-type] svg {
+    color: var(--reaction);
+  }
+
+  &:hover {
+    background: var(--ep-hover);
+  }
+
+  &:focus-visible {
+    @include focus-ring;
+  }
+
+  /* Gạch chân nhấn cho thẻ đang chọn. */
+  &[aria-selected='true'] {
+    color: var(--ep-text);
+    background: var(--ep-accent-soft);
+
+    &::after {
+      content: '';
+      position: absolute;
+      right: 8px;
+      bottom: -9px;
+      left: 8px;
+      height: 3px;
+      border-radius: 3px 3px 0 0;
+      background: var(--ep-accent-strong);
+    }
+  }
+}
+
+.reactorTabCount {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Chiều cao cố định để hộp thoại không co giãn theo số người; danh sách dài thì cuộn. */
+.reactorBody {
   display: flex;
   flex-direction: column;
+  gap: 8px;
+  height: min(480px, 60vh);
+  min-height: 0;
+}
+
+.reactorList {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
   gap: 4px;
-  max-height: 55vh;
+  min-height: 0;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -955,6 +1038,143 @@
 .mention {
   color: var(--ep-link);
   font-weight: 600;
+}
+
+.commentBubbleWrap {
+  position: relative;
+  align-self: flex-start;
+  max-width: 100%;
+
+  /* Chừa chỗ cho chip phản ứng đè lên mép dưới bong bóng. */
+  &[data-has-reactions='true'] {
+    margin-bottom: 8px;
+  }
+}
+
+.commentHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+}
+
+.commentTime {
+  color: var(--ep-text-muted);
+  font-size: 11.5px;
+  font-weight: 400;
+
+  &::before {
+    content: '·';
+    margin-right: 6px;
+  }
+}
+
+.commentAuthorBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--ep-accent-soft);
+  color: var(--ep-accent-text);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+}
+
+.commentReactions {
+  position: absolute;
+  border: 0;
+  font: inherit;
+  cursor: pointer;
+  right: -6px;
+  bottom: -10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px 1px 3px;
+  border-radius: 999px;
+  background: var(--ep-surface);
+  box-shadow: 0 1px 4px rgb(0 0 0 / 22%);
+  color: var(--ep-text-sub);
+  font-size: 11.5px;
+  line-height: 16px;
+}
+
+.reactionDotSmall {
+  --reaction: #1d4ed8;
+
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border: 1.5px solid var(--ep-surface);
+  border-radius: 50%;
+  background: var(--reaction);
+  color: #fff;
+
+  &[data-type='love'] {
+    --reaction: #dc2626;
+  }
+
+  &[data-type='celebrate'] {
+    --reaction: #d97706;
+  }
+
+  &[data-type='insightful'] {
+    --reaction: #a16207;
+  }
+}
+
+/* Nút "Thích" dưới bình luận: rê chuột hiện bảng chọn phản ứng như ở bài viết. */
+.commentReactWrap {
+  position: relative;
+  display: inline-flex;
+
+  &:hover .reactPicker,
+  &:focus-within .reactPicker {
+    visibility: visible;
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.commentReactButton {
+  --reaction: var(--ep-text-muted);
+
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ep-text-muted);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+
+  &:hover {
+    text-decoration: underline;
+  }
+
+  &[data-active='true'] {
+    color: var(--reaction);
+  }
+
+  &[data-type='like'] {
+    --reaction: #1d4ed8;
+  }
+
+  &[data-type='love'] {
+    --reaction: #dc2626;
+  }
+
+  &[data-type='celebrate'] {
+    --reaction: #d97706;
+  }
+
+  &[data-type='insightful'] {
+    --reaction: #a16207;
+  }
 }
 
 .commentMeta {
@@ -1421,8 +1641,8 @@
   gap: 10px;
 }
 
-/* Bài mở từ liên kết thông báo. */
-
+/* Bài mở từ liên kết thông báo. */
+
 
 .comment[data-highlight='true'] {
   margin: -4px;

@@ -24,6 +24,10 @@ import { SocialBookmarkService } from './application/social-bookmark.service.js'
 import { SocialCommentService } from './application/social-comment.service.js';
 import { SOCIAL_GROUP_V2_STORE, type SocialGroupV2Store } from './application/social-group-v2-store.port.js';
 import { SOCIAL_POST_HISTORY_STORE, type SocialPostHistoryStore } from './application/social-post-history-store.port.js';
+import {
+  SOCIAL_COMMENT_REACTION_STORE,
+  type SocialCommentReactionStore,
+} from './application/social-comment-reaction-store.port.js';
 import { SOCIAL_REPORT_STORE, type SocialReportStore } from './application/social-report-store.port.js';
 import { SocialGroupPriorityService } from './application/social-group-priority.service.js';
 import { SocialGroupSyncService } from './application/social-group-sync.service.js';
@@ -56,6 +60,7 @@ import { HttpOrganizationDirectory } from './infrastructure/http-organization-di
 import { HttpOrgStructure } from './infrastructure/http-org-structure.js';
 import { PostgresSocialGroupV2Store } from './infrastructure/postgres-social-group-v2.store.js';
 import { PostgresSocialPostHistoryStore } from './infrastructure/postgres-social-post-history.store.js';
+import { PostgresSocialCommentReactionStore } from './infrastructure/postgres-social-comment-reaction.store.js';
 import { PostgresSocialReportStore } from './infrastructure/postgres-social-report.store.js';
 import { PostgresSocialFeedStore } from './infrastructure/postgres-social-feed.store.js';
 import { PostgresSocialGroupStore } from './infrastructure/postgres-social-group.store.js';
@@ -148,6 +153,12 @@ import { SOCIAL_DISCOVERY_CONTROLLERS, SOCIAL_DISCOVERY_PROVIDERS } from './soci
       provide: SOCIAL_GROUP_V2_STORE,
       useFactory: (references: TenantDatabaseRegistry, pools: PostgresPoolRegistry) =>
         new PostgresSocialGroupV2Store(references, pools),
+      inject: [TenantDatabaseRegistry, PostgresPoolRegistry],
+    },
+    {
+      provide: SOCIAL_COMMENT_REACTION_STORE,
+      useFactory: (references: TenantDatabaseRegistry, pools: PostgresPoolRegistry) =>
+        new PostgresSocialCommentReactionStore(references, pools),
       inject: [TenantDatabaseRegistry, PostgresPoolRegistry],
     },
     {
@@ -425,8 +436,9 @@ import { SOCIAL_DISCOVERY_CONTROLLERS, SOCIAL_DISCOVERY_PROVIDERS } from './soci
         directory: OrganizationDirectory,
         access: SocialPostAccess,
         viewerScopes: ViewerScopePort,
-      ) => new SocialCommentService(store, directory, access, viewerScopes),
-      inject: [SOCIAL_STORE, ORGANIZATION_DIRECTORY, SocialPostAccess, VIEWER_SCOPE],
+        reactions: SocialCommentReactionStore,
+      ) => new SocialCommentService(store, directory, access, viewerScopes, reactions),
+      inject: [SOCIAL_STORE, ORGANIZATION_DIRECTORY, SocialPostAccess, VIEWER_SCOPE, SOCIAL_COMMENT_REACTION_STORE],
     },
     {
       provide: SocialTopicService,
