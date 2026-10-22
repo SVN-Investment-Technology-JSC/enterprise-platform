@@ -122,6 +122,7 @@ export function PlatformShell({
       collapsible
       hideHomeButton
       hideModuleSwitcher
+      dashboardHref="/platform"
       homeHref="/platform"
       moduleKey="platform"
       nav={nav}

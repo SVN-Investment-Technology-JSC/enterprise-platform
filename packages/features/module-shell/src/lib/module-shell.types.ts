@@ -84,6 +84,11 @@ export interface ModuleShellProps<TViewId extends string = string> {
   readonly onViewChange: (next: TViewId) => void;
   /** Link "← Trang chủ" về Tenant Portal; bỏ trống thì không hiện. */
   readonly homeHref?: string;
+  /**
+   * Chỉ kiểu `light`: bấm khối tên người dùng ở thanh bên thì về trang này.
+   * Mặc định là Bảng điều khiển của core (`/dashboard`).
+   */
+  readonly dashboardHref?: string;
   /** Nút thao tác riêng của từng view, do module dựng. */
   readonly actions?: ReactNode;
   /**
