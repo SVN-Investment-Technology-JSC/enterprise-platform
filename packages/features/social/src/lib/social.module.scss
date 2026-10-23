@@ -1787,3 +1787,68 @@
     background: #000;
   }
 }
+
+/* Tiến trình tải lên và nút thử lại trong ô xem trước của ô nhập bình luận. */
+.commentProgress {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: rgb(255 255 255 / 85%);
+  color: var(--ep-text);
+  pointer-events: none;
+
+  svg {
+    position: absolute;
+    inset: 0;
+    transform: rotate(-90deg);
+  }
+}
+
+.commentProgressTrack {
+  fill: none;
+  stroke: var(--ep-border-strong);
+  stroke-width: 3;
+}
+
+.commentProgressValue {
+  fill: none;
+  stroke: var(--ep-accent-strong);
+  stroke-linecap: round;
+  stroke-width: 3;
+  transition: stroke-dashoffset 0.15s linear;
+}
+
+.commentProgressText {
+  position: relative;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.commentFileRetry {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  margin: auto;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid var(--ep-border-strong);
+  border-radius: 50%;
+  background: var(--ep-surface);
+  color: var(--ep-danger);
+  cursor: pointer;
+
+  &:hover {
+    background: var(--ep-hover);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--ep-accent-strong);
+    outline-offset: 2px;
+  }
+}

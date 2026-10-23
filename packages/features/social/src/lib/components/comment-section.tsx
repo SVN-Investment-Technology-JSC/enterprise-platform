@@ -11,7 +11,7 @@ import {
   type SocialReactionType,
   type SocialUserRef,
 } from '@enterprise-platform/contracts-social';
-import { AtSign, ImagePlus, Loader2, PenLine, Play, SendHorizontal, X } from 'lucide-react';
+import { AtSign, ImagePlus, PenLine, Play, RotateCw, SendHorizontal, X } from 'lucide-react';
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import extras from '../post-extras.module.scss';
 import {
@@ -24,7 +24,14 @@ import {
   updateComment,
   uploadAttachment,
 } from '../social-api';
-import { exceedsCommentImageLimit, isCommentVideo, prepareCommentImage, validateCommentMedia } from '../comment-media';
+import { isUploadAborted } from '../attachment-upload';
+import {
+  exceedsCommentImageLimit,
+  isCommentVideo,
+  prepareCommentImage,
+  probeVideo,
+  validateCommentMedia,
+} from '../comment-media';
 import {
   activeMentionQuery,
   decodeMentions,
@@ -57,6 +64,45 @@ interface PendingFile {
   readonly isVideo?: boolean;
   readonly attachment?: SocialAttachment;
   readonly error?: string;
+  /** Tiến trình tải lên, 0 đến 1. */
+  readonly progress?: number;
+  /** Tệp gốc người dùng chọn; có thì ô lỗi mới thử lại được. */
+  readonly original?: File;
+  /** Bản đã nén (ảnh) hoặc đã kiểm đọc được (video): thử lại tải đúng bản này, khỏi nén lại. */
+  readonly prepared?: File;
+  /** Lỗi do tệp (không đọc được, quá lớn) thì không thử lại được, chỉ bỏ. */
+  readonly retryable?: boolean;
+}
+
+const RING_RADIUS = 16;
+const RING_LENGTH = 2 * Math.PI * RING_RADIUS;
+
+/** Vòng tròn tiến trình kèm phần trăm, đặt giữa ô xem trước. */
+function UploadProgress({ fraction }: { readonly fraction: number }) {
+  const percent = Math.round(Math.max(0, Math.min(1, fraction)) * 100);
+  return (
+    <span
+      className={styles.commentProgress}
+      role="progressbar"
+      aria-label="Đang tải lên"
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={percent}
+    >
+      <svg viewBox="0 0 38 38" aria-hidden="true">
+        <circle className={styles.commentProgressTrack} cx="19" cy="19" r={RING_RADIUS} />
+        <circle
+          className={styles.commentProgressValue}
+          cx="19"
+          cy="19"
+          r={RING_RADIUS}
+          strokeDasharray={RING_LENGTH}
+          strokeDashoffset={RING_LENGTH * (1 - percent / 100)}
+        />
+      </svg>
+      <span className={styles.commentProgressText}>{percent}%</span>
+    </span>
+  );
 }
 
 interface CommentInputProps {
@@ -110,22 +156,94 @@ function CommentInput({
   // Giữ danh sách mới nhất để thu hồi URL xem trước khi rời khỏi ô nhập.
   const filesRef = useRef(files);
   filesRef.current = files;
-  useEffect(
-    () => () => {
+  // Mỗi tệp đang tải có một AbortController để huỷ khi người dùng bỏ ô hoặc rời ô nhập.
+  const controllers = useRef(new Map<string, AbortController>());
+  useEffect(() => {
+    const running = controllers.current;
+    return () => {
+      for (const controller of running.values()) controller.abort();
+      running.clear();
       for (const file of filesRef.current) if (file.objectUrl) URL.revokeObjectURL(file.objectUrl);
-    },
-    [],
-  );
+    };
+  }, []);
 
   const patchFile = (key: string, patch: Partial<PendingFile>) =>
     setFiles((list) => list.map((file) => (file.key === key ? { ...file, ...patch } : file)));
 
-  const removeFile = (key: string) =>
+  const removeFile = (key: string) => {
+    controllers.current.get(key)?.abort();
+    controllers.current.delete(key);
     setFiles((list) => {
       const target = list.find((file) => file.key === key);
       if (target?.objectUrl) URL.revokeObjectURL(target.objectUrl);
       return list.filter((file) => file.key !== key);
     });
+  };
+
+  /**
+   * Chuẩn bị (ảnh: nén; video: kiểm trình duyệt đọc được) rồi tải lên với tiến trình thật.
+   * Tệp đã chuẩn bị thì dùng lại khi thử lại. Bị huỷ thì im lặng (ô đã được bỏ).
+   */
+  const startUpload = (key: string, original: File, isVideo: boolean, prepared?: File) => {
+    const controller = new AbortController();
+    controllers.current.set(key, controller);
+    const noun = isVideo ? 'video' : 'ảnh';
+    let lastPercent = -1;
+    const run = async () => {
+      let ready = prepared;
+      if (!ready) {
+        if (isVideo) {
+          const probe = await probeVideo(original);
+          if (!probe.ok) {
+            patchFile(key, { status: 'error', error: probe.reason, retryable: false });
+            return;
+          }
+          ready = original;
+        } else {
+          ready = await prepareCommentImage(original);
+          if (exceedsCommentImageLimit(ready.size)) {
+            patchFile(key, {
+              status: 'error',
+              error: `Ảnh "${original.name}" vẫn quá lớn sau khi nén.`,
+              retryable: false,
+            });
+            return;
+          }
+        }
+        if (controller.signal.aborted) return;
+        patchFile(key, { prepared: ready });
+      }
+      const attachment = await uploadAttachment(ready, 'comment', {
+        signal: controller.signal,
+        onProgress: (fraction) => {
+          const percent = Math.round(fraction * 100);
+          if (percent === lastPercent) return;
+          lastPercent = percent;
+          patchFile(key, { progress: fraction });
+        },
+      });
+      patchFile(key, { status: 'done', attachment, progress: 1, original: undefined, prepared: undefined });
+    };
+    void run()
+      .catch((cause) => {
+        if (isUploadAborted(cause) || controller.signal.aborted) return;
+        patchFile(key, {
+          status: 'error',
+          retryable: true,
+          error: errorMessage(cause, `Không tải được ${noun} "${original.name}".`),
+        });
+      })
+      .finally(() => {
+        if (controllers.current.get(key) === controller) controllers.current.delete(key);
+      });
+  };
+
+  const retryFile = (key: string) => {
+    const target = filesRef.current.find((file) => file.key === key);
+    if (!target?.original || target.retryable === false || controllers.current.has(key)) return;
+    patchFile(key, { status: 'uploading', error: undefined, progress: 0 });
+    startUpload(key, target.original, target.isVideo === true, target.prepared);
+  };
 
   /** Kiểm rồi tải từng tệp lên (ảnh được nén, video tải thẳng); tệp lỗi giữ lại trong dải xem trước để người dùng gỡ. */
   const addFiles = (incoming: readonly File[]) => {
@@ -146,20 +264,9 @@ function CommentInput({
       const objectUrl = URL.createObjectURL(original);
       setFiles((list) => [
         ...list,
-        { key, fileName: original.name, preview: objectUrl, objectUrl, isVideo, status: 'uploading' },
+        { key, fileName: original.name, preview: objectUrl, objectUrl, isVideo, status: 'uploading', progress: 0, original },
       ]);
-      const noun = isVideo ? 'video' : 'ảnh';
-      void (isVideo ? Promise.resolve(original) : prepareCommentImage(original))
-        .then((prepared) => {
-          if (!isVideo && exceedsCommentImageLimit(prepared.size)) {
-            throw new Error(`Ảnh "${original.name}" vẫn quá lớn sau khi nén.`);
-          }
-          return uploadAttachment(prepared, 'comment');
-        })
-        .then((attachment) => patchFile(key, { status: 'done', attachment }))
-        .catch((cause) =>
-          patchFile(key, { status: 'error', error: errorMessage(cause, `Không tải được ${noun} "${original.name}".`) }),
-        );
+      startUpload(key, original, isVideo);
     }
     setError(rejected.length > 0 ? rejected.join(' ') : undefined);
   };
@@ -349,11 +456,23 @@ function CommentInput({
               ) : file.preview ? (
                 <img src={file.preview} alt={file.fileName} />
               ) : null}
-              {file.status === 'uploading' ? <Loader2 size={18} className={styles.spin} aria-label="Đang tải lên" /> : null}
+              {file.status === 'uploading' ? <UploadProgress fraction={file.progress ?? 0} /> : null}
+              {file.status === 'error' && file.original && file.retryable !== false ? (
+                <button
+                  type="button"
+                  className={styles.commentFileRetry}
+                  aria-label="Thử lại tải lên"
+                  title="Thử lại tải lên"
+                  disabled={busy}
+                  onClick={() => retryFile(file.key)}
+                >
+                  <RotateCw size={14} />
+                </button>
+              ) : null}
               <button
                 type="button"
                 className={styles.commentFileRemove}
-                aria-label={`Bỏ ${file.isVideo ? 'video' : 'ảnh'} ${file.fileName}`}
+                aria-label={`${file.status === 'uploading' ? 'Huỷ tải' : 'Bỏ'} ${file.isVideo ? 'video' : 'ảnh'} ${file.fileName}`}
                 disabled={busy}
                 onClick={() => removeFile(file.key)}
               >

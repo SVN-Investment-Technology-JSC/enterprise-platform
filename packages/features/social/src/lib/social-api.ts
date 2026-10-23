@@ -2,9 +2,9 @@ import type {
   CreateSocialCommentRequest,
   CreateSocialPostRequest,
   CreateSocialTopicRequest,
-  InitiateSocialAttachmentRequest,
   SocialAttachmentPurpose,
   InitiateSocialAttachmentResponse,
+  RefreshSocialUploadPartsResponse,
   SocialAttachment,
   SocialComment,
   SocialCommentPage,
@@ -25,6 +25,7 @@ import type {
   UpdateSocialTopicRequest,
 } from '@enterprise-platform/contracts-social';
 import { authFetch } from '@enterprise-platform/shared-ui';
+import { uploadAttachmentWithProgress, type AttachmentUploadApi } from './attachment-upload';
 import { buildFeedQuery, buildFeedRequestPath, type SocialFeedScope } from './social.model';
 
 const API = '/api/social/v1';
@@ -152,31 +153,29 @@ export const deleteComment = (commentId: string) =>
 
 /* ------------------------------------------------------------ tệp đính kèm */
 
+const attachmentUploadApi: AttachmentUploadApi = {
+  initiate: (body) => request<InitiateSocialAttachmentResponse>('/attachments/uploads', json('POST', body)),
+  complete: (id, body) =>
+    request<SocialAttachment>(`/attachments/${encodeURIComponent(id)}/complete`, json('POST', body)),
+  abort: (id, body) => request<void>(`/attachments/${encodeURIComponent(id)}/abort`, json('POST', body)),
+  refreshParts: (id, body) =>
+    request<RefreshSocialUploadPartsResponse>(`/attachments/${encodeURIComponent(id)}/parts`, json('POST', body)),
+};
+
+/** Huỷ lần tải dang dở: server xoá dòng tệp và dọn các phần đã tải. */
+export const abortAttachment = (id: string, uploadId?: string) =>
+  attachmentUploadApi.abort(id, uploadId ? { uploadId } : {});
+
 /**
- * Tải một tệp lên theo hai bước rồi xác nhận: xin URL ký sẵn, PUT thẳng nội dung lên
- * đó (không qua `authFetch`, URL đã ký), rồi báo hoàn tất để server kiểm tra tệp.
+ * Tải một tệp lên: xin URL ký sẵn, PUT thẳng nội dung lên kho (một lệnh hoặc nhiều phần, có tiến trình
+ * và huỷ được), rồi báo hoàn tất để server kiểm tra tệp. Lỗi do huỷ nhận biết bằng `isUploadAborted`.
  */
-export async function uploadAttachment(
+export function uploadAttachment(
   file: File,
   purpose: SocialAttachmentPurpose = 'post',
+  options: { readonly onProgress?: (fraction: number) => void; readonly signal?: AbortSignal } = {},
 ): Promise<SocialAttachment> {
-  const initiate: InitiateSocialAttachmentRequest = {
-    fileName: file.name,
-    contentType: file.type,
-    sizeBytes: file.size,
-    purpose,
-  };
-  const ticket = await request<InitiateSocialAttachmentResponse>('/attachments/uploads', json('POST', initiate));
-  const put = await fetch(ticket.uploadUrl, {
-    method: 'PUT',
-    headers: { 'content-type': file.type },
-    body: file,
-  });
-  if (!put.ok) throw { message: `Không tải được tệp "${file.name}" lên kho lưu trữ.` } satisfies SocialApiError;
-  return request<SocialAttachment>(
-    `/attachments/${encodeURIComponent(ticket.attachmentId)}/complete`,
-    json('POST'),
-  );
+  return uploadAttachmentWithProgress(file, purpose, { ...options, api: attachmentUploadApi });
 }
 
 /* ------------------------------------------------- bố cục: bảng tin, thẻ, cột phải */

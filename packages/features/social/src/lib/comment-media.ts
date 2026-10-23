@@ -40,6 +40,9 @@ export function validateCommentMedia(
     }
     return undefined;
   }
+  if (file.type === 'video/quicktime') {
+    return 'Định dạng MOV chưa được hỗ trợ. Hãy xuất sang MP4 (H.264) hoặc WebM.';
+  }
   if (!SOCIAL_IMAGE_CONTENT_TYPES.includes(file.type)) {
     return `"${file.name}" không phải ảnh JPEG, PNG, GIF, WebP hoặc video MP4, WebM.`;
   }
@@ -81,4 +84,54 @@ export async function prepareCommentImage(file: File): Promise<File> {
   } catch {
     return file;
   }
+}
+
+export type VideoProbeResult =
+  | { readonly ok: true; readonly durationSeconds: number; readonly width: number; readonly height: number }
+  | { readonly ok: false; readonly reason: string };
+
+export const VIDEO_UNREADABLE_REASON =
+  'Trình duyệt không đọc được video này. Video quay bằng điện thoại thường là H.265/HEVC; hãy xuất lại sang MP4 (H.264) hoặc WebM rồi thử lại.';
+const VIDEO_PROBE_TIMEOUT_MS = 8000;
+
+/**
+ * Kiểm trình duyệt có đọc được video không (codec, vùng chứa) trước khi tải lên: nạp metadata bằng thẻ
+ * `<video>` ẩn, tối đa 8 giây. `createVideo` tiêm được để test.
+ */
+export function probeVideo(
+  file: Blob,
+  createVideo: () => HTMLVideoElement = () => document.createElement('video'),
+  timeoutMs = VIDEO_PROBE_TIMEOUT_MS,
+): Promise<VideoProbeResult> {
+  return new Promise<VideoProbeResult>((resolve) => {
+    let video: HTMLVideoElement;
+    let url: string;
+    try {
+      video = createVideo();
+      url = URL.createObjectURL(file);
+    } catch {
+      resolve({ ok: false, reason: VIDEO_UNREADABLE_REASON });
+      return;
+    }
+    const finish = (result: VideoProbeResult) => {
+      clearTimeout(timer);
+      video.onloadedmetadata = null;
+      video.onerror = null;
+      video.removeAttribute('src');
+      video.load?.();
+      URL.revokeObjectURL(url);
+      resolve(result);
+    };
+    video.preload = 'metadata';
+    video.muted = true;
+    video.onloadedmetadata = () =>
+      finish(
+        video.videoWidth > 0 && video.videoHeight > 0
+          ? { ok: true, durationSeconds: video.duration, width: video.videoWidth, height: video.videoHeight }
+          : { ok: false, reason: VIDEO_UNREADABLE_REASON },
+      );
+    video.onerror = () => finish({ ok: false, reason: VIDEO_UNREADABLE_REASON });
+    const timer = setTimeout(() => finish({ ok: false, reason: VIDEO_UNREADABLE_REASON }), timeoutMs);
+    video.src = url;
+  });
 }
