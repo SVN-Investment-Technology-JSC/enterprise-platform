@@ -17,9 +17,13 @@
   },
   "nx": {
     "name": "contracts-realtime",
-    "tags": ["type:contract", "scope:realtime"]
+    "tags": [
+      "type:contract",
+      "scope:realtime"
+    ]
   },
   "dependencies": {
+    "@enterprise-platform/contracts-chat": "workspace:*",
     "tslib": "^2.3.0"
   }
 }

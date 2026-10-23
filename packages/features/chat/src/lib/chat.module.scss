@@ -1,0 +1,1767 @@
+/*
+ * Chat nội bộ của core: nút tròn ở góc phải dưới và khung chat nổi. Dùng màu của khung sáng (ModuleShell):
+ * nền trắng, chữ #18181b, màu nhấn vàng #ffc90a cho mục đang chọn và tin của chính mình, liên kết xanh #1d4ed8.
+ */
+$accent: var(--ep-accent, #ffc90a);
+$accent-strong: #d9ab00;
+$accent-soft: rgb(255 201 10 / 16%);
+$text: var(--ep-text, #18181b);
+$muted: #64748b;
+$border: #e5e7eb;
+$surface: #ffffff;
+$subtle: #f6f7f9;
+$link: var(--ep-link, #1d4ed8);
+$danger: #dc2626;
+
+@mixin hover-scrollbar {
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+
+  &::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    border-radius: 9999px;
+    background: transparent;
+  }
+
+  &:hover {
+    scrollbar-color: #cbd5e1 transparent;
+
+    &::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+
+      &:hover {
+        background: #94a3b8;
+      }
+    }
+  }
+}
+
+/* ------------------------------- Nút mở chat ------------------------------- */
+
+.launcher {
+  position: fixed;
+  z-index: 65;
+  right: 22px;
+  bottom: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 54px;
+  height: 54px;
+  border: 0;
+  border-radius: 9999px;
+  background: $accent;
+  color: $text;
+  box-shadow: 0 10px 24px rgb(15 23 42 / 22%);
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+
+  &:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 14px 28px rgb(15 23 42 / 26%);
+  }
+
+  &:focus-visible {
+    outline: 3px solid #18181b;
+    outline-offset: 3px;
+  }
+
+  svg {
+    width: 24px;
+    height: 24px;
+  }
+}
+
+.launcherOpen {
+  background: #18181b;
+  color: #ffffff;
+}
+
+.launcherPulse {
+  animation: launcherShake 0.6s ease 2, launcherGlow 1.3s ease-out 2;
+}
+
+@keyframes launcherShake {
+  0%,
+  100% {
+    transform: rotate(0);
+  }
+
+  20% {
+    transform: rotate(-12deg);
+  }
+
+  40% {
+    transform: rotate(10deg);
+  }
+
+  60% {
+    transform: rotate(-6deg);
+  }
+
+  80% {
+    transform: rotate(4deg);
+  }
+}
+
+@keyframes launcherGlow {
+  0% {
+    box-shadow: 0 10px 24px rgb(15 23 42 / 22%), 0 0 0 0 rgb(255 201 10 / 70%);
+  }
+
+  100% {
+    box-shadow: 0 10px 24px rgb(15 23 42 / 22%), 0 0 0 16px rgb(255 201 10 / 0%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .launcherPulse {
+    animation: none;
+  }
+}
+
+.launcherBadge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border: 2px solid #ffffff;
+  border-radius: 9999px;
+  background: $danger;
+  color: #ffffff;
+  font-size: 11.5px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+}
+
+/* --------------------------------- Khung --------------------------------- */
+
+.panel {
+  position: fixed;
+  z-index: 66;
+  right: 22px;
+  bottom: 88px;
+  display: flex;
+  flex-direction: column;
+  width: min(860px, calc(100vw - 32px));
+  height: min(640px, calc(100vh - 112px));
+  overflow: hidden;
+  border: 1px solid $border;
+  border-radius: 16px;
+  background: $surface;
+  color: $text;
+  font-size: 14px;
+  box-shadow: 0 24px 60px rgb(15 23 42 / 22%);
+  animation: panelIn 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+
+  &[hidden] {
+    display: none;
+  }
+}
+
+.panelExpanded {
+  width: min(1180px, calc(100vw - 32px));
+  height: calc(100vh - 112px);
+}
+
+@keyframes panelIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.header {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px 10px 14px;
+  border-bottom: 1px solid $border;
+  background: $surface;
+}
+
+.headerIcon {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  background: #fff6d6;
+  color: #8a6400;
+  place-items: center;
+
+  svg {
+    width: 17px;
+    height: 17px;
+  }
+}
+
+.headerTitle {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.connection {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #059669;
+  font-size: 12px;
+
+  svg {
+    width: 14px;
+    height: 14px;
+  }
+}
+
+.connectionOff {
+  color: $muted;
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.iconButton {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #475569;
+  cursor: pointer;
+
+  &:hover {
+    background: #f1f5f9;
+    color: $text;
+  }
+
+  &:focus-visible {
+    outline: 2px solid $accent-strong;
+    outline-offset: 1px;
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+  }
+
+  svg {
+    width: 17px;
+    height: 17px;
+  }
+}
+
+.iconButtonActive {
+  background: $accent-soft;
+  color: $text;
+}
+
+.notifyBar {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 8px 12px 0;
+  padding: 7px 10px;
+  border: 1px solid $border;
+  border-radius: 10px;
+  background: $subtle;
+  color: #334155;
+  font-size: 13px;
+
+  svg {
+    width: 15px;
+    height: 15px;
+    flex-shrink: 0;
+  }
+}
+
+.notifyBarOk {
+  color: #047857;
+}
+
+.notifyBarWarn {
+  border-color: #fde68a;
+  background: #fffbeb;
+  color: #92400e;
+}
+
+.linkButton {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: $link;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+
+  &:hover {
+    text-decoration: underline;
+  }
+}
+
+.body {
+  position: relative;
+  display: grid;
+  flex: 1;
+  grid-template-columns: 280px minmax(0, 1fr);
+  min-height: 0;
+  margin-top: 8px;
+  border-top: 1px solid $border;
+}
+
+/* ---------------------------- Cột danh sách ---------------------------- */
+
+.sidebar {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  border-right: 1px solid $border;
+  background: #fbfbfc;
+}
+
+.sidebarTools {
+  display: flex;
+  gap: 6px;
+  padding: 10px;
+}
+
+.search {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid #d6dbe2;
+  border-radius: 9px;
+  background: $surface;
+  color: $muted;
+
+  &:focus-within {
+    border-color: $accent-strong;
+    box-shadow: 0 0 0 2px rgb(255 201 10 / 22%);
+  }
+
+  svg {
+    width: 15px;
+    height: 15px;
+    flex-shrink: 0;
+  }
+
+  input {
+    width: 100%;
+    min-width: 0;
+    border: 0;
+    outline: none;
+    background: transparent;
+    color: $text;
+    font: inherit;
+  }
+}
+
+.list {
+  @include hover-scrollbar;
+
+  flex: 1;
+  min-height: 0;
+  padding: 0 6px 8px;
+}
+
+.listSection {
+  padding: 10px 8px 4px;
+  color: $muted;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.item {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+
+  &:hover {
+    background: #f1f3f6;
+  }
+
+  &:focus-visible {
+    outline: 2px solid $accent-strong;
+    outline-offset: -2px;
+  }
+}
+
+.itemActive {
+  background: $accent;
+
+  &:hover {
+    background: $accent;
+  }
+
+  .itemSub,
+  .itemTime {
+    color: #3f3a2a;
+  }
+}
+
+.groupIcon {
+  display: grid;
+  flex-shrink: 0;
+  width: 38px;
+  height: 38px;
+  border-radius: 9999px;
+  background: #e8eefb;
+  color: #1d4ed8;
+  place-items: center;
+
+  svg {
+    width: 18px;
+    height: 18px;
+  }
+}
+
+.itemText {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.itemTop {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.itemName {
+  overflow: hidden;
+  flex: 1;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.itemUnread .itemName,
+.itemUnread .itemSub {
+  color: $text;
+  font-weight: 700;
+}
+
+.itemTime {
+  flex-shrink: 0;
+  color: $muted;
+  font-size: 11.5px;
+}
+
+.itemSub {
+  overflow: hidden;
+  color: $muted;
+  font-size: 12.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.itemSubOnline {
+  color: #059669;
+}
+
+.itemBadges {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 4px;
+}
+
+.unreadBadge {
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 9999px;
+  background: $danger;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 20px;
+  text-align: center;
+}
+
+.mentionBadge {
+  display: grid;
+  width: 20px;
+  height: 20px;
+  border-radius: 9999px;
+  background: #1d4ed8;
+  color: #ffffff;
+  place-items: center;
+
+  svg {
+    width: 12px;
+    height: 12px;
+  }
+}
+
+.mutedIcon {
+  width: 14px;
+  height: 14px;
+  color: #94a3b8;
+}
+
+.emptyList {
+  padding: 24px 12px;
+  color: $muted;
+  font-size: 13px;
+  text-align: center;
+}
+
+/* -------------------------------- Cuộc mở -------------------------------- */
+
+.thread {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  background: $surface;
+}
+
+.threadHeader {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid #f1f3f6;
+}
+
+.threadTitle {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+
+  strong {
+    overflow: hidden;
+    font-size: 14.5px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  span {
+    color: $muted;
+    font-size: 12.5px;
+  }
+}
+
+.threadStatusOnline {
+  color: #059669 !important;
+}
+
+.messages {
+  @include hover-scrollbar;
+
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  padding: 12px 14px 6px;
+}
+
+.loadingOlder,
+.threadNotice {
+  padding: 6px;
+  color: $muted;
+  font-size: 12.5px;
+  text-align: center;
+}
+
+.dateDivider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 0 8px;
+  color: $muted;
+  font-size: 12px;
+
+  &::before,
+  &::after {
+    flex: 1;
+    height: 1px;
+    background: #eef0f3;
+    content: '';
+  }
+}
+
+.systemMessage {
+  margin: 8px auto;
+  max-width: 80%;
+  color: $muted;
+  font-size: 12.5px;
+  text-align: center;
+}
+
+.row {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  margin-top: 2px;
+
+  &:hover .tools,
+  &:focus-within .tools {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+.rowFirst {
+  margin-top: 10px;
+}
+
+.rowMine {
+  flex-direction: row-reverse;
+}
+
+.avatarSlot {
+  width: 30px;
+  flex-shrink: 0;
+}
+
+.stack {
+  display: flex;
+  min-width: 0;
+  max-width: min(72%, 520px);
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.rowMine .stack {
+  align-items: flex-end;
+}
+
+.senderName {
+  margin: 0 0 3px 10px;
+  color: $muted;
+  font-size: 12px;
+}
+
+.bubble {
+  position: relative;
+  max-width: 100%;
+  padding: 8px 12px;
+  border-radius: 16px;
+  background: #f1f3f6;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.bubbleMine {
+  background: $accent;
+  color: #18181b;
+}
+
+.bubbleRecalled {
+  border: 1px dashed #cbd5e1;
+  background: transparent;
+  color: $muted;
+  font-style: italic;
+}
+
+.bubbleImagesOnly {
+  padding: 0;
+  background: transparent;
+}
+
+.mention {
+  border-radius: 4px;
+  color: $link;
+  font-weight: 600;
+}
+
+.bubbleMine .mention {
+  color: #1e3a8a;
+}
+
+.mentionMe {
+  padding: 0 2px;
+  background: rgb(29 78 216 / 12%);
+}
+
+.messageLink {
+  color: $link;
+  text-decoration: underline;
+}
+
+.quote {
+  display: block;
+  max-width: 100%;
+  margin-bottom: 6px;
+  padding: 4px 8px;
+  border-left: 3px solid #94a3b8;
+  border-radius: 6px;
+  background: rgb(15 23 42 / 6%);
+  color: #475569;
+  font-size: 12.5px;
+  white-space: normal;
+  cursor: pointer;
+}
+
+.edited {
+  margin-left: 6px;
+  color: $muted;
+  font-size: 11.5px;
+}
+
+.meta {
+  margin: 3px 8px 0;
+  color: $muted;
+  font-size: 11.5px;
+}
+
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 3px 4px 0;
+  color: $muted;
+  font-size: 11.5px;
+
+  svg {
+    width: 13px;
+    height: 13px;
+  }
+}
+
+.statusFailed {
+  color: $danger;
+}
+
+.readers {
+  display: inline-flex;
+  margin-left: 2px;
+
+  > * + * {
+    margin-left: -5px;
+  }
+}
+
+.tools {
+  position: absolute;
+  top: -16px;
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid $border;
+  border-radius: 10px;
+  background: $surface;
+  box-shadow: 0 6px 16px rgb(15 23 42 / 12%);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+
+  .iconButton {
+    width: 28px;
+    height: 28px;
+
+    svg {
+      width: 15px;
+      height: 15px;
+    }
+  }
+}
+
+.toolsTheirs {
+  left: 44px;
+}
+
+.toolsMine {
+  right: 4px;
+}
+
+.reactions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.reactionChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid $border;
+  border-radius: 9999px;
+  background: $surface;
+  color: #334155;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+
+  svg {
+    width: 13px;
+    height: 13px;
+  }
+}
+
+.reactionChipMine {
+  border-color: $accent-strong;
+  background: $accent-soft;
+}
+
+.reactionPicker {
+  position: absolute;
+  z-index: 5;
+  top: -48px;
+  display: flex;
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid $border;
+  border-radius: 9999px;
+  background: $surface;
+  box-shadow: 0 10px 24px rgb(15 23 42 / 16%);
+}
+
+.reactionOption {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 9999px;
+  background: transparent;
+  cursor: pointer;
+  place-items: center;
+  transition: transform 0.1s ease;
+
+  &:hover {
+    background: #f1f5f9;
+    transform: scale(1.15);
+  }
+
+  svg {
+    width: 19px;
+    height: 19px;
+  }
+}
+
+/* Màu riêng của từng cảm xúc (icon SVG). */
+/* Tim, like tô đặc như Zalo. */
+.reactionFilled {
+  fill: currentcolor;
+}
+
+.quickReactOn {
+  color: #e11d48;
+}
+
+.reaction-like {
+  color: #2563eb;
+}
+
+.reaction-love {
+  color: #e11d48;
+}
+
+.reaction-haha {
+  color: #d97706;
+}
+
+.reaction-wow {
+  color: #7c3aed;
+}
+
+.reaction-sad {
+  color: #0891b2;
+}
+
+.reaction-angry {
+  color: #dc2626;
+}
+
+.images {
+  display: grid;
+  gap: 4px;
+  grid-template-columns: repeat(2, minmax(0, 160px));
+}
+
+.imagesSingle {
+  grid-template-columns: minmax(0, 260px);
+}
+
+.imageThumb {
+  overflow: hidden;
+  padding: 0;
+  border: 1px solid $border;
+  border-radius: 12px;
+  background: $subtle;
+  aspect-ratio: 4 / 3;
+  cursor: zoom-in;
+
+  img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+}
+
+.files {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.fileChip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 300px;
+  padding: 8px 10px;
+  border: 1px solid $border;
+  border-radius: 10px;
+  background: $surface;
+  color: $text;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+
+  &:hover {
+    border-color: #cbd5e1;
+    background: $subtle;
+  }
+
+  svg {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+    color: #475569;
+  }
+}
+
+.fileName {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fileSize {
+  color: $muted;
+  font-size: 11.5px;
+}
+
+.typing {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+  min-height: 22px;
+  padding: 0 16px;
+  color: $muted;
+  font-size: 12.5px;
+}
+
+.typingDots {
+  display: inline-flex;
+  gap: 3px;
+
+  span {
+    width: 5px;
+    height: 5px;
+    border-radius: 9999px;
+    background: #94a3b8;
+    animation: typingDot 1.2s infinite ease-in-out;
+
+    &:nth-child(2) {
+      animation-delay: 0.15s;
+    }
+
+    &:nth-child(3) {
+      animation-delay: 0.3s;
+    }
+  }
+}
+
+@keyframes typingDot {
+  0%,
+  80%,
+  100% {
+    opacity: 0.3;
+    transform: translateY(0);
+  }
+
+  40% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
+
+.jumpLatest {
+  position: absolute;
+  z-index: 3;
+  right: 18px;
+  bottom: 96px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  border: 1px solid $border;
+  border-radius: 9999px;
+  background: $surface;
+  color: $text;
+  font: inherit;
+  font-size: 12.5px;
+  box-shadow: 0 8px 18px rgb(15 23 42 / 14%);
+  cursor: pointer;
+
+  svg {
+    width: 14px;
+    height: 14px;
+  }
+}
+
+/* -------------------------------- Soạn tin -------------------------------- */
+
+.composer {
+  position: relative;
+  flex-shrink: 0;
+  padding: 8px 12px 12px;
+  border-top: 1px solid #f1f3f6;
+}
+
+.contextBar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  padding: 6px 8px 6px 10px;
+  border-left: 3px solid $accent-strong;
+  border-radius: 8px;
+  background: $subtle;
+  font-size: 12.5px;
+
+  span {
+    overflow: hidden;
+    flex: 1;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.pending {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.pendingItem {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+  height: 52px;
+  padding: 4px 28px 4px 4px;
+  border: 1px solid $border;
+  border-radius: 10px;
+  background: $surface;
+  font-size: 12px;
+
+  img {
+    width: 44px;
+    height: 44px;
+    border-radius: 8px;
+    object-fit: cover;
+  }
+
+  > svg {
+    width: 20px;
+    height: 20px;
+    margin-left: 6px;
+    color: #475569;
+  }
+}
+
+.pendingName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pendingState {
+  color: $muted;
+  font-size: 11px;
+}
+
+.pendingError {
+  color: $danger;
+}
+
+.pendingRemove {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 22px;
+  height: 22px;
+
+  svg {
+    width: 13px;
+    height: 13px;
+  }
+}
+
+.inputRow {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.inputBox {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: flex-end;
+  padding: 4px 6px 4px 12px;
+  border: 1px solid #d6dbe2;
+  border-radius: 14px;
+  background: $surface;
+
+  &:focus-within {
+    border-color: $accent-strong;
+    box-shadow: 0 0 0 2px rgb(255 201 10 / 22%);
+  }
+
+  textarea {
+    width: 100%;
+    max-height: 132px;
+    min-height: 34px;
+    padding: 7px 0;
+    border: 0;
+    outline: none;
+    background: transparent;
+    color: $text;
+    font: inherit;
+    line-height: 20px;
+    resize: none;
+  }
+}
+
+.dropping {
+  border-color: $accent-strong;
+  background: #fffbea;
+}
+
+.sendButton {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border: 0;
+  border-radius: 12px;
+  background: $accent;
+  color: $text;
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    background: #f2bd00;
+  }
+
+  &:disabled {
+    background: #f3f4f6;
+    color: #9ca3af;
+    cursor: not-allowed;
+  }
+
+  svg {
+    width: 18px;
+    height: 18px;
+  }
+}
+
+.composerError {
+  margin: 6px 2px 0;
+  color: $danger;
+  font-size: 12.5px;
+}
+
+/* ------------------------------ Bảng nổi nhỏ ------------------------------ */
+
+.popover {
+  position: absolute;
+  z-index: 8;
+  border: 1px solid $border;
+  border-radius: 12px;
+  background: $surface;
+  box-shadow: 0 16px 40px rgb(15 23 42 / 18%);
+}
+
+.mentionList {
+  @include hover-scrollbar;
+
+  right: 60px;
+  bottom: calc(100% - 4px);
+  left: 12px;
+  max-height: 240px;
+  padding: 4px;
+}
+
+.mentionOption {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+
+  span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  small {
+    color: $muted;
+    font-size: 11.5px;
+  }
+}
+
+.mentionOptionActive {
+  background: $accent-soft;
+}
+
+.emojiPanel {
+  right: 54px;
+  bottom: calc(100% - 4px);
+  display: flex;
+  width: 330px;
+  height: 300px;
+  flex-direction: column;
+}
+
+.emojiTabs {
+  display: flex;
+  gap: 2px;
+  padding: 6px;
+  border-bottom: 1px solid #f1f3f6;
+}
+
+.emojiTab {
+  height: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: $muted;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+
+  &:hover {
+    background: #f1f5f9;
+  }
+}
+
+.emojiTabActive {
+  background: $accent-soft;
+  color: $text;
+  font-weight: 600;
+}
+
+.emojiGrid {
+  @include hover-scrollbar;
+
+  display: grid;
+  flex: 1;
+  padding: 6px;
+  gap: 2px;
+  grid-auto-rows: 36px;
+  grid-template-columns: repeat(8, 1fr);
+}
+
+.emojiCell {
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+
+  &:hover {
+    background: #f1f5f9;
+  }
+}
+
+.settings {
+  top: 52px;
+  right: 12px;
+  width: 290px;
+  padding: 12px;
+}
+
+.settingsTitle {
+  margin: 0 0 8px;
+  font-size: 13.5px;
+  font-weight: 700;
+}
+
+.toggleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 0;
+  border-top: 1px solid #f1f3f6;
+  font-size: 13px;
+
+  &:first-of-type {
+    border-top: 0;
+  }
+
+  small {
+    display: block;
+    color: $muted;
+    font-size: 11.5px;
+  }
+}
+
+.switch {
+  position: relative;
+  flex-shrink: 0;
+  width: 38px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 9999px;
+  background: #cbd5e1;
+  cursor: pointer;
+
+  &::after {
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 16px;
+    height: 16px;
+    border-radius: 9999px;
+    background: #ffffff;
+    content: '';
+    transition: transform 0.15s ease;
+  }
+
+  &[aria-checked='true'] {
+    background: #10b981;
+
+    &::after {
+      transform: translateX(16px);
+    }
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+}
+
+/* ------------------------- Hộp thoại trong khung chat ------------------------- */
+
+.overlay {
+  position: absolute;
+  z-index: 20;
+  inset: 0;
+  display: grid;
+  padding: 16px;
+  background: rgb(15 23 42 / 35%);
+  backdrop-filter: blur(3px);
+  place-items: center;
+}
+
+.dialog {
+  display: flex;
+  width: min(460px, 100%);
+  max-height: 100%;
+  flex-direction: column;
+  border-radius: 12px;
+  background: $surface;
+  box-shadow: 0 18px 40px rgb(15 23 42 / 25%);
+}
+
+.dialogHead {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 16px 16px 8px;
+
+  h3 {
+    margin: 0;
+    font-size: 17px;
+    font-weight: 700;
+  }
+
+  p {
+    margin: 2px 0 0;
+    color: $muted;
+    font-size: 13px;
+  }
+}
+
+.dialogBody {
+  @include hover-scrollbar;
+
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 10px;
+  padding: 4px 16px 8px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+
+  label {
+    color: #334155;
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  input {
+    height: 38px;
+    padding: 0 10px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    color: $text;
+    font: inherit;
+    outline: none;
+
+    &:focus {
+      border-color: #2563eb;
+      box-shadow: 0 0 0 2px rgb(37 99 235 / 15%);
+    }
+  }
+}
+
+.pickList {
+  @include hover-scrollbar;
+
+  max-height: 240px;
+  border: 1px solid #eef0f3;
+  border-radius: 10px;
+}
+
+.pickRow {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border: 0;
+  border-bottom: 1px solid #f5f6f8;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+
+  &:last-child {
+    border-bottom: 0;
+  }
+
+  &:hover {
+    background: $subtle;
+  }
+
+  span {
+    overflow: hidden;
+    flex: 1;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  small {
+    color: $muted;
+    font-size: 11.5px;
+  }
+}
+
+.check {
+  display: grid;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  border: 1.5px solid #cbd5e1;
+  border-radius: 5px;
+  color: #ffffff;
+  place-items: center;
+
+  svg {
+    width: 12px;
+    height: 12px;
+  }
+}
+
+.checkOn {
+  border-color: #2563eb;
+  background: #2563eb;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 4px 0 8px;
+  border-radius: 9999px;
+  background: $accent-soft;
+  font-size: 12.5px;
+
+  button {
+    display: grid;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    border: 0;
+    border-radius: 9999px;
+    background: transparent;
+    cursor: pointer;
+    place-items: center;
+
+    svg {
+      width: 12px;
+      height: 12px;
+    }
+  }
+}
+
+.dialogFoot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 6px;
+  padding: 12px 16px 16px;
+  border-top: 1px solid #e5e7eb;
+}
+
+.primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 38px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 8px;
+  background: #2563eb;
+  color: #ffffff;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    background: #1d4ed8;
+  }
+
+  &:disabled {
+    background: #93c5fd;
+    cursor: not-allowed;
+  }
+}
+
+.ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 38px;
+  padding: 0 14px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: transparent;
+  color: #4b5563;
+  font: inherit;
+  cursor: pointer;
+
+  &:hover {
+    background: #f1f5f9;
+  }
+}
+
+.danger {
+  color: $danger;
+}
+
+.memberRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+
+  span {
+    overflow: hidden;
+    flex: 1;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  small {
+    color: $muted;
+    font-size: 11.5px;
+  }
+}
+
+.formError {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  background: #fef2f2;
+  color: #991b1b;
+  font-size: 13px;
+}
+
+/* ------------------------------ Xem ảnh lớn ------------------------------ */
+
+.lightbox {
+  position: fixed;
+  z-index: 1200;
+  inset: 0;
+  display: grid;
+  padding: 32px;
+  background: rgb(15 23 42 / 82%);
+  place-items: center;
+
+  img {
+    max-width: 100%;
+    max-height: 100%;
+    border-radius: 8px;
+    box-shadow: 0 20px 60px rgb(0 0 0 / 40%);
+  }
+}
+
+.lightboxClose {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  color: #ffffff;
+
+  &:hover {
+    background: rgb(255 255 255 / 12%);
+    color: #ffffff;
+  }
+}
+
+.empty {
+  display: flex;
+  height: 100%;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px;
+  color: $muted;
+  text-align: center;
+
+  svg {
+    width: 36px;
+    height: 36px;
+    color: #cbd5e1;
+  }
+
+  strong {
+    color: $text;
+    font-size: 15px;
+  }
+}
+
+.backButton {
+  display: none;
+}
+
+/* Màn hẹp: khung chiếm cả màn hình, mỗi lúc một cột (danh sách hoặc cuộc đang mở). */
+@media (max-width: 720px) {
+  .launcher {
+    right: 14px;
+    bottom: 14px;
+  }
+
+  .panel,
+  .panelExpanded {
+    inset: 0;
+    width: 100vw;
+    height: 100dvh;
+    border: 0;
+    border-radius: 0;
+  }
+
+  .body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .bodyThreadOpen .sidebar {
+    display: none;
+  }
+
+  .body:not(.bodyThreadOpen) .thread {
+    display: none;
+  }
+
+  .backButton {
+    display: inline-flex;
+  }
+
+  .stack {
+    max-width: 82%;
+  }
+}

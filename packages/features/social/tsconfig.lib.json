@@ -36,7 +36,13 @@
       "path": "../module-shell/tsconfig.lib.json"
     },
     {
+      "path": "../chat/tsconfig.lib.json"
+    },
+    {
       "path": "../../contracts/social/tsconfig.lib.json"
+    },
+    {
+      "path": "../../contracts/chat/tsconfig.lib.json"
     }
   ]
 }

@@ -6,6 +6,9 @@ import {
 import { Module } from '@nestjs/common';
 import { createClient } from 'redis';
 import { HttpTypingRecipientsClient, RealtimeChatTyping } from './realtime-chat-typing';
+import { HttpCoreChatTypingClient, RealtimeCoreChatTyping } from './realtime-core-chat-typing';
+import { RealtimePresence, RedisPresenceStore } from './realtime-presence';
+import { RealtimePresenceController } from './realtime-presence.controller';
 import { HttpProcedureAccessClient, RealtimeProcedureRooms } from './realtime-procedure-rooms';
 import { HttpSocialGroupAccessClient, RealtimeSocialRooms } from './realtime-social-rooms';
 import { RealtimeDeliveryConsumer, RealtimeDeliveryHandler } from './realtime-delivery';
@@ -43,7 +46,7 @@ function allowedOrigins(): readonly string[] {
 
 @Module({
   imports: [],
-  controllers: [RealtimeNotificationsController, RealtimeHealthController],
+  controllers: [RealtimeNotificationsController, RealtimeHealthController, RealtimePresenceController],
   providers: [
     {
       provide: REALTIME_PLATFORM_POOL,
@@ -107,6 +110,25 @@ function allowedOrigins(): readonly string[] {
             process.env.WORKSPACE_INTERNAL_URL ?? 'http://localhost:3337',
           ),
           featureFlag(process.env.REALTIME_TYPING_ENABLED, true),
+        ),
+    },
+    {
+      // "Đang nhập" của chat core: hỏi core API (cùng địa chỉ với xác thực) ai là người nhận bằng cookie của người gõ.
+      provide: RealtimeCoreChatTyping,
+      useFactory: () =>
+        new RealtimeCoreChatTyping(
+          new HttpCoreChatTypingClient(process.env.PLATFORM_INTERNAL_URL ?? 'http://localhost:3333'),
+          featureFlag(process.env.REALTIME_TYPING_ENABLED, true),
+        ),
+    },
+    {
+      // Trạng thái trực tuyến dùng chung giữa các replica, giữ trong Valkey.
+      provide: RealtimePresence,
+      inject: [REALTIME_REDIS_CLIENT],
+      useFactory: (redis: ReturnType<typeof createClient>) =>
+        new RealtimePresence(
+          new RedisPresenceStore(redis),
+          featureFlag(process.env.REALTIME_PRESENCE_ENABLED, true),
         ),
     },
     {

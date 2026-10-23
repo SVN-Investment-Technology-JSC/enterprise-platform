@@ -27,6 +27,9 @@
       "path": "../../shared/ui/tsconfig.lib.json"
     },
     {
+      "path": "../chat/tsconfig.lib.json"
+    },
+    {
       "path": "../../contracts/identity/tsconfig.lib.json"
     },
     {

@@ -278,7 +278,7 @@ function DetailContent({
         aria-label="Hồ sơ người dùng"
         className="flex flex-wrap items-start gap-4 p-4 sm:p-5"
       >
-        <UserAvatar name={user.fullName} size={64} muted={!active} />
+        <UserAvatar name={user.fullName} userId={user.id} size={64} muted={!active} />
         <div className="flex min-w-0 flex-[1_1_260px] flex-col gap-2">
           <div className="min-w-0">
             <h1 className="m-0 break-words text-[22px] font-bold leading-tight tracking-[-0.3px]">

@@ -170,6 +170,12 @@ services:
       # mới, và các module API trả 401 cho tới khi được restart theo.
       AUTH_PRIVATE_KEY: ${AUTH_PRIVATE_KEY:-}
       AUTH_PUBLIC_KEY: ${AUTH_PUBLIC_KEY:-}
+      # Chat nội bộ của core: ký URL tải tệp đính kèm lên MinIO cho trình duyệt (cùng địa chỉ công khai với các phân hệ).
+      S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-http://localhost:9010}
+      # Thông báo đẩy của chat (báo tin cả khi đã đóng tab ERP). Không bắt buộc: bỏ trống thì mỗi công ty tự sinh cặp
+      # khoá VAPID lưu trong DB. Đặt thì dùng chung cho mọi công ty, cùng một cặp với worker.
+      WEB_PUSH_VAPID_PUBLIC_KEY: ${WEB_PUSH_VAPID_PUBLIC_KEY:-}
+      WEB_PUSH_VAPID_PRIVATE_KEY: ${WEB_PUSH_VAPID_PRIVATE_KEY:-}
     depends_on:
       migrator:
         condition: service_completed_successfully
@@ -438,6 +444,11 @@ services:
       TENANT_CORE_ORGANIZATION_CONTEXT_URL: http://api:3333/api/platform/internal/v1/organization-contexts
       HRM_API_URL: http://hrm-api:3339/api/hrm
       INVENTORY_API_URL: http://inventory-api:3336/api/inventory
+      # Gửi thông báo đẩy cho tin chat (hàng core.chat.push.v1). Khoá VAPID không bắt buộc (như api); WEB_PUSH_SUBJECT là
+      # email hoặc trang liên hệ gửi kèm cho dịch vụ push, nên đặt mailto:<email quản trị>.
+      WEB_PUSH_VAPID_PUBLIC_KEY: ${WEB_PUSH_VAPID_PUBLIC_KEY:-}
+      WEB_PUSH_VAPID_PRIVATE_KEY: ${WEB_PUSH_VAPID_PRIVATE_KEY:-}
+      WEB_PUSH_SUBJECT: ${WEB_PUSH_SUBJECT:-}
     depends_on:
       migrator:
         condition: service_completed_successfully

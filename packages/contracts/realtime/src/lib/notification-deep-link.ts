@@ -16,6 +16,8 @@ export function notificationDeepLink(value: string | undefined): string | undefi
     [/^\/hrm\/payslips\/([^/]+)$/, (id) => `/modules/hrm/payslips?selected=${id}`],
     [/^\/maintenance\/occurrences\/([^/]+)$/, (id) => `/modules/maintenance#history/${id}`],
     [/^\/inventory\/materials\/([^/]+)$/, (id) => `/modules/inventory#stock/${id}`],
+    // Chat nội bộ của core: mở bảng điều khiển (luôn có, không phụ thuộc phân hệ) kèm khung chat đúng cuộc trò chuyện.
+    [/^\/chat\/([^/]+)$/, (id) => `/dashboard#chat/${id}`],
   ];
   for (const [pattern, route] of routes) {
     const match = path.match(pattern);
@@ -26,6 +28,8 @@ export function notificationDeepLink(value: string | undefined): string | undefi
   }
   if (path === '/account/security') return '/login';
   if (path === '/settings/modules') return '/applications';
+  // Bảng điều khiển của core (kèm `#chat/<id>` để mở khung chat): luôn có, không phụ thuộc phân hệ.
+  if (path === '/dashboard') return `${path}${url.search}${url.hash}`;
   if (['/workspace', '/inventory', '/maintenance'].includes(path)) return `/modules${path}${url.search}${url.hash}`;
   if (/^\/modules\/(procedure|workspace|hrm|finance|inventory|maintenance|social)(\/|$)/.test(path) ||
       ['/applications', '/login'].includes(path)) return `${path}${url.search}${url.hash}`;
