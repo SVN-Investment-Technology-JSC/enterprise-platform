@@ -1,5 +1,5 @@
 import {
-  PROJECT_GROUP_CODE_PATTERN,
+  PROJECT_GROUP_CODE_MAX_LENGTH,
   type ProjectGroup,
   type ProjectGroupList,
   type SaveProjectGroupRequest,
@@ -108,24 +108,24 @@ function requireGroupName(
 }
 
 /**
- * Mã viết tắt của nhóm (token `{NHOM}` trong quy tắc mã dự án): chữ in hoa không dấu và số, không trùng nhóm khác.
- * Rỗng là không có mã.
+ * Mã viết tắt của nhóm (token `{NHOM}` trong quy tắc mã dự án): người dùng tự đặt, tối đa 16 ký tự, không trùng nhóm
+ * khác (không phân biệt hoa thường). Rỗng là không có mã.
  */
 function requireGroupCode(
   value: unknown,
   existing: readonly ProjectGroup[],
   selfId?: string,
 ): string | undefined {
-  const code = String(value ?? '')
-    .trim()
-    .toUpperCase();
+  const code = String(value ?? '').trim();
   if (!code) return undefined;
-  if (!PROJECT_GROUP_CODE_PATTERN.test(code)) {
+  if (code.length > PROJECT_GROUP_CODE_MAX_LENGTH) {
     throw new WorkspaceValidationError(
-      'Mã viết tắt của nhóm chỉ gồm chữ in hoa không dấu và số, tối đa 16 ký tự.',
+      `Mã viết tắt của nhóm dài tối đa ${PROJECT_GROUP_CODE_MAX_LENGTH} ký tự.`,
     );
   }
-  const taken = existing.find((group) => group.id !== selfId && group.code?.toUpperCase() === code);
+  const taken = existing.find(
+    (group) => group.id !== selfId && group.code?.toLowerCase() === code.toLowerCase(),
+  );
   if (taken) throw new WorkspaceValidationError(`Mã viết tắt "${code}" đã dùng cho nhóm "${taken.name}".`);
   return code;
 }

@@ -7,7 +7,6 @@ import * as api from '../workspace-api';
 import styles from '../workspace.module.scss';
 import { Dialog, Field } from './dialog';
 import { Confirm } from './confirm-box';
-import { upperCaseKeepingCaret } from './upper-case-input';
 
 /**
  * Cài đặt "Nhóm dự án": danh mục nhóm dùng chung cho mọi dự án, để chọn khi tạo
@@ -217,13 +216,13 @@ function GroupFormDialog({
       </Field>
       <Field
         label="Mã viết tắt"
-        hint="Dùng cho {NHOM} trong quy tắc mã dự án (Cài đặt > Mã dự án). Chữ in hoa không dấu và số, vd DVTN. Đổi mã không đổi mã các dự án đã tạo."
+        hint="Dùng cho {NHOM} trong quy tắc mã dự án (Cài đặt > Mã dự án). Tự đặt, tối đa 16 ký tự, vd DVTN. Đổi mã không đổi mã các dự án đã tạo."
       >
         <input
           value={code}
           maxLength={16}
           placeholder="Ví dụ: DVTN"
-          onChange={(event) => setCode(upperCaseKeepingCaret(event))}
+          onChange={(event) => setCode(event.target.value)}
         />
       </Field>
     </Dialog>
