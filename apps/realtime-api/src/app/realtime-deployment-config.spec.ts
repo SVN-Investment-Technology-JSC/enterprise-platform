@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 const workspaceRoot = resolve(process.cwd(), '../..');
 
 async function workspaceFile(path: string): Promise<string> {
-  return readFile(resolve(workspaceRoot, path), 'utf8');
+  return (await readFile(resolve(workspaceRoot, path), 'utf8')).replace(/\r\n/g, '\n');
 }
 
 describe('realtime deployment configuration', () => {
