@@ -10,6 +10,7 @@ describe('notification routes', () => {
     ['/modules/finance/payments/voucher-a', '/modules/finance/payments/voucher-a'],
     ['/hrm/payslips/payslip-a', '/modules/hrm/payslips?selected=payslip-a'],
     ['/maintenance/occurrences/occurrence-a', '/modules/maintenance#history/occurrence-a'],
+    ['/chat/conversation-a', '/dashboard#chat/conversation-a'],
   ])('resolves %s to the installed module route', (value, expected) => {
     expect(notificationDeepLink(value)).toBe(expected);
   });

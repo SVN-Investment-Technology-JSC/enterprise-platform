@@ -19,6 +19,7 @@ import {
   WifiOff,
   Workflow,
   Newspaper,
+  MessagesSquare,
   Wrench,
   X,
   type LucideIcon,
@@ -258,7 +259,10 @@ export function NotificationProvider({ children, client: suppliedClient }: Notif
               event.event === 'workspace.chat.typing' ||
               event.event === 'procedure.comment.changed' ||
               event.event === 'procedure.comment.typing' ||
-              event.event === 'authorization.changed'
+              event.event === 'authorization.changed' ||
+              event.event === 'core.chat.changed' ||
+              event.event === 'core.chat.typing' ||
+              event.event === 'core.presence.changed'
             ) {
               publishRealtimeEvent(event);
               return;
@@ -1051,6 +1055,7 @@ const MODULE_ICONS: Readonly<Record<NotificationRecord['module'], LucideIcon>> =
   inventory: Package,
   maintenance: Wrench,
   social: Newspaper,
+  chat: MessagesSquare,
 };
 
 function moduleLabel(module: NotificationRecord['module']): string {
@@ -1063,6 +1068,7 @@ function moduleLabel(module: NotificationRecord['module']): string {
     inventory: 'Kho',
     maintenance: 'Bảo trì',
     social: 'Mạng nội bộ',
+    chat: 'Chat nội bộ',
   } as const)[module];
 }
 

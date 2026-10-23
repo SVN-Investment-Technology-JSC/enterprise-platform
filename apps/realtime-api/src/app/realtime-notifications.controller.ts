@@ -36,6 +36,7 @@ const MODULES = new Set<NotificationModule>([
   'finance',
   'inventory',
   'maintenance',
+  'chat',
 ]);
 const PRIORITIES = new Set<NotificationPriority>([
   'required',

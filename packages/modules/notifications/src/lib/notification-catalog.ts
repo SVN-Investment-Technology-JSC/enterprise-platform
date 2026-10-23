@@ -222,6 +222,32 @@ export const DEFAULT_NOTIFICATION_POLICIES: readonly NotificationPolicy[] = [
     },
   }),
   directPolicy({
+    // Được nhắc tên trong chat nội bộ của core (không thuộc phân hệ nào). Nhiều lần nhắc trong cùng một cuộc trò
+    // chuyện trong 15 phút gộp thành một thông báo.
+    eventType: 'core.chat.mention',
+    module: 'chat',
+    category: 'mention',
+    priority: 'actionable',
+    recipients: { kind: 'payload', fields: ['mentionedUserIds'] },
+    actorField: 'actorUserId',
+    template: ({ payload }) => {
+      const conversation = typeof payload.conversationTitle === 'string' && payload.conversationTitle.trim()
+        ? ` trong "${payload.conversationTitle.trim()}"`
+        : '';
+      return {
+        title: `${text(payload, 'actorName', 'Một đồng nghiệp')} nhắc đến bạn${conversation}`,
+        body: text(payload, 'excerpt', 'Bạn được nhắc đến trong chat nội bộ.'),
+        deepLink: text(payload, 'deepLink', '/dashboard'),
+        sourceType: 'core_chat_message',
+        sourceId: id(payload, 'mentionId'),
+      };
+    },
+    aggregation: {
+      windowMinutes: 15,
+      key: ({ payload }) => `chat:mention:${id(payload, 'conversationId')}`,
+    },
+  }),
+  directPolicy({
     // Được nhắc tên trong trao đổi của hồ sơ quy trình. `mentionedUserIds` là id người dùng thật (giao diện
     // đã mở rộng chức danh/đơn vị thành từng người), nên nhận thẳng từ payload như Workspace.
     eventType: 'procedure.mention.created',

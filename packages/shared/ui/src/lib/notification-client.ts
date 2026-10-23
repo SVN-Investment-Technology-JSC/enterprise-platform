@@ -84,6 +84,9 @@ const NOTIFICATION_EVENTS = [
   'procedure.comment.changed',
   'procedure.comment.typing',
   'authorization.changed',
+  'core.chat.changed',
+  'core.chat.typing',
+  'core.presence.changed',
 ] as const;
 
 export class BrowserNotificationClient implements NotificationClient {

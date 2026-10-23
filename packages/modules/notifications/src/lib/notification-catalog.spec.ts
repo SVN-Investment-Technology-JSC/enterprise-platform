@@ -125,6 +125,34 @@ describe('procedure assignment recipients', () => {
   });
 });
 
+describe('core chat mentions', () => {
+  it('notifies only the mentioned people, names the sender and the group, and opens the conversation', async () => {
+    const resolved = await registry.resolve(
+      event('core.chat.mention', {
+        mentionId: 'mention-1',
+        conversationId: 'conv-1',
+        messageId: 'msg-1',
+        mentionedUserIds: ['user-b', 'user-a'],
+        actorUserId: 'user-a',
+        actorName: 'Nguyễn Văn An',
+        conversationTitle: 'Dự án A',
+        excerpt: '@Bình xem giúp',
+        deepLink: '/chat/conv-1',
+      }),
+      directory(),
+    );
+    expect(resolved?.policy.module).toBe('chat');
+    expect(resolved?.recipients).toEqual(['user-b']);
+    expect(resolved?.template).toMatchObject({
+      title: 'Nguyễn Văn An nhắc đến bạn trong "Dự án A"',
+      body: '@Bình xem giúp',
+      deepLink: '/dashboard#chat/conv-1',
+      sourceType: 'core_chat_message',
+    });
+    expect(resolved?.aggregationKey).toBe('chat:mention:conv-1');
+  });
+});
+
 describe('session revocation', () => {
   it('has no notification policy: it only disconnects sockets', async () => {
     expect(DEFAULT_NOTIFICATION_POLICIES.map((policy) => policy.eventType)).not.toContain('identity.session.revoked');

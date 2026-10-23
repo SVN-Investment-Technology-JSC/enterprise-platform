@@ -856,6 +856,9 @@ importers:
       '@enterprise-platform/adapter-events':
         specifier: workspace:*
         version: link:../../packages/adapters/events
+      '@enterprise-platform/contracts-chat':
+        specifier: workspace:*
+        version: link:../../packages/contracts/chat
       '@enterprise-platform/contracts-identity':
         specifier: workspace:*
         version: link:../../packages/contracts/identity
@@ -1484,6 +1487,9 @@ importers:
 
   packages/contracts/realtime:
     dependencies:
+      '@enterprise-platform/contracts-chat':
+        specifier: workspace:*
+        version: link:../chat
       tslib:
         specifier: ^2.3.0
         version: 2.8.1
