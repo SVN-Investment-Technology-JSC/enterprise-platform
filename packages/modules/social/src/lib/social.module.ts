@@ -15,6 +15,7 @@ import {
 import { GROUP_MEMBERSHIP, type GroupMembershipPort } from './application/ports/group-membership.port.js';
 import { PEOPLE_PROFILE, type PeopleProfilePort } from './application/ports/people-profile.port.js';
 import { POST_VIEW_ASSEMBLER, type PostViewAssembler } from './application/ports/post-view-assembler.port.js';
+import { STORAGE_QUOTA, type StorageQuotaPort } from './application/ports/storage-quota.port.js';
 import { POST_VISIBILITY, type PostVisibilityPort } from './application/ports/post-visibility.port.js';
 import { SOCIAL_SETTINGS, type SocialSettingsPort } from './application/ports/social-settings.port.js';
 import { PostVisibilityService } from './application/post-visibility.service.js';
@@ -72,6 +73,7 @@ import { PostgresSocialGroupStore } from './infrastructure/postgres-social-group
 import { PostgresSocialPublishingStore } from './infrastructure/postgres-social-publishing.store.js';
 import { PostgresSocialSettingsStore } from './infrastructure/postgres-social-settings.store.js';
 import { PostgresSocialStore } from './infrastructure/postgres-social-store.js';
+import { HttpStorageQuota } from './infrastructure/http-storage-quota.js';
 import { createS3AttachmentStorage } from './infrastructure/s3-attachment-storage.js';
 import { SocialFeedController } from './presentation/social-feed.controller.js';
 import { SocialGroupTopicsController } from './presentation/social-group-topics.controller.js';
@@ -190,6 +192,7 @@ import { SOCIAL_DISCOVERY_CONTROLLERS, SOCIAL_DISCOVERY_PROVIDERS } from './soci
       inject: [SOCIAL_GROUP_V2_STORE],
     },
     { provide: ATTACHMENT_STORAGE, useFactory: () => createS3AttachmentStorage() },
+    { provide: STORAGE_QUOTA, useFactory: (): StorageQuotaPort => new HttpStorageQuota() },
     {
       provide: GROUP_MEMBERSHIP,
       useFactory: (store: SocialGroupStore) => new GroupMembershipAdapter(store),
@@ -468,8 +471,9 @@ import { SOCIAL_DISCOVERY_CONTROLLERS, SOCIAL_DISCOVERY_PROVIDERS } from './soci
     },
     {
       provide: SocialAttachmentService,
-      useFactory: (store: SocialStore, storage: AttachmentStorage) => new SocialAttachmentService(store, storage),
-      inject: [SOCIAL_STORE, ATTACHMENT_STORAGE],
+      useFactory: (store: SocialStore, storage: AttachmentStorage, quota: StorageQuotaPort) =>
+        new SocialAttachmentService(store, storage, undefined, quota),
+      inject: [SOCIAL_STORE, ATTACHMENT_STORAGE, STORAGE_QUOTA],
     },
     {
       provide: SocialMeService,

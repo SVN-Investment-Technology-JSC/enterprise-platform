@@ -66,6 +66,13 @@ export const SOCIAL_PRESIGNED_URL_TTL_SECONDS = 300;
 export const SOCIAL_COMMENT_MAX_ATTACHMENTS = 4;
 export const SOCIAL_COMMENT_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
 export const SOCIAL_COMMENT_PAGE_SIZE = 10;
+
+/** Video trong bình luận: chỉ mp4 và webm, tối đa 50 MB, mỗi bình luận một video, lưu nguyên bản (không chuyển mã). */
+export const SOCIAL_VIDEO_CONTENT_TYPES: readonly string[] = ['video/mp4', 'video/webm'];
+export const SOCIAL_COMMENT_VIDEO_MAX_BYTES = 50 * 1024 * 1024;
+export const SOCIAL_COMMENT_MAX_VIDEOS = 1;
+/** URL xem video sống lâu hơn URL ảnh vì video phát và tua lâu. */
+export const SOCIAL_VIDEO_URL_TTL_SECONDS = 3600;
 export const SOCIAL_FEED_PAGE_SIZE = 20;
 export const SOCIAL_FEED_MAX_PAGE_SIZE = 50;
 export const SOCIAL_TOPIC_NAME_MAX = 80;
@@ -115,6 +122,8 @@ export interface SocialAttachment {
   readonly contentType: string;
   readonly sizeBytes: number;
   readonly isImage: boolean;
+  /** Video (mp4, webm). Thiếu nghĩa là không phải video. */
+  readonly isVideo?: boolean;
   /** URL ký sẵn để xem/tải; chỉ có khi đọc bài. */
   readonly url?: string;
 }

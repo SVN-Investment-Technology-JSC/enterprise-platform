@@ -7,10 +7,12 @@ import {
   SocialPostNotFoundError,
   SocialTopicNameTakenError,
 } from '../domain/social.error.js';
+import { SocialStorageQuotaExceededError } from '../domain/social.error.js';
 import type { AttachmentStorage } from './attachment-storage.port.js';
 import type { OrganizationDirectory } from './organization-directory.port.js';
 import type { SocialActor } from './social-actor.js';
 import { SocialAttachmentService } from './social-attachment.service.js';
+import type { StorageQuotaPort } from './ports/storage-quota.port.js';
 import type { SocialCommentAttachmentStore } from './social-comment-attachment-store.port.js';
 import type { SocialCommentReactionStore } from './social-comment-reaction-store.port.js';
 import { SocialCommentService } from './social-comment.service.js';
@@ -352,10 +354,24 @@ class FakeStorage implements AttachmentStorage {
   uploaded = new Map<string, number>();
   deleted: string[] = [];
   failDelete = new Set<string>();
+  /** Nội dung đầu tệp theo khoá; thiếu thì suy ra từ đuôi tên tệp (đủ chữ ký hợp lệ). */
+  heads = new Map<string, Uint8Array>();
+  downloadTtls: number[] = [];
+  async readHead(key: string) {
+    const custom = this.heads.get(key);
+    if (custom) return custom;
+    const lower = key.toLowerCase();
+    if (lower.endsWith('.png')) return Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    if (lower.endsWith('.jpg')) return Uint8Array.from([0xff, 0xd8, 0xff]);
+    if (lower.endsWith('.mp4')) return Uint8Array.from([0, 0, 0, 0x18, 0x66, 0x74, 0x79, 0x70]);
+    if (lower.endsWith('.webm')) return Uint8Array.from([0x1a, 0x45, 0xdf, 0xa3]);
+    return new Uint8Array();
+  }
   async createUploadUrl({ key }: { key: string }) {
     return `https://storage.test/up/${key}`;
   }
-  async createDownloadUrl(key: string) {
+  async createDownloadUrl(key: string, expiresInSeconds?: number) {
+    this.downloadTtls.push(expiresInSeconds ?? 0);
     return `https://storage.test/down/${key}`;
   }
   async objectMetadata(key: string) {
@@ -708,6 +724,32 @@ describe('bình luận', () => {
   });
 });
 
+describe('hạn mức dung lượng khi xin URL tải lên', () => {
+  it('vượt hạn mức thì dừng trước khi tạo dòng và ký URL; còn chỗ thì cho qua', async () => {
+    const store = new FakeStore();
+    const storage = new FakeStorage();
+    const asked: number[] = [];
+    let exceeded = true;
+    const quota: StorageQuotaPort = {
+      async ensureCapacity(_tenantId, additionalBytes) {
+        asked.push(additionalBytes);
+        if (exceeded) throw new SocialStorageQuotaExceededError('Kho đã đầy.');
+      },
+    };
+    const attachments = new SocialAttachmentService(store, storage, undefined, quota);
+    const file = { fileName: 'a.png', contentType: 'image/png', sizeBytes: 1234, purpose: 'comment' as const };
+
+    await expectCode(attachments.initiate(alice, file), 'STORAGE_QUOTA_EXCEEDED');
+    expect(asked).toEqual([1234]);
+    expect(store.attachments_.size).toBe(0);
+
+    exceeded = false;
+    const ok = await attachments.initiate(alice, file);
+    expect(ok.attachmentId).toBeDefined();
+    expect(store.attachments_.size).toBe(1);
+  });
+});
+
 describe('tệp đính kèm của bình luận', () => {
   type Services = ReturnType<typeof setup>;
 
@@ -747,6 +789,71 @@ describe('tệp đính kèm của bình luận', () => {
       attachments.initiate(alice, { fileName: 'a.png', contentType: 'image/png', sizeBytes: 1, purpose: 'video' as never }),
       'VALIDATION',
     );
+  });
+
+  it('bình luận nhận video mp4/webm tới 50 MB, từ chối quá cỡ và kiểu khác', async () => {
+    const { attachments } = setup();
+    const MB = 1024 * 1024;
+    await attachments.initiate(alice, { fileName: 'a.mp4', contentType: 'video/mp4', sizeBytes: 50 * MB, purpose: 'comment' });
+    await attachments.initiate(alice, { fileName: 'a.webm', contentType: 'video/webm', sizeBytes: 1, purpose: 'comment' });
+    await expectCode(
+      attachments.initiate(alice, { fileName: 'a.mp4', contentType: 'video/mp4', sizeBytes: 50 * MB + 1, purpose: 'comment' }),
+      'VALIDATION',
+    );
+    await expectCode(
+      attachments.initiate(alice, { fileName: 'a.pdf', contentType: 'application/pdf', sizeBytes: 10, purpose: 'comment' }),
+      'VALIDATION',
+    );
+    await expectCode(
+      attachments.initiate(alice, { fileName: 'a.mov', contentType: 'video/quicktime', sizeBytes: 10, purpose: 'comment' }),
+      'VALIDATION',
+    );
+  });
+
+  it('mỗi bình luận tối đa 1 video; video có isVideo và URL sống lâu hơn ảnh', async () => {
+    const services = setup();
+    const post = await services.posts.create(alice, { bodyHtml: '<p>x</p>' });
+    const video = await uploadFile(services, bob, { fileName: 'v.mp4', contentType: 'video/mp4' });
+    const video2 = await uploadFile(services, bob, { fileName: 'w.webm', contentType: 'video/webm' });
+    const image = await uploadFile(services, bob);
+    await expectCode(services.comments.create(bob, post.id, { body: 'x', attachmentIds: [video, video2] }), 'VALIDATION');
+
+    services.storage.downloadTtls = [];
+    const created = await services.comments.create(bob, post.id, { body: 'x', attachmentIds: [video, image] });
+    const byId = new Map(created.attachments.map((file) => [file.id, file]));
+    expect(byId.get(video)).toMatchObject({ isVideo: true, isImage: false });
+    expect(byId.get(image)?.isVideo).toBeUndefined();
+    expect(services.storage.downloadTtls).toEqual(expect.arrayContaining([3600, 300]));
+
+    // Sửa để thêm video thứ hai cũng bị chặn.
+    await expectCode(
+      services.comments.update(bob, created.id, { body: 'x', attachmentIds: [video, image, video2] }),
+      'VALIDATION',
+    );
+  });
+
+  it('complete từ chối tệp giả kiểu: xoá object và dòng', async () => {
+    const services = setup();
+    const { attachmentId } = await services.attachments.initiate(bob, {
+      fileName: 'gia.png',
+      contentType: 'image/png',
+      sizeBytes: 20,
+      purpose: 'comment',
+    });
+    const key = await findKey(services.attachments, attachmentId);
+    services.storage.uploaded.set(key, 20);
+    services.storage.heads.set(key, new TextEncoder().encode('chỉ là chữ'));
+    await expectCode(services.attachments.complete(bob, attachmentId), 'UPLOAD_MISMATCH');
+    expect(services.storage.deleted).toContain(key);
+    expect(await services.store.attachments.findById(TENANT, attachmentId)).toBeUndefined();
+  });
+
+  it('complete vẫn nhận ảnh cho bài viết và tệp không kiểm chữ ký (PDF)', async () => {
+    const services = setup();
+    const png = await uploadFile(services, bob, {}, 'post');
+    const pdf = await uploadFile(services, bob, { fileName: 'a.pdf', contentType: 'application/pdf' }, 'post');
+    expect(await services.store.attachments.findById(TENANT, png)).toMatchObject({ completed: true });
+    expect(await services.store.attachments.findById(TENANT, pdf)).toMatchObject({ completed: true });
   });
 
   it('bình luận kèm ảnh hiện tệp có URL; chỉ có ảnh thì nội dung được để trống', async () => {

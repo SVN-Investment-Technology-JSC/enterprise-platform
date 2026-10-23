@@ -248,6 +248,15 @@ export class S3ObjectStorage implements ObjectStorageManagementPort, ObjectStora
     }
   }
 
+  /** Đọc `maxBytes` byte đầu của object bằng GetObject có Range. */
+  async readHead(key: string, maxBytes: number): Promise<Uint8Array> {
+    const result = await this.internalClient.send(
+      new GetObjectCommand({ Bucket: this.options.bucket, Key: key, Range: `bytes=0-${Math.max(1, maxBytes) - 1}` }),
+      { abortSignal: AbortSignal.timeout(TENANT_STORAGE_WRITE_TIMEOUT_SECONDS * 1000) },
+    );
+    return result.Body ? await result.Body.transformToByteArray() : new Uint8Array();
+  }
+
   async objectMetadata(key: string): Promise<{sizeBytes: number; contentType: string}> {
     const result = await this.internalClient.send(new HeadObjectCommand({Bucket:this.options.bucket,Key:key}),
       {abortSignal:AbortSignal.timeout(TENANT_STORAGE_WRITE_TIMEOUT_SECONDS*1000)});

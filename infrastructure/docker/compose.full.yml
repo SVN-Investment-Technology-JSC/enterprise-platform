@@ -349,6 +349,8 @@ services:
       PORT: '3343'
       # Mạng nội bộ hỏi HRM ngày sinh và ngày vào công ty của nhân sự (chỉ đọc).
       HRM_API_URL: http://hrm-api:3339/api/hrm
+      # Hỏi Hệ dùng chung còn hạn mức dung lượng không trước khi ký URL tải lên (lỗi thì cho qua).
+      SHARED_API_URL: http://shared-api:3342/api/shared
       # Như workspace-api: server gọi kho qua mạng Docker, URL ký sẵn mang host
       # mà trình duyệt mở được.
       S3_INTERNAL_ENDPOINT: http://minio:9000

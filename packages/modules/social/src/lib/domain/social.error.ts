@@ -104,3 +104,11 @@ export class SocialNotProvisionedError extends SocialError {
     Object.setPrototypeOf(this, SocialNotProvisionedError.prototype);
   }
 }
+
+/** Hệ dùng chung báo tenant đã hết hạn mức dung lượng; `message` lấy nguyên từ Hệ dùng chung. */
+export class SocialStorageQuotaExceededError extends SocialError {
+  constructor(message = 'Đã vượt hạn mức dung lượng của gói. Hãy liên hệ quản trị để mua thêm dung lượng.') {
+    super('STORAGE_QUOTA_EXCEEDED', message, 413);
+    Object.setPrototypeOf(this, SocialStorageQuotaExceededError.prototype);
+  }
+}

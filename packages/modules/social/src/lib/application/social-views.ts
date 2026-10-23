@@ -1,6 +1,7 @@
 import {
   SOCIAL_EVENT_TYPES,
   SOCIAL_PRESIGNED_URL_TTL_SECONDS,
+  SOCIAL_VIDEO_URL_TTL_SECONDS,
   type SocialAttachment,
   type SocialCommentCreatedPayload,
   type SocialMentionPayload,
@@ -8,7 +9,7 @@ import {
   type SocialPostPublishedPayload,
   type SocialUserRef,
 } from '@enterprise-platform/contracts-social';
-import { isImageContentType } from '../domain/social-rules.js';
+import { isImageContentType, isVideoContentType } from '../domain/social-rules.js';
 import type { AttachmentStorage } from './attachment-storage.port.js';
 import type { OrganizationDirectory } from './organization-directory.port.js';
 import type { AttachmentRow, SocialOutboxEvent } from './social-store.port.js';
@@ -45,12 +46,17 @@ export async function toAttachmentView(
   row: AttachmentRow,
 ): Promise<SocialAttachment> {
   const isImage = isImageContentType(row.contentType);
+  const isVideo = isVideoContentType(row.contentType);
   const url = row.completed
-    ? await storage.createDownloadUrl(row.storageKey, SOCIAL_PRESIGNED_URL_TTL_SECONDS, {
-        inline: isImage,
+    ? await storage.createDownloadUrl(
+        row.storageKey,
+        isVideo ? SOCIAL_VIDEO_URL_TTL_SECONDS : SOCIAL_PRESIGNED_URL_TTL_SECONDS,
+        {
+        inline: isImage || isVideo,
         contentType: row.contentType,
         fileName: row.fileName,
-      })
+        },
+      )
     : undefined;
   return {
     id: row.id,
@@ -58,6 +64,7 @@ export async function toAttachmentView(
     contentType: row.contentType,
     sizeBytes: row.sizeBytes,
     isImage,
+    ...(isVideo ? { isVideo: true } : {}),
     ...(url ? { url } : {}),
   };
 }

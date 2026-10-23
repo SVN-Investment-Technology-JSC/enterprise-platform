@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { Logger } from '@nestjs/common';
 import {
   SOCIAL_COMMENT_MAX_ATTACHMENTS,
+  SOCIAL_COMMENT_MAX_VIDEOS,
   SOCIAL_COMMENT_PAGE_SIZE,
   type CreateSocialCommentRequest,
   type SetSocialReactionRequest,
@@ -17,6 +18,7 @@ import {
   attachmentRulesFor,
   decodeCursor,
   encodeCursor,
+  isVideoContentType,
   mentionIdsInBody,
   mergeMentions,
   normalizeCommentBody,
@@ -323,6 +325,7 @@ export class SocialCommentService {
   private async assertAttachable(actor: SocialActor, ids: readonly string[], commentId?: string): Promise<void> {
     if (ids.length === 0) return;
     const rules = attachmentRulesFor('comment');
+    let videoCount = 0;
     for (const id of ids) {
       const row = await this.store.attachments.findById(actor.tenantId, id);
       const owned = row?.commentId !== undefined && row.commentId === commentId;
@@ -332,10 +335,14 @@ export class SocialCommentService {
         !row.completed ||
         !(owned || (free && row.uploadedBy === actor.userId)) ||
         !rules.allowedTypes.includes(row.contentType) ||
-        row.sizeBytes > rules.maxBytes
+        row.sizeBytes > rules.maxBytesFor(row.contentType)
       ) {
         throw new SocialAttachmentUnavailableError();
       }
+      if (isVideoContentType(row.contentType)) videoCount += 1;
+    }
+    if (videoCount > SOCIAL_COMMENT_MAX_VIDEOS) {
+      throw new SocialValidationError(`Mỗi bình luận chỉ đính kèm tối đa ${SOCIAL_COMMENT_MAX_VIDEOS} video.`);
     }
   }
 

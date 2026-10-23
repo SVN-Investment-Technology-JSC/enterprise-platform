@@ -3,6 +3,8 @@ import {
   SOCIAL_ATTACHMENT_MAX_BYTES,
   SOCIAL_COMMENT_IMAGE_MAX_BYTES,
   SOCIAL_COMMENT_MAX,
+  SOCIAL_COMMENT_VIDEO_MAX_BYTES,
+  SOCIAL_VIDEO_CONTENT_TYPES,
   SOCIAL_FEED_MAX_PAGE_SIZE,
   SOCIAL_FEED_PAGE_SIZE,
   SOCIAL_IMAGE_CONTENT_TYPES,
@@ -168,22 +170,25 @@ export interface NormalizedAttachmentInput {
   readonly sizeBytes: number;
 }
 
-/** Kiểu tệp và dung lượng tối đa được nhận cho từng nơi gắn. Bình luận chỉ nhận ảnh. */
+/** Kiểu tệp và dung lượng tối đa được nhận cho từng nơi gắn. Bình luận nhận ảnh và video. */
 export function attachmentRulesFor(purpose: 'post' | 'comment'): {
   readonly allowedTypes: readonly string[];
-  readonly maxBytes: number;
+  readonly maxBytesFor: (contentType: string) => number;
   readonly typeError: string;
 } {
   if (purpose === 'comment') {
     return {
-      allowedTypes: SOCIAL_IMAGE_CONTENT_TYPES,
-      maxBytes: SOCIAL_COMMENT_IMAGE_MAX_BYTES,
-      typeError: 'Bình luận chỉ nhận ảnh JPEG, PNG, GIF, WebP.',
+      allowedTypes: [...SOCIAL_IMAGE_CONTENT_TYPES, ...SOCIAL_VIDEO_CONTENT_TYPES],
+      maxBytesFor: (contentType) =>
+        SOCIAL_VIDEO_CONTENT_TYPES.includes(contentType)
+          ? SOCIAL_COMMENT_VIDEO_MAX_BYTES
+          : SOCIAL_COMMENT_IMAGE_MAX_BYTES,
+      typeError: 'Bình luận chỉ nhận ảnh JPEG, PNG, GIF, WebP hoặc video MP4, WebM.',
     };
   }
   return {
     allowedTypes: SOCIAL_ALLOWED_CONTENT_TYPES,
-    maxBytes: SOCIAL_ATTACHMENT_MAX_BYTES,
+    maxBytesFor: () => SOCIAL_ATTACHMENT_MAX_BYTES,
     typeError: 'Loại tệp này không được hỗ trợ. Chỉ nhận PDF, Word, Excel, PowerPoint, ZIP và ảnh JPEG, PNG, GIF, WebP.',
   };
 }
@@ -211,10 +216,15 @@ export function normalizeAttachmentInput(
   if (typeof sizeBytes !== 'number' || !Number.isInteger(sizeBytes) || sizeBytes <= 0) {
     throw new SocialValidationError('Dung lượng tệp không hợp lệ.');
   }
-  if (sizeBytes > rules.maxBytes) {
-    throw new SocialValidationError(`Tệp tối đa ${Math.floor(rules.maxBytes / (1024 * 1024))} MB.`);
+  const maxBytes = rules.maxBytesFor(contentType);
+  if (sizeBytes > maxBytes) {
+    throw new SocialValidationError(`Tệp tối đa ${Math.floor(maxBytes / (1024 * 1024))} MB.`);
   }
   return { fileName, contentType, sizeBytes };
+}
+
+export function isVideoContentType(contentType: string): boolean {
+  return SOCIAL_VIDEO_CONTENT_TYPES.includes(contentType);
 }
 
 export function isImageContentType(contentType: string): boolean {

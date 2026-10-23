@@ -24,5 +24,7 @@ export interface AttachmentStorage {
   ): Promise<string>;
   /** Siêu dữ liệu object đã tải lên; ném lỗi nếu chưa có. */
   objectMetadata(key: string): Promise<{ readonly sizeBytes: number; readonly contentType: string }>;
+  /** Đọc `maxBytes` byte đầu của object (GetObject có Range), để đối chiếu chữ ký tệp. */
+  readHead?(key: string, maxBytes: number): Promise<Uint8Array>;
   deleteObjects(keys: readonly string[]): Promise<{ readonly failed: readonly string[] }>;
 }

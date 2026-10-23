@@ -339,6 +339,8 @@ services:
       PORT: '3343'
       # Mạng nội bộ hỏi HRM ngày sinh và ngày vào công ty của nhân sự (chỉ đọc).
       HRM_API_URL: http://hrm-api:3339/api/hrm
+      # Hỏi Hệ dùng chung còn hạn mức dung lượng không trước khi ký URL tải lên (lỗi thì cho qua).
+      SHARED_API_URL: http://shared-api:3342/api/shared
       # Ảnh và tệp đính kèm bài viết dùng presigned URL qua MinIO như Workspace.
       S3_ENDPOINT: http://minio:9000
       S3_REGION: us-east-1
