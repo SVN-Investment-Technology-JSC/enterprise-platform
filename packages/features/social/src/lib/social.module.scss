@@ -1177,6 +1177,91 @@
   }
 }
 
+/* Ảnh đính kèm trong ô nhập bình luận: dải xem trước có nút bỏ ảnh. */
+.commentFiles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0 0 0 36px;
+  list-style: none;
+}
+
+.commentFile {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  overflow: hidden;
+  border: 1px solid var(--ep-border-strong);
+  border-radius: var(--ep-radius);
+  background: var(--ep-surface-soft);
+
+  img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  &[data-status='uploading'] img {
+    opacity: 0.45;
+  }
+
+  &[data-status='error'] {
+    border-color: var(--ep-danger);
+
+    img {
+      opacity: 0.35;
+    }
+  }
+}
+
+.commentFileRemove {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgb(24 24 27 / 70%);
+  color: #fff;
+  cursor: pointer;
+
+  &:hover {
+    background: rgb(24 24 27 / 90%);
+  }
+}
+
+.spin {
+  position: relative;
+  color: var(--ep-text-sub);
+  animation: comment-file-spin 0.9s linear infinite;
+}
+
+@keyframes comment-file-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.commentInput[data-dragging] {
+  border-radius: var(--ep-radius);
+  outline: 2px dashed var(--ep-accent-strong);
+  outline-offset: 2px;
+}
+
+/* Ảnh của bình luận nằm dưới bong bóng, rộng vừa phải. */
+.commentImages {
+  max-width: min(360px, 100%);
+}
+
 .commentMeta {
   display: flex;
   flex-wrap: wrap;

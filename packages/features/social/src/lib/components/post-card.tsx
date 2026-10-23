@@ -12,23 +12,18 @@ import {
 } from '@enterprise-platform/contracts-social';
 import {
   Bookmark,
-  ChevronLeft,
-  ChevronRight,
   Download,
   File as FileIcon,
   MessageSquare,
   MessageSquareOff,
   ThumbsUp,
-  X,
 } from 'lucide-react';
 import {
   useCallback,
-  useEffect,
   useLayoutEffect,
   useRef,
   useState,
 } from 'react';
-import { createPortal } from 'react-dom';
 import {
   deletePost,
   errorMessage,
@@ -53,6 +48,7 @@ import { setBookmark } from '../social-posts-api';
 import styles from '../social.module.scss';
 import { CommentSection } from './comment-section';
 import { PostPoll } from './poll/post-poll';
+import { ImageGrid } from './image-grid';
 import { PostEditHistoryDialog } from './post-edit-history-dialog';
 import { ReactorsDialog } from './reactors-dialog';
 import { PostMenu } from './post-menu';
@@ -115,121 +111,6 @@ function ClampedHtml({ html }: { readonly html: string }) {
 }
 
 /* ----------------------------------------------------------- ảnh và tệp */
-
-function ImageViewer({
-  images,
-  index,
-  onIndex,
-  onClose,
-}: {
-  readonly images: readonly SocialAttachment[];
-  readonly index: number;
-  readonly onIndex: (next: number) => void;
-  readonly onClose: () => void;
-}) {
-  const current = images[index];
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
-      if (event.key === 'ArrowLeft')
-        onIndex((index - 1 + images.length) % images.length);
-      if (event.key === 'ArrowRight') onIndex((index + 1) % images.length);
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [index, images.length, onIndex, onClose]);
-
-  if (!current) return null;
-  return createPortal(
-    <div
-      className={styles.viewer}
-      role="dialog"
-      aria-modal="true"
-      aria-label="Xem ảnh"
-      onMouseDown={onClose}
-    >
-      <button
-        type="button"
-        className={styles.viewerClose}
-        aria-label="Đóng"
-        onClick={onClose}
-      >
-        <X size={20} />
-      </button>
-      {images.length > 1 ? (
-        <button
-          type="button"
-          className={`${styles.viewerNav} ${styles.viewerPrev}`}
-          aria-label="Ảnh trước"
-          onMouseDown={(event) => event.stopPropagation()}
-          onClick={() => onIndex((index - 1 + images.length) % images.length)}
-        >
-          <ChevronLeft size={24} />
-        </button>
-      ) : null}
-      {current.url ? (
-        <img
-          className={styles.viewerImage}
-          src={current.url}
-          alt={current.fileName}
-          onMouseDown={(event) => event.stopPropagation()}
-        />
-      ) : null}
-      {images.length > 1 ? (
-        <button
-          type="button"
-          className={`${styles.viewerNav} ${styles.viewerNext}`}
-          aria-label="Ảnh sau"
-          onMouseDown={(event) => event.stopPropagation()}
-          onClick={() => onIndex((index + 1) % images.length)}
-        >
-          <ChevronRight size={24} />
-        </button>
-      ) : null}
-    </div>,
-    document.body,
-  );
-}
-
-function ImageGrid({
-  images,
-}: {
-  readonly images: readonly SocialAttachment[];
-}) {
-  const [viewing, setViewing] = useState<number>();
-  const shown = images.slice(0, 4);
-  const hidden = images.length - shown.length;
-  return (
-    <>
-      <div className={styles.imageGrid} data-count={shown.length}>
-        {shown.map((image, index) => (
-          <button
-            key={image.id}
-            type="button"
-            className={styles.imageCell}
-            aria-label={`Xem ảnh ${image.fileName}`}
-            onClick={() => setViewing(index)}
-          >
-            {image.url ? (
-              <img src={image.url} alt={image.fileName} loading="lazy" />
-            ) : null}
-            {hidden > 0 && index === shown.length - 1 ? (
-              <span className={styles.imageMore}>+{hidden}</span>
-            ) : null}
-          </button>
-        ))}
-      </div>
-      {viewing !== undefined ? (
-        <ImageViewer
-          images={images}
-          index={viewing}
-          onIndex={setViewing}
-          onClose={() => setViewing(undefined)}
-        />
-      ) : null}
-    </>
-  );
-}
 
 function FileList({ files }: { readonly files: readonly SocialAttachment[] }) {
   return (

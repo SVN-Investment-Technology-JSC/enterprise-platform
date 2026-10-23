@@ -2,14 +2,16 @@
 
 import {
   SOCIAL_COMMENT_MAX,
+  SOCIAL_COMMENT_MAX_ATTACHMENTS,
   SOCIAL_REACTION_LABELS,
   SOCIAL_REACTION_TYPES,
+  type SocialAttachment,
   type SocialComment,
   type SocialMe,
   type SocialReactionType,
   type SocialUserRef,
 } from '@enterprise-platform/contracts-social';
-import { AtSign, PenLine, SendHorizontal } from 'lucide-react';
+import { AtSign, ImagePlus, Loader2, PenLine, SendHorizontal, X } from 'lucide-react';
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import extras from '../post-extras.module.scss';
 import {
@@ -20,7 +22,9 @@ import {
   loadComments,
   reactToComment,
   updateComment,
+  uploadAttachment,
 } from '../social-api';
+import { exceedsCommentImageLimit, prepareCommentImage, validateCommentImage } from '../comment-image';
 import {
   activeMentionQuery,
   decodeMentions,
@@ -32,6 +36,7 @@ import {
   type MentionPick,
 } from '../social.model';
 import styles from '../social.module.scss';
+import { ImageGrid } from './image-grid';
 import { PeopleList, usePeopleSearch } from './people-picker';
 import { ReactorsDialog } from './reactors-dialog';
 import { Avatar, ConfirmDialog, REACTION_ICONS, userSubtitle } from './ui';
@@ -41,6 +46,18 @@ const PostAuthorContext = createContext<string | undefined>(undefined);
 
 /* ------------------------------------------------------------- ô nhập */
 
+/** Một ảnh trong dải xem trước của ô nhập: đang tải, đã xong (có `attachment`) hoặc lỗi. */
+interface PendingFile {
+  readonly key: string;
+  readonly fileName: string;
+  readonly preview?: string;
+  /** URL tạm của ảnh vừa chọn, phải thu hồi khi bỏ ảnh hoặc rời ô nhập. */
+  readonly objectUrl?: string;
+  readonly status: 'uploading' | 'done' | 'error';
+  readonly attachment?: SocialAttachment;
+  readonly error?: string;
+}
+
 interface CommentInputProps {
   readonly initialText?: string;
   readonly initialPicks?: readonly MentionPick[];
@@ -49,7 +66,13 @@ interface CommentInputProps {
   readonly autoFocus?: boolean;
   /** Hiện ảnh người đang nhập ở đầu thanh (ô bình luận chính). */
   readonly avatar?: SocialUserRef;
-  readonly onSubmit: (body: string, mentionUserIds: readonly string[]) => Promise<void>;
+  /** Ảnh đã đính kèm sẵn (khi sửa bình luận). */
+  readonly initialFiles?: readonly SocialAttachment[];
+  readonly onSubmit: (
+    body: string,
+    mentionUserIds: readonly string[],
+    attachmentIds: readonly string[],
+  ) => Promise<void>;
   readonly onCancel?: () => void;
 }
 
@@ -60,6 +83,7 @@ function CommentInput({
   submitLabel,
   autoFocus = false,
   avatar,
+  initialFiles = [],
   onSubmit,
   onCancel,
 }: CommentInputProps) {
@@ -69,6 +93,69 @@ function CommentInput({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const area = useRef<HTMLTextAreaElement>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const fileCounter = useRef(0);
+  const [dragging, setDragging] = useState(false);
+  const [files, setFiles] = useState<PendingFile[]>(() =>
+    initialFiles.map((file) => ({
+      key: file.id,
+      fileName: file.fileName,
+      preview: file.url,
+      status: 'done' as const,
+      attachment: file,
+    })),
+  );
+  // Giữ danh sách mới nhất để thu hồi URL xem trước khi rời khỏi ô nhập.
+  const filesRef = useRef(files);
+  filesRef.current = files;
+  useEffect(
+    () => () => {
+      for (const file of filesRef.current) if (file.objectUrl) URL.revokeObjectURL(file.objectUrl);
+    },
+    [],
+  );
+
+  const patchFile = (key: string, patch: Partial<PendingFile>) =>
+    setFiles((list) => list.map((file) => (file.key === key ? { ...file, ...patch } : file)));
+
+  const removeFile = (key: string) =>
+    setFiles((list) => {
+      const target = list.find((file) => file.key === key);
+      if (target?.objectUrl) URL.revokeObjectURL(target.objectUrl);
+      return list.filter((file) => file.key !== key);
+    });
+
+  /** Kiểm, nén rồi tải từng ảnh lên; ảnh lỗi giữ lại trong dải xem trước để người dùng gỡ. */
+  const addFiles = (incoming: readonly File[]) => {
+    const rejected: string[] = [];
+    let count = files.length;
+    for (const original of incoming) {
+      const problem = validateCommentImage(original, count);
+      if (problem) {
+        rejected.push(problem);
+        continue;
+      }
+      count += 1;
+      fileCounter.current += 1;
+      const key = `new-${fileCounter.current}`;
+      const objectUrl = URL.createObjectURL(original);
+      setFiles((list) => [...list, { key, fileName: original.name, preview: objectUrl, objectUrl, status: 'uploading' }]);
+      void prepareCommentImage(original)
+        .then((prepared) => {
+          if (exceedsCommentImageLimit(prepared.size)) throw new Error(`Ảnh "${original.name}" vẫn quá lớn sau khi nén.`);
+          return uploadAttachment(prepared, 'comment');
+        })
+        .then((attachment) => patchFile(key, { status: 'done', attachment }))
+        .catch((cause) =>
+          patchFile(key, { status: 'error', error: errorMessage(cause, `Không tải được ảnh "${original.name}".`) }),
+        );
+    }
+    setError(rejected.length > 0 ? rejected.join(' ') : undefined);
+  };
+
+  const uploading = files.some((file) => file.status === 'uploading');
+  const failed = files.find((file) => file.status === 'error');
+  const attachmentIds = files.flatMap((file) => (file.status === 'done' && file.attachment ? [file.attachment.id] : []));
 
   const mention = activeMentionQuery(text, caret);
   const { people, loading } = usePeopleSearch(mention?.query ?? '', Boolean(mention));
@@ -96,7 +183,11 @@ function CommentInput({
 
   const submit = async () => {
     const trimmed = text.trim();
-    if (!trimmed || busy) return;
+    if ((!trimmed && attachmentIds.length === 0) || busy || uploading) return;
+    if (failed) {
+      setError('Có ảnh tải lên bị lỗi. Hãy bỏ ảnh đó rồi gửi lại.');
+      return;
+    }
     const encoded = encodeMentions(trimmed, picks);
     if (encoded.body.length > SOCIAL_COMMENT_MAX) {
       setError(`Bình luận tối đa ${SOCIAL_COMMENT_MAX.toLocaleString('vi-VN')} ký tự.`);
@@ -105,10 +196,12 @@ function CommentInput({
     setBusy(true);
     setError(undefined);
     try {
-      await onSubmit(encoded.body, encoded.userIds);
+      await onSubmit(encoded.body, encoded.userIds, attachmentIds);
       setText('');
       setPicks([]);
       setCaret(0);
+      for (const file of files) if (file.objectUrl) URL.revokeObjectURL(file.objectUrl);
+      setFiles([]);
       if (area.current) area.current.style.height = 'auto';
     } catch (cause) {
       setError(errorMessage(cause, 'Không gửi được bình luận.'));
@@ -133,10 +226,25 @@ function CommentInput({
     });
   };
 
-  const canSend = !busy && text.trim().length > 0;
+  const canSend = !busy && !uploading && (text.trim().length > 0 || attachmentIds.length > 0);
 
   return (
-    <div className={styles.commentInput}>
+    <div
+      className={styles.commentInput}
+      data-dragging={dragging || undefined}
+      onDragOver={(event) => {
+        if (!event.dataTransfer.types.includes('Files')) return;
+        event.preventDefault();
+        setDragging(true);
+      }}
+      onDragLeave={() => setDragging(false)}
+      onDrop={(event) => {
+        if (!event.dataTransfer.files.length) return;
+        event.preventDefault();
+        setDragging(false);
+        addFiles(Array.from(event.dataTransfer.files));
+      }}
+    >
       <div className={extras.commentBar}>
         {avatar ? <Avatar user={avatar} size={28} /> : null}
         <div className={extras.commentField}>
@@ -154,6 +262,12 @@ function CommentInput({
               grow(event.target);
             }}
             onSelect={(event) => setCaret(event.currentTarget.selectionStart)}
+            onPaste={(event) => {
+              const images = Array.from(event.clipboardData.files).filter((file) => file.type.startsWith('image/'));
+              if (images.length === 0) return;
+              event.preventDefault();
+              addFiles(images);
+            }}
             onKeyDown={(event) => {
               if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
                 event.preventDefault();
@@ -177,6 +291,27 @@ function CommentInput({
           </button>
           <button
             type="button"
+            className={extras.commentTool}
+            aria-label="Đính kèm ảnh"
+            title="Đính kèm ảnh (hoặc dán, kéo thả)"
+            disabled={busy || files.length >= SOCIAL_COMMENT_MAX_ATTACHMENTS}
+            onClick={() => fileInput.current?.click()}
+          >
+            <ImagePlus size={16} />
+          </button>
+          <input
+            ref={fileInput}
+            type="file"
+            accept="image/jpeg,image/png,image/gif,image/webp"
+            multiple
+            hidden
+            onChange={(event) => {
+              addFiles(Array.from(event.target.files ?? []));
+              event.target.value = '';
+            }}
+          />
+          <button
+            type="button"
             className={extras.commentSend}
             aria-label={submitLabel}
             title={`${submitLabel} (Ctrl+Enter)`}
@@ -187,6 +322,30 @@ function CommentInput({
           </button>
         </div>
       </div>
+      {files.length > 0 ? (
+        <ul className={styles.commentFiles} aria-label="Ảnh đính kèm">
+          {files.map((file) => (
+            <li key={file.key} className={styles.commentFile} data-status={file.status} title={file.error}>
+              {file.preview ? <img src={file.preview} alt={file.fileName} /> : null}
+              {file.status === 'uploading' ? <Loader2 size={18} className={styles.spin} aria-label="Đang tải lên" /> : null}
+              <button
+                type="button"
+                className={styles.commentFileRemove}
+                aria-label={`Bỏ ảnh ${file.fileName}`}
+                disabled={busy}
+                onClick={() => removeFile(file.key)}
+              >
+                <X size={12} />
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {failed?.error ? (
+        <p role="alert" className={styles.fieldError}>
+          {failed.error}
+        </p>
+      ) : null}
       {mention ? (
         <div className={styles.suggestPanel}>
           <PeopleList people={people} loading={loading} onPick={pick} />
@@ -285,12 +444,13 @@ function CommentRow({ comment, canComment, onReply, onChanged, onRemoved, highli
           <CommentInput
             initialText={decoded.text}
             initialPicks={decoded.picks}
+            initialFiles={comment.attachments}
             placeholder="Sửa bình luận"
             submitLabel="Lưu"
             autoFocus
             onCancel={() => setEditing(false)}
-            onSubmit={async (body, mentionUserIds) => {
-              const saved = await updateComment(comment.id, { body, mentionUserIds });
+            onSubmit={async (body, mentionUserIds, attachmentIds) => {
+              const saved = await updateComment(comment.id, { body, mentionUserIds, attachmentIds });
               setEditing(false);
               onChanged(saved);
             }}
@@ -317,17 +477,19 @@ function CommentRow({ comment, canComment, onReply, onChanged, onRemoved, highli
                     </span>
                   ) : null}
                 </div>
-                <p className={styles.commentBody}>
-                  {parseCommentBody(comment.body, comment.mentions).map((part, index) =>
-                    part.type === 'mention' ? (
-                      <span key={`${part.userId}-${index}`} className={styles.mention}>
-                        @{part.name}
-                      </span>
-                    ) : (
-                      <span key={index}>{part.text}</span>
-                    ),
-                  )}
-                </p>
+                {comment.body ? (
+                  <p className={styles.commentBody}>
+                    {parseCommentBody(comment.body, comment.mentions).map((part, index) =>
+                      part.type === 'mention' ? (
+                        <span key={`${part.userId}-${index}`} className={styles.mention}>
+                          @{part.name}
+                        </span>
+                      ) : (
+                        <span key={index}>{part.text}</span>
+                      ),
+                    )}
+                  </p>
+                ) : null}
               </div>
               {comment.reactionTotal > 0 ? (
                 <button
@@ -353,6 +515,11 @@ function CommentRow({ comment, canComment, onReply, onChanged, onRemoved, highli
                 </button>
               ) : null}
             </div>
+            {comment.attachments.length > 0 ? (
+              <div className={styles.commentImages}>
+                <ImageGrid images={comment.attachments} />
+              </div>
+            ) : null}
             <div className={styles.commentMeta}>
               {canComment ? (
                 <span className={styles.commentReactWrap}>
@@ -554,8 +721,8 @@ function RootComment({ postId, comment, canComment, onChanged, onRemoved, onCoun
             submitLabel="Trả lời"
             autoFocus
             onCancel={() => setReplying(false)}
-            onSubmit={async (body, mentionUserIds) => {
-              const created = await createComment(postId, { body, parentId: comment.id, mentionUserIds });
+            onSubmit={async (body, mentionUserIds, attachmentIds) => {
+              const created = await createComment(postId, { body, parentId: comment.id, mentionUserIds, attachmentIds });
               if (!expanded) {
                 setExpanded(true);
                 await fetchReplies();
@@ -639,8 +806,8 @@ export function CommentSection({ postId, postAuthorId, me, canComment, commentsD
           avatar={me.user}
           placeholder="Viết bình luận… (gõ @ để nhắc tên)"
           submitLabel="Gửi"
-          onSubmit={async (body, mentionUserIds) => {
-            const created = await createComment(postId, { body, mentionUserIds });
+          onSubmit={async (body, mentionUserIds, attachmentIds) => {
+            const created = await createComment(postId, { body, mentionUserIds, attachmentIds });
             setItems((list) => mergePages(list, [created]));
             onCountChange(1);
           }}

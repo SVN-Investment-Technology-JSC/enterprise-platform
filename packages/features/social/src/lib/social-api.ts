@@ -3,6 +3,7 @@ import type {
   CreateSocialPostRequest,
   CreateSocialTopicRequest,
   InitiateSocialAttachmentRequest,
+  SocialAttachmentPurpose,
   InitiateSocialAttachmentResponse,
   SocialAttachment,
   SocialComment,
@@ -155,11 +156,15 @@ export const deleteComment = (commentId: string) =>
  * Tải một tệp lên theo hai bước rồi xác nhận: xin URL ký sẵn, PUT thẳng nội dung lên
  * đó (không qua `authFetch`, URL đã ký), rồi báo hoàn tất để server kiểm tra tệp.
  */
-export async function uploadAttachment(file: File): Promise<SocialAttachment> {
+export async function uploadAttachment(
+  file: File,
+  purpose: SocialAttachmentPurpose = 'post',
+): Promise<SocialAttachment> {
   const initiate: InitiateSocialAttachmentRequest = {
     fileName: file.name,
     contentType: file.type,
     sizeBytes: file.size,
+    purpose,
   };
   const ticket = await request<InitiateSocialAttachmentResponse>('/attachments/uploads', json('POST', initiate));
   const put = await fetch(ticket.uploadUrl, {
