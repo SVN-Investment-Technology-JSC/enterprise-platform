@@ -483,12 +483,14 @@ function setup(
   options: { usage?: StorageModuleUsage[]; limit?: TenantStorageLimit; openRoots?: boolean } = {},
 ) {
   const fake = fakeStore(options.usage, { openRoots: options.openRoots });
-  const quota = new StorageQuotaService(fake.store, { storageLimit: async () => options.limit });
+  const clock = { now: 0 };
+  const quota = new StorageQuotaService(fake.store, { storageLimit: async () => options.limit }, () => clock.now);
   const files = fakeStorage();
   const organization = fakeOrganization();
   const access = new FolderAccessService(fake.store, organization.reader, () => TODAY);
   return {
     ...fake,
+    clock,
     files,
     organization: organization.state,
     service: new CompanyDocumentService(fake.store, quota, access, files.port),
@@ -999,12 +1001,13 @@ describe('CompanyDocumentService – nhân bản', () => {
 
   it('vượt hạn mức thì không sao chép tệp', async () => {
     const usage: StorageModuleUsage[] = [];
-    const { service, files, documentId } = await ready({
+    const { service, files, documentId, clock } = await ready({
       usage,
       limit: { resourceKey: 'storage_gb', limitValue: 50, enforcement: 'hard', source: 'plan', planKey: 'standard', addOnValue: 0 },
     });
     // Kho đầy sau khi tài liệu gốc đã tải lên.
     usage.push({ moduleKey: 'workspace', label: 'Workspace', bytes: 50 * GB - 1_000_000, files: 10 });
+    clock.now += 60_000; // quá hạn cache dung lượng để đọc lại số thật
     await expect(service.duplicate(actor(), documentId)).rejects.toBeInstanceOf(StorageQuotaExceededError);
     expect(files.copies).toEqual([]);
   });
