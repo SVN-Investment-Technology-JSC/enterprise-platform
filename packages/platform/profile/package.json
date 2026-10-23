@@ -1,0 +1,60 @@
+{
+  "name": "@enterprise-platform/platform-profile",
+  "version": "0.0.1",
+  "private": true,
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./package.json": "./package.json"
+  },
+  "nx": {
+    "name": "platform-profile",
+    "tags": [
+      "type:platform",
+      "scope:profile"
+    ],
+    "targets": {
+      "test": {
+        "inputs": [
+          "default",
+          "^production",
+          "{workspaceRoot}/jest.preset.js",
+          "{workspaceRoot}/migrations/tenant/0001-integration.sql",
+          "{workspaceRoot}/migrations/tenant/core/*.sql",
+          {
+            "env": "CORE_CHAT_TEST_ADMIN_URL"
+          },
+          {
+            "externalDependencies": [
+              "jest",
+              "@nx/jest",
+              "ts-jest",
+              "@swc/jest"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "dependencies": {
+    "@enterprise-platform/adapter-storage": "workspace:*",
+    "@enterprise-platform/contracts-chat": "workspace:*",
+    "@enterprise-platform/contracts-identity": "workspace:*",
+    "@enterprise-platform/contracts-integration": "workspace:*",
+    "@enterprise-platform/platform-identity": "workspace:*",
+    "@nestjs/common": "^11.2.1",
+    "@nestjs/platform-express": "^11.0.0",
+    "pg": "^8.23.0"
+  },
+  "devDependencies": {
+    "@enterprise-platform/platform-entitlement": "workspace:*",
+    "@types/express": "^5.0.6",
+    "@types/multer": "^2.2.0",
+    "@types/pg": "^8.21.0"
+  }
+}

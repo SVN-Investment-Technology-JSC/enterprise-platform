@@ -228,6 +228,9 @@ importers:
       '@enterprise-platform/platform-brand':
         specifier: workspace:*
         version: link:../../packages/platform/brand
+      '@enterprise-platform/platform-chat':
+        specifier: workspace:*
+        version: link:../../packages/platform/chat
       '@enterprise-platform/platform-data-import':
         specifier: workspace:*
         version: link:../../packages/platform/data-import
@@ -237,6 +240,9 @@ importers:
       '@enterprise-platform/platform-identity':
         specifier: workspace:*
         version: link:../../packages/platform/identity
+      '@enterprise-platform/platform-profile':
+        specifier: workspace:*
+        version: link:../../packages/platform/profile
       '@enterprise-platform/platform-tenancy':
         specifier: workspace:*
         version: link:../../packages/platform/tenancy
@@ -1411,6 +1417,12 @@ importers:
         specifier: ^2.3.0
         version: 2.8.1
 
+  packages/contracts/chat:
+    dependencies:
+      tslib:
+        specifier: ^2.3.0
+        version: 2.8.1
+
   packages/contracts/data-import: {}
 
   packages/contracts/finance:
@@ -2050,6 +2062,40 @@ importers:
         specifier: ^5.0.6
         version: 5.0.6
 
+  packages/platform/chat:
+    dependencies:
+      '@enterprise-platform/adapter-storage':
+        specifier: workspace:*
+        version: link:../../adapters/storage
+      '@enterprise-platform/contracts-chat':
+        specifier: workspace:*
+        version: link:../../contracts/chat
+      '@enterprise-platform/contracts-identity':
+        specifier: workspace:*
+        version: link:../../contracts/identity
+      '@enterprise-platform/contracts-integration':
+        specifier: workspace:*
+        version: link:../../contracts/integration
+      '@enterprise-platform/platform-identity':
+        specifier: workspace:*
+        version: link:../identity
+      '@nestjs/common':
+        specifier: ^11.2.1
+        version: 11.2.1(reflect-metadata@0.2.2)(rxjs@7.8.1)
+      pg:
+        specifier: ^8.23.0
+        version: 8.23.0
+    devDependencies:
+      '@enterprise-platform/platform-entitlement':
+        specifier: workspace:*
+        version: link:../entitlement
+      '@types/express':
+        specifier: ^5.0.6
+        version: 5.0.6
+      '@types/pg':
+        specifier: ^8.21.0
+        version: 8.21.0
+
   packages/platform/data-import:
     dependencies:
       '@enterprise-platform/contracts-data-import':
@@ -2136,6 +2182,46 @@ importers:
       '@types/express':
         specifier: ^5.0.6
         version: 5.0.6
+
+  packages/platform/profile:
+    dependencies:
+      '@enterprise-platform/adapter-storage':
+        specifier: workspace:*
+        version: link:../../adapters/storage
+      '@enterprise-platform/contracts-chat':
+        specifier: workspace:*
+        version: link:../../contracts/chat
+      '@enterprise-platform/contracts-identity':
+        specifier: workspace:*
+        version: link:../../contracts/identity
+      '@enterprise-platform/contracts-integration':
+        specifier: workspace:*
+        version: link:../../contracts/integration
+      '@enterprise-platform/platform-identity':
+        specifier: workspace:*
+        version: link:../identity
+      '@nestjs/common':
+        specifier: ^11.2.1
+        version: 11.2.1(reflect-metadata@0.2.2)(rxjs@7.8.1)
+      '@nestjs/platform-express':
+        specifier: ^11.0.0
+        version: 11.2.1(@nestjs/common@11.2.1(reflect-metadata@0.2.2)(rxjs@7.8.1))(@nestjs/core@11.2.1)
+      pg:
+        specifier: ^8.23.0
+        version: 8.23.0
+    devDependencies:
+      '@enterprise-platform/platform-entitlement':
+        specifier: workspace:*
+        version: link:../entitlement
+      '@types/express':
+        specifier: ^5.0.6
+        version: 5.0.6
+      '@types/multer':
+        specifier: ^2.2.0
+        version: 2.2.0
+      '@types/pg':
+        specifier: ^8.21.0
+        version: 8.21.0
 
   packages/platform/tenancy:
     dependencies:

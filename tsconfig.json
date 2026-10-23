@@ -212,6 +212,15 @@
     },
     {
       "path": "./apps/social-web"
+    },
+    {
+      "path": "./packages/contracts/chat"
+    },
+    {
+      "path": "./packages/platform/chat"
+    },
+    {
+      "path": "./packages/platform/profile"
     }
   ]
 }

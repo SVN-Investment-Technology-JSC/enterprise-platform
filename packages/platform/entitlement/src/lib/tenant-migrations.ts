@@ -97,6 +97,9 @@ export const TENANT_CORE_MIGRATIONS: readonly TenantModuleMigration[] = [
     version: '0013-user-permission-grants',
     path: 'tenant/core/0013-user-permission-grants.sql',
   },
+  { version: '0014-user-profiles', path: 'tenant/core/0014-user-profiles.sql' },
+  // Chat nội bộ của core: chạy cho mọi tenant, không phụ thuộc phân hệ nào được bật.
+  { version: '0015-core-chat', path: 'tenant/core/0015-core-chat.sql' },
 ];
 
 export const TENANT_MODULE_MIGRATIONS: Readonly<
