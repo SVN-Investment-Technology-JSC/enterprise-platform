@@ -11,6 +11,7 @@ import type { AttachmentStorage } from './attachment-storage.port.js';
 import type { OrganizationDirectory } from './organization-directory.port.js';
 import type { SocialActor } from './social-actor.js';
 import { SocialAttachmentService } from './social-attachment.service.js';
+import type { SocialCommentAttachmentStore } from './social-comment-attachment-store.port.js';
 import type { SocialCommentReactionStore } from './social-comment-reaction-store.port.js';
 import { SocialCommentService } from './social-comment.service.js';
 import { SocialMeService } from './social-me.service.js';
@@ -233,6 +234,11 @@ class FakeStore implements SocialStore {
         .map(([key, type]) => ({ userId: key.split('|')[1], type, reactedAt: '2026-01-01T00:00:00.000000Z' })),
   };
 
+  linkToComment(attachmentId: string, commentId: string): void {
+    const row = this.attachments_.get(attachmentId);
+    if (row) this.attachments_.set(attachmentId, { ...row, commentId });
+  }
+
   private commentView(comment: StoredComment): CommentRow {
     return {
       ...comment,
@@ -270,6 +276,7 @@ class FakeStore implements SocialStore {
         deleted: false,
       });
       this.mentionsByComment.set(input.id, [...input.mentionUserIds]);
+      for (const attachmentId of input.attachmentIds ?? []) this.linkToComment(attachmentId, input.id);
       this.events.push(...input.events);
     },
     update: async (_t, id, patch) => {
@@ -279,6 +286,7 @@ class FakeStore implements SocialStore {
         comment.editedAt = this.stamp();
       }
       this.mentionsByComment.set(id, [...patch.mentionUserIds]);
+      for (const attachmentId of patch.attachmentIds ?? []) this.linkToComment(attachmentId, id);
       this.events.push(...patch.events);
     },
     softDelete: async (_t, id) => {
@@ -320,7 +328,7 @@ class FakeStore implements SocialStore {
     },
     listOrphans: async (_t, _olderThan, limit) =>
       [...this.attachments_.values()]
-        .filter((a) => !a.postId)
+        .filter((a) => !a.postId && !a.commentId)
         .slice(0, limit)
         .map((a) => ({ id: a.id, storageKey: a.storageKey })),
     deleteByIds: async (_t, ids) => {
@@ -359,6 +367,30 @@ class FakeStorage implements AttachmentStorage {
     const failed = keys.filter((key) => this.failDelete.has(key));
     this.deleted.push(...keys.filter((key) => !this.failDelete.has(key)));
     return { failed };
+  }
+}
+
+class FakeCommentAttachments implements SocialCommentAttachmentStore {
+  constructor(private readonly store: FakeStore) {}
+  async forComments(_tenantId: string, commentIds: readonly string[]) {
+    const map = new Map<string, AttachmentRow[]>();
+    for (const row of this.store.attachments_.values()) {
+      if (row.commentId && row.completed && commentIds.includes(row.commentId)) {
+        map.set(row.commentId, [...(map.get(row.commentId) ?? []), row]);
+      }
+    }
+    return map;
+  }
+  async detach(_tenantId: string, commentId: string, keepIds: readonly string[]) {
+    const detached: AttachmentRow[] = [];
+    for (const [id, row] of this.store.attachments_) {
+      if (row.commentId === commentId && !keepIds.includes(id)) {
+        const { commentId: _removed, ...rest } = row;
+        this.store.attachments_.set(id, rest);
+        detached.push(row);
+      }
+    }
+    return detached;
   }
 }
 
@@ -402,7 +434,15 @@ function setup() {
     storage,
     posts: new SocialPostService(store, directory, storage),
     reactions: new SocialReactionService(store, directory),
-    comments: new SocialCommentService(store, directory, undefined, undefined, new FakeCommentReactions()),
+    comments: new SocialCommentService(
+      store,
+      directory,
+      undefined,
+      undefined,
+      new FakeCommentReactions(),
+      new FakeCommentAttachments(store),
+      storage,
+    ),
     topics: new SocialTopicService(store),
     attachments: new SocialAttachmentService(store, storage),
     me: new SocialMeService(directory),
@@ -665,6 +705,129 @@ describe('bình luận', () => {
     const post = await posts.create(alice, { bodyHtml: '<p>x</p>' });
     await expectCode(comments.create(readOnly, post.id, { body: 'x' }), 'FORBIDDEN');
     await expectCode(comments.create(bob, post.id, { body: '   ' }), 'VALIDATION');
+  });
+});
+
+describe('tệp đính kèm của bình luận', () => {
+  type Services = ReturnType<typeof setup>;
+
+  /** Tải xong một tệp (initiate + upload giả + complete) và trả id. */
+  async function uploadFile(
+    services: Services,
+    who: SocialActor,
+    file: { fileName?: string; contentType?: string; sizeBytes?: number } = {},
+    purpose: 'post' | 'comment' = 'comment',
+  ): Promise<string> {
+    const sizeBytes = file.sizeBytes ?? 100;
+    const { attachmentId } = await services.attachments.initiate(who, {
+      fileName: file.fileName ?? 'anh.png',
+      contentType: file.contentType ?? 'image/png',
+      sizeBytes,
+      purpose,
+    });
+    services.storage.uploaded.set(await findKey(services.attachments, attachmentId), sizeBytes);
+    await services.attachments.complete(who, attachmentId);
+    return attachmentId;
+  }
+
+  it('initiate theo nơi gắn: bình luận chỉ nhận ảnh tối đa 10 MB, bài viết vẫn nhận PDF', async () => {
+    const { attachments } = setup();
+    const MB = 1024 * 1024;
+    await expectCode(
+      attachments.initiate(alice, { fileName: 'a.pdf', contentType: 'application/pdf', sizeBytes: 10, purpose: 'comment' }),
+      'VALIDATION',
+    );
+    await expectCode(
+      attachments.initiate(alice, { fileName: 'a.png', contentType: 'image/png', sizeBytes: 10 * MB + 1, purpose: 'comment' }),
+      'VALIDATION',
+    );
+    await attachments.initiate(alice, { fileName: 'a.png', contentType: 'image/png', sizeBytes: 10 * MB, purpose: 'comment' });
+    await attachments.initiate(alice, { fileName: 'a.pdf', contentType: 'application/pdf', sizeBytes: 20 * MB });
+    await expectCode(
+      attachments.initiate(alice, { fileName: 'a.png', contentType: 'image/png', sizeBytes: 1, purpose: 'video' as never }),
+      'VALIDATION',
+    );
+  });
+
+  it('bình luận kèm ảnh hiện tệp có URL; chỉ có ảnh thì nội dung được để trống', async () => {
+    const services = setup();
+    const post = await services.posts.create(alice, { bodyHtml: '<p>x</p>' });
+    const fileId = await uploadFile(services, bob);
+    const created = await services.comments.create(bob, post.id, { body: '', attachmentIds: [fileId] });
+    expect(created.attachments.map((file) => [file.id, file.isImage])).toEqual([[fileId, true]]);
+    expect(created.attachments[0]?.url).toContain('https://storage.test/down/');
+    const listed = (await services.comments.list(alice, post.id)).items[0];
+    expect(listed?.attachments).toHaveLength(1);
+    await expectCode(services.comments.create(bob, post.id, { body: '   ' }), 'VALIDATION');
+  });
+
+  it('từ chối tệp của người khác, chưa tải xong, không phải ảnh, quá 4 tệp hoặc đã gắn nơi khác', async () => {
+    const services = setup();
+    const post = await services.posts.create(alice, { bodyHtml: '<p>x</p>' });
+    const mine = await uploadFile(services, bob);
+    await expectCode(services.comments.create(alice, post.id, { body: 'x', attachmentIds: [mine] }), 'ATTACHMENT_UNAVAILABLE');
+
+    const pending = (
+      await services.attachments.initiate(bob, { fileName: 'b.png', contentType: 'image/png', sizeBytes: 5, purpose: 'comment' })
+    ).attachmentId;
+    await expectCode(services.comments.create(bob, post.id, { body: 'x', attachmentIds: [pending] }), 'ATTACHMENT_UNAVAILABLE');
+
+    // PDF tải lên cho bài viết không gắn được vào bình luận.
+    const pdf = await uploadFile(services, bob, { fileName: 'a.pdf', contentType: 'application/pdf' }, 'post');
+    await expectCode(services.comments.create(bob, post.id, { body: 'x', attachmentIds: [pdf] }), 'ATTACHMENT_UNAVAILABLE');
+
+    const five = await Promise.all([1, 2, 3, 4, 5].map(() => uploadFile(services, bob)));
+    await expectCode(services.comments.create(bob, post.id, { body: 'x', attachmentIds: five }), 'VALIDATION');
+
+    await services.comments.create(bob, post.id, { body: 'một', attachmentIds: [mine] });
+    await expectCode(services.comments.create(bob, post.id, { body: 'hai', attachmentIds: [mine] }), 'ATTACHMENT_UNAVAILABLE');
+  });
+
+  it('sửa bình luận: thiếu attachmentIds là giữ nguyên, gỡ tệp thì xoá khỏi kho ngay', async () => {
+    const services = setup();
+    const post = await services.posts.create(alice, { bodyHtml: '<p>x</p>' });
+    const first = await uploadFile(services, bob);
+    const second = await uploadFile(services, bob);
+    const created = await services.comments.create(bob, post.id, { body: 'a', attachmentIds: [first, second] });
+
+    const kept = await services.comments.update(bob, created.id, { body: 'a sửa' });
+    expect(kept.attachments).toHaveLength(2);
+
+    const trimmed = await services.comments.update(bob, created.id, { body: 'a sửa', attachmentIds: [first] });
+    expect(trimmed.attachments.map((file) => file.id)).toEqual([first]);
+    expect(services.storage.deleted).toHaveLength(1);
+    expect(await services.store.attachments.findById(TENANT, second)).toBeUndefined();
+
+    // Gỡ hết tệp mà không còn chữ thì bình luận rỗng bị từ chối.
+    await expectCode(services.comments.update(bob, created.id, { body: ' ', attachmentIds: [] }), 'VALIDATION');
+  });
+
+  it('xoá bình luận thì xoá ngay tệp trong kho; kho từ chối xoá thì giữ dòng cho job dọn thử lại', async () => {
+    const services = setup();
+    const post = await services.posts.create(alice, { bodyHtml: '<p>x</p>' });
+    const fileId = await uploadFile(services, bob);
+    const stuckId = await uploadFile(services, bob);
+    const withFile = await services.comments.create(bob, post.id, { body: 'a', attachmentIds: [fileId] });
+    await services.comments.remove(bob, withFile.id);
+    expect(services.storage.deleted).toHaveLength(1);
+    expect(await services.store.attachments.findById(TENANT, fileId)).toBeUndefined();
+
+    const other = await services.comments.create(bob, post.id, { body: 'b', attachmentIds: [stuckId] });
+    services.storage.failDelete.add(await findKey(services.attachments, stuckId));
+    await services.comments.remove(bob, other.id);
+    // Dòng còn lại, đã gỡ khỏi bình luận (mồ côi) để job dọn thử lại.
+    const left = await services.store.attachments.findById(TENANT, stuckId);
+    expect(left).toBeDefined();
+    expect(left?.commentId).toBeUndefined();
+  });
+
+  it('bình luận đã xoá không lộ tệp; trang bình luận mặc định 10', async () => {
+    const services = setup();
+    const post = await services.posts.create(alice, { bodyHtml: '<p>x</p>' });
+    for (let i = 0; i < 12; i += 1) await services.comments.create(bob, post.id, { body: `c${i}` });
+    const page = await services.comments.list(alice, post.id);
+    expect(page.items).toHaveLength(10);
+    expect(page.nextCursor).toBeDefined();
   });
 });
 

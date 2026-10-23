@@ -1,16 +1,20 @@
 import { randomUUID } from 'node:crypto';
-import type {
-  CreateSocialCommentRequest,
-  SetSocialReactionRequest,
-  SocialComment,
-  SocialCommentPage,
-  SocialReactionSummary,
-  SocialReactor,
-  UpdateSocialCommentRequest,
+import { Logger } from '@nestjs/common';
+import {
+  SOCIAL_COMMENT_MAX_ATTACHMENTS,
+  SOCIAL_COMMENT_PAGE_SIZE,
+  type CreateSocialCommentRequest,
+  type SetSocialReactionRequest,
+  type SocialComment,
+  type SocialCommentPage,
+  type SocialReactionSummary,
+  type SocialReactor,
+  type UpdateSocialCommentRequest,
 } from '@enterprise-platform/contracts-social';
 import { mayCommentOnPost, mayEditContent, mayRead, mayWrite } from '../domain/social-principal.js';
 import {
   assertReplyTarget,
+  attachmentRulesFor,
   decodeCursor,
   encodeCursor,
   mentionIdsInBody,
@@ -23,6 +27,7 @@ import {
   toIso,
 } from '../domain/social-rules.js';
 import {
+  SocialAttachmentUnavailableError,
   SocialCommentNotFoundError,
   SocialForbiddenError,
   SocialPostNotFoundError,
@@ -32,21 +37,32 @@ import { SocialCommentsDisabledError } from '../domain/social-visibility.error.j
 import type { OrganizationDirectory } from './organization-directory.port.js';
 import { canViewPostInScope, type PostVisibilitySubject } from './ports/post-visibility.port.js';
 import type { ViewerScopePort } from './ports/viewer-scope.port.js';
+import type { AttachmentStorage } from './attachment-storage.port.js';
 import type { SocialActor } from './social-actor.js';
+import type { SocialCommentAttachmentStore } from './social-comment-attachment-store.port.js';
 import type { SocialCommentReactionStore } from './social-comment-reaction-store.port.js';
 import { SOCIAL_MAX_REACTORS } from './social-reaction.service.js';
 import type { SocialPostAccess } from './social-post-access.js';
 import type { CommentRow, SocialOutboxEvent, SocialStore } from './social-store.port.js';
-import { authorNameOf, commentCreatedEvent, knownUserIds, lookupUsers, mentionEvents } from './social-views.js';
+import {
+  authorNameOf,
+  commentCreatedEvent,
+  knownUserIds,
+  lookupUsers,
+  mentionEvents,
+  toAttachmentView,
+} from './social-views.js';
 
-/** Cỡ trang bình luận mặc định. */
-const COMMENT_PAGE_SIZE = 20;
+/** Cỡ trang bình luận mặc định: nhỏ vì bình luận có thể kèm ảnh. */
+const COMMENT_PAGE_SIZE = SOCIAL_COMMENT_PAGE_SIZE;
 
 /**
  * Bình luận: chỉ hai cấp (gốc và trả lời), nội dung văn bản thuần, mention ghi
  * `@[userId]`. Xoá là xoá mềm để giữ chuỗi trả lời.
  */
 export class SocialCommentService {
+  private readonly logger = new Logger(SocialCommentService.name);
+
   /**
    * `access` (P2) áp luật nhìn thấy bài: bài nhóm riêng tư chỉ thành viên bình luận được, bài chưa
    * đăng không nhận bình luận. Thiếu `access` thì chạy như P1 (chỉ kiểm bài đã đăng).
@@ -62,6 +78,9 @@ export class SocialCommentService {
     private readonly viewerScopes?: Pick<ViewerScopePort, 'scopesOf'>,
     /** Phản ứng trên bình luận. Thiếu thì bình luận không có phản ứng (số đếm luôn 0). */
     private readonly reactions?: SocialCommentReactionStore,
+    /** Ảnh đính kèm bình luận. Thiếu một trong hai thì bình luận không có tệp (và từ chối `attachmentIds`). */
+    private readonly commentAttachments?: SocialCommentAttachmentStore,
+    private readonly storage?: AttachmentStorage,
   ) {}
 
   /**
@@ -102,7 +121,9 @@ export class SocialCommentService {
       : await this.requirePost(actor, postId);
     // Đợt 2: bài đã tắt bình luận không nhận bình luận hay trả lời mới (bình luận cũ vẫn sửa, xoá được).
     if ((post as { commentsDisabled?: boolean }).commentsDisabled === true) throw new SocialCommentsDisabledError();
-    const body = normalizeCommentBody(input.body);
+    const attachmentIds = this.normalizeAttachmentIds(input.attachmentIds);
+    const body = normalizeCommentBody(input.body, { allowEmpty: attachmentIds.length > 0 });
+    await this.assertAttachable(actor, attachmentIds);
 
     let parent: CommentRow | undefined;
     if (input.parentId) {
@@ -149,6 +170,7 @@ export class SocialCommentService {
       authorId: actor.userId,
       body,
       mentionUserIds,
+      attachmentIds,
       events,
     });
     return (await this.hydrate(actor, [await this.requireComment(actor, commentId)]))[0];
@@ -160,7 +182,12 @@ export class SocialCommentService {
     if (row.deleted) throw new SocialCommentNotFoundError();
     if (!mayEditContent(actor, row.authorId)) throw new SocialForbiddenError();
     const input = request ?? ({} as UpdateSocialCommentRequest);
-    const body = normalizeCommentBody(input.body);
+    // Danh sách tệp mong muốn: thiếu là giữ nguyên tệp hiện có.
+    const current = (await this.commentAttachments?.forComments(actor.tenantId, [commentId]))?.get(commentId) ?? [];
+    const desiredIds =
+      input.attachmentIds === undefined ? current.map((file) => file.id) : this.normalizeAttachmentIds(input.attachmentIds);
+    const body = normalizeCommentBody(input.body, { allowEmpty: desiredIds.length > 0 });
+    await this.assertAttachable(actor, desiredIds, commentId);
     const mentionUserIds = await knownUserIds(
       this.directory,
       actor.tenantId,
@@ -180,7 +207,16 @@ export class SocialCommentService {
       authorName: await authorNameOf(this.directory, actor),
       mentionedUserIds: mentionUserIds.filter((id) => !before.has(id.toLowerCase())),
     });
-    await this.store.comments.update(actor.tenantId, commentId, { body, mentionUserIds, events });
+    await this.store.comments.update(actor.tenantId, commentId, {
+      body,
+      mentionUserIds,
+      ...(input.attachmentIds !== undefined ? { attachmentIds: desiredIds, uploaderId: actor.userId } : {}),
+      events,
+    });
+    if (input.attachmentIds !== undefined && this.commentAttachments) {
+      // Tệp bị gỡ khỏi bình luận thì xoá khỏi kho ngay.
+      await this.deleteFiles(actor.tenantId, await this.commentAttachments.detach(actor.tenantId, commentId, desiredIds));
+    }
     return (await this.hydrate(actor, [await this.requireComment(actor, commentId)]))[0];
   }
 
@@ -233,6 +269,10 @@ export class SocialCommentService {
     if (row.deleted) throw new SocialCommentNotFoundError();
     if (!mayEditContent(actor, row.authorId)) throw new SocialForbiddenError();
     await this.store.comments.softDelete(actor.tenantId, commentId, actor.userId);
+    // Bình luận xoá thì tệp xoá ngay khỏi kho (không đợi job dọn mồ côi).
+    if (this.commentAttachments) {
+      await this.deleteFiles(actor.tenantId, await this.commentAttachments.detach(actor.tenantId, commentId, []));
+    }
   }
 
   /* ---------------------------------------------------------------- nội bộ */
@@ -262,6 +302,67 @@ export class SocialCommentService {
         subject,
       ),
     );
+  }
+
+  /** Id tệp: không trùng, đúng dạng UUID, không quá số tệp tối đa; chỉ chấp nhận khi đã bật tệp cho bình luận. */
+  private normalizeAttachmentIds(ids: readonly string[] | undefined): string[] {
+    const unique = [...new Set((ids ?? []).map((id) => requireUuid(id, 'Mã tệp').toLowerCase()))];
+    if (unique.length === 0) return [];
+    if (!this.commentAttachments || !this.storage) throw new SocialAttachmentUnavailableError();
+    if (unique.length > SOCIAL_COMMENT_MAX_ATTACHMENTS) {
+      throw new SocialValidationError(`Mỗi bình luận đính kèm tối đa ${SOCIAL_COMMENT_MAX_ATTACHMENTS} tệp.`);
+    }
+    return unique;
+  }
+
+  /**
+   * Kiểm trước khi gắn: tệp đã tải xong, của người bình luận (hoặc đã thuộc chính bình luận này), chưa gắn
+   * bài hay bình luận khác, và đúng luật của bình luận (chỉ ảnh, nhỏ hơn). Lỗi chi tiết từng tệp không lộ ra
+   * ngoài để khỏi lộ tệp của người khác.
+   */
+  private async assertAttachable(actor: SocialActor, ids: readonly string[], commentId?: string): Promise<void> {
+    if (ids.length === 0) return;
+    const rules = attachmentRulesFor('comment');
+    for (const id of ids) {
+      const row = await this.store.attachments.findById(actor.tenantId, id);
+      const owned = row?.commentId !== undefined && row.commentId === commentId;
+      const free = row !== undefined && row.commentId === undefined && row.postId === undefined;
+      if (
+        !row ||
+        !row.completed ||
+        !(owned || (free && row.uploadedBy === actor.userId)) ||
+        !rules.allowedTypes.includes(row.contentType) ||
+        row.sizeBytes > rules.maxBytes
+      ) {
+        throw new SocialAttachmentUnavailableError();
+      }
+    }
+  }
+
+  /** Xoá object rồi xoá dòng; object kho từ chối xoá thì giữ dòng (đã mồ côi) để job dọn thử lại. */
+  private async deleteFiles(
+    tenantId: string,
+    rows: readonly { readonly id: string; readonly storageKey: string }[],
+  ): Promise<void> {
+    if (rows.length === 0 || !this.storage) return;
+    let failed: readonly string[] = [];
+    try {
+      failed = (await this.storage.deleteObjects(rows.map((row) => row.storageKey))).failed;
+    } catch (error) {
+      this.logger.warn(`Không xoá được tệp bình luận của tenant ${tenantId}: ${String(error)}`);
+      return;
+    }
+    if (failed.length > 0) {
+      this.logger.warn(`Không xoá được ${failed.length} tệp bình luận của tenant ${tenantId}; job dọn sẽ thử lại.`);
+    }
+    const stuck = new Set(failed);
+    const deletable = rows.filter((row) => !stuck.has(row.storageKey));
+    if (deletable.length > 0) {
+      await this.store.attachments.deleteByIds(
+        tenantId,
+        deletable.map((row) => row.id),
+      );
+    }
   }
 
   private assertRead(actor: SocialActor): void {
@@ -297,6 +398,19 @@ export class SocialCommentService {
       for (const id of mentions.get(row.id) ?? []) userIds.add(id);
     }
     const userOf = await lookupUsers(this.directory, actor.tenantId, userIds);
+    const files =
+      this.commentAttachments && this.storage
+        ? await this.commentAttachments.forComments(
+            actor.tenantId,
+            rows.filter((row) => !row.deleted).map((row) => row.id),
+          )
+        : undefined;
+    const storage = this.storage;
+    const attachmentsOf = async (row: CommentRow) =>
+      storage && !row.deleted
+        ? await Promise.all((files?.get(row.id) ?? []).map((file) => toAttachmentView(storage, file)))
+        : [];
+    const attachmentViews = new Map(await Promise.all(rows.map(async (row) => [row.id, await attachmentsOf(row)] as const)));
     const reactions = this.reactions
       ? await this.reactions.summaries(
           actor.tenantId,
@@ -318,6 +432,7 @@ export class SocialCommentService {
         ...(row.editedAt ? { editedAt: toIso(row.editedAt) } : {}),
         deleted: row.deleted,
         replyCount: row.replyCount,
+        attachments: attachmentViews.get(row.id) ?? [],
         reactionCounts: reactions?.get(row.id)?.counts ?? {},
         reactionTotal: reactions?.get(row.id)?.total ?? 0,
         ...(reactions?.get(row.id)?.mine ? { myReaction: reactions.get(row.id)?.mine } : {}),

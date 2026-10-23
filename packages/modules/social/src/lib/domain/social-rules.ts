@@ -1,6 +1,7 @@
 import {
   SOCIAL_ALLOWED_CONTENT_TYPES,
   SOCIAL_ATTACHMENT_MAX_BYTES,
+  SOCIAL_COMMENT_IMAGE_MAX_BYTES,
   SOCIAL_COMMENT_MAX,
   SOCIAL_FEED_MAX_PAGE_SIZE,
   SOCIAL_FEED_PAGE_SIZE,
@@ -106,10 +107,11 @@ export function normalizeReactionType(type: unknown): SocialReactionType | null 
 
 /* ------------------------------------------------------------ bình luận */
 
-export function normalizeCommentBody(body: unknown): string {
+export function normalizeCommentBody(body: unknown, options: { readonly allowEmpty?: boolean } = {}): string {
   if (typeof body !== 'string') throw new SocialValidationError('Nội dung bình luận không hợp lệ.');
   const trimmed = body.trim();
-  if (!trimmed) throw new SocialValidationError('Bình luận không được để trống.');
+  // Bình luận chỉ có ảnh thì nội dung được để trống.
+  if (!trimmed && !options.allowEmpty) throw new SocialValidationError('Bình luận không được để trống.');
   if (trimmed.length > SOCIAL_COMMENT_MAX) {
     throw new SocialValidationError(`Bình luận tối đa ${SOCIAL_COMMENT_MAX} ký tự.`);
   }
@@ -166,31 +168,51 @@ export interface NormalizedAttachmentInput {
   readonly sizeBytes: number;
 }
 
-export function normalizeAttachmentInput(input: {
-  readonly fileName?: unknown;
-  readonly contentType?: unknown;
-  readonly sizeBytes?: unknown;
-}): NormalizedAttachmentInput {
+/** Kiểu tệp và dung lượng tối đa được nhận cho từng nơi gắn. Bình luận chỉ nhận ảnh. */
+export function attachmentRulesFor(purpose: 'post' | 'comment'): {
+  readonly allowedTypes: readonly string[];
+  readonly maxBytes: number;
+  readonly typeError: string;
+} {
+  if (purpose === 'comment') {
+    return {
+      allowedTypes: SOCIAL_IMAGE_CONTENT_TYPES,
+      maxBytes: SOCIAL_COMMENT_IMAGE_MAX_BYTES,
+      typeError: 'Bình luận chỉ nhận ảnh JPEG, PNG, GIF, WebP.',
+    };
+  }
+  return {
+    allowedTypes: SOCIAL_ALLOWED_CONTENT_TYPES,
+    maxBytes: SOCIAL_ATTACHMENT_MAX_BYTES,
+    typeError: 'Loại tệp này không được hỗ trợ. Chỉ nhận PDF, Word, Excel, PowerPoint, ZIP và ảnh JPEG, PNG, GIF, WebP.',
+  };
+}
+
+export function normalizeAttachmentInput(
+  input: {
+    readonly fileName?: unknown;
+    readonly contentType?: unknown;
+    readonly sizeBytes?: unknown;
+  },
+  purpose: 'post' | 'comment' = 'post',
+): NormalizedAttachmentInput {
+  const rules = attachmentRulesFor(purpose);
   const fileName = typeof input.fileName === 'string' ? input.fileName.trim() : '';
   if (!fileName) throw new SocialValidationError('Tên tệp không được để trống.');
   if (fileName.length > 255) throw new SocialValidationError('Tên tệp tối đa 255 ký tự.');
   if (/[\\/]/.test(fileName)) throw new SocialValidationError('Tên tệp không được chứa dấu gạch chéo.');
 
   const contentType = typeof input.contentType === 'string' ? input.contentType.trim().toLowerCase() : '';
-  if (!SOCIAL_ALLOWED_CONTENT_TYPES.includes(contentType)) {
-    throw new SocialValidationError(
-      'Loại tệp này không được hỗ trợ. Chỉ nhận PDF, Word, Excel, PowerPoint, ZIP và ảnh JPEG, PNG, GIF, WebP.',
-    );
+  if (!rules.allowedTypes.includes(contentType)) {
+    throw new SocialValidationError(rules.typeError);
   }
 
   const sizeBytes = input.sizeBytes;
   if (typeof sizeBytes !== 'number' || !Number.isInteger(sizeBytes) || sizeBytes <= 0) {
     throw new SocialValidationError('Dung lượng tệp không hợp lệ.');
   }
-  if (sizeBytes > SOCIAL_ATTACHMENT_MAX_BYTES) {
-    throw new SocialValidationError(
-      `Tệp tối đa ${Math.floor(SOCIAL_ATTACHMENT_MAX_BYTES / (1024 * 1024))} MB.`,
-    );
+  if (sizeBytes > rules.maxBytes) {
+    throw new SocialValidationError(`Tệp tối đa ${Math.floor(rules.maxBytes / (1024 * 1024))} MB.`);
   }
   return { fileName, contentType, sizeBytes };
 }

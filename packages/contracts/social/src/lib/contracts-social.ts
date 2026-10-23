@@ -61,6 +61,11 @@ export const SOCIAL_COMMENT_MAX = 4_000;
 export const SOCIAL_MAX_ATTACHMENTS_PER_POST = 10;
 export const SOCIAL_ATTACHMENT_MAX_BYTES = 50 * 1024 * 1024;
 export const SOCIAL_PRESIGNED_URL_TTL_SECONDS = 300;
+
+/** Bình luận: số tệp tối đa, dung lượng ảnh tối đa và số bình luận mỗi lần tải (nhẹ vì bình luận có thể kèm ảnh). */
+export const SOCIAL_COMMENT_MAX_ATTACHMENTS = 4;
+export const SOCIAL_COMMENT_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
+export const SOCIAL_COMMENT_PAGE_SIZE = 10;
 export const SOCIAL_FEED_PAGE_SIZE = 20;
 export const SOCIAL_FEED_MAX_PAGE_SIZE = 50;
 export const SOCIAL_TOPIC_NAME_MAX = 80;
@@ -316,6 +321,8 @@ export interface SocialComment {
   readonly editedAt?: string;
   readonly deleted: boolean;
   readonly replyCount: number;
+  /** Ảnh đính kèm (tối đa `SOCIAL_COMMENT_MAX_ATTACHMENTS`); rỗng khi bình luận đã xoá. */
+  readonly attachments: readonly SocialAttachment[];
   readonly reactionCounts: Readonly<Partial<Record<SocialReactionType, number>>>;
   readonly reactionTotal: number;
   readonly myReaction?: SocialReactionType;
@@ -328,14 +335,19 @@ export interface SocialCommentPage {
 }
 
 export interface CreateSocialCommentRequest {
+  /** Có thể rỗng khi bình luận có tệp đính kèm. */
   readonly body: string;
   readonly parentId?: string;
   readonly mentionUserIds?: readonly string[];
+  /** Tệp đã tải xong (initiate + complete với `purpose: 'comment'`). */
+  readonly attachmentIds?: readonly string[];
 }
 
 export interface UpdateSocialCommentRequest {
   readonly body: string;
   readonly mentionUserIds?: readonly string[];
+  /** Danh sách tệp mong muốn sau khi sửa; thiếu là giữ nguyên, `[]` là gỡ hết. Tệp bị gỡ bị xoá khỏi kho ngay. */
+  readonly attachmentIds?: readonly string[];
 }
 
 export interface CreateSocialTopicRequest {
@@ -348,10 +360,15 @@ export interface UpdateSocialTopicRequest {
 }
 
 /** Bước 1 tải tệp: xin URL ký sẵn. Tệp mồ côi (chưa gắn bài) bị dọn sau 24 giờ. */
+/** Nơi tệp sẽ được gắn: quyết định kiểu tệp và dung lượng được nhận (bình luận chỉ nhận ảnh nhỏ hơn). */
+export type SocialAttachmentPurpose = 'post' | 'comment';
+
 export interface InitiateSocialAttachmentRequest {
   readonly fileName: string;
   readonly contentType: string;
   readonly sizeBytes: number;
+  /** Mặc định `post`. */
+  readonly purpose?: SocialAttachmentPurpose;
 }
 
 export interface InitiateSocialAttachmentResponse {

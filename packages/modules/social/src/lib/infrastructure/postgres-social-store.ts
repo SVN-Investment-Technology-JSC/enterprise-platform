@@ -56,7 +56,7 @@ const COMMENT_SELECT = `SELECT c.id, c.post_id, c.parent_id, c.author_id, c.body
          WHERE r.parent_id = c.id AND r.deleted_at IS NULL)::int AS reply_count
   FROM social_schema.comments c`;
 
-const ATTACHMENT_COLUMNS = `a.id, a.post_id, a.uploaded_by, a.file_name, a.content_type, a.size_bytes,
+export const ATTACHMENT_COLUMNS = `a.id, a.post_id, a.comment_id, a.uploaded_by, a.file_name, a.content_type, a.size_bytes,
        a.storage_key, (a.completed_at IS NOT NULL) AS completed`;
 
 interface PostRecord {
@@ -86,9 +86,10 @@ interface CommentRecord {
   reply_count: number;
 }
 
-interface AttachmentRecord {
+export interface AttachmentRecord {
   id: string;
   post_id: string | null;
+  comment_id: string | null;
   uploaded_by: string;
   file_name: string;
   content_type: string;
@@ -127,10 +128,11 @@ function mapComment(row: CommentRecord): CommentRow {
   };
 }
 
-function mapAttachment(row: AttachmentRecord): AttachmentRow {
+export function mapAttachment(row: AttachmentRecord): AttachmentRow {
   return {
     id: row.id,
     ...(row.post_id ? { postId: row.post_id } : {}),
+    ...(row.comment_id ? { commentId: row.comment_id } : {}),
     uploadedBy: row.uploaded_by,
     fileName: row.file_name,
     contentType: row.content_type,
@@ -207,8 +209,30 @@ async function attachFiles(
         SET post_id = $1
       WHERE id = ANY($2::uuid[])
         AND completed_at IS NOT NULL
-        AND (post_id = $1 OR (post_id IS NULL AND uploaded_by = $3))`,
+        AND (post_id = $1 OR (post_id IS NULL AND comment_id IS NULL AND uploaded_by = $3))`,
     [postId, attachmentIds, uploaderId],
+  );
+  if (result.rowCount !== attachmentIds.length) throw new SocialAttachmentUnavailableError();
+}
+
+/**
+ * Gắn tệp vào bình luận. Chỉ nhận tệp đã tải xong và hoặc đã thuộc bình luận này, hoặc chưa gắn bài
+ * lẫn bình luận nào và do `uploaderId` tải; thiếu một tệp là lỗi cả thao tác.
+ */
+async function attachToComment(
+  client: PoolClient,
+  commentId: string,
+  attachmentIds: readonly string[],
+  uploaderId: string,
+): Promise<void> {
+  if (attachmentIds.length === 0) return;
+  const result = await client.query(
+    `UPDATE social_schema.attachments
+        SET comment_id = $1
+      WHERE id = ANY($2::uuid[])
+        AND completed_at IS NOT NULL
+        AND (comment_id = $1 OR (comment_id IS NULL AND post_id IS NULL AND uploaded_by = $3))`,
+    [commentId, attachmentIds, uploaderId],
   );
   if (result.rowCount !== attachmentIds.length) throw new SocialAttachmentUnavailableError();
 }
@@ -572,6 +596,7 @@ export class PostgresSocialStore implements SocialStore {
             [input.id, input.postId, input.parentId ?? null, input.authorId, input.body],
           );
           await replaceCommentMentions(client, input.id, input.mentionUserIds);
+          await attachToComment(client, input.id, input.attachmentIds ?? [], input.authorId);
           await writeOutboxAll(client, tenantId, input.events);
         }),
       ),
@@ -582,6 +607,8 @@ export class PostgresSocialStore implements SocialStore {
       patch: {
         readonly body: string;
         readonly mentionUserIds: readonly string[];
+        readonly attachmentIds?: readonly string[];
+        readonly uploaderId?: string;
         readonly events: readonly SocialOutboxEvent[];
       },
     ): Promise<void> =>
@@ -594,6 +621,9 @@ export class PostgresSocialStore implements SocialStore {
           );
           if (result.rowCount === 0) throw new SocialCommentNotFoundError();
           await replaceCommentMentions(client, commentId, patch.mentionUserIds);
+          if (patch.attachmentIds && patch.uploaderId) {
+            await attachToComment(client, commentId, patch.attachmentIds, patch.uploaderId);
+          }
           await writeOutboxAll(client, tenantId, patch.events);
         }),
       ),
@@ -722,7 +752,7 @@ export class PostgresSocialStore implements SocialStore {
       this.run(tenantId, async (pool) => {
         const result = await pool.query<{ id: string; storage_key: string }>(
           `SELECT id, storage_key FROM social_schema.attachments
-            WHERE post_id IS NULL AND created_at < $1::timestamptz
+            WHERE post_id IS NULL AND comment_id IS NULL AND created_at < $1::timestamptz
             ORDER BY created_at, id
             LIMIT $2`,
           [olderThan, limit],
@@ -733,7 +763,8 @@ export class PostgresSocialStore implements SocialStore {
     deleteByIds: (tenantId: string, ids: readonly string[]): Promise<void> =>
       this.run(tenantId, async (pool) => {
         if (ids.length === 0) return;
-        await pool.query(`DELETE FROM social_schema.attachments WHERE id = ANY($1::uuid[]) AND post_id IS NULL`, [
+        await pool.query(`DELETE FROM social_schema.attachments
+            WHERE id = ANY($1::uuid[]) AND post_id IS NULL AND comment_id IS NULL`, [
           ids,
         ]);
       }),

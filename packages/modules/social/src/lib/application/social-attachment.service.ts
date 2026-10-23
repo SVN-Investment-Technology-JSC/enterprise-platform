@@ -12,6 +12,7 @@ import {
   SocialAttachmentNotFoundError,
   SocialForbiddenError,
   SocialUploadMismatchError,
+  SocialValidationError,
 } from '../domain/social.error.js';
 import type { AttachmentStorage } from './attachment-storage.port.js';
 import type { SocialActor } from './social-actor.js';
@@ -46,7 +47,9 @@ export class SocialAttachmentService {
     request: InitiateSocialAttachmentRequest,
   ): Promise<InitiateSocialAttachmentResponse> {
     if (!mayWrite(actor)) throw new SocialForbiddenError('Bạn không có quyền tải tệp lên.');
-    const file = normalizeAttachmentInput(request ?? {});
+    const purpose = request?.purpose ?? 'post';
+    if (purpose !== 'post' && purpose !== 'comment') throw new SocialValidationError('Nơi gắn tệp không hợp lệ.');
+    const file = normalizeAttachmentInput(request ?? {}, purpose);
     const attachmentId = randomUUID();
     const storageKey = `tenants/${actor.tenantId}/social/${attachmentId}/${safeObjectName(file.fileName)}`;
 

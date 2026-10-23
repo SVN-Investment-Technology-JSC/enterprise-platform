@@ -35,6 +35,7 @@ export interface PostRow {
 export interface AttachmentRow {
   readonly id: string;
   readonly postId?: string;
+  readonly commentId?: string;
   readonly uploadedBy: string;
   readonly fileName: string;
   readonly contentType: string;
@@ -118,6 +119,8 @@ export interface CommentInsert {
   readonly authorId: string;
   readonly body: string;
   readonly mentionUserIds: readonly string[];
+  /** Tệp đã tải xong gắn cùng giao dịch; thiếu tệp hợp lệ là lỗi cả thao tác. */
+  readonly attachmentIds?: readonly string[];
   readonly events: readonly SocialOutboxEvent[];
 }
 
@@ -201,6 +204,9 @@ export interface SocialStore {
       patch: {
         readonly body: string;
         readonly mentionUserIds: readonly string[];
+        /** Gắn thêm các tệp này (không gỡ tệp cũ; gỡ qua `SocialCommentAttachmentStore.detach`). */
+        readonly attachmentIds?: readonly string[];
+        readonly uploaderId?: string;
         readonly events: readonly SocialOutboxEvent[];
       },
     ): Promise<void>;

@@ -176,7 +176,7 @@ export async function attachFiles(
         SET post_id = $1
       WHERE id = ANY($2::uuid[])
         AND completed_at IS NOT NULL
-        AND (post_id = $1 OR (post_id IS NULL AND uploaded_by = $3))`,
+        AND (post_id = $1 OR (post_id IS NULL AND comment_id IS NULL AND uploaded_by = $3))`,
     [postId, attachmentIds, uploaderId],
   );
   if (result.rowCount !== attachmentIds.length) throw new SocialAttachmentUnavailableError();
