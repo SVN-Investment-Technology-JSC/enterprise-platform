@@ -1524,6 +1524,24 @@ importers:
         specifier: ^2.3.0
         version: 2.8.1
 
+  packages/features/chat:
+    dependencies:
+      '@enterprise-platform/contracts-chat':
+        specifier: workspace:*
+        version: link:../../contracts/chat
+      '@enterprise-platform/contracts-realtime':
+        specifier: workspace:*
+        version: link:../../contracts/realtime
+      '@enterprise-platform/shared-ui':
+        specifier: workspace:*
+        version: link:../../shared/ui
+      lucide-react:
+        specifier: ^1.31.0
+        version: 1.31.0(react@19.2.8)
+      react:
+        specifier: ^19.2.8
+        version: 19.2.8
+
   packages/features/finance:
     dependencies:
       '@base-ui/react':
@@ -1682,6 +1700,9 @@ importers:
       '@enterprise-platform/contracts-identity':
         specifier: workspace:*
         version: link:../../contracts/identity
+      '@enterprise-platform/feature-chat':
+        specifier: workspace:*
+        version: link:../chat
       '@enterprise-platform/shared-ui':
         specifier: workspace:*
         version: link:../../shared/ui

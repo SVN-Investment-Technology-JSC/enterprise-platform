@@ -1,5 +1,6 @@
 'use client';
 
+import { ChatLauncher, UserAvatar } from '@enterprise-platform/feature-chat';
 import { NotificationBell, NotificationProvider, SearchableSelect, SessionKeepAlive } from '@enterprise-platform/shared-ui';
 import {
   Fragment,
@@ -179,9 +180,13 @@ export function ModuleShellLight<TViewId extends string = string>(
 
           <div className={styles.user}>
             <a className={styles.userLink} href={dashboardHref} title="Về Bảng điều khiển">
-              <span className={styles.avatar} aria-hidden>
-                {initialsOfName(displayName)}
-              </span>
+              {principal?.kind === 'tenant-user' && principal.userId ? (
+                <UserAvatar userId={principal.userId} name={displayName} size={38} className={styles.avatar} />
+              ) : (
+                <span className={styles.avatar} aria-hidden>
+                  {initialsOfName(displayName)}
+                </span>
+              )}
               {collapsed ? null : (
                 <span className={styles.userText}>
                   <span className={styles.userName}>{displayName}</span>
@@ -420,6 +425,8 @@ export function ModuleShellLight<TViewId extends string = string>(
           <div className={styles.body}>{props.children}</div>
         </main>
       </div>
+      {/* Chat nội bộ của core: nút ở góc phải dưới, có ở mọi trang, không phụ thuộc phân hệ nào được bật. */}
+      <ChatLauncher />
     </NotificationProvider>
   );
 }

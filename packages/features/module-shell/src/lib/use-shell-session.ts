@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 
 export interface ShellPrincipal {
   readonly kind?: string;
+  readonly userId?: string;
   readonly displayName?: string;
   readonly tenantSlug?: string;
   readonly roles?: readonly string[];

@@ -221,6 +221,9 @@
     },
     {
       "path": "./packages/platform/profile"
+    },
+    {
+      "path": "./packages/features/chat"
     }
   ]
 }
