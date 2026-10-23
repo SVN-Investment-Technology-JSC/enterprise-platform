@@ -13,6 +13,9 @@ import {
   Req,
 } from '@nestjs/common';
 import type {
+  AbortSocialAttachmentRequest,
+  RefreshSocialUploadPartsRequest,
+  CompleteSocialAttachmentRequest,
   CreateSocialCommentRequest,
   CreateSocialTopicRequest,
   InitiateSocialAttachmentRequest,
@@ -159,8 +162,32 @@ export class SocialController {
   }
 
   @Post('attachments/:id/complete')
-  completeUpload(@Req() request: SocialRequest, @Param('id') id: string) {
-    return this.execute(() => this.attachments.complete(this.actor(request), id));
+  completeUpload(
+    @Req() request: SocialRequest,
+    @Param('id') id: string,
+    @Body() body?: CompleteSocialAttachmentRequest,
+  ) {
+    return this.execute(() => this.attachments.complete(this.actor(request), id, body ?? undefined));
+  }
+
+  @Post('attachments/:id/parts')
+  @HttpCode(200)
+  refreshUploadParts(
+    @Req() request: SocialRequest,
+    @Param('id') id: string,
+    @Body() body: RefreshSocialUploadPartsRequest,
+  ) {
+    return this.execute(() => this.attachments.refreshParts(this.actor(request), id, body));
+  }
+
+  @Post('attachments/:id/abort')
+  @HttpCode(204)
+  async abortUpload(
+    @Req() request: SocialRequest,
+    @Param('id') id: string,
+    @Body() body?: AbortSocialAttachmentRequest,
+  ): Promise<void> {
+    await this.execute(() => this.attachments.abort(this.actor(request), id, body ?? undefined));
   }
 
   /* -------------------------------------------------------------- nội bộ */

@@ -93,6 +93,26 @@ export class SocialUploadMismatchError extends SocialError {
   }
 }
 
+/** Người dùng hoặc tenant gọi tải lên quá dày. */
+export class SocialRateLimitedError extends SocialError {
+  constructor(message = 'Bạn tải lên quá nhanh. Hãy thử lại sau ít giây.') {
+    super('SOCIAL_RATE_LIMITED', message, 429);
+    Object.setPrototypeOf(this, SocialRateLimitedError.prototype);
+  }
+}
+
+/** Người dùng đang có quá nhiều lần tải dang dở. */
+export class SocialTooManyPendingUploadsError extends SocialError {
+  constructor() {
+    super(
+      'SOCIAL_TOO_MANY_PENDING_UPLOADS',
+      'Bạn có quá nhiều tệp đang tải dở. Hãy hoàn tất hoặc huỷ bớt rồi thử lại.',
+      429,
+    );
+    Object.setPrototypeOf(this, SocialTooManyPendingUploadsError.prototype);
+  }
+}
+
 /** Tenant đã bật phân hệ nhưng migration chưa chạy xong. */
 export class SocialNotProvisionedError extends SocialError {
   constructor() {

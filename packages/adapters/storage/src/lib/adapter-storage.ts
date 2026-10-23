@@ -1,10 +1,15 @@
 import {
+  AbortMultipartUploadCommand,
+  CompleteMultipartUploadCommand,
   CopyObjectCommand,
+  CreateMultipartUploadCommand,
   DeleteObjectsCommand,
   GetObjectCommand,
   HeadObjectCommand,
+  ListPartsCommand,
   PutObjectCommand,
   S3Client,
+  UploadPartCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { TENANT_STORAGE_WRITE_TIMEOUT_SECONDS, TENANT_UPLOAD_URL_TTL_SECONDS } from './storage-limits.js';
@@ -13,6 +18,28 @@ export interface ObjectStorageUpload {
   readonly key: string;
   readonly contentType: string;
   readonly expiresInSeconds?: number;
+  /**
+   * Số byte duy nhất URL chấp nhận: ký kèm `content-length`, nên PUT nhiều hơn
+   * hay ít hơn đều bị kho từ chối. Thiếu thì URL không ghim độ dài.
+   */
+  readonly sizeBytes?: number;
+}
+
+export interface ObjectStorageUploadPart {
+  readonly key: string;
+  readonly uploadId: string;
+  /** Từ 1 đến 10.000. */
+  readonly partNumber: number;
+  /** Số byte duy nhất URL của phần này chấp nhận. */
+  readonly sizeBytes: number;
+  readonly expiresInSeconds?: number;
+}
+
+/** Một phần đã tải lên của lần tải nhiều phần, như `ListParts` trả về. */
+export interface ObjectStorageListedPart {
+  readonly partNumber: number;
+  readonly etag: string;
+  readonly sizeBytes: number;
 }
 
 export interface ObjectStoragePut {
@@ -155,9 +182,94 @@ export class S3ObjectStorage implements ObjectStorageManagementPort, ObjectStora
         Bucket: this.options.bucket,
         Key: input.key,
         ContentType: input.contentType,
+        ...(input.sizeBytes === undefined ? {} : { ContentLength: input.sizeBytes }),
       }),
-      { expiresIn: Math.min(input.expiresInSeconds ?? TENANT_UPLOAD_URL_TTL_SECONDS, TENANT_UPLOAD_URL_TTL_SECONDS) },
+      {
+        expiresIn: Math.min(input.expiresInSeconds ?? TENANT_UPLOAD_URL_TTL_SECONDS, TENANT_UPLOAD_URL_TTL_SECONDS),
+        // Đưa `content-length` vào SignedHeaders để URL chỉ nhận đúng số byte đã ghim.
+        ...(input.sizeBytes === undefined ? {} : { signableHeaders: new Set(['content-length']) }),
+      },
     );
+  }
+
+  /** Mở lần tải nhiều phần; trả `uploadId` để ký URL từng phần. */
+  async createMultipartUpload(key: string, contentType: string): Promise<string> {
+    const result = await this.internalClient.send(
+      new CreateMultipartUploadCommand({ Bucket: this.options.bucket, Key: key, ContentType: contentType }),
+      { abortSignal: AbortSignal.timeout(TENANT_STORAGE_WRITE_TIMEOUT_SECONDS * 1000) },
+    );
+    if (!result.UploadId) throw new Error('Kho không trả uploadId cho lần tải nhiều phần.');
+    return result.UploadId;
+  }
+
+  createUploadPartUrl(input: ObjectStorageUploadPart): Promise<string> {
+    return getSignedUrl(
+      this.publicClient,
+      new UploadPartCommand({
+        Bucket: this.options.bucket,
+        Key: input.key,
+        UploadId: input.uploadId,
+        PartNumber: input.partNumber,
+        ContentLength: input.sizeBytes,
+      }),
+      {
+        expiresIn: Math.min(input.expiresInSeconds ?? TENANT_UPLOAD_URL_TTL_SECONDS, TENANT_UPLOAD_URL_TTL_SECONDS),
+        signableHeaders: new Set(['content-length']),
+      },
+    );
+  }
+
+  /** Các phần đã tải lên (đã phân trang đến hết), theo thứ tự số phần. */
+  async listParts(key: string, uploadId: string): Promise<ObjectStorageListedPart[]> {
+    const parts: ObjectStorageListedPart[] = [];
+    let marker: string | undefined;
+    for (;;) {
+      const result = await this.internalClient.send(
+        new ListPartsCommand({
+          Bucket: this.options.bucket,
+          Key: key,
+          UploadId: uploadId,
+          PartNumberMarker: marker,
+        }),
+        { abortSignal: AbortSignal.timeout(TENANT_STORAGE_WRITE_TIMEOUT_SECONDS * 1000) },
+      );
+      for (const part of result.Parts ?? []) {
+        if (part.PartNumber === undefined || !part.ETag) continue;
+        parts.push({ partNumber: part.PartNumber, etag: part.ETag, sizeBytes: part.Size ?? 0 });
+      }
+      if (!result.IsTruncated || !result.NextPartNumberMarker) break;
+      marker = result.NextPartNumberMarker;
+    }
+    return parts.sort((a, b) => a.partNumber - b.partNumber);
+  }
+
+  async completeMultipartUpload(
+    key: string,
+    uploadId: string,
+    parts: readonly { readonly partNumber: number; readonly etag: string }[],
+  ): Promise<void> {
+    await this.internalClient.send(
+      new CompleteMultipartUploadCommand({
+        Bucket: this.options.bucket,
+        Key: key,
+        UploadId: uploadId,
+        MultipartUpload: { Parts: parts.map((part) => ({ PartNumber: part.partNumber, ETag: part.etag })) },
+      }),
+      { abortSignal: AbortSignal.timeout(TENANT_STORAGE_WRITE_TIMEOUT_SECONDS * 1000) },
+    );
+  }
+
+  /** Huỷ lần tải nhiều phần và xoá các phần đã lên. Lần tải không còn thì coi như xong. */
+  async abortMultipartUpload(key: string, uploadId: string): Promise<void> {
+    try {
+      await this.internalClient.send(
+        new AbortMultipartUploadCommand({ Bucket: this.options.bucket, Key: key, UploadId: uploadId }),
+        { abortSignal: AbortSignal.timeout(TENANT_STORAGE_WRITE_TIMEOUT_SECONDS * 1000) },
+      );
+    } catch (error) {
+      if ((error as { name?: string }).name === 'NoSuchUpload') return;
+      throw error;
+    }
   }
 
   createDownloadUrl(

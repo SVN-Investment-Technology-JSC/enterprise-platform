@@ -232,5 +232,7 @@ export interface SocialStore {
     /** Tệp chưa gắn bài, tạo trước `olderThan` (ISO). */
     listOrphans(tenantId: string, olderThan: string, limit: number): Promise<OrphanAttachment[]>;
     deleteByIds(tenantId: string, ids: readonly string[]): Promise<void>;
+    /** Số lần tải dang dở của người dùng: chưa hoàn tất, chưa gắn bài/bình luận, tạo từ `sinceIso` (ISO). */
+    countPending(tenantId: string, uploaderId: string, sinceIso: string): Promise<number>;
   };
 }

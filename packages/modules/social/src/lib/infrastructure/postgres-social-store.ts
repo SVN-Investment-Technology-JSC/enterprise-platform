@@ -768,5 +768,17 @@ export class PostgresSocialStore implements SocialStore {
           ids,
         ]);
       }),
+
+    countPending: (tenantId: string, uploaderId: string, sinceIso: string): Promise<number> =>
+      this.run(tenantId, async (pool) => {
+        const result = await pool.query<{ total: string }>(
+          `SELECT count(*) AS total FROM social_schema.attachments
+            WHERE uploaded_by = $1 AND completed_at IS NULL
+              AND post_id IS NULL AND comment_id IS NULL
+              AND created_at >= $2::timestamptz`,
+          [uploaderId, sinceIso],
+        );
+        return Number(result.rows[0]?.total ?? 0);
+      }),
   };
 }

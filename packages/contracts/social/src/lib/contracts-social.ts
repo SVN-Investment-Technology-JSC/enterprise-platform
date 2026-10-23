@@ -380,10 +380,56 @@ export interface InitiateSocialAttachmentRequest {
   readonly purpose?: SocialAttachmentPurpose;
 }
 
+/**
+ * Tệp lớn hơn mức này tải theo từng phần (S3 multipart): mỗi phần tải lại riêng được khi mạng chập chờn,
+ * và có thanh tiến trình chính xác. Tệp nhỏ hơn vẫn tải bằng một lệnh PUT.
+ */
+export const SOCIAL_MULTIPART_THRESHOLD_BYTES = 10 * 1024 * 1024;
+/** Cỡ mỗi phần (trừ phần cuối). S3 đòi tối thiểu 5 MB cho mọi phần trừ phần cuối. */
+export const SOCIAL_MULTIPART_PART_BYTES = 8 * 1024 * 1024;
+
+export interface SocialMultipartPart {
+  readonly partNumber: number;
+  /** URL ký sẵn để `PUT` đúng `sizeBytes` byte của phần này. */
+  readonly url: string;
+  readonly sizeBytes: number;
+}
+
+export interface SocialMultipartUpload {
+  readonly uploadId: string;
+  readonly parts: readonly SocialMultipartPart[];
+}
+
 export interface InitiateSocialAttachmentResponse {
   readonly attachmentId: string;
+  /** URL `PUT` cho tệp nhỏ; chuỗi rỗng khi tải nhiều phần (xem `multipart`). */
   readonly uploadUrl: string;
   readonly expiresInSeconds: number;
+  /** Có khi tệp lớn hơn `SOCIAL_MULTIPART_THRESHOLD_BYTES`. */
+  readonly multipart?: SocialMultipartUpload;
+}
+
+/** Body của `POST /attachments/:id/complete`: với tải nhiều phần phải gửi `uploadId` nhận được lúc initiate. */
+export interface CompleteSocialAttachmentRequest {
+  readonly uploadId?: string;
+}
+
+/**
+ * Body của `POST /attachments/:id/parts`: xin lại URL ký cho vài phần. URL phần chỉ sống vài phút nên tệp lớn
+ * trên mạng chậm, hoặc phần phải thử lại, cần URL mới thay vì URL cấp lúc `initiate`.
+ */
+export interface RefreshSocialUploadPartsRequest {
+  readonly uploadId: string;
+  readonly partNumbers: readonly number[];
+}
+
+export interface RefreshSocialUploadPartsResponse {
+  readonly parts: readonly SocialMultipartPart[];
+}
+
+/** Body của `POST /attachments/:id/abort`: huỷ lần tải chưa hoàn tất (người dùng bấm huỷ), xoá dòng và dọn phần đã tải. */
+export interface AbortSocialAttachmentRequest {
+  readonly uploadId?: string;
 }
 
 export interface SocialMe {

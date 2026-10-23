@@ -5,8 +5,10 @@ import {
   SocialError,
   SocialForbiddenError,
   SocialPostNotFoundError,
+  SocialRateLimitedError,
   SocialTopicNameTakenError,
 } from '../domain/social.error.js';
+import { UploadRateLimiter } from './upload-rate-limiter.js';
 import { SocialStorageQuotaExceededError } from '../domain/social.error.js';
 import type { AttachmentStorage } from './attachment-storage.port.js';
 import type { OrganizationDirectory } from './organization-directory.port.js';
@@ -336,6 +338,10 @@ class FakeStore implements SocialStore {
     deleteByIds: async (_t, ids) => {
       for (const id of ids) this.attachments_.delete(id);
     },
+    countPending: async (_t, uploaderId) =>
+      [...this.attachments_.values()].filter(
+        (a) => a.uploadedBy === uploaderId && !a.completed && !a.postId && !a.commentId,
+      ).length,
   };
 }
 
@@ -367,8 +373,47 @@ class FakeStorage implements AttachmentStorage {
     if (lower.endsWith('.webm')) return Uint8Array.from([0x1a, 0x45, 0xdf, 0xa3]);
     return new Uint8Array();
   }
-  async createUploadUrl({ key }: { key: string }) {
+  /** Kích thước đã ghim của từng URL tải lên, theo khoá. */
+  pinnedSizes = new Map<string, number>();
+  /** Phiên nhiều phần đang mở: uploadId -> khoá và các phần đã "tải". */
+  multipart = new Map<string, { key: string; parts: Map<number, { etag: string; sizeBytes: number }> }>();
+  aborted: string[] = [];
+  completedMultipart: string[] = [];
+  failAbortMultipart = false;
+  async createUploadUrl({ key, sizeBytes }: { key: string; sizeBytes?: number }) {
+    if (sizeBytes !== undefined) this.pinnedSizes.set(key, sizeBytes);
     return `https://storage.test/up/${key}`;
+  }
+  async createMultipartUpload(key: string) {
+    const uploadId = `upload-${this.multipart.size + 1}`;
+    this.multipart.set(uploadId, { key, parts: new Map() });
+    return uploadId;
+  }
+  async createUploadPartUrl(input: { key: string; uploadId: string; partNumber: number; sizeBytes: number }) {
+    return `https://storage.test/up/${input.key}?uploadId=${input.uploadId}&part=${input.partNumber}&len=${input.sizeBytes}`;
+  }
+  /** Giả lập trình duyệt PUT một phần lên URL đã ký. */
+  putPart(uploadId: string, partNumber: number, sizeBytes: number) {
+    this.multipart.get(uploadId)?.parts.set(partNumber, { etag: `"etag-${partNumber}"`, sizeBytes });
+  }
+  async listParts(key: string, uploadId: string) {
+    const session = this.multipart.get(uploadId);
+    if (!session || session.key !== key) throw new Error('NoSuchUpload');
+    return [...session.parts].map(([partNumber, part]) => ({ partNumber, ...part }));
+  }
+  async completeMultipartUpload(key: string, uploadId: string, parts: readonly { partNumber: number }[]) {
+    const session = this.multipart.get(uploadId);
+    if (!session) throw new Error('NoSuchUpload');
+    let total = 0;
+    for (const { partNumber } of parts) total += session.parts.get(partNumber)?.sizeBytes ?? 0;
+    this.uploaded.set(key, total);
+    this.completedMultipart.push(uploadId);
+    this.multipart.delete(uploadId);
+  }
+  async abortMultipartUpload(_key: string, uploadId: string) {
+    if (this.failAbortMultipart) throw new Error('S3 down');
+    this.aborted.push(uploadId);
+    this.multipart.delete(uploadId);
   }
   async createDownloadUrl(key: string, expiresInSeconds?: number) {
     this.downloadTtls.push(expiresInSeconds ?? 0);
@@ -721,6 +766,52 @@ describe('bình luận', () => {
     const post = await posts.create(alice, { bodyHtml: '<p>x</p>' });
     await expectCode(comments.create(readOnly, post.id, { body: 'x' }), 'FORBIDDEN');
     await expectCode(comments.create(bob, post.id, { body: '   ' }), 'VALIDATION');
+  });
+});
+
+describe('xin lại URL từng phần của tệp nhiều phần', () => {
+  const MB = 1024 * 1024;
+
+  it('ký lại đúng phần với đúng cỡ; chỉ chủ tệp, chỉ khi chưa hoàn tất, số phần hợp lệ', async () => {
+    const { attachments } = setup();
+    const ticket = await attachments.initiate(alice, {
+      fileName: 'v.webm',
+      contentType: 'video/webm',
+      sizeBytes: 20 * MB,
+      purpose: 'comment',
+    });
+    const uploadId = ticket.multipart?.uploadId as string;
+    expect(ticket.multipart?.parts.map((part) => part.sizeBytes)).toEqual([8 * MB, 8 * MB, 4 * MB]);
+
+    const fresh = await attachments.refreshParts(alice, ticket.attachmentId, { uploadId, partNumbers: [3, 1] });
+    expect(fresh.parts.map((part) => [part.partNumber, part.sizeBytes])).toEqual([
+      [3, 4 * MB],
+      [1, 8 * MB],
+    ]);
+    expect(fresh.parts.every((part) => part.url.length > 0)).toBe(true);
+
+    await expectCode(attachments.refreshParts(bob, ticket.attachmentId, { uploadId, partNumbers: [1] }), 'ATTACHMENT_NOT_FOUND');
+    await expectCode(attachments.refreshParts(alice, ticket.attachmentId, { uploadId, partNumbers: [4] }), 'VALIDATION');
+    await expectCode(attachments.refreshParts(alice, ticket.attachmentId, { uploadId, partNumbers: [] }), 'VALIDATION');
+    await expectCode(attachments.refreshParts(alice, ticket.attachmentId, { uploadId: '', partNumbers: [1] }), 'VALIDATION');
+    await expectCode(
+      attachments.refreshParts(alice, ticket.attachmentId, { uploadId, partNumbers: [1.5] }),
+      'VALIDATION',
+    );
+  });
+
+  it('tệp nhỏ không tải theo phần nên không ký lại được', async () => {
+    const { attachments } = setup();
+    const small = await attachments.initiate(alice, {
+      fileName: 'a.png',
+      contentType: 'image/png',
+      sizeBytes: 1000,
+      purpose: 'comment',
+    });
+    await expectCode(
+      attachments.refreshParts(alice, small.attachmentId, { uploadId: 'x', partNumbers: [1] }),
+      'VALIDATION',
+    );
   });
 });
 
@@ -1117,13 +1208,237 @@ describe('tệp đính kèm', () => {
       sizeBytes: 50,
     });
     await expectCode(attachments.complete(alice, attachmentId), 'UPLOAD_MISMATCH');
-    storage.uploaded.set(await findKey(attachments, attachmentId), 49);
-    await expectCode(attachments.complete(alice, attachmentId), 'UPLOAD_MISMATCH');
     await expectCode(attachments.complete(bob, attachmentId), 'ATTACHMENT_NOT_FOUND');
     storage.uploaded.set(await findKey(attachments, attachmentId), 50);
     const done = await attachments.complete(alice, attachmentId);
     expect(done).toMatchObject({ fileName: 'a.png', isImage: true, sizeBytes: 50 });
     expect(done.url).toBeDefined();
+  });
+
+  it('complete: dung lượng sai thì xoá ngay object và dòng', async () => {
+    const { attachments, storage, store } = setup();
+    const { attachmentId } = await attachments.initiate(alice, {
+      fileName: 'a.png',
+      contentType: 'image/png',
+      sizeBytes: 50,
+    });
+    const key = await findKey(attachments, attachmentId);
+    storage.uploaded.set(key, 49);
+    await expectCode(attachments.complete(alice, attachmentId), 'UPLOAD_MISMATCH');
+    expect(storage.deleted).toEqual([key]);
+    expect(store.attachments_.has(attachmentId)).toBe(false);
+    await expectCode(attachments.complete(alice, attachmentId), 'ATTACHMENT_NOT_FOUND');
+  });
+
+  it('complete: dung lượng sai mà kho từ chối xoá thì giữ dòng cho job dọn', async () => {
+    const { attachments, storage, store } = setup();
+    const { attachmentId } = await attachments.initiate(alice, {
+      fileName: 'a.png',
+      contentType: 'image/png',
+      sizeBytes: 50,
+    });
+    const key = await findKey(attachments, attachmentId);
+    storage.uploaded.set(key, 51);
+    storage.failDelete.add(key);
+    await expectCode(attachments.complete(alice, attachmentId), 'UPLOAD_MISMATCH');
+    expect(store.attachments_.has(attachmentId)).toBe(true);
+  });
+
+  it('initiate ghim độ dài URL tải lên theo dung lượng khai báo', async () => {
+    const { attachments, storage } = setup();
+    const { attachmentId } = await attachments.initiate(alice, {
+      fileName: 'a.pdf',
+      contentType: 'application/pdf',
+      sizeBytes: 777,
+    });
+    expect(storage.pinnedSizes.get(await findKey(attachments, attachmentId))).toBe(777);
+  });
+});
+
+describe('giới hạn tần suất tải lên', () => {
+  const file = { fileName: 'a.pdf', contentType: 'application/pdf', sizeBytes: 1 };
+
+  it('cửa sổ trượt: 30 lần mỗi phút mỗi người, hết cửa sổ thì dùng lại được', () => {
+    let at = 1_000_000;
+    const limiter = new UploadRateLimiter(() => at);
+    for (let i = 0; i < 30; i += 1) {
+      limiter.consume(TENANT, ALICE);
+      at += 1000; // trải đều 30 giây
+    }
+    expect(() => limiter.consume(TENANT, ALICE)).toThrow(SocialRateLimitedError);
+    // 1 giây sau lần đầu + 60 giây: chỉ lần đầu rời cửa sổ, nên đúng một chỗ trống.
+    at = 1_000_000 + 60_000;
+    limiter.consume(TENANT, ALICE);
+    expect(() => limiter.consume(TENANT, ALICE)).toThrow(SocialRateLimitedError);
+    at += 60_000;
+    limiter.consume(TENANT, ALICE);
+  });
+
+  it('tính riêng từng người và từng tenant; 300 lần mỗi phút mỗi tenant', () => {
+    const limiter = new UploadRateLimiter(() => 5000);
+    for (let i = 0; i < 30; i += 1) limiter.consume(TENANT, ALICE);
+    expect(() => limiter.consume(TENANT, ALICE)).toThrow(SocialRateLimitedError);
+    limiter.consume(TENANT, BOB);
+    limiter.consume('other-tenant', ALICE);
+
+    const tenantLimiter = new UploadRateLimiter(() => 5000);
+    for (let i = 0; i < 300; i += 1) tenantLimiter.consume(TENANT, `user-${i % 15}-${Math.floor(i / 15)}`);
+    expect(() => tenantLimiter.consume(TENANT, 'someone-new')).toThrow(SocialRateLimitedError);
+    tenantLimiter.consume('other-tenant', 'someone-new');
+  });
+
+  it('lần bị từ chối không làm dài thêm cửa sổ', () => {
+    let at = 0;
+    const limiter = new UploadRateLimiter(() => at, { windowMs: 1000, perUser: 1, perTenant: 10 });
+    limiter.consume(TENANT, ALICE);
+    at = 500;
+    expect(() => limiter.consume(TENANT, ALICE)).toThrow(SocialRateLimitedError);
+    at = 1000;
+    limiter.consume(TENANT, ALICE);
+  });
+
+  it('initiate trả 429 SOCIAL_RATE_LIMITED khi vượt, kèm thông báo tiếng Việt', async () => {
+    const { store, storage } = setup();
+    const limiter = new UploadRateLimiter(() => 1, { windowMs: 60_000, perUser: 2, perTenant: 10 });
+    const attachments = new SocialAttachmentService(store, storage, undefined, undefined, limiter);
+    await attachments.initiate(alice, file);
+    await attachments.initiate(alice, file);
+    const error = await attachments.initiate(alice, file).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(SocialRateLimitedError);
+    expect(error).toMatchObject({
+      code: 'SOCIAL_RATE_LIMITED',
+      statusCode: 429,
+      message: 'Bạn tải lên quá nhanh. Hãy thử lại sau ít giây.',
+    });
+    await attachments.initiate(bob, file);
+  });
+
+  it('quá 20 lần tải dang dở thì 429 SOCIAL_TOO_MANY_PENDING_UPLOADS; tệp hoàn tất không tính', async () => {
+    const { store, storage } = setup();
+    const limiter = new UploadRateLimiter(() => 1, { windowMs: 60_000, perUser: 1000, perTenant: 1000 });
+    const attachments = new SocialAttachmentService(store, storage, undefined, undefined, limiter);
+    const first = await attachments.initiate(alice, file);
+    for (let i = 1; i < 20; i += 1) await attachments.initiate(alice, file);
+    await expectCode(attachments.initiate(alice, file), 'SOCIAL_TOO_MANY_PENDING_UPLOADS');
+    await attachments.initiate(bob, file);
+
+    await uploadAndComplete(attachments, storage, alice, first.attachmentId, 1);
+    await attachments.initiate(alice, file);
+  });
+});
+
+describe('tải nhiều phần', () => {
+  const MB = 1024 * 1024;
+  const video = { fileName: 'clip.mp4', contentType: 'video/mp4', sizeBytes: 20 * MB, purpose: 'comment' as const };
+
+  it('tệp tới ngưỡng 10 MB vẫn tải một lệnh PUT; lớn hơn thì chia phần 8 MB, phần cuối còn lại', async () => {
+    const { attachments, storage } = setup();
+    const small = await attachments.initiate(alice, { ...video, sizeBytes: 10 * MB });
+    expect(small.multipart).toBeUndefined();
+    expect(small.uploadUrl).not.toBe('');
+
+    const big = await attachments.initiate(alice, video);
+    expect(big.uploadUrl).toBe('');
+    expect(big.multipart?.uploadId).toBeDefined();
+    expect(big.multipart?.parts.map((p) => [p.partNumber, p.sizeBytes])).toEqual([
+      [1, 8 * MB],
+      [2, 8 * MB],
+      [3, 4 * MB],
+    ]);
+    expect(big.multipart?.parts[2].url).toContain(`len=${4 * MB}`);
+    expect(storage.multipart.size).toBe(1);
+  });
+
+  it('complete: bắt buộc uploadId; thiếu phần hoặc sai cỡ thì lỗi và giữ nguyên để tải lại', async () => {
+    const { attachments, storage, store } = setup();
+    const { attachmentId, multipart } = await attachments.initiate(alice, video);
+    const uploadId = multipart?.uploadId as string;
+
+    await expectCode(attachments.complete(alice, attachmentId), 'VALIDATION');
+    await expectCode(attachments.complete(alice, attachmentId, { uploadId }), 'UPLOAD_MISMATCH');
+
+    storage.putPart(uploadId, 1, 8 * MB);
+    storage.putPart(uploadId, 2, 8 * MB);
+    await expectCode(attachments.complete(alice, attachmentId, { uploadId }), 'UPLOAD_MISMATCH'); // thiếu phần 3
+
+    storage.putPart(uploadId, 3, 3 * MB);
+    await expectCode(attachments.complete(alice, attachmentId, { uploadId }), 'UPLOAD_MISMATCH'); // phần 3 sai cỡ
+    expect(store.attachments_.has(attachmentId)).toBe(true);
+    expect(storage.deleted).toEqual([]);
+    expect(storage.completedMultipart).toEqual([]);
+
+    storage.putPart(uploadId, 3, 4 * MB);
+    const done = await attachments.complete(alice, attachmentId, { uploadId });
+    expect(done).toMatchObject({ fileName: 'clip.mp4', sizeBytes: 20 * MB });
+    expect(storage.completedMultipart).toEqual([uploadId]);
+  });
+
+  it('complete: uploadId của phiên khác thì không ghép được', async () => {
+    const { attachments, storage } = setup();
+    const a = await attachments.initiate(alice, video);
+    const b = await attachments.initiate(alice, video);
+    for (const part of [1, 2]) storage.putPart(b.multipart?.uploadId as string, part, 8 * MB);
+    storage.putPart(b.multipart?.uploadId as string, 3, 4 * MB);
+    await expectCode(
+      attachments.complete(alice, a.attachmentId, { uploadId: b.multipart?.uploadId }),
+      'UPLOAD_MISMATCH',
+    );
+  });
+
+  it('complete gọi lại sau khi kho đã ghép xong (mất kết nối) vẫn hoàn tất được', async () => {
+    const { attachments, storage } = setup();
+    const { attachmentId, multipart } = await attachments.initiate(alice, video);
+    const uploadId = multipart?.uploadId as string;
+    storage.putPart(uploadId, 1, 8 * MB);
+    storage.putPart(uploadId, 2, 8 * MB);
+    storage.putPart(uploadId, 3, 4 * MB);
+    // Lần 1: kho ghép xong nhưng dòng chưa được đánh dấu.
+    await storage.completeMultipartUpload(await findKey(attachments, attachmentId), uploadId, [
+      { partNumber: 1 },
+      { partNumber: 2 },
+      { partNumber: 3 },
+    ]);
+    const done = await attachments.complete(alice, attachmentId, { uploadId });
+    expect(done.sizeBytes).toBe(20 * MB);
+  });
+
+  it('abort: chỉ chủ tệp, huỷ phiên nhiều phần, xoá object và dòng; gọi lại thì coi như xong', async () => {
+    const { attachments, storage, store } = setup();
+    const { attachmentId, multipart } = await attachments.initiate(alice, video);
+    const uploadId = multipart?.uploadId as string;
+    const key = await findKey(attachments, attachmentId);
+
+    await expectCode(attachments.abort(bob, attachmentId, { uploadId }), 'ATTACHMENT_NOT_FOUND');
+    expect(store.attachments_.has(attachmentId)).toBe(true);
+
+    await attachments.abort(alice, attachmentId, { uploadId });
+    expect(storage.aborted).toEqual([uploadId]);
+    expect(storage.deleted).toEqual([key]);
+    expect(store.attachments_.has(attachmentId)).toBe(false);
+
+    await attachments.abort(alice, attachmentId, { uploadId });
+    await attachments.abort(bob, attachmentId);
+  });
+
+  it('abort: tệp một lệnh PUT không cần uploadId; tệp đã hoàn tất thì không huỷ được', async () => {
+    const { attachments, storage, store } = setup();
+    const pending = await attachments.initiate(alice, { fileName: 'a.pdf', contentType: 'application/pdf', sizeBytes: 5 });
+    await attachments.abort(alice, pending.attachmentId);
+    expect(store.attachments_.has(pending.attachmentId)).toBe(false);
+    expect(storage.aborted).toEqual([]);
+
+    const done = await attachments.initiate(alice, { fileName: 'b.pdf', contentType: 'application/pdf', sizeBytes: 5 });
+    await uploadAndComplete(attachments, storage, alice, done.attachmentId, 5);
+    await expectCode(attachments.abort(alice, done.attachmentId), 'ATTACHMENT_ALREADY_COMPLETED');
+    expect(store.attachments_.has(done.attachmentId)).toBe(true);
+  });
+
+  it('abort: kho không huỷ được phiên thì báo lỗi và giữ dòng để thử lại', async () => {
+    const { attachments, storage, store } = setup();
+    const { attachmentId, multipart } = await attachments.initiate(alice, video);
+    storage.failAbortMultipart = true;
+    await expect(attachments.abort(alice, attachmentId, { uploadId: multipart?.uploadId })).rejects.toThrow('S3 down');
+    expect(store.attachments_.has(attachmentId)).toBe(true);
   });
 
   it('dọn tệp mồ côi: xoá object và dòng; object bị kho từ chối thì giữ dòng', async () => {
