@@ -39,7 +39,12 @@ import {
   WorkItemNotFoundError,
   WorkspaceValidationError,
 } from '../domain/workspace.error.js';
-import { hasProjectRole, requireProjectRole, type ProjectService } from './project.service.js';
+import {
+  hasProjectRole,
+  requireProjectRole,
+  seesAllProjects,
+  type ProjectService,
+} from './project.service.js';
 import type { WorkspaceActor } from './workspace.application.js';
 import type { WorkspaceStore } from './workspace-store.port.js';
 
@@ -811,7 +816,7 @@ export class DocumentService {
     items: readonly DocumentSummary[],
     checkedProjectId?: string,
   ): Promise<DocumentSummary[]> {
-    if (actor.isTenantAdmin) return [...items];
+    if (seesAllProjects(actor)) return [...items];
 
     const allowed = new Set<string>(checkedProjectId ? [checkedProjectId] : []);
     const projectIds = [

@@ -55,6 +55,8 @@ export interface ProjectAccess {
   /** Rỗng khi người gọi là tenant-admin mà không phải thành viên dự án. */
   readonly role?: ProjectRole;
   readonly isTenantAdmin: boolean;
+  /** Có `workspace.project.admin`: bỏ hàng rào thành viên như quản trị tenant, nhưng chỉ trong dự án. */
+  readonly canAdminProjects?: boolean;
   /**
    * Quyền của vai trò, đọc từ cấu hình vai trò của tenant. Vắng thì dùng quyền
    * mặc định của vai hệ thống.
@@ -63,7 +65,17 @@ export interface ProjectAccess {
 }
 
 /** Phần của `ProjectAccess` quyết định quyền. */
-type AccessGrant = Pick<ProjectAccess, 'role' | 'isTenantAdmin' | 'permissions'>;
+type AccessGrant = Pick<
+  ProjectAccess,
+  'role' | 'isTenantAdmin' | 'canAdminProjects' | 'permissions'
+>;
+
+/** Bỏ hàng rào thành viên dự án: quản trị tenant hoặc người giữ `workspace.project.admin`. */
+export function seesAllProjects(
+  who: { readonly isTenantAdmin: boolean; readonly canAdminProjects?: boolean },
+): boolean {
+  return who.isTenantAdmin || who.canAdminProjects === true;
+}
 
 /** Quyền thật của thành viên (không tính cờ quản trị tenant). */
 export function permissionsOf(access: AccessGrant): ReadonlySet<ProjectPermission> {
@@ -76,9 +88,9 @@ export function permissionsOf(access: AccessGrant): ReadonlySet<ProjectPermissio
   return new Set(defaults ?? []);
 }
 
-/** Người gọi có quyền này trong dự án không. Quản trị tenant luôn có. */
+/** Người gọi có quyền này trong dự án không. Quản trị tenant và người giữ `workspace.project.admin` luôn có. */
 export function hasProjectPermission(access: AccessGrant, permission: ProjectPermission): boolean {
-  if (access.isTenantAdmin) return true;
+  if (seesAllProjects(access)) return true;
   return permissionsOf(access).has(permission);
 }
 
@@ -94,7 +106,7 @@ export function requireProjectPermission(
 
 /** Danh sách quyền gửi xuống giao diện. */
 export function effectivePermissions(access: AccessGrant): ProjectPermission[] {
-  if (access.isTenantAdmin) return [...PROJECT_PERMISSIONS];
+  if (seesAllProjects(access)) return [...PROJECT_PERMISSIONS];
   const granted = permissionsOf(access);
   return PROJECT_PERMISSIONS.filter((permission) => granted.has(permission));
 }
@@ -112,7 +124,7 @@ export function effectivePermissions(access: AccessGrant): ProjectPermission[] {
  * instance của `ProjectService`.
  */
 export function hasProjectRole(access: ProjectAccess, minimum: SystemProjectRole): boolean {
-  if (access.isTenantAdmin) return true;
+  if (seesAllProjects(access)) return true;
   if (!access.role) return false;
   const granted = permissionsOf(access);
   switch (minimum) {
@@ -163,11 +175,17 @@ export class ProjectService {
     if (!project) throw new ProjectNotFoundError(projectId);
 
     const role = await this.store.member.roleOf(actor.tenantId, projectId, actor.userId);
-    if (!role && !actor.isTenantAdmin) throw new ProjectForbiddenError();
+    if (!role && !seesAllProjects(actor)) throw new ProjectForbiddenError();
 
     const permissions =
       role && this.roles ? await this.roles.permissionsOf(actor.tenantId, role) : undefined;
-    return { project, role, isTenantAdmin: actor.isTenantAdmin, permissions };
+    return {
+      project,
+      role,
+      isTenantAdmin: actor.isTenantAdmin,
+      canAdminProjects: actor.canAdminProjects === true,
+      permissions,
+    };
   }
 
   async list(
@@ -189,8 +207,8 @@ export class ProjectService {
     );
 
     const { items, total } = await this.store.project.list(actor.tenantId, {
-      // Quản trị viên tenant bỏ hàng rào thành viên và thấy toàn bộ dự án.
-      userId: actor.isTenantAdmin ? undefined : actor.userId,
+      // Quản trị viên tenant và người giữ `workspace.project.admin` bỏ hàng rào thành viên, thấy toàn bộ dự án.
+      userId: seesAllProjects(actor) ? undefined : actor.userId,
       search: query.search?.trim() || undefined,
       status: parseStatus(query.status),
       projectType: query.projectType?.trim() || undefined,
@@ -226,7 +244,7 @@ export class ProjectService {
   async types(actor: WorkspaceActor): Promise<readonly ProjectTypeOption[]> {
     return this.store.project.types(
       actor.tenantId,
-      actor.isTenantAdmin ? undefined : actor.userId,
+      seesAllProjects(actor) ? undefined : actor.userId,
     );
   }
 
@@ -540,7 +558,7 @@ export class ProjectService {
     await Promise.all(
       projectIds.map(async (projectId) => {
         const role = await this.store.member.roleOf(actor.tenantId, projectId, actor.userId);
-        if (!role && !actor.isTenantAdmin) return;
+        if (!role && !seesAllProjects(actor)) return;
         const permissions =
           role && this.roles ? await this.roles.permissionsOf(actor.tenantId, role) : undefined;
         roles.set(projectId, {
@@ -548,6 +566,7 @@ export class ProjectService {
           permissions: effectivePermissions({
             role,
             isTenantAdmin: actor.isTenantAdmin,
+            canAdminProjects: actor.canAdminProjects,
             permissions,
           }),
         });

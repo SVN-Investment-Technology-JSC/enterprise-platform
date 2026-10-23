@@ -49,6 +49,15 @@ describe('permission grants model', () => {
     expect(GRANTABLE_ACTIONS.some((a) => a.key.includes('*'))).toBe(false);
   });
 
+  it('cấp được workspace.project.admin và nó nằm ở nhóm Workspace khi chưa vai trò nào có', () => {
+    const action = GRANTABLE_ACTIONS.find((a) => a.key === 'workspace.project.admin');
+    expect(action).toMatchObject({ group: 'Workspace', label: 'Xem và thao tác toàn bộ dự án' });
+    const groups = buildUnassignedGroups([], [], GRANTABLE_ACTIONS);
+    expect(groups.find((g) => g.group === 'Workspace')?.actions.map((x) => x.key)).toContain(
+      'workspace.project.admin',
+    );
+  });
+
   it('lấy action của vai trò theo thứ tự danh mục và bỏ khóa ngoài danh mục', () => {
     expect(roleActionKeys(roles[2], permissions, catalog)).toEqual(['workspace.read', 'shared.read']);
     expect(roleActionKeys(roles[2], permissions, [catalog[3]])).toEqual(['shared.read']);

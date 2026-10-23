@@ -61,6 +61,24 @@ describe('workspace module capabilities', () => {
     await expect(del.guard.canActivate(del.context)).rejects.toMatchObject({ status: 403 });
   });
 
+  it('workspace.project.admin ghi được công việc nhưng không thành quản trị danh mục hay xóa tài liệu', async () => {
+    const write = setup(['workspace.project.admin'], '/projects');
+    await expect(write.guard.canActivate(write.context)).resolves.toBe(true);
+    expect(write.request.workspaceActor).toMatchObject({
+      canAdminProjects: true,
+      canManage: false,
+      isTenantAdmin: false,
+      canWriteTasks: true,
+      canWriteDocuments: false,
+      canDeleteDocuments: false,
+    });
+    const del = setup(['workspace.project.admin'], '/documents/1', 'DELETE');
+    await expect(del.guard.canActivate(del.context)).rejects.toMatchObject({ status: 403 });
+    const plain = setup(['workspace.read'], '/projects', 'GET');
+    await plain.guard.canActivate(plain.context);
+    expect(plain.request.workspaceActor).toMatchObject({ canAdminProjects: false });
+  });
+
   it('xóa tài liệu được phép khi cấp đích danh hoặc là quản trị tenant', async () => {
     const granted = setup(['workspace.read', 'workspace.document.delete'], '/documents/1', 'DELETE');
     await expect(granted.guard.canActivate(granted.context)).resolves.toBe(true);
