@@ -7,25 +7,25 @@ import {
 } from '@enterprise-platform/contracts-chat';
 import * as webPush from 'web-push';
 import type { ChatDb } from './chat.store.js';
-import type { VapidConfig } from './push-config.js';
+import { resolveVapid, type VapidConfig } from './push-config.js';
 import { markFailed, markSent, removeSubscriptions, subscriptionsOf, type PushSubscriptionRecord } from './push.store.js';
 
-export { vapidFromEnv, type VapidConfig } from './push-config.js';
+export { generateVapidKeys, resolveVapid, vapidFromEnv, type VapidConfig } from './push-config.js';
 
 /** Một lần gửi tới dịch vụ push; ném lỗi kèm `statusCode` khi dịch vụ từ chối. */
 export interface PushSender {
   send(
     subscription: { readonly endpoint: string; readonly keys: { readonly p256dh: string; readonly auth: string } },
     payload: string,
-    options: { readonly ttlSeconds: number; readonly topic: string },
+    options: { readonly ttlSeconds: number; readonly topic: string; readonly vapid: VapidConfig },
   ): Promise<void>;
 }
 
-export function webPushSender(vapid: VapidConfig, timeoutMs = 10_000): PushSender {
+export function webPushSender(timeoutMs = 10_000): PushSender {
   return {
     async send(subscription, payload, options) {
       await webPush.sendNotification(subscription, payload, {
-        vapidDetails: vapid,
+        vapidDetails: options.vapid,
         TTL: options.ttlSeconds,
         topic: options.topic,
         urgency: 'high',
@@ -111,17 +111,20 @@ export interface DispatchOutcome {
  * (404/410) hoặc địa chỉ không còn hợp lệ thì xoá.
  */
 export class ChatPushDispatcher {
-  constructor(private readonly sender: PushSender | null) {}
-
-  get enabled(): boolean {
-    return this.sender !== null;
-  }
+  /** `vapidOf`: khoá VAPID của công ty có DB `db` (mặc định: biến môi trường, không có thì khoá lưu trong DB). */
+  constructor(
+    private readonly sender: PushSender | null,
+    private readonly vapidOf: (db: ChatDb) => Promise<VapidConfig> = (db) => resolveVapid(db),
+  ) {}
 
   async handle(db: ChatDb, raw: unknown): Promise<DispatchOutcome> {
     const payload = parseMessagePayload(raw);
-    if (!this.sender || !payload || payload.recipientUserIds.length === 0) return { sent: 0, removed: 0, failed: 0 };
+    const none = { sent: 0, removed: 0, failed: 0 };
+    if (!this.sender || !payload || payload.recipientUserIds.length === 0) return none;
     const recipients = payload.recipientUserIds.filter((id) => id !== payload.actorUserId.toLowerCase());
     const subscriptions = await subscriptionsOf(db, recipients);
+    if (subscriptions.length === 0) return none;
+    const vapid = await this.vapidOf(db);
     const sent: string[] = [];
     const removed: string[] = [];
     const failed: string[] = [];
@@ -137,7 +140,7 @@ export class ChatPushDispatcher {
         await (this.sender as PushSender).send(
           { endpoint: subscription.endpoint, keys: { p256dh: subscription.p256dh, auth: subscription.auth } },
           JSON.stringify(message),
-          { ttlSeconds: TTL_SECONDS, topic },
+          { ttlSeconds: TTL_SECONDS, topic, vapid },
         );
         sent.push(subscription.id);
       } catch (error) {

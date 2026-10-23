@@ -5,6 +5,7 @@ import { TENANT_CORE_MIGRATIONS } from '@enterprise-platform/platform-entitlemen
 import type { TenantUserPrincipal } from '@enterprise-platform/contracts-identity';
 import { Pool, type PoolClient } from 'pg';
 import { ChatService, type ChatDatabases, type ChatStorage } from './chat.service.js';
+import { resolveVapid } from './push-config.js';
 import { ChatPushDispatcher, type PushSender } from './push-dispatcher.js';
 import { MAX_PUSH_SUBSCRIPTIONS_PER_USER, saveSubscription } from './push.store.js';
 
@@ -414,6 +415,15 @@ integration('Chat nội bộ của core (PostgreSQL)', () => {
       await chat.send(an, direct.id, { body: '', attachmentIds: [upload.attachment.id] });
       await new ChatPushDispatcher({ send: async (_s, payload) => void bodies.push(JSON.parse(payload).body) }).handle(pool, await lastMessageEvent());
       expect(bodies).toEqual(['Đã gửi một ảnh']);
+    });
+
+    it('khoá VAPID của công ty sinh một lần và giữ nguyên, kể cả khi api và worker cùng sinh', async () => {
+      await pool.query(`DELETE FROM core_schema.web_push_keys`);
+      const [first, second] = await Promise.all([resolveVapid(pool, {}), resolveVapid(pool, {})]);
+      expect(second).toEqual(first);
+      expect(await resolveVapid(pool, {})).toEqual(first);
+      const rows = await pool.query(`SELECT count(*)::int AS n FROM core_schema.web_push_keys`);
+      expect(rows.rows[0].n).toBe(1);
     });
 
     it('một trình duyệt chỉ thuộc một người: người khác đăng ký cùng endpoint thì chuyển chủ; mỗi người tối đa 10 trình duyệt', async () => {

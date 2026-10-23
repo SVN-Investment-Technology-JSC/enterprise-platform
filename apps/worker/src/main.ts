@@ -75,7 +75,6 @@ import {
 import {
   ChatPushDispatcher,
   CORE_CHAT_MESSAGE_EVENT,
-  vapidFromEnv,
   webPushSender,
 } from '@enterprise-platform/platform-chat/push';
 import type { Pool } from 'pg';
@@ -159,17 +158,14 @@ const socialConsumer = new RabbitMqConsumer(
   process.env.RABBITMQ_URL ?? 'amqp://platform:platform@localhost:5672',
   { queue: SOCIAL_INTEGRATION_QUEUE, bindings: [...SOCIAL_INTEGRATION_BINDINGS] },
 );
-// Thông báo đẩy (Web Push) của chat nội bộ core: báo tin mới cả khi người nhận đã đóng hết tab ERP. Chưa cấu hình khoá
-// VAPID thì không tạo hàng đợi (tính năng tắt, chat vẫn chạy bình thường).
+// Thông báo đẩy (Web Push) của chat nội bộ core: báo tin mới cả khi người nhận đã đóng hết tab ERP. Khoá VAPID lấy theo
+// từng công ty (biến môi trường WEB_PUSH_VAPID_* nếu có, không thì cặp khoá tự sinh trong DB công ty).
 const CHAT_PUSH_QUEUE = 'core.chat.push.v1';
-const chatPushVapid = vapidFromEnv();
-const chatPush = new ChatPushDispatcher(chatPushVapid ? webPushSender(chatPushVapid) : null);
-const chatPushConsumer = chatPush.enabled
-  ? new RabbitMqConsumer(process.env.RABBITMQ_URL ?? 'amqp://platform:platform@localhost:5672', {
-      queue: CHAT_PUSH_QUEUE,
-      bindings: [CORE_CHAT_MESSAGE_EVENT],
-    })
-  : undefined;
+const chatPush = new ChatPushDispatcher(webPushSender());
+const chatPushConsumer = new RabbitMqConsumer(process.env.RABBITMQ_URL ?? 'amqp://platform:platform@localhost:5672', {
+  queue: CHAT_PUSH_QUEUE,
+  bindings: [CORE_CHAT_MESSAGE_EVENT],
+});
 const procedureConsumer = new RabbitMqConsumer(
   process.env.RABBITMQ_URL ?? 'amqp://platform:platform@localhost:5672',
   // Sự kiện của Workspace và kết quả bước Tài chính (finance.voucher.*) chung một hàng đợi, một consumer.
@@ -252,7 +248,7 @@ void socialConsumer
     ),
   );
 void chatPushConsumer
-  ?.start(async (event) => {
+  .start(async (event) => {
     const database = await activeTenantDatabase(event.tenantId);
     if (!database) return;
     const outcome = await withActiveTenant(
@@ -770,7 +766,7 @@ async function shutdown() {
     financeConsumer.close(),
     workspaceConsumer.close(),
     socialConsumer.close(),
-    chatPushConsumer?.close(),
+    chatPushConsumer.close(),
     procedureConsumer.close(),
     tenantPools.closeAll(),
     platformPool.end(),

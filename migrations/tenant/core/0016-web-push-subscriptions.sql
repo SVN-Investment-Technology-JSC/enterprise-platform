@@ -18,3 +18,13 @@ CREATE TABLE IF NOT EXISTS core_schema.web_push_subscriptions (
 );
 CREATE INDEX IF NOT EXISTS idx_web_push_subscriptions_user
   ON core_schema.web_push_subscriptions(user_id, updated_at DESC);
+
+-- Cặp khoá VAPID của công ty (một dòng duy nhất), sinh tự động lần đầu dùng thông báo đẩy nên không phải cấu hình gì
+-- khi triển khai. Biến môi trường WEB_PUSH_VAPID_* (nếu đặt) được ưu tiên hơn. Đổi khoá thì trình duyệt tự đăng ký lại
+-- ở lần mở trang sau.
+CREATE TABLE IF NOT EXISTS core_schema.web_push_keys (
+  id smallint PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+  public_key varchar(200) NOT NULL,
+  private_key varchar(100) NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);

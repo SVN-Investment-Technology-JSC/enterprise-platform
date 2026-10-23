@@ -7,7 +7,7 @@ import {
 import { TenantCoreAccess } from '@enterprise-platform/platform-identity';
 import { BadRequestException, Body, Controller, Delete, Get, HttpCode, Put, Req } from '@nestjs/common';
 import type { Request } from 'express';
-import { pushConfig } from './push-config.js';
+import { resolveVapid } from './push-config.js';
 import { deleteSubscription, saveSubscription } from './push.store.js';
 
 const BASE64URL = /^[A-Za-z0-9_-]+={0,2}$/;
@@ -29,8 +29,9 @@ export class PushController {
 
   @Get('config')
   async config(@Req() request: Request): Promise<PushConfig> {
-    await this.access.principal(request);
-    return pushConfig();
+    const principal = await this.access.principal(request);
+    const vapid = await resolveVapid(await this.access.pool(principal.tenantId));
+    return { enabled: true, publicKey: vapid.publicKey };
   }
 
   @Put('subscription')
@@ -38,7 +39,6 @@ export class PushController {
   async save(@Req() request: Request, @Body() body: SavePushSubscriptionRequest): Promise<void> {
     const principal = await this.access.principal(request);
     this.access.requireCsrf(request);
-    if (!pushConfig().enabled) throw new BadRequestException('Máy chủ chưa bật thông báo đẩy.');
     if (!isAllowedPushEndpoint(body?.endpoint)) throw new BadRequestException('Địa chỉ nhận thông báo không hợp lệ.');
     const p256dh = key(body?.keys?.p256dh, 'Khoá mã hoá', 80, 200);
     const auth = key(body?.keys?.auth, 'Khoá xác thực', 16, 100);
