@@ -8,12 +8,12 @@ import {
   type ChatReaction,
 } from '@enterprise-platform/contracts-chat';
 import { Popconfirm } from '@enterprise-platform/shared-ui';
-import { AlertCircle, Check, CheckCheck, Clock, CornerUpLeft, Pencil, SmilePlus, Trash2 } from 'lucide-react';
+import { AlertCircle, Check, CheckCheck, Clock, CornerUpLeft, Heart, Pencil, SmilePlus, Trash2 } from 'lucide-react';
 import { memo, useState, type ReactNode } from 'react';
 import { MessageAttachments } from './attachments';
 import { canEdit, clockTime, splitBody, type DeliveryStatus, type NameOf } from './chat-model';
 import styles from './chat.module.scss';
-import { REACTION_ICONS } from './reaction-icons';
+import { FILLED_REACTIONS, QUICK_REACTION, REACTION_ICONS } from './reaction-icons';
 import { UserAvatar } from './user-avatar';
 
 export interface BubbleProps {
@@ -111,6 +111,11 @@ function BubbleImpl(props: BubbleProps) {
   const imagesOnly = !recalled && !message.body && message.attachments.length > 0 && message.attachments.every((a) => a.isImage) && !message.replyTo;
   const editable = mine && !recalled && canEdit(message, CHAT_EDIT_WINDOW_MINUTES);
   const pending = status?.kind === 'sending' || status?.kind === 'failed';
+  const canReact = !recalled && !pending;
+  // Thả nhanh (nút tim, bấm đúp): đang thả đúng cảm xúc đó thì bỏ, không thì đổi sang nó.
+  const quickReact = () => props.onReact(message, myReaction === QUICK_REACTION ? null : QUICK_REACTION);
+  const iconClass = (reaction: ChatReaction) =>
+    [styles[`reaction-${reaction}`], FILLED_REACTIONS.has(reaction) ? styles.reactionFilled : ''].filter(Boolean).join(' ');
 
   return (
     <div className={[styles.row, first ? styles.rowFirst : '', mine ? styles.rowMine : ''].filter(Boolean).join(' ')} data-message-id={message.id}>
@@ -126,7 +131,13 @@ function BubbleImpl(props: BubbleProps) {
           ]
             .filter(Boolean)
             .join(' ')}
-          title={clockTime(message.createdAt)}
+          title={canReact ? `${clockTime(message.createdAt)} · Bấm đúp để thả tim` : clockTime(message.createdAt)}
+          onDoubleClick={(event) => {
+            if (!canReact) return;
+            event.preventDefault();
+            window.getSelection()?.removeAllRanges();
+            quickReact();
+          }}
         >
           {recalled ? (
             mine ? 'Bạn đã thu hồi một tin nhắn' : 'Tin nhắn đã được thu hồi'
@@ -158,7 +169,7 @@ function BubbleImpl(props: BubbleProps) {
                   title={`${CHAT_REACTION_LABELS[group.reaction]}: ${group.userIds.map(nameOf).join(', ')}`}
                   onClick={() => props.onReact(message, minePicked ? null : group.reaction)}
                 >
-                  <Icon aria-hidden="true" className={styles[`reaction-${group.reaction}`]} />
+                  <Icon aria-hidden="true" className={iconClass(group.reaction)} />
                   {group.userIds.length}
                 </button>
               );
@@ -170,7 +181,16 @@ function BubbleImpl(props: BubbleProps) {
 
       {!recalled && !pending ? (
         <div className={`${styles.tools} ${mine ? styles.toolsMine : styles.toolsTheirs}`}>
-          <button type="button" className={styles.iconButton} aria-label="Thả cảm xúc" title="Thả cảm xúc" onClick={() => setPicking((value) => !value)}>
+          <button
+            type="button"
+            className={myReaction === QUICK_REACTION ? `${styles.iconButton} ${styles.quickReactOn}` : styles.iconButton}
+            aria-label={myReaction === QUICK_REACTION ? 'Bỏ thả tim' : 'Thả tim'}
+            title={myReaction === QUICK_REACTION ? 'Bỏ thả tim' : 'Thả tim'}
+            onClick={quickReact}
+          >
+            <Heart aria-hidden="true" className={myReaction === QUICK_REACTION ? styles.reactionFilled : undefined} />
+          </button>
+          <button type="button" className={styles.iconButton} aria-label="Thả cảm xúc" title="Thả cảm xúc khác" onClick={() => setPicking((value) => !value)}>
             <SmilePlus aria-hidden="true" />
           </button>
           <button type="button" className={styles.iconButton} aria-label="Trả lời" title="Trả lời" onClick={() => props.onReply(message)}>
@@ -215,7 +235,7 @@ function BubbleImpl(props: BubbleProps) {
                   props.onReact(message, reaction === myReaction ? null : reaction);
                 }}
               >
-                <Icon aria-hidden="true" className={styles[`reaction-${reaction}`]} />
+                <Icon aria-hidden="true" className={iconClass(reaction)} />
               </button>
             );
           })}

@@ -137,32 +137,102 @@ export interface ChatNotice {
   readonly body: string;
   readonly icon?: string;
   readonly onClick?: () => void;
+  /** Báo ngay trong trang (toast) khi người dùng đang nhìn trang này. */
+  readonly inApp?: () => void;
 }
 
-/** Hiện thông báo Windows và/hoặc âm báo theo cài đặt của người dùng. Trả `true` khi đã hiện thông báo. */
-export async function notifyChat(notice: ChatNotice): Promise<boolean> {
-  if (typeof window === 'undefined') return false;
-  let shown = false;
+export type ChatNoticeChannel = 'in-app' | 'desktop' | 'none';
+
+/** Người dùng đang nhìn đúng tab này: tab đang hiện và cửa sổ trình duyệt đang được chọn. */
+export function isLookingAtPage(): boolean {
+  if (typeof document === 'undefined') return false;
+  return document.visibilityState === 'visible' && (typeof document.hasFocus !== 'function' || document.hasFocus());
+}
+
+/** Tab đang xem giành quyền báo trước; tab nền chờ một chút để không tranh với nó. */
+const BACKGROUND_TAB_DELAY_MS = 400;
+
+/**
+ * Báo một tin mới cho người dùng, mỗi tin đúng một lần dù mở nhiều tab:
+ * - đang nhìn trang: toast ngay trong trang (không cần quyền của trình duyệt) và âm báo;
+ * - không nhìn trang (tab nền, thu nhỏ, đang dùng ứng dụng khác): thông báo Windows nếu được phép, không thì vẫn để
+ *   toast chờ sẵn trong trang; kèm âm báo và tiêu đề tab nhấp nháy.
+ */
+export async function notifyChat(notice: ChatNotice): Promise<ChatNoticeChannel> {
+  if (typeof window === 'undefined') return 'none';
+  const looking = isLookingAtPage();
+  if (!looking) {
+    flashTitle(notice.title);
+    await new Promise((resolve) => setTimeout(resolve, BACKGROUND_TAB_DELAY_MS));
+  }
+  let channel: ChatNoticeChannel = 'none';
   await oncePerTabs(notice.id, () => {
     if (settings.sound) playChime();
-    if (!settings.desktop || readPermission() !== 'granted') return;
-    try {
-      const notification = new window.Notification(notice.title, {
-        body: notice.body,
-        icon: notice.icon ?? '/brand-logo.jpg',
-        tag: `ep-chat:${notice.id}`,
-      });
-      notification.onclick = () => {
-        window.focus();
-        notice.onClick?.();
-        notification.close();
-      };
-      shown = true;
-    } catch {
-      // Một số trình duyệt chỉ cho tạo thông báo qua service worker: bỏ qua, người dùng vẫn thấy số tin chưa đọc.
+    if (!looking && settings.desktop && readPermission() === 'granted' && showDesktop(notice)) {
+      channel = 'desktop';
+      return;
+    }
+    if (notice.inApp) {
+      notice.inApp();
+      channel = 'in-app';
     }
   });
-  return shown;
+  return channel;
+}
+
+function showDesktop(notice: ChatNotice): boolean {
+  try {
+    const notification = new window.Notification(notice.title, {
+      body: notice.body,
+      icon: notice.icon ?? '/brand-logo.jpg',
+      tag: `ep-chat:${notice.id}`,
+    });
+    notification.onclick = () => {
+      window.focus();
+      notice.onClick?.();
+      notification.close();
+    };
+    return true;
+  } catch {
+    // Một số trình duyệt chỉ cho tạo thông báo qua service worker: báo trong trang thay thế.
+    return false;
+  }
+}
+
+let flashTimer: ReturnType<typeof setInterval> | undefined;
+let stopFlash: (() => void) | undefined;
+
+/**
+ * Tiêu đề tab nhấp nháy giữa "Tên người gửi: tin mới" và tiêu đề trang, tới khi người dùng quay lại trang. Tiêu đề
+ * trang đổi trong lúc nhấp nháy (chuyển trang) thì lấy tiêu đề mới làm gốc.
+ */
+export function flashTitle(text: string): void {
+  if (typeof document === 'undefined') return;
+  stopFlash?.();
+  const message = `Tin nhắn mới · ${text}`;
+  let base = document.title;
+  let on = false;
+  const tick = () => {
+    if (document.title !== message) base = document.title;
+    on = !on;
+    document.title = on ? message : base;
+  };
+  tick();
+  flashTimer = setInterval(tick, 1_500);
+  const stop = () => {
+    if (flashTimer) clearInterval(flashTimer);
+    flashTimer = undefined;
+    if (document.title === message) document.title = base;
+    window.removeEventListener('focus', stop);
+    document.removeEventListener('visibilitychange', onVisible);
+    stopFlash = undefined;
+  };
+  const onVisible = () => {
+    if (isLookingAtPage()) stop();
+  };
+  window.addEventListener('focus', stop);
+  document.addEventListener('visibilitychange', onVisible);
+  stopFlash = stop;
 }
 
 let audio: AudioContext | undefined;

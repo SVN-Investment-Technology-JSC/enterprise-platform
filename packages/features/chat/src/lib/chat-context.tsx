@@ -2,7 +2,7 @@
 
 import { userAvatarUrl, type ChatConversationView, type MyProfile } from '@enterprise-platform/contracts-chat';
 import type { CoreChatSignal } from '@enterprise-platform/contracts-realtime';
-import { useRealtimeEvent, useRealtimeStatus } from '@enterprise-platform/shared-ui';
+import { toast, useRealtimeEvent, useRealtimeStatus } from '@enterprise-platform/shared-ui';
 import {
   createContext,
   useCallback,
@@ -15,7 +15,7 @@ import {
 } from 'react';
 import { chatApi } from './chat-api';
 import { previewText } from './chat-model';
-import { notifyChat, refreshDesktopPermission } from './desktop-notify';
+import { isLookingAtPage, notifyChat, refreshDesktopPermission } from './desktop-notify';
 import { ensurePeople, usePeople } from './people-directory';
 
 /** Mở khung chat từ nơi khác (ví dụ nút "Nhắn tin" ở trang người dùng): kèm cuộc trò chuyện hoặc người cần nhắn. */
@@ -89,8 +89,8 @@ export function ChatProvider({ me, children }: { me: MyProfile; children: ReactN
       if (!conversation?.lastMessage) continue;
       pendingNotices.current.delete(messageId);
       const current = state.current;
-      const watching =
-        current.open && current.activeId === conversation.id && typeof document !== 'undefined' && document.visibilityState === 'visible';
+      // Đang nhìn đúng cuộc này (khung mở, tab đang xem, cửa sổ đang chọn) thì tin hiện ngay trước mắt, không cần báo.
+      const watching = current.open && current.activeId === conversation.id && isLookingAtPage();
       if (conversation.muted || watching || conversation.lastMessage.senderId.toLowerCase() === me.userId.toLowerCase()) continue;
       const nameOf = (userId: string) => current.byId.get(userId.toLowerCase())?.fullName ?? 'Đồng nghiệp';
       const sender = conversation.lastMessage.senderId;
@@ -98,15 +98,23 @@ export function ChatProvider({ me, children }: { me: MyProfile; children: ReactN
       const title =
         conversation.kind === 'direct' ? nameOf(sender) : `${nameOf(sender)} · ${conversation.title ?? 'Nhóm'}`;
       const body = previewText(conversation.lastMessage, { me: me.userId, kind: 'direct', nameOf });
+      const heading = conversation.unreadMentionCount > 0 ? `${title} nhắc đến bạn` : title;
+      const openConversation = () => {
+        setActiveId(conversation.id);
+        setOpen(true);
+      };
       void notifyChat({
         id: messageId,
-        title: conversation.unreadMentionCount > 0 ? `${title} nhắc đến bạn` : title,
+        title: heading,
         body,
         icon: senderPerson?.avatarVersion != null ? userAvatarUrl(sender, senderPerson.avatarVersion) : undefined,
-        onClick: () => {
-          setActiveId(conversation.id);
-          setOpen(true);
-        },
+        onClick: openConversation,
+        // Báo ngay trong trang, không cần quyền thông báo của trình duyệt; mỗi cuộc giữ một toast (tin sau thay tin trước).
+        inApp: () =>
+          toast(
+            { title: heading, description: body },
+            { id: `ep-chat:${conversation.id}`, duration: 6_000, action: { label: 'Xem', onClick: openConversation } },
+          ),
       });
     }
     // Tin không còn là tin mới nhất (đã có tin khác đè) thì thôi báo, tránh dồn thông báo cũ.

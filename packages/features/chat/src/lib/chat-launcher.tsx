@@ -2,7 +2,7 @@
 
 import type { MyProfile } from '@enterprise-platform/contracts-chat';
 import { MessageCircle, X } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { chatApi } from './chat-api';
 import { ChatProvider, useChat } from './chat-context';
 import { ChatPanel } from './chat-panel';
@@ -23,14 +23,25 @@ function loadProfile(): Promise<MyProfile | null> {
 function LauncherButton() {
   const { open, setOpen, unreadTotal } = useChat();
   const [mounted, setMounted] = useState(false);
+  const [pulse, setPulse] = useState(false);
+  const previous = useRef(unreadTotal);
   useEffect(() => {
     if (open) setMounted(true);
   }, [open]);
+  // Số tin chưa đọc tăng: nút rung nhẹ và toả vòng sáng vài giây để người dùng để ý.
+  useEffect(() => {
+    const grew = unreadTotal > previous.current;
+    previous.current = unreadTotal;
+    if (!grew || open) return;
+    setPulse(true);
+    const timer = setTimeout(() => setPulse(false), 2_600);
+    return () => clearTimeout(timer);
+  }, [open, unreadTotal]);
   return (
     <>
       <button
         type="button"
-        className={open ? `${styles.launcher} ${styles.launcherOpen}` : styles.launcher}
+        className={[styles.launcher, open ? styles.launcherOpen : '', pulse ? styles.launcherPulse : ''].filter(Boolean).join(' ')}
         aria-label={open ? 'Đóng chat nội bộ' : unreadTotal > 0 ? `Mở chat nội bộ, ${unreadTotal} tin chưa đọc` : 'Mở chat nội bộ'}
         aria-expanded={open}
         title="Chat nội bộ"

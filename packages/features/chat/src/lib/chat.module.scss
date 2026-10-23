@@ -83,6 +83,49 @@ $danger: #dc2626;
   color: #ffffff;
 }
 
+.launcherPulse {
+  animation: launcherShake 0.6s ease 2, launcherGlow 1.3s ease-out 2;
+}
+
+@keyframes launcherShake {
+  0%,
+  100% {
+    transform: rotate(0);
+  }
+
+  20% {
+    transform: rotate(-12deg);
+  }
+
+  40% {
+    transform: rotate(10deg);
+  }
+
+  60% {
+    transform: rotate(-6deg);
+  }
+
+  80% {
+    transform: rotate(4deg);
+  }
+}
+
+@keyframes launcherGlow {
+  0% {
+    box-shadow: 0 10px 24px rgb(15 23 42 / 22%), 0 0 0 0 rgb(255 201 10 / 70%);
+  }
+
+  100% {
+    box-shadow: 0 10px 24px rgb(15 23 42 / 22%), 0 0 0 16px rgb(255 201 10 / 0%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .launcherPulse {
+    animation: none;
+  }
+}
+
 .launcherBadge {
   position: absolute;
   top: -4px;
@@ -839,6 +882,15 @@ $danger: #dc2626;
 }
 
 /* Màu riêng của từng cảm xúc (icon SVG). */
+/* Tim, like tô đặc như Zalo. */
+.reactionFilled {
+  fill: currentcolor;
+}
+
+.quickReactOn {
+  color: #e11d48;
+}
+
 .reaction-like {
   color: #2563eb;
 }
