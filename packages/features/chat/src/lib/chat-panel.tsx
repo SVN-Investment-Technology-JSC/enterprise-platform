@@ -13,6 +13,7 @@ import { ThreadView } from './thread-view';
 
 function NotificationBar() {
   const { settings, permission } = useChatSettings();
+  const { push } = useChat();
   if (permission === 'unsupported') return null;
   if (permission === 'denied')
     return (
@@ -24,7 +25,8 @@ function NotificationBar() {
   if (permission === 'granted' && settings.desktop)
     return (
       <div className={`${styles.notifyBar} ${styles.notifyBarOk}`} role="status">
-        <CheckCircle2 aria-hidden="true" /> Đã bật thông báo Windows
+        <CheckCircle2 aria-hidden="true" />
+        {push === 'active' ? 'Đã bật thông báo Windows, kể cả khi đóng tab ERP' : 'Đã bật thông báo Windows'}
       </div>
     );
   return (

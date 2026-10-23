@@ -172,6 +172,10 @@ services:
       AUTH_PUBLIC_KEY: ${AUTH_PUBLIC_KEY:-}
       # Chat nội bộ của core: ký URL tải tệp đính kèm lên MinIO cho trình duyệt (cùng địa chỉ công khai với các phân hệ).
       S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-http://localhost:9010}
+      # Thông báo đẩy của chat (báo tin cả khi đã đóng tab ERP). Bỏ trống hai khoá VAPID thì tính năng tắt.
+      # Sinh khoá: `npx web-push generate-vapid-keys`; dùng đúng một cặp cho cả api và worker.
+      WEB_PUSH_VAPID_PUBLIC_KEY: ${WEB_PUSH_VAPID_PUBLIC_KEY:-}
+      WEB_PUSH_VAPID_PRIVATE_KEY: ${WEB_PUSH_VAPID_PRIVATE_KEY:-}
     depends_on:
       migrator:
         condition: service_completed_successfully
@@ -440,6 +444,10 @@ services:
       TENANT_CORE_ORGANIZATION_CONTEXT_URL: http://api:3333/api/platform/internal/v1/organization-contexts
       HRM_API_URL: http://hrm-api:3339/api/hrm
       INVENTORY_API_URL: http://inventory-api:3336/api/inventory
+      # Gửi thông báo đẩy cho tin chat (hàng core.chat.push.v1); cùng cặp khoá VAPID với api.
+      WEB_PUSH_VAPID_PUBLIC_KEY: ${WEB_PUSH_VAPID_PUBLIC_KEY:-}
+      WEB_PUSH_VAPID_PRIVATE_KEY: ${WEB_PUSH_VAPID_PRIVATE_KEY:-}
+      WEB_PUSH_SUBJECT: ${WEB_PUSH_SUBJECT:-}
     depends_on:
       migrator:
         condition: service_completed_successfully

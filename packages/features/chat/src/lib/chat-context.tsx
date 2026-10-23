@@ -15,7 +15,8 @@ import {
 } from 'react';
 import { chatApi } from './chat-api';
 import { previewText } from './chat-model';
-import { isLookingAtPage, notifyChat, refreshDesktopPermission } from './desktop-notify';
+import { isLookingAtPage, notifyChat, refreshDesktopPermission, useChatSettings } from './desktop-notify';
+import { disablePushSubscription, syncPushSubscription, type PushState } from './push-client';
 import { ensurePeople, usePeople } from './people-directory';
 
 /** Mở khung chat từ nơi khác (ví dụ nút "Nhắn tin" ở trang người dùng): kèm cuộc trò chuyện hoặc người cần nhắn. */
@@ -50,6 +51,8 @@ export interface ChatContextValue {
   readonly remove: (conversationId: string) => void;
   /** Mở chat 1-1 với một người (tạo nếu chưa có). */
   readonly openDirect: (userId: string) => Promise<void>;
+  /** Trình duyệt này có nhận thông báo đẩy (báo cả khi đóng tab) hay không. */
+  readonly push: PushState;
 }
 
 const ChatContext = createContext<ChatContextValue | null>(null);
@@ -73,6 +76,8 @@ export function ChatProvider({ me, children }: { me: MyProfile; children: ReactN
   const [error, setError] = useState<string | null>(null);
   const connected = useRealtimeStatus();
   const { byId } = usePeople();
+  const { settings, permission } = useChatSettings();
+  const [push, setPush] = useState<PushState>('off');
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const pendingNotices = useRef(new Set<string>());
   const state = useRef({ open, activeId, byId, conversations });
@@ -226,14 +231,41 @@ export function ChatProvider({ me, children }: { me: MyProfile; children: ReactN
     };
   }, [openDirect, setOpen]);
 
+  // Thông báo đẩy theo cài đặt "Thông báo Windows": bật và được phép thì đăng ký (làm mới mỗi lần mở trang), tắt thì huỷ.
+  useEffect(() => {
+    let active = true;
+    if (settings.desktop && permission === 'granted') {
+      void syncPushSubscription(me.userId).then((state) => active && setPush(state));
+    } else {
+      setPush(permission === 'granted' || permission === 'default' ? 'off' : 'no-permission');
+      if (!settings.desktop) void disablePushSubscription();
+    }
+    return () => {
+      active = false;
+    };
+  }, [me.userId, permission, settings.desktop]);
+
+  // Bấm vào thông báo đẩy khi tab này đang mở: service worker nhờ tab mở đúng cuộc trò chuyện.
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
+    const onMessage = (event: MessageEvent) => {
+      const data = event.data as { type?: unknown; conversationId?: unknown } | null;
+      if (data?.type !== 'ep-chat:open' || typeof data.conversationId !== 'string' || !data.conversationId) return;
+      setActiveId(data.conversationId);
+      setOpen(true);
+    };
+    navigator.serviceWorker.addEventListener('message', onMessage);
+    return () => navigator.serviceWorker.removeEventListener('message', onMessage);
+  }, [setOpen]);
+
   const unreadTotal = useMemo(
     () => conversations.filter((item) => !item.muted).reduce((sum, item) => sum + item.unreadCount, 0),
     [conversations],
   );
 
   const value = useMemo<ChatContextValue>(
-    () => ({ me, open, setOpen, activeId, setActiveId, conversations, unreadTotal, loaded, error, refresh, upsert, remove, openDirect }),
-    [me, open, setOpen, activeId, conversations, unreadTotal, loaded, error, refresh, upsert, remove, openDirect],
+    () => ({ me, open, setOpen, activeId, setActiveId, conversations, unreadTotal, loaded, error, refresh, upsert, remove, openDirect, push }),
+    [me, open, setOpen, activeId, conversations, unreadTotal, loaded, error, refresh, upsert, remove, openDirect, push],
   );
   return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;
 }

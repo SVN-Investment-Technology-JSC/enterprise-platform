@@ -6,6 +6,7 @@ import {
   isChatAllowedType,
   isChatImageType,
   isChatReaction,
+  isAllowedPushEndpoint,
   isCoreChatChange,
   userAvatarUrl,
 } from './contracts-chat.js';
@@ -39,5 +40,19 @@ describe('contracts-chat', () => {
     expect(isChatReaction('party')).toBe(false);
     expect(isCoreChatChange('message.created')).toBe(true);
     expect(isCoreChatChange('message.pinned')).toBe(false);
+  });
+
+  it('chỉ nhận endpoint push của máy chủ push chính thức (chặn gọi vào mạng nội bộ)', () => {
+    expect(isAllowedPushEndpoint('https://fcm.googleapis.com/fcm/send/abc')).toBe(true);
+    expect(isAllowedPushEndpoint('https://wns2-sg2p.notify.windows.com/w/?token=x')).toBe(true);
+    expect(isAllowedPushEndpoint('https://updates.push.services.mozilla.com/wpush/v2/x')).toBe(true);
+    expect(isAllowedPushEndpoint('https://web.push.apple.com/abc')).toBe(true);
+    expect(isAllowedPushEndpoint('http://fcm.googleapis.com/fcm/send/abc')).toBe(false);
+    expect(isAllowedPushEndpoint('https://minio:9000/x')).toBe(false);
+    expect(isAllowedPushEndpoint('https://169.254.169.254/latest')).toBe(false);
+    expect(isAllowedPushEndpoint('https://fcm.googleapis.com.evil.test/x')).toBe(false);
+    expect(isAllowedPushEndpoint('https://user:pass@fcm.googleapis.com/x')).toBe(false);
+    expect(isAllowedPushEndpoint('https://fcm.googleapis.com:8443/x')).toBe(false);
+    expect(isAllowedPushEndpoint(42)).toBe(false);
   });
 });

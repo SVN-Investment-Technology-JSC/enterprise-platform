@@ -5,6 +5,8 @@ import { TENANT_CORE_MIGRATIONS } from '@enterprise-platform/platform-entitlemen
 import type { TenantUserPrincipal } from '@enterprise-platform/contracts-identity';
 import { Pool, type PoolClient } from 'pg';
 import { ChatService, type ChatDatabases, type ChatStorage } from './chat.service.js';
+import { ChatPushDispatcher, type PushSender } from './push-dispatcher.js';
+import { MAX_PUSH_SUBSCRIPTIONS_PER_USER, saveSubscription } from './push.store.js';
 
 const integration = process.env.CORE_CHAT_TEST_ADMIN_URL ? describe : describe.skip;
 const TENANT = '11111111-1111-4111-8111-111111111111';
@@ -311,5 +313,117 @@ integration('Chat nội bộ của core (PostgreSQL)', () => {
     const older = await chat.messages(chi, group.id, { limit: 3, before: latest.messages[0].id });
     expect(older.messages.map((m) => m.body || m.systemEvent?.type)).toEqual(['group.created', 'Tin 1', 'Tin 2']);
     expect(older.hasMore).toBe(false);
+  });
+
+  describe('thông báo đẩy (Web Push)', () => {
+    const endpoint = (name: string) => `https://fcm.googleapis.com/fcm/send/${name}`;
+    const keys = { p256dh: 'B'.repeat(87), auth: 'A'.repeat(22) };
+    const subscribe = (userId: string, name: string) =>
+      saveSubscription(pool, { userId, endpoint: endpoint(name), p256dh: keys.p256dh, auth: keys.auth, userAgent: 'test' });
+    const lastMessageEvent = async () => {
+      const events = await outbox('core.chat.message');
+      return events[events.length - 1];
+    };
+
+    it('tin mới ghi sự kiện cho người nhận: bỏ người gửi và người tắt thông báo, người được nhắc vẫn nhận', async () => {
+      const group = await chat.createGroup(an, { title: 'Đẩy thông báo', memberIds: [ids.binh, ids.chi, ids.dung] });
+      await chat.updateConversation(chi, group.id, { muted: true });
+      await chat.updateConversation(dung, group.id, { muted: true });
+      await clearOutbox();
+      const sent = await chat.send(an, group.id, { body: 'Họp lúc 9h @Phạm Dũng', mentions: [ids.dung] });
+      expect(await lastMessageEvent()).toEqual(
+        expect.objectContaining({
+          conversationId: group.id,
+          conversationKind: 'group',
+          conversationTitle: 'Đẩy thông báo',
+          messageId: sent.message.id,
+          actorName: 'Nguyễn Văn An',
+          excerpt: 'Họp lúc 9h @Phạm Dũng',
+          mentionedUserIds: [ids.dung],
+        }),
+      );
+      expect(((await lastMessageEvent()).recipientUserIds as string[]).sort()).toEqual([ids.binh, ids.dung].sort());
+    });
+
+    it('gửi push cho mọi trình duyệt của người nhận; 410 thì xoá đăng ký, lỗi khác thì đếm, endpoint lạ thì bỏ', async () => {
+      const direct = await chat.openDirect(an, ids.binh);
+      await subscribe(ids.binh, 'binh-laptop');
+      await subscribe(ids.binh, 'binh-gone');
+      await subscribe(ids.binh, 'binh-flaky');
+      await pool.query(
+        `INSERT INTO core_schema.web_push_subscriptions (user_id, endpoint, p256dh, auth) VALUES ($1, 'https://evil.internal/x', $2, $3)`,
+        [ids.binh, keys.p256dh, keys.auth],
+      );
+      await subscribe(ids.an, 'an-own');
+      await clearOutbox();
+      const sent = await chat.send(an, direct.id, { body: 'Bình ơi' });
+      const event = await lastMessageEvent();
+
+      const delivered: { endpoint: string; payload: Record<string, unknown>; topic: string }[] = [];
+      const sender: PushSender = {
+        send: async (subscription, payload, options) => {
+          if (subscription.endpoint.endsWith('binh-gone')) throw Object.assign(new Error('Gone'), { statusCode: 410 });
+          if (subscription.endpoint.endsWith('binh-flaky')) throw Object.assign(new Error('Server'), { statusCode: 500 });
+          delivered.push({ endpoint: subscription.endpoint, payload: JSON.parse(payload), topic: options.topic });
+        },
+      };
+      const outcome = await new ChatPushDispatcher(sender).handle(pool, event);
+      expect(outcome).toEqual({ sent: 1, removed: 2, failed: 1 });
+      expect(delivered).toEqual([
+        {
+          endpoint: endpoint('binh-laptop'),
+          topic: direct.id.replace(/-/g, ''),
+          payload: {
+            type: 'chat.message',
+            tag: `ep-chat:${sent.message.id}`,
+            title: 'Nguyễn Văn An',
+            body: 'Bình ơi',
+            conversationId: direct.id,
+            url: `/dashboard#chat/${direct.id}`,
+            icon: '/brand-logo.jpg',
+          },
+        },
+      ]);
+      const left = await pool.query<{ endpoint: string; failure_count: number; last_success_at: Date | null }>(
+        `SELECT endpoint, failure_count, last_success_at FROM core_schema.web_push_subscriptions WHERE user_id = $1 ORDER BY endpoint`,
+        [ids.binh],
+      );
+      expect(left.rows.map((row) => [row.endpoint, row.failure_count, Boolean(row.last_success_at)])).toEqual([
+        [endpoint('binh-flaky'), 1, false],
+        [endpoint('binh-laptop'), 0, true],
+      ]);
+      expect(await new ChatPushDispatcher(null).handle(pool, event)).toEqual({ sent: 0, removed: 0, failed: 0 });
+    });
+
+    it('người được nhắc thấy "nhắc đến bạn"; tin chỉ có ảnh ghi "Đã gửi một ảnh"; cuộc chung ghi tên cuộc', async () => {
+      await subscribe(ids.dung, 'dung-pc');
+      const company = await chat.company(an);
+      const titles: string[] = [];
+      const sender: PushSender = { send: async (_s, payload) => void titles.push(JSON.parse(payload).title) };
+      await clearOutbox();
+      await chat.send(an, company.id, { body: '@Phạm Dũng xem nhé', mentions: [ids.dung] });
+      await new ChatPushDispatcher(sender).handle(pool, await lastMessageEvent());
+      expect(titles).toContain('Nguyễn Văn An · Tất cả nội bộ nhắc đến bạn');
+
+      const direct = await chat.openDirect(an, ids.dung);
+      const upload = await chat.initiateAttachment(an, { conversationId: direct.id, fileName: 'anh.png', contentType: 'image/png', sizeBytes: 4 });
+      storage.objects.set(upload.uploadUrl.replace('https://storage.test/upload/', ''), { sizeBytes: 4, contentType: 'image/png' });
+      await chat.completeAttachment(an, upload.attachment.id);
+      await clearOutbox();
+      const bodies: string[] = [];
+      await chat.send(an, direct.id, { body: '', attachmentIds: [upload.attachment.id] });
+      await new ChatPushDispatcher({ send: async (_s, payload) => void bodies.push(JSON.parse(payload).body) }).handle(pool, await lastMessageEvent());
+      expect(bodies).toEqual(['Đã gửi một ảnh']);
+    });
+
+    it('một trình duyệt chỉ thuộc một người: người khác đăng ký cùng endpoint thì chuyển chủ; mỗi người tối đa 10 trình duyệt', async () => {
+      await subscribe(ids.chi, 'shared-pc');
+      await subscribe(ids.an, 'shared-pc');
+      const owner = await pool.query(`SELECT user_id FROM core_schema.web_push_subscriptions WHERE endpoint = $1`, [endpoint('shared-pc')]);
+      expect(owner.rows).toEqual([{ user_id: ids.an }]);
+      for (let index = 0; index < MAX_PUSH_SUBSCRIPTIONS_PER_USER + 3; index += 1) await subscribe(ids.chi, `chi-${index}`);
+      const count = await pool.query(`SELECT count(*)::int AS n FROM core_schema.web_push_subscriptions WHERE user_id = $1`, [ids.chi]);
+      expect(count.rows[0].n).toBe(MAX_PUSH_SUBSCRIPTIONS_PER_USER);
+    });
   });
 });

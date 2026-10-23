@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto';
 import {
   CORE_CHAT_CHANGED_EVENT,
   CORE_CHAT_MENTION_EVENT,
+  CORE_CHAT_MESSAGE_EVENT,
+  type CoreChatMessagePayload,
   chatNotificationLink,
   type CoreChatChange,
   type CoreChatChangedPayload,
@@ -78,6 +80,20 @@ export async function writeChatSignal(
     recipientUserIds: input.audience === 'company' ? [] : recipients,
   };
   await insertOutbox(db, input.tenantId, CORE_CHAT_CHANGED_EVENT, input.conversationId, payload, newId);
+}
+
+/**
+ * Có tin nhắn mới: worker gửi thông báo đẩy (Web Push) cho người nhận, để báo cả khi họ đã đóng hết tab ERP.
+ * Không có ai nhận thì không ghi gì.
+ */
+export async function writeMessageEvent(
+  db: ChatDb,
+  tenantId: string,
+  payload: CoreChatMessagePayload,
+  newId: () => string = randomUUID,
+): Promise<void> {
+  if (payload.recipientUserIds.length === 0) return;
+  await insertOutbox(db, tenantId, CORE_CHAT_MESSAGE_EVENT, payload.conversationId, payload, newId);
 }
 
 export async function writeMentionEvent(

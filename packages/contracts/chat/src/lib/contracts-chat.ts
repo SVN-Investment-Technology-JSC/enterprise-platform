@@ -339,3 +339,83 @@ export function directChatKey(a: string, b: string): string {
   const [first, second] = [a.toLowerCase(), b.toLowerCase()].sort();
   return `${first}:${second}`;
 }
+
+/* -------------------------------- Web Push -------------------------------- */
+
+export const PUSH_API_ROOT = '/api/platform/v1/push';
+/** Đường dẫn service worker (gốc trang nên phạm vi là cả hệ thống, kể cả các phân hệ dưới /modules). */
+export const CHAT_SERVICE_WORKER_PATH = '/chat-sw.js';
+/** Sự kiện outbox: có tin nhắn mới, worker gửi thông báo đẩy cho người nhận. */
+export const CORE_CHAT_MESSAGE_EVENT = 'core.chat.message';
+
+export interface PushConfig {
+  readonly enabled: boolean;
+  /** Khoá công khai VAPID (base64url), dùng làm `applicationServerKey`. */
+  readonly publicKey: string | null;
+}
+
+export interface SavePushSubscriptionRequest {
+  readonly endpoint: string;
+  readonly keys: { readonly p256dh: string; readonly auth: string };
+}
+
+export interface DeletePushSubscriptionRequest {
+  readonly endpoint: string;
+}
+
+/** Payload của `core.chat.message` (đi trong outbox của tenant, không ra trình duyệt). */
+export interface CoreChatMessagePayload {
+  readonly conversationId: string;
+  readonly conversationKind: ChatConversationKind;
+  readonly conversationTitle: string | null;
+  readonly messageId: string;
+  readonly actorUserId: string;
+  readonly actorName: string;
+  readonly excerpt: string;
+  readonly attachmentCount: number;
+  readonly hasImage: boolean;
+  readonly mentionedUserIds: readonly string[];
+  readonly recipientUserIds: readonly string[];
+}
+
+/** Nội dung đẩy tới service worker (đã mã hoá đầu cuối theo chuẩn Web Push). */
+export interface ChatPushMessage {
+  readonly type: 'chat.message';
+  /** Cùng thẻ với thông báo do trang tạo, để hai đường không hiện trùng. */
+  readonly tag: string;
+  readonly title: string;
+  readonly body: string;
+  readonly conversationId: string;
+  readonly url: string;
+  readonly icon: string;
+}
+
+/** Thẻ thông báo của một tin: trang và service worker dùng chung, thông báo sau thay thông báo trước. */
+export function chatNoticeTag(messageId: string): string {
+  return `ep-chat:${messageId}`;
+}
+
+/**
+ * Máy chủ push chính thức của các trình duyệt. Endpoint ngoài danh sách bị từ chối: máy chủ sẽ gửi HTTP tới địa chỉ
+ * này, nếu nhận địa chỉ tuỳ ý thì người dùng có thể bắt worker gọi vào mạng nội bộ (SSRF).
+ */
+const PUSH_HOSTS: readonly RegExp[] = [
+  /^fcm\.googleapis\.com$/,
+  /^android\.googleapis\.com$/,
+  /^updates\.push\.services\.mozilla\.com$/,
+  /^[a-z0-9-]+\.notify\.windows\.com$/,
+  /^web\.push\.apple\.com$/,
+  /^[a-z0-9-]+\.push\.apple\.com$/,
+];
+
+export function isAllowedPushEndpoint(endpoint: unknown): endpoint is string {
+  if (typeof endpoint !== 'string' || endpoint.length > 2048) return false;
+  let url: URL;
+  try {
+    url = new URL(endpoint);
+  } catch {
+    return false;
+  }
+  if (url.protocol !== 'https:' || url.username || url.password || (url.port && url.port !== '443')) return false;
+  return PUSH_HOSTS.some((pattern) => pattern.test(url.hostname.toLowerCase()));
+}

@@ -38,7 +38,7 @@ import {
   ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
-import { writeChatSignal, writeMentionEvent } from './chat-events.js';
+import { writeChatSignal, writeMentionEvent, writeMessageEvent } from './chat-events.js';
 import * as store from './chat.store.js';
 import type { ChatDb, ConversationRecord, MembershipRecord } from './chat.store.js';
 
@@ -340,6 +340,28 @@ export class ChatService {
       if (access.conversation.kind === 'company') await store.ensureMemberRow(db, id, principal.userId);
       await store.markOwnMessage(db, id, principal.userId, created.createdAt);
       await this.signalMembers(db, principal, access.conversation, created.id, 'message.created');
+      const attachments = await db.query<{ n: string; images: string }>(
+        `SELECT count(*) AS n, count(*) FILTER (WHERE is_image) AS images FROM chat_schema.attachments WHERE message_id = $1`,
+        [created.id],
+      );
+      await writeMessageEvent(
+        db,
+        principal.tenantId,
+        {
+          conversationId: id,
+          conversationKind: access.conversation.kind,
+          conversationTitle: access.conversation.kind === 'direct' ? null : access.conversation.title,
+          messageId: created.id,
+          actorUserId: principal.userId,
+          actorName: principal.displayName,
+          excerpt: store.excerptOf(body),
+          attachmentCount: Number(attachments.rows[0]?.n ?? 0),
+          hasImage: Number(attachments.rows[0]?.images ?? 0) > 0,
+          mentionedUserIds: kept,
+          recipientUserIds: await store.pushRecipients(db, access.conversation, principal.userId, kept),
+        },
+        this.newId,
+      );
       if (kept.length > 0) {
         await writeMentionEvent(
           db,

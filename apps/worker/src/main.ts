@@ -72,6 +72,12 @@ import {
   SOCIAL_INTEGRATION_BINDINGS,
   SOCIAL_INTEGRATION_QUEUE,
 } from '@enterprise-platform/module-social';
+import {
+  ChatPushDispatcher,
+  CORE_CHAT_MESSAGE_EVENT,
+  vapidFromEnv,
+  webPushSender,
+} from '@enterprise-platform/platform-chat/push';
 import type { Pool } from 'pg';
 
 try {
@@ -153,6 +159,17 @@ const socialConsumer = new RabbitMqConsumer(
   process.env.RABBITMQ_URL ?? 'amqp://platform:platform@localhost:5672',
   { queue: SOCIAL_INTEGRATION_QUEUE, bindings: [...SOCIAL_INTEGRATION_BINDINGS] },
 );
+// Thông báo đẩy (Web Push) của chat nội bộ core: báo tin mới cả khi người nhận đã đóng hết tab ERP. Chưa cấu hình khoá
+// VAPID thì không tạo hàng đợi (tính năng tắt, chat vẫn chạy bình thường).
+const CHAT_PUSH_QUEUE = 'core.chat.push.v1';
+const chatPushVapid = vapidFromEnv();
+const chatPush = new ChatPushDispatcher(chatPushVapid ? webPushSender(chatPushVapid) : null);
+const chatPushConsumer = chatPush.enabled
+  ? new RabbitMqConsumer(process.env.RABBITMQ_URL ?? 'amqp://platform:platform@localhost:5672', {
+      queue: CHAT_PUSH_QUEUE,
+      bindings: [CORE_CHAT_MESSAGE_EVENT],
+    })
+  : undefined;
 const procedureConsumer = new RabbitMqConsumer(
   process.env.RABBITMQ_URL ?? 'amqp://platform:platform@localhost:5672',
   // Sự kiện của Workspace và kết quả bước Tài chính (finance.voucher.*) chung một hàng đợi, một consumer.
@@ -231,6 +248,31 @@ void socialConsumer
   .catch((error) =>
     console.error(
       'Social consumer requires restart:',
+      error instanceof Error ? error.message : 'Connection failed',
+    ),
+  );
+void chatPushConsumer
+  ?.start(async (event) => {
+    const database = await activeTenantDatabase(event.tenantId);
+    if (!database) return;
+    const outcome = await withActiveTenant(
+      platformPool,
+      event.tenantId,
+      async () => {
+        const pool = (await tenantPools.forTenant(database)) as unknown as Pool;
+        // Chat là của core nên không kiểm phân hệ; nhận trùng (giao lại) thì bỏ qua để không báo hai lần.
+        await new IdempotentInbox(pool, CHAT_PUSH_QUEUE).process(event, async () => {
+          await chatPush.handle(pool, event.payload);
+        });
+      },
+      { mode: 'shared' },
+    );
+    if (!outcome.executed && outcome.reason === 'busy')
+      throw new TransientConsumerError(`Tenant ${event.tenantId} đang bận (khóa exclusive)`);
+  })
+  .catch((error) =>
+    console.error(
+      'Chat push consumer requires restart:',
       error instanceof Error ? error.message : 'Connection failed',
     ),
   );
@@ -728,6 +770,7 @@ async function shutdown() {
     financeConsumer.close(),
     workspaceConsumer.close(),
     socialConsumer.close(),
+    chatPushConsumer?.close(),
     procedureConsumer.close(),
     tenantPools.closeAll(),
     platformPool.end(),

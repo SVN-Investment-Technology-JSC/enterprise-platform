@@ -3,6 +3,7 @@ import { PlatformIdentityModule, TenantCoreAccess } from '@enterprise-platform/p
 import { Module } from '@nestjs/common';
 import { ChatController } from './chat.controller.js';
 import { ChatService } from './chat.service.js';
+import { PushController } from './push.controller.js';
 
 /**
  * Chat nội bộ của core (`/api/platform/v1/chat`). Dữ liệu ở `chat_schema` trong DB tenant (migration core 0015), tệp
@@ -10,7 +11,7 @@ import { ChatService } from './chat.service.js';
  */
 @Module({
   imports: [PlatformIdentityModule],
-  controllers: [ChatController],
+  controllers: [ChatController, PushController],
   providers: [
     {
       provide: ChatService,

@@ -241,6 +241,30 @@ export async function ensureMemberRow(db: ChatDb, conversationId: string, userId
   );
 }
 
+/**
+ * Người nhận thông báo đẩy của một tin: thành viên đang trong cuộc (cuộc chung: mọi người đang hoạt động), trừ người
+ * gửi và người đã tắt thông báo cuộc này; người được nhắc tên vẫn nhận dù đã tắt (như Zalo).
+ */
+export async function pushRecipients(
+  db: ChatDb,
+  conversation: { readonly id: string; readonly kind: ChatConversationKind },
+  senderId: string,
+  mentioned: readonly string[],
+): Promise<string[]> {
+  const result = await db.query<{ id: string }>(
+    conversation.kind === 'company'
+      ? `SELECT u.id FROM core_schema.users u
+           LEFT JOIN chat_schema.members m ON m.conversation_id = $1 AND m.user_id = u.id
+          WHERE ${ACTIVE_USER} AND u.id <> $2 AND (COALESCE(m.muted, false) = false OR u.id = ANY($3::uuid[]))`
+      : `SELECT m.user_id AS id FROM chat_schema.members m
+           JOIN core_schema.users u ON u.id = m.user_id AND ${ACTIVE_USER}
+          WHERE m.conversation_id = $1 AND m.left_at IS NULL AND m.user_id <> $2
+            AND (m.muted = false OR m.user_id = ANY($3::uuid[]))`,
+    [conversation.id, senderId, mentioned],
+  );
+  return result.rows.map((row) => row.id);
+}
+
 export async function setMuted(db: ChatDb, conversationId: string, userId: string, muted: boolean): Promise<void> {
   await db.query(`UPDATE chat_schema.members SET muted = $3 WHERE conversation_id = $1 AND user_id = $2`, [conversationId, userId, muted]);
 }
