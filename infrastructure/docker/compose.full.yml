@@ -170,6 +170,8 @@ services:
       # mới, và các module API trả 401 cho tới khi được restart theo.
       AUTH_PRIVATE_KEY: ${AUTH_PRIVATE_KEY:-}
       AUTH_PUBLIC_KEY: ${AUTH_PUBLIC_KEY:-}
+      # Chat nội bộ của core: ký URL tải tệp đính kèm lên MinIO cho trình duyệt (cùng địa chỉ công khai với các phân hệ).
+      S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-http://localhost:9010}
     depends_on:
       migrator:
         condition: service_completed_successfully

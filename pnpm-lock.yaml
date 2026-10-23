@@ -1115,6 +1115,9 @@ importers:
       '@base-ui/react':
         specifier: ^1.7.0
         version: 1.7.0(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      '@enterprise-platform/contracts-chat':
+        specifier: workspace:*
+        version: link:../../packages/contracts/chat
       '@enterprise-platform/contracts-data-import':
         specifier: workspace:*
         version: link:../../packages/contracts/data-import
@@ -1127,6 +1130,9 @@ importers:
       '@enterprise-platform/contracts-tenancy':
         specifier: workspace:*
         version: link:../../packages/contracts/tenancy
+      '@enterprise-platform/feature-chat':
+        specifier: workspace:*
+        version: link:../../packages/features/chat
       '@enterprise-platform/feature-hrm':
         specifier: workspace:*
         version: link:../../packages/features/hrm
@@ -1754,9 +1760,15 @@ importers:
       '@base-ui/react':
         specifier: ^1.7.0
         version: 1.7.0(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      '@enterprise-platform/contracts-chat':
+        specifier: workspace:*
+        version: link:../../contracts/chat
       '@enterprise-platform/contracts-social':
         specifier: workspace:*
         version: link:../../contracts/social
+      '@enterprise-platform/feature-chat':
+        specifier: workspace:*
+        version: link:../chat
       '@enterprise-platform/feature-module-shell':
         specifier: workspace:*
         version: link:../module-shell

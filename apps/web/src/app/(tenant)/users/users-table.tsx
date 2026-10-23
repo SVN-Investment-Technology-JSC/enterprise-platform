@@ -82,6 +82,7 @@ export function UsersTable({ groups }: { groups: readonly UserGroup[] }) {
                     <div className="flex min-w-0 items-center gap-2.5">
                       <UserAvatar
                         name={user.fullName}
+                        userId={user.id}
                         muted={user.status !== 'active'}
                       />
                       <div className="flex min-w-0 flex-col">

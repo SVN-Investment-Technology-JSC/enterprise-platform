@@ -4,3 +4,4 @@ export * from './lib/user-avatar';
 export { ensurePeople, setPersonAvatarVersion, usePeople, usePerson } from './lib/people-directory';
 export { usePresence, lastSeenLabel } from './lib/presence';
 export { chatApi, ChatApiError } from './lib/chat-api';
+export { prepareAvatarImage, avatarSourceProblem } from './lib/avatar-image';

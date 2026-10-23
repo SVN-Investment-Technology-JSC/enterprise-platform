@@ -1,20 +1,32 @@
 'use client';
 
 import type { AuthenticatedPrincipal } from '@enterprise-platform/contracts-identity';
+import {
+  avatarSourceProblem,
+  chatApi,
+  prepareAvatarImage,
+  setPersonAvatarVersion,
+  usePerson,
+  UserAvatar,
+} from '@enterprise-platform/feature-chat';
 import { authFetch } from '@enterprise-platform/shared-ui';
 import {
   Building2,
+  Camera,
   CheckCircle2,
   Circle,
   Eye,
   EyeOff,
-  KeyRound,
+  Info,
   Loader2,
+  LockKeyhole,
   Mail,
+  RotateCcw,
   ShieldCheck,
+  Trash2,
   UserRound,
 } from 'lucide-react';
-import { useId, useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { PageBreadcrumb } from '@/components/ui/page-breadcrumb';
 import { toast } from '@/components/ui/sonner';
 import { cn } from '@/lib/utils';
@@ -26,12 +38,6 @@ import {
   type PasswordStrength,
 } from './password-rules';
 
-const ROLE_LABELS: Record<string, string> = {
-  'tenant-admin': 'Quản trị doanh nghiệp',
-  'tenant-user': 'Người dùng',
-  'platform-admin': 'Quản trị nền tảng',
-};
-
 const STRENGTH: Record<Exclude<PasswordStrength, 'empty'>, { label: string; bars: number; color: string; text: string }> = {
   weak: { label: 'Yếu', bars: 1, color: 'bg-[#ef4444]', text: 'text-[#b91c1c]' },
   fair: { label: 'Trung bình', bars: 2, color: 'bg-[#f59e0b]', text: 'text-[#b45309]' },
@@ -41,16 +47,6 @@ const STRENGTH: Record<Exclude<PasswordStrength, 'empty'>, { label: string; bars
 const EMPTY_DRAFT = { currentPassword: '', newPassword: '', confirmation: '' };
 
 export function AccountWorkspace({ principal }: { principal: AuthenticatedPrincipal }) {
-  const roleNames = principal.kind === 'tenant-user' ? principal.roleNames : undefined;
-  const initials = principal.displayName
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((word) => word[0])
-    .join('')
-    .toUpperCase();
-
   return (
     <div className="flex flex-col gap-4 text-[14px] text-[#18181b]">
       <div>
@@ -60,10 +56,8 @@ export function AccountWorkspace({ principal }: { principal: AuthenticatedPrinci
             items={[{ label: 'Platform', href: '/platform' }, { label: 'Tài khoản của tôi' }]}
           />
         ) : null}
-        <h1 className="m-0 text-[20px] font-bold tracking-[-0.3px]">Tài khoản của tôi</h1>
-        <p className="mt-1 text-[14px] text-slate-600">
-          Xem thông tin tài khoản và tự đổi mật khẩu đăng nhập của bạn.
-        </p>
+        <h1 className="m-0 text-[22px] font-bold tracking-[-0.3px]">Tài khoản của tôi</h1>
+        <p className="mt-1 text-[14px] text-slate-600">Quản lý thông tin cá nhân và bảo mật tài khoản.</p>
       </div>
 
       <div className="flex flex-wrap items-start gap-4">
@@ -72,36 +66,15 @@ export function AccountWorkspace({ principal }: { principal: AuthenticatedPrinci
           aria-label="Thông tin tài khoản"
           className="flex min-w-0 max-w-full flex-[1_1_300px] flex-col overflow-hidden rounded-[14px] border border-[#eef0f3] bg-white"
         >
-          <div className="relative flex flex-col items-center gap-2 overflow-hidden border-b border-[#ffc90a]/20 bg-gradient-to-br from-[#1c1c20] to-[#2a2a2f] px-5 pb-5 pt-[26px] text-center">
-            <span
-              aria-hidden="true"
-              className="absolute -right-[70px] -top-[90px] size-[220px] rounded-full bg-[radial-gradient(circle,rgba(255,201,10,.18)_0%,transparent_70%)]"
-            />
-            <span className="relative">
-              <span
-                aria-hidden="true"
-                className="grid size-20 place-items-center rounded-full bg-gradient-to-br from-[#ffc90a] to-[#d9ab00] text-[26px] font-extrabold text-[#18181b] shadow-[0_0_0_4px_rgba(255,201,10,.18)]"
-              >
-                {initials || <UserRound className="size-8" />}
+          {principal.kind === 'tenant-user' ? (
+            <AvatarEditor userId={principal.userId} displayName={principal.displayName} />
+          ) : (
+            <div className="flex flex-col items-center gap-3 bg-gradient-to-b from-[#fff8dc] to-white px-5 pb-5 pt-6">
+              <span className="grid size-24 place-items-center rounded-full bg-gradient-to-br from-[#ffc90a] to-[#e8b400] text-[32px] font-extrabold text-[#18181b] shadow-[0_0_0_5px_rgba(255,201,10,.22)]">
+                {initialsOf(principal.displayName)}
               </span>
-              <span
-                aria-label="Đang trực tuyến"
-                className="absolute bottom-1 right-0.5 size-3.5 rounded-full border-[3px] border-[#232327] bg-[#10b981]"
-              />
-            </span>
-            <b className="relative text-[16px] text-white">{principal.displayName}</b>
-            <span className="relative break-all text-[14px] text-white/70">{principal.email}</span>
-            <div className="relative flex flex-wrap justify-center gap-1.5">
-              {(principal.roles.length ? principal.roles : [principal.kind]).map((role) => (
-                <span
-                  key={role}
-                  className="rounded-full border border-[#ffc90a]/50 bg-[#ffc90a]/[.12] px-2.5 py-0.5 text-[13px] font-semibold text-[#ffd84d]"
-                >
-                  {ROLE_LABELS[role] ?? roleNames?.[role] ?? role}
-                </span>
-              ))}
             </div>
-          </div>
+          )}
 
           <dl className="m-0 flex flex-col py-2">
             <ProfileRow icon={<UserRound />} label="Họ và tên" value={principal.displayName} />
@@ -116,7 +89,8 @@ export function AccountWorkspace({ principal }: { principal: AuthenticatedPrinci
             />
           </dl>
 
-          <p className="mx-4 mb-4 mt-0 rounded-[10px] border border-[#f1f3f6] bg-[#fafbfc] px-3 py-2.5 text-[13px] text-slate-600">
+          <p className="mx-4 mb-4 mt-0 flex items-start gap-2 rounded-[10px] border border-[#dbeafe] bg-[#f5f9ff] px-3 py-2.5 text-[13px] text-slate-600">
+            <Info aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-[#2563eb]" />
             {principal.kind === 'platform-admin'
               ? 'Họ tên và email của tài khoản quản trị nền tảng được cấu hình khi khởi tạo hệ thống.'
               : 'Họ tên và email do quản trị viên doanh nghiệp quản lý. Liên hệ quản trị viên nếu cần thay đổi.'}
@@ -128,25 +102,153 @@ export function AccountWorkspace({ principal }: { principal: AuthenticatedPrinci
           aria-labelledby="account-password-title"
           className="flex min-w-0 flex-[999_1_520px] flex-col overflow-hidden rounded-[14px] border border-[#eef0f3] bg-white"
         >
-          <div className="flex items-start gap-3 border-b border-[#eef0f3] bg-[#fafbfc] px-5 py-4">
-            <span
-              aria-hidden="true"
-              className="grid size-9 shrink-0 place-items-center rounded-[9px] bg-[#fff6d6] text-[#8a6400]"
-            >
-              <KeyRound className="size-4" />
+          <div className="flex items-start gap-3 px-5 pb-1 pt-5">
+            <span aria-hidden="true" className="grid size-11 shrink-0 place-items-center rounded-[10px] bg-[#fff3c4] text-[#b38600]">
+              <LockKeyhole className="size-5" />
             </span>
             <div>
-              <h2 id="account-password-title" className="m-0 text-[16px] font-bold">
+              <h2 id="account-password-title" className="m-0 text-[18px] font-bold">
                 Đổi mật khẩu
               </h2>
               <p className="mt-0.5 text-[13px] text-slate-500">
-                Sau khi đổi, các phiên đăng nhập trên thiết bị khác sẽ bị đăng xuất. Phiên hiện tại được giữ lại.
+                Cập nhật mật khẩu để bảo vệ tài khoản của bạn. Các phiên đăng nhập trên thiết bị khác sẽ bị đăng xuất.
               </p>
             </div>
           </div>
           <ChangePasswordForm />
         </section>
       </div>
+    </div>
+  );
+}
+
+function initialsOf(name: string): string {
+  return (
+    name
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((word) => word[0])
+      .join('')
+      .toUpperCase() || '?'
+  );
+}
+
+/**
+ * Ảnh đại diện của chính mình: chọn ảnh PNG/JPG/WebP tối đa 5 MB, trình duyệt cắt vuông và thu nhỏ rồi mới gửi lên.
+ * Ảnh hiện ngay ở mọi nơi trong hệ thống (thanh bên, chat, danh sách người dùng...) vì cùng đọc từ danh bạ chung.
+ */
+function AvatarEditor({ userId, displayName }: { userId: string; displayName: string }) {
+  const input = useRef<HTMLInputElement>(null);
+  const [version, setVersion] = useState<number | null | undefined>(undefined);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+  const person = usePerson(userId);
+  const current = version !== undefined ? version : (person?.avatarVersion ?? null);
+
+  useEffect(() => {
+    let active = true;
+    void chatApi
+      .profile()
+      .then((profile) => {
+        if (active) setVersion(profile.avatarVersion);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  async function choose(file: File | undefined) {
+    if (!file) return;
+    setError(undefined);
+    const problem = avatarSourceProblem(file);
+    if (problem) {
+      setError(problem);
+      return;
+    }
+    setBusy(true);
+    try {
+      const image = await prepareAvatarImage(file);
+      const profile = await chatApi.setAvatar(image);
+      setVersion(profile.avatarVersion);
+      setPersonAvatarVersion(userId, profile.avatarVersion);
+      toast.success('Đã cập nhật ảnh đại diện.');
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Không cập nhật được ảnh đại diện.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove() {
+    setBusy(true);
+    setError(undefined);
+    try {
+      const profile = await chatApi.removeAvatar();
+      setVersion(profile.avatarVersion);
+      setPersonAvatarVersion(userId, profile.avatarVersion);
+      toast.success('Đã gỡ ảnh đại diện.');
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Không gỡ được ảnh đại diện.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-col items-center gap-3 bg-gradient-to-b from-[#fff8dc] to-white px-5 pb-5 pt-6 text-center">
+      <span className="relative">
+        <UserAvatar userId={userId} name={displayName} avatarVersion={current} size={104} className="shadow-[0_0_0_5px_rgba(255,201,10,.22)]" />
+        <button
+          type="button"
+          aria-label="Chọn ảnh đại diện"
+          title="Chọn ảnh đại diện"
+          disabled={busy}
+          onClick={() => input.current?.click()}
+          className="absolute bottom-0.5 right-0.5 grid size-9 cursor-pointer place-items-center rounded-full border-2 border-white bg-white text-[#2563eb] shadow-[0_2px_8px_rgba(15,23,42,.18)] hover:bg-[#f5f9ff] disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {busy ? <Loader2 className="size-4 animate-spin" /> : <Camera className="size-4" />}
+        </button>
+      </span>
+      <input
+        ref={input}
+        type="file"
+        accept="image/png,image/jpeg,image/webp"
+        hidden
+        aria-label="Tệp ảnh đại diện"
+        onChange={(event) => {
+          void choose(event.target.files?.[0]);
+          event.target.value = '';
+        }}
+      />
+      <div className="flex flex-wrap justify-center gap-2">
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => input.current?.click()}
+          className="flex h-9 cursor-pointer items-center gap-1.5 rounded-lg border border-[#bfd3fb] bg-white px-3.5 text-[13.5px] font-semibold text-[#1d4ed8] hover:bg-[#f5f9ff] disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          <Camera className="size-4" /> Cập nhật ảnh đại diện
+        </button>
+        {current !== null ? (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void remove()}
+            className="flex h-9 cursor-pointer items-center gap-1.5 rounded-lg border border-[#eef0f3] bg-white px-3 text-[13.5px] font-semibold text-slate-600 hover:bg-[#fafbfc] disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <Trash2 className="size-4" /> Gỡ ảnh
+          </button>
+        ) : null}
+      </div>
+      <span className="text-[12.5px] text-slate-500">PNG, JPG, WebP · Tối đa 5 MB</span>
+      {error ? (
+        <p className="m-0 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[13px] text-red-800" role="alert">
+          {error}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -291,15 +393,15 @@ function ChangePasswordForm() {
 
         <div className="mt-1 flex flex-wrap gap-2">
           <button
-            className="flex h-10 cursor-pointer items-center gap-1.5 rounded-lg bg-[#18181b] px-4 text-[14px] font-semibold text-white hover:bg-[#2a2a2f] disabled:cursor-not-allowed disabled:opacity-45"
+            className="flex h-11 cursor-pointer items-center gap-2 rounded-lg bg-[#ffc90a] px-6 text-[14.5px] font-bold text-[#18181b] shadow-[0_1px_3px_rgba(217,171,0,.35)] hover:bg-[#f2bd00] disabled:cursor-not-allowed disabled:opacity-50"
             disabled={!canSubmit}
             type="submit"
           >
-            {busy ? <Loader2 className="size-3.5 animate-spin" /> : <KeyRound className="size-3.5" />}
+            {busy ? <Loader2 className="size-4 animate-spin" /> : <LockKeyhole className="size-4" />}
             {busy ? 'Đang cập nhật…' : 'Cập nhật mật khẩu'}
           </button>
           <button
-            className="h-10 cursor-pointer rounded-lg border border-[#eef0f3] bg-white px-4 text-[14px] font-semibold text-slate-700 hover:bg-[#fafbfc] disabled:cursor-not-allowed disabled:opacity-45"
+            className="flex h-11 cursor-pointer items-center gap-2 rounded-lg border border-[#e5e7eb] bg-white px-5 text-[14.5px] font-semibold text-slate-700 hover:bg-[#fafbfc] disabled:cursor-not-allowed disabled:opacity-45"
             disabled={busy || (!draft.currentPassword && !draft.newPassword && !draft.confirmation)}
             onClick={() => {
               setDraft(EMPTY_DRAFT);
@@ -308,14 +410,14 @@ function ChangePasswordForm() {
             }}
             type="button"
           >
-            Nhập lại
+            <RotateCcw className="size-4" /> Nhập lại
           </button>
         </div>
       </div>
 
       <div className="flex min-w-0 flex-[1_1_280px] flex-col gap-2.5 rounded-xl border border-[#f1f3f6] bg-[#fafbfc] px-4 py-3.5">
-        <p className="m-0 flex items-center gap-2 text-[12px] font-bold uppercase tracking-[0.6px] text-slate-500">
-          <span aria-hidden="true" className="h-3.5 w-[3px] rounded-sm bg-[#ffc90a]" />
+        <p className="m-0 flex items-center gap-2 text-[14px] font-bold text-[#18181b]">
+          <ShieldCheck aria-hidden="true" className="size-4 text-[#2563eb]" />
           Yêu cầu mật khẩu
         </p>
         <ul className="m-0 flex list-none flex-col gap-2.5 p-0">
@@ -325,9 +427,9 @@ function ChangePasswordForm() {
               className={cn('flex items-center gap-2 text-[14px]', rule.passed ? 'text-[#18181b]' : 'text-slate-600')}
             >
               {rule.passed ? (
-                <CheckCircle2 aria-hidden="true" className="size-4 shrink-0 text-[#059669]" />
+                <CheckCircle2 aria-hidden="true" className="size-[18px] shrink-0 fill-[#10b981] text-white" />
               ) : (
-                <Circle aria-hidden="true" className="size-4 shrink-0 text-[#d1d5db]" />
+                <Circle aria-hidden="true" className="size-[18px] shrink-0 text-[#d1d5db]" />
               )}
               <span className="min-w-0 flex-1">{rule.label}</span>
               {rule.required ? null : (
@@ -338,7 +440,8 @@ function ChangePasswordForm() {
             </li>
           ))}
         </ul>
-        <p className="m-0 mt-1 border-t border-[#eef0f3] pt-2.5 text-[13px] text-slate-500">
+        <p className="m-0 mt-1 flex items-start gap-2 border-t border-[#eef0f3] pt-2.5 text-[13px] text-slate-500">
+          <Info aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
           Không dùng lại mật khẩu của dịch vụ khác. Nên dùng cụm từ dài, dễ nhớ với bạn nhưng khó đoán với người khác.
         </p>
       </div>

@@ -1,6 +1,8 @@
 'use client';
 
+import { userAvatarUrl } from '@enterprise-platform/contracts-chat';
 import type { SocialReactionType, SocialUserRef } from '@enterprise-platform/contracts-social';
+import { usePerson } from '@enterprise-platform/feature-chat';
 import { Heart, Lightbulb, PartyPopper, ThumbsUp, X, type LucideIcon } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
@@ -17,13 +19,16 @@ export const REACTION_ICONS: Readonly<Record<SocialReactionType, LucideIcon>> = 
 
 export function Avatar({ user, size = 40 }: { readonly user: SocialUserRef; readonly size?: number }) {
   const [broken, setBroken] = useState(false);
+  // Ảnh đại diện của core (người dùng tự tải lên ở "Tài khoản của tôi"), dùng chung danh bạ với cả hệ thống.
+  const person = usePerson(user.id);
+  const avatarUrl = user.avatarUrl ?? (person?.avatarVersion != null ? userAvatarUrl(user.id, person.avatarVersion) : undefined);
   const style = { width: size, height: size, fontSize: Math.round(size * 0.38) };
-  if (user.avatarUrl && !broken) {
+  if (avatarUrl && !broken) {
     return (
       <img
         className={styles.avatar}
         style={style}
-        src={user.avatarUrl}
+        src={avatarUrl}
         alt=""
         onError={() => setBroken(true)}
       />
