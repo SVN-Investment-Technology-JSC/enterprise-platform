@@ -1,7 +1,10 @@
 import {
   SOCIAL_COMMENT_IMAGE_MAX_BYTES,
   SOCIAL_COMMENT_MAX_ATTACHMENTS,
+  SOCIAL_COMMENT_MAX_VIDEOS,
+  SOCIAL_COMMENT_VIDEO_MAX_BYTES,
   SOCIAL_IMAGE_CONTENT_TYPES,
+  SOCIAL_VIDEO_CONTENT_TYPES,
 } from '@enterprise-platform/contracts-social';
 
 /** Ảnh gốc lớn hơn mức này bị từ chối ngay, không cố nén (tránh giải mã ảnh quá nặng trên trình duyệt). */
@@ -12,16 +15,33 @@ const MAX_EDGE = 1600;
 const SKIP_BELOW_BYTES = 300 * 1024;
 const WEBP_QUALITY = 0.82;
 
-/** Kiểm một ảnh định đính kèm; trả thông báo lỗi tiếng Việt hoặc `undefined` khi hợp lệ. */
-export function validateCommentImage(
+/** Tệp có phải video được phép đính kèm (MP4, WebM) hay không. */
+export function isCommentVideo(file: { readonly type: string }): boolean {
+  return SOCIAL_VIDEO_CONTENT_TYPES.includes(file.type);
+}
+
+/**
+ * Kiểm một ảnh hoặc video định đính kèm; trả thông báo lỗi tiếng Việt hoặc `undefined` khi hợp lệ.
+ * `current` là số tệp và số video đã có trong bình luận. Video không nén nên chỉ kiểm loại và dung lượng.
+ */
+export function validateCommentMedia(
   file: { readonly name: string; readonly type: string; readonly size: number },
-  currentCount: number,
+  current: { readonly count: number; readonly videos: number },
 ): string | undefined {
-  if (currentCount >= SOCIAL_COMMENT_MAX_ATTACHMENTS) {
-    return `Mỗi bình luận đính kèm tối đa ${SOCIAL_COMMENT_MAX_ATTACHMENTS} ảnh.`;
+  if (current.count >= SOCIAL_COMMENT_MAX_ATTACHMENTS) {
+    return `Mỗi bình luận đính kèm tối đa ${SOCIAL_COMMENT_MAX_ATTACHMENTS} tệp.`;
+  }
+  if (isCommentVideo(file)) {
+    if (current.videos >= SOCIAL_COMMENT_MAX_VIDEOS) {
+      return `Mỗi bình luận chỉ đính kèm tối đa ${SOCIAL_COMMENT_MAX_VIDEOS} video.`;
+    }
+    if (file.size > SOCIAL_COMMENT_VIDEO_MAX_BYTES) {
+      return `Video "${file.name}" quá lớn (tối đa ${Math.floor(SOCIAL_COMMENT_VIDEO_MAX_BYTES / (1024 * 1024))} MB).`;
+    }
+    return undefined;
   }
   if (!SOCIAL_IMAGE_CONTENT_TYPES.includes(file.type)) {
-    return `"${file.name}" không phải ảnh JPEG, PNG, GIF hoặc WebP.`;
+    return `"${file.name}" không phải ảnh JPEG, PNG, GIF, WebP hoặc video MP4, WebM.`;
   }
   if (file.size > COMMENT_IMAGE_INPUT_MAX_BYTES) {
     return `Ảnh "${file.name}" quá lớn (tối đa ${Math.floor(COMMENT_IMAGE_INPUT_MAX_BYTES / (1024 * 1024))} MB).`;

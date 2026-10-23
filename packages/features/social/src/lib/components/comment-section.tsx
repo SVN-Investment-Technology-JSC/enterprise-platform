@@ -11,7 +11,7 @@ import {
   type SocialReactionType,
   type SocialUserRef,
 } from '@enterprise-platform/contracts-social';
-import { AtSign, ImagePlus, Loader2, PenLine, SendHorizontal, X } from 'lucide-react';
+import { AtSign, ImagePlus, Loader2, PenLine, Play, SendHorizontal, X } from 'lucide-react';
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import extras from '../post-extras.module.scss';
 import {
@@ -24,7 +24,7 @@ import {
   updateComment,
   uploadAttachment,
 } from '../social-api';
-import { exceedsCommentImageLimit, prepareCommentImage, validateCommentImage } from '../comment-image';
+import { exceedsCommentImageLimit, isCommentVideo, prepareCommentImage, validateCommentMedia } from '../comment-media';
 import {
   activeMentionQuery,
   decodeMentions,
@@ -54,6 +54,7 @@ interface PendingFile {
   /** URL tạm của ảnh vừa chọn, phải thu hồi khi bỏ ảnh hoặc rời ô nhập. */
   readonly objectUrl?: string;
   readonly status: 'uploading' | 'done' | 'error';
+  readonly isVideo?: boolean;
   readonly attachment?: SocialAttachment;
   readonly error?: string;
 }
@@ -101,6 +102,7 @@ function CommentInput({
       key: file.id,
       fileName: file.fileName,
       preview: file.url,
+      isVideo: file.isVideo === true,
       status: 'done' as const,
       attachment: file,
     })),
@@ -125,29 +127,38 @@ function CommentInput({
       return list.filter((file) => file.key !== key);
     });
 
-  /** Kiểm, nén rồi tải từng ảnh lên; ảnh lỗi giữ lại trong dải xem trước để người dùng gỡ. */
+  /** Kiểm rồi tải từng tệp lên (ảnh được nén, video tải thẳng); tệp lỗi giữ lại trong dải xem trước để người dùng gỡ. */
   const addFiles = (incoming: readonly File[]) => {
     const rejected: string[] = [];
     let count = files.length;
+    let videos = files.filter((file) => file.isVideo).length;
     for (const original of incoming) {
-      const problem = validateCommentImage(original, count);
+      const problem = validateCommentMedia(original, { count, videos });
       if (problem) {
         rejected.push(problem);
         continue;
       }
+      const isVideo = isCommentVideo(original);
       count += 1;
+      if (isVideo) videos += 1;
       fileCounter.current += 1;
       const key = `new-${fileCounter.current}`;
       const objectUrl = URL.createObjectURL(original);
-      setFiles((list) => [...list, { key, fileName: original.name, preview: objectUrl, objectUrl, status: 'uploading' }]);
-      void prepareCommentImage(original)
+      setFiles((list) => [
+        ...list,
+        { key, fileName: original.name, preview: objectUrl, objectUrl, isVideo, status: 'uploading' },
+      ]);
+      const noun = isVideo ? 'video' : 'ảnh';
+      void (isVideo ? Promise.resolve(original) : prepareCommentImage(original))
         .then((prepared) => {
-          if (exceedsCommentImageLimit(prepared.size)) throw new Error(`Ảnh "${original.name}" vẫn quá lớn sau khi nén.`);
+          if (!isVideo && exceedsCommentImageLimit(prepared.size)) {
+            throw new Error(`Ảnh "${original.name}" vẫn quá lớn sau khi nén.`);
+          }
           return uploadAttachment(prepared, 'comment');
         })
         .then((attachment) => patchFile(key, { status: 'done', attachment }))
         .catch((cause) =>
-          patchFile(key, { status: 'error', error: errorMessage(cause, `Không tải được ảnh "${original.name}".`) }),
+          patchFile(key, { status: 'error', error: errorMessage(cause, `Không tải được ${noun} "${original.name}".`) }),
         );
     }
     setError(rejected.length > 0 ? rejected.join(' ') : undefined);
@@ -185,7 +196,7 @@ function CommentInput({
     const trimmed = text.trim();
     if ((!trimmed && attachmentIds.length === 0) || busy || uploading) return;
     if (failed) {
-      setError('Có ảnh tải lên bị lỗi. Hãy bỏ ảnh đó rồi gửi lại.');
+      setError('Có tệp tải lên bị lỗi. Hãy bỏ tệp đó rồi gửi lại.');
       return;
     }
     const encoded = encodeMentions(trimmed, picks);
@@ -263,10 +274,12 @@ function CommentInput({
             }}
             onSelect={(event) => setCaret(event.currentTarget.selectionStart)}
             onPaste={(event) => {
-              const images = Array.from(event.clipboardData.files).filter((file) => file.type.startsWith('image/'));
-              if (images.length === 0) return;
+              const media = Array.from(event.clipboardData.files).filter(
+                (file) => file.type.startsWith('image/') || isCommentVideo(file),
+              );
+              if (media.length === 0) return;
               event.preventDefault();
-              addFiles(images);
+              addFiles(media);
             }}
             onKeyDown={(event) => {
               if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
@@ -292,8 +305,8 @@ function CommentInput({
           <button
             type="button"
             className={extras.commentTool}
-            aria-label="Đính kèm ảnh"
-            title="Đính kèm ảnh (hoặc dán, kéo thả)"
+            aria-label="Đính kèm ảnh hoặc video"
+            title="Đính kèm ảnh hoặc video (hoặc dán, kéo thả)"
             disabled={busy || files.length >= SOCIAL_COMMENT_MAX_ATTACHMENTS}
             onClick={() => fileInput.current?.click()}
           >
@@ -302,7 +315,7 @@ function CommentInput({
           <input
             ref={fileInput}
             type="file"
-            accept="image/jpeg,image/png,image/gif,image/webp"
+            accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/webm"
             multiple
             hidden
             onChange={(event) => {
@@ -323,15 +336,24 @@ function CommentInput({
         </div>
       </div>
       {files.length > 0 ? (
-        <ul className={styles.commentFiles} aria-label="Ảnh đính kèm">
+        <ul className={styles.commentFiles} aria-label="Tệp đính kèm">
           {files.map((file) => (
             <li key={file.key} className={styles.commentFile} data-status={file.status} title={file.error}>
-              {file.preview ? <img src={file.preview} alt={file.fileName} /> : null}
+              {file.preview && file.isVideo ? (
+                <>
+                  <video className={styles.commentFileVideo} src={file.preview} muted preload="metadata" playsInline />
+                  <span className={styles.commentVideoBadge} aria-hidden="true">
+                    <Play size={12} fill="currentColor" />
+                  </span>
+                </>
+              ) : file.preview ? (
+                <img src={file.preview} alt={file.fileName} />
+              ) : null}
               {file.status === 'uploading' ? <Loader2 size={18} className={styles.spin} aria-label="Đang tải lên" /> : null}
               <button
                 type="button"
                 className={styles.commentFileRemove}
-                aria-label={`Bỏ ảnh ${file.fileName}`}
+                aria-label={`Bỏ ${file.isVideo ? 'video' : 'ảnh'} ${file.fileName}`}
                 disabled={busy}
                 onClick={() => removeFile(file.key)}
               >
@@ -368,6 +390,17 @@ function CommentInput({
 }
 
 /* -------------------------------------------------------------- một dòng */
+
+/** Video đính kèm của bình luận; `#t=0.001` để trình duyệt hiện khung hình đầu làm ảnh bìa. */
+function CommentVideo({ url }: { readonly url: string }) {
+  const [failed, setFailed] = useState(false);
+  return (
+    <div className={styles.commentVideo}>
+      <video controls preload="metadata" playsInline src={`${url}#t=0.001`} onError={() => setFailed(true)} />
+      {failed ? <p className={styles.muted}>Không phát được video. Hãy tải lại trang.</p> : null}
+    </div>
+  );
+}
 
 interface CommentRowProps {
   readonly comment: SocialComment;
@@ -408,6 +441,9 @@ function CommentRow({ comment, canComment, onReply, onChanged, onRemoved, highli
   const reactionTypes = SOCIAL_REACTION_TYPES.filter((type) => (comment.reactionCounts[type] ?? 0) > 0).sort(
     (a, b) => (comment.reactionCounts[b] ?? 0) - (comment.reactionCounts[a] ?? 0),
   );
+
+  const commentImages = comment.attachments.filter((item) => !item.isVideo);
+  const commentVideos = comment.attachments.filter((item) => item.isVideo);
 
   const decoded = editing ? decodeMentions(comment.body, comment.mentions) : undefined;
 
@@ -515,11 +551,14 @@ function CommentRow({ comment, canComment, onReply, onChanged, onRemoved, highli
                 </button>
               ) : null}
             </div>
-            {comment.attachments.length > 0 ? (
+            {commentImages.length > 0 ? (
               <div className={styles.commentImages}>
-                <ImageGrid images={comment.attachments} />
+                <ImageGrid images={commentImages} />
               </div>
             ) : null}
+            {commentVideos.flatMap((video) => (video.url ? [video.url] : [])).map((url) => (
+              <CommentVideo key={url} url={url} />
+            ))}
             <div className={styles.commentMeta}>
               {canComment ? (
                 <span className={styles.commentReactWrap}>
