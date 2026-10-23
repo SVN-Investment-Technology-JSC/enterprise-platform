@@ -37,6 +37,7 @@ export function ensurePeople(force = false): Promise<void> {
   loading ??= chatApi
     .people()
     .then((directory) => {
+      if (!Array.isArray(directory?.people)) throw new Error('Danh bạ không hợp lệ.');
       loadedAt = Date.now();
       publish(index(directory.people));
     })

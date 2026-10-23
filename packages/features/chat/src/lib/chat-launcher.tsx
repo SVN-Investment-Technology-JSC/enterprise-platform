@@ -2,7 +2,7 @@
 
 import type { MyProfile } from '@enterprise-platform/contracts-chat';
 import { MessageCircle, X } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { Component, useEffect, useRef, useState, type ReactNode } from 'react';
 import { chatApi } from './chat-api';
 import { ChatProvider, useChat } from './chat-context';
 import { ChatPanel } from './chat-panel';
@@ -11,12 +11,24 @@ import styles from './chat.module.scss';
 /** Hồ sơ của người đang đăng nhập; chỉ tải một lần mỗi trang. Null khi không phải người dùng doanh nghiệp. */
 let profile: Promise<MyProfile | null> | undefined;
 
+function isProfile(value: unknown): value is MyProfile {
+  const record = value as Partial<MyProfile> | null;
+  return typeof record?.userId === 'string' && record.userId.length > 0 && typeof record.fullName === 'string';
+}
+
 function loadProfile(): Promise<MyProfile | null> {
-  profile ??= chatApi.profile().catch(() => {
-    // Quản trị nền tảng, phiên hết hạn hay mất mạng: không có chat; lần mở trang sau thử lại.
-    profile = undefined;
-    return null;
-  });
+  profile ??= chatApi
+    .profile()
+    .then((value) => {
+      if (isProfile(value)) return value;
+      profile = undefined;
+      return null;
+    })
+    .catch(() => {
+      // Quản trị nền tảng, phiên hết hạn hay mất mạng: không có chat; lần mở trang sau thử lại.
+      profile = undefined;
+      return null;
+    });
   return profile;
 }
 
@@ -60,6 +72,23 @@ function LauncherButton() {
   );
 }
 
+/** Chat gặp lỗi bất ngờ thì chỉ ẩn khung chat, trang của phân hệ vẫn chạy bình thường. */
+class ChatBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  override state = { failed: false };
+
+  static getDerivedStateFromError(): { failed: boolean } {
+    return { failed: true };
+  }
+
+  override componentDidCatch(error: unknown): void {
+    console.warn('Chat nội bộ tạm ẩn do lỗi:', error);
+  }
+
+  override render(): ReactNode {
+    return this.state.failed ? null : this.props.children;
+  }
+}
+
 /**
  * Chat nội bộ của toàn hệ thống: nút tròn ở góc phải dưới, bấm để mở khung chat. Gắn trong khung chung (ModuleShell)
  * nên có ở mọi trang của mọi phân hệ; không phụ thuộc phân hệ nào được bật. Chỉ hiện cho người dùng doanh nghiệp.
@@ -75,8 +104,10 @@ export function ChatLauncher() {
   }, []);
   if (!me) return null;
   return (
-    <ChatProvider me={me}>
-      <LauncherButton />
-    </ChatProvider>
+    <ChatBoundary>
+      <ChatProvider me={me}>
+        <LauncherButton />
+      </ChatProvider>
+    </ChatBoundary>
   );
 }

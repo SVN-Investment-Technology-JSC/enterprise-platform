@@ -32,9 +32,10 @@ function publish(next: PresenceState): void {
 async function refresh(): Promise<void> {
   try {
     const snapshot = await chatApi.presence();
+    if (!Array.isArray(snapshot?.online)) return;
     publish({
       online: new Set(snapshot.online.map((id) => id.toLowerCase())),
-      lastSeen: new Map(Object.entries(snapshot.lastSeen).map(([id, at]) => [id.toLowerCase(), at])),
+      lastSeen: new Map(Object.entries(snapshot.lastSeen ?? {}).map(([id, at]) => [id.toLowerCase(), at])),
     });
   } catch {
     // Giữ trạng thái cũ; lần làm mới sau thử lại.

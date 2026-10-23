@@ -129,6 +129,7 @@ export function ChatProvider({ me, children }: { me: MyProfile; children: ReactN
   const refresh = useCallback(async () => {
     try {
       const list = await chatApi.conversations();
+      if (!Array.isArray(list?.items)) throw new Error('Không tải được danh sách trò chuyện.');
       setConversations(list.items);
       setError(null);
       setLoaded(true);
