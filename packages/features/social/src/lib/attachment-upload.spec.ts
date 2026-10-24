@@ -264,3 +264,77 @@ describe('uploadAttachmentWithProgress', () => {
     expect(api.abort).toHaveBeenCalled();
   });
 });
+
+describe('tệp lớn (1 GB) không nạp vào RAM', () => {
+  const GB = 1024 * 1024 * 1024;
+  const PART = 16 * 1024 * 1024;
+
+  /** Tệp giả 1 GB: chỉ có `size` và `slice`, ghi lại từng lần cắt; nếu code đọc cả tệp (arrayBuffer, stream) sẽ nổ. */
+  function bigFile() {
+    const slices: { start: number; end: number }[] = [];
+    const file = {
+      name: 'big.mov',
+      type: 'video/quicktime',
+      size: GB,
+      slice: (start: number, end: number, type?: string) => {
+        slices.push({ start, end });
+        return { size: end - start, type: type ?? '' } as Blob;
+      },
+    };
+    return { file: file as unknown as File, slices };
+  }
+
+  it('cắt 1 GB thành các phần liên tiếp bằng slice, mỗi phần đúng cỡ, không đọc cả tệp', async () => {
+    const { file, slices } = bigFile();
+    const sizes = Array.from({ length: GB / PART }, () => PART);
+    const { put, calls } = fakePut();
+    await sendMultipart(file, file.type, makeParts(sizes), { put, sleep: noSleep });
+    expect(calls).toHaveLength(64);
+    expect(calls.every((call) => call.size === PART && call.type === 'video/quicktime')).toBe(true);
+    const ordered = [...slices].sort((a, b) => a.start - b.start);
+    expect(ordered[0].start).toBe(0);
+    expect(ordered[ordered.length - 1].end).toBe(GB);
+    ordered.slice(1).forEach((slice, index) => expect(slice.start).toBe(ordered[index].end));
+  });
+
+  it('chỉ giữ tối đa 3 phần cùng lúc dù tệp có 64 phần', async () => {
+    const { file } = bigFile();
+    let active = 0;
+    let peak = 0;
+    const put: PutBlob = async (_url, body, _type, options) => {
+      active += 1;
+      peak = Math.max(peak, active);
+      await Promise.resolve();
+      options?.onProgress?.(body.size);
+      active -= 1;
+    };
+    await sendMultipart(file, file.type, makeParts(Array.from({ length: 64 }, () => PART)), { put, sleep: noSleep });
+    expect(peak).toBeLessThanOrEqual(3);
+  });
+
+  it('luồng đầy đủ với 1 GB: initiate, tải từng phần, complete kèm uploadId và báo mã tệp qua onInitiated', async () => {
+    const { file } = bigFile();
+    const { put } = fakePut();
+    const initiated: unknown[] = [];
+    const api = {
+      initiate: jest.fn(async () => ({
+        attachmentId: 'big-1',
+        uploadUrl: '',
+        expiresInSeconds: 600,
+        multipart: { uploadId: 'up-big', parts: makeParts(Array.from({ length: 64 }, () => PART)) },
+      })),
+      complete: jest.fn(async () => ({ id: 'big-1' }) as SocialAttachment),
+      abort: jest.fn(async () => undefined),
+      put,
+      sleep: noSleep,
+    } satisfies AttachmentUploadApi;
+    const result = await uploadAttachmentWithProgress(file, 'post', {
+      api,
+      onInitiated: (ticket) => initiated.push(ticket),
+    });
+    expect(result.id).toBe('big-1');
+    expect(api.initiate).toHaveBeenCalledWith({ fileName: 'big.mov', contentType: 'video/quicktime', sizeBytes: GB, purpose: 'post' });
+    expect(initiated).toEqual([{ attachmentId: 'big-1', uploadId: 'up-big' }]);
+    expect(api.complete).toHaveBeenCalledWith('big-1', { uploadId: 'up-big' });
+  });
+});

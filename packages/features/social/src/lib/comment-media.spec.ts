@@ -1,13 +1,18 @@
 import {
   SOCIAL_COMMENT_IMAGE_MAX_BYTES,
   SOCIAL_COMMENT_MAX_ATTACHMENTS,
-  SOCIAL_COMMENT_VIDEO_MAX_BYTES,
+  SOCIAL_MAX_ATTACHMENTS_PER_POST,
+  SOCIAL_VIDEO_LIMITS,
 } from '@enterprise-platform/contracts-social';
 import {
   COMMENT_IMAGE_INPUT_MAX_BYTES,
   exceedsCommentImageLimit,
+  isCommentVideo,
   probeVideo,
+  resolveVideoContentType,
   validateCommentMedia,
+  validateVideoDuration,
+  withVideoContentType,
   VIDEO_UNREADABLE_REASON,
 } from './comment-media';
 
@@ -28,9 +33,8 @@ describe('validateCommentMedia (ảnh)', () => {
     }
   });
 
-  it('từ chối tệp không phải ảnh hay video, kể cả PDF, MOV (báo riêng) và AVI', () => {
+  it('từ chối tệp không phải ảnh hay video, kể cả PDF và AVI', () => {
     expect(validateCommentMedia(file({ name: 'a.pdf', type: 'application/pdf' }), none)).toContain('không phải ảnh');
-    expect(validateCommentMedia(file({ name: 'a.mov', type: 'video/quicktime' }), none)).toContain('MOV chưa được hỗ trợ');
     expect(validateCommentMedia(file({ name: 'a.avi', type: 'video/x-msvideo' }), none)).toContain('không phải ảnh');
   });
 
@@ -46,22 +50,83 @@ describe('validateCommentMedia (ảnh)', () => {
 });
 
 describe('validateCommentMedia (video)', () => {
-  it('nhận video MP4 và WebM', () => {
+  const comment = SOCIAL_VIDEO_LIMITS.comment;
+  const post = SOCIAL_VIDEO_LIMITS.post;
+
+  it('nhận video MP4, WebM và MOV', () => {
     expect(validateCommentMedia(video(), none)).toBeUndefined();
     expect(validateCommentMedia(video({ name: 'clip.webm', type: 'video/webm' }), none)).toBeUndefined();
+    expect(validateCommentMedia(video({ name: 'clip.mov', type: 'video/quicktime' }), none)).toBeUndefined();
   });
 
-  it('từ chối video lớn hơn 50 MB', () => {
-    expect(validateCommentMedia(video({ size: SOCIAL_COMMENT_VIDEO_MAX_BYTES }), none)).toBeUndefined();
-    expect(validateCommentMedia(video({ size: SOCIAL_COMMENT_VIDEO_MAX_BYTES + 1 }), none)).toContain('quá lớn');
+  it('nhận .mov khi trình duyệt để trống type (suy từ đuôi tệp)', () => {
+    expect(validateCommentMedia(video({ name: 'IMG_0001.MOV', type: '' }), none)).toBeUndefined();
+    expect(validateCommentMedia(file({ name: 'a.avi', type: '' }), none)).toContain('không phải ảnh');
   });
 
-  it('từ chối video thứ hai trong một bình luận', () => {
+  it('dung lượng tối đa theo nơi gắn: bình luận 300 MB, bài viết 1 GB', () => {
+    expect(validateCommentMedia(video({ size: comment.maxBytes }), none)).toBeUndefined();
+    expect(validateCommentMedia(video({ size: comment.maxBytes + 1 }), none)).toContain('tối đa 300 MB');
+    expect(validateCommentMedia(video({ size: post.maxBytes }), none, 'post')).toBeUndefined();
+    expect(validateCommentMedia(video({ size: post.maxBytes + 1 }), none, 'post')).toContain('tối đa 1 GB');
+  });
+
+  it('bình luận chỉ 1 video', () => {
     expect(validateCommentMedia(video(), { count: 1, videos: 1 })).toContain('tối đa 1 video');
   });
 
-  it('vẫn cho thêm ảnh khi đã có video', () => {
+  it('bài viết tối đa 3 video', () => {
+    expect(validateCommentMedia(video(), { count: 2, videos: 2, images: 0 }, 'post')).toBeUndefined();
+    expect(validateCommentMedia(video(), { count: 3, videos: 3, images: 0 }, 'post')).toContain('tối đa 3 video');
+  });
+
+  it('bài viết không trộn ảnh với video, theo cả hai chiều', () => {
+    expect(validateCommentMedia(video(), { count: 1, videos: 0, images: 1 }, 'post')).toContain('đã có ảnh');
+    expect(validateCommentMedia(file(), { count: 1, videos: 1, images: 0 }, 'post')).toContain('đã có video');
+  });
+
+  it('bình luận vẫn cho thêm ảnh khi đã có video', () => {
     expect(validateCommentMedia(file(), { count: 1, videos: 1 })).toBeUndefined();
+  });
+
+  it('bài viết đủ số tệp thì từ chối', () => {
+    expect(validateCommentMedia(video(), { count: SOCIAL_MAX_ATTACHMENTS_PER_POST, videos: 0, images: 0 }, 'post')).toContain('tối đa');
+  });
+});
+
+describe('resolveVideoContentType / withVideoContentType', () => {
+  it('ưu tiên type hợp lệ, chỉ suy từ đuôi khi type trống', () => {
+    expect(resolveVideoContentType({ name: 'a.mov', type: 'video/quicktime' })).toBe('video/quicktime');
+    expect(resolveVideoContentType({ name: 'a.mov', type: '' })).toBe('video/quicktime');
+    expect(resolveVideoContentType({ name: 'a.mp4', type: 'application/octet-stream' })).toBeUndefined();
+    expect(isCommentVideo({ name: 'a.pdf', type: '' })).toBe(false);
+  });
+
+  it('gắn type cho tệp .mov không có type, giữ nguyên tệp đã có type', () => {
+    const bare = new File(['x'], 'a.mov', { type: '' });
+    expect(withVideoContentType(bare).type).toBe('video/quicktime');
+    const typed = new File(['x'], 'a.mp4', { type: 'video/mp4' });
+    expect(withVideoContentType(typed)).toBe(typed);
+  });
+});
+
+describe('validateVideoDuration', () => {
+  const ok = (durationSeconds: number) => ({ ok: true as const, durationSeconds, width: 1280, height: 720 });
+
+  it('theo thời lượng tối đa của từng nơi gắn', () => {
+    expect(validateVideoDuration(ok(SOCIAL_VIDEO_LIMITS.comment.maxSeconds), 'a.mp4', 'comment')).toBeUndefined();
+    expect(validateVideoDuration(ok(SOCIAL_VIDEO_LIMITS.comment.maxSeconds + 1), 'a.mp4', 'comment')).toContain('3 phút');
+    expect(validateVideoDuration(ok(SOCIAL_VIDEO_LIMITS.post.maxSeconds), 'a.mp4', 'post')).toBeUndefined();
+    expect(validateVideoDuration(ok(SOCIAL_VIDEO_LIMITS.post.maxSeconds + 1), 'a.mp4', 'post')).toContain('10 phút');
+  });
+
+  it('không đọc được (HEVC) thì không chặn để server quyết định', () => {
+    expect(validateVideoDuration({ ok: false, reason: VIDEO_UNREADABLE_REASON }, 'a.mov', 'comment')).toBeUndefined();
+  });
+
+  it('thời lượng vô hạn hoặc không xác định thì không chặn', () => {
+    expect(validateVideoDuration(ok(Infinity), 'a.mp4')).toBeUndefined();
+    expect(validateVideoDuration(ok(NaN), 'a.mp4')).toBeUndefined();
   });
 });
 

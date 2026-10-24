@@ -1,10 +1,11 @@
 import {
   SOCIAL_COMMENT_IMAGE_MAX_BYTES,
   SOCIAL_COMMENT_MAX_ATTACHMENTS,
-  SOCIAL_COMMENT_MAX_VIDEOS,
-  SOCIAL_COMMENT_VIDEO_MAX_BYTES,
   SOCIAL_IMAGE_CONTENT_TYPES,
+  SOCIAL_MAX_ATTACHMENTS_PER_POST,
   SOCIAL_VIDEO_CONTENT_TYPES,
+  SOCIAL_VIDEO_LIMITS,
+  type SocialAttachmentPurpose,
 } from '@enterprise-platform/contracts-social';
 
 /** Ảnh gốc lớn hơn mức này bị từ chối ngay, không cố nén (tránh giải mã ảnh quá nặng trên trình duyệt). */
@@ -15,39 +16,111 @@ const MAX_EDGE = 1600;
 const SKIP_BELOW_BYTES = 300 * 1024;
 const WEBP_QUALITY = 0.82;
 
-/** Tệp có phải video được phép đính kèm (MP4, WebM) hay không. */
-export function isCommentVideo(file: { readonly type: string }): boolean {
-  return SOCIAL_VIDEO_CONTENT_TYPES.includes(file.type);
+const VIDEO_TYPE_BY_EXTENSION: Readonly<Record<string, string>> = {
+  mp4: 'video/mp4',
+  m4v: 'video/mp4',
+  webm: 'video/webm',
+  mov: 'video/quicktime',
+};
+
+/**
+ * Loại nội dung của video: lấy từ `type`; một số trình duyệt để trống `type` cho .mov nên suy từ đuôi tệp.
+ * Trả `undefined` khi không phải video được phép.
+ */
+export function resolveVideoContentType(file: { readonly name?: string; readonly type: string }): string | undefined {
+  if (SOCIAL_VIDEO_CONTENT_TYPES.includes(file.type)) return file.type;
+  if (file.type) return undefined;
+  const extension = /\.([a-z0-9]+)$/i.exec(file.name ?? '')?.[1]?.toLowerCase();
+  return extension ? VIDEO_TYPE_BY_EXTENSION[extension] : undefined;
+}
+
+/** Tệp có phải video được phép đính kèm (MP4, WebM, MOV) hay không. */
+export function isCommentVideo(file: { readonly name?: string; readonly type: string }): boolean {
+  return resolveVideoContentType(file) !== undefined;
+}
+
+/**
+ * Bảo đảm video có `type` đúng trước khi tải lên (lệnh PUT ký sẵn gắn theo loại này). Không sao chép dữ liệu:
+ * `File` mới chỉ tham chiếu tệp gốc.
+ */
+export function withVideoContentType(file: File): File {
+  const type = resolveVideoContentType(file);
+  if (!type || file.type === type) return file;
+  return new File([file], file.name, { type, lastModified: file.lastModified });
+}
+
+/** Bài viết không đi chung ảnh và video (tài liệu thì được). */
+export const POST_HAS_IMAGES_MESSAGE = 'Bài viết đã có ảnh nên không thêm video được. Hãy đăng ảnh và video thành các bài riêng.';
+export const POST_HAS_VIDEOS_MESSAGE = 'Bài viết đã có video nên không thêm ảnh được. Hãy đăng ảnh và video thành các bài riêng.';
+
+const MB = 1024 * 1024;
+const formatLimitBytes = (bytes: number) =>
+  bytes >= 1024 * MB ? `${Math.floor(bytes / (1024 * MB))} GB` : `${Math.floor(bytes / MB)} MB`;
+const formatLimitSeconds = (seconds: number) =>
+  seconds % 60 === 0 && seconds >= 60 ? `${seconds / 60} phút` : `${seconds} giây`;
+
+/** Số tệp đã có trong ô soạn; `images` chỉ cần khi kiểm cho bài viết (không trộn ảnh và video). */
+export interface CommentMediaCount {
+  readonly count: number;
+  readonly videos: number;
+  readonly images?: number;
 }
 
 /**
  * Kiểm một ảnh hoặc video định đính kèm; trả thông báo lỗi tiếng Việt hoặc `undefined` khi hợp lệ.
- * `current` là số tệp và số video đã có trong bình luận. Video không nén nên chỉ kiểm loại và dung lượng.
+ * Video không nén nên chỉ kiểm loại, dung lượng và số lượng theo `SOCIAL_VIDEO_LIMITS[purpose]`; thời lượng
+ * kiểm riêng bằng `validateVideoDuration` sau khi đọc thử. Với bài viết ('post'), ảnh và video không đi chung một bài.
  */
 export function validateCommentMedia(
   file: { readonly name: string; readonly type: string; readonly size: number },
-  current: { readonly count: number; readonly videos: number },
+  current: CommentMediaCount,
+  purpose: SocialAttachmentPurpose = 'comment',
 ): string | undefined {
-  if (current.count >= SOCIAL_COMMENT_MAX_ATTACHMENTS) {
-    return `Mỗi bình luận đính kèm tối đa ${SOCIAL_COMMENT_MAX_ATTACHMENTS} tệp.`;
+  const isPost = purpose === 'post';
+  const noun = isPost ? 'bài viết' : 'bình luận';
+  const maxCount = isPost ? SOCIAL_MAX_ATTACHMENTS_PER_POST : SOCIAL_COMMENT_MAX_ATTACHMENTS;
+  if (current.count >= maxCount) {
+    return `Mỗi ${noun} đính kèm tối đa ${maxCount} tệp.`;
   }
   if (isCommentVideo(file)) {
-    if (current.videos >= SOCIAL_COMMENT_MAX_VIDEOS) {
-      return `Mỗi bình luận chỉ đính kèm tối đa ${SOCIAL_COMMENT_MAX_VIDEOS} video.`;
+    const limits = SOCIAL_VIDEO_LIMITS[purpose];
+    if (isPost && (current.images ?? 0) > 0) {
+      return POST_HAS_IMAGES_MESSAGE;
     }
-    if (file.size > SOCIAL_COMMENT_VIDEO_MAX_BYTES) {
-      return `Video "${file.name}" quá lớn (tối đa ${Math.floor(SOCIAL_COMMENT_VIDEO_MAX_BYTES / (1024 * 1024))} MB).`;
+    if (current.videos >= limits.maxVideos) {
+      return `Mỗi ${noun} chỉ đính kèm tối đa ${limits.maxVideos} video.`;
+    }
+    if (file.size <= 0) return `Video "${file.name}" không có nội dung.`;
+    if (file.size > limits.maxBytes) {
+      return `Video "${file.name}" quá lớn (tối đa ${formatLimitBytes(limits.maxBytes)}).`;
     }
     return undefined;
   }
-  if (file.type === 'video/quicktime') {
-    return 'Định dạng MOV chưa được hỗ trợ. Hãy xuất sang MP4 (H.264) hoặc WebM.';
-  }
   if (!SOCIAL_IMAGE_CONTENT_TYPES.includes(file.type)) {
-    return `"${file.name}" không phải ảnh JPEG, PNG, GIF, WebP hoặc video MP4, WebM.`;
+    return `"${file.name}" không phải ảnh JPEG, PNG, GIF, WebP hoặc video MP4, WebM, MOV.`;
+  }
+  if (isPost && current.videos > 0) {
+    return POST_HAS_VIDEOS_MESSAGE;
   }
   if (file.size > COMMENT_IMAGE_INPUT_MAX_BYTES) {
-    return `Ảnh "${file.name}" quá lớn (tối đa ${Math.floor(COMMENT_IMAGE_INPUT_MAX_BYTES / (1024 * 1024))} MB).`;
+    return `Ảnh "${file.name}" quá lớn (tối đa ${Math.floor(COMMENT_IMAGE_INPUT_MAX_BYTES / MB)} MB).`;
+  }
+  return undefined;
+}
+
+/**
+ * Kiểm thời lượng theo kết quả đọc thử. Trình duyệt không đọc được (HEVC, MOV...) thì KHÔNG chặn: để server
+ * chuyển mã và quyết định. Thời lượng không hữu hạn (luồng trực tiếp) cũng bỏ qua.
+ */
+export function validateVideoDuration(
+  probe: VideoProbeResult,
+  fileName: string,
+  purpose: SocialAttachmentPurpose = 'comment',
+): string | undefined {
+  if (!probe.ok || !Number.isFinite(probe.durationSeconds)) return undefined;
+  const { maxSeconds } = SOCIAL_VIDEO_LIMITS[purpose];
+  if (probe.durationSeconds > maxSeconds) {
+    return `Video "${fileName}" quá dài (tối đa ${formatLimitSeconds(maxSeconds)}).`;
   }
   return undefined;
 }
@@ -91,7 +164,7 @@ export type VideoProbeResult =
   | { readonly ok: false; readonly reason: string };
 
 export const VIDEO_UNREADABLE_REASON =
-  'Trình duyệt không đọc được video này. Video quay bằng điện thoại thường là H.265/HEVC; hãy xuất lại sang MP4 (H.264) hoặc WebM rồi thử lại.';
+  'Trình duyệt không đọc được video này (thường là H.265/HEVC); máy chủ sẽ tự chuyển mã sau khi tải lên.';
 const VIDEO_PROBE_TIMEOUT_MS = 8000;
 
 /**

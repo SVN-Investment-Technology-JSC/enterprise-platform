@@ -1852,3 +1852,60 @@
     outline-offset: 2px;
   }
 }
+
+/* Trình phát video đã chuyển mã (VideoAttachment): giữ tỉ lệ khung hình, không nhảy bố cục. */
+.videoAttachment {
+  position: relative;
+  max-width: min(560px, 100%);
+  margin-top: 8px;
+}
+
+.videoPlayer {
+  display: block;
+  width: 100%;
+  max-height: 480px;
+  object-fit: contain;
+  border-radius: var(--ep-radius);
+  background: #000;
+}
+
+.videoPlaceholder {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  border-radius: var(--ep-radius);
+  background: rgb(24 24 27 / 8%);
+  color: #71717a;
+  font-size: 13px;
+}
+
+.videoDuration {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgb(24 24 27 / 70%);
+  color: #fff;
+  font-size: 12px;
+  pointer-events: none;
+}
+
+.videoExpired {
+  margin: 4px 0 0;
+  color: #71717a;
+  font-size: 12px;
+}
+
+.videoRemove {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 2px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: rgb(24 24 27 / 70%);
+  color: #fff;
+  font-size: 12px;
+  cursor: pointer;
+}

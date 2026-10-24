@@ -288,6 +288,11 @@ export interface UploadAttachmentOptions {
   readonly api: AttachmentUploadApi;
   /** Phần đã tải, từ 0 đến 1. */
   readonly onProgress?: (fraction: number) => void;
+  /**
+   * Gọi ngay khi server đã cấp tệp (sau `initiate`, trước khi tải): để ô soạn biết `attachmentId` và `uploadId`
+   * mà dọn tệp dang dở khi người dùng đóng tab. Chỉ gọi một lần, không chờ.
+   */
+  readonly onInitiated?: (ticket: { readonly attachmentId: string; readonly uploadId?: string }) => void;
   readonly signal?: AbortSignal;
 }
 
@@ -300,7 +305,7 @@ export async function uploadAttachmentWithProgress(
   purpose: SocialAttachmentPurpose,
   options: UploadAttachmentOptions,
 ): Promise<SocialAttachment> {
-  const { api, onProgress, signal } = options;
+  const { api, onProgress, onInitiated, signal } = options;
   if (signal?.aborted) throw createUploadAbortedError();
   const ticket = await api.initiate({
     fileName: file.name,
@@ -309,6 +314,7 @@ export async function uploadAttachmentWithProgress(
     purpose,
   });
   const uploadId = ticket.multipart?.uploadId;
+  onInitiated?.({ attachmentId: ticket.attachmentId, uploadId });
   const abortRemote = () => {
     void Promise.resolve()
       .then(() => api.abort(ticket.attachmentId, uploadId ? { uploadId } : {}))

@@ -1,11 +1,14 @@
 import type {
   CreateSocialCommentRequest,
+  DiscardSocialAttachmentRequest,
   CreateSocialPostRequest,
   CreateSocialTopicRequest,
   SocialAttachmentPurpose,
   InitiateSocialAttachmentResponse,
   RefreshSocialUploadPartsResponse,
   SocialAttachment,
+  SocialAttachmentStatusRequest,
+  SocialAttachmentStatusResponse,
   SocialComment,
   SocialCommentPage,
   SocialFeedPage,
@@ -61,6 +64,21 @@ export const json = (method: string, body?: unknown): RequestInit => ({
 export function errorMessage(cause: unknown, fallback: string): string {
   const message = (cause as SocialApiError | undefined)?.message;
   return typeof message === 'string' && message ? message : fallback;
+}
+
+const ATTACHMENT_ERROR_FALLBACKS: Readonly<Record<string, string>> = {
+  SOCIAL_UNATTACHED_BYTES_EXCEEDED:
+    'Bạn đang có quá nhiều tệp tải lên chưa gửi. Hãy gửi hoặc gỡ bớt tệp rồi thử lại.',
+  SOCIAL_VIDEO_TOO_MANY_PROCESSING:
+    'Bạn đang có quá nhiều video chờ xử lý. Hãy đợi các video đó xong rồi tải tiếp.',
+  SOCIAL_VIDEO_NOT_READY: 'Video chưa xử lý xong. Hãy chờ video sẵn sàng rồi gửi lại.',
+};
+
+/** Như `errorMessage`, nhưng có lời nhắn tiếng Việt riêng cho các mã lỗi tệp và video khi server không kèm lời nhắn. */
+export function attachmentErrorMessage(cause: unknown, fallback: string): string {
+  const { code, message } = (cause as SocialApiError | undefined) ?? {};
+  if (typeof message === 'string' && message) return message;
+  return (code !== undefined ? ATTACHMENT_ERROR_FALLBACKS[code] : undefined) ?? fallback;
 }
 
 /** Đường về Tenant Portal cho nút Trang chủ trên thanh bên. */
@@ -162,6 +180,44 @@ const attachmentUploadApi: AttachmentUploadApi = {
     request<RefreshSocialUploadPartsResponse>(`/attachments/${encodeURIComponent(id)}/parts`, json('POST', body)),
 };
 
+/** Bỏ tệp của mình chưa gắn vào bài hay bình luận nào (mọi trạng thái); server trả 204. */
+export const attachmentDiscardApi = {
+  discard: (id: string, body: DiscardSocialAttachmentRequest = {}) =>
+    request<void>(`/attachments/${encodeURIComponent(id)}/discard`, json('POST', body)),
+};
+
+/** Trạng thái xử lý (chuyển mã) của tối đa 10 tệp do chính mình tải lên. */
+export const attachmentStatusApi = {
+  status: async (ids: readonly string[]): Promise<readonly SocialAttachment[]> =>
+    (
+      await request<SocialAttachmentStatusResponse>(
+        '/attachments/status',
+        { ...json('POST', { ids } satisfies SocialAttachmentStatusRequest), cache: 'no-store' },
+      )
+    ).items,
+};
+
+/** Bỏ một tệp chưa gắn; dùng khi người dùng gỡ tệp khỏi ô soạn. Lỗi do nơi gọi quyết định bỏ qua. */
+export const discardAttachment = (id: string, uploadId?: string) =>
+  attachmentDiscardApi.discard(id, uploadId ? { uploadId } : {});
+
+/**
+ * Bỏ tệp khi trang đang đóng: `fetch` với `keepalive` vẫn được gửi sau khi trang bị huỷ (giới hạn thân 64 KB, ở đây
+ * chỉ vài byte). Đi qua `authFetch` nên gắn cookie phiên và `x-csrf-token` như mọi lời gọi khác; không chờ, không ném lỗi.
+ */
+export function discardAttachmentKeepalive(id: string, uploadId?: string): void {
+  try {
+    void authFetch(`${API}/attachments/${encodeURIComponent(id)}/discard`, {
+      method: 'POST',
+      keepalive: true,
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(uploadId ? { uploadId } : {}),
+    }).catch(() => undefined);
+  } catch {
+    // Trang đang đóng: không còn gì để làm.
+  }
+}
+
 /** Huỷ lần tải dang dở: server xoá dòng tệp và dọn các phần đã tải. */
 export const abortAttachment = (id: string, uploadId?: string) =>
   attachmentUploadApi.abort(id, uploadId ? { uploadId } : {});
@@ -173,7 +229,11 @@ export const abortAttachment = (id: string, uploadId?: string) =>
 export function uploadAttachment(
   file: File,
   purpose: SocialAttachmentPurpose = 'post',
-  options: { readonly onProgress?: (fraction: number) => void; readonly signal?: AbortSignal } = {},
+  options: {
+    readonly onProgress?: (fraction: number) => void;
+    readonly onInitiated?: (ticket: { readonly attachmentId: string; readonly uploadId?: string }) => void;
+    readonly signal?: AbortSignal;
+  } = {},
 ): Promise<SocialAttachment> {
   return uploadAttachmentWithProgress(file, purpose, { ...options, api: attachmentUploadApi });
 }

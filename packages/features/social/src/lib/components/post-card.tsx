@@ -27,6 +27,7 @@ import {
 import {
   deletePost,
   errorMessage,
+  loadPost,
   loadReactors,
   pinPost,
   setReaction,
@@ -49,6 +50,7 @@ import styles from '../social.module.scss';
 import { CommentSection } from './comment-section';
 import { PostPoll } from './poll/post-poll';
 import { ImageGrid } from './image-grid';
+import { VideoAttachment } from './video-attachment';
 import { PostEditHistoryDialog } from './post-edit-history-dialog';
 import { ReactorsDialog } from './reactors-dialog';
 import { PostMenu } from './post-menu';
@@ -265,6 +267,9 @@ function PostMentions({
 
 /* ------------------------------------------------------------------ thẻ bài */
 
+/** Số video tối đa hiển thị trong một bài. */
+const MAX_POST_VIDEOS = 3;
+
 export interface PostCardProps {
   readonly post: SocialPost;
   readonly me: SocialMe;
@@ -307,8 +312,20 @@ export function PostCard({
   const activity = post.activity;
   const menuItems = buildPostMenu(post).filter((item) => !(isDetailPage && item.action === 'detail'));
   const commentsDisabled = Boolean(post.commentsDisabled);
-  const images = post.attachments.filter((item) => item.isImage);
-  const files = post.attachments.filter((item) => !item.isImage);
+  const videos = post.attachments
+    .filter((item) => item.isVideo)
+    .slice(0, MAX_POST_VIDEOS);
+  const images = post.attachments.filter((item) => item.isImage && !item.isVideo);
+  const files = post.attachments.filter((item) => !item.isImage && !item.isVideo);
+
+  /** URL video sống 1 giờ: tải lại bài để lấy URL mới. */
+  const refreshPost = useCallback(() => {
+    loadPost(post.id)
+      .then(onChange)
+      .catch((cause) =>
+        onError(errorMessage(cause, 'Không tải lại được video.')),
+      );
+  }, [post.id, onChange, onError]);
 
   const react = useCallback(
     async (type: SocialReactionType | null) => {
@@ -494,6 +511,13 @@ export function PostCard({
       )}
 
       {images.length > 0 ? <ImageGrid images={images} /> : null}
+      {videos.map((video) => (
+        <VideoAttachment
+          key={video.id}
+          attachment={video}
+          onRequestRefresh={refreshPost}
+        />
+      ))}
       {files.length > 0 ? <FileList files={files} /> : null}
       {post.poll ? (
         <PostPoll

@@ -11,12 +11,16 @@ import {
   type SocialReactionType,
   type SocialUserRef,
 } from '@enterprise-platform/contracts-social';
-import { AtSign, ImagePlus, PenLine, Play, RotateCw, SendHorizontal, X } from 'lucide-react';
+import { AtSign, ImagePlus, PenLine, RotateCw, SendHorizontal, X } from 'lucide-react';
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import extras from '../post-extras.module.scss';
 import {
+  attachmentErrorMessage,
+  attachmentStatusApi,
   createComment,
   deleteComment,
+  discardAttachment,
+  discardAttachmentKeepalive,
   errorMessage,
   loadCommentReactors,
   loadComments,
@@ -31,7 +35,11 @@ import {
   prepareCommentImage,
   probeVideo,
   validateCommentMedia,
+  validateVideoDuration,
+  withVideoContentType,
 } from '../comment-media';
+import { useAttachmentStatuses } from '../use-attachment-statuses';
+import { useUnsentAttachments } from '../use-unsent-attachments';
 import {
   activeMentionQuery,
   decodeMentions,
@@ -43,10 +51,15 @@ import {
   type MentionPick,
 } from '../social.model';
 import styles from '../social.module.scss';
+import { ComposerVideoTile } from './composer-video-tile';
 import { ImageGrid } from './image-grid';
 import { PeopleList, usePeopleSearch } from './people-picker';
 import { ReactorsDialog } from './reactors-dialog';
 import { Avatar, ConfirmDialog, REACTION_ICONS, userSubtitle } from './ui';
+import { VideoAttachment } from './video-attachment';
+
+/** Cách bỏ tệp chưa gửi: lời gọi thường khi gỡ tệp hay đóng ô, `keepalive` khi đóng tab. */
+const UNSENT_DEPS = { discard: discardAttachment, discardKeepalive: discardAttachmentKeepalive };
 
 /** Mã tác giả của bài đang xem: để gắn nhãn "Tác giả" cho bình luận của chính họ. */
 const PostAuthorContext = createContext<string | undefined>(undefined);
@@ -66,6 +79,8 @@ interface PendingFile {
   readonly error?: string;
   /** Tiến trình tải lên, 0 đến 1. */
   readonly progress?: number;
+  /** Mã tệp do server cấp ngay sau `initiate` (khi còn đang tải): để dọn khi gỡ hoặc đóng tab. */
+  readonly ticketId?: string;
   /** Tệp gốc người dùng chọn; có thì ô lỗi mới thử lại được. */
   readonly original?: File;
   /** Bản đã nén (ảnh) hoặc đã kiểm đọc được (video): thử lại tải đúng bản này, khỏi nén lại. */
@@ -73,6 +88,10 @@ interface PendingFile {
   /** Lỗi do tệp (không đọc được, quá lớn) thì không thử lại được, chỉ bỏ. */
   readonly retryable?: boolean;
 }
+
+/** Video đã tải xong nhưng server chưa chuyển mã xong. */
+const isVideoPending = (attachment: SocialAttachment) =>
+  attachment.processingStatus === 'queued' || attachment.processingStatus === 'processing';
 
 const RING_RADIUS = 16;
 const RING_LENGTH = 2 * Math.PI * RING_RADIUS;
@@ -156,6 +175,8 @@ function CommentInput({
   // Giữ danh sách mới nhất để thu hồi URL xem trước khi rời khỏi ô nhập.
   const filesRef = useRef(files);
   filesRef.current = files;
+  // Tệp chưa gửi: cảnh báo khi rời trang, bỏ khi đóng tab hoặc gỡ ô nhập (chỉ tệp tải trong ô này, không phải tệp sửa).
+  const unsent = useUnsentAttachments(UNSENT_DEPS);
   // Mỗi tệp đang tải có một AbortController để huỷ khi người dùng bỏ ô hoặc rời ô nhập.
   const controllers = useRef(new Map<string, AbortController>());
   useEffect(() => {
@@ -171,8 +192,18 @@ function CommentInput({
     setFiles((list) => list.map((file) => (file.key === key ? { ...file, ...patch } : file)));
 
   const removeFile = (key: string) => {
+    const target = filesRef.current.find((file) => file.key === key);
+    const uploadingNow = controllers.current.has(key);
     controllers.current.get(key)?.abort();
     controllers.current.delete(key);
+    // Đang tải: huỷ tải đã kèm `abort` phía server. Đã tải xong (kể cả đang xử lý hay lỗi xử lý): bỏ ngay.
+    if (key.startsWith('new-')) {
+      const id = target?.attachment?.id ?? target?.ticketId;
+      if (id) {
+        if (uploadingNow && !target?.attachment) unsent.forget(id);
+        else unsent.discard(id);
+      }
+    }
     setFiles((list) => {
       const target = list.find((file) => file.key === key);
       if (target?.objectUrl) URL.revokeObjectURL(target.objectUrl);
@@ -193,12 +224,14 @@ function CommentInput({
       let ready = prepared;
       if (!ready) {
         if (isVideo) {
+          // Trình duyệt không đọc được (HEVC, MOV) thì vẫn tải: server chuyển mã và quyết định.
           const probe = await probeVideo(original);
-          if (!probe.ok) {
-            patchFile(key, { status: 'error', error: probe.reason, retryable: false });
+          const tooLong = validateVideoDuration(probe, original.name, 'comment');
+          if (tooLong) {
+            patchFile(key, { status: 'error', error: tooLong, retryable: false });
             return;
           }
-          ready = original;
+          ready = withVideoContentType(original);
         } else {
           ready = await prepareCommentImage(original);
           if (exceedsCommentImageLimit(ready.size)) {
@@ -215,6 +248,10 @@ function CommentInput({
       }
       const attachment = await uploadAttachment(ready, 'comment', {
         signal: controller.signal,
+        onInitiated: ({ attachmentId, uploadId }) => {
+          unsent.track(attachmentId, uploadId);
+          patchFile(key, { ticketId: attachmentId });
+        },
         onProgress: (fraction) => {
           const percent = Math.round(fraction * 100);
           if (percent === lastPercent) return;
@@ -222,15 +259,24 @@ function CommentInput({
           patchFile(key, { progress: fraction });
         },
       });
+      // Người dùng đã gỡ ô hoặc đóng ô nhập trong lúc chờ `complete`: tệp tải xong muộn thì bỏ luôn.
+      if (controller.signal.aborted) {
+        unsent.discard(attachment.id);
+        return;
+      }
       patchFile(key, { status: 'done', attachment, progress: 1, original: undefined, prepared: undefined });
     };
     void run()
       .catch((cause) => {
         if (isUploadAborted(cause) || controller.signal.aborted) return;
+        // Lần tải lỗi đã được `uploadAttachment` huỷ phía server: thôi theo dõi tệp này.
+        const ticketId = filesRef.current.find((file) => file.key === key)?.ticketId;
+        if (ticketId) unsent.forget(ticketId);
         patchFile(key, {
           status: 'error',
           retryable: true,
-          error: errorMessage(cause, `Không tải được ${noun} "${original.name}".`),
+          ticketId: undefined,
+          error: attachmentErrorMessage(cause, `Không tải được ${noun} "${original.name}".`),
         });
       })
       .finally(() => {
@@ -251,7 +297,7 @@ function CommentInput({
     let count = files.length;
     let videos = files.filter((file) => file.isVideo).length;
     for (const original of incoming) {
-      const problem = validateCommentMedia(original, { count, videos });
+      const problem = validateCommentMedia(original, { count, videos }, 'comment');
       if (problem) {
         rejected.push(problem);
         continue;
@@ -271,7 +317,20 @@ function CommentInput({
     setError(rejected.length > 0 ? rejected.join(' ') : undefined);
   };
 
+  // Video đã tải xong nhưng chưa `ready`: hỏi định kỳ trạng thái chuyển mã.
+  const unfinishedVideoIds = files.flatMap((file) =>
+    file.status === 'done' && file.isVideo && file.attachment && isVideoPending(file.attachment)
+      ? [file.attachment.id]
+      : [],
+  );
+  const latestStatus = useAttachmentStatuses(unfinishedVideoIds, attachmentStatusApi.status);
+  const shown: readonly PendingFile[] = files.map((file) => {
+    const latest = file.attachment ? latestStatus.get(file.attachment.id) : undefined;
+    return file.attachment && latest ? { ...file, attachment: { ...file.attachment, ...latest } } : file;
+  });
   const uploading = files.some((file) => file.status === 'uploading');
+  const processing = shown.some((file) => file.isVideo && file.attachment && isVideoPending(file.attachment));
+  const videoFailed = shown.some((file) => file.isVideo && file.attachment?.processingStatus === 'failed');
   const failed = files.find((file) => file.status === 'error');
   const attachmentIds = files.flatMap((file) => (file.status === 'done' && file.attachment ? [file.attachment.id] : []));
 
@@ -301,7 +360,11 @@ function CommentInput({
 
   const submit = async () => {
     const trimmed = text.trim();
-    if ((!trimmed && attachmentIds.length === 0) || busy || uploading) return;
+    if ((!trimmed && attachmentIds.length === 0) || busy || uploading || processing) return;
+    if (videoFailed) {
+      setError('Có video xử lý lỗi. Hãy gỡ video đó rồi gửi lại.');
+      return;
+    }
     if (failed) {
       setError('Có tệp tải lên bị lỗi. Hãy bỏ tệp đó rồi gửi lại.');
       return;
@@ -315,6 +378,8 @@ function CommentInput({
     setError(undefined);
     try {
       await onSubmit(encoded.body, encoded.userIds, attachmentIds);
+      // Đã gắn vào bình luận: không còn là tệp chưa gửi, đừng bỏ khi ô nhập bị gỡ.
+      unsent.forget(attachmentIds);
       setText('');
       setPicks([]);
       setCaret(0);
@@ -322,7 +387,7 @@ function CommentInput({
       setFiles([]);
       if (area.current) area.current.style.height = 'auto';
     } catch (cause) {
-      setError(errorMessage(cause, 'Không gửi được bình luận.'));
+      setError(attachmentErrorMessage(cause, 'Không gửi được bình luận.'));
     } finally {
       setBusy(false);
     }
@@ -344,7 +409,9 @@ function CommentInput({
     });
   };
 
-  const canSend = !busy && !uploading && (text.trim().length > 0 || attachmentIds.length > 0);
+  const canSend =
+    !busy && !uploading && !processing && !videoFailed && (text.trim().length > 0 || attachmentIds.length > 0);
+  const sendHint = processing ? 'Đang xử lý video…' : videoFailed ? 'Hãy gỡ video lỗi trước khi gửi.' : undefined;
 
   return (
     <div
@@ -422,7 +489,7 @@ function CommentInput({
           <input
             ref={fileInput}
             type="file"
-            accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/webm"
+            accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/webm,video/quicktime,.mov"
             multiple
             hidden
             onChange={(event) => {
@@ -434,7 +501,7 @@ function CommentInput({
             type="button"
             className={extras.commentSend}
             aria-label={submitLabel}
-            title={`${submitLabel} (Ctrl+Enter)`}
+            title={sendHint ?? `${submitLabel} (Ctrl+Enter)`}
             disabled={!canSend}
             onClick={() => void submit()}
           >
@@ -444,16 +511,25 @@ function CommentInput({
       </div>
       {files.length > 0 ? (
         <ul className={styles.commentFiles} aria-label="Tệp đính kèm">
-          {files.map((file) => (
+          {shown.map((file) =>
+            file.isVideo ? (
+              <li key={file.key}>
+                <ComposerVideoTile
+                  fileName={file.fileName}
+                  previewUrl={file.preview}
+                  status={file.status}
+                  progress={file.progress}
+                  attachment={file.attachment}
+                  error={file.error}
+                  retryable={Boolean(file.original) && file.retryable !== false}
+                  disabled={busy}
+                  onRemove={() => removeFile(file.key)}
+                  onRetry={() => retryFile(file.key)}
+                />
+              </li>
+            ) : (
             <li key={file.key} className={styles.commentFile} data-status={file.status} title={file.error}>
-              {file.preview && file.isVideo ? (
-                <>
-                  <video className={styles.commentFileVideo} src={file.preview} muted preload="metadata" playsInline />
-                  <span className={styles.commentVideoBadge} aria-hidden="true">
-                    <Play size={12} fill="currentColor" />
-                  </span>
-                </>
-              ) : file.preview ? (
+              {file.preview ? (
                 <img src={file.preview} alt={file.fileName} />
               ) : null}
               {file.status === 'uploading' ? <UploadProgress fraction={file.progress ?? 0} /> : null}
@@ -472,17 +548,18 @@ function CommentInput({
               <button
                 type="button"
                 className={styles.commentFileRemove}
-                aria-label={`${file.status === 'uploading' ? 'Huỷ tải' : 'Bỏ'} ${file.isVideo ? 'video' : 'ảnh'} ${file.fileName}`}
+                aria-label={`${file.status === 'uploading' ? 'Huỷ tải' : 'Bỏ'} ảnh ${file.fileName}`}
                 disabled={busy}
                 onClick={() => removeFile(file.key)}
               >
                 <X size={12} />
               </button>
             </li>
-          ))}
+          )
+          )}
         </ul>
       ) : null}
-      {failed?.error ? (
+      {failed?.error && !failed.isVideo ? (
         <p role="alert" className={styles.fieldError}>
           {failed.error}
         </p>
@@ -510,17 +587,6 @@ function CommentInput({
 
 /* -------------------------------------------------------------- một dòng */
 
-/** Video đính kèm của bình luận; `#t=0.001` để trình duyệt hiện khung hình đầu làm ảnh bìa. */
-function CommentVideo({ url }: { readonly url: string }) {
-  const [failed, setFailed] = useState(false);
-  return (
-    <div className={styles.commentVideo}>
-      <video controls preload="metadata" playsInline src={`${url}#t=0.001`} onError={() => setFailed(true)} />
-      {failed ? <p className={styles.muted}>Không phát được video. Hãy tải lại trang.</p> : null}
-    </div>
-  );
-}
-
 interface CommentRowProps {
   readonly comment: SocialComment;
   readonly canComment: boolean;
@@ -529,9 +595,19 @@ interface CommentRowProps {
   readonly onRemoved: (comment: SocialComment) => void;
   /** Bình luận đích từ liên kết thông báo: làm nổi và cuộn tới. */
   readonly highlight?: boolean;
+  /** Tải lại bình luận để lấy URL video ký mới khi URL cũ hết hạn. */
+  readonly onRefreshMedia?: () => Promise<void>;
 }
 
-function CommentRow({ comment, canComment, onReply, onChanged, onRemoved, highlight = false }: CommentRowProps) {
+function CommentRow({
+  comment,
+  canComment,
+  onReply,
+  onChanged,
+  onRemoved,
+  highlight = false,
+  onRefreshMedia,
+}: CommentRowProps) {
   const rowRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (highlight) rowRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
@@ -675,8 +751,10 @@ function CommentRow({ comment, canComment, onReply, onChanged, onRemoved, highli
                 <ImageGrid images={commentImages} />
               </div>
             ) : null}
-            {commentVideos.flatMap((video) => (video.url ? [video.url] : [])).map((url) => (
-              <CommentVideo key={url} url={url} />
+            {commentVideos.map((video) => (
+              <div key={video.id} className={styles.commentVideo}>
+                <VideoAttachment attachment={video} onRequestRefresh={onRefreshMedia} />
+              </div>
             ))}
             <div className={styles.commentMeta}>
               {canComment ? (
@@ -827,6 +905,11 @@ function RootComment({ postId, comment, canComment, onChanged, onRemoved, onCoun
         onChanged={onChanged}
         onRemoved={onRemoved}
         highlight={focusId === comment.id}
+        onRefreshMedia={async () => {
+          const page = await loadComments(postId);
+          const fresh = page.items.find((item) => item.id === comment.id);
+          if (fresh) onChanged(fresh);
+        }}
       />
       <div className={styles.replies}>
         {comment.replyCount > 0 && !expanded ? (
@@ -843,6 +926,11 @@ function RootComment({ postId, comment, canComment, onChanged, onRemoved, onCoun
                     comment={reply}
                     canComment={canComment}
                     highlight={focusId === reply.id}
+                    onRefreshMedia={async () => {
+                      const page = await loadComments(postId, { parentId: comment.id });
+                      const fresh = page.items.find((item) => item.id === reply.id);
+                      if (fresh) setReplies((list) => list.map((item) => (item.id === fresh.id ? fresh : item)));
+                    }}
                     onReply={startReply}
                     onChanged={(next) => setReplies((list) => list.map((item) => (item.id === next.id ? next : item)))}
                     onRemoved={(removed) => {

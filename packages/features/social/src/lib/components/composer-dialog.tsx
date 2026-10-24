@@ -46,11 +46,25 @@ import {
 } from '../post-extras.model';
 import extras from '../post-extras.module.scss';
 import {
+  attachmentErrorMessage,
+  attachmentStatusApi,
   createPost,
-  errorMessage,
+  discardAttachment,
+  discardAttachmentKeepalive,
   updatePost,
   uploadAttachment,
 } from '../social-api';
+import { isUploadAborted } from '../attachment-upload';
+import {
+  isCommentVideo,
+  POST_HAS_VIDEOS_MESSAGE,
+  probeVideo,
+  validateCommentMedia,
+  validateVideoDuration,
+  withVideoContentType,
+} from '../comment-media';
+import { useAttachmentStatuses } from '../use-attachment-statuses';
+import { useUnsentAttachments } from '../use-unsent-attachments';
 import { loadAllMyGroups, loadSettings } from '../social-posts-api';
 import type { SocialComposerMode } from '../social-context';
 import { formatBytes, isEmptyHtml, validateAttachment } from '../social.model';
@@ -68,7 +82,15 @@ import { PeoplePicker } from './people-picker';
 import { PollBuilder } from './poll/poll-builder';
 import { RichEditor } from './rich-editor';
 import { TimeSelect } from './time-select';
+import { ComposerVideoTile } from './composer-video-tile';
 import { Avatar, Dialog, Field, SelectField } from './ui';
+
+/** Cách bỏ tệp chưa gửi: lời gọi thường khi gỡ tệp hay đóng hộp, `keepalive` khi đóng tab. */
+const UNSENT_DEPS = { discard: discardAttachment, discardKeepalive: discardAttachmentKeepalive };
+
+/** Video đã tải xong nhưng server chưa chuyển mã xong. */
+const isVideoPending = (attachment: SocialAttachment) =>
+  attachment.processingStatus === 'queued' || attachment.processingStatus === 'processing';
 
 interface UploadItem {
   readonly key: string;
@@ -78,6 +100,16 @@ interface UploadItem {
   readonly status: 'uploading' | 'done' | 'error';
   readonly attachment?: SocialAttachment;
   readonly error?: string;
+  readonly isVideo?: boolean;
+  /** URL tạm của video vừa chọn (xem trước); thu hồi khi gỡ hoặc đóng hộp. */
+  readonly objectUrl?: string;
+  /** Tiến trình tải lên, 0 đến 1. */
+  readonly progress?: number;
+  /** Mã tệp do server cấp ngay sau `initiate` (khi còn đang tải). */
+  readonly ticketId?: string;
+  /** Tệp gốc để thử lại tải lên (chỉ video). */
+  readonly original?: File;
+  readonly retryable?: boolean;
 }
 
 const KIND_OPTIONS = SOCIAL_POST_KINDS.map((kind) => ({
@@ -171,6 +203,7 @@ export function ComposerDialog({
       fileName: attachment.fileName,
       sizeBytes: attachment.sizeBytes,
       isImage: attachment.isImage,
+      isVideo: attachment.isVideo === true,
       status: 'done' as const,
       attachment,
     })),
@@ -189,6 +222,19 @@ export function ComposerDialog({
   const [error, setError] = useState<string>();
   const fileInput = useRef<HTMLInputElement>(null);
   const counter = useRef(0);
+  // Tệp chưa gửi: cảnh báo khi rời trang, bỏ khi đóng tab hoặc đóng hộp (chỉ tệp tải trong hộp này, không phải tệp của bài đang sửa).
+  const unsent = useUnsentAttachments(UNSENT_DEPS);
+  const uploadsRef = useRef(uploads);
+  uploadsRef.current = uploads;
+  const controllers = useRef(new Map<string, AbortController>());
+  useEffect(() => {
+    const running = controllers.current;
+    return () => {
+      for (const controller of running.values()) controller.abort();
+      running.clear();
+      for (const item of uploadsRef.current) if (item.objectUrl) URL.revokeObjectURL(item.objectUrl);
+    };
+  }, []);
 
   // Lối tắt "Ảnh/File": mở sẵn hộp chọn tệp ngay khi hộp thoại hiện.
   useEffect(() => {
@@ -236,6 +282,19 @@ export function ComposerDialog({
   );
   const canSchedule = !editing || editingScheduled;
 
+  // Video đã tải xong nhưng chưa `ready`: hỏi định kỳ trạng thái chuyển mã.
+  const unfinishedVideoIds = uploads.flatMap((item) =>
+    item.status === 'done' && item.isVideo && item.attachment && isVideoPending(item.attachment)
+      ? [item.attachment.id]
+      : [],
+  );
+  const latestStatus = useAttachmentStatuses(unfinishedVideoIds, attachmentStatusApi.status);
+  const shownUploads: readonly UploadItem[] = uploads.map((item) => {
+    const latest = item.attachment ? latestStatus.get(item.attachment.id) : undefined;
+    return item.attachment && latest ? { ...item, attachment: { ...item.attachment, ...latest } } : item;
+  });
+  const processing = shownUploads.some((item) => item.isVideo && item.attachment && isVideoPending(item.attachment));
+  const videoFailed = shownUploads.some((item) => item.isVideo && item.attachment?.processingStatus === 'failed');
   const uploading = uploads.some((item) => item.status === 'uploading');
   const activeUploads = uploads.filter(
     (item) => item.status !== 'error',
@@ -265,37 +324,157 @@ export function ComposerDialog({
       list.map((item) => (item.key === key ? { ...item, ...next } : item)),
     );
 
+  /** Video: đọc thử trong trình duyệt (chỉ để kiểm thời lượng), rồi tải lên với tiến trình thật. */
+  const startVideoUpload = (key: string, original: File) => {
+    const controller = new AbortController();
+    controllers.current.set(key, controller);
+    let lastPercent = -1;
+    const run = async () => {
+      // Trình duyệt không đọc được (HEVC, MOV) thì vẫn tải: server chuyển mã và quyết định.
+      const probe = await probeVideo(original);
+      const tooLong = validateVideoDuration(probe, original.name, 'post');
+      if (tooLong) {
+        patch(key, { status: 'error', error: tooLong, retryable: false });
+        return;
+      }
+      if (controller.signal.aborted) return;
+      const attachment = await uploadAttachment(withVideoContentType(original), 'post', {
+        signal: controller.signal,
+        onInitiated: ({ attachmentId, uploadId }) => {
+          unsent.track(attachmentId, uploadId);
+          patch(key, { ticketId: attachmentId });
+        },
+        onProgress: (fraction) => {
+          const percent = Math.round(fraction * 100);
+          if (percent === lastPercent) return;
+          lastPercent = percent;
+          patch(key, { progress: fraction });
+        },
+      });
+      // Đã gỡ hoặc đóng hộp trong lúc chờ `complete`: tệp tải xong muộn thì bỏ luôn.
+      if (controller.signal.aborted) {
+        unsent.discard(attachment.id);
+        return;
+      }
+      patch(key, { status: 'done', attachment, progress: 1, original: undefined });
+    };
+    void run()
+      .catch((cause) => {
+        if (isUploadAborted(cause) || controller.signal.aborted) return;
+        // Lần tải lỗi đã được `uploadAttachment` huỷ phía server: thôi theo dõi tệp này.
+        const ticketId = uploadsRef.current.find((item) => item.key === key)?.ticketId;
+        if (ticketId) unsent.forget(ticketId);
+        patch(key, {
+          status: 'error',
+          retryable: true,
+          ticketId: undefined,
+          error: attachmentErrorMessage(cause, `Không tải được video "${original.name}".`),
+        });
+      })
+      .finally(() => {
+        if (controllers.current.get(key) === controller) controllers.current.delete(key);
+      });
+  };
+
+  /** Tệp thường (ảnh, tài liệu): tải một lần, huỷ được khi gỡ. */
+  const startFileUpload = (key: string, file: File) => {
+    const controller = new AbortController();
+    controllers.current.set(key, controller);
+    uploadAttachment(file, 'post', {
+      signal: controller.signal,
+      onInitiated: ({ attachmentId, uploadId }) => {
+        unsent.track(attachmentId, uploadId);
+        patch(key, { ticketId: attachmentId });
+      },
+    })
+      .then((attachment) => {
+        if (controller.signal.aborted) {
+          unsent.discard(attachment.id);
+          return;
+        }
+        patch(key, { status: 'done', attachment });
+      })
+      .catch((cause) => {
+        if (isUploadAborted(cause) || controller.signal.aborted) return;
+        const ticketId = uploadsRef.current.find((item) => item.key === key)?.ticketId;
+        if (ticketId) unsent.forget(ticketId);
+        patch(key, {
+          status: 'error',
+          ticketId: undefined,
+          error: attachmentErrorMessage(cause, 'Không tải được tệp lên.'),
+        });
+      })
+      .finally(() => {
+        if (controllers.current.get(key) === controller) controllers.current.delete(key);
+      });
+  };
+
+  const retryVideo = (key: string) => {
+    const target = uploadsRef.current.find((item) => item.key === key);
+    if (!target?.original || target.retryable === false || controllers.current.has(key)) return;
+    patch(key, { status: 'uploading', error: undefined, progress: 0 });
+    startVideoUpload(key, target.original);
+  };
+
+  /** Gỡ một tệp khỏi danh sách: huỷ tải nếu đang tải, bỏ ngay nếu đã tải lên mà chưa gửi. */
+  const removeUpload = (key: string) => {
+    const target = uploadsRef.current.find((item) => item.key === key);
+    const uploadingNow = controllers.current.has(key);
+    controllers.current.get(key)?.abort();
+    controllers.current.delete(key);
+    if (key.startsWith('new-')) {
+      const id = target?.attachment?.id ?? target?.ticketId;
+      if (id) {
+        if (uploadingNow && !target?.attachment) unsent.forget(id);
+        else unsent.discard(id);
+      }
+    }
+    if (target?.objectUrl) URL.revokeObjectURL(target.objectUrl);
+    setUploads((list) => list.filter((entry) => entry.key !== key));
+  };
+
   const addFiles = (files: FileList | null) => {
     if (!files) return;
     let count = activeUploads;
+    let videos = uploads.filter((item) => item.isVideo && item.status !== 'error').length;
+    let images = uploads.filter((item) => item.isImage && item.status !== 'error').length;
     const rejected: string[] = [];
     for (const file of Array.from(files)) {
-      const problem = validateAttachment(file, count);
+      const isVideo = isCommentVideo(file);
+      const isImage = !isVideo && file.type.startsWith('image/');
+      let problem: string | undefined;
+      if (isVideo) {
+        problem = validateCommentMedia(file, { count, videos, images }, 'post');
+      } else {
+        problem = validateAttachment(file, count);
+        if (!problem && isImage && videos > 0) problem = POST_HAS_VIDEOS_MESSAGE;
+      }
       if (problem) {
         rejected.push(problem);
         continue;
       }
       count += 1;
+      if (isVideo) videos += 1;
+      if (isImage) images += 1;
       counter.current += 1;
       const key = `new-${counter.current}`;
+      const objectUrl = isVideo ? URL.createObjectURL(file) : undefined;
       setUploads((list) => [
         ...list,
         {
           key,
           fileName: file.name,
           sizeBytes: file.size,
-          isImage: file.type.startsWith('image/'),
+          isImage,
+          isVideo,
+          objectUrl,
+          progress: 0,
+          original: isVideo ? file : undefined,
           status: 'uploading',
         },
       ]);
-      uploadAttachment(file)
-        .then((attachment) => patch(key, { status: 'done', attachment }))
-        .catch((cause) =>
-          patch(key, {
-            status: 'error',
-            error: errorMessage(cause, 'Không tải được tệp lên.'),
-          }),
-        );
+      if (isVideo) startVideoUpload(key, file);
+      else startFileUpload(key, file);
     }
     setError(rejected.length > 0 ? rejected.join(' ') : undefined);
     if (fileInput.current) fileInput.current.value = '';
@@ -335,6 +514,10 @@ export function ComposerDialog({
         setError(problem);
         return;
       }
+    }
+    if (videoFailed) {
+      setError('Có video xử lý lỗi. Hãy gỡ video đó rồi đăng lại.');
+      return;
     }
     setSubmitting(true);
     setError(undefined);
@@ -406,10 +589,12 @@ export function ComposerDialog({
           ...(scheduledAt ? { scheduledAt } : {}),
         });
       }
+      // Đã gắn vào bài: không còn là tệp chưa gửi, đừng bỏ khi hộp thoại đóng.
+      unsent.forget(attachmentIds);
       onSaved(saved);
     } catch (cause) {
       setError(
-        errorMessage(
+        attachmentErrorMessage(
           cause,
           editing ? 'Không lưu được bài viết.' : 'Không đăng được bài viết.',
         ),
@@ -444,7 +629,7 @@ export function ComposerDialog({
       submitLabel={submitLabel}
       submittingLabel={editing ? 'Đang lưu…' : 'Đang đăng…'}
       submitting={submitting}
-      submitDisabled={noContent || uploading}
+      submitDisabled={noContent || uploading || processing || videoFailed}
       error={error}
       onSubmit={() => void submit()}
       onClose={() => {
@@ -645,49 +830,71 @@ export function ComposerDialog({
             ({activeUploads}/{SOCIAL_MAX_ATTACHMENTS_PER_POST})
           </span>
         </span>
-        {uploads.length > 0 ? (
+        {shownUploads.length > 0 ? (
           <ul className={styles.uploadList}>
-            {uploads.map((item) => (
-              <li
-                key={item.key}
-                className={styles.uploadItem}
-                data-status={item.status}
-              >
-                {item.isImage ? (
-                  <ImageIcon size={15} />
-                ) : (
-                  <FileIcon size={15} />
-                )}
-                <span className={styles.uploadName}>{item.fileName}</span>
-                <span className={styles.uploadMeta}>
-                  {item.status === 'uploading'
-                    ? 'Đang tải lên…'
-                    : item.status === 'error'
-                      ? (item.error ?? 'Lỗi')
-                      : formatBytes(item.sizeBytes)}
-                </span>
-                <button
-                  type="button"
-                  className={styles.chipRemove}
-                  aria-label={`Bỏ tệp ${item.fileName}`}
-                  onClick={() =>
-                    setUploads((list) =>
-                      list.filter((entry) => entry.key !== item.key),
-                    )
-                  }
+            {shownUploads.map((item) =>
+              item.isVideo ? (
+                <li key={item.key}>
+                  <ComposerVideoTile
+                    fileName={item.fileName}
+                    previewUrl={item.objectUrl}
+                    status={item.status}
+                    progress={item.progress}
+                    attachment={item.attachment}
+                    error={item.error}
+                    retryable={Boolean(item.original) && item.retryable !== false}
+                    disabled={submitting}
+                    onRemove={() => removeUpload(item.key)}
+                    onRetry={() => retryVideo(item.key)}
+                  />
+                </li>
+              ) : (
+                <li
+                  key={item.key}
+                  className={styles.uploadItem}
+                  data-status={item.status}
                 >
-                  <X size={13} />
-                </button>
-              </li>
-            ))}
+                  {item.isImage ? (
+                    <ImageIcon size={15} />
+                  ) : (
+                    <FileIcon size={15} />
+                  )}
+                  <span className={styles.uploadName}>{item.fileName}</span>
+                  <span className={styles.uploadMeta}>
+                    {item.status === 'uploading'
+                      ? 'Đang tải lên…'
+                      : item.status === 'error'
+                        ? (item.error ?? 'Lỗi')
+                        : formatBytes(item.sizeBytes)}
+                  </span>
+                  <button
+                    type="button"
+                    className={styles.chipRemove}
+                    aria-label={`Bỏ tệp ${item.fileName}`}
+                    onClick={() => removeUpload(item.key)}
+                  >
+                    <X size={13} />
+                  </button>
+                </li>
+              ),
+            )}
           </ul>
+        ) : null}
+        {processing ? (
+          <span className={styles.fieldHint} role="status">
+            Đang xử lý video… Nút đăng sẽ bật khi video xử lý xong; vui lòng giữ trang này mở.
+          </span>
+        ) : videoFailed ? (
+          <span className={styles.fieldHint} role="status">
+            Hãy gỡ video xử lý lỗi trước khi đăng.
+          </span>
         ) : null}
         <input
           ref={fileInput}
           type="file"
           multiple
           hidden
-          accept="image/jpeg,image/png,image/gif,image/webp,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip"
+          accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/webm,video/quicktime,.mov,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip"
           onChange={(event) => addFiles(event.target.files)}
         />
         <button
@@ -696,7 +903,7 @@ export function ComposerDialog({
           disabled={activeUploads >= SOCIAL_MAX_ATTACHMENTS_PER_POST}
           onClick={() => fileInput.current?.click()}
         >
-          <Paperclip size={15} /> Thêm ảnh hoặc tệp
+          <Paperclip size={15} /> Thêm ảnh, video hoặc tệp
         </button>
       </div>
     </Dialog>
