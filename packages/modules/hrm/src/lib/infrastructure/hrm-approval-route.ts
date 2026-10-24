@@ -94,7 +94,10 @@ export interface ApprovalPositionOptionRow {
 export interface ApprovalRouteRows {
   bindings: readonly ApprovalBindingRow[];
   reasons: readonly ApprovalReasonRow[];
+  /** Chức danh để chọn người duyệt: chỉ chức danh đang có người giữ quyền duyệt đơn. */
   positions?: readonly ApprovalPositionOptionRow[];
+  /** Mọi chức danh, chỉ dùng tra tên chức danh đã gắn vào cấu hình (kể cả khi không còn trong danh sách chọn). */
+  allPositions?: readonly ApprovalPositionOptionRow[];
 }
 
 export interface SelectedApprovalBinding {
@@ -304,6 +307,10 @@ export async function loadApprovalRouteRows(
       ORDER BY n.name`,
     [['hrm.request.approve', 'hrm.request.approve.all', 'hrm.manage']],
   );
+  const allPositions = await db.query(
+    `SELECT id, COALESCE(code, '') AS code, name FROM core_schema.organization_nodes
+      WHERE category = 'position' AND deleted_at IS NULL`,
+  );
   const reasons: ApprovalReasonRow[] = [
     ...customTypes.rows.map(
       (row: { id: string; code: string; name: string }) => ({
@@ -337,6 +344,11 @@ export async function loadApprovalRouteRows(
     bindings: bindings.rows as ApprovalBindingRow[],
     reasons,
     positions: (positions.rows ?? []).map((row: { id: string; code?: string; name: string }) => ({
+      id: row.id,
+      code: row.code ?? '',
+      name: row.name,
+    })),
+    allPositions: (allPositions.rows ?? []).map((row: { id: string; code?: string; name: string }) => ({
       id: row.id,
       code: row.code ?? '',
       name: row.name,

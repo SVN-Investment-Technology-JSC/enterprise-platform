@@ -116,6 +116,21 @@ export function chiefFor(facts: OrgFacts, employeeId: string): ChiefApprover | n
 
 const text = (value: unknown): string | null => (typeof value === 'string' && value ? value : null);
 
+/**
+ * Chức danh dự phòng cuối của tenant (cột có từ migration 0075); chưa migrate hoặc chưa cấu hình = không có dòng nào.
+ * Kiểm tra tồn tại bằng truy vấn riêng: tên bảng/cột thiếu trong một câu SELECT là lỗi phân tích cú pháp, làm hỏng cả
+ * giao dịch đang mở dù có bọc CASE.
+ */
+async function loadLastResortRow(db: Queryable, tenantId: string): Promise<{ rows: Record<string, unknown>[] }> {
+  const found = await db.query(
+    `SELECT 1 FROM information_schema.columns
+      WHERE table_schema = 'hrm_schema' AND table_name = 'approval_policy_settings'
+        AND column_name = 'last_resort_position_id'`,
+  );
+  if ((found.rows?.length ?? 0) === 0) return { rows: [] };
+  return db.query('SELECT last_resort_position_id::text AS position_id FROM hrm_schema.approval_policy_settings WHERE tenant_id = $1', [tenantId]);
+}
+
 /** Đọc Core và HRM; dòng không đúng hình dạng bị bỏ qua để lỗi dữ liệu không làm hỏng luồng duyệt. */
 export async function loadOrgFacts(db: Queryable, tenantId: string): Promise<OrgFacts> {
   const tableCheck = await db.query(
@@ -156,16 +171,7 @@ export async function loadOrgFacts(db: Queryable, tenantId: string): Promise<Org
         WHERE e.tenant_id = $1 AND e.deleted_at IS NULL`,
       [tenantId],
     ),
-    // Cột có từ migration 0075; chưa migrate hoặc chưa cấu hình = không có bậc dự phòng cuối.
-    db.query(
-      `SELECT CASE WHEN EXISTS (
-                SELECT 1 FROM information_schema.columns
-                 WHERE table_schema = 'hrm_schema' AND table_name = 'approval_policy_settings'
-                   AND column_name = 'last_resort_position_id')
-              THEN (SELECT last_resort_position_id::text FROM hrm_schema.approval_policy_settings WHERE tenant_id = $1)
-              END AS position_id`,
-      [tenantId],
-    ),
+    loadLastResortRow(db, tenantId),
   ]);
   const inactive = (status: unknown) => typeof status === 'string' && INACTIVE_EMPLOYMENT.includes(status);
   return {

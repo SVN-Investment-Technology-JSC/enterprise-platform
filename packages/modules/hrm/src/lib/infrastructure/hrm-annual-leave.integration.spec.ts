@@ -160,6 +160,8 @@ integration('Annual leave by labor contract (PostgreSQL)', () => {
       'hrm/0035-hrm-work-schedules.sql',
       'hrm/0036-hrm-work-schedule-rules.sql',
       'hrm/0044-hrm-annual-leave-single-policy.sql',
+      'hrm/0028-hrm-approval-policy.sql',
+      'hrm/0075-hrm-last-resort-approver.sql',
     ])
       await migrate(path);
     shiftId = (
