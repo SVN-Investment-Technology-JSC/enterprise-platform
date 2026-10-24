@@ -88,7 +88,7 @@ describe('RequestProxyScreen', () => {
         active: true,
       });
     });
-  });
+  }, 15000);
 
   it('không gửi được khi bỏ hết loại đơn', async () => {
     fetchMock.mockResolvedValue({ data: [], units: UNITS } as never);

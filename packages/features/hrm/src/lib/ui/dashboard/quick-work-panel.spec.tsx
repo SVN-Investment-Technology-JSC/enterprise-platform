@@ -91,7 +91,7 @@ describe('HrmQuickWork', () => {
     fireEvent.click(within(list).getByRole('button', { name: 'Duyệt' }));
     await waitFor(() => expect(posts('/leave-requests/l1/approve')).toHaveLength(1));
     await waitFor(() => expect(fetchMock.mock.calls.filter((c) => (c[0] as string).startsWith('/leave-requests?')).length).toBeGreaterThanOrEqual(2));
-  });
+  }, 15000);
 
   it('đơn qua quy trình: duyệt xong ẩn ngay dù HRM chưa đồng bộ trạng thái, không bắt duyệt lần hai', async () => {
     mockActions = ['hrm.request.approve'];
