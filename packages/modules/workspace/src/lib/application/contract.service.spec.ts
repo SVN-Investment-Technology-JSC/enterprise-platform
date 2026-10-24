@@ -93,12 +93,12 @@ describe('ContractService.create', () => {
     const service = new ContractService(store);
     const contract = await service.create(actor, {
       customerId,
-      code: 'hd01',
+      code: ' hđ 01/2026 ',
       name: '  Hợp đồng 1  ',
       value: 1000,
       signedDate: '2026-10-01',
     });
-    expect(contract.code).toBe('HD01');
+    expect(contract.code).toBe('hđ 01/2026');
     expect(contract.name).toBe('Hợp đồng 1');
     expect(contract.status).toBe('draft');
     expect(contract.value).toBe(1000);

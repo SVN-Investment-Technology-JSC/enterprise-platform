@@ -79,27 +79,28 @@ function makeStore() {
 async function seeded() {
   const fixture = makeStore();
   const service = new CustomerService(fixture.store);
-  const created = await service.create(actor, { code: 'kh01', name: '  Công ty A  ' });
+  const created = await service.create(actor, { code: '  kh 01/Hà Nội  ', name: '  Công ty A  ' });
   return { ...fixture, service, id: created.id };
 }
 
 describe('CustomerService.create', () => {
-  it('chuẩn hoá mã in hoa và cắt khoảng trắng tên', async () => {
+  it('giữ nguyên mã người dùng gõ (chỉ cắt khoảng trắng hai đầu) và cắt khoảng trắng tên', async () => {
     const { id, customers } = await seeded();
     const customer = customers.get(id) as Customer;
-    expect(customer.code).toBe('KH01');
+    expect(customer.code).toBe('kh 01/Hà Nội');
     expect(customer.name).toBe('Công ty A');
   });
 
-  it('mã sai định dạng bị từ chối', async () => {
+  it('mã rỗng hoặc dài quá 32 ký tự bị từ chối', async () => {
     const { store } = makeStore();
     const service = new CustomerService(store);
-    await expect(service.create(actor, { code: 'x', name: 'A' })).rejects.toThrow(/Mã khách hàng/);
+    await expect(service.create(actor, { code: '   ', name: 'A' })).rejects.toThrow(/Mã khách hàng/);
+    await expect(service.create(actor, { code: 'x'.repeat(33), name: 'A' })).rejects.toThrow(/tối đa 32/);
   });
 
   it('trùng mã trong tenant báo xung đột 409', async () => {
     const { service } = await seeded();
-    await expect(service.create(actor, { code: 'KH01', name: 'Khác' })).rejects.toMatchObject({
+    await expect(service.create(actor, { code: 'kh 01/Hà Nội', name: 'Khác' })).rejects.toMatchObject({
       statusCode: 409,
     });
   });

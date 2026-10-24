@@ -9,11 +9,11 @@
 /** Quy tắc khi tenant chưa đặt gì, khớp ví dụ cũ trên form (DA-2026-001). */
 export const DEFAULT_PROJECT_CODE_TEMPLATE = 'DA-{NAM}-{SO:3}';
 
-/** Mã dự án hợp lệ: chữ in hoa, số, gạch ngang, gạch dưới; 2 đến 32 ký tự. */
-export const PROJECT_CODE_PATTERN = /^[A-Z0-9][A-Z0-9_-]{1,31}$/;
+/** Độ dài tối đa của mã người dùng tự nhập (mã dự án, khách hàng, hợp đồng); nội dung tuỳ ý. */
+export const WORKSPACE_CODE_MAX_LENGTH = 32;
 
-/** Mã viết tắt của nhóm dự án (token `{NHOM}`): chữ in hoa và số, tối đa 16 ký tự. */
-export const PROJECT_GROUP_CODE_PATTERN = /^[A-Z0-9]{1,16}$/;
+/** Độ dài tối đa của mã viết tắt nhóm dự án (token `{NHOM}`); nội dung tuỳ ý. */
+export const PROJECT_GROUP_CODE_MAX_LENGTH = 16;
 
 /** Các token dùng được trong quy tắc, kèm giải thích cho màn Cài đặt. */
 export const PROJECT_CODE_TOKENS = [
@@ -111,7 +111,7 @@ export function projectCodeParts(template: string, context: ProjectCodeContext):
             : 'Quy tắc mã dự án cần nhóm dự án: hãy chọn nhóm dự án trước.',
         );
       }
-      append(context.groupCode.toUpperCase());
+      append(context.groupCode);
     } else if (token === 'NAM') append(String(context.year));
     else if (token === 'NAM2') append(String(context.year % 100).padStart(2, '0'));
     else if (token === 'THANG') append(String(context.month).padStart(2, '0'));
