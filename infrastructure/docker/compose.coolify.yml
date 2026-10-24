@@ -436,6 +436,44 @@ services:
     init: true
     restart: unless-stopped
 
+  video-worker:
+    <<: *production-image
+    image: ghcr.io/svn-investment-technology-jsc/enterprise-platform:video-worker-${IMAGE_TAG:-production}
+    environment:
+      <<: *database-environment
+      RABBITMQ_URL: amqp://platform:${RABBITMQ_PASSWORD:?}@rabbitmq:5672
+      S3_INTERNAL_ENDPOINT: http://minio:9000
+      S3_REGION: us-east-1
+      S3_BUCKET: enterprise-platform
+      S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:?}
+      S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?}
+      VIDEO_WORKER_TMP_DIR: /var/tmp/video-work
+      VIDEO_WORKER_FFMPEG_THREADS: ${VIDEO_WORKER_FFMPEG_THREADS:-2}
+      VIDEO_WORKER_MIN_FREE_DISK_GB: ${VIDEO_WORKER_MIN_FREE_DISK_GB:-5}
+      VIDEO_WORKER_MAX_ATTEMPTS: ${VIDEO_WORKER_MAX_ATTEMPTS:-3}
+      VIDEO_WORKER_LEASE_SECONDS: ${VIDEO_WORKER_LEASE_SECONDS:-120}
+      VIDEO_WORKER_COMMENT_CONCURRENCY: ${VIDEO_WORKER_COMMENT_CONCURRENCY:-1}
+      VIDEO_WORKER_POST_CONCURRENCY: ${VIDEO_WORKER_POST_CONCURRENCY:-1}
+    volumes:
+      - video-work:/var/tmp/video-work
+    depends_on:
+      migrator:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    init: true
+    stop_grace_period: 30s
+    restart: unless-stopped
+    # VPS dùng chung nhiều ứng dụng: đây là trần chứ không phải phần đặt trước, và cpu_shares thấp để nhường CPU khi máy bận.
+    cpu_shares: 256
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 3G
+
   web:
     <<: *production-image
     image: ghcr.io/svn-investment-technology-jsc/enterprise-platform:web-${IMAGE_TAG:-production}
@@ -572,3 +610,4 @@ volumes:
   rabbitmq:
   valkey:
   minio:
+  video-work:

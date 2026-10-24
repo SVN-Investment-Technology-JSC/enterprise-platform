@@ -1,0 +1,31 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "types": ["node"],
+    "experimentalDecorators": true,
+    "rootDir": "src",
+    "tsBuildInfoFile": "dist/tsconfig.app.tsbuildinfo"
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": [
+    "out-tsc",
+    "dist",
+    "jest.config.ts",
+    "jest.config.cts",
+    "src/**/*.spec.ts",
+    "src/**/*.test.ts",
+    "eslint.config.js",
+    "eslint.config.cjs",
+    "eslint.config.mjs"
+  ],
+  "references": [
+    { "path": "../../packages/modules/social/tsconfig.lib.json" },
+    { "path": "../../packages/contracts/social/tsconfig.lib.json" },
+    { "path": "../../packages/contracts/integration/tsconfig.lib.json" },
+    { "path": "../../packages/contracts/tenancy/tsconfig.lib.json" },
+    { "path": "../../packages/adapters/storage/tsconfig.lib.json" },
+    { "path": "../../packages/adapters/events/tsconfig.lib.json" },
+    { "path": "../../packages/adapters/database/tsconfig.lib.json" }
+  ]
+}

@@ -59,6 +59,13 @@
       }
     },
     {
+      "id": "video-worker",
+      "dockerfile": "apps/video-worker/Dockerfile",
+      "runtimeCheck": {
+        "nodeModules": ["pg", "amqplib", "@aws-sdk/client-s3", "tslib"]
+      }
+    },
+    {
       "id": "migrator",
       "dockerfile": "apps/migrator/Dockerfile"
     },
