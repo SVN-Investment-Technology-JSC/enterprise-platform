@@ -203,7 +203,7 @@ describe('Kiểm thử chức năng duyệt đơn dự phòng & loại bỏ ch�
       };
 
       const scope = await resolveApprovalScope(
-        { userId: CEO_USER_ID, permissions: ['hrm.leave.approve'] },
+        { userId: CEO_USER_ID, permissions: ['hrm.request.approve'] },
         'leave',
         { db, tenantId: TENANT, orgScope },
       );
@@ -252,7 +252,7 @@ describe('Kiểm thử chức năng duyệt đơn dự phòng & loại bỏ ch�
       };
 
       const scope = await resolveApprovalScope(
-        { userId: FALLBACK_USER_ID, permissions: ['hrm.leave.approve'] },
+        { userId: FALLBACK_USER_ID, permissions: ['hrm.request.approve'] },
         'leave',
         { db, tenantId: TENANT, orgScope },
       );
@@ -295,7 +295,7 @@ describe('Kiểm thử chức năng duyệt đơn dự phòng & loại bỏ ch�
 
       await expect(
         assertCanDecide(
-          { userId: FALLBACK_USER_ID, permissions: ['hrm.leave.approve'] },
+          { userId: FALLBACK_USER_ID, permissions: ['hrm.request.approve'] },
           { id: 'req-staff-1' },
           'leave',
           { db, tenantId: TENANT, orgScope: { subordinateUserIds: async () => new Set() } },
@@ -336,7 +336,7 @@ describe('Kiểm thử chức năng duyệt đơn dự phòng & loại bỏ ch�
 
       await expect(
         assertCanDecide(
-          { userId: CEO_USER_ID, permissions: ['hrm.leave.approve'] },
+          { userId: CEO_USER_ID, permissions: ['hrm.request.approve'] },
           { id: 'req-staff-1' },
           'leave',
           { db, tenantId: TENANT, orgScope: { subordinateUserIds: async () => new Set() } },

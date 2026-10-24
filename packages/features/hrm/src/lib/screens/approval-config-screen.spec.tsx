@@ -16,6 +16,7 @@ import { toast } from '../ui/toast';
 import ApprovalConfigScreen, {
   groupApprovalItems,
   isRouteDirty,
+  isRouteSaveable,
   routePayload,
   savedRoute,
 } from './approval-config-screen';
@@ -154,6 +155,9 @@ function applyPut(body: Record<string, unknown>): ApprovalRouteConfigResult {
       mode: body.mode as 'DIRECT' | 'PROCEDURE',
       procedureDefinitionId: def?.id ?? null,
       procedureName: def?.name ?? null,
+      directApprover: body.directApprover === 'POSITION' ? ('POSITION' as const) : ('DIRECT_MANAGER' as const),
+      approverPositionId: (body.approverPositionId as string) ?? null,
+      approverPositionName: body.approverPositionId ? 'Chức danh duyệt test' : null,
       fallbackPositionId: (body.fallbackPositionId as string) ?? null,
       fallbackPositionName: body.fallbackPositionId ? 'Chức danh test' : null,
       inherited: false,
@@ -232,7 +236,7 @@ async function renderLoaded() {
 }
 
 describe('ApprovalConfigScreen', () => {
-  it('giải thích hai cách duyệt và nhóm bảy loại đơn, chỉ mở sẵn lý do có cấu hình riêng', async () => {
+  it('giải thích hai cách duyệt và nhóm các loại đơn đang dùng, chỉ mở sẵn lý do có cấu hình riêng', async () => {
     await renderLoaded();
     expect(screen.getByRole('heading', { name: 'Quy trình duyệt' })).toBeTruthy();
     expect(screen.getByText('Thiết lập quy trình phê duyệt đơn từ.')).toBeTruthy();
@@ -245,29 +249,21 @@ describe('ApprovalConfigScreen', () => {
       screen.getByText(/Người duyệt do quy trình chỉ định theo từng bước/),
     ).toBeTruthy();
 
-    for (const key of [
-      'leave:',
-      'ot:',
-      'business_trip:',
-      'shift_change:',
-      'correction:',
-      'advance:',
-      'profile_correction:',
-    ])
+    for (const key of ['leave:', 'ot:', 'business_trip:', 'correction:'])
       expect(rowOf(key)).toBeTruthy();
+    // Đổi ca, tạm ứng, đính chính hồ sơ bị ẩn dù server vẫn trả về.
+    for (const key of ['shift_change:', 'advance:', 'profile_correction:'])
+      expect(screen.queryByTestId(`approval-row-${key}`)).toBeNull();
     for (const label of [
       'Nghỉ phép',
       'Làm thêm giờ',
       'Công tác',
-      'Đổi ca',
       'Giải trình công',
-      'Ứng lương',
-      'Đính chính hồ sơ',
     ])
       expect(within(rowOf(keyOfLabel(label))).getByText(label)).toBeTruthy();
 
     expect(within(rowOf('leave:')).getByText('2 lý do, 1 có cấu hình riêng')).toBeTruthy();
-    expect(within(rowOf('advance:')).getByText('Không có lý do riêng')).toBeTruthy();
+    expect(within(rowOf('correction:')).getByText('Không có lý do riêng')).toBeTruthy();
     expect(within(rowOf('leave:AL')).getByText('Phép năm')).toBeTruthy();
     expect(within(rowOf('leave:AL')).getByText('AL')).toBeTruthy();
     expect(within(rowOf('leave:UL')).getByText('Nghỉ không lương')).toBeTruthy();
@@ -302,19 +298,21 @@ describe('ApprovalConfigScreen', () => {
     expect(within(otReason).getByText('Quy trình Duyệt OT')).toBeTruthy();
   });
 
-  it('dòng chung chỉ có hai cách duyệt, dòng lý do có thêm Theo cấu hình chung', async () => {
+  it('dòng chung có ba cách duyệt, dòng lý do có thêm Theo cấu hình chung', async () => {
     await renderLoaded();
-    fireEvent.click(choiceBox(rowOf('shift_change:'), 'Đổi ca'));
+    fireEvent.click(choiceBox(rowOf('correction:'), 'Giải trình công'));
     expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual([
       'Quản lý trực tiếp',
+      'Chỉ định chức danh',
       'Theo quy trình',
     ]);
-    fireEvent.keyDown(choiceBox(rowOf('shift_change:'), 'Đổi ca'), { key: 'Escape' });
+    fireEvent.keyDown(choiceBox(rowOf('correction:'), 'Giải trình công'), { key: 'Escape' });
 
     fireEvent.click(choiceBox(rowOf('leave:AL'), 'Nghỉ phép · Phép năm'));
     expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual([
       'Theo cấu hình chung',
       'Quản lý trực tiếp',
+      'Chỉ định chức danh',
       'Theo quy trình',
     ]);
   });
@@ -405,7 +403,7 @@ describe('ApprovalConfigScreen', () => {
     const box = within(
       within(row).getByRole('group', { name: 'Chức danh dự phòng của Nghỉ phép' }),
     ).getByRole('textbox') as HTMLInputElement;
-    await pick(box, 'TR_PHONG_HC · Trưởng phòng HC-VP');
+    await pick(box, 'Trưởng phòng HC-VP');
     fireEvent.click(
       within(row).getByRole('button', { name: 'Lưu cách duyệt của Nghỉ phép' }),
     );
@@ -415,6 +413,66 @@ describe('ApprovalConfigScreen', () => {
       mode: 'DIRECT',
       fallbackPositionId: 'pos-1',
     });
+  });
+
+  it('Chỉ định chức danh: bắt buộc chọn chức danh duyệt, gửi directApprover POSITION kèm dự phòng tuỳ chọn', async () => {
+    await renderLoaded();
+    const row = rowOf('leave:');
+    await pick(choiceBox(row, 'Nghỉ phép'), 'Chỉ định chức danh');
+    // Chưa chọn chức danh duyệt thì chưa lưu được.
+    expect(
+      (within(row).getByRole('button', { name: 'Lưu cách duyệt của Nghỉ phép' }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    expect(within(row).getByText('Chọn chức danh duyệt để lưu.')).toBeTruthy();
+    const approver = within(
+      within(row).getByRole('group', { name: 'Chức danh duyệt của Nghỉ phép' }),
+    ).getByRole('textbox') as HTMLInputElement;
+    await pick(approver, 'Trưởng phòng HC-VP');
+    expect(
+      (within(row).getByRole('button', { name: 'Lưu cách duyệt của Nghỉ phép' }) as HTMLButtonElement).disabled,
+    ).toBe(false);
+    fireEvent.click(within(row).getByRole('button', { name: 'Lưu cách duyệt của Nghỉ phép' }));
+    await waitFor(() => expect(puts()).toHaveLength(1));
+    expect(puts()[0].body).toEqual({
+      requestKind: 'leave',
+      mode: 'DIRECT',
+      directApprover: 'POSITION',
+      approverPositionId: 'pos-1',
+    });
+    // Sau khi lưu dòng hiện lại là Chỉ định chức danh, có thể thêm dự phòng.
+    await waitFor(() => expect(choiceBox(rowOf('leave:'), 'Nghỉ phép').value).toBe('Chỉ định chức danh'));
+    const fallback = within(
+      within(rowOf('leave:')).getByRole('group', { name: 'Chức danh dự phòng của Nghỉ phép' }),
+    ).getByRole('textbox') as HTMLInputElement;
+    await pick(fallback, 'Phó phòng HC-VP');
+    fireEvent.click(within(rowOf('leave:')).getByRole('button', { name: 'Lưu cách duyệt của Nghỉ phép' }));
+    await waitFor(() => expect(puts()).toHaveLength(2));
+    expect(puts()[1].body).toEqual({
+      requestKind: 'leave',
+      mode: 'DIRECT',
+      directApprover: 'POSITION',
+      approverPositionId: 'pos-1',
+      fallbackPositionId: 'pos-2',
+    });
+  });
+
+  it('chuyển từ Chỉ định chức danh về Quản lý trực tiếp không gửi directApprover', async () => {
+    config = {
+      ...config,
+      items: config.items.map((i) =>
+        i.requestKind === 'leave' && !i.reasonCode
+          ? { ...i, directApprover: 'POSITION' as const, approverPositionId: 'pos-1', approverPositionName: 'Trưởng phòng HC-VP' }
+          : i,
+      ),
+    };
+    await renderLoaded();
+    const row = rowOf('leave:');
+    expect(choiceBox(row, 'Nghỉ phép').value).toBe('Chỉ định chức danh');
+    await pick(choiceBox(row, 'Nghỉ phép'), 'Quản lý trực tiếp');
+    expect(within(row).queryByRole('group', { name: 'Chức danh duyệt của Nghỉ phép' })).toBeNull();
+    fireEvent.click(within(row).getByRole('button', { name: 'Lưu cách duyệt của Nghỉ phép' }));
+    await waitFor(() => expect(puts()).toHaveLength(1));
+    expect(puts()[0].body).toEqual({ requestKind: 'leave', mode: 'DIRECT' });
   });
 
   it('dòng lý do: Theo cấu hình chung gửi INHERIT kèm mã lý do', async () => {
@@ -474,23 +532,23 @@ describe('ApprovalConfigScreen', () => {
 
   it('Hoàn tác bỏ thay đổi chưa lưu và không gọi PUT', async () => {
     await renderLoaded();
-    const row = rowOf('shift_change:');
-    await pick(choiceBox(row, 'Đổi ca'), 'Theo quy trình');
+    const row = rowOf('correction:');
+    await pick(choiceBox(row, 'Giải trình công'), 'Theo quy trình');
     expect(within(row).getByText('Chưa lưu')).toBeTruthy();
-    fireEvent.click(within(row).getByRole('button', { name: 'Hoàn tác thay đổi của Đổi ca' }));
+    fireEvent.click(within(row).getByRole('button', { name: 'Hoàn tác thay đổi của Giải trình công' }));
     expect(within(row).queryByText('Chưa lưu')).toBeNull();
-    expect(choiceBox(row, 'Đổi ca').value).toBe('Quản lý trực tiếp');
+    expect(choiceBox(row, 'Giải trình công').value).toBe('Quản lý trực tiếp');
     expect(puts()).toHaveLength(0);
   });
 
   it('chọn lại đúng giá trị đang lưu thì không còn là thay đổi', async () => {
     await renderLoaded();
-    const row = rowOf('shift_change:');
-    await pick(choiceBox(row, 'Đổi ca'), 'Theo quy trình');
-    await pick(choiceBox(row, 'Đổi ca'), 'Quản lý trực tiếp');
+    const row = rowOf('correction:');
+    await pick(choiceBox(row, 'Giải trình công'), 'Theo quy trình');
+    await pick(choiceBox(row, 'Giải trình công'), 'Quản lý trực tiếp');
     expect(within(row).queryByText('Chưa lưu')).toBeNull();
     expect(
-      within(row).queryByRole('button', { name: 'Lưu cách duyệt của Đổi ca' }),
+      within(row).queryByRole('button', { name: 'Lưu cách duyệt của Giải trình công' }),
     ).toBeNull();
   });
 
@@ -517,7 +575,7 @@ describe('ApprovalConfigScreen', () => {
   it('báo cấu hình mâu thuẫn ở đầu bảng và trên dòng', async () => {
     config = {
       items: baseItems().map((i) =>
-        i.requestKind === 'advance' ? { ...i, conflict: true } : i,
+        i.requestKind === 'correction' ? { ...i, conflict: true } : i,
       ),
       procedureAvailable: true,
     };
@@ -525,7 +583,7 @@ describe('ApprovalConfigScreen', () => {
     expect(
       screen.getByText(/Có 1 dòng cấu hình mâu thuẫn\. Đơn thuộc dòng đó chưa gửi được/),
     ).toBeTruthy();
-    expect(within(rowOf('advance:')).getByText('Cấu hình mâu thuẫn')).toBeTruthy();
+    expect(within(rowOf('correction:')).getByText('Cấu hình mâu thuẫn')).toBeTruthy();
     expect(within(rowOf('leave:')).queryByText('Cấu hình mâu thuẫn')).toBeNull();
   });
 
@@ -540,13 +598,13 @@ describe('ApprovalConfigScreen', () => {
     expect(alert.textContent).toContain('chỉ chọn được cách Quản lý trực tiếp');
     expect(calls.some((c) => c.path === '/operations/procedure-definitions')).toBe(false);
 
-    fireEvent.click(choiceBox(rowOf('shift_change:'), 'Đổi ca'));
+    fireEvent.click(choiceBox(rowOf('correction:'), 'Giải trình công'));
     const option = await screen.findByRole('option', { name: 'Theo quy trình' });
     expect(option.getAttribute('aria-disabled')).toBe('true');
     fireEvent.click(option);
     // Lựa chọn bị khóa: không phát sinh thay đổi.
-    expect(within(rowOf('shift_change:')).queryByText('Chưa lưu')).toBeNull();
-    fireEvent.keyDown(choiceBox(rowOf('shift_change:'), 'Đổi ca'), { key: 'Escape' });
+    expect(within(rowOf('correction:')).queryByText('Chưa lưu')).toBeNull();
+    fireEvent.keyDown(choiceBox(rowOf('correction:'), 'Giải trình công'), { key: 'Escape' });
 
     // Dòng đang Theo quy trình bị cảnh báo và vẫn chuyển về Quản lý trực tiếp được.
     const ot = rowOf('ot:');
@@ -565,7 +623,7 @@ describe('ApprovalConfigScreen', () => {
     await screen.findByTestId('approval-row-leave:');
     const alert = await screen.findByText(/Không tải được danh sách quy trình/);
     expect(alert.textContent).toContain('chưa có quyền xem danh sách quy trình');
-    fireEvent.click(choiceBox(rowOf('shift_change:'), 'Đổi ca'));
+    fireEvent.click(choiceBox(rowOf('correction:'), 'Giải trình công'));
     const option = await screen.findByRole('option', { name: 'Theo quy trình' });
     expect(option.getAttribute('aria-disabled')).toBe('true');
   });
@@ -627,28 +685,28 @@ describe('hàm xử lý cấu hình duyệt đơn', () => {
   const [leave, annual, unpaid] = baseItems();
 
   it('savedRoute: dòng kế thừa là INHERIT, dòng riêng theo mode, chỉ PROCEDURE có quy trình, DIRECT có fallbackPositionId', () => {
-    expect(savedRoute(leave)).toEqual({ choice: 'DIRECT', procedureId: '', fallbackPositionId: '' });
-    expect(savedRoute(annual)).toEqual({ choice: 'INHERIT', procedureId: '', fallbackPositionId: '' });
-    expect(savedRoute(unpaid)).toEqual({ choice: 'PROCEDURE', procedureId: 'p1', fallbackPositionId: '' });
+    expect(savedRoute(leave)).toEqual({ choice: 'DIRECT', procedureId: '', approverPositionId: '', fallbackPositionId: '' });
+    expect(savedRoute(annual)).toEqual({ choice: 'INHERIT', procedureId: '', approverPositionId: '', fallbackPositionId: '' });
+    expect(savedRoute(unpaid)).toEqual({ choice: 'PROCEDURE', procedureId: 'p1', approverPositionId: '', fallbackPositionId: '' });
   });
 
   it('isRouteDirty so với cấu hình đang lưu', () => {
-    expect(isRouteDirty(unpaid, { choice: 'PROCEDURE', procedureId: 'p1', fallbackPositionId: '' })).toBe(false);
-    expect(isRouteDirty(unpaid, { choice: 'PROCEDURE', procedureId: 'p3', fallbackPositionId: '' })).toBe(true);
-    expect(isRouteDirty(unpaid, { choice: 'DIRECT', procedureId: '', fallbackPositionId: '' })).toBe(true);
-    expect(isRouteDirty(leave, { choice: 'DIRECT', procedureId: '', fallbackPositionId: 'pos-1' })).toBe(true);
-    expect(isRouteDirty(annual, { choice: 'INHERIT', procedureId: '', fallbackPositionId: '' })).toBe(false);
+    expect(isRouteDirty(unpaid, { choice: 'PROCEDURE', procedureId: 'p1', approverPositionId: '', fallbackPositionId: '' })).toBe(false);
+    expect(isRouteDirty(unpaid, { choice: 'PROCEDURE', procedureId: 'p3', approverPositionId: '', fallbackPositionId: '' })).toBe(true);
+    expect(isRouteDirty(unpaid, { choice: 'DIRECT', procedureId: '', approverPositionId: '', fallbackPositionId: '' })).toBe(true);
+    expect(isRouteDirty(leave, { choice: 'DIRECT', procedureId: '', approverPositionId: '', fallbackPositionId: 'pos-1' })).toBe(true);
+    expect(isRouteDirty(annual, { choice: 'INHERIT', procedureId: '', approverPositionId: '', fallbackPositionId: '' })).toBe(false);
   });
 
   it('routePayload: chặn PROCEDURE chưa có quy trình, dòng chung không có reasonCode, DIRECT gửi fallbackPositionId', () => {
-    expect(() => routePayload(leave, { choice: 'PROCEDURE', procedureId: '', fallbackPositionId: '' })).toThrow(
+    expect(() => routePayload(leave, { choice: 'PROCEDURE', procedureId: '', approverPositionId: '', fallbackPositionId: '' })).toThrow(
       'Chọn quy trình trước khi lưu',
     );
-    expect(routePayload(leave, { choice: 'DIRECT', procedureId: '', fallbackPositionId: '' })).toEqual({
+    expect(routePayload(leave, { choice: 'DIRECT', procedureId: '', approverPositionId: '', fallbackPositionId: '' })).toEqual({
       requestKind: 'leave',
       mode: 'DIRECT',
     });
-    expect(routePayload(leave, { choice: 'DIRECT', procedureId: '', fallbackPositionId: 'pos-1' })).toEqual({
+    expect(routePayload(leave, { choice: 'DIRECT', procedureId: '', approverPositionId: '', fallbackPositionId: 'pos-1' })).toEqual({
       requestKind: 'leave',
       mode: 'DIRECT',
       fallbackPositionId: 'pos-1',
@@ -656,23 +714,62 @@ describe('hàm xử lý cấu hình duyệt đơn', () => {
     expect(
       routePayload(
         { ...leave, fallbackPositionId: 'pos-old' },
-        { choice: 'DIRECT', procedureId: '', fallbackPositionId: '' },
+        { choice: 'DIRECT', procedureId: '', approverPositionId: '', fallbackPositionId: '' },
       ),
     ).toEqual({
       requestKind: 'leave',
       mode: 'DIRECT',
       fallbackPositionId: null,
     });
-    expect(routePayload(annual, { choice: 'INHERIT', procedureId: '', fallbackPositionId: '' })).toEqual({
+    expect(routePayload(annual, { choice: 'INHERIT', procedureId: '', approverPositionId: '', fallbackPositionId: '' })).toEqual({
       requestKind: 'leave',
       reasonCode: 'AL',
       mode: 'INHERIT',
     });
-    expect(routePayload(annual, { choice: 'PROCEDURE', procedureId: 'p2', fallbackPositionId: '' })).toEqual({
+    expect(routePayload(annual, { choice: 'PROCEDURE', procedureId: 'p2', approverPositionId: '', fallbackPositionId: '' })).toEqual({
       requestKind: 'leave',
       reasonCode: 'AL',
       mode: 'PROCEDURE',
       procedureDefinitionId: 'p2',
+    });
+  });
+
+  it('POSITION: savedRoute, isRouteSaveable và routePayload mang chức danh duyệt', () => {
+    const byPosition = {
+      ...leave,
+      directApprover: 'POSITION' as const,
+      approverPositionId: 'pos-1',
+      fallbackPositionId: 'pos-2',
+    };
+    expect(savedRoute(byPosition)).toEqual({
+      choice: 'POSITION',
+      procedureId: '',
+      approverPositionId: 'pos-1',
+      fallbackPositionId: 'pos-2',
+    });
+    expect(isRouteSaveable({ choice: 'POSITION', procedureId: '', approverPositionId: '', fallbackPositionId: '' })).toBe(false);
+    expect(isRouteSaveable({ choice: 'POSITION', procedureId: '', approverPositionId: 'pos-1', fallbackPositionId: '' })).toBe(true);
+    expect(isRouteDirty(byPosition, savedRoute(byPosition))).toBe(false);
+    expect(isRouteDirty(byPosition, { ...savedRoute(byPosition), approverPositionId: 'pos-3' })).toBe(true);
+    expect(() =>
+      routePayload(leave, { choice: 'POSITION', procedureId: '', approverPositionId: '', fallbackPositionId: '' }),
+    ).toThrow('Chọn chức danh duyệt');
+    expect(routePayload(byPosition, savedRoute(byPosition))).toEqual({
+      requestKind: 'leave',
+      mode: 'DIRECT',
+      directApprover: 'POSITION',
+      approverPositionId: 'pos-1',
+      fallbackPositionId: 'pos-2',
+    });
+    // Bỏ chức danh dự phòng đã lưu thì gửi null.
+    expect(
+      routePayload(byPosition, { choice: 'POSITION', procedureId: '', approverPositionId: 'pos-1', fallbackPositionId: '' }),
+    ).toEqual({
+      requestKind: 'leave',
+      mode: 'DIRECT',
+      directApprover: 'POSITION',
+      approverPositionId: 'pos-1',
+      fallbackPositionId: null,
     });
   });
 
@@ -682,10 +779,7 @@ describe('hàm xử lý cấu hình duyệt đơn', () => {
       ['Nghỉ phép', 2],
       ['Làm thêm giờ', 1],
       ['Công tác', 1],
-      ['Đổi ca', 0],
       ['Giải trình công', 0],
-      ['Ứng lương', 0],
-      ['Đính chính hồ sơ', 0],
     ]);
   });
 });

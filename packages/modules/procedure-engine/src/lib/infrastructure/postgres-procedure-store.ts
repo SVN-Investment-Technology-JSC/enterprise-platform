@@ -103,12 +103,17 @@ export class PostgresProcedureStore implements ProcedureStore {
         client.query<SnapshotRow<ProcedureDefinition>>(`SELECT v.snapshot
           FROM procedure_schema.definitions d JOIN procedure_schema.versions v ON v.id=d.current_version_id
           ORDER BY d.name`),
-        client.query<SnapshotRow<ProcedureInstance>>(`SELECT snapshot FROM procedure_schema.instances ORDER BY started_at DESC`),
+        client.query<SnapshotRow<ProcedureInstance> & { definition_id?: string }>(
+          `SELECT snapshot, definition_id FROM procedure_schema.instances ORDER BY started_at DESC`,
+        ),
       ]);
       if (definitions.rowCount === 0 && instances.rowCount === 0) return legacy;
       return {
         definitions: definitions.rows.map((row) => row.snapshot),
-        instances: instances.rows.map((row) => row.snapshot),
+        instances: instances.rows.map((row) => ({
+          ...row.snapshot,
+          definitionId: row.snapshot.definitionId || (row.definition_id as string),
+        })),
         idempotency: legacy.idempotency ?? {},
       };
     } catch (error) {

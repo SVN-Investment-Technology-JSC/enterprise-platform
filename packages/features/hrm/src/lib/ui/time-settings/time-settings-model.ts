@@ -1,8 +1,34 @@
 /**
- * Mô hình dữ liệu và hàm thuần cho nhóm màn "Chấm công" (quy định chấm công, địa điểm GPS).
+ * Mô hình dữ liệu và hàm thuần cho mục "Địa điểm GPS" của nhóm "Chấm công": địa điểm (tọa độ, bán kính, IP tùy chọn), phòng
+ * ban được gán (kế thừa xuống đơn vị con) và cài đặt kiểm tra vị trí chung.
  * Không chứa giao diện; tách ra để màn hình gọn và dễ kiểm thử.
  */
 import { formatDateVn } from '../../personnel-decision-rules';
+
+export type SiteAssignmentScope = 'COMPANY' | 'UNIT' | 'UNIT_EXCLUDE' | 'POSITION' | 'EMPLOYEE';
+
+export interface SiteAssignment {
+  id?: string;
+  scope_type: SiteAssignmentScope;
+  scope_id: string;
+  scope_name?: string | null;
+}
+
+export interface UnitOption {
+  id: string;
+  parentId: string | null;
+  code: string;
+  name: string;
+}
+
+/** Cài đặt kiểm tra vị trí khi chấm công của cả tenant. */
+export interface LocationSettings {
+  locationCheck: boolean;
+  maxGpsAccuracyMeters: number;
+  /** Tenant cũ chỉ kiểm IP bằng chính sách: chưa chuyển sang địa điểm. */
+  legacyPolicy: boolean;
+  configured: boolean;
+}
 
 export type Settings = {
   calendar: {
@@ -21,17 +47,12 @@ export type Settings = {
     radius_meters: number;
     active: boolean;
     updated_at: string;
+    /** IP/CIDR của địa điểm; rỗng là không kiểm IP. */
+    allowed_ips?: string[];
+    assignments?: SiteAssignment[];
   }[];
-  versions: {
-    id: string;
-    version_no: number;
-    effective_from: string;
-    effective_to: string | null;
-    config_json: Record<string, unknown>;
-    status?: string;
-    policy_code?: string;
-    policy_name?: string;
-  }[];
+  units?: UnitOption[];
+  location?: LocationSettings;
   holidayStatus?: {
     year: number;
     count: number;
@@ -42,8 +63,6 @@ export type Settings = {
 };
 export type CalendarRow = Settings['calendar'][number];
 export type SiteRow = Settings['sites'][number];
-export type PolicyVersion = Settings['versions'][number];
-export type EmployeeOption = { value: string; label: string };
 
 export const today = () => new Date().toLocaleDateString('en-CA');
 
@@ -53,250 +72,185 @@ export const DAY_KIND_LABELS: Record<string, string> = {
   HOLIDAY: 'Lễ / Tết',
 };
 
-/** Đọc cấu hình chấp nhận cả khóa camelCase lẫn snake_case (dữ liệu seed). */
-export const configFlag = (
-  c: Record<string, unknown>,
-  camel: string,
-  snake: string,
-) => Boolean(c[camel] ?? c[snake]);
+export type TimeSettingsTab = 'sites';
 
-export const versionEmployees = (v: PolicyVersion) =>
-  Array.isArray(v.config_json.employeeIds)
-    ? (v.config_json.employeeIds as string[])
-    : [];
-
-export type VersionState = 'Đang áp dụng' | 'Chưa hiệu lực' | 'Hết hiệu lực';
-/** Trạng thái tính theo ngày, không dựa vào cột status. */
-export function versionStatusLabel(v: PolicyVersion, day: string): VersionState {
-  const from = v.effective_from.slice(0, 10);
-  const to = v.effective_to?.slice(0, 10) ?? null;
-  if (from > day) return 'Chưa hiệu lực';
-  if (to && to < day) return 'Hết hiệu lực';
-  return 'Đang áp dụng';
-}
-
-export const addDays = (date: string, delta: number) => {
-  const d = new Date(`${date}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + delta);
-  return d.toISOString().slice(0, 10);
-};
-
-/**
- * Phiên bản đang áp dụng cho TOÀN CÔNG TY tại `day` (phiên bản bắt đầu muộn nhất, rồi số phiên bản lớn nhất).
- * Phiên bản chạy thử cho một nhóm nhân viên không được coi là quy định chung.
- */
-export function pickCurrentVersion(
-  versions: readonly PolicyVersion[],
-  day: string,
-): PolicyVersion | null {
-  const list = versions
-    .filter(
-      (v) =>
-        versionStatusLabel(v, day) === 'Đang áp dụng' &&
-        versionEmployees(v).length === 0,
-    )
-    .sort(
-      (a, b) =>
-        b.effective_from.localeCompare(a.effective_from) ||
-        b.version_no - a.version_no,
-    );
-  return list[0] ?? null;
-}
-
-/** Số phiên bản đang hiệu lực nhưng chỉ áp dụng cho một nhóm nhân viên (chạy thử). */
-export function countScopedInForce(
-  versions: readonly PolicyVersion[],
-  day: string,
-): number {
-  return versions.filter(
-    (v) =>
-      versionStatusLabel(v, day) === 'Đang áp dụng' &&
-      versionEmployees(v).length > 0,
-  ).length;
-}
-
-export const versionScopeLabel = (v: PolicyVersion) => {
-  const ids = versionEmployees(v);
-  return ids.length ? `${ids.length} nhân viên` : 'Toàn công ty';
-};
-
-export const versionRangeLabel = (v: PolicyVersion) =>
-  `${formatDateVn(v.effective_from)} - ${v.effective_to ? formatDateVn(v.effective_to) : 'Chưa kết thúc'}`;
-
-function allowedIps(c: Record<string, unknown>): string[] {
-  const raw = c.allowedIps ?? c.allowed_ips;
-  return Array.isArray(raw)
-    ? raw.filter((x): x is string => typeof x === 'string' && x !== '')
-    : [];
-}
-function gpsTolerance(c: Record<string, unknown>): number | null {
-  const raw = c.maxGpsAccuracyMeters ?? c.max_gps_accuracy_meters;
-  const n = Number(raw);
-  return raw === undefined || raw === null || !Number.isFinite(n) ? null : n;
-}
-
-export interface RuleSummary {
-  timezone: string;
-  ip: string;
-  gps: string;
-  scope: string;
-  range: string;
-}
-
-/** Tóm tắt một phiên bản từ `config_json` thật (không suy đoán giá trị thiếu). */
-export function summarizeVersion(v: PolicyVersion): RuleSummary {
-  const c = v.config_json ?? {};
-  const ips = allowedIps(c);
-  const tolerance = gpsTolerance(c);
-  return {
-    timezone: String(c.timezone ?? '') || 'Chưa cấu hình',
-    ip: configFlag(c, 'requireIp', 'require_ip')
-      ? ips.length
-        ? `Bắt buộc: ${ips.join(', ')}`
-        : 'Bắt buộc'
-      : 'Không yêu cầu',
-    gps: configFlag(c, 'requireGps', 'require_gps')
-      ? tolerance !== null
-        ? `Bắt buộc, dung sai ${tolerance} m`
-        : 'Bắt buộc'
-      : 'Không yêu cầu',
-    scope: versionScopeLabel(v),
-    range: versionRangeLabel(v),
-  };
-}
-
-/** Các điều kiện đang bật của một phiên bản, dạng nhãn ngắn cho danh sách. */
-export function conditionChips(v: PolicyVersion): string[] {
-  const c = v.config_json ?? {};
-  const out: string[] = [];
-  if (configFlag(c, 'requireIp', 'require_ip')) out.push('IP');
-  if (configFlag(c, 'requireGps', 'require_gps')) {
-    const t = gpsTolerance(c);
-    out.push(t !== null ? `GPS ${t} m` : 'GPS');
-  }
-  return out;
-}
-
-export type TimeSettingsTab = 'rules' | 'sites';
-
-export const TIME_SETTINGS_TABS = [
-  { id: 'rules', label: 'Quy định chấm công', permission: 'time' },
-  { id: 'sites', label: 'Địa điểm GPS', permission: 'time' },
-] as const;
+export const TIME_SETTINGS_TABS = [{ id: 'sites', label: 'Địa điểm GPS', permission: 'time' }] as const;
 
 /** Tiêu đề, mô tả và tiền tố mã hành động nhật ký của từng mục (mỗi mục là một trang độc lập). */
 export const SECTION_META: Record<
   TimeSettingsTab,
   { title: string; description: string; historyPrefixes: string[]; historyDescription: string }
 > = {
-  rules: {
-    title: 'Quy định chấm công',
-    description: 'Thiết lập quy tắc chấm công, điều kiện hợp lệ',
-    historyPrefixes: ['POLICY_VERSION_PUBLISHED'],
-    historyDescription:
-      'Các phiên bản chính sách đã ban hành (gồm cả nhóm chính sách khác dùng chung cơ chế phiên bản), mới nhất ở trên.',
-  },
   sites: {
     title: 'Địa điểm GPS',
-    description: 'Quản lý địa điểm làm việc theo GPS',
-    historyPrefixes: ['SITE_'],
-    historyDescription: 'Thay đổi địa điểm chấm công, mới nhất ở trên.',
+    description: 'Khai báo địa điểm làm việc (GPS, kèm IP nếu cần) và phòng ban được chấm công tại đó',
+    historyPrefixes: ['SITE_', 'LOCATION_'],
+    historyDescription: 'Thay đổi địa điểm chấm công, phòng ban được gán và cài đặt kiểm tra vị trí, mới nhất ở trên.',
   },
 };
 
 const fold = (value: string) => value.toLocaleLowerCase('vi');
 
-export function filterCalendar(
-  rows: readonly CalendarRow[],
-  search: string,
-  kind: string,
-): CalendarRow[] {
+export function filterCalendar(rows: readonly CalendarRow[], search: string, kind: string): CalendarRow[] {
   const query = fold(search.trim());
   return rows.filter((row) => {
     if (kind !== 'ALL' && row.day_kind !== kind) return false;
     if (!query) return true;
-    return [
-      row.work_date,
-      formatDateVn(row.work_date),
-      row.name,
-      DAY_KIND_LABELS[row.day_kind] ?? row.day_kind,
-    ].some((value) => fold(value).includes(query));
-  });
-}
-
-export function filterSites(
-  rows: readonly SiteRow[],
-  search: string,
-  status: string,
-): SiteRow[] {
-  const query = fold(search.trim());
-  return rows.filter((row) => {
-    if (status === 'ACTIVE' && !row.active) return false;
-    if (status === 'INACTIVE' && row.active) return false;
-    if (!query) return true;
-    return [row.name, String(row.latitude), String(row.longitude)].some(
+    return [row.work_date, formatDateVn(row.work_date), row.name, DAY_KIND_LABELS[row.day_kind] ?? row.day_kind].some(
       (value) => fold(value).includes(query),
     );
   });
 }
 
-export interface PolicyFormState {
-  effectiveFrom: string;
-  effectiveTo: string;
-  reason: string;
-  scope: 'ALL' | 'EMPLOYEES';
-  employeeIds: string[];
-  timezone: string;
-  requireIp: boolean;
-  allowedIps: string;
-  requireGps: boolean;
-  maxGpsAccuracyMeters: number;
+export function filterSites(rows: readonly SiteRow[], search: string, status: string): SiteRow[] {
+  const query = fold(search.trim());
+  return rows.filter((row) => {
+    if (status === 'ACTIVE' && !row.active) return false;
+    if (status === 'INACTIVE' && row.active) return false;
+    if (!query) return true;
+    return [row.name, String(row.latitude), String(row.longitude), ...(row.allowed_ips ?? [])].some((value) =>
+      fold(value).includes(query),
+    );
+  });
 }
 
-/** Giá trị ban đầu khi mở hộp thoại tạo phiên bản (giữ nguyên mặc định cũ). */
-export const emptyPolicyForm = (): PolicyFormState => ({
-  effectiveFrom: today(),
-  effectiveTo: '',
-  reason: '',
-  scope: 'ALL',
-  employeeIds: [],
-  timezone: 'Asia/Ho_Chi_Minh',
-  requireIp: false,
-  allowedIps: '',
-  requireGps: false,
-  maxGpsAccuracyMeters: 100,
-});
+/** Tách ô nhập IP (mỗi dòng hoặc cách nhau bằng dấu phẩy/khoảng trắng) thành danh sách, bỏ ô trống và trùng. */
+export function parseIpText(text: string): string[] {
+  return [...new Set(text.split(/[\s,;]+/).map((item) => item.trim()).filter(Boolean))];
+}
 
-/** Phiên bản nào sẽ bị kết thúc / chặn khi ban hành khoảng hiệu lực mới (giống kiểm tra của máy chủ). */
-export function previewPolicyImpact(
-  versions: readonly PolicyVersion[],
-  policy: Pick<
-    PolicyFormState,
-    'effectiveFrom' | 'effectiveTo' | 'scope' | 'employeeIds'
-  >,
-) {
-  const from = policy.effectiveFrom;
-  const to = policy.effectiveTo || null;
-  const mine = policy.scope === 'EMPLOYEES' ? policy.employeeIds : [];
-  const closing: string[] = [];
-  const blocking: string[] = [];
-  for (const v of versions) {
-    // Bản nháp không tham gia kiểm tra chồng lấn (giống backend).
-    if (v.status === 'DRAFT') continue;
-    const theirs = versionEmployees(v);
-    const collide =
-      (!mine.length && !theirs.length) ||
-      (mine.length > 0 && theirs.some((id) => mine.includes(id)));
-    const vFrom = v.effective_from.slice(0, 10);
-    const vTo = v.effective_to?.slice(0, 10) ?? null;
-    const overlap = (!to || vFrom <= to) && (!vTo || from <= vTo);
-    if (!collide || !overlap) continue;
-    const label = `v${v.version_no} (${v.policy_name ?? v.policy_code ?? 'chính sách'}, ${formatDateVn(vFrom)} - ${vTo ? formatDateVn(vTo) : 'chưa kết thúc'})`;
-    if (vFrom >= from || vTo) blocking.push(label);
-    else
-      closing.push(
-        `${label} sẽ kết thúc ngày ${formatDateVn(addDays(from, -1))}`,
-      );
+export const formatIpText = (ips: readonly string[] | undefined) => (ips ?? []).join('\n');
+
+/** Tóm tắt IP của địa điểm cho danh sách: không khai báo thì ghi rõ là không kiểm IP. */
+export function ipSummary(ips: readonly string[] | undefined): string {
+  const list = ips ?? [];
+  if (list.length === 0) return 'Không kiểm IP';
+  return list.length <= 2 ? list.join(', ') : `${list.slice(0, 2).join(', ')} +${list.length - 2}`;
+}
+
+/** Tenant đã gán địa điểm cho ai chưa: chưa thì máy chủ cho mọi nhân viên dùng mọi địa điểm đang dùng. */
+export const tenantHasAssignments = (sites: readonly SiteRow[]) => sites.some((s) => (s.assignments ?? []).length > 0);
+
+/** Đơn vị và mọi đơn vị con của nó (đã kế thừa), để người dùng thấy gán một phòng thì phạm vi lan tới đâu. */
+export function descendantUnitIds(units: readonly UnitOption[], rootId: string): string[] {
+  const out = [rootId];
+  for (let i = 0; i < out.length; i++)
+    for (const unit of units) if (unit.parentId === out[i] && !out.includes(unit.id)) out.push(unit.id);
+  return out;
+}
+
+/** Dấu gán địa điểm trên cây phòng ban: toàn công ty, đơn vị được gán, đơn vị ngoại lệ (loại trừ). */
+export interface UnitMarks {
+  companyWide: boolean;
+  unitIds: readonly string[];
+  excludedUnitIds: readonly string[];
+}
+
+/** Đơn vị có chấm công tại địa điểm không: theo dấu gần nhất khi đi từ chính nó lên các đơn vị cha, không có dấu thì theo toàn công ty. */
+export function unitCovered(units: readonly UnitOption[], marks: UnitMarks, id: string): boolean {
+  const byId = new Map(units.map((u) => [u.id, u]));
+  const included = new Set(marks.unitIds);
+  const excluded = new Set(marks.excludedUnitIds);
+  const seen = new Set<string>();
+  for (let cur: string | null | undefined = id; cur && !seen.has(cur); cur = byId.get(cur)?.parentId) {
+    seen.add(cur);
+    if (excluded.has(cur)) return false;
+    if (included.has(cur)) return true;
   }
-  return { closing, blocking };
+  return marks.companyWide;
+}
+
+/** Bỏ các dấu thừa (dấu trùng với kết quả kế thừa từ cha), giữ nguyên kết quả của từng đơn vị. */
+export function normalizeMarks(units: readonly UnitOption[], marks: UnitMarks): UnitMarks {
+  const known = new Set(units.map((u) => u.id));
+  let current: UnitMarks = {
+    companyWide: marks.companyWide,
+    unitIds: marks.unitIds.filter((id) => known.has(id)),
+    excludedUnitIds: marks.excludedUnitIds.filter((id) => known.has(id) && !marks.unitIds.includes(id)),
+  };
+  // Duyệt từ đơn vị gần gốc xuống để dấu của cha được xét trước.
+  const depth = (id: string) => {
+    let d = 0;
+    for (let cur = units.find((u) => u.id === id)?.parentId; cur && d < 50; cur = units.find((u) => u.id === cur)?.parentId) d++;
+    return d;
+  };
+  const ordered = [...current.unitIds, ...current.excludedUnitIds].sort((a, b) => depth(a) - depth(b));
+  for (const id of ordered) {
+    const isInclude = current.unitIds.includes(id);
+    const without: UnitMarks = {
+      ...current,
+      unitIds: current.unitIds.filter((x) => x !== id),
+      excludedUnitIds: current.excludedUnitIds.filter((x) => x !== id),
+    };
+    if (unitCovered(units, without, id) === isInclude) current = without;
+  }
+  return current;
+}
+
+/** Tick hoặc bỏ tick một đơn vị: áp cho cả nhánh con (xóa ngoại lệ bên dưới) và chỉ giữ dấu khi khác với kế thừa từ cha. */
+export function toggleUnit(units: readonly UnitOption[], marks: UnitMarks, id: string, checked: boolean): UnitMarks {
+  const subtree = new Set(descendantUnitIds(units, id));
+  const base: UnitMarks = {
+    ...marks,
+    unitIds: marks.unitIds.filter((x) => !subtree.has(x)),
+    excludedUnitIds: marks.excludedUnitIds.filter((x) => !subtree.has(x)),
+  };
+  const parentId = units.find((u) => u.id === id)?.parentId ?? null;
+  const inherited = parentId ? unitCovered(units, base, parentId) : base.companyWide;
+  if (checked === inherited) return base;
+  return checked
+    ? { ...base, unitIds: [...base.unitIds, id] }
+    : { ...base, excludedUnitIds: [...base.excludedUnitIds, id] };
+}
+
+export interface UnitTreeNode {
+  key: string;
+  title: string;
+  children: UnitTreeNode[];
+}
+
+/** Cây đơn vị cho ô chọn; có `query` thì chỉ giữ nhánh có tên hoặc mã khớp (kèm các đơn vị cha của chúng). */
+export function buildUnitTree(units: readonly UnitOption[], query = ''): UnitTreeNode[] {
+  const needle = query.trim().toLowerCase();
+  const ids = new Set(units.map((u) => u.id));
+  const childrenOf = new Map<string | null, UnitOption[]>();
+  for (const u of units) {
+    const key = u.parentId && ids.has(u.parentId) ? u.parentId : null;
+    childrenOf.set(key, [...(childrenOf.get(key) ?? []), u]);
+  }
+  const visited = new Set<string>();
+  const build = (u: UnitOption): UnitTreeNode | null => {
+    if (visited.has(u.id)) return null;
+    visited.add(u.id);
+    const children = (childrenOf.get(u.id) ?? []).map(build).filter((n): n is UnitTreeNode => n !== null);
+    const self = !needle || `${u.name} ${u.code}`.toLowerCase().includes(needle);
+    if (!self && children.length === 0) return null;
+    return { key: u.id, title: `${u.name} (${u.code})`, children };
+  };
+  return (childrenOf.get(null) ?? []).map(build).filter((n): n is UnitTreeNode => n !== null);
+}
+
+/** Mọi khóa của cây, để mở rộng toàn bộ khi đang tìm kiếm. */
+export function treeKeys(nodes: readonly UnitTreeNode[]): string[] {
+  return nodes.flatMap((n) => [n.key, ...treeKeys(n.children)]);
+}
+
+/** Phạm vi áp dụng của một địa điểm, dạng câu ngắn cho danh sách. */
+export function describeAssignments(site: SiteRow, anyAssignments: boolean): string {
+  const list = site.assignments ?? [];
+  if (list.length === 0) return anyAssignments ? 'Chưa gán cho ai' : 'Mọi nhân viên (chưa gán riêng)';
+  const excluded = list.filter((a) => a.scope_type === 'UNIT_EXCLUDE').map((a) => a.scope_name || 'Đơn vị');
+  const except = excluded.length
+    ? `, trừ ${excluded.slice(0, 2).join(', ')}${excluded.length > 2 ? ` +${excluded.length - 2}` : ''}`
+    : '';
+  if (list.some((a) => a.scope_type === 'COMPANY')) return `Toàn công ty${except}`;
+  const units = list.filter((a) => a.scope_type === 'UNIT').map((a) => a.scope_name || 'Đơn vị');
+  const positions = list.filter((a) => a.scope_type === 'POSITION').length;
+  const employees = list.filter((a) => a.scope_type === 'EMPLOYEE').length;
+  const parts = [
+    units.length ? `${units.slice(0, 2).join(', ')}${units.length > 2 ? ` +${units.length - 2}` : ''} (gồm đơn vị con${except})` : '',
+    positions ? `${positions} chức danh` : '',
+    employees ? `${employees} nhân viên` : '',
+  ].filter(Boolean);
+  return parts.join('; ');
 }

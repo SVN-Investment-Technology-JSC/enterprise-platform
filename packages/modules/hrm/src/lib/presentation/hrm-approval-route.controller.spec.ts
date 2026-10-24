@@ -136,6 +136,10 @@ function build(data: Data = {}, permissions: string[] = ['hrm.automation.manage'
       if (need && !permissions.includes(need)) throw new ForbiddenException({ code: 'PERMISSION_DENIED' });
       return { pool, tenantId: TENANT, principal, employeeId: employeeId ?? OWN };
     }),
+    // Đơn nghỉ, tăng ca, công tác: hỏi quyền thường trước (hành vi cũ), người tạo hộ chỉ là phương án sau cùng.
+    getRequestContextOrProxy: jest.fn(async (r: unknown, employeeId: string | undefined, _kind: string, other?: string, self?: string) =>
+      ctx.getRequestContext(r, employeeId, other, self),
+    ),
     has: jest.fn((_c: unknown, p: string) => permissions.includes(p) || permissions.includes('hrm.manage')),
     procedureAvailable: jest.fn(async () => true),
   };
@@ -282,6 +286,7 @@ describe('PUT /approval-config', () => {
       subTypeCode: undefined,
       mode: 'DIRECT',
       definitionId: undefined,
+      directApprover: 'DIRECT_MANAGER',
       actorId: ACTOR,
     });
     expect(ctx.procedureAvailable).toHaveBeenCalledTimes(1); // chỉ để dựng phản hồi, không để kiểm tra lưu
@@ -302,6 +307,7 @@ describe('PUT /approval-config', () => {
       subTypeCode: undefined,
       mode: 'PROCEDURE',
       definitionId: PROC_A,
+      directApprover: 'DIRECT_MANAGER',
       actorId: ACTOR,
     });
     expect(result.data.warnings).toEqual(['Bước đầu không phải bước S']);
@@ -319,6 +325,7 @@ describe('PUT /approval-config', () => {
       subTypeCode: 'UNPAID',
       mode: 'PROCEDURE',
       definitionId: PROC_A,
+      directApprover: 'DIRECT_MANAGER',
       actorId: ACTOR,
     });
     expect(save).toHaveBeenNthCalledWith(2, client, { tenantId: TENANT, kind: 'leave', mode: 'DIRECT', actorId: ACTOR });
@@ -337,6 +344,7 @@ describe('PUT /approval-config', () => {
       subTypeCode: 'OT_WORK',
       mode: 'DIRECT',
       definitionId: undefined,
+      directApprover: 'DIRECT_MANAGER',
       actorId: ACTOR,
     });
   });
@@ -449,6 +457,7 @@ describe('GET /approval-route (xem trước người duyệt)', () => {
     expect(ctx.getRequestContext).toHaveBeenCalledWith(req, undefined, 'hrm.request.read', 'hrm.self.read');
     expect(data).toEqual({
       mode: 'DIRECT',
+      directApprover: 'DIRECT_MANAGER',
       directManager: { employeeId: MANAGER, fullName: 'Trần Quản Lý', positionName: 'Trưởng phòng' },
       fallbackPosition: null,
       selfApprovalBlocked: true,

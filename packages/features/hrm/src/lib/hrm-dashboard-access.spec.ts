@@ -31,45 +31,37 @@ describe('dashboardPlan', () => {
     expect(dashboardPlan(['hrm.self.attendance']).canPunch).toBe(false);
   });
 
-  it('nguoi duyet chi dem loai don ho duoc duyet, luon kem forApproval=1', () => {
-    const plan = dashboardPlan([
-      'hrm.self.read',
-      'hrm.leave.approve',
-      'hrm.ot.approve.all',
-      'hrm.attendance.approve',
-    ]);
+  it('co quyen duyet thi dem moi loai don dang dung, luon kem forApproval=1', () => {
+    const plan = dashboardPlan(['hrm.self.read', 'hrm.request.approve']);
     expect(plan.approvals.map((s: { kind: string }) => s.kind)).toEqual([
       'LEAVE',
       'OT',
+      'BUSINESS_TRIP',
       'ATTENDANCE',
+      'CUSTOM',
     ]);
     expect(plan.endpoints).toEqual([
       '/my-attendance-context',
       '/leave-requests?forApproval=1',
       '/ot-requests?forApproval=1',
+      '/business-trip-requests?forApproval=1',
       '/attendance-corrections?forApproval=1',
+      '/custom-requests?forApproval=1',
     ]);
   });
 
-  it('quyen duyet tam ung hoac doc tam ung moi goi salary-advance-requests', () => {
-    expect(dashboardPlan(['hrm.leave.approve']).endpoints).not.toContain(
-      '/salary-advance-requests?forApproval=1',
-    );
-    expect(dashboardPlan(['hrm.advance.approve']).endpoints).toContain(
-      '/salary-advance-requests?forApproval=1',
-    );
+  it('chi co hrm.advance.read thi khong goi endpoint tam ung vi loai don bi an', () => {
+    expect(dashboardPlan(['hrm.advance.read']).endpoints).toEqual([]);
   });
 
-  it('request.read hoac request.manage xem moi loai don tru tam ung', () => {
+  it('request.read hoac request.manage xem cac loai don dang dung', () => {
     for (const key of ['hrm.request.read', 'hrm.request.manage']) {
       const kinds = dashboardPlan([key]).approvals.map((s: { kind: string }) => s.kind);
       expect(kinds).toEqual([
         'LEAVE',
         'OT',
         'BUSINESS_TRIP',
-        'SHIFT_CHANGE',
         'ATTENDANCE',
-        'PROFILE',
         'CUSTOM',
       ]);
     }

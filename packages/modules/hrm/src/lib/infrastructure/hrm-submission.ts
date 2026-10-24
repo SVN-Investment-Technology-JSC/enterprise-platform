@@ -1,4 +1,6 @@
 import { assertQuotaOnCreate } from './hrm-request-quota.js';
+import { assertRequestTiming } from './hrm-request-time-rules.js';
+import { assertRequestWithinMonth } from './hrm-request-month.js';
 import type { Pool, PoolClient } from 'pg';
 import type {
   HrmProcedureLink,
@@ -127,7 +129,9 @@ export async function submitHrmRequest(
       );
     }
     const row = await create(db);
+    if (row.status !== 'DRAFT') assertRequestWithinMonth(input.kind as HrmRequestKind, row);
     if (row.status !== 'DRAFT') await assertQuotaOnCreate(db, input.tenantId, input.kind as HrmRequestKind, row);
+    if (row.status !== 'DRAFT') await assertRequestTiming(db, input.tenantId, input.kind as HrmRequestKind, row);
     if (draft) {
       await db.query(
         "UPDATE hrm_schema.request_drafts SET status='SUBMITTED',submitted_request_id=$3,updated_at=GREATEST(clock_timestamp(),updated_at+interval '1 millisecond') WHERE tenant_id=$1 AND id=$2",

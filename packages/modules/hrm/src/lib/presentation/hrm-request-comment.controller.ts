@@ -11,6 +11,7 @@ import {
   isThreadClosed,
   listComments,
   loadRequestOwner,
+  mentionableUserIds,
   normalizeRequestKind,
   resolveThreadAccess,
   searchMentionCandidates,
@@ -66,9 +67,15 @@ export class HrmRequestCommentController {
 
   @RequirePermission('hrm.self.read')
   @Get('request-comments/mention-candidates')
-  async candidates(@Req() req: Request, @Query('q') q = '') {
-    const { pool, tenantId, principal } = await this.ctx.getContext(req, 'hrm.self.read');
-    return { data: await searchMentionCandidates(pool, tenantId, String(q).slice(0, 80), principal.userId) };
+  async candidates(
+    @Req() req: Request,
+    @Query('kind') kind?: string,
+    @Query('requestId') requestId?: string,
+    @Query('q') q = '',
+  ) {
+    const c = await this.access(req, kind, requestId);
+    const allowed = await mentionableUserIds(c.pool, c.tenantId, c.kind, c.requestId, c.owner);
+    return { data: await searchMentionCandidates(c.pool, c.tenantId, String(q).slice(0, 80), c.principal.userId, allowed) };
   }
 
   @RequirePermission('hrm.self.read')
@@ -96,7 +103,8 @@ export class HrmRequestCommentController {
     assertThreadOpen(c.owner.status, commentKind);
     const me = await this.ctx.resolveEmployee(c.pool, c.tenantId, c.principal.userId).catch(() => null);
     const created = await hrmTransaction(c.pool, async (db) => {
-      const mentions = await validMentions(db, c.tenantId, c.principal.userId, body?.mentionUserIds);
+      const allowed = await mentionableUserIds(db, c.tenantId, c.kind, c.requestId, c.owner);
+      const mentions = await validMentions(db, c.tenantId, c.principal.userId, body?.mentionUserIds, allowed);
       return createComment(db, {
         tenantId: c.tenantId,
         kind: c.kind,

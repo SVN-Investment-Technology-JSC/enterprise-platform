@@ -25,9 +25,11 @@ import type {
   SetApprovalRoutePayload,
 } from '@enterprise-platform/contracts-hrm';
 import { HrmApiError, hrmFetch } from '../hrm-api';
+import { isHiddenRequestKind } from '../hrm-approval-kinds';
 import { useHrmPermissions } from '../hrm-permissions';
 import { Button } from '../ui/button';
 import { ApprovalPolicyCard } from '../ui/approval-policy-card';
+import { LastResortApproverCard } from '../ui/last-resort-approver-card';
 import { ConfigHistoryDrawer } from '../ui/config-history-drawer';
 import { PageTitle } from '../ui/page-title';
 import {
@@ -38,15 +40,21 @@ import {
 } from '../ui/settings-kit';
 import { toast } from '../ui/toast';
 
-/** Lựa chọn cách duyệt của một dòng. INHERIT chỉ có ở dòng theo lý do: bỏ cấu hình riêng, theo cấu hình chung của loại đơn. */
-export type RouteChoice = 'INHERIT' | 'DIRECT' | 'PROCEDURE';
+/**
+ * Lựa chọn cách duyệt của một dòng. DIRECT là quản lý trực tiếp, POSITION là duyệt trực tiếp bởi chức danh được chỉ định
+ * (cả hai đều lưu mode DIRECT, khác nhau ở nguồn người duyệt). INHERIT chỉ có ở dòng theo lý do: bỏ cấu hình riêng,
+ * theo cấu hình chung của loại đơn.
+ */
+export type RouteChoice = 'INHERIT' | 'DIRECT' | 'POSITION' | 'PROCEDURE';
 
 /** Thay đổi chưa lưu của một dòng. */
 export interface RouteDraft {
   choice: RouteChoice;
   /** Id quy trình đã công bố; chỉ dùng khi `choice` là PROCEDURE. */
   procedureId: string;
-  /** Id chức danh duyệt dự phòng; chỉ dùng khi `choice` là DIRECT. */
+  /** Id chức danh được chỉ định duyệt; chỉ dùng khi `choice` là POSITION. */
+  approverPositionId: string;
+  /** Id chức danh duyệt dự phòng (tuỳ chọn); dùng khi `choice` là DIRECT hoặc POSITION. */
   fallbackPositionId: string;
 }
 
@@ -66,8 +74,12 @@ interface ApprovalGroup {
 const CHOICE_LABELS: Record<RouteChoice, string> = {
   INHERIT: 'Theo cấu hình chung',
   DIRECT: 'Quản lý trực tiếp',
+  POSITION: 'Chỉ định chức danh',
   PROCEDURE: 'Theo quy trình',
 };
+
+/** Hai cách duyệt trực tiếp: chọn được chức danh dự phòng (tuỳ chọn). */
+const isDirectChoice = (choice: RouteChoice) => choice === 'DIRECT' || choice === 'POSITION';
 
 /** Biểu tượng và màu của từng loại đơn (loại lạ dùng biểu tượng chung). */
 const KIND_META: Record<string, { icon: LucideIcon; tone: KitTone }> = {
@@ -91,13 +103,22 @@ export const isReasonRow = (item: ApprovalRouteConfigItem) =>
 /** Cách duyệt đang lưu trên server của một dòng. */
 export function savedRoute(item: ApprovalRouteConfigItem): RouteDraft {
   const choice: RouteChoice =
-    isReasonRow(item) && item.inherited ? 'INHERIT' : item.mode;
+    isReasonRow(item) && item.inherited
+      ? 'INHERIT'
+      : item.mode === 'PROCEDURE'
+        ? 'PROCEDURE'
+        : item.directApprover === 'POSITION'
+          ? 'POSITION'
+          : 'DIRECT';
   return {
     choice,
     procedureId:
       choice === 'PROCEDURE' ? (item.procedureDefinitionId ?? '') : '',
-    fallbackPositionId:
-      choice === 'DIRECT' ? (item.fallbackPositionId ?? '') : '',
+    approverPositionId:
+      choice === 'POSITION' ? (item.approverPositionId ?? '') : '',
+    fallbackPositionId: isDirectChoice(choice)
+      ? (item.fallbackPositionId ?? '')
+      : '',
   };
 }
 
@@ -110,32 +131,40 @@ export function isRouteDirty(
   return (
     draft.choice !== saved.choice ||
     (draft.choice === 'PROCEDURE' && draft.procedureId !== saved.procedureId) ||
-    (draft.choice === 'DIRECT' &&
+    (draft.choice === 'POSITION' &&
+      draft.approverPositionId !== saved.approverPositionId) ||
+    (isDirectChoice(draft.choice) &&
       draft.fallbackPositionId !== saved.fallbackPositionId)
   );
 }
 
-/** Theo quy trình mà chưa chọn quy trình thì chưa lưu được. */
+/** Theo quy trình mà chưa chọn quy trình, hoặc chỉ định chức danh mà chưa chọn chức danh, thì chưa lưu được. */
 export const isRouteSaveable = (draft: RouteDraft) =>
-  draft.choice !== 'PROCEDURE' || draft.procedureId !== '';
+  (draft.choice !== 'PROCEDURE' || draft.procedureId !== '') &&
+  (draft.choice !== 'POSITION' || draft.approverPositionId !== '');
 
 /** Body của PUT /approval-config; chặn PROCEDURE khi chưa chọn quy trình. */
 export function routePayload(
   item: ApprovalRouteConfigItem,
   draft: RouteDraft,
 ): SetApprovalRoutePayload {
-  if (!isRouteSaveable(draft))
+  if (draft.choice === 'PROCEDURE' && draft.procedureId === '')
     throw new Error('Chọn quy trình trước khi lưu cách duyệt Theo quy trình.');
+  if (draft.choice === 'POSITION' && draft.approverPositionId === '')
+    throw new Error('Chọn chức danh duyệt trước khi lưu cách duyệt Chỉ định chức danh.');
   return {
     requestKind: item.requestKind,
     ...(item.reasonCode ? { reasonCode: item.reasonCode } : {}),
-    mode: draft.choice,
+    mode: draft.choice === 'POSITION' ? 'DIRECT' : draft.choice,
     ...(draft.choice === 'PROCEDURE'
       ? { procedureDefinitionId: draft.procedureId }
       : {}),
-    ...(draft.choice === 'DIRECT' && draft.fallbackPositionId
+    ...(draft.choice === 'POSITION'
+      ? { directApprover: 'POSITION' as const, approverPositionId: draft.approverPositionId }
+      : {}),
+    ...(isDirectChoice(draft.choice) && draft.fallbackPositionId
       ? { fallbackPositionId: draft.fallbackPositionId }
-      : draft.choice === 'DIRECT' && item.fallbackPositionId
+      : isDirectChoice(draft.choice) && item.fallbackPositionId
         ? { fallbackPositionId: null }
         : {}),
   };
@@ -147,6 +176,7 @@ export function groupApprovalItems(
 ): ApprovalGroup[] {
   const groups: ApprovalGroup[] = [];
   for (const item of items) {
+    if (isHiddenRequestKind(item.requestKind)) continue;
     if (!isReasonRow(item)) {
       groups.push({ general: item, reasons: [] });
       continue;
@@ -168,9 +198,13 @@ export const isGroupAutoOpen = (group: ApprovalGroup) =>
 /** Mô tả cách duyệt đang áp dụng của một dòng (dùng cho dòng theo cấu hình chung). */
 function describeRoute(item: ApprovalRouteConfigItem): string {
   if (item.mode === 'DIRECT') {
+    const primary =
+      item.directApprover === 'POSITION'
+        ? `Chức danh ${item.approverPositionName ?? 'đã chỉ định'}`
+        : 'Quản lý trực tiếp';
     return item.fallbackPositionName
-      ? `Quản lý trực tiếp (dự phòng: ${item.fallbackPositionName})`
-      : 'Quản lý trực tiếp';
+      ? `${primary} (dự phòng: ${item.fallbackPositionName})`
+      : primary;
   }
   return item.procedureName
     ? `Quy trình ${item.procedureName}`
@@ -198,20 +232,18 @@ function procedureOptionsOf(
 }
 
 function positionOptionsOf(
-  item: ApprovalRouteConfigItem,
   positions: readonly ApprovalRoutePositionOption[] | null | undefined,
+  current: string | null | undefined,
+  currentName: string | null | undefined,
 ) {
   const options = (positions ?? []).map((p) => ({
     value: p.id,
-    label: p.code ? `${p.code} · ${p.name}` : p.name,
+    label: p.name,
   }));
-  const current = item.fallbackPositionId;
   if (current && !options.some((o) => o.value === current)) {
     options.unshift({
       value: current,
-      label:
-        item.fallbackPositionName ??
-        'Chức danh đã gắn (không còn trong danh mục)',
+      label: currentName ?? 'Chức danh đã gắn (không còn trong danh mục)',
     });
   }
   return options;
@@ -247,6 +279,7 @@ interface RowProps {
   };
   onChoice: (choice: RouteChoice) => void;
   onProcedure: (id: string) => void;
+  onApproverPosition: (id: string) => void;
   onFallbackPosition: (id: string) => void;
   onSave: () => void;
   onReset: () => void;
@@ -264,6 +297,7 @@ function RouteRow({
   group,
   onChoice,
   onProcedure,
+  onApproverPosition,
   onFallbackPosition,
   onSave,
   onReset,
@@ -275,6 +309,7 @@ function RouteRow({
   const choiceOptions = [
     ...(reason ? [{ value: 'INHERIT', label: CHOICE_LABELS.INHERIT }] : []),
     { value: 'DIRECT', label: CHOICE_LABELS.DIRECT },
+    { value: 'POSITION', label: CHOICE_LABELS.POSITION },
     {
       value: 'PROCEDURE',
       label: CHOICE_LABELS.PROCEDURE,
@@ -388,7 +423,11 @@ function RouteRow({
 
       <div className="min-w-0">
         <span className="mb-1 block text-[12px] font-medium text-slate-500 @3xl:sr-only">
-          {shown.choice === 'DIRECT' ? 'Chức danh dự phòng' : 'Quy trình'}
+          {shown.choice === 'POSITION'
+            ? 'Chức danh duyệt và dự phòng'
+            : shown.choice === 'DIRECT'
+              ? 'Chức danh dự phòng'
+              : 'Quy trình'}
         </span>
         {shown.choice === 'PROCEDURE' ? (
           <div className="space-y-1">
@@ -419,12 +458,39 @@ function RouteRow({
           </p>
         ) : (
           <div className="space-y-1">
+            {shown.choice === 'POSITION' && (
+              <div className="space-y-1">
+                <div role="group" aria-label={`Chức danh duyệt của ${item.label}`}>
+                  <SearchableSelect
+                    options={positionOptionsOf(
+                      positions,
+                      item.approverPositionId,
+                      item.approverPositionName,
+                    )}
+                    value={shown.approverPositionId}
+                    clearable={false}
+                    disabled={saving}
+                    placeholder="Chọn chức danh duyệt"
+                    onChange={(value) => value && onApproverPosition(value)}
+                  />
+                </div>
+                {!saveable && (
+                  <p className="text-[12px] font-medium text-amber-700">
+                    Chọn chức danh duyệt để lưu.
+                  </p>
+                )}
+              </div>
+            )}
             <div
               role="group"
               aria-label={`Chức danh dự phòng của ${item.label}`}
             >
               <SearchableSelect
-                options={positionOptionsOf(item, positions)}
+                options={positionOptionsOf(
+                  positions,
+                  item.fallbackPositionId,
+                  item.fallbackPositionName,
+                )}
                 value={shown.fallbackPositionId}
                 clearable={true}
                 disabled={saving}
@@ -433,9 +499,13 @@ function RouteRow({
               />
             </div>
             <p className="text-[12px] text-slate-500">
-              {shown.fallbackPositionId
-                ? 'Quản lý trực tiếp hoặc người giữ chức danh này đều có thể duyệt.'
-                : 'Chỉ quản lý trực tiếp duyệt (chưa chọn chức danh dự phòng).'}
+              {shown.choice === 'POSITION'
+                ? shown.fallbackPositionId
+                  ? 'Người giữ chức danh duyệt hoặc người giữ chức danh dự phòng đều có thể duyệt.'
+                  : 'Chỉ người giữ chức danh duyệt được duyệt (chưa chọn chức danh dự phòng).'
+                : shown.fallbackPositionId
+                  ? 'Quản lý trực tiếp hoặc người giữ chức danh này đều có thể duyệt.'
+                  : 'Chỉ quản lý trực tiếp duyệt (chưa chọn chức danh dự phòng).'}
             </p>
           </div>
         )}
@@ -448,7 +518,13 @@ function RouteRow({
               disabled={saving || anySaving || !saveable}
               onClick={onSave}
               aria-label={`Lưu cách duyệt của ${item.label}`}
-              title={saveable ? undefined : 'Chọn quy trình trước khi lưu'}
+              title={
+                saveable
+                  ? undefined
+                  : shown.choice === 'POSITION'
+                    ? 'Chọn chức danh duyệt trước khi lưu'
+                    : 'Chọn quy trình trước khi lưu'
+              }
               className="h-9 gap-1 bg-blue-600 px-3 text-xs text-white hover:bg-blue-700"
             >
               <Save className="size-3.5" />
@@ -563,11 +639,22 @@ export default function ApprovalConfigScreen() {
         choice === 'PROCEDURE'
           ? saved.procedureId || item.procedureDefinitionId || ''
           : '',
-      fallbackPositionId:
-        choice === 'DIRECT'
-          ? saved.fallbackPositionId || item.fallbackPositionId || ''
+      approverPositionId:
+        choice === 'POSITION'
+          ? saved.approverPositionId || item.approverPositionId || ''
           : '',
+      fallbackPositionId: isDirectChoice(choice)
+        ? saved.fallbackPositionId || item.fallbackPositionId || ''
+        : '',
     });
+  }
+
+  function changeApproverPosition(
+    item: ApprovalRouteConfigItem,
+    approverPositionId: string,
+  ) {
+    const current = drafts[routeKey(item)] ?? savedRoute(item);
+    setDraft(item, { ...current, choice: 'POSITION', approverPositionId });
   }
 
   function changeProcedure(item: ApprovalRouteConfigItem, procedureId: string) {
@@ -580,7 +667,11 @@ export default function ApprovalConfigScreen() {
     fallbackPositionId: string,
   ) {
     const current = drafts[routeKey(item)] ?? savedRoute(item);
-    setDraft(item, { ...current, choice: 'DIRECT', fallbackPositionId });
+    setDraft(item, {
+      ...current,
+      choice: current.choice === 'POSITION' ? 'POSITION' : 'DIRECT',
+      fallbackPositionId,
+    });
   }
 
   function reset(item: ApprovalRouteConfigItem) {
@@ -781,6 +872,8 @@ export default function ApprovalConfigScreen() {
                 procedureAvailable: procedureAvailable !== false,
                 onChoice: (choice: RouteChoice) => changeChoice(item, choice),
                 onProcedure: (id: string) => changeProcedure(item, id),
+                onApproverPosition: (id: string) =>
+                  changeApproverPosition(item, id),
                 onFallbackPosition: (id: string) =>
                   changeFallbackPosition(item, id),
                 onSave: () => void save(item),
@@ -818,6 +911,7 @@ export default function ApprovalConfigScreen() {
       </section>
 
       {canPolicy && <ApprovalPolicyCard />}
+      {canPolicy && <LastResortApproverCard positions={config?.positions ?? []} />}
 
       {canAudit && (
         <ConfigHistoryDrawer

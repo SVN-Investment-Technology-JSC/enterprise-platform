@@ -50,7 +50,7 @@ describe('GET /attendance-monitor: phạm vi do server quyết định', () => {
   });
 
   it('người quản lý (có quyền duyệt) chỉ thấy cấp dưới theo sơ đồ tổ chức', async () => {
-    const { controller } = setup(['hrm.leave.approve']);
+    const { controller } = setup(['hrm.request.approve']);
     const result = await controller.monitor(req, '2026-10-13');
     expect(result.data.scope).toBe('TEAM');
     expect(loadTeamEmployeeIds).toHaveBeenCalledWith(expect.anything(), 't1', 'me');

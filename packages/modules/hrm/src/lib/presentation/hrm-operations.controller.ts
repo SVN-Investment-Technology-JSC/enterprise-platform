@@ -64,6 +64,8 @@ import {
 import { dayKindOf, lockEmployee } from '../infrastructure/hrm-time.js';
 import { yearEndChecklist } from '../infrastructure/hrm-leave-reconcile.js';
 
+type HrmRequestKind = ReturnType<typeof normalizeHrmRequestKind>;
+
 @Controller('v1')
 export class HrmOperationsController {
   constructor(
@@ -71,6 +73,16 @@ export class HrmOperationsController {
     private readonly bridge: HrmProcedureBridgeService,
     private readonly approvals: HrmApprovalPolicyService = new HrmApprovalPolicyService(),
   ) {}
+  /**
+   * Ngữ cảnh thao tác bản nháp. Nghỉ phép, tăng ca, công tác cho phép người tạo hộ (trong phạm vi) dùng bản nháp kỹ thuật
+   * của nhân viên được tạo hộ; các loại khác giữ quy tắc cũ.
+   */
+  private draftContext(req: Request, kind: HrmRequestKind, employeeId?: string) {
+    return kind === 'leave' || kind === 'ot' || kind === 'business_trip'
+      ? this.ctx.getRequestContextOrProxy(req, employeeId, kind)
+      : this.ctx.getRequestContext(req, employeeId);
+  }
+
   @Get('request-drafts')
   async listDrafts(
     @Req() req: Request,
@@ -90,8 +102,7 @@ export class HrmOperationsController {
     @Body() body: { employeeId?: string; payload: unknown },
   ) {
     const kind = normalizeHrmRequestKind(kindValue);
-    const { pool, tenantId, employeeId, principal } =
-      await this.ctx.getRequestContext(req, body.employeeId);
+    const { pool, tenantId, employeeId, principal } = await this.draftContext(req, kind, body.employeeId);
     const payload = draftPayload(body.payload);
     return hrmTransaction(pool, async (db) => {
       await lockEmployee(db, tenantId, employeeId);
@@ -157,7 +168,7 @@ export class HrmOperationsController {
         )
       ).rows[0];
       if (!owner) throw new NotFoundException('Không tìm thấy bản nháp');
-      await this.ctx.getRequestContext(req, owner.employee_id);
+      await this.draftContext(req, kind, owner.employee_id);
       await lockEmployee(db, tenantId, owner.employee_id);
       const before = (
         await db.query(
@@ -306,11 +317,11 @@ export class HrmOperationsController {
   ) {
     const kind = normalizeHrmRequestKind(kindValue);
     const permissions: Partial<Record<typeof kind, HrmAction>> = {
-      leave: 'hrm.leave.approve',
-      ot: 'hrm.ot.approve',
-      business_trip: 'hrm.trip.approve',
-      correction: 'hrm.attendance.approve',
-      advance: 'hrm.advance.approve',
+      leave: 'hrm.request.approve',
+      ot: 'hrm.request.approve',
+      business_trip: 'hrm.request.approve',
+      correction: 'hrm.request.approve',
+      advance: 'hrm.request.approve',
     };
     const permission = permissions[kind];
     if (!permission)

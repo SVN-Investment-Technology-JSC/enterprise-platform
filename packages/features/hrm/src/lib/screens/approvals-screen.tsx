@@ -51,6 +51,7 @@ import {
   isTerminalProcedureStatus,
   type ProcedureActionKind,
 } from '../procedure-progress-view';
+import { OnBehalfName } from '../ui/on-behalf-name';
 
 const PAGE_SIZE = 20;
 const CARD = 'rounded-2xl border border-slate-200/70 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]';
@@ -127,9 +128,14 @@ function ApprovalsContent() {
     [permissionKey],
   );
   const [linkedRequestId, setLinkedRequestId] = useState('');
+  // Tin nhắn trong luồng trao đổi cần làm nổi khi mở từ thông báo; chỉ áp cho đúng đơn trong liên kết.
+  const [linkedComment, setLinkedComment] = useState<{ requestId: string; commentId: string } | null>(null);
   useEffect(() => {
-    const id = new URLSearchParams(window.location.search).get('request');
+    const query = new URLSearchParams(window.location.search);
+    const id = query.get('request');
     if (id) setLinkedRequestId(id);
+    const commentId = query.get('comment');
+    if (id && commentId) setLinkedComment({ requestId: id, commentId });
   }, []);
   useEffect(() => {
     if (!linkedRequestId) return;
@@ -217,7 +223,11 @@ function ApprovalsContent() {
             };
           }),
         )
-        .sort((a, b) => b.created.localeCompare(a.created));
+        .sort((a, b) => {
+          const timeA = Date.parse(a.created) || 0;
+          const timeB = Date.parse(b.created) || 0;
+          return timeB - timeA;
+        });
     };
     const failureOf = (settled: Awaited<ReturnType<typeof fetchLists>>) =>
       // Loại đơn không đọc được (403) bị bỏ qua; lỗi khác được báo sau khi hiển thị phần tải được.
@@ -590,7 +600,7 @@ function ApprovalsContent() {
                           <div className="flex items-center gap-2.5">
                             <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-slate-200 text-[12px] font-bold text-slate-600">{initialsOf(r.employeeName)}</span>
                             <div className="min-w-0">
-                              <p className="truncate font-semibold text-slate-900">{r.employeeName}</p>
+                              <p className="truncate font-semibold text-slate-900"><OnBehalfName name={r.employeeName} onBehalf={r.createdOnBehalf === true} byName={r.onBehalfByName} reason={r.onBehalfReason} /></p>
                               <p className="truncate text-[12px] text-slate-500">{[r.employeeCode, r.department].filter(Boolean).join(' · ')}</p>
                             </div>
                           </div>
@@ -663,6 +673,7 @@ function ApprovalsContent() {
             onReverse={() => detail && reverse(detail)}
             onError={setPanelError}
             threadRefresh={threadRefresh}
+            highlightCommentId={linkedComment && linkedComment.requestId === detail?.id ? linkedComment.commentId : undefined}
           />
         </div>
       </div>

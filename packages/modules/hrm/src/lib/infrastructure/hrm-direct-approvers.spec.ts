@@ -1,4 +1,5 @@
 import type { OrgFacts, OrgHolder } from './hrm-chief-fallback.js';
+import { superiorUserIdsOf } from './hrm-chief-fallback.js';
 import { directApproverUserIds, fallbackHolderUserIds, managerUserIdsOf } from './hrm-direct-approvers.js';
 
 const holder = (positionId: string, employeeId: string, over: Partial<OrgHolder> = {}): OrgHolder => ({
@@ -24,6 +25,7 @@ const facts = (holders: OrgHolder[]): OrgFacts => ({
   ],
   holders,
   employees: [],
+  lastResortPositionId: 'ceo',
 });
 
 describe('managerUserIdsOf', () => {
@@ -45,6 +47,23 @@ describe('managerUserIdsOf', () => {
   it('never returns the requester', () => {
     const f = facts([holder('ceo', 'e9')]);
     expect(managerUserIdsOf(f, 'e9')).toEqual([]);
+  });
+});
+
+describe('superiorUserIdsOf', () => {
+  it('returns the holders of every level on the reporting chain, not just the nearest', () => {
+    const f = facts([holder('staff', 'e1'), holder('lead', 'e2'), holder('head', 'e3'), holder('ceo', 'e4')]);
+    expect(superiorUserIdsOf(f, 'e1').sort()).toEqual(['u-e2', 'u-e3', 'u-e4']);
+  });
+
+  it('skips vacant and inactive levels but keeps climbing', () => {
+    const f = facts([holder('staff', 'e1'), holder('lead', 'e2', { inactive: true }), holder('ceo', 'e4')]);
+    expect(superiorUserIdsOf(f, 'e1')).toEqual(['u-e4']);
+  });
+
+  it('never returns the requester or people outside the chain', () => {
+    const f = facts([holder('staff', 'e1'), holder('lead', 'e2'), holder('deputy', 'e7'), holder('lead', 'e1')]);
+    expect(superiorUserIdsOf(f, 'e1')).toEqual(['u-e2']);
   });
 });
 

@@ -121,15 +121,15 @@ describe('seedHrmRoleTemplates đồng bộ vai trò mẫu đã có', () => {
     const head = hrmTemplateId('permission', 'department-head');
     actions.get(head)!.add('hrm.request.read');
     actions.get(head)!.add('hrm.attendance.read');
-    actions.get(head)!.delete('hrm.advance.approve');
+    actions.get(head)!.delete('hrm.request.approve');
     const result = await service.seedHrmRoleTemplates('t', 'a', true);
     expect(result.updated).toHaveLength(1);
     expect(result.updated[0]).toMatchObject({ name: 'HRM - Trưởng bộ phận' });
     expect(result.updated[0].removed.sort()).toEqual(['hrm.attendance.read', 'hrm.request.read']);
-    expect(result.updated[0].added).toEqual(['hrm.advance.approve']);
+    expect(result.updated[0].added).toEqual(['hrm.request.approve']);
     expect(result.skipped).toHaveLength(HRM_ROLE_TEMPLATES.length - 1);
     expect(actions.get(head)!.has('hrm.request.read')).toBe(false);
-    expect(actions.get(head)!.has('hrm.advance.approve')).toBe(true);
+    expect(actions.get(head)!.has('hrm.request.approve')).toBe(true);
     expect(audits.filter((a) => a.action === 'role.template.hrm.sync')).toHaveLength(1);
   });
 

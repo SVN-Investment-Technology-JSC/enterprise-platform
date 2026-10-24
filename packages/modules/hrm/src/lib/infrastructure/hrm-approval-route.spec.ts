@@ -107,6 +107,8 @@ describe('PUT /approval-config: kiểm tra body', () => {
       reasonCode: 'SICK',
       mode: 'DIRECT',
       definitionId: null,
+      directApprover: 'DIRECT_MANAGER',
+      approverPositionId: null,
       fallbackPositionId: null,
     });
   });
@@ -122,6 +124,8 @@ describe('PUT /approval-config: kiểm tra body', () => {
       reasonCode: null,
       mode: 'DIRECT',
       definitionId: null,
+      directApprover: 'DIRECT_MANAGER',
+      approverPositionId: null,
       fallbackPositionId: D_GENERAL,
     });
     expect(() =>
@@ -131,6 +135,45 @@ describe('PUT /approval-config: kiểm tra body', () => {
         fallbackPositionId: 'not-a-uuid',
       }),
     ).toThrow(BadRequestException);
+  });
+  it('chỉ định chức danh: bắt buộc approverPositionId hợp lệ, nguồn lạ bị từ chối, PROCEDURE bỏ qua nguồn', () => {
+    expect(
+      parseSetApprovalRoute({
+        requestKind: 'leave',
+        mode: 'DIRECT',
+        directApprover: 'POSITION',
+        approverPositionId: D_GENERAL,
+        fallbackPositionId: null,
+      }),
+    ).toMatchObject({
+      mode: 'DIRECT',
+      directApprover: 'POSITION',
+      approverPositionId: D_GENERAL,
+      fallbackPositionId: null,
+    });
+    expect(() =>
+      parseSetApprovalRoute({ requestKind: 'leave', mode: 'DIRECT', directApprover: 'POSITION' }),
+    ).toThrow('Cần chọn chức danh duyệt');
+    expect(() =>
+      parseSetApprovalRoute({
+        requestKind: 'leave',
+        mode: 'DIRECT',
+        directApprover: 'POSITION',
+        approverPositionId: 'not-a-uuid',
+      }),
+    ).toThrow(BadRequestException);
+    expect(() =>
+      parseSetApprovalRoute({ requestKind: 'leave', mode: 'DIRECT', directApprover: 'BOSS' }),
+    ).toThrow('Nguồn người duyệt không hợp lệ');
+    expect(
+      parseSetApprovalRoute({
+        requestKind: 'leave',
+        mode: 'PROCEDURE',
+        procedureDefinitionId: D_GENERAL,
+        directApprover: 'POSITION',
+        approverPositionId: D_GENERAL,
+      }),
+    ).toMatchObject({ directApprover: 'DIRECT_MANAGER', approverPositionId: null });
   });
   it('bỏ qua procedureDefinitionId khi DIRECT và yêu cầu UUID khi PROCEDURE', () => {
     expect(parseSetApprovalRoute({ requestKind: 'ot', mode: 'DIRECT', procedureDefinitionId: D_GENERAL }).definitionId).toBeNull();

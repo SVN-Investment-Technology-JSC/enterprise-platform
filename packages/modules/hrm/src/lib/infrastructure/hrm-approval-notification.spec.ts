@@ -19,7 +19,8 @@ describe('approvalRequestedEvent', () => {
     expect(event.type).toBe('hrm.approval.requested');
     expect(event.payload).toMatchObject({
       requestId: 'request-1',
-      approvalPermissions: ['hrm.trip.approve', 'hrm.manage'],
+      approvalPermissions: ['hrm.request.approve.all', 'hrm.manage'],
+      scopePermissions: ['hrm.request.approve'],
       summary: 'Đơn công tác của Nguyễn Văn A đang chờ bạn phê duyệt.',
       actorUserId: 'user-a',
     });
@@ -27,14 +28,14 @@ describe('approvalRequestedEvent', () => {
 
   it('maps every request kind to the permission its approve endpoint requires', () => {
     expect(HRM_APPROVAL_PERMISSIONS).toEqual({
-      leave: 'hrm.leave.approve',
-      ot: 'hrm.ot.approve',
-      business_trip: 'hrm.trip.approve',
-      shift_change: 'hrm.shift.approve',
-      correction: 'hrm.attendance.approve',
-      advance: 'hrm.advance.approve',
-      profile_correction: 'hrm.profile.approve',
-      custom: 'hrm.custom.approve',
+      leave: 'hrm.request.approve',
+      ot: 'hrm.request.approve',
+      business_trip: 'hrm.request.approve',
+      shift_change: 'hrm.request.approve',
+      correction: 'hrm.request.approve',
+      advance: 'hrm.request.approve',
+      profile_correction: 'hrm.request.approve',
+      custom: 'hrm.request.approve',
     });
   });
 });
@@ -58,7 +59,7 @@ describe('notifyApproversOfDirectRequest', () => {
       requestKind: 'leave',
       employeeId: 'employee-1',
       actorUserId: 'user-b',
-    }, async () => []);
+    }, async () => ({ assigned: [], superiors: [] }));
 
     expect(query).toHaveBeenCalledTimes(2);
     const [insertSql, values] = query.mock.calls[1] as unknown as [string, unknown[]];
@@ -77,14 +78,14 @@ describe('notifyApproversOfDirectRequest', () => {
       requestKind: 'ot',
       employeeId: 'missing',
       actorUserId: 'user-c',
-    }, async () => []);
+    }, async () => ({ assigned: [], superiors: [] }));
 
     expect(JSON.parse(String((query.mock.calls[1] as unknown as [string, unknown[]])[1][4])).payload.summary).toContain('một nhân viên');
   });
 
   it('sends the event straight to the assigned approvers, excluding the submitter', async () => {
     const query = jest.fn(async () => ({ rows: [] }));
-    const resolve = jest.fn(async () => ['manager-1', 'backup-1', 'user-d']);
+    const resolve = jest.fn(async () => ({ assigned: ['manager-1', 'backup-1', 'user-d'], superiors: ['boss-1', 'user-d'] }));
 
     await notifyApproversOfDirectRequest({ query }, {
       tenantId: TENANT,
@@ -97,6 +98,8 @@ describe('notifyApproversOfDirectRequest', () => {
     expect(resolve).toHaveBeenCalledWith(expect.anything(), TENANT, 'ot', 'request-3', 'employee-3');
     const payload = JSON.parse(String((query.mock.calls[1] as unknown as [string, unknown[]])[1][4])).payload;
     expect(payload.recipientUserIds).toEqual(['manager-1', 'backup-1']);
-    expect(payload.approvalPermissions).toEqual(['hrm.ot.approve', 'hrm.manage']);
+    expect(payload.scopeUserIds).toEqual(['boss-1']);
+    expect(payload.scopePermissions).toEqual(['hrm.request.approve']);
+    expect(payload.approvalPermissions).toEqual(['hrm.request.approve.all', 'hrm.manage']);
   });
 });

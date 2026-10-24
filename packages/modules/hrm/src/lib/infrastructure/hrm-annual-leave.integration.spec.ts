@@ -160,6 +160,8 @@ integration('Annual leave by labor contract (PostgreSQL)', () => {
       'hrm/0035-hrm-work-schedules.sql',
       'hrm/0036-hrm-work-schedule-rules.sql',
       'hrm/0044-hrm-annual-leave-single-policy.sql',
+      'hrm/0028-hrm-approval-policy.sql',
+      'hrm/0075-hrm-last-resort-approver.sql',
     ])
       await migrate(path);
     shiftId = (
@@ -656,8 +658,15 @@ integration('Annual leave by labor contract (PostgreSQL)', () => {
     await pool.query(`UPDATE core_schema.organization_node_assignments SET reports_to_position_override_id=NULL WHERE user_id=$1`, [staff.userId]);
     expect(await profileManager()).toBe('S-HEADB');
 
-    // 4. Gỡ "Báo cáo cho" và chưa ai bổ nhiệm: Tổng giám đốc duyệt mặc định, và chỉ Tổng giám đốc có phạm vi duyệt.
+    // 4. Gỡ "Báo cáo cho" và chưa ai bổ nhiệm: chưa chọn chức danh dự phòng cuối thì không ai duyệt thay.
     await setReportsTo(staffPos, null);
+    expect((await chiefFallbackUserIds(pool, tenantId, ceo.userId)).size).toBe(0);
+    // Chọn Tổng giám đốc làm chức danh dự phòng cuối: người giữ chức danh duyệt mặc định, và chỉ họ có phạm vi duyệt.
+    await pool.query(
+      `INSERT INTO hrm_schema.approval_policy_settings(tenant_id,last_resort_position_id) VALUES ($1,$2)
+       ON CONFLICT (tenant_id) DO UPDATE SET last_resort_position_id=EXCLUDED.last_resort_position_id`,
+      [tenantId, ceoPos],
+    );
     expect(await overviewManager()).toMatchObject({ employeeId: ceo.id, source: 'CHIEF_FALLBACK' });
     expect((await chiefFallbackUserIds(pool, tenantId, ceo.userId)).has(staff.userId)).toBe(true);
     expect((await chiefFallbackUserIds(pool, tenantId, headA.userId)).size).toBe(0);

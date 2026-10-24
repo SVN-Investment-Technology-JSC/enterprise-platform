@@ -272,6 +272,40 @@ describe('người duyệt dự kiến', () => {
     });
   });
 
+  it('Chỉ định chức danh: nêu chức danh và người đang giữ, kèm dự phòng nếu có', () => {
+    const position = {
+      positionId: 'p1',
+      positionName: 'Trưởng phòng HC',
+      holders: [{ employeeId: 'e1', fullName: 'Nguyễn Văn H' }],
+    };
+    expect(approverLine({ mode: 'DIRECT', directApprover: 'POSITION', approverPosition: position })).toEqual({
+      method: 'Chức danh chỉ định',
+      detail: 'Chức danh Trưởng phòng HC (Nguyễn Văn H)',
+      note: '',
+    });
+    expect(
+      approverLine({
+        mode: 'DIRECT',
+        directApprover: 'POSITION',
+        approverPosition: position,
+        fallbackPosition: { positionId: 'p2', positionName: 'Phó phòng HC' },
+        note: 'ghi chú',
+      }),
+    ).toEqual({
+      method: 'Chức danh chỉ định hoặc người dự phòng',
+      detail: 'Chức danh Trưởng phòng HC (Nguyễn Văn H) hoặc chức danh Phó phòng HC',
+      note: 'ghi chú',
+    });
+    // Chức danh chưa có người giữ: vẫn nêu chức danh, không kèm tên.
+    expect(
+      approverLine({
+        mode: 'DIRECT',
+        directApprover: 'POSITION',
+        approverPosition: { ...position, holders: [] },
+      }).detail,
+    ).toBe('Chức danh Trưởng phòng HC');
+  });
+
   it('PROCEDURE: tên quy trình', () => {
     expect(approverLine({ mode: 'PROCEDURE', procedureName: 'Quy trình duyệt OT' })).toEqual({
       method: 'Duyệt theo quy trình',

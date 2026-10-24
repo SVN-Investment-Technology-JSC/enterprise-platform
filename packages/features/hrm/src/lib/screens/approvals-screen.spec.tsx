@@ -76,7 +76,11 @@ function setup({ lists = {}, workflows = [], comments = [], candidates = [], rev
     if (path.startsWith('/request-comments')) return init?.method === 'POST' ? { data: { id: 'cm-new' } } : { data: comments };
     if (init?.method === 'POST') return { data: {} };
     const key = Object.keys(lists).find((k) => path.startsWith(`/${k}?`));
-    if (!key) throw new Error(`Unexpected request ${path}`);
+    // Một quyền duyệt chung nên màn gọi mọi loại đơn đang dùng; loại test không nêu thì trả danh sách rỗng.
+    if (!key) {
+      if (path.includes('forApproval=1')) return { data: [] };
+      throw new Error(`Unexpected request ${path}`);
+    }
     const value = lists[key];
     if (value instanceof Error) throw value;
     return { data: value };
@@ -99,21 +103,25 @@ beforeEach(() => {
 });
 
 describe('ApprovalsScreen: tải dữ liệu', () => {
-  it('mỗi danh sách kèm forApproval=1, chỉ gọi loại được duyệt; tải đơn chờ trước rồi tải nốt lịch sử', async () => {
-    mockActions = ['hrm.leave.approve', 'hrm.ot.approve.all', 'hrm.advance.approve'];
-    setup({ lists: { 'leave-requests': [leave], 'ot-requests': [ot], 'salary-advance-requests': [] } });
+  it('mỗi danh sách kèm forApproval=1, gọi mọi loại đơn đang dùng; tải đơn chờ trước rồi tải nốt lịch sử', async () => {
+    mockActions = ['hrm.request.approve'];
+    setup({ lists: { 'leave-requests': [leave], 'ot-requests': [ot] } });
     render(<ApprovalsScreen />);
-    await waitFor(() => expect(listPaths().length).toBe(6));
+    // Năm loại đang dùng (nghỉ phép, OT, công tác, giải trình công, loại tuỳ chỉnh) x (đơn chờ + lịch sử).
+    await waitFor(() => expect(listPaths().length).toBe(10));
     for (const p of listPaths()) expect(p).toContain('forApproval=1');
-    expect(listPaths().some((p) => p.startsWith('/business-trip-requests'))).toBe(false);
-    const first = listPaths().slice(0, 3);
-    const second = listPaths().slice(3);
+    expect(listPaths().some((p) => p.startsWith('/business-trip-requests'))).toBe(true);
+    // Đổi ca, tạm ứng, đính chính hồ sơ bị ẩn: có quyền duyệt vẫn không gọi danh sách.
+    for (const hidden of ['/salary-advance-requests', '/shift-change-requests', '/profile-corrections'])
+      expect(listPaths().some((p) => p.startsWith(hidden))).toBe(false);
+    const first = listPaths().slice(0, 5);
+    const second = listPaths().slice(5);
     expect(first.every((p) => p.includes('status=PENDING'))).toBe(true);
     expect(second.every((p) => !p.includes('status='))).toBe(true);
   });
 
   it('đơn đã duyệt rồi bị huỷ hiệu lực hiện nhãn "Đã hủy hiệu lực" kèm lý do, tách khỏi "Đã rút / hủy"', async () => {
-    mockActions = ['hrm.leave.approve'];
+    mockActions = ['hrm.request.approve'];
     setup({
       lists: { 'leave-requests': [{ ...leave, status: 'CANCELLED' }] },
       reversals: [{ requestId: 'l1', reason: 'Nhập nhầm ngày' }],
@@ -127,7 +135,7 @@ describe('ApprovalsScreen: tải dữ liệu', () => {
   });
 
   it('đơn nhân viên đã rút/hủy không hiện trong bảng và không có trong bộ lọc trạng thái', async () => {
-    mockActions = ['hrm.leave.approve'];
+    mockActions = ['hrm.request.approve'];
     setup({
       lists: { 'leave-requests': [leave, { ...leave, id: 'l9', status: 'CANCELLED' }] },
     });
@@ -139,7 +147,7 @@ describe('ApprovalsScreen: tải dữ liệu', () => {
   });
 
   it('mặc định mở tab "Chờ tôi duyệt", không đặt bộ lọc trạng thái', async () => {
-    mockActions = ['hrm.leave.approve'];
+    mockActions = ['hrm.request.approve'];
     setup({
       lists: { 'leave-requests': [leave, { ...leave, id: 'l2', status: 'APPROVED' }] },
     });
@@ -153,7 +161,7 @@ describe('ApprovalsScreen: tải dữ liệu', () => {
   });
 
   it('?type= chọn sẵn bộ lọc loại đơn; không có thì hiện mọi loại', async () => {
-    mockActions = ['hrm.leave.approve', 'hrm.ot.approve'];
+    mockActions = ['hrm.request.approve'];
     mockType = 'ot';
     setup({ lists: { 'leave-requests': [leave], 'ot-requests': [ot] } });
     const view = render(<ApprovalsScreen />);
@@ -168,7 +176,7 @@ describe('ApprovalsScreen: tải dữ liệu', () => {
   });
 
   it('loại đơn bị 403 được bỏ qua, không báo lỗi', async () => {
-    mockActions = ['hrm.leave.approve', 'hrm.ot.approve'];
+    mockActions = ['hrm.request.approve'];
     setup({ lists: { 'leave-requests': [leave], 'ot-requests': new HrmApiError('Forbidden', 403) } });
     render(<ApprovalsScreen />);
     expect(await screen.findByText('Nghỉ việc riêng')).toBeTruthy();
@@ -178,7 +186,7 @@ describe('ApprovalsScreen: tải dữ liệu', () => {
 
 describe('ApprovalsScreen: danh sách', () => {
   it('hiện tên, mã và phòng ban của người gửi; loại đơn, thời gian, lý do, trạng thái', async () => {
-    mockActions = ['hrm.leave.approve'];
+    mockActions = ['hrm.request.approve'];
     setup({ lists: { 'leave-requests': [leave] } });
     render(<ApprovalsScreen />);
     const row = await screen.findByTestId('approval-row-l1');
@@ -191,7 +199,7 @@ describe('ApprovalsScreen: danh sách', () => {
   });
 
   it('đơn làm thêm giờ không lương có thẻ Không lương cạnh lý do', async () => {
-    mockActions = ['hrm.ot.approve'];
+    mockActions = ['hrm.request.approve'];
     setup({ lists: { 'ot-requests': [ot, { ...ot, id: 'o2', reasonName: 'Làm bù tự nguyện', description: 'Tự nguyện', paid: false }] } });
     render(<ApprovalsScreen />);
     expect(within(await screen.findByTestId('approval-row-o2')).getByText('Không lương')).toBeTruthy();
@@ -199,7 +207,7 @@ describe('ApprovalsScreen: danh sách', () => {
   });
 
   it('các tab đếm và lọc đúng theo nhóm đơn; không còn các thẻ chỉ số cũ', async () => {
-    mockActions = ['hrm.leave.approve'];
+    mockActions = ['hrm.request.approve'];
     const thisMonth = new Date().toISOString();
     setup({
       lists: {
@@ -216,6 +224,7 @@ describe('ApprovalsScreen: danh sách', () => {
       if (path === '/approval-scope') return { data: { noReportingLine: false, message: null } };
       if (path === '/request-workflows')
         return { data: [{ id: 'w9', request_kind: 'LEAVE', request_id: 'l4', instance_code: 'PE-9', status: 'WAITING', last_error: '' }] };
+      if (!path.startsWith('/leave-requests')) return { data: [] };
       return { data: [leave, { ...leave, id: 'l2', status: 'APPROVED', approvedAt: thisMonth, createdAt: thisMonth }, { ...leave, id: 'l3', status: 'REJECTED', approvedAt: '2020-01-01T00:00:00Z', createdAt: '2020-01-01T00:00:00Z' }, { ...leave, id: 'l4' }] };
     }) as never);
     render(<ApprovalsScreen />);
@@ -242,7 +251,7 @@ describe('ApprovalsScreen: danh sách', () => {
   });
 
   it('tìm theo cả lý do lẫn mô tả, không phân biệt dấu', async () => {
-    mockActions = ['hrm.leave.approve', 'hrm.ot.approve'];
+    mockActions = ['hrm.request.approve'];
     setup({ lists: { 'leave-requests': [leave], 'ot-requests': [ot] } });
     render(<ApprovalsScreen />);
     await screen.findByTestId('approval-row-o1');
@@ -255,7 +264,7 @@ describe('ApprovalsScreen: danh sách', () => {
   });
 
   it('lọc theo khoảng ngày gửi', async () => {
-    mockActions = ['hrm.leave.approve', 'hrm.ot.approve'];
+    mockActions = ['hrm.request.approve'];
     setup({ lists: { 'leave-requests': [leave], 'ot-requests': [ot] } });
     render(<ApprovalsScreen />);
     await screen.findByTestId('approval-row-o1');
@@ -267,7 +276,7 @@ describe('ApprovalsScreen: danh sách', () => {
   });
 
   it('phân trang 20 đơn mỗi trang', async () => {
-    mockActions = ['hrm.leave.approve'];
+    mockActions = ['hrm.request.approve'];
     const many = Array.from({ length: 25 }, (_, i) => ({ ...leave, id: `m${i}`, createdAt: `2026-03-${String(i + 1).padStart(2, '0')}T01:00:00.000Z` }));
     setup({ lists: { 'leave-requests': many } });
     render(<ApprovalsScreen />);
@@ -279,7 +288,7 @@ describe('ApprovalsScreen: danh sách', () => {
 
 describe('ApprovalsScreen: chi tiết đơn', () => {
   it('có khối Lý do và Mô tả riêng, thông tin nhân viên, loại đơn', async () => {
-    mockActions = ['hrm.ot.approve'];
+    mockActions = ['hrm.request.approve'];
     setup({ lists: { 'ot-requests': [{ ...ot, reasonName: 'Làm bù tự nguyện', description: 'Tự nguyện', paid: false }] } });
     render(<ApprovalsScreen />);
     const panel = await openRow('o1');
@@ -292,7 +301,7 @@ describe('ApprovalsScreen: chi tiết đơn', () => {
   });
 
   it('chưa chọn đơn thì panel hướng dẫn chọn một đơn', async () => {
-    mockActions = ['hrm.leave.approve'];
+    mockActions = ['hrm.request.approve'];
     setup({ lists: { 'leave-requests': [leave] } });
     render(<ApprovalsScreen />);
     await screen.findByTestId('approval-row-l1');
@@ -300,7 +309,7 @@ describe('ApprovalsScreen: chi tiết đơn', () => {
   });
 
   it('đơn đi theo quy trình: có liên kết Xem quy trình đúng đường dẫn và các bước thật; không hiện nút duyệt trực tiếp', async () => {
-    mockActions = ['hrm.leave.approve'];
+    mockActions = ['hrm.request.approve'];
     setup({
       lists: { 'leave-requests': [leave] },
       workflows: [{ id: 'w1', request_kind: 'LEAVE', request_id: 'l1', instance_id: 'inst-001', instance_code: 'PE-001', status: 'COMPLETED', last_error: '' }],
@@ -314,7 +323,7 @@ describe('ApprovalsScreen: chi tiết đơn', () => {
   });
 
   it('đơn duyệt trực tiếp có quy trình hai bước: người gửi rồi người duyệt đang chờ', async () => {
-    mockActions = ['hrm.leave.approve'];
+    mockActions = ['hrm.request.approve'];
     setup({ lists: { 'leave-requests': [leave] } });
     render(<ApprovalsScreen />);
     const panel = await openRow('l1');
@@ -327,7 +336,7 @@ describe('ApprovalsScreen: chi tiết đơn', () => {
 
 describe('ApprovalsScreen: ý kiến khi duyệt và từ chối', () => {
   it('phê duyệt kèm ý kiến: gọi duyệt rồi ghi ý kiến vào luồng trao đổi với quyết định APPROVE', async () => {
-    mockActions = ['hrm.leave.approve'];
+    mockActions = ['hrm.request.approve'];
     setup({ lists: { 'leave-requests': [leave] } });
     render(<ApprovalsScreen />);
     const panel = await openRow('l1');
@@ -347,7 +356,7 @@ describe('ApprovalsScreen: ý kiến khi duyệt và từ chối', () => {
   });
 
   it('phê duyệt không ý kiến thì không ghi thêm bình luận', async () => {
-    mockActions = ['hrm.leave.approve'];
+    mockActions = ['hrm.request.approve'];
     setup({ lists: { 'leave-requests': [leave] } });
     render(<ApprovalsScreen />);
     const panel = await openRow('l1');
@@ -357,22 +366,23 @@ describe('ApprovalsScreen: ý kiến khi duyệt và từ chối', () => {
     expect(posts('/request-comments')).toHaveLength(0);
   });
 
-  it('từ chối không bắt buộc ý kiến và luôn qua popup xác nhận', async () => {
-    mockActions = ['hrm.leave.approve'];
+  it('từ chối bắt buộc nhập lý do: chưa nhập thì nút bị khóa và không gửi gì', async () => {
+    mockActions = ['hrm.request.approve'];
     setup({ lists: { 'leave-requests': [leave] } });
     render(<ApprovalsScreen />);
     const panel = await openRow('l1');
-    fireEvent.click(within(panel).getByRole('button', { name: /Từ chối/ }));
+    const reject = within(panel).getByRole('button', { name: /Từ chối/ }) as HTMLButtonElement;
+    expect(reject.disabled).toBe(true);
+    fireEvent.click(reject);
+    fireEvent.change(within(panel).getByLabelText('Ý kiến xử lý'), { target: { value: '   ' } });
+    expect((within(panel).getByRole('button', { name: /Từ chối/ }) as HTMLButtonElement).disabled).toBe(true);
     expect(posts('/leave-requests/l1/reject')).toHaveLength(0);
-    const confirms = await screen.findAllByRole('button', { name: 'Từ chối' });
-    fireEvent.click(confirms[confirms.length - 1]);
-    await waitFor(() => expect(posts('/leave-requests/l1/reject')).toHaveLength(1));
-    expect(JSON.parse(String((posts('/leave-requests/l1/reject')[0][1] as RequestInit).body))).toEqual({ reason: '' });
-    expect(posts('/request-comments')).toHaveLength(0);
+    // Duyệt vẫn không cần ý kiến.
+    expect((within(panel).getByRole('button', { name: /Phê duyệt/ }) as HTMLButtonElement).disabled).toBe(false);
   });
 
   it('từ chối kèm ý kiến: ý kiến là lý do từ chối và cũng được ghi vào luồng trao đổi', async () => {
-    mockActions = ['hrm.leave.approve'];
+    mockActions = ['hrm.request.approve'];
     setup({ lists: { 'leave-requests': [leave] } });
     render(<ApprovalsScreen />);
     const panel = await openRow('l1');
@@ -402,7 +412,7 @@ describe('ApprovalsScreen: trao đổi trên đơn', () => {
   ];
 
   it('hiện luồng trao đổi, tô đậm @tên và nhãn quyết định', async () => {
-    mockActions = ['hrm.leave.approve'];
+    mockActions = ['hrm.request.approve'];
     setup({ lists: { 'leave-requests': [leave] }, comments });
     render(<ApprovalsScreen />);
     const panel = await openRow('l1');
@@ -413,8 +423,28 @@ describe('ApprovalsScreen: trao đổi trên đơn', () => {
     expect(paths().some((p) => p === '/request-comments?kind=LEAVE&requestId=l1')).toBe(true);
   });
 
+  it('mở từ chuông thông báo (?request=&comment=) thì mở đúng đơn và làm nổi tin nhắn được nhắc', async () => {
+    mockActions = ['hrm.request.approve'];
+    window.history.pushState({}, '', '/modules/hrm/approvals?request=l1&comment=c1');
+    try {
+      setup({ lists: { 'leave-requests': [leave] }, comments });
+      render(<ApprovalsScreen />);
+      const thread = await screen.findByTestId('thread-list');
+      const target = await waitFor(() => {
+        const el = thread.querySelector('[data-comment-id="c1"]');
+        expect(el?.getAttribute('data-highlighted')).toBe('true');
+        return el as HTMLElement;
+      });
+      expect(within(target).getByText('Tin nhắn từ thông báo')).toBeTruthy();
+      // Tin nhắn khác trong luồng không bị làm nổi.
+      expect(thread.querySelector('[data-comment-id="c2"]')?.getAttribute('data-highlighted')).toBeNull();
+    } finally {
+      window.history.pushState({}, '', '/');
+    }
+  });
+
   it('gõ @ gợi ý người, chọn thì chèn @Tên và gửi kèm mentionUserIds', async () => {
-    mockActions = ['hrm.leave.approve'];
+    mockActions = ['hrm.request.approve'];
     setup({
       lists: { 'leave-requests': [leave] },
       comments: [],
@@ -442,8 +472,28 @@ describe('ApprovalsScreen: trao đổi trên đơn', () => {
     await waitFor(() => expect(box.value).toBe(''));
   });
 
+  it('Enter gửi trao đổi, Shift+Enter không gửi, và gợi ý @ chỉ lấy người liên quan tới đơn đang mở', async () => {
+    mockActions = ['hrm.request.approve'];
+    setup({ lists: { 'leave-requests': [leave] }, comments: [], candidates: [] });
+    render(<ApprovalsScreen />);
+    const panel = await openRow('l1');
+    const box = (await within(panel).findByLabelText('Nội dung trao đổi')) as HTMLTextAreaElement;
+    fireEvent.change(box, { target: { value: 'Cần bổ sung giấy tờ' } });
+    fireEvent.keyDown(box, { key: 'Enter', shiftKey: true });
+    expect(posts('/request-comments')).toHaveLength(0);
+    fireEvent.keyDown(box, { key: 'Enter' });
+    await waitFor(() => expect(posts('/request-comments')).toHaveLength(1));
+    expect(JSON.parse(String((posts('/request-comments')[0][1] as RequestInit).body)).body).toBe('Cần bổ sung giấy tờ');
+    fireEvent.change(box, { target: { value: '@' } });
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(([path]) => String(path).includes('mention-candidates?kind=') && String(path).includes('requestId=l1')),
+      ).toBe(true),
+    );
+  });
+
   it('xoá @Tên khỏi nội dung thì không nhắc người đó nữa', async () => {
-    mockActions = ['hrm.leave.approve'];
+    mockActions = ['hrm.request.approve'];
     setup({ lists: { 'leave-requests': [leave] }, comments: [], candidates: [{ userId: 'u3', name: 'Lê Văn Bình', employeeCode: null, department: null }] });
     render(<ApprovalsScreen />);
     const panel = await openRow('l1');
@@ -458,7 +508,7 @@ describe('ApprovalsScreen: trao đổi trên đơn', () => {
   });
 
   it('không có quyền xem luồng trao đổi thì báo rõ, không vỡ màn hình', async () => {
-    mockActions = ['hrm.leave.approve'];
+    mockActions = ['hrm.request.approve'];
     setup({ lists: { 'leave-requests': [leave] } });
     const original = fetchMock.getMockImplementation()!;
     fetchMock.mockImplementation((async (path: string, init?: RequestInit) => {
@@ -468,5 +518,16 @@ describe('ApprovalsScreen: trao đổi trên đơn', () => {
     render(<ApprovalsScreen />);
     const panel = await openRow('l1');
     expect(await within(panel).findByText('Bạn không có quyền xem trao đổi của đơn này.')).toBeTruthy();
+  });
+  it('sắp xếp danh sách đơn theo thời gian tạo giảm dần chính xác dù định dạng chuỗi khác nhau', async () => {
+    mockActions = ['hrm.request.approve'];
+    const olderLeave = { ...leave, id: 'l-old', createdAt: 'Fri Oct 23 2026 11:00:00 GMT+0700' };
+    const newerOt = { ...ot, id: 'o-new', createdAt: '2026-10-23T07:41:00.000Z' };
+    setup({ lists: { 'leave-requests': [olderLeave], 'ot-requests': [newerOt] } });
+    render(<ApprovalsScreen />);
+    await screen.findByTestId('approval-row-o-new');
+    const rows = screen.getAllByRole('row');
+    expect(rows[1].getAttribute('data-testid')).toBe('approval-row-o-new');
+    expect(rows[2].getAttribute('data-testid')).toBe('approval-row-l-old');
   });
 });

@@ -51,13 +51,19 @@ Mỗi đơn có hai thông tin khác nhau, không được lẫn:
 
 | Cách | Ý nghĩa | Người duyệt |
 |---|---|---|
-| **Quản lý trực tiếp** (mặc định) | Đơn đi thẳng lên quản lý trực tiếp của người làm đơn (suy ra từ sơ đồ tổ chức) | Quản lý trực tiếp; người có quyền duyệt toàn bộ (`*.approve.all`, `hrm.manage`) |
+| **Duyệt trực tiếp**, nguồn **Quản lý trực tiếp** (mặc định) | Đơn đi thẳng lên quản lý trực tiếp của người làm đơn (suy ra từ sơ đồ tổ chức) | Quản lý trực tiếp (không cần quyền duyệt); người giữ chức danh dự phòng (nếu có); người có quyền duyệt trong phạm vi cấp dưới; người có `hrm.request.approve.all`, `hrm.manage` |
+| **Duyệt trực tiếp**, nguồn **Chỉ định chức danh** | Đơn đi tới người đang giữ một chức danh do quản trị chọn | Người giữ chức danh được chỉ định (không cần quyền duyệt); người giữ chức danh dự phòng (nếu có); người có quyền như trên |
 | **Theo quy trình** | Đơn khởi tạo một quy trình duyệt của Procedure Engine | Người do quy trình chỉ định theo từng bước |
 
+- Với duyệt trực tiếp, **chức danh dự phòng là tuỳ chọn** ở cả hai nguồn (có thể để trống).
+- Người được cấu hình duyệt (quản lý trực tiếp, chức danh chỉ định, chức danh dự phòng) được giao đơn nên duyệt được mà
+  không cần `hrm.request.approve`. Quyền `hrm.request.approve` chỉ mở rộng cho cấp trên gián tiếp trong phạm vi cấp dưới.
+- Lưu ở `request_procedure_bindings`: `mode` (DIRECT hoặc PROCEDURE), `direct_approver_source` (DIRECT_MANAGER hoặc POSITION),
+  `approver_position_id` (bắt buộc khi POSITION, ràng buộc ở bảng), `fallback_position_id` (dự phòng).
 - Chọn cách duyệt theo **loại đơn** (nghỉ, OT, công tác, đổi ca, giải trình công, ứng lương, đính chính hồ sơ) và có thể chọn **riêng cho từng lý do**
   của 5 loại đơn có danh mục (ví dụ lý do nghỉ không lương phải qua quy trình).
 - Lưu trong bảng cũ `request_procedure_bindings` (kind + sub_type_code = mã lý do). Không có binding thì dùng Quản lý trực tiếp.
-- Khi tạo đơn, giao diện cho người làm đơn biết trước: "Người duyệt: Quản lý trực tiếp (tên)" hoặc "Duyệt theo quy trình: tên quy trình".
+- Khi tạo đơn, giao diện cho người làm đơn biết trước: "Người duyệt: Quản lý trực tiếp (tên)", "Chức danh chỉ định (người giữ)" hoặc "Duyệt theo quy trình: tên quy trình".
 - Không tự duyệt đơn của chính mình (trừ khi tenant bật ngoại lệ, mặc định tắt).
 
 ## 5. Gỡ bỏ so với bản gộp từ nhánh Hai và leave-annual-policy
@@ -67,3 +73,20 @@ Mỗi đơn có hai thông tin khác nhau, không được lẫn:
 - Gỡ các màn "Cấu hình phép / Lý do nghỉ / Lịch cộng phép nhiều phiên bản" thay bằng một biểu mẫu chính sách phép năm và bảng lý do nghỉ.
 - Giữ nguyên: quy tắc kiểm tra ở mục 3, đồng bộ kết quả quy trình, migration `0034-hrm-offboarding-event-envelope`,
   logic cộng phép tháng và thâm niên theo ngày, đơn nghỉ không giữ chỗ phép khi gửi (kiểm tra quỹ lúc duyệt).
+
+## Tạo đơn hộ nhân viên (nghỉ phép, tăng ca, công tác)
+
+- **Phạm vi loại đơn**: chỉ nghỉ phép (`leave`), tăng ca (`ot`) và công tác (`business_trip`). Các loại khác giữ quy tắc cũ.
+- **Quyền**: `hrm.request.create.behalf` (tạo hộ trong phạm vi cấu hình), `hrm.request.create.behalf.all` và quyền cũ
+  `hrm.request.manage` (không giới hạn phạm vi), `hrm.request.proxy.configure` (cấu hình phạm vi).
+- **Phạm vi động** (bảng `hrm_schema.request_proxy_rules`, màn Thiết lập > Đơn từ & phê duyệt > Tạo đơn hộ): mỗi cấu hình
+  áp cho mọi người có quyền hoặc một tài khoản, theo loại đơn, với phạm vi `SUBORDINATES` (cấp dưới theo sơ đồ tổ chức),
+  `SAME_UNIT`, `UNIT_LIST` (gồm đơn vị con), `EMPLOYEE_LIST` hoặc `ALL`. Nhiều cấu hình cùng áp thì lấy hợp; không có cấu
+  hình nào áp thì mặc định chỉ cấp dưới.
+- **Ghi dấu**: cột `submitted_by`, `created_on_behalf`, `on_behalf_reason`, `on_behalf_by_name` trên ba bảng đơn; nhật ký
+  `REQUEST_CREATE_ON_BEHALF`; sự kiện `hrm.request.created-on-behalf` báo cho chủ đơn. Lý do tạo hộ bắt buộc (tối đa 500 ký tự).
+- **Chốt chặn nghiệp vụ** chạy theo nhân viên được tạo hộ (kỳ công, chồng đơn, quỹ phép, ca, hạn mức tháng...), không theo người tạo.
+- **Duyệt**: người tạo hộ không duyệt, từ chối hay huỷ hiệu lực đơn do chính mình tạo hộ (kể cả khi tenant cho tự duyệt);
+  rút đơn không bị chặn.
+- **API**: `GET /request-proxy/candidates?kind=&q=` (danh sách chọn), `GET/POST/PUT/DELETE /request-proxy/rules` (cấu hình);
+  route tạo đơn nhận thêm `employeeId` của nhân viên và `onBehalfReason`.

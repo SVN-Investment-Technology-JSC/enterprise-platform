@@ -97,6 +97,7 @@ integration('HRM request draft lifecycle PostgreSQL integration', () => {
     await migrate('hrm/0035-hrm-request-trip-links.sql');
     await migrate('hrm/0036-hrm-project-request-reversed.sql');
     await migrate('hrm/0054-hrm-direct-fallback-position.sql');
+    await migrate('hrm/0073-hrm-direct-approver-source.sql');
   }, 30_000);
   afterAll(async () => {
     await pool?.end();
@@ -115,6 +116,13 @@ integration('HRM request draft lifecycle PostgreSQL integration', () => {
   const ctx = (principal: { userId: string; permissions?: string[] } = { userId }) =>
     ({
       has: () => true,
+      // Tạo hộ và xem hộ theo phạm vi: bản giả chỉ cần trả cùng ngữ cảnh như getRequestContext.
+      getProxyRequestContext: async function (this: any, req: any, requested?: string) {
+        return { ...(await this.getRequestContext(req, requested)), onBehalf: undefined };
+      },
+      getRequestContextOrProxy: async function (this: any, req: any, requested?: string) {
+        return this.getRequestContext(req, requested);
+      },
       getRequestContext: async () => ({
         pool,
         tenantId,
@@ -639,7 +647,7 @@ integration('HRM request draft lifecycle PostgreSQL integration', () => {
       {
         ...ctx(),
         getContext: async (_req: Request, action: string) => {
-          expect(action).toBe('hrm.ot.approve');
+          expect(action).toBe('hrm.request.approve');
           throw { status: 403 };
         },
       } as any,

@@ -29,6 +29,7 @@ export const HRM_REASON_MIGRATIONS = [
   '0055-hrm-auto-attendance-settings',
   '0059-hrm-request-comment-attachments',
   '0064-hrm-request-quota-settings',
+  '0073-hrm-direct-approver-source',
 ] as const;
 
 export function isMissingSchemaError(error: unknown): boolean {

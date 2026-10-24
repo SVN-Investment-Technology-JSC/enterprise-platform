@@ -39,6 +39,7 @@ import {
   transportError,
 } from '@enterprise-platform/shared-ui';
 import { Button } from './button';
+import { isHiddenRequestKind } from '../hrm-approval-kinds';
 import { Input } from './input';
 import { ExtraTimeRanges } from './extra-time-ranges';
 import { extraRangesProblem, rangeLabel, type ExtraRange } from '../request-ranges';
@@ -226,9 +227,11 @@ export function requestCatalogOf(
     },
   ];
 
-  // Đơn đổi ca không dùng: ca làm việc cố định, áp dụng chung toàn công ty (đơn cũ vẫn xem được ở lịch sử và duyệt).
+  // Đổi ca, tạm ứng lương, đính chính hồ sơ không dùng (xem HIDDEN_REQUEST_KINDS).
   return requestTypes.length
-    ? requestTypes.filter((type) => type.engine !== 'SHIFT_CHANGE').flatMap<CatalogCard>((type) => {
+    ? requestTypes
+        .filter((type) => !isHiddenRequestKind(ENGINE_KIND[type.engine]))
+        .flatMap<CatalogCard>((type) => {
         if (type.engine === 'GENERIC')
           return [
             {
@@ -256,7 +259,9 @@ export function requestCatalogOf(
             ]
           : [];
       })
-    : systemCatalog.filter((c) => c.id !== 'shift_change').map((c) => ({ ...c, customType: null }));
+    : systemCatalog
+        .filter((c) => !isHiddenRequestKind(c.id))
+        .map((c) => ({ ...c, customType: null }));
 }
 
 /** 'YYYY-MM-DD' + 'HH:mm' -> 'YYYY-MM-DDTHH:mm' (rỗng khi chưa có ngày). */
@@ -349,6 +354,11 @@ export interface RequestFormData {
   readonly leaveBalances: Readonly<Record<string, LeaveBalanceView>>;
   /** Danh mục loại nghỉ và quỹ phép còn đang tải. */
   readonly loading: boolean;
+  /**
+   * Tạo hộ nhân viên khác (`employeeId` là nhân viên được tạo hộ): lý do tạo hộ gửi kèm khi gửi đơn và tên người được
+   * tạo hộ hiện trên đầu form.
+   */
+  readonly onBehalf?: { readonly reason: string; readonly employeeName: string };
 }
 
 /** Giá trị điền sẵn lúc mở form; ô vắng mặt lấy giá trị mặc định. */
@@ -411,6 +421,7 @@ export function CreateRequestForm({
 }: CreateRequestFormProps) {
   const inline = useAssistantEmbed();
   const { employeeId, profile, leaveTypes, shifts, projects, leaveBalances, loading } = data;
+  const onBehalf = data.onBehalf;
   const selectedCatalogId = kind;
   const selectedCustomType = customType;
   const selectedTypeTitle = title;
@@ -1219,6 +1230,7 @@ export function CreateRequestForm({
             employeeId: employeeId,
             draftId: data.id,
             expectedUpdatedAt: data.updatedAt,
+            ...(onBehalf ? { onBehalfReason: onBehalf.reason } : {}),
           }),
         });
       };
@@ -1938,6 +1950,17 @@ export function CreateRequestForm({
               {selectedTypeTitle}
             </h3>
           </div>
+        </div>
+      )}
+
+      {onBehalf && (
+        <div
+          role="note"
+          aria-label="Tạo đơn hộ"
+          className={`${inline ? 'mb-3' : 'mx-6 mt-4'} rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900`}
+        >
+          <strong>Bạn đang tạo đơn hộ {onBehalf.employeeName}.</strong> Đơn được gửi duyệt như đơn của nhân viên này và
+          ghi nhận bạn là người tạo. Lý do tạo hộ: {onBehalf.reason}
         </div>
       )}
 

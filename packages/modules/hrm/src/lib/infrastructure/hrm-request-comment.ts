@@ -2,10 +2,10 @@ import { randomUUID } from 'node:crypto';
 import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { createIntegrationEvent } from '@enterprise-platform/contracts-integration';
 import type { HrmRequestKind } from '@enterprise-platform/contracts-hrm';
-import { HRM_APPROVAL_PERMISSIONS } from './hrm-approval-notification.js';
+import { approvalRecipientFields, HRM_APPROVAL_PERMISSIONS } from './hrm-approval-notification.js';
 import { assignedRequestIds, participatesInProcedureOfRequest, type Queryable } from './hrm-approval-policy.js';
 import { HRM_REQUEST_TABLES } from './hrm-procedure-links.js';
-import { directApproverUserIds } from './hrm-direct-approvers.js';
+import { approvalAudienceOf } from './hrm-direct-approvers.js';
 
 export const MAX_COMMENT_LENGTH = 4000;
 export const MAX_MENTIONS = 20;
@@ -243,11 +243,44 @@ export async function listComments(
 }
 
 /** Người dùng được nhắc phải là nhân viên có tài khoản trong tenant; id lạ bị bỏ qua. */
+/**
+ * Những người có thể được nhắc tên (@) trên một đơn: chủ đơn, người tạo hộ, người được giao duyệt theo cấu hình, và
+ * người đã tham gia luồng trao đổi (đã viết hoặc đã được nhắc). Không phải mọi nhân viên của tenant.
+ */
+export async function mentionableUserIds(
+  db: Queryable,
+  tenantId: string,
+  kind: HrmRequestKind,
+  requestId: string,
+  owner: RequestOwner,
+): Promise<Set<string>> {
+  const people = new Set<string>();
+  if (owner.userId) people.add(owner.userId);
+  const submitted = await db.query(
+    `SELECT to_jsonb(r)->>'submitted_by' AS submitted_by FROM hrm_schema.${HRM_REQUEST_TABLES[kind]} r WHERE r.tenant_id = $1 AND r.id = $2`,
+    [tenantId, requestId],
+  );
+  const by = submitted.rows[0]?.submitted_by;
+  if (typeof by === 'string' && UUID.test(by)) people.add(by);
+  for (const id of (await approvalAudienceOf(db, tenantId, kind, requestId, owner.employeeId)).assigned) people.add(id);
+  const thread = await db.query(
+    `SELECT author_user_id, mention_user_ids FROM hrm_schema.request_comments
+      WHERE tenant_id = $1 AND request_kind = $2 AND request_id = $3 AND deleted_at IS NULL`,
+    [tenantId, kind, requestId],
+  );
+  for (const row of thread.rows as { author_user_id: string; mention_user_ids: string[] | null }[]) {
+    people.add(row.author_user_id);
+    for (const id of row.mention_user_ids ?? []) people.add(id);
+  }
+  return people;
+}
+
 export async function validMentions(
   db: Queryable,
   tenantId: string,
   authorUserId: string,
   ids: readonly unknown[] | undefined,
+  allowed?: ReadonlySet<string>,
 ): Promise<string[]> {
   const unique = [...new Set((ids ?? []).filter((v): v is string => typeof v === 'string' && UUID.test(v)))].filter(
     (id) => id !== authorUserId,
@@ -255,6 +288,11 @@ export async function validMentions(
   if (unique.length > MAX_MENTIONS)
     throw new BadRequestException({ code: 'HRM_INVALID_INPUT', message: `Chỉ nhắc tối đa ${MAX_MENTIONS} người một lần.` });
   if (!unique.length) return [];
+  if (allowed && unique.some((id) => !allowed.has(id)))
+    throw new BadRequestException({
+      code: 'HRM_INVALID_INPUT',
+      message: 'Chỉ nhắc được người liên quan tới đơn: chủ đơn, người duyệt và người đã tham gia trao đổi.',
+    });
   const found = await db.query(
     `SELECT user_id FROM core_schema.employees WHERE tenant_id=$1 AND user_id = ANY($2::uuid[]) AND deleted_at IS NULL`,
     [tenantId, unique],
@@ -341,8 +379,10 @@ export async function createComment(db: Queryable, input: CreateCommentInput) {
     actorUserId: input.actor.userId,
     summary,
   };
-  const approvalsLink = `/modules/hrm/approvals?request=${encodeURIComponent(input.requestId)}`;
-  const requestsLink = `/modules/hrm/requests?request=${encodeURIComponent(input.requestId)}`;
+  // `comment` cho giao diện cuộn tới và làm nổi đúng tin nhắn khi mở từ chuông thông báo.
+  const linkQuery = `request=${encodeURIComponent(input.requestId)}&comment=${encodeURIComponent(created.id)}`;
+  const approvalsLink = `/modules/hrm/approvals?${linkQuery}`;
+  const requestsLink = `/modules/hrm/requests?${linkQuery}`;
 
   if (input.mentionUserIds.length) {
     const ownerMentioned = Boolean(input.owner.userId && input.mentionUserIds.includes(input.owner.userId));
@@ -389,7 +429,7 @@ export async function createComment(db: Queryable, input: CreateCommentInput) {
   // Người duyệt: báo khi chủ đơn trả lời để người duyệt thấy phản hồi.
   if (input.owner.userId && input.owner.userId === input.actor.userId) {
     // Quản lý trực tiếp và người dự phòng có thể không giữ quyền duyệt HRM nên được báo thẳng, không chỉ theo quyền.
-    const assigned = await directApproverUserIds(db, input.tenantId, input.kind, input.requestId, input.owner.employeeId);
+    const audience = await approvalAudienceOf(db, input.tenantId, input.kind, input.requestId, input.owner.employeeId);
     await insertEvent(
       db,
       createIntegrationEvent({
@@ -399,8 +439,7 @@ export async function createComment(db: Queryable, input: CreateCommentInput) {
         version: 1,
         payload: {
           ...common,
-          approvalPermissions: [HRM_APPROVAL_PERMISSIONS[input.kind], 'hrm.manage'],
-          recipientUserIds: assigned.filter((userId) => userId !== input.actor.userId),
+          ...approvalRecipientFields(input.kind, audience, input.actor.userId),
           deepLink: approvalsLink,
         },
       }),
@@ -421,16 +460,24 @@ const fold = (value: string) =>
  * Ứng viên để nhắc tên: nhân viên có tài khoản đăng nhập, tìm theo tên (không dấu) hoặc mã, tối đa 20 người.
  * Lọc ở ứng dụng vì tenant chỉ có vài trăm nhân viên và cơ sở dữ liệu không bật tiện ích bỏ dấu.
  */
-export async function searchMentionCandidates(db: Queryable, tenantId: string, query: string, excludeUserId: string) {
+export async function searchMentionCandidates(
+  db: Queryable,
+  tenantId: string,
+  query: string,
+  excludeUserId: string,
+  allowed: ReadonlySet<string>,
+) {
+  if (!allowed.size) return [];
   const res = await db.query(
     `SELECT e.user_id, e.full_name, p.employee_code, d.department_name
        FROM core_schema.employees e
        LEFT JOIN hrm_schema.employee_profiles p ON p.tenant_id = e.tenant_id AND p.employee_id = e.id AND p.deleted_at IS NULL
        LEFT JOIN hrm_schema.employee_directory d ON d.tenant_id = e.tenant_id AND d.employee_id = e.id
       WHERE e.tenant_id = $1 AND e.deleted_at IS NULL AND e.user_id IS NOT NULL AND e.user_id <> $2
+        AND e.user_id = ANY($3::uuid[])
       ORDER BY e.full_name
       LIMIT 2000`,
-    [tenantId, excludeUserId],
+    [tenantId, excludeUserId, [...allowed]],
   );
   const needle = fold(query.trim());
   return (res.rows as { user_id: string; full_name: string; employee_code: string | null; department_name: string | null }[])

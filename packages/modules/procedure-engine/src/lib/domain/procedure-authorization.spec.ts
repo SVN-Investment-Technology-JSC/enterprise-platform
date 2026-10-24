@@ -18,7 +18,7 @@ function instance(role: 'S' | 'R' | 'E' | 'C' | 'A' | 'I'): ProcedureInstance {
     definitionVersion: 1,
     status: 'running',
     currentStepId: 'step',
-    initiatedBy: 'starter',
+    initiatedBy: role === 'S' ? 'user-1' : 'starter',
     startedAt: '2026-08-15T10:00:00.000Z',
     activity: [],
     steps: [
@@ -283,5 +283,23 @@ describe('"Toàn bộ nhân viên" ở bước S của hồ sơ', () => {
   it('nhân viên khác không thao tác được trên hồ sơ của người khởi tạo', () => {
     const auth = deriveProcedureAuthorization(withEveryone('user-1'), baseActor('user-2'));
     expect(auth.availableActions).not.toContain('complete');
+  });
+
+  it('phân công chức danh (position) ở bước S: chỉ người khởi tạo được thao tác, nhân viên khác cùng chức danh không được', () => {
+    const withPosition = (initiatedBy: string): ProcedureInstance => ({
+      ...instance('S'),
+      initiatedBy,
+      steps: [
+        {
+          ...instance('S').steps[0],
+          assignments: [{ id: 'a', role: 'S', subjectType: 'position', subjectId: 'pos-tester' }],
+        },
+      ],
+    });
+    const initiator = { ...baseActor('user-1'), positionIds: ['pos-tester'] };
+    const otherSamePosition = { ...baseActor('user-2'), positionIds: ['pos-tester'] };
+
+    expect(deriveProcedureAuthorization(withPosition('user-1'), initiator).availableActions).toContain('complete');
+    expect(deriveProcedureAuthorization(withPosition('user-1'), otherSamePosition).availableActions).not.toContain('complete');
   });
 });

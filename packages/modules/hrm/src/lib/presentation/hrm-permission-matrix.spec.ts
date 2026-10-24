@@ -36,13 +36,7 @@ const grant = (...actions: string[]) => expandTenantActions(actions);
 const ROLES = {
   self: grant(...template('employee')),
   managerApprove: grant(...template('department-head')),
-  managerAll: grant(
-    ...template('department-head'),
-    'hrm.leave.approve.all',
-    'hrm.ot.approve.all',
-    'hrm.trip.approve.all',
-    'hrm.shift.approve.all',
-  ),
+  managerAll: grant(...template('department-head'), 'hrm.request.approve.all'),
   hrNoSalary: grant(...template('hr-profile')),
   hrSalary: grant(...template('comp-ben')),
   admin: grant(...template('hrm-admin')),
@@ -313,13 +307,13 @@ describe('HRM permission matrix: approving requests (scope x role)', () => {
       deps(owner, subordinates),
     );
 
-  it('only roles with hrm.leave.approve can approve at all', () => {
-    expect(ROLES.self).not.toContain('hrm.leave.approve');
-    expect(ROLES.hrNoSalary).not.toContain('hrm.leave.approve');
-    expect(ROLES.hrSalary).not.toContain('hrm.leave.approve');
-    expect(ROLES.managerApprove).toContain('hrm.leave.approve');
-    expect(ROLES.managerApprove).not.toContain('hrm.leave.approve.all');
-    expect(ROLES.managerAll).toContain('hrm.leave.approve.all');
+  it('only roles with hrm.request.approve can approve at all', () => {
+    expect(ROLES.self).not.toContain('hrm.request.approve');
+    expect(ROLES.hrNoSalary).not.toContain('hrm.request.approve');
+    expect(ROLES.hrSalary).not.toContain('hrm.request.approve');
+    expect(ROLES.managerApprove).toContain('hrm.request.approve');
+    expect(ROLES.managerApprove).not.toContain('hrm.request.approve.all');
+    expect(ROLES.managerAll).toContain('hrm.request.approve.all');
   });
 
   it('manager with approve (not .all): in-scope request passes', async () => {
@@ -359,7 +353,7 @@ describe('HRM permission matrix: approval scope warning (no reporting line)', ()
       approveAll: false,
       noReportingLine: true,
     });
-    expect(status.message).toContain('Chưa khai báo người quản lý trực tiếp');
+    expect(status.message).toContain('Chưa khai báo "Báo cáo cho"');
   });
   it('does not warn when the approver has subordinates or approves everything', () => {
     expect(describeApprovalScope(ROLES.managerApprove, 3).noReportingLine).toBe(

@@ -26,7 +26,7 @@ const template = (key: string) => new Set(expandTenantActions([...HRM_ROLE_TEMPL
 
 describe('RBAC: quyền duyệt không còn cho đọc toàn tenant', () => {
   it('quyền duyệt không kéo theo quyền đọc đơn, chấm công, quỹ phép toàn tenant', () => {
-    for (const approve of ['hrm.leave.approve', 'hrm.ot.approve', 'hrm.trip.approve', 'hrm.profile.approve', 'hrm.attendance.approve', 'hrm.advance.approve', 'hrm.shift.approve', 'hrm.leave.approve.all', 'hrm.advance.approve.all', 'hrm.shift.approve.all']) {
+    for (const approve of ['hrm.request.approve', 'hrm.request.approve', 'hrm.request.approve', 'hrm.request.approve', 'hrm.request.approve', 'hrm.request.approve', 'hrm.request.approve', 'hrm.request.approve.all', 'hrm.request.approve.all', 'hrm.request.approve.all']) {
       const granted = new Set(expandTenantActions([approve]));
       for (const read of ['hrm.request.read', 'hrm.attendance.read', 'hrm.leave.read', 'hrm.advance.read', 'hrm.shift.read'])
         expect(granted.has(read)).toBe(false);
@@ -34,7 +34,7 @@ describe('RBAC: quyền duyệt không còn cho đọc toàn tenant', () => {
   });
 
   it('.approve.all vẫn kéo theo .approve; quản lý hồ sơ kéo theo quyền xem dữ liệu nhạy cảm', () => {
-    expect(new Set(expandTenantActions(['hrm.leave.approve.all'])).has('hrm.leave.approve')).toBe(true);
+    expect(new Set(expandTenantActions(['hrm.request.approve.all'])).has('hrm.request.approve')).toBe(true);
     const manage = new Set(expandTenantActions(['hrm.employee.manage']));
     expect(manage.has('hrm.employee.sensitive') && manage.has('hrm.employee.read')).toBe(true);
     expect(new Set(expandTenantActions(['hrm.employee.read'])).has('hrm.employee.sensitive')).toBe(false);
@@ -46,7 +46,7 @@ describe('RBAC: quyền duyệt không còn cho đọc toàn tenant', () => {
 
   it('trưởng bộ phận chỉ duyệt trong phạm vi: không có quyền đọc toàn tenant', () => {
     const head = template('department-head');
-    for (const key of ['hrm.leave.approve', 'hrm.ot.approve', 'hrm.trip.approve', 'hrm.shift.approve', 'hrm.advance.approve', 'hrm.self.read'])
+    for (const key of ['hrm.request.approve', 'hrm.request.approve', 'hrm.request.approve', 'hrm.request.approve', 'hrm.request.approve', 'hrm.self.read'])
       expect(head.has(key)).toBe(true);
     for (const key of ['hrm.request.read', 'hrm.attendance.read', 'hrm.leave.read', 'hrm.advance.read', 'hrm.shift.read', 'hrm.employee.read', 'hrm.timesheet.read', 'hrm.payroll.read'])
       expect(head.has(key)).toBe(false);
@@ -103,8 +103,8 @@ describe('danh sách đơn: người duyệt đọc theo phạm vi, chỉ khi m�
   it('tạm ứng lương', () => run(HrmSalaryController, 'listAdvanceRequests', 'advance', 'hrm.advance.read', (fa) => [req, undefined, undefined, fa]));
 
   it('quyền duyệt theo loại gồm cả duyệt trong phạm vi và duyệt toàn tenant', () => {
-    expect(approverPermissions('leave')).toEqual(['hrm.leave.approve', 'hrm.leave.approve.all']);
-    expect(approverPermissions('advance')).toEqual(['hrm.advance.approve', 'hrm.advance.approve.all']);
+    expect(approverPermissions('leave')).toEqual(['hrm.request.approve', 'hrm.request.approve.all']);
+    expect(approverPermissions('advance')).toEqual(['hrm.request.approve', 'hrm.request.approve.all']);
   });
 });
 

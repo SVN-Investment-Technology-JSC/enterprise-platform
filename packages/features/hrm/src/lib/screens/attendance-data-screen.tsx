@@ -2,7 +2,7 @@
 
 import { PageTitle } from '../ui/page-title';
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
-import { Download, Loader2, Search } from 'lucide-react';
+import { Bot, Download, Fingerprint, Loader2, Search } from 'lucide-react';
 import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import { hrmFetch } from '../hrm-api';
 import {
@@ -153,7 +153,18 @@ function EventsDrawer({
                       </div>
                       <dl className="mt-2 grid grid-cols-[110px_1fr] gap-x-3 gap-y-1">
                         <dt className="text-slate-500">Nguồn</dt>
-                        <dd>{event.source || '—'}</dd>
+                        <dd className="flex items-center gap-1.5">
+                          <span>{event.source || '—'}</span>
+                          {event.source === 'AUTO' ? (
+                            <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[10px] font-semibold text-sky-700">
+                              Tự động
+                            </span>
+                          ) : event.source ? (
+                            <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                              Tự chấm
+                            </span>
+                          ) : null}
+                        </dd>
                         <dt className="text-slate-500">Địa chỉ IP</dt>
                         <dd>{evidence.ip ?? '—'}</dd>
                         <dt className="text-slate-500">Địa điểm</dt>
@@ -416,7 +427,24 @@ export default function AttendanceDataScreen() {
                         {attendanceStatusLabel(r.status)}
                       </span>
                     </td>
-                    <td className="px-3 py-2 text-slate-600">{r.source || '—'}</td>
+                    <td className="px-3 py-2 text-slate-600">
+                      {r.source === 'AUTO' ? (
+                        <span className="inline-flex items-center gap-1 rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[11px] font-semibold text-sky-700">
+                          <Bot className="size-3" />
+                          Tự động
+                        </span>
+                      ) : r.source ? (
+                        <span
+                          className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700"
+                          title={r.source}
+                        >
+                          <Fingerprint className="size-3" />
+                          Tự chấm
+                        </span>
+                      ) : (
+                        '—'
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>

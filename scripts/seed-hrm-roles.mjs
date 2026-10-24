@@ -17,20 +17,20 @@ const HRM_ROLE_TEMPLATES = [
   {
     key: 'department-head',
     name: 'HRM - Trưởng bộ phận',
-    description: 'Duyệt đơn phép, tăng ca, công tác, đổi ca và xem chấm công.',
-    actions: ['hrm.self.read','hrm.self.request','hrm.request.read','hrm.attendance.read','hrm.leave.approve','hrm.ot.approve','hrm.trip.approve','hrm.shift.approve','hrm.custom.approve']
+    description: 'Duyệt đơn từ của cấp dưới và xem chấm công.',
+    actions: ['hrm.self.read','hrm.self.request','hrm.request.read','hrm.attendance.read','hrm.request.approve']
   },
   {
     key: 'hr-profile',
     name: 'HRM - Nhân sự (hồ sơ)',
     description: 'Quản lý hồ sơ nhân viên, liên kết tài khoản, người phụ thuộc.',
-    actions: ['hrm.employee.read','hrm.employee.manage','hrm.employee.link-account','hrm.profile.approve','hrm.profile.approve.all','hrm.dependent.read','hrm.dependent.manage']
+    actions: ['hrm.employee.read','hrm.employee.manage','hrm.employee.link-account','hrm.dependent.read','hrm.dependent.manage']
   },
   {
     key: 'timekeeper',
     name: 'HRM - Chấm công viên',
     description: 'Điều phối ca, thiết bị, chấm công, phép và bảng công.',
-    actions: ['hrm.shift.read','hrm.shift.manage','hrm.time.configure','hrm.device.manage','hrm.attendance.read','hrm.attendance.import','hrm.attendance.approve','hrm.attendance.approve.all','hrm.leave.read','hrm.leave.manage','hrm.timesheet.read','hrm.timesheet.calculate','hrm.timesheet.adjust','hrm.timesheet.export']
+    actions: ['hrm.shift.read','hrm.shift.manage','hrm.time.configure','hrm.device.manage','hrm.attendance.read','hrm.attendance.import','hrm.request.approve','hrm.leave.read','hrm.leave.manage','hrm.timesheet.read','hrm.timesheet.calculate','hrm.timesheet.adjust','hrm.timesheet.export']
   },
   {
     key: 'comp-ben',
@@ -48,7 +48,7 @@ const HRM_ROLE_TEMPLATES = [
     key: 'hr-manager',
     name: 'HRM - Trưởng phòng nhân sự',
     description: 'Toàn quyền cấu hình chính sách, duyệt mọi loại đơn toàn tenant.',
-    actions: ['hrm.policy.configure','hrm.leave.approve.all','hrm.ot.approve.all','hrm.trip.approve.all','hrm.custom.approve.all','hrm.shift.approve.all','hrm.attendance.approve.all','hrm.profile.approve.all','hrm.salary.advance.approve.all','hrm.integration.manage','hrm.manage']
+    actions: ['hrm.policy.configure','hrm.request.approve.all','hrm.salary.advance.approve.all','hrm.integration.manage','hrm.manage']
   }
 ];
 

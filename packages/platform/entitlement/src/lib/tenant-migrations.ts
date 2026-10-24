@@ -101,6 +101,10 @@ export const TENANT_CORE_MIGRATIONS: readonly TenantModuleMigration[] = [
   // Chat nội bộ của core: chạy cho mọi tenant, không phụ thuộc phân hệ nào được bật.
   { version: '0015-core-chat', path: 'tenant/core/0015-core-chat.sql' },
   { version: '0016-web-push-subscriptions', path: 'tenant/core/0016-web-push-subscriptions.sql' },
+  {
+    version: '0014-hrm-request-approve-merge',
+    path: 'tenant/core/0014-hrm-request-approve-merge.sql',
+  },
 ];
 
 export const TENANT_MODULE_MIGRATIONS: Readonly<
@@ -424,6 +428,38 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     {
       version: '0052-leave-transaction-trigger-source',
       path: 'tenant/hrm/0052-leave-transaction-trigger-source.sql',
+    },
+    {
+      version: '0069-hrm-request-on-behalf',
+      path: 'tenant/hrm/0069-hrm-request-on-behalf.sql',
+    },
+    {
+      version: '0070-hrm-attendance-site-assignments',
+      path: 'tenant/hrm/0070-hrm-attendance-site-assignments.sql',
+    },
+    {
+      version: '0071-hrm-attendance-location-settings',
+      path: 'tenant/hrm/0071-hrm-attendance-location-settings.sql',
+    },
+    {
+      version: '0072-hrm-attendance-site-unit-exclusions',
+      path: 'tenant/hrm/0072-hrm-attendance-site-unit-exclusions.sql',
+    },
+    {
+      version: '0073-hrm-direct-approver-source',
+      path: 'tenant/hrm/0073-hrm-direct-approver-source.sql',
+    },
+    {
+      version: '0074-hrm-correction-on-behalf',
+      path: 'tenant/hrm/0074-hrm-correction-on-behalf.sql',
+    },
+    {
+      version: '0075-hrm-last-resort-approver',
+      path: 'tenant/hrm/0075-hrm-last-resort-approver.sql',
+    },
+    {
+      version: '0076-hrm-request-time-rules',
+      path: 'tenant/hrm/0076-hrm-request-time-rules.sql',
     },
   ],
   inventory: [

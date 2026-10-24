@@ -74,7 +74,11 @@ export async function loadPendingApprovals(sources: readonly ApprovalSource[]): 
           };
         }),
     )
-    .sort((a, b) => b.created.localeCompare(a.created));
+    .sort((a, b) => {
+      const timeA = Date.parse(a.created) || 0;
+      const timeB = Date.parse(b.created) || 0;
+      return timeB - timeA;
+    });
   const failure = settled.find((item) => !item.ok && !(item.reason instanceof HrmApiError && item.reason.status === 403));
   return { rows, failure: failure && !failure.ok ? failure.reason : undefined };
 }
@@ -92,11 +96,19 @@ export async function recordApprovalDecision(r: Row, decision: string, note: str
   }
 }
 
-/** Duyệt hoặc từ chối trực tiếp đơn không đi qua quy trình. */
-export async function decideApproval(r: Row, target: 'approve' | 'reject', note: string): Promise<void> {
+/**
+ * Duyệt hoặc từ chối trực tiếp đơn không đi qua quy trình. Từ chối bắt buộc có lý do; `quick` chỉ dành cho nút từ chối nhanh
+ * ở Bàn làm việc (không có ô nhập ý kiến).
+ */
+export async function decideApproval(
+  r: Row,
+  target: 'approve' | 'reject',
+  note: string,
+  quick = false,
+): Promise<void> {
   await hrmFetch(`/${r.source.path}/${r.id}/${target}`, {
     method: 'POST',
-    body: JSON.stringify(target === 'reject' ? { reason: note } : {}),
+    body: JSON.stringify(target === 'reject' ? { reason: note, ...(quick ? { quick: true } : {}) } : {}),
   });
   await recordApprovalDecision(r, target === 'approve' ? 'APPROVE' : 'REJECT', note);
 }

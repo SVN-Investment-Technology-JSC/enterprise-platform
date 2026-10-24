@@ -712,9 +712,16 @@ export const DEFAULT_NOTIFICATION_POLICIES: readonly NotificationPolicy[] = [
     module: 'hrm',
     category: 'approval',
     priority: 'actionable',
-    // Người duyệt đổi theo loại đơn (hrm.leave.approve, hrm.ot.approve…), nên quyền đi cùng sự kiện.
-    // Cộng thêm quản lý trực tiếp và người dự phòng được giao đơn (có thể không giữ quyền duyệt HRM).
-    recipients: { kind: 'permissions-in-payload', field: 'approvalPermissions', userFields: ['recipientUserIds'] },
+    // Quyền duyệt (hrm.request.approve) đi cùng sự kiện để người nhận được chọn đúng theo quyền.
+    // Cộng thêm quản lý trực tiếp và người dự phòng được giao đơn (có thể không giữ quyền duyệt HRM), và cấp trên giữ quyền duyệt
+    // thường (chỉ duyệt được đơn trong phạm vi cấp dưới nên chỉ báo khi đơn thuộc phạm vi đó).
+    recipients: {
+      kind: 'permissions-in-payload',
+      field: 'approvalPermissions',
+      userFields: ['recipientUserIds'],
+      scopedPermissionsField: 'scopePermissions',
+      scopedUserField: 'scopeUserIds',
+    },
     actorField: 'actorUserId',
     template: ({ payload, event }) => ({
       title: 'Có yêu cầu cần phê duyệt',
@@ -758,11 +765,32 @@ export const DEFAULT_NOTIFICATION_POLICIES: readonly NotificationPolicy[] = [
     }),
   }),
   directPolicy({
+    eventType: 'hrm.request.created-on-behalf',
+    module: 'hrm',
+    category: 'request-comment',
+    priority: 'actionable',
+    recipients: { kind: 'payload', fields: ['recipientUserIds'] },
+    actorField: 'actorUserId',
+    template: ({ payload }) => ({
+      title: 'Có đơn được tạo hộ bạn',
+      body: text(payload, 'summary', 'Một đơn nhân sự đã được tạo hộ bạn.'),
+      deepLink: text(payload, 'deepLink', '/modules/hrm/requests'),
+      sourceType: 'hrm_request_on_behalf',
+      sourceId: id(payload, 'requestId'),
+    }),
+  }),
+  directPolicy({
     eventType: 'hrm.request.comment.to-approvers',
     module: 'hrm',
     category: 'request-comment',
     priority: 'actionable',
-    recipients: { kind: 'permissions-in-payload', field: 'approvalPermissions', userFields: ['recipientUserIds'] },
+    recipients: {
+      kind: 'permissions-in-payload',
+      field: 'approvalPermissions',
+      userFields: ['recipientUserIds'],
+      scopedPermissionsField: 'scopePermissions',
+      scopedUserField: 'scopeUserIds',
+    },
     actorField: 'actorUserId',
     template: ({ payload }) => ({
       title: 'Người gửi đã phản hồi trên đơn chờ duyệt',

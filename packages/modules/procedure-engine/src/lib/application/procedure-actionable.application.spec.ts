@@ -88,7 +88,7 @@ function leaveInput(role: ProcedureRaciRole = 'A'): CreateProcedureDefinitionReq
   };
 }
 
-async function startLeave(role: ProcedureRaciRole = 'A') {
+async function startLeave(role: ProcedureRaciRole = 'A', autoCompleteInitiatorStep = true) {
   const application = new ProcedureEngineApplication(
     new InMemoryProcedureStore(),
     new FixedClock(),
@@ -109,7 +109,7 @@ async function startLeave(role: ProcedureRaciRole = 'A') {
     initiatedByName: 'Nhân viên',
     idempotencyKey: 'leave-1',
     expectedDefinitionSnapshot: definition,
-    autoCompleteInitiatorStep: true,
+    autoCompleteInitiatorStep,
   });
   return { application, instanceId: created.id };
 }
@@ -138,6 +138,15 @@ describe('getActionableInstanceIdsForService - hồ sơ người này đang xử
     const { application } = await startLeave();
     const many = Array.from({ length: 101 }, (_, index) => `id-${index}`);
     await expect(application.getActionableInstanceIdsForService(TENANT, backup.userId, many)).rejects.toThrow(/100/);
+  });
+
+  it('đơn đang ở bước S (nộp lại): không ai, kể cả người khởi tạo, bị đưa vào hàng chờ duyệt', async () => {
+    const { application, instanceId } = await startLeave('A', false);
+    const ids = [instanceId];
+    expect(await application.getActionableInstanceIdsForService(TENANT, requester.userId, ids)).toEqual([]);
+    expect(await application.getActionableInstanceIdsForService(TENANT, manager.userId, ids)).toEqual([]);
+    expect(await application.getActionableInstanceIdsForService(TENANT, backup.userId, ids)).toEqual([]);
+    expect(await application.getActionableInstanceIdsForService(TENANT, outsider.userId, ids)).toEqual([]);
   });
 
   it('vai R: người dự phòng không được giao khi đã có quản lý nên không xử lý được', async () => {

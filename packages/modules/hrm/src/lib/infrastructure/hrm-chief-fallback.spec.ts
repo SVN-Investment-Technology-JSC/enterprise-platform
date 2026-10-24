@@ -3,7 +3,6 @@ import {
   chiefFor,
   employeesWithoutManager,
   findChiefs,
-  isChiefPositionName,
   type OrgFacts,
   type OrgHolder,
 } from './hrm-chief-fallback.js';
@@ -43,18 +42,10 @@ function facts(overrides: Partial<OrgFacts> = {}): OrgFacts {
       userId: `u-${id}`,
       inactive: false,
     })),
+    lastResortPositionId: 'p-ceo',
     ...overrides,
   };
 }
-
-describe('isChiefPositionName', () => {
-  it('nhận Tổng giám đốc, kể cả chức danh kiêm nhiệm, và loại Phó Tổng giám đốc', () => {
-    expect(isChiefPositionName('Tổng Giám đốc')).toBe(true);
-    expect(isChiefPositionName('Chủ tịch Hội đồng Quản trị, Tổng Giám đốc')).toBe(true);
-    expect(isChiefPositionName('Phó Tổng Giám đốc')).toBe(false);
-    expect(isChiefPositionName('Giám đốc Kỹ thuật')).toBe(false);
-  });
-});
 
 describe('employeesWithoutManager', () => {
   it('chỉ trả người không có Báo cáo cho dẫn tới người giữ chức danh ', () => {
@@ -104,7 +95,21 @@ describe('chiefFor / findChiefs', () => {
     expect(chiefFor(facts(), 'ceo')).toBeNull();
   });
 
-  it('có hai Tổng giám đốc thì mỗi người là người duyệt dự phòng của người kia', () => {
+  it('chưa chọn chức danh dự phòng cuối thì không có bậc dự phòng này', () => {
+    const off = facts({ lastResortPositionId: null });
+    expect(findChiefs(off)).toEqual([]);
+    expect(chiefFor(off, 'front')).toBeNull();
+    expect(findChiefs(facts({ lastResortPositionId: undefined }))).toEqual([]);
+  });
+
+  it('chức danh dự phòng cuối là chức danh được chọn, không phụ thuộc tên', () => {
+    const chosen = facts({ lastResortPositionId: 'p-head' });
+    expect(findChiefs(chosen).map((c) => c.employeeId)).toEqual(['head']);
+    expect(chiefFor(chosen, 'front')?.employeeId).toBe('head');
+    expect(chiefFor(chosen, 'head')).toBeNull();
+  });
+
+  it('có hai người giữ chức danh dự phòng cuối thì mỗi người là người duyệt dự phòng của người kia', () => {
     const two = facts({
       holders: [...facts().holders, holder('ceo2', 'p-ceo', { isPrimary: false })],
     });

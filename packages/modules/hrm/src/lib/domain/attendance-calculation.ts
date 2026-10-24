@@ -20,7 +20,10 @@ export function calculateAttendance(
   punches: readonly Punch[],
   shift: ShiftWindow | null,
 ) {
-  const events = [...punches].sort(
+  // Khi ngày có sự kiện chấm công tự động (AUTO), sự kiện tự động đè lên chấm công thực tế.
+  const hasAuto = punches.some((p) => p.auto);
+  const effectivePunches = hasAuto ? punches.filter((p) => p.auto) : punches;
+  const events = [...effectivePunches].sort(
     (a, b) => Date.parse(a.at) - Date.parse(b.at) || a.id.localeCompare(b.id),
   );
   const anomalies = new Set<string>();

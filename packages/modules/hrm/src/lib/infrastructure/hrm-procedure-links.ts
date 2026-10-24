@@ -80,6 +80,9 @@ export async function saveHrmProcedureBinding(
     subTypeCode?: string;
     mode: 'DIRECT' | 'PROCEDURE';
     definitionId?: string;
+    /** Chỉ dùng khi mode là DIRECT; bỏ trống là DIRECT_MANAGER. */
+    directApprover?: 'DIRECT_MANAGER' | 'POSITION';
+    approverPositionId?: string | null;
     fallbackPositionId?: string | null;
     actorId: string;
   },
@@ -120,10 +123,17 @@ export async function saveHrmProcedureBinding(
     input.mode === 'DIRECT' && input.fallbackPositionId?.trim()
       ? requireUuid(input.fallbackPositionId.trim(), 'Chức danh dự phòng')
       : null;
+  // Nguồn người duyệt chỉ có nghĩa ở DIRECT; PROCEDURE luôn lưu DIRECT_MANAGER/null để thoả ràng buộc của bảng.
+  const directApprover =
+    input.mode === 'DIRECT' && input.directApprover === 'POSITION' ? 'POSITION' : 'DIRECT_MANAGER';
+  const approverPositionId =
+    directApprover === 'POSITION'
+      ? requireUuid(input.approverPositionId?.trim(), 'Chức danh duyệt')
+      : null;
   const row = (
     await db.query(
-      `INSERT INTO hrm_schema.request_procedure_bindings(id,tenant_id,request_kind,sub_type_code,mode,procedure_definition_id,fallback_position_id,updated_by)
-    VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(id) DO UPDATE SET mode=$5,procedure_definition_id=$6,fallback_position_id=$7,updated_by=$8,
+      `INSERT INTO hrm_schema.request_procedure_bindings(id,tenant_id,request_kind,sub_type_code,mode,procedure_definition_id,fallback_position_id,direct_approver_source,approver_position_id,updated_by)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT(id) DO UPDATE SET mode=$5,procedure_definition_id=$6,fallback_position_id=$7,direct_approver_source=$8,approver_position_id=$9,updated_by=$10,
       is_active=true,configuration_status='ACTIVE',updated_at=now() RETURNING *`,
       [
         id,
@@ -133,6 +143,8 @@ export async function saveHrmProcedureBinding(
         input.mode,
         input.mode === 'PROCEDURE' ? input.definitionId : null,
         fallbackPositionId,
+        directApprover,
+        approverPositionId,
         input.actorId,
       ],
     )

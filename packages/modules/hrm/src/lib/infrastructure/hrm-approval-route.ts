@@ -2,6 +2,7 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import type { PoolClient } from 'pg';
 import type {
   ApprovalRouteConfigItem,
+  DirectApproverSource,
   ApprovalRouteMode,
   ApprovalRoutePreview,
   HrmRequestKind,
@@ -13,6 +14,7 @@ import {
   normalizeHrmRequestKind,
   saveHrmProcedureBinding,
 } from './hrm-procedure-links.js';
+import { loadOrgFacts } from './hrm-chief-fallback.js';
 import { loadDirectManagerRef } from './hrm-personnel-decisions.js';
 import {
   REQUEST_REASON_KIND_TO_REQUEST_KIND,
@@ -69,6 +71,9 @@ export interface ApprovalBindingRow {
   mode: string;
   procedure_definition_id: string | null;
   fallback_position_id?: string | null;
+  /** DIRECT_MANAGER (mặc định) hoặc POSITION; chỉ có nghĩa khi mode là DIRECT. */
+  direct_approver_source?: string | null;
+  approver_position_id?: string | null;
   configuration_status?: string | null;
 }
 
@@ -89,7 +94,10 @@ export interface ApprovalPositionOptionRow {
 export interface ApprovalRouteRows {
   bindings: readonly ApprovalBindingRow[];
   reasons: readonly ApprovalReasonRow[];
+  /** Chức danh để chọn người duyệt: chỉ chức danh đang có người giữ quyền duyệt đơn. */
   positions?: readonly ApprovalPositionOptionRow[];
+  /** Mọi chức danh, chỉ dùng tra tên chức danh đã gắn vào cấu hình (kể cả khi không còn trong danh sách chọn). */
+  allPositions?: readonly ApprovalPositionOptionRow[];
 }
 
 export interface SelectedApprovalBinding {
@@ -133,6 +141,16 @@ function routeMode(binding: ApprovalBindingRow | null): ApprovalRouteMode {
   return binding?.mode === 'PROCEDURE' ? 'PROCEDURE' : 'DIRECT';
 }
 
+/** Nguồn người duyệt của cấu hình DIRECT: POSITION chỉ khi có chức danh được chỉ định, còn lại là quản lý trực tiếp. */
+export function directApproverOf(
+  binding: ApprovalBindingRow | null,
+  mode: ApprovalRouteMode,
+): DirectApproverSource {
+  return mode === 'DIRECT' && binding?.direct_approver_source === 'POSITION' && binding.approver_position_id
+    ? 'POSITION'
+    : 'DIRECT_MANAGER';
+}
+
 /** Id quy trình đang được dùng bởi các cấu hình PROCEDURE còn hiệu lực (để tra tên một lần). */
 export function procedureIdsInUse(rows: ApprovalRouteRows): string[] {
   return [
@@ -162,11 +180,17 @@ export function buildApprovalRouteItems(
     const id = binding.fallback_position_id;
     return { id, name: positionNames.get(id) ?? null };
   };
+  const approverOf = (binding: ApprovalBindingRow | null, mode: ApprovalRouteMode) => {
+    const source = directApproverOf(binding, mode);
+    const id = source === 'POSITION' ? (binding?.approver_position_id ?? null) : null;
+    return { source, id, name: id ? (positionNames.get(id) ?? null) : null };
+  };
   const items: ApprovalRouteConfigItem[] = [];
   for (const { kind, label } of APPROVAL_ROUTE_KINDS) {
     const general = selectApprovalBinding(rows.bindings, kind);
     const generalMode = routeMode(general.binding);
     const generalFallback = fallbackOf(general.binding, generalMode);
+    const generalApprover = approverOf(general.binding, generalMode);
     items.push({
       requestKind: kind,
       reasonId: null,
@@ -179,6 +203,9 @@ export function buildApprovalRouteItems(
           ? (general.binding?.procedure_definition_id ?? null)
           : null,
       procedureName: nameOf(general.binding, generalMode),
+      directApprover: generalApprover.source,
+      approverPositionId: generalApprover.id,
+      approverPositionName: generalApprover.name,
       fallbackPositionId: generalFallback.id,
       fallbackPositionName: generalFallback.name,
       inherited: false,
@@ -190,6 +217,7 @@ export function buildApprovalRouteItems(
       const effective = own.specific ? own : general;
       const mode = routeMode(effective.binding);
       const effectiveFallback = fallbackOf(effective.binding, mode);
+      const effectiveApprover = approverOf(effective.binding, mode);
       items.push({
         requestKind: kind,
         reasonId: reason.id,
@@ -202,6 +230,9 @@ export function buildApprovalRouteItems(
             ? (effective.binding?.procedure_definition_id ?? null)
             : null,
         procedureName: nameOf(effective.binding, mode),
+        directApprover: effectiveApprover.source,
+        approverPositionId: effectiveApprover.id,
+        approverPositionName: effectiveApprover.name,
         fallbackPositionId: effectiveFallback.id,
         fallbackPositionName: effectiveFallback.name,
         inherited: !own.specific,
@@ -219,7 +250,8 @@ export async function loadApprovalRouteRows(
   tenantId: string,
 ): Promise<ApprovalRouteRows> {
   const bindings = await db.query(
-    `SELECT id,request_kind,sub_type_code,mode,procedure_definition_id,fallback_position_id,configuration_status
+    `SELECT id,request_kind,sub_type_code,mode,procedure_definition_id,fallback_position_id,
+            direct_approver_source,approver_position_id,configuration_status
        FROM hrm_schema.request_procedure_bindings
       WHERE tenant_id=$1 AND is_active
       ORDER BY created_at,id`,
@@ -244,12 +276,40 @@ export async function loadApprovalRouteRows(
       ORDER BY sort_order,name`,
     [tenantId],
   );
-  // Danh sách chức danh để chọn duyệt dự phòng.
+  // Chức danh để chọn người duyệt: chỉ chức danh đang có người giữ quyền duyệt đơn (cùng cách tính với
+  // thông báo: vai trò tenant-admin, quyền theo vai trò hoặc quyền cấp riêng).
   const positions = await db.query(
-    `SELECT id, COALESCE(code, '') AS code, name
-       FROM core_schema.organization_nodes
-      WHERE category = 'position' AND deleted_at IS NULL
-      ORDER BY name`,
+    `SELECT n.id, COALESCE(n.code, '') AS code, n.name
+       FROM core_schema.organization_nodes n
+      WHERE n.category = 'position' AND n.deleted_at IS NULL
+        AND EXISTS (
+          SELECT 1
+            FROM core_schema.organization_node_assignments a
+            JOIN core_schema.users u ON u.id = a.user_id AND u.status = 'active' AND u.is_active = true
+           WHERE a.node_id = n.id AND a.deleted_at IS NULL AND a.status = 'active'
+             AND (a.end_date IS NULL OR a.end_date >= (now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date)
+             AND (
+               EXISTS (
+                 SELECT 1
+                   FROM core_schema.user_roles ur
+                   JOIN core_schema.roles r ON r.id = ur.role_id
+                   LEFT JOIN core_schema.role_permissions rp ON rp.role_id = r.id
+                   LEFT JOIN core_schema.permission_actions pa ON pa.permission_id = rp.permission_id
+                  WHERE ur.user_id = u.id
+                    AND (r.key = 'tenant-admin' OR pa.action_key = ANY($1::text[]))
+               )
+               OR EXISTS (
+                 SELECT 1 FROM core_schema.user_permission_grants g
+                  WHERE g.user_id = u.id AND g.action_key = ANY($1::text[])
+               )
+             )
+        )
+      ORDER BY n.name`,
+    [['hrm.request.approve', 'hrm.request.approve.all', 'hrm.manage']],
+  );
+  const allPositions = await db.query(
+    `SELECT id, COALESCE(code, '') AS code, name FROM core_schema.organization_nodes
+      WHERE category = 'position' AND deleted_at IS NULL`,
   );
   const reasons: ApprovalReasonRow[] = [
     ...customTypes.rows.map(
@@ -284,6 +344,11 @@ export async function loadApprovalRouteRows(
     bindings: bindings.rows as ApprovalBindingRow[],
     reasons,
     positions: (positions.rows ?? []).map((row: { id: string; code?: string; name: string }) => ({
+      id: row.id,
+      code: row.code ?? '',
+      name: row.name,
+    })),
+    allPositions: (allPositions.rows ?? []).map((row: { id: string; code?: string; name: string }) => ({
       id: row.id,
       code: row.code ?? '',
       name: row.name,
@@ -364,6 +429,9 @@ export interface ParsedApprovalRoute {
   reasonCode: string | null;
   mode: ApprovalRouteMode | 'INHERIT';
   definitionId: string | null;
+  /** Nguồn người duyệt khi DIRECT (DIRECT_MANAGER nếu không chọn). */
+  directApprover: DirectApproverSource;
+  approverPositionId: string | null;
   fallbackPositionId: string | null;
 }
 
@@ -403,7 +471,21 @@ export function parseSetApprovalRoute(body: unknown): ParsedApprovalRoute {
     definitionId = requireUuid(input.procedureDefinitionId, 'Quy trình');
   }
   let fallbackPositionId: string | null = null;
+  let directApprover: DirectApproverSource = 'DIRECT_MANAGER';
+  let approverPositionId: string | null = null;
   if (mode === 'DIRECT') {
+    if (
+      input.directApprover != null &&
+      input.directApprover !== 'DIRECT_MANAGER' &&
+      input.directApprover !== 'POSITION'
+    )
+      throw new BadRequestException('Nguồn người duyệt không hợp lệ');
+    if (input.directApprover === 'POSITION') {
+      directApprover = 'POSITION';
+      if (typeof input.approverPositionId !== 'string' || !input.approverPositionId.trim())
+        throw new BadRequestException('Cần chọn chức danh duyệt khi chỉ định chức danh');
+      approverPositionId = requireUuid(input.approverPositionId.trim(), 'Chức danh duyệt');
+    }
     if (
       typeof input.fallbackPositionId === 'string' &&
       input.fallbackPositionId.trim()
@@ -414,7 +496,15 @@ export function parseSetApprovalRoute(body: unknown): ParsedApprovalRoute {
       );
     }
   }
-  return { kind, reasonCode: code, mode, definitionId, fallbackPositionId };
+  return {
+    kind,
+    reasonCode: code,
+    mode,
+    definitionId,
+    directApprover,
+    approverPositionId,
+    fallbackPositionId,
+  };
 }
 
 /**
@@ -521,12 +611,27 @@ export async function applyApprovalRoute(
     );
     return [];
   }
+  if (route.mode === 'DIRECT') {
+    for (const [positionId, label] of [
+      [route.approverPositionId, 'Chức danh duyệt'],
+      [route.fallbackPositionId, 'Chức danh dự phòng'],
+    ] as const) {
+      if (!positionId) continue;
+      const exists = await db.query(
+        `SELECT 1 FROM core_schema.organization_nodes WHERE id=$1 AND category='position' AND deleted_at IS NULL LIMIT 1`,
+        [positionId],
+      );
+      if (!exists.rows.length) throw new NotFoundException(`${label} không tồn tại hoặc đã bị xoá`);
+    }
+  }
   const saved = (await saveHrmProcedureBinding(db, {
     tenantId,
     kind: route.kind,
     subTypeCode: reasonCode ?? undefined,
     mode: route.mode,
     definitionId: route.definitionId ?? undefined,
+    directApprover: route.directApprover,
+    approverPositionId: route.approverPositionId ?? undefined,
     fallbackPositionId: route.fallbackPositionId ?? undefined,
     actorId,
   })) as { warnings?: string[] };
@@ -567,7 +672,8 @@ export async function previewApprovalRoute(
   }
   const rows = (
     await db.query(
-      `SELECT id,request_kind,sub_type_code,mode,procedure_definition_id,fallback_position_id,configuration_status
+      `SELECT id,request_kind,sub_type_code,mode,procedure_definition_id,fallback_position_id,
+              direct_approver_source,approver_position_id,configuration_status
          FROM hrm_schema.request_procedure_bindings
         WHERE tenant_id=$1 AND request_kind=$2 AND is_active AND (sub_type_code IS NULL OR sub_type_code=$3)
         ORDER BY created_at,id`,
@@ -603,22 +709,46 @@ export async function previewApprovalRoute(
       ...(note ? { note } : {}),
     };
   }
-  const manager = await loadDirectManagerRef(db, tenantId, employeeId);
-  let fallbackPosition: { positionId: string; positionName: string } | null = null;
-  if (selected.binding?.fallback_position_id) {
+  const positionRef = async (positionId: string | null | undefined) => {
+    if (!positionId) return null;
     const posRes = await db.query(
       `SELECT id, name FROM core_schema.organization_nodes WHERE id=$1 AND category='position' AND deleted_at IS NULL LIMIT 1`,
-      [selected.binding.fallback_position_id],
+      [positionId],
     );
-    if (posRes.rows[0]) {
-      fallbackPosition = {
-        positionId: posRes.rows[0].id,
-        positionName: posRes.rows[0].name,
-      };
-    }
+    return posRes.rows[0]
+      ? { positionId: posRes.rows[0].id as string, positionName: posRes.rows[0].name as string }
+      : null;
+  };
+  const directApprover = directApproverOf(selected.binding, mode);
+  const fallbackPosition = await positionRef(selected.binding?.fallback_position_id);
+  if (directApprover === 'POSITION') {
+    const position = await positionRef(selected.binding?.approver_position_id);
+    const facts = position ? await loadOrgFacts(db, tenantId) : null;
+    const holders = facts
+      ? facts.holders
+          .filter((h) => h.positionId === position?.positionId && !h.inactive && h.employeeId !== employeeId)
+          .map((h) => ({ employeeId: h.employeeId, fullName: h.name }))
+      : [];
+    const fallbackText = fallbackPosition ? ` hoặc người giữ chức danh ${fallbackPosition.positionName}` : '';
+    return {
+      mode,
+      directApprover,
+      approverPosition: position ? { ...position, holders } : null,
+      fallbackPosition,
+      selfApprovalBlocked,
+      note: conflictNote
+        ? conflictNote
+        : !position
+          ? 'Chức danh được chỉ định duyệt không còn tồn tại; quản trị viên cần chọn lại trước khi gửi đơn.'
+          : holders.length
+            ? `Đơn do người giữ chức danh ${position.positionName} (${holders.map((h) => h.fullName).join(', ')})${fallbackText} duyệt.`
+            : `Chức danh ${position.positionName} hiện chưa có người giữ${fallbackText ? `; đơn do${fallbackText.replace(' hoặc', '')}` : ''} hoặc người có quyền duyệt toàn bộ xử lý.`,
+    };
   }
+  const manager = await loadDirectManagerRef(db, tenantId, employeeId);
   return {
     mode,
+    directApprover,
     directManager: manager
       ? {
           employeeId: manager.employeeId,

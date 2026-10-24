@@ -1,12 +1,10 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Clock, Loader2, LogIn, LogOut, RefreshCw, X } from 'lucide-react';
+import { CheckCircle2, Loader2, RefreshCw, X } from 'lucide-react';
 import { Popconfirm } from '@enterprise-platform/shared-ui';
-import { hrmFetch } from '../../hrm-api';
-import { acquirePosition } from '../../hrm-geolocation';
 import { isPendingStatus } from '../../hrm-approval-kinds';
-import { dashboardPlan, formatShiftWindow } from '../../hrm-dashboard-access';
+import { dashboardPlan } from '../../hrm-dashboard-access';
 import { HrmPermissionsProvider, useHrmPermissions } from '../../hrm-permissions';
 import {
   isTerminalProcedureStatus,
@@ -24,21 +22,22 @@ import { kindChip, rowKindLabel, type Row } from '../approvals/approvals-model';
 import { Button } from '../button';
 import { useProcedureProgress } from '../procedure-progress-panel';
 import { Sheet, SheetClose, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '../sheet';
+import { OnBehalfName } from '../on-behalf-name';
 
 const CARD = 'rounded-2xl border border-slate-200/70 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]';
 /** Số đơn hiển thị ngay trên thẻ; phần còn lại xem ở trang Đơn từ cần xử lý. */
 const VISIBLE_ROWS = 5;
-
-type TimeContext = {
-  timezone: string;
-  requireGps: boolean;
-  maxGpsAccuracyMeters?: number;
-  shift: { window: { start: string; end: string } } | null;
-};
+/**
+ * Đơn đi qua Procedure: thao tác chỉ ghi vào Procedure, còn trạng thái đơn HRM do hộp thư bền áp dụng sau đó vài giây
+ * ("No HRM status/effect is written here"). Tải lại ngay sau khi duyệt vẫn thấy đơn ở trạng thái chờ, nên người dùng phải
+ * bấm lần nữa mới hết. Vì vậy đơn vừa xử lý được ẩn tạm và danh sách được tải lại vài lần cho tới khi HRM đồng bộ xong.
+ */
+const SYNC_HIDE_MS = 20_000;
+const SYNC_RELOAD_MS = [1_500, 4_000, 8_000, 20_500] as const;
 
 /**
- * Khu vực "Duyệt đơn và chấm công nhanh" đặt ngoài Dashboard của Tenant Portal. Tự lấy quyền HRM của người dùng nên không
- * hiện gì khi tenant không dùng HRM hoặc người dùng không có quyền chấm công lẫn duyệt đơn.
+ * Khu vực "Duyệt đơn nhanh" đặt ngoài Dashboard của Tenant Portal. Tự lấy quyền HRM của người dùng nên không
+ * hiện gì khi tenant không dùng HRM hoặc người dùng không có quyền duyệt đơn.
  */
 export function HrmQuickWork() {
   return (
@@ -53,109 +52,9 @@ function QuickWorkContent() {
   const actionKey = permissions.actions.join('|');
   const plan = useMemo(() => dashboardPlan(actionKey ? actionKey.split('|') : []), [actionKey]);
   if (permissions.loading || permissions.error) return null;
-  if (!plan.canPunch && plan.approvals.length === 0) return null;
+  if (plan.approvals.length === 0) return null;
   return (
-    <section aria-label="Duyệt đơn và chấm công nhanh" className="grid items-start gap-4 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
-      {plan.canPunch ? <QuickPunch /> : null}
-      {plan.approvals.length > 0 ? <QuickApprovals sources={plan.approvals} className={plan.canPunch ? '' : 'lg:col-span-2'} /> : null}
-    </section>
-  );
-}
-
-function QuickPunch() {
-  const [context, setContext] = useState<TimeContext | null>(null);
-  const [contextError, setContextError] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState('');
-  const [error, setError] = useState('');
-  const eventKey = useRef<string | null>(null);
-
-  useEffect(() => {
-    let active = true;
-    hrmFetch<{ data: TimeContext }>('/my-attendance-context').then(
-      (res) => active && setContext(res.data),
-      (e: unknown) => active && setContextError(e instanceof Error ? e.message : 'Không tải được ca làm việc'),
-    );
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  async function punch(kind: 'check-in' | 'check-out') {
-    if (busy) return;
-    setBusy(true);
-    setError('');
-    setMessage('');
-    try {
-      let position: Record<string, number> = {};
-      if (context?.requireGps) {
-        setMessage('Đang xác định vị trí…');
-        const gps = await acquirePosition({
-          maxAccuracy: context.maxGpsAccuracyMeters ?? 100,
-          onProgress: (fix) => setMessage(`Đang xác định vị trí… hiện ±${Math.round(fix.accuracy)} m`),
-        });
-        position = { latitude: gps.latitude, longitude: gps.longitude, accuracy: gps.accuracy };
-        setMessage('');
-      }
-      eventKey.current ||= crypto.randomUUID();
-      await hrmFetch(`/attendance/${kind}`, {
-        method: 'POST',
-        body: JSON.stringify({ ...position, externalEventId: eventKey.current }),
-      });
-      eventKey.current = null;
-      const at = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
-      setMessage(kind === 'check-in' ? `Đã ghi nhận lượt vào lúc ${at}.` : `Đã ghi nhận lượt ra lúc ${at}.`);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Không ghi nhận được chấm công');
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  const shiftText = context
-    ? (formatShiftWindow(context.shift?.window, context.timezone) ?? 'Hôm nay chưa được phân ca')
-    : contextError
-      ? 'Không xác định'
-      : 'Đang tải…';
-  return (
-    <section aria-label="Chấm công nhanh" className={`${CARD} flex flex-col gap-3 p-5`}>
-      <div className="flex items-center justify-between">
-        <h2 className="text-[16px] font-bold text-emerald-700">Chấm công nhanh</h2>
-        <Clock className="size-4 text-emerald-600" aria-hidden />
-      </div>
-      <div className="rounded-xl border border-slate-200/80 p-3.5">
-        <p className="text-[13px] text-slate-500">Ca hôm nay</p>
-        <p className="mt-0.5 font-mono text-[16px] font-bold text-slate-900">{shiftText}</p>
-        {context?.requireGps ? <p className="mt-1 text-[12px] text-slate-500">Cần cấp quyền vị trí (GPS) khi chấm công.</p> : null}
-      </div>
-      <div className="grid grid-cols-2 gap-2">
-        <Button disabled={busy} onClick={() => void punch('check-in')} className="h-10 gap-1.5 bg-emerald-600 text-white hover:bg-emerald-700">
-          {busy ? <Loader2 className="size-4 animate-spin" /> : <LogIn className="size-4" />}
-          Vào ca
-        </Button>
-        <Button disabled={busy} variant="outline" onClick={() => void punch('check-out')} className="h-10 gap-1.5">
-          {busy ? <Loader2 className="size-4 animate-spin" /> : <LogOut className="size-4" />}
-          Ra ca
-        </Button>
-      </div>
-      {contextError ? (
-        <p role="alert" className="text-xs font-semibold text-red-700">
-          {contextError}
-        </p>
-      ) : null}
-      {message ? (
-        <div role="status" className="flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 p-2.5 text-xs font-semibold text-emerald-800">
-          <CheckCircle2 className="size-4 shrink-0 text-emerald-600" />
-          <span>{message}</span>
-        </div>
-      ) : null}
-      {error ? (
-        <div role="alert" className="flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 p-2.5 text-xs font-semibold text-red-700">
-          <AlertTriangle className="size-4 shrink-0 text-red-600" />
-          <span>{error}</span>
-        </div>
-      ) : null}
-    </section>
+    <QuickApprovals sources={plan.approvals} />
   );
 }
 
@@ -168,9 +67,16 @@ function QuickApprovals({ sources, className }: { sources: ReturnType<typeof das
   const [detailKey, setDetailKey] = useState('');
   const [panelError, setPanelError] = useState('');
   const [threadRefresh, setThreadRefresh] = useState(0);
+  /** Đơn qua Procedure vừa xử lý (khóa đơn -> hạn ẩn), chờ HRM đồng bộ trạng thái. */
+  const [syncing, setSyncing] = useState<Record<string, number>>({});
+  const syncTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  useEffect(() => {
+    const timers = syncTimers.current;
+    return () => timers.forEach((timer) => clearTimeout(timer));
+  }, []);
 
-  const load = useCallback(async () => {
-    setError('');
+  const load = useCallback(async (keepError = false) => {
+    if (!keepError) setError('');
     try {
       const result = await loadPendingApprovals(sources);
       setRows(result.rows);
@@ -192,8 +98,11 @@ function QuickApprovals({ sources, className }: { sources: ReturnType<typeof das
     isPendingStatus(r.status) &&
     (r.link?.status === 'RUNNING' || procedureFieldsOf(r).syncStatus === 'RUNNING');
   const mine = useMemo(
-    () => rows.filter((r) => isPendingStatus(r.status) && (eligible(r) || procedureActionable(r))),
-    [rows, permissions],
+    () =>
+      rows.filter(
+        (r) => !((syncing[r.key] ?? 0) > Date.now()) && isPendingStatus(r.status) && (eligible(r) || procedureActionable(r)),
+      ),
+    [rows, permissions, syncing],
   );
   const detail = useMemo(() => rows.find((r) => r.key === detailKey) ?? null, [rows, detailKey]);
   const {
@@ -207,12 +116,20 @@ function QuickApprovals({ sources, className }: { sources: ReturnType<typeof das
     open: Boolean(detail),
   });
 
+  /** Ẩn đơn vừa xử lý qua Procedure và tải lại vài lần tới khi HRM áp dụng xong trạng thái. */
+  function holdWhileSynced(key: string) {
+    setSyncing((current) => ({ ...current, [key]: Date.now() + SYNC_HIDE_MS }));
+    for (const delay of SYNC_RELOAD_MS) syncTimers.current.push(setTimeout(() => void load(true), delay));
+  }
+
   async function run(r: Row, job: () => Promise<void>, fromPanel: boolean, rethrow = false) {
+    const viaProcedure = procedureActionable(r);
     setBusyKey(r.key);
     if (fromPanel) setPanelError('');
     else setError('');
     try {
       await job();
+      if (viaProcedure) holdWhileSynced(r.key);
       setThreadRefresh((n) => n + 1);
       await load();
       if (fromPanel) setDetailKey('');
@@ -220,7 +137,7 @@ function QuickApprovals({ sources, className }: { sources: ReturnType<typeof das
       const message = approvalErrorMessage(e, procedureActionable(r) ? 'procedure' : undefined);
       if (fromPanel) setPanelError(message);
       else setError(message);
-      void load();
+      void load(true);
       if (rethrow) throw e;
     } finally {
       setBusyKey('');
@@ -229,7 +146,7 @@ function QuickApprovals({ sources, className }: { sources: ReturnType<typeof das
   const approveQuick = (r: Row) =>
     run(r, () => (procedureActionable(r) ? procedureApprovalAction(r, 'APPROVE', '') : decideApproval(r, 'approve', '')), false);
   const rejectQuick = (r: Row) =>
-    run(r, () => (procedureActionable(r) ? procedureApprovalAction(r, 'REJECT', '') : decideApproval(r, 'reject', '')), false);
+    run(r, () => (procedureActionable(r) ? procedureApprovalAction(r, 'REJECT', '') : decideApproval(r, 'reject', '', true)), false);
   const approveFromPanel =(r: Row, note: string) =>
     run(r, () => (procedureActionable(r) ? procedureApprovalAction(r, 'APPROVE', note) : decideApproval(r, 'approve', note)), true);
   const rejectFromPanel = (r: Row, note: string) =>
@@ -272,7 +189,15 @@ function QuickApprovals({ sources, className }: { sources: ReturnType<typeof das
               <button type="button" onClick={() => setDetailKey(r.key)} className="min-w-0 flex-1 cursor-pointer text-left" aria-label={`Xem chi tiết đơn của ${r.employeeName}`}>
                 <span className="flex flex-wrap items-center gap-2">
                   <span className={`rounded-md px-1.5 py-0.5 text-[12px] font-semibold ${kindChip(r.source.kind)}`}>{rowKindLabel(r)}</span>
-                  <span className="truncate text-[14px] font-semibold text-slate-900">{r.employeeName}</span>
+                  <span className="truncate text-[14px] font-semibold text-slate-900"><OnBehalfName name={r.employeeName} onBehalf={r.createdOnBehalf === true} byName={r.onBehalfByName} reason={r.onBehalfReason} /></span>
+                  {r.createdOnBehalf === true ? (
+                    <span
+                      className="rounded-md bg-amber-100 px-1.5 py-0.5 text-[11px] font-semibold text-amber-800"
+                      title={`Tạo hộ bởi ${String(r.onBehalfByName || 'một người dùng')}. Lý do: ${String(r.onBehalfReason || '—')}`}
+                    >
+                      Tạo hộ
+                    </span>
+                  ) : null}
                 </span>
                 <span className="mt-0.5 block truncate text-[12px] text-slate-500">
                   {[r.period, r.reasonLabel].filter(Boolean).join(' · ') || '—'}

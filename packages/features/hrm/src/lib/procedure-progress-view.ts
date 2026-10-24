@@ -222,6 +222,8 @@ const CODE_MESSAGES: Record<string, string> = {
   SELF_APPROVAL_FORBIDDEN: 'Bạn không thể tự duyệt đơn của chính mình.',
   APPROVAL_OUT_OF_SCOPE:
     'Đơn này nằm ngoài phạm vi đơn vị bạn được phép duyệt.',
+  HRM_PROXY_CREATOR_DECISION_FORBIDDEN:
+    'Bạn đã tạo hộ đơn này nên không được tự duyệt hoặc từ chối; hãy nhờ người duyệt khác xử lý.',
   PROCEDURE_IN_PROGRESS:
     'Đơn đang được xử lý theo quy trình; hãy thao tác tại bước của quy trình.',
   ORG_CONTEXT_UNAVAILABLE:

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { Bot, Fingerprint } from 'lucide-react';
 import type { HrmBoardDay, HrmBoardEmployee } from '@enterprise-platform/contracts-hrm';
 import { formatDateVn, formatMinutes, weekdayVn } from '../hrm-timesheet-format';
 import { hrmFetch } from '../hrm-api';
@@ -62,16 +63,45 @@ function SymbolBox({ text, className }: { text: string; className: string }) {
   );
 }
 
+/** Huy hiệu nhận biết hình thức chấm công: Tự động (hệ thống sinh theo ca) hoặc Tự chấm (vân tay/máy chấm công/app). */
+export function AttendanceSourceChip({ source }: { source?: 'AUTO' | 'MANUAL' | null }) {
+  if (!source) return null;
+  if (source === 'AUTO') {
+    return (
+      <span
+        data-testid="attendance-source-auto"
+        className="inline-flex items-center gap-1 rounded-full border border-sky-200 bg-sky-50 px-2.5 py-0.5 text-[11px] font-semibold text-sky-700 shadow-2xs"
+        title="Chấm công tự động theo ca làm việc"
+      >
+        <Bot className="size-3" />
+        Tự động
+      </span>
+    );
+  }
+  return (
+    <span
+      data-testid="attendance-source-manual"
+      className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-700 shadow-2xs"
+      title="Nhân viên tự chấm công qua thiết bị hoặc ứng dụng"
+    >
+      <Fingerprint className="size-3" />
+      Tự chấm
+    </span>
+  );
+}
+
 function PunchTile({
   label,
   time,
   note,
   tone,
+  source,
 }: {
   label: string;
   time: string | null;
   note?: string;
   tone: 'ok' | 'bad' | 'missing';
+  source?: 'AUTO' | 'MANUAL' | null;
 }) {
   const style =
     tone === 'bad'
@@ -82,7 +112,19 @@ function PunchTile({
   return (
     <div className={`rounded-xl border px-3 py-2 ${style}`}>
       <div className="flex items-center justify-between gap-2">
-        <span className="text-[10px] font-bold uppercase tracking-wide">{label}</span>
+        <div className="flex items-center gap-1.5">
+          <span className="text-[10px] font-bold uppercase tracking-wide">{label}</span>
+          {time && source === 'AUTO' && (
+            <span className="rounded-sm border border-sky-300 bg-sky-100 px-1 py-px text-[9px] font-semibold text-sky-800">
+              Tự động
+            </span>
+          )}
+          {time && source === 'MANUAL' && (
+            <span className="rounded-sm border border-emerald-300 bg-emerald-100 px-1 py-px text-[9px] font-semibold text-emerald-800">
+              Tự chấm
+            </span>
+          )}
+        </div>
         {note ? <span className="text-[10px] font-bold">{note}</span> : null}
       </div>
       <p className="font-mono text-lg font-bold leading-tight">{time ?? '--:--'}</p>
@@ -110,7 +152,7 @@ export function dayTimelineEvents(day: HrmBoardDay): TimelineEvent[] {
     events.push({
       key: 'in',
       time: day.checkIn,
-      label: 'Chấm công vào',
+      label: day.attendanceSource === 'AUTO' ? 'Chấm công vào (Tự động)' : 'Chấm công vào (Tự chấm)',
       note: day.lateMinutes > 0 ? `Trễ ${day.lateMinutes} phút` : undefined,
       tone: day.lateMinutes > 0 ? 'bad' : 'ok',
     });
@@ -118,7 +160,7 @@ export function dayTimelineEvents(day: HrmBoardDay): TimelineEvent[] {
     events.push({
       key: 'out',
       time: day.checkOut,
-      label: 'Chấm công ra',
+      label: day.attendanceSource === 'AUTO' ? 'Chấm công ra (Tự động)' : 'Chấm công ra (Tự chấm)',
       note: day.earlyLeaveMinutes > 0 ? `Sớm ${day.earlyLeaveMinutes} phút` : undefined,
       tone: day.earlyLeaveMinutes > 0 ? 'bad' : 'ok',
     });
@@ -269,18 +311,21 @@ export function BoardDayContent({
 
       <section className="rounded-xl border border-slate-200 bg-white p-3" aria-label="Ca làm việc và giờ chấm công">
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-          <p className="font-semibold text-slate-800">
-            {hasShift ? (
-              <>
-                <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] font-bold text-slate-700">
-                  {day.shiftCode ?? day.shiftName}
-                </span>
-                {day.shiftCode && day.shiftName ? <span className="ml-2">{day.shiftName}</span> : null}
-              </>
-            ) : (
-              dayKindLabel(day.kind)
-            )}
-          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="font-semibold text-slate-800">
+              {hasShift ? (
+                <>
+                  <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] font-bold text-slate-700">
+                    {day.shiftCode ?? day.shiftName}
+                  </span>
+                  {day.shiftCode && day.shiftName ? <span className="ml-2">{day.shiftName}</span> : null}
+                </>
+              ) : (
+                dayKindLabel(day.kind)
+              )}
+            </p>
+            <AttendanceSourceChip source={day.attendanceSource} />
+          </div>
           {day.shiftStart && day.shiftEnd ? (
             <p className="font-mono text-slate-600">
               {day.shiftStart} - {day.shiftEnd}
@@ -294,12 +339,14 @@ export function BoardDayContent({
             <PunchTile
               label="Vào"
               time={day.checkIn}
+              source={day.attendanceSource}
               tone={!day.checkIn ? 'missing' : day.lateMinutes > 0 ? 'bad' : 'ok'}
               note={!day.checkIn ? (day.scheduledMinutes ? 'Chưa có' : undefined) : day.lateMinutes > 0 ? `Trễ ${day.lateMinutes}p` : undefined}
             />
             <PunchTile
               label="Ra"
               time={day.checkOut}
+              source={day.attendanceSource}
               tone={!day.checkOut ? 'missing' : day.earlyLeaveMinutes > 0 ? 'bad' : 'ok'}
               note={!day.checkOut ? (day.scheduledMinutes ? 'Chưa có' : undefined) : day.earlyLeaveMinutes > 0 ? `Sớm ${day.earlyLeaveMinutes}p` : undefined}
             />
@@ -325,6 +372,7 @@ function DayStatusChip({ day }: { day: HrmBoardDay }) {
         <span aria-hidden="true" className={`size-1.5 rounded-full ${DAY_TONE_DOT[dayTone(day, todayIso())]}`} />
         {boardStatusLabel(day.status)}
       </span>
+      <AttendanceSourceChip source={day.attendanceSource} />
       {day.adjusted && (
         <span className="rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-700">
           Đã chỉnh tay

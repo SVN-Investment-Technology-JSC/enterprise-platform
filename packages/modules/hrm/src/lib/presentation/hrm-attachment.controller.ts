@@ -87,7 +87,7 @@ export class HrmAttachmentController {
           'hrm.employee.manage',
           'hrm.self.profile.write',
         )
-      : await this.ctx.getRequestContext(req, body.employeeId);
+      : await this.ctx.getRequestContextOrProxy(req, body.employeeId, 'leave');
     const name = requireText(body.fileName, 'Tên tệp', 255);
     const extension = name.split('.').pop()?.toLowerCase() || '';
     if (
@@ -137,7 +137,12 @@ export class HrmAttachmentController {
     if (!result.rows[0]) throw new NotFoundException('Không tìm thấy chứng từ');
     const file = result.rows[0];
     const isProfileDoc = PROFILE_DOCUMENT_TYPES.includes(file.document_type ?? '');
-    await this.ctx.getRequestContext(
+    // Chứng từ của đơn: người tạo hộ (ngoài quyền quản lý đơn) cũng được tải chứng từ cho nhân viên trong phạm vi của mình.
+    const contextFor = isProfileDoc
+      ? this.ctx.getRequestContext.bind(this.ctx)
+      : (...args: Parameters<HrmContextService['getRequestContext']>) =>
+          this.ctx.getRequestContextOrProxy(args[0], args[1], 'leave', args[2], args[3]);
+    await contextFor(
       req,
       file.employee_id,
       req.method === 'GET'

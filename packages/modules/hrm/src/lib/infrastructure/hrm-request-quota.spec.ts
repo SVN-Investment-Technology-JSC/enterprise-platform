@@ -21,7 +21,14 @@ function fakeDb(opts: { ready?: boolean; limit: number | null; used: number }) {
   } as never;
 }
 
-const row = { employee_id: 'e1', created_at: '2026-09-30T20:00:00Z' };
+const row = { employee_id: 'e1', created_at: '2026-09-30T20:00:00Z', work_date: '2026-11-15', from_date: '2026-11-15', request_date: '2026-11-15' };
+
+it('falls back to the creation month when the request has no date', async () => {
+  const db = fakeDb({ limit: 2, used: 0 });
+  await assertQuotaOnApprove(db, 't', 'profile_correction', { employee_id: 'e1', created_at: '2026-09-30T20:00:00Z' });
+  const count = (db as unknown as { calls: { params: unknown[] }[] }).calls.find((c) => c.params.length === 4);
+  expect(count?.params[2]).toBe('2026-10-01');
+});
 
 describe('request quota', () => {
   it('maps system kinds to type codes and custom requests to their own code', () => {
@@ -57,13 +64,14 @@ describe('request quota', () => {
     );
   });
 
-  it('counts the month of the request creation time when approving', async () => {
+  it('counts the month of the date written on the request, not its creation time', async () => {
     const db = fakeDb({ limit: 2, used: 0 });
     await assertQuotaOnApprove(db, 't', 'ot', row);
     const count = (db as unknown as { calls: { sql: string; params: unknown[] }[] }).calls.find((c) =>
       c.sql.includes('count(*)'),
     );
-    expect(count?.params).toEqual(['t', 'e1', row.created_at, 'OVERTIME']);
+    expect(count?.params).toEqual(['t', 'e1', '2026-11-01', 'OVERTIME']);
+    expect(count?.sql).toContain('work_date');
   });
 
   it('filters custom requests by their own type code', async () => {
