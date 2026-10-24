@@ -2,7 +2,6 @@ import {
   CLOSED_WORK_ITEM_STATUSES,
   MAX_WORK_ITEM_DEPTH,
   STANDALONE_TASK_SCOPES,
-  WORK_ITEM_PRIORITIES,
   WORK_ITEM_STATUSES,
   allowedStandaloneTaskTransitions,
   type ChangeStandaloneTaskStatusRequest,
@@ -14,7 +13,6 @@ import {
   type StandaloneTaskRole,
   type StandaloneTaskScope,
   type UpdateStandaloneTaskRequest,
-  type WorkItemPriority,
   type WorkItemStatus,
 } from '@enterprise-platform/contracts-workspace';
 import {
@@ -29,9 +27,11 @@ import {
   StandaloneTaskNotFoundError,
   WorkspaceValidationError,
 } from '../domain/workspace.error.js';
+import { parseManualPercent } from '../domain/progress.rules.js';
 import type { DirectoryService } from './directory.service.js';
 import type { ProcedureReversalChecker } from './procedure-reversal-check.port.js';
 import type { WorkspaceActor } from './workspace.application.js';
+import { WorkspaceLabelService } from './workspace-label.service.js';
 import type {
   StandaloneTaskCreateModel,
   StandaloneTaskWriteModel,
@@ -69,6 +69,11 @@ export class StandaloneTaskService {
     /** Hỏi Quy trình trước khi huỷ hiệu lực việc có hồ sơ đã hoàn tất. */
     private readonly procedureReversal?: ProcedureReversalChecker,
   ) {}
+
+  /** Danh mục mức ưu tiên ở Cài đặt; đọc lại mỗi lần nên không cần chia sẻ thực thể. */
+  private get labels(): WorkspaceLabelService {
+    return new WorkspaceLabelService(this.store);
+  }
 
   async list(actor: WorkspaceActor, scope?: string): Promise<StandaloneTaskList> {
     const resolved: StandaloneTaskScope = (STANDALONE_TASK_SCOPES as readonly string[]).includes(
@@ -164,7 +169,7 @@ export class StandaloneTaskService {
     const model: StandaloneTaskCreateModel = {
       title: requireText(input.title, 'Tên công việc', 200),
       description: optionalText(input.description),
-      priority: pickPriority(input.priority) ?? 'normal',
+      priority: await this.labels.requirePriority(actor.tenantId, input.priority),
       assigneeUserId,
       participantUserIds,
       followerUserIds,
@@ -192,13 +197,17 @@ export class StandaloneTaskService {
 
     const progressPercent =
       body.progressPercent === undefined ? undefined : requireProgress(body.progressPercent);
+    const manualProgressPercent = parseManualPercent(body.manualProgressPercent);
 
     if (role === 'viewer') {
       throw new StandaloneTaskForbiddenError('Bạn chỉ được xem công việc này.');
     }
     if (role !== 'assigner') {
       const contentKeys = Object.keys(body).filter(
-        (key) => key !== 'progressPercent' && (body as Record<string, unknown>)[key] !== undefined,
+        (key) =>
+          key !== 'progressPercent' &&
+          key !== 'manualProgressPercent' &&
+          (body as Record<string, unknown>)[key] !== undefined,
       );
       if (role === 'follower' || contentKeys.length > 0) {
         throw new StandaloneTaskForbiddenError(
@@ -208,7 +217,10 @@ export class StandaloneTaskService {
         );
       }
     }
-    if (progressPercent !== undefined && (task.status === 'done' || task.status === 'cancelled')) {
+    if (
+      (progressPercent !== undefined || manualProgressPercent !== undefined) &&
+      (task.status === 'done' || task.status === 'cancelled')
+    ) {
       throw new WorkspaceValidationError('Công việc đã đóng, không cập nhật tiến độ được.');
     }
     if (progressPercent !== undefined && task.childCount > 0) {
@@ -219,16 +231,17 @@ export class StandaloneTaskService {
 
     const patch: { -readonly [Key in keyof StandaloneTaskWriteModel]?: StandaloneTaskWriteModel[Key] } & {
       progressPercent?: number;
+      manualProgressPercent?: number | null;
     } = {};
     if (progressPercent !== undefined) patch.progressPercent = progressPercent;
+    // Tiến độ nhập tay được cả với việc có việc con: giá trị này được dùng thay cho giá trị tự tính.
+    if (manualProgressPercent !== undefined) patch.manualProgressPercent = manualProgressPercent;
 
     if (role === 'assigner') {
       if (body.title !== undefined) patch.title = requireText(body.title, 'Tên công việc', 200);
       if (body.description !== undefined) patch.description = optionalText(body.description);
       if (body.priority !== undefined) {
-        const priority = pickPriority(body.priority);
-        if (!priority) throw new WorkspaceValidationError('Mức ưu tiên không hợp lệ.');
-        patch.priority = priority;
+        patch.priority = await this.labels.requirePriority(actor.tenantId, body.priority);
       }
       if (body.plannedStart !== undefined) {
         patch.plannedStart = optionalDate(body.plannedStart, 'Ngày bắt đầu');
@@ -502,13 +515,6 @@ function assertDateOrder(start: string | null, end: string | null): void {
   if (start && end && start > end) {
     throw new WorkspaceValidationError('Hạn hoàn thành phải sau ngày bắt đầu.');
   }
-}
-
-function pickPriority(value: unknown): WorkItemPriority | undefined {
-  if (value == null || value === '') return undefined;
-  return (WORK_ITEM_PRIORITIES as readonly string[]).includes(String(value))
-    ? (String(value) as WorkItemPriority)
-    : undefined;
 }
 
 function requireProgress(value: unknown): number {

@@ -41,9 +41,10 @@ const actionKeys = new Set<string>(TENANT_PERMISSION_ACTIONS.map((a) => a.key));
 /**
  * Phân hệ mở cho mọi thành viên: tenant đã bật là ai cũng dùng, không cần vai trò có phân hệ đó.
  * Trợ lý chỉ đọc dữ liệu qua API của từng phân hệ bằng chính token người hỏi, nên quyền thật vẫn
- * do từng phân hệ quyết định.
+ * do từng phân hệ quyết định. Mạng nội bộ (social) mở cho mọi thành viên; chỉ kiểm duyệt và quản lý
+ * chuyên mục còn đòi quyền (hoặc quản trị tenant).
  */
-export const OPEN_MEMBER_MODULES: readonly string[] = ['assistant'];
+export const OPEN_MEMBER_MODULES: readonly string[] = ['assistant', 'social'];
 /** UUID xác định (dạng v5) từ khóa mẫu: cùng khóa cho cùng ID. */
 export function hrmTemplateId(kind: 'role' | 'permission', key: string) {
   const h = createHash('sha1')

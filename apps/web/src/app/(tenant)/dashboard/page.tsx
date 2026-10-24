@@ -1,4 +1,5 @@
 import type { AuthenticatedPrincipal } from '@enterprise-platform/contracts-identity';
+import { UserAvatar } from '@enterprise-platform/feature-chat';
 import { isLauncherOnlyModule } from '@enterprise-platform/feature-module-shell';
 import { Building2, GitFork, ListChecks, Package, Users, Wrench } from 'lucide-react';
 import { cookies } from 'next/headers';
@@ -156,14 +157,6 @@ async function read<T>(url: string, cookie: string): Promise<T | undefined> {
   } catch {
     return undefined;
   }
-}
-
-/** Chữ viết tắt giống khối người dùng trên thanh bên: chữ đầu của họ và tên. */
-function initialsOf(name: string): string {
-  const words = name.trim().split(/\s+/).filter(Boolean);
-  if (words.length === 0) return 'EP';
-  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
-  return `${words[0].charAt(0)}${words[words.length - 1].charAt(0)}`.toUpperCase();
 }
 
 /** Ghép các vế bằng dấu phẩy, vế cuối nối bằng "và". */
@@ -449,9 +442,8 @@ export default async function TenantPortalPage() {
         />
         <div aria-hidden className="relative grid size-24 shrink-0 place-items-center">
           <span className="absolute -inset-3.5 rounded-full bg-[radial-gradient(circle,rgba(255,201,10,.25)_0%,transparent_65%)]" />
-          <span className="relative grid size-[84px] place-items-center rounded-full bg-gradient-to-br from-[#ffc90a] to-[#d9ab00] text-[28px] font-extrabold text-[#18181b]">
-            {initialsOf(displayName)}
-          </span>
+          {/* Ảnh đại diện người dùng tự tải lên ở "Tài khoản của tôi"; chưa có ảnh thì hiện chữ viết tắt. */}
+          <UserAvatar userId={principal.userId} name={displayName} size={84} className="relative" />
         </div>
         <div className="relative flex min-w-0 flex-[1_1_360px] flex-col gap-1.5">
           <span className="text-[12px] font-semibold tracking-[1.2px] text-[#ffc90a]">

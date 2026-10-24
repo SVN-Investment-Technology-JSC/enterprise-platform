@@ -1,4 +1,9 @@
+'use client';
+
 import type { ReactNode } from 'react';
+import { userAvatarUrl } from '@enterprise-platform/contracts-chat';
+import { usePerson } from '@enterprise-platform/feature-chat';
+import { useState } from 'react';
 import type { TenantCoreUser } from './user-types';
 
 /**
@@ -35,13 +40,30 @@ function initials(name: string) {
 
 export function UserAvatar({
   name,
+  userId,
   size = 36,
   muted = false,
 }: {
   name: string;
+  /** Có id thì hiện ảnh đại diện người đó tự tải lên (lấy từ danh bạ chung); chưa có ảnh thì hiện chữ viết tắt. */
+  userId?: string;
   size?: number;
   muted?: boolean;
 }) {
+  const person = usePerson(userId);
+  const [failed, setFailed] = useState(false);
+  if (userId && person?.avatarVersion != null && !failed) {
+    return (
+      <img
+        alt=""
+        aria-hidden
+        src={userAvatarUrl(userId, person.avatarVersion)}
+        style={{ width: size, height: size }}
+        className={`shrink-0 rounded-md object-cover ${muted ? 'opacity-60 grayscale' : ''}`}
+        onError={() => setFailed(true)}
+      />
+    );
+  }
   return (
     <span
       aria-hidden

@@ -5,7 +5,14 @@ import type {
   UpdateProjectRequest,
 } from '@enterprise-platform/contracts-workspace';
 import { DirectoryService } from './directory.service.js';
-import { ProjectService } from './project.service.js';
+import { PROJECT_PERMISSIONS } from '@enterprise-platform/contracts-workspace';
+import {
+  ProjectService,
+  effectivePermissions,
+  hasProjectPermission,
+  hasProjectRole,
+  seesAllProjects,
+} from './project.service.js';
 import type { WorkspaceActor } from './workspace.application.js';
 import type { WorkspaceStore } from './workspace-store.port.js';
 
@@ -228,5 +235,147 @@ describe('ProjectService.unarchive — mở lưu trữ dự án đã hoàn thàn
     await expect(new ProjectService(live.store).unarchive(owner, 'p1')).rejects.toThrow(
       'không nằm trong lưu trữ',
     );
+  });
+});
+
+describe('ProjectService.archive — đóng hồ sơ thủ công', () => {
+  function closeStore(options: { status?: string; archivedAt?: string; openItems?: number } = {}) {
+    const archivedCalls: boolean[] = [];
+    const updates: UpdateProjectRequest[] = [];
+    const store = {
+      project: {
+        findById: async () =>
+          ({ id: 'p1', status: options.status ?? 'planning', archivedAt: options.archivedAt }) as never,
+        setArchived: async (_t: string, _id: string, archived: boolean) => {
+          archivedCalls.push(archived);
+          return { id: 'p1' } as never;
+        },
+        update: async (_t: string, _id: string, input: UpdateProjectRequest) => {
+          updates.push(input);
+          return { id: 'p1' } as never;
+        },
+      },
+      workItem: { openItemCount: async () => options.openItems ?? 0 },
+      member: {
+        roleOf: async (_t: string, _p: string, userId: string) => (userId === 'owner' ? 'owner' : undefined),
+      },
+    } as unknown as WorkspaceStore;
+    return { store, archivedCalls, updates };
+  }
+
+  it('đưa vào lưu trữ mà không đổi trạng thái', async () => {
+    const { store, archivedCalls, updates } = closeStore();
+    await new ProjectService(store).archive(owner, 'p1');
+    expect(archivedCalls).toEqual([true]);
+    expect(updates).toEqual([]);
+  });
+
+  it('còn công việc chưa xong vẫn đóng thủ công được; đã lưu trữ thì báo lỗi', async () => {
+    const open = closeStore({ openItems: 2 });
+    await new ProjectService(open.store).archive(owner, 'p1');
+    expect(open.archivedCalls).toEqual([true]);
+    await expect(
+      new ProjectService(closeStore({ archivedAt: '2026-10-20T00:00:00.000Z' }).store).archive(owner, 'p1'),
+    ).rejects.toThrow('đã nằm trong lưu trữ');
+  });
+
+  it('mở lưu trữ dự án đóng thủ công: giữ nguyên trạng thái', async () => {
+    const { store, archivedCalls, updates } = closeStore({ archivedAt: '2026-10-20T00:00:00.000Z' });
+    await new ProjectService(store).unarchive(owner, 'p1');
+    expect(archivedCalls).toEqual([false]);
+    expect(updates).toEqual([]);
+  });
+});
+
+describe('ProjectService.autoArchiveIfDone — tự đóng hồ sơ khi mọi việc đã xong', () => {
+  function autoStore(options: { enabled?: boolean; archivedAt?: string; status?: string } = {}) {
+    const archivedCalls: boolean[] = [];
+    const saved: unknown[] = [];
+    const store = {
+      settings: {
+        get: async () => (options.enabled === undefined ? undefined : { enabled: options.enabled }),
+        set: async (_t: string, _k: string, value: unknown) => {
+          saved.push(value);
+        },
+      },
+      project: {
+        findById: async () =>
+          ({ id: 'p1', status: options.status ?? 'active', archivedAt: options.archivedAt }) as never,
+        setArchived: async (_t: string, _id: string, archived: boolean) => {
+          archivedCalls.push(archived);
+          return { id: 'p1' } as never;
+        },
+      },
+    } as unknown as WorkspaceStore;
+    return { store, archivedCalls, saved };
+  }
+
+  it('bật tuỳ chọn và mọi việc đã xong hoặc huỷ thì tự vào lưu trữ', async () => {
+    const { store, archivedCalls } = autoStore({ enabled: true });
+    await new ProjectService(store).autoArchiveIfDone('t1', 'p1', ['done', 'cancelled']);
+    expect(archivedCalls).toEqual([true]);
+  });
+
+  it('mặc định tắt; còn việc mở, chưa có việc, đã lưu trữ hay đã huỷ thì không đụng tới', async () => {
+    const off = autoStore();
+    await new ProjectService(off.store).autoArchiveIfDone('t1', 'p1', ['done']);
+    const open = autoStore({ enabled: true });
+    await new ProjectService(open.store).autoArchiveIfDone('t1', 'p1', ['done', 'in_progress']);
+    await new ProjectService(open.store).autoArchiveIfDone('t1', 'p1', []);
+    const archived = autoStore({ enabled: true, archivedAt: '2026-10-20T00:00:00.000Z' });
+    await new ProjectService(archived.store).autoArchiveIfDone('t1', 'p1', ['done']);
+    const cancelled = autoStore({ enabled: true, status: 'cancelled' });
+    await new ProjectService(cancelled.store).autoArchiveIfDone('t1', 'p1', ['done']);
+    expect([off, open, archived, cancelled].flatMap((entry) => entry.archivedCalls)).toEqual([]);
+  });
+
+  it('chỉ quản trị đổi được cài đặt; giá trị phải là Có / Không', async () => {
+    const { store, saved } = autoStore();
+    const service = new ProjectService(store);
+    await expect(service.saveArchiveSettings(owner, { autoArchive: true })).rejects.toMatchObject({ statusCode: 403 });
+    const admin = { ...owner, isTenantAdmin: true };
+    await service.saveArchiveSettings(admin, { autoArchive: true });
+    expect(saved).toEqual([{ enabled: true }]);
+    await expect(
+      service.saveArchiveSettings(admin, { autoArchive: 'co' as unknown as boolean }),
+    ).rejects.toMatchObject({ code: 'VALIDATION' });
+  });
+});
+
+describe('workspace.project.admin — xem và thao tác mọi dự án', () => {
+  const outsider: WorkspaceActor = { ...owner, userId: 'outsider', canAdminProjects: false };
+  const projectAdmin: WorkspaceActor = { ...outsider, canAdminProjects: true };
+
+  it('người ngoài dự án không có cờ này bị chặn', async () => {
+    const service = new ProjectService(makeStore().store);
+    await expect(service.access(outsider, 'p1')).rejects.toMatchObject({ statusCode: 403 });
+  });
+
+  it('người có cờ vào được dự án không phải thành viên và có đủ quyền cấp dự án', async () => {
+    const service = new ProjectService(makeStore().store);
+    const access = await service.access(projectAdmin, 'p1');
+    expect(access.role).toBeUndefined();
+    expect(effectivePermissions(access)).toEqual([...PROJECT_PERMISSIONS]);
+    expect(hasProjectPermission(access, 'work_item.delete')).toBe(true);
+    expect(hasProjectPermission(access, 'project.manage_members')).toBe(true);
+    expect(hasProjectRole(access, 'manager')).toBe(true);
+    expect(hasProjectRole(access, 'owner')).toBe(true);
+  });
+
+  it('cờ này không biến người dùng thành quản trị tenant', () => {
+    expect(seesAllProjects(projectAdmin)).toBe(true);
+    expect(projectAdmin.isTenantAdmin).toBe(false);
+    expect(projectAdmin.canManage).toBe(false);
+  });
+
+  it('người có cờ đặt lại được thành viên dự án mình không tham gia', async () => {
+    const { store, saved } = makeStore();
+    await new ProjectService(store, directory(['owner', 'ke-toan'])).setMembers(projectAdmin, 'p1', {
+      members: [
+        { userId: 'owner', role: 'owner' },
+        { userId: 'ke-toan', role: 'member' },
+      ],
+    });
+    expect(saved).toHaveLength(1);
   });
 });

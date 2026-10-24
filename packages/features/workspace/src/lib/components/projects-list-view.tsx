@@ -1,7 +1,6 @@
 'use client';
 
 import {
-  PROJECT_STATUSES,
   type CreateProjectRequest,
   type CustomerSummary,
   type ProjectRole,
@@ -11,19 +10,36 @@ import {
   type Tag,
   type UpdateProjectRequest,
 } from '@enterprise-platform/contracts-workspace';
-import { ChevronDown, ChevronRight, FolderInput, Plus, RefreshCw } from 'lucide-react';
+import {
+  Archive,
+  ArchiveRestore,
+  ArrowUpDown,
+  Building2,
+  ChevronDown,
+  ChevronRight,
+  Folder,
+  FolderInput,
+  Plus,
+  RefreshCw,
+  Tag as TagIcon,
+} from 'lucide-react';
+import { createPortal } from 'react-dom';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { EMPTY_PROJECT_FILTER, matchProjectFilter, type ProjectFilter } from '../project-filter.model';
 import { mergeNewProjectMembers } from '../project-tree.model';
 import * as api from '../workspace-api';
-import { PROJECT_STATUS_LABELS, PROJECT_STATUS_TONE } from '../workspace-labels';
+import { PROJECT_STATUS_LABELS, PROJECT_STATUS_TONE, projectStatusKeys } from '../workspace-labels';
 import styles from '../workspace.module.scss';
 import { Choice } from './choice';
+import { ChipButton, ChipSelect, GroupCounts, ProgressCell } from './inline-cells';
 import { Dialog, Field } from './dialog';
 import { ProjectForm } from './project-form';
 import { ContextMenu } from './project-tree';
 import { TagPicker } from './tag-picker';
 import { tagColor, useTags } from './use-tags';
 import { Confirm } from './confirm-box';
+import { ProjectFilterButton } from './project-filter-panel';
+import { useDirectory } from './use-directory';
 
 const messageOf = (cause: unknown, fallback: string): string =>
   (cause as { message?: string })?.message ?? fallback;
@@ -31,18 +47,26 @@ const messageOf = (cause: unknown, fallback: string): string =>
 /** Tên nhóm cho dự án chưa gắn nhóm. */
 const UNCLASSIFIED = 'Chưa phân loại';
 
-/** Huy hiệu trạng thái dự án, cùng kiểu với các huy hiệu khác trong module. */
-function ProjectStatusBadge({ status }: { status: ProjectStatus }) {
-  const tone = PROJECT_STATUS_TONE[status];
-  return (
-    <span className={styles.pill} style={{ background: tone.bg, color: tone.fg }}>
-      {PROJECT_STATUS_LABELS[status]}
-    </span>
-  );
-}
-
 /** Dự án đã đóng hoặc huỷ thì không còn đóng hồ sơ được nữa. */
 const CLOSED_PROJECT_STATUSES: readonly ProjectStatus[] = ['completed', 'cancelled'];
+
+/** Cách xếp dự án trong từng nhóm; chạy cùng lúc với bộ lọc. */
+type ProjectSort = 'name' | 'code' | 'updated';
+
+const SORT_OPTIONS: readonly { value: ProjectSort; label: string }[] = [
+  { value: 'name', label: 'Theo tên' },
+  { value: 'code', label: 'Theo mã' },
+  { value: 'updated', label: 'Cập nhật gần nhất' },
+];
+
+const PROJECT_SORTS: Record<ProjectSort, (a: ProjectSummary, b: ProjectSummary) => number> = {
+  name: (a, b) => a.name.localeCompare(b.name, 'vi'),
+  code: (a, b) => a.code.localeCompare(b.code, 'vi', { numeric: true }),
+  updated: (a, b) => b.updatedAt.localeCompare(a.updatedAt),
+};
+
+/** Sửa trên bảng một dự án: `fallback` là thông báo khi server không trả lý do. */
+type PatchProject = (projectId: string, patch: UpdateProjectRequest, fallback: string) => void;
 
 export interface ProjectsListViewProps {
   /** Mở trang chi tiết của một dự án (đặt `?project=` rồi hiện ProjectsView). */
@@ -53,6 +77,8 @@ export interface ProjectsListViewProps {
   readonly onCreateProjectHandled?: () => void;
   /** Đã tạo, đổi nhóm hay đóng hồ sơ dự án: trang cha nạp lại thanh bên. */
   readonly onProjectsChanged?: () => void;
+  /** Chỗ ở dòng tiêu đề khu vực Dự án để đặt nút Tải lại, Chuyển nhóm, Tạo dự án. */
+  readonly actionsSlot?: HTMLElement | null;
 }
 
 /**
@@ -70,6 +96,7 @@ export function ProjectsListView({
   createProjectRequest = 0,
   onCreateProjectHandled,
   onProjectsChanged,
+  actionsSlot,
 }: ProjectsListViewProps) {
   const [projects, setProjects] = useState<readonly ProjectSummary[]>([]);
   const [customers, setCustomers] = useState<readonly CustomerSummary[]>([]);
@@ -86,13 +113,19 @@ export function ProjectsListView({
   const [typeFilter, setTypeFilter] = useState('');
   const [tagFilter, setTagFilter] = useState('');
   const [customerFilter, setCustomerFilter] = useState('');
+  /** Bộ lọc nhiều điều kiện từ nút "Lọc sâu"; chạy chồng lên các ô lọc nhanh. */
+  const [projectFilter, setProjectFilter] = useState<ProjectFilter>(EMPTY_PROJECT_FILTER);
+  const directory = useDirectory();
   const hasFilter = Boolean(statusFilter || typeFilter || tagFilter || customerFilter);
   const tags = useTags();
 
-  /** Nhóm dự án đang thu gọn. */
-  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
+  /** Nhóm dự án đang mở; mới vào trang thì mọi nhóm thu gọn. */
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
+  const [sortKey, setSortKey] = useState<ProjectSort>('name');
+  /** Dự án đang được lưu sau khi sửa trên bảng: khoá ô của dòng đó cho tới khi xong. */
+  const [savingProject, setSavingProject] = useState<string>();
   const toggleGroup = (type: string) =>
-    setCollapsed((current) => {
+    setExpanded((current) => {
       const next = new Set(current);
       if (next.has(type)) next.delete(type);
       else next.add(type);
@@ -140,10 +173,10 @@ export function ProjectsListView({
     onCreateProjectHandled?.();
   }, [createProjectRequest, onCreateProjectHandled]);
 
-  /** Tên khách hàng theo id, để cột Khách hàng khỏi gọi thêm API từng dòng. */
-  const customerName = useMemo(() => {
-    const byId = new Map(customers.map((customer) => [customer.id, customer.name]));
-    return (id?: string) => (id ? (byId.get(id) ?? '—') : '—');
+  /** Khách hàng theo id, để cột Khách hàng khỏi gọi thêm API từng dòng. */
+  const customerOf = useMemo(() => {
+    const byId = new Map(customers.map((customer) => [customer.id, customer]));
+    return (id?: string) => (id ? byId.get(id) : undefined);
   }, [customers]);
 
   const visible = useMemo(
@@ -153,9 +186,9 @@ export function ProjectsListView({
         if (typeFilter && (project.projectType ?? '') !== typeFilter) return false;
         if (tagFilter && !(project.tagIds ?? []).includes(tagFilter)) return false;
         if (customerFilter && (project.customerId ?? '') !== customerFilter) return false;
-        return true;
+        return matchProjectFilter(project, projectFilter, { today: new Date(), orgNodes: directory.orgNodes });
       }),
-    [projects, statusFilter, typeFilter, tagFilter, customerFilter],
+    [projects, statusFilter, typeFilter, tagFilter, customerFilter, projectFilter, directory.orgNodes],
   );
 
   /** Gom dòng theo nhóm dự án; dự án chưa có nhóm rơi vào "Chưa phân loại". */
@@ -167,13 +200,18 @@ export function ProjectsListView({
       if (bucket) bucket.push(project);
       else byType.set(key, [project]);
     }
-    return [...byType.entries()].sort(([a], [b]) => {
+    for (const rows of byType.values()) rows.sort(PROJECT_SORTS[sortKey]);
+    const latest = (rows: readonly ProjectSummary[]) =>
+      rows.reduce((max, project) => (project.updatedAt > max ? project.updatedAt : max), '');
+    return [...byType.entries()].sort(([a, aRows], [b, bRows]) => {
+      // Xếp theo cập nhật: nhóm có dự án vừa sửa lên đầu.
+      if (sortKey === 'updated') return latest(bRows).localeCompare(latest(aRows));
       // "Chưa phân loại" xuống cuối; còn lại xếp theo chữ cái tiếng Việt.
       if (a === UNCLASSIFIED) return 1;
       if (b === UNCLASSIFIED) return -1;
       return a.localeCompare(b, 'vi');
     });
-  }, [visible]);
+  }, [visible, sortKey]);
 
   /** Số dự án đang chạy / đã hoàn thành trong phần đang hiện, cho dòng tóm tắt. */
   const activeCount = visible.filter((project) => project.status === 'active').length;
@@ -193,12 +231,36 @@ export function ProjectsListView({
 
   /* -------------------------------------------------------------- Thao tác */
 
+  /** Sửa một trường của dự án ngay trên bảng rồi thay dòng đó bằng bản server trả về. */
+  const patchProject = useCallback<PatchProject>(
+    (projectId, patch, fallback) => {
+      setSavingProject(projectId);
+      setNotice(undefined);
+      api
+        .updateProject(projectId, patch)
+        .then((updated) => {
+          setError(undefined);
+          setProjects((current) =>
+            current.map((project) => (project.id === updated.id ? { ...project, ...updated } : project)),
+          );
+          // Đổi nhóm làm thanh bên đổi theo.
+          if (patch.projectType !== undefined) onProjectsChanged?.();
+          // Hoàn thành có thể tự đóng hồ sơ (vào Lưu trữ): tải lại để dự án rời đúng danh sách.
+          if (patch.status !== undefined) void reload();
+        })
+        .catch((cause) => setError(messageOf(cause, fallback)))
+        .finally(() => setSavingProject(undefined));
+    },
+    [onProjectsChanged, reload],
+  );
+
   const closeProject = useCallback(
     async (projectId: string) => {
       try {
-        await api.updateProject(projectId, { status: 'completed' });
+        // Đóng hồ sơ chỉ đưa vào Lưu trữ, không đổi trạng thái dự án.
+        await api.archiveProject(projectId);
         setError(undefined);
-        setNotice('Đã đóng hồ sơ; dự án đã chuyển vào Lưu trữ.');
+        setNotice('Đã đóng hồ sơ; dự án đã chuyển vào Lưu trữ, trạng thái giữ nguyên.');
         await reload();
         onProjectsChanged?.();
       } catch (cause) {
@@ -290,7 +352,7 @@ export function ProjectsListView({
 
   /* ------------------------------------------------------------- Render */
 
-  const statusOptions = PROJECT_STATUSES.map((status) => ({
+  const statusOptions = projectStatusKeys().map((status) => ({
     value: status,
     label: PROJECT_STATUS_LABELS[status],
   }));
@@ -305,122 +367,146 @@ export function ProjectsListView({
     value: customer.id,
     label: `${customer.code} · ${customer.name}`,
   }));
+  // Ô khách hàng trên bảng hiện mã cho gọn; tên đầy đủ nằm ở dòng phụ để vẫn gõ tên mà tìm được.
+  const customerCellOptions = customers.map((customer) => ({
+    value: customer.id,
+    label: customer.code,
+    description: customer.name,
+  }));
+  const groupCellOptions = types.map((type) => ({ value: type.name, label: type.name }));
 
   return (
     <div className={styles.listPage}>
-      <div className={styles.summaryLine}>
-        <div className={styles.segmented} role="tablist" aria-label="Danh sách dự án">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={scope === 'active'}
-            className={scope === 'active' ? styles.segmentActive : styles.segment}
-            onClick={() => {
-              setScope('active');
-              setSelected(new Set());
-              setNotice(undefined);
-            }}
-          >
-            Đang làm
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={scope === 'archived'}
-            className={scope === 'archived' ? styles.segmentActive : styles.segment}
-            onClick={() => {
-              setScope('archived');
-              setSelected(new Set());
-              setNotice(undefined);
-            }}
-          >
-            Lưu trữ{archivedTotal !== undefined ? ` (${archivedTotal})` : ''}
-          </button>
+      {(() => {
+        // Nút thao tác nằm ở dòng tiêu đề khu vực Dự án (trang cha đưa chỗ đặt); thiếu chỗ thì để ngay đầu trang.
+        const actions = (
+          <>
+            <button
+              type="button"
+              className={styles.iconButton}
+              aria-label="Tải lại"
+              title="Tải lại"
+              onClick={() => void reload()}
+            >
+              <RefreshCw size={15} />
+            </button>
+            <button
+              type="button"
+              className={styles.buttonGhost}
+              disabled={selected.size === 0}
+              title={
+                selected.size === 0
+                  ? 'Tích chọn dự án trong bảng, hoặc chuột phải trên một dự án, để chuyển nhóm.'
+                  : undefined
+              }
+              onClick={() => setMoveIds([...selected])}
+            >
+              <FolderInput size={15} /> Chuyển nhóm
+              {selected.size > 0 ? <span className={styles.countBadge}>{selected.size}</span> : null}
+            </button>
+            <button type="button" className={styles.buttonPrimary} onClick={() => setCreateOpen(true)}>
+              <Plus size={15} /> Tạo dự án
+            </button>
+          </>
+        );
+        return actionsSlot ? (
+          createPortal(actions, actionsSlot)
+        ) : (
+          <div className={styles.pageHeadEnd}>{actions}</div>
+        );
+      })()}
+
+      <div className={styles.underlineTabs}>
+        <div role="tablist" aria-label="Danh sách dự án" className={styles.chipGroup}>
+          {(['active', 'archived'] as const).map((value) => (
+            <button
+              key={value}
+              type="button"
+              role="tab"
+              aria-selected={scope === value}
+              className={scope === value ? styles.underlineTabActive : styles.underlineTab}
+              onClick={() => {
+                setScope(value);
+                setSelected(new Set());
+                setNotice(undefined);
+              }}
+            >
+              {value === 'active' ? 'Đang làm' : 'Lưu trữ'}
+              {value === 'archived' && archivedTotal !== undefined ? (
+                <span className={styles.countPill}>{archivedTotal}</span>
+              ) : null}
+            </button>
+          ))}
         </div>
-        <span>
-          <b>{loaded ? visible.length : '—'}</b> dự án
-        </span>
-        <span>
-          Đang chạy <b>{loaded ? activeCount : '—'}</b>
-        </span>
-        <span>
-          Hoàn thành <b className={styles.textSuccess}>{loaded ? completedCount : '—'}</b>
-        </span>
-        <span className={styles.summarySpacer} />
-        {!loaded ? <span className={styles.muted}>Đang tải…</span> : null}
-        <button
-          type="button"
-          className={styles.iconButton}
-          aria-label="Tải lại"
-          title="Tải lại"
-          onClick={() => void reload()}
-        >
-          <RefreshCw size={15} />
-        </button>
-        <button
-          type="button"
-          className={styles.buttonGhost}
-          disabled={selected.size === 0}
-          title={
-            selected.size === 0
-              ? 'Tích chọn dự án trong bảng, hoặc chuột phải trên một dự án, để chuyển nhóm.'
-              : undefined
-          }
-          onClick={() => setMoveIds([...selected])}
-        >
-          <FolderInput size={15} /> Chuyển nhóm
-          {selected.size > 0 ? <span className={styles.countBadge}>{selected.size}</span> : null}
-        </button>
-        <button type="button" className={styles.buttonPrimary} onClick={() => setCreateOpen(true)}>
-          <Plus size={15} /> Tạo dự án
-        </button>
+        <div className={`${styles.pageMeta} ${styles.chipBarEnd}`}>
+          {!loaded ? <span className={styles.muted}>Đang tải…</span> : null}
+          <span>
+            <b>{loaded ? visible.length : '—'}</b> dự án
+          </span>
+          <span>
+            Đang chạy <b>{loaded ? activeCount : '—'}</b>
+          </span>
+          <span>
+            Hoàn thành <b className={styles.textSuccess}>{loaded ? completedCount : '—'}</b>
+          </span>
+        </div>
       </div>
 
-      <div className={styles.filterBar} role="group" aria-label="Bộ lọc dự án">
-        <div className={`${styles.filterField} ${styles.filterFieldWide}`}>
-          <span className={styles.filterLabel}>Trạng thái</span>
-          <Choice
-            label="Trạng thái"
-            value={statusFilter}
-            emptyOption="Mọi trạng thái"
-            options={statusOptions}
-            onChange={setStatusFilter}
-          />
-        </div>
-        <div className={`${styles.filterField} ${styles.filterFieldWide}`}>
-          <span className={styles.filterLabel}>Nhóm dự án</span>
-          <Choice
-            label="Nhóm dự án"
-            value={typeFilter}
-            emptyOption="Mọi nhóm dự án"
-            options={typeOptions}
-            onChange={setTypeFilter}
-          />
-        </div>
-        <div className={`${styles.filterField} ${styles.filterFieldWide}`}>
-          <span className={styles.filterLabel}>Nhãn</span>
-          <Choice
-            label="Nhãn"
-            value={tagFilter}
-            emptyOption="Mọi nhãn"
-            options={tagOptions}
-            onChange={setTagFilter}
-          />
-        </div>
-        <div className={`${styles.filterField} ${styles.filterFieldWide}`}>
-          <span className={styles.filterLabel}>Khách hàng</span>
-          <Choice
-            label="Khách hàng"
-            value={customerFilter}
-            emptyOption="Mọi khách hàng"
-            options={customerOptions}
-            onChange={setCustomerFilter}
-          />
-        </div>
+      <div className={styles.chipBar} role="group" aria-label="Bộ lọc và sắp xếp dự án">
+        <ChipSelect
+          variant="filter"
+          label="Sắp xếp"
+          prefix="Sắp xếp"
+          lead={<ArrowUpDown size={13} aria-hidden />}
+          value={sortKey}
+          options={SORT_OPTIONS}
+          maxWidth={240}
+          onChange={(value) => setSortKey((value || 'name') as ProjectSort)}
+        />
+        <ChipSelect
+          variant="filter"
+          label="Trạng thái"
+          prefix="Trạng thái"
+          emptyLabel="Tất cả"
+          value={statusFilter}
+          options={statusOptions}
+          maxWidth={240}
+          onChange={setStatusFilter}
+        />
+        <ChipSelect
+          variant="filter"
+          label="Nhóm dự án"
+          prefix="Nhóm"
+          emptyLabel="Tất cả"
+          value={typeFilter}
+          options={typeOptions}
+          maxWidth={260}
+          onChange={setTypeFilter}
+        />
+        <ChipSelect
+          variant="filter"
+          label="Nhãn"
+          prefix="Nhãn"
+          emptyLabel="Tất cả"
+          value={tagFilter}
+          options={tagOptions}
+          maxWidth={220}
+          onChange={setTagFilter}
+        />
+        <ChipSelect
+          variant="filter"
+          label="Khách hàng"
+          prefix="Khách hàng"
+          emptyLabel="Tất cả"
+          value={customerFilter}
+          options={customerOptions}
+          maxWidth={280}
+          onChange={setCustomerFilter}
+        />
         {hasFilter ? (
           <button
             type="button"
-            className={styles.buttonSmall}
+            className={styles.textButton}
             onClick={() => {
               setStatusFilter('');
               setTypeFilter('');
@@ -431,6 +517,9 @@ export function ProjectsListView({
             Xoá lọc
           </button>
         ) : null}
+        <div className={styles.chipBarEnd}>
+          <ProjectFilterButton filter={projectFilter} onChange={setProjectFilter} />
+        </div>
       </div>
 
       {error ? (
@@ -470,10 +559,15 @@ export function ProjectsListView({
                 key={type}
                 type={type}
                 rows={rows}
-                collapsed={collapsed.has(type)}
+                collapsed={!expanded.has(type)}
                 onToggleGroup={() => toggleGroup(type)}
                 selected={selected}
-                customerName={customerName}
+                savingId={savingProject}
+                customerOf={customerOf}
+                customerOptions={customerCellOptions}
+                groupOptions={groupCellOptions}
+                onPatch={patchProject}
+                onEditTags={(id) => setTagIds([id])}
                 tagOf={tags.find}
                 onToggle={toggleOne}
                 onMenu={openMenu}
@@ -565,7 +659,12 @@ function GroupRows({
   collapsed,
   onToggleGroup,
   selected,
-  customerName,
+  savingId,
+  customerOf,
+  customerOptions,
+  groupOptions,
+  onPatch,
+  onEditTags,
   tagOf,
   onToggle,
   onMenu,
@@ -578,7 +677,12 @@ function GroupRows({
   collapsed: boolean;
   onToggleGroup: () => void;
   selected: ReadonlySet<string>;
-  customerName: (id?: string) => string;
+  savingId?: string;
+  customerOf: (id?: string) => CustomerSummary | undefined;
+  customerOptions: readonly { value: string; label: string; description: string }[];
+  groupOptions: readonly { value: string; label: string }[];
+  onPatch: PatchProject;
+  onEditTags: (id: string) => void;
   tagOf: (tagId: string) => Tag | undefined;
   onToggle: (id: string) => void;
   onMenu: (id: string, at: { x: number; y: number }) => void;
@@ -587,7 +691,18 @@ function GroupRows({
   /** Mở lưu trữ (chỉ dòng của dự án đang lưu trữ). */
   onUnarchive: (id: string) => void;
 }) {
-  const activeCount = rows.filter((project) => project.status === 'active').length;
+  const today = new Date().toLocaleDateString('en-CA');
+  const countOf = (test: (project: ProjectSummary) => boolean) => rows.filter(test).length;
+  const counts = {
+    // Trễ hạn: đã qua ngày kết thúc mà chưa hoàn thành hay huỷ.
+    overdue: countOf(
+      (project) =>
+        Boolean(project.endDate && project.endDate < today) && !CLOSED_PROJECT_STATUSES.includes(project.status),
+    ),
+    notStarted: countOf((project) => project.status === 'planning'),
+    active: countOf((project) => project.status === 'active' || project.status === 'on_hold'),
+    finished: countOf((project) => project.status === 'completed'),
+  };
   return (
     <>
       <tr className={styles.groupRow}>
@@ -605,13 +720,26 @@ function GroupRows({
             )}
             {type}
           </button>
-          <span className={styles.countPill}>{rows.length}</span>
-          {activeCount > 0 ? <span className={styles.muted}> · {activeCount} đang chạy</span> : null}
+          <GroupCounts counts={counts} unit="dự án" />
         </th>
       </tr>
       {collapsed ? null : rows.map((project) => {
         const closable = !CLOSED_PROJECT_STATUSES.includes(project.status);
         const checked = selected.has(project.id);
+        const busy = savingId === project.id;
+        // Server vẫn kiểm quyền; ở đây chỉ khoá ô để người không có quyền khỏi bấm rồi nhận lỗi.
+        const canEdit = !busy && Boolean(project.myPermissions?.includes('project.update_all'));
+        const canEditStatus =
+          !busy && Boolean(project.myPermissions?.includes('project.update_status'));
+        const customer = customerOf(project.customerId);
+        const statusChoices = projectStatusKeys()
+          // Huỷ dự án đi qua hộp riêng (kèm lý do) ở trang chi tiết.
+          .filter((status) => status !== 'cancelled' || project.status === 'cancelled')
+          .map((status) => ({
+            value: status,
+            label: PROJECT_STATUS_LABELS[status],
+            tone: PROJECT_STATUS_TONE[status],
+          }));
         return (
           <tr
             key={project.id}
@@ -639,51 +767,110 @@ function GroupRows({
                 {project.name}
               </button>
             </td>
-            <td className={styles.cellSub}>{project.projectType ?? UNCLASSIFIED}</td>
-            <td>
+            <td className={styles.inlineCell}>
+              <ChipSelect
+                label={`Nhóm của ${project.code}`}
+                value={project.projectType ?? ''}
+                emptyLabel={UNCLASSIFIED}
+                options={groupOptions}
+                lead={<Folder size={13} aria-hidden />}
+                maxWidth={150}
+                disabled={!canEdit}
+                onChange={(value) =>
+                  onPatch(project.id, { projectType: value || null }, 'Không đổi được nhóm dự án.')
+                }
+              />
+            </td>
+            <td className={styles.inlineCell}>
               {project.tagIds?.length ? (
-                <span className={styles.wbsTags}>
+                <span className={styles.chipGroup}>
                   {project.tagIds.map((tagId) => {
                     const tag = tagOf(tagId);
-                    return tag ? (
-                      <span key={tagId} className={styles.wbsTag} style={{ color: tagColor(tag) }}>
+                    if (!tag) return null;
+                    const color = tagColor(tag);
+                    return (
+                      <ChipButton
+                        key={tagId}
+                        tone={{ bg: `${color}14`, fg: color }}
+                        title={canEdit ? 'Bấm để sửa nhãn' : tag.name}
+                        onClick={canEdit ? () => onEditTags(project.id) : undefined}
+                      >
+                        <span className={styles.chipDot} />
                         {tag.name}
-                      </span>
-                    ) : null;
+                      </ChipButton>
+                    );
                   })}
                 </span>
+              ) : canEdit ? (
+                <ChipButton dashed label={`Gắn nhãn cho ${project.code}`} onClick={() => onEditTags(project.id)}>
+                  <TagIcon size={13} aria-hidden /> Gắn nhãn
+                </ChipButton>
               ) : (
                 <span className={styles.muted}>—</span>
               )}
             </td>
-            <td className={styles.cellSub}>{customerName(project.customerId)}</td>
-            <td>
-              <ProjectStatusBadge status={project.status} />
+            <td className={styles.inlineCell}>
+              <ChipSelect
+                label={`Khách hàng của ${project.code}`}
+                title={customer?.name ?? 'Chưa gắn khách hàng'}
+                value={project.customerId ?? ''}
+                emptyLabel="Chọn khách hàng"
+                options={customerOptions}
+                lead={<Building2 size={13} aria-hidden />}
+                maxWidth={150}
+                disabled={!canEdit}
+                onChange={(value) =>
+                  onPatch(project.id, { customerId: value || null }, 'Không đổi được khách hàng.')
+                }
+              />
             </td>
-            <td className={styles.numeric}>{project.progressPercent}%</td>
+            <td className={styles.inlineCell}>
+              <ChipSelect
+                label={`Trạng thái của ${project.code}`}
+                value={project.status}
+                options={statusChoices}
+                dot
+                disabled={!canEditStatus}
+                onChange={(status) =>
+                  onPatch(project.id, { status: status as ProjectStatus }, 'Không đổi được trạng thái dự án.')
+                }
+              />
+            </td>
+            <td>
+              <ProgressCell
+                label={`Tiến độ của ${project.code}`}
+                value={project.progressPercent}
+                manual={Boolean(project.progressManual)}
+                auto={project.autoProgressPercent}
+                disabled={!canEdit}
+                onCommit={(next) =>
+                  onPatch(project.id, { manualProgressPercent: next }, 'Không lưu được tiến độ.')
+                }
+              />
+            </td>
             <td>
               <div className={styles.rowActions}>
                 {project.archivedAt ? (
                   <Confirm
                     title="Bạn có chắc chắn muốn mở lưu trữ dự án này?"
-                    description="Dự án về lại trạng thái Đang chạy để thêm công việc; khi đóng hồ sơ lần nữa sẽ tự vào lưu trữ."
+                    description="Dự án về lại danh sách đang làm để thêm công việc. Dự án đang Hoàn thành thì chuyển về Đang chạy; trạng thái khác giữ nguyên."
                     okText="Mở lưu trữ"
                     onConfirm={() => onUnarchive(project.id)}
                   >
-                    <button type="button" className={styles.buttonSmall}>
-                      Mở lưu trữ
+                    <button type="button" className={styles.textButton}>
+                      <ArchiveRestore size={13} aria-hidden /> Mở lưu trữ
                     </button>
                   </Confirm>
                 ) : closable ? (
                   <Confirm
                     title="Bạn có chắc chắn muốn đóng hồ sơ dự án này?"
-                    description="Dự án chuyển sang Hoàn thành và tự vào Lưu trữ. Chỉ đóng được khi mọi công việc đã hoàn thành hoặc đã huỷ."
+                    description="Dự án vào Lưu trữ, trạng thái giữ nguyên. Đóng được cả khi còn công việc chưa xong; mở lại bằng Mở lưu trữ."
                     okText="Đóng hồ sơ"
                     okType="warning"
                     onConfirm={() => onClose(project.id)}
                   >
-                    <button type="button" className={styles.buttonSmall}>
-                      Đóng hồ sơ
+                    <button type="button" className={styles.textButton}>
+                      <Archive size={13} aria-hidden /> Đóng hồ sơ
                     </button>
                   </Confirm>
                 ) : null}

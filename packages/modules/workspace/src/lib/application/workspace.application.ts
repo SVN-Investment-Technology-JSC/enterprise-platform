@@ -31,6 +31,12 @@ export interface WorkspaceActor {
    * người khác phải được Platform cấp `workspace.document.delete`.
    */
   readonly canDeleteDocuments: boolean;
+  /**
+   * Được xem và thao tác mọi dự án như thành viên có đủ quyền, kể cả dự án mình không tham gia
+   * (`workspace.project.admin`). Hẹp hơn `isTenantAdmin`: không kéo theo quyền quản trị danh mục
+   * dùng chung hay xoá tài liệu. Vắng thì coi là không có.
+   */
+  readonly canAdminProjects?: boolean;
 }
 
 /** Trạng thái cài đặt module cho tenant đang đăng nhập. */
@@ -52,6 +58,7 @@ export interface WorkspaceStatus {
     readonly canWriteTasks: boolean;
     readonly canWriteDocuments: boolean;
     readonly canDeleteDocuments: boolean;
+    readonly canAdminProjects: boolean;
   };
 }
 
@@ -79,6 +86,7 @@ export class WorkspaceApplication {
         canWriteTasks: actor.canWriteTasks,
         canWriteDocuments: actor.canWriteDocuments,
         canDeleteDocuments: actor.canDeleteDocuments,
+        canAdminProjects: actor.canAdminProjects === true,
       },
     };
   }

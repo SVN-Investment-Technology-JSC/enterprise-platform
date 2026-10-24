@@ -164,6 +164,12 @@ services:
       AUTH_COOKIE_SECURE: 'true'
       AUTH_PRIVATE_KEY: ${AUTH_PRIVATE_KEY:?}
       AUTH_PUBLIC_KEY: ${AUTH_PUBLIC_KEY:?}
+      # Chat nội bộ của core: ký URL tải tệp đính kèm lên MinIO cho trình duyệt (cùng địa chỉ công khai với các phân hệ).
+      S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:?}
+      # Thông báo đẩy của chat (báo tin cả khi đã đóng tab ERP). Không bắt buộc: bỏ trống thì mỗi công ty tự sinh cặp
+      # khoá VAPID lưu trong DB. Đặt thì dùng chung cho mọi công ty, cùng một cặp với worker.
+      WEB_PUSH_VAPID_PUBLIC_KEY: ${WEB_PUSH_VAPID_PUBLIC_KEY:-}
+      WEB_PUSH_VAPID_PRIVATE_KEY: ${WEB_PUSH_VAPID_PRIVATE_KEY:-}
     depends_on:
       migrator:
         condition: service_completed_successfully
@@ -331,6 +337,30 @@ services:
     init: true
     restart: unless-stopped
 
+  social-api:
+    <<: *production-image
+    image: ghcr.io/svn-investment-technology-jsc/enterprise-platform:social-api-${IMAGE_TAG:-production}
+    environment:
+      <<: [*database-environment, *platform-access-environment]
+      PORT: '3343'
+      # Mạng nội bộ hỏi HRM ngày sinh và ngày vào công ty của nhân sự (chỉ đọc).
+      HRM_API_URL: http://hrm-api:3339/api/hrm
+      # Ảnh và tệp đính kèm bài viết dùng presigned URL qua MinIO như Workspace.
+      S3_ENDPOINT: http://minio:9000
+      S3_REGION: us-east-1
+      S3_BUCKET: enterprise-platform
+      S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:?}
+      S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?}
+    depends_on:
+      api:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+      minio-init:
+        condition: service_completed_successfully
+    init: true
+    restart: unless-stopped
+
   realtime-api:
     <<: *production-image
     image: ghcr.io/svn-investment-technology-jsc/enterprise-platform:realtime-api-${IMAGE_TAG:-production}
@@ -341,6 +371,8 @@ services:
       WORKSPACE_INTERNAL_URL: http://workspace-api:3337
       # Phòng thời gian thực của trao đổi quy trình: kiểm quyền vào phòng bằng cookie của người dùng.
       PROCEDURE_INTERNAL_URL: http://procedure-api:3334
+      # Phòng theo nhóm Mạng nội bộ: kiểm tư cách thành viên bằng cookie của người dùng.
+      SOCIAL_INTERNAL_URL: http://social-api:3343
       # Cả hai service mở DB của từng tenant (thông báo nằm trong tenant DB), nên cần mẫu URL này như các API khác.
       TENANT_DATABASE_URL_TEMPLATE: postgresql://tenant:${TENANT_DB_PASSWORD:?}@tenant-db:5432/{databaseName}
       RABBITMQ_URL: amqp://platform:${RABBITMQ_PASSWORD:?}@rabbitmq:5672
@@ -396,6 +428,11 @@ services:
       TENANT_CORE_ORGANIZATION_CONTEXT_URL: http://api:3333/api/platform/internal/v1/organization-contexts
       HRM_API_URL: http://hrm-api:3339/api/hrm
       INVENTORY_API_URL: http://inventory-api:3336/api/inventory
+      # Gửi thông báo đẩy cho tin chat (hàng core.chat.push.v1). Khoá VAPID không bắt buộc (như api); WEB_PUSH_SUBJECT là
+      # email hoặc trang liên hệ gửi kèm cho dịch vụ push, nên đặt mailto:<email quản trị>.
+      WEB_PUSH_VAPID_PUBLIC_KEY: ${WEB_PUSH_VAPID_PUBLIC_KEY:-}
+      WEB_PUSH_VAPID_PRIVATE_KEY: ${WEB_PUSH_VAPID_PRIVATE_KEY:-}
+      WEB_PUSH_SUBJECT: ${WEB_PUSH_SUBJECT:-}
     depends_on:
       migrator:
         condition: service_completed_successfully
@@ -487,6 +524,15 @@ services:
     image: ghcr.io/svn-investment-technology-jsc/enterprise-platform:shared-web-${IMAGE_TAG:-production}
     depends_on:
       shared-api:
+        condition: service_healthy
+    init: true
+    restart: unless-stopped
+
+  social-web:
+    <<: *production-image
+    image: ghcr.io/svn-investment-technology-jsc/enterprise-platform:social-web-${IMAGE_TAG:-production}
+    depends_on:
+      social-api:
         condition: service_healthy
     init: true
     restart: unless-stopped

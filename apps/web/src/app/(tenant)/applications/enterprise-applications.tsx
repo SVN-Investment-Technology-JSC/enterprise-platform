@@ -79,6 +79,25 @@ const moduleCatalogMetadata: Record<string, ModuleExtraInfo> = {
     businessValue:
       'Hợp đồng, quyết định và văn bản của công ty nằm một chỗ, tìm được theo số hiệu, đối tác và hạn hiệu lực.',
   },
+  social: {
+    category: 'Nền tảng dùng chung',
+    tagline: 'Mạng nội bộ của công ty: bảng tin, thông báo và trao đổi giữa các phòng ban.',
+    accentColor: {
+      bg: 'bg-rose-50/70',
+      border: 'border-rose-200/80',
+      text: 'text-rose-700',
+      iconBg: 'bg-rose-100 text-rose-700',
+    },
+    features: [
+      'Bảng tin công ty với bài viết, thông báo và chuyên mục',
+      'Ghim bài quan trọng, đính kèm ảnh và tệp',
+      'Phản ứng, bình luận lồng hai cấp và nhắc tên đồng nghiệp',
+      'Kiểm duyệt bài viết và bình luận theo quyền',
+    ],
+    targetRoles: ['Toàn thể nhân sự', 'Truyền thông nội bộ', 'Ban Tổng giám đốc'],
+    businessValue:
+      'Tin tức và thông báo của công ty đến đúng người ngay trên ERP, thay cho tin nhắn rời rạc qua nhiều kênh.',
+  },
   'procedure-engine': {
     category: 'Vận hành & Quy trình',
     tagline: 'Thiết kế, ban hành và tự động hóa luồng phê duyệt văn bản, tờ trình đa cấp.',
@@ -288,18 +307,12 @@ export function EnterpriseApplications({
   initialError?: string;
   initialModules: TenantModuleCatalogItem[];
 }) {
-  // Loại bỏ hoàn toàn CRM theo yêu cầu của user
-  const sanitizedModules = useMemo(
-    () => initialModules.filter((m) => m.key.toLowerCase() !== 'crm'),
-    [initialModules],
-  );
-
   const [query, setQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [selectedStatus, setSelectedStatus] = useState<'all' | 'active' | 'not-active'>('all');
   // Khung chi tiết mở sẵn ứng dụng đầu tiên, nằm cạnh danh sách thay cho ngăn kéo.
   const [selectedModule, setSelectedModule] = useState<TenantModuleCatalogItem | null>(
-    () => sanitizedModules[0] ?? null,
+    () => initialModules[0] ?? null,
   );
   // Màn hẹp: khung chi tiết rơi xuống dưới danh sách, nên bấm "Chi tiết" thì cuộn tới nó.
   const [revealPanel, setRevealPanel] = useState(false);
@@ -308,23 +321,23 @@ export function EnterpriseApplications({
   const [requestedKeys, setRequestedKeys] = useState<Set<string>>(() => new Set());
 
   // Metrics
-  const totalCount = sanitizedModules.length;
-  const activeCount = sanitizedModules.filter((m) => m.entitlementStatus === 'active').length;
+  const totalCount = initialModules.length;
+  const activeCount = initialModules.filter((m) => m.entitlementStatus === 'active').length;
 
-  // Lọc danh sách danh mục có sẵn (không bao gồm CRM)
+  // Lọc danh sách danh mục có sẵn
   const availableCategories = useMemo(() => {
     const cats = new Set<string>();
-    for (const m of sanitizedModules) {
+    for (const m of initialModules) {
       const info = getModuleInfo(m.key, m.name, m.description);
       cats.add(info.category);
     }
     return Array.from(cats);
-  }, [sanitizedModules]);
+  }, [initialModules]);
 
   // Bộ lọc modules
   const filteredModules = useMemo(() => {
     const normQuery = query.trim().toLocaleLowerCase('vi');
-    return sanitizedModules.filter((module) => {
+    return initialModules.filter((module) => {
       const info = getModuleInfo(module.key, module.name, module.description);
 
       // Lọc trạng thái
@@ -346,7 +359,7 @@ export function EnterpriseApplications({
 
       return true;
     });
-  }, [sanitizedModules, query, selectedCategory, selectedStatus]);
+  }, [initialModules, query, selectedCategory, selectedStatus]);
 
   useEffect(() => {
     if (!revealPanel) return;

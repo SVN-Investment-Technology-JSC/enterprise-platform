@@ -9,13 +9,15 @@ import {
   type ProjectSummary,
   type ProjectTypeOption,
   type UpdateProjectRequest,
+  type ProjectCodePreview,
 } from '@enterprise-platform/contracts-workspace';
 import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import { Plus, X } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { formatVndWhileTyping, parseVndInput, toVndInput } from '../money';
-import { createCustomer, listCustomers, listProjectTypes } from '../workspace-api';
+import { orgUnitOptions } from '../org-units';
+import { createCustomer, listCustomers, listProjectTypes, previewProjectCode } from '../workspace-api';
 import { PROJECT_STATUS_LABELS } from '../workspace-labels';
 import styles from '../workspace.module.scss';
 import { Choice } from './choice';
@@ -24,7 +26,6 @@ import { PeoplePicker } from './people-picker';
 import { TagPicker } from './tag-picker';
 import { useDirectory } from './use-directory';
 import { roleOptions, useProjectRoles } from './use-project-roles';
-import { upperCaseKeepingCaret } from './upper-case-input';
 
 export interface ProjectFormProps {
   readonly open: boolean;
@@ -55,8 +56,9 @@ export interface ProjectFormProps {
 }
 
 interface FormState {
-  code: string;
   name: string;
+  /** Phòng ban phụ trách: id đơn vị trên cây tổ chức; rỗng là chưa chọn. */
+  orgUnitId: string;
   description: string;
   status: string;
   /** Khách hàng chủ quản (thực thể Workspace); rỗng nghĩa là chưa gắn. */
@@ -86,8 +88,8 @@ function today(): string {
  * phần lớn trường hợp chỉ cần sửa lại ngày kết thúc.
  */
 const emptyForm = (): FormState => ({
-  code: '',
   name: '',
+  orgUnitId: '',
   description: '',
   status: 'planning',
   customerId: '',
@@ -122,6 +124,8 @@ export function ProjectForm({
   const [savingCustomer, setSavingCustomer] = useState(false);
   /** "Thêm người" lúc tạo: bật mục rồi chọn người, mỗi người đặt vai trò riêng. */
   const [addPeople, setAddPeople] = useState(false);
+  /** Mã dự kiến theo quy tắc ở Cài đặt (chỉ khi tạo); đổi nhóm dự án thì tính lại. */
+  const [codePreview, setCodePreview] = useState<ProjectCodePreview>();
   const [newMembers, setNewMembers] = useState<Array<{ userId: string; role: ProjectRole }>>([]);
 
   useEffect(() => {
@@ -134,14 +138,29 @@ export function ProjectForm({
       .catch(() => setCustomers([]));
   }, [open]);
 
+  useEffect(() => {
+    if (!open || project) return;
+    let alive = true;
+    setCodePreview(undefined);
+    previewProjectCode(form.projectType || undefined)
+      .then((preview) => alive && setCodePreview(preview))
+      .catch(() => alive && setCodePreview({ error: 'Không xem trước được mã dự án; mã vẫn được cấp khi lưu.' }));
+    return () => {
+      alive = false;
+    };
+  }, [open, project, form.projectType]);
+
+  /** Phòng ban chọn được: các đơn vị trên cây tổ chức, kèm đường dẫn đơn vị cha. */
+  const unitOptions = useMemo(() => orgUnitOptions(directory.orgNodes), [directory.orgNodes]);
+
   // Nạp lại mỗi lần mở, nếu không hộp thoại sẽ còn giữ giá trị của lần trước.
   useEffect(() => {
     if (!open) return;
     setForm(
       project
         ? {
-            code: project.code,
             name: project.name,
+            orgUnitId: project.orgUnitId ?? '',
             description: project.description ?? '',
             status: project.status,
             customerId: project.customerId ?? '',
@@ -225,6 +244,7 @@ export function ProjectForm({
           // `null` gỡ khách hàng khỏi dự án khi người dùng xoá lựa chọn.
           customerId: form.customerId || null,
           projectType: form.projectType || null,
+          orgUnitId: form.orgUnitId || null,
           tagIds: form.tagIds,
           // `null` xoá ngày đã đặt; `undefined` sẽ bị hiểu là "không đụng tới".
           startDate: form.startDate || null,
@@ -233,8 +253,8 @@ export function ProjectForm({
       } else {
         const members = addPeople && newMembers.length > 0 ? newMembers : undefined;
         await onCreate({
-          code: form.code,
           name: form.name,
+          orgUnitId: form.orgUnitId || undefined,
           description: form.description || undefined,
           customerId: form.customerId || undefined,
           projectType: form.projectType || undefined,
@@ -263,14 +283,38 @@ export function ProjectForm({
       onClose={onClose}
       onSubmit={() => void submit()}
     >
+      <Field label="Nhóm dự án" hint="Thêm hoặc sửa nhóm ở Cài đặt > Nhóm dự án.">
+        <Choice
+          label="Nhóm dự án"
+          value={form.projectType}
+          emptyOption="Chưa phân loại"
+          options={[
+            ...types.map((type) => ({ value: type.name, label: type.name })),
+            // Nhóm đang gắn mà danh mục chưa tải xong vẫn hiện đúng tên.
+            ...(form.projectType && !types.some((type) => type.name === form.projectType)
+              ? [{ value: form.projectType, label: form.projectType }]
+              : []),
+          ]}
+          onChange={(value) => set({ projectType: value })}
+        />
+      </Field>
+
       {project ? null : (
-        <Field label="Mã dự án" hint="Chữ in hoa, số và dấu gạch ngang. Ví dụ: DA-2026-001.">
+        <Field
+          label="Mã dự án"
+          hint="Cấp tự động khi lưu theo quy tắc ở Cài đặt > Mã dự án; không sửa được. Số có thể tăng nếu có người tạo dự án cùng dãy ngay trước bạn."
+        >
           <input
-            value={form.code}
-            required
-            maxLength={32}
-            onChange={(event) => set({ code: upperCaseKeepingCaret(event) })}
+            value={codePreview?.code ?? (codePreview ? '' : 'Đang tính…')}
+            readOnly
+            disabled
+            aria-label="Mã dự án dự kiến"
           />
+          {codePreview?.error ? (
+            <p role="alert" className={styles.alert}>
+              {codePreview.error}
+            </p>
+          ) : null}
         </Field>
       )}
 
@@ -280,6 +324,26 @@ export function ProjectForm({
           required
           maxLength={180}
           onChange={(event) => set({ name: event.target.value })}
+        />
+      </Field>
+
+      <Field
+        label="Phòng ban phụ trách"
+        hint="Đơn vị trên cây tổ chức chịu trách nhiệm dự án; không ảnh hưởng tới thành viên dự án."
+      >
+        <SearchableSelect
+          options={[
+            ...unitOptions,
+            // Phòng ban đang gắn mà cây tổ chức chưa tải xong (hoặc đã bị xoá) vẫn hiện, không mất lựa chọn.
+            ...(form.orgUnitId && !unitOptions.some((option) => option.value === form.orgUnitId)
+              ? [{ value: form.orgUnitId, label: directory.loaded ? 'Đơn vị không còn trên cây tổ chức' : 'Đang tải…' }]
+              : []),
+          ]}
+          value={form.orgUnitId}
+          placeholder="Chọn phòng ban (gõ tên để lọc)…"
+          emptyText={directory.degraded ? 'Không đọc được cây tổ chức lúc này.' : 'Không có đơn vị nào khớp.'}
+          clearable
+          onChange={(value) => set({ orgUnitId: value })}
         />
       </Field>
 
@@ -308,21 +372,6 @@ export function ProjectForm({
         </Field>
       </div>
 
-      <Field label="Nhóm dự án" hint="Thêm hoặc sửa nhóm ở Cài đặt > Nhóm dự án.">
-        <Choice
-          label="Nhóm dự án"
-          value={form.projectType}
-          emptyOption="Chưa phân loại"
-          options={[
-            ...types.map((type) => ({ value: type.name, label: type.name })),
-            // Nhóm đang gắn mà danh mục chưa tải xong vẫn hiện đúng tên.
-            ...(form.projectType && !types.some((type) => type.name === form.projectType)
-              ? [{ value: form.projectType, label: form.projectType }]
-              : []),
-          ]}
-          onChange={(value) => set({ projectType: value })}
-        />
-      </Field>
 
       <Field label="Nhãn" hint="Gắn nhiều nhãn để lọc dự án trên trang Dự án.">
         <TagPicker selected={form.tagIds} onChange={(tagIds) => set({ tagIds })} />
@@ -349,10 +398,9 @@ export function ProjectForm({
                 placeholder="Mã khách hàng"
                 maxLength={32}
                 aria-label="Mã khách hàng mới"
-                onChange={(event) => {
-                  const code = upperCaseKeepingCaret(event);
-                  setNewCustomer((current) => ({ ...current, code }));
-                }}
+                onChange={(event) =>
+                  setNewCustomer((current) => ({ ...current, code: event.target.value }))
+                }
                 onKeyDown={(event) => {
                   if (event.key === 'Enter') {
                     event.preventDefault();

@@ -138,5 +138,17 @@ export interface ModuleShellProps<TViewId extends string = string> {
   readonly hideModuleSwitcher?: boolean;
   /** Chỉ kiểu `light`: ẩn nút Trang chủ ở chân thanh bên và breadcrumb (dùng cho Platform Superadmin). */
   readonly hideHomeButton?: boolean;
+  /**
+   * Chỉ kiểu `light`: bỏ hẳn thanh bên; vùng nội dung (kèm breadcrumb) chiếm cả bề ngang.
+   * Module tự lo điều hướng trong nội dung.
+   */
+  readonly hideNavigation?: boolean;
+  /** Chỉ kiểu `light`: thu hẹp lề của breadcrumb và vùng nội dung cho màn hình dày thông tin. */
+  readonly compact?: boolean;
+  /**
+   * Chỉ kiểu `light`: giới hạn bề rộng nội dung (px, không tính lề) cho cả breadcrumb/nút thao tác, banner và vùng
+   * nội dung, canh giữa cùng một khung để các hàng thẳng nhau trên màn rộng. Bỏ trống thì giữ như cũ (tràn bề ngang).
+   */
+  readonly contentMaxWidth?: number;
   readonly children: ReactNode;
 }

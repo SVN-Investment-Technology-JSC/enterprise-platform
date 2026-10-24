@@ -145,6 +145,9 @@
       "path": "./packages/features/hrm"
     },
     {
+      "path": "./packages/features/social"
+    },
+    {
       "path": "./apps/hrm-api"
     },
     {
@@ -197,6 +200,30 @@
     },
     {
       "path": "./packages/platform/brand"
+    },
+    {
+      "path": "./packages/contracts/social"
+    },
+    {
+      "path": "./packages/modules/social"
+    },
+    {
+      "path": "./apps/social-api"
+    },
+    {
+      "path": "./apps/social-web"
+    },
+    {
+      "path": "./packages/contracts/chat"
+    },
+    {
+      "path": "./packages/platform/chat"
+    },
+    {
+      "path": "./packages/platform/profile"
+    },
+    {
+      "path": "./packages/features/chat"
     }
   ]
 }

@@ -38,6 +38,22 @@ describe('luật manage bao hàm quyền hẹp', () => {
     ).toBe(true);
   });
 
+  it('workspace.project.admin chỉ kéo theo xem và ghi công việc', () => {
+    const effective = expandTenantActions(['workspace.project.admin']);
+    expect(effective).toEqual(
+      expect.arrayContaining(['workspace.read', 'workspace.task.write']),
+    );
+    for (const key of [
+      'workspace.manage',
+      'workspace.document.write',
+      'workspace.document.delete',
+      'workspace.project.create',
+    ]) {
+      expect(effective).not.toContain(key);
+      expect(tenantActionHeld(['workspace.project.admin'], key)).toBe(false);
+    }
+  });
+
   it('quyền hẹp không kéo ngược lên manage', () => {
     expect(tenantActionHeld(['inventory.read'], 'inventory.manage')).toBe(false);
     expect(
@@ -59,7 +75,7 @@ describe('tenantModulePermissions', () => {
   });
 
   it('module có cổng vào thì nhận module.access', () => {
-    for (const module of ['assistant', 'hrm', 'procedure-engine', 'workspace'])
+    for (const module of ['assistant', 'hrm', 'procedure-engine', 'social', 'workspace'])
       expect(tenantModulePermissions(module)).toContain('module.access');
     expect(tenantModulePermissions('assistant')).toEqual(['module.access']);
   });

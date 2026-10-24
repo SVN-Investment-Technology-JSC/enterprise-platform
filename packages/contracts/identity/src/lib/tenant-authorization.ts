@@ -445,11 +445,20 @@ export const TENANT_PERMISSION_ACTIONS = [
   { key: 'workspace.document.write', group: 'Workspace', label: 'Ghi tài liệu' },
   { key: 'workspace.document.delete', group: 'Workspace', label: 'Xoá và lưu trữ tài liệu' },
   { key: 'workspace.project.create', group: 'Workspace', label: 'Tạo dự án mới' },
+  {
+    key: 'workspace.project.admin',
+    group: 'Workspace',
+    label: 'Xem và thao tác toàn bộ dự án',
+  },
   ...FINANCE_PERMISSION_ACTIONS,
   { key: 'shared.read', group: 'Hệ dùng chung', label: 'Xem tài liệu công ty' },
   { key: 'shared.manage', group: 'Hệ dùng chung', label: 'Quản trị kho tài liệu công ty' },
   { key: 'shared.document.write', group: 'Hệ dùng chung', label: 'Tải lên và sửa tài liệu công ty' },
   { key: 'shared.document.delete', group: 'Hệ dùng chung', label: 'Lưu trữ và xoá tài liệu công ty' },
+  { key: 'social.read', group: 'Mạng nội bộ', label: 'Xem bảng tin và bài viết' },
+  { key: 'social.post.write', group: 'Mạng nội bộ', label: 'Đăng bài, bình luận và phản ứng' },
+  { key: 'social.post.moderate', group: 'Mạng nội bộ', label: 'Kiểm duyệt bài viết và bình luận' },
+  { key: 'social.manage', group: 'Mạng nội bộ', label: 'Quản lý chuyên mục' },
 ] as const;
 export type TenantAction = (typeof TENANT_PERMISSION_ACTIONS)[number]['key'];
 export interface TenantPermission {
@@ -532,6 +541,9 @@ export const TENANT_ACTION_IMPLIES: Readonly<Record<string, readonly string[]>> 
     'workspace.task.write',
     'workspace.document.write',
   ],
+  // Xem và thao tác mọi dự án (kể cả dự án mình không là thành viên): cần xem được module và ghi
+  // công việc. Cố ý không gồm quyền tài liệu, `workspace.project.create` hay `workspace.manage`.
+  'workspace.project.admin': ['workspace.read', 'workspace.task.write'],
   // Toàn quyền nghiệp vụ Tài chính: gồm mọi action còn lại của module.
   'finance.manage': FINANCE_PERMISSION_ACTIONS.map((a) => a.key as string).filter(
     (key) => key !== 'finance.manage',
@@ -541,6 +553,10 @@ export const TENANT_ACTION_IMPLIES: Readonly<Record<string, readonly string[]>> 
   'shared.manage': ['shared.read', 'shared.document.write'],
   'shared.document.write': ['shared.read'],
   'shared.document.delete': ['shared.read'],
+  // Mạng nội bộ: đăng bài hay kiểm duyệt cũng xem được bảng tin; kiểm duyệt gồm quyền đăng.
+  'social.manage': ['social.read', 'social.post.write', 'social.post.moderate'],
+  'social.post.moderate': ['social.read', 'social.post.write'],
+  'social.post.write': ['social.read'],
 };
 
 /** Người giữ `held` có `action` không, kể cả khi được bao hàm bởi một action quản lý. */
@@ -566,6 +582,7 @@ const MODULE_ACTION_PREFIX: Readonly<Record<string, string>> = {
   workspace: 'workspace',
   finance: 'finance',
   shared: 'shared',
+  social: 'social',
 };
 /** Module nhận probe `module.access`: chỉ cần được vào module, không đòi action cụ thể. */
 const MODULES_WITH_ADMISSION_PROBE = new Set([
@@ -573,6 +590,7 @@ const MODULES_WITH_ADMISSION_PROBE = new Set([
   'finance',
   'hrm',
   'procedure-engine',
+  'social',
   'workspace',
 ]);
 

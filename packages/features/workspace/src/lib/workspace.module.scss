@@ -5774,9 +5774,15 @@
 }
 
 .reportFilters {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
   gap: 10px;
+
+  > [data-choice] {
+    flex: 1 1 12rem;
+    min-width: 0;
+  }
 }
 
 .kpiGrid {
@@ -6066,4 +6072,710 @@ button.kpiCard {
     height: 100%;
     border-radius: 999px;
   }
+}
+
+/* ------------------------------------------------------------ Cài đặt mã dự án */
+
+.codeTokens {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.codeTokenHelp {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--ep-text-sub);
+  font-size: 12.5px;
+
+  code {
+    color: var(--ep-text);
+    font-weight: 600;
+  }
+}
+
+.codeExamples {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--ep-border);
+  border-radius: var(--ep-radius);
+  background: var(--ep-hover);
+  font-size: 13px;
+
+  ul {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  li {
+    display: flex;
+    gap: 12px;
+    justify-content: space-between;
+  }
+
+  code {
+    font-weight: 700;
+  }
+
+  em {
+    color: #92400e;
+    font-style: normal;
+  }
+}
+
+/* ------------------------------------------------------------ Bảng "Tìm kiếm" dự án (ProjectFilterPanel) */
+
+/* Nhóm nút "Lọc sâu" ở cuối thanh lọc: dồn sát phải, đáy thẳng hàng và cao bằng ô chọn của thanh lọc (34px). */
+.filterBarEnd {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  align-self: flex-end;
+
+  button {
+    height: 34px;
+    min-height: 34px;
+  }
+}
+
+.filterPanel {
+  width: min(34rem, 100%);
+}
+
+.filterPanelBody {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px 20px 20px;
+  overflow-y: auto;
+}
+
+.filterKeyword {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ep-text-sub);
+}
+
+/* Ô nhập trong bảng lọc: cùng kiểu với ô trong form (.field). */
+.filterKeyword input,
+.filterValues input {
+  @include input-base;
+
+  height: 38px;
+  min-height: 38px;
+  background: var(--ep-surface-soft);
+  font-weight: 400;
+}
+
+.filterValues :global(.ant-picker) input,
+.filterValues :global(.ant-picker) input:focus {
+  height: auto;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  outline: none;
+}
+
+.filterGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.filterOr {
+  align-self: flex-start;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: #fef3c7;
+  color: #92400e;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.filterCondition {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.filterConditionHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.filterConditionField {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.filterOperator {
+  position: relative;
+
+  > button {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--ep-link);
+    font: inherit;
+    font-size: 13.5px;
+    cursor: pointer;
+
+    &:hover {
+      text-decoration: underline;
+    }
+  }
+}
+
+.filterRemove {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  margin-left: auto;
+  border: 0;
+  border-radius: var(--ep-radius-sm);
+  background: transparent;
+  color: var(--ep-text-sub);
+  cursor: pointer;
+
+  &:hover {
+    background: var(--ep-hover);
+    color: var(--ep-danger);
+  }
+}
+
+.filterValues {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  > * {
+    flex: 1;
+    min-width: 0;
+  }
+
+  > span {
+    flex: none;
+  }
+}
+
+.filterChips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+
+  > div:last-child {
+    flex: 1 1 12rem;
+  }
+}
+
+.filterChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 6px 3px 10px;
+  border-radius: 999px;
+  background: var(--ep-hover);
+  font-size: 13px;
+
+  button {
+    display: grid;
+    place-items: center;
+    padding: 2px;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--ep-text-sub);
+    cursor: pointer;
+  }
+}
+
+.filterAdd {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+
+  > .filterMenu {
+    flex-basis: 100%;
+  }
+}
+
+.filterMenu {
+  display: flex;
+  flex-direction: column;
+  max-height: 18rem;
+  padding: 4px;
+  overflow-y: auto;
+  border: 1px solid var(--ep-border);
+  border-radius: var(--ep-radius);
+  background: var(--ep-surface);
+  box-shadow: var(--ep-shadow-pop);
+
+  > button {
+    padding: 8px 10px;
+    border: 0;
+    border-radius: var(--ep-radius-sm);
+    background: transparent;
+    color: var(--ep-text);
+    font: inherit;
+    font-size: 13.5px;
+    text-align: left;
+    cursor: pointer;
+
+    &:hover {
+      background: var(--ep-hover);
+    }
+  }
+
+  > p {
+    margin: 6px 10px;
+  }
+}
+
+.filterMenu > button.filterMenuActive {
+  background: var(--ep-hover);
+  font-weight: 600;
+}
+
+.filterMenuSearch {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px 6px;
+  border-bottom: 1px solid var(--ep-border);
+  color: var(--ep-text-sub);
+
+  input {
+    flex: 1;
+    min-width: 0;
+    border: 0;
+    background: transparent;
+    outline: none;
+  }
+}
+
+/* Nhóm lựa chọn Có / Không ở trang Cài đặt. */
+.choiceGroup {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 20px;
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--ep-border);
+  border-radius: var(--ep-radius);
+
+  legend {
+    padding: 0 4px;
+    font-size: 13px;
+    font-weight: 600;
+  }
+}
+
+/* =========================================================================
+   Sửa nhanh trên bảng (Công việc của tôi, Dự án, Công việc khác): chip, tiến độ, đầu trang.
+   ========================================================================= */
+
+.pageHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 18px;
+}
+
+.pageTitle {
+  margin: 0;
+  color: var(--ep-text);
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+}
+
+.pageMeta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 16px;
+  color: var(--ep-text-sub);
+  font-size: 13px;
+
+  b {
+    color: var(--ep-text);
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+.pageHeadEnd {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+/* Tab gạch chân "Đang làm / Lưu trữ" của trang Dự án. */
+.underlineTabs {
+  display: flex;
+  gap: 20px;
+  border-bottom: 1px solid var(--ep-border);
+}
+
+.underlineTab,
+.underlineTabActive {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: -1px;
+  padding: 6px 2px 9px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--ep-text-sub);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.underlineTabActive {
+  border-bottom-color: var(--ep-accent);
+  color: var(--ep-text);
+}
+
+/* Thanh lọc dạng chip, không khung. */
+.chipBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.chipBarEnd {
+  margin-left: auto;
+}
+
+/* Chip là `SearchableSelect` khoác vỏ: ghi đè ô nhập bên trong (module css của nó dùng !important). */
+.inlineChip {
+  --chip-bg: var(--ep-surface);
+  --chip-fg: var(--ep-text);
+  --chip-border: var(--ep-border);
+
+  position: relative;
+  display: inline-block;
+  flex: none;
+  max-width: 100%;
+  vertical-align: middle;
+
+  input {
+    height: 28px !important;
+    border-color: color-mix(in srgb, var(--chip-fg) 18%, var(--chip-border)) !important;
+    border-radius: 999px !important;
+    background: var(--chip-bg) !important;
+    color: var(--chip-fg) !important;
+    font-size: 12.5px !important;
+    font-weight: 600;
+  }
+
+  button {
+    color: color-mix(in srgb, var(--chip-fg) 70%, transparent);
+  }
+}
+
+.chipFilter input {
+  border-color: var(--ep-border) !important;
+  background: var(--ep-surface) !important;
+  color: var(--ep-text) !important;
+  font-weight: 700;
+}
+
+.chipEmpty {
+  --chip-fg: var(--ep-text-muted);
+
+  input,
+  &.chipStatic {
+    border-style: dashed !important;
+    background: transparent !important;
+    font-weight: 500;
+  }
+}
+
+.chipDisabled input {
+  cursor: default;
+  opacity: 0.85;
+}
+
+.chipLead {
+  position: absolute;
+  top: 50%;
+  left: 10px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--chip-fg);
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.chipPrefix {
+  color: var(--ep-text-muted);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.chipDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentcolor;
+}
+
+.chipOption {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.chipStatic {
+  --chip-bg: var(--ep-surface);
+  --chip-fg: var(--ep-text);
+
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  max-width: 100%;
+  padding: 0 10px;
+  border: 1px solid color-mix(in srgb, var(--chip-fg) 18%, var(--ep-border));
+  border-radius: 999px;
+  background: var(--chip-bg);
+  color: var(--chip-fg);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.chipClickable {
+  cursor: pointer;
+
+  &:hover {
+    border-color: var(--ep-text-muted);
+  }
+
+  &:focus-visible {
+    @include focus-ring;
+  }
+}
+
+.chipGroup {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Ô hạn dạng chip: lịch của DatePickerInput, biểu tượng lịch đưa lên đầu. */
+.dateChip {
+  display: inline-block;
+
+  :global(.ant-picker-input) {
+    flex-direction: row-reverse;
+    gap: 6px;
+  }
+
+  :global(.ant-picker) {
+    width: 124px;
+    padding: 0 10px;
+    border-color: var(--ep-border);
+    border-radius: 6px;
+    background: var(--ep-surface);
+  }
+
+  :global(.ant-picker-suffix) {
+    margin-inline-start: 0;
+  }
+
+  :global(.ant-picker-clear) {
+    inset-inline-end: auto;
+    inset-inline-start: 8px;
+  }
+
+  :global(.ant-picker) input {
+    font-size: 12.5px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+.dateChipEmpty :global(.ant-picker) {
+  width: 104px;
+  border-style: dashed;
+  background: transparent;
+
+  input {
+    font-weight: 500;
+  }
+}
+
+.dateChipDanger :global(.ant-picker) {
+  border-color: #fca5a5;
+  background: #fef2f2;
+  color: var(--ep-danger);
+
+  input,
+  :global(.ant-picker-suffix) {
+    color: var(--ep-danger);
+  }
+}
+
+/* Tiến độ: thanh và số %; bấm số để nhập tay, chuột phải để về tự động. */
+.progressEdit {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  white-space: nowrap;
+}
+
+.progressBar {
+  position: relative;
+  width: 72px;
+  height: 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--ep-line);
+
+  > span {
+    position: absolute;
+    inset: 0 auto 0 0;
+    border-radius: inherit;
+    background: #4f46e5;
+  }
+}
+
+.progressValue,
+.progressValueManual {
+  min-width: 40px;
+  padding: 2px 4px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: none;
+  color: var(--ep-text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  cursor: text;
+
+  &:hover:not(:disabled) {
+    border-color: var(--ep-border);
+  }
+
+  &:disabled {
+    cursor: default;
+  }
+}
+
+.progressValueManual {
+  color: #2563eb;
+}
+
+.progressInput {
+  width: 48px;
+  height: 26px;
+  padding: 0 6px;
+  border: 1px solid #2563eb;
+  border-radius: 4px;
+  background: var(--ep-surface);
+  font-size: 13px;
+  font-weight: 700;
+  text-align: right;
+  outline: none;
+}
+
+.inlineCell {
+  white-space: nowrap;
+}
+
+/* Bảng việc trong một thẻ có đầu gập được (khối Công việc khác). */
+.cardHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  font-size: 13.5px;
+  font-weight: 700;
+}
+
+.textButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--ep-text-sub);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+
+  &:hover {
+    background: var(--ep-line);
+    color: var(--ep-text);
+  }
+}
+
+/* Hạn đã qua trên ô chọn ngày của bảng: chữ đỏ như ô hạn chỉ đọc trước đây. */
+.cellDanger :global(.ant-picker) input {
+  color: var(--ep-danger);
+  font-weight: 600;
+}
+
+/* Đầu mỗi bảng trong Cài đặt > Trạng thái và ưu tiên. */
+.labelTableHead {
+  padding: 10px 12px;
+}
+
+/* Các trường vừa sửa trong ngăn Nhật ký của Công việc khác: mỗi trường một dòng. */
+.changeList {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12.5px;
+}
+
+.inlineIcon {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Các số đếm ở đầu nhóm (trễ hạn, chưa làm, đang làm, hoàn thành). */
+.groupCounts {
+  display: inline-flex;
+  gap: 4px;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+
+/* Thắng `.groupRow th .countPill` (cách lề 8px cho số đếm đơn lẻ trước đây). */
+.groupRow th .groupCounts .countPill {
+  margin-left: 0;
 }

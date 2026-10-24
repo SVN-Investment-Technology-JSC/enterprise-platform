@@ -170,6 +170,12 @@ services:
       # mới, và các module API trả 401 cho tới khi được restart theo.
       AUTH_PRIVATE_KEY: ${AUTH_PRIVATE_KEY:-}
       AUTH_PUBLIC_KEY: ${AUTH_PUBLIC_KEY:-}
+      # Chat nội bộ của core: ký URL tải tệp đính kèm lên MinIO cho trình duyệt (cùng địa chỉ công khai với các phân hệ).
+      S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-http://localhost:9010}
+      # Thông báo đẩy của chat (báo tin cả khi đã đóng tab ERP). Không bắt buộc: bỏ trống thì mỗi công ty tự sinh cặp
+      # khoá VAPID lưu trong DB. Đặt thì dùng chung cho mọi công ty, cùng một cặp với worker.
+      WEB_PUSH_VAPID_PUBLIC_KEY: ${WEB_PUSH_VAPID_PUBLIC_KEY:-}
+      WEB_PUSH_VAPID_PRIVATE_KEY: ${WEB_PUSH_VAPID_PRIVATE_KEY:-}
     depends_on:
       migrator:
         condition: service_completed_successfully
@@ -340,6 +346,34 @@ services:
     init: true
     restart: unless-stopped
 
+  social-api:
+    build:
+      context: ../..
+      dockerfile: apps/social-api/Dockerfile
+    environment:
+      <<: [*database-environment, *platform-access-environment]
+      PORT: '3343'
+      # Mạng nội bộ hỏi HRM ngày sinh và ngày vào công ty của nhân sự (chỉ đọc).
+      HRM_API_URL: http://hrm-api:3339/api/hrm
+      # Như workspace-api: server gọi kho qua mạng Docker, URL ký sẵn mang host
+      # mà trình duyệt mở được.
+      S3_INTERNAL_ENDPOINT: http://minio:9000
+      S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-http://localhost:9010}
+      S3_ENDPOINT: http://minio:9000
+      S3_REGION: us-east-1
+      S3_BUCKET: enterprise-platform
+      S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-platform}
+      S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+    depends_on:
+      api:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+      minio-init:
+        condition: service_completed_successfully
+    init: true
+    restart: unless-stopped
+
   realtime-api:
     build:
       context: ../..
@@ -351,6 +385,8 @@ services:
       WORKSPACE_INTERNAL_URL: http://workspace-api:3337
       # Phòng thời gian thực của trao đổi quy trình: kiểm quyền vào phòng bằng cookie của người dùng.
       PROCEDURE_INTERNAL_URL: http://procedure-api:3334
+      # Phòng theo nhóm Mạng nội bộ: kiểm tư cách thành viên bằng cookie của người dùng.
+      SOCIAL_INTERNAL_URL: http://social-api:3343
       # Cả hai service mở DB của từng tenant (thông báo nằm trong tenant DB), nên cần mẫu URL này như các API khác.
       TENANT_DATABASE_URL_TEMPLATE: postgresql://tenant:${TENANT_DB_PASSWORD:-tenant_local_2026}@tenant-db:5432/{databaseName}
       RABBITMQ_URL: amqp://platform:${RABBITMQ_PASSWORD:-rabbit_local_2026}@rabbitmq:5672
@@ -408,6 +444,11 @@ services:
       TENANT_CORE_ORGANIZATION_CONTEXT_URL: http://api:3333/api/platform/internal/v1/organization-contexts
       HRM_API_URL: http://hrm-api:3339/api/hrm
       INVENTORY_API_URL: http://inventory-api:3336/api/inventory
+      # Gửi thông báo đẩy cho tin chat (hàng core.chat.push.v1). Khoá VAPID không bắt buộc (như api); WEB_PUSH_SUBJECT là
+      # email hoặc trang liên hệ gửi kèm cho dịch vụ push, nên đặt mailto:<email quản trị>.
+      WEB_PUSH_VAPID_PUBLIC_KEY: ${WEB_PUSH_VAPID_PUBLIC_KEY:-}
+      WEB_PUSH_VAPID_PRIVATE_KEY: ${WEB_PUSH_VAPID_PRIVATE_KEY:-}
+      WEB_PUSH_SUBJECT: ${WEB_PUSH_SUBJECT:-}
     depends_on:
       migrator:
         condition: service_completed_successfully
@@ -531,6 +572,16 @@ services:
     init: true
     restart: unless-stopped
 
+  social-web:
+    build:
+      context: ../..
+      dockerfile: apps/social-web/Dockerfile
+    depends_on:
+      social-api:
+        condition: service_healthy
+    init: true
+    restart: unless-stopped
+
   gateway:
     image: nginx:1.29-alpine
     ports:
@@ -543,6 +594,7 @@ services:
       # thì khi Workspace sập người dùng nhận 404 thay vì trang bảo trì.
       - ../nginx/workspace-maintenance.html:/usr/share/nginx/html/workspace-maintenance.html:ro
       - ../nginx/shared-maintenance.html:/usr/share/nginx/html/shared-maintenance.html:ro
+      - ../nginx/social-maintenance.html:/usr/share/nginx/html/social-maintenance.html:ro
     depends_on:
       web:
         condition: service_healthy

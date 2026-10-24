@@ -1,4 +1,4 @@
-import type { NotificationPolicy } from './notification-policy.js';
+import type { NotificationPolicy, NotificationRecipientRule } from './notification-policy.js';
 
 type Payload = Readonly<Record<string, unknown>>;
 
@@ -56,6 +56,22 @@ function maintenanceBody(eventType: string, payload: Payload): string {
     default:
       return text(payload, 'summary', `${subject} có cập nhật mới.`);
   }
+}
+
+const socialAuthor = (payload: Payload): string => text(payload, 'authorName', 'Một đồng nghiệp');
+
+/** Liên kết tới bài viết Mạng nội bộ, kèm bình luận nếu có (giao diện tự cuộn tới bình luận đó). */
+function socialLink(payload: Payload): string {
+  const post = encodeURIComponent(id(payload, 'postId'));
+  const comment = typeof payload.commentId === 'string' && payload.commentId.trim()
+    ? `/comments/${encodeURIComponent(payload.commentId)}`
+    : '';
+  return `/modules/social/posts/${post}${comment}`;
+}
+
+/** Liên kết tới một nhóm Mạng nội bộ. */
+function socialGroupLink(payload: Payload): string {
+  return `/modules/social/groups/${encodeURIComponent(id(payload, 'groupId'))}`;
 }
 
 function directPolicy(input: Omit<NotificationPolicy, 'version'>): NotificationPolicy {
@@ -206,6 +222,32 @@ export const DEFAULT_NOTIFICATION_POLICIES: readonly NotificationPolicy[] = [
     },
   }),
   directPolicy({
+    // Được nhắc tên trong chat nội bộ của core (không thuộc phân hệ nào). Nhiều lần nhắc trong cùng một cuộc trò
+    // chuyện trong 15 phút gộp thành một thông báo.
+    eventType: 'core.chat.mention',
+    module: 'chat',
+    category: 'mention',
+    priority: 'actionable',
+    recipients: { kind: 'payload', fields: ['mentionedUserIds'] },
+    actorField: 'actorUserId',
+    template: ({ payload }) => {
+      const conversation = typeof payload.conversationTitle === 'string' && payload.conversationTitle.trim()
+        ? ` trong "${payload.conversationTitle.trim()}"`
+        : '';
+      return {
+        title: `${text(payload, 'actorName', 'Một đồng nghiệp')} nhắc đến bạn${conversation}`,
+        body: text(payload, 'excerpt', 'Bạn được nhắc đến trong chat nội bộ.'),
+        deepLink: text(payload, 'deepLink', '/dashboard'),
+        sourceType: 'core_chat_message',
+        sourceId: id(payload, 'mentionId'),
+      };
+    },
+    aggregation: {
+      windowMinutes: 15,
+      key: ({ payload }) => `chat:mention:${id(payload, 'conversationId')}`,
+    },
+  }),
+  directPolicy({
     // Được nhắc tên trong trao đổi của hồ sơ quy trình. `mentionedUserIds` là id người dùng thật (giao diện
     // đã mở rộng chức danh/đơn vị thành từng người), nên nhận thẳng từ payload như Workspace.
     eventType: 'procedure.mention.created',
@@ -224,6 +266,253 @@ export const DEFAULT_NOTIFICATION_POLICIES: readonly NotificationPolicy[] = [
     aggregation: {
       windowMinutes: 15,
       key: ({ payload }) => `procedure:mention:${id(payload, 'threadId')}`,
+    },
+  }),
+  directPolicy({
+    // Được nhắc tên (@) trong bài viết hoặc bình luận. Payload cần `authorName` để nêu tên người nhắc.
+    eventType: 'social.mention.created',
+    module: 'social',
+    category: 'mention',
+    priority: 'actionable',
+    recipients: { kind: 'payload', fields: ['mentionedUserId'] },
+    actorField: 'authorId',
+    template: ({ payload }) => {
+      const inComment = typeof payload.commentId === 'string' && payload.commentId.trim().length > 0;
+      return {
+        title: 'Bạn được nhắc đến',
+        body: `${socialAuthor(payload)} đã nhắc bạn trong ${inComment ? 'một bình luận' : 'một bài viết'}.`,
+        deepLink: socialLink(payload),
+        sourceType: inComment ? 'social_comment' : 'social_post',
+        sourceId: inComment ? id(payload, 'commentId') : id(payload, 'postId'),
+      };
+    },
+    aggregation: {
+      windowMinutes: 15,
+      key: ({ payload }) => `social:mention:${typeof payload.commentId === 'string' && payload.commentId.trim() ? payload.commentId : id(payload, 'postId')}`,
+    },
+  }),
+  directPolicy({
+    // Báo tác giả bài viết và tác giả bình luận cha. Người vừa được nhắc tên trong chính bình luận này
+    // (`mentionedUserIds`) đã có thông báo nhắc tên nên không báo thêm lần nữa.
+    eventType: 'social.comment.created',
+    module: 'social',
+    category: 'comment',
+    priority: 'informational',
+    recipients: {
+      kind: 'payload',
+      fields: ['postAuthorId', 'parentAuthorId'],
+      excludeFields: ['mentionedUserIds'],
+    },
+    actorField: 'authorId',
+    template: ({ payload }) => {
+      const reply = typeof payload.parentAuthorId === 'string' && payload.parentAuthorId.trim().length > 0;
+      return {
+        title: reply ? 'Có trả lời mới' : 'Có bình luận mới',
+        body: `${socialAuthor(payload)} đã ${reply ? 'trả lời trong' : 'bình luận về'} bài viết${
+          typeof payload.postTitle === 'string' && payload.postTitle.trim() ? ` "${payload.postTitle.trim()}"` : ''
+        }.`,
+        deepLink: socialLink(payload),
+        sourceType: 'social_comment',
+        sourceId: id(payload, 'commentId'),
+      };
+    },
+    aggregation: {
+      windowMinutes: 15,
+      key: ({ payload }) => `social:comment:${id(payload, 'commentId')}`,
+    },
+  }),
+  directPolicy({
+    // Bài Tường công ty: báo toàn công ty khi là thông báo, nhắc @all hoặc cần xác nhận đã đọc.
+    // Bài nhóm: chỉ báo `recipientUserIds` (thành viên) khi là thông báo của nhóm hoặc cần xác nhận đã đọc.
+    // Bài thường không tạo thông báo.
+    eventType: 'social.post.published',
+    module: 'social',
+    category: 'announcement',
+    priority: 'actionable',
+    recipients: {
+      kind: 'conditional',
+      select: (payload) => {
+        // Bài quyền xem hẹp (phòng ban, chọn người, riêng tôi) không báo toàn công ty; người được thấy bài nhận
+        // thông báo nhắc tên riêng.
+        if (typeof payload.visibility === 'string' && payload.visibility !== 'company') return undefined;
+        const needsConfirmation = payload.requiresReadConfirmation === true;
+        if (typeof payload.groupId === 'string' && payload.groupId.trim()) {
+          return payload.kind === 'announcement' || needsConfirmation
+            ? { kind: 'payload', fields: ['recipientUserIds'] }
+            : undefined;
+        }
+        return payload.kind === 'announcement' || payload.mentionsAll === true || needsConfirmation
+          ? { kind: 'all-active-users' }
+          : undefined;
+      },
+      excludeFields: ['mentionedUserIds'],
+    },
+    actorField: 'authorId',
+    template: ({ payload }) => {
+      const announcement = payload.kind === 'announcement';
+      const needsConfirmation = payload.requiresReadConfirmation === true;
+      const author = socialAuthor(payload);
+      const groupName = typeof payload.groupName === 'string' && payload.groupName.trim() ? payload.groupName.trim() : '';
+      const inGroup = groupName ? ` trong nhóm "${groupName}"` : '';
+      const postTitle = typeof payload.title === 'string' && payload.title.trim() ? payload.title.trim() : '';
+      const confirm = needsConfirmation ? ' Vui lòng xác nhận đã đọc.' : '';
+      let title: string;
+      let body: string;
+      if (announcement) {
+        title = 'Thông báo mới';
+        body = `${author} đã đăng thông báo${inGroup}${postTitle ? `: ${postTitle}` : '.'}${confirm}`;
+      } else if (needsConfirmation) {
+        title = 'Bài viết cần xác nhận đã đọc';
+        body = `${author} đã đăng bài viết${inGroup}${postTitle ? `: ${postTitle}.` : '.'}${confirm}`;
+      } else {
+        title = 'Bạn được nhắc trong bài viết mới';
+        body = `${author} đã nhắc mọi người trong một bài viết${inGroup}.`;
+      }
+      return {
+        title,
+        body,
+        deepLink: socialLink({ postId: payload.postId }),
+        sourceType: 'social_post',
+        sourceId: id(payload, 'postId'),
+      };
+    },
+    aggregation: {
+      windowMinutes: 15,
+      key: ({ payload }) => `social:post:${id(payload, 'postId')}`,
+    },
+  }),
+  directPolicy({
+    // Báo cáo vi phạm mới. Báo cáo trong nhóm: `recipientUserIds` là admin nhóm, nhóm công khai báo thêm mọi
+    // moderator; nhóm riêng tư chỉ admin nhóm. Báo cáo ngoài nhóm (Tường công ty): `recipientUserIds` rỗng,
+    // báo mọi moderator.
+    eventType: 'social.report.created',
+    module: 'social',
+    category: 'moderation',
+    priority: 'actionable',
+    recipients: {
+      kind: 'conditional',
+      select: (payload) => {
+        const direct: NotificationRecipientRule = { kind: 'payload', fields: ['recipientUserIds'] };
+        if (payload.groupPrivacy === 'private') return direct;
+        return { kind: 'union', rules: [direct, { kind: 'permission', permission: 'social.post.moderate' }] };
+      },
+    },
+    actorField: 'reporterId',
+    template: ({ payload }) => {
+      const groupId = typeof payload.groupId === 'string' && payload.groupId.trim() ? payload.groupId : undefined;
+      const groupName = typeof payload.groupName === 'string' && payload.groupName.trim() ? payload.groupName.trim() : '';
+      return {
+        title: 'Có báo cáo vi phạm mới',
+        body: `${text(payload, 'reporterName', 'Một đồng nghiệp')} đã gửi báo cáo${groupName ? ` trong nhóm "${groupName}"` : ''}.`,
+        deepLink: groupId
+          ? `/modules/social/groups/${encodeURIComponent(groupId)}/reports`
+          : '/modules/social/pending?tab=reports',
+        sourceType: 'social_report',
+        sourceId: id(payload, 'reportId'),
+      };
+    },
+  }),
+  directPolicy({
+    // Bài Tường công ty gửi chờ duyệt: báo người có quyền kiểm duyệt (quản trị tenant luôn được tính).
+    eventType: 'social.post.pending',
+    module: 'social',
+    category: 'moderation',
+    priority: 'actionable',
+    recipients: { kind: 'permission', permission: 'social.post.moderate' },
+    actorField: 'authorId',
+    template: ({ payload, event }) => ({
+      title: 'Có bài viết chờ duyệt',
+      body: `${socialAuthor(payload)} gửi bài viết chờ duyệt${
+        typeof payload.title === 'string' && payload.title.trim() ? `: ${payload.title.trim()}` : '.'
+      }`,
+      deepLink: '/modules/social/pending',
+      sourceType: 'social_post_pending',
+      // Bài bị từ chối rồi gửi lại phải báo lại; khoá chỉ theo postId sẽ bị ràng buộc duy nhất nuốt mất.
+      sourceId: `${id(payload, 'postId')}:${event.id}`,
+    }),
+  }),
+  directPolicy({
+    // Kết quả duyệt báo cho tác giả. Duyệt xong bài còn phát `social.post.published` (origin `approved`).
+    eventType: 'social.post.moderated',
+    module: 'social',
+    category: 'moderation',
+    priority: 'actionable',
+    recipients: { kind: 'payload', fields: ['authorId'] },
+    actorField: 'moderatorId',
+    template: ({ payload, event }) => {
+      const rejected = payload.decision === 'rejected';
+      const subject =
+        typeof payload.title === 'string' && payload.title.trim() ? `Bài viết "${payload.title.trim()}"` : 'Bài viết của bạn';
+      const reason = typeof payload.reason === 'string' ? payload.reason.trim() : '';
+      return {
+        title: rejected ? 'Bài viết bị từ chối' : 'Bài viết đã được duyệt',
+        body: rejected
+          ? `${subject} bị từ chối${reason ? `: ${reason}` : '.'}`
+          : `${subject} đã được duyệt và hiển thị trên Tường công ty.`,
+        deepLink: rejected
+          ? '/modules/social/pending'
+          : `/modules/social/posts/${encodeURIComponent(id(payload, 'postId'))}`,
+        sourceType: 'social_post_moderated',
+        sourceId: `${id(payload, 'postId')}:${event.id}`,
+      };
+    },
+  }),
+  directPolicy({
+    // Được thêm vào nhóm. Yêu cầu được duyệt (`via: approved`) đã có thông báo `social.group.join.decided`
+    // nên không báo lần nữa.
+    eventType: 'social.group.member.added',
+    module: 'social',
+    category: 'group',
+    priority: 'informational',
+    recipients: {
+      kind: 'conditional',
+      select: (payload) => (payload.via === 'approved' ? undefined : { kind: 'payload', fields: ['userId'] }),
+    },
+    actorField: 'addedBy',
+    template: ({ payload, event }) => ({
+      title: 'Bạn đã được thêm vào nhóm',
+      body: `${text(payload, 'addedByName', 'Một đồng nghiệp')} đã thêm bạn vào nhóm "${text(payload, 'groupName', 'Mạng nội bộ')}".`,
+      deepLink: socialGroupLink(payload),
+      sourceType: 'social_group_member',
+      sourceId: `${id(payload, 'groupId')}:${id(payload, 'userId')}:${event.id}`,
+    }),
+  }),
+  directPolicy({
+    // Yêu cầu vào nhóm riêng tư: báo admin của nhóm (danh sách có sẵn trong payload).
+    eventType: 'social.group.join.requested',
+    module: 'social',
+    category: 'group',
+    priority: 'actionable',
+    recipients: { kind: 'payload', fields: ['adminUserIds'] },
+    actorField: 'requesterId',
+    template: ({ payload }) => ({
+      title: 'Có yêu cầu tham gia nhóm',
+      body: `${text(payload, 'requesterName', 'Một đồng nghiệp')} xin tham gia nhóm "${text(payload, 'groupName', 'Mạng nội bộ')}".`,
+      deepLink: `${socialGroupLink(payload)}/requests`,
+      sourceType: 'social_group_join_request',
+      sourceId: id(payload, 'requestId'),
+    }),
+  }),
+  directPolicy({
+    // Kết quả duyệt yêu cầu vào nhóm báo cho người xin.
+    eventType: 'social.group.join.decided',
+    module: 'social',
+    category: 'group',
+    priority: 'actionable',
+    recipients: { kind: 'payload', fields: ['requesterId'] },
+    actorField: 'decidedBy',
+    template: ({ payload }) => {
+      const group = text(payload, 'groupName', 'Mạng nội bộ');
+      const approved = payload.decision === 'approved';
+      return {
+        title: approved ? 'Yêu cầu tham gia nhóm đã được duyệt' : 'Yêu cầu tham gia nhóm bị từ chối',
+        body: approved
+          ? `Bạn đã trở thành thành viên của nhóm "${group}".`
+          : `Yêu cầu tham gia nhóm "${group}" chưa được chấp nhận.`,
+        deepLink: socialGroupLink(payload),
+        sourceType: 'social_group_join_decision',
+        sourceId: id(payload, 'requestId'),
+      };
     },
   }),
   directPolicy({

@@ -478,6 +478,53 @@ export class PlatformIdentityService implements OnModuleDestroy {
     return { ...principal, ...await this.authorization.resolve(principal.tenantId, principal.userId) };
   }
 
+  /**
+   * Phiên người dùng doanh nghiệp còn sống hay không, KHÔNG giải lại vai trò và quyền (khác `verifyAccessToken`).
+   * Dùng cho tính năng core mọi người dùng đều có (chat nội bộ, ảnh đại diện): không cần mở DB tenant ở mỗi request.
+   * Phiên bị thu hồi, tenant bị khoá hoặc DB tenant ngừng hoạt động đều bị từ chối như `verifyAccessToken`.
+   */
+  async verifyTenantSession(token: string): Promise<TenantUserPrincipal> {
+    const { publicKey } = await this.getKeys();
+    const { payload } = await jwtVerify(token, publicKey, {
+      algorithms: ['RS256'],
+      issuer: 'enterprise-platform',
+      audience: 'enterprise-platform-apps',
+    });
+    const principal = payload.principal as unknown as AuthenticatedPrincipal;
+    if (!principal?.userId || !principal.sessionId || principal.kind !== 'tenant-user') throw new UnauthorizedException();
+    const session = await this.pool.query(
+      `SELECT 1 FROM identity_schema.tenant_auth_sessions s
+         JOIN tenancy_schema.tenants t ON t.id=s.tenant_id AND t.status='active'
+         JOIN tenancy_schema.tenant_db_configs d ON d.tenant_id=t.id AND d.status='active'
+        WHERE s.id=$1 AND s.core_user_id=$2 AND s.tenant_id=$3 AND s.revoked_at IS NULL AND s.expires_at>now()`,
+      [principal.sessionId, principal.userId, principal.tenantId],
+    );
+    if (!session.rowCount) throw new UnauthorizedException('Phiên đăng nhập không còn hoạt động.');
+    return principal;
+  }
+
+  /** DB của tenant đang hoạt động, cho tính năng core (không cần quyền phân hệ nào). */
+  async tenantCoreDatabase(tenantId: string): Promise<TenantDatabaseReference | null> {
+    const result = await this.pool.query<DatabaseRow>(
+      `SELECT t.id AS tenant_id, d.database_name, d.host, d.port, d.secret_ref, d.ssl, d.config_version
+         FROM tenancy_schema.tenants t
+         JOIN tenancy_schema.tenant_db_configs d ON d.tenant_id = t.id AND d.status = 'active'
+        WHERE t.id = $1 AND t.status = 'active'`,
+      [tenantId],
+    );
+    const row = result.rows[0];
+    if (!row) return null;
+    return {
+      tenantId: row.tenant_id,
+      databaseName: row.database_name,
+      host: row.host,
+      port: row.port,
+      secretRef: row.secret_ref,
+      ssl: row.ssl,
+      configVersion: row.config_version,
+    };
+  }
+
   async jwks(): Promise<{ keys: JWK[] }> {
     return { keys: [(await this.getKeys()).jwk] };
   }

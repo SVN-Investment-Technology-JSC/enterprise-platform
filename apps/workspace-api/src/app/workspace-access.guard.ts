@@ -111,6 +111,7 @@ export class WorkspaceAccessGuard implements CanActivate {
       canWriteTasks: tenantActionHeld(held, 'workspace.task.write'),
       canWriteDocuments: tenantActionHeld(held, 'workspace.document.write'),
       canDeleteDocuments,
+      canAdminProjects: tenantActionHeld(held, 'workspace.project.admin'),
     };
     return true;
   }

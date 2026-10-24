@@ -11,6 +11,11 @@ export const REALTIME_SERVER_EVENTS = [
   'procedure.comment.changed',
   'procedure.comment.typing',
   'authorization.changed',
+  'social.feed.changed',
+  // Chat nội bộ của core và trạng thái trực tuyến: không thuộc chuỗi thông báo có thứ tự.
+  'core.chat.changed',
+  'core.chat.typing',
+  'core.presence.changed',
 ] as const;
 
 export type RealtimeServerEvent = (typeof REALTIME_SERVER_EVENTS)[number];
@@ -118,7 +123,9 @@ export type NotificationModule =
   | 'hrm'
   | 'finance'
   | 'inventory'
-  | 'maintenance';
+  | 'maintenance'
+  | 'social'
+  | 'chat';
 
 export interface NotificationRecord {
   readonly id: string;

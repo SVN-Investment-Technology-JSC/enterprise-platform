@@ -140,7 +140,9 @@
     "@enterprise-platform/module-finance": "workspace:*",
     "@enterprise-platform/module-hrm": "workspace:*",
     "@enterprise-platform/module-procedure-engine": "workspace:*",
+    "@enterprise-platform/module-social": "workspace:*",
     "@enterprise-platform/module-workspace": "workspace:*",
+    "@enterprise-platform/platform-chat": "workspace:*",
     "@enterprise-platform/platform-entitlement": "workspace:*",
     "@enterprise-platform/platform-tenancy": "workspace:*",
     "@nestjs/common": "^11.0.0",
@@ -150,7 +152,8 @@
     "pg": "^8.23.0",
     "rxjs": "^7.8.0",
     "sanitize-html": "^2.18.1",
-    "tslib": "^2.8.1"
+    "tslib": "^2.8.1",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "@types/pg": "^8.21.0"

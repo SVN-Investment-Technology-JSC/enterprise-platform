@@ -1,11 +1,15 @@
 import { CLOSED_WORK_ITEM_STATUSES, type WorkItemStatus } from '@enterprise-platform/contracts-workspace';
+import { WorkspaceValidationError } from './workspace.error.js';
 
 /** Phần thông tin cần để cuộn tiến độ; không cần cả bản ghi công việc. */
 export interface ProgressNode {
   readonly id: string;
   readonly parentId?: string | null;
   readonly status: WorkItemStatus;
+  /** Tiến độ tự tính đang lưu (`progress_percent`). */
   readonly progressPercent: number;
+  /** Tiến độ nhập tay; có giá trị thì được dùng thay giá trị tự tính. */
+  readonly manualPercent?: number | null;
   /** Trọng số khi tính bình quân. Thiếu thì lấy trung bình các việc có ước lượng. */
   readonly estimateHours?: number | null;
 }
@@ -41,20 +45,24 @@ export function isClosed(status: WorkItemStatus): boolean {
   return CLOSED_WORK_ITEM_STATUSES.includes(status);
 }
 
+/** Tiến độ hiệu lực của một node (chưa làm tròn) và trọng số của nó khi cuộn lên cha. */
+interface Evaluated {
+  readonly progress: number;
+  readonly weight: number;
+}
+
 /**
- * Tính lại tiến độ cho mọi node không phải lá.
+ * Tính tiến độ cho cả cây trong một lượt.
  *
- * Quy tắc: tiến độ của một node là bình quân tiến độ các node **lá** bên dưới
- * nó, lấy `estimate_hours` làm trọng số. Dùng node lá chứ không dùng con trực
- * tiếp, để một nhánh sâu không bị đánh đồng trọng số với một việc lẻ.
+ * Quy tắc: tiến độ tự tính của một node là bình quân tiến độ các node **lá** bên dưới nó, lấy `estimate_hours` làm
+ * trọng số. Dùng node lá chứ không dùng con trực tiếp, để một nhánh sâu không bị đánh đồng trọng số với một việc lẻ.
+ * Việc `cancelled` bị loại khỏi phép tính: nó không còn là phần việc phải làm, nên để lại sẽ kéo tiến độ xuống vĩnh
+ * viễn.
  *
- * Việc `cancelled` bị loại khỏi phép tính: nó không còn là phần việc phải làm,
- * nên để lại sẽ kéo tiến độ xuống vĩnh viễn.
- *
- * Trả về map chỉ chứa những node có thay đổi, để lời gọi UPDATE không đụng
- * vào các dòng không cần sửa.
+ * Node có tiến độ nhập tay (`manualPercent`) dùng giá trị đó thay cho giá trị tự tính khi cuộn lên cha và lên dự
+ * án; trọng số vẫn là tổng trọng số các lá bên dưới.
  */
-export function rollUpProgress(nodes: readonly ProgressNode[]): Map<string, number> {
+function evaluate(nodes: readonly ProgressNode[]) {
   const childrenByParent = new Map<string, ProgressNode[]>();
   for (const node of nodes) {
     if (!node.parentId) continue;
@@ -65,20 +73,21 @@ export function rollUpProgress(nodes: readonly ProgressNode[]): Map<string, numb
 
   const weightOf = leafWeigher(nodes);
   const changed = new Map<string, number>();
-  const computed = new Map<string, { progress: number; weight: number }>();
+  const computed = new Map<string, Evaluated>();
 
   // Hậu thứ tự: con phải xong trước cha. Đệ quy có nhớ tránh duyệt lại nhánh
   // dùng chung và tránh tràn ngăn xếp ở cây 10 cấp.
-  const visit = (node: ProgressNode): { progress: number; weight: number } => {
+  const visit = (node: ProgressNode): Evaluated => {
     const cached = computed.get(node.id);
     if (cached) return cached;
 
     const children = (childrenByParent.get(node.id) ?? []).filter(
       (child) => child.status !== 'cancelled',
     );
+    const manual = node.manualPercent ?? undefined;
 
     if (children.length === 0) {
-      const leaf = { progress: node.progressPercent, weight: weightOf(node) };
+      const leaf = { progress: manual ?? node.progressPercent, weight: weightOf(node) };
       computed.set(node.id, leaf);
       return leaf;
     }
@@ -91,15 +100,25 @@ export function rollUpProgress(nodes: readonly ProgressNode[]): Map<string, numb
       total += result.weight;
     }
 
-    const progress = total === 0 ? 0 : Math.round(weighted / total);
-    const result = { progress, weight: total };
+    const auto = total === 0 ? 0 : weighted / total;
+    const result = { progress: manual ?? auto, weight: total };
     computed.set(node.id, result);
-    if (progress !== node.progressPercent) changed.set(node.id, progress);
+    if (Math.round(auto) !== node.progressPercent) changed.set(node.id, Math.round(auto));
     return result;
   };
 
   for (const node of nodes) visit(node);
-  return changed;
+  return { computed, changed };
+}
+
+/**
+ * Tiến độ tự tính mới của các node cha (cột `progress_percent`).
+ *
+ * Trả về map chỉ chứa những node có thay đổi, để lời gọi UPDATE không đụng
+ * vào các dòng không cần sửa.
+ */
+export function rollUpProgress(nodes: readonly ProgressNode[]): Map<string, number> {
+  return evaluate(nodes).changed;
 }
 
 /**
@@ -156,25 +175,25 @@ export function autoCompleteParents(nodes: readonly ProgressNode[]): Set<string>
 }
 
 /**
- * Tiến độ tổng của dự án: bình quân có trọng số trên toàn bộ node lá.
+ * Tiến độ tổng của dự án: bình quân có trọng số trên các nhánh gốc, tức trên toàn bộ node lá khi không ai nhập tay.
  *
- * Tính lại từ lá thay vì lấy bình quân các node gốc, để kết quả không phụ
- * thuộc vào việc cây được chia thành mấy nhánh ở cấp một.
+ * Nhánh có tiến độ nhập tay góp giá trị nhập tay với trọng số của cả nhánh, để giá trị nhập tay được ưu tiên.
  */
 export function projectProgress(nodes: readonly ProgressNode[]): number {
-  const parents = new Set(nodes.map((node) => node.parentId).filter(Boolean) as string[]);
-  const leaves = nodes.filter(
-    (node) => !parents.has(node.id) && node.status !== 'cancelled',
+  const ids = new Set(nodes.map((node) => node.id));
+  const roots = nodes.filter(
+    (node) => (!node.parentId || !ids.has(node.parentId)) && node.status !== 'cancelled',
   );
-  if (leaves.length === 0) return 0;
-  const weightOf = leafWeigher(nodes);
+  if (roots.length === 0) return 0;
+  const { computed } = evaluate(nodes);
 
   let weighted = 0;
   let total = 0;
-  for (const leaf of leaves) {
-    const weight = weightOf(leaf);
-    weighted += leaf.progressPercent * weight;
-    total += weight;
+  for (const root of roots) {
+    const result = computed.get(root.id);
+    if (!result) continue;
+    weighted += result.progress * result.weight;
+    total += result.weight;
   }
   return total === 0 ? 0 : Math.round(weighted / total);
 }
@@ -192,4 +211,18 @@ export function isOverdue(
   if (isClosed(node.status)) return false;
   if (!node.plannedEnd) return false;
   return node.plannedEnd < today;
+}
+
+/**
+ * Tiến độ nhập tay gửi lên: `undefined` giữ nguyên, `null` (hoặc chuỗi rỗng) quay về tự tính, còn lại phải là số
+ * nguyên 0–100.
+ */
+export function parseManualPercent(value: unknown): number | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null || value === '') return null;
+  const percent = Number(value);
+  if (!Number.isInteger(percent) || percent < 0 || percent > 100) {
+    throw new WorkspaceValidationError('Tiến độ phải là số nguyên từ 0 đến 100.');
+  }
+  return percent;
 }

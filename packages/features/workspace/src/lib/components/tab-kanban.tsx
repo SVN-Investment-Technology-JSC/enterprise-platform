@@ -1,7 +1,6 @@
 'use client';
 
 import {
-  WORK_ITEM_STATUSES,
   canTransitionWorkItem,
   type WorkItem,
   type WorkItemStatus,
@@ -15,6 +14,7 @@ import {
   WORK_ITEM_STATUS_TONE,
   formatDate,
   isOverdue, workItemStatusLabel,
+  workItemStatusKeys,
 } from '../workspace-labels';
 import styles from '../workspace.module.scss';
 import { useDirectory } from './use-directory';
@@ -76,7 +76,7 @@ export function TabKanban({
 
   const columns = useMemo(() => {
     const byStatus = new Map<WorkItemStatus, WorkItem[]>(
-      WORK_ITEM_STATUSES.map((status) => [status, []]),
+      workItemStatusKeys().map((status) => [status, []]),
     );
     for (const card of cards) {
       const status = pending[card.id] ?? card.status;
@@ -138,7 +138,7 @@ export function TabKanban({
           else if (event.clientX < box.left + EDGE_PX) board.scrollLeft -= SCROLL_STEP_PX;
         }}
       >
-        {WORK_ITEM_STATUSES.map((status) => {
+        {workItemStatusKeys().map((status) => {
           const tone = WORK_ITEM_STATUS_TONE[status];
           const column = columns.get(status) ?? [];
           const locked = Boolean(draggingStatus) && !accepts(status);

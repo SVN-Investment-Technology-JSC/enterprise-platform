@@ -228,6 +228,9 @@ importers:
       '@enterprise-platform/platform-brand':
         specifier: workspace:*
         version: link:../../packages/platform/brand
+      '@enterprise-platform/platform-chat':
+        specifier: workspace:*
+        version: link:../../packages/platform/chat
       '@enterprise-platform/platform-data-import':
         specifier: workspace:*
         version: link:../../packages/platform/data-import
@@ -237,6 +240,9 @@ importers:
       '@enterprise-platform/platform-identity':
         specifier: workspace:*
         version: link:../../packages/platform/identity
+      '@enterprise-platform/platform-profile':
+        specifier: workspace:*
+        version: link:../../packages/platform/profile
       '@enterprise-platform/platform-tenancy':
         specifier: workspace:*
         version: link:../../packages/platform/tenancy
@@ -850,6 +856,9 @@ importers:
       '@enterprise-platform/adapter-events':
         specifier: workspace:*
         version: link:../../packages/adapters/events
+      '@enterprise-platform/contracts-chat':
+        specifier: workspace:*
+        version: link:../../packages/contracts/chat
       '@enterprise-platform/contracts-identity':
         specifier: workspace:*
         version: link:../../packages/contracts/identity
@@ -1000,6 +1009,104 @@ importers:
         specifier: ^19.0.0
         version: 19.2.8(react@19.2.8)
 
+  apps/social-api:
+    dependencies:
+      '@enterprise-platform/adapter-database':
+        specifier: workspace:*
+        version: link:../../packages/adapters/database
+      '@enterprise-platform/contracts-identity':
+        specifier: workspace:*
+        version: link:../../packages/contracts/identity
+      '@enterprise-platform/contracts-social':
+        specifier: workspace:*
+        version: link:../../packages/contracts/social
+      '@enterprise-platform/contracts-tenancy':
+        specifier: workspace:*
+        version: link:../../packages/contracts/tenancy
+      '@enterprise-platform/module-social':
+        specifier: workspace:*
+        version: link:../../packages/modules/social
+      '@enterprise-platform/platform-module-access':
+        specifier: workspace:*
+        version: link:../../packages/platform/module-access
+      '@nestjs/common':
+        specifier: ^11.0.0
+        version: 11.2.1(reflect-metadata@0.2.2)(rxjs@7.8.1)
+      '@nestjs/core':
+        specifier: ^11.0.0
+        version: 11.2.1(@nestjs/common@11.2.1(reflect-metadata@0.2.2)(rxjs@7.8.1))(@nestjs/platform-express@11.2.1)(@nestjs/websockets@11.2.7)(reflect-metadata@0.2.2)(rxjs@7.8.1)
+      '@nestjs/platform-express':
+        specifier: ^11.0.0
+        version: 11.2.1(@nestjs/common@11.2.1(reflect-metadata@0.2.2)(rxjs@7.8.1))(@nestjs/core@11.2.1)
+      cookie-parser:
+        specifier: ^1.4.7
+        version: 1.4.7
+      jose:
+        specifier: ^6.2.9
+        version: 6.2.9
+      pg:
+        specifier: ^8.23.0
+        version: 8.23.0
+      reflect-metadata:
+        specifier: ^0.2.0
+        version: 0.2.2
+      rxjs:
+        specifier: ^7.8.0
+        version: 7.8.1
+      tslib:
+        specifier: ^2.3.0
+        version: 2.8.1
+    devDependencies:
+      '@nestjs/testing':
+        specifier: ^11.0.0
+        version: 11.2.1(@nestjs/common@11.2.1(reflect-metadata@0.2.2)(rxjs@7.8.1))(@nestjs/core@11.2.1)(@nestjs/platform-express@11.2.1)
+      '@types/cookie-parser':
+        specifier: ^1.4.10
+        version: 1.4.10(@types/express@5.0.6)
+      '@types/express':
+        specifier: ^5.0.6
+        version: 5.0.6
+
+  apps/social-web:
+    dependencies:
+      '@base-ui/react':
+        specifier: ^1.7.0
+        version: 1.7.0(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      '@enterprise-platform/feature-social':
+        specifier: workspace:*
+        version: link:../../packages/features/social
+      '@enterprise-platform/shared-ui':
+        specifier: workspace:*
+        version: link:../../packages/shared/ui
+      '@swc/helpers':
+        specifier: 0.5.23
+        version: 0.5.23
+      class-variance-authority:
+        specifier: ^0.7.1
+        version: 0.7.1
+      clsx:
+        specifier: ^2.1.1
+        version: 2.1.1
+      next:
+        specifier: ~16.3.1
+        version: 16.3.1(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(@playwright/test@1.62.1)(@types/node@22.20.1)(babel-plugin-macros@3.1.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.102.0)
+      react:
+        specifier: ^19.0.0
+        version: 19.2.8
+      react-dom:
+        specifier: ^19.0.0
+        version: 19.2.8(react@19.2.8)
+      tailwind-merge:
+        specifier: ^3.6.0
+        version: 3.6.0
+    devDependencies:
+      '@tailwindcss/postcss':
+        specifier: ^4.3.3
+        version: 4.3.3
+      tailwindcss:
+        specifier: ^4.3.3
+        version: 4.3.3
+
   apps/web:
     dependencies:
       '@ant-design/icons':
@@ -1008,6 +1115,9 @@ importers:
       '@base-ui/react':
         specifier: ^1.7.0
         version: 1.7.0(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      '@enterprise-platform/contracts-chat':
+        specifier: workspace:*
+        version: link:../../packages/contracts/chat
       '@enterprise-platform/contracts-data-import':
         specifier: workspace:*
         version: link:../../packages/contracts/data-import
@@ -1020,6 +1130,9 @@ importers:
       '@enterprise-platform/contracts-tenancy':
         specifier: workspace:*
         version: link:../../packages/contracts/tenancy
+      '@enterprise-platform/feature-chat':
+        specifier: workspace:*
+        version: link:../../packages/features/chat
       '@enterprise-platform/feature-hrm':
         specifier: workspace:*
         version: link:../../packages/features/hrm
@@ -1140,9 +1253,15 @@ importers:
       '@enterprise-platform/module-procedure-engine':
         specifier: workspace:*
         version: link:../../packages/modules/procedure-engine
+      '@enterprise-platform/module-social':
+        specifier: workspace:*
+        version: link:../../packages/modules/social
       '@enterprise-platform/module-workspace':
         specifier: workspace:*
         version: link:../../packages/modules/workspace
+      '@enterprise-platform/platform-chat':
+        specifier: workspace:*
+        version: link:../../packages/platform/chat
       '@enterprise-platform/platform-entitlement':
         specifier: workspace:*
         version: link:../../packages/platform/entitlement
@@ -1173,6 +1292,9 @@ importers:
       tslib:
         specifier: ^2.8.1
         version: 2.8.1
+      web-push:
+        specifier: ^3.6.7
+        version: 3.6.7
     devDependencies:
       '@types/pg':
         specifier: ^8.21.0
@@ -1313,6 +1435,12 @@ importers:
         specifier: ^2.3.0
         version: 2.8.1
 
+  packages/contracts/chat:
+    dependencies:
+      tslib:
+        specifier: ^2.3.0
+        version: 2.8.1
+
   packages/contracts/data-import: {}
 
   packages/contracts/finance:
@@ -1374,6 +1502,9 @@ importers:
 
   packages/contracts/realtime:
     dependencies:
+      '@enterprise-platform/contracts-chat':
+        specifier: workspace:*
+        version: link:../chat
       tslib:
         specifier: ^2.3.0
         version: 2.8.1
@@ -1383,6 +1514,12 @@ importers:
       '@enterprise-platform/contracts-tenancy':
         specifier: workspace:*
         version: link:../tenancy
+      tslib:
+        specifier: ^2.3.0
+        version: 2.8.1
+
+  packages/contracts/social:
+    dependencies:
       tslib:
         specifier: ^2.3.0
         version: 2.8.1
@@ -1401,6 +1538,24 @@ importers:
       tslib:
         specifier: ^2.3.0
         version: 2.8.1
+
+  packages/features/chat:
+    dependencies:
+      '@enterprise-platform/contracts-chat':
+        specifier: workspace:*
+        version: link:../../contracts/chat
+      '@enterprise-platform/contracts-realtime':
+        specifier: workspace:*
+        version: link:../../contracts/realtime
+      '@enterprise-platform/shared-ui':
+        specifier: workspace:*
+        version: link:../../shared/ui
+      lucide-react:
+        specifier: ^1.31.0
+        version: 1.31.0(react@19.2.8)
+      react:
+        specifier: ^19.2.8
+        version: 19.2.8
 
   packages/features/finance:
     dependencies:
@@ -1560,6 +1715,9 @@ importers:
       '@enterprise-platform/contracts-identity':
         specifier: workspace:*
         version: link:../../contracts/identity
+      '@enterprise-platform/feature-chat':
+        specifier: workspace:*
+        version: link:../chat
       '@enterprise-platform/shared-ui':
         specifier: workspace:*
         version: link:../../shared/ui
@@ -1605,6 +1763,42 @@ importers:
       react:
         specifier: ^19.2.8
         version: 19.2.8
+
+  packages/features/social:
+    dependencies:
+      '@base-ui/react':
+        specifier: ^1.7.0
+        version: 1.7.0(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      '@enterprise-platform/contracts-chat':
+        specifier: workspace:*
+        version: link:../../contracts/chat
+      '@enterprise-platform/contracts-social':
+        specifier: workspace:*
+        version: link:../../contracts/social
+      '@enterprise-platform/feature-chat':
+        specifier: workspace:*
+        version: link:../chat
+      '@enterprise-platform/feature-module-shell':
+        specifier: workspace:*
+        version: link:../module-shell
+      '@enterprise-platform/shared-ui':
+        specifier: workspace:*
+        version: link:../../shared/ui
+      class-variance-authority:
+        specifier: ^0.7.1
+        version: 0.7.1
+      clsx:
+        specifier: ^2.1.1
+        version: 2.1.1
+      lucide-react:
+        specifier: ^1.31.0
+        version: 1.31.0(react@19.2.8)
+      react:
+        specifier: ^19.2.8
+        version: 19.2.8
+      tailwind-merge:
+        specifier: ^3.6.0
+        version: 3.6.0
 
   packages/features/workspace:
     dependencies:
@@ -1838,6 +2032,31 @@ importers:
         specifier: ^8.21.0
         version: 8.21.0
 
+  packages/modules/social:
+    dependencies:
+      '@enterprise-platform/adapter-database':
+        specifier: workspace:*
+        version: link:../../adapters/database
+      '@enterprise-platform/adapter-storage':
+        specifier: workspace:*
+        version: link:../../adapters/storage
+      '@enterprise-platform/contracts-social':
+        specifier: workspace:*
+        version: link:../../contracts/social
+      '@nestjs/common':
+        specifier: ^11.2.1
+        version: 11.2.1(reflect-metadata@0.2.2)(rxjs@7.8.1)
+      pg:
+        specifier: ^8.23.0
+        version: 8.23.0
+      tslib:
+        specifier: ^2.3.0
+        version: 2.8.1
+    devDependencies:
+      '@types/pg':
+        specifier: ^8.21.0
+        version: 8.21.0
+
   packages/modules/workspace:
     dependencies:
       '@enterprise-platform/adapter-database':
@@ -1890,6 +2109,46 @@ importers:
       '@types/express':
         specifier: ^5.0.6
         version: 5.0.6
+
+  packages/platform/chat:
+    dependencies:
+      '@enterprise-platform/adapter-storage':
+        specifier: workspace:*
+        version: link:../../adapters/storage
+      '@enterprise-platform/contracts-chat':
+        specifier: workspace:*
+        version: link:../../contracts/chat
+      '@enterprise-platform/contracts-identity':
+        specifier: workspace:*
+        version: link:../../contracts/identity
+      '@enterprise-platform/contracts-integration':
+        specifier: workspace:*
+        version: link:../../contracts/integration
+      '@enterprise-platform/platform-identity':
+        specifier: workspace:*
+        version: link:../identity
+      '@nestjs/common':
+        specifier: ^11.2.1
+        version: 11.2.1(reflect-metadata@0.2.2)(rxjs@7.8.1)
+      pg:
+        specifier: ^8.23.0
+        version: 8.23.0
+      web-push:
+        specifier: ^3.6.7
+        version: 3.6.7
+    devDependencies:
+      '@enterprise-platform/platform-entitlement':
+        specifier: workspace:*
+        version: link:../entitlement
+      '@types/express':
+        specifier: ^5.0.6
+        version: 5.0.6
+      '@types/pg':
+        specifier: ^8.21.0
+        version: 8.21.0
+      '@types/web-push':
+        specifier: ^3.6.4
+        version: 3.6.4
 
   packages/platform/data-import:
     dependencies:
@@ -1977,6 +2236,46 @@ importers:
       '@types/express':
         specifier: ^5.0.6
         version: 5.0.6
+
+  packages/platform/profile:
+    dependencies:
+      '@enterprise-platform/adapter-storage':
+        specifier: workspace:*
+        version: link:../../adapters/storage
+      '@enterprise-platform/contracts-chat':
+        specifier: workspace:*
+        version: link:../../contracts/chat
+      '@enterprise-platform/contracts-identity':
+        specifier: workspace:*
+        version: link:../../contracts/identity
+      '@enterprise-platform/contracts-integration':
+        specifier: workspace:*
+        version: link:../../contracts/integration
+      '@enterprise-platform/platform-identity':
+        specifier: workspace:*
+        version: link:../identity
+      '@nestjs/common':
+        specifier: ^11.2.1
+        version: 11.2.1(reflect-metadata@0.2.2)(rxjs@7.8.1)
+      '@nestjs/platform-express':
+        specifier: ^11.0.0
+        version: 11.2.1(@nestjs/common@11.2.1(reflect-metadata@0.2.2)(rxjs@7.8.1))(@nestjs/core@11.2.1)
+      pg:
+        specifier: ^8.23.0
+        version: 8.23.0
+    devDependencies:
+      '@enterprise-platform/platform-entitlement':
+        specifier: workspace:*
+        version: link:../entitlement
+      '@types/express':
+        specifier: ^5.0.6
+        version: 5.0.6
+      '@types/multer':
+        specifier: ^2.2.0
+        version: 2.2.0
+      '@types/pg':
+        specifier: ^8.21.0
+        version: 8.21.0
 
   packages/platform/tenancy:
     dependencies:
@@ -5877,6 +6176,9 @@ packages:
   '@types/validate-npm-package-name@4.0.2':
     resolution: {integrity: sha512-lrpDziQipxCEeK5kWxvljWYhUvOiB2A9izZd9B2AFarYAkqZshb4lPbRs7zKEic6eGtH8V/2qJW+dPp9OtF6bw==}
 
+  '@types/web-push@3.6.4':
+    resolution: {integrity: sha512-GnJmSr40H3RAnj0s34FNTcJi1hmWFV5KXugE0mYWnYhgTAHLJ/dJKAwDmvPJYMke0RplY2XE9LnM4hqSqKIjhQ==}
+
   '@types/ws@8.18.1':
     resolution: {integrity: sha512-ThVF6DCVhA8kUGy+aazFQ4kXQ7E1Ty7A3ypFOe0IcJV8O/M511G99AW24irKrW56Wt44yG9+ij8FaqoBGkuBXg==}
 
@@ -6379,6 +6681,9 @@ packages:
     resolution: {integrity: sha512-BNoCY6SXXPQ7gF2opIP4GBE+Xw7U+pHMYKuzjgCN3GwiaIR09UUeKfheyIry77QtrCBlC0KK0q5/TER/tYh3PQ==}
     engines: {node: '>= 0.4'}
 
+  asn1.js@5.4.1:
+    resolution: {integrity: sha512-+I//4cYPccV8LdmBLiX8CYvf9Sp3vQsrqu2QNXRcrbiWvcx/UdlFiqUJJzxRQxgsZmvhXhn4cSKeSmoFjVdupA==}
+
   asn1js@3.0.10:
     resolution: {integrity: sha512-S2s3aOytiKdFRdulw2qPE51MzjzVOisppcVv7jVFR+Kw0kxwvFrDcYA0h7Ndqbmj0HkMIXYWaoj7fli8kgx1eg==}
     engines: {node: '>=12.0.0'}
@@ -6585,6 +6890,9 @@ packages:
   bluebird@3.4.7:
     resolution: {integrity: sha512-iD3898SR7sWVRHbiQv+sHUtHnMvC1o3nW5rAcqnq3uOn07DSAppZYUkIGslDz6gXC7HfunPe7YVBgoEJASPcHA==}
 
+  bn.js@4.12.5:
+    resolution: {integrity: sha512-3aRg6/JxfffFD+OlOjOFR3Vo79l39ooBTFucxx+MT3dhCtzn3EmiUPQo+6/OZuI2jbXi3YKgmiTFBgChQMwIRQ==}
+
   body-parser@1.20.6:
     resolution: {integrity: sha512-p5tAzS57i5MV9fZFDj9LeIiTZEufbSe2eDozP+ElheSUq1m74CRq1jI4mYNDdVs9vQztXFLuk/Gd6BWTdwRJ5g==}
     engines: {node: '>= 0.8', npm: 1.2.8000 || >= 1.4.16}
@@ -6630,6 +6938,9 @@ packages:
 
   buffer-crc32@0.2.13:
     resolution: {integrity: sha512-VO9Ht/+p3SN7SKWqcrgEzjGbRSJYTx+Q1pTQC0wrWqHx0vpJraQ6GtHx8tvcg1rlK1byhU5gccxgOgj7B0TDkQ==}
+
+  buffer-equal-constant-time@1.0.1:
+    resolution: {integrity: sha512-zRpUiDwd/xk6ADqPMATG8vc9VPrkck7T07OIx0gnjmJAnHnTVXNQG3vfvWNuiZIkwu9KrKdA1iJKfsfTVxE6NA==}
 
   buffer-from@1.1.2:
     resolution: {integrity: sha512-E+XQCRwSbaaiChtv6k6Dwgc+bx+Bs6vuKJHHl5kox/BaKbhiXzqQOwK4cO22yElGp2OCmjwVhT3HmxgyPGnJfQ==}
@@ -7410,6 +7721,9 @@ packages:
 
   eastasianwidth@0.2.0:
     resolution: {integrity: sha512-I88TYZWc9XiYHRQ4/3c5rjjfgkjhLyW2luGIheGERbNQ6OY7yTybanSpDXZa8y7VUP9YmDcYa+eyq4ca7iLqWA==}
+
+  ecdsa-sig-formatter@1.0.11:
+    resolution: {integrity: sha512-nagl3RYrbNv6kQkeJIpt6NJZy8twLB/2vtz6yN9Z4vRKHN4/QZJIEbqohALSgwKdnksuY3k5Addp5lg8sVoVcQ==}
 
   ee-first@1.1.1:
     resolution: {integrity: sha512-WMwm9LhRUo+WUaRN+vRuETqG89IgZphVSNkdFgeb6sS/E4OrDIN7t48CAewSHXc6C8lefD8KKfr5vY61brQlow==}
@@ -8282,6 +8596,10 @@ packages:
     resolution: {integrity: sha512-V5nVw1PAOgfI3Lmeaj2Exmeg7fenjhRUgz1lPSezy1CuhPYbgQtbQj4jZfEAEMlaL+vupsvhjqCyjzob0yxsmQ==}
     engines: {node: '>=10.19.0'}
 
+  http_ece@1.2.0:
+    resolution: {integrity: sha512-JrF8SSLVmcvc5NducxgyOrKXe3EsyHMgBFgSaIUGmArKe+rwr0uphRkRXvwiom3I+fpIfoItveHrfudL8/rxuA==}
+    engines: {node: '>=16'}
+
   https-proxy-agent@5.0.1:
     resolution: {integrity: sha512-dFcAjpTQFgoLMzC2VwU+C/CbS7uRL0lWmxDITmqm7C+7F0Odmj6s9l6alZc6AELXhrnggM2CeWSXHGOdX2YtwA==}
     engines: {node: '>= 6'}
@@ -9022,6 +9340,12 @@ packages:
 
   jszip@3.10.2:
     resolution: {integrity: sha512-3l+rb15IOWtUhU0H5MFqES/T6Kh7abYwjosBey/vD6hDt8zoEffkSC5Ws5SGtgVw3gBx2NEbhTeSW1+kWkpyTQ==}
+
+  jwa@2.0.1:
+    resolution: {integrity: sha512-hRF04fqJIP8Abbkq5NKGN0Bbr3JxlQ+qhZufXVr0DvujKy93ZCbXZMHDL4EOtodSbCWxOqR8MS1tXA5hwqCXDg==}
+
+  jws@4.0.1:
+    resolution: {integrity: sha512-EKI/M/yqPncGUUh44xz0PxSidXFr/+r0pA70+gIYhjv+et7yxM+s29Y+VGDkovRofQem0fs7Uvf4+YmAdyRduA==}
 
   keyv@4.5.4:
     resolution: {integrity: sha512-oxVHkHR/EJf2CNXnWxRLW6mg7JyCCUcG0DtEGmL2ctUo1PNTin1PUil+r/+4r5MpVgC/fn1kjsx7mjSujKqIpw==}
@@ -11741,6 +12065,11 @@ packages:
 
   wcwidth@1.0.1:
     resolution: {integrity: sha512-XHPEwS0q6TaxcvG85+8EYkbiCux2XtWG2mkc47Ng2A77BQu9+DqIOJldST4HgPkuea7dvKSj5VgX3P1d4rW8Tg==}
+
+  web-push@3.6.7:
+    resolution: {integrity: sha512-OpiIUe8cuGjrj3mMBFWY+e4MMIkW3SVT+7vEIjvD9kejGUypv8GPDf84JdPWskK8zMRIJ6xYGm+Kxr8YkPyA0A==}
+    engines: {node: '>= 16'}
+    hasBin: true
 
   web-worker@1.5.0:
     resolution: {integrity: sha512-RiMReJrTAiA+mBjGONMnjVDP2u3p9R1vkcGz6gDIrOMT3oGuYwX2WRMYI9ipkphSuE5XKEhydbhNEJh4NY9mlw==}
@@ -16071,7 +16400,7 @@ snapshots:
       jiti: 2.7.0
       lightningcss: 1.32.0
       magic-string: 0.30.21
-      source-map-js: 1.2.1
+      source-map-js: 1.2.2
       tailwindcss: 4.3.3
 
   '@tailwindcss/oxide-android-arm64@4.3.3':
@@ -16606,6 +16935,10 @@ snapshots:
   '@types/use-sync-external-store@0.0.6': {}
 
   '@types/validate-npm-package-name@4.0.2': {}
+
+  '@types/web-push@3.6.4':
+    dependencies:
+      '@types/node': 22.20.1
 
   '@types/ws@8.18.1':
     dependencies:
@@ -17263,6 +17596,13 @@ snapshots:
       get-intrinsic: 1.3.0
       is-array-buffer: 3.0.5
 
+  asn1.js@5.4.1:
+    dependencies:
+      bn.js: 4.12.5
+      inherits: 2.0.4
+      minimalistic-assert: 1.0.1
+      safer-buffer: 2.1.2
+
   asn1js@3.0.10:
     dependencies:
       pvtsutils: 1.3.6
@@ -17508,6 +17848,8 @@ snapshots:
 
   bluebird@3.4.7: {}
 
+  bn.js@4.12.5: {}
+
   body-parser@1.20.6:
     dependencies:
       bytes: 3.1.2
@@ -17582,6 +17924,8 @@ snapshots:
       node-int64: 0.4.0
 
   buffer-crc32@0.2.13: {}
+
+  buffer-equal-constant-time@1.0.1: {}
 
   buffer-from@1.1.2: {}
 
@@ -17985,17 +18329,17 @@ snapshots:
   css-tree@2.2.1:
     dependencies:
       mdn-data: 2.0.28
-      source-map-js: 1.2.1
+      source-map-js: 1.2.2
 
   css-tree@2.3.1:
     dependencies:
       mdn-data: 2.0.30
-      source-map-js: 1.2.1
+      source-map-js: 1.2.2
 
   css-tree@3.2.1:
     dependencies:
       mdn-data: 2.27.1
-      source-map-js: 1.2.1
+      source-map-js: 1.2.2
 
   css-what@6.2.2: {}
 
@@ -18319,6 +18663,10 @@ snapshots:
       readable-stream: 2.3.8
 
   eastasianwidth@0.2.0: {}
+
+  ecdsa-sig-formatter@1.0.11:
+    dependencies:
+      safe-buffer: 5.2.1
 
   ee-first@1.1.1: {}
 
@@ -19543,6 +19891,8 @@ snapshots:
       quick-lru: 5.1.1
       resolve-alpn: 1.2.1
 
+  http_ece@1.2.0: {}
+
   https-proxy-agent@5.0.1(supports-color@7.2.0):
     dependencies:
       agent-base: 6.0.2(supports-color@7.2.0)
@@ -20599,6 +20949,17 @@ snapshots:
       pako: 1.0.11
       readable-stream: 2.3.8
       setimmediate: 1.0.5
+
+  jwa@2.0.1:
+    dependencies:
+      buffer-equal-constant-time: 1.0.1
+      ecdsa-sig-formatter: 1.0.11
+      safe-buffer: 5.2.1
+
+  jws@4.0.1:
+    dependencies:
+      jwa: 2.0.1
+      safe-buffer: 5.2.1
 
   keyv@4.5.4:
     dependencies:
@@ -21862,9 +22223,9 @@ snapshots:
 
   postcss@8.5.23:
     dependencies:
-      nanoid: 3.3.18
+      nanoid: 3.3.20
       picocolors: 1.1.1
-      source-map-js: 1.2.1
+      source-map-js: 1.2.2
 
   postcss@8.5.26:
     dependencies:
@@ -22442,7 +22803,7 @@ snapshots:
     dependencies:
       chokidar: 5.0.0
       immutable: 5.1.9
-      source-map-js: 1.2.1
+      source-map-js: 1.2.2
     optionalDependencies:
       '@parcel/watcher': 2.6.0
     optional: true
@@ -23533,7 +23894,7 @@ snapshots:
     dependencies:
       lightningcss: 1.33.0
       picomatch: 4.0.5
-      postcss: 8.5.26
+      postcss: 8.5.30
       rolldown: 1.2.4
       tinyglobby: 0.2.17
     optionalDependencies:
@@ -23569,6 +23930,16 @@ snapshots:
   wcwidth@1.0.1:
     dependencies:
       defaults: 1.0.4
+
+  web-push@3.6.7:
+    dependencies:
+      asn1.js: 5.4.1
+      http_ece: 1.2.0
+      https-proxy-agent: 7.0.6
+      jws: 4.0.1
+      minimist: 1.2.8
+    transitivePeerDependencies:
+      - supports-color
 
   web-worker@1.5.0: {}
 

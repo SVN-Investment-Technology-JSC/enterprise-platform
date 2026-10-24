@@ -2,10 +2,16 @@ import {
   PermanentMessageError,
   RabbitMqConsumer,
 } from '@enterprise-platform/adapter-events';
+import { CORE_CHAT_CHANGED_EVENT, isCoreChatChange } from '@enterprise-platform/contracts-chat';
 import type { IntegrationEventEnvelope } from '@enterprise-platform/contracts-integration';
 import {
+  SOCIAL_FEED_SOURCE_EVENT_TYPES,
+  isSocialFeedSourceEvent,
   parseRealtimeEventEnvelope,
+  socialFeedDeliveryFromEvent,
+  socialGroupRoom,
   type AuthorizationChangedSignal,
+  type CoreChatSignal,
   type ProcedureCommentSignal,
   type WorkspaceChatSignal,
 } from '@enterprise-platform/contracts-realtime';
@@ -80,6 +86,53 @@ export class RealtimeDeliveryHandler {
       });
       return;
     }
+    if (event.type === CORE_CHAT_CHANGED_EVENT) {
+      const { audience, recipients, signal } = coreChatSignal(event.payload);
+      await this.withActiveTenant(event.tenantId, async () => {
+        const envelope = (userId: string) => ({
+          id: `${event.id}:${userId}`,
+          event: 'core.chat.changed' as const,
+          version: 1 as const,
+          tenantId: event.tenantId,
+          userId,
+          // Tín hiệu chỉ để làm mới, không nằm trong chuỗi thông báo có thứ tự.
+          sequence: 1,
+          occurredAt: event.occurredAt,
+          data: signal,
+        });
+        // Cuộc chung toàn công ty: mọi phiên của công ty (ai cũng đọc được, tín hiệu chỉ mang id).
+        // Cuộc 1-1 và nhóm: phòng cá nhân của từng thành viên, người ngoài không biết có tin.
+        if (audience === 'company') {
+          await this.gateway.emitRoomEvent(tenantRoom(event.tenantId), { ...envelope(signal.actorUserId), id: event.id });
+          return;
+        }
+        for (const userId of recipients) await this.gateway.emitUserEvent(envelope(userId));
+      });
+      return;
+    }
+    if (isSocialFeedSourceEvent(event.type)) {
+      const delivery = socialFeedDeliveryFromEvent(event.type, event.payload);
+      if (!delivery) throw new PermanentMessageError(`Social feed payload is incomplete for ${event.type}.`);
+      // Bài Tường công ty: mọi phiên của công ty. Bài nhóm: chỉ phòng của nhóm (thành viên mới vào được),
+      // nên nhóm riêng tư không lộ cho người ngoài. Tín hiệu chỉ mang id; người nhận gọi lại API có kiểm quyền.
+      const room =
+        delivery.audience.kind === 'group'
+          ? socialGroupRoom(event.tenantId, delivery.audience.groupId)
+          : tenantRoom(event.tenantId);
+      await this.withActiveTenant(event.tenantId, () =>
+        this.gateway.emitRoomEvent(room, {
+          id: event.id,
+          event: 'social.feed.changed',
+          version: 1,
+          tenantId: event.tenantId,
+          userId: delivery.signal.actorUserId,
+          sequence: 1,
+          occurredAt: event.occurredAt,
+          data: delivery.signal,
+        }),
+      );
+      return;
+    }
     if (event.type === 'core.authorization.changed') {
       // Trigger trong DB của công ty phát mỗi lần vai trò, quyền, người dùng đổi; báo mọi phiên của công ty tự hỏi lại
       // quyền của chính mình (hàng phím Trợ lý, ô chuyển phân hệ).
@@ -131,6 +184,8 @@ export class RealtimeDeliveryConsumer {
           'workspace.chat.changed',
           'procedure.comment.posted',
           'core.authorization.changed',
+          CORE_CHAT_CHANGED_EVENT,
+          ...SOCIAL_FEED_SOURCE_EVENT_TYPES,
         ],
         prefetch: 64,
       });
@@ -202,6 +257,29 @@ function chatSignal(value: unknown): {
     recipients,
     signal: { channelId, entityType, entityId, projectId, messageId, change, actorUserId },
   };
+}
+
+function coreChatSignal(value: unknown): {
+  readonly audience: 'members' | 'company';
+  readonly recipients: readonly string[];
+  readonly signal: CoreChatSignal;
+} {
+  if (!isRecord(value)) throw new PermanentMessageError('Core chat payload must be an object.');
+  const conversationId = text(value.conversationId);
+  const actorUserId = text(value.actorUserId);
+  const messageId = value.messageId === null || value.messageId === undefined ? null : text(value.messageId);
+  const audience = value.audience;
+  if (
+    !conversationId || !actorUserId || messageId === undefined || !isCoreChatChange(value.change) ||
+    (audience !== 'members' && audience !== 'company') ||
+    !Array.isArray(value.recipientUserIds)
+  ) {
+    throw new PermanentMessageError('Core chat payload is incomplete.');
+  }
+  const recipients = [...new Set(value.recipientUserIds.map(text).filter((id): id is string => Boolean(id)))]
+    .filter((id) => id !== actorUserId)
+    .slice(0, MAX_CHAT_RECIPIENTS);
+  return { audience, recipients, signal: { conversationId, messageId, change: value.change, actorUserId } };
 }
 
 function sessionRevocation(value: unknown): {

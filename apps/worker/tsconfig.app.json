@@ -27,7 +27,13 @@
       "path": "../../packages/platform/entitlement/tsconfig.lib.json"
     },
     {
+      "path": "../../packages/platform/chat/tsconfig.lib.json"
+    },
+    {
       "path": "../../packages/modules/workspace/tsconfig.lib.json"
+    },
+    {
+      "path": "../../packages/modules/social/tsconfig.lib.json"
     },
     {
       "path": "../../packages/modules/procedure-engine/tsconfig.lib.json"

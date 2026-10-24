@@ -13,7 +13,10 @@ import {
 } from '@nestjs/websockets';
 import type { Server, Socket } from 'socket.io';
 import { RealtimeChatTyping } from './realtime-chat-typing';
+import { RealtimeCoreChatTyping } from './realtime-core-chat-typing';
+import { RealtimePresence } from './realtime-presence';
 import { RealtimeProcedureRooms } from './realtime-procedure-rooms';
+import { RealtimeSocialRooms } from './realtime-social-rooms';
 import type { RealtimeAuthClient } from './realtime-runtime';
 import { REALTIME_AUTH_CLIENT } from './realtime-tokens';
 import { RealtimeMetrics } from './realtime-health';
@@ -142,7 +145,12 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     private readonly metrics: RealtimeMetrics = new RealtimeMetrics(),
     @Optional() private readonly typing?: RealtimeChatTyping,
     @Optional() private readonly rooms?: RealtimeProcedureRooms,
-  ) {}
+    @Optional() private readonly socialRooms?: RealtimeSocialRooms,
+    @Optional() private readonly coreChatTyping?: RealtimeCoreChatTyping,
+    @Optional() private readonly presence?: RealtimePresence,
+  ) {
+    this.presence?.attach((tenantId, event) => this.emitRoomEvent(tenantRoom(tenantId), event));
+  }
 
   async handleConnection(client: Socket): Promise<void> {
     const origin = headerText(client.handshake.headers.origin);
@@ -170,6 +178,8 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
         userId: principal.userId,
       });
       this.revalidator.watch(client, cookieHeader, principal);
+      // Trạng thái trực tuyến là phụ: Valkey chậm hay lỗi không được làm hỏng kết nối.
+      void this.presence?.connected(principal, client.id).catch(() => undefined);
     } catch {
       this.metrics.authFailed('session');
       client.disconnect(true);
@@ -198,6 +208,27 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
         body,
         (event) => this.emitUserEvent(event),
       );
+    } catch {
+      // Best-effort.
+    }
+  }
+
+  /**
+   * "Đang nhập" ở một cuộc trò chuyện của chat core. Core API (bằng cookie của người gõ) quyết định ai nhận; cuộc chung
+   * toàn công ty gửi cho mọi phiên của công ty trừ chính socket đang gõ. Tín hiệu tạm nên mọi lỗi đều bị nuốt.
+   */
+  @SubscribeMessage('core-chat.typing')
+  async handleCoreChatTyping(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() body: unknown,
+  ): Promise<void> {
+    const principal = client.data.principal as TenantUserPrincipal | undefined;
+    if (!principal || !this.coreChatTyping || !this.authenticatedSockets.has(client.id)) return;
+    try {
+      await this.coreChatTyping.handle(principal, client.id, headerText(client.handshake.headers.cookie), body, {
+        user: (event) => this.emitUserEvent(event),
+        company: (event, exceptSocketId) => this.emitRoomEvent(tenantRoom(principal.tenantId), event, [exceptSocketId]),
+      });
     } catch {
       // Best-effort.
     }
@@ -245,6 +276,46 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     }
   }
 
+  /**
+   * Xin vào phòng tín hiệu của một nhóm Mạng nội bộ (khi người dùng mở nhóm). Payload `{ groupId }`.
+   * social-api kiểm tư cách thành viên bằng cookie của chính người đó; trả `{ ok }` làm xác nhận.
+   */
+  @SubscribeMessage('social.subscribe')
+  async handleSocialSubscribe(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() body: unknown,
+  ): Promise<{ ok: boolean }> {
+    const principal = client.data.principal as TenantUserPrincipal | undefined;
+    if (!principal || !this.socialRooms || !this.authenticatedSockets.has(client.id)) return { ok: false };
+    try {
+      const ok = await this.socialRooms.subscribe(
+        principal,
+        client,
+        headerText(client.handshake.headers.cookie),
+        body,
+      );
+      this.metrics.socialJoin(ok ? 'joined' : 'denied');
+      return { ok };
+    } catch {
+      this.metrics.socialJoin('error');
+      return { ok: false };
+    }
+  }
+
+  @SubscribeMessage('social.unsubscribe')
+  async handleSocialUnsubscribe(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() body: unknown,
+  ): Promise<void> {
+    const principal = client.data.principal as TenantUserPrincipal | undefined;
+    if (!principal || !this.socialRooms || !this.authenticatedSockets.has(client.id)) return;
+    try {
+      await this.socialRooms.unsubscribe(principal, client, body);
+    } catch {
+      // Best-effort: phòng tự dọn khi socket đóng.
+    }
+  }
+
   /** "Đang nhập" trong hồ sơ: chỉ socket đã vào phòng của hồ sơ đó; không gửi ngược lại cho chính socket đó. */
   @SubscribeMessage('procedure.typing')
   async handleProcedureTyping(
@@ -278,7 +349,10 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
 
   handleDisconnect(client: Socket): void {
     this.rooms?.forget(client.id);
+    this.socialRooms?.forget(client.id);
     this.typing?.forget(client.id);
+    this.coreChatTyping?.forget(client.id);
+    void this.presence?.disconnected(client.id).catch(() => undefined);
     this.revalidator.unwatch(client);
     if (this.authenticatedSockets.delete(client.id)) {
       this.metrics.socketDisconnected();

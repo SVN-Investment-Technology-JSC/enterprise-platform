@@ -4,6 +4,7 @@ import {
   type ContractStatus,
   type CreateContractRequest,
   type UpdateContractRequest,
+  WORKSPACE_CODE_MAX_LENGTH,
 } from '@enterprise-platform/contracts-workspace';
 import {
   ContractCodeConflictError,
@@ -15,7 +16,6 @@ import {
 import type { WorkspaceActor } from './workspace.application.js';
 import type { ContractUpdateModel, ContractWriteModel, WorkspaceStore } from './workspace-store.port.js';
 
-const CODE_PATTERN = /^[A-Z0-9][A-Z0-9-]{1,31}$/;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -39,14 +39,7 @@ export class ContractService {
     const customer = await this.store.customer.findById(actor.tenantId, customerId);
     if (!customer) throw new CustomerNotFoundError();
 
-    const code = String(input.code ?? '')
-      .trim()
-      .toUpperCase();
-    if (!CODE_PATTERN.test(code)) {
-      throw new WorkspaceValidationError(
-        'Mã hợp đồng chỉ gồm chữ in hoa, số và dấu gạch ngang, dài 2 đến 32 ký tự.',
-      );
-    }
+    const code = requireCode(input.code, 'Mã hợp đồng');
     const name = requireText(input.name, 'Tên hợp đồng', 200);
     const status = input.status === undefined ? 'draft' : parseStatus(input.status);
 
@@ -157,4 +150,14 @@ function optionalDate(value: unknown, label: string): string | null {
     throw new WorkspaceValidationError(`${label} không hợp lệ.`);
   }
   return text;
+}
+
+/** Mã người dùng tự đặt: chữ gì cũng được, chỉ cắt khoảng trắng hai đầu và giới hạn độ dài. */
+function requireCode(value: unknown, label: string): string {
+  const code = String(value ?? '').trim();
+  if (!code) throw new WorkspaceValidationError(`${label} không được để trống.`);
+  if (code.length > WORKSPACE_CODE_MAX_LENGTH) {
+    throw new WorkspaceValidationError(`${label} dài tối đa ${WORKSPACE_CODE_MAX_LENGTH} ký tự.`);
+  }
+  return code;
 }

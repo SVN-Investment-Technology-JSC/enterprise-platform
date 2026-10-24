@@ -29,6 +29,33 @@ async function postWithCsrf(path: string, csrfToken: string): Promise<Response> 
 }
 
 /**
+ * Trình duyệt này thôi nhận thông báo đẩy (Web Push) của chat: người đăng nhập sau trên cùng máy không được nhận tin
+ * của người vừa đăng xuất. Báo máy chủ xoá đăng ký (khi phiên còn) rồi huỷ đăng ký trong trình duyệt. Cố gắng tốt nhất,
+ * tối đa vài giây, không chặn việc đăng xuất.
+ */
+async function stopBrowserPush(csrfToken: string): Promise<void> {
+  if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
+  const work = (async () => {
+    const registration = await navigator.serviceWorker.getRegistration('/');
+    const subscription = await registration?.pushManager?.getSubscription();
+    if (!subscription) return;
+    await fetch('/api/platform/v1/push/subscription', {
+      method: 'DELETE',
+      credentials: 'same-origin',
+      headers: { 'content-type': 'application/json', 'x-csrf-token': csrfToken },
+      body: JSON.stringify({ endpoint: subscription.endpoint }),
+    }).catch(() => undefined);
+    await subscription.unsubscribe();
+  })().catch(() => undefined);
+  await Promise.race([work, new Promise((resolve) => setTimeout(resolve, 2_000))]);
+  try {
+    window.localStorage.removeItem('ep-push-owner');
+  } catch {
+    // Bộ nhớ cục bộ bị chặn.
+  }
+}
+
+/**
  * Kết thúc phiên hiện tại bằng CSRF token hiện hành. Nếu access token đã hết
  * hạn nhưng refresh session còn hiệu lực, làm mới token một lần để server có
  * thể xác định và thu hồi đúng phiên.
@@ -36,6 +63,7 @@ async function postWithCsrf(path: string, csrfToken: string): Promise<Response> 
 export async function revokeSession(): Promise<void> {
   const initialCsrf = cookie('ep_csrf');
   if (!initialCsrf) throw new Error('Không tìm thấy CSRF token. Vui lòng tải lại trang.');
+  await stopBrowserPush(initialCsrf);
 
   let response = await postWithCsrf('/api/auth/v1/logout', initialCsrf);
   if (response.status !== 401) {

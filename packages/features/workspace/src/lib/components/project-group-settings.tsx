@@ -33,8 +33,12 @@ export function ProjectGroupSettings() {
     setError(undefined);
   };
 
-  const save = async (id: string | undefined, name: string) => {
-    apply(id ? await api.renameProjectGroup(id, { name }) : await api.createProjectGroup({ name }));
+  const save = async (id: string | undefined, name: string, code: string) => {
+    apply(
+      id
+        ? await api.renameProjectGroup(id, { name, code })
+        : await api.createProjectGroup({ name, code }),
+    );
   };
 
   const remove = async (group: ProjectGroup) => {
@@ -76,6 +80,7 @@ export function ProjectGroupSettings() {
             <thead>
               <tr>
                 <th>Nhóm dự án</th>
+                <th>Mã viết tắt</th>
                 <th>Số dự án</th>
                 <th aria-label="Thao tác" />
               </tr>
@@ -86,6 +91,9 @@ export function ProjectGroupSettings() {
                   <td>
                     <b>{group.name}</b>
                   </td>
+                  <td className={styles.treeCode}>
+                    {group.code ?? <span className={styles.muted}>Chưa đặt</span>}
+                  </td>
                   <td className={styles.muted}>{group.projectCount} dự án</td>
                   <td>
                     {canEdit ? (
@@ -93,8 +101,8 @@ export function ProjectGroupSettings() {
                         <button
                           type="button"
                           className={styles.iconButton}
-                          aria-label={`Đổi tên nhóm ${group.name}`}
-                          title="Đổi tên nhóm"
+                          aria-label={`Sửa nhóm ${group.name}`}
+                          title="Sửa nhóm"
                           onClick={() => setEditing(group)}
                         >
                           <Pencil size={13} />
@@ -136,13 +144,13 @@ export function ProjectGroupSettings() {
         open={editing !== undefined}
         group={editing ?? undefined}
         onClose={() => setEditing(undefined)}
-        onSave={(name) => save(editing?.id, name)}
+        onSave={(name, code) => save(editing?.id, name, code)}
       />
     </div>
   );
 }
 
-/** Thêm nhóm mới hoặc đổi tên nhóm. */
+/** Thêm nhóm mới hoặc sửa tên, mã viết tắt của nhóm. */
 function GroupFormDialog({
   open,
   group,
@@ -152,15 +160,17 @@ function GroupFormDialog({
   readonly open: boolean;
   readonly group?: ProjectGroup;
   readonly onClose: () => void;
-  readonly onSave: (name: string) => Promise<void>;
+  readonly onSave: (name: string, code: string) => Promise<void>;
 }) {
   const [name, setName] = useState('');
+  const [code, setCode] = useState('');
   const [error, setError] = useState<string>();
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (!open) return;
     setName(group?.name ?? '');
+    setCode(group?.code ?? '');
     setError(undefined);
     setSubmitting(false);
   }, [open, group]);
@@ -172,7 +182,7 @@ function GroupFormDialog({
     }
     setSubmitting(true);
     try {
-      await onSave(name.trim());
+      await onSave(name.trim(), code.trim());
       onClose();
     } catch (cause) {
       setError((cause as { message?: string })?.message ?? 'Không lưu được nhóm dự án.');
@@ -183,7 +193,7 @@ function GroupFormDialog({
   return (
     <Dialog
       open={open}
-      title={group ? `Đổi tên nhóm "${group.name}"` : 'Thêm nhóm dự án'}
+      title={group ? `Sửa nhóm "${group.name}"` : 'Thêm nhóm dự án'}
       subtitle={
         group && group.projectCount > 0
           ? `${group.projectCount} dự án của nhóm sẽ mang tên mới.`
@@ -202,6 +212,17 @@ function GroupFormDialog({
           maxLength={80}
           placeholder="Ví dụ: Dịch vụ thí nghiệm"
           onChange={(event) => setName(event.target.value)}
+        />
+      </Field>
+      <Field
+        label="Mã viết tắt"
+        hint="Dùng cho {NHOM} trong quy tắc mã dự án (Cài đặt > Mã dự án). Tự đặt, tối đa 16 ký tự, vd DVTN. Đổi mã không đổi mã các dự án đã tạo."
+      >
+        <input
+          value={code}
+          maxLength={16}
+          placeholder="Ví dụ: DVTN"
+          onChange={(event) => setCode(event.target.value)}
         />
       </Field>
     </Dialog>

@@ -18,6 +18,7 @@ import {
   Landmark,
   LoaderCircle,
   MoreVertical,
+  Newspaper,
   PackageCheck,
   Search,
   Settings2,
@@ -81,6 +82,7 @@ const MODULE_ICONS: Record<string, LucideIcon> = {
   maintenance: Wrench,
   'procedure-engine': Workflow,
   shared: FolderArchive,
+  social: Newspaper,
   workspace: KanbanSquare,
 };
 
@@ -125,19 +127,12 @@ function moduleIcon(moduleKey: string): LucideIcon {
   return MODULE_ICONS[moduleKey] ?? Boxes;
 }
 
-function sanitizeOverview(overview: TenantEntitlementOverview): TenantEntitlementOverview {
-  return {
-    ...overview,
-    modules: overview.modules.filter((m) => m.key.toLowerCase() !== 'crm'),
-  };
-}
-
 export function TenantEntitlements({
   initialOverview,
 }: {
   initialOverview: TenantEntitlementOverview;
 }) {
-  const [overview, setOverview] = useState(() => sanitizeOverview(initialOverview));
+  const [overview, setOverview] = useState(initialOverview);
   const [managerOpen, setManagerOpen] = useState(false);
   const [selectedKey, setSelectedKey] = useState(
     overview.modules[0]?.key ?? '',
@@ -192,7 +187,7 @@ export function TenantEntitlements({
           },
         );
         if (response.ok) {
-          const next = sanitizeOverview((await response.json()) as TenantEntitlementOverview);
+          const next = (await response.json()) as TenantEntitlementOverview;
           setOverview(next);
           setDraft((current) =>
             managerOpen ? current : moduleDraft(next.modules),

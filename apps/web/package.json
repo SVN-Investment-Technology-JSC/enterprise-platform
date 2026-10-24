@@ -41,6 +41,8 @@
     "@enterprise-platform/contracts-organization": "workspace:*",
     "@enterprise-platform/contracts-tenancy": "workspace:*",
     "@enterprise-platform/feature-hrm": "workspace:*",
+    "@enterprise-platform/contracts-chat": "workspace:*",
+    "@enterprise-platform/feature-chat": "workspace:*",
     "@enterprise-platform/feature-module-shell": "workspace:*",
     "@enterprise-platform/feature-procedure-engine": "workspace:*",
     "@enterprise-platform/shared-brand-icon": "workspace:*",

@@ -63,6 +63,12 @@
       "path": "../../packages/features/module-shell"
     },
     {
+      "path": "../../packages/features/chat"
+    },
+    {
+      "path": "../../packages/contracts/chat"
+    },
+    {
       "path": "../../packages/features/hrm"
     },
     {

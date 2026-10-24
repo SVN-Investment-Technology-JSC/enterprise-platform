@@ -28,9 +28,6 @@
   ],
   "references": [
     {
-      "path": "../../packages/contracts/integration/tsconfig.lib.json"
-    },
-    {
       "path": "../../packages/platform/module-access/tsconfig.lib.json"
     },
     {
@@ -41,6 +38,12 @@
     },
     {
       "path": "../../packages/contracts/realtime/tsconfig.lib.json"
+    },
+    {
+      "path": "../../packages/contracts/chat/tsconfig.lib.json"
+    },
+    {
+      "path": "../../packages/contracts/integration/tsconfig.lib.json"
     },
     {
       "path": "../../packages/contracts/identity/tsconfig.lib.json"

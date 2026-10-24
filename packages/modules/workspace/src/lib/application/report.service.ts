@@ -16,6 +16,7 @@ import {
   ReportTimeoutError,
   WorkspaceValidationError,
 } from '../domain/workspace.error.js';
+import { seesAllProjects } from './project.service.js';
 import type { WorkspaceActor } from './workspace.application.js';
 import type {
   ReportAnalyticsQuery,
@@ -225,7 +226,7 @@ export class ReportService {
     actor: WorkspaceActor,
     requested: readonly string[],
   ): Promise<ReportScopeFilter> {
-    if (actor.isTenantAdmin) {
+    if (seesAllProjects(actor)) {
       return { level: 'tenant', userId: actor.userId, projectIds: requested };
     }
 

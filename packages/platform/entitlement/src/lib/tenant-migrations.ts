@@ -97,6 +97,10 @@ export const TENANT_CORE_MIGRATIONS: readonly TenantModuleMigration[] = [
     version: '0013-user-permission-grants',
     path: 'tenant/core/0013-user-permission-grants.sql',
   },
+  { version: '0014-user-profiles', path: 'tenant/core/0014-user-profiles.sql' },
+  // Chat nội bộ của core: chạy cho mọi tenant, không phụ thuộc phân hệ nào được bật.
+  { version: '0015-core-chat', path: 'tenant/core/0015-core-chat.sql' },
+  { version: '0016-web-push-subscriptions', path: 'tenant/core/0016-web-push-subscriptions.sql' },
   {
     version: '0014-hrm-request-approve-merge',
     path: 'tenant/core/0014-hrm-request-approve-merge.sql',
@@ -665,12 +669,35 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       version: '0027-workspace-project-archive',
       path: 'tenant/workspace/0027-workspace-project-archive.sql',
     },
+    {
+      version: '0028-workspace-project-code-rule',
+      path: 'tenant/workspace/0028-workspace-project-code-rule.sql',
+    },
+    {
+      version: '0029-workspace-inline-edit',
+      path: 'tenant/workspace/0029-workspace-inline-edit.sql',
+    },
+    {
+      version: '0030-workspace-standalone-inline-edit',
+      path: 'tenant/workspace/0030-workspace-standalone-inline-edit.sql',
+    },
   ],
   // Hệ dùng chung: phần đầu là Tài liệu công ty (kho tách khỏi tài liệu dự án).
   shared: [
     { version: '0001-shared-documents', path: 'tenant/shared/0001-shared-documents.sql' },
     { version: '0002-shared-trash', path: 'tenant/shared/0002-shared-trash.sql' },
     { version: '0003-shared-folder-shares', path: 'tenant/shared/0003-shared-folder-shares.sql' },
+  ],
+  // Mạng nội bộ: bảng tin công ty.
+  social: [
+    { version: '0001-social-feed', path: 'tenant/social/0001-social-feed.sql' },
+    { version: '0002-social-groups', path: 'tenant/social/0002-social-groups.sql' },
+    { version: '0003-social-post-p2', path: 'tenant/social/0003-social-post-p2.sql' },
+    {
+      version: '0004-social-visibility-groups-v2',
+      path: 'tenant/social/0004-social-visibility-groups-v2.sql',
+    },
+    { version: '0005-social-comment-reactions', path: 'tenant/social/0005-social-comment-reactions.sql' },
   ],
 };
 

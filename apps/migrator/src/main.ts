@@ -40,7 +40,6 @@ async function main() {
     await migrate(platform, 'platform-core', '0007-remove-crm', 'platform/0007-remove-crm.sql');
     await migrate(platform, 'platform-core', '0009-tenant-storage-quota', 'platform/0009-tenant-storage-quota.sql');
     await migrate(platform, 'platform-core', '0010-brand-icon-storage', 'platform/0010-brand-icon-storage.sql');
-    await removeCrmTenantSchemas(platform);
     await migrateTenantCoreSchemas(platform);
     await processProvisioningJobs(platform);
     await upgradeActiveEntitlements(platform);
@@ -52,7 +51,7 @@ async function main() {
 interface ProvisioningJob {
   id: string;
   tenant_id: string;
-  module_key: 'inventory' | 'procedure-engine' | 'maintenance' | 'workspace' | 'hrm' | 'assistant' | 'finance' | 'shared';
+  module_key: 'inventory' | 'procedure-engine' | 'maintenance' | 'workspace' | 'hrm' | 'assistant' | 'finance' | 'shared' | 'social';
   target_version: string;
   module_id: string;
   secret_ref: string;
@@ -64,53 +63,6 @@ interface ActiveEntitlement {
   module_key: ProvisioningJob['module_key'];
   secret_ref: string;
   database_name: string;
-}
-
-/** CRM was retired: clean up platform database and remove dedicated tenant schemas. */
-async function removeCrmTenantSchemas(platform: PostgresPool) {
-  try {
-    await platform.query(`
-      DELETE FROM audit_schema.audit_logs WHERE action LIKE 'crm.%' OR metadata->>'moduleKey' = 'crm' OR LOWER(action) LIKE 'crm.%';
-      DELETE FROM integration_schema.provisioning_jobs WHERE LOWER(module_key) = 'crm';
-      DELETE FROM subscription_schema.tenant_entitlements WHERE module_id IN (SELECT id FROM module_registry_schema.modules WHERE LOWER(key) = 'crm');
-      DELETE FROM subscription_schema.plan_modules WHERE module_id IN (SELECT id FROM module_registry_schema.modules WHERE LOWER(key) = 'crm');
-      DELETE FROM authorization_schema.role_permissions WHERE permission_id IN (SELECT id FROM authorization_schema.permissions WHERE LOWER(key) LIKE 'crm.%');
-      DELETE FROM authorization_schema.permissions WHERE LOWER(key) LIKE 'crm.%';
-      DELETE FROM module_registry_schema.modules WHERE LOWER(key) = 'crm';
-    `);
-  } catch (error) {
-    console.warn('Could not complete platform CRM cleanup:', error instanceof Error ? error.message : String(error));
-  }
-
-  const configs = await platform.query<{ tenant_id: string; secret_ref: string; database_name: string }>(
-    `SELECT d.tenant_id,d.secret_ref,d.database_name FROM tenancy_schema.tenant_db_configs d
-       JOIN tenancy_schema.tenants t ON t.id=d.tenant_id
-       WHERE d.status='active' AND t.status IN ('active','disabled')`,
-  );
-  for (const config of configs.rows) {
-    let connectionString: string;
-    try {
-      connectionString = resolveTenantDatabaseUrl(config.secret_ref, config.database_name);
-    } catch {
-      continue;
-    }
-    const tenant = createPostgresPool(connectionString);
-    try {
-      await inTransaction(tenant, async (client) => {
-        await client.query('DROP SCHEMA IF EXISTS crm_schema CASCADE');
-        const hasTable = await client.query<{ exists: boolean }>(
-          `SELECT to_regclass('integration_schema.schema_migrations') IS NOT NULL AS exists`,
-        );
-        if (hasTable.rows[0]?.exists) {
-          await client.query("DELETE FROM integration_schema.schema_migrations WHERE LOWER(module_key)='crm'");
-        }
-      });
-    } catch (error) {
-      console.warn(`Could not clean CRM schema for tenant ${config.tenant_id}:`, error instanceof Error ? error.message : String(error));
-    } finally {
-      await tenant.end();
-    }
-  }
 }
 
 /**
@@ -329,7 +281,7 @@ async function seedPlatform(pool: PostgresPool) {
       ('e0000000-0000-4000-8000-000000000002', 'tenant-admin', 'Tenant Admin', 'tenant')
       ON CONFLICT (id) DO NOTHING`);
     await client.query(`INSERT INTO identity_schema.users (id, email, display_name, password_hash, kind) VALUES ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'superadmin@platform.local', 'Platform Super Admin', $1, 'platform-admin') ON CONFLICT (id) DO UPDATE SET password_hash = EXCLUDED.password_hash, display_name = EXCLUDED.display_name, status = 'active'`, [hash]);
-    await client.query(`INSERT INTO authorization_schema.permissions (id, key, description) VALUES ('e1000000-0000-4000-8000-000000000001', 'platform.manage', 'Quản trị Platform Core'), ('e1000000-0000-4000-8000-000000000002', 'tenant.manage', 'Quản trị tenant'), ('e1000000-0000-4000-8000-000000000003', 'procedure.read', 'Đọc Procedure Engine'), ('e1000000-0000-4000-8000-000000000004', 'procedure.manage', 'Quản trị Procedure Engine'), ('e1000000-0000-4000-8000-000000000007', 'maintenance.read', 'Đọc Maintenance'), ('e1000000-0000-4000-8000-000000000008', 'maintenance.manage', 'Quản trị Maintenance'), ('e1000000-0000-4000-8000-000000000009', 'inventory.read', 'Đọc Inventory'), ('e1000000-0000-4000-8000-000000000010', 'inventory.manage', 'Quản trị Inventory'), ('e1000000-0000-4000-8000-000000000011', 'inventory.transaction.write', 'Ghi nhận giao dịch Inventory'), ('e1000000-0000-4000-8000-000000000014', 'hrm.read', 'Đọc HRM'), ('e1000000-0000-4000-8000-000000000013', 'hrm.manage', 'Quản trị HRM'), ('e1000000-0000-4000-8000-000000000020', 'workspace.read', 'Đọc Workspace'), ('e1000000-0000-4000-8000-000000000021', 'workspace.manage', 'Quản trị Workspace'), ('e1000000-0000-4000-8000-000000000022', 'workspace.task.write', 'Ghi dự án và công việc Workspace'), ('e1000000-0000-4000-8000-000000000023', 'workspace.document.write', 'Ghi tài liệu Workspace'), ('e1000000-0000-4000-8000-000000000024', 'workspace.project.create', 'Tạo dự án Workspace'), ('e1000000-0000-4000-8000-000000000025', 'workspace.document.delete', 'Xóa và lưu trữ tài liệu Workspace'), ('e1000000-0000-4000-8000-000000000026', 'inventory.stocktake.create', 'Tạo đợt kiểm kê và nhập số đếm Inventory'), ('e1000000-0000-4000-8000-000000000027', 'inventory.stocktake.approve', 'Duyệt và ghi sổ kiểm kê Inventory'), ('e1000000-0000-4000-8000-000000000028', 'shared.read', 'Đọc tài liệu công ty'), ('e1000000-0000-4000-8000-000000000029', 'shared.manage', 'Quản trị kho tài liệu công ty'), ('e1000000-0000-4000-8000-000000000030', 'shared.document.write', 'Ghi tài liệu công ty'), ('e1000000-0000-4000-8000-000000000031', 'shared.document.delete', 'Lưu trữ và xoá tài liệu công ty') ON CONFLICT (id) DO NOTHING`);
+    await client.query(`INSERT INTO authorization_schema.permissions (id, key, description) VALUES ('e1000000-0000-4000-8000-000000000001', 'platform.manage', 'Quản trị Platform Core'), ('e1000000-0000-4000-8000-000000000002', 'tenant.manage', 'Quản trị tenant'), ('e1000000-0000-4000-8000-000000000003', 'procedure.read', 'Đọc Procedure Engine'), ('e1000000-0000-4000-8000-000000000004', 'procedure.manage', 'Quản trị Procedure Engine'), ('e1000000-0000-4000-8000-000000000007', 'maintenance.read', 'Đọc Maintenance'), ('e1000000-0000-4000-8000-000000000008', 'maintenance.manage', 'Quản trị Maintenance'), ('e1000000-0000-4000-8000-000000000009', 'inventory.read', 'Đọc Inventory'), ('e1000000-0000-4000-8000-000000000010', 'inventory.manage', 'Quản trị Inventory'), ('e1000000-0000-4000-8000-000000000011', 'inventory.transaction.write', 'Ghi nhận giao dịch Inventory'), ('e1000000-0000-4000-8000-000000000014', 'hrm.read', 'Đọc HRM'), ('e1000000-0000-4000-8000-000000000013', 'hrm.manage', 'Quản trị HRM'), ('e1000000-0000-4000-8000-000000000020', 'workspace.read', 'Đọc Workspace'), ('e1000000-0000-4000-8000-000000000021', 'workspace.manage', 'Quản trị Workspace'), ('e1000000-0000-4000-8000-000000000022', 'workspace.task.write', 'Ghi dự án và công việc Workspace'), ('e1000000-0000-4000-8000-000000000023', 'workspace.document.write', 'Ghi tài liệu Workspace'), ('e1000000-0000-4000-8000-000000000024', 'workspace.project.create', 'Tạo dự án Workspace'), ('e1000000-0000-4000-8000-000000000025', 'workspace.document.delete', 'Xóa và lưu trữ tài liệu Workspace'), ('e1000000-0000-4000-8000-000000000026', 'inventory.stocktake.create', 'Tạo đợt kiểm kê và nhập số đếm Inventory'), ('e1000000-0000-4000-8000-000000000027', 'inventory.stocktake.approve', 'Duyệt và ghi sổ kiểm kê Inventory'), ('e1000000-0000-4000-8000-000000000028', 'shared.read', 'Đọc tài liệu công ty'), ('e1000000-0000-4000-8000-000000000029', 'shared.manage', 'Quản trị kho tài liệu công ty'), ('e1000000-0000-4000-8000-000000000030', 'shared.document.write', 'Ghi tài liệu công ty'), ('e1000000-0000-4000-8000-000000000031', 'shared.document.delete', 'Lưu trữ và xoá tài liệu công ty'), ('e1000000-0000-4000-8000-000000000032', 'social.read', 'Xem Mạng nội bộ'), ('e1000000-0000-4000-8000-000000000033', 'social.post.write', 'Đăng bài và bình luận Mạng nội bộ'), ('e1000000-0000-4000-8000-000000000034', 'social.post.moderate', 'Kiểm duyệt bài viết và bình luận Mạng nội bộ'), ('e1000000-0000-4000-8000-000000000035', 'social.manage', 'Quản trị chuyên mục Mạng nội bộ') ON CONFLICT (id) DO NOTHING`);
     await client.query(`INSERT INTO authorization_schema.role_permissions (role_id, permission_id) SELECT 'e0000000-0000-4000-8000-000000000001'::uuid, id FROM authorization_schema.permissions WHERE key IN ('platform.manage','platform.tenants.delete') UNION ALL SELECT 'e0000000-0000-4000-8000-000000000002'::uuid, id FROM authorization_schema.permissions WHERE key NOT LIKE 'platform.%' ON CONFLICT DO NOTHING`);
     await client.query(`INSERT INTO authorization_schema.user_roles (user_id, role_id, membership_id, assignment_key) VALUES ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'e0000000-0000-4000-8000-000000000001', NULL, 'platform-superadmin') ON CONFLICT (assignment_key) DO NOTHING`);
     await client.query(`
@@ -349,7 +301,7 @@ async function seedPlatform(pool: PostgresPool) {
       END $$;
     `);
     await client.query(`INSERT INTO module_registry_schema.modules (id, key, name, description, launch_url, icon, version) VALUES ('f0000000-0000-4000-8000-000000000001', 'procedure-engine', 'Procedure Engine', 'Thiết kế và vận hành quy trình RCSI', '/modules/procedure', 'PE', '1.0.0'), ('f0000000-0000-4000-8000-000000000003', 'maintenance', 'Maintenance', 'Thiết bị, kế hoạch và bảo trì phòng ngừa', '/modules/maintenance', 'MT', '1.0.0'), ('f0000000-0000-4000-8000-000000000004', 'inventory', 'Inventory', 'Tài sản, vật tư, kho và giao dịch tồn kho', '/modules/inventory', 'IV', '1.0.0'), ('f0000000-0000-4000-8000-000000000005', 'workspace', 'Workspace', 'Dự án, công việc, tài liệu và lịch biểu', '/modules/workspace', 'WS', '1.0.0'), ('f0000000-0000-4000-8000-000000000006', 'hrm', 'HRM & Chấm công', 'Quản lý nhân sự, hồ sơ, chấm công và chi trả lương', '/modules/hrm', 'HRM', '1.0.0'), ('f0000000-0000-4000-8000-000000000007', 'assistant', 'Trợ lý Savina', 'Hỏi cách dùng ERP và số liệu trong phạm vi quyền của người hỏi', '/modules/assistant', 'TL', '1.0.0'),
-('f0000000-0000-4000-8000-000000000008', 'finance', 'Tài chính', 'Phiếu thu, phiếu chi, chuyển tiền, tài khoản và báo cáo cho kế toán', '/modules/finance', 'FIN', '1.0.0'), ('f0000000-0000-4000-8000-000000000009', 'shared', 'Hệ dùng chung', 'Tài liệu công ty và dịch vụ dùng chung giữa các phân hệ', '/modules/shared', 'DC', '1.0.0') ON CONFLICT (id) DO UPDATE SET key = EXCLUDED.key, name = EXCLUDED.name, description = EXCLUDED.description, launch_url = EXCLUDED.launch_url, icon = EXCLUDED.icon, version = EXCLUDED.version, status = 'active'`);
+('f0000000-0000-4000-8000-000000000008', 'finance', 'Tài chính', 'Phiếu thu, phiếu chi, chuyển tiền, tài khoản và báo cáo cho kế toán', '/modules/finance', 'FIN', '1.0.0'), ('f0000000-0000-4000-8000-000000000009', 'shared', 'Hệ dùng chung', 'Tài liệu công ty và dịch vụ dùng chung giữa các phân hệ', '/modules/shared', 'DC', '1.0.0'), ('f0000000-0000-4000-8000-000000000010', 'social', 'Mạng nội bộ', 'Bảng tin, bài viết, bình luận và trao đổi nội bộ của công ty', '/modules/social', 'MN', '1.0.0') ON CONFLICT (id) DO UPDATE SET key = EXCLUDED.key, name = EXCLUDED.name, description = EXCLUDED.description, launch_url = EXCLUDED.launch_url, icon = EXCLUDED.icon, version = EXCLUDED.version, status = 'active'`);
   });
 }
 

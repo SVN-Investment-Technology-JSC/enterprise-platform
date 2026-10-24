@@ -1,7 +1,8 @@
-import type {
-  ProjectGroup,
-  ProjectGroupList,
-  SaveProjectGroupRequest,
+import {
+  PROJECT_GROUP_CODE_MAX_LENGTH,
+  type ProjectGroup,
+  type ProjectGroupList,
+  type SaveProjectGroupRequest,
 } from '@enterprise-platform/contracts-workspace';
 import {
   ProjectForbiddenError,
@@ -29,7 +30,8 @@ export class ProjectGroupService {
     if (!canEdit(actor)) throw new ProjectForbiddenError();
     const existing = await this.store.projectGroup.list(actor.tenantId);
     const name = requireGroupName(input?.name, existing);
-    await this.store.projectGroup.create(actor.tenantId, actor.userId, name);
+    const code = requireGroupCode(input?.code, existing) ?? null;
+    await this.store.projectGroup.create(actor.tenantId, actor.userId, name, code);
     return this.list(actor);
   }
 
@@ -42,7 +44,9 @@ export class ProjectGroupService {
     const existing = await this.store.projectGroup.list(actor.tenantId);
     if (!existing.some((group) => group.id === id)) throw new ProjectGroupNotFoundError(id);
     const name = requireGroupName(input?.name, existing, id);
-    await this.store.projectGroup.rename(actor.tenantId, actor.userId, id, name);
+    // Không gửi `code` thì giữ mã cũ; gửi chuỗi rỗng là bỏ mã.
+    const code = input?.code === undefined ? undefined : (requireGroupCode(input.code, existing, id) ?? null);
+    await this.store.projectGroup.rename(actor.tenantId, actor.userId, id, name, code);
     return this.list(actor);
   }
 
@@ -101,4 +105,27 @@ function requireGroupName(
     throw new WorkspaceValidationError(`Đã có nhóm dự án tên "${name}".`);
   }
   return name;
+}
+
+/**
+ * Mã viết tắt của nhóm (token `{NHOM}` trong quy tắc mã dự án): người dùng tự đặt, tối đa 16 ký tự, không trùng nhóm
+ * khác (không phân biệt hoa thường). Rỗng là không có mã.
+ */
+function requireGroupCode(
+  value: unknown,
+  existing: readonly ProjectGroup[],
+  selfId?: string,
+): string | undefined {
+  const code = String(value ?? '').trim();
+  if (!code) return undefined;
+  if (code.length > PROJECT_GROUP_CODE_MAX_LENGTH) {
+    throw new WorkspaceValidationError(
+      `Mã viết tắt của nhóm dài tối đa ${PROJECT_GROUP_CODE_MAX_LENGTH} ký tự.`,
+    );
+  }
+  const taken = existing.find(
+    (group) => group.id !== selfId && group.code?.toLowerCase() === code.toLowerCase(),
+  );
+  if (taken) throw new WorkspaceValidationError(`Mã viết tắt "${code}" đã dùng cho nhóm "${taken.name}".`);
+  return code;
 }

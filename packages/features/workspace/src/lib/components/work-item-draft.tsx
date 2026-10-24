@@ -1,7 +1,6 @@
 'use client';
 
 import {
-  WORK_ITEM_PRIORITIES,
   WORK_ITEM_TYPES,
   type DirectoryPerson,
   type WorkItemPriority,
@@ -16,7 +15,7 @@ import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import { Copy, Truck, X } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import type { ProcedureOption } from '../procedure-api';
-import { ITEM_TYPE_LABELS, PRIORITY_LABELS } from '../workspace-labels';
+import { ITEM_TYPE_LABELS, priorityKeys, priorityLabel } from '../workspace-labels';
 import styles from '../workspace.module.scss';
 import { Choice } from './choice';
 import { ProjectPeoplePicker } from './project-people-picker';
@@ -241,9 +240,9 @@ export function WorkItemDraftEditor({
               label={`Độ ưu tiên ${index + 1}`}
               value={row.priority}
               height={COMPACT}
-              options={WORK_ITEM_PRIORITIES.map((priority) => ({
+              options={priorityKeys().map((priority) => ({
                 value: priority,
-                label: PRIORITY_LABELS[priority],
+                label: priorityLabel(priority),
               }))}
               onChange={(value) => onChange({ priority: value as WorkItemPriority })}
             />

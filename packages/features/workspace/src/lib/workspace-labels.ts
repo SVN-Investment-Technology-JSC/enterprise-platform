@@ -1,3 +1,8 @@
+import {
+  DEFAULT_WORKSPACE_LABEL_SETTINGS,
+  type WorkspaceLabelOption,
+  type WorkspaceLabelSettings,
+} from '@enterprise-platform/contracts-workspace';
 import type {
   ContractStatus,
   DependencyType,
@@ -125,6 +130,102 @@ export const PRIORITY_TONE: Record<WorkItemPriority, { bg: string; fg: string }>
   normal: { bg: '#dbeafe', fg: '#1d4ed8' },
   low: { bg: '#f1f5f9', fg: '#475569' },
 };
+
+/* -------------------------------------------------------------------------
+   Tên, màu và thứ tự do tenant đặt ở Cài đặt > Trạng thái và ưu tiên.
+
+   Các bảng nhãn ở trên là giá trị mặc định; `applyLabelSettings` ghi đè chúng tại chỗ khi Workspace nạp cài đặt,
+   nên mọi màn hình đang đọc các bảng này tự hiện đúng tên và màu mà không phải truyền cài đặt xuống từng nơi.
+   ------------------------------------------------------------------------- */
+
+const DEFAULT_TONES = {
+  workItemStatuses: { ...WORK_ITEM_STATUS_TONE } as Record<string, { bg: string; fg: string }>,
+  projectStatuses: { ...PROJECT_STATUS_TONE } as Record<string, { bg: string; fg: string }>,
+  priorities: { ...PRIORITY_TONE } as Record<string, { bg: string; fg: string }>,
+};
+
+let currentLabelSettings: WorkspaceLabelSettings = DEFAULT_WORKSPACE_LABEL_SETTINGS;
+
+/** Huy hiệu từ một màu `#rrggbb`: chữ đúng màu đó, nền cùng màu nhạt. */
+export function toneOfColor(color: string): { bg: string; fg: string } {
+  return { bg: `${color}24`, fg: color };
+}
+
+function applyGroup(
+  options: readonly WorkspaceLabelOption[],
+  defaults: readonly WorkspaceLabelOption[],
+  labels: Record<string, string>,
+  tones: Record<string, { bg: string; fg: string }>,
+  defaultTones: Record<string, { bg: string; fg: string }>,
+) {
+  for (const option of options) {
+    labels[option.key] = option.label;
+    const original = defaults.find((entry) => entry.key === option.key);
+    // Màu chưa đổi thì giữ huy hiệu gốc (nền và chữ được chỉnh riêng), đổi rồi mới suy từ màu mới.
+    const tone =
+      original && original.color.toLowerCase() === option.color.toLowerCase()
+        ? defaultTones[option.key]
+        : undefined;
+    tones[option.key] = tone ?? toneOfColor(option.color);
+  }
+}
+
+/** Áp cài đặt của tenant vào các bảng nhãn dùng chung. */
+export function applyLabelSettings(settings: WorkspaceLabelSettings): void {
+  const defaults = DEFAULT_WORKSPACE_LABEL_SETTINGS;
+  currentLabelSettings = settings;
+  applyGroup(
+    settings.workItemStatuses,
+    defaults.workItemStatuses,
+    WORK_ITEM_STATUS_LABELS,
+    WORK_ITEM_STATUS_TONE,
+    DEFAULT_TONES.workItemStatuses,
+  );
+  applyGroup(
+    settings.projectStatuses,
+    defaults.projectStatuses,
+    PROJECT_STATUS_LABELS,
+    PROJECT_STATUS_TONE,
+    DEFAULT_TONES.projectStatuses,
+  );
+  applyGroup(
+    settings.priorities,
+    defaults.priorities,
+    PRIORITY_LABELS,
+    PRIORITY_TONE,
+    DEFAULT_TONES.priorities,
+  );
+}
+
+/** Cài đặt đang áp dụng (mặc định khi chưa nạp). */
+export function labelSettings(): WorkspaceLabelSettings {
+  return currentLabelSettings;
+}
+
+/** Các mức ưu tiên đang dùng, từ thấp tới cao. */
+export function priorityKeys(): readonly WorkItemPriority[] {
+  return currentLabelSettings.priorities.map((option) => option.key);
+}
+
+/** Trạng thái công việc theo thứ tự hiển thị ở Cài đặt. */
+export function workItemStatusKeys(): readonly WorkItemStatus[] {
+  return currentLabelSettings.workItemStatuses.map((option) => option.key as WorkItemStatus);
+}
+
+/** Trạng thái dự án theo thứ tự hiển thị ở Cài đặt. */
+export function projectStatusKeys(): readonly ProjectStatus[] {
+  return currentLabelSettings.projectStatuses.map((option) => option.key as ProjectStatus);
+}
+
+/** Tên mức ưu tiên; mức lạ (vd vừa bị xoá ở Cài đặt) thì hiện chính khoá. */
+export function priorityLabel(priority: WorkItemPriority): string {
+  return PRIORITY_LABELS[priority] ?? priority;
+}
+
+/** Huy hiệu mức ưu tiên; mức lạ dùng màu xám. */
+export function priorityTone(priority: WorkItemPriority): { bg: string; fg: string } {
+  return PRIORITY_TONE[priority] ?? { bg: '#f1f5f9', fg: '#475569' };
+}
 
 /** `2026-09-21` → `21/09/2026`. Chuỗi rỗng khi không có ngày. */
 export function formatDate(value?: string | null): string {

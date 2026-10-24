@@ -77,6 +77,7 @@ import type {
   WorkloadRow,
   WorkspaceDocument,
   ProjectRequestReversalRequestedPayload,
+  ProjectCodeParts,
 } from '@enterprise-platform/contracts-workspace';
 import type { FinanceInputs } from '../domain/finance.rules.js';
 import type {
@@ -125,6 +126,8 @@ export interface WorkItemProgressRow {
   readonly parentId: string | null;
   readonly status: WorkItemStatus;
   readonly progressPercent: number;
+  /** Tiến độ nhập tay; `null` khi dùng giá trị tự tính. */
+  readonly manualPercent?: number | null;
   readonly estimateHours: number | null;
 }
 
@@ -352,12 +355,17 @@ export interface WorkspaceStore {
       projectIds: readonly string[],
       today: string,
     ): Promise<readonly ProjectRollup[]>;
-    /** Tạo dự án (kèm nhãn) và ghi người tạo làm `owner` trong cùng một transaction. */
+    /**
+     * Tạo dự án (kèm nhãn) và ghi người tạo làm `owner` trong cùng một transaction. Có `codeParts` thì mã được cấp
+     * ngay trong transaction đó, dưới khoá theo phần đầu mã, nên hai người tạo cùng lúc không nhận trùng số.
+     */
     create(
       tenantId: string,
       actorUserId: string,
-      input: CreateProjectRequest,
+      input: CreateProjectRequest & { readonly codeParts?: ProjectCodeParts },
     ): Promise<Project>;
+    /** Mã dự án hiện có cùng phần đầu và phần cuối (để xem trước số kế tiếp). */
+    codesMatching(tenantId: string, parts: ProjectCodeParts): Promise<readonly string[]>;
     update(
       tenantId: string,
       projectId: string,
@@ -366,6 +374,8 @@ export interface WorkspaceStore {
       actorUserId?: string,
     ): Promise<Project>;
     updateProgress(tenantId: string, projectId: string, percent: number): Promise<void>;
+    /** Đưa dự án vào / ra khỏi Lưu trữ mà không đổi trạng thái (đóng hồ sơ thủ công, mở lưu trữ). */
+    setArchived(tenantId: string, projectId: string, archived: boolean): Promise<Project>;
   };
 
   readonly member: {
@@ -1051,11 +1061,27 @@ export interface WorkspaceStore {
   readonly projectGroup: {
     /** Mọi nhóm, sắp theo `sortOrder` rồi tên, kèm số dự án của cả tenant. */
     list(tenantId: string): Promise<readonly ProjectGroup[]>;
-    create(tenantId: string, actorUserId: string, name: string): Promise<void>;
-    /** Đổi tên nhóm và tên nhóm trên mọi dự án thuộc nhóm. */
-    rename(tenantId: string, actorUserId: string, id: string, name: string): Promise<void>;
+    create(tenantId: string, actorUserId: string, name: string, code: string | null): Promise<void>;
+    /**
+     * Đổi tên nhóm và tên nhóm trên mọi dự án thuộc nhóm. `code` là `undefined` thì giữ mã viết tắt cũ, `null` là
+     * bỏ mã.
+     */
+    rename(
+      tenantId: string,
+      actorUserId: string,
+      id: string,
+      name: string,
+      code?: string | null,
+    ): Promise<void>;
     /** Xoá nhóm; dự án thuộc nhóm về "Chưa phân loại". */
     remove(tenantId: string, id: string): Promise<void>;
+  };
+  /** Cài đặt dùng chung toàn tenant của Workspace, dạng khoá → giá trị JSON (vd quy tắc mã dự án). */
+  readonly settings: {
+    get(tenantId: string, key: string): Promise<unknown>;
+    set(tenantId: string, key: string, value: unknown, actorUserId: string): Promise<void>;
+    /** Những mức ưu tiên trong `priorities` đang được công việc hay việc ngoài dự án dùng. */
+    prioritiesInUse(tenantId: string, priorities: readonly string[]): Promise<readonly string[]>;
   };
   /**
    * Phương tiện di chuyển của công việc và lịch họp. Xe công ty chỉ được GIỮ ở HRM: lựa chọn và sự kiện
@@ -1263,7 +1289,10 @@ export interface WorkspaceStore {
       tenantId: string,
       taskId: string,
       actorUserId: string,
-      input: Partial<StandaloneTaskWriteModel> & { readonly progressPercent?: number },
+      input: Partial<StandaloneTaskWriteModel> & {
+        readonly progressPercent?: number;
+        readonly manualProgressPercent?: number | null;
+      },
     ): Promise<StandaloneTask>;
     /** `undefined` khi trạng thái hiện tại đã khác `from` (có người đổi trước). */
     changeStatus(

@@ -1,5 +1,6 @@
 'use client';
 
+import { ChatLauncher, UserAvatar } from '@enterprise-platform/feature-chat';
 import { NotificationBell, NotificationProvider, SearchableSelect, SessionKeepAlive } from '@enterprise-platform/shared-ui';
 import {
   Fragment,
@@ -152,9 +153,16 @@ export function ModuleShellLight<TViewId extends string = string>(
     <NotificationProvider>
       <SessionKeepAlive />
       <div
-        className={collapsed ? `${styles.shell} ${styles.shellCollapsed}` : styles.shell}
+        className={[
+          styles.shell,
+          collapsed ? styles.shellCollapsed : '',
+          props.compact ? styles.shellCompact : '',
+        ]
+          .filter(Boolean)
+          .join(' ')}
         style={shellStyle}
       >
+        {props.hideNavigation ? null : (
         <nav
           className={resizing ? `${styles.sidebar} ${styles.sidebarResizing}` : styles.sidebar}
           aria-label={`Điều hướng ${props.title}`}
@@ -172,9 +180,13 @@ export function ModuleShellLight<TViewId extends string = string>(
 
           <div className={styles.user}>
             <a className={styles.userLink} href={dashboardHref} title="Về Bảng điều khiển">
-              <span className={styles.avatar} aria-hidden>
-                {initialsOfName(displayName)}
-              </span>
+              {principal?.kind === 'tenant-user' && principal.userId ? (
+                <UserAvatar userId={principal.userId} name={displayName} size={38} className={styles.avatar} />
+              ) : (
+                <span className={styles.avatar} aria-hidden>
+                  {initialsOfName(displayName)}
+                </span>
+              )}
               {collapsed ? null : (
                 <span className={styles.userText}>
                   <span className={styles.userName}>{displayName}</span>
@@ -344,8 +356,16 @@ export function ModuleShellLight<TViewId extends string = string>(
             />
           )}
         </nav>
+        )}
 
-        <main className={styles.main}>
+        <main
+          className={props.contentMaxWidth ? `${styles.main} ${styles.mainBounded}` : styles.main}
+          style={
+            props.contentMaxWidth
+              ? ({ '--shell-content-max': `${props.contentMaxWidth}px` } as CSSProperties)
+              : undefined
+          }
+        >
           <div className={styles.head}>
             <nav className={styles.breadcrumb} aria-label="Đường dẫn">
               {homeHref && !props.hideHomeButton ? (
@@ -405,6 +425,8 @@ export function ModuleShellLight<TViewId extends string = string>(
           <div className={styles.body}>{props.children}</div>
         </main>
       </div>
+      {/* Chat nội bộ của core: nút ở góc phải dưới, có ở mọi trang, không phụ thuộc phân hệ nào được bật. */}
+      <ChatLauncher />
     </NotificationProvider>
   );
 }

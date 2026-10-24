@@ -22,7 +22,6 @@ import * as api from '../workspace-api';
 import { CONTRACT_STATUS_LABELS, CONTRACT_STATUS_TONE, formatDate } from '../workspace-labels';
 import styles from '../workspace.module.scss';
 import { Dialog, Field } from './dialog';
-import { upperCaseKeepingCaret } from './upper-case-input';
 import { Confirm } from './confirm-box';
 
 const messageOf = (cause: unknown, fallback: string): string =>
@@ -611,12 +610,12 @@ function CustomerFormDialog({
       onSubmit={() => void submit()}
     >
       {customer ? null : (
-        <Field label="Mã khách hàng" required hint="Chữ in hoa, số và dấu gạch ngang. Ví dụ: KH-001.">
+        <Field label="Mã khách hàng" required hint="Tự đặt, tối đa 32 ký tự. Ví dụ: KH-001.">
           <input
             value={form.code}
             required
             maxLength={32}
-            onChange={(event) => set({ code: upperCaseKeepingCaret(event) })}
+            onChange={(event) => set({ code: event.target.value })}
           />
         </Field>
       )}
@@ -773,12 +772,12 @@ function ContractFormDialog({
       onSubmit={() => void submit()}
     >
       {contract ? null : (
-        <Field label="Mã hợp đồng" required hint="Chữ in hoa, số và dấu gạch ngang. Ví dụ: HD-2026-001.">
+        <Field label="Mã hợp đồng" required hint="Tự đặt, tối đa 32 ký tự. Ví dụ: HD-2026-001.">
           <input
             value={form.code}
             required
             maxLength={32}
-            onChange={(event) => set({ code: upperCaseKeepingCaret(event) })}
+            onChange={(event) => set({ code: event.target.value })}
           />
         </Field>
       )}

@@ -58,6 +58,11 @@ export class OrganizationAwareRecipientDirectory implements RecipientDirectory {
     return this.base.activeUsers(userIds);
   }
 
+  allActiveUsers(): Promise<readonly string[]> {
+    if (!this.base.allActiveUsers) throw new TypeError('Recipient directory cannot list all active users.');
+    return this.base.allActiveUsers();
+  }
+
   usersWithPermission(permission: string): Promise<readonly string[]> {
     return this.base.usersWithPermission(permission);
   }

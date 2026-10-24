@@ -34,6 +34,9 @@
       "path": "../../packages/platform/tenancy/tsconfig.lib.json"
     },
     {
+      "path": "../../packages/platform/profile/tsconfig.lib.json"
+    },
+    {
       "path": "../../packages/platform/identity/tsconfig.lib.json"
     },
     {
@@ -41,6 +44,9 @@
     },
     {
       "path": "../../packages/platform/data-import/tsconfig.lib.json"
+    },
+    {
+      "path": "../../packages/platform/chat/tsconfig.lib.json"
     },
     {
       "path": "../../packages/platform/brand/tsconfig.lib.json"

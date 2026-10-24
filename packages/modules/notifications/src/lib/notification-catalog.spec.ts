@@ -125,6 +125,34 @@ describe('procedure assignment recipients', () => {
   });
 });
 
+describe('core chat mentions', () => {
+  it('notifies only the mentioned people, names the sender and the group, and opens the conversation', async () => {
+    const resolved = await registry.resolve(
+      event('core.chat.mention', {
+        mentionId: 'mention-1',
+        conversationId: 'conv-1',
+        messageId: 'msg-1',
+        mentionedUserIds: ['user-b', 'user-a'],
+        actorUserId: 'user-a',
+        actorName: 'Nguyễn Văn An',
+        conversationTitle: 'Dự án A',
+        excerpt: '@Bình xem giúp',
+        deepLink: '/chat/conv-1',
+      }),
+      directory(),
+    );
+    expect(resolved?.policy.module).toBe('chat');
+    expect(resolved?.recipients).toEqual(['user-b']);
+    expect(resolved?.template).toMatchObject({
+      title: 'Nguyễn Văn An nhắc đến bạn trong "Dự án A"',
+      body: '@Bình xem giúp',
+      deepLink: '/dashboard#chat/conv-1',
+      sourceType: 'core_chat_message',
+    });
+    expect(resolved?.aggregationKey).toBe('chat:mention:conv-1');
+  });
+});
+
 describe('session revocation', () => {
   it('has no notification policy: it only disconnects sockets', async () => {
     expect(DEFAULT_NOTIFICATION_POLICIES.map((policy) => policy.eventType)).not.toContain('identity.session.revoked');
@@ -367,5 +395,252 @@ describe('finance notifications', () => {
     const types = new Set(DEFAULT_NOTIFICATION_POLICIES.map((policy) => policy.eventType));
     for (const type of ['finance.approval.requested', 'finance.voucher.status-changed', 'finance.voucher.needs-attention', 'finance.voucher.needs-attention-approvers'])
       expect(types.has(type)).toBe(true);
+  });
+});
+
+describe('social notifications', () => {
+  const author = 'user-author';
+  const everyone = ['user-author', 'user-a', 'user-b', 'user-c'];
+  const dir = () => directory({ allActiveUsers: jest.fn(async () => everyone) });
+  const resolve = (type: string, payload: Record<string, unknown>) =>
+    registry.resolve(event(type, payload), dir());
+
+  it('tells the mentioned user who mentioned them and links to the post or comment', async () => {
+    const inPost = await resolve('social.mention.created', {
+      postId: 'p1', mentionedUserId: 'user-a', authorId: author, authorName: 'Lan',
+    });
+    expect(inPost?.recipients).toEqual(['user-a']);
+    expect(inPost?.template.body).toBe('Lan đã nhắc bạn trong một bài viết.');
+    expect(inPost?.template.deepLink).toBe('/modules/social/posts/p1');
+    expect(inPost?.aggregationKey).toBe('social:mention:p1');
+
+    const inComment = await resolve('social.mention.created', {
+      postId: 'p1', commentId: 'c1', mentionedUserId: 'user-a', authorId: author, authorName: 'Lan',
+    });
+    expect(inComment?.template.body).toBe('Lan đã nhắc bạn trong một bình luận.');
+    expect(inComment?.template.deepLink).toBe('/modules/social/posts/p1/comments/c1');
+    expect(inComment?.aggregationKey).toBe('social:mention:c1');
+  });
+
+  it('does not notify users about their own mention', async () => {
+    const resolved = await resolve('social.mention.created', {
+      postId: 'p1', mentionedUserId: author, authorId: author,
+    });
+    expect(resolved?.recipients).toEqual([]);
+  });
+
+  it('notifies the post author and the parent comment author, never the commenter', async () => {
+    const reply = await resolve('social.comment.created', {
+      postId: 'p1', commentId: 'c2', postAuthorId: 'user-a', parentAuthorId: 'user-b', authorId: 'user-b', authorName: 'Bình',
+    });
+    expect(reply?.recipients).toEqual(['user-a']);
+    expect(reply?.aggregationKey).toBe('social:comment:c2');
+    expect(reply?.template.deepLink).toBe('/modules/social/posts/p1/comments/c2');
+
+    const own = await resolve('social.comment.created', {
+      postId: 'p1', commentId: 'c3', postAuthorId: author, authorId: author,
+    });
+    expect(own?.recipients).toEqual([]);
+
+    const both = await resolve('social.comment.created', {
+      postId: 'p1', commentId: 'c4', postAuthorId: 'user-a', parentAuthorId: 'user-a', authorId: 'user-c',
+    });
+    expect(both?.recipients).toEqual(['user-a']);
+  });
+
+  it('skips users already notified by a mention of the same comment', async () => {
+    const resolved = await resolve('social.comment.created', {
+      postId: 'p1', commentId: 'c5', postAuthorId: 'user-a', parentAuthorId: 'user-b', authorId: 'user-c',
+      mentionedUserIds: ['user-a'],
+    });
+    expect(resolved?.recipients).toEqual(['user-b']);
+  });
+
+  it('notifies all active users except the author for announcements and @all posts only', async () => {
+    const announcement = await resolve('social.post.published', {
+      postId: 'p1', authorId: author, authorName: 'Lan', title: 'Lịch nghỉ lễ', kind: 'announcement', mentionsAll: false,
+    });
+    expect(announcement?.recipients).toEqual(['user-a', 'user-b', 'user-c']);
+    expect(announcement?.template.body).toBe('Lan đã đăng thông báo: Lịch nghỉ lễ');
+    expect(announcement?.aggregationKey).toBe('social:post:p1');
+
+    const mentionAll = await resolve('social.post.published', {
+      postId: 'p2', authorId: author, kind: 'post', mentionsAll: true,
+    });
+    expect(mentionAll?.recipients).toHaveLength(3);
+
+    const plain = await resolve('social.post.published', {
+      postId: 'p3', authorId: author, kind: 'post', mentionsAll: false,
+    });
+    expect(plain?.recipients).toEqual([]);
+  });
+
+  it('does not repeat the announcement for users mentioned in the post', async () => {
+    const resolved = await resolve('social.post.published', {
+      postId: 'p4', authorId: author, kind: 'announcement', mentionsAll: false, mentionedUserIds: ['user-b'],
+    });
+    expect(resolved?.recipients).toEqual(['user-a', 'user-c']);
+  });
+});
+
+describe('social P2 notifications', () => {
+  const everyone = ['user-author', 'user-a', 'user-b'];
+  const dir = (overrides: Partial<RecipientDirectory> = {}) =>
+    directory({ allActiveUsers: jest.fn(async () => everyone), ...overrides });
+  const resolve = (type: string, payload: Record<string, unknown>, overrides: Partial<RecipientDirectory> = {}) =>
+    registry.resolve(event(type, payload), dir(overrides));
+
+  it('notifies the whole company about a wall post that needs a read confirmation', async () => {
+    const resolved = await resolve('social.post.published', {
+      postId: 'p1', authorId: 'user-author', authorName: 'Lan', kind: 'post', mentionsAll: false,
+      title: 'Nội quy mới', requiresReadConfirmation: true,
+    });
+    expect(resolved?.recipients).toEqual(['user-a', 'user-b']);
+    expect(resolved?.template.title).toBe('Bài viết cần xác nhận đã đọc');
+    expect(resolved?.template.body).toBe('Lan đã đăng bài viết: Nội quy mới. Vui lòng xác nhận đã đọc.');
+  });
+
+  it('notifies only the listed members for a group announcement and never the whole company', async () => {
+    const allActiveUsers = jest.fn(async () => everyone);
+    const resolved = await resolve(
+      'social.post.published',
+      {
+        postId: 'p2', authorId: 'user-author', authorName: 'Lan', kind: 'announcement', mentionsAll: false,
+        groupId: 'g1', groupName: 'Dự án A', recipientUserIds: ['user-a'],
+      },
+      { allActiveUsers },
+    );
+    expect(resolved?.recipients).toEqual(['user-a']);
+    expect(resolved?.template.body).toBe('Lan đã đăng thông báo trong nhóm "Dự án A".');
+    expect(allActiveUsers).not.toHaveBeenCalled();
+  });
+
+  it('does not notify for a plain group post, even with @all', async () => {
+    const resolved = await resolve('social.post.published', {
+      postId: 'p3', authorId: 'user-author', kind: 'post', mentionsAll: true,
+      groupId: 'g1', groupName: 'Dự án A', recipientUserIds: ['user-a'],
+    });
+    expect(resolved?.recipients).toEqual([]);
+  });
+
+  it('notifies moderators of a pending post with a repeatable source id', async () => {
+    const usersWithPermission = jest.fn(async () => ['user-a', 'user-author']);
+    const resolved = await resolve(
+      'social.post.pending',
+      { postId: 'p4', authorId: 'user-author', authorName: 'Lan', title: 'Báo cáo quý' },
+      { usersWithPermission },
+    );
+    expect(usersWithPermission).toHaveBeenCalledWith('social.post.moderate');
+    expect(resolved?.recipients).toEqual(['user-a']);
+    expect(resolved?.template.deepLink).toBe('/modules/social/pending');
+    expect(resolved?.template.sourceId).toBe('p4:10000000-0000-4000-8000-000000000001');
+  });
+
+  it('tells the author a post was approved or rejected with the reason', async () => {
+    const approved = await resolve('social.post.moderated', {
+      postId: 'p5', authorId: 'user-a', moderatorId: 'user-b', decision: 'approved', title: 'Báo cáo quý',
+    });
+    expect(approved?.recipients).toEqual(['user-a']);
+    expect(approved?.template.title).toBe('Bài viết đã được duyệt');
+    expect(approved?.template.deepLink).toBe('/modules/social/posts/p5');
+
+    const rejected = await resolve('social.post.moderated', {
+      postId: 'p5', authorId: 'user-a', moderatorId: 'user-b', decision: 'rejected', reason: 'Thiếu số liệu',
+    });
+    expect(rejected?.template.title).toBe('Bài viết bị từ chối');
+    expect(rejected?.template.body).toBe('Bài viết của bạn bị từ chối: Thiếu số liệu');
+    expect(rejected?.template.deepLink).toBe('/modules/social/pending');
+  });
+
+  it('notifies a user added to a group but leaves approved requests to the decision notification', async () => {
+    const invited = await resolve('social.group.member.added', {
+      groupId: 'g1', groupName: 'Dự án A', userId: 'user-a', addedBy: 'user-b', addedByName: 'Bình', via: 'invited',
+    });
+    expect(invited?.recipients).toEqual(['user-a']);
+    expect(invited?.template.body).toBe('Bình đã thêm bạn vào nhóm "Dự án A".');
+    expect(invited?.template.deepLink).toBe('/modules/social/groups/g1');
+
+    const approved = await resolve('social.group.member.added', {
+      groupId: 'g1', groupName: 'Dự án A', userId: 'user-a', addedBy: 'user-b', addedByName: 'Bình', via: 'approved',
+    });
+    expect(approved?.recipients).toEqual([]);
+  });
+
+  it('notifies group admins of a join request and the requester of the decision', async () => {
+    const requested = await resolve('social.group.join.requested', {
+      groupId: 'g1', groupName: 'Dự án A', requestId: 'r1', requesterId: 'user-a', requesterName: 'An',
+      adminUserIds: ['user-b', 'user-a'],
+    });
+    expect(requested?.recipients).toEqual(['user-b']);
+    expect(requested?.template.deepLink).toBe('/modules/social/groups/g1/requests');
+
+    const approved = await resolve('social.group.join.decided', {
+      groupId: 'g1', groupName: 'Dự án A', requestId: 'r1', requesterId: 'user-a', decision: 'approved', decidedBy: 'user-b',
+    });
+    expect(approved?.recipients).toEqual(['user-a']);
+    expect(approved?.template.title).toBe('Yêu cầu tham gia nhóm đã được duyệt');
+
+    const rejected = await resolve('social.group.join.decided', {
+      groupId: 'g1', groupName: 'Dự án A', requestId: 'r2', requesterId: 'user-a', decision: 'rejected', decidedBy: 'user-b',
+    });
+    expect(rejected?.template.title).toBe('Yêu cầu tham gia nhóm bị từ chối');
+  });
+});
+
+describe('social P2 visibility and report notifications', () => {
+  const resolve = (type: string, payload: Record<string, unknown>, overrides: Partial<RecipientDirectory> = {}) =>
+    registry.resolve(
+      event(type, payload),
+      directory({ allActiveUsers: jest.fn(async () => ['user-a', 'user-b']), ...overrides }),
+    );
+
+  it('does not announce a post whose visibility is narrower than the company', async () => {
+    const narrow = await resolve('social.post.published', {
+      postId: 'p1', authorId: 'user-author', kind: 'announcement', mentionsAll: true, visibility: 'unit',
+    });
+    expect(narrow?.recipients).toEqual([]);
+    const company = await resolve('social.post.published', {
+      postId: 'p2', authorId: 'user-author', kind: 'announcement', mentionsAll: false, visibility: 'company',
+    });
+    expect(company?.recipients).toEqual(['user-a', 'user-b']);
+  });
+
+  it('sends a report of a public group to its admins and to every moderator', async () => {
+    const usersWithPermission = jest.fn(async () => ['user-m', 'user-r']);
+    const resolved = await resolve(
+      'social.report.created',
+      {
+        reportId: 'r1', targetType: 'post', targetId: 'p1', reporterId: 'user-r', reporterName: 'Rin',
+        groupId: 'g1', groupName: 'Dự án A', groupPrivacy: 'public', recipientUserIds: ['user-g'],
+      },
+      { usersWithPermission },
+    );
+    expect(usersWithPermission).toHaveBeenCalledWith('social.post.moderate');
+    expect([...(resolved?.recipients ?? [])].sort()).toEqual(['user-g', 'user-m']);
+    expect(resolved?.template.deepLink).toBe('/modules/social/groups/g1/reports');
+  });
+
+  it('keeps a report of a private group away from moderators', async () => {
+    const usersWithPermission = jest.fn(async () => ['user-m']);
+    const resolved = await resolve(
+      'social.report.created',
+      {
+        reportId: 'r2', targetType: 'comment', targetId: 'c1', reporterId: 'user-r', reporterName: 'Rin',
+        groupId: 'g2', groupPrivacy: 'private', recipientUserIds: ['user-g'],
+      },
+      { usersWithPermission },
+    );
+    expect(usersWithPermission).not.toHaveBeenCalled();
+    expect(resolved?.recipients).toEqual(['user-g']);
+  });
+
+  it('sends a company wall report to moderators and links to the pending reports tab', async () => {
+    const resolved = await resolve(
+      'social.report.created',
+      { reportId: 'r3', targetType: 'post', targetId: 'p3', reporterId: 'user-r', reporterName: 'Rin' },
+      { usersWithPermission: jest.fn(async () => ['user-m', 'user-r']) },
+    );
+    expect(resolved?.recipients).toEqual(['user-m']);
+    expect(resolved?.template.deepLink).toBe('/modules/social/pending?tab=reports');
   });
 });

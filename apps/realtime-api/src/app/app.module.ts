@@ -6,7 +6,11 @@ import {
 import { Module } from '@nestjs/common';
 import { createClient } from 'redis';
 import { HttpTypingRecipientsClient, RealtimeChatTyping } from './realtime-chat-typing';
+import { HttpCoreChatTypingClient, RealtimeCoreChatTyping } from './realtime-core-chat-typing';
+import { RealtimePresence, RedisPresenceStore } from './realtime-presence';
+import { RealtimePresenceController } from './realtime-presence.controller';
 import { HttpProcedureAccessClient, RealtimeProcedureRooms } from './realtime-procedure-rooms';
+import { HttpSocialGroupAccessClient, RealtimeSocialRooms } from './realtime-social-rooms';
 import { RealtimeDeliveryConsumer, RealtimeDeliveryHandler } from './realtime-delivery';
 import { RealtimeGateway, RealtimeOriginPolicy, RealtimeSessionRevalidator } from './realtime.gateway';
 import { RealtimeHealthController } from './realtime-health.controller';
@@ -42,7 +46,7 @@ function allowedOrigins(): readonly string[] {
 
 @Module({
   imports: [],
-  controllers: [RealtimeNotificationsController, RealtimeHealthController],
+  controllers: [RealtimeNotificationsController, RealtimeHealthController, RealtimePresenceController],
   providers: [
     {
       provide: REALTIME_PLATFORM_POOL,
@@ -109,6 +113,25 @@ function allowedOrigins(): readonly string[] {
         ),
     },
     {
+      // "Đang nhập" của chat core: hỏi core API (cùng địa chỉ với xác thực) ai là người nhận bằng cookie của người gõ.
+      provide: RealtimeCoreChatTyping,
+      useFactory: () =>
+        new RealtimeCoreChatTyping(
+          new HttpCoreChatTypingClient(process.env.PLATFORM_INTERNAL_URL ?? 'http://localhost:3333'),
+          featureFlag(process.env.REALTIME_TYPING_ENABLED, true),
+        ),
+    },
+    {
+      // Trạng thái trực tuyến dùng chung giữa các replica, giữ trong Valkey.
+      provide: RealtimePresence,
+      inject: [REALTIME_REDIS_CLIENT],
+      useFactory: (redis: ReturnType<typeof createClient>) =>
+        new RealtimePresence(
+          new RedisPresenceStore(redis),
+          featureFlag(process.env.REALTIME_PRESENCE_ENABLED, true),
+        ),
+    },
+    {
       // Phòng theo hồ sơ cho trao đổi quy trình: kiểm quyền vào phòng bằng cookie của người dùng.
       provide: RealtimeProcedureRooms,
       useFactory: () =>
@@ -117,6 +140,17 @@ function allowedOrigins(): readonly string[] {
             process.env.PROCEDURE_INTERNAL_URL ?? 'http://localhost:3334',
           ),
           featureFlag(process.env.REALTIME_PROCEDURE_ROOMS_ENABLED, true),
+        ),
+    },
+    {
+      // Phòng theo nhóm Mạng nội bộ: kiểm tư cách thành viên bằng cookie của người dùng.
+      provide: RealtimeSocialRooms,
+      useFactory: () =>
+        new RealtimeSocialRooms(
+          new HttpSocialGroupAccessClient(
+            process.env.SOCIAL_INTERNAL_URL ?? 'http://localhost:3343',
+          ),
+          featureFlag(process.env.REALTIME_SOCIAL_ROOMS_ENABLED, true),
         ),
     },
     {
