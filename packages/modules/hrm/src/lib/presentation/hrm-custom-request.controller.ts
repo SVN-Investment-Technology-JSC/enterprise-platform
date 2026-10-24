@@ -192,11 +192,11 @@ export class HrmCustomRequestController {
   }
 
   @Post('custom-requests/:id/reject')
-  async reject(@Req() req: Request, @Param('id') id: string, @Body('reason') reason: string, @Body('quick') quick?: boolean) {
+  async reject(@Req() req: Request, @Param('id') id: string, @Body('reason') reason: string) {
     const { pool, tenantId, principal } = await this.ctx.approverContext(req, 'hrm.request.approve', 'custom', id);
     requireUuid(id, 'Đơn');
     await this.approvals.assertCanDecide({ pool, tenantId, principal }, id, 'custom', 'reject');
-    const text = rejectionNote(reason, quick) ?? undefined;
+    const text = rejectionNote(reason) ?? undefined;
     const row = await hrmTransaction(pool, (db) =>
       transitionCustomRequest(db, tenantId, principal.userId, id, 'REJECTED', text),
     );

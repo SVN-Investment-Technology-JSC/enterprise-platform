@@ -148,6 +148,7 @@ integration('Duyệt đơn nhanh: chốt chặn lúc nộp và lúc duyệt củ
     approve: (who: Who, id: string) => Promise<unknown>;
     /** Giống nút "Từ chối" nhanh: không nhập lý do. */
     rejectQuick: (who: Who, id: string) => Promise<unknown>;
+    rejectNoReason: (who: Who, id: string) => Promise<unknown>;
     hasReason: boolean;
   };
   const workdays = (from: string) => {
@@ -171,7 +172,8 @@ integration('Duyệt đơn nhanh: chốt chặn lúc nộp và lúc duyệt củ
       days: futureDay,
       create: (day, body) => mkLeave(day, body),
       approve: (who, id) => leaveC(who).approveLeaveRequest(req, id),
-      rejectQuick: (who, id) => leaveC(who).rejectLeaveRequest(req, id, '', true),
+      rejectQuick: (who, id) => leaveC(who).rejectLeaveRequest(req, id, REJECT_REASON),
+      rejectNoReason: (who, id) => leaveC(who).rejectLeaveRequest(req, id, ''),
       hasReason: false,
     },
     {
@@ -182,7 +184,8 @@ integration('Duyệt đơn nhanh: chốt chặn lúc nộp và lúc duyệt củ
       days: futureDay,
       create: (day, body) => mkOt(day, body),
       approve: (who, id) => reqC(who).approveOtRequest(req, id),
-      rejectQuick: (who, id) => reqC(who).rejectOtRequest(req, id, '', true),
+      rejectQuick: (who, id) => reqC(who).rejectOtRequest(req, id, REJECT_REASON),
+      rejectNoReason: (who, id) => reqC(who).rejectOtRequest(req, id, ''),
       hasReason: true,
     },
     {
@@ -193,7 +196,8 @@ integration('Duyệt đơn nhanh: chốt chặn lúc nộp và lúc duyệt củ
       days: futureDay,
       create: (day, body) => mkTrip(day, body),
       approve: (who, id) => reqC(who).approveBusinessTrip(req, id),
-      rejectQuick: (who, id) => reqC(who).rejectBusinessTrip(req, id, undefined, true),
+      rejectQuick: (who, id) => reqC(who).rejectBusinessTrip(req, id, REJECT_REASON),
+      rejectNoReason: (who, id) => reqC(who).rejectBusinessTrip(req, id, undefined),
       hasReason: true,
     },
     {
@@ -204,7 +208,8 @@ integration('Duyệt đơn nhanh: chốt chặn lúc nộp và lúc duyệt củ
       days: pastDay,
       create: (day, body) => mkCorrection(day, body),
       approve: (who, id) => attC(who).approveCorrection(req, id),
-      rejectQuick: (who, id) => attC(who).rejectCorrection(req, id, '', true),
+      rejectQuick: (who, id) => attC(who).rejectCorrection(req, id, REJECT_REASON),
+      rejectNoReason: (who, id) => attC(who).rejectCorrection(req, id, ''),
       hasReason: true,
     },
   ];
@@ -452,8 +457,10 @@ integration('Duyệt đơn nhanh: chốt chặn lúc nộp và lúc duyệt củ
         expect(await statusOf(spec, made.data.id)).toEqual({ status: 'APPROVED', approved_by: ids.userM });
       });
 
-      it('từ chối nhanh không nhập lý do: được chấp nhận, đơn thành REJECTED và không duyệt lại được', async () => {
+      it('từ chối bắt buộc có lý do; có lý do thì đơn thành REJECTED và không duyệt lại được', async () => {
         const made = await spec.create(spec.days());
+        await expect(spec.rejectNoReason(as.manager, made.data.id)).rejects.toMatchObject({ status: 400 });
+        expect(await statusOf(spec, made.data.id)).toMatchObject({ status: 'PENDING' });
         await spec.rejectQuick(as.manager, made.data.id);
         expect(await statusOf(spec, made.data.id)).toMatchObject({ status: 'REJECTED' });
         await expect(spec.approve(as.manager, made.data.id)).rejects.toMatchObject({ status: expect.any(Number) });
@@ -540,3 +547,6 @@ integration('Duyệt đơn nhanh: chốt chặn lúc nộp và lúc duyệt củ
     });
   });
 });
+/** Mọi lần từ chối đều phải có lý do. */
+const REJECT_REASON = 'Không phù hợp lịch làm việc';
+

@@ -656,7 +656,6 @@ export class HrmAttendanceController {
     @Req() req: Request,
     @Param('id') id: string,
     @Body('reason') reason?: string,
-    @Body('quick') quick?: boolean,
   ) {
     const { pool, tenantId, principal } = await this.ctx.approverContext(
       req,
@@ -670,7 +669,7 @@ export class HrmAttendanceController {
       'correction',
       'reject',
     );
-    const note = rejectionNote(reason, quick);
+    const note = rejectionNote(reason);
     const res = await hrmTransaction(pool, (db) =>
       db.query(
         `UPDATE hrm_schema.attendance_corrections
