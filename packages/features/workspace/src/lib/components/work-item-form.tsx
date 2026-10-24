@@ -1,7 +1,6 @@
 'use client';
 
 import {
-  WORK_ITEM_PRIORITIES,
   type CreateWorkItemRequest,
   type DirectoryPerson,
   type ProjectMember,
@@ -16,7 +15,7 @@ import { Plus } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { FormPrefill, WorkItemPrefill } from '../assistant-drafts';
 import { loadProcedureOptions, type ProcedureOption } from '../procedure-api';
-import { PRIORITY_LABELS } from '../workspace-labels';
+import { priorityKeys, priorityLabel } from '../workspace-labels';
 import styles from '../workspace.module.scss';
 import { useDirectory } from './use-directory';
 import { Choice } from './choice';
@@ -741,9 +740,9 @@ function EditFields({
         <Choice
           label="Độ ưu tiên"
           value={form.priority}
-          options={WORK_ITEM_PRIORITIES.map((priority) => ({
+          options={priorityKeys().map((priority) => ({
             value: priority,
-            label: PRIORITY_LABELS[priority],
+            label: priorityLabel(priority),
           }))}
           onChange={(value) => set({ priority: value as WorkItemPriority })}
         />

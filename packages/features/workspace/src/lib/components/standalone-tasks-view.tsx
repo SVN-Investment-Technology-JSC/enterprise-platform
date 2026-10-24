@@ -50,8 +50,28 @@ import { ReverseStandaloneTaskDialog } from './reverse-standalone-task-dialog';
 import { StandaloneTaskForm } from './standalone-task-form';
 import { useDirectory, type DirectoryView } from './use-directory';
 import { Confirm } from './confirm-box';
+import { ProgressCell } from './inline-cells';
+import { FieldChangeList } from './tab-activity';
 
 const CLOSED: readonly WorkItemStatus[] = ['done', 'cancelled'];
+
+/** Cách xếp danh sách bên trái; chạy cùng lúc với tìm kiếm và bộ lọc trạng thái. */
+type TaskSort = 'updated' | 'name' | 'code' | 'due';
+
+const SORT_OPTIONS: readonly { value: TaskSort; label: string }[] = [
+  { value: 'updated', label: 'Cập nhật gần nhất' },
+  { value: 'name', label: 'Theo tên' },
+  { value: 'code', label: 'Theo mã' },
+  { value: 'due', label: 'Theo hạn (gấp trước)' },
+];
+
+const TASK_SORTS: Record<TaskSort, (a: StandaloneTask, b: StandaloneTask) => number> = {
+  updated: (a, b) => b.updatedAt.localeCompare(a.updatedAt),
+  name: (a, b) => a.title.localeCompare(b.title, 'vi'),
+  code: (a, b) => a.code.localeCompare(b.code, 'vi', { numeric: true }),
+  // Chưa đặt hạn xuống cuối.
+  due: (a, b) => (a.dueDate ?? '9999-12-31').localeCompare(b.dueDate ?? '9999-12-31'),
+};
 const STANDALONE_TASK_ACTION_KEYS = [WORKSPACE_ASSISTANT_ACTIONS.createStandaloneTask.key];
 
 /** Bộ lọc trạng thái: mặc định chỉ việc đang mở. */
@@ -100,6 +120,7 @@ export function StandaloneTasksView({
   const [error, setError] = useState<string>();
   const [statusFilter, setStatusFilter] = useState('open');
   const [search, setSearch] = useState('');
+  const [sortKey, setSortKey] = useState<TaskSort>('updated');
 
   const [detail, setDetail] = useState<StandaloneTaskDetail>();
   const [detailError, setDetailError] = useState<string>();
@@ -198,11 +219,13 @@ export function StandaloneTasksView({
 
   const visible = useMemo(() => {
     const needle = fold(search.trim());
-    return items.filter(({ task }) => {
-      if (!matchesStatus(task, statusFilter)) return false;
-      return !needle || fold(`${task.code} ${task.title}`).includes(needle);
-    });
-  }, [items, statusFilter, search]);
+    return items
+      .filter(({ task }) => {
+        if (!matchesStatus(task, statusFilter)) return false;
+        return !needle || fold(`${task.code} ${task.title}`).includes(needle);
+      })
+      .sort((a, b) => TASK_SORTS[sortKey](a.task, b.task));
+  }, [items, statusFilter, search, sortKey]);
 
   const submitForm = async (input: CreateStandaloneTaskRequest) => {
     if (editing) {
@@ -272,6 +295,12 @@ export function StandaloneTasksView({
             emptyOption="Mọi trạng thái"
             options={STATUS_FILTERS}
             onChange={setStatusFilter}
+          />
+          <Choice
+            label="Sắp xếp"
+            value={sortKey}
+            options={SORT_OPTIONS}
+            onChange={(value) => setSortKey((value || 'updated') as TaskSort)}
           />
         </div>
 
@@ -542,12 +571,10 @@ function TaskDetail({
   const open = !CLOSED.includes(task.status);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
-  const [progress, setProgress] = useState(String(task.progressPercent));
 
   useEffect(() => {
-    setProgress(String(task.progressPercent));
     setError(undefined);
-  }, [task.id, task.progressPercent]);
+  }, [task.id]);
 
   const run = async (operation: () => Promise<StandaloneTaskDetail | void>): Promise<void> => {
     await attempt(operation);
@@ -576,17 +603,19 @@ function TaskDetail({
       if (back) window.location.assign(back);
     });
 
+  /** Chỉ các dòng đổi trạng thái; nhật ký còn có dòng sửa trường xen giữa. */
+  const statusHistory = history.filter((entry) => entry.toStatus);
   /** Lần trả lại gần nhất, để người thực hiện thấy ngay cần sửa gì. */
   const lastReturn =
     task.status === 'in_progress'
-      ? history.find((entry) => entry.fromStatus === 'review' && entry.toStatus === 'in_progress')
+      ? statusHistory.find((entry) => entry.fromStatus === 'review' && entry.toStatus === 'in_progress')
       : undefined;
-  const lastReturnIsLatest = lastReturn && history[0]?.id === lastReturn.id;
+  const lastReturnIsLatest = lastReturn && statusHistory[0]?.id === lastReturn.id;
   /** Việc vào Chờ duyệt do hồ sơ quy trình hoàn tất, không phải người thực hiện gửi. */
   const byProcedure =
     task.status === 'review' &&
-    history[0]?.toStatus === 'review' &&
-    history[0]?.createdBy === STANDALONE_TASK_SYSTEM_ACTOR_ID;
+    statusHistory[0]?.toStatus === 'review' &&
+    statusHistory[0]?.createdBy === STANDALONE_TASK_SYSTEM_ACTOR_ID;
 
   return (
     <div className={styles.taskDetail}>
@@ -811,12 +840,25 @@ function TaskDetail({
         </dd>
         <dt>Tiến độ</dt>
         <dd>
-          <span className={styles.progressCell}>
-            <span className={styles.progressTrack}>
-              <span className={styles.progressFill} style={{ width: `${task.progressPercent}%` }} />
+          {open && (isAssigner || isExecutor) ? (
+            <ProgressCell
+              label={`Tiến độ của ${task.code}`}
+              value={task.progressPercent}
+              manual={Boolean(task.progressManual)}
+              auto={task.autoProgressPercent}
+              disabled={busy}
+              onCommit={(next) =>
+                run(() => api.updateStandaloneTask(task.id, { manualProgressPercent: next }))
+              }
+            />
+          ) : (
+            <span className={styles.progressCell}>
+              <span className={styles.progressTrack}>
+                <span className={styles.progressFill} style={{ width: `${task.progressPercent}%` }} />
+              </span>
+              {task.progressPercent}%
             </span>
-            {task.progressPercent}%
-          </span>
+          )}
         </dd>
         <dt>Giao lúc</dt>
         <dd>{formatDateTime(task.createdAt)}</dd>
@@ -827,35 +869,11 @@ function TaskDetail({
       ) : null}
 
       {task.childCount > 0 ? (
-        <p className={styles.muted}>Tiến độ tự tính từ trung bình các việc con chưa huỷ.</p>
-      ) : open && (isAssigner || isExecutor) ? (
-        <form
-          className={styles.taskProgressForm}
-          onSubmit={(event) => {
-            event.preventDefault();
-            void run(() =>
-              api.updateStandaloneTask(task.id, { progressPercent: Number(progress) }),
-            );
-          }}
-        >
-          <label htmlFor={`progress-${task.id}`}>Cập nhật tiến độ (%)</label>
-          <input
-            id={`progress-${task.id}`}
-            type="number"
-            min={0}
-            max={100}
-            step={5}
-            value={progress}
-            onChange={(event) => setProgress(event.target.value)}
-          />
-          <button
-            type="submit"
-            className={styles.buttonSmall}
-            disabled={busy || progress === String(task.progressPercent) || progress === ''}
-          >
-            Lưu
-          </button>
-        </form>
+        <p className={styles.muted}>
+          {task.progressManual
+            ? `Đang dùng tiến độ nhập tay; tự tính từ các việc con là ${task.autoProgressPercent ?? 0}%.`
+            : 'Tiến độ tự tính từ trung bình các việc con chưa huỷ; gõ số ở ô Tiến độ để nhập tay.'}
+        </p>
       ) : null}
 
       {task.description ? (
@@ -953,7 +971,7 @@ function namesOf(userIds: readonly string[], directory: DirectoryView): string {
   return userIds.length ? userIds.map((userId) => directory.nameOf(userId)).join(', ') : '—';
 }
 
-/** Nhật ký đổi trạng thái, mở trong ngăn kéo bên phải. */
+/** Nhật ký đổi trạng thái và sửa thông tin, mở trong ngăn kéo bên phải. */
 function HistoryDrawer({
   detail,
   directory,
@@ -991,12 +1009,21 @@ function HistoryDrawer({
           <ul className={`${styles.memberList} ${styles.stackedList}`}>
             {detail.history.map((entry) => (
               <li key={entry.id}>
-                <span className={styles.memberName}>
-                  {entry.fromStatus
-                    ? `${WORK_ITEM_STATUS_LABELS[entry.fromStatus]} → ${WORK_ITEM_STATUS_LABELS[entry.toStatus]}`
-                    : 'Giao việc'}
-                  {entry.note ? ` · ${entry.note}` : ''}
-                </span>
+                {entry.toStatus ? (
+                  <span className={styles.memberName}>
+                    {entry.fromStatus
+                      ? `${WORK_ITEM_STATUS_LABELS[entry.fromStatus]} → ${WORK_ITEM_STATUS_LABELS[entry.toStatus]}`
+                      : 'Giao việc'}
+                    {entry.note ? ` · ${entry.note}` : ''}
+                  </span>
+                ) : (
+                  <>
+                    <span className={styles.memberName}>Sửa thông tin</span>
+                    <span className={styles.changeList}>
+                      <FieldChangeList changes={entry.changes ?? []} />
+                    </span>
+                  </>
+                )}
                 <span className={styles.memberRole}>
                   {entry.createdBy === STANDALONE_TASK_SYSTEM_ACTOR_ID
                     ? 'Hệ thống (theo hồ sơ quy trình)'

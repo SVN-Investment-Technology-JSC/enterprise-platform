@@ -2,15 +2,20 @@
 
 import {
   MY_WORK_BUCKETS,
+  allowedStandaloneTaskTransitions,
+  canTransitionWorkItem,
   type CreateProjectRequest,
   type CreateWorkItemRequest,
   type MyWorkEvent,
   type MyWorkItem,
+  type MyWorkStandaloneTask,
   type MyWorkSummary,
   type ParticipantResponse,
   type ProjectMember,
   type ProjectRole,
   type ProjectSummary,
+  type UpdateStandaloneTaskRequest,
+  type UpdateWorkItemRequest,
   type WorkItemPriority,
   type WorkItemStatus,
   WORKSPACE_ASSISTANT_ACTIONS,
@@ -18,8 +23,11 @@ import {
 import { assistantActionKeys, useAssistantSaved } from '@enterprise-platform/feature-module-shell';
 import { formatTime } from '@enterprise-platform/shared-ui';
 import {
+  ArrowUpDown,
   AtSign,
   CalendarClock,
+  CalendarDays,
+  Clock3,
   ChevronDown,
   ChevronRight,
   ClipboardList,
@@ -39,17 +47,26 @@ import {
 import * as api from '../workspace-api';
 import { mergeNewProjectMembers } from '../project-tree.model';
 import {
-  PRIORITY_LABELS,
-  PRIORITY_TONE,
   WORK_ITEM_STATUS_LABELS,
   WORK_ITEM_STATUS_TONE,
   formatDate,
   formatDateTime,
+  priorityKeys,
+  priorityLabel,
+  priorityTone,
+  workItemStatusKeys,
   workItemStatusLabel,
   workItemStatusTone,
 } from '../workspace-labels';
 import styles from '../workspace.module.scss';
-import { Choice } from './choice';
+import {
+  ChipButton,
+  ChipSelect,
+  DateChip,
+  PriorityIcon,
+  ProgressCell,
+  GroupCounts,
+} from './inline-cells';
 import { ProjectForm } from './project-form';
 import { WorkItemForm } from './work-item-form';
 import { useDirectory } from './use-directory';
@@ -64,6 +81,16 @@ const INVITATION_RESPONSES: readonly {
 ];
 
 const WORKSPACE_ACTION_KEYS = assistantActionKeys(WORKSPACE_ASSISTANT_ACTIONS);
+
+/** Cách xếp nhóm dự án và công việc trong bảng; chạy cùng lúc với bộ lọc. */
+type MyWorkSort = 'due' | 'name' | 'code' | 'updated';
+
+const SORT_OPTIONS: readonly { value: MyWorkSort; label: string }[] = [
+  { value: 'due', label: 'Theo hạn (gấp trước)' },
+  { value: 'name', label: 'Theo tên' },
+  { value: 'code', label: 'Theo mã' },
+  { value: 'updated', label: 'Cập nhật gần nhất' },
+];
 
 /**
  * Trang "Công việc của tôi".
@@ -95,8 +122,13 @@ export function MyWorkView({ onOpen, onOpenTask }: MyWorkViewProps = {}) {
   const [statusFilter, setStatusFilter] = useState('');
   const [priorityFilter, setPriorityFilter] = useState('');
   const [projectFilter, setProjectFilter] = useState('');
-  /** Các nhóm dự án đang thu gọn trong bảng công việc. */
-  const [collapsedProjects, setCollapsedProjects] = useState<ReadonlySet<string>>(new Set());
+  /** Các nhóm dự án đang mở trong bảng công việc; mới vào trang thì mọi nhóm thu gọn. */
+  const [expandedProjects, setExpandedProjects] = useState<ReadonlySet<string>>(new Set());
+  const [sortKey, setSortKey] = useState<MyWorkSort>('due');
+  /** Khối Công việc khác: thu gọn khi mới vào trang, như các nhóm dự án. */
+  const [standaloneOpen, setStandaloneOpen] = useState(false);
+  /** Việc đang được lưu sau khi sửa trên bảng: khoá ô của dòng đó cho tới khi xong. */
+  const [savingItem, setSavingItem] = useState<string>();
 
   // Nút "Tạo mới" ở góc trên phải: hai hộp thoại tạo dự án / tạo công việc.
   const [me, setMe] = useState('');
@@ -181,15 +213,60 @@ export function MyWorkView({ onOpen, onOpenTask }: MyWorkViewProps = {}) {
     }
   };
 
-  const advance = async (itemId: string, next: WorkItemStatus) => {
+  /** Thay một việc trong bảng bằng bản server vừa trả, không tải lại cả trang. */
+  const replaceItem = (next: MyWorkItem['item']) =>
+    setSummary((current) =>
+      current
+        ? {
+            ...current,
+            items: current.items.map((entry) =>
+              entry.item.id === next.id ? { ...entry, item: next } : entry,
+            ),
+          }
+        : current,
+    );
+
+  const changeStatus = async (itemId: string, next: WorkItemStatus) => {
     setError(undefined);
+    setSavingItem(itemId);
     try {
       // Cùng endpoint với màn Dự án, nên mọi ràng buộc — việc con chưa đóng,
       // tiền nhiệm FS chưa xong — vẫn áp dụng nguyên vẹn ở đây.
       await api.changeWorkItemStatus(itemId, { status: next });
+      // Tải lại: việc đóng thì rời bảng, số đếm đầu trang cũng đổi.
       await reload();
     } catch (cause) {
       setError((cause as { message?: string })?.message ?? 'Không đổi được trạng thái.');
+    } finally {
+      setSavingItem(undefined);
+    }
+  };
+
+  /** Việc ngoài dự án: đổi trạng thái hay sửa xong thì tải lại (nhóm hạn, việc chờ duyệt, số đếm đều có thể đổi). */
+  const runTask = async (taskId: string, operation: () => Promise<unknown>, fallback: string) => {
+    setError(undefined);
+    setSavingItem(taskId);
+    try {
+      await operation();
+      await reload();
+    } catch (cause) {
+      setError((cause as { message?: string })?.message ?? fallback);
+    } finally {
+      setSavingItem(undefined);
+    }
+  };
+
+  const patchItem = async (itemId: string, patch: UpdateWorkItemRequest, fallback: string) => {
+    setError(undefined);
+    setSavingItem(itemId);
+    try {
+      replaceItem(await api.updateWorkItem(itemId, patch));
+      // Đổi hạn thì việc có thể sang nhóm hạn khác (quá hạn, hôm nay…), số đếm đầu trang cũng đổi.
+      if (patch.plannedEnd !== undefined) await reload();
+    } catch (cause) {
+      setError((cause as { message?: string })?.message ?? fallback);
+    } finally {
+      setSavingItem(undefined);
     }
   };
 
@@ -207,7 +284,7 @@ export function MyWorkView({ onOpen, onOpenTask }: MyWorkViewProps = {}) {
   const priorityOptions = useMemo(() => {
     const seen = new Set<WorkItemPriority>();
     for (const entry of allItems) seen.add(entry.item.priority);
-    return [...seen].map((priority) => ({ value: priority, label: PRIORITY_LABELS[priority] }));
+    return [...seen].map((priority) => ({ value: priority, label: priorityLabel(priority) }));
   }, [allItems]);
   const projectOptions = useMemo(() => {
     const seen = new Map<string, string>();
@@ -227,9 +304,9 @@ export function MyWorkView({ onOpen, onOpenTask }: MyWorkViewProps = {}) {
   );
   const hasFilter = Boolean(statusFilter || priorityFilter || projectFilter);
 
-  // Gom việc theo dự án: mỗi dự án là một nhóm, việc chưa đặt hạn/quá hạn xếp
-  // theo thứ tự "hạn" để việc gấp nổi lên đầu nhóm. Dự án có việc quá hạn đẩy
-  // lên trước để người dùng thấy ngay.
+  // Gom việc theo dự án: mỗi dự án là một nhóm. Mặc định việc xếp theo "hạn" để
+  // việc gấp nổi lên đầu nhóm và dự án có việc quá hạn đẩy lên trước; người dùng
+  // đổi được sang xếp theo tên, mã hay lần cập nhật gần nhất.
   const projectGroups = useMemo(() => {
     const groups = new Map<
       string,
@@ -248,18 +325,48 @@ export function MyWorkView({ onOpen, onOpenTask }: MyWorkViewProps = {}) {
         });
     }
     const bucketRank = (entry: MyWorkItem) => MY_WORK_BUCKETS.indexOf(entry.bucket);
+    const byCode = (a: string, b: string) => a.localeCompare(b, 'vi', { numeric: true });
+    const latest = (rows: readonly MyWorkItem[]) =>
+      rows.reduce((max, entry) => (entry.item.updatedAt > max ? entry.item.updatedAt : max), '');
+    const rowOrder: Record<MyWorkSort, (a: MyWorkItem, b: MyWorkItem) => number> = {
+      due: (a, b) => bucketRank(a) - bucketRank(b),
+      name: (a, b) => a.item.title.localeCompare(b.item.title, 'vi'),
+      code: (a, b) => byCode(a.item.code, b.item.code),
+      updated: (a, b) => b.item.updatedAt.localeCompare(a.item.updatedAt),
+    };
+    type Group = { projectCode: string; projectName: string; rows: MyWorkItem[] };
+    const groupOrder: Record<MyWorkSort, (a: Group, b: Group) => number> = {
+      due: (a, b) => {
+        const aOverdue = a.rows.some((entry) => entry.bucket === 'overdue') ? 0 : 1;
+        const bOverdue = b.rows.some((entry) => entry.bucket === 'overdue') ? 0 : 1;
+        return aOverdue - bOverdue || byCode(a.projectCode, b.projectCode);
+      },
+      name: (a, b) => a.projectName.localeCompare(b.projectName, 'vi'),
+      code: (a, b) => byCode(a.projectCode, b.projectCode),
+      updated: (a, b) => latest(b.rows).localeCompare(latest(a.rows)),
+    };
     const list = [...groups.values()];
-    for (const group of list) group.rows.sort((a, b) => bucketRank(a) - bucketRank(b));
-    list.sort((a, b) => {
-      const aOverdue = a.rows.some((entry) => entry.bucket === 'overdue') ? 0 : 1;
-      const bOverdue = b.rows.some((entry) => entry.bucket === 'overdue') ? 0 : 1;
-      return aOverdue - bOverdue || a.projectCode.localeCompare(b.projectCode, 'vi');
-    });
+    for (const group of list) group.rows.sort(rowOrder[sortKey]);
+    list.sort(groupOrder[sortKey]);
     return list;
-  }, [items]);
+  }, [items, sortKey]);
+
+  /** Việc ngoài dự án theo cùng cách xếp với bảng việc dự án. */
+  const standaloneRows = useMemo(() => {
+    const rows = [...(summary?.standaloneTasks ?? [])];
+    const bucketRank = (entry: MyWorkStandaloneTask) => MY_WORK_BUCKETS.indexOf(entry.bucket);
+    const order: Record<MyWorkSort, (a: MyWorkStandaloneTask, b: MyWorkStandaloneTask) => number> = {
+      // Giữ thứ tự server trả (chờ duyệt, hạn, ưu tiên) trong cùng một nhóm hạn.
+      due: (a, b) => bucketRank(a) - bucketRank(b),
+      name: (a, b) => a.task.title.localeCompare(b.task.title, 'vi'),
+      code: (a, b) => a.task.code.localeCompare(b.task.code, 'vi', { numeric: true }),
+      updated: (a, b) => b.task.updatedAt.localeCompare(a.task.updatedAt),
+    };
+    return sortKey === 'due' ? rows : rows.sort(order[sortKey]);
+  }, [summary, sortKey]);
 
   const toggleProject = (projectId: string) =>
-    setCollapsedProjects((current) => {
+    setExpandedProjects((current) => {
       const next = new Set(current);
       if (next.has(projectId)) next.delete(projectId);
       else next.add(projectId);
@@ -310,78 +417,90 @@ export function MyWorkView({ onOpen, onOpenTask }: MyWorkViewProps = {}) {
         </section>
       ) : null}
 
-      <div className={styles.summaryLine}>
-        <span>
-          <b>{summary?.counters.openItems ?? '—'}</b> việc đang mở
-        </span>
-        <span>
-          Đã xong tuần này{' '}
-          <b className={styles.textSuccess}>{summary?.counters.completedThisWeek ?? '—'}</b>
-        </span>
-        <span className={styles.summarySpacer} />
-        {loading ? <span className={styles.muted}>Đang tải…</span> : null}
-        <button
-          type="button"
-          className={styles.iconButton}
-          aria-label="Tải lại"
-          title="Tải lại"
-          onClick={() => void reload()}
-        >
-          <RefreshCw size={15} />
-        </button>
-        <CreateMenu
-          onNewProject={() => setProjectFormOpen(true)}
-          onNewWorkItem={openNewWorkItem}
-        />
+      <div className={styles.pageHead}>
+        <h1 className={styles.pageTitle}>Công việc của tôi</h1>
+        <div className={styles.pageMeta}>
+          <span>
+            <b>{summary?.counters.openItems ?? '—'}</b> việc đang mở
+          </span>
+          <span>
+            Đã xong tuần này{' '}
+            <b className={styles.textSuccess}>{summary?.counters.completedThisWeek ?? '—'}</b>
+          </span>
+          {loading ? <span className={styles.muted}>Đang tải…</span> : null}
+        </div>
+        <div className={styles.pageHeadEnd}>
+          <button
+            type="button"
+            className={styles.iconButton}
+            aria-label="Tải lại"
+            title="Tải lại"
+            onClick={() => void reload()}
+          >
+            <RefreshCw size={15} />
+          </button>
+          <CreateMenu
+            onNewProject={() => setProjectFormOpen(true)}
+            onNewWorkItem={openNewWorkItem}
+          />
+        </div>
       </div>
 
-      {statusOptions.length > 0 || projectOptions.length > 0 ? (
-        <div className={styles.filterBar} role="group" aria-label="Bộ lọc công việc">
-          <div className={styles.filterField}>
-            <span className={styles.filterLabel}>Trạng thái</span>
-            <Choice
-              label="Trạng thái"
-              value={statusFilter}
-              emptyOption="Mọi trạng thái"
-              options={statusOptions}
-              onChange={setStatusFilter}
-            />
-          </div>
-          <div className={styles.filterField}>
-            <span className={styles.filterLabel}>Ưu tiên</span>
-            <Choice
-              label="Ưu tiên"
-              value={priorityFilter}
-              emptyOption="Mọi mức ưu tiên"
-              options={priorityOptions}
-              onChange={setPriorityFilter}
-            />
-          </div>
-          <div className={styles.filterField}>
-            <span className={styles.filterLabel}>Dự án</span>
-            <Choice
-              label="Dự án"
-              value={projectFilter}
-              emptyOption="Mọi dự án"
-              options={projectOptions}
-              onChange={setProjectFilter}
-            />
-          </div>
-          {hasFilter ? (
-            <button
-              type="button"
-              className={styles.buttonSmall}
-              onClick={() => {
-                setStatusFilter('');
-                setPriorityFilter('');
-                setProjectFilter('');
-              }}
-            >
-              Xoá lọc
-            </button>
-          ) : null}
-        </div>
-      ) : null}
+      <div className={styles.chipBar} role="group" aria-label="Bộ lọc và sắp xếp công việc">
+        <ChipSelect
+          variant="filter"
+          label="Sắp xếp"
+          prefix="Sắp xếp"
+          lead={<ArrowUpDown size={13} aria-hidden />}
+          value={sortKey}
+          options={SORT_OPTIONS}
+          maxWidth={260}
+          onChange={(value) => setSortKey((value || 'due') as MyWorkSort)}
+        />
+        <ChipSelect
+          variant="filter"
+          label="Trạng thái"
+          prefix="Trạng thái"
+          emptyLabel="Tất cả"
+          value={statusFilter}
+          options={statusOptions}
+          maxWidth={240}
+          onChange={setStatusFilter}
+        />
+        <ChipSelect
+          variant="filter"
+          label="Ưu tiên"
+          prefix="Ưu tiên"
+          emptyLabel="Tất cả"
+          value={priorityFilter}
+          options={priorityOptions}
+          maxWidth={240}
+          onChange={setPriorityFilter}
+        />
+        <ChipSelect
+          variant="filter"
+          label="Dự án"
+          prefix="Dự án"
+          emptyLabel="Tất cả"
+          value={projectFilter}
+          options={projectOptions}
+          maxWidth={260}
+          onChange={setProjectFilter}
+        />
+        {hasFilter ? (
+          <button
+            type="button"
+            className={styles.textButton}
+            onClick={() => {
+              setStatusFilter('');
+              setPriorityFilter('');
+              setProjectFilter('');
+            }}
+          >
+            Xoá lọc
+          </button>
+        ) : null}
+      </div>
 
       <section className={styles.tableCard}>
         <div className={styles.tableScroll}>
@@ -393,13 +512,19 @@ export function MyWorkView({ onOpen, onOpenTask }: MyWorkViewProps = {}) {
                 <th>Ưu tiên</th>
                 <th>Trạng thái</th>
                 <th>Hạn</th>
-                <th>Thao tác nhanh</th>
+                <th>Tiến độ</th>
               </tr>
             </thead>
             <tbody>
               {projectGroups.map((group) => {
-                const collapsed = collapsedProjects.has(group.projectId);
-                const todoCount = group.rows.filter((entry) => entry.item.status === 'todo').length;
+                const collapsed = !expandedProjects.has(group.projectId);
+                const countOf = (test: (entry: MyWorkItem) => boolean) => group.rows.filter(test).length;
+                const counts = {
+                  overdue: countOf((entry) => entry.bucket === 'overdue'),
+                  notStarted: countOf((entry) => entry.item.status === 'todo'),
+                  active: countOf((entry) => ['in_progress', 'blocked', 'review'].includes(entry.item.status)),
+                  finished: countOf((entry) => entry.item.status === 'done'),
+                };
                 return (
                   <Fragment key={group.projectId}>
                     <tr className={styles.groupRow}>
@@ -418,89 +543,21 @@ export function MyWorkView({ onOpen, onOpenTask }: MyWorkViewProps = {}) {
                           <span className={styles.treeCode}>{group.projectCode}</span>
                           {group.projectName}
                         </button>
-                        <span className={styles.countPill}>{group.rows.length}</span>
-                        {todoCount > 0 ? (
-                          <span className={styles.muted}> · {todoCount} chưa thực hiện</span>
-                        ) : null}
+                        <GroupCounts counts={counts} unit="việc" />
                       </th>
                     </tr>
                     {collapsed
                       ? null
-                      : group.rows.map((entry) => {
-                          const status = workItemStatusTone(entry.item);
-                          const priority = PRIORITY_TONE[entry.item.priority];
-                          const isTodo = entry.item.status === 'todo';
-                          return (
-                            <tr key={entry.item.id} className={isTodo ? styles.rowPending : undefined}>
-                              <td>
-                                <button
-                                  type="button"
-                                  className={styles.cellTitleButton}
-                                  onClick={() =>
-                                    onOpen?.(entry.item.projectId, `work-item/${entry.item.id}`)
-                                  }
-                                >
-                                  <span className={styles.treeCode}>{entry.item.code}</span>
-                                  {entry.item.title}
-                                </button>
-                              </td>
-                              <td className={styles.cellSub} title={entry.projectName}>
-                                {entry.projectCode}
-                              </td>
-                              <td>
-                                <span
-                                  className={styles.pill}
-                                  style={{
-                                    background: priority.bg,
-                                    color: priority.fg,
-                                  }}
-                                >
-                                  {PRIORITY_LABELS[entry.item.priority]}
-                                </span>
-                              </td>
-                              <td>
-                                <span
-                                  className={styles.pill}
-                                  style={{
-                                    background: status.bg,
-                                    color: status.fg,
-                                  }}
-                                >
-                                  {workItemStatusLabel(entry.item)}
-                                </span>
-                              </td>
-                              <td
-                                className={
-                                  entry.bucket === 'overdue' ? styles.cellDanger : undefined
-                                }
-                              >
-                                {formatDate(entry.item.plannedEnd) || '—'}
-                              </td>
-                              <td>
-                                {entry.item.status === 'todo' ? (
-                                  <button
-                                    type="button"
-                                    className={styles.buttonSmall}
-                                    onClick={() => void advance(entry.item.id, 'in_progress')}
-                                  >
-                                    Bắt đầu làm
-                                  </button>
-                                ) : entry.item.status === 'in_progress' ||
-                                  entry.item.status === 'review' ? (
-                                  <button
-                                    type="button"
-                                    className={styles.buttonSmall}
-                                    onClick={() => void advance(entry.item.id, 'done')}
-                                  >
-                                    Hoàn thành
-                                  </button>
-                                ) : (
-                                  <span className={styles.muted}>—</span>
-                                )}
-                              </td>
-                            </tr>
-                          );
-                        })}
+                      : group.rows.map((entry) => (
+                          <MyWorkRow
+                            key={entry.item.id}
+                            entry={entry}
+                            busy={savingItem === entry.item.id}
+                            onOpen={onOpen}
+                            onStatus={(next) => void changeStatus(entry.item.id, next)}
+                            onPatch={(patch, fallback) => void patchItem(entry.item.id, patch, fallback)}
+                          />
+                        ))}
                   </Fragment>
                 );
               })}
@@ -518,65 +575,61 @@ export function MyWorkView({ onOpen, onOpenTask }: MyWorkViewProps = {}) {
         ) : null}
       </section>
 
-      {summary?.standaloneTasks.length ? (
+      {standaloneRows.length ? (
         <section className={styles.tableCard} aria-label="Công việc khác">
-          <div className={styles.tableScroll}>
-            <table className={styles.table}>
-              <thead>
-                <tr>
-                  <th>
-                    <ClipboardList size={14} aria-hidden /> Công việc khác
-                  </th>
-                  <th>Người giao</th>
-                  <th>Ưu tiên</th>
-                  <th>Trạng thái</th>
-                  <th>Hạn</th>
-                </tr>
-              </thead>
-              <tbody>
-                {summary.standaloneTasks.map((entry) => {
-                  const status = WORK_ITEM_STATUS_TONE[entry.task.status];
-                  const priority = PRIORITY_TONE[entry.task.priority];
-                  return (
-                    <tr key={entry.task.id}>
-                      <td>
-                        <button
-                          type="button"
-                          className={styles.cellTitleButton}
-                          onClick={() => onOpenTask?.(entry.task.id)}
-                        >
-                          <span className={styles.treeCode}>{entry.task.code}</span>
-                          {entry.task.title}
-                        </button>
-                      </td>
-                      <td className={styles.cellSub}>
-                        {entry.awaitingMyApproval ? 'Chờ bạn duyệt' : directory.nameOf(entry.task.createdBy)}
-                      </td>
-                      <td>
-                        <span
-                          className={styles.pill}
-                          style={{ background: priority.bg, color: priority.fg }}
-                        >
-                          {PRIORITY_LABELS[entry.task.priority]}
-                        </span>
-                      </td>
-                      <td>
-                        <span
-                          className={styles.pill}
-                          style={{ background: status.bg, color: status.fg }}
-                        >
-                          {WORK_ITEM_STATUS_LABELS[entry.task.status]}
-                        </span>
-                      </td>
-                      <td className={entry.bucket === 'overdue' ? styles.cellDanger : undefined}>
-                        {formatDate(entry.task.dueDate) || '—'}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+          <div className={styles.cardHead}>
+            <button
+              type="button"
+              className={styles.groupToggle}
+              aria-expanded={standaloneOpen}
+              onClick={() => setStandaloneOpen((open) => !open)}
+            >
+              {standaloneOpen ? <ChevronDown size={14} aria-hidden /> : <ChevronRight size={14} aria-hidden />}
+              <ClipboardList size={14} aria-hidden /> Công việc khác
+            </button>
+            <span className={styles.countPill}>{standaloneRows.length}</span>
           </div>
+          {standaloneOpen ? (
+            <div className={styles.tableScroll}>
+              <table className={styles.table}>
+                <thead>
+                  <tr>
+                    <th>Công việc</th>
+                    <th>Người giao</th>
+                    <th>Ưu tiên</th>
+                    <th>Trạng thái</th>
+                    <th>Hạn</th>
+                    <th>Tiến độ</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {standaloneRows.map((entry) => (
+                    <StandaloneTaskRow
+                      key={entry.task.id}
+                      entry={entry}
+                      busy={savingItem === entry.task.id}
+                      assignerName={directory.nameOf(entry.task.createdBy)}
+                      onOpenTask={onOpenTask}
+                      onStatus={(next) =>
+                        void runTask(
+                          entry.task.id,
+                          () => api.changeStandaloneTaskStatus(entry.task.id, { status: next }),
+                          'Không đổi được trạng thái.',
+                        )
+                      }
+                      onPatch={(patch, fallback) =>
+                        void runTask(
+                          entry.task.id,
+                          () => api.updateStandaloneTask(entry.task.id, patch),
+                          fallback,
+                        )
+                      }
+                    />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
         </section>
       ) : null}
 
@@ -709,6 +762,242 @@ export function MyWorkView({ onOpen, onOpenTask }: MyWorkViewProps = {}) {
         onUpdate={async () => undefined}
       />
     </div>
+  );
+}
+
+/**
+ * Một dòng việc: ưu tiên, trạng thái, hạn và tiến độ sửa ngay trên bảng. Trạng thái chỉ đưa ra các bước chuyển hợp
+ * lệ; server vẫn kiểm quyền và ràng buộc (việc con chưa đóng, tiền nhiệm chưa xong) rồi báo lỗi nếu không được.
+ */
+function MyWorkRow({
+  entry,
+  busy,
+  onOpen,
+  onStatus,
+  onPatch,
+}: {
+  entry: MyWorkItem;
+  busy: boolean;
+  onOpen?: MyWorkViewProps['onOpen'];
+  onStatus: (next: WorkItemStatus) => void;
+  onPatch: (patch: UpdateWorkItemRequest, fallback: string) => void;
+}) {
+  const { item } = entry;
+  const locked = busy || Boolean(item.reversal);
+  const statusOptions = workItemStatusKeys()
+    .filter((status) => canTransitionWorkItem(item.status, status))
+    .map((status) => ({
+      value: status,
+      label: WORK_ITEM_STATUS_LABELS[status],
+      tone: WORK_ITEM_STATUS_TONE[status],
+    }));
+  const priorityOptions = [...priorityKeys()]
+    .reverse()
+    .map((priority) => ({ value: priority, label: priorityLabel(priority), tone: priorityTone(priority) }));
+  if (!priorityOptions.some((option) => option.value === item.priority)) {
+    priorityOptions.push({
+      value: item.priority,
+      label: priorityLabel(item.priority),
+      tone: priorityTone(item.priority),
+    });
+  }
+
+  return (
+    <tr>
+      <td>
+        <button
+          type="button"
+          className={styles.cellTitleButton}
+          onClick={() => onOpen?.(item.projectId, `work-item/${item.id}`)}
+        >
+          <span className={styles.treeCode}>{item.code}</span>
+          {item.title}
+        </button>
+      </td>
+      <td className={styles.cellSub} title={entry.projectName}>
+        {entry.projectCode}
+      </td>
+      <td className={styles.inlineCell}>
+        <ChipSelect
+          label={`Ưu tiên của ${item.code}`}
+          value={item.priority}
+          options={priorityOptions}
+          toned={false}
+          lead={<PriorityIcon priority={item.priority} />}
+          disabled={locked}
+          onChange={(priority) =>
+            onPatch({ priority: priority as WorkItemPriority }, 'Không đổi được mức ưu tiên.')
+          }
+        />
+      </td>
+      <td className={styles.inlineCell}>
+        {item.reversal ? (
+          <ChipButton tone={workItemStatusTone(item)}>{workItemStatusLabel(item)}</ChipButton>
+        ) : (
+          <ChipSelect
+            label={`Trạng thái của ${item.code}`}
+            value={item.status}
+            options={statusOptions}
+            dot
+            disabled={locked}
+            onChange={(status) => onStatus(status as WorkItemStatus)}
+          />
+        )}
+      </td>
+      <td className={styles.inlineCell}>
+        <DateChip
+          label={`Hạn của ${item.code}`}
+          value={item.plannedEnd}
+          min={item.plannedStart}
+          overdue={entry.bucket === 'overdue'}
+          disabled={locked}
+          onChange={(value) =>
+            onPatch({ plannedEnd: value || null }, 'Không đổi được hạn của công việc.')
+          }
+        />
+      </td>
+      <td>
+        <ProgressCell
+          label={`Tiến độ của ${item.code}`}
+          value={item.progressPercent}
+          manual={Boolean(item.progressManual)}
+          auto={item.autoProgressPercent}
+          disabled={locked}
+          onCommit={(next) =>
+            onPatch({ manualProgressPercent: next }, 'Không lưu được tiến độ.')
+          }
+        />
+      </td>
+    </tr>
+  );
+}
+
+/**
+ * Một dòng việc ngoài dự án, sửa trên bảng theo đúng vai: người giao đổi ưu tiên và hạn; người giao, người phụ trách
+ * và người cùng làm cập nhật tiến độ; trạng thái chỉ đưa ra các bước vai đó được làm. Trả lại và huỷ việc cần ghi lý
+ * do nên không có ở đây, làm ở trang Công việc khác.
+ */
+function StandaloneTaskRow({
+  entry,
+  busy,
+  assignerName,
+  onOpenTask,
+  onStatus,
+  onPatch,
+}: {
+  entry: MyWorkStandaloneTask;
+  busy: boolean;
+  assignerName: string;
+  onOpenTask?: (taskId: string) => void;
+  onStatus: (next: WorkItemStatus) => void;
+  onPatch: (patch: UpdateStandaloneTaskRequest, fallback: string) => void;
+}) {
+  const { task, myRole } = entry;
+  const open = task.status !== 'done' && task.status !== 'cancelled' && !task.reversal;
+  const isAssigner = myRole === 'assigner';
+  const canProgress = open && (isAssigner || myRole === 'assignee' || myRole === 'participant');
+  const needsReason = (next: WorkItemStatus) =>
+    next === 'cancelled' || (isAssigner && task.status === 'review' && next === 'in_progress');
+  const allowed = allowedStandaloneTaskTransitions(task, myRole).filter((next) => !needsReason(next));
+  const statusOptions = [task.status, ...allowed]
+    .filter((status, index, list) => list.indexOf(status) === index)
+    .map((status) => ({
+      value: status,
+      label: WORK_ITEM_STATUS_LABELS[status],
+      tone: WORK_ITEM_STATUS_TONE[status],
+    }));
+  const priorityOptions = [...priorityKeys()]
+    .reverse()
+    .map((priority) => ({
+      value: priority,
+      label: priorityLabel(priority),
+      tone: priorityTone(priority),
+    }));
+
+  return (
+    <tr>
+      <td>
+        <button type="button" className={styles.cellTitleButton} onClick={() => onOpenTask?.(task.id)}>
+          <span className={styles.treeCode}>{task.code}</span>
+          {task.title}
+        </button>
+      </td>
+      <td className={styles.cellSub}>
+        {entry.awaitingMyApproval ? (
+          <span className={styles.inlineIcon}>
+            <Clock3 size={13} aria-hidden /> Chờ bạn duyệt
+          </span>
+        ) : (
+          assignerName
+        )}
+      </td>
+      <td className={styles.inlineCell}>
+        {isAssigner && open ? (
+          <ChipSelect
+            label={`Ưu tiên của ${task.code}`}
+            value={task.priority}
+            options={priorityOptions}
+            toned={false}
+            lead={<PriorityIcon priority={task.priority} />}
+            disabled={busy}
+            onChange={(next) =>
+              onPatch({ priority: next as WorkItemPriority }, 'Không đổi được mức ưu tiên.')
+            }
+          />
+        ) : (
+          <ChipButton>
+            <PriorityIcon priority={task.priority} />
+            {priorityLabel(task.priority)}
+          </ChipButton>
+        )}
+      </td>
+      <td className={styles.inlineCell}>
+        {statusOptions.length > 1 ? (
+          <ChipSelect
+            label={`Trạng thái của ${task.code}`}
+            value={task.status}
+            options={statusOptions}
+            dot
+            disabled={busy}
+            onChange={(next) => onStatus(next as WorkItemStatus)}
+          />
+        ) : (
+          <ChipButton tone={WORK_ITEM_STATUS_TONE[task.status]}>
+            <span className={styles.chipDot} />
+            {WORK_ITEM_STATUS_LABELS[task.status]}
+          </ChipButton>
+        )}
+      </td>
+      <td className={styles.inlineCell}>
+        {isAssigner && open ? (
+          <DateChip
+            label={`Hạn của ${task.code}`}
+            value={task.dueDate}
+            min={task.plannedStart}
+            overdue={entry.bucket === 'overdue'}
+            disabled={busy}
+            onChange={(value) =>
+              onPatch({ dueDate: value || null }, 'Không đổi được hạn của công việc.')
+            }
+          />
+        ) : (
+          <ChipButton dashed={!task.dueDate}>
+            <CalendarDays size={13} aria-hidden />
+            {formatDate(task.dueDate) || 'Chưa đặt hạn'}
+          </ChipButton>
+        )}
+      </td>
+      <td>
+        <ProgressCell
+          label={`Tiến độ của ${task.code}`}
+          value={task.progressPercent}
+          manual={Boolean(task.progressManual)}
+          auto={task.autoProgressPercent}
+          disabled={busy || !canProgress}
+          onCommit={(next) => onPatch({ manualProgressPercent: next }, 'Không lưu được tiến độ.')}
+        />
+      </td>
+    </tr>
   );
 }
 

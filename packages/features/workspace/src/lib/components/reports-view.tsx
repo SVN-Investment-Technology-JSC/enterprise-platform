@@ -3,7 +3,6 @@
 import {
   MAX_EXPORT_ROWS,
   REPORT_NO_GROUP,
-  WORK_ITEM_PRIORITIES,
   type ProjectGroup,
   type ProjectSummary,
   type ReportBundle,
@@ -48,6 +47,9 @@ import {
   WORK_ITEM_STATUS_LABELS,
   WORK_ITEM_STATUS_TONE,
   formatDate,
+  priorityKeys,
+  priorityLabel,
+  priorityTone,
 } from '../workspace-labels';
 import styles from '../workspace.module.scss';
 import { Choice } from './choice';
@@ -245,11 +247,11 @@ export function ReportsView({ onOpenItem }: ReportsViewProps = {}) {
     value: bundle?.statusBreakdown.find((row) => row.key === status)?.count ?? 0,
     color: STATUS_COLOR[status],
   })).filter((item) => item.value > 0);
-  const priorityItems = [...WORK_ITEM_PRIORITIES].reverse().map((priority) => ({
+  const priorityItems = [...priorityKeys()].reverse().map((priority) => ({
     key: priority,
-    label: PRIORITY_LABELS[priority],
+    label: priorityLabel(priority),
     value: bundle?.priorityBreakdown.find((row) => row.key === priority)?.count ?? 0,
-    color: PRIORITY_COLOR[priority],
+    color: PRIORITY_COLOR[priority] ?? priorityTone(priority).fg,
   }));
 
   const pickTrend = (bucket: { start: string }, series: TrendSeriesKey) => {

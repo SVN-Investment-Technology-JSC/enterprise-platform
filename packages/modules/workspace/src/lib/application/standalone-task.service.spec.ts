@@ -434,6 +434,18 @@ describe('StandaloneTaskService việc con', () => {
     );
   });
 
+  it('việc cha nhận tiến độ nhập tay (ưu tiên hơn tự tính); null quay về tự tính', async () => {
+    const { service, id } = await seeded('in_progress');
+    await service.create(actor(BOSS), { title: 'Con', assigneeUserId: HELPER, parentId: id });
+    const manual = await service.update(actor(DOER), id, { manualProgressPercent: 70 });
+    expect((manual.task as unknown as { manualProgressPercent: number }).manualProgressPercent).toBe(70);
+    const cleared = await service.update(actor(DOER), id, { manualProgressPercent: null });
+    expect((cleared.task as unknown as { manualProgressPercent: null }).manualProgressPercent).toBeNull();
+    await expect(service.update(actor(DOER), id, { manualProgressPercent: 101 })).rejects.toThrow(
+      /0 đến 100/,
+    );
+  });
+
   it('không xoá được việc cha khi có việc con đang làm', async () => {
     const { service, id, tasks } = await seeded('todo');
     const child = await service.create(actor(BOSS), {

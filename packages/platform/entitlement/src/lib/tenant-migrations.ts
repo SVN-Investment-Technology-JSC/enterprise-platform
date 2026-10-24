@@ -637,6 +637,14 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       version: '0028-workspace-project-code-rule',
       path: 'tenant/workspace/0028-workspace-project-code-rule.sql',
     },
+    {
+      version: '0029-workspace-inline-edit',
+      path: 'tenant/workspace/0029-workspace-inline-edit.sql',
+    },
+    {
+      version: '0030-workspace-standalone-inline-edit',
+      path: 'tenant/workspace/0030-workspace-standalone-inline-edit.sql',
+    },
   ],
   // Hệ dùng chung: phần đầu là Tài liệu công ty (kho tách khỏi tài liệu dự án).
   shared: [

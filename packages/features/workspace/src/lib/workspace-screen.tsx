@@ -33,13 +33,16 @@ import {
   loadTenantHomePath,
   loadWorkspaceStatus,
   type WorkspaceStatus,
+  loadLabelSettings,
 } from './workspace-api';
+import { applyLabelSettings } from './workspace-labels';
 import { DocumentPanel } from './components/document-panel';
 import { MyWorkView } from './components/my-work-view';
 import { QuickSearch, type QuickSearchTarget } from './components/quick-search';
 import { ReportsView } from './components/reports-view';
 import { ProjectGroupSettings } from './components/project-group-settings';
 import { ProjectCodeSettings } from './components/project-code-settings';
+import { LabelSettings } from './components/label-settings';
 import { ProjectArchiveSettings } from './components/project-archive-settings';
 import { ProjectRoleSettings } from './components/project-role-settings';
 import { TagSettings } from './components/tag-settings';
@@ -135,6 +138,13 @@ const SETTINGS_SECTIONS = [
     description:
       'Quy tắc sinh mã cho dự án mới, ví dụ DA_{NHOM}_{SO:4} → DA_DVTN_0001 hoặc DA_{NAM}_{SO:3} → DA_2026_001. Mã do hệ thống cấp khi tạo dự án.',
     render: () => <ProjectCodeSettings />,
+  },
+  {
+    id: 'labels',
+    label: 'Trạng thái và ưu tiên',
+    description:
+      'Tên, màu và thứ tự của trạng thái công việc, trạng thái dự án và mức ưu tiên. Thêm hoặc xoá mức ưu tiên tuỳ ý.',
+    render: () => <LabelSettings />,
   },
   {
     id: 'project-archive',
@@ -253,6 +263,8 @@ export function WorkspaceScreen() {
   }, [view, urlProjectId, openProjectInfo]);
   /** Chỗ nút ở đầu trang, nơi trang Dự án đặt nút Trao đổi và "⋯" của dự án. */
   const [actionsSlot, setActionsSlot] = useState<HTMLDivElement | null>(null);
+  /** Chỗ nút ở dòng tiêu đề khu vực Dự án, nơi trang danh sách dự án đặt Tải lại, Chuyển nhóm, Tạo dự án. */
+  const [listActionsSlot, setListActionsSlot] = useState<HTMLDivElement | null>(null);
   /** Việc quá hạn và đến hạn hôm nay: con số cạnh "Công việc của tôi". */
   const [attention, setAttention] = useState(0);
   /** Bộ đếm lượt bấm "Giao việc" ở đầu trang Công việc ngoài dự án. */
@@ -290,6 +302,18 @@ export function WorkspaceScreen() {
   useEffect(() => {
     void loadTenantHomePath().then(setHomePath);
     void loadCurrentUserId().then(setMe);
+  }, []);
+
+  /**
+   * Tên và màu trạng thái, ưu tiên của tenant: nạp xong mới hiện nội dung, để các bảng không nháy từ tên mặc định
+   * sang tên tenant đặt. Không nạp được thì dùng mặc định.
+   */
+  const [labelsReady, setLabelsReady] = useState(false);
+  useEffect(() => {
+    loadLabelSettings()
+      .then(applyLabelSettings)
+      .catch(() => undefined)
+      .finally(() => setLabelsReady(true));
   }, []);
 
   useEffect(() => {
@@ -404,7 +428,9 @@ export function WorkspaceScreen() {
         </>
       }
     >
-      {view === 'my-work' && !provisioning ? (
+      {!labelsReady ? (
+        <p className={styles.muted}>Đang tải…</p>
+      ) : view === 'my-work' && !provisioning ? (
         <MyWorkView onOpen={openInProject} onOpenTask={openTask} />
       ) : view === 'tasks' && !provisioning ? (
         <StandaloneTasksView
@@ -417,25 +443,30 @@ export function WorkspaceScreen() {
         <>
           {/* Dải hai tab ở đầu khu vực Dự án: "Dự án" giữ nguyên hành vi cũ,
               "Khách hàng" mở danh mục khách hàng và hợp đồng. */}
-          <div className={styles.tabBar} role="tablist" aria-label="Khu vực Dự án">
-            <button
-              type="button"
-              role="tab"
-              aria-selected={view === 'projects'}
-              className={view === 'projects' ? styles.tabActive : styles.tab}
-              onClick={() => navigate('projects')}
-            >
-              Dự án
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={view === 'customers'}
-              className={view === 'customers' ? styles.tabActive : styles.tab}
-              onClick={() => navigate('customers')}
-            >
-              Khách hàng
-            </button>
+          {/* Đầu khu vực Dự án: tiêu đề, hai tab "Dự án" / "Khách hàng", và chỗ trang danh sách đặt nút thao tác. */}
+          <div className={styles.pageHead}>
+            <h1 className={styles.pageTitle}>{view === 'projects' ? 'Dự án' : 'Khách hàng'}</h1>
+            <div className={styles.segmented} role="tablist" aria-label="Khu vực Dự án">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={view === 'projects'}
+                className={view === 'projects' ? styles.segmentActive : styles.segment}
+                onClick={() => navigate('projects')}
+              >
+                Dự án
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={view === 'customers'}
+                className={view === 'customers' ? styles.segmentActive : styles.segment}
+                onClick={() => navigate('customers')}
+              >
+                Khách hàng
+              </button>
+            </div>
+            <div ref={setListActionsSlot} className={styles.pageHeadEnd} />
           </div>
           {view === 'projects' ? (
             urlProjectId ? (
@@ -447,9 +478,7 @@ export function WorkspaceScreen() {
                 actionsSlot={actionsSlot}
               />
             ) : (
-              <ProjectsListView
-                onOpenProject={openProject}
-              />
+              <ProjectsListView onOpenProject={openProject} actionsSlot={listActionsSlot} />
             )
           ) : urlProjectId ? (
             // Trong một dự án: tab Khách hàng chỉ hiện khách hàng của dự án đó.

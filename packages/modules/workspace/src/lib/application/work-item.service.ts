@@ -1,7 +1,6 @@
 import {
   DEPENDENCY_TYPES,
   WORK_ITEM_EXECUTION_TYPES,
-  WORK_ITEM_PRIORITIES,
   WORK_ITEM_STATUSES,
   WORK_ITEM_STATUS_TRANSITIONS,
   WORK_ITEM_TYPES,
@@ -22,6 +21,7 @@ import {
 import {
   autoCompleteParents,
   isClosed,
+  parseManualPercent,
   projectProgress,
   rollUpProgress,
   type ProgressNode,
@@ -54,6 +54,7 @@ import { timezoneOf, todayKey } from '../domain/tenant-time.js';
 import { parseTransport, type FleetTransportService } from './fleet-transport.service.js';
 import type { ProcedureReversalChecker } from './procedure-reversal-check.port.js';
 import type { WorkspaceActor } from './workspace.application.js';
+import { WorkspaceLabelService } from './workspace-label.service.js';
 import type { WorkspaceStore } from './workspace-store.port.js';
 
 const HISTORY_LIMIT = 200;
@@ -79,6 +80,11 @@ export class WorkItemService {
     private readonly procedureReversal?: ProcedureReversalChecker,
     private readonly fleet?: FleetTransportService,
   ) {}
+
+  /** Danh mục mức ưu tiên ở Cài đặt; đọc lại mỗi lần nên không cần chia sẻ thực thể. */
+  private get labels(): WorkspaceLabelService {
+    return new WorkspaceLabelService(this.store);
+  }
 
   /**
    * Tên công việc đã dùng để gợi ý khi gõ tên mới, mới nhất trước. Quản trị viên tenant thấy cả tenant;
@@ -138,7 +144,7 @@ export class WorkItemService {
     const title = requireText(input.title, 'Tên công việc', 200);
     const itemType = pick(input.itemType, WORK_ITEM_TYPES, 'task');
     const executionType = pick(input.executionType, WORK_ITEM_EXECUTION_TYPES, 'manual');
-    const priority = pick(input.priority, WORK_ITEM_PRIORITIES, 'normal');
+    const priority = await this.labels.requirePriority(actor.tenantId, input.priority);
     assertDateOrder(input.plannedStart, input.plannedEnd);
     if (input.estimateHours != null && !(Number(input.estimateHours) > 0)) {
       throw new WorkspaceValidationError('Giờ ước lượng phải lớn hơn 0.');
@@ -296,7 +302,7 @@ export class WorkItemService {
       Object.assign(patch, { title: requireText(input.title, 'Tên công việc', 200) });
     }
     if (input.priority !== undefined) {
-      Object.assign(patch, { priority: pick(input.priority, WORK_ITEM_PRIORITIES, 'normal') });
+      Object.assign(patch, { priority: await this.labels.requirePriority(actor.tenantId, input.priority) });
     }
     if (input.progressPercent !== undefined) {
       const percent = Math.trunc(Number(input.progressPercent));
@@ -304,6 +310,9 @@ export class WorkItemService {
         throw new WorkspaceValidationError('Tiến độ phải là số nguyên từ 0 đến 100.');
       }
       Object.assign(patch, { progressPercent: percent });
+    }
+    if (input.manualProgressPercent !== undefined) {
+      Object.assign(patch, { manualProgressPercent: parseManualPercent(input.manualProgressPercent) });
     }
     assertDateOrder(
       input.plannedStart === undefined ? item.plannedStart : input.plannedStart,
@@ -774,6 +783,7 @@ export class WorkItemService {
       parentId: row.parentId,
       status: row.status,
       progressPercent: row.progressPercent,
+      manualPercent: row.manualPercent,
       estimateHours: row.estimateHours,
     }));
 
@@ -803,6 +813,8 @@ export class WorkItemService {
       ...node,
       // Cha vừa tự hoàn thành thì tiến độ coi như 100% cho phép tính dự án.
       status: toComplete.has(node.id) ? 'done' : node.status,
+      // Hoàn thành thì store bỏ tiến độ nhập tay, nên phép tính dự án cũng bỏ.
+      manualPercent: toComplete.has(node.id) ? null : node.manualPercent,
       progressPercent: toComplete.has(node.id)
         ? 100
         : (changed.get(node.id) ?? node.progressPercent),

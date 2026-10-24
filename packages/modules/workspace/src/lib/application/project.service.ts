@@ -31,6 +31,7 @@ import {
   ProjectRoleForbiddenError,
   WorkspaceValidationError,
 } from '../domain/workspace.error.js';
+import { parseManualPercent } from '../domain/progress.rules.js';
 import { timezoneOf, todayKey } from '../domain/tenant-time.js';
 import type { DirectoryService } from './directory.service.js';
 import type { ProjectCodeService } from './project-code.service.js';
@@ -332,6 +333,9 @@ export class ProjectService {
     }
     if (input.tagIds !== undefined) {
       Object.assign(patch, { tagIds: await this.requireActiveTags(actor, input.tagIds) });
+    }
+    if (input.manualProgressPercent !== undefined) {
+      Object.assign(patch, { manualProgressPercent: parseManualPercent(input.manualProgressPercent) });
     }
     if (input.status !== undefined && !parseStatus(input.status)) {
       throw new WorkspaceValidationError(`Trạng thái dự án "${input.status}" không hợp lệ.`);
