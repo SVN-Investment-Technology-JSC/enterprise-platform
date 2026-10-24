@@ -6,6 +6,7 @@ import {
   FileText,
   Info,
   Plus,
+  UserRoundPlus,
   X,
   XCircle,
 } from 'lucide-react';
@@ -59,6 +60,7 @@ import {
   type LinkableProject,
 } from '../workspace-projects';
 import { useHrmPermissions } from '../hrm-permissions';
+import { OnBehalfName } from '../ui/on-behalf-name';
 import {
   REQUEST_HISTORY_PAGE_SIZE,
   approverFallbackLabel,
@@ -83,6 +85,7 @@ import {
   waitingApproverLabel,
 } from '../procedure-progress-view';
 import { RequestThread } from '../ui/approvals/request-thread';
+import { ProxyRequestDialog } from '../ui/proxy-request-dialog';
 import {
   CreateRequestForm,
   csrfToken,
@@ -90,6 +93,7 @@ import {
   type RequestFormInitial,
   type RequestKind,
 } from '../ui/create-request-form';
+import { isHiddenRequestKind } from '../hrm-approval-kinds';
 import { leaveBalancesOf, type LeaveTypeItem, type ShiftItem } from '../request-form-model';
 
 /** Đơn của loại tuỳ chỉnh (GET /custom-requests) thành dòng của danh sách đơn. */
@@ -213,6 +217,9 @@ const HRM_ACTION_KEYS = assistantActionKeys(HRM_ASSISTANT_ACTIONS);
 export default function RequestsPage() {
   const { can } = useHrmPermissions();
   const canCreateRequest = can('hrm.self.request');
+  // Tạo hộ nhân viên khác (nghỉ phép, tăng ca, công tác); phạm vi cụ thể do máy chủ kiểm.
+  const canCreateBehalf = can('hrm.request.create.behalf') || can('hrm.request.create.behalf.all') || can('hrm.request.manage');
+  const [isProxyOpen, setIsProxyOpen] = useState(false);
   const [historyPage, setHistoryPage] = useState(1);
   const [showAllTypes, setShowAllTypes] = useState(false);
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
@@ -332,8 +339,11 @@ export default function RequestsPage() {
   // Đơn vừa mở từ liên kết ?request=: bỏ một lượt tự chọn đơn đầu tiên và lật tới trang chứa đơn đó.
   const skipAutoSelect = useRef(false);
   const focusRequestId = useRef('');
+  const [notificationCommentId, setNotificationCommentId] = useState('');
   useEffect(() => {
-    setNotificationRequestId(new URLSearchParams(window.location.search).get('request') ?? '');
+    const query = new URLSearchParams(window.location.search);
+    setNotificationRequestId(query.get('request') ?? '');
+    setNotificationCommentId(query.get('comment') ?? '');
   }, []);
   // ?create=<loại đơn> (lối tắt ở Bàn làm việc): mở thẳng form tạo đơn sau khi danh mục đã tải, chỉ một lần.
   const createFromLink = useRef(false);
@@ -936,15 +946,20 @@ export default function RequestsPage() {
           item.statusText = 'Đã thu hồi đủ';
         }
       }
-      mergedList.sort((a, b) =>
-        String(
-          b.rawDetails.createdAt || b.rawDetails.created_at || '',
-        ).localeCompare(
-          String(a.rawDetails.createdAt || a.rawDetails.created_at || ''),
-        ),
+      mergedList.sort((a, b) => {
+        const timeA = Date.parse(
+          String(a.rawDetails.createdAt ?? a.rawDetails.created_at ?? ''),
+        ) || 0;
+        const timeB = Date.parse(
+          String(b.rawDetails.createdAt ?? b.rawDetails.created_at ?? ''),
+        ) || 0;
+        return timeB - timeA;
+      });
+      const visibleList = mergedList.filter(
+        (item) => !isHiddenRequestKind(item.kind),
       );
-      setRequestsList(mergedList);
-      return mergedList;
+      setRequestsList(visibleList);
+      return visibleList;
     } catch (err) {
       if (!opts?.listsOnly) setRequestsList([]);
       toast.error(
@@ -1072,10 +1087,7 @@ export default function RequestsPage() {
       { value: 'leave', label: 'Nghỉ phép' },
       { value: 'ot', label: 'Làm thêm giờ (OT)' },
       { value: 'business_trip', label: 'Công tác' },
-      { value: 'shift_change', label: 'Đổi ca' },
       { value: 'correction', label: 'Bổ sung công' },
-      { value: 'advance', label: 'Tạm ứng lương' },
-      { value: 'profile_correction', label: 'Đính chính nhân sự' },
       ...(requestsList.some((item) => item.kind === 'custom')
         ? [{ value: 'custom', label: 'Loại đơn tuỳ chỉnh' }]
         : []),
@@ -1168,6 +1180,19 @@ export default function RequestsPage() {
     await loadData({ listsOnly: true });
     setListMonth(currentMonthVn());
     setFilterStatus('PENDING');
+  };
+
+  // Đơn tạo hộ thuộc về nhân viên khác nên không hiện trong "Đơn từ của tôi": chỉ đóng form và báo kết quả.
+  const handleProxySubmitted = async (result: { label: string; count: number }) => {
+    setIsProxyOpen(false);
+    toast.success({
+      title: 'Đã tạo đơn hộ nhân viên',
+      description: result.count > 1 ? `Đã gửi duyệt ${result.count} đơn (${result.label}).` : `Đã gửi duyệt ${result.label}.`,
+    });
+  };
+  const handleProxyAbandoned = async (message: string) => {
+    setIsProxyOpen(false);
+    toast.error({ title: 'Đơn tạo hộ chưa gửi đủ', description: message });
   };
 
   // Một phần khoảng thời gian đã thành đơn rồi gặp lỗi: đóng form để không gửi trùng, tải lại danh sách.
@@ -1456,6 +1481,12 @@ export default function RequestsPage() {
           >
             Tất cả tháng
           </Button>
+          {canCreateBehalf && (
+            <Button variant="outline" size="sm" className="h-9 text-xs" onClick={() => setIsProxyOpen(true)}>
+              <UserRoundPlus className="mr-1 size-3.5" />
+              Tạo đơn hộ
+            </Button>
+          )}
           {canCreateRequest && (
             <RowMenu
               label="Chọn loại đơn để tạo"
@@ -1709,6 +1740,18 @@ export default function RequestsPage() {
         />
       </div>
 
+      {canCreateBehalf && (
+        <ProxyRequestDialog
+          open={isProxyOpen}
+          onOpenChange={setIsProxyOpen}
+          leaveTypes={leaveTypes}
+          shifts={shiftsList}
+          projects={workspaceProjects}
+          onSubmitted={handleProxySubmitted}
+          onAbandoned={handleProxyAbandoned}
+        />
+      )}
+
       {/* POPUP MODAL: KHỞI TẠO ĐƠN THEO TỪNG LOẠI NGHIỆP VỤ */}
       <Dialog open={isCreateModalOpen} onOpenChange={setIsCreateModalOpen}>
         <DialogContent className="max-w-3xl p-0 overflow-hidden bg-white">
@@ -1780,7 +1823,21 @@ export default function RequestsPage() {
             </SheetTitle>
             <SheetDescription className="text-xs text-slate-500">
               Tạo ngày {selectedRequest?.createdAt} bởi{' '}
-              <strong>{profile.fullName}</strong>
+              <strong>
+                <OnBehalfName
+                  name={profile.fullName ?? ''}
+                  onBehalf={selectedRequest?.rawDetails?.createdOnBehalf === true}
+                  byName={selectedRequest?.rawDetails?.onBehalfByName}
+                  reason={selectedRequest?.rawDetails?.onBehalfReason}
+                />
+              </strong>
+              {selectedRequest?.rawDetails?.createdOnBehalf === true && (
+                <span data-testid="request-on-behalf">
+                  {' '}
+                  (tạo hộ bởi <strong>{String(selectedRequest.rawDetails.onBehalfByName || 'một người dùng')}</strong>. Lý do:{' '}
+                  {String(selectedRequest.rawDetails.onBehalfReason || '—')})
+                </span>
+              )}
             </SheetDescription>
           </SheetHeader>
 
@@ -2262,6 +2319,9 @@ export default function RequestsPage() {
                 <RequestThread
                   kind={selectedRequest.kind}
                   requestId={selectedRequest.id}
+                  highlightCommentId={
+                    selectedRequest.id === notificationRequestId && notificationCommentId ? notificationCommentId : undefined
+                  }
                 />
               </div>
             )}

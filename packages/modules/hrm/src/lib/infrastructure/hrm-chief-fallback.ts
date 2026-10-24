@@ -8,8 +8,8 @@ const MAX_CHAIN = 50;
 
 /**
  * Bậc dự phòng cuối của "quản lý trực tiếp": nhân viên không có "Báo cáo cho" nào dẫn tới người đang giữ chức danh
- * (Core) thì Tổng giám đốc duyệt. HRM không gán quản lý nên không còn lớp nào nằm giữa.
- * Tổng giám đốc là người đang giữ chức danh có tên chứa "Tổng giám đốc" (không tính "Phó Tổng giám đốc").
+ * (Core) thì người giữ chức danh dự phòng cuối duyệt. HRM không gán quản lý nên không còn lớp nào nằm giữa.
+ * Chức danh này do tenant cấu hình (`approval_policy_settings.last_resort_position_id`); chưa cấu hình thì không có bậc này.
  */
 
 export interface OrgPosition {
@@ -42,6 +42,8 @@ export interface OrgFacts {
   /** Đã xếp chức danh chính trước. */
   holders: OrgHolder[];
   employees: OrgEmployee[];
+  /** Chức danh dự phòng cuối do tenant chọn; thiếu hoặc null = không dùng bậc dự phòng cuối. */
+  lastResortPositionId?: string | null;
 }
 
 export interface ChiefApprover {
@@ -53,18 +55,16 @@ export interface ChiefApprover {
   code: string | null;
 }
 
-export function isChiefPositionName(name: string): boolean {
-  const normalized = name.normalize('NFC').toLocaleLowerCase('vi');
-  return /tổng giám đốc/.test(normalized) && !/phó\s+tổng giám đốc/.test(normalized);
-}
-
+/** Những người đang giữ chức danh dự phòng cuối (rỗng khi tenant chưa cấu hình). */
 export function findChiefs(facts: OrgFacts): ChiefApprover[] {
+  if (!facts.lastResortPositionId) return [];
   const names = new Map(facts.positions.map((p) => [p.id, p.name]));
   const seen = new Set<string>();
   const chiefs: ChiefApprover[] = [];
   for (const holder of facts.holders) {
     const title = names.get(holder.positionId);
-    if (!title || holder.inactive || !isChiefPositionName(title) || seen.has(holder.employeeId)) continue;
+    if (!title || holder.inactive || holder.positionId !== facts.lastResortPositionId || seen.has(holder.employeeId))
+      continue;
     seen.add(holder.employeeId);
     chiefs.push({
       employeeId: holder.employeeId,
@@ -130,7 +130,7 @@ export async function loadOrgFacts(db: Queryable, tenantId: string): Promise<Org
   const hasReportsTo = (column.rows?.length ?? 0) > 0;
   const reportsTo = hasReportsTo ? 'n.reports_to_position_id' : 'NULL::uuid';
   const override = hasReportsTo ? 'a.reports_to_position_override_id' : 'NULL::uuid';
-  const [positions, holders, employees] = await Promise.all([
+  const [positions, holders, employees, lastResort] = await Promise.all([
     db.query(
       `SELECT n.id, n.name, ${reportsTo} AS reports_to_id
          FROM core_schema.organization_nodes n
@@ -156,9 +156,20 @@ export async function loadOrgFacts(db: Queryable, tenantId: string): Promise<Org
         WHERE e.tenant_id = $1 AND e.deleted_at IS NULL`,
       [tenantId],
     ),
+    // Cột có từ migration 0075; chưa migrate hoặc chưa cấu hình = không có bậc dự phòng cuối.
+    db.query(
+      `SELECT CASE WHEN EXISTS (
+                SELECT 1 FROM information_schema.columns
+                 WHERE table_schema = 'hrm_schema' AND table_name = 'approval_policy_settings'
+                   AND column_name = 'last_resort_position_id')
+              THEN (SELECT last_resort_position_id::text FROM hrm_schema.approval_policy_settings WHERE tenant_id = $1)
+              END AS position_id`,
+      [tenantId],
+    ),
   ]);
   const inactive = (status: unknown) => typeof status === 'string' && INACTIVE_EMPLOYMENT.includes(status);
   return {
+    lastResortPositionId: text(lastResort.rows?.[0]?.['position_id']),
     positions: (positions.rows ?? []).flatMap((row: Record<string, unknown>) =>
       text(row['id']) && text(row['name'])
         ? [{ id: row['id'] as string, name: row['name'] as string, reportsToId: text(row['reports_to_id']) }]
@@ -222,4 +233,66 @@ export async function chiefFallbackUserIds(
   } catch {
     return new Set();
   }
+}
+
+/**
+ * Quản lý trực tiếp của nhân viên: người đang làm việc giữ chức danh đầu tiên còn người trên chuỗi "Báo cáo cho"
+ * (cùng quy tắc với `hasCoreManager`). Không có ai thì Tổng giám đốc (không phải chính nhân viên) duyệt thay.
+ */
+export function managerUserIdsOf(facts: OrgFacts, employeeId: string): string[] {
+  const reportsTo = new Map(facts.positions.map((p) => [p.id, p.reportsToId]));
+  const holdersOf = new Map<string, OrgHolder[]>();
+  for (const holder of facts.holders)
+    holdersOf.set(holder.positionId, [...(holdersOf.get(holder.positionId) ?? []), holder]);
+  const found = new Set<string>();
+  for (const own of facts.holders.filter((h) => h.employeeId === employeeId)) {
+    const seen = new Set<string>([own.positionId]);
+    let cursor = own.overrideId ?? reportsTo.get(own.positionId) ?? null;
+    for (let level = 0; cursor && !seen.has(cursor) && level < MAX_CHAIN; level += 1) {
+      const eligible = (holdersOf.get(cursor) ?? []).filter((h) => h.employeeId !== employeeId && !h.inactive);
+      if (eligible.length) {
+        for (const holder of eligible) found.add(holder.userId);
+        break;
+      }
+      seen.add(cursor);
+      cursor = reportsTo.get(cursor) ?? null;
+    }
+  }
+  if (found.size) return [...found];
+  return findChiefs(facts)
+    .filter((chief) => chief.employeeId !== employeeId)
+    .map((chief) => chief.userId);
+}
+
+/**
+ * Mọi cấp trên của nhân viên trên chuỗi "Báo cáo cho" (không chỉ cấp gần nhất): chính là những người có nhân viên này trong
+ * phạm vi cấp dưới (`computeSubordinateUserIds`). Dùng để chọn người nhận thông báo trong số người giữ quyền duyệt.
+ */
+export function superiorUserIdsOf(facts: OrgFacts, employeeId: string): string[] {
+  const reportsTo = new Map(facts.positions.map((p) => [p.id, p.reportsToId]));
+  const found = new Set<string>();
+  for (const own of facts.holders.filter((h) => h.employeeId === employeeId)) {
+    const seen = new Set<string>([own.positionId]);
+    let cursor = own.overrideId ?? reportsTo.get(own.positionId) ?? null;
+    for (let level = 0; cursor && !seen.has(cursor) && level < MAX_CHAIN; level += 1) {
+      for (const holder of facts.holders)
+        if (holder.positionId === cursor && holder.employeeId !== employeeId && !holder.inactive) found.add(holder.userId);
+      seen.add(cursor);
+      cursor = reportsTo.get(cursor) ?? null;
+    }
+  }
+  return [...found];
+}
+
+/** Người đang giữ chức danh duyệt dự phòng (không tính chủ đơn). */
+export function fallbackHolderUserIds(facts: OrgFacts, positionId: string | null, employeeId: string): string[] {
+  if (!positionId) return [];
+  return facts.holders
+    .filter((h) => h.positionId === positionId && h.employeeId !== employeeId && !h.inactive)
+    .map((h) => h.userId);
+}
+
+/** Người đang giữ một chức danh được chỉ định duyệt (không tính chủ đơn). */
+export function positionHolderUserIds(facts: OrgFacts, positionId: string | null, employeeId: string): string[] {
+  return fallbackHolderUserIds(facts, positionId, employeeId);
 }

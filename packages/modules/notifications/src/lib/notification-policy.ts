@@ -35,6 +35,12 @@ export type NotificationRecipientRule =
       readonly field: string;
       /** Người dùng ghi thẳng trong payload, nhận thêm dù không giữ quyền nào (vd. người dự phòng). */
       readonly userFields?: readonly string[];
+      /**
+       * Người trong danh sách ứng viên ở payload (`scopedUserField`) chỉ nhận khi giữ BẤT KỲ quyền nào trong
+       * `scopedPermissionsField`: quyền duyệt thường chỉ có hiệu lực trong phạm vi cấp dưới, nên ứng viên là cấp trên của chủ đơn.
+       */
+      readonly scopedPermissionsField?: string;
+      readonly scopedUserField?: string;
     }
   | {
       /** Người dùng ghi thẳng trong payload cộng người được giải ra từ các vai (đơn vị, chức danh) của bước. */
@@ -150,8 +156,10 @@ async function resolveCandidates(
   if (rule.kind === 'permissions-in-payload') {
     const permissions = recipientValues(payload[rule.field]);
     const direct = (rule.userFields ?? []).flatMap((field) => recipientValues(payload[field]));
+    const scoped = await scopedHolders(rule, payload, directory);
     return [
       ...direct,
+      ...scoped,
       ...(await Promise.all(permissions.map((permission) => directory.usersWithPermission(permission)))).flat(),
     ];
   }
@@ -160,6 +168,22 @@ async function resolveCandidates(
   const assignments = assignmentValues(payload[rule.assignmentsField]);
   if (assignments.length === 0 || !directory.usersForProcedureAssignments) return direct;
   return [...direct, ...(await directory.usersForProcedureAssignments(assignments))];
+}
+
+async function scopedHolders(
+  rule: Extract<NotificationRecipientRule, { kind: 'permissions-in-payload' }>,
+  payload: Readonly<Record<string, unknown>>,
+  directory: RecipientDirectory,
+): Promise<readonly string[]> {
+  if (!rule.scopedPermissionsField || !rule.scopedUserField) return [];
+  const candidates = new Set(recipientValues(payload[rule.scopedUserField]));
+  if (candidates.size === 0) return [];
+  const holders = (
+    await Promise.all(
+      recipientValues(payload[rule.scopedPermissionsField]).map((permission) => directory.usersWithPermission(permission)),
+    )
+  ).flat();
+  return holders.filter((userId) => candidates.has(userId));
 }
 
 function assignmentValues(value: unknown): ProcedureAssignmentRef[] {

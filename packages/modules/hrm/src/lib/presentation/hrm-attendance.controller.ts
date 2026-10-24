@@ -38,8 +38,10 @@ import { parseCorrectionPunches } from '../domain/correction-punches.js';
 import type { Request } from 'express';
 import { randomUUID } from 'node:crypto';
 import { hrmTransaction } from '../infrastructure/hrm-transaction.js';
-import { optionalText, requireDate, requireUuid } from '../infrastructure/hrm-validation.js';
+import { throwWhyNotRejectable } from '../infrastructure/hrm-request-reject.js';
+import { rejectionNote, requireDate, requireUuid } from '../infrastructure/hrm-validation.js';
 import { ingestEvent } from '../infrastructure/hrm-attendance-ingest.js';
+import { effectiveLocationRule, loadAttendanceLocationSettings } from '../infrastructure/hrm-attendance-location.js';
 import {
   assertOpenDate,
   lockEmployee,
@@ -50,6 +52,7 @@ import {
   isoTime,
 } from '../infrastructure/hrm-time.js';
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
+import { markOnBehalf } from '../infrastructure/hrm-request-proxy.js';
 import { HrmProcedureBridgeService } from '../infrastructure/hrm-procedure-bridge.service.js';
 
 @UseInterceptors(HrmMissingSchemaInterceptor)
@@ -122,17 +125,19 @@ export class HrmAttendanceController {
       tenantId,
       principal.userId,
     );
-    const context = await hrmTransaction(pool, (db) =>
-      timeContext(db, tenantId, employeeId, new Date().toISOString()),
-    );
+    const { context, settings } = await hrmTransaction(pool, async (db) => ({
+      context: await timeContext(db, tenantId, employeeId, new Date().toISOString()),
+      settings: await loadAttendanceLocationSettings(db, tenantId),
+    }));
+    const rule = effectiveLocationRule(settings, context.policy?.config_json ?? {});
     return {
       data: {
         employeeId,
         workDate: context.date,
         timezone: context.timezone,
         shift: context.shift,
-        requireGps: context.policy?.config_json.requireGps === true,
-        maxGpsAccuracyMeters: Number(context.policy?.config_json.maxGpsAccuracyMeters) || 100,
+        requireGps: rule.requireGps,
+        maxGpsAccuracyMeters: rule.maxGpsAccuracyMeters,
       },
     };
   }
@@ -381,8 +386,13 @@ export class HrmAttendanceController {
         attributes?: Record<string, unknown>;
       },
   ) {
-    const { pool, tenantId, principal, employeeId } =
-      await this.ctx.getRequestContext(req, body.employeeId);
+    const { pool, tenantId, principal, employeeId, onBehalf } =
+      await this.ctx.getProxyRequestContext(
+        req,
+        body.employeeId,
+        'correction',
+        (body as { onBehalfReason?: unknown }).onBehalfReason,
+      );
     // Đơn đã hủy/từ chối trên quy trình không còn chiếm ngày: đồng bộ trước khi kiểm tra trùng.
     await syncEmployeeProcedureResults(pool, tenantId, employeeId);
     const submission = await resolveDraftSubmission(
@@ -502,7 +512,16 @@ export class HrmAttendanceController {
             reason.name,
           ],
         );
-        return result.rows[0];
+        return onBehalf
+          ? markOnBehalf(db, result.rows[0], {
+              tenantId,
+              table: 'attendance_corrections',
+              kind: 'correction',
+              employeeId,
+              actorUserId: principal.userId,
+              reason: onBehalf.reason,
+            })
+          : result.rows[0];
       },
     );
     return {
@@ -592,7 +611,7 @@ export class HrmAttendanceController {
   async submitCorrection(@Req() req: Request, @Param('id') id: string) {
     const { pool, tenantId } = await this.ctx.getContext(
       req,
-      'hrm.attendance.approve',
+      'hrm.request.approve',
     );
     const res = await pool.query(
       `UPDATE hrm_schema.attendance_corrections SET status = 'PENDING', updated_at = now()
@@ -615,7 +634,7 @@ export class HrmAttendanceController {
   async approveCorrection(@Req() req: Request, @Param('id') id: string) {
     const { pool, tenantId, principal } = await this.ctx.approverContext(
       req,
-      'hrm.attendance.approve',
+      'hrm.request.approve',
       'correction',
       id,
     );
@@ -637,10 +656,11 @@ export class HrmAttendanceController {
     @Req() req: Request,
     @Param('id') id: string,
     @Body('reason') reason?: string,
+    @Body('quick') quick?: boolean,
   ) {
     const { pool, tenantId, principal } = await this.ctx.approverContext(
       req,
-      'hrm.attendance.approve',
+      'hrm.request.approve',
       'correction',
       id,
     );
@@ -650,6 +670,7 @@ export class HrmAttendanceController {
       'correction',
       'reject',
     );
+    const note = rejectionNote(reason, quick);
     const res = await hrmTransaction(pool, (db) =>
       db.query(
         `UPDATE hrm_schema.attendance_corrections
@@ -660,16 +681,15 @@ export class HrmAttendanceController {
           tenantId,
           id,
           principal.userId,
-          optionalText(reason, 'Lý do từ chối', 2000),
+          note,
         ],
       ),
     );
-    if (res.rows.length === 0) {
-      throw new NotFoundException({
+    if (res.rows.length === 0)
+      await throwWhyNotRejectable(pool, 'attendance_corrections', tenantId, id, {
         code: 'HRM_CORRECTION_NOT_FOUND',
-        message: 'Correction request not found',
+        message: 'Không tìm thấy đơn giải trình công',
       });
-    }
     return {
       data: this.mapCorrection(res.rows[0]),
       meta: { requestId: req.headers['x-request-id'] as string },
@@ -680,7 +700,7 @@ export class HrmAttendanceController {
   async cancelCorrection(@Req() req: Request, @Param('id') id: string) {
     const { pool, tenantId, principal } = await this.ctx.getContext(
       req,
-      'hrm.attendance.approve',
+      'hrm.request.approve',
     );
     await this.approvals.assertCanDecide(
       { pool, tenantId, principal },
@@ -773,6 +793,9 @@ export class HrmAttendanceController {
       currentAssigneeName: (row.current_assignee_name ?? null) as string | null,
       workflowStatus: row.workflow_status as string | null,
       submittedBy: row.submitted_by as string,
+      createdOnBehalf: row.created_on_behalf === true,
+      onBehalfReason: (row.on_behalf_reason ?? null) as string | null,
+      onBehalfByName: (row.on_behalf_by_name ?? null) as string | null,
       approvedBy: row.approved_by as string | null,
       approvedAt: row.approved_at ? String(row.approved_at) : null,
       rejectionReason: row.rejection_reason as string | null,

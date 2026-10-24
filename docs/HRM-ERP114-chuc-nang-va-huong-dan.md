@@ -58,9 +58,9 @@ Không tự cấp 51 quyền cho các vai trò hiện hữu. `hrm.manage` là to
 | Vai trò nghiệp vụ | Hành động nên chọn |
 |---|---|
 | Nhân viên | `hrm.self.read`, `hrm.self.profile.write`, `hrm.self.attendance`, `hrm.self.request`, `hrm.self.payslip` |
-| Nhân sự hồ sơ | `hrm.employee.read`, `hrm.employee.manage`, `hrm.employee.link-account`, `hrm.profile.approve`, `hrm.dependent.manage` |
-| Điều phối công/phép | `hrm.shift.manage`, `hrm.time.configure`, `hrm.device.manage`, `hrm.attendance.read`, `hrm.attendance.approve`, `hrm.leave.manage`, `hrm.timesheet.calculate`, `hrm.timesheet.adjust`, `hrm.timesheet.export` |
-| Người duyệt đơn | Chọn riêng `hrm.leave.approve`, `hrm.ot.approve`, `hrm.trip.approve`, `hrm.shift.approve`, `hrm.profile.approve`, `hrm.advance.approve` theo trách nhiệm |
+| Nhân sự hồ sơ | `hrm.employee.read`, `hrm.employee.manage`, `hrm.employee.link-account`, `hrm.dependent.manage` |
+| Điều phối công/phép | `hrm.shift.manage`, `hrm.time.configure`, `hrm.device.manage`, `hrm.attendance.read`, `hrm.request.approve`, `hrm.leave.manage`, `hrm.timesheet.calculate`, `hrm.timesheet.adjust`, `hrm.timesheet.export` |
+| Người duyệt đơn | `hrm.request.approve` (duyệt trong phạm vi của mình) hoặc `hrm.request.approve.all` (duyệt toàn tenant); một quyền dùng chung cho mọi loại đơn |
 | Người khóa công | `hrm.timesheet.read`, `hrm.timesheet.lock`; cấp `hrm.timesheet.reopen` riêng nếu có trách nhiệm mở lại |
 | Người cấu hình lương | `hrm.payroll.configure`, `hrm.salary.manage`, `hrm.employee.read`, `hrm.dependent.read` |
 | Người tính lương | `hrm.payroll.calculate`, `hrm.payroll.adjust`; không tự có quyền chốt, phát hành hoặc chi trả |

@@ -22,15 +22,7 @@ import { requireDate } from '../infrastructure/hrm-validation.js';
 /** Quyền xem chấm công toàn công ty (nhân sự, chấm công viên, người chốt lương). */
 const VIEW_ALL: readonly HrmAction[] = ['hrm.attendance.read', 'hrm.timesheet.read'];
 /** Quyền duyệt: người có một trong các quyền này được xem cấp dưới của mình theo sơ đồ tổ chức. */
-const MANAGER: readonly HrmAction[] = [
-  'hrm.leave.approve',
-  'hrm.ot.approve',
-  'hrm.trip.approve',
-  'hrm.shift.approve',
-  'hrm.attendance.approve',
-  'hrm.custom.approve',
-  'hrm.advance.approve',
-];
+const MANAGER: readonly HrmAction[] = ['hrm.request.approve'];
 
 /**
  * Giám sát chấm công theo ngày. Phạm vi do server quyết định: có quyền xem chấm công/bảng công thì thấy toàn công ty;

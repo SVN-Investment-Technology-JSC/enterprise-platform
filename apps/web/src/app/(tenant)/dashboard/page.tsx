@@ -5,8 +5,13 @@ import { cookies } from 'next/headers';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import type { ReactNode } from 'react';
+import {
+  procedureNeedsMyAction,
+  procedureQuickActions,
+} from '@enterprise-platform/feature-procedure-engine/quick-actions';
 import { CollapsibleGroup } from '../collapsible-group';
 import { HrmQuickWorkSection } from './hrm-quick-work';
+import { ProcedureActionableList, type ActionableProcedure } from './procedure-actionable-list';
 import { RefreshOnFocus } from './refresh-on-focus';
 
 type Module = {
@@ -26,9 +31,15 @@ type Procedure = {
     definitionName?: string;
     assetCode?: string;
     managerName?: string;
+    sourceType?: string;
     currentStepId?: string;
     steps?: { id: string; name: string; currentRoleStage?: string | null }[];
-    authorization?: { availableActions?: string[]; myRoles?: string[] };
+    authorization?: {
+      availableActions?: string[];
+      myRoles?: string[];
+      currentRoleStage?: string | null;
+      editableAttributeKeys?: string[];
+    };
   }[];
   definitions?: { status: string }[];
 };
@@ -242,13 +253,23 @@ export default async function TenantPortalPage() {
         item.minStock > 0 &&
         (availableByMaterial.get(item.id) ?? 0) < item.minStock,
     ) ?? [];
+  // Đơn từ HRM đi qua Quy trình đã có ở khu "Duyệt đơn nhanh" (cùng thao tác, cùng drawer), không đưa vào đây để một đơn
+  // không hiện ở hai thẻ. Quản trị override thao tác được mọi hồ sơ đang chạy nhưng chỉ hồ sơ tới lượt họ (giữ vai của pha
+  // hiện tại) mới là "cần bạn xử lý".
   const actionable = (procedure?.instances ?? []).filter(
     (item) =>
       item.status === 'running' &&
-      item.authorization?.availableActions?.some(
-        (action) => action !== 'comment',
-      ),
+      item.sourceType !== 'hrm_request' &&
+      procedureNeedsMyAction(item.authorization ?? {}),
   );
+  const actionableRows: ActionableProcedure[] = actionable.slice(0, GROUP_ROWS).map((item) => ({
+    id: item.id,
+    code: item.code,
+    title: item.title,
+    definitionName: item.definitionName,
+    stepName: item.steps?.find((step) => step.id === item.currentStepId)?.name,
+    quickActions: procedureQuickActions(item.authorization ?? {}),
+  }));
   // Công việc của tôi bên Workspace: việc dự án đang mở được giao cho tôi, cộng "Công việc khác" tôi làm
   // hoặc đang chờ tôi duyệt. Quá hạn lên đầu.
   const bucketRank = (bucket: string) => {
@@ -478,43 +499,19 @@ export default async function TenantPortalPage() {
           icon={<GitFork className="size-4" />}
         >
           {actionable.length > 0 ? (
-            <GroupTable
-              columns="22px minmax(220px,1fr) 170px 150px 190px 100px"
-              headings={['HỒ SƠ', 'MÃ HỒ SƠ', 'QUY TRÌNH', 'BƯỚC HIỆN TẠI', 'TRẠNG THÁI']}
-              footer={
-                actionable.length > GROUP_ROWS ? (
+            <>
+              <ProcedureActionableList
+                items={actionableRows}
+                actor={{ id: principal.userId, name: displayName }}
+              />
+              {actionable.length > GROUP_ROWS ? (
+                <div className="border-t border-[#f1f3f6] px-5 py-2.5 text-[14px]">
                   <a href="/modules/procedure#workspace" className="font-semibold text-blue-700 hover:text-blue-800">
                     Xem đủ {actionable.length} hồ sơ trong Quy trình
                   </a>
-                ) : undefined
-              }
-            >
-              {actionable.slice(0, GROUP_ROWS).map((item) => {
-                const currentStep = item.steps?.find((step) => step.id === item.currentStepId);
-                return (
-                  <GroupRow
-                    key={item.id}
-                    columns="22px minmax(220px,1fr) 170px 150px 190px 100px"
-                    href={`/modules/procedure?${RETURN_HOME}#workspace/${encodeURIComponent(item.id)}`}
-                  >
-                    <Dot className="bg-amber-500 shadow-[0_0_0_4px_rgba(245,158,11,.12)]" />
-                    <Cell strong title={item.title}>{item.title}</Cell>
-                    <Cell muted title={item.code}>{item.code}</Cell>
-                    <Cell small>
-                      {item.definitionName ? (
-                        <span className="rounded-md bg-violet-50 px-2 py-0.5 text-violet-800">
-                          {item.definitionName}
-                        </span>
-                      ) : '—'}
-                    </Cell>
-                    <Cell small title={currentStep?.name}>{currentStep?.name ?? '—'}</Cell>
-                    <span>
-                      <Pill className="bg-[#fff6d6] text-[#8a6400]">Cần xử lý</Pill>
-                    </span>
-                  </GroupRow>
-                );
-              })}
-            </GroupTable>
+                </div>
+              ) : null}
+            </>
           ) : (
             <Empty>Không có hồ sơ nào chờ bạn thao tác.</Empty>
           )}

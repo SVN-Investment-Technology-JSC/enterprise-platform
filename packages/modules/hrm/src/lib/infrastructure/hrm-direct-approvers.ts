@@ -1,54 +1,63 @@
 import type { HrmRequestKind } from '@enterprise-platform/contracts-hrm';
 import type { PoolClient } from 'pg';
-import { findChiefs, loadOrgFacts, type OrgFacts } from './hrm-chief-fallback.js';
-import { resolveDirectFallbackPosition } from './hrm-approval-policy.js';
+import { loadOrgFacts, positionHolderUserIds, superiorUserIdsOf } from './hrm-chief-fallback.js';
+import { fallbackHolderUserIds, managerUserIdsOf } from './hrm-chief-fallback.js';
+import { resolveDirectBinding } from './hrm-approval-policy.js';
+import { loadRequestTimeRule } from './hrm-request-time-rules.js';
+
+export { fallbackHolderUserIds, managerUserIdsOf } from './hrm-chief-fallback.js';
 
 type Queryable = Pick<PoolClient, 'query'>;
 
-const MAX_CHAIN = 50;
+export interface ApprovalAudience {
+  /** Người được giao duyệt theo cấu hình (quản lý trực tiếp hoặc chức danh chỉ định, cộng dự phòng); duyệt không cần quyền. */
+  readonly assigned: string[];
+  /** Mọi cấp trên của chủ đơn; chỉ duyệt được nếu giữ `hrm.request.approve`, nên người nhận là phần giao với người giữ quyền. */
+  readonly superiors: string[];
+}
 
 /**
- * Quản lý trực tiếp của nhân viên: người đang làm việc giữ chức danh đầu tiên còn người trên chuỗi "Báo cáo cho"
- * (cùng quy tắc với `hasCoreManager`). Không có ai thì Tổng giám đốc (không phải chính nhân viên) duyệt thay.
+ * Những người được giao duyệt một đơn DIRECT theo tổ chức, theo nguồn người duyệt của cấu hình:
+ * DIRECT_MANAGER là quản lý trực tiếp, POSITION là người giữ chức danh được chỉ định; cộng người giữ chức danh dự phòng
+ * (nếu có). Họ có thể không giữ quyền duyệt HRM nên không được tính theo quyền; thông báo cần gửi thẳng cho họ. Kèm theo
+ * mọi cấp trên của chủ đơn để thông báo chỉ báo cho người giữ quyền duyệt có đơn nằm trong phạm vi cấp dưới của họ. Chỉ bổ
+ * sung người nhận, nên lỗi đọc tổ chức trả về rỗng và thông báo theo quyền toàn tenant vẫn đi như cũ.
  */
-export function managerUserIdsOf(facts: OrgFacts, employeeId: string): string[] {
-  const reportsTo = new Map(facts.positions.map((p) => [p.id, p.reportsToId]));
-  const holdersOf = new Map<string, OrgFacts['holders']>();
-  for (const holder of facts.holders)
-    holdersOf.set(holder.positionId, [...(holdersOf.get(holder.positionId) ?? []), holder]);
-  const found = new Set<string>();
-  for (const own of facts.holders.filter((h) => h.employeeId === employeeId)) {
-    const seen = new Set<string>([own.positionId]);
-    let cursor = own.overrideId ?? reportsTo.get(own.positionId) ?? null;
-    for (let level = 0; cursor && !seen.has(cursor) && level < MAX_CHAIN; level += 1) {
-      const eligible = (holdersOf.get(cursor) ?? []).filter((h) => h.employeeId !== employeeId && !h.inactive);
-      if (eligible.length) {
-        for (const holder of eligible) found.add(holder.userId);
-        break;
-      }
-      seen.add(cursor);
-      cursor = reportsTo.get(cursor) ?? null;
-    }
+export async function approvalAudienceOf(
+  db: Queryable,
+  tenantId: string,
+  kind: HrmRequestKind,
+  requestId: string,
+  employeeId: string,
+): Promise<ApprovalAudience> {
+  try {
+    const [facts, binding, timeRule] = await Promise.all([
+      loadOrgFacts(db, tenantId),
+      resolveDirectBinding(db, tenantId, kind, requestId),
+      loadRequestTimeRule(db, tenantId, kind),
+    ]);
+    if (!binding) return { assigned: [], superiors: superiorUserIdsOf(facts, employeeId) };
+    const primary =
+      binding.source === 'POSITION'
+        ? positionHolderUserIds(facts, binding.approverPositionId, employeeId)
+        : managerUserIdsOf(facts, employeeId);
+    return {
+      // Đặt chuyển dự phòng sau N ngày thì lúc tạo đơn chưa báo cho người dự phòng (họ chưa được xử lý).
+      assigned: [
+        ...new Set([
+          ...primary,
+          ...(timeRule.escalateAfterDays === null ? fallbackHolderUserIds(facts, binding.fallbackPositionId, employeeId) : []),
+        ]),
+      ],
+      // Chỉ định chức danh thì cấp trên giữ quyền duyệt bị loại khỏi danh sách và không duyệt được (xem `positionExcluded`),
+      // nên cũng không báo cho họ.
+      superiors: binding.source === 'POSITION' ? [] : superiorUserIdsOf(facts, employeeId),
+    };
+  } catch {
+    return { assigned: [], superiors: [] };
   }
-  if (found.size) return [...found];
-  return findChiefs(facts)
-    .filter((chief) => chief.employeeId !== employeeId)
-    .map((chief) => chief.userId);
 }
 
-/** Người đang giữ chức danh duyệt dự phòng (không tính chủ đơn). */
-export function fallbackHolderUserIds(facts: OrgFacts, positionId: string | null, employeeId: string): string[] {
-  if (!positionId) return [];
-  return facts.holders
-    .filter((h) => h.positionId === positionId && h.employeeId !== employeeId && !h.inactive)
-    .map((h) => h.userId);
-}
-
-/**
- * Những người được giao duyệt một đơn DIRECT theo tổ chức: quản lý trực tiếp và người giữ chức danh dự phòng. Họ có thể
- * không giữ quyền duyệt HRM nên không được tính theo quyền; thông báo cần gửi thẳng cho họ. Chỉ bổ sung người nhận,
- * nên lỗi đọc tổ chức trả về rỗng và thông báo theo quyền vẫn đi như cũ.
- */
 export async function directApproverUserIds(
   db: Queryable,
   tenantId: string,
@@ -56,18 +65,5 @@ export async function directApproverUserIds(
   requestId: string,
   employeeId: string,
 ): Promise<string[]> {
-  try {
-    const [facts, fallbackPositionId] = await Promise.all([
-      loadOrgFacts(db, tenantId),
-      resolveDirectFallbackPosition(db, tenantId, kind, requestId),
-    ]);
-    return [
-      ...new Set([
-        ...managerUserIdsOf(facts, employeeId),
-        ...fallbackHolderUserIds(facts, fallbackPositionId, employeeId),
-      ]),
-    ];
-  } catch {
-    return [];
-  }
+  return (await approvalAudienceOf(db, tenantId, kind, requestId, employeeId)).assigned;
 }

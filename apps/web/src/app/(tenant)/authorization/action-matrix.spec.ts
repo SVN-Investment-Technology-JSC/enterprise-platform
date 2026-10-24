@@ -4,8 +4,8 @@ const item = (key: string) => ({ key, label: key });
 
 describe('action matrix', () => {
   it('đọc đối tượng và mức quyền từ khóa thao tác', () => {
-    expect(classifyAction('hrm.leave.approve.all')).toEqual({ object: 'leave', level: 'approveAll' });
-    expect(classifyAction('hrm.ot.approve')).toEqual({ object: 'ot', level: 'approve' });
+    expect(classifyAction('hrm.request.approve.all')).toEqual({ object: 'request', level: 'approveAll' });
+    expect(classifyAction('hrm.request.approve')).toEqual({ object: 'request', level: 'approve' });
     expect(classifyAction('hrm.leave.read')).toEqual({ object: 'leave', level: 'read' });
     expect(classifyAction('hrm.read')).toEqual({ object: '', level: 'read' });
     expect(classifyAction('hrm.manage')).toEqual({ object: '', level: 'manage' });
@@ -16,12 +16,12 @@ describe('action matrix', () => {
 
   it('gom cùng đối tượng vào một hàng và chỉ giữ cột có dữ liệu', () => {
     const m = buildActionMatrix(
-      ['hrm.leave.read', 'hrm.leave.approve', 'hrm.leave.approve.all', 'hrm.ot.approve', 'hrm.ot.approve.all'].map(item),
+      ['hrm.leave.read', 'hrm.request.approve', 'hrm.request.approve.all', 'hrm.ot.read'].map(item),
     );
-    expect(m.rows.map((r) => r.title)).toEqual(['Nghỉ phép', 'Tăng ca']);
+    expect(m.rows.map((r) => r.title)).toEqual(['Nghỉ phép', 'Đơn từ chung', 'Tăng ca']);
     expect(m.columns.map((c) => c.level)).toEqual(['read', 'approve', 'approveAll']);
     expect(m.rows[1].cells.read).toEqual([]);
-    expect(m.rows[0].cells.approveAll.map((i) => i.key)).toEqual(['hrm.leave.approve.all']);
+    expect(m.rows[1].cells.approveAll.map((i) => i.key)).toEqual(['hrm.request.approve.all']);
   });
 
   it('thao tác lệch mẫu vào cột Khác và đối tượng chưa có tên hiện đúng khóa; không mất thao tác nào', () => {

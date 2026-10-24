@@ -506,7 +506,7 @@ describe('TimesheetsScreen: tiêu đề, chọn dòng, số dòng mỗi trang', 
     await screen.findAllByTestId('board-day-header');
     const root = screen.getByTestId('timesheets-root');
     expect(root.className).not.toContain('fixed');
-    expect(screen.getByTestId('board-grid-frame').className).toContain('h-[max(480px');
+    expect(screen.getByTestId('board-grid-frame').className).toContain('max-h-[max(480px');
     fireEvent.click(screen.getByRole('button', { name: 'Xem toàn màn hình' }));
     expect(screen.getByTestId('timesheets-root').className).toContain('fixed inset-0');
     expect(screen.getByTestId('board-grid-frame').className).toContain('flex-1');
@@ -551,7 +551,7 @@ describe('TimesheetsScreen: tiêu đề, chọn dòng, số dòng mỗi trang', 
       expect(new URLSearchParams((fetchMock.mock.calls.at(-1)?.[0] as string).split('?')[1]).get('page')).toBe('2'),
     );
     fireEvent.click(within(screen.getByTitle('Số nhân viên mỗi trang')).getByRole('textbox'));
-    fireEvent.click(await screen.findByRole('option', { name: 'Hiển thị 20' }));
+    fireEvent.click(await screen.findByRole('option', { name: '20 nhân viên / trang' }));
     await waitFor(() => {
       const q = new URLSearchParams((fetchMock.mock.calls.at(-1)?.[0] as string).split('?')[1]);
       expect(q.get('page_size')).toBe('20');

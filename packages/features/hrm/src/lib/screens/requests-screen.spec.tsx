@@ -275,25 +275,38 @@ describe('Lối tắt ?create= từ Bàn làm việc', () => {
 });
 
 describe('Đơn từ của tôi', () => {
-  it('có tiêu đề mới và danh mục đủ 6 loại đơn có nút khởi tạo, không có đơn đổi ca', async () => {
+  it('có tiêu đề mới và danh mục 4 loại đơn đang dùng; đổi ca, tạm ứng, đính chính hồ sơ bị ẩn', async () => {
     render(<RequestsPage />);
     expect(
       await screen.findByRole('heading', { name: 'Đơn từ của tôi' }),
     ).toBeTruthy();
-    // Bốn loại tạo nhanh hiện sẵn; tạm ứng và đính chính hồ sơ nằm sau "Tất cả loại đơn".
     expect(await screen.findAllByRole('button', { name: /Khởi tạo đơn này/ })).toHaveLength(4);
-    expect(await allTypeButtons()).toHaveLength(6);
+    expect(await allTypeButtons()).toHaveLength(4);
     for (const title of [
       'Đơn xin nghỉ phép',
       'Đơn làm thêm giờ (OT)',
       'Đơn đi công tác',
       'Đơn giải trình / Bổ sung công',
-      'Đơn tạm ứng lương',
-      'Đơn đính chính hồ sơ',
     ]) {
       expect(await screen.findByRole('heading', { name: title })).toBeTruthy();
     }
-    expect(screen.queryByRole('heading', { name: 'Đơn đổi ca' })).toBeNull();
+    for (const title of ['Đơn đổi ca', 'Đơn tạm ứng lương', 'Đơn đính chính hồ sơ'])
+      expect(screen.queryByRole('heading', { name: title })).toBeNull();
+  });
+
+  it('nút Tạo đơn hộ chỉ hiện với người có quyền tạo hộ và mở hộp thoại chọn nhân viên', async () => {
+    const { unmount } = render(<RequestsPage />);
+    await screen.findByRole('heading', { name: 'Đơn từ của tôi' });
+    expect(screen.queryByRole('button', { name: /Tạo đơn hộ/ })).toBeNull();
+    unmount();
+
+    mockActions.add('hrm.request.create.behalf');
+    render(<RequestsPage />);
+    fireEvent.click(await screen.findByRole('button', { name: /Tạo đơn hộ/ }));
+    expect(await screen.findByText('Tạo đơn hộ nhân viên')).toBeTruthy();
+    await waitFor(() =>
+      expect(hrmPaths.some((p) => p.startsWith('/request-proxy/candidates') && p.includes('kind=leave'))).toBe(true),
+    );
   });
 
   it('không có hrm.self.request thì ẩn nút tạo đơn', async () => {
@@ -314,46 +327,6 @@ describe('Đơn từ của tôi', () => {
     expect(listCalls.length).toBeGreaterThanOrEqual(7);
     expect(listCalls.every((c) => !c.url.includes('forApproval'))).toBe(true);
     expect(listCalls.every((c) => c.url.includes('employee_id=e1'))).toBe(true);
-  });
-
-  it('gửi đơn tạm ứng lương tới salary-advance-requests', async () => {
-    render(<RequestsPage />);
-    const buttons = await allTypeButtons();
-    fireEvent.click(buttons[4]);
-    fireEvent.change(await screen.findByPlaceholderText(/Nhập chi tiết lý do/), {
-      target: { value: 'Chi phí gia đình' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: /Gửi duyệt đơn/, hidden: true }));
-    await waitFor(() =>
-      expect(
-        calls.some((c) => c.method === 'POST' && c.url.endsWith('/salary-advance-requests')),
-      ).toBe(true),
-    );
-    const draft = calls.find((c) => c.url.endsWith('/request-drafts/advance'));
-    expect(draft?.body).toMatchObject({
-      employeeId: 'e1',
-      payload: { requestedAmount: 5000000, numberOfInstallments: 1, reason: 'Chi phí gia đình' },
-    });
-    const submit = calls.find((c) => c.url.endsWith('/salary-advance-requests') && c.method === 'POST');
-    expect(submit?.body).toMatchObject({ employeeId: 'e1', draftId: 'd1' });
-  });
-
-  it('gửi đơn đính chính hồ sơ tới profile-corrections với bản thay đổi', async () => {
-    render(<RequestsPage />);
-    const buttons = await allTypeButtons();
-    fireEvent.click(buttons[5]);
-    fireEvent.change(await screen.findByPlaceholderText('Nhập họ và tên...'), {
-      target: { value: 'Nguyễn Văn Bình' },
-    });
-    fireEvent.change(screen.getByPlaceholderText(/Nhập chi tiết lý do/), {
-      target: { value: 'Sai chính tả' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: /Gửi duyệt đơn/, hidden: true }));
-    await waitFor(() =>
-      expect(calls.some((c) => c.method === 'POST' && c.url.endsWith('/profile-corrections'))).toBe(true),
-    );
-    const draft = calls.find((c) => c.url.endsWith('/request-drafts/profile_correction'));
-    expect(draft?.body?.payload).toMatchObject({ changes: { fullName: 'Nguyễn Văn Bình' } });
   });
 
   it('phân trang lịch sử 20 dòng mỗi trang', async () => {
@@ -750,18 +723,6 @@ describe('Form tạo đơn: Lý do (danh mục) tách khỏi Mô tả (tự do)'
     await screen.findByPlaceholderText('Chọn lý do...');
   });
 
-  it('ứng lương vẫn dùng lý do nhập tự do, gửi reason như trước', async () => {
-    await openForm('advance');
-    expect(screen.queryByPlaceholderText('Chọn lý do...')).toBeNull();
-    fireEvent.change(await screen.findByPlaceholderText(/Nhập chi tiết lý do/), {
-      target: { value: 'Chi phí gia đình' },
-    });
-    fireEvent.click(submitButton());
-    await waitFor(() => expect(draftBody('advance')).toBeTruthy());
-    const payload = draftBody('advance')?.payload as Record<string, unknown>;
-    expect(payload.reason).toBe('Chi phí gia đình');
-    expect(payload).not.toHaveProperty('reasonId');
-  });
 });
 
 describe('Form tạo đơn: khối Người duyệt', () => {
@@ -842,14 +803,6 @@ describe('Form tạo đơn: khối Người duyệt', () => {
     expect(hrmPaths).toContain('/approval-route?kind=leave&employeeId=e1&reasonId=lt-annual');
   });
 
-  it('ứng lương không có lý do danh mục vẫn cho biết người duyệt, không kèm reasonId', async () => {
-    approvalRoute = { mode: 'PROCEDURE', procedureName: 'Quy trình tạm ứng', directManager: null };
-    await openForm('advance');
-    expect((await preview()).textContent).toBe(
-      'Người duyệt: Duyệt theo quy trình (Quy trình tạm ứng)',
-    );
-    expect(hrmPaths).toContain('/approval-route?kind=advance&employeeId=e1');
-  });
 });
 
 describe('Danh sách và chi tiết đơn: Lý do tách khỏi Mô tả', () => {

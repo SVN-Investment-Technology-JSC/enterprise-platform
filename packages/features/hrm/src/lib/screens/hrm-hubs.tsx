@@ -37,6 +37,8 @@ const PayrollSettingsScreen = lazyScreen(() => import('./payroll-settings-screen
 const LeaveSettingsScreen = lazyScreen(() => import('./leave-settings-screen'));
 const RequestReasonsScreen = lazyScreen(() => import('./request-reasons-screen'));
 const RequestQuotaScreen = lazyScreen(() => import('./request-quota-screen'));
+const RequestTimeRulesScreen = lazyScreen(() => import('./request-time-rules-screen'));
+const RequestProxyScreen = lazyScreen(() => import('./request-proxy-screen'));
 const ApprovalConfigScreen = lazyScreen(() => import('./approval-config-screen'));
 const OperationsScreen = lazyScreen(() => import('./operations-screen'));
 const HrmPermissionsScreen = lazyScreen(() => import('./hrm-permissions-screen'));
@@ -69,6 +71,8 @@ const SCREENS: Record<HrmHubPath, Record<string, ComponentType>> = {
     payroll: PayrollSettingsScreen,
     'request-reasons': RequestReasonsScreen,
     'request-quota': RequestQuotaScreen,
+    'request-time-rules': RequestTimeRulesScreen,
+    'request-proxy': RequestProxyScreen,
     approval: ApprovalConfigScreen,
     operations: OperationsScreen,
     permissions: HrmPermissionsScreen,

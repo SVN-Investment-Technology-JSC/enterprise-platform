@@ -123,7 +123,7 @@ describe('HRM authentication and tenant boundary', () => {
     pools.forTenant.mockResolvedValue(pool);
     fetchActionable.mockResolvedValue(['inst-1']);
     const req = { method: 'GET', headers: { authorization: 'Bearer test' } } as Request;
-    const leaveApprover = ['hrm.leave.approve', 'hrm.leave.approve.all'] as const;
+    const leaveApprover = ['hrm.request.approve', 'hrm.request.approve.all'] as const;
 
     const assigned = await service.scoped(req, 'hrm.request.read', undefined, leaveApprover);
     expect(assigned.employeeId).toBeUndefined();

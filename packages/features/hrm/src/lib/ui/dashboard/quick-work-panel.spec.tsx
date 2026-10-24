@@ -37,7 +37,7 @@ const leave = {
   createdAt: '2026-03-01T01:00:00.000Z',
 };
 
-function setup(leaves: unknown[] = [leave]) {
+function setup(leaves: unknown[] = [leave], links: unknown[] = []) {
   fetchMock.mockImplementation((async (path: string, init?: RequestInit) => {
     if (path === '/my-attendance-context')
       return {
@@ -47,11 +47,13 @@ function setup(leaves: unknown[] = [leave]) {
           shift: { window: { start: '2026-03-02T00:30:00Z', end: '2026-03-02T10:00:00Z' } },
         },
       };
-    if (path === '/request-workflows') return { data: [] };
+    if (path === '/request-workflows') return { data: links };
     if (path === '/request-reversals') return { data: [] };
     if (path.startsWith('/request-comments')) return init?.method === 'POST' ? { data: { id: 'c1' } } : { data: [] };
     if (init?.method === 'POST') return { data: {} };
     if (path.startsWith('/leave-requests?')) return { data: leaves };
+    // Một quyền duyệt chung nên thẻ gọi mọi loại đơn đang dùng; loại khác trả danh sách rỗng.
+    if (path.includes('forApproval=1')) return { data: [] };
     throw new Error(`Unexpected request ${path}`);
   }) as never);
   employeesMock.mockResolvedValue([{ value: 'e1', label: 'NV001 · Nguyễn Văn An', department: 'Kỹ thuật' }]);
@@ -63,7 +65,7 @@ beforeEach(() => {
 });
 
 describe('HrmQuickWork', () => {
-  it('không hiện gì khi không có quyền chấm công lẫn duyệt đơn', () => {
+  it('không hiện gì khi không có quyền duyệt đơn', () => {
     mockActions = ['hrm.read'];
     setup();
     const { container } = render(<HrmQuickWork />);
@@ -71,21 +73,17 @@ describe('HrmQuickWork', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('chấm công nhanh: hiện ca hôm nay và gửi lượt vào kèm khóa chống trùng', async () => {
+  it('không có thẻ chấm công nhanh ở dashboard dù có quyền chấm công', () => {
     mockActions = ['hrm.self.read', 'hrm.self.attendance'];
     setup();
-    render(<HrmQuickWork />);
-    expect(await screen.findByText(/07:30/)).toBeTruthy();
-    expect(screen.queryByRole('region', { name: 'Duyệt đơn nhanh' })).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Vào ca' }));
-    await waitFor(() => expect(posts('/attendance/check-in')).toHaveLength(1));
-    const body = JSON.parse(String((posts('/attendance/check-in')[0][1] as RequestInit).body));
-    expect(typeof body.externalEventId).toBe('string');
-    expect(await screen.findByText(/Đã ghi nhận lượt vào lúc/)).toBeTruthy();
+    const { container } = render(<HrmQuickWork />);
+    expect(container.textContent).toBe('');
+    expect(screen.queryByRole('button', { name: 'Vào ca' })).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('duyệt nhanh tại thẻ: gọi duyệt đúng đơn rồi tải lại danh sách', async () => {
-    mockActions = ['hrm.leave.approve'];
+    mockActions = ['hrm.request.approve'];
     setup();
     render(<HrmQuickWork />);
     const list = await screen.findByRole('list', { name: 'Đơn chờ bạn duyệt' });
@@ -95,8 +93,32 @@ describe('HrmQuickWork', () => {
     await waitFor(() => expect(fetchMock.mock.calls.filter((c) => (c[0] as string).startsWith('/leave-requests?')).length).toBeGreaterThanOrEqual(2));
   });
 
-  it('từ chối tại thẻ: hỏi xác nhận rồi từ chối ngay, không cần lý do', async () => {
-    mockActions = ['hrm.leave.approve'];
+  it('đơn qua quy trình: duyệt xong ẩn ngay dù HRM chưa đồng bộ trạng thái, không bắt duyệt lần hai', async () => {
+    mockActions = ['hrm.request.approve'];
+    // Máy chủ vẫn trả đơn ở trạng thái chờ (hộp thư bền chưa áp dụng kết quả của Procedure).
+    setup([leave], [{ id: 'k1', request_kind: 'LEAVE', request_id: 'l1', instance_code: 'PROC-1', status: 'RUNNING', last_error: '' }]);
+    render(<HrmQuickWork />);
+    const list = await screen.findByRole('list', { name: 'Đơn chờ bạn duyệt' });
+    fireEvent.click(within(list).getByRole('button', { name: 'Duyệt' }));
+    await waitFor(() => expect(posts('/requests/LEAVE/l1/actions')).toHaveLength(1));
+    await waitFor(() => expect(screen.queryByRole('list', { name: 'Đơn chờ bạn duyệt' })).toBeNull());
+    expect(screen.getByText('Không có đơn nào chờ bạn duyệt.')).toBeTruthy();
+    expect(posts('/requests/LEAVE/l1/actions')).toHaveLength(1);
+  });
+
+  it('đơn duyệt trực tiếp: xử lý xong theo đúng dữ liệu máy chủ, không ẩn thêm', async () => {
+    mockActions = ['hrm.request.approve'];
+    setup();
+    render(<HrmQuickWork />);
+    const list = await screen.findByRole('list', { name: 'Đơn chờ bạn duyệt' });
+    fireEvent.click(within(list).getByRole('button', { name: 'Duyệt' }));
+    await waitFor(() => expect(posts('/leave-requests/l1/approve')).toHaveLength(1));
+    // Máy chủ còn trả đơn (giả lập) thì thẻ vẫn hiện, vì trạng thái trực tiếp được ghi đồng bộ và danh sách là nguồn đúng.
+    expect(await screen.findByRole('list', { name: 'Đơn chờ bạn duyệt' })).toBeTruthy();
+  });
+
+  it('từ chối tại thẻ: hỏi xác nhận rồi từ chối ngay, không cần lý do (cờ quick)', async () => {
+    mockActions = ['hrm.request.approve'];
     setup();
     render(<HrmQuickWork />);
     const list = await screen.findByRole('list', { name: 'Đơn chờ bạn duyệt' });
@@ -105,17 +127,19 @@ describe('HrmQuickWork', () => {
     const confirms = await screen.findAllByRole('button', { name: 'Từ chối' });
     fireEvent.click(confirms[confirms.length - 1]);
     await waitFor(() => expect(posts('/leave-requests/l1/reject')).toHaveLength(1));
-    expect(JSON.parse(String((posts('/leave-requests/l1/reject')[0][1] as RequestInit).body))).toEqual({ reason: '' });
+    expect(JSON.parse(String((posts('/leave-requests/l1/reject')[0][1] as RequestInit).body))).toEqual({ reason: '', quick: true });
   });
 
   it('từ chối trong ngăn chi tiết: có popup xác nhận và gửi kèm ý kiến nếu có', async () => {
-    mockActions = ['hrm.leave.approve'];
+    mockActions = ['hrm.request.approve'];
     setup();
     render(<HrmQuickWork />);
     const list = await screen.findByRole('list', { name: 'Đơn chờ bạn duyệt' });
     fireEvent.click(within(list).getByRole('button', { name: /Xem chi tiết đơn/ }));
     const drawer = await screen.findByRole('dialog');
     expect(within(drawer).getByText('Duyệt đơn')).toBeTruthy();
+    // Trong ngăn chi tiết, từ chối bắt buộc nhập lý do: chưa nhập thì nút bị khóa.
+    expect((within(drawer).getByRole('button', { name: /Từ chối/ }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.change(within(drawer).getByPlaceholderText(/Ý kiến xử lý/), { target: { value: 'Trùng lịch dự án' } });
     fireEvent.click(within(drawer).getByRole('button', { name: /Từ chối/ }));
     const confirms = await screen.findAllByRole('button', { name: 'Từ chối' });

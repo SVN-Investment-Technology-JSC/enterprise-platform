@@ -250,7 +250,7 @@ export async function calculateTimesheet(
         leaves: leaveInputs,
         trips: tripInputs,
         hasOt: ots.rows.length > 0,
-        autoOnly: punches.length > 0 && punches.every((p) => p.auto),
+        autoOnly: punches.some((p) => p.auto),
       });
       const leaveMinutes = leaves.rows.reduce(
         (sum, r) => sum + Number(r.paid_minutes),

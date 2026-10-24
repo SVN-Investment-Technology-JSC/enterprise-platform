@@ -36,6 +36,7 @@ import {
   type Row,
 } from './approvals-model';
 import { RequestThread } from './request-thread';
+import { OnBehalfName } from '../on-behalf-name';
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -98,6 +99,8 @@ export interface ApprovalDetailPanelProps {
   onError: (message: string) => void;
   /** Tăng lên sau mỗi quyết định để luồng trao đổi tải lại ý kiến vừa ghi. */
   threadRefresh: number;
+  /** Tin nhắn cần làm nổi khi mở từ thông báo (?comment=). */
+  highlightCommentId?: string;
 }
 
 /** Chi tiết đơn bên phải danh sách: thông tin, quy trình phê duyệt, trao đổi, ý kiến và nút Từ chối, Phê duyệt. */
@@ -152,6 +155,17 @@ export function ApprovalDetailPanel(props: ApprovalDetailPanelProps) {
           <span className={`shrink-0 rounded-full px-2.5 py-1 text-[12px] font-semibold ${statusTone(row.status)}`}>{states[row.status] ?? row.status}</span>
         </div>
 
+        {row.createdOnBehalf === true ? (
+          <p
+            role="note"
+            data-testid="approval-detail-on-behalf"
+            className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900"
+          >
+            <b>Đơn tạo hộ.</b> {String(row.onBehalfByName || 'Một người dùng')} tạo hộ {row.employeeName}. Lý do:{' '}
+            {String(row.onBehalfReason || '—')}
+          </p>
+        ) : null}
+
         {row.reversalReason ? (
           <p className="rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-xs text-orange-900">
             <b>Đã hủy hiệu lực.</b> Lý do: {row.reversalReason}
@@ -163,7 +177,7 @@ export function ApprovalDetailPanel(props: ApprovalDetailPanelProps) {
           <div className="flex items-center gap-3">
             <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-slate-200 text-[14px] font-bold text-slate-600">{initialsOf(row.employeeName)}</span>
             <div className="min-w-0">
-              <p className="truncate text-[14px] font-semibold text-slate-900">{row.employeeName}</p>
+              <p className="truncate text-[14px] font-semibold text-slate-900"><OnBehalfName name={row.employeeName} onBehalf={row.createdOnBehalf === true} byName={row.onBehalfByName} reason={row.onBehalfReason} /></p>
               <p className="truncate text-[13px] text-slate-500">
                 {[row.employeeCode, row.department].filter(Boolean).join(' · ')}
               </p>
@@ -272,7 +286,12 @@ export function ApprovalDetailPanel(props: ApprovalDetailPanelProps) {
           )}
         </section>
 
-        <RequestThread kind={row.source.kind} requestId={row.id} refreshKey={props.threadRefresh} />
+        <RequestThread
+          kind={row.source.kind}
+          requestId={row.id}
+          refreshKey={props.threadRefresh}
+          highlightCommentId={props.highlightCommentId}
+        />
       </div>
 
       <div className="shrink-0 space-y-2 border-t border-slate-100 px-4 py-3">
@@ -291,7 +310,7 @@ export function ApprovalDetailPanel(props: ApprovalDetailPanelProps) {
               maxLength={2000}
               value={note}
               onChange={(e) => setNote(e.target.value)}
-              placeholder="Ý kiến xử lý (tuỳ chọn)"
+              placeholder="Ý kiến xử lý (bắt buộc khi từ chối)"
               className="w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-[13px] outline-none focus:border-[#d9ab00] focus:ring-2 focus:ring-[#d9ab00]/30"
             />
             <div className="grid grid-cols-2 gap-2">
@@ -305,7 +324,8 @@ export function ApprovalDetailPanel(props: ApprovalDetailPanelProps) {
               >
                 <Button
                   variant="outline"
-                  disabled={props.busy}
+                  disabled={props.busy || !note.trim()}
+                  title={note.trim() ? undefined : 'Nhập lý do để từ chối đơn'}
                   className="h-10 w-full gap-1.5 border-rose-300 text-[14px] font-semibold text-rose-600 hover:bg-rose-50"
                 >
                   <X className="size-4" />

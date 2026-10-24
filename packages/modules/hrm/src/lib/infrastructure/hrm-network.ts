@@ -1,3 +1,4 @@
+import { BadRequestException } from '@nestjs/common';
 import { BlockList, isIP } from 'node:net';
 
 function rule(value: unknown) {
@@ -30,4 +31,15 @@ export function matchesIpRules(ip: string, rules: unknown[]) {
     if (parsed) list.addSubnet(parsed.address, parsed.prefix, parsed.family);
   }
   return list.check(ip, family === 4 ? 'ipv4' : 'ipv6');
+}
+
+/** Danh sách IP/CIDR của một địa điểm: bỏ ô trống và trùng, tối đa 50 mục, mỗi mục phải hợp lệ. */
+export function parseSiteIps(value: unknown): string[] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) throw new BadRequestException('Danh sách IP không hợp lệ');
+  const ips = [...new Set(value.map((ip) => (typeof ip === 'string' ? ip.trim() : '')).filter(Boolean))];
+  if (ips.length > 50) throw new BadRequestException('Mỗi địa điểm chỉ khai báo tối đa 50 IP');
+  const bad = ips.find((ip) => !validIpRule(ip));
+  if (bad) throw new BadRequestException(`IP "${bad}" không hợp lệ (dạng 203.0.113.5 hoặc 203.0.113.0/24)`);
+  return ips;
 }

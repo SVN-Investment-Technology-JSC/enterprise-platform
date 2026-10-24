@@ -116,9 +116,53 @@ describe('generateAutoAttendance', () => {
   it('không sinh khi kỳ công đã khóa', async () => {
     for (const opts of [{ locked: true }]) {
       const { db, inserts } = fakeDb(opts);
-      await expect(generateAutoAttendance(db, 't', SAT, SAT, NOW)).resolves.toEqual({ generated: 0 });
+      await expect(generateAutoAttendance(db, 't', SAT, SAT, NOW)).resolves.toEqual({ generated: 0, lockedDays: 1 });
       expect(inserts).toHaveLength(0);
     }
+  });
+
+  describe('bù cho nhân viên theo cấu hình riêng (khoảng đã qua quá 3 ngày của worker)', () => {
+    const PERSONAL: PersonalRule[] = [{ employee_id: E1, weekdays: null, from_date: '2026-10-01', to_date: '2026-10-31' }];
+    const workDaysQuery = (db: { query: jest.Mock }) =>
+      db.query.mock.calls.find(([sql]) => String(sql).includes('FROM hrm_schema.employee_work_days'));
+
+    it('chỉ xét nhân viên được chỉ định và bỏ qua cấu hình chung của đơn vị', async () => {
+      const { db, inserts } = fakeDb({ settings: null, personal: PERSONAL });
+      await expect(
+        generateAutoAttendance(db, 't', '2026-10-01', '2026-10-31', NOW, { employeeIds: [E1], tenantSettings: false }),
+      ).resolves.toEqual({ generated: 1 });
+      expect(inserts).toHaveLength(1);
+      // Khoảng bù kéo dài từ đầu tháng tới hôm nay (không bị giới hạn 3 ngày như worker), chỉ nhân viên này.
+      expect(workDaysQuery(db as never)?.[1]).toEqual(['t', '2026-10-01', '2026-10-10', [E1]]);
+    });
+
+    it('không bù theo cấu hình riêng của người khác khi chỉ định một nhân viên', async () => {
+      const other = '00000000-0000-4000-8000-0000000000e2';
+      const { db, inserts } = fakeDb({
+        settings: null,
+        personal: [{ employee_id: other, weekdays: null, from_date: '2026-10-01', to_date: null }],
+      });
+      await expect(
+        generateAutoAttendance(db, 't', '2026-10-01', '2026-10-31', NOW, { employeeIds: [E1], tenantSettings: false }),
+      ).resolves.toEqual({ generated: 0 });
+      expect(inserts).toHaveLength(0);
+    });
+
+    it('bỏ qua cấu hình chung của đơn vị dù đang bật', async () => {
+      const { db, inserts } = fakeDb({ personal: [] });
+      await expect(
+        generateAutoAttendance(db, 't', SAT, SAT, NOW, { employeeIds: [E1], tenantSettings: false }),
+      ).resolves.toEqual({ generated: 0 });
+      expect(inserts).toHaveLength(0);
+    });
+
+    it('ngày thuộc kỳ công đã khóa không bù và được đếm để báo lại', async () => {
+      const { db, inserts } = fakeDb({ settings: null, personal: PERSONAL, locked: true });
+      await expect(
+        generateAutoAttendance(db, 't', '2026-10-01', '2026-10-31', NOW, { employeeIds: [E1], tenantSettings: false }),
+      ).resolves.toEqual({ generated: 0, lockedDays: 1 });
+      expect(inserts).toHaveLength(0);
+    });
   });
 
   it('chỉ sinh cho ngày làm việc có ca; ngày nghỉ, ngày trong tương lai và tenant chưa migrate thì bỏ qua', async () => {
@@ -185,7 +229,7 @@ describe('generateAutoAttendance', () => {
       const ok = fakeDb({ settings: OFF, personal: [rule({ weekdays: [6] })] });
       await expect(generateAutoAttendance(ok.db, 't', SAT, SAT, NOW)).resolves.toEqual({ generated: 1 });
       const locked = fakeDb({ settings: OFF, personal: [rule()], locked: true });
-      await expect(generateAutoAttendance(locked.db, 't', SAT, SAT, NOW)).resolves.toEqual({ generated: 0 });
+      await expect(generateAutoAttendance(locked.db, 't', SAT, SAT, NOW)).resolves.toEqual({ generated: 0, lockedDays: 1 });
     });
 
     it('nhân viên vừa thuộc cấu hình chung vừa có cấu hình riêng chỉ sinh một lần', async () => {

@@ -144,7 +144,12 @@ export async function generateAutoAttendance(
   from: string,
   to: string,
   now = new Date(),
-): Promise<{ generated: number }> {
+  /**
+   * `employeeIds`: chỉ sinh cho các nhân viên này (bù ngay khi lưu cấu hình riêng, không đụng người khác);
+   * `tenantSettings: false`: bỏ qua cấu hình chung của đơn vị, chỉ theo cấu hình riêng của nhân viên.
+   */
+  options: { employeeIds?: readonly string[]; tenantSettings?: boolean } = {},
+): Promise<{ generated: number; lockedDays?: number }> {
   const today = vnDate(now.getTime());
   const upper = to < today ? to : today;
   if (from > upper) return { generated: 0 };
@@ -152,9 +157,10 @@ export async function generateAutoAttendance(
   const settings = (await autoAttendanceSettingsReady(db, tenant))
     ? await loadAutoAttendanceSettings(db, tenant)
     : { ...EMPTY_AUTO_ATTENDANCE };
-  const tenantOn = settings.enabled && settings.weekdays.length > 0;
+  const tenantOn = options.tenantSettings !== false && settings.enabled && settings.weekdays.length > 0;
+  const only = options.employeeIds ? new Set(options.employeeIds) : null;
   const rules = (await autoAttendanceEmployeesReady(db))
-    ? await loadAutoAttendanceEmployeeRules(db, tenant, from, upper)
+    ? (await loadAutoAttendanceEmployeeRules(db, tenant, from, upper)).filter((rule) => !only || only.has(rule.employeeId))
     : [];
   if (!tenantOn && rules.length === 0) return { generated: 0 };
   const rulesOf = new Map<string, AutoAttendanceEmployeeRule[]>();
@@ -162,7 +168,14 @@ export async function generateAutoAttendance(
   const applies = (employeeId: string, date: string) =>
     (tenantOn && appliesOnDate(settings, date)) ||
     (rulesOf.get(employeeId) ?? []).some((rule) => appliesToEmployeeOnDate(rule, date));
-  const candidates = await candidatesOf(db, tenant, from, upper, applies, tenantOn ? null : [...rulesOf.keys()]);
+  const candidates = await candidatesOf(
+    db,
+    tenant,
+    from,
+    upper,
+    applies,
+    options.employeeIds ? [...options.employeeIds] : tenantOn ? null : [...rulesOf.keys()],
+  );
   if (!candidates.length) return { generated: 0 };
   const locked = await db.query(
     `SELECT to_char(from_date,'YYYY-MM-DD') AS from_date, to_char(to_date,'YYYY-MM-DD') AS to_date FROM hrm_schema.timesheet_periods WHERE tenant_id=$1 AND status='LOCKED' AND to_date>=$2::date AND from_date<=$3::date`,
@@ -171,8 +184,12 @@ export async function generateAutoAttendance(
   const isLocked = (date: string) =>
     locked.rows.some((p) => date >= p.from_date && date <= p.to_date);
   let generated = 0;
+  let lockedDays = 0;
   for (const { employeeId, date } of candidates) {
-    if (isLocked(date)) continue;
+    if (isLocked(date)) {
+      lockedDays++;
+      continue;
+    }
     const policy = await resolvePolicy(db, tenant, 'ATTENDANCE', date, employeeId);
     const timezone = String(policy?.config_json.timezone || 'Asia/Ho_Chi_Minh');
     const { shift } = await dayContextForDate(db, tenant, employeeId, date, timezone);
@@ -206,7 +223,7 @@ export async function generateAutoAttendance(
     await recalculateAttendance(db, tenant, employeeId, date, timezone, AUTO_ATTENDANCE_SOURCE);
     generated++;
   }
-  return { generated };
+  return lockedDays ? { generated, lockedDays } : { generated };
 }
 
 /** Việc nền của worker: bù cho vài ngày gần nhất (ca vừa kết thúc, hoặc worker tạm dừng). */

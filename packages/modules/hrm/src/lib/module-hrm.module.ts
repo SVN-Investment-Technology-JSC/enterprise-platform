@@ -1,11 +1,14 @@
 import { PostgresPoolRegistry } from '@enterprise-platform/adapter-database';
 import { PlatformIdentityModule } from '@enterprise-platform/platform-identity';
 import { Module } from '@nestjs/common';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { HrmAccessGuard } from './infrastructure/hrm-access.guard.js';
+import { HrmInvalidInputInterceptor } from './infrastructure/hrm-invalid-input.interceptor.js';
 import { HrmPayrollSodController } from './presentation/hrm-payroll-sod.controller.js';
 import { HrmApprovalPolicyService } from './infrastructure/hrm-approval-policy.js';
 import { HrmContextService } from './infrastructure/hrm-context.service.js';
+import { HrmRequestProxyService } from './infrastructure/hrm-request-proxy.js';
+import { HrmRequestProxyController } from './presentation/hrm-request-proxy.controller.js';
 import { HrmAttendanceController } from './presentation/hrm-attendance.controller.js';
 import { HrmDashboardController } from './presentation/hrm-dashboard.controller.js';
 import { HrmEmployeeController } from './presentation/hrm-employee.controller.js';
@@ -28,6 +31,7 @@ import { HrmAttendanceMonitorController } from './presentation/hrm-attendance-mo
 import { HrmTimesheetBoardController } from './presentation/hrm-timesheet-board.controller.js';
 import { HrmTimeSettingsController } from './presentation/hrm-time-settings.controller.js';
 import { HrmRequestQuotaSettingsController } from './presentation/hrm-request-quota-settings.controller.js';
+import { HrmRequestTimeRulesSettingsController } from './presentation/hrm-request-time-rules-settings.controller.js';
 import { HrmAutoAttendanceEmployeesController } from './presentation/hrm-auto-attendance-employees.controller.js';
 import { HrmAutoAttendanceSettingsController } from './presentation/hrm-auto-attendance-settings.controller.js';
 import { HrmTimesheetStandardController } from './presentation/hrm-timesheet-standard.controller.js';
@@ -61,6 +65,7 @@ import { OrgHrmBridgeConsumer } from './infrastructure/org-hrm-bridge.consumer.j
     HrmOperationsController,
     HrmApprovalPolicySettingsController,
     HrmApprovalScopeController,
+    HrmRequestProxyController,
     HrmRequestCommentController,
     HrmApprovalRouteController,
     HrmAttachmentController,
@@ -70,6 +75,7 @@ import { OrgHrmBridgeConsumer } from './infrastructure/org-hrm-bridge.consumer.j
     HrmAutoAttendanceSettingsController,
     HrmAutoAttendanceEmployeesController,
     HrmRequestQuotaSettingsController,
+    HrmRequestTimeRulesSettingsController,
     HrmPayrollSettingsController,
     HrmProfileCorrectionController,
     HrmEmployeeController,
@@ -97,7 +103,9 @@ import { OrgHrmBridgeConsumer } from './infrastructure/org-hrm-bridge.consumer.j
     PostgresPoolRegistry,
     HrmContextService,
     HrmApprovalPolicyService,
+    HrmRequestProxyService,
     { provide: APP_GUARD, useClass: HrmAccessGuard },
+    { provide: APP_INTERCEPTOR, useClass: HrmInvalidInputInterceptor },
     HrmProcedureBridgeService,
     OrgHrmBridgeConsumer,
   ],

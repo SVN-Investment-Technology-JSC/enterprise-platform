@@ -90,6 +90,9 @@ integration('Chuỗi phân ca - chấm công - đơn từ - bảng công - bản
   const ctx = (who: { userId: string; permissions: string[] } = principal, employeeId = empA) =>
     ({
       has: () => true,
+      getProxyRequestContext: async function (this: any, req: any, requested?: string) {
+        return { ...(await this.getRequestContext(req, requested)), onBehalf: undefined };
+      },
       getRequestContext: async (_req: Request, requested?: string) => ({
         pool,
         tenantId,

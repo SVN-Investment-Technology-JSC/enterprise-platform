@@ -293,6 +293,19 @@
   min-height: 560px;
 }
 
+// Nhúng trong drawer: chỉ có khung chi tiết, cao theo khung chứa chứ không theo màn hình.
+.embedded {
+  height: 100%;
+  min-height: 0;
+
+  .split {
+    grid-template-columns: minmax(0, 1fr);
+    height: 100%;
+    min-height: 0;
+    flex: 1;
+  }
+}
+
 // Dạng bảng cần chỗ cho sáu cột.
 .splitTable {
   grid-template-columns: minmax(0, 1.6fr) minmax(400px, 1fr);

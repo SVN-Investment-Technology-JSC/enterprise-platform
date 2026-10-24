@@ -34,8 +34,8 @@ export const APPROVAL_SOURCES: readonly ApprovalSource[] = [
     typeKey: 'leave',
     label: 'Nghỉ phép',
     path: 'leave-requests',
-    permission: 'hrm.leave.approve',
-    permissionAll: 'hrm.leave.approve.all',
+    permission: 'hrm.request.approve',
+    permissionAll: 'hrm.request.approve.all',
     readPermissions: ['hrm.request.read', 'hrm.request.manage'],
   },
   {
@@ -43,8 +43,8 @@ export const APPROVAL_SOURCES: readonly ApprovalSource[] = [
     typeKey: 'ot',
     label: 'Tăng ca',
     path: 'ot-requests',
-    permission: 'hrm.ot.approve',
-    permissionAll: 'hrm.ot.approve.all',
+    permission: 'hrm.request.approve',
+    permissionAll: 'hrm.request.approve.all',
     readPermissions: ['hrm.request.read', 'hrm.request.manage'],
   },
   {
@@ -52,8 +52,8 @@ export const APPROVAL_SOURCES: readonly ApprovalSource[] = [
     typeKey: 'business_trip',
     label: 'Công tác',
     path: 'business-trip-requests',
-    permission: 'hrm.trip.approve',
-    permissionAll: 'hrm.trip.approve.all',
+    permission: 'hrm.request.approve',
+    permissionAll: 'hrm.request.approve.all',
     readPermissions: ['hrm.request.read', 'hrm.request.manage'],
   },
   {
@@ -61,8 +61,8 @@ export const APPROVAL_SOURCES: readonly ApprovalSource[] = [
     typeKey: 'shift_change',
     label: 'Đổi ca',
     path: 'shift-change-requests',
-    permission: 'hrm.shift.approve',
-    permissionAll: 'hrm.shift.approve.all',
+    permission: 'hrm.request.approve',
+    permissionAll: 'hrm.request.approve.all',
     readPermissions: ['hrm.request.read', 'hrm.request.manage'],
   },
   {
@@ -70,8 +70,8 @@ export const APPROVAL_SOURCES: readonly ApprovalSource[] = [
     typeKey: 'correction',
     label: 'Giải trình công',
     path: 'attendance-corrections',
-    permission: 'hrm.attendance.approve',
-    permissionAll: 'hrm.attendance.approve.all',
+    permission: 'hrm.request.approve',
+    permissionAll: 'hrm.request.approve.all',
     readPermissions: ['hrm.request.read', 'hrm.request.manage'],
   },
   {
@@ -79,8 +79,8 @@ export const APPROVAL_SOURCES: readonly ApprovalSource[] = [
     typeKey: 'profile_correction',
     label: 'Sửa hồ sơ',
     path: 'profile-corrections',
-    permission: 'hrm.profile.approve',
-    permissionAll: 'hrm.profile.approve.all',
+    permission: 'hrm.request.approve',
+    permissionAll: 'hrm.request.approve.all',
     readPermissions: ['hrm.request.read', 'hrm.request.manage'],
   },
   {
@@ -88,8 +88,8 @@ export const APPROVAL_SOURCES: readonly ApprovalSource[] = [
     typeKey: 'advance',
     label: 'Tạm ứng',
     path: 'salary-advance-requests',
-    permission: 'hrm.advance.approve',
-    permissionAll: 'hrm.advance.approve.all',
+    permission: 'hrm.request.approve',
+    permissionAll: 'hrm.request.approve.all',
     // Danh sách tạm ứng đọc bằng hrm.advance.read ở phía máy chủ.
     readPermissions: ['hrm.advance.read'],
   },
@@ -99,11 +99,24 @@ export const APPROVAL_SOURCES: readonly ApprovalSource[] = [
     typeKey: 'custom',
     label: 'Đơn tuỳ chỉnh',
     path: 'custom-requests',
-    permission: 'hrm.custom.approve',
-    permissionAll: 'hrm.custom.approve.all',
+    permission: 'hrm.request.approve',
+    permissionAll: 'hrm.request.approve.all',
     readPermissions: ['hrm.request.read', 'hrm.request.manage'],
   },
 ];
+
+/**
+ * Loại đơn không dùng: ẩn khỏi giao diện (tạo đơn, bộ lọc, danh sách, duyệt, cấu hình duyệt).
+ * Dữ liệu và API cũ giữ nguyên; muốn dùng lại chỉ cần bỏ khỏi danh sách này.
+ */
+export const HIDDEN_REQUEST_KINDS: readonly string[] = [
+  'shift_change',
+  'advance',
+  'profile_correction',
+];
+
+export const isHiddenRequestKind = (kind: string | null | undefined): boolean =>
+  HIDDEN_REQUEST_KINDS.includes(kind ?? '');
 
 /** Trạng thái được tính là "đang chờ xử lý". */
 export const PENDING_STATUSES: readonly string[] = ['PENDING', 'PEER_CONFIRMED'];
@@ -129,9 +142,10 @@ export function approvalSourcesFor(
   const has = new Set(actions);
   return APPROVAL_SOURCES.filter(
     (s) =>
-      has.has(s.permission) ||
-      has.has(s.permissionAll) ||
-      s.readPermissions.some((p) => has.has(p)),
+      !isHiddenRequestKind(s.typeKey) &&
+      (has.has(s.permission) ||
+        has.has(s.permissionAll) ||
+        s.readPermissions.some((p) => has.has(p))),
   );
 }
 

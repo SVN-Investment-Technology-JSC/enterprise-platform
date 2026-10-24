@@ -12,7 +12,12 @@ import {
 import type { PoolClient } from 'pg';
 import { fetchActionableProcedureInstanceIds, fetchParticipatingProcedureInstanceIds } from './hrm-procedure-api.js';
 import { HRM_REQUEST_TABLES } from './hrm-procedure-links.js';
-import { chiefFallbackUserIds } from './hrm-chief-fallback.js';
+import { fallbackMayAct, loadRequestTimeRule } from './hrm-request-time-rules.js';
+import {
+  chiefFallbackUserIds,
+  loadOrgFacts,
+  managerUserIdsOf,
+} from './hrm-chief-fallback.js';
 
 /**
  * FIX-E-07 - Chính sách duyệt đơn ở chế độ DIRECT (ISS-BE-001).
@@ -21,13 +26,15 @@ import { chiefFallbackUserIds } from './hrm-chief-fallback.js';
  *  1. Không tự duyệt đơn của chính mình (403 SELF_APPROVAL_FORBIDDEN), trừ khi tenant bật ngoại lệ
  *     (hrm_schema.approval_policy_settings.allow_self_approval, mặc định tắt).
  *     Người nộp rút đơn của mình (cancel) là thao tác của chủ đơn, không phải duyệt: được phép.
- *  2. Chỉ duyệt đơn của nhân viên thuộc phạm vi: cấp dưới theo chuỗi "Báo cáo cho" của chức danh hoặc
- *     thuộc cây đơn vị mà mình là trưởng (dữ liệu lấy qua API nội bộ của Platform, không đọc DB module khác).
- *     Đơn ở chế độ DIRECT có thể được duyệt bởi Quản lý trực tiếp HOẶC người giữ chức danh dự phòng (hoặc 1 trong 2,
- *     ai duyệt trước cũng được). Cả hai đều thấy đơn trong danh sách chờ duyệt và đều có thẩm quyền phê duyệt.
+ *  2. Chỉ duyệt đơn của nhân viên thuộc phạm vi: cấp dưới theo chuỗi "Báo cáo cho" của chức danh
+ *     (dữ liệu lấy qua API nội bộ của Platform, không đọc DB module khác).
+ *     Đơn ở chế độ DIRECT có hai nguồn người duyệt:
+ *      - DIRECT_MANAGER (mặc định): Quản lý trực tiếp (và cấp trên theo sơ đồ tổ chức) HOẶC người giữ chức danh dự phòng.
+ *      - POSITION: CHỈ người giữ chức danh được chỉ định (hoặc người giữ chức danh dự phòng) được duyệt;
+ *        quản lý trực tiếp và cấp trên theo sơ đồ tổ chức KHÔNG có thẩm quyền duyệt.
  *     Nếu nhân viên chưa có quản lý trực tiếp, người giữ chức danh dự phòng (nếu có cấu hình)
- *     hoặc người có quyền duyệt toàn bộ (hrm.<x>.approve.all, hrm.manage, tenant.manage) xử lý.
- *  3. Quyền hrm.<x>.approve.all, hrm.manage hoặc tenant.manage duyệt toàn tenant (vẫn bị quy tắc 1).
+ *     hoặc người có quyền duyệt toàn bộ (hrm.request.approve.all, hrm.manage, tenant.manage) xử lý.
+ *  3. Quyền hrm.request.approve.all, hrm.manage hoặc tenant.manage duyệt toàn tenant (vẫn bị quy tắc 1).
  *  4. Đơn đã có liên kết Procedure Engine: 409 PROCEDURE_IN_PROGRESS (trigger DB vẫn là lớp bảo vệ cuối).
  * Ở chế độ PE, người duyệt do PE quyết định; các callback của PE không đi qua chính sách này.
  */
@@ -40,26 +47,26 @@ export const PROCEDURE_IN_PROGRESS = 'PROCEDURE_IN_PROGRESS';
 export const HRM_ORG_SCOPE = 'HRM_ORG_SCOPE';
 export const ORG_CONTEXT_UNAVAILABLE = 'ORG_CONTEXT_UNAVAILABLE';
 
+/** Một quyền duyệt chung cho mọi loại đơn: `approve` (trong phạm vi) và `all` (toàn tenant). */
+const APPROVE_KEYS: { approve: HrmAction; all: HrmAction } = {
+  approve: 'hrm.request.approve',
+  all: 'hrm.request.approve.all',
+};
+
 export const HRM_APPROVE_PERMISSIONS: Readonly<
   Record<HrmRequestKind, { approve: HrmAction; all: HrmAction }>
 > = {
-  leave: { approve: 'hrm.leave.approve', all: 'hrm.leave.approve.all' },
-  ot: { approve: 'hrm.ot.approve', all: 'hrm.ot.approve.all' },
-  business_trip: { approve: 'hrm.trip.approve', all: 'hrm.trip.approve.all' },
-  shift_change: { approve: 'hrm.shift.approve', all: 'hrm.shift.approve.all' },
-  correction: {
-    approve: 'hrm.attendance.approve',
-    all: 'hrm.attendance.approve.all',
-  },
-  advance: { approve: 'hrm.advance.approve', all: 'hrm.advance.approve.all' },
-  profile_correction: {
-    approve: 'hrm.profile.approve',
-    all: 'hrm.profile.approve.all',
-  },
-  custom: { approve: 'hrm.custom.approve', all: 'hrm.custom.approve.all' },
+  leave: APPROVE_KEYS,
+  ot: APPROVE_KEYS,
+  business_trip: APPROVE_KEYS,
+  shift_change: APPROVE_KEYS,
+  correction: APPROVE_KEYS,
+  advance: APPROVE_KEYS,
+  profile_correction: APPROVE_KEYS,
+  custom: APPROVE_KEYS,
 };
 
-/** Các quyền cho phép xử lý một loại đơn (duyệt trong phạm vi hoặc duyệt toàn tenant). */
+/** Các quyền cho phép xử lý đơn (duyệt trong phạm vi hoặc duyệt toàn tenant); dùng chung mọi loại đơn. */
 export function approverPermissions(kind: HrmRequestKind): HrmAction[] {
   return [HRM_APPROVE_PERMISSIONS[kind].approve, HRM_APPROVE_PERMISSIONS[kind].all];
 }
@@ -77,6 +84,8 @@ export interface HrmOrgScopePort {
     tenantId: string,
     actorUserId: string,
   ): Promise<ReadonlySet<string>>;
+  /** Sơ đồ tổ chức (đơn vị, chức danh, thành viên); dùng cho phạm vi tạo đơn hộ theo đơn vị. */
+  orgSnapshot?(tenantId: string): Promise<OrgSnapshotLike>;
 }
 
 export interface HrmApprovalDeps {
@@ -106,15 +115,6 @@ export function hasApprovePermission(
   return (
     hasApproveAll(actor, kind) ||
     (actor.permissions ?? []).includes(HRM_APPROVE_PERMISSIONS[kind].approve)
-  );
-}
-
-/** Loại đơn ứng với bộ quyền duyệt mà `approverPermissions(kind)` trả về. */
-export function approvalKindOfPermissions(
-  permissions: readonly string[],
-): HrmRequestKind | undefined {
-  return (Object.keys(HRM_APPROVE_PERMISSIONS) as HrmRequestKind[]).find(
-    (kind) => permissions[0] === HRM_APPROVE_PERMISSIONS[kind].approve,
   );
 }
 
@@ -173,27 +173,37 @@ export async function assertCanDecide(
         message: 'Không được tự duyệt đơn của chính mình.',
       });
   } else if (!hasApproveAll(actor, kind)) {
-    const subordinates = row.user_id
-      ? await deps.orgScope.subordinateUserIds(deps.tenantId, actor.userId)
-      : new Set<string>();
-    let inScope =
-      !!row.user_id &&
-      (subordinates.has(row.user_id) ||
-        (await chiefFallbackUserIds(deps.db, deps.tenantId, actor.userId)).has(row.user_id));
-    if (!inScope && row.user_id) {
-      const fallbackPositionId = await resolveDirectFallbackPosition(
+    const binding = await resolveDirectBinding(deps.db, deps.tenantId, kind, request.id);
+    let inScope = false;
+    if (binding?.source === 'POSITION') {
+      // Khi cấu hình nguồn duyệt trực tiếp là POSITION: CHỈ người giữ chức danh được chỉ định (hoặc chức danh dự phòng)
+      // được duyệt. Quản lý trực tiếp và cấp trên theo sơ đồ tổ chức KHÔNG được duyệt.
+      inScope = await isDesignatedDirectApprover(
         deps.db,
         deps.tenantId,
         kind,
         request.id,
+        row.employee_id,
+        actor.userId,
       );
-      if (fallbackPositionId) {
-        inScope = await actorHoldsPosition(
+    } else {
+      const subordinates = row.user_id
+        ? await deps.orgScope.subordinateUserIds(deps.tenantId, actor.userId)
+        : new Set<string>();
+      inScope =
+        !!row.user_id &&
+        (subordinates.has(row.user_id) ||
+          (await chiefFallbackUserIds(deps.db, deps.tenantId, actor.userId)).has(row.user_id));
+      // Người duyệt được cấu hình của đơn DIRECT (quản lý trực tiếp, chức danh chỉ định, chức danh dự phòng).
+      if (!inScope)
+        inScope = await isDesignatedDirectApprover(
           deps.db,
+          deps.tenantId,
+          kind,
+          request.id,
+          row.employee_id,
           actor.userId,
-          fallbackPositionId,
         );
-      }
     }
     if (!inScope)
       throw new ForbiddenException({
@@ -249,6 +259,42 @@ export async function assertNotSelfDecision(
   });
 }
 
+export const PROXY_CREATOR_DECISION_FORBIDDEN = 'HRM_PROXY_CREATOR_DECISION_FORBIDDEN';
+
+/**
+ * Người tạo hộ không được duyệt, từ chối hay huỷ hiệu lực đơn do chính mình tạo hộ (nghỉ phép, tăng ca, công tác),
+ * kể cả khi tenant cho phép tự duyệt. Rút đơn (cancel) không bị chặn.
+ */
+export async function assertNotProxyCreatorDecision(
+  actor: HrmApprovalActor,
+  requestId: string,
+  kind: HrmRequestKind,
+  action: string,
+  deps: Pick<HrmApprovalDeps, 'db' | 'tenantId'>,
+): Promise<void> {
+  if (kind !== 'leave' && kind !== 'ot' && kind !== 'business_trip') return;
+  if (action.trim().toUpperCase() === 'CANCEL') return;
+  // Cơ sở dữ liệu chưa chạy migration tạo hộ (0069) thì chưa có đơn nào tạo hộ để chặn.
+  const ready = await deps.db.query(
+    `SELECT EXISTS (
+       SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'hrm_schema' AND table_name = $1 AND column_name = 'created_on_behalf'
+     ) AS ready`,
+    [HRM_REQUEST_TABLES[kind]],
+  );
+  if (ready.rows[0]?.ready !== true) return;
+  const found = await deps.db.query(
+    `SELECT submitted_by, created_on_behalf FROM hrm_schema.${HRM_REQUEST_TABLES[kind]} WHERE tenant_id = $1 AND id = $2`,
+    [deps.tenantId, requestId],
+  );
+  const row = found.rows[0] as { submitted_by: string | null; created_on_behalf: boolean } | undefined;
+  if (row?.created_on_behalf && row.submitted_by === actor.userId)
+    throw new ForbiddenException({
+      code: PROXY_CREATOR_DECISION_FORBIDDEN,
+      message: 'Không được duyệt đơn do chính bạn tạo hộ nhân viên.',
+    });
+}
+
 /**
  * Phạm vi để lọc danh sách đơn chờ duyệt ở SQL.
  * `all`: không giới hạn nhân viên; ngược lại chỉ các `userIds` (cấp dưới), luôn loại chính người duyệt
@@ -263,6 +309,11 @@ export interface HrmApprovalScope {
    * Hiện thêm vào danh sách duyệt dù nhân viên nộp đơn không thuộc cấp dưới của người này.
    */
   requestIds?: string[];
+  /**
+   * Mã các đơn duyệt trực tiếp theo nguồn POSITION mà người dùng này KHÔNG giữ chức danh chỉ định (hoặc dự phòng).
+   * Cần loại trừ khỏi phạm vi cấp dưới (userIds) để cấp trên không thấy đơn chờ duyệt của các đơn này.
+   */
+  excludeRequestIds?: string[];
 }
 
 /** Số đơn PE đang chạy tối đa hỏi PE mỗi lần dựng danh sách (chia lô 100). */
@@ -359,17 +410,68 @@ export async function actorHoldsPosition(
   return (res.rowCount ?? 0) > 0;
 }
 
+/** Cấu hình duyệt trực tiếp áp dụng cho một đơn (hoặc một lý do). */
+export interface DirectBinding {
+  /** DIRECT_MANAGER: quản lý trực tiếp; POSITION: người giữ `approverPositionId`. */
+  source: 'DIRECT_MANAGER' | 'POSITION';
+  approverPositionId: string | null;
+  fallbackPositionId: string | null;
+}
+
+interface BindingRow {
+  sub_type_code: string | null;
+  mode: string;
+  fallback_position_id: string | null;
+  direct_approver_source: string | null;
+  approver_position_id: string | null;
+}
+
+/** Chưa có cấu hình nào thì đơn đi DIRECT, người duyệt là quản lý trực tiếp, không có dự phòng. */
+const DEFAULT_DIRECT_BINDING: DirectBinding = {
+  source: 'DIRECT_MANAGER',
+  approverPositionId: null,
+  fallbackPositionId: null,
+};
+
 /**
- * Tìm fallback_position_id được cấu hình cho một đơn cụ thể ở chế độ DIRECT (nếu có).
+ * Cấu hình áp dụng cho mã lý do `subTypeCode`: cấu hình riêng theo mã nếu có, không thì cấu hình chung của loại đơn.
+ * Trả null khi cấu hình đó là PROCEDURE (đơn không duyệt trực tiếp); không có cấu hình nào thì là DIRECT mặc định.
  */
-export async function resolveDirectFallbackPosition(
+export function directBindingOf(
+  rows: readonly BindingRow[],
+  subTypeCode: string | null,
+): DirectBinding | null {
+  const specific = subTypeCode ? rows.find((b) => b.sub_type_code === subTypeCode) : undefined;
+  const effective = specific ?? rows.find((b) => b.sub_type_code === null);
+  if (!effective) return DEFAULT_DIRECT_BINDING;
+  if (effective.mode !== 'DIRECT') return null;
+  const position = effective.direct_approver_source === 'POSITION' ? effective.approver_position_id : null;
+  return {
+    source: position ? 'POSITION' : 'DIRECT_MANAGER',
+    approverPositionId: position,
+    fallbackPositionId: effective.fallback_position_id,
+  };
+}
+
+async function loadBindingRows(db: Queryable, tenantId: string, kind: HrmRequestKind): Promise<BindingRow[]> {
+  return (
+    await db.query(
+      `SELECT sub_type_code, mode, fallback_position_id, direct_approver_source, approver_position_id
+         FROM hrm_schema.request_procedure_bindings
+        WHERE tenant_id = $1 AND request_kind = $2 AND is_active`,
+      [tenantId, kind],
+    )
+  ).rows as BindingRow[];
+}
+
+/** Mã lý do (sub_type_code của cấu hình) của một đơn: loại nghỉ, loại đơn tuỳ chỉnh hoặc lý do danh mục. */
+async function requestSubTypeCode(
   db: Queryable,
   tenantId: string,
   kind: HrmRequestKind,
   requestId: string,
 ): Promise<string | null> {
   const table = HRM_REQUEST_TABLES[kind];
-  let subTypeCode: string | null = null;
   if (kind === 'leave') {
     const row = (
       await db.query(
@@ -380,20 +482,18 @@ export async function resolveDirectFallbackPosition(
         [tenantId, requestId],
       )
     ).rows[0];
-    subTypeCode = row?.code ?? null;
-  } else if (kind === 'custom') {
+    return row?.code ?? null;
+  }
+  if (kind === 'custom') {
     const row = (
-      await db.query(
-        `SELECT type_code FROM hrm_schema.custom_requests WHERE tenant_id = $1 AND id = $2`,
-        [tenantId, requestId],
-      )
+      await db.query(`SELECT type_code FROM hrm_schema.custom_requests WHERE tenant_id = $1 AND id = $2`, [
+        tenantId,
+        requestId,
+      ])
     ).rows[0];
-    subTypeCode = row?.type_code ?? null;
-  } else if (
-    ['ot', 'business_trip', 'correction', 'shift_change'].includes(
-      kind,
-    )
-  ) {
+    return row?.type_code ?? null;
+  }
+  if (['ot', 'business_trip', 'correction', 'shift_change'].includes(kind)) {
     const row = (
       await db.query(
         `SELECT rr.code
@@ -403,51 +503,46 @@ export async function resolveDirectFallbackPosition(
         [tenantId, requestId],
       )
     ).rows[0];
-    subTypeCode = row?.code ?? null;
-  }
-
-  const colCheck = await db.query(
-    `SELECT 1 FROM information_schema.columns
-      WHERE table_schema = 'hrm_schema' AND table_name = 'request_procedure_bindings' AND column_name = 'fallback_position_id'`,
-  );
-  if (!colCheck.rows?.length) return null;
-
-  const bindings = (
-    await db.query(
-      `SELECT sub_type_code, mode, fallback_position_id
-         FROM hrm_schema.request_procedure_bindings
-        WHERE tenant_id = $1 AND request_kind = $2 AND is_active AND (sub_type_code IS NULL OR sub_type_code = $3)`,
-      [tenantId, kind, subTypeCode],
-    )
-  ).rows as {
-    sub_type_code: string | null;
-    mode: string;
-    fallback_position_id: string | null;
-  }[];
-
-  const specific = bindings.find((b) => b.sub_type_code === subTypeCode);
-  const general = bindings.find((b) => b.sub_type_code === null);
-  const effective = specific ?? general;
-  if (
-    effective &&
-    effective.mode === 'DIRECT' &&
-    effective.fallback_position_id
-  ) {
-    return effective.fallback_position_id;
+    return row?.code ?? null;
   }
   return null;
 }
 
-/**
- * Mã các đơn loại `kind` đang chờ duyệt trực tiếp mà `userId` giữ chức danh duyệt dự phòng được cấu hình.
- */
-export async function directFallbackActionableRequestIds(
+/** Cấu hình duyệt trực tiếp của một đơn cụ thể; null nếu đơn đi theo quy trình (PROCEDURE). */
+export async function resolveDirectBinding(
   db: Queryable,
   tenantId: string,
   kind: HrmRequestKind,
-  userId: string,
-): Promise<string[]> {
-  const posRes = await db.query(
+  requestId: string,
+): Promise<DirectBinding | null> {
+  const subTypeCode = await requestSubTypeCode(db, tenantId, kind, requestId);
+  return directBindingOf(await loadBindingRows(db, tenantId, kind), subTypeCode);
+}
+
+/** Người giữ chức danh dự phòng đã được xử lý đơn này chưa (xem `fallbackMayAct`). */
+async function fallbackOpen(db: Queryable, tenantId: string, kind: HrmRequestKind, requestId: string): Promise<boolean> {
+  const rule = await loadRequestTimeRule(db, tenantId, kind);
+  if (rule.escalateAfterDays === null) return true;
+  const created = await db.query(
+    `SELECT created_at FROM hrm_schema.${HRM_REQUEST_TABLES[kind]} WHERE tenant_id = $1 AND id = $2`,
+    [tenantId, requestId],
+  );
+  return fallbackMayAct(rule, created.rows[0]?.created_at);
+}
+
+/** Chức danh duyệt dự phòng được cấu hình cho một đơn DIRECT (nếu có). */
+export async function resolveDirectFallbackPosition(
+  db: Queryable,
+  tenantId: string,
+  kind: HrmRequestKind,
+  requestId: string,
+): Promise<string | null> {
+  return (await resolveDirectBinding(db, tenantId, kind, requestId))?.fallbackPositionId ?? null;
+}
+
+/** Chức danh người dùng đang giữ (theo bổ nhiệm hiện tại). */
+async function heldPositionIds(db: Queryable, userId: string): Promise<string[]> {
+  const res = await db.query(
     `SELECT a.node_id
        FROM core_schema.organization_node_assignments a
       WHERE a.user_id = $1
@@ -457,104 +552,132 @@ export async function directFallbackActionableRequestIds(
         AND (a.end_date IS NULL OR a.end_date >= (now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date)`,
     [userId],
   );
-  if (!posRes.rows.length) return [];
-  const positionIds = posRes.rows.map((r: { node_id: string }) => r.node_id);
+  return res.rows.map((r: { node_id: string }) => r.node_id);
+}
 
-  const bindingsRes = await db.query(
-    `SELECT sub_type_code, mode, fallback_position_id
-       FROM hrm_schema.request_procedure_bindings
-      WHERE tenant_id = $1 AND request_kind = $2 AND is_active`,
-    [tenantId, kind],
-  );
-  if (!bindingsRes.rows.length) return [];
-
-  const matchingBindings = bindingsRes.rows.filter(
-    (b: { mode: string; fallback_position_id: string | null }) =>
-      b.mode === 'DIRECT' &&
-      b.fallback_position_id &&
-      positionIds.includes(b.fallback_position_id),
-  );
-  if (!matchingBindings.length) return [];
-
-  const hasGeneralMatch = matchingBindings.some(
-    (b: { sub_type_code: string | null }) => b.sub_type_code === null,
-  );
-  const specificMatchCodes = new Set(
-    matchingBindings
-      .map((b: { sub_type_code: string | null }) => b.sub_type_code)
-      .filter((c): c is string => c !== null),
-  );
-  const specificOverridingCodes = new Set(
-    bindingsRes.rows
-      .filter((b: { sub_type_code: string | null }) => b.sub_type_code !== null)
-      .map((b: { sub_type_code: string | null }) => b.sub_type_code as string),
-  );
-
-  const table = HRM_REQUEST_TABLES[kind];
-  let queryText = '';
-  if (kind === 'leave') {
-    queryText = `SELECT r.id, lt.code AS sub_type_code
-                   FROM hrm_schema.leave_requests r
-                   LEFT JOIN hrm_schema.leave_types lt ON lt.tenant_id = r.tenant_id AND lt.id = r.leave_type_id
-                  WHERE r.tenant_id = $1 AND r.status IN ('PENDING', 'PEER_CONFIRMED')
-                    AND NOT EXISTS (
-                      SELECT 1 FROM hrm_schema.procedure_links pl
-                       WHERE pl.tenant_id = r.tenant_id AND pl.request_kind = $2 AND pl.request_id = r.id AND pl.sync_status = 'RUNNING'
-                    )
-                  LIMIT 500`;
-  } else if (kind === 'custom') {
-    queryText = `SELECT r.id, r.type_code AS sub_type_code
-                   FROM hrm_schema.custom_requests r
-                  WHERE r.tenant_id = $1 AND r.status IN ('PENDING', 'PEER_CONFIRMED')
-                    AND NOT EXISTS (
-                      SELECT 1 FROM hrm_schema.procedure_links pl
-                       WHERE pl.tenant_id = r.tenant_id AND pl.request_kind = $2 AND pl.request_id = r.id AND pl.sync_status = 'RUNNING'
-                    )
-                  LIMIT 500`;
-  } else if (
-    ['ot', 'business_trip', 'correction', 'shift_change'].includes(
-      kind,
-    )
-  ) {
-    queryText = `SELECT r.id, rr.code AS sub_type_code
-                   FROM hrm_schema.${table} r
-                   LEFT JOIN hrm_schema.request_reasons rr ON rr.tenant_id = r.tenant_id AND rr.id = r.reason_id
-                  WHERE r.tenant_id = $1 AND r.status IN ('PENDING', 'PEER_CONFIRMED')
-                    AND NOT EXISTS (
-                      SELECT 1 FROM hrm_schema.procedure_links pl
-                       WHERE pl.tenant_id = r.tenant_id AND pl.request_kind = $2 AND pl.request_id = r.id AND pl.sync_status = 'RUNNING'
-                    )
-                  LIMIT 500`;
-  } else {
-    if (!hasGeneralMatch) return [];
-    queryText = `SELECT r.id, NULL::text AS sub_type_code
-                   FROM hrm_schema.${table} r
-                  WHERE r.tenant_id = $1 AND r.status IN ('PENDING', 'PEER_CONFIRMED')
-                    AND NOT EXISTS (
-                      SELECT 1 FROM hrm_schema.procedure_links pl
-                       WHERE pl.tenant_id = r.tenant_id AND pl.request_kind = $2 AND pl.request_id = r.id AND pl.sync_status = 'RUNNING'
-                    )
-                  LIMIT 500`;
+/**
+ * Người này là người duyệt được cấu hình của đơn DIRECT: quản lý trực tiếp của người làm đơn (nguồn DIRECT_MANAGER),
+ * người giữ chức danh được chỉ định (nguồn POSITION), hoặc người giữ chức danh dự phòng. Không đòi quyền duyệt của HRM.
+ */
+export async function isDesignatedDirectApprover(
+  db: Queryable,
+  tenantId: string,
+  kind: HrmRequestKind,
+  requestId: string,
+  employeeId: string,
+  userId: string,
+): Promise<boolean> {
+  const binding = await resolveDirectBinding(db, tenantId, kind, requestId);
+  if (!binding) return false;
+  if (binding.source === 'DIRECT_MANAGER') {
+    const facts = await loadOrgFacts(db, tenantId);
+    if (managerUserIdsOf(facts, employeeId).includes(userId)) return true;
   }
+  const positions = [binding.source === 'POSITION' ? binding.approverPositionId : null];
+  // Người dự phòng chỉ được xử lý khi đơn chờ đủ số ngày chuyển dự phòng (nếu tenant có đặt).
+  if (await fallbackOpen(db, tenantId, kind, requestId)) positions.push(binding.fallbackPositionId);
+  for (const positionId of positions)
+    if (positionId && (await actorHoldsPosition(db, userId, positionId))) return true;
+  return false;
+}
 
-  const candidates = await db.query(queryText, [tenantId, kind]);
-  const matchedRequestIds: string[] = [];
-  for (const row of candidates.rows as {
-    id: string;
-    sub_type_code: string | null;
-  }[]) {
-    const code = row.sub_type_code;
-    if (code && specificMatchCodes.has(code)) {
-      matchedRequestIds.push(row.id);
-    } else if (
-      (!code || !specificOverridingCodes.has(code)) &&
-      hasGeneralMatch
-    ) {
-      matchedRequestIds.push(row.id);
+/**
+ * Mã các đơn loại `kind` đang chờ duyệt trực tiếp mà `userId` là người duyệt được cấu hình: quản lý trực tiếp của
+ * người làm đơn, người giữ chức danh được chỉ định, hoặc người giữ chức danh duyệt dự phòng.
+ * Đồng thời trả về `positionExcluded`: các đơn có nguồn POSITION mà `userId` KHÔNG giữ chức danh chỉ định/dự phòng
+ * (cần loại trừ khỏi phạm vi cấp dưới để cấp trên không thấy đơn chờ duyệt).
+ */
+export async function directApproverScopes(
+  db: Queryable,
+  tenantId: string,
+  kind: HrmRequestKind,
+  userId: string,
+): Promise<{ assigned: string[]; positionExcluded: string[] }> {
+  const positionIds = await heldPositionIds(db, userId);
+  const rows = await loadBindingRows(db, tenantId, kind);
+  const table = HRM_REQUEST_TABLES[kind];
+  let candidateSql: string;
+  if (kind === 'leave') {
+    candidateSql = `SELECT r.id, r.employee_id, r.created_at, lt.code AS sub_type_code
+                      FROM hrm_schema.leave_requests r
+                      LEFT JOIN hrm_schema.leave_types lt ON lt.tenant_id = r.tenant_id AND lt.id = r.leave_type_id`;
+  } else if (kind === 'custom') {
+    candidateSql = `SELECT r.id, r.employee_id, r.created_at, r.type_code AS sub_type_code FROM hrm_schema.custom_requests r`;
+  } else if (['ot', 'business_trip', 'correction', 'shift_change'].includes(kind)) {
+    candidateSql = `SELECT r.id, r.employee_id, r.created_at, rr.code AS sub_type_code
+                      FROM hrm_schema.${table} r
+                      LEFT JOIN hrm_schema.request_reasons rr ON rr.tenant_id = r.tenant_id AND rr.id = r.reason_id`;
+  } else {
+    candidateSql = `SELECT r.id, r.employee_id, r.created_at, NULL::text AS sub_type_code FROM hrm_schema.${table} r`;
+  }
+  const candidates = (
+    await db.query(
+      `${candidateSql}
+        WHERE r.tenant_id = $1 AND r.status IN ('PENDING', 'PEER_CONFIRMED')
+          AND NOT EXISTS (
+            SELECT 1 FROM hrm_schema.procedure_links pl
+             WHERE pl.tenant_id = r.tenant_id AND pl.request_kind = $2 AND pl.request_id = r.id AND pl.sync_status = 'RUNNING'
+          )
+        LIMIT 500`,
+      [tenantId, kind],
+    )
+  ).rows as { id: string; employee_id: string; created_at: Date | string | null; sub_type_code: string | null }[];
+  if (!candidates.length) return { assigned: [], positionExcluded: [] };
+  const timeRule = await loadRequestTimeRule(db, tenantId, kind);
+
+  let managed: ReadonlySet<string> | null = null;
+  const managedEmployees = async (): Promise<ReadonlySet<string>> => {
+    if (managed) return managed;
+    const facts = await loadOrgFacts(db, tenantId);
+    managed = new Set(
+      facts.employees
+        .filter((e) => !e.inactive && managerUserIdsOf(facts, e.employeeId).includes(userId))
+        .map((e) => e.employeeId),
+    );
+    return managed;
+  };
+  const assigned: string[] = [];
+  const positionExcluded: string[] = [];
+  for (const row of candidates) {
+    // Cùng quy tắc chọn cấu hình với lúc gửi đơn: riêng theo mã lý do, không thì cấu hình chung.
+    const binding = directBindingOf(rows, row.sub_type_code);
+    if (!binding) continue;
+    if (binding.source === 'POSITION') {
+      const holds =
+        positionIds.length > 0 &&
+        ((!!binding.approverPositionId && positionIds.includes(binding.approverPositionId)) ||
+          (!!binding.fallbackPositionId &&
+            positionIds.includes(binding.fallbackPositionId) &&
+            fallbackMayAct(timeRule, row.created_at)));
+      if (holds) {
+        assigned.push(row.id);
+      } else {
+        positionExcluded.push(row.id);
+      }
+    } else if (binding.source === 'DIRECT_MANAGER') {
+      const isDirect = positionIds.length > 0 && (await managedEmployees()).has(row.employee_id);
+      const isFallback =
+        positionIds.length > 0 &&
+        !!binding.fallbackPositionId &&
+        positionIds.includes(binding.fallbackPositionId) &&
+        fallbackMayAct(timeRule, row.created_at);
+      if (isDirect || isFallback) assigned.push(row.id);
     }
   }
-  return matchedRequestIds;
+  return { assigned, positionExcluded };
 }
+
+export async function directAssignedRequestIds(
+  db: Queryable,
+  tenantId: string,
+  kind: HrmRequestKind,
+  userId: string,
+): Promise<string[]> {
+  return (await directApproverScopes(db, tenantId, kind, userId)).assigned;
+}
+
+/** Tên cũ của `directAssignedRequestIds` (trước đây chỉ tính người giữ chức danh dự phòng). */
+export const directFallbackActionableRequestIds = directAssignedRequestIds;
 
 /**
  * Mã đơn loại `kind` được giao riêng cho người này: Procedure giao bước hiện tại (quản lý trực tiếp, người dự phòng...)
@@ -568,7 +691,7 @@ export async function assignedRequestIds(
 ): Promise<string[]> {
   const [procedure, direct] = await Promise.all([
     procedureActionableRequestIds(db, tenantId, kind, userId),
-    directFallbackActionableRequestIds(db, tenantId, kind, userId),
+    directAssignedRequestIds(db, tenantId, kind, userId),
   ]);
   return [...new Set([...procedure, ...direct])];
 }
@@ -618,14 +741,15 @@ export async function resolveApprovalScope(
   const unassigned = await chiefFallbackUserIds(deps.db, deps.tenantId, actor.userId);
   // Đơn qua Procedure mà PE giao cho người này (quản lý trực tiếp hoặc người dự phòng) dù không thuộc cấp dưới.
   const procedureRequestIds = await procedureActionableRequestIds(deps.db, deps.tenantId, kind, actor.userId);
-  // Đơn duyệt trực tiếp mà người này giữ chức danh duyệt dự phòng được cấu hình.
-  const directFallbackRequestIds = await directFallbackActionableRequestIds(deps.db, deps.tenantId, kind, actor.userId);
-  const requestIds = [...new Set([...procedureRequestIds, ...directFallbackRequestIds])];
+  // Đơn duyệt trực tiếp mà người này được giao (theo chức danh hoặc quản lý trực tiếp) & đơn POSITION bị loại trừ khỏi cấp dưới.
+  const { assigned: directAssigned, positionExcluded } = await directApproverScopes(deps.db, deps.tenantId, kind, actor.userId);
+  const requestIds = [...new Set([...procedureRequestIds, ...directAssigned])];
   return {
     all: false,
     userIds: [...new Set([...subordinates, ...unassigned])],
     excludeUserId,
     requestIds,
+    excludeRequestIds: positionExcluded.length > 0 ? positionExcluded : undefined,
   };
 }
 
@@ -642,9 +766,14 @@ export function approvalScopeSql(
   const params: unknown[] = [];
   let next = firstParam;
   if (!scope.all) {
-    const inScope = `${alias}.employee_id IN (SELECT ce.id FROM core_schema.employees ce WHERE ce.tenant_id = ${alias}.tenant_id AND ce.user_id = ANY($${next}::uuid[]))`;
+    let inScope = `${alias}.employee_id IN (SELECT ce.id FROM core_schema.employees ce WHERE ce.tenant_id = ${alias}.tenant_id AND ce.user_id = ANY($${next}::uuid[]))`;
     params.push(scope.userIds);
     next += 1;
+    if (scope.excludeRequestIds?.length) {
+      inScope = `(${inScope} AND NOT (${alias}.id = ANY($${next}::uuid[])))`;
+      params.push(scope.excludeRequestIds);
+      next += 1;
+    }
     if (scope.requestIds?.length) {
       clauses.push(`(${inScope} OR ${alias}.id = ANY($${next}::uuid[]))`);
       params.push(scope.requestIds);
@@ -684,10 +813,8 @@ export interface OrgSnapshotLike {
 }
 
 /**
- * Cấp dưới của `actorUserId` gồm:
- *  - mọi người có chuỗi "Báo cáo cho" đi qua một chức danh mà actor đang giữ;
- *  - mọi thành viên thuộc cây đơn vị (theo parentId) mà actor là trưởng.
- * Không bao gồm chính actor.
+ * Cấp dưới của `actorUserId`: mọi người có chuỗi "Báo cáo cho" đi qua một chức danh mà actor đang giữ.
+ * Trưởng đơn vị không được tính. Không bao gồm chính actor.
  */
 export function computeSubordinateUserIds(
   snapshot: OrgSnapshotLike,
@@ -723,34 +850,13 @@ export function computeSubordinateUserIds(
     }
   }
 
-  const children = new Map<string, string[]>();
-  for (const node of units)
-    if (node.parentId)
-      children.set(node.parentId, [
-        ...(children.get(node.parentId) ?? []),
-        node.id,
-      ]);
-  const subtree = new Set<string>();
-  const stack = units
-    .filter((u) => u.headMembershipId === actorUserId)
-    .map((u) => u.id);
-  while (stack.length) {
-    const id = stack.pop() as string;
-    if (subtree.has(id)) continue;
-    subtree.add(id);
-    stack.push(...(children.get(id) ?? []));
-  }
-  for (const member of members)
-    if (member.userId !== actorUserId && subtree.has(member.unitId))
-      result.add(member.userId);
-
   result.delete(actorUserId);
   return result;
 }
 
 export const NO_REPORTING_LINE_MESSAGE =
-  'Chưa khai báo người quản lý trực tiếp/trưởng đơn vị nên không có đơn nào trong phạm vi của bạn. ' +
-  'Hãy khai báo "Báo cáo cho" của chức danh (hoặc đặt trưởng đơn vị) trong Cấu trúc tổ chức.';
+  'Chưa khai báo "Báo cáo cho" nên không có đơn nào trong phạm vi của bạn. ' +
+  'Hãy khai báo "Báo cáo cho" của chức danh trong Cấu trúc tổ chức.';
 
 export interface HrmApprovalScopeStatus {
   /** Người dùng có ít nhất một quyền duyệt đơn. */
@@ -761,6 +867,20 @@ export interface HrmApprovalScopeStatus {
   /** Có quyền duyệt nhưng không có cấp dưới nào và không duyệt toàn tenant: danh sách trống do thiếu cấu hình. */
   noReportingLine: boolean;
   message: string | null;
+}
+
+/** Người này đang giữ chức danh được chọn làm người duyệt (chỉ định hoặc dự phòng) ở một cấu hình duyệt đang bật. */
+export async function holdsConfiguredApproverPosition(db: Queryable, tenantId: string, userId: string): Promise<boolean> {
+  const positionIds = await heldPositionIds(db, userId);
+  if (!positionIds.length) return false;
+  const res = await db.query(
+    `SELECT 1 FROM hrm_schema.request_procedure_bindings
+      WHERE tenant_id = $1 AND is_active AND mode = 'DIRECT'
+        AND (approver_position_id = ANY($2::uuid[]) OR fallback_position_id = ANY($2::uuid[]))
+      LIMIT 1`,
+    [tenantId, positionIds],
+  );
+  return (res.rows?.length ?? 0) > 0;
 }
 
 /** Thuần: mô tả phạm vi duyệt để màn hình giải thích vì sao danh sách có thể trống. */
@@ -803,6 +923,10 @@ export class HttpHrmOrgScopeResolver implements HrmOrgScopePort {
       await this.snapshot(tenantId),
       actorUserId,
     );
+  }
+
+  orgSnapshot(tenantId: string): Promise<OrgSnapshotLike> {
+    return this.snapshot(tenantId);
   }
 
   private async snapshot(tenantId: string): Promise<OrgSnapshotLike> {
@@ -861,6 +985,11 @@ export class HrmApprovalPolicyService {
       { id: requestId, decision },
       kind,
       { db, tenantId: ctx.tenantId, orgScope: this.orgScope },
+    ).then(() =>
+      assertNotProxyCreatorDecision(ctx.principal, requestId, kind, decision, {
+        db,
+        tenantId: ctx.tenantId,
+      }),
     );
   }
 
@@ -877,10 +1006,15 @@ export class HrmApprovalPolicyService {
     return assertNotSelfDecision(ctx.principal, requestId, kind, action, {
       db: ctx.pool,
       tenantId: ctx.tenantId,
-    });
+    }).then(() =>
+      assertNotProxyCreatorDecision(ctx.principal, requestId, kind, action, {
+        db: ctx.pool,
+        tenantId: ctx.tenantId,
+      }),
+    );
   }
 
-  /** Trạng thái phạm vi duyệt của người dùng hiện tại (đếm cấp dưới theo Báo cáo cho/trưởng đơn vị). */
+  /** Trạng thái phạm vi duyệt của người dùng hiện tại (đếm cấp dưới theo Báo cáo cho). */
   async scopeStatus(ctx: {
     pool?: Queryable;
     tenantId: string;
@@ -896,10 +1030,14 @@ export class HrmApprovalPolicyService {
     const unassigned = ctx.pool
       ? await chiefFallbackUserIds(ctx.pool, ctx.tenantId, ctx.principal.userId)
       : new Set<string>();
-    return describeApprovalScope(
+    const status = describeApprovalScope(
       permissions,
       new Set([...subordinates, ...unassigned]).size,
     );
+    // Người được cấu hình duyệt theo chức danh (chỉ định hoặc dự phòng) không cần có cấp dưới: không báo thiếu "Báo cáo cho".
+    if (status.noReportingLine && ctx.pool && (await holdsConfiguredApproverPosition(ctx.pool, ctx.tenantId, ctx.principal.userId)))
+      return { ...status, noReportingLine: false, message: null };
+    return status;
   }
 
   /** Điều kiện SQL cho danh sách duyệt; chỉ áp khi người dùng có quyền duyệt loại đơn đó. */
@@ -918,10 +1056,16 @@ export class HrmApprovalPolicyService {
       permissions.includes(HRM_APPROVE_PERMISSIONS[kind].approve) ||
       hasApproveAll(ctx.principal, kind);
     if (!canApprove) {
-      // Không có quyền duyệt HRM: chỉ những đơn được giao riêng (Procedure hoặc chức danh dự phòng). Nếu không có đơn nào
-      // thì người này đã bị `scoped` giới hạn vào đơn của chính mình, nên không cần lọc thêm.
+      // Không có quyền duyệt HRM: chỉ những đơn được giao riêng (Procedure hoặc chức danh được chỉ định/dự phòng).
       const requestIds = await assignedRequestIds(ctx.pool, ctx.tenantId, kind, ctx.principal.userId);
-      if (!requestIds.length) return { sql: 'TRUE', params: [] as unknown[] };
+      // Không có đơn nào được giao ở loại này thì chỉ thấy đơn của chính mình. Không thể trông vào `scoped` để giới hạn:
+      // người được giao duyệt MỘT loại đơn được đọc không theo nhân viên ở mọi loại (các loại dùng chung một quyền duyệt),
+      // nên trả 'TRUE' ở đây sẽ lộ toàn bộ đơn của những loại không được giao.
+      if (!requestIds.length)
+        return {
+          sql: `${alias}.employee_id IN (SELECT oe.id FROM core_schema.employees oe WHERE oe.tenant_id = ${alias}.tenant_id AND oe.user_id = $${firstParam}::uuid)`,
+          params: [ctx.principal.userId] as unknown[],
+        };
       const allowSelf = await loadAllowSelfApproval(ctx.pool, ctx.tenantId);
       return approvalScopeSql(
         { all: false, userIds: [], requestIds, excludeUserId: allowSelf ? null : ctx.principal.userId },

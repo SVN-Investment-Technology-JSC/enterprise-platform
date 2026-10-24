@@ -65,10 +65,10 @@ describe('HRM sidebar visibility per sample role', () => {
     expect(visibleTabs(actions, '/settings')).not.toContain('schedules');
   });
 
-  it('HR profile staff see the HR tabs and the profile approval inbox but not payroll', () => {
+  it('HR profile staff see the HR tabs but neither payroll nor the approval inbox (profile corrections are hidden)', () => {
     const actions = actionsOf('hr-profile');
     expect(visibleTabs(actions, '/employees')).toEqual(expect.arrayContaining(['employees', 'decisions']));
-    expect(visibleLabels(actions)).toContain('Đơn từ cần xử lý');
+    expect(visibleLabels(actions)).not.toContain('Đơn từ cần xử lý');
     expect(visibleLabels(actions)).not.toContain('Lương và chi trả');
     expect(visibleTabs(actions, '/settings')).not.toContain('schedules');
     expect(visibleTabs(actions, '/settings')).not.toContain('permissions');
@@ -102,13 +102,13 @@ describe('HRM sidebar visibility per sample role', () => {
 
   it('the approval inbox opens for any approve or request-processing permission', () => {
     for (const key of [
-      'hrm.leave.approve',
-      'hrm.ot.approve.all',
-      'hrm.trip.approve',
-      'hrm.shift.approve',
-      'hrm.attendance.approve',
-      'hrm.profile.approve',
-      'hrm.advance.approve',
+      'hrm.request.approve',
+      'hrm.request.approve.all',
+      'hrm.request.approve',
+      'hrm.request.approve',
+      'hrm.request.approve',
+      'hrm.request.approve',
+      'hrm.request.approve',
       'hrm.request.read',
       'hrm.request.manage',
       'hrm.advance.read',
@@ -118,7 +118,7 @@ describe('HRM sidebar visibility per sample role', () => {
   });
 
   it('the annual leave menu: balances need leave.read, settings leave needs leave.manage', () => {
-    expect(visibleHrefs(expandTenantActions(['hrm.leave.approve']))).not.toContain('/leave');
+    expect(visibleHrefs(expandTenantActions(['hrm.request.approve']))).not.toContain('/leave');
     expect(visibleTabs(expandTenantActions(['hrm.leave.read']), '/leave')).toEqual(['balances', 'adjustments']);
     const manage = expandTenantActions(['hrm.leave.manage']);
     expect(visibleTabs(manage, '/leave')).toEqual(['balances', 'adjustments']);
@@ -142,6 +142,8 @@ describe('request reasons and approval configuration tabs', () => {
       ['payroll', 'Lương'],
       ['request-reasons', 'Loại đơn và lý do'],
       ['request-quota', 'Hạn mức đơn'],
+      ['request-time-rules', 'Quy tắc thời gian đơn'],
+      ['request-proxy', 'Tạo đơn hộ'],
       ['approval', 'Duyệt đơn'],
       ['operations', 'Vận hành và tích hợp'],
       ['permissions', 'Quyền và vai trò'],
@@ -159,7 +161,7 @@ describe('request reasons and approval configuration tabs', () => {
     expect(settingsTabs(expandTenantActions(['hrm.leave.manage']))).toContain('request-reasons');
     expect(settingsTabs(expandTenantActions(['hrm.manage']))).toContain('request-reasons');
     expect(settingsTabs(actionsOf('timekeeper'))).toContain('request-reasons');
-    for (const key of ['hrm.leave.read', 'hrm.leave.approve', 'hrm.automation.manage', 'hrm.salary.manage'])
+    for (const key of ['hrm.leave.read', 'hrm.request.approve', 'hrm.automation.manage', 'hrm.salary.manage'])
       expect(settingsTabs(expandTenantActions([key]))).not.toContain('request-reasons');
     expect(settingsTabs(actionsOf('employee'))).not.toContain('request-reasons');
   });

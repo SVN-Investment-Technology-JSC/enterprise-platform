@@ -1,6 +1,6 @@
 /**
  * Gom các thao tác của một nhóm quyền thành bảng "đối tượng × mức quyền" chỉ bằng cách đọc khóa thao tác
- * (`hrm.leave.approve.all` = đối tượng `leave`, mức "duyệt toàn tenant"). Thao tác không khớp mẫu nào vào cột "Khác"
+ * (`hrm.request.approve.all` = đối tượng `request`, mức "duyệt toàn tenant"). Thao tác không khớp mẫu nào vào cột "Khác"
  * nên không bao giờ bị mất; thêm thao tác mới theo mẫu cũ là tự vào đúng ô.
  */
 

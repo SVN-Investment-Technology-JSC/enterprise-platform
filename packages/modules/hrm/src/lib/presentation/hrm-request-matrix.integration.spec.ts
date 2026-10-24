@@ -79,7 +79,7 @@ integration('Đơn từ: ma trận loại đơn x mốc thời gian x cách duy�
     posLone: randomUUID(),
   };
   type Who = { userId: string; permissions: string[] };
-  const APPROVE = ['hrm.leave.approve', 'hrm.ot.approve', 'hrm.trip.approve', 'hrm.attendance.approve'];
+  const APPROVE = ['hrm.request.approve', 'hrm.request.approve', 'hrm.request.approve', 'hrm.request.approve'];
   const as = {
     a: { userId: ids.userA, permissions: [] } as Who,
     b: { userId: ids.userB, permissions: [] } as Who,
@@ -95,6 +95,13 @@ integration('Đơn từ: ma trận loại đơn x mốc thời gian x cách duy�
   const ctx = (who: Who, defaultEmployee: string = ids.empA) =>
     ({
       has: () => true,
+      // Tạo hộ và xem hộ theo phạm vi: bản giả chỉ cần trả cùng ngữ cảnh như getRequestContext.
+      getProxyRequestContext: async function (this: any, req: any, requested?: string) {
+        return { ...(await this.getRequestContext(req, requested)), onBehalf: undefined };
+      },
+      getRequestContextOrProxy: async function (this: any, req: any, requested?: string) {
+        return this.getRequestContext(req, requested);
+      },
       getRequestContext: async (_req: Request, requested?: string) => ({
         pool,
         tenantId,
@@ -225,6 +232,11 @@ integration('Đơn từ: ma trận loại đơn x mốc thời gian x cách duy�
         `INSERT INTO core_schema.organization_node_assignments (id, node_id, user_id, is_primary, status, start_date) VALUES ($1,$2,$3,true,'active','2026-01-01')`,
         [randomUUID(), positionId, userId],
       );
+    await pool.query(
+      `INSERT INTO hrm_schema.approval_policy_settings(tenant_id,last_resort_position_id) VALUES ($1,$2)
+       ON CONFLICT (tenant_id) DO UPDATE SET last_resort_position_id=EXCLUDED.last_resort_position_id`,
+      [tenantId, ids.posCeo],
+    );
     await assign(ids.posCeo, ids.userCeo);
     await assign(ids.posMgr, ids.userM);
     await assign(ids.posHr, ids.userF);
@@ -500,7 +512,7 @@ integration('Đơn từ: ma trận loại đơn x mốc thời gian x cách duy�
       kind: 'leave',
       commentKind: 'LEAVE',
       table: 'leave_requests',
-      permission: 'hrm.leave.approve',
+      permission: 'hrm.request.approve',
       create: (day, who, emp) => mkLeave({ fromAt: `${day}T08:00`, toAt: `${day}T17:00` }, who, emp),
       approve: (who, id) => leaveC(who).approveLeaveRequest(req, id),
       reject: (who, id, text) => leaveC(who).rejectLeaveRequest(req, id, text),
@@ -510,7 +522,7 @@ integration('Đơn từ: ma trận loại đơn x mốc thời gian x cách duy�
       kind: 'ot',
       commentKind: 'OT',
       table: 'ot_requests',
-      permission: 'hrm.ot.approve',
+      permission: 'hrm.request.approve',
       create: (day, who, emp) => mkOt({ fromAt: `${day}T18:00`, toAt: `${day}T19:00` }, who, emp),
       approve: (who, id) => reqC(who).approveOtRequest(req, id),
       reject: (who, id, text) => reqC(who).rejectOtRequest(req, id, text),
@@ -520,17 +532,17 @@ integration('Đơn từ: ma trận loại đơn x mốc thời gian x cách duy�
       kind: 'business_trip',
       commentKind: 'BUSINESS_TRIP',
       table: 'business_trip_requests',
-      permission: 'hrm.trip.approve',
+      permission: 'hrm.request.approve',
       create: (day, who, emp) => mkTrip({ fromAt: `${day}T08:00`, toAt: `${day}T17:00` }, who, emp),
       approve: (who, id) => reqC(who).approveBusinessTrip(req, id),
-      reject: (who, id) => reqC(who).rejectBusinessTrip(req, id),
+      reject: (who, id, text) => reqC(who).rejectBusinessTrip(req, id, text),
     },
     {
       label: 'giải trình công',
       kind: 'correction',
       commentKind: 'CORRECTION',
       table: 'attendance_corrections',
-      permission: 'hrm.attendance.approve',
+      permission: 'hrm.request.approve',
       // Giải trình không nhận mốc giờ ở tương lai: dùng ngày làm việc của tháng 9/2026 thay cho ngày được truyền vào.
       create: async (_day, who, emp) => {
         const day = nextPastDay();
@@ -561,7 +573,7 @@ integration('Đơn từ: ma trận loại đơn x mốc thời gian x cách duy�
         expect(payload.recipientUserIds).not.toContain(ids.userA);
         expect(payload.recipientUserIds).not.toContain(ids.userX);
         expect(payload).toMatchObject({ requestId: made.data.id, actorUserId: ids.userA });
-        expect(payload.approvalPermissions).toEqual([spec.permission, 'hrm.manage']);
+        expect(payload.approvalPermissions).toEqual([`${spec.permission}.all`, 'hrm.manage']);
         expect(payload.summary).toContain('Nhân viên A');
       });
 
@@ -650,7 +662,7 @@ integration('Đơn từ: ma trận loại đơn x mốc thời gian x cách duy�
         const of = (type: string) => events.filter((e) => e.event_type === type);
         // Chủ đơn viết 1 lần: báo cho người duyệt. Quản lý và người dự phòng viết: báo cho chủ đơn (2 lần). Quản lý nhắc người dự phòng 1 lần.
         expect(of('hrm.request.comment.to-approvers')).toHaveLength(1);
-        expect(of('hrm.request.comment.to-approvers')[0].p.approvalPermissions).toEqual([spec.permission, 'hrm.manage']);
+        expect(of('hrm.request.comment.to-approvers')[0].p.approvalPermissions).toEqual([`${spec.permission}.all`, 'hrm.manage']);
         expect(of('hrm.request.comment.to-approvers')[0].p.recipientUserIds ?? []).toEqual(expect.arrayContaining([ids.userM, ids.userF]));
         expect(of('hrm.request.comment.to-requester')).toHaveLength(2);
         expect(of('hrm.request.comment.to-requester').every((e) => e.p.recipientUserIds[0] === ids.userA)).toBe(true);
@@ -908,6 +920,125 @@ integration('Đơn từ: ma trận loại đơn x mốc thời gian x cách duy�
       expect(octDays.reduce((n, d) => n + d.otMinutes, 0)).toBe(1050);
       expect(octTotals.otMinutes).toBe(1050);
       expect(octTotals.workdayUnits).toBe(octDays.reduce((n, d) => n + d.workdayUnits, 0));
+    });
+  });
+
+  describe('8. Tạo đơn hộ: nghỉ phép, tăng ca, công tác', () => {
+    // Quản lý trực tiếp M tạo hộ cho nhân viên A. Kiểm tra quyền, phạm vi và lý do nằm ở HrmContextService (có test riêng);
+    // ở đây dùng ngữ cảnh giả trả về `onBehalf` như khi các kiểm tra đó đã qua, để thử phần ghi dữ liệu và duyệt.
+    const REASON = 'Nhân viên báo ốm qua điện thoại';
+    const proxyCtx = (who: Who) =>
+      ({
+        ...ctx(who),
+        getProxyRequestContext: async (_req: Request, requested?: string) => ({
+          pool,
+          tenantId,
+          employeeId: requested,
+          principal: who,
+          onBehalf: { reason: REASON },
+        }),
+      }) as any;
+    const proxyLeave = (who: Who) => new HrmLeaveController(proxyCtx(who), bridge, policyOf(who));
+    const proxyReq = (who: Who) => new HrmRequestController(proxyCtx(who), bridge, policyOf(who));
+
+    type Made = { data: Record<string, any> };
+    const cases: {
+      label: string;
+      table: string;
+      create: (day: string) => Promise<Made>;
+      approve: (who: Who, id: string) => Promise<unknown>;
+    }[] = [
+      {
+        label: 'nghỉ phép',
+        table: 'leave_requests',
+        create: (day) =>
+          proxyLeave(as.manager).createLeaveRequest(req, { employeeId: ids.empA, leaveTypeId: leaveDay, fromAt: `${day}T08:00`, toAt: `${day}T17:00` } as any) as Promise<Made>,
+        approve: (who, id) => leaveC(who).approveLeaveRequest(req, id),
+      },
+      {
+        label: 'làm thêm giờ',
+        table: 'ot_requests',
+        create: (day) =>
+          proxyReq(as.manager).createOtRequest(req, { employeeId: ids.empA, reasonId: reason['OT_WORK'], fromAt: `${day}T18:00`, toAt: `${day}T19:00` } as any) as Promise<Made>,
+        approve: (who, id) => reqC(who).approveOtRequest(req, id),
+      },
+      {
+        label: 'công tác',
+        table: 'business_trip_requests',
+        create: (day) =>
+          proxyReq(as.manager).createBusinessTripRequest(req, {
+            employeeId: ids.empA,
+            reasonId: reason['TRIP_PLAN'],
+            destination: 'Hà Nội',
+            purpose: 'Gặp khách hàng',
+            fromAt: `${day}T08:00`,
+            toAt: `${day}T17:00`,
+          } as any) as Promise<Made>,
+        approve: (who, id) => reqC(who).approveBusinessTrip(req, id),
+      },
+    ];
+
+    beforeAll(async () => {
+      const route = new HrmApprovalRouteController(ctx(as.manager));
+      for (const kind of ['leave', 'ot', 'business_trip'] as const)
+        await route.putConfig(req, { requestKind: kind, mode: 'DIRECT', fallbackPositionId: ids.posHr });
+    });
+
+    describe.each(cases)('đơn $label', (spec) => {
+      it('ghi dấu đơn tạo hộ: người gửi thật, lý do, tên người tạo; đơn vẫn thuộc nhân viên được tạo hộ', async () => {
+        const made = await spec.create(nextDay());
+        expect(made.data).toMatchObject({
+          employeeId: ids.empA,
+          status: 'PENDING',
+          createdOnBehalf: true,
+          submittedBy: ids.userM,
+          onBehalfReason: REASON,
+        });
+        expect(made.data.onBehalfByName).toBeTruthy();
+        const [row] = await q(
+          `SELECT employee_id, submitted_by, created_on_behalf, on_behalf_reason, on_behalf_by_name FROM hrm_schema.${spec.table} WHERE id=$1`,
+          [made.data.id],
+        );
+        expect(row).toMatchObject({ employee_id: ids.empA, submitted_by: ids.userM, created_on_behalf: true, on_behalf_reason: REASON });
+        expect(row.on_behalf_by_name).toBe(made.data.onBehalfByName);
+      });
+
+      it('ghi nhật ký kiểm toán và báo cho chủ đơn, không báo cho người tạo hộ', async () => {
+        const made = await spec.create(nextDay());
+        const audit = await q(
+          `SELECT actor_id, detail FROM hrm_schema.audit_log WHERE action='REQUEST_CREATE_ON_BEHALF' AND entity_id=$1`,
+          [made.data.id],
+        );
+        expect(audit).toHaveLength(1);
+        expect(audit[0]).toMatchObject({ actor_id: ids.userM });
+        expect(audit[0].detail).toMatchObject({ employeeId: ids.empA, reason: REASON });
+        const events = await q(
+          `SELECT payload->'payload' AS p FROM integration_schema.outbox_events WHERE event_type='hrm.request.created-on-behalf' AND aggregate_id=$1`,
+          [made.data.id],
+        );
+        expect(events).toHaveLength(1);
+        expect(events[0].p).toMatchObject({ requestId: made.data.id, actorUserId: ids.userM, recipientUserIds: [ids.userA] });
+        expect(events[0].p.summary).toContain(REASON);
+      });
+
+      it('người tạo hộ không duyệt được đơn do mình tạo hộ; người duyệt khác duyệt bình thường', async () => {
+        const made = await spec.create(nextDay());
+        await expect(spec.approve(as.manager, made.data.id)).rejects.toMatchObject({
+          status: 403,
+          response: { code: 'HRM_PROXY_CREATOR_DECISION_FORBIDDEN' },
+        });
+        expect(await q(`SELECT status FROM hrm_schema.${spec.table} WHERE id=$1`, [made.data.id])).toEqual([{ status: 'PENDING' }]);
+        await spec.approve(as.fallback, made.data.id);
+        expect(await q(`SELECT status, approved_by FROM hrm_schema.${spec.table} WHERE id=$1`, [made.data.id])).toEqual([
+          { status: 'APPROVED', approved_by: ids.userF },
+        ]);
+      });
+    });
+
+    it('đơn nhân viên tự tạo không mang dấu tạo hộ', async () => {
+      const made = await mkLeave({ fromAt: `${nextDay()}T08:00`, toAt: `${nextDay()}T17:00` });
+      expect(made.data).toMatchObject({ createdOnBehalf: false, submittedBy: null, onBehalfReason: null, onBehalfByName: null });
+      expect(await q('SELECT 1 FROM hrm_schema.audit_log WHERE action=$1 AND entity_id=$2', ['REQUEST_CREATE_ON_BEHALF', made.data.id])).toHaveLength(0);
     });
   });
 

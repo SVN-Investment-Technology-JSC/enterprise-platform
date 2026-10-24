@@ -105,8 +105,17 @@ export function AutoAttendanceEmployeesPanel() {
         toDate: draft.toDate || null,
         reason: draft.reason.trim(),
       };
-      await hrmFetch('/auto-attendance-employees', { method: 'PUT', body: JSON.stringify(body) });
-      toast.success('Đã lưu cấu hình chấm công tự động cho nhân viên');
+      const saved = await hrmFetch<{ backfill?: { generated: number; lockedDays: number } }>('/auto-attendance-employees', {
+        method: 'PUT',
+        body: JSON.stringify(body),
+      });
+      const filled = saved?.backfill?.generated ?? 0;
+      const locked = saved?.backfill?.lockedDays ?? 0;
+      toast.success(
+        'Đã lưu cấu hình chấm công tự động cho nhân viên' +
+          (filled ? `. Đã bù chấm công cho ${filled} ngày đã qua.` : '') +
+          (locked ? ` ${locked} ngày thuộc kỳ công đã khóa nên chưa bù.` : ''),
+      );
       setDraft(EMPTY_DRAFT);
       await load();
     } catch (err) {

@@ -40,7 +40,8 @@ function errorMessage(code: number): string {
 export function acquirePosition(options: AcquireOptions): Promise<GpsFix> {
   const geo = options.geolocation ?? (typeof navigator === 'undefined' ? undefined : navigator.geolocation);
   if (!geo) return Promise.reject(new Error('Trình duyệt không hỗ trợ định vị GPS.'));
-  const good = options.goodAccuracy ?? Math.max(15, options.maxAccuracy / 3);
+  // Ngưỡng "đủ tốt" không được lỏng hơn ngưỡng chính sách: chính sách ±10 m mà dừng ở lần đo ±14 m sẽ bị từ chối dù chờ thêm có thể đạt.
+  const good = Math.min(options.maxAccuracy, options.goodAccuracy ?? Math.max(15, options.maxAccuracy / 3));
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   return new Promise<GpsFix>((resolve, reject) => {
     let best: GpsFix | null = null;

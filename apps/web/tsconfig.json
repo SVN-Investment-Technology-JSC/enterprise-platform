@@ -57,6 +57,9 @@
       "path": "../../packages/shared/brand-icon"
     },
     {
+      "path": "../../packages/features/procedure-engine"
+    },
+    {
       "path": "../../packages/features/module-shell"
     },
     {

@@ -2160,11 +2160,14 @@ export class ProcedureEngineApplication {
     const state = await this.store.read(tenantId);
     return state.instances
       .filter((item) => wanted.has(item.id) && item.status === 'running' && !item.deletion)
-      .filter((item) =>
-        deriveProcedureAuthorization(item, actor).availableActions.some((action) =>
+      .filter((item) => {
+        const auth = deriveProcedureAuthorization(item, actor);
+        // Bước S là bước nộp lại đơn của người khởi tạo, không phải việc duyệt/xử lý hồ sơ trong hàng chờ duyệt.
+        if (auth.currentRoleStage === 'S') return false;
+        return auth.availableActions.some((action) =>
           ['complete', 'approve', 'reject', 'return'].includes(action),
-        ),
-      )
+        );
+      })
       .map((item) => item.id);
   }
 

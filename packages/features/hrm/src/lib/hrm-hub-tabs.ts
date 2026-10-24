@@ -51,6 +51,8 @@ export const HRM_HUBS = {
     { id: 'payroll', label: 'Lương', permissions: ['hrm.payroll.configure', 'hrm.salary.read', 'hrm.salary.manage'] },
     { id: 'request-reasons', label: 'Loại đơn và lý do', permissions: ['hrm.leave.manage'] },
     { id: 'request-quota', label: 'Hạn mức đơn', permissions: ['hrm.leave.manage'] },
+    { id: 'request-time-rules', label: 'Quy tắc thời gian đơn', permissions: ['hrm.leave.manage'] },
+    { id: 'request-proxy', label: 'Tạo đơn hộ', permissions: ['hrm.request.proxy.configure'] },
     { id: 'approval', label: 'Duyệt đơn', permissions: ['hrm.automation.manage'] },
     {
       id: 'operations',

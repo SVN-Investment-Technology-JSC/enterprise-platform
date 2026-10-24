@@ -96,14 +96,14 @@ export const HRM_PERMISSION_ACTIONS = [
     label: 'Quản lý lịch lễ, Tết và lịch ngoại lệ',
   },
   {
-    key: 'hrm.shift.approve',
-    group: 'HRM · Ca và công',
-    label: 'Duyệt đổi ca',
+    key: 'hrm.request.approve',
+    group: 'HRM · Phép và đơn',
+    label: 'Duyệt, từ chối và đảo mọi loại đơn từ trong phạm vi của mình (cấp dưới, đơn được giao)',
   },
   {
-    key: 'hrm.shift.approve.all',
-    group: 'HRM · Ca và công',
-    label: 'Duyệt đổi ca toàn tenant (không giới hạn phạm vi đơn vị)',
+    key: 'hrm.request.approve.all',
+    group: 'HRM · Phép và đơn',
+    label: 'Duyệt mọi loại đơn từ toàn tenant (không giới hạn phạm vi đơn vị)',
   },
   {
     key: 'hrm.attendance.read',
@@ -114,16 +114,6 @@ export const HRM_PERMISSION_ACTIONS = [
     key: 'hrm.attendance.import',
     group: 'HRM · Ca và công',
     label: 'Nhập sự kiện từ máy chấm công',
-  },
-  {
-    key: 'hrm.attendance.approve',
-    group: 'HRM · Ca và công',
-    label: 'Duyệt và xử lý giải trình công',
-  },
-  {
-    key: 'hrm.attendance.approve.all',
-    group: 'HRM · Ca và công',
-    label: 'Duyệt giải trình công toàn tenant (không giới hạn phạm vi đơn vị)',
   },
   {
     key: 'hrm.time.configure',
@@ -151,69 +141,24 @@ export const HRM_PERMISSION_ACTIONS = [
     label: 'Tạo đơn thay nhân viên',
   },
   {
-    key: 'hrm.leave.approve',
+    key: 'hrm.request.create.behalf',
     group: 'HRM · Phép và đơn',
-    label: 'Duyệt, từ chối và đảo đơn nghỉ',
+    label: 'Tạo đơn nghỉ phép, tăng ca, công tác, giải trình công hộ nhân viên trong phạm vi được cấu hình',
   },
   {
-    key: 'hrm.leave.approve.all',
+    key: 'hrm.request.create.behalf.all',
     group: 'HRM · Phép và đơn',
-    label: 'Duyệt đơn nghỉ toàn tenant (không giới hạn phạm vi đơn vị)',
+    label: 'Tạo đơn nghỉ phép, tăng ca, công tác, giải trình công hộ mọi nhân viên (không giới hạn phạm vi)',
   },
   {
-    key: 'hrm.ot.approve',
+    key: 'hrm.request.proxy.configure',
     group: 'HRM · Phép và đơn',
-    label: 'Duyệt và xử lý tăng ca',
-  },
-  {
-    key: 'hrm.ot.approve.all',
-    group: 'HRM · Phép và đơn',
-    label: 'Duyệt tăng ca toàn tenant (không giới hạn phạm vi đơn vị)',
-  },
-  {
-    key: 'hrm.trip.approve',
-    group: 'HRM · Phép và đơn',
-    label: 'Duyệt và xử lý công tác',
-  },
-  {
-    key: 'hrm.trip.approve.all',
-    group: 'HRM · Phép và đơn',
-    label: 'Duyệt công tác toàn tenant (không giới hạn phạm vi đơn vị)',
-  },
-  {
-    key: 'hrm.custom.approve',
-    group: 'HRM · Phép và đơn',
-    label: 'Duyệt đơn của loại đơn do quản trị tạo',
-  },
-  {
-    key: 'hrm.custom.approve.all',
-    group: 'HRM · Phép và đơn',
-    label: 'Duyệt đơn loại tuỳ chỉnh toàn tenant (không giới hạn phạm vi đơn vị)',
-  },
-  {
-    key: 'hrm.profile.approve',
-    group: 'HRM · Phép và đơn',
-    label: 'Duyệt thay đổi hồ sơ',
-  },
-  {
-    key: 'hrm.profile.approve.all',
-    group: 'HRM · Phép và đơn',
-    label: 'Duyệt thay đổi hồ sơ toàn tenant (không giới hạn phạm vi đơn vị)',
+    label: 'Cấu hình phạm vi tạo đơn hộ',
   },
   {
     key: 'hrm.advance.read',
     group: 'HRM · Tạm ứng',
     label: 'Xem tạm ứng toàn tenant',
-  },
-  {
-    key: 'hrm.advance.approve',
-    group: 'HRM · Tạm ứng',
-    label: 'Duyệt tạm ứng',
-  },
-  {
-    key: 'hrm.advance.approve.all',
-    group: 'HRM · Tạm ứng',
-    label: 'Duyệt tạm ứng toàn tenant (không giới hạn phạm vi đơn vị)',
   },
   {
     key: 'hrm.advance.disburse',
@@ -678,16 +623,9 @@ export function expandTenantActions(actions: readonly string[]): string[] {
       'hrm.fleet.manage': ['hrm.fleet.read'],
       // Quyền duyệt chỉ cho xử lý đơn thuộc phạm vi của người duyệt; KHÔNG kéo theo quyền đọc toàn tenant
       // (hrm.request.read, hrm.attendance.read, hrm.leave.read): những quyền đó phải được cấp riêng.
-      'hrm.shift.approve.all': ['hrm.shift.approve'],
-      'hrm.attendance.approve.all': ['hrm.attendance.approve'],
+      'hrm.request.approve.all': ['hrm.request.approve'],
       'hrm.attendance.import': ['hrm.attendance.read'],
       'hrm.leave.manage': ['hrm.leave.read'],
-      'hrm.leave.approve.all': ['hrm.leave.approve'],
-      'hrm.ot.approve.all': ['hrm.ot.approve'],
-      'hrm.trip.approve.all': ['hrm.trip.approve'],
-      'hrm.custom.approve.all': ['hrm.custom.approve'],
-      'hrm.profile.approve.all': ['hrm.profile.approve'],
-      'hrm.advance.approve.all': ['hrm.advance.approve'],
       'hrm.advance.disburse': ['hrm.advance.read'],
       'hrm.salary.manage': ['hrm.salary.read'],
       'hrm.dependent.manage': ['hrm.dependent.read'],

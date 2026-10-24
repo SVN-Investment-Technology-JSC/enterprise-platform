@@ -12,14 +12,13 @@ describe('ProcedureActionBar', () => {
     await waitFor(() => expect(onAction).toHaveBeenCalledWith('APPROVE', ''));
   });
 
-  it('từ chối không cần lý do nhưng vẫn qua popup xác nhận', async () => {
+  it('từ chối bắt buộc có lý do: chưa nhập thì nút bị khóa và không gửi gì', () => {
     const onAction = jest.fn().mockResolvedValue(undefined);
     render(<ProcedureActionBar onAction={onAction} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Từ chối' }));
+    const reject = screen.getByRole('button', { name: 'Từ chối' }) as HTMLButtonElement;
+    expect(reject.disabled).toBe(true);
+    fireEvent.click(reject);
     expect(onAction).not.toHaveBeenCalled();
-    const confirms = await screen.findAllByRole('button', { name: 'Từ chối' });
-    fireEvent.click(confirms[confirms.length - 1]);
-    await waitFor(() => expect(onAction).toHaveBeenCalledWith('REJECT', ''));
   });
 
   it('từ chối kèm lý do thì gửi lý do', async () => {

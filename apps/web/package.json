@@ -42,6 +42,7 @@
     "@enterprise-platform/contracts-tenancy": "workspace:*",
     "@enterprise-platform/feature-hrm": "workspace:*",
     "@enterprise-platform/feature-module-shell": "workspace:*",
+    "@enterprise-platform/feature-procedure-engine": "workspace:*",
     "@enterprise-platform/shared-brand-icon": "workspace:*",
     "@enterprise-platform/shared-ui": "workspace:*",
     "@reduxjs/toolkit": "^2.12.0",

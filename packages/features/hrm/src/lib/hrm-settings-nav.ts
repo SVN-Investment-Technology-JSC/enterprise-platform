@@ -69,18 +69,9 @@ export const SETTINGS_GROUPS: readonly SettingsGroup[] = [
     icon: 'rules',
     entries: [
       {
-        id: 'time-rules',
-        label: 'Quy định chấm công',
-        description: 'Thiết lập quy tắc chấm công, điều kiện hợp lệ',
-        icon: 'rules',
-        view: 'time',
-        tab: 'rules',
-        permissions: ['hrm.time.configure'],
-      },
-      {
         id: 'time-sites',
         label: 'Địa điểm GPS',
-        description: 'Quản lý địa điểm làm việc theo GPS',
+        description: 'Khai báo địa điểm (GPS, kèm IP nếu cần), kiểm tra vị trí và phòng ban được chấm công tại đó',
         icon: 'gps',
         view: 'time',
         tab: 'sites',
@@ -146,6 +137,20 @@ export const SETTINGS_GROUPS: readonly SettingsGroup[] = [
         description: 'Giới hạn số đơn được duyệt mỗi tháng của một nhân viên theo từng loại đơn',
         icon: 'rules',
         view: 'request-quota',
+      },
+      {
+        id: 'request-time-rules',
+        label: 'Quy tắc thời gian đơn',
+        description: 'Báo trước, tạo lùi và chuyển người dự phòng theo số ngày, đặt riêng cho từng loại đơn',
+        icon: 'rules',
+        view: 'request-time-rules',
+      },
+      {
+        id: 'request-proxy',
+        label: 'Tạo đơn hộ',
+        description: 'Quy định ai được tạo hộ nghỉ phép, tăng ca, công tác cho nhân viên nào',
+        icon: 'request',
+        view: 'request-proxy',
       },
       {
         id: 'approval',

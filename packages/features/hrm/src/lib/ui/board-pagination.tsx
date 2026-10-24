@@ -39,14 +39,17 @@ export function BoardPagination({
         trong {total} nhân viên
       </span>
       <div className="flex items-center gap-3">
-        <div className="w-40" title="Số nhân viên mỗi trang">
+        <div className="w-52" title="Số nhân viên mỗi trang">
           <SearchableSelect
-            options={BOARD_PAGE_SIZES.map((n) => ({ value: String(n), label: `Hiển thị ${n}` }))}
+            options={BOARD_PAGE_SIZES.map((n) => ({ value: String(n), label: `${n} nhân viên / trang` }))}
             value={String(pageSize)}
             onChange={(v) => v && onPageSize(Number(v))}
             clearable={false}
           />
         </div>
+        <span className="whitespace-nowrap" data-testid="board-page-status">
+          Trang <strong className="text-slate-700">{page}</strong> / {pageCount}
+        </span>
         <nav aria-label="Phân trang" className="flex items-center gap-1">
           <button
             type="button"

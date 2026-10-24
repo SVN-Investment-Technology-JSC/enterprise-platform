@@ -169,9 +169,19 @@ integration('HRM employee PostgreSQL integration', () => {
     await migrate('hrm/0035-hrm-request-trip-links.sql');
     await migrate('hrm/0036-hrm-project-request-reversed.sql');
     await migrate('hrm/0054-hrm-direct-fallback-position.sql');
+    await migrate('hrm/0073-hrm-direct-approver-source.sql');
     await migrate('hrm/0056-hrm-shift-soft-delete.sql');
+    await migrate('hrm/0070-hrm-attendance-site-assignments.sql');
+    await migrate('hrm/0071-hrm-attendance-location-settings.sql');
+    await migrate('hrm/0072-hrm-attendance-site-unit-exclusions.sql');
     const ctx = {
       getContext: async () => ({ pool, tenantId, principal: { userId } }),
+      getProxyRequestContext: async function (this: any, req: any, requested?: string) {
+
+        return { ...(await this.getRequestContext(req, requested)), onBehalf: undefined };
+
+      },
+
       getRequestContext: async () => ({
         pool,
         tenantId,
@@ -342,6 +352,12 @@ integration('HRM employee PostgreSQL integration', () => {
     const ctx = {
       getContext: async () => ({ pool, tenantId, principal: { userId } }),
       resolveEmployee: async () => ({ employeeId: userId }),
+      getProxyRequestContext: async function (this: any, req: any, requested?: string) {
+
+        return { ...(await this.getRequestContext(req, requested)), onBehalf: undefined };
+
+      },
+
       getRequestContext: async () => ({
         pool,
         tenantId,
@@ -404,6 +420,12 @@ integration('HRM employee PostgreSQL integration', () => {
     const ctx = {
       getContext: async () => ({ pool, tenantId, principal: { userId } }),
       resolveEmployee: async () => ({ employeeId: userId }),
+      getProxyRequestContext: async function (this: any, req: any, requested?: string) {
+
+        return { ...(await this.getRequestContext(req, requested)), onBehalf: undefined };
+
+      },
+
       getRequestContext: async () => ({
         pool,
         tenantId,
@@ -630,6 +652,12 @@ integration('HRM employee PostgreSQL integration', () => {
       const ctx = {
         getContext: async () => ({ pool, tenantId: t, principal: { userId } }),
         resolveEmployee: async () => ({ employeeId: e }),
+        getProxyRequestContext: async function (this: any, req: any, requested?: string) {
+
+          return { ...(await this.getRequestContext(req, requested)), onBehalf: undefined };
+
+        },
+
         getRequestContext: async () => ({
           pool,
           tenantId: t,
@@ -959,6 +987,12 @@ integration('HRM employee PostgreSQL integration', () => {
     );
     const ctx = {
       getContext: async () => ({ pool, tenantId: t, principal: { userId } }),
+      getProxyRequestContext: async function (this: any, req: any, requested?: string) {
+
+        return { ...(await this.getRequestContext(req, requested)), onBehalf: undefined };
+
+      },
+
       getRequestContext: async () => ({
         pool,
         tenantId: t,
@@ -2072,7 +2106,12 @@ integration('HRM employee PostgreSQL integration', () => {
       .spyOn(S3ObjectStorage.prototype, 'objectMetadata')
       .mockResolvedValue({ sizeBytes: 12, contentType: 'application/pdf' });
     try {
-      const files = new HrmAttachmentController(ctx);
+      // Tạo/hoàn tất tệp đi qua getRequestContextOrProxy (tạo đơn hộ); người dùng thường dùng đúng ngữ cảnh của chính họ.
+      const withProxy = {
+        ...ctx,
+        getRequestContextOrProxy: (ctx as unknown as { getRequestContext: (...a: unknown[]) => Promise<unknown> }).getRequestContext,
+      } as unknown as HrmContextService;
+      const files = new HrmAttachmentController(withProxy);
       const file = await files.create(req, {
         employeeId: e,
         fileName: 'evidence.pdf',
