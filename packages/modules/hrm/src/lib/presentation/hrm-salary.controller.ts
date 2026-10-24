@@ -760,7 +760,6 @@ export class HrmSalaryController {
     @Req() req: Request,
     @Param('id') id: string,
     @Body('reason') reason: string,
-    @Body('quick') quick?: boolean,
   ) {
     const { pool, tenantId, principal } = await this.ctx.approverContext(
       req,
@@ -774,7 +773,7 @@ export class HrmSalaryController {
       'advance',
       'reject',
     );
-    rejectionNote(reason, quick);
+    rejectionNote(reason);
     const result = await pool.query(
       `UPDATE hrm_schema.salary_advance_requests SET status='REJECTED',approved_by=$3,approved_at=now() WHERE tenant_id=$1 AND id=$2 AND status='PENDING' RETURNING *`,
       [tenantId, id, principal.userId],

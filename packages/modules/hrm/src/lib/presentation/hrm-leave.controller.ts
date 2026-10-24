@@ -1564,13 +1564,12 @@ export class HrmLeaveController {
     @Req() req: Request,
     @Param('id') id: string,
     @Body('reason') reason?: string,
-    @Body('quick') quick?: boolean,
   ) {
     return this.transition(
       req,
       id,
       'REJECTED',
-      rejectionNote(reason, quick) ?? undefined,
+      rejectionNote(reason) ?? undefined,
     );
   }
   @Post('leave-requests/:id/cancel')

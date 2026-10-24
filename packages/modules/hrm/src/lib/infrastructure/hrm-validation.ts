@@ -66,13 +66,9 @@ export function requireDate(value: unknown, field: string): string {
 
 export const REJECT_REASON_REQUIRED = 'HRM_REJECT_REASON_REQUIRED';
 
-/**
- * Lý do từ chối đơn: bắt buộc nhập, trừ khi bên gọi đánh dấu từ chối nhanh (nút "Từ chối" ngay trên danh sách ở Bàn làm việc,
- * nơi không có ô nhập ý kiến). Cờ này chỉ bỏ yêu cầu nhập lý do; quyền và phạm vi duyệt vẫn được kiểm riêng.
- */
-export function rejectionNote(reason: unknown, quick?: unknown): string | null {
+/** Lý do từ chối đơn: luôn bắt buộc nhập (không còn lối từ chối nhanh không lý do). */
+export function rejectionNote(reason: unknown): string | null {
   const note = optionalText(reason, 'Lý do từ chối', 2000);
-  if (!note && quick !== true)
-    throw new BadRequestException({ code: REJECT_REASON_REQUIRED, message: 'Vui lòng nhập lý do từ chối.' });
+  if (!note) throw new BadRequestException({ code: REJECT_REASON_REQUIRED, message: 'Vui lòng nhập lý do từ chối.' });
   return note;
 }

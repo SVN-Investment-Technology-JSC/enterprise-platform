@@ -36,9 +36,7 @@ describe('rejectionNote', () => {
     expect(rejectionNote('  Trùng lịch  ')).toBe('Trùng lịch');
   });
 
-  it('từ chối nhanh (quick) không cần lý do, nhưng nếu có thì vẫn ghi lại', () => {
-    expect(rejectionNote('', true)).toBeNull();
-    expect(rejectionNote('Bận', true)).toBe('Bận');
-    expect(() => rejectionNote('', 'true')).toThrow();
+  it('không còn lối từ chối nhanh: gửi cờ quick cũng không bỏ được yêu cầu lý do', () => {
+    expect(() => (rejectionNote as (reason: unknown, quick?: unknown) => unknown)('', true)).toThrow();
   });
 });
