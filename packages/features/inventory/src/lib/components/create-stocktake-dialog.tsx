@@ -25,8 +25,8 @@ export function CreateStocktakeDialog({
   const [title, setTitle] = useState(`Kiểm kê kho định kỳ - Quý ${Math.floor(new Date().getMonth() / 3) + 1}/${currentYear}`);
   const [warehouseCode, setWarehouseCode] = useState(initialWarehouseCode || workspace.warehouses[0]?.code || 'WH-CENTRAL');
   const [scopeType, setScopeType] = useState<StocktakeScopeType>('ALL');
-  const [leadAuditor, setLeadAuditor] = useState('Thủ kho trưởng');
-  const [auditors, setAuditors] = useState('Nguyễn Văn An, Trần Thị Mai');
+  const [leadAuditor, setLeadAuditor] = useState('');
+  const [auditors, setAuditors] = useState('');
   const [note, setNote] = useState('');
   const [error, setError] = useState<string>();
 
