@@ -1,6 +1,8 @@
 /** Số byte đầu tệp cần đọc để đối chiếu chữ ký. */
 export const FILE_SIGNATURE_HEAD_BYTES = 64;
 
+const QUICKTIME_LEADING_ATOMS = ['moov', 'mdat', 'wide', 'free', 'skip'] as const;
+
 function startsWith(head: Uint8Array, bytes: readonly number[], offset = 0): boolean {
   if (head.length < offset + bytes.length) return false;
   return bytes.every((byte, index) => head[offset + index] === byte);
@@ -25,7 +27,14 @@ export function matchesFileSignature(contentType: string, head: Uint8Array): boo
     case 'image/webp':
       return startsWith(head, ascii('RIFF')) && startsWith(head, ascii('WEBP'), 8);
     case 'video/mp4':
+      // Mọi brand ISO hợp lệ (isom, mp42, avc1, M4V, ...): hộp `ftyp` ngay đầu tệp.
       return startsWith(head, ascii('ftyp'), 4);
+    case 'video/quicktime':
+      // MOV của iPhone: `ftyp` với brand `qt  `. MOV đời cũ không có `ftyp`, mở đầu bằng hộp `moov`, `mdat`, ...
+      return (
+        (startsWith(head, ascii('ftyp'), 4) && startsWith(head, ascii('qt  '), 8)) ||
+        QUICKTIME_LEADING_ATOMS.some((atom) => startsWith(head, ascii(atom), 4))
+      );
     case 'video/webm':
       return startsWith(head, [0x1a, 0x45, 0xdf, 0xa3]);
     default:

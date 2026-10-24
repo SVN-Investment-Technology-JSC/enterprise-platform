@@ -14,6 +14,21 @@ describe('matchesFileSignature', () => {
     expect(matchesFileSignature('video/webm', bytes(0x1a, 0x45, 0xdf, 0xa3, 1))).toBe(true);
   });
 
+  it('mp4 nhận mọi brand ISO hợp lệ', () => {
+    for (const brand of ['isom', 'iso2', 'mp41', 'mp42', 'avc1', 'M4V ', 'dash']) {
+      expect(matchesFileSignature('video/mp4', text(`\0\0\0\x20ftyp${brand}`))).toBe(true);
+    }
+  });
+
+  it('quicktime (mov): ftyp brand "qt  " hoặc hộp mở đầu của MOV đời cũ', () => {
+    expect(matchesFileSignature('video/quicktime', text('\0\0\0\x14ftypqt  \0\0\0\0'))).toBe(true);
+    expect(matchesFileSignature('video/quicktime', text('\0\0\0\x08wide\0\0\0\x08mdat'))).toBe(true);
+    expect(matchesFileSignature('video/quicktime', text('\0\0\0\x18moov'))).toBe(true);
+    expect(matchesFileSignature('video/quicktime', text('\0\0\0\x18ftypisom'))).toBe(false);
+    expect(matchesFileSignature('video/quicktime', text('hello world'))).toBe(false);
+    expect(matchesFileSignature('video/quicktime', new Uint8Array())).toBe(false);
+  });
+
   it('từ chối nội dung không khớp hoặc quá ngắn', () => {
     expect(matchesFileSignature('image/png', text('đây là chữ, không phải ảnh'))).toBe(false);
     expect(matchesFileSignature('image/jpeg', bytes(0xff, 0xd8))).toBe(false);

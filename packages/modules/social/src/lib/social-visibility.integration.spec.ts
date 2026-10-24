@@ -34,6 +34,9 @@ const MIGRATIONS = [
   'tenant/social/0002-social-groups.sql',
   'tenant/social/0003-social-post-p2.sql',
   'tenant/social/0004-social-visibility-groups-v2.sql',
+  'tenant/social/0005-social-comment-reactions.sql',
+  'tenant/social/0006-social-comment-attachments.sql',
+  'tenant/social/0007-social-video-processing.sql',
 ];
 
 const tenantId = 'tenant-visibility';

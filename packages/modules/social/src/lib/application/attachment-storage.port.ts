@@ -50,4 +50,6 @@ export interface AttachmentStorage {
   /** Đọc `maxBytes` byte đầu của object (GetObject có Range), để đối chiếu chữ ký tệp. */
   readHead?(key: string, maxBytes: number): Promise<Uint8Array>;
   deleteObjects(keys: readonly string[]): Promise<{ readonly failed: readonly string[] }>;
+  /** Huỷ mọi lần tải nhiều phần còn dở của đúng khoá này (không chạm khoá khác); trả số lần đã huỷ. */
+  abortIncompleteMultipartUploads?(key: string): Promise<number>;
 }

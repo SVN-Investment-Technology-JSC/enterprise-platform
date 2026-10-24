@@ -521,12 +521,12 @@ async function processFinanceJobs(database: TenantDatabaseReference) {
 }
 
 const SOCIAL_SCHEDULE_INTERVAL_MS = 60_000;
-const SOCIAL_CLEANUP_INTERVAL_MS = 60 * 60_000;
+const SOCIAL_CLEANUP_INTERVAL_MS = 15 * 60_000;
 const socialLastRun = new Map<string, { schedule: number; cleanup: number }>();
 
 /**
  * Việc định kỳ của Mạng nội bộ, chạy trong withActiveTenant (khóa SHARED) của tick: đăng bài hẹn giờ
- * đến hạn mỗi 60 giây và dọn tệp mồ côi mỗi giờ, cho từng tenant đã bật phân hệ social.
+ * đến hạn mỗi 60 giây và dọn tệp mồ côi mỗi 15 phút, cho từng tenant đã bật phân hệ social.
  * Mốc chạy giữ trong bộ nhớ: khởi động lại worker thì chạy lại ngay (an toàn vì cả hai việc đều idempotent).
  */
 async function processSocialJobs(database: TenantDatabaseReference) {

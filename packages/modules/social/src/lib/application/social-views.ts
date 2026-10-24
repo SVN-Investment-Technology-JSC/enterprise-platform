@@ -47,17 +47,29 @@ export async function toAttachmentView(
 ): Promise<SocialAttachment> {
   const isImage = isImageContentType(row.contentType);
   const isVideo = isVideoContentType(row.contentType);
-  const url = row.completed
+  // Video cũ (không cần xử lý) phát được ngay nên coi là `ready`.
+  const processingStatus = isVideo ? (row.processingStatus === 'none' ? 'ready' : row.processingStatus) : undefined;
+  // Chưa `ready` thì không bao giờ lộ URL: khoá hiện tại còn là bản gốc chưa chuyển mã.
+  const downloadable = row.completed && (!isVideo || processingStatus === 'ready');
+  const url = downloadable
     ? await storage.createDownloadUrl(
         row.storageKey,
         isVideo ? SOCIAL_VIDEO_URL_TTL_SECONDS : SOCIAL_PRESIGNED_URL_TTL_SECONDS,
         {
-        inline: isImage || isVideo,
-        contentType: row.contentType,
-        fileName: row.fileName,
+          inline: isImage || isVideo,
+          contentType: row.contentType,
+          fileName: row.fileName,
         },
       )
     : undefined;
+  const posterUrl =
+    isVideo && processingStatus === 'ready' && row.posterKey
+      ? await storage.createDownloadUrl(row.posterKey, SOCIAL_VIDEO_URL_TTL_SECONDS, {
+          inline: true,
+          contentType: 'image/jpeg',
+          fileName: 'poster.jpg',
+        })
+      : undefined;
   return {
     id: row.id,
     fileName: row.fileName,
@@ -65,6 +77,14 @@ export async function toAttachmentView(
     sizeBytes: row.sizeBytes,
     isImage,
     ...(isVideo ? { isVideo: true } : {}),
+    ...(processingStatus ? { processingStatus } : {}),
+    ...(isVideo && processingStatus === 'failed' && row.processingError
+      ? { processingError: row.processingError }
+      : {}),
+    ...(posterUrl ? { posterUrl } : {}),
+    ...(isVideo && row.durationMs !== undefined ? { durationMs: row.durationMs } : {}),
+    ...(isVideo && row.width !== undefined ? { width: row.width } : {}),
+    ...(isVideo && row.height !== undefined ? { height: row.height } : {}),
     ...(url ? { url } : {}),
   };
 }

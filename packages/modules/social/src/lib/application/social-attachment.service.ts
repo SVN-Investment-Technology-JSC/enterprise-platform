@@ -1,10 +1,17 @@
 import { randomUUID } from 'node:crypto';
 import { Logger } from '@nestjs/common';
 import {
+  SOCIAL_MAX_UNATTACHED_BYTES_PER_USER,
   SOCIAL_MULTIPART_PART_BYTES,
   SOCIAL_MULTIPART_THRESHOLD_BYTES,
   SOCIAL_PRESIGNED_URL_TTL_SECONDS,
+  SOCIAL_VIDEO_EVENT_TYPES,
+  SOCIAL_VIDEO_MAX_IN_FLIGHT_PER_TENANT,
+  SOCIAL_VIDEO_MAX_IN_FLIGHT_PER_USER,
   type AbortSocialAttachmentRequest,
+  type DiscardSocialAttachmentRequest,
+  type SocialAttachmentStatusRequest,
+  type SocialAttachmentStatusResponse,
   type RefreshSocialUploadPartsRequest,
   type RefreshSocialUploadPartsResponse,
   type CompleteSocialAttachmentRequest,
@@ -15,31 +22,46 @@ import {
 } from '@enterprise-platform/contracts-social';
 import { FILE_SIGNATURE_HEAD_BYTES, matchesFileSignature } from '../domain/file-signature.js';
 import { mayWrite } from '../domain/social-principal.js';
-import { normalizeAttachmentInput, requireUuid, safeObjectName } from '../domain/social-rules.js';
 import {
+  isUuid,
+  isVideoContentType,
+  normalizeAttachmentInput,
+  requireUuid,
+  safeObjectName,
+} from '../domain/social-rules.js';
+import {
+  SocialAttachmentInUseError,
   SocialAttachmentNotFoundError,
   SocialError,
   SocialForbiddenError,
   SocialRateLimitedError,
   SocialTooManyPendingUploadsError,
+  SocialUnattachedBytesExceededError,
   SocialUploadMismatchError,
   SocialValidationError,
+  SocialVideoTooManyProcessingError,
 } from '../domain/social.error.js';
 import type { AttachmentStorage } from './attachment-storage.port.js';
 import type { StorageQuotaPort } from './ports/storage-quota.port.js';
 import type { SocialActor } from './social-actor.js';
-import type { SocialStore } from './social-store.port.js';
+import type { AttachmentRow, OrphanAttachment, SocialStore } from './social-store.port.js';
+import type { SocialVideoStore } from './social-video-store.port.js';
 import { toAttachmentView } from './social-views.js';
 import { UploadRateLimiter } from './upload-rate-limiter.js';
 
 /** Tệp chưa gắn vào bài sau chừng này thì bị dọn. */
-export const SOCIAL_ORPHAN_TTL_MS = 24 * 60 * 60 * 1000;
+export const SOCIAL_ORPHAN_TTL_MS = 2 * 60 * 60 * 1000;
 const ORPHAN_BATCH = 200;
+/** Video `queued` quá chừng này mà chưa được xử lý thì xếp lại hàng (hàng đợi bình thường chờ ngắn hơn nhiều). */
+const STALE_VIDEO_SECONDS = 30 * 60;
 /** Mỗi người chỉ được có tối đa chừng này lần tải dang dở trong `PENDING_WINDOW_MS`. */
 export const SOCIAL_MAX_PENDING_UPLOADS = 20;
 const PENDING_WINDOW_MS = 60 * 60 * 1000;
 
-type UploadLogEvent = 'initiated' | 'completed' | 'rejected' | 'aborted';
+/** Tối đa số tệp của một lần hỏi trạng thái. */
+export const SOCIAL_ATTACHMENT_STATUS_MAX_IDS = 10;
+
+type UploadLogEvent = 'initiated' | 'completed' | 'rejected' | 'aborted' | 'discarded';
 
 interface UploadLogContext {
   readonly tenantId: string;
@@ -48,6 +70,11 @@ interface UploadLogContext {
   readonly contentType?: string;
   readonly multipart?: boolean;
   readonly reason?: string;
+  readonly processingStatus?: string;
+}
+
+function isString(value: string | undefined): value is string {
+  return typeof value === 'string' && value.length > 0;
 }
 
 function isMultipartSize(sizeBytes: number): boolean {
@@ -75,7 +102,8 @@ function partSizeOf(sizeBytes: number, partNumber: number): number {
  * 3. `abort`: người dùng huỷ lần tải chưa xong; xoá phần/object và dòng.
  * 4. Tệp được gắn vào bài khi tạo/sửa bài kèm `attachmentIds`.
  *
- * Tệp quá 24 giờ mà chưa gắn bài là tệp mồ côi, dọn bằng `cleanupOrphans`.
+ * Tệp quá 2 giờ mà chưa gắn bài là tệp mồ côi, dọn bằng `cleanupOrphans`. Đóng tab thì giao diện gọi `discard`
+ * để xoá ngay; job dọn chỉ là lưới an toàn cho trường hợp yêu cầu đó không đến được.
  */
 export class SocialAttachmentService {
   private readonly logger = new Logger(SocialAttachmentService.name);
@@ -88,6 +116,8 @@ export class SocialAttachmentService {
     private readonly quota?: StorageQuotaPort,
     /** Giới hạn tần suất `initiate`; mặc định 30 lần/phút/người và 300 lần/phút/tenant. */
     private readonly rateLimiter: UploadRateLimiter = new UploadRateLimiter(),
+    /** Hàng đợi chuyển mã video, đếm video đang xử lý và dung lượng chưa gắn; thiếu thì không áp các giới hạn video. */
+    readonly videoStore?: SocialVideoStore,
   ) {}
 
   async initiate(
@@ -121,6 +151,7 @@ export class SocialAttachmentService {
       this.log('rejected', { ...context, reason: 'too_many_pending' });
       throw new SocialTooManyPendingUploadsError();
     }
+    await this.assertVideoLimits(actor, file, context);
     // Vượt hạn mức thì dừng trước khi tạo dòng và ký URL.
     try {
       await this.quota?.ensureCapacity(actor.tenantId, file.sizeBytes);
@@ -138,6 +169,7 @@ export class SocialAttachmentService {
       contentType: file.contentType,
       sizeBytes: file.sizeBytes,
       storageKey,
+      purpose,
     });
     let uploadId: string | undefined;
     try {
@@ -165,6 +197,36 @@ export class SocialAttachmentService {
       if (uploadId) await this.storage.abortMultipartUpload(storageKey, uploadId).catch(() => undefined);
       await this.store.attachments.deleteByIds(actor.tenantId, [attachmentId]).catch(() => undefined);
       throw error;
+    }
+  }
+
+  /**
+   * Giới hạn riêng của video (chỉ khi có `videoStore`): tổng dung lượng chưa gắn của người dùng, và số video đang
+   * chờ hoặc đang chuyển mã của người dùng và của cả tenant. Đây là trần mềm: hai lần gọi đồng thời sát biên
+   * có thể cùng qua, sai lệch tối đa bằng số lần gọi đồng thời.
+   */
+  private async assertVideoLimits(
+    actor: SocialActor,
+    file: { readonly sizeBytes: number; readonly contentType: string },
+    context: UploadLogContext,
+  ): Promise<void> {
+    const videoStore = this.videoStore;
+    if (!videoStore) return;
+    const unattached = await videoStore.sumUnattachedBytes(actor.tenantId, actor.userId);
+    if (unattached + file.sizeBytes > SOCIAL_MAX_UNATTACHED_BYTES_PER_USER) {
+      throw this.reject(context, 'unattached_bytes_exceeded', new SocialUnattachedBytesExceededError());
+    }
+    if (isVideoContentType(file.contentType)) await this.assertVideoCapacity(actor, context);
+  }
+
+  private async assertVideoCapacity(actor: SocialActor, context: UploadLogContext): Promise<void> {
+    if (!this.videoStore) return;
+    const inFlight = await this.videoStore.countInFlight(actor.tenantId, actor.userId);
+    if (
+      inFlight.user >= SOCIAL_VIDEO_MAX_IN_FLIGHT_PER_USER ||
+      inFlight.tenant >= SOCIAL_VIDEO_MAX_IN_FLIGHT_PER_TENANT
+    ) {
+      throw this.reject(context, 'too_many_processing', new SocialVideoTooManyProcessingError());
     }
   }
 
@@ -204,6 +266,7 @@ export class SocialAttachmentService {
     const multipart = isMultipartSize(row.sizeBytes);
     const context: UploadLogContext = {
       tenantId: actor.tenantId,
+      purpose: row.purpose,
       sizeBytes: row.sizeBytes,
       contentType: row.contentType,
       multipart,
@@ -249,9 +312,47 @@ export class SocialAttachmentService {
         );
       }
     }
+    const videoStore = this.videoStore;
+    if (videoStore && isVideoContentType(row.contentType)) {
+      return this.completeVideo(videoStore, actor, row, uploadedBytes, context);
+    }
     await this.store.attachments.markCompleted(actor.tenantId, attachmentId, uploadedBytes);
     this.log('completed', context);
     return toAttachmentView(this.storage, { ...row, completed: true });
+  }
+
+  /**
+   * Video: đánh dấu đã tải xong và xếp hàng chuyển mã trong một transaction cùng sự kiện outbox. Gọi lại (kể cả
+   * đồng thời) chỉ tạo một sự kiện vì `completeAndQueue` idempotent.
+   */
+  private async completeVideo(
+    videoStore: SocialVideoStore,
+    actor: SocialActor,
+    row: AttachmentRow,
+    uploadedBytes: number,
+    context: UploadLogContext,
+  ): Promise<SocialAttachment> {
+    try {
+      await this.assertVideoCapacity(actor, context);
+    } catch (error) {
+      // Lần gọi đồng thời khác của chính tệp này vừa xếp hàng xong (số đang xử lý đã tính cả nó): trả kết quả đó.
+      const current = await this.store.attachments.findById(actor.tenantId, row.id);
+      if (current?.completed) return toAttachmentView(this.storage, current);
+      throw error;
+    }
+    await videoStore.completeAndQueue(actor.tenantId, row.id, uploadedBytes, {
+      type: SOCIAL_VIDEO_EVENT_TYPES[row.purpose],
+      aggregateType: 'social-attachment',
+      aggregateId: row.id,
+      payload: { attachmentId: row.id, purpose: row.purpose },
+    });
+    this.log('completed', { ...context, processingStatus: 'queued' });
+    return toAttachmentView(this.storage, {
+      ...row,
+      completed: true,
+      sizeBytes: uploadedBytes,
+      processingStatus: 'queued',
+    });
   }
 
   /**
@@ -385,6 +486,66 @@ export class SocialAttachmentService {
     });
   }
 
+  /**
+   * Bỏ tệp của chính mình mà chưa gắn vào bài hay bình luận, ở mọi trạng thái (đang tải, đã tải xong, đang chờ,
+   * đang chuyển mã, lỗi, sẵn sàng): huỷ phiên nhiều phần nếu có, xoá object (bản chính, poster, bản gốc) và dòng.
+   * Giao diện gọi khi người dùng đóng tab hay rời ô soạn thảo. Idempotent: tệp đã mất thì coi như xong. Worker đang
+   * chuyển mã sẽ thấy dòng mất ở bước ghi kết quả và tự xoá tệp vừa tạo.
+   */
+  async discard(actor: SocialActor, attachmentId: string, request?: DiscardSocialAttachmentRequest): Promise<void> {
+    if (!mayWrite(actor)) throw new SocialForbiddenError('Bạn không có quyền tải tệp lên.');
+    requireUuid(attachmentId, 'Mã tệp');
+    const row = await this.store.attachments.findById(actor.tenantId, attachmentId);
+    if (!row) return;
+    if (row.uploadedBy !== actor.userId) throw new SocialAttachmentNotFoundError();
+    if (row.postId || row.commentId) throw new SocialAttachmentInUseError();
+
+    const context: UploadLogContext = {
+      tenantId: actor.tenantId,
+      purpose: row.purpose,
+      sizeBytes: row.sizeBytes,
+      contentType: row.contentType,
+      multipart: isMultipartSize(row.sizeBytes),
+      processingStatus: row.processingStatus,
+    };
+    if (request?.uploadId && !row.completed) {
+      // Phiên đã ghép hoặc đã mất thì kho báo lỗi: không cản việc xoá phần còn lại.
+      await this.storage.abortMultipartUpload(row.storageKey, request.uploadId).catch(() => undefined);
+    }
+    // Đọc lại ngay trước khi xoá: tệp vừa được gắn vào bài trong lúc này thì giữ nguyên.
+    const latest = await this.store.attachments.findById(actor.tenantId, attachmentId);
+    if (!latest) return;
+    if (latest.postId || latest.commentId) throw new SocialAttachmentInUseError();
+    const keys = [...new Set([latest.storageKey, latest.posterKey, latest.sourceKey].filter(isString))];
+    try {
+      const { failed } = await this.storage.deleteObjects(keys);
+      if (failed.length > 0) {
+        // Giữ dòng để job dọn mồ côi thử lại.
+        this.log('rejected', { ...context, reason: 'discard_delete_failed' });
+        return;
+      }
+    } catch (error) {
+      this.logger.warn(`Không xoá được tệp bỏ dở của tenant ${actor.tenantId}: ${String(error)}`);
+      return;
+    }
+    await this.store.attachments.deleteByIds(actor.tenantId, [attachmentId]);
+    this.log('discarded', context);
+  }
+
+  /** Trạng thái xử lý của tối đa 10 tệp do chính người gọi tải lên; id lạ hoặc của người khác bị bỏ qua. */
+  async status(actor: SocialActor, request: SocialAttachmentStatusRequest): Promise<SocialAttachmentStatusResponse> {
+    if (!mayWrite(actor)) throw new SocialForbiddenError('Bạn không có quyền tải tệp lên.');
+    const ids: unknown = request?.ids;
+    if (!Array.isArray(ids)) throw new SocialValidationError('Danh sách mã tệp không hợp lệ.');
+    if (ids.length > SOCIAL_ATTACHMENT_STATUS_MAX_IDS) {
+      throw new SocialValidationError(`Mỗi lần chỉ hỏi tối đa ${SOCIAL_ATTACHMENT_STATUS_MAX_IDS} tệp.`);
+    }
+    const unique = [...new Set(ids.filter(isUuid).map((id) => id.toLowerCase()))];
+    const rows = await Promise.all(unique.map((id) => this.store.attachments.findById(actor.tenantId, id)));
+    const mine = rows.filter((row): row is AttachmentRow => row !== undefined && row.uploadedBy === actor.userId);
+    return { items: await Promise.all(mine.map((row) => toAttachmentView(this.storage, row))) };
+  }
+
   /** Nhật ký một dòng JSON; không ghi tên tệp hay thông tin cá nhân. */
   private log(event: UploadLogEvent, context: UploadLogContext): void {
     const line = JSON.stringify({ event: `social.upload.${event}`, ...context });
@@ -410,9 +571,10 @@ export class SocialAttachmentService {
   }
 
   /**
-   * Dọn tệp mồ côi (chưa gắn bài, tạo quá 24 giờ trước) của một tenant: xoá
-   * object rồi xoá dòng. Object kho từ chối xoá thì giữ dòng để lần sau thử
-   * lại. Dành cho worker gọi định kỳ; trả số tệp đã dọn.
+   * Dọn tệp mồ côi (chưa gắn bài hay bình luận, tạo quá `SOCIAL_ORPHAN_TTL_MS` trước) của một tenant: huỷ phần tải
+   * dang dở (nếu có), xoá object (gồm poster và bản gốc) rồi xoá dòng. Object kho từ chối xoá thì giữ dòng để lần
+   * sau thử lại. Sau đó thử lại việc xoá bản gốc còn sót sau chuyển mã. Dành cho worker gọi định kỳ; trả số tệp
+   * mồ côi đã dọn.
    */
   async cleanupOrphans(tenantId: string): Promise<number> {
     const olderThan = new Date(this.now().getTime() - SOCIAL_ORPHAN_TTL_MS).toISOString();
@@ -420,9 +582,12 @@ export class SocialAttachmentService {
     for (;;) {
       const orphans = await this.store.attachments.listOrphans(tenantId, olderThan, ORPHAN_BATCH);
       if (orphans.length === 0) break;
-      const { failed } = await this.storage.deleteObjects(orphans.map((orphan) => orphan.storageKey));
+      const keysOf = (orphan: OrphanAttachment) =>
+        [orphan.storageKey, orphan.posterKey, orphan.sourceKey].filter(isString);
+      await this.abortUnfinishedUploads(tenantId, orphans);
+      const { failed } = await this.storage.deleteObjects(orphans.flatMap(keysOf));
       const stuck = new Set(failed);
-      const deletable = orphans.filter((orphan) => !stuck.has(orphan.storageKey));
+      const deletable = orphans.filter((orphan) => !keysOf(orphan).some((key) => stuck.has(key)));
       if (stuck.size > 0) {
         this.logger.warn(`Không xoá được ${stuck.size} object mồ côi của tenant ${tenantId}; sẽ thử lại.`);
       }
@@ -436,6 +601,49 @@ export class SocialAttachmentService {
       // Nếu cả lô bị kho từ chối thì dừng, tránh lặp vô hạn trên cùng lô.
       if (deletable.length === 0 || orphans.length < ORPHAN_BATCH) break;
     }
+    await this.sweepSourceKeys(tenantId);
+    await this.requeueStaleVideos(tenantId);
     return removed;
+  }
+
+  /**
+   * Xếp lại hàng video bị kẹt (tin nhắn đã vào hàng chết hoặc worker chết giữa chừng). Lưới an toàn cho đường
+   * RabbitMQ: bình thường không có dòng nào quá hạn.
+   */
+  private async requeueStaleVideos(tenantId: string): Promise<void> {
+    if (!this.videoStore) return;
+    const count = await this.videoStore.requeueStale(tenantId, STALE_VIDEO_SECONDS, ORPHAN_BATCH);
+    if (count > 0) this.logger.warn(`Đã xếp lại ${count} video bị kẹt của tenant ${tenantId}.`);
+  }
+
+  /** Huỷ phiên tải nhiều phần của các tệp chưa hoàn tất (phần đã tải còn chiếm chỗ trong kho cho tới khi huỷ). */
+  private async abortUnfinishedUploads(tenantId: string, orphans: readonly OrphanAttachment[]): Promise<void> {
+    const abort = this.storage.abortIncompleteMultipartUploads?.bind(this.storage);
+    if (!abort) return;
+    for (const orphan of orphans) {
+      if (orphan.completed !== false) continue;
+      try {
+        await abort(orphan.storageKey);
+      } catch (error) {
+        this.logger.warn(`Không huỷ được phần tải dang dở của tenant ${tenantId}: ${String(error)}`);
+      }
+    }
+  }
+
+  /**
+   * Xoá các bản gốc còn sót sau chuyển mã (xoá ngay lúc xong bị hỏng thì `source_key` vẫn còn). Chỉ bỏ `source_key`
+   * khi kho đã xoá được; kho từ chối thì để lần sau.
+   */
+  private async sweepSourceKeys(tenantId: string): Promise<void> {
+    if (!this.videoStore) return;
+    const pending = await this.videoStore.listSourceKeysToDelete(tenantId, ORPHAN_BATCH);
+    if (pending.length === 0) return;
+    const { failed } = await this.storage.deleteObjects(pending.map((item) => item.sourceKey));
+    const stuck = new Set(failed);
+    const cleared = pending.filter((item) => !stuck.has(item.sourceKey)).map((item) => item.id);
+    if (cleared.length > 0) await this.videoStore.clearSourceKeys(tenantId, cleared);
+    if (stuck.size > 0) {
+      this.logger.warn(`Không xoá được ${stuck.size} bản gốc video của tenant ${tenantId}; sẽ thử lại.`);
+    }
   }
 }

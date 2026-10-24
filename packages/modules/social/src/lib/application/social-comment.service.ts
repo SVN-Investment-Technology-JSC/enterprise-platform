@@ -2,7 +2,6 @@ import { randomUUID } from 'node:crypto';
 import { Logger } from '@nestjs/common';
 import {
   SOCIAL_COMMENT_MAX_ATTACHMENTS,
-  SOCIAL_COMMENT_MAX_VIDEOS,
   SOCIAL_COMMENT_PAGE_SIZE,
   type CreateSocialCommentRequest,
   type SetSocialReactionRequest,
@@ -14,11 +13,12 @@ import {
 } from '@enterprise-platform/contracts-social';
 import { mayCommentOnPost, mayEditContent, mayRead, mayWrite } from '../domain/social-principal.js';
 import {
+  assertAttachmentSet,
+  assertAttachmentsReady,
   assertReplyTarget,
   attachmentRulesFor,
   decodeCursor,
   encodeCursor,
-  isVideoContentType,
   mentionIdsInBody,
   mergeMentions,
   normalizeCommentBody,
@@ -45,7 +45,7 @@ import type { SocialCommentAttachmentStore } from './social-comment-attachment-s
 import type { SocialCommentReactionStore } from './social-comment-reaction-store.port.js';
 import { SOCIAL_MAX_REACTORS } from './social-reaction.service.js';
 import type { SocialPostAccess } from './social-post-access.js';
-import type { CommentRow, SocialOutboxEvent, SocialStore } from './social-store.port.js';
+import type { AttachmentRow, CommentRow, SocialOutboxEvent, SocialStore } from './social-store.port.js';
 import {
   authorNameOf,
   commentCreatedEvent,
@@ -319,13 +319,14 @@ export class SocialCommentService {
 
   /**
    * Kiểm trước khi gắn: tệp đã tải xong, của người bình luận (hoặc đã thuộc chính bình luận này), chưa gắn
-   * bài hay bình luận khác, và đúng luật của bình luận (chỉ ảnh, nhỏ hơn). Lỗi chi tiết từng tệp không lộ ra
+   * bài hay bình luận khác, và đúng luật của bình luận (ảnh nhỏ hơn, tối đa 1 video tải lên cho bình luận). Video
+   * chưa xử lý xong hoặc lỗi thì chưa đăng được (`SOCIAL_VIDEO_NOT_READY`). Lỗi chi tiết từng tệp không lộ ra
    * ngoài để khỏi lộ tệp của người khác.
    */
   private async assertAttachable(actor: SocialActor, ids: readonly string[], commentId?: string): Promise<void> {
     if (ids.length === 0) return;
     const rules = attachmentRulesFor('comment');
-    let videoCount = 0;
+    const rows: AttachmentRow[] = [];
     for (const id of ids) {
       const row = await this.store.attachments.findById(actor.tenantId, id);
       const owned = row?.commentId !== undefined && row.commentId === commentId;
@@ -339,22 +340,29 @@ export class SocialCommentService {
       ) {
         throw new SocialAttachmentUnavailableError();
       }
-      if (isVideoContentType(row.contentType)) videoCount += 1;
+      rows.push(row);
     }
-    if (videoCount > SOCIAL_COMMENT_MAX_VIDEOS) {
-      throw new SocialValidationError(`Mỗi bình luận chỉ đính kèm tối đa ${SOCIAL_COMMENT_MAX_VIDEOS} video.`);
-    }
+    assertAttachmentsReady(rows);
+    assertAttachmentSet('comment', rows);
   }
 
   /** Xoá object rồi xoá dòng; object kho từ chối xoá thì giữ dòng (đã mồ côi) để job dọn thử lại. */
   private async deleteFiles(
     tenantId: string,
-    rows: readonly { readonly id: string; readonly storageKey: string }[],
+    rows: readonly {
+      readonly id: string;
+      readonly storageKey: string;
+      readonly posterKey?: string;
+      readonly sourceKey?: string;
+    }[],
   ): Promise<void> {
     if (rows.length === 0 || !this.storage) return;
+    // Video có thêm poster và bản gốc còn sót (chưa kịp xoá sau chuyển mã): xoá hết cùng lúc.
+    const keysOf = (row: (typeof rows)[number]) =>
+      [row.storageKey, row.posterKey, row.sourceKey].filter((key): key is string => Boolean(key));
     let failed: readonly string[] = [];
     try {
-      failed = (await this.storage.deleteObjects(rows.map((row) => row.storageKey))).failed;
+      failed = (await this.storage.deleteObjects(rows.flatMap(keysOf))).failed;
     } catch (error) {
       this.logger.warn(`Không xoá được tệp bình luận của tenant ${tenantId}: ${String(error)}`);
       return;
@@ -363,7 +371,7 @@ export class SocialCommentService {
       this.logger.warn(`Không xoá được ${failed.length} tệp bình luận của tenant ${tenantId}; job dọn sẽ thử lại.`);
     }
     const stuck = new Set(failed);
-    const deletable = rows.filter((row) => !stuck.has(row.storageKey));
+    const deletable = rows.filter((row) => !keysOf(row).some((key) => stuck.has(key)));
     if (deletable.length > 0) {
       await this.store.attachments.deleteByIds(
         tenantId,

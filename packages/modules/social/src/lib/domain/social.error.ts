@@ -113,6 +113,46 @@ export class SocialTooManyPendingUploadsError extends SocialError {
   }
 }
 
+/** Tổng dung lượng tệp chưa gắn của một người vượt trần. */
+export class SocialUnattachedBytesExceededError extends SocialError {
+  constructor() {
+    super(
+      'SOCIAL_UNATTACHED_BYTES_EXCEEDED',
+      'Bạn đang có quá nhiều tệp tải lên chưa đăng. Hãy đăng hoặc bỏ bớt tệp rồi thử lại.',
+      429,
+    );
+    Object.setPrototypeOf(this, SocialUnattachedBytesExceededError.prototype);
+  }
+}
+
+/** Quá nhiều video đang chờ hoặc đang chuyển mã (của người dùng hoặc của cả tenant). */
+export class SocialVideoTooManyProcessingError extends SocialError {
+  constructor() {
+    super(
+      'SOCIAL_VIDEO_TOO_MANY_PROCESSING',
+      'Đang có quá nhiều video chờ xử lý. Hãy đợi các video trước xử lý xong rồi tải tiếp.',
+      429,
+    );
+    Object.setPrototypeOf(this, SocialVideoTooManyProcessingError.prototype);
+  }
+}
+
+/** Video chưa xử lý xong (đang chờ, đang xử lý) hoặc xử lý lỗi nên chưa gắn vào bài hay bình luận được. */
+export class SocialVideoNotReadyError extends SocialError {
+  constructor() {
+    super('SOCIAL_VIDEO_NOT_READY', 'Video còn đang xử lý hoặc bị lỗi, chưa thể đăng.', 409);
+    Object.setPrototypeOf(this, SocialVideoNotReadyError.prototype);
+  }
+}
+
+/** Tệp đã gắn vào bài hay bình luận nên không bỏ riêng được. */
+export class SocialAttachmentInUseError extends SocialError {
+  constructor() {
+    super('SOCIAL_ATTACHMENT_IN_USE', 'Tệp đã được đính kèm vào bài viết hoặc bình luận nên không thể bỏ.', 409);
+    Object.setPrototypeOf(this, SocialAttachmentInUseError.prototype);
+  }
+}
+
 /** Tenant đã bật phân hệ nhưng migration chưa chạy xong. */
 export class SocialNotProvisionedError extends SocialError {
   constructor() {

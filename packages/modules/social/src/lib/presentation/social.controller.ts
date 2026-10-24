@@ -18,8 +18,10 @@ import type {
   CompleteSocialAttachmentRequest,
   CreateSocialCommentRequest,
   CreateSocialTopicRequest,
+  DiscardSocialAttachmentRequest,
   InitiateSocialAttachmentRequest,
   SetSocialReactionRequest,
+  SocialAttachmentStatusRequest,
   UpdateSocialCommentRequest,
   UpdateSocialTopicRequest,
 } from '@enterprise-platform/contracts-social';
@@ -188,6 +190,26 @@ export class SocialController {
     @Body() body?: AbortSocialAttachmentRequest,
   ): Promise<void> {
     await this.execute(() => this.attachments.abort(this.actor(request), id, body ?? undefined));
+  }
+
+  /** Bỏ tệp của mình chưa gắn vào bài/bình luận, ở mọi trạng thái xử lý (UI gọi khi đóng tab hoặc rời ô soạn thảo). */
+  @Post('attachments/:id/discard')
+  @HttpCode(204)
+  async discardUpload(
+    @Req() request: SocialRequest,
+    @Param('id') id: string,
+    @Body() body?: DiscardSocialAttachmentRequest,
+  ): Promise<void> {
+    await this.execute(() => this.attachments.discard(this.actor(request), id, body ?? undefined));
+  }
+
+  /** Trạng thái xử lý của tối đa 10 tệp do chính người gọi tải lên. */
+  @Post('attachments/status')
+  @HttpCode(200)
+  attachmentStatus(@Req() request: SocialRequest, @Body() body: SocialAttachmentStatusRequest) {
+    return this.execute(() =>
+      this.attachments.status(this.actor(request), body ?? ({} as SocialAttachmentStatusRequest)),
+    );
   }
 
   /* -------------------------------------------------------------- nội bộ */

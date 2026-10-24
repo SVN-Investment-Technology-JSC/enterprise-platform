@@ -1,4 +1,9 @@
-import type { SocialPostKind, SocialReactionType } from '@enterprise-platform/contracts-social';
+import type {
+  SocialAttachmentPurpose,
+  SocialPostKind,
+  SocialReactionType,
+  SocialVideoProcessingStatus,
+} from '@enterprise-platform/contracts-social';
 
 /** Token DI của store. */
 export const SOCIAL_STORE = Symbol('SOCIAL_STORE');
@@ -10,7 +15,7 @@ export const SOCIAL_STORE = Symbol('SOCIAL_STORE');
  */
 export interface SocialOutboxEvent {
   readonly type: string;
-  readonly aggregateType: 'social-post' | 'social-comment';
+  readonly aggregateType: 'social-post' | 'social-comment' | 'social-attachment';
   readonly aggregateId: string;
   readonly payload: Readonly<Record<string, unknown>>;
 }
@@ -42,6 +47,17 @@ export interface AttachmentRow {
   readonly sizeBytes: number;
   readonly storageKey: string;
   readonly completed: boolean;
+  /** Nơi tệp được tải lên để gắn vào. */
+  readonly purpose: SocialAttachmentPurpose;
+  /** `none`: không cần xử lý (không phải video, hoặc video cũ phát được ngay). */
+  readonly processingStatus: 'none' | SocialVideoProcessingStatus;
+  readonly processingError?: string;
+  /** Khoá bản gốc còn chờ xoá sau chuyển mã. */
+  readonly sourceKey?: string;
+  readonly posterKey?: string;
+  readonly durationMs?: number;
+  readonly width?: number;
+  readonly height?: number;
 }
 
 export interface ReactionSummaryRow {
@@ -146,6 +162,7 @@ export interface AttachmentInsert {
   readonly contentType: string;
   readonly sizeBytes: number;
   readonly storageKey: string;
+  readonly purpose: SocialAttachmentPurpose;
 }
 
 export interface ReactorRow {
@@ -157,6 +174,10 @@ export interface ReactorRow {
 export interface OrphanAttachment {
   readonly id: string;
   readonly storageKey: string;
+  readonly posterKey?: string;
+  readonly sourceKey?: string;
+  /** Đã tải xong chưa; `false` thì có thể còn phần tải nhiều phần dang dở cần huỷ. */
+  readonly completed?: boolean;
 }
 
 /**
@@ -232,6 +253,10 @@ export interface SocialStore {
     /** Tệp chưa gắn bài, tạo trước `olderThan` (ISO). */
     listOrphans(tenantId: string, olderThan: string, limit: number): Promise<OrphanAttachment[]>;
     deleteByIds(tenantId: string, ids: readonly string[]): Promise<void>;
+    /** Mọi tệp của một bài: tệp gắn vào bài và tệp của các bình luận của bài (mọi trạng thái, kể cả video đang xử lý). */
+    listForPost(tenantId: string, postId: string): Promise<OrphanAttachment[]>;
+    /** Xoá dòng bất kể đã gắn hay chưa. Chỉ dành cho việc xoá bài (khác `deleteByIds`, chỉ xoá tệp chưa gắn). */
+    deleteAttachedByIds(tenantId: string, ids: readonly string[]): Promise<void>;
     /** Số lần tải dang dở của người dùng: chưa hoàn tất, chưa gắn bài/bình luận, tạo từ `sinceIso` (ISO). */
     countPending(tenantId: string, uploaderId: string, sinceIso: string): Promise<number>;
   };

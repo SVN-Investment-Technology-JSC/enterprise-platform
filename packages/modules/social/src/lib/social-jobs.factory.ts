@@ -8,6 +8,7 @@ import { PostgresSocialGroupStore } from './infrastructure/postgres-social-group
 import { PostgresSocialPublishingStore } from './infrastructure/postgres-social-publishing.store.js';
 import { PostgresSocialSettingsStore } from './infrastructure/postgres-social-settings.store.js';
 import { PostgresSocialStore } from './infrastructure/postgres-social-store.js';
+import { PostgresSocialVideoStore } from './infrastructure/postgres-social-video.store.js';
 import { createS3AttachmentStorage } from './infrastructure/s3-attachment-storage.js';
 
 /** Việc định kỳ của Mạng nội bộ cho worker, dựng ngoài Nest (worker không dùng `SocialModule`). */
@@ -26,7 +27,14 @@ export function createSocialJobs(references: TenantDatabaseRegistry, pools: Post
   const groups = new GroupMembershipAdapter(new PostgresSocialGroupStore(references, pools));
   const events = new PublishedEventBuilder(new HttpOrganizationDirectory(), groups, publishing);
   const scheduler = new SocialSchedulerService({ store: publishing, groups, settings, events });
-  const attachments = new SocialAttachmentService(new PostgresSocialStore(references, pools), createS3AttachmentStorage());
+  const attachments = new SocialAttachmentService(
+    new PostgresSocialStore(references, pools),
+    createS3AttachmentStorage(),
+    undefined,
+    undefined,
+    undefined,
+    new PostgresSocialVideoStore(references, pools),
+  );
   return {
     ready: async (tenantId) => {
       const pool = await pools.forTenant(references.require(tenantId));

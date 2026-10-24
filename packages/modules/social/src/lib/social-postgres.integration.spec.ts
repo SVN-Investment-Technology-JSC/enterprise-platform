@@ -12,6 +12,7 @@ import { ORGANIZATION_DIRECTORY } from './application/organization-directory.por
 import { PEOPLE_PROFILE } from './application/ports/people-profile.port.js';
 import { HttpOrgStructure } from './infrastructure/http-org-structure.js';
 import type { SocialActor } from './application/social-actor.js';
+import { SocialCommentService } from './application/social-comment.service.js';
 import { SocialFeedService } from './application/social-feed.service.js';
 import { SocialGroupMemberService } from './application/social-group-member.service.js';
 import { SocialGroupService } from './application/social-group.service.js';
@@ -35,6 +36,9 @@ const MIGRATIONS = [
   'tenant/social/0002-social-groups.sql',
   'tenant/social/0003-social-post-p2.sql',
   'tenant/social/0004-social-visibility-groups-v2.sql',
+  'tenant/social/0005-social-comment-reactions.sql',
+  'tenant/social/0006-social-comment-attachments.sql',
+  'tenant/social/0007-social-video-processing.sql',
 ];
 
 function actor(tenantId: string, userId: string, over: Partial<SocialActor> = {}): SocialActor {
@@ -67,6 +71,8 @@ integration('Mạng nội bộ P2/P3 trên PostgreSQL thật', () => {
   let search: SocialSearchService;
   let polls: SocialPollService;
   let scheduler: SocialSchedulerService;
+  let comments: SocialCommentService;
+  const deletedKeys: string[] = [];
 
   beforeAll(async () => {
     const url = new URL(process.env.SOCIAL_TEST_ADMIN_URL!);
@@ -87,7 +93,13 @@ integration('Mạng nội bộ P2/P3 trên PostgreSQL thật', () => {
       .overrideProvider(ORGANIZATION_DIRECTORY)
       .useValue(directory)
       .overrideProvider(ATTACHMENT_STORAGE)
-      .useValue({})
+      .useValue({
+        createDownloadUrl: async (key: string) => `https://storage.test/${key}`,
+        deleteObjects: async (keys: readonly string[]) => {
+          deletedKeys.push(...keys);
+          return { failed: [] };
+        },
+      })
       .overrideProvider(PEOPLE_PROFILE)
       .useValue(people)
       .overrideProvider(HttpOrgStructure)
@@ -112,6 +124,7 @@ integration('Mạng nội bộ P2/P3 trên PostgreSQL thật', () => {
     search = moduleRef.get(SocialSearchService);
     polls = moduleRef.get(SocialPollService);
     scheduler = moduleRef.get(SocialSchedulerService);
+    comments = moduleRef.get(SocialCommentService);
   });
 
   afterAll(async () => {
@@ -131,6 +144,41 @@ integration('Mạng nội bộ P2/P3 trên PostgreSQL thật', () => {
     expect(page.items.map((item) => item.id)).toContain(post.id);
     const outbox = await pool.query(`SELECT 1 FROM integration_schema.outbox_events WHERE event_type = 'social.post.published'`);
     expect(outbox.rowCount).toBeGreaterThan(0);
+  });
+
+  it('xoá bài xoá luôn dòng và object của tệp bài lẫn tệp bình luận (kể cả poster và bản gốc video)', async () => {
+    const addFile = async (purpose: 'post' | 'comment', extra: { poster?: string; source?: string } = {}) => {
+      const id = randomUUID();
+      await pool.query(
+        `INSERT INTO social_schema.attachments
+           (id, uploaded_by, file_name, content_type, size_bytes, storage_key, completed_at, purpose,
+            processing_status, poster_key, source_key)
+         VALUES ($1, $2, 'clip.mp4', 'video/mp4', 10, $3, now(), $4, 'ready', $5, $6)`,
+        [id, alice, `k/${id}/video.mp4`, purpose, extra.poster ?? null, extra.source ?? null],
+      );
+      return id;
+    };
+    const postFile = await addFile('post', { poster: 'k/post-poster.jpg' });
+    const commentFile = await addFile('comment', { poster: 'k/comment-poster.jpg', source: 'k/comment-source.mov' });
+    const post = await publishing.create(actor(tenantId, alice), { bodyHtml: '<p>Có video</p>', attachmentIds: [postFile] });
+    await comments.create(actor(tenantId, bob), post.id, { body: 'Bình luận có video', attachmentIds: [] });
+    const comment = await comments.create(actor(tenantId, alice), post.id, { body: '', attachmentIds: [commentFile] });
+    expect(comment.attachments).toHaveLength(1);
+    deletedKeys.length = 0;
+
+    await publishing.remove(actor(tenantId, alice), post.id);
+
+    const left = await pool.query(`SELECT id FROM social_schema.attachments WHERE id = ANY($1::uuid[])`, [[postFile, commentFile]]);
+    expect(left.rows).toEqual([]);
+    expect(deletedKeys.sort()).toEqual(
+      [
+        `k/${postFile}/video.mp4`,
+        'k/post-poster.jpg',
+        `k/${commentFile}/video.mp4`,
+        'k/comment-poster.jpg',
+        'k/comment-source.mov',
+      ].sort(),
+    );
   });
 
   it('bài nhóm riêng tư ẩn với người ngoài, hiện với thành viên', async () => {

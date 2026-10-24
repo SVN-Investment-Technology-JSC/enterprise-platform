@@ -60,7 +60,7 @@ import { ReadAudience } from './social-read-audience.js';
 import { SocialReadConfirmationService } from './social-read-confirmation.service.js';
 import { SocialSchedulerService } from './social-scheduler.service.js';
 import { SocialSettingsService } from './social-settings.service.js';
-import type { SocialOutboxEvent, SocialStore } from './social-store.port.js';
+import type { AttachmentRow, SocialOutboxEvent, SocialStore } from './social-store.port.js';
 import {
   SocialPostStateError,
   SocialPollClosedError,
@@ -628,7 +628,7 @@ class FakePublishingStore implements SocialPublishingStore {
 }
 
 /** Phần `SocialStore` của P1 mà đường ghi dùng: chuyên mục, quan hệ bài, phản ứng. */
-function fakeSocialStore(publishing: FakePublishingStore): SocialStore {
+function fakeSocialStore(publishing: FakePublishingStore, files: ReadonlyMap<string, AttachmentRow>): SocialStore {
   const store = {
     topics: {
       findById: async () => undefined,
@@ -640,7 +640,10 @@ function fakeSocialStore(publishing: FakePublishingStore): SocialStore {
         const reactions = new Map();
         for (const id of ids) {
           mentions.set(id, publishing.mentions.get(id) ?? []);
-          attachments.set(id, []);
+          attachments.set(
+            id,
+            [...files.values()].filter((file) => file.postId === id && file.completed),
+          );
           const counts: Partial<Record<SocialReactionType, number>> = {};
           let total = 0;
           let mine: SocialReactionType | undefined;
@@ -690,7 +693,10 @@ function harness() {
   const posting = new FakePosting(groups);
   const visibility = new FakeVisibility(groups, viewerScopes);
   const store = new FakePublishingStore(groups, clock);
-  const social = fakeSocialStore(store);
+  // Tệp đính kèm giả: tests đặt dòng vào `files`; `deletedKeys` ghi các khoá bị xoá khỏi kho.
+  const files = new Map<string, AttachmentRow>();
+  const deletedKeys: string[] = [];
+  const social = fakeSocialStore(store, files);
   const settings = new FakeSettings();
   const directory = new FakeDirectory();
   const people = { listActiveUserIds: async () => [ALICE, BOB, CAROL, DAVE] };
@@ -714,6 +720,8 @@ function harness() {
 
   return {
     clock,
+    files,
+    deletedKeys,
     groups,
     viewerScopes,
     posting,
@@ -727,6 +735,30 @@ function harness() {
     publishing: new SocialPublishingService({
       store,
       social,
+      attachments: {
+        findById: async (_t: string, id: string) => files.get(id),
+        deleteByIds: async (_t: string, ids: readonly string[]) => {
+          for (const id of ids) files.delete(id);
+        },
+        listForPost: async (_t: string, postId: string) =>
+          [...files.values()]
+            .filter((file) => file.postId === postId)
+            .map((file) => ({
+              id: file.id,
+              storageKey: file.storageKey,
+              ...(file.posterKey ? { posterKey: file.posterKey } : {}),
+              ...(file.sourceKey ? { sourceKey: file.sourceKey } : {}),
+            })),
+        deleteAttachedByIds: async (_t: string, ids: readonly string[]) => {
+          for (const id of ids) files.delete(id);
+        },
+      },
+      storage: {
+        deleteObjects: async (keys: readonly string[]) => {
+          deletedKeys.push(...keys);
+          return { failed: [] };
+        },
+      },
       directory,
       groups,
       settings,
@@ -2063,5 +2095,121 @@ describe('bài trong nhóm: quyền đăng và chủ đề', () => {
     await expectError(h.publishing.update(bob, post.id, { groupTopicId: TOPIC_FOREIGN }), 'GROUP_TOPIC_NOT_FOUND', 404);
     const wall = await h.publishing.create(alice, { bodyHtml: BODY });
     await expectError(h.publishing.update(alice, wall.id, { groupTopicId: TOPIC_A }), 'FORBIDDEN');
+  });
+});
+
+
+/* ------------------------------------------------- video đính kèm và gate */
+
+describe('video đính kèm bài viết', () => {
+  type Harness = ReturnType<typeof harness>;
+  let counter = 0;
+
+  function file(
+    h: Harness,
+    over: Partial<AttachmentRow> & { readonly owner?: string } = {},
+  ): string {
+    counter += 1;
+    const id = `aaaaaaaa-0000-4000-8000-${String(counter).padStart(12, '0')}`;
+    const { owner, ...rest } = over;
+    h.files.set(id, {
+      id,
+      uploadedBy: owner ?? ALICE,
+      fileName: 'clip.mp4',
+      contentType: 'video/mp4',
+      sizeBytes: 1000,
+      storageKey: `k/${id}/clip.mp4`,
+      completed: true,
+      purpose: 'post',
+      processingStatus: 'ready',
+      ...rest,
+    });
+    return id;
+  }
+
+  it('video ready (hoặc none) đăng được; queued, processing, failed bị chặn ở bài đăng ngay, hẹn giờ và chờ duyệt', async () => {
+    const h = harness();
+    const ready = file(h);
+    const legacy = file(h, { processingStatus: 'none' });
+    await h.publishing.create(alice, { bodyHtml: BODY, attachmentIds: [ready, legacy] });
+
+    for (const status of ['queued', 'processing', 'failed'] as const) {
+      const pending = file(h, { processingStatus: status });
+      await expectError(
+        h.publishing.create(alice, { bodyHtml: BODY, attachmentIds: [pending] }),
+        'SOCIAL_VIDEO_NOT_READY',
+        409,
+      );
+      // Bài hẹn giờ kiểm ngay lúc lưu, không đợi tới giờ đăng.
+      await expectError(
+        h.publishing.create(alice, {
+          bodyHtml: BODY,
+          attachmentIds: [pending],
+          scheduledAt: new Date(h.clock.now.getTime() + 3_600_000).toISOString(),
+        }),
+        'SOCIAL_VIDEO_NOT_READY',
+      );
+    }
+    h.settings.value = { wallRequireApproval: true };
+    await expectError(
+      h.publishing.create(alice, { bodyHtml: BODY, attachmentIds: [file(h, { processingStatus: 'queued' })] }),
+      'SOCIAL_VIDEO_NOT_READY',
+    );
+  });
+
+  it('sửa bài: thêm video chưa ready bị chặn; video ready thì được', async () => {
+    const h = harness();
+    const post = await h.publishing.create(alice, { bodyHtml: BODY });
+    await expectError(
+      h.publishing.update(alice, post.id, { attachmentIds: [file(h, { processingStatus: 'processing' })] }),
+      'SOCIAL_VIDEO_NOT_READY',
+    );
+    const updated = await h.publishing.update(alice, post.id, { attachmentIds: [file(h)] });
+    expect(updated.id).toBe(post.id);
+  });
+
+  it('tối đa 3 video, không trộn ảnh với video, video của bình luận không gắn vào bài, tài liệu thì được', async () => {
+    const h = harness();
+    const videos = [file(h), file(h), file(h)];
+    await h.publishing.create(alice, { bodyHtml: BODY, attachmentIds: videos });
+    await expectError(
+      h.publishing.create(alice, { bodyHtml: BODY, attachmentIds: [...videos, file(h)] }),
+      'VALIDATION',
+    );
+    const image = file(h, { contentType: 'image/png', fileName: 'a.png' });
+    await expectError(h.publishing.create(alice, { bodyHtml: BODY, attachmentIds: [image, file(h)] }), 'VALIDATION');
+    await expectError(
+      h.publishing.create(alice, { bodyHtml: BODY, attachmentIds: [file(h, { purpose: 'comment' })] }),
+      'VALIDATION',
+    );
+    const pdf = file(h, { contentType: 'application/pdf', fileName: 'a.pdf', processingStatus: 'none' });
+    await h.publishing.create(alice, { bodyHtml: BODY, attachmentIds: [pdf, file(h)] });
+  });
+
+  it('không gắn tệp của người khác hay chưa tải xong', async () => {
+    const h = harness();
+    await expectError(
+      h.publishing.create(alice, { bodyHtml: BODY, attachmentIds: [file(h, { owner: BOB })] }),
+      'ATTACHMENT_UNAVAILABLE',
+    );
+    await expectError(
+      h.publishing.create(alice, { bodyHtml: BODY, attachmentIds: [file(h, { completed: false })] }),
+      'ATTACHMENT_UNAVAILABLE',
+    );
+  });
+
+  it('xoá bài xoá ngay video, poster và bản gốc còn sót, kể cả dòng', async () => {
+    const h = harness();
+    const id = file(h, { posterKey: 'k/poster.jpg', sourceKey: 'k/source.mov' });
+    const other = file(h);
+    const post = await h.publishing.create(alice, { bodyHtml: BODY, attachmentIds: [id, other] });
+    h.files.set(id, { ...(h.files.get(id) as AttachmentRow), postId: post.id });
+    h.files.set(other, { ...(h.files.get(other) as AttachmentRow), postId: post.id });
+
+    await h.publishing.remove(alice, post.id);
+    expect(h.deletedKeys.sort()).toEqual(
+      [`k/${id}/clip.mp4`, 'k/poster.jpg', 'k/source.mov', `k/${other}/clip.mp4`].sort(),
+    );
+    expect(h.files.size).toBe(0);
   });
 });

@@ -3,8 +3,9 @@ import {
   SOCIAL_ATTACHMENT_MAX_BYTES,
   SOCIAL_COMMENT_IMAGE_MAX_BYTES,
   SOCIAL_COMMENT_MAX,
-  SOCIAL_COMMENT_VIDEO_MAX_BYTES,
+  SOCIAL_COMMENT_MAX_ATTACHMENTS,
   SOCIAL_VIDEO_CONTENT_TYPES,
+  SOCIAL_VIDEO_LIMITS,
   SOCIAL_FEED_MAX_PAGE_SIZE,
   SOCIAL_FEED_PAGE_SIZE,
   SOCIAL_IMAGE_CONTENT_TYPES,
@@ -14,11 +15,12 @@ import {
   SOCIAL_POST_TITLE_MAX,
   SOCIAL_REACTION_TYPES,
   SOCIAL_TOPIC_NAME_MAX,
+  type SocialAttachmentPurpose,
   type SocialPostKind,
   type SocialReactionType,
 } from '@enterprise-platform/contracts-social';
 import { htmlToPlainText, sanitizeHtml } from './html-sanitizer.js';
-import { SocialValidationError } from './social.error.js';
+import { SocialValidationError, SocialVideoNotReadyError } from './social.error.js';
 
 /** Tối đa người được nhắc tên trong một bài hay một bình luận. */
 export const SOCIAL_MAX_MENTIONS = 50;
@@ -170,27 +172,36 @@ export interface NormalizedAttachmentInput {
   readonly sizeBytes: number;
 }
 
-/** Kiểu tệp và dung lượng tối đa được nhận cho từng nơi gắn. Bình luận nhận ảnh và video. */
-export function attachmentRulesFor(purpose: 'post' | 'comment'): {
+/**
+ * Kiểu tệp và dung lượng tối đa được nhận cho từng nơi gắn. Bình luận nhận ảnh và video; bài viết nhận tài liệu,
+ * ảnh và video. Dung lượng video theo `SOCIAL_VIDEO_LIMITS` (video được chuyển mã ở nền nên nhận bản gốc lớn).
+ */
+export function attachmentRulesFor(purpose: SocialAttachmentPurpose): {
   readonly allowedTypes: readonly string[];
   readonly maxBytesFor: (contentType: string) => number;
   readonly typeError: string;
 } {
+  const videoMax = SOCIAL_VIDEO_LIMITS[purpose].maxBytes;
   if (purpose === 'comment') {
     return {
       allowedTypes: [...SOCIAL_IMAGE_CONTENT_TYPES, ...SOCIAL_VIDEO_CONTENT_TYPES],
       maxBytesFor: (contentType) =>
-        SOCIAL_VIDEO_CONTENT_TYPES.includes(contentType)
-          ? SOCIAL_COMMENT_VIDEO_MAX_BYTES
-          : SOCIAL_COMMENT_IMAGE_MAX_BYTES,
-      typeError: 'Bình luận chỉ nhận ảnh JPEG, PNG, GIF, WebP hoặc video MP4, WebM.',
+        SOCIAL_VIDEO_CONTENT_TYPES.includes(contentType) ? videoMax : SOCIAL_COMMENT_IMAGE_MAX_BYTES,
+      typeError: 'Bình luận chỉ nhận ảnh JPEG, PNG, GIF, WebP hoặc video MP4, WebM, MOV.',
     };
   }
   return {
-    allowedTypes: SOCIAL_ALLOWED_CONTENT_TYPES,
-    maxBytesFor: () => SOCIAL_ATTACHMENT_MAX_BYTES,
-    typeError: 'Loại tệp này không được hỗ trợ. Chỉ nhận PDF, Word, Excel, PowerPoint, ZIP và ảnh JPEG, PNG, GIF, WebP.',
+    allowedTypes: [...SOCIAL_ALLOWED_CONTENT_TYPES, ...SOCIAL_VIDEO_CONTENT_TYPES],
+    maxBytesFor: (contentType) => (SOCIAL_VIDEO_CONTENT_TYPES.includes(contentType) ? videoMax : SOCIAL_ATTACHMENT_MAX_BYTES),
+    typeError:
+      'Loại tệp này không được hỗ trợ. Chỉ nhận PDF, Word, Excel, PowerPoint, ZIP, ảnh JPEG, PNG, GIF, WebP và video MP4, WebM, MOV.',
   };
+}
+
+function formatMaxSize(maxBytes: number): string {
+  const gigabyte = 1024 * 1024 * 1024;
+  if (maxBytes >= gigabyte && maxBytes % gigabyte === 0) return `${maxBytes / gigabyte} GB`;
+  return `${Math.floor(maxBytes / (1024 * 1024))} MB`;
 }
 
 export function normalizeAttachmentInput(
@@ -218,7 +229,7 @@ export function normalizeAttachmentInput(
   }
   const maxBytes = rules.maxBytesFor(contentType);
   if (sizeBytes > maxBytes) {
-    throw new SocialValidationError(`Tệp tối đa ${Math.floor(maxBytes / (1024 * 1024))} MB.`);
+    throw new SocialValidationError(`Tệp tối đa ${formatMaxSize(maxBytes)}.`);
   }
   return { fileName, contentType, sizeBytes };
 }
@@ -229,6 +240,57 @@ export function isVideoContentType(contentType: string): boolean {
 
 export function isImageContentType(contentType: string): boolean {
   return SOCIAL_IMAGE_CONTENT_TYPES.includes(contentType);
+}
+
+/** Phần của một tệp đã tải mà luật gắn tệp cần biết. */
+export interface AttachableFacts {
+  readonly contentType: string;
+  readonly purpose: SocialAttachmentPurpose;
+  readonly processingStatus: 'none' | 'queued' | 'processing' | 'ready' | 'failed';
+}
+
+/** Video đang chờ, đang xử lý hoặc lỗi thì chưa gắn được (`none` và `ready` là dùng được). */
+export function isProcessingFinished(file: Pick<AttachableFacts, 'processingStatus'>): boolean {
+  return file.processingStatus === 'none' || file.processingStatus === 'ready';
+}
+
+/** Chặn đăng khi có tệp chưa xử lý xong: chung cho bài viết và bình luận. */
+export function assertAttachmentsReady(files: readonly Pick<AttachableFacts, 'processingStatus'>[]): void {
+  if (files.some((file) => !isProcessingFinished(file))) throw new SocialVideoNotReadyError();
+}
+
+/**
+ * Luật tập tệp của một bài hay một bình luận: video chỉ gắn đúng nơi đã tải lên (video của bình luận không gắn vào
+ * bài và ngược lại), bài tối đa `SOCIAL_VIDEO_LIMITS.post.maxVideos` video và không trộn ảnh với video (tài liệu thì
+ * được), bình luận tối đa 1 video và 4 tệp. Số tệp tối đa của bài đã kiểm ở `normalizeAttachmentIds`.
+ */
+export function assertAttachmentSet(target: SocialAttachmentPurpose, files: readonly AttachableFacts[]): void {
+  const videos = files.filter((file) => isVideoContentType(file.contentType));
+  if (videos.some((video) => video.purpose !== target)) {
+    throw new SocialValidationError(
+      target === 'post'
+        ? 'Video này được tải lên cho bình luận, không đính kèm vào bài viết được. Hãy tải lại video trong bài viết.'
+        : 'Video này được tải lên cho bài viết, không đính kèm vào bình luận được. Hãy tải lại video trong bình luận.',
+    );
+  }
+  const limits = SOCIAL_VIDEO_LIMITS[target];
+  if (videos.length > limits.maxVideos) {
+    throw new SocialValidationError(
+      target === 'post'
+        ? `Mỗi bài viết đính kèm tối đa ${limits.maxVideos} video.`
+        : `Mỗi bình luận chỉ đính kèm tối đa ${limits.maxVideos} video.`,
+    );
+  }
+  if (target === 'post') {
+    if (videos.length > 0 && files.some((file) => isImageContentType(file.contentType))) {
+      throw new SocialValidationError('Một bài viết không đính kèm đồng thời ảnh và video. Hãy chọn ảnh hoặc video.');
+    }
+    if (files.length > SOCIAL_MAX_ATTACHMENTS_PER_POST) {
+      throw new SocialValidationError(`Mỗi bài viết đính kèm tối đa ${SOCIAL_MAX_ATTACHMENTS_PER_POST} tệp.`);
+    }
+  } else if (files.length > SOCIAL_COMMENT_MAX_ATTACHMENTS) {
+    throw new SocialValidationError(`Mỗi bình luận đính kèm tối đa ${SOCIAL_COMMENT_MAX_ATTACHMENTS} tệp.`);
+  }
 }
 
 /** Tên tệp an toàn cho khoá object: bỏ dấu tiếng Việt, ký tự lạ thành "-". */

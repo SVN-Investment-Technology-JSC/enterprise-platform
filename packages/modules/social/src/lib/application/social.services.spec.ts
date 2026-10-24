@@ -1,5 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import { SOCIAL_EVENT_TYPES, type SocialReactionType, type SocialUserRef } from '@enterprise-platform/contracts-social';
+import {
+  SOCIAL_EVENT_TYPES,
+  SOCIAL_VIDEO_EVENT_TYPES,
+  type SocialReactionType,
+  type SocialUserRef,
+} from '@enterprise-platform/contracts-social';
 import {
   SocialAttachmentUnavailableError,
   SocialError,
@@ -32,6 +37,7 @@ import type {
   TopicRow,
 } from './social-store.port.js';
 import { SocialTopicService } from './social-topic.service.js';
+import type { SocialVideoStore } from './social-video-store.port.js';
 
 const TENANT = 'tenant-1';
 const ALICE = '11111111-1111-4111-8111-111111111111';
@@ -324,7 +330,8 @@ class FakeStore implements SocialStore {
   }
 
   readonly attachments: SocialStore['attachments'] = {
-    insert: async (_t, input) => void this.attachments_.set(input.id, { ...input, completed: false }),
+    insert: async (_t, input) =>
+      void this.attachments_.set(input.id, { ...input, completed: false, processingStatus: 'none' }),
     findById: async (_t, id) => this.attachments_.get(id),
     markCompleted: async (_t, id, sizeBytes) => {
       const row = this.attachments_.get(id);
@@ -336,6 +343,13 @@ class FakeStore implements SocialStore {
         .slice(0, limit)
         .map((a) => ({ id: a.id, storageKey: a.storageKey })),
     deleteByIds: async (_t, ids) => {
+      for (const id of ids) this.attachments_.delete(id);
+    },
+    listForPost: async (_t, postId) =>
+      [...this.attachments_.values()]
+        .filter((a) => a.postId === postId)
+        .map((a) => ({ id: a.id, storageKey: a.storageKey })),
+    deleteAttachedByIds: async (_t, ids) => {
       for (const id of ids) this.attachments_.delete(id);
     },
     countPending: async (_t, uploaderId) =>
@@ -371,6 +385,7 @@ class FakeStorage implements AttachmentStorage {
     if (lower.endsWith('.jpg')) return Uint8Array.from([0xff, 0xd8, 0xff]);
     if (lower.endsWith('.mp4')) return Uint8Array.from([0, 0, 0, 0x18, 0x66, 0x74, 0x79, 0x70]);
     if (lower.endsWith('.webm')) return Uint8Array.from([0x1a, 0x45, 0xdf, 0xa3]);
+    if (lower.endsWith('.mov')) return Uint8Array.from([0, 0, 0, 0x14, 0x66, 0x74, 0x79, 0x70, 0x71, 0x74, 0x20, 0x20]);
     return new Uint8Array();
   }
   /** Kích thước đã ghim của từng URL tải lên, theo khoá. */
@@ -483,6 +498,53 @@ class FakeCommentReactions implements SocialCommentReactionStore {
       });
     }
     return result;
+  }
+}
+
+/** Hàng đợi video giả, đọc/ghi thẳng `FakeStore.attachments_`. `completeAndQueue` idempotent như hợp đồng của port. */
+class FakeVideoStore implements SocialVideoStore {
+  readonly events: SocialOutboxEvent[] = [];
+  completeCalls = 0;
+  constructor(private readonly store: FakeStore) {}
+
+  async completeAndQueue(_t: string, id: string, sizeBytes: number, event: SocialOutboxEvent) {
+    this.completeCalls += 1;
+    const row = this.store.attachments_.get(id);
+    if (!row || row.completed || row.processingStatus !== 'none') return;
+    this.store.attachments_.set(id, { ...row, sizeBytes, completed: true, processingStatus: 'queued' });
+    this.events.push(event);
+  }
+  async countInFlight(_t: string, uploaderId: string) {
+    const inFlight = [...this.store.attachments_.values()].filter(
+      (row) => row.processingStatus === 'queued' || row.processingStatus === 'processing',
+    );
+    return { user: inFlight.filter((row) => row.uploadedBy === uploaderId).length, tenant: inFlight.length };
+  }
+  async sumUnattachedBytes(_t: string, uploaderId: string) {
+    return [...this.store.attachments_.values()]
+      .filter((row) => row.uploadedBy === uploaderId && !row.postId && !row.commentId)
+      .reduce((sum, row) => sum + row.sizeBytes, 0);
+  }
+  async claim() {
+    return undefined;
+  }
+  async extendLease() {
+    return undefined;
+  }
+  async markReady() {
+    return false;
+  }
+  async markFailed() {
+    return undefined;
+  }
+  async listSourceKeysToDelete() {
+    return [];
+  }
+  async clearSourceKeys() {
+    return undefined;
+  }
+  async requeueStale() {
+    return 0;
   }
 }
 
@@ -882,13 +944,14 @@ describe('tệp đính kèm của bình luận', () => {
     );
   });
 
-  it('bình luận nhận video mp4/webm tới 50 MB, từ chối quá cỡ và kiểu khác', async () => {
+  it('bình luận nhận video mp4/webm/mov tới 300 MB, từ chối quá cỡ và kiểu khác', async () => {
     const { attachments } = setup();
     const MB = 1024 * 1024;
-    await attachments.initiate(alice, { fileName: 'a.mp4', contentType: 'video/mp4', sizeBytes: 50 * MB, purpose: 'comment' });
+    await attachments.initiate(alice, { fileName: 'a.mp4', contentType: 'video/mp4', sizeBytes: 300 * MB, purpose: 'comment' });
     await attachments.initiate(alice, { fileName: 'a.webm', contentType: 'video/webm', sizeBytes: 1, purpose: 'comment' });
+    await attachments.initiate(alice, { fileName: 'a.mov', contentType: 'video/quicktime', sizeBytes: 10, purpose: 'comment' });
     await expectCode(
-      attachments.initiate(alice, { fileName: 'a.mp4', contentType: 'video/mp4', sizeBytes: 50 * MB + 1, purpose: 'comment' }),
+      attachments.initiate(alice, { fileName: 'a.mp4', contentType: 'video/mp4', sizeBytes: 300 * MB + 1, purpose: 'comment' }),
       'VALIDATION',
     );
     await expectCode(
@@ -896,7 +959,27 @@ describe('tệp đính kèm của bình luận', () => {
       'VALIDATION',
     );
     await expectCode(
-      attachments.initiate(alice, { fileName: 'a.mov', contentType: 'video/quicktime', sizeBytes: 10, purpose: 'comment' }),
+      attachments.initiate(alice, { fileName: 'a.avi', contentType: 'video/x-msvideo', sizeBytes: 10, purpose: 'comment' }),
+      'VALIDATION',
+    );
+  });
+
+  it('bài viết nhận video mp4/webm/mov tới 1 GB; tài liệu và ảnh giữ trần cũ 50 MB', async () => {
+    const { attachments } = setup();
+    const MB = 1024 * 1024;
+    const GB = 1024 * MB;
+    await attachments.initiate(alice, { fileName: 'a.mp4', contentType: 'video/mp4', sizeBytes: GB, purpose: 'post' });
+    await attachments.initiate(alice, { fileName: 'a.mov', contentType: 'video/quicktime', sizeBytes: 5, purpose: 'post' });
+    const tooBig = await attachments
+      .initiate(alice, { fileName: 'a.webm', contentType: 'video/webm', sizeBytes: GB + 1, purpose: 'post' })
+      .catch((caught: unknown) => caught);
+    expect(tooBig).toMatchObject({ code: 'VALIDATION', message: 'Tệp tối đa 1 GB.' });
+    await expectCode(
+      attachments.initiate(alice, { fileName: 'a.pdf', contentType: 'application/pdf', sizeBytes: 51 * MB }),
+      'VALIDATION',
+    );
+    await expectCode(
+      attachments.initiate(alice, { fileName: 'a.png', contentType: 'image/png', sizeBytes: 51 * MB }),
       'VALIDATION',
     );
   });
@@ -1493,5 +1576,403 @@ describe('me và gợi ý người', () => {
     expect((await me.people(alice, '  ')).items).toEqual([]);
     expect((await me.people(alice, 'bob')).items.map((u) => u.id)).toEqual([BOB]);
     await expectCode(me.people(readOnly, 'bob'), 'FORBIDDEN');
+  });
+});
+
+
+/* ------------------------------------------------------- video: hàng đợi và cổng */
+
+function videoSetup() {
+  const base = setup();
+  const videoStore = new FakeVideoStore(base.store);
+  const limiter = new UploadRateLimiter(() => 1, { windowMs: 60_000, perUser: 1000, perTenant: 1000 });
+  const attachments = new SocialAttachmentService(base.store, base.storage, undefined, undefined, limiter, videoStore);
+  return { ...base, attachments, videoStore };
+}
+
+const MOV = { fileName: 'cuoc-hop.mov', contentType: 'video/quicktime' };
+const MP4 = { fileName: 'clip.mp4', contentType: 'video/mp4' };
+
+/** Chèn thẳng một dòng tệp (bỏ qua initiate) để dựng nhanh mọi trạng thái xử lý. */
+let seeded = 0;
+function seedAttachment(store: FakeStore, over: Partial<AttachmentRow> = {}): AttachmentRow {
+  seeded += 1;
+  const id = `bbbbbbbb-0000-4000-8000-${String(seeded).padStart(12, '0')}`;
+  const row: AttachmentRow = {
+    id,
+    uploadedBy: BOB,
+    fileName: 'clip.mp4',
+    contentType: 'video/mp4',
+    sizeBytes: 100,
+    storageKey: `tenants/${TENANT}/social/${id}/clip.mp4`,
+    completed: true,
+    purpose: 'comment',
+    processingStatus: 'ready',
+    ...over,
+  };
+  store.attachments_.set(id, row);
+  return row;
+}
+
+async function initiateVideo(
+  attachments: SocialAttachmentService,
+  who: SocialActor,
+  purpose: 'post' | 'comment' = 'comment',
+  file: { fileName: string; contentType: string } = MP4,
+  sizeBytes = 100,
+): Promise<string> {
+  return (await attachments.initiate(who, { ...file, sizeBytes, purpose })).attachmentId;
+}
+
+describe('video: tải lên, xếp hàng và giới hạn', () => {
+  it('complete video xếp hàng chuyển mã (queued, chưa có URL) và phát một sự kiện đúng loại theo nơi gắn', async () => {
+    const { attachments, storage, videoStore } = videoSetup();
+    for (const purpose of ['comment', 'post'] as const) {
+      const id = await initiateVideo(attachments, alice, purpose, MOV);
+      storage.uploaded.set(await findKey(attachments, id), 100);
+      const done = await attachments.complete(alice, id);
+      expect(done).toMatchObject({ id, isVideo: true, processingStatus: 'queued' });
+      expect(done.url).toBeUndefined();
+      expect(videoStore.events.at(-1)).toEqual({
+        type: SOCIAL_VIDEO_EVENT_TYPES[purpose],
+        aggregateType: 'social-attachment',
+        aggregateId: id,
+        payload: { attachmentId: id, purpose },
+      });
+    }
+    expect(videoStore.events).toHaveLength(2);
+  });
+
+  it('ảnh và tài liệu vẫn hoàn tất ngay, không đi qua hàng đợi video', async () => {
+    const { attachments, storage, videoStore, store } = videoSetup();
+    const { attachmentId } = await attachments.initiate(alice, {
+      fileName: 'a.png',
+      contentType: 'image/png',
+      sizeBytes: 50,
+      purpose: 'comment',
+    });
+    storage.uploaded.set(await findKey(attachments, attachmentId), 50);
+    const done = await attachments.complete(alice, attachmentId);
+    expect(done.processingStatus).toBeUndefined();
+    expect(done.url).toBeDefined();
+    expect(videoStore.completeCalls).toBe(0);
+    expect(store.attachments_.get(attachmentId)?.completed).toBe(true);
+  });
+
+  it('complete hai lần, kể cả đồng thời, chỉ tạo MỘT sự kiện', async () => {
+    const { attachments, storage, videoStore } = videoSetup();
+    const sequential = await initiateVideo(attachments, alice);
+    storage.uploaded.set(await findKey(attachments, sequential), 100);
+    await attachments.complete(alice, sequential);
+    const again = await attachments.complete(alice, sequential);
+    expect(again.processingStatus).toBe('queued');
+    expect(videoStore.events).toHaveLength(1);
+
+    const racing = await initiateVideo(attachments, alice, 'post');
+    storage.uploaded.set(await findKey(attachments, racing), 100);
+    const results = await Promise.all([attachments.complete(alice, racing), attachments.complete(alice, racing)]);
+    expect(results.map((item) => item.processingStatus)).toEqual(['queued', 'queued']);
+    expect(videoStore.events.filter((event) => event.aggregateId === racing)).toHaveLength(1);
+  });
+
+  it('initiate: người dùng đã có 3 video đang xử lý thì 429 SOCIAL_VIDEO_TOO_MANY_PROCESSING; ảnh vẫn tải được', async () => {
+    const { attachments, store } = videoSetup();
+    for (let i = 0; i < 3; i += 1) seedAttachment(store, { uploadedBy: ALICE, processingStatus: i === 0 ? 'processing' : 'queued' });
+    const error = await attachments
+      .initiate(alice, { ...MP4, sizeBytes: 10, purpose: 'comment' })
+      .catch((caught: unknown) => caught);
+    expect(error).toMatchObject({ code: 'SOCIAL_VIDEO_TOO_MANY_PROCESSING', statusCode: 429 });
+    await attachments.initiate(alice, { fileName: 'a.png', contentType: 'image/png', sizeBytes: 10, purpose: 'comment' });
+    // Video đã xong hoặc lỗi không tính.
+    store.attachments_.clear();
+    seedAttachment(store, { uploadedBy: ALICE, processingStatus: 'ready' });
+    seedAttachment(store, { uploadedBy: ALICE, processingStatus: 'failed' });
+    await attachments.initiate(alice, { ...MP4, sizeBytes: 10, purpose: 'comment' });
+  });
+
+  it('hai người sát biên của tenant (5/6): người đầu qua, khi video của họ xếp hàng thì người sau bị chặn', async () => {
+    const { attachments, storage, store } = videoSetup();
+    for (let i = 0; i < 5; i += 1) seedAttachment(store, { uploadedBy: CAROL, processingStatus: 'queued' });
+    // Carol đã có 5 trong tổng 6 của tenant; mỗi người dùng riêng vẫn dưới trần 3 nên Alice và Bob qua initiate.
+    const aliceVideo = await initiateVideo(attachments, alice);
+    const bobVideo = await initiateVideo(attachments, bob);
+    storage.uploaded.set(await findKey(attachments, aliceVideo), 100);
+    storage.uploaded.set(await findKey(attachments, bobVideo), 100);
+    expect((await attachments.complete(alice, aliceVideo)).processingStatus).toBe('queued');
+    // Tenant đã đủ 6: video của Bob không được xếp hàng, nhưng tệp và dòng vẫn còn để tải lại.
+    await expectCode(attachments.complete(bob, bobVideo), 'SOCIAL_VIDEO_TOO_MANY_PROCESSING');
+    expect(store.attachments_.get(bobVideo)?.completed).toBe(false);
+    await expectCode(initiateVideo(attachments, bob), 'SOCIAL_VIDEO_TOO_MANY_PROCESSING');
+  });
+
+  it('complete sát biên của người dùng: gọi đồng thời cùng một tệp không bị 429 nhầm', async () => {
+    const { attachments, storage, store, videoStore } = videoSetup();
+    seedAttachment(store, { uploadedBy: ALICE, processingStatus: 'queued' });
+    seedAttachment(store, { uploadedBy: ALICE, processingStatus: 'processing' });
+    const id = await initiateVideo(attachments, alice);
+    storage.uploaded.set(await findKey(attachments, id), 100);
+    const [first, second] = await Promise.all([attachments.complete(alice, id), attachments.complete(alice, id)]);
+    expect([first.processingStatus, second.processingStatus]).toEqual(['queued', 'queued']);
+    expect(videoStore.events).toHaveLength(1);
+    // Từ giờ người dùng có 3 video đang xử lý: tệp thứ tư bị chặn.
+    await expectCode(initiateVideo(attachments, alice), 'SOCIAL_VIDEO_TOO_MANY_PROCESSING');
+  });
+
+  it('tổng dung lượng chưa gắn của một người không vượt 2 GB (429 SOCIAL_UNATTACHED_BYTES_EXCEEDED)', async () => {
+    const { attachments } = videoSetup();
+    const GB = 1024 * 1024 * 1024;
+    await initiateVideo(attachments, alice, 'post', MP4, GB);
+    await initiateVideo(attachments, alice, 'post', MP4, GB);
+    const error = await attachments
+      .initiate(alice, { ...MP4, sizeBytes: 1, purpose: 'post' })
+      .catch((caught: unknown) => caught);
+    expect(error).toMatchObject({ code: 'SOCIAL_UNATTACHED_BYTES_EXCEEDED', statusCode: 429 });
+    // Tệp không phải video cũng tính; người khác không bị ảnh hưởng.
+    await expectCode(
+      attachments.initiate(alice, { fileName: 'a.pdf', contentType: 'application/pdf', sizeBytes: 1 }),
+      'SOCIAL_UNATTACHED_BYTES_EXCEEDED',
+    );
+    await initiateVideo(attachments, bob, 'post', MP4, GB);
+  });
+
+  it('tệp đã gắn vào bình luận không tính vào dung lượng chưa gắn', async () => {
+    const { attachments, store } = videoSetup();
+    const GB = 1024 * 1024 * 1024;
+    seedAttachment(store, { uploadedBy: ALICE, sizeBytes: 2 * GB, commentId: randomUUID() });
+    await initiateVideo(attachments, alice, 'post', MP4, GB);
+  });
+});
+
+describe('video: hiển thị trạng thái và URL', () => {
+  it('chưa ready thì không lộ URL; ready có URL, poster, thời lượng và kích thước; video cũ (none) coi là ready', async () => {
+    const { attachments, store } = videoSetup();
+    const queued = seedAttachment(store, { uploadedBy: ALICE, processingStatus: 'queued' });
+    const processing = seedAttachment(store, { uploadedBy: ALICE, processingStatus: 'processing' });
+    const failed = seedAttachment(store, {
+      uploadedBy: ALICE,
+      processingStatus: 'failed',
+      processingError: 'Không đọc được video này.',
+    });
+    const ready = seedAttachment(store, {
+      uploadedBy: ALICE,
+      posterKey: 'k/poster.jpg',
+      durationMs: 12_000,
+      width: 1280,
+      height: 720,
+    });
+    const legacy = seedAttachment(store, { uploadedBy: ALICE, processingStatus: 'none' });
+    const image = seedAttachment(store, {
+      uploadedBy: ALICE,
+      contentType: 'image/png',
+      processingStatus: 'none',
+      fileName: 'a.png',
+    });
+
+    const { items } = await attachments.status(alice, {
+      ids: [queued.id, processing.id, failed.id, ready.id, legacy.id, image.id],
+    });
+    const byId = new Map(items.map((item) => [item.id, item]));
+    for (const row of [queued, processing, failed]) {
+      expect(byId.get(row.id)?.url).toBeUndefined();
+      expect(byId.get(row.id)?.posterUrl).toBeUndefined();
+    }
+    expect(byId.get(queued.id)?.processingStatus).toBe('queued');
+    expect(byId.get(processing.id)?.processingStatus).toBe('processing');
+    expect(byId.get(failed.id)).toMatchObject({ processingStatus: 'failed', processingError: 'Không đọc được video này.' });
+    expect(byId.get(ready.id)).toMatchObject({
+      processingStatus: 'ready',
+      url: expect.stringContaining('/down/'),
+      posterUrl: 'https://storage.test/down/k/poster.jpg',
+      durationMs: 12_000,
+      width: 1280,
+      height: 720,
+    });
+    expect(byId.get(legacy.id)).toMatchObject({ processingStatus: 'ready', isVideo: true });
+    expect(byId.get(legacy.id)?.url).toBeDefined();
+    expect(byId.get(image.id)?.processingStatus).toBeUndefined();
+  });
+
+  it('poster dùng URL inline sống lâu như video', async () => {
+    const { attachments, store, storage } = videoSetup();
+    const ready = seedAttachment(store, { uploadedBy: ALICE, posterKey: 'k/p.jpg' });
+    storage.downloadTtls = [];
+    await attachments.status(alice, { ids: [ready.id] });
+    expect(storage.downloadTtls).toEqual([3600, 3600]);
+  });
+});
+
+describe('video: cổng khi đăng bình luận', () => {
+  it('bình luận có video queued, processing hoặc failed bị từ chối SOCIAL_VIDEO_NOT_READY (409); ready và none thì đăng được', async () => {
+    const services = videoSetup();
+    const post = await services.posts.create(alice, { bodyHtml: '<p>x</p>' });
+    for (const status of ['queued', 'processing', 'failed'] as const) {
+      const row = seedAttachment(services.store, { processingStatus: status });
+      const error = await services.comments
+        .create(bob, post.id, { body: 'x', attachmentIds: [row.id] })
+        .catch((caught: unknown) => caught);
+      expect(error).toMatchObject({
+        code: 'SOCIAL_VIDEO_NOT_READY',
+        statusCode: 409,
+        message: 'Video còn đang xử lý hoặc bị lỗi, chưa thể đăng.',
+      });
+    }
+    const ready = seedAttachment(services.store);
+    const legacy = seedAttachment(services.store, { processingStatus: 'none' });
+    expect(
+      (await services.comments.create(bob, post.id, { body: 'x', attachmentIds: [ready.id] })).attachments,
+    ).toHaveLength(1);
+    expect(
+      (await services.comments.create(bob, post.id, { body: 'y', attachmentIds: [legacy.id] })).attachments,
+    ).toHaveLength(1);
+  });
+
+  it('sửa bình luận thêm video chưa ready cũng bị chặn', async () => {
+    const services = videoSetup();
+    const post = await services.posts.create(alice, { bodyHtml: '<p>x</p>' });
+    const created = await services.comments.create(bob, post.id, { body: 'x' });
+    const pending = seedAttachment(services.store, { processingStatus: 'processing' });
+    await expectCode(
+      services.comments.update(bob, created.id, { body: 'x', attachmentIds: [pending.id] }),
+      'SOCIAL_VIDEO_NOT_READY',
+    );
+    const ready = seedAttachment(services.store);
+    const updated = await services.comments.update(bob, created.id, { body: 'x', attachmentIds: [ready.id] });
+    expect(updated.attachments).toHaveLength(1);
+  });
+
+  it('video tải lên cho bài viết không gắn được vào bình luận', async () => {
+    const services = videoSetup();
+    const post = await services.posts.create(alice, { bodyHtml: '<p>x</p>' });
+    const row = seedAttachment(services.store, { purpose: 'post' });
+    await expectCode(services.comments.create(bob, post.id, { body: 'x', attachmentIds: [row.id] }), 'VALIDATION');
+  });
+
+  it('xoá bình luận xoá ngay video, poster và bản gốc còn sót', async () => {
+    const services = videoSetup();
+    const post = await services.posts.create(alice, { bodyHtml: '<p>x</p>' });
+    const row = seedAttachment(services.store, { posterKey: 'k/poster.jpg', sourceKey: 'k/source.mov' });
+    const created = await services.comments.create(bob, post.id, { body: 'x', attachmentIds: [row.id] });
+    await services.comments.remove(bob, created.id);
+    expect(services.storage.deleted.sort()).toEqual([row.storageKey, 'k/poster.jpg', 'k/source.mov'].sort());
+    expect(services.store.attachments_.has(row.id)).toBe(false);
+  });
+});
+
+describe('discard tệp chưa gắn', () => {
+  const STATES: readonly [string, Partial<AttachmentRow>][] = [
+    ['đang tải', { completed: false, processingStatus: 'none' }],
+    ['đã tải xong (không phải video)', { contentType: 'image/png', processingStatus: 'none' }],
+    ['queued', { processingStatus: 'queued' }],
+    ['processing', { processingStatus: 'processing', sourceKey: 'k/source.mov' }],
+    ['failed', { processingStatus: 'failed', processingError: 'Lỗi.' }],
+    ['ready', { processingStatus: 'ready', posterKey: 'k/poster.jpg', sourceKey: 'k/source.mov' }],
+  ];
+
+  it.each(STATES)('ở trạng thái %s: chủ tệp xoá được object, poster, bản gốc và dòng', async (_name, over) => {
+    const { attachments, store, storage } = videoSetup();
+    const row = seedAttachment(store, { uploadedBy: ALICE, ...over });
+    await attachments.discard(alice, row.id);
+    const expectedKeys = [row.storageKey, over.posterKey, over.sourceKey].filter(Boolean);
+    expect(storage.deleted.sort()).toEqual((expectedKeys as string[]).sort());
+    expect(store.attachments_.has(row.id)).toBe(false);
+  });
+
+  it('người khác không bỏ được (404 như các route khác) và tệp còn nguyên', async () => {
+    const { attachments, store, storage } = videoSetup();
+    const row = seedAttachment(store, { uploadedBy: ALICE });
+    await expectCode(attachments.discard(bob, row.id), 'ATTACHMENT_NOT_FOUND');
+    expect(store.attachments_.has(row.id)).toBe(true);
+    expect(storage.deleted).toEqual([]);
+  });
+
+  it('tệp đã gắn vào bài hoặc bình luận thì 409 SOCIAL_ATTACHMENT_IN_USE và không xoá gì', async () => {
+    const { attachments, store, storage } = videoSetup();
+    const inComment = seedAttachment(store, { uploadedBy: ALICE, commentId: randomUUID() });
+    const inPost = seedAttachment(store, { uploadedBy: ALICE, postId: randomUUID() });
+    for (const row of [inComment, inPost]) {
+      const error = await attachments.discard(alice, row.id).catch((caught: unknown) => caught);
+      expect(error).toMatchObject({ code: 'SOCIAL_ATTACHMENT_IN_USE', statusCode: 409 });
+      expect(store.attachments_.has(row.id)).toBe(true);
+    }
+    expect(storage.deleted).toEqual([]);
+  });
+
+  it('idempotent: tệp đã mất (kể cả bị worker hay lần discard trước xoá) vẫn thành công', async () => {
+    const { attachments, store } = videoSetup();
+    const row = seedAttachment(store, { uploadedBy: ALICE, processingStatus: 'processing' });
+    await attachments.discard(alice, row.id);
+    await attachments.discard(alice, row.id);
+    await attachments.discard(bob, row.id);
+    await attachments.discard(alice, randomUUID());
+    await expectCode(attachments.discard(alice, 'khong-phai-uuid'), 'VALIDATION');
+    await expectCode(attachments.discard(readOnly, row.id), 'FORBIDDEN');
+  });
+
+  it('đang tải nhiều phần: huỷ phiên rồi xoá; kho từ chối huỷ phiên cũng không cản việc xoá', async () => {
+    const { attachments, store, storage } = videoSetup();
+    const MB = 1024 * 1024;
+    const { attachmentId, multipart } = await attachments.initiate(alice, {
+      ...MP4,
+      sizeBytes: 20 * MB,
+      purpose: 'comment',
+    });
+    const uploadId = multipart?.uploadId as string;
+    await attachments.discard(alice, attachmentId, { uploadId });
+    expect(storage.aborted).toEqual([uploadId]);
+    expect(store.attachments_.has(attachmentId)).toBe(false);
+
+    const second = await attachments.initiate(alice, { ...MP4, sizeBytes: 20 * MB, purpose: 'comment' });
+    storage.failAbortMultipart = true;
+    await attachments.discard(alice, second.attachmentId, { uploadId: second.multipart?.uploadId });
+    expect(store.attachments_.has(second.attachmentId)).toBe(false);
+  });
+
+  it('kho từ chối xoá object thì giữ dòng để job dọn mồ côi thử lại', async () => {
+    const { attachments, store, storage } = videoSetup();
+    const row = seedAttachment(store, { uploadedBy: ALICE, posterKey: 'k/poster.jpg' });
+    storage.failDelete.add('k/poster.jpg');
+    await attachments.discard(alice, row.id);
+    expect(store.attachments_.has(row.id)).toBe(true);
+  });
+
+  it('dọn tệp mồ côi xoá cả poster và bản gốc; còn khoá bị kho từ chối thì giữ dòng', async () => {
+    const { attachments, store, storage } = videoSetup();
+    const clean = seedAttachment(store, { posterKey: 'k/p1.jpg', sourceKey: 'k/s1.mov' });
+    const stuck = seedAttachment(store, { posterKey: 'k/p2.jpg', sourceKey: 'k/s2.mov' });
+    storage.failDelete.add('k/s2.mov');
+    const orphans = [clean, stuck].map((row) => ({
+      id: row.id,
+      storageKey: row.storageKey,
+      posterKey: row.posterKey,
+      sourceKey: row.sourceKey,
+    }));
+    store.attachments.listOrphans = async () => (store.attachments_.has(clean.id) ? orphans : []);
+    expect(await attachments.cleanupOrphans(TENANT)).toBe(1);
+    expect(storage.deleted).toEqual(expect.arrayContaining([clean.storageKey, 'k/p1.jpg', 'k/s1.mov']));
+    expect(store.attachments_.has(clean.id)).toBe(false);
+    expect(store.attachments_.has(stuck.id)).toBe(true);
+  });
+});
+
+describe('trạng thái xử lý của tệp (POST /attachments/status)', () => {
+  it('chỉ trả tệp của chính người gọi; id lạ, không phải UUID hoặc của người khác bị bỏ qua', async () => {
+    const { attachments, store } = videoSetup();
+    const mine = seedAttachment(store, { uploadedBy: ALICE, processingStatus: 'queued' });
+    const mine2 = seedAttachment(store, { uploadedBy: ALICE, processingStatus: 'ready' });
+    const theirs = seedAttachment(store, { uploadedBy: BOB });
+    const { items } = await attachments.status(alice, {
+      ids: [mine.id, theirs.id, randomUUID(), 'abc', mine2.id, mine.id.toUpperCase()],
+    });
+    expect(items.map((item) => item.id).sort()).toEqual([mine.id, mine2.id].sort());
+  });
+
+  it('tối đa 10 id, phải là mảng, cần quyền ghi', async () => {
+    const { attachments } = videoSetup();
+    const ids = Array.from({ length: 11 }, () => randomUUID());
+    await expectCode(attachments.status(alice, { ids }), 'VALIDATION');
+    await expectCode(attachments.status(alice, { ids: 'x' as never }), 'VALIDATION');
+    await expectCode(attachments.status(alice, {} as never), 'VALIDATION');
+    expect((await attachments.status(alice, { ids: ids.slice(0, 10) })).items).toEqual([]);
+    await expectCode(attachments.status(readOnly, { ids: [] }), 'FORBIDDEN');
   });
 });
