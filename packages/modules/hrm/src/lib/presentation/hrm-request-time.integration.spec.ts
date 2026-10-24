@@ -284,7 +284,7 @@ integration('Đơn từ theo từ ngày giờ đến ngày giờ và loại đơ
       ]);
     });
 
-    it('đơn vắt 2 tháng: một đơn, ngày lưu theo từng tháng; tháng sau đã chốt thì cả đơn bị từ chối và không lưu dở dang', async () => {
+    it('đơn vắt 2 tháng bị chặn 422; tách theo tháng thì tháng đã chốt từ chối, tháng mở tạo được và vẫn chống trùng', async () => {
       // Ca thứ Hai đến thứ Sáu cho cuối tháng 11 và đầu tháng 12/2026 (dữ liệu seed chung chỉ phủ tháng 10).
       const shiftId = (await pool.query(`SELECT id FROM hrm_schema.shift_definitions WHERE tenant_id=$1 AND code='DAY'`, [tenantId])).rows[0].id;
       await pool.query(
@@ -296,30 +296,41 @@ integration('Đơn từ theo từ ngày giờ đến ngày giờ và loại đơ
            FROM generate_series('2026-11-20'::date,'2026-12-10'::date,'1 day') d`,
         [tenantId, employeeId, shiftId],
       );
-      // Chốt đơn từ tháng 12: đơn thứ Sáu 27/11 đến thứ Ba 01/12 có ngày 01/12 nên phải bị từ chối toàn bộ.
+      const leftovers = async () =>
+        (
+          await pool.query(
+            `SELECT count(*)::int AS n FROM hrm_schema.leave_requests WHERE tenant_id=$1 AND employee_id=$2 AND from_date>='2026-11-01'`,
+            [tenantId, employeeId],
+          )
+        ).rows[0].n;
+
+      // Đơn thứ Sáu 27/11 đến thứ Ba 01/12 kéo dài qua hai tháng: bị chặn 422 và không lưu dở dang.
+      await expect(leave({ leaveTypeId: paidDay, fromAt: '2026-11-27T08:00', toAt: '2026-12-01T17:00' })).rejects.toMatchObject({
+        status: 422,
+        response: { code: 'REQUEST_CROSSES_MONTH' },
+      });
+      expect(await leftovers()).toBe(0);
+
+      // Tách theo tháng. Tháng 12 đã chốt đơn từ thì đơn ngày 01/12 bị từ chối, không lưu dở dang.
       await pool.query(
         `INSERT INTO hrm_schema.timesheet_periods (tenant_id,period_code,from_date,to_date,status,requests_closed_at)
          VALUES ($1,'2026-12','2026-12-01','2026-12-31','OPEN',now())`,
         [tenantId],
       );
-      const body = { leaveTypeId: paidDay, fromAt: '2026-11-27T08:00', toAt: '2026-12-01T17:00' };
-      await expect(leave(body)).rejects.toMatchObject({ status: 409 });
-      const leftovers = await pool.query(
-        `SELECT count(*)::int AS n FROM hrm_schema.leave_requests WHERE tenant_id=$1 AND employee_id=$2 AND from_date>='2026-11-01'`,
-        [tenantId, employeeId],
-      );
-      expect(leftovers.rows[0].n).toBe(0);
+      await expect(leave({ leaveTypeId: paidDay, fromAt: '2026-12-01T08:00', toAt: '2026-12-01T17:00' })).rejects.toMatchObject({ status: 409 });
+      expect(await leftovers()).toBe(0);
 
-      // Mở lại tháng 12: cùng đơn được tạo thành MỘT đơn 3 ngày (27/11, 30/11, 01/12), bỏ T7, CN.
+      // Mở lại tháng 12: đơn tháng 11 (27/11, 30/11, bỏ T7, CN) và đơn tháng 12 (01/12) tạo được riêng từng đơn.
       await pool.query(`DELETE FROM hrm_schema.timesheet_periods WHERE tenant_id=$1 AND period_code='2026-12'`, [tenantId]);
-      const result = await leave(body);
-      expect(result.data).toMatchObject({ duration: 3, fromDate: '2026-11-27', toDate: '2026-12-01' });
-      expect(await days(result.data.id)).toEqual([
+      const november = await leave({ leaveTypeId: paidDay, fromAt: '2026-11-27T08:00', toAt: '2026-11-30T17:00' });
+      expect(november.data).toMatchObject({ duration: 2, fromDate: '2026-11-27', toDate: '2026-11-30' });
+      expect(await days(november.data.id)).toEqual([
         { date: '2026-11-27', quantity: 1, paid_minutes: 480 },
         { date: '2026-11-30', quantity: 1, paid_minutes: 480 },
-        { date: '2026-12-01', quantity: 1, paid_minutes: 480 },
       ]);
-      // Đơn thứ hai chồng ngày 01/12 vẫn bị chặn trùng như đơn trong một tháng.
+      const december = await leave({ leaveTypeId: paidDay, fromAt: '2026-12-01T08:00', toAt: '2026-12-01T17:00' });
+      expect(december.data).toMatchObject({ duration: 1, fromDate: '2026-12-01', toDate: '2026-12-01' });
+      // Đơn thứ hai chồng ngày 01/12 vẫn bị chặn trùng.
       await expect(
         leave({ leaveTypeId: paidDay, fromAt: '2026-12-01T08:00', toAt: '2026-12-02T17:00' }),
       ).rejects.toMatchObject({ status: 409 });
