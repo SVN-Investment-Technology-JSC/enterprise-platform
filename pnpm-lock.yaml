@@ -1139,9 +1139,6 @@ importers:
       '@enterprise-platform/feature-module-shell':
         specifier: workspace:*
         version: link:../../packages/features/module-shell
-      '@enterprise-platform/feature-procedure-engine':
-        specifier: workspace:*
-        version: link:../../packages/features/procedure-engine
       '@enterprise-platform/shared-brand-icon':
         specifier: workspace:*
         version: link:../../packages/shared/brand-icon
