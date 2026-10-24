@@ -23,6 +23,7 @@ import { HttpFleetAvailabilityClient } from './infrastructure/http-fleet-availab
 import { ProjectRequestService } from './application/project-request.service.js';
 import { WorkdayRuleService } from './application/workday-rule.service.js';
 import { ProjectCodeService } from './application/project-code.service.js';
+import { WorkspaceLabelService } from './application/workspace-label.service.js';
 import { ProjectGroupService } from './application/project-group.service.js';
 import { ProjectRoleService } from './application/project-role.service.js';
 import { MyWorkService } from './application/my-work.service.js';
@@ -95,6 +96,11 @@ import { WorkspaceController } from './presentation/workspace.controller.js';
     {
       provide: ProjectCodeService,
       useFactory: (store: WorkspaceStore) => new ProjectCodeService(store),
+      inject: [WORKSPACE_STORE],
+    },
+    {
+      provide: WorkspaceLabelService,
+      useFactory: (store: WorkspaceStore) => new WorkspaceLabelService(store),
       inject: [WORKSPACE_STORE],
     },
     {

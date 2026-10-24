@@ -1,8 +1,6 @@
 'use client';
 
 import {
-  WORK_ITEM_PRIORITIES,
-  WORK_ITEM_STATUSES,
   type ExternalReference,
   type SavedFilter,
   type WorkItem,
@@ -24,6 +22,9 @@ import {
   isOverdue,
   workItemStatusLabel,
   workItemStatusTone,
+  priorityKeys,
+  priorityLabel,
+  workItemStatusKeys,
 } from '../workspace-labels';
 import styles from '../workspace.module.scss';
 import { Choice } from './choice';
@@ -93,11 +94,11 @@ function workComparator(sort: WorkSort, direction: SortDirection) {
     title: (a: WorkItem, b: WorkItem) => sign * a.title.localeCompare(b.title, 'vi'),
     end: byDate((item) => item.plannedEnd),
     start: byDate((item) => item.plannedStart),
-    // Ưu tiên và trạng thái theo đúng thứ tự khai báo trong hợp đồng.
+    // Ưu tiên và trạng thái theo thứ tự đặt ở Cài đặt.
     priority: (a: WorkItem, b: WorkItem) =>
-      sign * (WORK_ITEM_PRIORITIES.indexOf(a.priority) - WORK_ITEM_PRIORITIES.indexOf(b.priority)),
+      sign * (priorityKeys().indexOf(a.priority) - priorityKeys().indexOf(b.priority)),
     status: (a: WorkItem, b: WorkItem) =>
-      sign * (WORK_ITEM_STATUSES.indexOf(a.status) - WORK_ITEM_STATUSES.indexOf(b.status)),
+      sign * (workItemStatusKeys().indexOf(a.status) - workItemStatusKeys().indexOf(b.status)),
     progress: (a: WorkItem, b: WorkItem) => sign * (a.progressPercent - b.progressPercent),
   };
   const primary = comparators[sort];
@@ -396,7 +397,7 @@ function TabWorkImpl({
               value={status}
               options={[
                 { value: 'all', label: 'Tất cả' },
-                ...WORK_ITEM_STATUSES.map((value) => ({
+                ...workItemStatusKeys().map((value) => ({
                   value,
                   label: WORK_ITEM_STATUS_LABELS[value],
                 })),
@@ -410,7 +411,7 @@ function TabWorkImpl({
               value={priority}
               options={[
                 { value: 'all', label: 'Tất cả' },
-                ...WORK_ITEM_PRIORITIES.map((value) => ({ value, label: PRIORITY_LABELS[value] })),
+                ...priorityKeys().map((value) => ({ value, label: priorityLabel(value) })),
               ]}
               onChange={(value) => setField({ priority: value as WorkFilter['priority'] })}
             />

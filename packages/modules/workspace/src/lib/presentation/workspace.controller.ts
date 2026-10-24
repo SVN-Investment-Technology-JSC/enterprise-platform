@@ -45,6 +45,7 @@ import type {
   RespondToEventRequest,
   SaveProjectArchiveSettingsRequest,
   SaveProjectCodeRuleRequest,
+  SaveWorkspaceLabelSettingsRequest,
   SaveProjectGroupRequest,
   SaveProjectRoleRequest,
   SendChatMessageRequest,
@@ -62,6 +63,7 @@ import type {
 import { WorkspaceApplication, type WorkspaceActor } from '../application/workspace.application.js';
 import { ProjectService } from '../application/project.service.js';
 import { ProjectCodeService } from '../application/project-code.service.js';
+import { WorkspaceLabelService } from '../application/workspace-label.service.js';
 import { ProjectGroupService } from '../application/project-group.service.js';
 import { ProjectRoleService } from '../application/project-role.service.js';
 import { WorkItemService } from '../application/work-item.service.js';
@@ -137,6 +139,7 @@ export class WorkspaceController {
     private readonly projectRoles: ProjectRoleService,
     private readonly projectGroups: ProjectGroupService,
     private readonly projectCodes: ProjectCodeService,
+    private readonly labels: WorkspaceLabelService,
     private readonly workItemDeletion: WorkItemDeletionService,
     private readonly fleetTransport: FleetTransportService,
     private readonly standaloneTasks: StandaloneTaskService,
@@ -1279,6 +1282,17 @@ export class WorkspaceController {
   @Put('project-code-rule')
   saveProjectCodeRule(@Req() request: WorkspaceRequest, @Body() body: SaveProjectCodeRuleRequest) {
     return this.execute(() => this.projectCodes.saveRule(this.actor(request), body));
+  }
+
+  /** Tên và màu của trạng thái, mức ưu tiên (Cài đặt > Trạng thái và ưu tiên): ai cũng đọc được, quản trị sửa. */
+  @Get('label-settings')
+  labelSettings(@Req() request: WorkspaceRequest) {
+    return this.execute(() => this.labels.settings(this.actor(request)));
+  }
+
+  @Put('label-settings')
+  saveLabelSettings(@Req() request: WorkspaceRequest, @Body() body: SaveWorkspaceLabelSettingsRequest) {
+    return this.execute(() => this.labels.save(this.actor(request), body));
   }
 
   /** Mã dự kiến của dự án sắp tạo trong nhóm `projectType`; số thật được cấp khi lưu. */

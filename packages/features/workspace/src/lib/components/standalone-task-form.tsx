@@ -1,7 +1,6 @@
 'use client';
 
 import {
-  WORK_ITEM_PRIORITIES,
   type CreateStandaloneTaskRequest,
   type StandaloneTask,
   type StandaloneTaskExecutionType,
@@ -14,7 +13,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { FormPrefill, StandaloneTaskPrefill } from '../assistant-drafts';
 import { loadStartableProceduresOrUnavailable, type ProcedureOption } from '../procedure-api';
 import * as api from '../workspace-api';
-import { PRIORITY_LABELS } from '../workspace-labels';
+import { priorityKeys, priorityLabel } from '../workspace-labels';
 import styles from '../workspace.module.scss';
 import { Choice } from './choice';
 import { Dialog, Field } from './dialog';
@@ -274,9 +273,9 @@ export function StandaloneTaskForm({
           <Choice
             label="Mức ưu tiên"
             value={form.priority}
-            options={WORK_ITEM_PRIORITIES.map((priority) => ({
+            options={priorityKeys().map((priority) => ({
               value: priority,
-              label: PRIORITY_LABELS[priority],
+              label: priorityLabel(priority),
             }))}
             onChange={(priority) => set({ priority: priority as WorkItemPriority })}
           />

@@ -157,8 +157,12 @@ export function canTransitionWorkItem(from: WorkItemStatus, to: WorkItemStatus):
   return from === to || WORK_ITEM_STATUS_TRANSITIONS[from].includes(to);
 }
 
+/** Bốn mức có sẵn, từ thấp tới cao. Tenant thêm, đổi tên, đổi màu ở Cài đặt (`WorkspaceLabelSettings`). */
 export const WORK_ITEM_PRIORITIES = ['low', 'normal', 'high', 'urgent'] as const;
-export type WorkItemPriority = (typeof WORK_ITEM_PRIORITIES)[number];
+/** Một mức có sẵn, hoặc khoá của mức tenant tự thêm ở Cài đặt. */
+export type WorkItemPriority = (typeof WORK_ITEM_PRIORITIES)[number] | (string & {});
+/** Mức mặc định khi tạo việc; không xoá được khỏi danh mục. */
+export const DEFAULT_WORK_ITEM_PRIORITY = 'normal';
 
 /**
  * `phase` chỉ chứa việc con, không gán người và không có giờ ước lượng.
@@ -241,8 +245,12 @@ export interface Project {
   readonly archivedAt?: string;
   readonly startDate?: string;
   readonly endDate?: string;
-  /** Giá trị dẫn xuất từ các công việc lá; không nhận giá trị nhập tay. */
+  /** Tiến độ hiển thị: giá trị nhập tay nếu có, không thì tính từ các công việc lá. */
   readonly progressPercent: number;
+  /** Tiến độ tự tính từ công việc, kể cả khi đang có giá trị nhập tay. */
+  readonly autoProgressPercent?: number;
+  /** `true` khi `progressPercent` là giá trị người dùng nhập tay. */
+  readonly progressManual?: boolean;
   readonly metadata: Record<string, unknown>;
   readonly createdBy: string;
   readonly createdAt: string;
@@ -316,6 +324,8 @@ export interface UpdateProjectRequest {
   readonly tagIds?: readonly string[];
   readonly startDate?: string | null;
   readonly endDate?: string | null;
+  /** Tiến độ nhập tay, được dùng thay giá trị tự tính; `null` quay về tự tính. */
+  readonly manualProgressPercent?: number | null;
 }
 
 /** Một nhóm dự án trong danh mục, kèm số dự án người gọi thấy được thuộc nhóm đó. */
@@ -469,7 +479,12 @@ export interface WorkItem {
   readonly actualStart?: string;
   readonly actualEnd?: string;
   readonly estimateHours?: number;
+  /** Tiến độ hiển thị: giá trị nhập tay nếu có, không thì giá trị tự tính. */
   readonly progressPercent: number;
+  /** Tiến độ tự tính (việc cha: từ việc con; việc lá: theo trạng thái và lần nhập cũ). */
+  readonly autoProgressPercent?: number;
+  /** `true` khi `progressPercent` là giá trị người dùng nhập tay. */
+  readonly progressManual?: boolean;
   readonly sortOrder: number;
   readonly depth: number;
   readonly createdBy: string;
@@ -574,6 +589,8 @@ export interface UpdateWorkItemRequest {
   readonly plannedEnd?: string | null;
   readonly estimateHours?: number | null;
   readonly progressPercent?: number;
+  /** Tiến độ nhập tay, được dùng thay giá trị tự tính; `null` quay về tự tính. */
+  readonly manualProgressPercent?: number | null;
   /** Bỏ trống: giữ nguyên; `null`: bỏ phương tiện (trả xe nếu đang giữ). */
   readonly transport?: TransportInput | null;
 }
@@ -668,12 +685,41 @@ export interface AddDependencyRequest {
   readonly lagDays?: number;
 }
 
+/** Các trường của công việc được ghi vào nhật ký sửa. */
+export const WORK_ITEM_LOGGED_FIELDS = [
+  'title',
+  'description',
+  'priority',
+  'assigneeUserId',
+  'participantUserIds',
+  'tagIds',
+  'plannedStart',
+  'plannedEnd',
+  'estimateHours',
+  'progressPercent',
+  'manualProgressPercent',
+] as const;
+export type WorkItemLoggedField = (typeof WORK_ITEM_LOGGED_FIELDS)[number];
+
+/** Giá trị trước và sau của một trường; để thô (id người, id nhãn, ngày ISO), giao diện tự đổi ra chữ. */
+export interface WorkItemFieldChange {
+  readonly field: WorkItemLoggedField;
+  readonly from: string | number | readonly string[] | null;
+  readonly to: string | number | readonly string[] | null;
+}
+
+/**
+ * Một dòng nhật ký của công việc: đổi trạng thái (`toStatus` có giá trị) hoặc sửa các trường (`changes` có giá trị).
+ */
 export interface WorkItemStatusHistoryEntry {
   readonly id: string;
   /** Rỗng với dòng ghi "đã xoá công việc": công việc đã bị gỡ nhưng vẫn giữ vết trong nhật ký dự án. */
   readonly workItemId?: string;
   readonly fromStatus?: WorkItemStatus;
-  readonly toStatus: WorkItemStatus;
+  /** Vắng ở dòng sửa trường. */
+  readonly toStatus?: WorkItemStatus;
+  /** Chỉ có ở dòng sửa trường. */
+  readonly changes?: readonly WorkItemFieldChange[];
   readonly note?: string;
   readonly createdBy: string;
   readonly createdAt: string;
@@ -2325,8 +2371,12 @@ export interface StandaloneTask {
   readonly dueDate?: string;
   readonly actualStart?: string;
   readonly actualEnd?: string;
-  /** Có việc con thì tự tính: trung bình tiến độ các việc con chưa huỷ. */
+  /** Tiến độ hiển thị: giá trị nhập tay nếu có, không thì giá trị tự tính. */
   readonly progressPercent: number;
+  /** Tiến độ tự tính (có việc con: trung bình các việc con chưa huỷ), kể cả khi đang có giá trị nhập tay. */
+  readonly autoProgressPercent?: number;
+  /** `true` khi `progressPercent` là giá trị người dùng nhập tay. */
+  readonly progressManual?: boolean;
   /** Người giao. */
   readonly createdBy: string;
   readonly createdAt: string;
@@ -2353,10 +2403,35 @@ export interface StandaloneTaskList {
   readonly items: readonly StandaloneTaskListItem[];
 }
 
+/** Các trường của việc ngoài dự án được ghi vào nhật ký sửa. */
+export const STANDALONE_TASK_LOGGED_FIELDS = [
+  'title',
+  'description',
+  'priority',
+  'assigneeUserId',
+  'participantUserIds',
+  'followerUserIds',
+  'plannedStart',
+  'dueDate',
+  'progressPercent',
+  'manualProgressPercent',
+] as const;
+export type StandaloneTaskLoggedField = (typeof STANDALONE_TASK_LOGGED_FIELDS)[number];
+
+export interface StandaloneTaskFieldChange {
+  readonly field: StandaloneTaskLoggedField;
+  readonly from: string | number | readonly string[] | null;
+  readonly to: string | number | readonly string[] | null;
+}
+
+/** Một dòng nhật ký: đổi trạng thái (`toStatus` có giá trị) hoặc sửa các trường (`changes` có giá trị). */
 export interface StandaloneTaskHistoryEntry {
   readonly id: string;
   readonly fromStatus?: WorkItemStatus;
-  readonly toStatus: WorkItemStatus;
+  /** Vắng ở dòng sửa trường. */
+  readonly toStatus?: WorkItemStatus;
+  /** Chỉ có ở dòng sửa trường. */
+  readonly changes?: readonly StandaloneTaskFieldChange[];
   readonly note?: string;
   readonly createdBy: string;
   readonly createdAt: string;
@@ -2425,6 +2500,8 @@ export interface UpdateStandaloneTaskRequest {
   readonly plannedStart?: string | null;
   readonly dueDate?: string | null;
   readonly progressPercent?: number;
+  /** Tiến độ nhập tay, được dùng thay giá trị tự tính; `null` quay về tự tính. */
+  readonly manualProgressPercent?: number | null;
 }
 
 /**
@@ -2444,3 +2521,61 @@ export interface MyWorkStandaloneTask {
   /** Tôi là người giao và việc đang chờ tôi duyệt. */
   readonly awaitingMyApproval: boolean;
 }
+
+/* =========================================================================
+   NHÃN VÀ MÀU CỦA TRẠNG THÁI, ƯU TIÊN (Cài đặt > Trạng thái và ưu tiên)
+   ========================================================================= */
+
+/** Một giá trị trong danh mục: khoá lưu trong dữ liệu, tên hiển thị và màu (`#rrggbb`). */
+export interface WorkspaceLabelOption {
+  readonly key: string;
+  readonly label: string;
+  readonly color: string;
+}
+
+/**
+ * Tên và màu của trạng thái công việc, trạng thái dự án và mức ưu tiên.
+ *
+ * Trạng thái gắn với logic (duyệt, đóng việc, báo cáo) nên giữ nguyên bộ khoá, chỉ đổi tên, màu và thứ tự hiển thị.
+ * Mức ưu tiên thì thêm, bớt được; thứ tự trong mảng là từ thấp tới cao.
+ */
+export interface WorkspaceLabelSettings {
+  readonly workItemStatuses: readonly WorkspaceLabelOption[];
+  readonly projectStatuses: readonly WorkspaceLabelOption[];
+  readonly priorities: readonly WorkspaceLabelOption[];
+}
+
+export interface WorkspaceLabelSettingsView extends WorkspaceLabelSettings {
+  readonly canEdit: boolean;
+}
+
+/** Mức ưu tiên gửi lên khi lưu: `key` vắng là mức mới, server tự cấp khoá. */
+export interface SaveWorkspaceLabelSettingsRequest {
+  readonly workItemStatuses: readonly WorkspaceLabelOption[];
+  readonly projectStatuses: readonly WorkspaceLabelOption[];
+  readonly priorities: readonly (Omit<WorkspaceLabelOption, 'key'> & { readonly key?: string })[];
+}
+
+export const DEFAULT_WORKSPACE_LABEL_SETTINGS: WorkspaceLabelSettings = {
+  workItemStatuses: [
+    { key: 'todo', label: 'Chưa làm', color: '#4b5563' },
+    { key: 'in_progress', label: 'Đang làm', color: '#1d4ed8' },
+    { key: 'blocked', label: 'Vướng mắc', color: '#b91c1c' },
+    { key: 'review', label: 'Chờ duyệt', color: '#92400e' },
+    { key: 'done', label: 'Hoàn thành', color: '#047857' },
+    { key: 'cancelled', label: 'Đã huỷ', color: '#6b7280' },
+  ],
+  projectStatuses: [
+    { key: 'planning', label: 'Lập kế hoạch', color: '#4b5563' },
+    { key: 'active', label: 'Đang chạy', color: '#1d4ed8' },
+    { key: 'on_hold', label: 'Tạm dừng', color: '#92400e' },
+    { key: 'completed', label: 'Hoàn thành', color: '#047857' },
+    { key: 'cancelled', label: 'Đã huỷ', color: '#6b7280' },
+  ],
+  priorities: [
+    { key: 'low', label: 'Thấp', color: '#475569' },
+    { key: 'normal', label: 'Bình thường', color: '#1d4ed8' },
+    { key: 'high', label: 'Cao', color: '#9a3412' },
+    { key: 'urgent', label: 'Khẩn cấp', color: '#991b1b' },
+  ],
+};

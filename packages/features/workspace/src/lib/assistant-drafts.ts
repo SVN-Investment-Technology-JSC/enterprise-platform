@@ -1,6 +1,5 @@
 import {
   EVENT_TYPES,
-  WORK_ITEM_PRIORITIES,
   WORK_ITEM_TYPES,
   type CreateEventRequest,
   type CreateStandaloneTaskRequest,
@@ -10,6 +9,7 @@ import {
   type WorkItemType,
 } from '@enterprise-platform/contracts-workspace';
 import type { WorkspaceStatus } from './workspace-api';
+import { priorityKeys } from './workspace-labels';
 
 /**
  * Đổi bản nháp của Trợ lý (theo tên trường của request API) thành giá trị ô của form tạo sẵn có.
@@ -162,7 +162,7 @@ export function workItemDraftToForm(
   if (description) values.description = description;
   const itemType = oneOf(WORK_ITEM_TYPES, draft.itemType);
   if (itemType) values.itemType = itemType;
-  const priority = oneOf(WORK_ITEM_PRIORITIES, draft.priority);
+  const priority = oneOf(priorityKeys(), draft.priority);
   if (priority) values.priority = priority;
   const assignee = text(draft.assigneeUserId) ?? options.defaultAssigneeUserId;
   if (assignee) values.assigneeUserId = assignee;
@@ -188,7 +188,7 @@ export function standaloneTaskDraftToForm(
   if (title) values.title = title;
   const description = text(draft.description);
   if (description) values.description = description;
-  const priority = oneOf(WORK_ITEM_PRIORITIES, draft.priority);
+  const priority = oneOf(priorityKeys(), draft.priority);
   if (priority) values.priority = priority;
   const assignee = text(draft.assigneeUserId) ?? options.defaultAssigneeUserId;
   if (assignee) values.assigneeUserId = assignee;

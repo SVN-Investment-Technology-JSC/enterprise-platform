@@ -74,6 +74,8 @@ import type {
   WorkItemDependency,
   WorkItemPriority,
   WorkItemStatus,
+  WorkItemFieldChange,
+  StandaloneTaskFieldChange,
   WorkItemStatusHistoryEntry,
   WorkloadRow,
   WorkspaceDocument,
@@ -92,6 +94,7 @@ import type { Pool, PoolClient, QueryResultRow } from 'pg';
 /** Pool hay client trong transaction: hai thứ cùng có `query`. */
 type Queryable = Pick<PoolClient, 'query'>;
 import type { FinanceInputs } from '../domain/finance.rules.js';
+import { standaloneTaskChanges, workItemChanges } from '../domain/work-item-changes.js';
 import {
   PROCEDURE_LAUNCH_URL,
   STANDALONE_TASK_PROCEDURE_REQUESTED,
@@ -209,7 +212,18 @@ function mapProjectRequest(row: Row): ProjectRequest {
 
 const PROJECT_COLUMNS = `id, code, name, description, status, owner_user_id, org_unit_id,
        customer_ref, customer_id, project_type, start_date, end_date, progress_percent, metadata,
-       created_by, created_at, updated_at, archived_at`;
+       created_by, created_at, updated_at, archived_at, manual_progress_percent`;
+
+/** Tiến độ hiển thị (nhập tay nếu có, không thì tự tính) kèm giá trị tự tính, cho dự án và công việc. */
+function progressFields(row: Row) {
+  const auto = num(row.progress_percent);
+  const manual = row.manual_progress_percent == null ? undefined : num(row.manual_progress_percent);
+  return {
+    progressPercent: manual ?? auto,
+    autoProgressPercent: auto,
+    progressManual: manual !== undefined,
+  };
+}
 
 function mapProject(row: Row): Project {
   return {
@@ -226,7 +240,7 @@ function mapProject(row: Row): Project {
     archivedAt: row.archived_at ? iso(row.archived_at) : undefined,
     startDate: day(row.start_date),
     endDate: day(row.end_date),
-    progressPercent: num(row.progress_percent),
+    ...progressFields(row),
     metadata: (row.metadata ?? {}) as Record<string, unknown>,
     createdBy: str(row.created_by),
     createdAt: iso(row.created_at),
@@ -280,7 +294,8 @@ const WORK_ITEM_COLUMNS = `id, project_id, parent_id, code, title, description, 
        execution_type, status, priority, assignee_user_id, planned_start, planned_end,
        actual_start, actual_end, estimate_hours, progress_percent, sort_order, depth,
        created_by, created_at, updated_at, reversed_at, reversed_by, reversed_by_name,
-       reversal_reason, adjustment_requested, adjustment_of_id, status_changed_at`;
+       reversal_reason, adjustment_requested, adjustment_of_id, status_changed_at,
+       manual_progress_percent`;
 
 /**
  * Gắn tiền tố bảng cho từng cột của một hằng `*_COLUMNS`.
@@ -316,7 +331,7 @@ function mapWorkItem(row: Row): WorkItem {
     actualStart: day(row.actual_start),
     actualEnd: day(row.actual_end),
     estimateHours: optNum(row.estimate_hours),
-    progressPercent: num(row.progress_percent),
+    ...progressFields(row),
     sortOrder: num(row.sort_order),
     depth: num(row.depth),
     createdBy: str(row.created_by),
@@ -353,7 +368,8 @@ function mapHistory(row: Row): WorkItemStatusHistoryEntry {
     id: str(row.id),
     workItemId: opt(row.work_item_id),
     fromStatus: opt(row.from_status) as WorkItemStatus | undefined,
-    toStatus: str(row.to_status) as WorkItemStatus,
+    toStatus: opt(row.to_status) as WorkItemStatus | undefined,
+    ...(row.changes ? { changes: row.changes as WorkItemFieldChange[] } : {}),
     note: opt(row.note),
     createdBy: str(row.created_by),
     createdAt: iso(row.created_at),
@@ -867,6 +883,7 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
           projectType: 'project_type',
           startDate: 'start_date',
           endDate: 'end_date',
+          manualProgressPercent: 'manual_progress_percent',
         },
         1,
       );
@@ -1287,7 +1304,7 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
     progressRows: async (tenantId: string, projectId: string): Promise<WorkItemProgressRow[]> => {
       const pool = await this.poolFor(tenantId);
       const result = await pool.query<Row>(
-        `SELECT id, parent_id, status, progress_percent, estimate_hours
+        `SELECT id, parent_id, status, progress_percent, manual_progress_percent, estimate_hours
            FROM workspace_schema.work_items WHERE project_id = $1`,
         [projectId],
       );
@@ -1296,6 +1313,7 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
         parentId: row.parent_id == null ? null : str(row.parent_id),
         status: str(row.status) as WorkItemStatus,
         progressPercent: num(row.progress_percent),
+        manualPercent: row.manual_progress_percent == null ? null : num(row.manual_progress_percent),
         estimateHours: row.estimate_hours == null ? null : Number(row.estimate_hours),
       }));
     },
@@ -1464,6 +1482,7 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
           plannedEnd: 'planned_end',
           estimateHours: 'estimate_hours',
           progressPercent: 'progress_percent',
+          manualProgressPercent: 'manual_progress_percent',
         },
         1,
       );
@@ -1474,12 +1493,13 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
         return current;
       }
       return inTransaction(pool, async (client) => {
-        const before = await client.query<{ assignee_user_id: string | null }>(
-          `SELECT assignee_user_id FROM workspace_schema.work_items WHERE id = $1 FOR UPDATE`,
+        const before = await client.query<Row>(
+          `SELECT ${WORK_ITEM_COLUMNS} FROM workspace_schema.work_items WHERE id = $1 FOR UPDATE`,
           [workItemId],
         );
         if (!before.rows[0]) throw new WorkItemNotFoundError(workItemId);
-        const previousAssignee = before.rows[0].assignee_user_id ?? undefined;
+        const [previous] = await withExtras(client, [mapWorkItem(before.rows[0])]);
+        const previousAssignee = previous?.assigneeUserId;
 
         // Chỉ đổi danh sách người hay nhãn thì vẫn chạm `updated_at`.
         const result = await client.query<Row>(
@@ -1498,6 +1518,15 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
         }
         const [item] = await withExtras(client, [mapWorkItem(result.rows[0] as Row)]);
         if (!item) throw new WorkItemNotFoundError(workItemId);
+
+        const changes = previous ? workItemChanges(previous, item) : [];
+        if (changes.length > 0) {
+          await client.query(
+            `INSERT INTO workspace_schema.work_item_change_log (work_item_id, project_id, changes, created_by)
+             VALUES ($1, $2, $3::jsonb, $4)`,
+            [item.id, item.projectId, JSON.stringify(changes), actor],
+          );
+        }
 
         // Chỉ phát khi người phụ trách thật sự đổi sang một người khác. Gỡ
         // người phụ trách (về rỗng) không phải "giao việc", nên không phát.
@@ -1539,6 +1568,9 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
                   progress_percent = CASE WHEN $2::varchar = 'done' THEN 100
                                           WHEN $2::varchar = 'todo' THEN 0
                                           ELSE progress_percent END,
+                  -- Hoàn thành là 100%: bỏ tiến độ nhập tay để không còn hiện con số cũ.
+                  manual_progress_percent = CASE WHEN $2::varchar = 'done' THEN NULL
+                                                 ELSE manual_progress_percent END,
                   updated_at = now()
             WHERE id = $1
             RETURNING ${WORK_ITEM_COLUMNS}`,
@@ -3413,7 +3445,8 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
       // Đếm bằng LEFT JOIN cộng FILTER thay vì ba truy vấn con: một lần quét
       // `idx_work_items_project_status` cho cả ba con số.
       const result = await pool.query<Row>(
-        `SELECT p.id, p.code, p.name, p.status, p.progress_percent,
+        `SELECT p.id, p.code, p.name, p.status,
+                COALESCE(p.manual_progress_percent, p.progress_percent) AS progress_percent,
                 p.start_date, p.end_date,
                 COUNT(w.id)::text AS total_items,
                 COUNT(w.id) FILTER (WHERE w.status IN ('done','cancelled'))::text AS closed_items,
@@ -3738,7 +3771,8 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
       // Số liệu theo từng dự án trước, rồi mới gom: trung bình tiến độ là trung bình của các dự án, không bị
       // dự án nhiều việc kéo lệch.
       const perProject = `
-        SELECT p.id, COALESCE(trim(p.project_type), '') AS grp, p.progress_percent,
+        SELECT p.id, COALESCE(trim(p.project_type), '') AS grp,
+               COALESCE(p.manual_progress_percent, p.progress_percent) AS progress_percent,
                COUNT(w.id) AS total,
                COUNT(w.id) FILTER (WHERE w.status IN ('done','cancelled')) AS closed,
                COUNT(w.id) FILTER (WHERE w.status NOT IN ('done','cancelled')) AS open,
@@ -4098,6 +4132,17 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
          ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = now()`,
         [key, JSON.stringify(value), actorUserId],
       );
+    },
+    prioritiesInUse: async (tenantId: string, priorities: readonly string[]): Promise<string[]> => {
+      if (priorities.length === 0) return [];
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `SELECT priority FROM workspace_schema.work_items WHERE priority = ANY($1::varchar[])
+         UNION
+         SELECT priority FROM workspace_schema.standalone_tasks WHERE priority = ANY($1::varchar[])`,
+        [priorities],
+      );
+      return result.rows.map((row) => str(row.priority));
     },
   };
 
@@ -4690,7 +4735,10 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
       tenantId: string,
       taskId: string,
       actorUserId: string,
-      input: Partial<StandaloneTaskWriteModel> & { readonly progressPercent?: number },
+      input: Partial<StandaloneTaskWriteModel> & {
+        readonly progressPercent?: number;
+        readonly manualProgressPercent?: number | null;
+      },
     ) => {
       const pool = await this.poolFor(tenantId);
       return inTransaction(pool, async (client) => {
@@ -4707,6 +4755,7 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
             plannedStart: 'planned_start',
             dueDate: 'due_date',
             progressPercent: 'progress_percent',
+            manualProgressPercent: 'manual_progress_percent',
           },
           2,
         );
@@ -4725,12 +4774,20 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
             actorUserId,
           );
         }
-        if (input.progressPercent !== undefined) {
+        if (input.progressPercent !== undefined || input.manualProgressPercent !== undefined) {
           await rollUpStandaloneProgress(client, before.parentId);
         }
 
         const task = await readStandaloneTask(client, taskId);
         if (!task) throw new StandaloneTaskNotFoundError();
+        const changes = standaloneTaskChanges(before, task);
+        if (changes.length > 0) {
+          await client.query(
+            `INSERT INTO workspace_schema.standalone_task_change_log (task_id, changes, created_by)
+             VALUES ($1, $2::jsonb, $3)`,
+            [taskId, JSON.stringify(changes), actorUserId],
+          );
+        }
         // Chỉ báo cho người MỚI vào vai thực hiện; người đã có thì đã được báo.
         const previous = new Set([before.assigneeUserId, ...before.participantUserIds]);
         const added = [task.assigneeUserId, ...task.participantUserIds].filter(
@@ -4781,9 +4838,14 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
       limit: number,
     ): Promise<StandaloneTaskHistoryEntry[]> => {
       const pool = await this.poolFor(tenantId);
+      // Đổi trạng thái và sửa trường xếp chung theo thời gian.
       const result = await pool.query<Row>(
-        `SELECT id, from_status, to_status, note, created_by, created_at
+        `SELECT id, from_status, to_status, note, NULL::jsonb AS changes, created_by, created_at
            FROM workspace_schema.standalone_task_history
+          WHERE task_id = $1
+         UNION ALL
+         SELECT id, NULL, NULL, NULL, changes, created_by, created_at
+           FROM workspace_schema.standalone_task_change_log
           WHERE task_id = $1
           ORDER BY created_at DESC
           LIMIT $2`,
@@ -4792,7 +4854,8 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
       return result.rows.map((row) => ({
         id: str(row.id),
         fromStatus: opt(row.from_status) as WorkItemStatus | undefined,
-        toStatus: str(row.to_status) as WorkItemStatus,
+        toStatus: opt(row.to_status) as WorkItemStatus | undefined,
+        ...(row.changes ? { changes: row.changes as StandaloneTaskFieldChange[] } : {}),
         note: opt(row.note),
         createdBy: str(row.created_by),
         createdAt: iso(row.created_at),
@@ -5039,9 +5102,14 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
       limit: number,
     ): Promise<WorkItemStatusHistoryEntry[]> => {
       const pool = await this.poolFor(tenantId);
+      // Nhật ký của một việc gồm cả đổi trạng thái lẫn sửa trường, xếp chung theo thời gian.
       const result = await pool.query<Row>(
-        `SELECT id, work_item_id, from_status, to_status, note, created_by, created_at
+        `SELECT id, work_item_id, from_status, to_status, note, NULL::jsonb AS changes, created_by, created_at
            FROM workspace_schema.work_item_status_history
+          WHERE work_item_id = $1
+         UNION ALL
+         SELECT id, work_item_id, NULL, NULL, NULL, changes, created_by, created_at
+           FROM workspace_schema.work_item_change_log
           WHERE work_item_id = $1
           ORDER BY created_at DESC
           LIMIT $2`,
@@ -5057,8 +5125,12 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
     ): Promise<WorkItemStatusHistoryEntry[]> => {
       const pool = await this.poolFor(tenantId);
       const result = await pool.query<Row>(
-        `SELECT id, work_item_id, from_status, to_status, note, created_by, created_at
+        `SELECT id, work_item_id, from_status, to_status, note, NULL::jsonb AS changes, created_by, created_at
            FROM workspace_schema.work_item_status_history
+          WHERE project_id = $1
+         UNION ALL
+         SELECT id, work_item_id, NULL, NULL, NULL, changes, created_by, created_at
+           FROM workspace_schema.work_item_change_log
           WHERE project_id = $1
           ORDER BY created_at DESC
           LIMIT $2`,
@@ -5628,8 +5700,8 @@ async function withProjectTags(db: Queryable, projects: Project[]): Promise<Proj
 const STANDALONE_TASK_SELECT = `t.id, t.code, t.title, t.description, t.status, t.priority,
        t.parent_id, t.root_id, t.depth,
        t.assignee_user_id, t.planned_start, t.due_date, t.actual_start, t.actual_end,
-       t.progress_percent, t.created_by, t.created_at, t.updated_at, t.status_changed_at,
-       t.execution_type, t.procedure_definition_id, t.procedure_status,
+       t.progress_percent, t.manual_progress_percent, t.created_by, t.created_at, t.updated_at,
+       t.status_changed_at, t.execution_type, t.procedure_definition_id, t.procedure_status,
        t.procedure_instance_id, t.procedure_instance_code, t.procedure_error,
        t.reversed_at, t.reversed_by, t.reversed_by_name, t.reversal_reason,
        t.adjustment_requested, t.adjustment_of_id,
@@ -5683,7 +5755,7 @@ function mapStandaloneTask(row: Row): StandaloneTask {
     dueDate: day(row.due_date),
     actualStart: day(row.actual_start),
     actualEnd: day(row.actual_end),
-    progressPercent: num(row.progress_percent),
+    ...progressFields(row),
     createdBy: str(row.created_by),
     createdAt: iso(row.created_at),
     updatedAt: iso(row.updated_at),
@@ -5737,6 +5809,9 @@ async function setStandaloneStatus(
             progress_percent = CASE WHEN $3::varchar = 'done' THEN 100
                                     WHEN $3::varchar = 'todo' THEN 0
                                     ELSE progress_percent END,
+            -- Hoàn thành là 100%: bỏ tiến độ nhập tay để không còn hiện con số cũ.
+            manual_progress_percent = CASE WHEN $3::varchar = 'done' THEN NULL
+                                           ELSE manual_progress_percent END,
             status_changed_at = now(),
             updated_at = now()
       WHERE id = $1 AND status = $2::varchar
@@ -5769,7 +5844,7 @@ async function rollUpStandaloneProgress(
     const result = await client.query<{ parent_id: string | null }>(
       `UPDATE workspace_schema.standalone_tasks p
           SET progress_percent = sub.avg, updated_at = now()
-         FROM (SELECT ROUND(AVG(progress_percent))::smallint AS avg
+         FROM (SELECT ROUND(AVG(COALESCE(manual_progress_percent, progress_percent)))::smallint AS avg
                  FROM workspace_schema.standalone_tasks
                 WHERE parent_id = $1 AND status <> 'cancelled') sub
         WHERE p.id = $1 AND sub.avg IS NOT NULL AND p.status NOT IN ('done','cancelled')
