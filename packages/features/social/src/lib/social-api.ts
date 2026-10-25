@@ -71,7 +71,7 @@ const ATTACHMENT_ERROR_FALLBACKS: Readonly<Record<string, string>> = {
     'Bạn đang có quá nhiều tệp tải lên chưa gửi. Hãy gửi hoặc gỡ bớt tệp rồi thử lại.',
   SOCIAL_VIDEO_TOO_MANY_PROCESSING:
     'Bạn đang có quá nhiều video chờ xử lý. Hãy đợi các video đó xong rồi tải tiếp.',
-  SOCIAL_VIDEO_NOT_READY: 'Video chưa xử lý xong. Hãy chờ video sẵn sàng rồi gửi lại.',
+  SOCIAL_VIDEO_FAILED: 'Video xử lý lỗi, chưa thể đăng. Hãy gỡ video rồi thử lại.',
 };
 
 /** Như `errorMessage`, nhưng có lời nhắn tiếng Việt riêng cho các mã lỗi tệp và video khi server không kèm lời nhắn. */

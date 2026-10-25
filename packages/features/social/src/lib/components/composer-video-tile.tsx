@@ -95,7 +95,7 @@ export function ComposerVideoTile(props: ComposerVideoTileProps) {
             <span className={styles.status} role="status">
               {state === 'queued' ? 'Đang chờ xử lý video…' : 'Đang xử lý video…'}
             </span>
-            <span className={styles.hint}>Vui lòng giữ trang này mở.</span>
+            <span className={styles.hint}>Bạn có thể đăng ngay hoặc chờ vài phút.</span>
           </>
         ) : null}
         {state === 'ready' ? <span className={styles.status}>Video đã sẵn sàng</span> : null}

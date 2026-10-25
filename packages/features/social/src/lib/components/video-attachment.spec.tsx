@@ -195,3 +195,90 @@ describe('VideoAttachment', () => {
     expect(HTMLMediaElement.prototype.play).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('VideoAttachment: khung giữ chỗ theo trạng thái xử lý', () => {
+  const placeholder = () => container.querySelector('[data-state], [role="img"]');
+
+  it.each(['queued', 'processing'] as const)('%s: hiện khung đang xử lý, có nhãn aria, không có thẻ video', (status) => {
+    render(<VideoAttachment attachment={attachment({ url: undefined, processingStatus: status })} />);
+    expect(videos()).toHaveLength(0);
+    expect(container.textContent).toContain('Video đang được xử lý, sẽ xem được sau ít phút.');
+    const box = container.querySelector('[role="status"]');
+    expect(box?.getAttribute('aria-label')).toBe('Video đang được xử lý, sẽ xem được sau ít phút.');
+    expect(box?.getAttribute('data-state')).toBe('processing');
+  });
+
+  it('failed: báo không xử lý được, kèm processingError nếu có', () => {
+    render(<VideoAttachment attachment={attachment({ url: undefined, processingStatus: 'failed' })} />);
+    expect(container.textContent).toContain('Không xử lý được video này.');
+    expect(container.textContent).not.toContain('codec');
+    render(
+      <VideoAttachment
+        attachment={attachment({ url: undefined, processingStatus: 'failed', processingError: 'Lỗi codec không hỗ trợ' })}
+      />,
+    );
+    expect(container.textContent).toContain('Lỗi codec không hỗ trợ');
+    expect(placeholder()?.getAttribute('data-state')).toBe('failed');
+  });
+
+  it('không có trạng thái nào: giữ khung "Video chưa sẵn sàng" như cũ', () => {
+    render(<VideoAttachment attachment={attachment({ url: undefined, processingStatus: undefined })} />);
+    expect(container.textContent).toContain('Video chưa sẵn sàng');
+  });
+});
+
+describe('VideoAttachment: tự làm mới khi video đang xử lý', () => {
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => jest.useRealTimers());
+
+  const advance = async (ms: number) => {
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(ms);
+    });
+  };
+
+  it('gọi onRequestRefresh định kỳ (silent) khi queued hoặc processing và chưa có url', async () => {
+    const onRequestRefresh = jest.fn();
+    render(
+      <VideoAttachment attachment={attachment({ url: undefined, processingStatus: 'queued' })} onRequestRefresh={onRequestRefresh} />,
+    );
+    await advance(8000);
+    expect(onRequestRefresh).toHaveBeenCalledTimes(1);
+    expect(onRequestRefresh).toHaveBeenCalledWith({ silent: true });
+    await advance(12_000);
+    expect(onRequestRefresh).toHaveBeenCalledTimes(2);
+  });
+
+  it('không làm mới khi video đã sẵn sàng, đã lỗi, hoặc không có onRequestRefresh', async () => {
+    const onRequestRefresh = jest.fn();
+    render(<VideoAttachment attachment={attachment()} onRequestRefresh={onRequestRefresh} />);
+    await advance(120_000);
+    render(
+      <VideoAttachment attachment={attachment({ url: undefined, processingStatus: 'failed' })} onRequestRefresh={onRequestRefresh} />,
+    );
+    await advance(120_000);
+    render(<VideoAttachment attachment={attachment({ url: undefined, processingStatus: 'processing' })} />);
+    await advance(120_000);
+    expect(onRequestRefresh).not.toHaveBeenCalled();
+  });
+
+  it('dừng khi cha cập nhật video thành ready và khi unmount', async () => {
+    const onRequestRefresh = jest.fn();
+    render(
+      <VideoAttachment attachment={attachment({ url: undefined, processingStatus: 'processing' })} onRequestRefresh={onRequestRefresh} />,
+    );
+    await advance(8000);
+    expect(onRequestRefresh).toHaveBeenCalledTimes(1);
+    render(<VideoAttachment attachment={attachment()} onRequestRefresh={onRequestRefresh} />);
+    await advance(120_000);
+    expect(onRequestRefresh).toHaveBeenCalledTimes(1);
+    expect(videos()).toHaveLength(1);
+
+    render(
+      <VideoAttachment attachment={attachment({ url: undefined, processingStatus: 'processing' })} onRequestRefresh={onRequestRefresh} />,
+    );
+    act(() => root.render(null));
+    await advance(120_000);
+    expect(onRequestRefresh).toHaveBeenCalledTimes(1);
+  });
+});

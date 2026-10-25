@@ -1,20 +1,25 @@
 'use client';
 
 import type { SocialAttachment } from '@enterprise-platform/contracts-social';
+import { LoaderCircle, TriangleAlert } from 'lucide-react';
 import { useCallback, useRef, useState } from 'react';
 import styles from '../social.module.scss';
 import { useExclusiveVideoPlayback } from '../use-exclusive-video-playback';
+import { useVideoRefreshPoll, type VideoRefresh } from '../use-video-refresh-poll';
 
 export interface VideoAttachmentProps {
   readonly attachment: SocialAttachment;
   /** Chỉ ô soạn thảo của tác giả: gỡ video (kể cả video đang xử lý hoặc lỗi). */
   readonly onRemove?: () => void;
   /** URL xem video sống 1 giờ: cha tải lại dữ liệu để lấy URL mới khi liên kết hết hạn. */
-  readonly onRequestRefresh?: () => void;
+  readonly onRequestRefresh?: VideoRefresh;
   readonly className?: string;
 }
 
 export const VIDEO_EXPIRED_MESSAGE = 'Liên kết video đã hết hạn, hãy tải lại trang.';
+export const VIDEO_PROCESSING_MESSAGE = 'Video đang được xử lý, sẽ xem được sau ít phút.';
+export const VIDEO_FAILED_MESSAGE = 'Không xử lý được video này.';
+export const VIDEO_NOT_READY_MESSAGE = 'Video chưa sẵn sàng';
 
 /** Tỉ lệ khung hình CSS từ chiều rộng và cao; thiếu hoặc không hợp lệ thì để trình duyệt tự suy ra. */
 export function videoAspectRatio(width?: number, height?: number): string | undefined {
@@ -65,7 +70,7 @@ export function VideoAttachment({ attachment, onRemove, onRequestRefresh, classN
     }
     retried.current = true;
     resumeAt.current = element?.currentTime ?? 0;
-    onRequestRefresh();
+    void Promise.resolve(onRequestRefresh()).catch(() => undefined);
   }, [onRequestRefresh]);
 
   const handleLoadedMetadata = useCallback(() => {
@@ -78,6 +83,11 @@ export function VideoAttachment({ attachment, onRemove, onRequestRefresh, classN
     void playing?.catch(() => undefined);
   }, []);
 
+  const status = attachment.processingStatus;
+  const waitingForServer = !url && (status === 'queued' || status === 'processing');
+  // Người xem video chưa xong: cha tải lại định kỳ để lấy URL khi video xử lý xong.
+  useVideoRefreshPoll(waitingForServer, onRequestRefresh);
+
   const removeButton = onRemove ? (
     <button type="button" className={styles.videoRemove} onClick={onRemove}>
       Gỡ
@@ -85,15 +95,26 @@ export function VideoAttachment({ attachment, onRemove, onRequestRefresh, classN
   ) : null;
 
   if (!url) {
+    const failed = status === 'failed';
+    const label = waitingForServer ? VIDEO_PROCESSING_MESSAGE : failed ? VIDEO_FAILED_MESSAGE : VIDEO_NOT_READY_MESSAGE;
     return (
       <div className={rootClass}>
         <div
           className={styles.videoPlaceholder}
-          role="img"
-          aria-label="Video chưa sẵn sàng"
+          role={waitingForServer ? 'status' : failed ? 'alert' : 'img'}
+          aria-label={label}
+          data-state={waitingForServer ? 'processing' : failed ? 'failed' : undefined}
           style={{ aspectRatio: ratio ?? '16 / 9' }}
         >
-          Video chưa sẵn sàng
+          {waitingForServer ? (
+            <LoaderCircle size={22} className={styles.videoPlaceholderSpin} aria-hidden="true" />
+          ) : failed ? (
+            <TriangleAlert size={22} aria-hidden="true" />
+          ) : null}
+          <span>{label}</span>
+          {failed && attachment.processingError ? (
+            <span className={styles.videoPlaceholderDetail}>{attachment.processingError}</span>
+          ) : null}
         </div>
         {removeButton}
       </div>

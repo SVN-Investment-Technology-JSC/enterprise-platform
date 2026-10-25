@@ -38,8 +38,19 @@ import {
   validateVideoDuration,
   withVideoContentType,
 } from '../comment-media';
+import { findFreshComment } from '../comment-refresh';
 import { useAttachmentStatuses } from '../use-attachment-statuses';
 import { useUnsentAttachments } from '../use-unsent-attachments';
+import {
+  buildVideoWarning,
+  collectUnfinishedVideos,
+  hasFailedVideo,
+  hasNonVideoUploading,
+  hasUnfinishedVideos,
+  isVideoPending,
+  publishableAttachmentIds,
+  VIDEO_NOTHING_LEFT_NOTE,
+} from '../video-publish-gate';
 import {
   activeMentionQuery,
   decodeMentions,
@@ -88,10 +99,6 @@ interface PendingFile {
   /** Lỗi do tệp (không đọc được, quá lớn) thì không thử lại được, chỉ bỏ. */
   readonly retryable?: boolean;
 }
-
-/** Video đã tải xong nhưng server chưa chuyển mã xong. */
-const isVideoPending = (attachment: SocialAttachment) =>
-  attachment.processingStatus === 'queued' || attachment.processingStatus === 'processing';
 
 const RING_RADIUS = 16;
 const RING_LENGTH = 2 * Math.PI * RING_RADIUS;
@@ -142,7 +149,7 @@ interface CommentInputProps {
   readonly onCancel?: () => void;
 }
 
-function CommentInput({
+export function CommentInput({
   initialText = '',
   initialPicks = [],
   placeholder,
@@ -328,11 +335,18 @@ function CommentInput({
     const latest = file.attachment ? latestStatus.get(file.attachment.id) : undefined;
     return file.attachment && latest ? { ...file, attachment: { ...file.attachment, ...latest } } : file;
   });
-  const uploading = files.some((file) => file.status === 'uploading');
-  const processing = shown.some((file) => file.isVideo && file.attachment && isVideoPending(file.attachment));
-  const videoFailed = shown.some((file) => file.isVideo && file.attachment?.processingStatus === 'failed');
+  // Video chưa xong KHÔNG chặn gửi: bấm gửi thì hỏi lại (hộp cảnh báo). Ảnh đang tải và video lỗi vẫn chặn.
+  const unfinished = collectUnfinishedVideos(shown);
+  const unfinishedAny = hasUnfinishedVideos(unfinished);
+  const nonVideoUploading = hasNonVideoUploading(shown);
+  const videoFailed = hasFailedVideo(shown);
   const failed = files.find((file) => file.status === 'error');
-  const attachmentIds = files.flatMap((file) => (file.status === 'done' && file.attachment ? [file.attachment.id] : []));
+  const attachmentIds = publishableAttachmentIds(shown);
+  const [warning, setWarning] = useState(false);
+  // Video xong hoặc bị gỡ trong lúc hộp đang mở: không còn gì để cảnh báo.
+  useEffect(() => {
+    if (warning && !unfinishedAny) setWarning(false);
+  }, [warning, unfinishedAny]);
 
   const mention = activeMentionQuery(text, caret);
   const { people, loading } = usePeopleSearch(mention?.query ?? '', Boolean(mention));
@@ -358,9 +372,10 @@ function CommentInput({
     });
   };
 
-  const submit = async () => {
+  const submit = async (confirmed = false) => {
     const trimmed = text.trim();
-    if ((!trimmed && attachmentIds.length === 0) || busy || uploading || processing) return;
+    if (busy || nonVideoUploading) return;
+    if (!trimmed && attachmentIds.length === 0 && unfinished.uploading.length === 0) return;
     if (videoFailed) {
       setError('Có video xử lý lỗi. Hãy gỡ video đó rồi gửi lại.');
       return;
@@ -372,6 +387,10 @@ function CommentInput({
     const encoded = encodeMentions(trimmed, picks);
     if (encoded.body.length > SOCIAL_COMMENT_MAX) {
       setError(`Bình luận tối đa ${SOCIAL_COMMENT_MAX.toLocaleString('vi-VN')} ký tự.`);
+      return;
+    }
+    if (!confirmed && unfinishedAny) {
+      setWarning(true);
       return;
     }
     setBusy(true);
@@ -410,8 +429,24 @@ function CommentInput({
   };
 
   const canSend =
-    !busy && !uploading && !processing && !videoFailed && (text.trim().length > 0 || attachmentIds.length > 0);
-  const sendHint = processing ? 'Đang xử lý video…' : videoFailed ? 'Hãy gỡ video lỗi trước khi gửi.' : undefined;
+    !busy &&
+    !nonVideoUploading &&
+    !videoFailed &&
+    (text.trim().length > 0 || attachmentIds.length > 0 || unfinished.uploading.length > 0);
+  const sendHint = videoFailed
+    ? 'Hãy gỡ video lỗi trước khi gửi.'
+    : unfinished.processing.length > 0
+      ? 'Video đang xử lý; bạn vẫn có thể gửi, video sẽ hiện khi xử lý xong.'
+      : undefined;
+  const nothingLeft = text.trim().length === 0 && attachmentIds.length === 0;
+  const warningText = buildVideoWarning(unfinished, 'comment');
+
+  /** "Vẫn gửi": huỷ và bỏ các video đang tải (đường huỷ sẵn có), rồi gửi kèm các tệp đã tải xong. */
+  const sendAnyway = () => {
+    setWarning(false);
+    for (const file of filesRef.current) if (file.isVideo && file.status === 'uploading') removeFile(file.key);
+    void submit(true);
+  };
 
   return (
     <div
@@ -581,6 +616,20 @@ function CommentInput({
           </button>
         </div>
       ) : null}
+      <ConfirmDialog
+        open={warning}
+        title={warningText.title}
+        message={warningText.paragraphs}
+        confirmLabel={warningText.confirmLabel}
+        cancelLabel={warningText.cancelLabel}
+        submittingLabel="Đang gửi…"
+        danger={false}
+        busy={busy}
+        confirmDisabled={nothingLeft}
+        note={nothingLeft ? VIDEO_NOTHING_LEFT_NOTE : undefined}
+        onConfirm={sendAnyway}
+        onClose={() => setWarning(false)}
+      />
     </div>
   );
 }
@@ -595,7 +644,7 @@ interface CommentRowProps {
   readonly onRemoved: (comment: SocialComment) => void;
   /** Bình luận đích từ liên kết thông báo: làm nổi và cuộn tới. */
   readonly highlight?: boolean;
-  /** Tải lại bình luận để lấy URL video ký mới khi URL cũ hết hạn. */
+  /** Tải lại bình luận để lấy URL video ký mới khi URL cũ hết hạn hoặc khi video đang xử lý đã xong. */
   readonly onRefreshMedia?: () => Promise<void>;
 }
 
@@ -906,8 +955,7 @@ function RootComment({ postId, comment, canComment, onChanged, onRemoved, onCoun
         onRemoved={onRemoved}
         highlight={focusId === comment.id}
         onRefreshMedia={async () => {
-          const page = await loadComments(postId);
-          const fresh = page.items.find((item) => item.id === comment.id);
+          const fresh = await findFreshComment(loadComments, postId, comment.id);
           if (fresh) onChanged(fresh);
         }}
       />
@@ -927,8 +975,7 @@ function RootComment({ postId, comment, canComment, onChanged, onRemoved, onCoun
                     canComment={canComment}
                     highlight={focusId === reply.id}
                     onRefreshMedia={async () => {
-                      const page = await loadComments(postId, { parentId: comment.id });
-                      const fresh = page.items.find((item) => item.id === reply.id);
+                      const fresh = await findFreshComment(loadComments, postId, reply.id, comment.id);
                       if (fresh) setReplies((list) => list.map((item) => (item.id === fresh.id ? fresh : item)));
                     }}
                     onReply={startReply}

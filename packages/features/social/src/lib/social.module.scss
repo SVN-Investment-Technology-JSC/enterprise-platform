@@ -1871,12 +1871,35 @@
 
 .videoPlaceholder {
   display: grid;
-  place-items: center;
+  place-content: center;
+  justify-items: center;
+  gap: 6px;
   width: 100%;
+  padding: 12px;
   border-radius: var(--ep-radius);
   background: rgb(24 24 27 / 8%);
   color: #71717a;
   font-size: 13px;
+  text-align: center;
+}
+
+.videoPlaceholder[data-state='failed'] {
+  color: var(--ep-danger, #b91c1c);
+}
+
+.videoPlaceholderDetail {
+  font-size: 12px;
+  opacity: 0.85;
+}
+
+.videoPlaceholderSpin {
+  animation: comment-file-spin 1.1s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .videoPlaceholderSpin {
+    animation: none;
+  }
 }
 
 .videoDuration {

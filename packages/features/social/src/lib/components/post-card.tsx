@@ -318,14 +318,20 @@ export function PostCard({
   const images = post.attachments.filter((item) => item.isImage && !item.isVideo);
   const files = post.attachments.filter((item) => !item.isImage && !item.isVideo);
 
-  /** URL video sống 1 giờ: tải lại bài để lấy URL mới. */
-  const refreshPost = useCallback(() => {
-    loadPost(post.id)
-      .then(onChange)
-      .catch((cause) =>
-        onError(errorMessage(cause, 'Không tải lại được video.')),
-      );
-  }, [post.id, onChange, onError]);
+  /**
+   * Tải lại bài để lấy URL video mới (URL sống 1 giờ) hoặc khi video đang xử lý đã xong. Trả Promise để nơi gọi
+   * không gọi chồng; lần làm mới nền (`silent`) không báo lỗi.
+   */
+  const refreshPost = useCallback(
+    async (options?: { readonly silent?: boolean }) => {
+      try {
+        onChange(await loadPost(post.id));
+      } catch (cause) {
+        if (!options?.silent) onError(errorMessage(cause, 'Không tải lại được video.'));
+      }
+    },
+    [post.id, onChange, onError],
+  );
 
   const react = useCallback(
     async (type: SocialReactionType | null) => {

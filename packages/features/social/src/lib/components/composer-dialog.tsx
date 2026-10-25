@@ -83,14 +83,19 @@ import { PollBuilder } from './poll/poll-builder';
 import { RichEditor } from './rich-editor';
 import { TimeSelect } from './time-select';
 import { ComposerVideoTile } from './composer-video-tile';
-import { Avatar, Dialog, Field, SelectField } from './ui';
+import { Avatar, ConfirmDialog, Dialog, Field, SelectField } from './ui';
+import {
+  buildVideoWarning,
+  collectUnfinishedVideos,
+  hasFailedVideo,
+  hasNonVideoUploading,
+  hasUnfinishedVideos,
+  isVideoPending,
+  publishableAttachmentIds,
+} from '../video-publish-gate';
 
 /** Cách bỏ tệp chưa gửi: lời gọi thường khi gỡ tệp hay đóng hộp, `keepalive` khi đóng tab. */
 const UNSENT_DEPS = { discard: discardAttachment, discardKeepalive: discardAttachmentKeepalive };
-
-/** Video đã tải xong nhưng server chưa chuyển mã xong. */
-const isVideoPending = (attachment: SocialAttachment) =>
-  attachment.processingStatus === 'queued' || attachment.processingStatus === 'processing';
 
 interface UploadItem {
   readonly key: string;
@@ -293,9 +298,16 @@ export function ComposerDialog({
     const latest = item.attachment ? latestStatus.get(item.attachment.id) : undefined;
     return item.attachment && latest ? { ...item, attachment: { ...item.attachment, ...latest } } : item;
   });
-  const processing = shownUploads.some((item) => item.isVideo && item.attachment && isVideoPending(item.attachment));
-  const videoFailed = shownUploads.some((item) => item.isVideo && item.attachment?.processingStatus === 'failed');
-  const uploading = uploads.some((item) => item.status === 'uploading');
+  // Video chưa xong KHÔNG chặn đăng: bấm đăng thì hỏi lại (hộp cảnh báo). Ảnh/tệp đang tải và video lỗi vẫn chặn.
+  const unfinished = collectUnfinishedVideos(shownUploads);
+  const unfinishedAny = hasUnfinishedVideos(unfinished);
+  const nonVideoUploading = hasNonVideoUploading(shownUploads);
+  const videoFailed = hasFailedVideo(shownUploads);
+  const [videoWarning, setVideoWarning] = useState(false);
+  // Video xong hoặc bị gỡ trong lúc hộp đang mở: không còn gì để cảnh báo.
+  useEffect(() => {
+    if (videoWarning && !unfinishedAny) setVideoWarning(false);
+  }, [videoWarning, unfinishedAny]);
   const activeUploads = uploads.filter(
     (item) => item.status !== 'error',
   ).length;
@@ -480,7 +492,7 @@ export function ComposerDialog({
     if (fileInput.current) fileInput.current.value = '';
   };
 
-  const submit = async () => {
+  const submit = async (confirmed = false) => {
     if (noContent) {
       setError('Hãy nhập nội dung bài viết.');
       return;
@@ -519,11 +531,14 @@ export function ComposerDialog({
       setError('Có video xử lý lỗi. Hãy gỡ video đó rồi đăng lại.');
       return;
     }
+    if (!confirmed && unfinishedAny) {
+      setVideoWarning(true);
+      return;
+    }
     setSubmitting(true);
     setError(undefined);
-    const attachmentIds = uploads.flatMap((item) =>
-      item.status === 'done' && item.attachment ? [item.attachment.id] : [],
-    );
+    // Tệp đã tải xong và không lỗi (gồm video đang xử lý); video đang tải dở đã bị huỷ ở bước xác nhận.
+    const attachmentIds = publishableAttachmentIds(shownUploads);
     const mentionUserIds = mentions.map((user) => user.id);
     const scheduledAt =
       scheduleOn && canSchedule
@@ -603,6 +618,17 @@ export function ComposerDialog({
     }
   };
 
+  const videoWarningText = buildVideoWarning(unfinished, 'post');
+
+  /** "Vẫn đăng": huỷ và bỏ các video đang tải (đường huỷ sẵn có), rồi đăng kèm các tệp đã tải xong. */
+  const postAnyway = () => {
+    setVideoWarning(false);
+    for (const item of uploadsRef.current) {
+      if (item.isVideo && item.status === 'uploading') removeUpload(item.key);
+    }
+    void submit(true);
+  };
+
   const resubmit = editing?.status === 'rejected';
   const submitLabel = editing
     ? resubmit
@@ -629,12 +655,12 @@ export function ComposerDialog({
       submitLabel={submitLabel}
       submittingLabel={editing ? 'Đang lưu…' : 'Đang đăng…'}
       submitting={submitting}
-      submitDisabled={noContent || uploading || processing || videoFailed}
+      submitDisabled={noContent || nonVideoUploading || videoFailed}
       error={error}
       onSubmit={() => void submit()}
       onClose={() => {
         // Esc trong hộp quyền xem chỉ đóng hộp đó.
-        if (!audienceOpen) onClose();
+        if (!audienceOpen && !videoWarning) onClose();
       }}
     >
       <div className={extras.composerWho}>
@@ -880,13 +906,13 @@ export function ComposerDialog({
             )}
           </ul>
         ) : null}
-        {processing ? (
-          <span className={styles.fieldHint} role="status">
-            Đang xử lý video… Nút đăng sẽ bật khi video xử lý xong; vui lòng giữ trang này mở.
-          </span>
-        ) : videoFailed ? (
+        {videoFailed ? (
           <span className={styles.fieldHint} role="status">
             Hãy gỡ video xử lý lỗi trước khi đăng.
+          </span>
+        ) : unfinished.processing.length > 0 ? (
+          <span className={styles.fieldHint} role="status">
+            Video đang xử lý; bạn vẫn có thể đăng, video sẽ hiện khi xử lý xong.
           </span>
         ) : null}
         <input
@@ -907,6 +933,18 @@ export function ComposerDialog({
         </button>
       </div>
     </Dialog>
+    <ConfirmDialog
+      open={videoWarning}
+      title={videoWarningText.title}
+      message={videoWarningText.paragraphs}
+      confirmLabel={videoWarningText.confirmLabel}
+      cancelLabel={videoWarningText.cancelLabel}
+      submittingLabel="Đang đăng…"
+      danger={false}
+      busy={submitting}
+      onConfirm={postAnyway}
+      onClose={() => setVideoWarning(false)}
+    />
     {audienceOpen ? (
       <AudienceDialog
         value={{ visibility, users: audUsers, units: audUnits }}

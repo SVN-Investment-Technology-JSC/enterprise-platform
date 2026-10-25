@@ -98,4 +98,18 @@ describe('useUnsentAttachments', () => {
     second.unmount();
     expect(second.discard).not.toHaveBeenCalled();
   });
+
+  it('đăng khi video còn xử lý: forget id đã gắn thì đóng ô/tab không bỏ video, chỉ bỏ tệp không gắn', () => {
+    const { result, discard, discardKeepalive, unmount } = setup();
+    result.current.track('processing-video', 'up-1');
+    result.current.track('ready-image');
+    result.current.track('dropped-upload', 'up-2');
+    result.current.forget(['processing-video', 'ready-image']);
+    expect(result.current.has()).toBe(true);
+    fire('pagehide');
+    expect(discardKeepalive).toHaveBeenCalledTimes(1);
+    expect(discardKeepalive).toHaveBeenCalledWith('dropped-upload', 'up-2');
+    unmount();
+    expect(discard).not.toHaveBeenCalled();
+  });
 });
