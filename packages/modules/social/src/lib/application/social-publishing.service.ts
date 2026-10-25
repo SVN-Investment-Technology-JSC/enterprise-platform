@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
+import { Logger } from '@nestjs/common';
 import {
   SOCIAL_AUDIENCE_MAX_USERS,
+  SOCIAL_MEDIA_LAYOUT_DEFAULT,
   type CreateSocialPostRequest,
   type PinSocialPostRequest,
   type SocialPost,
@@ -20,6 +22,7 @@ import {
   normalizeAttachmentIds,
   normalizeBody,
   normalizeKind,
+  normalizeMediaLayout,
   normalizeMentionIds,
   normalizeTitle,
   requireContent,
@@ -55,6 +58,7 @@ import {
   SocialTopicNotFoundError,
   SocialValidationError,
 } from '../domain/social.error.js';
+import type { AttachmentStorage } from './attachment-storage.port.js';
 import type { OrganizationDirectory } from './organization-directory.port.js';
 import type { GroupAccessInfo, GroupMembershipPort } from './ports/group-membership.port.js';
 import type { GroupPostingPort } from './ports/group-posting.port.js';
@@ -63,6 +67,7 @@ import type { SocialSettingsPort } from './ports/social-settings.port.js';
 import type { OrgStructurePort, ViewerScopePort } from './ports/viewer-scope.port.js';
 import type { SocialActor } from './social-actor.js';
 import type { SocialPostAccess } from './social-post-access.js';
+import { assertPostAttachable } from './social-post-attachments.js';
 import {
   postChangedEvent,
   postPendingEvent,
@@ -78,6 +83,7 @@ const CONTENT_FIELDS = [
   'bodyHtml',
   'topicId',
   'attachmentIds',
+  'mediaLayout',
   'mentionUserIds',
   'scheduledAt',
   'requiresReadConfirmation',
@@ -88,6 +94,13 @@ export interface SocialPublishingDeps {
   readonly store: SocialPublishingStore;
   /** Chỉ dùng chuyên mục và quan hệ (tệp, người nhắc) của store P1. */
   readonly social: Pick<SocialStore, 'topics' | 'posts'>;
+  /**
+   * Tệp đính kèm của store P1: kiểm trước khi gắn (video chưa xử lý xong, luật tập tệp) và xoá dòng khi xoá bài.
+   * Thiếu thì chỉ còn lớp chặn của câu SQL gắn tệp.
+   */
+  readonly attachments?: Pick<SocialStore['attachments'], 'findById' | 'deleteByIds' | 'listForPost' | 'deleteAttachedByIds'>;
+  /** Kho object: xoá bài thì xoá ngay tệp (kể cả poster và bản gốc video còn sót). Thiếu thì giữ tệp. */
+  readonly storage?: Pick<AttachmentStorage, 'deleteObjects'>;
   readonly directory: OrganizationDirectory;
   readonly groups: GroupMembershipPort;
   readonly settings: SocialSettingsPort;
@@ -123,6 +136,8 @@ interface ResolvedPlacement {
  * thay đổi dữ liệu; `social.post.published` chỉ phát khi bài thực sự được đăng.
  */
 export class SocialPublishingService {
+  private readonly logger = new Logger(SocialPublishingService.name);
+
   constructor(private readonly deps: SocialPublishingDeps) {}
 
   private now(): Date {
@@ -143,9 +158,14 @@ export class SocialPublishingService {
     const title = normalizeTitle(input.title);
     const body = normalizeBody(input.bodyHtml ?? '');
     const attachmentIds = normalizeAttachmentIds(input.attachmentIds);
+    const mediaLayout = normalizeMediaLayout(input.mediaLayout);
     const poll = input.poll === undefined || input.poll === null ? undefined : normalizePoll(input.poll, now);
     // Bình chọn tính là nội dung: bài chỉ có bình chọn vẫn hợp lệ.
     requireContent(body, attachmentIds.length + (poll ? 1 : 0));
+    // Kể cả bài hẹn giờ hay chờ duyệt: video chưa xử lý xong thì chặn ngay lúc lưu.
+    if (this.deps.attachments) {
+      await assertPostAttachable(this.deps.attachments, actor.tenantId, attachmentIds, actor.userId);
+    }
     const requiresReadConfirmation = optionalBoolean(input.requiresReadConfirmation, 'Xác nhận đã đọc');
     const scheduledAt =
       input.scheduledAt === undefined || input.scheduledAt === null
@@ -227,6 +247,7 @@ export class SocialPublishingService {
       groupId: group?.id,
       pinned: wantsPinned,
       mentionsAll: wantsAll,
+      ...(mediaLayout ? { mediaLayout } : {}),
       mentionUserIds,
       attachmentIds,
       uploaderId: actor.userId,
@@ -312,6 +333,13 @@ export class SocialPublishingService {
     if (input.attachmentIds !== undefined) {
       attachmentIds = normalizeAttachmentIds(input.attachmentIds);
       patch.attachmentIds = attachmentIds;
+      if (this.deps.attachments) {
+        await assertPostAttachable(this.deps.attachments, actor.tenantId, attachmentIds, actor.userId, postId);
+      }
+    }
+    const mediaLayout = normalizeMediaLayout(input.mediaLayout);
+    if (mediaLayout !== undefined && mediaLayout !== (row.mediaLayout ?? SOCIAL_MEDIA_LAYOUT_DEFAULT)) {
+      patch.mediaLayout = mediaLayout;
     }
     if (patch.bodyHtml !== undefined || patch.attachmentIds !== undefined) {
       const attachmentCount = attachmentIds?.length ?? relations.attachments.get(postId)?.length ?? 0;
@@ -456,6 +484,38 @@ export class SocialPublishingService {
       actor.userId,
       row.status === 'published' ? [postChangedEvent(row, 'deleted', actor.userId)] : [],
     );
+    await this.deleteAttachedFiles(actor, postId);
+  }
+
+  /**
+   * Bài xoá mềm nhưng tệp không còn dùng nữa: xoá ngay object (bản chính, poster, bản gốc còn sót) và dòng, ở mọi
+   * trạng thái video, giống bình luận. Lỗi ở đây không làm hỏng việc xoá bài (đã xong); tệp kho từ chối xoá giữ lại
+   * dòng và được ghi cảnh báo.
+   */
+  private async deleteAttachedFiles(actor: SocialActor, postId: string): Promise<void> {
+    const { attachments, storage } = this.deps;
+    if (!attachments || !storage) return;
+    try {
+      // Cả tệp của bài lẫn tệp của các bình luận của bài: bình luận giữ nguyên trong DB nhưng không còn truy cập được.
+      const rows = await attachments.listForPost(actor.tenantId, postId);
+      if (rows.length === 0) return;
+      const keysOf = (file: (typeof rows)[number]) =>
+        [file.storageKey, file.posterKey, file.sourceKey].filter((key): key is string => Boolean(key));
+      const { failed } = await storage.deleteObjects(rows.flatMap(keysOf));
+      const stuck = new Set(failed);
+      if (stuck.size > 0) {
+        this.logger.warn(`Không xoá được ${stuck.size} tệp của bài đã xoá (tenant ${actor.tenantId}).`);
+      }
+      const deletable = rows.filter((file) => !keysOf(file).some((key) => stuck.has(key)));
+      if (deletable.length > 0) {
+        await attachments.deleteAttachedByIds(
+          actor.tenantId,
+          deletable.map((file) => file.id),
+        );
+      }
+    } catch (error) {
+      this.logger.warn(`Không dọn được tệp của bài đã xoá (tenant ${actor.tenantId}): ${String(error)}`);
+    }
   }
 
   /** Tác giả đăng ngay bài đang hẹn giờ. Vẫn qua duyệt nếu Tường công ty cần duyệt và tác giả không được miễn. */

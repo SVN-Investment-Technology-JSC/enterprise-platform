@@ -1,11 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { htmlToPlainText } from '../domain/html-sanitizer.js';
 import {
+  SOCIAL_MEDIA_LAYOUT_DEFAULT,
   SOCIAL_POST_KINDS,
   type CreateSocialPostRequest,
   type PinSocialPostRequest,
   type SocialFeedPage,
   type SocialFeedQuery,
+  type SocialMediaLayout,
   type SocialPost,
   type UpdateSocialPostRequest,
 } from '@enterprise-platform/contracts-social';
@@ -24,6 +26,7 @@ import {
   normalizeBody,
   normalizeKind,
   normalizeLimit,
+  normalizeMediaLayout,
   normalizeMentionIds,
   normalizeTitle,
   requireContent,
@@ -107,6 +110,7 @@ export class SocialPostService {
     const title = normalizeTitle(input.title);
     const body = normalizeBody(input.bodyHtml);
     const attachmentIds = normalizeAttachmentIds(input.attachmentIds);
+    const mediaLayout = normalizeMediaLayout(input.mediaLayout);
     requireContent(body, attachmentIds.length);
 
     const wantsPinned = input.pinned === true;
@@ -145,6 +149,7 @@ export class SocialPostService {
       topicId,
       pinned: wantsPinned,
       mentionsAll: wantsAll,
+      ...(mediaLayout ? { mediaLayout } : {}),
       mentionUserIds,
       attachmentIds,
       uploaderId: actor.userId,
@@ -165,6 +170,7 @@ export class SocialPostService {
       topicId?: string | null;
       mentionUserIds?: string[];
       attachmentIds?: string[];
+      mediaLayout?: SocialMediaLayout;
     } = {};
     let bodyState = { html: row.bodyHtml, hasText: htmlToPlainText(row.bodyHtml).length > 0 };
     if (input.title !== undefined) patch.title = input.title === null ? null : (normalizeTitle(input.title) ?? null);
@@ -177,6 +183,8 @@ export class SocialPostService {
       patch.topicId = input.topicId === null ? null : await this.validTopic(actor, input.topicId);
     }
     if (input.attachmentIds !== undefined) patch.attachmentIds = normalizeAttachmentIds(input.attachmentIds);
+    const mediaLayout = normalizeMediaLayout(input.mediaLayout);
+    if (mediaLayout) patch.mediaLayout = mediaLayout;
 
     const relations = await this.store.posts.relations(actor.tenantId, [postId], actor.userId);
     if (patch.bodyHtml !== undefined || patch.attachmentIds !== undefined) {
@@ -287,6 +295,7 @@ export class SocialPostService {
           attachments,
           mentions: (relations.mentions.get(row.id) ?? []).map(userOf),
           mentionsAll: row.mentionsAll,
+          mediaLayout: row.mediaLayout ?? SOCIAL_MEDIA_LAYOUT_DEFAULT,
           reactionCounts: reactions?.counts ?? {},
           reactionTotal: reactions?.total ?? 0,
           ...(reactions?.mine ? { myReaction: reactions.mine } : {}),

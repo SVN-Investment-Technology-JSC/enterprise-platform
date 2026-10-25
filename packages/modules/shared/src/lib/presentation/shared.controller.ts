@@ -33,7 +33,7 @@ import { FolderSharingService } from '../application/folder-sharing.service.js';
 import type { SharedActor } from '../application/shared-actor.js';
 import { StorageQuotaService } from '../application/storage-quota.service.js';
 import { SHARED_STORE, type SharedStore } from '../application/shared-store.port.js';
-import { SharedError } from '../domain/shared.error.js';
+import { SharedError, StorageQuotaExceededError } from '../domain/shared.error.js';
 
 /** Đoạn đường dẫn `folders`/`documents` của Thùng rác → loại mục. Lạ thì coi như không có route. */
 function trashKind(segment: string): SharedTrashKind {
@@ -85,6 +85,42 @@ export class SharedController {
   @Get('storage')
   storage(@Req() request: SharedRequest) {
     return this.execute(() => this.quota.usage(this.actor(request).tenantId));
+  }
+
+  /**
+   * Phân hệ khác (Mạng nội bộ...) hỏi trước khi ký URL tải lên. Xác thực bằng
+   * service token ở guard. Vượt hạn mức vẫn là 200 `{ allowed: false }` để bên gọi
+   * phân biệt với lỗi hạ tầng (bên gọi cho qua khi lỗi).
+   */
+  @Post('internal/storage/capacity-check')
+  @HttpCode(200)
+  capacityCheck(
+    @Req() request: SharedRequest,
+    @Body() body: { sizeBytes?: unknown } | undefined,
+  ): Promise<{ allowed: true } | { allowed: false; message: string }> {
+    const sizeBytes = body?.sizeBytes;
+    if (typeof sizeBytes !== 'number' || !Number.isSafeInteger(sizeBytes) || sizeBytes < 0) {
+      throw new HttpException(
+        {
+          statusCode: 400,
+          code: 'VALIDATION',
+          message: 'sizeBytes phải là số nguyên byte không âm.',
+        },
+        400,
+      );
+    }
+    const tenantId = this.actor(request).tenantId;
+    return this.execute(async () => {
+      try {
+        await this.quota.ensureCapacity(tenantId, sizeBytes);
+        return { allowed: true as const };
+      } catch (error) {
+        if (error instanceof StorageQuotaExceededError) {
+          return { allowed: false as const, message: error.message };
+        }
+        throw error;
+      }
+    });
   }
 
   /* ------------------------------------------------------------ thư mục */

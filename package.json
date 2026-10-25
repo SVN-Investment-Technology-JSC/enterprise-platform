@@ -10,10 +10,11 @@
   "scripts": {
     "check": "nx run-many -t lint typecheck test build --nxBail",
     "check:affected": "nx affected -t lint typecheck test build --nxBail",
-    "dev": "node tools/dev.mjs run-many -t dev serve --projects=web,procedure-web,maintenance-web,inventory-web,workspace-web,hrm-web,finance-web,shared-web,social-web,api,procedure-api,maintenance-api,inventory-api,hrm-api,finance-api,workspace-api,shared-api,social-api,realtime-api,notification-worker,worker --configuration=development --parallel=2 --outputStyle=stream",
+    "dev": "node tools/dev.mjs run-many -t dev serve --projects=web,procedure-web,maintenance-web,inventory-web,workspace-web,hrm-web,finance-web,shared-web,social-web,api,procedure-api,maintenance-api,inventory-api,hrm-api,finance-api,workspace-api,shared-api,social-api,realtime-api,notification-worker,worker,video-worker --configuration=development --parallel=2 --outputStyle=stream",
     "dev:api": "node tools/dev.mjs serve api",
     "dev:web": "node tools/dev.mjs dev web",
     "dev:worker": "node tools/dev.mjs serve worker",
+    "dev:video-worker": "node tools/dev.mjs serve video-worker",
     "dev:realtime": "node tools/dev.mjs run-many -t serve --projects=realtime-api,notification-worker --parallel=2 --outputStyle=stream",
     "dev:realtime-api": "node tools/dev.mjs serve realtime-api",
     "dev:notification-worker": "node tools/dev.mjs serve notification-worker",

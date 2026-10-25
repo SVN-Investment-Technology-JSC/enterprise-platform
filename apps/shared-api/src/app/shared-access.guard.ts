@@ -5,6 +5,9 @@ import { ModuleAccess } from '@enterprise-platform/platform-module-access';
 import { CanActivate, ExecutionContext, ForbiddenException, Injectable } from '@nestjs/common';
 import type { Request } from 'express';
 
+/** Định danh actor của lời gọi nội bộ; không phải người dùng thật. */
+const SHARED_SYSTEM_ACTOR_ID = '00000000-0000-0000-0000-000000000000';
+
 interface SharedRequest extends Request {
   sharedActor?: SharedActor;
 }
@@ -19,8 +22,10 @@ interface SharedRequest extends Request {
  * vẫn dọn được tài liệu. Thao tác cụ thể cần quyền nào, và quyền dựng khung
  * kho, kiểm tiếp ở tầng application, nơi biết thao tác đó là gì.
  *
- * Phân hệ chưa có route nội bộ `/v1/internal/*` nào, nên không nhận lời gọi
- * service-to-service.
+ * Route nội bộ `/v1/internal/*` (service-to-service) không đi qua cookie người
+ * dùng: guard tự xác thực service token ở `authorizeService`, và bên gọi chỉ
+ * nhận một actor hệ thống không có quyền nào, nên route nội bộ không thể dùng
+ * để đọc hay ghi tài liệu. Hiện chỉ có `POST /v1/internal/storage/capacity-check`.
  */
 @Injectable()
 export class SharedAccessGuard implements CanActivate {
@@ -31,9 +36,7 @@ export class SharedAccessGuard implements CanActivate {
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<SharedRequest>();
     if (this.access.isHealthCheck(request)) return true;
-    if (this.access.isInternal(request)) {
-      throw new ForbiddenException({ code: 'ACCESS_DENIED', message: 'Không có route nội bộ.' });
-    }
+    if (this.access.isInternal(request)) return this.authorizeService(request);
 
     this.access.requireCsrfForMutation(request);
     const principal = await this.access.tenantUser(request);
@@ -74,6 +77,26 @@ export class SharedAccessGuard implements CanActivate {
       canManage,
       canWriteDocuments,
       canDeleteDocuments,
+    };
+    return true;
+  }
+
+  /**
+   * Lời gọi service-to-service: xác thực `x-service-token` (fail closed khi chưa
+   * cấu hình) và `x-tenant-id`. Actor hệ thống không phải quản trị, không có
+   * quyền ghi hay xoá tài liệu.
+   */
+  private async authorizeService(request: SharedRequest): Promise<boolean> {
+    const caller = await this.access.authorizeService(request);
+    this.databases.register(caller.database);
+    request.sharedActor = {
+      tenantId: caller.tenantId,
+      userId: SHARED_SYSTEM_ACTOR_ID,
+      displayName: 'Hệ thống',
+      isTenantAdmin: false,
+      canManage: false,
+      canWriteDocuments: false,
+      canDeleteDocuments: false,
     };
     return true;
   }

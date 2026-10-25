@@ -1103,9 +1103,58 @@ importers:
       '@tailwindcss/postcss':
         specifier: ^4.3.3
         version: 4.3.3
+      emojibase-data:
+        specifier: 18.0.0
+        version: 18.0.0(emojibase@18.0.0)
       tailwindcss:
         specifier: ^4.3.3
         version: 4.3.3
+
+  apps/video-worker:
+    dependencies:
+      '@aws-sdk/client-s3':
+        specifier: ^3.1111.0
+        version: 3.1111.0
+      '@aws-sdk/s3-request-presigner':
+        specifier: ^3.1111.0
+        version: 3.1111.0
+      '@enterprise-platform/adapter-database':
+        specifier: workspace:*
+        version: link:../../packages/adapters/database
+      '@enterprise-platform/adapter-events':
+        specifier: workspace:*
+        version: link:../../packages/adapters/events
+      '@enterprise-platform/adapter-storage':
+        specifier: workspace:*
+        version: link:../../packages/adapters/storage
+      '@enterprise-platform/contracts-integration':
+        specifier: workspace:*
+        version: link:../../packages/contracts/integration
+      '@enterprise-platform/contracts-social':
+        specifier: workspace:*
+        version: link:../../packages/contracts/social
+      '@enterprise-platform/contracts-tenancy':
+        specifier: workspace:*
+        version: link:../../packages/contracts/tenancy
+      '@enterprise-platform/module-social':
+        specifier: workspace:*
+        version: link:../../packages/modules/social
+      '@nestjs/common':
+        specifier: ^11.0.0
+        version: 11.2.1(reflect-metadata@0.2.2)(rxjs@7.8.1)
+      amqplib:
+        specifier: ^2.0.1
+        version: 2.0.1
+      pg:
+        specifier: ^8.23.0
+        version: 8.23.0
+      tslib:
+        specifier: ^2.8.1
+        version: 2.8.1
+    devDependencies:
+      '@types/pg':
+        specifier: ^8.21.0
+        version: 8.21.0
 
   apps/web:
     dependencies:
@@ -1787,6 +1836,9 @@ importers:
       clsx:
         specifier: ^2.1.1
         version: 2.1.1
+      frimousse:
+        specifier: 0.4.0
+        version: 0.4.0(react@19.2.8)(typescript@6.0.3)
       lucide-react:
         specifier: ^1.31.0
         version: 1.31.0(react@19.2.8)
@@ -7746,6 +7798,15 @@ packages:
   emoji-regex@9.2.2:
     resolution: {integrity: sha512-L18DaJsXSUk2+42pv8mLs5jJT2hqFkFE4j21wOmgbUqsZ2hL72NsUU785g9RXgo3s0ZNgVl42TiHp3ZtOv/Vyg==}
 
+  emojibase-data@18.0.0:
+    resolution: {integrity: sha512-TPPRRYv2zPd0jKI+pTpMquwWNZXYAsC3IVsCMeg2X8y8fEzKwOks4/5bz0YavF5r6d71aGPpb6oDnUEwSLLMoA==}
+    peerDependencies:
+      emojibase: '*'
+
+  emojibase@18.0.0:
+    resolution: {integrity: sha512-5PG+EEt5zQ9qvqdHZw61+T9iz96g+r621QS/w8jEzPg+3mjzAdjl8LPLc+e9ABv/yboNfMwEair7aK9qKnwAbQ==}
+    engines: {node: '>=20.0.0'}
+
   emojis-list@3.0.0:
     resolution: {integrity: sha512-/kyM18EfinwXZbno9FyUGeFh87KC8HRQBQGildHZbEuRyWFOmv1U10o9BBp8XVZDVNNuQKyIGIu5ZYAAXJ0V2Q==}
     engines: {node: '>= 4'}
@@ -8307,6 +8368,15 @@ packages:
   fresh@2.0.0:
     resolution: {integrity: sha512-Rx/WycZ60HOaqLKAi6cHRKKI7zxWbJ31MhntmtwMoaTeF7XFH9hhBp8vITaMidfljRQ6eYWCKkaTK+ykVJHP2A==}
     engines: {node: '>= 0.8'}
+
+  frimousse@0.4.0:
+    resolution: {integrity: sha512-wA/1Xt9UTk51wYNpy+EvHKPUA4jdm4NuEFzSNNZxqT0Nxrj4RFwYByjRMuaq4qSLOco/ikDCpLKesB8W1w2q+Q==}
+    peerDependencies:
+      react: ^18 || ^19
+      typescript: '>=5.1.0'
+    peerDependenciesMeta:
+      typescript:
+        optional: true
 
   fs-constants@1.0.0:
     resolution: {integrity: sha512-y6OAwoSIf7FyjMIv94u+b5rdheZEjzR63GTyZJm5qh4Bi+2YgwLCcI/fPFZkL5PSixOt6ZNKm+w+Hfp/Bciwow==}
@@ -18679,6 +18749,12 @@ snapshots:
 
   emoji-regex@9.2.2: {}
 
+  emojibase-data@18.0.0(emojibase@18.0.0):
+    dependencies:
+      emojibase: 18.0.0
+
+  emojibase@18.0.0: {}
+
   emojis-list@3.0.0: {}
 
   encodeurl@2.0.0: {}
@@ -19554,6 +19630,12 @@ snapshots:
   fresh@0.5.2: {}
 
   fresh@2.0.0: {}
+
+  frimousse@0.4.0(react@19.2.8)(typescript@6.0.3):
+    dependencies:
+      react: 19.2.8
+    optionalDependencies:
+      typescript: 6.0.3
 
   fs-constants@1.0.0: {}
 

@@ -1,17 +1,19 @@
 import { randomUUID } from 'node:crypto';
-import type {
-  SocialActivityType,
-  SocialGroupColor,
-  SocialGroupIcon,
-  SocialGroupPrivacy,
-  SocialPostKind,
-  SocialPostStatus,
-  SocialPostVisibility,
+import {
+  SOCIAL_MEDIA_LAYOUT_DEFAULT,
+  type SocialActivityType,
+  type SocialGroupColor,
+  type SocialGroupIcon,
+  type SocialGroupPrivacy,
+  type SocialMediaLayout,
+  type SocialPostKind,
+  type SocialPostStatus,
+  type SocialPostVisibility,
 } from '@enterprise-platform/contracts-social';
 import type { PoolClient } from 'pg';
 import type { ExtendedPostRow } from '../application/ports/post-read-model.js';
 import type { SocialOutboxEvent } from '../application/social-store.port.js';
-import { SocialAttachmentUnavailableError } from '../domain/social.error.js';
+import { SocialAttachmentUnavailableError, SocialVideoFailedError } from '../domain/social.error.js';
 
 /** Thời điểm UTC dạng ISO giữ nguyên micro giây, để con trỏ phân trang không bỏ sót dòng cùng mili giây. */
 export function isoColumn(expression: string): string {
@@ -24,7 +26,7 @@ export function isoColumn(expression: string): string {
  */
 export const EXTENDED_POST_COLUMNS = `p.id, p.author_id,
        CASE WHEN p.kind = 'activity' THEN 'post' ELSE p.kind END AS kind,
-       p.title, p.body_html, p.topic_id, t.name AS topic_name, p.pinned, p.mentions_all,
+       p.title, p.body_html, p.topic_id, t.name AS topic_name, p.pinned, p.mentions_all, p.media_layout,
        ${isoColumn('p.published_at')} AS published_at,
        ${isoColumn('p.edited_at')} AS edited_at,
        (SELECT count(*) FROM social_schema.comments c
@@ -53,6 +55,7 @@ export interface ExtendedPostRecord {
   topic_name: string | null;
   pinned: boolean;
   mentions_all: boolean;
+  media_layout: SocialMediaLayout;
   published_at: string;
   edited_at: string | null;
   comment_count: number;
@@ -103,6 +106,7 @@ export function mapExtendedPost(row: ExtendedPostRecord): ExtendedPostRow {
     ...(row.topic_id ? { topicId: row.topic_id, topicName: row.topic_name ?? '' } : {}),
     pinned: row.pinned,
     mentionsAll: row.mentions_all,
+    mediaLayout: row.media_layout ?? SOCIAL_MEDIA_LAYOUT_DEFAULT,
     publishedAt: row.published_at,
     ...(row.edited_at ? { editedAt: row.edited_at } : {}),
     commentCount: row.comment_count,
@@ -163,7 +167,29 @@ export async function writeOutboxAll(
   }
 }
 
-/** Gắn tệp vào bài: chỉ tệp đã tải xong và của bài này hoặc chưa gắn bài do `uploaderId` tải. */
+/**
+ * Lý do một lần gắn tệp không đủ số dòng: có tệp video xử lý lỗi thì `SocialVideoFailedError`, còn lại
+ * (thiếu, chưa tải xong, của người khác, đã gắn nơi khác) là `SocialAttachmentUnavailableError`. Người gọi ném lỗi
+ * này trong transaction nên mọi thay đổi trước đó được huỷ.
+ */
+export async function attachmentFailure(
+  client: PoolClient,
+  attachmentIds: readonly string[],
+): Promise<SocialAttachmentUnavailableError | SocialVideoFailedError> {
+  const pending = await client.query(
+    `SELECT 1 FROM social_schema.attachments
+      WHERE id = ANY($1::uuid[]) AND completed_at IS NOT NULL AND processing_status = 'failed'
+      LIMIT 1`,
+    [attachmentIds],
+  );
+  return (pending.rowCount ?? 0) > 0 ? new SocialVideoFailedError() : new SocialAttachmentUnavailableError();
+}
+
+/**
+ * Gắn tệp vào bài: chỉ tệp đã tải xong, không phải video `failed` (video `queued`/`processing` gắn được) và của bài này hoặc chưa gắn bài
+ * do `uploaderId` tải. `position` là chỉ số của tệp trong `attachmentIds` (thứ tự tác giả sắp): gọi lại với cùng tập tệp
+ * nhưng thứ tự khác thì đổi `position`, nên sửa bài đổi được thứ tự hiển thị.
+ */
 export async function attachFiles(
   client: PoolClient,
   postId: string,
@@ -172,14 +198,16 @@ export async function attachFiles(
 ): Promise<void> {
   if (attachmentIds.length === 0) return;
   const result = await client.query(
-    `UPDATE social_schema.attachments
-        SET post_id = $1
-      WHERE id = ANY($2::uuid[])
-        AND completed_at IS NOT NULL
-        AND (post_id = $1 OR (post_id IS NULL AND uploaded_by = $3))`,
+    `UPDATE social_schema.attachments a
+        SET post_id = $1, position = o.ord::int - 1
+       FROM unnest($2::uuid[]) WITH ORDINALITY AS o(id, ord)
+      WHERE a.id = o.id
+        AND a.completed_at IS NOT NULL
+        AND a.processing_status <> 'failed'
+        AND (a.post_id = $1 OR (a.post_id IS NULL AND a.comment_id IS NULL AND a.uploaded_by = $3))`,
     [postId, attachmentIds, uploaderId],
   );
-  if (result.rowCount !== attachmentIds.length) throw new SocialAttachmentUnavailableError();
+  if (result.rowCount !== attachmentIds.length) throw await attachmentFailure(client, attachmentIds);
 }
 
 export async function replacePostMentions(

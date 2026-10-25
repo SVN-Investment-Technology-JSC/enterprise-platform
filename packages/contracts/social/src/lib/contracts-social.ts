@@ -61,7 +61,88 @@ export const SOCIAL_COMMENT_MAX = 4_000;
 export const SOCIAL_MAX_ATTACHMENTS_PER_POST = 10;
 export const SOCIAL_ATTACHMENT_MAX_BYTES = 50 * 1024 * 1024;
 export const SOCIAL_PRESIGNED_URL_TTL_SECONDS = 300;
-export const SOCIAL_FEED_PAGE_SIZE = 20;
+
+/** Bình luận: số tệp tối đa, dung lượng ảnh tối đa và số bình luận mỗi lần tải (nhẹ vì bình luận có thể kèm ảnh). */
+export const SOCIAL_COMMENT_MAX_ATTACHMENTS = 4;
+export const SOCIAL_COMMENT_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
+export const SOCIAL_COMMENT_PAGE_SIZE = 10;
+/** Cạnh ảnh lớn nhất được ghi nhận kích thước (đủ cho ảnh panorama, loại giá trị vô lý). */
+export const SOCIAL_IMAGE_MAX_DIMENSION = 20_000;
+
+/**
+ * Video: nhận mp4, webm và mov (iPhone), chuyển mã ở nền sang MP4 H.264 rồi xoá bản gốc. Giới hạn theo nơi gắn:
+ * dung lượng tải lên, thời lượng, chiều cao đầu ra (không bao giờ phóng to), bitrate hình tối đa và số video.
+ */
+export const SOCIAL_VIDEO_CONTENT_TYPES: readonly string[] = ['video/mp4', 'video/webm', 'video/quicktime'];
+
+export interface SocialVideoLimits {
+  readonly maxBytes: number;
+  readonly maxSeconds: number;
+  /** Cạnh NGẮN đầu ra tối đa (720 là 720p cho cả video ngang lẫn dọc); video nhỏ hơn giữ nguyên, không phóng to. */
+  readonly maxHeight: number;
+  readonly maxVideoKbps: number;
+  readonly maxVideos: number;
+}
+
+export const SOCIAL_VIDEO_LIMITS: Readonly<Record<SocialAttachmentPurpose, SocialVideoLimits>> = {
+  comment: { maxBytes: 300 * 1024 * 1024, maxSeconds: 180, maxHeight: 720, maxVideoKbps: 2500, maxVideos: 1 },
+  post: { maxBytes: 1024 * 1024 * 1024, maxSeconds: 600, maxHeight: 1080, maxVideoKbps: 4000, maxVideos: 3 },
+};
+export const SOCIAL_COMMENT_VIDEO_MAX_BYTES = SOCIAL_VIDEO_LIMITS.comment.maxBytes;
+export const SOCIAL_COMMENT_MAX_VIDEOS = SOCIAL_VIDEO_LIMITS.comment.maxVideos;
+
+/** Tổng dung lượng tệp chưa gắn vào bài/bình luận của một người (đang tải, hoặc đã tải xong mà chưa gửi). */
+export const SOCIAL_MAX_UNATTACHED_BYTES_PER_USER = 2 * 1024 * 1024 * 1024;
+/** Video đang chờ hoặc đang chuyển mã: trần mỗi người và mỗi tenant, để một bên đăng hàng loạt không chiếm hết worker. */
+export const SOCIAL_VIDEO_MAX_IN_FLIGHT_PER_USER = 3;
+export const SOCIAL_VIDEO_MAX_IN_FLIGHT_PER_TENANT = 6;
+/** Thời gian chạy ffmpeg tối đa cho một video (RabbitMQ chờ ack 30 phút, nên phải thấp hơn). */
+export const SOCIAL_VIDEO_MAX_PROCESSING_SECONDS = 20 * 60;
+/** Video đã đăng mà quá chừng này chưa xử lý xong (hàng chờ hoặc worker treo) thì xếp lại hàng. */
+export const SOCIAL_VIDEO_REQUEUE_AFTER_SECONDS = 10 * 60;
+/** Video quá chừng này mà CHƯA TỪNG được worker nhận thì báo lỗi (hệ thống xử lý video không chạy). */
+export const SOCIAL_VIDEO_QUEUE_TIMEOUT_SECONDS = 30 * 60;
+
+export const SOCIAL_VIDEO_PROCESSING_STATUSES = ['queued', 'processing', 'ready', 'failed'] as const;
+export type SocialVideoProcessingStatus = (typeof SOCIAL_VIDEO_PROCESSING_STATUSES)[number];
+
+/**
+ * Yêu cầu chuyển mã đi qua outbox rồi RabbitMQ; mỗi nơi gắn một hàng đợi riêng (mỗi hàng một luồng) để video
+ * bình luận ngắn không phải chờ sau video bài viết dài. Không đổi tên sau khi đã phát (skill erp-events).
+ * Cố ý tách khỏi `SOCIAL_EVENT_TYPES`: đây là việc nền, không phải sự kiện thông báo hay realtime.
+ */
+export const SOCIAL_VIDEO_EVENT_TYPES = {
+  comment: 'social.video.comment_requested',
+  post: 'social.video.post_requested',
+} as const;
+export const SOCIAL_VIDEO_QUEUES = {
+  comment: 'social.video.comment.v1',
+  post: 'social.video.post.v1',
+} as const;
+
+/**
+ * Cách xếp ảnh và video của một bài viết. `auto` giữ cách hiển thị cũ (ảnh dạng lưới, video xếp dọc phía dưới) nên
+ * bài cũ không đổi. Thứ tự các mục là thứ tự của `attachmentIds` khi đăng hoặc sửa bài.
+ */
+export const SOCIAL_MEDIA_LAYOUTS = ['auto', 'grid', 'featured', 'stack', 'carousel'] as const;
+export type SocialMediaLayout = (typeof SOCIAL_MEDIA_LAYOUTS)[number];
+export const SOCIAL_MEDIA_LAYOUT_DEFAULT: SocialMediaLayout = 'auto';
+export const SOCIAL_MEDIA_LAYOUT_LABELS: Readonly<Record<SocialMediaLayout, string>> = {
+  auto: 'Tự động',
+  grid: 'Lưới đều',
+  featured: 'Nổi bật',
+  stack: 'Xếp dọc',
+  carousel: 'Trượt ngang',
+};
+
+/** `payload` của yêu cầu chuyển mã (tenantId nằm ở envelope). */
+export interface SocialVideoRequestedPayload {
+  readonly attachmentId: string;
+  readonly purpose: SocialAttachmentPurpose;
+}
+/** URL xem video sống lâu hơn URL ảnh vì video phát và tua lâu. */
+export const SOCIAL_VIDEO_URL_TTL_SECONDS = 3600;
+export const SOCIAL_FEED_PAGE_SIZE = 10;
 export const SOCIAL_FEED_MAX_PAGE_SIZE = 50;
 export const SOCIAL_TOPIC_NAME_MAX = 80;
 
@@ -110,6 +191,17 @@ export interface SocialAttachment {
   readonly contentType: string;
   readonly sizeBytes: number;
   readonly isImage: boolean;
+  /** Video (mp4, webm, mov). Thiếu nghĩa là không phải video. */
+  readonly isVideo?: boolean;
+  /** Chỉ video: trạng thái chuyển mã. Video cũ và video đã xong đều là `ready`. Chỉ `ready` mới gắn được vào bài/bình luận. */
+  readonly processingStatus?: SocialVideoProcessingStatus;
+  /** Lý do chuyển mã thất bại (tiếng Việt), chỉ khi `failed`. */
+  readonly processingError?: string;
+  /** URL ký sẵn của ảnh poster (chỉ video đã chuyển mã). */
+  readonly posterUrl?: string;
+  readonly durationMs?: number;
+  readonly width?: number;
+  readonly height?: number;
   /** URL ký sẵn để xem/tải; chỉ có khi đọc bài. */
   readonly url?: string;
 }
@@ -139,6 +231,8 @@ export interface SocialPost {
 
   /** Mặc định `published`. Bài `pending|scheduled|rejected` chỉ tác giả và moderator thấy. */
   readonly status?: SocialPostStatus;
+  /** Cách xếp ảnh và video; thiếu nghĩa là `auto`. `attachments` đã được sắp theo thứ tự tác giả chọn. */
+  readonly mediaLayout?: SocialMediaLayout;
   /** Có mặt khi bài thuộc một nhóm; thiếu nghĩa là bài trên Tường công ty. */
   readonly group?: SocialGroupRef;
   readonly poll?: SocialPoll;
@@ -231,7 +325,10 @@ export interface CreateSocialPostRequest {
   readonly title?: string;
   readonly bodyHtml: string;
   readonly topicId?: string;
+  /** Thứ tự của mảng là thứ tự hiển thị của ảnh và video. */
   readonly attachmentIds?: readonly string[];
+  /** Cách xếp ảnh và video; mặc định `auto`. */
+  readonly mediaLayout?: SocialMediaLayout;
   readonly mentionUserIds?: readonly string[];
   /** Cần quyền `social.post.moderate`. */
   readonly mentionsAll?: boolean;
@@ -264,7 +361,10 @@ export interface UpdateSocialPostRequest {
   readonly title?: string | null;
   readonly bodyHtml?: string;
   readonly topicId?: string | null;
+  /** Thứ tự của mảng là thứ tự hiển thị; gửi lại cùng tập tệp với thứ tự khác là đổi thứ tự. */
   readonly attachmentIds?: readonly string[];
+  /** Đổi cách xếp ảnh và video; thiếu là giữ nguyên. */
+  readonly mediaLayout?: SocialMediaLayout;
   readonly mentionUserIds?: readonly string[];
   /** Chỉ bài `scheduled`: đổi giờ hẹn (vẫn phải ở tương lai). */
   readonly scheduledAt?: string;
@@ -316,6 +416,8 @@ export interface SocialComment {
   readonly editedAt?: string;
   readonly deleted: boolean;
   readonly replyCount: number;
+  /** Ảnh đính kèm (tối đa `SOCIAL_COMMENT_MAX_ATTACHMENTS`); rỗng khi bình luận đã xoá. */
+  readonly attachments: readonly SocialAttachment[];
   readonly reactionCounts: Readonly<Partial<Record<SocialReactionType, number>>>;
   readonly reactionTotal: number;
   readonly myReaction?: SocialReactionType;
@@ -328,14 +430,19 @@ export interface SocialCommentPage {
 }
 
 export interface CreateSocialCommentRequest {
+  /** Có thể rỗng khi bình luận có tệp đính kèm. */
   readonly body: string;
   readonly parentId?: string;
   readonly mentionUserIds?: readonly string[];
+  /** Tệp đã tải xong (initiate + complete với `purpose: 'comment'`). */
+  readonly attachmentIds?: readonly string[];
 }
 
 export interface UpdateSocialCommentRequest {
   readonly body: string;
   readonly mentionUserIds?: readonly string[];
+  /** Danh sách tệp mong muốn sau khi sửa; thiếu là giữ nguyên, `[]` là gỡ hết. Tệp bị gỡ bị xoá khỏi kho ngay. */
+  readonly attachmentIds?: readonly string[];
 }
 
 export interface CreateSocialTopicRequest {
@@ -348,16 +455,91 @@ export interface UpdateSocialTopicRequest {
 }
 
 /** Bước 1 tải tệp: xin URL ký sẵn. Tệp mồ côi (chưa gắn bài) bị dọn sau 24 giờ. */
+/** Nơi tệp sẽ được gắn: quyết định kiểu tệp và dung lượng được nhận (bình luận chỉ nhận ảnh nhỏ hơn). */
+export type SocialAttachmentPurpose = 'post' | 'comment';
+
 export interface InitiateSocialAttachmentRequest {
   readonly fileName: string;
   readonly contentType: string;
   readonly sizeBytes: number;
+  /** Mặc định `post`. */
+  readonly purpose?: SocialAttachmentPurpose;
+}
+
+/**
+ * Tệp lớn hơn mức này tải theo từng phần (S3 multipart): mỗi phần tải lại riêng được khi mạng chập chờn,
+ * và có thanh tiến trình chính xác. Tệp nhỏ hơn vẫn tải bằng một lệnh PUT.
+ */
+export const SOCIAL_MULTIPART_THRESHOLD_BYTES = 10 * 1024 * 1024;
+/** Cỡ mỗi phần (trừ phần cuối). S3 đòi tối thiểu 5 MB cho mọi phần trừ phần cuối. */
+export const SOCIAL_MULTIPART_PART_BYTES = 8 * 1024 * 1024;
+
+export interface SocialMultipartPart {
+  readonly partNumber: number;
+  /** URL ký sẵn để `PUT` đúng `sizeBytes` byte của phần này. */
+  readonly url: string;
+  readonly sizeBytes: number;
+}
+
+export interface SocialMultipartUpload {
+  readonly uploadId: string;
+  readonly parts: readonly SocialMultipartPart[];
 }
 
 export interface InitiateSocialAttachmentResponse {
   readonly attachmentId: string;
+  /** URL `PUT` cho tệp nhỏ; chuỗi rỗng khi tải nhiều phần (xem `multipart`). */
   readonly uploadUrl: string;
   readonly expiresInSeconds: number;
+  /** Có khi tệp lớn hơn `SOCIAL_MULTIPART_THRESHOLD_BYTES`. */
+  readonly multipart?: SocialMultipartUpload;
+}
+
+/** Body của `POST /attachments/:id/complete`: với tải nhiều phần phải gửi `uploadId` nhận được lúc initiate. */
+export interface CompleteSocialAttachmentRequest {
+  readonly uploadId?: string;
+  /**
+   * Chỉ ảnh: kích thước điểm ảnh (số nguyên dương, tối đa `SOCIAL_IMAGE_MAX_DIMENSION`) mà trình duyệt đọc được trước khi tải lên.
+   * Server chỉ dùng để đặt tỉ lệ khung hiển thị (tránh giật bố cục và cắt ảnh); giá trị không hợp lệ bị bỏ qua, không gây lỗi.
+   */
+  readonly width?: number;
+  readonly height?: number;
+}
+
+/**
+ * Body của `POST /attachments/:id/parts`: xin lại URL ký cho vài phần. URL phần chỉ sống vài phút nên tệp lớn
+ * trên mạng chậm, hoặc phần phải thử lại, cần URL mới thay vì URL cấp lúc `initiate`.
+ */
+export interface RefreshSocialUploadPartsRequest {
+  readonly uploadId: string;
+  readonly partNumbers: readonly number[];
+}
+
+export interface RefreshSocialUploadPartsResponse {
+  readonly parts: readonly SocialMultipartPart[];
+}
+
+/** Body của `POST /attachments/:id/abort`: huỷ lần tải chưa hoàn tất (người dùng bấm huỷ), xoá dòng và dọn phần đã tải. */
+export interface AbortSocialAttachmentRequest {
+  readonly uploadId?: string;
+}
+
+/**
+ * Body của `POST /attachments/:id/discard` (204): bỏ tệp của chính mình mà chưa gắn vào bài hay bình luận nào, ở
+ * mọi trạng thái (đang tải, đã tải xong, đang chuyển mã, lỗi). Server từ chối nếu tệp đã gắn hoặc không phải của người gọi.
+ * Giao diện gọi khi đóng tab hoặc rời ô soạn thảo.
+ */
+export interface DiscardSocialAttachmentRequest {
+  readonly uploadId?: string;
+}
+
+/** Body của `POST /attachments/status`: trạng thái xử lý của tối đa 10 tệp do chính người gọi tải lên. */
+export interface SocialAttachmentStatusRequest {
+  readonly ids: readonly string[];
+}
+
+export interface SocialAttachmentStatusResponse {
+  readonly items: readonly SocialAttachment[];
 }
 
 export interface SocialMe {

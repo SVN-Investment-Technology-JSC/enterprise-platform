@@ -214,6 +214,9 @@
       "path": "./apps/social-web"
     },
     {
+      "path": "./apps/video-worker"
+    },
+    {
       "path": "./packages/contracts/chat"
     },
     {

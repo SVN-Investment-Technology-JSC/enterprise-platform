@@ -1,0 +1,144 @@
+/* Chọn bố cục ảnh/video của bài viết trong ô soạn, nút đổi vị trí và khung xem trước. */
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--ep-border-strong);
+  border-radius: var(--ep-radius-md);
+  background: var(--ep-surface-soft);
+}
+
+.sectionHead {
+  color: var(--ep-text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.sectionHint {
+  margin: 0;
+  color: var(--ep-text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.option {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 72px;
+  padding: 6px 8px;
+  border: 1px solid var(--ep-border-input);
+  border-radius: var(--ep-radius);
+  background: var(--ep-surface);
+  color: var(--ep-text-muted);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 16px;
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    background: var(--ep-hover);
+    color: var(--ep-text);
+  }
+
+  &[data-selected='true'] {
+    border-color: var(--ep-accent-strong);
+    background: var(--ep-accent-soft);
+    box-shadow: 0 0 0 1px var(--ep-accent-strong);
+    color: var(--ep-text);
+    font-weight: 600;
+  }
+
+  &:focus-visible {
+    outline: none;
+    border-color: var(--ep-accent-strong);
+    box-shadow: 0 0 0 3px var(--ep-accent-glow);
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+  }
+}
+
+.diagram {
+  width: 36px;
+  height: 28px;
+  overflow: hidden;
+  fill: currentcolor;
+  opacity: 0.75;
+
+  .option[data-selected='true'] & {
+    opacity: 1;
+  }
+}
+
+.optionLabel {
+  white-space: nowrap;
+}
+
+/* Hai nút "Chuyển lên trước" / "Chuyển ra sau"; dùng cho ô video, dòng ảnh và tệp. */
+.moveGroup {
+  display: inline-flex;
+  flex: none;
+  gap: 2px;
+}
+
+.moveButton {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--ep-border-input);
+  border-radius: var(--ep-radius-sm);
+  background: var(--ep-surface);
+  color: var(--ep-text-sub);
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    background: var(--ep-hover);
+    color: var(--ep-text);
+  }
+
+  &:focus-visible {
+    outline: none;
+    border-color: var(--ep-accent-strong);
+    box-shadow: 0 0 0 3px var(--ep-accent-glow);
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.4;
+  }
+}
+
+/* Ô video: nút đổi vị trí nằm góc dưới bên phải. */
+.tileMove {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+}
+
+.previewFrame {
+  max-width: 560px;
+  padding: 8px;
+  border: 1px dashed var(--ep-border-input);
+  border-radius: var(--ep-radius);
+  background: var(--ep-surface);
+}
+
+.previewCaption {
+  margin: 0;
+  color: var(--ep-text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}

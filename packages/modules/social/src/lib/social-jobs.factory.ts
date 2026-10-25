@@ -8,6 +8,7 @@ import { PostgresSocialGroupStore } from './infrastructure/postgres-social-group
 import { PostgresSocialPublishingStore } from './infrastructure/postgres-social-publishing.store.js';
 import { PostgresSocialSettingsStore } from './infrastructure/postgres-social-settings.store.js';
 import { PostgresSocialStore } from './infrastructure/postgres-social-store.js';
+import { PostgresSocialVideoStore } from './infrastructure/postgres-social-video.store.js';
 import { createS3AttachmentStorage } from './infrastructure/s3-attachment-storage.js';
 
 /** Việc định kỳ của Mạng nội bộ cho worker, dựng ngoài Nest (worker không dùng `SocialModule`). */
@@ -18,6 +19,8 @@ export interface SocialJobs {
   publishDueScheduled(tenantId: string): Promise<SocialSchedulerResult>;
   /** Dọn tệp đính kèm mồ côi (quá 24 giờ chưa gắn bài); trả số tệp đã dọn. */
   cleanupOrphans(tenantId: string): Promise<number>;
+  /** Báo lỗi video chờ quá lâu mà chưa từng được nhận và xếp lại hàng video bị kẹt; trả số liệu từng việc. */
+  sweepVideos(tenantId: string): Promise<{ requeued: number; failed: number }>;
 }
 
 export function createSocialJobs(references: TenantDatabaseRegistry, pools: PostgresPoolRegistry): SocialJobs {
@@ -26,7 +29,14 @@ export function createSocialJobs(references: TenantDatabaseRegistry, pools: Post
   const groups = new GroupMembershipAdapter(new PostgresSocialGroupStore(references, pools));
   const events = new PublishedEventBuilder(new HttpOrganizationDirectory(), groups, publishing);
   const scheduler = new SocialSchedulerService({ store: publishing, groups, settings, events });
-  const attachments = new SocialAttachmentService(new PostgresSocialStore(references, pools), createS3AttachmentStorage());
+  const attachments = new SocialAttachmentService(
+    new PostgresSocialStore(references, pools),
+    createS3AttachmentStorage(),
+    undefined,
+    undefined,
+    undefined,
+    new PostgresSocialVideoStore(references, pools),
+  );
   return {
     ready: async (tenantId) => {
       const pool = await pools.forTenant(references.require(tenantId));
@@ -40,5 +50,6 @@ export function createSocialJobs(references: TenantDatabaseRegistry, pools: Post
     },
     publishDueScheduled: (tenantId) => scheduler.publishDueScheduled(tenantId),
     cleanupOrphans: (tenantId) => attachments.cleanupOrphans(tenantId),
+    sweepVideos: (tenantId) => attachments.sweepVideos(tenantId),
   };
 }

@@ -1,5 +1,6 @@
 import type { SocialReportTargetSummary, SocialReportTargetType } from '@enterprise-platform/contracts-social';
 import { htmlToPlainText } from '../domain/html-sanitizer.js';
+import { sliceSafe } from '../domain/safe-text.js';
 import { isUuid } from '../domain/social-rules.js';
 import { SocialError } from '../domain/social.error.js';
 import type { OrganizationDirectory } from './organization-directory.port.js';
@@ -107,5 +108,5 @@ function postLabel(row: { title?: string; bodyHtml: string }): string {
 
 function truncate(text: string): string {
   const flat = text.replace(/\s+/g, ' ').trim();
-  return flat.length > LABEL_MAX ? `${flat.slice(0, LABEL_MAX - 1)}…` : flat;
+  return flat.length > LABEL_MAX ? `${sliceSafe(flat, LABEL_MAX - 1)}…` : flat;
 }

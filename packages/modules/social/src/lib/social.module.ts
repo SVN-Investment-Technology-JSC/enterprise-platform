@@ -15,6 +15,7 @@ import {
 import { GROUP_MEMBERSHIP, type GroupMembershipPort } from './application/ports/group-membership.port.js';
 import { PEOPLE_PROFILE, type PeopleProfilePort } from './application/ports/people-profile.port.js';
 import { POST_VIEW_ASSEMBLER, type PostViewAssembler } from './application/ports/post-view-assembler.port.js';
+import { STORAGE_QUOTA, type StorageQuotaPort } from './application/ports/storage-quota.port.js';
 import { POST_VISIBILITY, type PostVisibilityPort } from './application/ports/post-visibility.port.js';
 import { SOCIAL_SETTINGS, type SocialSettingsPort } from './application/ports/social-settings.port.js';
 import { PostVisibilityService } from './application/post-visibility.service.js';
@@ -24,6 +25,10 @@ import { SocialBookmarkService } from './application/social-bookmark.service.js'
 import { SocialCommentService } from './application/social-comment.service.js';
 import { SOCIAL_GROUP_V2_STORE, type SocialGroupV2Store } from './application/social-group-v2-store.port.js';
 import { SOCIAL_POST_HISTORY_STORE, type SocialPostHistoryStore } from './application/social-post-history-store.port.js';
+import {
+  SOCIAL_COMMENT_ATTACHMENT_STORE,
+  type SocialCommentAttachmentStore,
+} from './application/social-comment-attachment-store.port.js';
 import {
   SOCIAL_COMMENT_REACTION_STORE,
   type SocialCommentReactionStore,
@@ -60,6 +65,9 @@ import { HttpOrganizationDirectory } from './infrastructure/http-organization-di
 import { HttpOrgStructure } from './infrastructure/http-org-structure.js';
 import { PostgresSocialGroupV2Store } from './infrastructure/postgres-social-group-v2.store.js';
 import { PostgresSocialPostHistoryStore } from './infrastructure/postgres-social-post-history.store.js';
+import { PostgresSocialCommentAttachmentStore } from './infrastructure/postgres-social-comment-attachment.store.js';
+import { PostgresSocialVideoStore } from './infrastructure/postgres-social-video.store.js';
+import { SOCIAL_VIDEO_STORE, type SocialVideoStore } from './application/social-video-store.port.js';
 import { PostgresSocialCommentReactionStore } from './infrastructure/postgres-social-comment-reaction.store.js';
 import { PostgresSocialReportStore } from './infrastructure/postgres-social-report.store.js';
 import { PostgresSocialFeedStore } from './infrastructure/postgres-social-feed.store.js';
@@ -67,6 +75,7 @@ import { PostgresSocialGroupStore } from './infrastructure/postgres-social-group
 import { PostgresSocialPublishingStore } from './infrastructure/postgres-social-publishing.store.js';
 import { PostgresSocialSettingsStore } from './infrastructure/postgres-social-settings.store.js';
 import { PostgresSocialStore } from './infrastructure/postgres-social-store.js';
+import { HttpStorageQuota } from './infrastructure/http-storage-quota.js';
 import { createS3AttachmentStorage } from './infrastructure/s3-attachment-storage.js';
 import { SocialFeedController } from './presentation/social-feed.controller.js';
 import { SocialGroupTopicsController } from './presentation/social-group-topics.controller.js';
@@ -156,6 +165,18 @@ import { SOCIAL_DISCOVERY_CONTROLLERS, SOCIAL_DISCOVERY_PROVIDERS } from './soci
       inject: [TenantDatabaseRegistry, PostgresPoolRegistry],
     },
     {
+      provide: SOCIAL_COMMENT_ATTACHMENT_STORE,
+      useFactory: (references: TenantDatabaseRegistry, pools: PostgresPoolRegistry) =>
+        new PostgresSocialCommentAttachmentStore(references, pools),
+      inject: [TenantDatabaseRegistry, PostgresPoolRegistry],
+    },
+    {
+      provide: SOCIAL_VIDEO_STORE,
+      useFactory: (references: TenantDatabaseRegistry, pools: PostgresPoolRegistry) =>
+        new PostgresSocialVideoStore(references, pools),
+      inject: [TenantDatabaseRegistry, PostgresPoolRegistry],
+    },
+    {
       provide: SOCIAL_COMMENT_REACTION_STORE,
       useFactory: (references: TenantDatabaseRegistry, pools: PostgresPoolRegistry) =>
         new PostgresSocialCommentReactionStore(references, pools),
@@ -179,6 +200,7 @@ import { SOCIAL_DISCOVERY_CONTROLLERS, SOCIAL_DISCOVERY_PROVIDERS } from './soci
       inject: [SOCIAL_GROUP_V2_STORE],
     },
     { provide: ATTACHMENT_STORAGE, useFactory: () => createS3AttachmentStorage() },
+    { provide: STORAGE_QUOTA, useFactory: (): StorageQuotaPort => new HttpStorageQuota() },
     {
       provide: GROUP_MEMBERSHIP,
       useFactory: (store: SocialGroupStore) => new GroupMembershipAdapter(store),
@@ -247,10 +269,13 @@ import { SOCIAL_DISCOVERY_CONTROLLERS, SOCIAL_DISCOVERY_PROVIDERS } from './soci
         posting: GroupPostingPort,
         viewerScopes: ViewerScopePort,
         orgs: OrgStructurePort,
+        storage: AttachmentStorage,
       ) =>
         new SocialPublishingService({
           store,
           social,
+          attachments: social.attachments,
+          storage,
           directory,
           groups,
           settings,
@@ -273,6 +298,7 @@ import { SOCIAL_DISCOVERY_CONTROLLERS, SOCIAL_DISCOVERY_PROVIDERS } from './soci
         GROUP_POSTING,
         VIEWER_SCOPE,
         ORG_STRUCTURE,
+        ATTACHMENT_STORAGE,
       ],
     },
     {
@@ -437,8 +463,18 @@ import { SOCIAL_DISCOVERY_CONTROLLERS, SOCIAL_DISCOVERY_PROVIDERS } from './soci
         access: SocialPostAccess,
         viewerScopes: ViewerScopePort,
         reactions: SocialCommentReactionStore,
-      ) => new SocialCommentService(store, directory, access, viewerScopes, reactions),
-      inject: [SOCIAL_STORE, ORGANIZATION_DIRECTORY, SocialPostAccess, VIEWER_SCOPE, SOCIAL_COMMENT_REACTION_STORE],
+        commentAttachments: SocialCommentAttachmentStore,
+        storage: AttachmentStorage,
+      ) => new SocialCommentService(store, directory, access, viewerScopes, reactions, commentAttachments, storage),
+      inject: [
+        SOCIAL_STORE,
+        ORGANIZATION_DIRECTORY,
+        SocialPostAccess,
+        VIEWER_SCOPE,
+        SOCIAL_COMMENT_REACTION_STORE,
+        SOCIAL_COMMENT_ATTACHMENT_STORE,
+        ATTACHMENT_STORAGE,
+      ],
     },
     {
       provide: SocialTopicService,
@@ -447,8 +483,13 @@ import { SOCIAL_DISCOVERY_CONTROLLERS, SOCIAL_DISCOVERY_PROVIDERS } from './soci
     },
     {
       provide: SocialAttachmentService,
-      useFactory: (store: SocialStore, storage: AttachmentStorage) => new SocialAttachmentService(store, storage),
-      inject: [SOCIAL_STORE, ATTACHMENT_STORAGE],
+      useFactory: (
+        store: SocialStore,
+        storage: AttachmentStorage,
+        quota: StorageQuotaPort,
+        videoStore: SocialVideoStore,
+      ) => new SocialAttachmentService(store, storage, undefined, quota, undefined, videoStore),
+      inject: [SOCIAL_STORE, ATTACHMENT_STORAGE, STORAGE_QUOTA, SOCIAL_VIDEO_STORE],
     },
     {
       provide: SocialMeService,

@@ -989,6 +989,58 @@ article.postCompact {
   }
 }
 
+/* Dựng qua portal vào `document.body`, ngoài vỏ trang nên không thừa hưởng biến `--ep-*`: khai lại các biến dùng bên trong. */
+.mentionPopover {
+  --ep-surface: #fff;
+  --ep-hover: #f4f6f9;
+  --ep-border-strong: #e5e7eb;
+  --ep-text: #18181b;
+  --ep-text-sub: #4b5563;
+  --ep-text-muted: #6b7280;
+  --ep-text-faint: #9ca3af;
+  --ep-accent: #ffc90a;
+  --ep-accent-strong: #d9ab00;
+  --ep-radius-sm: 6px;
+  --ep-radius-md: 10px;
+  width: max-content;
+  min-width: 240px;
+  max-width: min(520px, calc(100vw - 16px));
+  max-height: min(260px, var(--available-height, 260px));
+  overflow-y: auto;
+  border: 1px solid var(--ep-border-strong);
+  border-radius: var(--ep-radius-md);
+  background: var(--ep-surface);
+  box-shadow: 0 10px 30px rgb(0 0 0 / 14%);
+  color: var(--ep-text);
+  font-family: -apple-system, blinkmacsystemfont, 'Segoe UI', 'Helvetica Neue', arial, sans-serif;
+}
+
+.commentTextWrap {
+  position: relative;
+  flex: 1;
+  display: flex;
+  min-width: 0;
+}
+
+/* Lớp tô màu tên được nhắc nằm sau ô nhập; phải trùng phông, khoảng đệm và cách ngắt dòng với `.commentTextarea`. */
+.commentMirror {
+  position: absolute;
+  inset: 0;
+  padding: 4px 0;
+  overflow: hidden;
+  font: inherit;
+  font-size: 13.5px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  pointer-events: none;
+}
+
+/* Chỉ đổi màu, không đổi độ đậm: chữ đậm rộng hơn chữ thường nên đẩy lệch phần chữ sau tên so với con trỏ của ô nhập. */
+.commentMirrorMention {
+  color: var(--ep-link);
+}
+
 .commentTextarea {
   flex: 1;
   min-width: 0;
@@ -1003,6 +1055,13 @@ article.postCompact {
   font-size: 13.5px;
   line-height: 1.45;
   resize: none;
+
+  /* Có tên được nhắc: chữ do `.commentMirror` vẽ, ô nhập chỉ giữ con trỏ và vùng chọn. */
+  &[data-mirrored] {
+    position: relative;
+    -webkit-text-fill-color: transparent;
+    scrollbar-width: none;
+  }
 }
 
 .commentTool,

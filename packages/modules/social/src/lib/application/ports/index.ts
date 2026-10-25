@@ -6,4 +6,5 @@ export * from './post-view-assembler.port.js';
 export * from './post-visibility.port.js';
 export * from './report-target.port.js';
 export * from './social-settings.port.js';
+export * from './video-processing.port.js';
 export * from './viewer-scope.port.js';

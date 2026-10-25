@@ -3,7 +3,7 @@ import {
   TenantDatabaseRegistry,
   inTransaction,
 } from '@enterprise-platform/adapter-database';
-import type { SocialReactionType } from '@enterprise-platform/contracts-social';
+import { SOCIAL_MEDIA_LAYOUT_DEFAULT, type SocialReactionType } from '@enterprise-platform/contracts-social';
 import type { Pool, PoolClient } from 'pg';
 import type {
   ExtendedPostRow,
@@ -133,11 +133,11 @@ export class PostgresSocialPublishingStore implements SocialPublishingStore {
           `INSERT INTO social_schema.posts
              (id, author_id, kind, title, body_html, topic_id, group_id, pinned, mentions_all, status,
               published_at, scheduled_at, requires_read_confirmation, moderated_by, moderated_at,
-              visibility, author_unit_id, comments_disabled, group_topic_id)
+              visibility, author_unit_id, comments_disabled, group_topic_id, media_layout)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
                    COALESCE($11::timestamptz, now()), $11::timestamptz, $12, $13::uuid,
                    CASE WHEN $13::uuid IS NULL THEN NULL ELSE now() END,
-                   $14, $15::uuid, $16, $17::uuid)`,
+                   $14, $15::uuid, $16, $17::uuid, $18)`,
           [
             input.id,
             input.authorId,
@@ -156,6 +156,7 @@ export class PostgresSocialPublishingStore implements SocialPublishingStore {
             input.authorUnitId ?? null,
             input.commentsDisabled === true,
             input.groupTopicId ?? null,
+            input.mediaLayout ?? SOCIAL_MEDIA_LAYOUT_DEFAULT,
           ],
         );
         if (input.visibility === 'custom' && input.audience) await replaceAudience(client, input.id, input.audience);
@@ -205,6 +206,7 @@ export class PostgresSocialPublishingStore implements SocialPublishingStore {
         if (patch.title !== undefined) set('title', patch.title);
         if (patch.bodyHtml !== undefined) set('body_html', patch.bodyHtml);
         if (patch.topicId !== undefined) set('topic_id', patch.topicId);
+        if (patch.mediaLayout !== undefined) set('media_layout', patch.mediaLayout);
         if (patch.scheduledAt !== undefined) {
           // Bài hẹn giờ xếp theo giờ hẹn trong danh sách của tác giả.
           set('scheduled_at', patch.scheduledAt, '::timestamptz');
@@ -227,6 +229,7 @@ export class PostgresSocialPublishingStore implements SocialPublishingStore {
         const contentEdited =
           textChanged ||
           patch.topicId !== undefined ||
+          patch.mediaLayout !== undefined ||
           (patch.mentionUserIds !== undefined && patch.visibility === undefined) ||
           patch.attachmentIds !== undefined;
         if (patch.resubmitAs) {

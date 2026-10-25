@@ -4,6 +4,7 @@ import { SOCIAL_BIRTHDAY_PAGE_QUERY_MAX, type SocialBirthdaysUpcoming } from '@e
 import { Cake } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { errorMessage } from '../../social-api';
+import { sliceSafe } from '../../safe-text';
 import { loadBirthdaysUpcoming } from '../../social-discovery-api';
 import { SocialLink } from '../../social-navigation';
 import { Avatar } from '../ui';
@@ -23,7 +24,7 @@ export function BirthdayView() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => setQuery(text.trim().slice(0, SOCIAL_BIRTHDAY_PAGE_QUERY_MAX)), DEBOUNCE_MS);
+    const timer = window.setTimeout(() => setQuery(sliceSafe(text.trim(), SOCIAL_BIRTHDAY_PAGE_QUERY_MAX)), DEBOUNCE_MS);
     return () => window.clearTimeout(timer);
   }, [text]);
 

@@ -1,4 +1,5 @@
 import type {
+  SocialMediaLayout,
   SocialPostKind,
   SocialPostStatus,
   SocialPostVisibility,
@@ -47,7 +48,10 @@ export interface PublishingPostInsert {
   readonly groupId?: string;
   readonly pinned: boolean;
   readonly mentionsAll: boolean;
+  /** Thiếu là `auto`. */
+  readonly mediaLayout?: SocialMediaLayout;
   readonly mentionUserIds: readonly string[];
+  /** Thứ tự mảng là thứ tự hiển thị (`attachments.position`). */
   readonly attachmentIds: readonly string[];
   /** Người tải các tệp (tác giả). */
   readonly uploaderId: string;
@@ -76,7 +80,10 @@ export interface PublishingPostPatch {
   readonly bodyHtml?: string;
   readonly topicId?: string | null;
   readonly mentionUserIds?: readonly string[];
+  /** Thay toàn bộ; thứ tự mảng là thứ tự hiển thị, đổi thứ tự cũng đổi `position`. */
   readonly attachmentIds?: readonly string[];
+  /** Thiếu là giữ nguyên. */
+  readonly mediaLayout?: SocialMediaLayout;
   readonly uploaderId: string;
   /** Đổi giờ hẹn (bài `scheduled`). */
   readonly scheduledAt?: string;

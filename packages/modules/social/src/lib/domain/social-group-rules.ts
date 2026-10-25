@@ -42,6 +42,7 @@ import {
   type SocialPostKind,
 } from '@enterprise-platform/contracts-social';
 import { htmlToPlainText, sanitizeHtml } from './html-sanitizer.js';
+import { sliceSafe } from './safe-text.js';
 import { isUuid, normalizeIdList } from './social-rules.js';
 import { SocialValidationError } from './social.error.js';
 import type { SocialPrincipal } from './social-principal.js';
@@ -143,7 +144,7 @@ const SEARCH_QUERY_MAX = 80;
 export function normalizeSearchQuery(value: unknown): string | undefined {
   if (value === undefined || value === null) return undefined;
   if (typeof value !== 'string') throw new SocialValidationError('Từ khoá không hợp lệ.');
-  const trimmed = value.trim().slice(0, SEARCH_QUERY_MAX);
+  const trimmed = sliceSafe(value.trim(), SEARCH_QUERY_MAX);
   return trimmed || undefined;
 }
 
@@ -240,7 +241,7 @@ export interface GroupDescription {
 /** Cắt chữ thuần cho thẻ nhóm và tìm kiếm; thêm "…" khi bị cắt. */
 export function truncatePlainText(text: string, max: number): string {
   if (text.length <= max) return text;
-  return `${text.slice(0, Math.max(0, max - 1)).trimEnd()}…`;
+  return `${sliceSafe(text, Math.max(0, max - 1)).trimEnd()}…`;
 }
 
 /**

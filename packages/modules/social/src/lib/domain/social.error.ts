@@ -93,6 +93,66 @@ export class SocialUploadMismatchError extends SocialError {
   }
 }
 
+/** Người dùng hoặc tenant gọi tải lên quá dày. */
+export class SocialRateLimitedError extends SocialError {
+  constructor(message = 'Bạn tải lên quá nhanh. Hãy thử lại sau ít giây.') {
+    super('SOCIAL_RATE_LIMITED', message, 429);
+    Object.setPrototypeOf(this, SocialRateLimitedError.prototype);
+  }
+}
+
+/** Người dùng đang có quá nhiều lần tải dang dở. */
+export class SocialTooManyPendingUploadsError extends SocialError {
+  constructor() {
+    super(
+      'SOCIAL_TOO_MANY_PENDING_UPLOADS',
+      'Bạn có quá nhiều tệp đang tải dở. Hãy hoàn tất hoặc huỷ bớt rồi thử lại.',
+      429,
+    );
+    Object.setPrototypeOf(this, SocialTooManyPendingUploadsError.prototype);
+  }
+}
+
+/** Tổng dung lượng tệp chưa gắn của một người vượt trần. */
+export class SocialUnattachedBytesExceededError extends SocialError {
+  constructor() {
+    super(
+      'SOCIAL_UNATTACHED_BYTES_EXCEEDED',
+      'Bạn đang có quá nhiều tệp tải lên chưa đăng. Hãy đăng hoặc bỏ bớt tệp rồi thử lại.',
+      429,
+    );
+    Object.setPrototypeOf(this, SocialUnattachedBytesExceededError.prototype);
+  }
+}
+
+/** Quá nhiều video đang chờ hoặc đang chuyển mã (của người dùng hoặc của cả tenant). */
+export class SocialVideoTooManyProcessingError extends SocialError {
+  constructor() {
+    super(
+      'SOCIAL_VIDEO_TOO_MANY_PROCESSING',
+      'Đang có quá nhiều video chờ xử lý. Hãy đợi các video trước xử lý xong rồi tải tiếp.',
+      429,
+    );
+    Object.setPrototypeOf(this, SocialVideoTooManyProcessingError.prototype);
+  }
+}
+
+/** Video xử lý lỗi (`failed`) nên không gắn vào bài hay bình luận được; video đang chờ hoặc đang xử lý thì gắn được. */
+export class SocialVideoFailedError extends SocialError {
+  constructor() {
+    super('SOCIAL_VIDEO_FAILED', 'Video xử lý lỗi, chưa thể đăng. Hãy gỡ video rồi thử lại.', 409);
+    Object.setPrototypeOf(this, SocialVideoFailedError.prototype);
+  }
+}
+
+/** Tệp đã gắn vào bài hay bình luận nên không bỏ riêng được. */
+export class SocialAttachmentInUseError extends SocialError {
+  constructor() {
+    super('SOCIAL_ATTACHMENT_IN_USE', 'Tệp đã được đính kèm vào bài viết hoặc bình luận nên không thể bỏ.', 409);
+    Object.setPrototypeOf(this, SocialAttachmentInUseError.prototype);
+  }
+}
+
 /** Tenant đã bật phân hệ nhưng migration chưa chạy xong. */
 export class SocialNotProvisionedError extends SocialError {
   constructor() {
@@ -102,5 +162,13 @@ export class SocialNotProvisionedError extends SocialError {
       503,
     );
     Object.setPrototypeOf(this, SocialNotProvisionedError.prototype);
+  }
+}
+
+/** Hệ dùng chung báo tenant đã hết hạn mức dung lượng; `message` lấy nguyên từ Hệ dùng chung. */
+export class SocialStorageQuotaExceededError extends SocialError {
+  constructor(message = 'Đã vượt hạn mức dung lượng của gói. Hãy liên hệ quản trị để mua thêm dung lượng.') {
+    super('STORAGE_QUOTA_EXCEEDED', message, 413);
+    Object.setPrototypeOf(this, SocialStorageQuotaExceededError.prototype);
   }
 }

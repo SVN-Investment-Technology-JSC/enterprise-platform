@@ -51,7 +51,7 @@ const STORAGE_SOURCES: readonly { moduleKey: string; label: string; table: strin
   { moduleKey: 'maintenance', label: 'Bảo trì', table: 'maintenance_schema.occurrence_attachments' },
   // Chứng từ gỡ khỏi phiếu vẫn giữ đối tượng trong kho để truy vết, nên vẫn tính.
   { moduleKey: 'finance', label: 'Tài chính · chứng từ', table: 'finance_schema.voucher_attachments' },
-  { moduleKey: 'social', label: 'Mạng nội bộ · tệp đính kèm bài viết', table: 'social_schema.attachments' },
+  { moduleKey: 'social', label: 'Mạng nội bộ · tệp đính kèm bài viết và bình luận', table: 'social_schema.attachments' },
   // Chat nội bộ của core (có ở mọi tenant, không phụ thuộc phân hệ).
   { moduleKey: 'chat', label: 'Chat nội bộ · tệp và ảnh gửi kèm', table: 'chat_schema.attachments' },
 ];

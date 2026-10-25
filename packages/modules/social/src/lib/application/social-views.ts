@@ -1,6 +1,7 @@
 import {
   SOCIAL_EVENT_TYPES,
   SOCIAL_PRESIGNED_URL_TTL_SECONDS,
+  SOCIAL_VIDEO_URL_TTL_SECONDS,
   type SocialAttachment,
   type SocialCommentCreatedPayload,
   type SocialMentionPayload,
@@ -8,7 +9,7 @@ import {
   type SocialPostPublishedPayload,
   type SocialUserRef,
 } from '@enterprise-platform/contracts-social';
-import { isImageContentType } from '../domain/social-rules.js';
+import { isImageContentType, isVideoContentType } from '../domain/social-rules.js';
 import type { AttachmentStorage } from './attachment-storage.port.js';
 import type { OrganizationDirectory } from './organization-directory.port.js';
 import type { AttachmentRow, SocialOutboxEvent } from './social-store.port.js';
@@ -40,24 +41,56 @@ export async function knownUserIds(
   return ids.filter((id) => found.has(id.toLowerCase()));
 }
 
+function dimensionsOf(row: AttachmentRow): { width?: number; height?: number } {
+  return {
+    ...(row.width !== undefined ? { width: row.width } : {}),
+    ...(row.height !== undefined ? { height: row.height } : {}),
+  };
+}
+
 export async function toAttachmentView(
   storage: AttachmentStorage,
   row: AttachmentRow,
 ): Promise<SocialAttachment> {
   const isImage = isImageContentType(row.contentType);
-  const url = row.completed
-    ? await storage.createDownloadUrl(row.storageKey, SOCIAL_PRESIGNED_URL_TTL_SECONDS, {
-        inline: isImage,
-        contentType: row.contentType,
-        fileName: row.fileName,
-      })
+  const isVideo = isVideoContentType(row.contentType);
+  // Video cũ (không cần xử lý) phát được ngay nên coi là `ready`.
+  const processingStatus = isVideo ? (row.processingStatus === 'none' ? 'ready' : row.processingStatus) : undefined;
+  // Chưa `ready` thì không bao giờ lộ URL: khoá hiện tại còn là bản gốc chưa chuyển mã.
+  const downloadable = row.completed && (!isVideo || processingStatus === 'ready');
+  const url = downloadable
+    ? await storage.createDownloadUrl(
+        row.storageKey,
+        isVideo ? SOCIAL_VIDEO_URL_TTL_SECONDS : SOCIAL_PRESIGNED_URL_TTL_SECONDS,
+        {
+          inline: isImage || isVideo,
+          contentType: row.contentType,
+          fileName: row.fileName,
+        },
+      )
     : undefined;
+  const posterUrl =
+    isVideo && processingStatus === 'ready' && row.posterKey
+      ? await storage.createDownloadUrl(row.posterKey, SOCIAL_VIDEO_URL_TTL_SECONDS, {
+          inline: true,
+          contentType: 'image/jpeg',
+          fileName: 'poster.jpg',
+        })
+      : undefined;
   return {
     id: row.id,
     fileName: row.fileName,
     contentType: row.contentType,
     sizeBytes: row.sizeBytes,
     isImage,
+    ...(isVideo ? { isVideo: true } : {}),
+    ...(processingStatus ? { processingStatus } : {}),
+    ...(isVideo && processingStatus === 'failed' && row.processingError
+      ? { processingError: row.processingError }
+      : {}),
+    ...(posterUrl ? { posterUrl } : {}),
+    ...(isVideo && row.durationMs !== undefined ? { durationMs: row.durationMs } : {}),
+    ...(isVideo || isImage ? dimensionsOf(row) : {}),
     ...(url ? { url } : {}),
   };
 }

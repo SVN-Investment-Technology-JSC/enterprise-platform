@@ -31,7 +31,7 @@ export function runDevelopment(args, runner = runNx) {
   const projects = args.find((arg) => arg.startsWith('--projects='));
   if (args[0] === 'run-many' && args.includes('serve') && projects) {
     const backends = projects.slice('--projects='.length).split(',')
-      .filter((name) => name === 'api' || name.endsWith('-api') || name === 'worker' || name === 'notification-worker');
+      .filter((name) => name === 'api' || name.endsWith('-api') || name === 'worker' || name === 'notification-worker' || name === 'video-worker');
     if (backends.length) {
       const build = runner(['run-many', '-t', 'build', `--projects=${backends.join(',')}`,
         '--configuration=development', '--parallel=2', '--outputStyle=stream']);

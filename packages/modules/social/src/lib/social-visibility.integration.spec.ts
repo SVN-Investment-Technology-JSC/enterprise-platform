@@ -26,6 +26,8 @@ import { postVisibilitySql } from './infrastructure/post-visibility-sql.js';
  * Đối chiếu `postVisibilitySql` chạy trên PostgreSQL thật với `canViewPostInScope` và kiểm mọi đường
  * truy vấn trả bài (bảng tin, tìm kiếm, đếm, đã lưu, bài của tôi) bằng cùng một bộ dữ liệu.
  */
+// Tạo DB tạm và áp toàn bộ migration có thể quá 5 giây (mặc định của Jest) khi máy bận hoặc nhiều suite chạy song song.
+jest.setTimeout(30_000);
 const integration = process.env.SOCIAL_TEST_ADMIN_URL ? describe : describe.skip;
 
 const MIGRATIONS = [
@@ -34,6 +36,10 @@ const MIGRATIONS = [
   'tenant/social/0002-social-groups.sql',
   'tenant/social/0003-social-post-p2.sql',
   'tenant/social/0004-social-visibility-groups-v2.sql',
+  'tenant/social/0005-social-comment-reactions.sql',
+  'tenant/social/0006-social-comment-attachments.sql',
+  'tenant/social/0007-social-video-processing.sql',
+  'tenant/social/0008-social-post-media-layout.sql',
 ];
 
 const tenantId = 'tenant-visibility';

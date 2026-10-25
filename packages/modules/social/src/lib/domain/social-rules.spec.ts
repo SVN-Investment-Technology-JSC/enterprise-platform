@@ -10,7 +10,10 @@ import {
   type SocialPrincipal,
 } from './social-principal.js';
 import {
+  assertAttachmentSet,
+  assertAttachmentsPostable,
   assertReplyTarget,
+  attachmentRulesFor,
   decodeCursor,
   encodeCursor,
   mentionIdsInBody,
@@ -19,12 +22,13 @@ import {
   normalizeBody,
   normalizeCommentBody,
   normalizeLimit,
+  normalizeMediaLayout,
   normalizeTitle,
   normalizeTopicName,
   requireContent,
   safeObjectName,
 } from './social-rules.js';
-import { SocialValidationError } from './social.error.js';
+import { SocialValidationError, SocialVideoFailedError } from './social.error.js';
 
 const UUID_A = '11111111-1111-4111-8111-111111111111';
 const UUID_B = '22222222-2222-4222-8222-222222222222';
@@ -145,6 +149,79 @@ describe('tệp đính kèm', () => {
   });
 });
 
+describe('luật tệp theo nơi gắn: video', () => {
+  const MB = 1024 * 1024;
+  const video = (contentType: string, sizeBytes: number, purpose: 'post' | 'comment') =>
+    normalizeAttachmentInput({ fileName: 'v', contentType, sizeBytes }, purpose);
+
+  it('bài viết nhận mp4, webm, mov tới 1 GB; bình luận tới 300 MB', () => {
+    for (const type of ['video/mp4', 'video/webm', 'video/quicktime']) {
+      expect(video(type, 1024 * MB, 'post').contentType).toBe(type);
+      expect(video(type, 300 * MB, 'comment').contentType).toBe(type);
+      expect(() => video(type, 1024 * MB + 1, 'post')).toThrow('Tệp tối đa 1 GB.');
+      expect(() => video(type, 300 * MB + 1, 'comment')).toThrow('Tệp tối đa 300 MB.');
+    }
+  });
+
+  it('thông báo kiểu tệp không hợp lệ nhắc cả mov', () => {
+    expect(attachmentRulesFor('post').typeError).toContain('MOV');
+    expect(attachmentRulesFor('comment').typeError).toContain('MOV');
+    expect(() => video('video/x-msvideo', 1, 'post')).toThrow(SocialValidationError);
+  });
+
+  const file = (contentType: string, purpose: 'post' | 'comment' = 'post') => ({
+    contentType,
+    purpose,
+    processingStatus: 'ready' as const,
+  });
+
+  it('bài viết: tối đa 3 video, ảnh, video và tài liệu trộn được, tối đa 10 tệp', () => {
+    const v = file('video/mp4');
+    expect(() => assertAttachmentSet('post', [v, v, v])).not.toThrow();
+    expect(() => assertAttachmentSet('post', [v, v, v, v])).toThrow(SocialValidationError);
+    expect(() => assertAttachmentSet('post', [v, file('image/png')])).not.toThrow();
+    expect(() => assertAttachmentSet('post', [v, file('image/png'), file('application/pdf')])).not.toThrow();
+    const mixedMany = [v, v, v, ...Array.from({ length: 8 }, () => file('image/png'))];
+    expect(() => assertAttachmentSet('post', mixedMany)).toThrow(SocialValidationError);
+    expect(() => assertAttachmentSet('post', [file('image/png'), file('image/jpeg')])).not.toThrow();
+    expect(() => assertAttachmentSet('post', [v, file('application/pdf')])).not.toThrow();
+    const many = Array.from({ length: 11 }, () => file('application/pdf'));
+    expect(() => assertAttachmentSet('post', many)).toThrow(SocialValidationError);
+  });
+
+  it('bố cục ảnh và video: thiếu thì bỏ qua, đủ 5 giá trị hợp lệ, giá trị lạ bị từ chối', () => {
+    for (const missing of [undefined, null, '']) expect(normalizeMediaLayout(missing)).toBeUndefined();
+    for (const layout of ['auto', 'grid', 'featured', 'stack', 'carousel']) {
+      expect(normalizeMediaLayout(layout)).toBe(layout);
+    }
+    for (const bad of ['mosaic', 'GRID', 1, {}]) {
+      expect(() => normalizeMediaLayout(bad)).toThrow('Cách xếp ảnh và video không hợp lệ.');
+    }
+  });
+
+  it('bình luận: tối đa 1 video và 4 tệp', () => {
+    const v = file('video/mp4', 'comment');
+    expect(() => assertAttachmentSet('comment', [v, file('image/png', 'comment')])).not.toThrow();
+    expect(() => assertAttachmentSet('comment', [v, v])).toThrow(SocialValidationError);
+    const images = Array.from({ length: 5 }, () => file('image/png', 'comment'));
+    expect(() => assertAttachmentSet('comment', images)).toThrow(SocialValidationError);
+  });
+
+  it('video chỉ gắn đúng nơi đã tải lên', () => {
+    expect(() => assertAttachmentSet('post', [file('video/mp4', 'comment')])).toThrow(SocialValidationError);
+    expect(() => assertAttachmentSet('comment', [file('video/mp4', 'post')])).toThrow(SocialValidationError);
+  });
+
+  it('chỉ video failed bị chặn ở cổng đăng; none, queued, processing, ready đều qua', () => {
+    for (const processingStatus of ['none', 'queued', 'processing', 'ready'] as const) {
+      expect(() => assertAttachmentsPostable([{ processingStatus: 'ready' }, { processingStatus }])).not.toThrow();
+    }
+    expect(() => assertAttachmentsPostable([{ processingStatus: 'ready' }, { processingStatus: 'failed' }])).toThrow(
+      SocialVideoFailedError,
+    );
+  });
+});
+
 describe('chuyên mục, con trỏ, cỡ trang', () => {
   it('tên chuyên mục gộp khoảng trắng', () => {
     expect(normalizeTopicName('  Tin   nội bộ ')).toBe('Tin nội bộ');
@@ -164,7 +241,7 @@ describe('chuyên mục, con trỏ, cỡ trang', () => {
   });
 
   it('cỡ trang có mặc định và trần', () => {
-    expect(normalizeLimit(undefined)).toBe(20);
+    expect(normalizeLimit(undefined)).toBe(10);
     expect(normalizeLimit('500')).toBe(50);
     expect(() => normalizeLimit('0')).toThrow(SocialValidationError);
     expect(() => normalizeLimit('abc')).toThrow(SocialValidationError);

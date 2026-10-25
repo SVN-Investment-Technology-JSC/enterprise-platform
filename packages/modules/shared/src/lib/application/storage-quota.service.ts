@@ -19,10 +19,26 @@ import type { SharedStore } from './shared-store.port.js';
  * Platform (gói + gói mua thêm); thiếu thì dùng mức mặc định và **không chặn**
  * (`soft`) — Platform trục trặc không được làm cả công ty không tải nổi tệp.
  */
+export const CAPACITY_CACHE_TTL_MS = 30_000;
+export const CAPACITY_CACHE_MAX_TENANTS = 2_000;
+
+interface CapacityEntry {
+  usedBytes: number;
+  quotaBytes: number;
+  enforcement: TenantStorageLimit['enforcement'];
+  expiresAt: number;
+  /** Số byte đã cho phép trong cửa sổ cache; về 0 khi đọc lại dung lượng thật. */
+  reservedBytes: number;
+}
+
 export class StorageQuotaService {
+  private readonly capacityCache = new Map<string, CapacityEntry>();
+  private readonly capacityLoads = new Map<string, Promise<CapacityEntry>>();
+
   constructor(
     private readonly store: SharedStore,
     private readonly limits: PlatformLimitsReader,
+    private readonly now: () => number = Date.now,
   ) {}
 
   async usage(tenantId: string): Promise<StorageUsage> {
@@ -53,14 +69,59 @@ export class StorageQuotaService {
    * phải hàng rào chống gian lận.
    */
   async ensureCapacity(tenantId: string, additionalBytes: number): Promise<void> {
-    const usage = await this.usage(tenantId);
-    if (usage.enforcement !== 'hard' || usage.quotaBytes <= 0) return;
-    if (usage.usedBytes + Math.max(0, additionalBytes) <= usage.quotaBytes) return;
-    throw new StorageQuotaExceededError(
-      `Kho đã dùng ${formatBytes(usage.usedBytes)} / ${formatBytes(usage.quotaBytes)}. ` +
-        `Tệp ${formatBytes(additionalBytes)} vượt hạn mức dung lượng của gói; ` +
-        'hãy lưu trữ bớt tài liệu cũ hoặc liên hệ quản trị để mua thêm dung lượng.',
-    );
+    const entry = await this.capacityEntry(tenantId);
+    if (entry.enforcement !== 'hard' || entry.quotaBytes <= 0) return;
+    const additional = Math.max(0, additionalBytes);
+    const committed = entry.usedBytes + entry.reservedBytes;
+    if (committed + additional > entry.quotaBytes) {
+      throw new StorageQuotaExceededError(
+        `Kho đã dùng ${formatBytes(committed)} / ${formatBytes(entry.quotaBytes)}. ` +
+          `Tệp ${formatBytes(additionalBytes)} vượt hạn mức dung lượng của gói; ` +
+          'hãy lưu trữ bớt tài liệu cũ hoặc liên hệ quản trị để mua thêm dung lượng.',
+      );
+    }
+    // Đặt trước ngay (đồng bộ, không có await xen giữa) để các lần tải gần như
+    // đồng thời không cùng lọt qua.
+    entry.reservedBytes += additional;
+  }
+
+  private async capacityEntry(tenantId: string): Promise<CapacityEntry> {
+    const cached = this.capacityCache.get(tenantId);
+    if (cached && cached.expiresAt > this.now()) return cached;
+    const inflight = this.capacityLoads.get(tenantId);
+    if (inflight) return inflight;
+    const load = this.usage(tenantId)
+      .then((usage) => {
+        const entry: CapacityEntry = {
+          usedBytes: usage.usedBytes,
+          quotaBytes: usage.quotaBytes,
+          enforcement: usage.enforcement,
+          expiresAt: this.now() + CAPACITY_CACHE_TTL_MS,
+          reservedBytes: 0,
+        };
+        this.storeCapacityEntry(tenantId, entry);
+        return entry;
+      })
+      .finally(() => this.capacityLoads.delete(tenantId));
+    this.capacityLoads.set(tenantId, load);
+    return load;
+  }
+
+  private storeCapacityEntry(tenantId: string, entry: CapacityEntry): void {
+    this.capacityCache.delete(tenantId);
+    if (this.capacityCache.size >= CAPACITY_CACHE_MAX_TENANTS) {
+      const now = this.now();
+      for (const [key, value] of this.capacityCache) {
+        if (value.expiresAt <= now) this.capacityCache.delete(key);
+      }
+      // Vẫn đầy: bỏ mục cũ nhất (Map giữ thứ tự chèn).
+      while (this.capacityCache.size >= CAPACITY_CACHE_MAX_TENANTS) {
+        const oldest = this.capacityCache.keys().next();
+        if (oldest.done) break;
+        this.capacityCache.delete(oldest.value);
+      }
+    }
+    this.capacityCache.set(tenantId, entry);
   }
 
   private async resolveLimit(tenantId: string): Promise<TenantStorageLimit> {

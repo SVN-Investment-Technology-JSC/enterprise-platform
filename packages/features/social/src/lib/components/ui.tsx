@@ -50,6 +50,8 @@ export interface DialogProps {
   readonly title: string;
   readonly submitLabel?: string;
   readonly submittingLabel?: string;
+  /** Nhãn nút phụ khi có `onSubmit`; mặc định "Huỷ". */
+  readonly cancelLabel?: string;
   readonly submitting?: boolean;
   readonly submitDisabled?: boolean;
   readonly danger?: boolean;
@@ -67,6 +69,7 @@ export function Dialog({
   title,
   submitLabel = 'Lưu',
   submittingLabel = 'Đang lưu…',
+  cancelLabel = 'Huỷ',
   submitting = false,
   submitDisabled = false,
   danger = false,
@@ -128,7 +131,7 @@ export function Dialog({
           </div>
           <footer className={styles.dialogFoot}>
             <button type="button" className={styles.buttonGhost} onClick={onClose} disabled={submitting}>
-              {onSubmit ? 'Huỷ' : 'Đóng'}
+              {onSubmit ? cancelLabel : 'Đóng'}
             </button>
             {onSubmit ? (
               <button
@@ -189,7 +192,10 @@ export function Field({
   );
 }
 
-/** Hộp thoại xác nhận cho thao tác phá huỷ (xoá bài, xoá bình luận). */
+/**
+ * Hộp thoại xác nhận. Mặc định cho thao tác phá huỷ (xoá bài, xoá bình luận); các tuỳ chọn cho phép dùng làm hộp cảnh
+ * báo thường (`danger={false}`, nhãn nút phụ riêng, nhiều đoạn, nút chính bị khoá kèm lời giải thích).
+ */
 export function ConfirmDialog({
   open,
   title,
@@ -197,31 +203,55 @@ export function ConfirmDialog({
   confirmLabel,
   busy,
   error,
+  danger = true,
+  cancelLabel,
+  submittingLabel = 'Đang xoá…',
+  confirmDisabled = false,
+  note,
   onConfirm,
   onClose,
 }: {
   readonly open: boolean;
   readonly title: string;
-  readonly message: string;
+  /** Một đoạn, hoặc nhiều đoạn (mỗi phần tử một đoạn). */
+  readonly message: string | readonly string[];
   readonly confirmLabel: string;
   readonly busy: boolean;
   readonly error?: string;
+  readonly danger?: boolean;
+  readonly cancelLabel?: string;
+  readonly submittingLabel?: string;
+  readonly confirmDisabled?: boolean;
+  /** Lời giải thích đặt dưới nội dung (ví dụ vì sao nút chính bị khoá). */
+  readonly note?: string;
   readonly onConfirm: () => void;
   readonly onClose: () => void;
 }) {
+  const paragraphs = typeof message === 'string' ? [message] : message;
   return (
     <Dialog
       open={open}
       title={title}
-      danger
+      danger={danger}
       submitLabel={confirmLabel}
-      submittingLabel="Đang xoá…"
+      submittingLabel={submittingLabel}
+      cancelLabel={cancelLabel}
       submitting={busy}
+      submitDisabled={confirmDisabled}
       error={error}
       onSubmit={onConfirm}
       onClose={onClose}
     >
-      <p className={styles.confirmText}>{message}</p>
+      {paragraphs.map((text) => (
+        <p key={text} className={styles.confirmText}>
+          {text}
+        </p>
+      ))}
+      {note ? (
+        <p role="status" className={styles.fieldHint}>
+          {note}
+        </p>
+      ) : null}
     </Dialog>
   );
 }

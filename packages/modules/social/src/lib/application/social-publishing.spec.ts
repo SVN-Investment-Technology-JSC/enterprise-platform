@@ -60,7 +60,7 @@ import { ReadAudience } from './social-read-audience.js';
 import { SocialReadConfirmationService } from './social-read-confirmation.service.js';
 import { SocialSchedulerService } from './social-scheduler.service.js';
 import { SocialSettingsService } from './social-settings.service.js';
-import type { SocialOutboxEvent, SocialStore } from './social-store.port.js';
+import type { AttachmentRow, SocialOutboxEvent, SocialStore } from './social-store.port.js';
 import {
   SocialPostStateError,
   SocialPollClosedError,
@@ -352,6 +352,7 @@ class FakePublishingStore implements SocialPublishingStore {
       ...(input.topicId ? { topicId: input.topicId } : {}),
       pinned: input.pinned,
       mentionsAll: input.mentionsAll,
+      mediaLayout: input.mediaLayout ?? 'auto',
       publishedAt: input.scheduledAt ?? this.stamp(),
       commentCount: 0,
       status: input.status,
@@ -391,6 +392,7 @@ class FakePublishingStore implements SocialPublishingStore {
     const mutable = next as { -readonly [K in keyof StoredRow]: StoredRow[K] };
     if (patch.title !== undefined) mutable.title = patch.title ?? undefined;
     if (patch.bodyHtml !== undefined) mutable.bodyHtml = patch.bodyHtml;
+    if (patch.mediaLayout !== undefined) mutable.mediaLayout = patch.mediaLayout;
     if (patch.scheduledAt !== undefined) {
       mutable.scheduledAt = patch.scheduledAt;
       mutable.publishedAt = patch.scheduledAt;
@@ -427,6 +429,7 @@ class FakePublishingStore implements SocialPublishingStore {
       row.status === 'published' &&
       (textChanged ||
         patch.topicId !== undefined ||
+        patch.mediaLayout !== undefined ||
         (patch.mentionUserIds !== undefined && patch.visibility === undefined) ||
         patch.attachmentIds !== undefined)
     ) {
@@ -628,7 +631,7 @@ class FakePublishingStore implements SocialPublishingStore {
 }
 
 /** Phần `SocialStore` của P1 mà đường ghi dùng: chuyên mục, quan hệ bài, phản ứng. */
-function fakeSocialStore(publishing: FakePublishingStore): SocialStore {
+function fakeSocialStore(publishing: FakePublishingStore, files: ReadonlyMap<string, AttachmentRow>): SocialStore {
   const store = {
     topics: {
       findById: async () => undefined,
@@ -640,7 +643,10 @@ function fakeSocialStore(publishing: FakePublishingStore): SocialStore {
         const reactions = new Map();
         for (const id of ids) {
           mentions.set(id, publishing.mentions.get(id) ?? []);
-          attachments.set(id, []);
+          attachments.set(
+            id,
+            [...files.values()].filter((file) => file.postId === id && file.completed),
+          );
           const counts: Partial<Record<SocialReactionType, number>> = {};
           let total = 0;
           let mine: SocialReactionType | undefined;
@@ -690,7 +696,10 @@ function harness() {
   const posting = new FakePosting(groups);
   const visibility = new FakeVisibility(groups, viewerScopes);
   const store = new FakePublishingStore(groups, clock);
-  const social = fakeSocialStore(store);
+  // Tệp đính kèm giả: tests đặt dòng vào `files`; `deletedKeys` ghi các khoá bị xoá khỏi kho.
+  const files = new Map<string, AttachmentRow>();
+  const deletedKeys: string[] = [];
+  const social = fakeSocialStore(store, files);
   const settings = new FakeSettings();
   const directory = new FakeDirectory();
   const people = { listActiveUserIds: async () => [ALICE, BOB, CAROL, DAVE] };
@@ -714,6 +723,8 @@ function harness() {
 
   return {
     clock,
+    files,
+    deletedKeys,
     groups,
     viewerScopes,
     posting,
@@ -727,6 +738,30 @@ function harness() {
     publishing: new SocialPublishingService({
       store,
       social,
+      attachments: {
+        findById: async (_t: string, id: string) => files.get(id),
+        deleteByIds: async (_t: string, ids: readonly string[]) => {
+          for (const id of ids) files.delete(id);
+        },
+        listForPost: async (_t: string, postId: string) =>
+          [...files.values()]
+            .filter((file) => file.postId === postId)
+            .map((file) => ({
+              id: file.id,
+              storageKey: file.storageKey,
+              ...(file.posterKey ? { posterKey: file.posterKey } : {}),
+              ...(file.sourceKey ? { sourceKey: file.sourceKey } : {}),
+            })),
+        deleteAttachedByIds: async (_t: string, ids: readonly string[]) => {
+          for (const id of ids) files.delete(id);
+        },
+      },
+      storage: {
+        deleteObjects: async (keys: readonly string[]) => {
+          deletedKeys.push(...keys);
+          return { failed: [] };
+        },
+      },
       directory,
       groups,
       settings,
@@ -2063,5 +2098,181 @@ describe('bài trong nhóm: quyền đăng và chủ đề', () => {
     await expectError(h.publishing.update(bob, post.id, { groupTopicId: TOPIC_FOREIGN }), 'GROUP_TOPIC_NOT_FOUND', 404);
     const wall = await h.publishing.create(alice, { bodyHtml: BODY });
     await expectError(h.publishing.update(alice, wall.id, { groupTopicId: TOPIC_A }), 'FORBIDDEN');
+  });
+});
+
+
+/* ------------------------------------------------- video đính kèm và gate */
+
+describe('video đính kèm bài viết', () => {
+  type Harness = ReturnType<typeof harness>;
+  let counter = 0;
+
+  function file(
+    h: Harness,
+    over: Partial<AttachmentRow> & { readonly owner?: string } = {},
+  ): string {
+    counter += 1;
+    const id = `aaaaaaaa-0000-4000-8000-${String(counter).padStart(12, '0')}`;
+    const { owner, ...rest } = over;
+    h.files.set(id, {
+      id,
+      uploadedBy: owner ?? ALICE,
+      fileName: 'clip.mp4',
+      contentType: 'video/mp4',
+      sizeBytes: 1000,
+      storageKey: `k/${id}/clip.mp4`,
+      completed: true,
+      purpose: 'post',
+      processingStatus: 'ready',
+      ...rest,
+    });
+    return id;
+  }
+
+  it('video none, ready, queued, processing đăng được ngay, hẹn giờ và chờ duyệt', async () => {
+    const h = harness();
+    const ready = file(h);
+    const legacy = file(h, { processingStatus: 'none' });
+    await h.publishing.create(alice, { bodyHtml: BODY, attachmentIds: [ready, legacy] });
+
+    for (const status of ['queued', 'processing'] as const) {
+      const pending = file(h, { processingStatus: status });
+      await expect(h.publishing.create(alice, { bodyHtml: BODY, attachmentIds: [pending] })).resolves.toBeDefined();
+      const scheduled = file(h, { processingStatus: status });
+      await expect(
+        h.publishing.create(alice, {
+          bodyHtml: BODY,
+          attachmentIds: [scheduled],
+          scheduledAt: new Date(h.clock.now.getTime() + 3_600_000).toISOString(),
+        }),
+      ).resolves.toBeDefined();
+    }
+    h.settings.value = { wallRequireApproval: true };
+    await expect(
+      h.publishing.create(alice, { bodyHtml: BODY, attachmentIds: [file(h, { processingStatus: 'queued' })] }),
+    ).resolves.toBeDefined();
+  });
+
+  it('video failed bị từ chối SOCIAL_VIDEO_FAILED khi đăng ngay, hẹn giờ và gửi duyệt', async () => {
+    const h = harness();
+    const failed = file(h, { processingStatus: 'failed' });
+    await expectError(h.publishing.create(alice, { bodyHtml: BODY, attachmentIds: [failed] }), 'SOCIAL_VIDEO_FAILED', 409);
+    // Bài hẹn giờ kiểm ngay lúc lưu, không đợi tới giờ đăng.
+    await expectError(
+      h.publishing.create(alice, {
+        bodyHtml: BODY,
+        attachmentIds: [failed],
+        scheduledAt: new Date(h.clock.now.getTime() + 3_600_000).toISOString(),
+      }),
+      'SOCIAL_VIDEO_FAILED',
+    );
+    h.settings.value = { wallRequireApproval: true };
+    await expectError(h.publishing.create(alice, { bodyHtml: BODY, attachmentIds: [failed] }), 'SOCIAL_VIDEO_FAILED');
+  });
+
+  it('sửa bài: thêm video processing được, video failed bị chặn', async () => {
+    const h = harness();
+    const post = await h.publishing.create(alice, { bodyHtml: BODY });
+    await expectError(
+      h.publishing.update(alice, post.id, { attachmentIds: [file(h, { processingStatus: 'failed' })] }),
+      'SOCIAL_VIDEO_FAILED',
+    );
+    const processing = await h.publishing.update(alice, post.id, {
+      attachmentIds: [file(h, { processingStatus: 'processing' })],
+    });
+    expect(processing.id).toBe(post.id);
+    const updated = await h.publishing.update(alice, post.id, { attachmentIds: [file(h)] });
+    expect(updated.id).toBe(post.id);
+  });
+
+  it('tối đa 3 video, ảnh trộn được với video, video của bình luận không gắn vào bài, tài liệu thì được', async () => {
+    const h = harness();
+    const videos = [file(h), file(h), file(h)];
+    await h.publishing.create(alice, { bodyHtml: BODY, attachmentIds: videos });
+    await expectError(
+      h.publishing.create(alice, { bodyHtml: BODY, attachmentIds: [...videos, file(h)] }),
+      'VALIDATION',
+    );
+    const image = file(h, { contentType: 'image/png', fileName: 'a.png' });
+    await expect(h.publishing.create(alice, { bodyHtml: BODY, attachmentIds: [image, file(h)] })).resolves.toBeDefined();
+    await expectError(
+      h.publishing.create(alice, { bodyHtml: BODY, attachmentIds: [file(h, { purpose: 'comment' })] }),
+      'VALIDATION',
+    );
+    const pdf = file(h, { contentType: 'application/pdf', fileName: 'a.pdf', processingStatus: 'none' });
+    await h.publishing.create(alice, { bodyHtml: BODY, attachmentIds: [pdf, file(h)] });
+    // Đủ ba loại cùng lúc, nhưng vẫn không quá 10 tệp.
+    await expect(
+      h.publishing.create(alice, { bodyHtml: BODY, attachmentIds: [pdf, image, file(h), file(h)] }),
+    ).resolves.toBeDefined();
+    const many = Array.from({ length: 9 }, () => file(h, { contentType: 'image/png', fileName: 'b.png' }));
+    await expectError(h.publishing.create(alice, { bodyHtml: BODY, attachmentIds: [...many, pdf, file(h)] }), 'VALIDATION');
+  });
+
+  it('bố cục ảnh và video: mặc định auto, lưu khi hợp lệ, từ chối khi sai, sửa thì đổi hoặc giữ nguyên', async () => {
+    const h = harness();
+    const plain = await h.publishing.create(alice, { bodyHtml: BODY });
+    expect(plain.mediaLayout).toBe('auto');
+    const grid = await h.publishing.create(alice, { bodyHtml: BODY, mediaLayout: 'grid' });
+    expect(grid.mediaLayout).toBe('grid');
+    await expectError(
+      h.publishing.create(alice, { bodyHtml: BODY, mediaLayout: 'mosaic' as never }),
+      'VALIDATION',
+      400,
+    );
+    await expectError(h.publishing.update(alice, grid.id, { mediaLayout: 'mosaic' as never }), 'VALIDATION', 400);
+    expect((await h.publishing.update(alice, grid.id, { mediaLayout: 'carousel' })).mediaLayout).toBe('carousel');
+    // Sửa mà không gửi bố cục thì giữ nguyên.
+    expect((await h.publishing.update(alice, grid.id, { bodyHtml: '<p>Nội dung mới</p>' })).mediaLayout).toBe('carousel');
+    expect((await h.publishing.get(alice, grid.id)).mediaLayout).toBe('carousel');
+  });
+
+  it('bố cục giữ nguyên khi bài hẹn giờ được đăng và khi bài chờ duyệt được duyệt', async () => {
+    const h = harness();
+    const scheduled = await h.publishing.create(alice, {
+      bodyHtml: BODY,
+      mediaLayout: 'featured',
+      scheduledAt: new Date(h.clock.now.getTime() + 3_600_000).toISOString(),
+    });
+    expect(scheduled.status).toBe('scheduled');
+    const now = await h.publishing.publishNow(alice, scheduled.id);
+    expect(now.status).toBe('published');
+    expect(now.mediaLayout).toBe('featured');
+
+    h.settings.value = { wallRequireApproval: true };
+    const pending = await h.publishing.create(alice, { bodyHtml: BODY, mediaLayout: 'stack' });
+    expect(pending.status).toBe('pending');
+    expect(pending.mediaLayout).toBe('stack');
+    const approved = await h.moderation.approve(moderator, pending.id);
+    expect(approved.status).toBe('published');
+    expect(approved.mediaLayout).toBe('stack');
+  });
+
+  it('không gắn tệp của người khác hay chưa tải xong', async () => {
+    const h = harness();
+    await expectError(
+      h.publishing.create(alice, { bodyHtml: BODY, attachmentIds: [file(h, { owner: BOB })] }),
+      'ATTACHMENT_UNAVAILABLE',
+    );
+    await expectError(
+      h.publishing.create(alice, { bodyHtml: BODY, attachmentIds: [file(h, { completed: false })] }),
+      'ATTACHMENT_UNAVAILABLE',
+    );
+  });
+
+  it('xoá bài xoá ngay video, poster và bản gốc còn sót, kể cả dòng', async () => {
+    const h = harness();
+    const id = file(h, { posterKey: 'k/poster.jpg', sourceKey: 'k/source.mov' });
+    const other = file(h);
+    const post = await h.publishing.create(alice, { bodyHtml: BODY, attachmentIds: [id, other] });
+    h.files.set(id, { ...(h.files.get(id) as AttachmentRow), postId: post.id });
+    h.files.set(other, { ...(h.files.get(other) as AttachmentRow), postId: post.id });
+
+    await h.publishing.remove(alice, post.id);
+    expect(h.deletedKeys.sort()).toEqual(
+      [`k/${id}/clip.mp4`, 'k/poster.jpg', 'k/source.mov', `k/${other}/clip.mp4`].sort(),
+    );
+    expect(h.files.size).toBe(0);
   });
 });

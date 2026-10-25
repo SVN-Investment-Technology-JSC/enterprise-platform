@@ -559,21 +559,24 @@ async function processFinanceJobs(database: TenantDatabaseReference) {
 }
 
 const SOCIAL_SCHEDULE_INTERVAL_MS = 60_000;
-const SOCIAL_CLEANUP_INTERVAL_MS = 60 * 60_000;
-const socialLastRun = new Map<string, { schedule: number; cleanup: number }>();
+const SOCIAL_CLEANUP_INTERVAL_MS = 15 * 60_000;
+const SOCIAL_VIDEO_SWEEP_INTERVAL_MS = 5 * 60_000;
+const socialLastRun = new Map<string, { schedule: number; cleanup: number; videoSweep: number }>();
 
 /**
  * Việc định kỳ của Mạng nội bộ, chạy trong withActiveTenant (khóa SHARED) của tick: đăng bài hẹn giờ
- * đến hạn mỗi 60 giây và dọn tệp mồ côi mỗi giờ, cho từng tenant đã bật phân hệ social.
- * Mốc chạy giữ trong bộ nhớ: khởi động lại worker thì chạy lại ngay (an toàn vì cả hai việc đều idempotent).
+ * đến hạn mỗi 60 giây, dọn tệp mồ côi mỗi 15 phút và quét video kẹt (báo lỗi video quá hạn chờ, xếp lại hàng)
+ * mỗi 5 phút, cho từng tenant đã bật phân hệ social.
+ * Mốc chạy giữ trong bộ nhớ: khởi động lại worker thì chạy lại ngay (an toàn vì cả ba việc đều idempotent).
  */
 async function processSocialJobs(database: TenantDatabaseReference) {
   const tenantId = database.tenantId;
   const now = Date.now();
-  const last = socialLastRun.get(tenantId) ?? { schedule: 0, cleanup: 0 };
+  const last = socialLastRun.get(tenantId) ?? { schedule: 0, cleanup: 0, videoSweep: 0 };
   const dueSchedule = now - last.schedule >= SOCIAL_SCHEDULE_INTERVAL_MS;
   const dueCleanup = now - last.cleanup >= SOCIAL_CLEANUP_INTERVAL_MS;
-  if (!dueSchedule && !dueCleanup) return;
+  const dueVideoSweep = now - last.videoSweep >= SOCIAL_VIDEO_SWEEP_INTERVAL_MS;
+  if (!dueSchedule && !dueCleanup && !dueVideoSweep) return;
   if (!(await moduleEnabled(tenantId, 'social'))) return;
   moduleDatabases.register(database);
   if (!(await socialJobs.ready(tenantId))) return;
@@ -581,6 +584,7 @@ async function processSocialJobs(database: TenantDatabaseReference) {
   socialLastRun.set(tenantId, {
     schedule: dueSchedule ? now : last.schedule,
     cleanup: dueCleanup ? now : last.cleanup,
+    videoSweep: dueVideoSweep ? now : last.videoSweep,
   });
   if (dueSchedule) {
     const result = await socialJobs.publishDueScheduled(tenantId);
@@ -588,6 +592,7 @@ async function processSocialJobs(database: TenantDatabaseReference) {
       console.error(`[social] Tenant ${tenantId}: không đăng được bài hẹn giờ ${failure.postId}: ${failure.message}`);
   }
   if (dueCleanup) await socialJobs.cleanupOrphans(tenantId);
+  if (dueVideoSweep) await socialJobs.sweepVideos(tenantId);
 }
 
 /** Một lần withActiveTenant (khóa SHARED) cho mỗi tenant mỗi tick: outbox rồi HRM, Finance và Social jobs, tuần tự. */

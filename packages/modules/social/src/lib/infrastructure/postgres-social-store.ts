@@ -4,7 +4,12 @@ import {
   TenantDatabaseRegistry,
   inTransaction,
 } from '@enterprise-platform/adapter-database';
-import type { SocialPostKind, SocialReactionType } from '@enterprise-platform/contracts-social';
+import {
+  SOCIAL_MEDIA_LAYOUT_DEFAULT,
+  type SocialMediaLayout,
+  type SocialPostKind,
+  type SocialReactionType,
+} from '@enterprise-platform/contracts-social';
 import type { Pool, PoolClient } from 'pg';
 import type {
   AttachmentInsert,
@@ -25,8 +30,8 @@ import type {
   SocialStore,
   TopicRow,
 } from '../application/social-store.port.js';
+import { attachmentFailure } from './publishing-sql.js';
 import {
-  SocialAttachmentUnavailableError,
   SocialCommentNotFoundError,
   SocialNotProvisionedError,
   SocialPostNotFoundError,
@@ -40,7 +45,7 @@ function isoColumn(expression: string): string {
 }
 
 const POST_SELECT = `SELECT p.id, p.author_id, p.kind, p.title, p.body_html, p.topic_id, t.name AS topic_name,
-       p.pinned, p.mentions_all,
+       p.pinned, p.mentions_all, p.media_layout,
        ${isoColumn('p.published_at')} AS published_at,
        ${isoColumn('p.edited_at')} AS edited_at,
        (SELECT count(*) FROM social_schema.comments c
@@ -56,8 +61,9 @@ const COMMENT_SELECT = `SELECT c.id, c.post_id, c.parent_id, c.author_id, c.body
          WHERE r.parent_id = c.id AND r.deleted_at IS NULL)::int AS reply_count
   FROM social_schema.comments c`;
 
-const ATTACHMENT_COLUMNS = `a.id, a.post_id, a.uploaded_by, a.file_name, a.content_type, a.size_bytes,
-       a.storage_key, (a.completed_at IS NOT NULL) AS completed`;
+export const ATTACHMENT_COLUMNS = `a.id, a.post_id, a.comment_id, a.uploaded_by, a.file_name, a.content_type, a.size_bytes,
+       a.storage_key, (a.completed_at IS NOT NULL) AS completed, a.purpose, a.processing_status, a.processing_error,
+       a.source_key, a.poster_key, a.duration_ms, a.width, a.height`;
 
 interface PostRecord {
   id: string;
@@ -69,6 +75,7 @@ interface PostRecord {
   topic_name: string | null;
   pinned: boolean;
   mentions_all: boolean;
+  media_layout: SocialMediaLayout;
   published_at: string;
   edited_at: string | null;
   comment_count: number;
@@ -86,15 +93,24 @@ interface CommentRecord {
   reply_count: number;
 }
 
-interface AttachmentRecord {
+export interface AttachmentRecord {
   id: string;
   post_id: string | null;
+  comment_id: string | null;
   uploaded_by: string;
   file_name: string;
   content_type: string;
   size_bytes: string | number;
   storage_key: string;
   completed: boolean;
+  purpose: 'post' | 'comment';
+  processing_status: AttachmentRow['processingStatus'];
+  processing_error: string | null;
+  source_key: string | null;
+  poster_key: string | null;
+  duration_ms: number | null;
+  width: number | null;
+  height: number | null;
 }
 
 function mapPost(row: PostRecord): PostRow {
@@ -107,6 +123,7 @@ function mapPost(row: PostRecord): PostRow {
     ...(row.topic_id ? { topicId: row.topic_id, topicName: row.topic_name ?? '' } : {}),
     pinned: row.pinned,
     mentionsAll: row.mentions_all,
+    mediaLayout: row.media_layout ?? SOCIAL_MEDIA_LAYOUT_DEFAULT,
     publishedAt: row.published_at,
     ...(row.edited_at ? { editedAt: row.edited_at } : {}),
     commentCount: row.comment_count,
@@ -127,16 +144,25 @@ function mapComment(row: CommentRecord): CommentRow {
   };
 }
 
-function mapAttachment(row: AttachmentRecord): AttachmentRow {
+export function mapAttachment(row: AttachmentRecord): AttachmentRow {
   return {
     id: row.id,
     ...(row.post_id ? { postId: row.post_id } : {}),
+    ...(row.comment_id ? { commentId: row.comment_id } : {}),
     uploadedBy: row.uploaded_by,
     fileName: row.file_name,
     contentType: row.content_type,
     sizeBytes: Number(row.size_bytes),
     storageKey: row.storage_key,
     completed: row.completed,
+    purpose: row.purpose,
+    processingStatus: row.processing_status,
+    ...(row.processing_error ? { processingError: row.processing_error } : {}),
+    ...(row.source_key ? { sourceKey: row.source_key } : {}),
+    ...(row.poster_key ? { posterKey: row.poster_key } : {}),
+    ...(row.duration_ms !== null ? { durationMs: row.duration_ms } : {}),
+    ...(row.width !== null ? { width: row.width } : {}),
+    ...(row.height !== null ? { height: row.height } : {}),
   };
 }
 
@@ -162,7 +188,7 @@ function filterClause(filter: FeedFilter, values: unknown[]): string {
  * Ghi sự kiện vào outbox bằng chính `client` của transaction đang mở: sự kiện
  * và thay đổi dữ liệu cùng commit hoặc cùng rollback (skill erp-events).
  */
-async function writeOutbox(client: PoolClient, tenantId: string, event: SocialOutboxEvent): Promise<void> {
+export async function writeOutbox(client: PoolClient, tenantId: string, event: SocialOutboxEvent): Promise<void> {
   const id = randomUUID();
   const occurredAt = new Date().toISOString();
   const envelope = {
@@ -192,8 +218,8 @@ async function writeOutboxAll(
 }
 
 /**
- * Gắn tệp vào bài. Chỉ nhận tệp đã tải xong và hoặc đã thuộc bài này, hoặc chưa
- * gắn bài và do `uploaderId` tải; thiếu một tệp là lỗi cả thao tác.
+ * Gắn tệp vào bài. Chỉ nhận tệp đã tải xong, không phải video `failed` (`queued`/`processing` gắn được) và hoặc đã thuộc bài này, hoặc
+ * chưa gắn bài và do `uploaderId` tải; thiếu một tệp là lỗi cả thao tác. `position` là chỉ số trong `attachmentIds`.
  */
 async function attachFiles(
   client: PoolClient,
@@ -203,14 +229,40 @@ async function attachFiles(
 ): Promise<void> {
   if (attachmentIds.length === 0) return;
   const result = await client.query(
-    `UPDATE social_schema.attachments
-        SET post_id = $1
-      WHERE id = ANY($2::uuid[])
-        AND completed_at IS NOT NULL
-        AND (post_id = $1 OR (post_id IS NULL AND uploaded_by = $3))`,
+    `UPDATE social_schema.attachments a
+        SET post_id = $1, position = o.ord::int - 1
+       FROM unnest($2::uuid[]) WITH ORDINALITY AS o(id, ord)
+      WHERE a.id = o.id
+        AND a.completed_at IS NOT NULL
+        AND a.processing_status <> 'failed'
+        AND (a.post_id = $1 OR (a.post_id IS NULL AND a.comment_id IS NULL AND a.uploaded_by = $3))`,
     [postId, attachmentIds, uploaderId],
   );
-  if (result.rowCount !== attachmentIds.length) throw new SocialAttachmentUnavailableError();
+  if (result.rowCount !== attachmentIds.length) throw await attachmentFailure(client, attachmentIds);
+}
+
+/**
+ * Gắn tệp vào bình luận. Chỉ nhận tệp đã tải xong, không phải video `failed` (`queued`/`processing` gắn được) và hoặc đã thuộc bình
+ * luận này, hoặc chưa gắn bài
+ * lẫn bình luận nào và do `uploaderId` tải; thiếu một tệp là lỗi cả thao tác.
+ */
+async function attachToComment(
+  client: PoolClient,
+  commentId: string,
+  attachmentIds: readonly string[],
+  uploaderId: string,
+): Promise<void> {
+  if (attachmentIds.length === 0) return;
+  const result = await client.query(
+    `UPDATE social_schema.attachments
+        SET comment_id = $1
+      WHERE id = ANY($2::uuid[])
+        AND completed_at IS NOT NULL
+        AND processing_status <> 'failed'
+        AND (comment_id = $1 OR (comment_id IS NULL AND post_id IS NULL AND uploaded_by = $3))`,
+    [commentId, attachmentIds, uploaderId],
+  );
+  if (result.rowCount !== attachmentIds.length) throw await attachmentFailure(client, attachmentIds);
 }
 
 async function replacePostMentions(
@@ -334,7 +386,7 @@ export class PostgresSocialStore implements SocialStore {
             `SELECT ${ATTACHMENT_COLUMNS}
                FROM social_schema.attachments a
               WHERE a.post_id = ANY($1::uuid[]) AND a.completed_at IS NOT NULL
-              ORDER BY a.created_at, a.id`,
+              ORDER BY a.position, a.created_at, a.id`,
             [postIds],
           ),
           pool.query<{ post_id: string; type: SocialReactionType; n: number }>(
@@ -377,8 +429,8 @@ export class PostgresSocialStore implements SocialStore {
         inTransaction(pool, async (client) => {
           await client.query(
             `INSERT INTO social_schema.posts
-               (id, author_id, kind, title, body_html, topic_id, pinned, mentions_all)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+               (id, author_id, kind, title, body_html, topic_id, pinned, mentions_all, media_layout)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
             [
               input.id,
               input.authorId,
@@ -388,6 +440,7 @@ export class PostgresSocialStore implements SocialStore {
               input.topicId ?? null,
               input.pinned,
               input.mentionsAll,
+              input.mediaLayout ?? SOCIAL_MEDIA_LAYOUT_DEFAULT,
             ],
           );
           await replacePostMentions(client, input.id, input.mentionUserIds);
@@ -408,6 +461,7 @@ export class PostgresSocialStore implements SocialStore {
           if (patch.title !== undefined) set('title', patch.title);
           if (patch.bodyHtml !== undefined) set('body_html', patch.bodyHtml);
           if (patch.topicId !== undefined) set('topic_id', patch.topicId);
+          if (patch.mediaLayout !== undefined) set('media_layout', patch.mediaLayout);
 
           const result = await client.query(
             `UPDATE social_schema.posts
@@ -572,6 +626,7 @@ export class PostgresSocialStore implements SocialStore {
             [input.id, input.postId, input.parentId ?? null, input.authorId, input.body],
           );
           await replaceCommentMentions(client, input.id, input.mentionUserIds);
+          await attachToComment(client, input.id, input.attachmentIds ?? [], input.authorId);
           await writeOutboxAll(client, tenantId, input.events);
         }),
       ),
@@ -582,6 +637,8 @@ export class PostgresSocialStore implements SocialStore {
       patch: {
         readonly body: string;
         readonly mentionUserIds: readonly string[];
+        readonly attachmentIds?: readonly string[];
+        readonly uploaderId?: string;
         readonly events: readonly SocialOutboxEvent[];
       },
     ): Promise<void> =>
@@ -594,6 +651,9 @@ export class PostgresSocialStore implements SocialStore {
           );
           if (result.rowCount === 0) throw new SocialCommentNotFoundError();
           await replaceCommentMentions(client, commentId, patch.mentionUserIds);
+          if (patch.attachmentIds && patch.uploaderId) {
+            await attachToComment(client, commentId, patch.attachmentIds, patch.uploaderId);
+          }
           await writeOutboxAll(client, tenantId, patch.events);
         }),
       ),
@@ -694,9 +754,9 @@ export class PostgresSocialStore implements SocialStore {
       this.run(tenantId, async (pool) => {
         await pool.query(
           `INSERT INTO social_schema.attachments
-             (id, uploaded_by, file_name, content_type, size_bytes, storage_key)
-           VALUES ($1, $2, $3, $4, $5, $6)`,
-          [input.id, input.uploadedBy, input.fileName, input.contentType, input.sizeBytes, input.storageKey],
+             (id, uploaded_by, file_name, content_type, size_bytes, storage_key, purpose)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [input.id, input.uploadedBy, input.fileName, input.contentType, input.sizeBytes, input.storageKey, input.purpose],
         );
       }),
 
@@ -718,24 +778,87 @@ export class PostgresSocialStore implements SocialStore {
         );
       }),
 
+    setDimensions: (tenantId: string, attachmentId: string, width: number, height: number): Promise<void> =>
+      this.run(tenantId, async (pool) => {
+        await pool.query(
+          `UPDATE social_schema.attachments SET width = $2, height = $3
+            WHERE id = $1 AND width IS NULL AND height IS NULL`,
+          [attachmentId, width, height],
+        );
+      }),
+
     listOrphans: (tenantId: string, olderThan: string, limit: number): Promise<OrphanAttachment[]> =>
       this.run(tenantId, async (pool) => {
-        const result = await pool.query<{ id: string; storage_key: string }>(
-          `SELECT id, storage_key FROM social_schema.attachments
-            WHERE post_id IS NULL AND created_at < $1::timestamptz
+        const result = await pool.query<{
+          id: string;
+          storage_key: string;
+          poster_key: string | null;
+          source_key: string | null;
+          completed: boolean;
+        }>(
+          `SELECT id, storage_key, poster_key, source_key, (completed_at IS NOT NULL) AS completed
+             FROM social_schema.attachments
+            WHERE post_id IS NULL AND comment_id IS NULL AND created_at < $1::timestamptz
             ORDER BY created_at, id
             LIMIT $2`,
           [olderThan, limit],
         );
-        return result.rows.map((row) => ({ id: row.id, storageKey: row.storage_key }));
+        return result.rows.map((row) => ({
+          id: row.id,
+          storageKey: row.storage_key,
+          ...(row.poster_key ? { posterKey: row.poster_key } : {}),
+          ...(row.source_key ? { sourceKey: row.source_key } : {}),
+          completed: row.completed,
+        }));
       }),
 
     deleteByIds: (tenantId: string, ids: readonly string[]): Promise<void> =>
       this.run(tenantId, async (pool) => {
         if (ids.length === 0) return;
-        await pool.query(`DELETE FROM social_schema.attachments WHERE id = ANY($1::uuid[]) AND post_id IS NULL`, [
+        await pool.query(`DELETE FROM social_schema.attachments
+            WHERE id = ANY($1::uuid[]) AND post_id IS NULL AND comment_id IS NULL`, [
           ids,
         ]);
+      }),
+
+    listForPost: (tenantId: string, postId: string): Promise<OrphanAttachment[]> =>
+      this.run(tenantId, async (pool) => {
+        const result = await pool.query<{
+          id: string;
+          storage_key: string;
+          poster_key: string | null;
+          source_key: string | null;
+        }>(
+          `SELECT id, storage_key, poster_key, source_key FROM social_schema.attachments
+            WHERE post_id = $1
+               OR comment_id IN (SELECT id FROM social_schema.comments WHERE post_id = $1)
+            ORDER BY created_at, id`,
+          [postId],
+        );
+        return result.rows.map((row) => ({
+          id: row.id,
+          storageKey: row.storage_key,
+          ...(row.poster_key ? { posterKey: row.poster_key } : {}),
+          ...(row.source_key ? { sourceKey: row.source_key } : {}),
+        }));
+      }),
+
+    deleteAttachedByIds: (tenantId: string, ids: readonly string[]): Promise<void> =>
+      this.run(tenantId, async (pool) => {
+        if (ids.length === 0) return;
+        await pool.query(`DELETE FROM social_schema.attachments WHERE id = ANY($1::uuid[])`, [ids]);
+      }),
+
+    countPending: (tenantId: string, uploaderId: string, sinceIso: string): Promise<number> =>
+      this.run(tenantId, async (pool) => {
+        const result = await pool.query<{ total: string }>(
+          `SELECT count(*) AS total FROM social_schema.attachments
+            WHERE uploaded_by = $1 AND completed_at IS NULL
+              AND post_id IS NULL AND comment_id IS NULL
+              AND created_at >= $2::timestamptz`,
+          [uploaderId, sinceIso],
+        );
+        return Number(result.rows[0]?.total ?? 0);
       }),
   };
 }

@@ -1,10 +1,14 @@
 import type {
   CreateSocialCommentRequest,
+  DiscardSocialAttachmentRequest,
   CreateSocialPostRequest,
   CreateSocialTopicRequest,
-  InitiateSocialAttachmentRequest,
+  SocialAttachmentPurpose,
   InitiateSocialAttachmentResponse,
+  RefreshSocialUploadPartsResponse,
   SocialAttachment,
+  SocialAttachmentStatusRequest,
+  SocialAttachmentStatusResponse,
   SocialComment,
   SocialCommentPage,
   SocialFeedPage,
@@ -24,6 +28,8 @@ import type {
   UpdateSocialTopicRequest,
 } from '@enterprise-platform/contracts-social';
 import { authFetch } from '@enterprise-platform/shared-ui';
+import { uploadAttachmentWithProgress, type AttachmentUploadApi } from './attachment-upload';
+import { readImageSize, type ImageSize } from './image-size';
 import { buildFeedQuery, buildFeedRequestPath, type SocialFeedScope } from './social.model';
 
 const API = '/api/social/v1';
@@ -59,6 +65,21 @@ export const json = (method: string, body?: unknown): RequestInit => ({
 export function errorMessage(cause: unknown, fallback: string): string {
   const message = (cause as SocialApiError | undefined)?.message;
   return typeof message === 'string' && message ? message : fallback;
+}
+
+const ATTACHMENT_ERROR_FALLBACKS: Readonly<Record<string, string>> = {
+  SOCIAL_UNATTACHED_BYTES_EXCEEDED:
+    'Bạn đang có quá nhiều tệp tải lên chưa gửi. Hãy gửi hoặc gỡ bớt tệp rồi thử lại.',
+  SOCIAL_VIDEO_TOO_MANY_PROCESSING:
+    'Bạn đang có quá nhiều video chờ xử lý. Hãy đợi các video đó xong rồi tải tiếp.',
+  SOCIAL_VIDEO_FAILED: 'Video xử lý lỗi, chưa thể đăng. Hãy gỡ video rồi thử lại.',
+};
+
+/** Như `errorMessage`, nhưng có lời nhắn tiếng Việt riêng cho các mã lỗi tệp và video khi server không kèm lời nhắn. */
+export function attachmentErrorMessage(cause: unknown, fallback: string): string {
+  const { code, message } = (cause as SocialApiError | undefined) ?? {};
+  if (typeof message === 'string' && message) return message;
+  return (code !== undefined ? ATTACHMENT_ERROR_FALLBACKS[code] : undefined) ?? fallback;
 }
 
 /** Đường về Tenant Portal cho nút Trang chủ trên thanh bên. */
@@ -151,27 +172,76 @@ export const deleteComment = (commentId: string) =>
 
 /* ------------------------------------------------------------ tệp đính kèm */
 
+const attachmentUploadApi: AttachmentUploadApi = {
+  initiate: (body) => request<InitiateSocialAttachmentResponse>('/attachments/uploads', json('POST', body)),
+  complete: (id, body) =>
+    request<SocialAttachment>(`/attachments/${encodeURIComponent(id)}/complete`, json('POST', body)),
+  abort: (id, body) => request<void>(`/attachments/${encodeURIComponent(id)}/abort`, json('POST', body)),
+  refreshParts: (id, body) =>
+    request<RefreshSocialUploadPartsResponse>(`/attachments/${encodeURIComponent(id)}/parts`, json('POST', body)),
+};
+
+/** Bỏ tệp của mình chưa gắn vào bài hay bình luận nào (mọi trạng thái); server trả 204. */
+export const attachmentDiscardApi = {
+  discard: (id: string, body: DiscardSocialAttachmentRequest = {}) =>
+    request<void>(`/attachments/${encodeURIComponent(id)}/discard`, json('POST', body)),
+};
+
+/** Trạng thái xử lý (chuyển mã) của tối đa 10 tệp do chính mình tải lên. */
+export const attachmentStatusApi = {
+  status: async (ids: readonly string[]): Promise<readonly SocialAttachment[]> =>
+    (
+      await request<SocialAttachmentStatusResponse>(
+        '/attachments/status',
+        { ...json('POST', { ids } satisfies SocialAttachmentStatusRequest), cache: 'no-store' },
+      )
+    ).items,
+};
+
+/** Bỏ một tệp chưa gắn; dùng khi người dùng gỡ tệp khỏi ô soạn. Lỗi do nơi gọi quyết định bỏ qua. */
+export const discardAttachment = (id: string, uploadId?: string) =>
+  attachmentDiscardApi.discard(id, uploadId ? { uploadId } : {});
+
 /**
- * Tải một tệp lên theo hai bước rồi xác nhận: xin URL ký sẵn, PUT thẳng nội dung lên
- * đó (không qua `authFetch`, URL đã ký), rồi báo hoàn tất để server kiểm tra tệp.
+ * Bỏ tệp khi trang đang đóng: `fetch` với `keepalive` vẫn được gửi sau khi trang bị huỷ (giới hạn thân 64 KB, ở đây
+ * chỉ vài byte). Đi qua `authFetch` nên gắn cookie phiên và `x-csrf-token` như mọi lời gọi khác; không chờ, không ném lỗi.
  */
-export async function uploadAttachment(file: File): Promise<SocialAttachment> {
-  const initiate: InitiateSocialAttachmentRequest = {
-    fileName: file.name,
-    contentType: file.type,
-    sizeBytes: file.size,
-  };
-  const ticket = await request<InitiateSocialAttachmentResponse>('/attachments/uploads', json('POST', initiate));
-  const put = await fetch(ticket.uploadUrl, {
-    method: 'PUT',
-    headers: { 'content-type': file.type },
-    body: file,
-  });
-  if (!put.ok) throw { message: `Không tải được tệp "${file.name}" lên kho lưu trữ.` } satisfies SocialApiError;
-  return request<SocialAttachment>(
-    `/attachments/${encodeURIComponent(ticket.attachmentId)}/complete`,
-    json('POST'),
-  );
+export function discardAttachmentKeepalive(id: string, uploadId?: string): void {
+  try {
+    void authFetch(`${API}/attachments/${encodeURIComponent(id)}/discard`, {
+      method: 'POST',
+      keepalive: true,
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(uploadId ? { uploadId } : {}),
+    }).catch(() => undefined);
+  } catch {
+    // Trang đang đóng: không còn gì để làm.
+  }
+}
+
+/** Huỷ lần tải dang dở: server xoá dòng tệp và dọn các phần đã tải. */
+export const abortAttachment = (id: string, uploadId?: string) =>
+  attachmentUploadApi.abort(id, uploadId ? { uploadId } : {});
+
+/**
+ * Tải một tệp lên: xin URL ký sẵn, PUT thẳng nội dung lên kho (một lệnh hoặc nhiều phần, có tiến trình
+ * và huỷ được), rồi báo hoàn tất để server kiểm tra tệp. Lỗi do huỷ nhận biết bằng `isUploadAborted`.
+ */
+export function uploadAttachment(
+  file: File,
+  purpose: SocialAttachmentPurpose = 'post',
+  options: {
+    readonly onProgress?: (fraction: number) => void;
+    readonly onInitiated?: (ticket: { readonly attachmentId: string; readonly uploadId?: string }) => void;
+    readonly signal?: AbortSignal;
+    /** Chỉ ảnh: kích thước đã biết; thiếu thì tự đọc từ `file` (tệp cuối cùng được tải lên). */
+    readonly dimensions?: ImageSize;
+  } = {},
+): Promise<SocialAttachment> {
+  // Ảnh: đọc kích thước song song với `initiate` và việc tải; đọc lỗi thì chỉ thiếu kích thước.
+  const dimensions =
+    options.dimensions ?? (file.type.startsWith('image/') ? readImageSize(file) : undefined);
+  return uploadAttachmentWithProgress(file, purpose, { ...options, dimensions, api: attachmentUploadApi });
 }
 
 /* ------------------------------------------------- bố cục: bảng tin, thẻ, cột phải */
