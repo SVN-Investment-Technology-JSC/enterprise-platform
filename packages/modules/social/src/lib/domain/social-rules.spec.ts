@@ -241,7 +241,7 @@ describe('chuyên mục, con trỏ, cỡ trang', () => {
   });
 
   it('cỡ trang có mặc định và trần', () => {
-    expect(normalizeLimit(undefined)).toBe(20);
+    expect(normalizeLimit(undefined)).toBe(10);
     expect(normalizeLimit('500')).toBe(50);
     expect(() => normalizeLimit('0')).toThrow(SocialValidationError);
     expect(() => normalizeLimit('abc')).toThrow(SocialValidationError);

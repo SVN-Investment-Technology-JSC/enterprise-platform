@@ -142,7 +142,7 @@ export interface SocialVideoRequestedPayload {
 }
 /** URL xem video sống lâu hơn URL ảnh vì video phát và tua lâu. */
 export const SOCIAL_VIDEO_URL_TTL_SECONDS = 3600;
-export const SOCIAL_FEED_PAGE_SIZE = 20;
+export const SOCIAL_FEED_PAGE_SIZE = 10;
 export const SOCIAL_FEED_MAX_PAGE_SIZE = 50;
 export const SOCIAL_TOPIC_NAME_MAX = 80;
 
