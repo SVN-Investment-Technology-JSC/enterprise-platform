@@ -48,7 +48,10 @@ Bật hạ tầng docker local (Postgres, MinIO, RabbitMQ), áp migration (`pnpm
 node apps/video-worker/dist/main.js
 ```
 
-Nếu cần đổi thư mục tạm, đặt `VIDEO_WORKER_TMP_DIR` trước lệnh. Không có target `serve`.
+Nếu cần đổi thư mục tạm, đặt `VIDEO_WORKER_TMP_DIR` trước lệnh.
+
+Khi phát triển, `pnpm dev` đã chạy sẵn `video-worker` cùng các dịch vụ khác (tự build lại khi đổi mã); chạy riêng bằng
+`pnpm dev:video-worker`.
 
 ## Thư mục tạm
 

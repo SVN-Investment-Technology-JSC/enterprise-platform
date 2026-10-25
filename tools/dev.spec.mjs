@@ -32,6 +32,15 @@ test('finishes the backend build before starting the continuous services', () =>
   assert.equal(started, true);
 });
 
+test('builds and starts the video worker with the other backends', () => {
+  const withVideo = ['run-many', '-t', 'dev', 'serve', '--projects=web,api,worker,video-worker'];
+  const calls = [];
+  runDevelopment(withVideo, (args) => { calls.push(args); return { status: 0 }; });
+  assert.ok(calls[0].includes('build'));
+  assert.ok(calls[0].includes('--projects=api,worker,video-worker'));
+  assert.deepEqual(calls[1], withVideo);
+});
+
 test('keeps single-project commands focused on that project', () => {
   const calls = [];
   runDevelopment(['serve', 'worker'], (args) => { calls.push(args); return { status: 0 }; });
