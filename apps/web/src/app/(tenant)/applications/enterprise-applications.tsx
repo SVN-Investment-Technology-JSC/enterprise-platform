@@ -307,18 +307,12 @@ export function EnterpriseApplications({
   initialError?: string;
   initialModules: TenantModuleCatalogItem[];
 }) {
-  // Loại bỏ hoàn toàn CRM theo yêu cầu của user
-  const sanitizedModules = useMemo(
-    () => initialModules.filter((m) => m.key.toLowerCase() !== 'crm'),
-    [initialModules],
-  );
-
   const [query, setQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [selectedStatus, setSelectedStatus] = useState<'all' | 'active' | 'not-active'>('all');
   // Khung chi tiết mở sẵn ứng dụng đầu tiên, nằm cạnh danh sách thay cho ngăn kéo.
   const [selectedModule, setSelectedModule] = useState<TenantModuleCatalogItem | null>(
-    () => sanitizedModules[0] ?? null,
+    () => initialModules[0] ?? null,
   );
   // Màn hẹp: khung chi tiết rơi xuống dưới danh sách, nên bấm "Chi tiết" thì cuộn tới nó.
   const [revealPanel, setRevealPanel] = useState(false);
@@ -327,23 +321,23 @@ export function EnterpriseApplications({
   const [requestedKeys, setRequestedKeys] = useState<Set<string>>(() => new Set());
 
   // Metrics
-  const totalCount = sanitizedModules.length;
-  const activeCount = sanitizedModules.filter((m) => m.entitlementStatus === 'active').length;
+  const totalCount = initialModules.length;
+  const activeCount = initialModules.filter((m) => m.entitlementStatus === 'active').length;
 
-  // Lọc danh sách danh mục có sẵn (không bao gồm CRM)
+  // Lọc danh sách danh mục có sẵn
   const availableCategories = useMemo(() => {
     const cats = new Set<string>();
-    for (const m of sanitizedModules) {
+    for (const m of initialModules) {
       const info = getModuleInfo(m.key, m.name, m.description);
       cats.add(info.category);
     }
     return Array.from(cats);
-  }, [sanitizedModules]);
+  }, [initialModules]);
 
   // Bộ lọc modules
   const filteredModules = useMemo(() => {
     const normQuery = query.trim().toLocaleLowerCase('vi');
-    return sanitizedModules.filter((module) => {
+    return initialModules.filter((module) => {
       const info = getModuleInfo(module.key, module.name, module.description);
 
       // Lọc trạng thái
@@ -365,7 +359,7 @@ export function EnterpriseApplications({
 
       return true;
     });
-  }, [sanitizedModules, query, selectedCategory, selectedStatus]);
+  }, [initialModules, query, selectedCategory, selectedStatus]);
 
   useEffect(() => {
     if (!revealPanel) return;

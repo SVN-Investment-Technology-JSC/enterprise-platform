@@ -131,6 +131,44 @@ describe('ProcedureEngineApplication', () => {
     await application.deleteInstance(employee, started.id, { reason: 'Nhập nhầm' });
   });
 
+  it('liệt kê quy trình đã công bố mà người gọi khởi tạo được', async () => {
+    const application = setup();
+    const draft = await application.createDefinition(actor, definitionInput());
+    const other = await application.createDefinition(actor, {
+      ...definitionInput(),
+      code: 'PROC-OTHER',
+      name: 'A quy trình khác',
+    });
+    const otherPublished = await application.publishDefinition(actor, other.id);
+    const ids = async (who: ProcedureActor) =>
+      (await application.listStartableDefinitions(who)).map((definition) => definition.id);
+    expect(await application.listStartableDefinitions(actor)).toContainEqual({
+      id: otherPublished.id,
+      code: 'PROC-OTHER',
+      name: 'A quy trình khác',
+      description: null,
+      category: 'technical',
+    });
+    // Bản nháp chưa công bố thì chưa khởi tạo được.
+    expect(await ids(actor)).not.toContain(draft.id);
+    const published = await application.publishDefinition(actor, draft.id);
+    const employee = { ...actor, canDesign: false, canPublish: false, isOverride: false };
+    const employeeIds = await ids(employee);
+    // Theo tên: "A quy trình khác" trước "Quy trình kiểm thử".
+    expect(employeeIds.filter((id) => id === otherPublished.id || id === published.id)).toEqual([
+      otherPublished.id,
+      published.id,
+    ]);
+    // Không giữ vai S ở bước nào: không thấy; quyền override thì thấy; không có quyền tạo hồ sơ: rỗng.
+    const stranger = { ...employee, userId: 'unassigned', membershipId: 'unassigned' };
+    expect(await ids(stranger)).not.toContain(otherPublished.id);
+    expect(await ids(stranger)).not.toContain(published.id);
+    expect(await ids({ ...stranger, isOverride: true })).toEqual(
+      expect.arrayContaining([otherPublished.id, published.id]),
+    );
+    expect(await application.listStartableDefinitions({ ...employee, canCreateInstances: false })).toEqual([]);
+  });
+
   it('chỉ lưu trữ khi mọi hồ sơ của quy trình đã kết thúc', async () => {
     const application = setup();
     const published = await application.publishDefinition(actor, (await application.createDefinition(actor, definitionInput())).id);

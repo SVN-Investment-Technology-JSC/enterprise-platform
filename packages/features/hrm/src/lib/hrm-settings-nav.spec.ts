@@ -23,7 +23,13 @@ describe('hrm-settings-nav', () => {
     const leave = SETTINGS_GROUPS.find((g) => g.id === 'leave');
     const request = SETTINGS_GROUPS.find((g) => g.id === 'request');
     expect(leave?.entries.map((e) => e.id)).toEqual(['leave-policy']);
-    expect(request?.entries.map((e) => e.id)).toEqual(['request-reasons', 'request-quota', 'approval']);
+    expect(request?.entries.map((e) => e.id)).toEqual([
+      'request-reasons',
+      'request-quota',
+      'request-time-rules',
+      'request-proxy',
+      'approval',
+    ]);
   });
 
   it('gom theo chức năng: nghỉ phép, chấm công, lịch làm việc, đơn từ, lương, hệ thống', () => {
@@ -43,7 +49,7 @@ describe('hrm-settings-nav', () => {
     expect(filterSettingsEntries(ALL_SETTINGS_ENTRIES, 'phan ca').map((e) => e.id)).toContain('schedules');
     expect(filterSettingsEntries(ALL_SETTINGS_ENTRIES, 'LUONG').map((e) => e.id)).toContain('payroll');
     expect(filterSettingsEntries(ALL_SETTINGS_ENTRIES, 'cham cong').map((e) => e.id)).toEqual(
-      expect.arrayContaining(['time-rules', 'time-sites']),
+      expect.arrayContaining(['time-sites']),
     );
     expect(filterSettingsEntries(ALL_SETTINGS_ENTRIES, '  ')).toHaveLength(ALL_SETTINGS_ENTRIES.length);
     expect(filterSettingsEntries(ALL_SETTINGS_ENTRIES, 'khong co gi nhu the')).toEqual([]);
@@ -51,7 +57,10 @@ describe('hrm-settings-nav', () => {
 
   it('mục đang mở: đúng view và tab; tab lạ hoặc thiếu lấy mục đầu của view; không có view là tổng quan', () => {
     expect(resolveSettingsEntry(ALL_SETTINGS_ENTRIES, 'time', 'sites')?.id).toBe('time-sites');
-    expect(resolveSettingsEntry(ALL_SETTINGS_ENTRIES, 'time', 'xyz')?.id).toBe('time-rules');
+    expect(resolveSettingsEntry(ALL_SETTINGS_ENTRIES, 'time', 'xyz')?.id).toBe('time-sites');
+    // Liên kết cũ tới Quy định chấm công (?tab=rules) rơi về mục đã gộp.
+    expect(resolveSettingsEntry(ALL_SETTINGS_ENTRIES, 'time', 'rules')?.id).toBe('time-sites');
+    expect(ALL_SETTINGS_ENTRIES.some((e) => e.id === 'time-rules')).toBe(false);
     expect(resolveSettingsEntry(ALL_SETTINGS_ENTRIES, 'leave', null)?.id).toBe('leave-policy');
     expect(resolveSettingsEntry(ALL_SETTINGS_ENTRIES, 'leave', 'periodic')?.id).toBe('leave-policy');
     // Liên kết cũ: lý do nghỉ từng là tab của màn phép năm rồi một màn riêng; nay nằm trong Loại đơn & lý do.

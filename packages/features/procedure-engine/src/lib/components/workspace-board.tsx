@@ -256,7 +256,13 @@ export function WorkspaceBoard({
   onRelinkWorkspace,
   onSupplementFile,
   headSlot,
+  embedded = false,
 }: {
+  /**
+   * Chỉ hiện chi tiết MỘT hồ sơ (`instances` chỉ có hồ sơ đó), không có thanh công cụ, danh sách và nút tạo đơn:
+   * dùng khi nhúng màn xử lý hồ sơ vào khung khác như drawer ngoài Dashboard.
+   */
+  embedded?: boolean;
   /**
    * Ô trên dòng đường dẫn của khung module. Có thì nút của trang nằm ở đó,
    * nhường cả chiều cao cho danh sách và chi tiết.
@@ -301,7 +307,8 @@ export function WorkspaceBoard({
   onCompleteSubtask?: (instanceId: string, subtaskId: string) => void;
   onCancelSubtask?: (instanceId: string, subtaskId: string) => void;
   onUploadEvidence?: (instanceId: string, subtaskId: string, file: File) => void;
-  onUploadFile?: (instanceId: string, file: File) => void;
+  /** Trả Promise (và từ chối khi lỗi) để hành động kèm tệp chỉ chạy khi tệp đã lên. */
+  onUploadFile?: (instanceId: string, file: File) => void | Promise<void>;
   onSendComment?: (instanceId: string, body: string, mentions: string[], replyToId?: string) => void;
   /** Tải lại đúng một hồ sơ khi người khác có trao đổi mới (thời gian thực). */
   onRefreshInstance?: (instanceId: string) => void | Promise<void>;
@@ -319,7 +326,7 @@ export function WorkspaceBoard({
   initialInstanceId?: string;
 }) {
   // Mặc định mở vào "Đang xử lý" (việc cần làm), "Tất cả" đưa xuống cuối thanh tab.
-  const [filter, setFilter] = useState<Filter>('running');
+  const [filter, setFilter] = useState<Filter>(embedded ? 'all' : 'running');
   const [viewMode, setViewMode] = useState<'list' | 'table'>('list');
   const [query, setQuery] = useState('');
   const [slaFilter, setSlaFilter] = useState<'all' | ProcedureSlaView['state']>('all');
@@ -425,11 +432,19 @@ export function WorkspaceBoard({
     setIsSubmitting(true);
     try {
       if (attachQueue.length > 0 && onUploadFile) {
-        for (const file of attachQueue) {
-          onUploadFile(instanceId, file);
+        // Chờ từng tệp lên xong rồi mới chạy hành động. `onUploadFile` ném lỗi khi tệp không lên được: dừng tại đó, giữ
+        // lại các tệp chưa lên trong hàng chờ, và không chạy hành động (nơi gọi đã hiện lỗi của việc tải tệp).
+        let uploaded = 0;
+        try {
+          for (const file of attachQueue) {
+            await onUploadFile(instanceId, file);
+            uploaded += 1;
+          }
+        } catch {
+          setAttachQueue(attachQueue.slice(uploaded));
+          return;
         }
         setAttachQueue([]);
-        await new Promise<void>((r) => setTimeout(r, 300));
       }
       await onAction(instanceId, action, comment, returnToStepId, attributeValues);
       // Chỉ xoá sau khi action thành công, để không mất nội dung khi API trả lỗi.
@@ -574,10 +589,10 @@ export function WorkspaceBoard({
   const pageEnd = Math.min(currentPage * pageSize, visible.length);
 
   return (
-    <section className={styles.workspace}>
-      {headSlot ? createPortal(headActions, headSlot) : <div className={styles.topBar}>{headActions}</div>}
+    <section className={`${styles.workspace} ${embedded ? styles.embedded : ''}`}>
+      {embedded ? null : headSlot ? createPortal(headActions, headSlot) : <div className={styles.topBar}>{headActions}</div>}
 
-      {canCreateInstances ? (
+      {canCreateInstances && !embedded ? (
         <StartInstanceForm
           open={creating}
           onClose={() => setCreating(false)}
@@ -712,7 +727,7 @@ export function WorkspaceBoard({
       ) : null}
 
       {/* Thanh lọc: trạng thái thành tab có số đếm, bộ lọc khác gọn trên cùng một hàng. */}
-      <div className={styles.toolbar}>
+      {embedded ? null : <div className={styles.toolbar}>
         <div className={styles.statusTabs} role="tablist" aria-label="Lọc theo trạng thái">
           {(
             [
@@ -807,11 +822,11 @@ export function WorkspaceBoard({
             </button>
           ) : null}
         </div>
-      </div>
+      </div>}
 
       {/* Danh sách bên trái, chi tiết bên phải; mỗi bên tự cuộn trong khung của mình. */}
       <div className={`${styles.split} ${viewMode === 'table' ? styles.splitTable : ''}`}>
-        <section className={styles.listPane} aria-label="Danh sách hồ sơ">
+        {embedded ? null : <section className={styles.listPane} aria-label="Danh sách hồ sơ">
           <div className={styles.listHead}>
             <span>
               <strong>{visible.length}</strong> hồ sơ
@@ -976,7 +991,7 @@ export function WorkspaceBoard({
               </button>
             </div>
           ) : null}
-        </section>
+        </section>}
 
         <section
           className={styles.detailPane}

@@ -227,3 +227,32 @@ describe('isOverdue', () => {
     expect(isOverdue({ status: 'todo', plannedEnd: today }, today)).toBe(false);
   });
 });
+
+describe('tiến độ nhập tay', () => {
+  const tree = (manual?: number): ProgressNode[] => [
+    { id: 'p', parentId: null, status: 'in_progress', progressPercent: 50, manualPercent: manual },
+    { id: 'a', parentId: 'p', status: 'done', progressPercent: 100 },
+    { id: 'b', parentId: 'p', status: 'todo', progressPercent: 0 },
+    { id: 'c', parentId: null, status: 'todo', progressPercent: 0 },
+  ];
+
+  it('chưa nhập tay thì dự án dùng tiến độ tự tính', () => {
+    expect(projectProgress(tree())).toBe(33);
+  });
+
+  it('việc cha nhập tay: giữ cột tự tính, nhưng dự án dùng giá trị nhập tay với trọng số cả nhánh', () => {
+    const nodes = tree(80);
+    expect(rollUpProgress(nodes).size).toBe(0);
+    // Nhánh p nặng 2 lá ở mức 80%, việc c nặng 1 lá ở 0%.
+    expect(projectProgress(nodes)).toBe(53);
+  });
+
+  it('việc lá nhập tay được cuộn lên cha thay cho giá trị cũ', () => {
+    const nodes: ProgressNode[] = [
+      { id: 'p', parentId: null, status: 'in_progress', progressPercent: 0 },
+      { id: 'a', parentId: 'p', status: 'in_progress', progressPercent: 0, manualPercent: 60 },
+      { id: 'b', parentId: 'p', status: 'todo', progressPercent: 0 },
+    ];
+    expect(rollUpProgress(nodes).get('p')).toBe(30);
+  });
+});

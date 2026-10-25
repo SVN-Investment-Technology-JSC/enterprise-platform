@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { ChatLauncher, UserAvatar } from '@enterprise-platform/feature-chat';
 import { NotificationBell, NotificationProvider, SessionKeepAlive } from '@enterprise-platform/shared-ui';
 import { AssistantLauncher } from './assistant-launcher';
 import { ModuleShellLight } from './module-shell-light';
@@ -303,9 +304,13 @@ function ClassicShell<TViewId extends string = string>(props: ModuleShellProps<T
                 className={styles.userBtn}
               >
                 <div style={{ position: 'relative' }}>
-                  <div className={styles.userAvatar}>
-                    {initialsOfName(displayName)}
-                  </div>
+                  {principal?.kind === 'tenant-user' && principal.userId ? (
+                    <UserAvatar userId={principal.userId} name={displayName} size={36} />
+                  ) : (
+                    <div className={styles.userAvatar}>
+                      {initialsOfName(displayName)}
+                    </div>
+                  )}
                   <span
                     style={{
                       position: 'absolute',
@@ -390,6 +395,8 @@ function ClassicShell<TViewId extends string = string>(props: ModuleShellProps<T
         <div className={styles.body}>{props.children}</div>
       </main>
       </div>
+      {/* Chat nội bộ của core: nút ở góc phải dưới, có ở mọi trang, không phụ thuộc phân hệ nào được bật. */}
+      <ChatLauncher />
     </NotificationProvider>
   );
 }

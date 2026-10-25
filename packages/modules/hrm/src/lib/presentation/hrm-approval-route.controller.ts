@@ -101,6 +101,7 @@ export class HrmApprovalRouteController {
     const { pool, tenantId, employeeId: subjectId } = await this.subject(
       req,
       target,
+      requestKind,
     );
     return {
       data: await previewApprovalRoute(pool, {
@@ -113,7 +114,7 @@ export class HrmApprovalRouteController {
   }
 
   /** Chính chủ (hrm.self.read) hoặc người xem hộ người khác (hrm.request.read hoặc hrm.request.manage). */
-  private async subject(req: Request, employeeId?: string) {
+  private async subject(req: Request, employeeId?: string, kind?: string) {
     const context = await this.ctx.getContext(req, 'hrm.read');
     if (
       employeeId &&
@@ -121,6 +122,9 @@ export class HrmApprovalRouteController {
         this.ctx.has(context, 'hrm.request.manage'))
     )
       return { ...context, employeeId };
+    // Người tạo hộ xem người duyệt dự kiến của nhân viên trong phạm vi của mình.
+    if (kind === 'leave' || kind === 'ot' || kind === 'business_trip')
+      return this.ctx.getRequestContextOrProxy(req, employeeId, kind, 'hrm.request.read', 'hrm.self.read');
     return this.ctx.getRequestContext(
       req,
       employeeId,
@@ -143,7 +147,7 @@ export class HrmApprovalRouteController {
         ? await resolveProcedureNames(tenantId, ids)
         : new Map<string, string>();
     const positionMap = new Map<string, string>(
-      (rows.positions ?? []).map((p) => [p.id, p.name]),
+      (rows.allPositions ?? rows.positions ?? []).map((p) => [p.id, p.name]),
     );
     return {
       items: buildApprovalRouteItems(rows, names, positionMap),

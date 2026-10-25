@@ -749,7 +749,7 @@ export interface HrmRequestReasonView {
   readonly reason: string;
 }
 
-export interface HrmAttendanceCorrection extends HrmRequestReasonView {
+export interface HrmAttendanceCorrection extends HrmRequestReasonView, Omit<HrmRequestOnBehalfView, 'submittedBy'> {
   readonly correctedSessions?: readonly { start: string; end: string }[];
   /** Các mốc giờ vào / ra đề nghị bổ sung (đơn theo từng mốc giờ). */
   readonly correctedPunches?: readonly { kind: 'IN' | 'OUT'; at: string }[];
@@ -1399,7 +1399,15 @@ export type HrmLeaveRequestStatus =
  * Đơn nghỉ: lý do nghỉ chính là loại nghỉ (`leaveTypeId`), nên `reasonId` = `leaveTypeId` và `reasonName` = tên loại nghỉ
  * (null khi phản hồi không kèm thông tin loại nghỉ, ví dụ sau thao tác duyệt/từ chối). `description` là mô tả tự do.
  */
-export interface HrmLeaveRequest extends HrmRequestReasonView, Partial<HrmRequestTimeRange> {
+/** Dấu đơn tạo hộ (nghỉ phép, tăng ca, công tác, giải trình công): ai gửi thật và vì sao. Đơn tự gửi có createdOnBehalf = false. */
+export interface HrmRequestOnBehalfView {
+  readonly submittedBy?: string | null;
+  readonly createdOnBehalf?: boolean;
+  readonly onBehalfReason?: string | null;
+  readonly onBehalfByName?: string | null;
+}
+
+export interface HrmLeaveRequest extends HrmRequestReasonView, HrmRequestOnBehalfView, Partial<HrmRequestTimeRange> {
   readonly id: string;
   readonly tenantId: string;
   readonly employeeId: string;
@@ -1462,7 +1470,7 @@ export interface AmendLeaveRequestPayload extends RequestDescriptionInput {
 export type HrmOtType = 'WEEKDAY' | 'WEEKEND' | 'HOLIDAY' | 'NIGHT';
 export type HrmOtStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
 
-export interface HrmOtRequest extends HrmRequestReasonView, Partial<HrmRequestTimeRange> {
+export interface HrmOtRequest extends HrmRequestReasonView, HrmRequestOnBehalfView, Partial<HrmRequestTimeRange> {
   readonly id: string;
   readonly tenantId: string;
   readonly employeeId: string;
@@ -1536,7 +1544,7 @@ export interface HrmRequestProjectLink {
   readonly rejectionReason?: string;
 }
 
-export interface HrmBusinessTripRequest extends HrmRequestReasonView, Partial<HrmRequestTimeRange> {
+export interface HrmBusinessTripRequest extends HrmRequestReasonView, HrmRequestOnBehalfView, Partial<HrmRequestTimeRange> {
   readonly workItemId?: string | null;
   readonly subtaskId?: string | null;
   readonly workReference?: Record<string, unknown>;
@@ -2188,6 +2196,14 @@ export interface HrmRequestProcedureBinding {
 export type ApprovalRouteMode = 'DIRECT' | 'PROCEDURE';
 
 /**
+ * Nguồn người duyệt khi cách duyệt là DIRECT.
+ * - DIRECT_MANAGER: quản lý trực tiếp của người làm đơn (suy ra từ sơ đồ tổ chức). Mặc định.
+ * - POSITION: người đang giữ chức danh được chỉ định.
+ * Ở cả hai nguồn có thể thêm một chức danh duyệt dự phòng (tuỳ chọn).
+ */
+export type DirectApproverSource = 'DIRECT_MANAGER' | 'POSITION';
+
+/**
  * Một dòng trên màn hình cấu hình "Duyệt đơn": một loại đơn, hoặc một lý do của loại đơn.
  * Lý do có ở đơn nghỉ (loại nghỉ, mã = leave_types.code) và ở làm thêm giờ, công tác, giải trình công, đổi ca
  * (danh mục request_reasons, mã = request_reasons.code). Ứng lương và đính chính hồ sơ không có lý do.
@@ -2205,6 +2221,12 @@ export interface ApprovalRouteConfigItem {
   readonly procedureDefinitionId?: string | null;
   /** Tên quy trình; null khi không đọc được (Procedure Engine không khả dụng hoặc quy trình chưa công bố). */
   readonly procedureName?: string | null;
+  /** Nguồn người duyệt khi mode là DIRECT; vắng mặt hiểu là DIRECT_MANAGER. */
+  readonly directApprover?: DirectApproverSource;
+  /** Id chức danh được chỉ định duyệt (chỉ khi directApprover là POSITION). */
+  readonly approverPositionId?: string | null;
+  /** Tên chức danh được chỉ định duyệt. */
+  readonly approverPositionName?: string | null;
   /** Id chức danh duyệt dự phòng khi mode là DIRECT (tuỳ chọn). */
   readonly fallbackPositionId?: string | null;
   /** Tên chức danh duyệt dự phòng. */
@@ -2248,6 +2270,10 @@ export interface SetApprovalRoutePayload {
   readonly reasonCode?: string | null;
   readonly mode: ApprovalRouteMode | 'INHERIT';
   readonly procedureDefinitionId?: string;
+  /** Khi mode là DIRECT: nguồn người duyệt; bỏ trống là DIRECT_MANAGER. */
+  readonly directApprover?: DirectApproverSource;
+  /** Bắt buộc khi directApprover là POSITION: chức danh được chỉ định duyệt. */
+  readonly approverPositionId?: string | null;
   readonly fallbackPositionId?: string | null;
 }
 
@@ -2259,6 +2285,14 @@ export interface ApprovalRoutePreview {
     readonly employeeId: string;
     readonly fullName: string;
     readonly positionName: string | null;
+  } | null;
+  /** Nguồn người duyệt (chế độ DIRECT); vắng mặt hiểu là DIRECT_MANAGER. */
+  readonly directApprover?: DirectApproverSource;
+  /** Chức danh được chỉ định duyệt (chỉ khi directApprover là POSITION) và những người đang giữ chức danh đó. */
+  readonly approverPosition?: {
+    readonly positionId: string;
+    readonly positionName: string;
+    readonly holders: readonly { readonly employeeId: string; readonly fullName: string }[];
   } | null;
   /** Chức danh duyệt dự phòng (chế độ DIRECT). */
   readonly fallbackPosition?: {
@@ -2840,6 +2874,8 @@ export interface HrmBoardDay {
   readonly leave: HrmBoardLeaveInfo | null;
   readonly tripId: string | null;
   readonly holidayName: string | null;
+  /** Hình thức chấm công của ngày: 'AUTO' (Tự động) hoặc 'MANUAL' (Tự chấm); null nếu chưa có dữ liệu chấm công. */
+  readonly attendanceSource?: 'AUTO' | 'MANUAL' | null;
   /** true: công đã được chỉnh tay. */
   readonly adjusted: boolean;
   /** Các đơn đã duyệt tác động tới ngày này (nghỉ, làm thêm giờ, công tác, giải trình công, đổi ca). */
@@ -2962,6 +2998,25 @@ export interface HrmRequestQuotaItem {
 export interface HrmRequestQuotaSettings {
   readonly ready: boolean;
   readonly items: readonly HrmRequestQuotaItem[];
+}
+
+/**
+ * Quy tắc thời gian của một loại đơn; mỗi giá trị null là chưa dùng quy tắc đó. `ready` false khi chưa chạy migration 0076.
+ *  - minNoticeDays: tạo đơn trước ngày bắt đầu ghi trên đơn ít nhất N ngày;
+ *  - maxBackdateDays: không tạo đơn cho ngày đã qua quá N ngày;
+ *  - escalateAfterDays: đơn chờ quá N ngày thì người giữ chức danh dự phòng mới được xử lý.
+ */
+export interface HrmRequestTimeRule {
+  readonly requestKind: string;
+  readonly label: string;
+  readonly minNoticeDays: number | null;
+  readonly maxBackdateDays: number | null;
+  readonly escalateAfterDays: number | null;
+}
+
+export interface HrmRequestTimeRules {
+  readonly ready: boolean;
+  readonly items: readonly HrmRequestTimeRule[];
 }
 
 /** Hạn mức và số đơn đã duyệt tháng này của người đang đăng nhập, chỉ gồm loại đơn có đặt hạn mức. */
@@ -3247,4 +3302,31 @@ export interface HrmAttendanceMonitor {
   readonly scope: 'ALL' | 'TEAM';
   readonly summary: HrmMonitorSummary;
   readonly rows: readonly HrmMonitorRow[];
+}
+
+// ----------------------------------------------------------------------------
+// Attendance Site Assignments (Phân công địa điểm chấm công đa văn phòng)
+// ----------------------------------------------------------------------------
+
+/** `UNIT_EXCLUDE`: ngoại lệ của một đơn vị nằm dưới đơn vị đã gán (dấu gần nhất đi lên cây tổ chức quyết định). */
+export type AttendanceSiteScopeType = 'COMPANY' | 'UNIT' | 'UNIT_EXCLUDE' | 'POSITION' | 'EMPLOYEE';
+
+export interface AttendanceSiteAssignment {
+  readonly id: string;
+  readonly tenantId: string;
+  readonly siteId: string;
+  readonly scopeType: AttendanceSiteScopeType;
+  readonly scopeId: string;
+  readonly scopeName?: string | null;
+  readonly createdAt: string;
+  readonly createdBy?: string | null;
+}
+
+export interface SetAttendanceSiteAssignmentsRequest {
+  readonly assignments: readonly {
+    readonly scopeType: AttendanceSiteScopeType;
+    readonly scopeId: string;
+  }[];
+  readonly expectedUpdatedAt?: string;
+  readonly reason?: string;
 }

@@ -6,14 +6,16 @@
  */
 import { useMemo, useState, type ReactNode } from 'react';
 import { MapPin, Plus, Search } from 'lucide-react';
-import { SearchableSelect } from '@enterprise-platform/shared-ui';
+import { Popconfirm, SearchableSelect } from '@enterprise-platform/shared-ui';
 import { Button } from '../button';
 import { Input } from '../input';
-import { RowMenu } from '../row-menu';
 import { EmptyPanel, StatusPill } from '../settings-kit';
 import { Pager, ResponsiveList, usePaged, type ListColumn } from './responsive-list';
 import {
+  describeAssignments,
   filterSites,
+  ipSummary,
+  tenantHasAssignments,
   type Settings,
   type SiteRow,
 } from './time-settings-model';
@@ -99,7 +101,7 @@ function FilterSelect({
   );
 }
 
-/** Địa điểm chấm công theo GPS: tìm, lọc theo trạng thái, thêm; sửa và ngừng gom vào menu "...". */
+/** Địa điểm chấm công theo GPS (kèm IP, phòng ban được gán): tìm, lọc theo trạng thái, thêm; sửa và ngừng (có hộp xác nhận) ngay trên dòng. */
 export function SitesPanel({
   rows,
   canConfigure,
@@ -111,12 +113,13 @@ export function SitesPanel({
   canConfigure: boolean;
   onAdd: () => void;
   onEdit: (row: SiteRow) => void;
-  onStop: (row: SiteRow) => void;
+  onStop: (row: SiteRow) => Promise<void>;
 }) {
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('ALL');
   const filtered = useMemo(() => filterSites(rows, search, status), [rows, search, status]);
   const paged = usePaged(filtered, 10);
+  const anyAssignments = tenantHasAssignments(rows);
   const columns: ListColumn<SiteRow>[] = [
     {
       id: 'name',
@@ -130,6 +133,16 @@ export function SitesPanel({
       cell: (r) => <span className="font-mono text-[12px]">{`${r.latitude}, ${r.longitude}`}</span>,
     },
     { id: 'radius', header: 'Bán kính', cell: (r) => `${r.radius_meters} m` },
+    {
+      id: 'ips',
+      header: 'IP',
+      cell: (r) => <span className="font-mono text-[12px]">{ipSummary(r.allowed_ips)}</span>,
+    },
+    {
+      id: 'scope',
+      header: 'Áp dụng cho',
+      cell: (r) => <span className="text-[12px] text-slate-700">{describeAssignments(r, anyAssignments)}</span>,
+    },
     {
       id: 'status',
       header: 'Trạng thái',
@@ -145,14 +158,36 @@ export function SitesPanel({
       header: 'Thao tác',
       actions: 'corner',
       cell: (r) =>
-        r.active ? (
-          <RowMenu
-            label={`Thao tác với ${r.name}`}
-            items={[
-              { key: 'edit', label: 'Sửa', hidden: !canConfigure, onSelect: () => onEdit(r) },
-              { key: 'stop', label: 'Ngừng', tone: 'danger', hidden: !canConfigure, onSelect: () => onStop(r) },
-            ]}
-          />
+        r.active && canConfigure ? (
+          <div className="flex items-center justify-end gap-1.5">
+            <Button
+              type="button"
+              variant="outline"
+              aria-label={`Sửa ${r.name}`}
+              onClick={() => onEdit(r)}
+              className="h-8 px-3 text-xs"
+            >
+              Sửa
+            </Button>
+            <Popconfirm
+              title={`Ngừng địa điểm ${r.name}?`}
+              description="Giữ lịch sử và chứng cứ đã ghi nhận. Kỳ công mở bị ảnh hưởng phải tính lại."
+              okText="Ngừng địa điểm"
+              cancelText="Không"
+              okType="danger"
+              placement="top-end"
+              onConfirm={() => onStop(r)}
+            >
+              <Button
+                type="button"
+                variant="outline"
+                aria-label={`Ngừng ${r.name}`}
+                className="h-8 border-red-200 px-3 text-xs text-red-700 hover:bg-red-50"
+              >
+                Ngừng
+              </Button>
+            </Popconfirm>
+          </div>
         ) : null,
     },
   ];
@@ -165,7 +200,7 @@ export function SitesPanel({
           <SearchBox
             value={search}
             onChange={setSearch}
-            placeholder="Tìm theo tên hoặc tọa độ"
+            placeholder="Tìm theo tên, tọa độ hoặc IP"
             label="Tìm địa điểm chấm công"
           />
           <FilterSelect
@@ -188,7 +223,7 @@ export function SitesPanel({
         <EmptyPanel
           icon={MapPin}
           title="Chưa có địa điểm chấm công"
-          description="Thêm địa điểm để kiểm soát chấm công theo bán kính GPS."
+          description="Thêm địa điểm (GPS, kèm IP nếu cần) và gán cho phòng ban để kiểm soát chấm công."
           action={
             <Button permission="hrm.time.configure" onClick={onAdd} className="h-9 gap-1.5 px-4 text-xs font-semibold">
               <Plus className="size-4" />
@@ -205,7 +240,7 @@ export function SitesPanel({
             rows={paged.pageRows}
             rowKey={(r) => r.id}
             columns={columns}
-            gridClass="@2xl:grid-cols-[minmax(0,1fr)_minmax(0,11rem)_6rem_7rem_2.5rem]"
+            gridClass="@2xl:grid-cols-[minmax(0,1fr)_minmax(0,10rem)_5rem_minmax(0,9rem)_minmax(0,13rem)_6.5rem_2.5rem]"
           />
           <Pager paged={paged} sizeChanger />
         </>

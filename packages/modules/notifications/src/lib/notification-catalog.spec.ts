@@ -125,6 +125,34 @@ describe('procedure assignment recipients', () => {
   });
 });
 
+describe('core chat mentions', () => {
+  it('notifies only the mentioned people, names the sender and the group, and opens the conversation', async () => {
+    const resolved = await registry.resolve(
+      event('core.chat.mention', {
+        mentionId: 'mention-1',
+        conversationId: 'conv-1',
+        messageId: 'msg-1',
+        mentionedUserIds: ['user-b', 'user-a'],
+        actorUserId: 'user-a',
+        actorName: 'Nguyễn Văn An',
+        conversationTitle: 'Dự án A',
+        excerpt: '@Bình xem giúp',
+        deepLink: '/chat/conv-1',
+      }),
+      directory(),
+    );
+    expect(resolved?.policy.module).toBe('chat');
+    expect(resolved?.recipients).toEqual(['user-b']);
+    expect(resolved?.template).toMatchObject({
+      title: 'Nguyễn Văn An nhắc đến bạn trong "Dự án A"',
+      body: '@Bình xem giúp',
+      deepLink: '/dashboard#chat/conv-1',
+      sourceType: 'core_chat_message',
+    });
+    expect(resolved?.aggregationKey).toBe('chat:mention:conv-1');
+  });
+});
+
 describe('session revocation', () => {
   it('has no notification policy: it only disconnects sockets', async () => {
     expect(DEFAULT_NOTIFICATION_POLICIES.map((policy) => policy.eventType)).not.toContain('identity.session.revoked');
@@ -137,18 +165,18 @@ describe('session revocation', () => {
 describe('hrm approval requests', () => {
   it('notifies everyone holding the approval permission of that request kind, except the requester', async () => {
     const usersWithPermission = jest.fn(async (permission: string) =>
-      permission === 'hrm.leave.approve' ? ['approver-1', 'requester'] : ['hr-manager', 'approver-1'],
+      permission === 'hrm.request.approve' ? ['approver-1', 'requester'] : ['hr-manager', 'approver-1'],
     );
     const resolved = await registry.resolve(
       event('hrm.approval.requested', {
         requestId: 'request-1',
-        approvalPermissions: ['hrm.leave.approve', 'hrm.manage'],
+        approvalPermissions: ['hrm.request.approve', 'hrm.manage'],
         summary: 'Đơn nghỉ phép của Nguyễn Văn A đang chờ bạn phê duyệt.',
         actorUserId: 'requester',
       }),
       directory({ usersWithPermission }),
     );
-    expect(usersWithPermission).toHaveBeenCalledWith('hrm.leave.approve');
+    expect(usersWithPermission).toHaveBeenCalledWith('hrm.request.approve');
     expect(usersWithPermission).toHaveBeenCalledWith('hrm.manage');
     expect([...(resolved?.recipients ?? [])].sort()).toEqual(['approver-1', 'hr-manager']);
     expect(resolved?.template.body).toBe('Đơn nghỉ phép của Nguyễn Văn A đang chờ bạn phê duyệt.');
@@ -159,7 +187,7 @@ describe('hrm approval requests', () => {
     const resolved = await registry.resolve(
       event('hrm.approval.requested', {
         requestId: 'request-1',
-        approvalPermissions: ['hrm.leave.approve', 'hrm.manage'],
+        approvalPermissions: ['hrm.request.approve', 'hrm.manage'],
         recipientUserIds: ['manager-1', 'backup-1', 'approver-1'],
         summary: 'Đơn nghỉ phép của Nguyễn Văn A đang chờ bạn phê duyệt.',
         actorUserId: 'requester',
@@ -169,12 +197,35 @@ describe('hrm approval requests', () => {
     expect([...(resolved?.recipients ?? [])].sort()).toEqual(['approver-1', 'backup-1', 'manager-1']);
   });
 
+  it('notifies a superior with the approve permission only when the request is in their scope, never a holder outside it', async () => {
+    const usersWithPermission = jest.fn(async (permission: string) =>
+      permission === 'hrm.request.approve'
+        ? ['boss-1', 'peer-with-permission']
+        : permission === 'hrm.request.approve.all'
+          ? ['hr-all']
+          : [],
+    );
+    const resolved = await registry.resolve(
+      event('hrm.approval.requested', {
+        requestId: 'request-1',
+        approvalPermissions: ['hrm.request.approve.all', 'hrm.manage'],
+        scopePermissions: ['hrm.request.approve'],
+        scopeUserIds: ['boss-1', 'boss-2'],
+        recipientUserIds: ['manager-1'],
+        actorUserId: 'requester',
+      }),
+      directory({ usersWithPermission }),
+    );
+    // boss-2 là cấp trên nhưng không giữ quyền duyệt; peer-with-permission giữ quyền nhưng đơn ngoài phạm vi của họ.
+    expect([...(resolved?.recipients ?? [])].sort()).toEqual(['boss-1', 'hr-all', 'manager-1']);
+  });
+
   it('also notifies the assigned approvers when the requester replies on the thread', async () => {
     const resolved = await registry.resolve(
       event('hrm.request.comment.to-approvers', {
         requestId: 'request-1',
         commentId: 'comment-1',
-        approvalPermissions: ['hrm.leave.approve', 'hrm.manage'],
+        approvalPermissions: ['hrm.request.approve', 'hrm.manage'],
         recipientUserIds: ['backup-1'],
         actorUserId: 'requester',
       }),
@@ -188,7 +239,7 @@ describe('hrm approval requests', () => {
     const resolved = await registry.resolve(
       event('hrm.approval.requested', {
         requestId: 'request-1',
-        approvalPermissions: ['hrm.leave.approve', 'hrm.manage'],
+        approvalPermissions: ['hrm.request.approve', 'hrm.manage'],
         recipientUserIds: ['direct-manager', 'backup', 'requester'],
         summary: 'Đơn nghỉ phép của Nguyễn Văn A đang chờ bạn phê duyệt.',
         actorUserId: 'requester',
@@ -203,7 +254,7 @@ describe('hrm approval requests', () => {
       event('hrm.request.comment.to-approvers', {
         requestId: 'request-1',
         commentId: 'comment-1',
-        approvalPermissions: ['hrm.ot.approve', 'hrm.manage'],
+        approvalPermissions: ['hrm.request.approve', 'hrm.manage'],
         recipientUserIds: ['backup'],
         actorUserId: 'requester',
       }),
@@ -215,7 +266,7 @@ describe('hrm approval requests', () => {
   it('notifies again when the same request is resubmitted', async () => {
     const make = (eventId: string) =>
       registry.resolve(
-        { ...event('hrm.approval.requested', { requestId: 'request-1', approvalPermissions: ['hrm.ot.approve'] }), id: eventId },
+        { ...event('hrm.approval.requested', { requestId: 'request-1', approvalPermissions: ['hrm.request.approve'] }), id: eventId },
         directory({ usersWithPermission: jest.fn(async () => ['approver-1']) }),
       );
     const first = await make('10000000-0000-4000-8000-0000000000a1');

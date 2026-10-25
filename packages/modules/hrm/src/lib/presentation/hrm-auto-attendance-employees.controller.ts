@@ -11,7 +11,7 @@ import {
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { parseAutoAttendanceEmployeeInput } from '../domain/auto-attendance-settings.js';
-import { autoAttendanceEmployeesReady } from '../infrastructure/hrm-auto-attendance.js';
+import { autoAttendanceEmployeesReady, generateAutoAttendance } from '../infrastructure/hrm-auto-attendance.js';
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
 import { lifecycleAudit } from '../infrastructure/hrm-lifecycle.js';
 import { hrmTransaction } from '../infrastructure/hrm-transaction.js';
@@ -134,9 +134,19 @@ export class HrmAutoAttendanceEmployeesController {
           after: { weekdays, fromDate, toDate, reason },
         },
       );
-      return (await db.query<Row>(`${SELECT_ROWS} WHERE a.id=$1`, [id])).rows[0];
+      // Worker chỉ bù vài ngày gần nhất, nên khoảng đã qua (ví dụ từ đầu tháng) phải sinh ngay khi lưu. Chỉ cho nhân viên này
+      // và chỉ theo cấu hình riêng; ngày thuộc kỳ công đã khóa bị bỏ qua và được báo lại.
+      const today = todayInVietnam();
+      const backfill =
+        fromDate <= today
+          ? await generateAutoAttendance(db, tenantId, fromDate, toDate ?? today, new Date(), {
+              employeeIds: [employeeId],
+              tenantSettings: false,
+            })
+          : { generated: 0 };
+      return { row: (await db.query<Row>(`${SELECT_ROWS} WHERE a.id=$1`, [id])).rows[0], backfill };
     });
-    return { data: present(saved) };
+    return { data: present(saved.row), backfill: { generated: saved.backfill.generated, lockedDays: saved.backfill.lockedDays ?? 0 } };
   }
 
   /** Gỡ nhân viên: chốt ngày kết thúc là hôm qua và giữ dòng làm lịch sử; giờ công đã sinh được giữ nguyên. */

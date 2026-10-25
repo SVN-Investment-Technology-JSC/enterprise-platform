@@ -67,7 +67,21 @@ export function activeMention(text: string, caret: number): { query: string; sta
  * Trao đổi trên một đơn: người gửi, người duyệt và những người được nhắc tên (@) cùng thấy một luồng. Ý kiến kèm quyết định
  * phê duyệt cũng hiện ở đây. Tự làm mới khi có thông báo realtime mới về đơn này, khi quay lại cửa sổ và mỗi 30 giây.
  */
-export function RequestThread({ kind, requestId, refreshKey = 0 }: { kind: string; requestId: string; refreshKey?: number }) {
+/** Thời gian giữ nền làm nổi tin nhắn được mở từ thông báo. */
+const HIGHLIGHT_MS = 8000;
+
+export function RequestThread({
+  kind,
+  requestId,
+  refreshKey = 0,
+  highlightCommentId,
+}: {
+  kind: string;
+  requestId: string;
+  refreshKey?: number;
+  /** Tin nhắn cần cuộn tới và làm nổi (mở từ thông báo qua ?comment=). */
+  highlightCommentId?: string;
+}) {
   const [comments, setComments] = useState<HrmRequestComment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -83,6 +97,8 @@ export function RequestThread({ kind, requestId, refreshKey = 0 }: { kind: strin
   const [highlight, setHighlight] = useState(0);
   const area = useRef<HTMLTextAreaElement | null>(null);
   const bottom = useRef<HTMLDivElement | null>(null);
+  const listRef = useRef<HTMLUListElement | null>(null);
+  const [flashId, setFlashId] = useState('');
   const center = useRealtimeNotificationsOptional();
   const latestNotificationId = center?.notifications[0]?.id;
 
@@ -129,8 +145,22 @@ export function RequestThread({ kind, requestId, refreshKey = 0 }: { kind: strin
   }, [latestNotificationId, load]);
 
   useEffect(() => {
+    // Đang mở từ thông báo thì cuộn tới tin nhắn đó thay vì cuối luồng.
+    if (highlightCommentId && comments.some((c) => c.id === highlightCommentId)) return;
     bottom.current?.scrollIntoView?.({ block: 'nearest' });
-  }, [comments.length]);
+  }, [comments, highlightCommentId]);
+
+  // Tin nhắn từ thông báo: cuộn tới, làm nổi vài giây rồi trả lại giao diện thường.
+  useEffect(() => {
+    if (!highlightCommentId || !comments.some((c) => c.id === highlightCommentId)) return;
+    setFlashId(highlightCommentId);
+    const target = Array.from(listRef.current?.querySelectorAll<HTMLElement>('[data-comment-id]') ?? []).find(
+      (el) => el.dataset.commentId === highlightCommentId,
+    );
+    target?.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
+    const timer = setTimeout(() => setFlashId(''), HIGHLIGHT_MS);
+    return () => clearTimeout(timer);
+  }, [highlightCommentId, comments]);
 
   // Gợi ý người được nhắc khi đang gõ @...
   useEffect(() => {
@@ -140,7 +170,7 @@ export function RequestThread({ kind, requestId, refreshKey = 0 }: { kind: strin
     }
     let live = true;
     const timer = setTimeout(() => {
-      hrmFetch<{ data: HrmMentionCandidate[] }>(`/request-comments/mention-candidates?${new URLSearchParams({ q: picker.query })}`)
+      hrmFetch<{ data: HrmMentionCandidate[] }>(`/request-comments/mention-candidates?${new URLSearchParams({ kind, requestId, q: picker.query })}`)
         .then((r) => {
           if (live) {
             setCandidates(r.data);
@@ -155,7 +185,7 @@ export function RequestThread({ kind, requestId, refreshKey = 0 }: { kind: strin
       live = false;
       clearTimeout(timer);
     };
-  }, [picker]);
+  }, [picker, kind, requestId]);
 
   function onChange(value: string, caret: number) {
     setText(value);
@@ -231,11 +261,19 @@ export function RequestThread({ kind, requestId, refreshKey = 0 }: { kind: strin
       ) : comments.length === 0 ? (
         <p className="rounded-lg bg-slate-50 px-3 py-3 text-center text-xs text-slate-500">{closed ? 'Chưa có trao đổi nào.' : 'Chưa có trao đổi nào. Gõ @ để nhắc tên người cần xem đơn này.'}</p>
       ) : (
-        <ul className="max-h-[280px] space-y-2.5 overflow-y-auto pr-1" data-testid="thread-list">
+        <ul ref={listRef} className="max-h-[280px] space-y-2.5 overflow-y-auto pr-1" data-testid="thread-list">
           {comments.map((c) => {
             const decision = c.decision ? DECISION_LABEL[c.decision] : undefined;
             return (
-              <li key={c.id} className="flex gap-2">
+              <li
+                key={c.id}
+                data-comment-id={c.id}
+                data-highlighted={flashId === c.id ? 'true' : undefined}
+                aria-current={flashId === c.id ? 'true' : undefined}
+                className={`flex gap-2 rounded-lg p-1 transition-colors duration-500 ${
+                  flashId === c.id ? 'bg-amber-50 ring-2 ring-[#d9ab00]' : ''
+                }`}
+              >
                 <span
                   aria-hidden="true"
                   className={`flex size-7 shrink-0 items-center justify-center rounded-full text-[12px] font-bold ${c.mine ? 'bg-[#ffc90a] text-[#1a1a1a]' : 'bg-slate-200 text-slate-600'}`}
@@ -247,6 +285,11 @@ export function RequestThread({ kind, requestId, refreshKey = 0 }: { kind: strin
                     <span className="font-semibold text-slate-900">{c.authorName}</span>
                     {decision ? <span className={`rounded-full px-1.5 py-0.5 text-[12px] font-semibold ${decision.className}`}>{decision.label}</span> : null}
                     <span className="text-slate-400">{timeText(c.createdAt)}</span>
+                    {flashId === c.id ? (
+                      <span className="rounded-full bg-[#ffc90a] px-1.5 py-0.5 text-[12px] font-semibold text-[#1a1a1a]">
+                        Tin nhắn từ thông báo
+                      </span>
+                    ) : null}
                   </p>
                   <div className={`mt-0.5 rounded-lg px-2.5 py-1.5 text-[13px] ${c.kind === 'DECISION' ? 'border border-slate-200 bg-white' : 'bg-slate-50'}`}>
                     <p className="whitespace-pre-wrap break-words">
@@ -338,7 +381,7 @@ export function RequestThread({ kind, requestId, refreshKey = 0 }: { kind: strin
           rows={2}
           maxLength={4000}
           value={text}
-          placeholder="Viết trao đổi... gõ @ để nhắc tên"
+          placeholder="Viết trao đổi... gõ @ để nhắc người liên quan. Enter để gửi, Shift+Enter xuống dòng"
           onChange={(e) => onChange(e.target.value, e.target.selectionStart)}
           onKeyDown={(e) => {
             if (picker && candidates.length) {
@@ -359,7 +402,11 @@ export function RequestThread({ kind, requestId, refreshKey = 0 }: { kind: strin
               }
             }
             if (e.key === 'Escape') setPicker(null);
-            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) void send();
+            // Enter gửi tin; Shift+Enter xuống dòng. Bỏ qua khi đang gõ dấu bằng bộ gõ (IME) để không gửi nhầm.
+            if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+              e.preventDefault();
+              void send();
+            }
           }}
           className="w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 pr-16 text-[13px] outline-none focus:border-[#d9ab00] focus:ring-2 focus:ring-[#d9ab00]/30"
         />

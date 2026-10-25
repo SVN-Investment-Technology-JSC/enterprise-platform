@@ -139,7 +139,11 @@ export function recentRequests(employee: HrmBoardEmployee | undefined, limit = 3
   if (!employee) return [];
   return monthRequests(employee)
     .slice()
-    .sort((a, b) => (b.request.createdAt ?? b.firstDate).localeCompare(a.request.createdAt ?? a.firstDate))
+    .sort((a, b) => {
+      const timeB = Date.parse(b.request.createdAt ?? b.firstDate) || 0;
+      const timeA = Date.parse(a.request.createdAt ?? a.firstDate) || 0;
+      return timeB - timeA;
+    })
     .slice(0, limit);
 }
 

@@ -5,6 +5,7 @@ import {
   ConflictException,
   Get,
   Patch,
+  Put,
   Delete,
   NotFoundException,
   Param,
@@ -13,7 +14,12 @@ import {
   Req,
 } from '@nestjs/common';
 import type { Request } from 'express';
-import { validIpRule } from '../infrastructure/hrm-network.js';
+import type { SetAttendanceSiteAssignmentsRequest } from '@enterprise-platform/contracts-hrm';
+import { parseSiteIps, validIpRule } from '../infrastructure/hrm-network.js';
+import {
+  effectiveLocationRule,
+  loadAttendanceLocationSettings,
+} from '../infrastructure/hrm-attendance-location.js';
 import {
   assertLifecycleVersion,
   lifecycleAudit,
@@ -46,7 +52,7 @@ export class HrmTimeSettingsController {
       req,
       'hrm.time.configure',
     );
-    const [calendar, sites, versions] = await Promise.all([
+    const [calendar, sites, versions, siteAssignments, units, locationSettings] = await Promise.all([
       pool.query(
         `SELECT * FROM hrm_schema.work_calendar WHERE tenant_id=$1 ORDER BY work_date DESC LIMIT 730`,
         [tenantId],
@@ -59,7 +65,36 @@ export class HrmTimeSettingsController {
         `SELECT v.*,p.code AS policy_code,p.name AS policy_name FROM hrm_schema.policy_versions v JOIN hrm_schema.policies p ON p.id=v.policy_id WHERE p.tenant_id=$1 AND p.policy_type='ATTENDANCE' ORDER BY v.effective_from DESC,v.version_no DESC`,
         [tenantId],
       ),
+      pool.query(
+        `SELECT a.*,
+           CASE 
+             WHEN a.scope_type IN ('UNIT', 'UNIT_EXCLUDE', 'POSITION') THEN n.name
+             WHEN a.scope_type = 'EMPLOYEE' THEN e.full_name
+             ELSE 'Toàn công ty'
+           END as scope_name
+         FROM hrm_schema.attendance_site_assignments a
+         LEFT JOIN core_schema.organization_nodes n ON n.id = a.scope_id AND a.scope_type IN ('UNIT', 'UNIT_EXCLUDE', 'POSITION')
+         LEFT JOIN core_schema.employees e ON e.id = a.scope_id AND a.scope_type = 'EMPLOYEE'
+         WHERE a.tenant_id = $1
+         ORDER BY a.created_at`,
+        [tenantId],
+      ),
+      // Đơn vị để gán địa điểm: gán cho đơn vị thì mọi đơn vị con kế thừa.
+      pool.query(
+        `SELECT id, parent_id, code, name FROM core_schema.organization_nodes
+          WHERE deleted_at IS NULL AND category <> 'position' AND status = 'active'
+          ORDER BY name`,
+      ),
+      loadAttendanceLocationSettings(pool, tenantId),
     ]);
+    // Chưa có cài đặt riêng thì hiển thị theo cờ trong chính sách đang hiệu lực, đúng như máy chủ đang kiểm.
+    const policyNow = versions.rows.find(
+      (v) =>
+        isoDate(v.effective_from) <= isoDate(new Date()) &&
+        (!v.effective_to || isoDate(v.effective_to) >= isoDate(new Date())) &&
+        !(Array.isArray(v.config_json?.employeeIds) && v.config_json.employeeIds.length),
+    );
+    const location = effectiveLocationRule(locationSettings, policyNow?.config_json ?? {});
     const year = new Intl.DateTimeFormat('en-CA', {
       timeZone: 'Asia/Ho_Chi_Minh',
       year: 'numeric',
@@ -86,7 +121,19 @@ export class HrmTimeSettingsController {
           ...row,
           work_date: isoDate(row.work_date),
         })),
-        sites: sites.rows,
+        sites: sites.rows.map((s) => ({
+          ...s,
+          allowed_ips: Array.isArray(s.allowed_ips) ? s.allowed_ips : [],
+          assignments: siteAssignments.rows.filter((a) => a.site_id === s.id),
+        })),
+        units: units.rows.map((u) => ({ id: u.id, parentId: u.parent_id ?? null, code: u.code, name: u.name })),
+        location: {
+          locationCheck: location.requireGps,
+          maxGpsAccuracyMeters: location.maxGpsAccuracyMeters,
+          // Tenant cũ chỉ kiểm IP bằng chính sách: chưa chuyển sang địa điểm.
+          legacyPolicy: location.source === 'POLICY' && location.requireIp,
+          configured: locationSettings !== null,
+        },
         versions: versions.rows.map((row) => ({
           ...row,
           effective_from: isoDate(row.effective_from),
@@ -372,6 +419,7 @@ export class HrmTimeSettingsController {
       latitude: number;
       longitude: number;
       radiusMeters: number;
+      allowedIps?: string[];
     },
   ) {
     const { pool, tenantId, principal } = await this.ctx.getContext(
@@ -389,14 +437,16 @@ export class HrmTimeSettingsController {
       body.radiusMeters > 100000
     )
       throw new BadRequestException('Tọa độ hoặc bán kính không hợp lệ');
+    const allowedIps = parseSiteIps(body.allowedIps);
     const result = await pool.query(
-      `INSERT INTO hrm_schema.attendance_sites (tenant_id,name,latitude,longitude,radius_meters,created_by) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+      `INSERT INTO hrm_schema.attendance_sites (tenant_id,name,latitude,longitude,radius_meters,allowed_ips,created_by) VALUES ($1,$2,$3,$4,$5,$6::text[],$7) RETURNING *`,
       [
         tenantId,
         body.name,
         body.latitude,
         body.longitude,
         body.radiusMeters,
+        allowedIps,
         principal.userId,
       ],
     );
@@ -460,6 +510,7 @@ export class HrmTimeSettingsController {
       latitude?: number;
       longitude?: number;
       radiusMeters?: number;
+      allowedIps?: string[];
       expectedUpdatedAt: string;
       reason: string;
     },
@@ -482,6 +533,7 @@ export class HrmTimeSettingsController {
       latitude?: number;
       longitude?: number;
       radiusMeters?: number;
+      allowedIps?: string[];
       expectedUpdatedAt: string;
       reason: string;
     },
@@ -510,6 +562,7 @@ export class HrmTimeSettingsController {
         latitude = body.latitude ?? row.latitude,
         longitude = body.longitude ?? row.longitude,
         radius = body.radiusMeters ?? row.radius_meters;
+      const allowedIps = body.allowedIps === undefined ? (row.allowed_ips ?? []) : parseSiteIps(body.allowedIps);
       requireText(name, 'name', 180);
       if (
         !Number.isFinite(latitude) ||
@@ -522,8 +575,8 @@ export class HrmTimeSettingsController {
       )
         throw new BadRequestException('Tọa độ hoặc bán kính không hợp lệ');
       const result = await db.query(
-        `UPDATE hrm_schema.attendance_sites SET name=$3,latitude=$4,longitude=$5,radius_meters=$6,active=$7,updated_at=GREATEST(clock_timestamp(),updated_at+interval '1 millisecond') WHERE tenant_id=$1 AND id=$2 RETURNING *`,
-        [tenantId, id, name, latitude, longitude, radius, !deactivate],
+        `UPDATE hrm_schema.attendance_sites SET name=$3,latitude=$4,longitude=$5,radius_meters=$6,active=$7,allowed_ips=$8::text[],updated_at=GREATEST(clock_timestamp(),updated_at+interval '1 millisecond') WHERE tenant_id=$1 AND id=$2 RETURNING *`,
+        [tenantId, id, name, latitude, longitude, radius, !deactivate, allowedIps],
       );
       await lifecycleAudit(
         db,
@@ -536,4 +589,121 @@ export class HrmTimeSettingsController {
       return { data: result.rows[0] };
     });
   }
+
+  /**
+   * Cài đặt kiểm tra vị trí khi chấm công của tenant (thay cho cờ requireGps/requireIp trong phiên bản chính sách):
+   * bật thì chấm công phải nằm trong bán kính của một địa điểm được gán (và đúng IP của địa điểm đó nếu có khai báo).
+   */
+  @Put('location')
+  async updateLocation(
+    @Req() req: Request,
+    @Body() body: { locationCheck: boolean; maxGpsAccuracyMeters: number; reason?: string },
+  ) {
+    const { pool, tenantId, principal } = await this.ctx.getContext(req, 'hrm.time.configure');
+    if (typeof body.locationCheck !== 'boolean') throw new BadRequestException('Thiếu trạng thái kiểm tra vị trí');
+    if (
+      !Number.isInteger(body.maxGpsAccuracyMeters) ||
+      body.maxGpsAccuracyMeters < 1 ||
+      body.maxGpsAccuracyMeters > 1000
+    )
+      throw new BadRequestException('Dung sai GPS phải là số nguyên từ 1 đến 1000 m');
+    return hrmTransaction(pool, async (db) => {
+      const ready = await db.query(`SELECT to_regclass('hrm_schema.attendance_settings') IS NOT NULL AS ok`);
+      if (ready.rows[0]?.ok !== true)
+        throw new BadRequestException('Cơ sở dữ liệu HRM chưa được cập nhật (migration 0071); chạy migration trước');
+      if (body.locationCheck) {
+        const active = await db.query(
+          'SELECT 1 FROM hrm_schema.attendance_sites WHERE tenant_id=$1 AND active=true LIMIT 1',
+          [tenantId],
+        );
+        if (!active.rowCount)
+          throw new BadRequestException('Cần ít nhất một địa điểm đang dùng trước khi bật kiểm tra vị trí');
+      }
+      const before = await loadAttendanceLocationSettings(db, tenantId);
+      await db.query(
+        `INSERT INTO hrm_schema.attendance_settings (tenant_id, location_check, max_gps_accuracy_meters, legacy_policy, updated_by)
+         VALUES ($1,$2,$3,false,$4)
+         ON CONFLICT (tenant_id) DO UPDATE
+           SET location_check=EXCLUDED.location_check, max_gps_accuracy_meters=EXCLUDED.max_gps_accuracy_meters,
+               legacy_policy=false, updated_at=now(), updated_by=EXCLUDED.updated_by`,
+        [tenantId, body.locationCheck, body.maxGpsAccuracyMeters, principal.userId],
+      );
+      await lifecycleAudit(db, tenantId, principal.userId, 'LOCATION_SETTINGS_UPDATED', tenantId, {
+        before,
+        after: { locationCheck: body.locationCheck, maxGpsAccuracyMeters: body.maxGpsAccuracyMeters },
+        reason: body.reason ?? null,
+      });
+      return { data: { locationCheck: body.locationCheck, maxGpsAccuracyMeters: body.maxGpsAccuracyMeters } };
+    });
+  }
+
+  @Put('sites/:id/assignments')
+  async updateSiteAssignments(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body() body: SetAttendanceSiteAssignmentsRequest,
+  ) {
+    const { pool, tenantId, principal } = await this.ctx.getContext(
+      req,
+      'hrm.time.configure',
+    );
+    requireUuid(id, 'id');
+    return hrmTransaction(pool, async (db) => {
+      const site = (
+        await db.query(
+          'SELECT * FROM hrm_schema.attendance_sites WHERE tenant_id=$1 AND id=$2',
+          [tenantId, id],
+        )
+      ).rows[0];
+      if (!site) throw new NotFoundException('Không tìm thấy địa điểm');
+
+      // Xoá các phân công cũ của địa điểm này
+      await db.query(
+        'DELETE FROM hrm_schema.attendance_site_assignments WHERE tenant_id=$1 AND site_id=$2',
+        [tenantId, id],
+      );
+
+      const assignments = Array.isArray(body.assignments) ? body.assignments : [];
+      for (const a of assignments) {
+        if (!['COMPANY', 'UNIT', 'UNIT_EXCLUDE', 'POSITION', 'EMPLOYEE'].includes(a.scopeType)) {
+          throw new BadRequestException('Loại phạm vi không hợp lệ');
+        }
+        const scopeId = a.scopeType === 'COMPANY' ? tenantId : a.scopeId;
+        requireUuid(scopeId, 'scopeId');
+        await db.query(
+          `INSERT INTO hrm_schema.attendance_site_assignments (tenant_id, site_id, scope_type, scope_id, created_by)
+           VALUES ($1, $2, $3, $4, $5)
+           ON CONFLICT (tenant_id, site_id, scope_type, scope_id) DO NOTHING`,
+          [tenantId, id, a.scopeType, scopeId, principal.userId],
+        );
+      }
+
+      const refreshed = await db.query(
+        `SELECT a.*,
+           CASE 
+             WHEN a.scope_type IN ('UNIT', 'UNIT_EXCLUDE', 'POSITION') THEN n.name
+             WHEN a.scope_type = 'EMPLOYEE' THEN e.full_name
+             ELSE 'Toàn công ty'
+           END as scope_name
+         FROM hrm_schema.attendance_site_assignments a
+         LEFT JOIN core_schema.organization_nodes n ON n.id = a.scope_id AND a.scope_type IN ('UNIT', 'UNIT_EXCLUDE', 'POSITION')
+         LEFT JOIN core_schema.employees e ON e.id = a.scope_id AND a.scope_type = 'EMPLOYEE'
+         WHERE a.tenant_id = $1 AND a.site_id = $2
+         ORDER BY a.created_at`,
+        [tenantId, id],
+      );
+
+      await lifecycleAudit(
+        db,
+        tenantId,
+        principal.userId,
+        'SITE_ASSIGNMENTS_UPDATED',
+        id,
+        { siteName: site.name, assignments: refreshed.rows, reason: body.reason },
+      );
+
+      return { data: { siteId: id, assignments: refreshed.rows } };
+    });
+  }
 }
+

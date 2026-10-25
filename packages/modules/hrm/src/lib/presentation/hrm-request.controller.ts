@@ -58,6 +58,7 @@ import {
 import { HrmMissingSchemaInterceptor } from '../infrastructure/hrm-missing-schema.interceptor.js';
 import type { Request } from 'express';
 import { hrmTransaction } from '../infrastructure/hrm-transaction.js';
+import { throwWhyNotRejectable } from '../infrastructure/hrm-request-reject.js';
 import { workReferences } from '../infrastructure/hrm-work-references.js';
 import {
   createOvertime,
@@ -71,10 +72,11 @@ import {
 } from '../infrastructure/hrm-time.js';
 import {
   requireDate,
-  optionalText,
   requireText,
   requireUuid,
+  rejectionNote,
 } from '../infrastructure/hrm-validation.js';
+import { markOnBehalf, onBehalfView } from '../infrastructure/hrm-request-proxy.js';
 import { RequirePermission } from '../infrastructure/hrm-access.guard.js';
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
 import { HrmProcedureBridgeService } from '../infrastructure/hrm-procedure-bridge.service.js';
@@ -118,8 +120,13 @@ export class HrmRequestController {
     body: CreateOtRequestPayload &
       DraftSubmission & { attributes?: Record<string, unknown> },
   ) {
-    const { pool, tenantId, employeeId, principal } =
-      await this.ctx.getRequestContext(req, body.employeeId);
+    const { pool, tenantId, employeeId, principal, onBehalf } =
+      await this.ctx.getProxyRequestContext(
+        req,
+        body.employeeId,
+        'ot',
+        (body as { onBehalfReason?: unknown }).onBehalfReason,
+      );
     await syncEmployeeProcedureResults(pool, tenantId, employeeId);
     const submission = await resolveDraftSubmission(
       pool,
@@ -149,13 +156,23 @@ export class HrmRequestController {
           'OVERTIME',
           body,
         );
-        return createOvertime(db, tenantId, { ...body, employeeId }, {
+        const created = await createOvertime(db, tenantId, { ...body, employeeId }, {
           reasonId: reason.id,
           reasonName: reason.name,
           paid: reason.paid,
           description,
           rateMultiplier: reason.rateMultiplier,
         });
+        return onBehalf
+          ? markOnBehalf(db, created, {
+              tenantId,
+              table: 'ot_requests',
+              kind: 'ot',
+              employeeId,
+              actorUserId: principal.userId,
+              reason: onBehalf.reason,
+            })
+          : created;
       },
     );
     return {
@@ -251,7 +268,7 @@ export class HrmRequestController {
   async approveOtRequest(@Req() req: Request, @Param('id') id: string) {
     const { pool, tenantId, principal } = await this.ctx.approverContext(
       req,
-      'hrm.ot.approve',
+      'hrm.request.approve',
       'ot',
       id,
     );
@@ -279,7 +296,7 @@ export class HrmRequestController {
   ) {
     const { pool, tenantId, principal } = await this.ctx.approverContext(
       req,
-      'hrm.ot.approve',
+      'hrm.request.approve',
       'ot',
       id,
     );
@@ -289,7 +306,7 @@ export class HrmRequestController {
       'ot',
       'reject',
     );
-    const note = optionalText(reason, 'Lý do từ chối', 2000);
+    const note = rejectionNote(reason);
     const res = await hrmTransaction(pool, async (db) => {
       const result = await db.query(
         `UPDATE hrm_schema.ot_requests SET
@@ -304,12 +321,11 @@ export class HrmRequestController {
         );
       return result;
     });
-    if (res.rows.length === 0) {
-      throw new NotFoundException({
+    if (res.rows.length === 0)
+      await throwWhyNotRejectable(pool, 'ot_requests', tenantId, id, {
         code: 'HRM_OT_NOT_FOUND',
-        message: 'OT request not found',
+        message: 'Không tìm thấy đơn OT',
       });
-    }
     return {
       data: this.mapOt(res.rows[0]),
       meta: { requestId: req.headers['x-request-id'] as string },
@@ -335,8 +351,13 @@ export class HrmRequestController {
         attributes?: Record<string, unknown>;
       },
   ) {
-    const { pool, tenantId, employeeId, principal } =
-      await this.ctx.getRequestContext(req, body.employeeId);
+    const { pool, tenantId, employeeId, principal, onBehalf } =
+      await this.ctx.getProxyRequestContext(
+        req,
+        body.employeeId,
+        'business_trip',
+        (body as { onBehalfReason?: unknown }).onBehalfReason,
+      );
     await syncEmployeeProcedureResults(pool, tenantId, employeeId);
     const submission = await resolveDraftSubmission(
       pool,
@@ -513,7 +534,17 @@ export class HrmRequestController {
           },
           body.transport,
         );
-        return { ...tripRow, ...transport };
+        const created = { ...tripRow, ...transport };
+        return onBehalf
+          ? markOnBehalf(db, created, {
+              tenantId,
+              table: 'business_trip_requests',
+              kind: 'business_trip',
+              employeeId,
+              actorUserId: principal.userId,
+              reason: onBehalf.reason,
+            })
+          : created;
       },
     );
 
@@ -616,7 +647,7 @@ export class HrmRequestController {
   async approveBusinessTrip(@Req() req: Request, @Param('id') id: string) {
     const { pool, tenantId, principal } = await this.ctx.approverContext(
       req,
-      'hrm.trip.approve',
+      'hrm.request.approve',
       'business_trip',
       id,
     );
@@ -636,10 +667,14 @@ export class HrmRequestController {
   }
 
   @Post('business-trip-requests/:id/reject')
-  async rejectBusinessTrip(@Req() req: Request, @Param('id') id: string) {
+  async rejectBusinessTrip(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body('reason') reason?: string,
+  ) {
     const { pool, tenantId, principal } = await this.ctx.approverContext(
       req,
-      'hrm.trip.approve',
+      'hrm.request.approve',
       'business_trip',
       id,
     );
@@ -649,6 +684,7 @@ export class HrmRequestController {
       'business_trip',
       'reject',
     );
+    const note = rejectionNote(reason);
     const res = await hrmTransaction(pool, async (db) => {
       const found = await db.query(
         `SELECT * FROM hrm_schema.business_trip_requests WHERE tenant_id=$1 AND id=$2 FOR UPDATE`,
@@ -661,10 +697,15 @@ export class HrmRequestController {
         throw new BadRequestException('Trạng thái đơn không cho phép thao tác');
       await lockEmployee(db, tenantId, trip.employee_id);
       await assertOpenRange(db, tenantId, isoDate(trip.from_date), isoDate(trip.to_date));
-      return db.query(
+      const rejected = await db.query(
         `UPDATE hrm_schema.business_trip_requests SET status='REJECTED',approved_by=$3,approved_at=now(),updated_at=now() WHERE tenant_id=$1 AND id=$2 RETURNING *`,
         [tenantId, id, principal.userId],
       );
+      await db.query(
+        `INSERT INTO hrm_schema.audit_log(tenant_id,actor_id,action,entity_type,entity_id,detail) VALUES($1,$2,'REQUEST_REJECT','BUSINESS_TRIP',$3,$4)`,
+        [tenantId, principal.userId, id, JSON.stringify({ reason: note })],
+      );
+      return rejected;
     });
     return {
       data: this.mapTrip(res.rows[0]),
@@ -676,7 +717,7 @@ export class HrmRequestController {
   async cancelBusinessTrip(@Req() req: Request, @Param('id') id: string) {
     const { pool, tenantId, principal } = await this.ctx.approverContext(
       req,
-      'hrm.trip.approve',
+      'hrm.request.approve',
       'business_trip',
       id,
     );
@@ -986,7 +1027,7 @@ export class HrmRequestController {
   async approveShiftChange(@Req() req: Request, @Param('id') id: string) {
     const { pool, tenantId, principal } = await this.ctx.approverContext(
       req,
-      'hrm.shift.approve',
+      'hrm.request.approve',
       'shift_change',
       id,
     );
@@ -1014,7 +1055,7 @@ export class HrmRequestController {
   ) {
     const { pool, tenantId, principal } = await this.ctx.approverContext(
       req,
-      'hrm.shift.approve',
+      'hrm.request.approve',
       'shift_change',
       id,
     );
@@ -1024,7 +1065,7 @@ export class HrmRequestController {
       'shift_change',
       'reject',
     );
-    const note = optionalText(reason, 'Lý do từ chối', 2000);
+    const note = rejectionNote(reason);
     const res = await hrmTransaction(pool, async (db) => {
       const result = await db.query(
         `UPDATE hrm_schema.shift_change_requests SET
@@ -1039,12 +1080,11 @@ export class HrmRequestController {
         );
       return result;
     });
-    if (res.rows.length === 0) {
-      throw new NotFoundException({
+    if (res.rows.length === 0)
+      await throwWhyNotRejectable(pool, 'shift_change_requests', tenantId, id, {
         code: 'HRM_SHIFT_CHANGE_NOT_FOUND',
-        message: 'Shift change request not found',
+        message: 'Không tìm thấy đơn đổi ca',
       });
-    }
     return {
       data: this.mapShiftChange(res.rows[0]),
       meta: { requestId: req.headers['x-request-id'] as string },
@@ -1141,6 +1181,7 @@ export class HrmRequestController {
 
   private mapOt(row: Record<string, unknown>): HrmOtRequest {
     return {
+      ...onBehalfView(row),
       id: row.id as string,
       tenantId: row.tenant_id as string,
       employeeId: row.employee_id as string,
@@ -1182,6 +1223,7 @@ export class HrmRequestController {
 
   private mapTrip(row: Record<string, unknown>): HrmBusinessTripRequest {
     return {
+      ...onBehalfView(row),
       id: row.id as string,
       workItemId: row.work_item_id as string | null,
       subtaskId: row.subtask_id as string | null,

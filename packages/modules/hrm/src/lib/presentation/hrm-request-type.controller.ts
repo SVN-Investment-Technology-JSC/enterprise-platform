@@ -10,6 +10,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   Req,
   UseInterceptors,
 } from '@nestjs/common';
@@ -20,6 +21,7 @@ import { assertLifecycleVersion } from '../infrastructure/hrm-lifecycle.js';
 import { HrmMissingSchemaInterceptor } from '../infrastructure/hrm-missing-schema.interceptor.js';
 import {
   ENGINE_REQUEST_KIND,
+  REQUEST_ENGINES,
   REQUEST_TIME_MODES,
   ensureSystemRequestTypes,
   mapRequestType,
@@ -142,16 +144,23 @@ function snapshot(row: Row) {
 export class HrmRequestTypeController {
   constructor(private readonly ctx: HrmContextService) {}
 
-  /** Loại đơn đang bật, theo thứ tự hiển thị: danh mục để người làm đơn chọn loại. */
+  /**
+   * Loại đơn đang bật, theo thứ tự hiển thị: danh mục để người làm đơn chọn loại. `engine` lọc theo engine, ví dụ
+   * `GENERIC` là các loại công ty tự tạo (Trợ lý liệt kê loại đơn của thao tác "Tạo đơn theo loại đơn của công ty").
+   */
   @Get('request-types')
-  async list(@Req() req: Request) {
+  async list(@Req() req: Request, @Query('engine') engine?: string) {
     const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.read');
+    const listEngine = engine === undefined || engine === '' ? null : engine;
+    if (listEngine !== null && !REQUEST_ENGINES.includes(listEngine as HrmRequestEngine))
+      throw new BadRequestException(`Bộ lọc engine chỉ nhận: ${REQUEST_ENGINES.join(', ')}.`);
     await ensureSystemRequestTypes(pool, tenantId);
     const res = await pool.query(
       `SELECT c.* FROM hrm_schema.request_reason_categories c
         WHERE c.tenant_id = $1 AND c.deleted_at IS NULL AND c.active
+          AND ($2::text IS NULL OR c.engine = $2)
         ORDER BY c.sort_order, c.name`,
-      [tenantId],
+      [tenantId, listEngine],
     );
     return {
       data: res.rows.map(mapRequestType),

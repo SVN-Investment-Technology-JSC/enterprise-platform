@@ -110,6 +110,7 @@
     "@enterprise-platform/adapter-events": "workspace:*",
     "@enterprise-platform/contracts-identity": "workspace:*",
     "@enterprise-platform/contracts-integration": "workspace:*",
+    "@enterprise-platform/contracts-chat": "workspace:*",
     "@enterprise-platform/contracts-realtime": "workspace:*",
     "@enterprise-platform/contracts-tenancy": "workspace:*",
     "@enterprise-platform/module-notifications": "workspace:*",

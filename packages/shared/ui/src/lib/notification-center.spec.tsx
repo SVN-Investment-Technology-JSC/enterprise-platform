@@ -250,6 +250,33 @@ describe('NotificationProvider', () => {
     offStatus();
   });
 
+  it.each(['core.chat.changed', 'core.chat.typing', 'core.presence.changed'] as const)(
+    'routes the core chat signal %s to the bus without touching the notification sequence',
+    async (event) => {
+      const fixture = fakeClient();
+      await renderProvider(fixture.client);
+      const heard = jest.fn();
+      const off = subscribeRealtime(heard);
+      const signal: RealtimeEventEnvelope = {
+        id: `${event}-1`,
+        event,
+        version: 1,
+        tenantId: 'tenant-a',
+        userId: 'user-a',
+        sequence: 1,
+        occurredAt: '2026-10-23T07:00:00.000Z',
+        data: { conversationId: 'conversation-1' },
+      };
+      await act(async () => {
+        fixture.getHandlers()?.onEvent(signal);
+      });
+      expect(heard).toHaveBeenCalledWith(signal);
+      expect(screen.getByLabelText('sequence').textContent).toBe('10');
+      expect(fixture.client.sync).not.toHaveBeenCalled();
+      off();
+    },
+  );
+
   it('routes procedure comment signals to the bus without touching the notification sequence', async () => {
     const fixture = fakeClient();
     await renderProvider(fixture.client);

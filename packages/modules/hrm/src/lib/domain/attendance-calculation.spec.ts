@@ -77,6 +77,22 @@ describe('attendance calculation', () => {
       ).anomalies,
     ).toEqual(['OUT_WITHOUT_IN', 'DUPLICATE_IN', 'MISSING_OUT']);
   });
+  it('cho phép sự kiện AUTO đè lên sự kiện chấm công thực tế, không sinh DUPLICATE_IN hay OUT_WITHOUT_IN', () => {
+    const mixed = [
+      { id: '1', kind: 'IN' as const, at: '2026-09-26T01:00:00Z', auto: true },
+      { id: '2', kind: 'IN' as const, at: '2026-09-26T01:07:00Z', auto: false }, // vân tay thật trễ 7 phút
+      { id: '3', kind: 'OUT' as const, at: '2026-09-26T10:00:00Z', auto: true },
+      { id: '4', kind: 'OUT' as const, at: '2026-09-26T10:00:00Z', auto: false }, // vân tay thật
+    ];
+    const result = calculateAttendance(mixed, shift);
+    expect(result.anomalies).toEqual([]);
+    expect(result.workedMinutes).toBe(480);
+    expect(result.firstIn).toBe('2026-09-26T01:00:00Z');
+    expect(result.lastOut).toBe('2026-09-26T10:00:00Z');
+    expect(result.lateMinutes).toBe(0);
+    expect(result.earlyMinutes).toBe(0);
+    expect(result.status).toBe('VALID');
+  });
   it('measures a GPS radius in meters', () => {
     expect(
       distanceMeters(

@@ -31,7 +31,7 @@ import type { Request } from 'express';
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
 import { hrmTransaction } from '../infrastructure/hrm-transaction.js';
 import { lockEmployee } from '../infrastructure/hrm-time.js';
-import { optionalText, requireDate, requireText } from '../infrastructure/hrm-validation.js';
+import { rejectionNote, requireDate, requireText } from '../infrastructure/hrm-validation.js';
 
 @Controller('v1/profile-corrections')
 export class HrmProfileCorrectionController {
@@ -93,7 +93,9 @@ export class HrmProfileCorrectionController {
         result.rows.map((r) => ({
           ...r,
           employeeId: r.employee_id,
-          createdAt: r.created_at,
+          createdAt: r.created_at
+            ? new Date(r.created_at as string).toISOString()
+            : null,
           procedureInstanceId: r.procedure_instance_id ?? null,
           currentStepName: r.current_step_name ?? null,
           currentAssigneeName: r.current_assignee_name ?? null,
@@ -217,7 +219,7 @@ export class HrmProfileCorrectionController {
   async approve(@Req() req: Request, @Param('id') id: string) {
     const { pool, tenantId, principal } = await this.ctx.approverContext(
       req,
-      'hrm.profile.approve',
+      'hrm.request.approve',
       'profile_correction',
       id,
     );
@@ -239,7 +241,7 @@ export class HrmProfileCorrectionController {
   ) {
     const { pool, tenantId, principal } = await this.ctx.approverContext(
       req,
-      'hrm.profile.approve',
+      'hrm.request.approve',
       'profile_correction',
       id,
     );
@@ -249,7 +251,7 @@ export class HrmProfileCorrectionController {
       'profile_correction',
       'reject',
     );
-    const note = optionalText(reason, 'reason', 2000);
+    const note = rejectionNote(reason);
     const result = await pool.query(
       `UPDATE hrm_schema.profile_corrections SET status='REJECTED',approved_by=$3,rejection_reason=$4,approved_at=now() WHERE tenant_id=$1 AND id=$2 AND status='PENDING' RETURNING *`,
       [tenantId, id, principal.userId, note],

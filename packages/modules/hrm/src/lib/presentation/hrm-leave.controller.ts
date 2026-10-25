@@ -1,4 +1,4 @@
-import type { PoolClient } from 'pg';
+import type { Pool, PoolClient } from 'pg';
 import { previewLeaveDays } from '../infrastructure/hrm-leave-day-preview.js';
 import { attachProcedureLinkInfo } from '../infrastructure/hrm-procedure-link-info.js';
 import { HrmApprovalPolicyService, approverPermissions } from '../infrastructure/hrm-approval-policy.js';
@@ -35,6 +35,7 @@ import {
   Controller,
   ConflictException,
   Delete,
+  ForbiddenException,
   Get,
   NotFoundException,
   Param,
@@ -75,8 +76,8 @@ import { isoDate, lockEmployee } from '../infrastructure/hrm-time.js';
 import {
   requireDate,
   requireUuid,
-  optionalText,
   requireText,
+  rejectionNote,
 } from '../infrastructure/hrm-validation.js';
 import {
   areSimilarLeaveNames,
@@ -97,6 +98,7 @@ import {
 } from '../infrastructure/hrm-leave-settlement.js';
 import { sumEntitlement } from '../domain/annual-leave-entitlement.js';
 import { HrmProcedureBridgeService } from '../infrastructure/hrm-procedure-bridge.service.js';
+import { markOnBehalf, onBehalfView } from '../infrastructure/hrm-request-proxy.js';
 import {
   insertAccrualSchedule,
   lockAccrualConfiguration,
@@ -1306,9 +1308,11 @@ export class HrmLeaveController {
     @Param('employeeId') employeeId: string,
     @Query('year') yearStr?: string,
   ) {
-    const { pool, tenantId } = await this.ctx.getRequestContext(
+    // Người tạo hộ (ngoài quyền đọc phép) xem được quỹ phép của nhân viên trong phạm vi để soạn đơn.
+    const { pool, tenantId } = await this.ctx.getRequestContextOrProxy(
       req,
       employeeId,
+      'leave',
       'hrm.leave.read',
       'hrm.self.read',
     );
@@ -1364,8 +1368,13 @@ export class HrmLeaveController {
     body: CreateLeaveRequestPayload &
       DraftSubmission & { attributes?: Record<string, unknown> },
   ) {
-    const { pool, tenantId, principal, employeeId } =
-      await this.ctx.getRequestContext(req, body.employeeId);
+    const { pool, tenantId, principal, employeeId, onBehalf } =
+      await this.ctx.getProxyRequestContext(
+        req,
+        body.employeeId,
+        'leave',
+        (body as { onBehalfReason?: unknown }).onBehalfReason,
+      );
     // Đơn đã hủy/từ chối trên quy trình không còn chiếm ngày: đồng bộ trước khi kiểm tra trùng.
     await syncEmployeeProcedureResults(pool, tenantId, employeeId);
     const submission = await resolveDraftSubmission(
@@ -1388,8 +1397,22 @@ export class HrmLeaveController {
         title: 'Đơn nghỉ phép',
         attributes: body.attributes,
       },
-      (db) =>
-        createLeave(db, tenantId, principal.userId, { ...body, employeeId }),
+      async (db) => {
+        const created = await createLeave(db, tenantId, principal.userId, {
+          ...body,
+          employeeId,
+        });
+        return onBehalf
+          ? markOnBehalf(db, created, {
+              tenantId,
+              table: 'leave_requests',
+              kind: 'leave',
+              employeeId,
+              actorUserId: principal.userId,
+              reason: onBehalf.reason,
+            })
+          : created;
+      },
     );
     return {
       data: {
@@ -1451,11 +1474,16 @@ export class HrmLeaveController {
     if (to < from || Date.parse(to) - Date.parse(from) > 366 * 86400000)
       throw new BadRequestException('Khoảng xem trước tối đa 366 ngày');
     // Người có quyền đọc đơn xem được mọi nhân viên; còn lại chỉ xem của chính mình.
-    const { pool, tenantId, employeeId: visible } = await this.ctx.scoped(
-      req,
-      'hrm.request.read',
-      requireUuid(employeeId, 'employeeId'),
-    );
+    const target = requireUuid(employeeId, 'employeeId');
+    let scopedContext: { pool: Pool; tenantId: string; employeeId?: string };
+    try {
+      scopedContext = await this.ctx.scoped(req, 'hrm.request.read', target);
+    } catch (error) {
+      // Người tạo hộ xem trước ngày nghỉ của nhân viên trong phạm vi của mình.
+      if (!(error instanceof ForbiddenException)) throw error;
+      scopedContext = await this.ctx.getRequestContextOrProxy(req, target, 'leave');
+    }
+    const { pool, tenantId, employeeId: visible } = scopedContext;
     const data = await previewLeaveDays(pool as unknown as PoolClient, tenantId, visible ?? employeeId, from, to);
     return { data };
   }
@@ -1541,7 +1569,7 @@ export class HrmLeaveController {
       req,
       id,
       'REJECTED',
-      optionalText(reason, 'reason', 2000) ?? undefined,
+      rejectionNote(reason) ?? undefined,
     );
   }
   @Post('leave-requests/:id/cancel')
@@ -1555,7 +1583,7 @@ export class HrmLeaveController {
     const { principal } = await this.ctx.getRequestContext(
       req,
       owned.rows[0].employee_id,
-      'hrm.leave.approve',
+      'hrm.request.approve',
     );
     await this.approvals.assertCanDecide(
       { pool, tenantId, principal },
@@ -1594,7 +1622,7 @@ export class HrmLeaveController {
   ) {
     const { pool, tenantId, principal } = await this.ctx.approverContext(
       req,
-      'hrm.leave.approve',
+      'hrm.request.approve',
       'leave',
       id,
     );
@@ -1634,7 +1662,7 @@ export class HrmLeaveController {
     const amendCtx = await this.ctx.getRequestContext(
       req,
       owner.employee_id,
-      'hrm.leave.approve',
+      'hrm.request.approve',
     );
     // Sửa đơn là huỷ đơn cũ và tạo đơn mới: cùng phạm vi kiểm tra với huỷ đơn, để người duyệt không sửa được đơn ngoài phạm vi cấp dưới.
     await this.approvals.assertCanDecide(
@@ -1869,10 +1897,15 @@ export class HrmLeaveController {
       currentAssigneeName: (row.current_assignee_name ?? null) as string | null,
       workflowStatus: row.workflow_status as string | null,
       attachmentFileId: row.attachment_file_id as string | null,
+      ...onBehalfView(row),
       approvedBy: row.approved_by as string | null,
-      approvedAt: row.approved_at ? String(row.approved_at) : null,
-      appliedAt: row.applied_at ? String(row.applied_at) : null,
-      createdAt: String(row.created_at),
+      approvedAt: row.approved_at
+        ? new Date(row.approved_at as string).toISOString()
+        : null,
+      appliedAt: row.applied_at
+        ? new Date(row.applied_at as string).toISOString()
+        : null,
+      createdAt: new Date(row.created_at as string).toISOString(),
       updatedAt: new Date(row.updated_at as string).toISOString(),
     };
   }

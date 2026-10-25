@@ -307,13 +307,19 @@ export function deriveProcedureAuthorization(
   const matchingRoles = new Set<ProcedureRaciRole>();
   let escalated = false;
   for (const assignment of current?.assignments ?? []) {
-    // "Toàn bộ nhân viên" (vai S) chỉ cho NGƯỜI KHỞI TẠO hồ sơ này hành động ở bước S của chính mình;
-    // người khác không khớp để không thao tác được trên hồ sơ của nhau.
-    const initiatorOfEveryone =
-      assignment.subjectType === 'everyone' &&
-      assignment.role === 'S' &&
-      instance.initiatedBy === actor.userId;
-    if (initiatorOfEveryone || matchesProcedureAssignment(assignment, actor)) {
+    // Vai S (người khởi tạo) của hồ sơ đã tạo chỉ dành riêng cho CHÍNH NGƯỜI KHỞI TẠO hồ sơ này;
+    // bất kỳ người nào khác (dù có cùng chức danh, phòng ban hay phân công khởi tạo) đều không được
+    // thao tác trên hồ sơ của người khác.
+    if (assignment.role === 'S') {
+      if (
+        instance.initiatedBy === actor.userId &&
+        (assignment.subjectType === 'everyone' || matchesProcedureAssignment(assignment, actor))
+      ) {
+        matchingRoles.add('S');
+      }
+      continue;
+    }
+    if (matchesProcedureAssignment(assignment, actor)) {
       matchingRoles.add(assignment.role);
       if (matchesByEscalation(assignment, actor)) escalated = true;
     }

@@ -5,11 +5,12 @@ import type {
 } from '@enterprise-platform/contracts-identity';
 import { PlatformIdentityService } from '@enterprise-platform/platform-identity';
 import type { HrmRequestKind } from '@enterprise-platform/contracts-hrm';
-import { approvalKindOfPermissions, assignedRequestIds } from './hrm-approval-policy.js';
+import { assignedKindsWithoutPermission, assignedRequestIds } from './hrm-approval-policy.js';
 import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  Optional,
   UnauthorizedException,
 } from '@nestjs/common';
 import type { Request } from 'express';
@@ -17,6 +18,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 import type { Pool } from 'pg';
 import { isProcedureReachable } from './hrm-procedure-api.js';
+import { HrmRequestProxyService, requireProxyReason, type ProxyKind } from './hrm-request-proxy.js';
 
 @Injectable()
 export class HrmContextService {
@@ -26,10 +28,20 @@ export class HrmContextService {
     ),
   );
 
+  private proxyService?: HrmRequestProxyService;
+
   constructor(
     private readonly identity: PlatformIdentityService,
     private readonly pools: PostgresPoolRegistry,
-  ) {}
+    @Optional() proxy?: HrmRequestProxyService,
+  ) {
+    this.proxyService = proxy;
+  }
+
+  /** Dịch vụ phạm vi tạo hộ; dựng khi cần đến lần đầu (chỉ các route tạo hộ dùng). */
+  private get proxy(): HrmRequestProxyService {
+    return (this.proxyService ??= new HrmRequestProxyService());
+  }
 
   async resolveEmployee(pool: Pool, tenantId: string, userId: string) {
     const result = await pool.query(
@@ -97,6 +109,62 @@ export class HrmContextService {
       own.rowCount ? effectiveSelfPermission : otherPermission,
     );
     return { ...context, employeeId: requestedEmployeeId };
+  }
+
+  /**
+   * Ngữ cảnh tạo nghỉ phép, tăng ca, công tác: tự tạo cho mình như `getRequestContext`; tạo cho nhân viên khác (tạo hộ)
+   * thì cần quyền tạo hộ, nhân viên phải nằm trong phạm vi cấu hình và bắt buộc có lý do. `onBehalf` khác undefined
+   * nghĩa là đơn này là đơn tạo hộ và bên gọi phải ghi dấu bằng `recordOnBehalfCreation`.
+   */
+  async getProxyRequestContext(
+    request: Request,
+    requestedEmployeeId: string | undefined,
+    kind: ProxyKind,
+    onBehalfReason?: unknown,
+    options: { reasonRequired?: boolean } = {},
+  ) {
+    if (!requestedEmployeeId) return { ...(await this.getRequestContext(request)), onBehalf: undefined };
+    const context = await this.getContext(request, 'hrm.read');
+    const own = await context.pool.query(
+      `SELECT id FROM core_schema.employees WHERE tenant_id=$1 AND user_id=$2 AND id=$3 AND deleted_at IS NULL`,
+      [context.tenantId, context.principal.userId, requestedEmployeeId],
+    );
+    if (own.rowCount) return { ...(await this.getRequestContext(request, requestedEmployeeId)), onBehalf: undefined };
+    await this.proxy.assertCanCreateFor(context, kind, requestedEmployeeId);
+    const reason =
+      options.reasonRequired === false && !onBehalfReason ? '' : requireProxyReason(onBehalfReason);
+    return { ...context, employeeId: requestedEmployeeId, onBehalf: { reason } };
+  }
+
+  /**
+   * Như `getRequestContext`, nhưng người không có quyền quản lý đơn vẫn xem/tải tệp cho nhân viên nằm trong phạm vi tạo hộ
+   * của mình (soạn đơn hộ cần xem trước thời gian và tải chứng từ). Không đòi lý do vì chưa tạo đơn.
+   */
+  async getRequestContextOrProxy(
+    request: Request,
+    requestedEmployeeId: string | undefined,
+    kind: ProxyKind,
+    otherPermission?: HrmAction,
+    selfPermission?: HrmAction,
+  ) {
+    try {
+      return await this.getRequestContext(request, requestedEmployeeId, otherPermission, selfPermission);
+    } catch (error) {
+      if (!(error instanceof ForbiddenException) || !requestedEmployeeId) throw error;
+      const { onBehalf: _onBehalf, ...context } = await this.getProxyRequestContext(
+        request,
+        requestedEmployeeId,
+        kind,
+        undefined,
+        { reasonRequired: false },
+      );
+      return context;
+    }
+  }
+
+  /** Dịch vụ phạm vi tạo hộ, dùng cho API danh sách nhân viên được chọn. */
+  get proxyScope() {
+    return this.proxy;
   }
 
   /**
@@ -191,11 +259,14 @@ export class HrmContextService {
     )
       return { ...context, employeeId: requestedEmployeeId };
     // Danh sách chờ duyệt của người không có quyền duyệt HRM nhưng được giao xử lý (người dự phòng của PE hoặc chức
-    // danh duyệt dự phòng): được đọc; bộ lọc duyệt của handler giới hạn danh sách đúng các đơn được giao.
-    const approvalKind = approvalKindOfPermissions(approverPermissions);
+    // danh duyệt dự phòng): được đọc. Mọi loại đơn dùng chung một quyền duyệt nên không suy ra được loại đơn từ bộ
+    // quyền; bộ lọc duyệt của handler vẫn giới hạn danh sách đúng các đơn được giao của loại đang mở.
     if (
-      approvalKind &&
-      (await assignedRequestIds(context.pool, context.tenantId, approvalKind, context.principal.userId)).length > 0
+      approverPermissions.length > 0 &&
+      (await assignedKindsWithoutPermission(context.pool, context.tenantId, {
+        userId: context.principal.userId,
+        permissions: context.principal.permissions,
+      })).length > 0
     )
       return { ...context, employeeId: requestedEmployeeId };
     await this.getContext(request, 'hrm.self.read');

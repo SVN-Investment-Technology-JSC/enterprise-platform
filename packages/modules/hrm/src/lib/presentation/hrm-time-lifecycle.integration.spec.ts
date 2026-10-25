@@ -91,6 +91,9 @@ integration('HRM time lifecycle PostgreSQL integration', () => {
     await migrate('hrm/0049-hrm-ot-reason-rate.sql');
     await migrate('hrm/0050-hrm-request-comments.sql');
     await migrate('hrm/0056-hrm-shift-soft-delete.sql');
+    await migrate('hrm/0070-hrm-attendance-site-assignments.sql');
+    await migrate('hrm/0071-hrm-attendance-location-settings.sql');
+    await migrate('hrm/0072-hrm-attendance-site-unit-exclusions.sql');
     const ctx = {
       getContext: async () => ({ pool, tenantId, principal: { userId } }),
       resolveEmployee: async () => ({ employeeId: userId }),
@@ -425,5 +428,70 @@ integration('HRM time lifecycle PostgreSQL integration', () => {
       reason: 'Retired office',
     });
     expect(await readEvidence()).toEqual(before);
+  });
+
+  it('kiểm vị trí theo cài đặt mới: phải đạt cả bán kính lẫn IP của địa điểm được gán, tắt kiểm tra thì chấm công ở đâu cũng được', async () => {
+    const settings = new HrmTimeSettingsController(ctx());
+    const shifts = new HrmShiftController(ctx());
+    const shift = (
+      await shifts.createShift(req, {
+        code: 'SITE-DAY',
+        name: 'Site day',
+        startTime: '08:00',
+        endTime: '17:00',
+        breakMinutes: 60,
+        breakStartTime: '12:00',
+        breakEndTime: '13:00',
+      })
+    ).data;
+    await scheduleShift(userId, shift.id, '2026-07-02', '2026-07-03');
+    const site = (
+      await settings.site(req, {
+        name: 'Văn phòng mới',
+        latitude: 21,
+        longitude: 105,
+        radiusMeters: 100,
+        allowedIps: ['10.30.0.0/16'],
+      })
+    ).data;
+    expect(site.allowed_ips).toEqual(['10.30.0.0/16']);
+    await settings.updateSiteAssignments(req, site.id, { assignments: [{ scopeType: 'COMPANY', scopeId: '' }] });
+    await settings.updateLocation(req, { locationCheck: true, maxGpsAccuracyMeters: 30 });
+    const at = (ip: string) => ({ headers: {}, socket: { remoteAddress: ip } }) as Request;
+    const punch = (extra: Record<string, unknown> = {}) => ({
+      employeeId: userId,
+      kind: 'IN' as const,
+      occurredAt: '2026-07-02T01:00:00Z',
+      source: 'WEB_PORTAL',
+      externalEventId: randomUUID(),
+      latitude: 21,
+      longitude: 105,
+      accuracy: 20,
+      ...extra,
+    });
+    // Đúng vị trí nhưng sai IP của địa điểm.
+    await expect(ingestEvent(pool as any, tenantId, userId, punch(), at('10.99.0.1'))).rejects.toThrow('IP');
+    // Đúng IP nhưng ngoài bán kính.
+    await expect(ingestEvent(pool as any, tenantId, userId, punch({ latitude: 22 }), at('10.30.0.1'))).rejects.toThrow('bán kính');
+    // Sai số vượt dung sai 30 m của cài đặt (chính sách cũ cho phép 50 m).
+    await expect(ingestEvent(pool as any, tenantId, userId, punch({ accuracy: 40 }), at('10.30.0.1'))).rejects.toThrow('độ chính xác');
+    const ok = punch();
+    await ingestEvent(pool as any, tenantId, userId, ok, at('10.30.0.1'));
+    const evidence = (
+      await pool.query('SELECT evidence FROM hrm_schema.attendance_events WHERE tenant_id=$1 AND external_event_id=$2', [
+        tenantId,
+        ok.externalEventId,
+      ])
+    ).rows[0].evidence;
+    expect(evidence).toMatchObject({ siteId: site.id, siteSnapshot: { name: 'Văn phòng mới' } });
+    // Tắt kiểm tra vị trí: không cần GPS hay IP.
+    await settings.updateLocation(req, { locationCheck: false, maxGpsAccuracyMeters: 30 });
+    await ingestEvent(
+      pool as any,
+      tenantId,
+      userId,
+      { employeeId: userId, kind: 'OUT' as const, occurredAt: '2026-07-02T10:00:00Z', source: 'WEB_PORTAL', externalEventId: randomUUID() },
+      at('203.0.113.9'),
+    );
   });
 });

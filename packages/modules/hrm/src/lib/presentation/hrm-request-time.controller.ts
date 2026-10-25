@@ -24,9 +24,10 @@ export class HrmRequestTimeController {
     @Query('unit') unit?: string,
     @Query('kind') kind?: string,
   ) {
-    const { pool, tenantId, employeeId: targetEmployeeId } = await this.ctx.getRequestContext(
+    const { pool, tenantId, employeeId: targetEmployeeId } = await this.ctx.getRequestContextOrProxy(
       req,
       employeeId ? requireUuid(employeeId, 'employeeId') : undefined,
+      kind === 'ot' ? 'ot' : kind === 'trip' ? 'business_trip' : 'leave',
     );
     if (kind !== undefined && kind !== 'leave' && kind !== 'ot' && kind !== 'trip')
       throw new BadRequestException('Loại đơn chỉ nhận leave, ot hoặc trip.');

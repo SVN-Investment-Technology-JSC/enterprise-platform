@@ -64,6 +64,8 @@ import type {
   ProjectArchiveSettings,
   ProjectCodePreview,
   ProjectCodeSettings,
+  SaveWorkspaceLabelSettingsRequest,
+  WorkspaceLabelSettingsView,
   ProjectTypeOption,
   RecurrenceScope,
   ReportBundle,
@@ -843,6 +845,13 @@ export const loadProjectCodeRule = () =>
 
 export const saveProjectCodeRule = (body: SaveProjectCodeRuleRequest) =>
   request<ProjectCodeSettings>('/project-code-rule', { method: 'PUT', body: JSON.stringify(body) });
+
+/** Tên, màu, thứ tự của trạng thái và mức ưu tiên (Cài đặt > Trạng thái và ưu tiên). */
+export const loadLabelSettings = () =>
+  request<WorkspaceLabelSettingsView>('/label-settings', { cache: 'no-store' });
+
+export const saveLabelSettings = (body: SaveWorkspaceLabelSettingsRequest) =>
+  request<WorkspaceLabelSettingsView>('/label-settings', { method: 'PUT', body: JSON.stringify(body) });
 
 /** Mã dự kiến của dự án sắp tạo trong nhóm `projectType`; số thật được cấp khi lưu. */
 export const previewProjectCode = (projectType?: string) =>

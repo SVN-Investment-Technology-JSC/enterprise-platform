@@ -1,7 +1,7 @@
 import {
   CLOSED_WORK_ITEM_STATUSES,
   DEFAULT_ROLE_PERMISSIONS,
-  PROJECT_CODE_PATTERN,
+  WORKSPACE_CODE_MAX_LENGTH,
   PROJECT_PERMISSION_LABELS,
   PROJECT_PERMISSIONS,
   PROJECT_ROLES,
@@ -31,6 +31,7 @@ import {
   ProjectRoleForbiddenError,
   WorkspaceValidationError,
 } from '../domain/workspace.error.js';
+import { parseManualPercent } from '../domain/progress.rules.js';
 import { timezoneOf, todayKey } from '../domain/tenant-time.js';
 import type { DirectoryService } from './directory.service.js';
 import type { ProjectCodeService } from './project-code.service.js';
@@ -287,13 +288,10 @@ export class ProjectService {
       });
     }
 
-    const code = String(input.code ?? '')
-      .trim()
-      .toUpperCase();
-    if (!PROJECT_CODE_PATTERN.test(code)) {
-      throw new WorkspaceValidationError(
-        'Mã dự án chỉ gồm chữ in hoa, số, gạch ngang và gạch dưới, dài 2 đến 32 ký tự.',
-      );
+    const code = String(input.code ?? '').trim();
+    if (!code) throw new WorkspaceValidationError('Mã dự án không được để trống.');
+    if (code.length > WORKSPACE_CODE_MAX_LENGTH) {
+      throw new WorkspaceValidationError(`Mã dự án dài tối đa ${WORKSPACE_CODE_MAX_LENGTH} ký tự.`);
     }
     // Kiểm tra trước để trả mã lỗi rõ ràng; UNIQUE trên cột `code` vẫn là chốt
     // chặn thật khi hai request vào cùng lúc.
@@ -335,6 +333,9 @@ export class ProjectService {
     }
     if (input.tagIds !== undefined) {
       Object.assign(patch, { tagIds: await this.requireActiveTags(actor, input.tagIds) });
+    }
+    if (input.manualProgressPercent !== undefined) {
+      Object.assign(patch, { manualProgressPercent: parseManualPercent(input.manualProgressPercent) });
     }
     if (input.status !== undefined && !parseStatus(input.status)) {
       throw new WorkspaceValidationError(`Trạng thái dự án "${input.status}" không hợp lệ.`);

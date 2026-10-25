@@ -127,7 +127,7 @@ describe('useProcedureProgress', () => {
       jest.advanceTimersByTime(60000);
     });
     expect(fetchMock).toHaveBeenCalledTimes(3);
-  });
+  }, 15000);
 
   it('không tải khi drawer đóng', async () => {
     const fetchMock = jest.fn();

@@ -33,12 +33,12 @@ import {
 import { loadActiveCustomType } from '../infrastructure/hrm-request-types.js';
 import { submitHrmRequest } from '../infrastructure/hrm-submission.js';
 import { hrmTransaction } from '../infrastructure/hrm-transaction.js';
-import { optionalText, requireUuid } from '../infrastructure/hrm-validation.js';
+import { rejectionNote, requireUuid } from '../infrastructure/hrm-validation.js';
 import { workflowProgressFilter } from '../infrastructure/hrm-workflow-filter.js';
 
 /**
  * Đơn của loại do quản trị tạo (engine GENERIC, kind `custom`). Quyền tạo như các đơn khác (`hrm.self.request`, hoặc
- * `hrm.request.manage` để tạo hộ); duyệt cần `hrm.custom.approve` (trong phạm vi) hoặc `hrm.custom.approve.all`.
+ * `hrm.request.manage` để tạo hộ); duyệt cần `hrm.request.approve` (trong phạm vi) hoặc `hrm.request.approve.all`.
  * Rút đơn đang chờ dùng chung `POST requests/custom/:id/withdraw`.
  */
 @UseInterceptors(HrmMissingSchemaInterceptor)
@@ -182,7 +182,7 @@ export class HrmCustomRequestController {
 
   @Post('custom-requests/:id/approve')
   async approve(@Req() req: Request, @Param('id') id: string) {
-    const { pool, tenantId, principal } = await this.ctx.approverContext(req, 'hrm.custom.approve', 'custom', id);
+    const { pool, tenantId, principal } = await this.ctx.approverContext(req, 'hrm.request.approve', 'custom', id);
     requireUuid(id, 'Đơn');
     await this.approvals.assertCanDecide({ pool, tenantId, principal }, id, 'custom', 'approve');
     const row = await hrmTransaction(pool, (db) =>
@@ -193,10 +193,10 @@ export class HrmCustomRequestController {
 
   @Post('custom-requests/:id/reject')
   async reject(@Req() req: Request, @Param('id') id: string, @Body('reason') reason: string) {
-    const { pool, tenantId, principal } = await this.ctx.approverContext(req, 'hrm.custom.approve', 'custom', id);
+    const { pool, tenantId, principal } = await this.ctx.approverContext(req, 'hrm.request.approve', 'custom', id);
     requireUuid(id, 'Đơn');
     await this.approvals.assertCanDecide({ pool, tenantId, principal }, id, 'custom', 'reject');
-    const text = optionalText(reason, 'Lý do từ chối', 2000) ?? undefined;
+    const text = rejectionNote(reason) ?? undefined;
     const row = await hrmTransaction(pool, (db) =>
       transitionCustomRequest(db, tenantId, principal.userId, id, 'REJECTED', text),
     );

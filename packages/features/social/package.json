@@ -20,7 +20,9 @@
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
+    "@enterprise-platform/contracts-chat": "workspace:*",
     "@enterprise-platform/contracts-social": "workspace:*",
+    "@enterprise-platform/feature-chat": "workspace:*",
     "@enterprise-platform/feature-module-shell": "workspace:*",
     "@enterprise-platform/shared-ui": "workspace:*",
     "class-variance-authority": "^0.7.1",

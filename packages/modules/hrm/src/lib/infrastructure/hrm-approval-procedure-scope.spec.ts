@@ -1,6 +1,5 @@
 import {
   HrmApprovalPolicyService,
-  approvalKindOfPermissions,
   approvalScopeSql,
   assignedKindsWithoutPermission,
   procedureActionableRequestIds,
@@ -89,7 +88,7 @@ describe('resolveApprovalScope: thêm đơn PE vào phạm vi duyệt', () => {
     fetchActionable.mockResolvedValue(['inst-1']);
     const { db } = dbWith([{ request_id: 'req-1', instance_id: 'inst-1' }]);
     const scope = await resolveApprovalScope(
-      { userId: BACKUP, permissions: ['hrm.leave.approve'] },
+      { userId: BACKUP, permissions: ['hrm.request.approve'] },
       'leave',
       { db, tenantId: TENANT, orgScope: orgScope([]) },
     );
@@ -99,7 +98,7 @@ describe('resolveApprovalScope: thêm đơn PE vào phạm vi duyệt', () => {
   it('người duyệt toàn tenant không cần hỏi PE', async () => {
     const { db } = dbWith([{ request_id: 'req-1', instance_id: 'inst-1' }]);
     const scope = await resolveApprovalScope(
-      { userId: BACKUP, permissions: ['hrm.leave.approve.all'] },
+      { userId: BACKUP, permissions: ['hrm.request.approve.all'] },
       'leave',
       { db, tenantId: TENANT, orgScope: orgScope([]) },
     );
@@ -163,7 +162,7 @@ describe('người được giao nhưng không có quyền duyệt của HRM', (
     fetchActionable.mockResolvedValue([]);
     const { db } = dbWith([]);
     const scope = await resolveApprovalScope(
-      { userId: BACKUP, permissions: ['hrm.leave.approve'] },
+      { userId: BACKUP, permissions: ['hrm.request.approve'] },
       'leave',
       { db, tenantId: TENANT, orgScope: orgScope(['cap-duoi']) },
     );
@@ -178,7 +177,7 @@ describe('người được giao nhưng không có quyền duyệt của HRM', (
     ).resolves.toEqual(['leave']);
     // Đã có quyền duyệt đơn nghỉ thì không cần cấp thêm.
     await expect(
-      assignedKindsWithoutPermission(db, TENANT, { userId: BACKUP, permissions: ['hrm.read', 'hrm.leave.approve'] }),
+      assignedKindsWithoutPermission(db, TENANT, { userId: BACKUP, permissions: ['hrm.read', 'hrm.request.approve'] }),
     ).resolves.toEqual([]);
   });
 
@@ -188,12 +187,6 @@ describe('người được giao nhưng không có quyền duyệt của HRM', (
     await expect(
       assignedKindsWithoutPermission(db, TENANT, { userId: BACKUP, permissions: ['hrm.read'] }),
     ).resolves.toEqual([]);
-  });
-
-  it('approvalKindOfPermissions: đoán loại đơn từ bộ quyền duyệt', () => {
-    expect(approvalKindOfPermissions(['hrm.leave.approve', 'hrm.leave.approve.all'])).toBe('leave');
-    expect(approvalKindOfPermissions(['hrm.trip.approve', 'hrm.trip.approve.all'])).toBe('business_trip');
-    expect(approvalKindOfPermissions([])).toBeUndefined();
   });
 });
 
@@ -214,7 +207,8 @@ describe('HrmApprovalPolicyService.listFilter: người không có quyền duy�
     expect(filter.params).toEqual([[], ['req-1'], BACKUP]);
   });
 
-  it('không được giao đơn nào thì giữ như cũ (đã bị giới hạn vào đơn của chính mình ở bước đọc)', async () => {
+  it('không được giao đơn nào ở loại này thì chỉ thấy đơn của chính mình, không bao giờ là TRUE', async () => {
+    // Người được giao duyệt MỘT loại đơn đọc không theo nhân viên ở mọi loại, nên bộ lọc phải tự giới hạn.
     fetchActionable.mockResolvedValue([]);
     const { db } = dbWith([]);
     const filter = await service.listFilter(
@@ -223,6 +217,9 @@ describe('HrmApprovalPolicyService.listFilter: người không có quyền duy�
       'lr',
       4,
     );
-    expect(filter).toEqual({ sql: 'TRUE', params: [] });
+    expect(filter.sql).not.toBe('TRUE');
+    expect(filter.sql).toContain('lr.employee_id IN (SELECT oe.id FROM core_schema.employees oe');
+    expect(filter.sql).toContain('oe.user_id = $4::uuid');
+    expect(filter.params).toEqual([BACKUP]);
   });
 });

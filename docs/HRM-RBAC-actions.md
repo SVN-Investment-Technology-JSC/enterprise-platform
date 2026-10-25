@@ -22,21 +22,19 @@ Tenant cần entitlement HRM hoạt động; tài khoản cần quyền truy c�
 | HRM · Ca và công | `hrm.schedule.manage` | Tạo, gán, sửa và huỷ lịch phân ca; quản lý mẫu lịch tuần |
 | HRM · Ca và công | `hrm.schedule.bulk` | Phân ca hàng loạt theo nhóm, phòng ban và toàn công ty |
 | HRM · Ca và công | `hrm.schedule.calendar` | Quản lý lịch lễ, Tết và lịch ngoại lệ |
-| HRM · Ca và công | `hrm.shift.approve` | Duyệt đổi ca |
 | HRM · Ca và công | `hrm.attendance.read` | Xem công toàn tenant |
 | HRM · Ca và công | `hrm.attendance.import` | Nhập sự kiện từ máy chấm công |
-| HRM · Ca và công | `hrm.attendance.approve` | Duyệt và xử lý giải trình công |
 | HRM · Ca và công | `hrm.time.configure` | Cấu hình công, IP, GPS, lịch nghỉ |
 | HRM · Phép và đơn | `hrm.leave.read` | Xem quỹ phép và sổ phép toàn tenant |
 | HRM · Phép và đơn | `hrm.leave.manage` | Cấu hình, tích, chuyển và điều chỉnh quỹ phép |
 | HRM · Phép và đơn | `hrm.request.read` | Xem đơn nghiệp vụ toàn tenant |
 | HRM · Phép và đơn | `hrm.request.manage` | Tạo đơn thay nhân viên |
-| HRM · Phép và đơn | `hrm.leave.approve` | Duyệt, từ chối và đảo đơn nghỉ |
-| HRM · Phép và đơn | `hrm.ot.approve` | Duyệt và xử lý tăng ca |
-| HRM · Phép và đơn | `hrm.trip.approve` | Duyệt và xử lý công tác |
-| HRM · Phép và đơn | `hrm.profile.approve` | Duyệt thay đổi hồ sơ |
+| HRM · Phép và đơn | `hrm.request.create.behalf` | Tạo đơn nghỉ phép, tăng ca, công tác, giải trình công hộ nhân viên trong phạm vi được cấu hình |
+| HRM · Phép và đơn | `hrm.request.create.behalf.all` | Tạo đơn nghỉ phép, tăng ca, công tác, giải trình công hộ mọi nhân viên (không giới hạn phạm vi) |
+| HRM · Phép và đơn | `hrm.request.proxy.configure` | Cấu hình phạm vi tạo đơn hộ |
+| HRM · Phép và đơn | `hrm.request.approve` | Duyệt, từ chối và đảo mọi loại đơn từ (nghỉ phép, tăng ca, công tác, giải trình công, đơn tuỳ chỉnh) trong phạm vi của mình: cấp dưới theo sơ đồ tổ chức hoặc đơn được giao |
+| HRM · Phép và đơn | `hrm.request.approve.all` | Duyệt mọi loại đơn từ toàn tenant, không giới hạn phạm vi đơn vị |
 | HRM · Tạm ứng | `hrm.advance.read` | Xem tạm ứng toàn tenant |
-| HRM · Tạm ứng | `hrm.advance.approve` | Duyệt tạm ứng |
 | HRM · Tạm ứng | `hrm.advance.disburse` | Giải ngân và lập lịch thu hồi ứng |
 | HRM · Bảng công | `hrm.timesheet.read` | Xem bảng công tổng hợp |
 | HRM · Bảng công | `hrm.timesheet.calculate` | Tạo kỳ và tính bảng công |

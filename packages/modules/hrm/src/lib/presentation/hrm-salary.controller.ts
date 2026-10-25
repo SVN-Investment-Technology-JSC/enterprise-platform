@@ -48,9 +48,9 @@ import { hrmTransaction } from '../infrastructure/hrm-transaction.js';
 import { lockEmployee, isoDate } from '../infrastructure/hrm-time.js';
 import {
   requireDate,
-  optionalText,
   requireText,
   requireUuid,
+  rejectionNote,
 } from '../infrastructure/hrm-validation.js';
 import { RequirePermission } from '../infrastructure/hrm-access.guard.js';
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
@@ -731,7 +731,7 @@ export class HrmSalaryController {
     };
   }
 
-  @RequirePermission('hrm.advance.approve')
+  @RequirePermission('hrm.request.approve')
   @Post('salary-advance-requests/:id/approve')
   async approveAdvance(
     @Req() req: Request,
@@ -740,7 +740,7 @@ export class HrmSalaryController {
   ) {
     const { pool, tenantId, principal } = await this.ctx.approverContext(
       req,
-      'hrm.advance.approve',
+      'hrm.request.approve',
       'advance',
       id,
     );
@@ -763,7 +763,7 @@ export class HrmSalaryController {
   ) {
     const { pool, tenantId, principal } = await this.ctx.approverContext(
       req,
-      'hrm.advance.approve',
+      'hrm.request.approve',
       'advance',
       id,
     );
@@ -773,7 +773,7 @@ export class HrmSalaryController {
       'advance',
       'reject',
     );
-    optionalText(reason, 'reason', 2000);
+    rejectionNote(reason);
     const result = await pool.query(
       `UPDATE hrm_schema.salary_advance_requests SET status='REJECTED',approved_by=$3,approved_at=now() WHERE tenant_id=$1 AND id=$2 AND status='PENDING' RETURNING *`,
       [tenantId, id, principal.userId],
@@ -1088,10 +1088,13 @@ export class HrmSalaryController {
       currentStepName: (row.current_step_name ?? null) as string | null,
       currentAssigneeName: (row.current_assignee_name ?? null) as string | null,
       workflowStatus: (row.workflow_status ?? null) as string | null,
-      approvedBy: row.approved_by as string | null,
-      approvedAt: row.approved_at ? String(row.approved_at) : null,
-      disbursedAt: row.disbursed_at ? String(row.disbursed_at) : null,
-      createdAt: String(row.created_at),
+      approvedAt: row.approved_at
+        ? new Date(row.approved_at as string).toISOString()
+        : null,
+      disbursedAt: row.disbursed_at
+        ? new Date(row.disbursed_at as string).toISOString()
+        : null,
+      createdAt: new Date(row.created_at as string).toISOString(),
       updatedAt: timestamp(row.updated_at),
     };
   }

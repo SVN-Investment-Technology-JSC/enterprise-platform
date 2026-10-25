@@ -10,6 +10,11 @@
       "import": "./src/index.ts",
       "default": "./src/index.ts"
     },
+    "./quick-actions": {
+      "types": "./src/lib/procedure-quick-actions.ts",
+      "import": "./src/lib/procedure-quick-actions.ts",
+      "default": "./src/lib/procedure-quick-actions.ts"
+    },
     "./package.json": "./package.json"
   },
   "nx": {

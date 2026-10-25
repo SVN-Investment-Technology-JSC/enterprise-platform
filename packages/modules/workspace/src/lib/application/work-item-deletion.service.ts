@@ -101,6 +101,7 @@ export class WorkItemDeletionService {
       parentId: row.parentId,
       status: row.status,
       progressPercent: row.progressPercent,
+      manualPercent: row.manualPercent,
       estimateHours: row.estimateHours,
     }));
 

@@ -1,13 +1,21 @@
 'use client';
 
 import type {
+  StandaloneTaskFieldChange,
   WorkItem,
+  WorkItemFieldChange,
   WorkItemStatusHistoryEntry,
 } from '@enterprise-platform/contracts-workspace';
 import { branchOf } from '../project-tree.model';
-import { WORK_ITEM_STATUS_LABELS, WORK_ITEM_STATUS_TONE } from '../workspace-labels';
+import {
+  WORK_ITEM_STATUS_LABELS,
+  WORK_ITEM_STATUS_TONE,
+  formatDate,
+  priorityLabel,
+} from '../workspace-labels';
 import styles from '../workspace.module.scss';
 import { useDirectory } from './use-directory';
+import { useTags } from './use-tags';
 
 export interface TabActivityProps {
   readonly entries: readonly WorkItemStatusHistoryEntry[];
@@ -137,7 +145,11 @@ export function TabActivity({ entries, items, selected, onOpen }: TabActivityPro
                   >
                     <span
                       className={styles.activityDot}
-                      style={{ background: WORK_ITEM_STATUS_TONE[latest.toStatus].fg }}
+                      style={{
+                        background: latest.toStatus
+                          ? WORK_ITEM_STATUS_TONE[latest.toStatus].fg
+                          : EDIT_DOT_COLOR,
+                      }}
                       aria-hidden
                     />
                     <p className={styles.activityItem}>
@@ -173,7 +185,11 @@ export function TabActivity({ entries, items, selected, onOpen }: TabActivityPro
   );
 }
 
+/** Chấm của khối chỉ có dòng sửa trường (không đổi trạng thái). */
+const EDIT_DOT_COLOR = '#94a3b8';
+
 function ActivityRow({ entry, actor }: { entry: WorkItemStatusHistoryEntry; actor: string }) {
+  if (!entry.toStatus) return <ChangeRow entry={entry} actor={actor} />;
   const tone = WORK_ITEM_STATUS_TONE[entry.toStatus];
   // Huỷ hiệu lực ghi `cancelled` kèm ghi chú "Huỷ hiệu lực: …" (xem store
   // `workItem.reverse`): hiện đúng tên để không lẫn với huỷ thường.
@@ -221,6 +237,124 @@ function ActivityRow({ entry, actor }: { entry: WorkItemStatusHistoryEntry; acto
             {people ? <span className={styles.muted}> · {people}</span> : null}
           </span>
         ) : null}
+      </div>
+      <time className={styles.activityTime} dateTime={entry.createdAt}>
+        {timeOf(entry.createdAt)}
+      </time>
+    </div>
+  );
+}
+
+type FieldChange = WorkItemFieldChange | StandaloneTaskFieldChange;
+
+const FIELD_LABELS: Record<FieldChange['field'], string> = {
+  title: 'Tên công việc',
+  description: 'Mô tả',
+  priority: 'Ưu tiên',
+  assigneeUserId: 'Người phụ trách',
+  participantUserIds: 'Người cùng làm',
+  followerUserIds: 'Người theo dõi',
+  tagIds: 'Nhãn',
+  plannedStart: 'Ngày bắt đầu',
+  plannedEnd: 'Hạn',
+  dueDate: 'Hạn',
+  estimateHours: 'Giờ ước lượng',
+  progressPercent: 'Tiến độ',
+  manualProgressPercent: 'Tiến độ nhập tay',
+};
+
+const asList = (value: FieldChange['from']): readonly string[] => (Array.isArray(value) ? value : []);
+
+/**
+ * Các trường vừa sửa, mỗi trường một dòng "Tên trường: cũ → mới". Dùng chung cho nhật ký công việc dự án và
+ * việc ngoài dự án.
+ */
+export function FieldChangeList({ changes }: { changes: readonly FieldChange[] }) {
+  const directory = useDirectory();
+  const { find } = useTags();
+  const person = (id: string) => directory.nameOf(id);
+  const tag = (id: string) => find(id)?.name ?? 'Nhãn đã xoá';
+
+  const describe = (change: FieldChange): { from?: string; to: string } => {
+    const { field, from, to } = change;
+    switch (field) {
+      case 'description':
+        return { to: to ? 'đã sửa' : 'đã xoá' };
+      case 'priority':
+        return {
+          from: from ? priorityLabel(String(from)) : '—',
+          to: to ? priorityLabel(String(to)) : '—',
+        };
+      case 'assigneeUserId':
+        return {
+          from: from ? person(String(from)) : 'Chưa giao',
+          to: to ? person(String(to)) : 'Chưa giao',
+        };
+      case 'participantUserIds':
+      case 'followerUserIds':
+      case 'tagIds': {
+        const name = field === 'tagIds' ? tag : person;
+        const before = asList(from);
+        const after = asList(to);
+        const added = after.filter((id) => !before.includes(id)).map(name);
+        const removed = before.filter((id) => !after.includes(id)).map(name);
+        return {
+          to: [
+            added.length ? `thêm ${added.join(', ')}` : '',
+            removed.length ? `bỏ ${removed.join(', ')}` : '',
+          ]
+            .filter(Boolean)
+            .join('; '),
+        };
+      }
+      case 'plannedStart':
+      case 'plannedEnd':
+      case 'dueDate':
+        return {
+          from: formatDate(from as string | null) || 'Chưa đặt',
+          to: formatDate(to as string | null) || 'Chưa đặt',
+        };
+      case 'estimateHours':
+        return { from: from == null ? '—' : `${from} giờ`, to: to == null ? '—' : `${to} giờ` };
+      case 'progressPercent':
+        return { from: `${from ?? 0}%`, to: `${to ?? 0}%` };
+      case 'manualProgressPercent':
+        return { from: from == null ? 'Tự tính' : `${from}%`, to: to == null ? 'Tự tính' : `${to}%` };
+      default:
+        return { from: from == null ? '—' : String(from), to: to == null ? '—' : String(to) };
+    }
+  };
+
+  return (
+    <>
+      {changes.map((change) => {
+        const text = describe(change);
+        return (
+          <span key={change.field} className={styles.activityNote}>
+            <b>{FIELD_LABELS[change.field]}:</b>{' '}
+            {text.from !== undefined ? (
+              <>
+                <span className={styles.muted}>{text.from}</span> →{' '}
+              </>
+            ) : null}
+            {text.to}
+          </span>
+        );
+      })}
+    </>
+  );
+}
+
+/** Một dòng sửa trường trong nhật ký công việc dự án. */
+function ChangeRow({ entry, actor }: { entry: WorkItemStatusHistoryEntry; actor: string }) {
+  return (
+    <div className={styles.activityRow}>
+      <div className={styles.activityMain}>
+        <span className={styles.activityChange}>
+          <span className={styles.muted}>Sửa thông tin</span>
+          <span className={styles.activityActor}>{actor}</span>
+        </span>
+        <FieldChangeList changes={entry.changes ?? []} />
       </div>
       <time className={styles.activityTime} dateTime={entry.createdAt}>
         {timeOf(entry.createdAt)}

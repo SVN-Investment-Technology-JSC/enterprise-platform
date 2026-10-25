@@ -44,6 +44,13 @@ const shiftContext = {
   },
 };
 
+/** Một quyền duyệt chung: Bàn làm việc gọi mọi loại đơn đang dùng; loại test không nêu thì rỗng. */
+const OTHER_APPROVAL_LISTS = {
+  '/business-trip-requests': { data: [] },
+  '/attendance-corrections': { data: [] },
+  '/custom-requests': { data: [] },
+};
+
 function respond(map: Record<string, unknown>) {
   fetchMock.mockImplementation(async (path: string) => {
     const key = Object.keys(map).find((k) => path.startsWith(k));
@@ -92,13 +99,14 @@ describe('HrmDashboardPage', () => {
   });
 
   it('nguoi duyet dem don cho duyet, chi goi loai duoc duyet, kem forApproval=1', async () => {
-    mockActions = ['hrm.self.read', 'hrm.leave.approve', 'hrm.ot.approve.all'];
+    mockActions = ['hrm.self.read', 'hrm.request.approve', 'hrm.request.approve.all'];
     respond({
       '/my-attendance-context': { data: noShiftContext },
       '/leave-requests': {
         data: [{ status: 'PENDING' }, { status: 'APPROVED' }, { status: 'PENDING' }],
       },
       '/ot-requests': { data: [{ status: 'PEER_CONFIRMED' }] },
+      ...OTHER_APPROVAL_LISTS,
     });
     render(<HrmDashboardPage />);
     const leave = await screen.findByRole('link', { name: /Nghỉ phép/ });
@@ -112,6 +120,9 @@ describe('HrmDashboardPage', () => {
         '/my-attendance-context',
         '/leave-requests?forApproval=1',
         '/ot-requests?forApproval=1',
+        '/business-trip-requests?forApproval=1',
+        '/attendance-corrections?forApproval=1',
+        '/custom-requests?forApproval=1',
       ].sort(),
     );
     expect(screen.queryByRole('link', { name: /Tạm ứng/ })).toBeNull();
@@ -120,9 +131,11 @@ describe('HrmDashboardPage', () => {
   });
 
   it('403 khong hien so 0 gia', async () => {
-    mockActions = ['hrm.leave.approve'];
+    mockActions = ['hrm.request.approve'];
     respond({
       '/leave-requests': new HrmApiError('Forbidden', 403),
+      '/ot-requests': { data: [] },
+      ...OTHER_APPROVAL_LISTS,
     });
     render(<HrmDashboardPage />);
     const leave = await screen.findByRole('link', { name: /Nghỉ phép/ });

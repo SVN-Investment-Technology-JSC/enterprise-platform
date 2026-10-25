@@ -14,7 +14,7 @@ jest.mock('jose', () => ({
 }));
 jest.mock('./hrm-procedure-api', () => ({ isProcedureReachable: jest.fn() }));
 jest.mock('./hrm-approval-policy', () => ({
-  approvalKindOfPermissions: jest.fn(),
+  assignedKindsWithoutPermission: jest.fn(),
   assignedRequestIds: jest.fn(),
 }));
 
@@ -27,7 +27,7 @@ describe('approverContext', () => {
     jest.spyOn(service, 'getContext').mockImplementation((async (_r: Request, permission: string) =>
       impl(permission)) as never);
   const denyApprove = (permission: string) => {
-    if (permission === 'hrm.ot.approve') throw new ForbiddenException('no');
+    if (permission === 'hrm.request.approve') throw new ForbiddenException('no');
     return base;
   };
   beforeEach(() => jest.clearAllMocks());
@@ -35,7 +35,7 @@ describe('approverContext', () => {
   it('dùng ngay quyền duyệt khi người dùng có quyền', async () => {
     const service = make();
     const getContext = spy(service, () => base);
-    await expect(service.approverContext(req, 'hrm.ot.approve', 'ot', 'r1')).resolves.toBe(base);
+    await expect(service.approverContext(req, 'hrm.request.approve', 'ot', 'r1')).resolves.toBe(base);
     expect(getContext).toHaveBeenCalledTimes(1);
     expect(assignedRequestIds).not.toHaveBeenCalled();
   });
@@ -44,7 +44,7 @@ describe('approverContext', () => {
     const service = make();
     spy(service, denyApprove);
     (assignedRequestIds as jest.Mock).mockResolvedValue(['r1', 'r2']);
-    await expect(service.approverContext(req, 'hrm.ot.approve', 'ot', 'r1')).resolves.toBe(base);
+    await expect(service.approverContext(req, 'hrm.request.approve', 'ot', 'r1')).resolves.toBe(base);
     expect(assignedRequestIds).toHaveBeenCalledWith(base.pool, 't1', 'ot', 'backup');
   });
 
@@ -52,7 +52,7 @@ describe('approverContext', () => {
     const service = make();
     spy(service, denyApprove);
     (assignedRequestIds as jest.Mock).mockResolvedValue(['other']);
-    await expect(service.approverContext(req, 'hrm.ot.approve', 'ot', 'r1')).rejects.toBeInstanceOf(
+    await expect(service.approverContext(req, 'hrm.request.approve', 'ot', 'r1')).rejects.toBeInstanceOf(
       ForbiddenException,
     );
   });
@@ -62,7 +62,7 @@ describe('approverContext', () => {
     spy(service, () => {
       throw new Error('boom');
     });
-    await expect(service.approverContext(req, 'hrm.ot.approve', 'ot', 'r1')).rejects.toThrow('boom');
+    await expect(service.approverContext(req, 'hrm.request.approve', 'ot', 'r1')).rejects.toThrow('boom');
     expect(assignedRequestIds).not.toHaveBeenCalled();
   });
 });

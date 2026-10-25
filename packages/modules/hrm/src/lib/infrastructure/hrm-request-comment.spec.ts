@@ -12,6 +12,7 @@ import {
   listComments,
   normalizeRequestKind,
   resolveThreadAccess,
+  mentionableUserIds,
   searchMentionCandidates,
   validateCommentBody,
   validMentions,
@@ -74,15 +75,15 @@ describe('quyền xem và viết trong luồng trao đổi', () => {
   it('chủ đơn luôn được; người quản trị xem được mọi đơn', async () => {
     expect(await resolve({ userId: OWNER_USER }, false)).toBe('OWNER');
     expect(await resolve({ userId: PEER, permissions: ['hrm.request.read'] }, false)).toBe('ALL');
-    expect(await resolve({ userId: PEER, permissions: ['hrm.leave.approve.all'] }, false)).toBe('ALL');
+    expect(await resolve({ userId: PEER, permissions: ['hrm.request.approve.all'] }, false)).toBe('ALL');
     expect(await resolve({ userId: PEER, permissions: ['hrm.manage'] }, false)).toBe('ALL');
   });
 
   it('người duyệt chỉ được khi đơn thuộc phạm vi cấp dưới của họ', async () => {
-    const boss = { userId: BOSS, permissions: ['hrm.leave.approve'] };
+    const boss = { userId: BOSS, permissions: ['hrm.request.approve'] };
     expect(await resolve(boss, true)).toBe('APPROVER');
     expect(await resolve(boss, false)).toBeNull();
-    // quyền duyệt loại đơn khác không có tác dụng
+    // quyền duyệt cũ theo từng loại đơn đã gộp, không còn tác dụng
     expect(await resolve({ userId: BOSS, permissions: ['hrm.ot.approve'] }, true)).toBeNull();
   });
 
@@ -99,9 +100,26 @@ describe('quyền xem và viết trong luồng trao đổi', () => {
   });
 
   it('hàm quyền thuần', () => {
-    expect(canReadAllRequests({ userId: 'x', permissions: ['hrm.leave.approve'] }, 'leave')).toBe(false);
-    expect(hasApprovePermission({ userId: 'x', permissions: ['hrm.trip.approve'] }, 'business_trip')).toBe(true);
+    expect(canReadAllRequests({ userId: 'x', permissions: ['hrm.request.approve'] }, 'leave')).toBe(false);
+    expect(canReadAllRequests({ userId: 'x', permissions: ['hrm.request.approve.all'] }, 'ot')).toBe(true);
+    expect(hasApprovePermission({ userId: 'x', permissions: ['hrm.request.approve'] }, 'business_trip')).toBe(true);
     expect(hasApprovePermission({ userId: 'x', permissions: ['hrm.trip.approve'] }, 'leave')).toBe(false);
+  });
+});
+
+describe('mentionableUserIds', () => {
+  it('gồm chủ đơn, người tạo hộ và người đã tham gia luồng trao đổi, không gồm ai khác', async () => {
+    const { db } = fakeDb([
+      { match: /submitted_by/, rows: [{ submitted_by: BOSS }] },
+      { match: /request_comments/, rows: [{ author_user_id: PEER, mention_user_ids: [REQ] }] },
+    ]);
+    const people = await mentionableUserIds(db, TENANT, 'leave', REQ, owner);
+    expect([...people].sort()).toEqual([OWNER_USER, BOSS, PEER, REQ].sort());
+  });
+
+  it('đơn chưa có người tạo hộ hay trao đổi thì chỉ có chủ đơn', async () => {
+    const people = await mentionableUserIds(fakeDb().db, TENANT, 'ot', REQ, owner);
+    expect([...people]).toEqual([OWNER_USER]);
   });
 });
 
@@ -112,6 +130,12 @@ describe('validMentions', () => {
     expect(result).toEqual([PEER]);
     expect(calls[0].params[1]).toEqual([PEER]);
     expect(await validMentions(fakeDb().db, TENANT, BOSS, undefined)).toEqual([]);
+  });
+
+  it('nhắc người ngoài phạm vi liên quan tới đơn thì bị từ chối', async () => {
+    const { db } = fakeDb([{ match: /core_schema.employees/, rows: [{ user_id: PEER }] }]);
+    await expect(validMentions(db, TENANT, BOSS, [PEER], new Set([OWNER_USER]))).rejects.toThrow('liên quan tới đơn');
+    expect(await validMentions(db, TENANT, BOSS, [PEER], new Set([PEER]))).toEqual([PEER]);
   });
 
   it('quá nhiều người nhắc một lần bị từ chối', async () => {
@@ -148,10 +172,10 @@ describe('createComment: ghi bình luận và sự kiện thông báo cùng giao
     const mention = events(calls)[0].payload;
     expect(mention.mentionedUserIds).toEqual([PEER]);
     expect(mention.summary).toContain('Trần Quản Lý trao đổi về đơn nghỉ phép của Nguyễn Văn A');
-    expect(mention.deepLink).toBe(`/modules/hrm/approvals?request=${REQ}`);
+    expect(mention.deepLink).toBe(`/modules/hrm/approvals?request=${REQ}&comment=cm-1`);
     const toRequester = events(calls)[1].payload;
     expect(toRequester.recipientUserIds).toEqual([OWNER_USER]);
-    expect(toRequester.deepLink).toBe(`/modules/hrm/requests?request=${REQ}`);
+    expect(toRequester.deepLink).toBe(`/modules/hrm/requests?request=${REQ}&comment=cm-1`);
   });
 
   it('chủ đơn trả lời: báo cho người có quyền duyệt loại đơn, không tự báo cho mình', async () => {
@@ -159,7 +183,7 @@ describe('createComment: ghi bình luận và sự kiện thông báo cùng giao
     await createComment(db, { ...base, actor: { userId: OWNER_USER, name: 'Nguyễn Văn A' }, access: 'OWNER', mentionUserIds: [] });
     const list = events(calls);
     expect(list.map((e) => e.type)).toEqual(['hrm.request.comment.to-approvers']);
-    expect(list[0].payload.approvalPermissions).toEqual(['hrm.leave.approve', 'hrm.manage']);
+    expect(list[0].payload.approvalPermissions).toEqual(['hrm.request.approve.all', 'hrm.manage']);
   });
 
   it('ý kiến kèm quyết định có lời nêu rõ đã duyệt hay từ chối; nhắc chính chủ đơn thì chỉ báo một lần', async () => {
@@ -176,7 +200,7 @@ describe('createComment: ghi bình luận và sự kiện thông báo cùng giao
     const list = events(calls);
     expect(list.map((e) => e.type)).toEqual(['hrm.request.comment.mentioned']);
     expect(list[0].payload.summary).toContain('đã phê duyệt đơn nghỉ phép của Nguyễn Văn A: Duyệt, nhớ bàn giao việc');
-    expect(list[0].payload.deepLink).toBe(`/modules/hrm/requests?request=${REQ}`);
+    expect(list[0].payload.deepLink).toBe(`/modules/hrm/requests?request=${REQ}&comment=cm-1`);
     const insert = calls.find((c) => c.sql.includes('INSERT INTO hrm_schema.request_comments'));
     expect(insert?.params.slice(5, 8)).toEqual(['DECISION', 'APPROVE', 'Duyệt, nhớ bàn giao việc']);
   });
@@ -208,6 +232,8 @@ describe('listComments', () => {
   });
 });
 
+const ALLOWED = new Set([PEER, BOSS]);
+
 describe('searchMentionCandidates', () => {
   it('tìm theo tên không dấu hoặc mã, tối đa 20 người', async () => {
     const rows = [
@@ -215,10 +241,19 @@ describe('searchMentionCandidates', () => {
       { user_id: BOSS, full_name: 'Trần Thị Hoa', employee_code: 'NV011', department_name: null },
     ];
     const { db } = fakeDb([{ match: /core_schema\.employees/, rows }]);
-    expect((await searchMentionCandidates(db, TENANT, 'binh', OWNER_USER)).map((c) => c.userId)).toEqual([PEER]);
-    expect((await searchMentionCandidates(db, TENANT, 'NV011', OWNER_USER)).map((c) => c.userId)).toEqual([BOSS]);
-    expect(await searchMentionCandidates(db, TENANT, '', OWNER_USER)).toHaveLength(2);
-    expect(await searchMentionCandidates(db, TENANT, 'khongco', OWNER_USER)).toEqual([]);
+    expect((await searchMentionCandidates(db, TENANT, 'binh', OWNER_USER, ALLOWED)).map((c) => c.userId)).toEqual([PEER]);
+    expect((await searchMentionCandidates(db, TENANT, 'NV011', OWNER_USER, ALLOWED)).map((c) => c.userId)).toEqual([BOSS]);
+    expect(await searchMentionCandidates(db, TENANT, '', OWNER_USER, ALLOWED)).toHaveLength(2);
+    expect(await searchMentionCandidates(db, TENANT, 'khongco', OWNER_USER, ALLOWED)).toEqual([]);
+  });
+
+  it('chỉ tìm trong những người liên quan tới đơn, không có ai liên quan thì không truy vấn', async () => {
+    const { db, calls } = fakeDb([{ match: /core_schema.employees/, rows: [] }]);
+    await searchMentionCandidates(db, TENANT, '', OWNER_USER, ALLOWED);
+    expect(calls[0].params[2]).toEqual([PEER, BOSS]);
+    const none = fakeDb();
+    expect(await searchMentionCandidates(none.db, TENANT, '', OWNER_USER, new Set())).toEqual([]);
+    expect(none.calls).toHaveLength(0);
   });
 });
 

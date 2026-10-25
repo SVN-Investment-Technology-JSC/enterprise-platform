@@ -6,13 +6,13 @@ describe('PROCEDURE_ASSISTANT_ACTIONS', () => {
     expect(assistantActionProblems(PROCEDURE_ASSISTANT_ACTIONS)).toEqual([]);
   });
 
-  it('opens the start form for people who can create instances, one variant per published procedure', () => {
+  it('opens the start form for people who can create instances, one variant per procedure they can start', () => {
     expect(PROCEDURE_ASSISTANT_ACTIONS.startInstance).toMatchObject({
       module: 'procedure-engine',
       key: 'procedure.instance.create',
       permission: 'procedure.instance.create',
       page: '/modules/procedure#workspace',
-      variants: { lookup: '/api/procedure/v1/workspace' },
+      variants: { lookup: '/api/procedure/v1/definitions/startable' },
     });
   });
 });

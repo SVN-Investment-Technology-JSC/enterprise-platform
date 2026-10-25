@@ -325,6 +325,7 @@ export function computeBoardDay(input: BoardDayInput): HrmBoardDay {
   const future = date > today;
 
   const shift = input.shift;
+  const hasAuto = input.events.some((e) => e.auto);
   let window: ShiftWindow | null = null;
   let invalidShift = false;
   if (shift) window = shiftWindowOf(shift, date, timezone);
@@ -376,7 +377,7 @@ export function computeBoardDay(input: BoardDayInput): HrmBoardDay {
       legacy: l.legacy,
     })),
     hasOt: input.ot.length > 0,
-    autoOnly: input.events.length > 0 && input.events.every((e) => e.auto),
+    autoOnly: hasAuto,
     trips: tripInputs,
   });
   const paid = outcome.paidMinutes;
@@ -450,6 +451,7 @@ export function computeBoardDay(input: BoardDayInput): HrmBoardDay {
     tripId: trip ? input.tripIds[0] : null,
     holidayName,
     sources,
+    attendanceSource: calc.firstIn || calc.lastOut ? (hasAuto ? 'AUTO' : 'MANUAL') : null,
   });
 }
 
@@ -1187,6 +1189,12 @@ function storedDay(
     holidayName,
     adjusted: row.is_manually_adjusted === true,
     sources: Array.isArray(row.sources) ? (row.sources as HrmDaySource[]) : [],
+    attendanceSource:
+      snapshot.firstIn || snapshot.lastOut
+        ? row.attendance_source === 'AUTO'
+          ? 'AUTO'
+          : 'MANUAL'
+        : null,
   });
 }
 

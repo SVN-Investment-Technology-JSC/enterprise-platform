@@ -21,6 +21,7 @@ function fakeDeps(options: {
   subordinates?: string[];
   missing?: boolean;
   fallbackPositionId?: string | null;
+  approverPositionId?: string | null;
   actorHoldsPosition?: boolean;
 }): HrmApprovalDeps {
   const orgScope: HrmOrgScopePort = {
@@ -51,16 +52,28 @@ function fakeDeps(options: {
         }
         if (sql.includes('request_procedure_bindings')) {
           return {
-            rows: options.fallbackPositionId
+            rows: options.approverPositionId
               ? [
                   {
                     sub_type_code: null,
                     mode: 'DIRECT',
-                    fallback_position_id: options.fallbackPositionId,
+                    direct_approver_source: 'POSITION',
+                    approver_position_id: options.approverPositionId,
+                    fallback_position_id: options.fallbackPositionId ?? null,
                   },
                 ]
-              : [],
-            rowCount: options.fallbackPositionId ? 1 : 0,
+              : options.fallbackPositionId
+                ? [
+                    {
+                      sub_type_code: null,
+                      mode: 'DIRECT',
+                      direct_approver_source: 'DIRECT_MANAGER',
+                      approver_position_id: null,
+                      fallback_position_id: options.fallbackPositionId,
+                    },
+                  ]
+                : [],
+            rowCount: options.approverPositionId || options.fallbackPositionId ? 1 : 0,
           };
         }
         if (options.missing) return { rows: [], rowCount: 0 };
@@ -78,7 +91,7 @@ function fakeDeps(options: {
   };
 }
 
-const manager = { userId: ACTOR, permissions: ['hrm.leave.approve'] };
+const manager = { userId: ACTOR, permissions: ['hrm.request.approve'] };
 
 describe('assertCanDecide', () => {
   it('tự duyệt đơn của chính mình bị 403 SELF_APPROVAL_FORBIDDEN', async () => {
@@ -219,7 +232,7 @@ describe('assertCanDecide', () => {
   it('quyền approve.all duyệt toàn tenant dù khác đơn vị', async () => {
     await expect(
       assertCanDecide(
-        { userId: ACTOR, permissions: ['hrm.leave.approve.all'] },
+        { userId: ACTOR, permissions: ['hrm.request.approve.all'] },
         { id: 'r1' },
         'leave',
         fakeDeps({ subordinates: [] }),
@@ -227,15 +240,16 @@ describe('assertCanDecide', () => {
     ).resolves.toBeUndefined();
   });
 
-  it('approve.all của loại đơn khác không có tác dụng', async () => {
-    await expect(
-      assertCanDecide(
-        { userId: ACTOR, permissions: ['hrm.ot.approve.all'] },
-        { id: 'r1' },
-        'leave',
-        fakeDeps({ subordinates: [] }),
-      ),
-    ).rejects.toMatchObject({ status: 403 });
+  it('một quyền approve.all dùng chung cho mọi loại đơn', async () => {
+    for (const kind of ['leave', 'ot', 'business_trip', 'correction'] as const)
+      await expect(
+        assertCanDecide(
+          { userId: ACTOR, permissions: ['hrm.request.approve.all'] },
+          { id: 'r1' },
+          kind,
+          fakeDeps({ subordinates: [] }),
+        ),
+      ).resolves.toBeUndefined();
   });
 
   it('đơn có liên kết quy trình trả 409 PROCEDURE_IN_PROGRESS', async () => {
@@ -269,6 +283,39 @@ describe('assertCanDecide', () => {
         fakeDeps({ subordinates: [], link: true }),
       ),
     ).rejects.toMatchObject({ status: 403 });
+  });
+
+  it('đơn cấu hình POSITION thì cấp trên có quyền duyệt vẫn bị 403 APPROVAL_OUT_OF_SCOPE', async () => {
+    await expect(
+      assertCanDecide(
+        manager,
+        { id: 'r1' },
+        'leave',
+        fakeDeps({
+          subordinates: [OWNER],
+          approverPositionId: 'pos-hc',
+          actorHoldsPosition: false,
+        }),
+      ),
+    ).rejects.toMatchObject({
+      response: { code: APPROVAL_OUT_OF_SCOPE },
+      status: 403,
+    });
+  });
+
+  it('người giữ đúng chức danh chỉ định của đơn POSITION được duyệt dù không phải cấp trên', async () => {
+    await expect(
+      assertCanDecide(
+        manager,
+        { id: 'r1' },
+        'leave',
+        fakeDeps({
+          subordinates: ['someone-else'],
+          approverPositionId: 'pos-hc',
+          actorHoldsPosition: true,
+        }),
+      ),
+    ).resolves.toBeUndefined();
   });
 
   it('đơn không tồn tại trả 404', async () => {
@@ -322,11 +369,10 @@ describe('computeSubordinateUserIds', () => {
     ).toBe(true);
   });
 
-  it('trưởng đơn vị thấy mọi thành viên trong cây đơn vị', () => {
+  it('trưởng đơn vị không được tính: chỉ theo chuỗi báo cáo cho', () => {
     const result = computeSubordinateUserIds(snapshot, 'head-user');
-    expect(result.has('staff')).toBe(true);
-    expect(result.has('boss')).toBe(true);
-    expect(result.has('stranger')).toBe(false);
+    expect(result.has('staff')).toBe(false);
+    expect(result.has('boss')).toBe(false);
     expect(result.has('head-user')).toBe(false);
   });
 });
@@ -349,6 +395,15 @@ describe('approvalScopeSql', () => {
     );
     expect(out.params).toEqual([['a', 'b']]);
     expect(out.sql).toContain('ANY($4::uuid[])');
+  });
+  it('loại trừ các đơn POSITION khỏi phạm vi cấp dưới khi có excludeRequestIds', () => {
+    const out = approvalScopeSql(
+      { all: false, userIds: ['a', 'b'], excludeUserId: null, excludeRequestIds: ['req-pos-1'] },
+      'r',
+      4,
+    );
+    expect(out.params).toEqual([['a', 'b'], ['req-pos-1']]);
+    expect(out.sql).toContain('AND NOT (r.id = ANY($5::uuid[]))');
   });
   it('toàn tenant và cho tự duyệt không thêm điều kiện', () => {
     expect(

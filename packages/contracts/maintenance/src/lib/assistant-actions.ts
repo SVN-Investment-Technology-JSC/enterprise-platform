@@ -16,10 +16,12 @@ export const MAINTENANCE_ASSISTANT_ACTIONS = defineAssistantActions('maintenance
         required: true,
       },
       title: { describe: 'Tiêu đề ngắn của sự cố', required: true },
-      description: 'Mô tả hiện tượng, thời điểm phát hiện',
+      description:
+        'Mô tả đầy đủ theo lời người dùng: hiện tượng, vị trí và thời điểm phát hiện. Tiêu đề chỉ là tóm tắt nên hiện tượng vẫn ghi lại ở đây. Bỏ trống nếu người dùng không nói gì ngoài tên thiết bị.',
       priority: 'Mức ưu tiên: High (Cao), Normal (Thường) hoặc Low (Thấp)',
       procedureDefinitionId: {
-        describe: 'Quy trình xử lý để mở phiếu ngay (procedureCatalog[].definitionId); bỏ trống thì chỉ ghi nhận',
+        describe:
+          'Quy trình xử lý khi người dùng nêu quy trình, để mở phiếu ngay (procedureCatalog[].definitionId). Không nêu thì bỏ trống: phiếu chỉ ghi nhận sự cố.',
         lookup: '/api/maintenance/v1/matrix',
       },
       assigneeId: {

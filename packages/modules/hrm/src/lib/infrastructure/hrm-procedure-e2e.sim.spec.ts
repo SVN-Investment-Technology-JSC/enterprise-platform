@@ -612,7 +612,7 @@ describe('FIX-E-08 mô phỏng: duyệt DIRECT', () => {
       },
     } as never,
   });
-  const manager = { userId: MANAGER, permissions: ['hrm.leave.approve'] };
+  const manager = { userId: MANAGER, permissions: ['hrm.request.approve'] };
 
   it('tự duyệt đơn của mình: 403 SELF_APPROVAL_FORBIDDEN', async () => {
     await expect(

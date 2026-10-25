@@ -6,7 +6,6 @@ import {
 import { isIP } from 'node:net';
 import type { Request } from 'express';
 import type { Pool } from 'pg';
-import { distanceMeters } from '../domain/attendance-calculation.js';
 import { hrmTransaction } from './hrm-transaction.js';
 import {
   assertOpenDate,
@@ -16,6 +15,12 @@ import {
 } from './hrm-time.js';
 import { requireText, requireUuid } from './hrm-validation.js';
 import { matchesIpRules } from './hrm-network.js';
+import { resolveAllowedAttendanceSites } from './hrm-attendance-site-resolve.js';
+import {
+  effectiveLocationRule,
+  loadAttendanceLocationSettings,
+  matchAttendanceSite,
+} from './hrm-attendance-location.js';
 
 export interface AttendanceEventInput {
   employeeId: string;
@@ -119,15 +124,17 @@ export async function ingestEvent(
         if (clientIp && isIP(clientIp)) ip = clientIp;
       }
       evidence.ip = ip;
-      const allowedIps = Array.isArray(config.allowedIps)
-        ? config.allowedIps
-        : [];
-      if (config.requireIp === true && !matchesIpRules(ip, allowedIps))
-        throw new ForbiddenException(
-          'Địa chỉ IP không thuộc danh sách cho phép',
-        );
-      if (config.requireGps === true) {
+      // Quy tắc vị trí: theo địa điểm GPS (kèm IP của địa điểm) khi tenant đã chuyển sang cài đặt mới; tenant chưa chuyển thì
+      // vẫn theo cờ trong chính sách chấm công như trước.
+      const rule = effectiveLocationRule(await loadAttendanceLocationSettings(db, tenantId), config);
+      if (rule.requireIp) {
+        const allowedIps = Array.isArray(config.allowedIps) ? config.allowedIps : [];
+        if (!matchesIpRules(ip, allowedIps))
+          throw new ForbiddenException('Địa chỉ IP không thuộc danh sách cho phép');
+      }
+      if (rule.requireGps) {
         const { latitude, longitude, accuracy } = input;
+        const maxAccuracy = rule.maxGpsAccuracyMeters;
         if (
           typeof latitude !== 'number' ||
           !Number.isFinite(latitude) ||
@@ -138,34 +145,39 @@ export async function ingestEvent(
           typeof accuracy !== 'number' ||
           !Number.isFinite(accuracy) ||
           accuracy < 0 ||
-          accuracy > Number(config.maxGpsAccuracyMeters || 100)
+          accuracy > maxAccuracy
         )
           throw new BadRequestException(
             typeof accuracy === 'number' && Number.isFinite(accuracy) && accuracy > 0
-              ? `Cần vị trí GPS có độ chính xác phù hợp (hiện ±${Math.round(accuracy)} m, cho phép tối đa ${Number(config.maxGpsAccuracyMeters || 100)} m)`
+              ? `Cần vị trí GPS có độ chính xác phù hợp (hiện ±${Math.round(accuracy)} m, cho phép tối đa ${maxAccuracy} m)`
               : 'Cần vị trí GPS có độ chính xác phù hợp',
           );
-        const sites = await db.query(
-          `SELECT * FROM hrm_schema.attendance_sites WHERE tenant_id=$1 AND active=true`,
-          [tenantId],
-        );
-        const distanceTo = (s: { latitude: unknown; longitude: unknown }) =>
-          distanceMeters(
-            { latitude, longitude },
-            { latitude: Number(s.latitude), longitude: Number(s.longitude) },
-          );
-        const site = sites.rows.find((s) => distanceTo(s) <= Number(s.radius_meters));
-        if (!site) {
-          // Báo khoảng cách tới địa điểm gần nhất để người chấm công biết cần đi gần thêm hay vị trí đo bị lệch.
-          const nearest = sites.rows
-            .map((s) => ({ s, d: distanceTo(s) }))
-            .sort((a, b) => a.d - b.d)[0];
+        const allowedSites = await resolveAllowedAttendanceSites(db, tenantId, input.employeeId);
+        if (!allowedSites.length) {
           throw new ForbiddenException(
-            nearest
-              ? `Vị trí ngoài bán kính chấm công: cách "${nearest.s.name}" khoảng ${Math.round(nearest.d)} m (cho phép ${Number(nearest.s.radius_meters)} m), sai số vị trí ±${Math.round(accuracy)} m`
-              : 'Vị trí ngoài bán kính chấm công: chưa có địa điểm chấm công nào đang hoạt động',
+            'Bạn chưa được phân công địa điểm làm việc; vui lòng liên hệ bộ phận nhân sự',
           );
         }
+        // Cài đặt mới: trong bán kính VÀ đúng IP của địa điểm (nếu có khai báo IP). Chính sách cũ: chỉ xét bán kính, IP đã
+        // kiểm ở trên theo danh sách chung.
+        const match = matchAttendanceSite(
+          rule.source === 'SITES' ? allowedSites : allowedSites.map((s) => ({ ...s, allowed_ips: [] })),
+          { latitude, longitude },
+          ip,
+        );
+        if (!match.ok) {
+          const siteNames = allowedSites.map((s) => `"${s.name}"`).join(', ');
+          if (match.reason === 'IP')
+            throw new ForbiddenException(
+              `Vị trí hợp lệ tại "${match.site.name}" nhưng địa chỉ IP hiện tại không thuộc danh sách cho phép của địa điểm này`,
+            );
+          throw new ForbiddenException(
+            match.nearest
+              ? `Vị trí ngoài bán kính chấm công: cách "${match.nearest.site.name}" khoảng ${Math.round(match.nearest.distance)} m (cho phép ${Number(match.nearest.site.radius_meters)} m), sai số vị trí ±${Math.round(accuracy)} m. Địa điểm được phân công: ${siteNames}`
+              : 'Vị trí ngoài bán kính chấm công: không tìm thấy địa điểm được phân công hợp lệ',
+          );
+        }
+        const site = match.site;
         Object.assign(evidence, {
           latitude,
           longitude,

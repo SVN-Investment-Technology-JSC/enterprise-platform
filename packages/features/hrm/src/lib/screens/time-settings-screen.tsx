@@ -1,64 +1,87 @@
 'use client';
 
 import { useSettingsEmbedded } from '../ui/settings-center';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { History, Plus } from 'lucide-react';
 import { useHrmPermissions } from '../hrm-permissions';
 import { resolveTimeSettingsTab } from '../hrm-navigation';
-import { HrmActionDialog, type HrmAction } from '../ui/hrm-action-dialog';
-import { hrmFetch, hrmEmployeeOptions } from '../hrm-api';
+import { hrmFetch } from '../hrm-api';
 import { Button } from '../ui/button';
 import { ConfigHistoryDrawer } from '../ui/config-history-drawer';
 import { PageTitle } from '../ui/page-title';
-import {
-  InfoNote,
-  SectionTabs,
-  StatusPill,
-  kitPanelProps,
-} from '../ui/settings-kit';
+import { InfoNote, SectionTabs, StatusPill, kitPanelProps } from '../ui/settings-kit';
+import { LocationCard } from '../ui/time-settings/location-card';
 import { SitesPanel } from '../ui/time-settings/list-panels';
-import { PolicyDialog } from '../ui/time-settings/policy-dialog';
-import { RulesPanel } from '../ui/time-settings/rules-panel';
-import { SiteDialog, type SiteFormState } from '../ui/time-settings/site-dialog';
+import { SiteDialog, emptySiteForm, type SiteFormState } from '../ui/time-settings/site-dialog';
 import {
   SECTION_META,
   TIME_SETTINGS_TABS,
-  emptyPolicyForm,
-  pickCurrentVersion,
-  previewPolicyImpact,
-  today,
-  type EmployeeOption,
-  type PolicyFormState,
+  formatIpText,
+  normalizeMarks,
+  parseIpText,
+  tenantHasAssignments,
+  type LocationSettings,
   type Settings,
+  type SiteRow,
   type TimeSettingsTab,
+  type UnitOption,
 } from '../ui/time-settings/time-settings-model';
 
 export { DAY_KIND_LABELS } from '../ui/time-settings/time-settings-model';
 
-const emptySite = (): SiteFormState => ({
-  name: '',
-  latitude: 0,
-  longitude: 0,
-  radiusMeters: 100,
-});
+const DEFAULT_LOCATION: LocationSettings = {
+  locationCheck: false,
+  maxGpsAccuracyMeters: 100,
+  legacyPolicy: false,
+  configured: false,
+};
+
+/** Biểu mẫu sửa từ một địa điểm đã có: tách phân công COMPANY/UNIT (sửa được) khỏi chức danh/nhân viên (giữ nguyên). */
+function siteToForm(row: SiteRow, units: readonly UnitOption[]): SiteFormState {
+  const assignments = row.assignments ?? [];
+  const marks = normalizeMarks(units, {
+    companyWide: assignments.some((a) => a.scope_type === 'COMPANY'),
+    unitIds: assignments.filter((a) => a.scope_type === 'UNIT').map((a) => a.scope_id),
+    excludedUnitIds: assignments.filter((a) => a.scope_type === 'UNIT_EXCLUDE').map((a) => a.scope_id),
+  });
+  return {
+    id: row.id,
+    name: row.name,
+    latitude: Number(row.latitude),
+    longitude: Number(row.longitude),
+    radiusMeters: Number(row.radius_meters),
+    ipText: formatIpText(row.allowed_ips),
+    companyWide: marks.companyWide,
+    unitIds: [...marks.unitIds],
+    excludedUnitIds: [...marks.excludedUnitIds],
+    keptAssignments: assignments.filter((a) => a.scope_type === 'POSITION' || a.scope_type === 'EMPLOYEE'),
+    reason: '',
+  };
+}
+
+/** Phân công gửi lên máy chủ: toàn công ty (nếu chọn), đơn vị được tick, đơn vị ngoại lệ, và phân công chức danh/nhân viên giữ nguyên. */
+export function assignmentsPayload(site: SiteFormState) {
+  return [
+    ...(site.companyWide ? [{ scopeType: 'COMPANY' as const, scopeId: '' }] : []),
+    ...site.unitIds.map((scopeId) => ({ scopeType: 'UNIT' as const, scopeId })),
+    ...site.excludedUnitIds.map((scopeId) => ({ scopeType: 'UNIT_EXCLUDE' as const, scopeId })),
+    ...site.keptAssignments.map((a) => ({ scopeType: a.scope_type, scopeId: a.scope_id })),
+  ];
+}
 
 /**
- * Nhóm "Chấm công": hai mục độc lập (Quy định chấm công, Địa điểm GPS) chọn bằng
- * `?tab=`. Trong Trung tâm cấu hình mỗi mục là một trang riêng (thanh bên đã có sẵn các mục nên không vẽ thanh tab);
- * ngoài trung tâm có thanh tab ngang cuộn được.
+ * Mục "Địa điểm GPS" của nhóm "Chấm công": gộp quy định kiểm tra vị trí, địa điểm (GPS kèm IP nếu cần) và phòng ban được
+ * gán (kế thừa xuống đơn vị con) vào một trang. Chọn bằng `?tab=`; đường dẫn cũ `?tab=rules` rơi về mục này.
+ * Trong Trung tâm cấu hình mỗi mục là một trang riêng (thanh bên đã có sẵn các mục nên không vẽ thanh tab).
  */
 export default function TimeSettingsScreen() {
   const { can } = useHrmPermissions();
-  // Trong trung tâm cấu hình, các tab con đã nằm ở thanh bên nên không vẽ thanh tab riêng.
   const embedded = useSettingsEmbedded();
   const allowedTabs = can('hrm.time.configure') ? TIME_SETTINGS_TABS : [];
   const allowedTabIds = allowedTabs.map((tab) => tab.id);
   const [requestedTab, setRequestedTab] = useState<string | null>(null);
   const [urlReady, setUrlReady] = useState(false);
-  const activeTab = resolveTimeSettingsTab(
-    requestedTab,
-    allowedTabIds,
-  ) as TimeSettingsTab | '';
+  const activeTab = resolveTimeSettingsTab(requestedTab, allowedTabIds) as TimeSettingsTab | '';
 
   useEffect(() => {
     const sync = () => {
@@ -78,27 +101,19 @@ export default function TimeSettingsScreen() {
   }, []);
 
   useEffect(() => {
-    if (urlReady && activeTab && requestedTab !== activeTab) {
-      selectTab(activeTab);
-    }
+    if (urlReady && activeTab && requestedTab !== activeTab) selectTab(activeTab);
   }, [activeTab, requestedTab, selectTab, urlReady]);
 
-  const [data, setData] = useState<Settings>({
-    calendar: [],
-    sites: [],
-    versions: [],
-  });
+  const [data, setData] = useState<Settings>({ calendar: [], sites: [] });
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
-  const [action, setAction] = useState<HrmAction | null>(null);
-  const [dialog, setDialog] = useState<'policy' | 'site' | null>(null);
+  const [dialogOpen, setDialogOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [employees, setEmployees] = useState<EmployeeOption[]>([]);
-  const [policy, setPolicy] = useState<PolicyFormState>(emptyPolicyForm);
-  const [site, setSite] = useState<SiteFormState>(emptySite);
-  const load = useCallback(async () => {
-    setError('');
+  const [site, setSite] = useState<SiteFormState>(emptySiteForm);
+  /** `keepError`: tải lại sau một thao tác ghi không được xoá lỗi vừa báo. */
+  const load = useCallback(async (keepError = false) => {
+    if (!keepError) setError('');
     try {
       const result = await hrmFetch<{ data: Settings }>('/time-settings');
       setData(result.data);
@@ -106,142 +121,111 @@ export default function TimeSettingsScreen() {
       setError(e instanceof Error ? e.message : 'Không tải được cấu hình');
     }
   }, []);
-  const policyPreview = useMemo(
-    () => previewPolicyImpact(data.versions, policy),
-    [data.versions, policy],
-  );
-  async function loadEmployees() {
-    if (employees.length) return;
-    try {
-      // /employee-options chỉ cần quyền đọc HRM (vai trò chấm công không có quyền xem hồ sơ).
-      setEmployees(await hrmEmployeeOptions());
-    } catch {
-      setError('Không tải được danh sách nhân viên để chọn phạm vi áp dụng');
-    }
-  }
-  async function mutate(path: string, method: string, body: unknown) {
-    await hrmFetch(path, { method, body: JSON.stringify(body) });
-    setMessage('Đã lưu thay đổi cấu hình.');
-    // Ghi đã thành công: tải lại tách riêng để lỗi tải không khiến người dùng gửi lại.
-    void load();
-  }
-  function editSite(row: Settings['sites'][number]) {
-    setAction({
-      title: 'Cập nhật địa điểm chấm công',
-      columns: 2,
-      fields: [
-        { key: 'name', label: 'Tên địa điểm', value: row.name },
-        {
-          key: 'latitude',
-          label: 'Vĩ độ',
-          type: 'number',
-          min: -90,
-          max: 90,
-          step: 'any',
-          value: row.latitude,
-        },
-        {
-          key: 'longitude',
-          label: 'Kinh độ',
-          type: 'number',
-          min: -180,
-          max: 180,
-          step: 'any',
-          value: row.longitude,
-        },
-        {
-          key: 'radiusMeters',
-          label: 'Bán kính (m)',
-          type: 'number',
-          min: 1,
-          max: 100000,
-          value: row.radius_meters,
-        },
-        { key: 'reason', label: 'Lý do thay đổi' },
-      ],
-      submit: async (v) =>
-        mutate(`/time-settings/sites/${row.id}`, 'PATCH', {
-          ...v,
-          latitude: Number(v.latitude),
-          longitude: Number(v.longitude),
-          radiusMeters: Number(v.radiusMeters),
-          expectedUpdatedAt: row.updated_at,
-        }),
-    });
-  }
-  function remove(row: { id: string; updated_at: string }) {
-    setAction({
-      title: 'Ngừng địa điểm',
-      confirmTitle: 'Xác nhận thay đổi cấu hình?',
-      description:
-        'Giữ lịch sử và chứng cứ đã ghi nhận. Kỳ công mở bị ảnh hưởng phải tính lại.',
-      fields: [{ key: 'reason', label: 'Lý do' }],
-      submit: async (v) =>
-        mutate(`/time-settings/sites/${row.id}/deactivate`, 'POST', {
-          ...v,
-          expectedUpdatedAt: row.updated_at,
-        }),
-    });
-  }
   useEffect(() => {
     void load();
   }, [load]);
-  async function save(
-    path: string,
-    body: unknown,
-    done = 'Đã lưu cấu hình.',
-  ) {
+
+  /** Ngừng địa điểm sau khi người dùng xác nhận ở hộp xác nhận; máy chủ vẫn ghi nhật ký với lý do cố định. */
+  async function remove(row: { id: string; updated_at: string }) {
+    setError('');
+    setMessage('');
+    try {
+      await hrmFetch(`/time-settings/sites/${row.id}/deactivate`, {
+        method: 'POST',
+        body: JSON.stringify({ reason: 'Ngừng địa điểm chấm công', expectedUpdatedAt: row.updated_at }),
+      });
+      setMessage('Đã ngừng địa điểm.');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Không ngừng được địa điểm');
+    } finally {
+      // Tải lại cả khi lỗi (vd phiên bản đã đổi) để danh sách khớp với máy chủ.
+      void load(true);
+    }
+  }
+
+  function openAddDialog() {
+    setSite(emptySiteForm());
+    setDialogOpen(true);
+  }
+  function openEditDialog(row: SiteRow) {
+    setSite(siteToForm(row, data.units ?? []));
+    setDialogOpen(true);
+  }
+
+  /** Lưu địa điểm rồi gán phòng ban: hai việc ghi liên tiếp, báo rõ nếu việc gán lỗi sau khi địa điểm đã lưu. */
+  async function submitSite() {
+    const allowedIps = parseIpText(site.ipText);
+    const fields = {
+      name: site.name,
+      latitude: site.latitude,
+      longitude: site.longitude,
+      radiusMeters: site.radiusMeters,
+      allowedIps,
+    };
+    setBusy(true);
+    setError('');
+    setMessage('');
+    let savedId = site.id;
+    try {
+      if (site.id) {
+        const row = data.sites.find((s) => s.id === site.id);
+        await hrmFetch(`/time-settings/sites/${site.id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ ...fields, reason: site.reason, expectedUpdatedAt: row?.updated_at }),
+        });
+      } else {
+        const created = await hrmFetch<{ data: { id: string } }>('/time-settings/sites', {
+          method: 'POST',
+          body: JSON.stringify(fields),
+        });
+        savedId = created.data.id;
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Không lưu được địa điểm');
+      setBusy(false);
+      return;
+    }
+    try {
+      await hrmFetch(`/time-settings/sites/${savedId}/assignments`, {
+        method: 'PUT',
+        body: JSON.stringify({ assignments: assignmentsPayload(site), reason: site.reason || 'Gán địa điểm khi tạo' }),
+      });
+      setDialogOpen(false);
+      const noScope = assignmentsPayload(site).every((a) => a.scopeType === 'UNIT_EXCLUDE') && tenantHasAssignments(data.sites);
+      setMessage(
+        noScope
+          ? 'Đã lưu địa điểm. Lưu ý: chưa gán phòng ban nào nên chưa ai chấm công được tại đây.'
+          : 'Đã lưu địa điểm.',
+      );
+    } catch (e) {
+      setDialogOpen(false);
+      setError(
+        `Đã lưu địa điểm nhưng chưa gán được phòng ban: ${e instanceof Error ? e.message : 'lỗi không rõ'}. Mở lại địa điểm để gán.`,
+      );
+    } finally {
+      setBusy(false);
+      void load(true);
+    }
+  }
+
+  async function saveLocation(next: { locationCheck: boolean; maxGpsAccuracyMeters: number }) {
     setBusy(true);
     setError('');
     setMessage('');
     try {
-      const result = await hrmFetch<{ data?: { warnings?: string[] } }>(path, {
-        method: 'POST',
-        body: JSON.stringify(body),
-      });
-      setDialog(null);
-      const warnings = result?.data?.warnings ?? [];
-      setMessage(
-        warnings.length ? `${done} Lưu ý: ${warnings.join(' ')}` : done,
-      );
-      // Ghi đã thành công: tải lại tách riêng để không bị gửi lại khi tải lỗi.
-      void load();
+      await hrmFetch('/time-settings/location', { method: 'PUT', body: JSON.stringify(next) });
+      setMessage('Đã lưu cài đặt kiểm tra vị trí.');
+      void load(true);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Không lưu được cấu hình');
+      setError(e instanceof Error ? e.message : 'Không lưu được cài đặt');
     } finally {
       setBusy(false);
     }
   }
 
-  function openPolicyDialog() {
-    setPolicy(emptyPolicyForm());
-    setDialog('policy');
-    void loadEmployees();
-  }
-  function openSiteDialog() {
-    setSite(emptySite());
-    setDialog('site');
-  }
-  function submitPolicy() {
-    void save('/time-settings/policy', {
-      effectiveFrom: policy.effectiveFrom,
-      effectiveTo: policy.effectiveTo || null,
-      reason: policy.reason,
-      employeeIds: policy.scope === 'EMPLOYEES' ? policy.employeeIds : [],
-      timezone: policy.timezone,
-      requireIp: policy.requireIp,
-      requireGps: policy.requireGps,
-      maxGpsAccuracyMeters: policy.maxGpsAccuracyMeters,
-      allowedIps: policy.allowedIps
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean),
-    });
-  }
-
   const meta = activeTab ? SECTION_META[activeTab] : null;
-  const currentVersion = pickCurrentVersion(data.versions, today());
   const activeSites = data.sites.filter((s) => s.active).length;
+  const location = data.location ?? DEFAULT_LOCATION;
 
   const historyButton = can('hrm.audit.read') ? (
     <Button
@@ -256,36 +240,18 @@ export default function TimeSettingsScreen() {
   ) : null;
 
   const badge =
-    activeTab === 'rules' ? (
-      currentVersion ? (
-        <StatusPill tone="green">{`Đang áp dụng · v${currentVersion.version_no}`}</StatusPill>
-      ) : data.versions.length ? (
-        <StatusPill tone="amber">Chưa có quy định áp dụng</StatusPill>
-      ) : null
-    ) : activeTab === 'sites' && data.sites.length > 0 ? (
-      <StatusPill tone="green">{`${activeSites} đang dùng`}</StatusPill>
+    data.sites.length > 0 ? (
+      <StatusPill tone={location.locationCheck ? 'green' : 'slate'}>
+        {location.locationCheck ? `Đang kiểm vị trí · ${activeSites} địa điểm` : 'Chưa bật kiểm tra vị trí'}
+      </StatusPill>
     ) : null;
 
-  const primaryAction =
-    activeTab === 'rules' ? (
-      <Button
-        permission="hrm.time.configure"
-        onClick={openPolicyDialog}
-        className="h-9 gap-1.5 px-4 text-xs font-semibold"
-      >
-        <Plus className="size-4" />
-        <span>Tạo phiên bản mới</span>
-      </Button>
-    ) : activeTab === 'sites' ? (
-      <Button
-        permission="hrm.time.configure"
-        onClick={openSiteDialog}
-        className="h-9 gap-1.5 px-4 text-xs font-semibold"
-      >
-        <Plus className="size-4" />
-        <span>Thêm địa điểm</span>
-      </Button>
-    ) : null;
+  const primaryAction = (
+    <Button permission="hrm.time.configure" onClick={openAddDialog} className="h-9 gap-1.5 px-4 text-xs font-semibold">
+      <Plus className="size-4" />
+      <span>Thêm địa điểm</span>
+    </Button>
+  );
 
   const panelProps = (id: TimeSettingsTab) =>
     embedded
@@ -295,10 +261,7 @@ export default function TimeSettingsScreen() {
   return (
     <div className="@container mx-auto max-w-[1400px] space-y-4">
       {allowedTabs.length === 0 ? (
-        <div
-          role="alert"
-          className="rounded-xl border border-slate-200 bg-white p-6 text-center text-sm text-slate-500"
-        >
+        <div role="alert" className="rounded-xl border border-slate-200 bg-white p-6 text-center text-sm text-slate-500">
           Bạn không có quyền xem nhóm cấu hình này.
         </div>
       ) : (
@@ -338,46 +301,37 @@ export default function TimeSettingsScreen() {
             </InfoNote>
           ) : null}
 
-          {urlReady && activeTab === 'rules' ? (
-            <div {...panelProps('rules')}>
-              <RulesPanel versions={data.versions} onCreate={openPolicyDialog} />
-            </div>
-          ) : null}
           {urlReady && activeTab === 'sites' ? (
-            <div {...panelProps('sites')}>
+            <div {...panelProps('sites')} className="space-y-4">
+              <LocationCard
+                key={`${location.locationCheck}-${location.maxGpsAccuracyMeters}-${location.legacyPolicy}`}
+                value={location}
+                canConfigure={can('hrm.time.configure')}
+                busy={busy}
+                activeSites={activeSites}
+                onSave={(next) => void saveLocation(next)}
+              />
               <SitesPanel
                 rows={data.sites}
                 canConfigure={can('hrm.time.configure')}
-                onAdd={openSiteDialog}
-                onEdit={editSite}
-                onStop={remove}
+                onAdd={openAddDialog}
+                onEdit={openEditDialog}
+                onStop={(row) => remove(row)}
               />
             </div>
           ) : null}
         </>
       )}
 
-      <PolicyDialog
-        open={dialog === 'policy'}
-        busy={busy}
-        policy={policy}
-        setPolicy={setPolicy}
-        employees={employees}
-        impact={policyPreview}
-        onClose={() => setDialog(null)}
-        onSubmit={submitPolicy}
-      />
       <SiteDialog
-        open={dialog === 'site'}
+        open={dialogOpen}
         busy={busy}
         site={site}
+        units={data.units ?? []}
         setSite={setSite}
-        onClose={() => setDialog(null)}
-        onSubmit={() => void save('/time-settings/sites', site, 'Đã thêm địa điểm.')}
+        onClose={() => setDialogOpen(false)}
+        onSubmit={() => void submitSite()}
       />
-      {action && (
-        <HrmActionDialog action={action} onClose={() => setAction(null)} />
-      )}
       {meta ? (
         <ConfigHistoryDrawer
           open={historyOpen}

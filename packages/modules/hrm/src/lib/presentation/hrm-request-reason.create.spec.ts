@@ -197,6 +197,13 @@ function createHarness(
       employeeId: E,
       principal: { userId: U, permissions: [] },
     }),
+    getProxyRequestContext: async () => ({
+      pool,
+      tenantId: T,
+      employeeId: E,
+      principal: { userId: U, permissions: [] },
+      onBehalf: undefined,
+    }),
     getContext: async () => ({
       pool,
       tenantId: T,

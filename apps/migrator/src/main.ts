@@ -40,7 +40,6 @@ async function main() {
     await migrate(platform, 'platform-core', '0007-remove-crm', 'platform/0007-remove-crm.sql');
     await migrate(platform, 'platform-core', '0009-tenant-storage-quota', 'platform/0009-tenant-storage-quota.sql');
     await migrate(platform, 'platform-core', '0010-brand-icon-storage', 'platform/0010-brand-icon-storage.sql');
-    await removeCrmTenantSchemas(platform);
     await migrateTenantCoreSchemas(platform);
     await processProvisioningJobs(platform);
     await upgradeActiveEntitlements(platform);
@@ -64,53 +63,6 @@ interface ActiveEntitlement {
   module_key: ProvisioningJob['module_key'];
   secret_ref: string;
   database_name: string;
-}
-
-/** CRM was retired: clean up platform database and remove dedicated tenant schemas. */
-async function removeCrmTenantSchemas(platform: PostgresPool) {
-  try {
-    await platform.query(`
-      DELETE FROM audit_schema.audit_logs WHERE action LIKE 'crm.%' OR metadata->>'moduleKey' = 'crm' OR LOWER(action) LIKE 'crm.%';
-      DELETE FROM integration_schema.provisioning_jobs WHERE LOWER(module_key) = 'crm';
-      DELETE FROM subscription_schema.tenant_entitlements WHERE module_id IN (SELECT id FROM module_registry_schema.modules WHERE LOWER(key) = 'crm');
-      DELETE FROM subscription_schema.plan_modules WHERE module_id IN (SELECT id FROM module_registry_schema.modules WHERE LOWER(key) = 'crm');
-      DELETE FROM authorization_schema.role_permissions WHERE permission_id IN (SELECT id FROM authorization_schema.permissions WHERE LOWER(key) LIKE 'crm.%');
-      DELETE FROM authorization_schema.permissions WHERE LOWER(key) LIKE 'crm.%';
-      DELETE FROM module_registry_schema.modules WHERE LOWER(key) = 'crm';
-    `);
-  } catch (error) {
-    console.warn('Could not complete platform CRM cleanup:', error instanceof Error ? error.message : String(error));
-  }
-
-  const configs = await platform.query<{ tenant_id: string; secret_ref: string; database_name: string }>(
-    `SELECT d.tenant_id,d.secret_ref,d.database_name FROM tenancy_schema.tenant_db_configs d
-       JOIN tenancy_schema.tenants t ON t.id=d.tenant_id
-       WHERE d.status='active' AND t.status IN ('active','disabled')`,
-  );
-  for (const config of configs.rows) {
-    let connectionString: string;
-    try {
-      connectionString = resolveTenantDatabaseUrl(config.secret_ref, config.database_name);
-    } catch {
-      continue;
-    }
-    const tenant = createPostgresPool(connectionString);
-    try {
-      await inTransaction(tenant, async (client) => {
-        await client.query('DROP SCHEMA IF EXISTS crm_schema CASCADE');
-        const hasTable = await client.query<{ exists: boolean }>(
-          `SELECT to_regclass('integration_schema.schema_migrations') IS NOT NULL AS exists`,
-        );
-        if (hasTable.rows[0]?.exists) {
-          await client.query("DELETE FROM integration_schema.schema_migrations WHERE LOWER(module_key)='crm'");
-        }
-      });
-    } catch (error) {
-      console.warn(`Could not clean CRM schema for tenant ${config.tenant_id}:`, error instanceof Error ? error.message : String(error));
-    } finally {
-      await tenant.end();
-    }
-  }
 }
 
 /**

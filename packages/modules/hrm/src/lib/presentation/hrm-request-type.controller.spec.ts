@@ -133,7 +133,7 @@ function createFake() {
     if (sql.startsWith('SELECT c.* FROM hrm_schema.request_reason_categories c')) {
       return result(
         rows
-          .filter((r) => live(r) && r.tenant_id === params[0] && r.active)
+          .filter((r) => live(r) && r.tenant_id === params[0] && r.active && (params[1] == null || r.engine === params[1]))
           .sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name)),
       );
     }
@@ -222,6 +222,15 @@ describe('HrmRequestTypeController: danh sách', () => {
     expect((await controller.list(req)).data.map((t) => t.id)).not.toContain(custom.id);
     const manage = await controller.listForManage(req);
     expect(manage.data.find((t) => t.id === custom.id)).toMatchObject({ active: false, usageCount: 0 });
+  });
+
+  it('lọc theo engine: GENERIC chỉ trả loại công ty tự tạo đang bật; engine lạ: 400', async () => {
+    const { controller, fake } = build(READ_ONLY);
+    const custom = fake.add({ code: 'RA_NGOAI', name: 'Xin ra ngoài trong giờ', sort_order: 90 });
+    fake.add({ code: 'CU', name: 'Loại cũ', active: false, sort_order: 95 });
+    expect((await controller.list(req, 'GENERIC')).data.map((t) => t.id)).toEqual([custom.id]);
+    expect((await controller.list(req, '')).data).toHaveLength(8);
+    await expect(controller.list(req, 'generic')).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('danh sách quản trị cần hrm.leave.manage; đọc thường chỉ cần hrm.read', async () => {

@@ -1,0 +1,44 @@
+/* Ảnh đại diện dùng chung: tròn, nền màu nhấn của hệ thống khi chưa có ảnh. */
+.avatar {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: var(--ep-avatar-size, 32px);
+  height: var(--ep-avatar-size, 32px);
+  border-radius: 9999px;
+  background: linear-gradient(135deg, #ffc90a, #e8b400);
+  color: #18181b;
+  font-size: calc(var(--ep-avatar-size, 32px) * 0.38);
+  font-weight: 700;
+  line-height: 1;
+  user-select: none;
+}
+
+.image {
+  width: 100%;
+  height: 100%;
+  border-radius: 9999px;
+  object-fit: cover;
+  background: #ffffff;
+}
+
+.initials {
+  letter-spacing: 0.02em;
+}
+
+.dot {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: max(8px, calc(var(--ep-avatar-size, 32px) * 0.28));
+  height: max(8px, calc(var(--ep-avatar-size, 32px) * 0.28));
+  border: 2px solid #ffffff;
+  border-radius: 9999px;
+  background: #cbd5e1;
+}
+
+.dotOnline {
+  background: #10b981;
+}

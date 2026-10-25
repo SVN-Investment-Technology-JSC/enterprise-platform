@@ -3,6 +3,8 @@ export const MAX_POLICY_REASON_LENGTH = 500;
 
 export interface ApprovalPolicySettings {
   allowSelfApproval: boolean;
+  lastResortPositionId?: string | null;
+  lastResortPositionName?: string | null;
   updatedBy: string | null;
   updatedAt: string | null;
 }

@@ -61,6 +61,13 @@ integration('Đơn từ theo từ ngày giờ đến ngày giờ và loại đơ
   const ctx = (who: { userId: string; permissions: string[] } = principal) =>
     ({
       has: () => true,
+      // Tạo hộ và xem hộ theo phạm vi: bản giả chỉ cần trả cùng ngữ cảnh như getRequestContext.
+      getProxyRequestContext: async function (this: any, req: any, requested?: string) {
+        return { ...(await this.getRequestContext(req, requested)), onBehalf: undefined };
+      },
+      getRequestContextOrProxy: async function (this: any, req: any, requested?: string) {
+        return this.getRequestContext(req, requested);
+      },
       getRequestContext: async (_req: Request, requested?: string) => ({
         pool,
         tenantId,
@@ -277,7 +284,7 @@ integration('Đơn từ theo từ ngày giờ đến ngày giờ và loại đơ
       ]);
     });
 
-    it('đơn vắt 2 tháng: một đơn, ngày lưu theo từng tháng; tháng sau đã chốt thì cả đơn bị từ chối và không lưu dở dang', async () => {
+    it('đơn vắt 2 tháng bị chặn 422; tách theo tháng thì tháng đã chốt từ chối, tháng mở tạo được và vẫn chống trùng', async () => {
       // Ca thứ Hai đến thứ Sáu cho cuối tháng 11 và đầu tháng 12/2026 (dữ liệu seed chung chỉ phủ tháng 10).
       const shiftId = (await pool.query(`SELECT id FROM hrm_schema.shift_definitions WHERE tenant_id=$1 AND code='DAY'`, [tenantId])).rows[0].id;
       await pool.query(
@@ -289,30 +296,41 @@ integration('Đơn từ theo từ ngày giờ đến ngày giờ và loại đơ
            FROM generate_series('2026-11-20'::date,'2026-12-10'::date,'1 day') d`,
         [tenantId, employeeId, shiftId],
       );
-      // Chốt đơn từ tháng 12: đơn thứ Sáu 27/11 đến thứ Ba 01/12 có ngày 01/12 nên phải bị từ chối toàn bộ.
+      const leftovers = async () =>
+        (
+          await pool.query(
+            `SELECT count(*)::int AS n FROM hrm_schema.leave_requests WHERE tenant_id=$1 AND employee_id=$2 AND from_date>='2026-11-01'`,
+            [tenantId, employeeId],
+          )
+        ).rows[0].n;
+
+      // Đơn thứ Sáu 27/11 đến thứ Ba 01/12 kéo dài qua hai tháng: bị chặn 422 và không lưu dở dang.
+      await expect(leave({ leaveTypeId: paidDay, fromAt: '2026-11-27T08:00', toAt: '2026-12-01T17:00' })).rejects.toMatchObject({
+        status: 422,
+        response: { code: 'REQUEST_CROSSES_MONTH' },
+      });
+      expect(await leftovers()).toBe(0);
+
+      // Tách theo tháng. Tháng 12 đã chốt đơn từ thì đơn ngày 01/12 bị từ chối, không lưu dở dang.
       await pool.query(
         `INSERT INTO hrm_schema.timesheet_periods (tenant_id,period_code,from_date,to_date,status,requests_closed_at)
          VALUES ($1,'2026-12','2026-12-01','2026-12-31','OPEN',now())`,
         [tenantId],
       );
-      const body = { leaveTypeId: paidDay, fromAt: '2026-11-27T08:00', toAt: '2026-12-01T17:00' };
-      await expect(leave(body)).rejects.toMatchObject({ status: 409 });
-      const leftovers = await pool.query(
-        `SELECT count(*)::int AS n FROM hrm_schema.leave_requests WHERE tenant_id=$1 AND employee_id=$2 AND from_date>='2026-11-01'`,
-        [tenantId, employeeId],
-      );
-      expect(leftovers.rows[0].n).toBe(0);
+      await expect(leave({ leaveTypeId: paidDay, fromAt: '2026-12-01T08:00', toAt: '2026-12-01T17:00' })).rejects.toMatchObject({ status: 409 });
+      expect(await leftovers()).toBe(0);
 
-      // Mở lại tháng 12: cùng đơn được tạo thành MỘT đơn 3 ngày (27/11, 30/11, 01/12), bỏ T7, CN.
+      // Mở lại tháng 12: đơn tháng 11 (27/11, 30/11, bỏ T7, CN) và đơn tháng 12 (01/12) tạo được riêng từng đơn.
       await pool.query(`DELETE FROM hrm_schema.timesheet_periods WHERE tenant_id=$1 AND period_code='2026-12'`, [tenantId]);
-      const result = await leave(body);
-      expect(result.data).toMatchObject({ duration: 3, fromDate: '2026-11-27', toDate: '2026-12-01' });
-      expect(await days(result.data.id)).toEqual([
+      const november = await leave({ leaveTypeId: paidDay, fromAt: '2026-11-27T08:00', toAt: '2026-11-30T17:00' });
+      expect(november.data).toMatchObject({ duration: 2, fromDate: '2026-11-27', toDate: '2026-11-30' });
+      expect(await days(november.data.id)).toEqual([
         { date: '2026-11-27', quantity: 1, paid_minutes: 480 },
         { date: '2026-11-30', quantity: 1, paid_minutes: 480 },
-        { date: '2026-12-01', quantity: 1, paid_minutes: 480 },
       ]);
-      // Đơn thứ hai chồng ngày 01/12 vẫn bị chặn trùng như đơn trong một tháng.
+      const december = await leave({ leaveTypeId: paidDay, fromAt: '2026-12-01T08:00', toAt: '2026-12-01T17:00' });
+      expect(december.data).toMatchObject({ duration: 1, fromDate: '2026-12-01', toDate: '2026-12-01' });
+      // Đơn thứ hai chồng ngày 01/12 vẫn bị chặn trùng.
       await expect(
         leave({ leaveTypeId: paidDay, fromAt: '2026-12-01T08:00', toAt: '2026-12-02T17:00' }),
       ).rejects.toMatchObject({ status: 409 });
@@ -449,6 +467,8 @@ integration('Đơn từ theo từ ngày giờ đến ngày giờ và loại đơ
         toAt: '2027-01-12T19:00',
       } as any);
       const requestId = created.data.id as string;
+      // Bình là người nộp đơn hộ: một trong những người liên quan tới đơn nên nhắc tên được (người ngoài thì không).
+      await pool.query('UPDATE hrm_schema.ot_requests SET submitted_by = $1 WHERE id = $2', [peerUser, requestId]);
       const inScope = { assertCanDecide: jest.fn(async () => undefined) };
       const outOfScope = { assertCanDecide: jest.fn(async () => { throw new Error('ngoài phạm vi'); }) };
       const controller = (who: { userId: string; permissions: string[] }, approvals: unknown) =>
@@ -458,8 +478,11 @@ integration('Đơn từ theo từ ngày giờ đến ngày giờ và loại đơ
       const owner = controller({ userId, permissions: [] }, outOfScope);
       await owner.create(req, { kind: 'OT', requestId, body: 'Em xin duyệt giúp, việc gấp ạ' } as any);
       // Người duyệt trong phạm vi trả lời và nhắc Bình.
-      const boss = controller({ userId: bossUser, permissions: ['hrm.ot.approve'] }, inScope);
-      await boss.create(req, { kind: 'ot', requestId, body: 'Anh Bình xem giúp phần ca trực', mentionUserIds: [peerUser, randomUUID()] } as any);
+      const boss = controller({ userId: bossUser, permissions: ['hrm.request.approve'] }, inScope);
+      await expect(
+        boss.create(req, { kind: 'ot', requestId, body: 'Chị xem giúp', mentionUserIds: [strangerUser] } as any),
+      ).rejects.toMatchObject({ status: 400 });
+      await boss.create(req, { kind: 'ot', requestId, body: 'Anh Bình xem giúp phần ca trực', mentionUserIds: [peerUser] } as any);
       // Người được nhắc đọc và trả lời được dù không có quyền duyệt.
       const peer = controller({ userId: peerUser, permissions: [] }, outOfScope);
       const seen = await peer.list(req, 'OT', requestId);
@@ -468,7 +491,7 @@ integration('Đơn từ theo từ ngày giờ đến ngày giờ và loại đơ
       expect(seen.data.map((c) => c.mine)).toEqual([false, false]);
       await peer.create(req, { kind: 'OT', requestId, body: 'Ca trực ổn, đồng ý' } as any);
       // Người lạ (không phải chủ đơn, không có quyền duyệt, chưa được nhắc) bị chặn cả đọc lẫn ghi.
-      const stranger = controller({ userId: strangerUser, permissions: ['hrm.ot.approve'] }, outOfScope);
+      const stranger = controller({ userId: strangerUser, permissions: ['hrm.request.approve'] }, outOfScope);
       await expect(stranger.list(req, 'OT', requestId)).rejects.toMatchObject({ status: 403 });
       await expect(stranger.create(req, { kind: 'OT', requestId, body: 'chen vào' } as any)).rejects.toMatchObject({ status: 403 });
       // Người được nhắc không được ghi ý kiến kèm quyết định.
@@ -487,15 +510,17 @@ integration('Đơn từ theo từ ngày giờ đến ngày giờ và loại đơ
       ).rows;
       const byType = (t: string) => events.filter((e) => e.event_type === t);
       expect(byType('hrm.request.comment.to-approvers')).toHaveLength(1);
-      expect(byType('hrm.request.comment.to-approvers')[0].p.approvalPermissions).toEqual(['hrm.ot.approve', 'hrm.manage']);
+      expect(byType('hrm.request.comment.to-approvers')[0].p.approvalPermissions).toEqual(['hrm.request.approve.all', 'hrm.manage']);
       expect(byType('hrm.request.comment.mentioned')).toHaveLength(1);
       expect(byType('hrm.request.comment.mentioned')[0].p.mentionedUserIds).toEqual([peerUser]);
       expect(byType('hrm.request.comment.to-requester')).toHaveLength(3);
       expect(byType('hrm.request.comment.to-requester').every((e) => e.p.recipientUserIds[0] === userId)).toBe(true);
       // Ứng viên nhắc tên: tìm không dấu, không có chính mình.
-      const found = await boss.candidates(req, 'binh');
+      const found = await boss.candidates(req, 'OT', requestId, 'binh');
       expect(found.data.map((c) => c.name)).toEqual(['Lê Văn Bình']);
-      expect((await boss.candidates(req, '')).data.some((c) => c.userId === bossUser)).toBe(false);
+      expect((await boss.candidates(req, 'OT', requestId, '')).data.some((c) => c.userId === bossUser)).toBe(false);
+      // Người không liên quan tới đơn không xuất hiện trong gợi ý.
+      expect((await boss.candidates(req, 'OT', requestId, 'lạ')).data).toEqual([]);
     });
 
     it('OT cách cũ vẫn nhận; OT từ 24 giờ trở lên bị từ chối', async () => {
@@ -667,7 +692,7 @@ integration('Đơn từ theo từ ngày giờ đến ngày giờ và loại đơ
       );
     });
 
-    it('duyệt trực tiếp: người nộp không tự duyệt được; người có quyền duyệt được, từ chối không bắt buộc lý do', async () => {
+    it('duyệt trực tiếp: người nộp không tự duyệt được; người có quyền duyệt được, từ chối bắt buộc có lý do', async () => {
       const created = await custom().create(req, { employeeId, typeId: noneType.id, description: 'Đề xuất 2' } as any);
       await expect(custom(principal).approve(req, created.data.id)).rejects.toMatchObject({ status: 403 });
       const approved = await custom(approver).approve(req, created.data.id);
@@ -679,8 +704,13 @@ integration('Đơn từ theo từ ngày giờ đến ngày giờ và loại đơ
       });
 
       const other = await custom().create(req, { employeeId, typeId: noneType.id, description: 'Đề xuất 3' } as any);
-      const rejectedWithoutReason = await custom(approver).reject(req, other.data.id, '  ');
-      expect(rejectedWithoutReason.data).toMatchObject({ status: 'REJECTED', rejectionReason: null });
+      // Từ chối luôn bắt buộc có lý do: bỏ trống bị 400 và đơn vẫn chờ duyệt.
+      await expect(custom(approver).reject(req, other.data.id, '  ')).rejects.toMatchObject({
+        status: 400,
+        response: { code: 'HRM_REJECT_REASON_REQUIRED' },
+      });
+      const rejectedWithReason = await custom(approver).reject(req, other.data.id, 'Không phù hợp kế hoạch');
+      expect(rejectedWithReason.data).toMatchObject({ status: 'REJECTED', rejectionReason: 'Không phù hợp kế hoạch' });
 
       const otherWithReason = await custom().create(req, { employeeId, typeId: noneType.id, description: 'Đề xuất 4' } as any);
       const rejected = await custom(approver).reject(req, otherWithReason.data.id, 'Chưa phù hợp');
@@ -710,7 +740,7 @@ integration('Đơn từ theo từ ngày giờ đến ngày giờ và loại đơ
       expect(list.data).toHaveLength(2);
       expect(list.data).toEqual(
         expect.arrayContaining([
-          expect.objectContaining({ typeId: noneType.id, status: 'REJECTED', rejectionReason: null }),
+          expect.objectContaining({ typeId: noneType.id, status: 'REJECTED', rejectionReason: 'Không phù hợp kế hoạch' }),
           expect.objectContaining({ typeId: noneType.id, status: 'REJECTED', rejectionReason: 'Chưa phù hợp' }),
         ]),
       );

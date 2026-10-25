@@ -12,6 +12,11 @@ describe('projectCodeParts + formatProjectCode', () => {
     expect(formatProjectCode(projectCodeParts('DA_{NHOM}_{SO:4}', ctx), 1)).toBe('DA_DVTN_0001');
   });
 
+  it('giữ nguyên mã viết tắt nhóm như người dùng đặt', () => {
+    const parts = projectCodeParts('DA_{NHOM}_{SO:2}', { ...ctx, groupCode: 'Kđ.1' });
+    expect(formatProjectCode(parts, 1)).toBe('DA_Kđ.1_01');
+  });
+
   it('ví dụ theo năm: DA_{NAM}_{SO:3} → DA_2026_001; năm 2 số và tháng', () => {
     expect(formatProjectCode(projectCodeParts('DA_{NAM}_{SO:3}', ctx), 1)).toBe('DA_2026_001');
     expect(formatProjectCode(projectCodeParts('{NAM2}{THANG}-{SO:2}', ctx), 7)).toBe('2603-07');

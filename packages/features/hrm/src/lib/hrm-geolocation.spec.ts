@@ -39,6 +39,15 @@ describe('acquirePosition', () => {
     expect(seen.map((f) => f.accuracy)).toEqual([250, 60, 20]);
   });
 
+  it('chính sách chặt hơn 15 m thì không dừng ở lần đo chưa đạt chính sách mà chờ đo tiếp', async () => {
+    const g = fakeGeo();
+    const result = acquirePosition({ maxAccuracy: 10, geolocation: g.geo });
+    g.fix(14);
+    expect(g.clearWatch).not.toHaveBeenCalled();
+    g.fix(8);
+    await expect(result).resolves.toMatchObject({ accuracy: 8 });
+  });
+
   it('không thay lần đo tốt bằng lần đo kém hơn; hết giờ thì dùng lần đo tốt nhất nếu đạt ngưỡng', async () => {
     const g = fakeGeo();
     const result = acquirePosition({ maxAccuracy: 100, geolocation: g.geo, timeoutMs: 10_000 });

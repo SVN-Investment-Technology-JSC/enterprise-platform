@@ -126,6 +126,8 @@ export interface WorkItemProgressRow {
   readonly parentId: string | null;
   readonly status: WorkItemStatus;
   readonly progressPercent: number;
+  /** Tiến độ nhập tay; `null` khi dùng giá trị tự tính. */
+  readonly manualPercent?: number | null;
   readonly estimateHours: number | null;
 }
 
@@ -1078,6 +1080,8 @@ export interface WorkspaceStore {
   readonly settings: {
     get(tenantId: string, key: string): Promise<unknown>;
     set(tenantId: string, key: string, value: unknown, actorUserId: string): Promise<void>;
+    /** Những mức ưu tiên trong `priorities` đang được công việc hay việc ngoài dự án dùng. */
+    prioritiesInUse(tenantId: string, priorities: readonly string[]): Promise<readonly string[]>;
   };
   /**
    * Phương tiện di chuyển của công việc và lịch họp. Xe công ty chỉ được GIỮ ở HRM: lựa chọn và sự kiện
@@ -1285,7 +1289,10 @@ export interface WorkspaceStore {
       tenantId: string,
       taskId: string,
       actorUserId: string,
-      input: Partial<StandaloneTaskWriteModel> & { readonly progressPercent?: number },
+      input: Partial<StandaloneTaskWriteModel> & {
+        readonly progressPercent?: number;
+        readonly manualProgressPercent?: number | null;
+      },
     ): Promise<StandaloneTask>;
     /** `undefined` khi trạng thái hiện tại đã khác `from` (có người đổi trước). */
     changeStatus(

@@ -2,6 +2,9 @@
 
 import { useEffect, useRef, useSyncExternalStore } from 'react';
 import type {
+  CoreChatSignal,
+  CoreChatTyping,
+  PresenceSignal,
   ProcedureCommentSignal,
   ProcedureTypingSignal,
   RealtimeEventEnvelope,
@@ -11,6 +14,9 @@ import type {
 
 // Tái xuất để các màn hình dùng bus không phải thêm phụ thuộc vào contracts-realtime.
 export type {
+  CoreChatSignal,
+  CoreChatTyping,
+  PresenceSignal,
   ProcedureCommentSignal,
   ProcedureTypingSignal,
   RealtimeEventEnvelope,

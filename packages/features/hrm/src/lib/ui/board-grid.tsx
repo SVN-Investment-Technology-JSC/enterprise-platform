@@ -104,10 +104,10 @@ export function BoardGrid({
     <div
       data-testid="board-grid-frame"
       className={`flex min-h-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white ${
-        fullHeight ? 'flex-1' : 'h-[max(480px,calc(100dvh-15rem))]'
+        fullHeight ? 'flex-1' : 'max-h-[max(480px,calc(100dvh-20rem))]'
       }`}
     >
-      <div className="min-h-0 flex-1 overflow-auto">
+      <div className="min-h-0 flex-auto overflow-auto">
         <table
           aria-label="Bảng công theo tháng"
           className="border-separate border-spacing-0 text-[11px]"

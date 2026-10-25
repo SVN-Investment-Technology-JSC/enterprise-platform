@@ -252,8 +252,22 @@ export function approverLine(preview: ApprovalRoutePreview): ApproverLine {
       note,
     };
   }
-  const manager = preview.directManager;
   const fallback = preview.fallbackPosition;
+  if (preview.directApprover === 'POSITION') {
+    const position = preview.approverPosition;
+    const holders = position?.holders.map((holder) => holder.fullName).filter(Boolean).join(', ') ?? '';
+    return {
+      method: fallback ? 'Chức danh chỉ định hoặc người dự phòng' : 'Chức danh chỉ định',
+      detail: [
+        position ? `Chức danh ${position.positionName}${holders ? ` (${holders})` : ''}` : '',
+        fallback ? `hoặc chức danh ${fallback.positionName}` : '',
+      ]
+        .filter(Boolean)
+        .join(' '),
+      note,
+    };
+  }
+  const manager = preview.directManager;
 
   if (manager && fallback) {
     const managerText = [manager.fullName, manager.positionName?.trim()]

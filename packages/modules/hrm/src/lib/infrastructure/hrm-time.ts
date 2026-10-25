@@ -325,7 +325,7 @@ export async function recalculateAttendance(
 ) {
   const shift = await shiftForDate(db, tenantId, employeeId, date, timezone);
   const events = await db.query(
-    `SELECT id,event_kind,occurred_at FROM hrm_schema.attendance_events WHERE tenant_id=$1 AND employee_id=$2 AND work_date=$3 AND voided_by_correction_id IS NULL ORDER BY occurred_at,id`,
+    `SELECT id,event_kind,occurred_at,source FROM hrm_schema.attendance_events WHERE tenant_id=$1 AND employee_id=$2 AND work_date=$3 AND voided_by_correction_id IS NULL ORDER BY occurred_at,id`,
     [tenantId, employeeId, date],
   );
   const calculation = calculateAttendance(
@@ -333,6 +333,7 @@ export async function recalculateAttendance(
       id: r.id,
       kind: r.event_kind,
       at: isoTime(r.occurred_at)!,
+      auto: r.source === 'AUTO',
     })),
     shift?.window || null,
   );

@@ -38,10 +38,24 @@ describe('HRM_ASSISTANT_ACTIONS', () => {
     expect(required(HRM_ASSISTANT_ACTIONS.createCustomRequest)).toEqual([]);
   });
 
-  it('đơn tuỳ chỉnh chọn loại đơn qua biến thể', () => {
-    expect(HRM_ASSISTANT_ACTIONS.createCustomRequest.variants?.lookup).toBe(
-      '/api/hrm/v1/request-types',
-    );
+  it('đơn tuỳ chỉnh chọn loại đơn qua biến thể: chỉ loại công ty tự tạo, kèm cách nhập thời gian và ô riêng', () => {
+    expect(HRM_ASSISTANT_ACTIONS.createCustomRequest.variants).toMatchObject({
+      lookup: '/api/hrm/v1/request-types?engine=GENERIC',
+      columns: ['timeMode', 'fields'],
+    });
     expect(Object.keys(HRM_ASSISTANT_ACTIONS.createCustomRequest.draft)).not.toContain('typeId');
+  });
+
+  it('tra lý do giữ cờ bắt buộc mô tả; đơn tuỳ chỉnh giữ thêm kind để khớp loại đơn', () => {
+    const columns = (field: { columns?: readonly string[] } | string | undefined) =>
+      typeof field === 'object' ? field.columns : undefined;
+    expect(columns(HRM_ASSISTANT_ACTIONS.createOtRequest.draft.reasonId)).toEqual(['requiresDescription']);
+    expect(columns(HRM_ASSISTANT_ACTIONS.createBusinessTripRequest.draft.reasonId)).toEqual([
+      'requiresDescription',
+    ]);
+    expect(columns(HRM_ASSISTANT_ACTIONS.createCustomRequest.draft.reasonId)).toEqual([
+      'kind',
+      'requiresDescription',
+    ]);
   });
 });

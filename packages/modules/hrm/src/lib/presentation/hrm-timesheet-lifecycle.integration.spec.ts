@@ -92,6 +92,12 @@ integration('HRM timesheet lifecycle PostgreSQL integration', () => {
     const ctx = {
       getContext: async () => ({ pool, tenantId, principal: { userId } }),
       resolveEmployee: async () => ({ employeeId: userId }),
+      getRequestContextOrProxy: async function (this: any, req: any, requested?: string) {
+        return this.getRequestContext(req, requested);
+      },
+      getProxyRequestContext: async function (this: any, req: any, requested?: string) {
+        return { ...(await this.getRequestContext(req, requested)), onBehalf: undefined };
+      },
       getRequestContext: async () => ({
         pool,
         tenantId,
@@ -112,6 +118,12 @@ integration('HRM timesheet lifecycle PostgreSQL integration', () => {
   const ctx = () =>
     ({
       has: () => true,
+      getRequestContextOrProxy: async function (this: any, req: any, requested?: string) {
+        return this.getRequestContext(req, requested);
+      },
+      getProxyRequestContext: async function (this: any, req: any, requested?: string) {
+        return { ...(await this.getRequestContext(req, requested)), onBehalf: undefined };
+      },
       getRequestContext: async () => ({
         pool,
         tenantId,

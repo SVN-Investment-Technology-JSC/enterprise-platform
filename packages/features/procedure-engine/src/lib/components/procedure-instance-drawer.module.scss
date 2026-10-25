@@ -1,0 +1,102 @@
+// Lớp phủ và khung drawer bên phải. Cao hơn khung Tenant Portal nhưng thấp hơn các hộp thoại con của màn xử lý hồ sơ
+// (bước con z-index 1000, hộp xác nhận 9999) để chúng vẫn hiện lên trên drawer.
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 199;
+  background: rgba(15, 23, 42, 0.45);
+}
+
+.panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  width: min(1040px, 100vw);
+  background: #f7f8fa;
+  border-left: 1px solid #e5e7eb;
+  box-shadow: -12px 0 32px rgba(15, 23, 42, 0.18);
+  outline: none;
+}
+
+.head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 18px;
+  border-bottom: 1px solid #e5e7eb;
+  background: #ffffff;
+}
+
+.headText {
+  flex: 1;
+  min-width: 0;
+}
+
+.title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: #18181b;
+}
+
+.subtitle {
+  margin: 2px 0 0;
+  font-size: 13px;
+  color: #6b7280;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.close {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #374151;
+  cursor: pointer;
+
+  &:hover {
+    background: #f3f4f6;
+  }
+}
+
+.banner {
+  margin: 0;
+  padding: 8px 18px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.error {
+  background: #fef2f2;
+  color: #b91c1c;
+  border-bottom: 1px solid #fecaca;
+}
+
+.notice {
+  background: #ecfdf5;
+  color: #047857;
+  border-bottom: 1px solid #a7f3d0;
+}
+
+.body {
+  flex: 1;
+  min-height: 0;
+  padding: 12px;
+  overflow: hidden;
+}
+
+.state {
+  padding: 32px 18px;
+  text-align: center;
+  font-size: 14px;
+  color: #6b7280;
+}

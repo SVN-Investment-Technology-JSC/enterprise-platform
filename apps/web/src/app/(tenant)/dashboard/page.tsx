@@ -1,12 +1,12 @@
 import type { AuthenticatedPrincipal } from '@enterprise-platform/contracts-identity';
+import { UserAvatar } from '@enterprise-platform/feature-chat';
 import { isLauncherOnlyModule } from '@enterprise-platform/feature-module-shell';
-import { Building2, GitFork, ListChecks, Package, Users, Wrench } from 'lucide-react';
+import { Building2, ClipboardCheck, GitFork, ListChecks, Package, Users, Wrench } from 'lucide-react';
 import { cookies } from 'next/headers';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { CollapsibleGroup } from '../collapsible-group';
-import { HrmQuickWorkSection } from './hrm-quick-work';
 import { RefreshOnFocus } from './refresh-on-focus';
 
 type Module = {
@@ -145,14 +145,6 @@ async function read<T>(url: string, cookie: string): Promise<T | undefined> {
   } catch {
     return undefined;
   }
-}
-
-/** Chữ viết tắt giống khối người dùng trên thanh bên: chữ đầu của họ và tên. */
-function initialsOf(name: string): string {
-  const words = name.trim().split(/\s+/).filter(Boolean);
-  if (words.length === 0) return 'EP';
-  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
-  return `${words[0].charAt(0)}${words[words.length - 1].charAt(0)}`.toUpperCase();
 }
 
 /** Ghép các vế bằng dấu phẩy, vế cuối nối bằng "và". */
@@ -428,9 +420,8 @@ export default async function TenantPortalPage() {
         />
         <div aria-hidden className="relative grid size-24 shrink-0 place-items-center">
           <span className="absolute -inset-3.5 rounded-full bg-[radial-gradient(circle,rgba(255,201,10,.25)_0%,transparent_65%)]" />
-          <span className="relative grid size-[84px] place-items-center rounded-full bg-gradient-to-br from-[#ffc90a] to-[#d9ab00] text-[28px] font-extrabold text-[#18181b]">
-            {initialsOf(displayName)}
-          </span>
+          {/* Ảnh đại diện người dùng tự tải lên ở "Tài khoản của tôi"; chưa có ảnh thì hiện chữ viết tắt. */}
+          <UserAvatar userId={principal.userId} name={displayName} size={84} className="relative" />
         </div>
         <div className="relative flex min-w-0 flex-[1_1_360px] flex-col gap-1.5">
           <span className="text-[12px] font-semibold tracking-[1.2px] text-[#ffc90a]">
@@ -468,7 +459,16 @@ export default async function TenantPortalPage() {
         </div>
       </section>
 
-      {has('hrm') ? <HrmQuickWorkSection /> : null}
+      {has('hrm') ? (
+        <ModuleLinkCard
+          href="/modules/hrm/approvals"
+          icon={<ClipboardCheck className="size-4" />}
+          tone="bg-emerald-100 text-emerald-700"
+          title="Đơn từ cần xử lý"
+          hint="Duyệt, từ chối và trao đổi đơn nghỉ phép, tăng ca, công tác, giải trình công… trong module Nhân sự."
+          action="Mở Đơn từ cần xử lý"
+        />
+      ) : null}
 
       {procedure ? (
         <CollapsibleGroup
@@ -743,6 +743,44 @@ export default async function TenantPortalPage() {
         </section>
       ) : null}
     </div>
+  );
+}
+
+/** Lối tắt sang một module khi việc cần xử lý nằm ở đó (Bảng điều khiển không xử lý trực tiếp). */
+function ModuleLinkCard({
+  href,
+  icon,
+  tone,
+  title,
+  hint,
+  action,
+}: {
+  href: string;
+  icon: ReactNode;
+  tone: string;
+  title: string;
+  hint: string;
+  action: string;
+}) {
+  return (
+    <section
+      aria-label={title}
+      className="flex flex-wrap items-center gap-3 overflow-hidden rounded-[14px] border border-[#eef0f3] bg-white px-5 py-3.5"
+    >
+      <span aria-hidden className={`grid size-8 shrink-0 place-items-center rounded-lg ${tone}`}>
+        {icon}
+      </span>
+      <div className="min-w-0 flex-1 basis-64">
+        <h2 className="m-0 text-[14px] font-semibold text-[#18181b]">{title}</h2>
+        <p className="m-0 text-[13px] text-slate-500">{hint}</p>
+      </div>
+      <Link
+        href={href}
+        className="shrink-0 rounded-lg border border-[#eef0f3] bg-[#fafbfc] px-3 py-1.5 text-[13px] font-semibold text-blue-700 hover:bg-white hover:text-blue-800"
+      >
+        {action}
+      </Link>
+    </section>
   );
 }
 
