@@ -427,6 +427,39 @@ export function encodeMentions(
   return { body, userIds: ids };
 }
 
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+export interface MentionSegment {
+  readonly text: string;
+  readonly mention: boolean;
+}
+
+/**
+ * Tách văn bản đang gõ thành đoạn thường và đoạn `@Tên` của các người đã chọn (cùng cách khớp với `encodeMentions`),
+ * để ô nhập tô màu tên được nhắc.
+ */
+export function splitMentionTokens(text: string, picks: readonly MentionPick[]): readonly MentionSegment[] {
+  const tokens = [...new Set(picks.map((pick) => `@${pick.name}`))].sort((a, b) => b.length - a.length);
+  if (tokens.length === 0 || text.length === 0) return text ? [{ text, mention: false }] : [];
+  const pattern = new RegExp(tokens.map(escapeRegExp).join('|'), 'g');
+  const segments: MentionSegment[] = [];
+  let last = 0;
+  for (let match = pattern.exec(text); match; match = pattern.exec(text)) {
+    if (match.index > last) segments.push({ text: text.slice(last, match.index), mention: false });
+    segments.push({ text: match[0], mention: true });
+    last = match.index + match[0].length;
+  }
+  if (last < text.length) segments.push({ text: text.slice(last), mention: false });
+  return segments;
+}
+
+/** Từ khoá đang gõ sau `@` đã là tên đầy đủ của một người đã chọn (không cần gợi ý nữa)? */
+export function isMentionComplete(query: string, picks: readonly MentionPick[]): boolean {
+  return picks.some((pick) => query === pick.name || query.startsWith(`${pick.name} `));
+}
+
 /** Ngược lại với `encodeMentions`: `@[userId]` thành `@Tên` để sửa; trả về cả danh sách người nhắc. */
 export function decodeMentions(
   body: string,
