@@ -86,7 +86,7 @@ export const WORKSPACE_ASSISTANT_ACTIONS = defineAssistantActions('workspace', {
       priority: 'Một trong: low, normal (mặc định), high, urgent.',
       assigneeUserId: {
         describe:
-          'userId người phụ trách, bất kỳ ai trong tổ chức. Không nói thì bỏ trống: form chọn sẵn chính người dùng.',
+          'userId người phụ trách, bất kỳ ai trong tổ chức. Không nói, hoặc người dùng tự xưng (tôi, em, mình…) là người làm, thì bỏ trống: form chọn sẵn chính người dùng.',
         lookup: PEOPLE_LOOKUP,
       },
       participantUserIds: {

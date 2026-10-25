@@ -31,7 +31,7 @@ export const PROCEDURE_ASSISTANT_ACTIONS = defineAssistantActions('procedure-eng
     draft: draftOf<ProcedureStartAssistantDraft>({
       title: {
         describe:
-          'Tiêu đề hồ sơ, tối đa 255 ký tự: tự đặt ngắn gọn từ lời người dùng, gồm việc cần làm và các chi tiết họ nói (đối tác, số tiền, nơi đến, thời hạn…).',
+          'Tiêu đề hồ sơ, tối đa 255 ký tự: tự đặt ngắn gọn từ lời người dùng, nêu việc cần làm và giữ đủ các chi tiết họ nói như số tiền, đối tác, nơi đến, thời hạn.',
         required: true,
       },
       startDueAt:

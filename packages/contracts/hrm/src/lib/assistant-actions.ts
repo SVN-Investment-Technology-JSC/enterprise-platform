@@ -20,12 +20,12 @@ const REQUESTS_PAGE = '/modules/hrm/requests';
  * kể cả khi đã chọn được một lý do trong danh mục.
  */
 const DESCRIPTION =
-  'Mô tả (chữ tự do, tối đa 2000 ký tự): lý do, hoàn cảnh hay chi tiết người dùng nói, ghi gần nguyên lời họ; vẫn ghi khi đã chọn được lý do trong danh mục. Không chép tên loại nghỉ hay tên lý do đã chọn; người dùng không nói gì thêm thì bỏ trống. Bắt buộc khi lý do đã chọn yêu cầu mô tả (requiresDescription).';
+  'Mô tả (chữ tự do, tối đa 2000 ký tự): lời người dùng về lý do, hoàn cảnh hay chi tiết của đơn, ghi gần nguyên lời họ, kể cả khi đã chọn được loại hay lý do trong danh mục. Không điền tên mục của danh mục vào đây; người dùng chỉ nói loại và thời gian thì bỏ trống. Bắt buộc khi lý do đã chọn yêu cầu mô tả (requiresDescription).';
 
 /** Làm thêm giờ và công tác: form luôn bắt buộc Mô tả là nội dung công việc (`descriptionMandatoryFor` của HRM). */
 function workDescription(work: string) {
   return {
-    describe: `Mô tả (chữ tự do, tối đa 2000 ký tự): ${work} theo lời người dùng, ghi gần nguyên lời họ. Không chép tên lý do đã chọn. Người dùng chưa nói thì bỏ trống để họ tự nhập.`,
+    describe: `Mô tả (chữ tự do, tối đa 2000 ký tự): ${work} theo lời người dùng, ghi gần nguyên lời họ. Không điền tên lý do của danh mục vào đây. Người dùng chưa nói thì bỏ trống để họ tự nhập.`,
     required: true,
   } as const;
 }
@@ -129,7 +129,7 @@ export const HRM_ASSISTANT_ACTIONS = defineAssistantActions('hrm', {
         'Theo timeMode của loại đơn: RANGE_DATETIME gửi YYYY-MM-DDTHH:mm; DATE_RANGE gửi ngày bắt đầu YYYY-MM-DD; SINGLE_DATE gửi ngày YYYY-MM-DD; NONE bỏ trống.',
       toAt: 'Kết thúc, cùng định dạng với fromAt (RANGE_DATETIME, DATE_RANGE); một ngày thì bỏ trống.',
       fields:
-        'Đối tượng { key: giá trị } theo fields của loại đơn đã chọn, điền từ lời người dùng: text, textarea là chuỗi; number là số; date là YYYY-MM-DD; datetime là YYYY-MM-DDTHH:mm; select là đúng một giá trị trong options; checkbox là true hoặc false. Ô người dùng chưa nói thì bỏ trống.',
+        'Các ô riêng của loại đơn đã chọn, gửi lồng trong ô này: { "<key>": giá trị }, key lấy từ fields của loại đơn, không đặt các key đó ra ngoài draft. Điền từ lời người dùng: text, textarea là chuỗi; number là số; date là YYYY-MM-DD; datetime là YYYY-MM-DDTHH:mm; select là đúng một giá trị trong options; checkbox là true hoặc false. Ô người dùng chưa nói thì bỏ trống.',
       reasonId: {
         describe:
           'Lý do: id của lý do có kind bằng code của loại đơn đã chọn. Loại đơn không có lý do nào thì bỏ trống.',
