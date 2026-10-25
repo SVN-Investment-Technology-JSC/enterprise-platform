@@ -10,12 +10,14 @@ import {
   SOCIAL_FEED_PAGE_SIZE,
   SOCIAL_IMAGE_CONTENT_TYPES,
   SOCIAL_MAX_ATTACHMENTS_PER_POST,
+  SOCIAL_MEDIA_LAYOUTS,
   SOCIAL_POST_BODY_MAX,
   SOCIAL_POST_KINDS,
   SOCIAL_POST_TITLE_MAX,
   SOCIAL_REACTION_TYPES,
   SOCIAL_TOPIC_NAME_MAX,
   type SocialAttachmentPurpose,
+  type SocialMediaLayout,
   type SocialPostKind,
   type SocialReactionType,
 } from '@enterprise-platform/contracts-social';
@@ -259,8 +261,8 @@ export function assertAttachmentsPostable(files: readonly Pick<AttachableFacts, 
 
 /**
  * Luật tập tệp của một bài hay một bình luận: video chỉ gắn đúng nơi đã tải lên (video của bình luận không gắn vào
- * bài và ngược lại), bài tối đa `SOCIAL_VIDEO_LIMITS.post.maxVideos` video và không trộn ảnh với video (tài liệu thì
- * được), bình luận tối đa 1 video và 4 tệp. Số tệp tối đa của bài đã kiểm ở `normalizeAttachmentIds`.
+ * bài và ngược lại), bài tối đa `SOCIAL_VIDEO_LIMITS.post.maxVideos` video và được gồm ảnh, video và tài liệu cùng
+ * nhau, bình luận tối đa 1 video và 4 tệp. Số tệp tối đa của bài đã kiểm ở `normalizeAttachmentIds`.
  */
 export function assertAttachmentSet(target: SocialAttachmentPurpose, files: readonly AttachableFacts[]): void {
   const videos = files.filter((file) => isVideoContentType(file.contentType));
@@ -280,15 +282,24 @@ export function assertAttachmentSet(target: SocialAttachmentPurpose, files: read
     );
   }
   if (target === 'post') {
-    if (videos.length > 0 && files.some((file) => isImageContentType(file.contentType))) {
-      throw new SocialValidationError('Một bài viết không đính kèm đồng thời ảnh và video. Hãy chọn ảnh hoặc video.');
-    }
     if (files.length > SOCIAL_MAX_ATTACHMENTS_PER_POST) {
       throw new SocialValidationError(`Mỗi bài viết đính kèm tối đa ${SOCIAL_MAX_ATTACHMENTS_PER_POST} tệp.`);
     }
   } else if (files.length > SOCIAL_COMMENT_MAX_ATTACHMENTS) {
     throw new SocialValidationError(`Mỗi bình luận đính kèm tối đa ${SOCIAL_COMMENT_MAX_ATTACHMENTS} tệp.`);
   }
+}
+
+/**
+ * Cách xếp ảnh và video do client gửi: thiếu (`undefined`, `null`, chuỗi rỗng) trả `undefined` để người gọi dùng mặc
+ * định (tạo bài) hoặc giữ nguyên (sửa bài); giá trị lạ là 400 `VALIDATION`.
+ */
+export function normalizeMediaLayout(value: unknown): SocialMediaLayout | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  if (!(SOCIAL_MEDIA_LAYOUTS as readonly unknown[]).includes(value)) {
+    throw new SocialValidationError('Cách xếp ảnh và video không hợp lệ.');
+  }
+  return value as SocialMediaLayout;
 }
 
 /** Tên tệp an toàn cho khoá object: bỏ dấu tiếng Việt, ký tự lạ thành "-". */

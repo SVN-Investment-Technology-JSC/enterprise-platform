@@ -1,5 +1,6 @@
 import type {
   SocialAttachmentPurpose,
+  SocialMediaLayout,
   SocialPostKind,
   SocialReactionType,
   SocialVideoProcessingStatus,
@@ -31,6 +32,8 @@ export interface PostRow {
   readonly topicName?: string;
   readonly pinned: boolean;
   readonly mentionsAll: boolean;
+  /** Cách xếp ảnh và video (`posts.media_layout`); thiếu là `auto`. */
+  readonly mediaLayout?: SocialMediaLayout;
   readonly publishedAt: string;
   readonly editedAt?: string;
   /** Bình luận chưa xoá, mọi cấp. */
@@ -93,7 +96,10 @@ export interface PostInsert {
   readonly topicId?: string;
   readonly pinned: boolean;
   readonly mentionsAll: boolean;
+  /** Thiếu là `auto`. */
+  readonly mediaLayout?: SocialMediaLayout;
   readonly mentionUserIds: readonly string[];
+  /** Thứ tự mảng là thứ tự hiển thị (`attachments.position`). */
   readonly attachmentIds: readonly string[];
   /** Người tải các tệp (tác giả); store chỉ gắn tệp của người này. */
   readonly uploaderId: string;
@@ -108,8 +114,10 @@ export interface PostPatch {
   readonly topicId?: string | null;
   /** Có mặt nghĩa là thay toàn bộ. */
   readonly mentionUserIds?: readonly string[];
-  /** Có mặt nghĩa là thay toàn bộ; tệp bị gỡ thành tệp mồ côi. */
+  /** Có mặt nghĩa là thay toàn bộ và thứ tự mảng là thứ tự hiển thị; tệp bị gỡ thành tệp mồ côi. */
   readonly attachmentIds?: readonly string[];
+  /** Thiếu là giữ nguyên. */
+  readonly mediaLayout?: SocialMediaLayout;
   /** Người sửa; store chỉ gắn thêm tệp chưa gắn bài của người này. */
   readonly uploaderId: string;
   readonly events: readonly SocialOutboxEvent[];

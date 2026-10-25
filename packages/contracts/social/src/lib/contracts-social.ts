@@ -118,6 +118,21 @@ export const SOCIAL_VIDEO_QUEUES = {
   post: 'social.video.post.v1',
 } as const;
 
+/**
+ * Cách xếp ảnh và video của một bài viết. `auto` giữ cách hiển thị cũ (ảnh dạng lưới, video xếp dọc phía dưới) nên
+ * bài cũ không đổi. Thứ tự các mục là thứ tự của `attachmentIds` khi đăng hoặc sửa bài.
+ */
+export const SOCIAL_MEDIA_LAYOUTS = ['auto', 'grid', 'featured', 'stack', 'carousel'] as const;
+export type SocialMediaLayout = (typeof SOCIAL_MEDIA_LAYOUTS)[number];
+export const SOCIAL_MEDIA_LAYOUT_DEFAULT: SocialMediaLayout = 'auto';
+export const SOCIAL_MEDIA_LAYOUT_LABELS: Readonly<Record<SocialMediaLayout, string>> = {
+  auto: 'Tự động',
+  grid: 'Lưới đều',
+  featured: 'Nổi bật',
+  stack: 'Xếp dọc',
+  carousel: 'Trượt ngang',
+};
+
 /** `payload` của yêu cầu chuyển mã (tenantId nằm ở envelope). */
 export interface SocialVideoRequestedPayload {
   readonly attachmentId: string;
@@ -214,6 +229,8 @@ export interface SocialPost {
 
   /** Mặc định `published`. Bài `pending|scheduled|rejected` chỉ tác giả và moderator thấy. */
   readonly status?: SocialPostStatus;
+  /** Cách xếp ảnh và video; thiếu nghĩa là `auto`. `attachments` đã được sắp theo thứ tự tác giả chọn. */
+  readonly mediaLayout?: SocialMediaLayout;
   /** Có mặt khi bài thuộc một nhóm; thiếu nghĩa là bài trên Tường công ty. */
   readonly group?: SocialGroupRef;
   readonly poll?: SocialPoll;
@@ -306,7 +323,10 @@ export interface CreateSocialPostRequest {
   readonly title?: string;
   readonly bodyHtml: string;
   readonly topicId?: string;
+  /** Thứ tự của mảng là thứ tự hiển thị của ảnh và video. */
   readonly attachmentIds?: readonly string[];
+  /** Cách xếp ảnh và video; mặc định `auto`. */
+  readonly mediaLayout?: SocialMediaLayout;
   readonly mentionUserIds?: readonly string[];
   /** Cần quyền `social.post.moderate`. */
   readonly mentionsAll?: boolean;
@@ -339,7 +359,10 @@ export interface UpdateSocialPostRequest {
   readonly title?: string | null;
   readonly bodyHtml?: string;
   readonly topicId?: string | null;
+  /** Thứ tự của mảng là thứ tự hiển thị; gửi lại cùng tập tệp với thứ tự khác là đổi thứ tự. */
   readonly attachmentIds?: readonly string[];
+  /** Đổi cách xếp ảnh và video; thiếu là giữ nguyên. */
+  readonly mediaLayout?: SocialMediaLayout;
   readonly mentionUserIds?: readonly string[];
   /** Chỉ bài `scheduled`: đổi giờ hẹn (vẫn phải ở tương lai). */
   readonly scheduledAt?: string;

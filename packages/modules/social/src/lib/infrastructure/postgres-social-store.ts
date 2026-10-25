@@ -4,7 +4,12 @@ import {
   TenantDatabaseRegistry,
   inTransaction,
 } from '@enterprise-platform/adapter-database';
-import type { SocialPostKind, SocialReactionType } from '@enterprise-platform/contracts-social';
+import {
+  SOCIAL_MEDIA_LAYOUT_DEFAULT,
+  type SocialMediaLayout,
+  type SocialPostKind,
+  type SocialReactionType,
+} from '@enterprise-platform/contracts-social';
 import type { Pool, PoolClient } from 'pg';
 import type {
   AttachmentInsert,
@@ -40,7 +45,7 @@ function isoColumn(expression: string): string {
 }
 
 const POST_SELECT = `SELECT p.id, p.author_id, p.kind, p.title, p.body_html, p.topic_id, t.name AS topic_name,
-       p.pinned, p.mentions_all,
+       p.pinned, p.mentions_all, p.media_layout,
        ${isoColumn('p.published_at')} AS published_at,
        ${isoColumn('p.edited_at')} AS edited_at,
        (SELECT count(*) FROM social_schema.comments c
@@ -70,6 +75,7 @@ interface PostRecord {
   topic_name: string | null;
   pinned: boolean;
   mentions_all: boolean;
+  media_layout: SocialMediaLayout;
   published_at: string;
   edited_at: string | null;
   comment_count: number;
@@ -117,6 +123,7 @@ function mapPost(row: PostRecord): PostRow {
     ...(row.topic_id ? { topicId: row.topic_id, topicName: row.topic_name ?? '' } : {}),
     pinned: row.pinned,
     mentionsAll: row.mentions_all,
+    mediaLayout: row.media_layout ?? SOCIAL_MEDIA_LAYOUT_DEFAULT,
     publishedAt: row.published_at,
     ...(row.edited_at ? { editedAt: row.edited_at } : {}),
     commentCount: row.comment_count,
@@ -212,7 +219,7 @@ async function writeOutboxAll(
 
 /**
  * Gắn tệp vào bài. Chỉ nhận tệp đã tải xong, không phải video `failed` (`queued`/`processing` gắn được) và hoặc đã thuộc bài này, hoặc
- * chưa gắn bài và do `uploaderId` tải; thiếu một tệp là lỗi cả thao tác.
+ * chưa gắn bài và do `uploaderId` tải; thiếu một tệp là lỗi cả thao tác. `position` là chỉ số trong `attachmentIds`.
  */
 async function attachFiles(
   client: PoolClient,
@@ -222,12 +229,13 @@ async function attachFiles(
 ): Promise<void> {
   if (attachmentIds.length === 0) return;
   const result = await client.query(
-    `UPDATE social_schema.attachments
-        SET post_id = $1
-      WHERE id = ANY($2::uuid[])
-        AND completed_at IS NOT NULL
-        AND processing_status <> 'failed'
-        AND (post_id = $1 OR (post_id IS NULL AND comment_id IS NULL AND uploaded_by = $3))`,
+    `UPDATE social_schema.attachments a
+        SET post_id = $1, position = o.ord::int - 1
+       FROM unnest($2::uuid[]) WITH ORDINALITY AS o(id, ord)
+      WHERE a.id = o.id
+        AND a.completed_at IS NOT NULL
+        AND a.processing_status <> 'failed'
+        AND (a.post_id = $1 OR (a.post_id IS NULL AND a.comment_id IS NULL AND a.uploaded_by = $3))`,
     [postId, attachmentIds, uploaderId],
   );
   if (result.rowCount !== attachmentIds.length) throw await attachmentFailure(client, attachmentIds);
@@ -378,7 +386,7 @@ export class PostgresSocialStore implements SocialStore {
             `SELECT ${ATTACHMENT_COLUMNS}
                FROM social_schema.attachments a
               WHERE a.post_id = ANY($1::uuid[]) AND a.completed_at IS NOT NULL
-              ORDER BY a.created_at, a.id`,
+              ORDER BY a.position, a.created_at, a.id`,
             [postIds],
           ),
           pool.query<{ post_id: string; type: SocialReactionType; n: number }>(
@@ -421,8 +429,8 @@ export class PostgresSocialStore implements SocialStore {
         inTransaction(pool, async (client) => {
           await client.query(
             `INSERT INTO social_schema.posts
-               (id, author_id, kind, title, body_html, topic_id, pinned, mentions_all)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+               (id, author_id, kind, title, body_html, topic_id, pinned, mentions_all, media_layout)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
             [
               input.id,
               input.authorId,
@@ -432,6 +440,7 @@ export class PostgresSocialStore implements SocialStore {
               input.topicId ?? null,
               input.pinned,
               input.mentionsAll,
+              input.mediaLayout ?? SOCIAL_MEDIA_LAYOUT_DEFAULT,
             ],
           );
           await replacePostMentions(client, input.id, input.mentionUserIds);
@@ -452,6 +461,7 @@ export class PostgresSocialStore implements SocialStore {
           if (patch.title !== undefined) set('title', patch.title);
           if (patch.bodyHtml !== undefined) set('body_html', patch.bodyHtml);
           if (patch.topicId !== undefined) set('topic_id', patch.topicId);
+          if (patch.mediaLayout !== undefined) set('media_layout', patch.mediaLayout);
 
           const result = await client.query(
             `UPDATE social_schema.posts

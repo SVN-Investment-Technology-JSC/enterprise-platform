@@ -652,6 +652,7 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     { version: '0005-social-comment-reactions', path: 'tenant/social/0005-social-comment-reactions.sql' },
     { version: '0006-social-comment-attachments', path: 'tenant/social/0006-social-comment-attachments.sql' },
     { version: '0007-social-video-processing', path: 'tenant/social/0007-social-video-processing.sql' },
+    { version: '0008-social-post-media-layout', path: 'tenant/social/0008-social-post-media-layout.sql' },
   ],
 };
 

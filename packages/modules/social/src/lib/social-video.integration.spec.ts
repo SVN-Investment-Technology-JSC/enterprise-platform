@@ -15,6 +15,8 @@ import { PostgresSocialVideoStore } from './infrastructure/postgres-social-video
  * `SOCIAL_TEST_ADMIN_URL=postgresql://tenant:tenant@localhost:15436/postgres`. Tự tạo DB tạm, áp migration
  * tenant (integration + social 0001-0007) rồi xoá DB. Bỏ qua khi không đặt biến môi trường.
  */
+// Tạo DB tạm và áp toàn bộ migration có thể quá 5 giây (mặc định của Jest) khi máy bận hoặc nhiều suite chạy song song.
+jest.setTimeout(30_000);
 const integration = process.env.SOCIAL_TEST_ADMIN_URL ? describe : describe.skip;
 
 const MIGRATIONS = [
@@ -26,6 +28,7 @@ const MIGRATIONS = [
   'tenant/social/0005-social-comment-reactions.sql',
   'tenant/social/0006-social-comment-attachments.sql',
   'tenant/social/0007-social-video-processing.sql',
+  'tenant/social/0008-social-post-media-layout.sql',
 ];
 
 integration('Xử lý video Mạng nội bộ trên PostgreSQL thật', () => {

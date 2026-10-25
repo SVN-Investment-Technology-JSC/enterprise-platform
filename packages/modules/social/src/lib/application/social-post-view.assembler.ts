@@ -1,11 +1,12 @@
-import type {
-  SocialPoll,
-  SocialPost,
-  SocialPostAudience,
-  SocialPostCapabilities,
-  SocialReadConfirmationSummary,
-  SocialUnitRef,
-  SocialUserRef,
+import {
+  SOCIAL_MEDIA_LAYOUT_DEFAULT,
+  type SocialPoll,
+  type SocialPost,
+  type SocialPostAudience,
+  type SocialPostCapabilities,
+  type SocialReadConfirmationSummary,
+  type SocialUnitRef,
+  type SocialUserRef,
 } from '@enterprise-platform/contracts-social';
 import { isPollClosed } from '../domain/social-poll-rules.js';
 import { mayManage, mayModerate } from '../domain/social-principal.js';
@@ -143,6 +144,7 @@ export class SocialPostViewAssembler implements PostViewAssembler {
           attachments,
           mentions: (relations.mentions.get(row.id) ?? []).map(userOf),
           mentionsAll: row.mentionsAll,
+          mediaLayout: row.mediaLayout ?? SOCIAL_MEDIA_LAYOUT_DEFAULT,
           reactionCounts: reactions?.counts ?? {},
           reactionTotal: reactions?.total ?? 0,
           ...(reactions?.mine ? { myReaction: reactions.mine } : {}),

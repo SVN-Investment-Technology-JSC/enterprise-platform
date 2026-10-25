@@ -22,6 +22,7 @@ import {
   normalizeBody,
   normalizeCommentBody,
   normalizeLimit,
+  normalizeMediaLayout,
   normalizeTitle,
   normalizeTopicName,
   requireContent,
@@ -174,15 +175,28 @@ describe('luật tệp theo nơi gắn: video', () => {
     processingStatus: 'ready' as const,
   });
 
-  it('bài viết: tối đa 3 video, không trộn ảnh với video, tài liệu thì được', () => {
+  it('bài viết: tối đa 3 video, ảnh, video và tài liệu trộn được, tối đa 10 tệp', () => {
     const v = file('video/mp4');
     expect(() => assertAttachmentSet('post', [v, v, v])).not.toThrow();
     expect(() => assertAttachmentSet('post', [v, v, v, v])).toThrow(SocialValidationError);
-    expect(() => assertAttachmentSet('post', [v, file('image/png')])).toThrow(SocialValidationError);
+    expect(() => assertAttachmentSet('post', [v, file('image/png')])).not.toThrow();
+    expect(() => assertAttachmentSet('post', [v, file('image/png'), file('application/pdf')])).not.toThrow();
+    const mixedMany = [v, v, v, ...Array.from({ length: 8 }, () => file('image/png'))];
+    expect(() => assertAttachmentSet('post', mixedMany)).toThrow(SocialValidationError);
     expect(() => assertAttachmentSet('post', [file('image/png'), file('image/jpeg')])).not.toThrow();
     expect(() => assertAttachmentSet('post', [v, file('application/pdf')])).not.toThrow();
     const many = Array.from({ length: 11 }, () => file('application/pdf'));
     expect(() => assertAttachmentSet('post', many)).toThrow(SocialValidationError);
+  });
+
+  it('bố cục ảnh và video: thiếu thì bỏ qua, đủ 5 giá trị hợp lệ, giá trị lạ bị từ chối', () => {
+    for (const missing of [undefined, null, '']) expect(normalizeMediaLayout(missing)).toBeUndefined();
+    for (const layout of ['auto', 'grid', 'featured', 'stack', 'carousel']) {
+      expect(normalizeMediaLayout(layout)).toBe(layout);
+    }
+    for (const bad of ['mosaic', 'GRID', 1, {}]) {
+      expect(() => normalizeMediaLayout(bad)).toThrow('Cách xếp ảnh và video không hợp lệ.');
+    }
   });
 
   it('bình luận: tối đa 1 video và 4 tệp', () => {

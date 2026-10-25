@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { Logger } from '@nestjs/common';
 import {
   SOCIAL_AUDIENCE_MAX_USERS,
+  SOCIAL_MEDIA_LAYOUT_DEFAULT,
   type CreateSocialPostRequest,
   type PinSocialPostRequest,
   type SocialPost,
@@ -21,6 +22,7 @@ import {
   normalizeAttachmentIds,
   normalizeBody,
   normalizeKind,
+  normalizeMediaLayout,
   normalizeMentionIds,
   normalizeTitle,
   requireContent,
@@ -81,6 +83,7 @@ const CONTENT_FIELDS = [
   'bodyHtml',
   'topicId',
   'attachmentIds',
+  'mediaLayout',
   'mentionUserIds',
   'scheduledAt',
   'requiresReadConfirmation',
@@ -155,6 +158,7 @@ export class SocialPublishingService {
     const title = normalizeTitle(input.title);
     const body = normalizeBody(input.bodyHtml ?? '');
     const attachmentIds = normalizeAttachmentIds(input.attachmentIds);
+    const mediaLayout = normalizeMediaLayout(input.mediaLayout);
     const poll = input.poll === undefined || input.poll === null ? undefined : normalizePoll(input.poll, now);
     // Bình chọn tính là nội dung: bài chỉ có bình chọn vẫn hợp lệ.
     requireContent(body, attachmentIds.length + (poll ? 1 : 0));
@@ -243,6 +247,7 @@ export class SocialPublishingService {
       groupId: group?.id,
       pinned: wantsPinned,
       mentionsAll: wantsAll,
+      ...(mediaLayout ? { mediaLayout } : {}),
       mentionUserIds,
       attachmentIds,
       uploaderId: actor.userId,
@@ -331,6 +336,10 @@ export class SocialPublishingService {
       if (this.deps.attachments) {
         await assertPostAttachable(this.deps.attachments, actor.tenantId, attachmentIds, actor.userId, postId);
       }
+    }
+    const mediaLayout = normalizeMediaLayout(input.mediaLayout);
+    if (mediaLayout !== undefined && mediaLayout !== (row.mediaLayout ?? SOCIAL_MEDIA_LAYOUT_DEFAULT)) {
+      patch.mediaLayout = mediaLayout;
     }
     if (patch.bodyHtml !== undefined || patch.attachmentIds !== undefined) {
       const attachmentCount = attachmentIds?.length ?? relations.attachments.get(postId)?.length ?? 0;

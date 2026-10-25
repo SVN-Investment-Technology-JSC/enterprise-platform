@@ -352,6 +352,7 @@ class FakePublishingStore implements SocialPublishingStore {
       ...(input.topicId ? { topicId: input.topicId } : {}),
       pinned: input.pinned,
       mentionsAll: input.mentionsAll,
+      mediaLayout: input.mediaLayout ?? 'auto',
       publishedAt: input.scheduledAt ?? this.stamp(),
       commentCount: 0,
       status: input.status,
@@ -391,6 +392,7 @@ class FakePublishingStore implements SocialPublishingStore {
     const mutable = next as { -readonly [K in keyof StoredRow]: StoredRow[K] };
     if (patch.title !== undefined) mutable.title = patch.title ?? undefined;
     if (patch.bodyHtml !== undefined) mutable.bodyHtml = patch.bodyHtml;
+    if (patch.mediaLayout !== undefined) mutable.mediaLayout = patch.mediaLayout;
     if (patch.scheduledAt !== undefined) {
       mutable.scheduledAt = patch.scheduledAt;
       mutable.publishedAt = patch.scheduledAt;
@@ -427,6 +429,7 @@ class FakePublishingStore implements SocialPublishingStore {
       row.status === 'published' &&
       (textChanged ||
         patch.topicId !== undefined ||
+        patch.mediaLayout !== undefined ||
         (patch.mentionUserIds !== undefined && patch.visibility === undefined) ||
         patch.attachmentIds !== undefined)
     ) {
@@ -2183,7 +2186,7 @@ describe('video đính kèm bài viết', () => {
     expect(updated.id).toBe(post.id);
   });
 
-  it('tối đa 3 video, không trộn ảnh với video, video của bình luận không gắn vào bài, tài liệu thì được', async () => {
+  it('tối đa 3 video, ảnh trộn được với video, video của bình luận không gắn vào bài, tài liệu thì được', async () => {
     const h = harness();
     const videos = [file(h), file(h), file(h)];
     await h.publishing.create(alice, { bodyHtml: BODY, attachmentIds: videos });
@@ -2192,13 +2195,58 @@ describe('video đính kèm bài viết', () => {
       'VALIDATION',
     );
     const image = file(h, { contentType: 'image/png', fileName: 'a.png' });
-    await expectError(h.publishing.create(alice, { bodyHtml: BODY, attachmentIds: [image, file(h)] }), 'VALIDATION');
+    await expect(h.publishing.create(alice, { bodyHtml: BODY, attachmentIds: [image, file(h)] })).resolves.toBeDefined();
     await expectError(
       h.publishing.create(alice, { bodyHtml: BODY, attachmentIds: [file(h, { purpose: 'comment' })] }),
       'VALIDATION',
     );
     const pdf = file(h, { contentType: 'application/pdf', fileName: 'a.pdf', processingStatus: 'none' });
     await h.publishing.create(alice, { bodyHtml: BODY, attachmentIds: [pdf, file(h)] });
+    // Đủ ba loại cùng lúc, nhưng vẫn không quá 10 tệp.
+    await expect(
+      h.publishing.create(alice, { bodyHtml: BODY, attachmentIds: [pdf, image, file(h), file(h)] }),
+    ).resolves.toBeDefined();
+    const many = Array.from({ length: 9 }, () => file(h, { contentType: 'image/png', fileName: 'b.png' }));
+    await expectError(h.publishing.create(alice, { bodyHtml: BODY, attachmentIds: [...many, pdf, file(h)] }), 'VALIDATION');
+  });
+
+  it('bố cục ảnh và video: mặc định auto, lưu khi hợp lệ, từ chối khi sai, sửa thì đổi hoặc giữ nguyên', async () => {
+    const h = harness();
+    const plain = await h.publishing.create(alice, { bodyHtml: BODY });
+    expect(plain.mediaLayout).toBe('auto');
+    const grid = await h.publishing.create(alice, { bodyHtml: BODY, mediaLayout: 'grid' });
+    expect(grid.mediaLayout).toBe('grid');
+    await expectError(
+      h.publishing.create(alice, { bodyHtml: BODY, mediaLayout: 'mosaic' as never }),
+      'VALIDATION',
+      400,
+    );
+    await expectError(h.publishing.update(alice, grid.id, { mediaLayout: 'mosaic' as never }), 'VALIDATION', 400);
+    expect((await h.publishing.update(alice, grid.id, { mediaLayout: 'carousel' })).mediaLayout).toBe('carousel');
+    // Sửa mà không gửi bố cục thì giữ nguyên.
+    expect((await h.publishing.update(alice, grid.id, { bodyHtml: '<p>Nội dung mới</p>' })).mediaLayout).toBe('carousel');
+    expect((await h.publishing.get(alice, grid.id)).mediaLayout).toBe('carousel');
+  });
+
+  it('bố cục giữ nguyên khi bài hẹn giờ được đăng và khi bài chờ duyệt được duyệt', async () => {
+    const h = harness();
+    const scheduled = await h.publishing.create(alice, {
+      bodyHtml: BODY,
+      mediaLayout: 'featured',
+      scheduledAt: new Date(h.clock.now.getTime() + 3_600_000).toISOString(),
+    });
+    expect(scheduled.status).toBe('scheduled');
+    const now = await h.publishing.publishNow(alice, scheduled.id);
+    expect(now.status).toBe('published');
+    expect(now.mediaLayout).toBe('featured');
+
+    h.settings.value = { wallRequireApproval: true };
+    const pending = await h.publishing.create(alice, { bodyHtml: BODY, mediaLayout: 'stack' });
+    expect(pending.status).toBe('pending');
+    expect(pending.mediaLayout).toBe('stack');
+    const approved = await h.moderation.approve(moderator, pending.id);
+    expect(approved.status).toBe('published');
+    expect(approved.mediaLayout).toBe('stack');
   });
 
   it('không gắn tệp của người khác hay chưa tải xong', async () => {
