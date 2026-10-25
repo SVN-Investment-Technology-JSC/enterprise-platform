@@ -143,6 +143,8 @@ export interface SocialVideoRequestedPayload {
 /** URL xem video sống lâu hơn URL ảnh vì video phát và tua lâu. */
 export const SOCIAL_VIDEO_URL_TTL_SECONDS = 3600;
 export const SOCIAL_FEED_PAGE_SIZE = 10;
+/** Số chuyên mục tối đa của một bài. */
+export const SOCIAL_POST_TOPICS_MAX = 5;
 export const SOCIAL_FEED_MAX_PAGE_SIZE = 50;
 export const SOCIAL_TOPIC_NAME_MAX = 80;
 
@@ -213,7 +215,10 @@ export interface SocialPost {
   readonly title?: string;
   /** HTML đã làm sạch ở server; hiển thị trực tiếp. */
   readonly bodyHtml: string;
+  /** Chuyên mục chính (phần tử đầu của `topics`); giữ cho bản cũ. */
   readonly topic?: { readonly id: string; readonly name: string };
+  /** Mọi chuyên mục của bài theo thứ tự tác giả chọn; thiếu hoặc rỗng là không có. */
+  readonly topics?: readonly { readonly id: string; readonly name: string }[];
   readonly pinned: boolean;
   readonly attachments: readonly SocialAttachment[];
   readonly mentions: readonly SocialUserRef[];
@@ -324,7 +329,10 @@ export interface CreateSocialPostRequest {
   readonly kind?: SocialPostKind;
   readonly title?: string;
   readonly bodyHtml: string;
+  /** Một chuyên mục (cách cũ); `topicIds` được ưu tiên khi có cả hai. */
   readonly topicId?: string;
+  /** Các chuyên mục của bài (tối đa `SOCIAL_POST_TOPICS_MAX`); bài nhóm không có chuyên mục. */
+  readonly topicIds?: readonly string[];
   /** Thứ tự của mảng là thứ tự hiển thị của ảnh và video. */
   readonly attachmentIds?: readonly string[];
   /** Cách xếp ảnh và video; mặc định `auto`. */
@@ -361,6 +369,8 @@ export interface UpdateSocialPostRequest {
   readonly title?: string | null;
   readonly bodyHtml?: string;
   readonly topicId?: string | null;
+  /** Thay toàn bộ chuyên mục của bài; mảng rỗng là bỏ hết. `topicIds` được ưu tiên khi có cả hai. */
+  readonly topicIds?: readonly string[];
   /** Thứ tự của mảng là thứ tự hiển thị; gửi lại cùng tập tệp với thứ tự khác là đổi thứ tự. */
   readonly attachmentIds?: readonly string[];
   /** Đổi cách xếp ảnh và video; thiếu là giữ nguyên. */

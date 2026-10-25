@@ -26,7 +26,7 @@ export function whereClause(read: FeedRead, values: unknown[]): string {
 
   if (read.topicId) {
     values.push(read.topicId);
-    clause += ` AND p.topic_id = $${values.length}::uuid`;
+    clause += ` AND EXISTS (SELECT 1 FROM social_schema.post_topics pt WHERE pt.post_id = p.id AND pt.topic_id = $${values.length}::uuid)`;
   }
   if (read.groupTopicId) {
     values.push(read.groupTopicId);

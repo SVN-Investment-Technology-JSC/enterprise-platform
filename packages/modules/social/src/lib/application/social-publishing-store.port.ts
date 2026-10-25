@@ -44,7 +44,10 @@ export interface PublishingPostInsert {
   readonly kind: SocialPostKind;
   readonly title?: string;
   readonly bodyHtml: string;
+  /** Chuyên mục chính (`posts.topic_id`), phần tử đầu của `topicIds`. */
   readonly topicId?: string;
+  /** Mọi chuyên mục của bài, theo thứ tự tác giả chọn. */
+  readonly topicIds?: readonly string[];
   readonly groupId?: string;
   readonly pinned: boolean;
   readonly mentionsAll: boolean;
@@ -79,6 +82,8 @@ export interface PublishingPostPatch {
   readonly title?: string | null;
   readonly bodyHtml?: string;
   readonly topicId?: string | null;
+  /** Thay toàn bộ chuyên mục; rỗng là bỏ hết. */
+  readonly topicIds?: readonly string[];
   readonly mentionUserIds?: readonly string[];
   /** Thay toàn bộ; thứ tự mảng là thứ tự hiển thị, đổi thứ tự cũng đổi `position`. */
   readonly attachmentIds?: readonly string[];

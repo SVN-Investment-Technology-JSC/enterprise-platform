@@ -45,6 +45,7 @@ import {
   isoColumn,
   mapExtendedPost,
   replacePostMentions,
+  replacePostTopics,
   writeOutboxAll,
   type AudienceRecord,
   type ExtendedPostRecord,
@@ -161,6 +162,7 @@ export class PostgresSocialPublishingStore implements SocialPublishingStore {
         );
         if (input.visibility === 'custom' && input.audience) await replaceAudience(client, input.id, input.audience);
         await replacePostMentions(client, input.id, input.mentionUserIds);
+        await replacePostTopics(client, input.id, input.topicIds ?? (input.topicId ? [input.topicId] : []));
         await attachFiles(client, input.id, input.attachmentIds, input.uploaderId);
         if (input.poll) {
           await client.query(
@@ -229,6 +231,7 @@ export class PostgresSocialPublishingStore implements SocialPublishingStore {
         const contentEdited =
           textChanged ||
           patch.topicId !== undefined ||
+          patch.topicIds !== undefined ||
           patch.mediaLayout !== undefined ||
           (patch.mentionUserIds !== undefined && patch.visibility === undefined) ||
           patch.attachmentIds !== undefined;
@@ -270,6 +273,7 @@ export class PostgresSocialPublishingStore implements SocialPublishingStore {
 
         if (patch.audience !== undefined) await replaceAudience(client, postId, patch.audience);
         if (patch.mentionUserIds !== undefined) await replacePostMentions(client, postId, patch.mentionUserIds);
+        if (patch.topicIds !== undefined) await replacePostTopics(client, postId, patch.topicIds);
         if (patch.attachmentIds !== undefined) {
           // Gắn trước rồi mới gỡ: tệp đã thuộc bài này vẫn hợp lệ dù do người khác tải.
           await attachFiles(client, postId, patch.attachmentIds, patch.uploaderId);

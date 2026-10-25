@@ -701,6 +701,7 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     { version: '0006-social-comment-attachments', path: 'tenant/social/0006-social-comment-attachments.sql' },
     { version: '0007-social-video-processing', path: 'tenant/social/0007-social-video-processing.sql' },
     { version: '0008-social-post-media-layout', path: 'tenant/social/0008-social-post-media-layout.sql' },
+    { version: '0009-social-post-topics', path: 'tenant/social/0009-social-post-topics.sql' },
   ],
 };
 

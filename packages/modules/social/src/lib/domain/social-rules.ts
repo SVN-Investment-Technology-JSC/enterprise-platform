@@ -14,6 +14,7 @@ import {
   SOCIAL_POST_BODY_MAX,
   SOCIAL_POST_KINDS,
   SOCIAL_POST_TITLE_MAX,
+  SOCIAL_POST_TOPICS_MAX,
   SOCIAL_REACTION_TYPES,
   SOCIAL_TOPIC_NAME_MAX,
   type SocialAttachmentPurpose,
@@ -97,6 +98,17 @@ export function normalizeIdList(value: unknown, label: string, max: number): str
 
 export function normalizeAttachmentIds(value: unknown): string[] {
   return normalizeIdList(value, 'Tệp đính kèm', SOCIAL_MAX_ATTACHMENTS_PER_POST);
+}
+
+/**
+ * Chuyên mục của bài từ yêu cầu: `topicIds` (mảng) được ưu tiên, không thì `topicId` đơn (cách cũ; `null` hoặc chuỗi rỗng là
+ * bỏ). Trả `undefined` khi yêu cầu không nhắc tới chuyên mục (giữ nguyên khi sửa bài).
+ */
+export function normalizeTopicIds(topicIds: unknown, topicId: unknown): string[] | undefined {
+  if (topicIds !== undefined) return normalizeIdList(topicIds, 'Chuyên mục', SOCIAL_POST_TOPICS_MAX);
+  if (topicId === undefined) return undefined;
+  if (topicId === null || topicId === '') return [];
+  return [requireUuid(topicId, 'Chuyên mục')];
 }
 
 export function normalizeMentionIds(value: unknown): string[] {

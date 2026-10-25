@@ -171,7 +171,7 @@ function filterClause(filter: FeedFilter, values: unknown[]): string {
   let clause = '';
   if (filter.topicId) {
     values.push(filter.topicId);
-    clause += ` AND p.topic_id = $${values.length}`;
+    clause += ` AND EXISTS (SELECT 1 FROM social_schema.post_topics pt WHERE pt.post_id = p.id AND pt.topic_id = $${values.length}::uuid)`;
   }
   if (filter.kind) {
     values.push(filter.kind);
@@ -375,9 +375,10 @@ export class PostgresSocialStore implements SocialStore {
         const mentions = new Map<string, string[]>();
         const attachments = new Map<string, AttachmentRow[]>();
         const reactions = new Map<string, ReactionSummaryRow>();
-        if (postIds.length === 0) return { mentions, attachments, reactions };
+        const topics = new Map<string, { id: string; name: string }[]>();
+        if (postIds.length === 0) return { mentions, attachments, reactions, topics };
 
-        const [mentionRows, attachmentRows, countRows, mineRows] = await Promise.all([
+        const [mentionRows, attachmentRows, countRows, mineRows, topicRows] = await Promise.all([
           pool.query<{ post_id: string; user_id: string }>(
             `SELECT post_id, user_id FROM social_schema.post_mentions WHERE post_id = ANY($1::uuid[])`,
             [postIds],
@@ -401,8 +402,19 @@ export class PostgresSocialStore implements SocialStore {
               WHERE post_id = ANY($1::uuid[]) AND user_id = $2`,
             [postIds, viewerId],
           ),
+          pool.query<{ post_id: string; id: string; name: string }>(
+            `SELECT pt.post_id, t.id, t.name
+               FROM social_schema.post_topics pt
+               JOIN social_schema.topics t ON t.id = pt.topic_id
+              WHERE pt.post_id = ANY($1::uuid[])
+              ORDER BY pt.position, lower(t.name), t.id`,
+            [postIds],
+          ),
         ]);
 
+        for (const row of topicRows.rows) {
+          topics.set(row.post_id, [...(topics.get(row.post_id) ?? []), { id: row.id, name: row.name }]);
+        }
         for (const row of mentionRows.rows) {
           mentions.set(row.post_id, [...(mentions.get(row.post_id) ?? []), row.user_id]);
         }
@@ -421,7 +433,7 @@ export class PostgresSocialStore implements SocialStore {
           const own = mine.get(postId);
           reactions.set(postId, { counts, total, ...(own ? { mine: own } : {}) });
         }
-        return { mentions, attachments, reactions };
+        return { mentions, attachments, reactions, topics };
       }),
 
     insert: (tenantId: string, input: PostInsert): Promise<void> =>
@@ -674,8 +686,9 @@ export class PostgresSocialStore implements SocialStore {
       this.run(tenantId, async (pool) => {
         const result = await pool.query<{ id: string; name: string; is_active: boolean; post_count: number }>(
           `SELECT t.id, t.name, t.is_active,
-                  (SELECT count(*) FROM social_schema.posts p
-                    WHERE p.topic_id = t.id AND p.status = 'published')::int AS post_count
+                  (SELECT count(*) FROM social_schema.post_topics pt
+                     JOIN social_schema.posts p ON p.id = pt.post_id
+                    WHERE pt.topic_id = t.id AND p.status = 'published')::int AS post_count
              FROM social_schema.topics t
             WHERE ($1::boolean OR t.is_active)
             ORDER BY lower(t.name), t.id`,
@@ -693,8 +706,9 @@ export class PostgresSocialStore implements SocialStore {
       this.run(tenantId, async (pool) => {
         const result = await pool.query<{ id: string; name: string; is_active: boolean; post_count: number }>(
           `SELECT t.id, t.name, t.is_active,
-                  (SELECT count(*) FROM social_schema.posts p
-                    WHERE p.topic_id = t.id AND p.status = 'published')::int AS post_count
+                  (SELECT count(*) FROM social_schema.post_topics pt
+                     JOIN social_schema.posts p ON p.id = pt.post_id
+                    WHERE pt.topic_id = t.id AND p.status = 'published')::int AS post_count
              FROM social_schema.topics t
             WHERE t.id = $1`,
           [topicId],
