@@ -8,12 +8,13 @@ import {
   type SocialBirthday,
   type SocialSearchPostsQuery,
 } from '@enterprise-platform/contracts-social';
+import { sliceSafe } from './safe-text';
 
 /* ---------------------------------------------------------- từ khoá */
 
 /** Bỏ khoảng trắng thừa và cắt theo độ dài tối đa của hợp đồng. */
 export function normalizeQuery(raw: string): string {
-  return raw.trim().replace(/\s+/g, ' ').slice(0, SOCIAL_SEARCH_QUERY_MAX);
+  return sliceSafe(raw.trim().replace(/\s+/g, ' '), SOCIAL_SEARCH_QUERY_MAX);
 }
 
 export function isSearchable(raw: string): boolean {

@@ -3,6 +3,7 @@
 import { SOCIAL_SEARCH_QUERY_MAX, SOCIAL_SEARCH_QUERY_MIN } from '@enterprise-platform/contracts-social';
 import { Bookmark, Building2, ClipboardCheck, Clock, Newspaper, Search, Users, X, type LucideIcon } from 'lucide-react';
 import { useEffect, useRef, useState, type MouseEvent } from 'react';
+import { sliceSafe } from '../../safe-text';
 import { routeForTab, socialHref, type SocialRoute, type SocialTab, type SocialTabId } from '../../social.model';
 import { handleSocialLinkClick, navigateSocial } from '../../social-navigation';
 import styles from '../../social-shell.module.scss';
@@ -41,7 +42,7 @@ function SearchBox({ active, query }: { readonly active: boolean; readonly query
 
   const submit = (value: string) => {
     clearTimeout(timer.current);
-    const trimmed = value.trim().slice(0, SOCIAL_SEARCH_QUERY_MAX);
+    const trimmed = sliceSafe(value.trim(), SOCIAL_SEARCH_QUERY_MAX);
     if (trimmed.length >= SOCIAL_SEARCH_QUERY_MIN) goToSearch(trimmed, activeRef.current);
   };
 
