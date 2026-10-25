@@ -77,6 +77,14 @@ export class ProcedureEngineController {
     );
   }
 
+  /** Quy trình người gọi khởi tạo được (`ProcedureStartableDefinitionsResponse`), không kèm hồ sơ. */
+  @Get('definitions/startable')
+  startableDefinitions(@Req() request: ProcedureRequest) {
+    return this.execute(async () => ({
+      data: await this.procedures.listStartableDefinitions(this.actor(request)),
+    }));
+  }
+
   @Post('definitions')
   createDefinition(
     @Req() request: ProcedureRequest,

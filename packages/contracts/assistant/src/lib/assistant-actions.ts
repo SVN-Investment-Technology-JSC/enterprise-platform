@@ -25,6 +25,11 @@ export type AssistantDraftField =
        * của người hỏi, nên chỉ thấy đúng những gì người đó được thấy. Phải là `/api/...`, không dùng route nội bộ.
        */
       readonly lookup?: string;
+      /**
+       * Cột của kết quả `lookup` mà Trợ lý cần thấy ngoài mã và tên, ví dụ `requiresDescription` của lý do. Trợ lý chỉ
+       * giữ cột mã và tên khi tra; cột khai ở đây được giữ nguyên, kể cả mảng.
+       */
+      readonly columns?: readonly string[];
       /** Form không lưu được khi thiếu ô này và không tự có giá trị mặc định (như kiểm tra của chính form). */
       readonly required?: boolean;
     };
@@ -33,7 +38,19 @@ export type AssistantDraftField =
 export interface AssistantCatalogField {
   readonly describe: string;
   readonly lookup?: string;
+  readonly columns?: readonly string[];
   readonly required?: boolean;
+}
+
+/**
+ * Biến thể của thao tác theo cấu hình công ty. Trợ lý gọi `lookup` bằng phiên của người hỏi, in sẵn các biến thể vào
+ * danh mục (mã, tên và `columns`) và gửi mã biến thể đã chọn trong `variant`.
+ */
+export interface AssistantVariants {
+  readonly describe: string;
+  readonly lookup: string;
+  /** Cột của mỗi biến thể cần thấy ngoài mã và tên, ví dụ `timeMode`, `fields` của loại đơn. */
+  readonly columns?: readonly string[];
 }
 
 /** Các ô của request mà Trợ lý được điền. Khoá là tên trường có thật của request gửi lên API. */
@@ -60,7 +77,7 @@ export interface AssistantActionDefinition<TRequest = unknown> {
    * Thao tác có nhiều biến thể theo cấu hình của công ty (loại đơn tuỳ chỉnh, quy trình đã phát hành): Trợ lý gọi
    * `lookup` bằng phiên của người hỏi để liệt kê biến thể và gửi mã biến thể đã chọn trong `variant`.
    */
-  readonly variants?: { readonly describe: string; readonly lookup: string };
+  readonly variants?: AssistantVariants;
 }
 
 /** Một thao tác như Trợ lý nhận qua `GET /api/<phân hệ>/v1/assistant/actions` (đã lọc theo quyền người gọi). */
@@ -73,7 +90,7 @@ export interface AssistantCatalogItem {
   /** Trang form nhúng của phân hệ mà khung chat đặt trong card (xem `assistantFormPath`). */
   readonly form: string;
   readonly draft: Readonly<Record<string, AssistantCatalogField>>;
-  readonly variants?: { readonly describe: string; readonly lookup: string };
+  readonly variants?: AssistantVariants;
 }
 
 const MODULE_BASE = /^\/modules\/[a-z][a-z-]*/;
@@ -192,6 +209,11 @@ export function assistantActionProblems(catalog: AssistantActionCatalog): string
         problems.push(
           `${where}: lookup của ô "${field}" phải là /api/... và không dùng route nội bộ.`,
         );
+      const columns = typeof spec === 'string' ? undefined : spec.columns;
+      if (columns !== undefined && (lookup === undefined || !validColumns(columns)))
+        problems.push(
+          `${where}: columns của ô "${field}" cần lookup và là danh sách tên cột không rỗng, không trùng.`,
+        );
     }
     const variants = action.variants;
     if (
@@ -201,6 +223,18 @@ export function assistantActionProblems(catalog: AssistantActionCatalog): string
         variants.lookup.includes('/internal/'))
     )
       problems.push(`${where}: variants cần mô tả và lookup /api/... không dùng route nội bộ.`);
+    if (variants?.columns !== undefined && !validColumns(variants.columns))
+      problems.push(`${where}: columns của variants phải là danh sách tên cột không rỗng, không trùng.`);
   }
   return problems;
+}
+
+const COLUMN = /^[A-Za-z][A-Za-z0-9_]*$/;
+
+function validColumns(columns: readonly string[]): boolean {
+  return (
+    columns.length > 0 &&
+    columns.every((column) => COLUMN.test(column)) &&
+    new Set(columns).size === columns.length
+  );
 }

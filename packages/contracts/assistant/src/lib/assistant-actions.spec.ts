@@ -160,8 +160,13 @@ describe('toCatalogItem', () => {
           draft: {
             description: 'Nội dung đơn',
             approverId: { describe: 'Người duyệt', lookup: '/api/hrm/v1/x', required: true },
+            reasonId: { describe: 'Lý do', lookup: '/api/hrm/v1/request-reasons', columns: ['requiresDescription'] },
           },
-          variants: { describe: 'Loại đơn tuỳ chỉnh', lookup: '/api/hrm/v1/request-types' },
+          variants: {
+            describe: 'Loại đơn tuỳ chỉnh',
+            lookup: '/api/hrm/v1/request-types',
+            columns: ['timeMode', 'fields'],
+          },
         },
       }),
     ).map(toCatalogItem);
@@ -175,8 +180,13 @@ describe('toCatalogItem', () => {
       draft: {
         description: { describe: 'Nội dung đơn' },
         approverId: { describe: 'Người duyệt', lookup: '/api/hrm/v1/x', required: true },
+        reasonId: { describe: 'Lý do', lookup: '/api/hrm/v1/request-reasons', columns: ['requiresDescription'] },
       },
-      variants: { describe: 'Loại đơn tuỳ chỉnh', lookup: '/api/hrm/v1/request-types' },
+      variants: {
+        describe: 'Loại đơn tuỳ chỉnh',
+        lookup: '/api/hrm/v1/request-types',
+        columns: ['timeMode', 'fields'],
+      },
     });
   });
 
@@ -199,6 +209,27 @@ describe('toCatalogItem', () => {
     });
     expect(assistantActionProblems(actions)).toEqual([
       'hrm/custom: variants cần mô tả và lookup /api/... không dùng route nội bộ.',
+    ]);
+  });
+
+  it('báo columns rỗng, trùng, sai tên hoặc khai ở ô không có lookup', () => {
+    const actions = defineAssistantActions('hrm', {
+      custom: {
+        key: 'hrm.custom-request.create',
+        title: 'Tạo đơn',
+        permission: 'hrm.self.request',
+        page: '/modules/hrm/requests',
+        draft: {
+          description: { describe: 'Nội dung', columns: ['kind'] },
+          reasonId: { describe: 'Lý do', lookup: '/api/hrm/v1/request-reasons', columns: [] },
+        },
+        variants: { describe: 'Loại đơn', lookup: '/api/hrm/v1/request-types', columns: ['fields', 'fields', 'a b'] },
+      },
+    });
+    expect(assistantActionProblems(actions)).toEqual([
+      'hrm/custom: columns của ô "description" cần lookup và là danh sách tên cột không rỗng, không trùng.',
+      'hrm/custom: columns của ô "reasonId" cần lookup và là danh sách tên cột không rỗng, không trùng.',
+      'hrm/custom: columns của variants phải là danh sách tên cột không rỗng, không trùng.',
     ]);
   });
 });

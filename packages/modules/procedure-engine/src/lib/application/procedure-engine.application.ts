@@ -19,6 +19,7 @@ import {
   type ProcedureInstanceStatusEntry,
   type ProcedureInstanceStep,
   type ProcedureRuntimeAction,
+  type ProcedureStartableDefinition,
   type ProcedureWorkspace,
   type PostProcedureCommentRequest,
   type ProcedureInstanceSourceType,
@@ -307,6 +308,32 @@ export class ProcedureEngineApplication {
             .sort((left, right) => left.name.localeCompare(right.name, 'vi')),
       instances: visibleInstances,
     };
+  }
+
+  /**
+   * Quy trình đã công bố mà `actor` khởi tạo được, cùng điều kiện như `startInstanceDetailed` khi tự nộp: có quyền
+   * tạo hồ sơ, và giữ vai S ở một bước (kể cả "Toàn bộ nhân viên") hoặc có quyền override.
+   */
+  async listStartableDefinitions(actor: ProcedureActor): Promise<ProcedureStartableDefinition[]> {
+    if (!actor.canCreateInstances) return [];
+    const state = await this.store.read(actor.tenantId);
+    return state.definitions
+      .filter((definition) => definition.status === 'published' && !definition.deletedAt)
+      .filter(
+        (definition) =>
+          actor.isOverride ||
+          definition.steps.some((step) =>
+            step.assignments.some((assignment) => canStartWithAssignment(assignment, actor)),
+          ),
+      )
+      .sort((left, right) => left.name.localeCompare(right.name, 'vi'))
+      .map((definition) => ({
+        id: definition.id,
+        code: definition.code,
+        name: definition.name,
+        description: definition.description ?? null,
+        category: definition.category ?? null,
+      }));
   }
 
   /**
