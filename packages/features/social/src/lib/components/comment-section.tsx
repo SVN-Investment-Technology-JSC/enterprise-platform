@@ -352,7 +352,9 @@ export function CommentInput({
   }, [warning, unfinishedAny]);
 
   const mention = activeMentionQuery(text, caret);
-  const { people, loading } = usePeopleSearch(mention?.query ?? '', Boolean(mention));
+  // Chưa gõ gì sau `@` thì không gọi server (server trả rỗng cho từ khoá rỗng) mà chỉ nhắc cách dùng.
+  const mentionQuery = mention?.query.trim() ?? '';
+  const { people, loading } = usePeopleSearch(mentionQuery, mentionQuery.length > 0);
 
   useEffect(() => {
     if (autoFocus && area.current) {
@@ -620,7 +622,11 @@ export function CommentInput({
       ) : null}
       {mention ? (
         <div className={styles.suggestPanel}>
-          <PeopleList people={people} loading={loading} onPick={pick} />
+          {mentionQuery.length > 0 ? (
+            <PeopleList people={people} loading={loading} onPick={pick} />
+          ) : (
+            <p className={styles.suggestEmpty}>Gõ tên để tìm người cần nhắc.</p>
+          )}
         </div>
       ) : null}
       {error ? (
@@ -911,9 +917,11 @@ interface RootCommentProps {
   readonly onRemoved: (comment: SocialComment) => void;
   readonly onCountChange: (delta: number) => void;
   readonly focusId?: string;
+  /** Người đang đăng nhập: hiện ảnh và tên ở ô trả lời, và không tự nhắc tên chính mình. */
+  readonly me?: SocialUserRef;
 }
 
-function RootComment({ postId, comment, canComment, onChanged, onRemoved, onCountChange, focusId }: RootCommentProps) {
+function RootComment({ postId, comment, canComment, onChanged, onRemoved, onCountChange, focusId, me }: RootCommentProps) {
   const [replies, setReplies] = useState<readonly SocialComment[]>([]);
   const [cursor, setCursor] = useState<string>();
   const [expanded, setExpanded] = useState(false);
@@ -959,9 +967,9 @@ function RootComment({ postId, comment, canComment, onChanged, onRemoved, onCoun
     if (!expanded && comment.replyCount > 0) showReplies();
   };
 
+  // Bấm "Trả lời" bình luận của ai thì tự nhắc tên người đó (trừ khi đó là chính mình).
   const replyDraft: MentionPick[] =
-    replyTo && replyTo.id !== comment.author.id ? [{ id: replyTo.id, name: replyTo.name }] : [];
-  // Trả lời bình luận gốc thì không cần nhắc tên; trả lời một trả lời thì nhắc người đó.
+    replyTo && replyTo.id !== me?.id ? [{ id: replyTo.id, name: replyTo.name }] : [];
   const replyKey = `${comment.id}-${replyTo?.id ?? 'root'}`;
 
   return (
@@ -1029,7 +1037,8 @@ function RootComment({ postId, comment, canComment, onChanged, onRemoved, onCoun
             key={replyKey}
             initialText={replyDraft.length > 0 ? `@${replyDraft[0]?.name} ` : ''}
             initialPicks={replyDraft}
-            placeholder="Viết trả lời…"
+            placeholder={me ? `Trả lời với vai trò ${me.name}` : 'Viết trả lời…'}
+            avatar={me}
             submitLabel="Trả lời"
             autoFocus
             onCancel={() => setReplying(false)}
@@ -1134,6 +1143,7 @@ export function CommentSection({ postId, postAuthorId, me, canComment, commentsD
               comment={comment}
               canComment={canComment}
               focusId={focusCommentId}
+              me={me.user}
               onCountChange={onCountChange}
               onChanged={(next) => setItems((list) => list.map((item) => (item.id === next.id ? next : item)))}
               onRemoved={(removed) => {
