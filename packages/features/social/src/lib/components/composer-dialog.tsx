@@ -98,6 +98,10 @@ import { ComposerVideoTile } from './composer-video-tile';
 import { MediaGallery } from './media-gallery';
 import layoutStyles from './media-layout.module.scss';
 import { MediaLayoutPicker, MediaMoveButtons } from './media-layout-picker';
+import { Button } from '../ui/button';
+import { Checkbox } from '../ui/checkbox';
+import { Input } from '../ui/input';
+import { Label } from '../ui/label';
 import { MultiSelect } from '../ui/multi-select';
 import { Avatar, ConfirmDialog, Dialog, Field, SelectField } from './ui';
 import {
@@ -162,6 +166,10 @@ export interface ComposerDialogProps {
 }
 
 /** Hộp thoại soạn bài hoặc sửa bài. Dựng mới mỗi lần mở nên không cần đặt lại trạng thái. */
+/** Mọi ô nhập, ô chọn và nút trong hộp soạn cùng cao 38px, chữ 13,5px, bo 6px. */
+const CONTROL_HEIGHT = 38;
+const CONTROL_CLASS = 'h-[38px] rounded-md px-3 text-[13.5px]!';
+
 export function ComposerDialog({
   me,
   topics,
@@ -720,6 +728,7 @@ export function ComposerDialog({
           <SearchableSelect
             options={destinationOptions}
             value={destination}
+            height={CONTROL_HEIGHT}
             disabled={Boolean(editing)}
             onChange={(value) => {
               setDestination(value);
@@ -732,6 +741,7 @@ export function ComposerDialog({
             <SearchableSelect
               options={KIND_OPTIONS}
               value={kind}
+              height={CONTROL_HEIGHT}
               onChange={(value) => setKind(value as SocialPostKind)}
             />
           </SelectField>
@@ -747,8 +757,8 @@ export function ComposerDialog({
       ) : null}
 
       <Field label="Tiêu đề" hint="Không bắt buộc.">
-        <input
-          className={styles.input}
+        <Input
+          className={CONTROL_CLASS}
           value={title}
           maxLength={SOCIAL_POST_TITLE_MAX}
           placeholder="Nhập tiêu đề bài viết"
@@ -790,62 +800,56 @@ export function ComposerDialog({
       <div className={styles.checkRow}>
         {canAnnounce && !editing ? (
           <>
-            <label className={styles.check}>
-              <input
-                type="checkbox"
+            <Label className="cursor-pointer">
+              <Checkbox
                 checked={mentionsAll}
-                onChange={(event) => setMentionsAll(event.target.checked)}
+                onCheckedChange={(checked) => setMentionsAll(checked)}
               />
               <span>Nhắc tất cả mọi người (@all)</span>
-            </label>
-            <label className={styles.check}>
-              <input
-                type="checkbox"
+            </Label>
+            <Label className="cursor-pointer">
+              <Checkbox
                 checked={pinned}
-                onChange={(event) => setPinned(event.target.checked)}
+                onCheckedChange={(checked) => setPinned(checked)}
               />
               <span>Ghim lên đầu bảng tin</span>
-            </label>
+            </Label>
           </>
         ) : null}
         {companyOnly ? (
-          <label className={styles.check}>
-            <input
-              type="checkbox"
+          <Label className="cursor-pointer">
+            <Checkbox
               checked={requireRead}
               disabled={lockedRead}
-              onChange={(event) => setRequireRead(event.target.checked)}
+              onCheckedChange={(checked) => setRequireRead(checked)}
             />
             <span>
               Yêu cầu xác nhận đã đọc
               {lockedRead ? ' (đã có người xác nhận)' : ''}
             </span>
-          </label>
+          </Label>
         ) : null}
         {!editing || editingPoll ? (
-          <label className={styles.check}>
-            <input
-              type="checkbox"
+          <Label className="cursor-pointer">
+            <Checkbox
               checked={pollOn}
               disabled={Boolean(editingPoll)}
-              onChange={(event) => setPollOn(event.target.checked)}
+              onCheckedChange={(checked) => setPollOn(checked)}
             />
             <span>Thêm bình chọn</span>
-          </label>
+          </Label>
         ) : null}
         {canSchedule ? (
-          <label className={styles.check}>
-            <input
-              type="checkbox"
+          <Label className="cursor-pointer">
+            <Checkbox
               checked={scheduleOn}
-              onChange={(event) => {
-                setScheduleOn(event.target.checked);
-                if (event.target.checked && !scheduleTime)
-                  setScheduleTime('08:00');
+              onCheckedChange={(checked) => {
+                setScheduleOn(checked);
+                if (checked && !scheduleTime) setScheduleTime('08:00');
               }}
             />
             <span>Hẹn giờ đăng</span>
-          </label>
+          </Label>
         ) : null}
       </div>
 
@@ -867,7 +871,7 @@ export function ComposerDialog({
               <DatePickerInput
                 value={scheduleDate}
                 min={vnToday()}
-                height={38}
+                height={CONTROL_HEIGHT}
                 aria-label="Ngày đăng"
                 onChange={setScheduleDate}
               />
@@ -983,14 +987,15 @@ export function ComposerDialog({
           accept={COMPOSER_FILE_ACCEPT}
           onChange={(event) => addFiles(event.target.files)}
         />
-        <button
+        <Button
           type="button"
-          className={`${styles.buttonGhost} ${styles.attachButton}`}
+          variant="outline"
+          className={`${CONTROL_CLASS} self-start`}
           disabled={activeUploads >= SOCIAL_MAX_ATTACHMENTS_PER_POST}
           onClick={() => fileInput.current?.click()}
         >
-          <Paperclip size={15} /> Thêm ảnh, video hoặc tệp
-        </button>
+          <Paperclip className="size-4" aria-hidden="true" /> Thêm ảnh, video hoặc tệp
+        </Button>
       </div>
     </Dialog>
     <ConfirmDialog
@@ -1049,17 +1054,18 @@ function VisibilityControl({
     </>
   );
   return interactive ? (
-    <button
+    <Button
       type="button"
-      className={extras.audienceButton}
+      variant="outline"
+      className="h-9 rounded-md px-3 text-[13px] font-semibold"
       aria-haspopup="dialog"
       title="Tùy chỉnh quyền xem"
       onClick={onOpen}
     >
       {content}
-    </button>
+    </Button>
   ) : (
-    <span className={extras.audienceButton} data-static="true">
+    <span className="inline-flex h-9 items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-3 text-[13px] font-semibold text-slate-700">
       {content}
     </span>
   );

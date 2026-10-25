@@ -8,6 +8,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { initials } from '../social.model';
 import styles from '../social.module.scss';
+import { Button } from '../ui/button';
 
 /** Biểu tượng cho từng loại phản ứng (không dùng emoji). */
 export const REACTION_ICONS: Readonly<Record<SocialReactionType, LucideIcon>> = {
@@ -64,6 +65,9 @@ export interface DialogProps {
 }
 
 /** Hộp thoại dựng qua portal vào `document.body`; Esc và bấm ra ngoài để đóng. */
+/** Nút ở chân hộp thoại: cùng cao 38px với ô nhập trong hộp. */
+const DIALOG_BUTTON = 'h-[38px] rounded-md px-4 text-[13.5px]! font-semibold';
+
 export function Dialog({
   open,
   title,
@@ -110,9 +114,9 @@ export function Dialog({
       >
         <header className={styles.dialogHead}>
           <h3>{title}</h3>
-          <button type="button" className={styles.iconButton} aria-label="Đóng" onClick={onClose}>
-            <X size={15} />
-          </button>
+          <Button type="button" variant="ghost" size="icon-sm" aria-label="Đóng" onClick={onClose}>
+            <X className="size-4" aria-hidden="true" />
+          </Button>
         </header>
         <form
           className={styles.dialogForm}
@@ -130,17 +134,17 @@ export function Dialog({
             ) : null}
           </div>
           <footer className={styles.dialogFoot}>
-            <button type="button" className={styles.buttonGhost} onClick={onClose} disabled={submitting}>
+            <Button type="button" variant="outline" className={DIALOG_BUTTON} onClick={onClose} disabled={submitting}>
               {onSubmit ? cancelLabel : 'Đóng'}
-            </button>
+            </Button>
             {onSubmit ? (
-              <button
+              <Button
                 type="submit"
-                className={danger ? styles.buttonDanger : styles.buttonPrimary}
+                className={danger ? `${DIALOG_BUTTON} bg-red-600 text-white hover:bg-red-700` : DIALOG_BUTTON}
                 disabled={submitting || submitDisabled}
               >
                 {submitting ? submittingLabel : submitLabel}
-              </button>
+              </Button>
             ) : null}
           </footer>
         </form>

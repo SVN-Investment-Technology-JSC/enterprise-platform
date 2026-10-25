@@ -23,6 +23,10 @@
   // làm tròn về 1px trên màn hình thường, còn vòng bóng thì hiện được ở mọi mật độ điểm ảnh.
   --social-card-ring: 0 0 0 0.5px var(--ep-border);
   --social-max: 1400px;
+  // Bo góc nhỏ hơn khung chung một bậc (12 → 10, 10 → 8, 14 → 12) cho mọi thẻ trong phân hệ.
+  --ep-radius-md: 8px;
+  --ep-radius-lg: 10px;
+  --ep-radius-xl: 12px;
 
   // Lề của vùng nội dung ở chế độ gọn của ModuleShell (`.body`: 6px 16px), để thanh trên tràn hết bề ngang.
   --social-shell-pad-x: 16px;
@@ -398,10 +402,17 @@
   min-width: 0;
   max-height: calc(100vh - var(--social-bar-h) - 2 * var(--social-gap));
   overflow-y: auto;
-  scrollbar-width: none;
+  // Cột cao hơn màn hình thì cuộn dọc riêng, thanh cuộn mảnh.
+  scrollbar-width: thin;
+  scrollbar-color: var(--ep-border-strong) transparent;
 
   &::-webkit-scrollbar {
-    display: none;
+    width: 5px;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    border-radius: 3px;
+    background: var(--ep-border-strong);
   }
 
   @media (width <= 1100px) {
@@ -413,6 +424,12 @@
 
 .rail {
   grid-area: right;
+}
+
+/* Cột là flex dọc có giới hạn chiều cao: thẻ không được co lại (bị cắt) khi cột đầy, cột cuộn dọc thay vào đó. */
+.rail > *,
+.leftRail > * {
+  flex-shrink: 0;
 }
 
 .leftRail {
@@ -605,7 +622,7 @@
 
 .noticeList {
   margin: 0;
-  padding: 0 12px;
+  padding: 0 12px 4px;
   list-style: none;
   border-top: 1px solid var(--ep-border);
 
@@ -618,7 +635,18 @@
   display: flex;
   align-items: flex-start;
   gap: 10px;
-  padding: 10px 0;
+  padding: 10px 0 12px;
+}
+
+.noticeAuthor {
+  display: inline-flex;
+  flex: none;
+  border-radius: 50%;
+  line-height: 0;
+
+  &:focus-visible {
+    @include focus-ring;
+  }
 }
 
 .noticeText {
@@ -725,24 +753,30 @@
   background: var(--ep-surface);
 }
 
+/* Tiêu đề thẻ cùng kiểu với "Thông báo công ty": biểu tượng và chữ màu liên kết, đường kẻ mảnh bên dưới. */
+.panelSaved {
+  --panel-head-color: var(--ep-link);
+}
+
+.panelTopics {
+  --panel-head-color: #e5383b;
+}
+
 .panelHead {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 7px 10px 6px;
+  min-height: 44px;
+  padding: 0 12px;
   border-bottom: 1px solid var(--ep-border);
-  /* Nền xám trung tính (cùng màu hover của GooeyNav) để tiêu đề ô tách khỏi nội dung; bo góc trên khớp khung ô. */
-  border-radius: calc(var(--ep-radius-lg) - 1px) calc(var(--ep-radius-lg) - 1px) 0 0;
-  background: rgb(24 24 27 / 6%);
+  // Xanh ngọc đậm: tách khỏi màu xanh dương của "Thông báo công ty", đủ tương phản trên nền sáng.
+  color: var(--panel-head-color, #0f766e);
 
   h2 {
     flex: 1;
     margin: 0;
-    color: var(--ep-text-sub);
-    font-size: 12px;
-    font-weight: 700;
-    letter-spacing: 0.4px;
-    text-transform: uppercase;
+    font-size: 15px;
+    font-weight: 600;
   }
 }
 
@@ -834,6 +868,76 @@
 
   flex: 1;
   min-width: 0;
+}
+
+/* "Nhóm của bạn": mỗi nhóm một dòng cao, ảnh nhóm bên trái; bên phải tên, số thành viên và ảnh vài thành viên. */
+.groupCards {
+  margin: 0;
+  padding: 0 12px 4px;
+  list-style: none;
+
+  li + li {
+    border-top: 1px solid var(--ep-line);
+  }
+}
+
+.groupCard {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0 10px;
+}
+
+.groupCardLink {
+  display: flex;
+  flex: none;
+  border-radius: 50%;
+  line-height: 0;
+
+  // Cả hàng là vùng bấm để mở nhóm; ảnh thành viên nổi lên trên để còn rê chuột được.
+  &::after {
+    position: absolute;
+    inset: 0;
+    content: '';
+  }
+
+  &:focus-visible {
+    @include focus-ring;
+  }
+}
+
+.groupCardBody {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.groupCardName {
+  @include ellipsis;
+
+  color: var(--ep-text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.groupCardMeta {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--ep-text-muted);
+  font-size: 11.5px;
+}
+
+.groupCardMembers {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  align-self: flex-start;
+  margin-top: 3px;
 }
 
 .groupCount,

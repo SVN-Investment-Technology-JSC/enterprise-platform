@@ -34,6 +34,7 @@ import {
   updatePost,
 } from '../social-api';
 import { applyReactionSummary } from '../post-reaction';
+import { emitReactionChanged } from '../reaction-events';
 import {
   formatBytes,
   formatFullTime,
@@ -333,6 +334,7 @@ export function PostCard({
       try {
         const summary = await setReaction(post.id, type);
         onChange(applyReactionSummary(post, summary));
+        emitReactionChanged(post.id);
       } catch (cause) {
         onError(errorMessage(cause, 'Không gửi được phản ứng.'));
       }

@@ -28,9 +28,9 @@
   --ep-success: #047857;
   --ep-radius-sm: 6px;
   --ep-radius: 8px;
-  --ep-radius-md: 10px;
-  --ep-radius-lg: 12px;
-  --ep-radius-xl: 14px;
+  --ep-radius-md: 8px;
+  --ep-radius-lg: 10px;
+  --ep-radius-xl: 12px;
   --ep-shadow-dialog: 0 32px 80px rgb(0 0 0 / 35%);
   --ep-font: -apple-system, blinkmacsystemfont, 'Segoe UI', 'Helvetica Neue', arial, sans-serif;
 }
@@ -258,6 +258,11 @@
 .badgePinned {
   background: #fef3c7;
   color: #a16207;
+}
+
+/* Thẻ nổi dựng qua portal vào `document.body` không thừa hưởng biến `--ep-*` (ví dụ nền vàng của `.avatar`): khai lại. */
+.portalScope {
+  @include ep-tokens;
 }
 
 .avatar {
@@ -1544,10 +1549,10 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 36px;
+  height: 38px;
   padding: 0 10px;
   border: 1px solid var(--ep-border-strong);
-  border-radius: var(--ep-radius);
+  border-radius: 6px;
   background: var(--ep-surface-soft);
   color: var(--ep-text-muted);
 

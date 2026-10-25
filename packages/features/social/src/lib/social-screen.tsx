@@ -341,6 +341,7 @@ export function SocialScreen() {
                   me={me}
                   tabs={tabs}
                   activeTab={tabForRoute(route)}
+                  refreshKey={boardKey}
                   topicFilter={
                     route.name === 'feed' || route.name === 'wall'
                       ? {
