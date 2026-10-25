@@ -131,6 +131,12 @@ chờ sau video bài đăng dài (tối đa 10 phút, 1080p). Loại sự kiện
   `0008-social-post-media-layout.sql`); thứ tự của mảng `attachmentIds` khi đăng hoặc sửa là thứ tự hiển thị. Sửa bài gửi lại
   `mediaLayout` hoặc `attachmentIds` với thứ tự khác là đổi bố cục hoặc thứ tự (tính là sửa bài, không tạo bản lịch sử).
 - Bấm vào ảnh hoặc video trong bố cục `grid`, `featured` mở trình xem toàn màn hình cho cả ảnh lẫn video (phím trái, phải, Esc).
+- Bài chỉ có đúng một ảnh (mọi bố cục) hiển thị theo tỉ lệ thật, không cắt: khung có tỉ lệ của ảnh kẹp trong khoảng 4:5 đến
+  1.91:1 (ảnh ngoài khoảng đó hiện nguyên ảnh trên nền trung tính), cao tối đa khoảng 640 px. Tỉ lệ biết trước nhờ trình
+  duyệt đọc kích thước ảnh trước khi tải lên và gửi kèm `width`, `height` ở bước `complete`; server kiểm hợp lệ (số nguyên dương
+  không quá `SOCIAL_IMAGE_MAX_DIMENSION`) rồi lưu vào `social_schema.attachments.width/height` một lần, giá trị sai bị bỏ qua và
+  lỗi ghi không làm hỏng việc tải lên. Ảnh cũ chưa có kích thước hiển thị theo tỉ lệ tự nhiên (cao tối đa 560 px), có thể
+  nhích bố cục lúc ảnh tải xong. Bài nhiều mục vẫn dùng ô cắt đều (bấm để xem nguyên ảnh).
 
 ## 6. Dọn tệp
 
